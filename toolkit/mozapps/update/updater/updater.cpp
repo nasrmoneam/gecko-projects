@@ -391,9 +391,21 @@ EnvHasValue(const char *name)
 static NS_tchar*
 get_full_path(const NS_tchar *relpath)
 {
-  NS_tchar *fullPath = (NS_tchar *)malloc((MAX_PATH + 1) * sizeof(NS_tchar));
-  GetFullPathName(relpath, MAX_PATH, fullPath, nullptr);
-  return fullPath;
+  size_t lendestpath = NS_tstrlen(gDestPath);
+  size_t lenrelpath = NS_tstrlen(relpath);
+  NS_tchar *s = (NS_tchar *) malloc((lendestpath + lenrelpath + 1) * sizeof(NS_tchar));
+  if (!s)
+    return nullptr;
+
+  NS_tchar *c = s;
+
+  NS_tstrcpy(c, gDestPath);
+  c += lendestpath;
+  NS_tstrcat(c, relpath);
+  c += lenrelpath;
+  *c = NS_T('\0');
+  c++;
+  return s;
 }
 #endif
 
@@ -2445,11 +2457,7 @@ UpdateThreadFunc(void *param)
 #else
                      NS_T("%s/update-settings.ini"),
 #endif
-#ifdef XP_WIN
-                     gInstallDirPath);
-#else
                      gWorkingDirPath);
-#endif
         MARChannelStringTable MARStrings;
         if (ReadMARChannelIDs(updateSettingsPath, &MARStrings) != OK) {
           // If we can't read from update-settings.ini then we shouldn't impose
@@ -2828,22 +2836,24 @@ int NS_main(int argc, NS_tchar **argv)
   LOG(("WORKING DIRECTORY " LOG_S, gWorkingDirPath));
 
 #if defined(XP_WIN)
-  NS_tchar workingDirParent[MAX_PATH];
-  NS_tsnprintf(workingDirParent, sizeof(workingDirParent) / sizeof(workingDirParent[0]),
-    NS_T("%s"), gWorkingDirPath);
-  if (!PathRemoveFileSpecW(workingDirParent)) {
-    WriteStatusFile(REMOVE_FILE_SPEC_ERROR);
-    LOG(("Error calling PathRemoveFileSpecW: %d", GetLastError()));
-    LogFinish();
-    return 1;
-  }
+  if (sReplaceRequest || sStagedUpdate) {
+    NS_tchar stagedParent[MAX_PATH];
+    NS_tsnprintf(stagedParent, sizeof(stagedParent)/sizeof(stagedParent[0]),
+                 NS_T("%s"), gWorkingDirPath);
+    if (!PathRemoveFileSpecW(stagedParent)) {
+      WriteStatusFile(REMOVE_FILE_SPEC_ERROR);
+      LOG(("Error calling PathRemoveFileSpecW: %d", GetLastError()));
+      LogFinish();
+      return 1;
+    }
 
-  if (_wcsnicmp(workingDirParent, gInstallDirPath, MAX_PATH) != 0) {
-    WriteStatusFile(INVALID_STAGED_PARENT_ERROR);
-    LOG(("The working directory must be a sub-directory "
-         "of the installation directory! Exiting"));
-    LogFinish();
-    return 1;
+    if (_wcsnicmp(stagedParent, gInstallDirPath, MAX_PATH) != 0) {
+      WriteStatusFile(INVALID_STAGED_PARENT_ERROR);
+      LOG(("Stage and Replace requests require that the working directory " \
+           "is a sub-directory of the installation directory! Exiting"));
+      LogFinish();
+      return 1;
+    }
   }
 #endif
 
@@ -3358,7 +3368,7 @@ int NS_main(int argc, NS_tchar **argv)
 
     // Doing this is only necessary when we're actually applying a patch.
     if (!sReplaceRequest) {
-      int len = NS_tstrlen(gInstallDirPath);
+      int len = NS_tstrlen(applyDirLongPath);
       NS_tchar *s = callbackLongPath;
       NS_tchar *d = gCallbackRelPath;
       // advance to the apply to directory and advance past the trailing backslash
@@ -4118,15 +4128,6 @@ int DoUpdate()
     return READ_ERROR;
   }
 
-#ifdef XP_WIN
-  NS_tchar oldcwd[MAX_PATH];
-  _wgetcwd(oldcwd, MAX_PATH);
-  if (sStagedUpdate) {
-    NS_tchdir(gDestPath);
-  } else {
-    NS_tchdir(gInstallDirPath);
-  }
-#endif
 
   ActionList list;
   NS_tchar *line;
@@ -4215,11 +4216,7 @@ int DoUpdate()
     return rv;
 
   rv = list.Execute();
+
   list.Finish(rv);
-
-#ifdef XP_WIN
-  NS_tchdir(oldcwd);
-#endif
-
   return rv;
 }

@@ -813,9 +813,6 @@ ApplyUpdate(nsIFile *greDir, nsIFile *updateDir, nsIFile *statusFile,
   nsCOMPtr<nsIFile> updatedDir;
   if (restart && !isOSUpdate) {
     applyToDir.Assign(installDirPath);
-#ifdef XP_WIN
-    applyToDir.Append("\\workdir");
-#endif
   } else {
 #ifdef XP_MACOSX
     if (!GetFile(updateDir, NS_LITERAL_CSTRING("Updated.app"), updatedDir)) {
