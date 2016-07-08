@@ -80,6 +80,7 @@
 #include "PermissionMessageUtils.h"
 #include "StructuredCloneData.h"
 #include "ColorPickerParent.h"
+#include "DatePickerParent.h"
 #include "FilePickerParent.h"
 #include "TabChild.h"
 #include "LoadContext.h"
@@ -338,6 +339,27 @@ void
 TabParent::CacheFrameLoader(nsFrameLoader* aFrameLoader)
 {
   mFrameLoader = aFrameLoader;
+}
+
+/**
+ * Will return nullptr if there is no outer window available for the
+ * document hosting the owner element of this TabParent. Also will return
+ * nullptr if that outer window is in the process of closing.
+ */
+already_AddRefed<nsPIDOMWindowOuter>
+TabParent::GetParentWindowOuter()
+{
+  nsCOMPtr<nsIContent> frame = do_QueryInterface(GetOwnerElement());
+  if (!frame) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsPIDOMWindowOuter> parent = frame->OwnerDoc()->GetWindow();
+  if (!parent || parent->Closed()) {
+    return nullptr;
+  }
+
+  return parent.forget();
 }
 
 void
@@ -1845,7 +1867,7 @@ TabParent::RecvNotifyIMEFocus(const ContentCache& aContentCache,
     return true;
   }
 
-  mContentCache.AssignContent(aContentCache, &aIMENotification);
+  mContentCache.AssignContent(aContentCache, widget, &aIMENotification);
   IMEStateManager::NotifyIME(aIMENotification, widget, true);
 
   if (aIMENotification.mMessage == NOTIFY_IME_OF_FOCUS) {
@@ -1866,12 +1888,9 @@ TabParent::RecvNotifyIMETextChange(const ContentCache& aContentCache,
   nsIMEUpdatePreference updatePreference = widget->GetIMEUpdatePreference();
   NS_ASSERTION(updatePreference.WantTextChange(),
                "Don't call Send/RecvNotifyIMETextChange without NOTIFY_TEXT_CHANGE");
-  MOZ_ASSERT(!aIMENotification.mTextChangeData.mCausedOnlyByComposition ||
-               updatePreference.WantChangesCausedByComposition(),
-    "The widget doesn't want text change notification caused by composition");
 #endif
 
-  mContentCache.AssignContent(aContentCache, &aIMENotification);
+  mContentCache.AssignContent(aContentCache, widget, &aIMENotification);
   mContentCache.MaybeNotifyIME(widget, aIMENotification);
   return true;
 }
@@ -1886,7 +1905,7 @@ TabParent::RecvNotifyIMECompositionUpdate(
     return true;
   }
 
-  mContentCache.AssignContent(aContentCache, &aIMENotification);
+  mContentCache.AssignContent(aContentCache, widget, &aIMENotification);
   mContentCache.MaybeNotifyIME(widget, aIMENotification);
   return true;
 }
@@ -1899,7 +1918,7 @@ TabParent::RecvNotifyIMESelection(const ContentCache& aContentCache,
   if (!widget)
     return true;
 
-  mContentCache.AssignContent(aContentCache, &aIMENotification);
+  mContentCache.AssignContent(aContentCache, widget, &aIMENotification);
   mContentCache.MaybeNotifyIME(widget, aIMENotification);
   return true;
 }
@@ -1912,7 +1931,7 @@ TabParent::RecvUpdateContentCache(const ContentCache& aContentCache)
     return true;
   }
 
-  mContentCache.AssignContent(aContentCache);
+  mContentCache.AssignContent(aContentCache, widget);
   return true;
 }
 
@@ -1941,7 +1960,7 @@ TabParent::RecvNotifyIMEPositionChange(const ContentCache& aContentCache,
     return true;
   }
 
-  mContentCache.AssignContent(aContentCache, &aIMENotification);
+  mContentCache.AssignContent(aContentCache, widget, &aIMENotification);
   mContentCache.MaybeNotifyIME(widget, aIMENotification);
   return true;
 }
@@ -2561,6 +2580,20 @@ TabParent::AllocPColorPickerParent(const nsString& aTitle,
 
 bool
 TabParent::DeallocPColorPickerParent(PColorPickerParent* actor)
+{
+  delete actor;
+  return true;
+}
+
+PDatePickerParent*
+TabParent::AllocPDatePickerParent(const nsString& aTitle,
+                                  const nsString& aInitialDate)
+{
+  return new DatePickerParent(aTitle, aInitialDate);
+}
+
+bool
+TabParent::DeallocPDatePickerParent(PDatePickerParent* actor)
 {
   delete actor;
   return true;
@@ -3231,7 +3264,7 @@ TabParent::RecvAsyncAuthPrompt(const nsCString& aUri,
 bool
 TabParent::RecvInvokeDragSession(nsTArray<IPCDataTransfer>&& aTransfers,
                                  const uint32_t& aAction,
-                                 const nsCString& aVisualDnDData,
+                                 const OptionalShmem& aVisualDnDData,
                                  const uint32_t& aWidth, const uint32_t& aHeight,
                                  const uint32_t& aStride, const uint8_t& aFormat,
                                  const int32_t& aDragAreaX, const int32_t& aDragAreaY)
@@ -3258,20 +3291,25 @@ TabParent::RecvInvokeDragSession(nsTArray<IPCDataTransfer>&& aTransfers,
     }
   }
 
-  if (aVisualDnDData.IsEmpty() ||
-      (aVisualDnDData.Length() < aHeight * aStride)) {
+  if (aVisualDnDData.type() == OptionalShmem::Tvoid_t ||
+      !aVisualDnDData.get_Shmem().IsReadable() ||
+      aVisualDnDData.get_Shmem().Size<char>() < aHeight * aStride) {
     mDnDVisualization = nullptr;
   } else {
     mDnDVisualization =
         gfx::CreateDataSourceSurfaceFromData(gfx::IntSize(aWidth, aHeight),
                                              static_cast<gfx::SurfaceFormat>(aFormat),
-                                             reinterpret_cast<const uint8_t*>(aVisualDnDData.BeginReading()),
+                                             aVisualDnDData.get_Shmem().get<uint8_t>(),
                                              aStride);
   }
   mDragAreaX = aDragAreaX;
   mDragAreaY = aDragAreaY;
 
   esm->BeginTrackingRemoteDragGesture(mFrameElement);
+
+  if (aVisualDnDData.type() == OptionalShmem::TShmem) {
+    Unused << DeallocShmem(aVisualDnDData);
+  }
 
   return true;
 }
@@ -3295,7 +3333,7 @@ TabParent::AddInitialDnDDataTo(DataTransfer* aDataTransfer)
         auto* parent = static_cast<BlobParent*>(item.data().get_PBlobParent());
         RefPtr<BlobImpl> impl = parent->GetBlobImpl();
         variant->SetAsISupports(impl);
-      } else if (item.data().type() == IPCDataTransferData::TnsCString) {
+      } else if (item.data().type() == IPCDataTransferData::TShmem) {
         if (nsContentUtils::IsFlavorImage(item.flavor())) {
           // An image! Get the imgIContainer for it and set it in the variant.
           nsCOMPtr<imgIContainer> imageContainer;
@@ -3307,15 +3345,23 @@ TabParent::AddInitialDnDDataTo(DataTransfer* aDataTransfer)
           }
           variant->SetAsISupports(imageContainer);
         } else {
-          variant->SetAsACString(item.data().get_nsCString());
+          Shmem data = item.data().get_Shmem();
+          variant->SetAsACString(nsDependentCString(data.get<char>(), data.Size<char>()));
         }
+
+        mozilla::Unused << DeallocShmem(item.data().get_Shmem());
       }
 
       // Using system principal here, since once the data is on parent process
       // side, it can be handled as being from browser chrome or OS.
+
+      // We set aHidden to false, as we don't need to worry about hiding data
+      // from content in the parent process where there is no content.
+      // XXX: Nested Content Processes may change this
       aDataTransfer->SetDataWithPrincipalFromOtherProcess(NS_ConvertUTF8toUTF16(item.flavor()),
                                                           variant, i,
-                                                          nsContentUtils::GetSystemPrincipal());
+                                                          nsContentUtils::GetSystemPrincipal(),
+                                                          /* aHidden = */ false);
     }
   }
   mInitialDataTransferItems.Clear();

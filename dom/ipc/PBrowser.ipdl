@@ -9,6 +9,7 @@ include protocol PBlob;
 include protocol PColorPicker;
 include protocol PContent;
 include protocol PContentBridge;
+include protocol PDatePicker;
 include protocol PDocAccessible;
 include protocol PDocumentRenderer;
 include protocol PFilePicker;
@@ -100,11 +101,18 @@ struct ShowInfo
   double defaultScale;
 };
 
+union OptionalShmem
+{
+  void_t;
+  Shmem;
+};
+
 prio(normal upto urgent) sync protocol PBrowser
 {
     manager PContent or PContentBridge;
 
     manages PColorPicker;
+    manages PDatePicker;
     manages PDocAccessible;
     manages PDocumentRenderer;
     manages PFilePicker;
@@ -414,6 +422,12 @@ parent:
      */
     async PColorPicker(nsString title, nsString initialColor);
 
+    /**
+     * Create an asynchronous date picker on the parent side,
+     * but don't open it yet.
+     */
+    async PDatePicker(nsString title, nsString initialDate);
+
     async PFilePicker(nsString aTitle, int16_t aMode);
 
     /**
@@ -548,7 +562,8 @@ parent:
     prio(high) sync DispatchKeyboardEvent(WidgetKeyboardEvent event);
 
     async InvokeDragSession(IPCDataTransfer[] transfers, uint32_t action,
-                            nsCString visualData, uint32_t width, uint32_t height,
+                            OptionalShmem visualData,
+                            uint32_t width, uint32_t height,
                             uint32_t stride, uint8_t format,
                             int32_t dragAreaX, int32_t dragAreaY);
 
@@ -592,6 +607,9 @@ child:
     async Deactivate();
 
     async ParentActivated(bool aActivated);
+
+    async SetKeyboardIndicators(UIStateChangeType showAccelerators,
+                                UIStateChangeType showFocusRings);
 
     /**
      * StopIMEStateManagement() is called when the process loses focus and

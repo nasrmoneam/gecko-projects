@@ -1367,6 +1367,23 @@
         ]]></body>
       </method>
 
+      <method name="setBrowserSharing">
+        <parameter name="aBrowser"/>
+        <parameter name="aSharingState"/>
+        <body><![CDATA[
+          let tab = this.getTabForBrowser(aBrowser);
+          if (!tab)
+            return;
+
+          if (aSharingState)
+            tab.setAttribute("sharing", aSharingState);
+          else
+            tab.removeAttribute("sharing");
+          this._tabAttrModified(tab, ["sharing"]);
+        ]]></body>
+      </method>
+
+
       <method name="setTabTitleLoading">
         <parameter name="aTab"/>
         <body>
@@ -1747,34 +1764,34 @@
         <parameter name="aParams"/>
         <body>
           <![CDATA[
+            // Supported parameters:
+            // userContextId, remote, isPreloadBrowser, uriIsAboutBlank, permanentKey
+
             const NS_XUL = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
-            let remote = aParams && aParams.remote;
-            let uriIsAboutBlank = aParams && aParams.uriIsAboutBlank;
-            let isPreloadBrowser = aParams && aParams.isPreloadBrowser;
-            let userContextId = aParams && aParams.userContextId;
-
             let b = document.createElementNS(NS_XUL, "browser");
-            b.permanentKey = {};
+            b.permanentKey = aParams.permanentKey || {};
             b.setAttribute("type", "content-targetable");
             b.setAttribute("message", "true");
             b.setAttribute("messagemanagergroup", "browsers");
             b.setAttribute("contextmenu", this.getAttribute("contentcontextmenu"));
             b.setAttribute("tooltip", this.getAttribute("contenttooltip"));
 
-            if (userContextId) {
-              b.setAttribute("usercontextid", userContextId);
+            if (aParams.userContextId) {
+              b.setAttribute("usercontextid", aParams.userContextId);
             }
 
-            if (remote)
+            if (aParams.remote) {
               b.setAttribute("remote", "true");
+            }
 
             if (window.gShowPageResizers && window.windowState == window.STATE_NORMAL) {
               b.setAttribute("showresizer", "true");
             }
 
-            if (!isPreloadBrowser && this.hasAttribute("autocompletepopup"))
+            if (!aParams.isPreloadBrowser && this.hasAttribute("autocompletepopup")) {
               b.setAttribute("autocompletepopup", this.getAttribute("autocompletepopup"));
+            }
 
             if (this.hasAttribute("selectmenulist"))
               b.setAttribute("selectmenulist", this.getAttribute("selectmenulist"));
@@ -1809,7 +1826,7 @@
 
             // Prevent the superfluous initial load of a blank document
             // if we're going to load something other than about:blank.
-            if (!uriIsAboutBlank) {
+            if (!aParams.uriIsAboutBlank) {
               b.setAttribute("nodefaultsrc", "true");
             }
 
@@ -1826,23 +1843,15 @@
           <![CDATA[
             "use strict";
 
-            let aReferrerURI          = aParams.referrerURI;
-            let aReferrerPolicy       = aParams.referrerPolicy;
-            let aCharset              = aParams.charset;
-            let aPostData             = aParams.postData;
-            let aAllowThirdPartyFixup = aParams.allowThirdPartyFixup;
-            let aFromExternal         = aParams.fromExternal;
-            let aAllowMixedContent    = aParams.allowMixedContent;
-            let aForceNotRemote       = aParams.forceNotRemote;
-            let aNoReferrer           = aParams.noReferrer;
-            let aUserContextId        = aParams.userContextId;
+            // Supported parameters:
+            // forceNotRemote, userContextId
 
             let uriIsAboutBlank = !aURI || aURI == "about:blank";
 
             // The new browser should be remote if this is an e10s window and
             // the uri to load can be loaded remotely.
             let remote = gMultiProcessBrowser &&
-                         !aForceNotRemote &&
+                         !aParams.forceNotRemote &&
                          E10SUtils.canLoadURIInProcess(aURI, Ci.nsIXULRuntime.PROCESS_TYPE_CONTENT);
 
             let browser;
@@ -1852,17 +1861,22 @@
             // userContext, check if there is a preloaded browser ready.
             // Private windows are not included because both the label and the
             // icon for the tab would be set incorrectly (see bug 1195981).
-            if (aURI == BROWSER_NEW_TAB_URL && !aUserContextId &&
+            if (aURI == BROWSER_NEW_TAB_URL &&
+                !aParams.userContextId &&
                 !PrivateBrowsingUtils.isWindowPrivate(window)) {
               browser = this._getPreloadedBrowser();
-              usingPreloadedContent = !!browser;
+              if (browser) {
+                usingPreloadedContent = true;
+                aTab.permanentKey = browser.permanentKey;
+              }
             }
 
             if (!browser) {
               // No preloaded browser found, create one.
-              browser = this._createBrowser({remote: remote,
+              browser = this._createBrowser({permanentKey: aTab.permanentKey,
+                                             remote: remote,
                                              uriIsAboutBlank: uriIsAboutBlank,
-                                             userContextId: aUserContextId});
+                                             userContextId: aParams.userContextId});
             }
 
             let notificationbox = this.getNotificationBox(browser);
@@ -1967,8 +1981,11 @@
               t.setAttribute("label", aURI);
             }
 
-            if (aUserContextId)
+            if (aUserContextId) {
               t.setAttribute("usercontextid", aUserContextId);
+              ContextualIdentityService.setTabStyle(t);
+            }
+
             t.setAttribute("crop", "end");
             t.setAttribute("onerror", "this.removeAttribute('image');");
             t.className = "tabbrowser-tab";
@@ -2000,22 +2017,10 @@
             var position = this.tabs.length - 1;
             t._tPos = position;
             t.lastAccessed = Date.now();
+            t.permanentKey = {};
             this.tabContainer._setPositionalAttributes();
 
             this.tabContainer.updateVisibility();
-
-            let options = {
-              referrerURI          : aReferrerURI,
-              referrerPolicy       : aReferrerPolicy,
-              charset              : aCharset,
-              postData             : aPostData,
-              allowThirdPartyFixup : aAllowThirdPartyFixup,
-              fromExternal         : aFromExternal,
-              allowMixedContent    : aAllowMixedContent,
-              forceNotRemote       : aForceNotRemote,
-              noReferrer           : aNoReferrer,
-              userContextId        : aUserContextId
-            };
 
             // Currently in this incarnation of bug 906076, we are forcing the
             // browser to immediately be linked.  In future incarnations of this
@@ -2024,7 +2029,11 @@
             // now this must occur before "TabOpen" event is fired, as that will
             // trigger SessionStore.jsm to run code that expects the existence
             // of tab.linkedBrowser.
-            let { usingPreloadedContent } = this._linkBrowserToTab(t, aURI, options);
+            let browserParams = {
+              forceNotRemote: aForceNotRemote,
+              userContextId:  aUserContextId
+            };
+            let { usingPreloadedContent } = this._linkBrowserToTab(t, aURI, browserParams);
             let b = t.linkedBrowser;
 
             // Dispatch a new tab notification.  We do this once we're
@@ -2614,8 +2623,12 @@
               modifiedAttrs.push("soundplaying");
             }
             if (aOtherTab.hasAttribute("usercontextid")) {
-              aOurTab.setAttribute("usercontextid", aOtherTab.getAttribute("usercontextid"));
+              aOurTab.setUserContextId(aOtherTab.getAttribute("usercontextid"));
               modifiedAttrs.push("usercontextid");
+            }
+            if (aOtherTab.hasAttribute("sharing")) {
+              aOurTab.setAttribute("sharing", aOtherTab.getAttribute("sharing"));
+              modifiedAttrs.push("sharing");
             }
 
             // If the other tab is pending (i.e. has not been restored, yet)
@@ -4338,6 +4351,7 @@
             case "Browser:WindowCreated": {
               let tab = this.getTabForBrowser(browser);
               if (tab && data.userContextId) {
+                ContextualIdentityService.telemetry(data.userContextId);
                 tab.setUserContextId(data.userContextId);
               }
 
@@ -4445,6 +4459,7 @@
           var uniqueId = this._generateUniquePanelID();
           this.mPanelContainer.childNodes[0].id = uniqueId;
           this.mCurrentTab.linkedPanel = uniqueId;
+          this.mCurrentTab.permanentKey = this.mCurrentBrowser.permanentKey;
           this.mCurrentTab._tPos = 0;
           this.mCurrentTab._fullyOpen = true;
           this.mCurrentTab.lastAccessed = Infinity;
@@ -5601,10 +5616,6 @@
             return;
           }
 
-          Services.telemetry.getHistogramById(aTab.closing ?
-                                              "FX_TAB_ANIM_CLOSE_MS" :
-                                              "FX_TAB_ANIM_OPEN_MS")
-                            .add(Date.now() - aTab._animStartTime);
           aTab._animStartTime = 0;
 
           // Handle tab animation smoothness telemetry/logging of frame intervals and paint times
@@ -5863,6 +5874,7 @@
           if (!this._dndPanel) {
             this._dndCanvas = canvas;
             this._dndPanel = document.createElement("panel");
+            this._dndPanel.className = "dragfeedback-tab";
             this._dndPanel.setAttribute("type", "drag");
             let wrapper = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
             wrapper.style.width = "160px";
@@ -6207,10 +6219,14 @@
                      class="tab-throbber"
                      role="presentation"
                      layer="true" />
-          <xul:image xbl:inherits="src=image,fadein,pinned,selected,visuallyselected,busy,crashed"
+          <xul:image xbl:inherits="src=image,fadein,pinned,selected,visuallyselected,busy,crashed,sharing"
                      anonid="tab-icon-image"
                      class="tab-icon-image"
                      validate="never"
+                     role="presentation"/>
+          <xul:image xbl:inherits="sharing,selected"
+                     anonid="sharing-icon"
+                     class="tab-sharing-icon-overlay"
                      role="presentation"/>
           <xul:image xbl:inherits="crashed,busy,soundplaying,pinned,muted"
                      anonid="overlay-icon"
@@ -6421,12 +6437,18 @@
         <body>
         <![CDATA[
           if (aUserContextId) {
-            this.linkedBrowser.setAttribute("usercontextid", aUserContextId);
+            if (this.linkedBrowser) {
+              this.linkedBrowser.setAttribute("usercontextid", aUserContextId);
+            }
             this.setAttribute("usercontextid", aUserContextId);
           } else {
-            this.linkedBrowser.removeAttribute("usercontextid");
+            if (this.linkedBrowser) {
+              this.linkedBrowser.removeAttribute("usercontextid");
+            }
             this.removeAttribute("usercontextid");
           }
+
+          ContextualIdentityService.setTabStyle(this);
         ]]>
         </body>
       </method>

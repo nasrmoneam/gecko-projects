@@ -20,7 +20,6 @@
 #include "nsIContentPolicy.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsContentPolicyUtils.h"
-#include "nsCORSListenerProxy.h"
 #include "nsISupportsPriority.h"
 #include "nsICachingChannel.h"
 #include "nsIWebContentHandlerRegistrar.h"
@@ -33,10 +32,14 @@
 #include "mozilla/Telemetry.h"
 #include "BatteryManager.h"
 #include "mozilla/dom/DeviceStorageAreaListener.h"
+#ifdef MOZ_GAMEPAD
+#include "mozilla/dom/GamepadServiceTest.h"
+#endif
 #include "mozilla/dom/PowerManager.h"
 #include "mozilla/dom/WakeLock.h"
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/dom/CellBroadcast.h"
+#include "mozilla/dom/FlyWebPublishedServer.h"
 #include "mozilla/dom/FlyWebService.h"
 #include "mozilla/dom/IccManager.h"
 #include "mozilla/dom/InputPortManager.h"
@@ -74,7 +77,6 @@
 #include "nsIHttpChannelInternal.h"
 #include "TimeManager.h"
 #include "DeviceStorage.h"
-#include "nsIDOMNavigatorSystemMessages.h"
 #include "nsStreamUtils.h"
 #include "nsIAppsService.h"
 #include "mozIApplication.h"
@@ -200,7 +202,6 @@ Navigator::Init()
 
 Navigator::Navigator(nsPIDOMWindowInner* aWindow)
   : mWindow(aWindow)
-  , mBatteryTelemetryReported(false)
 {
   MOZ_ASSERT(aWindow->IsInnerWindow(), "Navigator must get an inner window!");
 }
@@ -256,7 +257,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Navigator)
 #endif
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCameraManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMediaDevices)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMessagesManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTimeManager)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mServiceWorkerContainer)
 
@@ -266,6 +266,9 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Navigator)
 #endif
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDeviceStorageAreaListener)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPresentation)
+#ifdef MOZ_GAMEPAD
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mGamepadServiceTest)
+#endif
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVRGetDevicesPromises)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -304,7 +307,6 @@ Navigator::Invalidate()
   }
 
   mBatteryPromise = nullptr;
-  mBatteryTelemetryReported = false;
 
 #ifdef MOZ_B2G_FM
   if (mFMRadio) {
@@ -369,10 +371,6 @@ Navigator::Invalidate()
   mCameraManager = nullptr;
   mMediaDevices = nullptr;
 
-  if (mMessagesManager) {
-    mMessagesManager = nullptr;
-  }
-
 #ifdef MOZ_AUDIO_CHANNEL_MANAGER
   if (mAudioChannelManager) {
     mAudioChannelManager = nullptr;
@@ -408,6 +406,13 @@ Navigator::Invalidate()
   if (mDeviceStorageAreaListener) {
     mDeviceStorageAreaListener = nullptr;
   }
+
+#ifdef MOZ_GAMEPAD
+  if (mGamepadServiceTest) {
+    mGamepadServiceTest->Shutdown();
+    mGamepadServiceTest = nullptr;
+  }
+#endif
 
   mVRGetDevicesPromises.Clear();
 }
@@ -1605,28 +1610,6 @@ Navigator::GetBattery(ErrorResult& aRv)
   return mBatteryPromise;
 }
 
-battery::BatteryManager*
-Navigator::GetDeprecatedBattery(ErrorResult& aRv)
-{
-  if (!mBatteryManager) {
-    if (!mWindow) {
-      aRv.Throw(NS_ERROR_UNEXPECTED);
-      return nullptr;
-    }
-    NS_ENSURE_TRUE(mWindow->GetDocShell(), nullptr);
-
-    mBatteryManager = new battery::BatteryManager(mWindow);
-    mBatteryManager->Init();
-  }
-
-  nsIDocument* doc = mWindow->GetDoc();
-  if (doc) {
-    doc->WarnOnceAbout(nsIDocument::eNavigatorBattery);
-  }
-
-  return mBatteryManager;
-}
-
 already_AddRefed<Promise>
 Navigator::PublishServer(const nsAString& aName,
                          const FlyWebPublishOptions& aOptions,
@@ -1638,7 +1621,28 @@ Navigator::PublishServer(const nsAString& aName,
     return nullptr;
   }
 
-  return service->PublishServer(aName, aOptions, mWindow, aRv);
+  RefPtr<FlyWebPublishPromise> mozPromise =
+    service->PublishServer(aName, aOptions, mWindow);
+  MOZ_ASSERT(mozPromise);
+
+  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(mWindow);
+  ErrorResult result;
+  RefPtr<Promise> domPromise = Promise::Create(global, result);
+  if (result.Failed()) {
+    aRv.Throw(NS_ERROR_FAILURE);
+    return nullptr;
+  }
+
+  mozPromise->Then(AbstractThread::MainThread(),
+                   __func__,
+                   [domPromise] (FlyWebPublishedServer* aServer) {
+                     domPromise->MaybeResolve(aServer);
+                   },
+                   [domPromise] (nsresult aStatus) {
+                     domPromise->MaybeReject(aStatus);
+                   });
+
+  return domPromise.forget();
 }
 
 already_AddRefed<Promise>
@@ -2023,6 +2027,15 @@ Navigator::GetGamepads(nsTArray<RefPtr<Gamepad> >& aGamepads,
   win->SetHasGamepadEventListener(true);
   win->GetGamepads(aGamepads);
 }
+
+GamepadServiceTest*
+Navigator::RequestGamepadServiceTest()
+{
+  if (!mGamepadServiceTest) {
+    mGamepadServiceTest = GamepadServiceTest::CreateTestService(mWindow);
+  }
+  return mGamepadServiceTest;
+}
 #endif
 
 already_AddRefed<Promise>
@@ -2111,102 +2124,6 @@ Navigator::GetMozBluetooth(ErrorResult& aRv)
   return mBluetooth;
 }
 #endif //MOZ_B2G_BT
-
-nsresult
-Navigator::EnsureMessagesManager()
-{
-  if (mMessagesManager) {
-    return NS_OK;
-  }
-
-  NS_ENSURE_STATE(mWindow);
-
-  nsresult rv;
-  nsCOMPtr<nsIDOMNavigatorSystemMessages> messageManager =
-    do_CreateInstance("@mozilla.org/system-message-manager;1", &rv);
-
-  nsCOMPtr<nsIDOMGlobalPropertyInitializer> gpi =
-    do_QueryInterface(messageManager);
-  NS_ENSURE_TRUE(gpi, NS_ERROR_FAILURE);
-
-  // We don't do anything with the return value.
-  AutoJSContext cx;
-  JS::Rooted<JS::Value> prop_val(cx);
-  rv = gpi->Init(mWindow, &prop_val);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  mMessagesManager = messageManager.forget();
-
-  return NS_OK;
-}
-
-bool
-Navigator::MozHasPendingMessage(const nsAString& aType, ErrorResult& aRv)
-{
-  // The WebIDL binding is responsible for the pref check here.
-  nsresult rv = EnsureMessagesManager();
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
-    return false;
-  }
-
-  bool result = false;
-  rv = mMessagesManager->MozHasPendingMessage(aType, &result);
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
-    return false;
-  }
-  return result;
-}
-
-void
-Navigator::MozSetMessageHandlerPromise(Promise& aPromise,
-                                       ErrorResult& aRv)
-{
-  // The WebIDL binding is responsible for the pref check here.
-  aRv = EnsureMessagesManager();
-  if (NS_WARN_IF(aRv.Failed())) {
-    return;
-  }
-
-  bool result = false;
-  aRv = mMessagesManager->MozIsHandlingMessage(&result);
-  if (NS_WARN_IF(aRv.Failed())) {
-    return;
-  }
-
-  if (!result) {
-    aRv.Throw(NS_ERROR_DOM_INVALID_ACCESS_ERR);
-    return;
-  }
-
-  aRv = mMessagesManager->MozSetMessageHandlerPromise(&aPromise);
-  if (NS_WARN_IF(aRv.Failed())) {
-    return;
-  }
-}
-
-void
-Navigator::MozSetMessageHandler(const nsAString& aType,
-                                systemMessageCallback* aCallback,
-                                ErrorResult& aRv)
-{
-  // The WebIDL binding is responsible for the pref check here.
-  nsresult rv = EnsureMessagesManager();
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
-    return;
-  }
-
-  CallbackObjectHolder<systemMessageCallback, nsIDOMSystemMessageCallback>
-    holder(aCallback);
-  nsCOMPtr<nsIDOMSystemMessageCallback> callback = holder.ToXPCOMCallback();
-
-  rv = mMessagesManager->MozSetMessageHandler(aType, callback);
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
-  }
-}
 
 #ifdef MOZ_TIME_MANAGER
 time::TimeManager*
@@ -2728,18 +2645,6 @@ ToCString(const MediaKeySystemConfiguration& aConfig)
     str.Append(ToCString(aConfig.mVideoCapabilities.Value()));
   }
 
-  if (!aConfig.mAudioType.IsEmpty()) {
-    str.AppendPrintf(", audioType='%s'",
-      NS_ConvertUTF16toUTF8(aConfig.mAudioType).get());
-  }
-  if (!aConfig.mInitDataType.IsEmpty()) {
-    str.AppendPrintf(", initDataType='%s'",
-      NS_ConvertUTF16toUTF8(aConfig.mInitDataType).get());
-  }
-  if (!aConfig.mVideoType.IsEmpty()) {
-    str.AppendPrintf(", videoType='%s'",
-      NS_ConvertUTF16toUTF8(aConfig.mVideoType).get());
-  }
   str.AppendLiteral("}");
 
   return str;

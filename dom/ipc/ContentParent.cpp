@@ -68,6 +68,7 @@
 #include "mozilla/dom/Permissions.h"
 #include "mozilla/dom/PresentationParent.h"
 #include "mozilla/dom/PPresentationParent.h"
+#include "mozilla/dom/FlyWebPublishedServerIPC.h"
 #include "mozilla/dom/quota/QuotaManagerService.h"
 #include "mozilla/dom/telephony/TelephonyParent.h"
 #include "mozilla/dom/time/DateCacheCleaner.h"
@@ -108,7 +109,6 @@
 #include "mozilla/unused.h"
 #include "nsAnonymousTemporaryFile.h"
 #include "nsAppRunner.h"
-#include "nsAutoPtr.h"
 #include "nsCDefaultURIFixup.h"
 #include "nsCExternalHandlerService.h"
 #include "nsCOMPtr.h"
@@ -118,7 +118,6 @@
 #include "nsContentUtils.h"
 #include "nsDebugImpl.h"
 #include "nsFrameMessageManager.h"
-#include "nsGeolocationSettings.h"
 #include "nsHashPropertyBag.h"
 #include "nsIAlertsService.h"
 #include "nsIAppsService.h"
@@ -143,6 +142,7 @@
 #include "nsIMutable.h"
 #include "nsINSSU2FToken.h"
 #include "nsIObserverService.h"
+#include "nsIParentChannel.h"
 #include "nsIPresShell.h"
 #include "nsIRemoteWindowContext.h"
 #include "nsIScriptError.h"
@@ -150,7 +150,6 @@
 #include "nsISiteSecurityService.h"
 #include "nsISpellChecker.h"
 #include "nsISupportsPrimitives.h"
-#include "nsISystemMessagesInternal.h"
 #include "nsITimer.h"
 #include "nsIURIFixup.h"
 #include "nsIDocShellTreeOwner.h"
@@ -262,16 +261,16 @@ using namespace mozilla::system;
 #include "nsIProfileSaveEvent.h"
 #endif
 
-#ifdef MOZ_GAMEPAD
-#include "mozilla/dom/GamepadMonitoring.h"
-#endif
-
 #ifndef MOZ_SIMPLEPUSH
 #include "mozilla/dom/PushNotifier.h"
 #endif
 
 #ifdef XP_WIN
 #include "mozilla/widget/AudioSession.h"
+#endif
+
+#ifdef MOZ_CRASHREPORTER
+#include "nsThread.h"
 #endif
 
 #include "VRManagerParent.h"            // for VRManagerParent
@@ -887,9 +886,7 @@ ContentParent::GetInitialProcessPriority(Element* aFrameElement)
     return PROCESS_PRIORITY_FOREGROUND;
   }
 
-  return browserFrame->GetIsExpectingSystemMessage() ?
-           PROCESS_PRIORITY_FOREGROUND_HIGH :
-           PROCESS_PRIORITY_FOREGROUND;
+  return PROCESS_PRIORITY_FOREGROUND;
 }
 
 #if defined(XP_WIN)
@@ -1357,8 +1354,6 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
     return nullptr;
   }
 
-  parent->AsContentParent()->MaybeTakeCPUWakeLock(aFrameElement);
-
   return TabParent::GetFrom(browser);
 }
 
@@ -1401,15 +1396,8 @@ ContentParent::GetAll(nsTArray<ContentParent*>& aArray)
 {
   aArray.Clear();
 
-  if (!sContentParents) {
-    return;
-  }
-
-  for (ContentParent* cp = sContentParents->getFirst(); cp;
-     cp = cp->LinkedListElement<ContentParent>::getNext()) {
-    if (cp->mIsAlive) {
-      aArray.AppendElement(cp);
-    }
+  for (auto* cp : AllProcesses(eLive)) {
+    aArray.AppendElement(cp);
   }
 }
 
@@ -1418,12 +1406,7 @@ ContentParent::GetAllEvenIfDead(nsTArray<ContentParent*>& aArray)
 {
   aArray.Clear();
 
-  if (!sContentParents) {
-    return;
-  }
-
-  for (ContentParent* cp = sContentParents->getFirst(); cp;
-     cp = cp->LinkedListElement<ContentParent>::getNext()) {
+  for (auto* cp : AllProcesses(eAll)) {
     aArray.AppendElement(cp);
   }
 }
@@ -1497,102 +1480,9 @@ ContentParent::ForwardKnownInfo()
     Unused << SendVolumes(volumeInfo);
   }
 #endif /* MOZ_WIDGET_GONK */
-
-  nsCOMPtr<nsISystemMessagesInternal> systemMessenger =
-    do_GetService("@mozilla.org/system-message-internal;1");
-  if (systemMessenger && !mIsForBrowser) {
-    nsCOMPtr<nsIURI> manifestURI;
-    nsresult rv = NS_NewURI(getter_AddRefs(manifestURI), mAppManifestURL);
-    if (NS_SUCCEEDED(rv)) {
-      systemMessenger->RefreshCache(mMessageManager, manifestURI);
-    }
-  }
 }
 
 namespace {
-
-class SystemMessageHandledListener final
-  : public nsITimerCallback
-  , public LinkedListElement<SystemMessageHandledListener>
-{
-public:
-  NS_DECL_ISUPPORTS
-
-  SystemMessageHandledListener() {}
-
-  static void OnSystemMessageHandled()
-  {
-    if (!sListeners) {
-      return;
-    }
-
-    SystemMessageHandledListener* listener = sListeners->popFirst();
-    if (!listener) {
-      return;
-    }
-
-    // Careful: ShutDown() may delete |this|.
-    listener->ShutDown();
-  }
-
-  void Init(WakeLock* aWakeLock)
-  {
-    MOZ_ASSERT(!mWakeLock);
-    MOZ_ASSERT(!mTimer);
-
-    // mTimer keeps a strong reference to |this|.  When this object's
-    // destructor runs, it will remove itself from the LinkedList.
-
-    if (!sListeners) {
-      sListeners = new LinkedList<SystemMessageHandledListener>();
-      ClearOnShutdown(&sListeners);
-    }
-    sListeners->insertBack(this);
-
-    mWakeLock = aWakeLock;
-
-    mTimer = do_CreateInstance("@mozilla.org/timer;1");
-
-    uint32_t timeoutSec =
-      Preferences::GetInt("dom.ipc.systemMessageCPULockTimeoutSec", 30);
-    mTimer->InitWithCallback(this, timeoutSec * 1000, nsITimer::TYPE_ONE_SHOT);
-  }
-
-  NS_IMETHOD Notify(nsITimer* aTimer) override
-  {
-    // Careful: ShutDown() may delete |this|.
-    ShutDown();
-    return NS_OK;
-  }
-
-private:
-  ~SystemMessageHandledListener() {}
-
-  static StaticAutoPtr<LinkedList<SystemMessageHandledListener> > sListeners;
-
-  void ShutDown()
-  {
-    RefPtr<SystemMessageHandledListener> kungFuDeathGrip = this;
-
-    ErrorResult rv;
-    mWakeLock->Unlock(rv);
-
-    if (mTimer) {
-      mTimer->Cancel();
-      mTimer = nullptr;
-    }
-  }
-
-  RefPtr<WakeLock> mWakeLock;
-  nsCOMPtr<nsITimer> mTimer;
-};
-
-StaticAutoPtr<LinkedList<SystemMessageHandledListener> >
-  SystemMessageHandledListener::sListeners;
-
-NS_IMPL_ISUPPORTS(SystemMessageHandledListener,
-                  nsITimerCallback)
-
 
 class RemoteWindowContext final : public nsIRemoteWindowContext
                                 , public nsIInterfaceRequestor
@@ -1632,30 +1522,6 @@ RemoteWindowContext::OpenURI(nsIURI* aURI)
 }
 
 } // namespace
-
-void
-ContentParent::MaybeTakeCPUWakeLock(Element* aFrameElement)
-{
-  // Take the CPU wake lock on behalf of this processs if it's expecting a
-  // system message.  We'll release the CPU lock once the message is
-  // delivered, or after some period of time, which ever comes first.
-
-  nsCOMPtr<nsIMozBrowserFrame> browserFrame =
-    do_QueryInterface(aFrameElement);
-  if (!browserFrame ||
-    !browserFrame->GetIsExpectingSystemMessage()) {
-    return;
-  }
-
-  RefPtr<PowerManagerService> pms = PowerManagerService::GetInstance();
-  RefPtr<WakeLock> lock =
-    pms->NewWakeLockOnBehalfOfProcess(NS_LITERAL_STRING("cpu"), this);
-
-  // This object's Init() function keeps it alive.
-  RefPtr<SystemMessageHandledListener> listener =
-    new SystemMessageHandledListener();
-  listener->Init(lock);
-}
 
 bool
 ContentParent::SetPriorityAndCheckIsAlive(ProcessPriority aPriority)
@@ -1762,8 +1628,7 @@ ContentParent::ShutDownProcess(ShutDownMethod aMethod)
   }
 
   // If Close() fails with an error, we'll end up back in this function, but
-  // with aMethod = CLOSE_CHANNEL_WITH_ERROR.  It's important that we call
-  // CloseWithError() in this case; see bug 895204.
+  // with aMethod = CLOSE_CHANNEL_WITH_ERROR.
 
   if (aMethod == CLOSE_CHANNEL && !mCalledClose) {
     // Close() can only be called once: It kicks off the destruction
@@ -1777,14 +1642,6 @@ ContentParent::ShutDownProcess(ShutDownMethod aMethod)
       KillHard("ShutDownProcess");
     }
 #endif
-  }
-
-  if (aMethod == CLOSE_CHANNEL_WITH_ERROR && !mCalledCloseWithError) {
-    MessageChannel* channel = GetIPCChannel();
-    if (channel) {
-      mCalledCloseWithError = true;
-      channel->CloseWithError();
-    }
   }
 
   const ManagedContainer<POfflineCacheUpdateParent>& ocuParents =
@@ -2009,6 +1866,13 @@ ContentParent::RecvDeallocateLayerTreeId(const uint64_t& aId)
 
 namespace {
 
+void
+DelayedDeleteSubprocess(GeckoChildProcessHost* aSubprocess)
+{
+  RefPtr<DeleteTask<GeckoChildProcessHost>> task = new DeleteTask<GeckoChildProcessHost>(aSubprocess);
+  XRE_GetIOMessageLoop()->PostTask(task.forget());
+}
+
 // This runnable only exists to delegate ownership of the
 // ContentParent to this runnable, until it's deleted by the event
 // system.
@@ -2140,10 +2004,9 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
   }
   mIdleListeners.Clear();
 
-  if (mSubprocess) {
-    mSubprocess->DissociateActor();
-    mSubprocess = nullptr;
-  }
+  MessageLoop::current()->
+    PostTask(NewRunnableFunction(DelayedDeleteSubprocess, mSubprocess));
+  mSubprocess = nullptr;
 
   // IPDL rules require actors to live on past ActorDestroy, but it
   // may be that the kungFuDeathGrip above is the last reference to
@@ -2315,13 +2178,11 @@ ContentParent::InitializeMembers()
   mMetamorphosed = false;
   mSendPermissionUpdates = false;
   mCalledClose = false;
-  mCalledCloseWithError = false;
   mCalledKillHard = false;
   mCreatedPairedMinidumps = false;
   mShutdownPending = false;
   mIPCOpen = true;
   mHangMonitorActor = nullptr;
-  mHasGamepadListener = false;
 }
 
 bool
@@ -2410,8 +2271,6 @@ ContentParent::ContentParent(mozIApplication* aApp,
     ? base::PRIVILEGES_INHERIT
     : base::PRIVILEGES_DEFAULT;
   mSubprocess = new GeckoChildProcessHost(GeckoProcessType_Content, privs);
-
-  IToplevelProtocol::SetTransport(mSubprocess->GetChannel());
 }
 
 #ifdef MOZ_NUWA_PROCESS
@@ -2616,6 +2475,14 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
 #endif
   MaybeFileDesc brokerFd = void_t();
 #ifdef XP_LINUX
+  // XXX: Checking the pref here makes it possible to enable/disable sandboxing
+  // during an active session. Currently the pref is only used for testing
+  // purpose. If the decision is made to permanently rely on the pref, this
+  // should be changed so that it is required to restart firefox for the change
+  // of value to take effect.
+  shouldSandbox = (Preferences::GetInt("security.sandbox.content.level") > 0) &&
+    !PR_GetEnv("MOZ_DISABLE_CONTENT_SANDBOX");
+
   if (shouldSandbox) {
     MOZ_ASSERT(!mSandboxBroker);
     UniquePtr<SandboxBroker::Policy> policy =
@@ -2786,7 +2653,7 @@ ContentParent::RecvSetClipboard(const IPCDataTransfer& aDataTransfer,
                                   text.Length() * sizeof(char16_t));
 
       NS_ENSURE_SUCCESS(rv, true);
-    } else if (item.data().type() == IPCDataTransferData::TnsCString) {
+    } else if (item.data().type() == IPCDataTransferData::TShmem) {
       if (nsContentUtils::IsFlavorImage(item.flavor())) {
         nsCOMPtr<imgIContainer> imageContainer;
         rv = nsContentUtils::DataTransferItemToImage(item,
@@ -2806,7 +2673,10 @@ ContentParent::RecvSetClipboard(const IPCDataTransfer& aDataTransfer,
           do_CreateInstance(NS_SUPPORTS_CSTRING_CONTRACTID, &rv);
         NS_ENSURE_SUCCESS(rv, true);
 
-        const nsCString& text = item.data().get_nsCString();
+        // The buffer contains the terminating null.
+        Shmem itemData = item.data().get_Shmem();
+        const nsDependentCString text(itemData.get<char>(),
+                                      itemData.Size<char>());
         rv = dataWrapper->SetData(text);
         NS_ENSURE_SUCCESS(rv, true);
 
@@ -2814,6 +2684,8 @@ ContentParent::RecvSetClipboard(const IPCDataTransfer& aDataTransfer,
 
         NS_ENSURE_SUCCESS(rv, true);
       }
+
+      Unused << DeallocShmem(item.data().get_Shmem());
     }
   }
 
@@ -3060,7 +2932,7 @@ ContentParent::OnNewProcessCreated(uint32_t aPid,
   }
 
   // Update offline settings.
-  bool isOffline, isLangRTL;
+  bool isOffline, isLangRTL, haveBidiKeyboards;
   bool isConnected;
   InfallibleTArray<nsString> unusedDictionaries;
   ClipboardCapabilities clipboardCaps;
@@ -3068,7 +2940,8 @@ ContentParent::OnNewProcessCreated(uint32_t aPid,
   StructuredCloneData initialData;
 
   RecvGetXPCOMProcessAttributes(&isOffline, &isConnected,
-                                &isLangRTL, &unusedDictionaries,
+                                &isLangRTL, &haveBidiKeyboards,
+                                &unusedDictionaries,
                                 &clipboardCaps, &domainPolicy, &initialData);
   mozilla::Unused << content->SendSetOffline(isOffline);
   mozilla::Unused << content->SendSetConnectivity(isConnected);
@@ -3334,7 +3207,7 @@ ContentParent::AllocPCompositorBridgeParent(mozilla::ipc::Transport* aTransport,
                                             base::ProcessId aOtherProcess)
 {
   return GPUProcessManager::Get()->CreateTabCompositorBridge(
-    aTransport, aOtherProcess, mSubprocess);
+    aTransport, aOtherProcess);
 }
 
 gfx::PVRManagerParent*
@@ -3348,7 +3221,7 @@ PImageBridgeParent*
 ContentParent::AllocPImageBridgeParent(mozilla::ipc::Transport* aTransport,
                                        base::ProcessId aOtherProcess)
 {
-  return ImageBridgeParent::Create(aTransport, aOtherProcess, mSubprocess);
+  return ImageBridgeParent::Create(aTransport, aOtherProcess);
 }
 
 PBackgroundParent*
@@ -3388,6 +3261,7 @@ bool
 ContentParent::RecvGetXPCOMProcessAttributes(bool* aIsOffline,
                                              bool* aIsConnected,
                                              bool* aIsLangRTL,
+                                             bool* aHaveBidiKeyboards,
                                              InfallibleTArray<nsString>* dictionaries,
                                              ClipboardCapabilities* clipboardCaps,
                                              DomainPolicyClone* domainPolicy,
@@ -3404,8 +3278,10 @@ ContentParent::RecvGetXPCOMProcessAttributes(bool* aIsOffline,
   nsIBidiKeyboard* bidi = nsContentUtils::GetBidiKeyboard();
 
   *aIsLangRTL = false;
+  *aHaveBidiKeyboards = false;
   if (bidi) {
     bidi->IsLangRTL(aIsLangRTL);
+    bidi->GetHaveBidiKeyboards(aHaveBidiKeyboards);
   }
 
   nsCOMPtr<nsISpellChecker> spellChecker(do_GetService(NS_SPELLCHECKER_CONTRACTID));
@@ -4149,6 +4025,23 @@ ContentParent::RecvPPresentationConstructor(PPresentationParent* aActor)
   return static_cast<PresentationParent*>(aActor)->Init();
 }
 
+PFlyWebPublishedServerParent*
+ContentParent::AllocPFlyWebPublishedServerParent(const nsString& name,
+                                                 const FlyWebPublishOptions& params)
+{
+  RefPtr<FlyWebPublishedServerParent> actor =
+    new FlyWebPublishedServerParent(name, params);
+  return actor.forget().take();
+}
+
+bool
+ContentParent::DeallocPFlyWebPublishedServerParent(PFlyWebPublishedServerParent* aActor)
+{
+  RefPtr<FlyWebPublishedServerParent> actor =
+    dont_AddRef(static_cast<FlyWebPublishedServerParent*>(aActor));
+  return true;
+}
+
 PSpeechSynthesisParent*
 ContentParent::AllocPSpeechSynthesisParent()
 {
@@ -4412,6 +4305,32 @@ ContentParent::RecvLoadURIExternal(const URIParams& uri,
 }
 
 bool
+ContentParent::RecvExtProtocolChannelConnectParent(const uint32_t& registrarId)
+{
+  nsresult rv;
+
+  // First get the real channel created before redirect on the parent.
+  nsCOMPtr<nsIChannel> channel;
+  rv = NS_LinkRedirectChannels(registrarId, nullptr, getter_AddRefs(channel));
+  NS_ENSURE_SUCCESS(rv, true);
+
+  nsCOMPtr<nsIParentChannel> parent = do_QueryInterface(channel, &rv);
+  NS_ENSURE_SUCCESS(rv, true);
+
+  // The channel itself is its own (faked) parent, link it.
+  rv = NS_LinkRedirectChannels(registrarId, parent, getter_AddRefs(channel));
+  NS_ENSURE_SUCCESS(rv, true);
+
+  // Signal the parent channel that it's a redirect-to parent.  This will
+  // make AsyncOpen on it do nothing (what we want).
+  // Yes, this is a bit of a hack, but I don't think it's necessary to invent
+  // a new interface just to set this flag on the channel.
+  parent->SetParentListener(nullptr);
+
+  return true;
+}
+
+bool
 ContentParent::HasNotificationPermission(const IPC::Principal& aPrincipal)
 {
 #ifdef MOZ_CHILD_PERMISSIONS
@@ -4570,19 +4489,6 @@ ContentParent::RecvAddGeolocationListener(const IPC::Principal& aPrincipal,
   // creation of a new listener.
   RecvRemoveGeolocationListener();
   mGeolocationWatchID = AddGeolocationListener(this, this, aHighAccuracy);
-
-  // let the the settings cache know the origin of the new listener
-  nsAutoCString origin;
-  // hint to the compiler to use the conversion operator to nsIPrincipal*
-  nsCOMPtr<nsIPrincipal> principal = static_cast<nsIPrincipal*>(aPrincipal);
-  if (!principal) {
-    return true;
-  }
-  principal->GetOrigin(origin);
-  RefPtr<nsGeolocationSettings> gs = nsGeolocationSettings::GetGeolocationSettings();
-  if (gs) {
-    gs->PutWatchOrigin(mGeolocationWatchID, origin);
-  }
   return true;
 }
 
@@ -4595,11 +4501,6 @@ ContentParent::RecvRemoveGeolocationListener()
       return true;
     }
     geo->ClearWatch(mGeolocationWatchID);
-
-    RefPtr<nsGeolocationSettings> gs = nsGeolocationSettings::GetGeolocationSettings();
-    if (gs) {
-      gs->RemoveWatchOrigin(mGeolocationWatchID);
-    }
     mGeolocationWatchID = -1;
   }
   return true;
@@ -4611,21 +4512,8 @@ ContentParent::RecvSetGeolocationHigherAccuracy(const bool& aEnable)
   // This should never be called without a listener already present,
   // so this check allows us to forgo securing privileges.
   if (mGeolocationWatchID != -1) {
-    nsCString origin;
-    RefPtr<nsGeolocationSettings> gs = nsGeolocationSettings::GetGeolocationSettings();
-    // get the origin stored for the curent watch ID
-    if (gs) {
-      gs->GetWatchOrigin(mGeolocationWatchID, origin);
-    }
-
-    // remove and recreate a new, high-accuracy listener
     RecvRemoveGeolocationListener();
     mGeolocationWatchID = AddGeolocationListener(this, this, aEnable);
-
-    // map the new watch ID to the origin
-    if (gs) {
-      gs->PutWatchOrigin(mGeolocationWatchID, origin);
-    }
   }
   return true;
 }
@@ -4797,13 +4685,6 @@ ContentParent::SendPBlobConstructor(PBlobParent* aActor,
                                     const BlobConstructorParams& aParams)
 {
   return PContentParent::SendPBlobConstructor(aActor, aParams);
-}
-
-bool
-ContentParent::RecvSystemMessageHandled()
-{
-  SystemMessageHandledListener::OnSystemMessageHandled();
-  return true;
 }
 
 PBrowserParent*
@@ -5131,17 +5012,14 @@ ContentParent::IgnoreIPCPrincipal()
 void
 ContentParent::NotifyUpdatedDictionaries()
 {
-  AutoTArray<ContentParent*, 8> processes;
-  GetAll(processes);
-
   nsCOMPtr<nsISpellChecker> spellChecker(do_GetService(NS_SPELLCHECKER_CONTRACTID));
   MOZ_ASSERT(spellChecker, "No spell checker?");
 
   InfallibleTArray<nsString> dictionaries;
   spellChecker->GetDictionaryList(&dictionaries);
 
-  for (size_t i = 0; i < processes.Length(); ++i) {
-    Unused << processes[i]->SendUpdateDictionaryList(dictionaries);
+  for (auto* cp : AllProcesses(eLive)) {
+    Unused << cp->SendUpdateDictionaryList(dictionaries);
   }
 }
 
@@ -5649,34 +5527,6 @@ ContentParent::GetBrowserConfiguration(const nsCString& aURI, BrowserConfigurati
 }
 
 bool
-ContentParent::RecvGamepadListenerAdded()
-{
-#ifdef MOZ_GAMEPAD
-  if (mHasGamepadListener) {
-    NS_WARNING("Gamepad listener already started, cannot start again!");
-    return false;
-  }
-  mHasGamepadListener = true;
-  StartGamepadMonitoring();
-#endif
-  return true;
-}
-
-bool
-ContentParent::RecvGamepadListenerRemoved()
-{
-#ifdef MOZ_GAMEPAD
-  if (!mHasGamepadListener) {
-    NS_WARNING("Gamepad listener already stopped, cannot stop again!");
-    return false;
-  }
-  mHasGamepadListener = false;
-  MaybeStopGamepadMonitoring();
-#endif
-  return true;
-}
-
-bool
 ContentParent::RecvProfile(const nsCString& aProfile)
 {
 #ifdef MOZ_ENABLE_PROFILER_SPS
@@ -5865,6 +5715,15 @@ ContentParent::RecvNotifyPushSubscriptionModifiedObservers(const nsCString& aSco
 #ifndef MOZ_SIMPLEPUSH
   PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
+#endif
+  return true;
+}
+
+bool
+ContentParent::RecvNotifyLowMemory()
+{
+#ifdef MOZ_CRASHREPORTER
+  nsThread::SaveMemoryReportNearOOM(nsThread::ShouldSaveMemoryReport::kForceReport);
 #endif
   return true;
 }

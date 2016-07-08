@@ -8,8 +8,7 @@
 
 const {Cc, Ci, Cm, Cu, Cr, components} = require("chrome");
 const Services = require("Services");
-
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+const { XPCOMUtils } = require("resource://gre/modules/XPCOMUtils.jsm");
 
 loader.lazyRequireGetter(this, "NetworkHelper",
                          "devtools/shared/webconsole/network-helper");
@@ -227,13 +226,10 @@ StackTraceCollector.prototype = {
           filename: frame.filename,
           lineNumber: frame.lineNumber,
           columnNumber: frame.columnNumber,
-          functionName: frame.name
+          functionName: frame.name,
+          asyncCause: frame.asyncCause,
         });
-        if (frame.asyncCaller) {
-          frame = frame.asyncCaller;
-        } else {
-          frame = frame.caller;
-        }
+        frame = frame.caller || frame.asyncCaller;
       }
     }
 

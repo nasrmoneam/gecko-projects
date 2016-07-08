@@ -17,6 +17,7 @@ EXPORTS.mozilla.gfx += [
     'BasePoint4D.h',
     'BaseRect.h',
     'BaseSize.h',
+    'BezierUtils.h',
     'Blur.h',
     'BorrowedContext.h',
     'Coord.h',
@@ -32,13 +33,13 @@ EXPORTS.mozilla.gfx += [
     'JobScheduler_posix.h',
     'JobScheduler_win32.h',
     'Logging.h',
+    'LoggingConstants.h',
     'Matrix.h',
     'MatrixFwd.h',
     'NumericTools.h',
     'PathHelpers.h',
     'PatternHelpers.h',
     'Point.h',
-    'Preferences.h',
     'Quaternion.h',
     'RecordedEvent.h',
     'RecordingTypes.h',
@@ -138,6 +139,7 @@ elif CONFIG['CPU_ARCH'].startswith('mips'):
         ]
 
 UNIFIED_SOURCES += [
+    'BezierUtils.cpp',
     'Blur.cpp',
     'DataSourceSurface.cpp',
     'DataSurfaceHelpers.cpp',
@@ -159,7 +161,6 @@ UNIFIED_SOURCES += [
     'PathCairo.cpp',
     'PathHelpers.cpp',
     'PathRecording.cpp',
-    'Preferences.cpp',
     'Quaternion.cpp',
     'RecordedEvent.cpp',
     'Scale.cpp',

@@ -21,7 +21,6 @@
 #include "nsIPipe.h"
 
 #include "nsContentPolicyUtils.h"
-#include "nsCORSListenerProxy.h"
 #include "nsDataHandler.h"
 #include "nsHostObjectProtocolHandler.h"
 #include "nsNetUtil.h"
@@ -83,20 +82,12 @@ FetchDriver::Fetch(FetchDriverObserver* aObserver)
   MOZ_RELEASE_ASSERT(!mRequest->IsSynchronous(),
                      "Synchronous fetch not supported");
 
-  return NS_DispatchToCurrentThread(NewRunnableMethod(this, &FetchDriver::ContinueFetch));
-}
-
-nsresult
-FetchDriver::ContinueFetch()
-{
-  workers::AssertIsOnMainThread();
-
-  nsresult rv = HttpFetch();
-  if (NS_FAILED(rv)) {
+  if (NS_FAILED(HttpFetch())) {
     FailWithNetworkError();
   }
 
-  return rv;
+  // Any failure is handled by FailWithNetworkError notifying the aObserver.
+  return NS_OK;
 }
 
 // This function implements the "HTTP Fetch" algorithm from the Fetch spec.
@@ -261,11 +252,15 @@ FetchDriver::HttpFetch()
     // Step 2. Set the referrer.
     nsAutoString referrer;
     mRequest->GetReferrer(referrer);
+
+    // The Referrer Policy in Request can be used to override a referrer policy
+    // associated with an environment settings object.
+    // If there's no Referrer Policy in the request, it should be inherited
+    // from environment.
     ReferrerPolicy referrerPolicy = mRequest->ReferrerPolicy_();
-    net::ReferrerPolicy net_referrerPolicy = net::RP_Unset;
+    net::ReferrerPolicy net_referrerPolicy = mRequest->GetEnvironmentReferrerPolicy();
     switch (referrerPolicy) {
     case ReferrerPolicy::_empty:
-      net_referrerPolicy = net::RP_Default;
       break;
     case ReferrerPolicy::No_referrer:
       net_referrerPolicy = net::RP_No_Referrer;
@@ -303,12 +298,10 @@ FetchDriver::HttpFetch()
       rv = NS_NewURI(getter_AddRefs(referrerURI), referrer, nullptr, nullptr);
       NS_ENSURE_SUCCESS(rv, rv);
 
-      uint32_t documentReferrerPolicy = mDocument ? mDocument->GetReferrerPolicy() :
-                                                    net::RP_Default;
       rv =
         httpChan->SetReferrerWithPolicy(referrerURI,
                                         referrerPolicy == ReferrerPolicy::_empty ?
-                                          documentReferrerPolicy :
+                                          mRequest->GetEnvironmentReferrerPolicy() :
                                           net_referrerPolicy);
       NS_ENSURE_SUCCESS(rv, rv);
     }

@@ -54,7 +54,7 @@
 using namespace mozilla;
 using namespace mozilla::safebrowsing;
 
-// NSPR_LOG_MODULES=UrlClassifierDbService:5
+// MOZ_LOG=UrlClassifierDbService:5
 LazyLogModule gUrlClassifierDbServiceLog("UrlClassifierDbService");
 #define LOG(args) MOZ_LOG(gUrlClassifierDbServiceLog, mozilla::LogLevel::Debug, args)
 #define LOG_ENABLED() MOZ_LOG_TEST(gUrlClassifierDbServiceLog, mozilla::LogLevel::Debug)
@@ -63,7 +63,7 @@ LazyLogModule gUrlClassifierDbServiceLog("UrlClassifierDbService");
 #define CHECK_MALWARE_PREF      "browser.safebrowsing.malware.enabled"
 #define CHECK_MALWARE_DEFAULT   false
 
-#define CHECK_PHISHING_PREF     "browser.safebrowsing.enabled"
+#define CHECK_PHISHING_PREF     "browser.safebrowsing.phishing.enabled"
 #define CHECK_PHISHING_DEFAULT  false
 
 #define CHECK_TRACKING_PREF     "privacy.trackingprotection.enabled"

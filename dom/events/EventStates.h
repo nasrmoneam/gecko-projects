@@ -262,8 +262,8 @@ private:
 // Content is the full screen element, or a frame containing the
 // current full-screen element.
 #define NS_EVENT_STATE_FULL_SCREEN   NS_DEFINE_EVENT_STATE_MACRO(33)
-// Content is an ancestor of the DOM full-screen element.
-#define NS_EVENT_STATE_FULL_SCREEN_ANCESTOR   NS_DEFINE_EVENT_STATE_MACRO(34)
+// This bit is currently free.
+// #define NS_EVENT_STATE_?????????? NS_DEFINE_EVENT_STATE_MACRO(34)
 // Handler for click to play plugin
 #define NS_EVENT_STATE_TYPE_CLICK_TO_PLAY NS_DEFINE_EVENT_STATE_MACRO(35)
 // Content is in the optimum region.
@@ -286,6 +286,8 @@ private:
 #define NS_EVENT_STATE_DEVTOOLS_HIGHLIGHTED NS_DEFINE_EVENT_STATE_MACRO(45)
 // Element is an unresolved custom element candidate
 #define NS_EVENT_STATE_UNRESOLVED NS_DEFINE_EVENT_STATE_MACRO(46)
+// Element is transitioning for rules changed by style editor
+#define NS_EVENT_STATE_STYLEEDITOR_TRANSITIONING NS_DEFINE_EVENT_STATE_MACRO(47)
 
 // Event state that is used for values that need to be parsed but do nothing.
 #define NS_EVENT_STATE_IGNORE NS_DEFINE_EVENT_STATE_MACRO(63)
@@ -299,10 +301,8 @@ private:
 #define ESM_MANAGED_STATES (NS_EVENT_STATE_ACTIVE | NS_EVENT_STATE_FOCUS |     \
                             NS_EVENT_STATE_HOVER | NS_EVENT_STATE_DRAGOVER |   \
                             NS_EVENT_STATE_URLTARGET | NS_EVENT_STATE_FOCUSRING | \
-                            NS_EVENT_STATE_FULL_SCREEN | NS_EVENT_STATE_FULL_SCREEN_ANCESTOR | \
-                            NS_EVENT_STATE_UNRESOLVED)
+                            NS_EVENT_STATE_FULL_SCREEN | NS_EVENT_STATE_UNRESOLVED)
 
 #define INTRINSIC_STATES (~ESM_MANAGED_STATES)
 
 #endif // mozilla_EventStates_h_
-

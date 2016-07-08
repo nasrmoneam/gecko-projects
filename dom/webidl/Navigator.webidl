@@ -132,11 +132,6 @@ Navigator implements NavigatorGeolocation;
 partial interface Navigator {
   [Throws, Pref="dom.battery.enabled"]
   Promise<BatteryManager> getBattery();
-  // Deprecated. Use getBattery() instead.
-  // XXXbz Per spec this should be non-nullable, but we return null in
-  // torn-down windows.  See bug 884925.
-  [Throws, Pref="dom.battery.enabled", BinaryName="deprecatedBattery"]
-  readonly attribute BatteryManager? battery;
 };
 
 partial interface Navigator {
@@ -302,22 +297,6 @@ partial interface Navigator {
   readonly attribute CameraManager mozCameras;
 };
 
-// nsIDOMNavigatorSystemMessages and sort of maybe
-// http://www.w3.org/2012/sysapps/runtime/#extension-to-the-navigator-interface-1
-callback systemMessageCallback = void (optional object message);
-partial interface Navigator {
-  [Throws, Pref="dom.sysmsg.enabled"]
-  void    mozSetMessageHandler (DOMString type, systemMessageCallback? callback);
-  [Throws, Pref="dom.sysmsg.enabled"]
-  boolean mozHasPendingMessage (DOMString type);
-
-  // This method can be called only from the systeMessageCallback function and
-  // it allows the page to set a promise to keep alive the app until the
-  // current operation is not fully completed.
-  [Throws, Pref="dom.sysmsg.enabled"]
-  void mozSetMessageHandlerPromise (Promise<any> promise);
-};
-
 #ifdef MOZ_B2G_RIL
 partial interface Navigator {
   [Throws, Pref="dom.mobileconnection.enabled", CheckAnyPermissions="mobileconnection mobilenetwork", UnsafeInPrerendering]
@@ -353,6 +332,10 @@ partial interface Navigator {
 partial interface Navigator {
   [Throws, Pref="dom.gamepad.enabled"]
   sequence<Gamepad?> getGamepads();
+};
+partial interface Navigator {
+  [Pref="dom.gamepad.test.enabled"]
+  GamepadServiceTest requestGamepadServiceTest();
 };
 #endif // MOZ_GAMEPAD
 

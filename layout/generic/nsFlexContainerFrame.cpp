@@ -7,6 +7,7 @@
 
 /* rendering object for CSS "display: flex" */
 
+#include "nsAutoPtr.h"
 #include "nsFlexContainerFrame.h"
 #include "nsContentUtils.h"
 #include "nsCSSAnonBoxes.h"
@@ -1026,7 +1027,7 @@ GetFirstNonAnonBoxDescendant(nsIFrame* aFrame)
     // column, we'll always return the column. This is fine; we're really just
     // looking for a handle to *anything* with a meaningful content node inside
     // the table, for use in DOM comparisons to things outside of the table.)
-    if (MOZ_UNLIKELY(aFrame->GetType() == nsGkAtoms::tableOuterFrame)) {
+    if (MOZ_UNLIKELY(aFrame->GetType() == nsGkAtoms::tableWrapperFrame)) {
       nsIFrame* captionDescendant =
         GetFirstNonAnonBoxDescendant(aFrame->GetChildList(kCaptionList).FirstChild());
       if (captionDescendant) {
@@ -4268,8 +4269,7 @@ nsFlexContainerFrame::MoveFlexItemToFinalPosition(
   LogicalMargin logicalOffsets(outerWM);
   if (NS_STYLE_POSITION_RELATIVE == aItem.Frame()->StyleDisplay()->mPosition) {
     FrameProperties props = aItem.Frame()->Properties();
-    nsMargin* cachedOffsets =
-      static_cast<nsMargin*>(props.Get(nsIFrame::ComputedOffsetProperty()));
+    nsMargin* cachedOffsets = props.Get(nsIFrame::ComputedOffsetProperty());
     MOZ_ASSERT(cachedOffsets,
                "relpos previously-reflowed frame should've cached its offsets");
     logicalOffsets = LogicalMargin(outerWM, *cachedOffsets);

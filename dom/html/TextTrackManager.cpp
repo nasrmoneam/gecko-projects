@@ -145,7 +145,7 @@ TextTrackManager::AddTextTrack(TextTrackKind aKind, const nsAString& aLabel,
   AddCues(ttrack);
 
   if (aTextTrackSource == Track) {
-    HonorUserPreferencesForTrackSelection();
+    NS_DispatchToMainThread(NewRunnableMethod(this, &TextTrackManager::HonorUserPreferencesForTrackSelection));
   }
 
   return ttrack.forget();
@@ -160,7 +160,7 @@ TextTrackManager::AddTextTrack(TextTrack* aTextTrack)
   mTextTracks->AddTextTrack(aTextTrack, CompareTextTracks(mMediaElement));
   AddCues(aTextTrack);
   if (aTextTrack->GetTextTrackSource() == Track) {
-    HonorUserPreferencesForTrackSelection();
+    NS_DispatchToMainThread(NewRunnableMethod(this, &TextTrackManager::HonorUserPreferencesForTrackSelection));
   }
 }
 
@@ -230,6 +230,7 @@ TextTrackManager::UpdateCueDisplay()
   }
 
   nsCOMPtr<nsIContent> overlay = videoFrame->GetCaptionOverlay();
+  nsCOMPtr<nsIContent> controls = videoFrame->GetVideoControls();
   if (!overlay) {
     return;
   }
@@ -247,19 +248,15 @@ TextTrackManager::UpdateCueDisplay()
 
     nsPIDOMWindowInner* window = mMediaElement->OwnerDoc()->GetInnerWindow();
     if (window) {
-      sParserWrapper->ProcessCues(window, jsCues, overlay);
+      sParserWrapper->ProcessCues(window, jsCues, overlay, controls);
     }
   } else if (overlay->Length() > 0) {
     nsContentUtils::SetNodeTextContent(overlay, EmptyString(), true);
   }
-  // Call TimeMarchesOn() directly instead DispatchTimeMarchesOn()
-  // because we had render the new cue, so we must run
-  // TimeMarchesOn immediately.
-  TimeMarchesOn();
 }
 
 void
-TextTrackManager::AddCue(TextTrackCue& aCue)
+TextTrackManager::NotifyCueAdded(TextTrackCue& aCue)
 {
   if (mNewCues) {
     mNewCues->AddCue(aCue);
@@ -300,6 +297,10 @@ TextTrackManager::AddListeners()
   if (mMediaElement) {
     mMediaElement->AddEventListener(NS_LITERAL_STRING("resizevideocontrols"),
                                     this, false, false);
+    mMediaElement->AddEventListener(NS_LITERAL_STRING("seeked"),
+                                    this, false, false);
+    mMediaElement->AddEventListener(NS_LITERAL_STRING("controlbarchange"),
+                                    this, false, true);
   }
 }
 
@@ -409,11 +410,17 @@ TextTrackManager::HandleEvent(nsIDOMEvent* aEvent)
 
   nsAutoString type;
   aEvent->GetType(type);
-  if (type.EqualsLiteral("resizevideocontrols")) {
+  if (type.EqualsLiteral("resizevideocontrols") ||
+      type.EqualsLiteral("seeked")) {
     for (uint32_t i = 0; i< mTextTracks->Length(); i++) {
       ((*mTextTracks)[i])->SetCuesDirty();
     }
   }
+
+  if (type.EqualsLiteral("controlbarchange")) {
+    UpdateCueDisplay();
+  }
+
   return NS_OK;
 }
 
@@ -517,7 +524,8 @@ TextTrackManager::DispatchTimeMarchesOn()
   // enqueue the current playback position and whether only that changed
   // through its usual monotonic increase during normal playback; current
   // executing call upon completion will check queue for further 'work'.
-  if (!mTimeMarchesOnDispatched && !mShutdown) {
+  if (!mTimeMarchesOnDispatched && !mShutdown &&
+      (mMediaElement->GetHasUserInteraction() || mMediaElement->IsCurrentlyPlaying())) {
     NS_DispatchToMainThread(NewRunnableMethod(this, &TextTrackManager::TimeMarchesOn));
     mTimeMarchesOnDispatched = true;
   }
@@ -531,6 +539,11 @@ TextTrackManager::TimeMarchesOn()
 
   mTimeMarchesOnDispatched = false;
 
+  // Early return if we don't have any TextTracks.
+  if (mTextTracks->Length() == 0) {
+    return;
+  }
+
   nsISupports* parentObject =
     mMediaElement->OwnerDoc()->GetParentObject();
   if (NS_WARN_IF(!parentObject)) {
@@ -539,7 +552,7 @@ TextTrackManager::TimeMarchesOn()
   nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(parentObject);
 
   if (mMediaElement &&
-      (!(mMediaElement->GetPlayedOrSeeked())|| mMediaElement->Seeking())) {
+      (!(mMediaElement->GetPlayedOrSeeked()) || mMediaElement->Seeking())) {
     return;
   }
 
@@ -558,6 +571,7 @@ TextTrackManager::TimeMarchesOn()
     TextTrack* ttrack = mTextTracks->IndexedGetter(index, dummy);
     if (ttrack && dummy) {
       // TODO: call GetCueListByTimeInterval on mNewCues?
+      ttrack->UpdateActiveCueList();
       TextTrackCueList* activeCueList = ttrack->GetActiveCues();
       if (activeCueList) {
         for (uint32_t i = 0; i < activeCueList->Length(); ++i) {
@@ -568,6 +582,11 @@ TextTrackManager::TimeMarchesOn()
   }
   // Populate otherCues with 'non-active" cues.
   if (hasNormalPlayback) {
+    if (currentPlaybackTime < mLastTimeMarchesOnCalled) {
+      // TODO: Add log and find the root cause why the
+      // playback position goes backward.
+      mLastTimeMarchesOnCalled = currentPlaybackTime;
+    }
     media::Interval<double> interval(mLastTimeMarchesOnCalled,
                                      currentPlaybackTime);
     otherCues = mNewCues->GetCueListByTimeInterval(interval);;
@@ -663,8 +682,7 @@ TextTrackManager::TimeMarchesOn()
   // Step 11, 17.
   for (uint32_t i = 0; i < otherCues->Length(); ++i) {
     TextTrackCue* cue = (*otherCues)[i];
-    if (cue->GetActive() ||
-        missedCues->GetCueById(cue->Id()) != nullptr) {
+    if (cue->GetActive() || missedCues->IsCueExist(cue)) {
       double time = cue->StartTime() > cue->EndTime() ? cue->StartTime()
                                                       : cue->EndTime();
       SimpleTextTrackEvent* event =
@@ -711,6 +729,22 @@ TextTrackManager::TimeMarchesOn()
 
   mLastTimeMarchesOnCalled = currentPlaybackTime;
   mLastActiveCues = currentCues;
+
+  // Step 18.
+  UpdateCueDisplay();
+}
+
+void
+TextTrackManager::NotifyCueUpdated(TextTrackCue *aCue)
+{
+  // TODO: Add/Reorder the cue to mNewCues if we have some optimization?
+  DispatchTimeMarchesOn();
+}
+
+void
+TextTrackManager::NotifyReset()
+{
+  mLastTimeMarchesOnCalled = 0.0;
 }
 
 } // namespace dom

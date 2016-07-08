@@ -404,7 +404,7 @@ class ContentSandboxPolicy : public SandboxPolicyCommon {
   }
 
 public:
-  ContentSandboxPolicy(SandboxBrokerClient* aBroker):mBroker(aBroker) { }
+  explicit ContentSandboxPolicy(SandboxBrokerClient* aBroker):mBroker(aBroker) { }
   virtual ~ContentSandboxPolicy() { }
   virtual ResultExpr PrctlPolicy() const override {
     // Ideally this should be restricted to a whitelist, but content
@@ -440,6 +440,7 @@ public:
     case SYS_ACCEPT:
     case SYS_BIND:
     case SYS_LISTEN:
+    case SYS_GETSOCKOPT:
     case SYS_SETSOCKOPT:
     case SYS_GETSOCKNAME:
     case SYS_GETPEERNAME:
@@ -535,6 +536,7 @@ public:
     case __NR_writev:
     case __NR_pread64:
 #ifdef DESKTOP
+    case __NR_pwrite64:
     case __NR_readahead:
 #endif
       return Allow();
@@ -620,6 +622,21 @@ public:
     case __NR_inotify_init1:
     case __NR_inotify_add_watch:
     case __NR_inotify_rm_watch:
+      return Allow();
+
+#ifdef __NR_rt_tgsigqueueinfo
+      // Only allow to send signals within the process.
+    case __NR_rt_tgsigqueueinfo: {
+      Arg<pid_t> tgid(0);
+      return If(tgid == getpid(), Allow())
+        .Else(InvalidSyscall());
+    }
+#endif
+
+#endif // DESKTOP
+
+#ifdef __NR_getrandom
+    case __NR_getrandom:
       return Allow();
 #endif
 

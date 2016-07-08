@@ -82,13 +82,14 @@
 // - We treat OS2-BMPv2 files as if they are WinBMPv3 (i.e. ignore the extra 24
 //   bytes in the info header), which in practice is good enough.
 
+#include "ImageLogging.h"
+#include "nsBMPDecoder.h"
+
 #include <stdlib.h>
 
-#include "ImageLogging.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/Likely.h"
-#include "nsBMPDecoder.h"
 
 #include "nsIInputStream.h"
 #include "RasterImage.h"
@@ -542,7 +543,7 @@ nsBMPDecoder::ReadInfoHeaderRest(const char* aData, size_t aLength)
     // of the color bitfields (see below).
   }
 
-  // Run with NSPR_LOG_MODULES=BMPDecoder:4 set to see this output.
+  // Run with MOZ_LOG=BMPDecoder:5 set to see this output.
   MOZ_LOG(sBMPLog, LogLevel::Debug,
           ("BMP: bihsize=%u, %d x %d, bpp=%u, compression=%u, colors=%u\n",
           mH.mBIHSize, mH.mWidth, mH.mHeight, uint32_t(mH.mBpp),

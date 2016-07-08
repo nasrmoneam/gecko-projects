@@ -6,6 +6,7 @@
 
 #include "mozilla/ServoBindings.h"
 
+#include "gfxFontFamilyList.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSRuleProcessor.h"
 #include "nsContentUtils.h"
@@ -17,6 +18,7 @@
 #include "nsNameSpaceManager.h"
 #include "nsString.h"
 #include "nsStyleStruct.h"
+#include "nsStyleUtil.h"
 #include "StyleStructContext.h"
 
 #include "mozilla/EventStates.h"
@@ -162,6 +164,125 @@ Gecko_GetElementId(RawGeckoElement* aElement)
   return attr ? attr->GetAtomValue() : nullptr;
 }
 
+template<class MatchFn>
+bool
+DoMatch(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName, MatchFn aMatch)
+{
+  if (aNS) {
+    int32_t ns = nsContentUtils::NameSpaceManager()->GetNameSpaceID(aNS);
+    NS_ENSURE_TRUE(ns != kNameSpaceID_Unknown, false);
+    const nsAttrValue* value = aElement->GetParsedAttr(aName, ns);
+    return value && aMatch(value);
+  }
+  // No namespace means any namespace - we have to check them all. :-(
+  const nsAttrName* attrName;
+  for (uint32_t i = 0; (attrName = aElement->GetAttrNameAt(i)); ++i) {
+    if (attrName->LocalName() != aName) {
+      continue;
+    }
+    const nsAttrValue* value =
+      aElement->GetParsedAttr(attrName->LocalName(), attrName->NamespaceID());
+    if (aMatch(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Work around our overly-restrictive static analysis. This can be removed once
+// bug 1281935 lands.
+template<typename T>
+struct FakeRef {
+  MOZ_IMPLICIT FakeRef(T* aPtr) : mPtr(aPtr) {}
+  operator T*() const { return mPtr; }
+  T* mPtr;
+};
+
+bool
+Gecko_HasAttr(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName)
+{
+  auto match = [](const nsAttrValue* aValue) { return true; };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrEquals(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                 nsIAtom* aStr_, bool aIgnoreCase)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr, aIgnoreCase](const nsAttrValue* aValue) {
+    return aValue->Equals(aStr, aIgnoreCase ? eIgnoreCase : eCaseMatters);
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrDashEquals(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                     nsIAtom* aStr_)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr](const nsAttrValue* aValue) {
+    nsAutoString str;
+    aValue->ToString(str);
+    const nsDefaultStringComparator c;
+    return nsStyleUtil::DashMatchCompare(str, nsDependentAtomString(aStr), c);
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrIncludes(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                   nsIAtom* aStr_)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr](const nsAttrValue* aValue) {
+    nsAutoString str;
+    aValue->ToString(str);
+    const nsDefaultStringComparator c;
+    return nsStyleUtil::ValueIncludes(str, nsDependentAtomString(aStr), c);
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrHasSubstring(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                       nsIAtom* aStr_)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr](const nsAttrValue* aValue) {
+    nsAutoString str;
+    aValue->ToString(str);
+    return FindInReadable(str, nsDependentAtomString(aStr));
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrHasPrefix(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                    nsIAtom* aStr_)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr](const nsAttrValue* aValue) {
+    nsAutoString str;
+    aValue->ToString(str);
+    return StringBeginsWith(str, nsDependentAtomString(aStr));
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
+bool
+Gecko_AttrHasSuffix(RawGeckoElement* aElement, nsIAtom* aNS, nsIAtom* aName,
+                    nsIAtom* aStr_)
+{
+  FakeRef<nsIAtom> aStr(aStr_);
+  auto match = [aStr](const nsAttrValue* aValue) {
+    nsAutoString str;
+    aValue->ToString(str);
+    return StringEndsWith(str, nsDependentAtomString(aStr));
+  };
+  return DoMatch(aElement, aNS, aName, match);
+}
+
 uint32_t
 Gecko_ClassOrClassList(RawGeckoElement* aElement,
                        nsIAtom** aClass, nsIAtom*** aClassList)
@@ -216,6 +337,16 @@ Gecko_ClassOrClassList(RawGeckoElement* aElement,
   return atomArray->Length();
 }
 
+ServoDeclarationBlock*
+Gecko_GetServoDeclarationBlock(RawGeckoElement* aElement)
+{
+  const nsAttrValue* attr = aElement->GetParsedAttr(nsGkAtoms::style);
+  if (!attr || attr->Type() != nsAttrValue::eServoCSSDeclaration) {
+    return nullptr;
+  }
+  return attr->GetServoCSSDeclarationValue();
+}
+
 ServoNodeData*
 Gecko_GetNodeData(RawGeckoNode* aNode)
 {
@@ -244,12 +375,6 @@ void
 Gecko_ReleaseAtom(nsIAtom* aAtom)
 {
   NS_RELEASE(aAtom);
-}
-
-uint32_t
-Gecko_HashAtom(nsIAtom* aAtom)
-{
-  return aAtom->hash();
 }
 
 const uint16_t*
@@ -284,6 +409,33 @@ Gecko_AtomEqualsUTF8IgnoreCase(nsIAtom* aAtom, const char* aString, uint32_t aLe
   aAtom->ToString(atomStr);
   NS_ConvertUTF8toUTF16 inStr(nsDependentCSubstring(aString, aLength));
   return nsContentUtils::EqualsIgnoreASCIICase(atomStr, inStr);
+}
+
+void
+Gecko_FontFamilyList_Clear(FontFamilyList* aList) {
+  aList->Clear();
+}
+
+void
+Gecko_FontFamilyList_AppendNamed(FontFamilyList* aList, nsIAtom* aName)
+{
+  // Servo doesn't record whether the name was quoted or unquoted, so just
+  // assume unquoted for now.
+  FontFamilyName family;
+  aName->ToString(family.mName);
+  aList->Append(family);
+}
+
+void
+Gecko_FontFamilyList_AppendGeneric(FontFamilyList* aList, FontFamilyType aType)
+{
+  aList->Append(FontFamilyName(aType));
+}
+
+void
+Gecko_CopyFontFamilyFrom(nsFont* dst, const nsFont* src)
+{
+  dst->fontlist = src->fontlist;
 }
 
 void
@@ -387,22 +539,6 @@ Gecko_CreateGradient(uint8_t aShape,
   }
 
   return result;
-}
-
-void
-Gecko_SetGradientStop(nsStyleGradient* aGradient,
-                      uint32_t aIndex,
-                      const nsStyleCoord* aLocation,
-                      nscolor aColor,
-                      bool aIsInterpolationHint)
-{
-  MOZ_ASSERT(aGradient);
-  MOZ_ASSERT(aLocation);
-  MOZ_ASSERT(aIndex < aGradient->mStops.Length());
-
-  aGradient->mStops[aIndex].mColor = aColor;
-  aGradient->mStops[aIndex].mLocation = *aLocation;
-  aGradient->mStops[aIndex].mIsInterpolationHint = aIsInterpolationHint;
 }
 
 #define STYLE_STRUCT(name, checkdata_cb)                                      \
@@ -509,6 +645,42 @@ void
 Servo_DropStyleSet(RawServoStyleSet* set)
 {
   MOZ_CRASH("stylo: shouldn't be calling Servo_DropStyleSet in a "
+            "non-MOZ_STYLO build");
+}
+
+ServoDeclarationBlock*
+Servo_ParseStyleAttribute(const uint8_t* bytes, uint8_t length,
+                          nsHTMLCSSStyleSheet* cache)
+{
+  MOZ_CRASH("stylo: shouldn't be calling Servo_ParseStyleAttribute in a "
+            "non-MOZ_STYLO build");
+}
+
+void
+Servo_DropDeclarationBlock(ServoDeclarationBlock* declarations)
+{
+  MOZ_CRASH("stylo: shouldn't be calling Servo_DropDeclarationBlock in a "
+            "non-MOZ_STYLO build");
+}
+
+nsHTMLCSSStyleSheet*
+Servo_GetDeclarationBlockCache(ServoDeclarationBlock* declarations)
+{
+  MOZ_CRASH("stylo: shouldn't be calling Servo_GetDeclarationBlockCache in a "
+            "non-MOZ_STYLO build");
+}
+
+void
+Servo_SetDeclarationBlockImmutable(ServoDeclarationBlock* declarations)
+{
+  MOZ_CRASH("stylo: shouldn't be calling Servo_SetDeclarationBlockImmutable in a "
+            "non-MOZ_STYLO build");
+}
+
+void
+Servo_ClearDeclarationBlockCachePointer(ServoDeclarationBlock* declarations)
+{
+  MOZ_CRASH("stylo: shouldn't be calling Servo_ClearDeclarationBlockCachePointer in a "
             "non-MOZ_STYLO build");
 }
 

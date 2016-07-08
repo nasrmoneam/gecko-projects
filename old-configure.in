@@ -47,7 +47,7 @@ _SUBDIR_CONFIG_ARGS="$ac_configure_args"
 dnl Set the version number of the libs included with mozilla
 dnl ========================================================
 MOZJPEG=62
-MOZPNG=10621
+MOZPNG=10623
 NSPR_VERSION=4
 NSPR_MINVER=4.12
 NSS_VERSION=3
@@ -95,6 +95,10 @@ DIST="$MOZ_BUILD_ROOT/dist"
 
 MOZ_DEFAULT_COMPILER
 
+if test "$COMPILE_ENVIRONMENT"; then
+    MOZ_ANDROID_NDK
+fi # COMPILE_ENVIRONMENT
+
 if test -n "$gonkdir" ; then
     dnl export for js/src/configure. We can't pass the option down normally,
     dnl because it's a `--enable-project=b2g`-only option.
@@ -107,11 +111,6 @@ if test -n "$gonkdir" ; then
     if test -n "${PLATFORM_SDK_VERSION}"; then
         ANDROID_VERSION="${PLATFORM_SDK_VERSION}"
     fi
-
-    if ! test -e "$gonkdir/ndk/sources/cxx-stl/stlport/src/iostream.cpp"; then
-        AC_MSG_ERROR([Couldn't find path to stlport sources in the gonk tree])
-    fi
-    STLPORT_CPPFLAGS="-I$_topsrcdir/build/stlport/stlport -I$gonkdir/ndk/sources/cxx-stl/system/include"
 
     case "$ANDROID_VERSION" in
     15)
@@ -183,13 +182,11 @@ if test -n "$gonkdir" ; then
         AC_MSG_ERROR([Unsupported platform version: $ANDROID_VERSION])
         ;;
     esac
-    CPPFLAGS="-DANDROID $TARGET_C_INCLUDES -I$gonkdir/system -I$gonkdir/system/core/include -isystem $gonkdir/bionic -I$gonkdir/hardware/libhardware/include -I$gonkdir/external/valgrind/fxos-include $GONK_INCLUDES $CPPFLAGS"
-    CFLAGS="-mandroid -fno-short-enums -fno-exceptions $CFLAGS"
-    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions $CXXFLAGS $STLPORT_CPPFLAGS"
+
+    CPPFLAGS="-I$gonkdir/system -I$gonkdir/system/core/include -I$gonkdir/hardware/libhardware/include -I$gonkdir/external/valgrind/fxos-include $GONK_INCLUDES $CPPFLAGS"
+    LDFLAGS="-L$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib -Wl,-rpath-link=$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib $LDFLAGS"
     dnl Add -llog by default, since we use it all over the place.
     LIBS="$LIBS -llog"
-
-    LDFLAGS="-mandroid -L$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib -Wl,-rpath-link=$gonkdir/out/target/product/$GONK_PRODUCT/obj/lib --sysroot=$gonkdir/out/target/product/$GONK_PRODUCT/obj/ $LDFLAGS"
 
     AC_DEFINE(ANDROID)
     AC_DEFINE_UNQUOTED(ANDROID_VERSION, $ANDROID_VERSION)
@@ -197,12 +194,8 @@ if test -n "$gonkdir" ; then
     AC_DEFINE(HAVE_SYS_UIO_H)
     AC_DEFINE(HAVE_PTHREADS)
     direct_nspr_config=1
-    android_cxx_stl=mozstlport
-else
-    if test "$COMPILE_ENVIRONMENT"; then
-        MOZ_ANDROID_NDK
-    fi # COMPILE_ENVIRONMENT
 
+else
     case "$target" in
     *-android*|*-linuxandroid*)
         ZLIB_DIR=yes
@@ -267,8 +260,6 @@ fi
 
 MOZ_TOOL_VARIABLES
 
-MOZ_RUST_SUPPORT
-
 AC_PROG_CPP
 AC_PROG_CXXCPP
 
@@ -330,12 +321,6 @@ case "$target" in
         AC_DEFINE(_USE_MATH_DEFINES) # Otherwise MSVC's math.h doesn't #define M_PI.
 
         case "$CC_VERSION" in
-        18*)
-            _CC_SUITE=12
-            MSVS_VERSION=2013
-            MSVC_C_RUNTIME_DLL=msvcr120.dll
-            MSVC_CXX_RUNTIME_DLL=msvcp120.dll
-            ;;
         19*)
             _CC_SUITE=14
             MSVS_VERSION=2015
@@ -1021,49 +1006,6 @@ AC_SUBST(HAVE_64BIT_BUILD)
 AC_LANG_RESTORE
 fi # COMPILE_ENVIRONMENT
 
-dnl ========================================================
-dnl Special rust checks
-dnl ========================================================
-
-if test -n "$MACOSX_DEPLOYMENT_TARGET" -a -n "$MOZ_RUST"; then
-  AC_MSG_CHECKING([if we're targeting 32-bit])
-  if test -z "$HAVE_64BIT_BUILD"; then
-    AC_MSG_RESULT([using $RUSTC])
-  else
-    AC_MSG_RESULT([no])
-  fi
-  AC_MSG_CHECKING([rustc compatibility with MacOS X])
-  # Stock rustc doesn't support MacOS X 10.6 or earlier.
-  # https://github.com/rust-lang/rust/issues/25342
-  _MACOSX_TARGET_MINOR=`echo "$MACOSX_DEPLOYMENT_TARGET" | cut -d. -f2`
-  if test "$_MACOSX_TARGET_MINOR" -lt 7; then
-    dnl Test C linkage against rust code to see if the rust
-    dnl toolchain output is compatible.
-    cat > conftest.rs <<EOF
-      [#[no_mangle]]
-      pub extern fn rusty_answer() -> u8 { 42 }
-EOF
-    ac_try="$RUSTC --crate-type staticlib -o conftest.a conftest.rs >/dev/null"
-    AC_TRY_EVAL(ac_try)
-    save_LDFLAGS=$LDFLAGS
-    LDFLAGS="$LDFLAGS conftest.a -lpthread -lm"
-    AC_TRY_LINK_FUNC([rusty_answer], [
-      AC_MSG_RESULT([$MACOSX_DEPLOYMENT_TARGET is ok with this rustc])
-    ], [
-      AC_MSG_RESULT([cannot link for $MACOSX_DEPLOYMENT_TARGET])
-      MOZ_RUST=
-    ])
-    LDFLAGS=$save_LDFLAGS
-    rm -rf conftest*
-  else
-    AC_MSG_RESULT([$MACOSX_DEPLOYMENT_TARGET is ok])
-  fi
-  if test -z "$MOZ_RUST"; then
-    AC_MSG_ERROR([rustc does not support MacOS X $MACOSX_DEPLOYMENT_TARGET
-      Add 'ac_add_options --enable-macos-target=10.7' (or later)
-      to mozconfig, disable Rust support, or use an alternate toolchain.])
-  fi
-fi
 
 dnl ========================================================
 dnl = Use Valgrind
@@ -1087,6 +1029,24 @@ if test "$MOZ_PROFILING" -a -z "$STRIP_FLAGS"; then
         STRIP_FLAGS="--strip-debug"
         ;;
     esac
+fi
+
+dnl ========================================================
+dnl = Enable Gecko integrated IPC fuzzer
+dnl ========================================================
+MOZ_ARG_ENABLE_BOOL(ipc-fuzzer,
+[  --enable-ipc-fuzzer       Enable IPC fuzzer (default=no)],
+    MOZ_FAULTY=1,
+    MOZ_FAULTY= )
+AC_SUBST(MOZ_FAULTY)
+
+if test -n "$MOZ_FAULTY" && test "$OS_ARCH" = "WINNT"; then
+    AC_MSG_ERROR([--enable-ipc-fuzzer is not supported on this platform.])
+fi
+
+if test -n "$MOZ_FAULTY"; then
+    MOZ_FAULTY=1
+    AC_DEFINE(MOZ_FAULTY)
 fi
 
 dnl ========================================================
@@ -1286,17 +1246,12 @@ case "$target" in
         CXXFLAGS="$CXXFLAGS -mieee"
     ;;
     esac
-
-    if test -z "$MC"; then
-        MC=mc.exe
-    fi
     ;;
 *-mingw*)
     DSO_CFLAGS=
     DSO_PIC_CFLAGS=
     DLL_SUFFIX=.dll
     RC=rc.exe
-    MC=mc.exe
     # certain versions of cygwin's makedepend barf on the
     # #include <string> vs -I./dist/include/string issue so don't use it
     if test -n "$GNU_CC" -o -n "$CLANG_CC"; then
@@ -1315,7 +1270,7 @@ case "$target" in
         # Use temp file for windres (bug 213281)
         RCFLAGS='-O coff --use-temp-file'
         # mingw doesn't require kernel32, user32, and advapi32 explicitly
-        LIBS="$LIBS -luuid -lgdi32 -lwinmm -lwsock32 -luserenv -lsecur32 -lnetapi32"
+        LIBS="$LIBS -luuid -lgdi32 -lwinmm -lwsock32 -luserenv -lsecur32"
         MOZ_FIX_LINK_PATHS=
         DLL_PREFIX=
         IMPORT_LIB_SUFFIX=a
@@ -1364,8 +1319,8 @@ case "$target" in
         _USE_CPP_INCLUDE_FLAG=1
         _DEFINES_CFLAGS='-FI $(topobjdir)/mozilla-config.h -DMOZILLA_CLIENT'
         _DEFINES_CXXFLAGS='-FI $(topobjdir)/mozilla-config.h -DMOZILLA_CLIENT'
-        CFLAGS="$CFLAGS -W3 -Gy"
-        CXXFLAGS="$CXXFLAGS -W3 -Gy"
+        CFLAGS="$CFLAGS -W3 -Gy -Zc:inline"
+        CXXFLAGS="$CXXFLAGS -W3 -Gy -Zc:inline"
         if test "$CPU_ARCH" = "x86"; then
             dnl VS2012+ defaults to -arch:SSE2. We want to target nothing
             dnl more recent, so set that explicitly here unless another
@@ -1471,7 +1426,7 @@ case "$target" in
         # make 'foo == bar;' error out
         CFLAGS="$CFLAGS -we4553"
         CXXFLAGS="$CXXFLAGS -we4553"
-        LIBS="$LIBS kernel32.lib user32.lib gdi32.lib winmm.lib wsock32.lib advapi32.lib secur32.lib netapi32.lib"
+        LIBS="$LIBS kernel32.lib user32.lib gdi32.lib winmm.lib wsock32.lib advapi32.lib secur32.lib"
         MOZ_DEBUG_LDFLAGS='-DEBUG -DEBUGTYPE:CV'
         WARNINGS_AS_ERRORS='-WX'
         MOZ_OPTIMIZE_FLAGS='-O1 -Oi'
@@ -1525,7 +1480,7 @@ case "$target" in
 
     case "$target" in
     i*86-*)
-        if test "$HAVE_64BIT_BUILD"; then
+        if test "$HAVE_64BIT_BUILD" -a -n "$COMPILE_ENVIRONMENT"; then
             AC_MSG_ERROR([You are targeting i386 but using the 64-bit compiler.])
         fi
 
@@ -1541,7 +1496,7 @@ case "$target" in
         AC_DEFINE(_X86_)
         ;;
     x86_64-*)
-        if test -z "$HAVE_64BIT_BUILD"; then
+        if test -z "$HAVE_64BIT_BUILD" -a -n "$COMPILE_ENVIRONMENT"; then
             AC_MSG_ERROR([You are targeting 64-bit but using the 32-bit compiler.])
         fi
         if test -n "$_WIN32_MSVC"; then
@@ -2453,7 +2408,7 @@ MOZ_ARG_WITH_BOOL(system-nss,
     _USE_SYSTEM_NSS=1 )
 
 if test -n "$_USE_SYSTEM_NSS"; then
-    AM_PATH_NSS(3.23, [MOZ_SYSTEM_NSS=1], [AC_MSG_ERROR([you don't have NSS installed or your version is too old])])
+    AM_PATH_NSS(3.26, [MOZ_SYSTEM_NSS=1], [AC_MSG_ERROR([you don't have NSS installed or your version is too old])])
 fi
 
 if test -n "$MOZ_SYSTEM_NSS"; then
@@ -2685,7 +2640,7 @@ fi
 MOZ_NO_SMART_CARDS=
 NSS_DISABLE_DBM=
 NECKO_COOKIES=1
-NECKO_PROTOCOLS_DEFAULT="about app data file ftp http res viewsource websocket wyciwyg device"
+NECKO_PROTOCOLS_DEFAULT="about data file ftp http res viewsource websocket wyciwyg device"
 if test -n "$MOZ_RTSP"; then
   NECKO_PROTOCOLS_DEFAULT="$NECKO_PROTOCOLS_DEFAULT rtsp"
 fi
@@ -2910,12 +2865,6 @@ dnl ========================================================
 
 case "$MOZ_WIDGET_TOOLKIT" in
 
-qt)
-    MOZ_ENABLE_QT=1
-
-    AC_DEFINE(QT_NO_KEYWORDS)
-    ;;
-
 cocoa)
     LDFLAGS="$LDFLAGS -framework Cocoa -lobjc"
     # Use -Wl as a trick to avoid -framework and framework names from
@@ -3030,173 +2979,8 @@ if test "$NS_PRINTING"; then
     AC_DEFINE(NS_PRINT_PREVIEW)
 fi
 
-dnl ========================================================
-dnl = QT support
-dnl ========================================================
-if test "$MOZ_ENABLE_QT"
-then
-    MOZ_ARG_WITH_STRING(qtdir,
-    [  --with-qtdir=\$dir       Specify Qt directory ],
-    [ QTDIR=$withval])
-
-    if test -z "$QTDIR"; then
-        AC_CHECK_PROGS(HOST_QMAKE, $HOST_QMAKE qmake, "")
-    else
-        HOST_QMAKE="$QTDIR/bin/qmake"
-    fi
-    QT_VERSION=`$HOST_QMAKE -v | grep 'Using Qt version' | egrep -o '[[0-9]]+\.[[0-9]]+\.[[0-9]]+'`
-
-    if test -z "$QTDIR"; then
-        case $QT_VERSION in
-        5.*)
-            AC_MSG_RESULT("Using qt5: $QT_VERSION")
-            PKG_CHECK_MODULES(MOZ_QT, Qt5Gui Qt5Network Qt5Core Qt5Quick, ,
-            [
-              AC_MSG_ERROR([$MOZ_QT_PKG_ERRORS Need qtbase development packages, (On Ubuntu, you might try installing the packages qtbase5-dev libqt5opengl5-dev.)])
-            ])
-            QT5INCDIR=`pkg-config --variable=includedir Qt5Gui`
-            MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QT5INCDIR/QtGui/$QT_VERSION/QtGui"
-            if test "$NS_PRINTING"; then
-                PKG_CHECK_MODULES(MOZ_QT_WIDGETS, Qt5PrintSupport, ,
-                [
-                  AC_MSG_ERROR([$MOZ_QT_PKG_ERRORS Need qt5 printsupport development package])
-                ])
-                MOZ_QT_LIBS="$MOZ_QT_LIBS $MOZ_QT_WIDGETS_LIBS"
-                MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $MOZ_QT_WIDGETS_CFLAGS"
-            fi
-            ;;
-        *)
-            AC_MSG_ERROR([* * * Unsupported Qt Version: $QT_VERSION])
-            ;;
-        esac
-
-        AC_CHECK_PROGS(HOST_MOC, $MOC moc, "")
-        AC_CHECK_PROGS(HOST_RCC, $RCC rcc, "")
-    else
-        MOZ_QT_CFLAGS="-DQT_SHARED"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtGui"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtCore"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtNetwork"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtXml"
-        MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtDeclarative"
-        case $QT_VERSION in
-        5.*)
-            AC_MSG_RESULT("Using qt5: $QT_VERSION")
-            MOZ_QT_LIBS="$MOZ_QT_LIBS -L$QTDIR/lib/ -lQt5Gui -lQt5Network -lQt5Core -lQt5Xml"
-            MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtGui/$QT_VERSION/QtGui"
-            if test "$NS_PRINTING"; then
-                MOZ_QT_LIBS="$MOZ_QT_LIBS -lQt5Widgets -lQt5PrintSupport"
-                MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtPrintSupport"
-            fi
-            ;;
-        *)
-            AC_MSG_ERROR([* * * Unsupported Qt Version: $QT_VERSION])
-            ;;
-        esac
-
-        HOST_MOC="$QTDIR/bin/moc"
-        HOST_RCC="$QTDIR/bin/rcc"
-    fi
-    if test -z "$HOST_MOC"; then
-        AC_MSG_ERROR([No acceptable moc preprocessor found. Qt SDK is not installed or --with-qt is incorrect])
-    fi
-    if test -z "$HOST_RCC"; then
-        AC_MSG_ERROR([No acceptable rcc preprocessor found. Qt SDK is not installed or --with-qt is incorrect])
-    fi
-
-    MOC=$HOST_MOC
-    RCC=$HOST_RCC
-
-    MOZ_ENABLE_QMSYSTEM2=
-    PKG_CHECK_MODULES(_QMSYSTEM2, qmsystem2,
-                      MOZ_ENABLE_QMSYSTEM2=1,
-                      MOZ_ENABLE_QMSYSTEM2=)
-
-    if test "$MOZ_ENABLE_QMSYSTEM2"; then
-      MOZ_ENABLE_QMSYSTEM2=1
-      MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $_QMSYSTEM2_CFLAGS"
-      MOZ_QT_LIBS="$MOZ_QT_LIBS $_QMSYSTEM2_LIBS"
-      AC_DEFINE(MOZ_ENABLE_QMSYSTEM2)
-    fi
-
-    MOZ_ENABLE_QTNETWORK=
-    PKG_CHECK_MODULES(_QTNETWORK, QtNetwork >= 4.7,
-                      MOZ_ENABLE_QTNETWORK=1,
-                      MOZ_ENABLE_QTNETWORK=)
-
-    if test "$MOZ_ENABLE_QTNETWORK"; then
-      MOZ_ENABLE_QTNETWORK=1
-      AC_DEFINE(MOZ_ENABLE_QTNETWORK)
-    fi
-
-    MOZ_ENABLE_QTMOBILITY=
-    PKG_CHECK_MODULES(_QTMOBILITY, QtSensors QtFeedback QtLocation,
-                      MOZ_ENABLE_QTMOBILITY=1,
-                      MOZ_ENABLE_QTMOBILITY=)
-    if test "$MOZ_ENABLE_QTMOBILITY"; then
-       MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $_QTMOBILITY_CFLAGS"
-       MOZ_QT_LIBS="$MOZ_QT_LIBS $_QTMOBILITY_LIBS"
-    else
-       AC_CHECK_LIB(QtSensors, main, [
-          MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtMobility"
-          MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtSensors"
-          MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtFeedback"
-          MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS -I$QTDIR/include/QtLocation"
-          MOZ_QT_LIBS="$MOZ_QT_LIBS -lQtSensors -lQtFeedback -lQtLocation"
-       ])
-    fi
-
-    MOZ_ENABLE_QT5FEEDBACK=
-    PKG_CHECK_MODULES(_QT5FEEDBACK, Qt0Feedback,
-                      MOZ_ENABLE_QT5FEEDBACK=1,
-                      MOZ_ENABLE_QT5FEEDBACK=)
-    if test "$MOZ_ENABLE_QT5FEEDBACK"; then
-       MOZ_ENABLE_QT5FEEDBACK=1
-       MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $_QT5FEEDBACK_CFLAGS"
-       MOZ_QT_LIBS="$MOZ_QT_LIBS $_QT5FEEDBACK_LIBS"
-       AC_DEFINE(MOZ_ENABLE_QT5FEEDBACK)
-       AC_SUBST(MOZ_ENABLE_QT5FEEDBACK)
-    fi
-
-    MOZ_ENABLE_QT5GEOPOSITION=
-    PKG_CHECK_MODULES(_QT5GEOPOSITION, Qt5Positioning,
-                      MOZ_ENABLE_QT5GEOPOSITION=1,
-                      MOZ_ENABLE_QT5GEOPOSITION=)
-    if test "$MOZ_ENABLE_QT5GEOPOSITION"; then
-       MOZ_ENABLE_QT5GEOPOSITION=1
-       MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $_QT5GEOPOSITION_CFLAGS"
-       MOZ_QT_LIBS="$MOZ_QT_LIBS $_QT5GEOPOSITION_LIBS"
-       AC_DEFINE(MOZ_ENABLE_QT5GEOPOSITION)
-       AC_SUBST(MOZ_ENABLE_QT5GEOPOSITION)
-    fi
-
-    if test "$MOZ_ENABLE_CONTENTACTION"; then
-      MOZ_ENABLE_CONTENTACTION=1
-      AC_DEFINE(MOZ_ENABLE_CONTENTACTION)
-    fi
-
-    MOZ_ENABLE_CONTENTACTION=
-    PKG_CHECK_MODULES(LIBCONTENTACTION, contentaction-0.1, _LIB_FOUND=1, _LIB_FOUND=)
-    if test "$MOZ_ENABLE_CONTENTACTION"; then
-       MOZ_ENABLE_CONTENTACTION=1
-       MOZ_QT_CFLAGS="$MOZ_QT_CFLAGS $_CONTENTACTION_CFLAGS"
-       MOZ_QT_LIBS="$MOZ_QT_LIBS $_CONTENTACTION_LIBS"
-       AC_DEFINE(MOZ_ENABLE_CONTENTACTION)
-       AC_SUBST(MOZ_ENABLE_CONTENTACTION)
-    fi
-    TK_CFLAGS=$MOZ_QT_CFLAGS
-    TK_LIBS=$MOZ_QT_LIBS
-fi
-
 AC_SUBST_LIST(TK_CFLAGS)
 AC_SUBST_LIST(TK_LIBS)
-
-AC_SUBST(MOZ_ENABLE_QT)
-AC_SUBST(MOZ_ENABLE_QTNETWORK)
-AC_SUBST(MOZ_ENABLE_QMSYSTEM2)
-AC_SUBST_LIST(MOZ_QT_CFLAGS)
-AC_SUBST_LIST(MOZ_QT_LIBS)
 
 AC_SUBST(MOC)
 AC_SUBST(RCC)
@@ -3274,7 +3058,7 @@ MOZ_ANDROID_INSTALL_TRACKING
 dnl ========================================================
 dnl = Pango
 dnl ========================================================
-if test "$MOZ_ENABLE_GTK" -o "$MOZ_ENABLE_QT"
+if test "$MOZ_ENABLE_GTK"
 then
     PKG_CHECK_MODULES(_PANGOCHK, pango >= $PANGO_VERSION)
 
@@ -3359,7 +3143,7 @@ dnl ========================================================
 dnl = libproxy support
 dnl ========================================================
 
-if test "$MOZ_ENABLE_GTK" -o "$MOZ_ENABLE_QT"
+if test "$MOZ_ENABLE_GTK"
 then
     MOZ_ENABLE_LIBPROXY=
 
@@ -3412,7 +3196,7 @@ dnl ========================================================
 dnl = dbus support
 dnl ========================================================
 
-if test "$MOZ_ENABLE_GTK" -o "$MOZ_ENABLE_QT"
+if test "$MOZ_ENABLE_GTK"
 then
     MOZ_ENABLE_DBUS=1
 
@@ -3434,7 +3218,7 @@ dnl ========================================================
 dnl = speech-dispatcher support
 dnl ========================================================
 
-if test "$MOZ_ENABLE_GTK" -o "$MOZ_ENABLE_QT"
+if test "$MOZ_ENABLE_GTK"
 then
     MOZ_SYNTH_SPEECHD=1
 
@@ -4376,7 +4160,7 @@ if test -n "$MOZ_CRASHREPORTER"; then
   fi
 
   if test "$OS_ARCH" = "WINNT"; then
-    if test -z "$HAVE_64BIT_BUILD"; then
+    if test -z "$HAVE_64BIT_BUILD" -a -n "$COMPILE_ENVIRONMENT"; then
       MOZ_CRASHREPORTER_INJECTOR=1
       AC_DEFINE(MOZ_CRASHREPORTER_INJECTOR)
     fi
@@ -4845,6 +4629,9 @@ WINNT:1)
 Darwin:1)
     MOZ_CONTENT_SANDBOX=$MOZ_SANDBOX
     ;;
+Linux:1)
+    MOZ_CONTENT_SANDBOX=$MOZ_SANDBOX
+    ;;
 esac
 
 MOZ_ARG_ENABLE_BOOL(content-sandbox,
@@ -5284,31 +5071,6 @@ elif test -z "$_ENABLE_LOGREFCNT"; then
 fi
 
 dnl ========================================================
-dnl moz_aproximate_location
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(approximate_location,
-[ --enable-approximate-location    Enable approximate location ],
-    MOZ_APPROX_LOCATION=1,
-    MOZ_APPROX_LOCATION= )
-if test -n "$MOZ_APPROX_LOCATION"; then
-    AC_DEFINE(MOZ_APPROX_LOCATION)
-fi
-
-dnl ========================================================
-dnl moz_gps_debug
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(gps_debug,
-[ --enable-gps-debug    Enable gps specific debug messages ],
-    MOZ_GPS_DEBUG=1,
-    MOZ_GPS_DEBUG= )
-if test -n "$MOZ_GPS_DEBUG"; then
-    AC_DEFINE(MOZ_GPS_DEBUG)
-fi
-if test -n "$MOZ_DEBUG"; then
-    AC_DEFINE(MOZ_GPS_DEBUG)
-fi
-
-dnl ========================================================
 dnl moz_dump_painting
 dnl ========================================================
 MOZ_ARG_ENABLE_BOOL(dump-painting,
@@ -5421,24 +5183,11 @@ else
   case "${target}" in
   *-mingw*)
     export MOZ_NO_DEBUG_RTL=1
-    if test "$MSVS_VERSION" != "2015"; then
-        WIN32_CRT_LIBS="msvcrt.lib msvcprt.lib"
-        dnl Look for a broken crtdll.obj
-        WIN32_CRTDLL_FULLPATH=`lib -nologo -list $WIN32_CRT_LIBS | grep crtdll\\.obj`
-        lib -NOLOGO -OUT:crtdll.obj $WIN32_CRT_LIBS -EXTRACT:$WIN32_CRTDLL_FULLPATH
-        if grep -q '__imp__\{0,1\}free' crtdll.obj; then
-          MOZ_CRT=1
-        fi
-        rm crtdll.obj
-    fi
     ;;
   esac
 fi # MOZ_MEMORY
 AC_SUBST(MOZ_SYSTEM_JEMALLOC)
-AC_SUBST(MOZ_CRT)
-export MOZ_CRT
 AC_SUBST(MOZ_GLUE_IN_PROGRAM)
-AC_SUBST_LIST(WIN32_CRT_LIBS)
 
 # Allow the application to provide a subconfigure script.
 # This should be after 'export MOZ_NO_DEBUG_RTL=1' since
@@ -5771,14 +5520,6 @@ if test -n "$MOZ_PAY"; then
     AC_DEFINE(MOZ_PAY)
 fi
 AC_SUBST(MOZ_PAY)
-
-dnl ========================================================
-dnl = Enable Browser Support for Activities
-dnl ========================================================
-if test -n "$MOZ_ACTIVITIES"; then
-    AC_DEFINE(MOZ_ACTIVITIES)
-fi
-AC_SUBST(MOZ_ACTIVITIES)
 
 dnl ========================================================
 dnl = Enable Support for AudioChannelManager API
@@ -6489,7 +6230,6 @@ AC_SUBST(AS_DASH_C_FLAG)
 AC_SUBST(LD)
 AC_SUBST(RC)
 AC_SUBST(RCFLAGS)
-AC_SUBST(MC)
 AC_SUBST(WINDRES)
 AC_SUBST(IMPLIB)
 AC_SUBST(FILTER)
@@ -6497,7 +6237,6 @@ AC_SUBST(BIN_FLAGS)
 AC_SUBST(MOZ_AUTH_EXTENSION)
 AC_SUBST(MOZ_PREF_EXTENSIONS)
 AC_SUBST(MOZ_DEBUG)
-AC_SUBST(MOZ_DEBUG_SYMBOLS)
 AC_SUBST(MOZ_DEBUG_LDFLAGS)
 AC_SUBST(WARNINGS_AS_ERRORS)
 AC_SUBST_SET(MOZ_EXTENSIONS)
@@ -6532,7 +6271,6 @@ AC_SUBST(MOZ_D3DCOMPILER_XP_CAB)
 AC_SUBST(MOZ_WEBSMS_BACKEND)
 AC_SUBST(MOZ_DISABLE_GECKOVIEW)
 AC_SUBST(MOZ_ANDROID_GECKOLIBS_AAR)
-AC_SUBST(MOZ_ANDROID_PACKAGE_INSTALL_BOUNCER)
 AC_SUBST(MOZ_ANDROID_APPLICATION_CLASS)
 AC_SUBST(MOZ_ANDROID_BROWSER_INTENT_CLASS)
 AC_SUBST(MOZ_ANDROID_SEARCH_INTENT_CLASS)

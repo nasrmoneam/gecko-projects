@@ -80,7 +80,7 @@ public:
   bool mWrappingExistingData;
 };
 
-BasicCompositor::BasicCompositor(CompositorBridgeParent* aParent, widget::CompositorWidgetProxy* aWidget)
+BasicCompositor::BasicCompositor(CompositorBridgeParent* aParent, widget::CompositorWidget* aWidget)
   : Compositor(aWidget, aParent)
   , mDidExternalComposition(false)
 {
@@ -96,7 +96,7 @@ BasicCompositor::~BasicCompositor()
 }
 
 bool
-BasicCompositor::Initialize()
+BasicCompositor::Initialize(nsCString* const out_failureReason)
 {
   return mWidget ? mWidget->InitCompositor(this) : false;
 };
@@ -288,6 +288,7 @@ AttemptVideoScale(TextureSourceBasic* aSource, const SourceSurface* aSourceMask,
                        const gfx::Rect& aClipRect,
                        DrawTarget* aDest, const DrawTarget* aBuffer)
 {
+#ifdef MOZILLA_SSE_HAVE_CPUID_DETECTION
   if (!mozilla::supports_ssse3())
       return false;
   if (aNewTransform.IsTranslation()) // unscaled painting should take the regular path
@@ -342,9 +343,9 @@ AttemptVideoScale(TextureSourceBasic* aSource, const SourceSurface* aSourceMask,
 
     aDest->ReleaseBits(dstData);
     return true;
-  } else {
+  } else
+#endif // MOZILLA_SSE_HAVE_CPUID_DETECTION
     return false;
-  }
 }
 
 void
@@ -620,12 +621,19 @@ BasicCompositor::BeginFrame(const nsIntRegion& aInvalidRegion,
     clearRect = mInvalidRect;
   }
 
+  // Prevent CreateRenderTargetForWindow from clearing unwanted area.
+  gfxUtils::ClipToRegion(mDrawTarget,
+                         mInvalidRegion.ToUnknownRegion());
+
   // Setup an intermediate render target to buffer all compositing. We will
   // copy this into mDrawTarget (the widget), and/or mTarget in EndFrame()
   RefPtr<CompositingRenderTarget> target =
     CreateRenderTargetForWindow(mInvalidRect,
                                 clearRect,
                                 bufferMode);
+
+  mDrawTarget->PopClip();
+
   if (!target) {
     if (!mTarget) {
       mWidget->EndRemoteDrawingInRegion(mDrawTarget, mInvalidRegion);

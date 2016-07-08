@@ -123,6 +123,8 @@ public:
       return true;
     }
 
+    bool SupportsApzTouchInput() const override;
+
     void FontsPrefsChanged(const char *aPref) override;
 
     // maximum number of fonts to substitute for a generic
@@ -131,6 +133,10 @@ public:
     bool SupportsPluginDirectBitmapDrawing() override {
       return true;
     }
+
+#ifdef GL_PROVIDER_GLX
+    already_AddRefed<mozilla::gfx::VsyncSource> CreateHardwareVsyncSource() override;
+#endif
 
 protected:
     static gfxFontconfigUtils *sFontconfigUtils;

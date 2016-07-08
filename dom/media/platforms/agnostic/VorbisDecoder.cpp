@@ -10,7 +10,6 @@
 
 #include "mozilla/PodOperations.h"
 #include "mozilla/SyncRunnable.h"
-#include "nsAutoPtr.h"
 
 #undef LOG
 #define LOG(type, msg) MOZ_LOG(sPDMLog, type, msg)
@@ -31,12 +30,10 @@ ogg_packet InitVorbisPacket(const unsigned char* aData, size_t aLength,
   return packet;
 }
 
-VorbisDataDecoder::VorbisDataDecoder(const AudioInfo& aConfig,
-                                     TaskQueue* aTaskQueue,
-                                     MediaDataDecoderCallback* aCallback)
-  : mInfo(aConfig)
-  , mTaskQueue(aTaskQueue)
-  , mCallback(aCallback)
+VorbisDataDecoder::VorbisDataDecoder(const CreateDecoderParams& aParams)
+  : mInfo(aParams.AudioConfig())
+  , mTaskQueue(aParams.mTaskQueue)
+  , mCallback(aParams.mCallback)
   , mPacketCount(0)
   , mFrames(0)
   , mIsFlushing(false)

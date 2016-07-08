@@ -8,6 +8,10 @@ var {SitePermissions} = Cu.import("resource:///modules/SitePermissions.jsm", {})
 
 registerCleanupFunction(function() {
   SitePermissions.remove(gBrowser.currentURI, "install");
+  SitePermissions.remove(gBrowser.currentURI, "cookie");
+  SitePermissions.remove(gBrowser.currentURI, "geo");
+  SitePermissions.remove(gBrowser.currentURI, "camera");
+
   while (gBrowser.tabs.length > 1) {
     gBrowser.removeCurrentTab();
   }
@@ -25,7 +29,7 @@ add_task(function* testMainViewVisible() {
   ok(!is_hidden(emptyLabel), "List of permissions is empty");
   gIdentityHandler._identityPopup.hidden = true;
 
-  gIdentityHandler.setPermission("install", 1);
+  gIdentityHandler.setPermission("install", SitePermissions.ALLOW);
 
   gIdentityHandler._identityBox.click();
   ok(is_hidden(emptyLabel), "List of permissions is not empty");
@@ -41,9 +45,39 @@ add_task(function* testMainViewVisible() {
   is(menulists[0].value, "1", "Correct value on install menulist");
   gIdentityHandler._identityPopup.hidden = true;
 
+  let img = menulists[0].parentNode.querySelector("image");
+  ok(img, "There is an image for the permissions");
+  ok(img.classList.contains("install-icon"), "proper class is in image class");
+
   gIdentityHandler.setPermission("install", SitePermissions.getDefault("install"));
 
   gIdentityHandler._identityBox.click();
   ok(!is_hidden(emptyLabel), "List of permissions is empty");
   gIdentityHandler._identityPopup.hidden = true;
+});
+
+add_task(function* testIdentityIcon() {
+  let {gIdentityHandler} = gBrowser.ownerGlobal;
+  let tab = gBrowser.selectedTab = gBrowser.addTab();
+  yield promiseTabLoadEvent(tab, PERMISSIONS_PAGE);
+
+  gIdentityHandler.setPermission("geo", SitePermissions.ALLOW);
+
+  ok(gIdentityHandler._identityBox.classList.contains("grantedPermissions"),
+    "identity-box signals granted permssions");
+
+  gIdentityHandler.setPermission("geo", SitePermissions.getDefault("geo"));
+
+  ok(!gIdentityHandler._identityBox.classList.contains("grantedPermissions"),
+    "identity-box doesn't signal granted permssions");
+
+  gIdentityHandler.setPermission("camera", SitePermissions.BLOCK);
+
+  ok(!gIdentityHandler._identityBox.classList.contains("grantedPermissions"),
+    "identity-box doesn't signal granted permssions");
+
+  gIdentityHandler.setPermission("cookie", SitePermissions.SESSION);
+
+  ok(gIdentityHandler._identityBox.classList.contains("grantedPermissions"),
+    "identity-box signals granted permssions");
 });

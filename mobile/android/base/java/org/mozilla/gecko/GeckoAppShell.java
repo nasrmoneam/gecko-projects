@@ -134,7 +134,8 @@ public class GeckoAppShell
 
         @Override
         public void uncaughtException(final Thread thread, final Throwable exc) {
-            if (GeckoThread.isStateAtLeast(GeckoThread.State.EXITING)) {
+            if (GeckoThread.isState(GeckoThread.State.EXITING) ||
+                    GeckoThread.isState(GeckoThread.State.EXITED)) {
                 // We've called System.exit. All exceptions after this point are Android
                 // berating us for being nasty to it.
                 return;
@@ -895,6 +896,30 @@ public class GeckoAppShell
         }
     }
 
+    private static PendingIntent makePersistentNotificationIntent(
+            int aNotificationID, String aType, String aPersistentData) {
+        Uri.Builder b = new Uri.Builder();
+        Uri u = b.scheme("notification-event").path(Integer.toString(aNotificationID))
+                .appendQueryParameter("type", aType)
+                .build();
+        Intent intent = GeckoService.getIntentToCreateServices(
+                getApplicationContext(), aType, aPersistentData);
+        intent.setData(u);
+        return PendingIntent.getService(
+                getApplicationContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    @WrapForJNI(stubName = "ShowPersistentAlertNotificationWrapper")
+    public static void showPersistentAlertNotification(
+            String aPersistentData,
+            String aImageUrl, String aAlertTitle, String aAlertText,
+            String aAlertCookie, String aAlertName, String aHost) {
+        int notificationID = aAlertName.hashCode();
+        PendingIntent clickIntent = makePersistentNotificationIntent(notificationID, "persistent-notification-click", aPersistentData);
+        PendingIntent closeIntent = makePersistentNotificationIntent(notificationID, "persistent-notification-close", aPersistentData);
+        notificationClient.add(notificationID, aImageUrl, aHost, aAlertTitle, aAlertText, clickIntent, closeIntent);
+    }
+
     @WrapForJNI(stubName = "ShowAlertNotificationWrapper")
     public static void showAlertNotification(String aImageUrl, String aAlertTitle, String aAlertText, String aAlertCookie, String aAlertName, String aHost) {
         // The intent to launch when the user clicks the expanded notification
@@ -917,7 +942,7 @@ public class GeckoAppShell
         ALERT_COOKIES.put(aAlertName, aAlertCookie);
         callObserver(aAlertName, "alertshow", aAlertCookie);
 
-        notificationClient.add(notificationID, aImageUrl, aHost, aAlertTitle, aAlertText, contentIntent);
+        notificationClient.add(notificationID, aImageUrl, aHost, aAlertTitle, aAlertText, contentIntent, null);
     }
 
     @WrapForJNI
@@ -1765,6 +1790,15 @@ public class GeckoAppShell
 
         public String[] getHandlersForMimeType(String mimeType, String action);
         public String[] getHandlersForURL(String url, String action);
+
+        /**
+         * URI of the underlying chrome window to be opened, or null to use the default GeckoView
+         * XUL container <tt>chrome://browser/content/geckoview.xul</tt>.  See
+         * <a href="https://developer.mozilla.org/en/docs/toolkit.defaultChromeURI">https://developer.mozilla.org/en/docs/toolkit.defaultChromeURI</a>
+         *
+         * @return URI or null.
+         */
+        String getDefaultChromeURI();
     };
 
     private static GeckoInterface sGeckoInterface;

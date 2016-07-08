@@ -815,10 +815,6 @@ HTMLBreadcrumbs.prototype = {
       return;
     }
 
-    if (reason !== "markupmutation") {
-      this.inspector.hideNodeMenu();
-    }
-
     let hasInterestingMutations = this._hasInterestingMutations(mutations);
     if (reason === "markupmutation" && !hasInterestingMutations) {
       return;
@@ -832,6 +828,22 @@ HTMLBreadcrumbs.prototype = {
       // remove all the crumbs
       this.cutAfter(-1);
       return;
+    }
+
+    // If this was an interesting deletion; then trim the breadcrumb trail
+    if (reason === "markupmutation") {
+      for (let {type, removed} of mutations) {
+        if (type !== "childList") {
+          continue;
+        }
+
+        for (let node of removed) {
+          let removedIndex = this.indexOf(node);
+          if (removedIndex > -1) {
+            this.cutAfter(removedIndex - 1);
+          }
+        }
+      }
     }
 
     if (!this.selection.isElementNode()) {

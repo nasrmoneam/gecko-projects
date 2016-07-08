@@ -676,6 +676,7 @@ APZCTreeManager::ReceiveInputEvent(InputData& aEvent,
       break;
     } case MOUSE_INPUT: {
       MouseInput& mouseInput = aEvent.AsMouseInput();
+      mouseInput.mHandledByAPZ = true;
 
       if (DragTracker::StartsDrag(mouseInput)) {
         // If this is the start of a drag we need to unambiguously know if it's
@@ -691,8 +692,11 @@ APZCTreeManager::ReceiveInputEvent(InputData& aEvent,
 
       // When the mouse is outside the window we still want to handle dragging
       // but we won't find an APZC. Fallback to root APZC then.
-      if (!apzc && mRootNode) {
-        apzc = mRootNode->GetApzc();
+      { // scope lock
+        MutexAutoLock lock(mTreeLock);
+        if (!apzc && mRootNode) {
+          apzc = mRootNode->GetApzc();
+        }
       }
 
       if (apzc) {
@@ -1155,7 +1159,7 @@ APZCTreeManager::ProcessMouseEvent(WidgetMouseEventBase& aEvent,
 
   aEvent.mRefPoint.x = input.mOrigin.x;
   aEvent.mRefPoint.y = input.mOrigin.y;
-  aEvent.mFlags.mHandledByAPZ = true;
+  aEvent.mFlags.mHandledByAPZ = input.mHandledByAPZ;
   return status;
 }
 

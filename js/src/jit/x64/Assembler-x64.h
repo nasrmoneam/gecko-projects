@@ -154,7 +154,6 @@ static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegCallee = r10;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE0 = rax;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE1 = rdi;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE2 = rbx;
-static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE3 = rsi;
 
 // Registers used in the GenerateFFIIonExit Disable Activation block.
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegReturnData = ecx;
@@ -885,6 +884,13 @@ class Assembler : public AssemblerX86Shared
     void call(JitCode* target) {
         JmpSrc src = masm.call();
         addPendingJump(src, ImmPtr(target->raw()), Relocation::JITCODE);
+    }
+    void call(ImmWord target) {
+        call(ImmPtr((void*)target.value));
+    }
+    void call(ImmPtr target) {
+        JmpSrc src = masm.call();
+        addPendingJump(src, target, Relocation::HARDCODED);
     }
 
     // Emit a CALL or CMP (nop) instruction. ToggleCall can be used to patch

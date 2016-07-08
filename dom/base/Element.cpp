@@ -16,6 +16,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/dom/Animation.h"
 #include "mozilla/dom/Attr.h"
+#include "mozilla/dom/Grid.h"
 #include "nsDOMAttributeMap.h"
 #include "nsIAtom.h"
 #include "nsIContentInlines.h"
@@ -953,7 +954,6 @@ Element::GetClientRects()
   return rectList.forget();
 }
 
-
 //----------------------------------------------------------------------
 
 void
@@ -1733,18 +1733,17 @@ Element::UnbindFromTree(bool aDeep, bool aNullParent)
   if (HasPointerLock()) {
     nsIDocument::UnlockPointer();
   }
+  if (mState.HasState(NS_EVENT_STATE_FULL_SCREEN)) {
+    // The element being removed is an ancestor of the full-screen element,
+    // exit full-screen state.
+    nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
+                                    NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
+                                    nsContentUtils::eDOM_PROPERTIES,
+                                    "RemovedFullscreenElement");
+    // Fully exit full-screen.
+    nsIDocument::ExitFullscreenInDocTree(OwnerDoc());
+  }
   if (aNullParent) {
-    if (IsFullScreenAncestor()) {
-      // The element being removed is an ancestor of the full-screen element,
-      // exit full-screen state.
-      nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                      NS_LITERAL_CSTRING("DOM"), OwnerDoc(),
-                                      nsContentUtils::eDOM_PROPERTIES,
-                                      "RemovedFullscreenElement");
-      // Fully exit full-screen.
-      nsIDocument::ExitFullscreenInDocTree(OwnerDoc());
-    }
-
     if (GetParent() && GetParent()->IsInUncomposedDoc()) {
       // Update the editable descendant count in the ancestors before we
       // lose the reference to the parent.
@@ -3290,6 +3289,21 @@ Element::MozRequestPointerLock()
   OwnerDoc()->RequestPointerLock(this);
 }
 
+void
+Element::GetGridFragments(nsTArray<RefPtr<Grid>>& aResult)
+{
+  nsIFrame* frame = GetPrimaryFrame();
+  if (frame && (frame->GetType() == nsGkAtoms::gridContainerFrame)) {
+    // If primary frame is a nsGridContainerFrame, all the next frames
+    // in flow will also be nsGridContainerFrame.
+    for (; frame != nullptr; frame = frame->GetNextInFlow()) {
+      aResult.AppendElement(
+        new Grid(this, static_cast<nsGridContainerFrame*>(frame))
+      );
+    }
+  }
+}
+
 already_AddRefed<Animation>
 Element::Animate(JSContext* aContext,
                  JS::Handle<JSObject*> aKeyframes,
@@ -3772,7 +3786,7 @@ Element::FontSizeInflation()
 net::ReferrerPolicy
 Element::GetReferrerPolicyAsEnum()
 {
-  if (Preferences::GetBool("network.http.enablePerElementReferrer", false) &&
+  if (Preferences::GetBool("network.http.enablePerElementReferrer", true) &&
       IsHTMLElement()) {
     const nsAttrValue* referrerValue = GetParsedAttr(nsGkAtoms::referrerpolicy);
     if (referrerValue && referrerValue->Type() == nsAttrValue::eEnum) {

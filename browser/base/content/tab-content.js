@@ -611,7 +611,6 @@ if (Services.appinfo.processType == Services.appinfo.PROCESS_TYPE_CONTENT) {
 
 
 var DOMFullscreenHandler = {
-  _fullscreenDoc: null,
 
   init: function() {
     addMessageListener("DOMFullscreen:Entered", this);
@@ -646,11 +645,14 @@ var DOMFullscreenHandler = {
         break;
       }
       case "DOMFullscreen:CleanUp": {
-        if (windowUtils) {
+        // If we've exited fullscreen at this point, no need to record
+        // transaction id or call exit fullscreen. This is especially
+        // important for non-e10s, since in that case, it is possible
+        // that no more paint would be triggered after this point.
+        if (content.document.fullscreenElement && windowUtils) {
           this._lastTransactionId = windowUtils.lastTransactionId;
           windowUtils.exitFullscreen();
         }
-        this._fullscreenDoc = null;
         break;
       }
     }
@@ -663,9 +665,8 @@ var DOMFullscreenHandler = {
         break;
       }
       case "MozDOMFullscreen:NewOrigin": {
-        this._fullscreenDoc = aEvent.target;
         sendAsyncMessage("DOMFullscreen:NewOrigin", {
-          originNoSuffix: this._fullscreenDoc.nodePrincipal.originNoSuffix,
+          originNoSuffix: aEvent.target.nodePrincipal.originNoSuffix,
         });
         break;
       }
@@ -687,7 +688,10 @@ var DOMFullscreenHandler = {
       case "MozAfterPaint": {
         // Only send Painted signal after we actually finish painting
         // the transition for the fullscreen change.
-        if (aEvent.transactionId > this._lastTransactionId) {
+        // Note that this._lastTransactionId is not set when in non-e10s
+        // mode, so we need to check that explicitly.
+        if (!this._lastTransactionId ||
+            aEvent.transactionId > this._lastTransactionId) {
           removeEventListener("MozAfterPaint", this);
           sendAsyncMessage("DOMFullscreen:Painted");
         }
@@ -887,7 +891,12 @@ var UserContextIdNotifier = {
     // Just because we cannot change the userContextId from an active docShell,
     // we don't need to check DOMContentLoaded again.
     this.uninit();
-    let userContextId = content.document.nodePrincipal.originAttributes.userContextId;
+
+    // We use the docShell because content.document can have been loaded before
+    // setting the originAttributes.
+    let loadContext = docShell.QueryInterface(Ci.nsILoadContext);
+    let userContextId = loadContext.originAttributes.userContextId;
+
     sendAsyncMessage("Browser:WindowCreated", { userContextId });
   }
 };

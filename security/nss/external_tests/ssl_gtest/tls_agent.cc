@@ -114,14 +114,14 @@ bool TlsAgent::ConfigServerCert(const std::string& name, bool updateKeyBits) {
   return rv == SECSuccess;
 }
 
-bool TlsAgent::EnsureTlsSetup() {
+bool TlsAgent::EnsureTlsSetup(PRFileDesc *modelSocket) {
   // Don't set up twice
   if (ssl_fd_) return true;
 
   if (adapter_->mode() == STREAM) {
-    ssl_fd_ = SSL_ImportFD(nullptr, pr_fd_);
+    ssl_fd_ = SSL_ImportFD(modelSocket, pr_fd_);
   } else {
-    ssl_fd_ = DTLS_ImportFD(nullptr, pr_fd_);
+    ssl_fd_ = DTLS_ImportFD(modelSocket, pr_fd_);
   }
 
   EXPECT_NE(nullptr, ssl_fd_);
@@ -129,6 +129,11 @@ bool TlsAgent::EnsureTlsSetup() {
   pr_fd_ = nullptr;
 
   SECStatus rv = SSL_VersionRangeSet(ssl_fd_, &vrange_);
+  EXPECT_EQ(SECSuccess, rv);
+  if (rv != SECSuccess) return false;
+
+  // Needs to be set before configuring server certs.
+  rv = SSL_OptionSet(ssl_fd_, SSL_NO_STEP_DOWN, PR_TRUE);
   EXPECT_EQ(SECSuccess, rv);
   if (rv != SECSuccess) return false;
 
@@ -205,8 +210,8 @@ void TlsAgent::RequestClientAuth(bool requireAuth) {
   expect_client_auth_ = true;
 }
 
-void TlsAgent::StartConnect() {
-  EXPECT_TRUE(EnsureTlsSetup());
+void TlsAgent::StartConnect(PRFileDesc *model) {
+  EXPECT_TRUE(EnsureTlsSetup(model));
 
   SECStatus rv;
   rv = SSL_ResetHandshake(ssl_fd_, role_ == SERVER ? PR_TRUE : PR_FALSE);
@@ -214,7 +219,14 @@ void TlsAgent::StartConnect() {
   SetState(STATE_CONNECTING);
 }
 
-void TlsAgent::DisableCiphersByKeyExchange(SSLKEAType kea) {
+void TlsAgent::DisableAllCiphers() {
+  for (size_t i = 0; i < SSL_NumImplementedCiphers; ++i) {
+    SECStatus rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], PR_FALSE);
+    EXPECT_EQ(SECSuccess, rv);
+  }
+}
+
+void TlsAgent::EnableCiphersByKeyExchange(SSLKEAType kea) {
   EXPECT_TRUE(EnsureTlsSetup());
 
   for (size_t i = 0; i < SSL_NumImplementedCiphers; ++i) {
@@ -225,8 +237,8 @@ void TlsAgent::DisableCiphersByKeyExchange(SSLKEAType kea) {
     ASSERT_EQ(SECSuccess, rv);
     EXPECT_EQ(sizeof(csinfo), csinfo.length);
 
-    if (csinfo.keaType == kea) {
-      rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], PR_FALSE);
+    if (csinfo.keaType == kea && !csinfo.isExportable) {
+      rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], PR_TRUE);
       EXPECT_EQ(SECSuccess, rv);
     }
   }
@@ -242,18 +254,17 @@ void TlsAgent::EnableCiphersByAuthType(SSLAuthType authType) {
                                           &csinfo, sizeof(csinfo));
     ASSERT_EQ(SECSuccess, rv);
 
-    bool enable = csinfo.authType == authType;
-    rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], enable);
-    EXPECT_EQ(SECSuccess, rv);
+    if (csinfo.authType == authType && !csinfo.isExportable) {
+      rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], PR_TRUE);
+      EXPECT_EQ(SECSuccess, rv);
+    }
   }
 }
 
 void TlsAgent::EnableSingleCipher(uint16_t cipher) {
-  for (size_t i = 0; i < SSL_NumImplementedCiphers; ++i) {
-    bool enable = SSL_ImplementedCiphers[i] == cipher;
-    SECStatus rv = SSL_CipherPrefSet(ssl_fd_, SSL_ImplementedCiphers[i], enable);
-    EXPECT_EQ(SECSuccess, rv);
-  }
+  DisableAllCiphers();
+  SECStatus rv = SSL_CipherPrefSet(ssl_fd_, cipher, PR_TRUE);
+  EXPECT_EQ(SECSuccess, rv);
 }
 
 void TlsAgent::SetSessionTicketsEnabled(bool en) {
@@ -269,6 +280,14 @@ void TlsAgent::SetSessionCacheEnabled(bool en) {
 
   SECStatus rv = SSL_OptionSet(ssl_fd_, SSL_NO_CACHE,
                                en ? PR_FALSE : PR_TRUE);
+  EXPECT_EQ(SECSuccess, rv);
+}
+
+void TlsAgent::Set0RttEnabled(bool en) {
+  EXPECT_TRUE(EnsureTlsSetup());
+
+  SECStatus rv = SSL_OptionSet(ssl_fd_, SSL_ENABLE_0RTT_DATA,
+                               en ? PR_TRUE : PR_FALSE);
   EXPECT_EQ(SECSuccess, rv);
 }
 
@@ -430,7 +449,12 @@ void TlsAgent::CheckAlpn(SSLNextProtoState expected_state,
                                   &chosen_len, sizeof(chosen));
   EXPECT_EQ(SECSuccess, rv);
   EXPECT_EQ(expected_state, state);
-  EXPECT_EQ(expected, std::string(chosen, chosen_len));
+  if (state == SSL_NEXT_PROTO_NO_SUPPORT) {
+    EXPECT_EQ("", expected);
+  } else {
+    EXPECT_NE("", expected);
+    EXPECT_EQ(expected, std::string(chosen, chosen_len));
+  }
 }
 
 void TlsAgent::EnableSrtp() {
@@ -520,8 +544,11 @@ void TlsAgent::Connected() {
 
   if (expected_version_ >= SSL_LIBRARY_VERSION_TLS_1_3) {
     PRInt32 cipherSuites = SSLInt_CountTls13CipherSpecs(ssl_fd_);
-    EXPECT_EQ(((mode_ == DGRAM) && (role_ == CLIENT)) ? 2 : 1, cipherSuites);
+    // We use one ciphersuite in each direction, plus one that's kept around
+    // by DTLS for retransmission.
+    EXPECT_EQ(((mode_ == DGRAM) && (role_ == CLIENT)) ? 3 : 2, cipherSuites);
   }
+
   SetState(STATE_CONNECTED);
 }
 
@@ -541,6 +568,18 @@ void TlsAgent::CheckExtendedMasterSecret(bool expected) {
   }
   ASSERT_EQ(expected, info_.extendedMasterSecretUsed != PR_FALSE)
       << "unexpected extended master secret state for " << name_;
+}
+
+void TlsAgent::CheckEarlyDataAccepted(bool expected) {
+  if (version() < SSL_LIBRARY_VERSION_TLS_1_3) {
+    expected = false;
+  }
+  ASSERT_EQ(expected, info_.earlyDataAccepted != PR_FALSE)
+      << "unexpected early data state for " << name_;
+}
+
+void TlsAgent::CheckSecretsDestroyed() {
+  ASSERT_EQ(PR_TRUE, SSLInt_CheckSecretsDestroyed(ssl_fd_));
 }
 
 void TlsAgent::DisableRollbackDetection() {
@@ -654,6 +693,11 @@ void TlsAgent::SendData(size_t bytes, size_t blocksize) {
   }
 }
 
+static bool ErrorIsNonFatal(PRErrorCode code) {
+  return code == PR_WOULD_BLOCK_ERROR ||
+      code == SSL_ERROR_RX_SHORT_DTLS_READ;
+}
+
 void TlsAgent::ReadBytes() {
   uint8_t block[1024];
 
@@ -676,7 +720,7 @@ void TlsAgent::ReadBytes() {
   }
 
   // If closed, then don't bother waiting around.
-  if (rv > 0 || (rv < 0 && err == PR_WOULD_BLOCK_ERROR)) {
+  if (rv > 0 || (rv < 0 && ErrorIsNonFatal(err))) {
     LOG("Re-arming");
     Poller::Instance()->Wait(READABLE_EVENT, adapter_, this,
                              &TlsAgent::ReadableCallback);
@@ -722,9 +766,8 @@ void TlsAgentTestBase::Init() {
       role_ == TlsAgent::CLIENT ? TlsAgent::kClient : TlsAgent::kServerRsa,
       role_, mode_);
   agent_->Init();
-  fd_ = DummyPrSocket::CreateFD("dummy", mode_);
-  agent_->adapter()->SetPeer(
-      DummyPrSocket::GetAdapter(fd_));
+  fd_ = DummyPrSocket::CreateFD(agent_->role_str(), mode_);
+  agent_->adapter()->SetPeer(DummyPrSocket::GetAdapter(fd_));
   agent_->StartConnect();
 }
 

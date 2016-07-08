@@ -24,6 +24,7 @@
 #include "ImageContainer.h"
 #include "DOMMediaStream.h"
 #include "MediaStreamTrack.h"
+#include "MediaStreamListener.h"
 #include "VideoUtils.h"
 #ifdef WEBRTC_GONK
 #include "GrallocImages.h"
@@ -994,6 +995,16 @@ void MediaPipeline::RtcpPacketReceived(TransportLayer *layer,
     return;
   }
 
+  // We do not filter RTCP for send pipelines, since the webrtc.org code for
+  // senders already has logic to ignore RRs that do not apply.
+  // TODO bug 1279153: remove SR check for reduced size RTCP
+  if (filter_ && direction_ == RECEIVE) {
+    if (!filter_->FilterSenderReport(data, len)) {
+      MOZ_MTLOG(ML_NOTICE, "Dropping incoming RTCP packet; filtered out");
+      return;
+    }
+  }
+
   // Make a copy rather than cast away constness
   auto inner_data = MakeUnique<unsigned char[]>(len);
   memcpy(inner_data.get(), data, len);
@@ -1006,15 +1017,6 @@ void MediaPipeline::RtcpPacketReceived(TransportLayer *layer,
 
   if (!NS_SUCCEEDED(res))
     return;
-
-  // We do not filter RTCP for send pipelines, since the webrtc.org code for
-  // senders already has logic to ignore RRs that do not apply.
-  if (filter_ && direction_ == RECEIVE) {
-    if (!filter_->FilterSenderReport(inner_data.get(), out_len)) {
-      MOZ_MTLOG(ML_NOTICE, "Dropping rtcp packet");
-      return;
-    }
-  }
 
   MOZ_MTLOG(ML_DEBUG, description_ << " received RTCP packet.");
   increment_rtcp_packets_received();
@@ -1073,7 +1075,7 @@ void MediaPipeline::PacketReceived(TransportLayer *layer,
 }
 
 class MediaPipelineTransmit::PipelineListener
-  : public MediaStreamTrackDirectListener
+  : public DirectMediaStreamTrackListener
 {
 friend class MediaPipelineTransmit;
 public:
@@ -1148,7 +1150,7 @@ public:
                            StreamTime aTrackOffset,
                            const MediaSegment& aQueuedMedia) override;
 
-  // Implement MediaStreamTrackDirectListener
+  // Implement DirectMediaStreamTrackListener
   void NotifyRealtimeTrackData(MediaStreamGraph* aGraph,
                                StreamTime aTrackOffset,
                                const MediaSegment& aMedia) override;

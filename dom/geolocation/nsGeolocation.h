@@ -12,7 +12,6 @@
 
 #include "mozilla/StaticPtr.h"
 #include "nsCOMPtr.h"
-#include "nsAutoPtr.h"
 #include "nsTArray.h"
 #include "nsITimer.h"
 #include "nsIObserver.h"
@@ -72,9 +71,6 @@ public:
   }
 
   nsresult Init();
-
-  void HandleMozsettingChanged(nsISupports* aSubject);
-  void HandleMozsettingValue(const bool aValue);
 
   // Management of the Geolocation objects
   void AddLocator(mozilla::dom::Geolocation* locator);

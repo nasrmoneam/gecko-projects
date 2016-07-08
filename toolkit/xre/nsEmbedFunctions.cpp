@@ -54,7 +54,6 @@
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "chrome/common/child_process.h"
-#include "chrome/common/notification_service.h"
 
 #include "mozilla/ipc/BrowserProcessSubThread.h"
 #include "mozilla/ipc/GeckoChildProcessHost.h"
@@ -73,10 +72,11 @@
 
 #include "GMPProcessChild.h"
 #include "GMPLoader.h"
+#include "mozilla/gfx/GPUProcessImpl.h"
 
 #include "GeckoProfiler.h"
 
- #include "base/histogram.h"
+#include "mozilla/Telemetry.h"
 
 #if defined(MOZ_SANDBOX) && defined(XP_WIN)
 #include "mozilla/sandboxTarget.h"
@@ -317,10 +317,6 @@ XRE_InitChildProcess(int aArgc,
   setupProfilingStuff();
 #endif
 
-  // This is needed by Telemetry to initialize histogram collection.
-  UniquePtr<base::StatisticsRecorder> statisticsRecorder =
-    MakeUnique<base::StatisticsRecorder>();
-
 #if !defined(MOZ_WIDGET_ANDROID) && !defined(MOZ_WIDGET_GONK)
   // On non-Fennec Gecko, the GMPLoader code resides in plugin-container,
   // and we must forward it through to the GMP code here.
@@ -365,6 +361,14 @@ XRE_InitChildProcess(int aArgc,
 
   // NB: This must be called before profiler_init
   NS_LogInit();
+
+  // This is needed by Telemetry to initialize histogram collection.
+  // NB: This must be called after NS_LogInit().
+  // NS_LogInit must be called before Telemetry::CreateStatisticsRecorder
+  // so as to avoid many log messages of the form
+  //   WARNING: XPCOM objects created/destroyed from static ctor/dtor: [..]
+  // See bug 1279614.
+  Telemetry::CreateStatisticsRecorder();
 
   mozilla::LogModule::Init();
 
@@ -549,7 +553,6 @@ XRE_InitChildProcess(int aArgc,
 #endif
 
   base::AtExitManager exitManager;
-  NotificationService notificationService;
 
   nsresult rv = XRE_InitCommandLine(aArgc, aArgv);
   if (NS_FAILED(rv)) {
@@ -566,6 +569,9 @@ XRE_InitChildProcess(int aArgc,
       break;
   case GeckoProcessType_GMPlugin:
       uiLoopType = MessageLoop::TYPE_DEFAULT;
+      break;
+  case GeckoProcessType_GPU:
+      uiLoopType = MessageLoop::TYPE_UI;
       break;
   default:
       uiLoopType = MessageLoop::TYPE_UI;
@@ -622,6 +628,10 @@ XRE_InitChildProcess(int aArgc,
         process = new gmp::GMPProcessChild(parentPID);
         break;
 
+      case GeckoProcessType_GPU:
+        process = new gfx::GPUProcessImpl(parentPID);
+        break;
+
       default:
         NS_RUNTIMEABORT("Unknown main thread class");
       }
@@ -668,7 +678,7 @@ XRE_InitChildProcess(int aArgc,
     }
   }
 
-  statisticsRecorder = nullptr;
+  Telemetry::DestroyStatisticsRecorder();
   profiler_shutdown();
   NS_LogTerm();
   return XRE_DeinitCommandLine();

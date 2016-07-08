@@ -6,11 +6,12 @@
 /* This is a Cross-Platform ICO Decoder, which should work everywhere, including
  * Big-Endian machines like the PowerPC. */
 
+#include "nsICODecoder.h"
+
 #include <stdlib.h>
 
 #include "mozilla/EndianUtils.h"
 #include "mozilla/Move.h"
-#include "nsICODecoder.h"
 
 #include "RasterImage.h"
 
@@ -53,6 +54,7 @@ nsICODecoder::GetNumColors()
 nsICODecoder::nsICODecoder(RasterImage* aImage)
   : Decoder(aImage)
   , mLexer(Transition::To(ICOState::HEADER, ICOHEADERSIZE))
+  , mDoNotResume(WrapNotNull(new DoNotResume))
   , mBiggestResourceColorDepth(0)
   , mBestResourceDelta(INT_MIN)
   , mBestResourceColorDepth(0)
@@ -87,9 +89,18 @@ nsICODecoder::GetFinalStateFromContainedDecoder()
     return;
   }
 
-  // Finish the internally used decoder.
-  mContainedDecoder->CompleteDecode();
+  MOZ_ASSERT(mContainedSourceBuffer,
+             "Should have a SourceBuffer if we have a decoder");
 
+  // Let the contained decoder finish up if necessary.
+  if (!mContainedSourceBuffer->IsComplete()) {
+    mContainedSourceBuffer->Complete(NS_OK);
+    if (NS_FAILED(mContainedDecoder->Decode(mDoNotResume))) {
+      PostDataError();
+    }
+  }
+
+  // Make our state the same as the state of the contained decoder.
   mDecodeDone = mContainedDecoder->GetDecodeDone();
   mDataError = mDataError || mContainedDecoder->HasDataError();
   mFailCode = NS_SUCCEEDED(mFailCode) ? mContainedDecoder->GetDecoderError()
@@ -102,58 +113,57 @@ nsICODecoder::GetFinalStateFromContainedDecoder()
   MOZ_ASSERT(HasError() || !mCurrentFrame || mCurrentFrame->IsFinished());
 }
 
-// A BMP inside of an ICO has *2 height because of the AND mask
-// that follows the actual bitmap.  The BMP shouldn't know about
-// this difference though.
 bool
-nsICODecoder::FixBitmapHeight(int8_t* bih)
+nsICODecoder::CheckAndFixBitmapSize(int8_t* aBIH)
 {
-  // Get the height from the BMP file information header.
-  int32_t height = LittleEndian::readInt32(bih + 8);
+  // Get the width from the BMP file information header. This is
+  // (unintuitively) a signed integer; see the documentation at:
+  //
+  //   https://msdn.microsoft.com/en-us/library/windows/desktop/dd183376(v=vs.85).aspx
+  //
+  // However, we reject negative widths since they aren't meaningful.
+  const int32_t width = LittleEndian::readInt32(aBIH + 4);
+  if (width <= 0 || width > 256) {
+    return false;
+  }
+
+  // Verify that the BMP width matches the width we got from the ICO directory
+  // entry. If not, decoding fails, because if we were to allow it to continue
+  // the intrinsic size of the image wouldn't match the size of the decoded
+  // surface.
+  if (width != int32_t(GetRealWidth())) {
+    return false;
+  }
+
+  // Get the height from the BMP file information header. This is also signed,
+  // but in this case negative values are meaningful; see below.
+  int32_t height = LittleEndian::readInt32(aBIH + 8);
+  if (height == 0) {
+    return false;
+  }
 
   // BMPs can be stored inverted by having a negative height.
+  // XXX(seth): Should we really be writing the absolute value into the BIH
+  // below? Seems like this could be problematic for inverted BMPs.
   height = abs(height);
 
-  // The bitmap height is by definition * 2 what it should be to account for
-  // the 'AND mask'. It is * 2 even if the `AND mask` is not present.
+  // The height field is double the actual height of the image to account for
+  // the AND mask. This is true even if the AND mask is not present.
   height /= 2;
-
   if (height > 256) {
     return false;
   }
 
-  // We should always trust the height from the bitmap itself instead of
-  // the ICO height.  So fix the ICO height.
-  if (height == 256) {
-    mDirEntry.mHeight = 0;
-  } else {
-    mDirEntry.mHeight = (int8_t)height;
-  }
-
-  // Fix the BMP height in the BIH so that the BMP decoder can work properly
-  LittleEndian::writeInt32(bih + 8, height);
-  return true;
-}
-
-// We should always trust the contained resource for the width
-// information over our own information.
-bool
-nsICODecoder::FixBitmapWidth(int8_t* bih)
-{
-  // Get the width from the BMP file information header.
-  int32_t width = LittleEndian::readInt32(bih + 4);
-
-  if (width > 256) {
+  // Verify that the BMP height matches the height we got from the ICO directory
+  // entry. If not, again, decoding fails.
+  if (height != int32_t(GetRealHeight())) {
     return false;
   }
 
-  // We should always trust the width from the bitmap itself instead of
-  // the ICO width.
-  if (width == 256) {
-    mDirEntry.mWidth = 0;
-  } else {
-    mDirEntry.mWidth = (int8_t)width;
-  }
+  // Fix the BMP height in the BIH so that the BMP decoder, which does not know
+  // about the AND mask that may follow the actual bitmap, can work properly.
+  LittleEndian::writeInt32(aBIH + 8, GetRealHeight());
+
   return true;
 }
 
@@ -291,14 +301,12 @@ nsICODecoder::SniffResource(const char* aData)
                        PNGSIGNATURESIZE);
   if (isPNG) {
     // Create a PNG decoder which will do the rest of the work for us.
-    mContainedDecoder = new nsPNGDecoder(mImage);
-    mContainedDecoder->SetMetadataDecode(IsMetadataDecode());
-    mContainedDecoder->SetDecoderFlags(GetDecoderFlags());
-    mContainedDecoder->SetSurfaceFlags(GetSurfaceFlags());
-    if (mDownscaler) {
-      mContainedDecoder->SetTargetSize(mDownscaler->TargetSize());
-    }
-    mContainedDecoder->Init();
+    mContainedSourceBuffer = new SourceBuffer();
+    mContainedSourceBuffer->ExpectLength(mDirEntry.mBytesInRes);
+    mContainedDecoder =
+      DecoderFactory::CreateDecoderForICOResource(DecoderType::PNG,
+                                                  WrapNotNull(mContainedSourceBuffer),
+                                                  WrapNotNull(this));
 
     if (!WriteToContainedDecoder(aData, PNGSIGNATURESIZE)) {
       return Transition::TerminateFailure();
@@ -371,25 +379,20 @@ nsICODecoder::ReadBIH(const char* aData)
 
   // Create a BMP decoder which will do most of the work for us; the exception
   // is the AND mask, which isn't present in standalone BMPs.
-  RefPtr<nsBMPDecoder> bmpDecoder = new nsBMPDecoder(mImage, dataOffset);
-  mContainedDecoder = bmpDecoder;
-  mContainedDecoder->SetMetadataDecode(IsMetadataDecode());
-  mContainedDecoder->SetDecoderFlags(GetDecoderFlags());
-  mContainedDecoder->SetSurfaceFlags(GetSurfaceFlags());
-  if (mDownscaler) {
-    mContainedDecoder->SetTargetSize(mDownscaler->TargetSize());
-  }
-  mContainedDecoder->Init();
+  mContainedSourceBuffer = new SourceBuffer();
+  mContainedSourceBuffer->ExpectLength(mDirEntry.mBytesInRes);
+  mContainedDecoder =
+    DecoderFactory::CreateDecoderForICOResource(DecoderType::BMP,
+                                                WrapNotNull(mContainedSourceBuffer),
+                                                WrapNotNull(this),
+                                                Some(dataOffset));
+  RefPtr<nsBMPDecoder> bmpDecoder =
+    static_cast<nsBMPDecoder*>(mContainedDecoder.get());
 
-  // Fix the ICO height from the BIH. It needs to be halved so our BMP decoder
-  // will understand, because the BMP decoder doesn't expect the alpha mask that
-  // follows the BMP data in an ICO.
-  if (!FixBitmapHeight(reinterpret_cast<int8_t*>(mBIHraw))) {
-    return Transition::TerminateFailure();
-  }
-
-  // Fix the ICO width from the BIH.
-  if (!FixBitmapWidth(reinterpret_cast<int8_t*>(mBIHraw))) {
+  // Verify that the BIH width and height values match the ICO directory entry,
+  // and fix the BIH height value to compensate for the fact that the underlying
+  // BMP decoder doesn't know about AND masks.
+  if (!CheckAndFixBitmapSize(reinterpret_cast<int8_t*>(mBIHraw))) {
     return Transition::TerminateFailure();
   }
 
@@ -644,7 +647,22 @@ nsICODecoder::WriteInternal(const char* aBuffer, uint32_t aCount)
 bool
 nsICODecoder::WriteToContainedDecoder(const char* aBuffer, uint32_t aCount)
 {
-  mContainedDecoder->Write(aBuffer, aCount);
+  MOZ_ASSERT(mContainedDecoder);
+  MOZ_ASSERT(mContainedSourceBuffer);
+
+  // Append the provided data to the SourceBuffer that the contained decoder is
+  // reading from.
+  mContainedSourceBuffer->Append(aBuffer, aCount);
+
+  // Write to the contained decoder. If we run out of data, the ICO decoder will
+  // get resumed when there's more data available, as usual, so we don't need
+  // the contained decoder to get resumed too. To avoid that, we provide an
+  // IResumable which just does nothing.
+  if (NS_FAILED(mContainedDecoder->Decode(mDoNotResume))) {
+    PostDataError();
+  }
+
+  // Make our state the same as the state of the contained decoder.
   mProgress |= mContainedDecoder->TakeProgress();
   mInvalidRect.UnionRect(mInvalidRect, mContainedDecoder->TakeInvalidRect());
   if (mContainedDecoder->HasDataError()) {
@@ -653,6 +671,7 @@ nsICODecoder::WriteToContainedDecoder(const char* aBuffer, uint32_t aCount)
   if (mContainedDecoder->HasDecoderError()) {
     PostDecoderError(mContainedDecoder->GetDecoderError());
   }
+
   return !HasError();
 }
 

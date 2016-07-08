@@ -262,6 +262,8 @@ MediaDecoderStateMachine::MediaDecoderStateMachine(MediaDecoder* aDecoder,
   mAudioOffloading(false),
   mBuffered(mTaskQueue, TimeIntervals(),
             "MediaDecoderStateMachine::mBuffered (Mirror)"),
+  mIsReaderSuspended(mTaskQueue, true,
+               "MediaDecoderStateMachine::mIsReaderSuspended (Mirror)"),
   mEstimatedDuration(mTaskQueue, NullableTimeUnit(),
                     "MediaDecoderStateMachine::mEstimatedDuration (Mirror)"),
   mExplicitDuration(mTaskQueue, Maybe<double>(),
@@ -339,6 +341,7 @@ MediaDecoderStateMachine::InitializationTask(MediaDecoder* aDecoder)
 
   // Connect mirrors.
   mBuffered.Connect(mReader->CanonicalBuffered());
+  mIsReaderSuspended.Connect(mReader->CanonicalIsSuspended());
   mEstimatedDuration.Connect(aDecoder->CanonicalEstimatedDuration());
   mExplicitDuration.Connect(aDecoder->CanonicalExplicitDuration());
   mPlayState.Connect(aDecoder->CanonicalPlayState());
@@ -357,6 +360,7 @@ MediaDecoderStateMachine::InitializationTask(MediaDecoder* aDecoder)
 
   // Initialize watchers.
   mWatchManager.Watch(mBuffered, &MediaDecoderStateMachine::BufferedRangeUpdated);
+  mWatchManager.Watch(mIsReaderSuspended, &MediaDecoderStateMachine::ReaderSuspendedChanged);
   mWatchManager.Watch(mState, &MediaDecoderStateMachine::UpdateNextFrameStatus);
   mWatchManager.Watch(mAudioCompleted, &MediaDecoderStateMachine::UpdateNextFrameStatus);
   mWatchManager.Watch(mVideoCompleted, &MediaDecoderStateMachine::UpdateNextFrameStatus);
@@ -598,9 +602,7 @@ MediaDecoderStateMachine::OnAudioDecoded(MediaData* aAudioSample)
   mDecodedAudioEndTime = std::max(audio->GetEndTime(), mDecodedAudioEndTime);
 
   SAMPLE_LOG("OnAudioDecoded [%lld,%lld] disc=%d",
-             (audio ? audio->mTime : -1),
-             (audio ? audio->GetEndTime() : -1),
-             (audio ? audio->mDiscontinuity : 0));
+             audio->mTime, audio->GetEndTime(), audio->mDiscontinuity);
 
   switch (mState) {
     case DECODER_STATE_BUFFERING: {
@@ -788,9 +790,7 @@ MediaDecoderStateMachine::OnVideoDecoded(MediaData* aVideoSample,
   mDecodedVideoEndTime = std::max(mDecodedVideoEndTime, video->GetEndTime());
 
   SAMPLE_LOG("OnVideoDecoded [%lld,%lld] disc=%d",
-             (video ? video->mTime : -1),
-             (video ? video->GetEndTime() : -1),
-             (video ? video->mDiscontinuity : 0));
+             video->mTime, video->GetEndTime(), video->mDiscontinuity);
 
   switch (mState) {
     case DECODER_STATE_BUFFERING: {
@@ -918,51 +918,51 @@ nsresult MediaDecoderStateMachine::Init(MediaDecoder* aDecoder)
 void
 MediaDecoderStateMachine::SetMediaDecoderReaderWrapperCallback()
 {
-  mAudioCallbackID =
-    mReader->SetAudioCallback(this,
-                              &MediaDecoderStateMachine::OnAudioDecoded,
-                              &MediaDecoderStateMachine::OnAudioNotDecoded);
+  MOZ_ASSERT(OnTaskQueue());
 
-  mVideoCallbackID =
-    mReader->SetVideoCallback(this,
-                              &MediaDecoderStateMachine::OnVideoDecoded,
-                              &MediaDecoderStateMachine::OnVideoNotDecoded);
+  mAudioCallback = mReader->AudioCallback().Connect(
+    mTaskQueue, [this] (AudioCallbackData aData) {
+    if (aData.is<MediaData*>()) {
+      OnAudioDecoded(aData.as<MediaData*>());
+    } else {
+      OnNotDecoded(MediaData::AUDIO_DATA, aData.as<MediaDecoderReader::NotDecodedReason>());
+    }
+  });
 
-  RefPtr<MediaDecoderStateMachine> self = this;
-  mWaitAudioCallbackID =
-    mReader->SetWaitAudioCallback(
-      [self] (MediaData::Type aType) -> void {
-        self->EnsureAudioDecodeTaskQueued();
-      },
-      [self] (WaitForDataRejectValue aRejection) -> void {});
+  mVideoCallback = mReader->VideoCallback().Connect(
+    mTaskQueue, [this] (VideoCallbackData aData) {
+    typedef Tuple<MediaData*, TimeStamp> Type;
+    if (aData.is<Type>()) {
+      auto&& v = aData.as<Type>();
+      OnVideoDecoded(Get<0>(v), Get<1>(v));
+    } else {
+      OnNotDecoded(MediaData::VIDEO_DATA, aData.as<MediaDecoderReader::NotDecodedReason>());
+    }
+  });
 
-  mWaitVideoCallbackID =
-    mReader->SetWaitVideoCallback(
-      [self] (MediaData::Type aType) -> void {
-        self->EnsureVideoDecodeTaskQueued();
-      },
-      [self] (WaitForDataRejectValue aRejection) -> void {});
+  mAudioWaitCallback = mReader->AudioWaitCallback().Connect(
+    mTaskQueue, [this] (WaitCallbackData aData) {
+    if (aData.is<MediaData::Type>()) {
+      EnsureAudioDecodeTaskQueued();
+    }
+  });
 
-  DECODER_LOG("MDSM set audio callbacks: mAudioCallbackID = %d\n", (int)mAudioCallbackID);
-  DECODER_LOG("MDSM set video callbacks: mVideoCallbackID = %d\n", (int)mVideoCallbackID);
-  DECODER_LOG("MDSM set wait audio callbacks: mWaitAudioCallbackID = %d\n", (int)mWaitAudioCallbackID);
-  DECODER_LOG("MDSM set wait video callbacks: mWaitVideoCallbackID = %d\n", (int)mWaitVideoCallbackID);
+  mVideoWaitCallback = mReader->VideoWaitCallback().Connect(
+    mTaskQueue, [this] (WaitCallbackData aData) {
+    if (aData.is<MediaData::Type>()) {
+      EnsureVideoDecodeTaskQueued();
+    }
+  });
 }
 
 void
 MediaDecoderStateMachine::CancelMediaDecoderReaderWrapperCallback()
 {
-    DECODER_LOG("MDSM cancel audio callbacks: mVideoCallbackID = %d\n", (int)mAudioCallbackID);
-    mReader->CancelAudioCallback(mAudioCallbackID);
-
-    DECODER_LOG("MDSM cancel video callbacks: mVideoCallbackID = %d\n", (int)mVideoCallbackID);
-    mReader->CancelVideoCallback(mVideoCallbackID);
-
-    DECODER_LOG("MDSM cancel wait audio callbacks: mWaitAudioCallbackID = %d\n", (int)mWaitAudioCallbackID);
-    mReader->CancelWaitAudioCallback(mWaitAudioCallbackID);
-
-    DECODER_LOG("MDSM cancel wait video callbacks: mWaitVideoCallbackID = %d\n", (int)mWaitVideoCallbackID);
-    mReader->CancelWaitVideoCallback(mWaitVideoCallbackID);
+  MOZ_ASSERT(OnTaskQueue());
+  mAudioCallback.Disconnect();
+  mVideoCallback.Disconnect();
+  mAudioWaitCallback.Disconnect();
+  mVideoWaitCallback.Disconnect();
 }
 
 void MediaDecoderStateMachine::StopPlayback()
@@ -1167,6 +1167,13 @@ MediaDecoderStateMachine::SetDormant(bool aDormant)
       if (mQueuedSeek.Exists()) {
         // Keep latest seek target
       } else if (mSeekTask && mSeekTask->Exists()) {
+        // Because both audio and video decoders are going to be reset in this
+        // method later, we treat a VideoOnly seek task as a normal Accurate
+        // seek task so that while it is resumed, both audio and video playback
+        // are handled.
+        if (mSeekTask->GetSeekJob().mTarget.IsVideoOnly()) {
+          mSeekTask->GetSeekJob().mTarget.SetType(SeekTarget::Accurate);
+        }
         mQueuedSeek = Move(mSeekTask->GetSeekJob());
         mSeekTaskRequest.DisconnectIfExists();
       } else {
@@ -1346,8 +1353,9 @@ void MediaDecoderStateMachine::PlayStateChanged()
 void MediaDecoderStateMachine::VisibilityChanged()
 {
   MOZ_ASSERT(OnTaskQueue());
-  DECODER_LOG("VisibilityChanged: is visible = %d, video decode suspended = %d",
-              mIsVisible.Ref(), mVideoDecodeSuspended);
+  DECODER_LOG("VisibilityChanged: is visible = %d, video decode suspended = %d, "
+              "reader suspended = %d",
+              mIsVisible.Ref(), mVideoDecodeSuspended, mIsReaderSuspended.Ref());
 
   // Not suspending background videos so there's nothing to do.
   if (!MediaPrefs::MDSMSuspendBackgroundVideoEnabled()) {
@@ -1382,6 +1390,10 @@ void MediaDecoderStateMachine::VisibilityChanged()
   if (mVideoDecodeSuspended) {
     mVideoDecodeSuspended = false;
 
+    if (mIsReaderSuspended) {
+      return;
+    }
+
     // If an existing seek is in flight don't bother creating a new
     // one to catch up.
     if (mSeekTask || mQueuedSeek.Exists()) {
@@ -1389,23 +1401,31 @@ void MediaDecoderStateMachine::VisibilityChanged()
     }
 
     // Start video-only seek to the current time...
-    InitiateVideoDecodeRecoverySeek();
+    InitiateDecodeRecoverySeek(TrackSet(TrackInfo::kVideoTrack));
   }
 }
 
-// InitiateVideoDecodeRecoverySeek is responsible for setting up a video-only
-// seek using the seek task. When suspension of decoding for videos that are in
+// InitiateDecodeRecoverySeek is responsible for setting up a seek using the
+// seek task for the following situations:
+// 1. When suspension of decoding for videos that are in
 // background tabs (ie. invisible) is enabled, the audio keeps playing and when
 // switching back to decoding video, it is highly desirable to not cause the
 // audio to pause as the video is seeked else there be a noticeable audio glitch
 // as the tab becomes visible.
-void MediaDecoderStateMachine::InitiateVideoDecodeRecoverySeek()
+// 2. When there is a decoder limit set, suspended videos may be resumed and
+// require the seek to recover the original seek position for both audio and
+// video.
+void MediaDecoderStateMachine::InitiateDecodeRecoverySeek(TrackSet aTracks)
 {
   MOZ_ASSERT(OnTaskQueue());
 
+  DECODER_LOG("InitiateDecodeRecoverySeek");
+
   SeekJob seekJob;
-  seekJob.mTarget = SeekTarget(GetMediaTime(),
-                               SeekTarget::Type::AccurateVideoOnly,
+  SeekTarget::Type seekTargetType = aTracks.contains(TrackInfo::kAudioTrack)
+                                    ? SeekTarget::Type::Accurate
+                                    : SeekTarget::Type::AccurateVideoOnly;
+  seekJob.mTarget = SeekTarget(GetMediaTime(), seekTargetType,
                                MediaDecoderEventVisibility::Suppressed);
 
   SetState(DECODER_STATE_SEEKING);
@@ -1427,7 +1447,7 @@ void MediaDecoderStateMachine::InitiateVideoDecodeRecoverySeek()
 
   // Reset our state machine and decoding pipeline before seeking.
   if (mSeekTask->NeedToResetMDSM()) {
-    Reset(MediaDecoderReader::VIDEO_ONLY);
+    Reset(aTracks);
   }
 
   // Do the seek.
@@ -1458,6 +1478,19 @@ void MediaDecoderStateMachine::BufferedRangeUpdated()
       mObservedDuration = std::max(mObservedDuration.Ref(), end);
     }
   }
+}
+
+void MediaDecoderStateMachine::ReaderSuspendedChanged()
+{
+  MOZ_ASSERT(OnTaskQueue());
+  DECODER_LOG("ReaderSuspendedChanged: suspended = %d", mIsReaderSuspended.Ref());
+
+  if (IsShutdown() || !HasVideo() || mIsReaderSuspended || IsDecodingFirstFrame()) {
+    return;
+  }
+
+  InitiateDecodeRecoverySeek(TrackSet(TrackInfo::kAudioTrack,
+                                      TrackInfo::kVideoTrack));
 }
 
 void
@@ -1618,7 +1651,7 @@ MediaDecoderStateMachine::InitiateSeek(SeekJob aSeekJob)
                                       Move(aSeekJob), mInfo, Duration(),
                                       GetMediaTime(), AudioQueue(), VideoQueue());
   } else {
-    MOZ_ASSERT(false, "Cannot handle this seek task.");
+    MOZ_DIAGNOSTIC_ASSERT(false, "Cannot handle this seek task.");
   }
 
   // Stop playback now to ensure that while we're outside the monitor
@@ -2041,7 +2074,7 @@ MediaDecoderStateMachine::EnqueueLoadedMetadataEvent()
                              : MediaDecoderEventVisibility::Observable;
   mMetadataLoadedEvent.Notify(nsAutoPtr<MediaInfo>(new MediaInfo(mInfo)),
                               Move(mMetadataTags),
-                              Move(visibility));
+                              visibility);
   mSentLoadedMetadataEvent = true;
 }
 
@@ -2063,8 +2096,8 @@ MediaDecoderStateMachine::EnqueueFirstFrameLoadedEvent()
       MediaDecoderEventVisibility visibility =
         firstFrameBeenLoaded ? MediaDecoderEventVisibility::Suppressed
                              : MediaDecoderEventVisibility::Observable;
-      self->mFirstFrameLoadedEvent.Notify(nsAutoPtr<MediaInfo>(new MediaInfo(self->mInfo)),
-                                          Move(visibility));
+      self->mFirstFrameLoadedEvent.Notify(
+        nsAutoPtr<MediaInfo>(new MediaInfo(self->mInfo)), visibility);
     },
     // Reject
     []() { MOZ_CRASH("Should not reach"); }));
@@ -2223,6 +2256,7 @@ MediaDecoderStateMachine::FinishShutdown()
 
   // Disconnect canonicals and mirrors before shutting down our task queue.
   mBuffered.DisconnectIfConnected();
+  mIsReaderSuspended.DisconnectIfConnected();
   mEstimatedDuration.DisconnectIfConnected();
   mExplicitDuration.DisconnectIfConnected();
   mPlayState.DisconnectIfConnected();
@@ -2392,7 +2426,7 @@ nsresult MediaDecoderStateMachine::RunStateMachine()
 }
 
 void
-MediaDecoderStateMachine::Reset(MediaDecoderReader::TargetQueues aQueues /*= AUDIO_VIDEO*/)
+MediaDecoderStateMachine::Reset(TrackSet aTracks)
 {
   MOZ_ASSERT(OnTaskQueue());
   DECODER_LOG("MediaDecoderStateMachine::Reset");
@@ -2405,16 +2439,25 @@ MediaDecoderStateMachine::Reset(MediaDecoderReader::TargetQueues aQueues /*= AUD
              mState == DECODER_STATE_SEEKING ||
              mState == DECODER_STATE_DORMANT);
 
+  // Assert that aTracks specifies to reset the video track because we
+  // don't currently support resetting just the audio track.
+  MOZ_ASSERT(aTracks.contains(TrackInfo::kVideoTrack));
 
-  mDecodedVideoEndTime = 0;
-  mVideoCompleted = false;
-  VideoQueue().Reset();
-
-  if (aQueues == MediaDecoderReader::AUDIO_VIDEO) {
+  if (aTracks.contains(TrackInfo::kAudioTrack) &&
+      aTracks.contains(TrackInfo::kVideoTrack)) {
     // Stop the audio thread. Otherwise, MediaSink might be accessing AudioQueue
     // outside of the decoder monitor while we are clearing the queue and causes
     // crash for no samples to be popped.
     StopMediaSink();
+  }
+
+  if (aTracks.contains(TrackInfo::kVideoTrack)) {
+    mDecodedVideoEndTime = 0;
+    mVideoCompleted = false;
+    VideoQueue().Reset();
+  }
+
+  if (aTracks.contains(TrackInfo::kAudioTrack)) {
     mDecodedAudioEndTime = 0;
     mAudioCompleted = false;
     AudioQueue().Reset();
@@ -2425,7 +2468,7 @@ MediaDecoderStateMachine::Reset(MediaDecoderReader::TargetQueues aQueues /*= AUD
 
   mPlaybackOffset = 0;
 
-  mReader->ResetDecode(aQueues);
+  mReader->ResetDecode(aTracks);
 }
 
 int64_t
@@ -2628,7 +2671,8 @@ bool MediaDecoderStateMachine::IsStateMachineScheduled() const
 bool MediaDecoderStateMachine::IsVideoDecodeSuspended() const
 {
   MOZ_ASSERT(OnTaskQueue());
-  return MediaPrefs::MDSMSuspendBackgroundVideoEnabled() && mVideoDecodeSuspended;
+  return (MediaPrefs::MDSMSuspendBackgroundVideoEnabled() && mVideoDecodeSuspended) ||
+         mIsReaderSuspended;
 }
 
 void

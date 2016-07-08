@@ -33,6 +33,8 @@ class nsDisplayText;
 
 class nsTextFrame : public nsFrame {
   typedef mozilla::LayoutDeviceRect LayoutDeviceRect;
+  typedef mozilla::RawSelectionType RawSelectionType;
+  typedef mozilla::SelectionType SelectionType;
   typedef mozilla::TextRangeStyle TextRangeStyle;
   typedef mozilla::gfx::DrawTarget DrawTarget;
   typedef mozilla::gfx::Point Point;
@@ -159,7 +161,7 @@ public:
    * @param aType the type of selection added or removed
    */
   void SetSelectedRange(uint32_t aStart, uint32_t aEnd, bool aSelected,
-                        SelectionType aType);
+                        SelectionType aSelectionType);
 
   virtual FrameSearchResult PeekOffsetNoAmount(bool aForward, int32_t* aOffset) override;
   virtual FrameSearchResult PeekOffsetCharacter(bool aForward, int32_t* aOffset,
@@ -182,6 +184,9 @@ public:
   
   virtual nsresult GetPointFromOffset(int32_t  inOffset,
                                       nsPoint* outPoint) override;
+  virtual nsresult GetCharacterRectsInRange(int32_t  aInOffset,
+                                            int32_t  aLength,
+                                            nsTArray<nsRect>& aRects) override;
   
   virtual nsresult GetChildFrameContainingOffset(int32_t inContentOffset,
                                                  bool    inHint,
@@ -448,10 +453,11 @@ public:
   // our text, returned in aAllTypes.
   // Return false if the text was not painted and we should continue with
   // the fast path.
-  bool PaintTextWithSelectionColors(const PaintTextSelectionParams& aParams,
-                                    SelectionDetails* aDetails,
-                                    SelectionType* aAllTypes,
-                                    const nsCharClipDisplayItem::ClipEdges& aClipEdges);
+  bool PaintTextWithSelectionColors(
+         const PaintTextSelectionParams& aParams,
+         SelectionDetails* aDetails,
+         RawSelectionType* aAllRawSelectionTypes,
+         const nsCharClipDisplayItem::ClipEdges& aClipEdges);
   // helper: paint text decorations for text selected by aSelectionType
   void PaintTextSelectionDecorations(const PaintTextSelectionParams& aParams,
                                      SelectionDetails* aDetails,
@@ -734,7 +740,7 @@ protected:
    */
   void DrawSelectionDecorations(gfxContext* aContext,
                                 const LayoutDeviceRect& aDirtyRect,
-                                SelectionType aType,
+                                mozilla::SelectionType aSelectionType,
                                 nsTextPaintStyle& aTextPaintStyle,
                                 const TextRangeStyle &aRangeStyle,
                                 const Point& aPt,
@@ -767,7 +773,7 @@ protected:
    *                    background should be painted
    * @return            true if the selection affects colors, false otherwise
    */
-  static bool GetSelectionTextColors(SelectionType aType,
+  static bool GetSelectionTextColors(SelectionType aSelectionType,
                                      nsTextPaintStyle& aTextPaintStyle,
                                      const TextRangeStyle &aRangeStyle,
                                      nscolor* aForeground,
@@ -789,6 +795,18 @@ protected:
   virtual bool HasAnyNoncollapsedCharacters() override;
 
   void ClearMetrics(nsHTMLReflowMetrics& aMetrics);
+
+  /**
+   * UpdateIteratorFromOffset() updates the iterator from a given offset.
+   * Also, aInOffset may be updated to cluster start if aInOffset isn't
+   * the offset of cluster start.
+   */
+  void UpdateIteratorFromOffset(const PropertyProvider& aProperties,
+                                int32_t& aInOffset,
+                                gfxSkipCharsIterator& aIter);
+
+  nsPoint GetPointFromIterator(const gfxSkipCharsIterator& aIter,
+                               PropertyProvider& aProperties);
 };
 
 #endif

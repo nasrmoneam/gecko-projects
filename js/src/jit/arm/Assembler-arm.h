@@ -156,7 +156,6 @@ static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegCallee = r4;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE0 = r0;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE1 = r1;
 static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE2 = r2;
-static MOZ_CONSTEXPR_VAR Register AsmJSIonExitRegE3 = r3;
 
 // Registers used in the GenerateFFIIonExit Disable Activation block.
 // None of these may be the second scratch register (lr).
@@ -282,7 +281,6 @@ enum Index {
     // 1 << 21 | 0 << 24 encodes dtrt.
 };
 
-// Seriously, wtf arm
 enum IsImmOp2_ {
     IsImmOp2    = 1 << 25,
     IsNotImmOp2 = 0 << 25
@@ -1082,7 +1080,6 @@ class Operand
     Tag_ Tag : 3;
     uint32_t reg : 5;
     int32_t offset;
-    uint32_t data;
 
   public:
     explicit Operand(Register reg_)
@@ -1209,6 +1206,7 @@ class Assembler : public AssemblerShared
         LessThan = LT,
         LessThanOrEqual = LE,
         Overflow = VS,
+        CarrySet = CS,
         Signed = MI,
         NotSigned = PL,
         Zero = EQ,
@@ -1754,6 +1752,9 @@ class Assembler : public AssemblerShared
     static bool SupportsFloatingPoint() {
         return HasVFP();
     }
+    static bool SupportsUnalignedAccesses() {
+        return HasARMv7();
+    }
     static bool SupportsSimd() {
         return js::jit::SupportsSimd;
     }
@@ -1952,7 +1953,7 @@ class Assembler : public AssemblerShared
     static size_t ToggledCallSize(uint8_t* code);
     static void ToggleCall(CodeLocationLabel inst_, bool enabled);
 
-    static void UpdateBoundsCheck(uint32_t logHeapSize, Instruction* inst);
+    static void UpdateBoundsCheck(uint8_t* patchAt, uint32_t heapLength);
     void processCodeLabels(uint8_t* rawCode);
 
     bool bailed() {

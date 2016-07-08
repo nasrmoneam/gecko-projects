@@ -16,6 +16,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/EnumSet.h"
+#include "mozilla/Maybe.h"
 #include "nsCOMPtr.h"
 #include "nsContainerFrame.h"
 #include "nsPoint.h"
@@ -247,7 +248,7 @@ public:
     mMode = nsDisplayListBuilderMode::PLUGIN_GEOMETRY;
   }
 
-  mozilla::layers::LayerManager* GetWidgetLayerManager(nsView** aView = nullptr, bool* aAllowRetaining = nullptr);
+  mozilla::layers::LayerManager* GetWidgetLayerManager(nsView** aView = nullptr);
 
   /**
    * @return true if the display is being built in order to determine which
@@ -1004,8 +1005,7 @@ public:
 
   static OutOfFlowDisplayData* GetOutOfFlowData(nsIFrame* aFrame)
   {
-    return static_cast<OutOfFlowDisplayData*>(
-      aFrame->Properties().Get(OutOfFlowDisplayDataProperty()));
+    return aFrame->Properties().Get(OutOfFlowDisplayDataProperty());
   }
 
   nsPresContext* CurrentPresContext() {
@@ -1854,7 +1854,7 @@ public:
   const DisplayItemScrollClip* ScrollClip() const { return mScrollClip; }
 
   bool BackfaceIsHidden() {
-    return mFrame->StyleDisplay()->BackfaceIsHidden();
+    return mFrame->BackfaceIsHidden();
   }
 
 protected:
@@ -3141,6 +3141,10 @@ public:
   void AddInactiveScrollPort(const nsRect& aRect);
 
   bool IsEmpty() const;
+
+  int32_t ZIndex() const override;
+  void SetOverrideZIndex(int32_t aZIndex);
+
   const nsRegion& HitRegion() { return mHitRegion; }
   const nsRegion& MaybeHitRegion() { return mMaybeHitRegion; }
   const nsRegion& DispatchToContentHitRegion() { return mDispatchToContentHitRegion; }
@@ -3169,6 +3173,11 @@ private:
   // These are points where panning is vertical, as determined by the touch-action
   // property. Always contained in the union of mHitRegion and mMaybeHitRegion.
   nsRegion mVerticalPanRegion;
+  // If these event regions are for an inactive scroll frame, the z-index of
+  // this display item is overridden to be the largest z-index of the content
+  // in the scroll frame. This ensures that the event regions item remains on
+  // top of the content after sorting items by z-index.
+  mozilla::Maybe<int32_t> mOverrideZIndex;
 };
 
 /**
@@ -3381,25 +3390,15 @@ public:
                             const DisplayItemClip* aClip) override;
   virtual bool CanApplyOpacity() const override;
   virtual bool ShouldFlattenAway(nsDisplayListBuilder* aBuilder) override;
-  bool NeedsActiveLayer(nsDisplayListBuilder* aBuilder);
+  static bool NeedsActiveLayer(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame);
   NS_DISPLAY_DECL_NAME("Opacity", TYPE_OPACITY)
   virtual void WriteDebugInfo(std::stringstream& aStream) override;
 
   bool CanUseAsyncAnimations(nsDisplayListBuilder* aBuilder) override;
 
-  void SetParticipatesInPreserve3D(bool aParticipatesInPreserve3D)
-  {
-    mParticipatesInPreserve3D = aParticipatesInPreserve3D;
-  }
-
-  virtual bool ShouldBuildLayerEvenIfInvisible(nsDisplayListBuilder* aBuilder) override
-  {
-    return mParticipatesInPreserve3D;
-  }
 private:
   float mOpacity;
   bool mForEventsOnly;
-  bool mParticipatesInPreserve3D;
 };
 
 class nsDisplayBlendMode : public nsDisplayWrapList {
@@ -3517,7 +3516,8 @@ public:
   nsDisplayOwnLayer(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
                     nsDisplayList* aList, uint32_t aFlags = 0,
                     ViewID aScrollTarget = mozilla::layers::FrameMetrics::NULL_SCROLL_ID,
-                    float aScrollbarThumbRatio = 0.0f);
+                    float aScrollbarThumbRatio = 0.0f,
+                    bool aForceActive = true);
 #ifdef NS_BUILD_REFCNT_LOGGING
   virtual ~nsDisplayOwnLayer();
 #endif
@@ -3527,10 +3527,7 @@ public:
                                              const ContainerLayerParameters& aContainerParameters) override;
   virtual LayerState GetLayerState(nsDisplayListBuilder* aBuilder,
                                    LayerManager* aManager,
-                                   const ContainerLayerParameters& aParameters) override
-  {
-    return mozilla::LAYER_ACTIVE_FORCE;
-  }
+                                   const ContainerLayerParameters& aParameters) override;
   virtual bool TryMerge(nsDisplayItem* aItem) override
   {
     // Don't allow merging, each sublist must have its own layer
@@ -3545,6 +3542,7 @@ protected:
   uint32_t mFlags;
   ViewID mScrollTarget;
   float mScrollbarThumbRatio;
+  bool mForceActive;
 };
 
 /**
@@ -3778,7 +3776,7 @@ private:
 class nsDisplaySVGEffects : public nsDisplayWrapList {
 public:
   nsDisplaySVGEffects(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
-                      nsDisplayList* aList);
+                      nsDisplayList* aList, bool aOpacityItemCreated);
 #ifdef NS_BUILD_REFCNT_LOGGING
   virtual ~nsDisplaySVGEffects();
 #endif
@@ -3832,6 +3830,9 @@ public:
 private:
   // relative to mFrame
   nsRect mEffectsBounds;
+  // True if the caller also created an nsDisplayOpacity item, and we should tell
+  // PaintFramesWithEffects that it doesn't need to handle opacity itself.
+  bool mOpacityItemCreated;
 };
 
 /* A display item that applies a transformation to all of its descendant

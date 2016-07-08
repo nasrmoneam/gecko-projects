@@ -20,7 +20,7 @@
 namespace js {
 namespace gc {
 
-void FinishGC(JSRuntime* rt);
+void FinishGC(JSContext* cx);
 
 /*
  * This class should be used by any code that needs to exclusive access to the
@@ -50,7 +50,7 @@ class MOZ_RAII AutoPrepareForTracing
     mozilla::Maybe<AutoTraceSession> session_;
 
   public:
-    AutoPrepareForTracing(JSRuntime* rt, ZoneSelector selector);
+    AutoPrepareForTracing(JSContext* cx, ZoneSelector selector);
     AutoTraceSession& session() { return session_.ref(); }
 };
 
@@ -124,7 +124,7 @@ struct MOZ_RAII AutoStopVerifyingBarriers
 
 #ifdef JSGC_HASH_TABLE_CHECKS
 void CheckHashTablesAfterMovingGC(JSRuntime* rt);
-void CheckHeapAfterMovingGC(JSRuntime* rt, AutoLockForExclusiveAccess& lock);
+void CheckHeapAfterMovingGC(JSRuntime* rt);
 #endif
 
 struct MovingTracer : JS::CallbackTracer

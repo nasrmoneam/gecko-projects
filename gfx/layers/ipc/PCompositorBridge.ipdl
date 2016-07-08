@@ -7,8 +7,10 @@
 
 include LayersSurfaces;
 include LayersMessages;
+include PlatformWidgetTypes;
 include protocol PBrowser;
 include protocol PCompositable;
+include protocol PCompositorWidget;
 include protocol PImageContainer;
 include protocol PLayer;
 include protocol PLayerTransaction;
@@ -47,6 +49,7 @@ sync protocol PCompositorBridge
   // A Compositor manages a single Layer Manager (PLayerTransaction)
   manages PLayerTransaction;
   manages PTexture;
+  manages PCompositorWidget;
 
 child:
   // The child should invalidate retained layers. This is used for local
@@ -100,7 +103,11 @@ child:
    */
   async ClearCachedResources(uint64_t id);
 
+  async ParentAsyncMessages(AsyncParentMessageData[] aMessages);
+
 parent:
+  async PCompositorWidget(CompositorWidgetInitData aInitData);
+
   /**
    * Confirmation callback for UpdatePluginConfigurations and HideAllPlugins.
    */
@@ -192,7 +199,7 @@ parent:
                             ScrollableLayerGuid guid,
                             CSSIntRegion region);
 
-  async PTexture(SurfaceDescriptor aSharedData, LayersBackend aBackend, TextureFlags aTextureFlags, uint64_t id);
+  async PTexture(SurfaceDescriptor aSharedData, LayersBackend aBackend, TextureFlags aTextureFlags, uint64_t id, uint64_t aSerial);
 
 child:
   // Send back Compositor Frame Metrics from APZCs so tiled layers can

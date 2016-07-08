@@ -7,7 +7,7 @@
 
 "use strict";
 
-const {Cc, Cu, Ci} = require("chrome");
+const {Cc, Ci} = require("chrome");
 
 // Page size for pageup/pagedown
 const PAGE_SIZE = 10;
@@ -15,10 +15,14 @@ const DEFAULT_MAX_CHILDREN = 100;
 const COLLAPSE_DATA_URL_REGEX = /^data.+base64/;
 const COLLAPSE_DATA_URL_LENGTH = 60;
 const NEW_SELECTION_HIGHLIGHTER_TIMER = 1000;
-const DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE = 50;
-const DRAG_DROP_MIN_AUTOSCROLL_SPEED = 5;
-const DRAG_DROP_MAX_AUTOSCROLL_SPEED = 15;
+const DRAG_DROP_AUTOSCROLL_EDGE_MAX_DISTANCE = 50;
+const DRAG_DROP_AUTOSCROLL_EDGE_RATIO = 0.1;
+const DRAG_DROP_MIN_AUTOSCROLL_SPEED = 2;
+const DRAG_DROP_MAX_AUTOSCROLL_SPEED = 8;
 const DRAG_DROP_MIN_INITIAL_DISTANCE = 10;
+const DRAG_DROP_HEIGHT_TO_SPEED = 500;
+const DRAG_DROP_HEIGHT_TO_SPEED_MIN = 0.5;
+const DRAG_DROP_HEIGHT_TO_SPEED_MAX = 1;
 const AUTOCOMPLETE_POPUP_PANEL_ID = "markupview_autoCompletePopup";
 const ATTR_COLLAPSE_ENABLED_PREF = "devtools.markup.collapseAttributes";
 const ATTR_COLLAPSE_LENGTH_PREF = "devtools.markup.collapseAttributeLength";
@@ -34,12 +38,12 @@ const {editableField, InplaceEditor} =
       require("devtools/client/shared/inplace-editor");
 const {HTMLEditor} = require("devtools/client/inspector/markup/html-editor");
 const promise = require("promise");
+const defer = require("devtools/shared/defer");
 const Services = require("Services");
-const {Tooltip} = require("devtools/client/shared/widgets/Tooltip");
 const {HTMLTooltip} = require("devtools/client/shared/widgets/HTMLTooltip");
 const {setImageTooltip, setBrokenImageTooltip} =
       require("devtools/client/shared/widgets/tooltip/ImageTooltipHelper");
-
+const {setEventTooltip} = require("devtools/client/shared/widgets/tooltip/EventTooltipHelper");
 const EventEmitter = require("devtools/shared/event-emitter");
 const Heritage = require("sdk/core/heritage");
 const {parseAttribute} =
@@ -50,14 +54,9 @@ const {PrefObserver} = require("devtools/client/styleeditor/utils");
 const {KeyShortcuts} = require("devtools/client/shared/key-shortcuts");
 const {template} = require("devtools/shared/gcli/templater");
 const nodeConstants = require("devtools/shared/dom-node-constants");
-
-Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+const {XPCOMUtils} = require("resource://gre/modules/XPCOMUtils.jsm");
 
 loader.lazyRequireGetter(this, "CSS", "CSS");
-loader.lazyGetter(this, "DOMParser", () => {
-  return Cc["@mozilla.org/xmlextras/domparser;1"]
-    .createInstance(Ci.nsIDOMParser);
-});
 loader.lazyGetter(this, "AutocompletePopup", () => {
   return require("devtools/client/shared/autocomplete-popup").AutocompletePopup;
 });
@@ -174,7 +173,8 @@ MarkupView.prototype = {
   _selectedContainer: null,
 
   _initTooltips: function () {
-    this.eventDetailsTooltip = new Tooltip(this._inspector.panelDoc);
+    this.eventDetailsTooltip = new HTMLTooltip(this._inspector.toolbox,
+      {type: "arrow"});
     this.imagePreviewTooltip = new HTMLTooltip(this._inspector.toolbox,
       {type: "arrow"});
     this._enableImagePreviewTooltip();
@@ -256,37 +256,58 @@ MarkupView.prototype = {
   _autoScroll: function (event) {
     let docEl = this.doc.documentElement;
 
-    if (this._autoScrollInterval) {
-      clearInterval(this._autoScrollInterval);
+    if (this._autoScrollAnimationFrame) {
+      this.win.cancelAnimationFrame(this._autoScrollAnimationFrame);
     }
 
     // Auto-scroll when the mouse approaches top/bottom edge.
     let fromBottom = docEl.clientHeight - event.pageY + this.win.scrollY;
     let fromTop = event.pageY - this.win.scrollY;
+    let edgeDistance = Math.min(DRAG_DROP_AUTOSCROLL_EDGE_MAX_DISTANCE,
+           docEl.clientHeight * DRAG_DROP_AUTOSCROLL_EDGE_RATIO);
 
-    if (fromBottom <= DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE) {
-      // Map our distance from 0-50 to 5-15 range so the speed is kept in a
-      // range not too fast, not too slow.
+    // The smaller the screen, the slower the movement.
+    let heightToSpeedRatio =
+      Math.max(DRAG_DROP_HEIGHT_TO_SPEED_MIN,
+        Math.min(DRAG_DROP_HEIGHT_TO_SPEED_MAX,
+          docEl.clientHeight / DRAG_DROP_HEIGHT_TO_SPEED));
+
+    if (fromBottom <= edgeDistance) {
+      // Map our distance range to a speed range so that the speed is not too
+      // fast or too slow.
       let speed = map(
         fromBottom,
-        0, DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE,
+        0, edgeDistance,
         DRAG_DROP_MIN_AUTOSCROLL_SPEED, DRAG_DROP_MAX_AUTOSCROLL_SPEED);
 
-      this._autoScrollInterval = setInterval(() => {
-        docEl.scrollTop -= speed - DRAG_DROP_MAX_AUTOSCROLL_SPEED;
-      }, 0);
+      this._runUpdateLoop(() => {
+        docEl.scrollTop -= heightToSpeedRatio *
+          (speed - DRAG_DROP_MAX_AUTOSCROLL_SPEED);
+      });
     }
 
-    if (fromTop <= DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE) {
+    if (fromTop <= edgeDistance) {
       let speed = map(
         fromTop,
-        0, DRAG_DROP_AUTOSCROLL_EDGE_DISTANCE,
+        0, edgeDistance,
         DRAG_DROP_MIN_AUTOSCROLL_SPEED, DRAG_DROP_MAX_AUTOSCROLL_SPEED);
 
-      this._autoScrollInterval = setInterval(() => {
-        docEl.scrollTop += speed - DRAG_DROP_MAX_AUTOSCROLL_SPEED;
-      }, 0);
+      this._runUpdateLoop(() => {
+        docEl.scrollTop += heightToSpeedRatio *
+          (speed - DRAG_DROP_MAX_AUTOSCROLL_SPEED);
+      });
     }
+  },
+
+  /**
+   * Run a loop on the requestAnimationFrame.
+   */
+  _runUpdateLoop: function (update) {
+    let loop = () => {
+      update();
+      this._autoScrollAnimationFrame = this.win.requestAnimationFrame(loop);
+    };
+    loop();
   },
 
   _onMouseClick: function (event) {
@@ -313,8 +334,8 @@ MarkupView.prototype = {
   _onMouseUp: function () {
     this.indicateDropTarget(null);
     this.indicateDragTarget(null);
-    if (this._autoScrollInterval) {
-      clearInterval(this._autoScrollInterval);
+    if (this._autoScrollAnimationFrame) {
+      this.win.cancelAnimationFrame(this._autoScrollAnimationFrame);
     }
   },
 
@@ -340,8 +361,8 @@ MarkupView.prototype = {
 
     this.indicateDropTarget(null);
     this.indicateDragTarget(null);
-    if (this._autoScrollInterval) {
-      clearInterval(this._autoScrollInterval);
+    if (this._autoScrollAnimationFrame) {
+      this.win.cancelAnimationFrame(this._autoScrollAnimationFrame);
     }
   },
 
@@ -367,8 +388,8 @@ MarkupView.prototype = {
   },
 
   _onMouseLeave: function () {
-    if (this._autoScrollInterval) {
-      clearInterval(this._autoScrollInterval);
+    if (this._autoScrollAnimationFrame) {
+      this.win.cancelAnimationFrame(this._autoScrollAnimationFrame);
     }
     if (this.isDragging) {
       return;
@@ -426,7 +447,7 @@ MarkupView.prototype = {
   _brieflyShowBoxModel: function (nodeFront) {
     this._clearBriefBoxModelTimer();
     let onShown = this._showBoxModel(nodeFront);
-    this._briefBoxModelPromise = promise.defer();
+    this._briefBoxModelPromise = defer();
 
     this._briefBoxModelTimer = setTimeout(() => {
       this._hideBoxModel()
@@ -856,12 +877,26 @@ MarkupView.prototype = {
       this.undo.do(() => {
         this.walker.removeNode(node).then(siblings => {
           nextSibling = siblings.nextSibling;
-          let focusNode = moveBackward ? siblings.previousSibling : nextSibling;
+          let prevSibling = siblings.previousSibling;
+          let focusNode = moveBackward ? prevSibling : nextSibling;
 
           // If we can't move as the user wants, we move to the other direction.
           // If there is no sibling elements anymore, move to the parent node.
           if (!focusNode) {
-            focusNode = nextSibling || siblings.previousSibling || parent;
+            focusNode = nextSibling || prevSibling || parent;
+          }
+
+          let isNextSiblingText = nextSibling ?
+            nextSibling.nodeType === Ci.nsIDOMNode.TEXT_NODE : false;
+          let isPrevSiblingText = prevSibling ?
+            prevSibling.nodeType === Ci.nsIDOMNode.TEXT_NODE : false;
+
+          // If the parent had two children and the next or previous sibling
+          // is a text node, then it now has only a single text node, is about
+          // to be in-lined; and focus should move to the parent.
+          if (parent.numChildren === 2
+              && (isNextSiblingText || isPrevSiblingText)) {
+            focusNode = parent;
           }
 
           if (container.selected) {
@@ -1330,7 +1365,7 @@ MarkupView.prototype = {
       return promise.reject();
     }
 
-    let def = promise.defer();
+    let def = defer();
 
     container.undo.do(() => {
       this.walker.setInnerHTML(node, newValue).then(def.resolve, def.reject);
@@ -1360,7 +1395,7 @@ MarkupView.prototype = {
       return promise.reject();
     }
 
-    let def = promise.defer();
+    let def = defer();
 
     let injectedNodes = [];
     container.undo.do(() => {
@@ -1874,6 +1909,7 @@ MarkupContainer.prototype = {
     this.undo = this.markup.undo;
     this.win = this.markup._frame.contentWindow;
     this.id = "treeitem-" + markupContainerID++;
+    this.htmlElt = this.win.document.documentElement;
 
     // The template will fill the following properties
     this.elt = null;
@@ -2175,10 +2211,12 @@ MarkupContainer.prototype = {
     this.tagLine.setAttribute("aria-grabbed", isDragging);
 
     if (isDragging) {
+      this.htmlElt.classList.add("dragging");
       this.elt.classList.add("dragging");
       this.markup.doc.body.classList.add("dragging");
       rootElt.setAttribute("aria-dropeffect", "move");
     } else {
+      this.htmlElt.classList.remove("dragging");
       this.elt.classList.remove("dragging");
       this.markup.doc.body.classList.remove("dragging");
       rootElt.setAttribute("aria-dropeffect", "none");
@@ -2515,6 +2553,7 @@ MarkupContainer.prototype = {
     }
 
     this.win = null;
+    this.htmlElt = null;
 
     if (this.expander) {
       this.expander.removeEventListener("click", this._onToggle, false);
@@ -2615,11 +2654,8 @@ MarkupElementContainer.prototype = Heritage.extend(MarkupContainer.prototype, {
       tooltip.hide(target);
 
       this.node.getEventListenerInfo().then(listenerInfo => {
-        tooltip.setEventContent({
-          eventListenerInfos: listenerInfo,
-          toolbox: this.markup._inspector.toolbox
-        });
-
+        let toolbox = this.markup._inspector.toolbox;
+        setEventTooltip(tooltip, listenerInfo, toolbox);
         // Disable the image preview tooltip while we display the event details
         this.markup._disableImagePreviewTooltip();
         tooltip.once("hidden", () => {
@@ -2704,10 +2740,10 @@ MarkupElementContainer.prototype = Heritage.extend(MarkupContainer.prototype, {
         maxDim: Services.prefs.getIntPref(PREVIEW_MAX_DIM_PREF)
       };
 
-      yield setImageTooltip(tooltip, this.markup.doc, data, options);
+      setImageTooltip(tooltip, this.markup.doc, data, options);
     } catch (e) {
       // Indicate the failure but show the tooltip anyway.
-      yield setBrokenImageTooltip(tooltip, this.markup.doc);
+      setBrokenImageTooltip(tooltip, this.markup.doc);
     }
     return true;
   }),
@@ -3469,7 +3505,7 @@ function parseAttributeValues(attr, doc) {
   attr = attr.trim();
 
   let parseAndGetNode = str => {
-    return DOMParser.parseFromString(str, "text/html").body.childNodes[0];
+    return new DOMParser().parseFromString(str, "text/html").body.childNodes[0];
   };
 
   // Handle bad user inputs by appending a " or ' if it fails to parse without

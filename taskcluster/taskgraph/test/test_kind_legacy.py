@@ -6,33 +6,29 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import unittest
 
-from ..kind.legacy import LegacyKind, TASKID_PLACEHOLDER
-from ..types import Task
+from ..kind.legacy import (
+    validate_build_task,
+    BuildTaskValidationException
+)
 from mozunit import main
 
 
-class TestLegacyKind(unittest.TestCase):
-    # NOTE: much of LegacyKind is copy-pasted from the old legacy code, which
-    # is emphatically *not* designed for testing, so this test class does not
-    # attempt to test the entire class.
+class TestValidateBuildTask(unittest.TestCase):
 
-    def setUp(self):
-        self.kind = LegacyKind('/root', {})
+    def test_validate_missing_extra(self):
+        with self.assertRaises(BuildTaskValidationException):
+            validate_build_task({})
 
-    def test_get_task_definition_artifact_sub(self):
-        "get_task_definition correctly substiatutes artifact URLs"
-        task_def = {
-            'input_file': TASKID_PLACEHOLDER.format("G5BoWlCBTqOIhn3K3HyvWg"),
-            'embedded': 'TASK={} FETCH=lazy'.format(
-                TASKID_PLACEHOLDER.format('G5BoWlCBTqOIhn3K3HyvWg')),
-        }
-        task = Task(self.kind, 'label', task=task_def)
-        dep_taskids = {TASKID_PLACEHOLDER.format('G5BoWlCBTqOIhn3K3HyvWg'): 'parent-taskid'}
-        task_def = self.kind.get_task_definition(task, dep_taskids)
-        self.assertEqual(task_def, {
-            'input_file': 'parent-taskid',
-            'embedded': 'TASK=parent-taskid FETCH=lazy',
-        })
+    def test_validate_valid(self):
+        with self.assertRaises(BuildTaskValidationException):
+            validate_build_task({
+                'extra': {
+                    'locations': {
+                        'build': '',
+                        'tests': ''
+                    }
+                }
+            })
 
 
 if __name__ == '__main__':

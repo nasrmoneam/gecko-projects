@@ -964,6 +964,31 @@ var Impl = {
     return ret;
   },
 
+  getScalars: function (subsession, clearSubsession) {
+    this._log.trace("getScalars - subsession: " + subsession + ", clearSubsession: " + clearSubsession);
+
+    if (!subsession) {
+      // We only support scalars for subsessions.
+      this._log.trace("getScalars - We only support scalars in subsessions.");
+      return {};
+    }
+
+    let scalarsSnapshot =
+      Telemetry.snapshotScalars(this.getDatasetType(), clearSubsession);
+
+    // Don't return the test scalars.
+    let ret = {};
+    for (let name in scalarsSnapshot) {
+      if (name.startsWith('telemetry.test') && this._testing == false) {
+        this._log.trace("getScalars - Skipping test scalar: " + name);
+      } else {
+        ret[name] = scalarsSnapshot[name];
+      }
+    }
+
+    return ret;
+  },
+
   getThreadHangStats: function getThreadHangStats(stats) {
     this._log.trace("getThreadHangStats");
 
@@ -1246,6 +1271,13 @@ var Impl = {
     if (Utils.isContentProcess) {
       return payloadObj;
     }
+
+    // Set the scalars for the parent process.
+    payloadObj.processes = {
+      parent: {
+        scalars: protect(() => this.getScalars(isSubsession, clearSubsession)),
+      }
+    };
 
     // Additional payload for chrome process.
     payloadObj.info = info;

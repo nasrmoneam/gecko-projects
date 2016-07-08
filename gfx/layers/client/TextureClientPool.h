@@ -18,7 +18,7 @@ namespace mozilla {
 namespace layers {
 
 class ISurfaceAllocator;
-class CompositableForwarder;
+class TextureForwarder;
 class TextureReadLock;
 
 class TextureClientAllocator
@@ -44,12 +44,13 @@ class TextureClientPool final : public TextureClientAllocator
   ~TextureClientPool();
 
 public:
-  TextureClientPool(gfx::SurfaceFormat aFormat,
-                    TextureFlags aFlags,
+  TextureClientPool(LayersBackend aBackend,
+                    gfx::SurfaceFormat aFormat,
                     gfx::IntSize aSize,
+                    TextureFlags aFlags,
                     uint32_t aMaxTextureClients,
                     uint32_t aShrinkTimeoutMsec,
-                    CompositableForwarder* aAllocator);
+                    TextureForwarder* aAllocator);
 
   /**
    * Gets an allocated TextureClient of size and format that are determined
@@ -104,6 +105,7 @@ public:
    */
   void Clear();
 
+  LayersBackend GetBackend() const { return mBackend; }
   gfx::SurfaceFormat GetFormat() { return mFormat; }
   TextureFlags GetFlags() const { return mFlags; }
 
@@ -119,14 +121,17 @@ private:
   // shrinking).
   static const uint32_t sMinCacheSize = 0;
 
+  /// Backend passed to the TextureClient for buffer creation.
+  LayersBackend mBackend;
+
   /// Format is passed to the TextureClient for buffer creation.
   gfx::SurfaceFormat mFormat;
 
-  /// Flags passed to the TextureClient for buffer creation.
-  const TextureFlags mFlags;
-
   /// The width and height of the tiles to be used.
   gfx::IntSize mSize;
+
+  /// Flags passed to the TextureClient for buffer creation.
+  const TextureFlags mFlags;
 
   // The maximum number of texture clients managed by this pool that we want
   // to remain active.
@@ -148,7 +153,8 @@ private:
 
   std::list<RefPtr<TextureClient>> mTextureClientsDeferred;
   RefPtr<nsITimer> mTimer;
-  RefPtr<CompositableForwarder> mSurfaceAllocator;
+  // This mSurfaceAllocator owns us, so no need to hold a ref to it
+  TextureForwarder* mSurfaceAllocator;
 };
 
 } // namespace layers

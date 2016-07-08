@@ -21,6 +21,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "BookmarkHTMLUtils",
                                   "resource://gre/modules/BookmarkHTMLUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PromiseUtils",
                                   "resource://gre/modules/PromiseUtils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "AutoMigrate",
+                                  "resource:///modules/AutoMigrate.jsm");
 
 var gMigrators = null;
 var gProfileStartup = null;
@@ -95,7 +97,7 @@ this.MigratorPrototype = {
    * profiles.
    *
    * Each migration resource should provide:
-   * - a |type| getter, retunring any of the migration types (see
+   * - a |type| getter, returning any of the migration types (see
    *   nsIBrowserProfileMigrator).
    *
    * - a |migrate| method, taking a single argument, aCallback(bool success),
@@ -133,6 +135,20 @@ this.MigratorPrototype = {
    */
   getResources: function MP_getResources(aProfile) {
     throw new Error("getResources must be overridden");
+  },
+
+  /**
+   * OVERRIDE in order to provide an estimate of when the last time was
+   * that somebody used the browser. It is OK that this is somewhat fuzzy -
+   * history may not be available (or be wiped or not present due to e.g.
+   * incognito mode).
+   *
+   * @return a Promise that resolves to the last used date.
+   *
+   * @note If not overridden, the promise will resolve to the unix epoch.
+   */
+  getLastUsedDate() {
+    return Promise.resolve(new Date(0));
   },
 
   /**
@@ -513,6 +529,7 @@ this.MigrationUtils = Object.freeze({
     // Canary uses the same description as Chrome so we can't distinguish them.
     const APP_DESC_TO_KEY = {
       "Internet Explorer":                 "ie",
+      "Microsoft Edge":                    "edge",
       "Safari":                            "safari",
       "Firefox":                           "firefox",
       "Google Chrome":                     "chrome",  // Windows, Linux
@@ -696,8 +713,22 @@ this.MigrationUtils = Object.freeze({
       }
     }
 
+    let isRefresh = migrator && skipSourcePage &&
+                    migratorKey == AppConstants.MOZ_APP_NAME;
+
+    if (!isRefresh &&
+        Services.prefs.getBoolPref("browser.migration.automigrate")) {
+      try {
+        AutoMigrate.migrate(aProfileStartup, aMigratorKey, aProfileToMigrate);
+        return;
+      } catch (ex) {
+        // If automigration failed, continue and show the dialog.
+        Cu.reportError(ex);
+      }
+    }
+
     let migrationEntryPoint = this.MIGRATION_ENTRYPOINT_FIRSTRUN;
-    if (migrator && skipSourcePage && migratorKey == AppConstants.MOZ_APP_NAME) {
+    if (isRefresh) {
       migrationEntryPoint = this.MIGRATION_ENTRYPOINT_FXREFRESH;
     }
 
@@ -720,6 +751,8 @@ this.MigrationUtils = Object.freeze({
     gProfileStartup = null;
     gMigrationBundle = null;
   },
+
+  gAvailableMigratorKeys,
 
   MIGRATION_ENTRYPOINT_UNKNOWN: 0,
   MIGRATION_ENTRYPOINT_FIRSTRUN: 1,

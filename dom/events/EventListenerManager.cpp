@@ -55,12 +55,6 @@
 
 namespace mozilla {
 
-namespace dom {
-namespace workers {
-extern bool IsCurrentThreadRunningChromeWorker();
-} // namespace workers
-} // namespace dom
-
 using namespace dom;
 using namespace hal;
 
@@ -447,7 +441,7 @@ EventListenerManager::ProcessApzAwareEventListenerAdd()
   // Mark the node as having apz aware listeners
   nsCOMPtr<nsINode> node = do_QueryInterface(mTarget);
   if (node) {
-    node->SetMayHaveApzAwareListeners();
+    node->SetMayBeApzAware();
   }
 
   // Schedule a paint so event regions on the layer tree gets updated
@@ -830,7 +824,7 @@ EventListenerManager::SetEventHandler(nsIAtom* aName,
   if (doc) {
     // Don't allow adding an event listener if the document is sandboxed
     // without 'allow-scripts'.
-    if (doc->GetSandboxFlags() & SANDBOXED_SCRIPTS) {
+    if (doc->HasScriptsBlockedBySandbox()) {
       return NS_ERROR_DOM_SECURITY_ERR;
     }
 
@@ -1344,24 +1338,6 @@ EventListenerManager::Disconnect()
   RemoveAllListeners();
 }
 
-static EventListenerFlags
-GetEventListenerFlagsFromOptions(const EventListenerOptions& aOptions,
-                                 bool aIsMainThread)
-{
-  EventListenerFlags flags;
-  flags.mCapture = aOptions.mCapture;
-  if (aOptions.mMozSystemGroup) {
-    if (aIsMainThread) {
-      JSContext* cx = nsContentUtils::GetCurrentJSContext();
-      MOZ_ASSERT(cx, "Not being called from JS?");
-      flags.mInSystemGroup = IsChromeOrXBL(cx, nullptr);
-    } else {
-      flags.mInSystemGroup = workers::IsCurrentThreadRunningChromeWorker();
-    }
-  }
-  return flags;
-}
-
 void
 EventListenerManager::AddEventListener(
                         const nsAString& aType,
@@ -1387,7 +1363,8 @@ EventListenerManager::AddEventListener(
     flags.mCapture = aOptions.GetAsBoolean();
   } else {
     const auto& options = aOptions.GetAsAddEventListenerOptions();
-    flags = GetEventListenerFlagsFromOptions(options, mIsMainThreadELM);
+    flags.mCapture = options.mCapture;
+    flags.mInSystemGroup = options.mMozSystemGroup;
     flags.mPassive = options.mPassive;
   }
   flags.mAllowUntrustedEvents = aWantsUntrusted;
@@ -1416,7 +1393,8 @@ EventListenerManager::RemoveEventListener(
     flags.mCapture = aOptions.GetAsBoolean();
   } else {
     const auto& options = aOptions.GetAsEventListenerOptions();
-    flags = GetEventListenerFlagsFromOptions(options, mIsMainThreadELM);
+    flags.mCapture = options.mCapture;
+    flags.mInSystemGroup = options.mMozSystemGroup;
   }
   RemoveEventListenerByType(aListenerHolder, aType, flags);
 }
@@ -1559,7 +1537,7 @@ EventListenerManager::GetListenerInfo(nsCOMArray<nsIEventListenerInfo>* aList)
                             listener.mFlags.mCapture,
                             listener.mFlags.mAllowUntrustedEvents,
                             listener.mFlags.mInSystemGroup);
-    aList->AppendObject(info);
+    aList->AppendElement(info.forget());
   }
   return NS_OK;
 }

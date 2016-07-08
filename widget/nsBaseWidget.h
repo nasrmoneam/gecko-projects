@@ -21,7 +21,6 @@
 #include "nsIWidgetListener.h"
 #include "nsPIDOMWindow.h"
 #include "nsWeakReference.h"
-#include "CompositorWidgetProxy.h"
 #include <algorithm>
 class nsIContent;
 class nsAutoRollup;
@@ -49,6 +48,11 @@ class APZEventState;
 class CompositorSession;
 struct ScrollableLayerGuid;
 } // namespace layers
+
+namespace widget {
+class CompositorWidgetDelegate;
+class InProcessCompositorWidget;
+} // namespace widget
 
 class CompositorVsyncDispatcher;
 } // namespace mozilla
@@ -95,7 +99,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference
 {
   friend class nsAutoRollup;
   friend class DispatchWheelEventOnMainThread;
-  friend class mozilla::widget::CompositorWidgetProxyWrapper;
+  friend class mozilla::widget::InProcessCompositorWidget;
 
 protected:
   typedef base::Thread Thread;
@@ -112,7 +116,7 @@ protected:
   typedef mozilla::CSSIntRect CSSIntRect;
   typedef mozilla::CSSRect CSSRect;
   typedef mozilla::ScreenRotation ScreenRotation;
-  typedef mozilla::widget::CompositorWidgetProxy CompositorWidgetProxy;
+  typedef mozilla::widget::CompositorWidgetDelegate CompositorWidgetDelegate;
   typedef mozilla::layers::CompositorSession CompositorSession;
 
   virtual ~nsBaseWidget();
@@ -167,8 +171,7 @@ public:
 
   virtual LayerManager*   GetLayerManager(PLayerTransactionChild* aShadowManager = nullptr,
                                           LayersBackend aBackendHint = mozilla::layers::LayersBackend::LAYERS_NONE,
-                                          LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT,
-                                          bool* aAllowRetaining = nullptr) override;
+                                          LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT) override;
 
   mozilla::CompositorVsyncDispatcher* GetCompositorVsyncDispatcher();
   void            CreateCompositorVsyncDispatcher();
@@ -293,6 +296,10 @@ public:
   mozilla::a11y::Accessible* GetRootAccessible();
 #endif
 
+  // Return true if this is a simple widget (that is typically not worth
+  // accelerating)
+  bool IsSmallPopup() const;
+
   nsPopupLevel PopupLevel() { return mPopupLevel; }
 
   virtual LayoutDeviceIntSize
@@ -347,11 +354,8 @@ public:
 
   void Shutdown();
 
-  // Return a new CompositorWidgetProxy for this widget.
-  virtual CompositorWidgetProxy* NewCompositorWidgetProxy();
-
 protected:
-  // These are methods for CompositorWidgetProxyWrapper, and should only be
+  // These are methods for CompositorWidgetWrapper, and should only be
   // accessed from that class. Derived widgets can choose which methods to
   // implement, or none if supporting out-of-process compositing.
   virtual bool PreRender(mozilla::layers::LayerManagerComposite* aManager) {
@@ -555,6 +559,7 @@ protected:
    */
   virtual void DestroyCompositor();
   void DestroyLayerManager();
+  void ReleaseContentController();
 
   void FreeShutdownObserver();
 
@@ -583,12 +588,12 @@ protected:
   nsPopupType       mPopupType;
   SizeConstraints   mSizeConstraints;
 
-  RefPtr<CompositorWidgetProxy> mCompositorWidgetProxy;
+  CompositorWidgetDelegate* mCompositorWidgetDelegate;
 
   bool              mUpdateCursor;
   bool              mUseAttachedEvents;
   bool              mIMEHasFocus;
-#if defined(XP_WIN) || defined(XP_MACOSX)
+#if defined(XP_WIN) || defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK)
   bool              mAccessibilityInUseFlag;
 #endif
   static nsIRollupListener* gRollupListener;

@@ -16,7 +16,6 @@
 #include "MediaData.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/SyncRunnable.h"
-#include "nsAutoPtr.h"
 #include "nsThreadUtils.h"
 #include "mozilla/Logging.h"
 #include "VideoUtils.h"
@@ -24,7 +23,6 @@
 #include "gfxPlatform.h"
 
 #ifndef MOZ_WIDGET_UIKIT
-#include "nsCocoaFeatures.h"
 #include "MacIOSurfaceImage.h"
 #endif
 
@@ -68,10 +66,8 @@ AppleVDADecoder::AppleVDADecoder(const VideoInfo& aConfig,
   , mIsShutDown(false)
 #ifdef MOZ_WIDGET_UIKIT
   , mUseSoftwareImages(true)
-  , mIs106(false)
 #else
   , mUseSoftwareImages(false)
-  , mIs106(!nsCocoaFeatures::OnLionOrLater())
 #endif
   , mMonitor("AppleVideoDecoder")
   , mIsFlushing(false)
@@ -153,6 +149,9 @@ AppleVDADecoder::Flush()
   mIsFlushing = false;
   // All ProcessDecode() tasks should be done.
   MOZ_ASSERT(mInputIncoming == 0);
+
+  mSeekTargetThreshold.reset();
+
   return NS_OK;
 }
 
@@ -290,6 +289,13 @@ AppleVDADecoder::ClearReorderedFrames()
   mQueuedSamples = 0;
 }
 
+void
+AppleVDADecoder::SetSeekThreshold(const media::TimeUnit& aTime)
+{
+  LOG("SetSeekThreshold %lld", aTime.ToMicroseconds());
+  mSeekTargetThreshold = Some(aTime);
+}
+
 // Copy and return a decoded frame.
 nsresult
 AppleVDADecoder::OutputFrame(CVPixelBufferRef aImage,
@@ -321,8 +327,17 @@ AppleVDADecoder::OutputFrame(CVPixelBufferRef aImage,
     return NS_OK;
   }
 
+  bool useNullSample = false;
+  if (mSeekTargetThreshold.isSome()) {
+    if ((aFrameRef.composition_timestamp + aFrameRef.duration) < mSeekTargetThreshold.ref()) {
+      useNullSample = true;
+    } else {
+      mSeekTargetThreshold.reset();
+    }
+  }
+
   // Where our resulting image will end up.
-  RefPtr<VideoData> data;
+  RefPtr<MediaData> data;
   // Bounds.
   VideoInfo info;
   info.mDisplay = nsIntSize(mDisplayWidth, mDisplayHeight);
@@ -331,7 +346,11 @@ AppleVDADecoder::OutputFrame(CVPixelBufferRef aImage,
                                       mPictureWidth,
                                       mPictureHeight);
 
-  if (mUseSoftwareImages) {
+  if (useNullSample) {
+    data = new NullData(aFrameRef.byte_offset,
+                        aFrameRef.composition_timestamp.ToMicroseconds(),
+                        aFrameRef.duration.ToMicroseconds());
+  } else if (mUseSoftwareImages) {
     size_t width = CVPixelBufferGetWidth(aImage);
     size_t height = CVPixelBufferGetHeight(aImage);
     DebugOnly<size_t> planes = CVPixelBufferGetPlaneCount(aImage);
@@ -515,17 +534,6 @@ AppleVDADecoder::DoDecode(MediaRawData* aSample)
     NS_WARNING("AppleVDADecoder: Couldn't pass frame to decoder");
     mCallback->Error(MediaDataDecoderError::FATAL_ERROR);
     return NS_ERROR_FAILURE;
-  }
-
-  if (mIs106) {
-    // TN2267:
-    // frameInfo: A CFDictionaryRef containing information to be returned in
-    // the output callback for this frame.
-    // This dictionary can contain client provided information associated with
-    // the frame being decoded, for example presentation time.
-    // The CFDictionaryRef will be retained by the framework.
-    // In 10.6, it is released one too many. So retain it.
-    CFRetain(frameInfo);
   }
 
   return NS_OK;

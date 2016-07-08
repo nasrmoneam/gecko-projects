@@ -143,6 +143,7 @@ public:
             uint32_t aChromeFlags);
 
   Element* GetOwnerElement() const { return mFrameElement; }
+  already_AddRefed<nsPIDOMWindowOuter> GetParentWindowOuter();
 
   void SetOwnerElement(Element* aElement);
 
@@ -378,6 +379,10 @@ public:
   virtual bool
   DeallocPColorPickerParent(PColorPickerParent* aColorPicker) override;
 
+  virtual PDatePickerParent*
+  AllocPDatePickerParent(const nsString& aTitle, const nsString& aInitialDate) override;
+  virtual bool DeallocPDatePickerParent(PDatePickerParent* aDatePicker) override;
+
   virtual PDocAccessibleParent*
   AllocPDocAccessibleParent(PDocAccessibleParent*, const uint64_t&) override;
 
@@ -594,7 +599,7 @@ public:
   virtual bool
   RecvInvokeDragSession(nsTArray<IPCDataTransfer>&& aTransfers,
                         const uint32_t& aAction,
-                        const nsCString& aVisualDnDData,
+                        const OptionalShmem& aVisualDnDData,
                         const uint32_t& aWidth, const uint32_t& aHeight,
                         const uint32_t& aStride, const uint8_t& aFormat,
                         const int32_t& aDragAreaX, const int32_t& aDragAreaY) override;

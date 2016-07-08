@@ -9,6 +9,7 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 var {
   EventManager,
+  IconDetails,
   runSafe,
 } = ExtensionUtils;
 
@@ -40,7 +41,7 @@ var gMenuBuilder = {
     this.xulMenu = xulMenu;
     for (let [, root] of gRootItems) {
       let rootElement = this.buildElementWithChildren(root, contextData);
-      if (!rootElement.firstChild.childNodes.length) {
+      if (!rootElement.firstChild || !rootElement.firstChild.childNodes.length) {
         // If the root has no visible children, there is no reason to show
         // the root menu item itself either.
         continue;
@@ -53,8 +54,8 @@ var gMenuBuilder = {
         let parentWindow = contextData.menu.ownerDocument.defaultView;
         let extension = root.extension;
 
-        let url = IconDetails.getURL(extension.manifest.icons, parentWindow, extension, 16 /* size */);
-        let resolvedURL = root.extension.baseURI.resolve(url);
+        let {icon} = IconDetails.getURL(extension.manifest.icons, parentWindow, extension, 16 /* size */);
+        let resolvedURL = root.extension.baseURI.resolve(icon);
 
         if (rootElement.localName == "menu") {
           rootElement.setAttribute("class", "menu-iconic");
@@ -453,7 +454,6 @@ var gExtensionCount = 0;
 /* eslint-disable mozilla/balanced-listeners */
 extensions.on("startup", (type, extension) => {
   gContextMenuMap.set(extension, new Map());
-  gRootItems.delete(extension);
   if (++gExtensionCount == 1) {
     Services.obs.addObserver(contextMenuObserver,
                              "on-build-contextmenu",
@@ -463,6 +463,7 @@ extensions.on("startup", (type, extension) => {
 
 extensions.on("shutdown", (type, extension) => {
   gContextMenuMap.delete(extension);
+  gRootItems.delete(extension);
   if (--gExtensionCount == 0) {
     Services.obs.removeObserver(contextMenuObserver,
                                 "on-build-contextmenu");
@@ -470,7 +471,7 @@ extensions.on("shutdown", (type, extension) => {
 });
 /* eslint-enable mozilla/balanced-listeners */
 
-extensions.registerSchemaAPI("contextMenus", "contextMenus", (extension, context) => {
+extensions.registerSchemaAPI("contextMenus", (extension, context) => {
   return {
     contextMenus: {
       create: function(createProperties, callback) {

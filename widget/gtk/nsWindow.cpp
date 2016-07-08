@@ -216,6 +216,9 @@ static gboolean window_state_event_cb     (GtkWidget *widget,
 static void     theme_changed_cb          (GtkSettings *settings,
                                            GParamSpec *pspec,
                                            nsWindow *data);
+static void     check_resize_cb           (GtkContainer* container,
+                                           gpointer user_data);
+
 #if (MOZ_WIDGET_GTK == 3)
 static void     scale_changed_cb          (GtkWidget* widget,
                                            GParamSpec* aPSpec,
@@ -427,6 +430,7 @@ nsWindow::nsWindow()
     mHandleTouchEvent    = false;
 #endif
     mIsDragPopup         = false;
+    mIsX11Display        = GDK_IS_X11_DISPLAY(gdk_display_get_default());
 
     mContainer           = nullptr;
     mGdkWindow           = nullptr;
@@ -474,6 +478,7 @@ nsWindow::nsWindow()
 #endif
 
     mFallbackSurface = nullptr;
+    mPendingConfigures = 0;
 }
 
 nsWindow::~nsWindow()
@@ -1537,7 +1542,7 @@ nsWindow::UpdateClientOffset()
 {
     PROFILER_LABEL("nsWindow", "UpdateClientOffset", js::ProfileEntry::Category::GRAPHICS);
 
-    if (!mIsTopLevel || !mShell || !mGdkWindow ||
+    if (!mIsTopLevel || !mShell || !mGdkWindow || !mIsX11Display ||
         gtk_window_get_window_type(GTK_WINDOW(mShell)) == GTK_WINDOW_POPUP) {
         mClientOffset = nsIntPoint(0, 0);
         return;
@@ -1968,9 +1973,8 @@ nsWindow::HasPendingInputEvent()
     bool haveEvent = false;
 #ifdef MOZ_X11
     XEvent ev;
-    GdkDisplay* gdkDisplay = gdk_display_get_default();
-    if (GDK_IS_X11_DISPLAY(gdkDisplay)) {
-        Display *display = GDK_DISPLAY_XDISPLAY(gdkDisplay);
+    if (mIsX11Display) {
+        Display *display = GDK_DISPLAY_XDISPLAY(gdk_display_get_default());
         haveEvent =
             XCheckMaskEvent(display,
                             KeyPressMask | KeyReleaseMask | ButtonPressMask |
@@ -2276,11 +2280,11 @@ nsWindow::OnExposeEvent(cairo_t *cr)
         if (!destDT || !destDT->IsValid()) {
             return FALSE;
         }
-        ctx = gfxContext::ForDrawTarget(destDT, boundsRect.TopLeft());
+        destDT->SetTransform(Matrix::Translation(-boundsRect.TopLeft()));
+        ctx = gfxContext::CreatePreservingTransformOrNull(destDT);
     } else {
         gfxUtils::ClipToRegion(dt, region.ToUnknownRegion());
-
-        ctx = gfxContext::ForDrawTarget(dt, offset);
+        ctx = gfxContext::CreatePreservingTransformOrNull(dt);
     }
     MOZ_ASSERT(ctx); // checked both dt and destDT valid draw target above
 
@@ -2416,6 +2420,8 @@ nsWindow::OnConfigureEvent(GtkWidget *aWidget, GdkEventConfigure *aEvent)
 
     LOG(("configure event [%p] %d %d %d %d\n", (void *)this,
          aEvent->x, aEvent->y, aEvent->width, aEvent->height));
+
+    mPendingConfigures--;
 
     LayoutDeviceIntRect screenBounds;
     GetScreenBounds(screenBounds);
@@ -2614,8 +2620,7 @@ nsWindow::OnMotionNotifyEvent(GdkEventMotion *aEvent)
 #ifdef MOZ_X11
     XEvent xevent;
 
-    bool isX11Display = GDK_IS_X11_DISPLAY(gdk_display_get_default());
-    if (isX11Display) {
+    if (mIsX11Display) {
         while (XPending (GDK_WINDOW_XDISPLAY(aEvent->window))) {
             XEvent peeked;
             XPeekEvent (GDK_WINDOW_XDISPLAY(aEvent->window), &peeked);
@@ -3405,6 +3410,12 @@ nsWindow::OnDPIChanged()
 }
 
 void
+nsWindow::OnCheckResize()
+{
+    mPendingConfigures++;
+}
+
+void
 nsWindow::DispatchDragEvent(EventMessage aMsg, const LayoutDeviceIntPoint& aRefPoint,
                             guint aTime)
 {
@@ -3860,6 +3871,8 @@ nsWindow::Create(nsIWidget* aParent,
                          G_CALLBACK(delete_event_cb), nullptr);
         g_signal_connect(mShell, "window_state_event",
                          G_CALLBACK(window_state_event_cb), nullptr);
+        g_signal_connect(mShell, "check-resize",
+                         G_CALLBACK(check_resize_cb), nullptr);
 
         GtkSettings* default_settings = gtk_settings_get_default();
         g_signal_connect_after(default_settings,
@@ -3991,7 +4004,7 @@ nsWindow::Create(nsIWidget* aParent,
         Resize(mBounds.x, mBounds.y, mBounds.width, mBounds.height, false);
 
 #ifdef MOZ_X11
-    if (mGdkWindow) {
+    if (mIsX11Display && mGdkWindow) {
       mXDisplay = GDK_WINDOW_XDISPLAY(mGdkWindow);
       mXWindow = gdk_x11_window_get_xid(mGdkWindow);
 
@@ -4038,8 +4051,7 @@ nsWindow::SetWindowClass(const nsAString &xulWinType)
   gdk_window_set_role(mGdkWindow, role);
 
 #ifdef MOZ_X11
-  GdkDisplay *display = gdk_display_get_default();
-  if (GDK_IS_X11_DISPLAY(display)) {
+  if (mIsX11Display) {
       XClassHint *class_hint = XAllocClassHint();
       if (!class_hint) {
         free(res_name);
@@ -4050,6 +4062,7 @@ nsWindow::SetWindowClass(const nsAString &xulWinType)
 
       // Can't use gtk_window_set_wmclass() for this; it prints
       // a warning & refuses to make the change.
+      GdkDisplay *display = gdk_display_get_default();
       XSetClassHint(GDK_DISPLAY_XDISPLAY(display),
                     gdk_x11_window_get_xid(mGdkWindow),
                     class_hint);
@@ -4179,7 +4192,31 @@ nsWindow::NativeShow(bool aAction)
     }
     else {
         if (mIsTopLevel) {
-            gtk_widget_hide(GTK_WIDGET(mShell));
+            // Workaround window freezes on GTK versions before 3.21.2 by
+            // ensuring that configure events get dispatched to windows before
+            // they are unmapped. See bug 1225044.
+            if (gtk_check_version(3, 21, 2) != nullptr && mPendingConfigures > 0) {
+                GtkAllocation allocation;
+                gtk_widget_get_allocation(GTK_WIDGET(mShell), &allocation);
+
+                GdkEventConfigure event;
+                PodZero(&event);
+                event.type = GDK_CONFIGURE;
+                event.window = mGdkWindow;
+                event.send_event = TRUE;
+                event.x = allocation.x;
+                event.y = allocation.y;
+                event.width = allocation.width;
+                event.height = allocation.height;
+
+                auto shellClass = GTK_WIDGET_GET_CLASS(mShell);
+                for (int i = 0; i < mPendingConfigures; i++) {
+                    Unused << shellClass->configure_event(mShell, &event);
+                }
+                mPendingConfigures = 0;
+            }
+
+            gtk_widget_hide(mShell);
 
             ClearTransparencyBitmap(); // Release some resources
         }
@@ -6034,6 +6071,16 @@ theme_changed_cb (GtkSettings *settings, GParamSpec *pspec, nsWindow *data)
     window->ThemeChanged();
 }
 
+static void
+check_resize_cb (GtkContainer* container, gpointer user_data)
+{
+    RefPtr<nsWindow> window = get_window_for_gtk_widget(GTK_WIDGET(container));
+    if (!window) {
+      return;
+    }
+    window->OnCheckResize();
+}
+
 #if (MOZ_WIDGET_GTK == 3)
 static void
 scale_changed_cb (GtkWidget* widget, GParamSpec* aPSpec, gpointer aPointer)
@@ -6463,9 +6510,9 @@ nsWindow::ExecuteNativeKeyBinding(NativeKeyBindingsType aType,
 }
 
 #if defined(MOZ_X11) && (MOZ_WIDGET_GTK == 2)
-/* static */ already_AddRefed<gfxASurface>
-nsWindow::GetSurfaceForGdkDrawable(GdkDrawable* aDrawable,
-                                   const nsIntSize& aSize)
+/* static */ already_AddRefed<DrawTarget>
+nsWindow::GetDrawTargetForGdkDrawable(GdkDrawable* aDrawable,
+                                      const IntSize& aSize)
 {
     GdkVisual* visual = gdk_drawable_get_visual(aDrawable);
     Screen* xScreen =
@@ -6473,13 +6520,12 @@ nsWindow::GetSurfaceForGdkDrawable(GdkDrawable* aDrawable,
     Display* xDisplay = DisplayOfScreen(xScreen);
     Drawable xDrawable = gdk_x11_drawable_get_xid(aDrawable);
 
-    RefPtr<gfxASurface> result;
+    RefPtr<gfxASurface> surface;
 
     if (visual) {
         Visual* xVisual = gdk_x11_visual_get_xvisual(visual);
 
-        result = new gfxXlibSurface(xDisplay, xDrawable, xVisual,
-                                    IntSize(aSize.width, aSize.height));
+        surface = new gfxXlibSurface(xDisplay, xDrawable, xVisual, aSize);
     } else {
         // no visual? we must be using an xrender format.  Find a format
         // for this depth.
@@ -6496,11 +6542,17 @@ nsWindow::GetSurfaceForGdkDrawable(GdkDrawable* aDrawable,
                 break;
         }
 
-        result = new gfxXlibSurface(xScreen, xDrawable, pf,
-                                    IntSize(aSize.width, aSize.height));
+        surface = new gfxXlibSurface(xScreen, xDrawable, pf, aSize);
     }
 
-    return result.forget();
+    RefPtr<DrawTarget> dt =
+        gfxPlatform::GetPlatform()->CreateDrawTargetForSurface(surface, aSize);
+
+    if (!dt || !dt->IsValid()) {
+        return nullptr;
+    }
+
+    return dt.forget();
 }
 #endif
 
@@ -6530,7 +6582,7 @@ nsWindow::GetDrawTarget(const LayoutDeviceIntRegion& aRegion, BufferMode* aBuffe
   }
 
 #  ifdef MOZ_HAVE_SHMIMAGE
-  if (!dt && nsShmImage::UseShm()) {
+  if (!dt && mIsX11Display && nsShmImage::UseShm()) {
     mBackShmImage.swap(mFrontShmImage);
     if (!mBackShmImage) {
       mBackShmImage = new nsShmImage(mXDisplay, mXWindow, mXVisual, mXDepth);
@@ -6761,8 +6813,7 @@ nsWindow::BeginResizeDrag(WidgetGUIEvent* aEvent,
 nsIWidget::LayerManager*
 nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
                           LayersBackend aBackendHint,
-                          LayerManagerPersistence aPersistence,
-                          bool* aAllowRetaining)
+                          LayerManagerPersistence aPersistence)
 {
     if (mIsDestroyed) {
       // Prevent external code from triggering the re-creation of the LayerManager/Compositor
@@ -6773,8 +6824,7 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
         mLayerManager = CreateBasicLayerManager();
     }
 
-    return nsBaseWidget::GetLayerManager(aShadowManager, aBackendHint,
-                                         aPersistence, aAllowRetaining);
+    return nsBaseWidget::GetLayerManager(aShadowManager, aBackendHint, aPersistence);
 }
 
 void

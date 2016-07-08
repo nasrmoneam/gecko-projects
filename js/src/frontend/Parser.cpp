@@ -558,6 +558,9 @@ ParseContext<ParseHandler>::generateBindings(ExclusiveContext* cx, TokenStream& 
     if (UINT32_MAX - args_.length() <= vars_.length() + bodyLevelLexicals_.length())
         return ts.reportError(JSMSG_TOO_MANY_LOCALS);
 
+    if (blockScopeDepth >= Bindings::BLOCK_SCOPED_LIMIT)
+        return ts.reportError(JSMSG_TOO_MANY_LOCALS);
+
     // Fix up slots in non-global contexts. In global contexts all body-level
     // names are dynamically defined and do not live in either frame or
     // CallObject slots.
@@ -9352,7 +9355,12 @@ Parser<ParseHandler>::objectLiteral(YieldHandling yieldHandling, PossibleError* 
                 return null();
 
             tokenStream.consumeKnownToken(TOK_ASSIGN);
+            bool saved = pc->inDeclDestructuring;
+            // Setting `inDeclDestructuring` to false allows name use to be noted
+            // in `identifierName` See Bug: 1255167.
+            pc->inDeclDestructuring = false;
             Node rhs = assignExpr(InAllowed, yieldHandling, TripledotProhibited);
+            pc->inDeclDestructuring = saved;
             if (!rhs)
                 return null();
 

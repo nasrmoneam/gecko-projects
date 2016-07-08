@@ -114,6 +114,7 @@ OnSharedPreferenceChangeListener
     // some devices look bad. Don't use transitions on those
     // devices.
     private static final boolean NO_TRANSITIONS = HardwareUtils.IS_KINDLE_DEVICE;
+    private static final int NO_SUCH_ID = 0;
 
     public static final String NON_PREF_PREFIX = "android.not_a_preference.";
     public static final String INTENT_EXTRA_RESOURCES = "resource";
@@ -158,6 +159,7 @@ OnSharedPreferenceChangeListener
     public static final String PREFS_NOTIFICATIONS_CONTENT = NON_PREF_PREFIX + "notifications.content";
     public static final String PREFS_NOTIFICATIONS_CONTENT_LEARN_MORE = NON_PREF_PREFIX + "notifications.content.learn_more";
     public static final String PREFS_NOTIFICATIONS_WHATS_NEW = NON_PREF_PREFIX + "notifications.whats_new";
+    public static final String PREFS_APP_UPDATE_LAST_BUILD_ID = "app.update.last_build_id";
 
     private static final String ACTION_STUMBLER_UPLOAD_PREF = AppConstants.ANDROID_PACKAGE_NAME + ".STUMBLER_PREF";
 
@@ -281,7 +283,12 @@ OnSharedPreferenceChangeListener
             }
 
             // Update the title to for the preference pane that we're currently showing.
-            setTitle(R.string.pref_category_language);
+            final int titleId = getIntent().getExtras().getInt(PreferenceActivity.EXTRA_SHOW_FRAGMENT_TITLE);
+            if (titleId != NO_SUCH_ID) {
+                setTitle(titleId);
+            } else {
+                throw new IllegalStateException("Title id not found in intent bundle extras");
+            }
 
             // Don't finish the activity -- we just reloaded all of the
             // individual parts! -- but when it returns, make sure that the
@@ -428,6 +435,8 @@ OnSharedPreferenceChangeListener
         // Build fragment intent.
         intent.putExtra(PreferenceActivity.EXTRA_SHOW_FRAGMENT, GeckoPreferenceFragment.class.getName());
         intent.putExtra(PreferenceActivity.EXTRA_SHOW_FRAGMENT_ARGUMENTS, fragmentArgs);
+        // Used to get fragment title when locale changes (see onLocaleChanged method above)
+        intent.putExtra(PreferenceActivity.EXTRA_SHOW_FRAGMENT_TITLE, R.string.settings_title);
     }
 
     @Override
@@ -966,31 +975,6 @@ OnSharedPreferenceChangeListener
 
     /**
      * Broadcast the provided value as the value of the
-     * <code>PREFS_HEALTHREPORT_UPLOAD_ENABLED</code> pref.
-     */
-    public static void broadcastHealthReportUploadPref(final Context context, final boolean value) {
-        //broadcastPrefAction(context,
-        //                    HealthReportConstants.ACTION_HEALTHREPORT_UPLOAD_PREF,
-        //                    PREFS_HEALTHREPORT_UPLOAD_ENABLED,
-        //                    value);
-    }
-
-    /**
-     * Broadcast the current value of the
-     * <code>PREFS_HEALTHREPORT_UPLOAD_ENABLED</code> pref.
-     */
-    public static void broadcastHealthReportUploadPref(final Context context) {
-        //final boolean value = getBooleanPref(context, PREFS_HEALTHREPORT_UPLOAD_ENABLED, true);
-        //broadcastHealthReportUploadPref(context, value);
-    }
-
-    public static void broadcastHealthReportPrune(final Context context) {
-        //final Intent intent = new Intent(HealthReportConstants.ACTION_HEALTHREPORT_PRUNE);
-        //broadcastAction(context, intent);
-    }
-
-    /**
-     * Broadcast the provided value as the value of the
      * <code>PREFS_GEO_REPORTING</code> pref.
      */
     public static void broadcastStumblerPref(final Context context, final boolean value) {
@@ -1185,12 +1169,7 @@ OnSharedPreferenceChangeListener
         } else if (PREFS_UPDATER_URL.equals(prefName)) {
             UpdateServiceHelper.setUpdateUrl(this, (String) newValue);
         } else if (PREFS_HEALTHREPORT_UPLOAD_ENABLED.equals(prefName)) {
-            // The healthreport pref only lives in Android, so we do not persist
-            // to Gecko, but we do broadcast intent to the health report
-            // background uploader service, which will start or stop the
-            // repeated background upload attempts.
             final Boolean newBooleanValue = (Boolean) newValue;
-            broadcastHealthReportUploadPref(this, newBooleanValue);
             AdjustConstants.getAdjustHelper().setEnabled(newBooleanValue);
         } else if (PREFS_GEO_REPORTING.equals(prefName)) {
             if ((Boolean) newValue) {

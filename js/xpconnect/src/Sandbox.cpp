@@ -21,7 +21,6 @@
 #include "nsNetUtil.h"
 #include "nsNullPrincipal.h"
 #include "nsPrincipal.h"
-#include "nsXMLHttpRequest.h"
 #include "WrapperFactory.h"
 #include "xpcprivate.h"
 #include "XPCWrapper.h"
@@ -31,6 +30,7 @@
 #include "mozilla/dom/BlobBinding.h"
 #include "mozilla/dom/cache/CacheStorage.h"
 #include "mozilla/dom/CSSBinding.h"
+#include "mozilla/dom/DirectoryBinding.h"
 #include "mozilla/dom/IndexedDatabaseManager.h"
 #include "mozilla/dom/Fetch.h"
 #include "mozilla/dom/FileBinding.h"
@@ -47,6 +47,7 @@
 #include "mozilla/dom/UnionConversions.h"
 #include "mozilla/dom/URLBinding.h"
 #include "mozilla/dom/URLSearchParamsBinding.h"
+#include "mozilla/dom/XMLHttpRequest.h"
 
 using namespace mozilla;
 using namespace JS;
@@ -909,6 +910,8 @@ xpc::GlobalProperties::Parse(JSContext* cx, JS::HandleObject obj)
             btoa = true;
         } else if (!strcmp(name.ptr(), "Blob")) {
             Blob = true;
+        } else if (!strcmp(name.ptr(), "Directory")) {
+            Directory = true;
         } else if (!strcmp(name.ptr(), "File")) {
             File = true;
         } else if (!strcmp(name.ptr(), "crypto")) {
@@ -972,6 +975,10 @@ xpc::GlobalProperties::Define(JSContext* cx, JS::HandleObject obj)
 
     if (Blob &&
         !dom::BlobBinding::GetConstructorObject(cx, obj))
+        return false;
+
+    if (Directory &&
+        !dom::DirectoryBinding::GetConstructorObject(cx, obj))
         return false;
 
     if (File &&
@@ -1732,7 +1739,7 @@ xpc::EvalInSandbox(JSContext* cx, HandleObject sandboxArg, const nsAString& sour
                    const nsACString& filename, int32_t lineNo,
                    JSVersion jsVersion, MutableHandleValue rval)
 {
-    JS_AbortIfWrongThread(JS_GetRuntime(cx));
+    JS_AbortIfWrongThread(cx);
     rval.set(UndefinedValue());
 
     bool waiveXray = xpc::WrapperFactory::HasWaiveXrayFlag(sandboxArg);

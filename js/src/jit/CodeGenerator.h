@@ -53,7 +53,7 @@ class OutOfLineRegExpPrototypeOptimizable;
 class OutOfLineRegExpInstanceOptimizable;
 class OutOfLineLambdaArrow;
 
-class CodeGenerator : public CodeGeneratorSpecific
+class CodeGenerator final : public CodeGeneratorSpecific
 {
     void generateArgumentsChecks(bool bailout = true);
     MOZ_MUST_USE bool generateBody();
@@ -518,6 +518,8 @@ class CodeGenerator : public CodeGeneratorSpecific
 
     void emitAssertRangeI(const Range* r, Register input);
     void emitAssertRangeD(const Range* r, FloatRegister input, FloatRegister temp);
+
+    void maybeEmitGlobalBarrierCheck(const LAllocation* maybeGlobal, OutOfLineCode* ool);
 
     Vector<CodeOffset, 0, JitAllocPolicy> ionScriptLabels_;
 

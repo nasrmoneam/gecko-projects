@@ -54,6 +54,7 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
   , mInnerWindowID(0)
   , mOuterWindowID(0)
   , mParentOuterWindowID(0)
+  , mFrameOuterWindowID(0)
   , mEnforceSecurity(false)
   , mInitialSecurityCheckDone(false)
   , mIsThirdPartyContext(false)
@@ -97,9 +98,12 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
     nsCOMPtr<nsPIDOMWindowOuter> contextOuter = aLoadingContext->OwnerDoc()->GetWindow();
     if (contextOuter) {
       ComputeIsThirdPartyContext(contextOuter);
+      mOuterWindowID = contextOuter->WindowID();
+      nsCOMPtr<nsPIDOMWindowOuter> parent = contextOuter->GetScriptableParent();
+      mParentOuterWindowID = parent ? parent->WindowID() : mOuterWindowID;
     }
 
-    nsCOMPtr<nsPIDOMWindowOuter> outerWindow;
+    mInnerWindowID = aLoadingContext->OwnerDoc()->InnerWindowID();
 
     // When the element being loaded is a frame, we choose the frame's window
     // for the window ID and the frame element's window as the parent
@@ -115,19 +119,11 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
     if (fl) {
       nsCOMPtr<nsIDocShell> docShell;
       if (NS_SUCCEEDED(fl->GetDocShell(getter_AddRefs(docShell))) && docShell) {
-        outerWindow = do_GetInterface(docShell);
+        nsCOMPtr<nsPIDOMWindowOuter> outerWindow = do_GetInterface(docShell);
+        if (outerWindow) {
+          mFrameOuterWindowID = outerWindow->WindowID();
+        }
       }
-    } else {
-      outerWindow = contextOuter.forget();
-    }
-
-    if (outerWindow) {
-      nsCOMPtr<nsPIDOMWindowInner> inner = outerWindow->GetCurrentInnerWindow();
-      mInnerWindowID = inner ? inner->WindowID() : 0;
-      mOuterWindowID = outerWindow->WindowID();
-
-      nsCOMPtr<nsPIDOMWindowOuter> parent = outerWindow->GetScriptableParent();
-      mParentOuterWindowID = parent->WindowID();
     }
 
     // if the document forces all requests to be upgraded from http to https, then
@@ -154,14 +150,24 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
       // do not look into the CSP if already true:
       // a CSP saying that SRI isn't needed should not
       // overrule GetVerifySignedContent
-      nsCOMPtr<nsIContentSecurityPolicy> csp;
       if (aLoadingPrincipal) {
+        nsCOMPtr<nsIContentSecurityPolicy> csp;
         aLoadingPrincipal->GetCsp(getter_AddRefs(csp));
+        uint32_t externalType =
+          nsContentUtils::InternalContentPolicyTypeToExternal(aContentPolicyType);
         // csp could be null if loading principal is system principal
         if (csp) {
-          uint32_t loadType =
-            nsContentUtils::InternalContentPolicyTypeToExternal(aContentPolicyType);
-          csp->RequireSRIForType(loadType, &mEnforceSRI);
+          csp->RequireSRIForType(externalType, &mEnforceSRI);
+        }
+        // if CSP is delivered via a meta tag, it's speculatively available
+        // as 'preloadCSP'. If we are preloading a script or style, we have
+        // to apply that speculative 'preloadCSP' for such loads.
+        if (!mEnforceSRI && nsContentUtils::IsPreloadType(aContentPolicyType)) {
+          nsCOMPtr<nsIContentSecurityPolicy> preloadCSP;
+          aLoadingPrincipal->GetPreloadCsp(getter_AddRefs(preloadCSP));
+          if (preloadCSP) {
+            preloadCSP->RequireSRIForType(externalType, &mEnforceSRI);
+          }
         }
       }
     }
@@ -201,6 +207,7 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow,
   , mInnerWindowID(0)
   , mOuterWindowID(0)
   , mParentOuterWindowID(0)
+  , mFrameOuterWindowID(0)
   , mEnforceSecurity(false)
   , mInitialSecurityCheckDone(false)
   , mIsThirdPartyContext(false) // NB: TYPE_DOCUMENT implies not third-party.
@@ -247,6 +254,7 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
   , mInnerWindowID(rhs.mInnerWindowID)
   , mOuterWindowID(rhs.mOuterWindowID)
   , mParentOuterWindowID(rhs.mParentOuterWindowID)
+  , mFrameOuterWindowID(rhs.mFrameOuterWindowID)
   , mEnforceSecurity(rhs.mEnforceSecurity)
   , mInitialSecurityCheckDone(rhs.mInitialSecurityCheckDone)
   , mIsThirdPartyContext(rhs.mIsThirdPartyContext)
@@ -271,6 +279,7 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
                    uint64_t aInnerWindowID,
                    uint64_t aOuterWindowID,
                    uint64_t aParentOuterWindowID,
+                   uint64_t aFrameOuterWindowID,
                    bool aEnforceSecurity,
                    bool aInitialSecurityCheckDone,
                    bool aIsThirdPartyContext,
@@ -291,6 +300,7 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
   , mInnerWindowID(aInnerWindowID)
   , mOuterWindowID(aOuterWindowID)
   , mParentOuterWindowID(aParentOuterWindowID)
+  , mFrameOuterWindowID(aFrameOuterWindowID)
   , mEnforceSecurity(aEnforceSecurity)
   , mInitialSecurityCheckDone(aInitialSecurityCheckDone)
   , mIsThirdPartyContext(aIsThirdPartyContext)
@@ -338,6 +348,14 @@ already_AddRefed<nsILoadInfo>
 LoadInfo::Clone() const
 {
   RefPtr<LoadInfo> copy(new LoadInfo(*this));
+  return copy.forget();
+}
+
+already_AddRefed<nsILoadInfo>
+LoadInfo::CloneWithNewSecFlags(nsSecurityFlags aSecurityFlags) const
+{
+  RefPtr<LoadInfo> copy(new LoadInfo(*this));
+  copy->mSecurityFlags = aSecurityFlags;
   return copy.forget();
 }
 
@@ -576,6 +594,13 @@ NS_IMETHODIMP
 LoadInfo::GetParentOuterWindowID(uint64_t* aResult)
 {
   *aResult = mParentOuterWindowID;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetFrameOuterWindowID(uint64_t* aResult)
+{
+  *aResult = mFrameOuterWindowID;
   return NS_OK;
 }
 

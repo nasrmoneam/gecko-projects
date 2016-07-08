@@ -194,10 +194,13 @@ var openInspector = Task.async(function* (hostType) {
                                         hostType);
   let inspector = toolbox.getPanel("inspector");
 
-  info("Waiting for the inspector to update");
   if (inspector._updateProgress) {
+    info("Need to wait for the inspector to update");
     yield inspector.once("inspector-updated");
   }
+
+  info("Waiting for actor features to be detected");
+  yield inspector._detectingActorFeatures;
 
   yield registerTestActor(toolbox.target.client);
   let testActor = yield getTestActor(toolbox);
@@ -451,7 +454,7 @@ var clickContainer = Task.async(function* (selector, inspector) {
  */
 function mouseLeaveMarkupView(inspector) {
   info("Leaving the markup-view area");
-  let def = promise.defer();
+  let def = defer();
 
   // Find another element to mouseover over in order to leave the markup-view
   let btn = inspector.toolbox.doc.querySelector("#toolbox-controls");
@@ -510,32 +513,6 @@ function redoChange(inspector) {
   let mutated = inspector.once("markupmutation");
   inspector.markup.undo.redo();
   return mutated;
-}
-
-/**
- * Dispatch a command event on a node (e.g. click on a contextual menu item).
- * @param {DOMNode} node
- */
-function dispatchCommandEvent(node) {
-  info("Dispatching command event on " + node);
-  let commandEvent = document.createEvent("XULCommandEvent");
-  commandEvent.initCommandEvent("command", true, true, window, 0, false, false,
-                                false, false, null);
-  node.dispatchEvent(commandEvent);
-}
-
-/**
- * A helper that simulates a contextmenu event on the given chrome DOM element.
- */
-function contextMenuClick(element) {
-  let evt = element.ownerDocument.createEvent("MouseEvents");
-  let button = 2;
-
-  evt.initMouseEvent("contextmenu", true, true,
-       element.ownerDocument.defaultView, 1, 0, 0, 0, 0, false,
-       false, false, false, button, null);
-
-  element.dispatchEvent(evt);
 }
 
 /**
@@ -678,7 +655,7 @@ function* waitForMultipleChildrenUpdates(inspector) {
  */
 function waitForChildrenUpdated({markup}) {
   info("Waiting for queued children updates to be handled");
-  let def = promise.defer();
+  let def = defer();
   markup._waitForChildren().then(() => {
     executeSoon(def.resolve);
   });
@@ -697,7 +674,7 @@ function waitForChildrenUpdated({markup}) {
  * ready
  */
 function waitForStyleEditor(toolbox, href) {
-  let def = promise.defer();
+  let def = defer();
 
   info("Waiting for the toolbox to switch to the styleeditor");
   toolbox.once("styleeditor-selected").then(() => {
@@ -748,7 +725,7 @@ function waitForStyleEditor(toolbox, href) {
  * the validator function has returned true, rejects otherwise.
  */
 function waitForClipboard(setup, expected) {
-  let def = promise.defer();
+  let def = defer();
   SimpleTest.waitForClipboard(expected, setup, def.resolve, def.reject);
   return def.promise;
 }
@@ -828,4 +805,41 @@ function assertHoverTooltipOn(tooltip, element) {
   }, () => {
     ok(false, "No tooltip is defined on hover of the given element");
   });
+}
+
+/**
+ * Open the inspector menu and return all of it's items in a flat array
+ * @param {InspectorPanel} inspector
+ * @param {Object} options to pass into openMenu
+ * @return An array of MenuItems
+ */
+function openContextMenuAndGetAllItems(inspector, options) {
+  let menu = inspector._openMenu(options);
+
+  // Flatten all menu items into a single array to make searching through it easier
+  let allItems = [].concat.apply([], menu.items.map(function addItem(item) {
+    if (item.submenu) {
+      return addItem(item.submenu.items);
+    }
+    return item;
+  }));
+
+  return allItems;
+}
+
+/**
+ * Get the rule editor from the rule-view given its index
+ *
+ * @param {CssRuleView} view
+ *        The instance of the rule-view panel
+ * @param {Number} childrenIndex
+ *        The children index of the element to get
+ * @param {Number} nodeIndex
+ *        The child node index of the element to get
+ * @return {DOMNode} The rule editor if any at this index
+ */
+function getRuleViewRuleEditor(view, childrenIndex, nodeIndex) {
+  return nodeIndex !== undefined ?
+    view.element.children[childrenIndex].childNodes[nodeIndex]._ruleEditor :
+    view.element.children[childrenIndex]._ruleEditor;
 }

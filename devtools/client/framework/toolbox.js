@@ -1,5 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -16,6 +14,7 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 
 var {Cc, Ci, Cu} = require("chrome");
 var promise = require("promise");
+var defer = require("devtools/shared/defer");
 var Services = require("Services");
 var {Task} = require("devtools/shared/task");
 var {gDevTools} = require("devtools/client/framework/devtools");
@@ -26,9 +25,7 @@ var viewSource = require("devtools/client/shared/view-source");
 var { attachThread, detachThread } = require("./attach-thread");
 var Menu = require("devtools/client/framework/menu");
 var MenuItem = require("devtools/client/framework/menu-item");
-
-Cu.import("resource://devtools/client/scratchpad/scratchpad-manager.jsm");
-Cu.import("resource://devtools/client/shared/DOMHelpers.jsm");
+var { DOMHelpers } = require("resource://devtools/client/shared/DOMHelpers.jsm");
 
 const { BrowserLoader } =
   Cu.import("resource://devtools/client/shared/browser-loader.js", {});
@@ -63,7 +60,7 @@ loader.lazyRequireGetter(this, "DevToolsUtils",
 loader.lazyRequireGetter(this, "showDoorhanger",
   "devtools/client/shared/doorhanger", true);
 loader.lazyRequireGetter(this, "createPerformanceFront",
-  "devtools/server/actors/performance", true);
+  "devtools/shared/fronts/performance", true);
 loader.lazyRequireGetter(this, "system",
   "devtools/shared/system");
 loader.lazyRequireGetter(this, "getPreferenceFront",
@@ -238,7 +235,7 @@ Toolbox.prototype = {
    *          A promise that resolves once the panel is ready.
    */
   getPanelWhenReady: function (id) {
-    let deferred = promise.defer();
+    let deferred = defer();
     let panel = this.getPanel(id);
     if (panel) {
       deferred.resolve(panel);
@@ -368,7 +365,7 @@ Toolbox.prototype = {
   open: function () {
     return Task.spawn(function* () {
       let iframe = yield this._host.create();
-      let domReady = promise.defer();
+      let domReady = defer();
 
       // Prevent reloading the document when the toolbox is opened in a tab
       let location = iframe.contentWindow.location.href;
@@ -1193,7 +1190,7 @@ Toolbox.prototype = {
       });
     }
 
-    let deferred = promise.defer();
+    let deferred = defer();
     let iframe = this.doc.getElementById("toolbox-panel-iframe-" + id);
 
     if (iframe) {
@@ -1240,7 +1237,7 @@ Toolbox.prototype = {
       // backward compatibility with existing extensions do a check
       // for a promise return value.
       let built = definition.build(iframe.contentWindow, this);
-      if (!(built instanceof Promise)) {
+      if (!(typeof built.then == "function")) {
         let panel = built;
         iframe.panel = panel;
 
@@ -1261,7 +1258,7 @@ Toolbox.prototype = {
         if (typeof panel.open == "function") {
           built = panel.open();
         } else {
-          let buildDeferred = promise.defer();
+          let buildDeferred = defer();
           buildDeferred.resolve(panel);
           built = buildDeferred.promise;
         }
@@ -1619,6 +1616,7 @@ Toolbox.prototype = {
    */
   showFramesMenu: function (event) {
     let menu = new Menu();
+    let target = event.target;
 
     // Generate list of menu items from the list of frames.
     this.frameMap.forEach(frame => {
@@ -1636,14 +1634,22 @@ Toolbox.prototype = {
       }));
     });
 
+    menu.once("open").then(() => {
+      target.setAttribute("open", "true");
+    });
+
+    menu.once("close").then(() => {
+      target.removeAttribute("open");
+    });
+
     // Show a drop down menu with frames.
     // XXX Missing menu API for specifying target (anchor)
     // and relative position to it. See also:
     // https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/Method/openPopup
     // https://bugzilla.mozilla.org/show_bug.cgi?id=1274551
-    let rect = event.target.getBoundingClientRect();
-    let screenX = event.target.ownerDocument.defaultView.mozInnerScreenX;
-    let screenY = event.target.ownerDocument.defaultView.mozInnerScreenY;
+    let rect = target.getBoundingClientRect();
+    let screenX = target.ownerDocument.defaultView.mozInnerScreenX;
+    let screenY = target.ownerDocument.defaultView.mozInnerScreenY;
     menu.popup(rect.left + screenX, rect.bottom + screenY, this);
 
     return menu;
@@ -2183,7 +2189,7 @@ Toolbox.prototype = {
       return this._performanceFrontConnection.promise;
     }
 
-    this._performanceFrontConnection = promise.defer();
+    this._performanceFrontConnection = defer();
     this._performance = createPerformanceFront(this._target);
     yield this.performance.connect();
 

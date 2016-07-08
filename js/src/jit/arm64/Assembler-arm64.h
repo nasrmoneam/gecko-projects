@@ -124,7 +124,6 @@ static constexpr Register AsmJSIonExitRegCallee = r8;
 static constexpr Register AsmJSIonExitRegE0 = r0;
 static constexpr Register AsmJSIonExitRegE1 = r1;
 static constexpr Register AsmJSIonExitRegE2 = r2;
-static constexpr Register AsmJSIonExitRegE3 = r3;
 
 // Registers used in the GenerateFFIIonExit Disable Activation block.
 // None of these may be the second scratch register.
@@ -288,6 +287,7 @@ class Assembler : public vixl::Assembler
     }
 
     static bool SupportsFloatingPoint() { return true; }
+    static bool SupportsUnalignedAccesses() { return true; }
     static bool SupportsSimd() { return js::jit::SupportsSimd; }
 
     // Tracks a jump that is patchable after finalization.
@@ -373,7 +373,7 @@ class Assembler : public vixl::Assembler
     static const size_t OffsetOfJumpTableEntryPointer = 8;
 
   public:
-    static void UpdateBoundsCheck(uint32_t logHeapSize, Instruction* inst);
+    static void UpdateBoundsCheck(uint8_t* patchAt, uint32_t heapLength);
 
     void writeCodePointer(AbsoluteLabel* absoluteLabel) {
         MOZ_ASSERT(!absoluteLabel->bound());

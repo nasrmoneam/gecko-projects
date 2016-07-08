@@ -135,7 +135,7 @@ WebGLContext::BindFakeBlack(uint32_t texUnit, TexTarget target, FakeBlackType fa
 
     UniquePtr<FakeBlackTexture>* slot = fnGetSlot();
     if (!slot) {
-        MOZ_CRASH("fnGetSlot failed.");
+        MOZ_CRASH("GFX: fnGetSlot failed.");
     }
     UniquePtr<FakeBlackTexture>& fakeBlackTex = *slot;
 
@@ -827,7 +827,7 @@ WebGLContext::FakeBlackTexture::FakeBlackTexture(gl::GLContext* gl, TexTarget ta
         break;
 
     default:
-        MOZ_CRASH("bad type");
+        MOZ_CRASH("GFX: bad type");
     }
 
     gl::ScopedBindTexture scopedBind(mGL, mGLName, target.get());
@@ -844,6 +844,22 @@ WebGLContext::FakeBlackTexture::FakeBlackTexture(gl::GLContext* gl, TexTarget ta
     UniqueBuffer zeros = moz_xcalloc(1, 16); // Infallible allocation.
 
     MOZ_ASSERT(gl->IsCurrent());
+    auto logANGLEError = [](GLenum source, GLenum type, GLuint id, GLenum severity,
+                            GLsizei length, const GLchar* message, const GLvoid* userParam)
+    {
+        gfxCriticalNote << message;
+    };
+
+    if (gl->IsANGLE()) {
+      gl->fEnable(LOCAL_GL_DEBUG_OUTPUT);
+      gl->fDebugMessageCallback(logANGLEError, nullptr);
+      gl->fDebugMessageControl(LOCAL_GL_DONT_CARE,
+                               LOCAL_GL_DONT_CARE,
+                               LOCAL_GL_DONT_CARE,
+                               0, nullptr,
+                               true);
+    }
+
     if (target == LOCAL_GL_TEXTURE_CUBE_MAP) {
         for (int i = 0; i < 6; ++i) {
             const TexImageTarget curTarget = LOCAL_GL_TEXTURE_CUBE_MAP_POSITIVE_X + i;
@@ -856,7 +872,7 @@ WebGLContext::FakeBlackTexture::FakeBlackTexture(gl::GLContext* gl, TexTarget ta
                                            error, curTarget.get(), dui.internalFormat,
                                            dui.unpackFormat, dui.unpackType);
                 gfxCriticalError() << text.BeginReading();
-                MOZ_CRASH("Unexpected error during cube map FakeBlack creation.");
+                MOZ_CRASH("GFX: Unexpected error during cube map FakeBlack creation.");
             }
         }
     } else {
@@ -869,8 +885,12 @@ WebGLContext::FakeBlackTexture::FakeBlackTexture(gl::GLContext* gl, TexTarget ta
                                        error, target.get(), dui.internalFormat,
                                        dui.unpackFormat, dui.unpackType);
             gfxCriticalError() << text.BeginReading();
-            MOZ_CRASH("Unexpected error during FakeBlack creation.");
+            MOZ_CRASH("GFX: Unexpected error during FakeBlack creation.");
         }
+    }
+
+    if (gl->IsANGLE()) {
+      gl->fDisable(LOCAL_GL_DEBUG_OUTPUT);
     }
 }
 

@@ -11,12 +11,14 @@
 #include "mozilla/RestyleManager.h"
 
 #include <algorithm> // For std::max
+#include "mozilla/EffectSet.h"
 #include "mozilla/EventStates.h"
 #include "nsLayoutUtils.h"
 #include "AnimationCommon.h" // For GetLayerAnimationInfo
 #include "FrameLayerBuilder.h"
 #include "GeckoProfiler.h"
 #include "LayerAnimationInfo.h" // For LayerAnimationInfo::sRecords
+#include "nsAutoPtr.h"
 #include "nsStyleChangeList.h"
 #include "nsRuleProcessorData.h"
 #include "nsStyleSet.h"
@@ -397,8 +399,9 @@ bool
 RestyleManager::RecomputePosition(nsIFrame* aFrame)
 {
   // Don't process position changes on table frames, since we already handle
-  // the dynamic position change on the outer table frame, and the reflow-based
-  // fallback code path also ignores positions on inner table frames.
+  // the dynamic position change on the table wrapper frame, and the
+  // reflow-based fallback code path also ignores positions on inner table
+  // frames.
   if (aFrame->GetType() == nsGkAtoms::tableFrame) {
     return true;
   }
@@ -2265,16 +2268,16 @@ GetPrevContinuationWithPossiblySameStyle(nsIFrame* aFrame)
   // previous ib-split sibling is an inline and the previous ib-split
   // sibling of that is either another block-in-inline wrapper block box
   // or null.
-  nsIFrame *prevContinuation = aFrame->GetPrevContinuation();
+  nsIFrame* prevContinuation = aFrame->GetPrevContinuation();
   if (!prevContinuation &&
       (aFrame->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT)) {
     // We're the first continuation, so we can just get the frame
     // property directly
-    prevContinuation = static_cast<nsIFrame*>(
-      aFrame->Properties().Get(nsIFrame::IBSplitPrevSibling()));
+    prevContinuation =
+      aFrame->Properties().Get(nsIFrame::IBSplitPrevSibling());
     if (prevContinuation) {
-      prevContinuation = static_cast<nsIFrame*>(
-        prevContinuation->Properties().Get(nsIFrame::IBSplitPrevSibling()));
+      prevContinuation =
+        prevContinuation->Properties().Get(nsIFrame::IBSplitPrevSibling());
     }
   }
 
@@ -2332,11 +2335,11 @@ GetNextContinuationWithSameStyle(nsIFrame* aFrame,
       (aFrame->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT)) {
     // We're the last continuation, so we have to hop back to the first
     // before getting the frame property
-    nextContinuation = static_cast<nsIFrame*>(aFrame->FirstContinuation()->
-      Properties().Get(nsIFrame::IBSplitSibling()));
+    nextContinuation = aFrame->FirstContinuation()->
+      Properties().Get(nsIFrame::IBSplitSibling());
     if (nextContinuation) {
-      nextContinuation = static_cast<nsIFrame*>(
-        nextContinuation->Properties().Get(nsIFrame::IBSplitSibling()));
+      nextContinuation =
+        nextContinuation->Properties().Get(nsIFrame::IBSplitSibling());
     }
   }
 
@@ -2512,8 +2515,8 @@ RestyleManager::ReparentStyleContext(nsIFrame* aFrame)
       // oldContext)" check will prevent us from redoing work.
       if ((aFrame->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT) &&
           !aFrame->GetPrevContinuation()) {
-        nsIFrame* sib = static_cast<nsIFrame*>
-          (aFrame->Properties().Get(nsIFrame::IBSplitSibling()));
+        nsIFrame* sib =
+          aFrame->Properties().Get(nsIFrame::IBSplitSibling());
         if (sib) {
           ReparentStyleContext(sib);
         }
@@ -4674,7 +4677,7 @@ ElementRestyler::RestyleUndisplayedNodes(nsRestyleHint    aChildRestyleHint,
     if (display->mDisplay != aDisplay) {
       NS_ASSERTION(element, "Must have undisplayed content");
       mChangeList->AppendChange(nullptr, element,
-                                NS_STYLE_HINT_FRAMECHANGE);
+                                nsChangeHint_ReconstructFrame);
       // The node should be removed from the undisplayed map when
       // we reframe it.
     } else {
@@ -5169,11 +5172,7 @@ RestyleManager::ChangeHintToString(nsChangeHint aHint)
     hint = 0;
     any = true;
   } else {
-    if ((hint & NS_STYLE_HINT_FRAMECHANGE) == NS_STYLE_HINT_FRAMECHANGE) {
-      result.AppendLiteral("NS_STYLE_HINT_FRAMECHANGE");
-      hint = hint & ~NS_STYLE_HINT_FRAMECHANGE;
-      any = true;
-    } else if ((hint & NS_STYLE_HINT_REFLOW) == NS_STYLE_HINT_REFLOW) {
+    if ((hint & NS_STYLE_HINT_REFLOW) == NS_STYLE_HINT_REFLOW) {
       result.AppendLiteral("NS_STYLE_HINT_REFLOW");
       hint = hint & ~NS_STYLE_HINT_REFLOW;
       any = true;

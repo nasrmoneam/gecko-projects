@@ -654,6 +654,7 @@ static const char kFontCambriaMath[] = "Cambria Math";
 static const char kFontEbrima[] = "Ebrima";
 static const char kFontEstrangeloEdessa[] = "Estrangelo Edessa";
 static const char kFontEuphemia[] = "Euphemia";
+static const char kFontEmojiOneMozilla[] = "EmojiOne Mozilla";
 static const char kFontGabriola[] = "Gabriola";
 static const char kFontJavaneseText[] = "Javanese Text";
 static const char kFontKhmerUI[] = "Khmer UI";
@@ -690,6 +691,7 @@ gfxWindowsPlatform::GetCommonFallbackFonts(uint32_t aCh, uint32_t aNextCh,
 {
     if (aNextCh == 0xfe0fu) {
         aFontList.AppendElement(kFontSegoeUIEmoji);
+        aFontList.AppendElement(kFontEmojiOneMozilla);
     }
 
     // Arial is used as the default fallback for system fallback
@@ -701,9 +703,11 @@ gfxWindowsPlatform::GetCommonFallbackFonts(uint32_t aCh, uint32_t aNextCh,
             if (aNextCh == 0xfe0eu) {
                 aFontList.AppendElement(kFontSegoeUISymbol);
                 aFontList.AppendElement(kFontSegoeUIEmoji);
+                aFontList.AppendElement(kFontEmojiOneMozilla);
             } else {
                 if (aNextCh != 0xfe0fu) {
                     aFontList.AppendElement(kFontSegoeUIEmoji);
+                    aFontList.AppendElement(kFontEmojiOneMozilla);
                 }
                 aFontList.AppendElement(kFontSegoeUISymbol);
             }
@@ -1894,25 +1898,6 @@ bool DoesD3D11AlphaTextureSharingWork(ID3D11Device *device)
   return DoesD3D11TextureSharingWorkInternal(device, DXGI_FORMAT_R8_UNORM, D3D11_BIND_SHADER_RESOURCE);
 }
 
-static inline bool
-IsGfxInfoStatusOkay(int32_t aFeature, nsCString* aOutMessage, nsCString& aFailureId)
-{
-  nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
-  if (!gfxInfo) {
-    return true;
-  }
-
-  int32_t status;
-  if (SUCCEEDED(gfxInfo->GetFeatureStatus(aFeature, aFailureId, &status)) &&
-      status != nsIGfxInfo::FEATURE_STATUS_OK)
-  {
-    aOutMessage->AssignLiteral("#BLOCKLIST_");
-    aOutMessage->AppendASCII(aFailureId.get());
-    return false;
-  }
-
-  return true;
-}
 
 static inline bool
 IsWARPStable()
@@ -1939,7 +1924,7 @@ InitializeANGLEConfig()
 
   nsCString message;
   nsCString failureId;
-  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_11_ANGLE, &message,
+  if (!gfxPlatform::IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_11_ANGLE, &message,
                            failureId)) {
     d3d11ANGLE.Disable(FeatureStatus::Blacklisted, message.get(), failureId);
   }
@@ -1988,7 +1973,7 @@ gfxWindowsPlatform::InitializeD3D9Config()
 
   nsCString message;
   nsCString failureId;
-  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_9_LAYERS, &message,
+  if (!gfxPlatform::IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_9_LAYERS, &message,
                            failureId)) {
     d3d9.Disable(FeatureStatus::Blacklisted, message.get(), failureId);
   }
@@ -2022,7 +2007,7 @@ gfxWindowsPlatform::InitializeD3D11Config()
 
   nsCString message;
   nsCString failureId;
-  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_11_LAYERS, &message, failureId)) {
+  if (!gfxPlatform::IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT3D_11_LAYERS, &message, failureId)) {
     if (IsWARPStable() && !gfxPrefs::LayersD3D11DisableWARP()) {
       // We do not expect hardware D3D11 to work, so we'll try WARP.
       gfxConfig::EnableFallback(Fallback::USE_D3D11_WARP_COMPOSITOR, message.get());
@@ -2558,7 +2543,7 @@ gfxWindowsPlatform::InitializeD2DConfig()
 
   nsCString message;
   nsCString failureId;
-  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT2D, &message, failureId)) {
+  if (!gfxPlatform::IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_DIRECT2D, &message, failureId)) {
     d2d1.Disable(FeatureStatus::Blacklisted, message.get(), failureId);
   }
 
@@ -2706,7 +2691,7 @@ public:
         mVsyncThread = new base::Thread("WindowsVsyncThread");
         const double rate = 1000 / 60.0;
         mSoftwareVsyncRate = TimeDuration::FromMilliseconds(rate);
-        MOZ_RELEASE_ASSERT(mVsyncThread->Start(), "Could not start Windows vsync thread");
+        MOZ_RELEASE_ASSERT(mVsyncThread->Start(), "GFX: Could not start Windows vsync thread");
         SetVsyncRate();
       }
 
@@ -2730,6 +2715,14 @@ public:
         } else {
           mVsyncRate = TimeDuration::FromMilliseconds(1000.0 / 60.0);
         }
+      }
+
+      virtual void Shutdown() override
+      {
+        MOZ_ASSERT(NS_IsMainThread());
+        DisableVsync();
+        mVsyncThread->Stop();
+        delete mVsyncThread;
       }
 
       virtual void EnableVsync() override
@@ -2894,9 +2887,6 @@ public:
       virtual ~D3DVsyncDisplay()
       {
         MOZ_ASSERT(NS_IsMainThread());
-        DisableVsync();
-        mVsyncThread->Stop();
-        delete mVsyncThread;
       }
 
       bool IsInVsyncThread()
@@ -2932,7 +2922,7 @@ private:
 already_AddRefed<mozilla::gfx::VsyncSource>
 gfxWindowsPlatform::CreateHardwareVsyncSource()
 {
-  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+  MOZ_RELEASE_ASSERT(NS_IsMainThread(), "GFX: Not in main thread.");
   if (!WinUtils::dwmIsCompositionEnabledPtr) {
     NS_WARNING("Dwm composition not available, falling back to software vsync");
     return gfxPlatform::CreateHardwareVsyncSource();
@@ -2959,7 +2949,7 @@ gfxWindowsPlatform::SupportsApzTouchInput() const
 void
 gfxWindowsPlatform::GetAcceleratedCompositorBackends(nsTArray<LayersBackend>& aBackends)
 {
-  if (gfxPrefs::LayersPreferOpenGL()) {
+  if (gfxConfig::IsEnabled(Feature::OPENGL_COMPOSITING) && gfxPrefs::LayersPreferOpenGL()) {
     aBackends.AppendElement(LayersBackend::LAYERS_OPENGL);
   }
 

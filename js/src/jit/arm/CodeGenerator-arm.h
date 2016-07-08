@@ -203,6 +203,9 @@ class CodeGeneratorARM : public CodeGeneratorShared
     void visitAsmSelect(LAsmSelect* ins);
     void visitAsmReinterpret(LAsmReinterpret* ins);
     void visitAsmJSCall(LAsmJSCall* ins);
+    void visitWasmBoundsCheck(LWasmBoundsCheck* ins);
+    void visitWasmLoad(LWasmLoad* ins);
+    void visitWasmStore(LWasmStore* ins);
     void visitAsmJSLoadHeap(LAsmJSLoadHeap* ins);
     void visitAsmJSStoreHeap(LAsmJSStoreHeap* ins);
     void visitAsmJSCompareExchangeHeap(LAsmJSCompareExchangeHeap* ins);
@@ -219,6 +222,8 @@ class CodeGeneratorARM : public CodeGeneratorShared
     void visitAsmJSPassStackArg(LAsmJSPassStackArg* ins);
     void visitWasmTruncateToInt32(LWasmTruncateToInt32* ins);
     void visitOutOfLineWasmTruncateCheck(OutOfLineWasmTruncateCheck* ool);
+    void visitCopySignD(LCopySignD* ins);
+    void visitCopySignF(LCopySignF* ins);
 
     void visitMemoryBarrier(LMemoryBarrier* ins);
 

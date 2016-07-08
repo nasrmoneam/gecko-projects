@@ -344,6 +344,10 @@ public:
     return mUpgradeInsecureRequests;
   }
 
+  void SetReferrer(const nsACString& aReferrer) {
+    mReferrer = aReferrer;
+  }
+
   /**
    * Set the principal responsible for this document.
    */
@@ -695,6 +699,11 @@ public:
   {
     return mSandboxFlags;
   }
+
+  /**
+   * Get string representation of sandbox flags (null if no flags are set)
+   */
+  void GetSandboxFlagsAsString(nsAString& aFlags);
 
   /**
    * Set the sandbox flags for this document.
@@ -2757,6 +2766,8 @@ public:
   {
     return mUserHasInteracted;
   }
+
+  bool HasScriptsBlockedBySandbox();
 
   void ReportHasScrollLinkedEffect();
   bool HasScrollLinkedEffect() const

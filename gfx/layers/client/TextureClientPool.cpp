@@ -6,6 +6,7 @@
 #include "TextureClientPool.h"
 #include "CompositableClient.h"
 #include "mozilla/layers/CompositableForwarder.h"
+#include "mozilla/layers/TextureForwarder.h"
 #include "mozilla/layers/TiledContentClient.h"
 
 #include "gfxPrefs.h"
@@ -24,15 +25,17 @@ ShrinkCallback(nsITimer *aTimer, void *aClosure)
   static_cast<TextureClientPool*>(aClosure)->ShrinkToMinimumSize();
 }
 
-TextureClientPool::TextureClientPool(gfx::SurfaceFormat aFormat,
-                                     TextureFlags aFlags,
+TextureClientPool::TextureClientPool(LayersBackend aLayersBackend,
+                                     gfx::SurfaceFormat aFormat,
                                      gfx::IntSize aSize,
+                                     TextureFlags aFlags,
                                      uint32_t aMaxTextureClients,
                                      uint32_t aShrinkTimeoutMsec,
-                                     CompositableForwarder* aAllocator)
-  : mFormat(aFormat)
-  , mFlags(aFlags)
+                                     TextureForwarder* aAllocator)
+  : mBackend(aLayersBackend)
+  , mFormat(aFormat)
   , mSize(aSize)
+  , mFlags(aFlags)
   , mMaxTextureClients(aMaxTextureClients)
   , mShrinkTimeoutMsec(aShrinkTimeoutMsec)
   , mOutstandingClients(0)
@@ -114,7 +117,7 @@ TextureClientPool::GetTextureClient()
       mFlags, ALLOC_DEFAULT);
   } else {
     textureClient = TextureClient::CreateForDrawing(mSurfaceAllocator,
-      mFormat, mSize, BackendSelector::Content, mFlags);
+      mFormat, mSize, mBackend, BackendSelector::Content, mFlags);
   }
 
   mOutstandingClients++;

@@ -10,6 +10,7 @@ import android.app.DownloadManager;
 import android.os.Environment;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
+
 import org.json.JSONArray;
 import org.mozilla.gecko.adjust.AdjustHelperInterface;
 import org.mozilla.gecko.annotation.RobocopTarget;
@@ -23,6 +24,7 @@ import org.mozilla.gecko.db.BrowserContract;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.db.SuggestedSites;
 import org.mozilla.gecko.delegates.BrowserAppDelegate;
+import org.mozilla.gecko.delegates.OfflineTabStatusDelegate;
 import org.mozilla.gecko.delegates.ScreenshotDelegate;
 import org.mozilla.gecko.distribution.Distribution;
 import org.mozilla.gecko.distribution.DistributionStoreCallback;
@@ -84,6 +86,7 @@ import org.mozilla.gecko.toolbar.BrowserToolbar;
 import org.mozilla.gecko.toolbar.BrowserToolbar.TabEditingState;
 import org.mozilla.gecko.toolbar.ToolbarProgressView;
 import org.mozilla.gecko.trackingprotection.TrackingProtectionPrompt;
+import org.mozilla.gecko.updater.PostUpdateHandler;
 import org.mozilla.gecko.updater.UpdateServiceHelper;
 import org.mozilla.gecko.util.ActivityUtils;
 import org.mozilla.gecko.util.Clipboard;
@@ -198,9 +201,10 @@ public class BrowserApp extends GeckoApp
     private static final int TABS_ANIMATION_DURATION = 450;
 
     // Intent String extras used to specify custom Switchboard configurations.
-    private static final String INTENT_KEY_SWITCHBOARD_HOST = "switchboard-host";
+    private static final String INTENT_KEY_SWITCHBOARD_SERVER = "switchboard-server";
 
-    private static final String DEFAULT_SWITCHBOARD_HOST = "switchboard.services.mozilla.com";
+    // TODO: Replace with kinto endpoint.
+    private static final String SWITCHBOARD_SERVER = "https://firefox.settings.services.mozilla.com/v1/buckets/fennec/collections/experiments/records";
 
     private static final String STATE_ABOUT_HOME_TOP_PADDING = "abouthome_top_padding";
 
@@ -309,7 +313,9 @@ public class BrowserApp extends GeckoApp
             (BrowserAppDelegate) new BookmarkStateChangeDelegate(),
             (BrowserAppDelegate) new ReaderViewBookmarkPromotion(),
             (BrowserAppDelegate) new ContentNotificationsDelegate(),
-            new TelemetryCorePingDelegate()
+            (BrowserAppDelegate) new PostUpdateHandler(),
+            new TelemetryCorePingDelegate(),
+            new OfflineTabStatusDelegate()
     ));
 
     @NonNull
@@ -781,21 +787,8 @@ public class BrowserApp extends GeckoApp
             return;
         }
 
-        final String hostExtra = IntentUtils.getStringExtraSafe(intent, INTENT_KEY_SWITCHBOARD_HOST);
-        final String host = TextUtils.isEmpty(hostExtra) ? DEFAULT_SWITCHBOARD_HOST : hostExtra;
-
-        final String serverUrl;
-        try {
-            serverUrl = new URL("https", host, "v2").toString();
-        } catch (MalformedURLException e) {
-            Log.e(LOGTAG, "Error creating Switchboard server URL", e);
-            return;
-        }
-
-        // Loads the Switchboard config from the specified server URL. Eventually, we
-        // should use the endpoint returned by the server URL, to support migrating
-        // to a new endpoint. However, if we want to do that, we'll need to find a different
-        // solution for dynamically changing the server URL from the intent.
+        final String serverExtra = IntentUtils.getStringExtraSafe(intent, INTENT_KEY_SWITCHBOARD_SERVER);
+        final String serverUrl = TextUtils.isEmpty(serverExtra) ? SWITCHBOARD_SERVER : serverExtra;
         new AsyncConfigLoader(context, serverUrl).execute();
     }
 
@@ -2528,6 +2521,12 @@ public class BrowserApp extends GeckoApp
                 // history, and loading new pages, see Bug 1268887
                 panelId = tab.getMostRecentHomePanel();
                 panelRestoreData = tab.getMostRecentHomePanelData();
+            } else if (panelId.equals(HomeConfig.getIdForBuiltinPanelType(PanelType.DEPRECATED_RECENT_TABS))) {
+                // Redirect to the Combined History panel.
+                panelId = HomeConfig.getIdForBuiltinPanelType(PanelType.COMBINED_HISTORY);
+                panelRestoreData = new Bundle();
+                // Jump directly to the Recent Tabs subview of the Combined History panel.
+                panelRestoreData.putBoolean("goToRecentTabs", true);
             }
             showHomePager(panelId, panelRestoreData);
 
@@ -3835,7 +3834,16 @@ public class BrowserApp extends GeckoApp
             intent.setData(Uri.parse(url));
             startActivity(intent);
         } else {
-            final String pageURL = SavedReaderViewHelper.getReaderURLIfCached(getContext(), url);
+            // By default this listener is used for lists where the offline reader-view icon
+            // is shown - hence we need to redirect to the reader-view page by default.
+            // However there are some cases where we might not want to use this, e.g.
+            // for topsites where we do not indicate that a page is an offline reader-view bookmark too.
+            final String pageURL;
+            if (!flags.contains(OnUrlOpenListener.Flags.NO_READER_VIEW)) {
+                pageURL = SavedReaderViewHelper.getReaderURLIfCached(getContext(), url);
+            } else {
+                pageURL = url;
+            }
 
             if (!maybeSwitchToTab(pageURL, flags)) {
                 openUrlAndStopEditing(pageURL);

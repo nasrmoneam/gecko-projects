@@ -1,5 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
-/* vim: set ts=2 et sw=2 tw=80 filetype=javascript: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -69,8 +67,7 @@ this.LoginHelper = {
    *
    * @throws String with English message in case validation failed.
    */
-  checkHostnameValue: function (aHostname)
-  {
+  checkHostnameValue(aHostname) {
     // Nulls are invalid, as they don't round-trip well.  Newlines are also
     // invalid for any field stored as plaintext, and a hostname made of a
     // single dot cannot be stored in the legacy format.
@@ -89,8 +86,7 @@ this.LoginHelper = {
    *
    * @throws String with English message in case validation failed.
    */
-  checkLoginValues: function (aLogin)
-  {
+  checkLoginValues(aLogin) {
     function badCharacterPresent(l, c)
     {
       return ((l.formSubmitURL && l.formSubmitURL.indexOf(c) != -1) ||
@@ -208,6 +204,42 @@ this.LoginHelper = {
     return false;
   },
 
+  doLoginsMatch(aLogin1, aLogin2, {
+    ignorePassword = false,
+    ignoreSchemes = false,
+  }) {
+    if (aLogin1.httpRealm != aLogin2.httpRealm ||
+        aLogin1.username != aLogin2.username)
+      return false;
+
+    if (!ignorePassword && aLogin1.password != aLogin2.password)
+      return false;
+
+    if (ignoreSchemes) {
+      let hostname1URI = Services.io.newURI(aLogin1.hostname, null, null);
+      let hostname2URI = Services.io.newURI(aLogin2.hostname, null, null);
+      if (hostname1URI.hostPort != hostname2URI.hostPort)
+        return false;
+
+      if (aLogin1.formSubmitURL != "" && aLogin2.formSubmitURL != "" &&
+          Services.io.newURI(aLogin1.formSubmitURL, null, null).hostPort !=
+          Services.io.newURI(aLogin2.formSubmitURL, null, null).hostPort)
+        return false;
+    } else {
+      if (aLogin1.hostname != aLogin2.hostname)
+        return false;
+
+      // If either formSubmitURL is blank (but not null), then match.
+      if (aLogin1.formSubmitURL != "" && aLogin2.formSubmitURL != "" &&
+          aLogin1.formSubmitURL != aLogin2.formSubmitURL)
+        return false;
+    }
+
+    // The .usernameField and .passwordField values are ignored.
+
+    return true;
+  },
+
   /**
    * Creates a new login object that results by modifying the given object with
    * the provided data.
@@ -221,10 +253,8 @@ this.LoginHelper = {
    *
    * @throws String with English message in case validation failed.
    */
-  buildModifiedLogin: function (aOldStoredLogin, aNewLoginData)
-  {
-    function bagHasProperty(aPropName)
-    {
+  buildModifiedLogin(aOldStoredLogin, aNewLoginData) {
+    function bagHasProperty(aPropName) {
       try {
         aNewLoginData.getProperty(aPropName);
         return true;
@@ -645,6 +675,21 @@ this.LoginHelper = {
     for (let file of toDeletes) {
       File.remove(file);
     }
+  },
+
+  /**
+   * Returns true if the user has a master password set and false otherwise.
+   */
+  isMasterPasswordSet() {
+    let secmodDB = Cc["@mozilla.org/security/pkcs11moduledb;1"].
+                   getService(Ci.nsIPKCS11ModuleDB);
+    let slot = secmodDB.findSlotByName("");
+    if (!slot) {
+      return false;
+    }
+    let hasMP = slot.status != Ci.nsIPKCS11Slot.SLOT_UNINITIALIZED &&
+                slot.status != Ci.nsIPKCS11Slot.SLOT_READY;
+    return hasMP;
   }
 };
 

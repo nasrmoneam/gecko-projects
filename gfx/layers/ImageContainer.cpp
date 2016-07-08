@@ -20,6 +20,7 @@
 #include "mozilla/layers/LayersMessages.h"
 #include "mozilla/layers/SharedPlanarYCbCrImage.h"
 #include "mozilla/layers/SharedRGBImage.h"
+#include "mozilla/layers/TextureClientRecycleAllocator.h"
 #include "nsISupportsUtils.h"           // for NS_IF_ADDREF
 #include "YCbCrUtils.h"                 // for YCbCr conversions
 #ifdef MOZ_WIDGET_GONK
@@ -90,6 +91,16 @@ BufferRecycleBin::GetBuffer(uint32_t aSize)
   UniquePtr<uint8_t[]> result = Move(mRecycledBuffers[last]);
   mRecycledBuffers.RemoveElementAt(last);
   return result;
+}
+
+void
+BufferRecycleBin::ClearRecycledBuffers()
+{
+  MutexAutoLock lock(mLock);
+  if (!mRecycledBuffers.IsEmpty()) {
+    mRecycledBuffers.Clear();
+  }
+  mRecycledBufferSize = 0;
 }
 
 /**
@@ -327,7 +338,7 @@ ImageContainer::SetCurrentImages(const nsTArray<NonOwningImage>& aImages)
   SetCurrentImageInternal(aImages);
 }
 
- void
+void
 ImageContainer::ClearAllImages()
 {
   if (IsAsync()) {
@@ -339,6 +350,20 @@ ImageContainer::ClearAllImages()
 
   ReentrantMonitorAutoEnter mon(mReentrantMonitor);
   SetCurrentImageInternal(nsTArray<NonOwningImage>());
+}
+
+void
+ImageContainer::ClearCachedResources()
+{
+  ReentrantMonitorAutoEnter mon(mReentrantMonitor);
+  if (mImageClient && mImageClient->AsImageClientSingle()) {
+    if (!mImageClient->HasTextureClientRecycler()) {
+      return;
+    }
+    mImageClient->GetTextureClientRecycler()->ShrinkToMinimumSize();
+    return;
+  }
+  return mRecycleBin->ClearRecycledBuffers();
 }
 
 void

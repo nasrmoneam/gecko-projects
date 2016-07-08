@@ -42,6 +42,7 @@
 #include "mozilla/dom/CSPDictionariesBinding.h"
 #include "mozilla/net/ReferrerPolicy.h"
 #include "nsINetworkInterceptController.h"
+#include "nsSandboxFlags.h"
 
 using namespace mozilla;
 
@@ -339,11 +340,25 @@ nsCSPContext::GetReferrerPolicy(uint32_t* outPolicy, bool* outIsSet)
   mozilla::net::ReferrerPolicy previousPolicy = mozilla::net::RP_Default;
   for (uint32_t i = 0; i < mPolicies.Length(); i++) {
     mPolicies[i]->getReferrerPolicy(refpol);
-    // an empty string in refpol means it wasn't set (that's the default in
-    // nsCSPPolicy).
-    if (!refpol.IsEmpty()) {
-      // if there are two policies that specify a referrer policy, then they
+    // only set the referrer policy if not delievered through a CSPRO and
+    // note that and an empty string in refpol means it wasn't set
+    // (that's the default in nsCSPPolicy).
+    if (!mPolicies[i]->getReportOnlyFlag() && !refpol.IsEmpty()) {
+      // Referrer Directive in CSP is no more used and going to be replaced by
+      // Referrer-Policy HTTP header. But we still keep using referrer directive,
+      // and would remove it later.
+      // Referrer Directive specs is not fully compliant with new referrer policy
+      // specs. What we are using here:
+      // - If the value of the referrer directive is invalid, the user agent
+      // should set the referrer policy to no-referrer.
+      // - If there are two policies that specify a referrer policy, then they
       // must agree or the employed policy is no-referrer.
+      if (!mozilla::net::IsValidReferrerPolicy(refpol)) {
+        *outPolicy = mozilla::net::RP_No_Referrer;
+        *outIsSet = true;
+        return NS_OK;
+      }
+
       uint32_t currentPolicy = mozilla::net::ReferrerPolicyFromString(refpol);
       if (*outIsSet && previousPolicy != currentPolicy) {
         *outPolicy = mozilla::net::RP_No_Referrer;
@@ -1306,6 +1321,45 @@ nsCSPContext::ToJSON(nsAString& outCSPinJSON)
   if (!jsonPolicies.ToJSON(outCSPinJSON)) {
     return NS_ERROR_FAILURE;
   }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsCSPContext::GetCSPSandboxFlags(uint32_t* aOutSandboxFlags)
+{
+  if (!aOutSandboxFlags) {
+    return NS_ERROR_FAILURE;
+  }
+  *aOutSandboxFlags = SANDBOXED_NONE;
+
+  for (uint32_t i = 0; i < mPolicies.Length(); i++) {
+    uint32_t flags = mPolicies[i]->getSandboxFlags();
+
+    // current policy doesn't have sandbox flag, check next policy
+    if (!flags) {
+      continue;
+    }
+
+    // current policy has sandbox flags, if the policy is in enforcement-mode
+    // (i.e. not report-only) set these flags and check for policies with more
+    // restrictions
+    if (!mPolicies[i]->getReportOnlyFlag()) {
+      *aOutSandboxFlags |= flags;
+    } else {
+      // sandbox directive is ignored in report-only mode, warn about it and
+      // continue the loop checking for an enforcement policy.
+      nsAutoString policy;
+      mPolicies[i]->toString(policy);
+
+      CSPCONTEXTLOG(("nsCSPContext::GetCSPSandboxFlags, report only policy, ignoring sandbox in: %s",
+                    policy.get()));
+
+      const char16_t* params[] = { policy.get() };
+      logToConsole(MOZ_UTF16("ignoringReportOnlyDirective"), params, ArrayLength(params),
+                   EmptyString(), EmptyString(), 0, 0, nsIScriptError::warningFlag);
+    }
+  }
+
   return NS_OK;
 }
 

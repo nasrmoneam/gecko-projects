@@ -218,7 +218,7 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
           settings.percent(k, v);
           break;
         case "align":
-          settings.alt(k, v, ["start", "middle", "end", "left", "right"]);
+          settings.alt(k, v, ["start", "center", "end", "left", "right"]);
           break;
         }
       }, /:/, /\s/);
@@ -230,14 +230,8 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
       cue.lineAlign = settings.get("lineAlign", "start");
       cue.snapToLines = settings.get("snapToLines", true);
       cue.size = settings.get("size", 100);
-      cue.align = settings.get("align", "middle");
-      cue.position = settings.get("position", {
-        start: 0,
-        left: 0,
-        middle: 50,
-        end: 100,
-        right: 100
-      }, cue.align);
+      cue.align = settings.get("align", "center");
+      cue.position = settings.get("position", "auto");
       cue.positionAlign = settings.get("positionAlign", "center");
     }
 
@@ -679,26 +673,6 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
     return "ltr";
   }
 
-  function computeLinePos(cue) {
-    if (typeof cue.line === "number" &&
-        (cue.snapToLines || (cue.line >= 0 && cue.line <= 100))) {
-      return cue.line;
-    }
-    if (!cue.track || !cue.track.textTrackList ||
-        !cue.track.textTrackList.mediaElement) {
-      return -1;
-    }
-    var track = cue.track,
-        trackList = track.textTrackList,
-        count = 0;
-    for (var i = 0; i < trackList.length && trackList[i] !== track; i++) {
-      if (trackList[i].mode === "showing") {
-        count++;
-      }
-    }
-    return ++count * -1;
-  }
-
   function StyleBox() {
   }
 
@@ -756,11 +730,10 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
     this.applyStyles(styles, this.cueDiv);
 
     // Create an absolutely positioned div that will be used to position the cue
-    // div. Note, all WebVTT cue-setting alignments are equivalent to the CSS
-    // mirrors of them except "middle" which is "center" in CSS.
+    // div.
     this.div = window.document.createElement("div");
     styles = {
-      textAlign: cue.align === "middle" ? "center" : cue.align,
+      textAlign: cue.align,
       font: styleOptions.font,
       whiteSpace: "pre-line",
       position: "absolute"
@@ -1020,7 +993,7 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
 
     var boxPosition = new BoxPosition(styleBox),
         cue = styleBox.cue,
-        linePos = computeLinePos(cue),
+        linePos = cue.computedLine,
         axis = [];
 
     // If we have a line number to align the cue to.
@@ -1147,7 +1120,9 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
   // Runs the processing model over the cues and regions passed to it.
   // @param overlay A block level element (usually a div) that the computed cues
   //                and regions will be placed into.
-  WebVTT.processCues = function(window, cues, overlay) {
+  // @param controls  A Control bar element. Cues' position will be
+  //                 affected and repositioned according to it.
+  WebVTT.processCues = function(window, cues, overlay, controls) {
     if (!window || !cues || !overlay) {
       return null;
     }
@@ -1155,6 +1130,15 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
     // Remove all previous children.
     while (overlay.firstChild) {
       overlay.removeChild(overlay.firstChild);
+    }
+
+    var controlBar;
+    var controlBarShown;
+
+    if (controls) {
+      controlBar = controls.ownerDocument.getAnonymousElementByAttribute(
+        controls, "class", "controlBar");
+      controlBarShown = controlBar ? !!controlBar.clientHeight : false;
     }
 
     var paddedOverlay = window.document.createElement("div");
@@ -1170,6 +1154,10 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
     // be the case if a cue's state has been changed since the last computation or
     // if it has not been computed yet.
     function shouldCompute(cues) {
+      if (controlBarShown) {
+        return true;
+      }
+
       for (var i = 0; i < cues.length; i++) {
         if (cues[i].hasBeenReset || !cues[i].displayState) {
           return true;
@@ -1195,6 +1183,11 @@ this.EXPORTED_SYMBOLS = ["WebVTT"];
 
     (function() {
       var styleBox, cue;
+
+      if (controlBarShown) {
+        // Add an empty output box that cover the same region as video control bar.
+        boxPositions.push(BoxPosition.getSimpleBoxPosition(controlBar));
+      }
 
       for (var i = 0; i < cues.length; i++) {
         cue = cues[i];

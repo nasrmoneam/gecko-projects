@@ -30,14 +30,26 @@ struct ComputedGridTrackInfo
 {
   ComputedGridTrackInfo(uint32_t aNumLeadingImplicitTracks,
                         uint32_t aNumExplicitTracks,
-                        nsTArray<nscoord>&& aSizes)
+                        uint32_t aStartFragmentTrack,
+                        uint32_t aEndFragmentTrack,
+                        nsTArray<nscoord>&& aPositions,
+                        nsTArray<nscoord>&& aSizes,
+                        nsTArray<uint32_t>&& aStates)
     : mNumLeadingImplicitTracks(aNumLeadingImplicitTracks)
     , mNumExplicitTracks(aNumExplicitTracks)
+    , mStartFragmentTrack(aStartFragmentTrack)
+    , mEndFragmentTrack(aEndFragmentTrack)
+    , mPositions(aPositions)
     , mSizes(aSizes)
+    , mStates(aStates)
   {}
   uint32_t mNumLeadingImplicitTracks;
   uint32_t mNumExplicitTracks;
+  uint32_t mStartFragmentTrack;
+  uint32_t mEndFragmentTrack;
+  nsTArray<nscoord> mPositions;
   nsTArray<nscoord> mSizes;
+  nsTArray<uint32_t> mStates;
 };
 } // namespace mozilla
 
@@ -107,6 +119,7 @@ public:
 
   struct TrackSize;
   struct GridItemInfo;
+  struct GridReflowState;
 protected:
   static const uint32_t kAutoLine;
   // The maximum line number, in the zero-based translated grid.
@@ -121,7 +134,6 @@ protected:
   struct Grid;
   struct GridArea;
   class GridItemCSSOrderIterator;
-  struct GridReflowState;
   class LineNameMap;
   struct LineRange;
   struct SharedGridData;

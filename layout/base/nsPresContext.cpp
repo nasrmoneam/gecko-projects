@@ -30,7 +30,6 @@
 #include "nsIDOMHTMLDocument.h"
 #include "nsIDOMHTMLElement.h"
 #include "nsIWeakReferenceUtils.h"
-#include "nsAutoPtr.h"
 #include "nsThreadUtils.h"
 #include "nsFrameManager.h"
 #include "nsLayoutUtils.h"
@@ -91,7 +90,7 @@
 #include "nsBidiUtils.h"
 #include "nsServiceManagerUtils.h"
 
-#include "URL.h"
+#include "mozilla/dom/URL.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -330,14 +329,7 @@ nsPresContext::Destroy()
                                   "nglayout.debug.paint_flashing_chrome",
                                   this);
 
-  // Disconnect the refresh driver *after* the transition manager, which
-  // needs it.
-  if (mRefreshDriver) {
-    if (mRefreshDriver->PresContext() == this) {
-      mRefreshDriver->Disconnect();
-    }
-    mRefreshDriver = nullptr;
-  }
+  mRefreshDriver = nullptr;
 }
 
 nsPresContext::~nsPresContext()
@@ -981,6 +973,10 @@ nsPresContext::SetShell(nsIPresShell* aShell)
     if (mRestyleManager) {
       mRestyleManager->Disconnect();
       mRestyleManager = nullptr;
+    }
+    if (mRefreshDriver && mRefreshDriver->PresContext() == this) {
+      mRefreshDriver->Disconnect();
+      // Can't null out the refresh driver here.
     }
 
     if (IsRoot()) {

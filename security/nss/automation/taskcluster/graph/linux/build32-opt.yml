@@ -13,11 +13,12 @@
       treeherder:
         build:
           platform: linux32
+        machine:
+          platform: linux32
         collection:
           opt: true
 
   tests:
-    - cert
     - chains
     - cipher
     - crmf
@@ -32,6 +33,7 @@
     - pkix
     - sdr
     - smime
+    - ssl
     - tools
 
 - task:
@@ -41,21 +43,19 @@
 
     payload:
       env:
-        NSS_TESTS: ssl
         BUILD_OPT: 1
 
     extra:
       treeherder:
         build:
           platform: linux32
+        machine:
+          platform: linux32
         collection:
           opt: true
         groupSymbol: Builds
         groupName: Various builds
         symbol: noTLSv1.3
-
-  tests:
-    - ssl
 
 - task:
     metadata:
@@ -65,13 +65,15 @@
     payload:
       env:
         NSS_ENABLE_TLS_1_3: 1
-        GCC_VERSION: clang-3.8
-        GXX_VERSION: clang++-3.8
+        GCC_VERSION: clang
+        GXX_VERSION: clang++
         BUILD_OPT: 1
 
     extra:
       treeherder:
         build:
+          platform: linux32
+        machine:
           platform: linux32
         collection:
           opt: true
@@ -95,6 +97,8 @@
       treeherder:
         build:
           platform: linux32
+        machine:
+          platform: linux32
         collection:
           opt: true
         groupSymbol: Builds
@@ -117,6 +121,8 @@
       treeherder:
         build:
           platform: linux32
+        machine:
+          platform: linux32
         collection:
           opt: true
         groupSymbol: Builds
@@ -137,6 +143,8 @@
     extra:
       treeherder:
         build:
+          platform: linux32
+        machine:
           platform: linux32
         collection:
           opt: true

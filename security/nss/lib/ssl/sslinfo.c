@@ -80,6 +80,13 @@ SSL_GetChannelInfo(PRFileDesc *fd, SSLChannelInfo *info, PRUintn len)
                     ? PR_TRUE
                     : PR_FALSE;
 
+            if (ss->sec.isServer) {
+                inf.earlyDataAccepted = ss->ssl3.hs.doing0Rtt;
+            } else {
+                inf.earlyDataAccepted =
+                    ssl3_ExtensionNegotiated(
+                        ss, ssl_tls13_early_data_xtn);
+            }
             sidLen = sid->u.ssl3.sessionIDLength;
             sidLen = PR_MIN(sidLen, sizeof inf.sessionID);
             inf.sessionIDLength = sidLen;
@@ -163,6 +170,7 @@ SSL_GetPreliminaryChannelInfo(PRFileDesc *fd,
 #define K_ECDH "ECDH", ssl_kea_ecdh
 #define K_ECDHE "ECDHE", ssl_kea_ecdh
 #define K_ECDHE_PSK "ECDHE-PSK", ssl_kea_ecdh_psk
+#define K_DHE_PSK "DHE-PSK", ssl_kea_dh_psk
 
 /* record protection cipher */
 #define C_SEED "SEED", calg_seed
@@ -195,7 +203,7 @@ SSL_GetPreliminaryChannelInfo(PRFileDesc *fd,
 #define M_MD5 "MD5", ssl_mac_md5, 128
 #define M_NULL "NULL", ssl_mac_null, 0
 
-/* flags */
+/* flags: FIPS, exportable, nonstandard, reserved */
 #define F_FIPS_STD 1, 0, 0, 0
 #define F_FIPS_NSTD 1, 0, 1, 0
 #define F_NFIPS_STD 0, 0, 0, 0
@@ -222,6 +230,7 @@ static const SSLCipherSuiteInfo suiteInfo[] = {
     { 0, CS(DHE_DSS_WITH_RC4_128_SHA), S_DSA, K_DHE, C_RC4, B_128, M_SHA, F_NFIPS_STD, A_DSA },
     { 0, CS(DHE_RSA_WITH_AES_128_CBC_SHA256), S_RSA, K_DHE, C_AES, B_128, M_SHA256, F_FIPS_STD, A_RSAS },
     { 0, CS(DHE_RSA_WITH_AES_128_GCM_SHA256), S_RSA, K_DHE, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_RSAS },
+    { 0, CS(DHE_PSK_WITH_AES_128_GCM_SHA256), S_PSK, K_DHE_PSK, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_PSK },
     { 0, CS(DHE_RSA_WITH_AES_128_CBC_SHA), S_RSA, K_DHE, C_AES, B_128, M_SHA, F_FIPS_STD, A_RSAS },
     { 0, CS(DHE_DSS_WITH_AES_128_GCM_SHA256), S_DSA, K_DHE, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_DSA },
     { 0, CS(DHE_DSS_WITH_AES_128_CBC_SHA), S_DSA, K_DHE, C_AES, B_128, M_SHA, F_FIPS_STD, A_DSA },
@@ -254,8 +263,6 @@ static const SSLCipherSuiteInfo suiteInfo[] = {
     /* ECC cipher suites */
     { 0, CS(ECDHE_RSA_WITH_AES_128_GCM_SHA256), S_RSA, K_ECDHE, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_RSAS },
     { 0, CS(ECDHE_ECDSA_WITH_AES_128_GCM_SHA256), S_ECDSA, K_ECDHE, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_ECDSA },
-    { 0, CS(ECDHE_PSK_WITH_AES_128_GCM_SHA256), S_PSK, K_ECDHE_PSK, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_PSK },
-
     { 0, CS(ECDH_ECDSA_WITH_NULL_SHA), S_ECDSA, K_ECDH, C_NULL, B_0, M_SHA, F_NFIPS_STD, A_ECDH_E },
     { 0, CS(ECDH_ECDSA_WITH_RC4_128_SHA), S_ECDSA, K_ECDH, C_RC4, B_128, M_SHA, F_NFIPS_STD, A_ECDH_E },
     { 0, CS(ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA), S_ECDSA, K_ECDH, C_3DES, B_3DES, M_SHA, F_FIPS_STD, A_ECDH_E },
@@ -290,7 +297,14 @@ static const SSLCipherSuiteInfo suiteInfo[] = {
 
     { 0, CS(DHE_DSS_WITH_AES_256_GCM_SHA384), S_DSA, K_DHE, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_DSA },
     { 0, CS(DHE_RSA_WITH_AES_256_GCM_SHA384), S_RSA, K_DHE, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_RSAS },
-    { 0, CS(RSA_WITH_AES_256_GCM_SHA384), S_RSA, K_RSA, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_RSAD }
+    { 0, CS(RSA_WITH_AES_256_GCM_SHA384), S_RSA, K_RSA, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_RSAD },
+
+    { 0, CS(ECDHE_PSK_WITH_AES_128_GCM_SHA256), S_PSK, K_ECDHE_PSK, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_PSK },
+    { 0, CS(ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256), S_PSK, K_ECDHE_PSK, C_CHACHA20, B_256, M_AEAD_128, F_NFIPS_STD, A_PSK },
+    { 0, CS(ECDHE_PSK_WITH_AES_256_GCM_SHA384), S_PSK, K_ECDHE_PSK, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_PSK },
+    { 0, CS(DHE_PSK_WITH_AES_128_GCM_SHA256), S_PSK, K_DHE_PSK, C_AESGCM, B_128, M_AEAD_128, F_FIPS_STD, A_PSK },
+    { 0, CS(DHE_PSK_WITH_CHACHA20_POLY1305_SHA256), S_PSK, K_DHE_PSK, C_CHACHA20, B_256, M_AEAD_128, F_NFIPS_STD, A_PSK },
+    { 0, CS(DHE_PSK_WITH_AES_256_GCM_SHA384), S_PSK, K_DHE_PSK, C_AESGCM, B_256, M_AEAD_128, F_FIPS_STD, A_PSK },
 };
 
 #define NUM_SUITEINFOS ((sizeof suiteInfo) / (sizeof suiteInfo[0]))
@@ -391,7 +405,7 @@ SSL_GetNegotiatedHostInfo(PRFileDesc *fd)
             ss->ssl3.initialized) { /* TLS */
             SECItem *crsName;
             ssl_GetSpecReadLock(ss); /*********************************/
-            crsName = &ss->ssl3.cwSpec->srvVirtName;
+            crsName = &ss->ssl3.hs.srvVirtName;
             if (crsName->data) {
                 sniName = SECITEM_DupItem(crsName);
             }

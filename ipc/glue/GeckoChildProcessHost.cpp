@@ -93,8 +93,7 @@ GeckoChildProcessHost::DefaultChildPrivileges()
 
 GeckoChildProcessHost::GeckoChildProcessHost(GeckoProcessType aProcessType,
                                              ChildPrivileges aPrivileges)
-  : ChildProcessHost(RENDER_PROCESS), // FIXME/cjones: we should own this enum
-    mProcessType(aProcessType),
+  : mProcessType(aProcessType),
     mPrivileges(aPrivileges),
     mMonitor("mozilla.ipc.GeckChildProcessHost.mMonitor"),
     mProcessState(CREATING_CHANNEL),
@@ -102,12 +101,10 @@ GeckoChildProcessHost::GeckoChildProcessHost(GeckoProcessType aProcessType,
     mEnableSandboxLogging(false),
     mSandboxLevel(0),
 #endif
-    mDelegate(nullptr),
     mChildProcessHandle(0)
 #if defined(MOZ_WIDGET_COCOA)
   , mChildTask(MACH_PORT_NULL)
 #endif
-  , mAssociatedActors(1)
 {
     MOZ_COUNT_CTOR(GeckoChildProcessHost);
 }
@@ -487,26 +484,6 @@ GeckoChildProcessHost::SetAlreadyDead()
   mChildProcessHandle = 0;
 }
 
-namespace {
-
-void
-DelayedDeleteSubprocess(GeckoChildProcessHost* aSubprocess)
-{
-  XRE_GetIOMessageLoop()
-    ->PostTask(mozilla::MakeAndAddRef<DeleteTask<GeckoChildProcessHost>>(aSubprocess));
-}
-
-}
-
-void
-GeckoChildProcessHost::DissociateActor()
-{
-  if (!--mAssociatedActors) {
-    MessageLoop::current()->
-      PostTask(NewRunnableFunction(DelayedDeleteSubprocess, this));
-  }
-}
-
 int32_t GeckoChildProcessHost::mChildCounter = 0;
 
 void
@@ -583,15 +560,19 @@ GeckoChildProcessHost::RunPerformAsyncLaunch(std::vector<std::string> aExtraOpts
 {
   InitializeChannel();
 
-  if (PerformAsyncLaunch(aExtraOpts, aArch)) {
-    return true;
-  } else {
+  bool ok = PerformAsyncLaunch(aExtraOpts, aArch);
+  if (!ok) {
+    // WaitUntilConnected might be waiting for us to signal.
+    // If something failed let's set the error state and notify.
+    MonitorAutoLock lock(mMonitor);
+    mProcessState = PROCESS_ERROR;
+    lock.Notify();
     CHROMIUM_LOG(ERROR) << "Failed to launch " <<
       XRE_ChildProcessTypeToString(mProcessType) << " subprocess";
     Telemetry::Accumulate(Telemetry::SUBPROCESS_LAUNCH_FAILURE,
       nsDependentCString(XRE_ChildProcessTypeToString(mProcessType)));
-    return false;
   }
+  return ok;
 }
 
 void
@@ -1030,8 +1011,10 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 #if defined(MOZ_CONTENT_SANDBOX)
       if (mSandboxLevel > 0 &&
           !PR_GetEnv("MOZ_DISABLE_CONTENT_SANDBOX")) {
+        // For now we treat every failure as fatal in SetSecurityLevelForContentProcess
+        // and just crash there right away. Should this change in the future then we
+        // should also handle the error here.
         mSandboxBroker.SetSecurityLevelForContentProcess(mSandboxLevel);
-        cmdLine.AppendLooseValue(UTF8ToWide("-sandbox"));
         shouldSandboxCurrentProcess = true;
         AddContentSandboxAllowedFiles(mSandboxLevel, mAllowedFilesRead);
       }
@@ -1040,16 +1023,15 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
     case GeckoProcessType_Plugin:
       if (mSandboxLevel > 0 &&
           !PR_GetEnv("MOZ_DISABLE_NPAPI_SANDBOX")) {
-        mSandboxBroker.SetSecurityLevelForPluginProcess(mSandboxLevel);
-        cmdLine.AppendLooseValue(UTF8ToWide("-sandbox"));
+        bool ok = mSandboxBroker.SetSecurityLevelForPluginProcess(mSandboxLevel);
+        if (!ok) {
+          return false;
+        }
         shouldSandboxCurrentProcess = true;
       }
       break;
     case GeckoProcessType_IPDLUnitTest:
       // XXX: We don't sandbox this process type yet
-      // mSandboxBroker.SetSecurityLevelForIPDLUnitTestProcess();
-      // cmdLine.AppendLooseValue(UTF8ToWide("-sandbox"));
-      // shouldSandboxCurrentProcess = true;
       break;
     case GeckoProcessType_GMPlugin:
       if (!PR_GetEnv("MOZ_DISABLE_GMP_SANDBOX")) {
@@ -1060,10 +1042,14 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
         bool isWidevine = std::any_of(aExtraOpts.begin(), aExtraOpts.end(),
           [](const std::string arg) { return arg.find("gmp-widevinecdm") != std::string::npos; });
         auto level = isWidevine ? SandboxBroker::Restricted : SandboxBroker::LockDown;
-        mSandboxBroker.SetSecurityLevelForGMPlugin(level);
-        cmdLine.AppendLooseValue(UTF8ToWide("-sandbox"));
+        bool ok = mSandboxBroker.SetSecurityLevelForGMPlugin(level);
+        if (!ok) {
+          return false;
+        }
         shouldSandboxCurrentProcess = true;
       }
+      break;
+    case GeckoProcessType_GPU:
       break;
     case GeckoProcessType_Default:
     default:
@@ -1146,15 +1132,11 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 #endif
 
   if (!process) {
-    MonitorAutoLock lock(mMonitor);
-    mProcessState = PROCESS_ERROR;
-    lock.Notify();
     return false;
   }
   // NB: on OS X, we block much longer than we need to in order to
   // reach this call, waiting for the child process's task_t.  The
   // best way to fix that is to refactor this file, hard.
-  SetHandle(process);
 #if defined(MOZ_WIDGET_COCOA)
   mChildTask = child_task;
 #endif
@@ -1230,15 +1212,6 @@ GeckoChildProcessHost::GetQueuedMessages(std::queue<IPC::Message>& queue)
   // We expect the next listener to take over processing of our queue.
 }
 
-void
-GeckoChildProcessHost::OnWaitableEventSignaled(base::WaitableEvent *event)
-{
-  if (mDelegate) {
-    mDelegate->OnWaitableEventSignaled(event);
-  }
-  ChildProcessHost::OnWaitableEventSignaled(event);
-}
-
 bool GeckoChildProcessHost::sRunSelfAsContentProc(false);
 
 #ifdef MOZ_NUWA_PROCESS
@@ -1271,8 +1244,6 @@ bool
 GeckoExistingProcessHost::PerformAsyncLaunch(StringVector aExtraOpts,
                                              base::ProcessArchitecture aArch)
 {
-  SetHandle(mExistingProcessHandle);
-
   OpenPrivilegedHandle(base::GetProcId(mExistingProcessHandle));
 
   MonitorAutoLock lock(mMonitor);

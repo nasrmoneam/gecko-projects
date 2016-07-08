@@ -3430,7 +3430,7 @@ PreliminaryObjectArrayWithTemplate::writeBarrierPre(PreliminaryObjectArrayWithTe
 {
     Shape* shape = objects->shape();
 
-    if (!shape || shape->runtimeFromAnyThread()->isHeapBusy())
+    if (!shape || shape->runtimeFromAnyThread()->isHeapCollecting())
         return;
 
     JS::Zone* zone = shape->zoneFromAnyThread();
@@ -3988,7 +3988,7 @@ TypeNewScript::trace(JSTracer* trc)
 /* static */ void
 TypeNewScript::writeBarrierPre(TypeNewScript* newScript)
 {
-    if (newScript->function()->runtimeFromAnyThread()->isHeapBusy())
+    if (newScript->function()->runtimeFromAnyThread()->isHeapCollecting())
         return;
 
     JS::Zone* zone = newScript->function()->zoneFromAnyThread();
@@ -4065,12 +4065,7 @@ AssertGCStateForSweep(Zone* zone)
 
     // IsAboutToBeFinalized doesn't work right on tenured objects when called
     // during a minor collection.
-    //
-    // We allow this when tracing the heap for CheckHeapOnMovingGC since that
-    // happens afterwards and is not part of minor collection.
-    DebugOnly<JSRuntime*> rt(zone->runtimeFromMainThread());
-    MOZ_ASSERT_IF(!rt->hasZealMode(ZealMode::CheckHeapOnMovingGC),
-                  !rt->isHeapMinorCollecting());
+    MOZ_ASSERT(!zone->runtimeFromMainThread()->isHeapMinorCollecting());
 }
 
 void

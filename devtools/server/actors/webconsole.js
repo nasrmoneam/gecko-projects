@@ -220,8 +220,7 @@ WebConsoleActor.prototype =
   {
     if (window) {
       if (this._hadChromeWindow) {
-        let contextChangedMsg = WebConsoleActor.l10n.getStr("evaluationContextChanged");
-        Services.console.logStringMessage(contextChangedMsg);
+        Services.console.logStringMessage('Webconsole context has changed');
       }
       this._lastChromeWindow = Cu.getWeakReference(window);
       this._hadChromeWindow = true;
@@ -903,7 +902,7 @@ WebConsoleActor.prototype =
           // It is possible that we won't have permission to unwrap an
           // object and retrieve its errorMessageName.
         try {
-          errorDocURL = ErrorDocs.GetURL(error && error.errorMessageName);
+          errorDocURL = ErrorDocs.GetURL(error);
         } catch (ex) {}
       }
     }
@@ -1449,6 +1448,7 @@ WebConsoleActor.prototype =
     return {
       errorMessage: this._createStringGrip(aPageError.errorMessage),
       errorMessageName: aPageError.errorMessageName,
+      exceptionDocURL: ErrorDocs.GetURL(aPageError),
       sourceName: aPageError.sourceName,
       lineText: lineText,
       lineNumber: aPageError.lineNumber,

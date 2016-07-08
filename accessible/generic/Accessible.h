@@ -11,6 +11,8 @@
 #include "mozilla/a11y/Role.h"
 #include "mozilla/a11y/States.h"
 
+#include "mozilla/UniquePtr.h"
+
 #include "nsIContent.h"
 #include "nsString.h"
 #include "nsTArray.h"
@@ -48,6 +50,14 @@ class TableCellAccessible;
 class TextLeafAccessible;
 class XULLabelAccessible;
 class XULTreeAccessible;
+
+#ifdef A11Y_LOG
+namespace logging {
+  typedef const char* (*GetTreePrefix)(void* aData, Accessible*);
+  void Tree(const char* aTitle, const char* aMsgText, DocAccessible* aDoc,
+            GetTreePrefix aPrefixFunc, void* GetTreePrefixData);
+};
+#endif
 
 /**
  * Name type flags.
@@ -1119,11 +1129,17 @@ protected:
 
   void StaticAsserts() const;
 
+#ifdef A11Y_LOG
+  friend void logging::Tree(const char* aTitle, const char* aMsgText,
+                            DocAccessible* aDoc,
+                            logging::GetTreePrefix aPrefixFunc,
+                            void* aGetTreePrefixData);
+#endif
   friend class DocAccessible;
   friend class xpcAccessible;
   friend class TreeMutation;
 
-  nsAutoPtr<mozilla::a11y::EmbeddedObjCollector> mEmbeddedObjCollector;
+  UniquePtr<mozilla::a11y::EmbeddedObjCollector> mEmbeddedObjCollector;
   union {
     int32_t mIndexOfEmbeddedChild;
     uint32_t mProxyInterfaces;

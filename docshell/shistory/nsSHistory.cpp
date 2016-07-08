@@ -1497,6 +1497,12 @@ nsSHistory::LoadURIWithOptions(const char16_t* aURI,
 }
 
 NS_IMETHODIMP
+nsSHistory::SetOriginAttributesBeforeLoading(JS::HandleValue aOriginAttributes)
+{
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 nsSHistory::LoadURI(const char16_t* aURI,
                     uint32_t aLoadFlags,
                     nsIURI* aReferringURI,
@@ -1690,7 +1696,7 @@ nsSHistory::CompareFrames(nsISHEntry* aPrevEntry, nsISHEntry* aNextEntry,
     aParent->GetChildAt(i, getter_AddRefs(treeItem));
     nsCOMPtr<nsIDocShell> shell = do_QueryInterface(treeItem);
     if (shell) {
-      docshells.AppendObject(shell);
+      docshells.AppendElement(shell.forget());
     }
   }
 

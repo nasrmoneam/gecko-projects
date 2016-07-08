@@ -10,6 +10,7 @@
 #include "mozilla/Casting.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/unused.h"
 #include "nsContentUtils.h"
 #include "nsICertOverrideService.h"
 #include "nsIHttpChannelInternal.h"
@@ -1066,6 +1067,8 @@ AccumulateCipherSuite(Telemetry::ID probe, const SSLChannelInfo& channelInfo)
     case TLS_RSA_WITH_RC4_128_MD5: value = 69; break;
     // TLS 1.3 PSK resumption
     case TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256: value = 70; break;
+    case TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256: value = 71; break;
+    case TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384: value = 72; break;
     // unknown
     default:
       value = 0;
@@ -1232,25 +1235,17 @@ void HandshakeCallback(PRFileDesc* fd, void* client_data) {
     status->SetServerCert(nssc, nsNSSCertificate::ev_status_unknown);
   }
 
-  nsCOMPtr<nsICertOverrideService> overrideService =
-      do_GetService(NS_CERTOVERRIDE_CONTRACTID);
-
-  if (overrideService) {
-    bool haveOverride;
-    uint32_t overrideBits = 0; // Unused.
-    bool isTemporaryOverride; // Unused.
-    const nsACString& hostString(infoObject->GetHostName());
-    const int32_t port(infoObject->GetPort());
-    nsCOMPtr<nsIX509Cert> cert;
-    status->GetServerCert(getter_AddRefs(cert));
-    nsresult nsrv = overrideService->HasMatchingOverride(hostString, port,
-                                                         cert,
-                                                         &overrideBits,
-                                                         &isTemporaryOverride,
-                                                         &haveOverride);
-    if (NS_SUCCEEDED(nsrv) && haveOverride) {
-      state |= nsIWebProgressListener::STATE_CERT_USER_OVERRIDDEN;
-    }
+  bool domainMismatch;
+  bool untrusted;
+  bool notValidAtThisTime;
+  // These all return NS_OK, so don't even bother checking the return values.
+  Unused << status->GetIsDomainMismatch(&domainMismatch);
+  Unused << status->GetIsUntrusted(&untrusted);
+  Unused << status->GetIsNotValidAtThisTime(&notValidAtThisTime);
+  // If we're here, the TLS handshake has succeeded. Thus if any of these
+  // booleans are true, the user has added an override for a certificate error.
+  if (domainMismatch || untrusted || notValidAtThisTime) {
+    state |= nsIWebProgressListener::STATE_CERT_USER_OVERRIDDEN;
   }
 
   infoObject->SetSecurityState(state);

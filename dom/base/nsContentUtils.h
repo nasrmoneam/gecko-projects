@@ -34,6 +34,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/NotNull.h"
 #include "nsIContentPolicy.h"
+#include "nsPIDOMWindow.h"
 
 #if defined(XP_WIN)
 // Undefine LoadImage to prevent naming conflict with Windows.
@@ -129,6 +130,11 @@ class nsIContentParent;
 class Selection;
 class TabParent;
 } // namespace dom
+
+namespace ipc {
+class Shmem;
+class IShmemAllocator;
+}
 
 namespace gfx {
 class DataSourceSurface;
@@ -912,6 +918,34 @@ public:
                                      nsXPIDLString& aResult);
 
   /**
+   * A helper function that parses a sandbox attribute (of an <iframe> or a CSP
+   * directive) and converts it to the set of flags used internally.
+   *
+   * @param aSandboxAttr  the sandbox attribute
+   * @return              the set of flags (SANDBOXED_NONE if aSandboxAttr is
+   *                      null)
+   */
+  static uint32_t ParseSandboxAttributeToFlags(const nsAttrValue* aSandboxAttr);
+
+  /**
+   * A helper function that checks if a string matches a valid sandbox flag.
+   *
+   * @param aFlag   the potential sandbox flag.
+   * @return        true if the flag is a sandbox flag.
+   */
+  static bool IsValidSandboxFlag(const nsAString& aFlag);
+
+  /**
+   * A helper function that returns a string attribute corresponding to the
+   * sandbox flags.
+   *
+   * @param aFlags    the sandbox flags
+   * @param aString   the attribute corresponding to the flags (null if aFlags
+   *                  is zero)
+   */
+  static void SandboxFlagsToString(uint32_t aFlags, nsAString& aString);
+
+  /**
    * Helper function that generates a UUID.
    */
   static nsresult GenerateUUIDInPlace(nsID& aUUID);
@@ -1688,11 +1722,10 @@ public:
                                                       nsresult* aRv);
 
   static JSContext *GetCurrentJSContext();
-  static JSContext *GetSafeJSContext();
   static JSContext *GetCurrentJSContextForThread();
-  static JSContext *GetDefaultJSContextForThread();
-  inline static JSContext *RootingCx() { return GetSafeJSContext(); }
-  inline static JSContext *RootingCxForThread() { return GetDefaultJSContextForThread(); }
+  inline static JSContext *RootingCx() {
+    return mozilla::dom::danger::GetJSContext();
+  }
 
   /**
    * Case insensitive comparison between two strings. However it only ignores
@@ -1882,7 +1915,7 @@ public:
    * layer manager should be used for retained layers
    */
   static already_AddRefed<mozilla::layers::LayerManager>
-  LayerManagerForDocument(const nsIDocument *aDoc, bool *aAllowRetaining = nullptr);
+  LayerManagerForDocument(const nsIDocument *aDoc);
 
   /**
    * Returns a layer manager to use for the given document. Basically we
@@ -1899,7 +1932,7 @@ public:
    * layer manager should be used for retained layers
    */
   static already_AddRefed<mozilla::layers::LayerManager>
-  PersistentLayerManagerForDocument(nsIDocument *aDoc, bool *aAllowRetaining = nullptr);
+  PersistentLayerManagerForDocument(nsIDocument *aDoc);
 
   /**
    * Determine whether a content node is focused or not,
@@ -2392,6 +2425,15 @@ public:
                                       CallOnRemoteChildFunction aCallback,
                                       void* aArg);
 
+  /*
+   * Call nsPIDOMWindow::SetKeyboardIndicators all all remote children. This is
+   * in here rather than nsGlobalWindow because TabParent indirectly includes
+   * Windows headers which aren't allowed there.
+   */
+  static void SetKeyboardIndicatorsOnRemoteChildren(nsPIDOMWindowOuter* aWindow,
+                                                    UIStateChangeType aShowAccelerators,
+                                                    UIStateChangeType aShowFocusRings);
+
   /**
    * Given an nsIFile, attempts to read it into aString.
    *
@@ -2441,6 +2483,15 @@ public:
   static mozilla::UniquePtr<char[]> GetSurfaceData(
     mozilla::NotNull<mozilla::gfx::DataSourceSurface*> aSurface,
     size_t* aLength, int32_t* aStride);
+
+  /*
+   * Get the pixel data from the given source surface and fill it in Shmem.
+   * The length and stride will be assigned from the surface.
+   */
+  static void GetSurfaceData(mozilla::gfx::DataSourceSurface* aSurface,
+                             size_t* aLength, int32_t* aStride,
+                             mozilla::ipc::IShmemAllocator* aAlloc,
+                             mozilla::ipc::Shmem *aOutShmem);
 
   // Helpers shared by the implementations of nsContentUtils methods and
   // nsIDOMWindowUtils methods.

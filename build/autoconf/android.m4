@@ -48,15 +48,15 @@ case "$target" in
     fi
 
     CPPFLAGS="-idirafter $android_platform/usr/include $CPPFLAGS"
-    CFLAGS="-mandroid -fno-short-enums -fno-exceptions $CFLAGS"
-    CXXFLAGS="-mandroid -fno-short-enums -fno-exceptions $CXXFLAGS"
+    CFLAGS="-fno-short-enums -fno-exceptions $CFLAGS"
+    CXXFLAGS="-fno-short-enums -fno-exceptions $CXXFLAGS"
     ASFLAGS="-idirafter $android_platform/usr/include -DANDROID $ASFLAGS"
 
     dnl Add -llog by default, since we use it all over the place.
     dnl Add --allow-shlib-undefined, because libGLESv2 links to an
     dnl undefined symbol (present on the hardware, just not in the
     dnl NDK.)
-    LDFLAGS="-mandroid -L$android_platform/usr/lib -Wl,-rpath-link=$android_platform/usr/lib --sysroot=$android_platform -llog -Wl,--allow-shlib-undefined $LDFLAGS"
+    LDFLAGS="-L$android_platform/usr/lib -Wl,-rpath-link=$android_platform/usr/lib --sysroot=$android_platform -llog -Wl,--allow-shlib-undefined $LDFLAGS"
     ANDROID_PLATFORM="${android_platform}"
 
     AC_DEFINE(ANDROID)
@@ -70,7 +70,7 @@ esac
 AC_DEFUN([MOZ_ANDROID_CPU_ARCH],
 [
 
-if test "$OS_TARGET" = "Android" -a -z "$gonkdir"; then
+if test "$OS_TARGET" = "Android"; then
     case "${CPU_ARCH}-${MOZ_ARCH}" in
     arm-armv7*)
         ANDROID_CPU_ARCH=armeabi-v7a
@@ -93,9 +93,11 @@ fi
 AC_DEFUN([MOZ_ANDROID_STLPORT],
 [
 
-if test "$OS_TARGET" = "Android" -a -z "$gonkdir"; then
+if test "$OS_TARGET" = "Android"; then
     cpu_arch_dir="$ANDROID_CPU_ARCH"
-    if test "$MOZ_THUMB2" = 1; then
+    # NDK r12 removed the arm/thumb library split and just made everything
+    # thumb by default.  Attempt to compensate.
+    if test "$MOZ_THUMB2" = 1 -a -d "$cpu_arch_dir/thumb"; then
         cpu_arch_dir="$cpu_arch_dir/thumb"
     fi
 
@@ -129,6 +131,12 @@ if test "$OS_TARGET" = "Android" -a -z "$gonkdir"; then
             fi
 
             STLPORT_LIBS="-L$cxx_libs -lc++_static"
+            # NDK r12 split the libc++ runtime libraries into pieces.
+            for lib in c++abi unwind android_support; do
+                if test -e "$cxx_libs/lib${lib}.a"; then
+                     STLPORT_LIBS="$STLPORT_LIBS -l${lib}"
+                fi
+            done
             # Add android/support/include/ for prototyping long double math
             # functions, locale-specific C library functions, multibyte support,
             # etc.
@@ -341,6 +349,7 @@ case "$target" in
     AC_SUBST(ANDROID_TOOLS)
     AC_SUBST(ANDROID_BUILD_TOOLS_VERSION)
 
+    MOZ_ANDROID_AAR(customtabs, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(appcompat-v7, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(cardview-v7, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(design, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)

@@ -410,12 +410,6 @@ AliasSet::Name(size_t flag)
 }
 
 MTest*
-MTest::New(TempAllocator& alloc, MDefinition* ins, MBasicBlock* ifTrue, MBasicBlock* ifFalse)
-{
-    return new(alloc) MTest(ins, ifTrue, ifFalse);
-}
-
-MTest*
 MTest::NewAsm(TempAllocator& alloc, MDefinition* ins, MBasicBlock* ifFalse)
 {
     return new(alloc) MTest(ins, nullptr, ifFalse);
@@ -774,7 +768,7 @@ MakeSingletonTypeSetFromKey(CompilerConstraintList* constraints, TypeSet::Object
     // we want to invalidate and mark this TypeSet as containing AnyObject
     // (because mutating __proto__ will change an object's ObjectGroup).
     MOZ_ASSERT(constraints);
-    key->hasStableClassAndProto(constraints);
+    (void)key->hasStableClassAndProto(constraints);
 
     LifoAlloc* alloc = GetJitContext()->temp->lifoAlloc();
     return alloc->new_<TemporaryTypeSet>(alloc, TypeSet::ObjectType(key));
@@ -1190,6 +1184,16 @@ MSimdSplat::foldsTo(TempAllocator& alloc)
 
     SimdConstant cst;
     switch (type()) {
+      case MIRType::Bool8x16: {
+        int8_t v = op->toConstant()->valueToBooleanInfallible() ? -1 : 0;
+        cst = SimdConstant::SplatX16(v);
+        break;
+      }
+      case MIRType::Bool16x8: {
+        int16_t v = op->toConstant()->valueToBooleanInfallible() ? -1 : 0;
+        cst = SimdConstant::SplatX8(v);
+        break;
+      }
       case MIRType::Bool32x4: {
         int32_t v = op->toConstant()->valueToBooleanInfallible() ? -1 : 0;
         cst = SimdConstant::SplatX4(v);
@@ -1636,12 +1640,6 @@ MSimdUnbox::printOpcode(GenericPrinter& out) const
     out.printf(" (%s)", SimdTypeToString(simdType()));
 }
 
-MCloneLiteral*
-MCloneLiteral::New(TempAllocator& alloc, MDefinition* obj)
-{
-    return new(alloc) MCloneLiteral(obj);
-}
-
 void
 MControlInstruction::printOpcode(GenericPrinter& out) const
 {
@@ -1858,17 +1856,27 @@ MParameter::congruentTo(const MDefinition* ins) const
     return ins->toParameter()->index() == index_;
 }
 
+WrappedFunction::WrappedFunction(JSFunction* fun)
+  : fun_(fun),
+    nargs_(fun->nargs()),
+    isNative_(fun->isNative()),
+    isConstructor_(fun->isConstructor()),
+    isClassConstructor_(fun->isClassConstructor()),
+    isSelfHostedBuiltin_(fun->isSelfHostedBuiltin())
+{}
+
 MCall*
 MCall::New(TempAllocator& alloc, JSFunction* target, size_t maxArgc, size_t numActualArgs,
            bool construct, bool isDOMCall)
 {
+    WrappedFunction* wrappedTarget = target ? new(alloc) WrappedFunction(target) : nullptr;
     MOZ_ASSERT(maxArgc >= numActualArgs);
     MCall* ins;
     if (isDOMCall) {
         MOZ_ASSERT(!construct);
-        ins = new(alloc) MCallDOMNative(target, numActualArgs);
+        ins = new(alloc) MCallDOMNative(wrappedTarget, numActualArgs);
     } else {
-        ins = new(alloc) MCall(target, numActualArgs, construct);
+        ins = new(alloc) MCall(wrappedTarget, numActualArgs, construct);
     }
     if (!ins->init(alloc, maxArgc + NumNonArgumentOperands))
         return nullptr;
@@ -1990,20 +1998,6 @@ MCallDOMNative::getJitInfo() const
     return jitInfo;
 }
 
-MApplyArgs*
-MApplyArgs::New(TempAllocator& alloc, JSFunction* target, MDefinition* fun, MDefinition* argc,
-                MDefinition* self)
-{
-    return new(alloc) MApplyArgs(target, fun, argc, self);
-}
-
-MApplyArray*
-MApplyArray::New(TempAllocator& alloc, JSFunction* target, MDefinition* fun, MDefinition* elements,
-                 MDefinition* self)
-{
-    return new(alloc) MApplyArray(target, fun, elements, self);
-}
-
 MDefinition*
 MStringLength::foldsTo(TempAllocator& alloc)
 {
@@ -2064,12 +2058,6 @@ MRound::trySpecializeFloat32(TempAllocator& alloc)
 }
 
 MCompare*
-MCompare::New(TempAllocator& alloc, MDefinition* left, MDefinition* right, JSOp op)
-{
-    return new(alloc) MCompare(left, right, op);
-}
-
-MCompare*
 MCompare::NewAsmJS(TempAllocator& alloc, MDefinition* left, MDefinition* right, JSOp op,
                    CompareType compareType)
 {
@@ -2091,6 +2079,13 @@ MTableSwitch::New(TempAllocator& alloc, MDefinition* ins, int32_t low, int32_t h
 
 MGoto*
 MGoto::New(TempAllocator& alloc, MBasicBlock* target)
+{
+    MOZ_ASSERT(target);
+    return new(alloc) MGoto(target);
+}
+
+MGoto*
+MGoto::New(TempAllocator::Fallible alloc, MBasicBlock* target)
 {
     MOZ_ASSERT(target);
     return new(alloc) MGoto(target);
@@ -3647,12 +3642,6 @@ MCompare::cacheOperandMightEmulateUndefined(CompilerConstraintList* constraints)
 }
 
 MBitNot*
-MBitNot::New(TempAllocator& alloc, MDefinition* input)
-{
-    return new(alloc) MBitNot(input);
-}
-
-MBitNot*
 MBitNot::NewAsmJS(TempAllocator& alloc, MDefinition* input)
 {
     MBitNot* ins = new(alloc) MBitNot(input);
@@ -4558,10 +4547,8 @@ MNot::foldsTo(TempAllocator& alloc)
     if (MConstant* inputConst = input()->maybeConstantValue()) {
         bool b;
         if (inputConst->valueToBoolean(&b)) {
-            if (type() == MIRType::Int32)
+            if (type() == MIRType::Int32 || type() == MIRType::Int64)
                 return MConstant::New(alloc, Int32Value(!b));
-            if (type() == MIRType::Int64)
-                return MConstant::NewInt64(alloc, int64_t(!b));
             return MConstant::New(alloc, BooleanValue(!b));
         }
     }
@@ -6070,6 +6057,9 @@ PropertyTypeIncludes(TempAllocator& alloc, HeapTypeSetKey property,
             types = types->clone(alloc.lifoAlloc());
         else
             types = alloc.lifoAlloc()->new_<TemporaryTypeSet>();
+        if (!types) {
+            return false;
+        }
         types->addType(newType, alloc.lifoAlloc());
     }
 

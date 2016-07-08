@@ -9,6 +9,8 @@ const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm")
 
+const DEFAULT_TAB_COLOR = "#909090"
+
 XPCOMUtils.defineLazyGetter(this, "gBrowserBundle", function() {
   return Services.strings.createBundle("chrome://browser/locale/browser.properties");
 });
@@ -19,22 +21,26 @@ this.ContextualIdentityService = {
       icon: "chrome://browser/skin/usercontext/personal.svg",
       color: "#00a7e0",
       label: "userContextPersonal.label",
-      accessKey: "userContextPersonal.accesskey" },
+      accessKey: "userContextPersonal.accesskey",
+      alreadyOpened: false },
     { userContextId: 2,
       icon: "chrome://browser/skin/usercontext/work.svg",
       color: "#f89c24",
       label: "userContextWork.label",
-      accessKey: "userContextWork.accesskey" },
+      accessKey: "userContextWork.accesskey",
+      alreadyOpened: false },
     { userContextId: 3,
       icon: "chrome://browser/skin/usercontext/banking.svg",
       color: "#7dc14c",
       label: "userContextBanking.label",
-      accessKey: "userContextBanking.accesskey" },
+      accessKey: "userContextBanking.accesskey",
+      alreadyOpened: false },
     { userContextId: 4,
       icon: "chrome://browser/skin/usercontext/shopping.svg",
       color: "#ee5195",
       label: "userContextShopping.label",
-      accessKey: "userContextShopping.accesskey" },
+      accessKey: "userContextShopping.accesskey",
+      alreadyOpened: false },
   ],
 
   _cssRule: false,
@@ -52,33 +58,38 @@ this.ContextualIdentityService = {
     return gBrowserBundle.GetStringFromName(identity.label);
   },
 
-  needsCssRule() {
-    return !this._cssRule;
-  },
-
-  storeCssRule(cssRule) {
-    this._cssRule = cssRule;
-  },
-
-  cssRules() {
-    let rules = [];
-
-    if (this.needsCssRule()) {
-      return rules;
+  setTabStyle(tab) {
+    // inline style is only a temporary fix for some bad performances related
+    // to the use of CSS vars. This code will be removed in bug 1278177.
+    if (!tab.hasAttribute("usercontextid")) {
+      tab.style.removeProperty("background-image");
+      tab.style.removeProperty("background-size");
+      tab.style.removeProperty("background-repeat");
+      return;
     }
 
-    /* The CSS Rules for the ContextualIdentity tabs are set up like this:
-     * 1. :root { --usercontext-color-<id>: #color }
-     * 2. the template, replacing 'id' with the userContextId.
-     * 3. tabbrowser-tab[usercontextid="<id>"] { background-image: var(--usercontext-tab-<id>) }
-     */
-    for (let identity of this._identities) {
-      rules.push(":root { --usercontext-color-" + identity.userContextId + ": " + identity.color + " }");
+    let userContextId = tab.getAttribute("usercontextid");
+    let identity = this.getIdentityFromId(userContextId);
 
-      rules.push(this._cssRule.replace(/id/g, identity.userContextId));
-      rules.push(".tabbrowser-tab[usercontextid=\"" + identity.userContextId + "\"] { background-image: var(--usercontext-tab-" + identity.userContextId + ") }");
+    let color = identity ? identity.color : DEFAULT_TAB_COLOR;
+    tab.style.backgroundImage = "linear-gradient(to right, transparent 20%, " + color + " 30%, " + color + " 70%, transparent 80%)";
+    tab.style.backgroundSize = "auto 2px";
+    tab.style.backgroundRepeat = "no-repeat";
+  },
+
+  telemetry(userContextId) {
+    let identity = this.getIdentityFromId(userContextId);
+
+    // Let's ignore unknown identities for now.
+    if (!identity) {
+      return;
     }
 
-    return rules;
+    if (!identity.alreadyOpened) {
+      identity.alreadyOpened = true;
+      Services.telemetry.getHistogramById("UNIQUE_CONTAINERS_OPENED").add(1);
+    }
+
+    Services.telemetry.getHistogramById("TOTAL_CONTAINERS_OPENED").add(1);
   },
 }

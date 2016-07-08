@@ -116,6 +116,7 @@
     _(Throw)                        \
     _(Phi)                          \
     _(TestIAndBranch)               \
+    _(TestI64AndBranch)             \
     _(TestDAndBranch)               \
     _(TestFAndBranch)               \
     _(TestVAndBranch)               \
@@ -159,6 +160,8 @@
     _(PopcntI64)                    \
     _(SqrtD)                        \
     _(SqrtF)                        \
+    _(CopySignD)                    \
+    _(CopySignF)                    \
     _(Atan2D)                       \
     _(Hypot)                        \
     _(PowI)                         \
@@ -381,6 +384,9 @@
     _(HasClass)                     \
     _(AsmSelect)                    \
     _(AsmSelectI64)                 \
+    _(WasmLoad)                     \
+    _(WasmStore)                    \
+    _(WasmBoundsCheck)              \
     _(AsmJSLoadHeap)                \
     _(AsmJSStoreHeap)               \
     _(AsmJSLoadFuncPtr)             \

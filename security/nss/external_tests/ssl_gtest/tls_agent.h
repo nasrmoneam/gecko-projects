@@ -20,7 +20,7 @@
 
 namespace nss_test {
 
-#define LOG(msg) std::cerr << name_ << ": " << msg << std::endl
+#define LOG(msg) std::cerr << role_str() << ": " << msg << std::endl
 
 enum SessionResumptionMode {
   RESUME_NONE = 0,
@@ -62,7 +62,7 @@ class TlsAgent : public PollTarget {
   virtual ~TlsAgent();
 
   bool Init() {
-    pr_fd_ = DummyPrSocket::CreateFD(name_, mode_);
+    pr_fd_ = DummyPrSocket::CreateFD(role_str(), mode_);
     if (!pr_fd_) return false;
 
     adapter_ = DummyPrSocket::GetAdapter(pr_fd_);
@@ -78,20 +78,22 @@ class TlsAgent : public PollTarget {
   }
 
 
-  void StartConnect();
+  void StartConnect(PRFileDesc *model = nullptr);
   void CheckKEAType(SSLKEAType type) const;
   void CheckAuthType(SSLAuthType type) const;
+
+  void DisableAllCiphers();
+  void EnableCiphersByAuthType(SSLAuthType authType);
+  void EnableCiphersByKeyExchange(SSLKEAType kea);
+  void EnableSingleCipher(uint16_t cipher);
 
   void Handshake();
   // Marks the internal state as CONNECTING in anticipation of renegotiation.
   void PrepareForRenegotiate();
   // Prepares for renegotiation, then actually triggers it.
   void StartRenegotiate();
-  void DisableCiphersByKeyExchange(SSLKEAType kea);
-  void EnableCiphersByAuthType(SSLAuthType authType);
-  void EnableSingleCipher(uint16_t cipher);
   bool ConfigServerCert(const std::string& name, bool updateKeyBits = false);
-  bool EnsureTlsSetup();
+  bool EnsureTlsSetup(PRFileDesc *modelSocket = nullptr);
 
   void SetupClientAuth();
   void RequestClientAuth(bool requireAuth);
@@ -101,6 +103,7 @@ class TlsAgent : public PollTarget {
   void ConfigureSessionCache(SessionResumptionMode mode);
   void SetSessionTicketsEnabled(bool en);
   void SetSessionCacheEnabled(bool en);
+  void Set0RttEnabled(bool en);
   void SetVersionRange(uint16_t minver, uint16_t maxver);
   void GetVersionRange(uint16_t* minver, uint16_t* maxver);
   void CheckPreliminaryInfo();
@@ -113,7 +116,7 @@ class TlsAgent : public PollTarget {
                               size_t count);
   void EnableAlpn(const uint8_t* val, size_t len);
   void CheckAlpn(SSLNextProtoState expected_state,
-                 const std::string& expected) const;
+                 const std::string& expected = "") const;
   void EnableSrtp();
   void CheckSrtp() const;
   void CheckErrorCode(int32_t expected) const;
@@ -125,13 +128,16 @@ class TlsAgent : public PollTarget {
   void ResetSentBytes(); // Hack to test drops.
   void EnableExtendedMasterSecret();
   void CheckExtendedMasterSecret(bool expected);
+  void CheckEarlyDataAccepted(bool expected);
   void DisableRollbackDetection();
   void EnableCompression();
   void SetDowngradeCheckVersion(uint16_t version);
+  void CheckSecretsDestroyed();
 
   const std::string& name() const { return name_; }
 
   Role role() const { return role_; }
+  std::string role_str() const { return role_ == SERVER ? "server" : "client"; }
 
   State state() const { return state_; }
 
@@ -400,6 +406,11 @@ class TlsAgentTestClient : public TlsAgentTestBase,
 class TlsAgentStreamTestClient : public TlsAgentTestBase {
  public:
   TlsAgentStreamTestClient() : TlsAgentTestBase(TlsAgent::CLIENT, STREAM) {}
+};
+
+class TlsAgentStreamTestServer : public TlsAgentTestBase {
+ public:
+  TlsAgentStreamTestServer() : TlsAgentTestBase(TlsAgent::SERVER, STREAM) {}
 };
 
 class TlsAgentDgramTestClient : public TlsAgentTestBase {

@@ -32,6 +32,7 @@
 #include "nsHashKeys.h"
 #include "nsISupports.h"
 #include "nsIContent.h"
+#include "nsISelectionController.h"
 #include "nsQueryFrame.h"
 #include "nsCoord.h"
 #include "nsColor.h"
@@ -47,6 +48,7 @@
 #include "nsPresArena.h"
 #include "nsMargin.h"
 #include "nsFrameState.h"
+#include "Units.h"
 #include "Visibility.h"
 
 #ifdef MOZ_B2G
@@ -100,8 +102,6 @@ class DocAccessible;
 #endif
 struct nsArenaMemoryStats;
 class nsITimer;
-
-typedef short SelectionType;
 
 namespace mozilla {
 class EventStates;
@@ -833,7 +833,26 @@ public:
     */
   int16_t GetSelectionFlags() const { return mSelectionFlags; }
 
-  virtual mozilla::dom::Selection* GetCurrentSelection(SelectionType aType) = 0;
+  virtual mozilla::dom::Selection*
+    GetCurrentSelection(mozilla::SelectionType aSelectionType) = 0;
+
+  /**
+   * Gets a selection controller for the focused content in the DOM window
+   * for mDocument.
+   *
+   * @param aFocusedContent     If there is focused content in the DOM window,
+   *                            the focused content will be returned.  This may
+   *                            be nullptr if it's not necessary.
+   * @return                    A selection controller for focused content.
+   *                            E.g., if an <input> element has focus, returns
+   *                            the independent selection controller of it.
+   *                            If the DOM window does not have focused content
+   *                            (similar to Document.activeElement), returns
+   *                            nullptr.
+   */
+  virtual already_AddRefed<nsISelectionController>
+            GetSelectionControllerForFocusedContent(
+              nsIContent** aFocusedContent = nullptr) = 0;
 
   /**
     * Interface to dispatch events via the presshell
@@ -974,9 +993,8 @@ public:
 
   /**
    * See if reflow verification is enabled. To enable reflow verification add
-   * "verifyreflow:1" to your NSPR_LOG_MODULES environment variable
-   * (any non-zero debug level will work). Or, call SetVerifyReflowEnable
-   * with true.
+   * "verifyreflow:1" to your MOZ_LOG environment variable (any non-zero
+   * debug level will work). Or, call SetVerifyReflowEnable with true.
    */
   static bool GetVerifyReflowEnable();
 
@@ -1429,7 +1447,8 @@ public:
    * Used by session restore code to restore a resolution before the first
    * paint.
    */
-  virtual void SetRestoreResolution(float aResolution) = 0;
+  virtual void SetRestoreResolution(float aResolution,
+                                    mozilla::LayoutDeviceIntSize aDisplaySize) = 0;
 
   /**
    * Returns whether we are in a DrawWindow() call that used the

@@ -10,7 +10,10 @@
 #include "base/process.h"
 #include "Units.h"
 #include "mozilla/dom/ipc/IdType.h"
+#include "mozilla/gfx/GPUProcessHost.h"
+#include "mozilla/gfx/Point.h"
 #include "mozilla/ipc/Transport.h"
+#include "nsIObserverService.h"
 
 namespace mozilla {
 namespace layers {
@@ -21,7 +24,7 @@ class CompositorUpdateObserver;
 class PCompositorBridgeParent;
 } // namespace layers
 namespace widget {
-class CompositorWidgetProxy;
+class CompositorWidget;
 } // namespace widget
 namespace dom {
 class ContentParent;
@@ -32,10 +35,12 @@ class GeckoChildProcessHost;
 } // namespace ipc
 namespace gfx {
 
+class GPUChild;
+
 // The GPUProcessManager is a singleton responsible for creating GPU-bound
 // objects that may live in another process. Currently, it provides access
 // to the compositor via CompositorBridgeParent.
-class GPUProcessManager final
+class GPUProcessManager final : public GPUProcessHost::Listener
 {
   typedef layers::APZCTreeManager APZCTreeManager;
   typedef layers::CompositorUpdateObserver CompositorUpdateObserver;
@@ -47,19 +52,25 @@ public:
 
   ~GPUProcessManager();
 
+  // If not using a GPU process, launch a new GPU process asynchronously.
+  void EnableGPUProcess();
+
+  // Ensure that GPU-bound methods can be used. If no GPU process is being
+  // used, or one is launched and ready, this function returns immediately.
+  // Otherwise it blocks until the GPU process has finished launching.
+  void EnsureGPUReady();
+
   already_AddRefed<layers::CompositorSession> CreateTopLevelCompositor(
-    widget::CompositorWidgetProxy* aProxy,
+    nsIWidget* aWidget,
     layers::ClientLayerManager* aLayerManager,
     CSSToLayoutDeviceScale aScale,
     bool aUseAPZ,
     bool aUseExternalSurfaceSize,
-    int aSurfaceWidth,
-    int aSurfaceHeight);
+    const gfx::IntSize& aSurfaceSize);
 
   layers::PCompositorBridgeParent* CreateTabCompositorBridge(
     ipc::Transport* aTransport,
-    base::ProcessId aOtherProcess,
-    ipc::GeckoChildProcessHost* aSubprocess);
+    base::ProcessId aOtherProcess);
 
   // This returns a reference to the APZCTreeManager to which
   // pan/zoom-related events can be sent.
@@ -92,10 +103,46 @@ public:
                                      const dom::TabId& aTabId,
                                      dom::TabParent* aBrowserParent);
 
+  void OnProcessLaunchComplete(GPUProcessHost* aHost) override;
+  void OnProcessUnexpectedShutdown(GPUProcessHost* aHost) override;
+
+  // Returns access to the PGPU protocol if a GPU process is present.
+  GPUChild* GetGPUChild() {
+    return mGPUChild;
+  }
+
+private:
+  // Called from our xpcom-shutdown observer.
+  void OnXPCOMShutdown();
+
 private:
   GPUProcessManager();
 
+  // Permanently disable the GPU process and record a message why.
+  void DisableGPUProcess(const char* aMessage);
+
+  // Shutdown the GPU process.
+  void DestroyProcess();
+
   DISALLOW_COPY_AND_ASSIGN(GPUProcessManager);
+
+  class Observer final : public nsIObserver {
+  public:
+    NS_DECL_ISUPPORTS
+    NS_DECL_NSIOBSERVER
+    explicit Observer(GPUProcessManager* aManager);
+
+  protected:
+    ~Observer() {}
+
+    GPUProcessManager* mManager;
+  };
+  friend class Observer;
+
+private:
+  RefPtr<Observer> mObserver;
+  GPUProcessHost* mProcess;
+  GPUChild* mGPUChild;
 };
 
 } // namespace gfx

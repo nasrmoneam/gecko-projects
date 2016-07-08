@@ -112,8 +112,11 @@ enum {
                               ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS |
                               ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR,
 
+  // Set if this element is marked as 'scrollgrab' (see bug 912666)
+  ELEMENT_HAS_SCROLLGRAB = ELEMENT_FLAG_BIT(5),
+
   // Remaining bits are for subclasses
-  ELEMENT_TYPE_SPECIFIC_BITS_OFFSET = NODE_TYPE_SPECIFIC_BITS_OFFSET + 5
+  ELEMENT_TYPE_SPECIFIC_BITS_OFFSET = NODE_TYPE_SPECIFIC_BITS_OFFSET + 6
 };
 
 #undef ELEMENT_FLAG_BIT
@@ -137,6 +140,7 @@ class UndoManager;
 class DOMRect;
 class DOMRectList;
 class DestinationInsertionPointList;
+class Grid;
 
 // IID for the dom::Element interface
 #define NS_ELEMENT_IID \
@@ -188,15 +192,6 @@ public:
    * Method to update mState with link state information.  This does not notify.
    */
   void UpdateLinkState(EventStates aState);
-
-  /**
-   * Returns true if this element is either a full-screen element or an
-   * ancestor of the full-screen element.
-   */
-  bool IsFullScreenAncestor() const {
-    return mState.HasAtLeastOneOfStates(NS_EVENT_STATE_FULL_SCREEN_ANCESTOR |
-                                        NS_EVENT_STATE_FULL_SCREEN);
-  }
 
   /**
    * The style state of this element. This is the real state of the element
@@ -836,6 +831,8 @@ public:
            0;
   }
 
+  void GetGridFragments(nsTArray<RefPtr<Grid>>& aResult);
+
   virtual already_AddRefed<UndoManager> GetUndoManager()
   {
     return nullptr;
@@ -958,6 +955,11 @@ public:
   const nsAttrValue* GetParsedAttr(nsIAtom* aAttr) const
   {
     return mAttrsAndChildren.GetAttr(aAttr);
+  }
+
+  const nsAttrValue* GetParsedAttr(nsIAtom* aAttr, int32_t aNameSpaceID) const
+  {
+    return mAttrsAndChildren.GetAttr(aAttr, aNameSpaceID);
   }
 
   /**

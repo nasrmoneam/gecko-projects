@@ -16,6 +16,21 @@ function convertEntries(entries) {
   return result;
 }
 
+function getPropertyAsRect(scrollFrames, scrollId, prop) {
+  SimpleTest.ok(scrollId in scrollFrames,
+                'expected scroll frame data for scroll id ' + scrollId);
+  var scrollFrameData = scrollFrames[scrollId];
+  SimpleTest.ok('displayport' in scrollFrameData,
+                'expected a ' + prop + ' for scroll id ' + scrollId);
+  var value = scrollFrameData[prop];
+  var pieces = value.replace(/[()\s]+/g, '').split(',');
+  SimpleTest.is(pieces.length, 4, "expected string of form (x,y,w,h)");
+  return { x: parseInt(pieces[0]),
+           y: parseInt(pieces[1]),
+           w: parseInt(pieces[2]),
+           h: parseInt(pieces[3]) };
+}
+
 function convertScrollFrameData(scrollFrames) {
   var result = {};
   for (var i = 0; i < scrollFrames.length; ++i) {
@@ -79,6 +94,25 @@ function findRcdNode(apzcTree) {
     }
   }
   return null;
+}
+
+// Return whether an element whose id includes |elementId| has been layerized.
+// Assumes |elementId| will be present in the content description for the
+// element, and not in the content descriptions of other elements.
+function isLayerized(elementId) {
+  var contentTestData = SpecialPowers.getDOMWindowUtils(window).getContentAPZTestData();
+  ok(contentTestData.paints.length > 0, "expected at least one paint");
+  var seqno = contentTestData.paints[contentTestData.paints.length - 1].sequenceNumber;
+  contentTestData = convertTestData(contentTestData);
+  var paint = contentTestData.paints[seqno];
+  for (var scrollId in paint) {
+    if ("contentDescription" in paint[scrollId]) {
+      if (paint[scrollId]["contentDescription"].includes(elementId)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function flushApzRepaints(aCallback, aWindow = window) {
@@ -311,4 +345,25 @@ function getSnapshot(rect) {
   }
 
   return getSnapshot.chromeHelper.sendSyncMessage('snapshot', JSON.stringify(rect)).toString();
+}
+
+// Takes the document's query string and parses it, assuming the query string
+// is composed of key-value pairs where the value is in JSON format. The object
+// returned contains the various values indexed by their respective keys. In
+// case of duplicate keys, the last value be used.
+// Examples:
+//   ?key="value"&key2=false&key3=500
+//     produces { "key": "value", "key2": false, "key3": 500 }
+//   ?key={"x":0,"y":50}&key2=[1,2,true]
+//     produces { "key": { "x": 0, "y": 0 }, "key2": [1, 2, true] }
+function getQueryArgs() {
+  var args = {};
+  if (location.search.length > 0) {
+    var params = location.search.substr(1).split('&');
+    for (var p of params) {
+      var [k, v] = p.split('=');
+      args[k] = JSON.parse(v);
+    }
+  }
+  return args;
 }

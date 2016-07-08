@@ -21,7 +21,6 @@
 #include "jsnum.h"
 #include "jsprf.h"
 
-#include "asmjs/Wasm.h"
 #include "asmjs/WasmAST.h"
 #include "asmjs/WasmBinaryToAST.h"
 #include "asmjs/WasmTypes.h"
@@ -1172,7 +1171,7 @@ RenderExport(WasmRenderContext& c, AstExport& export_, const AstModule::FuncVect
         return false;
     if (!c.buffer.append("\" "))
         return false;
-    if (export_.kind() == AstExportKind::Memory) {
+    if (export_.kind() == DefinitionKind::Memory) {
         if (!c.buffer.append("memory"))
           return false;
     } else {

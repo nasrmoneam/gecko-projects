@@ -21,7 +21,7 @@
   box-sizing: border-box; /* XXX do we really want this? */
 }
 
-*|*::-moz-table-outer {
+*|*::-moz-table-wrapper {
   display: inherit !important; /* table or inline-table */
   margin: inherit ! important;
   padding: 0 ! important;
@@ -76,23 +76,23 @@
 /* Ruby */
 *|*::-moz-ruby {
   display: ruby;
-  unicode-bidi: -moz-isolate;
+  unicode-bidi: isolate;
 }
 *|*::-moz-ruby-base {
   display: ruby-base;
-  unicode-bidi: -moz-isolate;
+  unicode-bidi: isolate;
 }
 *|*::-moz-ruby-text {
   display: ruby-text;
-  unicode-bidi: -moz-isolate;
+  unicode-bidi: isolate;
 }
 *|*::-moz-ruby-base-container {
   display: ruby-base-container;
-  unicode-bidi: -moz-isolate;
+  unicode-bidi: isolate;
 }
 *|*::-moz-ruby-text-container {
   display: ruby-text-container;
-  unicode-bidi: -moz-isolate;
+  unicode-bidi: isolate;
 }
 
 /* Lists */

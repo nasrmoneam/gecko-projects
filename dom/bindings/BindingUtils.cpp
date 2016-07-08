@@ -359,7 +359,7 @@ void
 ErrorResult::ClearUnionData()
 {
   if (IsJSException()) {
-    JSContext* cx = nsContentUtils::GetDefaultJSContextForThread();
+    JSContext* cx = nsContentUtils::RootingCx();
     MOZ_ASSERT(cx);
     mJSException.setUndefined();
     js::RemoveRawValueRoot(cx, &mJSException);
@@ -398,7 +398,7 @@ ErrorResult::operator=(ErrorResult&& aRHS)
     mMessage = aRHS.mMessage;
     aRHS.mMessage = nullptr;
   } else if (aRHS.IsJSException()) {
-    JSContext* cx = nsContentUtils::GetDefaultJSContextForThread();
+    JSContext* cx = nsContentUtils::RootingCx();
     MOZ_ASSERT(cx);
     mJSException.setUndefined();
     if (!js::AddRawValueRoot(cx, &mJSException, "ErrorResult::mJSException")) {
@@ -453,7 +453,7 @@ ErrorResult::CloneTo(ErrorResult& aRv) const
 #ifdef DEBUG
     aRv.mUnionState = HasJSException;
 #endif
-    JSContext* cx = nsContentUtils::RootingCxForThread();
+    JSContext* cx = nsContentUtils::RootingCx();
     JS::Rooted<JS::Value> exception(cx, mJSException);
     aRv.ThrowJSException(cx, exception);
   }
@@ -2350,7 +2350,7 @@ ConstructJSImplementation(const char* aContractId,
       do_QueryInterface(implISupports);
     nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(aGlobal);
     if (gpi) {
-      JS::Rooted<JS::Value> initReturn(nsContentUtils::RootingCxForThread());
+      JS::Rooted<JS::Value> initReturn(GetJSRuntime());
       rv = gpi->Init(window, &initReturn);
       if (NS_FAILED(rv)) {
         aRv.Throw(rv);
@@ -3297,46 +3297,23 @@ namespace {
 
 // This runnable is used to write a deprecation message from a worker to the
 // console running on the main-thread.
-class DeprecationWarningRunnable final : public Runnable
-                                       , public WorkerFeature
+class DeprecationWarningRunnable final : public WorkerProxyToMainThreadRunnable
 {
-  WorkerPrivate* mWorkerPrivate;
   nsIDocument::DeprecatedOperations mOperation;
 
 public:
   DeprecationWarningRunnable(WorkerPrivate* aWorkerPrivate,
                              nsIDocument::DeprecatedOperations aOperation)
-    : mWorkerPrivate(aWorkerPrivate)
+    : WorkerProxyToMainThreadRunnable(aWorkerPrivate)
     , mOperation(aOperation)
   {
     MOZ_ASSERT(aWorkerPrivate);
-  }
-
-  void
-  Dispatch()
-  {
-    if (NS_WARN_IF(!mWorkerPrivate->AddFeature(this))) {
-      return;
-    }
-
-    if (NS_WARN_IF(NS_FAILED(NS_DispatchToMainThread(this)))) {
-      mWorkerPrivate->RemoveFeature(this);
-      return;
-    }
-  }
-
-  virtual bool
-  Notify(Status aStatus) override
-  {
-    // We don't care about the notification. We just want to keep the
-    // mWorkerPrivate alive.
-    return true;
+    aWorkerPrivate->AssertIsOnWorkerThread();
   }
 
 private:
-
-  NS_IMETHOD
-  Run() override
+  void
+  RunOnMainThread() override
   {
     MOZ_ASSERT(NS_IsMainThread());
 
@@ -3350,53 +3327,11 @@ private:
     if (window && window->GetExtantDoc()) {
       window->GetExtantDoc()->WarnOnceAbout(mOperation);
     }
-
-    ReleaseWorker();
-    return NS_OK;
   }
 
   void
-  ReleaseWorker()
-  {
-    class ReleaseRunnable final : public WorkerRunnable
-    {
-      RefPtr<DeprecationWarningRunnable> mRunnable;
-
-    public:
-      ReleaseRunnable(WorkerPrivate* aWorkerPrivate,
-                      DeprecationWarningRunnable* aRunnable)
-        : WorkerRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
-        , mRunnable(aRunnable)
-      {}
-
-      virtual bool
-      WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
-      {
-        MOZ_ASSERT(aWorkerPrivate);
-        aWorkerPrivate->AssertIsOnWorkerThread();
-
-        aWorkerPrivate->RemoveFeature(mRunnable);
-        return true;
-      }
-
-      virtual bool
-      PreDispatch(WorkerPrivate* aWorkerPrivate) override
-      {
-        AssertIsOnMainThread();
-        return true;
-      }
-
-      virtual void
-      PostDispatch(WorkerPrivate* aWorkerPrivate,
-                   bool aDispatchResult) override
-      {
-      }
-    };
-
-    RefPtr<ReleaseRunnable> runnable =
-      new ReleaseRunnable(mWorkerPrivate, this);
-    NS_WARN_IF(!runnable->Dispatch());
-  }
+  RunBackOnWorkerThread() override
+  {}
 };
 
 } // anonymous namespace

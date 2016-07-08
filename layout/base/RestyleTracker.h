@@ -12,6 +12,7 @@
 #define mozilla_RestyleTracker_h
 
 #include "mozilla/dom/Element.h"
+#include "nsAutoPtr.h"
 #include "nsClassHashtable.h"
 #include "nsContainerFrame.h"
 #include "mozilla/SplayTree.h"
@@ -133,7 +134,7 @@ public:
                      "InitialOverflowProperty must be set first.");
 
         nsOverflowAreas* overflow = 
-          static_cast<nsOverflowAreas*>(frame->Properties().Get(nsIFrame::InitialOverflowProperty()));
+          frame->Properties().Get(nsIFrame::InitialOverflowProperty());
         if (overflow) {
           // FinishAndStoreOverflow will change the overflow areas passed in,
           // so make a copy.

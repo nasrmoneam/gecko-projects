@@ -16,6 +16,7 @@
 #include "mozilla/dom/IDBFactory.h"
 #include "mozilla/dom/ImageBitmap.h"
 #include "mozilla/dom/ImageBitmapBinding.h"
+#include "mozilla/dom/Performance.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/PromiseWorkerProxy.h"
 #include "mozilla/dom/ServiceWorkerGlobalScopeBinding.h"
@@ -42,7 +43,6 @@
 #include "ScriptLoader.h"
 #include "WorkerPrivate.h"
 #include "WorkerRunnable.h"
-#include "Performance.h"
 #include "ServiceWorkerClients.h"
 #include "ServiceWorkerManager.h"
 #include "ServiceWorkerRegistration.h"
@@ -57,8 +57,6 @@ USING_WORKERS_NAMESPACE
 
 using mozilla::dom::cache::CacheStorage;
 using mozilla::ipc::PrincipalInfo;
-
-BEGIN_WORKERS_NAMESPACE
 
 WorkerGlobalScope::WorkerGlobalScope(WorkerPrivate* aWorkerPrivate)
 : mWindowInteractionsAllowed(0)
@@ -359,7 +357,7 @@ WorkerGlobalScope::GetPerformance()
   mWorkerPrivate->AssertIsOnWorkerThread();
 
   if (!mPerformance) {
-    mPerformance = new Performance(mWorkerPrivate);
+    mPerformance = Performance::CreateForWorker(mWorkerPrivate);
   }
 
   return mPerformance;
@@ -489,10 +487,10 @@ DedicatedWorkerGlobalScope::WrapGlobalObject(JSContext* aCx,
   creationOptions.setSharedMemoryAndAtomicsEnabled(sharedMemoryEnabled)
                  .setExperimentalDateTimeFormatFormatToPartsEnabled(inCertifiedApp);
 
-  return DedicatedWorkerGlobalScopeBinding_workers::Wrap(aCx, this, this,
-                                                         options,
-                                                         GetWorkerPrincipal(),
-                                                         true, aReflector);
+  return DedicatedWorkerGlobalScopeBinding::Wrap(aCx, this, this,
+                                                 options,
+                                                 GetWorkerPrincipal(),
+                                                 true, aReflector);
 }
 
 void
@@ -521,9 +519,9 @@ SharedWorkerGlobalScope::WrapGlobalObject(JSContext* aCx,
   JS::CompartmentOptions options;
   mWorkerPrivate->CopyJSCompartmentOptions(options);
 
-  return SharedWorkerGlobalScopeBinding_workers::Wrap(aCx, this, this, options,
-                                                      GetWorkerPrincipal(),
-                                                      true, aReflector);
+  return SharedWorkerGlobalScopeBinding::Wrap(aCx, this, this, options,
+                                              GetWorkerPrincipal(),
+                                              true, aReflector);
 }
 
 NS_IMPL_CYCLE_COLLECTION_INHERITED(ServiceWorkerGlobalScope, WorkerGlobalScope,
@@ -555,9 +553,9 @@ ServiceWorkerGlobalScope::WrapGlobalObject(JSContext* aCx,
   JS::CompartmentOptions options;
   mWorkerPrivate->CopyJSCompartmentOptions(options);
 
-  return ServiceWorkerGlobalScopeBinding_workers::Wrap(aCx, this, this, options,
-                                                       GetWorkerPrincipal(),
-                                                       true, aReflector);
+  return ServiceWorkerGlobalScopeBinding::Wrap(aCx, this, this, options,
+                                               GetWorkerPrincipal(),
+                                               true, aReflector);
 }
 
 ServiceWorkerClients*
@@ -570,12 +568,12 @@ ServiceWorkerGlobalScope::Clients()
   return mClients;
 }
 
-ServiceWorkerRegistrationWorkerThread*
+ServiceWorkerRegistration*
 ServiceWorkerGlobalScope::Registration()
 {
   if (!mRegistration) {
     mRegistration =
-      new ServiceWorkerRegistrationWorkerThread(mWorkerPrivate, mScope);
+      ServiceWorkerRegistration::CreateForWorker(mWorkerPrivate, mScope);
   }
 
   return mRegistration;
@@ -590,7 +588,7 @@ class SkipWaitingResultRunnable final : public WorkerRunnable
 public:
   SkipWaitingResultRunnable(WorkerPrivate* aWorkerPrivate,
                             PromiseWorkerProxy* aPromiseProxy)
-    : WorkerRunnable(aWorkerPrivate, WorkerThreadModifyBusyCount)
+    : WorkerRunnable(aWorkerPrivate)
     , mPromiseProxy(aPromiseProxy)
   {
     AssertIsOnMainThread();
@@ -906,12 +904,14 @@ WorkerDebuggerGlobalScope::Dump(JSContext* aCx,
   }
 }
 
+BEGIN_WORKERS_NAMESPACE
+
 bool
 IsWorkerGlobal(JSObject* object)
 {
   nsIGlobalObject* globalObject = nullptr;
-  return NS_SUCCEEDED(UNWRAP_WORKER_OBJECT(WorkerGlobalScope, object,
-                                           globalObject)) && !!globalObject;
+  return NS_SUCCEEDED(UNWRAP_OBJECT(WorkerGlobalScope, object,
+                                    globalObject)) && !!globalObject;
 }
 
 bool

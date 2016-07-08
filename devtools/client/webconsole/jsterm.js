@@ -316,7 +316,7 @@ JSTerm.prototype = {
       errorDocLink = this.hud.document.createElementNS(XHTML_NS, "a");
       errorDocLink.className = "learn-more-link webconsole-learn-more-link";
       errorDocLink.textContent = `[${l10n.getStr("webConsoleMoreInfoLabel")}]`;
-      errorDocLink.title = errorDocURL;
+      errorDocLink.title = errorDocURL.split("?")[0];
       errorDocLink.href = "#";
       errorDocLink.draggable = false;
       errorDocLink.addEventListener("click", () => {
@@ -657,7 +657,7 @@ JSTerm.prototype = {
       }
     } else {
       this.sidebar.once("variablesview-ready", onTabReady);
-      this.sidebar.addTab("variablesview", VARIABLES_VIEW_URL, true);
+      this.sidebar.addTab("variablesview", VARIABLES_VIEW_URL, {selected: true});
     }
 
     return deferred.promise;
