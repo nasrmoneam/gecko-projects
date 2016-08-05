@@ -35,11 +35,13 @@ const STATE_SUCCEEDED       = "succeeded";
 const STATE_DOWNLOAD_FAILED = "download-failed";
 const STATE_FAILED          = "failed";
 
-const STATE_FAILED_LOADSOURCE_ERROR_WRONG_SIZE = STATE_FAILED + ": 2";
-const STATE_FAILED_READ_ERROR                  = STATE_FAILED + ": 6";
-const STATE_FAILED_WRITE_ERROR                 = STATE_FAILED + ": 7";
-const STATE_FAILED_CHANNEL_MISMATCH_ERROR      = STATE_FAILED + ": 22";
-const STATE_FAILED_VERSION_DOWNGRADE_ERROR     = STATE_FAILED + ": 23";
+const STATE_FAILED_LOADSOURCE_ERROR_WRONG_SIZE      = STATE_FAILED + ": 2";
+const STATE_FAILED_READ_ERROR                       = STATE_FAILED + ": 6";
+const STATE_FAILED_WRITE_ERROR                      = STATE_FAILED + ": 7";
+const STATE_FAILED_CHANNEL_MISMATCH_ERROR           = STATE_FAILED + ": 22";
+const STATE_FAILED_VERSION_DOWNGRADE_ERROR          = STATE_FAILED + ": 23";
+const STATE_FAILED_INVALID_APPLYTO_DIR_STAGED_ERROR = STATE_FAILED + ": 72";
+const STATE_FAILED_INVALID_APPLYTO_DIR_ERROR        = STATE_FAILED + ": 74";
 
 /**
  * Constructs a string representing a remote update xml file.
