@@ -4,12 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef MOZ_WIDGET_QT
-#include <QtCore/QTimer>
-#include "nsQAppInstance.h"
-#include "NestedLoopTimer.h"
-#endif
-
 #include "mozilla/plugins/PluginModuleChild.h"
 
 /* This must occur *after* plugins/PluginModuleChild.h to avoid typedefs conflicts. */
@@ -73,12 +67,6 @@ namespace {
 PluginModuleChild* gChromeInstance = nullptr;
 } // namespace
 
-#ifdef MOZ_WIDGET_QT
-typedef void (*_gtk_init_fn)(int argc, char **argv);
-static _gtk_init_fn s_gtk_init = nullptr;
-static PRLibrary *sGtkLib = nullptr;
-#endif
-
 #ifdef XP_WIN
 // Hooking CreateFileW for protected-mode magic
 static WindowsDllInterceptor sKernel32Intercept;
@@ -131,12 +119,11 @@ PluginModuleChild::PluginModuleChild(bool aIsChrome)
   , mGetEntryPointsFunc(0)
 #elif defined(MOZ_WIDGET_GTK)
   , mNestedLoopTimerId(0)
-#elif defined(MOZ_WIDGET_QT)
-  , mNestedLoopTimerObject(0)
 #endif
 #ifdef OS_WIN
   , mNestedEventHook(nullptr)
   , mGlobalCallWndProcHook(nullptr)
+  , mAsyncRenderSupport(false)
 #endif
 {
     memset(&mFunctions, 0, sizeof(mFunctions));
@@ -257,26 +244,29 @@ PluginModuleChild::InitForChrome(const std::string& aPluginFilename,
 
     nsPluginFile pluginFile(localFile);
 
-#if defined(MOZ_X11) || defined(XP_MACOSX)
     nsPluginInfo info = nsPluginInfo();
     if (NS_FAILED(pluginFile.GetPluginInfo(info, &mLibrary))) {
         return false;
     }
 
+#if defined(XP_WIN)
+    // XXX quirks isn't initialized yet
+    mAsyncRenderSupport = info.fSupportsAsyncRender;
+#endif
 #if defined(MOZ_X11)
     NS_NAMED_LITERAL_CSTRING(flash10Head, "Shockwave Flash 10.");
     if (StringBeginsWith(nsDependentCString(info.fDescription), flash10Head)) {
         AddQuirk(QUIRK_FLASH_EXPOSE_COORD_TRANSLATION);
     }
-#else // defined(XP_MACOSX)
+#endif
+#if defined(XP_MACOSX)
     const char* namePrefix = "Plugin Content";
     char nameBuffer[80];
     snprintf(nameBuffer, sizeof(nameBuffer), "%s (%s)", namePrefix, info.fName);
     mozilla::plugins::PluginUtilsOSX::SetProcessName(nameBuffer);
 #endif
-
     pluginFile.FreePluginInfo(info);
-
+#if defined(MOZ_X11) || defined(XP_MACOSX)
     if (!mLibrary)
 #endif
     {
@@ -325,6 +315,7 @@ PluginModuleChild::InitForChrome(const std::string& aPluginFilename,
 }
 
 #if defined(MOZ_WIDGET_GTK)
+
 typedef void (*GObjectDisposeFn)(GObject*);
 typedef gboolean (*GtkWidgetScrollEventFn)(GtkWidget*, GdkEventScroll*);
 typedef void (*GtkPlugEmbeddedFn)(GtkPlug*);
@@ -548,26 +539,6 @@ PluginModuleChild::ExitedCxxStack()
     g_source_remove(mNestedLoopTimerId);
     mNestedLoopTimerId = 0;
 }
-#elif defined (MOZ_WIDGET_QT)
-
-void
-PluginModuleChild::EnteredCxxStack()
-{
-    MOZ_ASSERT(mNestedLoopTimerObject == nullptr,
-               "previous timer not descheduled");
-    mNestedLoopTimerObject = new NestedLoopTimer(this);
-    QTimer::singleShot(kNestedLoopDetectorIntervalMs,
-                       mNestedLoopTimerObject, SLOT(timeOut()));
-}
-
-void
-PluginModuleChild::ExitedCxxStack()
-{
-    MOZ_ASSERT(mNestedLoopTimerObject != nullptr,
-               "nested loop timeout not scheduled");
-    delete mNestedLoopTimerObject;
-    mNestedLoopTimerObject = nullptr;
-}
 
 #endif
 
@@ -628,19 +599,6 @@ PluginModuleChild::InitGraphics()
     real_gtk_plug_embedded = *embedded;
     *embedded = wrap_gtk_plug_embedded;
 
-#elif defined(MOZ_WIDGET_QT)
-    nsQAppInstance::AddRef();
-    // Work around plugins that don't interact well without gtk initialized
-    // see bug 566845
-#if defined(MOZ_X11)
-    if (!sGtkLib)
-         sGtkLib = PR_LoadLibrary("libgtk-x11-2.0.so.0");
-#endif
-    if (sGtkLib) {
-         s_gtk_init = (_gtk_init_fn)PR_FindFunctionSymbol(sGtkLib, "gtk_init");
-         if (s_gtk_init)
-             s_gtk_init(0, 0);
-    }
 #else
     // may not be necessary on all platforms
 #endif
@@ -654,15 +612,6 @@ PluginModuleChild::InitGraphics()
 void
 PluginModuleChild::DeinitGraphics()
 {
-#ifdef MOZ_WIDGET_QT
-    nsQAppInstance::Release();
-    if (sGtkLib) {
-        PR_UnloadLibrary(sGtkLib);
-        sGtkLib = nullptr;
-        s_gtk_init = nullptr;
-    }
-#endif
-
 #if defined(MOZ_X11) && defined(NS_FREE_PERMANENT_DATA)
     // We free some data off of XDisplay close hooks, ensure they're
     // run.  Closing the display is pretty scary, so we only do it to
@@ -1149,7 +1098,7 @@ _getvalue(NPP aNPP,
     switch (aVariable) {
         // Copied from nsNPAPIPlugin.cpp
         case NPNVToolkit:
-#if defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+#if defined(MOZ_WIDGET_GTK)
             *static_cast<NPNToolkitType*>(aValue) = NPNVGtk2;
             return NPERR_NO_ERROR;
 #endif
@@ -2157,6 +2106,18 @@ PluginModuleChild::InitQuirksModes(const nsCString& aMimeType)
     }
 
     mQuirks = GetQuirksFromMimeTypeAndFilename(aMimeType, mPluginFilename);
+}
+
+bool
+PluginModuleChild::AnswerModuleSupportsAsyncRender(bool* aResult)
+{
+#if defined(XP_WIN)
+    *aResult = gChromeInstance->mAsyncRenderSupport;
+    return true;
+#else
+    NS_NOTREACHED("Shouldn't get here!");
+    return false;
+#endif
 }
 
 bool

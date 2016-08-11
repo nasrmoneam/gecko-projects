@@ -31,7 +31,7 @@ using mozilla::Move;
 #ifdef MOZ_B2G
 #define IPC_LOG(...)
 #else
-static LazyLogModule sLogModule("ipc");
+static mozilla::LazyLogModule sLogModule("ipc");
 #define IPC_LOG(...) MOZ_LOG(sLogModule, LogLevel::Debug, (__VA_ARGS__))
 #endif
 
@@ -97,6 +97,7 @@ static LazyLogModule sLogModule("ipc");
  */
 
 using namespace mozilla;
+using namespace mozilla::ipc;
 using namespace std;
 
 using mozilla::dom::AutoNoJSAPI;
@@ -490,6 +491,9 @@ MessageChannel::MessageChannel(MessageListener *aListener)
     mFlags(REQUIRE_DEFAULT),
     mPeerPidSet(false),
     mPeerPid(-1)
+#if defined(MOZ_CRASHREPORTER) && defined(OS_WIN)
+    , mPending(AnnotateAllocator<Message>(*this))
+#endif
 {
     MOZ_COUNT_CTOR(ipc::MessageChannel);
 
@@ -2073,10 +2077,13 @@ MessageChannel::NotifyMaybeChannelError()
         return;
     }
 
+    Clear();
+
     // Oops, error!  Let the listener know about it.
     mChannelState = ChannelError;
+
+    // After this, the channel may be deleted.
     mListener->OnChannelError();
-    Clear();
 }
 
 void
@@ -2228,11 +2235,12 @@ MessageChannel::NotifyChannelClosed()
     if (ChannelClosed != mChannelState)
         NS_RUNTIMEABORT("channel should have been closed!");
 
-    // OK, the IO thread just closed the channel normally.  Let the
-    // listener know about it.
-    mListener->OnChannelClose();
-
     Clear();
+
+    // OK, the IO thread just closed the channel normally.  Let the
+    // listener know about it. After this point the channel may be
+    // deleted.
+    mListener->OnChannelClose();
 }
 
 void

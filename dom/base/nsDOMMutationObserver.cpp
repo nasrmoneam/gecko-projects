@@ -860,7 +860,7 @@ nsDOMMutationObserver::HandleMutation()
 class AsyncMutationHandler : public mozilla::Runnable
 {
 public:
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() override
   {
     nsDOMMutationObserver::HandleMutations();
     return NS_OK;
@@ -885,6 +885,8 @@ nsDOMMutationObserver::HandleMutationsInternal()
     return;
   }
 
+  AutoSlowOperation aso;
+
   nsTArray<RefPtr<nsDOMMutationObserver> >* suppressedObservers = nullptr;
 
   while (sScheduledMutationObservers) {
@@ -905,6 +907,7 @@ nsDOMMutationObserver::HandleMutationsInternal()
       }
     }
     delete observers;
+    aso.CheckForInterrupt();
   }
 
   if (suppressedObservers) {

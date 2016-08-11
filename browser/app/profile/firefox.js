@@ -308,6 +308,12 @@ pref("browser.urlbar.suggest.history.onlyTyped",    false);
 pref("browser.urlbar.formatting.enabled", true);
 pref("browser.urlbar.trimURLs", true);
 
+#if defined(NIGHTLY_BUILD)
+pref("browser.urlbar.oneOffSearches", true);
+#else
+pref("browser.urlbar.oneOffSearches", false);
+#endif
+
 pref("browser.altClickSave", false);
 
 // Enable logging downloads operations to the Console.
@@ -584,7 +590,9 @@ pref("browser.xul.error_pages.enabled", true);
 pref("browser.xul.error_pages.expert_bad_cert", false);
 
 // Enable captive portal detection.
+#ifdef NIGHTLY_BUILD
 pref("network.captive-portal-service.enabled", true);
+#endif
 
 // If true, network link events will change the value of navigator.onLine
 pref("network.manage-offline-status", true);
@@ -624,9 +632,6 @@ pref("accessibility.typeaheadfind.flashBar", 1);
 
 // Tracks when accessibility is loaded into the previous session.
 pref("accessibility.loadedInLastSession", false);
-
-pref("plugins.update.url", "https://www.mozilla.org/%LOCALE%/plugincheck/?utm_source=firefox-browser&utm_medium=firefox-browser&utm_campaign=plugincheck-update");
-pref("plugins.update.notifyUser", false);
 
 pref("plugins.click_to_play", true);
 pref("plugins.testmode", false);
@@ -948,7 +953,7 @@ pref("dom.ipc.plugins.sandbox-level.flash", 0);
 #if defined(NIGHTLY_BUILD)
 pref("security.sandbox.content.level", 2);
 #else
-pref("security.sandbox.content.level", 0);
+pref("security.sandbox.content.level", 1);
 #endif
 
 #if defined(MOZ_STACKWALKING)
@@ -1038,6 +1043,7 @@ pref("services.sync.prefs.sync.addons.ignoreUserEnabledChanges", true);
 // could weaken the pref locally, install an add-on from an untrusted
 // source, and this would propagate automatically to other,
 // uncompromised Sync-connected devices.
+pref("services.sync.prefs.sync.browser.ctrlTab.previews", true);
 pref("services.sync.prefs.sync.browser.download.useDownloadDir", true);
 pref("services.sync.prefs.sync.browser.formfill.enable", true);
 pref("services.sync.prefs.sync.browser.link.open_newwindow", true);
@@ -1108,6 +1114,12 @@ pref("services.sync.prefs.sync.xpinstall.whitelist.required", true);
 // fetching these icons to show remote tabs may leak information about that
 // user's tabs and bookmarks. Note this pref is also synced.
 pref("services.sync.syncedTabs.showRemoteIcons", true);
+
+#ifdef NIGHTLY_BUILD
+pref("services.sync.sendTabToDevice.enabled", true);
+#else
+pref("services.sync.sendTabToDevice.enabled", false);
+#endif
 
 // Developer edition preferences
 #ifdef MOZ_DEV_EDITION
@@ -1237,6 +1249,16 @@ pref("geo.provider.use_corelocation", true);
 pref("geo.provider.ms-windows-location", false);
 #endif
 
+#ifdef MOZ_WIDGET_GTK
+#ifdef MOZ_GPSD
+#ifdef RELEASE_BUILD
+pref("geo.provider.use_gpsd", false);
+#else
+pref("geo.provider.use_gpsd", true);
+#endif
+#endif
+#endif
+
 // Necko IPC security checks only needed for app isolation for cookies/cache/etc:
 // currently irrelevant for desktop e10s
 pref("network.disable.ipc.security", true);
@@ -1328,7 +1350,16 @@ pref("media.gmp-eme-adobe.enabled", true);
 
 #ifdef MOZ_WIDEVINE_EME
 pref("media.gmp-widevinecdm.visible", true);
+// On Linux Widevine is visible but disabled by default. This is because
+// enabling Widevine downloads a proprietary binary, which users on an open
+// source operating system didn't opt into. The first time a site using EME
+// is encountered, the user will be prompted to enable EME, whereupon the
+// EME plugin binary will be downloaded if permission is granted.
+#ifdef XP_LINUX
+pref("media.gmp-widevinecdm.enabled", false);
+#else
 pref("media.gmp-widevinecdm.enabled", true);
+#endif
 #endif
 
 // Play with different values of the decay time and get telemetry,
@@ -1368,8 +1399,10 @@ pref("privacy.trackingprotection.introURL", "https://www.mozilla.org/%LOCALE%/fi
 // Enable Contextual Identity Containers
 #ifdef NIGHTLY_BUILD
 pref("privacy.userContext.enabled", true);
+pref("privacy.userContext.ui.enabled", true);
 #else
 pref("privacy.userContext.enabled", false);
+pref("privacy.userContext.ui.enabled", false);
 #endif
 
 #ifndef RELEASE_BUILD
@@ -1445,7 +1478,7 @@ pref("browser.esedbreader.loglevel", "Error");
 
 pref("browser.laterrun.enabled", false);
 
-pref("browser.migration.automigrate", false);
+pref("browser.migrate.automigrate.enabled", false);
 
 // Enable browser frames for use on desktop.  Only exposed to chrome callers.
 pref("dom.mozBrowserFramesEnabled", true);
@@ -1453,3 +1486,10 @@ pref("dom.mozBrowserFramesEnabled", true);
 pref("extensions.pocket.enabled", true);
 
 pref("signon.schemeUpgrades", true);
+
+// Enable the "Simplify Page" feature in Print Preview
+pref("print.use_simplify_page", true);
+
+// Space separated list of URLS that are allowed to send objects (instead of
+// only strings) through webchannels. This list is duplicated in mobile/android/app/mobile.js
+pref("webchannel.allowObject.urlWhitelist", "https://accounts.firefox.com https://content.cdn.mozilla.net https://input.mozilla.org https://support.mozilla.org https://install.mozilla.org");

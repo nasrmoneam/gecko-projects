@@ -195,7 +195,7 @@ XPCWrappedNativeScope::GetComponentsJSObject(JS::MutableHandleObject obj)
     RootedValue val(cx);
     xpcObjectHelper helper(mComponents);
     bool ok = XPCConvert::NativeInterface2JSObject(&val, nullptr, helper,
-                                                   nullptr, nullptr, false,
+                                                   nullptr, false,
                                                    nullptr);
     if (NS_WARN_IF(!ok))
         return false;
@@ -292,11 +292,10 @@ XPCWrappedNativeScope::EnsureContentXBLScope(JSContext* cx)
 
     // Use an nsExpandedPrincipal to create asymmetric security.
     nsIPrincipal* principal = GetPrincipal();
-    nsCOMPtr<nsIExpandedPrincipal> ep;
-    MOZ_ASSERT(!(ep = do_QueryInterface(principal)));
+    MOZ_ASSERT(!nsContentUtils::IsExpandedPrincipal(principal));
     nsTArray< nsCOMPtr<nsIPrincipal> > principalAsArray(1);
     principalAsArray.AppendElement(principal);
-    ep = new nsExpandedPrincipal(principalAsArray);
+    nsCOMPtr<nsIExpandedPrincipal> ep = new nsExpandedPrincipal(principalAsArray);
 
     // Create the sandbox.
     RootedValue v(cx);
@@ -374,6 +373,12 @@ UseContentXBLScope(JSCompartment* c)
 {
   XPCWrappedNativeScope* scope = CompartmentPrivate::Get(c)->scope;
   return scope && scope->UseContentXBLScope();
+}
+
+void
+ClearContentXBLScope(JSObject* global)
+{
+    CompartmentPrivate::Get(global)->scope->ClearContentXBLScope();
 }
 
 } /* namespace xpc */

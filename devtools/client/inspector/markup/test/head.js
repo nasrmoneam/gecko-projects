@@ -19,9 +19,9 @@ var {ActorRegistryFront} = require("devtools/shared/fronts/actor-registry");
 SimpleTest.requestCompleteLog();
 
 // Set the testing flag on DevToolsUtils and reset it when the test ends
-DevToolsUtils.testing = true;
+flags.testing = true;
 registerCleanupFunction(() => {
-  DevToolsUtils.testing = false;
+  flags.testing = false;
 });
 
 // Clear preferences that may be set during the course of tests.
@@ -389,13 +389,16 @@ function collapseSelectionAndShiftTab(inspector) {
  */
 function checkFocusedAttribute(attrName, editMode) {
   let focusedAttr = Services.focus.focusedElement;
-  is(focusedAttr ? focusedAttr.parentNode.dataset.attr : undefined,
-     attrName, attrName + " attribute editor is currently focused.");
-  is(focusedAttr ? focusedAttr.tagName : undefined,
-     editMode ? "input" : "span",
-     editMode
-     ? attrName + " is in edit mode"
-     : attrName + " is not in edit mode");
+  ok(focusedAttr, "Has a focused element");
+
+  let dataAttr = focusedAttr.parentNode.dataset.attr;
+  is(dataAttr, attrName, attrName + " attribute editor is currently focused.");
+  if (editMode) {
+    // Using a multiline editor for attributes, the focused element should be a textarea.
+    is(focusedAttr.tagName, "textarea", attrName + "is in edit mode");
+  } else {
+    is(focusedAttr.tagName, "span", attrName + "is not in edit mode");
+  }
 }
 
 /**
@@ -609,4 +612,54 @@ function* waitForScrollStop(doc) {
   }
 
   return lastScrollTop;
+}
+
+/**
+ * Select a node in the inspector and try to delete it using the provided key. After that,
+ * check that the expected element is focused.
+ *
+ * @param {InspectorPanel} inspector
+ *        The current inspector-panel instance.
+ * @param {String} key
+ *        The key to simulate to delete the node
+ * @param {Object}
+ *        - {String} selector: selector of the element to delete.
+ *        - {String} focusedSelector: selector of the element that should be selected
+ *        after deleting the node.
+ *        - {String} pseudo: optional, "before" or "after" if the element focused after
+ *        deleting the node is supposed to be a before/after pseudo-element.
+ */
+function* checkDeleteAndSelection(inspector, key, {selector, focusedSelector, pseudo}) {
+  info("Test deleting node " + selector + " with " + key + ", " +
+       "expecting " + focusedSelector + " to be focused");
+
+  info("Select node " + selector + " and make sure it is focused");
+  yield selectNode(selector, inspector);
+  yield clickContainer(selector, inspector);
+
+  info("Delete the node with: " + key);
+  let mutated = inspector.once("markupmutation");
+  EventUtils.sendKey(key, inspector.panelWin);
+  yield Promise.all([mutated, inspector.once("inspector-updated")]);
+
+  let nodeFront = yield getNodeFront(focusedSelector, inspector);
+  if (pseudo) {
+    // Update the selector for logging in case of failure.
+    focusedSelector = focusedSelector + "::" + pseudo;
+    // Retrieve the :before or :after pseudo element of the nodeFront.
+    let {nodes} = yield inspector.walker.children(nodeFront);
+    nodeFront = pseudo === "before" ? nodes[0] : nodes[nodes.length - 1];
+  }
+
+  is(inspector.selection.nodeFront, nodeFront,
+     focusedSelector + " is selected after deletion");
+
+  info("Check that the node was really removed");
+  let node = yield getNodeFront(selector, inspector);
+  ok(!node, "The node can't be found in the page anymore");
+
+  info("Undo the deletion to restore the original markup");
+  yield undoChange(inspector);
+  node = yield getNodeFront(selector, inspector);
+  ok(node, "The node is back");
 }

@@ -8,7 +8,7 @@ require("devtools/shared/fronts/highlighters");
 const { SimpleStringFront } = require("devtools/shared/fronts/string");
 const {
   Front,
-  FrontClassWithSpec,
+  FrontClass,
   custom,
   preEvent,
   types
@@ -84,7 +84,7 @@ const AttributeModificationList = Class({
  * the parent node from clients, but the `children` request should be used
  * to traverse children.
  */
-const NodeFront = FrontClassWithSpec(nodeSpec, {
+const NodeFront = FrontClass(nodeSpec, {
   initialize: function (conn, form, detail, ctx) {
     // The parent node
     this._parent = null;
@@ -424,11 +424,12 @@ const NodeFront = FrontClassWithSpec(nodeSpec, {
    * protocol.  If you depend on this you're likely to break soon.
    */
   rawNode: function (rawNode) {
-    if (!this.conn._transport._serverConnection) {
+    if (!this.isLocalToBeDeprecated()) {
       console.warn("Tried to use rawNode on a remote connection.");
       return null;
     }
-    let actor = this.conn._transport._serverConnection.getActor(this.actorID);
+    const { DebuggerServer } = require("devtools/server/main");
+    let actor = DebuggerServer._searchAllConnectionsForActor(this.actorID);
     if (!actor) {
       // Can happen if we try to get the raw node for an already-expired
       // actor.
@@ -443,7 +444,7 @@ exports.NodeFront = NodeFront;
 /**
  * Client side of a node list as returned by querySelectorAll()
  */
-const NodeListFront = FrontClassWithSpec(nodeListSpec, {
+const NodeListFront = FrontClass(nodeListSpec, {
   initialize: function (client, form) {
     Front.prototype.initialize.call(this, client, form);
   },
@@ -483,7 +484,7 @@ exports.NodeListFront = NodeListFront;
 /**
  * Client side of the DOM walker.
  */
-const WalkerFront = FrontClassWithSpec(walkerSpec, {
+const WalkerFront = FrontClass(walkerSpec, {
   // Set to true if cleanup should be requested after every mutation list.
   autoCleanup: true,
 
@@ -895,8 +896,8 @@ const WalkerFront = FrontClassWithSpec(walkerSpec, {
       console.warn("Tried to use frontForRawNode on a remote connection.");
       return null;
     }
-    let walkerActor = this.conn._transport._serverConnection
-      .getActor(this.actorID);
+    const { DebuggerServer } = require("devtools/server/main");
+    let walkerActor = DebuggerServer._searchAllConnectionsForActor(this.actorID);
     if (!walkerActor) {
       throw Error("Could not find client side for actor " + this.actorID);
     }
@@ -916,7 +917,7 @@ const WalkerFront = FrontClassWithSpec(walkerSpec, {
       // Imported an already-orphaned node.
       this._orphaned.add(top);
       walkerActor._orphaned
-        .add(this.conn._transport._serverConnection.getActor(top.actorID));
+        .add(DebuggerServer._searchAllConnectionsForActor(top.actorID));
     }
     return returnNode;
   },
@@ -939,7 +940,7 @@ exports.WalkerFront = WalkerFront;
  * Client side of the inspector actor, which is used to create
  * inspector-related actors, including the walker.
  */
-var InspectorFront = FrontClassWithSpec(inspectorSpec, {
+var InspectorFront = FrontClass(inspectorSpec, {
   initialize: function (client, tabForm) {
     Front.prototype.initialize.call(this, client);
     this.actorID = tabForm.inspectorActor;

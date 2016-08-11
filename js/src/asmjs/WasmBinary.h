@@ -28,12 +28,15 @@ static const uint32_t MagicNumber        = 0x6d736100; // "\0asm"
 static const uint32_t EncodingVersion    = 0x0b;
 
 static const char TypeSectionId[]        = "type";
+static const char GlobalSectionId[]      = "global";
 static const char ImportSectionId[]      = "import";
 static const char FunctionSectionId[]    = "function";
 static const char TableSectionId[]       = "table";
 static const char MemorySectionId[]      = "memory";
 static const char ExportSectionId[]      = "export";
+static const char StartSectionId[]       = "start";
 static const char CodeSectionId[]        = "code";
+static const char ElemSectionId[]        = "elem";
 static const char DataSectionId[]        = "data";
 static const char NameSectionId[]        = "name";
 
@@ -61,13 +64,29 @@ enum class ValType
 
 enum class TypeConstructor
 {
+    AnyFunc                              = 0x20,
     Function                             = 0x40
 };
 
 enum class DefinitionKind
 {
     Function                             = 0x00,
-    Memory                               = 0x01
+    Table                                = 0x01,
+    Memory                               = 0x02,
+    Global                               = 0x03
+};
+
+enum class ResizableFlags
+{
+    Default                              = 0x1,
+    HasMaximum                           = 0x2,
+    AllowedMask                          = 0x3
+};
+
+enum class GlobalFlags
+{
+    IsMutable                            = 0x1,
+    AllowedMask                          = 0x1
 };
 
 enum class Expr
@@ -261,13 +280,15 @@ enum class Expr
     // i64.eqz.
     I64Eqz                               = 0xba,
 
+    // Global access.
+    GetGlobal                            = 0xc0,
+    SetGlobal                            = 0xc1,
+
     // ------------------------------------------------------------------------
     // The rest of these operators are currently only emitted internally when
     // compiling asm.js and are rejected by wasm validation.
 
     // asm.js-specific operators
-    LoadGlobal                           = 0xc0,
-    StoreGlobal,
     I32Min,
     I32Max,
     I32Neg,
@@ -598,6 +619,13 @@ class Decoder
         return ret;
     }
 
+    template <class T>
+    void uncheckedRead(T* ret) {
+        MOZ_ASSERT(bytesRemain() >= sizeof(T));
+        memcpy(ret, cur_, sizeof(T));
+        cur_ += sizeof(T);
+    }
+
     template <typename UInt>
     MOZ_MUST_USE bool readVarU(UInt* out) {
         const unsigned numBits = sizeof(UInt) * CHAR_BIT;
@@ -676,6 +704,10 @@ class Decoder
     bool fail(UniqueChars msg) {
         *error_ = Move(msg);
         return false;
+    }
+    void clearError() {
+        if (error_)
+            error_->reset();
     }
 
     bool done() const {
@@ -831,11 +863,11 @@ class Decoder
     uint32_t uncheckedReadFixedU32() {
         return uncheckedRead<uint32_t>();
     }
-    float uncheckedReadFixedF32() {
-        return uncheckedRead<float>();
+    void uncheckedReadFixedF32(float* ret) {
+        return uncheckedRead<float>(ret);
     }
-    double uncheckedReadFixedF64() {
-        return uncheckedRead<double>();
+    void uncheckedReadFixedF64(double* ret) {
+        return uncheckedRead<double>(ret);
     }
     template <typename UInt>
     UInt uncheckedReadVarU() {

@@ -568,7 +568,7 @@ public:
   }
 
   LayoutDeviceIntPoint GetChildProcessOffset();
-  CSSPoint AdjustTapToChildWidget(const CSSPoint& aPoint);
+  LayoutDevicePoint AdjustTapToChildWidget(const LayoutDevicePoint& aPoint);
 
   /**
    * Native widget remoting protocol for use with windowed plugins with e10s.
@@ -652,9 +652,6 @@ protected:
 
   virtual bool RecvAudioChannelActivityNotification(const uint32_t& aAudioChannel,
                                                     const bool& aActive) override;
-
-  bool InitBrowserConfiguration(const nsCString& aURI,
-                                BrowserConfiguration& aConfiguration);
 
   ContentCacheInParent mContentCache;
 

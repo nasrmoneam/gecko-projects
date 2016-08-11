@@ -107,7 +107,7 @@ struct Keyframe
   }
 
   Maybe<double>                 mOffset;
-  static MOZ_CONSTEXPR_VAR double kComputedOffsetNotSet = -1.0;
+  static constexpr double kComputedOffsetNotSet = -1.0;
   double                        mComputedOffset = kComputedOffsetNotSet;
   Maybe<ComputedTimingFunction> mTimingFunction; // Nothing() here means
                                                  // "linear"
@@ -119,8 +119,6 @@ struct AnimationPropertySegment
   float mFromKey, mToKey;
   StyleAnimationValue mFromValue, mToValue;
   Maybe<ComputedTimingFunction> mTimingFunction;
-
-  nsChangeHint mChangeHint;
 
   bool operator==(const AnimationPropertySegment& aOther) const {
     return mFromKey == aOther.mFromKey &&
@@ -296,8 +294,6 @@ public:
   bool HasAnimationOfProperty(nsCSSProperty aProperty) const {
     return GetAnimationOfProperty(aProperty) != nullptr;
   }
-  bool HasAnimationOfProperties(const nsCSSProperty* aProperties,
-                                size_t aPropertyCount) const;
   const InfallibleTArray<AnimationProperty>& Properties() const {
     return mProperties;
   }
@@ -347,7 +343,7 @@ public:
 
   // Cumulative change hint on each segment for each property.
   // This is used for deciding the animation is paint-only.
-  void CalculateCumulativeChangeHint();
+  void CalculateCumulativeChangeHint(nsStyleContext* aStyleContext);
 
   // Returns true if all of animation properties' change hints
   // can ignore painting if the animation is not visible.
@@ -389,14 +385,19 @@ protected:
 
   void RequestRestyle(EffectCompositor::RestyleType aRestyleType);
 
+  // Update the associated frame state bits so that, if necessary, a stacking
+  // context will be created and the effect sent to the compositor.  We
+  // typically need to do this when the properties referenced by the keyframe
+  // have changed, or when the target frame might have changed.
+  void MaybeUpdateFrameForCompositor();
+
   // Looks up the style context associated with the target element, if any.
   // We need to be careful to *not* call this when we are updating the style
   // context. That's because calling GetStyleContextForElement when we are in
   // the process of building a style context may trigger various forms of
   // infinite recursion.
-  // If aDoc is nullptr, we will use the owner doc of the target element.
   already_AddRefed<nsStyleContext>
-  GetTargetStyleContext(nsIDocument* aDoc = nullptr);
+  GetTargetStyleContext();
 
   Maybe<OwningAnimationTarget> mTarget;
   RefPtr<Animation> mAnimation;

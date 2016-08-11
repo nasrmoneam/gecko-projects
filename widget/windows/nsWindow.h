@@ -481,11 +481,30 @@ protected:
   static bool             IsTopLevelMouseExit(HWND aWnd);
   virtual nsresult        SetWindowClipRegion(const nsTArray<LayoutDeviceIntRect>& aRects,
                                               bool aIntersectWithExisting) override;
-  nsIntRegion             GetRegionToPaint(bool aForceFullRepaint, 
+  nsIntRegion             GetRegionToPaint(bool aForceFullRepaint,
                                            PAINTSTRUCT ps, HDC aDC);
   static void             ActivateOtherWindowHelper(HWND aWnd);
   void                    ClearCachedResources();
   nsIWidgetListener*      GetPaintListener();
+
+  already_AddRefed<SourceSurface> CreateScrollSnapshot() override;
+
+  struct ScrollSnapshot
+  {
+    RefPtr<gfxWindowsSurface> surface;
+    bool surfaceHasSnapshot = false;
+    RECT clip;
+  };
+
+  ScrollSnapshot* EnsureSnapshotSurface(ScrollSnapshot& aSnapshotData,
+                                        const mozilla::gfx::IntSize& aSize);
+
+  ScrollSnapshot mFullSnapshot;
+  ScrollSnapshot mPartialSnapshot;
+  ScrollSnapshot* mCurrentSnapshot = nullptr;
+
+  already_AddRefed<SourceSurface>
+    GetFallbackScrollSnapshot(const RECT& aRequiredClip);
 
 protected:
   nsCOMPtr<nsIWidget>   mParent;
@@ -548,7 +567,7 @@ protected:
 
   // Indicates custom frames are enabled
   bool                  mCustomNonClient;
-  // Cached copy of L&F's resize border  
+  // Cached copy of L&F's resize border
   int32_t               mHorResizeMargin;
   int32_t               mVertResizeMargin;
   // Height of the caption plus border

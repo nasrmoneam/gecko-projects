@@ -2,6 +2,7 @@
 /* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
+/* eslint no-unused-vars: [2, {"vars": "local"}] */
 
 "use strict";
 
@@ -25,6 +26,7 @@ const {loader, require} = scopedCuImport("resource://devtools/shared/Loader.jsm"
 const {gDevTools} = require("devtools/client/framework/devtools");
 const {TargetFactory} = require("devtools/client/framework/target");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
+const flags = require("devtools/shared/flags");
 let promise = require("promise");
 let defer = require("devtools/shared/defer");
 const Services = require("Services");
@@ -88,9 +90,9 @@ function getFrameScript() {
   return mm;
 }
 
-DevToolsUtils.testing = true;
+flags.testing = true;
 registerCleanupFunction(() => {
-  DevToolsUtils.testing = false;
+  flags.testing = false;
   Services.prefs.clearUserPref("devtools.dump.emit");
   Services.prefs.clearUserPref("devtools.toolbox.host");
   Services.prefs.clearUserPref("devtools.toolbox.previousHost");
@@ -474,3 +476,22 @@ function pushPref(preferenceName, value) {
     SpecialPowers.pushPrefEnv(options, resolve);
   });
 }
+
+/**
+ * Lookup the provided dotted path ("prop1.subprop2.myProp") in the provided object.
+ *
+ * @param {Object} obj
+ *        Object to expand.
+ * @param {String} path
+ *        Dotted path to use to expand the object.
+ * @return {?} anything that is found at the provided path in the object.
+ */
+function lookupPath(obj, path) {
+  let segments = path.split(".");
+  return segments.reduce((prev, current) => prev[current], obj);
+}
+
+var closeToolbox = Task.async(function* () {
+  let target = TargetFactory.forTab(gBrowser.selectedTab);
+  yield gDevTools.closeToolbox(target);
+});

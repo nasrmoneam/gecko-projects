@@ -39,6 +39,11 @@ using mozilla::CheckedUint32;
 // mozilla::Monitor non-reentrant.
 namespace mozilla {
 
+// EME Key System String.
+static const char* const kEMEKeySystemClearkey = "org.w3.clearkey";
+static const char* const kEMEKeySystemWidevine = "com.widevine.alpha";
+static const char* const kEMEKeySystemPrimetime = "com.adobe.primetime";
+
 /**
  * ReentrantMonitorConditionallyEnter
  *
@@ -100,7 +105,7 @@ public:
     : mObject(aObject)
   {
   }
-  NS_IMETHOD Run() {
+  NS_IMETHOD Run() override {
     NS_ASSERTION(NS_IsMainThread(), "Must be on main thread.");
     mObject = nullptr;
     return NS_OK;
@@ -323,16 +328,24 @@ void
 LogToBrowserConsole(const nsAString& aMsg);
 
 bool
+ParseMIMETypeString(const nsAString& aMIMEType,
+                    nsString& aOutContainerType,
+                    nsTArray<nsString>& aOutCodecs);
+
+bool
 ParseCodecsString(const nsAString& aCodecs, nsTArray<nsString>& aOutCodecs);
 
 bool
-IsH264ContentType(const nsAString& aContentType);
-
-bool
-IsAACContentType(const nsAString& aContentType);
+IsH264CodecString(const nsAString& aCodec);
 
 bool
 IsAACCodecString(const nsAString& aCodec);
+
+bool
+IsVP8CodecString(const nsAString& aCodec);
+
+bool
+IsVP9CodecString(const nsAString& aCodec);
 
 template <typename String>
 class StringListRange
@@ -446,15 +459,6 @@ StringListContains(const ListString& aList, const ItemString& aItem)
   }
   return false;
 }
-
-bool
-IsVorbisContentType(const nsAString& aContentType);
-
-bool
-IsVP8ContentType(const nsAString& aContentType);
-
-bool
-IsVP9ContentType(const nsAString& aContentType);
 
 } // end namespace mozilla
 

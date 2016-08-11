@@ -415,6 +415,8 @@
 @BINPATH@/components/PresentationNetworkHelper.manifest
 @BINPATH@/components/PresentationDataChannelSessionTransport.js
 @BINPATH@/components/PresentationDataChannelSessionTransport.manifest
+@BINPATH@/components/LegacyProviders.manifest
+@BINPATH@/components/LegacyPresentationControlService.js
 
 @BINPATH@/components/PACGenerator.js
 @BINPATH@/components/PACGenerator.manifest
@@ -446,6 +448,10 @@
 ; [Browser Chrome Files]
 @BINPATH@/chrome/toolkit@JAREXT@
 @BINPATH@/chrome/toolkit.manifest
+
+; [Extensions]
+@BINPATH@/components/extensions-toolkit.manifest
+@BINPATH@/components/extensions-mobile.manifest
 
 ; Features
 @BINPATH@/features/*

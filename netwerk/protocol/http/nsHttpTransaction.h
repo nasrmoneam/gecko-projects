@@ -174,7 +174,7 @@ private:
     nsresult RestartInProgress();
     char    *LocateHttpStart(char *buf, uint32_t len,
                              bool aAllowPartialMatch);
-    nsresult ParseLine(char *line);
+    nsresult ParseLine(nsACString &line);
     nsresult ParseLineSegment(char *seg, uint32_t len);
     nsresult ParseHead(char *, uint32_t count, uint32_t *countRead);
     nsresult HandleContentStart();
@@ -206,7 +206,7 @@ private:
                                 nsIInterfaceRequestor* aCallbacks)
         : mTrans(aTrans), mCallbacks(aCallbacks) {}
 
-        NS_IMETHOD Run()
+        NS_IMETHOD Run() override
         {
             if (mTrans->mConnection)
                 mTrans->mConnection->SetSecurityCallbacks(mCallbacks);

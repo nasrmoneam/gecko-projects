@@ -111,7 +111,6 @@ class AsmJSGlobal
         Which which_;
         union {
             struct {
-                uint32_t globalDataOffset_;
                 VarInitKind initKind_;
                 union {
                     ValType importType_;
@@ -149,10 +148,6 @@ class AsmJSGlobal
     }
     Which which() const {
         return pod.which_;
-    }
-    uint32_t varGlobalDataOffset() const {
-        MOZ_ASSERT(pod.which_ == Variable);
-        return pod.u.var.globalDataOffset_;
     }
     VarInitKind varInitKind() const {
         MOZ_ASSERT(pod.which_ == Variable);
@@ -234,16 +229,22 @@ typedef Vector<AsmJSImport, 0, SystemAllocPolicy> AsmJSImportVector;
 // case the function is toString()ed.
 class AsmJSExport
 {
+    uint32_t funcIndex_;
+
     // All fields are treated as cacheable POD:
     uint32_t startOffsetInModule_;  // Store module-start-relative offsets
     uint32_t endOffsetInModule_;    // so preserved by serialization.
 
   public:
     AsmJSExport() { PodZero(this); }
-    AsmJSExport(uint32_t startOffsetInModule, uint32_t endOffsetInModule)
-      : startOffsetInModule_(startOffsetInModule),
+    AsmJSExport(uint32_t funcIndex, uint32_t startOffsetInModule, uint32_t endOffsetInModule)
+      : funcIndex_(funcIndex),
+        startOffsetInModule_(startOffsetInModule),
         endOffsetInModule_(endOffsetInModule)
     {}
+    uint32_t funcIndex() const {
+        return funcIndex_;
+    }
     uint32_t startOffsetInModule() const {
         return startOffsetInModule_;
     }
@@ -315,6 +316,17 @@ struct js::AsmJSMetadata : Metadata, AsmJSMetadataCacheablePod
         strict(false)
     {}
     ~AsmJSMetadata() override {}
+
+    const AsmJSExport& lookupAsmJSExport(uint32_t funcIndex) const {
+        // The AsmJSExportVector isn't stored in sorted order so do a linear
+        // search. This is for the super-cold and already-expensive toString()
+        // path and the number of exports is generally small.
+        for (const AsmJSExport& exp : asmJSExports) {
+            if (exp.funcIndex() == funcIndex)
+                return exp;
+        }
+        MOZ_CRASH("missing asm.js func export");
+    }
 
     bool mutedErrors() const override {
         return scriptSource.get()->mutedErrors();
@@ -1430,7 +1442,6 @@ class MOZ_STACK_CLASS ModuleValidator
         }
         unsigned varOrConstIndex() const {
             MOZ_ASSERT(which_ == Variable || which_ == ConstantImport);
-            MOZ_ASSERT(u.varOrConst.index_ != -1u);
             return u.varOrConst.index_;
         }
         bool isConst() const {
@@ -1526,10 +1537,10 @@ class MOZ_STACK_CLASS ModuleValidator
     class NamedSig
     {
         PropertyName* name_;
-        const DeclaredSig* sig_;
+        const SigWithId* sig_;
 
       public:
-        NamedSig(PropertyName* name, const DeclaredSig& sig)
+        NamedSig(PropertyName* name, const SigWithId& sig)
           : name_(name), sig_(&sig)
         {}
         PropertyName* name() const {
@@ -1553,7 +1564,7 @@ class MOZ_STACK_CLASS ModuleValidator
         }
     };
     typedef HashMap<NamedSig, uint32_t, NamedSig> ImportMap;
-    typedef HashMap<const DeclaredSig*, uint32_t, SigHashPolicy> SigMap;
+    typedef HashMap<const SigWithId*, uint32_t, SigHashPolicy> SigMap;
     typedef HashMap<PropertyName*, Global*> GlobalMap;
     typedef HashMap<PropertyName*, MathBuiltin> MathNameMap;
     typedef HashMap<PropertyName*, AsmJSAtomicsBuiltinFunction> AtomicsNameMap;
@@ -1660,6 +1671,7 @@ class MOZ_STACK_CLASS ModuleValidator
         importMap_(cx),
         arrayViews_(cx),
         atomicsPresent_(false),
+        mg_(ImportVector()),
         errorString_(nullptr),
         errorOffset_(UINT32_MAX),
         errorOverRecursed_(false)
@@ -1751,27 +1763,29 @@ class MOZ_STACK_CLASS ModuleValidator
         if (!dummyFunction_)
             return false;
 
+        UniqueChars filename;
+        if (parser_.ss->filename()) {
+            filename = DuplicateString(parser_.ss->filename());
+            if (!filename)
+                return false;
+        }
+
         CompileArgs args;
-        if (!args.init(cx_))
+        if (!args.initFromContext(cx_, Move(filename)))
             return false;
 
         auto genData = MakeUnique<ModuleGeneratorData>(args.assumptions.usesSignal, ModuleKind::AsmJS);
         if (!genData ||
             !genData->sigs.resize(MaxSigs) ||
             !genData->funcSigs.resize(MaxFuncs) ||
-            !genData->imports.resize(MaxImports) ||
-            !genData->asmJSSigToTable.resize(MaxTables))
+            !genData->funcImports.resize(MaxImports) ||
+            !genData->tables.resize(MaxTables) ||
+            !genData->asmJSSigToTableIndex.resize(MaxSigs))
         {
             return false;
         }
 
         genData->minMemoryLength = RoundUpToNextValidAsmJSHeapLength(0);
-
-        if (parser_.ss->filename()) {
-            args.filename = DuplicateString(parser_.ss->filename());
-            if (!args.filename)
-                return false;
-        }
 
         if (!mg_.init(Move(genData), Move(args), asmJSMetadata_.get()))
             return false;
@@ -1831,7 +1845,7 @@ class MOZ_STACK_CLASS ModuleValidator
         MOZ_ASSERT(type == Type::canonicalize(Type::lit(lit)));
 
         uint32_t index;
-        if (!mg_.allocateGlobal(type.canonicalToValType(), isConst, &index))
+        if (!mg_.addGlobal(type.canonicalToValType(), isConst, &index))
             return false;
 
         Global::Which which = isConst ? Global::ConstantLiteral : Global::Variable;
@@ -1848,7 +1862,6 @@ class MOZ_STACK_CLASS ModuleValidator
         AsmJSGlobal g(AsmJSGlobal::Variable, nullptr);
         g.pod.u.var.initKind_ = AsmJSGlobal::InitConstant;
         g.pod.u.var.u.val_ = lit.value();
-        g.pod.u.var.globalDataOffset_ = mg_.global(index).globalDataOffset;
         return asmJSMetadata_->asmJSGlobals.append(Move(g));
     }
     bool addGlobalVarImport(PropertyName* var, PropertyName* field, Type type, bool isConst) {
@@ -1860,7 +1873,7 @@ class MOZ_STACK_CLASS ModuleValidator
 
         uint32_t index;
         ValType valType = type.canonicalToValType();
-        if (!mg_.allocateGlobal(valType, isConst, &index))
+        if (!mg_.addGlobal(valType, isConst, &index))
             return false;
 
         Global::Which which = isConst ? Global::ConstantImport : Global::Variable;
@@ -1875,7 +1888,6 @@ class MOZ_STACK_CLASS ModuleValidator
         AsmJSGlobal g(AsmJSGlobal::Variable, Move(fieldChars));
         g.pod.u.var.initKind_ = AsmJSGlobal::InitImport;
         g.pod.u.var.u.importType_ = valType;
-        g.pod.u.var.globalDataOffset_ = mg_.global(index).globalDataOffset;
         return asmJSMetadata_->asmJSGlobals.append(Move(g));
     }
     bool addArrayView(PropertyName* var, Scalar::Type vt, PropertyName* maybeField) {
@@ -2055,16 +2067,14 @@ class MOZ_STACK_CLASS ModuleValidator
             return false;
 
         // Declare which function is exported which gives us an index into the
-        // module ExportVector.
-        uint32_t exportIndex;
-        if (!mg_.declareExport(Move(fieldChars), func.index(), &exportIndex))
+        // module FuncExportVector.
+        if (!mg_.addFuncExport(Move(fieldChars), func.index()))
             return false;
 
         // The exported function might have already been exported in which case
         // the index will refer into the range of AsmJSExports.
-        MOZ_ASSERT(exportIndex <= asmJSMetadata_->asmJSExports.length());
-        return exportIndex < asmJSMetadata_->asmJSExports.length() ||
-               asmJSMetadata_->asmJSExports.emplaceBack(func.srcBegin() - asmJSMetadata_->srcStart,
+        return asmJSMetadata_->asmJSExports.emplaceBack(func.index(),
+                                                        func.srcBegin() - asmJSMetadata_->srcStart,
                                                         func.srcEnd() - asmJSMetadata_->srcStart);
     }
     bool addFunction(PropertyName* name, uint32_t firstUse, Sig&& sig, Func** func) {
@@ -2108,8 +2118,7 @@ class MOZ_STACK_CLASS ModuleValidator
         if (table.defined())
             return false;
         table.define();
-        mg_.initSigTableElems(table.sigIndex(), Move(elems));
-        return true;
+        return mg_.initSigTableElems(table.sigIndex(), Move(elems));
     }
     bool declareImport(PropertyName* name, Sig&& sig, unsigned ffiIndex, uint32_t* importIndex) {
         ImportMap::AddPtr p = importMap_.lookupForAdd(NamedSig::Lookup(name, sig));
@@ -2268,7 +2277,7 @@ class MOZ_STACK_CLASS ModuleValidator
     bool finishFunctionBodies() {
         return mg_.finishFuncDefs();
     }
-    UniqueModule finish() {
+    SharedModule finish() {
         if (!arrayViews_.empty())
             mg_.initMemoryUsage(atomicsPresent_ ? MemoryUsage::Shared : MemoryUsage::Unshared);
 
@@ -2287,17 +2296,13 @@ class MOZ_STACK_CLASS ModuleValidator
         uint32_t endAfterCurly = pos.end;
         asmJSMetadata_->srcLengthWithRightBrace = endAfterCurly - asmJSMetadata_->srcStart;
 
-        // asm.js has its own, different, version of imports through
-        // AsmJSGlobal.
-        ImportNameVector importNames;
-
         // asm.js does not have any wasm bytecode to save; view-source is
         // provided through the ScriptSource.
         SharedBytes bytes = js_new<ShareableBytes>();
         if (!bytes)
             return nullptr;
 
-        return mg_.finish(Move(importNames), *bytes);
+        return mg_.finish(*bytes);
     }
 };
 
@@ -3892,7 +3897,7 @@ CheckVarRef(FunctionValidator& f, ParseNode* varRef, Type* type)
           case ModuleValidator::Global::ConstantImport:
           case ModuleValidator::Global::Variable: {
             *type = global->varOrConstType();
-            return f.encoder().writeExpr(Expr::LoadGlobal) &&
+            return f.encoder().writeExpr(Expr::GetGlobal) &&
                    f.encoder().writeVarU32(global->varOrConstIndex());
           }
           case ModuleValidator::Global::Function:
@@ -4184,7 +4189,7 @@ CheckAssignName(FunctionValidator& f, ParseNode* lhs, ParseNode* rhs, Type* type
         Type globType = global->varOrConstType();
         if (!(rhsType <= globType))
             return f.failf(lhs, "%s is not a subtype of %s", rhsType.toChars(), globType.toChars());
-        if (!f.encoder().writeExpr(Expr::StoreGlobal))
+        if (!f.encoder().writeExpr(Expr::SetGlobal))
             return false;
         if (!f.encoder().writeVarU32(global->varOrConstIndex()))
             return false;
@@ -7228,7 +7233,7 @@ CheckModuleEnd(ModuleValidator &m)
     return true;
 }
 
-static UniqueModule
+static SharedModule
 CheckModule(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList, unsigned* time)
 {
     int64_t before = PRMJ_Now();
@@ -7273,7 +7278,7 @@ CheckModule(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList, unsi
     if (!CheckModuleEnd(m))
         return nullptr;
 
-    UniqueModule module = m.finish();
+    SharedModule module = m.finish();
     if (!module)
         return nullptr;
 
@@ -7804,19 +7809,9 @@ CheckBuffer(JSContext* cx, const AsmJSMetadata& metadata, HandleValue bufferVal,
 }
 
 static bool
-TryInstantiate(JSContext* cx, CallArgs args, Module& module, const AsmJSMetadata& metadata,
-               MutableHandleWasmInstanceObject instanceObj)
+GetImports(JSContext* cx, const AsmJSMetadata& metadata, HandleValue globalVal,
+           HandleValue importVal, MutableHandle<FunctionVector> funcImports, ValVector* valImports)
 {
-    HandleValue globalVal = args.get(0);
-    HandleValue importVal = args.get(1);
-    HandleValue bufferVal = args.get(2);
-
-    Rooted<ArrayBufferObjectMaybeShared*> heap(cx);
-    if (module.metadata().usesMemory() && !CheckBuffer(cx, metadata, bufferVal, &heap))
-        return false;
-
-    Vector<Val> valImports(cx);
-
     Rooted<FunctionVector> ffis(cx, FunctionVector(cx));
     if (!ffis.resize(metadata.numFFIs))
         return false;
@@ -7824,12 +7819,10 @@ TryInstantiate(JSContext* cx, CallArgs args, Module& module, const AsmJSMetadata
     for (const AsmJSGlobal& global : metadata.asmJSGlobals) {
         switch (global.which()) {
           case AsmJSGlobal::Variable: {
-            // We don't have any global data into which to write the imported
-            // values until after instantiation, so save them in a Vector.
             Val val;
             if (!ValidateGlobalVariable(cx, global, importVal, &val))
                 return false;
-            if (!valImports.append(val))
+            if (!valImports->append(val))
                 return false;
             break;
           }
@@ -7865,28 +7858,48 @@ TryInstantiate(JSContext* cx, CallArgs args, Module& module, const AsmJSMetadata
         }
     }
 
-    Rooted<FunctionVector> funcImports(cx, FunctionVector(cx));
     for (const AsmJSImport& import : metadata.asmJSImports) {
         if (!funcImports.append(ffis[import.ffiIndex()]))
             return false;
     }
 
-    instanceObj.set(WasmInstanceObject::create(cx));
-    if (!instanceObj)
-        return false;
+    return true;
+}
 
-    if (!module.instantiate(cx, funcImports, heap, instanceObj))
-        return false;
+static bool
+TryInstantiate(JSContext* cx, CallArgs args, Module& module, const AsmJSMetadata& metadata,
+               MutableHandleWasmInstanceObject instanceObj, MutableHandleObject exportObj)
+{
+    HandleValue globalVal = args.get(0);
+    HandleValue importVal = args.get(1);
+    HandleValue bufferVal = args.get(2);
 
-    // Now write the imported values into global data.
-    uint8_t* globalData = instanceObj->instance().codeSegment().globalData();
-    uint32_t valIndex = 0;
-    for (const AsmJSGlobal& global : metadata.asmJSGlobals) {
-        if (global.which() == AsmJSGlobal::Variable)
-            valImports[valIndex++].writePayload(globalData + global.varGlobalDataOffset());
+    RootedArrayBufferObjectMaybeShared buffer(cx);
+    RootedWasmMemoryObject memory(cx);
+    if (module.metadata().usesMemory()) {
+        if (!CheckBuffer(cx, metadata, bufferVal, &buffer))
+            return false;
+
+        memory = WasmMemoryObject::create(cx, buffer, nullptr);
+        if (!memory)
+            return false;
     }
-    MOZ_ASSERT(valIndex == valImports.length());
 
+    ValVector valImports;
+    Rooted<FunctionVector> funcs(cx, FunctionVector(cx));
+    if (!GetImports(cx, metadata, globalVal, importVal, &funcs, &valImports))
+        return false;
+
+    RootedWasmTableObject table(cx);
+    if (!module.instantiate(cx, funcs, table, memory, valImports, nullptr, instanceObj))
+        return false;
+
+    RootedValue exportObjVal(cx);
+    if (!JS_GetProperty(cx, instanceObj, InstanceExportField, &exportObjVal))
+        return false;
+
+    MOZ_RELEASE_ASSERT(exportObjVal.isObject());
+    exportObj.set(&exportObjVal.toObject());
     return true;
 }
 
@@ -7991,14 +8004,15 @@ InstantiateAsmJS(JSContext* cx, unsigned argc, JS::Value* vp)
     const AsmJSMetadata& metadata = module.metadata().asAsmJS();
 
     RootedWasmInstanceObject instanceObj(cx);
-    if (!TryInstantiate(cx, args, module, metadata, &instanceObj)) {
+    RootedObject exportObj(cx);
+    if (!TryInstantiate(cx, args, module, metadata, &instanceObj, &exportObj)) {
         // Link-time validation checks failed, so reparse the entire asm.js
         // module from scratch to get normal interpreted bytecode which we can
         // simply Invoke. Very slow.
         return HandleInstantiationFailure(cx, args, metadata);
     }
 
-    args.rval().set(ObjectValue(instanceObj->exportsObject()));
+    args.rval().set(ObjectValue(*exportObj));
     return true;
 }
 
@@ -8336,7 +8350,7 @@ StoreAsmJSModuleInCache(AsmJSParser& parser, Module& module, ExclusiveContext* c
 
 static bool
 LookupAsmJSModuleInCache(ExclusiveContext* cx, AsmJSParser& parser, bool* loadedFromCache,
-                         UniqueModule* module, UniqueChars* compilationTimeReport)
+                         SharedModule* module, UniqueChars* compilationTimeReport)
 {
     int64_t before = PRMJ_Now();
 
@@ -8382,8 +8396,8 @@ LookupAsmJSModuleInCache(ExclusiveContext* cx, AsmJSParser& parser, bool* loaded
         return true;
 
     Assumptions assumptions;
-    if (!assumptions.init(SignalUsage(cx), cx->buildIdOp()))
-        return true;
+    if (!assumptions.initBuildIdFromContext(cx))
+        return false;
 
     if (assumptions != (*module)->metadata().assumptions)
         return true;
@@ -8506,7 +8520,7 @@ js::CompileAsmJS(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList,
     // Before spending any time parsing the module, try to look it up in the
     // embedding's cache using the chars about to be parsed as the key.
     bool loadedFromCache;
-    UniqueModule module;
+    SharedModule module;
     UniqueChars message;
     if (!LookupAsmJSModuleInCache(cx, parser, &loadedFromCache, &module, &message))
         return false;
@@ -8535,7 +8549,7 @@ js::CompileAsmJS(ExclusiveContext* cx, AsmJSParser& parser, ParseNode* stmtList,
 
     // Hand over ownership to a GC object wrapper which can then be referenced
     // from the module function.
-    Rooted<WasmModuleObject*> moduleObj(cx, WasmModuleObject::create(cx, Move(module)));
+    Rooted<WasmModuleObject*> moduleObj(cx, WasmModuleObject::create(cx, *module));
     if (!moduleObj)
         return false;
 
@@ -8758,7 +8772,8 @@ js::AsmJSFunctionToString(JSContext* cx, HandleFunction fun)
     MOZ_ASSERT(IsAsmJSFunction(fun));
 
     const AsmJSMetadata& metadata = ExportedFunctionToInstance(fun).metadata().asAsmJS();
-    const AsmJSExport& f = metadata.asmJSExports[ExportedFunctionToExportIndex(fun)];
+    const AsmJSExport& f = metadata.lookupAsmJSExport(ExportedFunctionToIndex(fun));
+
     uint32_t begin = metadata.srcStart + f.startOffsetInModule();
     uint32_t end = metadata.srcStart + f.endOffsetInModule();
 

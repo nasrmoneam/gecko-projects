@@ -699,7 +699,6 @@ SourcesView.prototype = Heritage.extend(WidgetMethods, {
     // previously set, revert to using an empty string by default.
     this._cbTextbox.value = expr;
 
-
     function openPopup() {
       // Show the conditional expression panel. The popup arrow should be pointing
       // at the line number node in the breakpoint item view.
@@ -1169,7 +1168,6 @@ SourcesView.prototype = Heritage.extend(WidgetMethods, {
    */
   _onConditionalPopupShowing: function () {
     this._conditionalPopupVisible = true; // Used in tests.
-    window.emit(EVENTS.CONDITIONAL_BREAKPOINT_POPUP_SHOWING);
   },
 
   /**
@@ -1178,6 +1176,7 @@ SourcesView.prototype = Heritage.extend(WidgetMethods, {
   _onConditionalPopupShown: function () {
     this._cbTextbox.focus();
     this._cbTextbox.select();
+    window.emit(EVENTS.CONDITIONAL_BREAKPOINT_POPUP_SHOWN);
   },
 
   /**
@@ -1200,6 +1199,7 @@ SourcesView.prototype = Heritage.extend(WidgetMethods, {
    */
   _onConditionalPopupHidden: function () {
     this._cbPanel.hidden = true;
+    window.emit(EVENTS.CONDITIONAL_BREAKPOINT_POPUP_HIDDEN);
   },
 
   /**

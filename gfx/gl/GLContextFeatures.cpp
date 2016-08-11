@@ -6,10 +6,6 @@
 #include "GLContext.h"
 #include "nsPrintfCString.h"
 
-#ifdef XP_MACOSX
-#include "nsCocoaFeatures.h"
-#endif
-
 namespace mozilla {
 namespace gl {
 
@@ -440,6 +436,25 @@ static const FeatureInfo sFeatureInfoArr[] = {
         {
             GLContext::EXT_packed_depth_stencil,
             GLContext::OES_packed_depth_stencil,
+            GLContext::Extensions_End
+        }
+    },
+    {
+        "prim_restart",
+        GLVersion::GL3_1,
+        GLESVersion::NONE,
+        GLContext::Extension_None,
+        {
+            GLContext::NV_primitive_restart,
+            GLContext::Extensions_End
+        }
+    },
+    {
+        "prim_restart_fixed",
+        kGLCoreVersionForES3Compat,
+        GLESVersion::ES3,
+        GLContext::ARB_ES3_compatibility,
+        {
             GLContext::Extensions_End
         }
     },
@@ -884,16 +899,6 @@ GLContext::InitFeatures()
                           IsSupported(feature) ? "enabled" : "disabled",
                           GetFeatureName(feature));
         }
-    }
-
-    if (WorkAroundDriverBugs()) {
-#ifdef XP_MACOSX
-        // MacOSX 10.6 reports to support EXT_framebuffer_sRGB and EXT_texture_sRGB but
-        // fails to convert from sRGB to linear when reading from an sRGB texture attached
-        // to an FBO. (bug 843668)
-        if (!nsCocoaFeatures::OnLionOrLater())
-            MarkUnsupported(GLFeature::sRGB_framebuffer);
-#endif // XP_MACOSX
     }
 }
 

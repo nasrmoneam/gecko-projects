@@ -21,6 +21,7 @@
 #include "GeckoProfiler.h"
 #include "nsExpirationTracker.h"
 #include "RoundedRect.h"
+#include "nsIScriptError.h"
 #include "nsClassHashtable.h"
 #include "nsPresContext.h"
 #include "nsStyleStruct.h"
@@ -58,8 +59,7 @@ using namespace mozilla::gfx;
  *         |- DrawDashedOrDottedSide || DrawBorderSides with one side
  */
 
-static void ComputeBorderCornerDimensions(const Rect& aOuterRect,
-                                          const Rect& aInnerRect,
+static void ComputeBorderCornerDimensions(const Float* aBorderWidths,
                                           const RectCornerRadii& aRadii,
                                           RectCornerRadii *aDimsResult);
 
@@ -201,7 +201,7 @@ nsCSSBorderRenderer::nsCSSBorderRenderer(nsPresContext* aPresContext,
              mBorderStyles[2] != NS_STYLE_BORDER_STYLE_NONE ? mBorderWidths[2] : 0,
              mBorderStyles[3] != NS_STYLE_BORDER_STYLE_NONE ? mBorderWidths[3] : 0));
 
-  ComputeBorderCornerDimensions(mOuterRect, mInnerRect,
+  ComputeBorderCornerDimensions(mBorderWidths,
                                 mBorderRadii, &mBorderCornerDimensions);
 
   mOneUnitBorder = CheckFourFloatsEqual(mBorderWidths, 1.0);
@@ -262,15 +262,14 @@ nsCSSBorderRenderer::ComputeOuterRadii(const RectCornerRadii& aRadii,
 }
 
 /*static*/ void
-ComputeBorderCornerDimensions(const Rect& aOuterRect,
-                              const Rect& aInnerRect,
+ComputeBorderCornerDimensions(const Float* aBorderWidths,
                               const RectCornerRadii& aRadii,
                               RectCornerRadii* aDimsRet)
 {
-  Float leftWidth = aInnerRect.X() - aOuterRect.X();
-  Float topWidth = aInnerRect.Y() - aOuterRect.Y();
-  Float rightWidth = aOuterRect.Width() - aInnerRect.Width() - leftWidth;
-  Float bottomWidth = aOuterRect.Height() - aInnerRect.Height() - topWidth;
+  Float leftWidth = aBorderWidths[NS_SIDE_LEFT];
+  Float topWidth = aBorderWidths[NS_SIDE_TOP];
+  Float rightWidth = aBorderWidths[NS_SIDE_RIGHT];
+  Float bottomWidth = aBorderWidths[NS_SIDE_BOTTOM];
 
   if (AllCornersZeroSize(aRadii)) {
     // These will always be in pixel units from CSS
@@ -768,13 +767,8 @@ nsCSSBorderRenderer::GetStraightBorderPoint(mozilla::css::Side aSide,
         // +-------------------------+----
         // |                         |
         // |                         |
-        if (isHorizontal) {
-          P.x += signs[0] * borderWidth / 2.0f;
-          P.y += signs[1] * borderWidth / 2.0f;
-        } else {
-          P.x += signs[0] * borderWidth / 2.0f;
-          P.y += signs[1] * borderWidth / 2.0f;
-        }
+        P.x += signs[0] * borderWidth / 2.0f;
+        P.y += signs[1] * borderWidth / 2.0f;
       } else {
         // Two dots are drawn separately.
         //
@@ -1090,13 +1084,15 @@ nsCSSBorderRenderer::GetOuterAndInnerBezier(Bezier* aOuterBezier,
   mozilla::css::Side sideH(GetHorizontalSide(aCorner));
   mozilla::css::Side sideV(GetVerticalSide(aCorner));
 
-  Size innerCornerSize(std::max(0.0f, mBorderRadii[aCorner].width -
-                                mBorderWidths[sideV]),
-                       std::max(0.0f, mBorderRadii[aCorner].height -
-                                mBorderWidths[sideH]));
+  Size outerCornerSize(ceil(mBorderRadii[aCorner].width),
+                       ceil(mBorderRadii[aCorner].height));
+  Size innerCornerSize(ceil(std::max(0.0f, mBorderRadii[aCorner].width -
+                                     mBorderWidths[sideV])),
+                       ceil(std::max(0.0f, mBorderRadii[aCorner].height -
+                                     mBorderWidths[sideH])));
 
   GetBezierPointsForCorner(aOuterBezier, aCorner, mOuterRect.AtCorner(aCorner),
-                           mBorderRadii[aCorner]);
+                           outerCornerSize);
 
   GetBezierPointsForCorner(aInnerBezier, aCorner, mInnerRect.AtCorner(aCorner),
                            innerCornerSize);

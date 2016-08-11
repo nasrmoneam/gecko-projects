@@ -18,17 +18,12 @@ const events = require("sdk/event/core");
 const {UPDATE_PRESERVING_RULES, UPDATE_GENERAL} = require("devtools/server/actors/stylesheets");
 const {pageStyleSpec, styleRuleSpec, ELEMENT_STYLE} = require("devtools/shared/specs/styles");
 
-loader.lazyRequireGetter(this, "CSS", "CSS");
 loader.lazyGetter(this, "CssLogic", () => require("devtools/server/css-logic").CssLogic);
 loader.lazyGetter(this, "SharedCssLogic", () => require("devtools/shared/inspector/css-logic"));
 loader.lazyGetter(this, "DOMUtils", () => Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils));
 
-// When gathering rules to read for pseudo elements, we will skip
-// :before and :after, which are handled as a special case.
-loader.lazyGetter(this, "PSEUDO_ELEMENTS_TO_READ", () => {
-  return DOMUtils.getCSSPseudoElementNames().filter(pseudo => {
-    return pseudo !== ":before" && pseudo !== ":after";
-  });
+loader.lazyGetter(this, "PSEUDO_ELEMENTS", () => {
+  return DOMUtils.getCSSPseudoElementNames();
 });
 
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
@@ -44,7 +39,7 @@ const FONT_PREVIEW_OFFSET = 4;
  * The PageStyle actor lets the client look at the styles on a page, as
  * they are applied to a given node.
  */
-var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
+var PageStyleActor = protocol.ActorClass(pageStyleSpec, {
   /**
    * Create a PageStyleActor.
    *
@@ -541,10 +536,9 @@ var PageStyleActor = protocol.ActorClassWithSpec(pageStyleSpec, {
           rules.push(oneRule);
         });
 
-    // Now any pseudos (except for ::before / ::after, which was handled as
-    // a 'normal rule' above.
+    // Now any pseudos.
     if (showElementStyles) {
-      for (let readPseudo of PSEUDO_ELEMENTS_TO_READ) {
+      for (let readPseudo of PSEUDO_ELEMENTS) {
         this._getElementRules(bindingElement, readPseudo, inherited, options)
             .forEach(oneRule => {
               rules.push(oneRule);
@@ -931,7 +925,7 @@ exports.PageStyleActor = PageStyleActor;
  * (which have a CSSStyle but no CSSRule) we create a StyleRuleActor
  * with a special rule type (100).
  */
-var StyleRuleActor = protocol.ActorClassWithSpec(styleRuleSpec, {
+var StyleRuleActor = protocol.ActorClass(styleRuleSpec, {
   initialize: function (pageStyle, item) {
     protocol.Actor.prototype.initialize.call(this, null);
     this.pageStyle = pageStyle;

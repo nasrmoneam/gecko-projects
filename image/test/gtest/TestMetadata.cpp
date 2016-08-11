@@ -88,7 +88,7 @@ CheckMetadata(const ImageTestCase& aTestCase,
   // Check that we got the expected metadata.
   EXPECT_TRUE(metadataProgress & FLAG_SIZE_AVAILABLE);
 
-  IntSize metadataSize = decoder->GetSize();
+  IntSize metadataSize = decoder->Size();
   EXPECT_EQ(aTestCase.mSize.width, metadataSize.width);
   EXPECT_EQ(aTestCase.mSize.height, metadataSize.height);
 
@@ -122,7 +122,7 @@ CheckMetadata(const ImageTestCase& aTestCase,
   EXPECT_EQ(fullProgress, metadataProgress | fullProgress);
 
   // The full decoder and the metadata decoder should agree on the image's size.
-  IntSize fullSize = decoder->GetSize();
+  IntSize fullSize = decoder->Size();
   EXPECT_EQ(metadataSize.width, fullSize.width);
   EXPECT_EQ(metadataSize.height, fullSize.height);
 
@@ -135,13 +135,8 @@ CheckMetadata(const ImageTestCase& aTestCase,
 
 class ImageDecoderMetadata : public ::testing::Test
 {
-  protected:
-  static void SetUpTestCase()
-  {
-    // Ensure that ImageLib services are initialized.
-    nsCOMPtr<imgITools> imgTools = do_CreateInstance("@mozilla.org/image/tools;1");
-    EXPECT_TRUE(imgTools != nullptr);
-  }
+protected:
+  AutoInitializeImageLib mInit;
 };
 
 TEST_F(ImageDecoderMetadata, PNG) { CheckMetadata(GreenPNGTestCase()); }

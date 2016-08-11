@@ -7,6 +7,7 @@
 #ifndef mozilla_dom_XMLHttpRequestMainThread_h
 #define mozilla_dom_XMLHttpRequestMainThread_h
 
+#include <bitset>
 #include "nsAutoPtr.h"
 #include "nsIXMLHttpRequest.h"
 #include "nsISupportsUtils.h"
@@ -55,6 +56,7 @@ namespace dom {
 class Blob;
 class BlobSet;
 class FormData;
+class URLSearchParams;
 class XMLHttpRequestUpload;
 
 // A helper for building up an ArrayBuffer object's data
@@ -127,6 +129,17 @@ class XMLHttpRequestMainThread final : public XMLHttpRequest,
   friend class nsXMLHttpRequestXPCOMifier;
 
 public:
+  enum class ProgressEventType : uint8_t {
+    loadstart,
+    progress,
+    error,
+    abort,
+    timeout,
+    load,
+    loadend,
+    ENUM_MAX
+  };
+
   XMLHttpRequestMainThread();
 
   void Construct(nsIPrincipal* aPrincipal,
@@ -186,31 +199,23 @@ public:
   virtual uint16_t ReadyState() const override;
 
   // request
+  nsresult InitChannel();
+
   virtual void
   Open(const nsACString& aMethod, const nsAString& aUrl,
-       ErrorResult& aRv) override
-  {
-    Open(aMethod, aUrl, true,
-         Optional<nsAString>(),
-         Optional<nsAString>(),
-         aRv);
-  }
+       ErrorResult& aRv) override;
 
   virtual void
   Open(const nsACString& aMethod, const nsAString& aUrl, bool aAsync,
        const Optional<nsAString>& aUser,
        const Optional<nsAString>& aPassword,
-       ErrorResult& aRv) override
-  {
-    aRv = Open(aMethod, NS_ConvertUTF16toUTF8(aUrl),
-               aAsync, aUser, aPassword);
-  }
+       ErrorResult& aRv) override;
 
   virtual void
-  SetRequestHeader(const nsACString& aHeader, const nsACString& aValue,
+  SetRequestHeader(const nsACString& aName, const nsACString& aValue,
                    ErrorResult& aRv) override
   {
-    aRv = SetRequestHeader(aHeader, aValue);
+    aRv = SetRequestHeader(aName, aValue);
   }
 
   virtual uint32_t
@@ -233,93 +238,34 @@ public:
 private:
   virtual ~XMLHttpRequestMainThread();
 
-  class RequestBody
+  class RequestBodyBase
   {
   public:
-    RequestBody() : mType(eUninitialized)
-    {
-    }
-    explicit RequestBody(const ArrayBuffer* aArrayBuffer) : mType(eArrayBuffer)
-    {
-      mValue.mArrayBuffer = aArrayBuffer;
-    }
-    explicit RequestBody(const ArrayBufferView* aArrayBufferView) : mType(eArrayBufferView)
-    {
-      mValue.mArrayBufferView = aArrayBufferView;
-    }
-    explicit RequestBody(Blob& aBlob) : mType(eBlob)
-    {
-      mValue.mBlob = &aBlob;
-    }
-    explicit RequestBody(nsIDocument* aDocument) : mType(eDocument)
-    {
-      mValue.mDocument = aDocument;
-    }
-    explicit RequestBody(const nsAString& aString) : mType(eDOMString)
-    {
-      mValue.mString = &aString;
-    }
-    explicit RequestBody(FormData& aFormData) : mType(eFormData)
-    {
-      mValue.mFormData = &aFormData;
-    }
-    explicit RequestBody(nsIInputStream* aStream) : mType(eInputStream)
-    {
-      mValue.mStream = aStream;
-    }
-
-    enum Type {
-      eUninitialized,
-      eArrayBuffer,
-      eArrayBufferView,
-      eBlob,
-      eDocument,
-      eDOMString,
-      eFormData,
-      eInputStream
-    };
-    union Value {
-      const ArrayBuffer* mArrayBuffer;
-      const ArrayBufferView* mArrayBufferView;
-      Blob* mBlob;
-      nsIDocument* mDocument;
-      const nsAString* mString;
-      FormData* mFormData;
-      nsIInputStream* mStream;
-    };
-
-    Type GetType() const
-    {
-      MOZ_ASSERT(mType != eUninitialized);
-      return mType;
-    }
-    Value GetValue() const
-    {
-      MOZ_ASSERT(mType != eUninitialized);
-      return mValue;
-    }
-
-  private:
-    Type mType;
-    Value mValue;
-  };
-
-  static nsresult GetRequestBody(nsIVariant* aVariant,
-                                 const Nullable<RequestBody>& aBody,
-                                 nsIInputStream** aResult,
+    virtual nsresult GetAsStream(nsIInputStream** aResult,
                                  uint64_t* aContentLength,
                                  nsACString& aContentType,
-                                 nsACString& aCharset);
+                                 nsACString& aCharset) const
+    {
+      NS_ASSERTION(false, "RequestBodyBase should not be used directly.");
+      return NS_ERROR_FAILURE;
+    }
+  };
 
-  nsresult Send(nsIVariant* aVariant, const Nullable<RequestBody>& aBody);
-  nsresult Send(const Nullable<RequestBody>& aBody)
+  template<typename Type>
+  class RequestBody final : public RequestBodyBase
   {
-    return Send(nullptr, aBody);
-  }
-  nsresult Send(const RequestBody& aBody)
-  {
-    return Send(Nullable<RequestBody>(aBody));
-  }
+    Type* mBody;
+  public:
+    explicit RequestBody(Type* aBody) : mBody(aBody)
+    {
+    }
+    nsresult GetAsStream(nsIInputStream** aResult,
+                         uint64_t* aContentLength,
+                         nsACString& aContentType,
+                         nsACString& aCharset) const override;
+  };
+
+  nsresult SendInternal(const RequestBodyBase* aBody);
 
   bool IsCrossSiteCORSRequest() const;
   bool IsDeniedCrossSiteCORSRequest();
@@ -333,33 +279,44 @@ public:
   virtual void
   Send(JSContext* /*aCx*/, ErrorResult& aRv) override
   {
-    aRv = Send(Nullable<RequestBody>());
+    aRv = SendInternal(nullptr);
   }
 
   virtual void
   Send(JSContext* /*aCx*/, const ArrayBuffer& aArrayBuffer,
        ErrorResult& aRv) override
   {
-    aRv = Send(RequestBody(&aArrayBuffer));
+    RequestBody<const ArrayBuffer> body(&aArrayBuffer);
+    aRv = SendInternal(&body);
   }
 
   virtual void
   Send(JSContext* /*aCx*/, const ArrayBufferView& aArrayBufferView,
        ErrorResult& aRv) override
   {
-    aRv = Send(RequestBody(&aArrayBufferView));
+    RequestBody<const ArrayBufferView> body(&aArrayBufferView);
+    aRv = SendInternal(&body);
   }
 
   virtual void
   Send(JSContext* /*aCx*/, Blob& aBlob, ErrorResult& aRv) override
   {
-    aRv = Send(RequestBody(aBlob));
+    RequestBody<Blob> body(&aBlob);
+    aRv = SendInternal(&body);
+  }
+
+  virtual void Send(JSContext* /*aCx*/, URLSearchParams& aURLSearchParams,
+                    ErrorResult& aRv) override
+  {
+    RequestBody<URLSearchParams> body(&aURLSearchParams);
+    aRv = SendInternal(&body);
   }
 
   virtual void
   Send(JSContext* /*aCx*/, nsIDocument& aDoc, ErrorResult& aRv) override
   {
-    aRv = Send(RequestBody(&aDoc));
+    RequestBody<nsIDocument> body(&aDoc);
+    aRv = SendInternal(&body);
   }
 
   virtual void
@@ -367,16 +324,17 @@ public:
   {
     if (DOMStringIsNull(aString)) {
       Send(aCx, aRv);
-    }
-    else {
-      aRv = Send(RequestBody(aString));
+    } else {
+      RequestBody<const nsAString> body(&aString);
+      aRv = SendInternal(&body);
     }
   }
 
   virtual void
   Send(JSContext* /*aCx*/, FormData& aFormData, ErrorResult& aRv) override
   {
-    aRv = Send(RequestBody(aFormData));
+    RequestBody<FormData> body(&aFormData);
+    aRv = SendInternal(&body);
   }
 
   virtual void
@@ -400,7 +358,8 @@ public:
       }
       return;
     }
-    aRv = Send(RequestBody(aStream));
+    RequestBody<nsIInputStream> body(aStream);
+    aRv = SendInternal(&body);
   }
 
   void
@@ -508,24 +467,17 @@ public:
                JS::MutableHandle<JS::Value> aRetval,
                ErrorResult& aRv) override;
 
-  // This creates a trusted readystatechange event, which is not cancelable and
+  // This fires a trusted readystatechange event, which is not cancelable and
   // doesn't bubble.
-  nsresult CreateReadystatechangeEvent(nsIDOMEvent** aDOMEvent);
+  nsresult FireReadystatechangeEvent();
   void DispatchProgressEvent(DOMEventTargetHelper* aTarget,
-                             const nsAString& aType,
-                             bool aLengthComputable,
+                             const ProgressEventType aType,
                              int64_t aLoaded, int64_t aTotal);
-
-  // Dispatch the "progress" event on the XHR or XHR.upload object if we've
-  // received data since the last "progress" event. Also dispatches
-  // "uploadprogress" as needed.
-  void MaybeDispatchProgressEvents(bool aFinalProgress);
 
   // This is called by the factory constructor.
   nsresult Init();
 
   nsresult init(nsIPrincipal* principal,
-                nsIScriptContext* scriptContext,
                 nsPIDOMWindowInner* globalObject,
                 nsIURI* baseURI);
 
@@ -547,6 +499,16 @@ public:
     return sDontWarnAboutSyncXHR;
   }
 protected:
+  // XHR states are meant to mirror the XHR2 spec:
+  //   https://xhr.spec.whatwg.org/#states
+  enum class State : uint8_t {
+    unsent,           // object has been constructed.
+    opened,           // open() has been successfully invoked.
+    headers_received, // redirects followed and response headers received.
+    loading,          // response body is being received.
+    done,             // data transfer concluded, whether success or error.
+  };
+
   nsresult DetectCharset();
   nsresult AppendToResponseText(const char * aBuffer, uint32_t aBufferLen);
   static NS_METHOD StreamReaderFunc(nsIInputStream* in,
@@ -560,7 +522,7 @@ protected:
   bool CreateDOMBlob(nsIRequest *request);
   // Change the state of the object with this. The broadcast argument
   // determines if the onreadystatechange listener should be called.
-  nsresult ChangeState(uint32_t aState, bool aBroadcast = true);
+  nsresult ChangeState(State aState, bool aBroadcast = true);
   already_AddRefed<nsILoadGroup> GetLoadGroup() const;
   nsIURI *GetBaseURI();
 
@@ -568,24 +530,30 @@ protected:
   already_AddRefed<nsIJARChannel> GetCurrentJARChannel();
 
   bool IsSystemXHR() const;
+  bool InUploadPhase() const;
 
+  void OnBodyParseEnd();
   void ChangeStateToDone();
 
   void StartProgressEventTimer();
+  void StopProgressEventTimer();
 
   nsresult OnRedirectVerifyCallback(nsresult result);
 
-  nsresult Open(const nsACString& method, const nsACString& url, bool async,
-                const Optional<nsAString>& user,
-                const Optional<nsAString>& password);
+  nsresult OpenInternal(const nsACString& aMethod,
+                        const nsACString& aUrl,
+                        const Optional<bool>& aAsync,
+                        const Optional<nsAString>& aUsername,
+                        const Optional<nsAString>& aPassword);
 
   already_AddRefed<nsXMLHttpRequestXPCOMifier> EnsureXPCOMifier();
 
   nsCOMPtr<nsISupports> mContext;
   nsCOMPtr<nsIPrincipal> mPrincipal;
   nsCOMPtr<nsIChannel> mChannel;
+  nsCString mRequestMethod;
+  nsCOMPtr<nsIURI> mRequestURL;
   nsCOMPtr<nsIDocument> mResponseXML;
-  nsTArray<nsCString> mCORSUnsafeHeaders;
 
   nsCOMPtr<nsIStreamListener> mXMLParserStreamListener;
 
@@ -664,12 +632,27 @@ protected:
   nsCOMPtr<nsIURI> mBaseURI;
   nsCOMPtr<nsILoadGroup> mLoadGroup;
 
-  uint32_t mState;
+  State mState;
+
+  bool mFlagSynchronous;
+  bool mFlagAborted;
+  bool mFlagParseBody;
+  bool mFlagSyncLooping;
+  bool mFlagBackgroundRequest;
+  bool mFlagHadUploadListenersOnSend;
+  bool mFlagACwithCredentials;
+  bool mFlagTimedOut;
+  bool mFlagDeleted;
+
+  // The XHR2 spec's send() flag. Set when the XHR begins uploading, until it
+  // finishes downloading (or an error/abort has occurred during either phase).
+  // Used to guard against the user trying to alter headers/etc when it's too
+  // late, and ensure the XHR only handles one in-flight request at once.
+  bool mFlagSend;
 
   RefPtr<XMLHttpRequestUpload> mUpload;
   int64_t mUploadTransferred;
   int64_t mUploadTotal;
-  bool mUploadLengthComputable;
   bool mUploadComplete;
   bool mProgressSinceLastProgressEvent;
 
@@ -686,7 +669,6 @@ protected:
   bool mIsHtml;
   bool mWarnAboutMultipartHtml;
   bool mWarnAboutSyncHtml;
-  bool mLoadLengthComputable;
   int64_t mLoadTotal; // 0 if not known.
   // Amount of script-exposed (i.e. after undoing gzip compresion) data
   // received.
@@ -710,14 +692,17 @@ protected:
   nsCString mNetworkInterfaceId;
 
   /**
+   * Close the XMLHttpRequest's channels.
+   */
+  void CloseRequest();
+
+  /**
    * Close the XMLHttpRequest's channels and dispatch appropriate progress
    * events.
    *
    * @param aType The progress event type.
-   * @param aFlag A XML_HTTP_REQUEST_* state flag defined in
-   *              XMLHttpRequestMainthread.cpp.
    */
-  void CloseRequestWithError(const nsAString& aType, const uint32_t aFlag);
+  void CloseRequestWithError(const ProgressEventType aType);
 
   bool mFirstStartRequestSeen;
   bool mInLoadProgressEvent;
@@ -737,12 +722,13 @@ protected:
 
   struct RequestHeader
   {
-    nsCString header;
+    nsCString name;
     nsCString value;
   };
-  nsTArray<RequestHeader> mModifiedRequestHeaders;
+  nsTArray<RequestHeader> mAuthorRequestHeaders;
 
-  nsTHashtable<nsCStringHashKey> mAlreadySetHeaders;
+  void GetAuthorRequestHeaderValue(const char* aName, nsACString& outValue);
+  void SetAuthorRequestHeadersOnChannel(nsCOMPtr<nsIHttpChannel> aChannel);
 
   // Helper object to manage our XPCOM scriptability bits
   nsXMLHttpRequestXPCOMifier* mXPCOMifier;
@@ -814,7 +800,7 @@ public:
   {
     nsCOMPtr<nsIXMLHttpRequest> xhr = do_QueryReferent(mXHR);
     if (xhr) {
-      static_cast<XMLHttpRequestMainThread*>(xhr.get())->ChangeStateToDone();
+      static_cast<XMLHttpRequestMainThread*>(xhr.get())->OnBodyParseEnd();
     }
     mXHR = nullptr;
     return NS_OK;

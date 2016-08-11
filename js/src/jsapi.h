@@ -31,6 +31,7 @@
 #include "js/HashTable.h"
 #include "js/Id.h"
 #include "js/Principals.h"
+#include "js/Realm.h"
 #include "js/RootingAPI.h"
 #include "js/TracingAPI.h"
 #include "js/Utility.h"
@@ -465,6 +466,8 @@ class MOZ_RAII JS_PUBLIC_API(CustomAutoRooter) : private AutoGCRooter
     friend void AutoGCRooter::trace(JSTracer* trc);
 
   protected:
+    virtual ~CustomAutoRooter() {}
+
     /** Supplied by derived class to trace roots. */
     virtual void trace(JSTracer* trc) = 0;
 
@@ -543,10 +546,10 @@ typedef enum JSGCStatus {
 } JSGCStatus;
 
 typedef void
-(* JSGCCallback)(JSRuntime* rt, JSGCStatus status, void* data);
+(* JSGCCallback)(JSContext* cx, JSGCStatus status, void* data);
 
 typedef void
-(* JSObjectsTenuredCallback)(JSRuntime* rt, void* data);
+(* JSObjectsTenuredCallback)(JSContext* cx, void* data);
 
 typedef enum JSFinalizeStatus {
     /**
@@ -574,10 +577,10 @@ typedef void
 (* JSFinalizeCallback)(JSFreeOp* fop, JSFinalizeStatus status, bool isCompartment, void* data);
 
 typedef void
-(* JSWeakPointerZoneGroupCallback)(JSRuntime* rt, void* data);
+(* JSWeakPointerZoneGroupCallback)(JSContext* cx, void* data);
 
 typedef void
-(* JSWeakPointerCompartmentCallback)(JSRuntime* rt, JSCompartment* comp, void* data);
+(* JSWeakPointerCompartmentCallback)(JSContext* cx, JSCompartment* comp, void* data);
 
 typedef bool
 (* JSInterruptCallback)(JSContext* cx);
@@ -693,7 +696,7 @@ typedef void
 (* JSZoneCallback)(JS::Zone* zone);
 
 typedef void
-(* JSCompartmentNameCallback)(JSRuntime* rt, JSCompartment* compartment,
+(* JSCompartmentNameCallback)(JSContext* cx, JSCompartment* compartment,
                               char* buf, size_t bufsize);
 
 /************************************************************************/
@@ -956,19 +959,19 @@ JS_IsBuiltinFunctionConstructor(JSFunction* fun);
 /*
  * Locking, contexts, and memory allocation.
  *
- * It is important that SpiderMonkey be initialized, and the first runtime and
- * first context be created, in a single-threaded fashion.  Otherwise the
- * behavior of the library is undefined.
+ * It is important that SpiderMonkey be initialized, and the first context
+ * be created, in a single-threaded fashion.  Otherwise the behavior of the
+ * library is undefined.
  * See: http://developer.mozilla.org/en/docs/Category:JSAPI_Reference
  */
 
-extern JS_PUBLIC_API(JSRuntime*)
-JS_NewRuntime(uint32_t maxbytes,
+extern JS_PUBLIC_API(JSContext*)
+JS_NewContext(uint32_t maxbytes,
               uint32_t maxNurseryBytes = JS::DefaultNurseryBytes,
-              JSRuntime* parentRuntime = nullptr);
+              JSContext* parentContext = nullptr);
 
 extern JS_PUBLIC_API(void)
-JS_DestroyRuntime(JSRuntime* rt);
+JS_DestroyContext(JSContext* cx);
 
 typedef double (*JS_CurrentEmbedderTimeFunction)();
 
@@ -990,16 +993,16 @@ JS_PUBLIC_API(double)
 JS_GetCurrentEmbedderTime();
 
 JS_PUBLIC_API(void*)
-JS_GetRuntimePrivate(JSRuntime* rt);
+JS_GetContextPrivate(JSContext* cx);
+
+JS_PUBLIC_API(void)
+JS_SetContextPrivate(JSContext* cx, void* data);
 
 extern JS_PUBLIC_API(JSRuntime*)
 JS_GetRuntime(JSContext* cx);
 
-extern JS_PUBLIC_API(JSRuntime*)
-JS_GetParentRuntime(JSRuntime* rt);
-
-JS_PUBLIC_API(void)
-JS_SetRuntimePrivate(JSRuntime* rt, void* data);
+extern JS_PUBLIC_API(JSContext*)
+JS_GetParentContext(JSContext* cx);
 
 extern JS_PUBLIC_API(void)
 JS_BeginRequest(JSContext* cx);
@@ -1358,7 +1361,7 @@ JS_EnterCompartment(JSContext* cx, JSObject* target);
 extern JS_PUBLIC_API(void)
 JS_LeaveCompartment(JSContext* cx, JSCompartment* oldCompartment);
 
-typedef void (*JSIterateCompartmentCallback)(JSRuntime* rt, void* data, JSCompartment* compartment);
+typedef void (*JSIterateCompartmentCallback)(JSContext* cx, void* data, JSCompartment* compartment);
 
 /**
  * This function calls |compartmentCallback| on every compartment. Beware that
@@ -1366,7 +1369,7 @@ typedef void (*JSIterateCompartmentCallback)(JSRuntime* rt, void* data, JSCompar
  * returns. Also, barriers are disabled via the TraceSession.
  */
 extern JS_PUBLIC_API(void)
-JS_IterateCompartments(JSRuntime* rt, void* data,
+JS_IterateCompartments(JSContext* cx, void* data,
                        JSIterateCompartmentCallback compartmentCallback);
 
 /**
@@ -1574,9 +1577,6 @@ JS_free(JSContext* cx, void* p);
 extern JS_PUBLIC_API(void)
 JS_freeop(JSFreeOp* fop, void* p);
 
-extern JS_PUBLIC_API(JSFreeOp*)
-JS_GetDefaultFreeOp(JSRuntime* rt);
-
 extern JS_PUBLIC_API(void)
 JS_updateMallocCounter(JSContext* cx, size_t nbytes);
 
@@ -1591,7 +1591,7 @@ JS_strdup(JSRuntime* rt, const char* s);
  * Register externally maintained GC roots.
  *
  * traceOp: the trace operation. For each root the implementation should call
- *          JS_CallTracer whenever the root contains a traceable thing.
+ *          JS::TraceEdge whenever the root contains a traceable thing.
  * data:    the data argument to pass to each invocation of traceOp.
  */
 extern JS_PUBLIC_API(bool)
@@ -1764,7 +1764,7 @@ extern JS_PUBLIC_API(void)
 JS_SetGCParameter(JSContext* cx, JSGCParamKey key, uint32_t value);
 
 extern JS_PUBLIC_API(uint32_t)
-JS_GetGCParameter(JSRuntime* rt, JSGCParamKey key);
+JS_GetGCParameter(JSContext* cx, JSGCParamKey key);
 
 extern JS_PUBLIC_API(void)
 JS_SetGCParametersBasedOnAvailableMemory(JSContext* cx, uint32_t availMem);
@@ -2092,6 +2092,17 @@ JS_InstanceOf(JSContext* cx, JS::Handle<JSObject*> obj, const JSClass* clasp, JS
 
 extern JS_PUBLIC_API(bool)
 JS_HasInstance(JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<JS::Value> v, bool* bp);
+
+namespace JS {
+
+// Implementation of
+// http://www.ecma-international.org/ecma-262/6.0/#sec-ordinaryhasinstance.  If
+// you're looking for the equivalent of "instanceof", you want JS_HasInstance,
+// not this function.
+extern JS_PUBLIC_API(bool)
+OrdinaryHasInstance(JSContext* cx, HandleObject objArg, HandleValue v, bool* bp);
+
+} // namespace JS
 
 extern JS_PUBLIC_API(void*)
 JS_GetPrivate(JSObject* obj);
@@ -3550,6 +3561,12 @@ extern JS_PUBLIC_API(JSFunction*)
 JS_DefineFunctionById(JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<jsid> id, JSNative call,
                       unsigned nargs, unsigned attrs);
 
+extern JS_PUBLIC_API(bool)
+JS_IsFunctionBound(JSFunction* fun);
+
+extern JS_PUBLIC_API(JSObject*)
+JS_GetBoundFunctionTarget(JSFunction* fun);
+
 namespace JS {
 
 /**
@@ -4043,10 +4060,11 @@ CanCompileOffThread(JSContext* cx, const ReadOnlyCompileOptions& options, size_t
  * After successfully triggering an off thread compile of a script, the
  * callback will eventually be invoked with the specified data and a token
  * for the compilation. The callback will be invoked while off the main thread,
- * so must ensure that its operations are thread safe. Afterwards,
- * FinishOffThreadScript must be invoked on the main thread to get the result
- * script or nullptr. If maybecx is not specified, the resources will be freed,
- * but no script will be returned.
+ * so must ensure that its operations are thread safe. Afterwards, one of the
+ * following functions must be invoked on the main thread:
+ *
+ * - FinishOffThreadScript, to get the result script (or nullptr on failure).
+ * - CancelOffThreadScript, to free the resources without creating a script.
  *
  * The characters passed in to CompileOffThread must remain live until the
  * callback is invoked, and the resulting script will be rooted until the call
@@ -4059,7 +4077,10 @@ CompileOffThread(JSContext* cx, const ReadOnlyCompileOptions& options,
                  OffThreadCompileCallback callback, void* callbackData);
 
 extern JS_PUBLIC_API(JSScript*)
-FinishOffThreadScript(JSContext* maybecx, JSRuntime* rt, void* token);
+FinishOffThreadScript(JSContext* cx, void* token);
+
+extern JS_PUBLIC_API(void)
+CancelOffThreadScript(JSContext* cx, void* token);
 
 extern JS_PUBLIC_API(bool)
 CompileOffThreadModule(JSContext* cx, const ReadOnlyCompileOptions& options,
@@ -4067,7 +4088,10 @@ CompileOffThreadModule(JSContext* cx, const ReadOnlyCompileOptions& options,
                        OffThreadCompileCallback callback, void* callbackData);
 
 extern JS_PUBLIC_API(JSObject*)
-FinishOffThreadModule(JSContext* maybecx, JSRuntime* rt, void* token);
+FinishOffThreadModule(JSContext* cx, void* token);
+
+extern JS_PUBLIC_API(void)
+CancelOffThreadModule(JSContext* cx, void* token);
 
 /**
  * Compile a function with scopeChain plus the global as its scope chain.
@@ -4160,7 +4184,8 @@ namespace JS {
  * cross-compartment, it is cloned into the current compartment before executing.
  */
 extern JS_PUBLIC_API(bool)
-CloneAndExecuteScript(JSContext* cx, JS::Handle<JSScript*> script);
+CloneAndExecuteScript(JSContext* cx, JS::Handle<JSScript*> script,
+                      JS::MutableHandleValue rval);
 
 } /* namespace JS */
 
@@ -4294,7 +4319,7 @@ JS_CheckForInterrupt(JSContext* cx);
 /*
  * These functions allow setting an interrupt callback that will be called
  * from the JS thread some time after any thread triggered the callback using
- * JS_RequestInterruptCallback(rt).
+ * JS_RequestInterruptCallback(cx).
  *
  * To schedule the GC and for other activities the engine internally triggers
  * interrupt callbacks. The embedding should thus not rely on callbacks being
@@ -4311,7 +4336,7 @@ extern JS_PUBLIC_API(JSInterruptCallback)
 JS_GetInterruptCallback(JSContext* cx);
 
 extern JS_PUBLIC_API(void)
-JS_RequestInterruptCallback(JSRuntime* rt);
+JS_RequestInterruptCallback(JSContext* cx);
 
 namespace JS {
 
@@ -4410,6 +4435,14 @@ GetPromiseAllocationSite(JS::HandleObject promise);
 
 extern JS_PUBLIC_API(JSObject*)
 GetPromiseResolutionSite(JS::HandleObject promise);
+
+#ifdef DEBUG
+extern JS_PUBLIC_API(void)
+DumpPromiseAllocationSite(JSContext* cx, JS::HandleObject promise);
+
+extern JS_PUBLIC_API(void)
+DumpPromiseResolutionSite(JSContext* cx, JS::HandleObject promise);
+#endif
 
 /**
  * Calls the current compartment's original Promise.resolve on the original
@@ -5035,13 +5068,13 @@ JS_ParseJSONWithReviver(JSContext* cx, JS::HandleString str, JS::HandleValue rev
  * The locale string remains owned by the caller.
  */
 extern JS_PUBLIC_API(bool)
-JS_SetDefaultLocale(JSRuntime* rt, const char* locale);
+JS_SetDefaultLocale(JSContext* cx, const char* locale);
 
 /**
  * Reset the default locale to OS defaults.
  */
 extern JS_PUBLIC_API(void)
-JS_ResetDefaultLocale(JSRuntime* rt);
+JS_ResetDefaultLocale(JSContext* cx);
 
 /**
  * Locale specific string conversion and error message callbacks.
@@ -5055,17 +5088,17 @@ struct JSLocaleCallbacks {
 
 /**
  * Establish locale callbacks. The pointer must persist as long as the
- * JSRuntime.  Passing nullptr restores the default behaviour.
+ * JSContext.  Passing nullptr restores the default behaviour.
  */
 extern JS_PUBLIC_API(void)
-JS_SetLocaleCallbacks(JSRuntime* rt, const JSLocaleCallbacks* callbacks);
+JS_SetLocaleCallbacks(JSContext* cx, const JSLocaleCallbacks* callbacks);
 
 /**
  * Return the address of the current locale callbacks struct, which may
  * be nullptr.
  */
 extern JS_PUBLIC_API(const JSLocaleCallbacks*)
-JS_GetLocaleCallbacks(JSRuntime* rt);
+JS_GetLocaleCallbacks(JSContext* cx);
 
 /************************************************************************/
 
@@ -5156,7 +5189,7 @@ class JSErrorReport
       : linebuf_(nullptr), linebufLength_(0), tokenOffset_(0),
         filename(nullptr), lineno(0), column(0), isMuted(false),
         flags(0), errorNumber(0), ucmessage(nullptr),
-        messageArgs(nullptr), exnType(0)
+        exnType(0)
     {}
 
     const char*     filename;      /* source file name, URL, etc., or null */
@@ -5166,7 +5199,6 @@ class JSErrorReport
     unsigned        flags;          /* error/warning, etc. */
     unsigned        errorNumber;    /* the error number, e.g. see js.msg */
     const char16_t* ucmessage;     /* the (default) error message */
-    const char16_t** messageArgs;  /* arguments for the error message */
     int16_t         exnType;        /* One of the JSExnType constants */
 
     const char16_t* linebuf() const {
@@ -5189,14 +5221,7 @@ class JSErrorReport
 #define JSREPORT_EXCEPTION  0x2     /* exception was thrown */
 #define JSREPORT_STRICT     0x4     /* error or warning due to strict option */
 
-/*
- * This condition is an error in strict mode code, a warning if
- * JS_HAS_STRICT_OPTION(cx), and otherwise should not be reported at
- * all.  We check the strictness of the context's top frame's script;
- * where that isn't appropriate, the caller should do the right checks
- * itself instead of using this flag.
- */
-#define JSREPORT_STRICT_MODE_ERROR 0x8
+#define JSREPORT_USER_1     0x8     /* user-defined flag */
 
 /*
  * If JSREPORT_EXCEPTION is set, then a JavaScript-catchable exception
@@ -5208,8 +5233,7 @@ class JSErrorReport
 #define JSREPORT_IS_WARNING(flags)      (((flags) & JSREPORT_WARNING) != 0)
 #define JSREPORT_IS_EXCEPTION(flags)    (((flags) & JSREPORT_EXCEPTION) != 0)
 #define JSREPORT_IS_STRICT(flags)       (((flags) & JSREPORT_STRICT) != 0)
-#define JSREPORT_IS_STRICT_MODE_ERROR(flags) (((flags) &                      \
-                                              JSREPORT_STRICT_MODE_ERROR) != 0)
+
 namespace JS {
 
 typedef void
@@ -5550,9 +5574,9 @@ JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
     Register(ION_ENABLE, "ion.enable")                                     \
     Register(BASELINE_ENABLE, "baseline.enable")                           \
     Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable") \
-    Register(SIGNALS_ENABLE, "signals.enable")                             \
     Register(JUMP_THRESHOLD, "jump-threshold")                             \
-    Register(WASM_TEST_MODE, "wasm.test-mode")
+    Register(WASM_TEST_MODE, "wasm.test-mode")                             \
+    Register(WASM_EXPLICIT_BOUNDS_CHECKS, "wasm.explicit-bounds-checks")
 
 typedef enum JSJitCompilerOption {
 #define JIT_COMPILER_DECLARE(key, str) \
@@ -5892,13 +5916,96 @@ extern JS_PUBLIC_API(void)
 SetOutOfMemoryCallback(JSContext* cx, OutOfMemoryCallback cb, void* data);
 
 /**
+ * Capture all frames.
+ */
+struct AllFrames { };
+
+/**
+ * Capture at most this many frames.
+ */
+struct MaxFrames
+{
+    uint32_t maxFrames;
+
+    explicit MaxFrames(uint32_t max)
+      : maxFrames(max)
+    {
+        MOZ_ASSERT(max > 0);
+    }
+};
+
+/**
+ * Capture the first frame with the given principals. By default, do not
+ * consider self-hosted frames with the given principals as satisfying the stack
+ * capture.
+ */
+struct FirstSubsumedFrame
+{
+    JSContext* cx;
+    JSPrincipals* principals;
+    bool ignoreSelfHosted;
+
+    /**
+     * Use the cx's current compartment's principals.
+     */
+    explicit FirstSubsumedFrame(JSContext* cx, bool ignoreSelfHostedFrames = true);
+
+    explicit FirstSubsumedFrame(JSContext* ctx, JSPrincipals* p, bool ignoreSelfHostedFrames = true)
+      : cx(ctx)
+      , principals(p)
+      , ignoreSelfHosted(ignoreSelfHostedFrames)
+    {
+        if (principals)
+            JS_HoldPrincipals(principals);
+    }
+
+    // No copying because we want to avoid holding and dropping principals
+    // unnecessarily.
+    FirstSubsumedFrame(const FirstSubsumedFrame&) = delete;
+    FirstSubsumedFrame& operator=(const FirstSubsumedFrame&) = delete;
+
+    FirstSubsumedFrame(FirstSubsumedFrame&& rhs)
+      : principals(rhs.principals)
+      , ignoreSelfHosted(rhs.ignoreSelfHosted)
+    {
+        MOZ_ASSERT(this != &rhs, "self move disallowed");
+        rhs.principals = nullptr;
+    }
+
+    FirstSubsumedFrame& operator=(FirstSubsumedFrame&& rhs) {
+        new (this) FirstSubsumedFrame(mozilla::Move(rhs));
+        return *this;
+    }
+
+    ~FirstSubsumedFrame() {
+        if (principals)
+            JS_DropPrincipals(cx, principals);
+    }
+};
+
+using StackCapture = mozilla::Variant<AllFrames, MaxFrames, FirstSubsumedFrame>;
+
+/**
  * Capture the current call stack as a chain of SavedFrame JSObjects, and set
  * |stackp| to the SavedFrame for the youngest stack frame, or nullptr if there
- * are no JS frames on the stack. If |maxFrameCount| is non-zero, capture at
- * most the youngest |maxFrameCount| frames.
+ * are no JS frames on the stack.
+ *
+ * The |capture| parameter describes the portion of the JS stack to capture:
+ *
+ *   * |JS::AllFrames|: Capture all frames on the stack.
+ *
+ *   * |JS::MaxFrames|: Capture no more than |JS::MaxFrames::maxFrames| from the
+ *      stack.
+ *
+ *   * |JS::FirstSubsumedFrame|: Capture the first frame whose principals are
+ *     subsumed by |JS::FirstSubsumedFrame::principals|. By default, do not
+ *     consider self-hosted frames; this can be controlled via the
+ *     |JS::FirstSubsumedFrame::ignoreSelfHosted| flag. Do not capture any async
+ *     stack.
  */
 extern JS_PUBLIC_API(bool)
-CaptureCurrentStack(JSContext* cx, MutableHandleObject stackp, unsigned maxFrameCount = 0);
+CaptureCurrentStack(JSContext* cx, MutableHandleObject stackp,
+                    StackCapture&& capture = StackCapture(AllFrames()));
 
 /*
  * This is a utility function for preparing an async stack to be used

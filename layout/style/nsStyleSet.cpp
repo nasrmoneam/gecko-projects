@@ -18,6 +18,7 @@
 #include "mozilla/EventStates.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/RuleProcessorCache.h"
+#include "mozilla/StyleSheetHandleInlines.h"
 #include "nsIDocumentInlines.h"
 #include "nsRuleWalker.h"
 #include "nsStyleContext.h"
@@ -954,7 +955,8 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
       animRule = PresContext()->EffectCompositor()->
                    GetAnimationRule(aElementForAnimation,
                                     result->GetPseudoType(),
-                                    EffectCompositor::CascadeLevel::Animations);
+                                    EffectCompositor::CascadeLevel::Animations,
+                                    result);
     }
 
     MOZ_ASSERT(result->RuleNode() == aRuleNode,
@@ -1539,7 +1541,8 @@ nsStyleSet::RuleNodeWithReplacement(Element* aElement,
               aPseudoType == CSSPseudoElementType::after) {
             nsIStyleRule* rule = PresContext()->EffectCompositor()->
               GetAnimationRule(aElement, aPseudoType,
-                               EffectCompositor::CascadeLevel::Animations);
+                               EffectCompositor::CascadeLevel::Animations,
+                               nullptr);
             if (rule) {
               ruleWalker.ForwardOnPossiblyCSSRule(rule);
               ruleWalker.CurrentNode()->SetIsAnimationRule();
@@ -1553,7 +1556,8 @@ nsStyleSet::RuleNodeWithReplacement(Element* aElement,
               aPseudoType == CSSPseudoElementType::after) {
             nsIStyleRule* rule = PresContext()->EffectCompositor()->
               GetAnimationRule(aElement, aPseudoType,
-                               EffectCompositor::CascadeLevel::Transitions);
+                               EffectCompositor::CascadeLevel::Transitions,
+                               nullptr);
             if (rule) {
               ruleWalker.ForwardOnPossiblyCSSRule(rule);
               ruleWalker.CurrentNode()->SetIsAnimationRule();

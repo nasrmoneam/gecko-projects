@@ -654,8 +654,8 @@ public:
     : mWindow(aWindow), mPromise(aPromise)
   {}
 
-  NS_IMETHODIMP
-  Run()
+  NS_IMETHOD
+  Run() override
   {
     RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
 
@@ -772,8 +772,8 @@ public:
     : mWindow(aWindow), mPromise(aPromise), mDocumentURL(aDocumentURL)
   {}
 
-  NS_IMETHODIMP
-  Run()
+  NS_IMETHOD
+  Run() override
   {
     RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
 
@@ -813,7 +813,7 @@ public:
       swm->GetServiceWorkerRegistrationInfo(principal, uri);
 
     if (!registration) {
-      mPromise->MaybeResolve(JS::UndefinedHandleValue);
+      mPromise->MaybeResolveWithUndefined();
       return NS_OK;
     }
 
@@ -872,8 +872,8 @@ public:
     : mWindow(aWindow), mPromise(aPromise)
   {}
 
-  NS_IMETHODIMP
-  Run()
+  NS_IMETHOD
+  Run() override
   {
     RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
 
@@ -1292,6 +1292,23 @@ ServiceWorkerManager::NotifyUnregister(nsIPrincipal* aPrincipal,
   return NS_OK;
 }
 
+void
+ServiceWorkerManager::WorkerIsIdle(ServiceWorkerInfo* aWorker)
+{
+  AssertIsOnMainThread();
+  MOZ_ASSERT(aWorker);
+
+  RefPtr<ServiceWorkerRegistrationInfo> reg =
+    GetRegistration(aWorker->GetPrincipal(), aWorker->Scope());
+  if (!reg) {
+    return;
+  }
+
+  if (reg->GetActive() == aWorker) {
+    reg->TryToActivateAsync();
+  }
+}
+
 already_AddRefed<ServiceWorkerJobQueue>
 ServiceWorkerManager::GetOrCreateJobQueue(const nsACString& aKey,
                                           const nsACString& aScope)
@@ -1489,6 +1506,36 @@ ServiceWorkerManager::ReportToAllClients(const nsCString& aScope,
                                                 aColumnNumber,
                                                 nsContentUtils::eOMIT_LOCATION);
     return;
+  }
+}
+
+/* static */
+void
+ServiceWorkerManager::LocalizeAndReportToAllClients(
+                                          const nsCString& aScope,
+                                          const char* aStringKey,
+                                          const nsTArray<nsString>& aParamArray,
+                                          uint32_t aFlags,
+                                          const nsString& aFilename,
+                                          const nsString& aLine,
+                                          uint32_t aLineNumber,
+                                          uint32_t aColumnNumber)
+{
+  RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+  if (!swm) {
+    return;
+  }
+
+  nsresult rv;
+  nsXPIDLString message;
+  rv = nsContentUtils::FormatLocalizedString(nsContentUtils::eDOM_PROPERTIES,
+                                             aStringKey, aParamArray, message);
+  if (NS_SUCCEEDED(rv)) {
+    swm->ReportToAllClients(aScope, message,
+                            aFilename, aLine, aLineNumber, aColumnNumber,
+                            aFlags);
+  } else {
+    NS_WARNING("Failed to format and therefore report localized error.");
   }
 }
 
@@ -2806,7 +2853,7 @@ ServiceWorkerManager::ClaimClients(nsIPrincipal* aPrincipal,
   return NS_OK;
 }
 
-nsresult
+void
 ServiceWorkerManager::SetSkipWaitingFlag(nsIPrincipal* aPrincipal,
                                          const nsCString& aScope,
                                          uint64_t aServiceWorkerID)
@@ -2814,24 +2861,21 @@ ServiceWorkerManager::SetSkipWaitingFlag(nsIPrincipal* aPrincipal,
   RefPtr<ServiceWorkerRegistrationInfo> registration =
     GetRegistration(aPrincipal, aScope);
   if (NS_WARN_IF(!registration)) {
-    return NS_ERROR_FAILURE;
+    return;
   }
 
-  if (registration->GetInstalling() &&
-      (registration->GetInstalling()->ID() == aServiceWorkerID)) {
-    registration->GetInstalling()->SetSkipWaitingFlag();
-  } else if (registration->GetWaiting() &&
-             (registration->GetWaiting()->ID() == aServiceWorkerID)) {
-    registration->GetWaiting()->SetSkipWaitingFlag();
-    if (registration->GetWaiting()->State() == ServiceWorkerState::Installed) {
-      registration->TryToActivateAsync();
-    }
-  } else {
-    NS_WARNING("Failed to set skipWaiting flag, no matching worker.");
-    return NS_ERROR_FAILURE;
+  RefPtr<ServiceWorkerInfo> worker =
+    registration->GetServiceWorkerInfoById(aServiceWorkerID);
+
+  if (NS_WARN_IF(!worker)) {
+    return;
   }
 
-  return NS_OK;
+  worker->SetSkipWaitingFlag();
+
+  if (worker->State() == ServiceWorkerState::Installed) {
+    registration->TryToActivateAsync();
+  }
 }
 
 void

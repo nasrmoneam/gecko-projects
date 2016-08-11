@@ -374,7 +374,7 @@ var ControllerCommands = {
   },
 
   receiveMessage: function(message) {
-    switch(message.name) {
+    switch (message.name) {
       case "ControllerCommands:Do":
         if (docShell.isCommandEnabled(message.data))
           docShell.doCommand(message.data);
@@ -546,6 +546,22 @@ addMessageListener("Browser:Thumbnail:CheckState", function (aMessage) {
   let result = PageThumbUtils.shouldStoreContentThumbnail(content, docShell);
   sendAsyncMessage("Browser:Thumbnail:CheckState:Response", {
     result: result
+  });
+});
+
+/**
+ * Remote GetOriginalURL request handler for PageThumbs.
+ */
+addMessageListener("Browser:Thumbnail:GetOriginalURL", function (aMessage) {
+  let channel = docShell.currentDocumentChannel;
+  let channelError = PageThumbUtils.isChannelErrorResponse(channel);
+  let originalURL;
+  try {
+    originalURL = channel.originalURI.spec;
+  } catch (ex) {}
+  sendAsyncMessage("Browser:Thumbnail:GetOriginalURL:Response", {
+    channelError: channelError,
+    originalURL: originalURL,
   });
 });
 

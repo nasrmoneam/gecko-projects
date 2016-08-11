@@ -166,6 +166,8 @@
 
 /* CONTENT */
 
+.identity-popup-permission-label,
+.identity-popup-permission-state-label,
 #identity-popup-security-content > description,
 #identity-popup-security-descriptions > description,
 #identity-popup-securityView-header > description,
@@ -362,8 +364,8 @@ description#identity-popup-content-verifier,
   margin-inline-start: calc(-1em - 16px);
 }
 
-#identity-popup-permission-list menulist {
-  min-width: 60px;
+.identity-popup-permission-item {
+  min-height: 24px;
 }
 
 #identity-popup-permission-list:not(:empty) {
@@ -379,7 +381,61 @@ description#identity-popup-content-verifier,
   height: 16px;
 }
 
+.identity-popup-permission-icon.in-use {
+  fill: rgb(224, 41, 29);
+  animation: 1.5s ease in-use-blink infinite;
+}
+
+@keyframes in-use-blink {
+  50% { opacity: 0; }
+}
+
 .identity-popup-permission-label {
   margin-inline-start: 1em;
-  word-wrap: break-word;
+}
+
+.identity-popup-permission-state-label {
+  margin-inline-end: 5px;
+  text-align: end;
+  opacity: 0.6;
+}
+
+.identity-popup-permission-remove-button {
+  -moz-appearance: none;
+  margin: 0;
+  border-width: 0;
+  border-radius: 50%;
+  min-width: 0;
+  padding: 2px;
+  background-color: transparent;
+}
+
+.identity-popup-permission-remove-button > .button-box {
+  border-width: 0;
+  padding: 0;
+}
+
+.identity-popup-permission-remove-button > .button-box > .button-icon {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  list-style-image: url(chrome://browser/skin/panel-icons.svg#cancel);
+  filter: url(chrome://browser/skin/filters.svg#fill);
+  fill: #999;
+}
+
+.identity-popup-permission-remove-button > .button-box > .button-text {
+  display: none;
+}
+
+.identity-popup-permission-remove-button:hover {
+  background-color: #999;
+}
+
+.identity-popup-permission-remove-button:hover > .button-box > .button-icon {
+  fill: #fff;
+}
+
+.identity-popup-permission-remove-button:hover:active {
+  background-color: #808080;
 }

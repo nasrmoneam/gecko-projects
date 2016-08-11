@@ -17,18 +17,25 @@
 #include "nsTextFrame.h" // for nsTextFrame::ShouldSuppressLineBreak
 
 inline void
+nsStyleImage::EnsureCachedBIData() const
+{
+  if (!mCachedBIData) {
+    const_cast<nsStyleImage*>(this)->mCachedBIData =
+      mozilla::MakeUnique<CachedBorderImageData>();
+  }
+}
+
+inline void
 nsStyleImage::SetSubImage(uint8_t aIndex, imgIContainer* aSubImage) const
 {
-  const_cast<nsStyleImage*>(this)->mSubImages.ReplaceObjectAt(aSubImage, aIndex);
+  EnsureCachedBIData();
+  mCachedBIData->SetSubImage(aIndex, aSubImage);
 }
 
 inline imgIContainer*
 nsStyleImage::GetSubImage(uint8_t aIndex) const
 {
-  imgIContainer* subImage = nullptr;
-  if (aIndex < mSubImages.Count())
-    subImage = mSubImages[aIndex];
-  return subImage;
+  return (mCachedBIData) ? mCachedBIData->GetSubImage(aIndex) : nullptr;
 }
 
 bool
@@ -191,6 +198,19 @@ nsStyleUserInterface::GetEffectivePointerEvents(nsIFrame* aFrame) const
     }
   }
   return mPointerEvents;
+}
+
+bool
+nsStyleBackground::HasLocalBackground() const
+{
+  NS_FOR_VISIBLE_IMAGE_LAYERS_BACK_TO_FRONT(i, mImage) {
+    const nsStyleImageLayers::Layer& layer = mImage.mLayers[i];
+    if (!layer.mImage.IsEmpty() &&
+        layer.mAttachment == NS_STYLE_IMAGELAYER_ATTACHMENT_LOCAL) {
+      return true;
+    }
+  }
+  return false;
 }
 
 #endif /* !defined(nsStyleStructInlines_h_) */

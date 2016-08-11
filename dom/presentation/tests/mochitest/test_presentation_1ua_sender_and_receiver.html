@@ -25,6 +25,7 @@ var receiverUrl = SimpleTest.getTestFileURL('file_presentation_1ua_receiver.html
 var request;
 var connection;
 var receiverIframe;
+var presentationId;
 
 function postMessageToIframe(aType) {
   receiverIframe.src = receiverUrl + "#" +
@@ -40,16 +41,19 @@ function setup() {
   });
 
   gScript.addMessageListener('control-channel-established', function controlChannelEstablishedHandler() {
-    debug('Got message: control-channel-established');
-    gScript.removeMessageListener('control-channel-established', controlChannelEstablishedHandler);
+    gScript.removeMessageListener('control-channel-established',
+                                  controlChannelEstablishedHandler);
+    gScript.sendAsyncMessage("trigger-control-channel-open");
+  });
+
+  gScript.addMessageListener('sender-launch', function senderLaunchHandler(url) {
+    debug('Got message: sender-launch');
+    gScript.removeMessageListener('sender-launch', senderLaunchHandler);
+    is(url, receiverUrl, 'Receiver: should receive the same url');
     receiverIframe = document.createElement('iframe');
     receiverIframe.setAttribute('src', receiverUrl);
     receiverIframe.setAttribute("mozbrowser", "true");
     receiverIframe.setAttribute("mozpresentation", receiverUrl);
-    receiverIframe.onload = function() {
-      info('Receiver loaded.');
-      gScript.sendAsyncMessage('trigger-control-channel-open');
-    };
 
     // This event is triggered when the iframe calls "alert".
     receiverIframe.addEventListener("mozbrowsershowmodalprompt", function receiverListener(evt) {
@@ -67,7 +71,6 @@ function setup() {
       } else if (/^DONE$/.exec(message)) {
         receiverIframe.removeEventListener("mozbrowsershowmodalprompt",
                                             receiverListener);
-        teardown();
       }
     }, false);
 
@@ -105,7 +108,7 @@ function setup() {
 function testCreateRequest() {
   return new Promise(function(aResolve, aReject) {
     info('Sender: --- testCreateRequest ---');
-    request = new PresentationRequest("http://example.com");
+    request = new PresentationRequest("file_presentation_1ua_receiver.html");
     request.getAvailability().then((aAvailability) => {
       aAvailability.onchange = function() {
         aAvailability.onchange = null;
@@ -129,9 +132,11 @@ function testStartConnection() {
       ok(connection, "Sender: Connection should be available.");
       ok(connection.id, "Sender: Connection ID should be set.");
       is(connection.state, "connecting", "The initial state should be connecting.");
+      is(connection.url, receiverUrl, "request URL should be expanded to absolute URL");
       connection.onconnect = function() {
         connection.onconnect = null;
         is(connection.state, "connected", "Connection should be connected.");
+        presentationId = connection.id;
         aResolve();
       };
     }).catch((aError) => {
@@ -174,17 +179,108 @@ function testIncomingMessage() {
   });
 }
 
-function testTerminateConnection() {
+function testCloseConnection() {
+  info('Sender: --- testCloseConnection ---');
+  // Test terminate immediate after close.
+  function controlChannelEstablishedHandler()
+  {
+    gScript.removeMessageListener('control-channel-established',
+                                  controlChannelEstablishedHandler);
+    ok(false, "terminate after close should do nothing");
+  }
+  gScript.addMessageListener('ready-to-close', function onReadyToClose() {
+    gScript.removeMessageListener('ready-to-close', onReadyToClose);
+    connection.close();
+
+    gScript.addMessageListener('control-channel-established', controlChannelEstablishedHandler);
+    connection.terminate();
+  });
+
+  return Promise.all([
+    new Promise(function(aResolve, aReject) {
+      connection.onclose = function() {
+        connection.onclose = null;
+        is(connection.state, 'closed', 'Sender: Connection should be closed.');
+        gScript.removeMessageListener('control-channel-established',
+                                      controlChannelEstablishedHandler);
+        aResolve();
+      };
+    }),
+    new Promise(function(aResolve, aReject) {
+      gScript.addMessageListener('receiver-closed', function onReceiverClosed() {
+        gScript.removeMessageListener('receiver-closed', onReceiverClosed);
+        gScript.removeMessageListener('control-channel-established',
+                                      controlChannelEstablishedHandler);
+        aResolve();
+      });
+    }),
+  ]);
+}
+
+function testTerminateAfterClose() {
+  info('Sender: --- testTerminateAfterClose ---');
+  return Promise.race([
+      new Promise(function(aResolve, aReject) {
+        connection.onterminate = function() {
+          connection.onterminate = null;
+          ok(false, 'terminate after close should do nothing');
+          aResolve();
+        };
+        connection.terminate();
+      }),
+      new Promise(function(aResolve, aReject) {
+        setTimeout(function() {
+          is(connection.state, 'closed', 'Sender: Connection should be closed.');
+          aResolve();
+        }, 3000);
+      }),
+  ]);
+}
+
+function testReconnect() {
   return new Promise(function(aResolve, aReject) {
-    info('Sender: --- testTerminateConnection ---');
-    connection.onterminate = function() {
-      connection.onterminate = null;
-      is(connection.state, "terminated", "Sender: Connection should be terminated.");
-      aResolve();
-    };
-    gScript.addMessageListener('ready-to-terminate', function onReadyToTerminate() {
-      gScript.removeMessageListener('ready-to-terminate', onReadyToTerminate);
-      connection.terminate();
+    info('Sender: --- testReconnect ---');
+    gScript.addMessageListener('control-channel-established', function controlChannelEstablished() {
+      gScript.removeMessageListener('control-channel-established', controlChannelEstablished);
+      gScript.sendAsyncMessage("trigger-control-channel-open");
+    });
+
+    gScript.addMessageListener('start-reconnect', function startReconnectHandler(url) {
+      debug('Got message: start-reconnect');
+      gScript.removeMessageListener('start-reconnect', startReconnectHandler);
+      is(url, receiverUrl, "URLs should be the same.")
+      gScript.sendAsyncMessage('trigger-reconnected-acked', url);
+    });
+
+    gScript.addMessageListener('offer-sent', function offerSentHandler() {
+      debug('Got message: offer-sent');
+      gScript.removeMessageListener('offer-sent', offerSentHandler);
+      gScript.sendAsyncMessage('trigger-on-offer');
+    });
+
+    gScript.addMessageListener('answer-sent', function answerSentHandler() {
+      debug('Got message: answer-sent');
+      gScript.removeMessageListener('answer-sent', answerSentHandler);
+      gScript.sendAsyncMessage('trigger-on-answer');
+    });
+
+    gScript.addMessageListener('ready-to-reconnect', function onReadyToReconnect() {
+      gScript.removeMessageListener('ready-to-reconnect', onReadyToReconnect);
+      request.reconnect(presentationId).then((aConnection) => {
+        connection = aConnection;
+        ok(connection, "Sender: Connection should be available.");
+        is(connection.id, presentationId, "The presentationId should be the same.");
+        is(connection.state, "connecting", "The initial state should be connecting.");
+        connection.onconnect = function() {
+          connection.onconnect = null;
+          is(connection.state, "connected", "Connection should be connected.");
+          aResolve();
+        };
+      }).catch((aError) => {
+        ok(false, "Sender: Error occurred when establishing a connection: " + aError);
+        teardown();
+        aReject();
+      });
     });
   });
 }
@@ -205,10 +301,15 @@ function runTests() {
          .then(testStartConnection)
          .then(testSendMessage)
          .then(testIncomingMessage)
-         .then(testTerminateConnection);
+         .then(testCloseConnection)
+         .then(testReconnect)
+         .then(testCloseConnection)
+         .then(testTerminateAfterClose)
+         .then(teardown);
 }
 
 SimpleTest.waitForExplicitFinish();
+SimpleTest.requestFlakyTimeout('Test for guarantee not firing async event');
 SpecialPowers.pushPermissions([
   {type: 'presentation-device-manage', allow: false, context: document},
   {type: 'presentation', allow: true, context: document},

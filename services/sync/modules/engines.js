@@ -487,7 +487,7 @@ EngineManager.prototype = {
 
   getAll: function () {
     let engines = [];
-    for (let [name, engine] in Iterator(this._engines)) {
+    for (let [, engine] of Object.entries(this._engines)) {
       engines.push(engine);
     }
     return engines;
@@ -1453,6 +1453,8 @@ SyncEngine.prototype = {
       this._log.trace("Preparing " + modifiedIDs.length +
                       " outgoing records");
 
+      let counts = { sent: modifiedIDs.length, failed: 0 };
+
       // collection we'll upload
       let up = new Collection(this.engineURL, null, this.service);
       let handleResponse = resp => {
@@ -1468,6 +1470,7 @@ SyncEngine.prototype = {
           this.lastSync = modified;
 
         let failed_ids = Object.keys(resp.obj.failed);
+        counts.failed += failed_ids.length;
         if (failed_ids.length)
           this._log.debug("Records that will be uploaded again because "
                           + "the server couldn't store them: "
@@ -1504,6 +1507,7 @@ SyncEngine.prototype = {
         this._store._sleep(0);
       }
       postQueue.flush();
+      Observers.notify("weave:engine:sync:uploaded", counts, this.name);
     }
   },
 
@@ -1519,7 +1523,7 @@ SyncEngine.prototype = {
       coll.delete();
     });
 
-    for (let [key, val] in Iterator(this._delete)) {
+    for (let [key, val] of Object.entries(this._delete)) {
       // Remove the key for future uses
       delete this._delete[key];
 
@@ -1542,7 +1546,7 @@ SyncEngine.prototype = {
     }
 
     // Mark failed WBOs as changed again so they are reuploaded next time.
-    for (let [id, when] in Iterator(this._modified)) {
+    for (let [id, when] of Object.entries(this._modified)) {
       this._tracker.addChangedID(id, when);
     }
     this._modified = {};

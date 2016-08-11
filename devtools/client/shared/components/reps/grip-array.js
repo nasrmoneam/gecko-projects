@@ -11,11 +11,10 @@ define(function (require, exports, module) {
   // Dependencies
   const React = require("devtools/client/shared/vendor/react");
   const { createFactories, isGrip } = require("./rep-utils");
-  const { ObjectBox } = createFactories(require("./object-box"));
   const { Caption } = createFactories(require("./caption"));
 
   // Shortcuts
-  const { a, span } = React.DOM;
+  const { span } = React.DOM;
 
   /**
    * Renders an array. The array is enclosed by left and right bracket
@@ -35,7 +34,13 @@ define(function (require, exports, module) {
     },
 
     getTitle: function (object, context) {
-      return "[" + object.length + "]";
+      let objectLink = this.props.objectLink || span;
+      if (this.props.mode != "tiny") {
+        return objectLink({
+          object: object
+        }, object.class);
+      }
+      return "";
     },
 
     arrayIterator: function (grip, max) {
@@ -53,7 +58,7 @@ define(function (require, exports, module) {
       let delim;
       let provider = this.props.provider;
 
-      for (let i = 0; i < array.length && i <= max; i++) {
+      for (let i = 0; i < array.length && i < max; i++) {
         try {
           let itemGrip = array[i];
           let value = provider ? provider.getValue(itemGrip) : itemGrip;
@@ -82,27 +87,17 @@ define(function (require, exports, module) {
         }
       }
 
-      if (array.length > max + 1) {
-        items.pop();
+      if (array.length > max) {
+        let objectLink = this.props.objectLink || span;
         items.push(Caption({
           key: "more",
-          object: "more..."}
-        ));
+          object: objectLink({
+            object: this.props.object
+          }, (grip.preview.length - max) + " more…")
+        }));
       }
 
       return items;
-    },
-
-    hasSpecialProperties: function (array) {
-      return false;
-    },
-
-    // Event Handlers
-
-    onToggleProperties: function (event) {
-    },
-
-    onClickBracket: function (event) {
     },
 
     render: function () {
@@ -112,35 +107,32 @@ define(function (require, exports, module) {
       let items;
 
       if (mode == "tiny") {
-        items = span({className: "length"}, this.getLength(object));
+        let objectLength = this.getLength(object);
+        let isEmpty = objectLength === 0;
+        items = span({className: "length"}, isEmpty ? "" : objectLength);
       } else {
         let max = (mode == "short") ? 3 : 300;
         items = this.arrayIterator(object, max);
       }
 
+      let objectLink = this.props.objectLink || span;
+      let title = this.getTitle(object);
+
       return (
-        ObjectBox({
-          className: "array",
-          onClick: this.onToggleProperties},
-          a({
-            className: "objectLink",
-            onclick: this.onClickBracket},
-            span({
-              className: "arrayLeftBracket",
-              role: "presentation"},
-              "["
-            )
-          ),
+        span({
+          className: "objectBox objectBox-array"},
+          title,
+          objectLink({
+            className: "arrayLeftBracket",
+            role: "presentation",
+            object: object
+          }, "["),
           items,
-          a({
-            className: "objectLink",
-            onclick: this.onClickBracket},
-            span({
-              className: "arrayRightBracket",
-              role: "presentation"},
-              "]"
-            )
-          ),
+          objectLink({
+            className: "arrayRightBracket",
+            role: "presentation",
+            object: object
+          }, "]"),
           span({
             className: "arrayProperties",
             role: "group"}
@@ -184,7 +176,7 @@ define(function (require, exports, module) {
     render: function () {
       return (
         span({title: "Circular reference"},
-          "[...]"
+          "[…]"
         )
       );
     }

@@ -389,7 +389,7 @@ public:
     MOZ_ASSERT(mNode);
   }
 
-  NS_IMETHOD Run() {
+  NS_IMETHOD Run() override {
     return nsContentUtils::DispatchTrustedEvent(mNode->OwnerDoc(),
                                                 mNode,
                                                 mSuccess ? NS_LITERAL_STRING("load")
@@ -601,7 +601,6 @@ ImportLoader::OnStartRequest(nsIRequest* aRequest, nsISupports* aContext)
   // We want to inherit the sandbox flags and fullscreen enabled flag
   // from the master document.
   mDocument->SetSandboxFlags(master->GetSandboxFlags());
-  mDocument->SetFullscreenEnabled(master->FullscreenEnabledInternal());
 
   // We have to connect the blank document we created with the channel we opened,
   // and create its own LoadGroup for it.

@@ -107,7 +107,7 @@ private:
 public:
   explicit nsAppExitEvent(nsAppStartup *service) : mService(service) {}
 
-  NS_IMETHOD Run() {
+  NS_IMETHOD Run() override {
     // Tell the appshell to exit
     mService->mAppShell->Exit();
 
@@ -614,7 +614,7 @@ nsAppStartup::CreateChromeWindow(nsIWebBrowserChrome *aParent,
                                  nsIWebBrowserChrome **_retval)
 {
   bool cancel;
-  return CreateChromeWindow2(aParent, aChromeFlags, 0, 0, nullptr, &cancel, _retval);
+  return CreateChromeWindow2(aParent, aChromeFlags, 0, nullptr, &cancel, _retval);
 }
 
 
@@ -637,7 +637,6 @@ NS_IMETHODIMP
 nsAppStartup::CreateChromeWindow2(nsIWebBrowserChrome *aParent,
                                   uint32_t aChromeFlags,
                                   uint32_t aContextFlags,
-                                  nsIURI *aURI,
                                   nsITabParent *aOpeningTab,
                                   bool *aCancel,
                                   nsIWebBrowserChrome **_retval)

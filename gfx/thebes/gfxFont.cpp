@@ -9,6 +9,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/MathAlgorithms.h"
+#include "mozilla/SVGContextPaint.h"
 
 #include "mozilla/Logging.h"
 
@@ -1591,6 +1592,13 @@ private:
         return &mGlyphBuffer[mNumGlyphs++];
     }
 
+    static DrawMode
+    GetStrokeMode(DrawMode aMode)
+    {
+        return aMode & (DrawMode::GLYPH_STROKE |
+                        DrawMode::GLYPH_STROKE_UNDERNEATH);
+    }
+
     // Render the buffered glyphs to the draw target and clear the buffer.
     // This actually flushes the glyphs only if the buffer is full, or if the
     // aFinish parameter is true; otherwise it simply returns.
@@ -1679,12 +1687,50 @@ private:
                                           mFontParams.renderingOptions);
             }
         }
-        if ((mRunParams.drawMode &
-             (DrawMode::GLYPH_STROKE | DrawMode::GLYPH_STROKE_UNDERNEATH)) ==
-            DrawMode::GLYPH_STROKE) {
-            state.color = gfx::Color::FromABGR(mRunParams.textStrokeColor);
-            state.strokeOptions.mLineWidth = mRunParams.textStrokeWidth;
-            FlushStroke(buf, state);
+        if (GetStrokeMode(mRunParams.drawMode) == DrawMode::GLYPH_STROKE &&
+            mRunParams.strokeOpts) {
+            Pattern *pat;
+            if (mRunParams.textStrokePattern) {
+                pat = mRunParams.textStrokePattern->GetPattern(
+                  mRunParams.dt, state.patternTransformChanged
+                                   ? &state.patternTransform
+                                   : nullptr);
+
+                if (pat) {
+                    Matrix saved;
+                    Matrix *mat = nullptr;
+                    if (mFontParams.passedInvMatrix) {
+                        // The brush matrix needs to be multiplied with the
+                        // inverted matrix as well, to move the brush into the
+                        // space of the glyphs.
+
+                        // This relies on the returned Pattern not to be reused
+                        // by others, but regenerated on GetPattern calls. This
+                        // is true!
+                        if (pat->GetType() == PatternType::LINEAR_GRADIENT) {
+                            mat = &static_cast<LinearGradientPattern*>(pat)->mMatrix;
+                        } else if (pat->GetType() == PatternType::RADIAL_GRADIENT) {
+                            mat = &static_cast<RadialGradientPattern*>(pat)->mMatrix;
+                        } else if (pat->GetType() == PatternType::SURFACE) {
+                            mat = &static_cast<SurfacePattern*>(pat)->mMatrix;
+                        }
+
+                        if (mat) {
+                            saved = *mat;
+                            *mat = (*mat) * (*mFontParams.passedInvMatrix);
+                        }
+                    }
+                    FlushStroke(buf, *pat);
+
+                    if (mat) {
+                        *mat = saved;
+                    }
+                }
+            } else {
+                FlushStroke(buf,
+                            ColorPattern(
+                              Color::FromABGR(mRunParams.textStrokeColor)));
+            }
         }
         if (mRunParams.drawMode & DrawMode::GLYPH_PATH) {
             mRunParams.context->EnsurePathBuilder();
@@ -1697,13 +1743,13 @@ private:
         mNumGlyphs = 0;
     }
 
-    void FlushStroke(gfx::GlyphBuffer& aBuf, gfxContext::AzureState& aState)
+    void FlushStroke(gfx::GlyphBuffer& aBuf, const Pattern& aPattern)
     {
         RefPtr<Path> path =
             mFontParams.scaledFont->GetPathForGlyphs(aBuf, mRunParams.dt);
-        mRunParams.dt->Stroke(path,
-                              ColorPattern(aState.color),
-                              aState.strokeOptions);
+        mRunParams.dt->Stroke(path, aPattern, *mRunParams.strokeOpts,
+                              (mRunParams.drawOpts) ? *mRunParams.drawOpts
+                                                    : DrawOptions());
     }
 
     Glyph        mGlyphBuffer[GLYPH_BUFFER_SIZE];
@@ -2025,7 +2071,7 @@ gfxFont::Draw(const gfxTextRun *aTextRun, uint32_t aStart, uint32_t aEnd,
         aRunParams.context->SetMatrix(mat);
     }
 
-    UniquePtr<gfxTextContextPaint> contextPaint;
+    UniquePtr<SVGContextPaint> contextPaint;
     if (fontParams.haveSVGGlyphs && !fontParams.contextPaint) {
         // If no pattern is specified for fill, use the current pattern
         NS_ASSERTION((int(aRunParams.drawMode) & int(DrawMode::GLYPH_STROKE)) == 0,
@@ -2131,7 +2177,7 @@ gfxFont::Draw(const gfxTextRun *aTextRun, uint32_t aStart, uint32_t aEnd,
 
 bool
 gfxFont::RenderSVGGlyph(gfxContext *aContext, gfxPoint aPoint,
-                        uint32_t aGlyphId, gfxTextContextPaint *aContextPaint) const
+                        uint32_t aGlyphId, SVGContextPaint* aContextPaint) const
 {
     if (!GetFontEntry()->HasSVGGlyph(aGlyphId)) {
         return false;
@@ -2157,7 +2203,7 @@ gfxFont::RenderSVGGlyph(gfxContext *aContext, gfxPoint aPoint,
 
 bool
 gfxFont::RenderSVGGlyph(gfxContext *aContext, gfxPoint aPoint,
-                        uint32_t aGlyphId, gfxTextContextPaint *aContextPaint,
+                        uint32_t aGlyphId, SVGContextPaint* aContextPaint,
                         gfxTextRunDrawCallbacks *aCallbacks,
                         bool& aEmittedGlyphs) const
 {

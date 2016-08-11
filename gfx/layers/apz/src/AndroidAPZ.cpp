@@ -21,8 +21,10 @@ namespace mozilla {
 namespace layers {
 
 AndroidSpecificState::AndroidSpecificState() {
-  widget::sdk::ViewConfiguration::LocalRef config;
-  if (widget::sdk::ViewConfiguration::Get(widget::GeckoAppShell::GetApplicationContext(), &config) == NS_OK) {
+  using namespace mozilla::java;
+
+  sdk::ViewConfiguration::LocalRef config;
+  if (sdk::ViewConfiguration::Get(GeckoAppShell::GetApplicationContext(), &config) == NS_OK) {
     int32_t speed = 0;
     if (config->GetScaledMaximumFlingVelocity(&speed) == NS_OK) {
       sMaxFlingSpeed = (float)speed * 0.001f;
@@ -32,8 +34,9 @@ AndroidSpecificState::AndroidSpecificState() {
   } else {
     ANDROID_APZ_LOG("%p Failed to get ViewConfiguration\n", this);
   }
-  widget::StackScroller::LocalRef scroller;
-  if (widget::StackScroller::New(widget::GeckoAppShell::GetApplicationContext(), &scroller) != NS_OK) {
+
+  StackScroller::LocalRef scroller;
+  if (StackScroller::New(GeckoAppShell::GetApplicationContext(), &scroller) != NS_OK) {
     ANDROID_APZ_LOG("%p Failed to create Android StackScroller\n", this);
     return;
   }
@@ -143,6 +146,7 @@ AndroidFlingAnimation::DoSample(FrameMetrics& aFrameMetrics,
   mOverScroller->GetCurrX(&currentX);
   mOverScroller->GetCurrY(&currentY);
   ParentLayerPoint offset((float)currentX, (float)currentY);
+  ParentLayerPoint preCheckedOffset(offset);
 
   bool hitBoundX = CheckBounds(mApzc.mX, offset.x, mFlingDirection.x, &(offset.x));
   bool hitBoundY = CheckBounds(mApzc.mY, offset.y, mFlingDirection.y, &(offset.y));
@@ -163,9 +167,12 @@ AndroidFlingAnimation::DoSample(FrameMetrics& aFrameMetrics,
 
       mPreviousVelocity = velocity;
     }
-  } else if (hitBoundX || hitBoundY) {
-    // We have reached the end of the scroll in one of the directions being scrolled and the offset has not
-    // changed so end animation.
+  } else if ((fabsf(offset.x - preCheckedOffset.x) > BOUNDS_EPSILON) || (fabsf(offset.y - preCheckedOffset.y) > BOUNDS_EPSILON)) {
+    // The page is no longer scrolling but the fling animation is still animating beyond the page bounds. If it goes
+    // beyond the BOUNDS_EPSILON then it has overflowed and will never stop. In that case, stop the fling animation.
+    shouldContinueFling = false;
+  } else if (hitBoundX && hitBoundY) {
+    // We can't scroll any farther along either axis.
     shouldContinueFling = false;
   }
 

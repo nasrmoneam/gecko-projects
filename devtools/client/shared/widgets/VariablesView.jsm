@@ -38,7 +38,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "clipboardHelper",
 
 Object.defineProperty(this, "WebConsoleUtils", {
   get: function () {
-    return require("devtools/shared/webconsole/utils").Utils;
+    return require("devtools/client/webconsole/utils").Utils;
   },
   configurable: true,
   enumerable: true
@@ -458,7 +458,7 @@ VariablesView.prototype = {
     container.hidden = !this._store.length;
 
     let searchbox = this._searchboxNode = document.createElement("textbox");
-    searchbox.className = "variables-view-searchinput devtools-searchinput";
+    searchbox.className = "variables-view-searchinput devtools-filterinput";
     searchbox.setAttribute("placeholder", this._searchboxPlaceholder);
     searchbox.setAttribute("type", "search");
     searchbox.setAttribute("flex", "1");

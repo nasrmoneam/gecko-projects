@@ -73,10 +73,6 @@ gfxFontconfigUtils *gfxPlatformGtk::sFontconfigUtils = nullptr;
 static cairo_user_data_key_t cairo_gdk_drawable_key;
 #endif
 
-#ifdef MOZ_X11
-    bool gfxPlatformGtk::sUseXRender = true;
-#endif
-
 bool gfxPlatformGtk::sUseFcFontList = false;
 
 gfxPlatformGtk::gfxPlatformGtk()
@@ -91,14 +87,32 @@ gfxPlatformGtk::gfxPlatformGtk()
     mMaxGenericSubstitutions = UNINITIALIZED_VALUE;
 
 #ifdef MOZ_X11
-    sUseXRender = (GDK_IS_X11_DISPLAY(gdk_display_get_default())) ?
-                    mozilla::Preferences::GetBool("gfx.xrender.enabled") : false;
+    if (XRE_IsParentProcess()) {
+      if (GDK_IS_X11_DISPLAY(gdk_display_get_default()) &&
+          mozilla::Preferences::GetBool("gfx.xrender.enabled"))
+      {
+          gfxVars::SetUseXRender(true);
+      }
+    }
 #endif
 
-    uint32_t canvasMask = BackendTypeBit(BackendType::CAIRO) | BackendTypeBit(BackendType::SKIA);
-    uint32_t contentMask = BackendTypeBit(BackendType::CAIRO) | BackendTypeBit(BackendType::SKIA);
+    uint32_t canvasMask = BackendTypeBit(BackendType::CAIRO);
+    uint32_t contentMask = BackendTypeBit(BackendType::CAIRO);
+#ifdef USE_SKIA
+    canvasMask |= BackendTypeBit(BackendType::SKIA);
+    contentMask |= BackendTypeBit(BackendType::SKIA);
+#endif
     InitBackendPrefs(canvasMask, BackendType::CAIRO,
                      contentMask, BackendType::CAIRO);
+
+#ifdef MOZ_X11
+    if (GDK_IS_X11_DISPLAY(gdk_display_get_default())) {
+      mCompositorDisplay = XOpenDisplay(nullptr);
+      MOZ_ASSERT(mCompositorDisplay, "Failed to create compositor display!");
+    } else {
+      mCompositorDisplay = nullptr;
+    }
+#endif // MOZ_X11
 }
 
 gfxPlatformGtk::~gfxPlatformGtk()
@@ -108,12 +122,18 @@ gfxPlatformGtk::~gfxPlatformGtk()
         sFontconfigUtils = nullptr;
         gfxPangoFontGroup::Shutdown();
     }
+
+#ifdef MOZ_X11
+    if (mCompositorDisplay) {
+      XCloseDisplay(mCompositorDisplay);
+    }
+#endif // MOZ_X11
 }
 
 void
 gfxPlatformGtk::FlushContentDrawing()
 {
-    if (UseXRender()) {
+    if (gfxVars::UseXRender()) {
         XFlush(DefaultXDisplay());
     }
 }
@@ -132,7 +152,7 @@ gfxPlatformGtk::CreateOffscreenSurface(const IntSize& aSize,
     if (gdkScreen) {
         // When forcing PaintedLayers to use image surfaces for content,
         // force creation of gfxImageSurface surfaces.
-        if (UseXRender() && !UseImageOffscreenSurfaces()) {
+        if (gfxVars::UseXRender() && !UseImageOffscreenSurfaces()) {
             Screen *screen = gdk_x11_screen_get_xscreen(gdkScreen);
             XRenderPictFormat* xrenderFormat =
                 gfxXlibSurface::FindRenderFormat(DisplayOfScreen(screen),
@@ -610,7 +630,20 @@ gfxPlatformGtk::GetGdkDrawable(cairo_surface_t *target)
 already_AddRefed<ScaledFont>
 gfxPlatformGtk::GetScaledFontForFont(DrawTarget* aTarget, gfxFont *aFont)
 {
-    return GetScaledFontForFontWithCairoSkia(aTarget, aFont);
+    switch (aTarget->GetBackendType()) {
+    case BackendType::CAIRO:
+    case BackendType::SKIA:
+        if (aFont->GetType() == gfxFont::FONT_TYPE_FONTCONFIG) {
+            gfxFontconfigFontBase* fcFont = static_cast<gfxFontconfigFontBase*>(aFont);
+            return Factory::CreateScaledFontForFontconfigFont(
+                    fcFont->GetCairoScaledFont(),
+                    fcFont->GetPattern(),
+                    fcFont->GetAdjustedSize());
+        }
+        MOZ_FALLTHROUGH;
+    default:
+        return GetScaledFontForFontWithCairoSkia(aTarget, aFont);
+    }
 }
 
 #ifdef GL_PROVIDER_GLX
@@ -640,7 +673,6 @@ public:
 
   public:
     GLXDisplay() : mGLContext(nullptr)
-                 , mXDisplay(nullptr)
                  , mSetupLock("GLXVsyncSetupLock")
                  , mVsyncThread("GLXVsyncThread")
                  , mVsyncTask(nullptr)
@@ -673,22 +705,15 @@ public:
         MOZ_ASSERT(!NS_IsMainThread());
         MOZ_ASSERT(!mGLContext, "GLContext already setup!");
 
-        // Create video sync timer on a separate Display to prevent locking the
-        // main thread X display.
-        mXDisplay = XOpenDisplay(nullptr);
-        if (!mXDisplay) {
-          lock.NotifyAll();
-          return;
-        }
-
+        _XDisplay* display = gfxPlatformGtk::GetPlatform()->GetCompositorDisplay();
         // Most compositors wait for vsync events on the root window.
-        Window root = DefaultRootWindow(mXDisplay);
-        int screen = DefaultScreen(mXDisplay);
+        Window root = DefaultRootWindow(display);
+        int screen = DefaultScreen(display);
 
         ScopedXFree<GLXFBConfig> cfgs;
         GLXFBConfig config;
         int visid;
-        if (!gl::GLContextGLX::FindFBConfigForWindow(mXDisplay, screen, root,
+        if (!gl::GLContextGLX::FindFBConfigForWindow(display, screen, root,
                                                      &cfgs, &config, &visid)) {
           lock.NotifyAll();
           return;
@@ -699,7 +724,7 @@ public:
             gl::SurfaceCaps::Any(),
             nullptr,
             false,
-            mXDisplay,
+            display,
             root,
             config,
             false);
@@ -821,12 +846,10 @@ public:
       MOZ_ASSERT(!NS_IsMainThread());
 
       mGLContext = nullptr;
-      XCloseDisplay(mXDisplay);
     }
 
     // Owned by the vsync thread.
     RefPtr<gl::GLContextGLX> mGLContext;
-    _XDisplay* mXDisplay;
     Monitor mSetupLock;
     base::Thread mVsyncThread;
     RefPtr<Runnable> mVsyncTask;

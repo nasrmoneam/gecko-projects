@@ -10,9 +10,11 @@
 #include "nsIWidget.h"
 #include "gfx2DGlue.h"
 #include "mozilla/gfx/2D.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/Helpers.h"
 #include "mozilla/gfx/Tools.h"
 #include "mozilla/gfx/ssse3-scaler.h"
+#include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/SSE.h"
 #include "gfxUtils.h"
 #include "YCbCrUtils.h"
@@ -80,14 +82,110 @@ public:
   bool mWrappingExistingData;
 };
 
+/**
+ * WrappingTextureSourceYCbCrBasic wraps YUV format BufferTextureHost to defer
+ * yuv->rgb conversion. The conversion happens when GetSurface is called.
+ */
+class WrappingTextureSourceYCbCrBasic : public DataTextureSource
+                                      , public TextureSourceBasic
+{
+public:
+  virtual const char* Name() const override { return "WrappingTextureSourceYCbCrBasic"; }
+
+  explicit WrappingTextureSourceYCbCrBasic(BufferTextureHost* aTexture)
+  : mTexture(aTexture)
+  , mSize(aTexture->GetSize())
+  , mNeedsUpdate(true)
+  {
+    mFromYCBCR = true;
+  }
+
+  virtual DataTextureSource* AsDataTextureSource() override
+  {
+    return this;
+  }
+
+  virtual TextureSourceBasic* AsSourceBasic() override { return this; }
+
+  virtual WrappingTextureSourceYCbCrBasic* AsWrappingTextureSourceYCbCrBasic() override { return this; }
+
+  virtual gfx::SourceSurface* GetSurface(DrawTarget* aTarget) override
+  {
+    if (mSurface && !mNeedsUpdate) {
+      return mSurface;
+    }
+    MOZ_ASSERT(mTexture);
+    if (!mTexture) {
+      return nullptr;
+    }
+
+    if (!mSurface) {
+      mSurface = Factory::CreateDataSourceSurface(mSize, gfx::SurfaceFormat::B8G8R8X8);
+    }
+    if (!mSurface) {
+      return nullptr;
+    }
+    MOZ_ASSERT(mTexture->GetBufferDescriptor().type() == BufferDescriptor::TYCbCrDescriptor);
+    MOZ_ASSERT(mTexture->GetSize() == mSize);
+
+    mSurface =
+      ImageDataSerializer::DataSourceSurfaceFromYCbCrDescriptor(
+        mTexture->GetBuffer(),
+        mTexture->GetBufferDescriptor().get_YCbCrDescriptor(),
+        mSurface);
+    mNeedsUpdate = false;
+    return mSurface;
+  }
+
+  SurfaceFormat GetFormat() const override
+  {
+    return gfx::SurfaceFormat::B8G8R8X8;
+  }
+
+  virtual IntSize GetSize() const override
+  {
+    return mSize;
+  }
+
+  virtual bool Update(gfx::DataSourceSurface* aSurface,
+                      nsIntRegion* aDestRegion = nullptr,
+                      gfx::IntPoint* aSrcOffset = nullptr) override
+  {
+    return false;
+  }
+
+  virtual void DeallocateDeviceData() override
+  {
+    mTexture = nullptr;
+    mSurface = nullptr;
+    SetUpdateSerial(0);
+  }
+
+  virtual void Unbind() override
+  {
+    mNeedsUpdate = true;
+  }
+
+  void SetBufferTextureHost(BufferTextureHost* aTexture) override
+  {
+    mTexture = aTexture;
+    mNeedsUpdate = true;
+  }
+
+public:
+  BufferTextureHost* mTexture;
+  const gfx::IntSize mSize;
+  RefPtr<gfx::DataSourceSurface> mSurface;
+  bool mNeedsUpdate;
+};
+
 BasicCompositor::BasicCompositor(CompositorBridgeParent* aParent, widget::CompositorWidget* aWidget)
   : Compositor(aWidget, aParent)
   , mDidExternalComposition(false)
 {
   MOZ_COUNT_CTOR(BasicCompositor);
 
-  mMaxTextureSize =
-    Factory::GetMaxSurfaceSize(gfxPlatform::GetPlatform()->GetContentBackendFor(LayersBackend::LAYERS_BASIC));
+  mMaxTextureSize = Factory::GetMaxSurfaceSize(gfxVars::ContentBackend());
 }
 
 BasicCompositor::~BasicCompositor()
@@ -215,6 +313,19 @@ BasicCompositor::CreateDataTextureSourceAround(DataSourceSurface* aSurface)
   return result.forget();
 }
 
+already_AddRefed<DataTextureSource>
+BasicCompositor::CreateDataTextureSourceAroundYCbCr(TextureHost* aTexture)
+{
+  BufferTextureHost* bufferTexture = aTexture->AsBufferTextureHost();
+  MOZ_ASSERT(bufferTexture);
+
+  if (!bufferTexture) {
+    return nullptr;
+  }
+  RefPtr<DataTextureSource> result = new WrappingTextureSourceYCbCrBasic(bufferTexture);
+  return result.forget();
+}
+
 bool
 BasicCompositor::SupportsEffect(EffectTypes aEffect)
 {
@@ -249,9 +360,9 @@ DrawSurfaceWithTextureCoords(DrawTarget *aDest,
   // Compute a transform that maps sourceRect to aDestRect.
   Matrix matrix =
     gfxUtils::TransformRectToRect(sourceRect,
-                                  gfx::IntPoint(aDestRect.x, aDestRect.y),
-                                  gfx::IntPoint(aDestRect.XMost(), aDestRect.y),
-                                  gfx::IntPoint(aDestRect.XMost(), aDestRect.YMost()));
+                                  gfx::IntPoint::Truncate(aDestRect.x, aDestRect.y),
+                                  gfx::IntPoint::Truncate(aDestRect.XMost(), aDestRect.y),
+                                  gfx::IntPoint::Truncate(aDestRect.XMost(), aDestRect.YMost()));
 
   // Only use REPEAT if aTextureCoords is outside (0, 0, 1, 1).
   gfx::Rect unitRect(0, 0, 1, 1);
@@ -515,7 +626,7 @@ BasicCompositor::DrawQuad(const gfx::Rect& aRect,
 
     if (sourceMask) {
       RefPtr<DrawTarget> transformDT =
-        dest->CreateSimilarDrawTarget(IntSize(transformBounds.width, transformBounds.height),
+        dest->CreateSimilarDrawTarget(IntSize::Truncate(transformBounds.width, transformBounds.height),
                                       SurfaceFormat::B8G8R8A8);
       new3DTransform.PostTranslate(-transformBounds.x, -transformBounds.y, 0);
       if (transformDT &&
@@ -595,6 +706,7 @@ BasicCompositor::BeginFrame(const nsIntRegion& aInvalidRegion,
     // placeholder so that CreateRenderTarget() works. This is only used to create a new buffered
     // draw target that we composite into, then copy the results the destination.
     mDrawTarget = mTarget;
+    bufferMode = BufferMode::BUFFER_NONE;
   } else {
     // StartRemoteDrawingInRegion can mutate mInvalidRegion.
     mDrawTarget = mWidget->StartRemoteDrawingInRegion(mInvalidRegion, &bufferMode);
@@ -684,7 +796,7 @@ BasicCompositor::EndFrame()
   // Pop aInvalidregion
   mRenderTarget->mDrawTarget->PopClip();
 
-  if (mTarget || mRenderTarget->mDrawTarget != mDrawTarget) {
+  if (mRenderTarget->mDrawTarget != mDrawTarget) {
     // Note: Most platforms require us to buffer drawing to the widget surface.
     // That's why we don't draw to mDrawTarget directly.
     RefPtr<SourceSurface> source;

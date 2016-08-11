@@ -131,15 +131,12 @@ enum {
     JS_TELEMETRY_GC_MINOR_REASON,
     JS_TELEMETRY_GC_MINOR_REASON_LONG,
     JS_TELEMETRY_GC_MINOR_US,
+    JS_TELEMETRY_GC_NURSERY_BYTES,
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT,
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS,
     JS_TELEMETRY_ADDON_EXCEPTIONS,
-    JS_TELEMETRY_DEFINE_GETTER_SETTER_THIS_NULL_UNDEFINED,
     JS_TELEMETRY_END
 };
-
-static_assert(JS_TELEMETRY_DEFINE_GETTER_SETTER_THIS_NULL_UNDEFINED == 25,
-              "This value needs to be kept in sync with SelfHostingDefines.h");
 
 typedef void
 (*JSAccumulateTelemetryDataCallback)(int id, uint32_t sample, const char* key);
@@ -512,7 +509,7 @@ extern JS_FRIEND_API(void)
 TraceWeakMaps(WeakMapTracer* trc);
 
 extern JS_FRIEND_API(bool)
-AreGCGrayBitsValid(JSRuntime* rt);
+AreGCGrayBitsValid(JSContext* cx);
 
 extern JS_FRIEND_API(bool)
 ZoneGlobalsAreAllGray(JS::Zone* zone);
@@ -1247,10 +1244,9 @@ struct ExpandoAndGeneration {
       generation(0)
   {}
 
-  void Unlink()
+  void OwnerUnlinked()
   {
       ++generation;
-      expando.setUndefined();
   }
 
   static size_t offsetOfExpando()
@@ -1530,10 +1526,11 @@ enum Type {
     Uint8Clamped,
 
     /**
-     * SIMD types don't have their own TypedArray equivalent, for now.
+     * Types that don't have their own TypedArray equivalent, for now.
      */
     MaxTypedArrayViewType,
 
+    Int64,
     Float32x4,
     Int8x16,
     Int16x8,
@@ -1555,6 +1552,7 @@ byteSize(Type atype)
       case Uint32:
       case Float32:
         return 4;
+      case Int64:
       case Float64:
         return 8;
       case Int8x16:
@@ -1573,6 +1571,7 @@ isSignedIntType(Type atype) {
       case Int8:
       case Int16:
       case Int32:
+      case Int64:
       case Int8x16:
       case Int16x8:
       case Int32x4:
@@ -1600,6 +1599,7 @@ isSimdType(Type atype) {
       case Uint16:
       case Int32:
       case Uint32:
+      case Int64:
       case Float32:
       case Float64:
         return false;
@@ -1631,6 +1631,7 @@ scalarByteSize(Type atype) {
       case Uint16:
       case Int32:
       case Uint32:
+      case Int64:
       case Float32:
       case Float64:
       case MaxTypedArrayViewType:

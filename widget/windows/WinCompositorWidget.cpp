@@ -4,26 +4,18 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "WinCompositorWidget.h"
-#include "nsWindow.h"
-#include "VsyncDispatcher.h"
 #include "mozilla/gfx/Point.h"
 #include "mozilla/widget/PlatformWidgetTypes.h"
+#include "nsWindow.h"
+#include "VsyncDispatcher.h"
 
 namespace mozilla {
 namespace widget {
 
 using namespace mozilla::gfx;
 
-/* static */ RefPtr<CompositorWidget>
-CompositorWidget::CreateLocal(const CompositorWidgetInitData& aInitData, nsIWidget* aWidget)
-{
-  return new WinCompositorWidget(aInitData, static_cast<nsWindow*>(aWidget));
-}
-
-WinCompositorWidget::WinCompositorWidget(const CompositorWidgetInitData& aInitData,
-                                         nsWindow* aWindow)
- : mWindow(aWindow),
-   mWidgetKey(aInitData.widgetKey()),
+WinCompositorWidget::WinCompositorWidget(const CompositorWidgetInitData& aInitData)
+ : mWidgetKey(aInitData.widgetKey()),
    mWnd(reinterpret_cast<HWND>(aInitData.hWnd())),
    mTransparencyMode(static_cast<nsTransparencyMode>(aInitData.transparencyMode())),
    mMemoryDC(nullptr),
@@ -55,13 +47,6 @@ void
 WinCompositorWidget::PostRender(layers::LayerManagerComposite* aManager)
 {
   mPresentLock.Leave();
-}
-
-nsIWidget*
-WinCompositorWidget::RealWidget()
-{
-  MOZ_ASSERT(mWindow);
-  return mWindow;
 }
 
 LayoutDeviceIntSize
@@ -173,13 +158,6 @@ WinCompositorWidget::EndBackBufferDrawing()
   return CompositorWidget::EndBackBufferDrawing();
 }
 
-already_AddRefed<CompositorVsyncDispatcher>
-WinCompositorWidget::GetCompositorVsyncDispatcher()
-{
-  RefPtr<CompositorVsyncDispatcher> cvd = mWindow->GetCompositorVsyncDispatcher();
-  return cvd.forget();
-}
-
 uintptr_t
 WinCompositorWidget::GetWidgetKey()
 {
@@ -203,9 +181,11 @@ WinCompositorWidget::EnsureTransparentSurface()
 {
   MOZ_ASSERT(mTransparencyMode == eTransparencyTransparent);
 
-  if (!mTransparentSurface) {
-    LayoutDeviceIntSize size = GetClientSize();
-    CreateTransparentSurface(IntSize(size.width, size.height));
+  IntSize size = GetClientSize().ToUnknownSize();
+  if (!mTransparentSurface || mTransparentSurface->GetSize() != size) {
+    mTransparentSurface = nullptr;
+    mMemoryDC = nullptr;
+    CreateTransparentSurface(size);
   }
 
   RefPtr<gfxASurface> surface = mTransparentSurface;
@@ -244,27 +224,15 @@ WinCompositorWidget::ClearTransparentWindow()
     return;
   }
 
+  EnsureTransparentSurface();
+
   IntSize size = mTransparentSurface->GetSize();
-  RefPtr<DrawTarget> drawTarget = gfxPlatform::GetPlatform()->
-    CreateDrawTargetForSurface(mTransparentSurface, size);
-  drawTarget->ClearRect(Rect(0, 0, size.width, size.height));
-  RedrawTransparentWindow();
-}
-
-void
-WinCompositorWidget::ResizeTransparentWindow(const gfx::IntSize& aSize)
-{
-  MOZ_ASSERT(mTransparencyMode == eTransparencyTransparent);
-
-  if (mTransparentSurface && mTransparentSurface->GetSize() == aSize) {
-    return;
+  if (!size.IsEmpty()) {
+    RefPtr<DrawTarget> drawTarget = gfxPlatform::GetPlatform()->
+      CreateDrawTargetForSurface(mTransparentSurface, size);
+    drawTarget->ClearRect(Rect(0, 0, size.width, size.height));
+    RedrawTransparentWindow();
   }
-
-  // Destroy the old surface.
-  mTransparentSurface = nullptr;
-  mMemoryDC = nullptr;
-
-  CreateTransparentSurface(aSize);
 }
 
 bool

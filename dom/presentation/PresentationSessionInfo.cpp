@@ -226,7 +226,7 @@ PresentationSessionInfo::Shutdown(nsresult aReason)
 
   // Close the control channel if any.
   if (mControlChannel) {
-    NS_WARN_IF(NS_FAILED(mControlChannel->Close(aReason)));
+    NS_WARN_IF(NS_FAILED(mControlChannel->Disconnect(aReason)));
   }
 
   // Close the data transport channel if any.
@@ -236,6 +236,7 @@ PresentationSessionInfo::Shutdown(nsresult aReason)
   }
 
   mIsResponderReady = false;
+  mIsOnTerminating = false;
 
   SetBuilder(nullptr);
 }
@@ -243,6 +244,10 @@ PresentationSessionInfo::Shutdown(nsresult aReason)
 nsresult
 PresentationSessionInfo::SetListener(nsIPresentationSessionListener* aListener)
 {
+  if (mListener && aListener) {
+    NS_WARN_IF(NS_FAILED(mListener->NotifyReplaced()));
+  }
+
   mListener = aListener;
 
   if (mListener) {
@@ -284,9 +289,46 @@ PresentationSessionInfo::Close(nsresult aReason,
     return NS_ERROR_DOM_INVALID_STATE_ERR;
   }
 
+  // Do nothing if session is already terminated.
+  if (nsIPresentationSessionListener::STATE_TERMINATED == mState) {
+    return NS_OK;
+  }
+
   SetStateWithReason(aState, aReason);
 
-  Shutdown(aReason);
+  switch (aState) {
+    case nsIPresentationSessionListener::STATE_CLOSED: {
+      Shutdown(aReason);
+      break;
+    }
+    case nsIPresentationSessionListener::STATE_TERMINATED: {
+      if (!mControlChannel) {
+        nsCOMPtr<nsIPresentationControlChannel> ctrlChannel;
+        nsresult rv = mDevice->EstablishControlChannel(getter_AddRefs(ctrlChannel));
+        if (NS_FAILED(rv)) {
+          Shutdown(rv);
+          return rv;
+        }
+
+        SetControlChannel(ctrlChannel);
+        return rv;
+      }
+
+      ContinueTermination();
+      return NS_OK;
+    }
+  }
+
+  return NS_OK;
+}
+
+nsresult
+PresentationSessionInfo::OnTerminate(nsIPresentationControlChannel* aControlChannel)
+{
+  mIsOnTerminating = true; // Mark for terminating transport channel
+  SetStateWithReason(nsIPresentationSessionListener::STATE_TERMINATED, NS_OK);
+  SetControlChannel(aControlChannel);
+
   return NS_OK;
 }
 
@@ -342,6 +384,18 @@ PresentationSessionInfo::IsAccessible(base::ProcessId aProcessId)
   return true;
 }
 
+void
+PresentationSessionInfo::ContinueTermination()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(mControlChannel);
+
+  if (NS_WARN_IF(NS_FAILED(mControlChannel->Terminate(mSessionId)))
+      || mIsOnTerminating) {
+    Shutdown(NS_OK);
+  }
+}
+
 // nsIPresentationSessionTransportCallback
 NS_IMETHODIMP
 PresentationSessionInfo::NotifyTransportReady()
@@ -375,7 +429,8 @@ PresentationSessionInfo::NotifyTransportClosed(nsresult aReason)
   // potential subsequent |Shutdown| calls.
   mTransport = nullptr;
 
-  if (NS_WARN_IF(!IsSessionReady())) {
+  if (NS_WARN_IF(!IsSessionReady() &&
+                 mState == nsIPresentationSessionListener::STATE_CONNECTING)) {
     // It happens before the session is ready. Reply the callback.
     return ReplyError(NS_ERROR_DOM_OPERATION_ERR);
   }
@@ -467,7 +522,7 @@ PresentationSessionInfo::SendIceCandidate(const nsAString& candidate)
 NS_IMETHODIMP
 PresentationSessionInfo::Close(nsresult reason)
 {
-  return mControlChannel->Close(reason);
+  return mControlChannel->Disconnect(reason);
 }
 
 /**
@@ -478,7 +533,7 @@ PresentationSessionInfo::Close(nsresult reason)
  * 4 is not guaranteed.)
  * 1. |Init| is called to open a socket |mServerSocket| for data transport
  *    channel.
- * 2. |NotifyOpened| of |nsIPresentationControlChannelListener| is called to
+ * 2. |NotifyConnected| of |nsIPresentationControlChannelListener| is called to
  *    indicate the control channel is ready to use. Then send the offer to the
  *    receiver via the control channel.
  * 3.1 |OnSocketAccepted| of |nsIServerSocketListener| is called to indicate the
@@ -673,7 +728,7 @@ PresentationControllingInfo::OnAnswer(nsIPresentationChannelDescription* aDescri
   mIsResponderReady = true;
 
   // Close the control channel since it's no longer needed.
-  nsresult rv = mControlChannel->Close(NS_OK);
+  nsresult rv = mControlChannel->Disconnect(NS_OK);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return ReplyError(NS_ERROR_DOM_OPERATION_ERR);
   }
@@ -688,9 +743,52 @@ PresentationControllingInfo::OnAnswer(nsIPresentationChannelDescription* aDescri
 }
 
 NS_IMETHODIMP
-PresentationControllingInfo::NotifyOpened()
+PresentationControllingInfo::NotifyConnected()
 {
   MOZ_ASSERT(NS_IsMainThread());
+
+  switch (mState) {
+    case nsIPresentationSessionListener::STATE_CONNECTING: {
+      nsresult rv = mControlChannel->Launch(GetSessionId(), GetUrl());
+      if (NS_WARN_IF(NS_FAILED(rv))) {
+        return rv;
+      }
+      Unused << NS_WARN_IF(NS_FAILED(BuildTransport()));
+      break;
+    }
+    case nsIPresentationSessionListener::STATE_TERMINATED: {
+      ContinueTermination();
+      break;
+    }
+    default:
+      break;
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+PresentationControllingInfo::NotifyReconnected()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(mReconnectCallback);
+
+  if (NS_WARN_IF(mState == nsIPresentationSessionListener::STATE_TERMINATED)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  SetStateWithReason(nsIPresentationSessionListener::STATE_CONNECTING, NS_OK);
+  return mReconnectCallback->NotifySuccess();
+}
+
+nsresult
+PresentationControllingInfo::BuildTransport()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (mState != nsIPresentationSessionListener::STATE_CONNECTING) {
+    return NS_OK;
+  }
 
   if (!Preferences::GetBool("dom.presentation.session_transport.data_channel.enable")) {
     // Build TCP session transport
@@ -732,9 +830,9 @@ PresentationControllingInfo::NotifyOpened()
     return NS_ERROR_NOT_AVAILABLE;
   }
   nsresult rv = dataChannelBuilder->
-                  BuildDataChannelTransport(nsIPresentationService::ROLE_CONTROLLER,
-                                            window,
-                                            this);
+         BuildDataChannelTransport(nsIPresentationService::ROLE_CONTROLLER,
+                                   window,
+                                   this);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -742,7 +840,7 @@ PresentationControllingInfo::NotifyOpened()
 }
 
 NS_IMETHODIMP
-PresentationControllingInfo::NotifyClosed(nsresult aReason)
+PresentationControllingInfo::NotifyDisconnected(nsresult aReason)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -750,7 +848,7 @@ PresentationControllingInfo::NotifyClosed(nsresult aReason)
     nsCOMPtr<nsIPresentationDataChannelSessionTransportBuilder>
       builder = do_QueryInterface(mBuilder);
     if (builder) {
-      NS_WARN_IF(NS_FAILED(builder->NotifyClosed(aReason)));
+      NS_WARN_IF(NS_FAILED(builder->NotifyDisconnected(aReason)));
     }
   }
 
@@ -760,8 +858,10 @@ PresentationControllingInfo::NotifyClosed(nsresult aReason)
 
   if (NS_WARN_IF(NS_FAILED(aReason) || !mIsResponderReady)) {
     // The presentation session instance may already exist.
-    // Change the state to TERMINATED since it never succeeds.
-    SetStateWithReason(nsIPresentationSessionListener::STATE_TERMINATED, aReason);
+    // Change the state to CLOSED if it is not terminated.
+    if (nsIPresentationSessionListener::STATE_TERMINATED != mState) {
+      SetStateWithReason(nsIPresentationSessionListener::STATE_CLOSED, aReason);
+    }
 
     // Reply error for an abnormal close.
     return ReplyError(NS_ERROR_DOM_OPERATION_ERR);
@@ -813,6 +913,41 @@ PresentationControllingInfo::OnStopListening(nsIServerSocket* aServerSocket,
 
   // It happens after the session is ready. Change the state to CLOSED.
   SetStateWithReason(nsIPresentationSessionListener::STATE_CLOSED, aStatus);
+
+  return NS_OK;
+}
+
+nsresult
+PresentationControllingInfo::Reconnect(nsIPresentationServiceCallback* aCallback)
+{
+  if (!aCallback) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  mReconnectCallback = aCallback;
+
+  if (NS_WARN_IF(mState == nsIPresentationSessionListener::STATE_TERMINATED)) {
+    return mReconnectCallback->NotifyError(NS_ERROR_DOM_INVALID_STATE_ERR);
+  }
+
+  nsresult rv = NS_OK;
+  if (!mControlChannel) {
+    nsCOMPtr<nsIPresentationControlChannel> ctrlChannel;
+    rv = mDevice->EstablishControlChannel(getter_AddRefs(ctrlChannel));
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return mReconnectCallback->NotifyError(NS_ERROR_DOM_OPERATION_ERR);
+    }
+
+    rv = Init(ctrlChannel);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return mReconnectCallback->NotifyError(NS_ERROR_DOM_OPERATION_ERR);
+    }
+  }
+
+  rv = mControlChannel->Reconnect(mSessionId, GetUrl());
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return mReconnectCallback->NotifyError(rv);
+  }
 
   return NS_OK;
 }
@@ -1080,6 +1215,17 @@ PresentationPresentingInfo::NotifyResponderReady()
   return NS_OK;
 }
 
+nsresult
+PresentationPresentingInfo::NotifyResponderFailure()
+{
+  if (mTimer) {
+    mTimer->Cancel();
+    mTimer = nullptr;
+  }
+
+  return ReplyError(NS_ERROR_DOM_OPERATION_ERR);
+}
+
 // nsIPresentationControlChannelListener
 NS_IMETHODIMP
 PresentationPresentingInfo::OnOffer(nsIPresentationChannelDescription* aDescription)
@@ -1132,14 +1278,24 @@ PresentationPresentingInfo::OnIceCandidate(const nsAString& aCandidate)
 }
 
 NS_IMETHODIMP
-PresentationPresentingInfo::NotifyOpened()
+PresentationPresentingInfo::NotifyConnected()
 {
-  // Do nothing.
+  if (nsIPresentationSessionListener::STATE_TERMINATED == mState) {
+    ContinueTermination();
+  }
+
   return NS_OK;
 }
 
 NS_IMETHODIMP
-PresentationPresentingInfo::NotifyClosed(nsresult aReason)
+PresentationPresentingInfo::NotifyReconnected()
+{
+  MOZ_ASSERT(false, "NotifyReconnected should not be called at receiver side.");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+PresentationPresentingInfo::NotifyDisconnected(nsresult aReason)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -1147,7 +1303,7 @@ PresentationPresentingInfo::NotifyClosed(nsresult aReason)
     nsCOMPtr<nsIPresentationDataChannelSessionTransportBuilder>
       builder = do_QueryInterface(mBuilder);
     if (builder) {
-      NS_WARN_IF(NS_FAILED(builder->NotifyClosed(aReason)));
+      NS_WARN_IF(NS_FAILED(builder->NotifyDisconnected(aReason)));
     }
   }
 

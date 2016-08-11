@@ -1107,7 +1107,6 @@ GeckoMediaPluginServiceParent::AddOnGMPThread(nsString aDirectory)
         MutexAutoLock lock(self->mMutex);
         self->mPlugins.AppendElement(gmp);
       }
-      NS_DispatchToMainThread(new NotifyObserversTask("gmp-path-added"), NS_DISPATCH_NORMAL);
     },
     [dir]() -> void {
       LOGD(("%s::%s: %s Failed", __CLASS__, __FUNCTION__, dir.get()));
@@ -1925,7 +1924,7 @@ public:
   {
   }
 
-  NS_IMETHODIMP Run()
+  NS_IMETHOD Run() override
   {
     return NS_OK;
   }
@@ -1954,7 +1953,7 @@ public:
   {
   }
 
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() override
   {
     *mResult = mGMPServiceParent->Open(mTransport, mOtherPid,
                                        XRE_GetIOMessageLoop(), ipc::ParentSide);

@@ -15,6 +15,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "nsIObserverService.h"
+#include "nsPrintfCString.h"
 #include "WebGLActiveInfo.h"
 #include "WebGLBuffer.h"
 #include "WebGLContextUtils.h"
@@ -437,7 +438,7 @@ WebGLContext::ValidateUniformLocation(WebGLUniformLocation* loc, const char* fun
         return false;
     }
 
-    return loc->ValidateForProgram(mCurrentProgram, this, funcName);
+    return loc->ValidateForProgram(mCurrentProgram, funcName);
 }
 
 bool
@@ -459,7 +460,7 @@ WebGLContext::ValidateAttribArraySetter(const char* name, uint32_t setterElemSiz
 bool
 WebGLContext::ValidateUniformSetter(WebGLUniformLocation* loc,
                                     uint8_t setterElemSize, GLenum setterType,
-                                    const char* funcName, GLuint* out_rawLoc)
+                                    const char* funcName)
 {
     if (IsContextLost())
         return false;
@@ -467,10 +468,9 @@ WebGLContext::ValidateUniformSetter(WebGLUniformLocation* loc,
     if (!ValidateUniformLocation(loc, funcName))
         return false;
 
-    if (!loc->ValidateSizeAndType(setterElemSize, setterType, this, funcName))
+    if (!loc->ValidateSizeAndType(setterElemSize, setterType, funcName))
         return false;
 
-    *out_rawLoc = loc->mLoc;
     return true;
 }
 
@@ -478,10 +478,9 @@ bool
 WebGLContext::ValidateUniformArraySetter(WebGLUniformLocation* loc,
                                          uint8_t setterElemSize,
                                          GLenum setterType,
-                                         size_t setterArraySize,
+                                         uint32_t setterArraySize,
                                          const char* funcName,
-                                         GLuint* const out_rawLoc,
-                                         GLsizei* const out_numElementsToUpload)
+                                         uint32_t* const out_numElementsToUpload)
 {
     if (IsContextLost())
         return false;
@@ -489,16 +488,18 @@ WebGLContext::ValidateUniformArraySetter(WebGLUniformLocation* loc,
     if (!ValidateUniformLocation(loc, funcName))
         return false;
 
-    if (!loc->ValidateSizeAndType(setterElemSize, setterType, this, funcName))
+    if (!loc->ValidateSizeAndType(setterElemSize, setterType, funcName))
         return false;
 
-    if (!loc->ValidateArrayLength(setterElemSize, setterArraySize, this, funcName))
+    if (!loc->ValidateArrayLength(setterElemSize, setterArraySize, funcName))
         return false;
 
-    MOZ_ASSERT((size_t)loc->mActiveInfo->mElemCount > loc->mArrayIndex);
-    size_t uniformElemCount = loc->mActiveInfo->mElemCount - loc->mArrayIndex;
-    *out_rawLoc = loc->mLoc;
-    *out_numElementsToUpload = std::min(uniformElemCount, setterArraySize / setterElemSize);
+    const auto& elemCount = loc->mInfo->mActiveInfo->mElemCount;
+    MOZ_ASSERT(elemCount > loc->mArrayIndex);
+    const uint32_t uniformElemCount = elemCount - loc->mArrayIndex;
+
+    *out_numElementsToUpload = std::min(uniformElemCount,
+                                        setterArraySize / setterElemSize);
     return true;
 }
 
@@ -507,13 +508,12 @@ WebGLContext::ValidateUniformMatrixArraySetter(WebGLUniformLocation* loc,
                                                uint8_t setterCols,
                                                uint8_t setterRows,
                                                GLenum setterType,
-                                               size_t setterArraySize,
+                                               uint32_t setterArraySize,
                                                bool setterTranspose,
                                                const char* funcName,
-                                               GLuint* const out_rawLoc,
-                                               GLsizei* const out_numElementsToUpload)
+                                               uint32_t* const out_numElementsToUpload)
 {
-    uint8_t setterElemSize = setterCols * setterRows;
+    const uint8_t setterElemSize = setterCols * setterRows;
 
     if (IsContextLost())
         return false;
@@ -521,20 +521,21 @@ WebGLContext::ValidateUniformMatrixArraySetter(WebGLUniformLocation* loc,
     if (!ValidateUniformLocation(loc, funcName))
         return false;
 
-    if (!loc->ValidateSizeAndType(setterElemSize, setterType, this, funcName))
+    if (!loc->ValidateSizeAndType(setterElemSize, setterType, funcName))
         return false;
 
-    if (!loc->ValidateArrayLength(setterElemSize, setterArraySize, this, funcName))
+    if (!loc->ValidateArrayLength(setterElemSize, setterArraySize, funcName))
         return false;
 
     if (!ValidateUniformMatrixTranspose(setterTranspose, funcName))
         return false;
 
-    MOZ_ASSERT((size_t)loc->mActiveInfo->mElemCount > loc->mArrayIndex);
-    size_t uniformElemCount = loc->mActiveInfo->mElemCount - loc->mArrayIndex;
-    *out_rawLoc = loc->mLoc;
-    *out_numElementsToUpload = std::min(uniformElemCount, setterArraySize / setterElemSize);
+    const auto& elemCount = loc->mInfo->mActiveInfo->mElemCount;
+    MOZ_ASSERT(elemCount > loc->mArrayIndex);
+    const uint32_t uniformElemCount = elemCount - loc->mArrayIndex;
 
+    *out_numElementsToUpload = std::min(uniformElemCount,
+                                        setterArraySize / setterElemSize);
     return true;
 }
 
@@ -571,7 +572,7 @@ WebGLContext::ValidateAttribPointer(bool integerMode, GLuint index, GLint size, 
         return false;
     }
 
-    GLsizei requiredAlignment = 0;
+    uint32_t requiredAlignment = 0;
     if (!ValidateAttribPointerType(integerMode, type, &requiredAlignment, info))
         return false;
 
@@ -999,6 +1000,8 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     mPixelStore_PackSkipRows = 0;
     mPixelStore_PackSkipPixels = 0;
     mPixelStore_PackAlignment = 4;
+
+    mPrimRestartTypeBytes = 0;
 
     return true;
 }

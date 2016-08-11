@@ -439,10 +439,8 @@ DuplicateHandle(HANDLE aSourceHandle,
  */
 #ifdef MOZ_CRASHREPORTER
 void AnnotateSystemError();
-void AnnotateProcessInformation(base::ProcessId aPid);
 #else
 #define AnnotateSystemError() do { } while (0)
-#define AnnotateProcessInformation(...) do { } while (0)
 #endif
 
 /**
@@ -520,6 +518,10 @@ public:
         if (mValid) {
             CloseDescriptor(mTransport);
         }
+    }
+
+    ProcessId OtherPid() const {
+        return mOtherPid;
     }
 
     // This method binds aActor to this endpoint. After this call, the actor can

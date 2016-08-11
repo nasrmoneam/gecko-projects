@@ -46,10 +46,6 @@
 #include "TexturePoolOGL.h"
 #endif
 
-#ifdef XP_MACOSX
-#include "nsCocoaFeatures.h"
-#endif
-
 #include "GeckoProfiler.h"
 
 namespace mozilla {
@@ -121,7 +117,7 @@ CompositorOGL::CreateContext()
 #ifdef XP_WIN
   if (gfxEnv::LayersPreferEGL()) {
     printf_stderr("Trying GL layers...\n");
-    context = gl::GLContextProviderEGL::CreateForWindow(mWidget->RealWidget(), false);
+    context = gl::GLContextProviderEGL::CreateForCompositorWidget(mWidget, false);
   }
 #endif
 
@@ -138,7 +134,7 @@ CompositorOGL::CreateContext()
   }
 
   if (!context) {
-    context = gl::GLContextProvider::CreateForWindow(mWidget->RealWidget(),
+    context = gl::GLContextProvider::CreateForCompositorWidget(mWidget,
                 gfxPlatform::GetPlatform()->RequiresAcceleratedGLContextForCompositorOGL());
   }
 
@@ -354,9 +350,10 @@ CompositorOGL::Initialize(nsCString* const out_failureReason)
      * texture rectangle access inside GLSL (sampler2DRect,
      * texture2DRect).
      */
-    if (!mGLContext->IsExtensionSupported(gl::GLContext::ARB_texture_rectangle))
+    if (!mGLContext->IsExtensionSupported(gl::GLContext::ARB_texture_rectangle)){
       *out_failureReason = "FEATURE_FAILURE_OPENGL_ARB_EXT";
       return false;
+    }
   }
 
   /* Create a simple quad VBO */
@@ -448,7 +445,7 @@ CalculatePOTSize(const IntSize& aSize, GLContext* gl)
   if (CanUploadNonPowerOfTwo(gl))
     return aSize;
 
-  return IntSize(NextPowerOfTwo(aSize.width), NextPowerOfTwo(aSize.height));
+  return IntSize(RoundUpPow2(aSize.width), RoundUpPow2(aSize.height));
 }
 
 // |aRect| is the rectangle we want to draw to. We will draw it with
@@ -706,19 +703,9 @@ CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
                                  LOCAL_GL_ONE, LOCAL_GL_ONE_MINUS_SRC_ALPHA);
   mGLContext->fEnable(LOCAL_GL_BLEND);
 
-  // Make sure SCISSOR is enabled before setting the render target, since the RT
-  // assumes scissor is enabled while it does clears.
-  mGLContext->fEnable(LOCAL_GL_SCISSOR_TEST);
-
-  // Prefer the native windowing system's provided window size for the viewport.
-  IntSize viewportSize =
-    mGLContext->GetTargetSize().valueOr(mWidgetSize.ToUnknownSize());
-  if (viewportSize != mWidgetSize.ToUnknownSize()) {
-    mGLContext->fScissor(0, 0, viewportSize.width, viewportSize.height);
-  }
-
   RefPtr<CompositingRenderTargetOGL> rt =
-    CompositingRenderTargetOGL::RenderTargetForWindow(this, viewportSize);
+    CompositingRenderTargetOGL::RenderTargetForWindow(this,
+                                                      IntSize(width, height));
   SetRenderTarget(rt);
 
 #ifdef DEBUG
@@ -1063,8 +1050,9 @@ CompositorOGL::DrawQuad(const Rect& aRect,
     clipRect.MoveBy(mRenderOffset.x, mRenderOffset.y);
   }
 
-  gl()->fScissor(clipRect.x, FlipY(clipRect.y + clipRect.height),
-                 clipRect.width, clipRect.height);
+  ScopedGLState scopedScissorTestState(mGLContext, LOCAL_GL_SCISSOR_TEST, true);
+  ScopedScissorRect autoScissorRect(mGLContext, clipRect.x, FlipY(clipRect.y + clipRect.height),
+                                    clipRect.width, clipRect.height);
 
   MaskType maskType;
   EffectMask* effectMask;
@@ -1439,21 +1427,6 @@ CompositorOGL::DrawQuad(const Rect& aRect,
       // Pass 2.
       gl()->fBlendFuncSeparate(LOCAL_GL_ONE, LOCAL_GL_ONE,
                                LOCAL_GL_ONE, LOCAL_GL_ONE);
-
-#ifdef XP_MACOSX
-      if (gl()->WorkAroundDriverBugs() &&
-          gl()->Vendor() == GLVendor::NVIDIA &&
-          !nsCocoaFeatures::OnMavericksOrLater()) {
-        // Bug 987497: With some GPUs the nvidia driver on 10.8 and below
-        // won't pick up the TexturePass2 uniform change below if we don't do
-        // something to force it. Re-activating the shader seems to be one way
-        // of achieving that.
-        GLint program;
-        mGLContext->fGetIntegerv(LOCAL_GL_CURRENT_PROGRAM, &program);
-        mGLContext->fUseProgram(program);
-      }
-#endif
-
       program->SetTexturePass2(true);
       BindAndDrawQuadWithTextureRect(program,
                                      aRect,
@@ -1490,8 +1463,6 @@ CompositorOGL::EndFrame()
 
   MOZ_ASSERT(mCurrentRenderTarget == mWindowRenderTarget, "Rendering target not properly restored");
 
-  Compositor::EndFrame();
-
 #ifdef MOZ_DUMP_PAINTING
   if (gfxEnv::DumpCompositorTextures()) {
     LayoutDeviceIntSize size;
@@ -1516,24 +1487,17 @@ CompositorOGL::EndFrame()
     CopyToTarget(mTarget, mTargetBounds.TopLeft(), Matrix());
     mGLContext->fBindBuffer(LOCAL_GL_ARRAY_BUFFER, 0);
     mCurrentRenderTarget = nullptr;
+    Compositor::EndFrame();
     return;
   }
+
+  mCurrentRenderTarget = nullptr;
 
   if (mTexturePool) {
     mTexturePool->EndFrame();
   }
 
-  // If our window size changed during composition, we should discard the frame.
-  // We don't need to worry about rescheduling a composite, as widget
-  // implementations handle this in their expose event listeners.
-  // See bug 1184534. TODO: implement this for single-buffered targets?
-  IntSize targetSize = mGLContext->GetTargetSize().valueOr(mViewportSize);
-  if (!(mCurrentRenderTarget->IsWindow() && targetSize != mViewportSize)) {
-    mGLContext->SwapBuffers();
-  }
-
-  mCurrentRenderTarget = nullptr;
-
+  mGLContext->SwapBuffers();
   mGLContext->fBindBuffer(LOCAL_GL_ARRAY_BUFFER, 0);
 
   // Unbind all textures
@@ -1544,6 +1508,8 @@ CompositorOGL::EndFrame()
       mGLContext->fBindTexture(LOCAL_GL_TEXTURE_RECTANGLE_ARB, 0);
     }
   }
+
+  Compositor::EndFrame();
 }
 
 void

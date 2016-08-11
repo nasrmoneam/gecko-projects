@@ -160,6 +160,9 @@ CompositableClient::Destroy()
     return;
   }
 
+  if (mTextureClientRecycler) {
+    mTextureClientRecycler->Destroy();
+  }
   mCompositableChild->mCompositableClient = nullptr;
   mCompositableChild->Destroy(mForwarder);
   mCompositableChild = nullptr;
@@ -202,6 +205,20 @@ CompositableClient::CreateTextureClientForDrawing(gfx::SurfaceFormat aFormat,
                                          aFormat, aSize, aSelector,
                                          aTextureFlags | mTextureFlags,
                                          aAllocFlags);
+}
+
+already_AddRefed<TextureClient>
+CompositableClient::CreateTextureClientFromSurface(gfx::SourceSurface* aSurface,
+                                                   BackendSelector aSelector,
+                                                   TextureFlags aTextureFlags,
+                                                   TextureAllocationFlags aAllocFlags)
+{
+  return TextureClient::CreateFromSurface(GetForwarder()->AsTextureForwarder(),
+                                          aSurface,
+                                          GetForwarder()->GetCompositorBackendType(),
+                                          aSelector,
+                                          aTextureFlags | mTextureFlags,
+                                          aAllocFlags);
 }
 
 bool

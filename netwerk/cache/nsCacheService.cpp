@@ -272,7 +272,7 @@ public:
    
     // Calculates user's disk space available on a background thread and
     // dispatches this value back to the main thread.
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         uint32_t size;
         size = nsCacheProfilePrefObserver::GetSmartCacheSize(mCachePath,
@@ -293,7 +293,7 @@ public:
     nsBlockOnCacheThreadEvent()
     {
     }
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         nsCacheServiceAutoLock autoLock(LOCK_TELEM(NSBLOCKONCACHETHREADEVENT_RUN));
         CACHE_LOG_DEBUG(("nsBlockOnCacheThreadEvent [%p]\n", this));
@@ -412,9 +412,12 @@ nsCacheProfilePrefObserver::Observe(nsISupports *     subject,
         // profile after change
         mHaveProfile = true;
         nsCOMPtr<nsIPrefBranch> branch = do_GetService(NS_PREFSERVICE_CONTRACTID);
-        ReadPrefs(branch);
+        if (!branch) {
+            return NS_ERROR_FAILURE;
+        }
+        (void)ReadPrefs(branch);
         nsCacheService::OnProfileChanged();
-    
+
     } else if (!strcmp(NS_PREFBRANCH_PREFCHANGE_TOPIC_ID, topic)) {
 
         // ignore pref changes until we're done switch profiles
@@ -978,7 +981,7 @@ public:
         mRequest = aRequest;
     }
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         nsresult rv;
 
@@ -1028,7 +1031,7 @@ public:
         NS_IF_ADDREF(mListener);
     }
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         nsCacheServiceAutoLock lock;
 
@@ -1646,7 +1649,7 @@ class nsDisableOldMaxSmartSizePrefEvent: public Runnable
 public:
     nsDisableOldMaxSmartSizePrefEvent() {}
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         // Main thread may have already called nsCacheService::Shutdown
         if (!nsCacheService::IsInitialized())
@@ -1864,7 +1867,7 @@ public:
         , mStatus(status)
     {}
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         mListener->OnCacheEntryAvailable(mDescriptor, mAccessGranted, mStatus);
 

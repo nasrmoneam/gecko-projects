@@ -82,7 +82,7 @@ JS::ubi::Concrete<JSString>::size(mozilla::MallocSizeOf mallocSizeOf) const
     return size;
 }
 
-const char16_t JS::ubi::Concrete<JSString>::concreteTypeName[] = MOZ_UTF16("JSString");
+const char16_t JS::ubi::Concrete<JSString>::concreteTypeName[] = u"JSString";
 
 #ifdef DEBUG
 
@@ -790,7 +790,7 @@ bool
 StaticStrings::init(JSContext* cx)
 {
     AutoLockForExclusiveAccess lock(cx);
-    AutoCompartment ac(cx, cx->runtime()->atomsCompartment(lock));
+    AutoCompartment ac(cx, cx->runtime()->atomsCompartment(lock), &lock);
 
     static_assert(UNIT_STATIC_LIMIT - 1 <= JSString::MAX_LATIN1_CHAR,
                   "Unit strings must fit in Latin1Char.");

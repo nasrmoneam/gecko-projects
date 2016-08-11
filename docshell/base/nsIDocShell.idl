@@ -6,6 +6,7 @@
 
 #include "domstubs.idl"
 #include "nsIDocShellTreeItem.idl"
+#include "nsIRequest.idl"
 
 %{ C++
 #include "js/TypeDecls.h"
@@ -25,7 +26,6 @@ interface nsIChannel;
 interface nsIContentViewer;
 interface nsIDOMEventTarget;
 interface nsIDocShellLoadInfo;
-interface nsIDocument;
 interface nsIEditor;
 interface nsIEditingSession;
 interface nsISimpleEnumerator;
@@ -46,8 +46,6 @@ interface nsITabChild;
 interface nsICommandManager;
 interface nsICommandParams;
 native TabChildRef(already_AddRefed<nsITabChild>);
-
-typedef unsigned long nsLoadFlags;
 
 [scriptable, builtinclass, uuid(049234fe-da10-478b-bc5d-bc6f9a1ba63d)]
 interface nsIDocShell : nsIDocShellTreeItem
@@ -102,7 +100,7 @@ interface nsIDocShell : nsIDocShellTreeItem
                             in nsIDocShellLoadInfo aLoadInfo);
 
   const long INTERNAL_LOAD_FLAGS_NONE                    = 0x0;
-  const long INTERNAL_LOAD_FLAGS_INHERIT_OWNER           = 0x1;
+  const long INTERNAL_LOAD_FLAGS_INHERIT_PRINCIPAL       = 0x1;
   const long INTERNAL_LOAD_FLAGS_DONT_SEND_REFERRER      = 0x2;
   const long INTERNAL_LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP = 0x4;
 
@@ -125,44 +123,43 @@ interface nsIDocShell : nsIDocShellTreeItem
    * that its parameter list is broken out instead of being packaged inside
    * of an nsIDocShellLoadInfo object...
    *
-   * @param aURI            - The URI to load.
-   * @param aOriginalURI    - The URI to set as the originalURI on the channel
-   *                          that does the load. If null, aURI will be set as
-   *                          the originalURI.
-   * @param aLoadReplace    - If set LOAD_REPLACE flag will be set on the
-   *                          channel. aOriginalURI is null, this argument is
-   *                          ignored.
-   * @param aReferrer       - Referring URI
-   * @param aReferrerPolicy - Referrer policy
-   * @param aOwner          - Owner (security principal)
-   * @param aInheritOwner   - Flag indicating whether the owner of the current
-   *                          document should be inherited if aOwner is null.
-   * @param aStopActiveDoc  - Flag indicating whether loading the current
-   *                          document should be stopped.
-   * @param aWindowTarget   - Window target for the load.
-   * @param aTypeHint       - A hint as to the content-type of the resulting
-   *                          data.  May be null or empty if no hint.
-   * @param aFileName       - Non-null when the link should be downloaded as
-                              the given filename.
-   * @param aPostDataStream - Post data stream (if POSTing)
-   * @param aHeadersStream  - Stream containing "extra" request headers...
-   * @param aLoadFlags      - Flags to modify load behaviour. Flags are defined
-   *                          in nsIWebNavigation.
-   * @param aSHEntry        - Active Session History entry (if loading from SH)
-   * @param aSrcdoc           When INTERNAL_LOAD_FLAGS_IS_SRCDOC is set, the
-   *                          contents of this parameter will be loaded instead
-   *                          of aURI.
-   * @param aSourceDocShell - The source browsing context for the navigation.
-   * @param aBaseURI        - The base URI to be used for the load.  Set in
-   *                          srcdoc loads as it cannot otherwise be inferred
-   *                          in certain situations such as view-source.
+   * @param aURI                 - The URI to load.
+   * @param aOriginalURI         - The URI to set as the originalURI on the channel
+   *                               that does the load. If null, aURI will be set as
+   *                               the originalURI.
+   * @param aLoadReplace         - If set LOAD_REPLACE flag will be set on the
+   *                               channel. aOriginalURI is null, this argument is
+   *                               ignored.
+   * @param aReferrer            - Referring URI
+   * @param aReferrerPolicy      - Referrer policy
+   * @param aTriggeringPrincipal - Principal that initiated that load
+   * @param aFlags               - Any of the load flags defined within above.
+   * @param aStopActiveDoc       - Flag indicating whether loading the current
+   *                               document should be stopped.
+   * @param aWindowTarget        - Window target for the load.
+   * @param aTypeHint            - A hint as to the content-type of the resulting
+   *                               data.  May be null or empty if no hint.
+   * @param aFileName            - Non-null when the link should be downloaded as
+                                   the given filename.
+   * @param aPostDataStream      - Post data stream (if POSTing)
+   * @param aHeadersStream       - Stream containing "extra" request headers...
+   * @param aLoadFlags           - Flags to modify load behaviour. Flags are defined
+   *                               in nsIWebNavigation.
+   * @param aSHEntry             - Active Session History entry (if loading from SH)
+   * @param aSrcdoc                When INTERNAL_LOAD_FLAGS_IS_SRCDOC is set, the
+   *                               contents of this parameter will be loaded instead
+   *                               of aURI.
+   * @param aSourceDocShell      - The source browsing context for the navigation.
+   * @param aBaseURI             - The base URI to be used for the load.  Set in
+   *                               srcdoc loads as it cannot otherwise be inferred
+   *                               in certain situations such as view-source.
    */
   [noscript]void internalLoad(in nsIURI aURI,
                               in nsIURI aOriginalURI,
                               in boolean aLoadReplace,
                               in nsIURI aReferrer,
                               in unsigned long aReferrerPolicy,
-                              in nsISupports aOwner,
+                              in nsIPrincipal aTriggeringPrincipal,
                               in uint32_t aFlags,
                               in wstring aWindowTarget,
                               in string aTypeHint,
@@ -902,11 +899,6 @@ interface nsIDocShell : nsIDocShellTreeItem
   [noscript,notxpcom,nostdcall] bool isSandboxedFrom(in nsIDocShell aTargetDocShell);
 
   /**
-   * Apply sandbox flags and fullscreen enabled flag to the given document.
-   */
-  [noscript,notxpcom] void applySandboxAndFullscreenFlags(in nsIDocument aDoc);
-
-  /**
    * This member variable determines whether a document has Mixed Active Content that
    * was initially blocked from loading, but the user has choosen to override the
    * block and allow the content to load. mMixedContentChannel is set to the document's
@@ -1120,4 +1112,22 @@ interface nsIDocShell : nsIDocShellTreeItem
   [noscript,notxpcom,nostdcall] TabChildRef GetTabChild();
 
   [noscript,nostdcall,notxpcom] nsICommandManager GetCommandManager();
+
+  /**
+   * This allows chrome to override the default choice of whether touch events
+   * are available on a specific docshell. Possible values are listed below.
+   */
+  attribute unsigned long touchEventsOverride;
+  /**
+   * Override platform/pref default behaviour and force-disable touch events.
+   */
+  const unsigned long TOUCHEVENTS_OVERRIDE_DISABLED = 0;
+  /**
+   * Override platform/pref default behaviour and force-enable touch events.
+   */
+  const unsigned long TOUCHEVENTS_OVERRIDE_ENABLED = 1;
+  /**
+   * Don't override the platform/pref default behaviour for touch events.
+   */
+  const unsigned long TOUCHEVENTS_OVERRIDE_NONE = 2;
 };

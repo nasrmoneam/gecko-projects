@@ -19,10 +19,6 @@ var gEMEHandler = {
           Services.prefs.getPrefType("media.gmp-eme-adobe.enabled") &&
           !Services.prefs.getBoolPref("media.gmp-eme-adobe.enabled")) {
         Services.prefs.setBoolPref("media.gmp-eme-adobe.enabled", true);
-      } else if (keySystem == "org.w3.clearkey" &&
-                 Services.prefs.getPrefType("media.eme.clearkey.enabled") &&
-                 !Services.prefs.getBoolPref("media.eme.clearkey.enabled")) {
-        Services.prefs.setBoolPref("media.eme.clearkey.enabled", true);
       } else if (keySystem == "com.widevine.alpha" &&
                  Services.prefs.getPrefType("media.gmp-widevinecdm.enabled") &&
                  !Services.prefs.getBoolPref("media.gmp-widevinecdm.enabled")) {
@@ -71,7 +67,10 @@ var gEMEHandler = {
     switch (status) {
       case "available":
       case "cdm-created":
-        this.showPopupNotificationForSuccess(browser, keySystem);
+        // Only show the chain icon for proprietary CDMs. Clearkey is not one.
+        if (keySystem != "org.w3.clearkey") {
+          this.showPopupNotificationForSuccess(browser, keySystem);
+        }
         // ... and bail!
         return;
 

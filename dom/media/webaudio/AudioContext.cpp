@@ -39,6 +39,7 @@
 #include "nsNetCID.h"
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
+#include "nsPrintfCString.h"
 #include "OscillatorNode.h"
 #include "PannerNode.h"
 #include "PeriodicWave.h"
@@ -870,7 +871,7 @@ AudioContext::OnStateChanged(void* aPromise, AudioContextState aNewState)
 
   if (aPromise) {
     Promise* promise = reinterpret_cast<Promise*>(aPromise);
-    promise->MaybeResolve(JS::UndefinedHandleValue);
+    promise->MaybeResolveWithUndefined();
     DebugOnly<bool> rv = mPromiseGripArray.RemoveElement(promise);
     MOZ_ASSERT(rv, "Promise wasn't in the grip array?");
   }
@@ -1137,9 +1138,24 @@ NS_IMETHODIMP
 AudioContext::CollectReports(nsIHandleReportCallback* aHandleReport,
                              nsISupports* aData, bool aAnonymize)
 {
+  const nsLiteralCString
+    nodeDescription("Memory used by AudioNode DOM objects (Web Audio).");
+  for (auto iter = mAllNodes.ConstIter(); !iter.Done(); iter.Next()) {
+    AudioNode* node = iter.Get()->GetKey();
+    int64_t amount = node->SizeOfIncludingThis(MallocSizeOf);
+    nsPrintfCString domNodePath("explicit/webaudio/audio-node/%s/dom-nodes",
+                                node->NodeType());
+    nsresult rv =
+      aHandleReport->Callback(EmptyCString(), domNodePath, KIND_HEAP,
+                              UNITS_BYTES, amount, nodeDescription, aData);
+    if (NS_WARN_IF(NS_FAILED(rv)))
+      return rv;
+  }
+
   int64_t amount = SizeOfIncludingThis(MallocSizeOf);
-  return MOZ_COLLECT_REPORT("explicit/webaudio/audiocontext", KIND_HEAP, UNITS_BYTES,
-                            amount, "Memory used by AudioContext objects (Web Audio).");
+  return MOZ_COLLECT_REPORT("explicit/webaudio/audiocontext",
+                            KIND_HEAP, UNITS_BYTES, amount,
+                            "Memory used by AudioContext objects (Web Audio).");
 }
 
 BasicWaveFormCache*

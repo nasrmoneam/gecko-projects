@@ -1741,7 +1741,7 @@ public:
     NS_DECL_NSICLASSINFO
 
 public:
-    nsXPCConstructor(); // not implemented
+    nsXPCConstructor() = delete;
     nsXPCConstructor(nsIJSCID* aClassID,
                      nsIJSIID* aInterfaceID,
                      const char* aInitializer);
@@ -2626,7 +2626,7 @@ class PreciseGCRunnable : public Runnable
     PreciseGCRunnable(ScheduledGCCallback* aCallback, bool aShrinking)
     : mCallback(aCallback), mShrinking(aShrinking) {}
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
         JSRuntime* rt = nsXPConnect::GetRuntimeInstance()->Runtime();
 
@@ -3494,7 +3494,7 @@ NS_IMETHODIMP nsXPCComponents::ReportError(HandleValue error, JSContext* cx)
 class ComponentsSH : public nsIXPCScriptable
 {
 public:
-    explicit MOZ_CONSTEXPR ComponentsSH(unsigned dummy)
+    explicit constexpr ComponentsSH(unsigned dummy)
     {
     }
 

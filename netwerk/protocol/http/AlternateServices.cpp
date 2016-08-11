@@ -318,10 +318,10 @@ public:
       return;
     }
 
-    // insist on spdy/3* or >= http/2
+    // insist on >= http/2
     uint32_t version = mConnection->Version();
     LOG(("AltSvcTransaction::MaybeValidate() %p version %d\n", this, version));
-    if ((version < HTTP_VERSION_2) && (version != SPDY_VERSION_31)) {
+    if (version < HTTP_VERSION_2) {
       LOG(("AltSvcTransaction::MaybeValidate %p Failed due to protocol version", this));
       return;
     }
@@ -484,7 +484,7 @@ public:
     , mPort(port)
     {}
 
-    NS_IMETHOD Run()
+    NS_IMETHOD Run() override
     {
       MOZ_ASSERT(NS_IsMainThread());
       gHttpHandler->ConnMgr()->ClearHostMapping(mHost, mPort);

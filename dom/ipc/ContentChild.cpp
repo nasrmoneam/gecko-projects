@@ -8,10 +8,6 @@
 #include <gtk/gtk.h>
 #endif
 
-#ifdef MOZ_WIDGET_QT
-#include "nsQAppInstance.h"
-#endif
-
 #include "ContentChild.h"
 
 #include "BlobChild.h"
@@ -33,10 +29,13 @@
 #include "mozilla/dom/DOMStorageIPC.h"
 #include "mozilla/dom/ExternalHelperAppChild.h"
 #include "mozilla/dom/FlyWebPublishedServerIPC.h"
+#include "mozilla/dom/GetFilesHelper.h"
 #include "mozilla/dom/PCrashReporterChild.h"
 #include "mozilla/dom/ProcessGlobal.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/dom/workers/ServiceWorkerManager.h"
 #include "mozilla/dom/nsIContentChild.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/psm/PSMContentListener.h"
 #include "mozilla/hal_sandbox/PHalChild.h"
 #include "mozilla/ipc/BackgroundChild.h"
@@ -131,6 +130,7 @@
 #include "mozilla/dom/PCycleCollectWithLogsChild.h"
 
 #include "nsIScriptSecurityManager.h"
+#include "nsHostObjectProtocolHandler.h"
 
 #ifdef MOZ_WEBRTC
 #include "signaling/src/peerconnection/WebrtcGlobalChild.h"
@@ -164,13 +164,8 @@
 #endif
 
 #ifdef ACCESSIBILITY
-#include "nsIAccessibilityService.h"
+#include "nsAccessibilityService.h"
 #endif
-
-#ifdef MOZ_NUWA_PROCESS
-#include "ipc/Nuwa.h"
-#endif
-#include "NuwaChild.h"
 
 #ifndef MOZ_SIMPLEPUSH
 #include "mozilla/dom/PushNotifier.h"
@@ -222,6 +217,7 @@ using namespace mozilla::dom::mobileconnection;
 using namespace mozilla::dom::mobilemessage;
 using namespace mozilla::dom::telephony;
 using namespace mozilla::dom::voicemail;
+using namespace mozilla::dom::workers;
 using namespace mozilla::media;
 using namespace mozilla::embedding;
 using namespace mozilla::gmp;
@@ -516,57 +512,6 @@ NS_IMPL_ISUPPORTS(BackgroundChildPrimer, nsIIPCBackgroundChildCreateCallback)
 
 ContentChild* ContentChild::sSingleton;
 
-// Performs initialization that is not fork-safe, i.e. that must be done after
-// forking from the Nuwa process.
-void
-InitOnContentProcessCreated()
-{
-#ifdef MOZ_NUWA_PROCESS
-  // Wait until we are forked from Nuwa
-  if (IsNuwaProcess()) {
-    return;
-  }
-
-  nsCOMPtr<nsIPermissionManager> permManager = services::GetPermissionManager();
-  MOZ_ASSERT(permManager, "Unable to get permission manager");
-  nsresult rv = permManager->RefreshPermission();
-  if (NS_FAILED(rv)) {
-    MOZ_ASSERT(false, "Failed updating permission in child process");
-  }
-#endif
-
-  // This will register cross-process observer.
-  mozilla::dom::time::InitializeDateCacheCleaner();
-}
-
-#ifdef MOZ_NUWA_PROCESS
-static void
-ResetTransports(void* aUnused)
-{
-  ContentChild* child = ContentChild::GetSingleton();
-  mozilla::ipc::Transport* transport = child->GetTransport();
-  int fd = transport->GetFileDescriptor();
-  transport->ResetFileDescriptor(fd);
-
-  nsTArray<IToplevelProtocol*> actors;
-  child->GetOpenedActors(actors);
-  for (size_t i = 0; i < actors.Length(); i++) {
-    IToplevelProtocol* toplevel = actors[i];
-    transport = toplevel->GetTransport();
-    fd = transport->GetFileDescriptor();
-    transport->ResetFileDescriptor(fd);
-  }
-}
-#endif
-
-#if defined(MOZ_TASK_TRACER) && defined(MOZ_NUWA_PROCESS)
-static void
-ReinitTaskTracer(void* /*aUnused*/)
-{
-  mozilla::tasktracer::InitTaskTracer(mozilla::tasktracer::FORKED_AFTER_NUWA);
-}
-#endif
-
 ContentChild::ContentChild()
  : mID(uint64_t(-1))
  , mCanOverrideProcessName(true)
@@ -579,6 +524,9 @@ ContentChild::ContentChild()
 
 ContentChild::~ContentChild()
 {
+#ifndef NS_FREE_PERMANENT_DATA
+  NS_RUNTIMEABORT("Content Child shouldn't be destroyed.");
+#endif
 }
 
 NS_INTERFACE_MAP_BEGIN(ContentChild)
@@ -617,18 +565,9 @@ ContentChild::Init(MessageLoop* aIOLoop,
   }
 #endif
 
-#ifdef MOZ_WIDGET_QT
-  // sigh, seriously
-  nsQAppInstance::AddRef();
-#endif
-
 #ifdef MOZ_X11
   // Do this after initializing GDK, or GDK will install its own handler.
   XRE_InstallX11ErrorHandler();
-#endif
-
-#ifdef MOZ_NUWA_PROCESS
-  SetTransport(aChannel);
 #endif
 
   NS_ASSERTION(!sSingleton, "only one ContentChild per child");
@@ -648,11 +587,10 @@ ContentChild::Init(MessageLoop* aIOLoop,
 
   // If communications with the parent have broken down, take the process
   // down so it's not hanging around.
-  bool abortOnError = true;
-#ifdef MOZ_NUWA_PROCESS
-  abortOnError &= !IsNuwaProcess();
+  GetIPCChannel()->SetAbortOnError(true);
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  GetIPCChannel()->SetChannelFlags(MessageChannel::REQUIRE_A11Y_REENTRY);
 #endif
-  GetIPCChannel()->SetAbortOnError(abortOnError);
 
 #ifdef MOZ_X11
   // Send the parent our X socket to act as a proxy reference for our X
@@ -669,17 +607,6 @@ ContentChild::Init(MessageLoop* aIOLoop,
   SendGetProcessAttributes(&mID, &mIsForApp, &mIsForBrowser);
   InitProcessAttributes();
 
-#if defined(MOZ_TASK_TRACER) && defined (MOZ_NUWA_PROCESS)
-  if (IsNuwaProcess()) {
-    NuwaAddConstructor(ReinitTaskTracer, nullptr);
-  }
-#endif
-
-#ifdef MOZ_NUWA_PROCESS
-  if (IsNuwaProcess()) {
-    NuwaAddConstructor(ResetTransports, nullptr);
-  }
-#endif
 #ifdef NS_PRINTING
   // Force the creation of the nsPrintingProxy so that it's IPC counterpart,
   // PrintingParent, is always available for printing initiated from the parent.
@@ -693,12 +620,6 @@ void
 ContentChild::InitProcessAttributes()
 {
 #ifdef MOZ_WIDGET_GONK
-#ifdef MOZ_NUWA_PROCESS
-  if (IsNuwaProcess()) {
-    SetProcessName(NS_LITERAL_STRING("(Nuwa)"), false);
-    return;
-  }
-#endif
   if (mIsForApp && !mIsForBrowser) {
     SetProcessName(NS_LITERAL_STRING("(Preallocated app)"), false);
   } else {
@@ -871,7 +792,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
     if (!SendCreateWindow(aTabOpener, newChild, renderFrame,
                           aChromeFlags, aCalledFromJS, aPositionSpecified,
                           aSizeSpecified,
-                          name, features,
+                          features,
                           baseURIString,
                           openerDocShell
                             ? openerDocShell->GetOriginAttributes()
@@ -927,7 +848,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   }
 
   if (!urlToLoad.IsEmpty()) {
-    newChild->RecvLoadURL(urlToLoad, BrowserConfiguration(), showInfo);
+    newChild->RecvLoadURL(urlToLoad, showInfo);
   }
 
   nsCOMPtr<mozIDOMWindowProxy> win = do_GetInterface(newChild->WebNavigation());
@@ -1043,7 +964,8 @@ ContentChild::InitXPCOM()
     global->SetInitialProcessData(data);
   }
 
-  InitOnContentProcessCreated();
+  // This will register cross-process observer.
+  mozilla::dom::time::InitializeDateCacheCleaner();
 }
 
 PMemoryReportRequestChild*
@@ -1251,11 +1173,22 @@ ContentChild::DeallocPAPZChild(PAPZChild* aActor)
   return true;
 }
 
-PCompositorBridgeChild*
-ContentChild::AllocPCompositorBridgeChild(mozilla::ipc::Transport* aTransport,
-                                          base::ProcessId aOtherProcess)
+bool
+ContentChild::RecvInitCompositor(Endpoint<PCompositorBridgeChild>&& aEndpoint)
 {
-  return CompositorBridgeChild::Create(aTransport, aOtherProcess);
+  return CompositorBridgeChild::InitForContent(Move(aEndpoint));
+}
+
+bool
+ContentChild::RecvInitImageBridge(Endpoint<PImageBridgeChild>&& aEndpoint)
+{
+  return ImageBridgeChild::InitForContent(Move(aEndpoint));
+}
+
+bool
+ContentChild::RecvInitVRManager(Endpoint<PVRManagerChild>&& aEndpoint)
+{
+  return gfx::VRManagerChild::InitForContent(Move(aEndpoint));
 }
 
 PSharedBufferManagerChild*
@@ -1263,20 +1196,6 @@ ContentChild::AllocPSharedBufferManagerChild(mozilla::ipc::Transport* aTransport
                                               base::ProcessId aOtherProcess)
 {
   return SharedBufferManagerChild::StartUpInChildProcess(aTransport, aOtherProcess);
-}
-
-PImageBridgeChild*
-ContentChild::AllocPImageBridgeChild(mozilla::ipc::Transport* aTransport,
-                                     base::ProcessId aOtherProcess)
-{
-  return ImageBridgeChild::StartUpInChildProcess(aTransport, aOtherProcess);
-}
-
-gfx::PVRManagerChild*
-ContentChild::AllocPVRManagerChild(Transport* aTransport,
-                                   ProcessId aOtherProcess)
-{
-  return gfx::VRManagerChild::StartUpInChildProcess(aTransport, aOtherProcess);
 }
 
 PBackgroundChild*
@@ -1368,9 +1287,14 @@ GetAppPaths(nsCString &aAppPath, nsCString &aAppBinaryPath, nsCString &aAppDir)
   return true;
 }
 
-static void
+static bool
 StartMacOSContentSandbox()
 {
+  int sandboxLevel = Preferences::GetInt("security.sandbox.content.level");
+  if (sandboxLevel < 1) {
+    return false;
+  }
+
   nsAutoCString appPath, appBinaryPath, appDir;
   if (!GetAppPaths(appPath, appBinaryPath, appDir)) {
     MOZ_CRASH("Error resolving child process path");
@@ -1394,7 +1318,7 @@ StartMacOSContentSandbox()
 
   MacSandboxInfo info;
   info.type = MacSandboxType_Content;
-  info.level = Preferences::GetInt("security.sandbox.content.level");
+  info.level = info.level = sandboxLevel;
   info.appPath.assign(appPath.get());
   info.appBinaryPath.assign(appBinaryPath.get());
   info.appDir.assign(appDir.get());
@@ -1405,6 +1329,8 @@ StartMacOSContentSandbox()
     NS_WARNING(err.c_str());
     MOZ_CRASH("sandbox_init() failed");
   }
+
+  return true;
 }
 #endif
 
@@ -1414,6 +1340,7 @@ ContentChild::RecvSetProcessSandbox(const MaybeFileDesc& aBroker)
   // We may want to move the sandbox initialization somewhere else
   // at some point; see bug 880808.
 #if defined(MOZ_CONTENT_SANDBOX)
+  bool sandboxEnabled = true;
 #if defined(XP_LINUX)
 #if defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 19
   // For B2G >= KitKat, sandboxing is mandatory; this has already
@@ -1422,31 +1349,45 @@ ContentChild::RecvSetProcessSandbox(const MaybeFileDesc& aBroker)
 #else
   // Otherwise, sandboxing is best-effort.
   if (!SandboxInfo::Get().CanSandboxContent()) {
-      return true;
+       sandboxEnabled = false;
+   } else {
+       // This triggers the initialization of cubeb, which needs to happen
+       // before seccomp is enabled (Bug 1259508). It also increases the startup
+       // time of the content process, because cubeb is usually initialized
+       // when it is actually needed. This call here is no longer required
+       // once Bug 1104619 (remoting audio) is resolved.
+       Unused << CubebUtils::GetCubebContext();
   }
 
-  // This triggers the initialization of cubeb, which needs to happen
-  // before seccomp is enabled (Bug 1259508). It also increases the startup
-  // time of the content process, because cubeb is usually initialized
-  // when it is actually needed. This call here is no longer required
-  // once Bug 1104619 (remoting audio) is resolved.
-  Unused << CubebUtils::GetCubebContext();
-#endif
-  int brokerFd = -1;
-  if (aBroker.type() == MaybeFileDesc::TFileDescriptor) {
-      brokerFd = aBroker.get_FileDescriptor().PlatformHandle();
+#endif /* MOZ_WIDGET_GONK && ANDROID_VERSION >= 19 */
+  if (sandboxEnabled) {
+    int brokerFd = -1;
+    if (aBroker.type() == MaybeFileDesc::TFileDescriptor) {
+      auto fd = aBroker.get_FileDescriptor().ClonePlatformHandle();
+      brokerFd = fd.release();
       // brokerFd < 0 means to allow direct filesystem access, so
       // make absolutely sure that doesn't happen if the parent
       // didn't intend it.
       MOZ_RELEASE_ASSERT(brokerFd >= 0);
+    }
+    sandboxEnabled = SetContentProcessSandbox(brokerFd);
   }
-  SetContentProcessSandbox(brokerFd);
 #elif defined(XP_WIN)
   mozilla::SandboxTarget::Instance()->StartSandbox();
 #elif defined(XP_MACOSX)
-  StartMacOSContentSandbox();
+  sandboxEnabled = StartMacOSContentSandbox();
 #endif
-#endif
+
+#if defined(MOZ_CRASHREPORTER)
+  CrashReporter::AnnotateCrashReport(
+    NS_LITERAL_CSTRING("ContentSandboxEnabled"),
+    sandboxEnabled? NS_LITERAL_CSTRING("1") : NS_LITERAL_CSTRING("0"));
+#if defined(XP_LINUX) && !defined(OS_ANDROID)
+  SandboxInfo::Get().AnnotateCrashReport();
+#endif /* XP_LINUX && !OS_ANDROID */
+#endif /* MOZ_CRASHREPORTER */
+#endif /* MOZ_CONTENT_SANDBOX */
+
   return true;
 }
 
@@ -1695,6 +1636,9 @@ bool
 ContentChild::RecvNotifyGMPsChanged()
 {
   GMPDecoderModule::UpdateUsableCodecs();
+  MOZ_ASSERT(NS_IsMainThread());
+  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
+  obs->NotifyObservers(nullptr, "gmp-changed", nullptr);
   return true;
 }
 
@@ -2253,6 +2197,8 @@ ContentChild::ActorDestroy(ActorDestroyReason why)
     sFirstIdleTask->Cancel();
   }
 
+  nsHostObjectProtocolHandler::RemoveDataEntries();
+
   mAlertObservers.Clear();
 
   mIdleObservers.Clear();
@@ -2263,14 +2209,6 @@ ContentChild::ActorDestroy(ActorDestroyReason why)
     mConsoleListener->mChild = nullptr;
   }
   mIsAlive = false;
-
-#ifdef MOZ_NUWA_PROCESS
-  if (IsNuwaProcess()) {
-    // The Nuwa cannot go through the full XPCOM shutdown path or deadlock
-    // will result.
-    ProcessChild::QuickExit();
-  }
-#endif
 
   XRE_ShutdownChildProcess();
 #endif // NS_FREE_PERMANENT_DATA
@@ -2338,6 +2276,13 @@ bool
 ContentChild::RecvPreferenceUpdate(const PrefSetting& aPref)
 {
   Preferences::SetPreference(aPref);
+  return true;
+}
+
+bool
+ContentChild::RecvVarUpdate(const GfxVarUpdate& aVar)
+{
+  gfx::gfxVars::ApplyUpdate(aVar);
   return true;
 }
 
@@ -2510,9 +2455,6 @@ ContentChild::RecvAddPermission(const IPC::Permission& permission)
 bool
 ContentChild::RecvFlushMemory(const nsString& reason)
 {
-#ifdef MOZ_NUWA_PROCESS
-  MOZ_ASSERT(!IsNuwaProcess() || !IsNuwaReady());
-#endif
   nsCOMPtr<nsIObserverService> os =
     mozilla::services::GetObserverService();
   if (os) {
@@ -2527,8 +2469,7 @@ ContentChild::RecvActivateA11y()
 #ifdef ACCESSIBILITY
   // Start accessibility in content process if it's running in chrome
   // process.
-  nsCOMPtr<nsIAccessibilityService> accService =
-    services::GetAccessibilityService();
+  GetOrCreateAccService();
 #endif
   return true;
 }
@@ -2556,31 +2497,6 @@ ContentChild::RecvCycleCollect()
   nsJSContext::CycleCollectNow();
   return true;
 }
-
-#ifdef MOZ_NUWA_PROCESS
-static void
-OnFinishNuwaPreparation()
-{
-  // We want to ensure that the PBackground actor gets cloned in the Nuwa
-  // process before we freeze. Also, we have to do this to avoid deadlock.
-  // Protocols that are "opened" (e.g. PBackground, PCompositorBridge) block
-  // the main thread to wait for the IPC thread during the open operation.
-  // NuwaSpawnWait() blocks the IPC thread to wait for the main thread when
-  // the Nuwa process is forked. Unless we ensure that the two cannot happen
-  // at the same time then we risk deadlock. Spinning the event loop here
-  // guarantees the ordering is safe for PBackground.
-  while (!BackgroundChild::GetForCurrentThread()) {
-    if (NS_WARN_IF(!NS_ProcessNextEvent())) {
-      return;
-    }
-  }
-
-  // This will create the actor.
-  Unused << mozilla::dom::NuwaChild::GetSingleton();
-
-  MakeNuwaProcess();
-}
-#endif
 
 static void
 PreloadSlowThings()
@@ -2626,12 +2542,31 @@ ContentChild::RecvAppInit()
     PreloadSlowThings();
   }
 
-#ifdef MOZ_NUWA_PROCESS
-  if (IsNuwaProcess()) {
-    ContentChild::GetSingleton()->RecvGarbageCollect();
-    MessageLoop::current()->PostTask(NewRunnableFunction(OnFinishNuwaPreparation));
+  return true;
+}
+
+bool
+ContentChild::RecvInitServiceWorkers(const ServiceWorkerConfiguration& aConfig)
+{
+  RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
+  MOZ_ASSERT(swm);
+  swm->LoadRegistrations(aConfig.serviceWorkerRegistrations());
+  return true;
+}
+
+bool
+ContentChild::RecvInitBlobURLs(nsTArray<BlobURLRegistrationData>&& aRegistrations)
+{
+  for (uint32_t i = 0; i < aRegistrations.Length(); ++i) {
+    BlobURLRegistrationData& registration = aRegistrations[i];
+    RefPtr<BlobImpl> blobImpl =
+      static_cast<BlobChild*>(registration.blobChild())->GetBlobImpl();
+    MOZ_ASSERT(blobImpl);
+
+    nsHostObjectProtocolHandler::AddDataEntry(registration.url(),
+                                              registration.principal(),
+                                              blobImpl);
   }
-#endif
 
   return true;
 }
@@ -2752,9 +2687,6 @@ ContentChild::RecvNotifyProcessPriorityChanged(
 bool
 ContentChild::RecvMinimizeMemoryUsage()
 {
-#ifdef MOZ_NUWA_PROCESS
-  MOZ_ASSERT(!IsNuwaProcess() || !IsNuwaReady());
-#endif
   nsCOMPtr<nsIMemoryReporterManager> mgr =
     do_GetService("@mozilla.org/memory-reporter-manager;1");
   NS_ENSURE_TRUE(mgr, true);
@@ -3371,6 +3303,81 @@ ContentChild::RecvNotifyPushSubscriptionModifiedObservers(const nsCString& aScop
   PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
 #endif
+  return true;
+}
+
+bool
+ContentChild::RecvBlobURLRegistration(const nsCString& aURI, PBlobChild* aBlobChild,
+                                      const IPC::Principal& aPrincipal)
+{
+  RefPtr<BlobImpl> blobImpl = static_cast<BlobChild*>(aBlobChild)->GetBlobImpl();
+  MOZ_ASSERT(blobImpl);
+
+  nsHostObjectProtocolHandler::AddDataEntry(aURI, aPrincipal, blobImpl);
+  return true;
+}
+
+bool
+ContentChild::RecvBlobURLUnregistration(const nsCString& aURI)
+{
+  nsHostObjectProtocolHandler::RemoveDataEntry(aURI);
+  return true;
+}
+
+
+void
+ContentChild::CreateGetFilesRequest(const nsAString& aDirectoryPath,
+                                    bool aRecursiveFlag,
+                                    nsID& aUUID,
+                                    GetFilesHelperChild* aChild)
+{
+  MOZ_ASSERT(aChild);
+  MOZ_ASSERT(!mGetFilesPendingRequests.GetWeak(aUUID));
+
+  Unused << SendGetFilesRequest(aUUID, nsString(aDirectoryPath),
+                                aRecursiveFlag);
+  mGetFilesPendingRequests.Put(aUUID, aChild);
+}
+
+void
+ContentChild::DeleteGetFilesRequest(nsID& aUUID, GetFilesHelperChild* aChild)
+{
+  MOZ_ASSERT(aChild);
+  MOZ_ASSERT(mGetFilesPendingRequests.GetWeak(aUUID));
+
+  Unused << SendDeleteGetFilesRequest(aUUID);
+  mGetFilesPendingRequests.Remove(aUUID);
+}
+
+bool
+ContentChild::RecvGetFilesResponse(const nsID& aUUID,
+                                   const GetFilesResponseResult& aResult)
+{
+  GetFilesHelperChild* child = mGetFilesPendingRequests.GetWeak(aUUID);
+  // This object can already been deleted in case DeleteGetFilesRequest has
+  // been called when the response was sending by the parent.
+  if (!child) {
+    return true;
+  }
+
+  if (aResult.type() == GetFilesResponseResult::TGetFilesResponseFailure) {
+    child->Finished(aResult.get_GetFilesResponseFailure().errorCode());
+  } else {
+    MOZ_ASSERT(aResult.type() == GetFilesResponseResult::TGetFilesResponseSuccess);
+
+    const nsTArray<PBlobChild*>& blobs =
+      aResult.get_GetFilesResponseSuccess().blobsChild();
+
+    bool succeeded = true;
+    for (uint32_t i = 0; succeeded && i < blobs.Length(); ++i) {
+      RefPtr<BlobImpl> impl = static_cast<BlobChild*>(blobs[i])->GetBlobImpl();
+      succeeded = child->AppendBlobImpl(impl);
+    }
+
+    child->Finished(succeeded ? NS_OK : NS_ERROR_OUT_OF_MEMORY);
+  }
+
+  mGetFilesPendingRequests.Remove(aUUID);
   return true;
 }
 

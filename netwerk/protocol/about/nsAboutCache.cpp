@@ -14,7 +14,6 @@
 #include "nsEscape.h"
 #include "nsAboutProtocolUtils.h"
 #include "nsPrintfCString.h"
-#include "nsDOMString.h"
 
 #include "nsICacheStorageService.h"
 #include "nsICacheStorage.h"
@@ -477,7 +476,7 @@ nsAboutCache::Channel::OnCacheEntryInfo(nsIURI *aURI, const nsACString & aIdEnha
         PrintTimeString(buf, sizeof(buf), aLastModified);
         mBuffer.Append(buf);
     } else {
-        mBuffer.AppendLiteral("No last modified time (bug 1000338)");
+        mBuffer.AppendLiteral("No last modified time");
     }
     mBuffer.AppendLiteral("</td>\n");
 
@@ -556,13 +555,6 @@ nsAboutCache::GetURIFlags(nsIURI *aURI, uint32_t *result)
 {
     *result = 0;
     return NS_OK;
-}
-
-NS_IMETHODIMP
-nsAboutCache::GetIndexedDBOriginPostfix(nsIURI *aURI, nsAString &result)
-{
-    SetDOMStringToNull(result);
-    return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 // static

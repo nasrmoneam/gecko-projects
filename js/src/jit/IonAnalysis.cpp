@@ -1816,6 +1816,9 @@ TypeAnalyzer::specializeValidFloatOps()
             if (ins->type() == MIRType::Float32)
                 continue;
 
+            if (!alloc().ensureBallast())
+                return false;
+
             // This call will try to specialize the instruction iff all uses are consumers and
             // all inputs are producers.
             ins->trySpecializeFloat32(alloc());
@@ -2136,6 +2139,8 @@ jit::MakeMRegExpHoistable(MIRGraph& graph)
             // faster than a not movable regexp.
             RegExpObject* source = regexp->source();
             if (source->sticky() || source->global()) {
+                if (!graph.alloc().ensureBallast())
+                    return false;
                 MConstant* zero = MConstant::New(graph.alloc(), Int32Value(0));
                 regexp->block()->insertAfter(regexp, zero);
 

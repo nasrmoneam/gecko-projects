@@ -12,6 +12,8 @@
 
 namespace mozilla {
 
+#define NS_EVENT_STATE_HIGHEST_SERVO_BIT 6
+
 /**
  * EventStates is the class used to represent the event states of nsIContent
  * instances. These states are calculated by IntrinsicState() and
@@ -23,8 +25,9 @@ class EventStates
 {
 public:
   typedef uint64_t InternalType;
+  typedef uint8_t ServoType;
 
-  MOZ_CONSTEXPR EventStates()
+  constexpr EventStates()
     : mStates(0)
   {
   }
@@ -34,12 +37,12 @@ public:
   // In that case, we could be sure that only macros at the end were creating
   // EventStates instances with mStates set to something else than 0.
   // Unfortunately, this constructor is needed at at least two places now.
-  explicit MOZ_CONSTEXPR EventStates(InternalType aStates)
+  explicit constexpr EventStates(InternalType aStates)
     : mStates(aStates)
   {
   }
 
-  EventStates MOZ_CONSTEXPR operator|(const EventStates& aEventStates) const
+  EventStates constexpr operator|(const EventStates& aEventStates) const
   {
     return EventStates(mStates | aEventStates.mStates);
   }
@@ -53,7 +56,7 @@ public:
   // NOTE: calling if (eventStates1 & eventStates2) will not build.
   // This might work correctly if operator bool() is defined
   // but using HasState, HasAllStates or HasAtLeastOneOfStates is recommended.
-  EventStates MOZ_CONSTEXPR operator&(const EventStates& aEventStates) const
+  EventStates constexpr operator&(const EventStates& aEventStates) const
   {
     return EventStates(mStates & aEventStates.mStates);
   }
@@ -155,6 +158,14 @@ public:
     return mStates;
   }
 
+  /**
+   * Method used to get the appropriate state representation for Servo.
+   */
+  ServoType ServoValue() const
+  {
+    return mStates & ((1 << (NS_EVENT_STATE_HIGHEST_SERVO_BIT + 1)) - 1);
+  }
+
 private:
   InternalType mStates;
 };
@@ -200,10 +211,11 @@ private:
 // Content is in the indeterminate state.
 #define NS_EVENT_STATE_INDETERMINATE NS_DEFINE_EVENT_STATE_MACRO(6)
 
-#define NS_EVENT_STATE_HIGHEST_SERVO_BIT 6
-
 /*
  * Bits below here do not have Servo-related ordering constraints.
+ *
+ * Remember to change NS_EVENT_STATE_HIGHEST_SERVO_BIT at the top of the file if
+ * this changes!
  */
 
 // Drag is hovering over content.

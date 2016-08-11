@@ -5,11 +5,8 @@
 
 "use strict";
 
-const { Cu } = require("chrome");
-const CSSCompleter =
-      require("devtools/client/sourceeditor/css-autocompleter");
-const { AutocompletePopup } =
-      require("devtools/client/shared/autocomplete-popup");
+const CSSCompleter = require("devtools/client/sourceeditor/css-autocompleter");
+const { AutocompletePopup } = require("devtools/client/shared/autocomplete-popup");
 
 const CM_TERN_SCRIPTS = [
   "chrome://devtools/content/sourceeditor/codemirror/addon/tern/tern.js",
@@ -17,9 +14,6 @@ const CM_TERN_SCRIPTS = [
 ];
 
 const autocompleteMap = new WeakMap();
-
-// A simple way to give each popup its own panelId.
-let autocompleteCounter = 0;
 
 /**
  * Prepares an editor instance for autocompletion.
@@ -38,9 +32,9 @@ function initializeAutoCompletion(ctx, options = {}) {
                         Editor.keyFor("autocompletion", { noaccel: true });
   if (ed.config.mode == Editor.modes.js) {
     let defs = [
-      "./tern/browser",
-      "./tern/ecma5",
-    ].map(require);
+      require("./tern/browser"),
+      require("./tern/ecma5"),
+    ];
 
     CM_TERN_SCRIPTS.forEach(ed.loadScript, ed);
     win.tern = require("./tern/tern");
@@ -77,17 +71,17 @@ function initializeAutoCompletion(ctx, options = {}) {
     let updateArgHintsCallback = cm.tern.updateArgHints.bind(cm.tern, cm);
     cm.on("cursorActivity", updateArgHintsCallback);
 
-    keyMap[autocompleteKey] = cm => {
-      cm.tern.getHint(cm, data => {
+    keyMap[autocompleteKey] = cmArg => {
+      cmArg.tern.getHint(cmArg, data => {
         CodeMirror.on(data, "shown", () => ed.emit("before-suggest"));
         CodeMirror.on(data, "close", () => ed.emit("after-suggest"));
         CodeMirror.on(data, "select", () => ed.emit("suggestion-entered"));
-        CodeMirror.showHint(cm, (cm, cb) => cb(data), { async: true });
+        CodeMirror.showHint(cmArg, (cmIgnore, cb) => cb(data), { async: true });
       });
     };
 
-    keyMap[Editor.keyFor("showInformation2", { noaccel: true })] = cm => {
-      cm.tern.showType(cm, null, () => {
+    keyMap[Editor.keyFor("showInformation2", { noaccel: true })] = cmArg => {
+      cmArg.tern.showType(cmArg, null, () => {
         ed.emit("show-information");
       });
     };
@@ -124,23 +118,21 @@ function initializeAutoCompletion(ctx, options = {}) {
       insertPopupItem(ed, popup.selectedItem);
     }
 
+    popup.once("popup-closed", () => {
+      // This event is used in tests.
+      ed.emit("popup-hidden");
+    });
     popup.hidePopup();
-    // This event is used in tests.
-    ed.emit("popup-hidden");
     return true;
   }
 
   // Give each popup a new name to avoid sharing the elements.
-  let panelId = "devtools_sourceEditorCompletePopup" + autocompleteCounter;
-  ++autocompleteCounter;
 
-  let popup = new AutocompletePopup(win.parent.document, {
-    position: "after_start",
-    fixedWidth: true,
+  let popup = new AutocompletePopup({ doc: win.parent.document }, {
+    position: "bottom",
     theme: "auto",
     autoSelect: true,
-    onClick: insertSelectedPopupItem,
-    panelId: panelId
+    onClick: insertSelectedPopupItem
   });
 
   let cycle = reverse => {
@@ -217,30 +209,33 @@ function autoComplete({ ed, cm }) {
     return;
   }
   let cur = ed.getCursor();
-  completer.complete(cm.getRange({line: 0, ch: 0}, cur), cur)
-    .then(suggestions => {
-      if (!suggestions || !suggestions.length ||
-          suggestions[0].preLabel == null) {
-        autocompleteOpts.suggestionInsertedOnce = false;
-        popup.hidePopup();
-        ed.emit("after-suggest");
-        return;
-      }
-      // The cursor is at the end of the currently entered part of the token,
-      // like "backgr|" but we need to open the popup at the beginning of the
-      // character "b". Thus we need to calculate the width of the entered part
-      // of the token ("backgr" here). 4 comes from the popup's left padding.
-
-      let cursorElement =
-        cm.display.cursorDiv.querySelector(".CodeMirror-cursor");
-      let left = suggestions[0].preLabel.length * cm.defaultCharWidth() + 4;
-      popup.hidePopup();
-      popup.setItems(suggestions);
-      popup.openPopup(cursorElement, -1 * left, 0);
+  completer.complete(cm.getRange({line: 0, ch: 0}, cur), cur).then(suggestions => {
+    if (!suggestions || !suggestions.length || suggestions[0].preLabel == null) {
       autocompleteOpts.suggestionInsertedOnce = false;
+      popup.once("popup-closed", () => {
+        // This event is used in tests.
+        ed.emit("after-suggest");
+      });
+      popup.hidePopup();
+      return;
+    }
+    // The cursor is at the end of the currently entered part of the token,
+    // like "backgr|" but we need to open the popup at the beginning of the
+    // character "b". Thus we need to calculate the width of the entered part
+    // of the token ("backgr" here). 4 comes from the popup's left padding.
+
+    let cursorElement = cm.display.cursorDiv.querySelector(".CodeMirror-cursor");
+    let left = suggestions[0].preLabel.length * cm.defaultCharWidth() + 4;
+    popup.hidePopup();
+    popup.setItems(suggestions);
+
+    popup.once("popup-opened", () => {
       // This event is used in tests.
       ed.emit("after-suggest");
-    }).then(null, e => console.error(e));
+    });
+    popup.openPopup(cursorElement, -1 * left, 0);
+    autocompleteOpts.suggestionInsertedOnce = false;
+  }).then(null, e => console.error(e));
 }
 
 /**

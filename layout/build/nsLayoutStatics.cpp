@@ -23,7 +23,6 @@
 #include "nsCSSRendering.h"
 #include "mozilla/dom/Attr.h"
 #include "nsDOMClassInfo.h"
-#include "nsEditorEventListener.h"
 #include "mozilla/EventListenerManager.h"
 #include "nsFrame.h"
 #include "nsGlobalWindow.h"
@@ -84,7 +83,6 @@
 #include "nsMenuBarListener.h"
 #endif
 
-#include "nsHTMLEditor.h"
 #include "nsTextServicesDocument.h"
 
 #ifdef MOZ_WEBSPEECH
@@ -127,7 +125,6 @@ using namespace mozilla::system;
 #include "TouchManager.h"
 #include "MediaDecoder.h"
 #include "MediaPrefs.h"
-#include "mozilla/layers/CompositorLRU.h"
 #include "mozilla/dom/devicestorage/DeviceStorageStatics.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/StaticPresData.h"
@@ -312,15 +309,13 @@ nsLayoutStatics::Initialize()
 
   PromiseDebugging::Init();
 
-  layers::CompositorLRU::Init();
-
   mozilla::dom::devicestorage::DeviceStorageStatics::Initialize();
 
   mozilla::dom::WebCryptoThreadPool::Initialize();
 
-#ifdef MOZ_STYLO
-  Servo_Initialize();
-#endif
+  // NB: We initialize servo in nsAppRunner.cpp, because we need to do it after
+  // creating the hidden DOM window to support some current stylo hacks. We
+  // should move initialization back here once those go away.
 
 #ifndef MOZ_WIDGET_ANDROID
   // On Android, we instantiate it when constructing AndroidBridge.
@@ -335,6 +330,10 @@ nsLayoutStatics::Shutdown()
 {
   // Don't need to shutdown nsWindowMemoryReporter, that will be done by the
   // memory reporter manager.
+
+#ifdef MOZ_STYLO
+  Servo_Shutdown();
+#endif
 
   nsMessageManagerScriptExecutor::Shutdown();
   nsFocusManager::Shutdown();

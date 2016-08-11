@@ -40,12 +40,7 @@
  * @constructor
  */
 
-const { Cc, Ci } = require("chrome");
 const Services = require("Services");
-
-// This should be ok because none of the functions that use this should be used
-// on the worker thread, where Cu is not available.
-loader.lazyRequireGetter(this, "CSS", "CSS");
 
 loader.lazyRequireGetter(this, "CSSLexer", "devtools/shared/css-lexer");
 
@@ -144,7 +139,7 @@ const TAB_CHARS = "\t";
  */
 function prettifyCSS(text, ruleCount) {
   if (prettifyCSS.LINE_SEPARATOR == null) {
-    let os = Cc["@mozilla.org/xre/app-info;1"].getService(Ci.nsIXULRuntime).OS;
+    let os = Services.appinfo.OS;
     prettifyCSS.LINE_SEPARATOR = (os === "WINNT" ? "\r\n" : "\n");
   }
 

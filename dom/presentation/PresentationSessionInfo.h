@@ -105,6 +105,8 @@ public:
   nsresult Close(nsresult aReason,
                  uint32_t aState);
 
+  nsresult OnTerminate(nsIPresentationControlChannel* aControlChannel);
+
   nsresult ReplyError(nsresult aReason);
 
   virtual bool IsAccessible(base::ProcessId aProcessId);
@@ -142,6 +144,8 @@ protected:
     }
   }
 
+  void ContinueTermination();
+
   // Should be nsIPresentationChannelDescription::TYPE_TCP/TYPE_DATACHANNEL
   uint8_t mTransportType = 0;
 
@@ -154,6 +158,7 @@ protected:
   uint8_t mRole;
   bool mIsResponderReady;
   bool mIsTransportReady;
+  bool mIsOnTerminating = false;
   uint32_t mState; // CONNECTED, CLOSED, TERMINATED
   nsresult mReason;
   nsCOMPtr<nsIPresentationSessionListener> mListener;
@@ -181,6 +186,10 @@ public:
 
   nsresult Init(nsIPresentationControlChannel* aControlChannel) override;
 
+  nsresult Reconnect(nsIPresentationServiceCallback* aCallback);
+
+  nsresult BuildTransport();
+
 private:
   ~PresentationControllingInfo()
   {
@@ -194,6 +203,7 @@ private:
   nsresult OnGetAddress(const nsACString& aAddress);
 
   nsCOMPtr<nsIServerSocket> mServerSocket;
+  nsCOMPtr<nsIPresentationServiceCallback> mReconnectCallback;
 };
 
 // Session info with presenting browsing context (receiver side) behaviors.
@@ -220,6 +230,7 @@ public:
   nsresult Init(nsIPresentationControlChannel* aControlChannel) override;
 
   nsresult NotifyResponderReady();
+  nsresult NotifyResponderFailure();
 
   NS_IMETHODIMP OnSessionTransport(nsIPresentationSessionTransport* transport) override;
 

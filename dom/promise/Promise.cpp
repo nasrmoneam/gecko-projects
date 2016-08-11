@@ -926,6 +926,14 @@ Promise::MaybeReject(JSContext* aCx,
 #endif // SPIDERMONKEY_PROMISE
 
 void
+Promise::MaybeResolveWithUndefined()
+{
+  NS_ASSERT_OWNINGTHREAD(Promise);
+
+  MaybeResolve(JS::UndefinedHandleValue);
+}
+
+void
 Promise::MaybeReject(const RefPtr<MediaStreamError>& aArg) {
   NS_ASSERT_OWNINGTHREAD(Promise);
 
@@ -947,7 +955,6 @@ Promise::MaybeRejectWithUndefined()
 
   MaybeSomething(JS::UndefinedHandleValue, &Promise::MaybeReject);
 }
-
 
 #ifdef SPIDERMONKEY_PROMISE
 void
@@ -992,7 +999,7 @@ Promise::PerformMicroTaskCheckpoint()
     return false;
   }
 
-  AutoSafeJSContext cx;
+  AutoSlowOperation aso;
 
   do {
     nsCOMPtr<nsIRunnable> runnable = microtaskQueue.front().forget();
@@ -1004,7 +1011,7 @@ Promise::PerformMicroTaskCheckpoint()
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return false;
     }
-    JS_CheckForInterrupt(cx);
+    aso.CheckForInterrupt();
     runtime->AfterProcessMicrotask();
   } while (!microtaskQueue.empty());
 
@@ -1367,7 +1374,7 @@ Promise::NewPromiseCapability(JSContext* aCx, nsIGlobalObject* aGlobal,
       return;
     }
 
-    JSObject* defaultCtor = PromiseBinding::GetConstructorObject(aCx, global);
+    JSObject* defaultCtor = PromiseBinding::GetConstructorObject(aCx);
     if (!defaultCtor) {
       aRv.NoteJSContextException(aCx);
       return;
@@ -1706,12 +1713,10 @@ Promise::Then(JSContext* aCx, JS::Handle<JSObject*> aCalleeGlobal,
   // Step 3.  We want to use aCalleeGlobal here because it will do the
   // right thing for us via Xrays (where we won't find @@species on
   // our promise constructor for now).
-  JS::Rooted<JSObject*> calleeGlobal(aCx, aCalleeGlobal);
   JS::Rooted<JS::Value> defaultCtorVal(aCx);
   { // Scope for JSAutoCompartment
     JSAutoCompartment ac(aCx, aCalleeGlobal);
-    JSObject* defaultCtor =
-      PromiseBinding::GetConstructorObject(aCx, calleeGlobal);
+    JSObject* defaultCtor = PromiseBinding::GetConstructorObject(aCx);
     if (!defaultCtor) {
       aRv.NoteJSContextException(aCx);
       return;
@@ -1906,8 +1911,11 @@ public:
         !JS_DefineElement(cx, values, index, value, JSPROP_ENUMERATE)) {
       MOZ_ASSERT(JS_IsExceptionPending(cx));
       JS::Rooted<JS::Value> exn(cx);
-      jsapi.StealException(&exn);
-      mPromise->MaybeReject(cx, exn);
+      if (!jsapi.StealException(&exn)) {
+        mPromise->MaybeReject(NS_ERROR_OUT_OF_MEMORY);
+      } else {
+        mPromise->MaybeReject(cx, exn);
+      }
     }
 
     --mCountdown;
@@ -2763,7 +2771,7 @@ Promise::Settle(JS::Handle<JS::Value> aValue, PromiseState aState)
   if (aState == PromiseState::Rejected &&
       !mHadRejectCallback &&
       !NS_IsMainThread()) {
-    workers::WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+    WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
     MOZ_ASSERT(worker);
     worker->AssertIsOnWorkerThread();
 
@@ -2827,9 +2835,9 @@ Promise::RemoveWorkerHolder()
 }
 
 bool
-PromiseReportRejectWorkerHolder::Notify(workers::Status aStatus)
+PromiseReportRejectWorkerHolder::Notify(Status aStatus)
 {
-  MOZ_ASSERT(aStatus > workers::Running);
+  MOZ_ASSERT(aStatus > Running);
   mPromise->MaybeReportRejectedOnce();
   // After this point, `this` has been deleted by RemoveWorkerHolder!
   return true;
@@ -2881,7 +2889,7 @@ Promise::GetDependentPromises(nsTArray<RefPtr<Promise>>& aPromises)
 
 // A WorkerRunnable to resolve/reject the Promise on the worker thread.
 // Calling thread MUST hold PromiseWorkerProxy's mutex before creating this.
-class PromiseWorkerProxyRunnable : public workers::WorkerRunnable
+class PromiseWorkerProxyRunnable : public WorkerRunnable
 {
 public:
   PromiseWorkerProxyRunnable(PromiseWorkerProxy* aPromiseWorkerProxy,
@@ -2896,7 +2904,7 @@ public:
   }
 
   virtual bool
-  WorkerRun(JSContext* aCx, workers::WorkerPrivate* aWorkerPrivate)
+  WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate)
   {
     MOZ_ASSERT(aWorkerPrivate);
     aWorkerPrivate->AssertIsOnWorkerThread();
@@ -2929,9 +2937,32 @@ private:
   PromiseWorkerProxy::RunCallbackFunc mFunc;
 };
 
+class PromiseWorkerHolder final : public WorkerHolder
+{
+  // RawPointer because this proxy keeps alive the holder.
+  PromiseWorkerProxy* mProxy;
+
+public:
+  explicit PromiseWorkerHolder(PromiseWorkerProxy* aProxy)
+    : mProxy(aProxy)
+  {
+    MOZ_ASSERT(aProxy);
+  }
+
+  bool
+  Notify(Status aStatus) override
+  {
+    if (aStatus >= Canceling) {
+      mProxy->CleanUp();
+    }
+
+    return true;
+  }
+};
+
 /* static */
 already_AddRefed<PromiseWorkerProxy>
-PromiseWorkerProxy::Create(workers::WorkerPrivate* aWorkerPrivate,
+PromiseWorkerProxy::Create(WorkerPrivate* aWorkerPrivate,
                            Promise* aWorkerPromise,
                            const PromiseWorkerProxyStructuredCloneCallbacks* aCb)
 {
@@ -2957,7 +2988,7 @@ PromiseWorkerProxy::Create(workers::WorkerPrivate* aWorkerPrivate,
 
 NS_IMPL_ISUPPORTS0(PromiseWorkerProxy)
 
-PromiseWorkerProxy::PromiseWorkerProxy(workers::WorkerPrivate* aWorkerPrivate,
+PromiseWorkerProxy::PromiseWorkerProxy(WorkerPrivate* aWorkerPrivate,
                                        Promise* aWorkerPromise,
                                        const PromiseWorkerProxyStructuredCloneCallbacks* aCallbacks)
   : mWorkerPrivate(aWorkerPrivate)
@@ -2965,16 +2996,13 @@ PromiseWorkerProxy::PromiseWorkerProxy(workers::WorkerPrivate* aWorkerPrivate,
   , mCleanedUp(false)
   , mCallbacks(aCallbacks)
   , mCleanUpLock("cleanUpLock")
-#ifdef DEBUG
-  , mWorkerHolderAdded(false)
-#endif
 {
 }
 
 PromiseWorkerProxy::~PromiseWorkerProxy()
 {
   MOZ_ASSERT(mCleanedUp);
-  MOZ_ASSERT(!mWorkerHolderAdded);
+  MOZ_ASSERT(!mWorkerHolder);
   MOZ_ASSERT(!mWorkerPromise);
   MOZ_ASSERT(!mWorkerPrivate);
 }
@@ -2983,7 +3011,7 @@ void
 PromiseWorkerProxy::CleanProperties()
 {
 #ifdef DEBUG
-  workers::WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+  WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
   MOZ_ASSERT(worker);
   worker->AssertIsOnWorkerThread();
 #endif
@@ -3002,21 +3030,21 @@ PromiseWorkerProxy::AddRefObject()
 {
   MOZ_ASSERT(mWorkerPrivate);
   mWorkerPrivate->AssertIsOnWorkerThread();
-  MOZ_ASSERT(!mWorkerHolderAdded);
-  if (NS_WARN_IF(!HoldWorker(mWorkerPrivate))) {
+
+  MOZ_ASSERT(!mWorkerHolder);
+  mWorkerHolder.reset(new PromiseWorkerHolder(this));
+  if (NS_WARN_IF(!mWorkerHolder->HoldWorker(mWorkerPrivate))) {
+    mWorkerHolder = nullptr;
     return false;
   }
 
-#ifdef DEBUG
-  mWorkerHolderAdded = true;
-#endif
   // Maintain a reference so that we have a valid object to clean up when
   // removing the feature.
   AddRef();
   return true;
 }
 
-workers::WorkerPrivate*
+WorkerPrivate*
 PromiseWorkerProxy::GetWorkerPrivate() const
 {
 #ifdef DEBUG
@@ -3027,7 +3055,7 @@ PromiseWorkerProxy::GetWorkerPrivate() const
   // Safe to check this without a lock since we assert lock ownership on the
   // main thread above.
   MOZ_ASSERT(!mCleanedUp);
-  MOZ_ASSERT(mWorkerHolderAdded);
+  MOZ_ASSERT(mWorkerHolder);
 
   return mWorkerPrivate;
 }
@@ -3036,7 +3064,7 @@ Promise*
 PromiseWorkerProxy::WorkerPromise() const
 {
 #ifdef DEBUG
-  workers::WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
+  WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
   MOZ_ASSERT(worker);
   worker->AssertIsOnWorkerThread();
 #endif
@@ -3093,16 +3121,6 @@ PromiseWorkerProxy::RejectedCallback(JSContext* aCx,
   RunCallback(aCx, aValue, &Promise::MaybeReject);
 }
 
-bool
-PromiseWorkerProxy::Notify(Status aStatus)
-{
-  if (aStatus >= Canceling) {
-    CleanUp();
-  }
-
-  return true;
-}
-
 void
 PromiseWorkerProxy::CleanUp()
 {
@@ -3120,14 +3138,12 @@ PromiseWorkerProxy::CleanUp()
     MOZ_ASSERT(mWorkerPrivate);
     mWorkerPrivate->AssertIsOnWorkerThread();
 
-    // Release the Promise and remove the PromiseWorkerProxy from the features of
+    // Release the Promise and remove the PromiseWorkerProxy from the holders of
     // the worker thread since the Promise has been resolved/rejected or the
     // worker thread has been cancelled.
-    MOZ_ASSERT(mWorkerHolderAdded);
-    ReleaseWorker();
-#ifdef DEBUG
-    mWorkerHolderAdded = false;
-#endif
+    MOZ_ASSERT(mWorkerHolder);
+    mWorkerHolder = nullptr;
+
     CleanProperties();
   }
   Release();

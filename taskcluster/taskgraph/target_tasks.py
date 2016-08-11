@@ -6,6 +6,13 @@
 
 from __future__ import absolute_import, print_function, unicode_literals
 from taskgraph import try_option_syntax
+from taskgraph.util.attributes import attrmatch
+
+BUILD_AND_TEST_KINDS = set([
+    'legacy',  # builds
+    'desktop-test',
+    'android-test',
+])
 
 _target_task_methods = {}
 
@@ -35,8 +42,17 @@ def target_tasks_try_option_syntax(full_task_graph, parameters):
     """Generate a list of target tasks based on try syntax in
     parameters['message'] and, for context, the full task graph."""
     options = try_option_syntax.TryOptionSyntax(parameters['message'], full_task_graph)
-    return [t.label for t in full_task_graph.tasks.itervalues()
-            if options.task_matches(t.attributes)]
+    target_tasks_labels = [t.label for t in full_task_graph.tasks.itervalues()
+                           if options.task_matches(t.attributes)]
+
+    # If the developer wants test jobs to be rebuilt N times we add that value here
+    if int(options.trigger_tests) > 1:
+        for l in target_tasks_labels:
+            task = full_task_graph[l]
+            if 'unittest_suite' in task.attributes:
+                task.attributes['task_duplicates'] = options.trigger_tests
+
+    return target_tasks_labels
 
 
 @_target_task('all_builds_and_tests')
@@ -44,5 +60,27 @@ def target_tasks_all_builds_and_tests(full_task_graph, parameters):
     """Trivially target all build and test tasks.  This is used for
     branches where we want to build "everyting", but "everything"
     does not include uninteresting things like docker images"""
-    return [t.label for t in full_task_graph.tasks.itervalues()
-            if t.attributes.get('kind') == 'legacy']
+    def filter(task):
+        return t.attributes.get('kind') in BUILD_AND_TEST_KINDS
+    return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
+
+
+@_target_task('ash_tasks')
+def target_tasks_ash_tasks(full_task_graph, parameters):
+    """Special case for builds on ash."""
+    def filter(task):
+        # NOTE: on the ash branch, update taskcluster/ci/desktop-test/tests.yml to
+        # run the M-dt-e10s tasks
+        attrs = t.attributes
+        if attrs.get('kind') not in BUILD_AND_TEST_KINDS:
+            return False
+        if not attrmatch(attrs, build_platform=set([
+            'linux64',
+            'linux64-asan',
+            'linux64-pgo',
+        ])):
+            return False
+        if not attrmatch(attrs, e10s=True):
+            return False
+        return True
+    return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]

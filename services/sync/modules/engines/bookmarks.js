@@ -848,7 +848,7 @@ BookmarksStore.prototype = {
       this._reparentItem(itemId, record._parent);
     }
 
-    for (let [key, val] in Iterator(record.cleartext)) {
+    for (let [key, val] of Object.entries(record.cleartext)) {
       switch (key) {
       case "title":
         PlacesUtils.bookmarks.setItemTitle(itemId, val);
@@ -896,7 +896,7 @@ BookmarksStore.prototype = {
   },
 
   _orderChildren: function _orderChildren() {
-    for (let [guid, children] in Iterator(this._childrenToOrder)) {
+    for (let [guid, children] of Object.entries(this._childrenToOrder)) {
       // Reorder children according to the GUID list. Gracefully deal
       // with missing items, e.g. locally deleted.
       let delta = 0;
@@ -1536,6 +1536,7 @@ BookmarksTracker.prototype = {
   onEndUpdateBatch: function () {
     if (--this._batchDepth === 0 && this._batchSawScoreIncrement) {
       this.score += SCORE_INCREMENT_XLARGE;
+      this._batchSawScoreIncrement = false;
     }
   },
   onItemVisited: function () {}

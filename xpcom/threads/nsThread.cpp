@@ -43,10 +43,6 @@
 #include "mozilla/dom/ContentChild.h"
 #endif
 
-#ifdef MOZ_NUWA_PROCESS
-#include "private/pprthred.h"
-#endif
-
 #ifdef XP_LINUX
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -205,11 +201,6 @@ public:
   // completion state.
   void Wait()
   {
-    if (mInitialized) {
-      // Maybe avoid locking...
-      return;
-    }
-
     ReentrantMonitorAutoEnter mon(mMon);
     while (!mInitialized) {
       mon.Wait();
@@ -221,7 +212,7 @@ public:
   virtual ~nsThreadStartupEvent() {}
 
 private:
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() override
   {
     ReentrantMonitorAutoEnter mon(mMon);
     mInitialized = true;
@@ -362,7 +353,7 @@ public:
     , mShutdownContext(aCtx)
   {
   }
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() override
   {
     mThread->mShutdownContext = mShutdownContext;
     MessageLoop::current()->Quit();
@@ -681,12 +672,6 @@ nsThread::PutEvent(already_AddRefed<nsIRunnable> aEvent, nsNestedEventTarget* aT
   // we won't release the event in a wrong thread.
   LeakRefPtr<nsIRunnable> event(Move(aEvent));
   nsCOMPtr<nsIThreadObserver> obs;
-
-#ifdef MOZ_NUWA_PROCESS
-  // On debug build or when tests are enabled, assert that we are not about to
-  // create a deadlock in the Nuwa process.
-  NuwaAssertNotFrozen(PR_GetThreadID(mThread), PR_GetThreadName(mThread));
-#endif
 
   {
     MutexAutoLock lock(mLock);

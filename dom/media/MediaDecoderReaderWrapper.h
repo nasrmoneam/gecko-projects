@@ -9,6 +9,7 @@
 
 #include "mozilla/AbstractThread.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/Variant.h"
 #include "nsISupportsImpl.h"
 
 #include "MediaDecoderReader.h"
@@ -119,6 +120,8 @@ public:
 #ifdef MOZ_EME
   void SetCDMProxy(CDMProxy* aProxy) { mReader->SetCDMProxy(aProxy); }
 #endif
+
+  void SetVideoBlankDecode(bool aIsBlankDecode);
 
 private:
   ~MediaDecoderReaderWrapper();

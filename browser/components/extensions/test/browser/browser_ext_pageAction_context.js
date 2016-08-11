@@ -87,7 +87,7 @@ function* runTests(options) {
     background: `(${background})(${options.getTests})`,
   });
 
-  let pageActionId = makeWidgetId(extension.id) + "-page-action";
+  let pageActionId;
   let currentWindow = window;
   let windows = [];
 
@@ -98,7 +98,7 @@ function* runTests(options) {
     } else {
       ok(image, "image exists");
 
-      is(image.src, details.icon, "icon URL is correct");
+      is(getListStyleImage(image), details.icon, "icon URL is correct");
 
       let title = details.title || options.manifest.name;
       is(image.getAttribute("tooltiptext"), title, "image title is correct");
@@ -111,6 +111,10 @@ function* runTests(options) {
 
   let awaitFinish = new Promise(resolve => {
     extension.onMessage("nextTest", (expecting, testsRemaining) => {
+      if (!pageActionId) {
+        pageActionId = `${makeWidgetId(extension.id)}-page-action`;
+      }
+
       checkDetails(expecting);
 
       if (testsRemaining) {
@@ -177,6 +181,10 @@ add_task(function* testTabSwitchContext() {
           "description": "Title",
         },
       },
+
+      "default.png": imageBuffer,
+      "1.png": imageBuffer,
+      "2.png": imageBuffer,
     },
 
     getTests(tabs) {
@@ -244,6 +252,15 @@ add_task(function* testTabSwitchContext() {
           });
         },
         expect => {
+          browser.test.log("Change the hash. Expect same properties.");
+
+          promiseTabLoad({id: tabs[1], url: "about:blank?0#ref"}).then(() => {
+            expect(details[2]);
+          });
+
+          browser.tabs.update(tabs[1], {url: "about:blank?0#ref"});
+        },
+        expect => {
           browser.test.log("Clear the title. Expect default title.");
           browser.pageAction.setTitle({tabId: tabs[1], title: ""});
 
@@ -307,6 +324,10 @@ add_task(function* testDefaultTitle() {
       },
 
       "permissions": ["tabs"],
+    },
+
+    files: {
+      "icon.png": imageBuffer,
     },
 
     getTests(tabs) {

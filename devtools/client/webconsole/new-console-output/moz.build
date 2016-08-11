@@ -8,6 +8,7 @@ DIRS += [
     'components',
     'reducers',
     'selectors',
+    'test',
     'utils',
 ]
 
@@ -16,6 +17,7 @@ DevToolsModules(
     'main.js',
     'new-console-output-wrapper.js',
     'store.js',
+    'types.js',
 )
 
 MOCHITEST_CHROME_MANIFESTS += [

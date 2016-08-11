@@ -12,6 +12,7 @@
 #include "nsCOMPtr.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/SHA1.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/TimeStamp.h"
 #include "nsTArray.h"
 #include "nsString.h"
@@ -67,6 +68,7 @@ public:
 
   // Returns false when this handle has been doomed based on the pinning state update.
   bool SetPinned(bool aPinned);
+  void SetInvalid() { mInvalid = true; }
 
   // Memory reporting
   size_t SizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
@@ -89,8 +91,9 @@ private:
   bool const           mPriority;
   bool const           mSpecialFile;
 
+  mozilla::Atomic<bool, Relaxed> mInvalid;
+
   // These bit flags are all accessed only on the IO thread
-  bool                 mInvalid : 1;
   bool                 mFileExists : 1; // This means that the file should exists,
                                         // but it can be still deleted by OS/user
                                         // and then a subsequent OpenNSPRFileDesc()
@@ -441,7 +444,8 @@ private:
   // Memory reporting (private part)
   size_t SizeOfExcludingThisInternal(mozilla::MallocSizeOf mallocSizeOf) const;
 
-  static CacheFileIOManager           *gInstance;
+  static StaticRefPtr<CacheFileIOManager> gInstance;
+
   TimeStamp                            mStartTime;
   // Set true on the IO thread, CLOSE level as part of the internal shutdown
   // procedure.
@@ -456,6 +460,7 @@ private:
   nsCOMPtr<nsIFile>                    mCacheProfilelessDirectory;
 #endif
   bool                                 mTreeCreated;
+  bool                                 mTreeCreationFailed;
   CacheFileHandles                     mHandles;
   nsTArray<CacheFileHandle *>          mHandlesByLastUsed;
   nsTArray<CacheFileHandle *>          mSpecialHandles;

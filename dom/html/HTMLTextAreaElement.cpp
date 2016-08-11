@@ -55,6 +55,7 @@ HTMLTextAreaElement::HTMLTextAreaElement(already_AddRefed<mozilla::dom::NodeInfo
                                          FromParser aFromParser)
   : nsGenericHTMLFormElementWithState(aNodeInfo),
     mValueChanged(false),
+    mLastValueChangeWasInteractive(false),
     mHandlingSelect(false),
     mDoneAddingChildren(!aFromParser),
     mInhibitStateRestoration(!!(aFromParser & FROM_PARSER_FRAGMENT)),
@@ -660,38 +661,50 @@ HTMLTextAreaElement::GetSelectionStart(int32_t *aSelectionStart)
   NS_ENSURE_ARG_POINTER(aSelectionStart);
 
   ErrorResult error;
-  *aSelectionStart = GetSelectionStart(error);
+  Nullable<uint32_t> selStart(GetSelectionStart(error));
+  if (error.Failed()) {
+    return error.StealNSResult();
+  }
+
+  *aSelectionStart = int32_t(selStart.Value());
   return error.StealNSResult();
 }
 
-uint32_t
+Nullable<uint32_t>
 HTMLTextAreaElement::GetSelectionStart(ErrorResult& aError)
 {
   int32_t selStart, selEnd;
   nsresult rv = GetSelectionRange(&selStart, &selEnd);
 
   if (NS_FAILED(rv) && mState.IsSelectionCached()) {
-    return mState.GetSelectionProperties().mStart;
+    return Nullable<uint32_t>(mState.GetSelectionProperties().GetStart());
   }
   if (NS_FAILED(rv)) {
     aError.Throw(rv);
   }
-  return selStart;
+  return Nullable<uint32_t>(selStart);
 }
 
 NS_IMETHODIMP
 HTMLTextAreaElement::SetSelectionStart(int32_t aSelectionStart)
 {
   ErrorResult error;
-  SetSelectionStart(aSelectionStart, error);
+  Nullable<uint32_t> selStart(aSelectionStart);
+  SetSelectionStart(selStart, error);
   return error.StealNSResult();
 }
 
 void
-HTMLTextAreaElement::SetSelectionStart(uint32_t aSelectionStart, ErrorResult& aError)
+HTMLTextAreaElement::SetSelectionStart(const Nullable<uint32_t>& aSelectionStart,
+                                       ErrorResult& aError)
 {
+  int32_t selStart = 0;
+  if (!aSelectionStart.IsNull()) {
+    selStart = aSelectionStart.Value();
+  }
+
   if (mState.IsSelectionCached()) {
-    mState.GetSelectionProperties().mStart = aSelectionStart;
+    mState.GetSelectionProperties().SetStart(selStart);
     return;
   }
 
@@ -707,7 +720,7 @@ HTMLTextAreaElement::SetSelectionStart(uint32_t aSelectionStart, ErrorResult& aE
     aError.Throw(rv);
     return;
   }
-  start = aSelectionStart;
+  start = selStart;
   if (end < start) {
     end = start;
   }
@@ -723,38 +736,50 @@ HTMLTextAreaElement::GetSelectionEnd(int32_t *aSelectionEnd)
   NS_ENSURE_ARG_POINTER(aSelectionEnd);
 
   ErrorResult error;
-  *aSelectionEnd = GetSelectionEnd(error);
-  return error.StealNSResult();
+  Nullable<uint32_t> selEnd(GetSelectionEnd(error));
+  if (error.Failed()) {
+    return error.StealNSResult();
+  }
+
+  *aSelectionEnd = int32_t(selEnd.Value());
+  return NS_OK;
 }
 
-uint32_t
+Nullable<uint32_t>
 HTMLTextAreaElement::GetSelectionEnd(ErrorResult& aError)
 {
   int32_t selStart, selEnd;
   nsresult rv = GetSelectionRange(&selStart, &selEnd);
 
   if (NS_FAILED(rv) && mState.IsSelectionCached()) {
-    return mState.GetSelectionProperties().mEnd;
+    return Nullable<uint32_t>(mState.GetSelectionProperties().GetEnd());
   }
   if (NS_FAILED(rv)) {
     aError.Throw(rv);
   }
-  return selEnd;
+  return Nullable<uint32_t>(selEnd);
 }
 
 NS_IMETHODIMP
 HTMLTextAreaElement::SetSelectionEnd(int32_t aSelectionEnd)
 {
   ErrorResult error;
-  SetSelectionEnd(aSelectionEnd, error);
+  Nullable<uint32_t> selEnd(aSelectionEnd);
+  SetSelectionEnd(selEnd, error);
   return error.StealNSResult();
 }
 
 void
-HTMLTextAreaElement::SetSelectionEnd(uint32_t aSelectionEnd, ErrorResult& aError)
+HTMLTextAreaElement::SetSelectionEnd(const Nullable<uint32_t>& aSelectionEnd,
+                                     ErrorResult& aError)
 {
+  int32_t selEnd = 0;
+  if (!aSelectionEnd.IsNull()) {
+    selEnd = aSelectionEnd.Value();
+  }
+
   if (mState.IsSelectionCached()) {
-    mState.GetSelectionProperties().mEnd = aSelectionEnd;
+    mState.GetSelectionProperties().SetEnd(selEnd);
     return;
   }
 
@@ -770,7 +795,7 @@ HTMLTextAreaElement::SetSelectionEnd(uint32_t aSelectionEnd, ErrorResult& aError
     aError.Throw(rv);
     return;
   }
-  end = aSelectionEnd;
+  end = selEnd;
   if (start > end) {
     start = end;
   }
@@ -831,7 +856,7 @@ HTMLTextAreaElement::GetSelectionDirection(nsAString& aDirection, ErrorResult& a
 
   if (NS_FAILED(rv)) {
     if (mState.IsSelectionCached()) {
-      DirectionToName(mState.GetSelectionProperties().mDirection, aDirection);
+      DirectionToName(mState.GetSelectionProperties().GetDirection(), aDirection);
       return;
     }
     aError.Throw(rv);
@@ -847,7 +872,8 @@ HTMLTextAreaElement::SetSelectionDirection(const nsAString& aDirection)
 }
 
 void
-HTMLTextAreaElement::SetSelectionDirection(const nsAString& aDirection, ErrorResult& aError)
+HTMLTextAreaElement::SetSelectionDirection(const nsAString& aDirection,
+                                           ErrorResult& aError)
 {
   if (mState.IsSelectionCached()) {
     nsITextControlFrame::SelectionDirection dir = nsITextControlFrame::eNone;
@@ -856,7 +882,7 @@ HTMLTextAreaElement::SetSelectionDirection(const nsAString& aDirection, ErrorRes
     } else if (aDirection.EqualsLiteral("backward")) {
       dir = nsITextControlFrame::eBackward;
     }
-    mState.GetSelectionProperties().mDirection = dir;
+    mState.GetSelectionProperties().SetDirection(dir);
     return;
   }
 
@@ -923,8 +949,8 @@ HTMLTextAreaElement::SetRangeText(const nsAString& aReplacement,
   aRv = GetSelectionRange(&start, &end);
   if (aRv.Failed()) {
     if (mState.IsSelectionCached()) {
-      start = mState.GetSelectionProperties().mStart;
-      end = mState.GetSelectionProperties().mEnd;
+      start = mState.GetSelectionProperties().GetStart();
+      end = mState.GetSelectionProperties().GetEnd();
       aRv = NS_OK;
     }
   }
@@ -961,8 +987,8 @@ HTMLTextAreaElement::SetRangeText(const nsAString& aReplacement,
     aRv = GetSelectionRange(&aSelectionStart, &aSelectionEnd);
     if (aRv.Failed()) {
       if (mState.IsSelectionCached()) {
-        aSelectionStart = mState.GetSelectionProperties().mStart;
-        aSelectionEnd = mState.GetSelectionProperties().mEnd;
+        aSelectionStart = mState.GetSelectionProperties().GetStart();
+        aSelectionEnd = mState.GetSelectionProperties().GetEnd();
         aRv = NS_OK;
       }
     }
@@ -1344,7 +1370,9 @@ HTMLTextAreaElement::SetCustomValidity(const nsAString& aError)
 bool
 HTMLTextAreaElement::IsTooLong()
 {
-  if (!HasAttr(kNameSpaceID_None, nsGkAtoms::maxlength) || !mValueChanged) {
+  if (!mValueChanged ||
+      !mLastValueChangeWasInteractive ||
+      !HasAttr(kNameSpaceID_None, nsGkAtoms::maxlength)) {
     return false;
   }
 
@@ -1375,10 +1403,7 @@ HTMLTextAreaElement::IsValueMissing() const
 void
 HTMLTextAreaElement::UpdateTooLongValidityState()
 {
-  // TODO: this code will be re-enabled with bug 613016 and bug 613019.
-#if 0
   SetValidityState(VALIDITY_STATE_TOO_LONG, IsTooLong());
-#endif
 }
 
 void
@@ -1525,8 +1550,10 @@ HTMLTextAreaElement::InitializeKeyboardEventListeners()
 }
 
 NS_IMETHODIMP_(void)
-HTMLTextAreaElement::OnValueChanged(bool aNotify)
+HTMLTextAreaElement::OnValueChanged(bool aNotify, bool aWasInteractiveUserChange)
 {
+  mLastValueChangeWasInteractive = aWasInteractiveUserChange;
+
   // Update the validity state
   bool validBefore = IsValid();
   UpdateTooLongValidityState();

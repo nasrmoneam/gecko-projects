@@ -10,6 +10,7 @@ import yaml
 from .graph import Graph
 from .taskgraph import TaskGraph
 from .optimize import optimize_task_graph
+from .util.python_path import find_object
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +28,7 @@ class Kind(object):
             impl = self.config['implementation']
         except KeyError:
             raise KeyError("{!r} does not define implementation".format(self.path))
-        if impl.count(':') != 1:
-            raise TypeError('{!r} implementation does not have the form "module:object"'
-                            .format(self.path))
-
-        impl_module, impl_object = impl.split(':')
-        impl_class = __import__(impl_module)
-        for a in impl_module.split('.')[1:]:
-            impl_class = getattr(impl_class, a)
-        for a in impl_object.split('.'):
-            impl_class = getattr(impl_class, a)
-
-        return impl_class
+        return find_object(impl)
 
     def load_tasks(self, parameters, loaded_tasks):
         impl_class = self._get_impl_class()
@@ -172,10 +162,12 @@ class TaskGraphGenerator(object):
         for kind_name in kind_graph.visit_postorder():
             logger.debug("Loading tasks for kind {}".format(kind_name))
             kind = kinds[kind_name]
-            for task in kind.load_tasks(self.parameters, list(all_tasks.values())):
+            new_tasks = kind.load_tasks(self.parameters, list(all_tasks.values()))
+            for task in new_tasks:
                 if task.label in all_tasks:
                     raise Exception("duplicate tasks with label " + task.label)
                 all_tasks[task.label] = task
+            logger.info("Generated {} tasks for kind {}".format(len(new_tasks), kind_name))
         full_task_set = TaskGraph(all_tasks, Graph(set(all_tasks), set()))
         yield 'full_task_set', full_task_set
 

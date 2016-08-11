@@ -5,6 +5,10 @@
 XPCOMUtils.defineLazyModuleGetter(this, "CustomizableUI",
                                   "resource:///modules/CustomizableUI.jsm");
 
+XPCOMUtils.defineLazyGetter(this, "colorUtils", () => {
+  return require("devtools/shared/css-color").colorUtils;
+});
+
 Cu.import("resource://devtools/shared/event-emitter.js");
 
 Cu.import("resource://gre/modules/ExtensionUtils.jsm");
@@ -79,6 +83,7 @@ BrowserAction.prototype = {
 
       onCreated: node => {
         node.classList.add("badged-button");
+        node.classList.add("webextension-browser-action");
         node.setAttribute("constrain-size", "true");
 
         this.updateButton(node, this.defaults);
@@ -113,7 +118,7 @@ BrowserAction.prototype = {
     });
 
     this.tabContext.on("tab-select", // eslint-disable-line mozilla/balanced-listeners
-                       (evt, tab) => { this.updateWindow(tab.ownerDocument.defaultView); });
+                       (evt, tab) => { this.updateWindow(tab.ownerGlobal); });
 
     this.widget = widget;
   },
@@ -141,8 +146,8 @@ BrowserAction.prototype = {
                                         "class", "toolbarbutton-badge");
     if (badgeNode) {
       let color = tabData.badgeBackgroundColor;
-      if (Array.isArray(color)) {
-        color = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+      if (color) {
+        color = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
       }
       badgeNode.style.backgroundColor = color || "";
     }
@@ -150,22 +155,34 @@ BrowserAction.prototype = {
     const LEGACY_CLASS = "toolbarbutton-legacy-addon";
     node.classList.remove(LEGACY_CLASS);
 
-
-    let win = node.ownerDocument.defaultView;
-    let {icon, size} = IconDetails.getURL(tabData.icon, win, this.extension);
+    let baseSize = 16;
+    let {icon, size} = IconDetails.getPreferredIcon(tabData.icon, this.extension, baseSize);
 
     // If the best available icon size is not divisible by 16, check if we have
     // an 18px icon to fall back to, and trim off the padding instead.
     if (size % 16 && !icon.endsWith(".svg")) {
-      let result = IconDetails.getURL(tabData.icon, win, this.extension, 18);
+      let result = IconDetails.getPreferredIcon(tabData.icon, this.extension, 18);
 
       if (result.size % 18 == 0) {
+        baseSize = 18;
         icon = result.icon;
         node.classList.add(LEGACY_CLASS);
       }
     }
 
-    node.setAttribute("image", icon);
+    // These URLs should already be properly escaped, but make doubly sure CSS
+    // string escape characters are escaped here, since they could lead to a
+    // sandbox break.
+    let escape = str => str.replace(/[\\\s"]/g, encodeURIComponent);
+
+    let getIcon = size => escape(IconDetails.getPreferredIcon(tabData.icon, this.extension, size).icon);
+
+    node.setAttribute("style", `
+      --webextension-menupanel-image: url("${getIcon(32)}");
+      --webextension-menupanel-image-2x: url("${getIcon(64)}");
+      --webextension-toolbar-image: url("${escape(icon)}");
+      --webextension-toolbar-image-2x: url("${getIcon(baseSize * 2)}");
+    `);
   },
 
   // Update the toolbar button for a given window.
@@ -183,7 +200,7 @@ BrowserAction.prototype = {
   updateOnChange(tab) {
     if (tab) {
       if (tab.selected) {
-        this.updateWindow(tab.ownerDocument.defaultView);
+        this.updateWindow(tab.ownerGlobal);
       }
     } else {
       for (let window of WindowListManager.browserWindows()) {
@@ -211,9 +228,8 @@ BrowserAction.prototype = {
   getProperty(tab, prop) {
     if (tab == null) {
       return this.defaults[prop];
-    } else {
-      return this.tabContext.get(tab)[prop];
     }
+    return this.tabContext.get(tab)[prop];
   },
 
   shutdown() {
@@ -321,13 +337,18 @@ extensions.registerSchemaAPI("browserAction", (extension, context) => {
 
       setBadgeBackgroundColor: function(details) {
         let tab = details.tabId !== null ? TabManager.getTab(details.tabId) : null;
-        BrowserAction.for(extension).setProperty(tab, "badgeBackgroundColor", details.color);
+        let color = details.color;
+        if (!Array.isArray(color)) {
+          let col = colorUtils.colorToRGBA(color);
+          color = col && [col.r, col.g, col.b, Math.round(col.a * 255)];
+        }
+        BrowserAction.for(extension).setProperty(tab, "badgeBackgroundColor", color);
       },
 
       getBadgeBackgroundColor: function(details, callback) {
         let tab = details.tabId !== null ? TabManager.getTab(details.tabId) : null;
         let color = BrowserAction.for(extension).getProperty(tab, "badgeBackgroundColor");
-        return Promise.resolve(color);
+        return Promise.resolve(color || [0xd9, 0, 0, 255]);
       },
     },
   };

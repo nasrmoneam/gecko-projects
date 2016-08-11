@@ -131,8 +131,6 @@ NS_EVENT_MESSAGE(eBlur)
 NS_EVENT_MESSAGE(eDragEnter)
 NS_EVENT_MESSAGE(eDragOver)
 NS_EVENT_MESSAGE(eDragExit)
-NS_EVENT_MESSAGE(eLegacyDragDrop)
-NS_EVENT_MESSAGE(eLegacyDragGesture)
 NS_EVENT_MESSAGE(eDrag)
 NS_EVENT_MESSAGE(eDragEnd)
 NS_EVENT_MESSAGE(eDragStart)
@@ -390,6 +388,8 @@ NS_EVENT_MESSAGE(eTouchCancel)
 // Pointerlock DOM API
 NS_EVENT_MESSAGE(ePointerLockChange)
 NS_EVENT_MESSAGE(ePointerLockError)
+NS_EVENT_MESSAGE(eMozPointerLockChange)
+NS_EVENT_MESSAGE(eMozPointerLockError)
 
 // eWheel is the event message of DOM wheel event.
 NS_EVENT_MESSAGE(eWheel)

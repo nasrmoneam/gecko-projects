@@ -17,6 +17,7 @@
 #include "nsWeakReference.h"
 #include "mozilla/SHA1.h"
 #include "mozilla/StaticMutex.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/TimeStamp.h"
 
@@ -934,7 +935,7 @@ private:
 
   void ReportHashStats();
 
-  static CacheIndex *gInstance;
+  static mozilla::StaticRefPtr<CacheIndex> gInstance;
   static StaticMutex sLock;
 
   nsCOMPtr<nsIFile> mCacheDirectory;
@@ -1070,7 +1071,7 @@ private:
       }
     }
 
-    NS_IMETHODIMP Run()
+    NS_IMETHOD Run() override
     {
       MOZ_ASSERT(NS_IsMainThread());
 

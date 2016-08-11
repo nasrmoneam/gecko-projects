@@ -330,7 +330,7 @@ JitcodeGlobalEntry::createScriptString(JSContext* cx, JSScript* script, size_t* 
     size_t linenoLength = 0;
     char linenoStr[15];
     if (hasName || (script->functionNonDelazifying() || script->isForEval())) {
-        linenoLength = JS_snprintf(linenoStr, 15, "%" PRIuSIZE, script->lineno());
+        linenoLength = snprintf(linenoStr, sizeof(linenoStr), "%" PRIuSIZE, script->lineno());
         hasLineno = true;
     }
 
@@ -446,19 +446,12 @@ JitcodeGlobalTable::lookupForSamplerInfallible(void* ptr, JSRuntime* rt, uint32_
         rejoinEntry.setGeneration(sampleBufferGen);
     }
 
-#ifdef DEBUG
-    // JitcodeGlobalEntries are marked during the beginning of the sweep
-    // phase. A read barrier is not needed, as any JS frames sampled during
-    // the sweep phase of the GC must be on stack, and on-stack frames must
-    // already be marked at the beginning of the sweep phase. This assumption
-    // is verified below.
-    if (rt->isHeapBusy() &&
-        rt->gc.stats.currentPhase() >= gcstats::PHASE_FINALIZE_START &&
-        rt->gc.stats.currentPhase() <= gcstats::PHASE_FINALIZE_END)
-    {
-        MOZ_ASSERT(entry->isMarkedFromAnyThread(rt));
-    }
-#endif
+    // JitcodeGlobalEntries are marked at the end of the mark phase. A read
+    // barrier is not needed. Any JS frames sampled during the sweep phase of
+    // the GC must be on stack, and on-stack frames must already be marked at
+    // the beginning of the sweep phase. This assumption is verified below.
+    MOZ_ASSERT_IF(rt->isHeapBusy() && entry->jitcode()->zoneFromAnyThread()->isGCSweeping(),
+                  entry->isMarkedFromAnyThread(rt));
 
     return *entry;
 }

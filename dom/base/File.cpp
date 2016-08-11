@@ -560,7 +560,7 @@ File::Constructor(const GlobalObject& aGlobal,
                   ErrorResult& aRv)
 {
   if (!nsContentUtils::ThreadsafeIsCallerChrome()) {
-    aRv.Throw(NS_ERROR_FAILURE);
+    aRv.ThrowTypeError<MSG_NOT_SEQUENCE>(NS_LITERAL_STRING("Argument 1 of File.constructor"));
     return nullptr;
   }
 
@@ -776,7 +776,11 @@ BlobImplBase::GetSendInfo(nsIInputStream** aBody, uint64_t* aContentLength,
   nsAutoString contentType;
   GetType(contentType);
 
-  CopyUTF16toUTF8(contentType, aContentType);
+  if (contentType.IsEmpty()) {
+    aContentType.SetIsVoid(true);
+  } else {
+    CopyUTF16toUTF8(contentType, aContentType);
+  }
 
   aCharset.Truncate();
 
@@ -920,7 +924,9 @@ BlobImplFile::GetType(nsAString& aType)
 
       ErrorResult rv;
       runnable->Dispatch(rv);
-      NS_WARN_IF(rv.Failed());
+      if (NS_WARN_IF(rv.Failed())) {
+        rv.SuppressException();
+      }
       return;
     }
 
@@ -983,6 +989,16 @@ BlobImplFile::GetInternalStream(nsIInputStream** aStream, ErrorResult& aRv)
 
   aRv = NS_NewPartialLocalFileInputStream(aStream, mFile, mStart, mLength,
                                           -1, -1, sFileStreamFlags);
+}
+
+bool
+BlobImplFile::IsDirectory() const
+{
+  bool isDirectory = false;
+  if (mFile) {
+    mFile->IsDirectory(&isDirectory);
+  }
+  return isDirectory;
 }
 
 ////////////////////////////////////////////////////////////////////////////

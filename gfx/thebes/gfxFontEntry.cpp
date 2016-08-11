@@ -38,10 +38,6 @@
 #include "gfxMathTable.h"
 #include "gfx2DGlue.h"
 
-#if defined(XP_MACOSX)
-#include "nsCocoaFeatures.h"
-#endif
-
 #include "cairo.h"
 
 #include "harfbuzz/hb.h"
@@ -354,7 +350,7 @@ gfxFontEntry::GetSVGGlyphExtents(DrawTarget* aDrawTarget, uint32_t aGlyphId,
 
 bool
 gfxFontEntry::RenderSVGGlyph(gfxContext *aContext, uint32_t aGlyphId,
-                             gfxTextContextPaint *aContextPaint)
+                             SVGContextPaint* aContextPaint)
 {
     NS_ASSERTION(mSVGInitialized, "SVG data has not yet been loaded. TryGetSVGData() first.");
     return mSVGGlyphs->RenderGlyph(aContext, aGlyphId, aContextPaint);
@@ -387,7 +383,7 @@ gfxFontEntry::TryGetSVGData(gfxFont* aFont)
         mSVGGlyphs = MakeUnique<gfxSVGGlyphs>(svgTable, this);
     }
 
-    if (!mFontsUsingSVGGlyphs.Contains(aFont)) {
+    if (mSVGGlyphs && !mFontsUsingSVGGlyphs.Contains(aFont)) {
         mFontsUsingSVGGlyphs.AppendElement(aFont);
     }
 
@@ -1774,13 +1770,6 @@ gfxFontFamily::ReadFaceNames(gfxPlatformFontList *aPlatformFontList,
         return;
 
     bool asyncFontLoaderDisabled = false;
-
-#if defined(XP_MACOSX)
-    // bug 975460 - async font loader crashes sometimes under 10.6, disable
-    if (!nsCocoaFeatures::OnLionOrLater()) {
-        asyncFontLoaderDisabled = true;
-    }
-#endif
 
     if (!mOtherFamilyNamesInitialized &&
         aFontInfoData &&

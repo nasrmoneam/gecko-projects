@@ -84,11 +84,13 @@ this.HostManifestManager = {
   },
 
   _winLookup(application, context) {
-    let path = WindowsRegistry.readRegKey(Ci.nsIWindowsRegKey.ROOT_KEY_CURRENT_USER,
-                                          REGPATH, application);
+    const REGISTRY = Ci.nsIWindowsRegKey;
+    let regPath = `${REGPATH}\\${application}`;
+    let path = WindowsRegistry.readRegKey(REGISTRY.ROOT_KEY_CURRENT_USER,
+                                          regPath, "", REGISTRY.WOW64_64);
     if (!path) {
       path = WindowsRegistry.readRegKey(Ci.nsIWindowsRegKey.ROOT_KEY_LOCAL_MACHINE,
-                                        REGPATH, application);
+                                        regPath, "", REGISTRY.WOW64_64);
     }
     if (!path) {
       return null;
@@ -213,7 +215,7 @@ this.NativeApp = class extends EventEmitter {
         this._startStderrRead();
       }).catch(err => {
         this.startupPromise = null;
-        Cu.reportError(err.message);
+        Cu.reportError(err instanceof Error ? err : err.message);
         this._cleanup(err);
       });
   }
@@ -241,7 +243,9 @@ this.NativeApp = class extends EventEmitter {
         this.readPromise = null;
         this._startRead();
       }).catch(err => {
-        Cu.reportError(err.message);
+        if (err.errorCode != Subprocess.ERROR_END_OF_FILE) {
+          Cu.reportError(err instanceof Error ? err : err.message);
+        }
         this._cleanup(err);
       });
   }
@@ -425,6 +429,10 @@ this.NativeApp = class extends EventEmitter {
     result.then(() => {
       this._cleanup();
     }, () => {
+      // Prevent the response promise from being reported as an
+      // unchecked rejection if the startup promise fails.
+      responsePromise.catch(() => {});
+
       this._cleanup();
     });
 

@@ -153,11 +153,12 @@ CodeGenerator* GenerateCode(MIRGenerator* mir, LIRGraph* lir);
 CodeGenerator* CompileBackEnd(MIRGenerator* mir);
 
 void AttachFinishedCompilations(JSContext* cx);
-void FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder);
+void FinishOffThreadBuilder(JSRuntime* runtime, IonBuilder* builder,
+                            const AutoLockHelperThreadState& lock);
 void StopAllOffThreadCompilations(Zone* zone);
 void StopAllOffThreadCompilations(JSCompartment* comp);
 
-void LazyLink(JSContext* cx, HandleScript calleescript);
+void LinkIonScript(JSContext* cx, HandleScript calleescript);
 uint8_t* LazyLinkTopActivation(JSContext* cx);
 
 static inline bool

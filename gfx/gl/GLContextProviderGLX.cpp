@@ -7,8 +7,6 @@
 #include <gdk/gdk.h>
 #include <gdk/gdkx.h>
 #define GET_NATIVE_WINDOW(aWidget) GDK_WINDOW_XID((GdkWindow*) aWidget->GetNativeData(NS_NATIVE_WINDOW))
-#elif defined(MOZ_WIDGET_QT)
-#define GET_NATIVE_WINDOW(aWidget) (Window)(aWidget->GetNativeData(NS_NATIVE_SHAREABLE_WINDOW))
 #endif
 
 #include <X11/Xlib.h>
@@ -16,6 +14,7 @@
 
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/widget/CompositorWidget.h"
 
 #include "prenv.h"
 #include "GLContextProvider.h"
@@ -43,6 +42,7 @@ namespace mozilla {
 namespace gl {
 
 using namespace mozilla::gfx;
+using namespace mozilla::widget;
 
 GLXLibrary sGLXLibrary;
 
@@ -947,8 +947,8 @@ GLContextGLX::MakeCurrentImpl(bool aForce)
             // Many GLX implementations default to blocking until the next
             // VBlank when calling glXSwapBuffers. We want to run unthrottled
             // in ASAP mode. See bug 1280744.
-            int interval = gfxPlatform::IsInLayoutAsapMode() ? 0 : 1;
-            mGLX->xSwapInterval(mDisplay, mDrawable, interval);
+            const bool isASAP = (gfxPrefs::LayoutFrameRate() == 0);
+            mGLX->xSwapInterval(mDisplay, mDrawable, isASAP ? 0 : 1);
         }
     }
 
@@ -987,20 +987,6 @@ GLContextGLX::SwapBuffers()
     mGLX->xSwapBuffers(mDisplay, mDrawable);
     mGLX->xWaitGL();
     return true;
-}
-
-Maybe<gfx::IntSize>
-GLContextGLX::GetTargetSize()
-{
-    unsigned int width = 0, height = 0;
-    Window root;
-    int x, y;
-    unsigned int border, depth;
-    XGetGeometry(mDisplay, mDrawable, &root, &x, &y, &width, &height,
-                 &border, &depth);
-    Maybe<gfx::IntSize> size;
-    size.emplace(width, height);
-    return size;
 }
 
 bool
@@ -1104,6 +1090,12 @@ GLContextProviderGLX::CreateWrappingExisting(void* aContext, void* aSurface)
 }
 
 already_AddRefed<GLContext>
+GLContextProviderGLX::CreateForCompositorWidget(CompositorWidget* aCompositorWidget, bool aForceAccelerated)
+{
+    return CreateForWindow(aCompositorWidget->RealWidget(), aForceAccelerated);
+}
+
+already_AddRefed<GLContext>
 GLContextProviderGLX::CreateForWindow(nsIWidget* aWidget, bool aForceAccelerated)
 {
     if (!sGLXLibrary.EnsureInitialized()) {
@@ -1117,7 +1109,7 @@ GLContextProviderGLX::CreateForWindow(nsIWidget* aWidget, bool aForceAccelerated
     // performance might be suboptimal.  But using the existing visual
     // is a relatively safe intermediate step.
 
-    Display* display = (Display*)aWidget->GetNativeData(NS_NATIVE_DISPLAY);
+    Display* display = (Display*)aWidget->GetNativeData(NS_NATIVE_COMPOSITOR_DISPLAY);
     if (!display) {
         NS_ERROR("X Display required for GLX Context provider");
         return nullptr;

@@ -250,7 +250,7 @@ function makeActionURI(action, params) {
 }
 
 function is_hidden(element) {
-  var style = element.ownerDocument.defaultView.getComputedStyle(element, "");
+  var style = element.ownerGlobal.getComputedStyle(element);
   if (style.display == "none")
     return true;
   if (style.visibility != "visible")
@@ -266,7 +266,7 @@ function is_hidden(element) {
 }
 
 function is_visible(element) {
-  var style = element.ownerDocument.defaultView.getComputedStyle(element, "");
+  var style = element.ownerGlobal.getComputedStyle(element);
   if (style.display == "none")
     return false;
   if (style.visibility != "visible")
@@ -327,10 +327,18 @@ function promiseSearchComplete(win = window) {
   });
 }
 
-function promiseAutocompleteResultPopup(inputText, win = window) {
+function promiseAutocompleteResultPopup(inputText,
+                                        win = window,
+                                        fireInputEvent = false) {
   waitForFocus(() => {
     win.gURLBar.focus();
     win.gURLBar.value = inputText;
+    if (fireInputEvent) {
+      // This is necessary to get the urlbar to set gBrowser.userTypedValue.
+      let event = document.createEvent("Events");
+      event.initEvent("input", true, true);
+      win.gURLBar.dispatchEvent(event);
+    }
     win.gURLBar.controller.startSearch(inputText);
   }, win);
 

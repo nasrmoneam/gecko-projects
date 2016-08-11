@@ -45,7 +45,9 @@ public:
                   DocAccessibleParent* aDoc, role aRole, uint32_t aInterfaces) :
      mParent(aParent), mDoc(aDoc), mWrapper(0), mID(aID), mRole(aRole),
      mOuterDoc(false), mIsDoc(false),
-     mHasValue(aInterfaces & Interfaces::VALUE)
+     mHasValue(aInterfaces & Interfaces::VALUE),
+     mIsHyperLink(aInterfaces & Interfaces::HYPERLINK),
+     mIsHyperText(aInterfaces & Interfaces::HYPERTEXT)
   {
     MOZ_COUNT_CTOR(ProxyAccessible);
   }
@@ -420,7 +422,8 @@ public:
 protected:
   explicit ProxyAccessible(DocAccessibleParent* aThisAsDoc) :
     mParent(nullptr), mDoc(aThisAsDoc), mWrapper(0), mID(0),
-    mRole(roles::DOCUMENT), mOuterDoc(false), mIsDoc(true), mHasValue(false)
+    mRole(roles::DOCUMENT), mOuterDoc(false), mIsDoc(true), mHasValue(false),
+    mIsHyperLink(false), mIsHyperText(false)
   { MOZ_COUNT_CTOR(ProxyAccessible); }
 
 protected:
@@ -434,13 +437,15 @@ private:
 protected:
   // XXX DocAccessibleParent gets to change this to change the role of
   // documents.
-  role mRole : 29;
+  role mRole : 27;
 private:
   bool mOuterDoc : 1;
 
 public:
   const bool mIsDoc: 1;
   const bool mHasValue: 1;
+  const bool mIsHyperLink: 1;
+  const bool mIsHyperText: 1;
 };
 
 }

@@ -25,6 +25,7 @@
 
 const {Ci, Cc} = require("chrome");
 const Services = require("Services");
+const focusManager = Services.focus;
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const CONTENT_TYPES = {
@@ -33,14 +34,13 @@ const CONTENT_TYPES = {
   CSS_MIXED: 2,
   CSS_PROPERTY: 3,
 };
-const AUTOCOMPLETE_POPUP_CLASSNAME = "inplace-editor-autocomplete-popup";
 
 // The limit of 500 autocomplete suggestions should not be reached but is kept
 // for safety.
 const MAX_POPUP_ENTRIES = 500;
 
-const FOCUS_FORWARD = Ci.nsIFocusManager.MOVEFOCUS_FORWARD;
-const FOCUS_BACKWARD = Ci.nsIFocusManager.MOVEFOCUS_BACKWARD;
+const FOCUS_FORWARD = focusManager.MOVEFOCUS_FORWARD;
+const FOCUS_BACKWARD = focusManager.MOVEFOCUS_BACKWARD;
 
 const { XPCOMUtils } = require("resource://gre/modules/XPCOMUtils.jsm");
 const EventEmitter = require("devtools/shared/event-emitter");
@@ -84,8 +84,8 @@ function isKeyIn(key, ...keys) {
  *       Called when input is committed or blurred.  Called with
  *       current value, a boolean telling the caller whether to
  *       commit the change, and the direction of the next element to be
- *       selected. Direction may be one of nsIFocusManager.MOVEFOCUS_FORWARD,
- *       nsIFocusManager.MOVEFOCUS_BACKWARD, or null (no movement).
+ *       selected. Direction may be one of Services.focus.MOVEFOCUS_FORWARD,
+ *       Services.focus.MOVEFOCUS_BACKWARD, or null (no movement).
  *       This function is called before the editor has been torn down.
  *    {Function} destroy:
  *       Called when the editor is destroyed and has been torn down.
@@ -120,6 +120,7 @@ function isKeyIn(key, ...keys) {
  *    {Boolean} preserveTextStyles: If true, do not copy text-related styles
  *              from `element` to the new input.
  *      defaults to false
+ *    {Object} cssProperties: An instance of CSSProperties.
  */
 function editableField(options) {
   return editableItem(options, function (element, event) {
@@ -219,7 +220,7 @@ function InplaceEditor(options, event) {
   let doc = this.elt.ownerDocument;
   this.doc = doc;
   this.elt.inplaceEditor = this;
-
+  this.cssProperties = options.cssProperties;
   this.change = options.change;
   this.done = options.done;
   this.destroy = options.destroy;
@@ -989,13 +990,13 @@ InplaceEditor.prototype = {
     let label, preLabel;
 
     if (this._selectedIndex === undefined) {
-      ({label, preLabel} =
-        this.popup.getItemAtIndex(this.popup.selectedIndex));
+      ({label, preLabel} = this.popup.getItemAtIndex(this.popup.selectedIndex));
     } else {
       ({label, preLabel} = this.popup.getItemAtIndex(this._selectedIndex));
     }
 
     let input = this.input;
+
     let pre = "";
 
     // CSS_MIXED needs special treatment here to make it so that
@@ -1021,13 +1022,13 @@ InplaceEditor.prototype = {
     // Wait for the popup to hide and then focus input async otherwise it does
     // not work.
     let onPopupHidden = () => {
-      this.popup._panel.removeEventListener("popuphidden", onPopupHidden);
+      this.popup.off("popup-closed", onPopupHidden);
       this.doc.defaultView.setTimeout(()=> {
         input.focus();
         this.emit("after-suggest");
       }, 0);
     };
-    this.popup._panel.addEventListener("popuphidden", onPopupHidden);
+    this.popup.on("popup-closed", onPopupHidden);
     this._hideAutocompletePopup();
   },
 
@@ -1174,7 +1175,6 @@ InplaceEditor.prototype = {
    *        item selected.
    */
   _openAutocompletePopup: function (offset, selectedIndex) {
-    this.popup._panel.classList.add(AUTOCOMPLETE_POPUP_CLASSNAME);
     this.popup.on("popup-click", this._onAutocompletePopupClick);
     this.popup.openPopup(this.input, offset, 0, selectedIndex);
   },
@@ -1184,7 +1184,6 @@ InplaceEditor.prototype = {
    * popup.
    */
   _hideAutocompletePopup: function () {
-    this.popup._panel.classList.remove(AUTOCOMPLETE_POPUP_CLASSNAME);
     this.popup.off("popup-click", this._onAutocompletePopupClick);
     this.popup.hidePopup();
   },
@@ -1479,7 +1478,7 @@ InplaceEditor.prototype = {
    * @return {Array} array of CSS property values (Strings)
    */
   _getCSSValuesForPropertyName: function (propertyName) {
-    return domUtils.getCSSValuesForProperty(propertyName);
+    return this.cssProperties.getValues(propertyName);
   },
 };
 
@@ -1556,10 +1555,6 @@ function copyBoxModelStyles(from, to) {
 function moveFocus(win, direction) {
   return focusManager.moveFocus(win, null, direction, 0);
 }
-
-XPCOMUtils.defineLazyGetter(this, "focusManager", function () {
-  return Services.focus;
-});
 
 XPCOMUtils.defineLazyGetter(this, "CSSPropertyList", function () {
   return domUtils.getCSSPropertyNames(domUtils.INCLUDE_ALIASES).sort();

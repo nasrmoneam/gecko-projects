@@ -7,6 +7,7 @@
 /* import-globals-from ../../../framework/test/shared-head.js */
 /* import-globals-from ../../../framework/test/shared-redux-head.js */
 /* import-globals-from ../../../commandline/test/helpers.js */
+/* import-globals-from ../../../inspector/test/shared-head.js */
 
 Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/framework/test/shared-head.js",
@@ -20,28 +21,42 @@ Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/commandline/test/helpers.js",
   this);
 
+// Import helpers registering the test-actor in remote targets
+Services.scriptloader.loadSubScript(
+  "chrome://mochitests/content/browser/devtools/client/shared/test/test-actor-registry.js",
+  this);
+
+// Import helpers for the inspector that are also shared with others
+Services.scriptloader.loadSubScript(
+  "chrome://mochitests/content/browser/devtools/client/inspector/test/shared-head.js",
+  this);
+
 const TEST_URI_ROOT = "http://example.com/browser/devtools/client/responsive.html/test/browser/";
+const OPEN_DEVICE_MODAL_VALUE = "OPEN_DEVICE_MODAL";
+
+const { _loadPreferredDevices } = require("devtools/client/responsive.html/actions/devices");
+const { getOwnerWindow } = require("sdk/tabs/utils");
+const asyncStorage = require("devtools/shared/async-storage");
 
 SimpleTest.requestCompleteLog();
 SimpleTest.waitForExplicitFinish();
 
-DevToolsUtils.testing = true;
+flags.testing = true;
 Services.prefs.clearUserPref("devtools.responsive.html.displayedDeviceList");
 Services.prefs.setCharPref("devtools.devices.url",
   TEST_URI_ROOT + "devices.json");
 Services.prefs.setBoolPref("devtools.responsive.html.enabled", true);
 
 registerCleanupFunction(() => {
-  DevToolsUtils.testing = false;
+  flags.testing = false;
   Services.prefs.clearUserPref("devtools.devices.url");
   Services.prefs.clearUserPref("devtools.responsive.html.enabled");
   Services.prefs.clearUserPref("devtools.responsive.html.displayedDeviceList");
+  asyncStorage.removeItem("devtools.devices.url_cache");
 });
-const { ResponsiveUIManager } = require("resource://devtools/client/responsivedesign/responsivedesign.jsm");
-const { _loadPreferredDevices } = require("devtools/client/responsive.html/actions/devices");
-const { getOwnerWindow } = require("sdk/tabs/utils");
 
-const OPEN_DEVICE_MODAL_VALUE = "OPEN_DEVICE_MODAL";
+// This depends on the "devtools.responsive.html.enabled" pref
+const { ResponsiveUIManager } = require("resource://devtools/client/responsivedesign/responsivedesign.jsm");
 
 /**
  * Open responsive design mode for the given tab.
@@ -135,14 +150,14 @@ var setViewportSize = Task.async(function* (ui, manager, width, height) {
 function openDeviceModal(ui) {
   let { document } = ui.toolWindow;
   let select = document.querySelector(".viewport-device-selector");
-  let modal = document.querySelector(".device-modal");
+  let modal = document.querySelector("#device-modal-wrapper");
   let editDeviceOption = [...select.options].filter(o => {
     return o.value === OPEN_DEVICE_MODAL_VALUE;
   })[0];
 
   info("Checking initial device modal state");
-  ok(modal.classList.contains("hidden"),
-    "The device modal is hidden by default.");
+  ok(modal.classList.contains("closed") && !modal.classList.contains("opened"),
+    "The device modal is closed by default.");
 
   info("Opening device modal through device selector.");
   EventUtils.synthesizeMouseAtCenter(select, {type: "mousedown"},
@@ -150,7 +165,7 @@ function openDeviceModal(ui) {
   EventUtils.synthesizeMouseAtCenter(editDeviceOption, {type: "mouseup"},
     ui.toolWindow);
 
-  ok(!modal.classList.contains("hidden"),
+  ok(modal.classList.contains("opened") && !modal.classList.contains("closed"),
     "The device modal is displayed.");
 }
 

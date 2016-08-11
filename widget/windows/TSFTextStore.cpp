@@ -663,6 +663,34 @@ public:
   virtual ~GetWritingModeName() {}
 };
 
+class GetEscapedUTF8String final : public NS_ConvertUTF16toUTF8
+{
+public:
+  explicit GetEscapedUTF8String(const nsAString& aString)
+    : NS_ConvertUTF16toUTF8(aString)
+  {
+    Escape();
+  }
+  explicit GetEscapedUTF8String(const char16ptr_t aString)
+    : NS_ConvertUTF16toUTF8(aString)
+  {
+    Escape();
+  }
+  GetEscapedUTF8String(const char16ptr_t aString, uint32_t aLength)
+    : NS_ConvertUTF16toUTF8(aString, aLength)
+  {
+    Escape();
+  }
+
+private:
+  void Escape()
+  {
+    ReplaceSubstring("\r", "\\r");
+    ReplaceSubstring("\n", "\\n");
+    ReplaceSubstring("\t", "\\t");
+  }
+};
+
 /******************************************************************/
 /* InputScopeImpl                                                 */
 /******************************************************************/
@@ -807,11 +835,11 @@ public:
     return mLangID == 0x411 &&
       (mActiveTIPKeyboardDescription.EqualsLiteral("Microsoft IME") ||
        mActiveTIPKeyboardDescription.Equals(
-         NS_LITERAL_STRING("Microsoft \xC785\xB825\xAE30")) ||
+         NS_LITERAL_STRING(u"Microsoft \xC785\xB825\xAE30")) ||
        mActiveTIPKeyboardDescription.Equals(
-         NS_LITERAL_STRING("\x5FAE\x8F6F\x8F93\x5165\x6CD5")) ||
+         NS_LITERAL_STRING(u"\x5FAE\x8F6F\x8F93\x5165\x6CD5")) ||
        mActiveTIPKeyboardDescription.Equals(
-         NS_LITERAL_STRING("\x5FAE\x8EDF\x8F38\x5165\x6CD5")));
+         NS_LITERAL_STRING(u"\x5FAE\x8EDF\x8F38\x5165\x6CD5")));
   }
 
   bool IsMSOfficeJapaneseIME2010Active() const
@@ -839,18 +867,18 @@ public:
   {
     return mActiveTIPKeyboardDescription.EqualsLiteral("Microsoft ChangJie") ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8F6F\x4ED3\x9889")) ||
+        NS_LITERAL_STRING(u"\x5FAE\x8F6F\x4ED3\x9889")) ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8EDF\x5009\x9821"));
+        NS_LITERAL_STRING(u"\x5FAE\x8EDF\x5009\x9821"));
   }
 
   bool IsMSQuickQuickActive() const
   {
     return mActiveTIPKeyboardDescription.EqualsLiteral("Microsoft Quick") ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8F6F\x901F\x6210")) ||
+        NS_LITERAL_STRING(u"\x5FAE\x8F6F\x901F\x6210")) ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8EDF\x901F\x6210"));
+        NS_LITERAL_STRING(u"\x5FAE\x8EDF\x901F\x6210"));
   }
 
   bool IsFreeChangJieActive() const
@@ -864,7 +892,7 @@ public:
     return
       mActiveTIPKeyboardDescription.Equals(
         NS_LITERAL_STRING(
-          "\x4E2D\x6587 (\x7E41\x9AD4) - \x6613\x9821\x8F38\x5165\x6CD5"));
+          u"\x4E2D\x6587 (\x7E41\x9AD4) - \x6613\x9821\x8F38\x5165\x6CD5"));
   }
 
   /****************************************************************************
@@ -875,18 +903,18 @@ public:
   {
     return mActiveTIPKeyboardDescription.EqualsLiteral("Microsoft Pinyin") ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8F6F\x62FC\x97F3")) ||
+        NS_LITERAL_STRING(u"\x5FAE\x8F6F\x62FC\x97F3")) ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8EDF\x62FC\x97F3"));
+        NS_LITERAL_STRING(u"\x5FAE\x8EDF\x62FC\x97F3"));
   }
 
   bool IsMSWubiActive() const
   {
     return mActiveTIPKeyboardDescription.EqualsLiteral("Microsoft Wubi") ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8F6F\x4E94\x7B14")) ||
+        NS_LITERAL_STRING(u"\x5FAE\x8F6F\x4E94\x7B14")) ||
       mActiveTIPKeyboardDescription.Equals(
-        NS_LITERAL_STRING("\x5FAE\x8EDF\x4E94\x7B46"));
+        NS_LITERAL_STRING(u"\x5FAE\x8EDF\x4E94\x7B46"));
   }
 
 public: // ITfInputProcessorProfileActivationSink
@@ -1216,7 +1244,8 @@ TSFTextStore::~TSFTextStore()
 }
 
 bool
-TSFTextStore::Init(nsWindowBase* aWidget)
+TSFTextStore::Init(nsWindowBase* aWidget,
+                   const InputContext& aContext)
 {
   MOZ_LOG(sTextStoreLog, LogLevel::Info,
     ("0x%p TSFTextStore::Init(aWidget=0x%p)",
@@ -1265,6 +1294,8 @@ TSFTextStore::Init(nsWindowBase* aWidget)
     mDocumentMgr = nullptr;
     return false;
   }
+
+  SetInputScope(aContext.mHTMLInputType, aContext.mHTMLInputInputmode);
 
   hr = mDocumentMgr->Push(mContext);
   if (FAILED(hr)) {
@@ -1690,7 +1721,7 @@ TSFTextStore::FlushPendingActions()
           ("0x%p   TSFTextStore::FlushPendingActions() "
            "flushing COMPOSITION_UPDATE={ mData=\"%s\", "
            "mRanges=0x%p, mRanges->Length()=%d }",
-           this, NS_ConvertUTF16toUTF8(action.mData).get(),
+           this, GetEscapedUTF8String(action.mData).get(),
            action.mRanges.get(),
            action.mRanges ? action.mRanges->Length() : 0));
 
@@ -1732,7 +1763,7 @@ TSFTextStore::FlushPendingActions()
         MOZ_LOG(sTextStoreLog, LogLevel::Debug,
           ("0x%p   TSFTextStore::FlushPendingActions() "
            "flushing COMPOSITION_END={ mData=\"%s\" }",
-           this, NS_ConvertUTF16toUTF8(action.mData).get()));
+           this, GetEscapedUTF8String(action.mData).get()));
 
         // Dispatching eCompositionCommit causes a DOM text event, then,
         // the IME will be notified of NOTIFY_IME_OF_COMPOSITION_EVENT_HANDLED.
@@ -2056,10 +2087,10 @@ TSFTextStore::ContentForTSFRef()
      "mContentForTSF={ mText=\"%s\" (Length()=%u), "
      "mLastCompositionString=\"%s\" (Length()=%u), "
      "mMinTextModifiedOffset=%u }",
-     this, mContentForTSF.Text().Length() <= 20 ?
-       NS_ConvertUTF16toUTF8(mContentForTSF.Text()).get() : "<omitted>",
+     this, mContentForTSF.Text().Length() <= 40 ?
+       GetEscapedUTF8String(mContentForTSF.Text()).get() : "<omitted>",
      mContentForTSF.Text().Length(),
-     NS_ConvertUTF16toUTF8(mContentForTSF.LastCompositionString()).get(),
+     GetEscapedUTF8String(mContentForTSF.LastCompositionString()).get(),
      mContentForTSF.LastCompositionString().Length(),
      mContentForTSF.MinTextModifiedOffset()));
 
@@ -2455,7 +2486,7 @@ TSFTextStore::RecordCompositionUpdateAction()
      "mComposition={ mView=0x%p, mStart=%d, mString=\"%s\" "
      "(Length()=%d) }",
      this, mComposition.mView.get(), mComposition.mStart,
-     NS_ConvertUTF16toUTF8(mComposition.mString).get(),
+     GetEscapedUTF8String(mComposition.mString).get(),
      mComposition.mString.Length()));
 
   if (!mComposition.IsComposing()) {
@@ -2931,7 +2962,7 @@ TSFTextStore::SetText(DWORD dwFlags,
                                          "not-specified",
      acpStart, acpEnd, pchText,
      pchText && cch ?
-       NS_ConvertUTF16toUTF8(pchText, cch).get() : "",
+       GetEscapedUTF8String(pchText, cch).get() : "",
      cch, pChange, GetBoolName(mComposition.IsComposing())));
 
   // Per SDK documentation, and since we don't have better
@@ -3894,7 +3925,7 @@ TSFTextStore::InsertTextAtSelection(DWORD dwFlags,
            dwFlags == TF_IAS_NOQUERY ? "TF_IAS_NOQUERY" :
            dwFlags == TF_IAS_QUERYONLY ? "TF_IAS_QUERYONLY" : "Unknown",
      pchText,
-     pchText && cch ? NS_ConvertUTF16toUTF8(pchText, cch).get() : "",
+     pchText && cch ? GetEscapedUTF8String(pchText, cch).get() : "",
      cch, pacpStart, pacpEnd, pChange,
      GetBoolName(mComposition.IsComposing())));
 
@@ -3990,7 +4021,7 @@ TSFTextStore::InsertTextAtSelectionInternal(const nsAString& aInsertStr,
   MOZ_LOG(sTextStoreLog, LogLevel::Debug,
     ("0x%p   TSFTextStore::InsertTextAtSelectionInternal("
      "aInsertStr=\"%s\", aTextChange=0x%p), IsComposing=%s",
-     this, NS_ConvertUTF16toUTF8(aInsertStr).get(), aTextChange,
+     this, GetEscapedUTF8String(aInsertStr).get(), aTextChange,
      GetBoolName(mComposition.IsComposing())));
 
   Content& contentForTSF = ContentForTSFRef();
@@ -4023,7 +4054,7 @@ TSFTextStore::InsertTextAtSelectionInternal(const nsAString& aInsertStr,
        "(Length()=%u) }",
        this, compositionStart->mSelectionStart,
        compositionStart->mSelectionLength,
-       NS_ConvertUTF16toUTF8(compositionEnd->mData).get(),
+       GetEscapedUTF8String(compositionEnd->mData).get(),
        compositionEnd->mData.Length()));
   }
 
@@ -4183,7 +4214,7 @@ TSFTextStore::RecordCompositionEndAction()
     ("0x%p   TSFTextStore::RecordCompositionEndAction(), "
      "mComposition={ mView=0x%p, mString=\"%s\" }",
      this, mComposition.mView.get(),
-     NS_ConvertUTF16toUTF8(mComposition.mString).get()));
+     GetEscapedUTF8String(mComposition.mString).get()));
 
   MOZ_ASSERT(mComposition.IsComposing());
 
@@ -4346,7 +4377,7 @@ TSFTextStore::OnUpdateComposition(ITfCompositionView* pComposition,
        "mComposition={ mStart=%ld, mString=\"%s\" }, "
        "SelectionForTSFRef()={ acpStart=%ld, acpEnd=%ld, style.ase=%s }",
        this, mComposition.mStart,
-       NS_ConvertUTF16toUTF8(mComposition.mString).get(),
+       GetEscapedUTF8String(mComposition.mString).get(),
        selectionForTSF.StartOffset(), selectionForTSF.EndOffset(),
        GetActiveSelEndName(selectionForTSF.ActiveSelEnd())));
   }
@@ -4360,7 +4391,7 @@ TSFTextStore::OnEndComposition(ITfCompositionView* pComposition)
     ("0x%p TSFTextStore::OnEndComposition(pComposition=0x%p), "
      "mComposition={ mView=0x%p, mString=\"%s\" }",
      this, pComposition, mComposition.mView.get(),
-     NS_ConvertUTF16toUTF8(mComposition.mString).get()));
+     GetEscapedUTF8String(mComposition.mString).get()));
 
   AutoPendingActionAndContentFlusher flusher(this);
 
@@ -4568,7 +4599,7 @@ TSFTextStore::CreateAndSetFocus(nsWindowBase* aFocusedWidget,
   // So, we should set sEnabledTextStore directly.
   RefPtr<TSFTextStore> textStore = new TSFTextStore();
   sEnabledTextStore = textStore;
-  if (NS_WARN_IF(!textStore->Init(aFocusedWidget))) {
+  if (NS_WARN_IF(!textStore->Init(aFocusedWidget, aContext))) {
     MOZ_LOG(sTextStoreLog, LogLevel::Error,
       ("  TSFTextStore::CreateAndSetFocus() FAILED due to "
        "TSFTextStore::Init() failure"));
@@ -4607,8 +4638,6 @@ TSFTextStore::CreateAndSetFocus(nsWindowBase* aFocusedWidget,
        "ITfTheadMgr::AssociateFocus() failure"));
     return false;
   }
-  textStore->SetInputScope(aContext.mHTMLInputType,
-                           aContext.mHTMLInputInputmode);
 
   if (textStore->mSink) {
     MOZ_LOG(sTextStoreLog, LogLevel::Info,
@@ -5203,7 +5232,7 @@ TSFTextStore::CommitCompositionInternal(bool aDiscard)
      "mComposition.mString=\"%s\"",
      this, GetBoolName(aDiscard), mSink.get(), mContext.get(),
      mComposition.mView.get(),
-     NS_ConvertUTF16toUTF8(mComposition.mString).get()));
+     GetEscapedUTF8String(mComposition.mString).get()));
 
   // If the document is locked, TSF will fail to commit composition since
   // TSF needs another document lock.  So, let's put off the request.
@@ -5828,9 +5857,9 @@ TSFTextStore::Content::ReplaceTextWith(LONG aStart,
          "aLength=%d, aReplaceString=\"%s\"), mComposition={ mStart=%d, "
          "mString=\"%s\" }, mLastCompositionString=\"%s\", "
          "mMinTextModifiedOffset=%u, firstDifferentOffset=%u",
-         this, aStart, aLength, NS_ConvertUTF16toUTF8(aReplaceString).get(),
-         mComposition.mStart, NS_ConvertUTF16toUTF8(mComposition.mString).get(),
-         NS_ConvertUTF16toUTF8(mLastCompositionString).get(),
+         this, aStart, aLength, GetEscapedUTF8String(aReplaceString).get(),
+         mComposition.mStart, GetEscapedUTF8String(mComposition.mString).get(),
+         GetEscapedUTF8String(mLastCompositionString).get(),
          mMinTextModifiedOffset, firstDifferentOffset));
     } else {
       firstDifferentOffset =
@@ -6072,4 +6101,3 @@ TSFTextStore::CurrentKeyboardLayoutHasIME()
 
 } // name widget
 } // name mozilla
-

@@ -42,7 +42,7 @@ class Selection;
 // date.
 //
 // Please see the wiki page for more information.
-// https://wiki.mozilla.org/Copy_n_Paste
+// https://wiki.mozilla.org/AccessibleCaret
 //
 class AccessibleCaretManager
 {
@@ -97,6 +97,10 @@ public:
                                       int16_t aReason);
   // Handle key event.
   virtual void OnKeyboardEvent();
+
+  // The canvas frame holding the accessible caret anonymous content elements
+  // was reconstructed, resulting in the content elements getting cloned.
+  virtual void OnFrameReconstruction();
 
 protected:
   // This enum representing the number of AccessibleCarets on the screen.

@@ -30,6 +30,11 @@ interface PresentationConnection : EventTarget {
   readonly attribute DOMString id;
 
   /*
+   * Specifies the connection's presentation URL.
+   */
+  readonly attribute DOMString url;
+
+  /*
    * @value "connected", "closed", or "terminated".
    */
   readonly attribute PresentationConnectionState state;
@@ -60,11 +65,10 @@ interface PresentationConnection : EventTarget {
    * Both the controlling and receiving browsing context can close the
    * connection. Then the connection state should turn into "closed".
    *
-   * This function only works when the state is not "connected".
+   * This function only works when the state is "connected" or "connecting".
    */
-  // TODO Bug 1210340 - Support close semantics.
-  // [Throws]
-  // void close();
+  [Throws]
+  void close();
 
   /*
    * Both the controlling and receiving browsing context can terminate the

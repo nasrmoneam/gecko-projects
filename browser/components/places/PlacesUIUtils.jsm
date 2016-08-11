@@ -186,7 +186,7 @@ let InternalFaviconLoader = {
 
   loadFavicon(browser, principal, uri) {
     this.ensureInitialized();
-    let win = browser.ownerDocument.defaultView;
+    let win = browser.ownerGlobal;
     if (!gFaviconLoadDataMap.has(win)) {
       gFaviconLoadDataMap.set(win, []);
       let unloadHandler = event => {
@@ -1150,7 +1150,7 @@ this.PlacesUIUtils = {
         // This will throw if the annotation is an orphan.
         bs.removeItem(aItemId);
       }
-      catch(e) { /* orphan anno */ }
+      catch (e) { /* orphan anno */ }
     }
 
     // Returns true if item really exists, false otherwise.
@@ -1159,7 +1159,7 @@ this.PlacesUIUtils = {
         bs.getItemIndex(aItemId);
         return true;
       }
-      catch(e) {
+      catch (e) {
         return false;
       }
     }
@@ -1380,7 +1380,7 @@ this.PlacesUIUtils = {
     else {
       // If the left pane has already been built, use the name->id map
       // cached in PlacesUIUtils.
-      for (let [name, id] in Iterator(this.leftPaneQueries)) {
+      for (let [name, id] of Object.entries(this.leftPaneQueries)) {
         if (aItemId == id)
           queryName = name;
       }
@@ -1462,7 +1462,7 @@ this.PlacesUIUtils = {
         try {
           uri = PlacesUtils.bookmarks.getBookmarkURI(itemId);
         }
-        catch(ex) { }
+        catch (ex) { }
         return uri ? uri.spec : "";
       });
     }
@@ -1569,7 +1569,7 @@ XPCOMUtils.defineLazyGetter(PlacesUIUtils, "useAsyncTransactions", function() {
   try {
     return Services.prefs.getBoolPref("browser.places.useAsyncTransactions");
   }
-  catch(ex) { }
+  catch (ex) { }
   return false;
 });
 

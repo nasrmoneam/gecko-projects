@@ -4,9 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "PresentationService.h"
+
 #include "ipc/PresentationIPCService.h"
 #include "mozilla/Services.h"
 #include "mozIApplication.h"
+#include "nsGlobalWindow.h"
 #include "nsIAppsService.h"
 #include "nsIObserverService.h"
 #include "nsIPresentationControlChannel.h"
@@ -15,18 +18,43 @@
 #include "nsIPresentationListener.h"
 #include "nsIPresentationRequestUIGlue.h"
 #include "nsIPresentationSessionRequest.h"
+#include "nsIPresentationTerminateRequest.h"
 #include "nsNetUtil.h"
 #include "nsServiceManagerUtils.h"
 #include "nsThreadUtils.h"
 #include "nsXULAppAPI.h"
 #include "PresentationLog.h"
-#include "PresentationService.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
 
 namespace mozilla {
 namespace dom {
+
+static bool
+IsSameDevice(nsIPresentationDevice* aDevice, nsIPresentationDevice* aDeviceAnother) {
+  if (!aDevice || !aDeviceAnother) {
+    return false;
+  }
+
+  nsAutoCString deviceId;
+  aDevice->GetId(deviceId);
+  nsAutoCString anotherId;
+  aDeviceAnother->GetId(anotherId);
+  if (!deviceId.Equals(anotherId)) {
+    return false;
+  }
+
+  nsAutoCString deviceType;
+  aDevice->GetType(deviceType);
+  nsAutoCString anotherType;
+  aDeviceAnother->GetType(anotherType);
+  if (!deviceType.Equals(anotherType)) {
+    return false;
+  }
+
+  return true;
+}
 
 /*
  * Implementation of PresentationDeviceRequest
@@ -130,7 +158,7 @@ PresentationDeviceRequest::CreateSessionInfo(nsIPresentationDevice* aDevice)
   // Establish a control channel. If we failed to do so, the callback is called
   // with an error message.
   nsCOMPtr<nsIPresentationControlChannel> ctrlChannel;
-  nsresult rv = aDevice->EstablishControlChannel(mRequestUrl, mId, getter_AddRefs(ctrlChannel));
+  nsresult rv = aDevice->EstablishControlChannel(getter_AddRefs(ctrlChannel));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return info->ReplyError(NS_ERROR_DOM_OPERATION_ERR);
   }
@@ -145,9 +173,9 @@ PresentationDeviceRequest::CreateSessionInfo(nsIPresentationDevice* aDevice)
 }
 
 NS_IMETHODIMP
-PresentationDeviceRequest::Cancel()
+PresentationDeviceRequest::Cancel(nsresult aReason)
 {
-  return mCallback->NotifyError(NS_ERROR_DOM_ABORT_ERR);
+  return mCallback->NotifyError(aReason);
 }
 
 /*
@@ -191,6 +219,14 @@ PresentationService::Init()
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return false;
   }
+  rv = obs->AddObserver(this, PRESENTATION_TERMINATE_REQUEST_TOPIC, false);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return false;
+  }
+  rv = obs->AddObserver(this, PRESENTATION_RECONNECT_REQUEST_TOPIC, false);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return false;
+  }
 
   nsCOMPtr<nsIPresentationDeviceManager> deviceManager =
     do_GetService(PRESENTATION_DEVICE_MANAGER_CONTRACTID);
@@ -219,6 +255,20 @@ PresentationService::Observe(nsISupports* aSubject,
     }
 
     return HandleSessionRequest(request);
+  } else if (!strcmp(aTopic, PRESENTATION_TERMINATE_REQUEST_TOPIC)) {
+    nsCOMPtr<nsIPresentationTerminateRequest> request(do_QueryInterface(aSubject));
+    if (NS_WARN_IF(!request)) {
+      return NS_ERROR_FAILURE;
+    }
+
+    return HandleTerminateRequest(request);
+  } else if (!strcmp(aTopic, PRESENTATION_RECONNECT_REQUEST_TOPIC)) {
+    nsCOMPtr<nsIPresentationSessionRequest> request(do_QueryInterface(aSubject));
+    if (NS_WARN_IF(!request)) {
+      return NS_ERROR_FAILURE;
+    }
+
+    return HandleReconnectRequest(request);
   } else if (!strcmp(aTopic, "profile-after-change")) {
     // It's expected since we add and entry to |kLayoutCategories| in
     // |nsLayoutModule.cpp| to launch this service earlier.
@@ -245,6 +295,8 @@ PresentationService::HandleShutdown()
     obs->RemoveObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
     obs->RemoveObserver(this, PRESENTATION_DEVICE_CHANGE_TOPIC);
     obs->RemoveObserver(this, PRESENTATION_SESSION_REQUEST_TOPIC);
+    obs->RemoveObserver(this, PRESENTATION_TERMINATE_REQUEST_TOPIC);
+    obs->RemoveObserver(this, PRESENTATION_RECONNECT_REQUEST_TOPIC);
   }
 }
 
@@ -283,21 +335,21 @@ PresentationService::HandleSessionRequest(nsIPresentationSessionRequest* aReques
   nsAutoString url;
   rv = aRequest->GetUrl(url);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return rv;
   }
 
   nsAutoString sessionId;
   rv = aRequest->GetPresentationId(sessionId);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return rv;
   }
 
   nsCOMPtr<nsIPresentationDevice> device;
   rv = aRequest->GetDevice(getter_AddRefs(device));
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return rv;
   }
 
@@ -306,19 +358,19 @@ PresentationService::HandleSessionRequest(nsIPresentationSessionRequest* aReques
   nsCOMPtr<nsIURI> uri;
   rv = NS_NewURI(getter_AddRefs(uri), url);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(NS_ERROR_DOM_BAD_URI);
+    ctrlChannel->Disconnect(NS_ERROR_DOM_BAD_URI);
     return rv;
   }
 
   bool isApp;
   rv = uri->SchemeIs("app", &isApp);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return rv;
   }
 
   if (NS_WARN_IF(isApp && !IsAppInstalled(uri))) {
-    ctrlChannel->Close(NS_ERROR_DOM_NOT_FOUND_ERR);
+    ctrlChannel->Disconnect(NS_ERROR_DOM_NOT_FOUND_ERR);
     return NS_OK;
   }
 #endif
@@ -326,16 +378,22 @@ PresentationService::HandleSessionRequest(nsIPresentationSessionRequest* aReques
   // Create or reuse session info.
   RefPtr<PresentationSessionInfo> info =
     GetSessionInfo(sessionId, nsIPresentationService::ROLE_RECEIVER);
-  if (NS_WARN_IF(info)) {
-    // TODO Bug 1195605. Update here after session join/resume becomes supported.
-    ctrlChannel->Close(NS_ERROR_DOM_OPERATION_ERR);
-    return NS_ERROR_DOM_ABORT_ERR;
+
+  // This is the case for reconnecting a session.
+  // Update the control channel and device of the session info.
+  // Call |NotifyResponderReady| to indicate the receiver page is already there.
+  if (info) {
+    info->SetControlChannel(ctrlChannel);
+    info->SetDevice(device);
+    return static_cast<PresentationPresentingInfo*>(
+      info.get())->NotifyResponderReady();
   }
 
+  // This is the case for a new session.
   info = new PresentationPresentingInfo(url, sessionId, device);
   rv = info->Init(ctrlChannel);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return rv;
   }
 
@@ -345,19 +403,118 @@ PresentationService::HandleSessionRequest(nsIPresentationSessionRequest* aReques
   nsCOMPtr<nsIPresentationRequestUIGlue> glue =
     do_CreateInstance(PRESENTATION_REQUEST_UI_GLUE_CONTRACTID);
   if (NS_WARN_IF(!glue)) {
-    ctrlChannel->Close(NS_ERROR_DOM_OPERATION_ERR);
+    ctrlChannel->Disconnect(NS_ERROR_DOM_OPERATION_ERR);
     return info->ReplyError(NS_ERROR_DOM_OPERATION_ERR);
   }
   nsCOMPtr<nsISupports> promise;
   rv = glue->SendRequest(url, sessionId, device, getter_AddRefs(promise));
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    ctrlChannel->Close(rv);
+    ctrlChannel->Disconnect(rv);
     return info->ReplyError(NS_ERROR_DOM_OPERATION_ERR);
   }
   nsCOMPtr<Promise> realPromise = do_QueryInterface(promise);
   static_cast<PresentationPresentingInfo*>(info.get())->SetPromise(realPromise);
 
   return NS_OK;
+}
+
+nsresult
+PresentationService::HandleTerminateRequest(nsIPresentationTerminateRequest* aRequest)
+{
+  nsCOMPtr<nsIPresentationControlChannel> ctrlChannel;
+  nsresult rv = aRequest->GetControlChannel(getter_AddRefs(ctrlChannel));
+  if (NS_WARN_IF(NS_FAILED(rv) || !ctrlChannel)) {
+    return rv;
+  }
+
+  nsAutoString sessionId;
+  rv = aRequest->GetPresentationId(sessionId);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  nsCOMPtr<nsIPresentationDevice> device;
+  rv = aRequest->GetDevice(getter_AddRefs(device));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  bool isFromReceiver;
+  rv = aRequest->GetIsFromReceiver(&isFromReceiver);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  RefPtr<PresentationSessionInfo> info;
+  if (!isFromReceiver) {
+    info = GetSessionInfo(sessionId, nsIPresentationService::ROLE_RECEIVER);
+  } else {
+    info = GetSessionInfo(sessionId, nsIPresentationService::ROLE_CONTROLLER);
+  }
+  if (NS_WARN_IF(!info)) {
+    // Cannot terminate non-existed session.
+    ctrlChannel->Disconnect(NS_ERROR_DOM_OPERATION_ERR);
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  // Check if terminate request comes from known device.
+  RefPtr<nsIPresentationDevice> knownDevice = info->GetDevice();
+  if (NS_WARN_IF(!IsSameDevice(device, knownDevice))) {
+    ctrlChannel->Disconnect(NS_ERROR_DOM_OPERATION_ERR);
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  return info->OnTerminate(ctrlChannel);
+}
+
+nsresult
+PresentationService::HandleReconnectRequest(nsIPresentationSessionRequest* aRequest)
+{
+  nsCOMPtr<nsIPresentationControlChannel> ctrlChannel;
+  nsresult rv = aRequest->GetControlChannel(getter_AddRefs(ctrlChannel));
+  if (NS_WARN_IF(NS_FAILED(rv) || !ctrlChannel)) {
+    return rv;
+  }
+
+  nsAutoString sessionId;
+  rv = aRequest->GetPresentationId(sessionId);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  uint64_t windowId;
+  rv = GetWindowIdBySessionIdInternal(sessionId, &windowId);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  RefPtr<PresentationSessionInfo> info =
+    GetSessionInfo(sessionId, nsIPresentationService::ROLE_RECEIVER);
+  if (NS_WARN_IF(!info)) {
+    // Cannot reconnect non-existed session
+    ctrlChannel->Disconnect(NS_ERROR_DOM_OPERATION_ERR);
+    return NS_ERROR_DOM_ABORT_ERR;
+  }
+
+  nsAutoString url;
+  rv = aRequest->GetUrl(url);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  // Make sure the url is the same as the previous one.
+  if (NS_WARN_IF(!info->GetUrl().Equals(url))) {
+    ctrlChannel->Disconnect(rv);
+    return rv;
+  }
+
+  return HandleSessionRequest(aRequest);
 }
 
 void
@@ -525,7 +682,6 @@ PresentationService::CloseSession(const nsAString& aSessionId,
   }
 
   if (aClosedReason == nsIPresentationService::CLOSED_REASON_WENTAWAY) {
-    UntrackSessionInfo(aSessionId, aRole);
     // Remove nsIPresentationSessionListener since we don't want to dispatch
     // PresentationConnectionClosedEvent if the page is went away.
     info->SetListener(nullptr);
@@ -549,6 +705,57 @@ PresentationService::TerminateSession(const nsAString& aSessionId,
   }
 
   return info->Close(NS_OK, nsIPresentationSessionListener::STATE_TERMINATED);
+}
+
+NS_IMETHODIMP
+PresentationService::ReconnectSession(const nsAString& aUrl,
+                                      const nsAString& aSessionId,
+                                      uint8_t aRole,
+                                      nsIPresentationServiceCallback* aCallback)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(!aSessionId.IsEmpty());
+  MOZ_ASSERT(aCallback);
+
+  if (aRole != nsIPresentationService::ROLE_CONTROLLER) {
+    MOZ_ASSERT(false, "Only controller can call ReconnectSession.");
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  if (NS_WARN_IF(!aCallback)) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  RefPtr<PresentationSessionInfo> info = GetSessionInfo(aSessionId, aRole);
+  if (NS_WARN_IF(!info)) {
+    return aCallback->NotifyError(NS_ERROR_DOM_NOT_FOUND_ERR);
+  }
+
+  if (NS_WARN_IF(!info->GetUrl().Equals(aUrl))) {
+    return aCallback->NotifyError(NS_ERROR_DOM_NOT_FOUND_ERR);
+  }
+
+  return static_cast<PresentationControllingInfo*>(info.get())->Reconnect(aCallback);
+}
+
+NS_IMETHODIMP
+PresentationService::BuildTransport(const nsAString& aSessionId,
+                                    uint8_t aRole)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(!aSessionId.IsEmpty());
+
+  if (aRole != nsIPresentationService::ROLE_CONTROLLER) {
+    MOZ_ASSERT(false, "Only controller can call BuildTransport.");
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  RefPtr<PresentationSessionInfo> info = GetSessionInfo(aSessionId, aRole);
+  if (NS_WARN_IF(!info)) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  return static_cast<PresentationControllingInfo*>(info.get())->BuildTransport();
 }
 
 NS_IMETHODIMP
@@ -611,8 +818,9 @@ PresentationService::UnregisterSessionListener(const nsAString& aSessionId,
 
   RefPtr<PresentationSessionInfo> info = GetSessionInfo(aSessionId, aRole);
   if (info) {
-    NS_WARN_IF(NS_FAILED(info->Close(NS_OK, nsIPresentationSessionListener::STATE_TERMINATED)));
-    UntrackSessionInfo(aSessionId, aRole);
+    // When content side decide not handling this session anymore, simply
+    // close the connection. Session info is kept for reconnection.
+    NS_WARN_IF(NS_FAILED(info->Close(NS_OK, nsIPresentationSessionListener::STATE_CLOSED)));
     return info->SetListener(nullptr);
   }
   return NS_OK;
@@ -681,7 +889,8 @@ PresentationService::GetExistentSessionIdAtLaunch(uint64_t aWindowId,
 
 NS_IMETHODIMP
 PresentationService::NotifyReceiverReady(const nsAString& aSessionId,
-                                         uint64_t aWindowId)
+                                         uint64_t aWindowId,
+                                         bool aIsLoading)
 {
   RefPtr<PresentationSessionInfo> info =
     GetSessionInfo(aSessionId, nsIPresentationService::ROLE_RECEIVER);
@@ -690,6 +899,10 @@ PresentationService::NotifyReceiverReady(const nsAString& aSessionId,
   }
 
   AddRespondingSessionId(aWindowId, aSessionId);
+
+  if (!aIsLoading) {
+    return static_cast<PresentationPresentingInfo*>(info.get())->NotifyResponderFailure();
+  }
 
   nsCOMPtr<nsIPresentationRespondingListener> listener;
   if (mRespondingListeners.Get(aWindowId, getter_AddRefs(listener))) {
@@ -729,6 +942,17 @@ PresentationService::UntrackSessionInfo(const nsAString& aSessionId,
   if (nsIPresentationService::ROLE_CONTROLLER == aRole) {
     mSessionInfoAtController.Remove(aSessionId);
   } else {
+    // Terminate receiver page.
+    uint64_t windowId;
+    nsresult rv = GetWindowIdBySessionIdInternal(aSessionId, &windowId);
+    if (NS_SUCCEEDED(rv)) {
+      NS_DispatchToMainThread(NS_NewRunnableFunction([windowId]() -> void {
+        if (auto* window = nsGlobalWindow::GetInnerWindowWithId(windowId)) {
+          window->Close();
+        }
+      }));
+    }
+
     mSessionInfoAtReceiver.Remove(aSessionId);
   }
 
@@ -743,6 +967,13 @@ PresentationService::GetWindowIdBySessionId(const nsAString& aSessionId,
                                             uint64_t* aWindowId)
 {
   return GetWindowIdBySessionIdInternal(aSessionId, aWindowId);
+}
+
+NS_IMETHODIMP
+PresentationService::UpdateWindowIdBySessionId(const nsAString& aSessionId,
+                                               const uint64_t aWindowId)
+{
+  return UpdateWindowIdBySessionIdInternal(aSessionId, aWindowId);
 }
 
 bool

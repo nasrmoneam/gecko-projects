@@ -25,7 +25,7 @@ const {ToolSidebar} = require("devtools/client/framework/sidebar");
 const {HTMLTooltip} = require("devtools/client/shared/widgets/HTMLTooltip");
 const {setImageTooltip, getImageDimensions} =
   require("devtools/client/shared/widgets/tooltip/ImageTooltipHelper");
-const DevToolsUtils = require("devtools/shared/DevToolsUtils");
+const { testing: isTesting } = require("devtools/shared/flags");
 const {LocalizationHelper} = require("devtools/client/shared/l10n");
 const {PrefsHelper} = require("devtools/client/shared/prefs");
 const {ViewHelpers, Heritage, WidgetMethods, setNamedTimeout} =
@@ -48,7 +48,7 @@ const WDA_DEFAULT_VERIFY_INTERVAL = 50;
 // be at least equal to the general mochitest timeout of 45 seconds so that this
 // never gets hit during testing.
 // ms
-const WDA_DEFAULT_GIVE_UP_TIMEOUT = DevToolsUtils.testing ? 45000 : 2000;
+const WDA_DEFAULT_GIVE_UP_TIMEOUT = isTesting ? 45000 : 2000;
 
 /**
  * Shortcuts for accessing various network monitor preferences.
@@ -342,7 +342,7 @@ var NetMonitorView = {
         ]);
       } catch (ex) {
         // Timed out while waiting for data. Continue with what we have.
-        DevToolsUtils.reportException("showNetworkStatisticsView", ex);
+        console.error(ex);
       }
 
       statisticsView.createPrimedCacheChart(requestsView.items);
@@ -493,7 +493,10 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     window.addEventListener("resize", this._onResize, false);
 
     this.requestsMenuSortEvent = getKeyWithEvent(this.sortBy.bind(this));
+    this.requestsMenuSortKeyboardEvent = getKeyWithEvent(this.sortBy.bind(this), true);
     this.requestsMenuFilterEvent = getKeyWithEvent(this.filterOn.bind(this));
+    this.requestsMenuFilterKeyboardEvent = getKeyWithEvent(
+      this.filterOn.bind(this), true);
     this.reqeustsMenuClearEvent = this.clear.bind(this);
     this._onContextShowing = this._onContextShowing.bind(this);
     this._onContextNewTabCommand = this.openRequestInTab.bind(this);
@@ -525,8 +528,12 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
 
     $("#toolbar-labels").addEventListener("click",
       this.requestsMenuSortEvent, false);
+    $("#toolbar-labels").addEventListener("keydown",
+      this.requestsMenuSortKeyboardEvent, false);
     $("#requests-menu-filter-buttons").addEventListener("click",
       this.requestsMenuFilterEvent, false);
+    $("#requests-menu-filter-buttons").addEventListener("keydown",
+      this.requestsMenuFilterKeyboardEvent, false);
     $("#requests-menu-clear-button").addEventListener("click",
       this.reqeustsMenuClearEvent, false);
     $("#network-request-popup").addEventListener("popupshowing",
@@ -605,8 +612,12 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
 
     $("#toolbar-labels").removeEventListener("click",
       this.requestsMenuSortEvent, false);
+    $("#toolbar-labels").removeEventListener("keydown",
+      this.requestsMenuSortKeyboardEvent, false);
     $("#requests-menu-filter-buttons").removeEventListener("click",
       this.requestsMenuFilterEvent, false);
+    $("#requests-menu-filter-buttons").removeEventListener("keydown",
+      this.requestsMenuFilterKeyboardEvent, false);
     $("#requests-menu-clear-button").removeEventListener("click",
       this.reqeustsMenuClearEvent, false);
     this.freetextFilterBox.removeEventListener("input",
@@ -2388,13 +2399,17 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
       sourceEl.className = "stack-frame-source-name";
       frameEl.appendChild(sourceEl);
 
-      sourceEl.textContent = sourceUrl;
-      sourceEl.title = sourceUrl;
+      let sourceInnerEl = doc.createElementNS(HTML_NS, "span");
+      sourceInnerEl.className = "stack-frame-source-name-inner";
+      sourceEl.appendChild(sourceInnerEl);
+
+      sourceInnerEl.textContent = sourceUrl;
+      sourceInnerEl.title = sourceUrl;
 
       let lineEl = doc.createElementNS(HTML_NS, "span");
       lineEl.className = "stack-frame-line";
       lineEl.textContent = `:${lineNumber}:${columnNumber}`;
-      sourceEl.appendChild(lineEl);
+      sourceInnerEl.appendChild(lineEl);
 
       frameEl.addEventListener("click", () => {
         // hide the tooltip immediately, not after delay
@@ -4017,13 +4032,19 @@ function responseIsFresh({ responseHeaders, status }) {
  * @param function callback
  *          Function to execute execute when data-key
  *          is present in event.target.
+ * @param bool onlySpaceOrReturn
+ *          Flag to indicate if callback should only be called
+            when the space or return button is pressed
  * @return function
- *          Wrapped function with the target data-key as the first argument.
+ *          Wrapped function with the target data-key as the first argument
+ *          and the event as the second argument.
  */
-function getKeyWithEvent(callback) {
+function getKeyWithEvent(callback, onlySpaceOrReturn) {
   return function (event) {
     let key = event.target.getAttribute("data-key");
-    if (key) {
+    let filterKeyboardEvent = onlySpaceOrReturn
+       ? ViewHelpers.isSpaceOrReturn(event) : true;
+    if (key && filterKeyboardEvent) {
       callback.call(null, key);
     }
   };

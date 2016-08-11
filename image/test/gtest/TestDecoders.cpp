@@ -55,7 +55,7 @@ CheckDecoderState(const ImageTestCase& aTestCase, Decoder* aDecoder)
             bool(progress & FLAG_IS_ANIMATED));
 
   // The decoder should get the correct size.
-  IntSize size = aDecoder->GetSize();
+  IntSize size = aDecoder->Size();
   EXPECT_EQ(aTestCase.mSize.width, size.width);
   EXPECT_EQ(aTestCase.mSize.height, size.height);
 
@@ -206,13 +206,8 @@ CheckDownscaleDuringDecode(const ImageTestCase& aTestCase)
 
 class ImageDecoders : public ::testing::Test
 {
-  protected:
-  static void SetUpTestCase()
-  {
-    // Ensure that ImageLib services are initialized.
-    nsCOMPtr<imgITools> imgTools = do_CreateInstance("@mozilla.org/image/tools;1");
-    EXPECT_TRUE(imgTools != nullptr);
-  }
+protected:
+  AutoInitializeImageLib mInit;
 };
 
 TEST_F(ImageDecoders, PNGSingleChunk)
@@ -338,6 +333,16 @@ TEST_F(ImageDecoders, CorruptSingleChunk)
 TEST_F(ImageDecoders, CorruptMultiChunk)
 {
   CheckDecoderMultiChunk(CorruptTestCase());
+}
+
+TEST_F(ImageDecoders, CorruptBMPWithTruncatedHeaderSingleChunk)
+{
+  CheckDecoderSingleChunk(CorruptBMPWithTruncatedHeader());
+}
+
+TEST_F(ImageDecoders, CorruptBMPWithTruncatedHeaderMultiChunk)
+{
+  CheckDecoderMultiChunk(CorruptBMPWithTruncatedHeader());
 }
 
 TEST_F(ImageDecoders, CorruptICOWithBadBMPWidthSingleChunk)

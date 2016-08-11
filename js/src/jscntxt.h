@@ -36,7 +36,7 @@ typedef HashSet<Shape*> ShapeSet;
 class MOZ_RAII AutoCycleDetector
 {
   public:
-    using Set = HashSet<JSObject*, MovableCellHasher<JSObject*>>;
+    using Set = HashSet<JSObject*, MovableCellHasher<JSObject*>, SystemAllocPolicy>;
 
     AutoCycleDetector(JSContext* cx, HandleObject objArg
                       MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
@@ -212,13 +212,13 @@ class ExclusiveContext : public ContextFriendFields,
     const JS::AsmJSCacheOps& asmJSCacheOps() { return runtime_->asmJSCacheOps; }
     PropertyName* emptyString() { return runtime_->emptyString; }
     FreeOp* defaultFreeOp() { return runtime_->defaultFreeOp(); }
-    void* runtimeAddressForJit() { return runtime_; }
+    void* contextAddressForJit() { return runtime_->unsafeContextFromAnyThread(); }
     void* runtimeAddressOfInterruptUint32() { return runtime_->addressOfInterruptUint32(); }
     void* stackLimitAddress(StackKind kind) { return &runtime_->mainThread.nativeStackLimit[kind]; }
     void* stackLimitAddressForJitCode(StackKind kind);
     uintptr_t stackLimit(StackKind kind) { return runtime_->mainThread.nativeStackLimit[kind]; }
+    uintptr_t stackLimitForJitCode(StackKind kind);
     size_t gcSystemPageSize() { return gc::SystemPageSize(); }
-    bool canUseSignalHandlers() const { return runtime_->canUseSignalHandlers(); }
     bool jitSupportsFloatingPoint() const { return runtime_->jitSupportsFloatingPoint; }
     bool jitSupportsUnalignedAccesses() const { return runtime_->jitSupportsUnalignedAccesses; }
     bool jitSupportsSimd() const { return runtime_->jitSupportsSimd; }
@@ -246,7 +246,9 @@ class ExclusiveContext : public ContextFriendFields,
      */
   protected:
     unsigned            enterCompartmentDepth_;
-    inline void setCompartment(JSCompartment* comp);
+
+    inline void setCompartment(JSCompartment* comp,
+                               const js::AutoLockForExclusiveAccess* maybeLock = nullptr);
   public:
     bool hasEnteredCompartment() const {
         return enterCompartmentDepth_ > 0;
@@ -257,9 +259,13 @@ class ExclusiveContext : public ContextFriendFields,
     }
 #endif
 
-    inline void enterCompartment(JSCompartment* c);
+    // If |c| or |oldCompartment| is the atoms compartment, the
+    // |exclusiveAccessLock| must be held.
+    inline void enterCompartment(JSCompartment* c,
+                                 const js::AutoLockForExclusiveAccess* maybeLock = nullptr);
     inline void enterNullCompartment();
-    inline void leaveCompartment(JSCompartment* oldCompartment);
+    inline void leaveCompartment(JSCompartment* oldCompartment,
+                                 const js::AutoLockForExclusiveAccess* maybeLock = nullptr);
 
     void setHelperThread(HelperThread* helperThread);
     HelperThread* helperThread() const { return helperThread_; }
@@ -267,8 +273,6 @@ class ExclusiveContext : public ContextFriendFields,
     // Threads with an ExclusiveContext may freely access any data in their
     // compartment and zone.
     JSCompartment* compartment() const {
-        MOZ_ASSERT_IF(runtime_->isAtomsCompartment(compartment_),
-                      runtime_->currentThreadHasExclusiveAccess());
         return compartment_;
     }
     JS::Zone* zone() const {
@@ -341,6 +345,9 @@ struct JSContext : public js::ExclusiveContext,
     static size_t offsetOfActivation() {
         return offsetof(JSContext, activation_);
     }
+    static size_t offsetOfWasmActivation() {
+        return offsetof(JSContext, wasmActivationStack_);
+    }
     static size_t offsetOfProfilingActivation() {
         return offsetof(JSContext, profilingActivation_);
      }
@@ -382,6 +389,9 @@ struct JSContext : public js::ExclusiveContext,
 
     /* State for object and array toSource conversion. */
     js::AutoCycleDetector::Set cycleDetectorSet;
+
+    /* Client opaque pointer. */
+    void* data;
 
   public:
 
@@ -444,7 +454,7 @@ struct JSContext : public js::ExclusiveContext,
     }
 
     void minorGC(JS::gcreason::Reason reason) {
-        gc.minorGC(this, reason);
+        gc.minorGC(reason);
     }
 
   public:
@@ -572,7 +582,8 @@ ReportErrorNumberUCArray(JSContext* cx, unsigned flags, JSErrorCallback callback
 extern bool
 ExpandErrorArgumentsVA(ExclusiveContext* cx, JSErrorCallback callback,
                        void* userRef, const unsigned errorNumber,
-                       char** message, ErrorArgumentsType argumentsType,
+                       char** message, const char16_t** messageArgs,
+                       ErrorArgumentsType argumentsType,
                        JSErrorReport* reportp, va_list ap);
 
 /* |callee| requires a usage string provided by JS_DefineFunctionsWithHelp. */
@@ -739,11 +750,7 @@ class MOZ_RAII AutoLockForExclusiveAccess
     void init(JSRuntime* rt) {
         runtime = rt;
         if (runtime->numExclusiveThreads) {
-            runtime->assertCanLock(ExclusiveAccessLock);
             runtime->exclusiveAccessLock.lock();
-#ifdef DEBUG
-            runtime->exclusiveAccessOwner = PR_GetCurrentThread();
-#endif
         } else {
             MOZ_ASSERT(!runtime->mainThreadHasExclusiveAccess);
 #ifdef DEBUG
@@ -767,10 +774,6 @@ class MOZ_RAII AutoLockForExclusiveAccess
     }
     ~AutoLockForExclusiveAccess() {
         if (runtime->numExclusiveThreads) {
-#ifdef DEBUG
-            MOZ_ASSERT(runtime->exclusiveAccessOwner == PR_GetCurrentThread());
-            runtime->exclusiveAccessOwner = nullptr;
-#endif
             runtime->exclusiveAccessLock.unlock();
         } else {
             MOZ_ASSERT(runtime->mainThreadHasExclusiveAccess);

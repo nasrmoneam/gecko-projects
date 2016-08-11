@@ -6,7 +6,7 @@
 
 const {Cc, Ci} = require("chrome");
 const {angleUtils} = require("devtools/client/shared/css-angle");
-const {colorUtils} = require("devtools/client/shared/css-color");
+const {colorUtils} = require("devtools/shared/css-color");
 const {getCSSLexer} = require("devtools/shared/css-lexer");
 const EventEmitter = require("devtools/shared/event-emitter");
 const {
@@ -30,8 +30,6 @@ loader.lazyGetter(this, "DOMUtils", function () {
  * border radius, cubic-bezier etc.).
  *
  * Usage:
- *   const {require} =
- *      Cu.import("resource://devtools/shared/Loader.jsm", {});
  *   const {OutputParser} = require("devtools/client/shared/output-parser");
  *
  *   let parser = new OutputParser(document, supportsType);
@@ -156,7 +154,7 @@ OutputParser.prototype = {
     };
 
     let angleOK = function (angle) {
-      return /^-?\d+\.?\d*(deg|rad|grad|turn)$/gi.test(angle);
+      return (new angleUtils.CssAngle(angle)).valid;
     };
 
     while (true) {

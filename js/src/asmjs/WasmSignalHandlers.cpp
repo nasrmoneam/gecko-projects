@@ -147,6 +147,9 @@ class AutoSetHandlingSegFault
 # else
 #  define R15_sig(p) ((p)->uc_mcontext.gregs[REG_R15])
 # endif
+# if defined(__linux__) && defined(__aarch64__)
+#  define EPC_sig(p) ((p)->uc_mcontext.pc)
+# endif
 # if defined(__linux__) && defined(__mips__)
 #  define EPC_sig(p) ((p)->uc_mcontext.pc)
 #  define RSP_sig(p) ((p)->uc_mcontext.gregs[29])
@@ -348,6 +351,8 @@ struct macos_arm_context {
 # define PC_sig(p) EIP_sig(p)
 #elif defined(JS_CPU_ARM)
 # define PC_sig(p) R15_sig(p)
+#elif defined(__aarch64__)
+# define PC_sig(p) EPC_sig(p)
 #elif defined(JS_CPU_MIPS)
 # define PC_sig(p) EPC_sig(p)
 #endif
@@ -605,7 +610,7 @@ EmulateHeapAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddre
 {
     MOZ_RELEASE_ASSERT(instance.codeSegment().containsFunctionPC(pc));
     MOZ_RELEASE_ASSERT(instance.metadata().assumptions.usesSignal.forOOB);
-    MOZ_RELEASE_ASSERT(memoryAccess->insnOffset() == (pc - instance.codeSegment().code()));
+    MOZ_RELEASE_ASSERT(memoryAccess->insnOffset() == (pc - instance.codeBase()));
 
     // Disassemble the instruction which caused the trap so that we can extract
     // information about it and decide what to do.
@@ -702,6 +707,8 @@ EmulateHeapAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddre
           case Disassembler::HeapAccess::Store:
             StoreValueFromRegister(context, wrappedAddress.cast<void*>(), size, access.otherOperand());
             break;
+          case Disassembler::HeapAccess::LoadSext64:
+            MOZ_CRASH("no int64 accesses in asm.js");
           case Disassembler::HeapAccess::Unknown:
             MOZ_CRASH("Failed to disassemble instruction");
         }
@@ -726,6 +733,8 @@ EmulateHeapAccess(EMULATOR_CONTEXT* context, uint8_t* pc, uint8_t* faultingAddre
           case Disassembler::HeapAccess::Store:
             // Do nothing.
             break;
+          case Disassembler::HeapAccess::LoadSext64:
+            MOZ_CRASH("no int64 accesses in asm.js");
           case Disassembler::HeapAccess::Unknown:
             MOZ_CRASH("Failed to disassemble instruction");
         }
@@ -791,16 +800,18 @@ HandleFault(PEXCEPTION_POINTERS exception)
     if (!activation)
         return false;
 
-    const Instance& instance = activation->instance();
+    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    if (!instance)
+        return false;
 
     uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(record->ExceptionInformation[1]);
 
     // This check isn't necessary, but, since we can, check anyway to make
     // sure we aren't covering up a real bug.
-    if (!IsHeapAccessAddress(instance, faultingAddress))
+    if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    if (!instance.codeSegment().containsFunctionPC(pc)) {
+    if (!instance->codeSegment().containsFunctionPC(pc)) {
         // On Windows, it is possible for InterruptRunningCode to execute
         // between a faulting heap access and the handling of the fault due
         // to InterruptRunningCode's use of SuspendThread. When this happens,
@@ -810,16 +821,16 @@ HandleFault(PEXCEPTION_POINTERS exception)
         // always the logically-faulting pc). Fortunately, we can detect this
         // case and silence the exception ourselves (the exception will
         // retrigger after the interrupt jumps back to resumePC).
-        return pc == instance.codeSegment().interruptCode() &&
-               instance.codeSegment().containsFunctionPC(activation->resumePC()) &&
-               instance.lookupMemoryAccess(activation->resumePC());
+        return pc == instance->codeSegment().interruptCode() &&
+               instance->codeSegment().containsFunctionPC(activation->resumePC()) &&
+               instance->code().lookupMemoryAccess(activation->resumePC());
     }
 
-    const MemoryAccess* memoryAccess = instance.lookupMemoryAccess(pc);
+    const MemoryAccess* memoryAccess = instance->code().lookupMemoryAccess(pc);
     if (!memoryAccess)
         return false;
 
-    *ppc = EmulateHeapAccess(context, pc, faultingAddress, memoryAccess, instance);
+    *ppc = EmulateHeapAccess(context, pc, faultingAddress, memoryAccess, *instance);
     return true;
 }
 
@@ -931,22 +942,22 @@ HandleMachException(JSRuntime* rt, const ExceptionRequest& request)
     if (!activation)
         return false;
 
-    const Instance& instance = activation->instance();
-    if (!instance.codeSegment().containsFunctionPC(pc))
+    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
     uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(request.body.code[1]);
 
     // This check isn't necessary, but, since we can, check anyway to make
     // sure we aren't covering up a real bug.
-    if (!IsHeapAccessAddress(instance, faultingAddress))
+    if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    const MemoryAccess* memoryAccess = instance.lookupMemoryAccess(pc);
+    const MemoryAccess* memoryAccess = instance->code().lookupMemoryAccess(pc);
     if (!memoryAccess)
         return false;
 
-    *ppc = EmulateHeapAccess(&context, pc, faultingAddress, memoryAccess, instance);
+    *ppc = EmulateHeapAccess(&context, pc, faultingAddress, memoryAccess, *instance);
 
     // Update the thread state with the new pc and register values.
     kret = thread_set_state(rtThread, float_state, (thread_state_t)&context.float_, float_state_count);
@@ -1019,6 +1030,7 @@ MachExceptionHandlerThread(JSRuntime* rt)
 
 MachExceptionHandler::MachExceptionHandler()
   : installed_(false),
+    thread_(),
     port_(MACH_PORT_NULL)
 {}
 
@@ -1145,22 +1157,22 @@ HandleFault(int signum, siginfo_t* info, void* ctx)
     if (!activation)
         return false;
 
-    const Instance& instance = activation->instance();
-    if (!instance.codeSegment().containsFunctionPC(pc))
+    const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+    if (!instance || !instance->codeSegment().containsFunctionPC(pc))
         return false;
 
     uint8_t* faultingAddress = reinterpret_cast<uint8_t*>(info->si_addr);
 
     // This check isn't necessary, but, since we can, check anyway to make
     // sure we aren't covering up a real bug.
-    if (!IsHeapAccessAddress(instance, faultingAddress))
+    if (!IsHeapAccessAddress(*instance, faultingAddress))
         return false;
 
-    const MemoryAccess* memoryAccess = instance.lookupMemoryAccess(pc);
+    const MemoryAccess* memoryAccess = instance->code().lookupMemoryAccess(pc);
     if (signal == Signal::SegFault && !memoryAccess)
         return false;
 
-    *ppc = EmulateHeapAccess(context, pc, faultingAddress, memoryAccess, instance);
+    *ppc = EmulateHeapAccess(context, pc, faultingAddress, memoryAccess, *instance);
 
     return true;
 }
@@ -1214,26 +1226,33 @@ RedirectIonBackedgesToInterruptCheck(JSRuntime* rt)
     }
 }
 
+// The return value indicates whether the PC was changed, not whether there was
+// a failure.
 static bool
 RedirectJitCodeToInterruptCheck(JSRuntime* rt, CONTEXT* context)
 {
     RedirectIonBackedgesToInterruptCheck(rt);
 
     if (WasmActivation* activation = rt->wasmActivationStack()) {
-        const Instance& instance = activation->instance();
-
 #ifdef JS_SIMULATOR
-        if (instance.codeSegment().containsFunctionPC(rt->simulator()->get_pc_as<void*>()))
-            rt->simulator()->set_resume_pc(instance.codeSegment().interruptCode());
-#endif
+        (void)ContextToPC;  // silence static 'unused' errors
 
+        void* pc = rt->simulator()->get_pc_as<void*>();
+
+        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+        if (instance && instance->codeSegment().containsFunctionPC(pc))
+            rt->simulator()->set_resume_pc(instance->codeSegment().interruptCode());
+#else
         uint8_t** ppc = ContextToPC(context);
         uint8_t* pc = *ppc;
-        if (instance.codeSegment().containsFunctionPC(pc)) {
+
+        const Instance* instance = activation->compartment()->wasm.lookupInstanceDeprecated(pc);
+        if (instance && instance->codeSegment().containsFunctionPC(pc)) {
             activation->setResumePC(pc);
-            *ppc = instance.codeSegment().interruptCode();
+            *ppc = instance->codeSegment().interruptCode();
             return true;
         }
+#endif
     }
 
     return false;
@@ -1257,23 +1276,20 @@ JitInterruptHandler(int signum, siginfo_t* info, void* context)
 }
 #endif
 
-bool
-wasm::EnsureSignalHandlersInstalled(JSRuntime* rt)
+static bool
+ProcessHasSignalHandlers()
 {
-#if defined(XP_DARWIN) && defined(ASMJS_MAY_USE_SIGNAL_HANDLERS)
-    // On OSX, each JSRuntime gets its own handler thread.
-    if (!rt->wasmMachExceptionHandler.installed() && !rt->wasmMachExceptionHandler.install(rt))
-        return false;
-#endif
-
-    // All the rest of the handlers are process-wide and thus must only be
-    // installed once. We assume that there are no races creating the first
-    // JSRuntime of the process.
+    // We assume that there are no races creating the first JSRuntime of the process.
     static bool sTried = false;
     static bool sResult = false;
     if (sTried)
         return sResult;
     sTried = true;
+
+    // Developers might want to forcibly disable signals to avoid seeing
+    // spurious SIGSEGVs in the debugger.
+    if (getenv("JS_DISABLE_SLOW_SCRIPT_SIGNALS") || getenv("JS_NO_SIGNALS"))
+        return false;
 
 #if defined(ANDROID)
     // Before Android 4.4 (SDK version 19), there is a bug
@@ -1353,6 +1369,39 @@ wasm::EnsureSignalHandlersInstalled(JSRuntime* rt)
     return true;
 }
 
+bool
+wasm::EnsureSignalHandlers(JSRuntime* rt)
+{
+    // Nothing to do if the platform doesn't support it.
+    if (!ProcessHasSignalHandlers())
+        return true;
+
+#if defined(XP_DARWIN) && defined(ASMJS_MAY_USE_SIGNAL_HANDLERS)
+    // On OSX, each JSRuntime gets its own handler thread.
+    if (!rt->wasmMachExceptionHandler.installed() && !rt->wasmMachExceptionHandler.install(rt))
+        return false;
+#endif
+
+    return true;
+}
+
+static bool sHandlersSuppressedForTesting = false;
+
+bool
+wasm::HaveSignalHandlers()
+{
+    if (!ProcessHasSignalHandlers())
+        return false;
+
+    return !sHandlersSuppressedForTesting;
+}
+
+void
+wasm::SuppressSignalHandlersForTesting(bool suppress)
+{
+    sHandlersSuppressedForTesting = suppress;
+}
+
 // JSRuntime::requestInterrupt sets interrupt_ (which is checked frequently by
 // C++ code at every Baseline JIT loop backedge) and jitStackLimit_ (which is
 // checked at every Baseline and Ion JIT function prologue). The remaining
@@ -1367,7 +1416,7 @@ js::InterruptRunningJitCode(JSRuntime* rt)
 {
     // If signal handlers weren't installed, then Ion and wasm emit normal
     // interrupt checks and don't need asynchronous interruption.
-    if (!rt->canUseSignalHandlers())
+    if (!HaveSignalHandlers())
         return;
 
     // Do nothing if we're already handling an interrupt here, to avoid races
@@ -1424,5 +1473,5 @@ js::wasm::IsPCInWasmCode(void *pc)
     if (!activation)
         return false;
 
-    return activation->instance().codeSegment().containsFunctionPC(pc);
+    return !!activation->compartment()->wasm.lookupInstanceDeprecated(pc);
 }

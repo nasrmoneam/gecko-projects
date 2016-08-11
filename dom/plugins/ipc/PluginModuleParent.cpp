@@ -4,10 +4,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifdef MOZ_WIDGET_QT
-#include "PluginHelperQt.h"
-#endif
-
 #include "mozilla/plugins/PluginModuleParent.h"
 
 #include "base/process_util.h"
@@ -1918,9 +1914,9 @@ PluginModuleParent::RecvBackUpXResources(const FileDescriptor& aXSocketFd)
 #else
     MOZ_ASSERT(0 > mPluginXSocketFdDup.get(),
                "Already backed up X resources??");
-    mPluginXSocketFdDup.forget();
     if (aXSocketFd.IsValid()) {
-      mPluginXSocketFdDup.reset(aXSocketFd.PlatformHandle());
+      auto rawFD = aXSocketFd.ClonePlatformHandle();
+      mPluginXSocketFdDup.reset(rawFD.release());
     }
 #endif
     return true;
@@ -2036,12 +2032,6 @@ PluginModuleParent::GetScrollCaptureContainer(NPP aInstance,
 {
     PluginInstanceParent* inst = PluginInstanceParent::Cast(aInstance);
     return !inst ? NS_ERROR_FAILURE : inst->GetScrollCaptureContainer(aContainer);
-}
-nsresult
-PluginModuleParent::UpdateScrollState(NPP aInstance, bool aIsScrolling)
-{
-    PluginInstanceParent* inst = PluginInstanceParent::Cast(aInstance);
-    return !inst ? NS_ERROR_FAILURE : inst->UpdateScrollState(aIsScrolling);
 }
 #endif
 
@@ -2724,11 +2714,16 @@ PluginModuleParent::NPP_NewInternal(NPMIMEType pluginType, NPP instance,
     if (mIsFlashPlugin) {
         parentInstance->InitMetadata(strPluginType, srcAttribute);
 #ifdef XP_WIN
-        // Force windowless mode (bug 1201904) when sandbox level >= 2 or Win64
+        bool supportsAsyncRender = false;
+        CallModuleSupportsAsyncRender(&supportsAsyncRender);
 #ifdef _WIN64
-        {
+        // For 64-bit builds force windowless if the flash library doesn't support
+        // async rendering regardless of sandbox level.
+        if (!supportsAsyncRender) {
 #else
-        if (mSandboxLevel >= 2) {
+        // For 32-bit builds force windowless if the flash library doesn't support
+        // async rendering and the sandbox level is 2 or greater.
+        if (!supportsAsyncRender && mSandboxLevel >= 2) {
 #endif
            NS_NAMED_LITERAL_CSTRING(wmodeAttributeName, "wmode");
            NS_NAMED_LITERAL_CSTRING(opaqueAttributeValue, "opaque");
@@ -2859,18 +2854,7 @@ PluginModuleParent::ContentsScaleFactorChanged(NPP instance, double aContentsSca
 }
 #endif // #if defined(XP_MACOSX)
 
-#if defined(MOZ_WIDGET_QT)
-bool
-PluginModuleParent::AnswerProcessSomeEvents()
-{
-    PLUGIN_LOG_DEBUG(("Spinning mini nested loop ..."));
-    PluginHelperQt::AnswerProcessSomeEvents();
-    PLUGIN_LOG_DEBUG(("... quitting mini nested loop"));
-
-    return true;
-}
-
-#elif defined(XP_MACOSX)
+#if defined(XP_MACOSX)
 bool
 PluginModuleParent::AnswerProcessSomeEvents()
 {

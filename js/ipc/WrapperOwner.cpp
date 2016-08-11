@@ -91,7 +91,7 @@ WrapperOwner::idOf(JSObject* obj)
 class CPOWProxyHandler : public BaseProxyHandler
 {
   public:
-    MOZ_CONSTEXPR CPOWProxyHandler()
+    constexpr CPOWProxyHandler()
       : BaseProxyHandler(&family) {}
 
     virtual bool finalizeInBackground(Value priv) const override {
@@ -1075,6 +1075,11 @@ WrapperOwner::ok(JSContext* cx, const ReturnStatus& status)
 
     if (status.type() == ReturnStatus::TReturnStopIteration)
         return JS_ThrowStopIteration(cx);
+
+    if (status.type() == ReturnStatus::TReturnDeadCPOW) {
+        JS_ReportError(cx, "operation not possible on dead CPOW");
+        return false;
+    }
 
     RootedValue exn(cx);
     if (!fromVariant(cx, status.get_ReturnException().exn(), &exn))

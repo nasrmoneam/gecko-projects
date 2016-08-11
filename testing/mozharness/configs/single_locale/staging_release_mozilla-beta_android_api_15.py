@@ -39,9 +39,6 @@ config = {
         "repo": "https://hg.mozilla.org/%(user_repo_override)s/tools",
         "branch": "default",
         "dest": "tools"
-    }, {
-        "repo": "https://hg.mozilla.org/%(user_repo_override)s/compare-locales",
-        "revision": "RELEASE_AUTOMATION"
     }],
     "hg_l10n_base": "https://hg.mozilla.org/%(user_repo_override)s/",
     "hg_l10n_tag": "default",
@@ -94,5 +91,7 @@ config = {
         ('/builds/relengapi.tok', '/builds/relengapi.tok'),
         ('/tools/tooltool.py', '/builds/tooltool.py'),
         ('/usr/local/lib/hgext', '/usr/local/lib/hgext'),
+        ('/builds/mozilla-fennec-geoloc-api.key', '/builds/mozilla-fennec-geoloc-api.key'),
+        ('/builds/adjust-sdk-beta.token', '/builds/adjust-sdk-beta.token'),
     ],
 }

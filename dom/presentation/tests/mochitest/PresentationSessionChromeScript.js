@@ -45,7 +45,7 @@ function registerOriginalFactory(contractId, mockedClassId, mockedFactory, origi
   }
 }
 
-const sessionId = 'test-session-id-' + uuidGenerator.generateUUID().toString();
+var sessionId = 'test-session-id-' + uuidGenerator.generateUUID().toString();
 
 const address = Cc["@mozilla.org/supports-cstring;1"]
                   .createInstance(Ci.nsISupportsCString);
@@ -141,9 +141,23 @@ const mockedControlChannel = {
     }
     return isValid;
   },
-  close: function(reason) {
+  launch: function(presentationId, url) {
+    sessionId = presentationId;
+  },
+  terminate: function(presentationId) {
+    sendAsyncMessage('sender-terminate', presentationId);
+  },
+  reconnect: function(presentationId, url) {
+    sendAsyncMessage('start-reconnect', url);
+  },
+  notifyReconnected: function() {
+    this._listener
+        .QueryInterface(Ci.nsIPresentationControlChannelListener)
+        .notifyReconnected();
+  },
+  disconnect: function(reason) {
     sendAsyncMessage('control-channel-closed', reason);
-    this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).notifyClosed(reason);
+    this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).notifyDisconnected(reason);
   },
   simulateReceiverReady: function() {
     this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).notifyReceiverReady();
@@ -156,9 +170,9 @@ const mockedControlChannel = {
     sendAsyncMessage('answer-received');
     this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).onAnswer(mockedChannelDescription);
   },
-  simulateNotifyOpened: function() {
+  simulateNotifyConnected: function() {
     sendAsyncMessage('control-channel-opened');
-    this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).notifyOpened();
+    this._listener.QueryInterface(Ci.nsIPresentationControlChannelListener).notifyConnected();
   },
 };
 
@@ -195,8 +209,8 @@ const mockedDevicePrompt = {
   simulateSelect: function() {
     this._request.select(mockedDevice);
   },
-  simulateCancel: function() {
-    this._request.cancel();
+  simulateCancel: function(result) {
+    this._request.cancel(result);
   }
 };
 
@@ -379,8 +393,8 @@ addMessageListener('trigger-device-prompt-select', function() {
   mockedDevicePrompt.simulateSelect();
 });
 
-addMessageListener('trigger-device-prompt-cancel', function() {
-  mockedDevicePrompt.simulateCancel();
+addMessageListener('trigger-device-prompt-cancel', function(result) {
+  mockedDevicePrompt.simulateCancel(result);
 });
 
 addMessageListener('trigger-incoming-session-request', function(url) {
@@ -388,6 +402,17 @@ addMessageListener('trigger-incoming-session-request', function(url) {
                       .getService(Ci.nsIPresentationDeviceManager);
   deviceManager.QueryInterface(Ci.nsIPresentationDeviceListener)
 	       .onSessionRequest(mockedDevice, url, sessionId, mockedControlChannel);
+});
+
+addMessageListener('trigger-incoming-terminate-request', function() {
+  var deviceManager = Cc['@mozilla.org/presentation-device/manager;1']
+                      .getService(Ci.nsIPresentationDeviceManager);
+  deviceManager.QueryInterface(Ci.nsIPresentationDeviceListener)
+	       .onTerminateRequest(mockedDevice, sessionId, mockedControlChannel, true);
+});
+
+addMessageListener('trigger-reconnected-acked', function(url) {
+    mockedControlChannel.notifyReconnected();
 });
 
 addMessageListener('trigger-incoming-offer', function() {
@@ -403,11 +428,11 @@ addMessageListener('trigger-incoming-transport', function() {
 });
 
 addMessageListener('trigger-control-channel-open', function(reason) {
-  mockedControlChannel.simulateNotifyOpened();
+  mockedControlChannel.simulateNotifyConnected();
 });
 
 addMessageListener('trigger-control-channel-close', function(reason) {
-  mockedControlChannel.close(reason);
+  mockedControlChannel.disconnect(reason);
 });
 
 addMessageListener('trigger-data-transport-close', function(reason) {
@@ -420,6 +445,16 @@ addMessageListener('trigger-incoming-message', function(message) {
 
 addMessageListener('teardown', function() {
   tearDown();
+});
+
+var controlChannelListener;
+addMessageListener('save-control-channel-listener', function() {
+  controlChannelListener = mockedControlChannel.listener;
+});
+
+addMessageListener('restore-control-channel-listener', function(message) {
+  mockedControlChannel.listener = controlChannelListener;
+  controlChannelListener = null;
 });
 
 var obs = Cc["@mozilla.org/observer-service;1"]

@@ -150,8 +150,6 @@ this.AppConstants = Object.freeze({
   platform:
 #ifdef MOZ_WIDGET_GTK
   "linux",
-#elif MOZ_WIDGET_QT
-  "linux",
 #elif XP_WIN
   "win",
 #elif XP_MACOSX
@@ -208,6 +206,13 @@ this.AppConstants = Object.freeze({
 
   DEBUG:
 #ifdef DEBUG
+  true,
+#else
+  false,
+#endif
+
+  ASAN:
+#ifdef MOZ_ASAN
   true,
 #else
   false,
@@ -313,13 +318,6 @@ this.AppConstants = Object.freeze({
 #define MOZ_SOURCE_URL
 #endif
   SOURCE_REVISION_URL: "@MOZ_SOURCE_URL@",
-
-  MOZ_NUWA_PROCESS:
-#ifdef MOZ_NUWA_PROCESS
-    true,
-#else
-    false,
-#endif
 
   HAVE_USR_LIB64_DIR:
 #ifdef HAVE_USR_LIB64_DIR

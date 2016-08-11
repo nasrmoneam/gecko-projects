@@ -34,6 +34,7 @@
 #include "mozilla/layers/ShadowLayers.h"
 
 #ifdef XP_WIN
+#include "mozilla/gfx/DeviceManagerD3D11.h"
 #include "mozilla/layers/TextureD3D9.h"
 #include "mozilla/layers/TextureD3D11.h"
 #include "mozilla/layers/TextureDIB.h"
@@ -360,10 +361,11 @@ DeallocateTextureClient(TextureDeallocParams params)
 
 void TextureClient::Destroy(bool aForceSync)
 {
-  if (mActor) {
+  if (mActor && !mIsLocked) {
     mActor->Lock();
   }
 
+  mBorrowedDrawTarget = nullptr;
   mReadLock = nullptr;
 
   CancelWaitFenceHandleOnImageBridge();
@@ -442,6 +444,9 @@ TextureClient::Lock(OpenMode aMode)
 {
   MOZ_ASSERT(IsValid());
   MOZ_ASSERT(!mIsLocked);
+  if (!IsValid()) {
+    return false;
+  }
   if (mIsLocked) {
     return mOpenMode == aMode;
   }
@@ -491,7 +496,7 @@ TextureClient::Unlock()
 {
   MOZ_ASSERT(IsValid());
   MOZ_ASSERT(mIsLocked);
-  if (!mIsLocked) {
+  if (!IsValid() || !mIsLocked) {
     return;
   }
 
@@ -519,7 +524,9 @@ TextureClient::Unlock()
     mUpdated = true;
   }
 
-  mData->Unlock();
+  if (mData) {
+    mData->Unlock();
+  }
   mIsLocked = false;
   mOpenMode = OpenMode::OPEN_NONE;
 
@@ -618,7 +625,7 @@ TextureClient::BorrowDrawTarget()
   // but we should have a way to get a SourceSurface directly instead.
   //MOZ_ASSERT(mOpenMode & OpenMode::OPEN_WRITE);
 
-  if (!mIsLocked) {
+  if (!IsValid() || !mIsLocked) {
     return nullptr;
   }
 
@@ -1036,7 +1043,7 @@ TextureClient::CreateForDrawing(TextureForwarder* aAllocator,
       (moz2DBackend == gfx::BackendType::DIRECT2D ||
        moz2DBackend == gfx::BackendType::DIRECT2D1_1 ||
        (!!(aAllocFlags & ALLOC_FOR_OUT_OF_BAND_CONTENT) &&
-        gfxWindowsPlatform::GetPlatform()->GetD3D11ContentDevice())) &&
+        DeviceManagerD3D11::Get()->GetContentDevice())) &&
       aSize.width <= maxTextureSize &&
       aSize.height <= maxTextureSize)
   {
@@ -1100,6 +1107,68 @@ TextureClient::CreateForDrawing(TextureForwarder* aAllocator,
   // Can't do any better than a buffer texture client.
   return TextureClient::CreateForRawBufferAccess(aAllocator, aFormat, aSize,
                                                  moz2DBackend, aTextureFlags, aAllocFlags);
+}
+
+// static
+already_AddRefed<TextureClient>
+TextureClient::CreateFromSurface(TextureForwarder* aAllocator,
+                                 gfx::SourceSurface* aSurface,
+                                 LayersBackend aLayersBackend,
+                                 BackendSelector aSelector,
+                                 TextureFlags aTextureFlags,
+                                 TextureAllocationFlags aAllocFlags)
+{
+  aAllocator = aAllocator->AsTextureForwarder();
+
+  // also test the validity of aAllocator
+  MOZ_ASSERT(aAllocator && aAllocator->IPCOpen());
+  if (!aAllocator || !aAllocator->IPCOpen()) {
+    return nullptr;
+  }
+
+  gfx::IntSize size = aSurface->GetSize();
+
+  if (!gfx::Factory::AllowedSurfaceSize(size)) {
+    return nullptr;
+  }
+
+  TextureData* data = nullptr;
+#if defined(XP_WIN)
+  gfx::BackendType moz2DBackend = BackendTypeForBackendSelector(aLayersBackend, aSelector);
+
+  int32_t maxTextureSize = aAllocator->GetMaxTextureSize();
+
+  if (aLayersBackend == LayersBackend::LAYERS_D3D11 &&
+    (moz2DBackend == gfx::BackendType::DIRECT2D ||
+      moz2DBackend == gfx::BackendType::DIRECT2D1_1 ||
+      (!!(aAllocFlags & ALLOC_FOR_OUT_OF_BAND_CONTENT) &&
+       DeviceManagerD3D11::Get()->GetContentDevice())) &&
+    size.width <= maxTextureSize &&
+    size.height <= maxTextureSize)
+  {
+    data = D3D11TextureData::Create(aSurface, aAllocFlags);
+  }
+#endif
+
+  if (data) {
+    return MakeAndAddRef<TextureClient>(data, aTextureFlags, aAllocator);
+  }
+
+  // Fall back to using UpdateFromSurface
+
+  RefPtr<TextureClient> client = CreateForDrawing(aAllocator, aSurface->GetFormat(), size,
+                                                  aLayersBackend, aSelector, aTextureFlags, aAllocFlags);
+  if (!client) {
+    return nullptr;
+  }
+
+  TextureClientAutoLock autoLock(client, OpenMode::OPEN_WRITE_ONLY);
+  if (!autoLock.Succeeded()) {
+    return nullptr;
+  }
+
+  client->UpdateFromSurface(aSurface);
+  return client.forget();
 }
 
 // static

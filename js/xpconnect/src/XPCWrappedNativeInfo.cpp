@@ -424,6 +424,43 @@ XPCNativeInterface::DebugDump(int16_t depth)
 }
 
 /***************************************************************************/
+// XPCNativeSetKey
+
+static PLDHashNumber
+HashPointer(const void* ptr)
+{
+    return NS_PTR_TO_UINT32(ptr) >> 2;
+}
+
+PLDHashNumber
+XPCNativeSetKey::Hash() const
+{
+    PLDHashNumber h = 0;
+
+    if (!mBaseSet) {
+        MOZ_ASSERT(mAddition, "bad key");
+        h ^= HashPointer(mAddition);
+    } else {
+        XPCNativeInterface** current = mBaseSet->GetInterfaceArray();
+        uint16_t count = mBaseSet->GetInterfaceCount();
+        if (mAddition) {
+            count++;
+            for (uint16_t i = 0; i < count; i++) {
+                if (i == mPosition)
+                    h ^= HashPointer(mAddition);
+                else
+                    h ^= HashPointer(*(current++));
+            }
+        } else {
+            for (uint16_t i = 0; i < count; i++)
+                h ^= HashPointer(*(current++));
+        }
+    }
+
+    return h;
+}
+
+/***************************************************************************/
 // XPCNativeSet
 
 // static
@@ -450,9 +487,7 @@ XPCNativeSet::GetNewOrUsed(const nsIID* iid)
     if (set)
         return set;
 
-    // hacky way to get a XPCNativeInterface** using the AutoPtr
-    XPCNativeInterface* temp[] = {iface};
-    set = NewInstance(temp, 1);
+    set = NewInstance({iface});
     if (!set)
         return nullptr;
 
@@ -487,7 +522,6 @@ XPCNativeSet::GetNewOrUsed(nsIClassInfo* classInfo)
         return set;
 
     nsIID** iidArray = nullptr;
-    AutoMarkingNativeInterfacePtrArrayPtr interfaceArray(cx);
     uint32_t iidCount = 0;
 
     if (NS_FAILED(classInfo->GetInterfaces(&iidCount, &iidArray))) {
@@ -505,14 +539,9 @@ XPCNativeSet::GetNewOrUsed(nsIClassInfo* classInfo)
     // !!! from here on we only exit through the 'out' label !!!
 
     if (iidCount) {
-        AutoMarkingNativeInterfacePtrArrayPtr
-            arr(cx, new XPCNativeInterface*[iidCount], iidCount, true);
-
-        interfaceArray = arr;
-
-        XPCNativeInterface** currentInterface = interfaceArray;
-        nsIID**              currentIID = iidArray;
-        uint16_t             interfaceCount = 0;
+        nsTArray<XPCNativeInterface*> interfaceArray(iidCount);
+        AutoMarkingNativeInterfacePtrArrayPtr arrayMarker(cx, interfaceArray);
+        nsIID** currentIID = iidArray;
 
         for (uint32_t i = 0; i < iidCount; i++) {
             nsIID* iid = *(currentIID++);
@@ -529,12 +558,11 @@ XPCNativeSet::GetNewOrUsed(nsIClassInfo* classInfo)
                 continue;
             }
 
-            *(currentInterface++) = iface;
-            interfaceCount++;
+            interfaceArray.AppendElement(iface);
         }
 
-        if (interfaceCount) {
-            set = NewInstance(interfaceArray, interfaceCount);
+        if (interfaceArray.Length() > 0) {
+            set = NewInstance(Move(interfaceArray));
             if (set) {
                 NativeSetMap* map2 = rt->GetNativeSetMap();
                 if (!map2)
@@ -571,8 +599,6 @@ XPCNativeSet::GetNewOrUsed(nsIClassInfo* classInfo)
 out:
     if (iidArray)
         NS_FREE_XPCOM_ALLOCATED_POINTER_ARRAY(iidCount, iidArray);
-    if (interfaceArray)
-        delete [] interfaceArray.get();
 
     return set;
 }
@@ -610,7 +636,7 @@ XPCNativeSet::GetNewOrUsed(XPCNativeSet* otherSet,
     if (otherSet)
         set = NewInstanceMutate(otherSet, newInterface, position);
     else
-        set = NewInstance(&newInterface, 1);
+        set = NewInstance({newInterface});
 
     if (!set)
         return nullptr;
@@ -677,12 +703,9 @@ XPCNativeSet::GetNewOrUsed(XPCNativeSet* firstSet,
 
 // static
 XPCNativeSet*
-XPCNativeSet::NewInstance(XPCNativeInterface** array,
-                          uint16_t count)
+XPCNativeSet::NewInstance(nsTArray<XPCNativeInterface*>&& array)
 {
-    XPCNativeSet* obj = nullptr;
-
-    if (!array || !count)
+    if (array.Length() == 0)
         return nullptr;
 
     // We impose the invariant:
@@ -691,13 +714,10 @@ XPCNativeSet::NewInstance(XPCNativeInterface** array,
     // that don't exactly follow the rule.
 
     XPCNativeInterface* isup = XPCNativeInterface::GetISupports();
-    uint16_t slots = count+1;
+    uint16_t slots = array.Length() + 1;
 
-    uint16_t i;
-    XPCNativeInterface** pcur;
-
-    for (i = 0, pcur = array; i < count; i++, pcur++) {
-        if (*pcur == isup)
+    for (auto key = array.begin(); key != array.end(); key++) {
+        if (*key == isup)
             slots--;
     }
 
@@ -707,73 +727,58 @@ XPCNativeSet::NewInstance(XPCNativeInterface** array,
     if (slots > 1)
         size += (slots - 1) * sizeof(XPCNativeInterface*);
     void* place = new char[size];
-    if (place)
-        obj = new(place) XPCNativeSet();
+    XPCNativeSet* obj = new(place) XPCNativeSet();
 
-    if (obj) {
-        // Stick the nsISupports in front and skip additional nsISupport(s)
-        XPCNativeInterface** inp = array;
-        XPCNativeInterface** outp = (XPCNativeInterface**) &obj->mInterfaces;
-        uint16_t memberCount = 1;   // for the one member in nsISupports
+    // Stick the nsISupports in front and skip additional nsISupport(s)
+    XPCNativeInterface** outp = (XPCNativeInterface**) &obj->mInterfaces;
+    uint16_t memberCount = 1;   // for the one member in nsISupports
 
-        *(outp++) = isup;
+    *(outp++) = isup;
 
-        for (i = 0; i < count; i++) {
-            XPCNativeInterface* cur;
-
-            if (isup == (cur = *(inp++)))
-                continue;
-            *(outp++) = cur;
-            memberCount += cur->GetMemberCount();
-        }
-        obj->mMemberCount = memberCount;
-        obj->mInterfaceCount = slots;
+    for (auto key = array.begin(); key != array.end(); key++) {
+        XPCNativeInterface* cur = *key;
+        if (isup == cur)
+            continue;
+        *(outp++) = cur;
+        memberCount += cur->GetMemberCount();
     }
+    obj->mMemberCount = memberCount;
+    obj->mInterfaceCount = slots;
 
     return obj;
 }
 
 // static
 XPCNativeSet*
-XPCNativeSet::NewInstanceMutate(XPCNativeSet*       otherSet,
+XPCNativeSet::NewInstanceMutate(XPCNativeSet* otherSet,
                                 XPCNativeInterface* newInterface,
-                                uint16_t            position)
+                                uint16_t position)
 {
-    XPCNativeSet* obj = nullptr;
+    MOZ_ASSERT(otherSet);
 
     if (!newInterface)
         return nullptr;
-    if (otherSet && position > otherSet->mInterfaceCount)
+    if (position > otherSet->mInterfaceCount)
         return nullptr;
 
     // Use placement new to create an object with the right amount of space
     // to hold the members array
     int size = sizeof(XPCNativeSet);
-    if (otherSet)
-        size += otherSet->mInterfaceCount * sizeof(XPCNativeInterface*);
+    size += otherSet->mInterfaceCount * sizeof(XPCNativeInterface*);
     void* place = new char[size];
-    if (place)
-        obj = new(place) XPCNativeSet();
+    XPCNativeSet* obj = new(place) XPCNativeSet();
 
-    if (obj) {
-        if (otherSet) {
-            obj->mMemberCount = otherSet->GetMemberCount() +
-                                newInterface->GetMemberCount();
-            obj->mInterfaceCount = otherSet->mInterfaceCount + 1;
+    obj->mMemberCount = otherSet->GetMemberCount() +
+        newInterface->GetMemberCount();
+    obj->mInterfaceCount = otherSet->mInterfaceCount + 1;
 
-            XPCNativeInterface** src = otherSet->mInterfaces;
-            XPCNativeInterface** dest = obj->mInterfaces;
-            for (uint16_t i = 0; i < obj->mInterfaceCount; i++) {
-                if (i == position)
-                    *dest++ = newInterface;
-                else
-                    *dest++ = *src++;
-            }
-        } else {
-            obj->mMemberCount = newInterface->GetMemberCount();
-            obj->mInterfaceCount = 1;
-            obj->mInterfaces[0] = newInterface;
-        }
+    XPCNativeInterface** src = otherSet->mInterfaces;
+    XPCNativeInterface** dest = obj->mInterfaces;
+    for (uint16_t i = 0; i < obj->mInterfaceCount; i++) {
+        if (i == position)
+            *dest++ = newInterface;
+        else
+            *dest++ = *src++;
     }
 
     return obj;

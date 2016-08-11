@@ -443,6 +443,8 @@ public:
   // when the connection between Rtsp server and client gets lost.
   virtual void ResetConnectionState() final override;
 
+  void NotifyXPCOMShutdown() final override;
+
   // Called by media decoder when the audible state changed or when input is
   // a media stream.
   virtual void SetAudibleState(bool aAudible) final override;
@@ -604,6 +606,8 @@ public:
 
   void MozDumpDebugInfo();
 
+  void SetVisible(bool aVisible);
+
   already_AddRefed<DOMMediaStream> GetSrcObject() const;
   void SetSrcObject(DOMMediaStream& aValue);
   void SetSrcObject(DOMMediaStream* aValue);
@@ -704,6 +708,8 @@ public:
       mTextTrackManager->NotifyCueUpdated(aCue);
     }
   }
+
+  void NotifyCueDisplayStatesChanged();
 
   bool GetHasUserInteraction()
   {
@@ -1121,6 +1127,23 @@ protected:
     return isPaused;
   }
 
+  /**
+   * Video has been playing while hidden and, if feature was enabled, would
+   * trigger suspending decoder.
+   * Used to track hidden-video-decode-suspend telemetry.
+   */
+  static void VideoDecodeSuspendTimerCallback(nsITimer* aTimer, void* aClosure);
+  /**
+   * Video is now both: playing and hidden.
+   * Used to track hidden-video telemetry.
+   */
+  void HiddenVideoStart();
+  /**
+   * Video is not playing anymore and/or has become visible.
+   * Used to track hidden-video telemetry.
+   */
+  void HiddenVideoStop();
+
 #ifdef MOZ_EME
   void ReportEMETelemetry();
 #endif
@@ -1371,8 +1394,11 @@ protected:
   // Range of time played.
   RefPtr<TimeRanges> mPlayed;
 
-  // Timer used for updating progress events
+  // Timer used for updating progress events.
   nsCOMPtr<nsITimer> mProgressTimer;
+
+  // Timer used to simulate video-suspend.
+  nsCOMPtr<nsITimer> mVideoDecodeSuspendTimer;
 
 #ifdef MOZ_EME
   // Encrypted Media Extension media keys.
@@ -1578,19 +1604,21 @@ protected:
 
 public:
   // Helper class to measure times for MSE telemetry stats
-  class TimeDurationAccumulator {
+  class TimeDurationAccumulator
+  {
   public:
     TimeDurationAccumulator()
       : mCount(0)
+    {}
+    void Start()
     {
-    }
-    void Start() {
       if (IsStarted()) {
         return;
       }
       mStartTime = TimeStamp::Now();
     }
-    void Pause() {
+    void Pause()
+    {
       if (!IsStarted()) {
         return;
       }
@@ -1598,14 +1626,25 @@ public:
       mCount++;
       mStartTime = TimeStamp();
     }
-    bool IsStarted() const {
+    bool IsStarted() const
+    {
       return !mStartTime.IsNull();
     }
-    double Total() const {
-      return mSum.ToSeconds();
+    double Total() const
+    {
+      if (!IsStarted()) {
+        return mSum.ToSeconds();
+      }
+      // Add current running time until now, but keep it running.
+      return (mSum + (TimeStamp::Now() - mStartTime)).ToSeconds();
     }
-    uint32_t Count() const {
-      return mCount;
+    uint32_t Count() const
+    {
+      if (!IsStarted()) {
+        return mCount;
+      }
+      // Count current run in this report, without increasing the stored count.
+      return mCount + 1;
     }
   private:
     TimeStamp mStartTime;
@@ -1615,6 +1654,12 @@ public:
 private:
   // Total time a video has spent playing.
   TimeDurationAccumulator mPlayTime;
+
+  // Total time a video has spent playing while hidden.
+  TimeDurationAccumulator mHiddenPlayTime;
+
+  // Total time a video has (or would have) spent in video-decode-suspend mode.
+  TimeDurationAccumulator mVideoDecodeSuspendTime;
 
   // Indicates if user has interacted with the element.
   // Used to block autoplay when disabled.
@@ -1633,8 +1678,6 @@ private:
 
   // True if media element is audible for users.
   bool mAudible;
-
-  nsAutoCString mMimeType;
 };
 
 } // namespace dom

@@ -200,6 +200,9 @@ public:
   virtual already_AddRefed<DataTextureSource>
   CreateDataTextureSourceAround(gfx::DataSourceSurface* aSurface) { return nullptr; }
 
+  virtual already_AddRefed<DataTextureSource>
+  CreateDataTextureSourceAroundYCbCr(TextureHost* aTexture) { return nullptr; }
+
   virtual bool Initialize(nsCString* const out_failureReason) = 0;
   virtual void Destroy();
   bool IsDestroyed() const { return mIsDestroyed; }
@@ -589,6 +592,11 @@ protected:
    * An array of TextureHosts that will need to call NotifyNotUsed() after the next composition.
    */
   nsTArray<RefPtr<TextureHost>> mNotifyNotUsedAfterComposition;
+
+  /**
+   * Last Composition end time.
+   */
+  TimeStamp mLastCompositionEndTime;
 
   /**
    * Render time for the current composition.

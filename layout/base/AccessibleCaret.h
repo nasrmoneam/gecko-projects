@@ -38,7 +38,8 @@ namespace mozilla {
 // up to date.
 //
 // Please see the wiki page for more information.
-// https://wiki.mozilla.org/Copy_n_Paste
+// https://wiki.mozilla.org/AccessibleCaret
+//
 class AccessibleCaret
 {
 public:
@@ -135,6 +136,10 @@ public:
   {
     return mCaretElementHolder->GetContentNode();
   }
+
+  // Ensures that the caret element is made "APZ aware" so that the APZ code
+  // doesn't scroll the page when the user is trying to drag the caret.
+  void EnsureApzAware();
 
 protected:
   // Argument aRect should be relative to CustomContentContainerFrame().

@@ -1,5 +1,3 @@
-/* -*- indent-tabs-mode: nil; js-indent-level: 2; js-indent-level: 2 -*- */
-/* vim: set ft=javascript ts=2 et sw=2 tw=80: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -40,7 +38,7 @@ const ERR_DIRECTOR_UNINSTALLED_SCRIPTID = "uninstalled director-script id";
  * A MessagePort Actor allowing communication through messageport events
  * over the remote debugging protocol.
  */
-var MessagePortActor = exports.MessagePortActor = protocol.ActorClassWithSpec(messagePortSpec, {
+var MessagePortActor = exports.MessagePortActor = protocol.ActorClass(messagePortSpec, {
   /**
    * Create a MessagePort actor.
    *
@@ -125,8 +123,13 @@ var MessagePortActor = exports.MessagePortActor = protocol.ActorClassWithSpec(me
       return;
     }
 
-    this.port.onmessage = null;
-    this.port.close();
+    try {
+      this.port.onmessage = null;
+      this.port.close();
+    } catch (e) {
+      // The port might be a dead object
+      console.error(e);
+    }
   },
 
   finalize: function () {
@@ -146,7 +149,7 @@ var MessagePortActor = exports.MessagePortActor = protocol.ActorClassWithSpec(me
  * directly connect the debugger client and the content script using a MessageChannel) on tab
  * navigation.
  */
-var DirectorScriptActor = exports.DirectorScriptActor = protocol.ActorClassWithSpec(directorScriptSpec, {
+var DirectorScriptActor = exports.DirectorScriptActor = protocol.ActorClass(directorScriptSpec, {
   /**
    * Creates the director script actor
    *
@@ -334,7 +337,7 @@ var DirectorScriptActor = exports.DirectorScriptActor = protocol.ActorClassWithS
 /**
  * The DirectorManager Actor is a tab actor which manages enabling/disabling director scripts.
  */
-const DirectorManagerActor = exports.DirectorManagerActor = protocol.ActorClassWithSpec(directorManagerSpec, {
+const DirectorManagerActor = exports.DirectorManagerActor = protocol.ActorClass(directorManagerSpec, {
   /* init & destroy methods */
   initialize: function (conn, tabActor) {
     protocol.Actor.prototype.initialize.call(this, conn);

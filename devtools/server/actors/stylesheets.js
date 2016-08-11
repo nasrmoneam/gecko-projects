@@ -60,7 +60,7 @@ let modifiedStyleSheets = new WeakMap();
  * Actor representing an original source of a style sheet that was specified
  * in a source map.
  */
-var OriginalSourceActor = protocol.ActorClassWithSpec(originalSourceSpec, {
+var OriginalSourceActor = protocol.ActorClass(originalSourceSpec, {
   initialize: function (aUrl, aSourceMap, aParentActor) {
     protocol.Actor.prototype.initialize.call(this, null);
 
@@ -113,7 +113,7 @@ var OriginalSourceActor = protocol.ActorClassWithSpec(originalSourceSpec, {
  * A MediaRuleActor lives on the server and provides access to properties
  * of a DOM @media rule and emits events when it changes.
  */
-var MediaRuleActor = protocol.ActorClassWithSpec(mediaRuleSpec, {
+var MediaRuleActor = protocol.ActorClass(mediaRuleSpec, {
   get window() {
     return this.parentActor.window;
   },
@@ -183,7 +183,7 @@ var MediaRuleActor = protocol.ActorClassWithSpec(mediaRuleSpec, {
 /**
  * A StyleSheetActor represents a stylesheet on the server.
  */
-var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
+var StyleSheetActor = protocol.ActorClass(styleSheetSpec, {
   /* List of original sources that generated this stylesheet */
   _originalSources: null,
 
@@ -452,9 +452,21 @@ var StyleSheetActor = protocol.ActorClassWithSpec(styleSheetSpec, {
     let options = {
       loadFromCache: true,
       policy: Ci.nsIContentPolicy.TYPE_INTERNAL_STYLESHEET,
-      window: this.window,
       charset: this._getCSSCharset()
     };
+
+    // Bug 1282660 - We use the system principal to load the default internal
+    // stylesheets instead of the content principal since such stylesheets
+    // require system principal to load. At meanwhile, we strip the loadGroup
+    // for preventing the assertion of the userContextId mismatching.
+    // The default internal stylesheets load from the 'resource:' URL.
+    // Bug 1287607 - The 'chrome:' URL will be also loaded from here, so we do
+    // the same thing for such URLs as well.
+    if (!/^resource:\/\//.test(this.href) &&
+        !/^chrome:\/\//.test(this.href)) {
+      options.window = this.window;
+      options.principal = this.document.nodePrincipal;
+    }
 
     return fetch(this.href, options).then(({ content }) => {
       this.text = content;
@@ -774,7 +786,7 @@ exports.StyleSheetActor = StyleSheetActor;
  * Creates a StyleSheetsActor. StyleSheetsActor provides remote access to the
  * stylesheets of a document.
  */
-var StyleSheetsActor = protocol.ActorClassWithSpec(styleSheetsSpec, {
+var StyleSheetsActor = protocol.ActorClass(styleSheetsSpec, {
   /**
    * The window we work with, taken from the parent actor.
    */

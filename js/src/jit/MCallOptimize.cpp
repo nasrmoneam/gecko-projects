@@ -1459,7 +1459,9 @@ IonBuilder::inlineConstantStringSplitString(CallInfo& callInfo)
     for (uint32_t i = 0; i < initLength; i++) {
         Value str = GetAnyBoxedOrUnboxedDenseElement(templateObject, i);
         MOZ_ASSERT(str.toString()->isAtom());
-        MConstant* value = MConstant::New(alloc(), str, constraints());
+        MConstant* value = MConstant::New(alloc().fallible(), str, constraints());
+        if (!value)
+            return InliningStatus_Error;
         if (!TypeSetIncludes(key.maybeTypes(), value->type(), value->resultTypeSet()))
             return InliningStatus_NotInlined;
 
@@ -1492,11 +1494,14 @@ IonBuilder::inlineConstantStringSplitString(CallInfo& callInfo)
     // jsop_initelem_array is doing because we do not expect to bailout
     // because the memory is supposed to be allocated by now.
     for (uint32_t i = 0; i < initLength; i++) {
-       MConstant* value = arrayValues[i];
-       current->add(value);
+        if (!alloc().ensureBallast())
+            return InliningStatus_Error;
 
-       if (!initializeArrayElement(array, i, value, unboxedType, /* addResumePoint = */ false))
-           return InliningStatus_Error;
+        MConstant* value = arrayValues[i];
+        current->add(value);
+
+        if (!initializeArrayElement(array, i, value, unboxedType, /* addResumePoint = */ false))
+            return InliningStatus_Error;
     }
 
     MInstruction* setLength = setInitializedLength(array, unboxedType, initLength);
@@ -2299,9 +2304,6 @@ IonBuilder::inlineTypedArray(CallInfo& callInfo, Native native)
     if (arg->type() != MIRType::Int32)
         return InliningStatus_NotInlined;
 
-    if (!arg->maybeConstantValue())
-        return InliningStatus_NotInlined;
-
     JSObject* templateObject = inspector->getTemplateObjectForNative(pc, native);
 
     if (!templateObject) {
@@ -2317,34 +2319,31 @@ IonBuilder::inlineTypedArray(CallInfo& callInfo, Native native)
     if (templateObject->isSingleton())
         return InliningStatus_NotInlined;
 
-    // Negative lengths must throw a RangeError.  (We don't track that this
-    // might have previously thrown, when determining whether to inline, so we
-    // have to deal with this error case when inlining.)
-    int32_t providedLen = arg->maybeConstantValue()->toInt32();
-    if (providedLen < 0)
-        return InliningStatus_NotInlined;
+    MInstruction* ins = nullptr;
 
-    uint32_t len = AssertedCast<uint32_t>(providedLen);
+    if (!arg->isConstant()) {
+        callInfo.setImplicitlyUsedUnchecked();
+        ins = MNewTypedArrayDynamicLength::New(alloc(), constraints(), templateObject,
+                                               templateObject->group()->initialHeap(constraints()),
+                                               arg);
+    } else {
+        // Negative lengths must throw a RangeError.  (We don't track that this
+        // might have previously thrown, when determining whether to inline, so we
+        // have to deal with this error case when inlining.)
+        int32_t providedLen = arg->maybeConstantValue()->toInt32();
+        if (providedLen < 0)
+            return InliningStatus_NotInlined;
 
-    if (obj->length() != len)
-        return InliningStatus_NotInlined;
+        uint32_t len = AssertedCast<uint32_t>(providedLen);
 
-    // Large typed arrays have a separate buffer object, while small arrays
-    // have their values stored inline.
-    bool createBuffer = len > TypedArrayObject::INLINE_BUFFER_LIMIT / obj->bytesPerElement();
+        if (obj->length() != len)
+            return InliningStatus_NotInlined;
 
-    // Buffers are not supported yet!
-    if (createBuffer)
-        return InliningStatus_NotInlined;
+        callInfo.setImplicitlyUsedUnchecked();
+        ins = MNewTypedArray::New(alloc(), constraints(), obj,
+                                  obj->group()->initialHeap(constraints()));
+    }
 
-    callInfo.setImplicitlyUsedUnchecked();
-
-    MConstant* templateConst = MConstant::NewConstraintlessObject(alloc(), obj);
-    current->add(templateConst);
-
-    MNewObject* ins = MNewObject::New(alloc(), constraints(), templateConst,
-                                      obj->group()->initialHeap(constraints()),
-                                      MNewObject::TypedArray);
     current->add(ins);
     current->push(ins);
     if (!resumeAfter(ins))

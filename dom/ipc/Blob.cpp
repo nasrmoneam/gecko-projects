@@ -566,7 +566,7 @@ class InputStreamParent final
   : public PBlobStreamParent
 {
   typedef mozilla::ipc::InputStreamParams InputStreamParams;
-  typedef mozilla::ipc::OptionalFileDescriptorSet OptionalFileDescriptorSet;
+  typedef mozilla::dom::OptionalFileDescriptorSet OptionalFileDescriptorSet;
 
   bool* mSyncLoopGuard;
   InputStreamParams* mParams;
@@ -723,7 +723,7 @@ CreateBlobImpl(const nsTArray<uint8_t>& aMemoryData,
   RefPtr<BlobImpl> blobImpl;
 
   if (auto length = static_cast<size_t>(aMemoryData.Length())) {
-    static MOZ_CONSTEXPR_VAR size_t elementSizeMultiplier =
+    static constexpr size_t elementSizeMultiplier =
       sizeof(aMemoryData[0]) / sizeof(char);
 
     if (!aMetadata.mHasRecursed &&
@@ -859,6 +859,7 @@ CreateBlobImpl(const nsTArray<BlobData>& aBlobDatas,
   }
 
   if (NS_WARN_IF(rv.Failed())) {
+    rv.SuppressException();
     return nullptr;
   }
 
@@ -902,6 +903,11 @@ CreateBlobImpl(const ParentBlobConstructorParams& aParams,
     }
 
     if (NS_WARN_IF(params.modDate() == INT64_MAX)) {
+      ASSERT_UNLESS_FUZZING();
+      return nullptr;
+    }
+
+    if (NS_WARN_IF(!params.path().IsEmpty())) {
       ASSERT_UNLESS_FUZZING();
       return nullptr;
     }
@@ -1707,14 +1713,25 @@ protected:
 
   const bool mIsSlice;
 
+  const bool mIsDirectory;
+
 public:
+
+  enum BlobImplIsDirectory
+  {
+    eNotDirectory,
+    eDirectory
+  };
+
   // For File.
   RemoteBlobImpl(BlobChild* aActor,
                  BlobImpl* aRemoteBlobImpl,
                  const nsAString& aName,
                  const nsAString& aContentType,
+                 const nsAString& aPath,
                  uint64_t aLength,
                  int64_t aModDate,
+                 BlobImplIsDirectory aIsDirectory,
                  bool aIsSameProcessBlob);
 
   // For Blob.
@@ -1767,6 +1784,9 @@ public:
 
   virtual void
   GetMozFullPathInternal(nsAString& aFileName, ErrorResult& aRv) const override;
+
+  virtual bool
+  IsDirectory() const override;
 
   virtual already_AddRefed<BlobImpl>
   CreateSlice(uint64_t aStart,
@@ -1941,6 +1961,9 @@ public:
   virtual void
   GetMozFullPathInternal(nsAString& aFileName, ErrorResult& aRv) const override;
 
+  virtual bool
+  IsDirectory() const override;
+
   virtual uint64_t
   GetSize(ErrorResult& aRv) override;
 
@@ -2024,12 +2047,16 @@ RemoteBlobImpl::RemoteBlobImpl(BlobChild* aActor,
                                BlobImpl* aRemoteBlobImpl,
                                const nsAString& aName,
                                const nsAString& aContentType,
+                               const nsAString& aPath,
                                uint64_t aLength,
                                int64_t aModDate,
+                               BlobImplIsDirectory aIsDirectory,
                                bool aIsSameProcessBlob)
   : BlobImplBase(aName, aContentType, aLength, aModDate)
-  , mIsSlice(false)
+  , mIsSlice(false), mIsDirectory(aIsDirectory == eDirectory)
 {
+  SetPath(aPath);
+
   if (aIsSameProcessBlob) {
     MOZ_ASSERT(aRemoteBlobImpl);
     mSameProcessBlobImpl = aRemoteBlobImpl;
@@ -2048,7 +2075,7 @@ RemoteBlobImpl::RemoteBlobImpl(BlobChild* aActor,
                                uint64_t aLength,
                                bool aIsSameProcessBlob)
   : BlobImplBase(aContentType, aLength)
-  , mIsSlice(false)
+  , mIsSlice(false), mIsDirectory(false)
 {
   if (aIsSameProcessBlob) {
     MOZ_ASSERT(aRemoteBlobImpl);
@@ -2064,7 +2091,7 @@ RemoteBlobImpl::RemoteBlobImpl(BlobChild* aActor,
 BlobChild::
 RemoteBlobImpl::RemoteBlobImpl(BlobChild* aActor)
   : BlobImplBase(EmptyString(), EmptyString(), UINT64_MAX, INT64_MAX)
-  , mIsSlice(false)
+  , mIsSlice(false), mIsDirectory(false)
 {
   CommonInit(aActor);
 }
@@ -2074,6 +2101,7 @@ RemoteBlobImpl::RemoteBlobImpl(const nsAString& aContentType, uint64_t aLength)
   : BlobImplBase(aContentType, aLength)
   , mActor(nullptr)
   , mIsSlice(true)
+  , mIsDirectory(false)
 {
   mImmutable = true;
 }
@@ -2184,6 +2212,13 @@ RemoteBlobImpl::GetMozFullPathInternal(nsAString& aFilePath,
   }
 
   aFilePath = filePath;
+}
+
+bool
+BlobChild::
+RemoteBlobImpl::IsDirectory() const
+{
+  return mIsDirectory;
 }
 
 already_AddRefed<BlobImpl>
@@ -2633,6 +2668,13 @@ RemoteBlobImpl::GetMozFullPathInternal(nsAString& aFileName, ErrorResult& aRv) c
   mBlobImpl->GetMozFullPathInternal(aFileName, aRv);
 }
 
+bool
+BlobParent::
+RemoteBlobImpl::IsDirectory() const
+{
+  return mBlobImpl->IsDirectory();
+}
+
 uint64_t
 BlobParent::
 RemoteBlobImpl::GetSize(ErrorResult& aRv)
@@ -2934,14 +2976,23 @@ BlobChild::CommonInit(BlobChild* aOther, BlobImpl* aBlobImpl)
 
   RemoteBlobImpl* remoteBlob = nullptr;
   if (otherImpl->IsFile()) {
-    nsString name;
+    nsAutoString name;
     otherImpl->GetName(name);
+
+    nsAutoString path;
+    otherImpl->GetPath(path);
 
     int64_t modDate = otherImpl->GetLastModified(rv);
     MOZ_ASSERT(!rv.Failed());
 
-    remoteBlob = new RemoteBlobImpl(this, otherImpl, name, contentType, length,
-                                    modDate, false /* SameProcessBlobImpl */);
+    RemoteBlobImpl::BlobImplIsDirectory directory = otherImpl->IsDirectory() ?
+      RemoteBlobImpl::BlobImplIsDirectory::eDirectory :
+      RemoteBlobImpl::BlobImplIsDirectory::eNotDirectory;
+
+    remoteBlob =
+      new RemoteBlobImpl(this, otherImpl, name, contentType, path,
+                         length, modDate, directory,
+                         false /* SameProcessBlobImpl */);
   } else {
     remoteBlob = new RemoteBlobImpl(this, otherImpl, contentType, length,
                                     false /* SameProcessBlobImpl */);
@@ -2987,12 +3038,17 @@ BlobChild::CommonInit(const ChildBlobConstructorParams& aParams)
     case AnyBlobConstructorParams::TFileBlobConstructorParams: {
       const FileBlobConstructorParams& params =
         blobParams.get_FileBlobConstructorParams();
+      RemoteBlobImpl::BlobImplIsDirectory directory = params.isDirectory() ?
+        RemoteBlobImpl::BlobImplIsDirectory::eDirectory :
+        RemoteBlobImpl::BlobImplIsDirectory::eNotDirectory;
       remoteBlob = new RemoteBlobImpl(this,
                                       nullptr,
                                       params.name(),
                                       params.contentType(),
+                                      params.path(),
                                       params.length(),
                                       params.modDate(),
+                                      directory,
                                       false /* SameProcessBlobImpl */);
       break;
     }
@@ -3015,19 +3071,29 @@ BlobChild::CommonInit(const ChildBlobConstructorParams& aParams)
       blobImpl->GetType(contentType);
 
       if (blobImpl->IsFile()) {
-        nsString name;
+        nsAutoString name;
         blobImpl->GetName(name);
+
+        nsAutoString path;
+        blobImpl->GetPath(path);
 
         int64_t lastModifiedDate = blobImpl->GetLastModified(rv);
         MOZ_ASSERT(!rv.Failed());
+
+        RemoteBlobImpl::BlobImplIsDirectory directory =
+          blobImpl->IsDirectory() ?
+            RemoteBlobImpl::BlobImplIsDirectory::eDirectory :
+            RemoteBlobImpl::BlobImplIsDirectory::eNotDirectory;
 
         remoteBlob =
           new RemoteBlobImpl(this,
                              blobImpl,
                              name,
                              contentType,
+                             path,
                              size,
                              lastModifiedDate,
+                             directory,
                              true /* SameProcessBlobImpl */);
       } else {
         remoteBlob = new RemoteBlobImpl(this, blobImpl, contentType, size,
@@ -3201,14 +3267,18 @@ BlobChild::GetOrCreateFromImpl(ChildManagerType* aManager,
     MOZ_ASSERT(!rv.Failed());
 
     if (aBlobImpl->IsFile()) {
-      nsString name;
+      nsAutoString name;
       aBlobImpl->GetName(name);
+
+      nsAutoString path;
+      aBlobImpl->GetPath(path);
 
       int64_t modDate = aBlobImpl->GetLastModified(rv);
       MOZ_ASSERT(!rv.Failed());
 
       blobParams =
-        FileBlobConstructorParams(name, contentType, length, modDate, blobData);
+        FileBlobConstructorParams(name, contentType, path, length, modDate,
+                                  aBlobImpl->IsDirectory(), blobData);
     } else {
       blobParams = NormalBlobConstructorParams(contentType, length, blobData);
     }
@@ -3385,15 +3455,19 @@ BlobChild::SetMysteryBlobInfo(const nsString& aName,
 {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mBlobImpl);
+  MOZ_ASSERT(!mBlobImpl->IsDirectory());
   MOZ_ASSERT(mRemoteBlobImpl);
+  MOZ_ASSERT(!mRemoteBlobImpl->IsDirectory());
   MOZ_ASSERT(aLastModifiedDate != INT64_MAX);
 
   mBlobImpl->SetLazyData(aName, aContentType, aLength, aLastModifiedDate);
 
   FileBlobConstructorParams params(aName,
                                    aContentType,
+                                   EmptyString(),
                                    aLength,
                                    aLastModifiedDate,
+                                   mBlobImpl->IsDirectory(),
                                    void_t() /* optionalBlobData */);
   return SendResolveMystery(params);
 }
@@ -3748,15 +3822,18 @@ BlobParent::GetOrCreateFromImpl(ParentManagerType* aManager,
       MOZ_ASSERT(!rv.Failed());
 
       if (aBlobImpl->IsFile()) {
-        nsString name;
+        nsAutoString name;
         aBlobImpl->GetName(name);
+
+        nsAutoString path;
+        aBlobImpl->GetPath(path);
 
         int64_t modDate = aBlobImpl->GetLastModified(rv);
         MOZ_ASSERT(!rv.Failed());
 
         blobParams =
-          FileBlobConstructorParams(name, contentType, length, modDate,
-                                    void_t());
+          FileBlobConstructorParams(name, contentType, path, length, modDate,
+                                    aBlobImpl->IsDirectory(), void_t());
       } else {
         blobParams = NormalBlobConstructorParams(contentType, length, void_t());
       }
@@ -4364,17 +4441,11 @@ BlobParent::RecvGetFilePath(nsString* aFilePath)
 
   // In desktop e10s the file picker code sends this message.
 
-#if defined(MOZ_CHILD_PERMISSIONS) && !defined(MOZ_GRAPHENE)
-  if (NS_WARN_IF(!IndexedDatabaseManager::InTestingMode())) {
-    ASSERT_UNLESS_FUZZING();
-    return false;
-  }
-#endif
-
   nsString filePath;
   ErrorResult rv;
   mBlobImpl->GetMozFullPathInternal(filePath, rv);
   if (NS_WARN_IF(rv.Failed())) {
+    rv.SuppressException();
     return false;
   }
 

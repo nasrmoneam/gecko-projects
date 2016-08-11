@@ -51,6 +51,14 @@ struct ComputedGridTrackInfo
   nsTArray<nscoord> mSizes;
   nsTArray<uint32_t> mStates;
 };
+
+struct ComputedGridLineInfo
+{
+  explicit ComputedGridLineInfo(nsTArray<nsTArray<nsString>>&& aNames)
+    : mNames(aNames)
+  {}
+  nsTArray<nsTArray<nsString>> mNames;
+};
 } // namespace mozilla
 
 class nsGridContainerFrame final : public nsContainerFrame
@@ -60,11 +68,12 @@ public:
   NS_DECL_QUERYFRAME_TARGET(nsGridContainerFrame)
   NS_DECL_QUERYFRAME
   typedef mozilla::ComputedGridTrackInfo ComputedGridTrackInfo;
+  typedef mozilla::ComputedGridLineInfo ComputedGridLineInfo;
 
   // nsIFrame overrides
   void Reflow(nsPresContext*           aPresContext,
-              nsHTMLReflowMetrics&     aDesiredSize,
-              const nsHTMLReflowState& aReflowState,
+              ReflowOutput&     aDesiredSize,
+              const ReflowInput& aReflowInput,
               nsReflowStatus&          aStatus) override;
   nscoord GetMinISize(nsRenderingContext* aRenderingContext) override;
   nscoord GetPrefISize(nsRenderingContext* aRenderingContext) override;
@@ -105,21 +114,53 @@ public:
 
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridItemContainingBlockRect, nsRect)
 
+  /**
+   * These properties are created by a call to
+   * nsGridContainerFrame::GetGridFrameWithComputedInfo, typically from
+   * Element::GetGridFragments.
+   */
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridColTrackInfo, ComputedGridTrackInfo)
   const ComputedGridTrackInfo* GetComputedTemplateColumns()
   {
-    return Properties().Get(GridColTrackInfo());
+    const ComputedGridTrackInfo* info = Properties().Get(GridColTrackInfo());
+    MOZ_ASSERT(info, "Property generation wasn't requested.");
+    return info;
   }
 
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridRowTrackInfo, ComputedGridTrackInfo)
   const ComputedGridTrackInfo* GetComputedTemplateRows()
   {
-    return Properties().Get(GridRowTrackInfo());
+    const ComputedGridTrackInfo* info = Properties().Get(GridRowTrackInfo());
+    MOZ_ASSERT(info, "Property generation wasn't requested.");
+    return info;
   }
+
+  NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridColumnLineInfo, ComputedGridLineInfo)
+  const ComputedGridLineInfo* GetComputedTemplateColumnLines()
+  {
+    const ComputedGridLineInfo* info = Properties().Get(GridColumnLineInfo());
+    MOZ_ASSERT(info, "Property generation wasn't requested.");
+    return info;
+  }
+
+  NS_DECLARE_FRAME_PROPERTY_DELETABLE(GridRowLineInfo, ComputedGridLineInfo)
+  const ComputedGridLineInfo* GetComputedTemplateRowLines()
+  {
+    const ComputedGridLineInfo* info = Properties().Get(GridRowLineInfo());
+    MOZ_ASSERT(info, "Property generation wasn't requested.");
+    return info;
+  }
+
+  /**
+   * Return a containing grid frame, and ensure it has computed grid info
+   * @return nullptr if aFrame has no grid container, or frame was destroyed
+   * @note this might destroy layout/style data since it may flush layout
+   */
+  static nsGridContainerFrame* GetGridFrameWithComputedInfo(nsIFrame* aFrame);
 
   struct TrackSize;
   struct GridItemInfo;
-  struct GridReflowState;
+  struct GridReflowInput;
 protected:
   static const uint32_t kAutoLine;
   // The maximum line number, in the zero-based translated grid.
@@ -168,9 +209,9 @@ protected:
    * @return the consumed size of all of this grid container's continuations
    *         so far including this frame
    */
-  nscoord ReflowChildren(GridReflowState&     aState,
+  nscoord ReflowChildren(GridReflowInput&     aState,
                          const LogicalRect&   aContentArea,
-                         nsHTMLReflowMetrics& aDesiredSize,
+                         ReflowOutput& aDesiredSize,
                          nsReflowStatus&      aStatus);
 
   /**
@@ -218,21 +259,21 @@ private:
   };
 
   mozilla::Maybe<nsGridContainerFrame::Fragmentainer>
-    GetNearestFragmentainer(const GridReflowState& aState) const;
+    GetNearestFragmentainer(const GridReflowInput& aState) const;
 
   // @return the consumed size of all continuations so far including this frame
-  nscoord ReflowInFragmentainer(GridReflowState&     aState,
+  nscoord ReflowInFragmentainer(GridReflowInput&     aState,
                                 const LogicalRect&   aContentArea,
-                                nsHTMLReflowMetrics& aDesiredSize,
+                                ReflowOutput& aDesiredSize,
                                 nsReflowStatus&      aStatus,
                                 Fragmentainer&       aFragmentainer,
                                 const nsSize&        aContainerSize);
 
   // Helper for ReflowInFragmentainer
   // @return the consumed size of all continuations so far including this frame
-  nscoord ReflowRowsInFragmentainer(GridReflowState&     aState,
+  nscoord ReflowRowsInFragmentainer(GridReflowInput&     aState,
                                     const LogicalRect&   aContentArea,
-                                    nsHTMLReflowMetrics& aDesiredSize,
+                                    ReflowOutput& aDesiredSize,
                                     nsReflowStatus&      aStatus,
                                     Fragmentainer&       aFragmentainer,
                                     const nsSize&        aContainerSize,
@@ -248,9 +289,9 @@ private:
                          nsSize                  aContainerSize,
                          mozilla::Maybe<nscoord> aStretchBSize,
                          const Fragmentainer*    aFragmentainer,
-                         const GridReflowState&  aState,
+                         const GridReflowInput&  aState,
                          const LogicalRect&      aContentArea,
-                         nsHTMLReflowMetrics&    aDesiredSize,
+                         ReflowOutput&    aDesiredSize,
                          nsReflowStatus&         aStatus);
 
   /**

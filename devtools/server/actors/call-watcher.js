@@ -18,7 +18,7 @@ const { CallWatcherFront } = require("devtools/shared/fronts/call-watcher");
  * This actor contains information about a function call, like the function
  * type, name, stack, arguments, returned value etc.
  */
-var FunctionCallActor = protocol.ActorClassWithSpec(functionCallSpec, {
+var FunctionCallActor = protocol.ActorClass(functionCallSpec, {
   /**
    * Creates the function call actor.
    *
@@ -226,16 +226,20 @@ var FunctionCallActor = protocol.ActorClassWithSpec(functionCallSpec, {
 /**
  * This actor observes function calls on certain objects or globals.
  */
-var CallWatcherActor = exports.CallWatcherActor = protocol.ActorClassWithSpec(callWatcherSpec, {
+var CallWatcherActor = exports.CallWatcherActor = protocol.ActorClass(callWatcherSpec, {
   initialize: function (conn, tabActor) {
     protocol.Actor.prototype.initialize.call(this, conn);
     this.tabActor = tabActor;
     this._onGlobalCreated = this._onGlobalCreated.bind(this);
     this._onGlobalDestroyed = this._onGlobalDestroyed.bind(this);
     this._onContentFunctionCall = this._onContentFunctionCall.bind(this);
+    on(this.tabActor, "window-ready", this._onGlobalCreated);
+    on(this.tabActor, "window-destroyed", this._onGlobalDestroyed);
   },
   destroy: function (conn) {
     protocol.Actor.prototype.destroy.call(this, conn);
+    off(this.tabActor, "window-ready", this._onGlobalCreated);
+    off(this.tabActor, "window-destroyed", this._onGlobalDestroyed);
     this.finalize();
   },
 
@@ -264,9 +268,6 @@ var CallWatcherActor = exports.CallWatcherActor = protocol.ActorClassWithSpec(ca
     this._holdWeak = !!holdWeak;
     this._storeCalls = !!storeCalls;
 
-    on(this.tabActor, "window-ready", this._onGlobalCreated);
-    on(this.tabActor, "window-destroyed", this._onGlobalDestroyed);
-
     if (startRecording) {
       this.resumeRecording();
     }
@@ -286,9 +287,6 @@ var CallWatcherActor = exports.CallWatcherActor = protocol.ActorClassWithSpec(ca
     }
     this._initialized = false;
     this._finalized = true;
-
-    off(this.tabActor, "window-ready", this._onGlobalCreated);
-    off(this.tabActor, "window-destroyed", this._onGlobalDestroyed);
 
     this._tracedGlobals = null;
     this._tracedFunctions = null;
@@ -335,6 +333,10 @@ var CallWatcherActor = exports.CallWatcherActor = protocol.ActorClassWithSpec(ca
    * Invoked whenever the current tab actor's document global is created.
    */
   _onGlobalCreated: function ({window, id, isTopLevel}) {
+    if (!this._initialized) {
+      return;
+    }
+
     // TODO: bug 981748, support more than just the top-level documents.
     if (!isTopLevel) {
       return;

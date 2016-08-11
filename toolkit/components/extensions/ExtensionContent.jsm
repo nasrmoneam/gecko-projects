@@ -324,6 +324,10 @@ class ExtensionContext extends BaseContext {
     this.extension = ExtensionManager.get(extensionId);
     this.extensionId = extensionId;
     this.contentWindow = contentWindow;
+    this.windowId = getInnerWindowID(contentWindow);
+
+    contentWindow.addEventListener("pageshow", this, true);
+    contentWindow.addEventListener("pagehide", this, true);
 
     let frameId = WebNavigationFrames.getFrameId(contentWindow);
     this.frameId = frameId;
@@ -371,7 +375,7 @@ class ExtensionContext extends BaseContext {
       // the content script to be associated with both the extension and
       // the tab holding the content page.
       let metadata = {
-        "inner-window-id": getInnerWindowID(contentWindow),
+        "inner-window-id": this.windowId,
         addonId: attrs.addonId,
       };
 
@@ -380,8 +384,15 @@ class ExtensionContext extends BaseContext {
         sandboxPrototype: contentWindow,
         wantXrays: true,
         isWebExtensionContentScript: true,
+        wantExportHelpers: true,
         wantGlobalProperties: ["XMLHttpRequest", "fetch"],
       });
+
+      Cu.evalInSandbox(`
+        window.JSON = JSON;
+        window.XMLHttpRequest = XMLHttpRequest;
+        window.fetch = fetch;
+      `, this.sandbox);
     }
 
     let delegate = {
@@ -430,6 +441,14 @@ class ExtensionContext extends BaseContext {
     }
   }
 
+  handleEvent(event) {
+    if (event.type == "pageshow") {
+      this.active = true;
+    } else if (event.type == "pagehide") {
+      this.active = false;
+    }
+  }
+
   get cloneScope() {
     return this.sandbox;
   }
@@ -461,6 +480,11 @@ class ExtensionContext extends BaseContext {
 
   close() {
     super.unload();
+
+    if (this.windowId === getInnerWindowID(this.contentWindow)) {
+      this.contentWindow.removeEventListener("pageshow", this, true);
+      this.contentWindow.removeEventListener("pagehide", this, true);
+    }
 
     for (let script of this.scripts) {
       if (script.requiresCleanup) {
@@ -507,11 +531,11 @@ DocumentManager = {
     let readyState = contentWindow.document.readyState;
     if (readyState == "complete") {
       return "document_idle";
-    } else if (readyState == "interactive") {
-      return "document_end";
-    } else {
-      return "document_start";
     }
+    if (readyState == "interactive") {
+      return "document_end";
+    }
+    return "document_start";
   },
 
   observe: function(subject, topic, data) {
@@ -607,7 +631,14 @@ DocumentManager = {
                         .filter(promise => promise);
 
     if (!promises.length) {
-      return Promise.reject({message: `No matching window`});
+      let details = {};
+      for (let key of ["all_frames", "frame_id", "matches_about_blank", "matchesHost"]) {
+        if (key in options) {
+          details[key] = options[key];
+        }
+      }
+
+      return Promise.reject({message: `No window matching ${JSON.stringify(details)}`});
     }
     if (options.all_frames) {
       return Promise.all(promises);

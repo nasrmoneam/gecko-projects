@@ -3276,20 +3276,20 @@ GetObjectSlotNameFunctor::operator()(JS::CallbackTracer* trc, char* buf, size_t 
             }
 
             if (slotname)
-                JS_snprintf(buf, bufsize, pattern, slotname);
+                snprintf(buf, bufsize, pattern, slotname);
             else
-                JS_snprintf(buf, bufsize, "**UNKNOWN SLOT %" PRIu32 "**", slot);
+                snprintf(buf, bufsize, "**UNKNOWN SLOT %" PRIu32 "**", slot);
         } while (false);
     } else {
         jsid propid = shape->propid();
         if (JSID_IS_INT(propid)) {
-            JS_snprintf(buf, bufsize, "%" PRId32 "", JSID_TO_INT(propid));
+            snprintf(buf, bufsize, "%" PRId32, JSID_TO_INT(propid));
         } else if (JSID_IS_ATOM(propid)) {
             PutEscapedString(buf, bufsize, JSID_TO_ATOM(propid), 0);
         } else if (JSID_IS_SYMBOL(propid)) {
-            JS_snprintf(buf, bufsize, "**SYMBOL KEY**");
+            snprintf(buf, bufsize, "**SYMBOL KEY**");
         } else {
-            JS_snprintf(buf, bufsize, "**FINALIZED ATOM KEY**");
+            snprintf(buf, bufsize, "**FINALIZED ATOM KEY**");
         }
     }
 }
@@ -3442,6 +3442,8 @@ JSObject::dump(FILE* fp) const
             (void*) globalObj, globalObj->getClass()->name);
     const Class* clasp = obj->getClass();
     fprintf(fp, "class %p %s\n", (const void*)clasp, clasp->name);
+    const ObjectGroup* group = obj->group();
+    fprintf(fp, "group %p\n", (const void*)group);
 
     fprintf(fp, "flags:");
     if (obj->isDelegate()) fprintf(fp, " delegate");
@@ -3686,6 +3688,8 @@ JSObject::allocKindForTenure(const js::Nursery& nursery) const
      */
     if (is<TypedArrayObject>() && !as<TypedArrayObject>().hasBuffer()) {
         size_t nbytes = as<TypedArrayObject>().byteLength();
+        if (nbytes >= TypedArrayObject::INLINE_BUFFER_LIMIT)
+            return GetGCObjectKind(getClass());
         return GetBackgroundAllocKind(TypedArrayObject::AllocKindForLazyBuffer(nbytes));
     }
 
@@ -3831,7 +3835,7 @@ JS::ubi::Concrete<JSObject>::size(mozilla::MallocSizeOf mallocSizeOf) const
     return obj.tenuredSizeOfThis() + info.sizeOfAllThings();
 }
 
-const char16_t JS::ubi::Concrete<JSObject>::concreteTypeName[] = MOZ_UTF16("JSObject");
+const char16_t JS::ubi::Concrete<JSObject>::concreteTypeName[] = u"JSObject";
 
 void
 JSObject::traceChildren(JSTracer* trc)

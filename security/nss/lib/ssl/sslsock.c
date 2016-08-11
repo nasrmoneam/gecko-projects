@@ -77,8 +77,8 @@ static sslOptions ssl_defaults = {
     PR_FALSE,              /* enableFalseStart   */
     PR_TRUE,               /* cbcRandomIV        */
     PR_FALSE,              /* enableOCSPStapling */
-    PR_TRUE,               /* enableNPN          */
-    PR_FALSE,              /* enableALPN         */
+    PR_FALSE,              /* enableNPN          */
+    PR_TRUE,               /* enableALPN         */
     PR_TRUE,               /* reuseServerECDHEKey */
     PR_FALSE,              /* enableFallbackSCSV */
     PR_TRUE,               /* enableServerDhe */
@@ -260,7 +260,10 @@ ssl_DupSocket(sslSocket *os)
 
     ss->opt = os->opt;
     ss->opt.useSocks = PR_FALSE;
-    SECITEM_CopyItem(NULL, &ss->opt.nextProtoNego, &os->opt.nextProtoNego);
+    rv = SECITEM_CopyItem(NULL, &ss->opt.nextProtoNego, &os->opt.nextProtoNego);
+    if (rv != SECSuccess) {
+        goto loser;
+    }
     ss->vrange = os->vrange;
 
     ss->peerID = !os->peerID ? NULL : PORT_Strdup(os->peerID);
@@ -1523,6 +1526,7 @@ SSL_DHEGroupPrefSet(PRFileDesc *fd,
             supportedGroups &= ~(1U << ssl_named_groups[i].index);
         }
     }
+    ss->ssl3.dhePreferredGroup = NULL;
     for (i = 0; i < count; ++i) {
         NamedGroup name;
         const namedGroupDef *groupDef;
@@ -1548,6 +1552,9 @@ SSL_DHEGroupPrefSet(PRFileDesc *fd,
         }
         groupDef = ssl_LookupNamedGroup(name);
         PORT_Assert(groupDef);
+        if (!ss->ssl3.dhePreferredGroup) {
+            ss->ssl3.dhePreferredGroup = groupDef;
+        }
         supportedGroups |= (1U << groupDef->index);
     }
     ss->namedGroups = supportedGroups;
@@ -1790,6 +1797,12 @@ ssl_SelectDHEParams(sslSocket *ss,
         PORT_Assert(gWeakDHParams);
         *groupDef = &weak_group_def;
         *params = gWeakDHParams;
+        return SECSuccess;
+    }
+    if (ss->ssl3.dhePreferredGroup &&
+        ssl_NamedGroupEnabled(ss, ss->ssl3.dhePreferredGroup)) {
+        *groupDef = ss->ssl3.dhePreferredGroup;
+        *params = ssl_GetDHEParams(ss->ssl3.dhePreferredGroup);
         return SECSuccess;
     }
     for (i = 0; i < ssl_named_group_count; ++i) {

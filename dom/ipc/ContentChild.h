@@ -16,6 +16,7 @@
 #include "nsHashKeys.h"
 #include "nsIObserver.h"
 #include "nsTHashtable.h"
+#include "nsRefPtrHashtable.h"
 
 #include "nsWeakPtr.h"
 #include "nsIWindowProvider.h"
@@ -36,10 +37,6 @@ class PFileDescriptorSetChild;
 class URIParams;
 }// namespace ipc
 
-namespace layers {
-class PCompositorBridgeChild;
-} // namespace layers
-
 namespace dom {
 
 class AlertObserver;
@@ -47,6 +44,7 @@ class ConsoleListener;
 class PStorageChild;
 class ClonedMessageData;
 class TabChild;
+class GetFilesHelperChild;
 
 class ContentChild final : public PContentChild
                          , public nsIWindowProvider
@@ -150,25 +148,20 @@ public:
   bool
   DeallocPAPZChild(PAPZChild* aActor) override;
 
-  PCompositorBridgeChild*
-  AllocPCompositorBridgeChild(mozilla::ipc::Transport* aTransport,
-                              base::ProcessId aOtherProcess) override;
+  bool
+  RecvInitCompositor(Endpoint<PCompositorBridgeChild>&& aEndpoint) override;
+  bool
+  RecvInitImageBridge(Endpoint<PImageBridgeChild>&& aEndpoint) override;
+  bool
+  RecvInitVRManager(Endpoint<PVRManagerChild>&& aEndpoint) override;
 
   PSharedBufferManagerChild*
   AllocPSharedBufferManagerChild(mozilla::ipc::Transport* aTransport,
                                   base::ProcessId aOtherProcess) override;
 
-  PImageBridgeChild*
-  AllocPImageBridgeChild(mozilla::ipc::Transport* aTransport,
-                         base::ProcessId aOtherProcess) override;
-
   PProcessHangMonitorChild*
   AllocPProcessHangMonitorChild(Transport* aTransport,
                                 ProcessId aOtherProcess) override;
-
-  PVRManagerChild*
-  AllocPVRManagerChild(Transport* aTransport,
-                       ProcessId aOtherProcess) override;
 
   virtual bool RecvSetProcessSandbox(const MaybeFileDesc& aBroker) override;
 
@@ -181,8 +174,7 @@ public:
                                             const uint32_t& aChromeFlags,
                                             const ContentParentId& aCpID,
                                             const bool& aIsForApp,
-                                            const bool& aIsForBrowser)
-                                            override;
+                                            const bool& aIsForBrowser) override;
 
   virtual bool DeallocPBrowserChild(PBrowserChild*) override;
 
@@ -417,6 +409,7 @@ public:
                                          const uint32_t& aMemoryAvailable) override;
 
   virtual bool RecvPreferenceUpdate(const PrefSetting& aPref) override;
+  virtual bool RecvVarUpdate(const GfxVarUpdate& pref) override;
 
   virtual bool RecvDataStoragePut(const nsString& aFilename,
                                   const DataStorageItem& aItem) override;
@@ -457,6 +450,12 @@ public:
                            const nsCString& ID, const nsCString& vendor) override;
 
   virtual bool RecvAppInit() override;
+
+  virtual bool
+  RecvInitServiceWorkers(const ServiceWorkerConfiguration& aConfig) override;
+
+  virtual bool
+  RecvInitBlobURLs(nsTArray<BlobURLRegistrationData>&& aRegistations) override;
 
   virtual bool RecvLastPrivateDocShellDestroyed() override;
 
@@ -625,6 +624,27 @@ public:
                           const nsString& aDisplayName,
                           const nsString& aIconPath) override;
 
+
+  // GetFiles for WebKit/Blink FileSystem API and Directory API must run on the
+  // parent process.
+  void
+  CreateGetFilesRequest(const nsAString& aDirectoryPath, bool aRecursiveFlag,
+                        nsID& aUUID, GetFilesHelperChild* aChild);
+
+  void
+  DeleteGetFilesRequest(nsID& aUUID, GetFilesHelperChild* aChild);
+
+  virtual bool
+  RecvGetFilesResponse(const nsID& aUUID,
+                       const GetFilesResponseResult& aResult) override;
+
+  virtual bool
+  RecvBlobURLRegistration(const nsCString& aURI, PBlobChild* aBlobChild,
+                          const IPC::Principal& aPrincipal) override;
+
+  virtual bool
+  RecvBlobURLUnregistration(const nsCString& aURI) override;
+
 private:
   static void ForceKillTimerCallback(nsITimer* aTimer, void* aClosure);
   void StartForceKillTimer();
@@ -662,11 +682,13 @@ private:
   nsCOMPtr<nsIDomainPolicy> mPolicy;
   nsCOMPtr<nsITimer> mForceKillTimer;
 
+  // Hashtable to keep track of the pending GetFilesHelper objects.
+  // This GetFilesHelperChild objects are removed when RecvGetFilesResponse is
+  // received.
+ nsRefPtrHashtable<nsIDHashKey, GetFilesHelperChild> mGetFilesPendingRequests;
+
   DISALLOW_EVIL_CONSTRUCTORS(ContentChild);
 };
-
-void
-InitOnContentProcessCreated();
 
 uint64_t
 NextWindowID();

@@ -31,6 +31,10 @@ class nsTextFragment;
 class nsDisplayTextGeometry;
 class nsDisplayText;
 
+namespace mozilla {
+class SVGContextPaint;
+};
+
 class nsTextFrame : public nsFrame {
   typedef mozilla::LayoutDeviceRect LayoutDeviceRect;
   typedef mozilla::RawSelectionType RawSelectionType;
@@ -247,8 +251,8 @@ public:
                                            nscoord* aX,
                                            nscoord* aXMost) override;
   virtual void Reflow(nsPresContext* aPresContext,
-                      nsHTMLReflowMetrics& aMetrics,
-                      const nsHTMLReflowState& aReflowState,
+                      ReflowOutput& aMetrics,
+                      const ReflowInput& aReflowInput,
                       nsReflowStatus& aStatus) override;
   virtual bool CanContinueTextRun() const override;
   // Method that is called for a text frame that is logically
@@ -393,11 +397,23 @@ public:
     gfxContext* context;
     gfxPoint framePt;
     LayoutDeviceRect dirtyRect;
-    gfxTextContextPaint* contextPaint = nullptr;
+    mozilla::SVGContextPaint* contextPaint = nullptr;
     DrawPathCallbacks* callbacks = nullptr;
-    bool generateTextMask = false;
-    bool paintSelectionBackground = false;
+    enum {
+      PaintText,           // Normal text painting.
+      PaintTextBGColor,    // Only paint background color of the selected text
+                           // range in this state.
+      GenerateTextMask     // To generate a mask from a text frame. Should
+                           // only paint text itself with opaque color.
+                           // Text shadow, text selection color and text
+                           // decoration are all discarded in this state.
+    };
+    uint8_t state = PaintText;
     explicit PaintTextParams(gfxContext* aContext) : context(aContext) {}
+
+    bool IsPaintText() const { return state == PaintText; }
+    bool IsGenerateTextMask() const { return state == GenerateTextMask; }
+    bool IsPaintBGColor() const { return state == PaintTextBGColor; }
   };
 
   struct PaintTextSelectionParams : PaintTextParams
@@ -415,7 +431,7 @@ public:
     gfxContext* context;
     PropertyProvider* provider = nullptr;
     gfxFloat* advanceWidth = nullptr;
-    gfxTextContextPaint* contextPaint = nullptr;
+    mozilla::SVGContextPaint* contextPaint = nullptr;
     DrawPathCallbacks* callbacks = nullptr;
     nscolor textColor = NS_RGBA(0, 0, 0, 0);
     nscolor textStrokeColor = NS_RGBA(0, 0, 0, 0);
@@ -567,7 +583,7 @@ public:
   // Similar to Reflow(), but for use from nsLineLayout
   void ReflowText(nsLineLayout& aLineLayout, nscoord aAvailableWidth,
                   DrawTarget* aDrawTarget,
-                  nsHTMLReflowMetrics& aMetrics, nsReflowStatus& aStatus);
+                  ReflowOutput& aMetrics, nsReflowStatus& aStatus);
 
   bool IsFloatingFirstLetterChild() const;
 
@@ -794,7 +810,7 @@ protected:
 
   virtual bool HasAnyNoncollapsedCharacters() override;
 
-  void ClearMetrics(nsHTMLReflowMetrics& aMetrics);
+  void ClearMetrics(ReflowOutput& aMetrics);
 
   /**
    * UpdateIteratorFromOffset() updates the iterator from a given offset.

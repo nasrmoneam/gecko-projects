@@ -77,10 +77,12 @@ CommandList.prototype = {
     for (let name of Object.keys(manifest.commands)) {
       let command = manifest.commands[name];
       let shortcut = command.suggested_key[os] || command.suggested_key.default;
-      commands.set(name, {
-        description: command.description,
-        shortcut: shortcut.replace(/\s+/g, ""),
-      });
+      if (shortcut) {
+        commands.set(name, {
+          description: command.description,
+          shortcut: shortcut.replace(/\s+/g, ""),
+        });
+      }
     }
     return commands;
   },
@@ -127,6 +129,8 @@ CommandList.prototype = {
         let win = event.target.ownerDocument.defaultView;
         pageActionFor(this.extension).triggerAction(win);
       } else {
+        TabManager.for(this.extension)
+                  .addActiveTabPermission(TabManager.activeTab);
         this.emit("command", name);
       }
     });
@@ -238,8 +242,8 @@ extensions.registerSchemaAPI("commands", (extension, context) => {
         }));
       },
       onCommand: new EventManager(context, "commands.onCommand", fire => {
-        let listener = (event, name) => {
-          fire(name);
+        let listener = (eventName, commandName) => {
+          fire(commandName);
         };
         commandsMap.get(extension).on("command", listener);
         return () => {

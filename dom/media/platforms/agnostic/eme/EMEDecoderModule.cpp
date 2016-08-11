@@ -16,6 +16,7 @@
 #include "MediaInfo.h"
 #include "nsClassHashtable.h"
 #include "GMPDecoderModule.h"
+#include "MP4Decoder.h"
 
 namespace mozilla {
 
@@ -84,12 +85,12 @@ public:
       return;
     }
 
-    if (aDecrypted.mStatus == GMPNoKeyErr) {
+    if (aDecrypted.mStatus == NoKeyErr) {
       // Key became unusable after we sent the sample to CDM to decrypt.
       // Call Input() again, so that the sample is enqueued for decryption
       // if the key becomes usable again.
       Input(aDecrypted.mSample);
-    } else if (GMP_FAILED(aDecrypted.mStatus)) {
+    } else if (aDecrypted.mStatus != Ok) {
       if (mCallback) {
         mCallback->Error(MediaDataDecoderError::FATAL_ERROR);
       }
@@ -292,7 +293,7 @@ EMEDecoderModule::CreateAudioDecoder(const CreateDecoderParams& aParams)
 PlatformDecoderModule::ConversionRequired
 EMEDecoderModule::DecoderNeedsConversion(const TrackInfo& aConfig) const
 {
-  if (aConfig.IsVideo()) {
+  if (aConfig.IsVideo() && MP4Decoder::IsH264(aConfig.mMimeType)) {
     return kNeedAVCC;
   } else {
     return kNeedNone;

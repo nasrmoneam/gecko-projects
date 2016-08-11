@@ -5,7 +5,6 @@
 "use strict";
 
 var { Cu, components } = require("chrome");
-var DevToolsUtils = require("devtools/shared/DevToolsUtils");
 var Services = require("Services");
 var promise = require("promise");
 var defer = require("devtools/shared/defer");
@@ -1092,17 +1091,6 @@ var generateRequestHandlers = function (actorSpec, actorProto) {
 };
 
 /**
- * Create an actor class for the given actor prototype.
- *
- * @param object actorProto
- *    The actor prototype.  Must have a 'typeName' property,
- *    should have method definitions, can have event definitions.
- */
-exports.ActorClass = function (actorProto) {
-  return ActorClassWithSpec(generateActorSpec(actorProto), actorProto);
-};
-
-/**
  * Create an actor class for the given actor specification and prototype.
  *
  * @param object actorSpec
@@ -1111,7 +1099,7 @@ exports.ActorClass = function (actorProto) {
  *    The actor prototype. Should have method definitions, can have event
  *    definitions.
  */
-var ActorClassWithSpec = function (actorSpec, actorProto) {
+var ActorClass = function (actorSpec, actorProto) {
   if (!actorSpec.typeName) {
     throw Error("Actor specification must have a typeName member.");
   }
@@ -1121,7 +1109,7 @@ var ActorClassWithSpec = function (actorSpec, actorProto) {
 
   return cls;
 };
-exports.ActorClassWithSpec = ActorClassWithSpec;
+exports.ActorClass = ActorClass;
 
 /**
  * Base class for client-side actor fronts.
@@ -1203,7 +1191,7 @@ var Front = Class({
       this.actor().then(actorID => {
         packet.to = actorID;
         this.conn._transport.send(packet);
-      }).then(null, e => DevToolsUtils.reportException("Front.prototype.send", e));
+      }).then(null, e => console.error(e));
     }
   },
 
@@ -1424,19 +1412,6 @@ var generateRequestMethods = function (actorSpec, frontProto) {
 };
 
 /**
- * Create a front class for the given actor class and front prototype.
- *
- * @param ActorClass actorType
- *    The actor class you're creating a front for.
- * @param object frontProto
- *    The front prototype.  Must have a 'typeName' property,
- *    should have method definitions, can have event definitions.
- */
-exports.FrontClass = function (actorType, frontProto) {
-  return FrontClassWithSpec(prototypeOf(actorType)._actorSpec, frontProto);
-};
-
-/**
  * Create a front class for the given actor specification and front prototype.
  *
  * @param object actorSpec
@@ -1445,7 +1420,7 @@ exports.FrontClass = function (actorType, frontProto) {
  *    The object prototype.  Must have a 'typeName' property,
  *    should have method definitions, can have event definitions.
  */
-var FrontClassWithSpec = function (actorSpec, frontProto) {
+var FrontClass = function (actorSpec, frontProto) {
   frontProto.extends = Front;
   let cls = Class(generateRequestMethods(actorSpec, frontProto));
 
@@ -1456,7 +1431,7 @@ var FrontClassWithSpec = function (actorSpec, frontProto) {
 
   return cls;
 };
-exports.FrontClassWithSpec = FrontClassWithSpec;
+exports.FrontClass = FrontClass;
 
 exports.dumpActorSpec = function (type) {
   let actorSpec = type.actorSpec;

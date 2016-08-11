@@ -21,6 +21,7 @@
 #include "nsDataHashtable.h"
 #include "nsClassHashtable.h"
 #include "mozilla/Services.h"
+#include "mozilla/StaticPtr.h"
 #include "nsIObserverService.h"
 #include "nsThreadUtils.h"
 #include "nsWeakPtr.h"
@@ -319,7 +320,7 @@ private:
 
    class MyAsyncMessage : public nsSameProcessAsyncMessageBase, public Runnable
    {
-     NS_IMETHOD Run() {
+     NS_IMETHOD Run() override {
        ReceiveMessage(..., ...);
        return NS_OK;
      }
@@ -406,7 +407,7 @@ protected:
   AutoTArray<JS::Heap<JSObject*>, 2> mAnonymousGlobalScopes;
 
   static nsDataHashtable<nsStringHashKey, nsMessageManagerScriptHolder*>* sCachedScripts;
-  static nsScriptCacheCleaner* sScriptCacheCleaner;
+  static mozilla::StaticRefPtr<nsScriptCacheCleaner> sScriptCacheCleaner;
 };
 
 class nsScriptCacheCleaner final : public nsIObserver

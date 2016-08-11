@@ -13,7 +13,6 @@
 #include "nsIScriptSecurityManager.h"
 #include "nsIProtocolHandler.h"
 #include "mozilla/ArrayUtils.h"
-#include "nsDOMString.h"
 #include "nsServiceManagerUtils.h"
 
 namespace mozilla {
@@ -25,7 +24,6 @@ struct RedirEntry {
   const char* id;
   const char* url;
   uint32_t flags;
-  const char* idbOriginPostfix;
 };
 
 /*
@@ -102,22 +100,6 @@ static RedirEntry kRedirMap[] = {
 #endif
   { "accounts", "chrome://browser/content/aboutaccounts/aboutaccounts.xhtml",
     nsIAboutModule::ALLOW_SCRIPT },
-  // Linkable because of indexeddb use (bug 1228118)
-  { "loopconversation", "chrome://loop/content/panels/conversation.html",
-    nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
-    nsIAboutModule::ALLOW_SCRIPT |
-    nsIAboutModule::HIDE_FROM_ABOUTABOUT |
-    nsIAboutModule::MAKE_LINKABLE |
-    nsIAboutModule::ENABLE_INDEXED_DB },
-  // Linkable because of indexeddb use (bug 1228118)
-  { "looppanel", "chrome://loop/content/panels/panel.html",
-    nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
-    nsIAboutModule::ALLOW_SCRIPT |
-    nsIAboutModule::HIDE_FROM_ABOUTABOUT |
-    nsIAboutModule::MAKE_LINKABLE |
-    nsIAboutModule::ENABLE_INDEXED_DB,
-    // Shares an IndexedDB origin with about:loopconversation.
-    "loopconversation" },
   { "reader", "chrome://global/content/reader/aboutReader.html",
     nsIAboutModule::URI_SAFE_FOR_UNTRUSTED_CONTENT |
     nsIAboutModule::ALLOW_SCRIPT |
@@ -237,29 +219,6 @@ AboutRedirector::GetURIFlags(nsIURI *aURI, uint32_t *result)
     }
   }
 
-  return NS_ERROR_ILLEGAL_VALUE;
-}
-
-NS_IMETHODIMP
-AboutRedirector::GetIndexedDBOriginPostfix(nsIURI *aURI, nsAString &result)
-{
-  NS_ENSURE_ARG_POINTER(aURI);
-
-  nsAutoCString name = GetAboutModuleName(aURI);
-
-  for (int i = 0; i < kRedirTotal; i++) {
-    if (name.Equals(kRedirMap[i].id)) {
-      const char* postfix = kRedirMap[i].idbOriginPostfix;
-      if (!postfix) {
-        break;
-      }
-
-      result.AssignASCII(postfix);
-      return NS_OK;
-    }
-  }
-
-  SetDOMStringToNull(result);
   return NS_ERROR_ILLEGAL_VALUE;
 }
 

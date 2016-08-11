@@ -1160,13 +1160,11 @@ BuildTempPath(wchar_t* aBuf, size_t aBufLen)
   return GetTempPath(pathLen, aBuf);
 }
 
-#ifdef MOZ_CHAR16_IS_NOT_WCHAR
 static size_t
 BuildTempPath(char16_t* aBuf, size_t aBufLen)
 {
   return BuildTempPath(reinterpret_cast<wchar_t*>(aBuf), aBufLen);
 }
-#endif
 
 #elif defined(XP_MACOSX)
 
@@ -3293,7 +3291,7 @@ OOPInit()
   class ProxyToMainThread : public Runnable
   {
   public:
-    NS_IMETHOD Run() {
+    NS_IMETHOD Run() override {
       OOPInit();
       return NS_OK;
     }

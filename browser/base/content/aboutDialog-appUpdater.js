@@ -26,15 +26,6 @@ function onUnload(aEvent) {
 
 function appUpdater()
 {
-  this.updateDeck = document.getElementById("updateDeck");
-
-  // Hide the update deck when there is already an update window open to avoid
-  // syncing issues between them.
-  if (Services.wm.getMostRecentWindow("Update:Wizard")) {
-    this.updateDeck.hidden = true;
-    return;
-  }
-
   XPCOMUtils.defineLazyServiceGetter(this, "aus",
                                      "@mozilla.org/updates/update-service;1",
                                      "nsIApplicationUpdateService");
@@ -44,6 +35,18 @@ function appUpdater()
   XPCOMUtils.defineLazyServiceGetter(this, "um",
                                      "@mozilla.org/updates/update-manager;1",
                                      "nsIUpdateManager");
+
+  this.updateDeck = document.getElementById("updateDeck");
+
+  // Hide the update deck when the update window is already open and it's not
+  // already applied, to avoid syncing issues between them. Applied updates
+  // don't have any information to sync between the windows as they both just
+  // show the "Restart to continue"-type button.
+  if (Services.wm.getMostRecentWindow("Update:Wizard") &&
+      !this.isApplied) {
+    this.updateDeck.hidden = true;
+    return;
+  }
 
   this.bundle = Services.strings.
                 createBundle("chrome://browser/locale/browser.properties");

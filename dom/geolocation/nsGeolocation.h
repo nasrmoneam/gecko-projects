@@ -72,6 +72,9 @@ public:
 
   nsresult Init();
 
+  void HandleMozsettingChanged(nsISupports* aSubject);
+  void HandleMozsettingValue(const bool aValue);
+
   // Management of the Geolocation objects
   void AddLocator(mozilla::dom::Geolocation* locator);
   void RemoveLocator(mozilla::dom::Geolocation* locator);
@@ -186,8 +189,12 @@ private:
 
   ~Geolocation();
 
-  nsresult GetCurrentPosition(GeoPositionCallback& aCallback, GeoPositionErrorCallback& aErrorCallback, PositionOptions* aOptions);
-  nsresult WatchPosition(GeoPositionCallback& aCallback, GeoPositionErrorCallback& aErrorCallback, PositionOptions* aOptions, int32_t* aRv);
+  nsresult GetCurrentPosition(GeoPositionCallback aCallback,
+                              GeoPositionErrorCallback aErrorCallback,
+                              PositionOptions* aOptions);
+  nsresult WatchPosition(GeoPositionCallback aCallback,
+                         GeoPositionErrorCallback aErrorCallback,
+                         PositionOptions* aOptions, int32_t* aRv);
 
   bool RegisterRequestWithPrompt(nsGeolocationRequest* request);
 

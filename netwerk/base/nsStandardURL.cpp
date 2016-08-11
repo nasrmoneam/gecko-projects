@@ -24,6 +24,8 @@
 #include <algorithm>
 #include "mozilla/dom/EncodingUtils.h"
 #include "nsContentUtils.h"
+#include "prprf.h"
+#include "nsReadableUtils.h"
 
 using mozilla::dom::EncodingUtils;
 using namespace mozilla::ipc;
@@ -386,6 +388,129 @@ nsStandardURL::InvalidateCache(bool invalidateCachedFile)
     mSpecEncoding = eEncoding_Unknown;
 }
 
+// |base| should be 8, 10 or 16. Not check the precondition for performance.
+/* static */ inline bool
+nsStandardURL::IsValidOfBase(unsigned char c, const uint32_t base) {
+    MOZ_ASSERT(base == 8 || base == 10 || base == 16, "invalid base");
+    if ('0' <= c && c <= '7') {
+        return true;
+    } else if (c == '8' || c== '9') {
+        return base != 8;
+    } else if (('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')) {
+        return base == 16;
+    }
+    return false;
+}
+
+/* static */ nsresult
+nsStandardURL::ParseIPv4Number(nsCString &input, uint32_t &number)
+{
+    if (input.Length() == 0) {
+        return NS_ERROR_FAILURE;
+    }
+    uint32_t base;
+    uint32_t prefixLength = 0;
+
+    if (input[0] == '0') {
+        if (input.Length() == 1) {
+            base = 10;
+        } else if (input[1] == 'x' || input[1] == 'X') {
+            base = 16;
+            prefixLength = 2;
+        } else {
+            base = 8;
+            prefixLength = 1;
+        }
+    } else {
+        base = 10;
+    }
+    if (prefixLength == input.Length()) {
+        return NS_ERROR_FAILURE;
+    }
+    // ignore leading zeros to calculate the valid length of number
+    while (prefixLength < input.Length() && input[prefixLength] == '0') {
+        prefixLength++;
+    }
+    // all zero case
+    if (prefixLength == input.Length()) {
+        number = 0;
+        return NS_OK;
+    }
+    // overflow case
+    if (input.Length() - prefixLength > 16) {
+        return NS_ERROR_FAILURE;
+    }
+    for (uint32_t i = prefixLength; i < input.Length(); ++i) {
+        if (!IsValidOfBase(input[i], base)) {
+          return NS_ERROR_FAILURE;
+        }
+    }
+    const char* fmt = "";
+    switch (base) {
+        case 8:
+            fmt = "%llo";
+            break;
+        case 10:
+            fmt = "%lli";
+            break;
+        case 16:
+            fmt = "%llx";
+            break;
+        default:
+            return NS_ERROR_FAILURE;
+    }
+    uint64_t number64;
+    if (PR_sscanf(input.get(), fmt, &number64) == 1 &&
+        number64 <= 0xffffffffu) {
+      number = number64;
+      return NS_OK;
+    }
+    return NS_ERROR_FAILURE;
+}
+
+// IPv4 parser spec: https://url.spec.whatwg.org/#concept-ipv4-parser
+/* static */ nsresult
+nsStandardURL::NormalizeIPv4(const nsCSubstring &host, nsCString &result)
+{
+    if (FindInReadable(NS_LITERAL_CSTRING(".."), host)) {
+        return NS_ERROR_FAILURE;
+    }
+    nsTArray<nsCString> parts;
+    if (!ParseString(host, '.', parts) ||
+        parts.Length() == 0 /* implies host.Length() == 0 */ ||
+        parts.Length() > 4 ||
+        host[0] == '.') {
+        return NS_ERROR_FAILURE;
+    }
+    uint32_t n = 0;
+    nsTArray<int32_t> numbers;
+    for (uint32_t i = 0; i < parts.Length(); ++i) {
+        if (NS_FAILED(ParseIPv4Number(parts[i], n))) {
+            return NS_ERROR_FAILURE;
+        }
+        numbers.AppendElement(n);
+    }
+    uint32_t ipv4 = numbers.LastElement();
+    static const uint32_t upperBounds[] = {0xffffffffu, 0xffffffu,
+                                           0xffffu,     0xffu};
+    if (ipv4 > upperBounds[numbers.Length() - 1]) {
+        return NS_ERROR_FAILURE;
+    }
+    for (uint32_t i = 0; i < numbers.Length() - 1; ++i) {
+        if (numbers[i] > 255) {
+          return NS_ERROR_FAILURE;
+        }
+        ipv4 += numbers[i] << (8 * (3 - i));
+    }
+
+    uint8_t ipSegments[4];
+    NetworkEndian::writeUint32(ipSegments, ipv4);
+    result = nsPrintfCString("%d.%d.%d.%d", ipSegments[0], ipSegments[1],
+                                            ipSegments[2], ipSegments[3]);
+
+    return NS_OK;
+}
+
 nsresult
 nsStandardURL::NormalizeIDN(const nsCSubstring &host, nsCString &result)
 {
@@ -597,6 +722,11 @@ nsStandardURL::BuildNormalizedSpec(const char *spec)
         nsresult rv = NormalizeIDN(tempHost, encHost);
         if (NS_FAILED(rv)) {
             return rv;
+        }
+        nsAutoCString ipString;
+        rv = NormalizeIPv4(encHost, ipString);
+        if (NS_SUCCEEDED(rv)) {
+          encHost = ipString;
         }
 
         // NormalizeIDN always copies, if the call was successful.
@@ -1310,7 +1440,7 @@ nsStandardURL::SetSpec(const nsACString &input)
 
     // Make a backup of the curent URL
     nsStandardURL prevURL(false,false);
-    prevURL.CopyMembers(this, eHonorRef);
+    prevURL.CopyMembers(this, eHonorRef, EmptyCString());
     Clear();
 
     if (IsSpecialProtocol(filteredURI)) {
@@ -1342,11 +1472,16 @@ nsStandardURL::SetSpec(const nsACString &input)
         rv = BuildNormalizedSpec(spec);
     }
 
+    // Make sure that a URLTYPE_AUTHORITY has a non-empty hostname.
+    if (mURLType == URLTYPE_AUTHORITY && mHost.mLen == -1) {
+        rv = NS_ERROR_MALFORMED_URI;
+    }
+
     if (NS_FAILED(rv)) {
         Clear();
         // If parsing the spec has failed, restore the old URL
         // so we don't end up with an empty URL.
-        CopyMembers(&prevURL, eHonorRef);
+        CopyMembers(&prevURL, eHonorRef, EmptyCString());
         return rv;
     }
 
@@ -2036,18 +2171,25 @@ nsStandardURL::StartClone()
 NS_IMETHODIMP
 nsStandardURL::Clone(nsIURI **result)
 {
-    return CloneInternal(eHonorRef, result);
+    return CloneInternal(eHonorRef, EmptyCString(), result);
 }
 
 
 NS_IMETHODIMP
 nsStandardURL::CloneIgnoringRef(nsIURI **result)
 {
-    return CloneInternal(eIgnoreRef, result);
+    return CloneInternal(eIgnoreRef, EmptyCString(), result);
+}
+
+NS_IMETHODIMP
+nsStandardURL::CloneWithNewRef(const nsACString& newRef, nsIURI **result)
+{
+    return CloneInternal(eReplaceRef, newRef, result);
 }
 
 nsresult
 nsStandardURL::CloneInternal(nsStandardURL::RefHandlingEnum refHandlingMode,
+                             const nsACString& newRef,
                              nsIURI **result)
 
 {
@@ -2057,14 +2199,15 @@ nsStandardURL::CloneInternal(nsStandardURL::RefHandlingEnum refHandlingMode,
 
     // Copy local members into clone.
     // Also copies the cached members mFile, mHostA
-    clone->CopyMembers(this, refHandlingMode, true);
+    clone->CopyMembers(this, refHandlingMode, newRef, true);
 
     clone.forget(result);
     return NS_OK;
 }
 
 nsresult nsStandardURL::CopyMembers(nsStandardURL * source,
-    nsStandardURL::RefHandlingEnum refHandlingMode, bool copyCached)
+    nsStandardURL::RefHandlingEnum refHandlingMode, const nsACString& newRef,
+    bool copyCached)
 {
     mSpec = source->mSpec;
     mDefaultPort = source->mDefaultPort;
@@ -2101,6 +2244,8 @@ nsresult nsStandardURL::CopyMembers(nsStandardURL * source,
 
     if (refHandlingMode == eIgnoreRef) {
         SetRef(EmptyCString());
+    } else if (refHandlingMode == eReplaceRef) {
+        SetRef(newRef);
     }
 
     return NS_OK;
@@ -2919,20 +3064,26 @@ nsStandardURL::SetFile(nsIFile *file)
     rv = net_GetURLSpecFromFile(file, url);
     if (NS_FAILED(rv)) return rv;
 
-    SetSpec(url);
+    uint32_t oldURLType = mURLType;
+    uint32_t oldDefaultPort = mDefaultPort;
+    rv = Init(nsIStandardURL::URLTYPE_NO_AUTHORITY, -1, url, nullptr, nullptr);
 
-    rv = Init(mURLType, mDefaultPort, url, nullptr, nullptr);
+    if (NS_FAILED(rv)) {
+        // Restore the old url type and default port if the call to Init fails.
+        mURLType = oldURLType;
+        mDefaultPort = oldDefaultPort;
+        return rv;
+    }
 
     // must clone |file| since its value is not guaranteed to remain constant
-    if (NS_SUCCEEDED(rv)) {
-        InvalidateCache();
-        if (NS_FAILED(file->Clone(getter_AddRefs(mFile)))) {
-            NS_WARNING("nsIFile::Clone failed");
-            // failure to clone is not fatal (GetFile will generate mFile)
-            mFile = 0;
-        }
+    InvalidateCache();
+    if (NS_FAILED(file->Clone(getter_AddRefs(mFile)))) {
+        NS_WARNING("nsIFile::Clone failed");
+        // failure to clone is not fatal (GetFile will generate mFile)
+        mFile = nullptr;
     }
-    return rv;
+
+    return NS_OK;
 }
 
 //----------------------------------------------------------------------------

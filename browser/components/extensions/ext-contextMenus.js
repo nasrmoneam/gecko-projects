@@ -51,10 +51,15 @@ var gMenuBuilder = {
 
       // Display the extension icon on the root element.
       if (root.extension.manifest.icons) {
-        let parentWindow = contextData.menu.ownerDocument.defaultView;
+        let parentWindow = contextData.menu.ownerGlobal;
         let extension = root.extension;
 
-        let {icon} = IconDetails.getURL(extension.manifest.icons, parentWindow, extension, 16 /* size */);
+        let {icon} = IconDetails.getPreferredIcon(extension.manifest.icons, extension,
+                                                  16 * parentWindow.devicePixelRatio);
+
+        // The extension icons in the manifest are not pre-resolved, since
+        // they're sometimes used by the add-on manager when the extension is
+        // not enabled, and its URLs are not resolvable.
         let resolvedURL = root.extension.baseURI.resolve(icon);
 
         if (rootElement.localName == "menu") {
@@ -435,15 +440,24 @@ MenuItem.prototype = {
     }
 
     let docPattern = this.documentUrlMatchPattern;
-    if (docPattern && !docPattern.matches(contextData.pageUrl)) {
+    let pageURI = Services.io.newURI(contextData.pageUrl, null, null);
+    if (docPattern && !docPattern.matches(pageURI)) {
       return false;
     }
 
-    let isMedia = contextData.onImage || contextData.onAudio || contextData.onVideo;
     let targetPattern = this.targetUrlMatchPattern;
-    if (isMedia && targetPattern && !targetPattern.matches(contextData.srcURL)) {
-      // TODO: double check if mediaURL is always set when we need it
-      return false;
+    if (targetPattern) {
+      let targetUrls = [];
+      if (contextData.onImage || contextData.onAudio || contextData.onVideo) {
+        // TODO: double check if srcUrl is always set when we need it
+        targetUrls.push(contextData.srcUrl);
+      }
+      if (contextData.onLink) {
+        targetUrls.push(contextData.linkUrl);
+      }
+      if (!targetUrls.some(targetUrl => targetPattern.matches(NetUtil.newURI(targetUrl)))) {
+        return false;
+      }
     }
 
     return true;

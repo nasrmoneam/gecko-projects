@@ -22,7 +22,7 @@ import org.mozilla.gecko.Tab;
 import org.mozilla.gecko.animation.PropertyAnimator;
 import org.mozilla.gecko.animation.ViewHelper;
 import org.mozilla.gecko.toolbar.BrowserToolbarTabletBase.ForwardButtonAnimation;
-import org.mozilla.gecko.util.Experiments;
+import org.mozilla.gecko.Experiments;
 import org.mozilla.gecko.util.HardwareUtils;
 import org.mozilla.gecko.util.StringUtils;
 import org.mozilla.gecko.widget.themed.ThemedLinearLayout;
@@ -277,6 +277,11 @@ public class ToolbarDisplayLayout extends ThemedLinearLayout {
         if (mPrefs.shouldTrimUrls()) {
             strippedURL = StringUtils.stripCommonSubdomains(StringUtils.stripScheme(strippedURL));
         }
+
+        // The URL bar does not support RTL currently (See bug 928688 and meta bug 702845).
+        // Displaying a URL using RTL (or mixed) characters can lead to an undesired reordering
+        // of elements of the URL. That's why we are forcing the URL to use LTR (bug 1284372).
+        strippedURL = StringUtils.forceLTR(strippedURL);
 
         // This value is not visible to screen readers but we rely on it when running UI tests. Screen
         // readers will instead focus BrowserToolbar and read the "base domain" from there. UI tests

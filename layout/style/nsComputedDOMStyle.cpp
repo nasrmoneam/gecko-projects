@@ -27,7 +27,7 @@
 #include "nsFlexContainerFrame.h"
 #include "nsGridContainerFrame.h"
 #include "nsGkAtoms.h"
-#include "nsHTMLReflowState.h"
+#include "mozilla/ReflowInput.h"
 #include "nsStyleUtil.h"
 #include "nsStyleStructInlines.h"
 #include "nsROCSSPrimitiveValue.h"
@@ -523,7 +523,7 @@ nsComputedDOMStyle::GetStyleContextForElementNoFlush(Element* aElement,
          i < stop; ++i) {
       rules[i].swap(rules[length - i - 1]);
     }
-    
+
     sc = styleSet->AsGecko()->ResolveStyleForRules(parentContext, rules);
   }
 
@@ -2088,7 +2088,7 @@ nsComputedDOMStyle::SetValueToStyleImage(const nsStyleImage& aStyleImage,
       nsCOMPtr<nsIURI> uri;
       req->GetURI(getter_AddRefs(uri));
 
-      const nsStyleSides* cropRect = aStyleImage.GetCropRect();
+      const UniquePtr<nsStyleSides>& cropRect = aStyleImage.GetCropRect();
       if (cropRect) {
         nsAutoString imageRectString;
         GetImageRectString(uri, *cropRect, imageRectString);
@@ -2135,7 +2135,24 @@ nsComputedDOMStyle::DoGetImageLayerImage(const nsStyleImageLayers& aLayers)
     RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
 
     const nsStyleImage& image = aLayers.mLayers[i].mImage;
-    SetValueToStyleImage(image, val);
+    // Layer::mImage::GetType() returns eStyleImageType_Null in two conditions:
+    // 1. The value of mask-image/bg-image is 'none'.
+    //    Since this layer does not refer to any source, Layer::mSourceURI must
+    //    be nullptr too.
+    // 2. This layer refers to a local resource, e.g. mask-image:url(#mymask).
+    //    For local references, there is no need to download any external
+    //    resource, so Layer::mImage is not used.
+    //    Instead, we store the local URI in one place -- on Layer::mSourceURI.
+    //    Hence, we must serialize using mSourceURI (instead of
+    //    SetValueToStyleImage()/mImage) in this case.
+    if (aLayers.mLayers[i].mSourceURI.IsLocalRef()) {
+      // This is how we represent a 'mask-image' reference for a local URI,
+      // such as 'mask-image:url(#mymask)' or 'mask:url(#mymask)'
+      SetValueToFragmentOrURL(&aLayers.mLayers[i].mSourceURI, val);
+    } else {
+      SetValueToStyleImage(image, val);
+    }
+
     valueList->AppendCSSValue(val.forget());
   }
 
@@ -2220,7 +2237,7 @@ nsComputedDOMStyle::DoGetImageLayerRepeat(const nsStyleImageLayers& aLayers)
                                          nsCSSProps::kImageLayerRepeatKTable));
     } else {
       valY = new nsROCSSPrimitiveValue;
-      
+
       valX->SetIdent(nsCSSProps::ValueToKeywordEnum(xRepeat,
                                           nsCSSProps::kImageLayerRepeatKTable));
       valY->SetIdent(nsCSSProps::ValueToKeywordEnum(yRepeat,
@@ -2368,6 +2385,28 @@ nsComputedDOMStyle::SetValueToPosition(
   RefPtr<nsROCSSPrimitiveValue> valY = new nsROCSSPrimitiveValue;
   SetValueToPositionCoord(aPosition.mYPosition, valY);
   aValueList->AppendCSSValue(valY.forget());
+}
+
+
+void
+nsComputedDOMStyle::SetValueToFragmentOrURL(
+    const FragmentOrURL* aFragmentOrURL,
+    nsROCSSPrimitiveValue* aValue)
+{
+  if (aFragmentOrURL->IsLocalRef()) {
+    nsString fragment;
+    aFragmentOrURL->GetSourceString(fragment);
+    fragment.Insert(u"url(\"", 0);
+    fragment.Append(u"\")");
+    aValue->SetString(fragment);
+  } else {
+    nsCOMPtr<nsIURI> url = aFragmentOrURL->GetSourceURL();
+    if (url) {
+      aValue->SetURI(url);
+    } else {
+      aValue->SetIdent(eCSSKeyword_none);
+    }
+  }
 }
 
 already_AddRefed<CSSValue>
@@ -2732,14 +2771,15 @@ already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetGridTemplateColumns()
 {
   const ComputedGridTrackInfo* info = nullptr;
-  if (mInnerFrame) {
-    nsIFrame* gridContainerCandidate = mInnerFrame->GetContentInsertionFrame();
-    if (gridContainerCandidate &&
-        gridContainerCandidate->GetType() == nsGkAtoms::gridContainerFrame) {
-      info = static_cast<nsGridContainerFrame*>(gridContainerCandidate)->
-        GetComputedTemplateColumns();
-    }
+
+  nsGridContainerFrame* gridFrame =
+    nsGridContainerFrame::GetGridFrameWithComputedInfo(
+      mContent->GetPrimaryFrame());
+
+  if (gridFrame) {
+    info = gridFrame->GetComputedTemplateColumns();
   }
+
   return GetGridTemplateColumnsRows(StylePosition()->mGridTemplateColumns, info);
 }
 
@@ -2747,14 +2787,15 @@ already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetGridTemplateRows()
 {
   const ComputedGridTrackInfo* info = nullptr;
-  if (mInnerFrame) {
-    nsIFrame* gridContainerCandidate = mInnerFrame->GetContentInsertionFrame();
-    if (gridContainerCandidate &&
-        gridContainerCandidate->GetType() == nsGkAtoms::gridContainerFrame) {
-      info = static_cast<nsGridContainerFrame*>(gridContainerCandidate)->
-        GetComputedTemplateRows();
-     }
+
+  nsGridContainerFrame* gridFrame =
+    nsGridContainerFrame::GetGridFrameWithComputedInfo(
+      mContent->GetPrimaryFrame());
+
+  if (gridFrame) {
+    info = gridFrame->GetComputedTemplateRows();
   }
+
   return GetGridTemplateColumnsRows(StylePosition()->mGridTemplateRows, info);
 }
 
@@ -3383,8 +3424,9 @@ nsComputedDOMStyle::GetCSSShadowArray(nsCSSShadowArray* aArray,
       // This is an inset box-shadow
       val = new nsROCSSPrimitiveValue;
       val->SetIdent(
-        nsCSSProps::ValueToKeywordEnum(NS_STYLE_BOX_SHADOW_INSET,
-                                       nsCSSProps::kBoxShadowTypeKTable));
+        nsCSSProps::ValueToKeywordEnum(
+            uint8_t(StyleBoxShadowType::Inset),
+            nsCSSProps::kBoxShadowTypeKTable));
       itemList->AppendCSSValue(val.forget());
     }
     valueList->AppendCSSValue(itemList.forget());
@@ -3519,6 +3561,25 @@ nsComputedDOMStyle::DoGetImageRegion()
   }
 
   return val.forget();
+}
+
+already_AddRefed<CSSValue>
+nsComputedDOMStyle::DoGetInitialLetter()
+{
+  const nsStyleTextReset* textReset = StyleTextReset();
+  RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
+  if (textReset->mInitialLetterSink == 0) {
+    val->SetIdent(eCSSKeyword_normal);
+    return val.forget();
+  } else {
+    RefPtr<nsDOMCSSValueList> valueList = GetROCSSValueList(false);
+    val->SetNumber(textReset->mInitialLetterSize);
+    valueList->AppendCSSValue(val.forget());
+    RefPtr<nsROCSSPrimitiveValue> second = new nsROCSSPrimitiveValue;
+    second->SetNumber(textReset->mInitialLetterSink);
+    valueList->AppendCSSValue(second.forget());
+    return valueList.forget();
+  }
 }
 
 already_AddRefed<CSSValue>
@@ -4134,7 +4195,7 @@ nsComputedDOMStyle::DoGetBoxSizing()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
   val->SetIdent(
-    nsCSSProps::ValueToKeywordEnum(uint8_t(StylePosition()->mBoxSizing),
+    nsCSSProps::ValueToKeywordEnum(StylePosition()->mBoxSizing,
                                    nsCSSProps::kBoxSizingKTable));
   return val.forget();
 }
@@ -4382,7 +4443,7 @@ nsComputedDOMStyle::DoGetFloatEdge()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
   val->SetIdent(
-    nsCSSProps::ValueToKeywordEnum(StyleBorder()->mFloatEdge,
+    nsCSSProps::ValueToKeywordEnum(uint8_t(StyleBorder()->mFloatEdge),
                                    nsCSSProps::kFloatEdgeKTable));
   return val.forget();
 }
@@ -4431,7 +4492,7 @@ nsComputedDOMStyle::DoGetUserFocus()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
   val->SetIdent(
-    nsCSSProps::ValueToKeywordEnum(StyleUserInterface()->mUserFocus,
+    nsCSSProps::ValueToKeywordEnum(uint8_t(StyleUserInterface()->mUserFocus),
                                    nsCSSProps::kUserFocusKTable));
   return val.forget();
 }
@@ -4708,7 +4769,7 @@ nsComputedDOMStyle::DoGetHeight()
         !(mInnerFrame->IsFrameOfType(nsIFrame::eReplaced)) &&
         // An outer SVG frame should behave the same as eReplaced in this case
         mInnerFrame->GetType() != nsGkAtoms::svgOuterSVGFrame) {
-      
+
       calcHeight = false;
     }
   }
@@ -4752,7 +4813,7 @@ nsComputedDOMStyle::DoGetWidth()
         !(mInnerFrame->IsFrameOfType(nsIFrame::eReplaced)) &&
         // An outer SVG frame should behave the same as eReplaced in this case
         mInnerFrame->GetType() != nsGkAtoms::svgOuterSVGFrame) {
-      
+
       calcWidth = false;
     }
   }
@@ -5104,7 +5165,7 @@ nsComputedDOMStyle::GetLineHeightCoord(nscoord& aCoord)
 
   // lie about font size inflation since we lie about font size (since
   // the inflation only applies to text)
-  aCoord = nsHTMLReflowState::CalcLineHeight(mContent, mStyleContext,
+  aCoord = ReflowInput::CalcLineHeight(mContent, mStyleContext,
                                              blockHeight, 1.0f);
 
   // CalcLineHeight uses font->mFont.size, but we want to use
@@ -5523,8 +5584,7 @@ nsComputedDOMStyle::GetSVGPaintFor(bool aFill)
     {
       RefPtr<nsDOMCSSValueList> valueList = GetROCSSValueList(false);
       RefPtr<nsROCSSPrimitiveValue> fallback = new nsROCSSPrimitiveValue;
-
-      val->SetURI(paint->mPaint.mPaintServer);
+      SetValueToFragmentOrURL(paint->mPaint.mPaintServer, val);
       SetToRGBAColor(fallback, paint->mFallbackColor);
 
       valueList->AppendCSSValue(val.forget());
@@ -5562,13 +5622,7 @@ already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetMarkerEnd()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
-
-  const nsStyleSVG* svg = StyleSVG();
-
-  if (svg->mMarkerEnd)
-    val->SetURI(svg->mMarkerEnd);
-  else
-    val->SetIdent(eCSSKeyword_none);
+  SetValueToFragmentOrURL(&StyleSVG()->mMarkerEnd, val);
 
   return val.forget();
 }
@@ -5577,13 +5631,7 @@ already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetMarkerMid()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
-
-  const nsStyleSVG* svg = StyleSVG();
-
-  if (svg->mMarkerMid)
-    val->SetURI(svg->mMarkerMid);
-  else
-    val->SetIdent(eCSSKeyword_none);
+  SetValueToFragmentOrURL(&StyleSVG()->mMarkerMid, val);
 
   return val.forget();
 }
@@ -5592,13 +5640,7 @@ already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetMarkerStart()
 {
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
-
-  const nsStyleSVG* svg = StyleSVG();
-
-  if (svg->mMarkerStart)
-    val->SetURI(svg->mMarkerStart);
-  else
-    val->SetIdent(eCSSKeyword_none);
+  SetValueToFragmentOrURL(&StyleSVG()->mMarkerStart, val);
 
   return val.forget();
 }
@@ -5874,11 +5916,11 @@ nsComputedDOMStyle::BasicShapeRadiiToString(nsAString& aCssText,
 
 already_AddRefed<CSSValue>
 nsComputedDOMStyle::CreatePrimitiveValueForBasicShape(
-  const nsStyleBasicShape* aStyleBasicShape)
+  const StyleBasicShape* aStyleBasicShape)
 {
   MOZ_ASSERT(aStyleBasicShape, "Expect a valid basic shape pointer!");
 
-  nsStyleBasicShape::Type type = aStyleBasicShape->GetShapeType();
+  StyleBasicShapeType type = aStyleBasicShape->GetShapeType();
   // Shape function name and opening parenthesis.
   nsAutoString shapeFunctionString;
   AppendASCIItoUTF16(nsCSSKeywords::GetStringValue(
@@ -5886,7 +5928,7 @@ nsComputedDOMStyle::CreatePrimitiveValueForBasicShape(
                      shapeFunctionString);
   shapeFunctionString.Append('(');
   switch (type) {
-    case nsStyleBasicShape::Type::ePolygon: {
+    case StyleBasicShapeType::Polygon: {
       bool hasEvenOdd = aStyleBasicShape->GetFillRule() ==
         NS_STYLE_FILL_RULE_EVENODD;
       if (hasEvenOdd) {
@@ -5908,11 +5950,11 @@ nsComputedDOMStyle::CreatePrimitiveValueForBasicShape(
       }
       break;
     }
-    case nsStyleBasicShape::Type::eCircle:
-    case nsStyleBasicShape::Type::eEllipse: {
+    case StyleBasicShapeType::Circle:
+    case StyleBasicShapeType::Ellipse: {
       const nsTArray<nsStyleCoord>& radii = aStyleBasicShape->Coordinates();
       MOZ_ASSERT(radii.Length() ==
-                 (type == nsStyleBasicShape::Type::eCircle ? 1 : 2),
+                 (type == StyleBasicShapeType::Circle ? 1 : 2),
                  "wrong number of radii");
       for (size_t i = 0; i < radii.Length(); ++i) {
         nsAutoString radius;
@@ -5933,7 +5975,7 @@ nsComputedDOMStyle::CreatePrimitiveValueForBasicShape(
       shapeFunctionString.Append(positionString);
       break;
     }
-    case nsStyleBasicShape::Type::eInset: {
+    case StyleBasicShapeType::Inset: {
       BoxValuesToString(shapeFunctionString, aStyleBasicShape->Coordinates());
       if (aStyleBasicShape->HasRadius()) {
         shapeFunctionString.AppendLiteral(" round ");
@@ -5952,9 +5994,12 @@ nsComputedDOMStyle::CreatePrimitiveValueForBasicShape(
   return functionValue.forget();
 }
 
+template<typename ReferenceBox>
 already_AddRefed<CSSValue>
-nsComputedDOMStyle::CreatePrimitiveValueForClipPath(
-  const nsStyleBasicShape* aStyleBasicShape, uint8_t aSizingBox)
+nsComputedDOMStyle::CreatePrimitiveValueForShapeSource(
+  const StyleBasicShape* aStyleBasicShape,
+  ReferenceBox aReferenceBox,
+  const KTableEntry aBoxKeywordTable[])
 {
   RefPtr<nsDOMCSSValueList> valueList = GetROCSSValueList(false);
   if (aStyleBasicShape) {
@@ -5962,39 +6007,38 @@ nsComputedDOMStyle::CreatePrimitiveValueForClipPath(
       CreatePrimitiveValueForBasicShape(aStyleBasicShape));
   }
 
-  if (aSizingBox == NS_STYLE_CLIP_SHAPE_SIZING_NOBOX) {
+  if (aReferenceBox == ReferenceBox::NoBox) {
     return valueList.forget();
   }
 
-  nsAutoString boxString;
-  AppendASCIItoUTF16(
-    nsCSSProps::ValueToKeyword(aSizingBox,
-                               nsCSSProps::kClipShapeSizingKTable),
-                               boxString);
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
-  val->SetString(boxString);
+  val->SetIdent(nsCSSProps::ValueToKeywordEnum(aReferenceBox, aBoxKeywordTable));
   valueList->AppendCSSValue(val.forget());
 
   return valueList.forget();
 }
 
+template<typename ReferenceBox>
 already_AddRefed<CSSValue>
-nsComputedDOMStyle::DoGetClipPath()
+nsComputedDOMStyle::GetShapeSource(
+  const StyleShapeSource<ReferenceBox>& aShapeSource,
+  const KTableEntry aBoxKeywordTable[])
 {
-  const nsStyleSVGReset* svg = StyleSVGReset();
-  switch (svg->mClipPath.GetType()) {
-    case NS_STYLE_CLIP_PATH_SHAPE:
-      return CreatePrimitiveValueForClipPath(svg->mClipPath.GetBasicShape(),
-                                             svg->mClipPath.GetSizingBox());
-    case NS_STYLE_CLIP_PATH_BOX:
-      return CreatePrimitiveValueForClipPath(nullptr,
-                                             svg->mClipPath.GetSizingBox());
-    case NS_STYLE_CLIP_PATH_URL: {
+  switch (aShapeSource.GetType()) {
+    case StyleShapeSourceType::Shape:
+      return CreatePrimitiveValueForShapeSource(aShapeSource.GetBasicShape(),
+                                                aShapeSource.GetReferenceBox(),
+                                                aBoxKeywordTable);
+    case StyleShapeSourceType::Box:
+      return CreatePrimitiveValueForShapeSource(nullptr,
+                                                aShapeSource.GetReferenceBox(),
+                                                aBoxKeywordTable);
+    case StyleShapeSourceType::URL: {
       RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
-      val->SetURI(svg->mClipPath.GetURL());
+      SetValueToFragmentOrURL(aShapeSource.GetURL(), val);
       return val.forget();
     }
-    case NS_STYLE_CLIP_PATH_NONE: {
+    case StyleShapeSourceType::None_: {
       RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
       val->SetIdent(eCSSKeyword_none);
       return val.forget();
@@ -6003,6 +6047,20 @@ nsComputedDOMStyle::DoGetClipPath()
       NS_NOTREACHED("unexpected type");
   }
   return nullptr;
+}
+
+already_AddRefed<CSSValue>
+nsComputedDOMStyle::DoGetClipPath()
+{
+  return GetShapeSource(StyleSVGReset()->mClipPath,
+                        nsCSSProps::kClipPathGeometryBoxKTable);
+}
+
+already_AddRefed<CSSValue>
+nsComputedDOMStyle::DoGetShapeOutside()
+{
+  return GetShapeSource(StyleDisplay()->mShapeOutside,
+                        nsCSSProps::kShapeOutsideShapeBoxKTable);
 }
 
 void
@@ -6022,7 +6080,8 @@ nsComputedDOMStyle::CreatePrimitiveValueForStyleFilter(
   RefPtr<nsROCSSPrimitiveValue> value = new nsROCSSPrimitiveValue;
   // Handle url().
   if (aStyleFilter.GetType() == NS_STYLE_FILTER_URL) {
-    value->SetURI(aStyleFilter.GetURL());
+    MOZ_ASSERT(aStyleFilter.GetURL()->GetSourceURL());
+    SetValueToFragmentOrURL(aStyleFilter.GetURL(), value);
     return value.forget();
   }
 
@@ -6089,7 +6148,7 @@ nsComputedDOMStyle::DoGetMask()
       firstLayer.mOrigin != NS_STYLE_IMAGELAYER_ORIGIN_BORDER ||
       firstLayer.mComposite != NS_STYLE_MASK_COMPOSITE_ADD ||
       firstLayer.mMaskMode != NS_STYLE_MASK_MODE_MATCH_SOURCE ||
-      !firstLayer.mPosition.IsInitialValue() ||
+      !firstLayer.mPosition.IsInitialValue(nsStyleImageLayers::LayerType::Mask) ||
       !firstLayer.mRepeat.IsInitialValue(nsStyleImageLayers::LayerType::Mask) ||
       !firstLayer.mSize.IsInitialValue() ||
       !(firstLayer.mImage.GetType() == eStyleImageType_Null ||
@@ -6099,8 +6158,8 @@ nsComputedDOMStyle::DoGetMask()
 
   RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
 
-  if (firstLayer.mSourceURI) {
-    val->SetURI(firstLayer.mSourceURI);
+  if (firstLayer.mSourceURI.GetSourceURL()) {
+    SetValueToFragmentOrURL(&firstLayer.mSourceURI, val);
   } else {
     val->SetIdent(eCSSKeyword_none);
   }
@@ -6304,7 +6363,6 @@ nsComputedDOMStyle::AppendTimingFunction(nsDOMCSSValueList *aValueList,
     case nsTimingFunction::Type::StepEnd:
       nsStyleUtil::AppendStepsTimingFunction(aTimingFunction.mType,
                                              aTimingFunction.mSteps,
-                                             aTimingFunction.mStepSyntax,
                                              tmp);
       break;
     default:

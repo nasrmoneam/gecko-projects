@@ -44,7 +44,7 @@ MediaKeySession::MediaKeySession(JSContext* aCx,
                                  MediaKeys* aKeys,
                                  const nsAString& aKeySystem,
                                  const nsAString& aCDMVersion,
-                                 SessionType aSessionType,
+                                 MediaKeySessionType aSessionType,
                                  ErrorResult& aRv)
   : DOMEventTargetHelper(aParent)
   , mKeys(aKeys)
@@ -338,7 +338,7 @@ MediaKeySession::Close(ErrorResult& aRv)
   if (IsClosed() || !mKeys->GetCDMProxy()) {
     EME_LOG("MediaKeySession[%p,'%s'] Close() already closed",
             this, NS_ConvertUTF16toUTF8(mSessionId).get());
-    promise->MaybeResolve(JS::UndefinedHandleValue);
+    promise->MaybeResolveWithUndefined();
     return promise.forget();
   }
   PromiseId pid = mKeys->StorePromise(promise);
@@ -361,7 +361,7 @@ MediaKeySession::OnClosed()
   mIsClosed = true;
   mKeys->OnSessionClosed(this);
   mKeys = nullptr;
-  mClosed->MaybeResolve(JS::UndefinedHandleValue);
+  mClosed->MaybeResolveWithUndefined();
 }
 
 bool
@@ -386,7 +386,7 @@ MediaKeySession::Remove(ErrorResult& aRv)
       NS_LITERAL_CSTRING("MediaKeySession.Remove() called before sessionId set by CDM"));
     return promise.forget();
   }
-  if (mSessionType != SessionType::Persistent) {
+  if (mSessionType != MediaKeySessionType::Persistent_license) {
     promise->MaybeReject(NS_ERROR_DOM_INVALID_ACCESS_ERR,
                          NS_LITERAL_CSTRING("Calling MediaKeySession.remove() on non-persistent session"));
     // "The operation is not supported on session type sessions."

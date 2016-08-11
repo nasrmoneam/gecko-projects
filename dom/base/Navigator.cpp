@@ -118,8 +118,6 @@
 #endif
 #include "mozilla/dom/ContentChild.h"
 
-#include "mozilla/dom/FeatureList.h"
-
 #ifdef MOZ_EME
 #include "mozilla/EMEUtils.h"
 #include "mozilla/DetailedPromise.h"
@@ -1334,12 +1332,17 @@ Navigator::SendBeacon(const nsAString& aUrl,
   nsLoadFlags loadFlags = nsIRequest::LOAD_NORMAL |
     nsIChannel::LOAD_CLASSIFY_URI;
 
+  // No need to use CORS for sendBeacon unless it's a BLOB
+  nsSecurityFlags securityFlags = (!aData.IsNull() && aData.Value().IsBlob())
+   ? nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS
+   : nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_INHERITS;
+  securityFlags |= nsILoadInfo::SEC_COOKIES_INCLUDE;
+
   nsCOMPtr<nsIChannel> channel;
   rv = NS_NewChannel(getter_AddRefs(channel),
                      uri,
                      doc,
-                     nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS |
-                       nsILoadInfo::SEC_COOKIES_INCLUDE,
+                     securityFlags,
                      nsIContentPolicy::TYPE_BEACON,
                      nullptr, // aLoadGroup
                      nullptr, // aCallbacks
@@ -1454,10 +1457,9 @@ Navigator::SendBeacon(const nsAString& aUrl,
 
   RefPtr<BeaconStreamListener> beaconListener = new BeaconStreamListener();
   rv = channel->AsyncOpen2(beaconListener);
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
-    return false;
-  }
+  // do not throw if security checks fail within asyncOpen2
+  NS_ENSURE_SUCCESS(rv, false);
+
   // make the beaconListener hold a strong reference to the loadgroup
   // which is released in ::OnStartRequest
   beaconListener->SetLoadGroup(loadGroup);
@@ -1694,7 +1696,7 @@ Navigator::GetFeature(const nsAString& aName, ErrorResult& aRv)
     return p.forget();
   }
 
-  p->MaybeResolve(JS::UndefinedHandleValue);
+  p->MaybeResolveWithUndefined();
   return p.forget();
 }
 
@@ -1793,16 +1795,12 @@ Navigator::HasFeature(const nsAString& aName, ErrorResult& aRv)
       return p.forget();
     }
 
-    if (IsFeatureDetectible(featureName)) {
-      p->MaybeResolve(true);
-    } else {
-      p->MaybeResolve(JS::UndefinedHandleValue);
-    }
+    p->MaybeResolveWithUndefined();
     return p.forget();
   }
 
   // resolve with <undefined> because the feature name is not supported
-  p->MaybeResolve(JS::UndefinedHandleValue);
+  p->MaybeResolveWithUndefined();
 
   return p.forget();
 }
@@ -2593,18 +2591,30 @@ Navigator::GetUserAgent(nsPIDOMWindowInner* aWindow, nsIURI* aURI,
 static nsCString
 ToCString(const nsString& aString)
 {
-  return NS_ConvertUTF16toUTF8(aString);
+  nsCString str("'");
+  str.Append(NS_ConvertUTF16toUTF8(aString));
+  str.AppendLiteral("'");
+  return str;
+}
+
+static nsCString
+ToCString(const MediaKeysRequirement aValue)
+{
+  nsCString str("'");
+  str.Append(nsDependentCString(MediaKeysRequirementValues::strings[static_cast<uint32_t>(aValue)].value));
+  str.AppendLiteral("'");
+  return str;
 }
 
 static nsCString
 ToCString(const MediaKeySystemMediaCapability& aValue)
 {
   nsCString str;
-  str.AppendLiteral("{contentType='");
-  if (!aValue.mContentType.IsEmpty()) {
-    str.Append(ToCString(aValue.mContentType));
-  }
-  str.AppendLiteral("'}");
+  str.AppendLiteral("{contentType=");
+  str.Append(ToCString(aValue.mContentType));
+  str.AppendLiteral(", robustness=");
+  str.Append(ToCString(aValue.mRobustness));
+  str.AppendLiteral("}");
   return str;
 }
 
@@ -2612,38 +2622,55 @@ template<class Type>
 static nsCString
 ToCString(const Sequence<Type>& aSequence)
 {
-  nsCString s;
-  s.AppendLiteral("[");
+  nsCString str;
+  str.AppendLiteral("[");
   for (size_t i = 0; i < aSequence.Length(); i++) {
     if (i != 0) {
-      s.AppendLiteral(",");
+      str.AppendLiteral(",");
     }
-    s.Append(ToCString(aSequence[i]));
+    str.Append(ToCString(aSequence[i]));
   }
-  s.AppendLiteral("]");
-  return s;
+  str.AppendLiteral("]");
+  return str;
+}
+
+template<class Type>
+static nsCString
+ToCString(const Optional<Sequence<Type>>& aOptional)
+{
+  nsCString str;
+  if (aOptional.WasPassed()) {
+    str.Append(ToCString(aOptional.Value()));
+  } else {
+    str.AppendLiteral("[]");
+  }
+  return str;
 }
 
 static nsCString
 ToCString(const MediaKeySystemConfiguration& aConfig)
 {
   nsCString str;
-  str.AppendLiteral("{");
-  str.AppendPrintf("label='%s'", NS_ConvertUTF16toUTF8(aConfig.mLabel).get());
+  str.AppendLiteral("{label=");
+  str.Append(ToCString(aConfig.mLabel));
 
-  if (aConfig.mInitDataTypes.WasPassed()) {
-    str.AppendLiteral(", initDataTypes=");
-    str.Append(ToCString(aConfig.mInitDataTypes.Value()));
-  }
+  str.AppendLiteral(", initDataTypes=");
+  str.Append(ToCString(aConfig.mInitDataTypes));
 
-  if (aConfig.mAudioCapabilities.WasPassed()) {
-    str.AppendLiteral(", audioCapabilities=");
-    str.Append(ToCString(aConfig.mAudioCapabilities.Value()));
-  }
-  if (aConfig.mVideoCapabilities.WasPassed()) {
-    str.AppendLiteral(", videoCapabilities=");
-    str.Append(ToCString(aConfig.mVideoCapabilities.Value()));
-  }
+  str.AppendLiteral(", audioCapabilities=");
+  str.Append(ToCString(aConfig.mAudioCapabilities));
+
+  str.AppendLiteral(", videoCapabilities=");
+  str.Append(ToCString(aConfig.mVideoCapabilities));
+
+  str.AppendLiteral(", distinctiveIdentifier=");
+  str.Append(ToCString(aConfig.mDistinctiveIdentifier));
+
+  str.AppendLiteral(", persistentState=");
+  str.Append(ToCString(aConfig.mPersistentState));
+
+  str.AppendLiteral(", sessionTypes=");
+  str.Append(ToCString(aConfig.mSessionTypes));
 
   str.AppendLiteral("}");
 

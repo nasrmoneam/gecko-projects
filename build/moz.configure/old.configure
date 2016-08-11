@@ -1,4 +1,4 @@
-# -*- Mode: python; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 40 -*-
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
 # vim: set filetype=python:
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -256,7 +256,6 @@ def old_configure_options(*options):
     '--enable-url-classifier',
     '--enable-valgrind',
     '--enable-verify-mar',
-    '--enable-warnings-as-errors',
     '--enable-webapp-runtime',
     '--enable-webrtc',
     '--enable-websms-backend',
@@ -272,7 +271,6 @@ def old_configure_options(*options):
     '--with-android-max-sdk',
     '--with-android-min-sdk',
     '--with-android-sdk',
-    '--with-android-version',
     '--with-app-basename',
     '--with-app-name',
     '--with-arch',
@@ -322,7 +320,6 @@ def old_configure_options(*options):
     '--with-thumb-interwork',
     '--with-unify-dist',
     '--with-user-appdir',
-    '--with-windows-version',
     '--x-includes',
     '--x-libraries',
 

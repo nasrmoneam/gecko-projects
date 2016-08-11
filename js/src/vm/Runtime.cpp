@@ -161,7 +161,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     promiseRejectionTrackerCallback(nullptr),
     promiseRejectionTrackerCallbackData(nullptr),
 #ifdef DEBUG
-    exclusiveAccessOwner(nullptr),
     mainThreadHasExclusiveAccess(false),
 #endif
     numExclusiveThreads(0),
@@ -201,16 +200,10 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     profilingScripts(false),
     suppressProfilerSampling(false),
     hadOutOfMemory(false),
-#ifdef DEBUG
-    handlingInitFailure(false),
-#endif
 #if defined(DEBUG) || defined(JS_OOM_BREAKPOINT)
     runningOOMTest(false),
 #endif
     allowRelazificationForTesting(false),
-    data(nullptr),
-    signalHandlersInstalled_(false),
-    canUseSignalHandlers_(false),
     defaultFreeOp_(thisFromCtor()),
     debuggerMutations(0),
     securityCallbacks(&NullSecurityCallbacks),
@@ -267,14 +260,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     PodArrayZero(nativeStackQuota);
     PodZero(&asmJSCacheOps);
     lcovOutput.init();
-}
-
-static bool
-SignalBasedTriggersDisabled()
-{
-  // Don't bother trying to cache the getenv lookup; this should be called
-  // infrequently.
-  return !!getenv("JS_DISABLE_SLOW_SCRIPT_SIGNALS") || !!getenv("JS_NO_SIGNALS");
 }
 
 bool
@@ -354,8 +339,8 @@ JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
     jitSupportsUnalignedAccesses = js::jit::JitSupportsUnalignedAccesses();
     jitSupportsSimd = js::jit::JitSupportsSimd();
 
-    signalHandlersInstalled_ = wasm::EnsureSignalHandlersInstalled(this);
-    canUseSignalHandlers_ = signalHandlersInstalled_ && !SignalBasedTriggersDisabled();
+    if (!wasm::EnsureSignalHandlers(this))
+        return false;
 
     if (!spsProfiler.init())
         return false;
@@ -445,8 +430,6 @@ JSRuntime::destroyRuntime()
      * GC, as finalizers for objects check for clasp->finalize during GC.
      */
     finishSelfHosting();
-
-    MOZ_ASSERT(!exclusiveAccessOwner);
 
     MOZ_ASSERT(!numExclusiveThreads);
     AutoLockForExclusiveAccess lock(this);
@@ -612,7 +595,7 @@ InvokeInterruptCallback(JSContext* cx)
     if (flat && stableChars.initTwoByte(cx, flat))
         chars = stableChars.twoByteRange().start().get();
     else
-        chars = MOZ_UTF16("(stack not available)");
+        chars = u"(stack not available)";
     JS_ReportErrorFlagsAndNumberUC(cx, JSREPORT_WARNING, GetErrorMessage, nullptr,
                                    JSMSG_TERMINATED, chars);
 
@@ -863,7 +846,8 @@ bool
 JSRuntime::activeGCInAtomsZone()
 {
     Zone* zone = atomsCompartment_->zone();
-    return zone->needsIncrementalBarrier() || zone->isGCScheduled() || zone->wasGCStarted();
+    return (zone->needsIncrementalBarrier() && !gc.isVerifyPreBarriersEnabled()) ||
+           zone->wasGCStarted();
 }
 
 void
@@ -901,39 +885,6 @@ js::CurrentThreadCanAccessZone(Zone* zone)
     // is imperfect.
     return zone->usedByExclusiveThread;
 }
-
-#ifdef DEBUG
-
-void
-JSRuntime::assertCanLock(RuntimeLock which)
-{
-    // In the switch below, each case falls through to the one below it. None
-    // of the runtime locks are reentrant, and when multiple locks are acquired
-    // it must be done in the order below.
-    switch (which) {
-      case ExclusiveAccessLock:
-        MOZ_ASSERT(exclusiveAccessOwner != PR_GetCurrentThread());
-        MOZ_FALLTHROUGH;
-      case HelperThreadStateLock:
-        MOZ_ASSERT(!HelperThreadState().isLocked());
-        MOZ_FALLTHROUGH;
-      case GCLock:
-        gc.assertCanLock();
-        break;
-      default:
-        MOZ_CRASH();
-    }
-}
-
-void
-js::AssertCurrentThreadCanLock(RuntimeLock which)
-{
-    PerThreadData* pt = TlsPerThreadData.get();
-    if (pt && pt->runtime_)
-        pt->runtime_->assertCanLock(which);
-}
-
-#endif // DEBUG
 
 JS_FRIEND_API(void)
 JS::UpdateJSRuntimeProfilerSampleBufferGen(JSRuntime* runtime, uint32_t generation,

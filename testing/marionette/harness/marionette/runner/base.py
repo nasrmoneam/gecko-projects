@@ -346,6 +346,7 @@ class BaseMarionetteArguments(ArgumentParser):
                         help='Enable python post-mortem debugger when a test fails.'
                              ' Pass in the debugger you want to use, eg pdb or ipdb.')
         self.add_argument('--socket-timeout',
+                        type=float,
                         default=self.socket_timeout_default,
                         help='Set the global timeout for marionette socket operations.')
         self.add_argument('--disable-e10s',
@@ -537,6 +538,7 @@ class BaseMarionetteTestRunner(object):
         self.workspace_path = workspace or os.getcwd()
         self.verbose = verbose
         self.e10s = e10s
+        self._filename_pattern = None
 
         def gather_debug(test, status):
             rv = {}
@@ -575,6 +577,13 @@ class BaseMarionetteTestRunner(object):
         self.results = []
 
     @property
+    def filename_pattern(self):
+        if self._filename_pattern is None:
+            self._filename_pattern = re.compile("^test(((_.+?)+?\.((py)|(js)))|(([A-Z].*?)+?\.js))$")
+
+        return self._filename_pattern
+
+    @property
     def testvars(self):
         if self._testvars is not None:
             return self._testvars
@@ -607,9 +616,9 @@ class BaseMarionetteTestRunner(object):
                     with open(path) as f:
                         data.append(json.loads(f.read()))
                 except ValueError as e:
-                    raise Exception("JSON file (%s) is not properly "
-                                    "formatted: %s" % (os.path.abspath(path),
-                                                       e.message))
+                    exc, val, tb = sys.exc_info()
+                    msg = "JSON file ({0}) is not properly formatted: {1}"
+                    raise exc, msg.format(os.path.abspath(path), e.message), tb
         return data
 
     @property
@@ -660,11 +669,7 @@ class BaseMarionetteTestRunner(object):
         """
         self._bin = path
         self.tests = []
-        if hasattr(self, 'marionette') and self.marionette:
-            self.marionette.cleanup()
-            if self.marionette.instance:
-                self.marionette.instance = None
-        self.marionette = None
+        self.cleanup()
 
     def reset_test_stats(self):
         self.passed = 0
@@ -728,8 +733,10 @@ class BaseMarionetteTestRunner(object):
                     connection = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
                     connection.connect((host,int(port)))
                     connection.close()
-                except Exception, e:
-                    raise Exception("Connection attempt to %s:%s failed with error: %s" %(host,port,e))
+                except Exception as e:
+                    exc, val, tb = sys.exc_info()
+                    msg = "Connection attempt to {0}:{1} failed with error: {2}"
+                    raise exc, msg.format(host, port, e), tb
         if self.workspace:
             kwargs['workspace'] = self.workspace_path
         return kwargs
@@ -823,16 +830,16 @@ setReq.onerror = function() {
         for test in tests:
             self.add_test(test)
 
-        pattern = re.compile("^test(((_.+?)+?\.((py)|(js)))|(([A-Z].*?)+?\.js))$")
-        def is_valid(test):
-            filename = os.path.basename(test['filepath'])
-            return pattern.match(filename)
-        invalid_tests = [t['filepath'] for t in self.tests if not is_valid(t)]
+        invalid_tests = [t['filepath'] for t in self.tests if not self._is_filename_valid(t['filepath'])]
         if invalid_tests:
             raise Exception("Test file names must be of the form "
                             "'test_something.py', 'test_something.js', or 'testSomething.js'."
                             " Invalid test names:\n  %s"
                             % '\n  '.join(invalid_tests))
+
+    def _is_filename_valid(self, filename):
+        filename = os.path.basename(filename)
+        return self.filename_pattern.match(filename)
 
     def _log_skipped_tests(self):
         for test in self.manifest_skipped_tests:
@@ -887,15 +894,16 @@ setReq.onerror = function() {
             # we want to display current test results.
             # so we keep the exception to raise it later.
             interrupted = sys.exc_info()
+        except:
+            # For any other exception we return immediately and have to
+            # cleanup running processes
+            self.cleanup()
+            raise
+
         try:
             self._print_summary(tests)
             self.record_crash()
             self.elapsedtime = time.time() - start_time
-
-            if self.marionette.instance:
-                self.marionette.instance.close()
-                self.marionette.instance = None
-            self.marionette.cleanup()
 
             for run_tests in self.mixin_run_tests:
                 run_tests(tests)
@@ -909,6 +917,8 @@ setReq.onerror = function() {
             if not interrupted:
                 raise
         finally:
+            self.cleanup()
+
             # reraise previous interruption now
             if interrupted:
                 raise interrupted[0], interrupted[1], interrupted[2]
@@ -950,13 +960,12 @@ setReq.onerror = function() {
         if os.path.isdir(filepath):
             for root, dirs, files in os.walk(filepath):
                 for filename in files:
-                    if (filename.endswith('.ini')):
+                    if filename.endswith('.ini'):
                         msg_tmpl = ("Ignoring manifest '{0}'; running all tests in '{1}'."
                                     " See --help for details.")
                         relpath = os.path.relpath(os.path.join(root, filename), filepath)
                         self.logger.warning(msg_tmpl.format(relpath, filepath))
-                    elif (filename.startswith('test_') and
-                        (filename.endswith('.py') or filename.endswith('.js'))):
+                    elif self._is_filename_valid(filename):
                         test_file = os.path.join(root, filename)
                         self.add_test(test_file)
             return
@@ -1082,10 +1091,16 @@ setReq.onerror = function() {
         self.run_test_set(self.tests)
 
     def cleanup(self):
-        if self.httpd:
+        if hasattr(self, 'httpd') and self.httpd:
             self.httpd.stop()
+            self.httpd = None
 
-        if self.marionette:
+        if hasattr(self, 'marionette') and self.marionette:
+            if self.marionette.instance:
+                self.marionette.instance.close()
+                self.marionette.instance = None
+
             self.marionette.cleanup()
+            self.marionette = None
 
     __del__ = cleanup

@@ -106,7 +106,7 @@ public:
   NS_IMETHOD_(void) UpdatePlaceholderVisibility(bool aNotify) override;
   NS_IMETHOD_(bool) GetPlaceholderVisibility() override;
   NS_IMETHOD_(void) InitializeKeyboardEventListeners() override;
-  NS_IMETHOD_(void) OnValueChanged(bool aNotify) override;
+  NS_IMETHOD_(void) OnValueChanged(bool aNotify, bool aWasInteractiveUserChange) override;
   NS_IMETHOD_(bool) HasCachedSelection() override;
 
   // nsIContent
@@ -269,10 +269,10 @@ public:
   using nsIConstraintValidation::ReportValidity;
   // nsIConstraintValidation::SetCustomValidity() is fine.
   // XPCOM Select is fine
-  uint32_t GetSelectionStart(ErrorResult& aError);
-  void SetSelectionStart(uint32_t aSelectionStart, ErrorResult& aError);
-  uint32_t GetSelectionEnd(ErrorResult& aError);
-  void SetSelectionEnd(uint32_t aSelectionEnd, ErrorResult& aError);
+  Nullable<uint32_t> GetSelectionStart(ErrorResult& aError);
+  void SetSelectionStart(const Nullable<uint32_t>& aSelectionStart, ErrorResult& aError);
+  Nullable<uint32_t> GetSelectionEnd(ErrorResult& aError);
+  void SetSelectionEnd(const Nullable<uint32_t>& aSelectionEnd, ErrorResult& aError);
   void GetSelectionDirection(nsAString& aDirection, ErrorResult& aError);
   void SetSelectionDirection(const nsAString& aDirection, ErrorResult& aError);
   void SetSelectionRange(uint32_t aSelectionStart, uint32_t aSelectionEnd, const Optional<nsAString>& aDirecton, ErrorResult& aError);
@@ -293,6 +293,8 @@ protected:
   nsCOMPtr<nsIControllers> mControllers;
   /** Whether or not the value has changed since its default value was given. */
   bool                     mValueChanged;
+  /** Whether or not the last change to the value was made interactively by the user. */
+  bool                     mLastValueChangeWasInteractive;
   /** Whether or not we are already handling select event. */
   bool                     mHandlingSelect;
   /** Whether or not we are done adding children (always true if not

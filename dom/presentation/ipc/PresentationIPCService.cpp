@@ -8,6 +8,7 @@
 #include "mozilla/dom/PPresentation.h"
 #include "mozilla/ipc/InputStreamUtils.h"
 #include "mozilla/ipc/URIUtils.h"
+#include "nsGlobalWindow.h"
 #include "nsIPresentationListener.h"
 #include "PresentationCallbacks.h"
 #include "PresentationChild.h"
@@ -130,6 +131,39 @@ PresentationIPCService::TerminateSession(const nsAString& aSessionId,
   return NS_OK;
 }
 
+NS_IMETHODIMP
+PresentationIPCService::ReconnectSession(const nsAString& aUrl,
+                                         const nsAString& aSessionId,
+                                         uint8_t aRole,
+                                         nsIPresentationServiceCallback* aCallback)
+{
+  MOZ_ASSERT(!aSessionId.IsEmpty());
+
+  if (aRole != nsIPresentationService::ROLE_CONTROLLER) {
+    MOZ_ASSERT(false, "Only controller can call ReconnectSession.");
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  return SendRequest(aCallback, ReconnectSessionRequest(nsString(aUrl),
+                                                        nsString(aSessionId),
+                                                        aRole));
+}
+
+NS_IMETHODIMP
+PresentationIPCService::BuildTransport(const nsAString& aSessionId,
+                                       uint8_t aRole)
+{
+  MOZ_ASSERT(!aSessionId.IsEmpty());
+
+  if (aRole != nsIPresentationService::ROLE_CONTROLLER) {
+    MOZ_ASSERT(false, "Only controller can call ReconnectSession.");
+    return NS_ERROR_INVALID_ARG;
+  }
+
+  return SendRequest(nullptr, BuildTransportRequest(nsString(aSessionId),
+                                                    aRole));
+}
+
 nsresult
 PresentationIPCService::SendRequest(nsIPresentationServiceCallback* aCallback,
                                     const PresentationIPCRequest& aRequest)
@@ -174,6 +208,13 @@ PresentationIPCService::RegisterSessionListener(const nsAString& aSessionId,
 {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aListener);
+
+  nsCOMPtr<nsIPresentationSessionListener> listener;
+  if (mSessionListeners.Get(aSessionId, getter_AddRefs(listener))) {
+    NS_WARN_IF(NS_FAILED(listener->NotifyReplaced()));
+    mSessionListeners.Put(aSessionId, aListener);
+    return NS_OK;
+  }
 
   mSessionListeners.Put(aSessionId, aListener);
   if (sPresentationChild) {
@@ -242,6 +283,13 @@ PresentationIPCService::GetWindowIdBySessionId(const nsAString& aSessionId,
                                                uint64_t* aWindowId)
 {
   return GetWindowIdBySessionIdInternal(aSessionId, aWindowId);
+}
+
+NS_IMETHODIMP
+PresentationIPCService::UpdateWindowIdBySessionId(const nsAString& aSessionId,
+                                                  const uint64_t aWindowId)
+{
+  return UpdateWindowIdBySessionIdInternal(aSessionId, aWindowId);
 }
 
 nsresult
@@ -316,7 +364,8 @@ PresentationIPCService::GetExistentSessionIdAtLaunch(uint64_t aWindowId,
 
 NS_IMETHODIMP
 PresentationIPCService::NotifyReceiverReady(const nsAString& aSessionId,
-                                            uint64_t aWindowId)
+                                            uint64_t aWindowId,
+                                            bool aIsLoading)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -329,7 +378,8 @@ PresentationIPCService::NotifyReceiverReady(const nsAString& aSessionId,
   AddRespondingSessionId(aWindowId, aSessionId);
 
   NS_WARN_IF(!sPresentationChild->SendNotifyReceiverReady(nsString(aSessionId),
-                                                          aWindowId));
+                                                          aWindowId,
+                                                          aIsLoading));
 
   // Release mCallback after using aSessionId
   // because aSessionId is held by mCallback.
@@ -341,6 +391,18 @@ NS_IMETHODIMP
 PresentationIPCService::UntrackSessionInfo(const nsAString& aSessionId,
                                            uint8_t aRole)
 {
+  if (nsIPresentationService::ROLE_RECEIVER == aRole) {
+    // Terminate receiver page.
+    uint64_t windowId;
+    if (NS_SUCCEEDED(GetWindowIdBySessionIdInternal(aSessionId, &windowId))) {
+      NS_DispatchToMainThread(NS_NewRunnableFunction([windowId]() -> void {
+        if (auto* window = nsGlobalWindow::GetInnerWindowWithId(windowId)) {
+          window->Close();
+        }
+      }));
+    }
+  }
+
   // Remove the OOP responding info (if it has never been used).
   RemoveRespondingSessionId(aSessionId);
   if (mSessionInfos.Contains(aSessionId)) {
