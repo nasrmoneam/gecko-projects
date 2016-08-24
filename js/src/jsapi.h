@@ -14,6 +14,7 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Range.h"
 #include "mozilla/RangedPtr.h"
+#include "mozilla/RefCounted.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Variant.h"
 
@@ -457,7 +458,7 @@ class MOZ_RAII JS_PUBLIC_API(CustomAutoRooter) : private AutoGCRooter
 {
   public:
     template <typename CX>
-    explicit CustomAutoRooter(CX* cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+    explicit CustomAutoRooter(const CX& cx MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
       : AutoGCRooter(cx, CUSTOM)
     {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
@@ -523,15 +524,15 @@ class HandleValueArray
 /************************************************************************/
 
 struct JSFreeOp {
-  private:
+  protected:
     JSRuntime*  runtime_;
 
-  protected:
     explicit JSFreeOp(JSRuntime* rt)
       : runtime_(rt) { }
 
   public:
     JSRuntime* runtime() const {
+        MOZ_ASSERT(runtime_);
         return runtime_;
     }
 };
@@ -998,9 +999,6 @@ JS_GetContextPrivate(JSContext* cx);
 JS_PUBLIC_API(void)
 JS_SetContextPrivate(JSContext* cx, void* data);
 
-extern JS_PUBLIC_API(JSRuntime*)
-JS_GetRuntime(JSContext* cx);
-
 extern JS_PUBLIC_API(JSContext*)
 JS_GetParentContext(JSContext* cx);
 
@@ -1044,16 +1042,6 @@ class MOZ_RAII JSAutoRequest
     static void operator delete(void*, size_t) { }
 #endif
 };
-
-extern JS_PUBLIC_API(JSRuntime*)
-JS_GetRuntime(JSContext* cx);
-
-/**
- * Returns the runtime's JSContext. The plan is to expose a single type to the
- * API, so this function will likely be removed soon.
- */
-extern JS_PUBLIC_API(JSContext*)
-JS_GetContext(JSRuntime* rt);
 
 extern JS_PUBLIC_API(JSVersion)
 JS_GetVersion(JSContext* cx);
@@ -1244,6 +1232,13 @@ ContextOptionsRef(JSContext* cx);
  */
 JS_PUBLIC_API(bool)
 InitSelfHostedCode(JSContext* cx);
+
+/**
+ * Asserts (in debug and release builds) that `obj` belongs to the current
+ * thread's context.
+ */
+JS_PUBLIC_API(void)
+AssertObjectBelongsToCurrentThread(JSObject* obj);
 
 } /* namespace JS */
 
@@ -2455,9 +2450,6 @@ JS_NewObject(JSContext* cx, const JSClass* clasp);
 
 extern JS_PUBLIC_API(bool)
 JS_IsNative(JSObject* obj);
-
-extern JS_PUBLIC_API(JSRuntime*)
-JS_GetObjectRuntime(JSObject* obj);
 
 /**
  * Unlike JS_NewObject, JS_NewObjectWithGivenProto does not compute a default
@@ -3833,7 +3825,6 @@ class JS_FRIEND_API(ReadOnlyCompileOptions) : public TransitiveCompileOptions
  */
 class JS_FRIEND_API(OwningCompileOptions) : public ReadOnlyCompileOptions
 {
-    JSRuntime* runtime;
     PersistentRootedObject elementRoot;
     PersistentRootedString elementAttributeNameRoot;
     PersistentRootedScript introductionScriptRoot;
@@ -4517,6 +4508,58 @@ AddPromiseReactions(JSContext* cx, JS::HandleObject promise,
 extern JS_PUBLIC_API(JSObject*)
 GetWaitForAllPromise(JSContext* cx, const JS::AutoObjectVector& promises);
 
+/**
+ * An AsyncTask represents a SpiderMonkey-internal operation that starts on a
+ * JSContext's owner thread, possibly executes on other threads, completes, and
+ * then needs to be scheduled to run again on the JSContext's owner thread. The
+ * embedding provides for this final dispatch back to the JSContext's owner
+ * thread by calling methods on this interface when requested.
+ */
+struct JS_PUBLIC_API(AsyncTask)
+{
+    AsyncTask() : user(nullptr) {}
+    virtual ~AsyncTask() {}
+
+    /**
+     * After the FinishAsyncTaskCallback is called and succeeds, one of these
+     * two functions will be called on the original JSContext's owner thread.
+     */
+    virtual void finish(JSContext* cx) = 0;
+    virtual void cancel(JSContext* cx) = 0;
+
+    /* The embedding may use this field to attach arbitrary data to a task. */
+    void* user;
+};
+
+/**
+ * A new AsyncTask object, created inside SpiderMonkey on the JSContext's owner
+ * thread, will be passed to the StartAsyncTaskCallback before it is dispatched
+ * to another thread. The embedding may use the AsyncTask::user field to attach
+ * additional task state.
+ *
+ * If this function succeeds, SpiderMonkey will call the FinishAsyncTaskCallback
+ * at some point in the future. Otherwise, FinishAsyncTaskCallback will *not*
+ * be called.
+ */
+typedef bool
+(*StartAsyncTaskCallback)(JSContext* cx, AsyncTask* task);
+
+/**
+ * The FinishAsyncTaskCallback may be called from any thread and will only be
+ * passed AsyncTasks that have already been started via StartAsyncTaskCallback.
+ * If the embedding returns 'true', indicating success, the embedding must call
+ * either task->finish() or task->cancel() on the JSContext's owner thread at
+ * some point in the future.
+ */
+typedef bool
+(*FinishAsyncTaskCallback)(AsyncTask* task);
+
+/**
+ * Set the above callbacks for the given context.
+ */
+extern JS_PUBLIC_API(void)
+SetAsyncTaskCallbacks(JSContext* cx, StartAsyncTaskCallback start, FinishAsyncTaskCallback finish);
+
 } // namespace JS
 
 extern JS_PUBLIC_API(bool)
@@ -5071,6 +5114,12 @@ extern JS_PUBLIC_API(bool)
 JS_SetDefaultLocale(JSContext* cx, const char* locale);
 
 /**
+ * Look up the default locale for the ECMAScript Internationalization API.
+ */
+extern JS_PUBLIC_API(JS::UniqueChars)
+JS_GetDefaultLocale(JSContext* cx);
+
+/**
  * Reset the default locale to OS defaults.
  */
 extern JS_PUBLIC_API(void)
@@ -5117,6 +5166,9 @@ const uint16_t MaxNumErrorArguments = 10;
 extern JS_PUBLIC_API(void)
 JS_ReportError(JSContext* cx, const char* format, ...);
 
+extern JS_PUBLIC_API(void)
+JS_ReportErrorLatin1(JSContext* cx, const char* format, ...);
+
 /*
  * Use an errorNumber to retrieve the format string, args are char*
  */
@@ -5128,6 +5180,16 @@ JS_ReportErrorNumber(JSContext* cx, JSErrorCallback errorCallback,
 extern JS_PUBLIC_API(void)
 JS_ReportErrorNumberVA(JSContext* cx, JSErrorCallback errorCallback,
                        void* userRef, const unsigned errorNumber, va_list ap);
+#endif
+
+extern JS_PUBLIC_API(void)
+JS_ReportErrorNumberLatin1(JSContext* cx, JSErrorCallback errorCallback,
+                           void* userRef, const unsigned errorNumber, ...);
+
+#ifdef va_start
+extern JS_PUBLIC_API(void)
+JS_ReportErrorNumberLatin1VA(JSContext* cx, JSErrorCallback errorCallback,
+                             void* userRef, const unsigned errorNumber, va_list ap);
 #endif
 
 /*
@@ -5152,9 +5214,17 @@ extern JS_PUBLIC_API(bool)
 JS_ReportWarning(JSContext* cx, const char* format, ...);
 
 extern JS_PUBLIC_API(bool)
+JS_ReportWarningLatin1(JSContext* cx, const char* format, ...);
+
+extern JS_PUBLIC_API(bool)
 JS_ReportErrorFlagsAndNumber(JSContext* cx, unsigned flags,
                              JSErrorCallback errorCallback, void* userRef,
                              const unsigned errorNumber, ...);
+
+extern JS_PUBLIC_API(bool)
+JS_ReportErrorFlagsAndNumberLatin1(JSContext* cx, unsigned flags,
+                                   JSErrorCallback errorCallback, void* userRef,
+                                   const unsigned errorNumber, ...);
 
 extern JS_PUBLIC_API(bool)
 JS_ReportErrorFlagsAndNumberUC(JSContext* cx, unsigned flags,
@@ -5518,9 +5588,6 @@ JS_ThrowStopIteration(JSContext* cx);
 
 extern JS_PUBLIC_API(bool)
 JS_IsStopIteration(JS::Value v);
-
-extern JS_PUBLIC_API(intptr_t)
-JS_GetCurrentThread();
 
 /**
  * A JS context always has an "owner thread". The owner thread is set when the

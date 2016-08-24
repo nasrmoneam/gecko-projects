@@ -116,6 +116,7 @@ template<typename> struct Nullable;
 
 namespace gfx {
 class SourceSurface;
+class VRLayerChild;
 } // namespace gfx
 
 namespace webgl {
@@ -354,6 +355,11 @@ public:
 
     bool PresentScreenBuffer();
 
+    // Prepare the context for capture before compositing
+    void BeginComposition();
+    // Clean up the context after captured for compositing
+    void EndComposition();
+
     // a number that increments every time we have an event that causes
     // all context resources to be lost.
     uint32_t Generation() { return mGeneration.value(); }
@@ -539,6 +545,9 @@ public:
     void LinkProgram(WebGLProgram* prog);
     void PixelStorei(GLenum pname, GLint param);
     void PolygonOffset(GLfloat factor, GLfloat units);
+
+    already_AddRefed<layers::SharedSurfaceTextureClient> GetVRFrame();
+    bool StartVRPresentation();
 protected:
     bool ReadPixels_SharedPrecheck(ErrorResult* const out_error);
     void ReadPixelsImpl(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
@@ -548,10 +557,20 @@ protected:
                                 GLenum destType, void* dest, uint32_t dataLen,
                                 uint32_t rowStride);
 public:
-    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
-                    GLenum format, GLenum type,
-                    const dom::Nullable<dom::ArrayBufferView>& pixels,
-                    ErrorResult& rv);
+    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                    GLenum type, const dom::Nullable<dom::ArrayBufferView>& maybeView,
+                    ErrorResult& rv)
+    {
+        const char funcName[] = "readPixels";
+        if (maybeView.IsNull()) {
+            ErrorInvalidValue("%s: `pixels` must not be null.", funcName);
+            return;
+        }
+        ReadPixels(x, y, width, height, format, type, maybeView.Value(), rv);
+    }
+
+    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                    GLenum type, const dom::ArrayBufferView& pixels, ErrorResult& rv);
     void RenderbufferStorage(GLenum target, GLenum internalFormat,
                              GLsizei width, GLsizei height);
 protected:
@@ -848,48 +867,77 @@ public:
                            GLint yOffset, GLint x, GLint y, GLsizei width,
                            GLsizei height);
 
+    ////
+
     void TexImage2D(GLenum texImageTarget, GLint level, GLenum internalFormat,
                     GLsizei width, GLsizei height, GLint border, GLenum unpackFormat,
                     GLenum unpackType,
                     const dom::Nullable<dom::ArrayBufferView>& maybeView,
                     ErrorResult&);
+protected:
     void TexImage2D(GLenum texImageTarget, GLint level, GLenum internalFormat,
-                    GLenum unpackFormat, GLenum unpackType, dom::ImageData* imageData,
-                    ErrorResult&);
+                    GLenum unpackFormat, GLenum unpackType,
+                    const dom::ImageData& imageData, ErrorResult& out_error);
+public:
     void TexImage2D(GLenum texImageTarget, GLint level, GLenum internalFormat,
-                    GLenum unpackFormat, GLenum unpackType, dom::Element* elem,
-                    ErrorResult* const out_error);
+                    GLenum unpackFormat, GLenum unpackType, const dom::Element& elem,
+                    ErrorResult& out_error);
+
+    ////
+
+protected:
+    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
+                       GLsizei width, GLsizei height, GLenum unpackFormat,
+                       GLenum unpackType, const dom::ArrayBufferView& view);
+    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
+                       GLenum unpackFormat, GLenum unpackType,
+                       const dom::ImageData& imageData, ErrorResult& out_error);
+public:
+    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
+                       GLenum unpackFormat, GLenum unpackType, const dom::Element& elem,
+                       ErrorResult& out_error);
+
+    ////////////////
+    // Pseudo-nullable WebGL1 entrypoints
+
+    void TexImage2D(GLenum texImageTarget, GLint level, GLenum internalFormat,
+                    GLenum unpackFormat, GLenum unpackType,
+                    const dom::ImageData* imageData, ErrorResult& out_error)
+    {
+        const char funcName[] = "texImage2D";
+        if (!imageData) {
+            ErrorInvalidValue("%s: `data` must not be null.", funcName);
+            return;
+        }
+        TexImage2D(texImageTarget, level, internalFormat, unpackFormat, unpackType,
+                   *imageData, out_error);
+    }
 
     void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
                        GLsizei width, GLsizei height, GLenum unpackFormat,
                        GLenum unpackType,
-                       const dom::Nullable<dom::ArrayBufferView>& maybeView,
-                       ErrorResult&);
-    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
-                       GLenum unpackFormat, GLenum unpackType, dom::ImageData* imageData,
-                       ErrorResult&);
-    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
-                       GLenum unpackFormat, GLenum unpackType, dom::Element* elem,
-                       ErrorResult* const out_error);
-
-    // Allow whatever element unpackTypes the bindings are willing to pass
-    // us in Tex(Sub)Image2D
-    template<typename T>
-    inline void
-    TexImage2D(GLenum texImageTarget, GLint level, GLenum internalFormat,
-               GLenum unpackFormat, GLenum unpackType, T& elem, ErrorResult& out_error)
+                       const dom::Nullable<dom::ArrayBufferView>& maybeView, ErrorResult&)
     {
-        TexImage2D(texImageTarget, level, internalFormat, unpackFormat, unpackType, &elem,
-                   &out_error);
+        const char funcName[] = "texSubImage2D";
+        if (maybeView.IsNull()) {
+            ErrorInvalidValue("%s: `data` must not be null.", funcName);
+            return;
+        }
+        TexSubImage2D(texImageTarget, level, xOffset, yOffset, width, height,
+                      unpackFormat, unpackType, maybeView.Value());
     }
 
-    template<typename T>
-    inline void
-    TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
-                  GLenum unpackFormat, GLenum unpackType, T& elem, ErrorResult& out_error)
+    void TexSubImage2D(GLenum texImageTarget, GLint level, GLint xOffset, GLint yOffset,
+                       GLenum unpackFormat, GLenum unpackType,
+                       const dom::ImageData* imageData, ErrorResult& out_error)
     {
+        const char funcName[] = "texSubImage2D";
+        if (!imageData) {
+            ErrorInvalidValue("%s: `data` must not be null.", funcName);
+            return;
+        }
         TexSubImage2D(texImageTarget, level, xOffset, yOffset, unpackFormat, unpackType,
-                      &elem, &out_error);
+                      *imageData, out_error);
     }
 
     //////
@@ -1756,8 +1804,8 @@ Intersect(uint32_t srcSize, int32_t dstStartInSrc, uint32_t dstSize,
           uint32_t* const out_intSize);
 
 bool
-ZeroTextureData(WebGLContext* webgl, const char* funcName, bool respecifyTexture,
-                GLuint tex, TexImageTarget target, uint32_t level,
+ZeroTextureData(WebGLContext* webgl, const char* funcName, GLuint tex,
+                TexImageTarget target, uint32_t level,
                 const webgl::FormatUsageInfo* usage, uint32_t xOffset, uint32_t yOffset,
                 uint32_t zOffset, uint32_t width, uint32_t height, uint32_t depth);
 

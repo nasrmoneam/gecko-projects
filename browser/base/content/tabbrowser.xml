@@ -1483,6 +1483,7 @@
             var aForceNotRemote;
             var aNoReferrer;
             var aUserContextId;
+            var aRelatedBrowser;
             if (arguments.length == 2 &&
                 typeof arguments[1] == "object" &&
                 !(arguments[1] instanceof Ci.nsIURI)) {
@@ -1500,6 +1501,7 @@
               aForceNotRemote       = params.forceNotRemote;
               aNoReferrer           = params.noReferrer;
               aUserContextId        = params.userContextId;
+              aRelatedBrowser       = params.relatedBrowser;
             }
 
             var bgLoad = (aLoadInBackground != null) ? aLoadInBackground :
@@ -1518,7 +1520,8 @@
                                   allowMixedContent: aAllowMixedContent,
                                   forceNotRemote: aForceNotRemote,
                                   noReferrer: aNoReferrer,
-                                  userContextId: aUserContextId });
+                                  userContextId: aUserContextId,
+                                  relatedBrowser: aRelatedBrowser });
             if (!bgLoad)
               this.selectedTab = tab;
 
@@ -1722,11 +1725,8 @@
             // Also, we do not need to take care of attaching nsIFormFillControllers
             // in the case that the browser is remote, as remote browsers take
             // care of that themselves.
-            if (browser &&
-                this.hasAttribute("autocompletepopup") &&
-                !browser.isRemoteBrowser) {
+            if (browser && this.hasAttribute("autocompletepopup")) {
               browser.setAttribute("autocompletepopup", this.getAttribute("autocompletepopup"));
-              browser.attachFormFill();
             }
 
             return browser;
@@ -1814,6 +1814,10 @@
 
             b.setAttribute("autoscrollpopup", this._autoScrollPopup.id);
 
+            if (aParams.relatedBrowser) {
+              b.relatedBrowser = aParams.relatedBrowser;
+            }
+
             // Create the browserStack container
             var stack = document.createElementNS(NS_XUL, "stack");
             stack.className = "browserStack";
@@ -1892,7 +1896,8 @@
               browser = this._createBrowser({permanentKey: aTab.permanentKey,
                                              remote: remote,
                                              uriIsAboutBlank: uriIsAboutBlank,
-                                             userContextId: aParams.userContextId});
+                                             userContextId: aParams.userContextId,
+                                             relatedBrowser: aParams.relatedBrowser});
             }
 
             let notificationbox = this.getNotificationBox(browser);
@@ -1966,6 +1971,7 @@
             var aNoReferrer;
             var aUserContextId;
             var aEventDetail;
+            var aRelatedBrowser;
             if (arguments.length == 2 &&
                 typeof arguments[1] == "object" &&
                 !(arguments[1] instanceof Ci.nsIURI)) {
@@ -1984,6 +1990,7 @@
               aNoReferrer           = params.noReferrer;
               aUserContextId        = params.userContextId;
               aEventDetail          = params.eventDetail;
+              aRelatedBrowser       = params.relatedBrowser;
             }
 
             // if we're adding tabs, we're past interrupt mode, ditch the owner
@@ -2050,7 +2057,8 @@
             // of tab.linkedBrowser.
             let browserParams = {
               forceNotRemote: aForceNotRemote,
-              userContextId:  aUserContextId
+              userContextId:  aUserContextId,
+              relatedBrowser: aRelatedBrowser
             };
             let { usingPreloadedContent } = this._linkBrowserToTab(t, aURI, browserParams);
             let b = t.linkedBrowser;
@@ -3224,9 +3232,10 @@
 
       <method name="duplicateTab">
         <parameter name="aTab"/><!-- can be from a different window as well -->
+        <parameter name="aRestoreTabImmediately"/><!-- can defer loading of the tab contents -->
         <body>
           <![CDATA[
-            return SessionStore.duplicateTab(window, aTab);
+            return SessionStore.duplicateTab(window, aTab, 0, aRestoreTabImmediately);
           ]]>
         </body>
       </method>
@@ -4065,22 +4074,6 @@
         </body>
       </method>
 
-      <method name="attachFormFill">
-        <body><![CDATA[
-          for (let browser of this.browsers) {
-            browser.attachFormFill();
-          }
-        ]]></body>
-      </method>
-
-      <method name="detachFormFill">
-        <body><![CDATA[
-          for (let browser of this.browsers) {
-            browser.detachFormFill();
-          }
-        ]]></body>
-      </method>
-
       <property name="currentURI"
                 onget="return this.mCurrentBrowser.currentURI;"
                 readonly="true"/>
@@ -4660,8 +4653,8 @@
               return [];
             },
             // Also support adding event listeners (forward to the tab container)
-            addEventListener: function (a,b,c) { this.self.tabContainer.addEventListener(a,b,c); },
-            removeEventListener: function (a,b,c) { this.self.tabContainer.removeEventListener(a,b,c); }
+            addEventListener: function (a, b, c) { this.self.tabContainer.addEventListener(a, b, c); },
+            removeEventListener: function (a, b, c) { this.self.tabContainer.removeEventListener(a, b, c); }
           });
         ]]>
         </getter>
@@ -6276,7 +6269,7 @@
                      anonid="sharing-icon"
                      class="tab-sharing-icon-overlay"
                      role="presentation"/>
-          <xul:image xbl:inherits="crashed,busy,soundplaying,pinned,muted"
+          <xul:image xbl:inherits="crashed,busy,soundplaying,pinned,muted,visuallyselected"
                      anonid="overlay-icon"
                      class="tab-icon-overlay"
                      role="presentation"/>

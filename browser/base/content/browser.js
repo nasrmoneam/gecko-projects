@@ -54,7 +54,7 @@ Cu.import("resource://gre/modules/NotificationDB.jsm");
   ["fxAccounts", "resource://gre/modules/FxAccounts.jsm"],
   ["gDevTools", "resource://devtools/client/framework/gDevTools.jsm"],
   ["gDevToolsBrowser", "resource://devtools/client/framework/gDevTools.jsm"],
-  ["webrtcUI", "resource:///modules/webrtcUI.jsm",],
+  ["webrtcUI", "resource:///modules/webrtcUI.jsm", ]
 ].forEach(([name, resource]) => XPCOMUtils.defineLazyModuleGetter(this, name, resource));
 
 if (AppConstants.MOZ_SAFE_BROWSING) {
@@ -741,7 +741,7 @@ function gKeywordURIFixup({ target: browser, data: fixupInfo }) {
       }
     ];
     let notification =
-      notificationBox.appendNotification(message,"keyword-uri-fixup", null,
+      notificationBox.appendNotification(message, "keyword-uri-fixup", null,
                                          notificationBox.PRIORITY_INFO_HIGH,
                                          buttons);
     notification.persistence = 1;
@@ -885,6 +885,17 @@ addEventListener("DOMContentLoaded", function onDCL() {
 
   let initBrowser =
     document.getAnonymousElementByAttribute(gBrowser, "anonid", "initialBrowser");
+
+  // The window's first argument is a tab if and only if we are swapping tabs.
+  // We must set the browser's usercontextid before updateBrowserRemoteness(),
+  // so that the newly created remote tab child has the correct usercontextid.
+  if (window.arguments) {
+    let tabToOpen = window.arguments[0];
+    if (tabToOpen instanceof XULElement && tabToOpen.hasAttribute("usercontextid")) {
+      initBrowser.setAttribute("usercontextid", tabToOpen.getAttribute("usercontextid"));
+    }
+  }
+
   gBrowser.updateBrowserRemoteness(initBrowser, gMultiProcessBrowser);
 });
 
@@ -968,7 +979,6 @@ var gBrowserInit = {
       // adjust browser UI for popups
       gURLBar.setAttribute("readonly", "true");
       gURLBar.setAttribute("enablehistory", "false");
-      goSetCommandEnabled("cmd_newNavigatorTab", false);
     }
 
     // Misc. inits.
@@ -1356,6 +1366,15 @@ var gBrowserInit = {
 
       PanicButtonNotifier.init();
     });
+
+    gBrowser.tabContainer.addEventListener("TabSelect", function() {
+      for (let panel of document.querySelectorAll("panel[tabspecific='true']")) {
+        if (panel.state == "open") {
+          panel.hidePopup();
+        }
+      }
+    });
+
     this.delayedStartupFinished = true;
 
     Services.obs.notifyObservers(window, "browser-delayed-startup-finished", "");
@@ -1870,9 +1889,27 @@ function openLocation() {
   }
 }
 
-function BrowserOpenTab()
-{
-  openUILinkIn(BROWSER_NEW_TAB_URL, "tab");
+function BrowserOpenTab(event) {
+  let where = "tab";
+  let relatedToCurrent = false;
+
+  if (event) {
+    where = whereToOpenLink(event, false, true);
+
+    switch (where) {
+      case "tab":
+      case "tabshifted":
+        // When accel-click or middle-click are used, open the new tab as
+        // related to the current tab.
+        relatedToCurrent = true;
+        break;
+      case "current":
+        where = "tab";
+        break;
+    }
+  }
+
+  openUILinkIn(BROWSER_NEW_TAB_URL, where, { relatedToCurrent });
 }
 
 /* Called from the openLocation dialog. This allows that dialog to instruct
@@ -2245,9 +2282,6 @@ function BrowserViewSourceOfDocument(aArgsOrDocument) {
           !E10SUtils.canLoadURIInProcess(args.URL, contentProcess)
       }
 
-      // In the case of sidebars and chat windows, gBrowser is defined but null,
-      // because no #content element exists.  For these cases, we need to find
-      // the most recent browser window.
       // In the case of popups, we need to find a non-popup browser window.
       if (!tabBrowser || !window.toolbar.visible) {
         // This returns only non-popup browser windows by default.
@@ -2264,6 +2298,7 @@ function BrowserViewSourceOfDocument(aArgsOrDocument) {
         relatedToCurrent: true,
         inBackground: false,
         forceNotRemote,
+        relatedBrowser: args.browser
       });
       args.viewSourceBrowser = tabBrowser.getBrowserForTab(tab);
       top.gViewSourceUtils.viewSourceInBrowser(args);
@@ -2839,7 +2874,7 @@ var BrowserOnClick = {
         }
 
         window.openDialog('chrome://pippki/content/exceptionDialog.xul',
-                          '','chrome,centerscreen,modal', params);
+                          '', 'chrome,centerscreen,modal', params);
 
         // If the user added the exception cert, attempt to reload the page
         if (params.exceptionAdded) {
@@ -3226,7 +3261,8 @@ var PrintPreviewListener = {
       this._tabBeforePrintPreview = gBrowser.selectedTab;
       this._printPreviewTab = gBrowser.loadOneTab("about:blank",
                                                   { inBackground: false,
-                                                    forceNotRemote });
+                                                    forceNotRemote,
+                                                    relatedBrowser: browser });
       gBrowser.selectedTab = this._printPreviewTab;
     }
     return gBrowser.getBrowserForTab(this._printPreviewTab);
@@ -4108,10 +4144,8 @@ function updateCharacterEncodingMenuState()
     if (charsetMenu) {
       charsetMenu.removeAttribute("disabled");
     }
-  } else {
-    if (charsetMenu) {
-      charsetMenu.setAttribute("disabled", "true");
-    }
+  } else if (charsetMenu) {
+    charsetMenu.setAttribute("disabled", "true");
   }
 }
 
@@ -5196,7 +5230,7 @@ var gHomeButton = {
       homeButton = document.getElementById("home-button");
     if (homeButton) {
       var homePage = this.getHomePage();
-      homePage = homePage.replace(/\|/g,', ');
+      homePage = homePage.replace(/\|/g, ', ');
       if (homePage.toLowerCase() == "about:home")
         homeButton.setAttribute("tooltiptext", homeButton.getAttribute("aboutHomeOverrideTooltip"));
       else
@@ -6602,9 +6636,17 @@ var gIdentityHandler = {
     return this._identityPopupInsecureLoginFormsLearnMore =
       document.getElementById("identity-popup-insecure-login-forms-learn-more");
   },
+  get _identityIconLabels () {
+    delete this._identityIconLabels;
+    return this._identityIconLabels = document.getElementById("identity-icon-labels");
+  },
   get _identityIconLabel () {
     delete this._identityIconLabel;
     return this._identityIconLabel = document.getElementById("identity-icon-label");
+  },
+  get _connectionIcon () {
+    delete this._connectionIcon;
+    return this._connectionIcon = document.getElementById("connection-icon");
   },
   get _overrideService () {
     delete this._overrideService;
@@ -6789,7 +6831,6 @@ var gIdentityHandler = {
 
     if (this._identityPopup.state == "open") {
       this.updateSitePermissions();
-      this._identityPopupMultiView.setHeightToFit();
     }
   },
 
@@ -6895,7 +6936,6 @@ var gIdentityHandler = {
         // pages, either already insecure or with mixed active content loaded.
         this._identityBox.classList.add("insecureLoginForms");
       }
-      tooltip = gNavigatorBundle.getString("identity.unknown.tooltip");
     }
 
     if (this._isCertUserOverridden) {
@@ -6934,7 +6974,8 @@ var gIdentityHandler = {
     }
 
     // Push the appropriate strings out to the UI
-    this._identityBox.tooltipText = tooltip;
+    this._connectionIcon.tooltipText = tooltip;
+    this._identityIconLabels.tooltipText = tooltip;
     this._identityIcon.tooltipText = gNavigatorBundle.getString("identity.icon.tooltip");
     this._identityIconLabel.value = icon_label;
     this._identityIconCountryLabel.value = icon_country_label;
@@ -7093,14 +7134,14 @@ var gIdentityHandler = {
 
     // Fill in the CA name if we have a valid TLS certificate.
     if (this._isSecure || this._isCertUserOverridden) {
-      verifier = this._identityBox.tooltipText;
+      verifier = this._identityIconLabels.tooltipText;
     }
 
     // Fill in organization information if we have a valid EV certificate.
     if (this._isEV) {
       let iData = this.getIdentityData();
       host = owner = iData.subjectOrg;
-      verifier = this._identityBox.tooltipText;
+      verifier = this._identityIconLabels.tooltipText;
 
       // Build an appropriate supplemental block out of whatever location data we have
       if (iData.city)
@@ -7308,7 +7349,6 @@ var gIdentityHandler = {
     button.setAttribute("class", "identity-popup-permission-remove-button");
     button.addEventListener("command", () => {
       this._permissionList.removeChild(container);
-      this._identityPopupMultiView.setHeightToFit();
       if (aPermission.inUse &&
           ["camera", "microphone", "screen"].includes(aPermission.id)) {
         let windowId = this._sharingState.windowId;
@@ -7827,20 +7867,11 @@ var MousePosTracker = {
     if (hover) {
       if (listener.onMouseEnter)
         listener.onMouseEnter();
-    } else {
-      if (listener.onMouseLeave)
-        listener.onMouseLeave();
+    } else if (listener.onMouseLeave) {
+      listener.onMouseLeave();
     }
   }
 };
-
-function BrowserOpenNewTabOrWindow(event) {
-  if (event.shiftKey) {
-    OpenBrowserWindow();
-  } else {
-    BrowserOpenTab();
-  }
-}
 
 var ToolbarIconColor = {
   init: function () {

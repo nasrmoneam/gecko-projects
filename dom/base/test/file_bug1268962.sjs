@@ -46,8 +46,34 @@ const HTTPStatus = new Map([
   [505, 'HTTP Version Not Supported']
 ]);
 
+const SAME_ORIGIN = 'http://mochi.test:8888/tests/dom/base/test/file_bug1268962.sjs';
+const CROSS_ORIGIN = 'http://example.com/tests/dom/base/test/file_bug1268962.sjs';
+
 function handleRequest(request, response) {
   const queryMap = new URLSearchParams(request.queryString);
+
+  // Check redirection before everything else.
+  if (queryMap.has('redirect')) {
+    let redirect = queryMap.get('redirect');
+    let location;
+    if (redirect == 'sameorigin') {
+      location = SAME_ORIGIN;
+    } else if (redirect == 'crossorigin') {
+      location = CROSS_ORIGIN;
+    }
+
+    if (location) {
+      // Use HTTP 302 redirection.
+      response.setStatusLine('1.1', 302, HTTPStatus.get(302));
+
+      // Forward query strings except the redirect option.
+      queryMap.delete('redirect');
+      response.setHeader('Location', location + '?' + queryMap.toString());
+
+      return;
+    }
+  }
+
   if (queryMap.has('statusCode')) {
     let statusCode = parseInt(queryMap.get('statusCode'));
     let statusText = HTTPStatus.get(statusCode);

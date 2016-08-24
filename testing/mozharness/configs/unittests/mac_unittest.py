@@ -114,7 +114,9 @@ config = {
                 "--appname=%(binary_path)s",
                 "--utility-path=tests/bin",
                 "--extra-profile-file=tests/bin/plugins",
-                "--symbols-path=%(symbols_path)s"
+                "--symbols-path=%(symbols_path)s",
+                "--log-raw=%(raw_log_file)s",
+                "--log-errorsummary=%(error_summary_file)s",
                 "--cleanup-crashes",
             ],
             "run_filename": "runreftest.py",
@@ -253,6 +255,7 @@ config = {
     "default_blob_upload_servers": [
         "https://blobupload.elasticbeanstalk.com",
     ],
+    "structured_suites": ["reftest"],
     "blob_uploader_auth_file": os.path.join(os.getcwd(), "oauth.txt"),
     "download_minidump_stackwalk": True,
     "minidump_stackwalk_path": "macosx64-minidump_stackwalk",

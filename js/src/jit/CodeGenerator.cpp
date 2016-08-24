@@ -3554,13 +3554,15 @@ CodeGenerator::visitPostWriteBarrierCommonO(LPostBarrierType* lir, OutOfLineCode
         // Constant nursery objects cannot appear here, see LIRGenerator::visitPostWriteElementBarrier.
         MOZ_ASSERT(!IsInsideNursery(&lir->object()->toConstant()->toObject()));
     } else {
-        masm.branchPtrInNurseryRange(Assembler::Equal, ToRegister(lir->object()), temp,
+        masm.branchPtrInNurseryChunk(Assembler::Equal, ToRegister(lir->object()), temp,
                                      ool->rejoin());
     }
 
     maybeEmitGlobalBarrierCheck(lir->object(), ool);
 
-    masm.branchPtrInNurseryRange(Assembler::Equal, ToRegister(lir->value()), temp, ool->entry());
+    Register valueObj = ToRegister(lir->value());
+    masm.branchTestPtr(Assembler::Zero, valueObj, valueObj, ool->rejoin());
+    masm.branchPtrInNurseryChunk(Assembler::Equal, ToRegister(lir->value()), temp, ool->entry());
 
     masm.bind(ool->rejoin());
 }
@@ -3577,7 +3579,7 @@ CodeGenerator::visitPostWriteBarrierCommonV(LPostBarrierType* lir, OutOfLineCode
         // Constant nursery objects cannot appear here, see LIRGenerator::visitPostWriteElementBarrier.
         MOZ_ASSERT(!IsInsideNursery(&lir->object()->toConstant()->toObject()));
     } else {
-        masm.branchPtrInNurseryRange(Assembler::Equal, ToRegister(lir->object()), temp,
+        masm.branchPtrInNurseryChunk(Assembler::Equal, ToRegister(lir->object()), temp,
                                      ool->rejoin());
     }
 
@@ -5401,7 +5403,8 @@ CodeGenerator::visitNewArrayDynamicLength(LNewArrayDynamicLength* lir)
 
 typedef TypedArrayObject* (*TypedArrayConstructorOneArgFn)(JSContext*, HandleObject, int32_t length);
 static const VMFunction TypedArrayConstructorOneArgInfo =
-    FunctionInfo<TypedArrayConstructorOneArgFn>(TypedArrayCreateWithTemplate);
+    FunctionInfo<TypedArrayConstructorOneArgFn>(TypedArrayCreateWithTemplate,
+                                                "TypedArrayCreateWithTemplate");
 
 void
 CodeGenerator::visitNewTypedArray(LNewTypedArray* lir)
@@ -7590,6 +7593,46 @@ JitRuntime::generateLazyLinkStub(JSContext* cx)
     writePerfSpewerJitCodeProfile(code, "LazyLinkStub");
 #endif
     return code;
+}
+
+bool
+JitRuntime::generateTLEventVM(JSContext* cx, MacroAssembler& masm, const VMFunction& f,
+                              bool enter)
+{
+#ifdef JS_TRACE_LOGGING
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+
+    bool vmEventEnabled = TraceLogTextIdEnabled(TraceLogger_VM);
+    bool vmSpecificEventEnabled = TraceLogTextIdEnabled(TraceLogger_VMSpecific);
+
+    if (vmEventEnabled || vmSpecificEventEnabled) {
+        AllocatableRegisterSet regs(RegisterSet::Volatile());
+        Register loggerReg = regs.takeAnyGeneral();
+        masm.Push(loggerReg);
+        masm.movePtr(ImmPtr(logger), loggerReg);
+
+        if (vmEventEnabled) {
+            if (enter)
+                masm.tracelogStartId(loggerReg, TraceLogger_VM, /* force = */ true);
+            else
+                masm.tracelogStopId(loggerReg, TraceLogger_VM, /* force = */ true);
+        }
+        if (vmSpecificEventEnabled) {
+            TraceLoggerEvent event(logger, f.name());
+            if (!event.hasPayload())
+                return false;
+
+            if (enter)
+                masm.tracelogStartId(loggerReg, event.payload()->textId(), /* force = */ true);
+            else
+                masm.tracelogStopId(loggerReg, event.payload()->textId(), /* force = */ true);
+        }
+
+        masm.Pop(loggerReg);
+    }
+#endif
+
+    return true;
 }
 
 typedef bool (*CharCodeAtFn)(JSContext*, HandleString, int32_t, uint32_t*);
@@ -11583,33 +11626,41 @@ CodeGenerator::visitNewTarget(LNewTarget *ins)
 {
     ValueOperand output = GetValueOutput(ins);
 
-    // if (!isConstructing()) output = undefined
-    Label constructing, done;
+    // if (isConstructing) output = argv[Max(numActualArgs, numFormalArgs)]
+    Label notConstructing, done;
     Address calleeToken(masm.getStackPointer(), frameSize() + JitFrameLayout::offsetOfCalleeToken());
-    masm.branchTestPtr(Assembler::NonZero, calleeToken,
-                       Imm32(CalleeToken_FunctionConstructing), &constructing);
-    masm.moveValue(UndefinedValue(), output);
-    masm.jump(&done);
+    masm.branchTestPtr(Assembler::Zero, calleeToken,
+                       Imm32(CalleeToken_FunctionConstructing), &notConstructing);
 
-    masm.bind(&constructing);
-
-    // else output = argv[Max(numActualArgs, numFormalArgs)]
     Register argvLen = output.scratchReg();
 
     Address actualArgsPtr(masm.getStackPointer(), frameSize() + JitFrameLayout::offsetOfNumActualArgs());
     masm.loadPtr(actualArgsPtr, argvLen);
 
-    Label actualArgsSufficient;
+    Label useNFormals;
 
     size_t numFormalArgs = ins->mirRaw()->block()->info().funMaybeLazy()->nargs();
-    masm.branchPtr(Assembler::AboveOrEqual, argvLen, Imm32(numFormalArgs),
-                   &actualArgsSufficient);
-    masm.move32(Imm32(numFormalArgs), argvLen);
-    masm.bind(&actualArgsSufficient);
+    masm.branchPtr(Assembler::Below, argvLen, Imm32(numFormalArgs),
+                   &useNFormals);
 
-    BaseValueIndex newTarget(masm.getStackPointer(), argvLen, frameSize() + JitFrameLayout::offsetOfActualArgs());
-    masm.loadValue(newTarget, output);
+    size_t argsOffset = frameSize() + JitFrameLayout::offsetOfActualArgs();
+    {
+        BaseValueIndex newTarget(masm.getStackPointer(), argvLen, argsOffset);
+        masm.loadValue(newTarget, output);
+        masm.jump(&done);
+    }
 
+    masm.bind(&useNFormals);
+
+    {
+        Address newTarget(masm.getStackPointer(), argsOffset + (numFormalArgs * sizeof(Value)));
+        masm.loadValue(newTarget, output);
+        masm.jump(&done);
+    }
+
+    // else output = undefined
+    masm.bind(&notConstructing);
+    masm.moveValue(UndefinedValue(), output);
     masm.bind(&done);
 }
 
@@ -11739,6 +11790,22 @@ CodeGenerator::visitRandom(LRandom* ins)
 
     // output *= ScaleInv
     masm.mulDoublePtr(ImmPtr(&ScaleInv), tempReg, output);
+}
+
+void
+CodeGenerator::visitSignExtend(LSignExtend* ins)
+{
+    Register input = ToRegister(ins->input());
+    Register output = ToRegister(ins->output());
+
+    switch (ins->mode()) {
+      case MSignExtend::Byte:
+        masm.move8SignExtend(input, output);
+        break;
+      case MSignExtend::Half:
+        masm.move16SignExtend(input, output);
+        break;
+    }
 }
 
 void

@@ -161,6 +161,8 @@ namespace dom {
 // Cap sigma to avoid overly large temp surfaces.
 const Float SIGMA_MAX = 100;
 
+const size_t MAX_STYLE_STACK_SIZE = 1024;
+
 /* Memory reporter stuff */
 static int64_t gCanvasAzureMemoryUsed = 0;
 
@@ -1154,7 +1156,8 @@ CanvasRenderingContext2D::Reset()
     gCanvasAzureMemoryUsed -= mWidth * mHeight * 4;
   }
 
-  ReturnTarget();
+  bool forceReset = true;
+  ReturnTarget(forceReset);
   mTarget = nullptr;
   mBufferProvider = nullptr;
 
@@ -1593,7 +1596,7 @@ CanvasRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
             mBufferProvider = new PersistentBufferProviderBasic(mTarget);
             mIsSkiaGL = true;
           } else {
-            gfxCriticalNote << "Failed to create a SkiaGL DrawTarget, falling back to software\n";
+            gfxCriticalNote << "Failed to create a SkiaGL DrawTarget, falling back to software " << size << ", " << format;
             mode = RenderingMode::SoftwareBackendMode;
           }
         }
@@ -1643,25 +1646,28 @@ CanvasRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
       Redraw();
     }
 
-    // Restore clips and transform.
-    mTarget->SetTransform(Matrix());
+    if (mBufferProvider != oldBufferProvider || !mBufferProvider ||
+        !mBufferProvider->PreservesDrawingState()) {
+      // Restore clips and transform.
+      mTarget->SetTransform(Matrix());
 
-    if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
-      // Cairo doesn't play well with huge clips. When given a very big clip it
-      // will try to allocate big mask surface without taking the target
-      // size into account which can cause OOM. See bug 1034593.
-      // This limits the clip extents to the size of the canvas.
-      // A fix in Cairo would probably be preferable, but requires somewhat
-      // invasive changes.
-      mTarget->PushClipRect(canvasRect);
-    }
+      if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
+        // Cairo doesn't play well with huge clips. When given a very big clip it
+        // will try to allocate big mask surface without taking the target
+        // size into account which can cause OOM. See bug 1034593.
+        // This limits the clip extents to the size of the canvas.
+        // A fix in Cairo would probably be preferable, but requires somewhat
+        // invasive changes.
+        mTarget->PushClipRect(canvasRect);
+      }
 
-    for (const auto& style : mStyleStack) {
-      for (const auto& clipOrTransform : style.clipsAndTransforms) {
-        if (clipOrTransform.IsClip()) {
-          mTarget->PushClip(clipOrTransform.clip);
-        } else {
-          mTarget->SetTransform(clipOrTransform.transform);
+      for (const auto& style : mStyleStack) {
+        for (const auto& clipOrTransform : style.clipsAndTransforms) {
+          if (clipOrTransform.IsClip()) {
+            mTarget->PushClip(clipOrTransform.clip);
+          } else {
+            mTarget->SetTransform(clipOrTransform.transform);
+          }
         }
       }
     }
@@ -1770,22 +1776,24 @@ CanvasRenderingContext2D::ClearTarget(bool aRetainBuffer)
 }
 
 void
-CanvasRenderingContext2D::ReturnTarget()
+CanvasRenderingContext2D::ReturnTarget(bool aForceReset)
 {
   if (mTarget && mBufferProvider && mTarget != sErrorTarget) {
     CurrentState().transform = mTarget->GetTransform();
-    for (const auto& style : mStyleStack) {
-      for (const auto& clipOrTransform : style.clipsAndTransforms) {
-        if (clipOrTransform.IsClip()) {
-          mTarget->PopClip();
+    if (aForceReset || !mBufferProvider->PreservesDrawingState()) {
+      for (const auto& style : mStyleStack) {
+        for (const auto& clipOrTransform : style.clipsAndTransforms) {
+          if (clipOrTransform.IsClip()) {
+            mTarget->PopClip();
+          }
         }
       }
-    }
 
-    if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
-      // With the cairo backend we pushed an extra clip rect which we have to
-      // balance out here. See the comment in EnsureDrawTarget.
-      mTarget->PopClip();
+      if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
+        // With the cairo backend we pushed an extra clip rect which we have to
+        // balance out here. See the comment in EnsureDrawTarget.
+        mTarget->PopClip();
+      }
     }
 
     mBufferProvider->ReturnDrawTarget(mTarget.forget());
@@ -1880,21 +1888,33 @@ CanvasRenderingContext2D::SetContextOptions(JSContext* aCx,
 UniquePtr<uint8_t[]>
 CanvasRenderingContext2D::GetImageBuffer(int32_t* aFormat)
 {
+  UniquePtr<uint8_t[]> ret;
+
   *aFormat = 0;
 
-  EnsureTarget();
-  RefPtr<SourceSurface> snapshot = mTarget->Snapshot();
-  if (!snapshot) {
-    return nullptr;
+  RefPtr<SourceSurface> snapshot;
+  if (mTarget) {
+    snapshot = mTarget->Snapshot();
+  } else if (mBufferProvider) {
+    snapshot = mBufferProvider->BorrowSnapshot();
+  } else {
+    EnsureTarget();
+    snapshot = mTarget->Snapshot();
   }
 
-  RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
-  if (!data || data->GetSize() != IntSize(mWidth, mHeight)) {
-    return nullptr;
+  if (snapshot) {
+    RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
+    if (data && data->GetSize() == IntSize(mWidth, mHeight)) {
+      *aFormat = imgIEncoder::INPUT_FORMAT_HOSTARGB;
+      ret = SurfaceToPackedBGRA(data);
+    }
   }
 
-  *aFormat = imgIEncoder::INPUT_FORMAT_HOSTARGB;
-  return SurfaceToPackedBGRA(data);
+  if (!mTarget && mBufferProvider) {
+    mBufferProvider->ReturnSnapshot(snapshot.forget());
+  }
+
+  return ret;
 }
 
 nsString CanvasRenderingContext2D::GetHitRegion(const mozilla::gfx::Point& aPoint)
@@ -1948,6 +1968,12 @@ CanvasRenderingContext2D::Save()
   mStyleStack[mStyleStack.Length() - 1].transform = mTarget->GetTransform();
   mStyleStack.SetCapacity(mStyleStack.Length() + 1);
   mStyleStack.AppendElement(CurrentState());
+
+  if (mStyleStack.Length() > MAX_STYLE_STACK_SIZE) {
+    // This is not fast, but is better than OOMing and shouldn't be hit by
+    // reasonable code.
+    mStyleStack.RemoveElementAt(0);
+  }
 }
 
 void
@@ -2391,8 +2417,8 @@ CanvasRenderingContext2D::SetShadowColor(const nsAString& aShadowColor)
 
 static already_AddRefed<Declaration>
 CreateDeclaration(nsINode* aNode,
-  const nsCSSProperty aProp1, const nsAString& aValue1, bool* aChanged1,
-  const nsCSSProperty aProp2, const nsAString& aValue2, bool* aChanged2)
+  const nsCSSPropertyID aProp1, const nsAString& aValue1, bool* aChanged1,
+  const nsCSSPropertyID aProp2, const nsAString& aValue2, bool* aChanged2)
 {
   nsIPrincipal* principal = aNode->NodePrincipal();
   nsIDocument* document = aNode->OwnerDoc();
@@ -2477,7 +2503,7 @@ GetFontParentStyleContext(Element* aElement, nsIPresShell* aPresShell,
 }
 
 static bool
-PropertyIsInheritOrInitial(Declaration* aDeclaration, const nsCSSProperty aProperty)
+PropertyIsInheritOrInitial(Declaration* aDeclaration, const nsCSSPropertyID aProperty)
 {
   // We know the declaration is not !important, so we can use
   // GetNormalBlock().
@@ -3901,7 +3927,7 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor : public nsBidiPresUtils::BidiProcess
   }
 
   // current text run
-  UniquePtr<gfxTextRun> mTextRun;
+  RefPtr<gfxTextRun> mTextRun;
 
   // pointer to a screen reference context used to measure text and such
   RefPtr<DrawTarget> mDrawTarget;
@@ -5018,7 +5044,12 @@ CanvasRenderingContext2D::DrawWindow(nsGlobalWindow& aWindow, double aX,
     return;
   }
 
-  EnsureTarget();
+  CompositionOp op = UsedOperation();
+  bool discardContent = GlobalAlpha() == 1.0f
+    && (op == CompositionOp::OP_OVER || op == CompositionOp::OP_SOURCE);
+  const gfx::Rect drawRect(aX, aY, aW, aH);
+  EnsureTarget(discardContent ? &drawRect : nullptr);
+
   // We can't allow web apps to call this until we fix at least the
   // following potential security issues:
   // -- rendering cross-domain IFRAMEs and then extracting the results
@@ -5117,10 +5148,12 @@ CanvasRenderingContext2D::DrawWindow(nsGlobalWindow& aWindow, double aX,
   }
 
   nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
+
   Unused << shell->RenderDocument(r, renderDocFlags, backgroundColor, thebes);
   // If this canvas was contained in the drawn window, the pre-transaction callback
   // may have returned its DT. If so, we must reacquire it here.
-  EnsureTarget();
+  EnsureTarget(discardContent ? &drawRect : nullptr);
+
   if (drawDT) {
     RefPtr<SourceSurface> snapshot = drawDT->Snapshot();
     if (NS_WARN_IF(!snapshot)) {
@@ -5494,7 +5527,7 @@ void
 CanvasRenderingContext2D::PutImageData(ImageData& aImageData, double aDx,
                                        double aDy, ErrorResult& aError)
 {
-  RootedTypedArray<Uint8ClampedArray> arr(nsContentUtils::RootingCx());
+  RootedTypedArray<Uint8ClampedArray> arr(RootingCx());
   DebugOnly<bool> inited = arr.Init(aImageData.GetDataObject());
   MOZ_ASSERT(inited);
 
@@ -5510,7 +5543,7 @@ CanvasRenderingContext2D::PutImageData(ImageData& aImageData, double aDx,
                                        double aDirtyHeight,
                                        ErrorResult& aError)
 {
-  RootedTypedArray<Uint8ClampedArray> arr(nsContentUtils::RootingCx());
+  RootedTypedArray<Uint8ClampedArray> arr(RootingCx());
   DebugOnly<bool> inited = arr.Init(aImageData.GetDataObject());
   MOZ_ASSERT(inited);
 
@@ -5529,7 +5562,6 @@ CanvasRenderingContext2D::PutImageData_explicit(int32_t aX, int32_t aY, uint32_t
                                                 bool aHasDirtyRect, int32_t aDirtyX, int32_t aDirtyY,
                                                 int32_t aDirtyWidth, int32_t aDirtyHeight)
 {
-  EnsureTarget();
   if (mDrawObserver) {
     mDrawObserver->DidDrawCall(CanvasDrawObserver::DrawCallType::PutImageData);
   }
@@ -5636,7 +5668,12 @@ CanvasRenderingContext2D::PutImageData_explicit(int32_t aX, int32_t aY, uint32_t
     srcLine += aW * 4;
   }
 
-  EnsureTarget();
+  // The canvas spec says that the current path, transformation matrix, shadow attributes,
+  // global alpha, the clipping region, and global composition operator must not affect the
+  // getImageData() and putImageData() methods.
+  const gfx::Rect putRect(dirtyRect);
+  EnsureTarget(&putRect);
+
   if (!IsTargetValid()) {
     return NS_ERROR_FAILURE;
   }

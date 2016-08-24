@@ -128,7 +128,6 @@ WEBIDL_FILES = [
     'DOMCursor.webidl',
     'DOMError.webidl',
     'DOMException.webidl',
-    'DOMFileSystem.webidl',
     'DOMImplementation.webidl',
     'DominatorTree.webidl',
     'DOMMatrix.webidl',
@@ -162,6 +161,11 @@ WEBIDL_FILES = [
     'FileMode.webidl',
     'FileReader.webidl',
     'FileReaderSync.webidl',
+    'FileSystem.webidl',
+    'FileSystemDirectoryEntry.webidl',
+    'FileSystemDirectoryReader.webidl',
+    'FileSystemEntry.webidl',
+    'FileSystemFileEntry.webidl',
     'FlyWebDiscoveryManager.webidl',
     'FlyWebFetchEvent.webidl',
     'FlyWebPublish.webidl',
@@ -581,7 +585,7 @@ WEBIDL_FILES = [
     'VideoStreamTrack.webidl',
     'VideoTrack.webidl',
     'VideoTrackList.webidl',
-    'VRDevice.webidl',
+    'VRDisplay.webidl',
     'VTTCue.webidl',
     'VTTRegion.webidl',
     'WaveShaperNode.webidl',
@@ -912,11 +916,6 @@ if CONFIG['MOZ_EME']:
         'MediaKeyStatusMap.webidl',
         'MediaKeySystemAccess.webidl',
         'WidevineCDMManifest.webidl',
-    ]
-
-if CONFIG['MOZ_PAY']:
-    WEBIDL_FILES += [
-        'MozPaymentProvider.webidl'
     ]
 
 if CONFIG['MOZ_B2G']:

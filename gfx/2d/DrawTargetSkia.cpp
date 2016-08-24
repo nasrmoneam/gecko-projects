@@ -398,11 +398,20 @@ SetPaintPattern(SkPaint& aPaint, const Pattern& aPattern, Float aAlpha = 1.0)
 static inline Rect
 GetClipBounds(SkCanvas *aCanvas)
 {
-  SkRect clipBounds;
-  if (!aCanvas->getClipBounds(&clipBounds)) {
+  // Use a manually transformed getClipDeviceBounds instead of
+  // getClipBounds because getClipBounds inflates the the bounds
+  // by a pixel in each direction to compensate for antialiasing.
+  SkIRect deviceBounds;
+  if (!aCanvas->getClipDeviceBounds(&deviceBounds)) {
     return Rect();
   }
-  return SkRectToRect(clipBounds);
+  SkMatrix inverseCTM;
+  if (!aCanvas->getTotalMatrix().invert(&inverseCTM)) {
+    return Rect();
+  }
+  SkRect localBounds;
+  inverseCTM.mapRect(&localBounds, SkRect::Make(deviceBounds));
+  return SkRectToRect(localBounds);
 }
 
 struct AutoPaintSetup {
@@ -998,17 +1007,47 @@ DrawTargetSkia::ReturnCGContext(CGContextRef aCGContext)
 CGContextRef
 BorrowedCGContext::BorrowCGContextFromDrawTarget(DrawTarget *aDT)
 {
-  MOZ_ASSERT(aDT->GetBackendType() == BackendType::SKIA);
-  DrawTargetSkia* skiaDT = static_cast<DrawTargetSkia*>(aDT);
-  return skiaDT->BorrowCGContext(DrawOptions());
+  if (aDT->GetBackendType() == BackendType::SKIA) {
+    DrawTargetSkia* skiaDT = static_cast<DrawTargetSkia*>(aDT);
+    return skiaDT->BorrowCGContext(DrawOptions());
+  } else if (aDT->GetBackendType() == BackendType::COREGRAPHICS) {
+    DrawTargetCG* cgDT = static_cast<DrawTargetCG*>(aDT);
+    cgDT->Flush();
+    cgDT->MarkChanged();
+
+    // swap out the context
+    CGContextRef cg = cgDT->mCg;
+    if (MOZ2D_ERROR_IF(!cg)) {
+      return nullptr;
+    }
+    cgDT->mCg = nullptr;
+
+    // save the state to make it easier for callers to avoid mucking with things
+    CGContextSaveGState(cg);
+
+    return cg;
+  }
+
+  MOZ_ASSERT(false);
+  return nullptr;
 }
 
 void
 BorrowedCGContext::ReturnCGContextToDrawTarget(DrawTarget *aDT, CGContextRef cg)
 {
-  MOZ_ASSERT(aDT->GetBackendType() == BackendType::SKIA);
-  DrawTargetSkia* skiaDT = static_cast<DrawTargetSkia*>(aDT);
-  skiaDT->ReturnCGContext(cg);
+  if (aDT->GetBackendType() == BackendType::SKIA) {
+    DrawTargetSkia* skiaDT = static_cast<DrawTargetSkia*>(aDT);
+    skiaDT->ReturnCGContext(cg);
+    return;
+  } else if (aDT->GetBackendType() == BackendType::COREGRAPHICS) {
+    DrawTargetCG* cgDT = static_cast<DrawTargetCG*>(aDT);
+
+    CGContextRestoreGState(cg);
+    cgDT->mCg = cg;
+    return;
+  }
+
+  MOZ_ASSERT(false);
 }
 
 static void

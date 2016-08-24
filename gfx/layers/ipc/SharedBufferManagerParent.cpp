@@ -9,6 +9,7 @@
 #include "base/process.h"               // for ProcessId
 #include "base/task.h"                  // for CancelableTask, DeleteTask, etc
 #include "base/thread.h"
+#include "mozilla/Sprintf.h"            // for SprintfLiteral
 #include "mozilla/ipc/MessageChannel.h" // for MessageChannel, etc
 #include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/ipc/Transport.h"      // for Transport
@@ -181,7 +182,7 @@ PSharedBufferManagerParent* SharedBufferManagerParent::Create(Transport* aTransp
 {
   base::Thread* thread = nullptr;
   char thrname[128];
-  base::snprintf(thrname, 128, "BufMgrParent#%d", aOtherPid);
+  SprintfLiteral(thrname, "BufMgrParent#%d", aOtherPid);
   thread = new base::Thread(thrname);
 
   SharedBufferManagerParent* manager = new SharedBufferManagerParent(aOtherPid, thread);

@@ -119,7 +119,7 @@ nsScriptLoadRequest::MaybeCancelOffThreadScript()
     return;
   }
 
-  JSContext* cx = JS_GetContext(xpc::GetJSRuntime());
+  JSContext* cx = danger::GetJSContext();
   JS::CancelOffThreadScript(cx, mOffThreadToken);
   mOffThreadToken = nullptr;
 }
@@ -1926,7 +1926,10 @@ nsScriptLoader::FillCompileOptionsForRequest(const AutoJSAPI &jsapi,
   // aRequest ended up getting script data from, as the script filename.
   nsContentUtils::GetWrapperSafeScriptFilename(mDocument, aRequest->mURI, aRequest->mURL);
 
-  aOptions->setIntroductionType("scriptElement");
+  bool isScriptElement = !aRequest->IsModuleRequest() ||
+                         aRequest->AsModuleRequest()->IsTopLevel();
+  aOptions->setIntroductionType(isScriptElement ? "scriptElement"
+                                                : "importedModule");
   aOptions->setFileAndLine(aRequest->mURL.get(), aRequest->mLineNo);
   aOptions->setVersion(JSVersion(aRequest->mJSVersion));
   aOptions->setIsRunOnce(true);
@@ -2336,9 +2339,7 @@ nsScriptLoader::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
   } else {
     nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
 
-    bool enforceSRI = false;
-    loadInfo->GetEnforceSRI(&enforceSRI);
-    if (enforceSRI) {
+    if (loadInfo->GetEnforceSRI()) {
       MOZ_LOG(SRILogHelper::GetSriLog(), mozilla::LogLevel::Debug,
              ("nsScriptLoader::OnStreamComplete, required SRI not found"));
       nsCOMPtr<nsIContentSecurityPolicy> csp;

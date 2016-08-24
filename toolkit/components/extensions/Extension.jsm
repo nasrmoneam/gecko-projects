@@ -88,10 +88,11 @@ var {
   EventEmitter,
   LocaleData,
   Messenger,
-  injectAPI,
   instanceOf,
   flushJarCache,
 } = ExtensionUtils;
+
+XPCOMUtils.defineLazyGetter(this, "console", ExtensionUtils.getConsole);
 
 const LOGGER_ID_BASE = "addons.webextension.";
 const UUID_MAP_PREF = "extensions.webextensions.uuids";
@@ -118,7 +119,6 @@ var ExtensionContext, GlobalManager;
 var Management = {
   initialized: null,
   scopes: [],
-  apis: [],
   schemaApis: [],
   emitter: new EventEmitter(),
 
@@ -143,10 +143,9 @@ var Management = {
 
     for (let [/* name */, value] of XPCOMUtils.enumerateCategoryEntries(CATEGORY_EXTENSION_SCRIPTS)) {
       let scope = {
-        ExtensionContext,
+        get console() { return console; },
         extensions: this,
         global: scriptScope,
-        GlobalManager,
         require,
       };
       Services.scriptloader.loadSubScript(value, scope, "UTF-8");
@@ -159,34 +158,29 @@ var Management = {
     return this.initialized;
   },
 
-  // Called by an ext-*.js script to register an API. The |api|
-  // parameter should be an object of the form:
-  // {
-  //   tabs: {
-  //     create: ...,
-  //     onCreated: ...
-  //   }
-  // }
-  // This registers tabs.create and tabs.onCreated as part of the API.
-  registerAPI(api) {
-    this.apis.push({api});
+  /**
+   * Called by an ext-*.js script to register an API.
+   *
+   * @param {string} namespace The API namespace.
+   *     Used to determine whether the API should be generated when the caller
+   *     requests a subset of the available APIs (e.g. in content scripts).
+   * @param {function(BaseContext)} getAPI A function that returns an object
+   *     that will be merged with |chrome| and |browser|. The next example adds
+   *     the create, update and remove methods to the tabs API.
+   *
+   *     registerSchemaAPI("tabs", (context) => ({
+   *       tabs: { create, update },
+   *     }));
+   *     registerSchemaAPI("tabs", (context) => ({
+   *       tabs: { remove },
+   *     }));
+   */
+  registerSchemaAPI(namespace, getAPI) {
+    this.schemaApis.push({namespace, getAPI});
   },
 
-  // Same as above, but only register the API is the add-on has the
-  // given permission.
-  registerPrivilegedAPI(permission, api) {
-    this.apis.push({api, permission});
-  },
-
-  registerSchemaAPI(namespace, api) {
-    this.schemaApis.push({namespace, api});
-  },
-
-  // Mash together into a single object all the APIs registered by the
-  // functions above. Return the merged object.
-  generateAPIs(extension, context, apis, namespaces = null) {
-    let obj = {};
-
+  // Mash together all the APIs from apis into obj.
+  generateAPIs(context, apis, obj, namespaces = null) {
     // Recursively copy properties from source to dest.
     function copy(dest, source) {
       for (let prop in source) {
@@ -207,20 +201,14 @@ var Management = {
         continue;
       }
       if (api.permission) {
-        if (!extension.hasPermission(api.permission)) {
+        if (!context.extension.hasPermission(api.permission)) {
           continue;
         }
       }
 
-      api = api.api(extension, context);
+      api = api.getAPI(context);
       copy(obj, api);
     }
-
-    for (let api of extension.apis) {
-      copy(obj, api.getAPI(context));
-    }
-
-    return obj;
   },
 
   // The ext-*.js scripts can ask to be notified for certain hooks.
@@ -251,14 +239,16 @@ var Management = {
 // |incognito| is the content running in a private context (default: false).
 ExtensionContext = class extends BaseContext {
   constructor(extension, params) {
-    super(extension.id);
+    super(extension);
 
-    let {type, contentWindow, uri} = params;
-    this.extension = extension;
+    let {type, uri} = params;
     this.type = type;
-    this.contentWindow = contentWindow || null;
     this.uri = uri || extension.baseURI;
     this.incognito = params.incognito || false;
+
+    if (params.contentWindow) {
+      this.setContentWindow(params.contentWindow);
+    }
 
     // This is the MessageSender property passed to extension.
     // It can be augmented by the "page-open" hook.
@@ -279,11 +269,6 @@ ExtensionContext = class extends BaseContext {
     if (this.externallyVisible) {
       this.extension.views.add(this);
     }
-  }
-
-  get docShell() {
-    return this.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
-               .getInterface(Ci.nsIDocShell);
   }
 
   get cloneScope() {
@@ -334,7 +319,7 @@ class ProxyContext extends ExtensionContext {
     this.principal_ = principal;
 
     this.apiObj = {};
-    GlobalManager.injectInObject(extension, this, null, this.apiObj, ["storage", "test"]);
+    GlobalManager.injectInObject(this, null, this.apiObj, ["storage", "test"]);
 
     this.listenerProxies = new Map();
 
@@ -355,9 +340,24 @@ class ProxyContext extends ExtensionContext {
 }
 
 function findPathInObject(obj, path) {
+  // Split any nested namespace (e.g devtools.inspectedWindow) element
+  // and concatenate them into a flatten array.
+  path = path.reduce((acc, el) => {
+    return acc.concat(el.split("."));
+  }, []);
+
   for (let elt of path) {
-    obj = obj[elt] || undefined;
+    // If we get a null object before reaching the requested path
+    // (e.g. the API object is returned only on particular kind of contexts instead
+    // of based on WebExtensions permissions, like it happens for the devtools APIs),
+    // stop searching and return undefined.
+    if (!obj || !(elt in obj)) {
+      return undefined;
+    }
+
+    obj = obj[elt];
   }
+
   return obj;
 }
 
@@ -598,7 +598,7 @@ GlobalManager = {
 
   init(extension) {
     if (this.extensionMap.size == 0) {
-      Services.obs.addObserver(this, "content-document-global-created", false);
+      Services.obs.addObserver(this, "document-element-inserted", false);
       UninstallObserver.init();
       this.initialized = true;
     }
@@ -610,7 +610,7 @@ GlobalManager = {
     this.extensionMap.delete(extension.id);
 
     if (this.extensionMap.size == 0 && this.initialized) {
-      Services.obs.removeObserver(this, "content-document-global-created");
+      Services.obs.removeObserver(this, "document-element-inserted");
       this.initialized = false;
     }
   },
@@ -619,15 +619,12 @@ GlobalManager = {
     return this.extensionMap.get(extensionId);
   },
 
-  injectInObject(extension, context, defaultCallback, dest, namespaces = null) {
-    let api = Management.generateAPIs(extension, context, Management.apis, namespaces);
-    injectAPI(api, dest);
-
-    let schemaApi = Management.generateAPIs(extension, context, Management.schemaApis, namespaces);
-
-    // Add in any extra API namespaces which do not have implementations
-    // outside of their schema file.
-    schemaApi.extensionTypes = {};
+  injectInObject(context, defaultCallback, dest, namespaces = null) {
+    let apis = {
+      extensionTypes: {},
+    };
+    Management.generateAPIs(context, Management.schemaApis, apis, namespaces);
+    Management.generateAPIs(context, context.extension.apis, apis, namespaces);
 
     let schemaWrapper = {
       get principal() {
@@ -639,15 +636,15 @@ GlobalManager = {
       },
 
       hasPermission(permission) {
-        return extension.hasPermission(permission);
+        return context.extension.hasPermission(permission);
       },
 
       callFunction(path, name, args) {
-        return findPathInObject(schemaApi, path)[name](...args);
+        return findPathInObject(apis, path)[name](...args);
       },
 
       callFunctionNoReturn(path, name, args) {
-        return findPathInObject(schemaApi, path)[name](...args);
+        findPathInObject(apis, path)[name](...args);
       },
 
       callAsyncFunction(path, name, args, callback) {
@@ -660,7 +657,7 @@ GlobalManager = {
 
         let promise;
         try {
-          promise = findPathInObject(schemaApi, path)[name](...args);
+          promise = findPathInObject(apis, path)[name](...args);
         } catch (e) {
           promise = Promise.reject(e);
         }
@@ -672,39 +669,44 @@ GlobalManager = {
         if (namespaces && !namespaces.includes(namespace)) {
           return false;
         }
-        return findPathInObject(schemaApi, [namespace]) != null;
+        return findPathInObject(apis, [namespace]) != null;
       },
 
       getProperty(path, name) {
-        return findPathInObject(schemaApi, path)[name];
+        return findPathInObject(apis, path)[name];
       },
 
       setProperty(path, name, value) {
-        findPathInObject(schemaApi, path)[name] = value;
+        findPathInObject(apis, path)[name] = value;
       },
 
       addListener(path, name, listener, args) {
-        return findPathInObject(schemaApi, path)[name].addListener.call(null, listener, ...args);
+        findPathInObject(apis, path)[name].addListener.call(null, listener, ...args);
       },
       removeListener(path, name, listener) {
-        return findPathInObject(schemaApi, path)[name].removeListener.call(null, listener);
+        findPathInObject(apis, path)[name].removeListener.call(null, listener);
       },
       hasListener(path, name, listener) {
-        return findPathInObject(schemaApi, path)[name].hasListener.call(null, listener);
+        return findPathInObject(apis, path)[name].hasListener.call(null, listener);
       },
     };
     Schemas.inject(dest, schemaWrapper);
   },
 
-  observe(contentWindow, topic, data) {
-    let inject = (extension, context) => {
+  observe(document, topic, data) {
+    let contentWindow = document.defaultView;
+    if (!contentWindow) {
+      return;
+    }
+
+    let inject = context => {
       // We create two separate sets of bindings, one for the `chrome`
       // global, and one for the `browser` global. The latter returns
       // Promise objects if a callback is not passed, while the former
       // does not.
       let injectObject = (name, defaultCallback) => {
         let browserObj = Cu.createObjectIn(contentWindow, {defineAs: name});
-        this.injectInObject(extension, context, defaultCallback, browserObj);
+        this.injectInObject(context, defaultCallback, browserObj);
       };
 
       injectObject("browser", null);
@@ -724,7 +726,6 @@ GlobalManager = {
     if (!this.extensionMap.has(id)) {
       return;
     }
-
 
     let docShell = contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
                                 .getInterface(Ci.nsIDocShell);
@@ -749,26 +750,27 @@ GlobalManager = {
       type = "popup";
     }
 
-
     let extension = this.extensionMap.get(id);
-    let uri = contentWindow.document.documentURIObject;
+    let uri = document.documentURIObject;
     let incognito = PrivateBrowsingUtils.isContentWindowPrivate(contentWindow);
 
     let context = new ExtensionContext(extension, {type, contentWindow, uri, docShell, incognito});
-    inject(extension, context);
+    inject(context);
     if (type == "background") {
       this._initializeBackgroundPage(contentWindow);
     }
 
-    let eventHandler = docShell.chromeEventHandler;
-    let listener = event => {
-      if (event.target != docShell.contentViewer.DOMDocument) {
-        return;
+    let innerWindowID = contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
+
+    let onUnload = subject => {
+      let windowId = subject.QueryInterface(Ci.nsISupportsPRUint64).data;
+      if (windowId == innerWindowID) {
+        Services.obs.removeObserver(onUnload, "inner-window-destroyed");
+        context.unload();
       }
-      eventHandler.removeEventListener("unload", listener, true);
-      context.unload();
     };
-    eventHandler.addEventListener("unload", listener, true);
+    Services.obs.addObserver(onUnload, "inner-window-destroyed", false);
   },
 
   _initializeBackgroundPage(contentWindow) {
@@ -979,7 +981,7 @@ this.ExtensionData = class {
       };
 
       if (this.localeData) {
-        context.preprocessors.localize = this.localize.bind(this);
+        context.preprocessors.localize = (value, context) => this.localize(value);
       }
 
       let normalized = Schemas.normalize(this.manifest, "manifest.WebExtensionManifest", context);
@@ -1690,6 +1692,6 @@ this.Extension = class extends ExtensionData {
   }
 
   get name() {
-    return this.localize(this.manifest.name);
+    return this.manifest.name;
   }
 };

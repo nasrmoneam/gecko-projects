@@ -476,7 +476,7 @@ HasMatchingAnimations(const nsIFrame* aFrame, TestType&& aTest)
 
 bool
 nsLayoutUtils::HasCurrentAnimationOfProperty(const nsIFrame* aFrame,
-                                             nsCSSProperty aProperty)
+                                             nsCSSPropertyID aProperty)
 {
   return HasMatchingAnimations(aFrame,
     [&aProperty](KeyframeEffectReadOnly& aEffect)
@@ -501,7 +501,7 @@ nsLayoutUtils::HasCurrentTransitions(const nsIFrame* aFrame)
 
 bool
 nsLayoutUtils::HasRelevantAnimationOfProperty(const nsIFrame* aFrame,
-                                              nsCSSProperty aProperty)
+                                              nsCSSPropertyID aProperty)
 {
   return HasMatchingAnimations(aFrame,
     [&aProperty](KeyframeEffectReadOnly& aEffect)
@@ -891,11 +891,7 @@ nsLayoutUtils::AsyncPanZoomEnabled(nsIFrame* aFrame)
 
 float
 nsLayoutUtils::GetCurrentAPZResolutionScale(nsIPresShell* aShell) {
-#if !defined(MOZ_WIDGET_ANDROID) || defined(MOZ_ANDROID_APZ)
   return aShell ? aShell->GetCumulativeNonRootScaleResolution() : 1.0;
-#else
-  return 1.0f;
-#endif
 }
 
 // Return the maximum displayport size, based on the LayerManager's maximum
@@ -2995,8 +2991,7 @@ static LayoutDeviceIntPoint GetWidgetOffset(nsIWidget* aWidget, nsIWidget*& aRoo
     if (!parent) {
       break;
     }
-    LayoutDeviceIntRect bounds;
-    aWidget->GetBounds(bounds);
+    LayoutDeviceIntRect bounds = aWidget->GetBounds();
     offset += bounds.TopLeft();
     aWidget = parent;
   }
@@ -3476,7 +3471,6 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
         }
       }
     }
-#if !defined(MOZ_WIDGET_ANDROID) || defined(MOZ_ANDROID_APZ)
     else if (presShell->GetDocument() && presShell->GetDocument()->IsRootDisplayDocument()
         && !presShell->GetRootScrollFrame()) {
       // In cases where the root document is a XUL document, we want to take
@@ -3487,7 +3481,6 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
         id = nsLayoutUtils::FindOrCreateIDFor(element);
       }
     }
-#endif
 
     nsDisplayListBuilder::AutoCurrentScrollParentIdSetter idSetter(&builder, id);
 
@@ -5807,7 +5800,7 @@ ShouldDarkenColors(nsPresContext* aPresContext)
 }
 
 nscolor
-nsLayoutUtils::GetColor(nsIFrame* aFrame, nsCSSProperty aProperty)
+nsLayoutUtils::GetColor(nsIFrame* aFrame, nsCSSPropertyID aProperty)
 {
   nscolor color = aFrame->GetVisitedDependentColor(aProperty);
   if (ShouldDarkenColors(aFrame->PresContext())) {
@@ -6310,7 +6303,7 @@ nsLayoutUtils::GetClosestLayer(nsIFrame* aFrame)
 {
   nsIFrame* layer;
   for (layer = aFrame; layer; layer = layer->GetParent()) {
-    if (layer->IsAbsPosContaininingBlock() ||
+    if (layer->IsAbsPosContainingBlock() ||
         (layer->GetParent() &&
           layer->GetParent()->GetType() == nsGkAtoms::scrollFrame))
       break;
@@ -8325,8 +8318,7 @@ UpdateCompositionBoundsForRCDRSF(ParentLayerRect& aCompBounds,
 #endif
 
   if (widget) {
-    LayoutDeviceIntRect widgetBounds;
-    widget->GetBounds(widgetBounds);
+    LayoutDeviceIntRect widgetBounds = widget->GetBounds();
     widgetBounds.MoveTo(0, 0);
     aCompBounds = ParentLayerRect(
       ViewAs<ParentLayerPixel>(
@@ -8448,8 +8440,7 @@ nsLayoutUtils::CalculateRootCompositionSize(nsIFrame* aFrame,
     }
   } else {
     nsIWidget* widget = aFrame->GetNearestWidget();
-    LayoutDeviceIntRect widgetBounds;
-    widget->GetBounds(widgetBounds);
+    LayoutDeviceIntRect widgetBounds = widget->GetBounds();
     rootCompositionSize = ScreenSize(
       ViewAs<ScreenPixel>(widgetBounds.Size(),
                           PixelCastJustification::LayoutDeviceIsScreenForBounds));
@@ -8479,7 +8470,6 @@ nsLayoutUtils::CalculateScrollableRectForFrame(nsIScrollableFrame* aScrollableFr
     // provide the special behaviour, this code will cause it to break. We can remove
     // the ifndef once Fennec switches over to APZ or if we add the special handling
     // to Fennec
-#if !defined(MOZ_WIDGET_ANDROID) || defined(MOZ_ANDROID_APZ)
     nsPoint scrollPosition = aScrollableFrame->GetScrollPosition();
     if (aScrollableFrame->GetScrollbarStyles().mVertical == NS_STYLE_OVERFLOW_HIDDEN) {
       contentBounds.y = scrollPosition.y;
@@ -8489,7 +8479,6 @@ nsLayoutUtils::CalculateScrollableRectForFrame(nsIScrollableFrame* aScrollableFr
       contentBounds.x = scrollPosition.x;
       contentBounds.width = 0;
     }
-#endif
 
     contentBounds.width += aScrollableFrame->GetScrollPortRect().width;
     contentBounds.height += aScrollableFrame->GetScrollPortRect().height;

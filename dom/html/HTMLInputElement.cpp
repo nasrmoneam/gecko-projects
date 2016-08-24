@@ -79,8 +79,8 @@
 #include "nsIRadioGroupContainer.h"
 
 // input type=file
-#include "mozilla/dom/Entry.h"
-#include "mozilla/dom/DOMFileSystem.h"
+#include "mozilla/dom/FileSystemEntry.h"
+#include "mozilla/dom/FileSystem.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/FileList.h"
 #include "nsIFile.h"
@@ -177,6 +177,7 @@ static const nsAttrValue::EnumTable kInputTypeTable[] = {
   { "text", NS_FORM_INPUT_TEXT },
   { "time", NS_FORM_INPUT_TIME },
   { "url", NS_FORM_INPUT_URL },
+  { "week", NS_FORM_INPUT_WEEK },
   { 0 }
 };
 
@@ -1466,8 +1467,10 @@ HTMLInputElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       if (aName == nsGkAtoms::readonly || aName == nsGkAtoms::disabled) {
         UpdateBarredFromConstraintValidation();
       }
-    } else if (MaxLengthApplies() && aName == nsGkAtoms::maxlength) {
+    } else if (MinOrMaxLengthApplies() && aName == nsGkAtoms::maxlength) {
       UpdateTooLongValidityState();
+    } else if (MinOrMaxLengthApplies() && aName == nsGkAtoms::minlength) {
+      UpdateTooShortValidityState();
     } else if (aName == nsGkAtoms::pattern && !mParserCreating) {
       UpdatePatternMismatchValidityState();
     } else if (aName == nsGkAtoms::multiple) {
@@ -1588,6 +1591,7 @@ NS_IMPL_ENUM_ATTR_DEFAULT_VALUE(HTMLInputElement, InputMode, inputmode,
                                 kInputDefaultInputmode->tag)
 NS_IMPL_BOOL_ATTR(HTMLInputElement, Multiple, multiple)
 NS_IMPL_NON_NEGATIVE_INT_ATTR(HTMLInputElement, MaxLength, maxlength)
+NS_IMPL_NON_NEGATIVE_INT_ATTR(HTMLInputElement, MinLength, minlength)
 NS_IMPL_STRING_ATTR(HTMLInputElement, Name, name)
 NS_IMPL_BOOL_ATTR(HTMLInputElement, ReadOnly, readonly)
 NS_IMPL_BOOL_ATTR(HTMLInputElement, Required, required)
@@ -2122,7 +2126,8 @@ HTMLInputElement::ConvertNumberToString(Decimal aValue,
 Nullable<Date>
 HTMLInputElement::GetValueAsDate(ErrorResult& aRv)
 {
-  if (!IsDateTimeInputType(mType)) {
+  // TODO: this is temporary until bug 888316 is fixed.
+  if (!IsDateTimeInputType(mType) || mType == NS_FORM_INPUT_WEEK) {
     return Nullable<Date>();
   }
 
@@ -2176,7 +2181,8 @@ HTMLInputElement::GetValueAsDate(ErrorResult& aRv)
 void
 HTMLInputElement::SetValueAsDate(Nullable<Date> aDate, ErrorResult& aRv)
 {
-  if (!IsDateTimeInputType(mType)) {
+  // TODO: this is temporary until bug 888316 is fixed.
+  if (!IsDateTimeInputType(mType) || mType == NS_FORM_INPUT_WEEK) {
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return;
   }
@@ -2424,9 +2430,10 @@ HTMLInputElement::IsExperimentalMobileType(uint8_t aType)
 bool
 HTMLInputElement::IsDateTimeInputType(uint8_t aType)
 {
-  return aType == NS_FORM_INPUT_DATE || aType == NS_FORM_INPUT_TIME ||
-    aType == NS_FORM_INPUT_MONTH;
-
+  return aType == NS_FORM_INPUT_DATE ||
+         aType == NS_FORM_INPUT_TIME ||
+         aType == NS_FORM_INPUT_MONTH ||
+         aType == NS_FORM_INPUT_WEEK;
 }
 
 NS_IMETHODIMP
@@ -4085,8 +4092,7 @@ HTMLInputElement::MaybeInitPickers(EventChainPostVisitor& aVisitor)
     nsCOMPtr<nsIContent> target =
       do_QueryInterface(aVisitor.mEvent->mOriginalTarget);
     if (target &&
-        target->GetParent() == this &&
-        target->IsRootOfNativeAnonymousSubtree() &&
+        target->FindFirstNonChromeOnlyAccessContent() == this &&
         ((Preferences::GetBool("dom.input.dirpicker", false) && Allowdirs()) ||
          (Preferences::GetBool("dom.webkitBlink.dirPicker.enabled", false) &&
           HasAttr(kNameSpaceID_None, nsGkAtoms::webkitdirectory)))) {
@@ -4822,12 +4828,22 @@ HTMLInputElement::HandleTypeChange(uint8_t aNewType)
     GetValue(aOldValue);
   }
 
+  nsTextEditorState::SelectionProperties sp;
+
+  if (GetEditorState()) {
+    sp = mInputData.mState->GetSelectionProperties();
+  }
+
   // We already have a copy of the value, lets free it and changes the type.
   FreeData();
   mType = aNewType;
 
   if (IsSingleLineTextControl()) {
+
     mInputData.mState = new nsTextEditorState(this);
+    if (!sp.IsDefault()) {
+      mInputData.mState->SetSelectionProperties(sp);
+    }
   }
 
   /**
@@ -5258,7 +5274,8 @@ IsDateTimeEnabled(int32_t aNewType)
          (aNewType == NS_FORM_INPUT_TIME &&
           (Preferences::GetBool("dom.forms.datetime", false) ||
            Preferences::GetBool("dom.experimental_forms", false))) ||
-         (aNewType == NS_FORM_INPUT_MONTH &&
+         ((aNewType == NS_FORM_INPUT_MONTH ||
+           aNewType == NS_FORM_INPUT_WEEK) &&
           Preferences::GetBool("dom.forms.datetime", false));
 }
 
@@ -5316,6 +5333,9 @@ HTMLInputElement::ParseAttribute(int32_t aNamespaceID,
       return aResult.ParseSpecialIntValue(aValue);
     }
     if (aAttribute == nsGkAtoms::maxlength) {
+      return aResult.ParseNonNegativeIntValue(aValue);
+    }
+    if (aAttribute == nsGkAtoms::minlength) {
       return aResult.ParseNonNegativeIntValue(aValue);
     }
     if (aAttribute == nsGkAtoms::size) {
@@ -6744,6 +6764,7 @@ HTMLInputElement::GetValueMode() const
     case NS_FORM_INPUT_TIME:
     case NS_FORM_INPUT_COLOR:
     case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
       return VALUE_MODE_VALUE;
     default:
       NS_NOTYETIMPLEMENTED("Unexpected input type in GetValueMode()");
@@ -6790,6 +6811,7 @@ HTMLInputElement::DoesReadOnlyApply() const
     case NS_FORM_INPUT_DATE:
     case NS_FORM_INPUT_TIME:
     case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
       return true;
     default:
       NS_NOTYETIMPLEMENTED("Unexpected input type in DoesReadOnlyApply()");
@@ -6828,6 +6850,7 @@ HTMLInputElement::DoesRequiredApply() const
     case NS_FORM_INPUT_DATE:
     case NS_FORM_INPUT_TIME:
     case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
       return true;
     default:
       NS_NOTYETIMPLEMENTED("Unexpected input type in DoesRequiredApply()");
@@ -6870,6 +6893,7 @@ HTMLInputElement::DoesMinMaxApply() const
     case NS_FORM_INPUT_TIME:
     case NS_FORM_INPUT_RANGE:
     case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
     // TODO:
     // All date/time types.
       return true;
@@ -6918,6 +6942,7 @@ HTMLInputElement::DoesAutocompleteApply() const
     case NS_FORM_INPUT_RANGE:
     case NS_FORM_INPUT_COLOR:
     case NS_FORM_INPUT_MONTH:
+    case NS_FORM_INPUT_WEEK:
       return true;
 #ifdef DEBUG
     case NS_FORM_INPUT_RESET:
@@ -6985,7 +7010,7 @@ HTMLInputElement::IsTooLong()
 {
   if (!mValueChanged ||
       !mLastValueChangeWasInteractive ||
-      !MaxLengthApplies() ||
+      !MinOrMaxLengthApplies() ||
       !HasAttr(kNameSpaceID_None, nsGkAtoms::maxlength)) {
     return false;
   }
@@ -7001,6 +7026,29 @@ HTMLInputElement::IsTooLong()
   GetTextLength(&textLength);
 
   return textLength > maxLength;
+}
+
+bool
+HTMLInputElement::IsTooShort()
+{
+  if (!mValueChanged ||
+      !mLastValueChangeWasInteractive ||
+      !MinOrMaxLengthApplies() ||
+      !HasAttr(kNameSpaceID_None, nsGkAtoms::minlength)) {
+    return false;
+  }
+
+  int32_t minLength = MinLength();
+
+  // Minlength of -1 means parsing error.
+  if (minLength == -1) {
+    return false;
+  }
+
+  int32_t textLength = -1;
+  GetTextLength(&textLength);
+
+  return textLength && textLength < minLength;
 }
 
 bool
@@ -7101,7 +7149,8 @@ HTMLInputElement::HasPatternMismatch() const
 bool
 HTMLInputElement::IsRangeOverflow() const
 {
-  if (!DoesMinMaxApply()) {
+  // TODO: this is temporary until bug 888316 is fixed.
+  if (!DoesMinMaxApply() || mType == NS_FORM_INPUT_WEEK) {
     return false;
   }
 
@@ -7121,7 +7170,8 @@ HTMLInputElement::IsRangeOverflow() const
 bool
 HTMLInputElement::IsRangeUnderflow() const
 {
-  if (!DoesMinMaxApply()) {
+  // TODO: this is temporary until bug 888316 is fixed.
+  if (!DoesMinMaxApply() || mType == NS_FORM_INPUT_WEEK) {
     return false;
   }
 
@@ -7263,6 +7313,12 @@ HTMLInputElement::UpdateTooLongValidityState()
 }
 
 void
+HTMLInputElement::UpdateTooShortValidityState()
+{
+  SetValidityState(VALIDITY_STATE_TOO_SHORT, IsTooShort());
+}
+
+void
 HTMLInputElement::UpdateValueMissingValidityStateForRadio(bool aIgnoreSelf)
 {
   bool notify = !mParserCreating;
@@ -7362,6 +7418,7 @@ HTMLInputElement::UpdateAllValidityStates(bool aNotify)
 {
   bool validBefore = IsValid();
   UpdateTooLongValidityState();
+  UpdateTooShortValidityState();
   UpdateValueMissingValidityState();
   UpdateTypeMismatchValidityState();
   UpdatePatternMismatchValidityState();
@@ -7416,6 +7473,26 @@ HTMLInputElement::GetValidationMessage(nsAString& aValidationMessage,
       const char16_t* params[] = { strMaxLength.get(), strTextLength.get() };
       rv = nsContentUtils::FormatLocalizedString(nsContentUtils::eDOM_PROPERTIES,
                                                  "FormValidationTextTooLong",
+                                                 params, message);
+      aValidationMessage = message;
+      break;
+    }
+    case VALIDITY_STATE_TOO_SHORT:
+    {
+      nsXPIDLString message;
+      int32_t minLength = MinLength();
+      int32_t textLength = -1;
+      nsAutoString strMinLength;
+      nsAutoString strTextLength;
+
+      GetTextLength(&textLength);
+
+      strMinLength.AppendInt(minLength);
+      strTextLength.AppendInt(textLength);
+
+      const char16_t* params[] = { strMinLength.get(), strTextLength.get() };
+      rv = nsContentUtils::FormatLocalizedString(nsContentUtils::eDOM_PROPERTIES,
+                                                 "FormValidationTextTooShort",
                                                  params, message);
       aValidationMessage = message;
       break;
@@ -8092,7 +8169,8 @@ HTMLInputElement::UpdateHasRange()
 
   mHasRange = false;
 
-  if (!DoesMinMaxApply()) {
+  // TODO: this is temporary until bug 888316 is fixed.
+  if (!DoesMinMaxApply() || mType == NS_FORM_INPUT_WEEK) {
     return;
   }
 
@@ -8181,14 +8259,15 @@ HTMLInputElement::UpdateEntries(const nsTArray<OwningFileOrDirectory>& aFilesOrD
   nsCOMPtr<nsIGlobalObject> global = OwnerDoc()->GetScopeObject();
   MOZ_ASSERT(global);
 
-  RefPtr<DOMFileSystem> fs = DOMFileSystem::Create(global);
+  RefPtr<FileSystem> fs = FileSystem::Create(global);
   if (NS_WARN_IF(!fs)) {
     return;
   }
 
-  Sequence<RefPtr<Entry>> entries;
+  Sequence<RefPtr<FileSystemEntry>> entries;
   for (uint32_t i = 0; i < aFilesOrDirectories.Length(); ++i) {
-    RefPtr<Entry> entry = Entry::Create(global, aFilesOrDirectories[i], fs);
+    RefPtr<FileSystemEntry> entry =
+      FileSystemEntry::Create(global, aFilesOrDirectories[i], fs);
     MOZ_ASSERT(entry);
 
     if (!entries.AppendElement(entry, fallible)) {
@@ -8204,7 +8283,7 @@ HTMLInputElement::UpdateEntries(const nsTArray<OwningFileOrDirectory>& aFilesOrD
 }
 
 void
-HTMLInputElement::GetWebkitEntries(nsTArray<RefPtr<Entry>>& aSequence)
+HTMLInputElement::GetWebkitEntries(nsTArray<RefPtr<FileSystemEntry>>& aSequence)
 {
   Telemetry::Accumulate(Telemetry::BLINK_FILESYSTEM_USED, true);
   aSequence.AppendElements(mEntries);

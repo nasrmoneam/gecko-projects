@@ -65,6 +65,9 @@ class EnterDebuggeeNoExecute;
 class TraceLoggerThread;
 #endif
 
+class PromiseTask;
+typedef Vector<PromiseTask*, 0, SystemAllocPolicy> PromiseTaskPtrVector;
+
 /* Thread Local Storage slot for storing the runtime for a thread. */
 extern MOZ_THREAD_LOCAL(PerThreadData*) TlsPerThreadData;
 
@@ -118,22 +121,20 @@ class FreeOp : public JSFreeOp
 {
     Vector<void*, 0, SystemAllocPolicy> freeLaterList;
     jit::JitPoisonRangeVector jitPoisonRanges;
-    ThreadType threadType;
 
   public:
     static FreeOp* get(JSFreeOp* fop) {
         return static_cast<FreeOp*>(fop);
     }
 
-    explicit FreeOp(JSRuntime* rt, ThreadType thread = MainThread)
-      : JSFreeOp(rt), threadType(thread)
-    {}
-
+    explicit FreeOp(JSRuntime* maybeRuntime);
     ~FreeOp();
 
-    bool onBackgroundThread() {
-        return threadType == BackgroundThread;
+    bool onMainThread() const {
+        return runtime_ != nullptr;
     }
+
+    bool isDefaultFreeOp() const;
 
     inline void free_(void* p);
     inline void freeLater(void* p);
@@ -248,7 +249,7 @@ void DisableExtraThreads();
  * the main thread as |JSRuntime::mainThread|, for select operations
  * performed off thread, such as parsing.
  */
-class PerThreadData : public PerThreadDataFriendFields
+class PerThreadData
 {
     /*
      * Backpointer to the full shared JSRuntime* with which this
@@ -372,16 +373,13 @@ struct JSRuntime : public JS::shadow::Runtime,
     js::jit::JitActivation* jitActivation;
 
     /* See comment for JSRuntime::interrupt_. */
-  private:
+  protected:
     mozilla::Atomic<uintptr_t, mozilla::Relaxed> jitStackLimit_;
-    void resetJitStackLimit();
 
     // Like jitStackLimit_, but not reset to trigger interrupts.
     uintptr_t jitStackLimitNoInterrupt_;
 
   public:
-    void initJitStackLimit();
-
     uintptr_t jitStackLimit() const { return jitStackLimit_; }
 
     // For read-only JIT use:
@@ -448,28 +446,6 @@ struct JSRuntime : public JS::shadow::Runtime,
     js::WasmActivation * volatile wasmActivationStack_;
 
   public:
-    /*
-     * Youngest frame of a saved stack that will be picked up as an async stack
-     * by any new Activation, and is nullptr when no async stack should be used.
-     *
-     * The JS::AutoSetAsyncStackForNewCalls class can be used to set this.
-     *
-     * New activations will reset this to nullptr on construction after getting
-     * the current value, and will restore the previous value on destruction.
-     */
-    JS::PersistentRooted<js::SavedFrame*> asyncStackForNewActivations;
-
-    /*
-     * Value of asyncCause to be attached to asyncStackForNewActivations.
-     */
-    const char* asyncCauseForNewActivations;
-
-    /*
-     * True if the async call was explicitly requested, e.g. via
-     * callFunctionWithAsyncStack.
-     */
-    bool asyncCallIsExplicit;
-
     /* If non-null, report JavaScript entry points to this monitor. */
     JS::dbg::AutoEntryMonitor* entryMonitor;
 
@@ -664,6 +640,10 @@ struct JSRuntime : public JS::shadow::Runtime,
     JSPromiseRejectionTrackerCallback promiseRejectionTrackerCallback;
     void* promiseRejectionTrackerCallbackData;
 
+    JS::StartAsyncTaskCallback startAsyncTaskCallback;
+    JS::FinishAsyncTaskCallback finishAsyncTaskCallback;
+    js::ExclusiveData<js::PromiseTaskPtrVector> promiseTasksToDestroy;
+
   private:
     /*
      * Lock taken when using per-runtime or per-zone data that could otherwise
@@ -710,7 +690,7 @@ struct JSRuntime : public JS::shadow::Runtime,
 
   private:
     /* See comment for JS_AbortIfWrongThread in jsapi.h. */
-    void* ownerThread_;
+    js::Thread::Id ownerThread_;
     size_t ownerThreadNative_;
     friend bool js::CurrentThreadCanAccessRuntime(JSRuntime* rt);
   public:
@@ -938,11 +918,12 @@ struct JSRuntime : public JS::shadow::Runtime,
 #endif
 
   private:
-    js::FreeOp          defaultFreeOp_;
+    js::FreeOp*         defaultFreeOp_;
 
   public:
     js::FreeOp* defaultFreeOp() {
-        return &defaultFreeOp_;
+        MOZ_ASSERT(defaultFreeOp_);
+        return defaultFreeOp_;
     }
 
     uint32_t            debuggerMutations;
@@ -1064,6 +1045,7 @@ struct JSRuntime : public JS::shadow::Runtime,
   public:
     bool initializeAtoms(JSContext* cx);
     void finishAtoms();
+    bool atomsAreFinished() const { return !atoms_; }
 
     void sweepAtoms();
 
@@ -1358,7 +1340,7 @@ FreeOp::freeLater(void* p)
 {
     // FreeOps other than the defaultFreeOp() are constructed on the stack,
     // and won't hold onto the pointers to free indefinitely.
-    MOZ_ASSERT(this != runtime()->defaultFreeOp());
+    MOZ_ASSERT(!isDefaultFreeOp());
 
     AutoEnterOOMUnsafeRegion oomUnsafe;
     if (!freeLaterList.append(p))
@@ -1370,7 +1352,7 @@ FreeOp::appendJitPoisonRange(const jit::JitPoisonRange& range)
 {
     // FreeOps other than the defaultFreeOp() are constructed on the stack,
     // and won't hold onto the pointers to free indefinitely.
-    MOZ_ASSERT(this != runtime()->defaultFreeOp());
+    MOZ_ASSERT(!isDefaultFreeOp());
 
     return jitPoisonRanges.append(range);
 }

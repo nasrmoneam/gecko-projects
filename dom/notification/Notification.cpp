@@ -1073,7 +1073,7 @@ Notification::ConstructFromFields(
 {
   MOZ_ASSERT(aGlobal);
 
-  RootedDictionary<NotificationOptions> options(nsContentUtils::RootingCx());
+  RootedDictionary<NotificationOptions> options(RootingCx());
   options.mDir = Notification::StringToDirection(nsString(aDir));
   options.mLang = aLang;
   options.mBody = aBody;
@@ -2564,7 +2564,7 @@ Notification::RegisterWorkerHolder()
   mWorkerPrivate->AssertIsOnWorkerThread();
   MOZ_ASSERT(!mWorkerHolder);
   mWorkerHolder = MakeUnique<NotificationWorkerHolder>(this);
-  if (NS_WARN_IF(!mWorkerHolder->HoldWorker(mWorkerPrivate))) {
+  if (NS_WARN_IF(!mWorkerHolder->HoldWorker(mWorkerPrivate, Canceling))) {
     return false;
   }
 

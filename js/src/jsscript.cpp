@@ -2524,6 +2524,9 @@ js::FreeScriptData(JSRuntime* rt, AutoLockForExclusiveAccess& lock)
     if (!table.initialized())
         return;
 
+    // The table should be empty unless the embedding leaked GC things.
+    MOZ_ASSERT_IF(rt->gc.shutdownCollectedEverything(), table.empty());
+
     for (ScriptDataTable::Enum e(table); !e.empty(); e.popFront()) {
 #ifdef DEBUG
         SharedScriptData* scriptData = e.front();
@@ -4138,7 +4141,7 @@ JSScript::argumentsOptimizationFailed(JSContext* cx, HandleScript script)
      *    assumption of !script->needsArgsObj();
      *  - type inference data for the script assuming script->needsArgsObj
      */
-    for (AllFramesIter i(cx); !i.done(); ++i) {
+    for (AllScriptFramesIter i(cx); !i.done(); ++i) {
         /*
          * We cannot reliably create an arguments object for Ion activations of
          * this script.  To maintain the invariant that "script->needsArgsObj

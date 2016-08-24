@@ -42,6 +42,7 @@
 #include "nsRefreshDriver.h"
 #include "nsStreamUtils.h"
 #include "ActiveLayerTracker.h"
+#include "VRManagerChild.h"
 #include "WebGL1Context.h"
 #include "WebGL2Context.h"
 
@@ -129,6 +130,9 @@ public:
     }
 
     RefPtr<DataSourceSurface> copy = CopySurface(snapshot);
+    if (!copy) {
+      return;
+    }
 
     mOwningElement->SetFrameCapture(copy.forget());
     mOwningElement->MarkContextCleanForFrameCapture();
@@ -352,6 +356,7 @@ NS_IMPL_ISUPPORTS(HTMLCanvasElementObserver, nsIObserver)
 HTMLCanvasElement::HTMLCanvasElement(already_AddRefed<mozilla::dom::NodeInfo>& aNodeInfo)
   : nsGenericHTMLElement(aNodeInfo),
     mResetLayer(true) ,
+    mVRPresentationActive(false),
     mWriteOnly(false)
 {}
 
@@ -1065,7 +1070,7 @@ HTMLCanvasElement::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
   static uint8_t sOffscreenCanvasLayerUserDataDummy = 0;
 
   if (mCurrentContext) {
-    return mCurrentContext->GetCanvasLayer(aBuilder, aOldLayer, aManager);
+    return mCurrentContext->GetCanvasLayer(aBuilder, aOldLayer, aManager, mVRPresentationActive);
   }
 
   if (mOffscreenCanvas) {
@@ -1381,6 +1386,43 @@ HTMLCanvasElement::InvalidateFromAsyncCanvasRenderer(AsyncCanvasRenderer *aRende
   }
 
   element->InvalidateCanvasContent(nullptr);
+}
+
+void
+HTMLCanvasElement::StartVRPresentation()
+{
+  WebGLContext* webgl = static_cast<WebGLContext*>(GetContextAtIndex(0));
+  if (!webgl) {
+    return;
+  }
+
+  if (!webgl->StartVRPresentation()) {
+    return;
+  }
+
+  mVRPresentationActive = true;
+}
+
+void
+HTMLCanvasElement::StopVRPresentation()
+{
+  mVRPresentationActive = false;
+}
+
+already_AddRefed<layers::SharedSurfaceTextureClient>
+HTMLCanvasElement::GetVRFrame()
+{
+  if (GetCurrentContextType() != CanvasContextType::WebGL1 &&
+      GetCurrentContextType() != CanvasContextType::WebGL2) {
+    return nullptr;
+  }
+
+  WebGLContext* webgl = static_cast<WebGLContext*>(GetContextAtIndex(0));
+  if (!webgl) {
+    return nullptr;
+  }
+
+  return webgl->GetVRFrame();
 }
 
 } // namespace dom

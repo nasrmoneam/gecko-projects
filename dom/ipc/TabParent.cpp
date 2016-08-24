@@ -475,9 +475,7 @@ TabParent::IsVisible() const
     return false;
   }
 
-  bool visible = false;
-  frameLoader->GetVisible(&visible);
-  return visible;
+  return frameLoader->GetVisible();
 }
 
 void
@@ -1419,9 +1417,9 @@ public:
     MOZ_ASSERT(mTabParent);
   }
 
-  NS_IMETHODIMP Observe(nsISupports* aSubject,
-                        const char* aTopic,
-                        const char16_t* aData) override
+  NS_IMETHOD Observe(nsISupports* aSubject,
+                     const char* aTopic,
+                     const char16_t* aData) override
   {
     if (!mTabParent) {
       // We already sent the notification
@@ -1776,12 +1774,11 @@ TabParent::RecvSetCustomCursor(const nsCString& aCursorData,
 nsIXULBrowserWindow*
 TabParent::GetXULBrowserWindow()
 {
-  nsCOMPtr<nsIContent> frame = do_QueryInterface(mFrameElement);
-  if (!frame) {
+  if (!mFrameElement) {
     return nullptr;
   }
 
-  nsCOMPtr<nsIDocShell> docShell = frame->OwnerDoc()->GetDocShell();
+  nsCOMPtr<nsIDocShell> docShell = mFrameElement->OwnerDoc()->GetDocShell();
   if (!docShell) {
     return nullptr;
   }

@@ -95,7 +95,8 @@ using mozilla::dom::TabId from "mozilla/dom/ipc/IdType.h";
 using mozilla::dom::ContentParentId from "mozilla/dom/ipc/IdType.h";
 using mozilla::LayoutDeviceIntPoint from "Units.h";
 using struct LookAndFeelInt from "mozilla/widget/WidgetMessageUtils.h";
-using class mozilla::dom::ipc::StructuredCloneData from "ipc/IPCMessageUtils.h";
+using class mozilla::dom::MessagePort from "mozilla/dom/MessagePort.h";
+using class mozilla::dom::ipc::StructuredCloneData from "mozilla/dom/ipc/StructuredCloneData.h";
 using mozilla::DataStorageType from "ipc/DataStorageIPCUtils.h";
 using mozilla::DocShellOriginAttributes from "mozilla/ipc/BackgroundUtils.h";
 using struct mozilla::layers::TextureFactoryIdentifier from "mozilla/layers/CompositorTypes.h";
@@ -660,6 +661,11 @@ child:
     async NotifyGMPsChanged();
 
     /**
+     * Notify the child that cache is emptied.
+     */
+    async NotifyEmptyHTTPCache();
+
+    /**
      * Send a `push` event without data to a service worker in the child.
      */
     async Push(nsCString scope, Principal principal, nsString messageId);
@@ -1136,7 +1142,7 @@ parent:
      * Request graphics initialization information from the parent.
      */
     sync GetGraphicsDeviceInitData()
-        returns (DeviceInitData aData);
+        returns (ContentDeviceData aData);
 
     sync CreateWindow(nullable PBrowser aThisTab,
                       PBrowser aNewTab,

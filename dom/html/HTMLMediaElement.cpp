@@ -907,6 +907,7 @@ void HTMLMediaElement::ShutdownDecoder()
 {
   RemoveMediaElementFromURITable();
   NS_ASSERTION(mDecoder, "Must have decoder to shut down");
+  mWaitingForKeyListener.DisconnectIfExists();
   mDecoder->Shutdown();
   mDecoder = nullptr;
 }
@@ -983,6 +984,7 @@ void HTMLMediaElement::AbortExistingLoads()
 #ifdef MOZ_EME
   mPendingEncryptedInitData.mInitDatas.Clear();
 #endif // MOZ_EME
+  mWaitingForKey = false;
   mSourcePointer = nullptr;
 
   mTags = nullptr;
@@ -1722,7 +1724,7 @@ HTMLMediaElement::Seek(double aTime,
 
   if (mSrcStream) {
     // do nothing since media streams have an empty Seekable range.
-    promise->MaybeRejectWithUndefined();
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
     return promise.forget();
   }
 
@@ -1740,14 +1742,14 @@ HTMLMediaElement::Seek(double aTime,
 
   if (mReadyState == nsIDOMHTMLMediaElement::HAVE_NOTHING) {
     mDefaultPlaybackStartPosition = aTime;
-    promise->MaybeRejectWithUndefined();
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
     return promise.forget();
   }
 
   if (!mDecoder) {
     // mDecoder must always be set in order to reach this point.
     NS_ASSERTION(mDecoder, "SetCurrentTime failed: no decoder");
-    promise->MaybeRejectWithUndefined();
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
     return promise.forget();
   }
 
@@ -1762,7 +1764,7 @@ HTMLMediaElement::Seek(double aTime,
   uint32_t length = 0;
   seekable->GetLength(&length);
   if (!length) {
-    promise->MaybeRejectWithUndefined();
+    promise->MaybeReject(NS_ERROR_DOM_INVALID_STATE_ERR);
     return promise.forget();
   }
 
@@ -1878,7 +1880,7 @@ already_AddRefed<TimeRanges>
 HTMLMediaElement::Seekable() const
 {
   RefPtr<TimeRanges> ranges = new TimeRanges(ToSupports(OwnerDoc()));
-  if (mDecoder && mReadyState > nsIDOMHTMLMediaElement::HAVE_NOTHING) {
+  if (mDecoder) {
     mDecoder->GetSeekable().ToTimeRanges(ranges);
   }
   return ranges.forget();
@@ -2509,6 +2511,7 @@ HTMLMediaElement::HTMLMediaElement(already_AddRefed<mozilla::dom::NodeInfo>& aNo
     mMediaSecurityVerified(false),
     mCORSMode(CORS_NONE),
     mIsEncrypted(false),
+    mWaitingForKey(false),
     mDownloadSuspendedByCache(false, "HTMLMediaElement::mDownloadSuspendedByCache"),
     mAudioChannelVolume(1.0),
     mPlayingThroughTheAudioChannel(false),
@@ -2615,20 +2618,6 @@ void
 HTMLMediaElement::NotifyXPCOMShutdown()
 {
   ShutdownDecoder();
-}
-
-void
-HTMLMediaElement::ResetConnectionState()
-{
-  SetCurrentTime(0);
-  FireTimeUpdate(false);
-  DispatchAsyncEvent(NS_LITERAL_STRING("ended"));
-  ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_EMPTY);
-  ChangeDelayLoadStatus(false);
-  ChangeReadyState(nsIDOMHTMLMediaElement::HAVE_NOTHING);
-  if (mDecoder) {
-    ShutdownDecoder();
-  }
 }
 
 void
@@ -3239,6 +3228,21 @@ HTMLMediaElement::ReportTelemetry()
                               max_ms);
         LOG(LogLevel::Debug, ("%p VIDEO_INTER_KEYFRAME_MAX_MS = %u, keys: '%s' and 'All'",
                               this, max_ms, key.get()));
+      } else {
+        // Here, we have played *some* of the video, but didn't get more than 1
+        // keyframe. Report '0' if we have played for longer than the video-
+        // decode-suspend delay (showing recovery would be difficult).
+        uint32_t suspendDelay_ms = MediaPrefs::MDSMSuspendBackgroundVideoDelay();
+        if (uint32_t(playTime * 1000.0) > suspendDelay_ms) {
+          Telemetry::Accumulate(Telemetry::VIDEO_INTER_KEYFRAME_MAX_MS,
+                                key,
+                                0);
+          Telemetry::Accumulate(Telemetry::VIDEO_INTER_KEYFRAME_MAX_MS,
+                                NS_LITERAL_CSTRING("All"),
+                                0);
+          LOG(LogLevel::Debug, ("%p VIDEO_INTER_KEYFRAME_MAX_MS = 0 (only 1 keyframe), keys: '%s' and 'All'",
+                                this, key.get()));
+        }
       }
     }
   }
@@ -3378,19 +3382,7 @@ nsresult HTMLMediaElement::InitializeDecoderForChannel(nsIChannel* aChannel,
     mChannelLoader = nullptr;
   }
 
-  // We postpone the |FinishDecoderSetup| function call until we get
-  // |OnConnected| signal from MediaStreamController which is held by
-  // RtspMediaResource.
-  if (DecoderTraits::DecoderWaitsForOnConnected(mimeType)) {
-    decoder->SetResource(resource);
-    SetDecoder(decoder);
-    if (aListener) {
-      *aListener = nullptr;
-    }
-    return NS_OK;
-  } else {
-    return FinishDecoderSetup(decoder, resource, aListener);
-  }
+  return FinishDecoderSetup(decoder, resource, aListener);
 }
 
 nsresult HTMLMediaElement::FinishDecoderSetup(MediaDecoder* aDecoder,
@@ -3449,6 +3441,13 @@ nsresult HTMLMediaElement::FinishDecoderSetup(MediaDecoder* aDecoder,
     }
   }
 #endif
+
+  MediaEventSource<void>* waitingForKeyProducer = mDecoder->WaitingForKeyEvent();
+  // Not every decoder will produce waitingForKey events, only add ones that can
+  if (waitingForKeyProducer) {
+    mWaitingForKeyListener = waitingForKeyProducer->Connect(
+      AbstractThread::MainThread(), this, &HTMLMediaElement::CannotDecryptWaitingForKey);
+  }
 
   if (mChannelLoader) {
     mChannelLoader->Done();
@@ -4512,6 +4511,7 @@ void HTMLMediaElement::ChangeReadyState(nsMediaReadyState aState)
   if (oldState < nsIDOMHTMLMediaElement::HAVE_FUTURE_DATA &&
       mReadyState >= nsIDOMHTMLMediaElement::HAVE_FUTURE_DATA &&
       IsPotentiallyPlaying()) {
+    mWaitingForKey = false;
     DispatchAsyncEvent(NS_LITERAL_STRING("playing"));
   }
 
@@ -5896,6 +5896,27 @@ HTMLMediaElement::GetTopLevelPrincipal()
   return principal.forget();
 }
 #endif // MOZ_EME
+
+void
+HTMLMediaElement::CannotDecryptWaitingForKey()
+{
+  // See: http://w3c.github.io/encrypted-media/#dom-evt-waitingforkey
+  // Spec: 7.5.4 Queue a "waitingforkey" Event
+  // Spec: 1. Let the media element be the specified HTMLMediaElement object.
+
+  // Note, existing code will handle the ready state of this element, as
+  // such this function does not handle changing or checking mReadyState.
+
+  // Spec: 2. If the media element's waiting for key value is true, abort these steps.
+  if (!mWaitingForKey) {
+    // Spec: 3. Set the media element's waiting for key value to true.
+    // Spec: 4. Queue a task to fire a simple event named waitingforkey at the media element.
+    DispatchAsyncEvent(NS_LITERAL_STRING("waitingforkey"));
+    mWaitingForKey = true;
+    // No need to explicitly suspend playback, it happens automatically when
+    // it's starving for decoded frames.
+  }
+}
 
 NS_IMETHODIMP HTMLMediaElement::WindowAudioCaptureChanged(bool aCapture)
 {

@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
 #if !defined(__Userspace_os_Windows)
@@ -99,8 +100,8 @@ private:
   virtual ~DataChannelShutdown() {}
 
 public:
-  NS_IMETHODIMP Observe(nsISupports* aSubject, const char* aTopic,
-                        const char16_t* aData) override {
+  NS_IMETHOD Observe(nsISupports* aSubject, const char* aTopic,
+                     const char16_t* aData) override {
     if (strcmp(aTopic, "xpcom-will-shutdown") == 0) {
       LOG(("Shutting down SCTP"));
       if (sctp_initialized) {
@@ -2268,7 +2269,7 @@ DataChannelConnection::SendBinary(DataChannel *channel, const char *data,
     LOG(("Sending binary message length %u in chunks", len));
     // XXX check flags for out-of-order, or force in-order for large binary messages
     while (len > 0) {
-      size_t sendlen = PR_MIN(len, DATA_CHANNEL_MAX_BINARY_FRAGMENT);
+      size_t sendlen = std::min<size_t>(len, DATA_CHANNEL_MAX_BINARY_FRAGMENT);
       uint32_t ppid;
       len -= sendlen;
       ppid = len > 0 ? ppid_partial : ppid_final;

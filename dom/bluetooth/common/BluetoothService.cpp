@@ -124,7 +124,7 @@ BluetoothService::ToggleBtAck::ToggleBtAck(bool aEnabled)
   : mEnabled(aEnabled)
 { }
 
-NS_METHOD
+NS_IMETHODIMP
 BluetoothService::ToggleBtAck::Run()
 {
   BluetoothService::AcknowledgeToggleBt(mEnabled);
@@ -549,7 +549,7 @@ BluetoothService::HandleSettingsChanged(nsISupports* aSubject)
   // The string that we're interested in will be a JSON string that looks like:
   //  {"key":"bluetooth.enabled","value":true}
 
-  RootedDictionary<SettingChangeNotification> setting(nsContentUtils::RootingCx());
+  RootedDictionary<SettingChangeNotification> setting(RootingCx());
   if (!WrappedJSToDictionary(aSubject, setting)) {
     return NS_OK;
   }

@@ -132,6 +132,7 @@ enum {
     JS_TELEMETRY_GC_MINOR_REASON_LONG,
     JS_TELEMETRY_GC_MINOR_US,
     JS_TELEMETRY_GC_NURSERY_BYTES,
+    JS_TELEMETRY_GC_PRETENURE_COUNT,
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_CONTENT,
     JS_TELEMETRY_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS,
     JS_TELEMETRY_ADDON_EXCEPTIONS,
@@ -492,9 +493,9 @@ IsAtomsZone(JS::Zone* zone);
 
 struct WeakMapTracer
 {
-    JSRuntime* runtime;
+    JSContext* context;
 
-    explicit WeakMapTracer(JSRuntime* rt) : runtime(rt) {}
+    explicit WeakMapTracer(JSContext* cx) : context(cx) {}
 
     // Weak map tracer callback, called once for every binding of every
     // weak map that was live at the time of the last garbage collection.
@@ -998,9 +999,7 @@ RunningWithTrustedPrincipals(JSContext* cx);
 inline uintptr_t
 GetNativeStackLimit(JSContext* cx, StackKind kind, int extraAllowance = 0)
 {
-    PerThreadDataFriendFields* mainThread =
-      PerThreadDataFriendFields::getMainThread(GetRuntime(cx));
-    uintptr_t limit = mainThread->nativeStackLimit[kind];
+    uintptr_t limit = ContextFriendFields::get(cx)->nativeStackLimit[kind];
 #if JS_STACK_GROWTH_DIRECTION > 0
     limit += extraAllowance;
 #else
@@ -2098,25 +2097,14 @@ JS_GetArrayBufferViewData(JSObject* obj, bool* isSharedMemory, const JS::AutoChe
 extern JS_FRIEND_API(JSObject*)
 JS_GetArrayBufferViewBuffer(JSContext* cx, JS::HandleObject obj, bool* isSharedMemory);
 
-enum DetachDataDisposition {
-    ChangeData,
-    KeepData
-};
-
 /**
  * Detach an ArrayBuffer, causing all associated views to no longer refer to
  * the ArrayBuffer's original attached memory.
  *
- * The |changeData| argument is a hint to inform internal behavior with respect
- * to the ArrayBuffer's internal pointer to associated data.  |ChangeData|
- * attempts to set the internal pointer to fresh memory of the same size as the
- * original memory; |KeepData| attempts to preserve the original pointer, even
- * while the ArrayBuffer appears observably detached.  There is no guarantee
- * this parameter is respected -- it's only a hint.
+ * The |changeData| argument is obsolete and ignored.
  */
 extern JS_FRIEND_API(bool)
-JS_DetachArrayBuffer(JSContext* cx, JS::HandleObject obj,
-                     DetachDataDisposition changeData);
+JS_DetachArrayBuffer(JSContext* cx, JS::HandleObject obj);
 
 /**
  * Check whether the obj is a detached ArrayBufferObject. Note that this may
@@ -2981,7 +2969,7 @@ class MemProfiler
         return sActiveProfilerCount > 0;
     }
 
-    static MemProfiler* GetMemProfiler(JSRuntime* runtime);
+    static MemProfiler* GetMemProfiler(JSContext* context);
 
     static void SetNativeProfiler(NativeProfiler* aProfiler) {
         sNativeProfiler = aProfiler;

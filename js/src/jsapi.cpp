@@ -28,8 +28,8 @@
 #include "jsfun.h"
 #include "jsgc.h"
 #include "jsiter.h"
-#include "jslock.h"
 #include "jsmath.h"
+#include "jsnspr.h"
 #include "jsnum.h"
 #include "jsobj.h"
 #include "json.h"
@@ -557,18 +557,6 @@ JS_EndRequest(JSContext* cx)
     MOZ_ASSERT(cx->outstandingRequests != 0);
     cx->outstandingRequests--;
     StopRequest(cx);
-}
-
-JS_PUBLIC_API(JSRuntime*)
-JS_GetRuntime(JSContext* cx)
-{
-    return cx->runtime();
-}
-
-JS_PUBLIC_API(JSContext*)
-JS_GetContext(JSRuntime* rt)
-{
-    return rt->contextFromMainThread();
 }
 
 JS_PUBLIC_API(JSContext*)
@@ -1351,8 +1339,7 @@ JS_PUBLIC_API(void)
 JS_MaybeGC(JSContext* cx)
 {
     GCRuntime& gc = cx->runtime()->gc;
-    if (!gc.maybeGC(cx->zone()))
-        gc.maybePeriodicFullGC();
+    gc.maybeGC(cx->zone());
 }
 
 JS_PUBLIC_API(void)
@@ -1515,23 +1502,23 @@ JS_GetExternalStringFinalizer(JSString* str)
 }
 
 static void
-SetNativeStackQuotaAndLimit(JSRuntime* rt, StackKind kind, size_t stackSize)
+SetNativeStackQuotaAndLimit(JSContext* cx, StackKind kind, size_t stackSize)
 {
-    rt->nativeStackQuota[kind] = stackSize;
+    cx->nativeStackQuota[kind] = stackSize;
 
 #if JS_STACK_GROWTH_DIRECTION > 0
     if (stackSize == 0) {
-        rt->mainThread.nativeStackLimit[kind] = UINTPTR_MAX;
+        cx->nativeStackLimit[kind] = UINTPTR_MAX;
     } else {
-        MOZ_ASSERT(rt->nativeStackBase <= size_t(-1) - stackSize);
-        rt->mainThread.nativeStackLimit[kind] = rt->nativeStackBase + stackSize - 1;
+        MOZ_ASSERT(cx->nativeStackBase <= size_t(-1) - stackSize);
+        cx->nativeStackLimit[kind] = cx->nativeStackBase + stackSize - 1;
     }
 #else
     if (stackSize == 0) {
-        rt->mainThread.nativeStackLimit[kind] = 0;
+        cx->nativeStackLimit[kind] = 0;
     } else {
-        MOZ_ASSERT(rt->nativeStackBase >= stackSize);
-        rt->mainThread.nativeStackLimit[kind] = rt->nativeStackBase - (stackSize - 1);
+        MOZ_ASSERT(cx->nativeStackBase >= stackSize);
+        cx->nativeStackLimit[kind] = cx->nativeStackBase - (stackSize - 1);
     }
 #endif
 }
@@ -1540,8 +1527,7 @@ JS_PUBLIC_API(void)
 JS_SetNativeStackQuota(JSContext* cx, size_t systemCodeStackSize, size_t trustedScriptStackSize,
                        size_t untrustedScriptStackSize)
 {
-    JSRuntime* rt = cx->runtime();
-    MOZ_ASSERT(rt->requestDepth == 0);
+    MOZ_ASSERT(cx->requestDepth == 0);
 
     if (!trustedScriptStackSize)
         trustedScriptStackSize = systemCodeStackSize;
@@ -1553,11 +1539,11 @@ JS_SetNativeStackQuota(JSContext* cx, size_t systemCodeStackSize, size_t trusted
     else
         MOZ_ASSERT(untrustedScriptStackSize < trustedScriptStackSize);
 
-    SetNativeStackQuotaAndLimit(rt, StackForSystemCode, systemCodeStackSize);
-    SetNativeStackQuotaAndLimit(rt, StackForTrustedScript, trustedScriptStackSize);
-    SetNativeStackQuotaAndLimit(rt, StackForUntrustedScript, untrustedScriptStackSize);
+    SetNativeStackQuotaAndLimit(cx, StackForSystemCode, systemCodeStackSize);
+    SetNativeStackQuotaAndLimit(cx, StackForTrustedScript, trustedScriptStackSize);
+    SetNativeStackQuotaAndLimit(cx, StackForUntrustedScript, untrustedScriptStackSize);
 
-    rt->initJitStackLimit();
+    cx->initJitStackLimit();
 }
 
 /************************************************************************/
@@ -1942,10 +1928,11 @@ JS_IsNative(JSObject* obj)
     return obj->isNative();
 }
 
-JS_PUBLIC_API(JSRuntime*)
-JS_GetObjectRuntime(JSObject* obj)
+JS_PUBLIC_API(void)
+JS::AssertObjectBelongsToCurrentThread(JSObject* obj)
 {
-    return obj->compartment()->runtimeFromMainThread();
+    JSRuntime* rt = obj->compartment()->runtimeFromAnyThread();
+    MOZ_RELEASE_ASSERT(CurrentThreadCanAccessRuntime(rt));
 }
 
 
@@ -3799,7 +3786,6 @@ JS::ReadOnlyCompileOptions::copyPODOptions(const ReadOnlyCompileOptions& rhs)
 
 JS::OwningCompileOptions::OwningCompileOptions(JSContext* cx)
     : ReadOnlyCompileOptions(),
-      runtime(GetRuntime(cx)),
       elementRoot(cx),
       elementAttributeNameRoot(cx),
       introductionScriptRoot(cx)
@@ -4927,6 +4913,14 @@ JS::GetWaitForAllPromise(JSContext* cx, const JS::AutoObjectVector& promises)
 }
 
 JS_PUBLIC_API(void)
+JS::SetAsyncTaskCallbacks(JSContext* cx, JS::StartAsyncTaskCallback start,
+                          JS::FinishAsyncTaskCallback finish)
+{
+    cx->startAsyncTaskCallback = start;
+    cx->finishAsyncTaskCallback = finish;
+}
+
+JS_PUBLIC_API(void)
 JS_RequestInterruptCallback(JSContext* cx)
 {
     cx->requestInterrupt(JSRuntime::RequestInterruptUrgent);
@@ -4942,9 +4936,9 @@ JS::AutoSetAsyncStackForNewCalls::AutoSetAsyncStackForNewCalls(
   JSContext* cx, HandleObject stack, const char* asyncCause,
   JS::AutoSetAsyncStackForNewCalls::AsyncCallKind kind)
   : cx(cx),
-    oldAsyncStack(cx, cx->runtime()->asyncStackForNewActivations),
-    oldAsyncCause(cx->runtime()->asyncCauseForNewActivations),
-    oldAsyncCallIsExplicit(cx->runtime()->asyncCallIsExplicit)
+    oldAsyncStack(cx, cx->asyncStackForNewActivations),
+    oldAsyncCause(cx->asyncCauseForNewActivations),
+    oldAsyncCallIsExplicit(cx->asyncCallIsExplicit)
 {
     CHECK_REQUEST(cx);
 
@@ -4956,17 +4950,17 @@ JS::AutoSetAsyncStackForNewCalls::AutoSetAsyncStackForNewCalls(
 
     SavedFrame* asyncStack = &stack->as<SavedFrame>();
 
-    cx->runtime()->asyncStackForNewActivations = asyncStack;
-    cx->runtime()->asyncCauseForNewActivations = asyncCause;
-    cx->runtime()->asyncCallIsExplicit = kind == AsyncCallKind::EXPLICIT;
+    cx->asyncStackForNewActivations = asyncStack;
+    cx->asyncCauseForNewActivations = asyncCause;
+    cx->asyncCallIsExplicit = kind == AsyncCallKind::EXPLICIT;
 }
 
 JS::AutoSetAsyncStackForNewCalls::~AutoSetAsyncStackForNewCalls()
 {
-    cx->runtime()->asyncCauseForNewActivations = oldAsyncCause;
-    cx->runtime()->asyncStackForNewActivations =
+    cx->asyncCauseForNewActivations = oldAsyncCause;
+    cx->asyncStackForNewActivations =
       oldAsyncStack ? &oldAsyncStack->as<SavedFrame>() : nullptr;
-    cx->runtime()->asyncCallIsExplicit = oldAsyncCallIsExplicit;
+    cx->asyncCallIsExplicit = oldAsyncCallIsExplicit;
 }
 
 /************************************************************************/
@@ -5585,6 +5579,17 @@ JS_ReportError(JSContext* cx, const char* format, ...)
 }
 
 JS_PUBLIC_API(void)
+JS_ReportErrorLatin1(JSContext* cx, const char* format, ...)
+{
+    va_list ap;
+
+    AssertHeapIsIdle(cx);
+    va_start(ap, format);
+    ReportErrorVA(cx, JSREPORT_ERROR, format, ap);
+    va_end(ap);
+}
+
+JS_PUBLIC_API(void)
 JS_ReportErrorNumber(JSContext* cx, JSErrorCallback errorCallback,
                      void* userRef, const unsigned errorNumber, ...)
 {
@@ -5602,6 +5607,26 @@ JS_ReportErrorNumberVA(JSContext* cx, JSErrorCallback errorCallback,
     AssertHeapIsIdle(cx);
     ReportErrorNumberVA(cx, JSREPORT_ERROR, errorCallback, userRef,
                         errorNumber, ArgumentsAreASCII, ap);
+}
+
+JS_PUBLIC_API(void)
+JS_ReportErrorNumberLatin1(JSContext* cx, JSErrorCallback errorCallback,
+                           void* userRef, const unsigned errorNumber, ...)
+{
+    va_list ap;
+    va_start(ap, errorNumber);
+    JS_ReportErrorNumberLatin1VA(cx, errorCallback, userRef, errorNumber, ap);
+    va_end(ap);
+}
+
+JS_PUBLIC_API(void)
+JS_ReportErrorNumberLatin1VA(JSContext* cx, JSErrorCallback errorCallback,
+                             void* userRef, const unsigned errorNumber,
+                             va_list ap)
+{
+    AssertHeapIsIdle(cx);
+    ReportErrorNumberVA(cx, JSREPORT_ERROR, errorCallback, userRef,
+                        errorNumber, ArgumentsAreLatin1, ap);
 }
 
 JS_PUBLIC_API(void)
@@ -5641,6 +5666,19 @@ JS_ReportWarning(JSContext* cx, const char* format, ...)
 }
 
 JS_PUBLIC_API(bool)
+JS_ReportWarningLatin1(JSContext* cx, const char* format, ...)
+{
+    va_list ap;
+    bool ok;
+
+    AssertHeapIsIdle(cx);
+    va_start(ap, format);
+    ok = ReportErrorVA(cx, JSREPORT_WARNING, format, ap);
+    va_end(ap);
+    return ok;
+}
+
+JS_PUBLIC_API(bool)
 JS_ReportErrorFlagsAndNumber(JSContext* cx, unsigned flags,
                              JSErrorCallback errorCallback, void* userRef,
                              const unsigned errorNumber, ...)
@@ -5652,6 +5690,22 @@ JS_ReportErrorFlagsAndNumber(JSContext* cx, unsigned flags,
     va_start(ap, errorNumber);
     ok = ReportErrorNumberVA(cx, flags, errorCallback, userRef,
                              errorNumber, ArgumentsAreASCII, ap);
+    va_end(ap);
+    return ok;
+}
+
+JS_PUBLIC_API(bool)
+JS_ReportErrorFlagsAndNumberLatin1(JSContext* cx, unsigned flags,
+                                   JSErrorCallback errorCallback, void* userRef,
+                                   const unsigned errorNumber, ...)
+{
+    va_list ap;
+    bool ok;
+
+    AssertHeapIsIdle(cx);
+    va_start(ap, errorNumber);
+    ok = ReportErrorNumberVA(cx, flags, errorCallback, userRef,
+                             errorNumber, ArgumentsAreLatin1, ap);
     va_end(ap);
     return ok;
 }
@@ -5869,6 +5923,16 @@ JS_SetDefaultLocale(JSContext* cx, const char* locale)
     return cx->setDefaultLocale(locale);
 }
 
+JS_PUBLIC_API(UniqueChars)
+JS_GetDefaultLocale(JSContext* cx)
+{
+    AssertHeapIsIdle(cx);
+    if (const char* locale = cx->getDefaultLocale())
+        return UniqueChars(JS_strdup(cx, locale));
+
+    return nullptr;
+}
+
 JS_PUBLIC_API(void)
 JS_ResetDefaultLocale(JSContext* cx)
 {
@@ -6040,12 +6104,6 @@ JS_PUBLIC_API(bool)
 JS_IsStopIteration(Value v)
 {
     return v.isObject() && v.toObject().is<StopIterationObject>();
-}
-
-JS_PUBLIC_API(intptr_t)
-JS_GetCurrentThread()
-{
-    return reinterpret_cast<intptr_t>(PR_GetCurrentThread());
 }
 
 extern MOZ_NEVER_INLINE JS_PUBLIC_API(void)
@@ -6455,15 +6513,10 @@ JS_CallOnce(JSCallOnceType* once, JSInitCallback func)
 }
 
 AutoGCRooter::AutoGCRooter(JSContext* cx, ptrdiff_t tag)
-  : down(ContextFriendFields::get(cx)->roots.autoGCRooters_),
-    tag_(tag),
-    stackTop(&ContextFriendFields::get(cx)->roots.autoGCRooters_)
-{
-    MOZ_ASSERT(this != *stackTop);
-    *stackTop = this;
-}
+  : AutoGCRooter(JS::RootingContext::get(cx), tag)
+{}
 
-AutoGCRooter::AutoGCRooter(ContextFriendFields* cx, ptrdiff_t tag)
+AutoGCRooter::AutoGCRooter(JS::RootingContext* cx, ptrdiff_t tag)
   : down(cx->roots.autoGCRooters_),
     tag_(tag),
     stackTop(&cx->roots.autoGCRooters_)

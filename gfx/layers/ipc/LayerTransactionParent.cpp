@@ -229,6 +229,14 @@ private:
 };
 
 bool
+LayerTransactionParent::RecvPaintTime(const uint64_t& aTransactionId,
+                                      const TimeDuration& aPaintTime)
+{
+  mShadowLayersManager->UpdatePaintTime(this, aPaintTime);
+  return true;
+}
+
+bool
 LayerTransactionParent::RecvUpdate(InfallibleTArray<Edit>&& cset,
                                    InfallibleTArray<OpDestroy>&& aToDestroy,
                                    const uint64_t& aFwdTransactionId,
@@ -433,11 +441,6 @@ LayerTransactionParent::RecvUpdate(InfallibleTArray<Edit>&& cset,
         containerLayer->SetScaleToResolution(attrs.scaleToResolution(),
                                              attrs.presShellResolution());
         containerLayer->SetEventRegionsOverride(attrs.eventRegionsOverride());
-        containerLayer->SetInputFrameID(attrs.inputFrameID());
-
-        if (attrs.hmdDeviceID()) {
-          containerLayer->SetVRDeviceID(attrs.hmdDeviceID());
-        }
 
         break;
       }

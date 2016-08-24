@@ -14,8 +14,6 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/TypeTraits.h"
 
-#include "jslock.h"
-
 #include "js/GCAPI.h"
 #include "js/SliceBudget.h"
 #include "js/Vector.h"
@@ -1424,6 +1422,13 @@ class MOZ_RAII AutoEmptyNursery : public AutoAssertEmptyNursery
 
 const char*
 StateName(State state);
+
+inline bool
+IsOOMReason(JS::gcreason::Reason reason)
+{
+    return reason == JS::gcreason::LAST_DITCH ||
+           reason == JS::gcreason::MEM_PRESSURE;
+}
 
 } /* namespace gc */
 

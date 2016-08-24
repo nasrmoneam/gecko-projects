@@ -211,9 +211,6 @@ public:
     { return mRenderingParams[aRenderMode]; }
 
 public:
-    void OnDeviceManagerDestroy(mozilla::layers::DeviceManagerD3D9* aDeviceManager);
-    already_AddRefed<mozilla::layers::DeviceManagerD3D9> GetD3D9DeviceManager();
-    IDirect3DDevice9* GetD3D9Device();
     void D3D9DeviceReset();
 
     bool DwmCompositionEnabled();
@@ -238,8 +235,6 @@ public:
     static mozilla::Atomic<size_t> sD3D11SharedTextures;
     static mozilla::Atomic<size_t> sD3D9SharedTextures;
 
-    void GetDeviceInitData(mozilla::gfx::DeviceInitData* aOut) override;
-
     bool SupportsPluginDirectBitmapDrawing() override {
       return true;
     }
@@ -253,7 +248,10 @@ protected:
     }
     void GetAcceleratedCompositorBackends(nsTArray<mozilla::layers::LayersBackend>& aBackends) override;
     virtual void GetPlatformCMSOutputProfile(void* &mem, size_t &size) override;
-    bool UpdateDeviceInitData() override;
+
+    void ImportGPUDeviceData(const mozilla::gfx::GPUDeviceData& aData) override;
+    void ImportContentDeviceData(const mozilla::gfx::ContentDeviceData& aData) override;
+    void BuildContentDeviceData(mozilla::gfx::ContentDeviceData* aOut) override;
 
 protected:
     RenderMode mRenderMode;
@@ -282,8 +280,6 @@ private:
     RefPtr<IDWriteRenderingParams> mRenderingParams[TEXT_RENDERING_COUNT];
     DWRITE_MEASURING_MODE mMeasuringMode;
 
-    mozilla::Mutex mDeviceLock;
-    RefPtr<mozilla::layers::DeviceManagerD3D9> mDeviceManager;
     bool mHasDeviceReset;
     bool mHasFakeDeviceReset;
     mozilla::Atomic<bool> mHasD3D9DeviceReset;

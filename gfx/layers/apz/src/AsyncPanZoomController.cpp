@@ -74,9 +74,9 @@
 #include "SharedMemoryBasic.h"          // for SharedMemoryBasic
 #include "ScrollSnap.h"                 // for ScrollSnapUtils
 #include "WheelScrollAnimation.h"
-#if defined(MOZ_ANDROID_APZ)
+#if defined(MOZ_WIDGET_ANDROID)
 #include "AndroidAPZ.h"
-#endif // defined(MOZ_ANDROID_APZ)
+#endif // defined(MOZ_WIDGET_ANDROID)
 
 #define ENABLE_APZC_LOGGING 0
 // #define ENABLE_APZC_LOGGING 1
@@ -105,7 +105,7 @@ typedef mozilla::gfx::Matrix4x4 Matrix4x4;
 using mozilla::gfx::PointTyped;
 
 // Choose between platform-specific implementations.
-#ifdef MOZ_ANDROID_APZ
+#ifdef MOZ_WIDGET_ANDROID
 typedef WidgetOverscrollEffect OverscrollEffect;
 typedef AndroidSpecificState PlatformSpecificState;
 typedef AndroidFlingAnimation FlingAnimation;
@@ -1497,14 +1497,12 @@ AsyncPanZoomController::GetScrollWheelDelta(const ScrollWheelInput& aEvent) cons
 {
   ParentLayerSize scrollAmount;
   ParentLayerSize pageScrollSize;
-  bool isRootContent = false;
 
   {
     // Grab the lock to access the frame metrics.
     ReentrantMonitorAutoEnter lock(mMonitor);
     LayoutDeviceIntSize scrollAmountLD = mScrollMetadata.GetLineScrollAmount();
     LayoutDeviceIntSize pageScrollSizeLD = mScrollMetadata.GetPageScrollAmount();
-    isRootContent = mFrameMetrics.IsRootContent();
     scrollAmount = scrollAmountLD /
       mFrameMetrics.GetDevPixelsPerCSSPixel() * mFrameMetrics.GetZoom();
     pageScrollSize = pageScrollSizeLD /
@@ -1537,9 +1535,9 @@ AsyncPanZoomController::GetScrollWheelDelta(const ScrollWheelInput& aEvent) cons
 
   // For the conditions under which we allow system scroll overrides, see
   // EventStateManager::DeltaAccumulator::ComputeScrollAmountForDefaultAction
-  // and WheelTransaction::OverrideSystemScrollSpeed.
-  if (isRootContent &&
-      gfxPrefs::MouseWheelHasRootScrollDeltaOverride() &&
+  // and WheelTransaction::OverrideSystemScrollSpeed. Note that we do *not*
+  // restrict this to the root content, see bug 1217715 for discussion on this.
+  if (gfxPrefs::MouseWheelHasRootScrollDeltaOverride() &&
       !aEvent.IsCustomizedByUserPrefs() &&
       aEvent.mDeltaType == ScrollWheelInput::SCROLLDELTA_LINE &&
       aEvent.mAllowToOverrideSystemScrollSpeed) {
@@ -2820,16 +2818,16 @@ int32_t AsyncPanZoomController::GetLastTouchIdentifier() const {
   return listener ? listener->GetLastTouchIdentifier() : -1;
 }
 
-void AsyncPanZoomController::RequestContentRepaint() {
+void AsyncPanZoomController::RequestContentRepaint(bool aUserAction) {
   // Reinvoke this method on the main thread if it's not there already. It's
   // important to do this before the call to CalculatePendingDisplayPort, so
   // that CalculatePendingDisplayPort uses the most recent available version of
   // mFrameMetrics, just before the paint request is dispatched to content.
   if (!NS_IsMainThread()) {
     // use the local variable to resolve the function overload.
-    auto func = static_cast<void (AsyncPanZoomController::*)()>
+    auto func = static_cast<void (AsyncPanZoomController::*)(bool)>
         (&AsyncPanZoomController::RequestContentRepaint);
-    NS_DispatchToMainThread(NewRunnableMethod(this, func));
+    NS_DispatchToMainThread(NewRunnableMethod<bool>(this, func, aUserAction));
     return;
   }
 
@@ -2840,6 +2838,7 @@ void AsyncPanZoomController::RequestContentRepaint() {
   mFrameMetrics.SetDisplayPortMargins(CalculatePendingDisplayPort(mFrameMetrics, velocity));
   mFrameMetrics.SetUseDisplayPortMargins(true);
   mFrameMetrics.SetPaintRequestTime(TimeStamp::Now());
+  mFrameMetrics.SetRepaintDrivenByUserAction(aUserAction);
   RequestContentRepaint(mFrameMetrics, velocity);
 }
 
@@ -2900,6 +2899,8 @@ AsyncPanZoomController::RequestContentRepaint(const FrameMetrics& aFrameMetrics,
     }
   }
 
+  MOZ_ASSERT(aFrameMetrics.GetScrollUpdateType() == FrameMetrics::eNone ||
+             aFrameMetrics.GetScrollUpdateType() == FrameMetrics::eUserAction);
   controller->RequestContentRepaint(aFrameMetrics);
   mExpectedGeckoMetrics = aFrameMetrics;
   mLastPaintRequestMetrics = aFrameMetrics;
@@ -3415,7 +3416,8 @@ void AsyncPanZoomController::NotifyLayersUpdated(const ScrollMetadata& aScrollMe
   }
 
   if (needContentRepaint) {
-    RequestContentRepaint();
+    // This repaint request is not driven by a user action on the APZ side
+    RequestContentRepaint(false);
   }
   UpdateSharedCompositorFrameMetrics();
 }
@@ -3563,6 +3565,7 @@ void AsyncPanZoomController::ZoomToRect(CSSRect aRect, const uint32_t aFlags) {
       CalculatePendingDisplayPort(endZoomToMetrics, velocity));
     endZoomToMetrics.SetUseDisplayPortMargins(true);
     endZoomToMetrics.SetPaintRequestTime(TimeStamp::Now());
+    endZoomToMetrics.SetRepaintDrivenByUserAction(true);
     if (NS_IsMainThread()) {
       RequestContentRepaint(endZoomToMetrics, velocity);
     } else {
@@ -3751,7 +3754,7 @@ void AsyncPanZoomController::UpdateSharedCompositorFrameMetrics()
   FrameMetrics* frame = mSharedFrameMetricsBuffer ?
       static_cast<FrameMetrics*>(mSharedFrameMetricsBuffer->memory()) : nullptr;
 
-  if (frame && mSharedLock && gfxPlatform::GetPlatform()->UseProgressivePaint()) {
+  if (frame && mSharedLock && gfxPrefs::ProgressivePaint()) {
     mSharedLock->Lock();
     *frame = mFrameMetrics;
     mSharedLock->Unlock();
@@ -3765,7 +3768,7 @@ void AsyncPanZoomController::ShareCompositorFrameMetrics() {
   // Only create the shared memory buffer if it hasn't already been created,
   // we are using progressive tile painting, and we have a
   // compositor to pass the shared memory back to the content process/thread.
-  if (!mSharedFrameMetricsBuffer && compositor && gfxPlatform::GetPlatform()->UseProgressivePaint()) {
+  if (!mSharedFrameMetricsBuffer && compositor && gfxPrefs::ProgressivePaint()) {
 
     // Create shared memory and initialize it with the current FrameMetrics value
     mSharedFrameMetricsBuffer = new ipc::SharedMemoryBasic;

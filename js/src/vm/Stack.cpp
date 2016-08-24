@@ -558,6 +558,7 @@ FrameIter::settleOnActivation()
                 continue;
             }
 
+            data_.pc_ = (jsbytecode*)data_.wasmFrames_.pc();
             data_.state_ = WASM;
             return;
         }
@@ -690,6 +691,7 @@ FrameIter::popWasmFrame()
     MOZ_ASSERT(data_.state_ == WASM);
 
     ++data_.wasmFrames_;
+    data_.pc_ = (jsbytecode*)data_.wasmFrames_.pc();
     if (data_.wasmFrames_.done())
         popActivation();
 }
@@ -757,12 +759,13 @@ FrameIter::rawFramePtr() const
 {
     switch (data_.state_) {
       case DONE:
-      case WASM:
         return nullptr;
       case JIT:
         return data_.jitFrames_.fp();
       case INTERP:
         return interpFrame();
+      case WASM:
+        return data_.wasmFrames_.fp();
     }
     MOZ_CRASH("Unexpected state");
 }
@@ -994,7 +997,6 @@ FrameIter::updatePcQuadratic()
 {
     switch (data_.state_) {
       case DONE:
-      case WASM:
         break;
       case INTERP: {
         InterpreterFrame* frame = interpFrame();
@@ -1031,6 +1033,10 @@ FrameIter::updatePcQuadratic()
             data_.jitFrames_.baselineScriptAndPc(nullptr, &data_.pc_);
             return;
         }
+        break;
+      case WASM:
+        // Update the pc.
+        data_.pc_ = (jsbytecode*)data_.wasmFrames_.pc();
         break;
     }
     MOZ_CRASH("Unexpected state");
@@ -1341,7 +1347,7 @@ ActivationEntryMonitor::ActivationEntryMonitor(JSContext* cx)
 Value
 ActivationEntryMonitor::asyncStack(JSContext* cx)
 {
-    RootedValue stack(cx, ObjectOrNullValue(cx->runtime()->asyncStackForNewActivations));
+    RootedValue stack(cx, ObjectOrNullValue(cx->asyncStackForNewActivations));
     if (!cx->compartment()->wrap(cx, &stack)) {
         cx->clearPendingException();
         return UndefinedValue();
@@ -1357,7 +1363,7 @@ ActivationEntryMonitor::ActivationEntryMonitor(JSContext* cx, InterpreterFrame* 
         // be traced if we trigger GC here. Suppress GC to avoid this.
         gc::AutoSuppressGC suppressGC(cx);
         RootedValue stack(cx, asyncStack(cx));
-        const char* asyncCause = cx->runtime()->asyncCauseForNewActivations;
+        const char* asyncCause = cx->asyncCauseForNewActivations;
         if (entryFrame->isFunctionFrame())
             entryMonitor_->Entry(cx, &entryFrame->callee(), stack, asyncCause);
         else
@@ -1373,7 +1379,7 @@ ActivationEntryMonitor::ActivationEntryMonitor(JSContext* cx, jit::CalleeToken e
         // a GC to discard the code we're about to enter, so we suppress GC.
         gc::AutoSuppressGC suppressGC(cx);
         RootedValue stack(cx, asyncStack(cx));
-        const char* asyncCause = cx->runtime()->asyncCauseForNewActivations;
+        const char* asyncCause = cx->asyncCauseForNewActivations;
         if (jit::CalleeTokenIsFunction(entryToken))
             entryMonitor_->Entry(cx_, jit::CalleeTokenToFunction(entryToken), stack, asyncCause);
         else
@@ -1719,24 +1725,24 @@ ActivationIterator::settle()
         activation_ = activation_->prev();
 }
 
-JS::ProfilingFrameIterator::ProfilingFrameIterator(JSRuntime* rt, const RegisterState& state,
+JS::ProfilingFrameIterator::ProfilingFrameIterator(JSContext* cx, const RegisterState& state,
                                                    uint32_t sampleBufferGen)
-  : rt_(rt),
+  : rt_(cx),
     sampleBufferGen_(sampleBufferGen),
     activation_(nullptr),
     savedPrevJitTop_(nullptr)
 {
-    if (!rt->spsProfiler.enabled())
+    if (!cx->spsProfiler.enabled())
         MOZ_CRASH("ProfilingFrameIterator called when spsProfiler not enabled for runtime.");
 
-    if (!rt->profilingActivation())
+    if (!cx->profilingActivation())
         return;
 
     // If profiler sampling is not enabled, skip.
-    if (!rt_->isProfilerSamplingEnabled())
+    if (!cx->isProfilerSamplingEnabled())
         return;
 
-    activation_ = rt->profilingActivation();
+    activation_ = cx->profilingActivation();
 
     MOZ_ASSERT(activation_->isProfiling());
 

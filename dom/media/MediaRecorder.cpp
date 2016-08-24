@@ -73,7 +73,7 @@ public:
     }
   }
 
-  NS_METHOD
+  NS_IMETHOD
   CollectReports(nsIHandleReportCallback* aHandleReport,
                  nsISupports* aData, bool aAnonymize) override
   {
@@ -719,11 +719,9 @@ private:
       return false;
     }
 
-    uint16_t appStatus = nsIPrincipal::APP_STATUS_NOT_INSTALLED;
-    doc->NodePrincipal()->GetAppStatus(&appStatus);
-
     // Certified applications can always assign AUDIO_3GPP
-    if (appStatus == nsIPrincipal::APP_STATUS_CERTIFIED) {
+    if (doc->NodePrincipal()->GetAppStatus() ==
+        nsIPrincipal::APP_STATUS_CERTIFIED) {
       return true;
     }
 
@@ -898,7 +896,7 @@ private:
     mMediaStreamTracks.Clear();
   }
 
-  NS_IMETHODIMP Observe(nsISupports *aSubject, const char *aTopic, const char16_t *aData) override
+  NS_IMETHOD Observe(nsISupports *aSubject, const char *aTopic, const char16_t *aData) override
   {
     MOZ_ASSERT(NS_IsMainThread());
     LOG(LogLevel::Debug, ("Session.Observe XPCOM_SHUTDOWN %p", this));

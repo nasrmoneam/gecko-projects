@@ -1739,9 +1739,6 @@ public:
 
   static JSContext *GetCurrentJSContext();
   static JSContext *GetCurrentJSContextForThread();
-  inline static JSContext *RootingCx() {
-    return mozilla::dom::danger::GetJSContext();
-  }
 
   /**
    * Case insensitive comparison between two strings. However it only ignores
@@ -2063,6 +2060,14 @@ public:
   static bool ResistFingerprinting()
   {
     return sPrivacyResistFingerprinting;
+  }
+
+  /**
+   * Returns true if the browser should show busy cursor when loading page.
+   */
+  static bool UseActivityCursor()
+  {
+    return sUseActivityCursor;
   }
 
   /**
@@ -2666,6 +2671,14 @@ public:
    */
   static nsIDocShell* GetDocShellForEventTarget(mozilla::dom::EventTarget* aTarget);
 
+  /**
+   * Returns true if the "HTTPS state" of the document should be "modern". See:
+   *
+   * https://html.spec.whatwg.org/#concept-document-https-state
+   * https://fetch.spec.whatwg.org/#concept-response-https-state
+   */
+  static bool HttpsStateIsModern(nsIDocument* aDocument);
+
 private:
   static bool InitializeEventTable();
 
@@ -2776,6 +2789,7 @@ private:
   static bool sPrivacyResistFingerprinting;
   static bool sSendPerformanceTimingNotifications;
   static bool sAppendLFInSerialization;
+  static bool sUseActivityCursor;
   static uint32_t sCookiesLifetimePolicy;
   static uint32_t sCookiesBehavior;
 

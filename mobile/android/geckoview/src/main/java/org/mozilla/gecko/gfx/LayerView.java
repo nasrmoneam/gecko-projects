@@ -16,7 +16,6 @@ import org.mozilla.gecko.AppConstants.Versions;
 import org.mozilla.gecko.EventDispatcher;
 import org.mozilla.gecko.GeckoAccessibility;
 import org.mozilla.gecko.GeckoAppShell;
-import org.mozilla.gecko.GeckoEvent;
 import org.mozilla.gecko.GeckoThread;
 import org.mozilla.gecko.mozglue.JNIObject;
 import org.mozilla.gecko.Tab;
@@ -65,8 +64,6 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
 
     private Listener mListener;
 
-    private PointF mInitialTouchPoint;
-
     private float mSurfaceTranslation;
 
     /* This should only be modified on the Java UI thread. */
@@ -78,34 +75,41 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
 
     /* This is written by the compositor thread (while the UI thread
      * is blocked on it) and read by the UI thread. */
+    @WrapForJNI(stubName = "CompositorCreated", calledFrom = "ui")
     private volatile boolean mCompositorCreated;
 
-
-    @WrapForJNI(allowMultithread = true)
-    protected class Compositor extends JNIObject {
+    private class Compositor extends JNIObject {
         public Compositor() {
         }
 
+        @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
         @Override protected native void disposeNative();
 
         // Gecko thread sets its Java instances; does not block UI thread.
+        @WrapForJNI(calledFrom = "any", dispatchTo = "proxy")
         /* package */ native void attachToJava(GeckoLayerClient layerClient,
                                                NativePanZoomController npzc);
 
+        @WrapForJNI(calledFrom = "any", dispatchTo = "proxy")
         /* package */ native void onSizeChanged(int windowWidth, int windowHeight,
                                                 int screenWidth, int screenHeight);
 
         // Gecko thread creates compositor; blocks UI thread.
+        @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
         /* package */ native void createCompositor(int width, int height);
 
         // Gecko thread pauses compositor; blocks UI thread.
+        @WrapForJNI(calledFrom = "ui", dispatchTo = "current")
         /* package */ native void syncPauseCompositor();
 
         // UI thread resumes compositor and notifies Gecko thread; does not block UI thread.
+        @WrapForJNI(calledFrom = "ui", dispatchTo = "proxy")
         /* package */ native void syncResumeResizeCompositor(int width, int height);
 
+        @WrapForJNI(calledFrom = "any", dispatchTo = "current")
         /* package */ native void syncInvalidateAndScheduleComposite();
 
+        @WrapForJNI
         private synchronized Object getSurface() {
             if (LayerView.this.mServerSurfaceValid) {
                 return LayerView.this.getSurface();
@@ -113,6 +117,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
             return null;
         }
 
+        @WrapForJNI(calledFrom = "gecko")
         private void destroy() {
             // The nsWindow has been closed. First mark our compositor as destroyed.
             LayerView.this.mCompositorCreated = false;
@@ -211,34 +216,6 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
                          (int)event.getToolMinor() / 2);
     }
 
-    private boolean sendEventToGecko(MotionEvent event) {
-        if (!mLayerClient.isGeckoReady()) {
-            return false;
-        }
-
-        int action = event.getActionMasked();
-        PointF point = new PointF(event.getX(), event.getY());
-        if (action == MotionEvent.ACTION_DOWN) {
-            mInitialTouchPoint = point;
-        }
-
-        if (mInitialTouchPoint != null && action == MotionEvent.ACTION_MOVE) {
-            Point p = getEventRadius(event);
-
-            if (PointUtils.subtract(point, mInitialTouchPoint).length() <
-                Math.max(PanZoomController.CLICK_THRESHOLD, Math.min(Math.min(p.x, p.y), PanZoomController.PAN_THRESHOLD))) {
-                // Don't send the touchmove event if if the users finger hasn't moved far.
-                // Necessary for Google Maps to work correctly. See bug 771099.
-                return true;
-            } else {
-                mInitialTouchPoint = null;
-            }
-        }
-
-        GeckoAppShell.sendEventToGecko(GeckoEvent.createMotionEvent(event, false));
-        return true;
-    }
-
     public void showSurface() {
         // Fix this if TextureView support is turned back on above
         mSurfaceView.setVisibility(View.VISIBLE);
@@ -285,7 +262,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
             }
             return true;
         }
-        if (AppConstants.MOZ_ANDROID_APZ && !mLayerClient.isGeckoReady()) {
+        if (!mLayerClient.isGeckoReady()) {
             // If gecko isn't loaded yet, don't try sending events to the
             // native code because it's just going to crash
             return true;
@@ -293,7 +270,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
         if (mPanZoomController != null && mPanZoomController.onTouchEvent(event)) {
             return true;
         }
-        return sendEventToGecko(event);
+        return false;
     }
 
     @Override
@@ -307,17 +284,15 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
 
         event.offsetLocation(0, -mSurfaceTranslation);
 
-        if (AppConstants.MOZ_ANDROID_APZ) {
-            if (!mLayerClient.isGeckoReady()) {
-                // If gecko isn't loaded yet, don't try sending events to the
-                // native code because it's just going to crash
-                return true;
-            } else if (mPanZoomController != null && mPanZoomController.onMotionEvent(event)) {
-                return true;
-            }
+        if (!mLayerClient.isGeckoReady()) {
+            // If gecko isn't loaded yet, don't try sending events to the
+            // native code because it's just going to crash
+            return true;
+        } else if (mPanZoomController != null && mPanZoomController.onMotionEvent(event)) {
+            return true;
         }
 
-        return sendEventToGecko(event);
+        return false;
     }
 
     @Override
@@ -327,7 +302,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
         if (AndroidGamepadManager.handleMotionEvent(event)) {
             return true;
         }
-        if (AppConstants.MOZ_ANDROID_APZ && !mLayerClient.isGeckoReady()) {
+        if (!mLayerClient.isGeckoReady()) {
             // If gecko isn't loaded yet, don't try sending events to the
             // native code because it's just going to crash
             return true;
@@ -444,7 +419,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (AppConstants.MOZ_ANDROID_APZ && !mLayerClient.isGeckoReady()) {
+        if (!mLayerClient.isGeckoReady()) {
             // If gecko isn't loaded yet, don't try sending events to the
             // native code because it's just going to crash
             return true;
@@ -459,14 +434,6 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
         if (mListener != null) {
             mListener.renderRequested();
         }
-    }
-
-    public void addLayer(Layer layer) {
-        mRenderer.addLayer(layer);
-    }
-
-    public void removeLayer(Layer layer) {
-        mRenderer.removeLayer(layer);
     }
 
     public void postRenderTask(RenderTask task) {
@@ -509,8 +476,7 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
     }
 
     private void attachCompositor() {
-        final NativePanZoomController npzc = AppConstants.MOZ_ANDROID_APZ ?
-                (NativePanZoomController) mPanZoomController : null;
+        final NativePanZoomController npzc = (NativePanZoomController) mPanZoomController;
 
         if (GeckoThread.isStateAtLeast(GeckoThread.State.PROFILE_READY)) {
             mCompositor.attachToJava(mLayerClient, npzc);
@@ -522,7 +488,8 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
         }
     }
 
-    protected Compositor getCompositor() {
+    @WrapForJNI(calledFrom = "ui")
+    protected Object getCompositor() {
         return mCompositor;
     }
 
@@ -630,7 +597,10 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
     }
 
     void notifySizeChanged(int windowWidth, int windowHeight, int screenWidth, int screenHeight) {
-        mCompositor.onSizeChanged(windowWidth, windowHeight, screenWidth, screenHeight);
+        final Compositor compositor = mCompositor;
+        if (compositor != null) {
+            compositor.onSizeChanged(windowWidth, windowHeight, screenWidth, screenHeight);
+        }
     }
 
     void serverSurfaceDestroyed() {
@@ -671,9 +641,9 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
       return null;
     }
 
-    //This method is called on the Gecko main thread.
-    @WrapForJNI(allowMultithread = true)
-    public static void updateZoomedView(ByteBuffer data) {
+    // This method is called on the Gecko main thread.
+    @WrapForJNI(calledFrom = "gecko")
+    private static void updateZoomedView(ByteBuffer data) {
         LayerView layerView = GeckoAppShell.getLayerView();
         if (layerView != null) {
             LayerRenderer layerRenderer = layerView.getRenderer();
@@ -797,17 +767,10 @@ public class LayerView extends ScrollView implements Tabs.OnTabsChangedListener 
     @Override
     public void setOverScrollMode(int overscrollMode) {
         super.setOverScrollMode(overscrollMode);
-        if (mPanZoomController != null) {
-            mPanZoomController.setOverScrollMode(overscrollMode);
-        }
     }
 
     @Override
     public int getOverScrollMode() {
-        if (mPanZoomController != null) {
-            return mPanZoomController.getOverScrollMode();
-        }
-
         return super.getOverScrollMode();
     }
 

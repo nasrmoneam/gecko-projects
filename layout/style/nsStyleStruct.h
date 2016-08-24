@@ -180,8 +180,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleFont
   static nscoord UnZoomText(nsPresContext* aPresContext, nscoord aSize);
   static already_AddRefed<nsIAtom> GetLanguage(StyleStructContext aPresContext);
 
-  void* operator new(size_t sz, nsStyleFont* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleFont* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleFont, sz);
   }
@@ -454,8 +454,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleColor
     return nsChangeHint(0);
   }
 
-  void* operator new(size_t sz, nsStyleColor* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleColor* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleColor, sz);
   }
@@ -567,6 +567,10 @@ struct nsStyleImageLayers {
     Position() {}
 
     bool IsInitialValue(LayerType aType) const;
+
+    static float GetInitialValue(LayerType aType) {
+      return (aType == LayerType::Background) ? 0.0f : 0.5f;
+    }
 
     // Sets both mXPosition and mYPosition to the given percent value for the
     // initial property-value (e.g. 0.0f for "0% 0%", or 0.5f for "50% 50%")
@@ -807,8 +811,8 @@ struct nsStyleImageLayers {
 
   bool HasLayerWithImage() const;
 
-  static const nsCSSProperty kBackgroundLayerTable[];
-  static const nsCSSProperty kMaskLayerTable[];
+  static const nsCSSPropertyID kBackgroundLayerTable[];
+  static const nsCSSPropertyID kMaskLayerTable[];
 
   #define NS_FOR_VISIBLE_IMAGE_LAYERS_BACK_TO_FRONT(var_, layers_) \
     for (uint32_t var_ = (layers_).mImageCount; var_-- != 0; )
@@ -823,8 +827,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleBackground {
   nsStyleBackground(const nsStyleBackground& aOther);
   ~nsStyleBackground();
 
-  void* operator new(size_t sz, nsStyleBackground* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleBackground* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleBackground, sz);
   }
@@ -883,8 +887,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleMargin
     MOZ_COUNT_DTOR(nsStyleMargin);
   }
 
-  void* operator new(size_t sz, nsStyleMargin* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleMargin* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleMargin, sz);
   }
@@ -930,8 +934,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePadding
     MOZ_COUNT_DTOR(nsStylePadding);
   }
 
-  void* operator new(size_t sz, nsStylePadding* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStylePadding* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStylePadding, sz);
   }
@@ -1137,8 +1141,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleBorder
   nsStyleBorder(const nsStyleBorder& aBorder);
   ~nsStyleBorder();
 
-  void* operator new(size_t sz, nsStyleBorder* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleBorder* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleBorder, sz);
   }
@@ -1370,8 +1374,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleOutline
     MOZ_COUNT_DTOR(nsStyleOutline);
   }
 
-  void* operator new(size_t sz, nsStyleOutline* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleOutline* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleOutline, sz);
   }
@@ -1483,8 +1487,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleList
   nsStyleList(const nsStyleList& aStyleList);
   ~nsStyleList();
 
-  void* operator new(size_t sz, nsStyleList* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleList* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleList, sz);
   }
@@ -1710,8 +1714,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition
   nsStylePosition(const nsStylePosition& aOther);
   ~nsStylePosition();
 
-  void* operator new(size_t sz, nsStylePosition* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStylePosition* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStylePosition, sz);
   }
@@ -1961,8 +1965,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleTextReset
   nsStyleTextReset(const nsStyleTextReset& aOther);
   ~nsStyleTextReset();
 
-  void* operator new(size_t sz, nsStyleTextReset* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleTextReset* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleTextReset, sz);
   }
@@ -2048,8 +2052,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleText
   nsStyleText(const nsStyleText& aOther);
   ~nsStyleText();
 
-  void* operator new(size_t sz, nsStyleText* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleText* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleText, sz);
   }
@@ -2269,8 +2273,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleVisibility
     MOZ_COUNT_DTOR(nsStyleVisibility);
   }
 
-  void* operator new(size_t sz, nsStyleVisibility* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleVisibility* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleVisibility, sz);
   }
@@ -2434,7 +2438,7 @@ struct StyleTransition
   const nsTimingFunction& GetTimingFunction() const { return mTimingFunction; }
   float GetDelay() const { return mDelay; }
   float GetDuration() const { return mDuration; }
-  nsCSSProperty GetProperty() const { return mProperty; }
+  nsCSSPropertyID GetProperty() const { return mProperty; }
   nsIAtom* GetUnknownProperty() const { return mUnknownProperty; }
 
   float GetCombinedDuration() const {
@@ -2446,14 +2450,14 @@ struct StyleTransition
     { mTimingFunction = aTimingFunction; }
   void SetDelay(float aDelay) { mDelay = aDelay; }
   void SetDuration(float aDuration) { mDuration = aDuration; }
-  void SetProperty(nsCSSProperty aProperty)
+  void SetProperty(nsCSSPropertyID aProperty)
     {
       NS_ASSERTION(aProperty != eCSSProperty_UNKNOWN &&
                    aProperty != eCSSPropertyExtra_variable,
                    "invalid property");
       mProperty = aProperty;
     }
-  void SetUnknownProperty(nsCSSProperty aProperty,
+  void SetUnknownProperty(nsCSSPropertyID aProperty,
                           const nsAString& aPropertyString);
   void CopyPropertyFrom(const StyleTransition& aOther)
     {
@@ -2471,7 +2475,7 @@ private:
   nsTimingFunction mTimingFunction;
   float mDuration;
   float mDelay;
-  nsCSSProperty mProperty;
+  nsCSSPropertyID mProperty;
   nsCOMPtr<nsIAtom> mUnknownProperty; // used when mProperty is
                                       // eCSSProperty_UNKNOWN or
                                       // eCSSPropertyExtra_variable
@@ -2528,7 +2532,7 @@ class StyleBasicShape final
 public:
   explicit StyleBasicShape(StyleBasicShapeType type)
     : mType(type),
-      mFillRule(NS_STYLE_FILL_RULE_NONZERO)
+      mFillRule(StyleFillRule::Nonzero)
   {
     mPosition.SetInitialPercentValues(0.5f);
   }
@@ -2536,8 +2540,8 @@ public:
   StyleBasicShapeType GetShapeType() const { return mType; }
   nsCSSKeyword GetShapeTypeName() const;
 
-  int32_t GetFillRule() const { return mFillRule; }
-  void SetFillRule(int32_t aFillRule)
+  StyleFillRule GetFillRule() const { return mFillRule; }
+  void SetFillRule(StyleFillRule aFillRule)
   {
     MOZ_ASSERT(mType == StyleBasicShapeType::Polygon, "expected polygon");
     mFillRule = aFillRule;
@@ -2601,18 +2605,21 @@ public:
     return !(*this == aOther);
   }
 
-  NS_INLINE_DECL_REFCOUNTING(StyleBasicShape);
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(StyleBasicShape);
 
 private:
   ~StyleBasicShape() {}
 
   StyleBasicShapeType mType;
-  int32_t mFillRule;
+  StyleFillRule mFillRule;
 
   // mCoordinates has coordinates for polygon or radii for
   // ellipse and circle.
+  // (top, right, bottom, left) for inset
   nsTArray<nsStyleCoord> mCoordinates;
+  // position of center for ellipse or circle
   Position mPosition;
+  // corner radii for inset (0 if not set)
   nsStyleCorners mRadius;
 };
 
@@ -2786,8 +2793,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
     MOZ_COUNT_DTOR(nsStyleDisplay);
   }
 
-  void* operator new(size_t sz, nsStyleDisplay* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleDisplay* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleDisplay, sz);
   }
@@ -3064,8 +3071,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleTable
   nsStyleTable(const nsStyleTable& aOther);
   ~nsStyleTable();
 
-  void* operator new(size_t sz, nsStyleTable* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleTable* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleTable, sz);
   }
@@ -3095,8 +3102,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleTableBorder
   nsStyleTableBorder(const nsStyleTableBorder& aOther);
   ~nsStyleTableBorder();
 
-  void* operator new(size_t sz, nsStyleTableBorder* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleTableBorder* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleTableBorder, sz);
   }
@@ -3157,7 +3164,11 @@ struct nsStyleContentData
 #ifdef DEBUG
     , mImageTracked(false)
 #endif
-  { mContent.mString = nullptr; }
+  {
+    MOZ_COUNT_CTOR(nsStyleContentData);
+    mContent.mString = nullptr;
+  }
+  nsStyleContentData(const nsStyleContentData&);
 
   ~nsStyleContentData();
   nsStyleContentData& operator=(const nsStyleContentData& aOther);
@@ -3177,18 +3188,21 @@ struct nsStyleContentData
     MOZ_ASSERT(mType == eStyleContentType_Image, "Wrong type!");
     NS_IF_ADDREF(mContent.mImage = aRequest);
   }
-private:
-  nsStyleContentData(const nsStyleContentData&); // not to be implemented
 };
 
 struct nsStyleCounterData
 {
   nsString  mCounter;
   int32_t   mValue;
+
+  bool operator==(const nsStyleCounterData& aOther) const {
+    return mValue == aOther.mValue && mCounter == aOther.mCounter;
+  }
+
+  bool operator!=(const nsStyleCounterData& aOther) const {
+    return !(*this == aOther);
+  }
 };
-
-
-#define DELETE_ARRAY_IF(array)  if (array) { delete[] array; array = nullptr; }
 
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleContent
 {
@@ -3196,8 +3210,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleContent
   nsStyleContent(const nsStyleContent& aContent);
   ~nsStyleContent();
 
-  void* operator new(size_t sz, nsStyleContent* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleContent* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleContent, sz);
   }
@@ -3216,90 +3230,60 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleContent
            nsChangeHint_ClearAncestorIntrinsics;
   }
 
-  uint32_t  ContentCount() const  { return mContentCount; } // [reset]
+  uint32_t ContentCount() const { return mContents.Length(); } // [reset]
 
   const nsStyleContentData& ContentAt(uint32_t aIndex) const {
-    NS_ASSERTION(aIndex < mContentCount, "out of range");
     return mContents[aIndex];
   }
 
-  nsStyleContentData& ContentAt(uint32_t aIndex) {
-    NS_ASSERTION(aIndex < mContentCount, "out of range");
-    return mContents[aIndex];
+  nsStyleContentData& ContentAt(uint32_t aIndex) { return mContents[aIndex]; }
+
+  void AllocateContents(uint32_t aCount) {
+    // We need to run the destructors of the elements of mContents, so we
+    // delete and reallocate even if aCount == mContentCount.  (If
+    // nsStyleContentData had its members private and managed their
+    // ownership on setting, we wouldn't need this, but that seems
+    // unnecessary at this point.)
+    mContents.Clear();
+    mContents.SetLength(aCount);
   }
 
-  nsresult AllocateContents(uint32_t aCount);
-
-  uint32_t  CounterIncrementCount() const { return mIncrementCount; }  // [reset]
-  const nsStyleCounterData* GetCounterIncrementAt(uint32_t aIndex) const {
-    NS_ASSERTION(aIndex < mIncrementCount, "out of range");
-    return &mIncrements[aIndex];
+  uint32_t CounterIncrementCount() const { return mIncrements.Length(); }  // [reset]
+  const nsStyleCounterData& CounterIncrementAt(uint32_t aIndex) const {
+    return mIncrements[aIndex];
   }
 
-  nsresult  AllocateCounterIncrements(uint32_t aCount) {
-    if (aCount != mIncrementCount) {
-      DELETE_ARRAY_IF(mIncrements);
-      if (aCount) {
-        mIncrements = new nsStyleCounterData[aCount];
-        if (! mIncrements) {
-          mIncrementCount = 0;
-          return NS_ERROR_OUT_OF_MEMORY;
-        }
-      }
-      mIncrementCount = aCount;
-    }
-    return NS_OK;
+  void AllocateCounterIncrements(uint32_t aCount) {
+    mIncrements.Clear();
+    mIncrements.SetLength(aCount);
   }
 
-  nsresult  SetCounterIncrementAt(uint32_t aIndex, const nsString& aCounter, int32_t aIncrement) {
-    if (aIndex < mIncrementCount) {
-      mIncrements[aIndex].mCounter = aCounter;
-      mIncrements[aIndex].mValue = aIncrement;
-      return NS_OK;
-    }
-    return NS_ERROR_ILLEGAL_VALUE;
+  void SetCounterIncrementAt(uint32_t aIndex, const nsString& aCounter, int32_t aIncrement) {
+    mIncrements[aIndex].mCounter = aCounter;
+    mIncrements[aIndex].mValue = aIncrement;
   }
 
-  uint32_t  CounterResetCount() const { return mResetCount; }  // [reset]
-  const nsStyleCounterData* GetCounterResetAt(uint32_t aIndex) const {
-    NS_ASSERTION(aIndex < mResetCount, "out of range");
-    return &mResets[aIndex];
+  uint32_t CounterResetCount() const { return mResets.Length(); }  // [reset]
+  const nsStyleCounterData& CounterResetAt(uint32_t aIndex) const {
+    return mResets[aIndex];
   }
 
-  nsresult  AllocateCounterResets(uint32_t aCount) {
-    if (aCount != mResetCount) {
-      DELETE_ARRAY_IF(mResets);
-      if (aCount) {
-        mResets = new nsStyleCounterData[aCount];
-        if (! mResets) {
-          mResetCount = 0;
-          return NS_ERROR_OUT_OF_MEMORY;
-        }
-      }
-      mResetCount = aCount;
-    }
-    return NS_OK;
+  void AllocateCounterResets(uint32_t aCount) {
+    mResets.Clear();
+    mResets.SetLength(aCount);
   }
 
-  nsresult  SetCounterResetAt(uint32_t aIndex, const nsString& aCounter, int32_t aValue) {
-    if (aIndex < mResetCount) {
-      mResets[aIndex].mCounter = aCounter;
-      mResets[aIndex].mValue = aValue;
-      return NS_OK;
-    }
-    return NS_ERROR_ILLEGAL_VALUE;
+  void SetCounterResetAt(uint32_t aIndex, const nsString& aCounter, int32_t aValue) {
+    mResets[aIndex].mCounter = aCounter;
+    mResets[aIndex].mValue = aValue;
   }
 
   nsStyleCoord  mMarkerOffset;  // [reset] coord, auto
 
 protected:
-  nsStyleContentData* mContents;
-  nsStyleCounterData* mIncrements;
-  nsStyleCounterData* mResets;
-
-  uint32_t            mContentCount;
-  uint32_t            mIncrementCount;
-  uint32_t            mResetCount;
+  nsTArray<nsStyleContentData> mContents;
+  nsTArray<nsStyleCounterData> mIncrements;
+  nsTArray<nsStyleCounterData> mResets;
 };
 
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUIReset
@@ -3308,8 +3292,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUIReset
   nsStyleUIReset(const nsStyleUIReset& aOther);
   ~nsStyleUIReset();
 
-  void* operator new(size_t sz, nsStyleUIReset* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleUIReset* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleUIReset, sz);
   }
@@ -3332,7 +3316,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUIReset
            nsChangeHint_ClearAncestorIntrinsics;
   }
 
-  uint8_t   mUserSelect;      // [reset] (selection-style)
+  mozilla::StyleUserSelect mUserSelect;   // [reset] (selection-style)
   uint8_t   mForceBrokenImageIcon; // [reset]  (0 if not forcing, otherwise forcing)
   uint8_t   mIMEMode;         // [reset]
   uint8_t   mWindowDragging;  // [reset]
@@ -3349,14 +3333,11 @@ struct nsCursorImage
   ~nsCursorImage();
 
   nsCursorImage& operator=(const nsCursorImage& aOther);
-  /*
-   * We hide mImage and force access through the getter and setter so that we
-   * can lock the images we use. Cursor images are likely to be small, so we
-   * don't care about discarding them. See bug 512260.
-   * */
+
   void SetImage(imgIRequest *aImage) {
     if (mImage) {
       mImage->UnlockImage();
+      mImage->RequestDiscard();
     }
     mImage = aImage;
     if (mImage) {
@@ -3377,8 +3358,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleUserInterface
   nsStyleUserInterface(const nsStyleUserInterface& aOther);
   ~nsStyleUserInterface();
 
-  void* operator new(size_t sz, nsStyleUserInterface* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleUserInterface* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleUserInterface, sz);
   }
@@ -3429,8 +3410,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleXUL
   nsStyleXUL(const nsStyleXUL& aSource);
   ~nsStyleXUL();
 
-  void* operator new(size_t sz, nsStyleXUL* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleXUL* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleXUL, sz);
   }
@@ -3468,8 +3449,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleColumn
   nsStyleColumn(const nsStyleColumn& aSource);
   ~nsStyleColumn();
 
-  void* operator new(size_t sz, nsStyleColumn* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleColumn* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleColumn, sz);
   }
@@ -3566,8 +3547,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleSVG
   nsStyleSVG(const nsStyleSVG& aSource);
   ~nsStyleSVG();
 
-  void* operator new(size_t sz, nsStyleSVG* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleSVG* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleSVG, sz);
   }
@@ -3605,10 +3586,10 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleSVG
   float            mStrokeMiterlimit; // [inherited]
   float            mStrokeOpacity;    // [inherited]
 
-  uint8_t          mClipRule;         // [inherited]
+  mozilla::StyleFillRule    mClipRule;  // [inherited]
   uint8_t          mColorInterpolation; // [inherited] see nsStyleConsts.h
   uint8_t          mColorInterpolationFilters; // [inherited] see nsStyleConsts.h
-  uint8_t          mFillRule;         // [inherited] see nsStyleConsts.h
+  mozilla::StyleFillRule    mFillRule;         // [inherited] see nsStyleConsts.h
   uint8_t          mPaintOrder;       // [inherited] see nsStyleConsts.h
   uint8_t          mShapeRendering;   // [inherited] see nsStyleConsts.h
   uint8_t          mStrokeLinecap;    // [inherited] see nsStyleConsts.h
@@ -3757,8 +3738,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleSVGReset
   nsStyleSVGReset(const nsStyleSVGReset& aSource);
   ~nsStyleSVGReset();
 
-  void* operator new(size_t sz, nsStyleSVGReset* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleSVGReset* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleSVGReset, sz);
   }
@@ -3808,8 +3789,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleVariables
   nsStyleVariables(const nsStyleVariables& aSource);
   ~nsStyleVariables();
 
-  void* operator new(size_t sz, nsStyleVariables* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleVariables* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleVariables, sz);
   }
@@ -3838,8 +3819,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleEffects
   nsStyleEffects(const nsStyleEffects& aSource);
   ~nsStyleEffects();
 
-  void* operator new(size_t sz, nsStyleEffects* aSelf) CPP_THROW_NEW { return aSelf; }
-  void* operator new(size_t sz, nsPresContext* aContext) CPP_THROW_NEW {
+  void* operator new(size_t sz, nsStyleEffects* aSelf) { return aSelf; }
+  void* operator new(size_t sz, nsPresContext* aContext) {
     return aContext->PresShell()->
       AllocateByObjectID(mozilla::eArenaObjectID_nsStyleEffects, sz);
   }

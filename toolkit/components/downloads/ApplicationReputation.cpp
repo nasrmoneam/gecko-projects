@@ -7,7 +7,7 @@
 // https://wiki.mozilla.org/Security/Features/Application_Reputation_Design_Doc
 // for a description of Chrome's implementation of this feature.
 #include "ApplicationReputation.h"
-#include "csd.pb.h"
+#include "chrome/common/safe_browsing/csd.pb.h"
 
 #include "nsIArray.h"
 #include "nsIApplicationReputation.h"
@@ -1311,7 +1311,7 @@ PendingLookup::Notify(nsITimer* aTimer)
 
 ////////////////////////////////////////////////////////////////////////////////
 //// nsIStreamListener
-static NS_METHOD
+static nsresult
 AppendSegmentToString(nsIInputStream* inputStream,
                       void *closure,
                       const char *rawSegment,

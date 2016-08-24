@@ -14,8 +14,15 @@ ADD topsrcdir/testing/docker/recipes/install-mercurial.sh /setup/install-mercuri
 ADD topsrcdir/testing/docker/recipes/ubuntu1604-test-system-setup.sh /setup/system-setup.sh
 RUN           bash /setup/system-setup.sh
 
+# Add wrapper scripts for xvfb allowing tasks to easily retry starting up xvfb
+# %include testing/docker/recipes/xvfb.sh
+ADD topsrcdir/testing/docker/recipes/xvfb.sh /home/worker/scripts/xvfb.sh
+
 # %include testing/docker/recipes/run-task
 ADD topsrcdir/testing/docker/recipes/run-task /home/worker/bin/run-task
+
+# %include taskcluster/scripts/tester/test-ubuntu1604.sh
+ADD topsrcdir/taskcluster/scripts/tester/test-ubuntu1604.sh /home/worker/bin/test-linux.sh
 
 # This will create a host mounted filesystem when the cache is stripped
 # on Try. This cancels out some of the performance losses of aufs. See
@@ -61,11 +68,6 @@ RUN npm install -g npm@^2.0.0 \
  && rm -rf ~/.npm
 ENV PATH $PATH:/home/worker/bin
 
-# Remove once running under 'worker' user.  This is necessary for pulseaudio to start
-# XXX: change this back to worker:worker once permissions issues are resolved
-RUN            chown -R root:root /home/worker
-
-
 # TODO Re-enable worker when bug 1093833 lands
 #USER          worker
 
@@ -97,6 +99,8 @@ ADD fonts.conf /home/worker/.fonts.conf
 ADD motd /etc/taskcluster-motd
 ADD taskcluster-interactive-shell /bin/taskcluster-interactive-shell
 RUN chmod +x /bin/taskcluster-interactive-shell
+
+RUN chown -R worker:worker /home/worker
 
 # Set a default command useful for debugging
 CMD ["/bin/bash", "--login"]

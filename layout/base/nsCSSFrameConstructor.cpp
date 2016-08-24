@@ -1073,7 +1073,7 @@ nsFrameConstructorState::PushAbsoluteContainingBlock(nsContainerFrame* aNewAbsol
    * we're a transformed element.
    */
   mFixedPosIsAbsPos = aPositionedFrame &&
-      aPositionedFrame->StyleDisplay()->IsFixedPosContainingBlock(aPositionedFrame);
+      aPositionedFrame->IsFixedPosContainingBlock();
 
   if (aNewAbsoluteContainingBlock) {
     aNewAbsoluteContainingBlock->MarkAsAbsoluteContainingBlock();
@@ -1535,7 +1535,9 @@ nsCSSFrameConstructor::nsCSSFrameConstructor(nsIDocument* aDocument,
   , mGfxScrollFrame(nullptr)
   , mPageSequenceFrame(nullptr)
   , mCurrentDepth(0)
+#ifdef DEBUG
   , mUpdateCount(0)
+#endif
   , mQuotesDirty(false)
   , mCountersDirty(false)
   , mIsDestroyingFrameTree(false)
@@ -3105,7 +3107,7 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
     // Notify combobox that it should use the listbox as it's popup
     comboBox->SetDropDown(listFrame);
 
-    NS_ASSERTION(!listFrame->IsAbsPosContaininingBlock(),
+    NS_ASSERTION(!listFrame->IsAbsPosContainingBlock(),
                  "Ended up with positioned dropdown list somehow.");
     NS_ASSERTION(!listFrame->IsFloating(),
                  "Ended up with floating dropdown list somehow.");
@@ -3249,7 +3251,7 @@ nsCSSFrameConstructor::ConstructFieldSetFrame(nsFrameConstructorState& aState,
   }
 
   nsContainerFrame* absPosContainer = nullptr;
-  if (fieldsetFrame->IsAbsPosContaininingBlock()) {
+  if (fieldsetFrame->IsAbsPosContainingBlock()) {
     absPosContainer = fieldsetFrame;
   }
 
@@ -3698,6 +3700,8 @@ nsCSSFrameConstructor::FindInputData(Element* aElement,
     SIMPLE_INT_CREATE(NS_FORM_INPUT_TIME, NS_NewTextControlFrame),
     // TODO: this is temporary until a frame is written: bug 888320
     SIMPLE_INT_CREATE(NS_FORM_INPUT_MONTH, NS_NewTextControlFrame),
+    // TODO: this is temporary until a frame is written: bug 888320
+    SIMPLE_INT_CREATE(NS_FORM_INPUT_WEEK, NS_NewTextControlFrame),
     { NS_FORM_INPUT_SUBMIT,
       FCDATA_WITH_WRAPPING_BLOCK(0, NS_NewGfxButtonControlFrame,
                                  nsCSSAnonBoxes::buttonContent) },
@@ -6151,9 +6155,9 @@ nsCSSFrameConstructor::GetAbsoluteContainingBlock(nsIFrame* aFrame,
     // the correct containing block (the scrolledframe) in that case.
     // If we're looking for a fixed-pos containing block and the frame is
     // not transformed, skip it.
-    if (!frame->IsAbsPosContaininingBlock() ||
+    if (!frame->IsAbsPosContainingBlock() ||
         (aType == FIXED_POS &&
-         !frame->StyleDisplay()->IsFixedPosContainingBlock(frame))) {
+         !frame->IsFixedPosContainingBlock())) {
       continue;
     }
     nsIFrame* absPosCBCandidate = frame;
@@ -6758,7 +6762,11 @@ nsCSSFrameConstructor::GetInsertionPrevSibling(InsertionPoint* aInsertion,
         InsertionPoint fakeInsertion(aInsertion->mParentFrame, parent);
         nsIFrame* result = GetInsertionPrevSibling(&fakeInsertion, child, aIsAppend,
                                                    aIsRangeInsertSafe, nullptr, nullptr);
-        MOZ_ASSERT(aInsertion->mParentFrame == fakeInsertion.mParentFrame);
+        MOZ_ASSERT(aInsertion->mParentFrame->GetContent() ==
+                   fakeInsertion.mParentFrame->GetContent());
+        // fakeInsertion.mParentFrame may now be a continuation of the frame
+        // we started with in the ctor above.
+        aInsertion->mParentFrame = fakeInsertion.mParentFrame;
         return result;
       }
 
@@ -8606,21 +8614,18 @@ nsCSSFrameConstructor::BeginUpdate() {
   }
 
   ++sGlobalGenerationNumber;
+#ifdef DEBUG
   ++mUpdateCount;
+#endif
 }
 
 void
 nsCSSFrameConstructor::EndUpdate()
 {
-  if (mUpdateCount == 1) {
-    // This is the end of our last update.  Before we decrement
-    // mUpdateCount, recalc quotes and counters as needed.
-
-    RecalcQuotesAndCounters();
-    NS_ASSERTION(mUpdateCount == 1, "Odd update count");
-  }
+#ifdef DEBUG
   NS_ASSERTION(mUpdateCount, "Negative mUpdateCount!");
   --mUpdateCount;
+#endif
 }
 
 void

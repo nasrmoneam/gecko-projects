@@ -589,6 +589,7 @@ static const char* sObserverTopics[] = {
   "profiler-subprocess",
 #endif
   "gmp-changed",
+  "cacheservice:empty-cache",
 };
 
 // PreallocateAppProcess is called by the PreallocatedProcessManager.
@@ -1128,9 +1129,7 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
       if (loadContext && loadContext->UsePrivateBrowsing()) {
         chromeFlags |= nsIWebBrowserChrome::CHROME_PRIVATE_WINDOW;
       }
-      bool affectLifetime;
-      docShell->GetAffectPrivateSessionLifetime(&affectLifetime);
-      if (affectLifetime) {
+      if (docShell->GetAffectPrivateSessionLifetime()) {
         chromeFlags |= nsIWebBrowserChrome::CHROME_PRIVATE_LIFETIME;
       }
 
@@ -2906,6 +2905,9 @@ ContentParent::Observe(nsISupports* aSubject,
 #endif
   else if (!strcmp(aTopic, "gmp-changed")) {
     Unused << SendNotifyGMPsChanged();
+  }
+  else if (!strcmp(aTopic, "cacheservice:empty-cache")) {
+    Unused << SendNotifyEmptyHTTPCache();
   }
   return NS_OK;
 }
@@ -5172,9 +5174,9 @@ ContentParent::RecvProfile(const nsCString& aProfile)
 }
 
 bool
-ContentParent::RecvGetGraphicsDeviceInitData(DeviceInitData* aOut)
+ContentParent::RecvGetGraphicsDeviceInitData(ContentDeviceData* aOut)
 {
-  gfxPlatform::GetPlatform()->GetDeviceInitData(aOut);
+  gfxPlatform::GetPlatform()->BuildContentDeviceData(aOut);
   return true;
 }
 
