@@ -263,66 +263,6 @@ function UpdateBackForwardCommands(aWebNavigation) {
  * XXXmano: should this live in toolbarbutton.xml?
  */
 function SetClickAndHoldHandlers() {
-  var timer;
-
-  function openMenu(aButton) {
-    cancelHold(aButton);
-    aButton.firstChild.hidden = false;
-    aButton.open = true;
-  }
-
-  function mousedownHandler(aEvent) {
-    if (aEvent.button != 0 ||
-        aEvent.currentTarget.open ||
-        aEvent.currentTarget.disabled)
-      return;
-
-    // Prevent the menupopup from opening immediately
-    aEvent.currentTarget.firstChild.hidden = true;
-
-    aEvent.currentTarget.addEventListener("mouseout", mouseoutHandler, false);
-    aEvent.currentTarget.addEventListener("mouseup", mouseupHandler, false);
-    timer = setTimeout(openMenu, 500, aEvent.currentTarget);
-  }
-
-  function mouseoutHandler(aEvent) {
-    let buttonRect = aEvent.currentTarget.getBoundingClientRect();
-    if (aEvent.clientX >= buttonRect.left &&
-        aEvent.clientX <= buttonRect.right &&
-        aEvent.clientY >= buttonRect.bottom)
-      openMenu(aEvent.currentTarget);
-    else
-      cancelHold(aEvent.currentTarget);
-  }
-
-  function mouseupHandler(aEvent) {
-    cancelHold(aEvent.currentTarget);
-  }
-
-  function cancelHold(aButton) {
-    clearTimeout(timer);
-    aButton.removeEventListener("mouseout", mouseoutHandler, false);
-    aButton.removeEventListener("mouseup", mouseupHandler, false);
-  }
-
-  function clickHandler(aEvent) {
-    if (aEvent.button == 0 &&
-        aEvent.target == aEvent.currentTarget &&
-        !aEvent.currentTarget.open &&
-        !aEvent.currentTarget.disabled) {
-      let cmdEvent = document.createEvent("xulcommandevent");
-      cmdEvent.initCommandEvent("command", true, true, window, 0,
-                                aEvent.ctrlKey, aEvent.altKey, aEvent.shiftKey,
-                                aEvent.metaKey, null);
-      aEvent.currentTarget.dispatchEvent(cmdEvent);
-    }
-  }
-
-  function _addClickAndHoldListenersOnElement(aElm) {
-    aElm.addEventListener("mousedown", mousedownHandler, true);
-    aElm.addEventListener("click", clickHandler, true);
-  }
-
   // Bug 414797: Clone the back/forward buttons' context menu into both buttons.
   let popup = document.getElementById("backForwardMenu").cloneNode(true);
   popup.removeAttribute("id");
@@ -332,13 +272,83 @@ function SetClickAndHoldHandlers() {
   let backButton = document.getElementById("back-button");
   backButton.setAttribute("type", "menu");
   backButton.appendChild(popup);
-  _addClickAndHoldListenersOnElement(backButton);
+  addClickAndHoldListenersOnElement(backButton);
 
   let forwardButton = document.getElementById("forward-button");
   popup = popup.cloneNode(true);
   forwardButton.setAttribute("type", "menu");
   forwardButton.appendChild(popup);
-  _addClickAndHoldListenersOnElement(forwardButton);
+  addClickAndHoldListenersOnElement(forwardButton);
+}
+
+let holdTimersMap = new Map();
+function holdMousedownHandler(aEvent) {
+  if (aEvent.button != 0 ||
+      aEvent.currentTarget.open ||
+      aEvent.currentTarget.disabled)
+    return;
+
+  // Prevent the menupopup from opening immediately
+  aEvent.currentTarget.firstChild.hidden = true;
+
+  aEvent.currentTarget.addEventListener("mouseout", holdMouseoutHandler, false);
+  aEvent.currentTarget.addEventListener("mouseup", holdMouseupHandler, false);
+  holdTimersMap.set(aEvent.currentTarget, setTimeout(holdOpenMenu, 500, aEvent.currentTarget));
+}
+
+function holdClickHandler(aEvent) {
+  if (aEvent.button == 0 &&
+      aEvent.target == aEvent.currentTarget &&
+      !aEvent.currentTarget.open &&
+      !aEvent.currentTarget.disabled) {
+    let cmdEvent = document.createEvent("xulcommandevent");
+    cmdEvent.initCommandEvent("command", true, true, window, 0,
+                              aEvent.ctrlKey, aEvent.altKey, aEvent.shiftKey,
+                              aEvent.metaKey, null);
+    aEvent.currentTarget.dispatchEvent(cmdEvent);
+  }
+  // This is here to cancel the XUL default event
+  // dom.click() triggers a command even if there is a click handler
+  // however this can now be prevented with preventDefault().
+  aEvent.preventDefault();
+}
+
+function holdOpenMenu(aButton) {
+  cancelHold(aButton);
+  aButton.firstChild.hidden = false;
+  aButton.open = true;
+}
+
+function holdMouseoutHandler(aEvent) {
+  let buttonRect = aEvent.currentTarget.getBoundingClientRect();
+  if (aEvent.clientX >= buttonRect.left &&
+      aEvent.clientX <= buttonRect.right &&
+      aEvent.clientY >= buttonRect.bottom)
+    holdOpenMenu(aEvent.currentTarget);
+  else
+    cancelHold(aEvent.currentTarget);
+}
+
+function holdMouseupHandler(aEvent) {
+  cancelHold(aEvent.currentTarget);
+}
+
+function cancelHold(aButton) {
+  clearTimeout(holdTimersMap.get(aButton));
+  aButton.removeEventListener("mouseout", holdMouseoutHandler, false);
+  aButton.removeEventListener("mouseup", holdMouseupHandler, false);
+}
+
+function removeClickAndHoldListenersOnElement(aElm) {
+  aElm.removeEventListener("mousedown", holdMousedownHandler, true);
+  aElm.removeEventListener("click", holdClickHandler, true);
+}
+
+function addClickAndHoldListenersOnElement(aElm) {
+  holdTimersMap.delete(aElm);
+
+  aElm.addEventListener("mousedown", holdMousedownHandler, true);
+  aElm.addEventListener("click", holdClickHandler, true);
 }
 
 const gSessionHistoryObserver = {
@@ -4461,6 +4471,8 @@ var XULBrowserWindow = {
 
       BookmarkingUI.onLocationChange();
 
+      gIdentityHandler.onLocationChange();
+
       SocialUI.updateState();
 
       UITour.onLocationChange(location);
@@ -5386,7 +5398,9 @@ function hrefAndLinkNodeForClickEvent(event)
     if (node.nodeType == Node.ELEMENT_NODE &&
         (node.localName == "a" ||
          node.namespaceURI == "http://www.w3.org/1998/Math/MathML")) {
-      href = node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+      href = node.getAttribute("href") ||
+             node.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+
       if (href) {
         baseURI = node.baseURI;
         break;
@@ -6539,6 +6553,11 @@ var gIdentityHandler = {
    */
   _state: 0,
 
+  /**
+   * Whether a permission is just removed from permission list.
+   */
+  _permissionJustRemoved: false,
+
   get _isBroken() {
     return this._state & Ci.nsIWebProgressListener.STATE_IS_BROKEN;
   },
@@ -6664,6 +6683,14 @@ var gIdentityHandler = {
   get _permissionList () {
     delete this._permissionList;
     return this._permissionList = document.getElementById("identity-popup-permission-list");
+  },
+  get _permissionEmptyHint() {
+    delete this._permissionEmptyHint;
+    return this._permissionEmptyHint = document.getElementById("identity-popup-permission-empty-hint");
+  },
+  get _permissionReloadHint () {
+    delete this._permissionReloadHint;
+    return this._permissionReloadHint = document.getElementById("identity-popup-permission-reload-hint");
   },
   get _permissionAnchors () {
     delete this._permissionAnchors;
@@ -7284,6 +7311,25 @@ var gIdentityHandler = {
     dt.setDragImage(this._identityIcon, 16, 16);
   },
 
+  onLocationChange: function () {
+    this._permissionJustRemoved = false;
+    this.updatePermissionHint();
+  },
+
+  updatePermissionHint: function () {
+    if (!this._permissionList.hasChildNodes() && !this._permissionJustRemoved) {
+      this._permissionEmptyHint.removeAttribute("hidden");
+    } else {
+      this._permissionEmptyHint.setAttribute("hidden", "true");
+    }
+
+    if (this._permissionJustRemoved) {
+      this._permissionReloadHint.removeAttribute("hidden");
+    } else {
+      this._permissionReloadHint.setAttribute("hidden", "true");
+    }
+  },
+
   updateSitePermissions: function () {
     while (this._permissionList.hasChildNodes())
       this._permissionList.removeChild(this._permissionList.lastChild);
@@ -7319,6 +7365,8 @@ var gIdentityHandler = {
       let item = this._createPermissionItem(permission);
       this._permissionList.appendChild(item);
     }
+
+    this.updatePermissionHint();
   },
 
   _createPermissionItem: function (aPermission) {
@@ -7373,6 +7421,8 @@ var gIdentityHandler = {
         mm.sendAsyncMessage("webrtc:StopSharing", windowId);
       }
       SitePermissions.remove(gBrowser.currentURI, aPermission.id);
+      this._permissionJustRemoved = true;
+      this.updatePermissionHint();
     });
 
     container.appendChild(img);
@@ -7483,7 +7533,7 @@ var gRemoteTabsUI = {
 };
 
 /**
- * Switch to a tab that has a given URI, and focusses its browser window.
+ * Switch to a tab that has a given URI, and focuses its browser window.
  * If a matching tab is in this window, it will be switched to. Otherwise, other
  * windows will be searched.
  *
@@ -7499,10 +7549,12 @@ var gRemoteTabsUI = {
  *        passed via this object.
  *        This object also allows:
  *        - 'ignoreFragment' property to be set to true to exclude fragment-portion
- *        matching when comparing URIs. Fragment will be replaced.
- *        - 'ignoreQueryString' property to be set to true to exclude query string
  *        matching when comparing URIs.
- *        - 'replaceQueryString' property to be set to true to exclude query string
+ *          If set to "whenComparing", the fragment will be unmodified.
+ *          If set to "whenComparingAndReplace", the fragment will be replaced.
+ *        - 'ignoreQueryString' boolean property to be set to true to exclude query string
+ *        matching when comparing URIs.
+ *        - 'replaceQueryString' boolean property to be set to true to exclude query string
  *        matching when comparing URIs and overwrite the initial query string with
  *        the one from the new URI.
  * @return True if an existing tab was found, false otherwise
@@ -7555,16 +7607,18 @@ function switchToTabHavingURI(aURI, aOpenNew, aOpenParams={}) {
 
     // Need to handle nsSimpleURIs here too (e.g. about:...), which don't
     // work correctly with URL objects - so treat them as strings
+    let ignoreFragmentWhenComparing = typeof ignoreFragment == "string" &&
+                                      ignoreFragment.startsWith("whenComparing");
     let requestedCompare = cleanURL(
-        aURI.spec, ignoreQueryString || replaceQueryString, ignoreFragment);
+        aURI.spec, ignoreQueryString || replaceQueryString, ignoreFragmentWhenComparing);
     let browsers = aWindow.gBrowser.browsers;
     for (let i = 0; i < browsers.length; i++) {
       let browser = browsers[i];
       let browserCompare = cleanURL(
-          browser.currentURI.spec, ignoreQueryString || replaceQueryString, ignoreFragment);
+          browser.currentURI.spec, ignoreQueryString || replaceQueryString, ignoreFragmentWhenComparing);
       if (requestedCompare == browserCompare) {
         aWindow.focus();
-        if (ignoreFragment || replaceQueryString) {
+        if (ignoreFragment == "whenComparingAndReplace" || replaceQueryString) {
           browser.loadURI(aURI.spec);
         }
         aWindow.gBrowser.tabContainer.selectedIndex = i;

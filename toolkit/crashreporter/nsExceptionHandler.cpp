@@ -13,7 +13,7 @@
 #include "mozilla/dom/CrashReporterChild.h"
 #include "mozilla/Services.h"
 #include "nsIObserverService.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/TimeStamp.h"
@@ -181,13 +181,14 @@ static xpstring *defaultMemoryReportPath = nullptr;
 static char const * const kCrashEventAnnotations[] = {
   "AsyncShutdownTimeout",
   "BuildID",
-  "TelemetryEnvironment",
   "ProductID",
   "ProductName",
   "ReleaseChannel",
   "SecondsSinceLastCrash",
   "ShutdownProgress",
-  "Version"
+  "StartupCrash",
+  "TelemetryEnvironment",
+  "Version",
   // The following entries are not normal annotations but are included
   // in the crash record/FHR:
   // "ContainsMemoryReport"
@@ -329,11 +330,11 @@ private:
 };
 #endif // MOZ_CRASHREPORTER_INJECTOR
 
-// Crashreporter annotations that we don't send along in subprocess
-// reports
+// Crashreporter annotations that we don't send along in subprocess reports.
 static const char* kSubprocessBlacklist[] = {
   "FramePoisonBase",
   "FramePoisonSize",
+  "StartupCrash",
   "StartupTime",
   "URL"
 };

@@ -703,11 +703,6 @@ private:
   AllocPGMPServiceParent(mozilla::ipc::Transport* aTransport,
                          base::ProcessId aOtherProcess) override;
 
-  PAPZParent*
-  AllocPAPZParent(const TabId& aTabId) override;
-  bool
-  DeallocPAPZParent(PAPZParent* aActor) override;
-
   PSharedBufferManagerParent*
   AllocPSharedBufferManagerParent(mozilla::ipc::Transport* aTranport,
                                    base::ProcessId aOtherProcess) override;
@@ -1017,8 +1012,6 @@ private:
   virtual bool RecvAudioChannelServiceStatus(const bool& aTelephonyChannel,
                                              const bool& aContentOrNormalChannel,
                                              const bool& aAnyChannel) override;
-
-  virtual bool RecvGetSystemMemory(const uint64_t& getterId) override;
 
   virtual bool RecvGetLookAndFeelCache(nsTArray<LookAndFeelInt>* aLookAndFeelIntCache) override;
 

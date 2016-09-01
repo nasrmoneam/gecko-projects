@@ -57,8 +57,11 @@ Finder.prototype = {
     if (this._iterator)
       this._iterator.reset();
     if (this._highlighter) {
-      this._highlighter.clear();
+      // if we clear all the references before we hide the highlights (in both
+      // highlighting modes), we simply can't use them to find the ranges we
+      // need to clear from the selection.
       this._highlighter.hide();
+      this._highlighter.clear();
     }
     this.listeners = [];
     this._docShell.QueryInterface(Ci.nsIInterfaceRequestor)
@@ -225,19 +228,7 @@ Finder.prototype = {
 
   highlight: Task.async(function* (aHighlight, aWord, aLinksOnly) {
     let found = yield this.highlighter.highlight(aHighlight, aWord, null, aLinksOnly);
-    this.highlighter.notifyFinished(aHighlight);
-    if (aHighlight) {
-      let result = found ? Ci.nsITypeAheadFind.FIND_FOUND
-                         : Ci.nsITypeAheadFind.FIND_NOTFOUND;
-      this._notify({
-        searchString: aWord,
-        result,
-        findBackwards: false,
-        findAgain: false,
-        drawOutline: false,
-        storeResult: false
-      });
-    }
+    this.highlighter.notifyFinished({ highlight: aHighlight, found });
   }),
 
   getInitialSelection: function() {
@@ -343,10 +334,10 @@ Finder.prototype = {
   },
 
   onHighlightAllChange(highlightAll) {
-    if (this._iterator)
-      this._iterator.reset();
     if (this._highlighter)
       this._highlighter.onHighlightAllChange(highlightAll);
+    if (this._iterator)
+      this._iterator.reset();
   },
 
   keyPress: function (aEvent) {
@@ -390,8 +381,6 @@ Finder.prototype = {
   },
 
   _notifyMatchesCount: function(result = this._currentMatchesCountResult) {
-    if (!result)
-      return;
     // The `_currentFound` property is only used for internal bookkeeping.
     delete result._currentFound;
     if (result.total == this._currentMatchLimit)
@@ -420,22 +409,27 @@ Finder.prototype = {
     this._currentFoundRange = this._fastFind.getFoundRange();
     this._currentMatchLimit = aMatchLimit;
 
-    this._currentMatchesCountResult = {
-      total: 0,
-      current: 0,
-      _currentFound: false
-    };
-
-    this.iterator.start({
+    let params = {
       caseSensitive: this._fastFind.caseSensitive,
       entireWord: this._fastFind.entireWord,
+      linksOnly: aLinksOnly,
+      word: aWord
+    };
+    if (!this.iterator.continueRunning(params))
+      this.iterator.stop();
+
+    this.iterator.start(Object.assign(params, {
       finder: this,
       limit: aMatchLimit,
-      linksOnly: aLinksOnly,
       listener: this,
       useCache: true,
-      word: aWord
-    }).then(this._notifyMatchesCount.bind(this));
+    })).then(() => {
+      // Without a valid result, there's nothing to notify about. This happens
+      // when the iterator was started before and won the race.
+      if (!this._currentMatchesCountResult || !this._currentMatchesCountResult.total)
+        return;
+      this._notifyMatchesCount();
+    });
   },
 
   // FinderIterator listener implementation
@@ -460,9 +454,15 @@ Finder.prototype = {
 
   onIteratorRestart({ word, linksOnly }) {
     this.requestMatchesCount(word, this._currentMatchLimit, linksOnly);
-   },
+  },
 
-   onIteratorStart() {},
+  onIteratorStart() {
+    this._currentMatchesCountResult = {
+      total: 0,
+      current: 0,
+      _currentFound: false
+    };
+  },
 
   _getWindow: function () {
     return this._docShell.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindow);

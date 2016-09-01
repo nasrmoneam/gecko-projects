@@ -336,11 +336,14 @@ UpdateOldAnimationPropertiesWithNew(
   // Update the old from the new so we can keep the original object
   // identity (and any expando properties attached to it).
   if (aOld.GetEffect()) {
-    KeyframeEffectReadOnly* oldEffect = aOld.GetEffect();
-    animationChanged =
-      oldEffect->SpecifiedTiming() != aNewTiming;
+    AnimationEffectReadOnly* oldEffect = aOld.GetEffect();
+    animationChanged = oldEffect->SpecifiedTiming() != aNewTiming;
     oldEffect->SetSpecifiedTiming(aNewTiming);
-    oldEffect->SetKeyframes(Move(aNewKeyframes), aStyleContext);
+
+    KeyframeEffectReadOnly* oldKeyframeEffect = oldEffect->AsKeyframeEffect();
+    if (oldKeyframeEffect) {
+      oldKeyframeEffect->SetKeyframes(Move(aNewKeyframes), aStyleContext);
+    }
   }
 
   // Handle changes in play state. If the animation is idle, however,
@@ -412,13 +415,7 @@ nsAnimationManager::UpdateAnimations(nsStyleContext* aStyleContext,
     return;
   }
 
-  if (collection) {
-    EffectSet* effectSet =
-      EffectSet::GetEffectSet(aElement, aStyleContext->GetPseudoType());
-    if (effectSet) {
-      effectSet->UpdateAnimationGeneration(mPresContext);
-    }
-  } else {
+  if (!collection) {
     bool createdCollection = false;
     collection =
       CSSAnimationCollection::GetOrCreateAnimationCollection(
@@ -439,12 +436,6 @@ nsAnimationManager::UpdateAnimations(nsStyleContext* aStyleContext,
   for (size_t newAnimIdx = newAnimations.Length(); newAnimIdx-- != 0; ) {
     newAnimations[newAnimIdx]->CancelFromStyle();
   }
-
-  mPresContext->EffectCompositor()->
-    MaybeUpdateAnimationRule(aElement,
-                             aStyleContext->GetPseudoType(),
-                             EffectCompositor::CascadeLevel::Animations,
-                             aStyleContext);
 
   // We don't actually dispatch the pending events now.  We'll either
   // dispatch them the next time we get a refresh driver notification
@@ -649,7 +640,7 @@ CSSAnimationBuilder::Build(nsPresContext* aPresContext,
     OwningElementRef(*mTarget, mStyleContext->GetPseudoType()));
 
   animation->SetTimelineNoUpdate(mTimeline);
-  animation->SetEffect(effect);
+  animation->SetEffectNoUpdate(effect);
 
   if (isStylePaused) {
     animation->PauseFromStyle();
@@ -1045,7 +1036,11 @@ CSSAnimationBuilder::GetComputedValue(nsPresContext* aPresContext,
   if (StyleAnimationValue::ExtractComputedValue(aProperty,
                                                 mStyleWithoutAnimation,
                                                 computedValue)) {
-    StyleAnimationValue::UncomputeValue(aProperty, Move(computedValue), result);
+    DebugOnly<bool> uncomputeResult =
+      StyleAnimationValue::UncomputeValue(aProperty, Move(computedValue),
+                                          result);
+    MOZ_ASSERT(uncomputeResult,
+               "Unable to get specified value from computed value");
   }
 
   // If we hit this assertion, it probably means we are fetching a value from

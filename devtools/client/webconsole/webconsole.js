@@ -35,11 +35,11 @@ loader.lazyRequireGetter(this, "gSequenceId", "devtools/client/webconsole/jsterm
 loader.lazyImporter(this, "VariablesView", "resource://devtools/client/shared/widgets/VariablesView.jsm");
 loader.lazyImporter(this, "VariablesViewController", "resource://devtools/client/shared/widgets/VariablesViewController.jsm");
 loader.lazyRequireGetter(this, "gDevTools", "devtools/client/framework/devtools", true);
-loader.lazyImporter(this, "PluralForm", "resource://gre/modules/PluralForm.jsm");
 loader.lazyRequireGetter(this, "KeyShortcuts", "devtools/client/shared/key-shortcuts", true);
 loader.lazyRequireGetter(this, "ZoomKeys", "devtools/client/shared/zoom-keys");
 
-const STRINGS_URI = "chrome://devtools/locale/webconsole.properties";
+const {PluralForm} = require("devtools/shared/plural-form");
+const STRINGS_URI = "devtools/locale/webconsole.properties";
 var l10n = new WebConsoleUtils.L10n(STRINGS_URI);
 
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
@@ -2566,21 +2566,15 @@ WebConsoleFrame.prototype = {
    * Creates the anchor that displays the textual location of an incoming
    * message.
    *
-   * @param {Object} aLocation
-   *        An object containing url, line and column number of the message
-   *        source (destructured).
+   * @param {Object} location
+   *        An object containing url, line and column number of the message source.
    * @return {Element}
    *         The new anchor element, ready to be added to the message node.
    */
-  createLocationNode: function ({url, line, column}) {
+  createLocationNode: function (location) {
     let locationNode = this.document.createElementNS(XHTML_NS, "div");
     locationNode.className = "message-location devtools-monospace";
 
-    if (!url) {
-      url = "";
-    }
-
-    let fullURL = url.split(" -> ").pop();
     // Make the location clickable.
     let onClick = ({ url, line }) => {
       let category = locationNode.closest(".message").category;
@@ -2619,12 +2613,11 @@ WebConsoleFrame.prototype = {
 
     const toolbox = gDevTools.getToolbox(this.owner.target);
 
+    let { url, line, column } = location;
+    let source = url ? url.split(" -> ").pop() : "";
+
     this.ReactDOM.render(this.FrameView({
-      frame: {
-        source: fullURL,
-        line,
-        column
-      },
+      frame: { source, line, column },
       showEmptyPathAsHost: true,
       onClick,
       sourceMapService: toolbox ? toolbox._sourceMapService : null,

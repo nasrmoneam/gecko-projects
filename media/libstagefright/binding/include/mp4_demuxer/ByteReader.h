@@ -12,7 +12,7 @@
 
 namespace mp4_demuxer {
 
-class ByteReader
+class MOZ_RAII ByteReader
 {
 public:
   ByteReader() : mPtr(nullptr), mRemaining(0) {}
@@ -57,7 +57,8 @@ public:
   }
 
   // Make it explicit if we're not using the extra bytes.
-  void DiscardRemaining() {
+  void DiscardRemaining()
+  {
     mRemaining = 0;
   }
 
@@ -314,7 +315,7 @@ public:
   }
 
   template <typename T>
-  bool ReadArray(nsTArray<T>& aDest, size_t aLength)
+  MOZ_MUST_USE bool ReadArray(nsTArray<T>& aDest, size_t aLength)
   {
     auto ptr = Read(aLength * sizeof(T));
     if (!ptr) {
@@ -326,11 +327,47 @@ public:
     return true;
   }
 
+  template <typename T>
+  MOZ_MUST_USE bool ReadArray(FallibleTArray<T>& aDest, size_t aLength)
+  {
+    auto ptr = Read(aLength * sizeof(T));
+    if (!ptr) {
+      return false;
+    }
+
+    aDest.Clear();
+    if (!aDest.SetCapacity(aLength, mozilla::fallible)) {
+      return false;
+    }
+    MOZ_ALWAYS_TRUE(aDest.AppendElements(reinterpret_cast<const T*>(ptr),
+                                         aLength,
+                                         mozilla::fallible));
+    return true;
+  }
+
 private:
   const uint8_t* mPtr;
   size_t mRemaining;
   size_t mLength;
 };
-}
+
+// A ByteReader that automatically discards remaining data before destruction.
+class MOZ_RAII AutoByteReader : public ByteReader
+{
+public:
+  AutoByteReader(const uint8_t* aData, size_t aSize)
+    : ByteReader(aData, aSize)
+  {
+  }
+  ~AutoByteReader()
+  {
+    ByteReader::DiscardRemaining();
+  }
+
+  // Prevent unneeded DiscardRemaining() calls.
+  void DiscardRemaining() = delete;
+};
+
+} // namespace mp4_demuxer
 
 #endif

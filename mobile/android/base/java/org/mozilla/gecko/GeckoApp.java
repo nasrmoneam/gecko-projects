@@ -178,7 +178,6 @@ public abstract class GeckoApp
     /** Tells if we're aborting app launch, e.g. if this is an unsupported device configuration. */
     protected boolean mIsAbortingAppLaunch;
 
-    private ContactService mContactService;
     private PromptService mPromptService;
     protected TextSelection mTextSelection;
 
@@ -366,14 +365,6 @@ public abstract class GeckoApp
                 invalidateOptionsMenu();
                 if (mFormAssistPopup != null)
                     mFormAssistPopup.hide();
-                break;
-
-            case LOADED:
-                // Sync up the layer view and the tab if the tab is
-                // currently displayed.
-                LayerView layerView = mLayerView;
-                if (layerView != null && Tabs.getInstance().isSelectedTab(tab))
-                    layerView.setBackgroundColor(tab.getBackgroundColor());
                 break;
 
             case DESKTOP_MODE_CHANGE:
@@ -1158,6 +1149,9 @@ public abstract class GeckoApp
         GeckoAppShell.setContextGetter(this);
         GeckoAppShell.setApplicationContext(getApplicationContext());
         GeckoAppShell.setGeckoInterface(this);
+        // We need to set the notification client before launching Gecko, since Gecko could start
+        // sending notifications immediately after startup, which we don't want to lose/crash on.
+        GeckoAppShell.setNotificationClient(makeNotificationClient());
 
         Tabs.getInstance().attachToContext(this);
         try {
@@ -1431,7 +1425,6 @@ public abstract class GeckoApp
             }
         });
 
-        GeckoAppShell.setNotificationClient(makeNotificationClient());
         IntentHelper.init(this);
     }
 
@@ -1642,8 +1635,6 @@ public abstract class GeckoApp
             SmsManager.getInstance().start();
         }
 
-        mContactService = new ContactService(EventDispatcher.getInstance(), this);
-
         mPromptService = new PromptService(this);
 
         // Trigger the completion of the telemetry timer that wraps activity startup,
@@ -1665,7 +1656,7 @@ public abstract class GeckoApp
         ThreadUtils.getBackgroundHandler().postDelayed(new Runnable() {
             @Override
             public void run() {
-                UpdateServiceHelper.registerForUpdates(GeckoApp.this);
+                UpdateServiceHelper.registerForUpdates(GeckoAppShell.getApplicationContext());
             }
         }, updateServiceDelay);
 
@@ -2224,6 +2215,7 @@ public abstract class GeckoApp
             "Accessibility:Ready",
             "Bookmark:Insert",
             "Contact:Add",
+            "DevToolsAuth:Scan",
             "DOMFullScreen:Start",
             "DOMFullScreen:Stop",
             "Image:SetAs",
@@ -2248,8 +2240,6 @@ public abstract class GeckoApp
             mDoorHangerPopup.destroy();
         if (mFormAssistPopup != null)
             mFormAssistPopup.destroy();
-        if (mContactService != null)
-            mContactService.destroy();
         if (mPromptService != null)
             mPromptService.destroy();
         if (mTextSelection != null)
@@ -2431,7 +2421,7 @@ public abstract class GeckoApp
         }
     }
 
-    private class DeferredCleanupTask implements Runnable {
+    private static class DeferredCleanupTask implements Runnable {
         // The cleanup-version setting is recorded to avoid repeating the same
         // tasks on subsequent startups; CURRENT_CLEANUP_VERSION may be updated
         // if we need to do additional cleanup for future Gecko versions.
@@ -2441,7 +2431,8 @@ public abstract class GeckoApp
 
         @Override
         public void run() {
-            long cleanupVersion = getSharedPreferences().getInt(CLEANUP_VERSION, 0);
+            final Context context = GeckoAppShell.getApplicationContext();
+            long cleanupVersion = GeckoSharedPrefs.forApp(context).getInt(CLEANUP_VERSION, 0);
 
             if (cleanupVersion < 1) {
                 // Reduce device storage footprint by removing .ttf files from
@@ -2464,7 +2455,7 @@ public abstract class GeckoApp
             // Additional cleanup needed for future versions would go here
 
             if (cleanupVersion != CURRENT_CLEANUP_VERSION) {
-                SharedPreferences.Editor editor = GeckoApp.this.getSharedPreferences().edit();
+                SharedPreferences.Editor editor = GeckoSharedPrefs.forApp(context).edit();
                 editor.putInt(CLEANUP_VERSION, CURRENT_CLEANUP_VERSION);
                 editor.apply();
             }

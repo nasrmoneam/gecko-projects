@@ -146,8 +146,7 @@ public:
   typedef MediaDecoderOwner::NextFrameStatus NextFrameStatus;
   typedef mozilla::layers::ImageContainer::FrameID FrameID;
   MediaDecoderStateMachine(MediaDecoder* aDecoder,
-                           MediaDecoderReader* aReader,
-                           bool aRealTime = false);
+                           MediaDecoderReader* aReader);
 
   nsresult Init(MediaDecoder* aDecoder);
 
@@ -163,8 +162,7 @@ public:
     DECODER_STATE_SEEKING,
     DECODER_STATE_BUFFERING,
     DECODER_STATE_COMPLETED,
-    DECODER_STATE_SHUTDOWN,
-    DECODER_STATE_ERROR
+    DECODER_STATE_SHUTDOWN
   };
 
   void DumpDebugInfo();
@@ -246,9 +244,6 @@ public:
 
   MediaEventSource<MediaEventType>&
   OnPlaybackEvent() { return mOnPlaybackEvent; }
-
-  // Immutable after construction - may be called on any thread.
-  bool IsRealTime() const { return mRealTime; }
 
   size_t SizeOfVideoQueue() const;
 
@@ -580,10 +575,7 @@ protected:
   void SeekCompleted();
 
   // Queries our state to see whether the decode has finished for all streams.
-  // If so, we move into DECODER_STATE_COMPLETED and schedule the state machine
-  // to run.
-  // The decoder monitor must be held.
-  void CheckIfDecodeComplete();
+  bool CheckIfDecodeComplete();
 
   // Performs one "cycle" of the state machine. Polls the state, and may send
   // a video frame to be displayed, and generally manages the decode. Called
@@ -621,9 +613,6 @@ private:
 
   // State-watching manager.
   WatchManager<MediaDecoderStateMachine> mWatchManager;
-
-  // True is we are decoding a realtime stream, like a camera stream.
-  const bool mRealTime;
 
   // True if we've dispatched a task to run the state machine but the task has
   // yet to run.
@@ -760,13 +749,13 @@ private:
   uint32_t AudioPrerollUsecs() const
   {
     MOZ_ASSERT(OnTaskQueue());
-    return IsRealTime() ? 0 : mAmpleAudioThresholdUsecs / 2;
+    return mAmpleAudioThresholdUsecs / 2;
   }
 
   uint32_t VideoPrerollFrames() const
   {
     MOZ_ASSERT(OnTaskQueue());
-    return IsRealTime() ? 0 : GetAmpleVideoFrames() / 2;
+    return GetAmpleVideoFrames() / 2;
   }
 
   bool DonePrerollingAudio()

@@ -57,7 +57,7 @@
 #include "mozilla/layers/LayerTransactionParent.h" // for LayerTransactionParent
 #include "mozilla/layers/ScrollInputMethods.h" // for ScrollInputMethod
 #include "mozilla/mozalloc.h"           // for operator new, etc
-#include "mozilla/unused.h"             // for unused
+#include "mozilla/Unused.h"             // for unused
 #include "mozilla/FloatingPoint.h"      // for FuzzyEquals*
 #include "nsAlgorithm.h"                // for clamped
 #include "nsCOMPtr.h"                   // for already_AddRefed
@@ -2819,19 +2819,23 @@ int32_t AsyncPanZoomController::GetLastTouchIdentifier() const {
 }
 
 void AsyncPanZoomController::RequestContentRepaint(bool aUserAction) {
-  // Reinvoke this method on the main thread if it's not there already. It's
+  // Reinvoke this method on the repaint thread if it's not there already. It's
   // important to do this before the call to CalculatePendingDisplayPort, so
   // that CalculatePendingDisplayPort uses the most recent available version of
   // mFrameMetrics, just before the paint request is dispatched to content.
-  if (!NS_IsMainThread()) {
+  RefPtr<GeckoContentController> controller = GetGeckoContentController();
+  if (!controller) {
+    return;
+  }
+  if (!controller->IsRepaintThread()) {
     // use the local variable to resolve the function overload.
     auto func = static_cast<void (AsyncPanZoomController::*)(bool)>
         (&AsyncPanZoomController::RequestContentRepaint);
-    NS_DispatchToMainThread(NewRunnableMethod<bool>(this, func, aUserAction));
+    controller->DispatchToRepaintThread(NewRunnableMethod<bool>(this, func, aUserAction));
     return;
   }
 
-  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(controller->IsRepaintThread());
 
   ReentrantMonitorAutoEnter lock(mMonitor);
   ParentLayerPoint velocity = GetVelocityVector();
@@ -2857,7 +2861,11 @@ void
 AsyncPanZoomController::RequestContentRepaint(const FrameMetrics& aFrameMetrics,
                                               const ParentLayerPoint& aVelocity)
 {
-  MOZ_ASSERT(NS_IsMainThread());
+  RefPtr<GeckoContentController> controller = GetGeckoContentController();
+  if (!controller) {
+    return;
+  }
+  MOZ_ASSERT(controller->IsRepaintThread());
 
   // If we're trying to paint what we already think is painted, discard this
   // request since it's a pointless paint.
@@ -2877,12 +2885,10 @@ AsyncPanZoomController::RequestContentRepaint(const FrameMetrics& aFrameMetrics,
             mLastPaintRequestMetrics.GetViewport().width) < EPSILON &&
       fabsf(aFrameMetrics.GetViewport().height -
             mLastPaintRequestMetrics.GetViewport().height) < EPSILON &&
-      aFrameMetrics.GetScrollGeneration() == mLastPaintRequestMetrics.GetScrollGeneration()) {
-    return;
-  }
-
-  RefPtr<GeckoContentController> controller = GetGeckoContentController();
-  if (!controller) {
+      aFrameMetrics.GetScrollGeneration() ==
+            mLastPaintRequestMetrics.GetScrollGeneration() &&
+      aFrameMetrics.GetScrollUpdateType() ==
+            mLastPaintRequestMetrics.GetScrollUpdateType()) {
     return;
   }
 
@@ -3226,6 +3232,20 @@ void AsyncPanZoomController::NotifyLayersUpdated(const ScrollMetadata& aScrollMe
     APZC_LOG("%p NotifyLayersUpdated short-circuit\n", this);
     return;
   }
+
+  // If the mFrameMetrics scroll offset is different from the last scroll offset
+  // that the main-thread sent us, then we know that the user has been doing
+  // something that triggers a scroll. This check is the APZ equivalent of the
+  // check on the main-thread at
+  // https://hg.mozilla.org/mozilla-central/file/97a52326b06a/layout/generic/nsGfxScrollFrame.cpp#l4050
+  // There is code below (the use site of userScrolled) that prevents a restored-
+  // scroll-position update from overwriting a user scroll, again equivalent to
+  // how the main thread code does the same thing.
+  CSSPoint lastScrollOffset = mLastContentPaintMetadata.GetMetrics().GetScrollOffset();
+  bool userScrolled =
+    !FuzzyEqualsAdditive(mFrameMetrics.GetScrollOffset().x, lastScrollOffset.x) ||
+    !FuzzyEqualsAdditive(mFrameMetrics.GetScrollOffset().y, lastScrollOffset.y);
+
   if (aLayerMetrics.GetScrollUpdateType() != FrameMetrics::ScrollOffsetUpdateType::ePending) {
     mLastContentPaintMetadata = aScrollMetadata;
   }
@@ -3290,6 +3310,12 @@ void AsyncPanZoomController::NotifyLayersUpdated(const ScrollMetadata& aScrollMe
   // update message.
   bool scrollOffsetUpdated = aLayerMetrics.GetScrollOffsetUpdated()
         && (aLayerMetrics.GetScrollGeneration() != mFrameMetrics.GetScrollGeneration());
+
+  if (scrollOffsetUpdated && userScrolled &&
+      aLayerMetrics.GetScrollUpdateType() == FrameMetrics::ScrollOffsetUpdateType::eRestore) {
+    APZC_LOG("%p dropping scroll update of type eRestore because of user scroll\n", this);
+    scrollOffsetUpdated = false;
+  }
 
   bool smoothScrollRequested = aLayerMetrics.GetDoSmoothScroll()
        && (aLayerMetrics.GetScrollGeneration() != mFrameMetrics.GetScrollGeneration());
@@ -3566,13 +3592,18 @@ void AsyncPanZoomController::ZoomToRect(CSSRect aRect, const uint32_t aFlags) {
     endZoomToMetrics.SetUseDisplayPortMargins(true);
     endZoomToMetrics.SetPaintRequestTime(TimeStamp::Now());
     endZoomToMetrics.SetRepaintDrivenByUserAction(true);
-    if (NS_IsMainThread()) {
+
+    RefPtr<GeckoContentController> controller = GetGeckoContentController();
+    if (!controller) {
+      return;
+    }
+    if (controller->IsRepaintThread()) {
       RequestContentRepaint(endZoomToMetrics, velocity);
     } else {
       // use a local var to resolve the function overload
       auto func = static_cast<void (AsyncPanZoomController::*)(const FrameMetrics&, const ParentLayerPoint&)>
           (&AsyncPanZoomController::RequestContentRepaint);
-      NS_DispatchToMainThread(
+      controller->DispatchToRepaintThread(
           NewRunnableMethod<FrameMetrics, ParentLayerPoint>(
               this, func, endZoomToMetrics, velocity));
     }

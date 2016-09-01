@@ -9,6 +9,7 @@ import re
 import os
 import traceback
 import math
+import string
 from collections import defaultdict
 
 # Machinery
@@ -3308,6 +3309,11 @@ def matchIntegerValueToType(value):
 
     return None
 
+class NoCoercionFoundError(WebIDLError):
+    """
+    A class we use to indicate generic coercion failures because none of the
+    types worked out in IDLValue.coerceToType.
+    """
 
 class IDLValue(IDLObject):
     def __init__(self, location, type, value):
@@ -3335,8 +3341,18 @@ class IDLValue(IDLObject):
                     # use the value's type when it is a default value of a
                     # union, and the union cares about the exact float type.
                     return IDLValue(self.location, subtype, coercedValue.value)
-                except:
-                    pass
+                except Exception as e:
+                    # Make sure to propagate out WebIDLErrors that are not the
+                    # generic "hey, we could not coerce to this type at all"
+                    # exception, because those are specific "coercion failed for
+                    # reason X" exceptions.  Note that we want to swallow
+                    # non-WebIDLErrors here, because those can just happen if
+                    # "type" is not something that can have a default value at
+                    # all.
+                    if (isinstance(e, WebIDLError) and
+                        not isinstance(e, NoCoercionFoundError)):
+                        raise e
+
         # If the type allows null, rerun this matching on the inner type, except
         # nullable enums.  We handle those specially, because we want our
         # default string values to stay strings even when assigned to a nullable
@@ -3384,8 +3400,22 @@ class IDLValue(IDLObject):
             # extra normalization step.
             assert self.type.isDOMString()
             return self
-        raise WebIDLError("Cannot coerce type %s to type %s." %
-                          (self.type, type), [location])
+        elif self.type.isString() and type.isByteString():
+            # Allow ByteStrings to use a default value like DOMString.
+            # No coercion is required as Codegen.py will handle the
+            # extra steps. We want to make sure that our string contains
+            # only valid characters, so we check that here.
+            valid_ascii_lit = " " + string.ascii_letters + string.digits + string.punctuation
+            for idx, c in enumerate(self.value):
+                if c not in valid_ascii_lit:
+                    raise WebIDLError("Coercing this string literal %s to a ByteString is not supported yet. "
+                                      "Coercion failed due to an unsupported byte %d at index %d."
+                                      % (self.value.__repr__(), ord(c), idx), [location])
+
+            return IDLValue(self.location, type, self.value)
+
+        raise NoCoercionFoundError("Cannot coerce type %s to type %s." %
+                                   (self.type, type), [location])
 
     def _getDependentObjects(self):
         return set()

@@ -127,7 +127,7 @@ typedef RefPtr<const ShareableBytes> SharedBytes;
 class FuncExport
 {
     Sig sig_;
-    struct CacheablePod {
+    MOZ_INIT_OUTSIDE_CTOR struct CacheablePod {
         uint32_t funcIndex_;
         uint32_t codeRangeIndex_;
         uint32_t entryOffset_;
@@ -417,7 +417,7 @@ class MetadataCacheablePod
     ModuleKind            kind;
     MemoryUsage           memoryUsage;
     uint32_t              minMemoryLength;
-    uint32_t              maxMemoryLength;
+    Maybe<uint32_t>       maxMemoryLength;
 
     explicit MetadataCacheablePod(ModuleKind kind) {
         mozilla::PodZero(this);
@@ -522,7 +522,7 @@ class Code
 
     const CallSite* lookupCallSite(void* returnAddress) const;
     const CodeRange* lookupRange(void* pc) const;
-#ifdef ASMJS_MAY_USE_SIGNAL_HANDLERS
+#ifdef WASM_HUGE_MEMORY
     const MemoryAccess* lookupMemoryAccess(void* pc) const;
 #endif
 

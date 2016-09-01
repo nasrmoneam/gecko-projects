@@ -269,7 +269,8 @@ ElemSegment::serializedSize() const
 {
     return sizeof(tableIndex) +
            sizeof(offset) +
-           SerializedPodVectorSize(elems);
+           SerializedPodVectorSize(elemFuncIndices) +
+           SerializedPodVectorSize(elemCodeRangeIndices);
 }
 
 uint8_t*
@@ -277,7 +278,8 @@ ElemSegment::serialize(uint8_t* cursor) const
 {
     cursor = WriteBytes(cursor, &tableIndex, sizeof(tableIndex));
     cursor = WriteBytes(cursor, &offset, sizeof(offset));
-    cursor = SerializePodVector(cursor, elems);
+    cursor = SerializePodVector(cursor, elemFuncIndices);
+    cursor = SerializePodVector(cursor, elemCodeRangeIndices);
     return cursor;
 }
 
@@ -286,14 +288,16 @@ ElemSegment::deserialize(const uint8_t* cursor)
 {
     (cursor = ReadBytes(cursor, &tableIndex, sizeof(tableIndex))) &&
     (cursor = ReadBytes(cursor, &offset, sizeof(offset))) &&
-    (cursor = DeserializePodVector(cursor, &elems));
+    (cursor = DeserializePodVector(cursor, &elemFuncIndices)) &&
+    (cursor = DeserializePodVector(cursor, &elemCodeRangeIndices));
     return cursor;
 }
 
 size_t
 ElemSegment::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
 {
-    return elems.sizeOfExcludingThis(mallocSizeOf);
+    return elemFuncIndices.sizeOfExcludingThis(mallocSizeOf) +
+           elemCodeRangeIndices.sizeOfExcludingThis(mallocSizeOf);
 }
 
 size_t
@@ -451,26 +455,26 @@ Module::initElems(JSContext* cx, HandleWasmInstanceObject instanceObj,
         }
 
         uint32_t tableLength = instance.metadata().tables[seg.tableIndex].initial;
-        if (offset > tableLength || tableLength - offset < seg.elems.length()) {
+        if (offset > tableLength || tableLength - offset < seg.elemCodeRangeIndices.length()) {
             JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_FAIL,
                                  "element segment does not fit");
             return false;
         }
 
-        // If profiling is already enabled in the wasm::Compartment, the new
-        // instance must use the profiling entry for typed functions instead of
-        // the default nonProfilingEntry.
-        bool useProfilingEntry = instance.code().profilingEnabled() && table.isTypedFunction();
-
+        bool profilingEnabled = instance.code().profilingEnabled();
+        const CodeRangeVector& codeRanges = instance.code().metadata().codeRanges;
         uint8_t* codeBase = instance.codeBase();
-        for (uint32_t i = 0; i < seg.elems.length(); i++) {
-            void* code = codeBase + seg.elems[i];
-            if (useProfilingEntry)
-                code = codeBase + instance.code().lookupRange(code)->funcProfilingEntry();
-            table.set(offset + i, code, instance);
+        for (uint32_t i = 0; i < seg.elemCodeRangeIndices.length(); i++) {
+            const CodeRange& cr = codeRanges[seg.elemCodeRangeIndices[i]];
+            uint32_t codeOffset = table.isTypedFunction()
+                                  ? profilingEnabled
+                                    ? cr.funcProfilingEntry()
+                                    : cr.funcNonProfilingEntry()
+                                  : cr.funcTableEntry();
+            table.set(offset + i, codeBase + codeOffset, instance);
         }
 
-        prevEnd = offset + seg.elems.length();
+        prevEnd = offset + seg.elemFuncIndices.length();
     }
 
     return true;
@@ -517,23 +521,42 @@ Module::instantiateMemory(JSContext* cx, MutableHandleWasmMemoryObject memory) c
     RootedArrayBufferObjectMaybeShared buffer(cx);
     if (memory) {
         buffer = &memory->buffer();
-        uint32_t length = buffer->byteLength();
-        if (length < metadata_->minMemoryLength || length > metadata_->maxMemoryLength) {
+        uint32_t length = buffer->wasmActualByteLength();
+        uint32_t declaredMaxLength = metadata_->maxMemoryLength.valueOr(UINT32_MAX);
+
+        // It's not an error to import a memory whose mapped size is less than
+        // the maxMemoryLength required for the module. This is the same as trying to
+        // map up to maxMemoryLength but actually getting less.
+        if (length < metadata_->minMemoryLength || length > declaredMaxLength) {
             JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE, "Memory");
             return false;
         }
 
-        // This can't happen except via the shell toggling signals.enabled.
-        if (metadata_->assumptions.usesSignal.forOOB &&
-            !buffer->is<SharedArrayBufferObject>() &&
-            !buffer->as<ArrayBufferObject>().isWasmMapped())
-        {
-            JS_ReportError(cx, "can't access same buffer with and without signals enabled");
-            return false;
+        // For asm.js maxMemoryLength doesn't play a role since we can't grow memory.
+        // For wasm we require that either both memory and module don't specify a max size
+        // OR that the memory's max size is less than the modules.
+        if (!metadata_->isAsmJS()) {
+            Maybe<uint32_t> memMaxSize =
+                buffer->as<ArrayBufferObject>().wasmMaxSize();
+
+            if (metadata_->maxMemoryLength.isSome() != memMaxSize.isSome() ||
+                metadata_->maxMemoryLength < memMaxSize) {
+                JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE,
+                                     "Memory");
+                return false;
+            }
         }
+
+        MOZ_RELEASE_ASSERT(buffer->is<SharedArrayBufferObject>() ||
+                           buffer->as<ArrayBufferObject>().isWasm());
+
+        // We currently assume SharedArrayBuffer => asm.js. Can remove this
+        // once wasmMaxSize/mappedSize/growForWasm have been implemented in SAB
+        MOZ_ASSERT_IF(buffer->is<SharedArrayBufferObject>(), metadata_->isAsmJS());
     } else {
         buffer = ArrayBufferObject::createForWasm(cx, metadata_->minMemoryLength,
-                                                  metadata_->assumptions.usesSignal.forOOB);
+                                                  metadata_->maxMemoryLength);
+
         if (!buffer)
             return false;
 

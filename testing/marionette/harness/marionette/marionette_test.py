@@ -88,8 +88,15 @@ def skip_if_chrome(target):
 
 def skip_if_desktop(target):
     def wrapper(self, *args, **kwargs):
-        if self.marionette.session_capabilities.get('b2g') is None:
+        if self.marionette.session_capabilities.get('browserName') == 'firefox':
             raise SkipTest('skipping due to desktop')
+        return target(self, *args, **kwargs)
+    return wrapper
+
+def skip_if_mobile(target):
+    def wrapper(self, *args, **kwargs):
+        if self.marionette.session_capabilities.get('browserName') == 'fennec':
+            raise SkipTest('skipping due to fennec')
         return target(self, *args, **kwargs)
     return wrapper
 
@@ -659,6 +666,11 @@ class MarionetteTestCase(CommonTestCase):
                                        sandbox="simpletest")
 
     def tearDown(self):
+        # In the case no session is active (eg. the application was quit), start
+        # a new session for clean-up steps.
+        if not self.marionette.session:
+            self.marionette.start_session()
+
         if not self.marionette.check_for_crash():
             try:
                 self.marionette.clear_imported_scripts()

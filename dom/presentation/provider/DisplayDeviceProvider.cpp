@@ -5,10 +5,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "DisplayDeviceProvider.h"
+
+#include "DeviceProviderHelpers.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "nsIObserverService.h"
 #include "nsIServiceManager.h"
 #include "nsIWindowWatcher.h"
@@ -115,6 +117,23 @@ DisplayDeviceProvider::HDMIDisplayDevice::Disconnect()
       return rv;
   }
   return NS_OK;;
+}
+
+NS_IMETHODIMP
+DisplayDeviceProvider::HDMIDisplayDevice::IsRequestedUrlSupported(
+                                                 const nsAString& aRequestedUrl,
+                                                 bool* aRetVal)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+
+  if (!aRetVal) {
+    return NS_ERROR_INVALID_POINTER;
+  }
+
+  // 1-UA device only supports HTTP/HTTPS hosted receiver page.
+  *aRetVal = DeviceProviderHelpers::IsCommonlySupportedScheme(aRequestedUrl);
+
+  return NS_OK;
 }
 
 nsresult

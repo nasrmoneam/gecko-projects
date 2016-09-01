@@ -1218,7 +1218,7 @@ dnl Checks for library functions.
 dnl ========================================================
 AC_PROG_GCC_TRADITIONAL
 AC_FUNC_MEMCMP
-AC_CHECK_FUNCS([getc_unlocked _getc_nolock gmtime_r localtime_r])
+AC_CHECK_FUNCS([getc_unlocked _getc_nolock gmtime_r localtime_r pthread_getname_np])
 
 dnl check for clock_gettime(), the CLOCK_MONOTONIC clock
 AC_CACHE_CHECK(for clock_gettime(CLOCK_MONOTONIC),
@@ -1539,11 +1539,6 @@ fi
 AC_SUBST(ZLIB_IN_MOZGLUE)
 
 dnl ========================================================
-dnl system libffi Support
-dnl ========================================================
-MOZ_CONFIG_FFI()
-
-dnl ========================================================
 dnl =
 dnl = Application
 dnl =
@@ -1773,13 +1768,6 @@ elif test "$CPU_ARCH" = "x86"; then
 elif test "$CPU_ARCH" = "x86_64"; then
     AC_DEFINE(JS_CODEGEN_X64)
     JS_CODEGEN_X64=1
-
-    dnl Signal-handler OOM checking requires large mprotected guard regions, so
-    dnl currently it is only implemented on x64.
-    AC_DEFINE(ASMJS_MAY_USE_SIGNAL_HANDLERS)
-    AC_DEFINE(ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_OOB)
-    ASMJS_MAY_USE_SIGNAL_HANDLERS=1
-    ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_OOB=1
 elif test "$CPU_ARCH" = "arm"; then
     AC_DEFINE(JS_CODEGEN_ARM)
     JS_CODEGEN_ARM=1
@@ -1790,10 +1778,6 @@ elif test "$CPU_ARCH" = "arm"; then
 
     dnl ARM platforms may trap on unaligned accesses; catch the signal and
     dnl recover.
-    AC_DEFINE(ASMJS_MAY_USE_SIGNAL_HANDLERS)
-    AC_DEFINE(ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_UNALIGNED)
-    ASMJS_MAY_USE_SIGNAL_HANDLERS=1
-    ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_UNALIGNED=1
 elif test "$CPU_ARCH" = "mips32"; then
     AC_DEFINE(JS_CODEGEN_MIPS32)
     JS_CODEGEN_MIPS32=1
@@ -1815,9 +1799,6 @@ AC_SUBST(JS_CODEGEN_X86)
 AC_SUBST(JS_CODEGEN_X64)
 AC_SUBST(JS_CODEGEN_NONE)
 AC_SUBST(JS_DISASM_ARM)
-AC_SUBST(ASMJS_MAY_USE_SIGNAL_HANDLERS)
-AC_SUBST(ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_OOB)
-AC_SUBST(ASMJS_MAY_USE_SIGNAL_HANDLERS_FOR_UNALIGNED)
 
 dnl ========================================================
 dnl instruments
@@ -2102,22 +2083,13 @@ dnl =
 dnl ========================================================
 MOZ_ARG_HEADER(Standalone module options (Not for building Mozilla))
 
-dnl ========================================================
-dnl = Build jsctypes if it's enabled
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(ctypes,
-[  --enable-ctypes         Enable js-ctypes (default=no)],
-    BUILD_CTYPES=1,
-    BUILD_CTYPES= )
-JS_HAS_CTYPES=$BUILD_CTYPES
-AC_SUBST(JS_HAS_CTYPES)
-AC_SUBST(BUILD_CTYPES)
 if test "$JS_HAS_CTYPES"; then
+  dnl JS_HAS_CTYPES is defined by Python configure. This check remains
+  dnl as long as determining $AS remains in old-configure.
   dnl Error out if we're on MSVC and MASM is unavailable.
   if test -n "$_MSC_VER" -a \( "$AS" != "ml.exe" -a "$AS" != "ml64.exe" \); then
     AC_MSG_ERROR([\"$AS\" is not a suitable assembler to build js-ctypes. If you are building with MS Visual Studio 8 Express, you may download the MASM 8.0 package, upgrade to Visual Studio 9 Express, or install the Vista SDK. Or do not use --enable-ctypes.])
   fi
-  AC_DEFINE(JS_HAS_CTYPES)
 fi
 
 dnl ========================================================

@@ -6,18 +6,21 @@
 
 #include "mozilla/ServoBindings.h"
 
+#include "ChildIterator.h"
 #include "StyleStructContext.h"
 #include "gfxFontFamilyList.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSRuleProcessor.h"
 #include "nsContentUtils.h"
 #include "nsDOMTokenList.h"
+#include "nsIContentInlines.h"
 #include "nsIDOMNode.h"
 #include "nsIDocument.h"
 #include "nsIFrame.h"
 #include "nsINode.h"
 #include "nsIPrincipal.h"
 #include "nsNameSpaceManager.h"
+#include "nsRuleNode.h"
 #include "nsString.h"
 #include "nsStyleStruct.h"
 #include "nsStyleUtil.h"
@@ -29,6 +32,7 @@
 #include "mozilla/dom/Element.h"
 
 using namespace mozilla;
+using namespace mozilla::dom;
 
 #define IMPL_STRONG_REF_TYPE_FOR(type_) \
   already_AddRefed<type_>               \
@@ -59,7 +63,7 @@ Gecko_NodeIsElement(RawGeckoNode* aNode)
 RawGeckoNode*
 Gecko_GetParentNode(RawGeckoNode* aNode)
 {
-  return aNode->GetParentNode();
+  return aNode->GetFlattenedTreeParentNode();
 }
 
 RawGeckoNode*
@@ -89,7 +93,8 @@ Gecko_GetNextSibling(RawGeckoNode* aNode)
 RawGeckoElement*
 Gecko_GetParentElement(RawGeckoElement* aElement)
 {
-  return aElement->GetParentElement();
+  nsINode* parentNode = aElement->GetFlattenedTreeParentNode();
+  return parentNode->IsElement() ? parentNode->AsElement() : nullptr;
 }
 
 RawGeckoElement*
@@ -119,6 +124,32 @@ RawGeckoElement*
 Gecko_GetDocumentElement(RawGeckoDocument* aDoc)
 {
   return aDoc->GetDocumentElement();
+}
+
+StyleChildrenIterator*
+Gecko_MaybeCreateStyleChildrenIterator(RawGeckoNode* aNode)
+{
+  if (!aNode->IsElement()) {
+    return nullptr;
+  }
+
+  Element* el = aNode->AsElement();
+  return StyleChildrenIterator::IsNeeded(el) ? new StyleChildrenIterator(el)
+                                             : nullptr;
+}
+
+void
+Gecko_DropStyleChildrenIterator(StyleChildrenIterator* aIterator)
+{
+  MOZ_ASSERT(aIterator);
+  delete aIterator;
+}
+
+RawGeckoNode*
+Gecko_GetNextStyleChild(StyleChildrenIterator* aIterator)
+{
+  MOZ_ASSERT(aIterator);
+  return aIterator->GetNextChild();
 }
 
 EventStates::ServoType
@@ -268,6 +299,14 @@ Gecko_StoreStyleDifference(RawGeckoNode* aNode, nsChangeHint aChangeHintToStore)
     return;
   }
 
+  if ((aChangeHintToStore & nsChangeHint_ReconstructFrame) &&
+      aNode->IsInNativeAnonymousSubtree())
+  {
+    NS_WARNING("stylo: Removing forbidden frame reconstruction hint on native "
+               "anonymous content. Fix this in bug 1297857!");
+    aChangeHintToStore &= ~nsChangeHint_ReconstructFrame;
+  }
+
   primaryFrame->StyleContext()->StoreChangeHint(aChangeHintToStore);
 #else
   MOZ_CRASH("stylo: Shouldn't call Gecko_StoreStyleDifference in "
@@ -283,6 +322,12 @@ Gecko_GetServoDeclarationBlock(RawGeckoElement* aElement)
     return nullptr;
   }
   return attr->GetServoCSSDeclarationValue();
+}
+
+void
+Gecko_FillAllBackgroundLists(nsStyleImageLayers* aLayers, uint32_t aMaxLen)
+{
+  nsRuleNode::FillAllBackgroundLists(*aLayers, aMaxLen);
 }
 
 template <typename Implementor>
@@ -810,6 +855,15 @@ Gecko_NewBasicShape(mozilla::StyleBasicShapeType aType)
 }
 
 NS_IMPL_THREADSAFE_FFI_REFCOUNTING(nsStyleCoord::Calc, Calc);
+
+nsCSSShadowArray*
+Gecko_NewCSSShadowArray(uint32_t aLen)
+{
+  RefPtr<nsCSSShadowArray> arr = new(aLen) nsCSSShadowArray(aLen);
+  return arr.forget().take();
+}
+
+NS_IMPL_THREADSAFE_FFI_REFCOUNTING(nsCSSShadowArray, CSSShadowArray);
 
 #define STYLE_STRUCT(name, checkdata_cb)                                      \
                                                                               \

@@ -13,7 +13,7 @@ const EventEmitter = require("devtools/shared/event-emitter");
 const { Cc, Ci } = require("chrome");
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
-const { LocalizationHelper } = require("devtools/client/shared/l10n");
+const { LocalizationHelper } = require("devtools/shared/l10n");
 const STRINGS_URI = "devtools/locale/filterwidget.properties";
 const L10N = new LocalizationHelper(STRINGS_URI);
 
@@ -131,6 +131,7 @@ function CSSFilterEditorWidget(el, value = "") {
   this._presetClick = this._presetClick.bind(this);
   this._savePreset = this._savePreset.bind(this);
   this._togglePresets = this._togglePresets.bind(this);
+  this._resetFocus = this._resetFocus.bind(this);
 
   // Passed to asyncStorage, requires binding
   this.renderPresets = this.renderPresets.bind(this);
@@ -279,6 +280,7 @@ CSSFilterEditorWidget.prototype = {
     this.filtersList.addEventListener("click", this._removeButtonClick);
     this.filtersList.addEventListener("mousedown", this._mouseDown);
     this.filtersList.addEventListener("keydown", this._keyDown);
+    this.el.addEventListener("mousedown", this._resetFocus);
 
     this.presetsList.addEventListener("click", this._presetClick);
     this.togglePresets.addEventListener("click", this._togglePresets);
@@ -298,6 +300,7 @@ CSSFilterEditorWidget.prototype = {
     this.filtersList.removeEventListener("click", this._removeButtonClick);
     this.filtersList.removeEventListener("mousedown", this._mouseDown);
     this.filtersList.removeEventListener("keydown", this._keyDown);
+    this.el.removeEventListener("mousedown", this._resetFocus);
 
     this.presetsList.removeEventListener("click", this._presetClick);
     this.togglePresets.removeEventListener("click", this._togglePresets);
@@ -609,6 +612,14 @@ CSSFilterEditorWidget.prototype = {
   },
 
   /**
+   * Workaround needed to reset the focus when using a HTML select inside a XUL panel.
+   * See Bug 1294366.
+   */
+  _resetFocus: function () {
+    this.filterSelect.ownerDocument.defaultView.focus();
+  },
+
+  /**
    * Clears the list and renders filters, binding required events.
    * There are some delegated events bound in _addEventListeners method
    */
@@ -677,9 +688,11 @@ CSSFilterEditorWidget.prototype = {
         this.filtersList.querySelector(".filter:last-of-type input");
     if (lastInput) {
       lastInput.focus();
-      // move cursor to end of input
-      const end = lastInput.value.length;
-      lastInput.setSelectionRange(end, end);
+      if (lastInput.type === "text") {
+        // move cursor to end of input
+        const end = lastInput.value.length;
+        lastInput.setSelectionRange(end, end);
+      }
     }
 
     this.emit("render");

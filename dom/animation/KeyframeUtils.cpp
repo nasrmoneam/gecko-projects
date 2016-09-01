@@ -383,8 +383,7 @@ static bool
 IsComputeValuesFailureKey(const PropertyValuePair& aPair);
 
 static void
-BuildSegmentsFromValueEntries(nsStyleContext* aStyleContext,
-                              nsTArray<KeyframeValueEntry>& aEntries,
+BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
                               nsTArray<AnimationProperty>& aResult);
 
 static void
@@ -667,7 +666,7 @@ KeyframeUtils::GetAnimationPropertiesFromKeyframes(
   }
 
   nsTArray<AnimationProperty> result;
-  BuildSegmentsFromValueEntries(aStyleContext, entries, result);
+  BuildSegmentsFromValueEntries(entries, result);
   return result;
 }
 
@@ -1079,8 +1078,7 @@ IsComputeValuesFailureKey(const PropertyValuePair& aPair)
  * animation segments in aEntries.
  */
 static void
-BuildSegmentsFromValueEntries(nsStyleContext* aStyleContext,
-                              nsTArray<KeyframeValueEntry>& aEntries,
+BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
                               nsTArray<AnimationProperty>& aResult)
 {
   if (aEntries.IsEmpty()) {
@@ -1577,10 +1575,11 @@ GetCumulativeDistances(const nsTArray<ComputedKeyframeValues>& aValues,
         // If the property is longhand, we just use the 1st value.
         // If ComputeDistance() fails, |dist| will remain zero so there will be
         // no distance between the previous paced value and this value.
-        StyleAnimationValue::ComputeDistance(aPacedProperty,
-                                             prevPacedValues[0].mValue,
-                                             pacedValues[0].mValue,
-                                             dist);
+        Unused <<
+          StyleAnimationValue::ComputeDistance(aPacedProperty,
+                                               prevPacedValues[0].mValue,
+                                               pacedValues[0].mValue,
+                                               dist);
       }
       cumulativeDistances[i] = cumulativeDistances[preIdx] + dist;
     }

@@ -10,6 +10,7 @@ using struct mozilla::null_t from "ipc/IPCMessageUtils.h";
 using mozilla::gfx::FeatureStatus from "gfxTelemetry.h";
 using mozilla::gfx::BackendType from "mozilla/gfx/Types.h";
 using mozilla::gfx::IntSize from "mozilla/gfx/Point.h";
+using gfxImageFormat from "mozilla/gfx/Types.h";
 
 namespace mozilla {
 namespace gfx {
@@ -53,18 +54,25 @@ union FeatureChange
   FeatureFailure;
 };
 
+union GPUDeviceStatus
+{
+  null_t;
+  D3D11DeviceStatus;
+};
+
 struct GPUDeviceData
 {
   FeatureChange d3d11Compositing;
   FeatureChange d3d9Compositing;
   FeatureChange oglCompositing;
-  D3D11DeviceStatus d3d11Device;
+  GPUDeviceStatus gpuDevice;
 };
 
 union GfxVarValue
 {
   BackendType;
   bool;
+  gfxImageFormat;
   IntSize;
 };
 

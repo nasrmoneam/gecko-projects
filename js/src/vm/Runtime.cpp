@@ -9,7 +9,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/ThreadLocal.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #if defined(XP_DARWIN)
 #include <mach/mach.h>
@@ -84,19 +84,18 @@ js::DisableExtraThreads()
 const JSSecurityCallbacks js::NullSecurityCallbacks = { };
 
 PerThreadData::PerThreadData(JSRuntime* runtime)
-  : runtime_(runtime),
+  : runtime_(runtime)
 #ifdef JS_TRACE_LOGGING
-    traceLogger(nullptr),
+  , traceLogger(nullptr)
 #endif
-    autoFlushICache_(nullptr),
-    dtoaState(nullptr),
-    suppressGC(0),
+  , autoFlushICache_(nullptr)
+  , dtoaState(nullptr)
+  , suppressGC(0)
 #ifdef DEBUG
-    ionCompiling(false),
-    ionCompilingSafeForMinorGC(false),
-    gcSweeping(false),
+  , ionCompiling(false)
+  , ionCompilingSafeForMinorGC(false)
+  , gcSweeping(false)
 #endif
-    activeCompilations(0)
 {}
 
 PerThreadData::~PerThreadData()
@@ -216,7 +215,6 @@ JSRuntime::JSRuntime(JSRuntime* parentRuntime)
     decimalSeparator(0),
     numGrouping(0),
 #endif
-    activeCompilations_(0),
     keepAtoms_(0),
     trustedPrincipals_(nullptr),
     beingDestroyed_(false),
@@ -332,7 +330,7 @@ JSRuntime::init(uint32_t maxbytes, uint32_t maxNurseryBytes)
     JS::ResetTimeZone();
 
 #ifdef JS_SIMULATOR
-    simulator_ = js::jit::Simulator::Create();
+    simulator_ = js::jit::Simulator::Create(contextFromMainThread());
     if (!simulator_)
         return false;
 #endif

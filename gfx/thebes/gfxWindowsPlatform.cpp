@@ -72,7 +72,7 @@
 #include "VsyncSource.h"
 #include "DriverCrashGuard.h"
 #include "mozilla/dom/ContentParent.h"
-#include "mozilla/gfx/DeviceManagerD3D11.h"
+#include "mozilla/gfx/DeviceManagerDx.h"
 #include "D3D11Checks.h"
 
 using namespace mozilla;
@@ -111,12 +111,6 @@ DCFromDrawTarget::DCFromDrawTarget(DrawTarget& aDrawTarget)
   }
 }
 
-static const char *kFeatureLevelPref =
-  "gfx.direct3d.last_used_feature_level_idx";
-static const int kSupportedFeatureLevels[] =
-  { D3D10_FEATURE_LEVEL_10_1, D3D10_FEATURE_LEVEL_10_0 };
-
-
 class GfxD2DVramReporter final : public nsIMemoryReporter
 {
     ~GfxD2DVramReporter() {}
@@ -127,19 +121,15 @@ public:
     NS_IMETHOD CollectReports(nsIHandleReportCallback* aHandleReport,
                               nsISupports* aData, bool aAnonymize) override
     {
-        nsresult rv;
-
-        rv = MOZ_COLLECT_REPORT(
+        MOZ_COLLECT_REPORT(
             "gfx-d2d-vram-draw-target", KIND_OTHER, UNITS_BYTES,
             Factory::GetD2DVRAMUsageDrawTarget(),
             "Video memory used by D2D DrawTargets.");
-        NS_ENSURE_SUCCESS(rv, rv);
 
-        rv = MOZ_COLLECT_REPORT(
+        MOZ_COLLECT_REPORT(
             "gfx-d2d-vram-source-surface", KIND_OTHER, UNITS_BYTES,
             Factory::GetD2DVRAMUsageSourceSurface(),
             "Video memory used by D2D SourceSurfaces.");
-        NS_ENSURE_SUCCESS(rv, rv);
 
         return NS_OK;
     }
@@ -182,8 +172,8 @@ public:
     NS_DECL_ISUPPORTS
 
     NS_IMETHOD
-    CollectReports(nsIMemoryReporterCallback* aCb,
-                   nsISupports* aClosure, bool aAnonymize) override
+    CollectReports(nsIHandleReportCallback* aHandleReport, nsISupports* aData,
+                   bool aAnonymize) override
     {
         HANDLE ProcessHandle = GetCurrentProcess();
 
@@ -264,26 +254,20 @@ public:
 
         FreeLibrary(gdi32Handle);
 
-#define REPORT(_path, _amount, _desc)                                         \
-    do {                                                                      \
-      nsresult rv;                                                            \
-      rv = aCb->Callback(EmptyCString(), NS_LITERAL_CSTRING(_path),           \
-                         KIND_OTHER, UNITS_BYTES, _amount,                    \
-                         NS_LITERAL_CSTRING(_desc), aClosure);                \
-      NS_ENSURE_SUCCESS(rv, rv);                                              \
-    } while (0)
+        MOZ_COLLECT_REPORT(
+            "gpu-committed", KIND_OTHER, UNITS_BYTES, committedBytesUsed,
+            "Memory committed by the Windows graphics system.");
 
-        REPORT("gpu-committed", committedBytesUsed,
-               "Memory committed by the Windows graphics system.");
+        MOZ_COLLECT_REPORT(
+            "gpu-dedicated", KIND_OTHER, UNITS_BYTES,
+            dedicatedBytesUsed,
+            "Out-of-process memory allocated for this process in a physical "
+            "GPU adapter's memory.");
 
-        REPORT("gpu-dedicated", dedicatedBytesUsed,
-               "Out-of-process memory allocated for this process in a "
-               "physical GPU adapter's memory.");
-
-        REPORT("gpu-shared", sharedBytesUsed,
-               "In-process memory that is shared with the GPU.");
-
-#undef REPORT
+        MOZ_COLLECT_REPORT(
+            "gpu-shared", KIND_OTHER, UNITS_BYTES,
+            sharedBytesUsed,
+            "In-process memory that is shared with the GPU.");
 
         return NS_OK;
     }
@@ -304,22 +288,18 @@ public:
   NS_IMETHOD CollectReports(nsIHandleReportCallback *aHandleReport,
                             nsISupports* aData, bool aAnonymize) override
   {
-    nsresult rv;
-
     if (gfxWindowsPlatform::sD3D11SharedTextures > 0) {
-      rv = MOZ_COLLECT_REPORT(
+      MOZ_COLLECT_REPORT(
         "d3d11-shared-textures", KIND_OTHER, UNITS_BYTES,
         gfxWindowsPlatform::sD3D11SharedTextures,
         "D3D11 shared textures.");
-      NS_ENSURE_SUCCESS(rv, rv);
     }
 
     if (gfxWindowsPlatform::sD3D9SharedTextures > 0) {
-      rv = MOZ_COLLECT_REPORT(
+      MOZ_COLLECT_REPORT(
         "d3d9-shared-textures", KIND_OTHER, UNITS_BYTES,
         gfxWindowsPlatform::sD3D9SharedTextures,
         "D3D9 shared textures.");
-      NS_ENSURE_SUCCESS(rv, rv);
     }
 
     return NS_OK;
@@ -352,7 +332,7 @@ gfxWindowsPlatform::~gfxWindowsPlatform()
   mozilla::gfx::Factory::D2DCleanup();
 
   DeviceManagerD3D9::Shutdown();
-  DeviceManagerD3D11::Shutdown();
+  DeviceManagerDx::Shutdown();
 
   /*
    * Uninitialize COM
@@ -382,7 +362,7 @@ gfxWindowsPlatform::InitAcceleration()
   mFeatureLevels.AppendElement(D3D_FEATURE_LEVEL_10_0);
   mFeatureLevels.AppendElement(D3D_FEATURE_LEVEL_9_3);
 
-  DeviceManagerD3D11::Init();
+  DeviceManagerDx::Init();
   DeviceManagerD3D9::Init();
 
   InitializeConfig();
@@ -399,7 +379,7 @@ gfxWindowsPlatform::InitAcceleration()
 bool
 gfxWindowsPlatform::CanUseHardwareVideoDecoding()
 {
-  DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
   if (!gfxPrefs::LayersPreferD3D9() && !dm->TextureSharingWorks()) {
     return false;
   }
@@ -457,7 +437,7 @@ gfxWindowsPlatform::HandleDeviceReset()
   }
 
   // Remove devices and adapters.
-  DeviceManagerD3D11::Get()->ResetDevices();
+  DeviceManagerDx::Get()->ResetDevices();
 
   // Reset local state. Note: we leave feature status variables as-is. They
   // will be recomputed by InitializeDevices().
@@ -956,7 +936,7 @@ gfxWindowsPlatform::DidRenderingDeviceReset(DeviceResetReason* aResetReason)
     *aResetReason = DeviceResetReason::OK;
   }
 
-  if (DeviceManagerD3D11::Get()->GetAnyDeviceRemovedReason(&mDeviceResetReason)) {
+  if (DeviceManagerDx::Get()->GetAnyDeviceRemovedReason(&mDeviceResetReason)) {
     mHasDeviceReset = true;
     if (aResetReason) {
       *aResetReason = mDeviceResetReason;
@@ -996,12 +976,14 @@ gfxWindowsPlatform::SchedulePaintIfDeviceReset()
     return;
   }
 
+  gfxCriticalNote << "(gfxWindowsPlatform) Detected device reset: " << (int)resetReason;
+
   // Trigger an ::OnPaint for each window.
   ::EnumThreadWindows(GetCurrentThreadId(),
                       InvalidateWindowForDeviceReset,
                       0);
 
-  gfxCriticalNote << "Detected rendering device reset on refresh: " << (int)resetReason;
+  gfxCriticalNote << "(gfxWindowsPlatform) Finished device reset.";
 }
 
 void
@@ -1404,6 +1386,15 @@ InitializeANGLEConfig()
 }
 
 void
+gfxWindowsPlatform::InitializeDirectDrawConfig()
+{
+  MOZ_ASSERT(XRE_IsParentProcess());
+
+  FeatureState& ddraw = gfxConfig::GetFeature(Feature::DIRECT_DRAW);
+  ddraw.EnableByDefault();
+}
+
+void
 gfxWindowsPlatform::InitializeConfig()
 {
   if (XRE_IsParentProcess()) {
@@ -1566,7 +1557,7 @@ gfxWindowsPlatform::InitializeD3D11()
     return;
   }
 
-  DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
   if (XRE_IsParentProcess()) {
     if (!dm->CreateCompositorDevices()) {
       return;
@@ -1615,7 +1606,7 @@ gfxWindowsPlatform::InitializeD2D()
 
   FeatureState& d2d1 = gfxConfig::GetFeature(Feature::DIRECT2D);
 
-  DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
 
   // We don't know this value ahead of time, but the user can force-override
   // it, so we use Disable instead of SetFailed.
@@ -1697,7 +1688,6 @@ public:
         , mVsyncEnabled(false)
       {
         mVsyncThread = new base::Thread("WindowsVsyncThread");
-        const double rate = 1000 / 60.0;
         MOZ_RELEASE_ASSERT(mVsyncThread->Start(), "GFX: Could not start Windows vsync thread");
         SetVsyncRate();
       }
@@ -1828,16 +1818,22 @@ public:
           // In these error cases, normalize to Now();
           if (vsync >= now) {
             vsync = vsync - mVsyncRate;
-            return vsync <= now ? vsync : now;
           }
         }
 
         // On Windows 7 and 8, DwmFlush wakes up AFTER qpcVBlankTime
         // from DWMGetCompositionTimingInfo. We can return the adjusted vsync.
-        // If we got here on Windows 10, it means we got a weird timestamp.
         if (vsync >= now) {
             vsync = now;
         }
+
+        // Our vsync time is some time very far in the past, adjust to Now.
+        // 4 ms is arbitrary, so feel free to pick something else if this isn't
+        // working. See the comment above within IsWin10OrLater().
+        if ((now - vsync).ToMilliseconds() > 4.0) {
+            vsync = now;
+        }
+
         return vsync;
       }
 
@@ -1901,6 +1897,12 @@ public:
 
             if (vsync <= mPrevVsync) {
               vsync = TimeStamp::Now();
+            }
+
+            if ((now - vsync).ToMilliseconds() > 2.0) {
+              // Account for time drift here where vsync never quite catches up to
+              // Now and we'd fall ever so slightly further behind Now().
+              vsync = GetVBlankTime();
             }
 
             mPrevVsync = vsync;
@@ -2002,9 +2004,9 @@ gfxWindowsPlatform::ImportGPUDeviceData(const mozilla::gfx::GPUDeviceData& aData
   gfxConfig::ImportChange(Feature::D3D11_COMPOSITING, aData.d3d11Compositing());
   gfxConfig::ImportChange(Feature::D3D9_COMPOSITING, aData.d3d9Compositing());
 
-  DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
   if (gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING)) {
-    dm->ImportDeviceInfo(aData.d3d11Device());
+    dm->ImportDeviceInfo(aData.gpuDevice().get_D3D11DeviceStatus());
   } else {
     // There should be no devices, so this just takes away the device status.
     dm->ResetDevices();
@@ -2038,7 +2040,7 @@ gfxWindowsPlatform::ImportContentDeviceData(const mozilla::gfx::ContentDeviceDat
   gfxConfig::Inherit(Feature::DIRECT2D, prefs.useD2D1());
 
   if (gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING)) {
-    DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+    DeviceManagerDx* dm = DeviceManagerDx::Get();
     dm->ImportDeviceInfo(aData.d3d11());
   }
 }
@@ -2057,7 +2059,7 @@ gfxWindowsPlatform::BuildContentDeviceData(ContentDeviceData* aOut)
   aOut->prefs().useD2D1() = gfxConfig::GetValue(Feature::DIRECT2D);
 
   if (d3d11.IsEnabled()) {
-    DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+    DeviceManagerDx* dm = DeviceManagerDx::Get();
     dm->ExportDeviceInfo(&aOut->d3d11());
   }
 }
@@ -2065,7 +2067,7 @@ gfxWindowsPlatform::BuildContentDeviceData(ContentDeviceData* aOut)
 bool
 gfxWindowsPlatform::SupportsPluginDirectDXGIDrawing()
 {
-  DeviceManagerD3D11* dm = DeviceManagerD3D11::Get();
+  DeviceManagerDx* dm = DeviceManagerDx::Get();
   if (!dm->GetContentDevice() || !dm->TextureSharingWorks()) {
     return false;
   }

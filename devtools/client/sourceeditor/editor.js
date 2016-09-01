@@ -6,10 +6,6 @@
 
 "use strict";
 
-/* eslint-disable mozilla/reject-some-requires */
-const {Cc, Ci} = require("chrome");
-/* eslint-enable mozilla/reject-some-requires */
-
 const {
   EXPAND_TAB,
   TAB_SIZE,
@@ -21,7 +17,6 @@ const ENABLE_CODE_FOLDING = "devtools.editor.enableCodeFolding";
 const KEYMAP = "devtools.editor.keymap";
 const AUTO_CLOSE = "devtools.editor.autoclosebrackets";
 const AUTOCOMPLETE = "devtools.editor.autocomplete";
-const L10N_BUNDLE = "chrome://devtools/locale/sourceeditor.properties";
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 const VALID_KEYMAPS = new Set(["emacs", "vim", "sublime"]);
 
@@ -38,8 +33,10 @@ const Services = require("Services");
 const promise = require("promise");
 const events = require("devtools/shared/event-emitter");
 const { PrefObserver } = require("devtools/client/styleeditor/utils");
+const { getClientCssProperties } = require("devtools/shared/fronts/css-properties");
 
-const L10N = Services.strings.createBundle(L10N_BUNDLE);
+const {LocalizationHelper} = require("devtools/shared/l10n");
+const L10N = new LocalizationHelper("devtools/locale/sourceeditor.properties");
 
 const { OS } = Services.appinfo;
 
@@ -113,8 +110,6 @@ const CM_MAPPING = [
   "getScrollInfo",
   "getViewport"
 ];
-
-const { cssProperties, cssValues, cssColors } = getCSSKeywords();
 
 const editors = new WeakMap();
 
@@ -240,6 +235,14 @@ function Editor(config) {
     this.config.externalScripts = [];
   }
 
+  if (this.config.cssProperties) {
+    // Ensure that autocompletion has cssProperties if it's passed in via the options.
+    this.config.autocompleteOpts.cssProperties = this.config.cssProperties;
+  } else {
+    // Use a static client-side database of CSS values if none is provided.
+    this.config.cssProperties = getClientCssProperties();
+  }
+
   events.decorate(this);
 }
 
@@ -289,17 +292,25 @@ Editor.prototype = {
         }
       });
       // Replace the propertyKeywords, colorKeywords and valueKeywords
-      // properties of the CSS MIME type with the values provided by Gecko.
+      // properties of the CSS MIME type with the values provided by the CSS properties
+      // database.
+
+      const {
+        propertyKeywords,
+        colorKeywords,
+        valueKeywords
+      } = getCSSKeywords(this.config.cssProperties);
+
       let cssSpec = win.CodeMirror.resolveMode("text/css");
-      cssSpec.propertyKeywords = cssProperties;
-      cssSpec.colorKeywords = cssColors;
-      cssSpec.valueKeywords = cssValues;
+      cssSpec.propertyKeywords = propertyKeywords;
+      cssSpec.colorKeywords = colorKeywords;
+      cssSpec.valueKeywords = valueKeywords;
       win.CodeMirror.defineMIME("text/css", cssSpec);
 
       let scssSpec = win.CodeMirror.resolveMode("text/x-scss");
-      scssSpec.propertyKeywords = cssProperties;
-      scssSpec.colorKeywords = cssColors;
-      scssSpec.valueKeywords = cssValues;
+      scssSpec.propertyKeywords = propertyKeywords;
+      scssSpec.colorKeywords = colorKeywords;
+      scssSpec.valueKeywords = valueKeywords;
       win.CodeMirror.defineMIME("text/x-scss", scssSpec);
 
       win.CodeMirror.commands.save = () => this.emit("saveRequested");
@@ -353,8 +364,8 @@ Editor.prototype = {
       // Intercept the find and find again keystroke on CodeMirror, to avoid
       // the browser's search
 
-      let findKey = L10N.GetStringFromName("find.commandkey");
-      let findAgainKey = L10N.GetStringFromName("findAgain.commandkey");
+      let findKey = L10N.getStr("find.commandkey");
+      let findAgainKey = L10N.getStr("findAgain.commandkey");
       let [accel, modifier] = OS === "Darwin"
                                       ? ["metaKey", "altKey"]
                                       : ["ctrlKey", "shiftKey"];
@@ -434,7 +445,7 @@ Editor.prototype = {
       });
 
       win.CodeMirror.defineExtension("l10n", (name) => {
-        return L10N.GetStringFromName(name);
+        return L10N.getStr(name);
       });
 
       cm.getInputField().controllers.insertControllerAt(0, controller(this));
@@ -977,7 +988,7 @@ Editor.prototype = {
     let div = doc.createElement("div");
     let inp = doc.createElement("input");
     let txt =
-      doc.createTextNode(L10N.GetStringFromName("gotoLineCmd.promptTitle"));
+      doc.createTextNode(L10N.getStr("gotoLineCmd.promptTitle"));
 
     inp.type = "text";
     inp.style.width = "10em";
@@ -1275,16 +1286,18 @@ Editor.accel = function (key, modifiers = {}) {
  * or disabling default shortcuts.
  */
 Editor.keyFor = function (cmd, opts = { noaccel: false }) {
-  let key = L10N.GetStringFromName(cmd + ".commandkey");
+  let key = L10N.getStr(cmd + ".commandkey");
   return opts.noaccel ? key : Editor.accel(key);
 };
 
-// Since Gecko already provide complete and up to date list of CSS property
-// names, values and color names, we compute them so that they can replace
-// the ones used in CodeMirror while initiating an editor object. This is done
-// here instead of the file codemirror/css.js so as to leave that file untouched
-// and easily upgradable.
-function getCSSKeywords() {
+/**
+ * We compute the CSS property names, values, and color names to be used with
+ * CodeMirror to more closely reflect what is supported by the target platform.
+ * The database is used to replace the values used in CodeMirror while initiating
+ * an editor object. This is done here instead of the file codemirror/css.js so
+ * as to leave that file untouched and easily upgradable.
+ */
+function getCSSKeywords(cssProperties) {
   function keySet(array) {
     let keys = {};
     for (let i = 0; i < array.length; ++i) {
@@ -1293,26 +1306,26 @@ function getCSSKeywords() {
     return keys;
   }
 
-  let domUtils = Cc["@mozilla.org/inspector/dom-utils;1"]
-                   .getService(Ci.inIDOMUtils);
-  let properties = domUtils.getCSSPropertyNames(domUtils.INCLUDE_ALIASES);
-  let colors = {};
-  let values = {};
-  properties.forEach(property => {
+  let propertyKeywords = cssProperties.getNames();
+  let colorKeywords = {};
+  let valueKeywords = {};
+
+  propertyKeywords.forEach(property => {
     if (property.includes("color")) {
-      domUtils.getCSSValuesForProperty(property).forEach(value => {
-        colors[value] = true;
+      cssProperties.getValues(property).forEach(value => {
+        colorKeywords[value] = true;
       });
     } else {
-      domUtils.getCSSValuesForProperty(property).forEach(value => {
-        values[value] = true;
+      cssProperties.getValues(property).forEach(value => {
+        valueKeywords[value] = true;
       });
     }
   });
+
   return {
-    cssProperties: keySet(properties),
-    cssValues: values,
-    cssColors: colors
+    propertyKeywords: keySet(propertyKeywords),
+    colorKeywords: colorKeywords,
+    valueKeywords: valueKeywords
   };
 }
 

@@ -7,7 +7,7 @@
 #include "vm/HelperThreads.h"
 
 #include "mozilla/DebugOnly.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #include "jsnativestack.h"
 #include "jsnum.h" // For FIX_FPU()
@@ -266,21 +266,10 @@ void
 ScriptParseTask::parse()
 {
     SourceBufferHolder srcBuf(chars, length, SourceBufferHolder::NoOwnership);
-
-    // ! WARNING WARNING WARNING !
-    //
-    // See comment in Parser::bindLexical about optimizing global lexical
-    // bindings. If we start optimizing them, passing in task->cx's
-    // global lexical scope would be incorrect!
-    //
-    // ! WARNING WARNING WARNING !
-    Rooted<ClonedBlockObject*> globalLexical(cx, &cx->global()->lexicalScope());
-    Rooted<StaticScope*> staticScope(cx, &globalLexical->staticBlock());
-    script = frontend::CompileScript(cx, &alloc, globalLexical, staticScope, nullptr,
-                                     options, srcBuf,
-                                     /* source_ = */ nullptr,
-                                     /* extraSct = */ nullptr,
-                                     /* sourceObjectOut = */ sourceObject.address());
+    script = frontend::CompileGlobalScript(cx, alloc, ScopeKind::Global,
+                                           options, srcBuf,
+                                           /* extraSct = */ nullptr,
+                                           /* sourceObjectOut = */ sourceObject.address());
 }
 
 ModuleParseTask::ModuleParseTask(ExclusiveContext* cx, JSObject* exclusiveContextGlobal,
@@ -295,7 +284,7 @@ void
 ModuleParseTask::parse()
 {
     SourceBufferHolder srcBuf(chars, length, SourceBufferHolder::NoOwnership);
-    ModuleObject* module = frontend::CompileModule(cx, options, srcBuf, &alloc,
+    ModuleObject* module = frontend::CompileModule(cx, options, srcBuf, alloc,
                                                    sourceObject.address());
     if (module)
         script = module->script();
@@ -1200,7 +1189,7 @@ GlobalHelperThreadState::finishModuleParseTask(JSContext* cx, void* token)
     MOZ_ASSERT(script->module());
 
     RootedModuleObject module(cx, script->module());
-    module->fixScopesAfterCompartmentMerge(cx);
+    module->fixEnvironmentsAfterCompartmentMerge(cx);
     if (!ModuleObject::Freeze(cx, module))
         return nullptr;
 
@@ -1598,13 +1587,19 @@ js::StartOffThreadCompression(ExclusiveContext* cx, SourceCompressionTask* task)
 bool
 js::StartPromiseTask(JSContext* cx, UniquePtr<PromiseTask> task)
 {
+    // If we fail to start, by interface contract, it is because the JSContext
+    // is in the process of shutting down. Since promise handlers are not
+    // necessarily run while shutting down *anyway*, we simply ignore the error.
+    // This is symmetric with the handling of errors in finishAsyncTaskCallback
+    // which, since it is off the JSContext's owner thread, cannot report an
+    // error anyway.
+    if (!cx->startAsyncTaskCallback(cx, task.get())) {
+        MOZ_ASSERT(!cx->isExceptionPending());
+        return true;
+    }
+
     // Per interface contract, after startAsyncTaskCallback succeeds,
     // finishAsyncTaskCallback *must* be called on all paths.
-
-    if (!cx->startAsyncTaskCallback(cx, task.get())) {
-        ReportOutOfMemory(cx);
-        return false;
-    }
 
     AutoLockHelperThreadState lock;
 

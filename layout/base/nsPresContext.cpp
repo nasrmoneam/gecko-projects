@@ -205,7 +205,7 @@ IsVisualCharset(const nsCString& aCharset)
 
 nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
   : mType(aType), mDocument(aDocument), mBaseMinFontSize(0),
-    mTextZoom(1.0), mFullZoom(1.0),
+    mTextZoom(1.0), mFullZoom(1.0), mOverrideDPPX(0.0),
     mLastFontInflationScreenSize(gfxSize(-1.0, -1.0)),
     mPageSize(-1, -1), mPPScale(1.0f),
     mViewportStyleScrollbar(NS_STYLE_OVERFLOW_AUTO, NS_STYLE_OVERFLOW_AUTO),
@@ -1308,6 +1308,16 @@ nsPresContext::SetFullZoom(float aZoom)
   mSuppressResizeReflow = false;
 }
 
+void
+nsPresContext::SetOverrideDPPX(float aDPPX)
+{
+  mOverrideDPPX = aDPPX;
+
+  if (HasCachedStyleData()) {
+    MediaFeatureValuesChanged(nsRestyleHint(0), nsChangeHint(0));
+  }
+}
+
 gfxSize
 nsPresContext::ScreenSizeInchesForFontInflation(bool* aChanged)
 {
@@ -2036,16 +2046,10 @@ nsPresContext::UpdateIsChrome()
               nsIDocShellTreeItem::typeChrome == mContainer->ItemType();
 }
 
-/* virtual */ bool
+bool
 nsPresContext::HasAuthorSpecifiedRules(const nsIFrame *aFrame,
                                        uint32_t ruleTypeMask) const
 {
-#ifdef MOZ_STYLO
-  if (!mShell || mShell->StyleSet()->IsServo()) {
-    NS_ERROR("stylo: nsPresContext::HasAuthorSpecifiedRules not implemented");
-    return true;
-  }
-#endif
   return
     nsRuleNode::HasAuthorSpecifiedRules(aFrame->StyleContext(),
                                         ruleTypeMask,
@@ -2498,8 +2502,9 @@ nsPresContext::HasCachedStyleData()
   nsStyleSet* styleSet = mShell->StyleSet()->GetAsGecko();
   if (!styleSet) {
     // XXXheycam ServoStyleSets do not use the rule tree, so just assume for now
-    // that we need to restyle when e.g. dppx changes.
-    return true;
+    // that we need to restyle when e.g. dppx changes assuming we're sufficiently
+    // bootstrapped.
+    return mShell->DidInitialize();
   }
 
   return styleSet->HasCachedStyleData();
@@ -2687,6 +2692,12 @@ nsPresContext::CheckForInterrupt(nsIFrame* aFrame)
     TimeStamp::Now() - mReflowStartTime > sInterruptTimeout &&
     HavePendingInputEvent() &&
     !IsChrome();
+
+  if (mPendingInterruptFromTest) {
+    mPendingInterruptFromTest = false;
+    mHasPendingInterrupt = true;
+  }
+
   if (mHasPendingInterrupt) {
 #ifdef NOISY_INTERRUPTIBLE_REFLOW
     printf("*** DETECTED pending interrupt (time=%lld)\n", PR_Now());

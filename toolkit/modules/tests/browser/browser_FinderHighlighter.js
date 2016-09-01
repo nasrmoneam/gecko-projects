@@ -46,7 +46,7 @@ function promiseFindResult(findbar, str = null) {
 function promiseEnterStringIntoFindField(findbar, str) {
   let promise = promiseFindResult(findbar, str);
   for (let i = 0; i < str.length; i++) {
-    let event = document.createEvent("KeyEvents");
+    let event = document.createEvent("KeyboardEvent");
     event.initKeyEvent("keypress", true, true, null, false, false,
                        false, false, 0, str.charCodeAt(i));
     findbar._findField.inputField.dispatchEvent(event);
@@ -155,8 +155,8 @@ add_task(function* testModalResults() {
     }],
     ["o", {
       rectCount: 492,
-      insertCalls: [1, 3],
-      removeCalls: [1, 2]
+      insertCalls: [1, 4],
+      removeCalls: [1, 3]
     }]
   ]);
   let url = kFixtureBaseURL + "file_FinderSample.html";
@@ -294,7 +294,7 @@ add_task(function* testHighlightAllToggle() {
     expectedResult = {
       rectCount: 0,
       insertCalls: [0, 1],
-      removeCalls: [1, 1]
+      removeCalls: [0, 1]
     };
     promise = promiseTestHighlighterOutput(browser, word, expectedResult);
     yield SpecialPowers.pushPrefEnv({ "set": [[ kHighlightAllPref, false ]] });

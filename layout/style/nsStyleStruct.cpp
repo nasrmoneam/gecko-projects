@@ -440,7 +440,7 @@ nsStyleBorder::nsStyleBorder(StyleStructContext aContext)
   , mBorderImageRepeatH(NS_STYLE_BORDER_IMAGE_REPEAT_STRETCH)
   , mBorderImageRepeatV(NS_STYLE_BORDER_IMAGE_REPEAT_STRETCH)
   , mFloatEdge(StyleFloatEdge::ContentBox)
-  , mBoxDecorationBreak(NS_STYLE_BOX_DECORATION_BREAK_SLICE)
+  , mBoxDecorationBreak(StyleBoxDecorationBreak::Slice)
   , mComputedBorder(0, 0, 0, 0)
 {
   MOZ_COUNT_CTOR(nsStyleBorder);
@@ -828,10 +828,10 @@ nsStyleList::sNoneQuotes;
 nsStyleXUL::nsStyleXUL(StyleStructContext aContext)
   : mBoxFlex(0.0f)
   , mBoxOrdinal(1)
-  , mBoxAlign(NS_STYLE_BOX_ALIGN_STRETCH)
-  , mBoxDirection(NS_STYLE_BOX_DIRECTION_NORMAL)
-  , mBoxOrient(NS_STYLE_BOX_ORIENT_HORIZONTAL)
-  , mBoxPack(NS_STYLE_BOX_PACK_START)
+  , mBoxAlign(StyleBoxAlign::Stretch)
+  , mBoxDirection(StyleBoxDirection::Normal)
+  , mBoxOrient(StyleBoxOrient::Horizontal)
+  , mBoxPack(StyleBoxPack::Start)
   , mStretchStack(true)
 {
   MOZ_COUNT_CTOR(nsStyleXUL);
@@ -2218,7 +2218,7 @@ nsStyleImage::IsOpaque() const
   MOZ_ASSERT(imageContainer, "IsComplete() said image container is ready");
 
   // Check if the crop region of the image is opaque.
-  if (imageContainer->IsOpaque()) {
+  if (imageContainer->WillDrawOpaqueNow()) {
     if (!mCropRect) {
       return true;
     }
@@ -2490,12 +2490,15 @@ nsStyleImageLayers::HasLayerWithImage() const
 }
 
 bool
-nsStyleImageLayers::Position::IsInitialValue(LayerType aType) const
+nsStyleImageLayers::IsInitialPositionForLayerType(Position aPosition, LayerType aType)
 {
-  float intialValue = nsStyleImageLayers::Position::GetInitialValue(aType);
-  if (mXPosition.mPercent == intialValue && mXPosition.mLength == 0 &&
-      mXPosition.mHasPercent && mYPosition.mPercent == intialValue &&
-      mYPosition.mLength == 0 && mYPosition.mHasPercent) {
+  float intialValue = nsStyleImageLayers::GetInitialPositionForLayerType(aType);
+  if (aPosition.mXPosition.mPercent == intialValue &&
+      aPosition.mXPosition.mLength == 0 &&
+      aPosition.mXPosition.mHasPercent &&
+      aPosition.mYPosition.mPercent == intialValue &&
+      aPosition.mYPosition.mLength == 0 &&
+      aPosition.mYPosition.mHasPercent) {
     return true;
   }
 
@@ -2503,7 +2506,7 @@ nsStyleImageLayers::Position::IsInitialValue(LayerType aType) const
 }
 
 void
-nsStyleImageLayers::Position::SetInitialPercentValues(float aPercentVal)
+Position::SetInitialPercentValues(float aPercentVal)
 {
   mXPosition.mPercent = aPercentVal;
   mXPosition.mLength = 0;
@@ -2514,7 +2517,7 @@ nsStyleImageLayers::Position::SetInitialPercentValues(float aPercentVal)
 }
 
 void
-nsStyleImageLayers::Position::SetInitialZeroValues()
+Position::SetInitialZeroValues()
 {
   mXPosition.mPercent = 0;
   mXPosition.mLength = 0;
@@ -2675,7 +2678,7 @@ nsStyleImageLayers::Layer::Initialize(nsStyleImageLayers::LayerType aType)
   mRepeat.SetInitialValues(aType);
 
   float initialPositionValue =
-    nsStyleImageLayers::Position::GetInitialValue(aType);
+    nsStyleImageLayers::GetInitialPositionForLayerType(aType);
   mPosition.SetInitialPercentValues(initialPositionValue);
 
   if (aType == LayerType::Background) {

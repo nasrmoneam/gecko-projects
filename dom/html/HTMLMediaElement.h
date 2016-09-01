@@ -161,12 +161,7 @@ public:
    * Call this to reevaluate whether we should start/stop due to our owner
    * document being active, inactive, visible or hidden.
    */
-  void NotifyOwnerDocumentActivityChanged();
-
-  // This method does the work necessary for the
-  // NotifyOwnerDocumentActivityChanged() notification.  It returns true if the
-  // media element was paused as a result.
-  virtual bool NotifyOwnerDocumentActivityChangedInternal();
+  virtual void NotifyOwnerDocumentActivityChanged();
 
   // Called by the video decoder object, on the main thread,
   // when it has read the metadata containing video dimensions,
@@ -316,7 +311,8 @@ public:
    */
   bool RemoveDecoderPrincipalChangeObserver(DecoderPrincipalChangeObserver* aObserver);
 
-  class CaptureStreamTrackSource;
+  class StreamCaptureTrackSource;
+  class DecoderCaptureTrackSource;
   class CaptureStreamTrackSourceGetter;
 
   // Update the visual size of the media. Called from the decoder on the
@@ -343,7 +339,17 @@ public:
    */
   void NotifyLoadError();
 
+  /**
+   * Called by one of our associated MediaTrackLists (audio/video) when an
+   * AudioTrack is enabled or a VideoTrack is selected.
+   */
   void NotifyMediaTrackEnabled(MediaTrack* aTrack);
+
+  /**
+   * Called by one of our associated MediaTrackLists (audio/video) when an
+   * AudioTrack is disabled or a VideoTrack is unselected.
+   */
+  void NotifyMediaTrackDisabled(MediaTrack* aTrack);
 
   /**
    * Called when tracks become available to the source media stream.
@@ -648,6 +654,9 @@ public:
     return mAutoplayEnabled;
   }
 
+  already_AddRefed<DOMMediaStream> CaptureAudio(ErrorResult& aRv,
+                                                MediaStreamGraph* aGraph = nullptr);
+
   already_AddRefed<DOMMediaStream> MozCaptureStream(ErrorResult& aRv,
                                                     MediaStreamGraph* aGraph = nullptr);
 
@@ -730,6 +739,8 @@ public:
   bool ComputedMuted() const;
   nsSuspendedTypes ComputedSuspended() const;
 
+  void SetMediaInfo(const MediaInfo aInfo);
+
 protected:
   virtual ~HTMLMediaElement();
 
@@ -774,7 +785,24 @@ protected:
     nsCOMPtr<nsITimer> mTimer;
   };
 
-  nsresult PlayInternal(bool aCallerIsChrome);
+  // Holds references to the DOM wrappers for the MediaStreams that we're
+  // writing to.
+  struct OutputMediaStream {
+    OutputMediaStream();
+    ~OutputMediaStream();
+
+    RefPtr<DOMMediaStream> mStream;
+    bool mFinishWhenEnded;
+    bool mCapturingAudioOnly;
+    bool mCapturingDecoder;
+    bool mCapturingMediaStream;
+
+    // The following members are keeping state for a captured MediaStream.
+    TrackID mNextAvailableTrackID;
+    nsTArray<Pair<nsString, RefPtr<MediaInputPort>>> mTrackPorts;
+  };
+
+  nsresult PlayInternal();
 
   /** Use this method to change the mReadyState member, so required
    * events can be fired.
@@ -827,13 +855,6 @@ protected:
   void UpdateSrcMediaStreamPlaying(uint32_t aFlags = 0);
 
   /**
-   * If loading and playing a MediaStream, for each MediaStreamTrack in the
-   * MediaStream, create a corresponding AudioTrack or VideoTrack during the
-   * phase of resource fetching.
-   */
-  void ConstructMediaTracks();
-
-  /**
    * Called by our DOMMediaStream::TrackListener when a new MediaStreamTrack has
    * been added to the playback stream of |mSrcStream|.
    */
@@ -846,13 +867,36 @@ protected:
   void NotifyMediaStreamTrackRemoved(const RefPtr<MediaStreamTrack>& aTrack);
 
   /**
-   * Returns an nsDOMMediaStream containing the played contents of this
+   * Enables or disables all tracks forwarded from mSrcStream to all
+   * OutputMediaStreams. We do this for muting the tracks when pausing,
+   * and unmuting when playing the media element again.
+   *
+   * If mSrcStream is unset, this does nothing.
+   */
+  void SetCapturedOutputStreamsEnabled(bool aEnabled);
+
+  /**
+   * Create a new MediaStreamTrack for aTrack and add it to the DOMMediaStream
+   * in aOutputStream. This automatically sets the output track to enabled or
+   * disabled depending on our current playing state.
+   */
+  void AddCaptureMediaTrackToOutputStream(MediaTrack* aTrack,
+                                          OutputMediaStream& aOutputStream,
+                                          bool aAsyncAddtrack = true);
+
+  /**
+   * Returns an DOMMediaStream containing the played contents of this
    * element. When aFinishWhenEnded is true, when this element ends playback
    * we will finish the stream and not play any more into it.
    * When aFinishWhenEnded is false, ending playback does not finish the stream.
    * The stream will never finish.
+   *
+   * When aCaptureAudio is true, we stop playout of audio and instead route it
+   * to the DOMMediaStream. Volume and mute state will be applied to the audio
+   * reaching the stream. No video tracks will be captured in this case.
    */
   already_AddRefed<DOMMediaStream> CaptureStreamInternal(bool aFinishWhenEnded,
+                                                         bool aCaptureAudio,
                                                          MediaStreamGraph* aGraph = nullptr);
 
   /**
@@ -1174,6 +1218,12 @@ protected:
   // channel agent is ready to be used.
   bool MaybeCreateAudioChannelAgent();
 
+  // Determine if the element should be paused because of suspend conditions.
+  bool ShouldElementBePaused();
+
+  // Create or destroy the captured stream depend on mAudioCapturedByWindow.
+  void AudioCaptureStreamChangeIfNeeded();
+
   /**
    * We have different kinds of suspended cases,
    * - SUSPENDED_PAUSE
@@ -1240,6 +1290,9 @@ protected:
   // At most one of mDecoder and mSrcStream can be non-null.
   RefPtr<DOMMediaStream> mSrcStream;
 
+  // True once mSrcStream's initial set of tracks are known.
+  bool mSrcStreamTracksAvailable;
+
   // If non-negative, the time we should return for currentTime while playing
   // mSrcStream.
   double mSrcStreamPausedCurrentTime;
@@ -1249,10 +1302,6 @@ protected:
 
   // Holds references to the DOM wrappers for the MediaStreams that we're
   // writing to.
-  struct OutputMediaStream {
-    RefPtr<DOMMediaStream> mStream;
-    bool mFinishWhenEnded;
-  };
   nsTArray<OutputMediaStream> mOutputStreams;
 
   // Holds a reference to the MediaStreamListener attached to mSrcStream's
@@ -1470,10 +1519,6 @@ protected:
   // True iff event delivery is suspended (mPausedForInactiveDocumentOrChannel must also be true).
   bool mEventDeliveryPaused;
 
-  // True if we've reported a "waiting" event since the last
-  // readyState change to HAVE_CURRENT_DATA.
-  bool mWaitingFired;
-
   // True if we're running the "load()" method.
   bool mIsRunningLoadMethod;
 
@@ -1568,11 +1613,6 @@ protected:
   // enough if we ever expand the ability of supporting multi-tracks video
   // playback.
   bool mDisableVideo;
-
-  // True if we blocked either a play() call or autoplay because the
-  // media's owner doc was not visible. Only enforced when the pref
-  // media.block-play-until-visible=true.
-  bool mPlayBlockedBecauseHidden;
 
   // An agent used to join audio channel service.
   nsCOMPtr<nsIAudioChannelAgent> mAudioChannelAgent;

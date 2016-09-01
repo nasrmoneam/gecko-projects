@@ -16,10 +16,12 @@
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/FetchUtil.h"
 #include "mozilla/dom/FormData.h"
+#include "mozilla/dom/XMLDocument.h"
 #include "mozilla/dom/URLSearchParams.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/LoadInfo.h"
+#include "mozilla/LoadContext.h"
 #include "mozilla/MemoryReporting.h"
 #include "nsIDOMDocument.h"
 #include "mozilla/dom/ProgressEvent.h"
@@ -170,7 +172,8 @@ XMLHttpRequestMainThread::XMLHttpRequestMainThread()
     mUploadTransferred(0), mUploadTotal(0), mUploadComplete(true),
     mProgressSinceLastProgressEvent(false),
     mRequestSentTime(0), mTimeoutMilliseconds(0),
-    mErrorLoad(false), mWaitingForOnStopRequest(false),
+    mErrorLoad(false), mErrorParsingXML(false),
+    mWaitingForOnStopRequest(false),
     mProgressTimerIsActive(false),
     mIsHtml(false),
     mWarnAboutSyncHtml(false),
@@ -600,18 +603,13 @@ XMLHttpRequestMainThread::GetResponseText(nsAString& aResponseText,
   // We only decode text lazily if we're also parsing to a doc.
   // Also, if we've decoded all current data already, then no need to decode
   // more.
-  if (!mResponseXML ||
+  if ((!mResponseXML && !mErrorParsingXML) ||
       mResponseBodyDecodedPos == mResponseBody.Length()) {
     aResponseText = mResponseText;
     return;
   }
 
-  if (mResponseCharset != mResponseXML->GetDocumentCharacterSet()) {
-    mResponseCharset = mResponseXML->GetDocumentCharacterSet();
-    mResponseText.Truncate();
-    mResponseBodyDecodedPos = 0;
-    mDecoder = EncodingUtils::DecoderForEncoding(mResponseCharset);
-  }
+  MatchCharsetAndDecoderToResponseDocument();
 
   NS_ASSERTION(mResponseBodyDecodedPos < mResponseBody.Length(),
                "Unexpected mResponseBodyDecodedPos");
@@ -1544,6 +1542,20 @@ XMLHttpRequestMainThread::OpenInternal(const nsACString& aMethod,
 }
 
 void
+XMLHttpRequestMainThread::SetOriginAttributes(const OriginAttributesDictionary& aAttrs)
+{
+  MOZ_ASSERT((mState == State::opened) && !mFlagSend);
+
+  GenericOriginAttributes attrs(aAttrs);
+  NeckoOriginAttributes neckoAttrs;
+  neckoAttrs.SetFromGenericAttributes(attrs);
+
+  nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
+  MOZ_ASSERT(loadInfo);
+  loadInfo->SetOriginAttributes(neckoAttrs);
+}
+
+void
 XMLHttpRequestMainThread::PopulateNetworkInterfaceId()
 {
   if (mNetworkInterfaceId.IsEmpty()) {
@@ -1944,6 +1956,12 @@ XMLHttpRequestMainThread::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
     nsCOMPtr<nsILoadGroup> loadGroup;
     channel->GetLoadGroup(getter_AddRefs(loadGroup));
 
+    // suppress <parsererror> nodes on XML document parse failure, but only
+    // for non-privileged code (including Web Extensions). See bug 289714.
+    if (!IsSystemXHR()) {
+      mResponseXML->SetSuppressParserErrorElement(true);
+    }
+
     rv = mResponseXML->StartDocumentLoad(kLoadAsData, channel, loadGroup,
                                          nullptr, getter_AddRefs(listener),
                                          !isCrossSite);
@@ -2064,6 +2082,10 @@ XMLHttpRequestMainThread::OnStopRequest(nsIRequest *request, nsISupports *ctxt, 
 
   mFlagSyncLooping = false;
 
+  // update our charset and decoder to match mResponseXML,
+  // before it is possibly nulled out
+  MatchCharsetAndDecoderToResponseDocument();
+
   if (NS_FAILED(status)) {
     // This can happen if the server is unreachable. Other possible
     // reasons are that the user leaves the page or hits the ESC key.
@@ -2104,6 +2126,7 @@ XMLHttpRequestMainThread::OnStopRequest(nsIRequest *request, nsISupports *ctxt, 
   // check here is that if there is no document element it is not
   // an XML document. We might need a fancier check...
   if (!mResponseXML->GetRootElement()) {
+    mErrorParsingXML = true;
     mResponseXML = nullptr;
   }
   ChangeStateToDone();
@@ -2115,6 +2138,17 @@ XMLHttpRequestMainThread::OnBodyParseEnd()
 {
   mFlagParseBody = false;
   ChangeStateToDone();
+}
+
+void
+XMLHttpRequestMainThread::MatchCharsetAndDecoderToResponseDocument()
+{
+  if (mResponseXML && mResponseCharset != mResponseXML->GetDocumentCharacterSet()) {
+    mResponseCharset = mResponseXML->GetDocumentCharacterSet();
+    mResponseText.Truncate();
+    mResponseBodyDecodedPos = 0;
+    mDecoder = EncodingUtils::DecoderForEncoding(mResponseCharset);
+  }
 }
 
 void

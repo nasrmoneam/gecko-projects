@@ -11,7 +11,6 @@ import android.os.Environment;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 
-import android.widget.VideoView;
 import android.graphics.Rect;
 
 import org.json.JSONArray;
@@ -57,7 +56,7 @@ import org.mozilla.gecko.home.HomePanelsManager;
 import org.mozilla.gecko.home.HomeScreen;
 import org.mozilla.gecko.home.SearchEngine;
 import org.mozilla.gecko.javaaddons.JavaAddonManager;
-import org.mozilla.gecko.media.AudioFocusAgent;
+import org.mozilla.gecko.media.VideoPlayer;
 import org.mozilla.gecko.menu.GeckoMenu;
 import org.mozilla.gecko.menu.GeckoMenuItem;
 import org.mozilla.gecko.mozglue.SafeIntent;
@@ -236,6 +235,7 @@ public class BrowserApp extends GeckoApp
     public ViewGroup mBrowserChrome;
     public ViewFlipper mActionBarFlipper;
     public ActionModeCompatView mActionBar;
+    private VideoPlayer mVideoPlayer;
     private BrowserToolbar mBrowserToolbar;
     private View mDoorhangerOverlay;
     // We can't name the TabStrip class because it's not included on API 9.
@@ -582,6 +582,15 @@ public class BrowserApp extends GeckoApp
         mActionBarFlipper = (ViewFlipper) findViewById(R.id.browser_actionbar);
         mActionBar = (ActionModeCompatView) findViewById(R.id.actionbar);
 
+        mVideoPlayer = (VideoPlayer) findViewById(R.id.video_player);
+        mVideoPlayer.setFullScreenListener(new VideoPlayer.FullScreenListener() {
+            @Override
+            public void onFullScreenChanged(boolean fullScreen) {
+                mVideoPlayer.setFullScreen(fullScreen);
+                setFullScreen(fullScreen);
+            }
+        });
+
         mBrowserToolbar = (BrowserToolbar) findViewById(R.id.browser_toolbar);
         mBrowserToolbar.setTouchEventInterceptor(new TouchEventInterceptor() {
             @Override
@@ -674,6 +683,8 @@ public class BrowserApp extends GeckoApp
         mFindInPageBar = (FindInPageBar) findViewById(R.id.find_in_page);
         mMediaCastingBar = (MediaCastingBar) findViewById(R.id.media_casting);
 
+        mDoorhangerOverlay = findViewById(R.id.doorhanger_overlay);
+
         EventDispatcher.getInstance().registerGeckoThreadListener((GeckoEventListener)this,
             "Gecko:DelayedStartup",
             "Menu:Open",
@@ -704,8 +715,9 @@ public class BrowserApp extends GeckoApp
 
         // We want to upload the telemetry core ping as soon after startup as possible. It relies on the
         // Distribution being initialized. If you move this initialization, ensure it plays well with telemetry.
-        final Distribution distribution = Distribution.init(this);
-        distribution.addOnDistributionReadyCallback(new DistributionStoreCallback(this, profile.getName()));
+        final Distribution distribution = Distribution.init(getApplicationContext());
+        distribution.addOnDistributionReadyCallback(
+                new DistributionStoreCallback(getApplicationContext(), profile.getName()));
 
         mSearchEngineManager = new SearchEngineManager(this, distribution);
 
@@ -767,8 +779,6 @@ public class BrowserApp extends GeckoApp
                        })
                       .run();
         }
-
-        AudioFocusAgent.getInstance().attachToContext(this);
 
         for (final BrowserAppDelegate delegate : delegates) {
             delegate.onCreate(this, savedInstanceState);
@@ -964,14 +974,22 @@ public class BrowserApp extends GeckoApp
             return;
         }
 
+        if (mVideoPlayer.isFullScreen()) {
+            mVideoPlayer.setFullScreen(false);
+            setFullScreen(false);
+            return;
+        }
+
+        if (mVideoPlayer.isPlaying()) {
+            mVideoPlayer.stop();
+            return;
+        }
+
         super.onBackPressed();
     }
 
     @Override
     public void onAttachedToWindow() {
-        mDoorhangerOverlay = findViewById(R.id.doorhanger_overlay);
-        mDoorhangerOverlay.setVisibility(View.VISIBLE);
-
         // We can't show the first run experience until Gecko has finished initialization (bug 1077583).
         checkFirstrun(this, new SafeIntent(getIntent()));
     }
@@ -1407,7 +1425,8 @@ public class BrowserApp extends GeckoApp
             "Menu:Update",
             "LightweightTheme:Update",
             "Search:Keyword",
-            "Prompt:ShowTop");
+            "Prompt:ShowTop",
+            "Video:Play");
 
         EventDispatcher.getInstance().unregisterGeckoThreadListener((NativeEventListener) this,
             "CharEncoding:Data",
@@ -1761,13 +1780,6 @@ public class BrowserApp extends GeckoApp
             if (Versions.feature16Plus) {
                 Telemetry.addToHistogram("BROWSER_IS_ASSIST_DEFAULT", (isDefaultBrowser(Intent.ACTION_ASSIST) ? 1 : 0));
             }
-
-            if (Restrictions.isRestrictedProfile(this)) {
-                for (Restrictable rest : RestrictedProfileConfiguration.getVisibleRestrictions()) {
-                    int value = Restrictions.isAllowed(this, rest) ? 1 : 0;
-                    Telemetry.addToKeyedHistogram("FENNEC_RESTRICTED_PROFILE_RESTRICTIONS", rest.name(), value);
-                }
-            }
         } else if ("Updater:Launch".equals(event)) {
             handleUpdaterLaunch();
         } else if ("Download:AndroidDownloadManager".equals(event)) {
@@ -1986,13 +1998,7 @@ public class BrowserApp extends GeckoApp
                 ThreadUtils.postToUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        VideoView view = new VideoView(BrowserApp.this);
-                        android.widget.MediaController mediaController = new android.widget.MediaController(BrowserApp.this);
-                        view.setMediaController(mediaController);
-                        view.setVideoURI(Uri.parse(uri));
-                        BrowserApp.this.addFullScreenPluginView(view);
-                        view.start();
-
+                        mVideoPlayer.start(Uri.parse(uri));
                         Telemetry.sendUIEvent(TelemetryContract.Event.SHOW, TelemetryContract.Method.CONTENT, "playhls");
                     }
                 });
@@ -2677,7 +2683,8 @@ public class BrowserApp extends GeckoApp
             mFirstrunAnimationContainer.registerOnFinishListener(new FirstrunAnimationContainer.OnFinishListener() {
                 @Override
                 public void onFinish() {
-                    if (mFirstrunAnimationContainer.showBrowserHint()) {
+                    if (mFirstrunAnimationContainer.showBrowserHint() &&
+                        TextUtils.isEmpty(getHomepage())) {
                         enterEditingMode();
                     }
                 }
@@ -2714,7 +2721,8 @@ public class BrowserApp extends GeckoApp
         }
 
         if (mHomeScreen == null) {
-            if (ActivityStream.isEnabled(this)) {
+            if (ActivityStream.isEnabled(this) &&
+                !ActivityStream.isHomePanel()) {
                 final ViewStub asStub = (ViewStub) findViewById(R.id.activity_stream_stub);
                 mHomeScreen = (HomeScreen) asStub.inflate();
             } else {

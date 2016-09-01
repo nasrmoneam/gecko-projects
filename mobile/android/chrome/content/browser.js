@@ -103,6 +103,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "NetErrorHelper",
 XPCOMUtils.defineLazyModuleGetter(this, "PermissionsUtils",
                                   "resource://gre/modules/PermissionsUtils.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "Preferences",
+                                  "resource://gre/modules/Preferences.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "SharedPreferences",
                                   "resource://gre/modules/SharedPreferences.jsm");
 
@@ -2995,7 +2998,8 @@ var NativeWindow = {
       if (href)
         return href;
 
-      href = aLink.getAttributeNS(kXLinkNamespace, "href");
+      href = aLink.getAttribute("href") ||
+             aLink.getAttributeNS(kXLinkNamespace, "href");
       if (!href || !href.match(/\S/)) {
         // Without this we try to save as the current doc,
         // for example, HTML case also throws if empty
@@ -3446,6 +3450,10 @@ Tab.prototype = {
     this.browser = document.createElement("browser");
     this.browser.setAttribute("type", "content-targetable");
     this.browser.setAttribute("messagemanagergroup", "browsers");
+
+    if (Preferences.get("browser.tabs.remote.force-enable", false)) {
+      this.browser.setAttribute("remote", "true");
+    }
 
     this.browser.permanentKey = {};
 
@@ -6780,6 +6788,8 @@ var Distribution = {
   // File used to store campaign data
   _file: null,
 
+  _preferencesJSON: null,
+
   init: function dc_init() {
     Services.obs.addObserver(this, "Distribution:Changed", false);
     Services.obs.addObserver(this, "Distribution:Set", false);
@@ -6805,6 +6815,13 @@ var Distribution = {
         // Fall through.
 
       case "Distribution:Set":
+        if (aData) {
+          try {
+            this._preferencesJSON = JSON.parse(aData);
+          } catch (e) {
+            console.log("Invalid distribution JSON.");
+          }
+        }
         // Reload the default prefs so we can observe "prefservice:after-app-defaults"
         Services.prefs.QueryInterface(Ci.nsIObserver).observe(null, "reload-default-prefs", null);
         this.installDistroAddons();
@@ -6839,6 +6856,12 @@ var Distribution = {
   },
 
   getPrefs: function dc_getPrefs() {
+    if (this._preferencesJSON) {
+        this.applyPrefs(this._preferencesJSON);
+        this._preferencesJSON = null;
+        return;
+    }
+
     // Get the distribution directory, and bail if it doesn't exist.
     let file = FileUtils.getDir("XREAppDist", [], false);
     if (!file.exists())

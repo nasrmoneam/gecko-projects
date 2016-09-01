@@ -24,6 +24,7 @@
 
 #include "asmjs/WasmBinaryIterator.h"
 #include "asmjs/WasmGenerator.h"
+#include "asmjs/WasmSignalHandlers.h"
 
 using namespace js;
 using namespace js::jit;
@@ -197,7 +198,7 @@ DecodeExpr(FunctionDecoder& f)
 
     switch (expr) {
       case Expr::Nop:
-        return f.iter().readNullary();
+        return f.iter().readNullary(ExprType::Void);
       case Expr::Call:
         return DecodeCall(f);
       case Expr::CallIndirect:
@@ -439,6 +440,12 @@ DecodeExpr(FunctionDecoder& f)
       case Expr::F64Store:
         return f.checkHasMemory() &&
                f.iter().readStore(ValType::F64, 8, nullptr, nullptr);
+      case Expr::GrowMemory:
+        return f.checkHasMemory() &&
+               f.iter().readUnary(ValType::I32, nullptr);
+      case Expr::CurrentMemory:
+        return f.checkHasMemory() &&
+               f.iter().readNullary(ExprType::I32);
       case Expr::Br:
         return f.iter().readBr(nullptr, nullptr, nullptr);
       case Expr::BrIf:
@@ -587,24 +594,6 @@ DecodeFunctionSection(Decoder& d, ModuleGeneratorData* init)
     return true;
 }
 
-static bool
-CheckTypeForJS(Decoder& d, const Sig& sig)
-{
-    for (ValType argType : sig.args()) {
-        if (argType == ValType::I64 && !JitOptions.wasmTestMode)
-            return Fail(d, "cannot import/export i64 argument");
-        if (IsSimdType(argType))
-            return Fail(d, "cannot import/export SIMD argument");
-    }
-
-    if (sig.ret() == ExprType::I64 && !JitOptions.wasmTestMode)
-        return Fail(d, "cannot import/export i64 return type");
-    if (IsSimdType(sig.ret()))
-        return Fail(d, "cannot import/export SIMD return type");
-
-    return true;
-}
-
 static UniqueChars
 MaybeDecodeName(Decoder& d)
 {
@@ -687,9 +676,7 @@ DecodeResizableMemory(Decoder& d, ModuleGeneratorData* init)
         if (!maximumBytes.isValid())
             return Fail(d, "maximum memory size too big");
 
-        init->maxMemoryLength = maximumBytes.value();
-    } else {
-        init->maxMemoryLength = UINT32_MAX;
+        init->maxMemoryLength = Some(maximumBytes.value());
     }
 
     return true;
@@ -766,9 +753,6 @@ DecodeImport(Decoder& d, bool newFormat, ModuleGeneratorData* init, ImportVector
         if (!DecodeSignatureIndex(d, *init, &sig))
             return false;
 
-        if (!CheckTypeForJS(d, *sig))
-            return false;
-
         if (!init->funcImports.emplaceBack(sig))
             return false;
 
@@ -805,8 +789,6 @@ DecodeImport(Decoder& d, bool newFormat, ModuleGeneratorData* init, ImportVector
       case DefinitionKind::Function: {
         const SigWithId* sig = nullptr;
         if (!DecodeSignatureIndex(d, *init, &sig))
-            return false;
-        if (!CheckTypeForJS(d, *sig))
             return false;
         if (!init->funcImports.emplaceBack(sig))
             return false;
@@ -961,7 +943,7 @@ DecodeMemorySection(Decoder& d, bool newFormat, ModuleGeneratorData* init, bool*
         MOZ_ASSERT(init->memoryUsage == MemoryUsage::None);
         init->memoryUsage = MemoryUsage::Unshared;
         init->minMemoryLength = initialSize.value();
-        init->maxMemoryLength = maxSize.value();
+        init->maxMemoryLength = Some(maxSize.value());
     }
 
     if (!d.finishSection(sectionStart, sectionSize))
@@ -1103,9 +1085,6 @@ DecodeExport(Decoder& d, bool newFormat, ModuleGenerator& mg, CStringSet* dupSet
         if (funcIndex >= mg.numFuncSigs())
             return Fail(d, "exported function index out of bounds");
 
-        if (!CheckTypeForJS(d, mg.funcSig(funcIndex)))
-            return false;
-
         UniqueChars fieldName = DecodeExportName(d, dupSet);
         if (!fieldName)
             return false;
@@ -1129,9 +1108,6 @@ DecodeExport(Decoder& d, bool newFormat, ModuleGenerator& mg, CStringSet* dupSet
 
         if (funcIndex >= mg.numFuncSigs())
             return Fail(d, "exported function index out of bounds");
-
-        if (!CheckTypeForJS(d, mg.funcSig(funcIndex)))
-            return false;
 
         return mg.addFuncExport(Move(fieldName), funcIndex);
       }
@@ -1343,7 +1319,7 @@ DecodeElemSection(Decoder& d, bool newFormat, Uint32Vector&& oldElems, ModuleGen
             return true;
         }
 
-        return mg.addElemSegment(ElemSegment(0, InitExpr(Val(uint32_t(0))), Move(oldElems)));
+        return mg.addElemSegment(InitExpr(Val(uint32_t(0))), Move(oldElems));
     }
 
     uint32_t sectionStart, sectionSize;
@@ -1360,44 +1336,47 @@ DecodeElemSection(Decoder& d, bool newFormat, Uint32Vector&& oldElems, ModuleGen
         return Fail(d, "too many elem segments");
 
     for (uint32_t i = 0, prevEnd = 0; i < numSegments; i++) {
-        ElemSegment seg;
-        if (!d.readVarU32(&seg.tableIndex))
+        uint32_t tableIndex;
+        if (!d.readVarU32(&tableIndex))
             return Fail(d, "expected table index");
 
-        if (seg.tableIndex >= mg.tables().length())
+        MOZ_ASSERT(mg.tables().length() <= 1);
+        if (tableIndex >= mg.tables().length())
             return Fail(d, "table index out of range");
 
-        if (!DecodeInitializerExpression(d, mg.globals(), ValType::I32, &seg.offset))
+        InitExpr offset;
+        if (!DecodeInitializerExpression(d, mg.globals(), ValType::I32, &offset))
             return false;
 
-        if (seg.offset.isVal() && seg.offset.val().i32() < prevEnd)
+        if (offset.isVal() && offset.val().i32() < prevEnd)
             return Fail(d, "elem segments must be disjoint and ordered");
 
         uint32_t numElems;
         if (!d.readVarU32(&numElems))
             return Fail(d, "expected segment size");
 
-        uint32_t tableLength = mg.tables()[seg.tableIndex].initial;
-        if (seg.offset.isVal()) {
-            uint32_t offset = seg.offset.val().i32();
-            if (offset > tableLength || tableLength - offset < numElems)
+        uint32_t tableLength = mg.tables()[tableIndex].initial;
+        if (offset.isVal()) {
+            uint32_t off = offset.val().i32();
+            if (off > tableLength || tableLength - off < numElems)
                 return Fail(d, "element segment does not fit");
         }
 
-        if (!seg.elems.resize(numElems))
+        Uint32Vector elemFuncIndices;
+        if (!elemFuncIndices.resize(numElems))
             return false;
 
         for (uint32_t i = 0; i < numElems; i++) {
-            if (!d.readVarU32(&seg.elems[i]))
+            if (!d.readVarU32(&elemFuncIndices[i]))
                 return Fail(d, "failed to read element function index");
-            if (seg.elems[i] >= mg.numFuncSigs())
+            if (elemFuncIndices[i] >= mg.numFuncSigs())
                 return Fail(d, "table element out of range");
         }
 
-        if (seg.offset.isVal())
-            prevEnd = seg.offset.val().i32() + seg.elems.length();
+        if (offset.isVal())
+            prevEnd = offset.val().i32() + elemFuncIndices.length();
 
-        if (!mg.addElemSegment(Move(seg)))
+        if (!mg.addElemSegment(offset, Move(elemFuncIndices)))
             return false;
     }
 
@@ -1563,9 +1542,11 @@ CompileArgs::initFromContext(ExclusiveContext* cx, ScriptedCaller&& scriptedCall
 SharedModule
 wasm::Compile(const ShareableBytes& bytecode, const CompileArgs& args, UniqueChars* error)
 {
+    MOZ_RELEASE_ASSERT(wasm::HaveSignalHandlers());
+
     bool newFormat = args.assumptions.newFormat;
 
-    auto init = js::MakeUnique<ModuleGeneratorData>(args.assumptions.usesSignal);
+    auto init = js::MakeUnique<ModuleGeneratorData>();
     if (!init)
         return nullptr;
 

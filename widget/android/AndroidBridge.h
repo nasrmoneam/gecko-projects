@@ -151,9 +151,6 @@ public:
     void ContentDocumentChanged();
     bool IsContentDocumentDisplayed();
 
-    bool ProgressiveUpdateCallback(bool aHasPendingNewThebesContent, const LayerRect& aDisplayPort, float aDisplayResolution, bool aDrawingCritical,
-                                   mozilla::ParentLayerPoint& aScrollOffset, mozilla::CSSToParentLayerScale& aZoom);
-
     void SetLayerClient(java::GeckoLayerClient::Param jobj);
     const java::GeckoLayerClient::Ref& GetLayerClient() { return mLayerClient; }
 
@@ -194,8 +191,6 @@ public:
     jobject GetGlobalContextRef(void);
 
     void HandleGeckoMessage(JSContext* cx, JS::HandleObject message);
-
-    bool InitCamera(const nsCString& contentType, uint32_t camera, uint32_t *width, uint32_t *height, uint32_t *fps);
 
     void GetCurrentBatteryInformation(hal::BatteryInformation* aBatteryInfo);
 

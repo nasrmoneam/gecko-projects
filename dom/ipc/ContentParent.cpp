@@ -23,8 +23,6 @@
 
 #include "chrome/common/process_watcher.h"
 
-#include <set>
-
 #include "mozilla/a11y/PDocAccessible.h"
 #include "AppProcessChecker.h"
 #include "AudioChannelService.h"
@@ -90,6 +88,7 @@
 #include "mozilla/layers/PAPZParent.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageBridgeParent.h"
+#include "mozilla/layers/LayerTreeOwnerTracker.h"
 #include "mozilla/layers/SharedBufferManagerParent.h"
 #include "mozilla/layout/RenderFrameParent.h"
 #include "mozilla/LookAndFeel.h"
@@ -103,11 +102,12 @@
 #ifdef MOZ_ENABLE_PROFILER_SPS
 #include "mozilla/ProfileGatherer.h"
 #endif
+#include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/WebBrowserPersistDocumentParent.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "nsAnonymousTemporaryFile.h"
 #include "nsAppRunner.h"
 #include "nsCDefaultURIFixup.h"
@@ -273,6 +273,10 @@ using namespace mozilla::system;
 
 #ifdef MOZ_CRASHREPORTER
 #include "nsThread.h"
+#endif
+
+#ifdef ACCESSIBILITY
+#include "nsAccessibilityService.h"
 #endif
 
 // For VP9Benchmark::sBenchmarkFpsPref
@@ -482,9 +486,10 @@ public:
 NS_IMPL_ISUPPORTS(ContentParentsMemoryReporter, nsIMemoryReporter)
 
 NS_IMETHODIMP
-ContentParentsMemoryReporter::CollectReports(nsIMemoryReporterCallback* cb,
-                                             nsISupports* aClosure,
-                                             bool aAnonymize)
+ContentParentsMemoryReporter::CollectReports(
+  nsIHandleReportCallback* aHandleReport,
+  nsISupports* aData,
+  bool aAnonymize)
 {
   AutoTArray<ContentParent*, 16> cps;
   ContentParent::GetAllEvenIfDead(cps);
@@ -522,15 +527,9 @@ ContentParentsMemoryReporter::CollectReports(nsIMemoryReporterCallback* cb,
       "messages.  Similarly, a ContentParent object for a process that's no "
       "longer running could indicate that we're leaking ContentParents.");
 
-    nsresult rv = cb->Callback(/* process */ EmptyCString(),
-                               path,
-                               KIND_OTHER,
-                               UNITS_COUNT,
-                               numQueuedMessages,
-                               desc,
-                               aClosure);
-
-    NS_ENSURE_SUCCESS(rv, rv);
+    aHandleReport->Callback(/* process */ EmptyCString(), path,
+                            KIND_OTHER, UNITS_COUNT,
+                            numQueuedMessages, desc, aData);
   }
 
   return NS_OK;
@@ -1090,7 +1089,6 @@ ContentParent::CreateBrowserOrApp(const TabContext& aContext,
   }
 
   if (aContext.IsMozBrowserElement() || !aContext.HasOwnApp()) {
-    RefPtr<TabParent> tp;
     RefPtr<nsIContentParent> constructorSender;
     if (isInContentProcess) {
       MOZ_ASSERT(aContext.IsMozBrowserElement());
@@ -1690,18 +1688,6 @@ ContentParent::ProcessingError(Result aCode, const char* aReason)
   KillHard(aReason);
 }
 
-typedef std::pair<ContentParent*, std::set<uint64_t> > IDPair;
-
-namespace {
-std::map<ContentParent*, std::set<uint64_t> >&
-NestedBrowserLayerIds()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  static std::map<ContentParent*, std::set<uint64_t> > sNestedBrowserIds;
-  return sNestedBrowserIds;
-}
-} // namespace
-
 /* static */
 bool
 ContentParent::AllocateLayerTreeId(TabParent* aTabParent, uint64_t* aId)
@@ -1717,17 +1703,20 @@ ContentParent::AllocateLayerTreeId(ContentParent* aContent,
                                    uint64_t* aId)
 {
   GPUProcessManager* gpu = GPUProcessManager::Get();
-  *aId = gpu->AllocateLayerTreeId();
 
-  if (!gfxPlatform::AsyncPanZoomEnabled()) {
-    return true;
-  }
+  *aId = gpu->AllocateLayerTreeId();
 
   if (!aContent || !aTopLevel) {
     return false;
   }
 
-  return gpu->UpdateRemoteContentController(*aId, aContent, aTabId, aTopLevel);
+  gpu->MapLayerTreeId(*aId, aContent->OtherPid());
+
+  if (!gfxPlatform::AsyncPanZoomEnabled()) {
+    return true;
+  }
+
+  return aContent->SendNotifyLayerAllocated(aTabId, *aId);
 }
 
 bool
@@ -1753,33 +1742,22 @@ ContentParent::RecvAllocateLayerTreeId(const ContentParentId& aCpId,
     cpm->GetTopLevelTabParentByProcessAndTabId(aCpId, aTabId);
   MOZ_ASSERT(contentParent && browserParent);
 
-  if (!AllocateLayerTreeId(contentParent, browserParent, aTabId, aId)) {
-    return false;
-  }
-
-  auto iter = NestedBrowserLayerIds().find(this);
-  if (iter == NestedBrowserLayerIds().end()) {
-    std::set<uint64_t> ids;
-    ids.insert(*aId);
-    NestedBrowserLayerIds().insert(IDPair(this, ids));
-  } else {
-    iter->second.insert(*aId);
-  }
-  return true;
+  return AllocateLayerTreeId(contentParent, browserParent, aTabId, aId);
 }
 
 bool
 ContentParent::RecvDeallocateLayerTreeId(const uint64_t& aId)
 {
-  auto iter = NestedBrowserLayerIds().find(this);
-  if (iter != NestedBrowserLayerIds().end() &&
-      iter->second.find(aId) != iter->second.end())
+  GPUProcessManager* gpu = GPUProcessManager::Get();
+
+  if (!gpu->IsLayerTreeIdMapped(aId, this->OtherPid()))
   {
-    GPUProcessManager::Get()->DeallocateLayerTreeId(aId);
-  } else {
     // You can't deallocate layer tree ids that you didn't allocate
     KillHard("DeallocateLayerTreeId");
   }
+
+  gpu->DeallocateLayerTreeId(aId);
+
   return true;
 }
 
@@ -2869,19 +2847,24 @@ ContentParent::Observe(nsISupports* aSubject,
   }
 #endif
 #ifdef ACCESSIBILITY
-  // Make sure accessibility is running in content process when accessibility
-  // gets initiated in chrome process.
-  else if (aData && (*aData == '1') &&
-       !strcmp(aTopic, "a11y-init-or-shutdown")) {
+  else if (aData && !strcmp(aTopic, "a11y-init-or-shutdown")) {
+    if (*aData == '1') {
+      // Make sure accessibility is running in content process when
+      // accessibility gets initiated in chrome process.
 #if !defined(XP_WIN)
-    Unused << SendActivateA11y();
-#else
-    // On Windows we currently only enable a11y in the content process
-    // for testing purposes.
-    if (Preferences::GetBool(kForceEnableE10sPref, false)) {
       Unused << SendActivateA11y();
-    }
+#else
+      // On Windows we currently only enable a11y in the content process
+      // for testing purposes.
+      if (Preferences::GetBool(kForceEnableE10sPref, false)) {
+        Unused << SendActivateA11y();
+      }
 #endif
+    } else {
+      // If possible, shut down accessibility in content process when
+      // accessibility gets shutdown in chrome process.
+      Unused << SendShutdownA11y();
+    }
   }
 #endif
   else if (!strcmp(aTopic, "app-theme-changed")) {
@@ -2917,21 +2900,6 @@ ContentParent::AllocPGMPServiceParent(mozilla::ipc::Transport* aTransport,
                                       base::ProcessId aOtherProcess)
 {
   return GMPServiceParent::Create(aTransport, aOtherProcess);
-}
-
-PAPZParent*
-ContentParent::AllocPAPZParent(const TabId& aTabId)
-{
-  // The PAPZParent should just be created in the main process and then an IPDL
-  // constructor message sent to hook it up.
-  MOZ_CRASH("This shouldn't be called");
-  return nullptr;
-}
-
-bool
-ContentParent::DeallocPAPZParent(PAPZParent* aActor)
-{
-  return true;
 }
 
 PBackgroundParent*
@@ -3942,20 +3910,6 @@ ContentParent::RecvNSSU2FTokenSign(nsTArray<uint8_t>&& aApplication,
 }
 
 bool
-ContentParent::RecvGetSystemMemory(const uint64_t& aGetterId)
-{
-  uint32_t memoryTotal = 0;
-
-#if defined(XP_LINUX)
-  memoryTotal = mozilla::hal::GetTotalSystemMemoryLevel();
-#endif
-
-  Unused << SendSystemMemoryAvailable(aGetterId, memoryTotal);
-
-  return true;
-}
-
-bool
 ContentParent::RecvGetLookAndFeelCache(nsTArray<LookAndFeelInt>* aLookAndFeelIntCache)
 {
   *aLookAndFeelIntCache = LookAndFeel::GetIntCache();
@@ -4444,6 +4398,9 @@ ContentParent::RecvKeywordToURI(const nsCString& aKeyword,
                                 OptionalInputStreamParams* aPostData,
                                 OptionalURIParams* aURI)
 {
+  *aPostData = void_t();
+  *aURI = void_t();
+
   nsCOMPtr<nsIURIFixup> fixup = do_GetService(NS_URIFIXUP_CONTRACTID);
   if (!fixup) {
     return true;
@@ -5003,6 +4960,14 @@ ContentParent::RecvCreateWindow(PBrowserParent* aThisTab,
 
   TabParent* newTab = TabParent::GetFrom(aNewTab);
   MOZ_ASSERT(newTab);
+
+  auto destroyNewTabOnError = MakeScopeExit([&] {
+    if (!*aWindowIsNew || NS_FAILED(*aResult)) {
+      if (newTab) {
+        newTab->Destroy();
+      }
+    }
+  });
 
   // Content has requested that we open this new content window, so
   // we must have an opener.

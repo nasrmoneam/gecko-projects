@@ -63,11 +63,11 @@
   background-color: rgba(0,0,0,.3);
 }
 
-#navigator-toolbox > toolbar:not(#toolbar-menubar):not(#TabsToolbar) {
+#navigator-toolbox > toolbar:not(#toolbar-menubar):not(#TabsToolbar):not(#addon-bar) {
   background-image: linear-gradient(@toolbarHighlight@, @toolbarHighlight@);
 }
 
-#navigator-toolbox > toolbar:not(#toolbar-menubar):not(#TabsToolbar):-moz-lwtheme {
+#navigator-toolbox > toolbar:not(#toolbar-menubar):not(#TabsToolbar):not(#addon-bar):-moz-lwtheme {
   background-image: linear-gradient(@toolbarHighlightLWT@, @toolbarHighlightLWT@);
 }
 
@@ -1054,7 +1054,7 @@ toolbaritem[cui-areatype="menu-panel"] > :-moz-any(@nestedButtons@) > .toolbarbu
 }
 
 #identity-box:-moz-focusring {
-  outline: 1px dotted #000;
+  outline: 1px dotted;
   outline-offset: -3px;
 }
 
@@ -1156,11 +1156,6 @@ notification[value="translation"] menulist > .menulist-dropmarker {
   max-width : 36px;
 }
 
-#PopupAutoCompleteRichResult {
-  /* The awesomebar popup should open just below the navbar bottom border. */
-  margin-top: 1px;
-}
-
 .autocomplete-richlistbox {
   padding: 4px;
 }
@@ -1178,11 +1173,11 @@ notification[value="translation"] menulist > .menulist-dropmarker {
 }
 
 .ac-title {
-  font-size: 14px;
+  font-size: 1.05em;
 }
 
 .ac-tags {
-  font-size: 12px;
+  font-size: 0.9em;
 }
 
 html|span.ac-tag {
@@ -1196,7 +1191,7 @@ html|span.ac-tag {
 .ac-separator,
 .ac-url,
 .ac-action {
-  font-size: 12px;
+  font-size: 0.9em;
   color: -moz-nativehyperlinktext;
 }
 
@@ -1592,12 +1587,12 @@ html|span.ac-emphasize-text-url {
 }
 
 /* Tab close button */
-.tab-close-button:not([visuallyselected]):not(:hover) {
+.tab-close-button:not([selected]):not(:hover) {
   background-image: -moz-image-rect(url("chrome://global/skin/icons/close.svg"), 0, 64, 16, 48);
 }
 
 .tab-close-button:not(:hover):-moz-lwtheme-brighttext,
-#TabsToolbar[brighttext] .tab-close-button:not([visuallyselected]):not(:hover) {
+#TabsToolbar[brighttext] .tab-close-button:not([selected]):not(:hover) {
   background-image: -moz-image-rect(url("chrome://global/skin/icons/close.svg"), 0, 80, 16, 64);
 }
 

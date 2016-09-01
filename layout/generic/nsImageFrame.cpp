@@ -15,7 +15,7 @@
 #include "mozilla/gfx/Helpers.h"
 #include "mozilla/gfx/PathHelpers.h"
 #include "mozilla/MouseEvents.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #include "nsCOMPtr.h"
 #include "nsFontMetrics.h"
@@ -1634,7 +1634,7 @@ nsDisplayImage::GetOpaqueRegion(nsDisplayListBuilder* aBuilder,
                                 bool* aSnap)
 {
   *aSnap = false;
-  if (mImage && mImage->IsOpaque()) {
+  if (mImage && mImage->WillDrawOpaqueNow()) {
     const nsRect frameContentBox = GetBounds(aSnap);
     return GetDestRect().Intersect(frameContentBox);
   }
@@ -2155,7 +2155,7 @@ nsIFrame::LogicalSides
 nsImageFrame::GetLogicalSkipSides(const ReflowInput* aReflowInput) const
 {
   if (MOZ_UNLIKELY(StyleBorder()->mBoxDecorationBreak ==
-                     NS_STYLE_BOX_DECORATION_BREAK_CLONE)) {
+                     StyleBoxDecorationBreak::Clone)) {
     return LogicalSides();
   }
   LogicalSides skip;

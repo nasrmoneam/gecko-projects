@@ -285,9 +285,9 @@
   -moz-appearance: none;
   margin: 0;
   border: none;
-  border-top: 1px solid #ccc;
+  border-top: 1px solid var(--panel-separator-color);
   padding: 8px 20px;
-  color: ButtonText;
+  color: inherit;
   background-color: transparent;
 }
 
@@ -370,10 +370,6 @@ description#identity-popup-content-verifier,
 
 #identity-popup-permission-list:not(:empty) {
   margin-top: 5px;
-}
-
-#identity-popup-permission-list:not(:empty) + description {
-  display: none;
 }
 
 .identity-popup-permission-icon {

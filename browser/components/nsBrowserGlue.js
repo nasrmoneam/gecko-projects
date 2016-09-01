@@ -2390,7 +2390,13 @@ BrowserGlue.prototype = {
           win.gBrowser.selectedTab = firstTab;
         }
       }
-      AlertsService.showAlertNotification(null, title, body, true, null, clickCallback);
+
+      // Specify an icon because on Windows no icon is shown at the moment
+      let imageURL;
+      if (AppConstants.platform == "win") {
+        imageURL = "chrome://branding/content/icon64.png";
+      }
+      AlertsService.showAlertNotification(imageURL, title, body, true, null, clickCallback);
     } catch (ex) {
       Cu.reportError("Error displaying tab(s) received by Sync: " + ex);
     }
@@ -2608,6 +2614,45 @@ ContentPermissionPrompt.prototype = {
                      "geo-notification-icon", options);
   },
 
+  _promptFlyWebPublishServer : function(aRequest) {
+    var message = "Would you like to let this site start a server accessible to nearby devices and people?";
+    var actions = [
+      {
+        stringId: "flyWebPublishServer.allowPublishServer",
+        action: Ci.nsIPermissionManager.ALLOW_ACTION,
+        expireType: Ci.nsIPermissionManager.EXPIRE_SESSION
+      },
+      {
+        stringId: "flyWebPublishServer.denyPublishServer",
+        action: Ci.nsIPermissionManager.DENY_ACTION,
+        expireType: Ci.nsIPermissionManager.EXPIRE_SESSION
+      }
+    ];
+
+    let options = {
+      learnMoreURL: "https://flyweb.github.io",
+      popupIconURL: "chrome://flyweb/skin/icon-64.png"
+    };
+
+    let browser = this._getBrowserForRequest(aRequest);
+    let chromeDoc = browser.ownerDocument;
+    let iconElem = chromeDoc.getElementById("flyweb-publish-server-notification-icon");
+    if (!iconElem) {
+      let notificationPopupBox = chromeDoc.getElementById("notification-popup-box");
+      let notificationIcon = chromeDoc.createElement("image");
+      notificationIcon.setAttribute("id", "flyweb-publish-server-notification-icon");
+      notificationIcon.setAttribute("src", "chrome://flyweb/skin/icon-64.png");
+      notificationIcon.setAttribute("class", "notification-anchor-icon flyweb-publish-server-icon");
+      notificationIcon.setAttribute("style", "filter: url(chrome://browser/skin/filters.svg#fill); fill: currentColor; opacity: .4;");
+      notificationIcon.setAttribute("role", "button");
+      notificationIcon.setAttribute("aria-label", "View the publish-server request");
+      notificationPopupBox.appendChild(notificationIcon);
+    }
+
+    this._showPrompt(aRequest, message, "flyweb-publish-server", actions, "flyweb-publish-server",
+                     "flyweb-publish-server-notification-icon", options);
+  },
+
   _promptWebNotifications : function(aRequest) {
     var message = gBrowserBundle.GetStringFromName("webNotifications.receiveFromSite");
 
@@ -2672,7 +2717,8 @@ ContentPermissionPrompt.prototype = {
     let perm = types.queryElementAt(0, Ci.nsIContentPermissionType);
 
     const kFeatureKeys = { "geolocation" : "geo",
-                           "desktop-notification" : "desktop-notification"
+                           "desktop-notification" : "desktop-notification",
+                           "flyweb-publish-server": "flyweb-publish-server"
                          };
 
     // Make sure that we support the request.
@@ -2714,6 +2760,11 @@ ContentPermissionPrompt.prototype = {
       break;
     case "desktop-notification":
       this._promptWebNotifications(request);
+      break;
+    case "flyweb-publish-server":
+      if (AppConstants.NIGHTLY_BUILD) {
+        this._promptFlyWebPublishServer(request);
+      }
       break;
     }
   },

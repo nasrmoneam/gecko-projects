@@ -47,7 +47,7 @@
 #include "mozilla/layers/ShadowLayers.h"
 #include "mozilla/layers/TextureClient.h"
 #include "mozilla/layers/TextureWrapperImage.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "GeckoProfiler.h"
 #include "LayersLogging.h"
 #include "gfxPrefs.h"
@@ -423,7 +423,6 @@ public:
     mIsSolidColorInVisibleRegion(false),
     mFontSmoothingBackgroundColor(NS_RGBA(0,0,0,0)),
     mSingleItemFixedToViewport(false),
-    mIsCaret(false),
     mNeedComponentAlpha(false),
     mForceTransparentSurface(false),
     mHideAllLayersBelow(false),
@@ -587,10 +586,6 @@ public:
    */
   bool mSingleItemFixedToViewport;
   /**
-   * True if the layer contains exactly one item for the caret.
-   */
-  bool mIsCaret;
-  /**
    * True if there is any text visible in the layer that's over
    * transparent pixels in the layer.
    */
@@ -683,8 +678,6 @@ struct NewLayerEntry {
     , mOpaqueForAnimatedGeometryRootParent(false)
     , mPropagateComponentAlphaFlattening(true)
     , mUntransformedVisibleRegion(false)
-    , mIsCaret(false)
-    , mIsPerspectiveItem(false)
   {}
   // mLayer is null if the previous entry is for a PaintedLayer that hasn't
   // been optimized to some other form (yet).
@@ -720,8 +713,6 @@ struct NewLayerEntry {
   // mVisibleRegion is relative to the associated frame before
   // transform.
   bool mUntransformedVisibleRegion;
-  bool mIsCaret;
-  bool mIsPerspectiveItem;
 };
 
 class PaintedLayerDataTree;
@@ -3087,7 +3078,6 @@ void ContainerState::FinishPaintedLayerData(PaintedLayerData& aData, FindOpaqueB
       newLayerEntry->mLayer = layer;
       newLayerEntry->mAnimatedGeometryRoot = data->mAnimatedGeometryRoot;
       newLayerEntry->mScrollClip = data->mScrollClip;
-      newLayerEntry->mIsCaret = data->mIsCaret;
 
       // Hide the PaintedLayer. We leave it in the layer tree so that we
       // can find and recycle it later.
@@ -3536,13 +3526,11 @@ ContainerState::NewPaintedLayerData(nsDisplayItem* aItem,
   data.mReferenceFrame = aItem->ReferenceFrame();
   data.mSingleItemFixedToViewport = aShouldFixToViewport;
   data.mBackfaceHidden = aItem->Frame()->In3DContextAndBackfaceIsHidden();
-  data.mIsCaret = aItem->GetType() == nsDisplayItem::TYPE_CARET;
 
   data.mNewChildLayersIndex = mNewChildLayers.Length();
   NewLayerEntry* newLayerEntry = mNewChildLayers.AppendElement();
   newLayerEntry->mAnimatedGeometryRoot = aAnimatedGeometryRoot;
   newLayerEntry->mScrollClip = aScrollClip;
-  newLayerEntry->mIsCaret = data.mIsCaret;
   // newLayerEntry->mOpaqueRegion is filled in later from
   // paintedLayerData->mOpaqueRegion, if necessary.
 
@@ -3847,7 +3835,7 @@ ContainerState::ProcessDisplayItems(nsDisplayList* aList)
     bool forceInactive;
     AnimatedGeometryRoot* animatedGeometryRoot;
     AnimatedGeometryRoot* animatedGeometryRootForClip = nullptr;
-    if (mFlattenToSingleLayer) {
+    if (mFlattenToSingleLayer && layerState != LAYER_ACTIVE_FORCE) {
       forceInactive = true;
       animatedGeometryRoot = lastAnimatedGeometryRoot;
     } else {
@@ -4165,9 +4153,6 @@ ContainerState::ProcessDisplayItems(nsDisplayList* aList)
       newLayerEntry->mAnimatedGeometryRoot = animatedGeometryRoot;
       newLayerEntry->mScrollClip = agrScrollClip;
       newLayerEntry->mLayerState = layerState;
-      if (itemType == nsDisplayItem::TYPE_PERSPECTIVE) {
-        newLayerEntry->mIsPerspectiveItem = true;
-      }
 
       // Don't attempt to flatten compnent alpha layers that are within
       // a forced active layer, or an active transform;
@@ -4175,7 +4160,6 @@ ContainerState::ProcessDisplayItems(nsDisplayList* aList)
           layerState == LAYER_ACTIVE_FORCE) {
         newLayerEntry->mPropagateComponentAlphaFlattening = false;
       }
-      newLayerEntry->mIsCaret = itemType == nsDisplayItem::TYPE_CARET;
       // nsDisplayTransform::BuildLayer must set layerContentsVisibleRect.
       // We rely on this to ensure 3D transforms compute a reasonable
       // layer visible region.
@@ -4848,12 +4832,7 @@ ContainerState::PostprocessRetainedLayers(nsIntRegion* aOpaqueRegionForContainer
       continue;
     }
 
-    // If mFlattenToSingleLayer is true, there isn't going to be any
-    // async scrolling so we can apply all our opaqueness to the same
-    // entry, the entry for mContainerAnimatedGeometryRoot.
-    AnimatedGeometryRoot* animatedGeometryRootForOpaqueness =
-        mFlattenToSingleLayer ? mContainerAnimatedGeometryRoot : e->mAnimatedGeometryRoot;
-    OpaqueRegionEntry* data = FindOpaqueRegionEntry(opaqueRegions, animatedGeometryRootForOpaqueness);
+    OpaqueRegionEntry* data = FindOpaqueRegionEntry(opaqueRegions, e->mAnimatedGeometryRoot);
 
     SetupScrollingMetadata(e);
 
@@ -4875,7 +4854,7 @@ ContainerState::PostprocessRetainedLayers(nsIntRegion* aOpaqueRegionForContainer
                                   e->mUntransformedVisibleRegion);
 
     if (!e->mOpaqueRegion.IsEmpty()) {
-      AnimatedGeometryRoot* animatedGeometryRootToCover = animatedGeometryRootForOpaqueness;
+      AnimatedGeometryRoot* animatedGeometryRootToCover = e->mAnimatedGeometryRoot;
       if (e->mOpaqueForAnimatedGeometryRootParent &&
           e->mAnimatedGeometryRoot->mParentAGR == mContainerAnimatedGeometryRoot) {
         animatedGeometryRootToCover = mContainerAnimatedGeometryRoot;
@@ -6064,7 +6043,7 @@ ContainerState::CreateMaskLayer(Layer *aLayer,
   NS_ASSERTION(maxSize > 0, "Invalid max texture size");
 #ifdef MOZ_GFX_OPTIMIZE_MOBILE
   // Make mask image width aligned to 4. See Bug 1245552.
-  gfx::Size surfaceSize(std::min<gfx::Float>(GetAlignedStride<4>(NSToIntCeil(boundingRect.Width())), maxSize),
+  gfx::Size surfaceSize(std::min<gfx::Float>(GetAlignedStride<4>(NSToIntCeil(boundingRect.Width()), 1), maxSize),
                         std::min<gfx::Float>(boundingRect.Height(), maxSize));
 #else
   gfx::Size surfaceSize(std::min<gfx::Float>(boundingRect.Width(), maxSize),

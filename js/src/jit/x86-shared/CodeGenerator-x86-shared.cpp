@@ -494,11 +494,9 @@ void
 CodeGeneratorX86Shared::visitWasmBoundsCheck(LWasmBoundsCheck* ins)
 {
     const MWasmBoundsCheck* mir = ins->mir();
+
     MOZ_ASSERT(gen->needsBoundsCheckBranch(mir));
-    if (mir->offset() > INT32_MAX) {
-        masm.jump(wasm::JumpTarget::OutOfBounds);
-        return;
-    }
+    MOZ_ASSERT(mir->offset() <= INT32_MAX);
 
     Register ptrReg = ToRegister(ins->ptr());
     maybeEmitWasmBoundsCheckBranch(mir, ptrReg, mir->isRedundant());
@@ -543,14 +541,13 @@ void
 CodeGeneratorX86Shared::maybeEmitWasmBoundsCheckBranch(const MWasmMemoryAccess* mir, Register ptr,
                                                        bool redundant)
 {
-    if (!mir->needsBoundsCheck())
+    if (!gen->needsBoundsCheckBranch(mir))
         return;
 
     MOZ_ASSERT(mir->endOffset() >= 1,
                "need to subtract 1 to use JAE, see also AssemblerX86Shared::UpdateBoundsCheck");
-    /*
-     * TODO: See 1287224 Unify MWasmBoundsCheck::redunant_ and needsBoundsCheck
-     */
+
+    // TODO: See 1287224 Unify MWasmBoundsCheck::redunant_ and needsBoundsCheck
     if (!redundant) {
         uint32_t cmpOffset = masm.cmp32WithPatch(ptr, Imm32(1 - mir->endOffset())).offset();
         masm.j(Assembler::AboveOrEqual, wasm::JumpTarget::OutOfBounds);
@@ -881,8 +878,8 @@ CodeGeneratorX86Shared::visitPowHalfD(LPowHalfD* ins)
         masm.branchDouble(cond, input, scratch, &sqrt);
 
         // Math.pow(-Infinity, 0.5) == Infinity.
-        masm.zeroDouble(input);
-        masm.subDouble(scratch, input);
+        masm.zeroDouble(output);
+        masm.subDouble(scratch, output);
         masm.jump(&done);
 
         masm.bind(&sqrt);
@@ -891,10 +888,11 @@ CodeGeneratorX86Shared::visitPowHalfD(LPowHalfD* ins)
     if (!ins->mir()->operandIsNeverNegativeZero()) {
         // Math.pow(-0, 0.5) == 0 == Math.pow(0, 0.5). Adding 0 converts any -0 to 0.
         masm.zeroDouble(scratch);
-        masm.addDouble(scratch, input);
+        masm.addDouble(input, scratch);
+        masm.vsqrtsd(scratch, output, output);
+    } else {
+        masm.vsqrtsd(input, output, output);
     }
-
-    masm.vsqrtsd(input, output, output);
 
     masm.bind(&done);
 }

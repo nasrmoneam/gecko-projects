@@ -61,7 +61,7 @@
 #include "mozilla/PendingAnimationTracker.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "ActiveLayerTracker.h"
 #include "nsContentUtils.h"
 #include "nsPrintfCString.h"
@@ -405,10 +405,10 @@ AddAnimationForProperty(nsIFrame* aFrame, const AnimationProperty& aProperty,
   // callbacks may run that introduce further lag between the main thread and
   // the compositor.
   if (aAnimation->AsCSSTransition() &&
-      aAnimation->GetEffect()) {
-    MOZ_ASSERT(aAnimation->GetEffect()->AsTransition(),
-               "CSSTransition' effect should be an ElementPropertyTransition "
-               "until we fix bug 1049975");
+      aAnimation->GetEffect() &&
+      aAnimation->GetEffect()->AsTransition()) {
+    // We update startValue from the replaced transition only if the effect is
+    // an ElementPropertyTransition.
     aAnimation->GetEffect()->AsTransition()->
       UpdateStartValueFromReplacedTransition();
   }
@@ -425,7 +425,7 @@ AddAnimationForProperty(nsIFrame* aFrame, const AnimationProperty& aProperty,
   animation->duration() = computedTiming.mDuration;
   animation->iterations() = computedTiming.mIterations;
   animation->iterationStart() = computedTiming.mIterationStart;
-  animation->direction() = static_cast<uint32_t>(timing.mDirection);
+  animation->direction() = static_cast<uint8_t>(timing.mDirection);
   animation->property() = aProperty.mProperty;
   animation->playbackRate() = aAnimation->PlaybackRate();
   animation->data() = aData;
@@ -474,10 +474,13 @@ AddAnimationsForProperty(nsIFrame* aFrame, nsCSSPropertyID aProperty,
     if (!anim->IsPlaying()) {
       continue;
     }
-    dom::KeyframeEffectReadOnly* effect = anim->GetEffect();
-    MOZ_ASSERT(effect, "A playing animation should have an effect");
+
+    dom::KeyframeEffectReadOnly* keyframeEffect =
+      anim->GetEffect() ? anim->GetEffect()->AsKeyframeEffect() : nullptr;
+    MOZ_ASSERT(keyframeEffect,
+               "A playing animation should have a keyframe effect");
     const AnimationProperty* property =
-      effect->GetAnimationOfProperty(aProperty);
+      keyframeEffect->GetAnimationOfProperty(aProperty);
     if (!property) {
       continue;
     }
@@ -511,7 +514,7 @@ AddAnimationsForProperty(nsIFrame* aFrame, nsCSSPropertyID aProperty,
     }
 
     AddAnimationForProperty(aFrame, *property, anim, aLayer, aData, aPending);
-    effect->SetIsRunningOnCompositor(aProperty, true);
+    keyframeEffect->SetIsRunningOnCompositor(aProperty, true);
   }
 }
 
@@ -726,7 +729,6 @@ nsDisplayListBuilder::nsDisplayListBuilder(nsIFrame* aReferenceFrame,
       mCurrentScrollbarWillHaveLayer(false),
       mBuildCaret(aBuildCaret),
       mIgnoreSuppression(false),
-      mHadToIgnoreSuppression(false),
       mIsAtRootOfPseudoStackingContext(false),
       mIncludeAllOutOfFlows(false),
       mDescendIntoSubdocuments(true),
@@ -765,7 +767,8 @@ nsDisplayListBuilder::nsDisplayListBuilder(nsIFrame* aReferenceFrame,
   mFrameToAnimatedGeometryRootMap.Put(aReferenceFrame, &mRootAGR);
 
   nsCSSRendering::BeginFrameTreesLocked();
-  PR_STATIC_ASSERT(nsDisplayItem::TYPE_MAX < (1 << nsDisplayItem::TYPE_BITS));
+  static_assert(nsDisplayItem::TYPE_MAX < (1 << nsDisplayItem::TYPE_BITS),
+                "Check nsDisplayItem::TYPE_MAX should not overflow");
 }
 
 static void MarkFrameForDisplay(nsIFrame* aFrame, nsIFrame* aStopAtFrame) {
@@ -983,9 +986,6 @@ nsDisplayListBuilder::EnterPresShell(nsIFrame* aReferenceFrame,
 
   bool buildCaret = mBuildCaret;
   if (mIgnoreSuppression || !state->mPresShell->IsPaintingSuppressed()) {
-    if (state->mPresShell->IsPaintingSuppressed()) {
-      mHadToIgnoreSuppression = true;
-    }
     state->mIsBackgroundOnly = false;
   } else {
     state->mIsBackgroundOnly = true;
@@ -1648,7 +1648,7 @@ nsDisplayList::ComputeVisibilityForSublist(nsDisplayListBuilder* aBuilder,
   for (int32_t i = elements.Length() - 1; i >= 0; --i) {
     nsDisplayItem* item = elements[i];
 
-    if (item->mForceNotVisible) {
+    if (item->mForceNotVisible && !item->GetSameCoordinateSystemChildren()) {
       NS_ASSERTION(item->mVisibleRect.IsEmpty(),
         "invisible items should have empty vis rect");
     } else {
@@ -1794,7 +1794,7 @@ already_AddRefed<LayerManager> nsDisplayList::PaintRoot(nsDisplayListBuilder* aB
   // previous paint. This paint will set new metrics if necessary, and if we
   // don't clear the old one here, we may be left with extra metrics.
   if (Layer* root = layerManager->GetRoot()) {
-      root->SetScrollMetadata(nsTArray<ScrollMetadata>());
+    root->SetScrollMetadata(nsTArray<ScrollMetadata>());
   }
 
   ContainerLayerParameters containerParameters
@@ -2319,9 +2319,12 @@ nsDisplayItem::ComputeVisibility(nsDisplayListBuilder* aBuilder,
 bool
 nsDisplayItem::RecomputeVisibility(nsDisplayListBuilder* aBuilder,
                                    nsRegion* aVisibleRegion) {
-  if (mForceNotVisible) {
+  if (mForceNotVisible && !GetSameCoordinateSystemChildren()) {
+    // mForceNotVisible wants to ensure that this display item doesn't render
+    // anything itself. If this item has contents, then we obviously want to
+    // render those, so we don't need this check in that case.
     NS_ASSERTION(mVisibleRect.IsEmpty(),
-      "invisible items should have empty vis rect");
+      "invisible items without children should have empty vis rect");
   } else {
     nsRect bounds = GetClippedBounds(aBuilder);
 
@@ -2922,13 +2925,13 @@ nsDisplayBackgroundImage::GetOpaqueRegion(nsDisplayListBuilder* aBuilder,
 
   *aSnap = true;
 
-  // For NS_STYLE_BOX_DECORATION_BREAK_SLICE, don't try to optimize here, since
+  // For StyleBoxDecorationBreak::Slice, don't try to optimize here, since
   // this could easily lead to O(N^2) behavior inside InlineBackgroundData,
   // which expects frames to be sent to it in content order, not reverse
   // content order which we'll produce here.
   // Of course, if there's only one frame in the flow, it doesn't matter.
   if (mFrame->StyleBorder()->mBoxDecorationBreak ==
-        NS_STYLE_BOX_DECORATION_BREAK_CLONE ||
+        StyleBoxDecorationBreak::Clone ||
       (!mFrame->GetPrevContinuation() && !mFrame->GetNextContinuation())) {
     const nsStyleImageLayers::Layer& layer = mBackgroundStyle->mImage.mLayers[mLayer];
     if (layer.mImage.IsOpaque() && layer.mBlendMode == NS_STYLE_BLEND_NORMAL &&
@@ -5088,8 +5091,8 @@ nsDisplayFixedPosition::BuildLayer(nsDisplayListBuilder* aBuilder,
 
   layer->SetIsFixedPosition(true);
 
-  nsPresContext* presContext = Frame()->PresContext();
-  nsIFrame* fixedFrame = mIsFixedBackground ? presContext->PresShell()->GetRootFrame() : Frame();
+  nsPresContext* presContext = mFrame->PresContext();
+  nsIFrame* fixedFrame = mIsFixedBackground ? presContext->PresShell()->GetRootFrame() : mFrame;
 
   const nsIFrame* viewportFrame = fixedFrame->GetParent();
   // anchorRect will be in the container's coordinate system (aLayer's parent layer).
@@ -5878,7 +5881,7 @@ nsDisplayOpacity::CanUseAsyncAnimations(nsDisplayListBuilder* aBuilder)
   }
 
   EffectCompositor::SetPerformanceWarning(
-    mFrame, eCSSProperty_transform,
+    mFrame, eCSSProperty_opacity,
     AnimationPerformanceWarning(
       AnimationPerformanceWarning::Type::OpacityFrameInactive));
 

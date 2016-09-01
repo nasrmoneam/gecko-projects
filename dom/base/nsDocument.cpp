@@ -30,6 +30,7 @@
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsILoadContext.h"
 #include "nsITextControlFrame.h"
+#include "nsNumberControlFrame.h"
 #include "nsUnicharUtils.h"
 #include "nsContentList.h"
 #include "nsCSSPseudoElements.h"
@@ -266,6 +267,33 @@ typedef nsTArray<Link*> LinkArray;
 
 static LazyLogModule gDocumentLeakPRLog("DocumentLeak");
 static LazyLogModule gCspPRLog("CSP");
+
+static nsresult
+GetHttpChannelHelper(nsIChannel* aChannel, nsIHttpChannel** aHttpChannel)
+{
+  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel);
+  if (httpChannel) {
+    httpChannel.forget(aHttpChannel);
+    return NS_OK;
+  }
+
+  nsCOMPtr<nsIMultiPartChannel> multipart = do_QueryInterface(aChannel);
+  if (!multipart) {
+    *aHttpChannel = nullptr;
+    return NS_OK;
+  }
+
+  nsCOMPtr<nsIChannel> baseChannel;
+  nsresult rv = multipart->GetBaseChannel(getter_AddRefs(baseChannel));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  httpChannel = do_QueryInterface(baseChannel);
+  httpChannel.forget(aHttpChannel);
+
+  return NS_OK;
+}
 
 #define NAME_NOT_VALID ((nsSimpleContentList*)1)
 
@@ -965,6 +993,7 @@ TransferZoomLevels(nsIDocument* aFromDoc,
   toCtxt->SetFullZoom(fromCtxt->GetFullZoom());
   toCtxt->SetBaseMinFontSize(fromCtxt->BaseMinFontSize());
   toCtxt->SetTextZoom(fromCtxt->TextZoom());
+  toCtxt->SetOverrideDPPX(fromCtxt->GetOverrideDPPX());
 }
 
 void
@@ -1440,7 +1469,7 @@ nsIDocument::nsIDocument()
     mHasScrollLinkedEffect(false),
     mUserHasInteracted(false)
 {
-  SetIsDocument();
+  SetIsInDocument();
 
   PR_INIT_CLIST(&mDOMMediaQueryLists);
 }
@@ -1470,6 +1499,8 @@ nsDocument::nsDocument(const char* aContentType)
     // Add the base queue sentinel to the processing stack.
     sProcessingStack->AppendElement((CustomElementData*) nullptr);
   }
+
+  mEverInForeground = false;
 }
 
 void
@@ -2692,15 +2723,10 @@ nsDocument::InitCSP(nsIChannel* aChannel)
 
   nsAutoCString tCspHeaderValue, tCspROHeaderValue;
 
-  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel);
-  if (!httpChannel) {
-    // check baseChannel for CSP when loading a multipart channel
-    nsCOMPtr<nsIMultiPartChannel> multipart = do_QueryInterface(aChannel);
-    if (multipart) {
-      nsCOMPtr<nsIChannel> baseChannel;
-      multipart->GetBaseChannel(getter_AddRefs(baseChannel));
-      httpChannel = do_QueryInterface(baseChannel);
-    }
+  nsCOMPtr<nsIHttpChannel> httpChannel;
+  nsresult rv = GetHttpChannelHelper(aChannel, getter_AddRefs(httpChannel));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
   }
 
   if (httpChannel) {
@@ -2773,8 +2799,6 @@ nsDocument::InitCSP(nsIChannel* aChannel)
   }
 
   MOZ_LOG(gCspPRLog, LogLevel::Debug, ("Document is an app or CSP header specified %p", this));
-
-  nsresult rv;
 
   // If Document is an app check to see if we already set CSP and return early
   // if that is indeed the case.
@@ -4821,8 +4845,6 @@ nsDocument::SetScriptHandlingObject(nsIScriptGlobalObject* aScriptObject)
   NS_ASSERTION(!mScriptGlobalObject ||
                mScriptGlobalObject == aScriptObject,
                "Wrong script object!");
-  // XXXkhuey why bother?
-  nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(aScriptObject);
   if (aScriptObject) {
     mScopeObject = do_GetWeakReference(aScriptObject);
     mHasHadScriptHandlingObject = true;
@@ -7687,8 +7709,6 @@ nsDOMAttributeMap::BlastSubtreeToPieces(nsINode *aNode)
     Element *element = aNode->AsElement();
     const nsDOMAttributeMap *map = element->GetAttributeMap();
     if (map) {
-      nsCOMPtr<nsIAttribute> attr;
-
       // This non-standard style of iteration is presumably used because some
       // of the code in the loop body can trigger element removal, which
       // invalidates the iterator.
@@ -8603,9 +8623,14 @@ nsDocument::SetValueMissingState(const nsAString& aName, bool aValue)
 void
 nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
 {
-  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel);
   PRTime modDate = 0;
   nsresult rv;
+
+  nsCOMPtr<nsIHttpChannel> httpChannel;
+  rv = GetHttpChannelHelper(aChannel, getter_AddRefs(httpChannel));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return;
+  }
 
   if (httpChannel) {
     nsAutoCString tmp;
@@ -8736,7 +8761,6 @@ nsDocument::Sanitize()
 
   RefPtr<nsContentList> nodes = GetElementsByTagName(NS_LITERAL_STRING("input"));
 
-  nsCOMPtr<nsIContent> item;
   nsAutoString value;
 
   uint32_t length = nodes->Length(true);
@@ -10411,7 +10435,6 @@ nsDocument::GetStateObject(nsIVariant** aState)
   // mStateObjectContainer may be null; this just means that there's no
   // current state object.
 
-  nsCOMPtr<nsIVariant> stateObj;
   if (!mStateObjectCached && mStateObjectContainer) {
     AutoJSContext cx;
     nsIGlobalObject* sgo = GetScopeObject();
@@ -10852,10 +10875,10 @@ nsIDocument::CaretPositionFromPoint(float aX, float aY)
   if (nodeIsAnonymous) {
     node = ptFrame->GetContent();
     nsIContent* nonanon = node->FindFirstNonChromeOnlyAccessContent();
-    nsCOMPtr<nsIDOMHTMLInputElement> input = do_QueryInterface(nonanon);
     nsCOMPtr<nsIDOMHTMLTextAreaElement> textArea = do_QueryInterface(nonanon);
     nsITextControlFrame* textFrame = do_QueryFrame(nonanon->GetPrimaryFrame());
-    if (!!textFrame) {
+    nsNumberControlFrame* numberFrame = do_QueryFrame(nonanon->GetPrimaryFrame());
+    if (textFrame || numberFrame) {
       // If the anonymous content node has a child, then we need to make sure
       // that we get the appropriate child, as otherwise the offset may not be
       // correct when we construct a range for it.
@@ -12576,6 +12599,10 @@ nsDocument::UpdateVisibilityState()
 
     EnumerateActivityObservers(NotifyActivityChanged, nullptr);
   }
+
+  if (mVisibilityState == dom::VisibilityState::Visible) {
+    MaybeActiveMediaComponents();
+  }
 }
 
 VisibilityState
@@ -12609,6 +12636,23 @@ nsDocument::PostVisibilityUpdateEvent()
   nsCOMPtr<nsIRunnable> event =
     NewRunnableMethod(this, &nsDocument::UpdateVisibilityState);
   NS_DispatchToMainThread(event);
+}
+
+void
+nsDocument::MaybeActiveMediaComponents()
+{
+  if (mEverInForeground) {
+    return;
+  }
+
+  if (!mWindow) {
+    return;
+  }
+
+  mEverInForeground = true;
+  if (GetWindow()->GetMediaSuspend() == nsISuspendedTypes::SUSPENDED_BLOCK) {
+    GetWindow()->SetMediaSuspend(nsISuspendedTypes::NONE_SUSPENDED);
+  }
 }
 
 NS_IMETHODIMP

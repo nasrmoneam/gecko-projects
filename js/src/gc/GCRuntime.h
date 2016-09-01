@@ -778,6 +778,8 @@ class GCRuntime
     JS::GCSliceCallback setSliceCallback(JS::GCSliceCallback callback);
     JS::GCNurseryCollectionCallback setNurseryCollectionCallback(
         JS::GCNurseryCollectionCallback callback);
+    JS::DoCycleCollectionCallback setDoCycleCollectionCallback(JS::DoCycleCollectionCallback callback);
+    void callDoCycleCollectionCallback(JSContext* cx);
 
     void setFullCompartmentChecks(bool enable);
 
@@ -947,6 +949,7 @@ class GCRuntime
     void traceRuntimeCommon(JSTracer* trc, TraceOrMarkRuntime traceOrMark,
                             AutoLockForExclusiveAccess& lock);
     void bufferGrayRoots();
+    void maybeDoCycleCollection();
     void markCompartments();
     IncrementalProgress drainMarkStack(SliceBudget& sliceBudget, gcstats::Phase phase);
     template <class CompartmentIterT> void markWeakReferences(gcstats::Phase phase);
@@ -971,7 +974,7 @@ class GCRuntime
     void decommitAllWithoutUnlocking(const AutoLockGC& lock);
     void startDecommit();
     void queueZonesForBackgroundSweep(ZoneList& zones);
-    void sweepBackgroundThings(ZoneList& zones, LifoAlloc& freeBlocks, ThreadType threadType);
+    void sweepBackgroundThings(ZoneList& zones, LifoAlloc& freeBlocks);
     void assertBackgroundSweepingFinished();
     bool shouldCompact();
     void beginCompactPhase();
@@ -1069,8 +1072,6 @@ class GCRuntime
 
     mozilla::Atomic<size_t, mozilla::ReleaseAcquire> numActiveZoneIters;
 
-    uint64_t decommitThreshold;
-
     /* During shutdown, the GC needs to clean up every possible object. */
     bool cleanUpEverything;
 
@@ -1128,7 +1129,7 @@ class GCRuntime
     /* Whether the currently running GC can finish in multiple slices. */
     bool isIncremental;
 
-    /* Whether all compartments are being collected in first GC slice. */
+    /* Whether all zones are being collected in first GC slice. */
     bool isFull;
 
     /* Whether the heap will be compacted at the end of GC. */
@@ -1271,10 +1272,8 @@ class GCRuntime
     bool poked;
 
     /*
-     * These options control the zealousness of the GC. The fundamental values
-     * are nextScheduled and gcDebugCompartmentGC. At every allocation,
-     * nextScheduled is decremented. When it reaches zero, we do either a full
-     * or a compartmental GC, based on debugCompartmentGC.
+     * These options control the zealousness of the GC. At every allocation,
+     * nextScheduled is decremented. When it reaches zero we do a full GC.
      *
      * At this point, if zeal_ is one of the types that trigger periodic
      * collection, then nextScheduled is reset to the value of zealFrequency.
@@ -1309,6 +1308,7 @@ class GCRuntime
     bool fullCompartmentChecks;
 
     Callback<JSGCCallback> gcCallback;
+    Callback<JS::DoCycleCollectionCallback> gcDoCycleCollectionCallback;
     Callback<JSObjectsTenuredCallback> tenuredCallback;
     CallbackVector<JSFinalizeCallback> finalizeCallbacks;
     CallbackVector<JSWeakPointerZoneGroupCallback> updateWeakPointerZoneGroupCallbacks;

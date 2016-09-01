@@ -2917,6 +2917,7 @@ NeedNegativeZeroCheck(MDefinition* def)
           }
           case MDefinition::Op_StoreElement:
           case MDefinition::Op_StoreElementHole:
+          case MDefinition::Op_FallibleStoreElement:
           case MDefinition::Op_LoadElement:
           case MDefinition::Op_LoadElementHole:
           case MDefinition::Op_LoadUnboxedScalar:
@@ -5057,7 +5058,7 @@ MFunctionEnvironment::foldsTo(TempAllocator& alloc)
     if (!input()->isLambda())
         return this;
 
-    return input()->toLambda()->scopeChain();
+    return input()->toLambda()->environmentChain();
 }
 
 static bool
@@ -5417,6 +5418,24 @@ MWasmCall::New(TempAllocator& alloc, const wasm::CallSiteDesc& desc, const wasm:
     return call;
 }
 
+MWasmCall*
+MWasmCall::NewBuiltinInstanceMethodCall(TempAllocator& alloc,
+                                        const wasm::CallSiteDesc& desc,
+                                        const wasm::SymbolicAddress builtin,
+                                        const ABIArg& instanceArg,
+                                        const Args& args,
+                                        MIRType resultType,
+                                        uint32_t spIncrement)
+{
+    auto callee = wasm::CalleeDesc::builtinInstanceMethod(builtin);
+    MWasmCall* call = MWasmCall::New(alloc, desc, callee, args, resultType, spIncrement,
+                                     MWasmCall::DontSaveTls, nullptr);
+
+    MOZ_ASSERT(instanceArg != ABIArg()); // instanceArg must be initialized.
+    call->instanceArg_ = instanceArg;
+    return call;
+}
+
 void
 MSqrt::trySpecializeFloat32(TempAllocator& alloc) {
     if (!input()->canProduceFloat32() || !CheckUsesAreFloat32Consumers(this)) {
@@ -5689,6 +5708,13 @@ jit::ElementAccessMightBeCopyOnWrite(CompilerConstraintList* constraints, MDefin
 {
     TemporaryTypeSet* types = obj->resultTypeSet();
     return !types || types->hasObjectFlags(constraints, OBJECT_FLAG_COPY_ON_WRITE);
+}
+
+bool
+jit::ElementAccessMightBeFrozen(CompilerConstraintList* constraints, MDefinition* obj)
+{
+    TemporaryTypeSet* types = obj->resultTypeSet();
+    return !types || types->hasObjectFlags(constraints, OBJECT_FLAG_FROZEN);
 }
 
 bool

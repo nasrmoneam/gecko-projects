@@ -745,7 +745,7 @@ Heritage.extend(SwatchBasedEditorTooltip.prototype, {
     target.actorHasMethod("inspector", "pickColorFromPage").then(value => {
       let tooltipDoc = this.tooltip.doc;
       let eyeButton = tooltipDoc.querySelector("#eyedropper-button");
-      if (value) {
+      if (value && this.inspector.selection.nodeFront.isInHTMLDocument) {
         eyeButton.addEventListener("click", this._openEyeDropper);
       } else {
         eyeButton.style.display = "none";
@@ -776,7 +776,14 @@ Heritage.extend(SwatchBasedEditorTooltip.prototype, {
   _openEyeDropper: function () {
     let {inspector, toolbox, telemetry} = this.inspector;
     telemetry.toolOpened("pickereyedropper");
-    inspector.pickColorFromPage({copyOnSelect: false}).catch(e => console.error(e));
+    inspector.pickColorFromPage(toolbox, {copyOnSelect: false}).then(() => {
+      this.eyedropperOpen = true;
+
+      // close the colorpicker tooltip so that only the eyedropper is open.
+      this.hide();
+
+      this.tooltip.emit("eyedropper-opened");
+    }, e => console.error(e));
 
     inspector.once("color-picked", color => {
       toolbox.win.focus();
@@ -787,13 +794,6 @@ Heritage.extend(SwatchBasedEditorTooltip.prototype, {
     inspector.once("color-pick-canceled", () => {
       this._onEyeDropperDone();
     });
-
-    this.eyedropperOpen = true;
-
-    // close the colorpicker tooltip so that only the eyedropper is open.
-    this.hide();
-
-    this.tooltip.emit("eyedropper-opened");
   },
 
   _onEyeDropperDone: function () {

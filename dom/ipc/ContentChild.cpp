@@ -32,7 +32,6 @@
 #include "mozilla/dom/GetFilesHelper.h"
 #include "mozilla/dom/PCrashReporterChild.h"
 #include "mozilla/dom/ProcessGlobal.h"
-#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/workers/ServiceWorkerManager.h"
 #include "mozilla/dom/nsIContentChild.h"
 #include "mozilla/gfx/gfxVars.h"
@@ -48,6 +47,7 @@
 #include "mozilla/jsipc/CrossProcessObjectWrappers.h"
 #include "mozilla/layers/APZChild.h"
 #include "mozilla/layers/CompositorBridgeChild.h"
+#include "mozilla/layers/ContentProcessController.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/SharedBufferManagerChild.h"
 #include "mozilla/layout/RenderFrameChild.h"
@@ -76,7 +76,7 @@
 #endif
 #endif
 
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #include "mozInlineSpellChecker.h"
 #include "nsDocShell.h"
@@ -810,13 +810,11 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
 
     if (NS_FAILED(rv)) {
       PRenderFrameChild::Send__delete__(renderFrame);
-      PBrowserChild::Send__delete__(newChild);
       return rv;
     }
   }
   if (!*aWindowIsNew) {
     PRenderFrameChild::Send__delete__(renderFrame);
-    PBrowserChild::Send__delete__(newChild);
     return NS_ERROR_ABORT;
   }
 
@@ -980,12 +978,12 @@ ContentChild::AllocPMemoryReportRequestChild(const uint32_t& aGeneration,
   return actor;
 }
 
-class MemoryReportCallback final : public nsIMemoryReporterCallback
+class HandleReportCallback final : public nsIHandleReportCallback
 {
 public:
   NS_DECL_ISUPPORTS
 
-  explicit MemoryReportCallback(MemoryReportRequestChild* aActor,
+  explicit HandleReportCallback(MemoryReportRequestChild* aActor,
                                 const nsACString& aProcess)
   : mActor(aActor)
   , mProcess(aProcess)
@@ -1002,23 +1000,23 @@ public:
     return NS_OK;
   }
 private:
-  ~MemoryReportCallback() {}
+  ~HandleReportCallback() {}
 
   RefPtr<MemoryReportRequestChild> mActor;
   const nsCString mProcess;
 };
 
 NS_IMPL_ISUPPORTS(
-  MemoryReportCallback
-, nsIMemoryReporterCallback
+  HandleReportCallback
+, nsIHandleReportCallback
 )
 
-class MemoryReportFinishedCallback final : public nsIFinishReportingCallback
+class FinishReportingCallback final : public nsIFinishReportingCallback
 {
 public:
   NS_DECL_ISUPPORTS
 
-  explicit MemoryReportFinishedCallback(MemoryReportRequestChild* aActor)
+  explicit FinishReportingCallback(MemoryReportRequestChild* aActor)
   : mActor(aActor)
   {
   }
@@ -1030,13 +1028,13 @@ public:
   }
 
 private:
-  ~MemoryReportFinishedCallback() {}
+  ~FinishReportingCallback() {}
 
   RefPtr<MemoryReportRequestChild> mActor;
 };
 
 NS_IMPL_ISUPPORTS(
-  MemoryReportFinishedCallback
+  FinishReportingCallback
 , nsIFinishReportingCallback
 )
 
@@ -1061,7 +1059,9 @@ ContentChild::RecvPMemoryReportRequestConstructor(
     rv = actor->Run();
   }
 
-  return !NS_WARN_IF(NS_FAILED(rv));
+  // Bug 1295622: don't kill the process just because this failed.
+  NS_WARN_IF(NS_FAILED(rv));
+  return true;
 }
 
 NS_IMETHODIMP MemoryReportRequestChild::Run()
@@ -1076,14 +1076,17 @@ NS_IMETHODIMP MemoryReportRequestChild::Run()
 
   // Run the reporters.  The callback will turn each measurement into a
   // MemoryReport.
-  RefPtr<MemoryReportCallback> cb =
-    new MemoryReportCallback(this, process);
-  RefPtr<MemoryReportFinishedCallback> finished =
-    new MemoryReportFinishedCallback(this);
+  RefPtr<HandleReportCallback> handleReport =
+    new HandleReportCallback(this, process);
+  RefPtr<FinishReportingCallback> finishReporting =
+    new FinishReportingCallback(this);
 
-  return mgr->GetReportsForThisProcessExtended(cb, nullptr, mAnonymize,
-                                               FileDescriptorToFILE(mDMDFile, "wb"),
-                                               finished, nullptr);
+  nsresult rv =
+    mgr->GetReportsForThisProcessExtended(handleReport, nullptr, mAnonymize,
+                                          FileDescriptorToFILE(mDMDFile, "wb"),
+                                          finishReporting, nullptr);
+  NS_WARN_IF(NS_FAILED(rv));
+  return rv;
 }
 
 bool
@@ -1158,19 +1161,6 @@ ContentChild::AllocPGMPServiceChild(mozilla::ipc::Transport* aTransport,
                                     base::ProcessId aOtherProcess)
 {
   return GMPServiceChild::Create(aTransport, aOtherProcess);
-}
-
-PAPZChild*
-ContentChild::AllocPAPZChild(const TabId& aTabId)
-{
-  return APZChild::Create(aTabId);
-}
-
-bool
-ContentChild::DeallocPAPZChild(PAPZChild* aActor)
-{
-  delete aActor;
-  return true;
 }
 
 bool
@@ -1389,6 +1379,13 @@ ContentChild::RecvSetProcessSandbox(const MaybeFileDesc& aBroker)
 #endif /* MOZ_CONTENT_SANDBOX */
 
   return true;
+}
+
+bool
+ContentChild::RecvNotifyLayerAllocated(const dom::TabId& aTabId, const uint64_t& aLayersId)
+{
+  APZChild* apz = ContentProcessController::Create(aTabId);
+  return CompositorBridgeChild::Get()->SendPAPZConstructor(apz, aLayersId);
 }
 
 bool
@@ -2265,22 +2262,6 @@ ContentChild::AddRemoteAlertObserver(const nsString& aData,
   return NS_OK;
 }
 
-
-bool
-ContentChild::RecvSystemMemoryAvailable(const uint64_t& aGetterId,
-                                        const uint32_t& aMemoryAvailable)
-{
-  RefPtr<Promise> p = dont_AddRef(reinterpret_cast<Promise*>(aGetterId));
-
-  if (!aMemoryAvailable) {
-    p->MaybeReject(NS_ERROR_NOT_AVAILABLE);
-    return true;
-  }
-
-  p->MaybeResolve((int)aMemoryAvailable);
-  return true;
-}
-
 bool
 ContentChild::RecvPreferenceUpdate(const PrefSetting& aPref)
 {
@@ -2479,7 +2460,18 @@ ContentChild::RecvActivateA11y()
 #ifdef ACCESSIBILITY
   // Start accessibility in content process if it's running in chrome
   // process.
-  GetOrCreateAccService();
+  GetOrCreateAccService(nsAccessibilityService::eMainProcess);
+#endif
+  return true;
+}
+
+bool
+ContentChild::RecvShutdownA11y()
+{
+#ifdef ACCESSIBILITY
+  // Try to shutdown accessibility in content process if it's shutting down in
+  // chrome process.
+  MaybeShutdownAccService(nsAccessibilityService::eMainProcess);
 #endif
   return true;
 }
@@ -2701,7 +2693,7 @@ ContentChild::RecvMinimizeMemoryUsage()
     do_GetService("@mozilla.org/memory-reporter-manager;1");
   NS_ENSURE_TRUE(mgr, true);
 
-  mgr->MinimizeMemoryUsage(/* callback = */ nullptr);
+  Unused << mgr->MinimizeMemoryUsage(/* callback = */ nullptr);
   return true;
 }
 

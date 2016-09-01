@@ -18,14 +18,14 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/TimeStamp.h"
-#include "mozilla/gfx/DeviceManagerD3D11.h"
+#include "mozilla/gfx/DeviceManagerDx.h"
 #include "ipc/VRLayerParent.h"
 
 #include "mozilla/gfx/Quaternion.h"
 
 #include <d3d11.h>
-#include "../layers/d3d11/CompositorD3D11.h"
-#include "mozilla/layers/TextureD3D11.h"
+#include "CompositorD3D11.h"
+#include "TextureD3D11.h"
 
 #include "gfxVROculus.h"
 
@@ -337,9 +337,11 @@ VRDisplayOculus::VRDisplayOculus(ovrSession aSession)
   mDisplayInfo.mCapabilityFlags = VRDisplayCapabilityFlags::Cap_None;
   if (mDesc.AvailableTrackingCaps & ovrTrackingCap_Orientation) {
     mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_Orientation;
+    mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_AngularAcceleration;
   }
   if (mDesc.AvailableTrackingCaps & ovrTrackingCap_Position) {
     mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_Position;
+    mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_LinearAcceleration;
   }
   mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_External;
   mDisplayInfo.mCapabilityFlags |= VRDisplayCapabilityFlags::Cap_Present;
@@ -441,6 +443,8 @@ VRDisplayOculus::GetSensorState(double timeOffset)
     result.angularVelocity[1] = pose.AngularVelocity.y;
     result.angularVelocity[2] = pose.AngularVelocity.z;
 
+    result.flags |= VRDisplayCapabilityFlags::Cap_AngularAcceleration;
+
     result.angularAcceleration[0] = pose.AngularAcceleration.x;
     result.angularAcceleration[1] = pose.AngularAcceleration.y;
     result.angularAcceleration[2] = pose.AngularAcceleration.z;
@@ -456,6 +460,8 @@ VRDisplayOculus::GetSensorState(double timeOffset)
     result.linearVelocity[0] = pose.LinearVelocity.x;
     result.linearVelocity[1] = pose.LinearVelocity.y;
     result.linearVelocity[2] = pose.LinearVelocity.z;
+
+    result.flags |= VRDisplayCapabilityFlags::Cap_LinearAcceleration;
 
     result.linearAcceleration[0] = pose.LinearAcceleration.x;
     result.linearAcceleration[1] = pose.LinearAcceleration.y;
@@ -500,7 +506,7 @@ VRDisplayOculus::StartPresentation()
   desc.BindFlags = ovrTextureBind_DX_RenderTarget;
 
   if (!mDevice) {
-    mDevice = gfx::DeviceManagerD3D11::Get()->GetCompositorDevice();
+    mDevice = gfx::DeviceManagerDx::Get()->GetCompositorDevice();
     if (!mDevice) {
       NS_WARNING("Failed to get a D3D11Device for Oculus");
       return;

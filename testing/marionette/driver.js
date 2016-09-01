@@ -2022,36 +2022,7 @@ GeckoDriver.prototype.sendKeysToElement = function*(cmd, resp) {
       break;
 
     case Context.CONTENT:
-      let err;
-      let listener = function(msg) {
-        this.mm.removeMessageListener("Marionette:setElementValue", listener);
-
-        let val = msg.data.value;
-        let el = msg.objects.element;
-        let win = this.getCurrentWindow();
-
-        if (el.type == "file") {
-          Cu.importGlobalProperties(["File"]);
-          let fs = Array.prototype.slice.call(el.files);
-          let file;
-          try {
-            file = new File(val);
-          } catch (e) {
-            err = new InvalidArgumentError(`File not found: ${val}`);
-          }
-          fs.push(file);
-          el.mozSetFileArray(fs);
-        } else {
-          el.value = val;
-        }
-      }.bind(this);
-
-      this.mm.addMessageListener("Marionette:setElementValue", listener);
-      yield this.listener.sendKeysToElement({id: id, value: value});
-      this.mm.removeMessageListener("Marionette:setElementValue", listener);
-      if (err) {
-        throw err;
-      }
+      yield this.listener.sendKeysToElement(id, value);
       break;
   }
 };
@@ -2695,23 +2666,6 @@ GeckoDriver.prototype.receiveMessage = function(message) {
         } while (hostname.indexOf(".") != -1);
       }
       return results;
-
-    case "Marionette:getFiles":
-      // Generates file objects to send back to the content script
-      // for handling file uploads.
-      let val = message.json.value;
-      let command_id = message.json.command_id;
-      Cu.importGlobalProperties(["File"]);
-      try {
-        let file = new File(val);
-        this.sendAsync("receiveFiles",
-                       {file: file, command_id: command_id});
-      } catch (e) {
-        let err = `File not found: ${val}`;
-        this.sendAsync("receiveFiles",
-                       {error: err, command_id: command_id});
-      }
-      break;
 
     case "Marionette:emitTouchEvent":
       globalMessageManager.broadcastAsyncMessage(

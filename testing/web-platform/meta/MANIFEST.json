@@ -37593,6 +37593,14 @@
     "deleted": [],
     "deleted_reftests": {},
     "items": {
+      "manual": {
+        "pointerevents/pointerevent_element_haspointercapture-manual.html": [
+          {
+            "path": "pointerevents/pointerevent_element_haspointercapture-manual.html",
+            "url": "/pointerevents/pointerevent_element_haspointercapture-manual.html"
+          }
+        ]
+      },
       "reftest": {
         "html/semantics/grouping-content/the-ol-element/reversed-1a.html": [
           {
@@ -37641,6 +37649,102 @@
             ],
             "url": "/html/semantics/grouping-content/the-ol-element/reversed-1d.html"
           }
+        ],
+        "svg/linking/reftests/href-a-element-attr-change.html": [
+          {
+            "path": "svg/linking/reftests/href-a-element-attr-change.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-a-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-a-element-attr-change.html"
+          }
+        ],
+        "svg/linking/reftests/href-feImage-element.html": [
+          {
+            "path": "svg/linking/reftests/href-feImage-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-feImage-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-feImage-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-filter-element.html": [
+          {
+            "path": "svg/linking/reftests/href-filter-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-filter-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-filter-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-gradient-element.html": [
+          {
+            "path": "svg/linking/reftests/href-gradient-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-gradient-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-gradient-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-image-element.html": [
+          {
+            "path": "svg/linking/reftests/href-image-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-image-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-image-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-pattern-element.html": [
+          {
+            "path": "svg/linking/reftests/href-pattern-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-pattern-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-pattern-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-textPath-element.html": [
+          {
+            "path": "svg/linking/reftests/href-textPath-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-textPath-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-textPath-element.html"
+          }
+        ],
+        "svg/linking/reftests/href-use-element.html": [
+          {
+            "path": "svg/linking/reftests/href-use-element.html",
+            "references": [
+              [
+                "/svg/linking/reftests/href-use-element-ref.html",
+                "=="
+              ]
+            ],
+            "url": "/svg/linking/reftests/href-use-element.html"
+          }
         ]
       },
       "testharness": {
@@ -37656,6 +37760,12 @@
             "url": "/domparsing/style_attribute_html.html"
           }
         ],
+        "editing/other/restoration.html": [
+          {
+            "path": "editing/other/restoration.html",
+            "url": "/editing/other/restoration.html"
+          }
+        ],
         "editing/other/delete.html": [
           {
             "path": "editing/other/delete.html",
@@ -37668,16 +37778,58 @@
             "url": "/html/semantics/forms/the-form-element/form-submission-sandbox.html"
           }
         ],
+        "svg/linking/scripted/href-animate-element.html": [
+          {
+            "path": "svg/linking/scripted/href-animate-element.html",
+            "url": "/svg/linking/scripted/href-animate-element.html"
+          }
+        ],
+        "svg/linking/scripted/href-mpath-element.html": [
+          {
+            "path": "svg/linking/scripted/href-mpath-element.html",
+            "url": "/svg/linking/scripted/href-mpath-element.html"
+          }
+        ],
+        "svg/linking/scripted/href-script-element-markup.html": [
+          {
+            "path": "svg/linking/scripted/href-script-element-markup.html",
+            "url": "/svg/linking/scripted/href-script-element-markup.html"
+          }
+        ],
+        "svg/linking/scripted/href-script-element.html": [
+          {
+            "path": "svg/linking/scripted/href-script-element.html",
+            "url": "/svg/linking/scripted/href-script-element.html"
+          }
+        ],
+        "web-animations/interfaces/Animation/effect.html": [
+          {
+            "path": "web-animations/interfaces/Animation/effect.html",
+            "url": "/web-animations/interfaces/Animation/effect.html"
+          }
+        ],
         "web-animations/timing-model/animation-effects/phases-and-states.html": [
           {
             "path": "web-animations/timing-model/animation-effects/phases-and-states.html",
             "url": "/web-animations/timing-model/animation-effects/phases-and-states.html"
           }
         ],
+        "web-animations/timing-model/animations/set-the-target-effect-of-an-animation.html": [
+          {
+            "path": "web-animations/timing-model/animations/set-the-target-effect-of-an-animation.html",
+            "url": "/web-animations/timing-model/animations/set-the-target-effect-of-an-animation.html"
+          }
+        ],
         "web-animations/timing-model/animations/updating-the-finished-state.html": [
           {
             "path": "web-animations/timing-model/animations/updating-the-finished-state.html",
             "url": "/web-animations/timing-model/animations/updating-the-finished-state.html"
+          }
+        ],
+        "workers/Worker_ErrorEvent_error.htm": [
+          {
+            "path": "workers/Worker_ErrorEvent_error.htm",
+            "url": "/workers/Worker_ErrorEvent_error.htm"
           }
         ]
       }
@@ -37729,6 +37881,102 @@
             ]
           ],
           "url": "/html/semantics/grouping-content/the-ol-element/reversed-1d.html"
+        }
+      ],
+      "svg/linking/reftests/href-a-element-attr-change.html": [
+        {
+          "path": "svg/linking/reftests/href-a-element-attr-change.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-a-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-a-element-attr-change.html"
+        }
+      ],
+      "svg/linking/reftests/href-feImage-element.html": [
+        {
+          "path": "svg/linking/reftests/href-feImage-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-feImage-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-feImage-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-filter-element.html": [
+        {
+          "path": "svg/linking/reftests/href-filter-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-filter-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-filter-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-gradient-element.html": [
+        {
+          "path": "svg/linking/reftests/href-gradient-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-gradient-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-gradient-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-image-element.html": [
+        {
+          "path": "svg/linking/reftests/href-image-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-image-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-image-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-pattern-element.html": [
+        {
+          "path": "svg/linking/reftests/href-pattern-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-pattern-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-pattern-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-textPath-element.html": [
+        {
+          "path": "svg/linking/reftests/href-textPath-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-textPath-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-textPath-element.html"
+        }
+      ],
+      "svg/linking/reftests/href-use-element.html": [
+        {
+          "path": "svg/linking/reftests/href-use-element.html",
+          "references": [
+            [
+              "/svg/linking/reftests/href-use-element-ref.html",
+              "=="
+            ]
+          ],
+          "url": "/svg/linking/reftests/href-use-element.html"
         }
       ]
     }

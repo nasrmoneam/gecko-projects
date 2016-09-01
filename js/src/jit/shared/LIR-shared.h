@@ -1147,18 +1147,18 @@ class LNewTypedObject : public LInstructionHelper<1, 0, 1>
     }
 };
 
-// Allocates a new DeclEnvObject.
+// Allocates a new NamedLambdaObject.
 //
 // This instruction generates two possible instruction sets:
 //   (1) An inline allocation of the call object is attempted.
 //   (2) Otherwise, a callVM create a new object.
 //
-class LNewDeclEnvObject : public LInstructionHelper<1, 0, 1>
+class LNewNamedLambdaObject : public LInstructionHelper<1, 0, 1>
 {
   public:
-    LIR_HEADER(NewDeclEnvObject);
+    LIR_HEADER(NewNamedLambdaObject);
 
-    explicit LNewDeclEnvObject(const LDefinition& temp) {
+    explicit LNewNamedLambdaObject(const LDefinition& temp) {
         setTemp(0, temp);
     }
 
@@ -1166,8 +1166,8 @@ class LNewDeclEnvObject : public LInstructionHelper<1, 0, 1>
         return getTemp(0);
     }
 
-    MNewDeclEnvObject* mir() const {
-        return mir_->toNewDeclEnvObject();
+    MNewNamedLambdaObject* mir() const {
+        return mir_->toNewNamedLambdaObject();
     }
 };
 
@@ -1404,13 +1404,17 @@ class LAsmJSInterruptCheck : public LInstructionHelper<0, 0, 0>
     }
 };
 
-class LAsmThrowUnreachable : public LInstructionHelper<0, 0, 0>
+class LWasmTrap : public LInstructionHelper<0, 0, 0>
 {
   public:
-    LIR_HEADER(AsmThrowUnreachable);
+    LIR_HEADER(WasmTrap);
 
-    LAsmThrowUnreachable()
+    LWasmTrap()
     { }
+
+    const MWasmTrap* mir() const {
+        return mir_->toWasmTrap();
+    }
 };
 
 template<size_t Defs, size_t Ops>
@@ -1536,12 +1540,12 @@ class LDefVar : public LCallInstructionHelper<0, 1, 0>
   public:
     LIR_HEADER(DefVar)
 
-    explicit LDefVar(const LAllocation& scopeChain)
+    explicit LDefVar(const LAllocation& envChain)
     {
-        setOperand(0, scopeChain);
+        setOperand(0, envChain);
     }
 
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     MDefVar* mir() const {
@@ -1564,12 +1568,12 @@ class LDefFun : public LCallInstructionHelper<0, 1, 0>
   public:
     LIR_HEADER(DefFun)
 
-    explicit LDefFun(const LAllocation& scopeChain)
+    explicit LDefFun(const LAllocation& envChain)
     {
-        setOperand(0, scopeChain);
+        setOperand(0, envChain);
     }
 
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     MDefFun* mir() const {
@@ -2243,10 +2247,10 @@ class LGetDynamicName : public LCallInstructionHelper<BOX_PIECES, 2, 3>
   public:
     LIR_HEADER(GetDynamicName)
 
-    LGetDynamicName(const LAllocation& scopeChain, const LAllocation& name,
+    LGetDynamicName(const LAllocation& envChain, const LAllocation& name,
                     const LDefinition& temp1, const LDefinition& temp2, const LDefinition& temp3)
     {
-        setOperand(0, scopeChain);
+        setOperand(0, envChain);
         setOperand(1, name);
         setTemp(0, temp1);
         setTemp(1, temp2);
@@ -2257,7 +2261,7 @@ class LGetDynamicName : public LCallInstructionHelper<BOX_PIECES, 2, 3>
         return mir_->toGetDynamicName();
     }
 
-    const LAllocation* getScopeChain() {
+    const LAllocation* getEnvironmentChain() {
         return getOperand(0);
     }
     const LAllocation* getName() {
@@ -2280,10 +2284,10 @@ class LCallDirectEval : public LCallInstructionHelper<BOX_PIECES, 2 + BOX_PIECES
   public:
     LIR_HEADER(CallDirectEval)
 
-    LCallDirectEval(const LAllocation& scopeChain, const LAllocation& string,
+    LCallDirectEval(const LAllocation& envChain, const LAllocation& string,
                     const LBoxAllocation& newTarget)
     {
-        setOperand(0, scopeChain);
+        setOperand(0, envChain);
         setOperand(1, string);
         setBoxOperand(NewTarget, newTarget);
     }
@@ -2294,7 +2298,7 @@ class LCallDirectEval : public LCallInstructionHelper<BOX_PIECES, 2 + BOX_PIECES
         return mir_->toCallDirectEval();
     }
 
-    const LAllocation* getScopeChain() {
+    const LAllocation* getEnvironmentChain() {
         return getOperand(0);
     }
     const LAllocation* getString() {
@@ -4607,23 +4611,23 @@ class LOsrValue : public LInstructionHelper<BOX_PIECES, 1, 0>
     }
 };
 
-// Materialize a JSObject scope chain stored in an interpreter frame for OSR.
-class LOsrScopeChain : public LInstructionHelper<1, 1, 0>
+// Materialize a JSObject env chain stored in an interpreter frame for OSR.
+class LOsrEnvironmentChain : public LInstructionHelper<1, 1, 0>
 {
   public:
-    LIR_HEADER(OsrScopeChain)
+    LIR_HEADER(OsrEnvironmentChain)
 
-    explicit LOsrScopeChain(const LAllocation& entry)
+    explicit LOsrEnvironmentChain(const LAllocation& entry)
     {
         setOperand(0, entry);
     }
 
-    const MOsrScopeChain* mir() {
-        return mir_->toOsrScopeChain();
+    const MOsrEnvironmentChain* mir() {
+        return mir_->toOsrEnvironmentChain();
     }
 };
 
-// Materialize a JSObject scope chain stored in an interpreter frame for OSR.
+// Materialize a JSObject env chain stored in an interpreter frame for OSR.
 class LOsrReturnValue : public LInstructionHelper<BOX_PIECES, 1, 0>
 {
   public:
@@ -4897,11 +4901,11 @@ class LLambdaForSingleton : public LCallInstructionHelper<1, 1, 0>
   public:
     LIR_HEADER(LambdaForSingleton)
 
-    explicit LLambdaForSingleton(const LAllocation& scopeChain)
+    explicit LLambdaForSingleton(const LAllocation& envChain)
     {
-        setOperand(0, scopeChain);
+        setOperand(0, envChain);
     }
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     const MLambda* mir() const {
@@ -4914,11 +4918,11 @@ class LLambda : public LInstructionHelper<1, 1, 1>
   public:
     LIR_HEADER(Lambda)
 
-    LLambda(const LAllocation& scopeChain, const LDefinition& temp) {
-        setOperand(0, scopeChain);
+    LLambda(const LAllocation& envChain, const LDefinition& temp) {
+        setOperand(0, envChain);
         setTemp(0, temp);
     }
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     const LDefinition* temp() {
@@ -4936,11 +4940,11 @@ class LLambdaArrow : public LInstructionHelper<1, 1 + BOX_PIECES, 0>
 
     static const size_t NewTargetValue = 1;
 
-    LLambdaArrow(const LAllocation& scopeChain, const LBoxAllocation& newTarget) {
-        setOperand(0, scopeChain);
+    LLambdaArrow(const LAllocation& envChain, const LBoxAllocation& newTarget) {
+        setOperand(0, envChain);
         setBoxOperand(NewTargetValue, newTarget);
     }
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     const MLambdaArrow* mir() const {
@@ -5730,6 +5734,71 @@ class LStoreElementHoleT : public LInstructionHelper<0, 4, 1>
     }
 };
 
+// Like LStoreElementV, but can just ignore assignment (for eg. frozen objects)
+class LFallibleStoreElementV : public LInstructionHelper<0, 3 + BOX_PIECES, 1>
+{
+  public:
+    LIR_HEADER(FallibleStoreElementV)
+
+    LFallibleStoreElementV(const LAllocation& object, const LAllocation& elements,
+                           const LAllocation& index, const LBoxAllocation& value,
+                           const LDefinition& temp) {
+        setOperand(0, object);
+        setOperand(1, elements);
+        setOperand(2, index);
+        setBoxOperand(Value, value);
+        setTemp(0, temp);
+    }
+
+    static const size_t Value = 3;
+
+    const MFallibleStoreElement* mir() const {
+        return mir_->toFallibleStoreElement();
+    }
+    const LAllocation* object() {
+        return getOperand(0);
+    }
+    const LAllocation* elements() {
+        return getOperand(1);
+    }
+    const LAllocation* index() {
+        return getOperand(2);
+    }
+};
+
+// Like LStoreElementT, but can just ignore assignment (for eg. frozen objects)
+class LFallibleStoreElementT : public LInstructionHelper<0, 4, 1>
+{
+  public:
+    LIR_HEADER(FallibleStoreElementT)
+
+    LFallibleStoreElementT(const LAllocation& object, const LAllocation& elements,
+                           const LAllocation& index, const LAllocation& value,
+                           const LDefinition& temp) {
+        setOperand(0, object);
+        setOperand(1, elements);
+        setOperand(2, index);
+        setOperand(3, value);
+        setTemp(0, temp);
+    }
+
+    const MFallibleStoreElement* mir() const {
+        return mir_->toFallibleStoreElement();
+    }
+    const LAllocation* object() {
+        return getOperand(0);
+    }
+    const LAllocation* elements() {
+        return getOperand(1);
+    }
+    const LAllocation* index() {
+        return getOperand(2);
+    }
+    const LAllocation* value() {
+        return getOperand(3);
+    }
+};
+
 class LStoreUnboxedPointer : public LInstructionHelper<0, 3, 0>
 {
   public:
@@ -6477,10 +6546,10 @@ class LGetNameCache : public LInstructionHelper<BOX_PIECES, 1, 0>
   public:
     LIR_HEADER(GetNameCache)
 
-    explicit LGetNameCache(const LAllocation& scopeObj) {
-        setOperand(0, scopeObj);
+    explicit LGetNameCache(const LAllocation& envObj) {
+        setOperand(0, envObj);
     }
-    const LAllocation* scopeObj() {
+    const LAllocation* envObj() {
         return getOperand(0);
     }
     const MGetNameCache* mir() const {
@@ -6650,10 +6719,10 @@ class LBindNameCache : public LInstructionHelper<1, 1, 0>
   public:
     LIR_HEADER(BindNameCache)
 
-    explicit LBindNameCache(const LAllocation& scopeChain) {
-        setOperand(0, scopeChain);
+    explicit LBindNameCache(const LAllocation& envChain) {
+        setOperand(0, envChain);
     }
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     const MBindNameCache* mir() const {
@@ -6666,10 +6735,10 @@ class LCallBindVar : public LInstructionHelper<1, 1, 0>
   public:
     LIR_HEADER(CallBindVar)
 
-    explicit LCallBindVar(const LAllocation& scopeChain) {
-        setOperand(0, scopeChain);
+    explicit LCallBindVar(const LAllocation& envChain) {
+        setOperand(0, envChain);
     }
-    const LAllocation* scopeChain() {
+    const LAllocation* environmentChain() {
         return getOperand(0);
     }
     const MCallBindVar* mir() const {

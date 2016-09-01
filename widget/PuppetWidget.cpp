@@ -17,7 +17,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/TextComposition.h"
 #include "mozilla/TextEvents.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "PuppetWidget.h"
 #include "nsContentUtils.h"
 #include "nsIWidgetListener.h"
@@ -667,13 +667,12 @@ PuppetWidget::StartPluginIME(const mozilla::WidgetKeyboardEvent& aKeyboardEvent,
   return NS_OK;
 }
 
-NS_IMETHODIMP
+void
 PuppetWidget::SetPluginFocused(bool& aFocused)
 {
-  if (!mTabChild || !mTabChild->SendSetPluginFocused(aFocused)) {
-    return NS_ERROR_FAILURE;
+  if (mTabChild) {
+    mTabChild->SendSetPluginFocused(aFocused);
   }
-  return NS_OK;
 }
 
 void

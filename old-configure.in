@@ -1088,6 +1088,10 @@ case "$target" in
             dnl MSVC allows the use of intrinsics without any flags
             dnl and doesn't have a separate arch for SSSE3
             SSSE3_FLAGS="-arch:SSE2"
+            dnl clang-cl, however, requires the appropriate flags.
+            if test -n "$CLANG_CL"; then
+                SSSE3_FLAGS="-mssse3"
+            fi
         fi
         dnl VS2013+ requires -FS when parallel building by make -jN.
         dnl If nothing, compiler sometimes causes C1041 error.
@@ -1687,6 +1691,16 @@ if test "$ac_cv_clock_monotonic" != "no"; then
     AC_SUBST_LIST(REALTIME_LIBS)
 fi
 
+AC_CACHE_CHECK(for pthread_cond_timedwait_monotonic_np,
+               ac_cv_pthread_cond_timedwait_monotonic_np,
+               AC_TRY_LINK([#include <pthread.h>],
+                           [pthread_cond_timedwait_monotonic_np(0, 0, 0);],
+                           ac_cv_pthread_cond_timewait_monotonic_np=yes,
+                           ac_cv_pthread_cond_timewait_monotonic_np=no))
+if test "$ac_cv_pthread_cond_timewait_monotonic_np" != "no"; then
+    AC_DEFINE(HAVE_PTHREAD_COND_TIMEDWAIT_MONOTONIC)
+fi
+
 dnl check for wcrtomb/mbrtowc
 dnl =======================================================================
 if test -z "$MACOS_DEPLOYMENT_TARGET" || test "$MACOS_DEPLOYMENT_TARGET" -ge "100300"; then
@@ -2207,8 +2221,6 @@ if test "$MOZ_LINKER" = 1 -a "$MOZ_SYSTEM_ZLIB" != 1; then
     AC_MSG_ERROR([Custom dynamic linker requires --with-system-zlib])
 fi
 
-MOZ_PNG_ARM_NEON=
-
 if test -z "$SKIP_LIBRARY_CHECKS"; then
 dnl system BZIP2 Support
 dnl ========================================================
@@ -2284,36 +2296,7 @@ if test "${PNG_DIR}" -a -d "${PNG_DIR}" -a "$MOZ_SYSTEM_PNG" = 1; then
     MOZ_PNG_LIBS="-L${PNG_DIR}/lib ${MOZ_PNG_LIBS}"
 fi
 
-if test "$MOZ_SYSTEM_PNG" != 1 -a "$CPU_ARCH" = "arm" ; then
-    MOZ_ARG_ENABLE_STRING(png-arm-neon-support,
-        [  --enable-png-arm-neon-support=TYPE
-             Options include:
-                 no
-                 check (default)
-                 nocheck (faster but unsafe)],
-        [MOZ_PNG_ARM_NEON_SUPPORT=$enableval ] )
-    case "$MOZ_PNG_ARM_NEON_SUPPORT" in
-        no)
-            # enable-png-arm-neon-support = no
-            ;;
-        nocheck)
-            # enable-png-arm-neon-support = nocheck
-            MOZ_PNG_ARM_NEON=1
-            ;;
-        *)
-            MOZ_PNG_ARM_NEON=1
-            ;;
-    esac
-fi
-
 fi # SKIP_LIBRARY_CHECKS
-
-AC_SUBST(MOZ_PNG_ARM_NEON)
-
-dnl ========================================================
-dnl system libffi Support
-dnl ========================================================
-MOZ_CONFIG_FFI()
 
 dnl ========================================================
 dnl =
@@ -2366,7 +2349,6 @@ MOZ_XUL=1
 MOZ_ZIPWRITER=1
 MOZ_NO_SMART_CARDS=
 NECKO_COOKIES=1
-BUILD_CTYPES=1
 MOZ_USE_NATIVE_POPUP_WINDOWS=
 MOZ_EXCLUDE_HYPHENATION_DICTIONARIES=
 MOZ_INSTALL_TRACKING=
@@ -5206,46 +5188,6 @@ fi
 
 AC_SUBST_LIST(GLIB_GMODULE_LIBS)
 
-dnl ========================================================
-dnl Graphics checks.
-dnl ========================================================
-
-if test "${OS_TARGET}" = "WINNT" -o \
-        "${OS_ARCH}" = "Darwin" -o \
-        "${MOZ_WIDGET_TOOLKIT}" = "android" -o \
-        "${MOZ_WIDGET_TOOLKIT}" = "gonk" -o \
-        "${MOZ_WIDGET_TOOLKIT}" = "gtk2" -o \
-        "${MOZ_WIDGET_TOOLKIT}" = "gtk3"; then
-    case "${CPU_ARCH}" in
-    x86|x86_64|arm)
-        MOZ_ENABLE_SKIA=1
-        ;;
-    *)
-        MOZ_ENABLE_SKIA=
-        ;;
-    esac
-else
-MOZ_ENABLE_SKIA=
-fi
-
-MOZ_ARG_ENABLE_BOOL(skia,
-[  --enable-skia   Enable use of Skia],
-MOZ_ENABLE_SKIA=1,
-MOZ_ENABLE_SKIA=)
-
-dnl Skia GPU support may not reliably build on certain *BSDs (see bug 1234494).
-if test "${OS_TARGET}" = "OpenBSD" -o \
-        "${OS_TARGET}" = "NetBSD"; then \
-    MOZ_DISABLE_SKIA_GPU=1
-else
-    MOZ_DISABLE_SKIA_GPU=
-fi
-
-MOZ_ARG_DISABLE_BOOL(skia-gpu,
-[  --disable-skia-gpu  Disable use of Skia-GPU],
-MOZ_DISABLE_SKIA_GPU=1,
-MOZ_DISABLE_SKIA_GPU=)
-
 if test "$USE_FC_FREETYPE"; then
     if test "$COMPILE_ENVIRONMENT"; then
         dnl ========================================================
@@ -5448,27 +5390,6 @@ AC_SUBST_LIST(MOZ_CAIRO_OSLIBS)
 AC_SUBST(MOZ_TREE_PIXMAN)
 
 dnl ========================================================
-dnl Skia
-dnl ========================================================
-if test "$MOZ_ENABLE_SKIA"; then
-  SKIA_INCLUDES="/gfx/skia /gfx/skia/skia/include/config /gfx/skia/skia/include/core"
-  AC_DEFINE(MOZ_ENABLE_SKIA)
-  AC_DEFINE(USE_SKIA)
-  if test "${MOZ_WIDGET_TOOLKIT}" = "android" -o x"$MOZ_WIDGET_TOOLKIT" = x"gonk"; then
-    AC_DEFINE(SK_BUILD_FOR_ANDROID_NDK)
-  fi
-
-  if test "${CPU_ARCH}" != "ppc" -a "${CPU_ARCH}" != "ppc64" -a "${CPU_ARCH}" != "sparc" -a "${CPU_ARCH}" != "sparc64" -a -z "$MOZ_DISABLE_SKIA_GPU" ; then
-    SKIA_INCLUDES="$SKIA_INCLUDES /gfx/skia/skia/include/gpu /gfx/skia/skia/include/utils"
-    MOZ_ENABLE_SKIA_GPU=1
-    AC_DEFINE(USE_SKIA_GPU)
-    AC_SUBST(MOZ_ENABLE_SKIA_GPU)
-  fi
-fi
-AC_SUBST(MOZ_ENABLE_SKIA)
-AC_SUBST_LIST(SKIA_INCLUDES)
-
-dnl ========================================================
 dnl disable xul
 dnl ========================================================
 MOZ_ARG_DISABLE_BOOL(xul,
@@ -5548,18 +5469,6 @@ fi
 AC_SUBST(ENABLE_MARIONETTE)
 if test "$ENABLE_MARIONETTE"; then
     AC_DEFINE(ENABLE_MARIONETTE)
-fi
-
-dnl
-dnl Build jsctypes on the platforms we can, unless it's explicitly disabled.
-dnl
-MOZ_ARG_DISABLE_BOOL(ctypes,
-[  --disable-ctypes        Disable js-ctypes],
-    BUILD_CTYPES=,
-    BUILD_CTYPES=1)
-AC_SUBST(BUILD_CTYPES)
-if test "$BUILD_CTYPES"; then
-    AC_DEFINE(BUILD_CTYPES)
 fi
 
 dnl ========================================================
@@ -6121,13 +6030,19 @@ fi
 MOZ_CONFIG_ICU()
 
 dnl ========================================================
-dnl mask as short hand property
+dnl mask as shorthand property
 dnl ========================================================
-dnl Uncommenting the next line would enable mask-as-shorthand feature.
-dnl MOZ_ENABLE_MASK_AS_SHORTHAND=1
-if test "$MOZ_ENABLE_MASK_AS_SHORTHAND"; then
+
+# The control structure code will be removed as soon as the feature is stable
+# Refer to bug 1281101 for more details.
+
+# Enable mask-as-shorthand property by default for nightly and aurora channels
+if test -z "$RELEASE_BUILD"; then
+  dnl mask as shorthand property enabled
+  MOZ_ENABLE_MASK_AS_SHORTHAND=1
   AC_DEFINE(MOZ_ENABLE_MASK_AS_SHORTHAND)
 fi
+
 AC_SUBST(MOZ_ENABLE_MASK_AS_SHORTHAND)
 
 # Avoid using obsolete NSPR features
@@ -6238,10 +6153,6 @@ if test "$_INTL_API" = no; then
     ac_configure_args="$ac_configure_args --without-intl-api"
 fi
 
-if test "$BUILD_CTYPES"; then
-    # Build js-ctypes on the platforms we can.
-    ac_configure_args="$ac_configure_args --enable-ctypes"
-fi
 if test -n "$NSPR_CFLAGS" -o -n "$NSPR_LIBS"; then
     ac_configure_args="$ac_configure_args --with-nspr-cflags='$NSPR_CFLAGS'"
     ac_configure_args="$ac_configure_args --with-nspr-libs='$NSPR_LIBS'"

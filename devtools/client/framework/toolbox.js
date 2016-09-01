@@ -9,6 +9,7 @@ const SPLITCONSOLE_ENABLED_PREF = "devtools.toolbox.splitconsoleEnabled";
 const SPLITCONSOLE_HEIGHT_PREF = "devtools.toolbox.splitconsoleHeight";
 const OS_HISTOGRAM = "DEVTOOLS_OS_ENUMERATED_PER_USER";
 const OS_IS_64_BITS = "DEVTOOLS_OS_IS_64_BITS_PER_USER";
+const HOST_HISTOGRAM = "DEVTOOLS_TOOLBOX_HOST";
 const SCREENSIZE_HISTOGRAM = "DEVTOOLS_SCREEN_RESOLUTION_ENUMERATED_PER_USER";
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const { SourceMapService } = require("./source-map-service");
@@ -32,21 +33,9 @@ const { KeyCodes } = require("devtools/client/shared/keycodes");
 const { BrowserLoader } =
   Cu.import("resource://devtools/client/shared/browser-loader.js", {});
 
-loader.lazyGetter(this, "toolboxStrings", () => {
-  const properties = "chrome://devtools/locale/toolbox.properties";
-  const bundle = Services.strings.createBundle(properties);
-  return (name, ...args) => {
-    try {
-      if (!args.length) {
-        return bundle.GetStringFromName(name);
-      }
-      return bundle.formatStringFromName(name, args, args.length);
-    } catch (ex) {
-      console.log("Error reading '" + name + "'");
-      return null;
-    }
-  };
-});
+const {LocalizationHelper} = require("devtools/shared/l10n");
+const L10N = new LocalizationHelper("devtools/locale/toolbox.properties");
+
 loader.lazyRequireGetter(this, "CommandUtils",
   "devtools/client/shared/developer-toolbar", true);
 loader.lazyRequireGetter(this, "getHighlighterUtils",
@@ -386,7 +375,7 @@ Toolbox.prototype = {
         useOnlyShared: true
       }).require;
 
-      iframe.setAttribute("aria-label", toolboxStrings("toolbox.label"));
+      iframe.setAttribute("aria-label", L10N.getStr("toolbox.label"));
       let domHelper = new DOMHelpers(iframe.contentWindow);
       domHelper.onceDOMReady(() => {
         domReady.resolve();
@@ -500,6 +489,17 @@ Toolbox.prototype = {
     return this.browserRequire("devtools/client/shared/vendor/react-dom");
   },
 
+  // Return HostType id for telemetry
+  _getTelemetryHostId: function () {
+    switch (this.hostType) {
+      case Toolbox.HostType.BOTTOM: return 0;
+      case Toolbox.HostType.SIDE: return 1;
+      case Toolbox.HostType.WINDOW: return 2;
+      case Toolbox.HostType.CUSTOM: return 3;
+      default: return 9;
+    }
+  },
+
   _pingTelemetry: function () {
     this._telemetry.toolOpened("toolbox");
 
@@ -507,6 +507,7 @@ Toolbox.prototype = {
     this._telemetry.logOncePerBrowserVersion(OS_IS_64_BITS,
                                              Services.appinfo.is64Bit ? 1 : 0);
     this._telemetry.logOncePerBrowserVersion(SCREENSIZE_HISTOGRAM, system.getScreenDimensions());
+    this._telemetry.log(HOST_HISTOGRAM, this._getTelemetryHostId());
   },
 
   /**
@@ -545,8 +546,8 @@ Toolbox.prototype = {
       // Prevent the opening of bookmarks window on toolbox.options.key
       event.preventDefault();
     };
-    shortcuts.on(toolboxStrings("toolbox.options.key"), selectOptions);
-    shortcuts.on(toolboxStrings("toolbox.help.key"), selectOptions);
+    shortcuts.on(L10N.getStr("toolbox.options.key"), selectOptions);
+    shortcuts.on(L10N.getStr("toolbox.help.key"), selectOptions);
   },
 
   _splitConsoleOnKeypress: function (e) {
@@ -591,7 +592,7 @@ Toolbox.prototype = {
       ["forceReload", true],
       ["forceReload2", true]
     ].forEach(([id, force]) => {
-      let key = toolboxStrings("toolbox." + id + ".key");
+      let key = L10N.getStr("toolbox." + id + ".key");
       shortcuts.on(key, (name, event) => {
         this.reloadTarget(force);
 
@@ -602,13 +603,22 @@ Toolbox.prototype = {
   },
 
   _addHostListeners: function (shortcuts) {
-    shortcuts.on(toolboxStrings("toolbox.nextTool.key"),
-                 this.selectNextTool.bind(this));
-    shortcuts.on(toolboxStrings("toolbox.previousTool.key"),
-                 this.selectPreviousTool.bind(this));
-    shortcuts.on(toolboxStrings("toolbox.minimize.key"),
-                 this._toggleMinimizeMode.bind(this));
-    shortcuts.on(toolboxStrings("toolbox.toggleHost.key"),
+    shortcuts.on(L10N.getStr("toolbox.nextTool.key"),
+                 (name, event) => {
+                   this.selectNextTool();
+                   event.preventDefault();
+                 });
+    shortcuts.on(L10N.getStr("toolbox.previousTool.key"),
+                 (name, event) => {
+                   this.selectPreviousTool();
+                   event.preventDefault();
+                 });
+    shortcuts.on(L10N.getStr("toolbox.minimize.key"),
+                 (name, event) => {
+                   this._toggleMinimizeMode();
+                   event.preventDefault();
+                 });
+    shortcuts.on(L10N.getStr("toolbox.toggleHost.key"),
                  (name, event) => {
                    this.switchToPreviousHost();
                    event.preventDefault();
@@ -703,7 +713,7 @@ Toolbox.prototype = {
       let key = doc.createElement("key");
       key.id = "key_browserconsole";
 
-      key.setAttribute("key", toolboxStrings("browserConsoleCmd.commandkey"));
+      key.setAttribute("key", L10N.getStr("browserConsoleCmd.commandkey"));
       key.setAttribute("modifiers", "accel,shift");
       // needed. See bug 371900
       key.setAttribute("oncommand", "void(0)");
@@ -807,7 +817,7 @@ Toolbox.prototype = {
       let button = this.doc.createElementNS(HTML_NS, "button");
       button.id = "toolbox-dock-" + position;
       button.className = "toolbox-dock-button devtools-button";
-      button.setAttribute("title", toolboxStrings("toolboxDockButtons." +
+      button.setAttribute("title", L10N.getStr("toolboxDockButtons." +
                                                   position + ".tooltip"));
       button.addEventListener("click", () => {
         this.switchHost(position);
@@ -818,7 +828,7 @@ Toolbox.prototype = {
   },
 
   _getMinimizeButtonShortcutTooltip: function () {
-    let str = toolboxStrings("toolbox.minimize.key");
+    let str = L10N.getStr("toolbox.minimize.key");
     let key = KeyShortcuts.parseElectronKey(this.win, str);
     return "(" + KeyShortcuts.stringify(key) + ")";
   },
@@ -828,7 +838,7 @@ Toolbox.prototype = {
     btn.className = "minimized";
 
     btn.setAttribute("title",
-      toolboxStrings("toolboxDockButtons.bottom.maximize") + " " +
+      L10N.getStr("toolboxDockButtons.bottom.maximize") + " " +
       this._getMinimizeButtonShortcutTooltip());
   },
 
@@ -837,7 +847,7 @@ Toolbox.prototype = {
     btn.className = "maximized";
 
     btn.setAttribute("title",
-      toolboxStrings("toolboxDockButtons.bottom.minimize") + " " +
+      L10N.getStr("toolboxDockButtons.bottom.minimize") + " " +
       this._getMinimizeButtonShortcutTooltip());
   },
 
@@ -985,7 +995,7 @@ Toolbox.prototype = {
     this._pickerButton = this.doc.createElementNS(HTML_NS, "button");
     this._pickerButton.id = "command-button-pick";
     this._pickerButton.className = "command-button command-button-invertable devtools-button";
-    this._pickerButton.setAttribute("title", toolboxStrings("pickButton.tooltip"));
+    this._pickerButton.setAttribute("title", L10N.getStr("pickButton.tooltip"));
     this._pickerButton.setAttribute("hidden", "true");
 
     let container = this.doc.querySelector("#toolbox-picker-container");
@@ -1577,10 +1587,10 @@ Toolbox.prototype = {
   _refreshHostTitle: function () {
     let title;
     if (this.target.name && this.target.name != this.target.url) {
-      title = toolboxStrings("toolbox.titleTemplate2",
-                             this.target.name, this.target.url);
+      title = L10N.getFormatStr("toolbox.titleTemplate2", this.target.name,
+                                                          this.target.url);
     } else {
-      title = toolboxStrings("toolbox.titleTemplate1", this.target.url);
+      title = L10N.getFormatStr("toolbox.titleTemplate1", this.target.url);
     }
     this._host.setTitle(title);
   },
@@ -1848,6 +1858,8 @@ Toolbox.prototype = {
       this.focusTool(this.currentToolId, true);
 
       this.emit("host-changed");
+
+      this._telemetry.log(HOST_HISTOGRAM, this._getTelemetryHostId());
     });
   },
 

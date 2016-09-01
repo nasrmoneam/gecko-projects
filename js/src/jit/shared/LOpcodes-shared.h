@@ -72,7 +72,7 @@
     _(ArraySplice)                  \
     _(NewObject)                    \
     _(NewTypedObject)               \
-    _(NewDeclEnvObject)             \
+    _(NewNamedLambdaObject)         \
     _(NewCallObject)                \
     _(NewSingletonCallObject)       \
     _(NewStringObject)              \
@@ -223,7 +223,7 @@
     _(Start)                        \
     _(OsrEntry)                     \
     _(OsrValue)                     \
-    _(OsrScopeChain)                \
+    _(OsrEnvironmentChain)          \
     _(OsrReturnValue)               \
     _(OsrArgumentsObject)           \
     _(RegExp)                       \
@@ -294,6 +294,8 @@
     _(ArrayJoin)                    \
     _(StoreElementHoleV)            \
     _(StoreElementHoleT)            \
+    _(FallibleStoreElementV)        \
+    _(FallibleStoreElementT)        \
     _(LoadTypedArrayElementHole)    \
     _(LoadTypedArrayElementStatic)  \
     _(StoreTypedArrayElementHole)   \
@@ -369,7 +371,7 @@
     _(CallInstanceOf)               \
     _(InterruptCheck)               \
     _(AsmJSInterruptCheck)          \
-    _(AsmThrowUnreachable)          \
+    _(WasmTrap)                     \
     _(AsmReinterpret)               \
     _(AsmReinterpretToI64)          \
     _(AsmReinterpretFromI64)        \

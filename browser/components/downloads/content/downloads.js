@@ -382,14 +382,15 @@ const DownloadsPanel = {
     } else {
       itemClearList.setAttribute("hidden", "true");
     }
+    DownloadsViewController.updateCommands();
 
-    document.getElementById("downloadsFooterButtonsSplitter").classList
-      .add("downloadsDropmarkerSplitterExtend");
+    document.getElementById("downloadsFooter")
+      .setAttribute("showingdropdown", true);
   },
 
   onFooterPopupHidden(aEvent) {
-    document.getElementById("downloadsFooterButtonsSplitter").classList
-      .remove("downloadsDropmarkerSplitterExtend");
+    document.getElementById("downloadsFooter")
+      .removeAttribute("showingdropdown");
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1145,9 +1146,9 @@ DownloadsViewItem.prototype = {
     this.confirmUnblock(window, "chooseUnblock");
   },
 
-  downloadsCmd_chooseOpen() {
+  downloadsCmd_unblockAndOpen() {
     DownloadsPanel.hidePanel();
-    this.confirmUnblock(window, "chooseOpen");
+    this.unblockAndOpenDownload().catch(Cu.reportError);
   },
 
   downloadsCmd_open() {
@@ -1174,8 +1175,8 @@ DownloadsViewItem.prototype = {
   },
 
   downloadsCmd_showBlockedInfo() {
-    DownloadsBlockedSubview.show(this.element,
-                                 ...this.rawBlockedTitleAndDetails);
+    DownloadsBlockedSubview.toggle(this.element,
+                                   ...this.rawBlockedTitleAndDetails);
   },
 
   downloadsCmd_openReferrer() {
@@ -1235,7 +1236,7 @@ const DownloadsViewController = {
     // showing.  If it is, then take the following path.
     if (DownloadsBlockedSubview.view.showingSubView) {
       let blockedSubviewCmds = [
-        "downloadsCmd_chooseOpen",
+        "downloadsCmd_unblockAndOpen",
         "cmd_delete",
       ];
       return blockedSubviewCmds.indexOf(aCommand) >= 0;
@@ -1525,6 +1526,10 @@ const DownloadsFooter = {
       } else {
         this._footerNode.removeAttribute("showingsummary");
       }
+      if (!aValue && this._showingSummary) {
+        // Make sure the panel's height shrinks when the summary is hidden.
+        DownloadsBlockedSubview.view.setHeightToFit();
+      }
       this._showingSummary = aValue;
     }
     return aValue;
@@ -1604,8 +1609,9 @@ const DownloadsBlockedSubview = {
    * @param details
    *        An array of strings with information about the block.
    */
-  show(element, title, details) {
+  toggle(element, title, details) {
     if (this.view.showingSubView) {
+      this.hide();
       return;
     }
 

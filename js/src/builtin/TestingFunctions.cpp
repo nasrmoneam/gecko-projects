@@ -9,7 +9,7 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Move.h"
 #include "mozilla/Sprintf.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #include <cmath>
 
@@ -50,8 +50,8 @@
 #include "jscntxtinlines.h"
 #include "jsobjinlines.h"
 
+#include "vm/EnvironmentObject-inl.h"
 #include "vm/NativeObject-inl.h"
-#include "vm/ScopeObject-inl.h"
 
 using namespace js;
 
@@ -279,20 +279,20 @@ GC(JSContext* cx, unsigned argc, Value* vp)
     CallArgs args = CallArgsFromVp(argc, vp);
 
     /*
-     * If the first argument is 'compartment', we collect any compartments
-     * previously scheduled for GC via schedulegc. If the first argument is an
-     * object, we collect the object's compartment (and any other compartments
-     * scheduled for GC). Otherwise, we collect all compartments.
+     * If the first argument is 'zone', we collect any zones previously
+     * scheduled for GC via schedulegc. If the first argument is an object, we
+     * collect the object's zone (and any other zones scheduled for
+     * GC). Otherwise, we collect all zones.
      */
-    bool compartment = false;
+    bool zone = false;
     if (args.length() >= 1) {
         Value arg = args[0];
         if (arg.isString()) {
-            if (!JS_StringEqualsAscii(cx, arg.toString(), "compartment", &compartment))
+            if (!JS_StringEqualsAscii(cx, arg.toString(), "zone", &zone))
                 return false;
         } else if (arg.isObject()) {
             PrepareZoneForGC(UncheckedUnwrap(&arg.toObject())->zone());
-            compartment = true;
+            zone = true;
         }
     }
 
@@ -309,7 +309,7 @@ GC(JSContext* cx, unsigned argc, Value* vp)
     size_t preBytes = cx->runtime()->gc.usage.gcBytes();
 #endif
 
-    if (compartment)
+    if (zone)
         PrepareForDebugGC(cx->runtime());
     else
         JS::PrepareForFullGC(cx);
@@ -360,7 +360,6 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
     _("dynamicHeapGrowth",          JSGC_DYNAMIC_HEAP_GROWTH,            true)  \
     _("dynamicMarkSlice",           JSGC_DYNAMIC_MARK_SLICE,             true)  \
     _("allocationThreshold",        JSGC_ALLOCATION_THRESHOLD,           true)  \
-    _("decommitThreshold",          JSGC_DECOMMIT_THRESHOLD,             true)  \
     _("minEmptyChunkCount",         JSGC_MIN_EMPTY_CHUNK_COUNT,          true)  \
     _("maxEmptyChunkCount",         JSGC_MAX_EMPTY_CHUNK_COUNT,          true)  \
     _("compactingEnabled",          JSGC_COMPACTING_ENABLED,             true)  \
@@ -511,28 +510,6 @@ WasmIsSupported(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
     args.rval().setBoolean(wasm::HasCompilerSupport(cx) && cx->options().wasm());
-    return true;
-}
-
-static bool
-WasmUsesSignalForOOB(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-    args.rval().setBoolean(wasm::SignalUsage().forOOB);
-    return true;
-}
-
-static bool
-SuppressSignalHandlers(JSContext* cx, unsigned argc, Value* vp)
-{
-    CallArgs args = CallArgsFromVp(argc, vp);
-
-    if (!args.requireAtLeast(cx, "suppressSignalHandlers", 1))
-        return false;
-
-    wasm::SuppressSignalHandlersForTesting(ToBoolean(args[0]));
-
-    args.rval().setUndefined();
     return true;
 }
 
@@ -788,7 +765,7 @@ ScheduleGC(JSContext* cx, unsigned argc, Value* vp)
         Zone* zone = UncheckedUnwrap(&args[0].toObject())->zone();
         PrepareZoneForGC(zone);
     } else if (args[0].isString()) {
-        /* This allows us to schedule atomsCompartment for GC. */
+        /* This allows us to schedule the atoms zone for GC. */
         PrepareZoneForGC(args[0].toString()->zone());
     }
 
@@ -1445,8 +1422,10 @@ SettlePromiseNow(JSContext* cx, unsigned argc, Value* vp)
     }
 
     RootedNativeObject promise(cx, &args[0].toObject().as<NativeObject>());
-    promise->setReservedSlot(PROMISE_STATE_SLOT, Int32Value(PROMISE_STATE_FULFILLED));
-    promise->setReservedSlot(PROMISE_RESULT_SLOT, UndefinedValue());
+    int32_t flags = promise->getFixedSlot(PROMISE_FLAGS_SLOT).toInt32();
+    promise->setFixedSlot(PROMISE_FLAGS_SLOT,
+                          Int32Value(flags | PROMISE_FLAG_RESOLVED | PROMISE_FLAG_FULFILLED));
+    promise->setFixedSlot(PROMISE_REACTIONS_OR_RESULT_SLOT, UndefinedValue());
 
     JS::dbg::onPromiseSettled(cx, promise);
     return true;
@@ -1509,7 +1488,9 @@ static const JSClassOps FinalizeCounterClassOps = {
 };
 
 static const JSClass FinalizeCounterClass = {
-    "FinalizeCounter", JSCLASS_IS_ANONYMOUS,
+    "FinalizeCounter",
+    JSCLASS_IS_ANONYMOUS |
+    JSCLASS_FOREGROUND_FINALIZE,
     &FinalizeCounterClassOps
 };
 
@@ -2193,7 +2174,9 @@ static const ClassOps CloneBufferObjectClassOps = {
 };
 
 const Class CloneBufferObject::class_ = {
-    "CloneBuffer", JSCLASS_HAS_RESERVED_SLOTS(CloneBufferObject::NUM_SLOTS),
+    "CloneBuffer",
+    JSCLASS_HAS_RESERVED_SLOTS(CloneBufferObject::NUM_SLOTS) |
+    JSCLASS_FOREGROUND_FINALIZE,
     &CloneBufferObjectClassOps
 };
 
@@ -2979,7 +2962,7 @@ EvalReturningScope(JSContext* cx, unsigned argc, Value* vp)
         if (!js::ExecuteInGlobalAndReturnScope(cx, global, script, &lexicalScope))
             return false;
 
-        varObj = lexicalScope->enclosingScope();
+        varObj = lexicalScope->enclosingEnvironment();
     }
 
     RootedObject rv(cx, JS_NewPlainObject(cx));
@@ -3561,9 +3544,9 @@ GetModuleEnvironmentValue(JSContext* cx, unsigned argc, Value* vp)
 
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
-"gc([obj] | 'compartment' [, 'shrinking'])",
-"  Run the garbage collector. When obj is given, GC only its compartment.\n"
-"  If 'compartment' is given, GC any compartments that were scheduled for\n"
+"gc([obj] | 'zone' [, 'shrinking'])",
+"  Run the garbage collector. When obj is given, GC only its zone.\n"
+"  If 'zone' is given, GC any zones that were scheduled for\n"
 "  GC via schedulegc.\n"
 "  If 'shrinking' is passed as the optional second argument, perform a\n"
 "  shrinking GC rather than a normal GC."),
@@ -3716,7 +3699,7 @@ gc::ZealModeHelpText),
     JS_FN_HELP("schedulegc", ScheduleGC, 1, 0,
 "schedulegc([num | obj])",
 "  If num is given, schedule a GC after num allocations.\n"
-"  If obj is given, schedule a GC of obj's compartment.\n"
+"  If obj is given, schedule a GC of obj's zone.\n"
 "  Returns the number of allocations before the next trigger."),
 
     JS_FN_HELP("selectforgc", SelectForGC, 0, 0,
@@ -3829,15 +3812,6 @@ gc::ZealModeHelpText),
     JS_FN_HELP("wasmIsSupported", WasmIsSupported, 0, 0,
 "wasmIsSupported()",
 "  Returns a boolean indicating whether WebAssembly is supported on the current device."),
-
-    JS_FN_HELP("wasmUsesSignalForOOB", WasmUsesSignalForOOB, 0, 0,
-"wasmUsesSignalForOOB()",
-"  Return whether wasm and asm.js use a signal handler for detecting out-of-bounds."),
-
-    JS_FN_HELP("suppressSignalHandlers", SuppressSignalHandlers, 1, 0,
-"suppressSignalHandlers(suppress)",
-"  This function allows artificially suppressing signal handler support, even if the underlying "
-"  platform supports it."),
 
     JS_FN_HELP("wasmTextToBinary", WasmTextToBinary, 1, 0,
 "wasmTextToBinary(str)",

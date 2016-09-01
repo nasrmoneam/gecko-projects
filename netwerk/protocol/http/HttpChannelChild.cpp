@@ -10,7 +10,7 @@
 
 #include "nsHttp.h"
 #include "nsICacheEntry.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/TabChild.h"
 #include "mozilla/ipc/FileDescriptorSetChild.h"
@@ -770,8 +770,6 @@ HttpChannelChild::DoOnProgress(nsIRequest* aRequest, int64_t progress, int64_t p
     // OnProgress
     //
     if (progress > 0) {
-      MOZ_ASSERT((progressMax == -1) || (progress <= progressMax),
-                 "unexpected progress values");
       mProgressSink->OnProgress(aRequest, nullptr, progress, progressMax);
     }
   }
@@ -859,10 +857,7 @@ HttpChannelChild::OnStopRequest(const nsresult& channelStatus,
   LOG(("HttpChannelChild::OnStopRequest [this=%p status=%x]\n",
        this, channelStatus));
 
-  if (mUploadStream) {
-    mUploadStream->Close();
-    mUploadStream = nullptr;
-  }
+  mUploadStream = nullptr;
 
   if (mDivertingToParent) {
     MOZ_RELEASE_ASSERT(!mFlushedForDiversion,
@@ -1016,8 +1011,6 @@ HttpChannelChild::OnProgress(const int64_t& progress,
   if (mProgressSink && NS_SUCCEEDED(mStatus) && mIsPending)
   {
     if (progress > 0) {
-      MOZ_ASSERT((progressMax == -1) || (progress <= progressMax),
-                 "unexpected progress values");
       mProgressSink->OnProgress(this, nullptr, progress, progressMax);
     }
   }

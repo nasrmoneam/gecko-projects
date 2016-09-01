@@ -10,7 +10,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/Move.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 #include "jscompartment.h"
 #include "jsfriendapi.h"
@@ -23,7 +23,7 @@
 #include "vm/ArrayObject.h"
 #include "vm/Debugger.h"
 #if defined(DEBUG)
-#include "vm/ScopeObject.h"
+#include "vm/EnvironmentObject.h"
 #endif
 #include "vm/Time.h"
 #include "vm/TypedArrayObject.h"

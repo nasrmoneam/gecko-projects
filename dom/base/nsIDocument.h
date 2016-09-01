@@ -238,6 +238,9 @@ public:
                                      nsIContentSink* aSink = nullptr) = 0;
   virtual void StopDocumentLoad() = 0;
 
+  virtual void SetSuppressParserErrorElement(bool aSuppress) {}
+  virtual bool SuppressParserErrorElement() { return false; }
+
   /**
    * Signal that the document title may have changed
    * (see nsDocument::GetTitle).
@@ -3068,6 +3071,9 @@ protected:
 
   // Do we currently have an event posted to call FlushUserFontSet?
   bool mPostedFlushUserFontSet : 1;
+
+  // True is document has ever been in a foreground window.
+  bool mEverInForeground : 1;
 
   enum Type {
     eUnknown, // should never be used

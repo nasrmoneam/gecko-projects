@@ -18,8 +18,6 @@
 
   <script type="application/javascript"
           src="chrome://mochikit/content/tests/SimpleTest/EventUtils.js"/>
-  <script type="application/javascript"
-          src="chrome://mochikit/content/tests/SimpleTest/ChromeUtils.js"/>
 
   <script type="application/javascript"><![CDATA[
     const {interfaces: Ci, classes: Cc, results: Cr, utils: Cu} = Components;
@@ -135,9 +133,11 @@
       if (gHasFindClipboard) {
         yield testStatusText();
       }
-      yield testFindCountUI();
-      gFindBar.close();
-      ok(gFindBar.hidden, "Failed to close findbar after testFindCountUI");
+      if (!gBrowser.hasAttribute("remote")) {
+        yield testFindCountUI();
+        gFindBar.close();
+        ok(gFindBar.hidden, "Failed to close findbar after testFindCountUI");
+      }
       yield openFindbar();
       yield testFindAfterCaseChanged();
       gFindBar.close();
@@ -258,7 +258,7 @@
         if (waitForResult) {
           promise = promiseFindResult();
         }
-        let event = document.createEvent("KeyEvents");
+        let event = document.createEvent("KeyboardEvent");
         event.initKeyEvent("keypress", true, true, null, false, false,
                            false, false, 0, str.charCodeAt(i));
         gFindBar._findField.inputField.dispatchEvent(event);
@@ -405,7 +405,7 @@
 
       yield ContentTask.spawn(gBrowser, null, function* () {
         let document = content.document;
-        let event = document.createEvent("KeyEvents");
+        let event = document.createEvent("KeyboardEvent");
         event.initKeyEvent("keypress", true, true, null, false, false,
                            false, false, 0, "'".charCodeAt(0));
         document.documentElement.dispatchEvent(event);
@@ -487,7 +487,7 @@
 
       yield ContentTask.spawn(gBrowser, null, function* () {
         let document = content.document;
-        let event = document.createEvent("KeyEvents");
+        let event = document.createEvent("KeyboardEvent");
         event.initKeyEvent("keypress", true, true, null, false, false,
                            false, false, 0, "/".charCodeAt(0));
         document.documentElement.dispatchEvent(event);
@@ -541,13 +541,12 @@
         total: 0
       }];
       let regex = /([\d]*)\sof\s([\d]*)/;
-      let timeout = gFindBar._matchesCountTimeoutLength + 20;
 
       function assertMatches(aTest, aMatches) {
         is(aMatches[1], String(aTest.current),
-          "Currently highlighted match should be at " + aTest.current);
+          `Currently highlighted match should be at ${aTest.current} for '${aTest.text}'`);
         is(aMatches[2], String(aTest.total),
-          "Total amount of matches should be " + aTest.total);
+          `Total amount of matches should be ${aTest.total} for '${aTest.text}'`);
       }
 
       for (let test of tests) {
@@ -568,6 +567,7 @@
             // test.current + 1, test.current + 2, ..., test.total, 1, ..., test.current
             let current = (test.current + i - 1) % test.total + 1;
             assertMatches({
+              text: test.text,
               current: current,
               total: test.total
             }, foundMatches.value.match(regex));

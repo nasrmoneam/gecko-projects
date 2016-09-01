@@ -110,6 +110,8 @@ static_assert(NS_STYLE_INHERIT_MASK == (1 << nsStyleStructID_Length) - 1,
 static_assert((NS_RULE_NODE_IS_ANIMATION_RULE & NS_STYLE_INHERIT_MASK) == 0,
   "NS_RULE_NODE_IS_ANIMATION_RULE must not overlap the style struct bits.");
 
+namespace mozilla {
+
 struct FragmentOrURL
 {
   FragmentOrURL() : mIsLocalRef(false) {}
@@ -142,6 +144,39 @@ private:
   nsCOMPtr<nsIURI> mURL;
   bool    mIsLocalRef;
 };
+
+struct Position {
+  using Coord = nsStyleCoord::CalcValue;
+
+  Coord mXPosition, mYPosition;
+
+  // Initialize nothing
+  Position() {}
+
+  // Sets both mXPosition and mYPosition to the given percent value for the
+  // initial property-value (e.g. 0.0f for "0% 0%", or 0.5f for "50% 50%")
+  void SetInitialPercentValues(float aPercentVal);
+
+  // Sets both mXPosition and mYPosition to 0 (app units) for the
+  // initial property-value as a length with no percentage component.
+  void SetInitialZeroValues();
+
+  // True if the effective background image position described by this depends
+  // on the size of the corresponding frame.
+  bool DependsOnPositioningAreaSize() const {
+    return mXPosition.mPercent != 0.0f || mYPosition.mPercent != 0.0f;
+  }
+
+  bool operator==(const Position& aOther) const {
+    return mXPosition == aOther.mXPosition &&
+      mYPosition == aOther.mYPosition;
+  }
+  bool operator!=(const Position& aOther) const {
+    return !(*this == aOther);
+  }
+};
+
+} // namespace mozilla
 
 // The lifetime of these objects is managed by the presshell's arena.
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleFont
@@ -557,43 +592,11 @@ struct nsStyleImageLayers {
     MOZ_COUNT_DTOR(nsStyleImageLayers);
   }
 
-  struct Position;
-  friend struct Position;
-  struct Position {
-    typedef nsStyleCoord::CalcValue PositionCoord;
-    PositionCoord mXPosition, mYPosition;
+  static bool IsInitialPositionForLayerType(mozilla::Position aPosition, LayerType aType);
 
-    // Initialize nothing
-    Position() {}
-
-    bool IsInitialValue(LayerType aType) const;
-
-    static float GetInitialValue(LayerType aType) {
-      return (aType == LayerType::Background) ? 0.0f : 0.5f;
-    }
-
-    // Sets both mXPosition and mYPosition to the given percent value for the
-    // initial property-value (e.g. 0.0f for "0% 0%", or 0.5f for "50% 50%")
-    void SetInitialPercentValues(float aPercentVal);
-
-    // Sets both mXPosition and mYPosition to 0 (app units) for the
-    // initial property-value as a length with no percentage component.
-    void SetInitialZeroValues();
-
-    // True if the effective background image position described by this depends
-    // on the size of the corresponding frame.
-    bool DependsOnPositioningAreaSize() const {
-      return mXPosition.mPercent != 0.0f || mYPosition.mPercent != 0.0f;
-    }
-
-    bool operator==(const Position& aOther) const {
-      return mXPosition == aOther.mXPosition &&
-             mYPosition == aOther.mYPosition;
-    }
-    bool operator!=(const Position& aOther) const {
-      return !(*this == aOther);
-    }
-  };
+  static float GetInitialPositionForLayerType(LayerType aType) {
+    return (aType == LayerType::Background) ? 0.0f : 0.5f;
+  }
 
   struct Size;
   friend struct Size;
@@ -689,14 +692,14 @@ struct nsStyleImageLayers {
   friend struct Layer;
   struct Layer {
     nsStyleImage  mImage;         // [reset]
-    FragmentOrURL mSourceURI;     // [reset]
+    mozilla::FragmentOrURL mSourceURI;  // [reset]
                                   // mask-only property
                                   // This property is used for mask layer only.
                                   // For a background layer, it should always
                                   // be the initial value, which is nullptr.
                                   // Store mask-image URI so that we can resolve
                                   // SVG mask path later.
-    Position      mPosition;      // [reset] See nsStyleConsts.h
+    mozilla::Position mPosition;  // [reset]
     Size          mSize;          // [reset]
     uint8_t       mClip;          // [reset] See nsStyleConsts.h
     MOZ_INIT_OUTSIDE_CTOR
@@ -1108,7 +1111,7 @@ public:
     return true;
   }
 
-  NS_INLINE_DECL_REFCOUNTING(nsCSSShadowArray)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(nsCSSShadowArray)
 
 private:
   uint32_t mLength;
@@ -1332,7 +1335,7 @@ public:
   uint8_t        mBorderImageRepeatH; // [reset] see nsStyleConsts.h
   uint8_t        mBorderImageRepeatV; // [reset]
   mozilla::StyleFloatEdge mFloatEdge; // [reset]
-  uint8_t        mBoxDecorationBreak; // [reset] see nsStyleConsts.h
+  mozilla::StyleBoxDecorationBreak mBoxDecorationBreak; // [reset]
 
 protected:
   // mComputedBorder holds the CSS2.1 computed border-width values.
@@ -1650,6 +1653,8 @@ struct nsStyleGridLine
 //
 //   A <track-size> specified as a single <track-breadth> is represented
 //   as identical min and max sizing functions.
+//   A 'fit-content(size)' <track-size> is represented as eStyleUnit_None
+//   in the min sizing function and 'size' in the max sizing function.
 //
 //   The units for nsStyleCoord are:
 //   * eStyleUnit_Percent represents a <percentage>
@@ -1741,10 +1746,6 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition
     return nsChangeHint(0);
   }
 
-  // XXXdholbert nsStyleImageLayers::Position should probably be moved to a
-  // different scope, since we're now using it in multiple style structs.
-  typedef nsStyleImageLayers::Position Position;
-
   /**
    * Return the computed value for 'align-content'.
    */
@@ -1778,7 +1779,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition
    */
   uint8_t ComputedJustifySelf(nsStyleContext* aParent) const;
 
-  Position      mObjectPosition;        // [reset]
+  mozilla::Position mObjectPosition;    // [reset]
   nsStyleSides  mOffset;                // [reset] coord, percent, calc, auto
   nsStyleCoord  mWidth;                 // [reset] coord, percent, enum, calc, auto
   nsStyleCoord  mMinWidth;              // [reset] coord, percent, enum, calc
@@ -2547,7 +2548,6 @@ public:
     mFillRule = aFillRule;
   }
 
-  typedef nsStyleImageLayers::Position Position;
   Position& GetPosition() {
     MOZ_ASSERT(mType == StyleBasicShapeType::Circle ||
                mType == StyleBasicShapeType::Ellipse,
@@ -2822,11 +2822,6 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
     return nsChangeHint(0);
   }
 
-  // XXXdholbert, XXXkgilbert nsStyleImageLayers::Position should probably be
-  // moved to a different scope, since we're now using it in multiple style
-  // structs.
-  typedef nsStyleImageLayers::Position Position;
-
   // We guarantee that if mBinding is non-null, so are mBinding->GetURI() and
   // mBinding->mOriginPrincipal.
   RefPtr<mozilla::css::URLValue> mBinding;    // [reset]
@@ -2868,8 +2863,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
   uint8_t mScrollSnapTypeY;     // [reset] see nsStyleConsts.h NS_STYLE_SCROLL_SNAP_TYPE_*
   nsStyleCoord mScrollSnapPointsX; // [reset]
   nsStyleCoord mScrollSnapPointsY; // [reset]
-  Position mScrollSnapDestination; // [reset]
-  nsTArray<Position> mScrollSnapCoordinate; // [reset]
+  mozilla::Position mScrollSnapDestination; // [reset]
+  nsTArray<mozilla::Position> mScrollSnapCoordinate; // [reset]
 
   // mSpecifiedTransform is the list of transform functions as
   // specified, or null to indicate there is no transform.  (inherit or
@@ -3038,26 +3033,61 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
   inline bool IsOriginalDisplayInlineOutside(const nsIFrame* aContextFrame) const;
   inline uint8_t GetDisplay(const nsIFrame* aContextFrame) const;
   inline bool IsFloating(const nsIFrame* aContextFrame) const;
-  inline bool IsAbsPosContainingBlock(const nsIFrame* aContextFrame) const;
   inline bool IsRelativelyPositioned(const nsIFrame* aContextFrame) const;
   inline bool IsAbsolutelyPositioned(const nsIFrame* aContextFrame) const;
 
   // These methods are defined in nsStyleStructInlines.h.
 
   /**
+   * Returns whether the element is a containing block for its
+   * absolutely positioned descendants.
+   * aContextFrame is the frame for which this is the nsStyleDisplay.
+   */
+  inline bool IsAbsPosContainingBlock(const nsIFrame* aContextFrame) const;
+
+  /**
+   * The same as IsAbsPosContainingBlock, except skipping the tests that
+   * are based on the frame rather than the style context (thus
+   * potentially returning a false positive).
+   */
+  template<class StyleContextLike>
+  inline bool IsAbsPosContainingBlockForAppropriateFrame(
+                StyleContextLike* aStyleContext) const;
+
+  /**
    * Returns true when the element has the transform property
    * or a related property, and supports CSS transforms.
-   * aContextFrame is the frame for which this is the nsStylePosition.
+   * aContextFrame is the frame for which this is the nsStyleDisplay.
    */
   inline bool HasTransform(const nsIFrame* aContextFrame) const;
 
   /**
    * Returns true when the element is a containing block for its fixed-pos
    * descendants.
-   * aContextFrame is the frame for which this is the nsStylePosition.
+   * aContextFrame is the frame for which this is the nsStyleDisplay.
    */
   inline bool IsFixedPosContainingBlock(const nsIFrame* aContextFrame) const;
 
+  /**
+   * The same as IsFixedPosContainingBlock, except skipping the tests that
+   * are based on the frame rather than the style context (thus
+   * potentially returning a false positive).
+   */
+  template<class StyleContextLike>
+  inline bool IsFixedPosContainingBlockForAppropriateFrame(
+                StyleContextLike* aStyleContext) const;
+
+private:
+  // Helpers for above functions, which do some but not all of the tests
+  // for them (since transform must be tested separately for each).
+  template<class StyleContextLike>
+  inline bool HasAbsPosContainingBlockStyleInternal(
+                StyleContextLike* aStyleContext) const;
+  template<class StyleContextLike>
+  inline bool HasFixedPosContainingBlockStyleInternal(
+                StyleContextLike* aStyleContext) const;
+
+public:
   // Return the 'float' and 'clear' properties, with inline-{start,end} values
   // resolved to {left,right} according to the given writing mode. These are
   // defined in WritingModes.h.
@@ -3436,10 +3466,10 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleXUL
 
   float         mBoxFlex;               // [reset] see nsStyleConsts.h
   uint32_t      mBoxOrdinal;            // [reset] see nsStyleConsts.h
-  uint8_t       mBoxAlign;              // [reset] see nsStyleConsts.h
-  uint8_t       mBoxDirection;          // [reset] see nsStyleConsts.h
-  uint8_t       mBoxOrient;             // [reset] see nsStyleConsts.h
-  uint8_t       mBoxPack;               // [reset] see nsStyleConsts.h
+  mozilla::StyleBoxAlign mBoxAlign;         // [reset]
+  mozilla::StyleBoxDirection mBoxDirection; // [reset]
+  mozilla::StyleBoxOrient mBoxOrient;       // [reset]
+  mozilla::StyleBoxPack mBoxPack;           // [reset]
   bool          mStretchStack;          // [reset] see nsStyleConsts.h
 };
 
@@ -3523,7 +3553,7 @@ struct nsStyleSVGPaint
 {
   union {
     nscolor mColor;
-    FragmentOrURL* mPaintServer;
+    mozilla::FragmentOrURL* mPaintServer;
   } mPaint;
   nsStyleSVGPaintType mType;
   nscolor mFallbackColor;
@@ -3574,9 +3604,9 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleSVG
 
   nsStyleSVGPaint  mFill;             // [inherited]
   nsStyleSVGPaint  mStroke;           // [inherited]
-  FragmentOrURL    mMarkerEnd;        // [inherited]
-  FragmentOrURL    mMarkerMid;        // [inherited]
-  FragmentOrURL    mMarkerStart;      // [inherited]
+  mozilla::FragmentOrURL mMarkerEnd;        // [inherited]
+  mozilla::FragmentOrURL mMarkerMid;        // [inherited]
+  mozilla::FragmentOrURL mMarkerStart;      // [inherited]
   nsTArray<nsStyleCoord> mStrokeDasharray;  // [inherited] coord, percent, factor
 
   nsStyleCoord     mStrokeDashoffset; // [inherited] coord, percent, factor
@@ -3701,7 +3731,7 @@ struct nsStyleFilter
   void SetFilterParameter(const nsStyleCoord& aFilterParameter,
                           int32_t aType);
 
-  FragmentOrURL* GetURL() const {
+  mozilla::FragmentOrURL* GetURL() const {
     NS_ASSERTION(mType == NS_STYLE_FILTER_URL, "wrong filter type");
     return mURL;
   }
@@ -3721,7 +3751,7 @@ private:
   int32_t mType; // see NS_STYLE_FILTER_* constants in nsStyleConsts.h
   nsStyleCoord mFilterParameter; // coord, percent, factor, angle
   union {
-    FragmentOrURL* mURL;
+    mozilla::FragmentOrURL* mURL;
     nsCSSShadowArray* mDropShadow;
   };
 };

@@ -84,6 +84,7 @@ inline bool IsSpaceCharacter(char aChar) {
   return aChar == ' ' || aChar == '\t' || aChar == '\n' || aChar == '\r' ||
          aChar == '\f';
 }
+class AccessibleNode;
 struct BoxQuadOptions;
 struct ConvertCoordinateOptions;
 class DOMPoint;
@@ -999,31 +1000,46 @@ public:
   bool IsStyledByServo() const { return false; }
 #endif
 
-  inline bool IsDirtyForServo() const
+  bool IsDirtyForServo() const
   {
     MOZ_ASSERT(IsStyledByServo());
     return HasFlag(NODE_IS_DIRTY_FOR_SERVO);
   }
 
-  inline bool HasDirtyDescendantsForServo() const
+  bool HasDirtyDescendantsForServo() const
   {
     MOZ_ASSERT(IsStyledByServo());
     return HasFlag(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
   }
 
-  inline void SetIsDirtyForServo() {
+  void SetIsDirtyForServo() {
     MOZ_ASSERT(IsStyledByServo());
     SetFlags(NODE_IS_DIRTY_FOR_SERVO);
   }
 
-  inline void SetHasDirtyDescendantsForServo() {
+  void SetHasDirtyDescendantsForServo() {
     MOZ_ASSERT(IsStyledByServo());
     SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
   }
 
-  inline void SetIsDirtyAndHasDirtyDescendantsForServo() {
+  void SetIsDirtyAndHasDirtyDescendantsForServo() {
     MOZ_ASSERT(IsStyledByServo());
     SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
+  }
+
+  void UnsetIsDirtyForServo() {
+    MOZ_ASSERT(IsStyledByServo());
+    UnsetFlags(NODE_IS_DIRTY_FOR_SERVO);
+  }
+
+  void UnsetHasDirtyDescendantsForServo() {
+    MOZ_ASSERT(IsStyledByServo());
+    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
+  }
+
+  void UnsetIsDirtyAndHasDirtyDescendantsForServo() {
+    MOZ_ASSERT(IsStyledByServo());
+    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
   }
 
   inline void UnsetRestyleFlagsIfGecko();
@@ -1750,17 +1766,7 @@ public:
   }
 protected:
   void SetParentIsContent(bool aValue) { SetBoolFlag(ParentIsContent, aValue); }
-  /**
-   * This is a special case of SetIsInDocument used to special-case it for the
-   * document constructor (which can't do the IsStyledByServo() check).
-   */
-  void SetIsDocument() { SetBoolFlag(IsInDocument); }
-  void SetIsInDocument() {
-    if (IsStyledByServo()) {
-      SetIsDirtyAndHasDirtyDescendantsForServo();
-    }
-    SetBoolFlag(IsInDocument);
-  }
+  void SetIsInDocument() { SetBoolFlag(IsInDocument); }
   void SetNodeIsContent() { SetBoolFlag(NodeIsContent); }
   void ClearInDocument() { ClearBoolFlag(IsInDocument); }
   void SetIsElement() { SetBoolFlag(NodeIsElement); }
@@ -1805,6 +1811,8 @@ public:
   void UnbindObject(nsISupports* aObject);
 
   void GetBoundMutationObservers(nsTArray<RefPtr<nsDOMMutationObserver> >& aResult);
+
+  already_AddRefed<mozilla::dom::AccessibleNode> GetAccessibleNode();
 
   /**
    * Returns the length of this node, as specified at

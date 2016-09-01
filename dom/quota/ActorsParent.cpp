@@ -44,7 +44,7 @@
 #include "mozilla/Services.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/TypeTraits.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "mozStorageCID.h"
 #include "mozStorageHelper.h"
 #include "nsAppDirectoryServiceDefs.h"
@@ -7487,8 +7487,6 @@ nsresult
 UpgradeDirectoryMetadataFrom1To2Helper::DoProcessOriginDirectories()
 {
   AssertIsOnIOThread();
-
-  nsCOMPtr<nsIFile> permanentStorageDir;
 
   for (uint32_t count = mOriginProps.Length(), index = 0;
        index < count;

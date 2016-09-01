@@ -47,7 +47,7 @@ namespace jit {
     _(Phi)                                                                  \
     _(Beta)                                                                 \
     _(OsrValue)                                                             \
-    _(OsrScopeChain)                                                        \
+    _(OsrEnvironmentChain)                                                  \
     _(OsrReturnValue)                                                       \
     _(OsrArgumentsObject)                                                   \
     _(ReturnFromCtor)                                                       \
@@ -134,7 +134,7 @@ namespace jit {
     _(NewTypedArrayDynamicLength)                                           \
     _(NewObject)                                                            \
     _(NewTypedObject)                                                       \
-    _(NewDeclEnvObject)                                                     \
+    _(NewNamedLambdaObject)                                                 \
     _(NewCallObject)                                                        \
     _(NewSingletonCallObject)                                               \
     _(NewStringObject)                                                      \
@@ -212,6 +212,7 @@ namespace jit {
     _(LoadUnboxedString)                                                    \
     _(StoreElement)                                                         \
     _(StoreElementHole)                                                     \
+    _(FallibleStoreElement)                                                 \
     _(StoreUnboxedScalar)                                                   \
     _(StoreUnboxedObjectOrNull)                                             \
     _(StoreUnboxedString)                                                   \
@@ -262,7 +263,6 @@ namespace jit {
     _(CallInstanceOf)                                                       \
     _(InterruptCheck)                                                       \
     _(AsmJSInterruptCheck)                                                  \
-    _(AsmThrowUnreachable)                                                  \
     _(GetDOMProperty)                                                       \
     _(GetDOMMember)                                                         \
     _(SetDOMProperty)                                                       \
@@ -274,6 +274,7 @@ namespace jit {
     _(WasmBoundsCheck)                                                      \
     _(WasmLoad)                                                             \
     _(WasmStore)                                                            \
+    _(WasmTrap)                                                             \
     _(WasmTruncateToInt32)                                                  \
     _(AsmJSNeg)                                                             \
     _(AsmJSUnsignedToDouble)                                                \

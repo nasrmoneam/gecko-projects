@@ -29,7 +29,6 @@ Navigator implements NavigatorLanguage;
 Navigator implements NavigatorOnLine;
 Navigator implements NavigatorContentUtils;
 Navigator implements NavigatorStorageUtils;
-Navigator implements NavigatorFeatures;
 Navigator implements NavigatorConcurrentHardware;
 
 [NoInterfaceObject, Exposed=(Window,Worker)]
@@ -90,15 +89,6 @@ interface NavigatorContentUtils {
 interface NavigatorStorageUtils {
   // NOT IMPLEMENTED
   //void yieldForStorageUpdates();
-};
-
-[NoInterfaceObject]
-interface NavigatorFeatures {
-  [ChromeOnly, Throws]
-  Promise<any> getFeature(DOMString name);
-
-  [ChromeOnly, Throws]
-  Promise<any> hasFeature(DOMString name);
 };
 
 partial interface Navigator {
@@ -325,6 +315,9 @@ partial interface Navigator {
 partial interface Navigator {
   [Throws, Pref="dom.vr.enabled"]
   Promise<sequence<VRDisplay>> getVRDisplays();
+  // TODO: Use FrozenArray once available. (Bug 1236777)
+  [Frozen, Cached, Pure, Pref="dom.vr.enabled"]
+  readonly attribute sequence<VRDisplay> activeVRDisplays;
 };
 
 #ifdef MOZ_B2G_BT

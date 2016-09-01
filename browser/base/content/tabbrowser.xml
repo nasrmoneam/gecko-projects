@@ -1612,13 +1612,20 @@
             // Make sure the browser is destroyed so it unregisters from observer notifications
             aBrowser.destroy();
 
-            // Make sure to restore the original droppedLinkHandler.
+            // Make sure to restore the original droppedLinkHandler and
+            // relatedBrowser.
             let droppedLinkHandler = aBrowser.droppedLinkHandler;
+            let relatedBrowser = aBrowser.relatedBrowser;
 
             // Change the "remote" attribute.
             let parent = aBrowser.parentNode;
             parent.removeChild(aBrowser);
             aBrowser.setAttribute("remote", aShouldBeRemote ? "true" : "false");
+
+            // NB: This works with the hack in the browser constructor that
+            // turns this normal property into a field.
+            aBrowser.relatedBrowser = relatedBrowser;
+
             parent.appendChild(aBrowser);
 
             aBrowser.userTypedValue = oldUserTypedValue;
@@ -4939,7 +4946,7 @@
       </xul:arrowscrollbox>
     </content>
 
-    <implementation implements="nsIDOMEventListener">
+    <implementation implements="nsIDOMEventListener, nsIObserver">
       <constructor>
         <![CDATA[
           this.mTabClipWidth = Services.prefs.getIntPref("browser.tabs.tabClipWidth");
@@ -4958,8 +4965,20 @@
             this._tabAnimationLoggingEnabled = false;
           }
           this._browserNewtabpageEnabled = Services.prefs.getBoolPref("browser.newtabpage.enabled");
+          this.observe(null, "nsPref:changed", "privacy.userContext.enabled");
+          Services.prefs.addObserver("privacy.userContext.enabled", this, false);
         ]]>
       </constructor>
+
+      <destructor>
+        <![CDATA[
+          Services.prefs.removeObserver("privacy.userContext.enabled", this);
+        ]]>
+      </destructor>
+
+      <field name="newtabUndoCloseTab" readonly="true">
+        document.getAnonymousElementByAttribute(this, "anonid", "newtab_undoCloseTab");
+      </field>
 
       <field name="tabbrowser" readonly="true">
         document.getElementById(this.getAttribute("tabbrowser"));
@@ -4985,6 +5004,54 @@
       <field name="_beforeHoveredTab">null</field>
       <field name="_afterHoveredTab">null</field>
       <field name="_hoveredTab">null</field>
+
+      <method name="observe">
+        <parameter name="aSubject"/>
+        <parameter name="aTopic"/>
+        <parameter name="aData"/>
+        <body><![CDATA[
+          switch (aTopic) {
+            case "nsPref:changed":
+              // This is the only pref observed.
+              let containersEnabled = Services.prefs.getBoolPref("privacy.userContext.enabled");
+
+              const newTab = document.getElementById("new-tab-button");
+              const newTab2 = document.getAnonymousElementByAttribute(this, "anonid", "tabs-newtab-button")
+
+              if (containersEnabled) {
+                for (let parent of [newTab, newTab2]) {
+                  if (!parent)
+                    continue;
+                  let popup = document.createElementNS(
+                                "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul",
+                                "menupopup");
+                  if (parent.id) {
+                    popup.id = "newtab-popup";
+                  } else {
+                    popup.setAttribute("anonid", "newtab-popup");
+                  }
+                  popup.oncommand="event.stopPropagation();";
+                  popup.className = "new-tab-popup";
+                  popup.setAttribute("position", "after_end");
+                  parent.appendChild(popup);
+
+                  addClickAndHoldListenersOnElement(parent);
+                  parent.setAttribute("type", "menu");
+                }
+              } else {
+                for (let parent of [newTab, newTab2]) {
+                  if (!parent)
+                    continue;
+                  removeClickAndHoldListenersOnElement(parent);
+                  parent.removeAttribute("type");
+                  parent.firstChild.remove();
+                }
+              }
+
+              break;
+          }
+        ]]></body>
+      </method>
 
       <property name="_isCustomizing" readonly="true">
         <getter>
@@ -6245,44 +6312,44 @@
 
     <content context="tabContextMenu">
       <xul:stack class="tab-stack" flex="1">
-        <xul:hbox xbl:inherits="pinned,selected,visuallyselected,fadein"
+        <xul:hbox xbl:inherits="pinned,selected=visuallyselected,fadein"
                   class="tab-background">
-          <xul:hbox xbl:inherits="pinned,selected,visuallyselected"
+          <xul:hbox xbl:inherits="pinned,selected=visuallyselected"
                     class="tab-background-start"/>
-          <xul:hbox xbl:inherits="pinned,selected,visuallyselected"
+          <xul:hbox xbl:inherits="pinned,selected=visuallyselected"
                     class="tab-background-middle"/>
-          <xul:hbox xbl:inherits="pinned,selected,visuallyselected"
+          <xul:hbox xbl:inherits="pinned,selected=visuallyselected"
                     class="tab-background-end"/>
         </xul:hbox>
-        <xul:hbox xbl:inherits="pinned,selected,visuallyselected,titlechanged,attention"
+        <xul:hbox xbl:inherits="pinned,selected=visuallyselected,titlechanged,attention"
                   class="tab-content" align="center">
-          <xul:image xbl:inherits="fadein,pinned,busy,progress,selected,visuallyselected"
+          <xul:image xbl:inherits="fadein,pinned,busy,progress,selected=visuallyselected"
                      class="tab-throbber"
                      role="presentation"
                      layer="true" />
-          <xul:image xbl:inherits="src=image,fadein,pinned,selected,visuallyselected,busy,crashed,sharing"
+          <xul:image xbl:inherits="src=image,fadein,pinned,selected=visuallyselected,busy,crashed,sharing"
                      anonid="tab-icon-image"
                      class="tab-icon-image"
                      validate="never"
                      role="presentation"/>
-          <xul:image xbl:inherits="sharing,selected"
+          <xul:image xbl:inherits="sharing,selected=visuallyselected"
                      anonid="sharing-icon"
                      class="tab-sharing-icon-overlay"
                      role="presentation"/>
-          <xul:image xbl:inherits="crashed,busy,soundplaying,pinned,muted,visuallyselected"
+          <xul:image xbl:inherits="crashed,busy,soundplaying,pinned,muted,selected=visuallyselected"
                      anonid="overlay-icon"
                      class="tab-icon-overlay"
                      role="presentation"/>
           <xul:label flex="1"
-                     xbl:inherits="value=label,crop,accesskey,fadein,pinned,selected,visuallyselected,attention"
+                     xbl:inherits="value=label,crop,accesskey,fadein,pinned,selected=visuallyselected,attention"
                      class="tab-text tab-label"
                      role="presentation"/>
-          <xul:image xbl:inherits="soundplaying,pinned,muted,visuallyselected"
+          <xul:image xbl:inherits="soundplaying,pinned,muted,selected=visuallyselected"
                      anonid="soundplaying-icon"
                      class="tab-icon-sound"
                      role="presentation"/>
           <xul:toolbarbutton anonid="close-button"
-                             xbl:inherits="fadein,pinned,selected,visuallyselected"
+                             xbl:inherits="fadein,pinned,selected=visuallyselected"
                              class="tab-close-button close-icon"/>
         </xul:hbox>
       </xul:stack>
@@ -6673,30 +6740,36 @@
         }
 
         let containersEnabled = Services.prefs.getBoolPref("privacy.userContext.enabled");
-        document.getElementById("alltabs-popup-separator-1").hidden = !containersEnabled;
-        let containersTab = document.getElementById("alltabs_containersTab");
 
-        containersTab.hidden = !containersEnabled;
-        if (PrivateBrowsingUtils.isWindowPrivate(window)) {
-          containersTab.setAttribute("disabled", "true");
+        if (event.target.getAttribute('anonid') == "newtab-popup" ||
+            event.target.id == "newtab-popup") {
+          createUserContextMenu(event);
+        } else {
+          document.getElementById("alltabs-popup-separator-1").hidden = !containersEnabled;
+          let containersTab = document.getElementById("alltabs_containersTab");
+
+          containersTab.hidden = !containersEnabled;
+          if (PrivateBrowsingUtils.isWindowPrivate(window)) {
+            containersTab.setAttribute("disabled", "true");
+          }
+
+          document.getElementById("alltabs_undoCloseTab").disabled =
+            SessionStore.getClosedTabCount(window) == 0;
+
+          var tabcontainer = gBrowser.tabContainer;
+
+          // Listen for changes in the tab bar.
+          tabcontainer.addEventListener("TabAttrModified", this, false);
+          tabcontainer.addEventListener("TabClose", this, false);
+          tabcontainer.mTabstrip.addEventListener("scroll", this, false);
+
+          let tabs = gBrowser.visibleTabs;
+          for (var i = 0; i < tabs.length; i++) {
+            if (!tabs[i].pinned)
+              this._createTabMenuItem(tabs[i]);
+          }
+          this._updateTabsVisibilityStatus();
         }
-
-        document.getElementById("alltabs_undoCloseTab").disabled =
-          SessionStore.getClosedTabCount(window) == 0;
-
-        var tabcontainer = gBrowser.tabContainer;
-
-        // Listen for changes in the tab bar.
-        tabcontainer.addEventListener("TabAttrModified", this, false);
-        tabcontainer.addEventListener("TabClose", this, false);
-        tabcontainer.mTabstrip.addEventListener("scroll", this, false);
-
-        let tabs = gBrowser.visibleTabs;
-        for (var i = 0; i < tabs.length; i++) {
-          if (!tabs[i].pinned)
-            this._createTabMenuItem(tabs[i]);
-        }
-        this._updateTabsVisibilityStatus();
       ]]></handler>
 
       <handler event="popuphidden">
@@ -6710,6 +6783,9 @@
           let menuItem = this.childNodes[i];
           if (menuItem.tab) {
             menuItem.tab.mCorrespondingMenuitem = null;
+            this.removeChild(menuItem);
+          }
+          if (menuItem.hasAttribute("usercontextid")) {
             this.removeChild(menuItem);
           }
         }

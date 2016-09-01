@@ -60,7 +60,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Sprintf.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 
 // Other Classes
 #include "mozilla/dom/BarProps.h"
@@ -618,7 +618,8 @@ nsPIDOMWindow<T>::nsPIDOMWindow(nsPIDOMWindowOuter *aOuterWindow)
   mInnerObjectsFreed(false),
   mIsModalContentWindow(false),
   mIsActive(false), mIsBackground(false),
-  mMediaSuspend(nsISuspendedTypes::NONE_SUSPENDED),
+  mMediaSuspend(Preferences::GetBool("media.block-autoplay-until-in-foreground", true) ?
+    nsISuspendedTypes::SUSPENDED_BLOCK : nsISuspendedTypes::NONE_SUSPENDED),
   mAudioMuted(false), mAudioVolume(1.0), mAudioCaptured(false),
   mDesktopModeViewport(false), mInnerWindow(nullptr),
   mOuterWindow(aOuterWindow),
@@ -5456,6 +5457,12 @@ nsGlobalWindow::GetDevicePixelRatioOuter()
 
   if (nsContentUtils::ShouldResistFingerprinting(mDocShell)) {
     return 1.0;
+  }
+
+  float overrideDPPX = presContext->GetOverrideDPPX();
+
+  if (overrideDPPX > 0) {
+    return overrideDPPX;
   }
 
   return float(nsPresContext::AppUnitsPerCSSPixel())/
@@ -13407,6 +13414,17 @@ nsGlobalWindow::UpdateVRDisplays(nsTArray<RefPtr<mozilla::dom::VRDisplay>>& aDev
   return true;
 }
 
+void
+nsGlobalWindow::NotifyActiveVRDisplaysChanged()
+{
+  MOZ_ASSERT(IsInnerWindow());
+
+  if (mNavigator) {
+    mNavigator->NotifyActiveVRDisplaysChanged();
+  }
+}
+
+
 // nsGlobalChromeWindow implementation
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(nsGlobalChromeWindow)
@@ -14008,7 +14026,6 @@ nsGlobalModalWindow::GetReturnValue(nsIVariant **aRetVal)
 {
   FORWARD_TO_OUTER_MODAL_CONTENT_WINDOW(GetReturnValue, (aRetVal), NS_OK);
 
-  nsCOMPtr<nsIVariant> result;
   if (!mReturnValue) {
     nsCOMPtr<nsIVariant> variant = CreateVoidVariant();
     variant.forget(aRetVal);

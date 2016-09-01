@@ -11,16 +11,19 @@
 #include "mozilla/Assertions.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/ipc/ProcessChild.h"
+#include "mozilla/layers/APZThreadUtils.h"
 #include "mozilla/layers/CompositorBridgeParent.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageBridgeParent.h"
 #include "nsDebugImpl.h"
+#include "mozilla/layers/LayerTreeOwnerTracker.h"
+#include "ProcessUtils.h"
 #include "VRManager.h"
 #include "VRManagerParent.h"
 #include "VsyncBridgeParent.h"
 #if defined(XP_WIN)
 # include "DeviceManagerD3D9.h"
-# include "mozilla/gfx/DeviceManagerD3D11.h"
+# include "mozilla/gfx/DeviceManagerDx.h"
 #endif
 
 namespace mozilla {
@@ -54,14 +57,17 @@ GPUParent::Init(base::ProcessId aParentPid,
   gfxVars::Initialize();
   gfxPlatform::InitNullMetadata();
 #if defined(XP_WIN)
-  DeviceManagerD3D11::Init();
+  DeviceManagerDx::Init();
   DeviceManagerD3D9::Init();
 #endif
   if (NS_FAILED(NS_InitMinimalXPCOM())) {
     return false;
   }
   CompositorThreadHolder::Start();
+  APZThreadUtils::SetControllerThread(CompositorThreadHolder::Loop());
   VRManager::ManagerInit();
+  LayerTreeOwnerTracker::Initialize();
+  mozilla::ipc::SetThisProcessName("GPU Process");
   return true;
 }
 
@@ -88,7 +94,7 @@ GPUParent::RecvInit(nsTArray<GfxPrefSetting>&& prefs,
 
 #if defined(XP_WIN)
   if (gfxConfig::IsEnabled(Feature::D3D11_COMPOSITING)) {
-    DeviceManagerD3D11::Get()->CreateCompositorDevices();
+    DeviceManagerDx::Get()->CreateCompositorDevices();
   }
 #endif
 
@@ -165,9 +171,13 @@ GPUParent::RecvGetDeviceStatus(GPUDeviceData* aOut)
   CopyFeatureChange(Feature::OPENGL_COMPOSITING, &aOut->oglCompositing());
 
 #if defined(XP_WIN)
-  if (DeviceManagerD3D11* dm = DeviceManagerD3D11::Get()) {
-    dm->ExportDeviceInfo(&aOut->d3d11Device());
+  if (DeviceManagerDx* dm = DeviceManagerDx::Get()) {
+    D3D11DeviceStatus deviceStatus;
+    dm->ExportDeviceInfo(&deviceStatus);
+    aOut->gpuDevice() = deviceStatus;
   }
+#else
+  aOut->gpuDevice() = null_t();
 #endif
 
   return true;
@@ -222,6 +232,13 @@ GPUParent::RecvDeallocateLayerTreeId(const uint64_t& aLayersId)
   return true;
 }
 
+bool
+GPUParent::RecvAddLayerTreeIdMapping(const uint64_t& aLayersId, const ProcessId& aOwnerId)
+{
+  LayerTreeOwnerTracker::Get()->Map(aLayersId, aOwnerId);
+  return true;
+}
+
 void
 GPUParent::ActorDestroy(ActorDestroyReason aWhy)
 {
@@ -241,9 +258,10 @@ GPUParent::ActorDestroy(ActorDestroyReason aWhy)
   }
   CompositorThreadHolder::Shutdown();
 #if defined(XP_WIN)
-  DeviceManagerD3D11::Shutdown();
+  DeviceManagerDx::Shutdown();
   DeviceManagerD3D9::Shutdown();
 #endif
+  LayerTreeOwnerTracker::Shutdown();
   gfxVars::Shutdown();
   gfxConfig::Shutdown();
   gfxPrefs::DestroySingleton();

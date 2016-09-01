@@ -90,7 +90,7 @@ CookieServiceParent::GetOriginAttributesFromParams(const IPC::SerializedLoadCont
   }
 
   if (aLoadContext.IsPrivateBitValid()) {
-    aIsPrivate = aLoadContext.mUsePrivateBrowsing;
+    aIsPrivate = aLoadContext.mOriginAttributes.mPrivateBrowsingId > 0;
   }
 
   aAttrs.InheritFromDocShellToNecko(docShellAttrs);
@@ -116,7 +116,8 @@ CookieServiceParent::~CookieServiceParent()
 void
 CookieServiceParent::ActorDestroy(ActorDestroyReason aWhy)
 {
-  // Implement me! Bug 1005181
+  // Nothing needed here. Called right before destructor since this is a
+  // non-refcounted class.
 }
 
 bool

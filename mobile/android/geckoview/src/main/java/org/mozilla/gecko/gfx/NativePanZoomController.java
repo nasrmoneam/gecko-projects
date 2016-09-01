@@ -29,7 +29,7 @@ class NativePanZoomController extends JNIObject implements PanZoomController {
     private Overscroll mOverscroll;
     boolean mNegateWheelScroll;
     private float mPointerScrollFactor;
-    private final PrefsHelper.PrefHandler mPrefsObserver;
+    private PrefsHelper.PrefHandler mPrefsObserver;
     private long mLastDownTime;
     private static final float MAX_SCROLL = 0.075f * GeckoAppShell.getDpi();
 
@@ -191,59 +191,16 @@ class NativePanZoomController extends JNIObject implements PanZoomController {
     }
 
     @Override
-    public boolean onKeyEvent(KeyEvent event) {
-        // FIXME implement this
-        return false;
-    }
-
-    @Override
     public void onMotionEventVelocity(final long aEventTime, final float aSpeedY) {
         handleMotionEventVelocity(aEventTime, aSpeedY);
     }
 
-    @Override
-    public PointF getVelocityVector() {
-        // FIXME implement this
-        return new PointF(0, 0);
-    }
-
-    @Override
-    public void pageRectUpdated() {
-        // no-op in APZC, I think
-    }
-
-    @Override
-    public void abortPanning() {
-        // no-op in APZC, I think
-    }
-
-    @Override
-    public void notifyDefaultActionPrevented(boolean prevented) {
-        // no-op: This could get called if accessibility is enabled and the events
-        // are sent to Gecko directly without going through APZ. In this case
-        // we just want to ignore this callback.
-    }
-
-    @WrapForJNI(stubName = "AbortAnimation", calledFrom = "ui")
-    private native void nativeAbortAnimation();
-
-    @Override // PanZoomController
-    public void abortAnimation()
-    {
-        if (!mDestroyed) {
-            nativeAbortAnimation();
-        }
-    }
-
-    @Override // PanZoomController
-    public boolean getRedrawHint()
-    {
-        // FIXME implement this
-        return true;
-    }
-
     @Override @WrapForJNI(calledFrom = "ui") // PanZoomController
     public void destroy() {
+        if (mPrefsObserver != null) {
+            PrefsHelper.removeObserver(mPrefsObserver);
+            mPrefsObserver = null;
+        }
         if (mDestroyed || !mTarget.isGeckoReady()) {
             return;
         }

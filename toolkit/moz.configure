@@ -356,7 +356,19 @@ option('--enable-eme',
        default=eme_default,
        help='Enable support for Encrypted Media Extensions')
 
-@depends('--enable-eme', fmp4)
+@depends('--enable-eme', target)
+def enable_eme(value, target):
+    # Widevine EME by default enabled on desktop Windows, MacOS and Linux,
+    # x86 and x64 builds.
+    if (target.kernel in ('Darwin', 'WINNT', 'Linux') and
+        target.os not in ('Android', 'iOS') and
+        target.cpu in ('x86', 'x86_64')):
+        return value
+    elif value and value.origin != 'default':
+        die('%s is not supported on %s' % (value.format('--enable-eme'), target.alias))
+    return value
+
+@depends(enable_eme, fmp4)
 def eme(value, fmp4):
     enabled = bool(value)
     if value.origin == 'default':
@@ -367,13 +379,9 @@ def eme(value, fmp4):
     if enabled:
         return True
 
-@depends('--enable-eme')
+@depends(enable_eme)
 def eme_modules(value):
-    # Theoretically, we could pass `value` directly when it is a
-    # PositiveOptionValue, but somehow, the JSON serialization in configure.py
-    # outputs inconsistent data in some cases when we do (a closing bracket
-    # without an opening one).
-    return list(value) if value else []
+    return value
 
 set_config('MOZ_EME', eme)
 set_define('MOZ_EME', eme)
@@ -489,17 +497,27 @@ simple_keyfile('Adjust SDK')
 
 # Servo integration
 # ==============================================================
+option('--enable-stylo', env='STYLO_ENABLED', nargs=0,
+       help='Enables experimental integration with the servo style system. '
+            'This requires either building servo within Gecko\'s cargo phase '
+            'or passing --with-servo')
+
+@depends('--enable-stylo')
+def stylo(value):
+    if value:
+        return True
+
+set_define('MOZ_STYLO', stylo)
+imply_option('--enable-jemalloc', depends_if('--enable-stylo')(lambda _: 'moz'))
+
 option('--with-servo', env='SERVO_TARGET_DIR', nargs=1,
        help='Absolute path of the target directory where libgeckoservo can '
-            'be found. This is generally servo_src_dir/target/release.'
-            'Passing this flag enables experimental integration with the '
-            'servo style system')
+            'be found. This is generally servo_src_dir/target/release.')
 
 @depends_if('--with-servo')
 def servo_target_dir(value):
     return value[0]
 
-set_define('MOZ_STYLO', depends_if(servo_target_dir)(lambda x: bool(x)))
 set_config('SERVO_TARGET_DIR', servo_target_dir)
 
 # Gecko integrated IPC fuzzer
@@ -686,3 +704,63 @@ def necko_protocols(protocols):
 
 set_config('NECKO_PROTOCOLS', necko_protocols)
 add_old_configure_assignment('NECKO_PROTOCOLS', necko_protocols)
+
+# Graphics
+# ==============================================================
+option('--disable-skia', help='Disable use of Skia')
+
+@depends('--disable-skia', target)
+def skia(value, target):
+    if value.origin == 'default' and target.endianness == 'big':
+        return False
+    if value:
+        return True
+
+set_config('MOZ_ENABLE_SKIA', skia)
+set_define('MOZ_ENABLE_SKIA', skia)
+set_define('USE_SKIA', skia)
+
+@depends(skia, target)
+def skia_android(skia, target):
+    if skia and target.os == 'Android':
+        return True
+
+set_define('SK_BUILD_FOR_ANDROID_NDK', skia_android)
+
+option('--disable-skia-gpu', help='Disable use of Skia-GPU')
+
+@depends('--disable-skia-gpu', skia, target)
+def skia_gpu(value, skia, target):
+    if value.origin == 'default':
+        if not skia:
+            return False
+        # Skia GPU support may not reliably build on certain *BSDs (see bug 1234494)
+        if target.os in ('NetBSD', 'OpenBSD'):
+            return False
+    elif value and not skia:
+        die('Cannot enable Skia-GPU without enabling Skia')
+    if skia and value:
+        return True
+
+set_config('MOZ_ENABLE_SKIA_GPU', skia_gpu)
+set_define('USE_SKIA_GPU', skia_gpu)
+
+@depends(skia, skia_gpu)
+def skia_includes(skia, skia_gpu):
+    includes = []
+    if skia:
+        includes += [
+            '/gfx/skia',
+            '/gfx/skia/skia/include/config',
+            '/gfx/skia/skia/include/core',
+        ]
+
+    if skia_gpu:
+        includes += [
+            '/gfx/skia/skia/include/gpu',
+            '/gfx/skia/skia/include/utils',
+        ]
+
+    return includes
+
+set_config('SKIA_INCLUDES', skia_includes)

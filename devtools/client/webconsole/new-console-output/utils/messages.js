@@ -7,7 +7,7 @@
 "use strict";
 
 const WebConsoleUtils = require("devtools/client/webconsole/utils").Utils;
-const STRINGS_URI = "chrome://devtools/locale/webconsole.properties";
+const STRINGS_URI = "devtools/locale/webconsole.properties";
 const l10n = new WebConsoleUtils.L10n(STRINGS_URI);
 
 const {
@@ -116,11 +116,18 @@ function transformPacket(packet) {
         level = MESSAGE_LEVEL.INFO;
       }
 
+      const frame = {
+        source: pageError.sourceName,
+        line: pageError.lineNumber,
+        column: pageError.columnNumber
+      };
+
       return new ConsoleMessage({
         source: MESSAGE_SOURCE.JAVASCRIPT,
         type: MESSAGE_TYPE.LOG,
         level,
         messageText: pageError.errorMessage,
+        frame,
       });
     }
 

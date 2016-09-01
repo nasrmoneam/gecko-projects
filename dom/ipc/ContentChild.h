@@ -143,11 +143,6 @@ public:
   AllocPGMPServiceChild(mozilla::ipc::Transport* transport,
                         base::ProcessId otherProcess) override;
 
-  PAPZChild*
-  AllocPAPZChild(const TabId& aTabId) override;
-  bool
-  DeallocPAPZChild(PAPZChild* aActor) override;
-
   bool
   RecvInitCompositor(Endpoint<PCompositorBridgeChild>&& aEndpoint) override;
   bool
@@ -397,6 +392,8 @@ public:
 
   virtual bool RecvSetConnectivity(const bool& connectivity) override;
 
+  virtual bool RecvNotifyLayerAllocated(const dom::TabId& aTabId, const uint64_t& aLayersId) override;
+
   virtual bool RecvSpeakerManagerNotify() override;
 
   virtual bool RecvBidiKeyboardNotify(const bool& isLangRTL,
@@ -406,9 +403,6 @@ public:
 
   // auto remove when alertfinished is received.
   nsresult AddRemoteAlertObserver(const nsString& aData, nsIObserver* aObserver);
-
-  virtual bool RecvSystemMemoryAvailable(const uint64_t& aGetterId,
-                                         const uint32_t& aMemoryAvailable) override;
 
   virtual bool RecvPreferenceUpdate(const PrefSetting& aPref) override;
   virtual bool RecvVarUpdate(const GfxVarUpdate& pref) override;
@@ -443,6 +437,7 @@ public:
   virtual bool RecvFlushMemory(const nsString& reason) override;
 
   virtual bool RecvActivateA11y() override;
+  virtual bool RecvShutdownA11y() override;
 
   virtual bool RecvGarbageCollect() override;
   virtual bool RecvCycleCollect() override;

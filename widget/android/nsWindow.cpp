@@ -20,7 +20,7 @@
 
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/ContentChild.h"
-#include "mozilla/unused.h"
+#include "mozilla/Unused.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/layers/RenderTrace.h"
 #include <algorithm>
@@ -537,25 +537,6 @@ public:
     }
 
 public:
-    void AbortAnimation()
-    {
-        MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
-
-        RefPtr<IAPZCTreeManager> controller;
-        RefPtr<CompositorBridgeParent> compositor;
-
-        if (LockedWindowPtr window{mWindow}) {
-            controller = window->mAPZC;
-            compositor = window->GetCompositorBridgeParent();
-        }
-
-        if (controller && compositor) {
-            // TODO: Pass in correct values for presShellId and viewId.
-            controller->CancelAnimation(ScrollableLayerGuid(
-                    compositor->RootLayerTreeId(), 0, 0));
-        }
-    }
-
     void AdjustScrollForSurfaceShift(float aX, float aY)
     {
         MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
@@ -1006,32 +987,10 @@ public:
     {
         if (aCall.IsTarget(&LayerViewSupport::CreateCompositor)) {
             // This call is blocking.
-            nsAppShell::SyncRunEvent(WindowEvent<Functor>(
+            nsAppShell::SyncRunEvent(nsAppShell::LambdaEvent<Functor>(
                     mozilla::Move(aCall)), &LayerViewEvent::MakeEvent);
             return;
-
-        } else if (aCall.IsTarget(
-                &LayerViewSupport::SyncResumeResizeCompositor)) {
-            // This call is synchronous. Perform the original call using a copy
-            // of the lambda. Then redirect the original lambda to
-            // OnResumedCompositor, to be run on the Gecko thread. We use
-            // Functor instead of our own lambda so that Functor can handle
-            // object lifetimes for us.
-            (Functor(aCall))();
-            aCall.SetTarget(&LayerViewSupport::OnResumedCompositor);
-            nsAppShell::PostEvent(
-                    mozilla::MakeUnique<LayerViewEvent>(
-                    mozilla::MakeUnique<WindowEvent<Functor>>(
-                    mozilla::Move(aCall))));
-            return;
         }
-
-        // LayerViewEvent (i.e. prioritized event) applies to
-        // CreateCompositor, PauseCompositor, and OnResumedCompositor. For all
-        // other events, use regular WindowEvent.
-        nsAppShell::PostEvent(
-                mozilla::MakeUnique<WindowEvent<Functor>>(
-                mozilla::Move(aCall)));
     }
 
     static LayerViewSupport*
@@ -1070,12 +1029,11 @@ public:
 
     jni::Object::Param GetSurface()
     {
-        mSurface = mCompositor->GetSurface();
         return mSurface;
     }
 
 private:
-    void OnResumedCompositor(int32_t aWidth, int32_t aHeight)
+    void OnResumedCompositor()
     {
         MOZ_ASSERT(NS_IsMainThread());
 
@@ -1098,6 +1056,9 @@ public:
     void AttachToJava(jni::Object::Param aClient, jni::Object::Param aNPZC)
     {
         MOZ_ASSERT(NS_IsMainThread());
+        if (!mWindow) {
+            return; // Already shut down.
+        }
 
         const auto& layerClient = GeckoLayerClient::Ref::From(aClient);
 
@@ -1110,6 +1071,14 @@ public:
         const bool resetting = !!mLayerClient;
         mLayerClient = layerClient;
 
+        MOZ_ASSERT(aNPZC);
+        auto npzc = NativePanZoomController::LocalRef(
+                jni::GetGeckoThreadEnv(),
+                NativePanZoomController::Ref::From(aNPZC));
+        mWindow->mNPZCSupport.Attach(npzc, mWindow, npzc);
+
+        layerClient->OnGeckoReady();
+
         if (resetting) {
             // Since we are re-linking the new java objects to Gecko, we need
             // to get the viewport from the compositor (since the Java copy was
@@ -1118,20 +1087,15 @@ public:
                 bridge->ForceIsFirstPaint();
             }
         }
-
-        MOZ_ASSERT(aNPZC);
-        auto npzc = NativePanZoomController::LocalRef(
-                jni::GetGeckoThreadEnv(),
-                NativePanZoomController::Ref::From(aNPZC));
-        mWindow->mNPZCSupport.Attach(npzc, mWindow, npzc);
-
-        layerClient->OnGeckoReady();
     }
 
     void OnSizeChanged(int32_t aWindowWidth, int32_t aWindowHeight,
                        int32_t aScreenWidth, int32_t aScreenHeight)
     {
         MOZ_ASSERT(NS_IsMainThread());
+        if (!mWindow) {
+            return; // Already shut down.
+        }
 
         if (aWindowWidth != mWindow->mBounds.width ||
             aWindowHeight != mWindow->mBounds.height) {
@@ -1140,13 +1104,17 @@ public:
         }
     }
 
-    void CreateCompositor(int32_t aWidth, int32_t aHeight)
+    void CreateCompositor(int32_t aWidth, int32_t aHeight,
+                          jni::Object::Param aSurface)
     {
         MOZ_ASSERT(NS_IsMainThread());
+        MOZ_ASSERT(mWindow);
 
+        mSurface = aSurface;
         mWindow->CreateLayerManager(aWidth, aHeight);
+
         mCompositorPaused = false;
-        OnResumedCompositor(aWidth, aHeight);
+        OnResumedCompositor();
     }
 
     void SyncPauseCompositor()
@@ -1180,7 +1148,9 @@ public:
         }
     }
 
-    void SyncResumeResizeCompositor(int32_t aWidth, int32_t aHeight)
+    void SyncResumeResizeCompositor(const LayerView::Compositor::LocalRef& aObj,
+                                    int32_t aWidth, int32_t aHeight,
+                                    jni::Object::Param aSurface)
     {
         MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
 
@@ -1190,10 +1160,39 @@ public:
             bridge = window->GetCompositorBridgeParent();
         }
 
-        if (bridge && bridge->ScheduleResumeOnCompositorThread(aWidth,
-                                                               aHeight)) {
-            mCompositorPaused = false;
+        mSurface = aSurface;
+
+        if (!bridge || !bridge->ScheduleResumeOnCompositorThread(aWidth,
+                                                                 aHeight)) {
+            return;
         }
+
+        mCompositorPaused = false;
+
+        class OnResumedEvent : public nsAppShell::Event
+        {
+            LayerView::Compositor::GlobalRef mCompositor;
+
+        public:
+            OnResumedEvent(LayerView::Compositor::GlobalRef&& aCompositor)
+                : mCompositor(mozilla::Move(aCompositor))
+            {}
+
+            void Run() override
+            {
+                MOZ_ASSERT(NS_IsMainThread());
+
+                JNIEnv* const env = jni::GetGeckoThreadEnv();
+                LayerViewSupport* const lvs = GetNative(
+                        LayerView::Compositor::LocalRef(env, mCompositor));
+                MOZ_CATCH_JNI_EXCEPTION(env);
+
+                lvs->OnResumedCompositor();
+            }
+        };
+
+        nsAppShell::PostEvent(MakeUnique<LayerViewEvent>(
+                MakeUnique<OnResumedEvent>(aObj)));
     }
 
     void SyncInvalidateAndScheduleComposite()
@@ -1424,6 +1423,7 @@ nsWindow::GeckoViewSupport::Reattach(const GeckoView::Window::LocalRef& inst,
     auto compositor = LayerView::Compositor::LocalRef(
             inst.Env(), LayerView::Compositor::Ref::From(aCompositor));
     window.mLayerViewSupport.Attach(compositor, &window, compositor);
+    compositor->Reattach();
 }
 
 void
@@ -1653,13 +1653,6 @@ nsWindow::SetParent(nsIWidget *aNewParent)
     return NS_OK;
 }
 
-NS_IMETHODIMP
-nsWindow::ReparentNativeWidget(nsIWidget *aNewParent)
-{
-    NS_PRECONDITION(aNewParent, "");
-    return NS_OK;
-}
-
 nsIWidget*
 nsWindow::GetParent()
 {
@@ -1743,21 +1736,13 @@ nsWindow::Show(bool aState)
     return NS_OK;
 }
 
-NS_IMETHODIMP
-nsWindow::SetModal(bool aState)
-{
-    ALOG("nsWindow[%p]::SetModal %d ignored", (void*)this, aState);
-
-    return NS_OK;
-}
-
 bool
 nsWindow::IsVisible() const
 {
     return mIsVisible;
 }
 
-NS_IMETHODIMP
+void
 nsWindow::ConstrainPosition(bool aAllowSlop,
                             int32_t *aX,
                             int32_t *aY)
@@ -1769,8 +1754,6 @@ nsWindow::ConstrainPosition(bool aAllowSlop,
         *aX = 0;
         *aY = 0;
     }
-
-    return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1836,14 +1819,6 @@ void
 nsWindow::SetZIndex(int32_t aZIndex)
 {
     ALOG("nsWindow[%p]::SetZIndex %d ignored", (void*)this, aZIndex);
-}
-
-NS_IMETHODIMP
-nsWindow::PlaceBehind(nsTopLevelWidgetZPlacement aPlacement,
-                      nsIWidget *aWidget,
-                      bool aActivate)
-{
-    return NS_OK;
 }
 
 void
@@ -1993,12 +1968,6 @@ nsWindow::MakeFullScreen(bool aFullScreen, nsIScreen*)
     mIsFullScreen = aFullScreen;
     mAwaitingFullScreen = true;
     GeckoAppShell::SetFullScreen(aFullScreen);
-    return NS_OK;
-}
-
-NS_IMETHODIMP
-nsWindow::SetWindowClass(const nsAString& xulWinType)
-{
     return NS_OK;
 }
 
