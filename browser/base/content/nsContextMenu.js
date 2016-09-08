@@ -151,7 +151,7 @@ nsContextMenu.prototype = {
       inContainer = true;
       var item = document.getElementById("context-openlinkincontainertab");
 
-      item.setAttribute("usercontextid", userContextId);
+      item.setAttribute("data-usercontextid", userContextId);
 
       var label = ContextualIdentityService.getUserContextLabel(userContextId);
       item.setAttribute("label",
@@ -603,8 +603,9 @@ nsContextMenu.prototype = {
     }
 
     const xulNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
-    if (aNode.namespaceURI == xulNS ||
-        aNode.nodeType == Node.DOCUMENT_NODE) {
+    if (aNode.nodeType == Node.DOCUMENT_NODE ||
+        // Not display on XUL element but relax for <label class="text-link">
+        (aNode.namespaceURI == xulNS && !isXULTextLinkLabel(aNode))) {
       this.shouldDisplay = false;
       return;
     }
@@ -798,7 +799,8 @@ nsContextMenu.prototype = {
         if (!this.onLink &&
             // Be consistent with what hrefAndLinkNodeForClickEvent
             // does in browser.js
-             ((elem instanceof HTMLAnchorElement && elem.href) ||
+             (isXULTextLinkLabel(elem) ||
+              (elem instanceof HTMLAnchorElement && elem.href) ||
               (elem instanceof HTMLAreaElement && elem.href) ||
               elem instanceof HTMLLinkElement ||
               elem.getAttributeNS("http://www.w3.org/1999/xlink", "type") == "simple")) {
@@ -897,6 +899,13 @@ nsContextMenu.prototype = {
         this.showItem("spell-check-enabled", canSpell);
         this.showItem("spell-separator", canSpell);
       }
+    }
+
+    function isXULTextLinkLabel(node) {
+      return node.namespaceURI == xulNS &&
+             node.tagName == "label" &&
+             node.classList.contains('text-link') &&
+             node.href;
     }
   },
 
@@ -1008,7 +1017,7 @@ nsContextMenu.prototype = {
 
     let params = {
       allowMixedContent: persistAllowMixedContentInChildTab,
-      userContextId: parseInt(event.target.getAttribute('usercontextid'))
+      userContextId: parseInt(event.target.getAttribute('data-usercontextid')),
     };
 
     openLinkIn(this.linkURL, "tab", this._openLinkInParameters(params));

@@ -204,6 +204,197 @@ SuspendBackgroundVideoDelay()
     MediaPrefs::MDSMSuspendBackgroundVideoDelay());
 }
 
+class MediaDecoderStateMachine::StateObject
+{
+public:
+  virtual ~StateObject() {}
+  virtual void Enter() {}; // Entry action.
+  virtual void Exit() {};  // Exit action.
+  virtual void Step() {}   // Perform a 'cycle' of this state object.
+  virtual State GetState() const = 0;
+
+protected:
+  using Master = MediaDecoderStateMachine;
+  explicit StateObject(Master* aPtr) : mMaster(aPtr) {}
+
+  // Take a raw pointer in order not to change the life cycle of MDSM.
+  // It is guaranteed to be valid by MDSM.
+  Master* mMaster;
+};
+
+class MediaDecoderStateMachine::DecodeMetadataState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit DecodeMetadataState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->ReadMetadata();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_DECODING_METADATA;
+  }
+};
+
+class MediaDecoderStateMachine::WaitForCDMState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit WaitForCDMState(Master* aPtr) : StateObject(aPtr) {}
+
+  State GetState() const override
+  {
+    return DECODER_STATE_WAIT_FOR_CDM;
+  }
+};
+
+class MediaDecoderStateMachine::DormantState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit DormantState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->DiscardSeekTaskIfExist();
+    if (mMaster->IsPlaying()) {
+      mMaster->StopPlayback();
+    }
+    mMaster->Reset();
+    mMaster->mReader->ReleaseResources();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_DORMANT;
+  }
+};
+
+class MediaDecoderStateMachine::DecodingFirstFrameState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit DecodingFirstFrameState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->DecodeFirstFrame();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_DECODING_FIRSTFRAME;
+  }
+};
+
+class MediaDecoderStateMachine::DecodingState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit DecodingState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->StartDecoding();
+  }
+
+  void Step() override
+  {
+    mMaster->StepDecoding();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_DECODING;
+  }
+};
+
+class MediaDecoderStateMachine::SeekingState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit SeekingState(Master* aPtr) : StateObject(aPtr) {}
+
+  State GetState() const override
+  {
+    return DECODER_STATE_SEEKING;
+  }
+};
+
+class MediaDecoderStateMachine::BufferingState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit BufferingState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->StartBuffering();
+  }
+
+  void Step() override
+  {
+    mMaster->StepBuffering();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_BUFFERING;
+  }
+};
+
+class MediaDecoderStateMachine::CompletedState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit CompletedState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->ScheduleStateMachine();
+  }
+
+  void Exit() override
+  {
+    mMaster->mSentPlaybackEndedEvent = false;
+  }
+
+  void Step() override
+  {
+    mMaster->StepCompleted();
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_COMPLETED;
+  }
+};
+
+class MediaDecoderStateMachine::ShutdownState
+  : public MediaDecoderStateMachine::StateObject
+{
+public:
+  explicit ShutdownState(Master* aPtr) : StateObject(aPtr) {}
+
+  void Enter() override
+  {
+    mMaster->mIsShutdown = true;
+  }
+
+  void Exit() override
+  {
+    MOZ_DIAGNOSTIC_ASSERT(false, "Shouldn't escape the SHUTDOWN state.");
+  }
+
+  State GetState() const override
+  {
+    return DECODER_STATE_SHUTDOWN;
+  }
+};
+
 #define INIT_WATCHABLE(name, val) \
   name(val, "MediaDecoderStateMachine::" #name)
 #define INIT_MIRROR(name, val) \
@@ -223,6 +414,7 @@ MediaDecoderStateMachine::MediaDecoderStateMachine(MediaDecoder* aDecoder,
   mDispatchedStateMachine(false),
   mDelayedScheduler(mTaskQueue),
   INIT_WATCHABLE(mState, DECODER_STATE_DECODING_METADATA),
+  mStateObj(new DecodeMetadataState(this)),
   mCurrentFrameID(0),
   INIT_WATCHABLE(mObservedDuration, TimeUnit()),
   mFragmentEndTime(-1),
@@ -872,8 +1064,10 @@ nsresult MediaDecoderStateMachine::Init(MediaDecoder* aDecoder)
   nsresult rv = mReader->Init();
   NS_ENSURE_SUCCESS(rv, rv);
 
-  OwnerThread()->Dispatch(
-    NewRunnableMethod(this, &MediaDecoderStateMachine::EnterState));
+  RefPtr<MediaDecoderStateMachine> self = this;
+  OwnerThread()->Dispatch(NS_NewRunnableFunction([self] () {
+    self->mStateObj->Enter();
+  }));
 
   return NS_OK;
 }
@@ -1063,58 +1257,45 @@ MediaDecoderStateMachine::SetState(State aState)
 
   DECODER_LOG("MDSM state: %s -> %s", ToStateStr(), ToStateStr(aState));
 
-  ExitState();
+  MOZ_ASSERT(mState == mStateObj->GetState());
+  mStateObj->Exit();
   mState = aState;
-  EnterState();
-}
 
-void
-MediaDecoderStateMachine::ExitState()
-{
-  MOZ_ASSERT(OnTaskQueue());
-  switch (mState) {
-    case DECODER_STATE_COMPLETED:
-      mSentPlaybackEndedEvent = false;
-      break;
-    default:
-      break;
-  }
-}
-
-void
-MediaDecoderStateMachine::EnterState()
-{
-  MOZ_ASSERT(OnTaskQueue());
   switch (mState) {
     case DECODER_STATE_DECODING_METADATA:
-      ReadMetadata();
+      mStateObj = MakeUnique<DecodeMetadataState>(this);
+      break;
+    case DECODER_STATE_WAIT_FOR_CDM:
+      mStateObj = MakeUnique<WaitForCDMState>(this);
       break;
     case DECODER_STATE_DORMANT:
-      DiscardSeekTaskIfExist();
-      if (IsPlaying()) {
-        StopPlayback();
-      }
-      Reset();
-      mReader->ReleaseResources();
+      mStateObj = MakeUnique<DormantState>(this);
       break;
     case DECODER_STATE_DECODING_FIRSTFRAME:
-      DecodeFirstFrame();
+      mStateObj = MakeUnique<DecodingFirstFrameState>(this);
       break;
     case DECODER_STATE_DECODING:
-      StartDecoding();
+      mStateObj = MakeUnique<DecodingState>(this);
+      break;
+    case DECODER_STATE_SEEKING:
+      mStateObj = MakeUnique<SeekingState>(this);
       break;
     case DECODER_STATE_BUFFERING:
-      StartBuffering();
+      mStateObj = MakeUnique<BufferingState>(this);
       break;
     case DECODER_STATE_COMPLETED:
-      ScheduleStateMachine();
+      mStateObj = MakeUnique<CompletedState>(this);
       break;
     case DECODER_STATE_SHUTDOWN:
-      mIsShutdown = true;
+      mStateObj = MakeUnique<ShutdownState>(this);
       break;
     default:
+      MOZ_ASSERT_UNREACHABLE("Invalid state.");
       break;
   }
+
+  MOZ_ASSERT(mState == mStateObj->GetState());
+  mStateObj->Enter();
 }
 
 void MediaDecoderStateMachine::VolumeChanged()
@@ -1224,11 +1405,9 @@ MediaDecoderStateMachine::Shutdown()
 {
   MOZ_ASSERT(OnTaskQueue());
 
-  // Once we've entered the shutdown state here there's no going back.
-  // Change state before issuing shutdown request to threads so those
-  // threads can start exiting cleanly during the Shutdown call.
-  ScheduleStateMachine();
   SetState(DECODER_STATE_SHUTDOWN);
+
+  mDelayedScheduler.Reset();
 
   mBufferedUpdateRequest.DisconnectIfExists();
 
@@ -1254,6 +1433,40 @@ MediaDecoderStateMachine::Shutdown()
   Reset();
 
   mMediaSink->Shutdown();
+
+  // Prevent dangling pointers by disconnecting the listeners.
+  mAudioQueueListener.Disconnect();
+  mVideoQueueListener.Disconnect();
+  mMetadataManager.Disconnect();
+
+  // Disconnect canonicals and mirrors before shutting down our task queue.
+  mBuffered.DisconnectIfConnected();
+  mIsReaderSuspended.DisconnectIfConnected();
+  mEstimatedDuration.DisconnectIfConnected();
+  mExplicitDuration.DisconnectIfConnected();
+  mPlayState.DisconnectIfConnected();
+  mNextPlayState.DisconnectIfConnected();
+  mVolume.DisconnectIfConnected();
+  mLogicalPlaybackRate.DisconnectIfConnected();
+  mPreservesPitch.DisconnectIfConnected();
+  mSameOriginMedia.DisconnectIfConnected();
+  mMediaPrincipalHandle.DisconnectIfConnected();
+  mPlaybackBytesPerSecond.DisconnectIfConnected();
+  mPlaybackRateReliable.DisconnectIfConnected();
+  mDecoderPosition.DisconnectIfConnected();
+  mMediaSeekable.DisconnectIfConnected();
+  mMediaSeekableOnlyInBufferedRanges.DisconnectIfConnected();
+  mIsVisible.DisconnectIfConnected();
+
+  mDuration.DisconnectAll();
+  mIsShutdown.DisconnectAll();
+  mNextFrameStatus.DisconnectAll();
+  mCurrentPosition.DisconnectAll();
+  mPlaybackOffset.DisconnectAll();
+  mIsAudioDataAudible.DisconnectAll();
+
+  // Shut down the watch manager to stop further notifications.
+  mWatchManager.Shutdown();
 
   DECODER_LOG("Shutdown started");
 
@@ -1963,16 +2176,8 @@ void
 MediaDecoderStateMachine::DecodeError()
 {
   MOZ_ASSERT(OnTaskQueue());
-
-  if (IsShutdown()) {
-    // Already shutdown.
-    return;
-  }
-
+  MOZ_ASSERT(!IsShutdown());
   DECODER_WARN("Decode error");
-  // Change state to SHUTDOWN so we have no more processing.
-  SetState(DECODER_STATE_SHUTDOWN);
-
   // Notify the decode error and MediaDecoder will shut down MDSM.
   mOnPlaybackEvent.Notify(MediaEventType::DecodeError);
 }
@@ -2222,45 +2427,6 @@ RefPtr<ShutdownPromise>
 MediaDecoderStateMachine::FinishShutdown()
 {
   MOZ_ASSERT(OnTaskQueue());
-
-  // The reader's listeners hold references to the state machine,
-  // creating a cycle which keeps the state machine and its shared
-  // thread pools alive. So break it here.
-
-  // Prevent dangling pointers by disconnecting the listeners.
-  mAudioQueueListener.Disconnect();
-  mVideoQueueListener.Disconnect();
-  mMetadataManager.Disconnect();
-
-  // Disconnect canonicals and mirrors before shutting down our task queue.
-  mBuffered.DisconnectIfConnected();
-  mIsReaderSuspended.DisconnectIfConnected();
-  mEstimatedDuration.DisconnectIfConnected();
-  mExplicitDuration.DisconnectIfConnected();
-  mPlayState.DisconnectIfConnected();
-  mNextPlayState.DisconnectIfConnected();
-  mVolume.DisconnectIfConnected();
-  mLogicalPlaybackRate.DisconnectIfConnected();
-  mPreservesPitch.DisconnectIfConnected();
-  mSameOriginMedia.DisconnectIfConnected();
-  mMediaPrincipalHandle.DisconnectIfConnected();
-  mPlaybackBytesPerSecond.DisconnectIfConnected();
-  mPlaybackRateReliable.DisconnectIfConnected();
-  mDecoderPosition.DisconnectIfConnected();
-  mMediaSeekable.DisconnectIfConnected();
-  mMediaSeekableOnlyInBufferedRanges.DisconnectIfConnected();
-  mIsVisible.DisconnectIfConnected();
-
-  mDuration.DisconnectAll();
-  mIsShutdown.DisconnectAll();
-  mNextFrameStatus.DisconnectAll();
-  mCurrentPosition.DisconnectAll();
-  mPlaybackOffset.DisconnectAll();
-  mIsAudioDataAudible.DisconnectAll();
-
-  // Shut down the watch manager before shutting down our task queue.
-  mWatchManager.Shutdown();
-
   MOZ_ASSERT(mState == DECODER_STATE_SHUTDOWN,
              "How did we escape from the shutdown state?");
   DECODER_LOG("Shutting down state machine task queue");
@@ -2274,20 +2440,7 @@ MediaDecoderStateMachine::RunStateMachine()
 
   mDelayedScheduler.Reset(); // Must happen on state machine task queue.
   mDispatchedStateMachine = false;
-
-  switch (mState) {
-    case DECODER_STATE_DECODING:
-      StepDecoding();
-      return;
-    case DECODER_STATE_BUFFERING:
-      StepBuffering();
-      return;
-    case DECODER_STATE_COMPLETED:
-      StepCompleted();
-      return;
-    default:
-      return;
-  }
+  mStateObj->Step();
 }
 
 void
@@ -2623,13 +2776,13 @@ MediaDecoderStateMachine::ScheduleStateMachineIn(int64_t aMicroseconds)
   TimeStamp now = TimeStamp::Now();
   TimeStamp target = now + TimeDuration::FromMicroseconds(aMicroseconds);
 
-  SAMPLE_LOG("Scheduling state machine for %lf ms from now", (target - now).ToMilliseconds());
-
-  RefPtr<MediaDecoderStateMachine> self = this;
-  mDelayedScheduler.Ensure(target, [self] () {
-    self->OnDelayedSchedule();
-  }, [self] () {
-    self->NotReached();
+  // It is OK to capture 'this' without causing UAF because the callback
+  // always happens before shutdown.
+  mDelayedScheduler.Ensure(target, [this] () {
+    mDelayedScheduler.CompleteRequest();
+    RunStateMachine();
+  }, [] () {
+    MOZ_DIAGNOSTIC_ASSERT(false);
   });
 }
 
@@ -2673,7 +2826,8 @@ void MediaDecoderStateMachine::PreservesPitchChanged()
   mMediaSink->SetPreservesPitch(mPreservesPitch);
 }
 
-bool MediaDecoderStateMachine::IsShutdown()
+bool
+MediaDecoderStateMachine::IsShutdown() const
 {
   MOZ_ASSERT(OnTaskQueue());
   return mIsShutdown;

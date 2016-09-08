@@ -251,6 +251,17 @@ public:
   size_t SizeOfAudioQueue() const;
 
 private:
+  class StateObject;
+  class DecodeMetadataState;
+  class WaitForCDMState;
+  class DormantState;
+  class DecodingFirstFrameState;
+  class DecodingState;
+  class SeekingState;
+  class BufferingState;
+  class CompletedState;
+  class ShutdownState;
+
   static const char* ToStateStr(State aState);
   const char* ToStateStr();
 
@@ -319,23 +330,13 @@ private:
   // request is discarded.
   void ScheduleStateMachineIn(int64_t aMicroseconds);
 
-  void OnDelayedSchedule()
-  {
-    MOZ_ASSERT(OnTaskQueue());
-    mDelayedScheduler.CompleteRequest();
-    ScheduleStateMachine();
-  }
-
-  void NotReached() { MOZ_DIAGNOSTIC_ASSERT(false); }
-
   // Discard audio/video data that are already played by MSG.
   void DiscardStreamData();
   bool HaveEnoughDecodedAudio();
   bool HaveEnoughDecodedVideo();
 
-  // Returns true if the state machine has shutdown or is in the process of
-  // shutting down. The decoder monitor must be held while calling this.
-  bool IsShutdown();
+  // True if shutdown process has begun.
+  bool IsShutdown() const;
 
   // Returns true if we're currently playing. The decoder monitor must
   // be held.
@@ -356,8 +357,6 @@ protected:
   virtual ~MediaDecoderStateMachine();
 
   void SetState(State aState);
-  void ExitState();
-  void EnterState();
 
   void BufferedRangeUpdated();
 
@@ -612,6 +611,8 @@ private:
   // The decoder monitor must be obtained before modifying this state.
   // Accessed on state machine, audio, main, and AV thread.
   Watchable<State> mState;
+
+  UniquePtr<StateObject> mStateObj;
 
   // Time that buffering started. Used for buffering timeout and only
   // accessed on the state machine thread. This is null while we're not
