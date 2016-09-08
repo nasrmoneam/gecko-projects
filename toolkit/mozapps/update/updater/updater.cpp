@@ -2820,7 +2820,7 @@ int NS_main(int argc, NS_tchar **argv)
       CleanupElevatedMacUpdate(true);
     }
 #endif
-    return 2;
+    return 1;
   }
 
   // The directory containing the update information.
@@ -2945,7 +2945,7 @@ int NS_main(int argc, NS_tchar **argv)
       CleanupElevatedMacUpdate(true);
     }
 #endif
-    return 3;
+    return 1;
   }
 
   if (sStagedUpdate) {
@@ -2965,7 +2965,7 @@ int NS_main(int argc, NS_tchar **argv)
       LOG(("Installation directory and working directory must be the same "
            "for non-staged updates. Exiting."));
       LogFinish();
-      return 4;
+      return 1;
     }
 
     NS_tchar workingDirParent[MAX_PATH];
@@ -2976,7 +2976,7 @@ int NS_main(int argc, NS_tchar **argv)
       WriteStatusFile(REMOVE_FILE_SPEC_ERROR);
       LOG(("Error calling PathRemoveFileSpecW: %d", GetLastError()));
       LogFinish();
-      return 5;
+      return 1;
     }
 
     if (_wcsnicmp(workingDirParent, gInstallDirPath, MAX_PATH) != 0) {
@@ -2984,7 +2984,7 @@ int NS_main(int argc, NS_tchar **argv)
       LOG(("The apply-to directory must be the same as or "
            "a child of the installation directory! Exiting."));
       LogFinish();
-      return 6;
+      return 1;
     }
   }
 #endif
@@ -3030,7 +3030,7 @@ int NS_main(int argc, NS_tchar **argv)
       DWORD result = WaitForSingleObject(parent, waitTime);
       CloseHandle(parent);
       if (result != WAIT_OBJECT_0) {
-        return 7;
+        return 1;
       }
     }
   }
@@ -3095,7 +3095,7 @@ int NS_main(int argc, NS_tchar **argv)
         WriteStatusFile("pending");
       }
       LOG(("Update already in progress! Exiting"));
-      return 8;
+      return 1;
     }
 
     updateLockFileHandle = CreateFileW(updateLockFilePath,
@@ -3131,7 +3131,7 @@ int NS_main(int argc, NS_tchar **argv)
       if (!_waccess(elevatedLockFilePath, F_OK) &&
           NS_tremove(elevatedLockFilePath) != 0) {
         fprintf(stderr, "Unable to create elevated lock file! Exiting\n");
-        return 9;
+        return 1;
       }
 
       HANDLE elevatedFileHandle;
@@ -3145,13 +3145,13 @@ int NS_main(int argc, NS_tchar **argv)
 
       if (elevatedFileHandle == INVALID_HANDLE_VALUE) {
         LOG(("Unable to create elevated lock file! Exiting"));
-        return 10;
+        return 1;
       }
 
       wchar_t *cmdLine = MakeCommandLine(argc - 1, argv + 1);
       if (!cmdLine) {
         CloseHandle(elevatedFileHandle);
-        return 11;
+        return 1;
       }
 
       // Make sure the path to the updater to use for the update is on local.
@@ -3359,7 +3359,7 @@ int NS_main(int argc, NS_tchar **argv)
     GonkAutoMounter mounter;
     if (mounter.GetAccess() != MountAccess::ReadWrite) {
       WriteStatusFile(FILESYSTEM_MOUNT_READWRITE_ERROR);
-      return 12;
+      return 1;
     }
 #endif
 #endif
@@ -3379,7 +3379,7 @@ int NS_main(int argc, NS_tchar **argv)
         CleanupElevatedMacUpdate(true);
       }
 #endif
-      return 13;
+      return 1;
     }
   }
 
@@ -3391,7 +3391,7 @@ int NS_main(int argc, NS_tchar **argv)
     // trailing slash and null termination.
     NS_tchar *destpath = (NS_tchar *) malloc((NS_tstrlen(gWorkingDirPath) + 2) * sizeof(NS_tchar));
     if (!destpath) {
-      return 14;
+      return 1;
     }
 
     NS_tchar *c = destpath;
@@ -3419,7 +3419,7 @@ int NS_main(int argc, NS_tchar **argv)
       LaunchCallbackApp(argv[5], argc - callbackIndex,
                         argv + callbackIndex, sUsingService);
     }
-    return 15;
+    return 1;
   }
 
   HANDLE callbackFile = INVALID_HANDLE_VALUE;
@@ -3474,7 +3474,7 @@ int NS_main(int argc, NS_tchar **argv)
                           argv + callbackIndex,
                           sUsingService);
       }
-      return 16;
+      return 1;
     }
 
     // Doing this is only necessary when we're actually applying a patch.
@@ -3522,7 +3522,7 @@ int NS_main(int argc, NS_tchar **argv)
                           argc - callbackIndex,
                           argv + callbackIndex,
                           sUsingService);
-        return 17;
+        return 1;
       }
 
       // Since the process may be signaled as exited by WaitForSingleObject before
@@ -3571,7 +3571,7 @@ int NS_main(int argc, NS_tchar **argv)
                             argc - callbackIndex,
                             argv + callbackIndex,
                             sUsingService);
-          return 18;
+          return 1;
         }
         LOG(("NS_main: callback app file in use, continuing without " \
              "exclusive access for executable file: " LOG_S,
