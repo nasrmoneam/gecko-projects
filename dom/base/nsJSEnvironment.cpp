@@ -531,9 +531,7 @@ PrintWinURI(nsGlobalWindow *win)
     return;
   }
 
-  nsAutoCString spec;
-  uri->GetSpec(spec);
-  printf("%s\n", spec.get());
+  printf("%s\n", uri->GetSpecOrDefault().get());
 }
 
 void
@@ -557,9 +555,7 @@ PrintWinCodebase(nsGlobalWindow *win)
     return;
   }
 
-  nsAutoCString spec;
-  uri->GetSpec(spec);
-  printf("%s\n", spec.get());
+  printf("%s\n", uri->GetSpecOrDefault().get());
 }
 
 void
@@ -2190,11 +2186,15 @@ DOMGCSliceCallback(JSContext* aCx, JS::GCProgress aProgress, const JS::GCDescrip
       }
 
       if (sPostGCEventsToConsole) {
-        nsString gcstats;
+        NS_NAMED_LITERAL_STRING(kFmt, "[%s] ");
+        nsString prefix, gcstats;
         gcstats.Adopt(aDesc.formatSliceMessage(aCx));
+        prefix.Adopt(nsTextFormatter::smprintf(kFmt.get(),
+                                               ProcessNameForCollectorLog()));
+        nsString msg = prefix + gcstats;
         nsCOMPtr<nsIConsoleService> cs = do_GetService(NS_CONSOLESERVICE_CONTRACTID);
         if (cs) {
-          cs->LogStringMessage(gcstats.get());
+          cs->LogStringMessage(msg.get());
         }
       }
 

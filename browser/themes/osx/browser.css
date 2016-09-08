@@ -55,10 +55,10 @@
 
 #navigator-toolbox::after {
   -moz-box-ordinal-group: 101; /* tabs toolbar is 100 */
-  background-image: linear-gradient(to top, hsla(0,0%,0%,.15), hsla(0,0%,0%,.15) 1px, hsla(0,0%,100%,.15) 1px, hsla(0,0%,100%,.15) 2px, transparent 3px);
   content: "";
   display: -moz-box;
-  height: 2px;
+  border-top: 1px solid hsla(0,0%,100%,.15);
+  border-bottom: 1px solid hsla(0,0%,0%,.15);
   margin-top: -2px;
   position: relative;
   z-index: 2; /* navbar is at 1 */
@@ -66,7 +66,9 @@
 
 @media (-moz-mac-yosemite-theme) {
   #navigator-toolbox:-moz-window-inactive::after {
-    background-image: linear-gradient(to top, hsla(0,0%,0%,.1), hsla(0,0%,0%,.1) 1px, hsla(0,0%,100%,0) 1px, hsla(0,0%,100%,0) 2px, transparent 3px);
+    border-top-style: none;
+    border-bottom-color: hsla(0,0%,0%,.1);
+    margin-top: -1px;
   }
 }
 
@@ -3121,60 +3123,6 @@ menulist.translate-infobar-element > .menulist-dropmarker {
   font-weight: bold;
 }
 
-/* Ctrl-Tab */
-
-#ctrlTab-panel {
-  -moz-appearance: none;
-  -moz-window-shadow: none;
-  background: hsla(0,0%,33%,.85);
-  color: white;
-  border-style: none;
-  padding: 20px 10px 10px;
-  text-shadow: 0 0 1px hsl(0,0%,12%), 0 0 2px hsl(0,0%,12%);
-}
-
-.ctrlTab-favicon[src] {
-  background-color: white;
-  width: 20px;
-  height: 20px;
-  padding: 2px;
-}
-
-.ctrlTab-preview-inner > .tabPreview-canvas {
-  box-shadow: 1px 1px 2px hsl(0,0%,12%);
-}
-
-.ctrlTab-preview:not(#ctrlTab-showAll) > * > .ctrlTab-preview-inner > .tabPreview-canvas {
-  margin-bottom: 2px;
-}
-
-.ctrlTab-preview-inner {
-  padding-bottom: 10px;
-}
-
-#ctrlTab-showAll:not(:focus) > * > .ctrlTab-preview-inner {
-  padding: 10px;
-  background-color: rgba(255,255,255,.2);
-  border-radius: .5em;
-}
-
-.ctrlTab-preview:focus > * > .ctrlTab-preview-inner {
-  color: white;
-  background-color: rgba(0,0,0,.6);
-  text-shadow: none;
-  padding: 8px;
-  border: 2px solid white;
-  border-radius: .5em;
-}
-
-.ctrlTab-preview:not(#ctrlTab-showAll):focus > * > .ctrlTab-preview-inner {
-  margin: -10px -10px 0;
-}
-
-#ctrlTab-showAll {
-  margin-top: .5em;
-}
-
 /* Status panel */
 
 .statuspanel-label {
@@ -3202,6 +3150,7 @@ menulist.translate-infobar-element > .menulist-dropmarker {
 }
 
 %include ../shared/fullscreen/warning.inc.css
+%include ../shared/ctrlTab.inc.css
 %include ../../../devtools/client/themes/responsivedesign.inc.css
 %include ../../../devtools/client/themes/commandline.inc.css
 %include ../shared/plugin-doorhanger.inc.css

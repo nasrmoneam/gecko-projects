@@ -338,6 +338,7 @@ struct JSCompartment
     bool                         isSelfHosting;
     bool                         marked;
     bool                         warnedAboutExprClosure;
+    bool                         warnedAboutForEach;
 
 #ifdef DEBUG
     bool                         firedOnNewGlobalObject;
@@ -800,6 +801,9 @@ struct JSCompartment
      * suppression.
      */
     js::NativeIterator* enumerators;
+
+    /* Native iterator most recently started. */
+    js::PropertyIteratorObject* lastCachedNativeIterator;
 
   private:
     /* Used by memory reporters and invalid otherwise. */

@@ -7,10 +7,12 @@
 
 #include "nsGfxScrollFrame.h"
 
+#include "ActiveLayerTracker.h"
 #include "base/compiler_specific.h"
 #include "DisplayItemClip.h"
 #include "DisplayItemScrollClip.h"
 #include "nsCOMPtr.h"
+#include "nsIContentViewer.h"
 #include "nsPresContext.h"
 #include "nsView.h"
 #include "nsIScrollable.h"
@@ -76,6 +78,7 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
+using namespace mozilla::layers;
 using namespace mozilla::layout;
 
 static uint32_t
@@ -5234,7 +5237,7 @@ ScrollFrameHelper::ReflowFinished()
   // do anything.
   nsPoint currentScrollPos = GetScrollPosition();
   ScrollToImpl(currentScrollPos, nsRect(currentScrollPos, nsSize(0, 0)));
-  if (!mAsyncScroll && !mAsyncSmoothMSDScroll) {
+  if (!mAsyncScroll && !mAsyncSmoothMSDScroll && !mApzSmoothScrollDestination) {
     // We need to have mDestination track the current scroll position,
     // in case it falls outside the new reflow area. mDestination is used
     // by ScrollBy as its starting position.

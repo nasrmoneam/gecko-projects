@@ -1007,7 +1007,8 @@ nsWebBrowserPersist::OnDataAvailable(
             if ((-1 == channelContentLength) ||
                 ((channelContentLength - (aOffset + aLength)) == 0))
             {
-                NS_WARN_IF_FALSE(channelContentLength != -1,
+                NS_WARNING_ASSERTION(
+                    channelContentLength != -1,
                     "nsWebBrowserPersist::OnDataAvailable() no content length "
                     "header, pushing what we have");
                 // we're done with this pass; see if we need to do upload
@@ -1528,7 +1529,6 @@ nsWebBrowserPersist::GetExtensionForContentType(const char16_t *aContentType, ch
         NS_ENSURE_TRUE(mMIMEService, NS_ERROR_FAILURE);
     }
 
-    nsCOMPtr<nsIMIMEInfo> mimeInfo;
     nsAutoCString contentType;
     contentType.AssignWithConversion(aContentType);
     nsAutoCString ext;

@@ -1738,7 +1738,7 @@ CanvasRenderingContext2D::TrySkiaGLTarget(RefPtr<gfx::DrawTarget>& aOutDT,
   DemoteOldestContextIfNecessary();
   mBufferProvider = nullptr;
 
-#if USE_SKIA_GPU
+#ifdef USE_SKIA_GPU
   SkiaGLGlue* glue = gfxPlatform::GetPlatform()->GetSkiaGLGlue();
   if (!glue || !glue->GetGrContext() || !glue->GetGLContext()) {
     return false;
@@ -1748,8 +1748,8 @@ CanvasRenderingContext2D::TrySkiaGLTarget(RefPtr<gfx::DrawTarget>& aOutDT,
   aOutDT = Factory::CreateDrawTargetSkiaWithGrContext(glue->GetGrContext(),
                                                       size, format);
   if (!aOutDT) {
-    return false;
     gfxCriticalNote << "Failed to create a SkiaGL DrawTarget, falling back to software\n";
+    return false;
   }
 
   MOZ_ASSERT(aOutDT->GetType() == DrawTargetType::HARDWARE_RASTER);

@@ -379,7 +379,7 @@ nsWeakFrame::Init(nsIFrame* aFrame)
   mFrame = aFrame;
   if (mFrame) {
     nsIPresShell* shell = mFrame->PresContext()->GetPresShell();
-    NS_WARN_IF_FALSE(shell, "Null PresShell in nsWeakFrame!");
+    NS_WARNING_ASSERTION(shell, "Null PresShell in nsWeakFrame!");
     if (shell) {
       shell->AddWeakFrame(this);
     } else {
@@ -481,7 +481,7 @@ IsFontSizeInflationContainer(nsIFrame* aFrame,
 
   nsIContent *content = aFrame->GetContent();
   nsIAtom* frameType = aFrame->GetType();
-  bool isInline = (aFrame->GetDisplay() == NS_STYLE_DISPLAY_INLINE ||
+  bool isInline = (aFrame->GetDisplay() == StyleDisplay::Inline ||
                    RubyUtils::IsRubyBox(frameType) ||
                    (aFrame->IsFloating() &&
                     frameType == nsGkAtoms::letterFrame) ||
@@ -657,18 +657,18 @@ nsFrame::DestroyFrom(nsIFrame* aDestructRoot)
     // Delete previous sibling's reference to me.
     nsIFrame* prevSib = Properties().Get(nsIFrame::IBSplitPrevSibling());
     if (prevSib) {
-      NS_WARN_IF_FALSE(this ==
-         prevSib->Properties().Get(nsIFrame::IBSplitSibling()),
-         "IB sibling chain is inconsistent");
+      NS_WARNING_ASSERTION(
+        this == prevSib->Properties().Get(nsIFrame::IBSplitSibling()),
+        "IB sibling chain is inconsistent");
       prevSib->Properties().Delete(nsIFrame::IBSplitSibling());
     }
 
     // Delete next sibling's reference to me.
     nsIFrame* nextSib = Properties().Get(nsIFrame::IBSplitSibling());
     if (nextSib) {
-      NS_WARN_IF_FALSE(this ==
-         nextSib->Properties().Get(nsIFrame::IBSplitPrevSibling()),
-         "IB sibling chain is inconsistent");
+      NS_WARNING_ASSERTION(
+        this == nextSib->Properties().Get(nsIFrame::IBSplitPrevSibling()),
+        "IB sibling chain is inconsistent");
       nextSib->Properties().Delete(nsIFrame::IBSplitPrevSibling());
     }
   }
@@ -2441,16 +2441,42 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
    * output even if the element being filtered wouldn't otherwise do so.
    */
   if (usingSVGEffects) {
+    MOZ_ASSERT(StyleEffects()->HasFilters() ||
+               nsSVGIntegrationUtils::UsingMaskOrClipPathForFrame(this),
+               "Beside filter & mask/clip-path, what else effect do we have?");
+
     if (clipCapturedBy == ContainerItemType::eSVGEffects) {
       clipState.ExitStackingContextContents(&containerItemScrollClip);
     }
     // Revert to the post-filter dirty rect.
     buildingDisplayList.SetDirtyRect(dirtyRectOutsideSVGEffects);
-    /* List now emptied, so add the new list to the top. */
-    resultList.AppendNewToTop(
-        new (aBuilder) nsDisplaySVGEffects(aBuilder, this, &resultList, useOpacity));
+
+    // Skip all filter effects while generating glyph mask.
+    bool createFilter =
+      StyleEffects()->HasFilters() && !aBuilder->IsForGenerateGlyphMask();
+    bool createMask = nsSVGIntegrationUtils::UsingMaskOrClipPathForFrame(this);
+
+    if (createFilter) {
+      // If we are going to create a mask display item, handle opacity effect
+      // in that mask display item; Otherwise, take care of opacity in this
+      // filter display item.
+      bool handleOpacity = !createMask && !useOpacity;
+
+      /* List now emptied, so add the new list to the top. */
+      resultList.AppendNewToTop(
+        new (aBuilder) nsDisplayFilter(aBuilder, this, &resultList,
+                                       handleOpacity));
+    }
+
+    if (createMask) {
+      /* List now emptied, so add the new list to the top. */
+      resultList.AppendNewToTop(
+          new (aBuilder) nsDisplayMask(aBuilder, this, &resultList,
+                                       !useOpacity));
+    }
+
     // Also add the hoisted scroll info items. We need those for APZ scrolling
-    // because nsDisplaySVGEffects items can't build active layers.
+    // because nsDisplayMask items can't build active layers.
     aBuilder->ExitSVGEffectsContents();
     resultList.AppendToTop(&hoistedScrollInfoItemsStorage);
   }
@@ -4178,7 +4204,7 @@ nsIFrame::ContentOffsets OffsetsForSingleFrame(nsIFrame* aFrame, nsPoint aPoint)
   // Figure out whether the offsets should be over, after, or before the frame
   nsRect rect(nsPoint(0, 0), aFrame->GetSize());
 
-  bool isBlock = aFrame->GetDisplay() != NS_STYLE_DISPLAY_INLINE;
+  bool isBlock = aFrame->GetDisplay() != StyleDisplay::Inline;
   bool isRtl = (aFrame->StyleVisibility()->mDirection == NS_STYLE_DIRECTION_RTL);
   if ((isBlock && rect.y < aPoint.y) ||
       (!isBlock && ((isRtl  && rect.x + rect.width / 2 > aPoint.x) || 
@@ -4429,6 +4455,7 @@ nsIFrame::InlinePrefISizeData::DefaultAddInlinePrefISize(nscoord aISize)
   mCurrentLine = NSCoordSaturatingAdd(mCurrentLine, aISize);
   mTrailingWhitespace = 0;
   mSkipWhitespace = false;
+  mLineIsEmpty = false;
 }
 
 void
@@ -4476,19 +4503,19 @@ nsIFrame::InlinePrefISizeData::ForceBreak()
     for (uint32_t i = 0, i_end = mFloats.Length(); i != i_end; ++i) {
       const FloatInfo& floatInfo = mFloats[i];
       const nsStyleDisplay* floatDisp = floatInfo.Frame()->StyleDisplay();
-      uint8_t breakType = floatDisp->PhysicalBreakType(mLineContainerWM);
-      if (breakType == NS_STYLE_CLEAR_LEFT ||
-          breakType == NS_STYLE_CLEAR_RIGHT ||
-          breakType == NS_STYLE_CLEAR_BOTH) {
+      StyleClear breakType = floatDisp->PhysicalBreakType(mLineContainerWM);
+      if (breakType == StyleClear::Left ||
+          breakType == StyleClear::Right ||
+          breakType == StyleClear::Both) {
         nscoord floats_cur = NSCoordSaturatingAdd(floats_cur_left,
                                                   floats_cur_right);
         if (floats_cur > floats_done) {
           floats_done = floats_cur;
         }
-        if (breakType != NS_STYLE_CLEAR_RIGHT) {
+        if (breakType != StyleClear::Right) {
           floats_cur_left = 0;
         }
-        if (breakType != NS_STYLE_CLEAR_LEFT) {
+        if (breakType != StyleClear::Left) {
           floats_cur_right = 0;
         }
       }
@@ -4518,6 +4545,7 @@ nsIFrame::InlinePrefISizeData::ForceBreak()
   mPrevLines = std::max(mPrevLines, mCurrentLine);
   mCurrentLine = mTrailingWhitespace = 0;
   mSkipWhitespace = true;
+  mLineIsEmpty = true;
 }
 
 static void
@@ -10785,22 +10813,25 @@ ReflowInput::DisplayInitFrameTypeExit(nsIFrame* aFrame,
     if (aFrame->IsFloating())
       printf(" float");
 
-    // This array must exactly match the NS_STYLE_DISPLAY constants.
+    // This array must exactly match the StyleDisplay enum.
     const char *const displayTypes[] = {
-      "none", "block", "inline", "inline-block", "list-item", "marker",
-      "run-in", "compact", "table", "inline-table", "table-row-group",
-      "table-column", "table-column-group", "table-header-group",
-      "table-footer-group", "table-row", "table-cell", "table-caption",
-      "box", "inline-box",
+      "none", "block", "inline", "inline-block", "list-item", "table",
+      "inline-table", "table-row-group", "table-column", "table-column",
+      "table-column-group", "table-header-group", "table-footer-group",
+      "table-row", "table-cell", "table-caption", "flex", "inline-flex",
+      "grid", "inline-grid", "ruby", "ruby-base", "ruby-base-container",
+      "ruby-text", "ruby-text-container", "contents", "-webkit-box",
+      "-webkit-inline-box", "box", "inline-box",
 #ifdef MOZ_XUL
       "grid", "inline-grid", "grid-group", "grid-line", "stack",
-      "inline-stack", "deck", "popup", "groupbox",
+      "inline-stack", "deck", "groupbox", "popup",
 #endif
     };
-    if (disp->mDisplay >= ArrayLength(displayTypes))
-      printf(" display=%u", disp->mDisplay);
+    const uint32_t display = static_cast<uint32_t>(disp->mDisplay);
+    if (display >= ArrayLength(displayTypes))
+      printf(" display=%u", display);
     else
-      printf(" display=%s", displayTypes[disp->mDisplay]);
+      printf(" display=%s", displayTypes[display]);
 
     // This array must exactly match the NS_CSS_FRAME_TYPE constants.
     const char *const cssFrameTypes[] = {

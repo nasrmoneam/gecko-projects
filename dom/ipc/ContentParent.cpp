@@ -66,6 +66,7 @@
 #include "mozilla/dom/Permissions.h"
 #include "mozilla/dom/PresentationParent.h"
 #include "mozilla/dom/PPresentationParent.h"
+#include "mozilla/dom/PushNotifier.h"
 #include "mozilla/dom/FlyWebPublishedServerIPC.h"
 #include "mozilla/dom/quota/QuotaManagerService.h"
 #include "mozilla/dom/telephony/TelephonyParent.h"
@@ -263,10 +264,6 @@ using namespace mozilla::system;
 #include "nsIProfileSaveEvent.h"
 #endif
 
-#ifndef MOZ_SIMPLEPUSH
-#include "mozilla/dom/PushNotifier.h"
-#endif
-
 #ifdef XP_WIN
 #include "mozilla/widget/AudioSession.h"
 #endif
@@ -361,7 +358,7 @@ MemoryReportRequestParent::MemoryReportRequestParent(uint32_t aGeneration)
 {
   MOZ_COUNT_CTOR(MemoryReportRequestParent);
   mReporterManager = nsMemoryReporterManager::GetOrCreate();
-  NS_WARN_IF(!mReporterManager);
+  NS_WARNING_ASSERTION(mReporterManager, "GetOrCreate failed");
 }
 
 bool
@@ -3646,7 +3643,7 @@ ContentParent::DeallocPPresentationParent(PPresentationParent* aActor)
 bool
 ContentParent::RecvPPresentationConstructor(PPresentationParent* aActor)
 {
-  return static_cast<PresentationParent*>(aActor)->Init();
+  return static_cast<PresentationParent*>(aActor)->Init(mChildID);
 }
 
 PFlyWebPublishedServerParent*
@@ -4064,12 +4061,12 @@ AddGeolocationListener(nsIDOMGeoPositionCallback* watcher,
     return -1;
   }
 
-  PositionOptions* options = new PositionOptions();
+  nsAutoPtr<PositionOptions> options(new PositionOptions());
   options->mTimeout = 0;
   options->mMaximumAge = 0;
   options->mEnableHighAccuracy = highAccuracy;
   int32_t retval = 1;
-  geo->WatchPosition(watcher, errorCallBack, options, &retval);
+  geo->WatchPosition(watcher, errorCallBack, Move(options), &retval);
   return retval;
 }
 
@@ -5006,7 +5003,6 @@ ContentParent::RecvCreateWindow(PBrowserParent* aThisTab,
     return true;
   }
 
-  nsCOMPtr<mozIDOMWindowProxy> window;
   TabParent::AutoUseNewTab aunt(newTab, aWindowIsNew, aURLToLoad);
 
   nsCOMPtr<nsPIWindowWatcher> pwwatch =
@@ -5226,10 +5222,8 @@ ContentParent::RecvNotifyPushObservers(const nsCString& aScope,
                                        const IPC::Principal& aPrincipal,
                                        const nsString& aMessageId)
 {
-#ifndef MOZ_SIMPLEPUSH
   PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId, Nothing());
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
-#endif
   return true;
 }
 
@@ -5239,10 +5233,8 @@ ContentParent::RecvNotifyPushObserversWithData(const nsCString& aScope,
                                                const nsString& aMessageId,
                                                InfallibleTArray<uint8_t>&& aData)
 {
-#ifndef MOZ_SIMPLEPUSH
   PushMessageDispatcher dispatcher(aScope, aPrincipal, aMessageId, Some(aData));
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
-#endif
   return true;
 }
 
@@ -5250,10 +5242,8 @@ bool
 ContentParent::RecvNotifyPushSubscriptionChangeObservers(const nsCString& aScope,
                                                          const IPC::Principal& aPrincipal)
 {
-#ifndef MOZ_SIMPLEPUSH
   PushSubscriptionChangeDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
-#endif
   return true;
 }
 
@@ -5261,10 +5251,8 @@ bool
 ContentParent::RecvNotifyPushSubscriptionModifiedObservers(const nsCString& aScope,
                                                            const IPC::Principal& aPrincipal)
 {
-#ifndef MOZ_SIMPLEPUSH
   PushSubscriptionModifiedDispatcher dispatcher(aScope, aPrincipal);
   Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObservers()));
-#endif
   return true;
 }
 

@@ -53,6 +53,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     isSelfHosting(false),
     marked(true),
     warnedAboutExprClosure(false),
+    warnedAboutForEach(false),
 #ifdef DEBUG
     firedOnNewGlobalObject(false),
 #endif
@@ -79,6 +80,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     debugScriptMap(nullptr),
     debugEnvs(nullptr),
     enumerators(nullptr),
+    lastCachedNativeIterator(nullptr),
     compartmentStats_(nullptr),
     scheduledForDestruction(false),
     maybeAlive(true),
@@ -585,6 +587,7 @@ JSCompartment::traceOutgoingCrossCompartmentWrappers(JSTracer* trc)
 /* static */ void
 JSCompartment::traceIncomingCrossCompartmentEdgesForZoneGC(JSTracer* trc)
 {
+    gcstats::AutoPhase ap(trc->runtime()->gc.stats, gcstats::PHASE_MARK_CCWS);
     MOZ_ASSERT(trc->runtime()->isHeapMajorCollecting());
     for (CompartmentsIter c(trc->runtime(), SkipAtoms); !c.done(); c.next()) {
         if (!c->zone()->isCollecting())
@@ -858,9 +861,9 @@ JSCompartment::fixupCrossCompartmentWrappersAfterMovingGC(JSTracer* trc)
 void
 JSCompartment::fixupAfterMovingGC()
 {
+    purge();
     fixupGlobal();
     objectGroups.fixupTablesAfterMovingGC();
-    dtoaCache.purge();
     fixupScriptMapsAfterMovingGC();
 }
 
@@ -929,6 +932,7 @@ void
 JSCompartment::purge()
 {
     dtoaCache.purge();
+    lastCachedNativeIterator = nullptr;
 }
 
 void

@@ -290,7 +290,7 @@ LogErrorToConsole(const nsAString& aMessage,
 
   nsCOMPtr<nsIScriptError> scriptError =
     do_CreateInstance(NS_SCRIPTERROR_CONTRACTID);
-  NS_WARN_IF_FALSE(scriptError, "Failed to create script error!");
+  NS_WARNING_ASSERTION(scriptError, "Failed to create script error!");
 
   if (scriptError) {
     if (NS_FAILED(scriptError->InitWithWindowID(aMessage, aFilename, aLine,
@@ -304,7 +304,7 @@ LogErrorToConsole(const nsAString& aMessage,
 
   nsCOMPtr<nsIConsoleService> consoleService =
     do_GetService(NS_CONSOLESERVICE_CONTRACTID);
-  NS_WARN_IF_FALSE(consoleService, "Failed to get console service!");
+  NS_WARNING_ASSERTION(consoleService, "Failed to get console service!");
 
   if (consoleService) {
     if (scriptError) {
@@ -2436,9 +2436,9 @@ WorkerPrivateParent<Derived>::GetEventTarget()
     target = mEventTarget;
   }
 
-  NS_WARN_IF_FALSE(target,
-                   "Requested event target for a worker that is already "
-                   "shutting down!");
+  NS_WARNING_ASSERTION(
+    target,
+    "Requested event target for a worker that is already shutting down!");
 
   return target.forget();
 }
@@ -2540,7 +2540,7 @@ WorkerPrivateParent<Derived>::Freeze(nsPIDOMWindowInner* aWindow)
         // outlives this call.
         RefPtr<SharedWorker> kungFuDeathGrip = mSharedWorkers[i];
 
-        mSharedWorkers[i]->Freeze();
+        kungFuDeathGrip->Freeze();
       } else {
         MOZ_ASSERT_IF(mSharedWorkers[i]->GetOwner() && aWindow,
                       !SameCOMIdentity(mSharedWorkers[i]->GetOwner(),
@@ -2604,7 +2604,7 @@ WorkerPrivateParent<Derived>::Thaw(nsPIDOMWindowInner* aWindow)
         // outlives this call.
         RefPtr<SharedWorker> kungFuDeathGrip = mSharedWorkers[i];
 
-        mSharedWorkers[i]->Thaw();
+        kungFuDeathGrip->Thaw();
         anyRunning = true;
       } else {
         MOZ_ASSERT_IF(mSharedWorkers[i]->GetOwner() && aWindow,
@@ -3069,7 +3069,7 @@ WorkerPrivateParent<Derived>::MemoryPressure(bool aDummy)
 
   RefPtr<MemoryPressureRunnable> runnable =
     new MemoryPressureRunnable(ParentAsWorkerPrivate());
-  NS_WARN_IF(!runnable->Dispatch());
+  Unused << NS_WARN_IF(!runnable->Dispatch());
 }
 
 template <class Derived>
@@ -4130,7 +4130,7 @@ WorkerPrivate::GetLoadInfo(JSContext* aCx, nsPIDOMWindowInner* aWindow,
     AssertIsOnMainThread();
 
     // Make sure that the IndexedDatabaseManager is set up
-    NS_WARN_IF(!IndexedDatabaseManager::GetOrCreate());
+    Unused << NS_WARN_IF(!IndexedDatabaseManager::GetOrCreate());
 
     nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
     MOZ_ASSERT(ssm);
@@ -5920,8 +5920,7 @@ WorkerPrivate::RunExpiredTimeouts(JSContext* aCx)
       AutoEntryScript aes(global, reason, false);
 
       // Evaluate the timeout expression.
-      nsAutoString script;
-      info->mHandler->GetHandlerText(script);
+      const nsAString& script = info->mHandler->GetHandlerText();
 
       const char* filename = nullptr;
       uint32_t lineNo = 0, dummyColumn = 0;
@@ -5932,7 +5931,7 @@ WorkerPrivate::RunExpiredTimeouts(JSContext* aCx)
 
       JS::Rooted<JS::Value> unused(aes.cx());
 
-      if (!JS::Evaluate(aes.cx(), options, script.get(),
+      if (!JS::Evaluate(aes.cx(), options, script.BeginReading(),
                         script.Length(), &unused) &&
           !JS_IsExceptionPending(aCx)) {
         retval = false;
@@ -6433,12 +6432,10 @@ WorkerPrivate::AssertIsOnWorkerThread() const
   MOZ_ASSERT(mPRThread,
              "AssertIsOnWorkerThread() called before a thread was assigned!");
 
-  MOZ_ASSERT(nsThreadManager::get());
-
   nsCOMPtr<nsIThread> thread;
   nsresult rv =
-    nsThreadManager::get()->GetThreadFromPRThread(mPRThread,
-                                                  getter_AddRefs(thread));
+    nsThreadManager::get().GetThreadFromPRThread(mPRThread,
+                                                 getter_AddRefs(thread));
   MOZ_ASSERT(NS_SUCCEEDED(rv));
   MOZ_ASSERT(thread);
 

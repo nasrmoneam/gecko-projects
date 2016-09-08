@@ -650,6 +650,17 @@ Debugger::Debugger(JSContext* cx, NativeObject* dbg)
 
     JS_INIT_CLIST(&breakpoints);
     JS_INIT_CLIST(&onNewGlobalObjectWatchersLink);
+
+#ifdef JS_TRACE_LOGGING
+    TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
+    if (logger) {
+#ifdef NIGHTLY_BUILD
+        logger->getIterationAndSize(&traceLoggerLastDrainedIteration, &traceLoggerLastDrainedSize);
+#endif
+        logger->getIterationAndSize(&traceLoggerScriptedCallsLastDrainedIteration,
+                                    &traceLoggerScriptedCallsLastDrainedSize);
+    }
+#endif
 }
 
 Debugger::~Debugger()
@@ -4875,28 +4886,29 @@ bool
 Debugger::drainTraceLogger(JSContext* cx, unsigned argc, Value* vp)
 {
     THIS_DEBUGGER(cx, argc, vp, "drainTraceLogger", args, dbg);
-    if (!args.requireAtLeast(cx, "Debugger.drainTraceLogger", 0))
-        return false;
 
-    size_t num;
     TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     bool lostEvents = logger->lostEvents(dbg->traceLoggerLastDrainedIteration,
                                          dbg->traceLoggerLastDrainedSize);
+
+    size_t numEvents;
     EventEntry* events = logger->getEventsStartingAt(&dbg->traceLoggerLastDrainedIteration,
                                                      &dbg->traceLoggerLastDrainedSize,
-                                                     &num);
+                                                     &numEvents);
 
     RootedObject array(cx, NewDenseEmptyArray(cx));
-    JSAtom* dataAtom = Atomize(cx, "data", strlen("data"));
     if (!array)
         return false;
+
+    JSAtom* dataAtom = Atomize(cx, "data", strlen("data"));
     if (!dataAtom)
         return false;
+
     RootedId dataId(cx, AtomToId(dataAtom));
 
     /* Add all events to the array. */
     uint32_t index = 0;
-    for (EventEntry* eventItem = events; eventItem < events + num; eventItem++, index++) {
+    for (EventEntry* eventItem = events; eventItem < events + numEvents; eventItem++, index++) {
         RootedObject item(cx, NewObjectWithGivenProto(cx, &PlainObject::class_, nullptr));
         if (!item)
             return false;
@@ -5026,37 +5038,45 @@ bool
 Debugger::drainTraceLoggerScriptCalls(JSContext* cx, unsigned argc, Value* vp)
 {
     THIS_DEBUGGER(cx, argc, vp, "drainTraceLoggerScriptCalls", args, dbg);
-    if (!args.requireAtLeast(cx, "Debugger.drainTraceLoggerScriptCalls", 0))
-        return false;
 
-    size_t num;
     TraceLoggerThread* logger = TraceLoggerForMainThread(cx->runtime());
     bool lostEvents = logger->lostEvents(dbg->traceLoggerScriptedCallsLastDrainedIteration,
                                          dbg->traceLoggerScriptedCallsLastDrainedSize);
+
+    size_t numEvents;
     EventEntry* events = logger->getEventsStartingAt(
                                          &dbg->traceLoggerScriptedCallsLastDrainedIteration,
                                          &dbg->traceLoggerScriptedCallsLastDrainedSize,
-                                         &num);
+                                         &numEvents);
 
     RootedObject array(cx, NewDenseEmptyArray(cx));
     if (!array)
         return false;
-    RootedId fileNameId(cx, AtomToId(cx->names().fileName));
-    RootedId lineNumberId(cx, AtomToId(cx->names().lineNumber));
-    RootedId columnNumberId(cx, AtomToId(cx->names().columnNumber));
+
     JSAtom* logTypeAtom = Atomize(cx, "logType", strlen("logType"));
     if (!logTypeAtom)
         return false;
+
+    RootedId fileNameId(cx, AtomToId(cx->names().fileName));
+    RootedId lineNumberId(cx, AtomToId(cx->names().lineNumber));
+    RootedId columnNumberId(cx, AtomToId(cx->names().columnNumber));
     RootedId logTypeId(cx, AtomToId(logTypeAtom));
 
     /* Add all events to the array. */
     uint32_t index = 0;
-    for (EventEntry* eventItem = events; eventItem < events + num; eventItem++) {
+    for (EventEntry* eventItem = events; eventItem < events + numEvents; eventItem++) {
         RootedObject item(cx, NewObjectWithGivenProto(cx, &PlainObject::class_, nullptr));
         if (!item)
             return false;
 
+        // Filter out internal time.
         uint32_t textId = eventItem->textId;
+        if (textId == TraceLogger_Internal) {
+            eventItem++;
+            MOZ_ASSERT(eventItem->textId == TraceLogger_Stop);
+            continue;
+        }
+
         if (textId != TraceLogger_Stop && !logger->textIdIsScriptEvent(textId))
             continue;
 
@@ -8667,8 +8687,8 @@ DebuggerObject::promiseValueGetter(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     if (object->promiseState() != JS::PromiseState::Fulfilled) {
-        args.rval().setUndefined();
-        return true;
+        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_PROMISE_NOT_FULFILLED);
+        return false;
     }
 
     return DebuggerObject::getPromiseValue(cx, object, args.rval());;
@@ -8683,8 +8703,8 @@ DebuggerObject::promiseReasonGetter(JSContext* cx, unsigned argc, Value* vp)
         return false;
 
     if (object->promiseState() != JS::PromiseState::Rejected) {
-        args.rval().setUndefined();
-        return true;
+        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_PROMISE_NOT_REJECTED);
+        return false;
     }
 
     return DebuggerObject::getPromiseReason(cx, object, args.rval());;
@@ -8693,23 +8713,29 @@ DebuggerObject::promiseReasonGetter(JSContext* cx, unsigned argc, Value* vp)
 /* static */ bool
 DebuggerObject::promiseLifetimeGetter(JSContext* cx, unsigned argc, Value* vp)
 {
-    THIS_DEBUGOBJECT_PROMISE(cx, argc, vp, "get promiseLifetime", args, refobj);
+    THIS_DEBUGOBJECT(cx, argc, vp, "get promiseLifetime", args, object);
 
-    args.rval().setNumber(promise->lifetime());
+    if (!DebuggerObject::requirePromise(cx, object))
+        return false;
+
+    args.rval().setNumber(object->promiseLifetime());
     return true;
 }
 
 /* static */ bool
 DebuggerObject::promiseTimeToResolutionGetter(JSContext* cx, unsigned argc, Value* vp)
 {
-    THIS_DEBUGOBJECT_PROMISE(cx, argc, vp, "get promiseTimeToResolution", args, refobj);
+    THIS_DEBUGOBJECT(cx, argc, vp, "get promiseTimeToResolution", args, object);
 
-    if (promise->state() == JS::PromiseState::Pending) {
+    if (!DebuggerObject::requirePromise(cx, object))
+        return false;
+
+    if (object->promiseState() == JS::PromiseState::Pending) {
         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_DEBUG_PROMISE_NOT_RESOLVED);
         return false;
     }
 
-    args.rval().setNumber(promise->timeToResolution());
+    args.rval().setNumber(object->promiseTimeToResolution());
     return true;
 }
 
@@ -9413,6 +9439,20 @@ JS::PromiseState
 DebuggerObject::promiseState() const
 {
     return promise()->state();
+}
+
+double
+DebuggerObject::promiseLifetime() const
+{
+    return promise()->lifetime();
+}
+
+double
+DebuggerObject::promiseTimeToResolution() const
+{
+    MOZ_ASSERT(promiseState() != JS::PromiseState::Pending);
+
+    return promise()->timeToResolution();
 }
 
 /* static */ bool

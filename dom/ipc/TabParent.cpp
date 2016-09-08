@@ -618,9 +618,19 @@ TabParent::ActorDestroy(ActorDestroyReason why)
     if (why == AbnormalShutdown && os) {
       os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, frameLoader),
                           "oop-frameloader-crashed", nullptr);
-      nsContentUtils::DispatchTrustedEvent(frameElement->OwnerDoc(), frameElement,
-                                           NS_LITERAL_STRING("oop-browser-crashed"),
-                                           true, true);
+      nsCOMPtr<nsIFrameLoaderOwner> owner = do_QueryInterface(frameElement);
+      if (owner) {
+        RefPtr<nsFrameLoader> currentFrameLoader = owner->GetFrameLoader();
+        // It's possible that the frameloader owner has already moved on
+        // and created a new frameloader. If so, we don't fire the event,
+        // since the frameloader owner has clearly moved on.
+        if (currentFrameLoader == frameLoader) {
+          nsContentUtils::DispatchTrustedEvent(frameElement->OwnerDoc(), frameElement,
+                                               NS_LITERAL_STRING("oop-browser-crashed"),
+                                               true, true);
+
+        }
+      }
     }
 
     mFrameLoader = nullptr;
@@ -1973,8 +1983,9 @@ void
 TabParent::HandledWindowedPluginKeyEvent(const NativeEventData& aKeyEventData,
                                          bool aIsConsumed)
 {
-  bool ok = SendHandledWindowedPluginKeyEvent(aKeyEventData, aIsConsumed);
-  NS_WARN_IF(!ok);
+  DebugOnly<bool> ok =
+    SendHandledWindowedPluginKeyEvent(aKeyEventData, aIsConsumed);
+  NS_WARNING_ASSERTION(ok, "SendHandledWindowedPluginKeyEvent failed");
 }
 
 bool
@@ -2787,6 +2798,9 @@ TabParent::RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
                                         this, aRenderFrame, aURL, aName, aFeatures,
                                         aTextureFactoryIdentifier, aLayersId);
   *aOutWindowOpened = (opened == BrowserElementParent::OPEN_WINDOW_ADDED);
+  if (!*aOutWindowOpened) {
+    Destroy();
+  }
   return true;
 }
 

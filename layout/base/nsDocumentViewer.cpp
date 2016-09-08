@@ -672,9 +672,9 @@ nsDocumentViewer::InitPresentationStuff(bool aDoInitialReflow)
   width = p2a * mBounds.width;
   height = p2a * mBounds.height;
   if (aDoInitialReflow) {
-    nsCOMPtr<nsIPresShell> shellGrip = mPresShell;
+    nsCOMPtr<nsIPresShell> shell = mPresShell;
     // Initial reflow
-    mPresShell->Initialize(width, height);
+    shell->Initialize(width, height);
   } else {
     // Store the visible area so it's available for other callers of
     // Initialize, like nsContentSink::StartLayout.
@@ -1028,8 +1028,8 @@ nsDocumentViewer::LoadComplete(nsresult aStatus)
     // Now that the document has loaded, we can tell the presshell
     // to unsuppress painting.
     if (mPresShell) {
-      nsCOMPtr<nsIPresShell> shellDeathGrip(mPresShell);
-      mPresShell->UnsuppressPainting();
+      nsCOMPtr<nsIPresShell> shell(mPresShell);
+      shell->UnsuppressPainting();
       // mPresShell could have been removed now, see bug 378682/421432
       if (mPresShell) {
         mPresShell->LoadComplete();
@@ -1708,8 +1708,8 @@ nsDocumentViewer::Stop(void)
 
   if (!mLoaded && mPresShell) {
     // Well, we might as well paint what we have so far.
-    nsCOMPtr<nsIPresShell> shellDeathGrip(mPresShell); // bug 378682
-    mPresShell->UnsuppressPainting();
+    nsCOMPtr<nsIPresShell> shell(mPresShell); // bug 378682
+    shell->UnsuppressPainting();
   }
 
   return NS_OK;
@@ -2070,8 +2070,8 @@ nsDocumentViewer::Show(void)
     // shown...
 
     if (mPresShell) {
-      nsCOMPtr<nsIPresShell> shellDeathGrip(mPresShell); // bug 378682
-      mPresShell->UnsuppressPainting();
+      nsCOMPtr<nsIPresShell> shell(mPresShell); // bug 378682
+      shell->UnsuppressPainting();
     }
   }
 
@@ -2484,8 +2484,8 @@ nsDocumentViewer::FindContainerView()
   // cases. Treat that as display:none, the document is not
   // displayed.
   if (subdocFrame->GetType() != nsGkAtoms::subDocumentFrame) {
-    NS_WARN_IF_FALSE(!subdocFrame->GetType(),
-                     "Subdocument container has non-subdocument frame");
+    NS_WARNING_ASSERTION(!subdocFrame->GetType(),
+                         "Subdocument container has non-subdocument frame");
     return nullptr;
   }
 
@@ -3762,9 +3762,7 @@ nsDocumentViewer::Print(nsIPrintSettings*       aPrintSettings,
       return rv;
     }
   }
-  if (mPrintEngine->HasPrintCallbackCanvas()) {
-    mBeforeAndAfterPrint = beforeAndAfterPrint;
-  }
+
   dom::Element* root = mDocument->GetRootElement();
   if (root && root->HasAttr(kNameSpaceID_None, nsGkAtoms::mozdisallowselectionprint)) {
     mPrintEngine->SetDisallowSelectionPrint(true);
@@ -3772,7 +3770,18 @@ nsDocumentViewer::Print(nsIPrintSettings*       aPrintSettings,
   rv = mPrintEngine->Print(aPrintSettings, aWebProgressListener);
   if (NS_FAILED(rv)) {
     OnDonePrinting();
+  } else if (GetIsPrinting()) {
+    if (mPrintEngine->HasPrintCallbackCanvas() ||
+        mPrintEngine->MayHavePluginFrames()) {
+      mBeforeAndAfterPrint = beforeAndAfterPrint;
+    } else {
+      // Since printing cloned the document and doesn't need plugin or canvas data
+      // from the original document, we can clear the print flag in the docshell
+      // tree early, before afterprint is dispatched.
+      SetIsPrinting(false);
+    }
   }
+
   return rv;
 }
 
@@ -3782,8 +3791,9 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
                                nsIWebProgressListener* aWebProgressListener)
 {
 #if defined(NS_PRINTING) && defined(NS_PRINT_PREVIEW)
-  NS_WARN_IF_FALSE(IsInitializedForPrintPreview(),
-                   "Using docshell.printPreview is the preferred way for print previewing!");
+  NS_WARNING_ASSERTION(
+    IsInitializedForPrintPreview(),
+    "Using docshell.printPreview is the preferred way for print previewing!");
 
   NS_ENSURE_ARG_POINTER(aChildDOMWin);
   nsresult rv = NS_OK;
@@ -3836,9 +3846,7 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
       return rv;
     }
   }
-  if (mPrintEngine->HasPrintCallbackCanvas()) {
-    mBeforeAndAfterPrint = beforeAndAfterPrint;
-  }
+
   dom::Element* root = doc->GetRootElement();
   if (root && root->HasAttr(kNameSpaceID_None, nsGkAtoms::mozdisallowselectionprint)) {
     PR_PL(("PrintPreview: found mozdisallowselectionprint"));
@@ -3848,7 +3856,16 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
   mPrintPreviewZoomed = false;
   if (NS_FAILED(rv)) {
     OnDonePrinting();
+  } else if (GetIsPrintPreview() &&
+             (mPrintEngine->HasPrintCallbackCanvas() ||
+              mPrintEngine->MayHavePluginFrames())) {
+    mBeforeAndAfterPrint = beforeAndAfterPrint;
   }
+
+  // Unlike in printing case we don't explicitly call SetIsPrintPreview(false);
+  // here, since this ContentViewer is for the cloned document, not for the
+  // original document.
+
   return rv;
 #else
   return NS_ERROR_FAILURE;

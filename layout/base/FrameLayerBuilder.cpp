@@ -3589,8 +3589,13 @@ PaintInactiveLayer(nsDisplayListBuilder* aBuilder,
   basic->BeginTransaction();
   basic->SetTarget(context);
 
-  if (aItem->GetType() == nsDisplayItem::TYPE_SVG_EFFECTS) {
-    static_cast<nsDisplaySVGEffects*>(aItem)->PaintAsLayer(aBuilder, aCtx, basic);
+  if (aItem->GetType() == nsDisplayItem::TYPE_MASK) {
+    static_cast<nsDisplayMask*>(aItem)->PaintAsLayer(aBuilder, aCtx, basic);
+    if (basic->InTransaction()) {
+      basic->AbortTransaction();
+    }
+  } else if (aItem->GetType() == nsDisplayItem::TYPE_FILTER){
+    static_cast<nsDisplayFilter*>(aItem)->PaintAsLayer(aBuilder, aCtx, basic);
     if (basic->InTransaction()) {
       basic->AbortTransaction();
     }
@@ -5270,7 +5275,6 @@ FrameLayerBuilder::BuildContainerLayerFor(nsDisplayListBuilder* aBuilder,
   uint32_t oldGeneration = mContainerLayerGeneration;
   mContainerLayerGeneration = ++mMaxContainerLayerGeneration;
 
-  RefPtr<RefCountedRegion> paintedLayerInvalidRegion = nullptr;
   if (mRetainingManager) {
     if (aContainerItem) {
       StoreDataForFrame(aContainerItem, containerLayer, LAYER_ACTIVE);

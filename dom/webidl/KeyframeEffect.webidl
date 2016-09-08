@@ -24,8 +24,7 @@ dictionary KeyframeEffectOptions : AnimationEffectTimingProperties {
 // Bug 1241783: For the constructor we use (Element or CSSPseudoElement)? for
 // the first argument since we cannot convert a mixin into a union type
 // automatically.
-[HeaderFile="mozilla/dom/KeyframeEffect.h",
- Func="nsDocument::IsWebAnimationsEnabled",
+[Func="nsDocument::IsWebAnimationsEnabled",
  Constructor((Element or CSSPseudoElement)? target,
              object? keyframes,
              optional (unrestricted double or KeyframeEffectOptions) options)]
@@ -74,8 +73,8 @@ interface KeyframeEffect : KeyframeEffectReadOnly {
   // inherit attribute IterationCompositeOperation iterationComposite;
   // Bug 1216844 - implement additive animation
   // inherit attribute CompositeOperation          composite;
-  // Bug 1244590 - implement spacing modes
-  // inherit attribute DOMString                   spacing;
+  [SetterThrows]
+  inherit attribute DOMString                   spacing;
   [Throws]
   void setKeyframes (object? keyframes);
 };

@@ -1320,7 +1320,8 @@ PresShell::Destroy()
   }
 
 
-  NS_WARN_IF_FALSE(!mWeakFrames, "Weak frames alive after destroying FrameManager");
+  NS_WARNING_ASSERTION(!mWeakFrames,
+                       "Weak frames alive after destroying FrameManager");
   while (mWeakFrames) {
     mWeakFrames->Clear(this);
   }
@@ -1669,9 +1670,8 @@ PresShell::Initialize(nscoord aWidth, nscoord aHeight)
     if (mDocument) {
       nsIURI *uri = mDocument->GetDocumentURI();
       if (uri) {
-        nsAutoCString url;
-        uri->GetSpec(url);
-        printf("*** PresShell::Initialize (this=%p, url='%s')\n", (void*)this, url.get());
+        printf("*** PresShell::Initialize (this=%p, url='%s')\n",
+               (void*)this, uri->GetSpecOrDefault().get());
       }
     }
   }
@@ -1897,7 +1897,7 @@ PresShell::ResizeReflowIgnoreOverride(nscoord aWidth, nscoord aHeight, nscoord a
                                ? aOldWidth != aWidth
                                : aOldHeight != aHeight;
 
-  RefPtr<nsViewManager> viewManagerDeathGrip = mViewManager;
+  RefPtr<nsViewManager> viewManager = mViewManager;
   // Take this ref after viewManager so it'll make sure to go away first.
   nsCOMPtr<nsIPresShell> kungFuDeathGrip(this);
 
@@ -1931,7 +1931,7 @@ PresShell::ResizeReflowIgnoreOverride(nscoord aWidth, nscoord aHeight, nscoord a
 
         // Kick off a top-down reflow
         AUTO_LAYOUT_PHASE_ENTRY_POINT(GetPresContext(), Reflow);
-        nsViewManager::AutoDisableRefresh refreshBlocker(mViewManager);
+        nsViewManager::AutoDisableRefresh refreshBlocker(viewManager);
 
         mDirtyRoots.RemoveElement(rootFrame);
         DoReflow(rootFrame, true);
@@ -2512,13 +2512,9 @@ PresShell::BeginLoad(nsIDocument *aDocument)
 
   if (shouldLog) {
     nsIURI* uri = mDocument->GetDocumentURI();
-    nsAutoCString spec;
-    if (uri) {
-      uri->GetSpec(spec);
-    }
     MOZ_LOG(gLog, LogLevel::Debug,
            ("(presshell) %p load begin [%s]\n",
-            this, spec.get()));
+            this, uri ? uri->GetSpecOrDefault().get() : ""));
   }
 }
 
@@ -2547,7 +2543,7 @@ PresShell::LoadComplete()
     nsIURI* uri = mDocument->GetDocumentURI();
     nsAutoCString spec;
     if (uri) {
-      uri->GetSpec(spec);
+      spec = uri->GetSpecOrDefault();
     }
     if (shouldLog) {
       MOZ_LOG(gLog, LogLevel::Debug,
@@ -4067,10 +4063,10 @@ PresShell::FlushPendingNotifications(mozilla::ChangesToFlush aFlush)
 
   NS_ASSERTION(!isSafeToFlush || mViewManager, "Must have view manager");
   // Make sure the view manager stays alive.
-  RefPtr<nsViewManager> viewManagerDeathGrip = mViewManager;
+  RefPtr<nsViewManager> viewManager = mViewManager;
   bool didStyleFlush = false;
   bool didLayoutFlush = false;
-  if (isSafeToFlush && mViewManager) {
+  if (isSafeToFlush && viewManager) {
     // Processing pending notifications can kill us, and some callers only
     // hold weak refs when calling FlushPendingNotifications().  :(
     nsCOMPtr<nsIPresShell> kungFuDeathGrip(this);
@@ -4099,7 +4095,7 @@ PresShell::FlushPendingNotifications(mozilla::ChangesToFlush aFlush)
     // Process pending restyles, since any flush of the presshell wants
     // up-to-date style data.
     if (!mIsDestroying) {
-      mViewManager->FlushDelayedResize(false);
+      viewManager->FlushDelayedResize(false);
       mPresContext->FlushPendingMediaFeatureValuesChanged();
 
       // Flush any pending update of the user font set, since that could
@@ -4155,7 +4151,7 @@ PresShell::FlushPendingNotifications(mozilla::ChangesToFlush aFlush)
         !mIsDestroying) {
       didLayoutFlush = true;
       mFrameConstructor->RecalcQuotesAndCounters();
-      mViewManager->FlushDelayedResize(true);
+      viewManager->FlushDelayedResize(true);
       if (ProcessReflowCommands(flushType < Flush_Layout) && mContentToScrollTo) {
         // We didn't get interrupted.  Go ahead and scroll to our content
         DoScrollContentIntoView();
@@ -4168,7 +4164,7 @@ PresShell::FlushPendingNotifications(mozilla::ChangesToFlush aFlush)
 
     if (flushType >= Flush_Layout) {
       if (!mIsDestroying) {
-        mViewManager->UpdateWidgetGeometry();
+        viewManager->UpdateWidgetGeometry();
       }
     }
   }
@@ -7135,6 +7131,8 @@ DispatchPointerFromMouseOrTouch(PresShell* aShell,
     }
 
     WidgetPointerEvent event(*mouseEvent);
+    event.pointerId = mouseEvent->pointerId;
+    event.inputSource = mouseEvent->inputSource;
     event.mMessage = pointerMessage;
     event.button = button;
     event.buttons = mouseEvent->buttons;
@@ -8889,7 +8887,7 @@ PresShell::PrepareToUseCaretPosition(nsIWidget* aEventWidget,
                                nsIPresShell::SCROLL_OVERFLOW_HIDDEN);
     NS_ENSURE_SUCCESS(rv, false);
     frame = content->GetPrimaryFrame();
-    NS_WARN_IF_FALSE(frame, "No frame for focused content?");
+    NS_WARNING_ASSERTION(frame, "No frame for focused content?");
   }
 
   // Actually scroll the selection (ie caret) into view. Note that this must
@@ -9482,13 +9480,10 @@ PresShell::DoReflow(nsIFrame* target, bool aInterruptible)
     parent = nsLayoutUtils::GetCrossDocParentFrame(parent);
   }
 
-  nsAutoCString docURL("N/A");
   nsIURI *uri = mDocument->GetDocumentURI();
-  if (uri)
-    uri->GetSpec(docURL);
-
   PROFILER_LABEL_PRINTF("PresShell", "DoReflow",
-    js::ProfileEntry::Category::GRAPHICS, "(%s)", docURL.get());
+    js::ProfileEntry::Category::GRAPHICS, "(%s)",
+    uri ? uri->GetSpecOrDefault().get() : "N/A");
 
   nsDocShell* docShell = static_cast<nsDocShell*>(GetPresContext()->GetDocShell());
   RefPtr<TimelineConsumers> timelines = TimelineConsumers::Get();

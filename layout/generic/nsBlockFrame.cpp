@@ -783,7 +783,9 @@ nsBlockFrame::GetPrefISize(nsRenderingContext *aRenderingContext)
       AutoNoisyIndenter lineindent(gNoisyIntrinsic);
 #endif
       if (line->IsBlock()) {
-        data.ForceBreak();
+        if (!data.mLineIsEmpty || BlockCanIntersectFloats(line->mFirstChild)) {
+          data.ForceBreak();
+        }
         data.mCurrentLine = nsLayoutUtils::IntrinsicForContainer(aRenderingContext,
                         line->mFirstChild, nsLayoutUtils::PREF_ISIZE);
         data.ForceBreak();
@@ -794,8 +796,13 @@ nsBlockFrame::GetPrefISize(nsRenderingContext *aRenderingContext)
           // percentage basis of 0 unconditionally would give strange
           // behavior for calc(10%-3px).
           const nsStyleCoord &indent = StyleText()->mTextIndent;
-          if (indent.ConvertsToLength())
-            data.mCurrentLine += nsRuleNode::ComputeCoordPercentCalc(indent, 0);
+          if (indent.ConvertsToLength()) {
+            nscoord length = indent.ToLength();
+            if (length != 0) {
+              data.mCurrentLine += length;
+              data.mLineIsEmpty = false;
+            }
+          }
         }
         // XXX Bug NNNNNN Should probably handle percentage text-indent.
 
@@ -1542,7 +1549,7 @@ nsBlockFrame::ComputeFinalSize(const ReflowInput& aReflowInput,
     // Include the float manager's state to properly account for the
     // block-end margin of any floated elements; e.g., inside a table cell.
     nscoord floatHeight =
-      aState.ClearFloats(blockEndEdgeOfChildren, NS_STYLE_CLEAR_BOTH,
+      aState.ClearFloats(blockEndEdgeOfChildren, StyleClear::Both,
                          nullptr, nsFloatManager::DONT_CLEAR_PUSHED_FLOATS);
     blockEndEdgeOfChildren = std::max(blockEndEdgeOfChildren, floatHeight);
   }
@@ -1912,14 +1919,15 @@ nsBlockFrame::PrepareResizeReflow(BlockReflowInput& aState)
 #ifdef DEBUG
       if (gNoisyReflow && !line->IsDirty()) {
         IndentBy(stdout, gNoiseIndent + 1);
-        printf("skipped: line=%p next=%p %s %s%s%s breakTypeBefore/After=%d/%d xmost=%d\n",
+        printf("skipped: line=%p next=%p %s %s%s%s breakTypeBefore/After=%s/%s xmost=%d\n",
            static_cast<void*>(line.get()),
            static_cast<void*>((line.next() != end_lines() ? line.next().get() : nullptr)),
            line->IsBlock() ? "block" : "inline",
            line->HasBreakAfter() ? "has-break-after " : "",
            line->HasFloats() ? "has-floats " : "",
            line->IsImpactedByFloat() ? "impacted " : "",
-           line->GetBreakTypeBefore(), line->GetBreakTypeAfter(),
+           line->BreakTypeToString(line->GetBreakTypeBefore()),
+           line->BreakTypeToString(line->GetBreakTypeAfter()),
            line->IEnd());
       }
 #endif
@@ -2022,7 +2030,7 @@ nsBlockFrame::PropagateFloatDamage(BlockReflowInput& aState,
 
 static bool LineHasClear(nsLineBox* aLine) {
   return aLine->IsBlock()
-    ? (aLine->GetBreakTypeBefore() ||
+    ? (aLine->GetBreakTypeBefore() != StyleClear::None_ ||
        (aLine->mFirstChild->GetStateBits() & NS_BLOCK_HAS_CLEAR_CHILDREN) ||
        !nsBlockFrame::BlockCanIntersectFloats(aLine->mFirstChild))
     : aLine->HasFloatBreakAfter();
@@ -2073,7 +2081,7 @@ nsBlockFrame::ReflowDirtyLines(BlockReflowInput& aState)
 {
   bool keepGoing = true;
   bool repositionViews = false; // should we really need this?
-  bool foundAnyClears = aState.mFloatBreakType != NS_STYLE_CLEAR_NONE;
+  bool foundAnyClears = aState.mFloatBreakType != StyleClear::None_;
   bool willReflowAgain = false;
 
 #ifdef DEBUG
@@ -2114,7 +2122,7 @@ nsBlockFrame::ReflowDirtyLines(BlockReflowInput& aState)
     (mFloats.FirstChild()->GetStateBits() & NS_FRAME_IS_PUSHED_FLOAT);
   bool lastLineMovedUp = false;
   // We save up information about BR-clearance here
-  uint8_t inlineFloatBreakType = aState.mFloatBreakType;
+  StyleClear inlineFloatBreakType = aState.mFloatBreakType;
 
   line_iterator line = begin_lines(), line_end = end_lines();
 
@@ -2145,12 +2153,12 @@ nsBlockFrame::ReflowDirtyLines(BlockReflowInput& aState)
     // We have to reflow the line if it's a block whose clearance
     // might have changed, so detect that.
     if (!line->IsDirty() &&
-        (line->GetBreakTypeBefore() != NS_STYLE_CLEAR_NONE ||
+        (line->GetBreakTypeBefore() != StyleClear::None_ ||
          replacedBlock)) {
       nscoord curBCoord = aState.mBCoord;
       // See where we would be after applying any clearance due to
       // BRs.
-      if (inlineFloatBreakType != NS_STYLE_CLEAR_NONE) {
+      if (inlineFloatBreakType != StyleClear::None_) {
         curBCoord = aState.ClearFloats(curBCoord, inlineFloatBreakType);
       }
 
@@ -2176,14 +2184,14 @@ nsBlockFrame::ReflowDirtyLines(BlockReflowInput& aState)
     }
 
     // We might have to reflow a line that is after a clearing BR.
-    if (inlineFloatBreakType != NS_STYLE_CLEAR_NONE) {
+    if (inlineFloatBreakType != StyleClear::None_) {
       aState.mBCoord = aState.ClearFloats(aState.mBCoord, inlineFloatBreakType);
       if (aState.mBCoord != line->BStart() + deltaBCoord) {
         // SlideLine is not going to put the line where the clearance
         // put it. Reflow the line to be sure.
         line->MarkDirty();
       }
-      inlineFloatBreakType = NS_STYLE_CLEAR_NONE;
+      inlineFloatBreakType = StyleClear::None_;
     }
 
     bool previousMarginWasDirty = line->IsPreviousMarginDirty();
@@ -2436,7 +2444,7 @@ nsBlockFrame::ReflowDirtyLines(BlockReflowInput& aState)
   }
 
   // Handle BR-clearance from the last line of the block
-  if (inlineFloatBreakType != NS_STYLE_CLEAR_NONE) {
+  if (inlineFloatBreakType != StyleClear::None_) {
     aState.mBCoord = aState.ClearFloats(aState.mBCoord, inlineFloatBreakType);
   }
 
@@ -2930,9 +2938,9 @@ nsBlockFrame::AttributeChanged(int32_t         aNameSpaceID,
   }
   if (nsGkAtoms::value == aAttribute) {
     const nsStyleDisplay* styleDisplay = StyleDisplay();
-    if (NS_STYLE_DISPLAY_LIST_ITEM == styleDisplay->mDisplay) {
-      // Search for the closest ancestor that's a block/grid/flex frame.
-      // We make the assumption that all related list items share a
+    if (mozilla::StyleDisplay::ListItem == styleDisplay->mDisplay) {
+      // Search for the closest ancestor that's a block frame. We
+      // make the assumption that all related list items share a
       // common block/grid/flex ancestor.
       // XXXldb I think that's a bad assumption.
       nsContainerFrame* ancestor = GetParent();
@@ -3117,15 +3125,14 @@ nsBlockFrame::ReflowBlockFrame(BlockReflowInput& aState,
   }
 
   // Prepare the block reflow engine
-  const nsStyleDisplay* display = frame->StyleDisplay();
   nsBlockReflowContext brc(aState.mPresContext, aState.mReflowInput);
 
-  uint8_t breakType =
-    display->PhysicalBreakType(aState.mReflowInput.GetWritingMode());
-  if (NS_STYLE_CLEAR_NONE != aState.mFloatBreakType) {
+  StyleClear breakType = frame->StyleDisplay()->
+    PhysicalBreakType(aState.mReflowInput.GetWritingMode());
+  if (StyleClear::None_ != aState.mFloatBreakType) {
     breakType = nsLayoutUtils::CombineBreakType(breakType,
                                                 aState.mFloatBreakType);
-    aState.mFloatBreakType = NS_STYLE_CLEAR_NONE;
+    aState.mFloatBreakType = StyleClear::None_;
   }
 
   // Clear past floats before the block if the clear style is not none
@@ -3148,7 +3155,7 @@ nsBlockFrame::ReflowBlockFrame(BlockReflowInput& aState,
   }
   bool treatWithClearance = aLine->HasClearance();
 
-  bool mightClearFloats = breakType != NS_STYLE_CLEAR_NONE;
+  bool mightClearFloats = breakType != StyleClear::None_;
   nsIFrame *replacedBlock = nullptr;
   if (!nsBlockFrame::BlockCanIntersectFloats(frame)) {
     mightClearFloats = true;
@@ -3302,7 +3309,7 @@ nsBlockFrame::ReflowBlockFrame(BlockReflowInput& aState,
     nsFlowAreaRect floatAvailableSpace = aState.GetFloatAvailableSpace();
     WritingMode wm = aState.mReflowInput.GetWritingMode();
     LogicalRect availSpace(wm);
-    aState.ComputeBlockAvailSpace(frame, display, floatAvailableSpace,
+    aState.ComputeBlockAvailSpace(frame, floatAvailableSpace,
                                   replacedBlock != nullptr, availSpace);
 
     // The check for
@@ -3427,7 +3434,7 @@ nsBlockFrame::ReflowBlockFrame(BlockReflowInput& aState,
         }
         // ClearFloats might be able to advance us further once we're there.
         aState.mBCoord =
-          aState.ClearFloats(newBCoord, NS_STYLE_CLEAR_NONE, replacedBlock);
+          aState.ClearFloats(newBCoord, StyleClear::None_, replacedBlock);
         // Start over with a new available space rect at the new height.
         floatAvailableSpace =
           aState.GetFloatAvailableSpaceWithState(aState.mBCoord,
@@ -3435,7 +3442,7 @@ nsBlockFrame::ReflowBlockFrame(BlockReflowInput& aState,
       }
 
       LogicalRect oldAvailSpace(availSpace);
-      aState.ComputeBlockAvailSpace(frame, display, floatAvailableSpace,
+      aState.ComputeBlockAvailSpace(frame, floatAvailableSpace,
                                     replacedBlock != nullptr, availSpace);
 
       if (!advanced && availSpace.IsEqualEdges(oldAvailSpace)) {
@@ -4048,7 +4055,7 @@ nsBlockFrame::DoReflowInlineFrames(BlockReflowInput& aState,
  * The line reflow status is simple: true means keep placing frames
  * on the line; false means don't (the line is done). If the line
  * has some sort of breaking affect then aLine's break-type will be set
- * to something other than NS_STYLE_CLEAR_NONE.
+ * to something other than StyleClear::None_.
  */
 void
 nsBlockFrame::ReflowInlineFrame(BlockReflowInput& aState,
@@ -4105,18 +4112,17 @@ nsBlockFrame::ReflowInlineFrame(BlockReflowInput& aState,
   // break-after-not-complete. There are two situations: we are a
   // block or we are an inline. This makes a total of 10 cases
   // (fortunately, there is some overlap).
-  aLine->SetBreakTypeAfter(NS_STYLE_CLEAR_NONE);
-  if (NS_INLINE_IS_BREAK(frameReflowStatus) || 
-      (NS_STYLE_CLEAR_NONE != aState.mFloatBreakType)) {
+  aLine->SetBreakTypeAfter(StyleClear::None_);
+  if (NS_INLINE_IS_BREAK(frameReflowStatus) ||
+      StyleClear::None_ != aState.mFloatBreakType) {
     // Always abort the line reflow (because a line break is the
     // minimal amount of break we do).
     *aLineReflowStatus = LINE_REFLOW_STOP;
 
     // XXX what should aLine's break-type be set to in all these cases?
-    uint8_t breakType = NS_INLINE_GET_BREAK_TYPE(frameReflowStatus);
-    NS_ASSERTION((NS_STYLE_CLEAR_NONE != breakType) || 
-                 (NS_STYLE_CLEAR_NONE != aState.mFloatBreakType), "bad break type");
-    NS_ASSERTION(NS_STYLE_CLEAR_MAX >= breakType, "invalid break type");
+    StyleClear breakType = NS_INLINE_GET_BREAK_TYPE(frameReflowStatus);
+    MOZ_ASSERT(StyleClear::None_ != breakType ||
+               StyleClear::None_ != aState.mFloatBreakType, "bad break type");
 
     if (NS_INLINE_IS_BREAK_BEFORE(frameReflowStatus)) {
       // Break-before cases.
@@ -4141,18 +4147,18 @@ nsBlockFrame::ReflowInlineFrame(BlockReflowInput& aState,
       }
     }
     else {
-      // If a float split and its prev-in-flow was followed by a <BR>, then combine 
-      // the <BR>'s break type with the inline's break type (the inline will be the very 
+      // If a float split and its prev-in-flow was followed by a <BR>, then combine
+      // the <BR>'s break type with the inline's break type (the inline will be the very
       // next frame after the split float).
-      if (NS_STYLE_CLEAR_NONE != aState.mFloatBreakType) {
+      if (StyleClear::None_ != aState.mFloatBreakType) {
         breakType = nsLayoutUtils::CombineBreakType(breakType,
                                                     aState.mFloatBreakType);
-        aState.mFloatBreakType = NS_STYLE_CLEAR_NONE;
+        aState.mFloatBreakType = StyleClear::None_;
       }
       // Break-after cases
-      if (breakType == NS_STYLE_CLEAR_LINE) {
+      if (breakType == StyleClear::Line) {
         if (!aLineLayout.GetLineEndsInBR()) {
-          breakType = NS_STYLE_CLEAR_NONE;
+          breakType = StyleClear::None_;
         }
       }
       aLine->SetBreakTypeAfter(breakType);
@@ -6042,7 +6048,7 @@ nsBlockFrame::AdjustFloatAvailableSpace(BlockReflowInput& aState,
   const nsStyleDisplay* floatDisplay = aFloatFrame->StyleDisplay();
   WritingMode wm = aState.mReflowInput.GetWritingMode();
 
-  if (NS_STYLE_DISPLAY_TABLE != floatDisplay->mDisplay ||
+  if (mozilla::StyleDisplay::Table != floatDisplay->mDisplay ||
       eCompatibility_NavQuirks != aState.mPresContext->CompatibilityMode() ) {
     availISize = aState.ContentISize();
   }
@@ -6220,7 +6226,7 @@ nsBlockFrame::ReflowFloat(BlockReflowInput& aState,
 #endif
 }
 
-uint8_t
+StyleClear
 nsBlockFrame::FindTrailingClear()
 {
   // find the break type of the last line
@@ -6232,7 +6238,7 @@ nsBlockFrame::FindTrailingClear()
       return endLine->GetBreakTypeAfter();
     }
   }
-  return NS_STYLE_CLEAR_NONE;
+  return StyleClear::None_;
 }
 
 void
@@ -6301,7 +6307,7 @@ nsBlockFrame::ReflowPushedFloats(BlockReflowInput& aState,
   }
 
   // If there are continued floats, then we may need to continue BR clearance
-  if (0 != aState.ClearFloats(0, NS_STYLE_CLEAR_BOTH)) {
+  if (0 != aState.ClearFloats(0, StyleClear::Both)) {
     nsBlockFrame* prevBlock = static_cast<nsBlockFrame*>(GetPrevInFlow());
     if (prevBlock) {
       aState.mFloatBreakType = prevBlock->FindTrailingClear();
@@ -6867,7 +6873,7 @@ nsBlockFrame::SetInitialChildList(ChildListID     aListID,
     // for a columnset we don't want a bullet per column.  Note that
     // the outermost frame for the content is the primary frame in
     // most cases; the ones when it's not (like tables) can't be
-    // NS_STYLE_DISPLAY_LIST_ITEM).
+    // StyleDisplay::ListItem).
     nsIFrame* possibleListItem = this;
     while (1) {
       nsIFrame* parent = possibleListItem->GetParent();
@@ -6876,7 +6882,7 @@ nsBlockFrame::SetInitialChildList(ChildListID     aListID,
       }
       possibleListItem = parent;
     }
-    if (NS_STYLE_DISPLAY_LIST_ITEM ==
+    if (mozilla::StyleDisplay::ListItem ==
           possibleListItem->StyleDisplay()->mDisplay &&
         !GetPrevInFlow()) {
       // Resolve style for the bullet frame
@@ -6933,7 +6939,7 @@ bool
 nsBlockFrame::BulletIsEmpty() const
 {
   NS_ASSERTION(mContent->GetPrimaryFrame()->StyleDisplay()->mDisplay ==
-                 NS_STYLE_DISPLAY_LIST_ITEM && HasOutsideBullet(),
+               mozilla::StyleDisplay::ListItem && HasOutsideBullet(),
                "should only care when we have an outside bullet");
   const nsStyleList* list = StyleList();
   return list->GetCounterStyle()->IsNone() &&

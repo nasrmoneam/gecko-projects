@@ -1031,16 +1031,6 @@ TelemetryImpl::InitMemoryReporter() {
 }
 
 NS_IMETHODIMP
-TelemetryImpl::NewHistogram(const nsACString &name, const nsACString &expiration, uint32_t histogramType,
-                            uint32_t min, uint32_t max, uint32_t bucketCount, JSContext *cx,
-                            uint8_t optArgCount, JS::MutableHandle<JS::Value> ret)
-{
-  return TelemetryHistogram::NewHistogram(name, expiration, histogramType,
-                                          min, max, bucketCount,
-                                          cx, optArgCount, ret);
-}
-
-NS_IMETHODIMP
 TelemetryImpl::NewKeyedHistogram(const nsACString &name, const nsACString &expiration, uint32_t histogramType,
                             uint32_t min, uint32_t max, uint32_t bucketCount, JSContext *cx,
                             uint8_t optArgCount, JS::MutableHandle<JS::Value> ret)
@@ -1223,7 +1213,7 @@ TelemetryImpl::GetWebrtcStats(JSContext *cx, JS::MutableHandle<JS::Value> ret)
 NS_IMETHODIMP
 TelemetryImpl::GetMaximalNumberOfConcurrentThreads(uint32_t *ret)
 {
-  *ret = nsThreadManager::get()->GetHighestNumberOfThreads();
+  *ret = nsThreadManager::get().GetHighestNumberOfThreads();
   return NS_OK;
 }
 

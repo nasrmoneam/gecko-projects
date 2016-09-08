@@ -275,7 +275,6 @@ EvalSharedContext::EvalSharedContext(ExclusiveContext* cx, JSObject* enclosingEn
                                      bool extraWarnings)
   : SharedContext(cx, Kind::Eval, directives, extraWarnings),
     enclosingScope_(cx, enclosingScope),
-    functionBindingEnd(0),
     bindings(cx)
 {
     computeAllowSyntax(enclosingScope);
@@ -1374,8 +1373,7 @@ NewEmptyBindingData(ExclusiveContext* cx, LifoAlloc& alloc, uint32_t numBindings
 
 template <>
 Maybe<GlobalScope::Data*>
-Parser<FullParseHandler>::newGlobalScopeData(ParseContext::Scope& scope,
-                                             uint32_t* functionBindingEnd)
+Parser<FullParseHandler>::newGlobalScopeData(ParseContext::Scope& scope)
 {
     Vector<BindingName> funs(context);
     Vector<BindingName> vars(context);
@@ -1420,12 +1418,10 @@ Parser<FullParseHandler>::newGlobalScopeData(ParseContext::Scope& scope,
         BindingName* start = bindings->names;
         BindingName* cursor = start;
 
-        // Keep track of what vars are functions. This is only used in BCE to omit
-        // superfluous DEFVARs.
         PodCopy(cursor, funs.begin(), funs.length());
         cursor += funs.length();
-        *functionBindingEnd = cursor - start;
 
+        bindings->varStart = cursor - start;
         PodCopy(cursor, vars.begin(), vars.length());
         cursor += vars.length();
 
@@ -1510,8 +1506,7 @@ Parser<FullParseHandler>::newModuleScopeData(ParseContext::Scope& scope)
 
 template <>
 Maybe<EvalScope::Data*>
-Parser<FullParseHandler>::newEvalScopeData(ParseContext::Scope& scope,
-                                           uint32_t* functionBindingEnd)
+Parser<FullParseHandler>::newEvalScopeData(ParseContext::Scope& scope)
 {
     Vector<BindingName> funs(context);
     Vector<BindingName> vars(context);
@@ -1545,8 +1540,8 @@ Parser<FullParseHandler>::newEvalScopeData(ParseContext::Scope& scope,
         // superfluous DEFVARs.
         PodCopy(cursor, funs.begin(), funs.length());
         cursor += funs.length();
-        *functionBindingEnd = cursor - start;
 
+        bindings->varStart = cursor - start;
         PodCopy(cursor, vars.begin(), vars.length());
         bindings->length = numBindings;
     }
@@ -1830,14 +1825,10 @@ Parser<FullParseHandler>::evalBody(EvalSharedContext* evalsc)
     if (!FoldConstants(context, &body, this))
         return nullptr;
 
-    uint32_t functionBindingEnd = 0;
-    Maybe<EvalScope::Data*> bindings =
-        newEvalScopeData(pc->varScope(), &functionBindingEnd);
+    Maybe<EvalScope::Data*> bindings = newEvalScopeData(pc->varScope());
     if (!bindings)
         return nullptr;
-
     evalsc->bindings = *bindings;
-    evalsc->functionBindingEnd = functionBindingEnd;
 
     return body;
 }
@@ -1864,13 +1855,10 @@ Parser<FullParseHandler>::globalBody(GlobalSharedContext* globalsc)
     if (!FoldConstants(context, &body, this))
         return nullptr;
 
-    uint32_t functionBindingEnd = 0;
-    Maybe<GlobalScope::Data*> bindings = newGlobalScopeData(pc->varScope(), &functionBindingEnd);
+    Maybe<GlobalScope::Data*> bindings = newGlobalScopeData(pc->varScope());
     if (!bindings)
         return nullptr;
-
     globalsc->bindings = *bindings;
-    globalsc->functionBindingEnd = functionBindingEnd;
 
     return body;
 }
@@ -3753,7 +3741,7 @@ Parser<ParseHandler>::PossibleError::transferErrorTo(PossibleError* other)
 
 template <typename ParseHandler>
 bool
-Parser<ParseHandler>::makeSetCall(Node target, unsigned msg)
+Parser<ParseHandler>::checkAssignmentToCall(Node target, unsigned msg)
 {
     MOZ_ASSERT(handler.isFunctionCall(target));
 
@@ -3761,11 +3749,7 @@ Parser<ParseHandler>::makeSetCall(Node target, unsigned msg)
     // concerned about sites using this in dead code, so forbid it only in
     // strict mode code (or if the werror option has been set), and otherwise
     // warn.
-    if (!report(ParseStrictError, pc->sc()->strict(), target, msg))
-        return false;
-
-    handler.markAsSetCall(target);
-    return true;
+    return report(ParseStrictError, pc->sc()->strict(), target, msg);
 }
 
 template <>
@@ -4571,12 +4555,6 @@ Parser<SyntaxParseHandler>::importDeclaration()
     return SyntaxParseHandler::NodeFailure;
 }
 
-template <>
-ParseNode*
-Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
-                                          ClassContext classContext,
-                                          DefaultHandling defaultHandling);
-
 template<>
 bool
 Parser<FullParseHandler>::checkExportedName(JSAtom* exportName)
@@ -5064,7 +5042,7 @@ Parser<ParseHandler>::validateForInOrOfLHSExpression(Node target)
     }
 
     if (handler.isFunctionCall(target))
-        return makeSetCall(target, JSMSG_BAD_FOR_LEFTSIDE);
+        return checkAssignmentToCall(target, JSMSG_BAD_FOR_LEFTSIDE);
 
     report(ParseError, false, target, JSMSG_BAD_FOR_LEFTSIDE);
     return false;
@@ -5220,10 +5198,8 @@ Parser<ParseHandler>::forStatement(YieldHandling yieldHandling)
             iflags = JSITER_FOREACH;
             isForEach = true;
             addTelemetry(JSCompartment::DeprecatedForEach);
-            if (versionNumber() < JSVERSION_LATEST) {
-                if (!report(ParseWarning, pc->sc()->strict(), null(), JSMSG_DEPRECATED_FOR_EACH))
-                    return null();
-            }
+            if (!warnOnceAboutForEach())
+                return null();
         }
     }
 
@@ -6205,11 +6181,11 @@ GeneratorKindFromPropertyType(PropertyType propType)
     return propType == PropertyType::GeneratorMethod ? StarGenerator : NotGenerator;
 }
 
-template <>
-ParseNode*
-Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
-                                          ClassContext classContext,
-                                          DefaultHandling defaultHandling)
+template <typename ParseHandler>
+typename ParseHandler::Node
+Parser<ParseHandler>::classDefinition(YieldHandling yieldHandling,
+                                      ClassContext classContext,
+                                      DefaultHandling defaultHandling)
 {
     MOZ_ASSERT(tokenStream.isCurrentTokenType(TOK_CLASS));
 
@@ -6264,7 +6240,7 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
     // in order to provide it for the nodes created later.
     TokenPos namePos = pos();
 
-    ParseNode* classHeritage = null();
+    Node classHeritage = null();
     bool hasHeritage;
     if (!tokenStream.matchToken(&hasHeritage, TOK_EXTENDS))
         return null();
@@ -6278,7 +6254,7 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
 
     MUST_MATCH_TOKEN(TOK_LC, JSMSG_CURLY_BEFORE_CLASS);
 
-    ParseNode* classMethods = handler.newClassMethodList(pos().begin);
+    Node classMethods = handler.newClassMethodList(pos().begin);
     if (!classMethods)
         return null();
 
@@ -6318,7 +6294,7 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
         }
 
         PropertyType propType;
-        ParseNode* propName = propertyName(yieldHandling, classMethods, &propType, &propAtom);
+        Node propName = propertyName(yieldHandling, classMethods, &propType, &propAtom);
         if (!propName)
             return null();
 
@@ -6370,7 +6346,7 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
             if (!tokenStream.isCurrentTokenType(TOK_RB))
                 funName = propAtom;
         }
-        ParseNode* fn = methodDefinition(yieldHandling, propType, funName);
+        Node fn = methodDefinition(yieldHandling, propType, funName);
         if (!fn)
             return null();
 
@@ -6379,18 +6355,18 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
             return null();
     }
 
-    ParseNode* nameNode = null();
-    ParseNode* methodsOrBlock = classMethods;
+    Node nameNode = null();
+    Node methodsOrBlock = classMethods;
     if (name) {
         // The inner name is immutable.
         if (!noteDeclaredName(name, DeclarationKind::Const, namePos))
             return null();
 
-        ParseNode* innerName = newName(name, namePos);
+        Node innerName = newName(name, namePos);
         if (!innerName)
             return null();
 
-        ParseNode* classBlock = finishLexicalScope(*classScope, classMethods);
+        Node classBlock = finishLexicalScope(*classScope, classMethods);
         if (!classBlock)
             return null();
 
@@ -6400,7 +6376,7 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
         classScope.reset();
         classStmt.reset();
 
-        ParseNode* outerName = null();
+        Node outerName = null();
         if (classContext == ClassStatement) {
             // The outer name is mutable.
             if (!noteDeclaredName(name, DeclarationKind::Let, namePos))
@@ -6419,16 +6395,6 @@ Parser<FullParseHandler>::classDefinition(YieldHandling yieldHandling,
     MOZ_ALWAYS_TRUE(setLocalStrictMode(savedStrictness));
 
     return handler.newClass(nameNode, classHeritage, methodsOrBlock);
-}
-
-template <>
-SyntaxParseHandler::Node
-Parser<SyntaxParseHandler>::classDefinition(YieldHandling yieldHandling,
-                                            ClassContext classContext,
-                                            DefaultHandling defaultHandling)
-{
-    MOZ_ALWAYS_FALSE(abortIfSyntaxParser());
-    return SyntaxParseHandler::NodeFailure;
 }
 
 template <class ParseHandler>
@@ -6865,8 +6831,6 @@ Parser<ParseHandler>::statementListItem(YieldHandling yieldHandling,
 
       //   ClassDeclaration[?Yield, ~Default]
       case TOK_CLASS:
-        if (!abortIfSyntaxParser())
-            return null();
         return classDefinition(yieldHandling, ClassStatement, NameRequired);
 
       //   LexicalDeclaration[In, ?Yield]
@@ -7195,7 +7159,7 @@ Parser<ParseHandler>::checkAndMarkAsAssignmentLhs(Node target, AssignmentFlavor 
     }
 
     MOZ_ASSERT(handler.isFunctionCall(target));
-    return makeSetCall(target, JSMSG_BAD_LEFTSIDE_OF_ASS);
+    return checkAssignmentToCall(target, JSMSG_BAD_LEFTSIDE_OF_ASS);
 }
 
 class AutoClearInDestructuringDecl
@@ -7515,7 +7479,7 @@ Parser<ParseHandler>::checkAndMarkAsIncOperand(Node target, AssignmentFlavor fla
         if (!reportIfArgumentsEvalTarget(target))
             return false;
     } else if (handler.isFunctionCall(target)) {
-        if (!makeSetCall(target, JSMSG_BAD_INCOP_OPERAND))
+        if (!checkAssignmentToCall(target, JSMSG_BAD_INCOP_OPERAND))
             return false;
     }
     return true;
@@ -9029,6 +8993,22 @@ Parser<ParseHandler>::warnOnceAboutExprClosure()
         cx->compartment()->warnedAboutExprClosure = true;
     }
 #endif
+    return true;
+}
+
+template <typename ParseHandler>
+bool
+Parser<ParseHandler>::warnOnceAboutForEach()
+{
+    JSContext* cx = context->maybeJSContext();
+    if (!cx)
+        return true;
+
+    if (!cx->compartment()->warnedAboutForEach) {
+        if (!report(ParseWarning, false, null(), JSMSG_DEPRECATED_FOR_EACH))
+            return false;
+        cx->compartment()->warnedAboutForEach = true;
+    }
     return true;
 }
 

@@ -47,6 +47,12 @@ public:
   UsingEffectsForFrame(const nsIFrame* aFrame);
 
   /**
+   * Returns true if mask or clippath are currently applied to this frame.
+   */
+  static bool
+  UsingMaskOrClipPathForFrame(const nsIFrame* aFrame);
+
+  /**
    * Returns the size of the union of the border-box rects of all of
    * aNonSVGFrame's continuations.
    */
@@ -130,16 +136,17 @@ public:
     const nsRect& borderArea;
     nsDisplayListBuilder* builder;
     mozilla::layers::LayerManager* layerManager;
-    bool callerPaintsOpacity;
+    bool handleOpacity; // If true, PaintMaskAndClipPath/ PaintFilter should
+                        // apply css opacity.
     explicit PaintFramesParams(gfxContext& aCtx, nsIFrame* aFrame,
                                const nsRect& aDirtyRect,
                                const nsRect& aBorderArea,
                                nsDisplayListBuilder* aBuilder,
                                mozilla::layers::LayerManager* aLayerManager,
-                               bool aCallerPaintsOpacity)
+                               bool aHandleOpacity)
       : ctx(aCtx), frame(aFrame), dirtyRect(aDirtyRect),
         borderArea(aBorderArea), builder(aBuilder),
-        layerManager(aLayerManager), callerPaintsOpacity(aCallerPaintsOpacity)
+        layerManager(aLayerManager), handleOpacity(aHandleOpacity)
     { }
   };
 
@@ -147,7 +154,10 @@ public:
    * Paint non-SVG frame with SVG effects.
    */
   static DrawResult
-  PaintFramesWithEffects(const PaintFramesParams& aParams);
+  PaintMaskAndClipPath(const PaintFramesParams& aParams);
+
+  static DrawResult
+  PaintFilter(const PaintFramesParams& aParams);
 
   /**
    * SVG frames expect to paint in SVG user units, which are equal to CSS px

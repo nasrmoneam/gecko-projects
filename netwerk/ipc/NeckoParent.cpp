@@ -148,6 +148,7 @@ NeckoParent::GetValidatedAppInfo(const SerializedLoadContext& aSerialized,
     aAttrs.mSignedPkg = aSerialized.mOriginAttributes.mSignedPkg;
     aAttrs.mUserContextId = aSerialized.mOriginAttributes.mUserContextId;
     aAttrs.mPrivateBrowsingId = aSerialized.mOriginAttributes.mPrivateBrowsingId;
+    aAttrs.mFirstPartyDomain = aSerialized.mOriginAttributes.mFirstPartyDomain;
 
     return nullptr;
   }
@@ -703,14 +704,6 @@ NeckoParent::DeallocPTransportProviderParent(PTransportProviderParent* aActor)
   RefPtr<TransportProviderParent> provider =
     dont_AddRef(static_cast<TransportProviderParent*>(aActor));
   return true;
-}
-
-void
-NeckoParent::CloneManagees(ProtocolBase* aSource,
-                         mozilla::ipc::ProtocolCloneContext* aCtx)
-{
-  aCtx->SetNeckoParent(this); // For cloning protocols managed by this.
-  PNeckoParent::CloneManagees(aSource, aCtx);
 }
 
 mozilla::ipc::IProtocol*

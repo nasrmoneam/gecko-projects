@@ -118,6 +118,7 @@ MSG_DEF(JSMSG_TOO_MANY_CON_SPREADARGS, 0, JSEXN_RANGEERR, "too many constructor 
 MSG_DEF(JSMSG_TOO_MANY_FUN_SPREADARGS, 0, JSEXN_RANGEERR, "too many function arguments")
 MSG_DEF(JSMSG_UNINITIALIZED_LEXICAL,   1, JSEXN_REFERENCEERR, "can't access lexical declaration `{0}' before initialization")
 MSG_DEF(JSMSG_BAD_CONST_ASSIGN,        1, JSEXN_TYPEERR, "invalid assignment to const `{0}'")
+MSG_DEF(JSMSG_CANT_DECLARE_GLOBAL_BINDING, 2, JSEXN_TYPEERR, "cannot declare global binding `{0}': {1}")
 
 // Date
 MSG_DEF(JSMSG_INVALID_DATE,            0, JSEXN_RANGEERR, "invalid date")
@@ -357,8 +358,9 @@ MSG_DEF(JSMSG_WASM_BAD_ELEMENT,        0, JSEXN_TYPEERR,     "\"element\" proper
 MSG_DEF(JSMSG_WASM_BAD_IMPORT_ARG,     0, JSEXN_TYPEERR,     "second argument, if present, must be an object")
 MSG_DEF(JSMSG_WASM_BAD_IMPORT_FIELD,   1, JSEXN_TYPEERR,     "import object field is not {0}")
 MSG_DEF(JSMSG_WASM_BAD_IMPORT_SIG,     0, JSEXN_TYPEERR,     "imported function signature mismatch")
-MSG_DEF(JSMSG_WASM_BAD_SET_VALUE,      0, JSEXN_TYPEERR,     "second argument must be null or an exported WebAssembly Function object")
+MSG_DEF(JSMSG_WASM_BAD_TABLE_VALUE,    0, JSEXN_TYPEERR,     "can only assign WebAssembly exported functions to Table")
 MSG_DEF(JSMSG_WASM_BAD_I64,            0, JSEXN_TYPEERR,     "cannot pass i64 to or from JS")
+MSG_DEF(JSMSG_WASM_BAD_FIT,            2, JSEXN_RANGEERR,    "{0} segment does not fit in {1}")
 MSG_DEF(JSMSG_WASM_UNREACHABLE,        0, JSEXN_ERR,         "unreachable executed")
 MSG_DEF(JSMSG_WASM_INTEGER_OVERFLOW,   0, JSEXN_ERR,         "integer overflow")
 MSG_DEF(JSMSG_WASM_INVALID_CONVERSION, 0, JSEXN_ERR,         "invalid conversion to integer")
@@ -442,6 +444,8 @@ MSG_DEF(JSMSG_DEBUG_CANT_SET_OPT_ENV, 1, JSEXN_REFERENCEERR, "can't set `{0}' in
 MSG_DEF(JSMSG_DEBUG_INVISIBLE_COMPARTMENT, 0, JSEXN_TYPEERR, "object in compartment marked as invisible to Debugger")
 MSG_DEF(JSMSG_DEBUG_CENSUS_BREAKDOWN,  1, JSEXN_TYPEERR, "unrecognized 'by' value in takeCensus breakdown: {0}")
 MSG_DEF(JSMSG_DEBUG_PROMISE_NOT_RESOLVED, 0, JSEXN_TYPEERR, "Promise hasn't been resolved")
+MSG_DEF(JSMSG_DEBUG_PROMISE_NOT_FULFILLED, 0, JSEXN_TYPEERR, "Promise hasn't been fulfilled")
+MSG_DEF(JSMSG_DEBUG_PROMISE_NOT_REJECTED, 0, JSEXN_TYPEERR, "Promise hasn't been rejected")
 
 // Tracelogger
 MSG_DEF(JSMSG_TRACELOGGER_ENABLE_FAIL, 1, JSEXN_ERR, "enabling tracelogger failed: {0}")

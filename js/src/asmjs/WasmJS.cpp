@@ -106,14 +106,12 @@ GetImports(JSContext* cx,
         if (!GetProperty(cx, importObj, import.module.get(), &v))
             return false;
 
-        if (strlen(import.func.get()) > 0) {
-            if (!v.isObject())
-                return Throw(cx, JSMSG_WASM_BAD_IMPORT_FIELD, "an Object");
+        if (!v.isObject())
+            return Throw(cx, JSMSG_WASM_BAD_IMPORT_FIELD, "an Object");
 
-            RootedObject obj(cx, &v.toObject());
-            if (!GetProperty(cx, obj, import.func.get(), &v))
-                return false;
-        }
+        RootedObject obj(cx, &v.toObject());
+        if (!GetProperty(cx, obj, import.func.get(), &v))
+            return false;
 
         switch (import.kind) {
           case DefinitionKind::Function:
@@ -617,34 +615,34 @@ WasmCall(JSContext* cx, unsigned argc, Value* vp)
     RootedFunction callee(cx, &args.callee().as<JSFunction>());
 
     Instance& instance = ExportedFunctionToInstance(callee);
-    uint32_t funcIndex = ExportedFunctionToIndex(callee);
-    return instance.callExport(cx, funcIndex, args);
+    uint32_t funcDefIndex = ExportedFunctionToDefinitionIndex(callee);
+    return instance.callExport(cx, funcDefIndex, args);
 }
 
 /* static */ bool
 WasmInstanceObject::getExportedFunction(JSContext* cx, HandleWasmInstanceObject instanceObj,
-                                        uint32_t funcIndex, MutableHandleFunction fun)
+                                        uint32_t funcDefIndex, MutableHandleFunction fun)
 {
-    if (ExportMap::Ptr p = instanceObj->exports().lookup(funcIndex)) {
+    if (ExportMap::Ptr p = instanceObj->exports().lookup(funcDefIndex)) {
         fun.set(p->value());
         return true;
     }
 
     const Instance& instance = instanceObj->instance();
-    RootedAtom name(cx, instance.code().getFuncAtom(cx, funcIndex));
+    RootedAtom name(cx, instance.code().getFuncDefAtom(cx, funcDefIndex));
     if (!name)
         return false;
 
-    unsigned numArgs = instance.metadata().lookupFuncExport(funcIndex).sig().args().length();
+    unsigned numArgs = instance.metadata().lookupFuncDefExport(funcDefIndex).sig().args().length();
     fun.set(NewNativeConstructor(cx, WasmCall, numArgs, name, gc::AllocKind::FUNCTION_EXTENDED,
                                  GenericObject, JSFunction::ASMJS_CTOR));
     if (!fun)
         return false;
 
     fun->setExtendedSlot(FunctionExtended::WASM_INSTANCE_SLOT, ObjectValue(*instanceObj));
-    fun->setExtendedSlot(FunctionExtended::WASM_FUNC_INDEX_SLOT, Int32Value(funcIndex));
+    fun->setExtendedSlot(FunctionExtended::WASM_FUNC_DEF_INDEX_SLOT, Int32Value(funcDefIndex));
 
-    if (!instanceObj->exports().putNew(funcIndex, fun)) {
+    if (!instanceObj->exports().putNew(funcDefIndex, fun)) {
         ReportOutOfMemory(cx);
         return false;
     }
@@ -652,10 +650,25 @@ WasmInstanceObject::getExportedFunction(JSContext* cx, HandleWasmInstanceObject 
     return true;
 }
 
+const CodeRange&
+WasmInstanceObject::getExportedFunctionCodeRange(HandleFunction fun)
+{
+    uint32_t funcDefIndex = ExportedFunctionToDefinitionIndex(fun);
+    MOZ_ASSERT(exports().lookup(funcDefIndex)->value() == fun);
+    const Metadata& metadata = instance().metadata();
+    return metadata.codeRanges[metadata.lookupFuncDefExport(funcDefIndex).codeRangeIndex()];
+}
+
 bool
 wasm::IsExportedFunction(JSFunction* fun)
 {
     return fun->maybeNative() == WasmCall;
+}
+
+bool
+wasm::IsExportedWasmFunction(JSFunction* fun)
+{
+    return IsExportedFunction(fun) && !ExportedFunctionToInstance(fun).isAsmJS();
 }
 
 bool
@@ -687,10 +700,10 @@ wasm::ExportedFunctionToInstanceObject(JSFunction* fun)
 }
 
 uint32_t
-wasm::ExportedFunctionToIndex(JSFunction* fun)
+wasm::ExportedFunctionToDefinitionIndex(JSFunction* fun)
 {
     MOZ_ASSERT(IsExportedFunction(fun));
-    const Value& v = fun->getExtendedSlot(FunctionExtended::WASM_FUNC_INDEX_SLOT);
+    const Value& v = fun->getExtendedSlot(FunctionExtended::WASM_FUNC_DEF_INDEX_SLOT);
     return v.toInt32();
 }
 
@@ -1040,7 +1053,7 @@ WasmTableObject::getImpl(JSContext* cx, const CallArgs& args)
 
     RootedWasmInstanceObject instanceObj(cx, instance.object());
     RootedFunction fun(cx);
-    if (!instanceObj->getExportedFunction(cx, instanceObj, codeRange->funcIndex(), &fun))
+    if (!instanceObj->getExportedFunction(cx, instanceObj, codeRange->funcDefIndex(), &fun))
         return false;
 
     args.rval().setObject(*fun);
@@ -1077,7 +1090,7 @@ WasmTableObject::setImpl(JSContext* cx, const CallArgs& args)
 
     RootedFunction value(cx);
     if (!IsExportedFunction(args[1], &value) && !args[1].isNull()) {
-        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_SET_VALUE);
+        JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_TABLE_VALUE);
         return false;
     }
 
@@ -1092,17 +1105,17 @@ WasmTableObject::setImpl(JSContext* cx, const CallArgs& args)
 
     if (value) {
         RootedWasmInstanceObject instanceObj(cx, ExportedFunctionToInstanceObject(value));
-        uint32_t funcIndex = ExportedFunctionToIndex(value);
+        uint32_t funcDefIndex = ExportedFunctionToDefinitionIndex(value);
 
 #ifdef DEBUG
         RootedFunction f(cx);
-        MOZ_ASSERT(instanceObj->getExportedFunction(cx, instanceObj, funcIndex, &f));
+        MOZ_ASSERT(instanceObj->getExportedFunction(cx, instanceObj, funcDefIndex, &f));
         MOZ_ASSERT(value == f);
 #endif
 
         Instance& instance = instanceObj->instance();
-        const FuncExport& funcExport = instance.metadata().lookupFuncExport(funcIndex);
-        const CodeRange& codeRange = instance.metadata().codeRanges[funcExport.codeRangeIndex()];
+        const FuncDefExport& funcDefExport = instance.metadata().lookupFuncDefExport(funcDefIndex);
+        const CodeRange& codeRange = instance.metadata().codeRanges[funcDefExport.codeRangeIndex()];
         void* code = instance.codeSegment().base() + codeRange.funcTableEntry();
         table.set(index, code, instance);
     } else {
@@ -1273,6 +1286,36 @@ WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
 }
 #endif
 
+static bool
+WebAssembly_validate(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs callArgs = CallArgsFromVp(argc, vp);
+
+    MutableBytes bytecode;
+    CompileArgs compileArgs;
+    if (!GetCompileArgs(cx, callArgs, "WebAssembly.validate", &bytecode, &compileArgs))
+        return false;
+
+    UniqueChars error;
+    bool validated = !!Compile(*bytecode, compileArgs, &error);
+
+    // If the reason for validation failure was OOM (signalled by null error
+    // message), report out-of-memory so that validate's return is always
+    // correct.
+    if (!validated && !error) {
+        ReportOutOfMemory(cx);
+        return false;
+    }
+
+    if (error) {
+        JS_ReportErrorFlagsAndNumber(cx, JSREPORT_WARNING, GetErrorMessage, nullptr,
+                                     JSMSG_WASM_DECODE_FAIL, "?", error.get());
+    }
+
+    callArgs.rval().setBoolean(validated);
+    return true;
+}
+
 static const JSFunctionSpec WebAssembly_static_methods[] =
 {
 #if JS_HAS_TOSOURCE
@@ -1281,6 +1324,7 @@ static const JSFunctionSpec WebAssembly_static_methods[] =
 #ifdef SPIDERMONKEY_PROMISE
     JS_FN("compile", WebAssembly_compile, 1, 0),
 #endif
+    JS_FN("validate", WebAssembly_validate, 1, 0),
     JS_FS_END
 };
 

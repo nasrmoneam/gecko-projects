@@ -178,7 +178,7 @@ static const nsAttrValue::EnumTable kInputTypeTable[] = {
   { "time", NS_FORM_INPUT_TIME },
   { "url", NS_FORM_INPUT_URL },
   { "week", NS_FORM_INPUT_WEEK },
-  { 0 }
+  { nullptr, 0 }
 };
 
 // Default type is 'text'.
@@ -200,7 +200,7 @@ static const nsAttrValue::EnumTable kInputInputmodeTable[] = {
   { "lowercase", NS_INPUT_INPUTMODE_LOWERCASE },
   { "titlecase", NS_INPUT_INPUTMODE_TITLECASE },
   { "autocapitalized", NS_INPUT_INPUTMODE_AUTOCAPITALIZED },
-  { 0 }
+  { nullptr, 0 }
 };
 
 // Default inputmode value is "auto".
@@ -253,7 +253,7 @@ public:
     }
 
     mInputElement->SetFilesOrDirectories(array, true);
-    NS_WARN_IF(NS_FAILED(DispatchEvents()));
+    Unused << NS_WARN_IF(NS_FAILED(DispatchEvents()));
   }
 
   nsresult
@@ -264,7 +264,7 @@ public:
                                               static_cast<nsIDOMHTMLInputElement*>(mInputElement.get()),
                                               NS_LITERAL_STRING("input"), true,
                                               false);
-    NS_WARN_IF(NS_FAILED(rv));
+    NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "DispatchTrustedEvent failed");
 
     rv = nsContentUtils::DispatchTrustedEvent(mInputElement->OwnerDoc(),
                                               static_cast<nsIDOMHTMLInputElement*>(mInputElement.get()),
@@ -3344,7 +3344,7 @@ HTMLInputElement::MaybeSubmitForm(nsPresContext* aPresContext)
     RefPtr<mozilla::dom::HTMLFormElement> form = mForm;
     InternalFormEvent event(true, eFormSubmit);
     nsEventStatus status = nsEventStatus_eIgnore;
-    shell->HandleDOMEventWithTarget(mForm, &event, &status);
+    shell->HandleDOMEventWithTarget(form, &event, &status);
   }
 
   return NS_OK;
@@ -3802,19 +3802,6 @@ HTMLInputElement::PreHandleEvent(EventChainPreVisitor& aVisitor)
         // that).
         frame->InvalidateFrame();
       }
-    }
-  }
-
-  if (aVisitor.mEvent->mMessage == eKeyUp && aVisitor.mEvent->IsTrusted()) {
-    WidgetKeyboardEvent* keyEvent = aVisitor.mEvent->AsKeyboardEvent();
-    if (MayFireChangeOnKeyUp(keyEvent->mKeyCode) &&
-        !(keyEvent->IsShift() || keyEvent->IsControl() || keyEvent->IsAlt() ||
-          keyEvent->IsMeta() || keyEvent->IsAltGraph() || keyEvent->IsFn() ||
-          keyEvent->IsOS())) {
-      // The up/down arrow key events fire 'change' events when released
-      // so that at the end of a series of up/down arrow key repeat events
-      // the value is considered to be "commited" by the user.
-      FireChangeEventIfNeeded();
     }
   }
 
@@ -4303,6 +4290,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
       // event to increase/decrease the value of the number control.
       if (!aVisitor.mEvent->DefaultPreventedByContent() && IsMutable()) {
         StepNumberControlForUserEvent(keyEvent->mKeyCode == NS_VK_UP ? 1 : -1);
+        FireChangeEventIfNeeded();
         aVisitor.mEventStatus = nsEventStatus_eConsumeNoDefault;
       }
     } else if (nsEventStatus_eIgnore == aVisitor.mEventStatus) {
@@ -4480,6 +4468,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
                   break;
               }
               SetValueOfRangeForUserEvent(newValue);
+              FireChangeEventIfNeeded();
               aVisitor.mEventStatus = nsEventStatus_eConsumeNoDefault;
             }
           }
@@ -4557,6 +4546,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
                 do_QueryFrame(GetPrimaryFrame());
               if (numberControlFrame && numberControlFrame->IsFocused()) {
                 StepNumberControlForUserEvent(wheelEvent->mDeltaY > 0 ? -1 : 1);
+                FireChangeEventIfNeeded();
                 aVisitor.mEvent->PreventDefault();
               }
             } else if (mType == NS_FORM_INPUT_RANGE &&
@@ -4570,6 +4560,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
               MOZ_ASSERT(value.isFinite() && step.isFinite());
               SetValueOfRangeForUserEvent(wheelEvent->mDeltaY < 0 ?
                                           value + step : value - step);
+              FireChangeEventIfNeeded();
               aVisitor.mEvent->PreventDefault();
             }
           }
@@ -4612,7 +4603,7 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
                               mForm->SubmissionCanProceed(this))) {
               // Hold a strong ref while dispatching
               RefPtr<mozilla::dom::HTMLFormElement> form(mForm);
-              presShell->HandleDOMEventWithTarget(mForm, &event, &status);
+              presShell->HandleDOMEventWithTarget(form, &event, &status);
               aVisitor.mEventStatus = nsEventStatus_eConsumeNoDefault;
             }
           }
@@ -8342,18 +8333,6 @@ HTMLInputElement::GetWebkitEntries(nsTArray<RefPtr<FileSystemEntry>>& aSequence)
 {
   Telemetry::Accumulate(Telemetry::BLINK_FILESYSTEM_USED, true);
   aSequence.AppendElements(mEntries);
-}
-
-bool HTMLInputElement::MayFireChangeOnKeyUp(uint32_t aKeyCode) const
-{
-  switch (mType) {
-    case NS_FORM_INPUT_NUMBER:
-      return aKeyCode == NS_VK_UP || aKeyCode == NS_VK_DOWN;
-    case NS_FORM_INPUT_RANGE:
-      return aKeyCode == NS_VK_UP || aKeyCode == NS_VK_DOWN ||
-             aKeyCode == NS_VK_LEFT || aKeyCode == NS_VK_RIGHT;
-  }
-  return false;
 }
 
 } // namespace dom

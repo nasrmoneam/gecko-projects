@@ -167,7 +167,7 @@ static const nsAttrValue::EnumTable kMozAudioChannelAttributeTable[] = {
   { "ringer",             (int16_t)AudioChannel::Ringer },
   { "publicnotification", (int16_t)AudioChannel::Publicnotification },
   { "system",             (int16_t)AudioChannel::System },
-  { nullptr }
+  { nullptr,              0 }
 };
 
 /* static */ void
@@ -1349,8 +1349,8 @@ AudioChannelService::AudioChannelWindow::NotifyAudioAudibleChanged(nsPIDOMWindow
 {
   RefPtr<AudioPlaybackRunnable> runnable =
     new AudioPlaybackRunnable(aWindow, aAudible, aReason);
-  nsresult rv = NS_DispatchToCurrentThread(runnable);
-  NS_WARN_IF(NS_FAILED(rv));
+  DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(runnable);
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "NS_DispatchToCurrentThread failed");
 }
 
 void
@@ -1360,6 +1360,6 @@ AudioChannelService::AudioChannelWindow::NotifyChannelActive(uint64_t aWindowID,
 {
   RefPtr<NotifyChannelActiveRunnable> runnable =
     new NotifyChannelActiveRunnable(aWindowID, aChannel, aActive);
-  nsresult rv = NS_DispatchToCurrentThread(runnable);
-  NS_WARN_IF(NS_FAILED(rv));
+  DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(runnable);
+  NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "NS_DispatchToCurrentThread failed");
 }

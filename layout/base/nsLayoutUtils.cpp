@@ -70,7 +70,7 @@
 #include "mozilla/dom/HTMLVideoElement.h"
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/DOMRect.h"
-#include "mozilla/dom/KeyframeEffect.h"
+#include "mozilla/dom/KeyframeEffectReadOnly.h"
 #include "mozilla/layers/APZCCallbackHelper.h"
 #include "imgIRequest.h"
 #include "nsIImageLoadingContent.h"
@@ -1404,7 +1404,7 @@ nsLayoutUtils::GetChildListNameFor(nsIFrame* aChildFrame)
         id = nsIFrame::kAbsoluteList;
       }
 #ifdef MOZ_XUL
-    } else if (NS_STYLE_DISPLAY_POPUP == disp->mDisplay) {
+    } else if (StyleDisplay::Popup == disp->mDisplay) {
       // Out-of-flows that are DISPLAY_POPUP must be kids of the root popup set
 #ifdef DEBUG
       nsIFrame* parent = aChildFrame->GetParent();
@@ -3050,31 +3050,34 @@ nsLayoutUtils::TranslateViewToWidget(nsPresContext* aPresContext,
 }
 
 // Combine aNewBreakType with aOrigBreakType, but limit the break types
-// to NS_STYLE_CLEAR_LEFT, RIGHT, BOTH.
-uint8_t
-nsLayoutUtils::CombineBreakType(uint8_t aOrigBreakType,
-                                uint8_t aNewBreakType)
+// to StyleClear::Left, Right, Both.
+StyleClear
+nsLayoutUtils::CombineBreakType(StyleClear aOrigBreakType,
+                                StyleClear aNewBreakType)
 {
-  uint8_t breakType = aOrigBreakType;
+  StyleClear breakType = aOrigBreakType;
   switch(breakType) {
-  case NS_STYLE_CLEAR_LEFT:
-    if (NS_STYLE_CLEAR_RIGHT == aNewBreakType ||
-        NS_STYLE_CLEAR_BOTH == aNewBreakType) {
-      breakType = NS_STYLE_CLEAR_BOTH;
-    }
-    break;
-  case NS_STYLE_CLEAR_RIGHT:
-    if (NS_STYLE_CLEAR_LEFT == aNewBreakType ||
-        NS_STYLE_CLEAR_BOTH == aNewBreakType) {
-      breakType = NS_STYLE_CLEAR_BOTH;
-    }
-    break;
-  case NS_STYLE_CLEAR_NONE:
-    if (NS_STYLE_CLEAR_LEFT == aNewBreakType ||
-        NS_STYLE_CLEAR_RIGHT == aNewBreakType ||
-        NS_STYLE_CLEAR_BOTH == aNewBreakType) {
-      breakType = aNewBreakType;
-    }
+    case StyleClear::Left:
+      if (StyleClear::Right == aNewBreakType ||
+          StyleClear::Both == aNewBreakType) {
+        breakType = StyleClear::Both;
+      }
+      break;
+    case StyleClear::Right:
+      if (StyleClear::Left == aNewBreakType ||
+          StyleClear::Both == aNewBreakType) {
+        breakType = StyleClear::Both;
+      }
+      break;
+    case StyleClear::None_:
+      if (StyleClear::Left == aNewBreakType ||
+          StyleClear::Right == aNewBreakType ||
+          StyleClear::Both == aNewBreakType) {
+        breakType = aNewBreakType;
+      }
+      break;
+    default:
+      break;
   }
   return breakType;
 }
@@ -5160,10 +5163,10 @@ nsLayoutUtils::MinSizeContributionForAxis(PhysicalAxis        aAxis,
 nsLayoutUtils::ComputeCBDependentValue(nscoord aPercentBasis,
                                        const nsStyleCoord& aCoord)
 {
-  NS_WARN_IF_FALSE(aPercentBasis != NS_UNCONSTRAINEDSIZE,
-                   "have unconstrained width or height; this should only "
-                   "result from very large sizes, not attempts at intrinsic "
-                   "size calculation");
+  NS_WARNING_ASSERTION(
+    aPercentBasis != NS_UNCONSTRAINEDSIZE,
+    "have unconstrained width or height; this should only result from very "
+    "large sizes, not attempts at intrinsic size calculation");
 
   if (aCoord.IsCoordPercentCalcUnit()) {
     return nsRuleNode::ComputeCoordPercentCalc(aCoord, aPercentBasis);
@@ -7337,7 +7340,19 @@ nsLayoutUtils::SurfaceFromElement(nsIImageLoadingContent* aElement,
   nsCOMPtr<imgIRequest> imgRequest;
   rv = aElement->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
                             getter_AddRefs(imgRequest));
-  if (NS_FAILED(rv) || !imgRequest) {
+  if (NS_FAILED(rv)) {
+    return result;
+  }
+
+  if (!imgRequest) {
+    // There's no image request. This is either because a request for
+    // a non-empty URI failed, or the URI is the empty string.
+    nsCOMPtr<nsIURI> currentURI;
+    aElement->GetCurrentURI(getter_AddRefs(currentURI));
+    if (!currentURI) {
+      // Treat the empty URI as available instead of broken state.
+      result.mHasSize = true;
+    }
     return result;
   }
 
@@ -7489,7 +7504,9 @@ nsLayoutUtils::SurfaceFromElement(HTMLVideoElement* aElement,
 {
   SurfaceFromElementResult result;
 
-  NS_WARN_IF_FALSE((aSurfaceFlags & SFE_PREFER_NO_PREMULTIPLY_ALPHA) == 0, "We can't support non-premultiplied alpha for video!");
+  NS_WARNING_ASSERTION(
+    (aSurfaceFlags & SFE_PREFER_NO_PREMULTIPLY_ALPHA) == 0,
+    "We can't support non-premultiplied alpha for video!");
 
 #ifdef MOZ_EME
   if (aElement->ContainsRestrictedContent()) {
@@ -9068,8 +9085,8 @@ nsLayoutUtils::GetTouchActionFromFrame(nsIFrame* aFrame)
 
   const nsStyleDisplay* disp = aFrame->StyleDisplay();
   bool isTableElement = disp->IsInnerTableStyle() &&
-    disp->mDisplay != NS_STYLE_DISPLAY_TABLE_CELL &&
-    disp->mDisplay != NS_STYLE_DISPLAY_TABLE_CAPTION;
+    disp->mDisplay != StyleDisplay::TableCell &&
+    disp->mDisplay != StyleDisplay::TableCaption;
   if (isTableElement) {
     return NS_STYLE_TOUCH_ACTION_AUTO;
   }

@@ -1139,10 +1139,8 @@ nsObjectLoadingContent::OnStartRequest(nsIRequest *aRequest,
     if (console) {
       nsCOMPtr<nsIURI> uri;
       chan->GetURI(getter_AddRefs(uri));
-      nsAutoCString spec;
-      uri->GetSpec(spec);
       nsString message = NS_LITERAL_STRING("Blocking ") +
-        NS_ConvertASCIItoUTF16(spec.get()) +
+        NS_ConvertASCIItoUTF16(uri->GetSpecOrDefault().get()) +
         NS_LITERAL_STRING(" since it was found on an internal Firefox blocklist.");
       console->LogStringMessage(message.get());
     }
@@ -1649,12 +1647,8 @@ nsObjectLoadingContent::CheckLoadPolicy(int16_t *aContentPolicy)
                                           nsContentUtils::GetSecurityManager());
   NS_ENSURE_SUCCESS(rv, false);
   if (NS_CP_REJECTED(*aContentPolicy)) {
-    nsAutoCString uri;
-    nsAutoCString baseUri;
-    mURI->GetSpec(uri);
-    mURI->GetSpec(baseUri);
-    LOG(("OBJLC [%p]: Content policy denied load of %s (base %s)",
-         this, uri.get(), baseUri.get()));
+    LOG(("OBJLC [%p]: Content policy denied load of %s",
+         this, mURI->GetSpecOrDefault().get()));
     return false;
   }
 
@@ -2899,9 +2893,13 @@ nsObjectLoadingContent::CreateStaticClone(nsObjectLoadingContent* aDest) const
     aDest->mPrintFrame = const_cast<nsObjectLoadingContent*>(this)->GetExistingFrame();
   }
 
+  nsCOMPtr<nsIContent> content =
+    do_QueryInterface(static_cast<nsIImageLoadingContent*>(aDest));
+  if (aDest->mPrintFrame) {
+    content->OwnerDoc()->SetMayHavePluginFramesForPrinting();
+  }
+
   if (mFrameLoader) {
-    nsCOMPtr<nsIContent> content =
-      do_QueryInterface(static_cast<nsIImageLoadingContent*>(aDest));
     nsFrameLoader* fl = nsFrameLoader::Create(content->AsElement(), false);
     if (fl) {
       aDest->mFrameLoader = fl;
@@ -3040,6 +3038,7 @@ nsObjectLoadingContent::SyncStartPluginInstance()
   }
 
   nsCOMPtr<nsIURI> kungFuURIGrip(mURI);
+  mozilla::Unused << kungFuURIGrip; // This URI is not referred to within this function
   nsCString contentType(mContentType);
   return InstantiatePluginInstance();
 }

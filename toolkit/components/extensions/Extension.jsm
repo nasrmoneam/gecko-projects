@@ -4,7 +4,7 @@
 
 "use strict";
 
-this.EXPORTED_SYMBOLS = ["Extension", "ExtensionData"];
+this.EXPORTED_SYMBOLS = ["Extension", "ExtensionData", "ExtensionContext"];
 
 /* globals Extension ExtensionData */
 
@@ -572,6 +572,9 @@ GlobalManager = {
     };
     Management.generateAPIs(context, apis);
     SchemaAPIManager.generateAPIs(context, context.extension.apis, apis);
+
+    // For testing only.
+    context._unwrappedAPIs = apis;
 
     let schemaWrapper = {
       isChromeCompat,
@@ -1511,6 +1514,11 @@ this.Extension = class extends ExtensionData {
 
       GlobalManager.init(this);
 
+      // The "startup" Management event sent on the extension instance itself
+      // is emitted just before the Management "startup" event,
+      // and it is used to run code that needs to be executed before
+      // any of the "startup" listeners.
+      this.emit("startup", this);
       Management.emit("startup", this);
 
       return this.runManifest(this.manifest);

@@ -5436,6 +5436,13 @@
     "kind": "count",
     "description": "a testing histogram; not meant to be touched"
   },
+  "TELEMETRY_TEST_COUNT2": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "count",
+    "bug_numbers": [1288745],
+    "description": "a testing histogram; not meant to be touched"
+  },
   "TELEMETRY_TEST_COUNT_INIT_NO_RECORD": {
     "expires_in_version": "never",
     "kind": "count",
@@ -5511,6 +5518,33 @@
     "releaseChannelCollection": "opt-out",
     "description": "a testing histogram; not meant to be touched"
   },
+  "TELEMETRY_TEST_EXPONENTIAL": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "low": 1,
+    "high": 2147483646,
+    "n_buckets": 10,
+    "bug_numbers": [1288745],
+    "description": "a testing histogram; not meant to be touched"
+  },
+  "TELEMETRY_TEST_LINEAR": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "linear",
+    "low": 1,
+    "high": 2147483646,
+    "n_buckets": 10,
+    "bug_numbers": [1288745],
+    "description": "a testing histogram; not meant to be touched"
+  },
+  "TELEMETRY_TEST_BOOLEAN": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "expires_in_version" : "never",
+    "kind": "boolean",
+    "bug_numbers": [1288745],
+    "description": "a testing histogram; not meant to be touched"
+  },
   "STARTUP_CRASH_DETECTED": {
     "expires_in_version": "never",
     "kind": "flag",
@@ -5524,11 +5558,11 @@
   },
   "SCRIPT_BLOCK_WRONG_MIME": {
     "alert_emails": ["ckerschbaumer@mozilla.com"],
-    "bug_numbers": [1288361],
+    "bug_numbers": [1288361, 1299267],
     "expires_in_version": "56",
     "kind": "enumerated",
-    "n_values": 10,
-    "description": "Whether the script load has a MIME type of ...?  (0=unknown, 1=js, 2=image, 3=audio, 4=video, 5=text/plain, 6=text/csv, 7=text/xml, 8=application/octet-stream, 9=application/xml)"
+    "n_values": 15,
+    "description": "Whether the script load has a MIME type of ...?  (0=unknown, 1=js, 2=image, 3=audio, 4=video, 5=text/plain, 6=text/csv, 7=text/xml, 8=application/octet-stream, 9=application/xml, 10=text/html, 11=empty)"
   },
   "NEWTAB_PAGE_ENABLED": {
     "expires_in_version": "default",
@@ -10203,5 +10237,14 @@
     "bug_numbers": [1296606],
     "kind": "count",
     "description": "Number of named profiles."
+  },
+  "WEB_PERMISSION_CLEARED": {
+    "alert_emails": ["firefox-dev@mozilla.org"],
+    "bug_numbers": [1286118],
+    "expires_in_version": "55",
+    "kind": "enumerated",
+    "keyed": true,
+    "n_values": 6,
+    "description": "Number of revoke actions on permissions in the control center, keyed by permission id. Values represent the permission type that was revoked. (0=unknown, 1=permanently allowed, 2=permanently blocked, 3=temporarily allowed, 4=temporarily blocked)"
   }
 }

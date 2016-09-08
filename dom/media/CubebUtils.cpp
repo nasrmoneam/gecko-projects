@@ -27,6 +27,12 @@ namespace {
 
 // This mutex protects the variables below.
 StaticMutex sMutex;
+enum class CubebState {
+  Uninitialized = 0,
+  Initialized,
+  Error,
+  Shutdown
+} sCubebState = CubebState::Uninitialized;
 cubeb* sCubebContext;
 double sVolumeScale;
 uint32_t sCubebLatency;
@@ -126,11 +132,15 @@ cubeb* GetCubebContext()
 void InitPreferredSampleRate()
 {
   StaticMutexAutoLock lock(sMutex);
-  if (sPreferredSampleRate == 0 &&
-      cubeb_get_preferred_sample_rate(GetCubebContextUnlocked(),
-                                      &sPreferredSampleRate) != CUBEB_OK) {
-    // Query failed, use a sensible default.
-    sPreferredSampleRate = 44100;
+  if (sPreferredSampleRate == 0) {
+    cubeb* context = GetCubebContextUnlocked();
+    if (context) {
+      if (cubeb_get_preferred_sample_rate(context,
+                                          &sPreferredSampleRate) != CUBEB_OK) {
+        // Query failed, use a sensible default.
+        sPreferredSampleRate = 44100;
+      }
+    }
   }
 }
 
@@ -149,8 +159,8 @@ void InitBrandName()
     if (NS_SUCCEEDED(rv)) {
       rv = brandBundle->GetStringFromName(u"brandShortName",
                                           getter_Copies(brandName));
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv),
-          "Could not get the program name for a cubeb stream.");
+      NS_WARNING_ASSERTION(
+        NS_SUCCEEDED(rv), "Could not get the program name for a cubeb stream.");
     }
   }
   /* cubeb expects a c-string. */
@@ -163,19 +173,22 @@ void InitBrandName()
 cubeb* GetCubebContextUnlocked()
 {
   sMutex.AssertCurrentThreadOwns();
-  if (sCubebContext) {
+  if (sCubebState != CubebState::Uninitialized) {
+    // If we have already passed the initialization point (below), just return
+    // the current context, which may be null (e.g., after error or shutdown.)
     return sCubebContext;
   }
 
   if (!sBrandName && NS_IsMainThread()) {
     InitBrandName();
   } else {
-    NS_WARN_IF_FALSE(sBrandName,
-        "Did not initialize sbrandName, and not on the main thread?");
+    NS_WARNING_ASSERTION(
+      sBrandName, "Did not initialize sbrandName, and not on the main thread?");
   }
 
-  DebugOnly<int> rv = cubeb_init(&sCubebContext, sBrandName);
-  NS_WARN_IF_FALSE(rv == CUBEB_OK, "Could not get a cubeb context.");
+  int rv = cubeb_init(&sCubebContext, sBrandName);
+  NS_WARNING_ASSERTION(rv == CUBEB_OK, "Could not get a cubeb context.");
+  sCubebState = (rv == CUBEB_OK) ? CubebState::Initialized : CubebState::Error;
 
   return sCubebContext;
 }
@@ -247,6 +260,8 @@ void ShutdownLibrary()
     sCubebContext = nullptr;
   }
   sBrandName = nullptr;
+  // This will ensure we don't try to re-create a context.
+  sCubebState = CubebState::Shutdown;
 }
 
 uint32_t MaxNumberOfChannels()
@@ -298,12 +313,15 @@ cubeb_stream_type ConvertChannelToCubebType(dom::AudioChannel aChannel)
 
 void GetCurrentBackend(nsAString& aBackend)
 {
-  const char* backend = cubeb_get_backend_id(GetCubebContext());
-  if (!backend) {
-    aBackend.AssignLiteral("unknown");
-    return;
+  cubeb* cubebContext = GetCubebContext();
+  if (cubebContext) {
+    const char* backend = cubeb_get_backend_id(cubebContext);
+    if (backend) {
+      aBackend.AssignASCII(backend);
+      return;
+    }
   }
-  aBackend.AssignASCII(backend);
+  aBackend.AssignLiteral("unknown");
 }
 
 } // namespace CubebUtils

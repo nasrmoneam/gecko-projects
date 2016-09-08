@@ -39,6 +39,7 @@ class AsyncCanvasRenderer;
 class AsyncTransactionTracker;
 class ImageClient;
 class ImageContainer;
+class ImageContainerChild;
 class ImageBridgeParent;
 class CompositableClient;
 struct CompositableTransaction;
@@ -218,18 +219,24 @@ public:
   virtual bool
   RecvDidComposite(InfallibleTArray<ImageCompositeNotification>&& aNotifications) override;
 
-  already_AddRefed<ImageClient> CreateImageClient(CompositableType aType,
-                                                  ImageContainer* aImageContainer);
-  already_AddRefed<ImageClient> CreateImageClientNow(CompositableType aType,
-                                                     ImageContainer* aImageContainer);
+  // Create an ImageClient from any thread.
+  RefPtr<ImageClient> CreateImageClient(
+    CompositableType aType,
+    ImageContainer* aImageContainer,
+    ImageContainerChild* aContainerChild);
+
+  // Create an ImageClient from the ImageBridge thread.
+  RefPtr<ImageClient> CreateImageClientNow(
+    CompositableType aType,
+    ImageContainer* aImageContainer,
+    ImageContainerChild* aContainerChild);
+
   already_AddRefed<CanvasClient> CreateCanvasClient(CanvasClient::CanvasClientType aType,
                                                     TextureFlags aFlag);
   already_AddRefed<CanvasClient> CreateCanvasClientNow(CanvasClient::CanvasClientType aType,
                                                        TextureFlags aFlag);
 
-  static void DispatchReleaseImageClient(ImageClient* aClient,
-                                         PImageContainerChild* aChild = nullptr);
-  static void DispatchReleaseCanvasClient(CanvasClient* aClient);
+  static void DispatchReleaseImageContainer(ImageContainerChild* aChild);
   static void DispatchReleaseTextureClient(TextureClient* aClient);
   static void DispatchImageClientUpdate(ImageClient* aClient, ImageContainer* aContainer);
 
@@ -261,6 +268,8 @@ public:
                                 const OverlaySource& aOverlay,
                                 const nsIntRect& aPictureRect) override;
 #endif
+
+  void Destroy(CompositableChild* aCompositable) override;
 
   /**
    * Hold TextureClient ref until end of usage on host side if TextureFlags::RECYCLE is set.
@@ -340,6 +349,11 @@ public:
 
   virtual void UpdateFwdTransactionId() override { ++mFwdTransactionId; }
   virtual uint64_t GetFwdTransactionId() override { return mFwdTransactionId; }
+
+  bool InForwarderThread() override {
+    return InImageBridgeChildThread();
+  }
+
 
   void MarkShutDown();
 

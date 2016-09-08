@@ -8,6 +8,7 @@
 
 #include "mozilla/dom/PresentationAvailabilityBinding.h"
 #include "mozilla/dom/Promise.h"
+#include "mozilla/Unused.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIPresentationDeviceManager.h"
 #include "nsIPresentationService.h"
@@ -37,20 +38,20 @@ NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 /* static */ already_AddRefed<PresentationAvailability>
 PresentationAvailability::Create(nsPIDOMWindowInner* aWindow,
-                                 const nsAString& aUrl,
+                                 const nsTArray<nsString>& aUrls,
                                  RefPtr<Promise>& aPromise)
 {
   RefPtr<PresentationAvailability> availability =
-    new PresentationAvailability(aWindow, aUrl);
+    new PresentationAvailability(aWindow, aUrls);
   return NS_WARN_IF(!availability->Init(aPromise)) ? nullptr
                                                    : availability.forget();
 }
 
 PresentationAvailability::PresentationAvailability(nsPIDOMWindowInner* aWindow,
-                                                   const nsAString& aUrl)
+                                                   const nsTArray<nsString>& aUrls)
   : DOMEventTargetHelper(aWindow)
   , mIsAvailable(false)
-  , mUrl(aUrl)
+  , mUrls(aUrls)
 {
 }
 
@@ -100,8 +101,8 @@ void PresentationAvailability::Shutdown()
     return;
   }
 
-  nsresult rv = service->UnregisterAvailabilityListener(this);
-  NS_WARN_IF(NS_FAILED(rv));
+  Unused <<
+    NS_WARN_IF(NS_FAILED(service->UnregisterAvailabilityListener(this)));
 }
 
 /* virtual */ void
@@ -120,10 +121,15 @@ PresentationAvailability::WrapObject(JSContext* aCx,
 
 bool
 PresentationAvailability::Equals(const uint64_t aWindowID,
-                                 const nsAString& aUrl) const
+                                 const nsTArray<nsString>& aUrls) const
 {
   if (GetOwner() && GetOwner()->WindowID() == aWindowID &&
-      mUrl.Equals(aUrl)) {
+      mUrls.Length() == aUrls.Length()) {
+    for (const auto& url : aUrls) {
+      if (!mUrls.Contains(url)) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -162,8 +168,7 @@ PresentationAvailability::NotifyAvailableChange(bool aIsAvailable)
 void
 PresentationAvailability::UpdateAvailabilityAndDispatchEvent(bool aIsAvailable)
 {
-  PRES_DEBUG("%s:id[%s]\n", __func__,
-             NS_ConvertUTF16toUTF8(mUrl).get());
+  PRES_DEBUG("%s\n", __func__);
   bool isChanged = (aIsAvailable != mIsAvailable);
 
   mIsAvailable = aIsAvailable;
@@ -182,6 +187,7 @@ PresentationAvailability::UpdateAvailabilityAndDispatchEvent(bool aIsAvailable)
   }
 
   if (isChanged) {
-    NS_WARN_IF(NS_FAILED(DispatchTrustedEvent(NS_LITERAL_STRING("change"))));
+    Unused <<
+      NS_WARN_IF(NS_FAILED(DispatchTrustedEvent(NS_LITERAL_STRING("change"))));
   }
 }

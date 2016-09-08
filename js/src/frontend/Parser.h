@@ -1290,11 +1290,9 @@ class Parser final : private JS::AutoGCRooter, public StrictModeGetter
     // Required on Scope exit.
     bool propagateFreeNamesAndMarkClosedOverBindings(ParseContext::Scope& scope);
 
-    mozilla::Maybe<GlobalScope::Data*> newGlobalScopeData(ParseContext::Scope& scope,
-                                                          uint32_t* functionBindingEnd);
+    mozilla::Maybe<GlobalScope::Data*> newGlobalScopeData(ParseContext::Scope& scope);
     mozilla::Maybe<ModuleScope::Data*> newModuleScopeData(ParseContext::Scope& scope);
-    mozilla::Maybe<EvalScope::Data*> newEvalScopeData(ParseContext::Scope& scope,
-                                                      uint32_t* functionBindingEnd);
+    mozilla::Maybe<EvalScope::Data*> newEvalScopeData(ParseContext::Scope& scope);
     mozilla::Maybe<FunctionScope::Data*> newFunctionScopeData(ParseContext::Scope& scope,
                                                               bool hasParameterExprs);
     mozilla::Maybe<VarScope::Data*> newVarScopeData(ParseContext::Scope& scope);
@@ -1321,7 +1319,7 @@ class Parser final : private JS::AutoGCRooter, public StrictModeGetter
     bool checkDestructuringObject(Node objectPattern, mozilla::Maybe<DeclarationKind> maybeDecl);
     bool checkDestructuringName(Node expr, mozilla::Maybe<DeclarationKind> maybeDecl);
 
-    bool makeSetCall(Node node, unsigned errnum);
+    bool checkAssignmentToCall(Node node, unsigned errnum);
 
     Node newNumber(const Token& tok) {
         return handler.newNumber(tok.number(), tok.decimalPoint(), tok.pos);
@@ -1340,6 +1338,7 @@ class Parser final : private JS::AutoGCRooter, public StrictModeGetter
     void addTelemetry(JSCompartment::DeprecatedLanguageExtension e);
 
     bool warnOnceAboutExprClosure();
+    bool warnOnceAboutForEach();
 };
 
 } /* namespace frontend */

@@ -38,6 +38,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/LoadInfo.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/CustomElementsRegistry.h"
 #include "mozilla/dom/DocumentFragment.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/Element.h"
@@ -303,7 +304,7 @@ bool nsContentUtils::sDoNotTrackEnabled = false;
 mozilla::LazyLogModule nsContentUtils::sDOMDumpLog("Dump");
 
 // Subset of http://www.whatwg.org/specs/web-apps/current-work/#autofill-field-name
-enum AutocompleteFieldName
+enum AutocompleteFieldName : uint8_t
 {
   #define AUTOCOMPLETE_FIELD_NAME(name_, value_) \
     eAutocompleteFieldName_##name_,
@@ -314,7 +315,7 @@ enum AutocompleteFieldName
   #undef AUTOCOMPLETE_CONTACT_FIELD_NAME
 };
 
-enum AutocompleteFieldHint
+enum AutocompleteFieldHint : uint8_t
 {
   #define AUTOCOMPLETE_FIELD_HINT(name_, value_) \
     eAutocompleteFieldHint_##name_,
@@ -322,7 +323,7 @@ enum AutocompleteFieldHint
   #undef AUTOCOMPLETE_FIELD_HINT
 };
 
-enum AutocompleteFieldContactHint
+enum AutocompleteFieldContactHint : uint8_t
 {
   #define AUTOCOMPLETE_FIELD_CONTACT_HINT(name_, value_) \
     eAutocompleteFieldContactHint_##name_,
@@ -342,7 +343,7 @@ static const nsAttrValue::EnumTable kAutocompleteFieldNameTable[] = {
     { value_, eAutocompleteFieldName_##name_ },
   #include "AutocompleteFieldList.h"
   #undef AUTOCOMPLETE_FIELD_NAME
-  { 0 }
+  { nullptr, 0 }
 };
 
 static const nsAttrValue::EnumTable kAutocompleteContactFieldNameTable[] = {
@@ -350,7 +351,7 @@ static const nsAttrValue::EnumTable kAutocompleteContactFieldNameTable[] = {
     { value_, eAutocompleteFieldName_##name_ },
   #include "AutocompleteFieldList.h"
   #undef AUTOCOMPLETE_CONTACT_FIELD_NAME
-  { 0 }
+  { nullptr, 0 }
 };
 
 static const nsAttrValue::EnumTable kAutocompleteFieldHintTable[] = {
@@ -358,7 +359,7 @@ static const nsAttrValue::EnumTable kAutocompleteFieldHintTable[] = {
     { value_, eAutocompleteFieldHint_##name_ },
   #include "AutocompleteFieldList.h"
   #undef AUTOCOMPLETE_FIELD_HINT
-  { 0 }
+  { nullptr, 0 }
 };
 
 static const nsAttrValue::EnumTable kAutocompleteContactFieldHintTable[] = {
@@ -366,7 +367,7 @@ static const nsAttrValue::EnumTable kAutocompleteContactFieldHintTable[] = {
     { value_, eAutocompleteFieldContactHint_##name_ },
   #include "AutocompleteFieldList.h"
   #undef AUTOCOMPLETE_FIELD_CONTACT_HINT
-  { 0 }
+  { nullptr, 0 }
 };
 
 namespace {
@@ -5157,9 +5158,7 @@ nsContentUtils::WarnScriptWasIgnored(nsIDocument* aDocument)
   if (aDocument) {
     nsCOMPtr<nsIURI> uri = aDocument->GetDocumentURI();
     if (uri) {
-      nsCString spec;
-      uri->GetSpec(spec);
-      msg.Append(NS_ConvertUTF8toUTF16(spec));
+      msg.Append(NS_ConvertUTF8toUTF16(uri->GetSpecOrDefault()));
       msg.AppendLiteral(" : ");
     }
   }
@@ -9422,7 +9421,7 @@ nsContentUtils::HttpsStateIsModern(nsIDocument* aDocument)
 
   nsCOMPtr<nsIContentSecurityManager> csm =
     do_GetService(NS_CONTENTSECURITYMANAGER_CONTRACTID);
-  NS_WARN_IF(!csm);
+  NS_WARNING_ASSERTION(csm, "csm is null");
   if (csm) {
     bool isTrustworthyOrigin = false;
     csm->IsOriginPotentiallyTrustworthy(principal, &isTrustworthyOrigin);
@@ -9432,4 +9431,124 @@ nsContentUtils::HttpsStateIsModern(nsIDocument* aDocument)
   }
 
   return false;
+}
+
+/* static */ CustomElementDefinition*
+nsContentUtils::LookupCustomElementDefinition(nsIDocument* aDoc,
+                                              const nsAString& aLocalName,
+                                              uint32_t aNameSpaceID,
+                                              const nsAString* aIs)
+{
+  MOZ_ASSERT(aDoc);
+
+  // To support imported document.
+  nsCOMPtr<nsIDocument> doc = aDoc->MasterDocument();
+
+  if (aNameSpaceID != kNameSpaceID_XHTML ||
+      !doc->GetDocShell()) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> window(doc->GetInnerWindow());
+  if (!window) {
+    return nullptr;
+  }
+
+  RefPtr<CustomElementsRegistry> registry(window->CustomElements());
+  if (!registry) {
+    return nullptr;
+  }
+
+  return registry->LookupCustomElementDefinition(aLocalName, aIs);
+}
+
+/* static */ void
+nsContentUtils::SetupCustomElement(Element* aElement,
+                                   const nsAString* aTypeExtension)
+{
+  MOZ_ASSERT(aElement);
+
+  nsCOMPtr<nsIDocument> doc = aElement->OwnerDoc();
+
+  if (!doc) {
+    return;
+  }
+
+  // To support imported document.
+  doc = doc->MasterDocument();
+
+  if (aElement->GetNameSpaceID() != kNameSpaceID_XHTML ||
+      !doc->GetDocShell()) {
+    return;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> window(doc->GetInnerWindow());
+  if (!window) {
+    return;
+  }
+
+  RefPtr<CustomElementsRegistry> registry(window->CustomElements());
+  if (!registry) {
+    return;
+  }
+
+  return registry->SetupCustomElement(aElement, aTypeExtension);
+}
+
+/* static */ void
+nsContentUtils::EnqueueLifecycleCallback(nsIDocument* aDoc,
+                                         nsIDocument::ElementCallbackType aType,
+                                         Element* aCustomElement,
+                                         LifecycleCallbackArgs* aArgs,
+                                         CustomElementDefinition* aDefinition)
+{
+  MOZ_ASSERT(aDoc);
+
+  // To support imported document.
+  nsCOMPtr<nsIDocument> doc = aDoc->MasterDocument();
+
+  if (!doc->GetDocShell()) {
+    return;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> window(doc->GetInnerWindow());
+  if (!window) {
+    return;
+  }
+
+  RefPtr<CustomElementsRegistry> registry(window->CustomElements());
+  if (!registry) {
+    return;
+  }
+
+  registry->EnqueueLifecycleCallback(aType, aCustomElement, aArgs, aDefinition);
+}
+
+/* static */ void
+nsContentUtils::GetCustomPrototype(nsIDocument* aDoc,
+                                   int32_t aNamespaceID,
+                                   nsIAtom* aAtom,
+                                   JS::MutableHandle<JSObject*> aPrototype)
+{
+  MOZ_ASSERT(aDoc);
+
+  // To support imported document.
+  nsCOMPtr<nsIDocument> doc = aDoc->MasterDocument();
+
+  if (aNamespaceID != kNameSpaceID_XHTML ||
+      !doc->GetDocShell()) {
+    return;
+  }
+
+  nsCOMPtr<nsPIDOMWindowInner> window(doc->GetInnerWindow());
+  if (!window) {
+    return;
+  }
+
+  RefPtr<CustomElementsRegistry> registry(window->CustomElements());
+  if (!registry) {
+    return;
+  }
+
+  return registry->GetCustomPrototype(aAtom, aPrototype);
 }

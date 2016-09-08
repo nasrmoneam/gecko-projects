@@ -540,7 +540,7 @@ UpgradeHostToOriginAndInsert(const nsACString& aHost, const nsAFlatCString& aTyp
       foundHistory = true;
       rv = aHelper->Insert(origin, aType, aPermission,
                            aExpireType, aExpireTime, aModificationTime);
-      NS_WARN_IF(NS_WARN_IF(NS_FAILED(rv)));
+      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Insert failed");
       insertedOrigins.PutEntry(origin);
     }
 
@@ -1868,6 +1868,9 @@ nsPermissionManager::RemoveFromPrincipal(nsIPrincipal* aPrincipal,
 NS_IMETHODIMP
 nsPermissionManager::RemovePermission(nsIPermission* aPerm)
 {
+  if (!aPerm) {
+    return NS_OK;
+  }
   nsCOMPtr<nsIPrincipal> principal;
   nsresult rv = aPerm->GetPrincipal(getter_AddRefs(principal));
   NS_ENSURE_SUCCESS(rv, rv);

@@ -387,9 +387,10 @@ EventListenerManager::AddEventListenerInternal(
       if (window) {
 #ifdef DEBUG
         nsCOMPtr<nsIDocument> d = window->GetExtantDoc();
-        NS_WARN_IF_FALSE(!nsContentUtils::IsChromeDoc(d),
-                         "Please do not use pointerenter/leave events in chrome. "
-                         "They are slower than pointerover/out!");
+        NS_WARNING_ASSERTION(
+          !nsContentUtils::IsChromeDoc(d),
+          "Please do not use pointerenter/leave events in chrome. "
+          "They are slower than pointerover/out!");
 #endif
         window->SetHasPointerEnterLeaveEventListeners();
       }
@@ -400,9 +401,10 @@ EventListenerManager::AddEventListenerInternal(
     if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
 #ifdef DEBUG
       nsCOMPtr<nsIDocument> d = window->GetExtantDoc();
-      NS_WARN_IF_FALSE(!nsContentUtils::IsChromeDoc(d),
-                       "Please do not use mouseenter/leave events in chrome. "
-                       "They are slower than mouseover/out!");
+      NS_WARNING_ASSERTION(
+        !nsContentUtils::IsChromeDoc(d),
+        "Please do not use mouseenter/leave events in chrome. "
+        "They are slower than mouseover/out!");
 #endif
       window->SetHasMouseEnterLeaveEventListeners();
     }
@@ -653,6 +655,8 @@ EventListenerManager::RemoveEventListenerInternal(
   uint32_t typeCount = 0;
   bool deviceType = IsDeviceType(aEventMessage);
 
+  RefPtr<EventListenerManager> kungFuDeathGrip(this);
+
   for (uint32_t i = 0; i < count; ++i) {
     listener = &mListeners.ElementAt(i);
     if (EVENT_TYPE_EQUALS(listener, aEventMessage, aUserType, aTypeString,
@@ -660,7 +664,6 @@ EventListenerManager::RemoveEventListenerInternal(
       ++typeCount;
       if (listener->mListener == aListenerHolder &&
           listener->mFlags.EqualsForRemoval(aFlags)) {
-        RefPtr<EventListenerManager> kungFuDeathGrip(this);
         mListeners.RemoveElementAt(i);
         --count;
         NotifyEventListenerRemoved(aUserType);
@@ -1541,9 +1544,9 @@ EventListenerManager::GetListenerInfo(nsCOMArray<nsIEventListenerInfo>* aList)
   nsCOMPtr<EventTarget> target = do_QueryInterface(mTarget);
   NS_ENSURE_STATE(target);
   aList->Clear();
-  uint32_t count = mListeners.Length();
-  for (uint32_t i = 0; i < count; ++i) {
-    const Listener& listener = mListeners.ElementAt(i);
+  nsAutoTObserverArray<Listener, 2>::ForwardIterator iter(mListeners);
+  while (iter.HasMore()) {
+    const Listener& listener = iter.GetNext();
     // If this is a script handler and we haven't yet
     // compiled the event handler itself go ahead and compile it
     if (listener.mListenerType == Listener::eJSEventListener &&

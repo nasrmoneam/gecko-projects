@@ -70,14 +70,16 @@ InterceptedChannelBase::DoNotifyController()
 
     if (NS_WARN_IF(!mController)) {
       rv = ResetInterception();
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "Failed to resume intercepted network request");
+      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                           "Failed to resume intercepted network request");
       return;
     }
 
     rv = mController->ChannelIntercepted(this);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       rv = ResetInterception();
-      NS_WARN_IF_FALSE(NS_SUCCEEDED(rv), "Failed to resume intercepted network request");
+      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                           "Failed to resume intercepted network request");
     }
     mController = nullptr;
 }
@@ -160,8 +162,6 @@ InterceptedChannelChrome::InterceptedChannelChrome(nsHttpChannel* aChannel,
 void
 InterceptedChannelChrome::NotifyController()
 {
-  nsCOMPtr<nsIOutputStream> out;
-
   // Intercepted responses should already be decoded.
   mChannel->SetApplyConversion(false);
 

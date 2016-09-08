@@ -1918,6 +1918,8 @@ nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest)
     mCurrentParserInsertedScript = aRequest->mElement;
   }
 
+  aRequest->mElement->BeginEvaluating();
+
   FireScriptAvailable(NS_OK, aRequest);
 
   // The window may have gone away by this point, in which case there's no point
@@ -1948,9 +1950,7 @@ nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest)
     if (doc) {
       doc->BeginEvaluatingExternalScript();
     }
-    aRequest->mElement->BeginEvaluating();
     rv = EvaluateScript(aRequest);
-    aRequest->mElement->EndEvaluating();
     if (doc) {
       doc->EndEvaluatingExternalScript();
     }
@@ -1962,6 +1962,8 @@ nsScriptLoader::ProcessRequest(nsScriptLoadRequest* aRequest)
   }
 
   FireScriptEvaluated(rv, aRequest);
+
+  aRequest->mElement->EndEvaluating();
 
   if (parserCreated) {
     mCurrentParserInsertedScript = oldParserInsertedScript;
@@ -2522,8 +2524,16 @@ nsScriptLoader::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
       MOZ_ASSERT(!request->isInList());
       mParserBlockingRequest = nullptr;
       UnblockParser(request);
+
+      // Ensure that we treat request->mElement as our current parser-inserted
+      // script while firing onerror on it.
+      MOZ_ASSERT(request->mElement->GetParserCreated());
+      nsCOMPtr<nsIScriptElement> oldParserInsertedScript =
+        mCurrentParserInsertedScript;
+      mCurrentParserInsertedScript = request->mElement;
       FireScriptAvailable(rv, request);
       ContinueParserAsync(request);
+      mCurrentParserInsertedScript = oldParserInsertedScript;
     } else {
       mPreloads.RemoveElement(request, PreloadRequestComparator());
     }

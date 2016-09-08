@@ -1948,7 +1948,7 @@ public:
   {
     if (!mDisableLog) {
       mCCLog = nullptr;
-      NS_WARN_IF(NS_FAILED(mLogSink->CloseCCLog()));
+      Unused << NS_WARN_IF(NS_FAILED(mLogSink->CloseCCLog()));
     }
   }
   NS_IMETHOD ProcessNext(nsICycleCollectorHandler* aHandler,
@@ -3599,7 +3599,7 @@ nsCycleCollector::ShutdownCollect()
       break;
     }
   }
-  NS_WARN_IF_FALSE(i < NORMAL_SHUTDOWN_COLLECTIONS, "Extra shutdown CC");
+  NS_WARNING_ASSERTION(i < NORMAL_SHUTDOWN_COLLECTIONS, "Extra shutdown CC");
 }
 
 static void
