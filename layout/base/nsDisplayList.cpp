@@ -6262,7 +6262,7 @@ nsDisplayTransform::GetHitDepthAtPoint(nsDisplayListBuilder* aBuilder, const nsP
 
   Point point2d = point.As2DPoint();
 
-  Point3D transformed = matrix * Point3D(point2d.x, point2d.y, 0);
+  Point3D transformed = matrix.TransformPoint(Point3D(point2d.x, point2d.y, 0));
   return transformed.z;
 }
 
@@ -6854,7 +6854,7 @@ nsDisplayMask::PrintEffects(nsACString& aTo)
   nsSVGClipPathFrame *clipPathFrame = effectProperties.GetClipPathFrame(&isOK);
   bool first = true;
   aTo += " effects=(";
-  if (mFrame->StyleEffects()->mOpacity != 1.0f) {
+  if (mFrame->StyleEffects()->mOpacity != 1.0f && mHandleOpacity) {
     first = false;
     aTo += nsPrintfCString("opacity(%f)", mFrame->StyleEffects()->mOpacity);
   }
@@ -7009,7 +7009,7 @@ nsDisplayFilter::PrintEffects(nsACString& aTo)
     nsSVGEffects::GetEffectProperties(firstFrame);
   bool first = true;
   aTo += " effects=(";
-  if (mFrame->StyleEffects()->mOpacity != 1.0f) {
+  if (mFrame->StyleEffects()->mOpacity != 1.0f && mHandleOpacity) {
     first = false;
     aTo += nsPrintfCString("opacity(%f)", mFrame->StyleEffects()->mOpacity);
   }
@@ -7018,7 +7018,6 @@ nsDisplayFilter::PrintEffects(nsACString& aTo)
       aTo += ", ";
     }
     aTo += "filter";
-    first = false;
   }
   aTo += ")";
 }
