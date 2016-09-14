@@ -51,29 +51,7 @@ const CM_STYLES = [
 ];
 
 const CM_SCRIPTS = [
-  "chrome://devtools/content/sourceeditor/codemirror/lib/codemirror.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/dialog/dialog.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/search/searchcursor.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/search/search.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/edit/matchbrackets.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/edit/closebrackets.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/comment/comment.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/javascript.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/xml.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/css.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/htmlmixed.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/clike.js",
-  "chrome://devtools/content/sourceeditor/codemirror/mode/wasm.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/selection/active-line.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/edit/trailingspace.js",
-  "chrome://devtools/content/sourceeditor/codemirror/keymap/emacs.js",
-  "chrome://devtools/content/sourceeditor/codemirror/keymap/vim.js",
-  "chrome://devtools/content/sourceeditor/codemirror/keymap/sublime.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/fold/foldcode.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/fold/brace-fold.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/fold/comment-fold.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/fold/xml-fold.js",
-  "chrome://devtools/content/sourceeditor/codemirror/addon/fold/foldgutter.js"
+  "chrome://devtools/content/sourceeditor/codemirror/codemirror.bundle.js",
 ];
 
 const CM_IFRAME =
@@ -300,7 +278,7 @@ Editor.prototype = {
         win, "utf8"
       );
       this.container = env;
-      this._setup(win.document.body);
+      this._setup(win.document.body, el.ownerDocument);
       env.removeEventListener("load", onLoad, true);
 
       def.resolve();
@@ -323,7 +301,8 @@ Editor.prototype = {
    * used by both append functions above, and does all the hard work to
    * configure CodeMirror with all the right options/modes/etc.
    */
-  _setup: function (el) {
+  _setup: function (el, doc) {
+    doc = doc || el.ownerDocument;
     let win = el.ownerDocument.defaultView;
 
     let scriptsToInject = CM_SCRIPTS.concat(this.config.externalScripts);
@@ -395,7 +374,7 @@ Editor.prototype = {
 
       let popup = this.config.contextMenu;
       if (typeof popup == "string") {
-        popup = el.ownerDocument.getElementById(this.config.contextMenu);
+        popup = doc.getElementById(this.config.contextMenu);
       }
 
       this.emit("popupOpen", ev, popup);

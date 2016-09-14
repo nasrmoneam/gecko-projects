@@ -69,6 +69,10 @@ class Instance
     friend class js::WasmMemoryObject;
     void onMovingGrow(uint8_t* prevMemoryBase);
 
+    // Called by WasmTableObject to barrier table writes.
+    friend class Table;
+    WasmInstanceObject* objectUnbarriered() const;
+
   public:
     Instance(JSContext* cx,
              HandleWasmInstanceObject object,
@@ -106,12 +110,6 @@ class Instance
     // value in args.rval.
 
     MOZ_MUST_USE bool callExport(JSContext* cx, uint32_t funcDefIndex, CallArgs args);
-
-    // These methods implement their respective wasm operator but may also be
-    // called via the Memory JS API.
-
-    uint32_t currentMemory();
-    uint32_t growMemory(uint32_t delta);
 
     // Initially, calls to imports in wasm code call out through the generic
     // callImport method. If the imported callee gets JIT compiled and the types

@@ -1290,7 +1290,7 @@ nsGenericHTMLElement::MapCommonAttributesInto(const nsMappedAttributes* aAttribu
     nsCSSValue* display = aData->ValueForDisplay();
     if (display->GetUnit() == eCSSUnit_Null) {
       if (aAttributes->IndexOfAttr(nsGkAtoms::hidden) >= 0) {
-        display->SetIntValue(StyleDisplay::None_, eCSSUnit_Enumerated);
+        display->SetIntValue(StyleDisplay::None, eCSSUnit_Enumerated);
       }
     }
   }
@@ -1676,10 +1676,9 @@ nsGenericHTMLElement::GetURIAttr(nsIAtom* aAttr, nsIAtom* aBaseAttr, nsIURI** aU
 /* static */ bool
 nsGenericHTMLElement::IsScrollGrabAllowed(JSContext*, JSObject*)
 {
-  // Only allow scroll grabbing in chrome and certified apps.
+  // Only allow scroll grabbing in chrome
   nsIPrincipal* prin = nsContentUtils::SubjectPrincipal();
-  return nsContentUtils::IsSystemPrincipal(prin) ||
-    prin->GetAppStatus() == nsIPrincipal::APP_STATUS_CERTIFIED;
+  return nsContentUtils::IsSystemPrincipal(prin);
 }
 
 nsresult
@@ -3097,7 +3096,7 @@ IsOrHasAncestorWithDisplayNone(Element* aElement, nsIPresShell* aPresShell)
       sc = nsComputedDOMStyle::GetStyleContextForElementNoFlush(elementsToCheck[i],
                                                                 nullptr, aPresShell);
     }
-    if (sc->StyleDisplay()->mDisplay == StyleDisplay::None_) {
+    if (sc->StyleDisplay()->mDisplay == StyleDisplay::None) {
       return true;
     }
   }

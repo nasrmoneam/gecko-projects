@@ -1689,7 +1689,8 @@ CanvasRenderingContext2D::RegisterAllocation()
   // XXX - It would make more sense to track the allocation in
   // PeristentBufferProvider, rather than here.
   static bool registered = false;
-  if (!registered) {
+  // FIXME: Disable the reporter for now, see bug 1241865
+  if (!registered && false) {
     registered = true;
     RegisterStrongMemoryReporter(new Canvas2dPixelsReporter());
   }
@@ -1908,6 +1909,8 @@ CanvasRenderingContext2D::ReturnTarget(bool aForceReset)
         // balance out here. See the comment in RestoreClipsAndTransformToTarget.
         mTarget->PopClip();
       }
+
+      mTarget->SetTransform(Matrix());
     }
 
     mBufferProvider->ReturnDrawTarget(mTarget.forget());
@@ -2464,7 +2467,9 @@ CanvasRenderingContext2D::CreatePattern(const CanvasImageSource& aSource,
 
     htmlElement = img;
   } else if (aSource.IsHTMLVideoElement()) {
-    htmlElement = &aSource.GetAsHTMLVideoElement();
+    auto& video = aSource.GetAsHTMLVideoElement();
+    video.MarkAsContentSource(mozilla::dom::HTMLVideoElement::CallerAPI::CREATE_PATTERN);
+    htmlElement = &video;
   } else {
     // Special case for ImageBitmap
     ImageBitmap& imgBitmap = aSource.GetAsImageBitmap();
@@ -4765,6 +4770,7 @@ CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
       element = img;
     } else {
       HTMLVideoElement* video = &aImage.GetAsHTMLVideoElement();
+      video->MarkAsContentSource(mozilla::dom::HTMLVideoElement::CallerAPI::DRAW_IMAGE);
       element = video;
     }
 

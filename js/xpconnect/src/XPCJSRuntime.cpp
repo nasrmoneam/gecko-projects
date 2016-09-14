@@ -3159,6 +3159,9 @@ AccumulateTelemetryCallback(int id, uint32_t sample, const char* key)
       case JS_TELEMETRY_ADDON_EXCEPTIONS:
         Telemetry::Accumulate(Telemetry::JS_TELEMETRY_ADDON_EXCEPTIONS, nsDependentCString(key), sample);
         break;
+      case JS_TELEMETRY_AOT_USAGE:
+        Telemetry::Accumulate(Telemetry::JS_AOT_USAGE, sample);
+        break;
       default:
         MOZ_ASSERT_UNREACHABLE("Unexpected JS_TELEMETRY id");
     }
@@ -3493,10 +3496,6 @@ XPCJSRuntime::Initialize()
     js::SetActivityCallback(cx, ActivityCallback, this);
     JS_SetInterruptCallback(cx, InterruptCallback);
     js::SetWindowProxyClass(cx, &OuterWindowProxyClass);
-#ifdef MOZ_CRASHREPORTER
-    js::AutoEnterOOMUnsafeRegion::setAnnotateOOMAllocationSizeCallback(
-            CrashReporter::AnnotateOOMAllocationSize);
-#endif
 
     // The JS engine needs to keep the source code around in order to implement
     // Function.prototype.toSource(). It'd be nice to not have to do this for

@@ -9,6 +9,7 @@
 
 #include "WorkerHolder.h"
 #include "XMLHttpRequest.h"
+#include "XMLHttpRequestString.h"
 #include "mozilla/dom/TypedArray.h"
 
 namespace mozilla {
@@ -27,7 +28,7 @@ class XMLHttpRequestWorker final : public XMLHttpRequest,
 public:
   struct StateData
   {
-    nsString mResponseText;
+    XMLHttpRequestStringSnapshot mResponseText;
     nsString mResponseURL;
     uint32_t mStatus;
     nsCString mStatusText;
@@ -96,8 +97,20 @@ public:
 
   virtual void
   Open(const nsACString& aMethod, const nsAString& aUrl, bool aAsync,
-       const Optional<nsAString>& aUser, const Optional<nsAString>& aPassword,
-       ErrorResult& aRv) override;
+       const nsAString& aUsername, const nsAString& aPassword,
+       ErrorResult& aRv) override
+  {
+    Optional<nsAString> username;
+    username = &aUsername;
+    Optional<nsAString> password;
+    password = &aPassword;
+    Open(aMethod, aUrl, aAsync, username, password, aRv);
+  }
+
+  void
+  Open(const nsACString& aMethod, const nsAString& aUrl,
+       bool aAsync, const Optional<nsAString>& aUser,
+       const Optional<nsAString>& aPassword, ErrorResult& aRv);
 
   virtual void
   SetRequestHeader(const nsACString& aHeader, const nsACString& aValue,
@@ -266,7 +279,7 @@ public:
   void
   NullResponseText()
   {
-    mStateData.mResponseText.SetIsVoid(true);
+    mStateData.mResponseText.SetVoid();
     mStateData.mResponse.setNull();
   }
 

@@ -14,7 +14,7 @@ DebuggerPanel.prototype = {
     if (!this.toolbox.target.isRemote) {
       targetPromise = this.toolbox.target.makeRemote();
     } else {
-      targetPromise = promise.resolve(this.toolbox.target);
+      targetPromise = Promise.resolve(this.toolbox.target);
     }
 
     return targetPromise.then(() => {
@@ -22,6 +22,7 @@ DebuggerPanel.prototype = {
         threadClient: this.toolbox.threadClient,
         tabTarget: this.toolbox.target
       });
+      this.isReady = true;
       return this;
     });
   },
@@ -65,6 +66,8 @@ DebuggerPanel.prototype = {
   },
 
   destroy: function() {
+    this.panelWin.Debugger.destroy();
+    this.emit("destroyed");
   }
 };
 

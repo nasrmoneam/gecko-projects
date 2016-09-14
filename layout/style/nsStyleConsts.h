@@ -10,6 +10,8 @@
 
 #include "gfxRect.h"
 #include "nsFont.h"
+#include "mozilla/MacroArgs.h" // for MOZ_CONCAT
+#include "X11UndefineNone.h"
 
 // XXX fold this into nsStyleContext and group by nsStyleXXX struct
 
@@ -18,7 +20,17 @@ namespace css {
 typedef mozilla::Side Side;
 } // namespace css
 
-#define NS_FOR_CSS_SIDES(var_) for (mozilla::css::Side var_ = NS_SIDE_TOP; var_ <= NS_SIDE_LEFT; var_++)
+// Creates a for loop that walks over the four mozilla::css::Side values.
+// We use an int32_t helper variable (instead of a Side) for our loop counter,
+// to avoid triggering undefined behavior just before we exit the loop (at
+// which point the counter is incremented beyond the largest valid Side value).
+#define NS_FOR_CSS_SIDES(var_)                                           \
+  int32_t MOZ_CONCAT(var_,__LINE__) = NS_SIDE_TOP;                       \
+  for (mozilla::css::Side var_;                                          \
+       MOZ_CONCAT(var_,__LINE__) <= NS_SIDE_LEFT &&                      \
+         ((var_ = mozilla::css::Side(MOZ_CONCAT(var_,__LINE__))), true); \
+       MOZ_CONCAT(var_,__LINE__)++)
+
 static inline css::Side operator++(css::Side& side, int) {
     NS_PRECONDITION(side >= NS_SIDE_TOP &&
                     side <= NS_SIDE_LEFT, "Out of range side");
@@ -110,7 +122,7 @@ enum class StyleBoxShadowType : uint8_t {
 
 // clear
 enum class StyleClear : uint8_t {
-  None_ = 0,
+  None = 0,
   Left,
   Right,
   InlineStart,
@@ -143,7 +155,7 @@ enum class StyleFillRule : uint8_t {
 // float
 // https://developer.mozilla.org/en-US/docs/Web/CSS/float
 enum class StyleFloat : uint8_t {
-  None_,
+  None,
   Left,
   Right,
   InlineStart,
@@ -166,18 +178,16 @@ enum class StyleShapeOutsideShapeBox : uint8_t {
 };
 
 // Shape source type
-// X11 has a #define for None causing conflicts, so we use None_ here
 enum class StyleShapeSourceType : uint8_t {
-  None_,
+  None,
   URL,
   Shape,
   Box,
 };
 
 // user-focus
-// X11 has a #define for None causing conflicts, so we use None_ here
 enum class StyleUserFocus : uint8_t {
-  None_,
+  None,
   Ignore,
   Normal,
   SelectAll,
@@ -189,7 +199,7 @@ enum class StyleUserFocus : uint8_t {
 
 // user-select
 enum class StyleUserSelect : uint8_t {
-  None_,
+  None,
   Text,
   Element,
   Elements,
@@ -492,7 +502,7 @@ enum class FillMode : uint32_t;
 // the FrameConstructorDataByDisplay stuff (both the XUL and non-XUL version),
 // and ensure it's still correct!
 enum class StyleDisplay : uint8_t {
-  None_ = 0,
+  None = 0,
   Block,
   Inline,
   InlineBlock,

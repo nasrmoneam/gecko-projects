@@ -2855,7 +2855,8 @@ PluginModuleParent::IsRemoteDrawingCoreAnimation(NPP instance, bool *aDrawing)
 
     return i->IsRemoteDrawingCoreAnimation(aDrawing);
 }
-
+#endif
+#if defined(XP_MACOSX) || defined(XP_WIN)
 nsresult
 PluginModuleParent::ContentsScaleFactorChanged(NPP instance, double aContentsScaleFactor)
 {
@@ -3129,7 +3130,7 @@ layers::TextureClientRecycleAllocator*
 PluginModuleParent::EnsureTextureAllocator()
 {
     if (!mTextureAllocator) {
-        mTextureAllocator = new TextureClientRecycleAllocator(ImageBridgeChild::GetSingleton());
+        mTextureAllocator = new TextureClientRecycleAllocator(ImageBridgeChild::GetSingleton().get());
     }
     return mTextureAllocator;
 }

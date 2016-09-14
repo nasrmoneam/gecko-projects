@@ -283,8 +283,9 @@ nsImageLoadingContent::OnUnlockedDraw()
     return;
   }
 
-  if (frame->IsVisibleOrMayBecomeVisibleSoon()) {
-    return;  // Nothing to do.
+  if (frame->GetVisibility() == Visibility::APPROXIMATELY_VISIBLE) {
+    // This frame is already marked visible; there's nothing to do.
+    return;
   }
 
   nsPresContext* presContext = frame->PresContext();
@@ -297,7 +298,7 @@ nsImageLoadingContent::OnUnlockedDraw()
     return;
   }
 
-  presShell->MarkFrameVisible(frame, VisibilityCounter::IN_DISPLAYPORT);
+  presShell->EnsureFrameInApproximatelyVisibleList(frame);
 }
 
 nsresult
@@ -524,7 +525,7 @@ nsImageLoadingContent::FrameDestroyed(nsIFrame* aFrame)
 
   nsIPresShell* presShell = presContext ? presContext->GetPresShell() : nullptr;
   if (presShell) {
-    presShell->MarkFrameNonvisible(aFrame);
+    presShell->RemoveFrameFromApproximatelyVisibleList(aFrame);
   }
 }
 
@@ -757,6 +758,13 @@ nsImageLoadingContent::LoadImage(const nsAString& aNewURI,
     return NS_OK;
   }
 
+  if (aNewURI.IsEmpty()) {
+    // Cancel image requests and then fire only error event per spec.
+    CancelImageRequests(aNotify);
+    FireEvent(NS_LITERAL_STRING("error"));
+    return NS_OK;
+  }
+
   // Second, parse the URI string to get image URI
   nsCOMPtr<nsIURI> imageURI;
   nsresult rv = StringToURI(aNewURI, doc, getter_AddRefs(imageURI));
@@ -765,24 +773,6 @@ nsImageLoadingContent::LoadImage(const nsAString& aNewURI,
     CancelImageRequests(aNotify);
     FireEvent(NS_LITERAL_STRING("error"));
     FireEvent(NS_LITERAL_STRING("loadend"));
-    return NS_OK;
-  }
-
-  bool equal;
-
-  if (aNewURI.IsEmpty() &&
-      doc->GetDocumentURI() &&
-      NS_SUCCEEDED(doc->GetDocumentURI()->EqualsExceptRef(imageURI, &equal)) &&
-      equal)  {
-
-    // Loading an embedded img from the same URI as the document URI will not work
-    // as a resource cannot recursively embed itself. Attempting to do so generally
-    // results in having to pre-emptively close down an in-flight HTTP transaction
-    // and then incurring the significant cost of establishing a new TCP channel.
-    // This is generally triggered from <img src="">
-    // In light of that, just skip loading it..
-    // Do make sure to drop our existing image, if any
-    CancelImageRequests(aNotify);
     return NS_OK;
   }
 
@@ -1443,20 +1433,16 @@ nsImageLoadingContent::UnbindFromTree(bool aDeep, bool aNullParent)
 }
 
 void
-nsImageLoadingContent::OnVisibilityChange(Visibility aOldVisibility,
-                                          Visibility aNewVisibility,
+nsImageLoadingContent::OnVisibilityChange(Visibility aNewVisibility,
                                           const Maybe<OnNonvisible>& aNonvisibleAction)
 {
   switch (aNewVisibility) {
-    case Visibility::MAY_BECOME_VISIBLE:
-    case Visibility::IN_DISPLAYPORT:
-      if (aOldVisibility == Visibility::NONVISIBLE) {
-        TrackImage(mCurrentRequest);
-        TrackImage(mPendingRequest);
-      }
+    case Visibility::APPROXIMATELY_VISIBLE:
+      TrackImage(mCurrentRequest);
+      TrackImage(mPendingRequest);
       break;
 
-    case Visibility::NONVISIBLE:
+    case Visibility::APPROXIMATELY_NONVISIBLE:
       UntrackImage(mCurrentRequest, aNonvisibleAction);
       UntrackImage(mPendingRequest, aNonvisibleAction);
       break;
@@ -1482,11 +1468,11 @@ nsImageLoadingContent::TrackImage(imgIRequest* aImage)
   }
 
   // We only want to track this request if we're visible. Ordinarily we check
-  // whether our frame considers itself visible, but in cases where
+  // the visible count, but that requires a frame; in cases where
   // GetOurPrimaryFrame() cannot obtain a frame (e.g. <feImage>), we assume
   // we're visible if FrameCreated() was called.
   nsIFrame* frame = GetOurPrimaryFrame();
-  if ((frame && !frame->IsVisibleOrMayBecomeVisibleSoon()) ||
+  if ((frame && frame->GetVisibility() == Visibility::APPROXIMATELY_NONVISIBLE) ||
       (!frame && !mFrameCreateCalled)) {
     return;
   }

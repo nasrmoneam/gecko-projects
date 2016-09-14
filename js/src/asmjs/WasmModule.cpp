@@ -462,13 +462,6 @@ Module::initSegments(JSContext* cx,
         MOZ_ASSERT(dataSegments_.empty());
     }
 
-    // Ensure all tables are initialized before storing into them.
-
-    for (const SharedTable& table : tables) {
-        if (!table->initialized())
-            table->init(instance);
-    }
-
     // Now that initialization can't fail partway through, write data/elem
     // segments into memories/tables.
 
@@ -566,11 +559,11 @@ Module::instantiateMemory(JSContext* cx, MutableHandleWasmMemoryObject memory) c
     Maybe<uint32_t> declaredMax = metadata_->maxMemoryLength;
 
     if (memory) {
-        RootedArrayBufferObjectMaybeShared buffer(cx, &memory->buffer());
-        MOZ_RELEASE_ASSERT(buffer->is<SharedArrayBufferObject>() ||
-                           buffer->as<ArrayBufferObject>().isWasm());
+        ArrayBufferObjectMaybeShared& buffer = memory->buffer();
+        MOZ_ASSERT_IF(metadata_->isAsmJS(), buffer.isPreparedForAsmJS());
+        MOZ_ASSERT_IF(!metadata_->isAsmJS(), buffer.as<ArrayBufferObject>().isWasm());
 
-        uint32_t actualLength = buffer->wasmActualByteLength();
+        uint32_t actualLength = buffer.byteLength();
         if (actualLength < declaredMin || actualLength > declaredMax.valueOr(UINT32_MAX)) {
             JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE, "Memory");
             return false;
@@ -578,9 +571,9 @@ Module::instantiateMemory(JSContext* cx, MutableHandleWasmMemoryObject memory) c
 
         if (metadata_->isAsmJS()) {
             MOZ_ASSERT(IsValidAsmJSHeapLength(actualLength));
-            MOZ_ASSERT(actualLength == buffer->wasmMaxSize().value());
+            MOZ_ASSERT(actualLength == buffer.wasmMaxSize().value());
         } else {
-            Maybe<uint32_t> actualMax = buffer->as<ArrayBufferObject>().wasmMaxSize();
+            Maybe<uint32_t> actualMax = buffer.as<ArrayBufferObject>().wasmMaxSize();
             if (declaredMax.isSome() != actualMax.isSome() || declaredMax < actualMax) {
                 JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMP_SIZE, "Memory");
                 return false;
@@ -876,6 +869,9 @@ Module::instantiate(JSContext* cx,
                 return false;
         }
     }
+
+    uint32_t mode = uint32_t(metadata().isAsmJS() ? Telemetry::ASMJS : Telemetry::WASM);
+    cx->runtime()->addTelemetry(JS_TELEMETRY_AOT_USAGE, mode);
 
     return true;
 }

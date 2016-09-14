@@ -73,7 +73,7 @@ interface XMLHttpRequest : XMLHttpRequestEventTarget {
   void open(ByteString method, DOMString url);
   [Throws]
   void open(ByteString method, DOMString url, boolean async,
-            optional DOMString? user, optional DOMString? password);
+            optional DOMString? user=null, optional DOMString? password=null);
   [Throws]
   void setRequestHeader(ByteString header, ByteString value);
 
@@ -130,7 +130,7 @@ interface XMLHttpRequest : XMLHttpRequestEventTarget {
   attribute XMLHttpRequestResponseType responseType;
   [Throws]
   readonly attribute any response;
-  [Throws]
+  [Cached, Pure, Throws]
   readonly attribute DOMString? responseText;
 
   [Throws, Exposed=Window]

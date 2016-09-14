@@ -6,6 +6,7 @@
 package org.mozilla.gecko;
 
 import android.Manifest;
+import android.annotation.TargetApi;
 import android.app.DownloadManager;
 import android.os.Environment;
 import android.support.annotation.CheckResult;
@@ -251,6 +252,7 @@ public class BrowserApp extends GeckoApp
      * to permit further experimental replacement panels such as the activity-stream panel).
      */
     private ViewGroup mHomeScreenContainer;
+    private int mCachedRecentTabsCount;
     private ActionModeCompat mActionMode;
     private TabHistoryController tabHistoryController;
     private ZoomedView mZoomedView;
@@ -2220,6 +2222,7 @@ public class BrowserApp extends GeckoApp
         return homepagePartner;
     }
 
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
     @Override
     public void onTabsLayoutChange(int width, int height) {
         int animationLength = TABS_ANIMATION_DURATION;
@@ -2803,6 +2806,16 @@ public class BrowserApp extends GeckoApp
                         if (currentTab != null) {
                             currentTab.setMostRecentHomePanelData(bundle);
                         }
+                    }
+
+                    @Override
+                    public void setCachedRecentTabsCount(int count) {
+                        mCachedRecentTabsCount = count;
+                    }
+
+                    @Override
+                    public int getCachedRecentTabsCount() {
+                        return mCachedRecentTabsCount;
                     }
                 });
             }

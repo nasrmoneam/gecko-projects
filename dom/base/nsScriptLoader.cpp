@@ -314,8 +314,18 @@ public:
                  JS::Handle<JSObject*> aModuleRecord);
 
   nsScriptLoader* Loader() const { return mLoader; }
-  JSObject* ModuleRecord() const { return mModuleRecord; }
-  JS::Value Exception() const { return mException; }
+  JSObject* ModuleRecord() const
+  {
+    if (mModuleRecord) {
+      JS::ExposeObjectToActiveJS(mModuleRecord);
+    }
+    return mModuleRecord;
+  }
+  JS::Value Exception() const
+  {
+    JS::ExposeValueToActiveJS(mException);
+    return mException;
+  }
   nsIURI* BaseURL() const { return mBaseURL; }
 
   void SetInstantiationResult(JS::Handle<JS::Value> aMaybeException);
@@ -1180,6 +1190,7 @@ nsScriptLoader::StartLoad(nsScriptLoadRequest *aRequest, const nsAString &aType,
                           bool aScriptFromHead)
 {
   MOZ_ASSERT(aRequest->IsLoading());
+  NS_ENSURE_TRUE(mDocument, NS_ERROR_NULL_POINTER);
 
   // If this document is sandboxed without 'allow-scripts', abort.
   if (mDocument->HasScriptsBlockedBySandbox()) {
@@ -1288,7 +1299,7 @@ nsScriptLoader::StartLoad(nsScriptLoadRequest *aRequest, const nsAString &aType,
   nsAutoPtr<mozilla::dom::SRICheckDataVerifier> sriDataVerifier;
   if (!aRequest->mIntegrity.IsEmpty()) {
     nsAutoCString sourceUri;
-    if (mDocument && mDocument->GetDocumentURI()) {
+    if (mDocument->GetDocumentURI()) {
       mDocument->GetDocumentURI()->GetAsciiSpec(sourceUri);
     }
     sriDataVerifier = new SRICheckDataVerifier(aRequest->mIntegrity, sourceUri,
@@ -1519,7 +1530,7 @@ nsScriptLoader::ProcessScriptElement(nsIScriptElement *aElement)
                  ("nsScriptLoader::ProcessScriptElement, integrity=%s",
                   NS_ConvertUTF16toUTF8(integrity).get()));
           nsAutoCString sourceUri;
-          if (mDocument && mDocument->GetDocumentURI()) {
+          if (mDocument->GetDocumentURI()) {
             mDocument->GetDocumentURI()->GetAsciiSpec(sourceUri);
           }
           SRICheck::IntegrityMetadata(integrity, sourceUri, mReporter,
@@ -2768,6 +2779,7 @@ nsScriptLoader::PreloadURI(nsIURI *aURI, const nsAString &aCharset,
                            bool aScriptFromHead,
                            const mozilla::net::ReferrerPolicy aReferrerPolicy)
 {
+  NS_ENSURE_TRUE_VOID(mDocument);
   // Check to see if scripts has been turned off.
   if (!mEnabled || !mDocument->IsScriptEnabled()) {
     return;
@@ -2784,7 +2796,7 @@ nsScriptLoader::PreloadURI(nsIURI *aURI, const nsAString &aCharset,
            ("nsScriptLoader::PreloadURI, integrity=%s",
             NS_ConvertUTF16toUTF8(aIntegrity).get()));
     nsAutoCString sourceUri;
-    if (mDocument && mDocument->GetDocumentURI()) {
+    if (mDocument->GetDocumentURI()) {
       mDocument->GetDocumentURI()->GetAsciiSpec(sourceUri);
     }
     SRICheck::IntegrityMetadata(aIntegrity, sourceUri, mReporter, &sriMetadata);

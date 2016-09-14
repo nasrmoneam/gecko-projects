@@ -686,8 +686,11 @@ WebGLContext::CreateAndInitGLWith(FnCreateGL_T fnCreateGL,
 
         fallbackCaps.pop();
     }
-    if (!potentialGL)
+    if (!potentialGL) {
+        out_failReasons->push_back(FailureReason("FEATURE_FAILURE_WEBGL_EXHAUSTED_CAPS",
+                                                 "Exhausted GL driver caps."));
         return false;
+    }
 
     FailureReason reason;
 
@@ -729,11 +732,8 @@ WebGLContext::CreateAndInitGL(bool forceEnabled,
     const bool useEGL = PR_GetEnv("MOZ_WEBGL_FORCE_EGL");
 
 #ifdef XP_WIN
-    if (!IsWebGL2()) {
-        // Use only ANGLE on Windows for WebGL 1.
-        tryNativeGL = false;
-        tryANGLE = true;
-    }
+    tryNativeGL = false;
+    tryANGLE = true;
 
     if (gfxPrefs::WebGLDisableWGL()) {
         tryNativeGL = false;

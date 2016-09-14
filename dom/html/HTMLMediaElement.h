@@ -179,7 +179,7 @@ public:
 
   // Called by the video decoder object, on the main thread, when the
   // resource has a decode error during metadata loading or decoding.
-  virtual void DecodeError() final override;
+  virtual void DecodeError(const MediaResult& aError) final override;
 
   // Return true if error attribute is not null.
   virtual bool HasError() const final override;
@@ -739,6 +739,17 @@ public:
 
   void SetMediaInfo(const MediaInfo& aInfo);
 
+  // Telemetry: to record the usage of a {visible / invisible} video element as
+  // the source of {drawImage(), createPattern(), createImageBitmap() and
+  // captureStream()} APIs.
+  enum class CallerAPI {
+    DRAW_IMAGE,
+    CREATE_PATTERN,
+    CREATE_IMAGEBITMAP,
+    CAPTURE_STREAM,
+  };
+  void MarkAsContentSource(CallerAPI aAPI);
+
 protected:
   virtual ~HTMLMediaElement();
 
@@ -1116,7 +1127,7 @@ protected:
    * Resets the media element for an error condition as per aErrorCode.
    * aErrorCode must be one of nsIDOMHTMLMediaError codes.
    */
-  void Error(uint16_t aErrorCode);
+  void Error(uint16_t aErrorCode, const MediaResult& aErrorDetails = NS_OK);
 
   /**
    * Returns the URL spec of the currentSrc.
@@ -1715,6 +1726,8 @@ private:
 
   // True if media element is audible for users.
   bool mAudible;
+
+  Visibility mVisibilityState;
 };
 
 } // namespace dom

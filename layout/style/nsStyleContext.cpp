@@ -696,7 +696,7 @@ nsStyleContext::SetStyleBits()
   // Set the NS_STYLE_IN_DISPLAY_NONE_SUBTREE bit
   const nsStyleDisplay* disp = StyleDisplay();
   if ((mParent && mParent->IsInDisplayNoneSubtree()) ||
-      disp->mDisplay == mozilla::StyleDisplay::None_) {
+      disp->mDisplay == mozilla::StyleDisplay::None) {
     mBits |= NS_STYLE_IN_DISPLAY_NONE_SUBTREE;
   }
 }
@@ -1484,7 +1484,8 @@ ExtractColor(nsCSSPropertyID aProperty,
   StyleAnimationValue val;
   ExtractAnimationValue(aProperty, aStyleContext, val);
   return val.GetUnit() == StyleAnimationValue::eUnit_CurrentColor
-    ? aStyleContext->StyleColor()->mColor : val.GetColorValue();
+    ? aStyleContext->StyleColor()->mColor
+    : val.GetCSSValueValue()->GetColorValue();
 }
 
 static nscolor
@@ -1494,7 +1495,7 @@ ExtractColorLenient(nsCSSPropertyID aProperty,
   StyleAnimationValue val;
   ExtractAnimationValue(aProperty, aStyleContext, val);
   if (val.GetUnit() == StyleAnimationValue::eUnit_Color) {
-    return val.GetColorValue();
+    return val.GetCSSValueValue()->GetColorValue();
   } else if (val.GetUnit() == StyleAnimationValue::eUnit_CurrentColor) {
     return aStyleContext->StyleColor()->mColor;
   }

@@ -69,10 +69,7 @@ add_task(function* test_implicit_id_temp() {
 // We should be able to temporarily install an unsigned web extension
 // that does not have an ID in its manifest.
 add_task(function* test_unsigned_no_id_temp_install() {
-  if (!TEST_UNPACKED) {
-    do_print("This test does not apply when using packed extensions");
-    return;
-  }
+  AddonTestUtils.useRealCertChecks = true;
   const manifest = {
     name: "no ID",
     description: "extension without an ID",
@@ -97,16 +94,15 @@ add_task(function* test_unsigned_no_id_temp_install() {
   equal(secondAddon.id, addon.id, "Reinstalled add-on has the expected ID");
 
   secondAddon.uninstall();
+  Services.obs.notifyObservers(addonDir, "flush-cache-entry", null);
   addonDir.remove(true);
+  AddonTestUtils.useRealCertChecks = false;
 });
 
 // We should be able to install two extensions from manifests without IDs
 // at different locations and get two unique extensions.
 add_task(function* test_multiple_no_id_extensions() {
-  if (!TEST_UNPACKED) {
-    do_print("This test does not apply when using packed extensions");
-    return;
-  }
+  AddonTestUtils.useRealCertChecks = true;
   const manifest = {
     name: "no ID",
     description: "extension without an ID",
@@ -132,9 +128,12 @@ add_task(function* test_multiple_no_id_extensions() {
   equal(filtered.length, 2, "Two add-ons are installed with the same name");
 
   firstAddon.uninstall();
+  Services.obs.notifyObservers(firstAddonDir, "flush-cache-entry", null);
   firstAddonDir.remove(true);
   secondAddon.uninstall();
+  Services.obs.notifyObservers(secondAddonDir, "flush-cache-entry", null);
   secondAddonDir.remove(true);
+  AddonTestUtils.useRealCertChecks = false;
 });
 
 // Test that we can get the ID from browser_specific_settings
@@ -414,7 +413,7 @@ add_task(function* test_strict_min_max() {
   addon.uninstall();
   flushAndRemove(addonDir);
 
-  // * in min will generate a warning
+  // * in min will throw an error
   for (let version of ["0.*", "0.*.0"]) {
     newId = "strict_min_star@tests.mozilla.org";
     let apps = {
@@ -425,23 +424,19 @@ add_task(function* test_strict_min_max() {
         },
       },
     }
+
     let testManifest = Object.assign(apps, MANIFEST);
 
     let addonDir = yield promiseWriteWebManifestForExtension(testManifest, gTmpD,
-                                            "strict_min_star");
+                                                             "strict_min_star");
 
-    let { messages } = yield promiseConsoleOutput(function* () {
-      yield AddonManager.installTemporaryAddon(addonDir);
-    });
-    ok(messages.some(msg => msg.message.includes("The use of '*' in strict_min_version is deprecated")),
-       "Deprecation warning for strict_min_version with '*' was generated");
+    yield Assert.rejects(
+      AddonManager.installTemporaryAddon(addonDir),
+      /The use of '\*' in strict_min_version is invalid/,
+      "loading an extension with a * in strict_min_version throws an exception");
 
     let addon = yield promiseAddonByID(newId);
-
-    notEqual(addon, null, "Add-on is installed");
-    equal(addon.id, newId, "Add-on has the expected id");
-
-    addon.uninstall();
+    equal(addon, null, "Add-on is not installed");
     flushAndRemove(addonDir);
   }
 

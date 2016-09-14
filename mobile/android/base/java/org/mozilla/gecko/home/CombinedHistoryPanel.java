@@ -13,6 +13,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
 import android.os.Bundle;
+import android.support.annotation.UiThread;
 import android.support.v4.app.LoaderManager;
 import android.support.v4.content.Loader;
 import android.support.v4.widget.SwipeRefreshLayout;
@@ -68,9 +69,6 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
     private final static String FORMAT_S1 = "%1$s";
     private final static String FORMAT_S2 = "%2$s";
 
-    // Number of smart folders for determining practical empty state.
-    public static final int NUM_SMART_FOLDERS = 2;
-
     private CombinedHistoryRecyclerView mRecyclerView;
     private CombinedHistoryAdapter mHistoryAdapter;
     private ClientsAdapter mClientsAdapter;
@@ -112,7 +110,15 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
     public void onCreate(Bundle savedInstance) {
         super.onCreate(savedInstance);
 
-        mHistoryAdapter = new CombinedHistoryAdapter(getResources());
+        int cachedRecentTabsCount = 0;
+        if (mPanelStateChangeListener != null ) {
+            cachedRecentTabsCount = mPanelStateChangeListener.getCachedRecentTabsCount();
+        }
+        mHistoryAdapter = new CombinedHistoryAdapter(getResources(), cachedRecentTabsCount);
+        if (mPanelStateChangeListener != null) {
+            mHistoryAdapter.setPanelStateChangeListener(mPanelStateChangeListener);
+        }
+
         mClientsAdapter = new ClientsAdapter(getContext());
         // The RecentTabsAdapter doesn't use a cursor and therefore can't use the CursorLoader's
         // onLoadFinished() callback for updating the panel state when the closed tab count changes.
@@ -129,6 +135,7 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
         return inflater.inflate(R.layout.home_combined_history_panel, container, false);
     }
 
+    @UiThread
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
@@ -157,6 +164,7 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
         }
     }
 
+    @UiThread
     private void setUpRecyclerView() {
         if (mPanelLevel == null) {
             mPanelLevel = PanelLevel.PARENT;
@@ -171,6 +179,7 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
         animator.setMoveDuration(100);
         animator.setRemoveDuration(100);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
+        mHistoryAdapter.setLinearLayoutManager((LinearLayoutManager) mRecyclerView.getLayoutManager());
         mRecyclerView.setItemAnimator(animator);
         mRecyclerView.addItemDecoration(new HistoryDividerItemDecoration(getContext()));
         mRecyclerView.setOnHistoryClickedListener(mUrlOpenListener);
@@ -236,6 +245,15 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
 
         final TextView recentTabsText = (TextView) mRecentTabsEmptyView.findViewById(R.id.home_empty_text);
         recentTabsText.setText(R.string.home_last_tabs_empty);
+    }
+
+    @Override
+    public void setPanelStateChangeListener(
+            PanelStateChangeListener panelStateChangeListener) {
+        super.setPanelStateChangeListener(panelStateChangeListener);
+        if (mHistoryAdapter != null) {
+            mHistoryAdapter.setPanelStateChangeListener(panelStateChangeListener);
+        }
     }
 
     @Override
@@ -394,7 +412,7 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
         switch (mPanelLevel) {
             case PARENT:
                 final boolean historyRestricted = !Restrictions.isAllowed(getActivity(), Restrictable.CLEAR_HISTORY);
-                if (historyRestricted || mHistoryAdapter.getItemCount() == NUM_SMART_FOLDERS) {
+                if (historyRestricted || mHistoryAdapter.getItemCount() == mHistoryAdapter.getNumVisibleSmartFolders()) {
                     mPanelFooterButton.setVisibility(View.GONE);
                 } else {
                     mPanelFooterButton.setText(R.string.home_clear_history_button);
@@ -465,7 +483,7 @@ public class CombinedHistoryPanel extends HomeFragment implements RemoteClientsD
         boolean showEmptyRecentTabsView = false;
         switch (mPanelLevel) {
             case PARENT:
-                showEmptyHistoryView = mHistoryAdapter.getItemCount() == NUM_SMART_FOLDERS;
+                showEmptyHistoryView = mHistoryAdapter.getItemCount() == mHistoryAdapter.getNumVisibleSmartFolders();
                 break;
 
             case CHILD_SYNC:

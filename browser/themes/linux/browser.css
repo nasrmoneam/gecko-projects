@@ -33,6 +33,9 @@
   --toolbarbutton-checkedhover-backgroundcolor: rgba(200,200,200,.5);
 
   --panel-separator-color: ThreeDShadow;
+  --arrowpanel-dimmed: hsla(0,0%,80%,.3);
+  --arrowpanel-dimmed-further: hsla(0,0%,80%,.45);
+  --arrowpanel-dimmed-even-further: hsla(0,0%,80%,.8);
 
   --urlbar-separator-color: ThreeDShadow;
 }
@@ -810,15 +813,6 @@ menuitem:not([type]):not(.menuitem-tooltip):not(.menuitem-iconic-tooltip) {
   opacity: 0.4;
 }
 
-:-moz-any(@primaryToolbarButtons@)[cui-areatype="menu-panel"] > .toolbarbutton-icon,
-:-moz-any(@primaryToolbarButtons@)[cui-areatype="menu-panel"] > .toolbarbutton-badge-stack > .toolbarbutton-icon,
-:-moz-any(@primaryToolbarButtons@)[cui-areatype="menu-panel"] > .toolbarbutton-menubutton-button > .toolbarbutton-icon,
-toolbaritem[cui-areatype="menu-panel"] > :-moz-any(@nestedButtons@) > .toolbarbutton-icon {
-  filter: url(chrome://browser/skin/filters.svg#fill);
-  fill: currentColor;
-  opacity: 0.7 !important; /* !important overrides .toolbarbutton-1[disabled=true] rule */
-}
-
 /* Fullscreen window controls */
 #window-controls {
   -moz-box-align: start;
@@ -995,7 +989,7 @@ toolbaritem[cui-areatype="menu-panel"] > :-moz-any(@nestedButtons@) > .toolbarbu
 
 #urlbar-search-footer {
   border-top: 1px solid var(--panel-separator-color);
-  background-color: hsla(210,4%,10%,.07);
+  background-color: var(--arrowpanel-dimmed);
 }
 
 #urlbar-search-settings {
@@ -1009,11 +1003,11 @@ toolbaritem[cui-areatype="menu-panel"] > :-moz-any(@nestedButtons@) > .toolbarbu
 }
 
 #urlbar-search-settings:hover {
-  background-color: hsla(210,4%,10%,.07);
+  background-color: var(--arrowpanel-dimmed);
 }
 
 #urlbar-search-settings:hover:active {
-  background-color: hsla(210,4%,10%,.12);
+  background-color: var(--arrowpanel-dimmed-further);
 }
 
 #urlbar-search-splitter {
@@ -1751,7 +1745,6 @@ notification.pluginVulnerable > .notification-inner > .messageCloseButton:not(:h
   background-image: -moz-image-rect(url("chrome://global/skin/icons/close.svg"), 0, 80, 16, 64);
 }
 
-%include ../shared/login-doorhanger.inc.css
 
 %include downloads/indicator.css
 

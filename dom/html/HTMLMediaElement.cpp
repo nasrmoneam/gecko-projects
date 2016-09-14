@@ -2546,6 +2546,8 @@ HTMLMediaElement::CaptureStreamInternal(bool aFinishWhenEnded,
 {
   MOZ_RELEASE_ASSERT(aGraph);
 
+    MarkAsContentSource(CallerAPI::CAPTURE_STREAM);
+
   nsPIDOMWindowInner* window = OwnerDoc()->GetInnerWindow();
   if (!window) {
     return nullptr;
@@ -2925,7 +2927,8 @@ HTMLMediaElement::HTMLMediaElement(already_AddRefed<mozilla::dom::NodeInfo>& aNo
     mFirstFrameLoaded(false),
     mDefaultPlaybackStartPosition(0.0),
     mIsAudioTrackAudible(false),
-    mAudible(IsAudible())
+    mAudible(IsAudible()),
+    mVisibilityState(Visibility::APPROXIMATELY_NONVISIBLE)
 {
   ErrorResult rv;
 
@@ -4341,7 +4344,7 @@ void HTMLMediaElement::MetadataLoaded(const MediaInfo* aInfo,
   }
   if (mIsEncrypted) {
     if (!mMediaSource && Preferences::GetBool("media.eme.mse-only", true)) {
-      DecodeError();
+      DecodeError(NS_ERROR_DOM_MEDIA_FATAL_ERR);
       return;
     }
 
@@ -4416,7 +4419,7 @@ void HTMLMediaElement::NetworkError()
   Error(nsIDOMMediaError::MEDIA_ERR_NETWORK);
 }
 
-void HTMLMediaElement::DecodeError()
+void HTMLMediaElement::DecodeError(const MediaResult& aError)
 {
   nsAutoString src;
   GetCurrentSrc(src);
@@ -4440,7 +4443,7 @@ void HTMLMediaElement::DecodeError()
       NS_WARNING("Should know the source we were loading from!");
     }
   } else {
-    Error(nsIDOMMediaError::MEDIA_ERR_DECODE);
+    Error(nsIDOMMediaError::MEDIA_ERR_DECODE, aError);
   }
 }
 
@@ -4454,7 +4457,8 @@ void HTMLMediaElement::LoadAborted()
   Error(nsIDOMMediaError::MEDIA_ERR_ABORTED);
 }
 
-void HTMLMediaElement::Error(uint16_t aErrorCode)
+void HTMLMediaElement::Error(uint16_t aErrorCode,
+                             const MediaResult& aErrorDetails)
 {
   NS_ASSERTION(aErrorCode == nsIDOMMediaError::MEDIA_ERR_DECODE ||
                aErrorCode == nsIDOMMediaError::MEDIA_ERR_NETWORK ||
@@ -4467,8 +4471,12 @@ void HTMLMediaElement::Error(uint16_t aErrorCode)
   if (mError) {
     return;
   }
+  nsCString message;
+  if (NS_FAILED(aErrorDetails)) {
+    message = aErrorDetails.Description();
+  }
+  mError = new MediaError(this, aErrorCode, message);
 
-  mError = new MediaError(this, aErrorCode);
   DispatchAsyncEvent(NS_LITERAL_STRING("error"));
   if (mReadyState == nsIDOMHTMLMediaElement::HAVE_NOTHING) {
     ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_EMPTY);
@@ -6017,6 +6025,58 @@ HTMLMediaElement::IsAllowedToPlay()
   return true;
 }
 
+static const char* VisibilityString(Visibility aVisibility) {
+  switch(aVisibility) {
+    case Visibility::UNTRACKED: {
+      return "UNTRACKED";
+    }
+    case Visibility::APPROXIMATELY_NONVISIBLE: {
+      return "APPROXIMATELY_NONVISIBLE";
+    }
+    case Visibility::APPROXIMATELY_VISIBLE: {
+      return "APPROXIMATELY_VISIBLE";
+    }
+  }
+
+  return "NAN";
+}
+
+void
+HTMLMediaElement::OnVisibilityChange(Visibility aNewVisibility)
+{
+  LOG(LogLevel::Debug, ("OnVisibilityChange(): %s\n",
+      VisibilityString(aNewVisibility)));
+
+  mVisibilityState = aNewVisibility;
+
+  if (!mDecoder) {
+    return;
+  }
+
+  switch (aNewVisibility) {
+    case Visibility::UNTRACKED: {
+        MOZ_ASSERT_UNREACHABLE("Shouldn't notify for untracked visibility");
+        break;
+    }
+    case Visibility::APPROXIMATELY_NONVISIBLE: {
+      if (mPlayTime.IsStarted()) {
+        // Not visible, play time is running -> Start hidden play time if needed.
+        HiddenVideoStart();
+      }
+
+      mDecoder->NotifyOwnerActivityChanged(false);
+      break;
+    }
+    case Visibility::APPROXIMATELY_VISIBLE: {
+      // Visible -> Just pause hidden play time (no-op if already paused).
+      HiddenVideoStop();
+
+      mDecoder->NotifyOwnerActivityChanged(true);
+      break;
+    }
+  }
+
+}
 #ifdef MOZ_EME
 MediaKeys*
 HTMLMediaElement::GetMediaKeys() const
@@ -6456,84 +6516,6 @@ HTMLMediaElement::OpenUnsupportedMediaWithExtenalAppIfNeeded()
                                        true);
 }
 
-static const char* VisibilityString(Visibility aVisibility) {
-  switch(aVisibility) {
-    case Visibility::UNTRACKED: {
-      return "UNTRACKED";
-    }
-    case Visibility::NONVISIBLE: {
-      return "NONVISIBLE";
-    }
-    case Visibility::MAY_BECOME_VISIBLE: {
-      return "MAY_BECOME_VISIBLE";
-    }
-    case Visibility::IN_DISPLAYPORT: {
-      return "IN_DISPLAYPORT";
-    }
-  }
-
-  return "NAN";
-}
-
-// The visibility enumeration contains three states:
-// {NONVISIBLE, MAY_BECOME_VISIBLE, IN_DISPLAYPORT}.
-// Here, I implement a conservative mechanism:
-// (1) {MAY_BECOME_VISIBLE, IN_DISPLAYPORT} -> NONVISIBLE:
-//     notify the decoder to suspend.
-// (2) {NONVISIBLE, MAY_BECOME_VISIBLE} -> IN_DISPLAYPORT:
-//     notify the decoder to resume.
-// (3) IN_DISPLAYPORT -> MAY_BECOME_VISIBLE:
-//     do nothing here because users might scroll back immediately.
-// (4) NONVISIBLE -> MAY_BECOME_VISIBLE:
-//     notify the decoder to resume because users might continue their scroll
-//     direction and the video might be IN_DISPLAYPORT soon.
-void
-HTMLMediaElement::OnVisibilityChange(Visibility aOldVisibility,
-                                     Visibility aNewVisibility)
-{
-  LOG(LogLevel::Debug, ("OnVisibilityChange(): %s -> %s\n",
-      VisibilityString(aOldVisibility),VisibilityString(aNewVisibility)));
-
-  if (!mDecoder) {
-    return;
-  }
-
-  switch (aNewVisibility) {
-    case Visibility::UNTRACKED: {
-        MOZ_ASSERT_UNREACHABLE("Shouldn't notify for untracked visibility");
-        break;
-    }
-    case Visibility::NONVISIBLE: {
-      if (mPlayTime.IsStarted()) {
-        // Not visible, play time is running -> Start hidden play time if needed.
-        HiddenVideoStart();
-      }
-
-      mDecoder->NotifyOwnerActivityChanged(false);
-      break;
-    }
-    case Visibility::MAY_BECOME_VISIBLE: {
-      if (aOldVisibility == Visibility::NONVISIBLE) {
-        // Visible -> Just pause hidden play time (no-op if already paused).
-        HiddenVideoStop();
-
-        mDecoder->NotifyOwnerActivityChanged(true);
-      } else if (aOldVisibility == Visibility::IN_DISPLAYPORT) {
-        // Do nothing.
-      }
-      break;
-    }
-    case Visibility::IN_DISPLAYPORT: {
-      // Visible -> Just pause hidden play time (no-op if already paused).
-      HiddenVideoStop();
-
-      mDecoder->NotifyOwnerActivityChanged(true);
-      break;
-    }
-  }
-
-}
-
 bool
 HTMLMediaElement::ShouldElementBePaused()
 {
@@ -6615,6 +6597,67 @@ HTMLMediaElement::NotifyCueDisplayStatesChanged()
   }
 
   mTextTrackManager->DispatchUpdateCueDisplay();
+}
+
+void
+HTMLMediaElement::MarkAsContentSource(CallerAPI aAPI)
+{
+  const bool isVisible = mVisibilityState != Visibility::APPROXIMATELY_NONVISIBLE;
+
+  if (isVisible) {
+    // 0 = ALL_VISIBLE
+    Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 0);
+  } else {
+    // 1 = ALL_INVISIBLE
+    Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 1);
+  }
+
+  switch (aAPI) {
+    case CallerAPI::DRAW_IMAGE: {
+      if (isVisible) {
+        // 2 = drawImage_VISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 2);
+      } else {
+        // 3 = drawImage_INVISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 3);
+      }
+      break;
+    }
+    case CallerAPI::CREATE_PATTERN: {
+      if (isVisible) {
+        // 4 = createPattern_VISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 4);
+      } else {
+        // 5 = createPattern_INVISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 5);
+      }
+      break;
+    }
+    case CallerAPI::CREATE_IMAGEBITMAP: {
+      if (isVisible) {
+        // 6 = createImageBitmap_VISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 6);
+      } else {
+        // 7 = createImageBitmap_INVISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 7);
+      }
+      break;
+    }
+    case CallerAPI::CAPTURE_STREAM: {
+      if (isVisible) {
+        // 8 = captureStream_VISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 8);
+      } else {
+        // 9 = captureStream_INVISIBLE
+        Telemetry::Accumulate(Telemetry::VIDEO_AS_CONTENT_SOURCE, 9);
+      }
+      break;
+    }
+  }
+
+  LOG(LogLevel::Debug,
+      ("%p Log VIDEO_AS_CONTENT_SOURCE: visibility = %u, API: '%d' and 'All'",
+       this, isVisible, aAPI));
 }
 
 } // namespace dom

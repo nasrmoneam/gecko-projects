@@ -3,12 +3,15 @@
 Cu.import("resource://testing-common/BrowserTestUtils.jsm", this);
 Cu.import("resource://testing-common/ContentTask.jsm", this);
 Cu.import("resource://gre/modules/Promise.jsm", this);
+Cu.import("resource://gre/modules/Services.jsm", this);
 Cu.import("resource://gre/modules/Task.jsm", this);
+Cu.import("resource://gre/modules/Timer.jsm", this);
 Cu.import("resource://gre/modules/AppConstants.jsm");
 
 const kHighlightAllPref = "findbar.highlightAll";
 const kPrefModalHighlight = "findbar.modalHighlight";
 const kFixtureBaseURL = "https://example.com/browser/toolkit/modules/tests/browser/";
+const kIteratorTimeout = Services.prefs.getIntPref("findbar.iteratorTimeout");
 
 function promiseOpenFindbar(findbar) {
   findbar.onFindCommand()
@@ -139,24 +142,24 @@ add_task(function* setup() {
 add_task(function* testModalResults() {
   let tests = new Map([
     ["Roland", {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [2, 4],
       removeCalls: [1, 2]
     }],
     ["ro", {
-      rectCount: 41,
+      rectCount: 40,
       insertCalls: [1, 4],
       removeCalls: [1, 3]
     }],
     ["new", {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [1, 4],
       removeCalls: [1, 3]
     }],
     ["o", {
-      rectCount: 492,
-      insertCalls: [1, 4],
-      removeCalls: [1, 3]
+      rectCount: 491,
+      insertCalls: [1, 5],
+      removeCalls: [1, 4]
     }]
   ]);
   let url = kFixtureBaseURL + "file_FinderSample.html";
@@ -167,6 +170,7 @@ add_task(function* testModalResults() {
       yield promiseOpenFindbar(findbar);
       Assert.ok(!findbar.hidden, "Findbar should be open now.");
 
+      yield new Promise(resolve => setTimeout(resolve, kIteratorTimeout));
       let promise = promiseTestHighlighterOutput(browser, word, expectedResult);
       yield promiseEnterStringIntoFindField(findbar, word);
       yield promise;
@@ -188,7 +192,7 @@ add_task(function* testModalSwitching() {
 
     let word = "Roland";
     let expectedResult = {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [2, 4],
       removeCalls: [1, 2]
     };
@@ -224,7 +228,7 @@ add_task(function* testDarkPageDetection() {
 
     let word = "Roland";
     let expectedResult = {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [2, 4],
       removeCalls: [1, 2]
     };
@@ -244,7 +248,7 @@ add_task(function* testDarkPageDetection() {
 
     let word = "Roland";
     let expectedResult = {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [2, 4],
       removeCalls: [1, 2]
     };
@@ -281,7 +285,7 @@ add_task(function* testHighlightAllToggle() {
 
     let word = "Roland";
     let expectedResult = {
-      rectCount: 2,
+      rectCount: 1,
       insertCalls: [2, 4],
       removeCalls: [1, 2]
     };
@@ -309,5 +313,30 @@ add_task(function* testHighlightAllToggle() {
     promise = promiseTestHighlighterOutput(browser, word, expectedResult);
     yield SpecialPowers.pushPrefEnv({ "set": [[ kHighlightAllPref, true ]] });
     yield promise;
+  });
+});
+
+add_task(function* testXMLDocument() {
+  let url = "data:text/xml;charset=utf-8," + encodeURIComponent(`<?xml version="1.0"?>
+<result>
+  <Title>Example</Title>
+  <Error>Error</Error>
+</result>`);
+  yield BrowserTestUtils.withNewTab(url, function* (browser) {
+    let findbar = gBrowser.getFindBar();
+
+    yield promiseOpenFindbar(findbar);
+
+    let word = "Example";
+    let expectedResult = {
+      rectCount: 0,
+      insertCalls: [1, 4],
+      removeCalls: [1, 2]
+    };
+    let promise = promiseTestHighlighterOutput(browser, word, expectedResult);
+    yield promiseEnterStringIntoFindField(findbar, word);
+    yield promise;
+
+    findbar.close(true);
   });
 });

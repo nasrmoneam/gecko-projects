@@ -78,7 +78,7 @@ const kModalStyles = {
     ["padding", "0 1px 2px 1px !important"],
     ["position", "absolute"]
   ],
-  maskRectBrightText: [ "background", "#000" ]
+  maskRectBrightText: [ ["background", "#000"] ]
 };
 const kModalOutlineAnim = {
   "keyframes": [
@@ -88,6 +88,7 @@ const kModalOutlineAnim = {
   ],
   duration: 50,
 };
+const kNSHTML = "http://www.w3.org/1999/xhtml";
 
 function mockAnonymousContentNode(domNode) {
   return {
@@ -222,6 +223,8 @@ FinderHighlighter.prototype = {
       // Removing the highlighting always succeeds, so return true.
       this._found = true;
     }
+
+    this.notifyFinished({ highlight, found: this._found });
 
     return this._found;
   }),
@@ -441,7 +444,7 @@ FinderHighlighter.prototype = {
   },
 
   /**
-   * Invalidates the list by clearing the map of highglighted ranges that we
+   * Invalidates the list by clearing the map of highlighted ranges that we
    * keep to build the mask for.
    */
   clear(window = null) {
@@ -457,7 +460,6 @@ FinderHighlighter.prototype = {
     let dict = this.getForWindow(window.top);
     if (dict.animation)
       dict.animation.finish();
-    dict.currentFoundRange = null;
     dict.dynamicRangesSet.clear();
     dict.frames.clear();
     dict.modalHighlightRectsMap.clear();
@@ -473,6 +475,7 @@ FinderHighlighter.prototype = {
     let window = this.finder._getWindow();
     let dict = this.getForWindow(window);
     this.clear(window);
+    dict.currentFoundRange = null;
 
     if (!dict.modalHighlightOutline)
       return;
@@ -744,7 +747,8 @@ FinderHighlighter.prototype = {
 
   /**
    * Read and store the rectangles that encompass the entire region of a range
-   * for use by the drawing function of the highlighter.
+   * for use by the drawing function of the highlighter and store them in the
+   * cache.
    *
    * @param  {nsIDOMRange} range            Range to fetch the rectangles from
    * @param  {Boolean}     [checkIfDynamic] Whether we should check if the range
@@ -782,6 +786,7 @@ FinderHighlighter.prototype = {
         rects.add(rect);
     }
 
+    // Only fetch the rect at this point, if not passed in as argument.
     dict = dict || this.getForWindow(window.top);
     dict.modalHighlightRectsMap.set(range, rects);
     if (checkIfDynamic && this._isInDynamicContainer(range))
@@ -901,14 +906,14 @@ FinderHighlighter.prototype = {
 
     // The outline needs to be sitting inside a container, otherwise the anonymous
     // content API won't find it by its ID later...
-    let container = document.createElement("div");
+    let container = document.createElementNS(kNSHTML, "div");
 
     // Create the main (yellow) highlight outline box.
-    let outlineBox = document.createElement("div");
+    let outlineBox = document.createElementNS(kNSHTML, "div");
     outlineBox.setAttribute("id", kModalOutlineId);
     outlineBox.setAttribute("style", this._getStyleString(kModalStyles.outlineNode,
       kDebug ? kModalStyles.outlineNodeDebug : []));
-    let outlineBoxText = document.createElement("span");
+    let outlineBoxText = document.createElementNS(kNSHTML, "span");
     let attrValue = kModalOutlineId + "-text";
     outlineBoxText.setAttribute("id", attrValue);
     outlineBoxText.setAttribute("style", this._getStyleString(kModalStyles.outlineText));
@@ -916,7 +921,7 @@ FinderHighlighter.prototype = {
 
     container.appendChild(outlineBox);
     dict.modalHighlightOutline = kDebug ?
-      mockAnonymousContentNode(document.body.appendChild(container.firstChild)) :
+      mockAnonymousContentNode((document.body || document.documentElement).appendChild(container.firstChild)) :
       document.insertAnonymousContent(container);
 
     // Make sure to at least show the dimmed background.
@@ -937,7 +942,7 @@ FinderHighlighter.prototype = {
     let document = window.document;
 
     const kMaskId = kModalIdPrefix + "-findbar-modalHighlight-outlineMask";
-    let maskNode = document.createElement("div");
+    let maskNode = document.createElementNS(kNSHTML, "div");
 
     // Make sure the dimmed mask node takes the full width and height that's available.
     let {width, height} = dict.lastWindowDimensions = this._getWindowDimensions(window);
@@ -957,10 +962,12 @@ FinderHighlighter.prototype = {
       const rectStyle = this._getStyleString(kModalStyles.maskRect,
         dict.brightText ? kModalStyles.maskRectBrightText : []);
       for (let [range, rects] of dict.modalHighlightRectsMap) {
+        if (this._checkOverlap(dict.currentFoundRange, range))
+          continue;
         if (dict.updateAllRanges)
           rects = this._updateRangeRects(range);
         for (let rect of rects) {
-          maskContent.push(`<div style="${rectStyle}; top: ${rect.y}px;
+          maskContent.push(`<div xmlns="${kNSHTML}" style="${rectStyle}; top: ${rect.y}px;
             left: ${rect.x}px; height: ${rect.height}px; width: ${rect.width}px;"></div>`);
         }
       }
@@ -973,7 +980,7 @@ FinderHighlighter.prototype = {
     this._removeHighlightAllMask(window);
 
     dict.modalHighlightAllMask = kDebug ?
-      mockAnonymousContentNode(document.body.appendChild(maskNode)) :
+      mockAnonymousContentNode((document.body || document.documentElement).appendChild(maskNode)) :
       document.insertAnonymousContent(maskNode);
   },
 
@@ -1199,6 +1206,8 @@ FinderHighlighter.prototype = {
    * @returns true if they intersect, false otherwise
    */
   _checkOverlap(selectionRange, findRange) {
+    if (!selectionRange || !findRange)
+      return false;
     // The ranges overlap if one of the following is true:
     // 1) At least one of the endpoints of the deleted selection
     //    is in the find selection
