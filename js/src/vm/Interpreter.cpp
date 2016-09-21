@@ -15,6 +15,7 @@
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PodOperations.h"
+#include "mozilla/Sprintf.h"
 
 #include <string.h>
 
@@ -360,6 +361,9 @@ bool
 js::RunScript(JSContext* cx, RunState& state)
 {
     JS_CHECK_RECURSION(cx, return false);
+
+    // Since any script can conceivably GC, make sure it's safe to do so.
+    JS::AutoAssertOnGC::VerifyIsSafeToGC(cx->runtime());
 
     if (!Debugger::checkNoExecute(cx, state.script()))
         return false;
@@ -4120,7 +4124,7 @@ END_CASE(JSOP_IS_CONSTRUCTING)
 DEFAULT()
 {
     char numBuf[12];
-    snprintf(numBuf, sizeof numBuf, "%d", *REGS.pc);
+    SprintfLiteral(numBuf, "%d", *REGS.pc);
     JS_ReportErrorNumber(cx, GetErrorMessage, nullptr,
                          JSMSG_BAD_BYTECODE, numBuf);
     goto error;

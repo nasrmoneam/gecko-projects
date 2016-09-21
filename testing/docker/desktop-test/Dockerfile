@@ -21,12 +21,14 @@ RUN bash /setup/system-setup.sh
 # %include testing/docker/recipes/run-task
 ADD topsrcdir/testing/docker/recipes/run-task /home/worker/bin/run-task
 
-# %include taskcluster/scripts/tester/test-ubuntu1204.sh
-ADD topsrcdir/taskcluster/scripts/tester/test-ubuntu1204.sh /home/worker/bin/test-linux.sh
+# %include taskcluster/scripts/tester/test-ubuntu.sh
+ADD topsrcdir/taskcluster/scripts/tester/test-ubuntu.sh /home/worker/bin/test-linux.sh
 
 # This will create a host mounted filesystem when the cache is stripped
 # on Try. This cancels out some of the performance losses of aufs. See
 # bug 1291940.
+VOLUME /home/worker/hg-shared
+VOLUME /home/worker/checkouts
 VOLUME /home/worker/workspace
 
 # Set variable normally configured at login, by the shells parent process, these

@@ -370,6 +370,10 @@ public class BrowserApp extends GeckoApp
         Log.d(LOGTAG, "BrowserApp.onTabChanged: " + tab.getId() + ": " + msg);
         switch (msg) {
             case SELECTED:
+                if (mVideoPlayer.isPlaying()) {
+                    mVideoPlayer.stop();
+                }
+
                 if (Tabs.getInstance().isSelectedTab(tab) && mDynamicToolbar.isEnabled()) {
                     final VisibilityTransition transition = (tab.getShouldShowToolbarWithoutAnimationOnFirstSelection()) ?
                             VisibilityTransition.IMMEDIATE : VisibilityTransition.ANIMATE;
@@ -727,7 +731,7 @@ public class BrowserApp extends GeckoApp
 
         // Init suggested sites engine in BrowserDB.
         final SuggestedSites suggestedSites = new SuggestedSites(appContext, distribution);
-        final BrowserDB db = profile.getDB();
+        final BrowserDB db = BrowserDB.from(profile);
         db.setSuggestedSites(suggestedSites);
 
         JavaAddonManager.getInstance().init(appContext);
@@ -933,8 +937,14 @@ public class BrowserApp extends GeckoApp
                         });
                     }
                 }
+
                 // Don't bother trying again to show the v1 minimal first run.
                 prefs.edit().putBoolean(FirstrunAnimationContainer.PREF_FIRSTRUN_ENABLED, false).apply();
+
+                // We have no intention of stopping this session. The FIRSTRUN session
+                // ends when the browsing session/activity has ended. All events
+                // during firstrun will be tagged as FIRSTRUN.
+                Telemetry.startUISession(TelemetryContract.Session.FIRSTRUN);
             }
         } finally {
             StrictMode.setThreadPolicy(savedPolicy);
@@ -1506,7 +1516,7 @@ public class BrowserApp extends GeckoApp
     }
 
     private void handleClearHistory(final boolean clearSearchHistory) {
-        final BrowserDB db = getProfile().getDB();
+        final BrowserDB db = BrowserDB.from(getProfile());
         ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
@@ -1791,7 +1801,7 @@ public class BrowserApp extends GeckoApp
                 break;
 
             case "Telemetry:Gather":
-                final BrowserDB db = getProfile().getDB();
+                final BrowserDB db = BrowserDB.from(getProfile());
                 final ContentResolver cr = getContentResolver();
                 Telemetry.addToHistogram("PLACES_PAGES_COUNT", db.getCount(cr, "history"));
                 Telemetry.addToHistogram("FENNEC_BOOKMARKS_COUNT", db.getCount(cr, "bookmarks"));
@@ -2504,7 +2514,7 @@ public class BrowserApp extends GeckoApp
 
         // Otherwise, check for a bookmark keyword.
         final SharedPreferences sharedPrefs = GeckoSharedPrefs.forProfile(this);
-        final BrowserDB db = getProfile().getDB();
+        final BrowserDB db = BrowserDB.from(getProfile());
         ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
@@ -2579,7 +2589,7 @@ public class BrowserApp extends GeckoApp
             return;
         }
 
-        final BrowserDB db = profile.getDB();
+        final BrowserDB db = BrowserDB.from(profile);
         ThreadUtils.postToBackgroundThread(new Runnable() {
             @Override
             public void run() {
@@ -3784,9 +3794,9 @@ public class BrowserApp extends GeckoApp
                     if (itemId == 0) {
                         final Context context = GeckoAppShell.getApplicationContext();
                         if (type == GuestModeDialog.ENTERING) {
-                            GuestSession.enter(context);
+                            GeckoProfile.enterGuestMode(context);
                         } else {
-                            GuestSession.leave(context);
+                            GeckoProfile.leaveGuestMode(context);
                             // Now's a good time to make sure we're not displaying the
                             // Guest Browsing notification.
                             GuestSession.hideNotification(context);

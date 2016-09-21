@@ -8,6 +8,7 @@
 
 #include "mozilla/DebugOnly.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/Sprintf.h"
 #include "mozilla/TypeTraits.h"
 
 #include "jscntxt.h"
@@ -349,7 +350,7 @@ class MOZ_RAII js::EnterDebuggeeNoExecute
                 }
                 const char* filename = script->filename() ? script->filename() : "(none)";
                 char linenoStr[15];
-                snprintf(linenoStr, sizeof(linenoStr), "%" PRIuSIZE, script->lineno());
+                SprintfLiteral(linenoStr, "%" PRIuSIZE, script->lineno());
                 unsigned flags = warning ? JSREPORT_WARNING : JSREPORT_ERROR;
                 return JS_ReportErrorFlagsAndNumber(cx, flags, GetErrorMessage, nullptr,
                                                     JSMSG_DEBUGGEE_WOULD_RUN,
@@ -838,7 +839,7 @@ Debugger::slowPathOnEnterFrame(JSContext* cx, AbstractFramePtr frame)
             return dbg->observesFrame(frame) && dbg->observesEnterFrame();
         },
         [&](Debugger* dbg) -> JSTrapStatus {
-            return dbg->fireEnterFrame(cx, frame, &rval);
+            return dbg->fireEnterFrame(cx, &rval);
         });
 
     switch (status) {
@@ -1574,6 +1575,27 @@ CheckResumptionValue(JSContext* cx, AbstractFramePtr frame, const Maybe<HandleVa
     return true;
 }
 
+static bool
+GetThisValueForCheck(JSContext* cx, AbstractFramePtr frame, jsbytecode* pc,
+                     MutableHandleValue thisv, Maybe<HandleValue>& maybeThisv)
+{
+    if (frame.debuggerNeedsCheckPrimitiveReturn()) {
+        {
+            AutoCompartment ac(cx, frame.environmentChain());
+            if (!GetThisValueForDebuggerMaybeOptimizedOut(cx, frame, pc, thisv))
+                return false;
+        }
+
+        if (!cx->compartment()->wrap(cx, thisv))
+            return false;
+
+        MOZ_ASSERT_IF(thisv.isMagic(), thisv.isMagic(JS_UNINITIALIZED_LEXICAL));
+        maybeThisv.emplace(HandleValue(thisv));
+    }
+
+    return true;
+}
+
 bool
 Debugger::processResumptionValue(Maybe<AutoCompartment>& ac, AbstractFramePtr frame,
                                  const Maybe<HandleValue>& maybeThisv, HandleValue rval,
@@ -1598,57 +1620,68 @@ Debugger::processResumptionValue(Maybe<AutoCompartment>& ac, AbstractFramePtr fr
 }
 
 JSTrapStatus
-Debugger::processHandlerResultHelper(Maybe<AutoCompartment>& ac, bool ok, const Value& rv,
-                                     const Maybe<HandleValue>& thisVForCheck, AbstractFramePtr frame,
-                                     MutableHandleValue vp)
+Debugger::processParsedHandlerResultHelper(Maybe<AutoCompartment>& ac, AbstractFramePtr frame,
+                                           const Maybe<HandleValue>& maybeThisv, bool success,
+                                           JSTrapStatus status, MutableHandleValue vp)
 {
-    if (!ok)
-        return handleUncaughtException(ac, vp, thisVForCheck, frame);
+    if (!success)
+        return handleUncaughtException(ac, vp, maybeThisv, frame);
 
     JSContext* cx = ac->context()->asJSContext();
-    RootedValue rvRoot(cx, rv);
-    JSTrapStatus status = JSTRAP_CONTINUE;
-    RootedValue v(cx);
-    if (!processResumptionValue(ac, frame, thisVForCheck, rvRoot, status, &v))
-        return handleUncaughtException(ac, vp, thisVForCheck, frame);
-    vp.set(v);
+
+    if (!unwrapDebuggeeValue(cx, vp) ||
+        !CheckResumptionValue(cx, frame, maybeThisv, status, vp))
+    {
+        return handleUncaughtException(ac, vp, maybeThisv, frame);
+    }
+
+    ac.reset();
+    if (!cx->compartment()->wrap(cx, vp)) {
+        status = JSTRAP_ERROR;
+        vp.setUndefined();
+    }
+
     return status;
 }
 
 JSTrapStatus
-Debugger::processHandlerResult(Maybe<AutoCompartment>& ac, bool ok, const Value& rv,
-                               AbstractFramePtr frame, jsbytecode* pc, MutableHandleValue vp)
+Debugger::processParsedHandlerResult(Maybe<AutoCompartment>& ac, AbstractFramePtr frame,
+                                     jsbytecode* pc, bool success, JSTrapStatus status,
+                                     MutableHandleValue vp)
 {
     JSContext* cx = ac->context()->asJSContext();
-    RootedValue rootThis(cx);
-    Maybe<HandleValue> thisArg;
-    if (frame.debuggerNeedsCheckPrimitiveReturn()) {
-        bool success;
-        {
-            AutoCompartment ac2(cx, frame.environmentChain());
-            success = GetThisValueForDebuggerMaybeOptimizedOut(cx, frame, pc, &rootThis);
-        }
-        if (!success || !cx->compartment()->wrap(cx, &rootThis)) {
-            ac.reset();
-            return JSTRAP_ERROR;
-        }
-        MOZ_ASSERT_IF(rootThis.isMagic(), rootThis.isMagic(JS_UNINITIALIZED_LEXICAL));
-        thisArg.emplace(HandleValue(rootThis));
+
+    RootedValue thisv(cx);
+    Maybe<HandleValue> maybeThisv;
+    if (!GetThisValueForCheck(cx, frame, pc, &thisv, maybeThisv)) {
+        ac.reset();
+        return JSTRAP_ERROR;
     }
-    return processHandlerResultHelper(ac, ok, rv, thisArg, frame, vp);
+
+    return processParsedHandlerResultHelper(ac, frame, maybeThisv, success, status, vp);
 }
 
 JSTrapStatus
-Debugger::processHandlerResult(Maybe<AutoCompartment>& ac, bool ok, const Value& rv,
-                               const Value& thisV, AbstractFramePtr frame, MutableHandleValue vp)
+Debugger::processHandlerResult(Maybe<AutoCompartment>& ac, bool success, const Value& rv,
+                               AbstractFramePtr frame, jsbytecode* pc, MutableHandleValue vp)
 {
     JSContext* cx = ac->context()->asJSContext();
-    RootedValue rootThis(cx, thisV);
-    Maybe<HandleValue> thisArg;
-    if (frame.debuggerNeedsCheckPrimitiveReturn())
-        thisArg.emplace(rootThis);
 
-    return processHandlerResultHelper(ac, ok, rv, thisArg, frame, vp);
+    RootedValue thisv(cx);
+    Maybe<HandleValue> maybeThisv;
+    if (!GetThisValueForCheck(cx, frame, pc, &thisv, maybeThisv)) {
+        ac.reset();
+        return JSTRAP_ERROR;
+    }
+
+    if (!success)
+        return handleUncaughtException(ac, vp, maybeThisv, frame);
+
+    RootedValue rootRv(cx, rv);
+    JSTrapStatus status = JSTRAP_CONTINUE;
+    success = ParseResumptionValue(cx, rootRv, status, vp);
+
+    return processParsedHandlerResultHelper(ac, frame, maybeThisv, success, status, vp);
 }
 
 static bool
@@ -1732,7 +1765,7 @@ Debugger::fireExceptionUnwind(JSContext* cx, MutableHandleValue vp)
 }
 
 JSTrapStatus
-Debugger::fireEnterFrame(JSContext* cx, AbstractFramePtr frame, MutableHandleValue vp)
+Debugger::fireEnterFrame(JSContext* cx, MutableHandleValue vp)
 {
     RootedObject hook(cx, getHook(OnEnterFrame));
     MOZ_ASSERT(hook);
@@ -1742,14 +1775,16 @@ Debugger::fireEnterFrame(JSContext* cx, AbstractFramePtr frame, MutableHandleVal
     ac.emplace(cx, object);
 
     RootedValue scriptFrame(cx);
-    if (!getScriptFrame(cx, frame, &scriptFrame))
+
+    ScriptFrameIter iter(cx);
+    if (!getScriptFrame(cx, iter, &scriptFrame))
         return reportUncaughtException(ac);
 
     RootedValue fval(cx, ObjectValue(*hook));
     RootedValue rv(cx);
     bool ok = js::Call(cx, fval, object, scriptFrame, &rv);
 
-    return processHandlerResult(ac, ok, rv, MagicValue(JS_UNINITIALIZED_LEXICAL), frame, vp);
+    return processHandlerResult(ac, ok, rv, iter.abstractFramePtr(), iter.pc(), vp);
 }
 
 void
@@ -4417,7 +4452,7 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
                 return;
         }
         if (hasSource && !(source.is<ScriptSourceObject*>() &&
-                           source.as<ScriptSourceObject*>() == script->sourceObject()))
+                           source.as<ScriptSourceObject*>()->source() == script->scriptSource()))
         {
             return;
         }
@@ -7114,31 +7149,6 @@ DebuggerSource_getSourceMapURL(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 
-static bool
-DebuggerSource_getCanonicalId(JSContext* cx, unsigned argc, Value* vp)
-{
-    THIS_DEBUGSOURCE_SOURCE(cx, argc, vp, "(get sourceMapURL)", args, obj, sourceObject);
-
-    ScriptSource* ss = sourceObject->source();
-    MOZ_ASSERT(ss);
-
-    static_assert(!mozilla::IsBaseOf<gc::Cell, ScriptSource>::value,
-                  "We rely on ScriptSource* pointers to be stable, and not move in memory. "
-                  "Currently, this holds true because ScriptSource is not managed by the GC. If "
-                  "that changes, it doesn't necessarily mean that it will start moving, but we "
-                  "will need a new assertion here. If we do start moving ScriptSources in memory, "
-                  "then DebuggerSource_getCanonicalId will need to be reworked!");
-    auto id = uintptr_t(ss);
-
-    // IEEE 754 doubles can precisely store integers of up 53 bits. On 32 bit
-    // platforms, pointers trivially fit. On 64 bit platforms, pointers only use
-    // 48 bits so we are still good.
-    MOZ_ASSERT(Value::isNumberRepresentable(id));
-
-    args.rval().set(NumberValue(id));
-    return true;
-}
-
 static const JSPropertySpec DebuggerSource_properties[] = {
     JS_PSG("text", DebuggerSource_getText, 0),
     JS_PSG("url", DebuggerSource_getURL, 0),
@@ -7149,7 +7159,6 @@ static const JSPropertySpec DebuggerSource_properties[] = {
     JS_PSG("introductionType", DebuggerSource_getIntroductionType, 0),
     JS_PSG("elementAttributeName", DebuggerSource_getElementProperty, 0),
     JS_PSGS("sourceMapURL", DebuggerSource_getSourceMapURL, DebuggerSource_setSourceMapURL, 0),
-    JS_PSG("canonicalId", DebuggerSource_getCanonicalId, 0),
     JS_PS_END
 };
 

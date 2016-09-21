@@ -47,6 +47,7 @@
 #include "mozilla/Unused.h"
 #include "mozIApplication.h"
 #include "nsContentUtils.h"
+#include "nsCSSFrameConstructor.h"
 #include "nsDocShell.h"
 #include "nsEmbedCID.h"
 #include "nsGlobalWindow.h"
@@ -84,6 +85,7 @@
 #include "nsLayoutUtils.h"
 #include "nsPrintfCString.h"
 #include "nsThreadUtils.h"
+#include "nsViewManager.h"
 #include "nsWeakReference.h"
 #include "nsWindowWatcher.h"
 #include "PermissionMessageUtils.h"
@@ -541,11 +543,15 @@ TabChild::TabChild(nsIContentChild* aManager,
   , mDPI(0)
   , mDefaultScale(0)
   , mIsTransparent(false)
-  , mIPCOpen(true)
+  , mIPCOpen(false)
   , mParentIsActive(false)
   , mDidSetRealShowInfo(false)
   , mDidLoadURLInit(false)
   , mAPZChild(nullptr)
+  , mLayerObserverEpoch(0)
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  , mNativeWindowHandle(0)
+#endif
 {
   // In the general case having the TabParent tell us if APZ is enabled or not
   // doesn't really work because the TabParent itself may not have a reference
@@ -822,6 +828,8 @@ TabChild::Init()
       });
   mAPZEventState = new APZEventState(mPuppetWidget, Move(callback));
 
+  mIPCOpen = true;
+
   return NS_OK;
 }
 
@@ -942,6 +950,37 @@ TabChild::RemoteSizeShellTo(int32_t aWidth, int32_t aHeight,
   }
 
   bool sent = SendSizeShellTo(flags, aWidth, aHeight, aShellItemWidth, aShellItemHeight);
+
+  return sent ? NS_OK : NS_ERROR_FAILURE;
+}
+
+NS_IMETHODIMP
+TabChild::RemoteDropLinks(uint32_t aLinksCount, nsIDroppedLinkItem** aLinks)
+{
+  nsTArray<nsString> linksArray;
+  nsresult rv = NS_OK;
+  for (uint32_t i = 0; i < aLinksCount; i++) {
+    nsString tmp;
+    rv = aLinks[i]->GetUrl(tmp);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+    linksArray.AppendElement(tmp);
+
+    rv = aLinks[i]->GetName(tmp);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+    linksArray.AppendElement(tmp);
+
+    rv = aLinks[i]->GetType(tmp);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+    linksArray.AppendElement(tmp);
+  }
+
+  bool sent = SendDropLinks(linksArray);
 
   return sent ? NS_OK : NS_ERROR_FAILURE;
 }
@@ -2532,6 +2571,17 @@ TabChild::RecvPrint(const uint64_t& aOuterWindowID, const PrintData& aPrintData)
 }
 
 bool
+TabChild::RecvUpdateNativeWindowHandle(const uintptr_t& aNewHandle)
+{
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  mNativeWindowHandle = aNewHandle;
+  return true;
+#else
+  return false;
+#endif
+}
+
+bool
 TabChild::RecvDestroy()
 {
   MOZ_ASSERT(mDestroyed == false);
@@ -2608,19 +2658,85 @@ TabChild::RecvSetUpdateHitRegion(const bool& aEnabled)
 }
 
 bool
-TabChild::RecvSetDocShellIsActive(const bool& aIsActive, const bool& aIsHidden)
+TabChild::RecvSetDocShellIsActive(const bool& aIsActive,
+                                  const bool& aPreserveLayers,
+                                  const uint64_t& aLayerObserverEpoch)
 {
-    // docshell is consider prerendered only if not active yet
-    mIsPrerendered &= !aIsActive;
-    nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
-    if (docShell) {
-      if (aIsHidden) {
-        docShell->SetIsActive(aIsActive);
-      } else {
-        docShell->SetIsActiveAndForeground(aIsActive);
+  // Since SetDocShellIsActive requests come in from both the hang monitor
+  // channel and the PContent channel, we have an ordering problem. This code
+  // ensures that we respect the order in which the requests were made and
+  // ignore stale requests.
+  if (mLayerObserverEpoch >= aLayerObserverEpoch) {
+    return true;
+  }
+  mLayerObserverEpoch = aLayerObserverEpoch;
+
+  MOZ_ASSERT(mPuppetWidget);
+  MOZ_ASSERT(mPuppetWidget->GetLayerManager());
+  MOZ_ASSERT(mPuppetWidget->GetLayerManager()->GetBackendType() ==
+             LayersBackend::LAYERS_CLIENT);
+
+  // We send the current layer observer epoch to the compositor so that
+  // TabParent knows whether a layer update notification corresponds to the
+  // latest SetDocShellIsActive request that was made.
+  ClientLayerManager *manager = mPuppetWidget->GetLayerManager()->AsClientLayerManager();
+  manager->SetLayerObserverEpoch(aLayerObserverEpoch);
+
+  // docshell is consider prerendered only if not active yet
+  mIsPrerendered &= !aIsActive;
+  nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
+  if (docShell) {
+    bool wasActive;
+    docShell->GetIsActive(&wasActive);
+    if (aIsActive && wasActive) {
+      // This request is a no-op. In this case, we still want a MozLayerTreeReady
+      // notification to fire in the parent (so that it knows that the child has
+      // updated its epoch). ForcePaintNoOp does that.
+      if (IPCOpen()) {
+        Unused << SendForcePaintNoOp(aLayerObserverEpoch);
+        return true;
       }
     }
-    return true;
+
+    docShell->SetIsActive(aIsActive);
+  }
+
+  if (aIsActive) {
+    MakeVisible();
+
+    // We don't use TabChildBase::GetPresShell() here because that would create
+    // a content viewer if one doesn't exist yet. Creating a content viewer can
+    // cause JS to run, which we want to avoid. nsIDocShell::GetPresShell
+    // returns null if no content viewer exists yet.
+    if (nsCOMPtr<nsIPresShell> presShell = docShell->GetPresShell()) {
+      if (nsIFrame* root = presShell->FrameConstructor()->GetRootFrame()) {
+        FrameLayerBuilder::InvalidateAllLayersForFrame(
+          nsLayoutUtils::GetDisplayRootFrame(root));
+        root->SchedulePaint();
+      }
+
+      // If we need to repaint, let's do that right away. No sense waiting until
+      // we get back to the event loop again. We suppress the display port so that
+      // we only paint what's visible. This ensures that the tab we're switching
+      // to paints as quickly as possible.
+      APZCCallbackHelper::SuppressDisplayport(true, presShell);
+      if (nsContentUtils::IsSafeToRunScript()) {
+        WebWidget()->PaintNowIfNeeded();
+      } else {
+        RefPtr<nsViewManager> vm = presShell->GetViewManager();
+        if (nsView* view = vm->GetRootView()) {
+          presShell->Paint(view, view->GetBounds(),
+                           nsIPresShell::PAINT_LAYERS |
+                           nsIPresShell::PAINT_SYNC_DECODE_IMAGES);
+        }
+      }
+      APZCCallbackHelper::SuppressDisplayport(false, presShell);
+    }
+  } else if (!aPreserveLayers) {
+    MakeHidden();
+  }
+
+  return true;
 }
 
 bool
@@ -2843,6 +2959,10 @@ TabChild::NotifyPainted()
 void
 TabChild::MakeVisible()
 {
+  if (mPuppetWidget && mPuppetWidget->IsVisible()) {
+    return;
+  }
+
   if (mPuppetWidget) {
     mPuppetWidget->Show(true);
   }
@@ -2851,6 +2971,10 @@ TabChild::MakeVisible()
 void
 TabChild::MakeHidden()
 {
+  if (mPuppetWidget && !mPuppetWidget->IsVisible()) {
+    return;
+  }
+
   CompositorBridgeChild* compositor = CompositorBridgeChild::Get();
 
   // Clear cached resources directly. This avoids one extra IPC
@@ -2981,6 +3105,21 @@ TabChild::DoSendAsyncMessage(JSContext* aCx,
   return NS_OK;
 }
 
+/* static */ nsTArray<RefPtr<TabChild>>
+TabChild::GetAll()
+{
+  nsTArray<RefPtr<TabChild>> list;
+  if (!sTabChildren) {
+    return list;
+  }
+
+  for (auto iter = sTabChildren->Iter(); !iter.Done(); iter.Next()) {
+    list.AppendElement(iter.Data());
+  }
+
+  return list;
+}
+
 TabChild*
 TabChild::GetFrom(nsIPresShell* aPresShell)
 {
@@ -3058,6 +3197,46 @@ TabChild::InvalidateLayers()
 
   RefPtr<LayerManager> lm = mPuppetWidget->GetLayerManager();
   FrameLayerBuilder::InvalidateAllLayers(lm);
+}
+
+void
+TabChild::ReinitRendering()
+{
+  MOZ_ASSERT(mLayersId);
+
+  // Before we establish a new PLayerTransaction, we must connect our layer tree
+  // id, CompositorBridge, and the widget compositor all together again.
+  // Normally this happens in TabParent before TabChild is given rendering
+  // information.
+  //
+  // In this case, we will send a sync message to our TabParent, which in turn
+  // will send a sync message to the Compositor of the widget owning this tab.
+  // This guarantees the correct association is in place before our
+  // PLayerTransaction constructor message arrives on the cross-process
+  // compositor bridge.
+  SendEnsureLayersConnected();
+
+  RefPtr<CompositorBridgeChild> cb = CompositorBridgeChild::Get();
+
+  bool success;
+  nsTArray<LayersBackend> ignored;
+  PLayerTransactionChild* shadowManager =
+    cb->SendPLayerTransactionConstructor(ignored, LayersId(), &mTextureFactoryIdentifier, &success);
+  if (!success) {
+    NS_WARNING("failed to re-allocate layer transaction");
+    return;
+  }
+
+  if (!shadowManager) {
+    NS_WARNING("failed to re-construct LayersChild");
+    return;
+  }
+
+  RefPtr<LayerManager> lm = mPuppetWidget->RecreateLayerManager(shadowManager);
+  ShadowLayerForwarder* lf = lm->AsShadowForwarder();
+  lf->IdentifyTextureHost(mTextureFactoryIdentifier);
+
+  mApzcTreeManager = CompositorBridgeChild::Get()->GetAPZCTreeManager(mLayersId);
 }
 
 void
@@ -3207,6 +3386,19 @@ TabChild::GetOuterRect()
   LayoutDeviceIntRect outerRect =
     RoundedToInt(mUnscaledOuterRect * mPuppetWidget->GetDefaultScale());
   return ViewAs<ScreenPixel>(outerRect, PixelCastJustification::LayoutDeviceIsScreenForTabDims);
+}
+
+void
+TabChild::ForcePaint(uint64_t aLayerObserverEpoch)
+{
+  if (!IPCOpen()) {
+    // Don't bother doing anything now. Better to wait until we receive the
+    // message on the PContent channel.
+    return;
+  }
+
+  nsAutoScriptBlocker scriptBlocker;
+  RecvSetDocShellIsActive(true, false, aLayerObserverEpoch);
 }
 
 TabChildGlobal::TabChildGlobal(TabChildBase* aTabChild)

@@ -27,6 +27,7 @@
 
 #ifdef XP_DARWIN
 #include "ScaledFontMac.h"
+#include "NativeFontResourceMac.h"
 #endif
 
 #ifdef MOZ_WIDGET_GTK
@@ -548,6 +549,8 @@ Factory::CreateNativeFontResource(uint8_t *aData, uint32_t aSize,
         return NativeFontResourceGDI::Create(aData, aSize,
                                              /* aNeedsCairo = */ true);
       }
+#elif XP_DARWIN
+      return NativeFontResourceMac::Create(aData, aSize);
 #else
       gfxWarning() << "Unable to create cairo scaled font from truetype data";
       return nullptr;
@@ -706,9 +709,11 @@ Factory::CreateScaledFontForDWriteFont(IDWriteFont* aFont,
                                        IDWriteFontFamily* aFontFamily,
                                        IDWriteFontFace* aFontFace,
                                        float aSize,
-                                       bool aUseEmbeddedBitmap)
+                                       bool aUseEmbeddedBitmap,
+                                       bool aForceGDIMode)
 {
-  return MakeAndAddRef<ScaledFontDWrite>(aFont, aFontFamily, aFontFace, aSize, aUseEmbeddedBitmap);
+  return MakeAndAddRef<ScaledFontDWrite>(aFont, aFontFamily, aFontFace,
+                                         aSize, aUseEmbeddedBitmap, aForceGDIMode);
 }
 
 #endif // XP_WIN
@@ -736,6 +741,10 @@ Factory::PurgeAllCaches()
 already_AddRefed<DrawTarget>
 Factory::CreateDrawTargetForCairoSurface(cairo_surface_t* aSurface, const IntSize& aSize, SurfaceFormat* aFormat)
 {
+  if (!AllowedSurfaceSize(aSize)) {
+    gfxWarning() << "Allowing surface with invalid size (Cairo) " << aSize;
+  }
+
   RefPtr<DrawTarget> retVal;
 
 #ifdef USE_CAIRO
@@ -771,6 +780,11 @@ Factory::CreateSourceSurfaceForCairoSurface(cairo_surface_t* aSurface, const Int
 already_AddRefed<DrawTarget>
 Factory::CreateDrawTargetForCairoCGContext(CGContextRef cg, const IntSize& aSize)
 {
+  if (!AllowedSurfaceSize(aSize)) {
+    gfxCriticalError(LoggerOptionsBasedOnSize(aSize)) << "Failed to allocate a surface due to invalid size (CG) " << aSize;
+    return nullptr;
+  }
+
   RefPtr<DrawTarget> retVal;
 
   RefPtr<DrawTargetCG> newTarget = new DrawTargetCG();
@@ -800,7 +814,7 @@ Factory::CreateWrappingDataSourceSurface(uint8_t *aData,
                                          SourceSurfaceDeallocator aDeallocator /* = nullptr */,
                                          void* aClosure /* = nullptr */)
 {
-  if (aSize.width <= 0 || aSize.height <= 0) {
+  if (!AllowedSurfaceSize(aSize)) {
     return nullptr;
   }
   if (!aDeallocator && aClosure) {
@@ -844,7 +858,8 @@ Factory::CreateDataSourceSurfaceWithStride(const IntSize &aSize,
                                            int32_t aStride,
                                            bool aZero)
 {
-  if (aStride < aSize.width * BytesPerPixel(aFormat)) {
+  if (!AllowedSurfaceSize(aSize) ||
+      aStride < aSize.width * BytesPerPixel(aFormat)) {
     gfxCriticalError(LoggerOptionsBasedOnSize(aSize)) << "CreateDataSourceSurfaceWithStride failed with bad stride " << aStride << ", " << aSize << ", " << aFormat;
     return nullptr;
   }

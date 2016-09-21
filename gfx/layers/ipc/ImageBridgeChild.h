@@ -128,6 +128,7 @@ public:
 
   static void InitWithGPUProcess(Endpoint<PImageBridgeChild>&& aEndpoint);
   static bool InitForContent(Endpoint<PImageBridgeChild>&& aEndpoint);
+  static bool ReinitForContent(Endpoint<PImageBridgeChild>&& aEndpoint);
 
   /**
    * Destroys the image bridge by calling DestroyBridge, and destroys the
@@ -383,12 +384,13 @@ protected:
   void ShutdownStep1(SynchronousTask* aTask);
   void ShutdownStep2(SynchronousTask* aTask);
   void MarkShutDown();
-  void FallbackDestroyActors();
 
   void ActorDestroy(ActorDestroyReason aWhy) override;
   void DeallocPImageBridgeChild() override;
 
   bool CanSend() const;
+
+  static void ShutdownSingleton();
 
 private:
   class ShutdownObserver final : public nsIObserver

@@ -12,6 +12,7 @@
 
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/PodOperations.h"
+#include "mozilla/Sprintf.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -120,7 +121,7 @@ JS::CallArgs::requireAtLeast(JSContext* cx, const char* fnname, unsigned require
 {
     if (length() < required) {
         char numArgsStr[40];
-        snprintf(numArgsStr, sizeof(numArgsStr), "%u", required - 1);
+        SprintfLiteral(numArgsStr, "%u", required - 1);
         JS_ReportErrorNumber(cx, GetErrorMessage, nullptr, JSMSG_MORE_ARGS_NEEDED,
                              fnname, numArgsStr, required == 2 ? "" : "s");
         return false;
@@ -4616,18 +4617,24 @@ JS_CheckForInterrupt(JSContext* cx)
     return js::CheckForInterrupt(cx);
 }
 
-JS_PUBLIC_API(JSInterruptCallback)
-JS_SetInterruptCallback(JSContext* cx, JSInterruptCallback callback)
+JS_PUBLIC_API(bool)
+JS_AddInterruptCallback(JSContext* cx, JSInterruptCallback callback)
 {
-    JSInterruptCallback old = cx->interruptCallback;
-    cx->interruptCallback = callback;
-    return old;
+    return cx->interruptCallbacks.append(callback);
 }
 
-JS_PUBLIC_API(JSInterruptCallback)
-JS_GetInterruptCallback(JSContext* cx)
+JS_PUBLIC_API(bool)
+JS_DisableInterruptCallback(JSContext* cx)
 {
-    return cx->interruptCallback;
+    bool result = cx->interruptCallbackDisabled;
+    cx->interruptCallbackDisabled = true;
+    return result;
+}
+
+JS_PUBLIC_API(void)
+JS_ResetInterruptCallback(JSContext* cx, bool enable)
+{
+    cx->interruptCallbackDisabled = enable;
 }
 
 /************************************************************************/
@@ -6209,6 +6216,9 @@ JS_SetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t v
         }
         jit::JitOptions.jumpThreshold = value;
         break;
+      case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
+        jit::JitOptions.asmJSAtomicsEnable = !!value;
+        break;
       case JSJITCOMPILER_WASM_TEST_MODE:
         jit::JitOptions.wasmTestMode = !!value;
         break;
@@ -6243,6 +6253,9 @@ JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt)
         return JS::ContextOptionsRef(cx).baseline();
       case JSJITCOMPILER_OFFTHREAD_COMPILATION_ENABLE:
         return rt->canUseOffthreadIonCompilation();
+      case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
+        return jit::JitOptions.asmJSAtomicsEnable ? 1 : 0;
+        break;
       case JSJITCOMPILER_WASM_TEST_MODE:
         return jit::JitOptions.wasmTestMode ? 1 : 0;
       case JSJITCOMPILER_WASM_FOLD_OFFSETS:

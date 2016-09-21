@@ -23,7 +23,7 @@ const {getCssProperties} = require("devtools/shared/fronts/css-properties");
 const overlays = require("devtools/client/inspector/shared/style-inspector-overlays");
 const StyleInspectorMenu = require("devtools/client/inspector/shared/style-inspector-menu");
 const {KeyShortcuts} = require("devtools/client/shared/key-shortcuts");
-const {LayoutView} = require("devtools/client/inspector/layout/layout");
+const {BoxModelView} = require("devtools/client/inspector/components/box-model");
 const clipboardHelper = require("devtools/shared/platform/clipboard");
 
 const STYLE_INSPECTOR_PROPERTIES = "devtools-shared/locale/styleinspector.properties";
@@ -961,6 +961,9 @@ PropertyView.prototype = {
     // Reset its tabindex attribute otherwise, if an ellipsis is applied
     // it will be reachable via TABing
     this.nameNode.setAttribute("tabindex", "");
+    // Avoid english text (css properties) from being altered
+    // by RTL mode
+    this.nameNode.setAttribute("dir", "ltr");
     this.nameNode.textContent = this.nameNode.title = this.name;
     // Make it hand over the focus to the container
     this.onFocus = () => this.element.focus();
@@ -1394,7 +1397,7 @@ function ComputedViewTool(inspector, window) {
 
   this.computedView = new CssComputedView(this.inspector, this.document,
     this.inspector.pageStyle);
-  this.layoutView = new LayoutView(this.inspector, this.document);
+  this.boxModelView = new BoxModelView(this.inspector, this.document);
 
   this.onSelected = this.onSelected.bind(this);
   this.refresh = this.refresh.bind(this);
@@ -1503,9 +1506,9 @@ ComputedViewTool.prototype = {
     }
 
     this.computedView.destroy();
-    this.layoutView.destroy();
+    this.boxModelView.destroy();
 
-    this.computedView = this.layoutView = this.document = this.inspector = null;
+    this.computedView = this.boxModelView = this.document = this.inspector = null;
   }
 };
 

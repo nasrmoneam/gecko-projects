@@ -11,21 +11,24 @@ CONFIGURE_SUBST_FILES += ['adjust_sdk_app_token']
 include('android-services.mozbuild')
 
 geckoview_source_dir = TOPSRCDIR + '/mobile/android/geckoview/src/main/'
+geckoview_thirdparty_source_dir = TOPSRCDIR + '/mobile/android/geckoview/src/thirdparty/'
 thirdparty_source_dir = TOPSRCDIR + '/mobile/android/thirdparty/'
 
 constants_jar = add_java_jar('constants')
-constants_jar.sources = ['java/org/mozilla/gecko/' + x for x in [
-    'adjust/AdjustHelperInterface.java',
-    'adjust/AttributionHelperListener.java',
+constants_jar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x for x in [
     'annotation/JNITarget.java',
     'annotation/ReflectionTarget.java',
     'annotation/RobocopTarget.java',
     'annotation/WebRTCJNITarget.java',
     'annotation/WrapForJNI.java',
+    'SysInfo.java',
+]]
+constants_jar.sources += ['java/org/mozilla/gecko/' + x for x in [
+    'adjust/AdjustHelperInterface.java',
+    'adjust/AttributionHelperListener.java',
     'db/BrowserContract.java',
     'LocaleManager.java',
     'Locales.java',
-    'SysInfo.java',
 ]]
 constants_jar.generated_sources = [
     'preprocessed/org/mozilla/gecko/AdjustConstants.java',
@@ -198,15 +201,18 @@ if CONFIG['MOZ_WEBRTC']:
         'constants.jar',
         'gecko-R.jar',
         'gecko-browser.jar',
-        'gecko-util.jar',
         'gecko-mozglue.jar',
+        'gecko-util.jar',
+        'gecko-view.jar',
     ]
     wrjar.javac_flags += ['-Xlint:all,-deprecation,-cast']
 
-geckoview_java_files = [
+gvjar = add_java_jar('gecko-view')
+
+gvjar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x
+                  for x in [
     'AlarmReceiver.java',
     'AndroidGamepadManager.java',
-    'ANRReporter.java',
     'BaseGeckoInterface.java',
     'ContextGetter.java',
     'CrashHandler.java',
@@ -219,7 +225,6 @@ geckoview_java_files = [
     'GeckoEditableListener.java',
     'GeckoHalDefines.java',
     'GeckoInputConnection.java',
-    'GeckoJavaSampler.java',
     'GeckoNetworkManager.java',
     'GeckoProfile.java',
     'GeckoProfileDirectories.java',
@@ -276,27 +281,38 @@ geckoview_java_files = [
     'permissions/Permissions.java',
     'permissions/PermissionsHelper.java',
     'PrefsHelper.java',
-    'restrictions/DefaultConfiguration.java',
-    'restrictions/GuestProfileConfiguration.java',
-    'restrictions/Restrictable.java',
-    'restrictions/RestrictedProfileConfiguration.java',
-    'restrictions/RestrictionCache.java',
-    'restrictions/RestrictionConfiguration.java',
-    'restrictions/RestrictionProvider.java',
-    'restrictions/Restrictions.java',
     'SmsManager.java',
     'sqlite/ByteBufferInputStream.java',
     'sqlite/MatrixBlobCursor.java',
     'sqlite/SQLiteBridge.java',
     'sqlite/SQLiteBridgeException.java',
     'TouchEventInterceptor.java',
-    'widget/SwipeDismissListViewTouchListener.java',
-    'ZoomConstraints.java',
+]]
+
+gvjar.sources += [geckoview_thirdparty_source_dir + f for f in [
+    'java/com/googlecode/eyesfree/braille/selfbraille/ISelfBrailleService.java',
+    'java/com/googlecode/eyesfree/braille/selfbraille/SelfBrailleClient.java',
+    'java/com/googlecode/eyesfree/braille/selfbraille/WriteData.java',
+]]
+
+gvjar.extra_jars += [
+    CONFIG['ANDROID_SUPPORT_ANNOTATIONS_JAR_LIB'],
+    CONFIG['ANDROID_SUPPORT_V4_AAR_LIB'],
+    CONFIG['ANDROID_SUPPORT_V4_AAR_INTERNAL_LIB'],
+    'constants.jar',
+    'gecko-R.jar',
+    'gecko-mozglue.jar',
+    'gecko-util.jar',
 ]
 
+gvjar.javac_flags += [
+    '-Xlint:all,-deprecation,-fallthrough',
+    '-J-Xmx512m',
+    '-J-Xms128m'
+]
+
+
 gbjar = add_java_jar('gecko-browser')
-gbjar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x
-                  for x in geckoview_java_files]
 
 gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'AboutPages.java',
@@ -311,6 +327,7 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'animation/PropertyAnimator.java',
     'animation/Rotate3DAnimation.java',
     'animation/ViewHelper.java',
+    'ANRReporter.java',
     'BootReceiver.java',
     'BrowserApp.java',
     'BrowserLocaleManager.java',
@@ -344,7 +361,6 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'db/SearchHistoryProvider.java',
     'db/SharedBrowserDatabaseProvider.java',
     'db/SQLiteBridgeContentProvider.java',
-    'db/StubBrowserDB.java',
     'db/SuggestedSites.java',
     'db/Table.java',
     'db/TabsAccessor.java',
@@ -415,6 +431,7 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'GeckoActivityStatus.java',
     'GeckoApp.java',
     'GeckoApplication.java',
+    'GeckoJavaSampler.java',
     'GeckoMessageReceiver.java',
     'GeckoProfilesProvider.java',
     'GeckoUpdateReceiver.java',
@@ -540,11 +557,11 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'media/AsyncCodecFactory.java',
     'media/AudioFocusAgent.java',
     'media/Codec.java',
-    'media/CodecManager.java',
     'media/CodecProxy.java',
     'media/FormatParam.java',
     'media/JellyBeanAsyncCodec.java',
     'media/MediaControlService.java',
+    'media/MediaManager.java',
     'media/RemoteManager.java',
     'media/Sample.java',
     'media/VideoPlayer.java',
@@ -618,6 +635,14 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'reader/SavedReaderViewHelper.java',
     'RemoteClientsDialogFragment.java',
     'Restarter.java',
+    'restrictions/DefaultConfiguration.java',
+    'restrictions/GuestProfileConfiguration.java',
+    'restrictions/Restrictable.java',
+    'restrictions/RestrictedProfileConfiguration.java',
+    'restrictions/RestrictionCache.java',
+    'restrictions/RestrictionConfiguration.java',
+    'restrictions/RestrictionProvider.java',
+    'restrictions/Restrictions.java',
     'ScreenshotObserver.java',
     'search/SearchEngine.java',
     'search/SearchEngineManager.java',
@@ -725,6 +750,7 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'widget/SiteLogins.java',
     'widget/SquaredImageView.java',
     'widget/SquaredRelativeLayout.java',
+    'widget/SwipeDismissListViewTouchListener.java',
     'widget/TabThumbnailWrapper.java',
     'widget/ThumbnailView.java',
     'widget/TwoWayView.java',
@@ -744,11 +770,6 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'widget/themed/ThemedTextView.java',
     'widget/themed/ThemedView.java',
 ]]
-gbjar.sources += [ thirdparty_source_dir + f for f in [
-    'com/googlecode/eyesfree/braille/selfbraille/ISelfBrailleService.java',
-    'com/googlecode/eyesfree/braille/selfbraille/SelfBrailleClient.java',
-    'com/googlecode/eyesfree/braille/selfbraille/WriteData.java',
-] ]
 android_package_dir = CONFIG['ANDROID_PACKAGE_NAME'].replace('.', '/')
 gbjar.generated_sources = [] # Keep it this way.
 gbjar.extra_jars += [
@@ -796,6 +817,7 @@ gbjar.extra_jars += [
     'gecko-mozglue.jar',
     'gecko-thirdparty.jar',
     'gecko-util.jar',
+    'gecko-view.jar',
     'sync-thirdparty.jar',
     'services.jar',
 ]
@@ -1071,7 +1093,8 @@ if CONFIG['MOZ_ANDROID_SEARCH_ACTIVITY']:
         'gecko-browser.jar',
         'gecko-mozglue.jar',
         'gecko-thirdparty.jar',
-        'gecko-util.jar'
+        'gecko-util.jar',
+        'gecko-view.jar',
     ]
 
 FINAL_TARGET_PP_FILES += ['package-name.txt.in']
@@ -1086,5 +1109,5 @@ OBJDIR_PP_FILES.mobile.android.base += [
 gbjar.sources += ['generated/org/mozilla/gecko/' + x for x in [
     'media/ICodec.java',
     'media/ICodecCallbacks.java',
-    'media/ICodecManager.java',
+    'media/IMediaManager.java',
 ]]

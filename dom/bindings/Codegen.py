@@ -7181,12 +7181,13 @@ class CGPerSignatureCall(CGThing):
                 """ % deprecated[0])))
 
         lenientFloatCode = None
-        if idlNode.getExtendedAttribute('LenientFloat') is not None:
-            if setter:
-                lenientFloatCode = "return true;\n"
-            elif idlNode.isMethod():
-                lenientFloatCode = ("args.rval().setUndefined();\n"
-                                    "return true;\n")
+        if (idlNode.getExtendedAttribute('LenientFloat') is not None and
+            (setter or idlNode.isMethod())):
+            cgThings.append(CGGeneric(dedent(
+                """
+                bool foundNonFiniteFloat = false;
+                """)))
+            lenientFloatCode = "foundNonFiniteFloat = true;\n"
 
         argsPre = []
         if idlNode.isStatic():
@@ -7329,6 +7330,25 @@ class CGPerSignatureCall(CGThing):
                                     argDescription % {"index": i + 1},
                                     idlNode, invalidEnumValueFatal=not setter,
                                     lenientFloatCode=lenientFloatCode))
+
+        # Now that argument processing is done, enforce the LenientFloat stuff
+        if lenientFloatCode:
+            if setter:
+                foundNonFiniteFloatBehavior = "return true;\n"
+            else:
+                assert idlNode.isMethod()
+                foundNonFiniteFloatBehavior = dedent(
+                    """
+                    args.rval().setUndefined();
+                    return true;
+                    """)
+            cgThings.append(CGGeneric(fill(
+                """
+                if (foundNonFiniteFloat) {
+                  $*{returnSteps}
+                }
+                """,
+                returnSteps=foundNonFiniteFloatBehavior)))
 
         if needsUnwrap:
             # Something depends on having the unwrapped object, so unwrap it now.
@@ -11223,31 +11243,50 @@ class CGDOMJSProxyHandler_delete(ClassMethod):
 
         namedBody = getDeleterBody("Named", foundVar="found")
         if namedBody is not None:
+            delete += dedent(
+                """
+                // Try named delete only if the named property visibility
+                // algorithm says the property is visible.
+                bool tryNamedDelete = true;
+                { // Scope for expando
+                  JS::Rooted<JSObject*> expando(cx, DOMProxyHandler::GetExpandoObject(proxy));
+                  if (expando) {
+                    bool hasProp;
+                    if (!JS_HasPropertyById(cx, expando, id, &hasProp)) {
+                      return false;
+                    }
+                    tryNamedDelete = !hasProp;
+                  }
+                }
+                """)
+
+            if not self.descriptor.interface.getExtendedAttribute('OverrideBuiltins'):
+                delete += dedent(
+                    """
+                    if (tryNamedDelete) {
+                      bool hasOnProto;
+                      if (!HasPropertyOnPrototype(cx, proxy, id, &hasOnProto)) {
+                        return false;
+                      }
+                      tryNamedDelete = !hasOnProto;
+                    }
+                    """)
+
             # We always return above for an index id in the case when we support
             # indexed properties, so we can just treat the id as a name
             # unconditionally here.
             delete += fill(
                 """
-                bool found = false;
-                bool deleteSucceeded;
-                $*{namedBody}
-                if (found) {
-                  return deleteSucceeded ? opresult.succeed() : opresult.failCantDelete();
+                if (tryNamedDelete) {
+                  bool found = false;
+                  bool deleteSucceeded;
+                  $*{namedBody}
+                  if (found) {
+                    return deleteSucceeded ? opresult.succeed() : opresult.failCantDelete();
+                  }
                 }
                 """,
                 namedBody=namedBody)
-            if not self.descriptor.interface.getExtendedAttribute('OverrideBuiltins'):
-                delete = fill(
-                    """
-                    bool hasOnProto;
-                    if (!HasPropertyOnPrototype(cx, proxy, id, &hasOnProto)) {
-                      return false;
-                    }
-                    if (!hasOnProto) {
-                      $*{delete}
-                    }
-                    """,
-                    delete=delete)
 
         delete += dedent("""
 

@@ -40,10 +40,10 @@ skip-if(Android) == grid-placement-definite-implicit-001.html grid-placement-def
 == grid-placement-definite-implicit-002.html grid-placement-definite-implicit-002.html
 skip-if(Android) fuzzy-if(winWidget,1,32) == grid-placement-auto-implicit-001.html grid-placement-auto-implicit-001.html
 == grid-placement-abspos-implicit-001.html grid-placement-abspos-implicit-001.html
-pref(layout.css.vertical-text.enabled,true) == rtl-grid-placement-definite-001.html rtl-grid-placement-definite-001.html
-pref(layout.css.vertical-text.enabled,true) == rtl-grid-placement-auto-row-sparse-001.html rtl-grid-placement-auto-row-sparse-001.html
-pref(layout.css.vertical-text.enabled,true) == vlr-grid-placement-auto-row-sparse-001.html vlr-grid-placement-auto-row-sparse-001.html
-pref(layout.css.vertical-text.enabled,true) == vrl-grid-placement-auto-row-sparse-001.html vrl-grid-placement-auto-row-sparse-001.html
+== rtl-grid-placement-definite-001.html rtl-grid-placement-definite-001.html
+== rtl-grid-placement-auto-row-sparse-001.html rtl-grid-placement-auto-row-sparse-001.html
+== vlr-grid-placement-auto-row-sparse-001.html vlr-grid-placement-auto-row-sparse-001.html
+== vrl-grid-placement-auto-row-sparse-001.html vrl-grid-placement-auto-row-sparse-001.html
 == grid-relpos-items-001.html grid-relpos-items-001.html
 == grid-item-sizing-percent-001.html grid-item-sizing-percent-001.html
 == grid-item-sizing-px-001.html grid-item-sizing-px-001.html
@@ -52,12 +52,12 @@ fuzzy-if(winWidget,70,130) fuzzy-if(cocoaWidget,85,180) == grid-col-max-sizing-m
 fuzzy-if(winWidget,70,130) fuzzy-if(cocoaWidget,85,180) == grid-col-max-sizing-max-content-002.html grid-col-max-sizing-max-content-002.html
 == grid-min-max-content-sizing-001.html grid-min-max-content-sizing-001.html
 == grid-min-max-content-sizing-002.html grid-min-max-content-sizing-002.html
-fuzzy-if(winWidget,1,36) == grid-auto-min-sizing-definite-001.html grid-auto-min-sizing-definite-001.html
+random == grid-auto-min-sizing-definite-001.html grid-auto-min-sizing-definite-001.html
 == grid-auto-min-sizing-intrinsic-001.html grid-auto-min-sizing-intrinsic-001.html
 == grid-auto-min-sizing-intrinsic-002.html grid-auto-min-sizing-intrinsic-002.html
 == grid-auto-min-sizing-intrinsic-003.html grid-auto-min-sizing-intrinsic-003.html
 == grid-auto-min-sizing-intrinsic-004.html grid-auto-min-sizing-intrinsic-004.html
-fails == grid-auto-min-sizing-percent-001.html grid-auto-min-sizing-percent-001.html
+skip == grid-auto-min-sizing-percent-001.html grid-auto-min-sizing-percent-001.html
 == grid-track-intrinsic-sizing-001.html grid-track-intrinsic-sizing-001.html
 == grid-track-intrinsic-sizing-002.html grid-track-intrinsic-sizing-002.html
 == grid-track-intrinsic-sizing-003.html grid-track-intrinsic-sizing-003.html

@@ -48,6 +48,9 @@ public:
 
   nsCString Description() const
   {
+    if (NS_SUCCEEDED(mCode)) {
+      return nsCString();
+    }
     return nsPrintfCString("0x%08x: %s", mCode, mMessage.get());
   }
 
@@ -55,6 +58,8 @@ private:
   nsresult mCode;
   nsCString mMessage;
 };
+
+#define RESULT_DETAIL(arg, ...) nsPrintfCString("%s: " arg, __func__, ##__VA_ARGS__)
 
 } // namespace mozilla
 #endif // MediaResult_h_

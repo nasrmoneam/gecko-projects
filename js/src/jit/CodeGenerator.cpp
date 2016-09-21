@@ -6074,6 +6074,8 @@ CodeGenerator::visitCreateArgumentsObject(LCreateArgumentsObject* lir)
         Register objTemp = ToRegister(lir->temp1());
         Register cxTemp = ToRegister(lir->temp2());
 
+        masm.Push(callObj);
+
         // Try to allocate an arguments object. This will leave the reserved
         // slots uninitialized, so it's important we don't GC until we
         // initialize these slots in ArgumentsObject::finishForIon.
@@ -6082,7 +6084,7 @@ CodeGenerator::visitCreateArgumentsObject(LCreateArgumentsObject* lir)
                             /* initContents = */ false);
 
         masm.moveStackPtrTo(temp);
-        masm.addPtr(Imm32(frameSize()), temp);
+        masm.addPtr(Imm32(masm.framePushed()), temp);
 
         masm.setupUnalignedABICall(cxTemp);
         masm.loadJSContext(cxTemp);
@@ -6092,10 +6094,14 @@ CodeGenerator::visitCreateArgumentsObject(LCreateArgumentsObject* lir)
         masm.passABIArg(objTemp);
 
         masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, ArgumentsObject::finishForIon));
-        masm.branchTestPtr(Assembler::Zero, ReturnReg, ReturnReg, masm.exceptionLabel());
+        masm.branchTestPtr(Assembler::Zero, ReturnReg, ReturnReg, &failure);
+
+        // Discard saved callObj on the stack.
+        masm.addToStackPtr(Imm32(sizeof(uintptr_t)));
         masm.jump(&done);
 
         masm.bind(&failure);
+        masm.Pop(callObj);
     }
 
     masm.moveStackPtrTo(temp);
@@ -11556,16 +11562,12 @@ CodeGenerator::visitAssertRangeF(LAssertRangeF* ins)
 {
     FloatRegister input = ToFloatRegister(ins->input());
     FloatRegister temp = ToFloatRegister(ins->temp());
-    FloatRegister dest = input;
-    if (hasMultiAlias())
-        dest = ToFloatRegister(ins->armtemp());
+    FloatRegister temp2 = ToFloatRegister(ins->temp2());
 
     const Range* r = ins->range();
 
-    masm.convertFloat32ToDouble(input, dest);
-    emitAssertRangeD(r, dest, temp);
-    if (dest == input)
-        masm.convertDoubleToFloat32(input, input);
+    masm.convertFloat32ToDouble(input, temp);
+    emitAssertRangeD(r, temp, temp2);
 }
 
 void

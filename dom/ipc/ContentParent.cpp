@@ -850,7 +850,7 @@ ContentParent::SendAsyncUpdate(nsIWidget* aWidget)
   ContentParent* cp = reinterpret_cast<ContentParent*>(
     ::GetPropW(hwnd, kPluginWidgetContentParentProperty));
   if (cp && !cp->IsDestroyed()) {
-    cp->SendUpdateWindow((uintptr_t)hwnd);
+    Unused << cp->SendUpdateWindow((uintptr_t)hwnd);
   }
 }
 #endif // defined(XP_WIN)
@@ -1824,6 +1824,11 @@ ContentParent::ActorDestroy(ActorDestroyReason why)
   Preferences::RemoveObserver(this, "");
   gfxVars::RemoveReceiver(this);
 
+  if (GPUProcessManager* gpu = GPUProcessManager::Get()) {
+    // Note: the manager could have shutdown already.
+    gpu->RemoveListener(this);
+  }
+
   RecvRemoveGeolocationListener();
 
   mConsoleService = nullptr;
@@ -2224,29 +2229,23 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
     if (useOffMainThreadCompositing) {
       GPUProcessManager* gpm = GPUProcessManager::Get();
 
-      {
-        Endpoint<PCompositorBridgeChild> endpoint;
-        DebugOnly<bool> opened =
-          gpm->CreateContentCompositorBridge(OtherPid(), &endpoint);
-        MOZ_ASSERT(opened);
-        Unused << SendInitCompositor(Move(endpoint));
-      }
+      Endpoint<PCompositorBridgeChild> compositor;
+      Endpoint<PImageBridgeChild> imageBridge;
+      Endpoint<PVRManagerChild> vrBridge;
 
-      {
-        Endpoint<PImageBridgeChild> endpoint;
-        DebugOnly<bool> opened =
-          gpm->CreateContentImageBridge(OtherPid(), &endpoint);
-        MOZ_ASSERT(opened);
-        Unused << SendInitImageBridge(Move(endpoint));
-      }
+      DebugOnly<bool> opened = gpm->CreateContentBridges(
+        OtherPid(),
+        &compositor,
+        &imageBridge,
+        &vrBridge);
+      MOZ_ASSERT(opened);
 
-      {
-        Endpoint<PVRManagerChild> endpoint;
-        DebugOnly<bool> opened =
-          gpm->CreateContentVRManager(OtherPid(), &endpoint);
-        MOZ_ASSERT(opened);
-        Unused << SendInitVRManager(Move(endpoint));
-      }
+      Unused << SendInitRendering(
+        Move(compositor),
+        Move(imageBridge),
+        Move(vrBridge));
+
+      gpm->AddListener(this);
     }
 #ifdef MOZ_WIDGET_GONK
     DebugOnly<bool> opened = PSharedBufferManager::Open(this);
@@ -2383,6 +2382,28 @@ ContentParent::RecvGetGfxVars(InfallibleTArray<GfxVarUpdate>* aVars)
   // updates.
   gfxVars::AddReceiver(this);
   return true;
+}
+
+void
+ContentParent::OnCompositorUnexpectedShutdown()
+{
+  GPUProcessManager* gpm = GPUProcessManager::Get();
+
+  Endpoint<PCompositorBridgeChild> compositor;
+  Endpoint<PImageBridgeChild> imageBridge;
+  Endpoint<PVRManagerChild> vrBridge;
+
+  DebugOnly<bool> opened = gpm->CreateContentBridges(
+    OtherPid(),
+    &compositor,
+    &imageBridge,
+    &vrBridge);
+  MOZ_ASSERT(opened);
+
+  Unused << SendReinitRendering(
+    Move(compositor),
+    Move(imageBridge),
+    Move(vrBridge));
 }
 
 void
@@ -5403,4 +5424,29 @@ ContentParent::SendGetFilesResponseAndForget(const nsID& aUUID,
     mGetFilesPendingRequests.Remove(aUUID);
     Unused << SendGetFilesResponse(aUUID, aResult);
   }
+}
+
+void
+ContentParent::ForceTabPaint(TabParent* aTabParent, uint64_t aLayerObserverEpoch)
+{
+  if (!mHangMonitorActor) {
+    return;
+  }
+  ProcessHangMonitor::ForcePaint(mHangMonitorActor, aTabParent, aLayerObserverEpoch);
+}
+
+bool
+ContentParent::RecvAccumulateChildHistogram(
+                InfallibleTArray<Accumulation>&& aAccumulations)
+{
+  Telemetry::AccumulateChild(aAccumulations);
+  return true;
+}
+
+bool
+ContentParent::RecvAccumulateChildKeyedHistogram(
+                InfallibleTArray<KeyedAccumulation>&& aAccumulations)
+{
+  Telemetry::AccumulateChildKeyed(aAccumulations);
+  return true;
 }

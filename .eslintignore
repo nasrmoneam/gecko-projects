@@ -70,6 +70,8 @@ browser/components/sessionstore/**
 browser/components/tabview/**
 browser/components/translation/**
 browser/extensions/pdfjs/**
+# generated or library files in pocket
+browser/extensions/pocket/content/panels/js/tmpl.js
 browser/extensions/pocket/content/panels/js/vendor/**
 browser/locales/**
 
@@ -125,7 +127,6 @@ devtools/server/tests/**
 devtools/shared/*.js
 !devtools/shared/async-storage.js
 !devtools/shared/async-utils.js
-!devtools/shared/css-lexer.js
 !devtools/shared/defer.js
 !devtools/shared/event-emitter.js
 !devtools/shared/indentation.js
@@ -192,7 +193,6 @@ devtools/server/tests/unit/babel_and_browserify_script_with_source_map.js
 devtools/server/tests/unit/setBreakpoint*
 
 # mobile/android/ exclusions
-mobile/android/chrome/content
 mobile/android/tests/
 
 # Uses `#filter substitution`
@@ -208,6 +208,7 @@ mobile/android/installer/
 mobile/android/locales/
 
 # Non-standard `(catch ex if ...)`
+mobile/android/chrome/content/browser.js
 mobile/android/components/Snippets.js
 
 # Bug 1178739: Ignore this file as a quick fix for "Illegal yield expression"
@@ -252,3 +253,6 @@ toolkit/webapps/**
 
 # Third party
 toolkit/modules/third_party/**
+
+#NSS
+security/nss/**

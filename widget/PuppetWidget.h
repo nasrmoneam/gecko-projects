@@ -173,6 +173,9 @@ public:
                   LayersBackend aBackendHint = mozilla::layers::LayersBackend::LAYERS_NONE,
                   LayerManagerPersistence aPersistence = LAYER_MANAGER_CURRENT) override;
 
+  // This is used after a compositor reset.
+  LayerManager* RecreateLayerManager(PLayerTransactionChild* aShadowManager);
+
   NS_IMETHOD_(void) SetInputContext(const InputContext& aContext,
                                     const InputContextAction& aAction) override;
   NS_IMETHOD_(InputContext) GetInputContext() override;
@@ -193,6 +196,9 @@ public:
   virtual double GetDefaultScaleInternal() override;
 
   virtual bool NeedsPaint() override;
+
+  // Paint the widget immediately if any paints are queued up.
+  void PaintNowIfNeeded();
 
   virtual TabChild* GetOwningTabChild() override { return mTabChild; }
 

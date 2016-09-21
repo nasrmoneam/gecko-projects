@@ -54,6 +54,8 @@
 #include "nsISupportsPrimitives.h"
 #include "MediaPrefs.h"
 
+#include "FennecJNIWrappers.h"
+
 using namespace mozilla;
 using namespace mozilla::gfx;
 using namespace mozilla::jni;
@@ -1336,32 +1338,6 @@ extern "C"
 __attribute__ ((visibility("default")))
 jobject JNICALL
 Java_org_mozilla_gecko_GeckoAppShell_allocateDirectBuffer(JNIEnv *env, jclass, jlong size);
-
-bool
-AndroidBridge::GetThreadNameJavaProfiling(uint32_t aThreadId, nsCString & aResult)
-{
-    auto jstrThreadName = GeckoJavaSampler::GetThreadName(aThreadId);
-
-    if (!jstrThreadName)
-        return false;
-
-    aResult = jstrThreadName->ToCString();
-    return true;
-}
-
-bool
-AndroidBridge::GetFrameNameJavaProfiling(uint32_t aThreadId, uint32_t aSampleId,
-                                          uint32_t aFrameId, nsCString & aResult)
-{
-    auto jstrSampleName = GeckoJavaSampler::GetFrameName
-            (aThreadId, aSampleId, aFrameId);
-
-    if (!jstrSampleName)
-        return false;
-
-    aResult = jstrSampleName->ToCString();
-    return true;
-}
 
 void
 AndroidBridge::ContentDocumentChanged()

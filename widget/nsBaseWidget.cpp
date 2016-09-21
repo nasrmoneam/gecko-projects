@@ -1021,12 +1021,9 @@ void
 nsBaseWidget::SetConfirmedTargetAPZC(uint64_t aInputBlockId,
                                      const nsTArray<ScrollableLayerGuid>& aTargets) const
 {
-  // Need to specifically bind this since it's overloaded.
-  void (IAPZCTreeManager::*setTargetApzcFunc)(uint64_t, const nsTArray<ScrollableLayerGuid>&)
-          = &IAPZCTreeManager::SetTargetAPZC;
   APZThreadUtils::RunOnControllerThread(NewRunnableMethod
     <uint64_t, StoreCopyPassByRRef<nsTArray<ScrollableLayerGuid>>>(mAPZC,
-                                                                   setTargetApzcFunc,
+                                                                   &IAPZCTreeManager::SetTargetAPZC,
                                                                    aInputBlockId, aTargets));
 }
 
@@ -1371,6 +1368,12 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
     // may use the basic compositor.
     gfxPlatform::GetPlatform()->NotifyCompositorCreated(mLayerManager->GetCompositorBackendType());
   }
+}
+
+void nsBaseWidget::NotifyRemoteCompositorSessionLost(CompositorSession* aSession)
+{
+  MOZ_ASSERT(aSession == mCompositorSession);
+  DestroyLayerManager();
 }
 
 bool nsBaseWidget::ShouldUseOffMainThreadCompositing()

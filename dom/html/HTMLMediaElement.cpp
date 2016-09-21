@@ -85,6 +85,7 @@
 
 #include "mozilla/dom/AudioTrack.h"
 #include "mozilla/dom/AudioTrackList.h"
+#include "mozilla/dom/MediaErrorBinding.h"
 #include "mozilla/dom/VideoTrack.h"
 #include "mozilla/dom/VideoTrackList.h"
 #include "mozilla/dom/TextTrack.h"
@@ -161,6 +162,12 @@ static const double MAX_PLAYBACKRATE = 5.0;
 static const double THRESHOLD_HIGH_PLAYBACKRATE_AUDIO = 4.0;
 // Threshold under which audio is muted
 static const double THRESHOLD_LOW_PLAYBACKRATE_AUDIO = 0.5;
+
+// Media error values.  These need to match the ones in MediaError.webidl.
+static const unsigned short MEDIA_ERR_ABORTED = 1;
+static const unsigned short MEDIA_ERR_NETWORK = 2;
+static const unsigned short MEDIA_ERR_DECODE = 3;
+static const unsigned short MEDIA_ERR_SRC_NOT_SUPPORTED = 4;
 
 // Under certain conditions there may be no-one holding references to
 // a media element from script, DOM parent, etc, but the element may still
@@ -871,13 +878,6 @@ NS_IMETHODIMP HTMLMediaElement::GetMozAutoplayEnabled(bool *aAutoplayEnabled)
   return NS_OK;
 }
 
-NS_IMETHODIMP HTMLMediaElement::GetError(nsIDOMMediaError * *aError)
-{
-  NS_IF_ADDREF(*aError = mError);
-
-  return NS_OK;
-}
-
 bool
 HTMLMediaElement::Ended()
 {
@@ -1040,12 +1040,9 @@ void HTMLMediaElement::AbortExistingLoads()
   mPendingEvents.Clear();
 }
 
-void HTMLMediaElement::NoSupportedMediaSourceError()
+void HTMLMediaElement::NoSupportedMediaSourceError(const nsACString& aErrorDetails)
 {
-  NS_ASSERTION(mNetworkState == NETWORK_LOADING,
-               "Not loading during source selection?");
-
-  mError = new MediaError(this, nsIDOMMediaError::MEDIA_ERR_SRC_NOT_SUPPORTED);
+  mError = new MediaError(this, MEDIA_ERR_SRC_NOT_SUPPORTED, aErrorDetails);
   ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_NO_SOURCE);
   DispatchAsyncEvent(NS_LITERAL_STRING("error"));
   ChangeDelayLoadStatus(false);
@@ -1639,20 +1636,6 @@ nsresult HTMLMediaElement::LoadResource()
 
   // Set the media element's CORS mode only when loading a resource
   mCORSMode = AttrValueToCORSMode(GetParsedAttr(nsGkAtoms::crossorigin));
-
-#ifdef MOZ_EME
-  bool isBlob = false;
-  if (mMediaKeys &&
-      Preferences::GetBool("media.eme.mse-only", true) &&
-      // We only want mediaSource URLs, but they are BlobURL, so we have to
-      // check the schema and if they are not MediaStream or real Blob.
-      (NS_FAILED(mLoadingSrc->SchemeIs(BLOBURI_SCHEME, &isBlob)) ||
-       !isBlob ||
-       IsMediaStreamURI(mLoadingSrc) ||
-       IsBlobURI(mLoadingSrc))) {
-    return NS_ERROR_DOM_NOT_SUPPORTED_ERR;
-  }
-#endif
 
   HTMLMediaElement* other = LookupMediaElementURITable(mLoadingSrc);
   if (other && other->mDecoder) {
@@ -4343,8 +4326,10 @@ void HTMLMediaElement::MetadataLoaded(const MediaInfo* aInfo,
     mDecoder->SetFragmentEndTime(mFragmentEnd);
   }
   if (mIsEncrypted) {
+    // We only support playback of encrypted content via MSE by default.
     if (!mMediaSource && Preferences::GetBool("media.eme.mse-only", true)) {
-      DecodeError(NS_ERROR_DOM_MEDIA_FATAL_ERR);
+      DecodeError(MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                              "Encrypted content not supported outside of MSE"));
       return;
     }
 
@@ -4416,7 +4401,11 @@ void HTMLMediaElement::NetworkError()
   if (mDecoder) {
     ShutdownDecoder();
   }
-  Error(nsIDOMMediaError::MEDIA_ERR_NETWORK);
+  if (mReadyState == nsIDOMHTMLMediaElement::HAVE_NOTHING) {
+    NoSupportedMediaSourceError();
+  } else {
+    Error(MEDIA_ERR_NETWORK);
+  }
 }
 
 void HTMLMediaElement::DecodeError(const MediaResult& aError)
@@ -4442,8 +4431,10 @@ void HTMLMediaElement::DecodeError(const MediaResult& aError)
     } else {
       NS_WARNING("Should know the source we were loading from!");
     }
+  } else if (mReadyState == nsIDOMHTMLMediaElement::HAVE_NOTHING) {
+    NoSupportedMediaSourceError(aError.Description());
   } else {
-    Error(nsIDOMMediaError::MEDIA_ERR_DECODE, aError);
+    Error(MEDIA_ERR_DECODE, aError.Description());
   }
 }
 
@@ -4454,16 +4445,18 @@ bool HTMLMediaElement::HasError() const
 
 void HTMLMediaElement::LoadAborted()
 {
-  Error(nsIDOMMediaError::MEDIA_ERR_ABORTED);
+  Error(MEDIA_ERR_ABORTED);
 }
 
 void HTMLMediaElement::Error(uint16_t aErrorCode,
-                             const MediaResult& aErrorDetails)
+                             const nsACString& aErrorDetails)
 {
-  NS_ASSERTION(aErrorCode == nsIDOMMediaError::MEDIA_ERR_DECODE ||
-               aErrorCode == nsIDOMMediaError::MEDIA_ERR_NETWORK ||
-               aErrorCode == nsIDOMMediaError::MEDIA_ERR_ABORTED,
-               "Only use nsIDOMMediaError codes!");
+  NS_ASSERTION(aErrorCode == MEDIA_ERR_DECODE ||
+               aErrorCode == MEDIA_ERR_NETWORK ||
+               aErrorCode == MEDIA_ERR_ABORTED,
+               "Only use MediaError codes!");
+  NS_ASSERTION(mReadyState > HAVE_NOTHING,
+               "Shouldn't be called when readyState is HAVE_NOTHING");
 
   // Since we have multiple paths calling into DecodeError, e.g.
   // MediaKeys::Terminated and EMEH264Decoder::Error. We should take the 1st
@@ -4471,19 +4464,10 @@ void HTMLMediaElement::Error(uint16_t aErrorCode,
   if (mError) {
     return;
   }
-  nsCString message;
-  if (NS_FAILED(aErrorDetails)) {
-    message = aErrorDetails.Description();
-  }
-  mError = new MediaError(this, aErrorCode, message);
+  mError = new MediaError(this, aErrorCode, aErrorDetails);
 
   DispatchAsyncEvent(NS_LITERAL_STRING("error"));
-  if (mReadyState == nsIDOMHTMLMediaElement::HAVE_NOTHING) {
-    ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_EMPTY);
-    DispatchAsyncEvent(NS_LITERAL_STRING("emptied"));
-  } else {
-    ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_IDLE);
-  }
+  ChangeNetworkState(nsIDOMHTMLMediaElement::NETWORK_IDLE);
   ChangeDelayLoadStatus(false);
   UpdateAudioChannelPlayingState();
 }
@@ -6114,16 +6098,6 @@ HTMLMediaElement::SetMediaKeys(mozilla::dom::MediaKeys* aMediaKeys,
     return nullptr;
   }
 
-  // We only support EME for MSE content by default.
-  if (mDecoder &&
-      !mMediaSource &&
-      Preferences::GetBool("media.eme.mse-only", true)) {
-    ShutdownDecoder();
-    promise->MaybeReject(NS_ERROR_DOM_NOT_SUPPORTED_ERR,
-                         NS_LITERAL_CSTRING("EME not supported on non-MSE streams"));
-    return promise.forget();
-  }
-
   // 1. If mediaKeys and the mediaKeys attribute are the same object,
   // return a resolved promise.
   if (mMediaKeys == aMediaKeys) {
@@ -6488,10 +6462,9 @@ HTMLMediaElement::HaveFailedWithSourceNotSupportedError() const
     return false;
   }
 
-  uint16_t errorCode;
-  mError->GetCode(&errorCode);
+  uint16_t errorCode = mError->Code();
   return (mNetworkState == nsIDOMHTMLMediaElement::NETWORK_NO_SOURCE &&
-          errorCode == nsIDOMMediaError::MEDIA_ERR_SRC_NOT_SUPPORTED);
+          errorCode == MEDIA_ERR_SRC_NOT_SUPPORTED);
 }
 
 void
