@@ -57,7 +57,7 @@ GetUpdateLog()
     sUpdateLog = PR_NewLogModule("updatedriver");
   return sUpdateLog;
 }
-#define LOG(args) MOZ_LOG(GetUpdateLog(), mozilla::LogLevel::Error, args)
+#define LOG(args) MOZ_LOG(GetUpdateLog(), mozilla::LogLevel::Debug, args)
 
 #ifdef XP_WIN
 #define UPDATER_BIN "updater.exe"
@@ -998,27 +998,21 @@ ProcessHasTerminated(ProcessType pt)
   return true;
 #elif defined(XP_UNIX)
   int exitStatus;
-  LOG(("ProcessHasTerminated: Checking state of updater process"));
   pid_t exited = waitpid(pt, &exitStatus, WNOHANG);
   if (exited == 0) {
     // Process is still running.
-    LOG(("ProcessHasTerminated: Updater process is still running; waiting 1 second before trying again"));
+    sleep(1);
     return false;
-  } else if (exited == -1) {
-    LOG(("ProcessHasTerminated: Error while checking if the updater process is finished"));
+  }
+  if (exited == -1) {
+    LOG(("Error while checking if the updater process is finished"));
     // This shouldn't happen, but if it does, the updater process is lost to us,
     // so the best we can do is pretend that it's exited.
     return true;
   }
-  if (exited != pt) {
-    LOG(("ProcessHasTerminated: Got notified by waitpid about the wrong process?"));
-  } else {
-    // If we get here, the process has exited; make sure it exited normally.
-    if (WIFEXITED(exitStatus) && (WEXITSTATUS(exitStatus) != 0)) {
-      LOG(("ProcessHasTerminated: Error while running the updater process, check update.log"));
-    } else {
-      LOG(("ProcessHasTerminated: Updater process exited normally"));
-    }
+  // If we get here, the process has exited; make sure it exited normally.
+  if (WIFEXITED(exitStatus) && (WEXITSTATUS(exitStatus) != 0)) {
+    LOG(("Error while running the updater process, check update.log"));
   }
   return true;
 #else
@@ -1300,10 +1294,8 @@ nsUpdateProcessor::WaitForProcess()
 {
   MOZ_ASSERT(!NS_IsMainThread(), "main thread");
   if (ProcessHasTerminated(mUpdaterPID)) {
-    LOG(("WaitForProcess: process is finished, dispatching UpdateDone"));
     NS_DispatchToMainThread(NewRunnableMethod(this, &nsUpdateProcessor::UpdateDone));
   } else {
-    LOG(("WaitForProcess: process still running, dispatching myself"));
     NS_DispatchToCurrentThread(NewRunnableMethod(this, &nsUpdateProcessor::WaitForProcess));
   }
 }
