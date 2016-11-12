@@ -63,9 +63,11 @@ static nsIAtom** kRelationAttrs[] =
 {
   &nsGkAtoms::aria_labelledby,
   &nsGkAtoms::aria_describedby,
+  &nsGkAtoms::aria_details,
   &nsGkAtoms::aria_owns,
   &nsGkAtoms::aria_controls,
   &nsGkAtoms::aria_flowto,
+  &nsGkAtoms::aria_errormessage,
   &nsGkAtoms::_for,
   &nsGkAtoms::control
 };
@@ -1375,7 +1377,7 @@ DocAccessible::ProcessInvalidationList()
   // children are recached.
   for (uint32_t idx = 0; idx < mInvalidationList.Length(); idx++) {
     nsIContent* content = mInvalidationList[idx];
-    if (!HasAccessible(content)) {
+    if (!HasAccessible(content) && content->HasID()) {
       Accessible* container = GetContainerAccessible(content);
       if (container) {
         // Check if the node is a target of aria-owns, and if so, don't process
@@ -2179,6 +2181,8 @@ DocAccessible::MoveChild(Accessible* aChild, Accessible* aNewParent,
     nsTArray<RefPtr<Accessible> >* children = mARIAOwnsHash.Get(curParent);
     children->RemoveElement(aChild);
   }
+
+  NotificationController::MoveGuard mguard(mNotificationController);
 
   if (curParent == aNewParent) {
     MOZ_ASSERT(aChild->IndexInParent() != aIdxInParent, "No move case");

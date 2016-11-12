@@ -22,9 +22,6 @@
 
 namespace js {
 
-extern JSObject*
-InitSharedArrayBufferClass(JSContext* cx, HandleObject obj);
-
 class Debugger;
 class TypedObjectModuleObject;
 class LexicalEnvironmentObject;
@@ -100,6 +97,8 @@ class GlobalObject : public NativeObject
         STAR_GENERATOR_OBJECT_PROTO,
         STAR_GENERATOR_FUNCTION_PROTO,
         STAR_GENERATOR_FUNCTION,
+        ASYNC_FUNCTION_PROTO,
+        ASYNC_FUNCTION,
         MAP_ITERATOR_PROTO,
         SET_ITERATOR_PROTO,
         COLLATOR_PROTO,
@@ -427,6 +426,18 @@ class GlobalObject : public NativeObject
         return &global->getPrototype(key).toObject();
     }
 
+    static NativeObject* getOrCreateSetPrototype(JSContext* cx, Handle<GlobalObject*> global) {
+        if (!ensureConstructor(cx, global, JSProto_Set))
+            return nullptr;
+        return &global->getPrototype(JSProto_Set).toObject().as<NativeObject>();
+    }
+
+    static NativeObject* getOrCreateWeakSetPrototype(JSContext* cx, Handle<GlobalObject*> global) {
+        if (!ensureConstructor(cx, global, JSProto_WeakSet))
+            return nullptr;
+        return &global->getPrototype(JSProto_WeakSet).toObject().as<NativeObject>();
+    }
+
     JSObject* getOrCreateIntlObject(JSContext* cx) {
         return getOrCreateObject(cx, APPLICATION_SLOTS + JSProto_Intl, initIntlObject);
     }
@@ -567,6 +578,19 @@ class GlobalObject : public NativeObject
         return global->getOrCreateObject(cx, STAR_GENERATOR_FUNCTION, initStarGenerators);
     }
 
+    static NativeObject* getOrCreateAsyncFunctionPrototype(JSContext* cx,
+                                                           Handle<GlobalObject*> global)
+    {
+        return MaybeNativeObject(global->getOrCreateObject(cx, ASYNC_FUNCTION_PROTO,
+                                                           initAsyncFunction));
+    }
+
+    static JSObject* getOrCreateAsyncFunction(JSContext* cx,
+                                              Handle<GlobalObject*> global)
+    {
+        return global->getOrCreateObject(cx, ASYNC_FUNCTION, initAsyncFunction);
+    }
+
     static JSObject* getOrCreateMapIteratorPrototype(JSContext* cx,
                                                      Handle<GlobalObject*> global)
     {
@@ -705,7 +729,7 @@ class GlobalObject : public NativeObject
                                 MutableHandleObject eval);
 
     // Infallibly test whether the given value is the eval function for this global.
-    bool valueIsEval(Value val);
+    bool valueIsEval(const Value& val);
 
     // Implemented in jsiter.cpp.
     static bool initIteratorProto(JSContext* cx, Handle<GlobalObject*> global);
@@ -715,6 +739,8 @@ class GlobalObject : public NativeObject
     // Implemented in vm/GeneratorObject.cpp.
     static bool initLegacyGeneratorProto(JSContext* cx, Handle<GlobalObject*> global);
     static bool initStarGenerators(JSContext* cx, Handle<GlobalObject*> global);
+
+    static bool initAsyncFunction(JSContext* cx, Handle<GlobalObject*> global);
 
     // Implemented in builtin/MapObject.cpp.
     static bool initMapIteratorProto(JSContext* cx, Handle<GlobalObject*> global);
@@ -960,10 +986,10 @@ GenericCreatePrototype(JSContext* cx, JSProtoKey key)
     MOZ_ASSERT(key != JSProto_Object);
     const Class* clasp = ProtoKeyToClass(key);
     MOZ_ASSERT(clasp);
-    JSProtoKey parentKey = ParentKeyForStandardClass(key);
-    if (!GlobalObject::ensureConstructor(cx, cx->global(), parentKey))
+    JSProtoKey protoKey = InheritanceProtoKeyForStandardClass(key);
+    if (!GlobalObject::ensureConstructor(cx, cx->global(), protoKey))
         return nullptr;
-    RootedObject parentProto(cx, &cx->global()->getPrototype(parentKey).toObject());
+    RootedObject parentProto(cx, &cx->global()->getPrototype(protoKey).toObject());
     return cx->global()->createBlankPrototypeInheriting(cx, clasp, parentProto);
 }
 
@@ -975,6 +1001,9 @@ StandardProtoKeyOrNull(const JSObject* obj)
         return GetExceptionProtoKey(obj->as<ErrorObject>().type());
     return key;
 }
+
+JSObject*
+NewSingletonObjectWithFunctionPrototype(JSContext* cx, Handle<GlobalObject*> global);
 
 } // namespace js
 

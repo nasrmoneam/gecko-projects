@@ -12,7 +12,7 @@ const {Task} = require("devtools/shared/task");
 const {gDevTools} = require("devtools/client/framework/devtools");
 
 const {LocalizationHelper} = require("devtools/shared/l10n");
-const L10N = new LocalizationHelper("devtools/locale/toolbox.properties");
+const L10N = new LocalizationHelper("devtools/client/locales/toolbox.properties");
 
 exports.OptionsPanel = OptionsPanel;
 
@@ -256,7 +256,10 @@ OptionsPanel.prototype = {
 
   setupThemeList: function () {
     let themeBox = this.panelDoc.getElementById("devtools-theme-box");
-    themeBox.innerHTML = "";
+    let themeLabels = themeBox.querySelectorAll("label");
+    for (let label of themeLabels) {
+      label.remove();
+    }
 
     let createThemeOption = theme => {
       let inputLabel = this.panelDoc.createElement("label");

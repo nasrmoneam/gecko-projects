@@ -10,7 +10,6 @@ Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/inspector/test/head.js",
   this);
 
-var {CssRuleView} = require("devtools/client/inspector/rules/rules");
 var {getInplaceEditorForSpan: inplaceEditor} =
   require("devtools/client/shared/inplace-editor");
 const {getColor: getThemeColor} = require("devtools/client/shared/theme");
@@ -21,7 +20,8 @@ const TEST_URL_ROOT_SSL =
   "https://example.com/browser/devtools/client/inspector/shared/test/";
 const ROOT_TEST_DIR = getRootDirectory(gTestPath);
 const FRAME_SCRIPT_URL = ROOT_TEST_DIR + "doc_frame_script.js";
-const STYLE_INSPECTOR_L10N = new LocalizationHelper("chrome://devtools-shared/locale/styleinspector.properties");
+const STYLE_INSPECTOR_L10N =
+      new LocalizationHelper("devtools/shared/locales/styleinspector.properties");
 
 // Clean-up all prefs that might have been changed during a test run
 // (safer here because if the test fails, then the pref is never reverted)
@@ -420,7 +420,7 @@ function getRuleViewLinkByIndex(view, index) {
  */
 function getRuleViewLinkTextByIndex(view, index) {
   let link = getRuleViewLinkByIndex(view, index);
-  return link.querySelector(".ruleview-rule-source-label").value;
+  return link.querySelector(".ruleview-rule-source-label").textContent;
 }
 
 /**

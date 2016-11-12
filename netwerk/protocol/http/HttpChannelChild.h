@@ -38,7 +38,6 @@ namespace net {
 
 class InterceptedChannelContent;
 class InterceptStreamListener;
-class OverrideRunnable;
 
 class HttpChannelChild final : public PHttpChannelChild
                              , public HttpBaseChannel
@@ -121,7 +120,8 @@ protected:
                           const NetAddr& selfAddr,
                           const NetAddr& peerAddr,
                           const int16_t& redirectCount,
-                          const uint32_t& cacheKey) override;
+                          const uint32_t& cacheKey,
+                          const nsCString& altDataType) override;
   bool RecvOnTransportAndData(const nsresult& channelStatus,
                               const nsresult& status,
                               const uint64_t& progress,
@@ -145,6 +145,7 @@ protected:
   bool RecvFlushedForDiversion() override;
   bool RecvDivertMessages() override;
   bool RecvDeleteSelf() override;
+  bool RecvFinishInterceptedRedirect() override;
 
   bool RecvReportSecurityMessage(const nsString& messageTag,
                                  const nsString& messageCategory) override;
@@ -158,6 +159,25 @@ protected:
   NS_IMETHOD GetResponseSynthesized(bool* aSynthesized) override;
 
 private:
+
+  class OverrideRunnable : public Runnable {
+  public:
+    OverrideRunnable(HttpChannelChild* aChannel,
+                     HttpChannelChild* aNewChannel,
+                     InterceptStreamListener* aListener,
+                     nsIInputStream* aInput,
+                     nsAutoPtr<nsHttpResponseHead>& aHead);
+
+    NS_IMETHOD Run() override;
+    void OverrideWithSynthesizedResponse();
+  private:
+    RefPtr<HttpChannelChild> mChannel;
+    RefPtr<HttpChannelChild> mNewChannel;
+    RefPtr<InterceptStreamListener> mListener;
+    nsCOMPtr<nsIInputStream> mInput;
+    nsAutoPtr<nsHttpResponseHead> mHead;
+  };
+
   nsresult ContinueAsyncOpen();
 
   void DoOnStartRequest(nsIRequest* aRequest, nsISupports* aContext);
@@ -245,6 +265,17 @@ private:
   // is synthesized.
   bool mSuspendParentAfterSynthesizeResponse;
 
+  // Needed to call AsyncOpen in FinishInterceptedRedirect
+  nsCOMPtr<nsIStreamListener> mInterceptedRedirectListener;
+  nsCOMPtr<nsISupports> mInterceptedRedirectContext;
+  // Needed to call CleanupRedirectingChannel in FinishInterceptedRedirect
+  RefPtr<HttpChannelChild> mInterceptingChannel;
+  // Used to call OverrideWithSynthesizedResponse in FinishInterceptedRedirect
+  RefPtr<OverrideRunnable> mOverrideRunnable;
+
+  void FinishInterceptedRedirect();
+  void CleanupRedirectingChannel(nsresult rv);
+
   // true after successful AsyncOpen until OnStopRequest completes.
   bool RemoteChannelExists() { return mIPCOpen && !mKeptAlive; }
 
@@ -261,7 +292,8 @@ private:
                       const nsCString& securityInfoSerialization,
                       const NetAddr& selfAddr,
                       const NetAddr& peerAddr,
-                      const uint32_t& cacheKey);
+                      const uint32_t& cacheKey,
+                      const nsCString& altDataType);
   void MaybeDivertOnData(const nsCString& data,
                          const uint64_t& offset,
                          const uint32_t& count);
@@ -284,7 +316,7 @@ private:
                       const nsHttpResponseHead& responseHead,
                       const nsACString& securityInfoSerialization,
                       const nsACString& channelId);
-  void Redirect3Complete();
+  bool Redirect3Complete(OverrideRunnable* aRunnable);
   void DeleteSelf();
 
   // Create a a new channel to be used in a redirection, based on the provided
@@ -297,6 +329,9 @@ private:
   // Perform a redirection without communicating with the parent process at all.
   void BeginNonIPCRedirect(nsIURI* responseURI,
                            const nsHttpResponseHead* responseHead);
+
+  // Override the default security info pointer during a non-IPC redirection.
+  void OverrideSecurityInfoForNonIPCRedirect(nsISupports* securityInfo);
 
   friend class AssociateApplicationCacheEvent;
   friend class StartRequestEvent;
@@ -313,7 +348,6 @@ private:
   friend class HttpAsyncAborter<HttpChannelChild>;
   friend class InterceptStreamListener;
   friend class InterceptedChannelContent;
-  friend class OverrideRunnable;
 };
 
 // A stream listener interposed between the nsInputStreamPump used for intercepted channels

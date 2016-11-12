@@ -26,6 +26,10 @@ NotificationController::NotificationController(DocAccessible* aDocument,
   EventQueue(aDocument), mObservingState(eNotObservingRefresh),
   mPresShell(aPresShell)
 {
+#ifdef DEBUG
+  mMoveGuardOnStack = false;
+#endif
+
   // Schedule initial accessible tree construction.
   ScheduleProcessing();
 }
@@ -418,12 +422,15 @@ NotificationController::WillRefresh(mozilla::TimeStamp aTime)
       nsCOMPtr<nsITabChild> tabChild =
         do_GetInterface(mDocument->DocumentNode()->GetDocShell());
       if (tabChild) {
+        MOZ_ASSERT(parentIPCDoc);
         static_cast<TabChild*>(tabChild.get())->
-          SendPDocAccessibleConstructor(ipcDoc, parentIPCDoc, id);
+          SendPDocAccessibleConstructor(ipcDoc, parentIPCDoc, id,
 #if defined(XP_WIN)
-        IAccessibleHolder holder(CreateHolderFromAccessible(childDoc));
-        ipcDoc->SendCOMProxy(holder);
+                                        AccessibleWrap::GetChildIDFor(childDoc)
+#else
+                                        0
 #endif
+                                        );
       }
     }
   }

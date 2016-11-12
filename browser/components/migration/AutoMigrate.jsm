@@ -87,7 +87,11 @@ const AutoMigrate = {
       // (Note that this ignores logins being removed as that doesn't
       //  impair the 'undo' functionality of the import.)
       if (kPasswordManagerTopicTypes.has(data)) {
-        this.removeUndoOption(this.UNDO_REMOVED_REASON_PASSWORD_CHANGE);
+        // Ignore chrome:// things like sync credentials:
+        let loginInfo = subject.QueryInterface(Ci.nsILoginInfo);
+        if (!loginInfo.hostname || !loginInfo.hostname.startsWith("chrome://")) {
+          this.removeUndoOption(this.UNDO_REMOVED_REASON_PASSWORD_CHANGE);
+        }
       }
     } else if (topic == kSyncTopic) {
       this.removeUndoOption(this.UNDO_REMOVED_REASON_SYNC_SIGNIN);
@@ -118,7 +122,7 @@ const AutoMigrate = {
     histogram.add(15);
 
     let sawErrors = false;
-    let migrationObserver = (subject, topic, data) => {
+    let migrationObserver = (subject, topic) => {
       if (topic == "Migration:ItemError") {
         sawErrors = true;
       } else if (topic == "Migration:Ended") {
@@ -354,6 +358,8 @@ const AutoMigrate = {
     notificationBox.appendNotification(
       message, kNotificationId, null, notificationBox.PRIORITY_INFO_HIGH, buttons
     );
+    let remainingDays = Preferences.get(kAutoMigrateDaysToOfferUndoPref, 0);
+    Services.telemetry.getHistogramById("FX_STARTUP_MIGRATION_UNDO_OFFERED").add(4 - remainingDays);
   },
 
   shouldStillShowUndoPrompt() {

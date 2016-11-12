@@ -23,7 +23,6 @@ import mozprofile
 from manifestparser import TestManifest
 from manifestparser.filters import tags
 from marionette_driver.marionette import Marionette
-from mozlog import get_default_logger
 from moztest.adapters.unit import StructuredTestRunner, StructuredTestResult
 from moztest.results import TestResultCollection, TestResult, relevant_line
 import mozversion
@@ -52,9 +51,9 @@ class MarionetteTest(TestResult):
     @property
     def test_name(self):
         if self.test_class is not None:
-            return '%s.py %s.%s' % (self.test_class.split('.')[0],
-                                    self.test_class,
-                                    self.name)
+            return '{0}.py {1}.{2}'.format(self.test_class.split('.')[0],
+                                           self.test_class,
+                                           self.name)
         else:
             return self.name
 
@@ -186,7 +185,7 @@ class MarionetteTestResult(StructuredTestResult, TestResultCollection):
         else:
             desc = str(test)
             if hasattr(test, 'jsFile'):
-                desc = "%s, %s" % (test.jsFile, desc)
+                desc = "{0}, {1}".format(test.jsFile, desc)
             return desc
 
     def printLogs(self, test):
@@ -296,6 +295,7 @@ class BaseMarionetteArguments(ArgumentParser):
                                "'file.ini:section' to specify a particular section.")
         self.add_argument('--addon',
                           action='append',
+                          dest='addons',
                           help="addon to install; repeat for multiple addons.")
         self.add_argument('--repeat',
                           type=int,
@@ -444,7 +444,7 @@ class BaseMarionetteArguments(ArgumentParser):
             if not 1 < args.total_chunks:
                 self.error('Total chunks must be greater than 1.')
             if not 1 <= args.this_chunk <= args.total_chunks:
-                self.error('Chunk to run must be between 1 and %s.' % args.total_chunks)
+                self.error('Chunk to run must be between 1 and {}.'.format(args.total_chunks))
 
         if args.jsdebugger:
             args.app_args.append('-jsdebugger')
@@ -567,9 +567,8 @@ class BaseMarionetteTestRunner(object):
                         rv['screenshot'] = marionette.screenshot()
                     with marionette.using_context(marionette.CONTEXT_CONTENT):
                         rv['source'] = marionette.page_source
-                except Exception:
-                    logger = get_default_logger()
-                    logger.warning('Failed to gather test failure debug.', exc_info=True)
+                except Exception as exc:
+                    self.logger.warning('Failed to gather test failure debug: {}'.format(exc))
             return rv
 
         self.result_callbacks.append(gather_debug)
@@ -628,7 +627,7 @@ class BaseMarionetteTestRunner(object):
             for path in list(self.testvars_paths):
                 path = os.path.abspath(os.path.expanduser(path))
                 if not os.path.exists(path):
-                    raise IOError('--testvars file %s does not exist' % path)
+                    raise IOError('--testvars file {} does not exist'.format(path))
                 try:
                     with open(path) as f:
                         data.append(json.loads(f.read()))
@@ -759,54 +758,6 @@ class BaseMarionetteTestRunner(object):
             kwargs['workspace'] = self.workspace_path
         return kwargs
 
-    def launch_test_container(self):
-        if self.marionette.session is None:
-            self.marionette.start_session()
-        self.marionette.set_context(self.marionette.CONTEXT_CONTENT)
-
-        result = self.marionette.execute_async_script("""
-if((navigator.mozSettings == undefined) || (navigator.mozSettings == null) ||
-   (navigator.mozApps == undefined) || (navigator.mozApps == null)) {
-    marionetteScriptFinished(false);
-    return;
-}
-let setReq = navigator.mozSettings.createLock().set({'lockscreen.enabled': false});
-setReq.onsuccess = function() {
-    let appName = 'Test Container';
-    let activeApp = window.wrappedJSObject.Service.currentApp;
-
-    // if the Test Container is already open then do nothing
-    if(activeApp.name === appName){
-        marionetteScriptFinished(true);
-    }
-
-    let appsReq = navigator.mozApps.mgmt.getAll();
-    appsReq.onsuccess = function() {
-        let apps = appsReq.result;
-        for (let i = 0; i < apps.length; i++) {
-            let app = apps[i];
-            if (app.manifest.name === appName) {
-                app.launch();
-                window.addEventListener('appopen', function apploadtime(){
-                    window.removeEventListener('appopen', apploadtime);
-                    marionetteScriptFinished(true);
-                });
-                return;
-            }
-        }
-        marionetteScriptFinished(false);
-    }
-    appsReq.onerror = function() {
-        marionetteScriptFinished(false);
-    }
-}
-setReq.onerror = function() {
-    marionetteScriptFinished(false);
-}""", script_timeout=60000)
-
-        if not result:
-            raise Exception("Could not launch test container app")
-
     def record_crash(self):
         crash = True
         try:
@@ -840,10 +791,10 @@ setReq.onerror = function() {
                 self.logger.info("starting httpd")
                 self.start_httpd(need_external_ip)
                 self.marionette.baseurl = self.httpd.get_url()
-                self.logger.info("running httpd on %s" % self.marionette.baseurl)
+                self.logger.info("running httpd on {}".format(self.marionette.baseurl))
             else:
                 self.marionette.baseurl = self.server_root
-                self.logger.info("using remote content from %s" % self.marionette.baseurl)
+                self.logger.info("using remote content from {}".format(self.marionette.baseurl))
 
     def _add_tests(self, tests):
         for test in tests:
@@ -854,8 +805,7 @@ setReq.onerror = function() {
         if invalid_tests:
             raise Exception("Test file names must be of the form "
                             "'test_something.py', 'test_something.js', or 'testSomething.js'."
-                            " Invalid test names:\n  %s"
-                            % '\n  '.join(invalid_tests))
+                            " Invalid test names:\n  {}".format('\n  '.join(invalid_tests)))
 
     def _is_filename_valid(self, filename):
         filename = os.path.basename(filename)
@@ -906,7 +856,7 @@ setReq.onerror = function() {
             while counter >= 0:
                 round_num = self.repeat - counter
                 if round_num > 0:
-                    self.logger.info('\nREPEAT %d\n-------' % round_num)
+                    self.logger.info('\nREPEAT {}\n-------'.format(round_num))
                 self.run_test_sets()
                 counter -= 1
         except KeyboardInterrupt:
@@ -928,7 +878,7 @@ setReq.onerror = function() {
             for run_tests in self.mixin_run_tests:
                 run_tests(tests)
             if self.shuffle:
-                self.logger.info("Using seed where seed is:%d" % self.shuffle_seed)
+                self.logger.info("Using seed where seed is:{}".format(self.shuffle_seed))
 
             self.logger.info('mode: {}'.format('e10s' if self.e10s else 'non-e10s'))
             self.logger.suite_end()
@@ -945,21 +895,22 @@ setReq.onerror = function() {
 
     def _print_summary(self, tests):
         self.logger.info('\nSUMMARY\n-------')
-        self.logger.info('passed: %d' % self.passed)
+        self.logger.info('passed: {}'.format(self.passed))
         if self.unexpected_successes == 0:
-            self.logger.info('failed: %d' % self.failed)
+            self.logger.info('failed: {}'.format(self.failed))
         else:
-            self.logger.info('failed: %d (unexpected sucesses: %d)' %
-                             (self.failed, self.unexpected_successes))
+            self.logger.info(
+                'failed: {0} (unexpected sucesses: {1})'.format(self.failed,
+                                                                self.unexpected_successes))
         if self.skipped == 0:
-            self.logger.info('todo: %d' % self.todo)
+            self.logger.info('todo: {}'.format(self.todo))
         else:
-            self.logger.info('todo: %d (skipped: %d)' % (self.todo, self.skipped))
+            self.logger.info('todo: {0} (skipped: {1})'.format(self.todo, self.skipped))
 
         if self.failed > 0:
             self.logger.info('\nFAILED TESTS\n-------')
             for failed_test in self.failures:
-                self.logger.info('%s' % failed_test[0])
+                self.logger.info('{}'.format(failed_test[0]))
 
     def start_httpd(self, need_external_ip):
         warnings.warn("start_httpd has been deprecated in favour of create_httpd",
@@ -975,7 +926,7 @@ setReq.onerror = function() {
         rv.start()
         return rv
 
-    def add_test(self, test, expected='pass', test_container=None):
+    def add_test(self, test, expected='pass'):
         filepath = os.path.abspath(test)
 
         if os.path.isdir(filepath):
@@ -1023,23 +974,20 @@ setReq.onerror = function() {
 
             for i in target_tests:
                 if not os.path.exists(i["path"]):
-                    raise IOError("test file: %s does not exist" % i["path"])
+                    raise IOError("test file: {} does not exist".format(i["path"]))
 
                 file_ext = os.path.splitext(os.path.split(i['path'])[-1])[-1]
-                test_container = None
 
-                self.add_test(i["path"], i["expected"], test_container)
+                self.add_test(i["path"], i["expected"])
             return
 
-        self.tests.append({'filepath': filepath, 'expected': expected,
-                          'test_container': test_container})
+        self.tests.append({'filepath': filepath, 'expected': expected})
 
-    def run_test(self, filepath, expected, test_container):
+    def run_test(self, filepath, expected):
 
         testloader = unittest.TestLoader()
         suite = unittest.TestSuite()
         self.test_kwargs['expected'] = expected
-        self.test_kwargs['test_container'] = test_container
         mod_name = os.path.splitext(os.path.split(filepath)[-1])[0]
         for handler in self.test_handlers:
             if handler.match(os.path.basename(filepath)):
@@ -1048,6 +996,7 @@ setReq.onerror = function() {
                                            suite,
                                            testloader,
                                            self.marionette,
+                                           self.httpd,
                                            self.testvars,
                                            **self.test_kwargs)
                 break
@@ -1057,9 +1006,6 @@ setReq.onerror = function() {
                                           marionette=self.marionette,
                                           capabilities=self.capabilities,
                                           result_callbacks=self.result_callbacks)
-
-            if test_container:
-                self.launch_test_container()
 
             results = runner.run(suite)
             self.results.append(results)
@@ -1091,7 +1037,7 @@ setReq.onerror = function() {
             random.shuffle(tests)
 
         for test in tests:
-            self.run_test(test['filepath'], test['expected'], test['test_container'])
+            self.run_test(test['filepath'], test['expected'])
             if self.record_crash():
                 break
 
@@ -1099,17 +1045,18 @@ setReq.onerror = function() {
         if len(self.tests) < 1:
             raise Exception('There are no tests to run.')
         elif self.total_chunks > len(self.tests):
-            raise ValueError('Total number of chunks must be between 1 and %d.' % len(self.tests))
+            raise ValueError('Total number of chunks must be between 1 and {}.'
+                             .format(len(self.tests)))
         if self.total_chunks > 1:
             chunks = [[] for i in range(self.total_chunks)]
             for i, test in enumerate(self.tests):
                 target_chunk = i % self.total_chunks
                 chunks[target_chunk].append(test)
 
-            self.logger.info('Running chunk %d of %d (%d tests selected from a '
-                             'total of %d)' % (self.this_chunk, self.total_chunks,
-                                               len(chunks[self.this_chunk - 1]),
-                                               len(self.tests)))
+            self.logger.info('Running chunk {0} of {1} ({2} tests selected from a '
+                             'total of {3})'.format(self.this_chunk, self.total_chunks,
+                                                    len(chunks[self.this_chunk - 1]),
+                                                    len(self.tests)))
             self.tests = chunks[self.this_chunk - 1]
 
         self.run_test_set(self.tests)

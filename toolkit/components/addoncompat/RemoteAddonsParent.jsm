@@ -53,7 +53,7 @@ var NotificationTracker = {
   init: function() {
     let ppmm = Cc["@mozilla.org/parentprocessmessagemanager;1"]
                .getService(Ci.nsIMessageBroadcaster);
-    ppmm.addMessageListener("Addons:GetNotifications", this);
+    ppmm.initialProcessData.remoteAddonsNotificationPaths = this._paths;
   },
 
   add: function(path) {
@@ -81,13 +81,6 @@ var NotificationTracker = {
                .getService(Ci.nsIMessageBroadcaster);
     ppmm.broadcastAsyncMessage("Addons:ChangeNotification", {path: path, count: tracked._count});
   },
-
-  receiveMessage: function(msg) {
-    if (msg.name == "Addons:GetNotifications") {
-      return this._paths;
-    }
-    return undefined;
-  }
 };
 NotificationTracker.init();
 
@@ -135,7 +128,6 @@ var ContentPolicyParent = {
     switch (aMessage.name) {
       case "Addons:ContentPolicy:Run":
         return this.shouldLoad(aMessage.data, aMessage.objects);
-        break;
     }
     return undefined;
   },
@@ -233,7 +225,6 @@ var AboutProtocolParent = {
         return this.getURIFlags(msg);
       case "Addons:AboutProtocol:OpenChannel":
         return this.openChannel(msg);
-        break;
     }
     return undefined;
   },
@@ -611,7 +602,8 @@ function makeFilteringListener(eventType, listener)
   // Some events are actually targeted at the <browser> element
   // itself, so we only handle the ones where know that won't happen.
   let eventTypes = ["mousedown", "mouseup", "click"];
-  if (eventTypes.indexOf(eventType) == -1) {
+  if (!eventTypes.includes(eventType) || !listener ||
+      (typeof listener != "object" && typeof listener != "function")) {
     return listener;
   }
 

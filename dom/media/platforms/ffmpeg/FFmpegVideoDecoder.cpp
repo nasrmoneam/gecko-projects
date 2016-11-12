@@ -250,8 +250,8 @@ FFmpegVideoDecoder<LIBAV_VER>::DoDecode(MediaRawData* aSample,
              mFrame->reordered_opaque, mFrame->pkt_pts, mFrame->pkt_dts);
 
   if (bytesConsumed < 0) {
-    NS_WARNING("FFmpeg video decoder error.");
-    return NS_ERROR_DOM_MEDIA_DECODE_ERR;
+    return MediaResult(NS_ERROR_DOM_MEDIA_DECODE_ERR,
+                       RESULT_DETAIL("FFmpeg video error:%d", bytesConsumed));
   }
 
   if (!decoded) {
@@ -301,7 +301,19 @@ FFmpegVideoDecoder<LIBAV_VER>::DoDecode(MediaRawData* aSample,
     b.mPlanes[1].mWidth = b.mPlanes[2].mWidth = (mFrame->width + 1) >> 1;
     b.mPlanes[1].mHeight = b.mPlanes[2].mHeight = (mFrame->height + 1) >> 1;
   }
-
+  if (mLib->av_frame_get_colorspace) {
+    switch (mLib->av_frame_get_colorspace(mFrame)) {
+      case AVCOL_SPC_BT709:
+        b.mYUVColorSpace = YUVColorSpace::BT709;
+        break;
+      case AVCOL_SPC_SMPTE170M:
+      case AVCOL_SPC_BT470BG:
+        b.mYUVColorSpace = YUVColorSpace::BT601;
+        break;
+      default:
+        break;
+    }
+  }
   RefPtr<VideoData> v =
     VideoData::CreateAndCopyData(mInfo,
                                   mImageContainer,
@@ -315,8 +327,8 @@ FFmpegVideoDecoder<LIBAV_VER>::DoDecode(MediaRawData* aSample,
                                                         mFrame->height));
 
   if (!v) {
-    NS_WARNING("image allocation error.");
-    return MediaResult(NS_ERROR_OUT_OF_MEMORY, __func__);
+    return MediaResult(NS_ERROR_OUT_OF_MEMORY,
+                       RESULT_DETAIL("image allocation error"));
   }
   mCallback->Output(v);
   if (aGotFrame) {

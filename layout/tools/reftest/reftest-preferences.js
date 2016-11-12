@@ -107,9 +107,9 @@ user_pref("browser.tabs.remote.autostart.2", false);
 user_pref("startup.homepage_welcome_url", "");
 user_pref("startup.homepage_welcome_url.additional", "");
 user_pref("startup.homepage_override_url", "");
-user_pref("browser.usedOnWindows10.introURL", "");
 
 user_pref("media.gmp-manager.url.override", "http://localhost/dummy-gmp-manager.xml");
+user_pref("media.gmp-manager.updateEnabled", false);
 
 // A fake bool pref for "@supports -moz-bool-pref" sanify test.
 user_pref("testing.supports.moz-bool-pref", true);
@@ -118,3 +118,7 @@ user_pref("testing.supports.moz-bool-pref", true);
 // unnecessary I/O pressure on the Places DB (measured to be in the
 // gigabytes).
 user_pref("places.history.enabled", false);
+
+// For Firefox 52 only, ESR will support non-Flash plugins while release will
+// not, so we keep testing the non-Flash pathways
+user_pref("plugin.load_flash_only", false);

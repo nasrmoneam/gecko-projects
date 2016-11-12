@@ -19,12 +19,12 @@ const {
 } = require("devtools/client/webconsole/new-console-output/constants");
 
 const componentMap = new Map([
-  ["ConsoleApiCall", require("./message-types/console-api-call").ConsoleApiCall],
-  ["ConsoleCommand", require("./message-types/console-command").ConsoleCommand],
-  ["DefaultRenderer", require("./message-types/default-renderer").DefaultRenderer],
-  ["EvaluationResult", require("./message-types/evaluation-result").EvaluationResult],
-  ["NetworkEventMessage", require("./message-types/network-event-message").NetworkEventMessage],
-  ["PageError", require("./message-types/page-error").PageError]
+  ["ConsoleApiCall", require("./message-types/console-api-call")],
+  ["ConsoleCommand", require("./message-types/console-command")],
+  ["DefaultRenderer", require("./message-types/default-renderer")],
+  ["EvaluationResult", require("./message-types/evaluation-result")],
+  ["NetworkEventMessage", require("./message-types/network-event-message")],
+  ["PageError", require("./message-types/page-error")]
 ]);
 
 const MessageContainer = createClass({
@@ -32,45 +32,31 @@ const MessageContainer = createClass({
 
   propTypes: {
     message: PropTypes.object.isRequired,
-    sourceMapService: PropTypes.object,
-    onViewSourceInDebugger: PropTypes.func.isRequired,
-    openNetworkPanel: PropTypes.func.isRequired,
-    openLink: PropTypes.func.isRequired,
     open: PropTypes.bool.isRequired,
+    serviceContainer: PropTypes.object.isRequired,
+    autoscroll: PropTypes.bool.isRequired,
+    indent: PropTypes.number.isRequired,
   },
 
   getDefaultProps: function () {
     return {
-      open: false
+      open: false,
+      indent: 0,
     };
   },
 
   shouldComponentUpdate(nextProps, nextState) {
-    return this.props.message.repeat !== nextProps.message.repeat
-      || this.props.open !== nextProps.open;
+    const repeatChanged = this.props.message.repeat !== nextProps.message.repeat;
+    const openChanged = this.props.open !== nextProps.open;
+    const tableDataChanged = this.props.tableData !== nextProps.tableData;
+    return repeatChanged || openChanged || tableDataChanged;
   },
 
   render() {
-    const {
-      dispatch,
-      message,
-      sourceMapService,
-      onViewSourceInDebugger,
-      openNetworkPanel,
-      openLink,
-      open,
-    } = this.props;
+    const { message } = this.props;
 
     let MessageComponent = createFactory(getMessageComponent(message));
-    return MessageComponent({
-      dispatch,
-      message,
-      sourceMapService,
-      onViewSourceInDebugger,
-      openNetworkPanel,
-      openLink,
-      open,
-    });
+    return MessageComponent(this.props);
   }
 });
 

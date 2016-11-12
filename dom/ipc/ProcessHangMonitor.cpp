@@ -11,6 +11,7 @@
 #include "js/GCAPI.h"
 
 #include "mozilla/Atomics.h"
+#include "mozilla/BackgroundHangMonitor.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ScriptSettings.h"
@@ -95,6 +96,7 @@ class HangMonitorChild
 
   void ClearHang();
   void ClearHangAsync();
+  void ClearForcePaint();
 
   virtual bool RecvTerminateScript() override;
   virtual bool RecvBeginStartingDebugger() override;
@@ -115,6 +117,7 @@ class HangMonitorChild
   void ShutdownOnThread();
 
   static Atomic<HangMonitorChild*> sInstance;
+  UniquePtr<BackgroundHangMonitor> mForcePaintMonitor;
 
   const RefPtr<ProcessHangMonitor> mHangMonitor;
   Monitor mMonitor;
@@ -277,12 +280,18 @@ HangMonitorChild::HangMonitorChild(ProcessHangMonitor* aMonitor)
 {
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
   mContext = danger::GetJSContext();
+  mForcePaintMonitor =
+    MakeUnique<mozilla::BackgroundHangMonitor>("Gecko_Child_ForcePaint",
+                                               128, /* ms timeout for microhangs */
+                                               8192 /* ms timeout for permahangs */,
+                                               BackgroundHangMonitor::THREAD_PRIVATE);
 }
 
 HangMonitorChild::~HangMonitorChild()
 {
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(sInstance == this);
+  mForcePaintMonitor = nullptr;
   sInstance = nullptr;
 }
 
@@ -307,7 +316,8 @@ HangMonitorChild::InterruptCallback()
   if (forcePaint) {
     RefPtr<TabChild> tabChild = TabChild::FindTabChild(forcePaintTab);
     if (tabChild) {
-      JS::AutoAssertOnGC aaogc(mContext);
+      JS::AutoAssertNoGC nogc(mContext);
+      JS::AutoAssertOnBarrier nobarrier(mContext);
       tabChild->ForcePaint(forcePaintEpoch);
     }
   }
@@ -381,6 +391,8 @@ HangMonitorChild::RecvForcePaint(const TabId& aTabId, const uint64_t& aLayerObse
 {
   MOZ_RELEASE_ASSERT(MessageLoop::current() == MonitorLoop());
 
+  mForcePaintMonitor->NotifyActivity();
+
   {
     MonitorAutoLock lock(mMonitor);
     mForcePaint = true;
@@ -389,8 +401,18 @@ HangMonitorChild::RecvForcePaint(const TabId& aTabId, const uint64_t& aLayerObse
   }
 
   JS_RequestInterruptCallback(mContext);
+  JS::RequestGCInterruptCallback(mContext);
 
   return true;
+}
+
+void
+HangMonitorChild::ClearForcePaint()
+{
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+  MOZ_RELEASE_ASSERT(XRE_IsContentProcess());
+
+  mForcePaintMonitor->NotifyWait();
 }
 
 void
@@ -1187,6 +1209,7 @@ mozilla::CreateHangMonitorChild(mozilla::ipc::Transport* aTransport,
 
   JSContext* cx = danger::GetJSContext();
   JS_AddInterruptCallback(cx, InterruptCallback);
+  JS::AddGCInterruptCallback(cx, InterruptCallback);
 
   ProcessHangMonitor* monitor = ProcessHangMonitor::GetOrCreate();
   HangMonitorChild* child = new HangMonitorChild(monitor);
@@ -1245,4 +1268,15 @@ ProcessHangMonitor::ForcePaint(PProcessHangMonitorParent* aParent,
   MOZ_RELEASE_ASSERT(NS_IsMainThread());
   auto parent = static_cast<HangMonitorParent*>(aParent);
   parent->ForcePaint(aTabParent, aLayerObserverEpoch);
+}
+
+/* static */ void
+ProcessHangMonitor::ClearForcePaint()
+{
+  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+  MOZ_RELEASE_ASSERT(XRE_IsContentProcess());
+
+  if (HangMonitorChild* child = HangMonitorChild::Get()) {
+    child->ClearForcePaint();
+  }
 }

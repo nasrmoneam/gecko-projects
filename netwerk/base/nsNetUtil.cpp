@@ -69,6 +69,7 @@
 #include "nsIScriptError.h"
 #include "nsISiteSecurityService.h"
 #include "nsHttpHandler.h"
+#include "nsNSSComponent.h"
 
 #ifdef MOZ_WIDGET_GONK
 #include "nsINetworkManager.h"
@@ -1490,29 +1491,6 @@ NS_NewNotificationCallbacksAggregation(nsIInterfaceRequestor  *callbacks,
     return NS_NewNotificationCallbacksAggregation(callbacks, loadGroup, nullptr, result);
 }
 
-bool
-NS_IsAppOffline(uint32_t appId)
-{
-    bool appOffline = false;
-    nsCOMPtr<nsIIOService> io(
-        do_GetService("@mozilla.org/network/io-service;1"));
-    if (io) {
-        io->IsAppOffline(appId, &appOffline);
-    }
-    return appOffline;
-}
-
-bool
-NS_IsAppOffline(nsIPrincipal *principal)
-{
-    if (!principal) {
-        return NS_IsOffline();
-    }
-    uint32_t appId = principal->GetAppId();
-
-    return NS_IsAppOffline(appId);
-}
-
 nsresult
 NS_DoImplGetInnermostURI(nsINestedURI *nestedURI, nsIURI **result)
 {
@@ -2148,12 +2126,9 @@ NS_GetFilenameFromDisposition(nsAString &aFilename,
 
 void net_EnsurePSMInit()
 {
-    nsCOMPtr<nsISocketProviderService> spserv =
-            do_GetService(NS_SOCKETPROVIDERSERVICE_CONTRACTID);
-    if (spserv) {
-        nsCOMPtr<nsISocketProvider> provider;
-        spserv->GetSocketProvider("ssl", getter_AddRefs(provider));
-    }
+    nsresult rv;
+    nsCOMPtr<nsISupports> psm = do_GetService(PSM_COMPONENT_CONTRACTID, &rv);
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
 }
 
 bool NS_IsAboutBlank(nsIURI *uri)
@@ -2311,7 +2286,7 @@ NS_ShouldSecureUpgrade(nsIURI* aURI,
     bool isStsHost = false;
     uint32_t flags = aPrivateBrowsing ? nsISocketProvider::NO_PERMANENT_STORAGE : 0;
     rv = sss->IsSecureURI(nsISiteSecurityService::HEADER_HSTS, aURI, flags,
-                          &isStsHost);
+                          nullptr, &isStsHost);
 
     // if the SSS check fails, it's likely because this load is on a
     // malformed URI or something else in the setup is wrong, so any error
@@ -2398,13 +2373,24 @@ NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel)
     nsIDocument* doc = node->OwnerDoc();
     if (doc) {
       nsIURI* uri = doc->GetDocumentURI();
-      nsCString spec = uri->GetSpecOrDefault();
-      isAboutPage = spec.EqualsLiteral("about:newtab") ||
-                    spec.EqualsLiteral("about:sync-tabs");
+      nsresult rv = uri->SchemeIs("about", &isAboutPage);
+      NS_ENSURE_SUCCESS(rv, rv);
     }
   }
 
   if (isAboutPage) {
+    return NS_OK;
+  }
+
+  // We skip the favicon loading here. The favicon loading might be
+  // triggered by the XUL image. For that case, the loadContext will have
+  // default originAttributes since the XUL image uses SystemPrincipal, but
+  // the loadInfo will use originAttributes from the content. Thus, the
+  // originAttributes between loadInfo and loadContext will be different.
+  // That's why we have to skip the comparison for the favicon loading.
+  if (nsContentUtils::IsSystemPrincipal(loadInfo->LoadingPrincipal()) &&
+      loadInfo->InternalContentPolicyType() ==
+        nsIContentPolicy::TYPE_INTERNAL_IMAGE_FAVICON) {
     return NS_OK;
   }
 
@@ -2424,21 +2410,12 @@ NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel)
   DocShellOriginAttributes originAttrsLoadContext;
   loadContext->GetOriginAttributes(originAttrsLoadContext);
 
-  bool loadInfoUsePB = loadInfo->GetUsePrivateBrowsing();
-  bool loadContextUsePB = false;
-  rv = loadContext->GetUsePrivateBrowsing(&loadContextUsePB);
-  if (NS_FAILED(rv)) {
-    return NS_ERROR_UNEXPECTED;
-  }
-
-  LOG(("NS_CompareLoadInfoAndLoadContext - loadInfo: %d, %d, %d, %d, %d; "
-       "loadContext: %d %d, %d, %d, %d. [channel=%p]",
+  LOG(("NS_CompareLoadInfoAndLoadContext - loadInfo: %d, %d, %d, %d; "
+       "loadContext: %d %d, %d, %d. [channel=%p]",
        originAttrsLoadInfo.mAppId, originAttrsLoadInfo.mInIsolatedMozBrowser,
        originAttrsLoadInfo.mUserContextId, originAttrsLoadInfo.mPrivateBrowsingId,
-       loadInfoUsePB,
        loadContextAppId, loadContextIsInBE,
        originAttrsLoadContext.mUserContextId, originAttrsLoadContext.mPrivateBrowsingId,
-       loadContextUsePB,
        aChannel));
 
   MOZ_ASSERT(originAttrsLoadInfo.mAppId == loadContextAppId,
@@ -2459,10 +2436,6 @@ NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel)
              originAttrsLoadContext.mPrivateBrowsingId,
              "The value of mPrivateBrowsingId in the loadContext and in the "
              "loadInfo are not the same!");
-
-  MOZ_ASSERT(loadInfoUsePB == loadContextUsePB,
-             "The value of usePrivateBrowsing in the loadContext and in the loadInfo "
-             "are not the same!");
 
   return NS_OK;
 }

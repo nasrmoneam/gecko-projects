@@ -17,7 +17,6 @@
 #include "nsIFileStreams.h"
 #include "nsIInputStream.h"
 #include "nsIIPCSerializableInputStream.h"
-#include "nsIMemoryReporter.h"
 #include "nsIMIMEService.h"
 #include "nsISeekableStream.h"
 #include "nsIUnicharInputStream.h"
@@ -40,6 +39,8 @@
 #include "mozilla/dom/WorkerPrivate.h"
 #include "mozilla/dom/WorkerRunnable.h"
 #include "nsThreadUtils.h"
+#include "nsStreamUtils.h"
+#include "SlicedInputStream.h"
 
 namespace mozilla {
 namespace dom {
@@ -187,6 +188,16 @@ Blob::Create(nsISupports* aParent, const nsAString& aContentType,
 }
 
 /* static */ already_AddRefed<Blob>
+Blob::CreateStringBlob(nsISupports* aParent, const nsACString& aData,
+                       const nsAString& aContentType)
+{
+  RefPtr<BlobImpl> blobImpl = BlobImplString::Create(aData, aContentType);
+  RefPtr<Blob> blob = Blob::Create(aParent, blobImpl);
+  MOZ_ASSERT(!blob->mImpl->IsFile());
+  return blob.forget();
+}
+
+/* static */ already_AddRefed<Blob>
 Blob::CreateMemoryBlob(nsISupports* aParent, void* aMemoryBuffer,
                        uint64_t aLength, const nsAString& aContentType)
 {
@@ -276,7 +287,7 @@ Blob::CreateSlice(uint64_t aStart, uint64_t aLength,
                   ErrorResult& aRv)
 {
   RefPtr<BlobImpl> impl = mImpl->CreateSlice(aStart, aLength,
-                                               aContentType, aRv);
+                                             aContentType, aRv);
   if (aRv.Failed()) {
     return nullptr;
   }
@@ -1037,6 +1048,59 @@ EmptyBlobImpl::GetInternalStream(nsIInputStream** aStream,
 }
 
 ////////////////////////////////////////////////////////////////////////////
+// BlobImplString implementation
+
+NS_IMPL_ISUPPORTS_INHERITED(BlobImplString, BlobImpl, nsIMemoryReporter)
+
+/* static */ already_AddRefed<BlobImplString>
+BlobImplString::Create(const nsACString& aData, const nsAString& aContentType)
+{
+  RefPtr<BlobImplString> blobImpl = new BlobImplString(aData, aContentType);
+  RegisterWeakMemoryReporter(blobImpl);
+  return blobImpl.forget();
+}
+
+BlobImplString::BlobImplString(const nsACString& aData,
+                               const nsAString& aContentType)
+  : BlobImplBase(aContentType, aData.Length())
+  , mData(aData)
+{
+}
+
+BlobImplString::~BlobImplString()
+{
+  UnregisterWeakMemoryReporter(this);
+}
+
+already_AddRefed<BlobImpl>
+BlobImplString::CreateSlice(uint64_t aStart, uint64_t aLength,
+                            const nsAString& aContentType,
+                            ErrorResult& aRv)
+{
+  RefPtr<BlobImpl> impl =
+    new BlobImplString(Substring(mData, aStart, aLength),
+                       aContentType);
+  return impl.forget();
+}
+
+void
+BlobImplString::GetInternalStream(nsIInputStream** aStream, ErrorResult& aRv)
+{
+  aRv = NS_NewCStringInputStream(aStream, mData);
+}
+
+NS_IMETHODIMP
+BlobImplString::CollectReports(nsIHandleReportCallback* aHandleReport,
+                               nsISupports* aData, bool aAnonymize)
+{
+  MOZ_COLLECT_REPORT(
+    "explicit/dom/memory-file-data/string", KIND_HEAP, UNITS_BYTES,
+    mData.SizeOfExcludingThisIfUnshared(MallocSizeOf),
+    "Memory used to back a File/Blob based on a string.");
+  return NS_OK;
+}
+
+////////////////////////////////////////////////////////////////////////////
 // BlobImplMemory implementation
 
 NS_IMPL_ISUPPORTS_INHERITED0(BlobImplMemory, BlobImpl)
@@ -1191,6 +1255,134 @@ BlobImplTemporaryBlob::GetInternalStream(nsIInputStream** aStream,
   nsCOMPtr<nsIInputStream> stream =
     new nsTemporaryFileInputStream(mFileDescOwner, mStartPos, mStartPos + mLength);
   stream.forget(aStream);
+}
+
+////////////////////////////////////////////////////////////////////////////
+// BlobImplStream implementation
+
+NS_IMPL_ISUPPORTS_INHERITED(BlobImplStream, BlobImpl, nsIMemoryReporter)
+
+/* static */ already_AddRefed<BlobImplStream>
+BlobImplStream::Create(nsIInputStream* aInputStream,
+                       const nsAString& aContentType,
+                       uint64_t aLength)
+{
+  RefPtr<BlobImplStream> blobImplStream =
+    new BlobImplStream(aInputStream, aContentType, aLength);
+  blobImplStream->MaybeRegisterMemoryReporter();
+  return blobImplStream.forget();
+}
+
+/* static */ already_AddRefed<BlobImplStream>
+BlobImplStream::Create(nsIInputStream* aInputStream,
+                       const nsAString& aName,
+                       const nsAString& aContentType,
+                       int64_t aLastModifiedDate,
+                       uint64_t aLength)
+{
+  RefPtr<BlobImplStream> blobImplStream =
+    new BlobImplStream(aInputStream, aName, aContentType, aLastModifiedDate,
+                       aLength);
+  blobImplStream->MaybeRegisterMemoryReporter();
+  return blobImplStream.forget();
+}
+
+BlobImplStream::BlobImplStream(nsIInputStream* aInputStream,
+                               const nsAString& aContentType,
+                               uint64_t aLength)
+  : BlobImplBase(aContentType, aLength)
+  , mInputStream(aInputStream)
+{
+  mImmutable = true;
+}
+
+BlobImplStream::BlobImplStream(BlobImplStream* aOther,
+                               const nsAString& aContentType,
+                               uint64_t aStart, uint64_t aLength)
+  : BlobImplBase(aContentType, aOther->mStart + aStart, aLength)
+  , mInputStream(new SlicedInputStream(aOther->mInputStream, aStart, aLength))
+{
+  mImmutable = true;
+}
+
+BlobImplStream::BlobImplStream(nsIInputStream* aInputStream,
+                               const nsAString& aName,
+                               const nsAString& aContentType,
+                               int64_t aLastModifiedDate,
+                               uint64_t aLength)
+  : BlobImplBase(aName, aContentType, aLength, aLastModifiedDate)
+  , mInputStream(aInputStream)
+{
+  mImmutable = true;
+}
+
+BlobImplStream::~BlobImplStream()
+{
+  UnregisterWeakMemoryReporter(this);
+}
+
+void
+BlobImplStream::GetInternalStream(nsIInputStream** aStream, ErrorResult& aRv)
+{
+  nsCOMPtr<nsIInputStream> clonedStream;
+  nsCOMPtr<nsIInputStream> replacementStream;
+
+  aRv = NS_CloneInputStream(mInputStream, getter_AddRefs(clonedStream),
+                            getter_AddRefs(replacementStream));
+  if (NS_WARN_IF(aRv.Failed())) {
+    return;
+  }
+
+  if (replacementStream) {
+    mInputStream = replacementStream.forget();
+  }
+
+  clonedStream.forget(aStream);
+}
+
+already_AddRefed<BlobImpl>
+BlobImplStream::CreateSlice(uint64_t aStart, uint64_t aLength,
+                            const nsAString& aContentType, ErrorResult& aRv)
+{
+  if (!aLength) {
+    RefPtr<BlobImpl> impl = new EmptyBlobImpl(aContentType);
+    return impl.forget();
+  }
+
+  RefPtr<BlobImpl> impl =
+    new BlobImplStream(this, aContentType, aStart, aLength);
+  return impl.forget();
+}
+
+void
+BlobImplStream::MaybeRegisterMemoryReporter()
+{
+  // We report only stringInputStream.
+  nsCOMPtr<nsIStringInputStream> stringInputStream =
+    do_QueryInterface(mInputStream);
+  if (!stringInputStream) {
+    return;
+  }
+
+  RegisterWeakMemoryReporter(this);
+}
+
+NS_IMETHODIMP
+BlobImplStream::CollectReports(nsIHandleReportCallback* aHandleReport,
+                               nsISupports* aData, bool aAnonymize)
+{
+  nsCOMPtr<nsIStringInputStream> stringInputStream =
+    do_QueryInterface(mInputStream);
+  if (!stringInputStream) {
+    return NS_OK;
+  }
+
+  MOZ_COLLECT_REPORT(
+    "explicit/dom/memory-file-data/stream", KIND_HEAP, UNITS_BYTES,
+    stringInputStream->SizeOfIncludingThis(MallocSizeOf),
+    "Memory used to back a File/Blob based on an input stream.");
+
+  return NS_OK;
 }
 
 } // namespace dom

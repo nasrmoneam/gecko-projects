@@ -255,9 +255,6 @@ public:
   /**
    * Get the Private Browsing image loader instance that is used by gecko code,
    * creating it if necessary.
-   *
-   * The nsIChannel objects that this instance creates are created with the
-   * nsILoadInfo::SEC_FORCE_PRIVATE_BROWSING flag.
    */
   static imgLoader* PrivateBrowsingLoader();
 
@@ -335,6 +332,7 @@ public:
 
   static void GlobalInit(); // for use by the factory
   static void Shutdown(); // for use by the factory
+  static void ShutdownMemoryReporter();
 
   nsresult ClearChromeImageCache();
   nsresult ClearImageCache();

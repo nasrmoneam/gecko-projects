@@ -60,6 +60,13 @@ public:
   bool TextureSharingWorks();
   bool IsWARP();
 
+  // Returns true if we can create a texture with
+  // D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX and also
+  // upload texture data during the CreateTexture2D
+  // call. This crashes on some devices, so we might
+  // need to avoid it.
+  bool CanInitializeKeyedMutexTextures();
+
   bool CreateCompositorDevices();
   void CreateContentDevices();
 
@@ -72,6 +79,15 @@ public:
   // Call GetDeviceRemovedReason on each device until one returns
   // a failure.
   bool GetAnyDeviceRemovedReason(DeviceResetReason* aOutReason);
+
+  // Reset and reacquire the devices if a reset has happened.
+  // Returns whether a reset occurred not whether reacquiring
+  // was successful.
+  bool MaybeResetAndReacquireDevices();
+
+  // Test whether we can acquire a DXGI 1.2-compatible adapter. This should
+  // only be called on startup before devices are initialized.
+  bool CheckRemotePresentSupport();
 
 private:
   IDXGIAdapter1 *GetDXGIAdapter();

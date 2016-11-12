@@ -14,8 +14,12 @@ MOZ_ARG_ENABLE_BOOL(address-sanitizer,
 if test -n "$MOZ_ASAN"; then
     MOZ_LLVM_HACKS=1
     if test -n "$CLANG_CL"; then
-        # Look for clang_rt.asan_dynamic-i386.dll
-        MOZ_CLANG_RT_ASAN_LIB=clang_rt.asan_dynamic-i386.dll
+        # Look for the ASan runtime binary
+        if test "$CPU_ARCH" = "x86_64"; then
+          MOZ_CLANG_RT_ASAN_LIB=clang_rt.asan_dynamic-x86_64.dll
+        else
+          MOZ_CLANG_RT_ASAN_LIB=clang_rt.asan_dynamic-i386.dll
+        fi
         # We use MOZ_PATH_PROG in order to get a Windows style path.
         MOZ_PATH_PROG(MOZ_CLANG_RT_ASAN_LIB_PATH, $MOZ_CLANG_RT_ASAN_LIB)
         if test -z "$MOZ_CLANG_RT_ASAN_LIB_PATH"; then
@@ -25,7 +29,9 @@ if test -n "$MOZ_ASAN"; then
     fi
     CFLAGS="-fsanitize=address $CFLAGS"
     CXXFLAGS="-fsanitize=address $CXXFLAGS"
-    LDFLAGS="-fsanitize=address $LDFLAGS"
+    if test -z "$CLANG_CL"; then
+        LDFLAGS="-fsanitize=address $LDFLAGS"
+    fi
     AC_DEFINE(MOZ_ASAN)
     MOZ_PATH_PROG(LLVM_SYMBOLIZER, llvm-symbolizer)
 fi
@@ -42,7 +48,9 @@ if test -n "$MOZ_MSAN"; then
     MOZ_LLVM_HACKS=1
     CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins $CFLAGS"
     CXXFLAGS="-fsanitize=memory -fsanitize-memory-track-origins $CXXFLAGS"
-    LDFLAGS="-fsanitize=memory -fsanitize-memory-track-origins $LDFLAGS"
+    if test -z "$CLANG_CL"; then
+        LDFLAGS="-fsanitize=memory -fsanitize-memory-track-origins $LDFLAGS"
+    fi
     AC_DEFINE(MOZ_MSAN)
     MOZ_PATH_PROG(LLVM_SYMBOLIZER, llvm-symbolizer)
 fi
@@ -59,7 +67,9 @@ if test -n "$MOZ_TSAN"; then
     MOZ_LLVM_HACKS=1
     CFLAGS="-fsanitize=thread $CFLAGS"
     CXXFLAGS="-fsanitize=thread $CXXFLAGS"
-    LDFLAGS="-fsanitize=thread $LDFLAGS"
+    if test -z "$CLANG_CL"; then
+        LDFLAGS="-fsanitize=thread $LDFLAGS"
+    fi
     AC_DEFINE(MOZ_TSAN)
     MOZ_PATH_PROG(LLVM_SYMBOLIZER, llvm-symbolizer)
 fi

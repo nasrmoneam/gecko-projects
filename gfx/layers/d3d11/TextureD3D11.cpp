@@ -113,6 +113,22 @@ GetTileRectD3D11(uint32_t aID, IntSize aSize, uint32_t aMaxSize)
                  verticalTile < (verticalTiles - 1) ? aMaxSize : aSize.height % aMaxSize);
 }
 
+AutoTextureLock::AutoTextureLock(IDXGIKeyedMutex* aMutex,
+                                 HRESULT& aResult,
+                                 uint32_t aTimeout)
+{
+  mMutex = aMutex;
+  mResult = mMutex->AcquireSync(0, aTimeout);
+  aResult = mResult;
+}
+
+AutoTextureLock::~AutoTextureLock()
+{
+  if (!FAILED(mResult)) {
+    mMutex->ReleaseSync(0);
+  }
+}
+
 ID3D11ShaderResourceView*
 TextureSourceD3D11::GetShaderResourceView()
 {
@@ -249,7 +265,7 @@ D3D11TextureData::~D3D11TextureData()
   // when it calls EndDraw. This EndDraw should not execute anything so it
   // shouldn't -really- need the lock but the debug layer chokes on this.
   if (mDrawTarget) {
-    Lock(OpenMode::OPEN_NONE, nullptr);
+    Lock(OpenMode::OPEN_NONE);
     mDrawTarget = nullptr;
     Unlock();
   }
@@ -257,7 +273,7 @@ D3D11TextureData::~D3D11TextureData()
 }
 
 bool
-D3D11TextureData::Lock(OpenMode aMode, FenceHandle*)
+D3D11TextureData::Lock(OpenMode aMode)
 {
   if (!LockD3DTexture(mTexture.get())) {
     return false;
@@ -383,6 +399,11 @@ D3D11TextureData::Create(IntSize aSize, SurfaceFormat aFormat, SourceSurface* aS
     }
   }
 
+  if (aSurface && newDesc.MiscFlags == D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX &&
+      !DeviceManagerDx::Get()->CanInitializeKeyedMutexTextures()) {
+    return nullptr;
+  }
+
   D3D11_SUBRESOURCE_DATA uploadData;
   D3D11_SUBRESOURCE_DATA* uploadDataPtr = nullptr;
   RefPtr<DataSourceSurface> srcSurf;
@@ -457,7 +478,7 @@ D3D11TextureData::Create(SourceSurface* aSurface,
 }
 
 void
-D3D11TextureData::Deallocate(ClientIPCAllocator* aAllocator)
+D3D11TextureData::Deallocate(LayersIPCChannel* aAllocator)
 {
   mDrawTarget = nullptr;
   mTexture = nullptr;
@@ -467,7 +488,7 @@ already_AddRefed<TextureClient>
 CreateD3D11TextureClientWithDevice(IntSize aSize, SurfaceFormat aFormat,
                                    TextureFlags aTextureFlags, TextureAllocationFlags aAllocFlags,
                                    ID3D11Device* aDevice,
-                                   ClientIPCAllocator* aAllocator)
+                                   LayersIPCChannel* aAllocator)
 {
   TextureData* data = D3D11TextureData::Create(aSize, aFormat, aAllocFlags, aDevice);
   if (!data) {
@@ -477,7 +498,8 @@ CreateD3D11TextureClientWithDevice(IntSize aSize, SurfaceFormat aFormat,
 }
 
 TextureData*
-D3D11TextureData::CreateSimilar(ClientIPCAllocator* aAllocator,
+D3D11TextureData::CreateSimilar(LayersIPCChannel* aAllocator,
+                                LayersBackend aLayersBackend,
                                 TextureFlags aFlags,
                                 TextureAllocationFlags aAllocFlags) const
 {
@@ -491,8 +513,7 @@ D3D11TextureData::GetDXGIResource(IDXGIResource** aOutResource)
 }
 
 DXGIYCbCrTextureData*
-DXGIYCbCrTextureData::Create(ClientIPCAllocator* aAllocator,
-                             TextureFlags aFlags,
+DXGIYCbCrTextureData::Create(TextureFlags aFlags,
                              IUnknown* aTextureY,
                              IUnknown* aTextureCb,
                              IUnknown* aTextureCr,
@@ -523,8 +544,7 @@ DXGIYCbCrTextureData::Create(ClientIPCAllocator* aAllocator,
 }
 
 DXGIYCbCrTextureData*
-DXGIYCbCrTextureData::Create(ClientIPCAllocator* aAllocator,
-                             TextureFlags aFlags,
+DXGIYCbCrTextureData::Create(TextureFlags aFlags,
                              ID3D11Texture2D* aTextureY,
                              ID3D11Texture2D* aTextureCb,
                              ID3D11Texture2D* aTextureCr,
@@ -568,7 +588,7 @@ DXGIYCbCrTextureData::Create(ClientIPCAllocator* aAllocator,
     return nullptr;
   }
 
-  return DXGIYCbCrTextureData::Create(aAllocator, aFlags,
+  return DXGIYCbCrTextureData::Create(aFlags,
                                       aTextureY, aTextureCb, aTextureCr,
                                       handleY, handleCb, handleCr,
                                       aSize, aSizeY, aSizeCbCr);
@@ -595,7 +615,7 @@ DXGIYCbCrTextureData::Serialize(SurfaceDescriptor& aOutDescriptor)
 }
 
 void
-DXGIYCbCrTextureData::Deallocate(ClientIPCAllocator*)
+DXGIYCbCrTextureData::Deallocate(LayersIPCChannel*)
 {
   mHoldRefs[0] = nullptr;
   mHoldRefs[1] = nullptr;
@@ -1214,36 +1234,36 @@ SyncObjectD3D11::FinalizeFrame()
   if (mD3D11SyncedTextures.size()) {
     RefPtr<IDXGIKeyedMutex> mutex;
     hr = mD3D11Texture->QueryInterface((IDXGIKeyedMutex**)getter_AddRefs(mutex));
-    hr = mutex->AcquireSync(0, 20000);
+    {
+      AutoTextureLock(mutex, hr, 20000);
 
-    if (hr == WAIT_TIMEOUT) {
-      if (gfxWindowsPlatform::GetPlatform()->DidRenderingDeviceReset()) {
-        gfxWarning() << "AcquireSync timed out because of device reset.";
-        return;
+      if (hr == WAIT_TIMEOUT) {
+        if (gfxWindowsPlatform::GetPlatform()->DidRenderingDeviceReset()) {
+          gfxWarning() << "AcquireSync timed out because of device reset.";
+          return;
+        }
+        gfxDevCrash(LogReason::D3D11SyncLock) << "Timeout on the D3D11 sync lock";
       }
-      gfxDevCrash(LogReason::D3D11SyncLock) << "Timeout on the D3D11 sync lock";
-    }
 
-    D3D11_BOX box;
-    box.front = box.top = box.left = 0;
-    box.back = box.bottom = box.right = 1;
+      D3D11_BOX box;
+      box.front = box.top = box.left = 0;
+      box.back = box.bottom = box.right = 1;
 
-    RefPtr<ID3D11Device> dev = DeviceManagerDx::Get()->GetContentDevice();
-    if (!dev) {
-      if (gfxWindowsPlatform::GetPlatform()->DidRenderingDeviceReset()) {
-        return;
+      RefPtr<ID3D11Device> dev = DeviceManagerDx::Get()->GetContentDevice();
+      if (!dev) {
+        if (gfxWindowsPlatform::GetPlatform()->DidRenderingDeviceReset()) {
+          return;
+        }
+        MOZ_CRASH("GFX: Invalid D3D11 content device");
       }
-      MOZ_CRASH("GFX: Invalid D3D11 content device");
+
+      RefPtr<ID3D11DeviceContext> ctx;
+      dev->GetImmediateContext(getter_AddRefs(ctx));
+
+      for (auto iter = mD3D11SyncedTextures.begin(); iter != mD3D11SyncedTextures.end(); iter++) {
+        ctx->CopySubresourceRegion(mD3D11Texture, 0, 0, 0, 0, *iter, 0, &box);
+      }
     }
-
-    RefPtr<ID3D11DeviceContext> ctx;
-    dev->GetImmediateContext(getter_AddRefs(ctx));
-
-    for (auto iter = mD3D11SyncedTextures.begin(); iter != mD3D11SyncedTextures.end(); iter++) {
-      ctx->CopySubresourceRegion(mD3D11Texture, 0, 0, 0, 0, *iter, 0, &box);
-    }
-
-    mutex->ReleaseSync(0);
 
     mD3D11SyncedTextures.clear();
   }

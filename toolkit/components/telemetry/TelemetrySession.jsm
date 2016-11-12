@@ -44,6 +44,7 @@ const REASON_SHUTDOWN = "shutdown";
 const HISTOGRAM_SUFFIXES = {
   PARENT: "",
   CONTENT: "#content",
+  GPU: "#gpu",
 }
 
 const ENVIRONMENT_CHANGE_LISTENER = "TelemetrySession::onEnvironmentChange";
@@ -96,6 +97,10 @@ const SCHEDULER_MIDNIGHT_TOLERANCE_MS = 15 * 60 * 1000;
 // start asynchronous tasks to gather data.
 const IDLE_TIMEOUT_SECONDS = Preferences.get("toolkit.telemetry.idleTimeout", 5 * 60);
 
+// To avoid generating too many main pings, we ignore environment changes that
+// happen within this interval since the last main ping.
+const CHANGE_THROTTLE_INTERVAL_MS = 5 * 60 * 1000;
+
 // The frequency at which we persist session data to the disk to prevent data loss
 // in case of aborted sessions (currently 5 minutes).
 const ABORTED_SESSION_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
@@ -142,6 +147,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "ThirdPartyCookieProbe",
                                   "resource://gre/modules/ThirdPartyCookieProbe.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "UITelemetry",
                                   "resource://gre/modules/UITelemetry.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "GCTelemetry",
+                                  "resource://gre/modules/GCTelemetry.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryEnvironment",
                                   "resource://gre/modules/TelemetryEnvironment.jsm");
 
@@ -406,19 +413,16 @@ var TelemetryScheduler = {
         // If the user is idle, increase the tick interval.
         this._isUserIdle = true;
         return this._onSchedulerTick();
-        break;
       case "active":
         // User is back to work, restore the original tick interval.
         this._isUserIdle = false;
         return this._onSchedulerTick();
-        break;
       case "wake_notification":
         // The machine woke up from sleep, trigger a tick to avoid sessions
         // spanning more than a day.
         // This is needed because sleep time does not count towards timeouts
         // on Mac & Linux - see bug 1262386, bug 1204823 et al.
         return this._onSchedulerTick();
-        break;
     }
     return undefined;
   },
@@ -599,6 +603,7 @@ this.TelemetrySession = Object.freeze({
     Impl._profileSubsessionCounter = 0;
     Impl._subsessionStartActiveTicks = 0;
     Impl._subsessionStartTimeMonotonic = 0;
+    Impl._lastEnvironmentChangeDate = Policy.monotonicNow();
     this.testUninstall();
   },
   /**
@@ -650,9 +655,6 @@ var Impl = {
   _initialized: false,
   _logger: null,
   _prevValues: {},
-  // Regex that matches histograms we care about during startup.
-  // Keep this in sync with gen-histogram-bucket-ranges.py.
-  _startupHistogramRegex: /SQLITE|HTTP|SPDY|CACHE|DNS/,
   _slowSQLStartup: {},
   _hasWindowRestoredObserver: false,
   _hasXulWindowVisibleObserver: false,
@@ -708,6 +710,7 @@ var Impl = {
   _childrenToHearFrom: null,
   // monotonically-increasing id for USS reports
   _nextTotalMemoryId: 1,
+  _lastEnvironmentChangeDate: 0,
 
 
   get _log() {
@@ -971,8 +974,16 @@ var Impl = {
     return ret;
   },
 
-  getScalars: function (subsession, clearSubsession) {
-    this._log.trace("getScalars - subsession: " + subsession + ", clearSubsession: " + clearSubsession);
+  /**
+   * Get a snapshot of the scalars and clear them.
+   * @param {subsession} If true, then we collect the data for a subsession.
+   * @param {clearSubsession} If true, we  need to clear the subsession.
+   * @param {keyed} Take a snapshot of keyed or non keyed scalars.
+   * @return {Object} The scalar data as a Javascript object.
+   */
+  getScalars: function (subsession, clearSubsession, keyed) {
+    this._log.trace("getScalars - subsession: " + subsession + ", clearSubsession: " +
+                    clearSubsession + ", keyed: " + keyed);
 
     if (!subsession) {
       // We only support scalars for subsessions.
@@ -980,7 +991,8 @@ var Impl = {
       return {};
     }
 
-    let scalarsSnapshot =
+    let scalarsSnapshot = keyed ?
+      Telemetry.snapshotKeyedScalars(this.getDatasetType(), clearSubsession) :
       Telemetry.snapshotScalars(this.getDatasetType(), clearSubsession);
 
     // Don't return the test scalars.
@@ -1152,9 +1164,16 @@ var Impl = {
           TOTAL_MEMORY_COLLECTOR_TIMEOUT);
         this._childrenToHearFrom = new Set();
         for (let i = 1; i < ppmm.childCount; i++) {
-          ppmm.getChildAt(i).sendAsyncMessage(MESSAGE_TELEMETRY_GET_CHILD_USS, {id: this._nextTotalMemoryId});
-          this._childrenToHearFrom.add(this._nextTotalMemoryId);
-          this._nextTotalMemoryId++;
+          let child = ppmm.getChildAt(i);
+          try {
+            child.sendAsyncMessage(MESSAGE_TELEMETRY_GET_CHILD_USS, {id: this._nextTotalMemoryId});
+            this._childrenToHearFrom.add(this._nextTotalMemoryId);
+            this._nextTotalMemoryId++;
+          } catch (ex) {
+            // If a content process has just crashed, then attempting to send it
+            // an async message will throw an exception.
+            Cu.reportError(ex);
+          }
         }
       } else {
         boundHandleMemoryReport(
@@ -1207,33 +1226,8 @@ var Impl = {
     h.add(val);
   },
 
-  /**
-   * Return true if we're interested in having a STARTUP_* histogram for
-   * the given histogram name.
-   */
-  isInterestingStartupHistogram: function isInterestingStartupHistogram(name) {
-    return this._startupHistogramRegex.test(name);
-  },
-
   getChildPayloads: function getChildPayloads() {
     return this._childTelemetry.map(child => child.payload);
-  },
-
-  /**
-   * Make a copy of interesting histograms at startup.
-   */
-  gatherStartupHistograms: function gatherStartupHistograms() {
-    this._log.trace("gatherStartupHistograms");
-
-    let info =
-      Telemetry.registeredHistograms(this.getDatasetType(), []);
-    let snapshots = Telemetry.histogramSnapshots;
-    for (let name of info) {
-      // Only duplicate histograms with actual data.
-      if (this.isInterestingStartupHistogram(name) && name in snapshots) {
-        Telemetry.histogramFrom("STARTUP_" + name, name);
-      }
-    }
   },
 
   /**
@@ -1285,12 +1279,23 @@ var Impl = {
     payloadObj.processes = {
       parent: {
         scalars: protect(() => this.getScalars(isSubsession, clearSubsession)),
+        keyedScalars: protect(() => this.getScalars(isSubsession, clearSubsession, true)),
       },
       content: {
         histograms: histograms[HISTOGRAM_SUFFIXES.CONTENT],
         keyedHistograms: keyedHistograms[HISTOGRAM_SUFFIXES.CONTENT],
       },
     };
+
+    // Only include the GPU process if we've accumulated data for it.
+    if (HISTOGRAM_SUFFIXES.GPU in histograms ||
+        HISTOGRAM_SUFFIXES.GPU in keyedHistograms)
+    {
+      payloadObj.processes.gpu = {
+        histograms: histograms[HISTOGRAM_SUFFIXES.GPU],
+        keyedHistograms: keyedHistograms[HISTOGRAM_SUFFIXES.GPU],
+      };
+    }
 
     payloadObj.info = info;
 
@@ -1316,6 +1321,11 @@ var Impl = {
           (Object.keys(this._slowSQLStartup.mainThread).length ||
            Object.keys(this._slowSQLStartup.otherThreads).length)) {
         payloadObj.slowSQLStartup = this._slowSQLStartup;
+      }
+
+      if (!this._isClassicReason(reason)) {
+        payloadObj.processes.parent.gc = protect(() => GCTelemetry.entries("main", clearSubsession));
+        payloadObj.processes.content.gc = protect(() => GCTelemetry.entries("content", clearSubsession));
       }
     }
 
@@ -1488,6 +1498,10 @@ var Impl = {
         this.attachObservers();
         this.gatherMemory();
 
+        if (Telemetry.canRecordExtended) {
+          GCTelemetry.init();
+        }
+
         Telemetry.asyncFetchTelemetryData(function () {});
 
         if (IS_UNIFIED_TELEMETRY) {
@@ -1501,6 +1515,8 @@ var Impl = {
             yield this._saveAbortedSessionPing();
           }
 
+          // The last change date for the environment, used to throttle environment changes.
+          this._lastEnvironmentChangeDate = Policy.monotonicNow();
           TelemetryEnvironment.registerChangeListener(ENVIRONMENT_CHANGE_LISTENER,
                                  (reason, data) => this._onEnvironmentChange(reason, data));
 
@@ -1536,13 +1552,15 @@ var Impl = {
     cpml.addMessageListener(MESSAGE_TELEMETRY_GET_CHILD_THREAD_HANGS, this);
     cpml.addMessageListener(MESSAGE_TELEMETRY_GET_CHILD_USS, this);
 
-    this.gatherStartupHistograms();
-
     let delayedTask = new DeferredTask(function* () {
       this._initialized = true;
 
       this.attachObservers();
       this.gatherMemory();
+
+      if (Telemetry.canRecordExtended) {
+        GCTelemetry.init();
+      }
     }.bind(this), testing ? TELEMETRY_TEST_DELAY : TELEMETRY_DELAY);
 
     delayedTask.arm();
@@ -1731,7 +1749,7 @@ var Impl = {
   },
 
   /**
-   * Remove observers to avoid leaks
+   * Do some shutdown work that is common to all process types.
    */
   uninstall: function uninstall() {
     this.detachObservers();
@@ -1746,6 +1764,7 @@ var Impl = {
     if (AppConstants.platform === "android") {
       Services.obs.removeObserver(this, "application-background", false);
     }
+    GCTelemetry.shutdown();
   },
 
   getPayload: function getPayload(reason, clearSubsession) {
@@ -1754,7 +1773,6 @@ var Impl = {
     // This function returns the current Telemetry payload to the caller.
     // We only gather startup info once.
     if (Object.keys(this._slowSQLStartup).length == 0) {
-      this.gatherStartupHistograms();
       this._slowSQLStartup = Telemetry.slowSQL;
     }
     this.gatherMemory();
@@ -1812,7 +1830,6 @@ var Impl = {
       [this._startupIO.startupSessionRestoreReadBytes,
         this._startupIO.startupSessionRestoreWriteBytes] = counters;
     }
-    this.gatherStartupHistograms();
     this._slowSQLStartup = Telemetry.slowSQL;
   },
 
@@ -2025,8 +2042,16 @@ var Impl = {
 
   _onEnvironmentChange: function(reason, oldEnvironment) {
     this._log.trace("_onEnvironmentChange", reason);
-    let payload = this.getSessionPayload(REASON_ENVIRONMENT_CHANGE, true);
 
+    let now = Policy.monotonicNow();
+    let timeDelta = now - this._lastEnvironmentChangeDate;
+    if (timeDelta <= CHANGE_THROTTLE_INTERVAL_MS) {
+      this._log.trace(`_onEnvironmentChange - throttling; last change was ${Math.round(timeDelta / 1000)}s ago.`);
+      return;
+    }
+
+    this._lastEnvironmentChangeDate = now;
+    let payload = this.getSessionPayload(REASON_ENVIRONMENT_CHANGE, true);
     TelemetryScheduler.reschedulePings(REASON_ENVIRONMENT_CHANGE, payload);
 
     let options = {

@@ -14,8 +14,9 @@ XPCOMUtils.defineLazyGetter(this, "colorUtils", () => {
 });
 
 Cu.import("resource://devtools/shared/event-emitter.js");
-
 Cu.import("resource://gre/modules/ExtensionUtils.jsm");
+Cu.import("resource://gre/modules/Task.jsm");
+
 var {
   EventManager,
   IconDetails,
@@ -24,6 +25,15 @@ var {
 const POPUP_PRELOAD_TIMEOUT_MS = 200;
 
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+
+function isAncestorOrSelf(target, node) {
+  for (; node; node = node.parentNode) {
+    if (node === target) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // WeakMap[Extension -> BrowserAction]
 var browserActionMap = new WeakMap();
@@ -86,6 +96,8 @@ BrowserAction.prototype = {
       onDestroyed: document => {
         let view = document.getElementById(this.viewId);
         if (view) {
+          this.clearPopup();
+          CustomizableUI.hidePanelForNode(view);
           view.remove();
         }
       },
@@ -108,10 +120,9 @@ BrowserAction.prototype = {
         let popupURL = this.getProperty(tab, "popup");
         this.tabManager.addActiveTabPermission(tab);
 
-        // If the widget has a popup URL defined, we open a popup, but do not
-        // dispatch a click event to the extension.
-        // If it has no popup URL defined, we dispatch a click event, but do not
-        // open a popup.
+        // Popups are shown only if a popup URL is defined; otherwise
+        // a "click" event is dispatched. This is done for compatibility with the
+        // Google Chrome onClicked extension API.
         if (popupURL) {
           try {
             let popup = this.getPopup(document.defaultView, popupURL);
@@ -135,6 +146,42 @@ BrowserAction.prototype = {
     this.widget = widget;
   },
 
+  /**
+   * Triggers this browser action for the given window, with the same effects as
+   * if it were clicked by a user.
+   *
+   * This has no effect if the browser action is disabled for, or not
+   * present in, the given window.
+   */
+  triggerAction: Task.async(function* (window) {
+    let popup = ViewPopup.for(this.extension, window);
+    if (popup) {
+      popup.closePopup();
+      return;
+    }
+
+    let widget = this.widget.forWindow(window);
+    let tab = window.gBrowser.selectedTab;
+
+    if (!widget || !this.getProperty(tab, "enabled")) {
+      return;
+    }
+
+    // Popups are shown only if a popup URL is defined; otherwise
+    // a "click" event is dispatched. This is done for compatibility with the
+    // Google Chrome onClicked extension API.
+    if (this.getProperty(tab, "popup")) {
+      if (this.widget.areaType == CustomizableUI.TYPE_MENU_PANEL) {
+        yield window.PanelUI.show();
+      }
+
+      let event = new window.CustomEvent("command", {bubbles: true, cancelable: true});
+      widget.node.dispatchEvent(event);
+    } else {
+      this.emit("click");
+    }
+  }),
+
   handleEvent(event) {
     let button = event.target;
     let window = button.ownerDocument.defaultView;
@@ -146,8 +193,16 @@ BrowserAction.prototype = {
           // be ready by the time we get a complete click.
           let tab = window.gBrowser.selectedTab;
           let popupURL = this.getProperty(tab, "popup");
+          let enabled = this.getProperty(tab, "enabled");
 
-          if (popupURL) {
+          if (popupURL && enabled) {
+            // Add permission for the active tab so it will exist for the popup.
+            // Store the tab to revoke the permission during clearPopup.
+            if (!this.pendingPopup && !this.tabManager.hasActiveTabPermission(tab)) {
+              this.tabManager.addActiveTabPermission(tab);
+              this.tabToRevokeDuringClearPopup = tab;
+            }
+
             this.pendingPopup = this.getPopup(window, popupURL);
             window.addEventListener("mouseup", this, true);
           } else {
@@ -162,7 +217,8 @@ BrowserAction.prototype = {
           // If we have a pending pre-loaded popup, cancel it after we've waited
           // long enough that we can be relatively certain it won't be opening.
           if (this.pendingPopup) {
-            if (event.target === this.widget.forWindow(window).node) {
+            let {node} = this.widget.forWindow(window);
+            if (isAncestorOrSelf(node, event.originalTarget)) {
               this.pendingPopupTimeout = setTimeout(() => this.clearPopup(),
                                                     POPUP_PRELOAD_TIMEOUT_MS);
             } else {
@@ -210,6 +266,10 @@ BrowserAction.prototype = {
   clearPopup() {
     this.clearPopupTimeout();
     if (this.pendingPopup) {
+      if (this.tabToRevokeDuringClearPopup) {
+        this.tabManager.revokeActiveTabPermission(this.tabToRevokeDuringClearPopup);
+        this.tabToRevokeDuringClearPopup = null;
+      }
       this.pendingPopup.destroy();
       this.pendingPopup = null;
     }
@@ -413,7 +473,6 @@ extensions.registerSchemaAPI("browserAction", "addon_parent", context => {
 
         let icon = IconDetails.normalize(details, extension, context);
         BrowserAction.for(extension).setProperty(tab, "icon", icon);
-        return Promise.resolve();
       },
 
       setBadgeText: function(details) {

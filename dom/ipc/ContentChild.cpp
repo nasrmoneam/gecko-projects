@@ -25,6 +25,7 @@
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
 #include "mozilla/dom/ContentBridgeChild.h"
 #include "mozilla/dom/ContentBridgeParent.h"
+#include "mozilla/dom/VideoDecoderManagerChild.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/DataTransfer.h"
 #include "mozilla/dom/DOMStorageIPC.h"
@@ -51,7 +52,6 @@
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/layers/ContentProcessController.h"
 #include "mozilla/layers/ImageBridgeChild.h"
-#include "mozilla/layers/SharedBufferManagerChild.h"
 #include "mozilla/layout/RenderFrameChild.h"
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/plugins/PluginInstanceParent.h"
@@ -62,6 +62,7 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/WebBrowserPersistDocumentChild.h"
 #include "imgLoader.h"
+#include "GMPServiceChild.h"
 
 #if defined(MOZ_CONTENT_SANDBOX)
 #if defined(XP_WIN)
@@ -84,6 +85,7 @@
 #include "nsDocShell.h"
 #include "nsIConsoleListener.h"
 #include "nsICycleCollectorListener.h"
+#include "nsIIdlePeriod.h"
 #include "nsIDragService.h"
 #include "nsIIPCBackgroundChildCreateCallback.h"
 #include "nsIInterfaceRequestorUtils.h"
@@ -170,13 +172,7 @@
 #endif
 
 #include "mozilla/dom/File.h"
-#include "mozilla/dom/cellbroadcast/CellBroadcastIPCService.h"
-#include "mozilla/dom/icc/IccChild.h"
-#include "mozilla/dom/mobileconnection/MobileConnectionChild.h"
-#include "mozilla/dom/mobilemessage/SmsChild.h"
 #include "mozilla/dom/devicestorage/DeviceStorageRequestChild.h"
-#include "mozilla/dom/bluetooth/PBluetoothChild.h"
-#include "mozilla/dom/PFMRadioChild.h"
 #include "mozilla/dom/PPresentationChild.h"
 #include "mozilla/dom/PresentationIPCService.h"
 #include "mozilla/ipc/InputStreamUtils.h"
@@ -192,29 +188,19 @@
 #include "nsDeviceStorage.h"
 #include "DomainPolicy.h"
 #include "mozilla/dom/ipc/StructuredCloneData.h"
-#include "mozilla/dom/telephony/PTelephonyChild.h"
 #include "mozilla/dom/time/DateCacheCleaner.h"
-#include "mozilla/dom/voicemail/VoicemailIPCService.h"
 #include "mozilla/net/NeckoMessageUtils.h"
 #include "mozilla/widget/PuppetBidiKeyboard.h"
 #include "mozilla/RemoteSpellCheckEngineChild.h"
 #include "GMPServiceChild.h"
-#include "GMPDecoderModule.h"
 #include "gfxPlatform.h"
 #include "nscore.h" // for NS_FREE_PERMANENT_DATA
 #include "VRManagerChild.h"
 
 using namespace mozilla;
 using namespace mozilla::docshell;
-using namespace mozilla::dom::bluetooth;
-using namespace mozilla::dom::cellbroadcast;
 using namespace mozilla::dom::devicestorage;
-using namespace mozilla::dom::icc;
 using namespace mozilla::dom::ipc;
-using namespace mozilla::dom::mobileconnection;
-using namespace mozilla::dom::mobilemessage;
-using namespace mozilla::dom::telephony;
-using namespace mozilla::dom::voicemail;
 using namespace mozilla::dom::workers;
 using namespace mozilla::media;
 using namespace mozilla::embedding;
@@ -512,6 +498,9 @@ ContentChild* ContentChild::sSingleton;
 
 ContentChild::ContentChild()
  : mID(uint64_t(-1))
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+ , mMsaaID(0)
+#endif
  , mCanOverrideProcessName(true)
  , mIsAlive(true)
  , mShuttingDown(false)
@@ -669,13 +658,14 @@ ContentChild::ProvideWindow(mozIDOMWindowProxy* aParent,
                             nsIURI* aURI,
                             const nsAString& aName,
                             const nsACString& aFeatures,
+                            bool aForceNoOpener,
                             bool* aWindowIsNew,
                             mozIDOMWindowProxy** aReturn)
 {
   return ProvideWindowCommon(nullptr, aParent, false, aChromeFlags,
                              aCalledFromJS, aPositionSpecified,
                              aSizeSpecified, aURI, aName, aFeatures,
-                             aWindowIsNew, aReturn);
+                             aForceNoOpener, aWindowIsNew, aReturn);
 }
 
 nsresult
@@ -689,6 +679,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
                                   nsIURI* aURI,
                                   const nsAString& aName,
                                   const nsACString& aFeatures,
+                                  bool aForceNoOpener,
                                   bool* aWindowIsNew,
                                   mozIDOMWindowProxy** aReturn)
 {
@@ -822,14 +813,26 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
     renderFrame = nullptr;
   }
 
-  ShowInfo showInfo(EmptyString(), false, false, true, false, 0, 0);
+  ShowInfo showInfo(EmptyString(), false, false, true, false, 0, 0, 0);
   auto* opener = nsPIDOMWindowOuter::From(aParent);
   nsIDocShell* openerShell;
   if (opener && (openerShell = opener->GetDocShell())) {
     nsCOMPtr<nsILoadContext> context = do_QueryInterface(openerShell);
     showInfo = ShowInfo(EmptyString(), false,
                         context->UsePrivateBrowsing(), true, false,
-                        aTabOpener->mDPI, aTabOpener->mDefaultScale);
+                        aTabOpener->mDPI, aTabOpener->mRounding,
+                        aTabOpener->mDefaultScale);
+  }
+
+  // Set the opener window for this window before we start loading the document
+  // inside of it. We have to do this before loading the remote scripts, because
+  // they can poke at the document and cause the nsDocument to be created before
+  // the openerwindow
+  nsCOMPtr<mozIDOMWindowProxy> windowProxy = do_GetInterface(newChild->WebNavigation());
+  if (!aForceNoOpener && windowProxy && aParent) {
+    nsPIDOMWindowOuter* outer = nsPIDOMWindowOuter::From(windowProxy);
+    nsPIDOMWindowOuter* parent = nsPIDOMWindowOuter::From(aParent);
+    outer->SetOpenerWindow(parent, *aWindowIsNew);
   }
 
   // Unfortunately we don't get a window unless we've shown the frame.  That's
@@ -1170,9 +1173,17 @@ ContentChild::AllocPGMPServiceChild(mozilla::ipc::Transport* aTransport,
 }
 
 bool
+ContentChild::RecvGMPsChanged(nsTArray<GMPCapabilityData>&& capabilities)
+{
+  GeckoMediaPluginServiceChild::UpdateGMPCapabilities(Move(capabilities));
+  return true;
+}
+
+bool
 ContentChild::RecvInitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor,
                                 Endpoint<PImageBridgeChild>&& aImageBridge,
-                                Endpoint<PVRManagerChild>&& aVRBridge)
+                                Endpoint<PVRManagerChild>&& aVRBridge,
+                                Endpoint<PVideoDecoderManagerChild>&& aVideoManager)
 {
   if (!CompositorBridgeChild::InitForContent(Move(aCompositor))) {
     return false;
@@ -1183,13 +1194,15 @@ ContentChild::RecvInitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor,
   if (!gfx::VRManagerChild::InitForContent(Move(aVRBridge))) {
     return false;
   }
+  VideoDecoderManagerChild::InitForContent(Move(aVideoManager));
   return true;
 }
 
 bool
 ContentChild::RecvReinitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor,
                                   Endpoint<PImageBridgeChild>&& aImageBridge,
-                                  Endpoint<PVRManagerChild>&& aVRBridge)
+                                  Endpoint<PVRManagerChild>&& aVRBridge,
+                                  Endpoint<PVideoDecoderManagerChild>&& aVideoManager)
 {
   nsTArray<RefPtr<TabChild>> tabs = TabChild::GetAll();
 
@@ -1217,14 +1230,9 @@ ContentChild::RecvReinitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor
       tabChild->ReinitRendering();
     }
   }
-  return true;
-}
 
-PSharedBufferManagerChild*
-ContentChild::AllocPSharedBufferManagerChild(mozilla::ipc::Transport* aTransport,
-                                              base::ProcessId aOtherProcess)
-{
-  return SharedBufferManagerChild::StartUpInChildProcess(aTransport, aOtherProcess);
+  VideoDecoderManagerChild::InitForContent(Move(aVideoManager));
+  return true;
 }
 
 PBackgroundChild*
@@ -1429,7 +1437,11 @@ ContentChild::RecvSetProcessSandbox(const MaybeFileDesc& aBroker)
     NS_LITERAL_CSTRING("ContentSandboxEnabled"),
     sandboxEnabled? NS_LITERAL_CSTRING("1") : NS_LITERAL_CSTRING("0"));
 #if defined(XP_LINUX) && !defined(OS_ANDROID)
-  SandboxInfo::Get().AnnotateCrashReport();
+  nsAutoCString flagsString;
+  flagsString.AppendInt(SandboxInfo::Get().AsInteger());
+
+  CrashReporter::AnnotateCrashReport(
+    NS_LITERAL_CSTRING("ContentSandboxCapabilities"), flagsString);
 #endif /* XP_LINUX && !OS_ANDROID */
 #endif /* MOZ_CRASHREPORTER */
 #endif /* MOZ_CONTENT_SANDBOX */
@@ -1440,6 +1452,10 @@ ContentChild::RecvSetProcessSandbox(const MaybeFileDesc& aBroker)
 bool
 ContentChild::RecvNotifyLayerAllocated(const dom::TabId& aTabId, const uint64_t& aLayersId)
 {
+  if (!CompositorBridgeChild::Get()->IPCOpen()) {
+    return true;
+  }
+
   APZChild* apz = ContentProcessController::Create(aTabId);
   return CompositorBridgeChild::Get()->SendPAPZConstructor(apz, aLayersId);
 }
@@ -1575,16 +1591,21 @@ ContentChild::GetAvailableDictionaries(InfallibleTArray<nsString>& aDictionaries
 }
 
 PFileDescriptorSetChild*
+ContentChild::SendPFileDescriptorSetConstructor(const FileDescriptor& aFD)
+{
+  return PContentChild::SendPFileDescriptorSetConstructor(aFD);
+}
+
+PFileDescriptorSetChild*
 ContentChild::AllocPFileDescriptorSetChild(const FileDescriptor& aFD)
 {
-  return new FileDescriptorSetChild(aFD);
+  return nsIContentChild::AllocPFileDescriptorSetChild(aFD);
 }
 
 bool
 ContentChild::DeallocPFileDescriptorSetChild(PFileDescriptorSetChild* aActor)
 {
-  delete static_cast<FileDescriptorSetChild*>(aActor);
-  return true;
+  return nsIContentChild::DeallocPFileDescriptorSetChild(aActor);
 }
 
 bool
@@ -1686,16 +1707,6 @@ ContentChild::RecvNotifyPresentationReceiverCleanUp(const nsString& aSessionId)
 }
 
 bool
-ContentChild::RecvNotifyGMPsChanged()
-{
-  GMPDecoderModule::UpdateUsableCodecs();
-  MOZ_ASSERT(NS_IsMainThread());
-  nsCOMPtr<nsIObserverService> obs = mozilla::services::GetObserverService();
-  obs->NotifyObservers(nullptr, "gmp-changed", nullptr);
-  return true;
-}
-
-bool
 ContentChild::RecvNotifyEmptyHTTPCache()
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -1749,31 +1760,6 @@ ContentChild::DeallocPHeapSnapshotTempFileHelperChild(
   return true;
 }
 
-PIccChild*
-ContentChild::SendPIccConstructor(PIccChild* aActor,
-                                  const uint32_t& aServiceId)
-{
-  // Add an extra ref for IPDL. Will be released in
-  // ContentChild::DeallocPIccChild().
-  static_cast<IccChild*>(aActor)->AddRef();
-  return PContentChild::SendPIccConstructor(aActor, aServiceId);
-}
-
-PIccChild*
-ContentChild::AllocPIccChild(const uint32_t& aServiceId)
-{
-  MOZ_CRASH("No one should be allocating PIccChild actors");
-  return nullptr;
-}
-
-bool
-ContentChild::DeallocPIccChild(PIccChild* aActor)
-{
-  // IccChild is refcounted, must not be freed manually.
-  static_cast<IccChild*>(aActor)->Release();
-  return true;
-}
-
 PTestShellChild*
 ContentChild::AllocPTestShellChild()
 {
@@ -1815,43 +1801,6 @@ ContentChild::DeallocPDeviceStorageRequestChild(PDeviceStorageRequestChild* aDev
   return true;
 }
 
-PMobileConnectionChild*
-ContentChild::SendPMobileConnectionConstructor(PMobileConnectionChild* aActor,
-                                               const uint32_t& aClientId)
-{
-#ifdef MOZ_B2G_RIL
-  // Add an extra ref for IPDL. Will be released in
-  // ContentChild::DeallocPMobileConnectionChild().
-  static_cast<MobileConnectionChild*>(aActor)->AddRef();
-  return PContentChild::SendPMobileConnectionConstructor(aActor, aClientId);
-#else
-  MOZ_CRASH("No support for mobileconnection on this platform!");
-#endif
-}
-
-PMobileConnectionChild*
-ContentChild::AllocPMobileConnectionChild(const uint32_t& aClientId)
-{
-#ifdef MOZ_B2G_RIL
-  MOZ_CRASH("No one should be allocating PMobileConnectionChild actors");
-  return nullptr;
-#else
-  MOZ_CRASH("No support for mobileconnection on this platform!");
-#endif
-}
-
-bool
-ContentChild::DeallocPMobileConnectionChild(PMobileConnectionChild* aActor)
-{
-#ifdef MOZ_B2G_RIL
-  // MobileConnectionChild is refcounted, must not be freed manually.
-  static_cast<MobileConnectionChild*>(aActor)->Release();
-  return true;
-#else
-  MOZ_CRASH("No support for mobileconnection on this platform!");
-#endif
-}
-
 PNeckoChild*
 ContentChild::AllocPNeckoChild()
 {
@@ -1883,16 +1832,21 @@ ContentChild::DeallocPPrintingChild(PPrintingChild* printing)
 }
 
 PSendStreamChild*
+ContentChild::SendPSendStreamConstructor(PSendStreamChild* aActor)
+{
+  return PContentChild::SendPSendStreamConstructor(aActor);
+}
+
+PSendStreamChild*
 ContentChild::AllocPSendStreamChild()
 {
-  MOZ_CRASH("PSendStreamChild actors should be manually constructed!");
+  return nsIContentChild::AllocPSendStreamChild();
 }
 
 bool
 ContentChild::DeallocPSendStreamChild(PSendStreamChild* aActor)
 {
-  delete aActor;
-  return true;
+  return nsIContentChild::DeallocPSendStreamChild(aActor);
 }
 
 PScreenManagerChild*
@@ -1971,80 +1925,6 @@ bool ContentChild::DeallocPHandlerServiceChild(PHandlerServiceChild* aHandlerSer
   return true;
 }
 
-PCellBroadcastChild*
-ContentChild::AllocPCellBroadcastChild()
-{
-  MOZ_CRASH("No one should be allocating PCellBroadcastChild actors");
-}
-
-PCellBroadcastChild*
-ContentChild::SendPCellBroadcastConstructor(PCellBroadcastChild* aActor)
-{
-  aActor = PContentChild::SendPCellBroadcastConstructor(aActor);
-  if (aActor) {
-    static_cast<CellBroadcastIPCService*>(aActor)->AddRef();
-  }
-
-  return aActor;
-}
-
-bool
-ContentChild::DeallocPCellBroadcastChild(PCellBroadcastChild* aActor)
-{
-  static_cast<CellBroadcastIPCService*>(aActor)->Release();
-  return true;
-}
-
-PSmsChild*
-ContentChild::AllocPSmsChild()
-{
-  return new SmsChild();
-}
-
-bool
-ContentChild::DeallocPSmsChild(PSmsChild* aSms)
-{
-  delete aSms;
-  return true;
-}
-
-PTelephonyChild*
-ContentChild::AllocPTelephonyChild()
-{
-  MOZ_CRASH("No one should be allocating PTelephonyChild actors");
-}
-
-bool
-ContentChild::DeallocPTelephonyChild(PTelephonyChild* aActor)
-{
-  delete aActor;
-  return true;
-}
-
-PVoicemailChild*
-ContentChild::AllocPVoicemailChild()
-{
-  MOZ_CRASH("No one should be allocating PVoicemailChild actors");
-}
-
-PVoicemailChild*
-ContentChild::SendPVoicemailConstructor(PVoicemailChild* aActor)
-{
-  aActor = PContentChild::SendPVoicemailConstructor(aActor);
-  if (aActor) {
-    static_cast<VoicemailIPCService*>(aActor)->AddRef();
-  }
-
-  return aActor;
-}
-
-bool
-ContentChild::DeallocPVoicemailChild(PVoicemailChild* aActor)
-{
-  static_cast<VoicemailIPCService*>(aActor)->Release();
-  return true;
-}
-
 media::PMediaChild*
 ContentChild::AllocPMediaChild()
 {
@@ -2070,51 +1950,6 @@ ContentChild::DeallocPStorageChild(PStorageChild* aActor)
   DOMStorageDBChild* child = static_cast<DOMStorageDBChild*>(aActor);
   child->ReleaseIPDLReference();
   return true;
-}
-
-PBluetoothChild*
-ContentChild::AllocPBluetoothChild()
-{
-#ifdef MOZ_B2G_BT
-  MOZ_CRASH("No one should be allocating PBluetoothChild actors");
-#else
-  MOZ_CRASH("No support for bluetooth on this platform!");
-#endif
-}
-
-bool
-ContentChild::DeallocPBluetoothChild(PBluetoothChild* aActor)
-{
-#ifdef MOZ_B2G_BT
-  delete aActor;
-  return true;
-#else
-  MOZ_CRASH("No support for bluetooth on this platform!");
-#endif
-}
-
-PFMRadioChild*
-ContentChild::AllocPFMRadioChild()
-{
-#ifdef MOZ_B2G_FM
-  NS_RUNTIMEABORT("No one should be allocating PFMRadioChild actors");
-  return nullptr;
-#else
-  NS_RUNTIMEABORT("No support for FMRadio on this platform!");
-  return nullptr;
-#endif
-}
-
-bool
-ContentChild::DeallocPFMRadioChild(PFMRadioChild* aActor)
-{
-#ifdef MOZ_B2G_FM
-  delete aActor;
-  return true;
-#else
-  NS_RUNTIMEABORT("No support for FMRadio on this platform!");
-  return false;
-#endif
 }
 
 PSpeechSynthesisChild*
@@ -2511,13 +2346,18 @@ ContentChild::RecvFlushMemory(const nsString& reason)
 }
 
 bool
-ContentChild::RecvActivateA11y()
+ContentChild::RecvActivateA11y(const uint32_t& aMsaaID)
 {
 #ifdef ACCESSIBILITY
+#ifdef XP_WIN
+  MOZ_ASSERT(aMsaaID != 0);
+  mMsaaID = aMsaaID;
+#endif // XP_WIN
+
   // Start accessibility in content process if it's running in chrome
   // process.
   GetOrCreateAccService(nsAccessibilityService::eMainProcess);
-#endif
+#endif // ACCESSIBILITY
   return true;
 }
 
@@ -2844,16 +2684,6 @@ ContentChild::DeallocPOfflineCacheUpdateChild(POfflineCacheUpdateChild* actor)
   OfflineCacheUpdateChild* offlineCacheUpdate =
     static_cast<OfflineCacheUpdateChild*>(actor);
   NS_RELEASE(offlineCacheUpdate);
-  return true;
-}
-
-bool
-ContentChild::RecvOnAppThemeChanged()
-{
-  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
-  if (os) {
-    os->NotifyObservers(nullptr, "app-theme-changed", nullptr);
-  }
   return true;
 }
 
@@ -3382,6 +3212,13 @@ ContentChild::RecvBlobURLUnregistration(const nsCString& aURI)
   return true;
 }
 
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+bool
+ContentChild::SendGetA11yContentId()
+{
+  return PContentChild::SendGetA11yContentId(&mMsaaID);
+}
+#endif // defined(XP_WIN) && defined(ACCESSIBILITY)
 
 void
 ContentChild::CreateGetFilesRequest(const nsAString& aDirectoryPath,
@@ -3437,6 +3274,27 @@ ContentChild::RecvGetFilesResponse(const nsID& aUUID,
 
   mGetFilesPendingRequests.Remove(aUUID);
   return true;
+}
+
+/* static */ void
+ContentChild::FatalErrorIfNotUsingGPUProcess(const char* const aProtocolName,
+                                             const char* const aErrorMsg,
+                                             base::ProcessId aOtherPid)
+{
+  // If we're communicating with the same process or the UI process then we
+  // want to crash normally. Otherwise we want to just warn as the other end
+  // must be the GPU process and it crashing shouldn't be fatal for us.
+  if (aOtherPid == base::GetCurrentProcId() ||
+      (GetSingleton() && GetSingleton()->OtherPid() == aOtherPid)) {
+    mozilla::ipc::FatalError(aProtocolName, aErrorMsg, false);
+  } else {
+    nsAutoCString formattedMessage("IPDL error [");
+    formattedMessage.AppendASCII(aProtocolName);
+    formattedMessage.AppendLiteral("]: \"");
+    formattedMessage.AppendASCII(aErrorMsg);
+    formattedMessage.AppendLiteral("\".");
+    NS_WARNING(formattedMessage.get());
+  }
 }
 
 } // namespace dom

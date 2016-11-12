@@ -172,7 +172,7 @@ PeerConnectionTest.prototype.close = function() {
   var allChannels = (this.pcLocal || this.pcRemote).dataChannels;
   return timerGuard(
     Promise.all(allChannels.map((channel, i) => this.closeDataChannels(i))),
-    60000, "failed to close data channels")
+    120000, "failed to close data channels")
     .then(() => this.closePC());
 };
 
@@ -211,7 +211,7 @@ PeerConnectionTest.prototype.closeDataChannels = function(index) {
     setupClosePromise(localChannel),
     setupClosePromise(remoteChannel)
   ]);
-  var complete = timerGuard(allClosed, 60000, "failed to close data channel pair");
+  var complete = timerGuard(allClosed, 120000, "failed to close data channel pair");
 
   // triggering close on one side should suffice
   if (remoteChannel) {
@@ -758,6 +758,12 @@ function PeerConnectionWrapper(label, configuration) {
 
   this.disableRtpCountChecking = false;
 
+  this.iceConnectedResolve;
+  this.iceConnectedReject;
+  this.iceConnected = new Promise((resolve, reject) => {
+    this.iceConnectedResolve = resolve;
+    this.iceConnectedReject = reject;
+  });
   this.iceCheckingRestartExpected = false;
   this.iceCheckingIceRollbackExpected = false;
 
@@ -773,10 +779,16 @@ function PeerConnectionWrapper(label, configuration) {
   this._pc.oniceconnectionstatechange = e => {
     isnot(typeof this._pc.iceConnectionState, "undefined",
           "iceConnectionState should not be undefined");
-    info(this + ": oniceconnectionstatechange fired, new state is: " + this._pc.iceConnectionState);
+    var iceState = this._pc.iceConnectionState;
+    info(this + ": oniceconnectionstatechange fired, new state is: " + iceState);
     Object.keys(this.ice_connection_callbacks).forEach(name => {
       this.ice_connection_callbacks[name]();
     });
+    if (iceState === "connected") {
+      this.iceConnectedResolve();
+    } else if (iceState === "failed") {
+      this.iceConnectedReject();
+    }
   };
 
   createOneShotEventWrapper(this, this._pc, 'datachannel');
@@ -850,12 +862,12 @@ PeerConnectionWrapper.prototype = {
     this._pc.setIdentityProvider(provider, protocol, identity);
   },
 
-  ensureMediaElement : function(track, stream, direction) {
-    var element = getMediaElement(this.label, direction, stream.id);
+  ensureMediaElement : function(track, direction) {
+    const idPrefix = [this.label, direction].join('_');
+    var element = getMediaElementForTrack(track, idPrefix);
 
     if (!element) {
-      element = createMediaElement(this.label, direction, stream.id,
-                                   this.audioElementsOnly);
+      element = createMediaElementForTrack(track, idPrefix);
       if (direction == "local") {
         this.localMediaElements.push(element);
       } else if (direction == "remote") {
@@ -866,7 +878,7 @@ PeerConnectionWrapper.prototype = {
     // We do this regardless, because sometimes we end up with a new stream with
     // an old id (ie; the rollback tests cause the same stream to be added
     // twice)
-    element.srcObject = stream;
+    element.srcObject = new MediaStream([track]);
     element.play();
   },
 
@@ -900,14 +912,14 @@ PeerConnectionWrapper.prototype = {
     // This will create one media element per track, which might not be how
     // we set up things with the RTCPeerConnection. It's the only way
     // we can ensure all sent tracks are flowing however.
-    this.ensureMediaElement(track, new MediaStream([track]), "local");
+    this.ensureMediaElement(track, "local");
 
     return this.observedNegotiationNeeded;
   },
 
   /**
    * Callback when we get local media. Also an appropriate HTML media element
-   * will be created, which may be obtained later with |getMediaElement|.
+   * will be created and added to the content node.
    *
    * @param {MediaStream} stream
    *        Media stream to handle
@@ -938,7 +950,7 @@ PeerConnectionWrapper.prototype = {
           type: track.kind,
           streamId: stream.id
         };
-      this.ensureMediaElement(track, stream, "local");
+      this.ensureMediaElement(track, "local");
     });
   },
 
@@ -1169,7 +1181,7 @@ PeerConnectionWrapper.prototype = {
                                 this.observedRemoteTrackInfoById);
       ok(this.isTrackOnPC(event.track), "Found track " + event.track.id);
 
-      this.ensureMediaElement(event.track, event.streams[0], 'remote');
+      this.ensureMediaElement(event.track, 'remote');
     });
   },
 
@@ -1199,45 +1211,6 @@ PeerConnectionWrapper.prototype = {
       //       of sRD() this should never ever happen.
       ok(false, this + " adding ICE candidate failed with: " + e.message)
     );
-  },
-
-  /**
-   * Returns if the ICE the connection state is "connected".
-   *
-   * @returns {boolean} True if the connection state is "connected", otherwise false.
-   */
-  isIceConnected : function() {
-    info(this + ": iceConnectionState = " + this.iceConnectionState);
-    return this.iceConnectionState === "connected";
-  },
-
-  /**
-   * Returns if the ICE the connection state is "checking".
-   *
-   * @returns {boolean} True if the connection state is "checking", otherwise false.
-   */
-  isIceChecking : function() {
-    return this.iceConnectionState === "checking";
-  },
-
-  /**
-   * Returns if the ICE the connection state is "new".
-   *
-   * @returns {boolean} True if the connection state is "new", otherwise false.
-   */
-  isIceNew : function() {
-    return this.iceConnectionState === "new";
-  },
-
-  /**
-   * Checks if the ICE connection state still waits for a connection to get
-   * established.
-   *
-   * @returns {boolean} True if the connection state is "checking" or "new",
-   *  otherwise false.
-   */
-  isIceConnectionPending : function() {
-    return (this.isIceChecking() || this.isIceNew());
   },
 
   /**
@@ -1271,24 +1244,25 @@ PeerConnectionWrapper.prototype = {
   },
 
   /**
-   * Registers a callback for the ICE connection state change and
-   * reports success (=connected) or failure via the callbacks.
-   * States "new" and "checking" are ignored.
+   * Resets the ICE connected Promise and allows ICE connection state monitoring
+   * to go backwards to 'checking'.
+   */
+  expectIceChecking : function() {
+    this.iceCheckingRestartExpected = true;
+    this.iceConnected = new Promise((resolve, reject) => {
+      this.iceConnectedResolve = resolve;
+      this.iceConnectedReject = reject;
+    });
+  },
+
+  /**
+   * Waits for ICE to either connect or fail.
    *
    * @returns {Promise}
    *          resolves when connected, rejects on failure
    */
   waitForIceConnected : function() {
-    return new Promise((resolve, reject) =>
-        this.ice_connection_callbacks.waitForIceConnected = () => {
-      if (this.isIceConnected()) {
-        delete this.ice_connection_callbacks.waitForIceConnected;
-        resolve();
-      } else if (!this.isIceConnectionPending()) {
-        delete this.ice_connection_callbacks.waitForIceConnected;
-        reject(new Error('ICE failed'));
-      }
-    });
+    return this.iceConnected;
   },
 
   /**
@@ -1394,45 +1368,42 @@ PeerConnectionWrapper.prototype = {
   },
 
   /**
-   * Check that media flow is present on the given media element by waiting for
-   * it to reach ready state HAVE_ENOUGH_DATA and progress time further than
-   * the start of the check.
+   * Check that media flow is present for the given media element by checking
+   * that it reaches ready state HAVE_ENOUGH_DATA and progresses time further
+   * than the start of the check.
    *
    * This ensures, that the stream being played is producing
-   * data and that at least one video frame has been displayed.
+   * data and, in case it contains a video track, that at least one video frame
+   * has been displayed.
    *
-   * @param {object} element
-   *        A media element to wait for data flow on.
+   * @param {HTMLMediaElement} track
+   *        The media element to check
    * @returns {Promise}
-   *        A promise that resolves when media is flowing.
+   *        A promise that resolves when media data is flowing.
    */
   waitForMediaElementFlow : function(element) {
-    return new Promise(resolve => {
-      info("Checking data flow to element: " + element.id);
-      if (element.ended && element.readyState >= element.HAVE_CURRENT_DATA) {
-        resolve();
-        return;
-      }
-      var haveEnoughData = false;
-      var oncanplay = () => {
-        info("Element " + element.id + " saw 'canplay', " +
-             "meaning HAVE_ENOUGH_DATA was just reached.");
-        haveEnoughData = true;
-        element.removeEventListener("canplay", oncanplay);
-      };
-      var ontimeupdate = () => {
-        info("Element " + element.id + " saw 'timeupdate'" +
-             ", currentTime=" + element.currentTime +
-             "s, readyState=" + element.readyState);
-        if (haveEnoughData || element.readyState == element.HAVE_ENOUGH_DATA) {
-          element.removeEventListener("timeupdate", ontimeupdate);
-          ok(true, "Media flowing for element: " + element.id);
-          resolve();
-        }
-      };
-      element.addEventListener("canplay", oncanplay);
-      element.addEventListener("timeupdate", ontimeupdate);
-    });
+    info("Checking data flow for element: " + element.id);
+    is(element.ended, !element.srcObject.active,
+       "Element ended should be the inverse of the MediaStream's active state");
+    if (element.ended) {
+      is(element.readyState, element.HAVE_CURRENT_DATA,
+         "Element " + element.id + " is ended and should have had data");
+      return Promise.resolve();
+    }
+
+    const haveEnoughData = (element.readyState == element.HAVE_ENOUGH_DATA ?
+        Promise.resolve() :
+        haveEvent(element, "canplay", wait(60000,
+            new Error("Timeout for element " + element.id))))
+      .then(_ => info("Element " + element.id + " has enough data."));
+
+    const startTime = element.currentTime;
+    const timeProgressed = timeout(
+        listenUntil(element, "timeupdate", _ => element.currentTime > startTime),
+        60000, "Element " + element.id + " should progress currentTime")
+      .then();
+
+    return Promise.all([haveEnoughData, timeProgressed]);
   },
 
   /**

@@ -640,7 +640,6 @@ XPCConvert::JSData2Native(void* d, HandleValue s,
     {
         if (s.isNull() || s.isUndefined()) {
             nsACString* rs = *((nsACString**)d);
-            rs->Truncate();
             rs->SetIsVoid(true);
             return true;
         }
@@ -1032,7 +1031,7 @@ XPCConvert::ConstructException(nsresult rv, const char* message,
 class MOZ_STACK_CLASS AutoExceptionRestorer
 {
 public:
-    AutoExceptionRestorer(JSContext* cx, Value v)
+    AutoExceptionRestorer(JSContext* cx, const Value& v)
         : mContext(cx), tvr(cx, v)
     {
         JS_ClearPendingException(mContext);
@@ -1047,6 +1046,56 @@ private:
     JSContext * const mContext;
     RootedValue tvr;
 };
+
+static nsresult
+JSErrorToXPCException(const char* toStringResult,
+                      const char* ifaceName,
+                      const char* methodName,
+                      const JSErrorReport* report,
+                      nsIException** exceptn)
+{
+    AutoJSContext cx;
+    nsresult rv = NS_ERROR_FAILURE;
+    RefPtr<nsScriptError> data;
+    if (report) {
+        nsAutoString bestMessage;
+        if (report && report->message()) {
+            CopyUTF8toUTF16(report->message().c_str(), bestMessage);
+        } else if (toStringResult) {
+            CopyUTF8toUTF16(toStringResult, bestMessage);
+        } else {
+            bestMessage.AssignLiteral("JavaScript Error");
+        }
+
+        const char16_t* linebuf = report->linebuf();
+
+        data = new nsScriptError();
+        data->InitWithWindowID(
+            bestMessage,
+            NS_ConvertASCIItoUTF16(report->filename),
+            linebuf ? nsDependentString(linebuf, report->linebufLength()) : EmptyString(),
+            report->lineno,
+            report->tokenOffset(), report->flags,
+            NS_LITERAL_CSTRING("XPConnect JavaScript"),
+            nsJSUtils::GetCurrentlyRunningCodeInnerWindowID(cx));
+    }
+
+    if (data) {
+        nsAutoCString formattedMsg;
+        data->ToString(formattedMsg);
+
+        rv = XPCConvert::ConstructException(NS_ERROR_XPC_JAVASCRIPT_ERROR_WITH_DETAILS,
+                                            formattedMsg.get(), ifaceName,
+                                            methodName,
+                                            static_cast<nsIScriptError*>(data.get()),
+                                            exceptn, nullptr, nullptr);
+    } else {
+        rv = XPCConvert::ConstructException(NS_ERROR_XPC_JAVASCRIPT_ERROR,
+                                            nullptr, ifaceName, methodName,
+                                            nullptr, exceptn, nullptr, nullptr);
+    }
+    return rv;
+}
 
 // static
 nsresult
@@ -1091,11 +1140,11 @@ XPCConvert::JSValToXPCException(MutableHandleValue s,
             // extract the report and build an xpcexception from that
             const JSErrorReport* report;
             if (nullptr != (report = JS_ErrorFromException(cx, obj))) {
-                JSAutoByteString message;
-                JSString* str;
-                if (nullptr != (str = ToString(cx, s)))
-                    message.encodeLatin1(cx, str);
-                return JSErrorToXPCException(message.ptr(), ifaceName,
+                JSAutoByteString toStringResult;
+                RootedString str(cx, ToString(cx, s));
+                if (str)
+                    toStringResult.encodeUtf8(cx, str);
+                return JSErrorToXPCException(toStringResult.ptr(), ifaceName,
                                              methodName, report, exceptn);
             }
 
@@ -1186,58 +1235,6 @@ XPCConvert::JSValToXPCException(MutableHandleValue s,
         }
     }
     return NS_ERROR_FAILURE;
-}
-
-/********************************/
-
-// static
-nsresult
-XPCConvert::JSErrorToXPCException(const char* message,
-                                  const char* ifaceName,
-                                  const char* methodName,
-                                  const JSErrorReport* report,
-                                  nsIException** exceptn)
-{
-    AutoJSContext cx;
-    nsresult rv = NS_ERROR_FAILURE;
-    RefPtr<nsScriptError> data;
-    if (report) {
-        nsAutoString bestMessage;
-        if (report && report->ucmessage) {
-            bestMessage = static_cast<const char16_t*>(report->ucmessage);
-        } else if (message) {
-            CopyASCIItoUTF16(message, bestMessage);
-        } else {
-            bestMessage.AssignLiteral("JavaScript Error");
-        }
-
-        const char16_t* linebuf = report->linebuf();
-
-        data = new nsScriptError();
-        data->InitWithWindowID(
-            bestMessage,
-            NS_ConvertASCIItoUTF16(report->filename),
-            linebuf ? nsDependentString(linebuf, report->linebufLength()) : EmptyString(),
-            report->lineno,
-            report->tokenOffset(), report->flags,
-            NS_LITERAL_CSTRING("XPConnect JavaScript"),
-            nsJSUtils::GetCurrentlyRunningCodeInnerWindowID(cx));
-    }
-
-    if (data) {
-        nsAutoCString formattedMsg;
-        data->ToString(formattedMsg);
-
-        rv = ConstructException(NS_ERROR_XPC_JAVASCRIPT_ERROR_WITH_DETAILS,
-                                formattedMsg.get(), ifaceName, methodName,
-                                static_cast<nsIScriptError*>(data.get()),
-                                exceptn, nullptr, nullptr);
-    } else {
-        rv = ConstructException(NS_ERROR_XPC_JAVASCRIPT_ERROR,
-                                nullptr, ifaceName, methodName, nullptr,
-                                exceptn, nullptr, nullptr);
-    }
-    return rv;
 }
 
 /***************************************************************************/

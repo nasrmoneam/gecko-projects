@@ -10,8 +10,9 @@
 #include "ipc/IPCMessageUtils.h"
 #include "base/message_loop.h"
 
-#include "mozilla/ipc/MessageChannel.h"
 #include "mozilla/ipc/CrossProcessMutex.h"
+#include "mozilla/ipc/MessageChannel.h"
+#include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/UniquePtr.h"
 #include "gfxipc/ShadowLayerUtils.h"
 
@@ -253,9 +254,7 @@ inline nsCString
 NullableString(const char* aString)
 {
     if (!aString) {
-        nsCString str;
-        str.SetIsVoid(true);
-        return str;
+        return NullCString();
     }
     return nsCString(aString);
 }

@@ -2,14 +2,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'
 
 from .marionette_test import (
     CommonTestCase,
     expectedFailure,
     MarionetteJSTestCase,
     MarionetteTestCase,
+    run_if_e10s,
     skip,
+    skip_if_chrome,
     skip_if_desktop,
     skip_if_mobile,
     SkipTest,
@@ -32,4 +34,5 @@ from .runner import (
     TestManifest,
     TestResult,
     TestResultCollection,
+    WindowManagerMixin,
 )

@@ -21,6 +21,9 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(DocumentTimeline)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(DocumentTimeline,
                                                 AnimationTimeline)
   tmp->UnregisterFromRefreshDriver();
+  if (tmp->isInList()) {
+    tmp->remove();
+  }
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocument)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(DocumentTimeline,
@@ -46,7 +49,7 @@ DocumentTimeline::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto)
 
 /* static */ already_AddRefed<DocumentTimeline>
 DocumentTimeline::Constructor(const GlobalObject& aGlobal,
-                              const DOMHighResTimeStamp& aOriginTime,
+                              const DocumentTimelineOptions& aOptions,
                               ErrorResult& aRv)
 {
   nsIDocument* doc = AnimationUtils::GetCurrentRealmDocument(aGlobal.Context());
@@ -54,12 +57,11 @@ DocumentTimeline::Constructor(const GlobalObject& aGlobal,
     aRv.Throw(NS_ERROR_FAILURE);
     return nullptr;
   }
+  TimeDuration originTime =
+    TimeDuration::FromMilliseconds(aOptions.mOriginTime);
 
-  TimeDuration originTime = TimeDuration::FromMilliseconds(aOriginTime);
   if (originTime == TimeDuration::Forever() ||
       originTime == -TimeDuration::Forever()) {
-    nsAutoString inputOriginTime;
-    inputOriginTime.AppendFloat(aOriginTime);
     aRv.ThrowTypeError<dom::MSG_TIME_VALUE_OUT_OF_RANGE>(
       NS_LITERAL_STRING("Origin time"));
     return nullptr;
@@ -135,6 +137,9 @@ DocumentTimeline::NotifyAnimationUpdated(Animation& aAnimation)
   if (!mIsObservingRefreshDriver) {
     nsRefreshDriver* refreshDriver = GetRefreshDriver();
     if (refreshDriver) {
+      MOZ_ASSERT(isInList(),
+                "We should not register with the refresh driver if we are not"
+                " in the document's list of timelines");
       refreshDriver->AddRefreshObserver(this, Flush_Style);
       mIsObservingRefreshDriver = true;
     }
@@ -199,6 +204,9 @@ DocumentTimeline::NotifyRefreshDriverCreated(nsRefreshDriver* aDriver)
              " it is created");
 
   if (!mAnimationOrder.isEmpty()) {
+    MOZ_ASSERT(isInList(),
+               "We should not register with the refresh driver if we are not"
+               " in the document's list of timelines");
     aDriver->AddRefreshObserver(this, Flush_Style);
     mIsObservingRefreshDriver = true;
   }

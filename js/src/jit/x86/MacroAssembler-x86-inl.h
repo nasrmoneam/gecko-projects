@@ -184,7 +184,7 @@ MacroAssembler::add64(Imm64 imm, Register64 dest)
 void
 MacroAssembler::addConstantDouble(double d, FloatRegister dest)
 {
-    Double* dbl = getDouble(d);
+    Double* dbl = getDouble(wasm::RawF64(d));
     if (!dbl)
         return;
     masm.vaddsd_mr(nullptr, dest.encoding(), dest.encoding());
@@ -608,6 +608,17 @@ MacroAssembler::popcnt64(Register64 src, Register64 dest, Register tmp)
     }
     addl(dest.high, dest.low);
     xorl(dest.high, dest.high);
+}
+
+// ===============================================================
+// Condition functions
+
+template <typename T1, typename T2>
+void
+MacroAssembler::cmpPtrSet(Condition cond, T1 lhs, T2 rhs, Register dest)
+{
+    cmpPtr(lhs, rhs);
+    emitSet(cond, dest);
 }
 
 // ===============================================================

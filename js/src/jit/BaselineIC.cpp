@@ -2586,7 +2586,7 @@ DoSetElemFallback(JSContext* cx, BaselineFrame* frame, ICSetElem_Fallback* stub_
             {
                 JitSpew(JitSpew_BaselineIC,
                         "  Generating SetElem_DenseOrUnboxedArrayAdd stub "
-                        "(shape=%p, group=%p, protoDepth=%u)",
+                        "(shape=%p, group=%p, protoDepth=%" PRIuSIZE ")",
                         shape.get(), group.get(), protoDepth);
                 ICSetElemDenseOrUnboxedArrayAddCompiler compiler(cx, obj, protoDepth);
                 ICUpdatedStub* newStub = compiler.getStub(compiler.getStubSpace(outerScript));
@@ -5482,6 +5482,13 @@ GetTemplateObjectForSimd(JSContext* cx, JSFunction* target, MutableHandleObject 
     return true;
 }
 
+static void
+EnsureArrayGroupAnalyzed(JSContext* cx, JSObject* obj)
+{
+    if (PreliminaryObjectArrayWithTemplate* objects = obj->group()->maybePreliminaryObjects())
+        objects->maybeAnalyze(cx, obj->group(), /* forceAnalyze = */ true);
+}
+
 static bool
 GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs& args,
                            MutableHandleObject res, bool* skipAttach)
@@ -5510,11 +5517,12 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
                 return true;
             }
 
-            // With this and other array templates, set forceAnalyze so that we
-            // don't end up with a template whose structure might change later.
+            // With this and other array templates, analyze the group so that
+            // we don't end up with a template whose structure might change later.
             res.set(NewFullyAllocatedArrayForCallingAllocationSite(cx, count, TenuredObject));
             if (!res)
                 return false;
+            EnsureArrayGroupAnalyzed(cx, res);
             return true;
         }
     }
@@ -5525,8 +5533,10 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
         if (args[0].isInt32() && args[0].toInt32() >= 0)
             len = args[0].toInt32();
 
-        if (TypedArrayObject::GetTemplateObjectForNative(cx, native, len, res))
-            return !!res;
+        if (!TypedArrayObject::GetTemplateObjectForNative(cx, native, len, res))
+            return false;
+        if (res)
+            return true;
     }
 
     if (native == js::array_slice) {
@@ -5539,7 +5549,10 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
                 }
                 res.set(NewFullyAllocatedArrayTryReuseGroup(cx, &args.thisv().toObject(), 0,
                                                             TenuredObject));
-                return !!res;
+                if (!res)
+                    return false;
+                EnsureArrayGroupAnalyzed(cx, res);
+                return true;
             }
         }
     }
@@ -5558,6 +5571,7 @@ GetTemplateObjectForNative(JSContext* cx, HandleFunction target, const CallArgs&
         res.set(NewFullyAllocatedArrayForCallingAllocationSite(cx, 0, TenuredObject));
         if (!res)
             return false;
+        EnsureArrayGroupAnalyzed(cx, res);
         return true;
     }
 
@@ -5599,7 +5613,7 @@ GetTemplateObjectForClassHook(JSContext* cx, JSNative hook, CallArgs& args,
 }
 
 static bool
-IsOptimizableCallStringSplit(Value callee, int argc, Value* args)
+IsOptimizableCallStringSplit(const Value& callee, int argc, Value* args)
 {
     if (argc != 2 || !args[0].isString() || !args[1].isString())
         return false;
@@ -5868,10 +5882,10 @@ static bool
 CopyArray(JSContext* cx, HandleObject obj, MutableHandleValue result)
 {
     uint32_t length = GetAnyBoxedOrUnboxedArrayLength(obj);
-    JSObject* nobj = NewFullyAllocatedArrayTryReuseGroup(cx, obj, length, TenuredObject,
-                                                         /* forceAnalyze = */ true);
+    JSObject* nobj = NewFullyAllocatedArrayTryReuseGroup(cx, obj, length, TenuredObject);
     if (!nobj)
         return false;
+    EnsureArrayGroupAnalyzed(cx, nobj);
     CopyAnyBoxedOrUnboxedDenseElements(cx, nobj, obj, 0, 0, length);
 
     result.setObject(*nobj);

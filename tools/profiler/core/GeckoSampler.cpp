@@ -192,7 +192,6 @@ GeckoSampler::GeckoSampler(double aInterval, int aEntrySize,
   mUseStackWalk = hasFeature(aFeatures, aFeatureCount, "stackwalk");
 
   mProfileJS = hasFeature(aFeatures, aFeatureCount, "js");
-  mProfileJava = hasFeature(aFeatures, aFeatureCount, "java");
   mProfileGPU = hasFeature(aFeatures, aFeatureCount, "gpu");
   mProfilePower = hasFeature(aFeatures, aFeatureCount, "power");
   // Users sometimes ask to filter by a list of threads but forget to request
@@ -212,6 +211,13 @@ GeckoSampler::GeckoSampler(double aInterval, int aEntrySize,
     mIntelPowerGadget = new IntelPowerGadget();
     mProfilePower = mIntelPowerGadget->Init();
   }
+#endif
+
+#if defined(SPS_OS_android) && !defined(MOZ_WIDGET_GONK)
+  mProfileJava = mozilla::jni::IsFennec() &&
+      hasFeature(aFeatures, aFeatureCount, "java");
+#else
+  mProfileJava = false;
 #endif
 
   // Deep copy aThreadNameFilters
@@ -776,7 +782,7 @@ void mergeStacksIntoProfile(ThreadProfile& aProfile, TickSample* aSample, Native
                                         startBufferGen);
       for (; jsCount < maxFrames && !jsIter.done(); ++jsIter) {
         // See note below regarding 'J' entries.
-        if (aSample->isSamplingCurrentThread || jsIter.isAsmJS()) {
+        if (aSample->isSamplingCurrentThread || jsIter.isWasm()) {
           uint32_t extracted = jsIter.extractStack(jsFrames, jsCount, maxFrames);
           jsCount += extracted;
           if (jsCount == maxFrames)
@@ -880,7 +886,7 @@ void mergeStacksIntoProfile(ThreadProfile& aProfile, TickSample* aSample, Native
       MOZ_ASSERT(jsIndex >= 0);
       const JS::ProfilingFrameIterator::Frame& jsFrame = jsFrames[jsIndex];
 
-      // Stringifying non-asm.js JIT frames is delayed until streaming
+      // Stringifying non-wasm JIT frames is delayed until streaming
       // time. To re-lookup the entry in the JitcodeGlobalTable, we need to
       // store the JIT code address ('J') in the circular buffer.
       //
@@ -894,7 +900,7 @@ void mergeStacksIntoProfile(ThreadProfile& aProfile, TickSample* aSample, Native
       // the buffer, nsRefreshDriver would now be holding on to a backtrace
       // with stale JIT code return addresses.
       if (aSample->isSamplingCurrentThread ||
-          jsFrame.kind == JS::ProfilingFrameIterator::Frame_AsmJS) {
+          jsFrame.kind == JS::ProfilingFrameIterator::Frame_Wasm) {
         addDynamicTag(aProfile, 'c', jsFrame.label.get());
       } else {
         MOZ_ASSERT(jsFrame.kind == JS::ProfilingFrameIterator::Frame_Ion ||

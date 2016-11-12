@@ -686,16 +686,11 @@ PluginModuleParent::PluginModuleParent(bool aIsChrome, bool aAllowAsyncInit)
     , mIsNPShutdownPending(false)
     , mAsyncNewRv(NS_ERROR_NOT_INITIALIZED)
 {
-#if defined(XP_WIN) || defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK)
-    mIsStartingAsync = aAllowAsyncInit &&
-                       Preferences::GetBool(kAsyncInitPref, false) &&
-                       !BrowserTabsRemoteAutostart();
 #if defined(MOZ_CRASHREPORTER)
     CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("AsyncPluginInit"),
                                        mIsStartingAsync ?
                                            NS_LITERAL_CSTRING("1") :
                                            NS_LITERAL_CSTRING("0"));
-#endif
 #endif
 }
 
@@ -734,7 +729,6 @@ PluginModuleChromeParent::PluginModuleChromeParent(const char* aFilePath,
     , mPluginId(aPluginId)
     , mChromeTaskFactory(this)
     , mHangAnnotationFlags(0)
-    , mProtocolCallStackMutex("PluginModuleChromeParent::mProtocolCallStackMutex")
 #ifdef XP_WIN
     , mPluginCpuUsageOnHang()
     , mHangUIParent(nullptr)
@@ -1006,40 +1000,6 @@ GetProcessCpuUsage(const InfallibleTArray<base::ProcessHandle>& processHandles, 
 
 #endif // #ifdef XP_WIN
 
-void
-PluginModuleChromeParent::OnEnteredCall()
-{
-    mozilla::ipc::IProtocol* protocol = GetInvokingProtocol();
-    MOZ_ASSERT(protocol);
-    mozilla::MutexAutoLock lock(mProtocolCallStackMutex);
-    mProtocolCallStack.AppendElement(protocol);
-}
-
-void
-PluginModuleChromeParent::OnExitedCall()
-{
-    mozilla::MutexAutoLock lock(mProtocolCallStackMutex);
-    MOZ_ASSERT(!mProtocolCallStack.IsEmpty());
-    mProtocolCallStack.RemoveElementAt(mProtocolCallStack.Length() - 1);
-}
-
-void
-PluginModuleChromeParent::OnEnteredSyncSend()
-{
-    mozilla::ipc::IProtocol* protocol = GetInvokingProtocol();
-    MOZ_ASSERT(protocol);
-    mozilla::MutexAutoLock lock(mProtocolCallStackMutex);
-    mProtocolCallStack.AppendElement(protocol);
-}
-
-void
-PluginModuleChromeParent::OnExitedSyncSend()
-{
-    mozilla::MutexAutoLock lock(mProtocolCallStackMutex);
-    MOZ_ASSERT(!mProtocolCallStack.IsEmpty());
-    mProtocolCallStack.RemoveElementAt(mProtocolCallStack.Length() - 1);
-}
-
 /**
  * This function converts the topmost routing id on the call stack (as recorded
  * by the MessageChannel) into a pointer to a IProtocol object.
@@ -1076,8 +1036,7 @@ PluginInstanceParent*
 PluginModuleChromeParent::GetManagingInstance(mozilla::ipc::IProtocol* aProtocol)
 {
     MOZ_ASSERT(aProtocol);
-    mozilla::ipc::MessageListener* listener =
-        static_cast<mozilla::ipc::MessageListener*>(aProtocol);
+    mozilla::ipc::IProtocol* listener = aProtocol;
     switch (listener->GetProtocolTypeId()) {
         case PPluginInstanceMsgStart:
             // In this case, aProtocol is the instance itself. Just cast it.
@@ -2740,22 +2699,15 @@ PluginModuleParent::NPP_NewInternal(NPMIMEType pluginType, NPP instance,
         new PluginInstanceParent(this, instance, strPluginType, mNPNIface);
 
     if (mIsFlashPlugin) {
-        // In Bug 1287588, we found out that if the salign attribute is before
-        // the scale attribute in embed parameters, flash objects render
-        // incorrectly. This is most likely due to an order of operations
-        // problem in the plugin itself. Bug 1264270 changes the order in which
-        // parameters were passed, causing this bug to trigger on pages that
-        // formerly worked. In order to keep things working the way they were in
-        // Firefox <= 48, we reverse the order of parameters, making sure it
-        // happens before we possibly appends more parameters. This should keep
-        // parameters in the same order as prior versions.
-        std::reverse(names.begin(), names.end());
-        std::reverse(values.begin(), values.end());
-
         parentInstance->InitMetadata(strPluginType, srcAttribute);
 #ifdef XP_WIN
-        bool supportsAsyncRender = false;
-        CallModuleSupportsAsyncRender(&supportsAsyncRender);
+        bool supportsAsyncRender =
+          Preferences::GetBool("dom.ipc.plugins.asyncdrawing.enabled", false);
+        if (supportsAsyncRender) {
+          // Prefs indicates we want async plugin rendering, make sure
+          // the flash module has support.
+          CallModuleSupportsAsyncRender(&supportsAsyncRender);
+        }
 #ifdef _WIN64
         // For 64-bit builds force windowless if the flash library doesn't support
         // async rendering regardless of sandbox level.
@@ -2778,6 +2730,17 @@ PluginModuleParent::NPP_NewInternal(NPMIMEType pluginType, NPP instance,
                values.AppendElement(opaqueAttributeValue);
            }
         }
+
+      // Update the flashvar bgcolor if it's not set, fixes a rendering problem with
+      // async plugin painting and transparent flash.
+      if (supportsAsyncRender) {
+        NS_NAMED_LITERAL_CSTRING(bgcolorAttributeName, "bgcolor");
+        NS_NAMED_LITERAL_CSTRING(bgcolorAttributeDefault, "#FFFFFF");
+        if (!names.Contains(bgcolorAttributeName)) {
+          names.AppendElement(bgcolorAttributeName);
+          values.AppendElement(bgcolorAttributeDefault);
+        }
+      }
 #endif
     }
 

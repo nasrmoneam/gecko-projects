@@ -122,9 +122,9 @@ public:
   // Returns the buffered range currently managed.
   // This may be called on any thread.
   // Buffered must conform to http://w3c.github.io/media-source/index.html#widl-SourceBuffer-buffered
-  media::TimeIntervals Buffered();
-  media::TimeUnit HighestStartTime();
-  media::TimeUnit HighestEndTime();
+  media::TimeIntervals Buffered() const;
+  media::TimeUnit HighestStartTime() const;
+  media::TimeUnit HighestEndTime() const;
 
   // Return the size of the data managed by this SourceBufferContentManager.
   int64_t GetSize() const;
@@ -138,15 +138,16 @@ public:
   int64_t EvictionThreshold() const;
 
   // Interface for MediaSourceDemuxer
-  MediaInfo GetMetadata();
-  const TrackBuffer& GetTrackBuffer(TrackInfo::TrackType aTrack);
-  const media::TimeIntervals& Buffered(TrackInfo::TrackType);
-  const media::TimeUnit& HighestStartTime(TrackInfo::TrackType);
+  MediaInfo GetMetadata() const;
+  const TrackBuffer& GetTrackBuffer(TrackInfo::TrackType aTrack) const;
+  const media::TimeIntervals& Buffered(TrackInfo::TrackType) const;
+  const media::TimeUnit& HighestStartTime(TrackInfo::TrackType) const;
   media::TimeIntervals SafeBuffered(TrackInfo::TrackType) const;
   bool IsEnded() const
   {
     return mEnded;
   }
+  uint32_t Evictable(TrackInfo::TrackType aTrack) const;
   media::TimeUnit Seek(TrackInfo::TrackType aTrack,
                        const media::TimeUnit& aTime,
                        const media::TimeUnit& aFuzz);
@@ -159,11 +160,11 @@ public:
                                            const media::TimeUnit& aFuzz,
                                            MediaResult& aResult);
   int32_t FindCurrentPosition(TrackInfo::TrackType aTrack,
-                              const media::TimeUnit& aFuzz);
+                              const media::TimeUnit& aFuzz) const;
   media::TimeUnit GetNextRandomAccessPoint(TrackInfo::TrackType aTrack,
                                            const media::TimeUnit& aFuzz);
 
-  void AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes);
+  void AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes) const;
 
 private:
   typedef MozPromise<bool, MediaResult, /* IsExclusive = */ true> CodedFrameProcessingPromise;
@@ -239,7 +240,6 @@ private:
   void OnDemuxerInitFailed(const MediaResult& aFailure);
   void OnDemuxerResetDone(nsresult);
   MozPromiseRequestHolder<MediaDataDemuxer::InitPromise> mDemuxerInitRequest;
-  bool mEncrypted;
 
   void OnDemuxFailed(TrackType aTrack, const MediaResult& aError);
   void DoDemuxVideo();
@@ -307,9 +307,21 @@ private:
     // If set, position where the next contiguous frame will be inserted.
     // If a discontinuity is detected, it will be unset and recalculated upon
     // the next insertion.
-    Maybe<size_t> mNextInsertionIndex;
+    Maybe<uint32_t> mNextInsertionIndex;
     // Samples just demuxed, but not yet parsed.
     TrackBuffer mQueuedSamples;
+    const TrackBuffer& GetTrackBuffer() const
+    {
+      MOZ_RELEASE_ASSERT(mBuffers.Length(),
+                         "TrackBuffer must have been created");
+      return mBuffers.LastElement();
+    }
+    TrackBuffer& GetTrackBuffer()
+    {
+      MOZ_RELEASE_ASSERT(mBuffers.Length(),
+                         "TrackBuffer must have been created");
+      return mBuffers.LastElement();
+    }
     // We only manage a single track of each type at this time.
     nsTArray<TrackBuffer> mBuffers;
     // Track buffer ranges variable that represents the presentation time ranges
@@ -334,6 +346,26 @@ private:
     // Approximation of the next sample's presentation timestamp.
     media::TimeUnit mNextSampleTime;
 
+    struct EvictionIndex
+    {
+      EvictionIndex() { Reset(); }
+      void Reset()
+      {
+        mEvictable = 0;
+        mLastIndex = 0;
+      }
+      uint32_t mEvictable;
+      uint32_t mLastIndex;
+    };
+    // Size of data that can be safely evicted during the next eviction
+    // cycle.
+    // We consider as evictable all frames up to the last keyframe prior to
+    // mNextGetSampleIndex. If mNextGetSampleIndex isn't set, then we assume
+    // that we can't yet evict data.
+    // Protected by global monitor, except when reading on the task queue as it
+    // is only written there.
+    EvictionIndex mEvictionIndex;
+
     void ResetAppendState()
     {
       mLastDecodeTimestamp.reset();
@@ -344,7 +376,7 @@ private:
       mNextInsertionIndex.reset();
     }
 
-    void AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes);
+    void AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes) const;
   };
 
   void CheckSequenceDiscontinuity(const media::TimeUnit& aPresentationTime);
@@ -360,14 +392,17 @@ private:
   // Remove all frames and their dependencies contained in aIntervals.
   // Return the index at which frames were first removed or 0 if no frames
   // removed.
-  size_t RemoveFrames(const media::TimeIntervals& aIntervals,
-                      TrackData& aTrackData,
-                      uint32_t aStartIndex);
+  uint32_t RemoveFrames(const media::TimeIntervals& aIntervals,
+                        TrackData& aTrackData,
+                        uint32_t aStartIndex);
+  // Recalculate track's evictable amount.
+  void ResetEvictionIndex(TrackData& aTrackData);
+  void UpdateEvictionIndex(TrackData& aTrackData, uint32_t aCurrentIndex);
   // Find index of sample. Return a negative value if not found.
   uint32_t FindSampleIndex(const TrackBuffer& aTrackBuffer,
                            const media::TimeInterval& aInterval);
   const MediaRawData* GetSample(TrackInfo::TrackType aTrack,
-                                size_t aIndex,
+                                uint32_t aIndex,
                                 const media::TimeUnit& aExpectedDts,
                                 const media::TimeUnit& aExpectedPts,
                                 const media::TimeUnit& aFuzz);
@@ -378,8 +413,19 @@ private:
   MozPromiseHolder<CodedFrameProcessingPromise> mProcessingPromise;
 
   // Trackbuffers definition.
+  nsTArray<const TrackData*> GetTracksList() const;
   nsTArray<TrackData*> GetTracksList();
   TrackData& GetTracksData(TrackType aTrack)
+  {
+    switch(aTrack) {
+      case TrackType::kVideoTrack:
+        return mVideoTracks;
+      case TrackType::kAudioTrack:
+      default:
+        return mAudioTracks;
+    }
+  }
+  const TrackData& GetTracksData(TrackType aTrack) const
   {
     switch(aTrack) {
       case TrackType::kVideoTrack:
@@ -393,11 +439,11 @@ private:
   TrackData mAudioTracks;
 
   // TaskQueue methods and objects.
-  AbstractThread* GetTaskQueue()
+  AbstractThread* GetTaskQueue() const
   {
     return mTaskQueue;
   }
-  bool OnTaskQueue()
+  bool OnTaskQueue() const
   {
     return !GetTaskQueue() || GetTaskQueue()->IsCurrentThreadIn();
   }
@@ -421,6 +467,10 @@ private:
   // Strong references to external objects.
   nsMainThreadPtrHandle<MediaSourceDecoder> mParentDecoder;
 
+  // Return public highest end time across all aTracks.
+  // Monitor must be held.
+  media::TimeUnit HighestEndTime(nsTArray<const media::TimeIntervals*>& aTracks) const;
+
   // Set to true if mediasource state changed to ended.
   Atomic<bool> mEnded;
 
@@ -436,7 +486,7 @@ private:
   };
   Atomic<EvictionState> mEvictionState;
 
-  // Monitor to protect following objects accessed across multipple threads.
+  // Monitor to protect following objects accessed across multiple threads.
   mutable Monitor mMonitor;
   // Stable audio and video track time ranges.
   media::TimeIntervals mVideoBufferedRanges;

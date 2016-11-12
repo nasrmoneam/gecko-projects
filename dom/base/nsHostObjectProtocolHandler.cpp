@@ -8,6 +8,7 @@
 
 #include "DOMMediaStream.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/ipc/BlobChild.h"
@@ -25,11 +26,14 @@
 #include "nsIUUIDGenerator.h"
 #include "nsNetUtil.h"
 
+#define RELEASING_TIMER 1000
+
 using mozilla::DOMMediaStream;
 using mozilla::dom::BlobImpl;
 using mozilla::dom::MediaSource;
 using mozilla::ErrorResult;
 using mozilla::net::LoadInfo;
+using mozilla::Move;
 
 // -----------------------------------------------------------------------
 // Hash table
@@ -67,6 +71,9 @@ struct DataInfo
 
   nsCOMPtr<nsIPrincipal> mPrincipal;
   nsCString mStack;
+
+  // WeakReferences of nsHostObjectURI objects.
+  nsTArray<nsWeakPtr> mURIs;
 };
 
 static nsClassHashtable<nsCStringHashKey, DataInfo>* gDataTable;
@@ -101,6 +108,7 @@ GetDataInfo(const nsACString& aUri)
 
   return res;
 }
+
 static DataInfo*
 GetDataInfoFromURI(nsIURI* aURI)
 {
@@ -129,13 +137,13 @@ BroadcastBlobURLRegistration(const nsACString& aURI,
   MOZ_ASSERT(aBlobImpl);
 
   if (XRE_IsParentProcess()) {
-    ContentParent::BroadcastBlobURLRegistration(aURI, aBlobImpl,
-                                                aPrincipal);
+    dom::ContentParent::BroadcastBlobURLRegistration(aURI, aBlobImpl,
+                                                     aPrincipal);
     return;
   }
 
-  ContentChild* cc = ContentChild::GetSingleton();
-  BlobChild* actor = cc->GetOrCreateActorForBlobImpl(aBlobImpl);
+  dom::ContentChild* cc = dom::ContentChild::GetSingleton();
+  dom::BlobChild* actor = cc->GetOrCreateActorForBlobImpl(aBlobImpl);
   if (NS_WARN_IF(!actor)) {
     return;
   }
@@ -151,11 +159,11 @@ BroadcastBlobURLUnregistration(const nsACString& aURI, DataInfo* aInfo)
   MOZ_ASSERT(NS_IsMainThread());
 
   if (XRE_IsParentProcess()) {
-    ContentParent::BroadcastBlobURLUnregistration(aURI);
+    dom::ContentParent::BroadcastBlobURLUnregistration(aURI);
     return;
   }
 
-  ContentChild* cc = ContentChild::GetSingleton();
+  dom::ContentChild* cc = dom::ContentChild::GetSingleton();
   Unused << NS_WARN_IF(!cc->SendUnstoreAndBroadcastBlobURLUnregistration(
     nsCString(aURI)));
 }
@@ -416,6 +424,54 @@ class BlobURLsReporter final : public nsIMemoryReporter
 
 NS_IMPL_ISUPPORTS(BlobURLsReporter, nsIMemoryReporter)
 
+class ReleasingTimerHolder final : public nsITimerCallback
+{
+public:
+  NS_DECL_ISUPPORTS
+
+  static void
+  Create(nsTArray<nsWeakPtr>&& aArray)
+  {
+    RefPtr<ReleasingTimerHolder> holder = new ReleasingTimerHolder(Move(aArray));
+    holder->mTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+
+    // If we are shutting down, we are not able to create a timer.
+    if (!holder->mTimer) {
+      return;
+    }
+
+    nsresult rv = holder->mTimer->InitWithCallback(holder, RELEASING_TIMER,
+                                                   nsITimer::TYPE_ONE_SHOT);
+    NS_ENSURE_SUCCESS_VOID(rv);
+  }
+
+  NS_IMETHOD
+  Notify(nsITimer* aTimer) override
+  {
+    for (uint32_t i = 0; i < mURIs.Length(); ++i) {
+      nsCOMPtr<nsIURI> uri = do_QueryReferent(mURIs[i]);
+      if (uri) {
+        static_cast<nsHostObjectURI*>(uri.get())->ForgetBlobImpl();
+      }
+    }
+
+    return NS_OK;
+  }
+
+private:
+  explicit ReleasingTimerHolder(nsTArray<nsWeakPtr>&& aArray)
+    : mURIs(aArray)
+  {}
+
+  ~ReleasingTimerHolder()
+  {}
+
+  nsTArray<nsWeakPtr> mURIs;
+  nsCOMPtr<nsITimer> mTimer;
+};
+
+NS_IMPL_ISUPPORTS(ReleasingTimerHolder, nsITimerCallback)
+
 } // namespace mozilla
 
 template<typename T>
@@ -464,7 +520,7 @@ nsHostObjectProtocolHandler::AddDataEntry(BlobImpl* aBlobImpl,
   rv = AddDataEntryInternal(aUri, aBlobImpl, aPrincipal);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  BroadcastBlobURLRegistration(aUri, aBlobImpl, aPrincipal);
+  mozilla::BroadcastBlobURLRegistration(aUri, aBlobImpl, aPrincipal);
   return NS_OK;
 }
 
@@ -509,8 +565,9 @@ nsHostObjectProtocolHandler::AddDataEntry(const nsACString& aURI,
 }
 
 /* static */ bool
-nsHostObjectProtocolHandler::GetAllBlobURLEntries(nsTArray<BlobURLRegistrationData>& aRegistrations,
-                                                  ContentParent* aCP)
+nsHostObjectProtocolHandler::GetAllBlobURLEntries(
+  nsTArray<mozilla::dom::BlobURLRegistrationData>& aRegistrations,
+  mozilla::dom::ContentParent* aCP)
 {
   MOZ_ASSERT(aCP);
 
@@ -527,20 +584,21 @@ nsHostObjectProtocolHandler::GetAllBlobURLEntries(nsTArray<BlobURLRegistrationDa
     }
 
     MOZ_ASSERT(info->mBlobImpl);
-    PBlobParent* blobParent = aCP->GetOrCreateActorForBlobImpl(info->mBlobImpl);
+    mozilla::dom::PBlobParent* blobParent =
+      aCP->GetOrCreateActorForBlobImpl(info->mBlobImpl);
     if (!blobParent) {
       return false;
     }
 
-    aRegistrations.AppendElement(
-      BlobURLRegistrationData(nsCString(iter.Key()), blobParent, nullptr,
-                              IPC::Principal(info->mPrincipal)));
+    aRegistrations.AppendElement(mozilla::dom::BlobURLRegistrationData(
+      nsCString(iter.Key()), blobParent, nullptr,
+      IPC::Principal(info->mPrincipal)));
   }
 
   return true;
 }
 
-void
+/*static */ void
 nsHostObjectProtocolHandler::RemoveDataEntry(const nsACString& aUri,
                                              bool aBroadcastToOtherProcesses)
 {
@@ -554,7 +612,11 @@ nsHostObjectProtocolHandler::RemoveDataEntry(const nsACString& aUri,
   }
 
   if (aBroadcastToOtherProcesses && info->mObjectType == DataInfo::eBlobImpl) {
-    BroadcastBlobURLUnregistration(aUri, info);
+    mozilla::BroadcastBlobURLUnregistration(aUri, info);
+  }
+
+  if (!info->mURIs.IsEmpty()) {
+    mozilla::ReleasingTimerHolder::Create(Move(info->mURIs));
   }
 
   gDataTable->Remove(aUri);
@@ -564,7 +626,7 @@ nsHostObjectProtocolHandler::RemoveDataEntry(const nsACString& aUri,
   }
 }
 
-void
+/* static */ void
 nsHostObjectProtocolHandler::RemoveDataEntries()
 {
   MOZ_ASSERT(XRE_IsContentProcess());
@@ -584,7 +646,7 @@ nsHostObjectProtocolHandler::HasDataEntry(const nsACString& aUri)
   return !!GetDataInfo(aUri);
 }
 
-nsresult
+/* static */ nsresult
 nsHostObjectProtocolHandler::GenerateURIString(const nsACString &aScheme,
                                                nsIPrincipal* aPrincipal,
                                                nsACString& aUri)
@@ -620,7 +682,7 @@ nsHostObjectProtocolHandler::GenerateURIString(const nsACString &aScheme,
   return NS_OK;
 }
 
-nsresult
+/* static */ nsresult
 nsHostObjectProtocolHandler::GenerateURIStringForBlobURL(nsIPrincipal* aPrincipal,
                                                          nsACString& aUri)
 {
@@ -628,7 +690,7 @@ nsHostObjectProtocolHandler::GenerateURIStringForBlobURL(nsIPrincipal* aPrincipa
     GenerateURIString(NS_LITERAL_CSTRING(BLOBURI_SCHEME), aPrincipal, aUri);
 }
 
-nsIPrincipal*
+/* static */ nsIPrincipal*
 nsHostObjectProtocolHandler::GetDataEntryPrincipal(const nsACString& aUri)
 {
   if (!gDataTable) {
@@ -644,7 +706,7 @@ nsHostObjectProtocolHandler::GetDataEntryPrincipal(const nsACString& aUri)
   return res->mPrincipal;
 }
 
-void
+/* static */ void
 nsHostObjectProtocolHandler::Traverse(const nsACString& aUri,
                                       nsCycleCollectionTraversalCallback& aCallback)
 {
@@ -712,6 +774,10 @@ nsHostObjectProtocolHandler::NewURI(const nsACString& aSpec,
 
   NS_TryToSetImmutable(uri);
   uri.forget(aResult);
+
+  if (info && info->mObjectType == DataInfo::eBlobImpl) {
+    info->mURIs.AppendElement(do_GetWeakReference(*aResult));
+  }
 
   return NS_OK;
 }

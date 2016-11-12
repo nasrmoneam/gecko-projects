@@ -7,7 +7,7 @@ AC_DEFUN([MOZ_ANDROID_NDK],
 
 MOZ_ARG_WITH_STRING(android-cxx-stl,
 [  --with-android-cxx-stl=VALUE
-                          use the specified C++ STL (stlport, libstdc++, libc++)],
+                          use the specified C++ STL (libstdc++, libc++)],
     android_cxx_stl=$withval,
     android_cxx_stl=libc++)
 
@@ -51,6 +51,9 @@ if test "$OS_TARGET" = "Android"; then
         ;;
     mips32-*) # When target_cpu is mipsel, CPU_ARCH is mips32
         ANDROID_CPU_ARCH=mips
+        ;;
+    aarch64-*)
+        ANDROID_CPU_ARCH=arm64-v8a
         ;;
     esac
 
@@ -109,11 +112,6 @@ if test "$OS_TARGET" = "Android"; then
             # functions, locale-specific C library functions, multibyte support,
             # etc.
             STLPORT_CPPFLAGS="-I$android_ndk/sources/android/support/include -I$cxx_include -I$cxxabi_include"
-            ;;
-        mozstlport)
-            # We don't need to set STLPORT_LIBS, because the build system will
-            # take care of linking in our home-built stlport where it is needed.
-            STLPORT_CPPFLAGS="-isystem $_topsrcdir/build/stlport/stlport -isystem $_topsrcdir/build/stlport/overrides -isystem $android_ndk/sources/cxx-stl/system/include"
             ;;
         *)
             AC_MSG_ERROR([Bad value for --enable-android-cxx-stl])
@@ -265,7 +263,7 @@ case "$target" in
             break
         fi
     done
-    if test "$android_build_tools_version" == ""; then
+    if test "$android_build_tools_version" = ""; then
         version=$(echo $2 | cut -d" " -f1)
         AC_MSG_ERROR([You must install the Android build-tools version $version.  Try |mach bootstrap|.  (Looked for "$android_build_tools_base"/$version)])
     fi
@@ -327,6 +325,8 @@ case "$target" in
 
     MOZ_ANDROID_AAR(customtabs, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(appcompat-v7, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
+    MOZ_ANDROID_AAR(support-vector-drawable, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
+    MOZ_ANDROID_AAR(animated-vector-drawable, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(cardview-v7, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(design, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)
     MOZ_ANDROID_AAR(recyclerview-v7, $ANDROID_SUPPORT_LIBRARY_VERSION, android, com/android/support)

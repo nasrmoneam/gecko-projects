@@ -63,11 +63,7 @@ WrapperFactory::GetXrayWaiver(HandleObject obj)
     if (!scope->mWaiverWrapperMap)
         return nullptr;
 
-    JSObject* xrayWaiver = scope->mWaiverWrapperMap->Find(obj);
-    if (xrayWaiver)
-        JS::ExposeObjectToActiveJS(xrayWaiver);
-
-    return xrayWaiver;
+    return scope->mWaiverWrapperMap->Find(obj);
 }
 
 JSObject*
@@ -168,7 +164,7 @@ WrapperFactory::PrepareForWrapping(JSContext* cx, HandleObject scope,
         // navigated-away-from Window. Strip any CCWs.
         obj = js::UncheckedUnwrap(obj);
         if (JS_IsDeadWrapper(obj)) {
-            JS_ReportError(cx, "Can't wrap dead object");
+            JS_ReportErrorASCII(cx, "Can't wrap dead object");
             return;
         }
         MOZ_ASSERT(js::IsWindowProxy(obj));

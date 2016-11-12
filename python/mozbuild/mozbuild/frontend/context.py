@@ -1268,7 +1268,7 @@ VARIABLES = {
         This variable can only be used on Linux.
         """),
 
-    'SYMBOLS_FILE': (SourcePath, unicode,
+    'SYMBOLS_FILE': (Path, unicode,
         """A file containing a list of symbols to export from a shared library.
 
         The given file contains a list of symbols to be exported, and is
@@ -1515,12 +1515,20 @@ VARIABLES = {
         """List of manifest files defining Android instrumentation tests.
         """),
 
-    'MARIONETTE_LAYOUT_MANIFESTS': (ManifestparserManifestList, list,
-        """List of manifest files defining marionette-layout tests.
+    'FIREFOX_UI_FUNCTIONAL_MANIFESTS': (ManifestparserManifestList, list,
+        """List of manifest files defining firefox-ui-functional tests.
         """),
 
-    'MARIONETTE_LOOP_MANIFESTS': (ManifestparserManifestList, list,
-        """List of manifest files defining marionette-loop tests.
+    'FIREFOX_UI_UPDATE_MANIFESTS': (ManifestparserManifestList, list,
+        """List of manifest files defining firefox-ui-update tests.
+        """),
+
+    'PUPPETEER_FIREFOX_MANIFESTS': (ManifestparserManifestList, list,
+        """List of manifest files defining puppeteer unit tests for Firefox.
+        """),
+
+    'MARIONETTE_LAYOUT_MANIFESTS': (ManifestparserManifestList, list,
+        """List of manifest files defining marionette-layout tests.
         """),
 
     'MARIONETTE_UNIT_MANIFESTS': (ManifestparserManifestList, list,

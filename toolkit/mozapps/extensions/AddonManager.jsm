@@ -67,10 +67,9 @@ const TOOLKIT_ID                      = "toolkit@mozilla.org";
 
 const VALID_TYPES_REGEXP = /^[\w\-]+$/;
 
-const WEBAPI_INSTALL_HOSTS = ["addons.mozilla.org", "addons.cdn.mozilla.net", "testpilot.firefox.com"];
+const WEBAPI_INSTALL_HOSTS = ["addons.mozilla.org", "testpilot.firefox.com"];
 const WEBAPI_TEST_INSTALL_HOSTS = [
-  "addons.allizom.org", "addons-stage-cdn.allizom.org",
-  "addons-dev.allizom.org", "addons-dev-cdn-allizom.org",
+  "addons.allizom.org", "addons-dev.allizom.org",
   "testpilot.stage.mozaws.net", "testpilot.dev.mozaws.net",
   "example.com",
 ];
@@ -85,6 +84,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "Promise",
                                   "resource://gre/modules/Promise.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "AddonRepository",
                                   "resource://gre/modules/addons/AddonRepository.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Extension",
+                                  "resource://gre/modules/Extension.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "FileUtils",
                                   "resource://gre/modules/FileUtils.jsm");
 
@@ -849,6 +850,8 @@ var AddonManagerInternal = {
         appChanged = Services.appinfo.version != oldAppVersion;
       }
       catch (e) { }
+
+      Extension.browserUpdated = appChanged;
 
       let oldPlatformVersion = null;
       try {
@@ -2331,6 +2334,19 @@ var AddonManagerInternal = {
                                .installTemporaryAddon(aFile);
   },
 
+  installAddonFromSources: function(aFile) {
+    if (!gStarted)
+      throw Components.Exception("AddonManager is not initialized",
+                                 Cr.NS_ERROR_NOT_INITIALIZED);
+
+    if (!(aFile instanceof Ci.nsIFile))
+      throw Components.Exception("aFile must be a nsIFile",
+                                 Cr.NS_ERROR_INVALID_ARG);
+
+    return AddonManagerInternal._getProviderByName("XPIProvider")
+                               .installAddonFromSources(aFile);
+  },
+
   /**
    * Returns an Addon corresponding to an instance ID.
    * @param aInstanceID
@@ -2872,7 +2888,7 @@ var AddonManagerInternal = {
       obj.maxProgress = install.maxProgress;
     },
 
-    makeListener(id, target) {
+    makeListener(id, mm) {
       const events = [
         "onDownloadStarted",
         "onDownloadProgress",
@@ -2890,7 +2906,7 @@ var AddonManagerInternal = {
         listener[event] = (install) => {
           let data = {event, id};
           AddonManager.webAPI.copyProps(install, data);
-          this.sendEvent(target, data);
+          this.sendEvent(mm, data);
         }
       });
       return listener;
@@ -2931,7 +2947,7 @@ var AddonManagerInternal = {
 
         let newInstall = install => {
           let id = this.nextInstall++;
-          let listener = this.makeListener(id, target);
+          let listener = this.makeListener(id, target.messageManager);
           install.addListener(listener);
 
           this.installs.set(id, {install, target, listener});
@@ -2940,7 +2956,7 @@ var AddonManagerInternal = {
           this.copyProps(install, result);
           resolve(result);
         };
-        AddonManager.getInstallForURL(options.url, newInstall, "application/x-xpinstall");
+        AddonManager.getInstallForURL(options.url, newInstall, "application/x-xpinstall", options.hash);
       });
     },
 
@@ -2998,7 +3014,7 @@ var AddonManagerInternal = {
 
     clearInstallsFrom(mm) {
       for (let [id, info] of this.installs) {
-        if (info.target == mm) {
+        if (info.target.messageManager == mm) {
           this.forgetInstall(id);
         }
       }
@@ -3211,6 +3227,8 @@ this.AddonManager = {
     ["ERROR_SIGNEDSTATE_REQUIRED", -5],
     // The downloaded add-on had a different type than expected.
     ["ERROR_UNEXPECTED_ADDON_TYPE", -6],
+    // The addon did not have the expected ID
+    ["ERROR_INCORRECT_ID", -7],
   ]),
 
   // These must be kept in sync with AddonUpdateChecker.
@@ -3503,6 +3521,10 @@ this.AddonManager = {
 
   installTemporaryAddon: function(aDirectory) {
     return AddonManagerInternal.installTemporaryAddon(aDirectory);
+  },
+
+  installAddonFromSources: function(aDirectory) {
+    return AddonManagerInternal.installAddonFromSources(aDirectory);
   },
 
   getAddonByInstanceID: function(aInstanceID) {

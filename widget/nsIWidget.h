@@ -1194,7 +1194,7 @@ class nsIWidget : public nsISupports
     /**
      * Return the screen the widget is in, or null if we don't know.
      */
-    already_AddRefed<nsIScreen> GetWidgetScreen();
+    virtual already_AddRefed<nsIScreen> GetWidgetScreen() = 0;
 
     /**
      * Put the toplevel window into or out of fullscreen mode.

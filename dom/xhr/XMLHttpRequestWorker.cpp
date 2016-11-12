@@ -1175,7 +1175,7 @@ EventRunnable::PreDispatch(WorkerPrivate* /* unused */)
         }
 
         if (doClone) {
-          Write(cx, response, transferable, rv);
+          Write(cx, response, transferable, JS::CloneDataPolicy(), rv);
           if (NS_WARN_IF(rv.Failed())) {
             NS_WARNING("Failed to clone response!");
             mResponseResult = rv.StealNSResult();
@@ -1234,12 +1234,6 @@ EventRunnable::WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate)
   else if (mType.EqualsASCII(sEventStrings[STRING_abort])) {
     if ((mUploadEvent && !mProxy->mSeenUploadLoadStart) ||
         (!mUploadEvent && !mProxy->mSeenLoadStart)) {
-      // We've already dispatched premature abort events.
-      return true;
-    }
-  }
-  else if (mType.EqualsASCII(sEventStrings[STRING_readystatechange])) {
-    if (mReadyState == 4 && !mUploadEvent && !mProxy->mSeenLoadStart) {
       // We've already dispatched premature abort events.
       return true;
     }
@@ -1309,6 +1303,13 @@ EventRunnable::WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate)
 
   XMLHttpRequestWorker* xhr = mProxy->mXMLHttpRequestPrivate;
   xhr->UpdateState(*state.get(), mUseCachedArrayBufferResponse);
+
+  if (mType.EqualsASCII(sEventStrings[STRING_readystatechange])) {
+    if (mReadyState == 4 && !mUploadEvent && !mProxy->mSeenLoadStart) {
+      // We've already dispatched premature abort events.
+      return true;
+    }
+  }
 
   if (mUploadEvent && !xhr->GetUploadObjectNoCreate()) {
     return true;
@@ -2412,7 +2413,6 @@ XMLHttpRequestWorker::GetResponse(JSContext* /* unused */,
     }
   }
 
-  JS::ExposeValueToActiveJS(mStateData.mResponse);
   aRv = mStateData.mResponseResult;
   aResponse.set(mStateData.mResponse);
 }

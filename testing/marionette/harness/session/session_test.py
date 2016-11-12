@@ -219,9 +219,9 @@ class CommonTestCase(unittest.TestCase):
         if hasattr(self, 'jsFile'):
             return os.path.basename(self.jsFile)
         else:
-            return '%s.py %s.%s' % (self.__class__.__module__,
-                                    self.__class__.__name__,
-                                    self._testMethodName)
+            return '{0}.py {1}.{2}'.format(self.__class__.__module__,
+                                           self.__class__.__name__,
+                                           self._testMethodName)
 
     def id(self):
         # TBPL starring requires that the "test name" field of a failure message
@@ -241,12 +241,7 @@ class CommonTestCase(unittest.TestCase):
         self.marionette = Marionette(bin=self.binary, profile=self.profile)
         if self.marionette.session is None:
             self.marionette.start_session()
-        if self.marionette.timeout is not None:
-            self.marionette.timeouts(self.marionette.TIMEOUT_SEARCH, self.marionette.timeout)
-            self.marionette.timeouts(self.marionette.TIMEOUT_SCRIPT, self.marionette.timeout)
-            self.marionette.timeouts(self.marionette.TIMEOUT_PAGE, self.marionette.timeout)
-        else:
-            self.marionette.timeouts(self.marionette.TIMEOUT_PAGE, 30000)
+        self.marionette.reset_timeouts()
 
     def tearDown(self):
         self.marionette.cleanup()
@@ -263,7 +258,7 @@ class CommonTestCase(unittest.TestCase):
                 try:
                     self.loglines.extend(self.marionette.get_logs())
                 except Exception, inst:
-                    self.loglines = [['Error getting log: %s' % inst]]
+                    self.loglines = [['Error getting log: {}'.format(inst)]]
                 try:
                     self.marionette.delete_session()
                 except (socket.error, MarionetteException, IOError):
@@ -309,7 +304,7 @@ class CommonTestCase(unittest.TestCase):
             caller_file = os.path.abspath(caller_file)
             filename = os.path.join(os.path.dirname(caller_file), filename)
         self.assert_(os.path.exists(filename),
-                     'Script "%s" must exist' % filename)
+                     'Script "{}" must exist'.format(filename))
         original_test_name = self.marionette.test_name
         self.marionette.test_name = os.path.basename(filename)
         f = open(filename, 'r')
@@ -389,7 +384,7 @@ class CommonTestCase(unittest.TestCase):
                     self.logger.test_status(self.test_name, name, 'PASS',
                                             expected='FAIL', message=diag)
                 self.assertEqual(0, len(results['failures']),
-                                 '%d tests failed' % len(results['failures']))
+                                 '{} tests failed'.format(len(results['failures'])))
                 if len(results['unexpectedSuccesses']) > 0:
                     raise _UnexpectedSuccess('')
                 if len(results['expectedFailures']) > 0:
@@ -422,7 +417,6 @@ class SessionTestCase(CommonTestCase):
         self.methodName = methodName
         self.filepath = filepath
         self.testvars = kwargs.pop('testvars', None)
-        self.test_container = kwargs.pop('test_container', None)
         CommonTestCase.__init__(self, methodName, **kwargs)
 
     @classmethod
@@ -478,7 +472,6 @@ class SessionJSTestCase(CommonTestCase):
         assert(jsFile)
         self.jsFile = jsFile
         self.marionette = None
-        self.test_container = kwargs.pop('test_container', None)
         CommonTestCase.__init__(self, methodName)
 
     @classmethod

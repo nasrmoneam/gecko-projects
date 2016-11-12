@@ -206,8 +206,6 @@ DeviceManagerDx::GetDXGIAdapter()
   if (!mDeviceStatus) {
     // If we haven't created a device yet, and have no existing device status,
     // then this must be the compositor device. Pick the first adapter we can.
-    MOZ_ASSERT(ProcessOwnsCompositor());
-
     if (FAILED(factory1->EnumAdapters1(0, getter_AddRefs(mAdapter)))) {
       return nullptr;
     }
@@ -282,7 +280,6 @@ DeviceManagerDx::CreateCompositorDeviceHelper(
 
   if (FAILED(hr) || !device) {
     if (!aAttemptVideoSupport) {
-      gfxCriticalError() << "D3D11 device creation failed: " << hexa(hr);
       aD3d11.SetFailed(FeatureStatus::Failed, "Failed to acquire a D3D11 device",
                        NS_LITERAL_CSTRING("FEATURE_FAILURE_D3D11_DEVICE2"));
     }
@@ -312,6 +309,14 @@ DeviceManagerDx::CreateCompositorDevice(FeatureState& d3d11)
   if (!adapter) {
     d3d11.SetFailed(FeatureStatus::Unavailable, "Failed to acquire a DXGI adapter",
                     NS_LITERAL_CSTRING("FEATURE_FAILURE_D3D11_DXGI"));
+    return;
+  }
+
+  if (XRE_IsGPUProcess() && !D3D11Checks::DoesRemotePresentWork(adapter)) {
+    d3d11.SetFailed(
+      FeatureStatus::Unavailable,
+      "DXGI does not support out-of-process presentation",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_D3D11_REMOTE_PRESENT"));
     return;
   }
 
@@ -495,19 +500,41 @@ DeviceManagerDx::CreateContentDevice()
 RefPtr<ID3D11Device>
 DeviceManagerDx::CreateDecoderDevice()
 {
-  if (mCompositorDevice && mCompositorDeviceSupportsVideo && !mDecoderDevice) {
-    mDecoderDevice = mCompositorDevice;
-
-    RefPtr<ID3D10Multithread> multi;
-    mDecoderDevice->QueryInterface(__uuidof(ID3D10Multithread), getter_AddRefs(multi));
-    if (multi) {
-      multi->SetMultithreadProtected(TRUE);
+  bool isAMD = false;
+  {
+    MutexAutoLock lock(mDeviceLock);
+    if (!mDeviceStatus) {
+      return nullptr;
     }
+    isAMD = mDeviceStatus->adapter().VendorId == 0x1002;
   }
 
-  if (mDecoderDevice) {
-    RefPtr<ID3D11Device> dev = mDecoderDevice;
-    return dev.forget();
+  bool reuseDevice = false;
+  if (gfxPrefs::Direct3D11ReuseDecoderDevice() < 0) {
+    // Use the default logic, which is to allow reuse of devices on AMD, but create
+    // separate devices everywhere else.
+    if (isAMD) {
+      reuseDevice = true;
+    }
+  } else if (gfxPrefs::Direct3D11ReuseDecoderDevice() > 0) {
+    reuseDevice = true;
+  }
+
+  if (reuseDevice) {
+    if (mCompositorDevice && mCompositorDeviceSupportsVideo && !mDecoderDevice) {
+      mDecoderDevice = mCompositorDevice;
+
+      RefPtr<ID3D10Multithread> multi;
+      mDecoderDevice->QueryInterface(__uuidof(ID3D10Multithread), getter_AddRefs(multi));
+      if (multi) {
+        multi->SetMultithreadProtected(TRUE);
+      }
+    }
+
+    if (mDecoderDevice) {
+      RefPtr<ID3D11Device> dev = mDecoderDevice;
+      return dev.forget();
+    }
   }
 
    if (!sD3D11CreateDeviceFn) {
@@ -537,7 +564,9 @@ DeviceManagerDx::CreateDecoderDevice()
 
   multi->SetMultithreadProtected(TRUE);
 
-  mDecoderDevice = device;
+  if (reuseDevice) {
+    mDecoderDevice = device;
+  }
   return device;
 }
 
@@ -546,10 +575,37 @@ DeviceManagerDx::ResetDevices()
 {
   MutexAutoLock lock(mDeviceLock);
 
+  mAdapter = nullptr;
   mCompositorDevice = nullptr;
   mContentDevice = nullptr;
   mDeviceStatus = Nothing();
   Factory::SetDirect3D11Device(nullptr);
+}
+
+bool
+DeviceManagerDx::MaybeResetAndReacquireDevices()
+{
+  DeviceResetReason resetReason;
+  if (!GetAnyDeviceRemovedReason(&resetReason)) {
+    return false;
+  }
+
+  Telemetry::Accumulate(Telemetry::DEVICE_RESET_REASON, uint32_t(resetReason));
+
+  bool createCompositorDevice = !!mCompositorDevice;
+  bool createContentDevice = !!mContentDevice;
+
+  ResetDevices();
+
+  if (createCompositorDevice && !CreateCompositorDevices()) {
+    // Just stop, don't try anything more
+    return true;
+  }
+  if (createContentDevice) {
+    CreateContentDevices();
+  }
+
+  return true;
 }
 
 bool
@@ -669,6 +725,33 @@ DeviceManagerDx::TextureSharingWorks()
     return false;
   }
   return mDeviceStatus->textureSharingWorks();
+}
+
+bool
+DeviceManagerDx::CanInitializeKeyedMutexTextures()
+{
+  MutexAutoLock lock(mDeviceLock);
+  if (!mDeviceStatus) {
+    return false;
+  }
+  // Disable this on all Intel devices because of crashes.
+  // See bug 1292923.
+  return mDeviceStatus->adapter().VendorId != 0x8086;
+}
+
+bool
+DeviceManagerDx::CheckRemotePresentSupport()
+{
+  MOZ_ASSERT(XRE_IsParentProcess());
+
+  RefPtr<IDXGIAdapter1> adapter = GetDXGIAdapter();
+  if (!adapter) {
+    return false;
+  }
+  if (!D3D11Checks::DoesRemotePresentWork(adapter)) {
+    return false;
+  }
+  return true;
 }
 
 bool

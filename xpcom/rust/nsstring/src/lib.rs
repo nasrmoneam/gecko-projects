@@ -140,6 +140,7 @@ use std::ptr;
 use std::mem;
 use std::fmt;
 use std::cmp;
+use std::str;
 use std::u32;
 
 //////////////////////////////////
@@ -158,13 +159,6 @@ const F_LITERAL: u32 = 1 << 5; // mData points to a string literal; F_TERMINATED
 
 // class flags are in the upper 16-bits
 const F_CLASS_FIXED: u32 = 1 << 16; // indicates that |this| is of type nsTFixedString
-
-/// This type is zero-sized and uninstantiable. It is used in the definition of
-/// nsA[C]String to create an opaque zero-sized type which does not raise an
-/// `improper_ctypes` warning when passed behind a `*const nsA[C]String`.
-///
-/// This type is not exported and does not make up part of the external API.
-enum Impossible {}
 
 ////////////////////////////////////
 // Generic String Bindings Macros //
@@ -236,9 +230,14 @@ macro_rules! define_string_types {
         /// associated with it is not necessarially safe to move. It is not safe
         /// to construct a nsAString yourself, unless it is received by
         /// dereferencing one of these types.
+        ///
+        /// NOTE: The `[u8; 0]` member is zero sized, and only exists to prevent
+        /// the construction by code outside of this module. It is used instead
+        /// of a private `()` member because the `improper_ctypes` lint complains
+        /// about some ZST members in `extern "C"` function declarations.
         #[repr(C)]
         pub struct $AString {
-            _prohibit_constructor: Impossible,
+            _prohibit_constructor: [u8; 0],
         }
 
         impl Deref for $AString {
@@ -311,6 +310,18 @@ macro_rules! define_string_types {
         impl<'a> DerefMut for $String<'a> {
             fn deref_mut(&mut self) -> &mut $AString {
                 &mut self.hdr
+            }
+        }
+
+        impl<'a> From<&'a String> for $String<'a> {
+            fn from(s: &'a String) -> $String<'a> {
+                $String::from(&s[..])
+            }
+        }
+
+        impl<'a> From<&'a Vec<$char_t>> for $String<'a> {
+            fn from(s: &'a Vec<$char_t>) -> $String<'a> {
+                $String::from(&s[..])
             }
         }
 
@@ -565,6 +576,10 @@ impl nsACString {
             Gecko_AppendUTF16toCString(self as *mut _, other as *const _);
         }
     }
+
+    pub unsafe fn as_str_unchecked(&self) -> &str {
+        str::from_utf8_unchecked(self)
+    }
 }
 
 impl<'a> From<&'a str> for nsCString<'a> {
@@ -755,123 +770,64 @@ pub mod test_helpers {
     };
     use std::mem;
 
-    // A helper macro for finding the offset of a member of a struct. This macro is
-    // unsafe to use, because it can trigger UB if the type T's `Deref`
-    // implementation is implicitly used to access the member $m.
-    macro_rules! offset_of {
-        ($T:ty, $m:ident) => {
-            {
-                let tmp: $T = mem::zeroed();
-                let offset =
-                    (&tmp.$m as *const _ as usize) -
-                    (&tmp as *const _ as usize);
-                mem::forget(tmp);
-                offset
+    /// Generates an #[no_mangle] extern "C" function which returns the size and
+    /// alignment of the given type with the given name.
+    macro_rules! size_align_check {
+        ($T:ty, $fname:ident) => {
+            #[no_mangle]
+            #[allow(non_snake_case)]
+            pub extern fn $fname(size: *mut usize, align: *mut usize) {
+                unsafe {
+                    *size = mem::size_of::<$T>();
+                    *align = mem::align_of::<$T>();
+                }
             }
         }
     }
 
-    // A helper macro for finding the size of a member of a struct. This macro is
-    // unsafe to use, because it can trigger UB if the type T's `Deref`
-    // implementation is implicitly used to access the member $m.
-    macro_rules! size_of_member {
-        ($T:ty, $m:ident) => {
-            {
-                let tmp: $T = mem::zeroed();
-                let size = mem::size_of_val(&tmp.$m);
-                mem::forget(tmp);
-                size
+    size_align_check!(nsStringRepr, Rust_Test_ReprSizeAlign_nsString);
+    size_align_check!(nsCStringRepr, Rust_Test_ReprSizeAlign_nsCString);
+    size_align_check!(nsFixedStringRepr, Rust_Test_ReprSizeAlign_nsFixedString);
+    size_align_check!(nsFixedCStringRepr, Rust_Test_ReprSizeAlign_nsFixedCString);
+
+    /// Generates a $[no_mangle] extern "C" function which returns the size,
+    /// alignment and offset in the parent struct of a given member, with the
+    /// given name.
+    ///
+    /// This method can trigger Undefined Behavior if the accessing the member
+    /// $member on a given type would use that type's `Deref` implementation.
+    macro_rules! member_check {
+        ($T:ty, $member:ident, $method:ident) => {
+            #[no_mangle]
+            #[allow(non_snake_case)]
+            pub extern fn $method(size: *mut usize,
+                                  align: *mut usize,
+                                  offset: *mut usize) {
+                unsafe {
+                    // Create a temporary value of type T to get offsets, sizes
+                    // and aligns off of
+                    let tmp: $T = mem::zeroed();
+                    *size = mem::size_of_val(&tmp.$member);
+                    *align = mem::align_of_val(&tmp.$member);
+                    *offset =
+                        (&tmp.$member as *const _ as usize) -
+                        (&tmp as *const _ as usize);
+                    mem::forget(tmp);
+                }
             }
         }
     }
 
-    #[no_mangle]
-    #[allow(non_snake_case)]
-    pub extern fn Rust_Test_CStringReprInformation(size: *mut usize,
-                                                   align: *mut usize,
-                                                   data_off: *mut usize,
-                                                   data_size: *mut usize,
-                                                   length_off: *mut usize,
-                                                   length_size: *mut usize,
-                                                   flags_off: *mut usize,
-                                                   flags_size: *mut usize) {
-        unsafe {
-            *size = mem::size_of::<nsCStringRepr>();
-            *align = mem::align_of::<nsCStringRepr>();
-            *data_off = offset_of!(nsCStringRepr, data);
-            *data_size = size_of_member!(nsCStringRepr, data);
-            *length_off = offset_of!(nsCStringRepr, length);
-            *length_size = size_of_member!(nsCStringRepr, length);
-            *flags_off = offset_of!(nsCStringRepr, flags);
-            *flags_size = size_of_member!(nsCStringRepr, flags);
-        }
-    }
-
-    #[no_mangle]
-    #[allow(non_snake_case)]
-    pub extern fn Rust_Test_StringReprInformation(size: *mut usize,
-                                                  align: *mut usize,
-                                                  data_off: *mut usize,
-                                                  data_size: *mut usize,
-                                                  length_off: *mut usize,
-                                                  length_size: *mut usize,
-                                                  flags_off: *mut usize,
-                                                  flags_size: *mut usize) {
-        unsafe {
-            *size = mem::size_of::<nsStringRepr>();
-            *align = mem::align_of::<nsStringRepr>();
-            *data_off = offset_of!(nsStringRepr, data);
-            *data_size = size_of_member!(nsStringRepr, data);
-            *length_off = offset_of!(nsStringRepr, length);
-            *length_size = size_of_member!(nsStringRepr, length);
-            *flags_off = offset_of!(nsStringRepr, flags);
-            *flags_size = size_of_member!(nsStringRepr, flags);
-        }
-    }
-
-    #[no_mangle]
-    #[allow(non_snake_case)]
-    pub extern fn Rust_Test_FixedCStringReprInformation(size: *mut usize,
-                                                        align: *mut usize,
-                                                        base_off: *mut usize,
-                                                        base_size: *mut usize,
-                                                        capacity_off: *mut usize,
-                                                        capacity_size: *mut usize,
-                                                        buffer_off: *mut usize,
-                                                        buffer_size: *mut usize) {
-        unsafe {
-            *size = mem::size_of::<nsFixedCStringRepr>();
-            *align = mem::align_of::<nsFixedCStringRepr>();
-            *base_off = offset_of!(nsFixedCStringRepr, base);
-            *base_size = size_of_member!(nsFixedCStringRepr, base);
-            *capacity_off = offset_of!(nsFixedCStringRepr, capacity);
-            *capacity_size = size_of_member!(nsFixedCStringRepr, capacity);
-            *buffer_off = offset_of!(nsFixedCStringRepr, buffer);
-            *buffer_size = size_of_member!(nsFixedCStringRepr, buffer);
-        }
-    }
-
-    #[no_mangle]
-    #[allow(non_snake_case)]
-    pub extern fn Rust_Test_FixedStringReprInformation(size: *mut usize,
-                                                       align: *mut usize,
-                                                       base_off: *mut usize,
-                                                       base_size: *mut usize,
-                                                       capacity_off: *mut usize,
-                                                       capacity_size: *mut usize,
-                                                       buffer_off: *mut usize,
-                                                       buffer_size: *mut usize) {
-        unsafe {
-            *size = mem::size_of::<nsFixedStringRepr>();
-            *align = mem::align_of::<nsFixedStringRepr>();
-            *base_off = offset_of!(nsFixedStringRepr, base);
-            *base_size = size_of_member!(nsFixedStringRepr, base);
-            *capacity_off = offset_of!(nsFixedStringRepr, capacity);
-            *capacity_size = size_of_member!(nsFixedStringRepr, capacity);
-            *buffer_off = offset_of!(nsFixedStringRepr, buffer);
-            *buffer_size = size_of_member!(nsFixedStringRepr, buffer);
-        }
-    }
+    member_check!(nsStringRepr, data, Rust_Test_Member_nsString_mData);
+    member_check!(nsStringRepr, length, Rust_Test_Member_nsString_mLength);
+    member_check!(nsStringRepr, flags, Rust_Test_Member_nsString_mFlags);
+    member_check!(nsCStringRepr, data, Rust_Test_Member_nsCString_mData);
+    member_check!(nsCStringRepr, length, Rust_Test_Member_nsCString_mLength);
+    member_check!(nsCStringRepr, flags, Rust_Test_Member_nsCString_mFlags);
+    member_check!(nsFixedStringRepr, capacity, Rust_Test_Member_nsFixedString_mFixedCapacity);
+    member_check!(nsFixedStringRepr, buffer, Rust_Test_Member_nsFixedString_mFixedBuf);
+    member_check!(nsFixedCStringRepr, capacity, Rust_Test_Member_nsFixedCString_mFixedCapacity);
+    member_check!(nsFixedCStringRepr, buffer, Rust_Test_Member_nsFixedCString_mFixedBuf);
 
     #[no_mangle]
     #[allow(non_snake_case)]

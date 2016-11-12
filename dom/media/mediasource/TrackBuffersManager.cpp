@@ -58,7 +58,6 @@ AppendStateToStr(SourceBufferAttributes::AppendState aState)
 
 static Atomic<uint32_t> sStreamSourceID(0u);
 
-#ifdef MOZ_EME
 class DispatchKeyNeededEvent : public Runnable {
 public:
   DispatchKeyNeededEvent(AbstractMediaDecoder* aDecoder,
@@ -84,7 +83,6 @@ private:
   nsTArray<uint8_t> mInitData;
   nsString mInitDataType;
 };
-#endif // MOZ_EME
 
 TrackBuffersManager::TrackBuffersManager(MediaSourceDecoder* aParentDecoder,
                                          const nsACString& aType)
@@ -274,22 +272,23 @@ TrackBuffersManager::EvictData(const TimeUnit& aPlaybackTime, int64_t aSize)
   }
   const int64_t toEvict = GetSize() + aSize - EvictionThreshold();
 
-  MSE_DEBUG("buffered=%lldkb, eviction threshold=%ukb, evict=%lldkb",
-            GetSize() / 1024, EvictionThreshold() / 1024, toEvict / 1024);
+  const uint32_t canEvict =
+    Evictable(HasVideo() ? TrackInfo::kVideoTrack : TrackInfo::kAudioTrack);
+
+  MSE_DEBUG(
+    "buffered=%lldkB, eviction threshold=%ukB, evict=%lldkB canevict=%ukB",
+    GetSize() / 1024, EvictionThreshold() / 1024, toEvict / 1024,
+    canEvict / 1024);
 
   if (toEvict <= 0) {
     mEvictionState = EvictionState::NO_EVICTION_NEEDED;
     return EvictDataResult::NO_DATA_EVICTED;
   }
-  if (toEvict <= 512*1024) {
-    // Don't bother evicting less than 512KB.
-    mEvictionState = EvictionState::NO_EVICTION_NEEDED;
-    return EvictDataResult::CANT_EVICT;
-  }
 
   EvictDataResult result;
 
-  if (mBufferFull && mEvictionState == EvictionState::EVICTION_COMPLETED) {
+  if (mBufferFull && mEvictionState == EvictionState::EVICTION_COMPLETED &&
+      canEvict < uint32_t(toEvict)) {
     // Our buffer is currently full. We will make another eviction attempt.
     // However, the current appendBuffer will fail as we can't know ahead of
     // time if the eviction will later succeed.
@@ -305,15 +304,14 @@ TrackBuffersManager::EvictData(const TimeUnit& aPlaybackTime, int64_t aSize)
 }
 
 TimeIntervals
-TrackBuffersManager::Buffered()
+TrackBuffersManager::Buffered() const
 {
   MSE_DEBUG("");
+
   // http://w3c.github.io/media-source/index.html#widl-SourceBuffer-buffered
-  // 2. Let highest end time be the largest track buffer ranges end time across all the track buffers managed by this SourceBuffer object.
-  TimeUnit highestEndTime = HighestEndTime();
 
   MonitorAutoLock mon(mMonitor);
-  nsTArray<TimeIntervals*> tracks;
+  nsTArray<const TimeIntervals*> tracks;
   if (HasVideo()) {
     tracks.AppendElement(&mVideoBufferedRanges);
   }
@@ -321,18 +319,24 @@ TrackBuffersManager::Buffered()
     tracks.AppendElement(&mAudioBufferedRanges);
   }
 
+  // 2. Let highest end time be the largest track buffer ranges end time across all the track buffers managed by this SourceBuffer object.
+  TimeUnit highestEndTime = HighestEndTime(tracks);
+
   // 3. Let intersection ranges equal a TimeRange object containing a single range from 0 to highest end time.
   TimeIntervals intersection{TimeInterval(TimeUnit::FromSeconds(0), highestEndTime)};
 
   // 4. For each track buffer managed by this SourceBuffer, run the following steps:
   //   1. Let track ranges equal the track buffer ranges for the current track buffer.
-  for (auto trackRanges : tracks) {
+  for (const TimeIntervals* trackRanges : tracks) {
     // 2. If readyState is "ended", then set the end time on the last range in track ranges to highest end time.
-    if (mEnded) {
-      trackRanges->Add(TimeInterval(trackRanges->GetEnd(), highestEndTime));
-    }
     // 3. Let new intersection ranges equal the intersection between the intersection ranges and the track ranges.
-    intersection.Intersection(*trackRanges);
+    if (mEnded) {
+      TimeIntervals tR = *trackRanges;
+      tR.Add(TimeInterval(tR.GetEnd(), highestEndTime));
+      intersection.Intersection(tR);
+    } else {
+      intersection.Intersection(*trackRanges);
+    }
   }
   return intersection;
 }
@@ -422,8 +426,8 @@ TrackBuffersManager::DoEvictData(const TimeUnit& aPlaybackTime,
   mEvictionState = EvictionState::EVICTION_COMPLETED;
 
   // Video is what takes the most space, only evict there if we have video.
-  const auto& track = HasVideo() ? mVideoTracks : mAudioTracks;
-  const auto& buffer = track.mBuffers.LastElement();
+  auto& track = HasVideo() ? mVideoTracks : mAudioTracks;
+  const auto& buffer = track.GetTrackBuffer();
   // Remove any data we've already played, or before the next sample to be
   // demuxed whichever is lowest.
   TimeUnit lowerLimit = std::min(track.mNextSampleTime, aPlaybackTime);
@@ -551,7 +555,7 @@ TrackBuffersManager::CodedFrameRemoval(TimeInterval aInterval)
     // 2. If this track buffer has a random access point timestamp that is greater than or equal to end,
     // then update remove end timestamp to that random access point timestamp.
     if (end < track->mBufferedRanges.GetEnd()) {
-      for (auto& frame : track->mBuffers.LastElement()) {
+      for (auto& frame : track->GetTrackBuffer()) {
         if (frame->mKeyframe && frame->mTime >= end.ToMicroseconds()) {
           removeEndTimestamp = TimeUnit::FromMicroseconds(frame->mTime);
           break;
@@ -632,7 +636,8 @@ TrackBuffersManager::SegmentParserLoop()
     // 4. If the append state equals WAITING_FOR_SEGMENT, then run the following
     // steps:
     if (mSourceBufferAttributes->GetAppendState() == AppendState::WAITING_FOR_SEGMENT) {
-      if (mParser->IsInitSegmentPresent(mInputBuffer)) {
+      MediaResult haveInitSegment = mParser->IsInitSegmentPresent(mInputBuffer);
+      if (NS_SUCCEEDED(haveInitSegment)) {
         SetAppendState(AppendState::PARSING_INIT_SEGMENT);
         if (mFirstInitializationSegmentReceived) {
           // This is a new initialization segment. Obsolete the old one.
@@ -640,20 +645,37 @@ TrackBuffersManager::SegmentParserLoop()
         }
         continue;
       }
-      if (mParser->IsMediaSegmentPresent(mInputBuffer)) {
+      MediaResult haveMediaSegment =
+        mParser->IsMediaSegmentPresent(mInputBuffer);
+      if (NS_SUCCEEDED(haveMediaSegment)) {
         SetAppendState(AppendState::PARSING_MEDIA_SEGMENT);
         mNewMediaSegmentStarted = true;
         continue;
       }
-      // We have neither an init segment nor a media segment, this is either
-      // invalid data or not enough data to detect a segment type.
-      MSE_DEBUG("Found invalid or incomplete data.");
+      // We have neither an init segment nor a media segment.
+      // Check if it was invalid data.
+      if (haveInitSegment != NS_ERROR_NOT_AVAILABLE) {
+        MSE_DEBUG("Found invalid data.");
+        RejectAppend(haveInitSegment, __func__);
+        return;
+      }
+      if (haveMediaSegment != NS_ERROR_NOT_AVAILABLE) {
+        MSE_DEBUG("Found invalid data.");
+        RejectAppend(haveMediaSegment, __func__);
+        return;
+      }
+      MSE_DEBUG("Found incomplete data.");
       NeedMoreData();
       return;
     }
 
     int64_t start, end;
-    bool newData = mParser->ParseStartAndEndTimestamps(mInputBuffer, start, end);
+    MediaResult newData =
+      mParser->ParseStartAndEndTimestamps(mInputBuffer, start, end);
+    if (!NS_SUCCEEDED(newData) && newData.Code() != NS_ERROR_NOT_AVAILABLE) {
+      RejectAppend(newData, __func__);
+      return;
+    }
     mProcessedInput += mInputBuffer->Length();
 
     // 5. If the append state equals PARSING_INIT_SEGMENT, then run the
@@ -680,13 +702,13 @@ TrackBuffersManager::SegmentParserLoop()
       // If so, recreate a new demuxer to ensure that the demuxer is only fed
       // monotonically increasing data.
       if (mNewMediaSegmentStarted) {
-        if (newData && mLastParsedEndTime.isSome() &&
+        if (NS_SUCCEEDED(newData) && mLastParsedEndTime.isSome() &&
             start < mLastParsedEndTime.ref().ToMicroseconds()) {
           MSE_DEBUG("Re-creating demuxer");
           ResetDemuxingState();
           return;
         }
-        if (newData || !mParser->MediaSegmentRange().IsEmpty()) {
+        if (NS_SUCCEEDED(newData) || !mParser->MediaSegmentRange().IsEmpty()) {
           if (mPendingInputBuffer) {
             // We now have a complete media segment header. We can resume parsing
             // the data.
@@ -1062,19 +1084,16 @@ TrackBuffersManager::OnDemuxerInitDone(nsresult)
 
   UniquePtr<EncryptionInfo> crypto = mInputDemuxer->GetCrypto();
   if (crypto && crypto->IsEncrypted()) {
-#ifdef MOZ_EME
     // Try and dispatch 'encrypted'. Won't go if ready state still HAVE_NOTHING.
     for (uint32_t i = 0; i < crypto->mInitDatas.Length(); i++) {
       NS_DispatchToMainThread(
         new DispatchKeyNeededEvent(mParentDecoder, crypto->mInitDatas[i].mInitData,
                                    crypto->mInitDatas[i].mType));
     }
-#endif // MOZ_EME
     info.mCrypto = *crypto;
     // We clear our crypto init data array, so the MediaFormatReader will
     // not emit an encrypted event for the same init data again.
     info.mCrypto.mInitDatas.Clear();
-    mEncrypted = true;
   }
 
   {
@@ -1252,7 +1271,7 @@ TrackBuffersManager::CompleteCodedFrameProcessing()
 
 #if defined(DEBUG)
   if (HasVideo()) {
-    const auto& track = mVideoTracks.mBuffers.LastElement();
+    const auto& track = mVideoTracks.GetTrackBuffer();
     MOZ_ASSERT(track.IsEmpty() || track[0]->mKeyframe);
     for (uint32_t i = 1; i < track.Length(); i++) {
       MOZ_ASSERT((track[i-1]->mTrackInfo->GetID() == track[i]->mTrackInfo->GetID() && track[i-1]->mTimecode <= track[i]->mTimecode) ||
@@ -1260,7 +1279,7 @@ TrackBuffersManager::CompleteCodedFrameProcessing()
     }
   }
   if (HasAudio()) {
-    const auto& track = mAudioTracks.mBuffers.LastElement();
+    const auto& track = mAudioTracks.GetTrackBuffer();
     MOZ_ASSERT(track.IsEmpty() || track[0]->mKeyframe);
     for (uint32_t i = 1; i < track.Length(); i++) {
       MOZ_ASSERT((track[i-1]->mTrackInfo->GetID() == track[i]->mTrackInfo->GetID() && track[i-1]->mTimecode <= track[i]->mTimecode) ||
@@ -1600,10 +1619,10 @@ TrackBuffersManager::CheckNextInsertionIndex(TrackData& aTrackData,
     return true;
   }
 
-  TrackBuffer& data = aTrackData.mBuffers.LastElement();
+  const TrackBuffer& data = aTrackData.GetTrackBuffer();
 
   if (data.IsEmpty() || aSampleTime < aTrackData.mBufferedRanges.GetStart()) {
-    aTrackData.mNextInsertionIndex = Some(size_t(0));
+    aTrackData.mNextInsertionIndex = Some(0u);
     return true;
   }
 
@@ -1617,7 +1636,7 @@ TrackBuffersManager::CheckNextInsertionIndex(TrackData& aTrackData,
   }
   if (target.IsEmpty()) {
     // No target found, it will be added at the end of the track buffer.
-    aTrackData.mNextInsertionIndex = Some(data.Length());
+    aTrackData.mNextInsertionIndex = Some(uint32_t(data.Length()));
     return true;
   }
   // We now need to find the first frame of the searched interval.
@@ -1626,7 +1645,7 @@ TrackBuffersManager::CheckNextInsertionIndex(TrackData& aTrackData,
     const RefPtr<MediaRawData>& sample = data[i];
     if (sample->mTime >= target.mStart.ToMicroseconds() ||
         sample->GetEndTime() > target.mStart.ToMicroseconds()) {
-      aTrackData.mNextInsertionIndex = Some(size_t(i));
+      aTrackData.mNextInsertionIndex = Some(i);
       return true;
     }
   }
@@ -1686,7 +1705,7 @@ TrackBuffersManager::InsertFrames(TrackBuffer& aSamples,
       // to overlap the following frame.
       trackBuffer.mNextInsertionIndex.reset();
     }
-    size_t index =
+    uint32_t index =
       RemoveFrames(aIntervals, trackBuffer, trackBuffer.mNextInsertionIndex.refOr(0));
     if (index) {
       trackBuffer.mNextInsertionIndex = Some(index);
@@ -1706,12 +1725,19 @@ TrackBuffersManager::InsertFrames(TrackBuffer& aSamples,
         aIntervals.GetEnd() >= trackBuffer.mNextSampleTime) {
       MSE_DEBUG("Next sample to be played got overwritten");
       trackBuffer.mNextGetSampleIndex.reset();
+      ResetEvictionIndex(trackBuffer);
     } else if (trackBuffer.mNextInsertionIndex.ref() <= trackBuffer.mNextGetSampleIndex.ref()) {
       trackBuffer.mNextGetSampleIndex.ref() += aSamples.Length();
+      // We could adjust the eviction index so that the new data gets added to
+      // the evictable amount (as it is prior currentTime). However, considering
+      // new data is being added prior the current playback, it's likely that
+      // this data will be played next, and as such we probably don't want to
+      // have it evicted too early. So instead reset the eviction index instead.
+      ResetEvictionIndex(trackBuffer);
     }
   }
 
-  TrackBuffer& data = trackBuffer.mBuffers.LastElement();
+  TrackBuffer& data = trackBuffer.GetTrackBuffer();
   data.InsertElementsAt(trackBuffer.mNextInsertionIndex.ref(), aSamples);
   trackBuffer.mNextInsertionIndex.ref() += aSamples.Length();
 
@@ -1737,12 +1763,12 @@ TrackBuffersManager::UpdateHighestTimestamp(TrackData& aTrackData,
   }
 }
 
-size_t
+uint32_t
 TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
                                   TrackData& aTrackData,
                                   uint32_t aStartIndex)
 {
-  TrackBuffer& data = aTrackData.mBuffers.LastElement();
+  TrackBuffer& data = aTrackData.GetTrackBuffer();
   Maybe<uint32_t> firstRemovedIndex;
   uint32_t lastRemovedIndex = 0;
 
@@ -1755,6 +1781,8 @@ TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
   //   Remove all coded frames from track buffer that have a presentation timestamp greater than or equal to presentation timestamp and less than frame end timestamp.
   //  If highest end timestamp for track buffer is set and less than or equal to presentation timestamp:
   //   Remove all coded frames from track buffer that have a presentation timestamp greater than or equal to highest end timestamp and less than frame end timestamp"
+  TimeUnit intervalsEnd = aIntervals.GetEnd();
+  bool mayBreakLoop = false;
   for (uint32_t i = aStartIndex; i < data.Length(); i++) {
     const RefPtr<MediaRawData> sample = data[i];
     TimeInterval sampleInterval =
@@ -1765,6 +1793,14 @@ TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
         firstRemovedIndex = Some(i);
       }
       lastRemovedIndex = i;
+      mayBreakLoop = false;
+      continue;
+    }
+    if (sample->mKeyframe && mayBreakLoop) {
+      break;
+    }
+    if (sampleInterval.mStart > intervalsEnd) {
+      mayBreakLoop = true;
     }
   }
 
@@ -1783,6 +1819,7 @@ TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
   }
 
   int64_t maxSampleDuration = 0;
+  uint32_t sizeRemoved = 0;
   TimeIntervals removedIntervals;
   for (uint32_t i = firstRemovedIndex.ref(); i <= lastRemovedIndex; i++) {
     const RefPtr<MediaRawData> sample = data[i];
@@ -1793,8 +1830,9 @@ TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
     if (sample->mDuration > maxSampleDuration) {
       maxSampleDuration = sample->mDuration;
     }
-    aTrackData.mSizeBuffer -= sample->ComputedSizeOfIncludingThis();
+    sizeRemoved += sample->ComputedSizeOfIncludingThis();
   }
+  aTrackData.mSizeBuffer -= sizeRemoved;
 
   MSE_DEBUG("Removing frames from:%u (frames:%u) ([%f, %f))",
             firstRemovedIndex.ref(),
@@ -1807,9 +1845,21 @@ TrackBuffersManager::RemoveFrames(const TimeIntervals& aIntervals,
         aTrackData.mNextGetSampleIndex.ref() <= lastRemovedIndex) {
       MSE_DEBUG("Next sample to be played got evicted");
       aTrackData.mNextGetSampleIndex.reset();
+      ResetEvictionIndex(aTrackData);
     } else if (aTrackData.mNextGetSampleIndex.ref() > lastRemovedIndex) {
-      aTrackData.mNextGetSampleIndex.ref() -=
-        lastRemovedIndex - firstRemovedIndex.ref() + 1;
+      uint32_t samplesRemoved = lastRemovedIndex - firstRemovedIndex.ref() + 1;
+      aTrackData.mNextGetSampleIndex.ref() -= samplesRemoved;
+      if (aTrackData.mEvictionIndex.mLastIndex > lastRemovedIndex) {
+        MOZ_DIAGNOSTIC_ASSERT(
+          aTrackData.mEvictionIndex.mLastIndex >= samplesRemoved &&
+          aTrackData.mEvictionIndex.mEvictable >= sizeRemoved,
+          "Invalid eviction index");
+        MonitorAutoLock mon(mMonitor);
+        aTrackData.mEvictionIndex.mLastIndex -= samplesRemoved;
+        aTrackData.mEvictionIndex.mEvictable -= sizeRemoved;
+      } else {
+        ResetEvictionIndex(aTrackData);
+      }
     }
   }
 
@@ -1882,6 +1932,19 @@ TrackBuffersManager::GetTracksList()
   return tracks;
 }
 
+nsTArray<const TrackBuffersManager::TrackData*>
+TrackBuffersManager::GetTracksList() const
+{
+  nsTArray<const TrackData*> tracks;
+  if (HasVideo()) {
+    tracks.AppendElement(&mVideoTracks);
+  }
+  if (HasAudio()) {
+    tracks.AppendElement(&mAudioTracks);
+  }
+  return tracks;
+}
+
 void
 TrackBuffersManager::SetAppendState(SourceBufferAttributes::AppendState aAppendState)
 {
@@ -1891,21 +1954,21 @@ TrackBuffersManager::SetAppendState(SourceBufferAttributes::AppendState aAppendS
 }
 
 MediaInfo
-TrackBuffersManager::GetMetadata()
+TrackBuffersManager::GetMetadata() const
 {
   MonitorAutoLock mon(mMonitor);
   return mInfo;
 }
 
 const TimeIntervals&
-TrackBuffersManager::Buffered(TrackInfo::TrackType aTrack)
+TrackBuffersManager::Buffered(TrackInfo::TrackType aTrack) const
 {
   MOZ_ASSERT(OnTaskQueue());
   return GetTracksData(aTrack).mBufferedRanges;
 }
 
 const media::TimeUnit&
-TrackBuffersManager::HighestStartTime(TrackInfo::TrackType aTrack)
+TrackBuffersManager::HighestStartTime(TrackInfo::TrackType aTrack) const
 {
   MOZ_ASSERT(OnTaskQueue());
   return GetTracksData(aTrack).mHighestStartTimestamp;
@@ -1921,7 +1984,7 @@ TrackBuffersManager::SafeBuffered(TrackInfo::TrackType aTrack) const
 }
 
 TimeUnit
-TrackBuffersManager::HighestStartTime()
+TrackBuffersManager::HighestStartTime() const
 {
   MonitorAutoLock mon(mMonitor);
   TimeUnit highestStartTime;
@@ -1933,29 +1996,66 @@ TrackBuffersManager::HighestStartTime()
 }
 
 TimeUnit
-TrackBuffersManager::HighestEndTime()
+TrackBuffersManager::HighestEndTime() const
 {
   MonitorAutoLock mon(mMonitor);
-  TimeUnit highestEndTime;
 
-  nsTArray<TimeIntervals*> tracks;
+  nsTArray<const TimeIntervals*> tracks;
   if (HasVideo()) {
     tracks.AppendElement(&mVideoBufferedRanges);
   }
   if (HasAudio()) {
     tracks.AppendElement(&mAudioBufferedRanges);
   }
-  for (auto trackRanges : tracks) {
+  return HighestEndTime(tracks);
+}
+
+TimeUnit
+TrackBuffersManager::HighestEndTime(
+  nsTArray<const TimeIntervals*>& aTracks) const
+{
+  mMonitor.AssertCurrentThreadOwns();
+
+  TimeUnit highestEndTime;
+
+  for (const auto& trackRanges : aTracks) {
     highestEndTime = std::max(trackRanges->GetEnd(), highestEndTime);
   }
   return highestEndTime;
 }
 
+void
+TrackBuffersManager::ResetEvictionIndex(TrackData& aTrackData)
+{
+  MonitorAutoLock mon(mMonitor);
+  aTrackData.mEvictionIndex.Reset();
+}
+
+void
+TrackBuffersManager::UpdateEvictionIndex(TrackData& aTrackData,
+                                         uint32_t currentIndex)
+{
+  uint32_t evictable = 0;
+  TrackBuffer& data = aTrackData.GetTrackBuffer();
+  MOZ_DIAGNOSTIC_ASSERT(currentIndex >= aTrackData.mEvictionIndex.mLastIndex,
+                        "Invalid call");
+  MOZ_DIAGNOSTIC_ASSERT(currentIndex == data.Length() ||
+                        data[currentIndex]->mKeyframe,"Must stop at keyframe");
+
+  for (uint32_t i = aTrackData.mEvictionIndex.mLastIndex; i < currentIndex;
+       i++) {
+    evictable += data[i]->ComputedSizeOfIncludingThis();
+  }
+  aTrackData.mEvictionIndex.mLastIndex = currentIndex;
+  MonitorAutoLock mon(mMonitor);
+  aTrackData.mEvictionIndex.mEvictable += evictable;
+}
+
 const TrackBuffersManager::TrackBuffer&
-TrackBuffersManager::GetTrackBuffer(TrackInfo::TrackType aTrack)
+TrackBuffersManager::GetTrackBuffer(TrackInfo::TrackType aTrack) const
 {
   MOZ_ASSERT(OnTaskQueue());
-  return GetTracksData(aTrack).mBuffers.LastElement();
+  return GetTracksData(aTrack).GetTrackBuffer();
 }
 
 uint32_t TrackBuffersManager::FindSampleIndex(const TrackBuffer& aTrackBuffer,
@@ -1989,6 +2089,7 @@ TrackBuffersManager::Seek(TrackInfo::TrackType aTrack,
     trackBuffer.mNextGetSampleIndex = Some(uint32_t(0));
     trackBuffer.mNextSampleTimecode = TimeUnit();
     trackBuffer.mNextSampleTime = TimeUnit();
+    ResetEvictionIndex(trackBuffer);
     return TimeUnit();
   }
 
@@ -2027,13 +2128,16 @@ TrackBuffersManager::Seek(TrackInfo::TrackType aTrack,
       break;
     }
   }
-  MSE_DEBUG("Keyframe %s found at %lld",
+  MSE_DEBUG("Keyframe %s found at %lld @ %u",
             lastKeyFrameTime.isSome() ? "" : "not",
-            lastKeyFrameTime.refOr(TimeUnit()).ToMicroseconds());
+            lastKeyFrameTime.refOr(TimeUnit()).ToMicroseconds(),
+            lastKeyFrameIndex);
 
   trackBuffer.mNextGetSampleIndex = Some(lastKeyFrameIndex);
   trackBuffer.mNextSampleTimecode = lastKeyFrameTimecode;
   trackBuffer.mNextSampleTime = lastKeyFrameTime.refOr(TimeUnit());
+  ResetEvictionIndex(trackBuffer);
+  UpdateEvictionIndex(trackBuffer, lastKeyFrameIndex);
 
   return lastKeyFrameTime.refOr(TimeUnit());
 }
@@ -2121,12 +2225,17 @@ TrackBuffersManager::SkipToNextRandomAccessPoint(TrackInfo::TrackType aTrack,
       parsed--;
     }
   }
+
+  if (aFound) {
+    UpdateEvictionIndex(trackData, trackData.mNextGetSampleIndex.ref());
+  }
+
   return parsed;
 }
 
 const MediaRawData*
 TrackBuffersManager::GetSample(TrackInfo::TrackType aTrack,
-                               size_t aIndex,
+                               uint32_t aIndex,
                                const TimeUnit& aExpectedDts,
                                const TimeUnit& aExpectedPts,
                                const TimeUnit& aFuzz)
@@ -2193,6 +2302,9 @@ TrackBuffersManager::GetSample(TrackInfo::TrackType aTrack,
       aResult = MediaResult(NS_ERROR_OUT_OF_MEMORY, __func__);
       return nullptr;
     }
+    if (p->mKeyframe) {
+      UpdateEvictionIndex(trackData, trackData.mNextGetSampleIndex.ref());
+    }
     trackData.mNextGetSampleIndex.ref()++;
     // Estimate decode timestamp and timestamp of the next sample.
     TimeUnit nextSampleTimecode =
@@ -2244,6 +2356,13 @@ TrackBuffersManager::GetSample(TrackInfo::TrackType aTrack,
     aResult = MediaResult(NS_ERROR_OUT_OF_MEMORY, __func__);
     return nullptr;
   }
+
+  // Find the previous keyframe to calculate the evictable amount.
+  int32_t i = pos;
+  for (; !track[i]->mKeyframe; i--) {
+  }
+  UpdateEvictionIndex(trackData, i);
+
   trackData.mNextGetSampleIndex = Some(uint32_t(pos)+1);
   trackData.mNextSampleTimecode =
     TimeUnit::FromMicroseconds(sample->mTimecode + sample->mDuration);
@@ -2255,7 +2374,7 @@ TrackBuffersManager::GetSample(TrackInfo::TrackType aTrack,
 
 int32_t
 TrackBuffersManager::FindCurrentPosition(TrackInfo::TrackType aTrack,
-                                         const TimeUnit& aFuzz)
+                                         const TimeUnit& aFuzz) const
 {
   MOZ_ASSERT(OnTaskQueue());
   auto& trackData = GetTracksData(aTrack);
@@ -2313,6 +2432,13 @@ TrackBuffersManager::FindCurrentPosition(TrackInfo::TrackType aTrack,
   return -1;
 }
 
+uint32_t
+TrackBuffersManager::Evictable(TrackInfo::TrackType aTrack) const
+{
+  MonitorAutoLock mon(mMonitor);
+  return GetTracksData(aTrack).mEvictionIndex.mEvictable;
+}
+
 TimeUnit
 TrackBuffersManager::GetNextRandomAccessPoint(TrackInfo::TrackType aTrack,
                                               const TimeUnit& aFuzz)
@@ -2343,17 +2469,17 @@ TrackBuffersManager::GetNextRandomAccessPoint(TrackInfo::TrackType aTrack,
 }
 
 void
-TrackBuffersManager::TrackData::AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes)
+TrackBuffersManager::TrackData::AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes) const
 {
-  for (TrackBuffer& buffer : mBuffers) {
-    for (MediaRawData* data : buffer) {
+  for (const TrackBuffer& buffer : mBuffers) {
+    for (const MediaRawData* data : buffer) {
       aSizes->mByteSize += data->SizeOfIncludingThis(aSizes->mMallocSizeOf);
     }
   }
 }
 
 void
-TrackBuffersManager::AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes)
+TrackBuffersManager::AddSizeOfResources(MediaSourceDecoder::ResourceSizes* aSizes) const
 {
   MOZ_ASSERT(OnTaskQueue());
   mVideoTracks.AddSizeOfResources(aSizes);

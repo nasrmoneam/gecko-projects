@@ -44,9 +44,11 @@
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/WindowBinding.h"
+#include "mozilla/jsipc/CrossProcessObjectWrappers.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/ProcessHangMonitor.h"
+#include "mozilla/Sprintf.h"
 #include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/Unused.h"
 #include "AccessCheck.h"
@@ -1317,7 +1319,13 @@ XPCJSContext::InterruptCallback(JSContext* cx)
         return true;
     }
 
-    MOZ_ASSERT(!win->IsDying());
+    if (win->IsDying()) {
+        // The window is being torn down. When that happens we try to prevent
+        // the dispatch of new runnables, so it also makes sense to kill any
+        // long-running script. The user is primarily interested in this page
+        // going away.
+        return false;
+    }
 
     if (win->GetIsPrerendered()) {
         // We cannot display a dialog if the page is being prerendered, so
@@ -2080,27 +2088,19 @@ ReportClassStats(const ClassInfo& classInfo, const nsACString& path,
     if (classInfo.objectsMallocHeapElementsNormal > 0) {
         REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/malloc-heap/elements/normal"),
             KIND_HEAP, classInfo.objectsMallocHeapElementsNormal,
-            "Normal (non-asm.js) indexed elements.");
+            "Normal (non-wasm) indexed elements.");
     }
 
-    // asm.js arrays are heap-allocated on some platforms and
-    // non-heap-allocated on others.  We never put them under sundries,
-    // because (a) in practice they're almost always larger than the sundries
-    // threshold, and (b) we'd need a third category of sundries ("non-heap"),
-    // which would be a pain.
-    size_t mallocHeapElementsAsmJS = classInfo.objectsMallocHeapElementsAsmJS;
-    size_t nonHeapElementsAsmJS    = classInfo.objectsNonHeapElementsAsmJS;
-    MOZ_ASSERT(mallocHeapElementsAsmJS == 0 || nonHeapElementsAsmJS == 0);
-    if (mallocHeapElementsAsmJS > 0) {
+    if (classInfo.objectsMallocHeapElementsAsmJS > 0) {
         REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/malloc-heap/elements/asm.js"),
-            KIND_HEAP, mallocHeapElementsAsmJS,
-            "asm.js array buffer elements on the malloc heap.");
+            KIND_HEAP, classInfo.objectsMallocHeapElementsAsmJS,
+            "asm.js array buffer elements allocated in the malloc heap.");
     }
-    if (nonHeapElementsAsmJS > 0) {
-        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/non-heap/elements/asm.js"),
-            KIND_NONHEAP, nonHeapElementsAsmJS,
-            "asm.js array buffer elements outside both the malloc heap and "
-            "the GC heap.");
+
+    if (classInfo.objectsMallocHeapMisc > 0) {
+        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/malloc-heap/misc"),
+            KIND_HEAP, classInfo.objectsMallocHeapMisc,
+            "Miscellaneous object data.");
     }
 
     if (classInfo.objectsNonHeapElementsNormal > 0) {
@@ -2117,16 +2117,31 @@ ReportClassStats(const ClassInfo& classInfo, const nsACString& path,
             "by the buffer's refcount.");
     }
 
-    if (classInfo.objectsNonHeapCodeAsmJS > 0) {
-        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/non-heap/code/asm.js"),
-            KIND_NONHEAP, classInfo.objectsNonHeapCodeAsmJS,
-            "AOT-compiled asm.js code.");
+    // WebAssembly memories are always non-heap-allocated (mmap). We never put
+    // these under sundries, because (a) in practice they're almost always
+    // larger than the sundries threshold, and (b) we'd need a third category of
+    // sundries ("non-heap"), which would be a pain.
+    if (classInfo.objectsNonHeapElementsWasm > 0) {
+        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/non-heap/elements/wasm"),
+            KIND_NONHEAP, classInfo.objectsNonHeapElementsWasm,
+            "wasm/asm.js array buffer elements allocated outside both the "
+            "malloc heap and the GC heap.");
     }
 
-    if (classInfo.objectsMallocHeapMisc > 0) {
-        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/malloc-heap/misc"),
-            KIND_HEAP, classInfo.objectsMallocHeapMisc,
-            "Miscellaneous object data.");
+    if (classInfo.objectsNonHeapCodeWasm > 0) {
+        REPORT_BYTES(path + NS_LITERAL_CSTRING("objects/non-heap/code/wasm"),
+            KIND_NONHEAP, classInfo.objectsNonHeapCodeWasm,
+            "AOT-compiled wasm/asm.js code.");
+    }
+
+    // Although wasm guard pages aren't committed in memory they can be very
+    // large and contribute greatly to vsize and so are worth reporting.
+    if (classInfo.wasmGuardPages > 0) {
+        REPORT_BYTES(NS_LITERAL_CSTRING("wasm-guard-pages"),
+            KIND_OTHER, classInfo.wasmGuardPages,
+            "Guard pages mapped after the end of wasm memories, reserved for "
+            "optimization tricks, but not committed and thus never contributing"
+            " to RSS, only vsize.");
     }
 }
 
@@ -3026,11 +3041,17 @@ AccumulateTelemetryCallback(int id, uint32_t sample, const char* key)
       case JS_TELEMETRY_GC_RESET:
         Telemetry::Accumulate(Telemetry::GC_RESET, sample);
         break;
+      case JS_TELEMETRY_GC_RESET_REASON:
+        Telemetry::Accumulate(Telemetry::GC_RESET_REASON, sample);
+        break;
       case JS_TELEMETRY_GC_INCREMENTAL_DISABLED:
         Telemetry::Accumulate(Telemetry::GC_INCREMENTAL_DISABLED, sample);
         break;
       case JS_TELEMETRY_GC_NON_INCREMENTAL:
         Telemetry::Accumulate(Telemetry::GC_NON_INCREMENTAL, sample);
+        break;
+      case JS_TELEMETRY_GC_NON_INCREMENTAL_REASON:
+        Telemetry::Accumulate(Telemetry::GC_NON_INCREMENTAL_REASON, sample);
         break;
       case JS_TELEMETRY_GC_SCC_SWEEP_TOTAL_MS:
         Telemetry::Accumulate(Telemetry::GC_SCC_SWEEP_TOTAL_MS, sample);
@@ -3359,6 +3380,12 @@ XPCJSContext::Initialize()
                                                               : 120 * 1024;  //win32
     // The following two configurations are linux-only. Given the numbers above,
     // we use 50k and 100k trusted buffers on 32-bit and 64-bit respectively.
+#elif defined(ANDROID)
+    // Android appears to have 1MB stacks. Allow the use of 3/4 of that size
+    // (768KB on 32-bit), since otherwise we can crash with a stack overflow
+    // when nearing the 1MB limit.
+    const size_t kStackQuota = kDefaultStackQuota + kDefaultStackQuota / 2;
+    const size_t kTrustedScriptBuffer = sizeof(size_t) * 12800;
 #elif defined(DEBUG)
     // Bug 803182: account for the 4x difference in the size of js::Interpret
     // between optimized and debug builds.
@@ -3515,7 +3542,7 @@ XPCJSContext::DescribeCustomObjects(JSObject* obj, const js::Class* clasp,
         return false;
     }
 
-    snprintf(name, sizeof(name), "JS Object (%s - %s)", clasp->name, si->GetJSClass()->name);
+    SprintfLiteral(name, "JS Object (%s - %s)", clasp->name, si->GetJSClass()->name);
     return true;
 }
 
@@ -3586,6 +3613,8 @@ XPCJSContext::AfterProcessTask(uint32_t aNewRecursionDepth)
     // Now that we are certain that the event is complete,
     // we can flush any ongoing performance measurement.
     js::FlushPerformanceMonitoring(Get()->Context());
+
+    mozilla::jsipc::AfterProcessTask();
 }
 
 /***************************************************************************/

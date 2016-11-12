@@ -20,9 +20,7 @@
 #include "mozilla/dom/TextTrackManager.h"
 #include "mozilla/WeakPtr.h"
 #include "MediaDecoder.h"
-#ifdef MOZ_EME
 #include "mozilla/dom/MediaKeys.h"
-#endif
 #include "mozilla/StateWatching.h"
 #include "nsGkAtoms.h"
 #include "PrincipalChangeObserver.h"
@@ -50,6 +48,7 @@ class MediaResource;
 class MediaDecoder;
 class VideoFrameContainer;
 namespace dom {
+class AudioChannelAgent;
 class MediaKeys;
 class TextTrack;
 class TimeRanges;
@@ -356,6 +355,13 @@ public:
    */
   void NotifyMediaStreamTracksAvailable(DOMMediaStream* aStream);
 
+  /**
+   * Called when a captured MediaStreamTrack is stopped so we can clean up its
+   * MediaInputPort.
+   */
+  void NotifyOutputTrackStopped(DOMMediaStream* aOwningStream,
+                                TrackID aDestinationTrackID);
+
   virtual bool IsNodeOfType(uint32_t aFlags) const override;
 
   /**
@@ -626,14 +632,16 @@ public:
 
   // XPCOM MozPreservesPitch() is OK
 
-#ifdef MOZ_EME
   MediaKeys* GetMediaKeys() const;
 
   already_AddRefed<Promise> SetMediaKeys(MediaKeys* mediaKeys,
                                          ErrorResult& aRv);
 
   mozilla::dom::EventHandlerNonNull* GetOnencrypted();
-  void SetOnencrypted(mozilla::dom::EventHandlerNonNull* listener);
+  void SetOnencrypted(mozilla::dom::EventHandlerNonNull* aCallback);
+
+  mozilla::dom::EventHandlerNonNull* GetOnwaitingforkey();
+  void SetOnwaitingforkey(mozilla::dom::EventHandlerNonNull* aCallback);
 
   void DispatchEncrypted(const nsTArray<uint8_t>& aInitData,
                          const nsAString& aInitDataType) override;
@@ -645,7 +653,6 @@ public:
   already_AddRefed<nsIPrincipal> GetTopLevelPrincipal();
 
   bool ContainsRestrictedContent();
-#endif // MOZ_EME
 
   void CannotDecryptWaitingForKey();
 
@@ -1188,9 +1195,8 @@ protected:
    */
   void HiddenVideoStop();
 
-#ifdef MOZ_EME
   void ReportEMETelemetry();
-#endif
+
   void ReportTelemetry();
 
   // Check the permissions for audiochannel.
@@ -1206,7 +1212,7 @@ protected:
   bool IsPlayingThroughTheAudioChannel() const;
 
   // Update the audio channel playing state
-  void UpdateAudioChannelPlayingState();
+  void UpdateAudioChannelPlayingState(bool aForcePlaying = false);
 
   // Adds to the element's list of pending text tracks each text track
   // in the element's list of text tracks whose text track mode is not disabled
@@ -1223,8 +1229,10 @@ protected:
   // Notifies the audio channel agent when the element starts or stops playing.
   void NotifyAudioChannelAgent(bool aPlaying);
 
-  // Creates the audio channel agent if needed.  Returns true if the audio
-  // channel agent is ready to be used.
+  // True if we create the audio channel agent successfully or we already have
+  // one. The agent is used to communicate with the AudioChannelService. eg.
+  // notify we are playing/audible and receive muted/unmuted/suspend/resume
+  // commands from AudioChannelService.
   bool MaybeCreateAudioChannelAgent();
 
   // Determine if the element should be paused because of suspend conditions.
@@ -1263,12 +1271,24 @@ protected:
   bool IsSuspendedByAudioChannel() const;
   void SetAudioChannelSuspended(SuspendTypes aSuspend);
 
+  // A method to check whether the media element is allowed to start playback.
   bool IsAllowedToPlay();
+
+  // If the network state is empty and then we would trigger DoLoad().
+  void MaybeDoLoad();
+
+  // True if the tab which media element belongs to has been to foreground at
+  // least once or activated by manually clicking the unblocking tab icon.
+  bool IsTabActivated() const;
 
   bool IsAudible() const;
   bool HaveFailedWithSourceNotSupportedError() const;
 
   void OpenUnsupportedMediaWithExtenalAppIfNeeded();
+
+  // It's used for fennec only, send the notification when the user resumes the
+  // media which was paused by media control.
+  void MaybeNotifyMediaResumed(SuspendTypes aSuspend);
 
   class nsAsyncEventRunner;
   using nsGenericHTMLElement::DispatchEvent;
@@ -1449,10 +1469,8 @@ protected:
   // Timer used to simulate video-suspend.
   nsCOMPtr<nsITimer> mVideoDecodeSuspendTimer;
 
-#ifdef MOZ_EME
   // Encrypted Media Extension media keys.
   RefPtr<MediaKeys> mMediaKeys;
-#endif
 
   // Stores the time at the start of the current 'played' range.
   double mCurrentPlayRangeStart;
@@ -1593,18 +1611,22 @@ protected:
   // True if the media has encryption information.
   bool mIsEncrypted;
 
-  // True when the CDM cannot decrypt the current block, and the
-  // waitingforkey event has been fired. Back to false when keys have become
-  // available and we can advance the current playback position.
-  bool mWaitingForKey;
+  enum WaitingForKeyState {
+    NOT_WAITING_FOR_KEY = 0,
+    WAITING_FOR_KEY = 1,
+    WAITING_FOR_KEY_DISPATCHED = 2
+  };
+
+  // True when the CDM cannot decrypt the current block due to lacking a key.
+  // Note: the "waitingforkey" event is not dispatched until all decoded data
+  // has been rendered.
+  WaitingForKeyState mWaitingForKey;
 
   // Listens for waitingForKey events from the owned decoder.
   MediaEventListener mWaitingForKeyListener;
 
-#ifdef MOZ_EME
   // Init Data that needs to be sent in 'encrypted' events in MetadataLoaded().
   EncryptionInfo mPendingEncryptedInitData;
-#endif // MOZ_EME
 
   // True if the media's channel's download has been suspended.
   Watchable<bool> mDownloadSuspendedByCache;
@@ -1623,8 +1645,9 @@ protected:
   // playback.
   bool mDisableVideo;
 
-  // An agent used to join audio channel service.
-  nsCOMPtr<nsIAudioChannelAgent> mAudioChannelAgent;
+  // An agent used to join audio channel service and its life cycle would equal
+  // to media element.
+  RefPtr<AudioChannelAgent> mAudioChannelAgent;
 
   RefPtr<TextTrackManager> mTextTrackManager;
 
@@ -1638,17 +1661,10 @@ protected:
   // MediaStream.
   nsCOMPtr<nsIPrincipal> mSrcStreamVideoPrincipal;
 
-  enum ElementInTreeState {
-    // The MediaElement is not in the DOM tree now.
-    ELEMENT_NOT_INTREE,
-    // The MediaElement is in the DOM tree now.
-    ELEMENT_INTREE,
-    // The MediaElement is not in the DOM tree now but had been binded to the
-    // tree before.
-    ELEMENT_NOT_INTREE_HAD_INTREE
-  };
-
-  ElementInTreeState mElementInTreeState;
+  // True if UnbindFromTree() is called on the element.
+  // Note this flag is false when the element is in a phase after creation and
+  // before attaching to the DOM tree.
+  bool mUnboundFromTree = false;
 
 public:
   // Helper class to measure times for MSE telemetry stats

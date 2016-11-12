@@ -86,7 +86,8 @@ static SECOidTag ecCurve_oid_map[] = {
     SEC_OID_UNKNOWN, /* ECCurve_WTLS_1 */
     SEC_OID_UNKNOWN, /* ECCurve_WTLS_8 */
     SEC_OID_UNKNOWN, /* ECCurve_WTLS_9 */
-    SEC_OID_UNKNOWN  /* ECCurve_pastLastCurve */
+    SEC_OID_CURVE25519,
+    SEC_OID_UNKNOWN /* ECCurve_pastLastCurve */
 };
 
 typedef SECStatus (*op_func)(void *, void *, void *);
@@ -258,20 +259,37 @@ M_TimeOperation(void (*threadFunc)(void *),
 }
 
 /* Test curve using specific field arithmetic. */
-#define ECTEST_NAMED_GFP(name_c, name_v)                               \
-    if (usefreebl) {                                                   \
-        printf("Testing %s using freebl implementation...\n", name_c); \
-        rv = ectest_curve_freebl(name_v, iterations, numThreads);      \
-        if (rv != SECSuccess)                                          \
-            goto cleanup;                                              \
-        printf("... okay.\n");                                         \
-    }                                                                  \
-    if (usepkcs11) {                                                   \
-        printf("Testing %s using pkcs11 implementation...\n", name_c); \
-        rv = ectest_curve_pkcs11(name_v, iterations, numThreads);      \
-        if (rv != SECSuccess)                                          \
-            goto cleanup;                                              \
-        printf("... okay.\n");                                         \
+#define ECTEST_NAMED_GFP(name_c, name_v)                                        \
+    if (usefreebl) {                                                            \
+        printf("Testing %s using freebl implementation...\n", name_c);          \
+        rv = ectest_curve_freebl(name_v, iterations, numThreads, ec_field_GFp); \
+        if (rv != SECSuccess)                                                   \
+            goto cleanup;                                                       \
+        printf("... okay.\n");                                                  \
+    }                                                                           \
+    if (usepkcs11) {                                                            \
+        printf("Testing %s using pkcs11 implementation...\n", name_c);          \
+        rv = ectest_curve_pkcs11(name_v, iterations, numThreads);               \
+        if (rv != SECSuccess)                                                   \
+            goto cleanup;                                                       \
+        printf("... okay.\n");                                                  \
+    }
+
+/* Test curve using specific field arithmetic. */
+#define ECTEST_NAMED_CUSTOM(name_c, name_v)                                       \
+    if (usefreebl) {                                                              \
+        printf("Testing %s using freebl implementation...\n", name_c);            \
+        rv = ectest_curve_freebl(name_v, iterations, numThreads, ec_field_plain); \
+        if (rv != SECSuccess)                                                     \
+            goto cleanup;                                                         \
+        printf("... okay.\n");                                                    \
+    }                                                                             \
+    if (usepkcs11) {                                                              \
+        printf("Testing %s using pkcs11 implementation...\n", name_c);            \
+        rv = ectest_curve_pkcs11(name_v, iterations, numThreads);                 \
+        if (rv != SECSuccess)                                                     \
+            goto cleanup;                                                         \
+        printf("... okay.\n");                                                    \
     }
 
 /*
@@ -452,7 +470,7 @@ ectest_curve_pkcs11(ECCurveName curve, int iterations, int numThreads)
     unsigned char digestData[20];
     unsigned char pubKeyData[256];
     PRLock *lock = NULL;
-    double signRate, deriveRate;
+    double signRate, deriveRate = 0;
     CK_ATTRIBUTE template;
     SECStatus rv;
     CK_RV crv;
@@ -510,29 +528,34 @@ ectest_curve_pkcs11(ECCurveName curve, int iterations, int numThreads)
 
     lock = PR_NewLock();
 
-    rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Derive, "ECDH_Derive",
-                         &ecPriv, &mech, NULL, iterations, numThreads,
-                         lock, session, 0, &deriveRate);
-    if (rv != SECSuccess) {
-        goto cleanup;
+    if (ecCurve_map[curve]->usage & KU_KEY_AGREEMENT) {
+        rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Derive, "ECDH_Derive",
+                             &ecPriv, &mech, NULL, iterations, numThreads,
+                             lock, session, 0, &deriveRate);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
     }
-    rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Sign, "ECDSA_Sign",
-                         (void *)&ecPriv, &sig, &digest, iterations, numThreads,
-                         lock, session, 1, &signRate);
-    if (rv != SECSuccess) {
-        goto cleanup;
-    }
-    printf("        ECDHE max rate = %.2f\n", (deriveRate + signRate) / 4.0);
-    /* get a signature */
-    rv = PKCS11_Sign(session, &ecPriv, &sig, &digest);
-    if (rv != SECSuccess) {
-        goto cleanup;
-    }
-    rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Verify, "ECDSA_Verify",
-                         (void *)&ecPub, &sig, &digest, iterations, numThreads,
-                         lock, session, 0, NULL);
-    if (rv != SECSuccess) {
-        goto cleanup;
+
+    if (ecCurve_map[curve]->usage & KU_DIGITAL_SIGNATURE) {
+        rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Sign, "ECDSA_Sign",
+                             (void *)&ecPriv, &sig, &digest, iterations, numThreads,
+                             lock, session, 1, &signRate);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
+        printf("        ECDHE max rate = %.2f\n", (deriveRate + signRate) / 4.0);
+        /* get a signature */
+        rv = PKCS11_Sign(session, &ecPriv, &sig, &digest);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
+        rv = M_TimeOperation(PKCS11Thread, (op_func)PKCS11_Verify, "ECDSA_Verify",
+                             (void *)&ecPub, &sig, &digest, iterations, numThreads,
+                             lock, session, 0, NULL);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
     }
 
 cleanup:
@@ -562,7 +585,8 @@ ECDH_DeriveWrap(ECPrivateKey *priv, ECPublicKey *pub, int *dummy)
  * If tests fail, then it prints an error message, aborts, and returns an
  * error code. Otherwise, returns 0. */
 SECStatus
-ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads)
+ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads,
+                    ECFieldType fieldType)
 {
     ECParams ecParams = { 0 };
     ECPrivateKey *ecPriv = NULL;
@@ -571,7 +595,7 @@ ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads)
     SECItem digest;
     unsigned char sigData[256];
     unsigned char digestData[20];
-    double signRate, deriveRate;
+    double signRate, deriveRate = 0;
     char genenc[3 + 2 * 2 * MAX_ECKEY_LEN];
     SECStatus rv = SECFailure;
     PLArenaPool *arena;
@@ -594,9 +618,10 @@ ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads)
     ecParams.curve.seed.len = 0;
     ecParams.DEREncoding.data = NULL;
     ecParams.DEREncoding.len = 0;
+    ecParams.pointSize = ecCurve_map[curve]->pointSize;
 
     ecParams.fieldID.size = ecCurve_map[curve]->size;
-    ecParams.fieldID.type = ec_field_GFp;
+    ecParams.fieldID.type = fieldType;
     hexString2SECItem(arena, &ecParams.fieldID.u.prime, ecCurve_map[curve]->irr);
     hexString2SECItem(arena, &ecParams.curve.a, ecCurve_map[curve]->curvea);
     hexString2SECItem(arena, &ecParams.curve.b, ecCurve_map[curve]->curveb);
@@ -622,24 +647,29 @@ ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads)
     ecPub.ecParams = ecParams;
     ecPub.publicValue = ecPriv->publicValue;
 
-    rv = M_TimeOperation(genericThread, (op_func)ECDH_DeriveWrap, "ECDH_Derive",
-                         ecPriv, &ecPub, NULL, iterations, numThreads, 0, 0, 0, &deriveRate);
-    if (rv != SECSuccess) {
-        goto cleanup;
+    if (ecCurve_map[curve]->usage & KU_KEY_AGREEMENT) {
+        rv = M_TimeOperation(genericThread, (op_func)ECDH_DeriveWrap, "ECDH_Derive",
+                             ecPriv, &ecPub, NULL, iterations, numThreads, 0, 0, 0, &deriveRate);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
     }
-    rv = M_TimeOperation(genericThread, (op_func)ECDSA_SignDigest, "ECDSA_Sign",
-                         ecPriv, &sig, &digest, iterations, numThreads, 0, 0, 1, &signRate);
-    if (rv != SECSuccess)
-        goto cleanup;
-    printf("        ECDHE max rate = %.2f\n", (deriveRate + signRate) / 4.0);
-    rv = ECDSA_SignDigest(ecPriv, &sig, &digest);
-    if (rv != SECSuccess) {
-        goto cleanup;
-    }
-    rv = M_TimeOperation(genericThread, (op_func)ECDSA_VerifyDigest, "ECDSA_Verify",
-                         &ecPub, &sig, &digest, iterations, numThreads, 0, 0, 0, NULL);
-    if (rv != SECSuccess) {
-        goto cleanup;
+
+    if (ecCurve_map[curve]->usage & KU_DIGITAL_SIGNATURE) {
+        rv = M_TimeOperation(genericThread, (op_func)ECDSA_SignDigest, "ECDSA_Sign",
+                             ecPriv, &sig, &digest, iterations, numThreads, 0, 0, 1, &signRate);
+        if (rv != SECSuccess)
+            goto cleanup;
+        printf("        ECDHE max rate = %.2f\n", (deriveRate + signRate) / 4.0);
+        rv = ECDSA_SignDigest(ecPriv, &sig, &digest);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
+        rv = M_TimeOperation(genericThread, (op_func)ECDSA_VerifyDigest, "ECDSA_Verify",
+                             &ecPub, &sig, &digest, iterations, numThreads, 0, 0, 0, NULL);
+        if (rv != SECSuccess) {
+            goto cleanup;
+        }
     }
 
 cleanup:
@@ -735,43 +765,11 @@ main(int argv, char **argc)
 
     /* specific arithmetic tests */
     if (nist) {
-#ifdef NSS_ECC_MORE_THAN_SUITE_B
-        ECTEST_NAMED_GFP("SECP-160K1", ECCurve_SECG_PRIME_160K1);
-        ECTEST_NAMED_GFP("NIST-P192", ECCurve_NIST_P192);
-        ECTEST_NAMED_GFP("NIST-P224", ECCurve_NIST_P224);
-#endif
         ECTEST_NAMED_GFP("NIST-P256", ECCurve_NIST_P256);
         ECTEST_NAMED_GFP("NIST-P384", ECCurve_NIST_P384);
         ECTEST_NAMED_GFP("NIST-P521", ECCurve_NIST_P521);
+        ECTEST_NAMED_CUSTOM("Curve25519", ECCurve25519);
     }
-#ifdef NSS_ECC_MORE_THAN_SUITE_B
-    if (ansi) {
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME192v1", ECCurve_X9_62_PRIME_192V1);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME192v2", ECCurve_X9_62_PRIME_192V2);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME192v3", ECCurve_X9_62_PRIME_192V3);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME239v1", ECCurve_X9_62_PRIME_239V1);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME239v2", ECCurve_X9_62_PRIME_239V2);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME239v3", ECCurve_X9_62_PRIME_239V3);
-        ECTEST_NAMED_GFP("ANSI X9.62 PRIME256v1", ECCurve_X9_62_PRIME_256V1);
-    }
-    if (secp) {
-        ECTEST_NAMED_GFP("SECP-112R1", ECCurve_SECG_PRIME_112R1);
-        ECTEST_NAMED_GFP("SECP-112R2", ECCurve_SECG_PRIME_112R2);
-        ECTEST_NAMED_GFP("SECP-128R1", ECCurve_SECG_PRIME_128R1);
-        ECTEST_NAMED_GFP("SECP-128R2", ECCurve_SECG_PRIME_128R2);
-        ECTEST_NAMED_GFP("SECP-160K1", ECCurve_SECG_PRIME_160K1);
-        ECTEST_NAMED_GFP("SECP-160R1", ECCurve_SECG_PRIME_160R1);
-        ECTEST_NAMED_GFP("SECP-160R2", ECCurve_SECG_PRIME_160R2);
-        ECTEST_NAMED_GFP("SECP-192K1", ECCurve_SECG_PRIME_192K1);
-        ECTEST_NAMED_GFP("SECP-192R1", ECCurve_SECG_PRIME_192R1);
-        ECTEST_NAMED_GFP("SECP-224K1", ECCurve_SECG_PRIME_224K1);
-        ECTEST_NAMED_GFP("SECP-224R1", ECCurve_SECG_PRIME_224R1);
-        ECTEST_NAMED_GFP("SECP-256K1", ECCurve_SECG_PRIME_256K1);
-        ECTEST_NAMED_GFP("SECP-256R1", ECCurve_SECG_PRIME_256R1);
-        ECTEST_NAMED_GFP("SECP-384R1", ECCurve_SECG_PRIME_384R1);
-        ECTEST_NAMED_GFP("SECP-521R1", ECCurve_SECG_PRIME_521R1);
-    }
-#endif
 
 cleanup:
     rv |= SECOID_Shutdown();

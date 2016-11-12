@@ -26,6 +26,7 @@
 #include "BiquadFilterNode.h"
 #include "ChannelMergerNode.h"
 #include "ChannelSplitterNode.h"
+#include "ConstantSourceNode.h"
 #include "ConvolverNode.h"
 #include "DelayNode.h"
 #include "DynamicsCompressorNode.h"
@@ -249,6 +250,18 @@ AudioContext::CreateBufferSource(ErrorResult& aRv)
   return bufferNode.forget();
 }
 
+already_AddRefed<ConstantSourceNode>
+AudioContext::CreateConstantSource(ErrorResult& aRv)
+{
+  if (CheckClosed(aRv)) {
+    return nullptr;
+  }
+
+  RefPtr<ConstantSourceNode> constantSourceNode =
+    new ConstantSourceNode(this);
+  return constantSourceNode.forget();
+}
+
 already_AddRefed<AudioBuffer>
 AudioContext::CreateBuffer(uint32_t aNumberOfChannels, uint32_t aLength,
                            float aSampleRate,
@@ -354,12 +367,11 @@ AudioContext::CreateMediaElementSource(HTMLMediaElement& aMediaElement,
     aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
     return nullptr;
   }
-#ifdef MOZ_EME
+
   if (aMediaElement.ContainsRestrictedContent()) {
     aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
     return nullptr;
   }
-#endif
 
   if (CheckClosed(aRv)) {
     return nullptr;
@@ -837,6 +849,15 @@ AudioContext::OnStateChanged(void* aPromise, AudioContextState aNewState)
   if (mAudioContextState == AudioContextState::Closed &&
       aNewState == AudioContextState::Running &&
       !aPromise) {
+    return;
+  }
+
+  // This can happen if this is called in reaction to a
+  // MediaStreamGraph shutdown, and a AudioContext was being
+  // suspended at the same time, for example if a page was being
+  // closed.
+  if (mAudioContextState == AudioContextState::Closed &&
+      aNewState == AudioContextState::Suspended) {
     return;
   }
 

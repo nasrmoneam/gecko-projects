@@ -85,7 +85,6 @@ class nsIScriptContext;
 class nsIScriptSecurityManager;
 class nsIStringBundle;
 class nsIStringBundleService;
-class nsISupportsArray;
 class nsISupportsHashKey;
 class nsIURI;
 class nsIUUIDGenerator;
@@ -1864,11 +1863,6 @@ public:
   static nsresult CreateArrayBuffer(JSContext *aCx, const nsACString& aData,
                                     JSObject** aResult);
 
-  static nsresult CreateBlobBuffer(JSContext* aCx,
-                                   nsISupports* aParent,
-                                   const nsACString& aData,
-                                   JS::MutableHandle<JS::Value> aBlob);
-
   static void StripNullChars(const nsAString& aInStr, nsAString& aOutStr);
 
   /**
@@ -1966,10 +1960,6 @@ public:
    */
   static already_AddRefed<mozilla::layers::LayerManager>
   PersistentLayerManagerForDocument(nsIDocument *aDoc);
-
-  /* static */
-  static bool AppendLFInSerialization()
-    { return sAppendLFInSerialization; }
 
   /**
    * Determine whether a content node is focused or not,
@@ -2504,7 +2494,7 @@ public:
                                                 mozilla::dom::nsIContentParent* aContentParent,
                                                 mozilla::dom::TabChild* aTabChild);
 
-  static void TransferablesToIPCTransferables(nsISupportsArray* aTransferables,
+  static void TransferablesToIPCTransferables(nsIArray* aTransferables,
                                               nsTArray<mozilla::dom::IPCDataTransfer>& aIPC,
                                               bool aInSyncMessage,
                                               mozilla::dom::nsIContentChild* aChild,
@@ -2715,6 +2705,8 @@ public:
                                  nsIAtom* aAtom,
                                  JS::MutableHandle<JSObject*> prototype);
 
+  static bool AttemptLargeAllocationLoad(nsIHttpChannel* aChannel);
+
 private:
   static bool InitializeEventTable();
 
@@ -2824,7 +2816,6 @@ private:
   static bool sGettersDecodeURLHash;
   static bool sPrivacyResistFingerprinting;
   static bool sSendPerformanceTimingNotifications;
-  static bool sAppendLFInSerialization;
   static bool sUseActivityCursor;
   static uint32_t sCookiesLifetimePolicy;
   static uint32_t sCookiesBehavior;

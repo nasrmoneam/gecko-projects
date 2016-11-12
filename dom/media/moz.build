@@ -20,12 +20,14 @@ with Files('GetUserMedia*'):
     BUG_COMPONENT = component_av
 
 DIRS += [
+    'eme',
     'encoder',
     'flac',
     'gmp',
     'gmp-plugin',
     'gmp-plugin-openh264',
     'imagecapture',
+    'ipc',
     'mediasink',
     'mediasource',
     'ogg',
@@ -52,14 +54,7 @@ if CONFIG['MOZ_FMP4']:
 if CONFIG['MOZ_WEBRTC']:
     DIRS += ['bridge']
 
-if CONFIG['MOZ_OMX_DECODER']:
-    DIRS += ['omx']
-
-if CONFIG['MOZ_EME']:
-    DIRS += ['eme']
-
 TEST_DIRS += [
-    'compiledtest',
     'gtest',
 ]
 
@@ -106,6 +101,7 @@ EXPORTS += [
     'Intervals.h',
     'Latency.h',
     'MediaCache.h',
+    'MediaContentType.h',
     'MediaData.h',
     'MediaDataDemuxer.h',
     'MediaDecoder.h',
@@ -220,6 +216,7 @@ UNIFIED_SOURCES += [
     'GraphDriver.cpp',
     'Latency.cpp',
     'MediaCache.cpp',
+    'MediaContentType.cpp',
     'MediaData.cpp',
     'MediaDecoder.cpp',
     'MediaDecoderReader.cpp',
@@ -299,7 +296,6 @@ EXTRA_JS_MODULES.media += [
 LOCAL_INCLUDES += [
     '/caps',
     '/dom/base',
-    '/dom/camera',
     '/layout/generic',
     '/layout/xul',
     '/netwerk/base',
@@ -322,9 +318,6 @@ if CONFIG['OS_TARGET'] == 'WINNT':
     DEFINES['WEBRTC_WIN'] = True
 else:
     DEFINES['WEBRTC_POSIX'] = True
-
-if CONFIG['MOZ_OMX_DECODER']:
-    DEFINES['MOZ_OMX_DECODER'] = True
 
 if CONFIG['ANDROID_VERSION'] > '15':
     DEFINES['MOZ_OMX_WEBM_DECODER'] = True

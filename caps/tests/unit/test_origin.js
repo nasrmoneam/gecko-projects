@@ -35,6 +35,13 @@ function checkOriginAttributes(prin, attrs, suffix) {
   }
 }
 
+function checkSandboxOriginAttributes(arr, attrs, options) {
+  options = options || {};
+  var sandbox = Cu.Sandbox(arr, options);
+  checkOriginAttributes(Cu.getObjectPrincipal(sandbox), attrs,
+                        ChromeUtils.originAttributesToSuffix(attrs));
+}
+
 // utility function useful for debugging
 function printAttrs(name, attrs) {
   do_print(name + " {\n" +
@@ -42,7 +49,6 @@ function printAttrs(name, attrs) {
            "\tuserContextId: " + attrs.userContextId + ",\n" +
            "\tinIsolatedMozBrowser: " + attrs.inIsolatedMozBrowser + ",\n" +
            "\taddonId: '" + attrs.addonId + "',\n" +
-           "\tsignedPkg: '" + attrs.signedPkg + "',\n" +
            "\tprivateBrowsingId: '" + attrs.privateBrowsingId + "',\n" +
            "\tfirstPartyDomain: '" + attrs.firstPartyDomain + "'\n}");
 }
@@ -56,7 +62,6 @@ function checkValues(attrs, values) {
   do_check_eq(attrs.userContextId, values.userContextId || 0);
   do_check_eq(attrs.inIsolatedMozBrowser, values.inIsolatedMozBrowser || false);
   do_check_eq(attrs.addonId, values.addonId || '');
-  do_check_eq(attrs.signedPkg, values.signedPkg || '');
   do_check_eq(attrs.privateBrowsingId, values.privateBrowsingId || '');
   do_check_eq(attrs.firstPartyDomain, values.firstPartyDomain || '');
 }
@@ -80,7 +85,7 @@ function run_test() {
   var ipv6NPPrin = ssm.createCodebasePrincipal(makeURI('https://[2001:db8::ff00:42:8329]'), {});
   do_check_eq(ipv6NPPrin.origin, 'https://[2001:db8::ff00:42:8329]');
   checkOriginAttributes(ipv6NPPrin);
-  var ep = ssm.createExpandedPrincipal([exampleCom, nullPrin, exampleOrg]);
+  var ep = Cu.getObjectPrincipal(Cu.Sandbox([exampleCom, nullPrin, exampleOrg]));
   checkOriginAttributes(ep);
   checkCrossOrigin(exampleCom, exampleOrg);
   checkCrossOrigin(exampleOrg, nullPrin);
@@ -164,18 +169,13 @@ function run_test() {
   checkOriginAttributes(nullPrin_userContextApp, {appId: 24, userContextId: 42}, '^appId=24&userContextId=42');
   do_check_eq(exampleOrg_userContextApp.origin, 'http://example.org^appId=24&userContextId=42');
 
-  // Just signedPkg
-  var exampleOrg_signedPkg = ssm.createCodebasePrincipal(makeURI('http://example.org'), {signedPkg: 'whatever'});
-  checkOriginAttributes(exampleOrg_signedPkg, { signedPkg: 'whatever' }, '^signedPkg=whatever');
-  do_check_eq(exampleOrg_signedPkg.origin, 'http://example.org^signedPkg=whatever');
-
-  // signedPkg and browser
-  var exampleOrg_signedPkg_browser = ssm.createCodebasePrincipal(makeURI('http://example.org'), {signedPkg: 'whatever', inIsolatedMozBrowser: true});
-  checkOriginAttributes(exampleOrg_signedPkg_browser, { signedPkg: 'whatever', inIsolatedMozBrowser: true }, '^inBrowser=1&signedPkg=whatever');
-  do_check_eq(exampleOrg_signedPkg_browser.origin, 'http://example.org^inBrowser=1&signedPkg=whatever');
-
-  // Just signedPkg (but different value from 'exampleOrg_signedPkg_app')
-  var exampleOrg_signedPkg_another = ssm.createCodebasePrincipal(makeURI('http://example.org'), {signedPkg: 'whatup'});
+  checkSandboxOriginAttributes(null, {});
+  checkSandboxOriginAttributes('http://example.org', {});
+  checkSandboxOriginAttributes('http://example.org', {}, {originAttributes: {}});
+  checkSandboxOriginAttributes('http://example.org', {appId: 42}, {originAttributes: {appId: 42}});
+  checkSandboxOriginAttributes(['http://example.org'], {});
+  checkSandboxOriginAttributes(['http://example.org'], {}, {originAttributes: {}});
+  checkSandboxOriginAttributes(['http://example.org'], {appId: 42}, {originAttributes: {appId: 42}});
 
   // Check that all of the above are cross-origin.
   checkCrossOrigin(exampleOrg_app, exampleOrg);
@@ -191,9 +191,6 @@ function run_test() {
   checkCrossOrigin(exampleOrg_userContextAddon, exampleOrg);
   checkCrossOrigin(exampleOrg_userContext, exampleOrg_userContextAddon);
   checkCrossOrigin(exampleOrg_userContext, exampleOrg_userContextApp);
-  checkCrossOrigin(exampleOrg_signedPkg, exampleOrg);
-  checkCrossOrigin(exampleOrg_signedPkg, exampleOrg_signedPkg_browser);
-  checkCrossOrigin(exampleOrg_signedPkg, exampleOrg_signedPkg_another);
 
   // Check Principal kinds.
   function checkKind(prin, kind) {
@@ -204,7 +201,7 @@ function run_test() {
   }
   checkKind(ssm.createNullPrincipal({}), 'nullPrincipal');
   checkKind(ssm.createCodebasePrincipal(makeURI('http://www.example.com'), {}), 'codebasePrincipal');
-  checkKind(ssm.createExpandedPrincipal([ssm.createCodebasePrincipal(makeURI('http://www.example.com'), {})]), 'expandedPrincipal');
+  checkKind(Cu.getObjectPrincipal(Cu.Sandbox([ssm.createCodebasePrincipal(makeURI('http://www.example.com'), {})])), 'expandedPrincipal');
   checkKind(ssm.getSystemPrincipal(), 'systemPrincipal');
 
   //
@@ -224,7 +221,6 @@ function run_test() {
     [ "^addonId=fooBar", {addonId: "fooBar"} ],
     [ "^inBrowser=1", {inIsolatedMozBrowser: true} ],
     [ "^firstPartyDomain=example.org", {firstPartyDomain: "example.org"} ],
-    [ "^signedPkg=bazQux", {signedPkg: "bazQux"} ],
     [ "^appId=3&inBrowser=1&userContextId=6",
       {appId: 3, userContextId: 6, inIsolatedMozBrowser: true} ] ];
 

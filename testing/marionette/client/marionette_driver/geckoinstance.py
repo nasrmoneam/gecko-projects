@@ -86,7 +86,7 @@ class GeckoInstance(object):
             if path is None:
                 path = 'gecko.log'
             elif os.path.isdir(path):
-                fname = 'gecko-%d.log' % time.time()
+                fname = 'gecko-{}.log'.format(time.time())
                 path = os.path.join(path, fname)
 
             path = os.path.realpath(path)
@@ -153,7 +153,9 @@ class GeckoInstance(object):
         # environment variables needed for crashreporting
         # https://developer.mozilla.org/docs/Environment_variables_affecting_crash_reporting
         env.update({'MOZ_CRASHREPORTER': '1',
-                    'MOZ_CRASHREPORTER_NO_REPORT': '1'})
+                    'MOZ_CRASHREPORTER_NO_REPORT': '1',
+                    'MOZ_CRASHREPORTER_SHUTDOWN': '1',
+                    })
 
         return {
             'binary': self.binary,
@@ -267,7 +269,7 @@ class FennecInstance(GeckoInstance):
         super(FennecInstance, self).close(restart)
         if self.runner and self.runner.device.connected:
             self.runner.device.dm.remove_forward(
-                'tcp:%d' % int(self.marionette_port)
+                'tcp:{}'.format(int(self.marionette_port))
             )
 
 
@@ -314,7 +316,6 @@ class DesktopInstance(GeckoInstance):
         'browser.tabs.warnOnClose': False,
         'browser.tabs.warnOnOpen': False,
         'browser.uitour.enabled': False,
-        'browser.usedOnWindows10.introURL': '',
         'extensions.getAddons.cache.enabled': False,
         'extensions.installDistroAddons': False,
         'extensions.showMismatchUI': False,

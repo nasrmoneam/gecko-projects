@@ -25,14 +25,19 @@ public:
 
   CompositorBridgeParent* GetInProcessBridge() const override;
   void SetContentController(GeckoContentController* aController) override;
+  GeckoContentController* GetContentController();
+  nsIWidget* GetWidget();
   RefPtr<IAPZCTreeManager> GetAPZCTreeManager() const override;
+  bool Reset(const nsTArray<LayersBackend>& aBackendHints, TextureFactoryIdentifier* aOutIdentifier) override;
   void Shutdown() override;
 
+  void NotifyDeviceReset();
   void NotifySessionLost();
 
 private:
   nsBaseWidget* mWidget;
   RefPtr<APZCTreeManagerChild> mAPZ;
+  RefPtr<GeckoContentController> mContentController;
 };
 
 } // namespace layers

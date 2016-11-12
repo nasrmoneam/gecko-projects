@@ -12,7 +12,7 @@ const { TargetFactory } = require("devtools/client/framework/target");
 const Telemetry = require("devtools/client/shared/telemetry");
 const {ViewHelpers} = require("devtools/client/shared/widgets/view-helpers");
 const {LocalizationHelper} = require("devtools/shared/l10n");
-const L10N = new LocalizationHelper("devtools/locale/toolbox.properties");
+const L10N = new LocalizationHelper("devtools/client/locales/toolbox.properties");
 
 const NS_XHTML = "http://www.w3.org/1999/xhtml";
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
@@ -29,7 +29,7 @@ loader.lazyRequireGetter(this, "util", "gcli/util/util");
 loader.lazyRequireGetter(this, "ConsoleServiceListener", "devtools/server/actors/utils/webconsole-utils", true);
 loader.lazyRequireGetter(this, "gDevTools", "devtools/client/framework/devtools", true);
 loader.lazyRequireGetter(this, "gDevToolsBrowser", "devtools/client/framework/devtools-browser", true);
-loader.lazyRequireGetter(this, "nodeConstants", "devtools/shared/dom-node-constants", true);
+loader.lazyRequireGetter(this, "nodeConstants", "devtools/shared/dom-node-constants");
 loader.lazyRequireGetter(this, "EventEmitter", "devtools/shared/event-emitter");
 
 /**
@@ -332,6 +332,8 @@ DeveloperToolbar.prototype.createToolbar = function () {
   toolboxBtn.setAttribute("class", "developer-toolbar-button");
   let toolboxTooltip = L10N.getStr("toolbar.toolsButton.tooltip");
   toolboxBtn.setAttribute("tooltiptext", toolboxTooltip);
+  let toolboxOpen = gDevToolsBrowser.hasToolboxOpened(this._chromeWindow);
+  toolboxBtn.setAttribute("checked", toolboxOpen);
   toolboxBtn.addEventListener("command", function (event) {
     let window = event.target.ownerDocument.defaultView;
     gDevToolsBrowser.toggleToolboxCommand(window.gBrowser);
@@ -714,6 +716,8 @@ DeveloperToolbar.prototype.handleEvent = function (ev) {
       });
 
       if (ev.type == "TabSelect") {
+        let toolboxOpen = gDevToolsBrowser.hasToolboxOpened(this._chromeWindow);
+        this._errorCounterButton.setAttribute("checked", toolboxOpen);
         this._initErrorsCount(ev.target);
       }
     }

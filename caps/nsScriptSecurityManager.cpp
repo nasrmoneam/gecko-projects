@@ -147,14 +147,15 @@ GetPrincipalDomainOrigin(nsIPrincipal* aPrincipal,
   return GetOriginFromURI(uri, aOrigin);
 }
 
-inline void SetPendingException(JSContext *cx, const char *aMsg)
+inline void SetPendingExceptionASCII(JSContext *cx, const char *aMsg)
 {
-    JS_ReportError(cx, "%s", aMsg);
+    JS_ReportErrorASCII(cx, "%s", aMsg);
 }
 
 inline void SetPendingException(JSContext *cx, const char16_t *aMsg)
 {
-    JS_ReportError(cx, "%hs", aMsg);
+    NS_ConvertUTF16toUTF8 msg(aMsg);
+    JS_ReportErrorUTF8(cx, "%s", msg.get());
 }
 
 // Helper class to get stuff from the ClassInfo and not waste extra time with
@@ -333,6 +334,17 @@ nsScriptSecurityManager::GetChannelResultPrincipal(nsIChannel* aChannel,
                                                    bool aIgnoreSandboxing)
 {
     NS_PRECONDITION(aChannel, "Must have channel!");
+    // Check whether we have an nsILoadInfo that says what we should do.
+    nsCOMPtr<nsILoadInfo> loadInfo = aChannel->GetLoadInfo();
+    if (loadInfo && loadInfo->GetForceInheritPrincipalOverruleOwner()) {
+      nsCOMPtr<nsIPrincipal> principalToInherit = loadInfo->PrincipalToInherit();
+      if (!principalToInherit) {
+        principalToInherit = loadInfo->TriggeringPrincipal();
+      }
+      principalToInherit.forget(aPrincipal);
+      return NS_OK;
+    }
+
     nsCOMPtr<nsISupports> owner;
     aChannel->GetOwner(getter_AddRefs(owner));
     if (owner) {
@@ -342,9 +354,6 @@ nsScriptSecurityManager::GetChannelResultPrincipal(nsIChannel* aChannel,
         }
     }
 
-    // Check whether we have an nsILoadInfo that says what we should do.
-    nsCOMPtr<nsILoadInfo> loadInfo;
-    aChannel->GetLoadInfo(getter_AddRefs(loadInfo));
     if (loadInfo) {
         if (!aIgnoreSandboxing && loadInfo->GetLoadingSandboxed()) {
             RefPtr<nsNullPrincipal> prin;
@@ -372,7 +381,11 @@ nsScriptSecurityManager::GetChannelResultPrincipal(nsIChannel* aChannel,
           }
         }
         if (forceInherit) {
-            NS_ADDREF(*aPrincipal = loadInfo->PrincipalToInherit());
+            nsCOMPtr<nsIPrincipal> principalToInherit = loadInfo->PrincipalToInherit();
+            if (!principalToInherit) {
+              principalToInherit = loadInfo->TriggeringPrincipal();
+            }
+            principalToInherit.forget(aPrincipal);
             return NS_OK;
         }
 
@@ -385,6 +398,9 @@ nsScriptSecurityManager::GetChannelResultPrincipal(nsIChannel* aChannel,
             nsresult rv = NS_GetFinalChannelURI(aChannel, getter_AddRefs(uri));
             NS_ENSURE_SUCCESS(rv, rv); 
             nsCOMPtr<nsIPrincipal> principalToInherit = loadInfo->PrincipalToInherit();
+            if (!principalToInherit) {
+              principalToInherit = loadInfo->TriggeringPrincipal();
+            }
             bool inheritForAboutBlank = loadInfo->GetAboutBlankInherits();
 
             if (nsContentUtils::ChannelShouldInheritPrincipal(principalToInherit,
@@ -596,7 +612,7 @@ nsScriptSecurityManager::CheckLoadURIFromScript(JSContext *cx, nsIURI *aURI)
     nsAutoCString msg("Access to '");
     msg.Append(spec);
     msg.AppendLiteral("' from script denied");
-    SetPendingException(cx, msg.get());
+    SetPendingExceptionASCII(cx, msg.get());
     return NS_ERROR_DOM_BAD_URI;
 }
 
@@ -650,37 +666,6 @@ EqualOrSubdomain(nsIURI* aProbeArg, nsIURI* aBase)
         rv = probe->SetHost(newHost);
         NS_ENSURE_SUCCESS(rv, false);
     }
-}
-
-static bool
-AllSchemesMatch(nsIURI* aURI, nsIURI* aOtherURI)
-{
-    auto stringComparator = nsCaseInsensitiveCStringComparator();
-    nsCOMPtr<nsIURI> currentURI = aURI;
-    nsCOMPtr<nsIURI> currentOtherURI = aOtherURI;
-    while (currentURI && currentOtherURI) {
-        nsAutoCString scheme, otherScheme;
-        currentURI->GetScheme(scheme);
-        currentOtherURI->GetScheme(otherScheme);
-        if (!scheme.Equals(otherScheme, stringComparator)) {
-            return false;
-        }
-        nsCOMPtr<nsINestedURI> nestedURI = do_QueryInterface(currentURI);
-        nsCOMPtr<nsINestedURI> nestedOtherURI = do_QueryInterface(currentOtherURI);
-        // If neither are nested and all schemes have matched so far
-        // (or we would have bailed already), we're the same:
-        if (!nestedURI && !nestedOtherURI) {
-            return true;
-        }
-        // If one is nested and the other not, they're not equal:
-        if (!nestedURI != !nestedOtherURI) {
-            return false;
-        }
-        // At this stage, both are still nested URIs, so let's play again:
-        nestedURI->GetInnerURI(getter_AddRefs(currentURI));
-        nestedOtherURI->GetInnerURI(getter_AddRefs(currentOtherURI));
-    }
-    return false;
 }
 
 NS_IMETHODIMP
@@ -805,53 +790,62 @@ nsScriptSecurityManager::CheckLoadURIWithPrincipal(nsIPrincipal* aPrincipal,
             return NS_OK;
         }
     }
-    else if (AllSchemesMatch(sourceURI, aTargetURI) ||
-             (sViewSourceReachableFromInner &&
-              sourceScheme.EqualsIgnoreCase(targetScheme.get()) &&
-              NS_SUCCEEDED(aTargetURI->SchemeIs("view-source", &targetIsViewSource)) &&
-              targetIsViewSource))
+    else if (sViewSourceReachableFromInner &&
+             sourceScheme.EqualsIgnoreCase(targetScheme.get()) &&
+             NS_SUCCEEDED(aTargetURI->SchemeIs("view-source", &targetIsViewSource)) &&
+             targetIsViewSource)
     {
-        // every scheme can access another URI from the same scheme,
-        // as long as they don't represent null principals...
-        // Or they don't require an special permission to do so
-        // See bug#773886
-        rv = NS_URIChainHasFlags(targetBaseURI,
-                                 nsIProtocolHandler::URI_CROSS_ORIGIN_NEEDS_WEBAPPS_PERM,
-                                 &hasFlags);
-        NS_ENSURE_SUCCESS(rv, rv);
-
-        if (hasFlags) {
-            // Let apps load the whitelisted theme resources even if they don't
-            // have the webapps-manage permission but have the themeable one.
-            // Resources from the theme origin are also allowed to load from
-            // the theme origin (eg. stylesheets using images from the theme).
-            auto themeOrigin = Preferences::GetCString("b2g.theme.origin");
-            if (themeOrigin) {
-                nsAutoCString targetOrigin;
-                nsPrincipal::GetOriginForURI(targetBaseURI, targetOrigin);
-                if (targetOrigin.Equals(themeOrigin)) {
-                    nsAutoCString pOrigin;
-                    aPrincipal->GetOrigin(pOrigin);
-                    return nsContentUtils::IsExactSitePermAllow(aPrincipal, "themeable") ||
-                           pOrigin.Equals(themeOrigin)
-                        ? NS_OK : NS_ERROR_DOM_BAD_URI;
-                }
-            }
-            // In this case, we allow opening only if the source and target URIS
-            // are on the same domain, or the opening URI has the webapps
-            // permision granted
-            if (!SecurityCompareURIs(sourceBaseURI, targetBaseURI) &&
-                !nsContentUtils::IsExactSitePermAllow(aPrincipal, WEBAPPS_PERM_NAME)) {
-                return NS_ERROR_DOM_BAD_URI;
-            }
-        }
+        // exception for foo: linking to view-source:foo for reftests...
         return NS_OK;
     }
 
-    // If the schemes don't match, the policy is specified by the protocol
-    // flags on the target URI.
-    return CheckLoadURIFlags(sourceURI, aTargetURI, sourceBaseURI,
-                             targetBaseURI, aFlags);
+    // If we get here, check all the schemes can link to each other, from the top down:
+    nsCaseInsensitiveCStringComparator stringComparator;
+    nsCOMPtr<nsIURI> currentURI = sourceURI;
+    nsCOMPtr<nsIURI> currentOtherURI = aTargetURI;
+
+    bool denySameSchemeLinks = false;
+    rv = NS_URIChainHasFlags(aTargetURI, nsIProtocolHandler::URI_SCHEME_NOT_SELF_LINKABLE,
+                             &denySameSchemeLinks);
+    if (NS_FAILED(rv)) return rv;
+
+    while (currentURI && currentOtherURI) {
+        nsAutoCString scheme, otherScheme;
+        currentURI->GetScheme(scheme);
+        currentOtherURI->GetScheme(otherScheme);
+
+        // If schemes are not equal, or they're equal but the target URI
+        // is different from the source URI and doesn't always allow linking
+        // from the same scheme, check if the URI flags of the current target
+        // URI allow the current source URI to link to it.
+        // The policy is specified by the protocol flags on both URIs.
+        bool equalExceptRef = false;
+        if (!scheme.Equals(otherScheme, stringComparator) ||
+            (denySameSchemeLinks &&
+             (!NS_SUCCEEDED(currentURI->EqualsExceptRef(currentOtherURI, &equalExceptRef)) ||
+              !equalExceptRef))) {
+            return CheckLoadURIFlags(currentURI, currentOtherURI,
+                                     sourceBaseURI, targetBaseURI, aFlags);
+        }
+        // Otherwise... check if we can nest another level:
+        nsCOMPtr<nsINestedURI> nestedURI = do_QueryInterface(currentURI);
+        nsCOMPtr<nsINestedURI> nestedOtherURI = do_QueryInterface(currentOtherURI);
+
+        // If schemes match and neither URI is nested further, we're OK.
+        if (!nestedURI && !nestedOtherURI) {
+            return NS_OK;
+        }
+        // If one is nested and the other isn't, something is wrong.
+        if (!nestedURI != !nestedOtherURI) {
+            return NS_ERROR_DOM_BAD_URI;
+        }
+        // Otherwise, both should be nested and we'll go through the loop again.
+        nestedURI->GetInnerURI(getter_AddRefs(currentURI));
+        nestedOtherURI->GetInnerURI(getter_AddRefs(currentOtherURI));
+    }
+
+    // We should never get here. We should always return from inside the loop.
+    return NS_ERROR_DOM_BAD_URI;
 }
 
 /**
@@ -956,8 +950,8 @@ nsScriptSecurityManager::CheckLoadURIFlags(nsIURI *aSourceURI,
     if (hasFlags) {
         // Allow domains that were whitelisted in the prefs. In 99.9% of cases,
         // this array is empty.
-        for (size_t i = 0; i < mFileURIWhitelist.Length(); ++i) {
-            if (EqualOrSubdomain(aSourceURI, mFileURIWhitelist[i])) {
+        for (nsIURI* uri : EnsureFileURIWhitelist()) {
+            if (EqualOrSubdomain(aSourceURI, uri)) {
                 return NS_OK;
             }
         }
@@ -1182,21 +1176,6 @@ nsScriptSecurityManager::CreateNullPrincipal(JS::Handle<JS::Value> aOriginAttrib
 }
 
 NS_IMETHODIMP
-nsScriptSecurityManager::CreateExpandedPrincipal(nsIPrincipal** aPrincipalArray, uint32_t aLength,
-                                                 nsIPrincipal** aResult)
-{
-  nsTArray<nsCOMPtr<nsIPrincipal>> principals;
-  principals.SetCapacity(aLength);
-  for (uint32_t i = 0; i < aLength; ++i) {
-    principals.AppendElement(aPrincipalArray[i]);
-  }
-
-  nsCOMPtr<nsIPrincipal> p = new nsExpandedPrincipal(principals);
-  p.forget(aResult);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 nsScriptSecurityManager::GetAppCodebasePrincipal(nsIURI* aURI,
                                                  uint32_t aAppId,
                                                  bool aInIsolatedMozBrowser,
@@ -1217,6 +1196,7 @@ nsScriptSecurityManager::
                                   nsILoadContext* aLoadContext,
                                   nsIPrincipal** aPrincipal)
 {
+  NS_ENSURE_STATE(aLoadContext);
   DocShellOriginAttributes docShellAttrs;
   bool result = aLoadContext->GetOriginAttributes(docShellAttrs);;
   NS_ENSURE_TRUE(result, NS_ERROR_FAILURE);
@@ -1320,7 +1300,7 @@ nsScriptSecurityManager::CanCreateInstance(JSContext *cx,
     char cidStr[NSID_LENGTH];
     aCID.ToProvidedString(cidStr);
     errorMsg.Append(cidStr);
-    SetPendingException(cx, errorMsg.get());
+    SetPendingExceptionASCII(cx, errorMsg.get());
     return NS_ERROR_DOM_XPCONNECT_ACCESS_DENIED;
 }
 
@@ -1337,7 +1317,7 @@ nsScriptSecurityManager::CanGetService(JSContext *cx,
     char cidStr[NSID_LENGTH];
     aCID.ToProvidedString(cidStr);
     errorMsg.Append(cidStr);
-    SetPendingException(cx, errorMsg.get());
+    SetPendingExceptionASCII(cx, errorMsg.get());
     return NS_ERROR_DOM_XPCONNECT_ACCESS_DENIED;
 }
 
@@ -1506,38 +1486,7 @@ nsScriptSecurityManager::ScriptSecurityPrefChanged()
         Preferences::GetBool(sJSEnabledPrefName, mIsJavaScriptEnabled);
     sStrictFileOriginPolicy =
         Preferences::GetBool(sFileOriginPolicyPrefName, false);
-
-    //
-    // Rebuild the set of principals for which we allow file:// URI loads. This
-    // implements a small subset of an old pref-based CAPS people that people
-    // have come to depend on. See bug 995943.
-    //
-
-    mFileURIWhitelist.Clear();
-    auto policies = mozilla::Preferences::GetCString("capability.policy.policynames");
-    for (uint32_t base = SkipPast<IsWhitespaceOrComma>(policies, 0), bound = 0;
-         base < policies.Length();
-         base = SkipPast<IsWhitespaceOrComma>(policies, bound))
-    {
-        // Grab the current policy name.
-        bound = SkipUntil<IsWhitespaceOrComma>(policies, base);
-        auto policyName = Substring(policies, base, bound - base);
-
-        // Figure out if this policy allows loading file:// URIs. If not, we can skip it.
-        nsCString checkLoadURIPrefName = NS_LITERAL_CSTRING("capability.policy.") +
-                                         policyName +
-                                         NS_LITERAL_CSTRING(".checkloaduri.enabled");
-        if (!Preferences::GetString(checkLoadURIPrefName.get()).LowerCaseEqualsLiteral("allaccess")) {
-            continue;
-        }
-
-        // Grab the list of domains associated with this policy.
-        nsCString domainPrefName = NS_LITERAL_CSTRING("capability.policy.") +
-                                   policyName +
-                                   NS_LITERAL_CSTRING(".sites");
-        auto siteList = Preferences::GetCString(domainPrefName.get());
-        AddSitesToFileURIWhitelist(siteList);
-    }
+    mFileURIWhitelist.reset();
 }
 
 void
@@ -1563,7 +1512,7 @@ nsScriptSecurityManager::AddSitesToFileURIWhitelist(const nsCString& aSiteList)
         nsCOMPtr<nsIURI> uri;
         nsresult rv = NS_NewURI(getter_AddRefs(uri), site, nullptr, nullptr, sIOService);
         if (NS_SUCCEEDED(rv)) {
-            mFileURIWhitelist.AppendElement(uri);
+            mFileURIWhitelist.ref().AppendElement(uri);
         } else {
             nsCOMPtr<nsIConsoleService> console(do_GetService("@mozilla.org/consoleservice;1"));
             if (console) {
@@ -1590,46 +1539,6 @@ nsScriptSecurityManager::InitPrefs()
     Preferences::AddStrongObservers(this, kObservedPrefs);
 
     return NS_OK;
-}
-
-namespace mozilla {
-
-void
-GetJarPrefix(uint32_t aAppId, bool aInIsolatedMozBrowser, nsACString& aJarPrefix)
-{
-  MOZ_ASSERT(aAppId != nsIScriptSecurityManager::UNKNOWN_APP_ID);
-
-  if (aAppId == nsIScriptSecurityManager::UNKNOWN_APP_ID) {
-    aAppId = nsIScriptSecurityManager::NO_APP_ID;
-  }
-
-  aJarPrefix.Truncate();
-
-  // Fallback.
-  if (aAppId == nsIScriptSecurityManager::NO_APP_ID && !aInIsolatedMozBrowser) {
-    return;
-  }
-
-  // aJarPrefix = appId + "+" + { 't', 'f' } + "+";
-  aJarPrefix.AppendInt(aAppId);
-  aJarPrefix.Append('+');
-  aJarPrefix.Append(aInIsolatedMozBrowser ? 't' : 'f');
-  aJarPrefix.Append('+');
-
-  return;
-}
-
-} // namespace mozilla
-
-NS_IMETHODIMP
-nsScriptSecurityManager::GetJarPrefix(uint32_t aAppId,
-                                      bool aInIsolatedMozBrowser,
-                                      nsACString& aJarPrefix)
-{
-  MOZ_ASSERT(aAppId != nsIScriptSecurityManager::UNKNOWN_APP_ID);
-
-  mozilla::GetJarPrefix(aAppId, aInIsolatedMozBrowser, aJarPrefix);
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1722,4 +1631,46 @@ nsScriptSecurityManager::PolicyAllowsScript(nsIURI* aURI, bool *aRv)
     }
 
     return NS_OK;
+}
+
+const nsTArray<nsCOMPtr<nsIURI>>&
+nsScriptSecurityManager::EnsureFileURIWhitelist()
+{
+    if (mFileURIWhitelist.isSome()) {
+        return mFileURIWhitelist.ref();
+    }
+
+    //
+    // Rebuild the set of principals for which we allow file:// URI loads. This
+    // implements a small subset of an old pref-based CAPS people that people
+    // have come to depend on. See bug 995943.
+    //
+
+    mFileURIWhitelist.emplace();
+    auto policies = mozilla::Preferences::GetCString("capability.policy.policynames");
+    for (uint32_t base = SkipPast<IsWhitespaceOrComma>(policies, 0), bound = 0;
+         base < policies.Length();
+         base = SkipPast<IsWhitespaceOrComma>(policies, bound))
+    {
+        // Grab the current policy name.
+        bound = SkipUntil<IsWhitespaceOrComma>(policies, base);
+        auto policyName = Substring(policies, base, bound - base);
+
+        // Figure out if this policy allows loading file:// URIs. If not, we can skip it.
+        nsCString checkLoadURIPrefName = NS_LITERAL_CSTRING("capability.policy.") +
+                                         policyName +
+                                         NS_LITERAL_CSTRING(".checkloaduri.enabled");
+        if (!Preferences::GetString(checkLoadURIPrefName.get()).LowerCaseEqualsLiteral("allaccess")) {
+            continue;
+        }
+
+        // Grab the list of domains associated with this policy.
+        nsCString domainPrefName = NS_LITERAL_CSTRING("capability.policy.") +
+                                   policyName +
+                                   NS_LITERAL_CSTRING(".sites");
+        auto siteList = Preferences::GetCString(domainPrefName.get());
+        AddSitesToFileURIWhitelist(siteList);
+    }
+
+    return mFileURIWhitelist.ref();
 }

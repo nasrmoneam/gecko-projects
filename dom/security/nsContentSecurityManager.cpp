@@ -6,6 +6,8 @@
 #include "nsContentUtils.h"
 #include "nsCORSListenerProxy.h"
 #include "nsIStreamListener.h"
+#include "nsIDocument.h"
+#include "nsMixedContentBlocker.h"
 
 #include "mozilla/dom/Element.h"
 
@@ -49,6 +51,7 @@ static bool IsImageLoadInEditorAppType(nsILoadInfo* aLoadInfo)
   nsContentPolicyType type = aLoadInfo->InternalContentPolicyType();
   if (type != nsIContentPolicy::TYPE_INTERNAL_IMAGE  &&
       type != nsIContentPolicy::TYPE_INTERNAL_IMAGE_PRELOAD &&
+      type != nsIContentPolicy::TYPE_INTERNAL_IMAGE_FAVICON &&
       type != nsIContentPolicy::TYPE_IMAGESET) {
     return false;
   }
@@ -167,7 +170,7 @@ DoContentSecurityChecks(nsIChannel* aChannel, nsILoadInfo* aLoadInfo)
   nsCOMPtr<nsIURI> uri;
   nsresult rv = NS_GetFinalChannelURI(aChannel, getter_AddRefs(uri));
   NS_ENSURE_SUCCESS(rv, rv);
-  
+
   nsContentPolicyType contentPolicyType =
     aLoadInfo->GetExternalContentPolicyType();
   nsContentPolicyType internalContentPolicyType =
@@ -381,6 +384,14 @@ DoContentSecurityChecks(nsIChannel* aChannel, nsILoadInfo* aLoadInfo)
   if (NS_CP_REJECTED(shouldLoad)) {
     return NS_ERROR_CONTENT_BLOCKED;
   }
+
+  if (nsMixedContentBlocker::sSendHSTSPriming) {
+    rv = nsMixedContentBlocker::MarkLoadInfoForPriming(uri,
+                                                       requestingContext,
+                                                       aLoadInfo);
+    return rv;
+  }
+
   return NS_OK;
 }
 
@@ -489,7 +500,7 @@ nsContentSecurityManager::AsyncOnChannelRedirect(nsIChannel* aOldChannel,
       rv = nsContentUtils::GetSecurityManager()->
         CheckLoadURIWithPrincipal(oldPrincipal, newOriginalURI, flags);
   }
-  NS_ENSURE_SUCCESS(rv, rv);  
+  NS_ENSURE_SUCCESS(rv, rv);
 
   aCb->OnRedirectVerifyCallback(NS_OK);
   return NS_OK;
@@ -661,5 +672,24 @@ nsContentSecurityManager::IsOriginPotentiallyTrustworthy(nsIPrincipal* aPrincipa
     *aIsTrustWorthy = true;
     return NS_OK;
   }
+
+  // If a host is not considered secure according to the default algorithm, then
+  // check to see if it has been whitelisted by the user.  We only apply this
+  // whitelist for network resources, i.e., those with scheme "http" or "ws".
+  // The pref should contain a comma-separated list of hostnames.
+  if (scheme.EqualsLiteral("http") || scheme.EqualsLiteral("ws")) {
+    nsAdoptingCString whitelist = Preferences::GetCString("dom.securecontext.whitelist");
+    if (whitelist) {
+      nsCCharSeparatedTokenizer tokenizer(whitelist, ',');
+      while (tokenizer.hasMoreTokens()) {
+        const nsCSubstring& allowedHost = tokenizer.nextToken();
+        if (host.Equals(allowedHost)) {
+          *aIsTrustWorthy = true;
+          return NS_OK;
+        }
+      }
+    }
+  }
+
   return NS_OK;
 }

@@ -59,7 +59,7 @@
   }
 }
 
-#nav-bar[brighttext] {
+toolbar[brighttext] {
   --toolbarbutton-hover-background: rgba(255,255,255,.25);
   --toolbarbutton-hover-bordercolor: rgba(255,255,255,.5);
 
@@ -70,7 +70,7 @@
   --toolbarbutton-checkedhover-backgroundcolor: rgba(255,255,255,.3);
 }
 
-#nav-bar:-moz-lwtheme {
+toolbar:-moz-lwtheme {
   --toolbarbutton-hover-background: rgba(255,255,255,.25);
   --toolbarbutton-hover-bordercolor: rgba(0,0,0,.2);
 
@@ -476,6 +476,8 @@ toolbarbutton.bookmark-item:not(.subviewbutton),
   -moz-appearance: none;
   border: 1px solid transparent;
   border-radius: 1px;
+  background-origin: padding-box !important;
+  background-clip: padding-box !important;
   transition-property: background-color, border-color, box-shadow;
   transition-duration: 150ms;
 }
@@ -490,12 +492,6 @@ toolbarbutton.bookmark-item[open="true"] {
   border-color: var(--toolbarbutton-active-bordercolor);
   box-shadow: var(--toolbarbutton-active-boxshadow);
   background: var(--toolbarbutton-active-background);
-}
-
-toolbarbutton.bookmark-item:not(.subviewbutton):hover:not([disabled="true"]):-moz-lwtheme {
-  background-color: rgba(255,255,255,.25);
-  background-origin: padding-box;
-  background-clip: padding-box;
 }
 
 .bookmark-item > .toolbarbutton-icon,
@@ -1397,6 +1393,7 @@ html|*.urlbar-input:-moz-lwtheme::placeholder,
   padding: 0 8px;
   border-radius: 1em;
   background-color: hsla(0,0%,0%,.05);
+  color: inherit;
   border: 1px solid ThreeDLightShadow;
 }
 
@@ -1534,6 +1531,12 @@ html|*.urlbar-input:-moz-lwtheme::placeholder,
 %include ../shared/identity-block/identity-block.inc.css
 
 /* autocomplete */
+
+%include ../shared/autocomplete.inc.css
+
+#PopupAutoComplete > richlistbox > richlistitem[originaltype~="datalist-first"] {
+  border-top: 1px solid ThreeDShadow;
+}
 
 #treecolAutoCompleteImage {
   max-width: 36px;
@@ -2649,4 +2652,56 @@ notification.pluginVulnerable > .notification-inner > .messageCloseButton {
 
 .webextension-popup-browser {
   border-radius: inherit;
+}
+
+.contentSelectDropdown-ingroup > .menu-iconic-text {
+  padding-inline-start: 20px;
+}
+
+#ContentSelectDropdown > menupopup {
+  background-color: -moz-field;
+  -moz-border-top-colors: GrayText;
+  -moz-border-right-colors: GrayText;
+  -moz-border-bottom-colors: GrayText;
+  -moz-border-left-colors: GrayText;
+}
+
+#ContentSelectDropdown > menupopup > menucaption,
+#ContentSelectDropdown > menupopup > menuitem {
+  padding: 4px 6px;
+}
+
+#ContentSelectDropdown > menupopup > menucaption > .menu-iconic-text,
+#ContentSelectDropdown > menupopup > menuitem > .menu-iconic-text {
+  font: message-box;
+  font-size: 11px;
+  /**
+   * Remove the extra vertical padding set by menu.css since
+   * the menuitem itself will include enough padding.
+   */
+  padding-top: 0px;
+  padding-bottom: 0px;
+}
+
+#ContentSelectDropdown > menupopup > menucaption > .menu-iconic-text {
+  font-weight: bold;
+}
+
+#ContentSelectDropdown > menupopup > menuitem[_moz-menuactive="true"][disabled="true"] {
+  color: GrayText;
+  background-color: unset;
+}
+
+#ContentSelectDropdown > menupopup > menucaption {
+  background-color: buttonface;
+}
+
+#ContentSelectDropdown > menupopup > menucaption[disabled="true"] {
+  color: GrayText;
+}
+
+#ContentSelectDropdown > .isOpenedViaTouch > menucaption,
+#ContentSelectDropdown > .isOpenedViaTouch > menuitem {
+  padding-top: 11px;
+  padding-bottom: 11px;
 }

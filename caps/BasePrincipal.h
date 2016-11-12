@@ -36,7 +36,6 @@ public:
            mInIsolatedMozBrowser == aOther.mInIsolatedMozBrowser &&
            mAddonId == aOther.mAddonId &&
            mUserContextId == aOther.mUserContextId &&
-           mSignedPkg == aOther.mSignedPkg &&
            mPrivateBrowsingId == aOther.mPrivateBrowsingId &&
            mFirstPartyDomain == aOther.mFirstPartyDomain;
   }
@@ -62,13 +61,13 @@ public:
 
   void SetFromGenericAttributes(const GenericOriginAttributes& aAttrs);
 
+  // check if "privacy.firstparty.isolate" is enabled.
+  static bool IsFirstPartyEnabled();
+
 protected:
   OriginAttributes() {}
   explicit OriginAttributes(const OriginAttributesDictionary& aOther)
     : OriginAttributesDictionary(aOther) {}
-
-  // check if "privacy.firstparty.isolate" is enabled.
-  bool IsFirstPartyEnabled();
 };
 
 class PrincipalOriginAttributes;
@@ -104,6 +103,8 @@ public:
 
   // Inherit OriginAttributes from Necko.
   void InheritFromNecko(const NeckoOriginAttributes& aAttrs);
+
+  void StripUserContextIdAndFirstPartyDomain();
 };
 
 // For OriginAttributes stored on docshells / loadcontexts / browsing contexts.
@@ -189,10 +190,6 @@ public:
       return false;
     }
 
-    if (mSignedPkg.WasPassed() && mSignedPkg.Value() != aAttrs.mSignedPkg) {
-      return false;
-    }
-
     if (mPrivateBrowsingId.WasPassed() && mPrivateBrowsingId.Value() != aAttrs.mPrivateBrowsingId) {
       return false;
     }
@@ -224,11 +221,6 @@ public:
 
     if (mUserContextId.WasPassed() && aOther.mUserContextId.WasPassed() &&
         mUserContextId.Value() != aOther.mUserContextId.Value()) {
-      return false;
-    }
-
-    if (mSignedPkg.WasPassed() && aOther.mSignedPkg.WasPassed() &&
-        mSignedPkg.Value() != aOther.mSignedPkg.Value()) {
       return false;
     }
 
@@ -277,7 +269,6 @@ public:
   NS_IMETHOD GetIsCodebasePrincipal(bool* aResult) override;
   NS_IMETHOD GetIsExpandedPrincipal(bool* aResult) override;
   NS_IMETHOD GetIsSystemPrincipal(bool* aResult) override;
-  NS_IMETHOD GetJarPrefix(nsACString& aJarPrefix) final;
   NS_IMETHOD GetOriginAttributes(JSContext* aCx, JS::MutableHandle<JS::Value> aVal) final;
   NS_IMETHOD GetOriginSuffix(nsACString& aOriginSuffix) final;
   NS_IMETHOD GetAppStatus(uint16_t* aAppStatus) final;
@@ -287,6 +278,8 @@ public:
   NS_IMETHOD GetUnknownAppId(bool* aUnknownAppId) final;
   NS_IMETHOD GetUserContextId(uint32_t* aUserContextId) final;
   NS_IMETHOD GetPrivateBrowsingId(uint32_t* aPrivateBrowsingId) final;
+
+  bool EqualsIgnoringAddonId(nsIPrincipal *aOther);
 
   virtual bool AddonHasPermission(const nsAString& aPerm);
 
@@ -314,10 +307,14 @@ public:
 
   virtual PrincipalKind Kind() = 0;
 
+  already_AddRefed<BasePrincipal> CloneStrippingUserContextIdAndFirstPartyDomain();
+
 protected:
   virtual ~BasePrincipal();
 
   virtual nsresult GetOriginInternal(nsACString& aOrigin) = 0;
+  // Note that this does not check OriginAttributes. Callers that depend on
+  // those must call Subsumes instead.
   virtual bool SubsumesInternal(nsIPrincipal* aOther, DocumentDomainConsideration aConsider) = 0;
 
   // Internal, side-effect-free check to determine whether the concrete

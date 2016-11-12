@@ -186,9 +186,7 @@ public:
   // when to call SetIdle().
   virtual void SetIdle() {}
 
-#ifdef MOZ_EME
   virtual void SetCDMProxy(CDMProxy* aProxy) {}
-#endif
 
   // Tell the reader that the data decoded are not for direct playback, so it
   // can accept more files, in particular those which have more channels than
@@ -289,22 +287,6 @@ public:
   MediaEventProducer<void>& MediaNotSeekableProducer()
   {
     return mOnMediaNotSeekable;
-  }
-
-  bool IsSuspended() const
-  {
-    MOZ_ASSERT(OnTaskQueue());
-    return mIsSuspended;
-  }
-
-  void SetIsSuspended(bool aState)
-  {
-    MOZ_ASSERT(OnTaskQueue());
-    mIsSuspended = aState;
-  }
-
-  AbstractCanonical<bool>* CanonicalIsSuspended() {
-    return &mIsSuspended;
   }
 
   // Switch the video decoder to BlankDecoderModule. It might takes effective
@@ -452,8 +434,6 @@ private:
   // of Request{Audio,Video}Data.
   MozPromiseHolder<MediaDataPromise> mBaseAudioPromise;
   MozPromiseHolder<MediaDataPromise> mBaseVideoPromise;
-
-  Canonical<bool> mIsSuspended;
 
   MediaEventListener mDataArrivedListener;
 };

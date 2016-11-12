@@ -47,6 +47,14 @@ KeyframeEffect::Constructor(
 }
 
 /* static */ already_AddRefed<KeyframeEffect>
+KeyframeEffect::Constructor(const GlobalObject& aGlobal,
+                            KeyframeEffectReadOnly& aSource,
+                            ErrorResult& aRv)
+{
+  return ConstructKeyframeEffect<KeyframeEffect>(aGlobal, aSource, aRv);
+}
+
+/* static */ already_AddRefed<KeyframeEffect>
 KeyframeEffect::Constructor(
     const GlobalObject& aGlobal,
     const Nullable<ElementOrCSSPseudoElement>& aTarget,
@@ -89,9 +97,6 @@ KeyframeEffect::SetTarget(const Nullable<ElementOrCSSPseudoElement>& aTarget)
   if (mTarget) {
     UnregisterTarget();
     ResetIsRunningOnCompositor();
-    // We don't need to reset the mWinsInCascade member since it will be updated
-    // when we later associate with a different target (and until that time this
-    // flag is not used).
 
     RequestRestyle(EffectCompositor::RestyleType::Layer);
 
@@ -130,6 +135,12 @@ void
 KeyframeEffect::SetIterationComposite(
   const IterationCompositeOperation& aIterationComposite)
 {
+  // Ignore iterationComposite if the Web Animations API is not enabled,
+  // then the default value 'Replace' will be used.
+  if (!AnimationUtils::IsCoreAPIEnabledForCaller()) {
+    return;
+  }
+
   if (mEffectOptions.mIterationComposite == aIterationComposite) {
     return;
   }

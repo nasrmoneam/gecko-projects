@@ -314,18 +314,8 @@ public:
                  JS::Handle<JSObject*> aModuleRecord);
 
   nsScriptLoader* Loader() const { return mLoader; }
-  JSObject* ModuleRecord() const
-  {
-    if (mModuleRecord) {
-      JS::ExposeObjectToActiveJS(mModuleRecord);
-    }
-    return mModuleRecord;
-  }
-  JS::Value Exception() const
-  {
-    JS::ExposeValueToActiveJS(mException);
-    return mException;
-  }
+  JSObject* ModuleRecord() const { return mModuleRecord; }
+  JS::Value Exception() const { return mException; }
   nsIURI* BaseURL() const { return mBaseURL; }
 
   void SetInstantiationResult(JS::Handle<JS::Value> aMaybeException);
@@ -1392,6 +1382,7 @@ CSPAllowsInlineScript(nsIScriptElement *aElement, nsIDocument *aDocument)
   nsCOMPtr<nsIContent> scriptContent = do_QueryInterface(aElement);
   nsAutoString nonce;
   scriptContent->GetAttr(kNameSpaceID_None, nsGkAtoms::nonce, nonce);
+  bool parserCreated = aElement->GetParserCreated() != mozilla::dom::NOT_FROM_PARSER;
 
   // query the scripttext
   nsAutoString scriptText;
@@ -1399,7 +1390,7 @@ CSPAllowsInlineScript(nsIScriptElement *aElement, nsIDocument *aDocument)
 
   bool allowInlineScript = false;
   rv = csp->GetAllowsInline(nsIContentPolicy::TYPE_SCRIPT,
-                            nonce, scriptText,
+                            nonce, parserCreated, scriptText,
                             aElement->GetScriptLineNumber(),
                             &allowInlineScript);
   return allowInlineScript;
@@ -2893,8 +2884,11 @@ nsScriptLoadHandler::TryDecodeRawData(const uint8_t* aData,
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint32_t haveRead = mBuffer.length();
-  uint32_t capacity = haveRead + dstLen;
-  if (!mBuffer.reserve(capacity)) {
+
+  CheckedInt<uint32_t> capacity = haveRead;
+  capacity += dstLen;
+
+  if (!capacity.isValid() || !mBuffer.reserve(capacity.value())) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
@@ -2906,7 +2900,7 @@ nsScriptLoadHandler::TryDecodeRawData(const uint8_t* aData,
   NS_ENSURE_SUCCESS(rv, rv);
 
   haveRead += dstLen;
-  MOZ_ASSERT(haveRead <= capacity, "mDecoder produced more data than expected");
+  MOZ_ASSERT(haveRead <= capacity.value(), "mDecoder produced more data than expected");
   MOZ_ALWAYS_TRUE(mBuffer.resizeUninitialized(haveRead));
 
   return NS_OK;

@@ -16,9 +16,15 @@ class TestAboutPrivateBrowsing(FirefoxTestCase):
 
         # Use a fake local support URL
         support_url = 'about:blank?'
-        self.prefs.set_pref('app.support.baseURL', support_url)
+        self.puppeteer.prefs.set_pref('app.support.baseURL', support_url)
 
         self.pb_url = support_url + 'private-browsing'
+
+    def tearDown(self):
+        try:
+            self.marionette.clear_pref('app.support.baseURL')
+        finally:
+            FirefoxTestCase.tearDown(self)
 
     def testCheckAboutPrivateBrowsing(self):
         self.assertFalse(self.browser.is_private)

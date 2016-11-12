@@ -36,7 +36,6 @@ class RemoteSpellcheckEngineChild;
 
 namespace ipc {
 class OptionalURIParams;
-class PFileDescriptorSetChild;
 class URIParams;
 }// namespace ipc
 
@@ -54,6 +53,7 @@ class ContentChild final : public PContentChild
                          , public nsIContentChild
 {
   typedef mozilla::dom::ClonedMessageData ClonedMessageData;
+  typedef mozilla::ipc::FileDescriptor FileDescriptor;
   typedef mozilla::ipc::OptionalURIParams OptionalURIParams;
   typedef mozilla::ipc::PFileDescriptorSetChild PFileDescriptorSetChild;
   typedef mozilla::ipc::URIParams URIParams;
@@ -88,6 +88,7 @@ public:
                       nsIURI* aURI,
                       const nsAString& aName,
                       const nsACString& aFeatures,
+                      bool aForceNoOpener,
                       bool* aWindowIsNew,
                       mozIDOMWindowProxy** aReturn);
 
@@ -162,20 +163,21 @@ public:
                         base::ProcessId otherProcess) override;
 
   bool
+  RecvGMPsChanged(nsTArray<GMPCapabilityData>&& capabilities) override;
+
+  bool
   RecvInitRendering(
     Endpoint<PCompositorBridgeChild>&& aCompositor,
     Endpoint<PImageBridgeChild>&& aImageBridge,
-    Endpoint<PVRManagerChild>&& aVRBridge) override;
+    Endpoint<PVRManagerChild>&& aVRBridge,
+    Endpoint<PVideoDecoderManagerChild>&& aVideoManager) override;
 
   bool
   RecvReinitRendering(
     Endpoint<PCompositorBridgeChild>&& aCompositor,
     Endpoint<PImageBridgeChild>&& aImageBridge,
-    Endpoint<PVRManagerChild>&& aVRBridge) override;
-
-  PSharedBufferManagerChild*
-  AllocPSharedBufferManagerChild(mozilla::ipc::Transport* aTransport,
-                                  base::ProcessId aOtherProcess) override;
+    Endpoint<PVRManagerChild>&& aVRBridge,
+    Endpoint<PVideoDecoderManagerChild>&& aVideoManager) override;
 
   PProcessHangMonitorChild*
   AllocPProcessHangMonitorChild(Transport* aTransport,
@@ -222,13 +224,6 @@ public:
 
   virtual bool
   DeallocPHeapSnapshotTempFileHelperChild(PHeapSnapshotTempFileHelperChild*) override;
-
-  PIccChild*
-  SendPIccConstructor(PIccChild* aActor, const uint32_t& aServiceId);
-
-  virtual PIccChild* AllocPIccChild(const uint32_t& aClientId) override;
-
-  virtual bool DeallocPIccChild(PIccChild* aActor) override;
 
   virtual PMemoryReportRequestChild*
   AllocPMemoryReportRequestChild(const uint32_t& aGeneration,
@@ -280,16 +275,6 @@ public:
 
   jsipc::CPOWManager* GetCPOWManager() override;
 
-  PMobileConnectionChild*
-  SendPMobileConnectionConstructor(PMobileConnectionChild* aActor,
-                                   const uint32_t& aClientId);
-
-  virtual PMobileConnectionChild*
-  AllocPMobileConnectionChild(const uint32_t& aClientId) override;
-
-  virtual bool
-  DeallocPMobileConnectionChild(PMobileConnectionChild* aActor) override;
-
   virtual PNeckoChild* AllocPNeckoChild() override;
 
   virtual bool DeallocPNeckoChild(PNeckoChild*) override;
@@ -297,6 +282,9 @@ public:
   virtual PPrintingChild* AllocPPrintingChild() override;
 
   virtual bool DeallocPPrintingChild(PPrintingChild*) override;
+
+  virtual PSendStreamChild*
+  SendPSendStreamConstructor(PSendStreamChild*) override;
 
   virtual PSendStreamChild* AllocPSendStreamChild() override;
   virtual bool DeallocPSendStreamChild(PSendStreamChild*) override;
@@ -332,26 +320,6 @@ public:
 
   virtual bool DeallocPHandlerServiceChild(PHandlerServiceChild*) override;
 
-  virtual PCellBroadcastChild* AllocPCellBroadcastChild() override;
-
-  PCellBroadcastChild* SendPCellBroadcastConstructor(PCellBroadcastChild* aActor);
-
-  virtual bool DeallocPCellBroadcastChild(PCellBroadcastChild* aActor) override;
-
-  virtual PSmsChild* AllocPSmsChild() override;
-
-  virtual bool DeallocPSmsChild(PSmsChild*) override;
-
-  virtual PTelephonyChild* AllocPTelephonyChild() override;
-
-  virtual bool DeallocPTelephonyChild(PTelephonyChild*) override;
-
-  virtual PVoicemailChild* AllocPVoicemailChild() override;
-
-  PVoicemailChild* SendPVoicemailConstructor(PVoicemailChild* aActor);
-
-  virtual bool DeallocPVoicemailChild(PVoicemailChild*) override;
-
   virtual PMediaChild* AllocPMediaChild() override;
 
   virtual bool DeallocPMediaChild(PMediaChild* aActor) override;
@@ -359,14 +327,6 @@ public:
   virtual PStorageChild* AllocPStorageChild() override;
 
   virtual bool DeallocPStorageChild(PStorageChild* aActor) override;
-
-  virtual PBluetoothChild* AllocPBluetoothChild() override;
-
-  virtual bool DeallocPBluetoothChild(PBluetoothChild* aActor) override;
-
-  virtual PFMRadioChild* AllocPFMRadioChild() override;
-
-  virtual bool DeallocPFMRadioChild(PFMRadioChild* aActor) override;
 
   virtual PPresentationChild* AllocPPresentationChild() override;
 
@@ -384,8 +344,6 @@ public:
 
   virtual bool
   RecvNotifyPresentationReceiverCleanUp(const nsString& aSessionId) override;
-
-  virtual bool RecvNotifyGMPsChanged() override;
 
   virtual bool RecvNotifyEmptyHTTPCache() override;
 
@@ -459,7 +417,7 @@ public:
 
   virtual bool RecvFlushMemory(const nsString& reason) override;
 
-  virtual bool RecvActivateA11y() override;
+  virtual bool RecvActivateA11y(const uint32_t& aMsaaID) override;
   virtual bool RecvShutdownA11y() override;
 
   virtual bool RecvGarbageCollect() override;
@@ -521,8 +479,6 @@ public:
                                       const nsCString& aTopic,
                                       const nsString& aData) override;
 
-  virtual bool RecvOnAppThemeChanged() override;
-
   virtual bool RecvAssociatePluginId(const uint32_t& aPluginId,
                                      const base::ProcessId& aProcessId) override;
 
@@ -582,12 +538,19 @@ public:
 
   ContentParentId GetID() const { return mID; }
 
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  uint32_t GetMsaaID() const { return mMsaaID; }
+#endif
+
   bool IsForApp() const { return mIsForApp; }
   bool IsForBrowser() const { return mIsForBrowser; }
 
   virtual PBlobChild*
   SendPBlobConstructor(PBlobChild* actor,
                        const BlobConstructorParams& params) override;
+
+  virtual PFileDescriptorSetChild*
+  SendPFileDescriptorSetConstructor(const FileDescriptor&) override;
 
   virtual PFileDescriptorSetChild*
   AllocPFileDescriptorSetChild(const FileDescriptor&) override;
@@ -665,6 +628,21 @@ public:
   virtual bool
   RecvBlobURLUnregistration(const nsCString& aURI) override;
 
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  bool
+  SendGetA11yContentId();
+#endif // defined(XP_WIN) && defined(ACCESSIBILITY)
+
+  /**
+   * Helper function for protocols that use the GPU process when available.
+   * Overrides FatalError to just be a warning when communicating with the
+   * GPU process since we don't want to crash the content process when the
+   * GPU process crashes.
+   */
+  static void FatalErrorIfNotUsingGPUProcess(const char* const aProtocolName,
+                                             const char* const aErrorMsg,
+                                             base::ProcessId aOtherPid);
+
 private:
   static void ForceKillTimerCallback(nsITimer* aTimer, void* aClosure);
   void StartForceKillTimer();
@@ -688,6 +666,14 @@ private:
    * channel to us.
    */
   ContentParentId mID;
+
+#if defined(XP_WIN) && defined(ACCESSIBILITY)
+  /**
+   * This is an a11y-specific unique id for the content process that is
+   * generated by the chrome process.
+   */
+  uint32_t mMsaaID;
+#endif
 
   AppInfo mAppInfo;
 

@@ -12,6 +12,7 @@
 #include "mozilla/TaskQueue.h"
 #include "mozilla/Monitor.h"
 
+#include "MediaEventSource.h"
 #include "MediaDataDemuxer.h"
 #include "MediaDecoderReader.h"
 #include "nsAutoPtr.h"
@@ -28,8 +29,7 @@ class MediaFormatReader final : public MediaDecoderReader
 public:
   MediaFormatReader(AbstractMediaDecoder* aDecoder,
                     MediaDataDemuxer* aDemuxer,
-                    VideoFrameContainer* aVideoFrameContainer = nullptr,
-                    layers::LayersBackend aLayersBackend = layers::LayersBackend::LAYERS_NONE);
+                    VideoFrameContainer* aVideoFrameContainer = nullptr);
 
   virtual ~MediaFormatReader();
 
@@ -93,9 +93,7 @@ public:
     return mTrackDemuxersMayBlock;
   }
 
-#ifdef MOZ_EME
   void SetCDMProxy(CDMProxy* aProxy) override;
-#endif
 
   // Returns a string describing the state of the decoder data.
   // Used for debugging purposes.
@@ -105,8 +103,8 @@ public:
 
 private:
 
-  bool HasVideo() { return mVideo.mTrackDemuxer; }
-  bool HasAudio() { return mAudio.mTrackDemuxer; }
+  bool HasVideo() const { return mVideo.mTrackDemuxer; }
+  bool HasAudio() const { return mAudio.mTrackDemuxer; }
 
   bool IsWaitingOnCDMResource();
 
@@ -116,9 +114,6 @@ private:
   // buffered ranges.
   void NotifyDemuxer();
   void ReturnOutput(MediaData* aData, TrackType aTrack);
-
-  MediaResult EnsureDecoderCreated(TrackType aTrack);
-  bool EnsureDecoderInitialized(TrackType aTrack);
 
   // Enqueues a task to call Update(aTrack) on the decoder task queue.
   // Lock for corresponding track must be held.
@@ -168,6 +163,7 @@ private:
   void NotifyDrainComplete(TrackType aTrack);
   void NotifyError(TrackType aTrack, const MediaResult& aError);
   void NotifyWaitingForData(TrackType aTrack);
+  void NotifyWaitingForKey(TrackType aTrack);
   void NotifyEndOfStream(TrackType aTrack);
 
   void ExtractCryptoInitData(nsTArray<uint8_t>& aInitData);
@@ -238,8 +234,8 @@ private:
       , mUpdateScheduled(false)
       , mDemuxEOS(false)
       , mWaitingForData(false)
+      , mWaitingForKey(false)
       , mReceivedNewData(false)
-      , mDecoderInitialized(false)
       , mOutputRequested(false)
       , mDecodePending(false)
       , mNeedDraining(false)
@@ -274,7 +270,6 @@ private:
     const char* mDescription;
     void ShutdownDecoder()
     {
-      mInitPromise.DisconnectIfExists();
       MonitorAutoLock mon(mMonitor);
       if (mDecoder) {
         mDecoder->Shutdown();
@@ -287,6 +282,7 @@ private:
     bool mUpdateScheduled;
     bool mDemuxEOS;
     bool mWaitingForData;
+    bool mWaitingForKey;
     bool mReceivedNewData;
 
     // Pending seek.
@@ -295,25 +291,27 @@ private:
     // Queued demux samples waiting to be decoded.
     nsTArray<RefPtr<MediaRawData>> mQueuedSamples;
     MozPromiseRequestHolder<MediaTrackDemuxer::SamplesPromise> mDemuxRequest;
+    // A WaitingPromise is pending if the demuxer is waiting for data or
+    // if the decoder is waiting for a key.
     MozPromiseHolder<WaitForDataPromise> mWaitingPromise;
-    bool HasWaitingPromise()
+    bool HasWaitingPromise() const
     {
       MOZ_ASSERT(mOwner->OnTaskQueue());
       return !mWaitingPromise.IsEmpty();
     }
+    bool IsWaiting() const
+    {
+      MOZ_ASSERT(mOwner->OnTaskQueue());
+      return mWaitingForData || mWaitingForKey;
+    }
 
     // MediaDataDecoder handler's variables.
-    // Decoder initialization promise holder.
-    MozPromiseRequestHolder<MediaDataDecoder::InitPromise> mInitPromise;
-    // False when decoder is created. True when decoder Init() promise is resolved.
-    bool mDecoderInitialized;
     bool mOutputRequested;
     // Set to true once the MediaDataDecoder has been fed a compressed sample.
-    // No more sample will be passed to the decoder while true.
+    // No more samples will be passed to the decoder while true.
     // mDecodePending is reset when:
-    // 1- The decoder returns a sample
-    // 2- The decoder calls InputExhausted
-    // 3- The decoder is Flushed or Reset.
+    // 1- The decoder calls InputExhausted
+    // 2- The decoder is Flushed or Reset.
     bool mDecodePending;
     bool mNeedDraining;
     bool mDraining;
@@ -330,7 +328,21 @@ private:
     Maybe<MediaResult> mError;
     bool HasFatalError() const
     {
-      return mError.isSome() && mError.ref() != NS_ERROR_DOM_MEDIA_DECODE_ERR;
+      if (!mError.isSome()) {
+        return false;
+      }
+      if (mError.ref() == NS_ERROR_DOM_MEDIA_DECODE_ERR) {
+        // Allow decode errors to be non-fatal, but give up
+        // if we have too many.
+        return mNumOfConsecutiveError > mMaxConsecutiveError;
+      } else if (mError.ref() == NS_ERROR_DOM_MEDIA_NEED_NEW_DECODER) {
+        // If the caller asked for a new decoder we shouldn't treat
+        // it as fatal.
+        return false;
+      } else {
+        // All other error types are fatal
+        return true;
+      }
     }
 
     // If set, all decoded samples prior mTimeThreshold will be dropped.
@@ -393,6 +405,7 @@ private:
       MOZ_ASSERT(mOwner->OnTaskQueue());
       mDemuxEOS = false;
       mWaitingForData = false;
+      mWaitingForKey = false;
       mQueuedSamples.Clear();
       mOutputRequested = false;
       mNeedDraining = false;
@@ -426,6 +439,8 @@ private:
     Maybe<uint32_t> mNextStreamSourceID;
     media::TimeIntervals mTimeRanges;
     Maybe<media::TimeUnit> mLastTimeRangesEnd;
+    // TrackInfo as first discovered during ReadMetadata.
+    UniquePtr<TrackInfo> mOriginalInfo;
     RefPtr<SharedTrackInfo> mInfo;
     Maybe<media::TimeUnit> mFirstDemuxedSampleTime;
     // Use BlankDecoderModule or not.
@@ -522,17 +537,13 @@ private:
   // Default mLastDecodedKeyframeTime_us value, must be bigger than anything.
   static const int64_t sNoPreviousDecodedKeyframe = INT64_MAX;
 
-  layers::LayersBackend mLayersBackendType;
+  RefPtr<layers::KnowsCompositor> mKnowsCompositor;
 
   // Metadata objects
   // True if we've read the streams' metadata.
   bool mInitDone;
   MozPromiseHolder<MetadataPromise> mMetadataPromise;
-  bool IsEncrypted()
-  {
-    return mIsEncrypted;
-  }
-  bool mIsEncrypted;
+  bool IsEncrypted() const;
 
   // Set to true if any of our track buffers may be blocking.
   bool mTrackDemuxersMayBlock;
@@ -556,6 +567,11 @@ private:
   void OnVideoSeekFailed(const MediaResult& aError);
   bool mSeekScheduled;
 
+  void NotifyCompositorUpdated(RefPtr<layers::KnowsCompositor> aKnowsCompositor)
+  {
+    mKnowsCompositor = aKnowsCompositor;
+  }
+
   void DoAudioSeek();
   void OnAudioSeekCompleted(media::TimeUnit aTime);
   void OnAudioSeekFailed(const MediaResult& aError);
@@ -569,12 +585,16 @@ private:
   RefPtr<VideoFrameContainer> mVideoFrameContainer;
   layers::ImageContainer* GetImageContainer();
 
-#ifdef MOZ_EME
   RefPtr<CDMProxy> mCDMProxy;
-#endif
+
   RefPtr<GMPCrashHelper> mCrashHelper;
 
   void SetBlankDecode(TrackType aTrack, bool aIsBlankDecode);
+
+  class DecoderFactory;
+  UniquePtr<DecoderFactory> mDecoderFactory;
+
+  MediaEventListener mCompositorUpdatedListener;
 };
 
 } // namespace mozilla

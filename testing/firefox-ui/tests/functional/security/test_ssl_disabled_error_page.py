@@ -17,13 +17,20 @@ class TestSSLDisabledErrorPage(FirefoxTestCase):
 
         self.url = 'https://tlsv1-0.mozqa.com'
 
-        self.utils.sanitize({"sessions": True})
+        self.puppeteer.utils.sanitize({"sessions": True})
 
         # Disable SSL 3.0, TLS 1.0 and TLS 1.1 for secure connections
         # by forcing the use of TLS 1.2
         # see: http://kb.mozillazine.org/Security.tls.version.*#Possible_values_and_their_effects
-        self.prefs.set_pref('security.tls.version.min', 3)
-        self.prefs.set_pref('security.tls.version.max', 3)
+        self.puppeteer.prefs.set_pref('security.tls.version.min', 3)
+        self.puppeteer.prefs.set_pref('security.tls.version.max', 3)
+
+    def tearDown(self):
+        try:
+            self.marionette.clear_pref('security.tls.version.min')
+            self.marionette.clear_pref('security.tls.version.max')
+        finally:
+            FirefoxTestCase.tearDown(self)
 
     def test_ssl_disabled_error_page(self):
         with self.marionette.using_context('content'):

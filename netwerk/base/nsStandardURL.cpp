@@ -65,6 +65,19 @@ static LazyLogModule gStandardURLLog("nsStandardURL");
 
 //----------------------------------------------------------------------------
 
+#ifdef MOZ_RUST_URLPARSE
+extern "C" int32_t c_fn_set_size(void * container, size_t size)
+{
+  ((nsACString *) container)->SetLength(size);
+  return 0;
+}
+
+extern "C" char * c_fn_get_buffer(void * container)
+{
+  return ((nsACString *) container)->BeginWriting();
+}
+#endif
+
 static nsresult
 EncodeString(nsIUnicodeEncoder *encoder, const nsAFlatString &str, nsACString &result)
 {
@@ -380,7 +393,7 @@ void
 nsStandardURL::InvalidateCache(bool invalidateCachedFile)
 {
     if (invalidateCachedFile)
-        mFile = 0;
+        mFile = nullptr;
     if (mHostA) {
         free(mHostA);
         mHostA = nullptr;
@@ -1476,11 +1489,6 @@ nsStandardURL::SetSpec(const nsACString &input)
         rv = BuildNormalizedSpec(spec);
     }
 
-    // Make sure that a URLTYPE_AUTHORITY has a non-empty hostname.
-    if (mURLType == URLTYPE_AUTHORITY && mHost.mLen == -1) {
-        rv = NS_ERROR_MALFORMED_URI;
-    }
-
     if (NS_FAILED(rv)) {
         Clear();
         // If parsing the spec has failed, restore the old URL
@@ -1918,6 +1926,12 @@ nsStandardURL::SetHost(const nsACString &input)
     nsresult rv = NormalizeIDN(flat, hostBuf);
     if (NS_FAILED(rv)) {
         return rv;
+    }
+
+    nsAutoCString ipString;
+    rv = NormalizeIPv4(hostBuf, ipString);
+    if (NS_SUCCEEDED(rv)) {
+      hostBuf = ipString;
     }
 
     // NormalizeIDN always copies if the call was successful
@@ -3083,26 +3097,20 @@ nsStandardURL::SetFile(nsIFile *file)
     rv = net_GetURLSpecFromFile(file, url);
     if (NS_FAILED(rv)) return rv;
 
-    uint32_t oldURLType = mURLType;
-    uint32_t oldDefaultPort = mDefaultPort;
-    rv = Init(nsIStandardURL::URLTYPE_NO_AUTHORITY, -1, url, nullptr, nullptr);
+    SetSpec(url);
 
-    if (NS_FAILED(rv)) {
-        // Restore the old url type and default port if the call to Init fails.
-        mURLType = oldURLType;
-        mDefaultPort = oldDefaultPort;
-        return rv;
-    }
+    rv = Init(mURLType, mDefaultPort, url, nullptr, nullptr);
 
     // must clone |file| since its value is not guaranteed to remain constant
-    InvalidateCache();
-    if (NS_FAILED(file->Clone(getter_AddRefs(mFile)))) {
-        NS_WARNING("nsIFile::Clone failed");
-        // failure to clone is not fatal (GetFile will generate mFile)
-        mFile = nullptr;
+    if (NS_SUCCEEDED(rv)) {
+        InvalidateCache();
+        if (NS_FAILED(file->Clone(getter_AddRefs(mFile)))) {
+            NS_WARNING("nsIFile::Clone failed");
+            // failure to clone is not fatal (GetFile will generate mFile)
+            mFile = nullptr;
+        }
     }
-
-    return NS_OK;
+    return rv;
 }
 
 //----------------------------------------------------------------------------

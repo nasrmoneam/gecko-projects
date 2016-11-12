@@ -1014,9 +1014,9 @@ nsXULAppInfo::GetLastRunCrashID(nsAString &aLastRunCrashID)
 }
 
 NS_IMETHODIMP
-nsXULAppInfo::GetIsReleaseBuild(bool* aResult)
+nsXULAppInfo::GetIsReleaseOrBeta(bool* aResult)
 {
-#ifdef RELEASE_BUILD
+#ifdef RELEASE_OR_BETA
   *aResult = true;
 #else
   *aResult = false;
@@ -1557,16 +1557,6 @@ ScopedXPCOMStartup::CreateAppSupport(nsISupports* aOuter, REFNSIID aIID, void** 
 
 nsINativeAppSupport* ScopedXPCOMStartup::gNativeAppSupport;
 
-/**
- * A helper class which calls NS_LogInit/NS_LogTerm in its scope.
- */
-class ScopedLogging
-{
-public:
-  ScopedLogging() { NS_LogInit(); }
-  ~ScopedLogging() { NS_LogTerm(); }
-};
-
 static void DumpArbitraryHelp()
 {
   nsresult rv;
@@ -1614,7 +1604,8 @@ DumpHelp()
          "  --profile <path>   Start with profile at <path>.\n"
          "  --migration        Start with migration wizard.\n"
          "  --ProfileManager   Start with ProfileManager.\n"
-         "  --no-remote        Do not accept or send remote commands; implies --new-instance.\n"
+         "  --no-remote        Do not accept or send remote commands; implies\n"
+         "                     --new-instance.\n"
          "  --new-instance     Open new instance, not a new window in running instance.\n"
          "  --UILocale <locale> Start with <locale> resources as UI Locale.\n"
          "  --safe-mode        Disables extensions and themes for this session.\n", gAppData->name);
@@ -3424,6 +3415,47 @@ XREMain::XRE_mainInit(bool* aExitFlag)
     gSafeMode = true;
 #endif
 
+#ifdef XP_WIN
+  {
+    // Add CPU microcode version to the crash report as "CPUMicrocodeVersion".
+    // It feels like this code may belong in nsSystemInfo instead.
+    int cpuUpdateRevision = -1;
+    HKEY key;
+    static const WCHAR keyName[] =
+      L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0";
+
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, keyName , 0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+
+      DWORD updateRevision[2];
+      DWORD len = sizeof(updateRevision);
+      DWORD vtype;
+
+      // Windows 7 uses Update Signature, 8 uses "Update Revision".
+      // Take the first one we find.
+      LPCWSTR choices[] = {L"Update Signature", L"Update Revision"};
+      for (size_t oneChoice=0; oneChoice<ArrayLength(choices); oneChoice++) {
+        if (RegQueryValueExW(key, choices[oneChoice],
+                             0, &vtype,
+                             reinterpret_cast<LPBYTE>(updateRevision),
+                             &len) == ERROR_SUCCESS &&
+            vtype == REG_BINARY && len == sizeof(updateRevision)) {
+          // The first word is unused
+          cpuUpdateRevision = static_cast<int>(updateRevision[1]);
+          break;
+        }
+      }
+    }
+
+#ifdef MOZ_CRASHREPORTER
+    if (cpuUpdateRevision > 0) {
+      CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("CPUMicrocodeVersion"),
+                                         nsPrintfCString("0x%x",
+                                                         cpuUpdateRevision));
+    }
+#endif
+  }
+#endif
+
 #ifdef MOZ_CRASHREPORTER
     CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("SafeMode"),
                                        gSafeMode ? NS_LITERAL_CSTRING("1") :
@@ -4403,9 +4435,25 @@ XREMain::XRE_mainRun()
 #if defined(MOZ_SANDBOX) && defined(XP_LINUX) && !defined(MOZ_WIDGET_GONK)
   // If we're on Linux, we now have information about the OS capabilities
   // available to us.
-  SandboxInfo::SubmitTelemetry();
+  SandboxInfo sandboxInfo = SandboxInfo::Get();
+  Telemetry::Accumulate(Telemetry::SANDBOX_HAS_SECCOMP_BPF,
+                        sandboxInfo.Test(SandboxInfo::kHasSeccompBPF));
+  Telemetry::Accumulate(Telemetry::SANDBOX_HAS_SECCOMP_TSYNC,
+                        sandboxInfo.Test(SandboxInfo::kHasSeccompTSync));
+  Telemetry::Accumulate(Telemetry::SANDBOX_HAS_USER_NAMESPACES_PRIVILEGED,
+                        sandboxInfo.Test(SandboxInfo::kHasPrivilegedUserNamespaces));
+  Telemetry::Accumulate(Telemetry::SANDBOX_HAS_USER_NAMESPACES,
+                        sandboxInfo.Test(SandboxInfo::kHasUserNamespaces));
+  Telemetry::Accumulate(Telemetry::SANDBOX_CONTENT_ENABLED,
+                        sandboxInfo.Test(SandboxInfo::kEnabledForContent));
+  Telemetry::Accumulate(Telemetry::SANDBOX_MEDIA_ENABLED,
+                        sandboxInfo.Test(SandboxInfo::kEnabledForMedia));
 #if defined(MOZ_CRASHREPORTER)
-  SandboxInfo::Get().AnnotateCrashReport();
+  nsAutoCString flagsString;
+  flagsString.AppendInt(sandboxInfo.AsInteger());
+
+  CrashReporter::AnnotateCrashReport(
+    NS_LITERAL_CSTRING("ContentSandboxCapabilities"), flagsString);
 #endif /* MOZ_CRASHREPORTER */
 #endif /* MOZ_SANDBOX && XP_LINUX && !MOZ_WIDGET_GONK */
 
@@ -4737,6 +4785,12 @@ XRE_GetProcessType()
 }
 
 bool
+XRE_IsGPUProcess()
+{
+  return XRE_GetProcessType() == GeckoProcessType_GPU;
+}
+
+bool
 XRE_IsParentProcess()
 {
   return XRE_GetProcessType() == GeckoProcessType_Default;
@@ -4756,7 +4810,7 @@ enum {
   // kE10sDisabledInSafeMode = 3, was removed in bug 1172491.
   kE10sDisabledForAccessibility = 4,
   // kE10sDisabledForMacGfx = 5, was removed in bug 1068674.
-  kE10sDisabledForBidi = 6,
+  // kE10sDisabledForBidi = 6, removed in bug 1309599
   kE10sDisabledForAddons = 7,
   kE10sForceDisabled = 8,
   // kE10sDisabledForXPAcceleration = 9, removed in bug 1296353
@@ -4766,16 +4820,17 @@ enum {
 const char* kAccessibilityLastRunDatePref = "accessibility.lastLoadDate";
 const char* kAccessibilityLoadedLastSessionPref = "accessibility.loadedInLastSession";
 
+#if defined(XP_WIN)
 static inline uint32_t
 PRTimeToSeconds(PRTime t_usec)
 {
   PRTime usec_per_sec = PR_USEC_PER_SEC;
   return uint32_t(t_usec /= usec_per_sec);
 }
+#endif
 
 const char* kForceEnableE10sPref = "browser.tabs.remote.force-enable";
 const char* kForceDisableE10sPref = "browser.tabs.remote.force-disable";
-
 
 uint32_t
 MultiprocessBlockPolicy() {
@@ -4801,46 +4856,42 @@ MultiprocessBlockPolicy() {
     return gMultiprocessBlockPolicy;
   }
 
-  bool disabledForA11y = false;
-
-  /**
-   * Avoids enabling e10s if accessibility has recently loaded. Performs the
-   * following checks:
-   * 1) Checks a pref indicating if a11y loaded in the last session. This pref
-   * is set in nsBrowserGlue.js. If a11y was loaded in the last session we
-   * do not enable e10s in this session.
-   * 2) Accessibility stores a last run date (PR_IntervalNow) when it is
-   * initialized (see nsBaseWidget.cpp). We check if this pref exists and
-   * compare it to now. If a11y hasn't run in an extended period of time or
-   * if the date pref does not exist we load e10s.
-   */
-  disabledForA11y = Preferences::GetBool(kAccessibilityLoadedLastSessionPref, false);
-  if (!disabledForA11y  &&
-      Preferences::HasUserValue(kAccessibilityLastRunDatePref)) {
-    #define ONE_WEEK_IN_SECONDS (60*60*24*7)
-    uint32_t a11yRunDate = Preferences::GetInt(kAccessibilityLastRunDatePref, 0);
-    MOZ_ASSERT(0 != a11yRunDate);
-    // If a11y hasn't run for a period of time, clear the pref and load e10s
-    uint32_t now = PRTimeToSeconds(PR_Now());
-    uint32_t difference = now - a11yRunDate;
-    if (difference > ONE_WEEK_IN_SECONDS || !a11yRunDate) {
-      Preferences::ClearUser(kAccessibilityLastRunDatePref);
-    } else {
-      disabledForA11y = true;
+#if defined(XP_WIN)
+  // These checks are currently only in use under WinXP
+  if (!IsVistaOrLater()) {
+    bool disabledForA11y = false;
+    /**
+      * Avoids enabling e10s if accessibility has recently loaded. Performs the
+      * following checks:
+      * 1) Checks a pref indicating if a11y loaded in the last session. This pref
+      * is set in nsBrowserGlue.js. If a11y was loaded in the last session we
+      * do not enable e10s in this session.
+      * 2) Accessibility stores a last run date (PR_IntervalNow) when it is
+      * initialized (see nsBaseWidget.cpp). We check if this pref exists and
+      * compare it to now. If a11y hasn't run in an extended period of time or
+      * if the date pref does not exist we load e10s.
+      */
+    disabledForA11y = Preferences::GetBool(kAccessibilityLoadedLastSessionPref, false);
+    if (!disabledForA11y  &&
+        Preferences::HasUserValue(kAccessibilityLastRunDatePref)) {
+      #define ONE_WEEK_IN_SECONDS (60*60*24*7)
+      uint32_t a11yRunDate = Preferences::GetInt(kAccessibilityLastRunDatePref, 0);
+      MOZ_ASSERT(0 != a11yRunDate);
+      // If a11y hasn't run for a period of time, clear the pref and load e10s
+      uint32_t now = PRTimeToSeconds(PR_Now());
+      uint32_t difference = now - a11yRunDate;
+      if (difference > ONE_WEEK_IN_SECONDS || !a11yRunDate) {
+        Preferences::ClearUser(kAccessibilityLastRunDatePref);
+      } else {
+        disabledForA11y = true;
+      }
+    }
+    if (disabledForA11y) {
+      gMultiprocessBlockPolicy = kE10sDisabledForAccessibility;
+      return gMultiprocessBlockPolicy;
     }
   }
-
-  // For linux nightly and aurora builds skip accessibility
-  // checks.
-  bool doAccessibilityCheck = true;
-#if defined(MOZ_WIDGET_GTK) && !defined(RELEASE_BUILD)
-  doAccessibilityCheck = false;
 #endif
-
-  if (doAccessibilityCheck && disabledForA11y) {
-    gMultiprocessBlockPolicy = kE10sDisabledForAccessibility;
-    return gMultiprocessBlockPolicy;
-  }
 
   /**
    * Avoids enabling e10s for Windows XP users on the release channel.
@@ -4852,25 +4903,6 @@ MultiprocessBlockPolicy() {
     return gMultiprocessBlockPolicy;
   }
 #endif // XP_WIN
-
-#if defined(MOZ_WIDGET_GTK)
-  /**
-   * Avoids enabling e10s for certain locales that require bidi selection,
-   * which currently doesn't work well with e10s.
-   */
-  bool disabledForBidi = false;
-
-  nsCOMPtr<nsIXULChromeRegistry> registry =
-   mozilla::services::GetXULChromeRegistryService();
-  if (registry) {
-     registry->IsLocaleRTL(NS_LITERAL_CSTRING("global"), &disabledForBidi);
-  }
-
-  if (disabledForBidi) {
-    gMultiprocessBlockPolicy = kE10sDisabledForBidi;
-    return gMultiprocessBlockPolicy;
-  }
-#endif // MOZ_WIDGET_GTK
 
   /*
    * None of the blocking policies matched, so e10s is allowed to run.

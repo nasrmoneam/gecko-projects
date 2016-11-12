@@ -48,6 +48,7 @@ make_cert() {
     rsapss) type_args='-g 1024 --pss';type=rsa ;;
     p256) type_args='-q nistp256';type=ec ;;
     p384) type_args='-q secp384r1';type=ec ;;
+    p521) type_args='-q secp521r1';type=ec ;;
     rsa_ca) type_args='-g 1024';trust='CT,CT,CT';ca=y;type=rsa ;;
     ecdh_rsa) type_args='-q nistp256';sign='-c rsa_ca';type=ec ;;
   esac
@@ -81,6 +82,7 @@ ssl_gtest_certs() {
   make_cert rsa_decrypt rsa kex
   make_cert ecdsa256 p256 sign
   make_cert ecdsa384 p384 sign
+  make_cert ecdsa521 p521 sign
   make_cert ecdh_ecdsa p256 kex
   make_cert rsa_ca rsa_ca ca
   make_cert ecdh_rsa ecdh_rsa kex
@@ -125,7 +127,8 @@ ssl_gtest_start()
   SSLGTESTREPORT="${SSLGTESTDIR}/report.xml"
   PARSED_REPORT="${SSLGTESTDIR}/report.parsed"
   echo "executing ssl_gtest"
-  ${BINDIR}/ssl_gtest -d "${SSLGTESTDIR}" --gtest_output=xml:"${SSLGTESTREPORT}"
+  ${BINDIR}/ssl_gtest -d "${SSLGTESTDIR}" --gtest_output=xml:"${SSLGTESTREPORT}" \
+                                          --gtest_filter="${GTESTFILTER-*}"
   html_msg $? 0 "ssl_gtest run successfully"
   echo "executing sed to parse the xml report"
   sed -f ${COMMON}/parsegtestreport.sed "${SSLGTESTREPORT}" > "${PARSED_REPORT}"

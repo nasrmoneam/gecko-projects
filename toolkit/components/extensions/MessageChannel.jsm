@@ -108,11 +108,15 @@ const Cr = Components.results;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "ExtensionUtils",
+                                  "resource://gre/modules/ExtensionUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PromiseUtils",
                                   "resource://gre/modules/PromiseUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Task",
                                   "resource://gre/modules/Task.jsm");
 
+XPCOMUtils.defineLazyGetter(this, "MessageManagerProxy",
+                            () => ExtensionUtils.MessageManagerProxy);
 
 /**
  * Handles the mapping and dispatching of messages to their registered
@@ -138,7 +142,7 @@ class FilteringMessageManager {
    *        data:
    *          An object describing the message, as defined in
    *          `MessageChannel.addListener`.
-   * @param {nsIMessageManager} messageManager
+   * @param {nsIMessageListenerManager} messageManager
    */
   constructor(messageName, callback, messageManager) {
     this.messageName = messageName;
@@ -246,7 +250,7 @@ class FilteringMessageManagerMap extends Map {
    * Returns, and possibly creates, a message broker for the given
    * message manager.
    *
-   * @param {nsIMessageSender} target
+   * @param {nsIMessageListenerManager} target
    *     The message manager for which to return a broker.
    *
    * @returns {FilteringMessageManager}
@@ -348,7 +352,7 @@ this.MessageChannel = {
   /**
    * Initializes message handlers for the given message managers if needed.
    *
-   * @param {[nsIMessageSender]} messageManagers
+   * @param {Array<nsIMessageListenerManager>} messageManagers
    */
   setupMessageManagers(messageManagers) {
     for (let mm of messageManagers) {
@@ -392,7 +396,7 @@ this.MessageChannel = {
   /**
    * Adds a message listener to the given message manager.
    *
-   * @param {nsIMessageSender|[nsIMessageSender]} targets
+   * @param {nsIMessageListenerManager|Array<nsIMessageListenerManager>} targets
    *    The message managers on which to listen.
    * @param {string|number} messageName
    *    The name of the message to listen for.
@@ -458,7 +462,7 @@ this.MessageChannel = {
   /**
    * Removes a message listener from the given message manager.
    *
-   * @param {nsIMessageSender|Array<nsIMessageSender>} targets
+   * @param {nsIMessageListenerManager|Array<nsIMessageListenerManager>} targets
    *    The message managers on which to stop listening.
    * @param {string|number} messageName
    *    The name of the message to stop listening for.
@@ -607,17 +611,9 @@ this.MessageChannel = {
    *
    * @param {Array<MessageHandler>} handlers
    * @param {object} data
-   * @param {nsIMessageSender|nsIMessageManagerOwner} data.target
+   * @param {nsIMessageSender|{messageManager:nsIMessageSender}} data.target
    */
   _handleMessage(handlers, data) {
-    // The target passed to `receiveMessage` is sometimes a message manager
-    // owner instead of a message manager, so make sure to convert it to a
-    // message manager first if necessary.
-    let {target} = data;
-    if (!(target instanceof Ci.nsIMessageSender)) {
-      target = target.messageManager;
-    }
-
     if (data.responseType == this.RESPONSE_NONE) {
       handlers.forEach(handler => {
         // The sender expects no reply, so dump any errors to the console.
@@ -630,6 +626,8 @@ this.MessageChannel = {
       // Note: Unhandled messages are silently dropped.
       return;
     }
+
+    let target = new MessageManagerProxy(data.target);
 
     let deferred = {
       sender: data.sender,
@@ -673,6 +671,10 @@ this.MessageChannel = {
         }
 
         target.sendAsyncMessage(MESSAGE_RESPONSE, response);
+      }).catch(e => {
+        Cu.reportError(e);
+      }).then(() => {
+        target.dispose();
       });
 
     this._addPendingResponse(deferred);
@@ -686,7 +688,7 @@ this.MessageChannel = {
    *
    * @param {Array<MessageHandler>} handlers
    * @param {object} data
-   * @param {nsIMessageSender|nsIMessageManagerOwner} data.target
+   * @param {nsIMessageSender|{messageManager:nsIMessageSender}} data.target
    */
   _handleResponse(handlers, data) {
     // If we have an error at this point, we have handler to report it to,
@@ -762,7 +764,7 @@ this.MessageChannel = {
    * Aborts any pending message responses to the broker for the given
    * message manager.
    *
-   * @param {nsIMessageSender} target
+   * @param {nsIMessageListenerManager} target
    *    The message manager for which to abort brokers.
    * @param {object} reason
    *    An object describing the reason the responses were aborted.
@@ -771,7 +773,7 @@ this.MessageChannel = {
    */
   abortMessageManager(target, reason) {
     for (let response of this.pendingResponses) {
-      if (response.messageManager === target) {
+      if (MessageManagerProxy.matches(response.messageManager, target)) {
         response.reject(reason);
       }
     }

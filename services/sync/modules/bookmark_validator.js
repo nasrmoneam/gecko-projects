@@ -7,10 +7,22 @@
 const Cu = Components.utils;
 
 Cu.import("resource://gre/modules/PlacesUtils.jsm");
-Cu.import("resource://services-sync/util.js");
-Cu.import("resource://services-sync/bookmark_utils.js");
+Cu.import("resource://gre/modules/PlacesSyncUtils.jsm");
+Cu.import("resource://gre/modules/Task.jsm");
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
 
 this.EXPORTED_SYMBOLS = ["BookmarkValidator", "BookmarkProblemData"];
+
+const LEFT_PANE_ROOT_ANNO = "PlacesOrganizer/OrganizerFolder";
+const LEFT_PANE_QUERY_ANNO = "PlacesOrganizer/OrganizerQuery";
+
+// Indicates if a local bookmark tree node should be excluded from syncing.
+function isNodeIgnored(treeNode) {
+  return treeNode.annos && treeNode.annos.some(anno => anno.name == LEFT_PANE_ROOT_ANNO ||
+                                                       anno.name == LEFT_PANE_QUERY_ANNO);
+}
+const BOOKMARK_VALIDATOR_VERSION = 1;
 
 /**
  * Result of bookmark validation. Contains the following fields which describe
@@ -40,9 +52,9 @@ this.EXPORTED_SYMBOLS = ["BookmarkValidator", "BookmarkProblemData"];
  *   child listed multiple times in their children array
  * - parentNotFolder (array of ids): list of records that have parents that
  *   aren't folders
- * - wrongParentName (array of ids): list of records whose parentName does
- *   not match the parent's actual title
  * - rootOnServer (boolean): true if the root came from the server
+ * - badClientRoots (array of ids): Contains any client-side root ids where
+ *   the root is missing or isn't a (direct) child of the places root.
  *
  * - clientMissing: Array of ids on the server missing from the client
  * - serverMissing: Array of ids on the client missing from the server
@@ -71,8 +83,8 @@ class BookmarkProblemData {
     this.childrenOnNonFolder = [];
     this.duplicateChildren = [];
     this.parentNotFolder = [];
-    this.wrongParentName = [];
 
+    this.badClientRoots = [];
     this.clientMissing = [];
     this.serverMissing = [];
     this.serverDeleted = [];
@@ -82,14 +94,34 @@ class BookmarkProblemData {
   }
 
   /**
+   * Convert ("difference", [{ differences: ["tags", "name"] }, { differences: ["name"] }]) into
+   * [{ name: "difference:tags", count: 1}, { name: "difference:name", count: 2 }], etc.
+   */
+  _summarizeDifferences(prefix, diffs) {
+    let diffCounts = new Map();
+    for (let { differences } of diffs) {
+      for (let type of differences) {
+        let name = prefix + ":" + type;
+        let count = diffCounts.get(name) || 0;
+        diffCounts.set(name, count + 1);
+      }
+    }
+    return [...diffCounts].map(([name, count]) => ({ name, count }));
+  }
+
+  /**
    * Produce a list summarizing problems found. Each entry contains {name, count},
    * where name is the field name for the problem, and count is the number of times
    * the problem was encountered.
    *
    * Validation has failed if all counts are not 0.
+   *
+   * If the `full` argument is truthy, we also include information about which
+   * properties we saw structural differences in. Currently, this means either
+   * "sdiff:parentid" and "sdiff:childGUIDS" may be present.
    */
-  getSummary() {
-    return [
+  getSummary(full) {
+    let result = [
       { name: "clientMissing", count: this.clientMissing.length },
       { name: "serverMissing", count: this.serverMissing.length },
       { name: "serverDeleted", count: this.serverDeleted.length },
@@ -105,6 +137,7 @@ class BookmarkProblemData {
       { name: "parentChildMismatches", count: this.parentChildMismatches.length },
       { name: "cycles", count: this.cycles.length },
       { name: "clientCycles", count: this.clientCycles.length },
+      { name: "badClientRoots", count: this.badClientRoots.length },
       { name: "orphans", count: this.orphans.length },
       { name: "missingChildren", count: this.missingChildren.length },
       { name: "deletedChildren", count: this.deletedChildren.length },
@@ -113,10 +146,22 @@ class BookmarkProblemData {
       { name: "childrenOnNonFolder", count: this.childrenOnNonFolder.length },
       { name: "duplicateChildren", count: this.duplicateChildren.length },
       { name: "parentNotFolder", count: this.parentNotFolder.length },
-      { name: "wrongParentName", count: this.wrongParentName.length },
     ];
+    if (full) {
+      let structural = this._summarizeDifferences("sdiff", this.structuralDifferences);
+      result.push.apply(result, structural);
+    }
+    return result;
   }
 }
+
+// Defined lazily to avoid initializing PlacesUtils.bookmarks too soon.
+XPCOMUtils.defineLazyGetter(this, "SYNCED_ROOTS", () => [
+  PlacesUtils.bookmarks.menuGuid,
+  PlacesUtils.bookmarks.toolbarGuid,
+  PlacesUtils.bookmarks.unfiledGuid,
+  PlacesUtils.bookmarks.mobileGuid,
+]);
 
 class BookmarkValidator {
 
@@ -174,17 +219,23 @@ class BookmarkValidator {
     // the server stores.
     let records = [];
     let recordsByGuid = new Map();
-    function traverse(treeNode) {
-      let guid = BookmarkSpecialIds.specialGUIDForId(treeNode.id) || treeNode.guid;
+    let syncedRoots = SYNCED_ROOTS;
+    function traverse(treeNode, synced) {
+      if (!synced) {
+        synced = syncedRoots.includes(treeNode.guid);
+      } else if (isNodeIgnored(treeNode)) {
+        synced = false;
+      }
+      let guid = PlacesSyncUtils.bookmarks.guidToSyncId(treeNode.guid);
       let itemType = 'item';
-      treeNode.ignored = PlacesUtils.annotations.itemHasAnnotation(treeNode.id, BookmarkAnnos.EXCLUDEBACKUP_ANNO);
+      treeNode.ignored = !synced;
       treeNode.id = guid;
       switch (treeNode.type) {
         case PlacesUtils.TYPE_X_MOZ_PLACE:
           let query = null;
           if (treeNode.annos && treeNode.uri.startsWith("place:")) {
             query = treeNode.annos.find(({name}) =>
-              name === BookmarkAnnos.SMART_BOOKMARKS_ANNO);
+              name === PlacesSyncUtils.bookmarks.SMART_BOOKMARKS_ANNO);
           }
           if (query && query.value) {
             itemType = 'query';
@@ -229,15 +280,14 @@ class BookmarkValidator {
           treeNode.children = [];
         }
         for (let child of treeNode.children) {
-          traverse(child);
+          traverse(child, synced);
           child.parent = treeNode;
           child.parentid = guid;
-          child.parentName = treeNode.title;
           treeNode.childGUIDs.push(child.guid);
         }
       }
     }
-    traverse(clientTree);
+    traverse(clientTree, false);
     clientTree.id = 'places';
     this._followQueries(recordsByGuid);
     return records;
@@ -312,32 +362,12 @@ class BookmarkValidator {
           problemData.duplicateChildren.push(record.id)
         }
 
-        // This whole next part is a huge hack.
         // The children array stores special guids as their local guid values,
         // e.g. 'menu________' instead of 'menu', but all other parts of the
         // serverside bookmark info stores it as the special value ('menu').
-        //
-        // Since doing a sql query for every entry would be extremely slow, and
-        // wouldn't even be necessarially accurate (since these values are only
-        // the local values for whichever client created the records) We just
-        // strip off the trailing _ and see if that results in a special id.
-        //
-        // To make things worse, this doesn't even work for root________, which has
-        // the special id 'places'.
         record.childGUIDs = record.children;
         record.children = record.children.map(childID => {
-          let match = childID.match(/_+$/);
-          if (!match) {
-            return childID;
-          }
-          let possibleSpecialID = childID.slice(0, match.index);
-          if (possibleSpecialID === 'root') {
-            possibleSpecialID = 'places';
-          }
-          if (BookmarkSpecialIds.isSpecialGUID(possibleSpecialID)) {
-            return possibleSpecialID;
-          }
-          return childID;
+          return PlacesSyncUtils.bookmarks.guidToSyncId(childID);
         });
       }
     }
@@ -355,7 +385,7 @@ class BookmarkValidator {
     if (!root) {
       // Fabricate a root. We want to remember that it's fake so that we can
       // avoid complaining about stuff like it missing it's childGUIDs later.
-      root = { id: 'places', children: [], type: 'folder', title: '' };
+      root = { id: 'places', children: [], type: 'folder', title: '', fake: true };
       resultRecords.push(root);
       idToRecord.set('places', root);
     } else {
@@ -415,9 +445,10 @@ class BookmarkValidator {
         problemData.deletedParents.push(record.id);
       }
 
-      if (record.parentName !== parent.title && parent.id !== 'unfiled') {
-        problemData.wrongParentName.push(record.id);
-      }
+      // We used to check if the parentName on the server matches the actual
+      // local parent name, but given this is used only for de-duping a record
+      // the first time it is seen and expensive to keep up-to-date, we decided
+      // to just stop recording it. See bug 1276969 for more.
     }
 
     // Check that we aren't missing any children.
@@ -557,6 +588,18 @@ class BookmarkValidator {
     return cycles;
   }
 
+  // Perform client-side sanity checking that doesn't involve server data
+  _validateClient(problemData, clientRecords) {
+    problemData.clientCycles = this._detectCycles(clientRecords);
+    for (let rootGUID of SYNCED_ROOTS) {
+      let record = clientRecords.find(record =>
+        record.guid === rootGUID);
+      if (!record || record.parentid !== "places") {
+        problemData.badClientRoots.push(rootGUID);
+      }
+    }
+  }
+
   /**
    * Compare the list of server records with the client tree.
    *
@@ -577,7 +620,7 @@ class BookmarkValidator {
     serverRecords = inspectionInfo.records;
     let problemData = inspectionInfo.problemData;
 
-    problemData.clientCycles = this._detectCycles(clientRecords);
+    this._validateClient(problemData, clientRecords);
 
     let matches = [];
 
@@ -585,6 +628,9 @@ class BookmarkValidator {
     let serverDeletedLookup = new Set(inspectionInfo.deletedRecords.map(r => r.id));
 
     for (let sr of serverRecords) {
+      if (sr.fake) {
+        continue;
+      }
       allRecords.set(sr.id, {client: null, server: sr});
     }
 
@@ -616,20 +662,21 @@ class BookmarkValidator {
       }
       let differences = [];
       let structuralDifferences = [];
-      // We want to treat undefined, null and an empty string as identical
-      if ((client.title || "") !== (server.title || "")) {
-        differences.push('title');
+
+      // Don't bother comparing titles of roots. It's okay if locally it's
+      // "Mobile Bookmarks", but the server thinks it's "mobile".
+      // TODO: We probably should be handing other localized bookmarks (e.g.
+      // default bookmarks) here as well, see bug 1316041.
+      if (!SYNCED_ROOTS.includes(client.guid)) {
+        // We want to treat undefined, null and an empty string as identical
+        if ((client.title || "") !== (server.title || "")) {
+          differences.push("title");
+        }
       }
 
       if (client.parentid || server.parentid) {
         if (client.parentid !== server.parentid) {
           structuralDifferences.push('parentid');
-        }
-        // Need to special case 'unfiled' due to it's recent name change
-        // ("Other Bookmarks" vs "Unsorted Bookmarks"), otherwise this has a lot
-        // of false positives.
-        if (client.parentName !== server.parentName && server.parentid !== 'unfiled') {
-          differences.push('parentName');
         }
       }
 
@@ -693,7 +740,45 @@ class BookmarkValidator {
     }
     return inspectionInfo;
   }
+
+  _getServerState(engine) {
+    let collection = engine.itemSource();
+    let collectionKey = engine.service.collectionKeys.keyForCollection(engine.name);
+    collection.full = true;
+    let items = [];
+    collection.recordHandler = function(item) {
+      item.decrypt(collectionKey);
+      items.push(item.cleartext);
+    };
+    let resp = collection.getBatched();
+    if (!resp.success) {
+      throw resp;
+    }
+    return items;
+  }
+
+  validate(engine) {
+    let self = this;
+    return Task.spawn(function*() {
+      let start = Date.now();
+      let clientTree = yield PlacesUtils.promiseBookmarksTree("", {
+        includeItemIds: true
+      });
+      let serverState = self._getServerState(engine);
+      let serverRecordCount = serverState.length;
+      let result = self.compareServerWithClient(serverState, clientTree);
+      let end = Date.now();
+      let duration = end-start;
+      return {
+        duration,
+        version: self.version,
+        problems: result.problemData,
+        recordCount: serverRecordCount
+      };
+    });
+  }
+
 };
 
-
+BookmarkValidator.prototype.version = BOOKMARK_VALIDATOR_VERSION;
 

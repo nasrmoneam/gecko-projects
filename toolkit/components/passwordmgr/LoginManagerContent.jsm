@@ -5,30 +5,30 @@
 "use strict";
 
 this.EXPORTED_SYMBOLS = [ "LoginManagerContent",
-                          "FormLikeFactory",
+                          "LoginFormFactory",
                           "UserAutoCompleteResult" ];
 
 const { classes: Cc, interfaces: Ci, results: Cr, utils: Cu } = Components;
 const PASSWORD_INPUT_ADDED_COALESCING_THRESHOLD_MS = 1;
+const PREF_INSECURE_FIELD_WARNING_ENABLED = "security.insecure_field_warning.contextual.enabled";
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
+Cu.import("resource://gre/modules/InsecurePasswordUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
+Cu.import("resource://gre/modules/Preferences.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "DeferredTask", "resource://gre/modules/DeferredTask.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "FormLikeFactory",
+                                  "resource://gre/modules/FormLikeFactory.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "LoginRecipesContent",
                                   "resource://gre/modules/LoginRecipes.jsm");
-
 XPCOMUtils.defineLazyModuleGetter(this, "LoginHelper",
                                   "resource://gre/modules/LoginHelper.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "InsecurePasswordUtils",
+                                  "resource://gre/modules/InsecurePasswordUtils.jsm");
 
-XPCOMUtils.defineLazyServiceGetter(this, "gContentSecurityManager",
-                                   "@mozilla.org/contentsecuritymanager;1",
-                                   "nsIContentSecurityManager");
-XPCOMUtils.defineLazyServiceGetter(this, "gScriptSecurityManager",
-                                   "@mozilla.org/scriptsecuritymanager;1",
-                                   "nsIScriptSecurityManager");
 XPCOMUtils.defineLazyServiceGetter(this, "gNetUtil",
                                    "@mozilla.org/network/util;1",
                                    "nsINetUtil");
@@ -55,7 +55,7 @@ var observer = {
     // can grab form data before it might be modified (see bug 257781).
 
     try {
-      let formLike = FormLikeFactory.createFromForm(formElement);
+      let formLike = LoginFormFactory.createFromForm(formElement);
       LoginManagerContent._onFormSubmit(formLike);
     } catch (e) {
       log("Caught error in onFormSubmit(", e.lineNumber, "):", e.message);
@@ -150,7 +150,7 @@ var LoginManagerContent = {
    * WeakMap of the root element of a FormLike to the FormLike representing its fields.
    *
    * This is used to be able to lookup an existing FormLike for a given root element since multiple
-   * calls to FormLikeFactory won't give the exact same object. When batching fills we don't always
+   * calls to LoginFormFactory won't give the exact same object. When batching fills we don't always
    * want to use the most recent list of elements for a FormLike since we may end up doing multiple
    * fills for the same set of elements when a field gets added between arming and running the
    * DeferredTask.
@@ -290,7 +290,7 @@ var LoginManagerContent = {
   _autoCompleteSearchAsync(aSearchString, aPreviousResult,
                                      aElement, aRect) {
     let doc = aElement.ownerDocument;
-    let form = FormLikeFactory.createFromField(aElement);
+    let form = LoginFormFactory.createFromField(aElement);
     let win = doc.defaultView;
 
     let formOrigin = LoginUtils._getPasswordOrigin(doc.documentURI);
@@ -312,6 +312,7 @@ var LoginManagerContent = {
                         searchString: aSearchString,
                         previousResult: previousResult,
                         rect: aRect,
+                        isSecure: InsecurePasswordUtils.isFormSecure(form),
                         remote: remote };
 
     return this._sendRequest(messageManager, requestData,
@@ -344,7 +345,7 @@ var LoginManagerContent = {
     }
 
     let form = event.target;
-    let formLike = FormLikeFactory.createFromForm(form);
+    let formLike = LoginFormFactory.createFromForm(form);
     log("onDOMFormHasPassword:", form, formLike);
     this._fetchLoginsFromParentAndFillForm(formLike, window);
   },
@@ -364,7 +365,7 @@ var LoginManagerContent = {
     // Capture within a <form> but without a submit event is bug 1287202.
     this.setupProgressListener(window);
 
-    let formLike = FormLikeFactory.createFromField(pwField);
+    let formLike = LoginFormFactory.createFromField(pwField);
     log("onDOMInputPasswordAdded:", pwField, formLike);
 
     let deferredTask = this._deferredPasswordAddedTasksByRootElement.get(formLike.rootElement);
@@ -455,18 +456,17 @@ var LoginManagerContent = {
     log("_detectInsecureFormLikes", topWindow.location.href);
 
     // Returns true if this window or any subframes have insecure login forms.
-    let hasInsecureLoginForms = (thisWindow, parentIsInsecure) => {
+    let hasInsecureLoginForms = (thisWindow) => {
       let doc = thisWindow.document;
-      let isInsecure = parentIsInsecure || !this.isDocumentSecure(doc);
       let hasLoginForm = this.stateForDocument(doc).loginFormRootElements.size > 0;
-      return (hasLoginForm && isInsecure) ||
+      return (hasLoginForm && !thisWindow.isSecureContext) ||
              Array.some(thisWindow.frames,
-                        frame => hasInsecureLoginForms(frame, isInsecure));
+                        frame => hasInsecureLoginForms(frame));
     };
 
     let messageManager = messageManagerFromWindow(topWindow);
     messageManager.sendAsyncMessage("RemoteLogins:insecureLoginFormPresent", {
-      hasInsecureLoginForms: hasInsecureLoginForms(topWindow, false),
+      hasInsecureLoginForms: hasInsecureLoginForms(topWindow),
     });
   },
 
@@ -515,7 +515,7 @@ var LoginManagerContent = {
       inputElement,
     };
 
-    let form = FormLikeFactory.createFromField(inputElement);
+    let form = LoginFormFactory.createFromField(inputElement);
     if (inputElement.type == "password") {
       clobberUsername = false;
     }
@@ -550,7 +550,7 @@ var LoginManagerContent = {
     if (!LoginHelper.isUsernameFieldType(acInputField))
       return;
 
-    var acForm = FormLikeFactory.createFromField(acInputField);
+    var acForm = LoginFormFactory.createFromField(acInputField);
     if (!acForm)
       return;
 
@@ -656,7 +656,7 @@ var LoginManagerContent = {
       );
       if (pwOverrideField) {
         // The field from the password override may be in a different FormLike.
-        let formLike = FormLikeFactory.createFromField(pwOverrideField);
+        let formLike = LoginFormFactory.createFromField(pwOverrideField);
         pwFields = [{
           index   : [...formLike.elements].indexOf(pwOverrideField),
           element : pwOverrideField,
@@ -924,6 +924,7 @@ var LoginManagerContent = {
       MULTIPLE_LOGINS: 7,
       NO_AUTOFILL_FORMS: 8,
       AUTOCOMPLETE_OFF: 9,
+      INSECURE: 10,
     };
 
     function recordAutofillResult(result) {
@@ -977,6 +978,14 @@ var LoginManagerContent = {
       if (passwordField.disabled || passwordField.readOnly) {
         log("not filling form, password field disabled or read-only");
         recordAutofillResult(AUTOFILL_RESULT.PASSWORD_DISABLED_READONLY);
+        return;
+      }
+
+      // Prevent autofilling insecure forms.
+      if (!userTriggered && !LoginHelper.insecureAutofill &&
+          !InsecurePasswordUtils.isFormSecure(form)) {
+        log("not filling form since it's insecure");
+        recordAutofillResult(AUTOFILL_RESULT.INSECURE);
         return;
       }
 
@@ -1141,7 +1150,7 @@ var LoginManagerContent = {
         !aField.ownerDocument) {
       return null;
     }
-    let form = FormLikeFactory.createFromField(aField);
+    let form = LoginFormFactory.createFromField(aField);
 
     let doc = aField.ownerDocument;
     let messageManager = messageManagerFromWindow(doc.defaultView);
@@ -1168,41 +1177,6 @@ var LoginManagerContent = {
         disabled: newPasswordField && (newPasswordField.disabled || newPasswordField.readOnly),
       },
     };
-  },
-
-  /**
-   * Returns true if the provided document principal and URI are such that the
-   * page using them can safely host password fields.
-   *
-   * This means the page can't be easily tampered with because it is sent over
-   * an encrypted channel or is a local resource that never hits the network.
-   *
-   * The system principal, codebase principals with secure schemes like "https",
-   * and local schemes like "resource" and "file" are all considered secure. If
-   * the page is sandboxed, then the document URI is checked instead.
-   *
-   * @param document
-   *        The document whose principal and URI are to be considered.
-   */
-  isDocumentSecure(document) {
-    let principal = document.nodePrincipal;
-    if (principal.isSystemPrincipal) {
-      return true;
-    }
-
-    // Fall back to the document URI for sandboxed documents that do not have
-    // the allow-same-origin flag, as they have a null principal instead of a
-    // codebase principal. Here there are still some cases that are considered
-    // insecure while they are secure, for example sandboxed documents created
-    // using a "javascript:" or "data:" URI from an HTTPS page. See bug 1162772
-    // for defining "window.isSecureContext", that may help in these cases.
-    if (!principal.isCodebasePrincipal) {
-      principal =
-        gScriptSecurityManager.getCodebasePrincipal(document.documentURIObject);
-    }
-
-    // These checks include "file", "resource", HTTPS, and HTTP to "localhost".
-    return gContentSecurityManager.isOriginPotentiallyTrustworthy(principal);
   },
 };
 
@@ -1243,7 +1217,7 @@ var LoginUtils = {
 };
 
 // nsIAutoCompleteResult implementation
-function UserAutoCompleteResult (aSearchString, matchingLogins, messageManager) {
+function UserAutoCompleteResult (aSearchString, matchingLogins, {isSecure, messageManager}) {
   function loginSort(a, b) {
     var userA = a.username.toLowerCase();
     var userB = b.username.toLowerCase();
@@ -1257,10 +1231,15 @@ function UserAutoCompleteResult (aSearchString, matchingLogins, messageManager) 
     return 0;
   }
 
+  let prefShowInsecureFieldWarning =
+    Preferences.get(PREF_INSECURE_FIELD_WARNING_ENABLED, false);
+
+  this._showInsecureFieldWarning = (!isSecure && prefShowInsecureFieldWarning) ? 1 : 0;
   this.searchString = aSearchString;
   this.logins = matchingLogins.sort(loginSort);
-  this.matchCount = matchingLogins.length;
+  this.matchCount = matchingLogins.length + this._showInsecureFieldWarning;
   this._messageManager = messageManager;
+  this._stringBundle = Services.strings.createBundle("chrome://passwordmgr/locale/passwordmgr.properties");
 
   if (this.matchCount > 0) {
     this.searchResult = Ci.nsIAutoCompleteResult.RESULT_SUCCESS;
@@ -1289,14 +1268,25 @@ UserAutoCompleteResult.prototype = {
   matchCount : 0,
 
   getValueAt(index) {
-    if (index < 0 || index >= this.logins.length)
+    if (index < 0 || index >= this.matchCount)
       throw new Error("Index out of range.");
 
-    return this.logins[index].username;
+    if (this._showInsecureFieldWarning && index === 0) {
+      return "";
+    }
+
+    return this.logins[index - this._showInsecureFieldWarning].username;
   },
 
   getLabelAt(index) {
-    return this.getValueAt(index);
+    if (index < 0 || index >= this.matchCount)
+      throw new Error("Index out of range.");
+
+    if (this._showInsecureFieldWarning && index === 0) {
+      return this._stringBundle.GetStringFromName("insecureFieldWarningDescription");
+    }
+
+    return this.logins[index - this._showInsecureFieldWarning].username;
   },
 
   getCommentAt(index) {
@@ -1304,6 +1294,9 @@ UserAutoCompleteResult.prototype = {
   },
 
   getStyleAt(index) {
+    if (index == 0 && this._showInsecureFieldWarning) {
+      return "insecureWarning";
+    }
     return "";
   },
 
@@ -1316,8 +1309,16 @@ UserAutoCompleteResult.prototype = {
   },
 
   removeValueAt(index, removeFromDB) {
-    if (index < 0 || index >= this.logins.length)
+    if (index < 0 || index >= this.matchCount)
         throw new Error("Index out of range.");
+
+    if (this._showInsecureFieldWarning && index === 0) {
+      // Ignore the warning message item.
+      return;
+    }
+    if (this._showInsecureFieldWarning) {
+      index--;
+    }
 
     var [removedLogin] = this.logins.splice(index, 1);
 
@@ -1341,35 +1342,17 @@ UserAutoCompleteResult.prototype = {
  * A factory to generate FormLike objects that represent a set of login fields
  * which aren't necessarily marked up with a <form> element.
  */
-var FormLikeFactory = {
-  _propsFromForm: [
-    "autocomplete",
-    "ownerDocument",
-  ],
-
+var LoginFormFactory = {
   /**
-   * Create a FormLike object from a <form>.
+   * Create a LoginForm object from a <form>.
    *
    * @param {HTMLFormElement} aForm
-   * @return {FormLike}
+   * @return {LoginForm}
    * @throws Error if aForm isn't an HTMLFormElement
    */
   createFromForm(aForm) {
-    if (!(aForm instanceof Ci.nsIDOMHTMLFormElement)) {
-      throw new Error("createFromForm: aForm must be a nsIDOMHTMLFormElement");
-    }
-
-    let formLike = {
-      action: LoginUtils._getActionOrigin(aForm),
-      elements: [...aForm.elements],
-      rootElement: aForm,
-    };
-
-    for (let prop of this._propsFromForm) {
-      formLike[prop] = aForm[prop];
-    }
-
-    this._addToJSONProperty(formLike);
+    let formLike = FormLikeFactory.createFromForm(aForm);
+    formLike.action = LoginUtils._getActionOrigin(aForm);
 
     let state = LoginManagerContent.stateForDocument(formLike.ownerDocument);
     state.loginFormRootElements.add(formLike.rootElement);
@@ -1380,19 +1363,19 @@ var FormLikeFactory = {
   },
 
   /**
-   * Create a FormLike object from a password or username field.
+   * Create a LoginForm object from a password or username field.
    *
-   * If the field is in a <form>, construct the FormLike from the form.
-   * Otherwise, create a FormLike with a rootElement (wrapper) according to
-   * heuristics. Currently all <input> not in a <form> are one FormLike but this
+   * If the field is in a <form>, construct the LoginForm from the form.
+   * Otherwise, create a LoginForm with a rootElement (wrapper) according to
+   * heuristics. Currently all <input> not in a <form> are one LoginForm but this
    * shouldn't be relied upon as the heuristics may change to detect multiple
    * "forms" (e.g. registration and login) on one page with a <form>.
    *
-   * Note that two FormLikes created from the same field won't return the same FormLike object.
-   * Use the `rootElement` property on the FormLike as a key instead.
+   * Note that two LoginForms created from the same field won't return the same LoginForm object.
+   * Use the `rootElement` property on the LoginForm as a key instead.
    *
    * @param {HTMLInputElement} aField - a password or username field in a document
-   * @return {FormLike}
+   * @return {LoginForm}
    * @throws Error if aField isn't a password or username field in a document
    */
   createFromField(aField) {
@@ -1406,23 +1389,9 @@ var FormLikeFactory = {
       return this.createFromForm(aField.form);
     }
 
-    let doc = aField.ownerDocument;
-    log("Created non-form FormLike for rootElement:", doc.documentElement);
-    let elements = [];
-    for (let el of doc.documentElement.querySelectorAll("input")) {
-      if (!el.form) {
-        elements.push(el);
-      }
-    }
-    let formLike = {
-      action: LoginUtils._getPasswordOrigin(doc.baseURI),
-      autocomplete: "on",
-      // Exclude elements inside the rootElement that are already in a <form> as
-      // they will be handled by their own FormLike.
-      elements,
-      ownerDocument: doc,
-      rootElement: doc.documentElement,
-    };
+    let formLike = FormLikeFactory.createFromField(aField);
+    formLike.action = LoginUtils._getPasswordOrigin(aField.ownerDocument.baseURI);
+    log("Created non-form FormLike for rootElement:", aField.ownerDocument.documentElement);
 
     let state = LoginManagerContent.stateForDocument(formLike.ownerDocument);
     state.loginFormRootElements.add(formLike.rootElement);
@@ -1431,59 +1400,6 @@ var FormLikeFactory = {
 
     LoginManagerContent._formLikeByRootElement.set(formLike.rootElement, formLike);
 
-    this._addToJSONProperty(formLike);
     return formLike;
-  },
-
-  /**
-   * Add a `toJSON` property to a FormLike so logging which ends up going
-   * through dump doesn't include usless garbage from DOM objects.
-   */
-  _addToJSONProperty(aFormLike) {
-    function prettyElementOutput(aElement) {
-      let idText = aElement.id ? "#" + aElement.id : "";
-      let classText = "";
-      for (let className of aElement.classList) {
-        classText += "." + className;
-      }
-      return `<${aElement.nodeName + idText + classText}>`;
-    }
-
-    Object.defineProperty(aFormLike, "toJSON", {
-      value: () => {
-        let cleansed = {};
-        for (let key of Object.keys(aFormLike)) {
-          let value = aFormLike[key];
-          let cleansedValue = value;
-
-          switch (key) {
-            case "elements": {
-              cleansedValue = [];
-              for (let element of value) {
-                cleansedValue.push(prettyElementOutput(element));
-              }
-              break;
-            }
-
-            case "ownerDocument": {
-              cleansedValue = {
-                location: {
-                  href: value.location.href,
-                },
-              };
-              break;
-            }
-
-            case "rootElement": {
-              cleansedValue = prettyElementOutput(value);
-              break;
-            }
-          }
-
-          cleansed[key] = cleansedValue;
-        }
-        return cleansed;
-      }
-    });
   },
 };

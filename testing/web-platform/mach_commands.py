@@ -44,6 +44,9 @@ class WebPlatformTestsRunner(MozbuildObject):
         if kwargs["prefs_root"] is None:
             kwargs["prefs_root"] = os.path.join(self.topobjdir, '_tests', 'web-platform', "prefs")
 
+        if kwargs["stackfix_dir"] is None:
+            kwargs["stackfix_dir"] = self.get_binary_path("")
+
         if kwargs["certutil_binary"] is None:
             kwargs["certutil_binary"] = self.get_binary_path('certutil')
 
@@ -96,11 +99,11 @@ class WebPlatformTestsUpdater(MozbuildObject):
 
         try:
             update.run_update(logger, **kwargs)
-        except:
+        except Exception:
             import pdb
             import traceback
             traceback.print_exc()
-            pdb.post_mortem()
+#            pdb.post_mortem()
 
 class WebPlatformTestsReduce(WebPlatformTestsRunner):
 

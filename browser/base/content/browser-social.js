@@ -291,14 +291,7 @@ SocialShare = {
   handleEvent: function(event) {
     switch (event.type) {
       case "load": {
-        let iframe = this.iframe;
-        iframe.parentNode.removeAttribute("loading");
-        // to support standard share endpoints mimick window.open by setting
-        // window.opener, some share endpoints rely on w.opener to know they
-        // should close the window when done.
-        iframe.contentWindow.opener = iframe.contentWindow;
-        this.messageManager.sendAsyncMessage("Social:HookWindowCloseForPanelClose");
-        this.messageManager.sendAsyncMessage("Social:DisableDialogs", {});
+        this.iframe.parentNode.removeAttribute("loading");
         if (this.currentShare)
           SocialShare.messageManager.sendAsyncMessage("Social:OpenGraphData", this.currentShare);
       }
@@ -406,14 +399,16 @@ SocialShare = {
     if (!SocialUI.canSharePage(sharedURI))
       return;
 
+    let browserMM = gBrowser.selectedBrowser.messageManager;
+
     // the point of this action type is that we can use existing share
     // endpoints (e.g. oexchange) that do not support additional
     // socialapi functionality.  One tweak is that we shoot an event
     // containing the open graph data.
     let _dataFn;
     if (!pageData || sharedURI == gBrowser.currentURI) {
-      messageManager.addMessageListener("PageMetadata:PageDataResult", _dataFn = (msg) => {
-        messageManager.removeMessageListener("PageMetadata:PageDataResult", _dataFn);
+      browserMM.addMessageListener("PageMetadata:PageDataResult", _dataFn = (msg) => {
+        browserMM.removeMessageListener("PageMetadata:PageDataResult", _dataFn);
         let pageData = msg.json;
         if (graphData) {
           // overwrite data retreived from page with data given to us as a param
@@ -423,17 +418,17 @@ SocialShare = {
         }
         this.sharePage(providerOrigin, pageData, target, anchor);
       });
-      gBrowser.selectedBrowser.messageManager.sendAsyncMessage("PageMetadata:GetPageData", null, { target });
+      browserMM.sendAsyncMessage("PageMetadata:GetPageData", null, { target });
       return;
     }
     // if this is a share of a selected item, get any microformats
     if (!pageData.microformats && target) {
-      messageManager.addMessageListener("PageMetadata:MicroformatsResult", _dataFn = (msg) => {
-        messageManager.removeMessageListener("PageMetadata:MicroformatsResult", _dataFn);
+      browserMM.addMessageListener("PageMetadata:MicroformatsResult", _dataFn = (msg) => {
+        browserMM.removeMessageListener("PageMetadata:MicroformatsResult", _dataFn);
         pageData.microformats = msg.data;
         this.sharePage(providerOrigin, pageData, target, anchor);
       });
-      gBrowser.selectedBrowser.messageManager.sendAsyncMessage("PageMetadata:GetMicroformats", null, { target });
+      browserMM.sendAsyncMessage("PageMetadata:GetMicroformats", null, { target });
       return;
     }
     this.currentShare = pageData;

@@ -122,36 +122,11 @@ WebGLContext::ValidateBlendFuncEnumsCompatibility(GLenum sfactor,
     return true;
 }
 
-bool
-WebGLContext::ValidateDataOffsetSize(WebGLintptr offset, WebGLsizeiptr size, WebGLsizeiptr bufferSize, const char* info)
-{
-    if (offset < 0) {
-        ErrorInvalidValue("%s: offset must be positive", info);
-        return false;
-    }
-
-    if (size < 0) {
-        ErrorInvalidValue("%s: size must be positive", info);
-        return false;
-    }
-
-    // *** Careful *** WebGLsizeiptr is always 64-bits but GLsizeiptr
-    // is like intptr_t. On some platforms it is 32-bits.
-    CheckedInt<GLsizeiptr> neededBytes = CheckedInt<GLsizeiptr>(offset) + size;
-    if (!neededBytes.isValid() || neededBytes.value() > bufferSize) {
-        ErrorInvalidValue("%s: invalid range", info);
-        return false;
-    }
-
-    return true;
-}
-
 /**
  * Check data ranges [readOffset, readOffset + size] and [writeOffset,
  * writeOffset + size] for overlap.
  *
- * It is assumed that offset and size have already been validated with
- * ValidateDataOffsetSize().
+ * It is assumed that offset and size have already been validated.
  */
 bool
 WebGLContext::ValidateDataRanges(WebGLintptr readOffset, WebGLintptr writeOffset, WebGLsizeiptr size, const char* info)
@@ -697,6 +672,8 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     mStencilRefFront = 0;
     mStencilRefBack = 0;
 
+    mLineWidth = 1.0;
+
     /*
     // Technically, we should be setting mStencil[...] values to
     // `allOnes`, but either ANGLE breaks or the SGX540s on Try break.
@@ -738,7 +715,6 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     mBoundSamplers.Clear();
 
     mBoundArrayBuffer = nullptr;
-    mBoundTransformFeedbackBuffer = nullptr;
     mCurrentProgram = nullptr;
 
     mBoundDrawFramebuffer = nullptr;
@@ -894,19 +870,11 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     }
 
     if (gl->IsCompatibilityProfile()) {
-        // gl_PointSize is always available in ES2 GLSL, but has to be
-        // specifically enabled on desktop GLSL.
-        gl->fEnable(LOCAL_GL_VERTEX_PROGRAM_POINT_SIZE);
-
-        /* gl_PointCoord is always available in ES2 GLSL and in newer desktop
-         * GLSL versions, but apparently not in OpenGL 2 and apparently not (due
-         * to a driver bug) on certain NVIDIA setups. See:
-         *   http://www.opengl.org/discussion_boards/ubbthreads.php?ubb=showflat&Number=261472
-         *
-         * Note that this used to cause crashes on old ATI drivers... Hopefully
-         * not a significant anymore. See bug 602183.
-         */
         gl->fEnable(LOCAL_GL_POINT_SPRITE);
+    }
+
+    if (!gl->IsGLES()) {
+        gl->fEnable(LOCAL_GL_PROGRAM_POINT_SIZE);
     }
 
 #ifdef XP_MACOSX
@@ -980,7 +948,6 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     // vertex array object (the name zero) is also deprecated. [...]"
 
     if (gl->IsCoreProfile()) {
-        MakeContextCurrent();
         mDefaultVertexArray->GenVertexArray();
         mDefaultVertexArray->BindVertexArray();
     }

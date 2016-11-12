@@ -178,7 +178,7 @@ nsHttpConnectionMgr::Shutdown()
         // from being posted.  this is how we indicate that we are
         // shutting down.
         mIsShuttingDown = true;
-        mSocketThreadTarget = 0;
+        mSocketThreadTarget = nullptr;
 
         if (NS_FAILED(rv)) {
             NS_WARNING("unable to post SHUTDOWN message");
@@ -407,6 +407,11 @@ nsHttpConnectionMgr::SpeculativeConnect(nsHttpConnectionInfo *ci,
                                         NullHttpTransaction *nullTransaction)
 {
     MOZ_ASSERT(NS_IsMainThread(), "nsHttpConnectionMgr::SpeculativeConnect called off main thread!");
+
+    if (!IsNeckoChild()) {
+        // HACK: make sure PSM gets initialized on the main thread.
+        net_EnsurePSMInit();
+    }
 
     LOG(("nsHttpConnectionMgr::SpeculativeConnect [ci=%s]\n",
          ci->HashKey().get()));
@@ -3075,6 +3080,12 @@ nsHalfOpenSocket::SetupStreams(nsISocketTransport **transport,
     }
 
     socketTransport->SetConnectionFlags(tmpFlags);
+
+    nsAutoCString firstPartyDomain =
+      NS_ConvertUTF16toUTF8(mEnt->mConnInfo->GetOriginAttributes().mFirstPartyDomain);
+    if (!firstPartyDomain.IsEmpty()) {
+        socketTransport->SetFirstPartyDomain(firstPartyDomain);
+    }
 
     socketTransport->SetQoSBits(gHttpHandler->GetQoSBits());
 

@@ -7,8 +7,18 @@ WORKDIR /home/worker
 # %include testing/docker/recipes/tooltool.py
 ADD topsrcdir/testing/docker/recipes/tooltool.py /setup/tooltool.py
 
+# %include testing/mozharness/external_tools/robustcheckout.py
+ADD topsrcdir/testing/mozharness/external_tools/robustcheckout.py /usr/local/mercurial/robustcheckout.py
+
+# %include testing/docker/recipes/common.sh
+ADD topsrcdir/testing/docker/recipes/common.sh /setup/common.sh
+
 # %include testing/docker/recipes/install-mercurial.sh
 ADD topsrcdir/testing/docker/recipes/install-mercurial.sh /setup/install-mercurial.sh
+
+# Add the tooltool manifest containing the minidump_stackwalk binary.
+# %include testing/config/tooltool-manifests/linux64/releng.manifest
+ADD topsrcdir/testing/config/tooltool-manifests/linux64/releng.manifest /tmp/minidump_stackwalk.manifest
 
 # %include testing/docker/recipes/ubuntu1604-test-system-setup.sh
 ADD topsrcdir/testing/docker/recipes/ubuntu1604-test-system-setup.sh /setup/system-setup.sh
@@ -27,7 +37,6 @@ ADD topsrcdir/taskcluster/scripts/tester/test-ubuntu.sh /home/worker/bin/test-li
 # This will create a host mounted filesystem when the cache is stripped
 # on Try. This cancels out some of the performance losses of aufs. See
 # bug 1291940.
-VOLUME /home/worker/hg-shared
 VOLUME /home/worker/checkouts
 VOLUME /home/worker/workspace
 
@@ -53,10 +62,6 @@ COPY           tc-vcs-config.yml /etc/taskcluster-vcs.yml
 # TODO: remove
 ADD            https://raw.githubusercontent.com/taskcluster/buildbot-step/master/buildbot_step /home/worker/bin/buildbot_step
 RUN chmod u+x /home/worker/bin/buildbot_step
-
-# TODO: remove
-ADD            https://s3-us-west-2.amazonaws.com/test-caching/packages/linux64-stackwalk /usr/local/bin/linux64-minidump_stackwalk
-RUN chmod +x /usr/local/bin/linux64-minidump_stackwalk
 
 # allow the worker user to access video devices
 RUN usermod -a -G video worker

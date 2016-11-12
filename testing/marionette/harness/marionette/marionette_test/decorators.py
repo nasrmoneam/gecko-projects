@@ -61,6 +61,23 @@ def parameterized(func_suffix, *args, **kwargs):
     return wrapped
 
 
+def run_if_e10s(target):
+    """Decorator which runs a test if e10s mode is active."""
+    def wrapper(self, *args, **kwargs):
+        with self.marionette.using_context('chrome'):
+            multi_process_browser = self.marionette.execute_script("""
+            try {
+              return Services.appinfo.browserTabsRemoteAutostart;
+            } catch (e) {
+              return false;
+            }""")
+
+        if not multi_process_browser:
+            raise SkipTest('skipping due to e10s is disabled')
+        return target(self, *args, **kwargs)
+    return wrapper
+
+
 def skip(reason):
     """Decorator which unconditionally skips a test."""
     def decorator(test_item):
@@ -143,9 +160,9 @@ def skip_unless_browser_pref(pref, predicate=bool):
         def wrapped(self, *args, **kwargs):
             value = self.marionette.get_pref(pref)
             if value is None:
-                self.fail("No such browser preference: %r" % pref)
+                self.fail("No such browser preference: {0!r}".format(pref))
             if not predicate(value):
-                raise SkipTest("browser preference %r: %r" % (pref, value))
+                raise SkipTest("browser preference {0!r}: {1!r}".format((pref, value)))
             return target(self, *args, **kwargs)
         return wrapped
     return wrapper
@@ -158,7 +175,7 @@ def skip_unless_protocol(predicate):
         def skip_wrapper(self):
             level = self.marionette.client.protocol
             if not predicate(level):
-                raise SkipTest('skipping because protocol level is %s' % level)
+                raise SkipTest('skipping because protocol level is {}'.format(level))
             return test_item(self)
         return skip_wrapper
     return decorator

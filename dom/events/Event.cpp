@@ -28,7 +28,6 @@
 #include "nsIContent.h"
 #include "nsIDocument.h"
 #include "nsIPresShell.h"
-#include "nsIScreen.h"
 #include "nsIScrollableFrame.h"
 #include "nsJSEnvironment.h"
 #include "nsLayoutUtils.h"
@@ -416,6 +415,7 @@ Event::Constructor(const GlobalObject& aGlobal,
   bool trusted = e->Init(t);
   e->InitEvent(aType, aParam.mBubbles, aParam.mCancelable);
   e->SetTrusted(trusted);
+  e->SetComposed(aParam.mComposed);
   return e.forget();
 }
 
@@ -568,11 +568,14 @@ Event::SetEventType(const nsAString& aEventTypeArg)
     mEvent->mSpecifiedEventType =
       nsContentUtils::GetEventMessageAndAtom(aEventTypeArg, mEvent->mClass,
                                              &(mEvent->mMessage));
+    mEvent->SetDefaultComposed();
   } else {
     mEvent->mSpecifiedEventType = nullptr;
     mEvent->mMessage = eUnidentifiedEvent;
     mEvent->mSpecifiedEventTypeString = aEventTypeArg;
+    mEvent->SetComposed(aEventTypeArg);
   }
+  mEvent->SetDefaultComposedInNativeAnonymousContent();
 }
 
 void
@@ -928,46 +931,17 @@ Event::GetScreenCoords(nsPresContext* aPresContext,
     return CSSIntPoint(aPoint.x, aPoint.y);
   }
 
+  nsPoint pt =
+    LayoutDevicePixel::ToAppUnits(aPoint, aPresContext->DeviceContext()->AppUnitsPerDevPixelAtUnitFullZoom());
 
-  int32_t appPerDevFullZoom =
-    aPresContext->DeviceContext()->AppUnitsPerDevPixelAtUnitFullZoom();
-
-  LayoutDevicePoint devPt = aPoint;
   if (nsIPresShell* ps = aPresContext->GetPresShell()) {
-    // convert to appUnits in order to use RemoveResolution, then back to
-    // device pixels
-    nsPoint pt =
-      LayoutDevicePixel::ToAppUnits(aPoint, appPerDevFullZoom);
     pt = pt.RemoveResolution(nsLayoutUtils::GetCurrentAPZResolutionScale(ps));
-    devPt = LayoutDevicePixel::FromAppUnits(pt, appPerDevFullZoom);
   }
 
-  devPt += guiEvent->mWidget->WidgetToScreenOffset();
+  pt += LayoutDevicePixel::ToAppUnits(guiEvent->mWidget->WidgetToScreenOffset(),
+                                      aPresContext->DeviceContext()->AppUnitsPerDevPixelAtUnitFullZoom());
 
-  nsCOMPtr<nsIScreen> screen = guiEvent->mWidget->GetWidgetScreen();
-  if (screen) {
-    // subtract device-pixel origin of current screen
-    int32_t x, y, w, h;
-    screen->GetRect(&x, &y, &w, &h);
-    devPt.x -= x;
-    devPt.y -= y;
-    // then convert position *within the current screen* to unscaled CSS px
-    double cssToDevScale;
-    screen->GetDefaultCSSScaleFactor(&cssToDevScale);
-    CSSIntPoint cssPt(NSToIntRound(devPt.x / cssToDevScale),
-                      NSToIntRound(devPt.y / cssToDevScale));
-    // finally, add the desktop-pixel origin of the screen, to get a global
-    // CSS pixel value that is compatible with window.screenX/Y positions
-    screen->GetRectDisplayPix(&x, &y, &w, &h);
-    cssPt.x += x;
-    cssPt.y += y;
-    return cssPt;
-  }
-
-  // this shouldn't happen, but just in case...
-  NS_WARNING("failed to find screen, using default CSS px conversion");
-  return CSSPixel::FromAppUnitsRounded(
-      LayoutDevicePixel::ToAppUnits(aPoint, appPerDevFullZoom));
+  return CSSPixel::FromAppUnitsRounded(pt);
 }
 
 // static
@@ -1197,6 +1171,7 @@ Event::Serialize(IPC::Message* aMsg, bool aSerializeInterfaceType)
   IPC::WriteParam(aMsg, Bubbles());
   IPC::WriteParam(aMsg, Cancelable());
   IPC::WriteParam(aMsg, IsTrusted());
+  IPC::WriteParam(aMsg, Composed());
 
   // No timestamp serialization for now!
 }
@@ -1216,8 +1191,12 @@ Event::Deserialize(const IPC::Message* aMsg, PickleIterator* aIter)
   bool trusted = false;
   NS_ENSURE_TRUE(IPC::ReadParam(aMsg, aIter, &trusted), false);
 
+  bool composed = false;
+  NS_ENSURE_TRUE(IPC::ReadParam(aMsg, aIter, &composed), false);
+
   InitEvent(type, bubbles, cancelable);
   SetTrusted(trusted);
+  SetComposed(composed);
 
   return true;
 }

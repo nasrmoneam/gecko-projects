@@ -159,7 +159,7 @@ MP4Metadata::MP4Metadata(Stream* aSource)
  , mPreferRust(false)
  , mReportedAudioTrackTelemetry(false)
  , mReportedVideoTrackTelemetry(false)
-#ifndef RELEASE_BUILD
+#ifndef RELEASE_OR_BETA
  , mRustTestMode(MediaPrefs::RustTestMode())
 #endif
 #endif
@@ -245,7 +245,8 @@ bool MP4Metadata::ShouldPreferRust() const {
     if (!info) {
       return false;
     }
-    if (info->mMimeType.EqualsASCII("audio/opus")) {
+    if (info->mMimeType.EqualsASCII("audio/opus") ||
+        info->mMimeType.EqualsASCII("audio/flac")) {
       return true;
     }
   }
@@ -280,32 +281,33 @@ MP4Metadata::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
   mozilla::UniquePtr<mozilla::TrackInfo> infoRust =
       mRust->GetTrackInfo(aType, aTrackNumber);
 
-#ifndef RELEASE_BUILD
+#ifndef RELEASE_OR_BETA
   if (mRustTestMode && info) {
-    MOZ_ASSERT(infoRust);
-    MOZ_ASSERT(infoRust->mId == info->mId);
-    MOZ_ASSERT(infoRust->mKind == info->mKind);
-    MOZ_ASSERT(infoRust->mLabel == info->mLabel);
-    MOZ_ASSERT(infoRust->mLanguage == info->mLanguage);
-    MOZ_ASSERT(infoRust->mEnabled == info->mEnabled);
-    MOZ_ASSERT(infoRust->mTrackId == info->mTrackId);
-    MOZ_ASSERT(infoRust->mMimeType == info->mMimeType);
-    MOZ_ASSERT(infoRust->mDuration == info->mDuration);
-    MOZ_ASSERT(infoRust->mMediaTime == info->mMediaTime);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mId == info->mId);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mKind == info->mKind);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mLabel == info->mLabel);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mLanguage == info->mLanguage);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mEnabled == info->mEnabled);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mTrackId == info->mTrackId);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mMimeType == info->mMimeType);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mDuration == info->mDuration);
+    MOZ_DIAGNOSTIC_ASSERT(infoRust->mMediaTime == info->mMediaTime);
     switch (aType) {
     case mozilla::TrackInfo::kAudioTrack: {
       AudioInfo *audioRust = infoRust->GetAsAudioInfo(), *audio = info->GetAsAudioInfo();
-      MOZ_ASSERT(audioRust->mRate == audio->mRate);
-      MOZ_ASSERT(audioRust->mChannels == audio->mChannels);
-      MOZ_ASSERT(audioRust->mBitDepth == audio->mBitDepth);
-      //MOZ_ASSERT(audioRust->mProfile == audio->mProfile);
-      //MOZ_ASSERT(audioRust->mExtendedProfile == audio->mExtendedProfile);
+      MOZ_DIAGNOSTIC_ASSERT(audioRust->mRate == audio->mRate);
+      MOZ_DIAGNOSTIC_ASSERT(audioRust->mChannels == audio->mChannels);
+      MOZ_DIAGNOSTIC_ASSERT(audioRust->mBitDepth == audio->mBitDepth);
+      // TODO: These fields aren't implemented in the Rust demuxer yet.
+      //MOZ_DIAGNOSTIC_ASSERT(audioRust->mProfile != audio->mProfile);
+      //MOZ_DIAGNOSTIC_ASSERT(audioRust->mExtendedProfile != audio->mExtendedProfile);
       break;
     }
     case mozilla::TrackInfo::kVideoTrack: {
       VideoInfo *videoRust = infoRust->GetAsVideoInfo(), *video = info->GetAsVideoInfo();
-      MOZ_ASSERT(videoRust->mDisplay == video->mDisplay);
-      MOZ_ASSERT(videoRust->mImage == video->mImage);
+      MOZ_DIAGNOSTIC_ASSERT(videoRust->mDisplay == video->mDisplay);
+      MOZ_DIAGNOSTIC_ASSERT(videoRust->mImage == video->mImage);
       break;
     }
     default:
@@ -340,9 +342,10 @@ bool
 MP4Metadata::ReadTrackIndex(FallibleTArray<Index::Indice>& aDest, mozilla::TrackID aTrackID)
 {
 #ifdef MOZ_RUST_MP4PARSE
-  if (mRust && mPreferRust) {
-    return mRust->ReadTrackIndex(aDest, aTrackID);
+  if (mRust && mPreferRust && mRust->ReadTrackIndex(aDest, aTrackID)) {
+    return true;
   }
+  aDest.Clear();
 #endif
   return mStagefright->ReadTrackIndex(aDest, aTrackID);
 }
@@ -739,8 +742,10 @@ MP4MetadataRust::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
     case MP4PARSE_CODEC_UNKNOWN: codec_string = "unknown"; break;
     case MP4PARSE_CODEC_AAC: codec_string = "aac"; break;
     case MP4PARSE_CODEC_OPUS: codec_string = "opus"; break;
+    case MP4PARSE_CODEC_FLAC: codec_string = "flac"; break;
     case MP4PARSE_CODEC_AVC: codec_string = "h.264"; break;
     case MP4PARSE_CODEC_VP9: codec_string = "vp9"; break;
+    case MP4PARSE_CODEC_MP3: codec_string = "mp3"; break;
   }
   MOZ_LOG(sLog, LogLevel::Debug, ("track codec %s (%u)\n",
         codec_string, info.codec));
@@ -772,6 +777,10 @@ MP4MetadataRust::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
             mozilla::FramesToUsecs(preskip, 48000).value());
       } else if (info.codec == MP4PARSE_CODEC_AAC) {
         track->mMimeType = MEDIA_MIMETYPE_AUDIO_AAC;
+      } else if (info.codec == MP4PARSE_CODEC_FLAC) {
+        track->mMimeType = MEDIA_MIMETYPE_AUDIO_FLAC;
+      } else if (info.codec == MP4PARSE_CODEC_MP3) {
+        track->mMimeType = MEDIA_MIMETYPE_AUDIO_MPEG;
       }
       track->mCodecSpecificConfig->AppendElements(
           audio.codec_specific_config.data,
@@ -789,7 +798,7 @@ MP4MetadataRust::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
       mp4parse_track_video_info video;
       auto rv = mp4parse_get_track_video_info(mRustParser.get(), trackIndex.value(), &video);
       if (rv != MP4PARSE_OK) {
-        MOZ_LOG(sLog, LogLevel::Warning, ("mp4parse_get_track_audio_info returned error %d", rv));
+        MOZ_LOG(sLog, LogLevel::Warning, ("mp4parse_get_track_video_info returned error %d", rv));
         return nullptr;
       }
       auto track = mozilla::MakeUnique<MP4VideoInfo>();
@@ -801,6 +810,15 @@ MP4MetadataRust::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
       MOZ_LOG(sLog, LogLevel::Warning, ("unhandled track type %d", aType));
       return nullptr;
       break;
+  }
+
+  // No duration in track, use fragment_duration.
+  if (e && !e->mDuration) {
+    mp4parse_fragment_info info;
+    auto rv = mp4parse_get_fragment_info(mRustParser.get(), &info);
+    if (rv == MP4PARSE_OK) {
+      e->mDuration = info.fragment_duration;
+    }
   }
 
   if (e && e->IsValid()) {
@@ -839,7 +857,7 @@ MP4MetadataRust::ReadTrackIndex(FallibleTArray<Index::Indice>& aDest, mozilla::T
   }
 
   // For non-fragmented mp4.
-  MOZ_ASSERT(false, "Not yet implemented");
+  NS_WARNING("Not yet implemented");
 
   return false;
 }

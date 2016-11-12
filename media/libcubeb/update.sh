@@ -11,6 +11,7 @@ cp $1/src/cubeb-internal.h src
 cp $1/src/cubeb-speex-resampler.h src
 cp $1/src/cubeb.c src
 cp $1/src/cubeb_alsa.c src
+cp $1/src/cubeb_log.h src
 cp $1/src/cubeb_audiotrack.c src
 cp $1/src/cubeb_audiounit.cpp src
 cp $1/src/cubeb_osx_run_loop.h src
@@ -56,4 +57,3 @@ if [ -n "$rev" ]; then
 else
   echo "Remember to update README_MOZILLA with the version details."
 fi
-

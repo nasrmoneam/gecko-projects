@@ -198,11 +198,20 @@ add_task(function* setup() {
   let oldServerURL = env.get("MOZ_CRASHREPORTER_URL");
   env.set("MOZ_CRASHREPORTER_URL", SERVER_URL);
 
+  // nsBrowserGlue starts up UnsubmittedCrashHandler automatically
+  // so at this point, it is initialized. It's possible that it
+  // was initialized, but is preffed off, so it's inert, so we
+  // shut it down, make sure it's preffed on, and then restart it.
+  // Note that making the component initialize even when it's
+  // disabled is an intentional choice, as this allows for easier
+  // simulation of startup and shutdown.
+  UnsubmittedCrashHandler.uninit();
   yield SpecialPowers.pushPrefEnv({
     set: [
       ["browser.crashReports.unsubmittedCheck.enabled", true],
     ],
   });
+  UnsubmittedCrashHandler.init();
 
   registerCleanupFunction(function() {
     gNotificationBox = null;
@@ -415,6 +424,9 @@ add_task(function* test_can_ignore() {
   let anonyNodes = document.getAnonymousNodes(notification)[0];
   let closeButton = anonyNodes.querySelector(".close-icon");
   closeButton.click();
+  // We'll not wait for the notification to finish its transition -
+  // we'll just remove it right away.
+  gNotificationBox.removeNotification(notification, true);
   yield waitForIgnoredReports(reportIDs);
 
   notification =
@@ -434,7 +446,7 @@ add_task(function* test_last_shown_date() {
     yield UnsubmittedCrashHandler.checkForUnsubmittedCrashReports();
   Assert.ok(notification, "There should be a notification");
 
-  let today = new Date().toLocaleFormat("%Y%m%d");
+  let today = UnsubmittedCrashHandler.dateString(new Date());
   let lastShownDate =
     UnsubmittedCrashHandler.prefs.getCharPref("lastShownDate");
   Assert.equal(today, lastShownDate,
@@ -486,17 +498,19 @@ add_task(function* test_shutdown_while_not_showing() {
   let anonyNodes = document.getAnonymousNodes(notification)[0];
   let closeButton = anonyNodes.querySelector(".close-icon");
   closeButton.click();
+  // We'll not wait for the notification to finish its transition -
+  // we'll just remove it right away.
+  gNotificationBox.removeNotification(notification, true);
+
   yield waitForIgnoredReports(reportIDs);
 
   UnsubmittedCrashHandler.uninit();
   Assert.throws(() => {
-    let shutdownWhileShowing =
-      UnsubmittedCrashHandler.prefs.getBoolPref("shutdownWhileShowing");
+    UnsubmittedCrashHandler.prefs.getBoolPref("shutdownWhileShowing");
   }, "We should have noticed that the notification had closed before " +
      "uninitting.");
   UnsubmittedCrashHandler.init();
 
-  gNotificationBox.removeNotification(notification, true);
   clearPendingCrashReports();
 });
 
@@ -526,7 +540,7 @@ add_task(function* test_dont_decrement_chances_on_same_day() {
             "We should have noticed that we uninitted while showing " +
             "the notification.");
 
-  let today = new Date().toLocaleFormat("%Y%m%d");
+  let today = UnsubmittedCrashHandler.dateString(new Date());
   let lastShownDate =
     UnsubmittedCrashHandler.prefs.getCharPref("lastShownDate");
   Assert.equal(today, lastShownDate,
@@ -575,7 +589,7 @@ add_task(function* test_decrement_chances_on_other_day() {
             "the notification.");
 
   // Now pretend that the notification was shown yesterday.
-  let yesterday = new Date(Date.now() - DAY).toLocaleFormat("%Y%m%d");
+  let yesterday = UnsubmittedCrashHandler.dateString(new Date(Date.now() - DAY));
   UnsubmittedCrashHandler.prefs.setCharPref("lastShownDate", yesterday);
 
   UnsubmittedCrashHandler.init();
@@ -603,7 +617,7 @@ add_task(function* test_decrement_chances_on_other_day() {
  */
 add_task(function* test_can_suppress_after_chances() {
   // Pretend that a notification was shown yesterday.
-  let yesterday = new Date(Date.now() - DAY).toLocaleFormat("%Y%m%d");
+  let yesterday = UnsubmittedCrashHandler.dateString(new Date(Date.now() - DAY));
   UnsubmittedCrashHandler.prefs.setCharPref("lastShownDate", yesterday);
   UnsubmittedCrashHandler.prefs.setBoolPref("shutdownWhileShowing", true);
   UnsubmittedCrashHandler.prefs.setIntPref("chancesUntilSuppress", 0);
@@ -618,7 +632,7 @@ add_task(function* test_can_suppress_after_chances() {
   let suppressUntilDate =
     UnsubmittedCrashHandler.prefs.getCharPref("suppressUntilDate");
 
-  let today = new Date().toLocaleFormat("%Y%m%d");
+  let today = UnsubmittedCrashHandler.dateString(new Date());
   Assert.ok(suppressUntilDate > today,
             "We should be suppressing until some days into the future.");
 
@@ -633,7 +647,7 @@ add_task(function* test_can_suppress_after_chances() {
  * will be shown even if there are pending crash reports.
  */
 add_task(function* test_suppression() {
-  let future = new Date(Date.now() + (DAY * 5)).toLocaleFormat("%Y%m%d");
+  let future = UnsubmittedCrashHandler.dateString(new Date(Date.now() + (DAY * 5)));
   UnsubmittedCrashHandler.prefs.setCharPref("suppressUntilDate", future);
   UnsubmittedCrashHandler.uninit();
   UnsubmittedCrashHandler.init();
@@ -651,7 +665,7 @@ add_task(function* test_suppression() {
  * it, then we can show the notification again.
  */
 add_task(function* test_end_suppression() {
-  let yesterday = new Date(Date.now() - DAY).toLocaleFormat("%Y%m%d");
+  let yesterday = UnsubmittedCrashHandler.dateString(new Date(Date.now() - DAY));
   UnsubmittedCrashHandler.prefs.setCharPref("suppressUntilDate", yesterday);
   UnsubmittedCrashHandler.uninit();
   UnsubmittedCrashHandler.init();

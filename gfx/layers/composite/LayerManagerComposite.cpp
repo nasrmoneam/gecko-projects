@@ -42,6 +42,7 @@
 #include "mozilla/layers/Effects.h"     // for Effect, EffectChain, etc
 #include "mozilla/layers/LayerMetricsWrapper.h" // for LayerMetricsWrapper
 #include "mozilla/layers/LayersTypes.h"  // for etc
+#include "mozilla/widget/CompositorWidget.h" // for WidgetRenderingContext
 #include "ipc/CompositorBench.h"        // for CompositorBench
 #include "ipc/ShadowLayerUtils.h"
 #include "mozilla/mozalloc.h"           // for operator new, etc
@@ -58,15 +59,11 @@
 #include <android/log.h>
 #include <android/native_window.h>
 #endif
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 #include "opengl/CompositorOGL.h"
 #include "GLContextEGL.h"
 #include "GLContextProvider.h"
 #include "ScopedGLHelpers.h"
-#endif
-#ifdef MOZ_WIDGET_GONK
-#include "nsScreenManagerGonk.h"
-#include "nsWindow.h"
 #endif
 #include "GeckoProfiler.h"
 #include "TextRenderer.h"               // for TextRenderer
@@ -166,19 +163,21 @@ bool
 LayerManagerComposite::AreComponentAlphaLayersEnabled()
 {
   return mCompositor->GetBackendType() != LayersBackend::LAYERS_BASIC &&
+         mCompositor->SupportsEffect(EffectTypes::COMPONENT_ALPHA) &&
          LayerManager::AreComponentAlphaLayersEnabled();
 }
 
-void
+bool
 LayerManagerComposite::BeginTransaction()
 {
   mInTransaction = true;
 
   if (!mCompositor->Ready()) {
-    return;
+    return false;
   }
 
   mIsCompositorReady = true;
+  return true;
 }
 
 void
@@ -481,7 +480,7 @@ LayerManagerComposite::UpdateAndRender()
   }
 
   Render(invalid, opaque);
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
   RenderToPresentationSurface();
 #endif
   mGeometryChanged = false;
@@ -913,11 +912,18 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
     mLastFrameMissedHWC = !!composer2D;
   }
 
+  mozilla::widget::WidgetRenderingContext widgetContext;
+#if defined(XP_MACOSX)
+  widgetContext.mLayerManager = this;
+#elif defined(MOZ_WIDGET_ANDROID)
+  widgetContext.mCompositor = GetCompositor();
+#endif
+
   {
     PROFILER_LABEL("LayerManagerComposite", "PreRender",
       js::ProfileEntry::Category::GRAPHICS);
 
-    if (!mCompositor->GetWidget()->PreRender(this)) {
+    if (!mCompositor->GetWidget()->PreRender(&widgetContext)) {
       return;
     }
   }
@@ -948,13 +954,13 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
   }
 
   if (actualBounds.IsEmpty()) {
-    mCompositor->GetWidget()->PostRender(this);
+    mCompositor->GetWidget()->PostRender(&widgetContext);
     return;
   }
 
   // Allow widget to render a custom background.
   mCompositor->GetWidget()->DrawWindowUnderlay(
-    this, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
+    &widgetContext, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
 
   RefPtr<CompositingRenderTarget> previousTarget;
   if (haveLayerEffects) {
@@ -982,7 +988,7 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
 
   // Allow widget to render a custom foreground.
   mCompositor->GetWidget()->DrawWindowOverlay(
-    this, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
+    &widgetContext, LayoutDeviceIntRect::FromUnknownRect(actualBounds));
 
   // Debugging
   RenderDebugOverlay(actualBounds);
@@ -1001,12 +1007,12 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
     composer2D->Render(mCompositor->GetWidget()->RealWidget());
   }
 
-  mCompositor->GetWidget()->PostRender(this);
+  mCompositor->GetWidget()->PostRender(&widgetContext);
 
   RecordFrame();
 }
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 class ScopedCompositorProjMatrix {
 public:
   ScopedCompositorProjMatrix(CompositorOGL* aCompositor, const Matrix4x4& aProjMatrix):
@@ -1113,40 +1119,6 @@ LayerManagerComposite::RenderToPresentationSurface()
   const IntSize windowSize(ANativeWindow_getWidth(window),
                            ANativeWindow_getHeight(window));
 
-#elif defined(MOZ_WIDGET_GONK)
-  CompositorOGL* compositor = mCompositor->AsCompositorOGL();
-  nsScreenGonk* screen = static_cast<nsWindow*>(mCompositor->GetWidget()->RealWidget())->GetScreen();
-  if (!screen->IsPrimaryScreen()) {
-    // Only primary screen support mirroring
-    return;
-  }
-
-  nsWindow* mirrorScreenWidget = screen->GetMirroringWidget();
-  if (!mirrorScreenWidget) {
-    // No mirroring
-    return;
-  }
-
-  nsScreenGonk* mirrorScreen = mirrorScreenWidget->GetScreen();
-  if (!mirrorScreen->GetTopWindows().IsEmpty()) {
-    return;
-  }
-
-  EGLSurface surface = mirrorScreen->GetEGLSurface();
-  if (surface == LOCAL_EGL_NO_SURFACE) {
-    // Create GLContext
-    RefPtr<GLContext> gl = gl::GLContextProvider::CreateForWindow(mirrorScreenWidget, false);
-    mirrorScreenWidget->SetNativeData(NS_NATIVE_OPENGL_CONTEXT,
-                                      reinterpret_cast<uintptr_t>(gl.get()));
-    surface = mirrorScreen->GetEGLSurface();
-    if (surface == LOCAL_EGL_NO_SURFACE) {
-      // Failed to create EGLSurface
-      return;
-    }
-  }
-  GLContext* gl = compositor->gl();
-  GLContextEGL* egl = GLContextEGL::Cast(gl);
-  const IntSize windowSize = mirrorScreen->GetNaturalBounds().Size().ToUnknownSize();
 #endif
 
   if ((windowSize.width <= 0) || (windowSize.height <= 0)) {
@@ -1213,15 +1185,6 @@ LayerManagerComposite::RenderToPresentationSurface()
   RootLayer()->RenderLayer(clipRect);
 
   mCompositor->EndFrame();
-#ifdef MOZ_WIDGET_GONK
-  mCompositor->SetDispAcquireFence(mRoot); // Call after EndFrame()
-
-  RefPtr<Composer2D> composer2D;
-  composer2D = mCompositor->GetWidget()->GetComposer2D();
-  if (composer2D) {
-    composer2D->Render(mirrorScreenWidget);
-  }
-#endif
 }
 #endif
 

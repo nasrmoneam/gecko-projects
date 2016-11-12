@@ -773,6 +773,8 @@ interface TestExampleInterface {
   [Throws] attribute boolean throwingAttr;
   [GetterThrows] attribute boolean throwingGetterAttr;
   [SetterThrows] attribute boolean throwingSetterAttr;
+  [NeedsSubjectPrincipal] void needsSubjectPrincipalMethod();
+  [NeedsSubjectPrincipal] attribute boolean needsSubjectPrincipalAttr;
   legacycaller short(unsigned long arg1, TestInterface arg2);
   void passArgsWithDefaults(optional long arg1,
                             optional TestInterface? arg2 = null,
@@ -791,7 +793,6 @@ interface TestExampleInterface {
 
 interface TestExampleProxyInterface {
   getter long longIndexedGetter(unsigned long ix);
-  deleter void (unsigned long ix);
   setter creator void longIndexedSetter(unsigned long y, long z);
   stringifier DOMString myStringifier();
   getter short shortNameGetter(DOMString nom);

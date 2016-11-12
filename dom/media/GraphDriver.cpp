@@ -585,6 +585,32 @@ AudioCallbackDriver::~AudioCallbackDriver()
   MOZ_ASSERT(mPromisesForOperation.IsEmpty());
 }
 
+bool IsMacbookOrMacbookAir()
+{
+#ifdef XP_MACOSX
+  size_t len = 0;
+  sysctlbyname("hw.model", NULL, &len, NULL, 0);
+  if (len) {
+    UniquePtr<char[]> model(new char[len]);
+    // This string can be
+    // MacBook%d,%d for a normal MacBook
+    // MacBookPro%d,%d for a MacBook Pro
+    // MacBookAir%d,%d for a Macbook Air
+    sysctlbyname("hw.model", model.get(), &len, NULL, 0);
+    char* substring = strstr(model.get(), "MacBook");
+    if (substring) {
+      const size_t offset = strlen("MacBook");
+      if (strncmp(model.get() + offset, "Air", len - offset) ||
+          isdigit(model[offset + 1])) {
+        return true;
+      }
+    }
+    return false;
+  }
+#endif
+  return false;
+}
+
 void
 AudioCallbackDriver::Init()
 {
@@ -628,10 +654,22 @@ AudioCallbackDriver::Init()
     output.format = CUBEB_SAMPLE_FLOAT32NE;
   }
 
-  if (cubeb_get_min_latency(cubebContext, output, &latency_frames) != CUBEB_OK) {
-    NS_WARNING("Could not get minimal latency from cubeb.");
-    return;
+  Maybe<uint32_t> latencyPref = CubebUtils::GetCubebMSGLatencyInFrames();
+  if (latencyPref) {
+    latency_frames = latencyPref.value();
+  } else {
+    if (cubeb_get_min_latency(cubebContext, output, &latency_frames) != CUBEB_OK) {
+      NS_WARNING("Could not get minimal latency from cubeb.");
+      return;
+    }
   }
+
+  // Macbook and MacBook air don't have enough CPU to run very low latency
+  // MediaStreamGraphs, cap the minimal latency to 512 frames int this case.
+  if (IsMacbookOrMacbookAir()) {
+    latency_frames = std::max((uint32_t) 512, latency_frames);
+  }
+
 
   input = output;
   input.channels = mInputChannels; // change to support optional stereo capture

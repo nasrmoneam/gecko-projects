@@ -5,8 +5,10 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "RemoteCompositorSession.h"
+#include "mozilla/VsyncDispatcher.h"
 #include "mozilla/layers/APZChild.h"
 #include "mozilla/layers/APZCTreeManagerChild.h"
+#include "mozilla/Unused.h"
 #include "nsBaseWidget.h"
 
 namespace mozilla {
@@ -25,12 +27,22 @@ RemoteCompositorSession::RemoteCompositorSession(nsBaseWidget* aWidget,
    mAPZ(aAPZ)
 {
   GPUProcessManager::Get()->RegisterSession(this);
+  if (mAPZ) {
+    mAPZ->SetCompositorSession(this);
+  }
 }
 
 RemoteCompositorSession::~RemoteCompositorSession()
 {
   // This should have been shutdown first.
   MOZ_ASSERT(!mCompositorBridgeChild);
+}
+
+void
+RemoteCompositorSession::NotifyDeviceReset()
+{
+  MOZ_ASSERT(mWidget);
+  mWidget->OnRenderingDeviceReset();
 }
 
 void
@@ -52,7 +64,20 @@ RemoteCompositorSession::GetInProcessBridge() const
 void
 RemoteCompositorSession::SetContentController(GeckoContentController* aController)
 {
+  mContentController = aController;
   mCompositorBridgeChild->SendPAPZConstructor(new APZChild(aController), 0);
+}
+
+GeckoContentController*
+RemoteCompositorSession::GetContentController()
+{
+  return mContentController.get();
+}
+
+nsIWidget*
+RemoteCompositorSession::GetWidget()
+{
+  return mWidget;
 }
 
 RefPtr<IAPZCTreeManager>
@@ -61,9 +86,21 @@ RemoteCompositorSession::GetAPZCTreeManager() const
   return mAPZ;
 }
 
+bool
+RemoteCompositorSession::Reset(const nsTArray<LayersBackend>& aBackendHints, TextureFactoryIdentifier* aOutIdentifier)
+{
+  bool didReset;
+  Unused << mCompositorBridgeChild->SendReset(aBackendHints, &didReset, aOutIdentifier);
+  return didReset;
+}
+
 void
 RemoteCompositorSession::Shutdown()
 {
+  mContentController = nullptr;
+  if (mAPZ) {
+    mAPZ->SetCompositorSession(nullptr);
+  }
   mCompositorBridgeChild->Destroy();
   mCompositorBridgeChild = nullptr;
   mCompositorWidgetDelegate = nullptr;

@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
 
-set -v -e -x
-
 source $(dirname $0)/tools.sh
 
 if [ $(id -u) = 0 ]; then
-    # Set compiler.
-    switch_compilers
-
     # Stupid Docker.
     echo "127.0.0.1 localhost.localdomain" >> /etc/hosts
 
@@ -19,4 +14,4 @@ fi
 fetch_dist
 
 # Run tests.
-cd nss/tests && ./all.sh
+cd nss/tests && ./run.sh

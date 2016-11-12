@@ -11,6 +11,7 @@ const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 Cu.import("resource://gre/modules/AppConstants.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/Preferences.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource:///modules/RecentWindow.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
@@ -179,7 +180,6 @@ this.UITour = {
     ["searchPrefsLink", {
       query: (aDocument) => {
         let element = null;
-        let searchbar = aDocument.getElementById("searchbar");
         let popup = aDocument.getElementById("PopupSearchAutoComplete");
         if (popup.state != "open")
           return null;
@@ -1831,7 +1831,7 @@ this.UITour = {
         } else if (AppConstants.platform == "linux") {
           // The ShellService may not exist on some versions of Linux.
           try {
-            let shell = aWindow.getShellService();
+            aWindow.getShellService();
           } catch (e) {
             canSetDefaultBrowserInBackground = null;
           }
@@ -1865,6 +1865,9 @@ this.UITour = {
       case "sync":
         this.sendPageCallback(aMessageManager, aCallbackID, {
           setup: Services.prefs.prefHasUserValue("services.sync.username"),
+          desktopDevices: Preferences.get("services.sync.clients.devices.desktop", 0),
+          mobileDevices: Preferences.get("services.sync.clients.devices.mobile", 0),
+          totalDevices: Preferences.get("services.sync.numClients", 0),
         });
         break;
       case "canReset":

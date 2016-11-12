@@ -69,6 +69,8 @@
 
 'use strict';
 
+/* globals TESTS, runTest, finishTest */
+
 const { classes: Cc, interfaces: Ci, manager: Cm, results: Cr,
         utils: Cu } = Components;
 
@@ -146,6 +148,7 @@ var gUseTestUpdater = false;
 var DEBUG_AUS_TEST = true;
 
 const DATA_URI_SPEC = "chrome://mochitests/content/chrome/toolkit/mozapps/update/tests/data/";
+/* import-globals-from ../data/shared.js */
 Services.scriptloader.loadSubScript(DATA_URI_SPEC + "shared.js", this);
 
 /**
@@ -164,6 +167,56 @@ this.__defineGetter__("gCallback", function() {
   return gTest.overrideCallback ? gTest.overrideCallback
                                 : defaultCallback;
 });
+
+/**
+ * nsIObserver for receiving window open and close notifications.
+ */
+const gWindowObserver = {
+  observe: function WO_observe(aSubject, aTopic, aData) {
+    let win = aSubject.QueryInterface(Ci.nsIDOMEventTarget);
+
+    if (aTopic == "domwindowclosed") {
+      if (win.location != URI_UPDATE_PROMPT_DIALOG) {
+        debugDump("domwindowclosed event for window not being tested - " +
+                  "location: " + win.location + "... returning early");
+        return;
+      }
+      // Allow tests the ability to provide their own function (it must be
+      // named finishTest) for finishing the test.
+      try {
+        finishTest();
+      }
+      catch (e) {
+        finishTestDefault();
+      }
+      return;
+    }
+
+    win.addEventListener("load", function WO_observe_onLoad() {
+      win.removeEventListener("load", WO_observe_onLoad, false);
+      // Ignore windows other than the update UI window.
+      if (win.location != URI_UPDATE_PROMPT_DIALOG) {
+        debugDump("load event for window not being tested - location: " +
+                  win.location + "... returning early");
+        return;
+      }
+
+      // The first wizard page should always be the dummy page.
+      let pageid = win.document.documentElement.currentPage.pageid;
+      if (pageid != PAGEID_DUMMY) {
+        // This should never happen but if it does this will provide a clue
+        // for diagnosing the cause.
+        ok(false, "Unexpected load event - pageid got: " + pageid +
+           ", expected: " + PAGEID_DUMMY + "... returning early");
+        return;
+      }
+
+      gWin = win;
+      gDocElem = gWin.document.documentElement;
+      gDocElem.addEventListener("pageshow", onPageShowDefault, false);
+    }, false);
+  }
+};
 
 /**
  * Default test run function that can be used by most tests. This function uses
@@ -507,29 +560,29 @@ function getExpectedButtonStates() {
 
   switch (gTest.pageid) {
     case PAGEID_CHECKING:
-      return { cancel: { disabled: false, hidden: false } };
+      return {cancel: {disabled: false, hidden: false}};
     case PAGEID_FOUND_BASIC:
       if (gTest.neverButton) {
-        return { extra1: { disabled: false, hidden: false },
-                 extra2: { disabled: false, hidden: false },
-                 next  : { disabled: false, hidden: false } }
+        return {extra1: {disabled: false, hidden: false},
+                extra2: {disabled: false, hidden: false},
+                next: {disabled: false, hidden: false}};
       }
-      return { extra1: { disabled: false, hidden: false },
-               next  : { disabled: false, hidden: false } };
+      return {extra1: {disabled: false, hidden: false},
+              next: {disabled: false, hidden: false}};
     case PAGEID_DOWNLOADING:
-      return { extra1: { disabled: false, hidden: false } };
+      return {extra1: {disabled: false, hidden: false}};
     case PAGEID_NO_UPDATES_FOUND:
     case PAGEID_MANUAL_UPDATE:
     case PAGEID_UNSUPPORTED:
     case PAGEID_ERRORS:
     case PAGEID_ERROR_EXTRA:
-      return { finish: { disabled: false, hidden: false } };
+      return {finish: {disabled: false, hidden: false}};
     case PAGEID_ERROR_PATCHING:
-      return { next  : { disabled: false, hidden: false } };
+      return {next: { disabled: false, hidden: false}};
     case PAGEID_FINISHED:
     case PAGEID_FINISHED_BKGRD:
-      return { extra1: { disabled: false, hidden: false },
-               finish: { disabled: false, hidden: false } };
+      return {extra1: { disabled: false, hidden: false},
+              finish: { disabled: false, hidden: false}};
   }
   return null;
 }
@@ -869,10 +922,6 @@ function resetPrefs() {
     Services.prefs.clearUserPref(PREF_APP_UPDATE_BACKGROUNDMAXERRORS);
   }
 
-  if (Services.prefs.prefHasUserValue(PREF_APP_UPDATE_CERT_REQUIREBUILTIN)) {
-    Services.prefs.clearUserPref(PREF_APP_UPDATE_CERT_REQUIREBUILTIN);
-  }
-
   try {
     Services.prefs.deleteBranch(PREFBRANCH_APP_UPDATE_NEVER);
   }
@@ -964,55 +1013,5 @@ const errorsPrefObserver = {
         });
       }
     }
-  }
-};
-
-/**
- * nsIObserver for receiving window open and close notifications.
- */
-const gWindowObserver = {
-  observe: function WO_observe(aSubject, aTopic, aData) {
-    let win = aSubject.QueryInterface(Ci.nsIDOMEventTarget);
-
-    if (aTopic == "domwindowclosed") {
-      if (win.location != URI_UPDATE_PROMPT_DIALOG) {
-        debugDump("domwindowclosed event for window not being tested - " +
-                  "location: " + win.location + "... returning early");
-        return;
-      }
-      // Allow tests the ability to provide their own function (it must be
-      // named finishTest) for finishing the test.
-      try {
-        finishTest();
-      }
-      catch (e) {
-        finishTestDefault();
-      }
-      return;
-    }
-
-    win.addEventListener("load", function WO_observe_onLoad() {
-      win.removeEventListener("load", WO_observe_onLoad, false);
-      // Ignore windows other than the update UI window.
-      if (win.location != URI_UPDATE_PROMPT_DIALOG) {
-        debugDump("load event for window not being tested - location: " +
-                  win.location + "... returning early");
-        return;
-      }
-
-      // The first wizard page should always be the dummy page.
-      let pageid = win.document.documentElement.currentPage.pageid;
-      if (pageid != PAGEID_DUMMY) {
-        // This should never happen but if it does this will provide a clue
-        // for diagnosing the cause.
-        ok(false, "Unexpected load event - pageid got: " + pageid +
-           ", expected: " + PAGEID_DUMMY + "... returning early");
-        return;
-      }
-
-      gWin = win;
-      gDocElem = gWin.document.documentElement;
-      gDocElem.addEventListener("pageshow", onPageShowDefault, false);
-    }, false);
   }
 };
