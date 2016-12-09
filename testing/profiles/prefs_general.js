@@ -44,7 +44,7 @@ user_pref("media.preload.auto", 3); // auto = enough
 user_pref("media.cache_size", 1000);
 user_pref("media.volume_scale", "0.01");
 user_pref("media.test.dumpDebugInfo", true);
-user_pref("media.dormant-on-pause-timeout-ms", -1); // Disable dormant for it breaks some tests.
+user_pref("media.dormant-on-pause-timeout-ms", 0); // Enter dormant immediately without waiting for timeout.
 user_pref("security.warn_viewing_mixed", false);
 user_pref("app.update.enabled", false);
 user_pref("app.update.staging.enabled", false);
@@ -161,8 +161,7 @@ user_pref("datareporting.healthreport.about.reportUrl", "http://%(server)s/about
 // Make sure CSS error reporting is enabled for tests
 user_pref("layout.css.report_errors", true);
 
-// Enable CSS Grid for testing
-user_pref("layout.css.grid.enabled", true);
+// Enable CSS Grid 'subgrid' feature for testing
 user_pref("layout.css.grid-template-subgrid-value.enabled", true);
 
 // Enable CSS 'contain' for testing
@@ -233,10 +232,6 @@ user_pref("general.useragent.updates.enabled", false);
 // Disable webapp updates.  Yes, it is supposed to be an integer.
 user_pref("browser.webapps.checkForUpdates", 0);
 
-// Enable debug logging in the tcp presentation server.
-user_pref("dom.presentation.tcp_server.debug", true);
-// Enable debug logging in the presentation core service.
-user_pref("logging.Presentation", "debug");
 user_pref("dom.presentation.testing.simulate-receiver", false);
 
 // Don't connect to Yahoo! for RSS feed tests.
@@ -355,3 +350,9 @@ user_pref("plugin.load_flash_only", false);
 // Don't block old libavcodec libraries when testing, because our test systems
 // cannot easily be upgraded.
 user_pref("media.libavcodec.allow-obsolete", true);
+
+user_pref("media.openUnsupportedTypeWithExternalApp", false);
+
+// Disable password capture, so that mochitests that include forms aren't
+// influenced by the presence of the persistent doorhanger notification.
+user_pref("signon.rememberSignons", false);

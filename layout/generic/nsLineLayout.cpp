@@ -758,8 +758,8 @@ IsPercentageAware(const nsIFrame* aFrame)
        pos->mWidth.GetUnit() != eStyleUnit_Auto) ||
       pos->MaxWidthDependsOnContainer() ||
       pos->MinWidthDependsOnContainer() ||
-      pos->OffsetHasPercent(NS_SIDE_RIGHT) ||
-      pos->OffsetHasPercent(NS_SIDE_LEFT)) {
+      pos->OffsetHasPercent(eSideRight) ||
+      pos->OffsetHasPercent(eSideLeft)) {
     return true;
   }
 
@@ -1692,10 +1692,9 @@ nsLineLayout::AdjustLeadings(nsIFrame* spanFrame, PerSpanData* psd,
     // required by section Line Spacing in the CSS Ruby spec.
     // See http://dev.w3.org/csswg/css-ruby/#line-height
     auto rubyFrame = static_cast<nsRubyFrame*>(spanFrame);
-    nscoord startLeading, endLeading;
-    rubyFrame->GetBlockLeadings(startLeading, endLeading);
-    requiredStartLeading += startLeading;
-    requiredEndLeading += endLeading;
+    RubyBlockLeadings leadings = rubyFrame->GetBlockLeadings();
+    requiredStartLeading += leadings.mStart;
+    requiredEndLeading += leadings.mEnd;
   }
   if (aStyleText->HasTextEmphasis()) {
     nscoord bsize = GetBSizeOfEmphasisMarks(spanFrame, aInflation);

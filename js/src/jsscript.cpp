@@ -316,6 +316,9 @@ js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope, HandleScrip
         IsGeneratorExp,
         IsLegacyGenerator,
         IsStarGenerator,
+        IsAsync,
+        HasRest,
+        IsExprBody,
         OwnSource,
         ExplicitUseStrict,
         SelfHosted,
@@ -429,6 +432,12 @@ js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope, HandleScrip
             scriptBits |= (1 << IsLegacyGenerator);
         if (script->isStarGenerator())
             scriptBits |= (1 << IsStarGenerator);
+        if (script->asyncKind() == AsyncFunction)
+            scriptBits |= (1 << IsAsync);
+        if (script->hasRest())
+            scriptBits |= (1 << HasRest);
+        if (script->isExprBody())
+            scriptBits |= (1 << IsExprBody);
         if (script->hasSingletons())
             scriptBits |= (1 << HasSingleton);
         if (script->treatAsRunOnce())
@@ -577,6 +586,13 @@ js::XDRScript(XDRState<mode>* xdr, HandleScope scriptEnclosingScope, HandleScrip
             script->setGeneratorKind(LegacyGenerator);
         } else if (scriptBits & (1 << IsStarGenerator))
             script->setGeneratorKind(StarGenerator);
+
+        if (scriptBits & (1 << IsAsync))
+            script->setAsyncKind(AsyncFunction);
+        if (scriptBits & (1 << HasRest))
+            script->setHasRest();
+        if (scriptBits & (1 << IsExprBody))
+            script->setIsExprBody();
     }
 
     JS_STATIC_ASSERT(sizeof(jsbytecode) == 1);
@@ -1669,6 +1685,16 @@ ScriptSource::substringDontDeflate(JSContext* cx, size_t start, size_t stop)
     return NewStringCopyNDontDeflate<CanGC>(cx, chars, len);
 }
 
+JSFlatString*
+ScriptSource::functionBodyString(JSContext* cx)
+{
+    MOZ_ASSERT(isFunctionBody());
+
+    size_t start = parameterListEnd_ + (sizeof(FunctionConstructorMedialSigils) - 1);
+    size_t stop = length() - (sizeof(FunctionConstructorFinalBrace) - 1);
+    return substring(cx, start, stop);
+}
+
 MOZ_MUST_USE bool
 ScriptSource::setSource(ExclusiveContext* cx,
                         mozilla::UniquePtr<char16_t[], JS::FreePolicy>&& source,
@@ -1720,10 +1746,9 @@ ScriptSource::setCompressedSource(SharedImmutableString&& raw, size_t uncompress
 
 bool
 ScriptSource::setSourceCopy(ExclusiveContext* cx, SourceBufferHolder& srcBuf,
-                            bool argumentsNotIncluded, SourceCompressionTask* task)
+                            SourceCompressionTask* task)
 {
     MOZ_ASSERT(!hasSourceData());
-    argumentsNotIncluded_ = argumentsNotIncluded;
 
     auto& cache = cx->zone()->runtimeFromAnyThread()->sharedImmutableStrings();
     auto deduped = cache.getOrCreate(srcBuf.get(), srcBuf.length(), [&]() {
@@ -1920,16 +1945,6 @@ ScriptSource::performXDR(XDRState<mode>* xdr)
         if (!xdr->codeUint32(&compressedLength))
             return false;
 
-        {
-            uint8_t argumentsNotIncluded;
-            if (mode == XDR_ENCODE)
-                argumentsNotIncluded = argumentsNotIncluded_;
-            if (!xdr->codeUint8(&argumentsNotIncluded))
-                return false;
-            if (mode == XDR_DECODE)
-                argumentsNotIncluded_ = argumentsNotIncluded;
-        }
-
         size_t byteLen = compressedLength ? compressedLength : (len * sizeof(char16_t));
         if (mode == XDR_DECODE) {
             uint8_t* p = xdr->cx()->template pod_malloc<uint8_t>(Max<size_t>(byteLen, 1));
@@ -2054,7 +2069,8 @@ FormatIntroducedFilename(ExclusiveContext* cx, const char* filename, unsigned li
 }
 
 bool
-ScriptSource::initFromOptions(ExclusiveContext* cx, const ReadOnlyCompileOptions& options)
+ScriptSource::initFromOptions(ExclusiveContext* cx, const ReadOnlyCompileOptions& options,
+                              Maybe<uint32_t> parameterListEnd)
 {
     MOZ_ASSERT(!filename_);
     MOZ_ASSERT(!introducerFilename_);
@@ -2063,6 +2079,7 @@ ScriptSource::initFromOptions(ExclusiveContext* cx, const ReadOnlyCompileOptions
 
     introductionType_ = options.introductionType;
     setIntroductionOffset(options.introductionOffset);
+    parameterListEnd_ = parameterListEnd.isSome() ? parameterListEnd.value() : 0;
 
     if (options.hasIntroductionInfo) {
         MOZ_ASSERT(options.introductionType != nullptr);
@@ -2616,6 +2633,10 @@ JSScript::initFromFunctionBox(ExclusiveContext* cx, HandleScript script,
     script->isGeneratorExp_ = funbox->isGenexpLambda;
     script->setGeneratorKind(funbox->generatorKind());
     script->setAsyncKind(funbox->asyncKind());
+    if (funbox->hasRest())
+        script->setHasRest();
+    if (funbox->isExprBody())
+        script->setIsExprBody();
 
     PositionalFormalParameterIter fi(script);
     while (fi && !fi.closedOver())
@@ -3105,8 +3126,6 @@ Rebase(JSScript* dst, JSScript* src, T* srcp)
 static JSObject*
 CloneInnerInterpretedFunction(JSContext* cx, HandleScope enclosingScope, HandleFunction srcFun)
 {
-    /* async function should not appear as inner function. */
-    MOZ_ASSERT(!srcFun->isAsync());
     /* NB: Keep this in sync with XDRInterpretedFunction. */
     RootedObject cloneProto(cx);
     if (srcFun->isStarGenerator()) {
@@ -3218,7 +3237,7 @@ js::detail::CopyScript(JSContext* cx, HandleScript src, HandleScript dst,
                 } else {
                     if (innerFun->isInterpretedLazy()) {
                         AutoCompartment ac(cx, innerFun);
-                        if (!innerFun->getOrCreateScript(cx))
+                        if (!JSFunction::getOrCreateScript(cx, innerFun))
                             return false;
                     }
 
@@ -3276,6 +3295,8 @@ js::detail::CopyScript(JSContext* cx, HandleScript src, HandleScript dst,
     dst->needsHomeObject_ = src->needsHomeObject();
     dst->isDefaultClassConstructor_ = src->isDefaultClassConstructor();
     dst->isAsync_ = src->asyncKind() == AsyncFunction;
+    dst->hasRest_ = src->hasRest_;
+    dst->isExprBody_ = src->isExprBody_;
 
     if (nconsts != 0) {
         GCPtrValue* vector = Rebase<GCPtrValue>(dst, src, src->consts()->vector);
@@ -3635,7 +3656,7 @@ JSScript::traceChildren(JSTracer* trc)
     // fullyInitFromEmitter() or fullyInitTrivial().
 
     MOZ_ASSERT_IF(trc->isMarkingTracer() &&
-                  static_cast<GCMarker*>(trc)->shouldCheckCompartments(),
+                  GCMarker::fromTracer(trc)->shouldCheckCompartments(),
                   zone()->isCollecting());
 
     if (scriptData())
@@ -4009,6 +4030,8 @@ LazyScript::Create(ExclusiveContext* cx, HandleFunction fun,
     p.shouldDeclareArguments = false;
     p.hasThisBinding = false;
     p.isAsync = false;
+    p.hasRest = false;
+    p.isExprBody = false;
     p.numClosedOverBindings = closedOverBindings.length();
     p.numInnerFunctions = innerFunctions.length();
     p.generatorKindBits = GeneratorKindAsBits(NotGenerator);
@@ -4150,7 +4173,7 @@ JSScript::hasLoops()
 bool
 JSScript::mayReadFrameArgsDirectly()
 {
-    return argumentsHasVarBinding() || (function() && function()->hasRest());
+    return argumentsHasVarBinding() || hasRest();
 }
 
 static inline void
@@ -4235,7 +4258,7 @@ JSScript::AutoDelazify::holdScript(JS::HandleFunction fun)
             script_ = fun->nonLazyScript();
         } else {
             JSAutoCompartment ac(cx_, fun);
-            script_ = fun->getOrCreateScript(cx_);
+            script_ = JSFunction::getOrCreateScript(cx_, fun);
             if (script_) {
                 oldDoNotRelazify_ = script_->doNotRelazify_;
                 script_->setDoNotRelazify(true);

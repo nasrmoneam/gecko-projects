@@ -4,7 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* global window */
+/* global window, BrowserLoader */
 
 "use strict";
 
@@ -22,14 +22,15 @@ const Telemetry = require("devtools/client/shared/telemetry");
 const Menu = require("devtools/client/framework/menu");
 const MenuItem = require("devtools/client/framework/menu-item");
 
-const {CommandUtils} = require("devtools/client/shared/developer-toolbar");
+const {HTMLBreadcrumbs} = require("devtools/client/inspector/breadcrumbs");
 const {ComputedViewTool} = require("devtools/client/inspector/computed/computed");
 const {FontInspector} = require("devtools/client/inspector/fonts/fonts");
-const {HTMLBreadcrumbs} = require("devtools/client/inspector/breadcrumbs");
 const {InspectorSearch} = require("devtools/client/inspector/inspector-search");
-const MarkupView = require("devtools/client/inspector/markup/markup");
 const {RuleViewTool} = require("devtools/client/inspector/rules/rules");
+const HighlightersOverlay = require("devtools/client/inspector/shared/highlighters-overlay");
 const {ToolSidebar} = require("devtools/client/inspector/toolsidebar");
+const MarkupView = require("devtools/client/inspector/markup/markup");
+const {CommandUtils} = require("devtools/client/shared/developer-toolbar");
 const {ViewHelpers} = require("devtools/client/shared/widgets/view-helpers");
 const clipboardHelper = require("devtools/shared/platform/clipboard");
 
@@ -90,6 +91,7 @@ function Inspector(toolbox) {
   this.panelWin = window;
   this.panelWin.inspector = this;
 
+  this.highlighters = new HighlightersOverlay(this);
   this.telemetry = new Telemetry();
 
   this.nodeMenuTriggerInfo = null;
@@ -413,21 +415,26 @@ Inspector.prototype = {
   },
 
   get React() {
-    return require("devtools/client/shared/vendor/react");
+    return this._toolbox.React;
   },
 
   get ReactDOM() {
-    return require("devtools/client/shared/vendor/react-dom");
+    return this._toolbox.ReactDOM;
   },
 
   get ReactRedux() {
-    return require("devtools/client/shared/vendor/react-redux");
+    return this._toolbox.ReactRedux;
+  },
+
+  get browserRequire() {
+    return this._toolbox.browserRequire;
   },
 
   get InspectorTabPanel() {
     if (!this._InspectorTabPanel) {
       this._InspectorTabPanel =
-        this.React.createFactory(require("devtools/client/inspector/components/inspector-tab-panel"));
+        this.React.createFactory(this.browserRequire(
+        "devtools/client/inspector/components/inspector-tab-panel"));
     }
     return this._InspectorTabPanel;
   },
@@ -447,7 +454,8 @@ Inspector.prototype = {
    * the Inspector panel.
    */
   setupSplitter: function () {
-    let SplitBox = this.React.createFactory(require("devtools/client/shared/components/splitter/split-box"));
+    let SplitBox = this.React.createFactory(this.browserRequire(
+      "devtools/client/shared/components/splitter/split-box"));
 
     let splitter = SplitBox({
       className: "inspector-sidebar-splitter",
@@ -534,6 +542,12 @@ Inspector.prototype = {
 
     let defaultTab = Services.prefs.getCharPref("devtools.inspector.activeSidebar");
 
+    this._setDefaultSidebar = (event, toolId) => {
+      Services.prefs.setCharPref("devtools.inspector.activeSidebar", toolId);
+    };
+
+    this.sidebar.on("select", this._setDefaultSidebar);
+
     if (!Services.prefs.getBoolPref("devtools.fontinspector.enabled") &&
        defaultTab == "fontinspector") {
       defaultTab = "ruleview";
@@ -550,23 +564,11 @@ Inspector.prototype = {
       INSPECTOR_L10N.getStr("inspector.sidebar.computedViewTitle"),
       defaultTab == "computedview");
 
-    this._setDefaultSidebar = (event, toolId) => {
-      Services.prefs.setCharPref("devtools.inspector.activeSidebar", toolId);
-    };
-
-    this.sidebar.on("select", this._setDefaultSidebar);
-
     this.ruleview = new RuleViewTool(this, this.panelWin);
     this.computedview = new ComputedViewTool(this, this.panelWin);
 
     if (Services.prefs.getBoolPref("devtools.layoutview.enabled")) {
-      this.sidebar.addExistingTab(
-        "layoutview",
-        INSPECTOR_L10N.getStr("inspector.sidebar.layoutViewTitle"),
-        defaultTab == "layoutview"
-      );
-
-      const {LayoutView} = require("devtools/client/inspector/layout/layout");
+      const {LayoutView} = this.browserRequire("devtools/client/inspector/layout/layout");
       this.layoutview = new LayoutView(this, this.panelWin);
     }
 
@@ -610,11 +612,43 @@ Inspector.prototype = {
     this.sidebar.addTab(id, title, panel, selected);
   },
 
-  setupToolbar: function () {
+  /**
+   * Method to check whether the document is a HTML document and
+   * pickColorFromPage method is available or not.
+   *
+   * @return {Boolean} true if the eyedropper highlighter is supported by the current
+   *         document.
+   */
+  supportsEyeDropper: Task.async(function* () {
+    try {
+      let hasSupportsHighlighters =
+        yield this.target.actorHasMethod("inspector", "supportsHighlighters");
+      let hasPickColorFromPage =
+        yield this.target.actorHasMethod("inspector", "pickColorFromPage");
+
+      let supportsHighlighters;
+      if (hasSupportsHighlighters) {
+        supportsHighlighters = yield this.inspector.supportsHighlighters();
+      } else {
+        // If the actor does not provide the supportsHighlighter method, fallback to
+        // check if the selected node's document is a HTML document.
+        let { nodeFront } = this.selection;
+        supportsHighlighters = nodeFront && nodeFront.isInHTMLDocument;
+      }
+
+      return supportsHighlighters && hasPickColorFromPage;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  }),
+
+  setupToolbar: Task.async(function* () {
     this.teardownToolbar();
 
     // Setup the sidebar toggle button.
-    let SidebarToggle = this.React.createFactory(require("devtools/client/shared/components/sidebar-toggle"));
+    let SidebarToggle = this.React.createFactory(this.browserRequire(
+      "devtools/client/shared/components/sidebar-toggle"));
 
     let sidebarToggle = SidebarToggle({
       onClick: this.onPaneToggleButtonClicked,
@@ -632,26 +666,28 @@ Inspector.prototype = {
     this.addNodeButton.addEventListener("click", this.addNode);
 
     // Setup the eye-dropper icon if we're in an HTML document and we have actor support.
-    if (this.selection.nodeFront && this.selection.nodeFront.isInHTMLDocument) {
-      this.target.actorHasMethod("inspector", "pickColorFromPage").then(value => {
-        if (!value) {
-          return;
-        }
+    let canShowEyeDropper = yield this.supportsEyeDropper();
 
-        this.onEyeDropperDone = this.onEyeDropperDone.bind(this);
-        this.onEyeDropperButtonClicked = this.onEyeDropperButtonClicked.bind(this);
-        this.eyeDropperButton = this.panelDoc
+    // Bail out if the inspector was destroyed in the meantime and panelDoc is no longer
+    // available.
+    if (!this.panelDoc) {
+      return;
+    }
+
+    if (canShowEyeDropper) {
+      this.onEyeDropperDone = this.onEyeDropperDone.bind(this);
+      this.onEyeDropperButtonClicked = this.onEyeDropperButtonClicked.bind(this);
+      this.eyeDropperButton = this.panelDoc
                                     .getElementById("inspector-eyedropper-toggle");
-        this.eyeDropperButton.disabled = false;
-        this.eyeDropperButton.title = INSPECTOR_L10N.getStr("inspector.eyedropper.label");
-        this.eyeDropperButton.addEventListener("click", this.onEyeDropperButtonClicked);
-      }, e => console.error(e));
+      this.eyeDropperButton.disabled = false;
+      this.eyeDropperButton.title = INSPECTOR_L10N.getStr("inspector.eyedropper.label");
+      this.eyeDropperButton.addEventListener("click", this.onEyeDropperButtonClicked);
     } else {
       let eyeDropperButton = this.panelDoc.getElementById("inspector-eyedropper-toggle");
       eyeDropperButton.disabled = true;
       eyeDropperButton.title = INSPECTOR_L10N.getStr("eyedropper.disabled.title");
     }
-  },
+  }),
 
   teardownToolbar: function () {
     this._sidebarToggle = null;
@@ -908,13 +944,19 @@ Inspector.prototype = {
     this.breadcrumbs.destroy();
     this.selection.off("new-node-front", this.onNewSelection);
     this.selection.off("detached-front", this.onDetached);
+
     let markupDestroyer = this._destroyMarkup();
+
     this.panelWin.inspector = null;
     this.target = null;
     this.panelDoc = null;
     this.panelWin = null;
     this.breadcrumbs = null;
     this._toolbox = null;
+
+    this.highlighters.destroy();
+    this.highlighters = null;
+
     this.search.destroy();
     this.search = null;
     this.searchBox = null;
@@ -1310,15 +1352,15 @@ Inspector.prototype = {
     // create tool iframe
     this._markupFrame = doc.createElement("iframe");
     this._markupFrame.setAttribute("flex", "1");
+    // This is needed to enable tooltips inside the iframe document.
     this._markupFrame.setAttribute("tooltip", "aHTMLTooltip");
     this._markupFrame.addEventListener("contextmenu", this._onContextMenu);
 
-    // This is needed to enable tooltips inside the iframe document.
-    this._markupFrame.addEventListener("load", this._onMarkupFrameLoad, true);
-
     this._markupBox.setAttribute("collapsed", true);
     this._markupBox.appendChild(this._markupFrame);
-    this._markupFrame.setAttribute("src", "chrome://devtools/content/inspector/markup/markup.xhtml");
+
+    this._markupFrame.addEventListener("load", this._onMarkupFrameLoad, true);
+    this._markupFrame.setAttribute("src", "markup/markup.xhtml");
     this._markupFrame.setAttribute("aria-label",
       INSPECTOR_L10N.getStr("inspector.panelLabel.markupView"));
   },
@@ -1468,12 +1510,11 @@ Inspector.prototype = {
 
     // Insert the html and expect a childList markup mutation.
     let onMutations = this.once("markupmutation");
-    let {nodes} = yield this.walker.insertAdjacentHTML(this.selection.nodeFront,
-                                                       "beforeEnd", html);
+    yield this.walker.insertAdjacentHTML(this.selection.nodeFront, "beforeEnd", html);
     yield onMutations;
 
-    // Select the new node (this will auto-expand its parent).
-    this.selection.setNodeFront(nodes[0], "node-inserted");
+    // Expand the parent node.
+    this.markup.expandNode(this.selection.nodeFront);
   }),
 
   /**
@@ -1680,16 +1721,19 @@ Inspector.prototype = {
   },
 
   /**
-   * Initiate gcli screenshot command on selected node
+   * Initiate gcli screenshot command on selected node.
    */
   screenshotNode: function () {
+    const command = Services.prefs.getBoolPref("devtools.screenshot.clipboard.enabled") ?
+      "screenshot --file --clipboard --selector" :
+      "screenshot --file --selector";
     CommandUtils.createRequisition(this._target, {
       environment: CommandUtils.createEnvironment(this, "_target")
     }).then(requisition => {
       // Bug 1180314 -  CssSelector might contain white space so need to make sure it is
       // passed to screenshot as a single parameter.  More work *might* be needed if
       // CssSelector could contain escaped single- or double-quotes, backslashes, etc.
-      requisition.updateExec("screenshot --selector '" + this.selectionCssSelector + "'");
+      requisition.updateExec(`${command} '${this.selectionCssSelector}'`);
     });
   },
 
@@ -1845,90 +1889,111 @@ Inspector.prototype = {
   }
 };
 
+/**
+ * Create a fake toolbox when running the inspector standalone, either in a chrome tab or
+ * in a content tab.
+ *
+ * @param {Target} target to debug
+ * @param {Function} createThreadClient
+ *        When supported the thread client needs a reference to the toolbox.
+ *        This callback will be called right after the toolbox object is created.
+ * @param {Object} dependencies
+ *        - react
+ *        - reactDOM
+ *        - browserRequire
+ */
+const buildFakeToolbox = Task.async(function* (
+  target, createThreadClient, {
+    React,
+    ReactDOM,
+    browserRequire
+  }) {
+  const { InspectorFront } = require("devtools/shared/fronts/inspector");
+  const { Selection } = require("devtools/client/framework/selection");
+  const { getHighlighterUtils } = require("devtools/client/framework/toolbox-highlighter-utils");
+
+  let notImplemented = function () {
+    throw new Error("Not implemented in a tab");
+  };
+  let fakeToolbox = {
+    target,
+    hostType: "bottom",
+    doc: window.document,
+    win: window,
+    on() {}, emit() {}, off() {},
+    initInspector() {},
+    browserRequire,
+    React,
+    ReactDOM,
+    isToolRegistered() {
+      return false;
+    },
+    currentToolId: "inspector",
+    getCurrentPanel() {
+      return "inspector";
+    },
+    get textboxContextMenuPopup() {
+      notImplemented();
+    },
+    getPanel: notImplemented,
+    openSplitConsole: notImplemented,
+    viewCssSourceInStyleEditor: notImplemented,
+    viewJsSourceInDebugger: notImplemented,
+    viewSource: notImplemented,
+    viewSourceInDebugger: notImplemented,
+    viewSourceInStyleEditor: notImplemented,
+
+    // For attachThread:
+    highlightTool() {},
+    unhighlightTool() {},
+    selectTool() {},
+    raise() {},
+    getNotificationBox() {}
+  };
+
+  fakeToolbox.threadClient = yield createThreadClient(fakeToolbox);
+
+  let inspector = InspectorFront(target.client, target.form);
+  let showAllAnonymousContent =
+    Services.prefs.getBoolPref("devtools.inspector.showAllAnonymousContent");
+  let walker = yield inspector.getWalker({ showAllAnonymousContent });
+  let selection = new Selection(walker);
+  let highlighter = yield inspector.getHighlighter(false);
+  fakeToolbox.highlighterUtils = getHighlighterUtils(fakeToolbox);
+
+  fakeToolbox.inspector = inspector;
+  fakeToolbox.walker = walker;
+  fakeToolbox.selection = selection;
+  fakeToolbox.highlighter = highlighter;
+  return fakeToolbox;
+});
+
 // URL constructor doesn't support chrome: scheme
 let href = window.location.href.replace(/chrome:/, "http://");
 let url = new window.URL(href);
 
-// Only use this method to attach the toolbox if some query parameters are given
-if (url.search.length > 1) {
+// If query parameters are given in a chrome tab, the inspector is running in standalone.
+if (window.location.protocol === "chrome:" && url.search.length > 1) {
   const { targetFromURL } = require("devtools/client/framework/target-from-url");
   const { attachThread } = require("devtools/client/framework/attach-thread");
-  const Cu = Components.utils;
-  const { BrowserLoader } =
-    Cu.import("resource://devtools/client/shared/browser-loader.js", {});
 
-  const { Selection } = require("devtools/client/framework/selection");
-  const { InspectorFront } = require("devtools/shared/fronts/inspector");
-  const { getHighlighterUtils } = require("devtools/client/framework/toolbox-highlighter-utils");
+  const browserRequire = BrowserLoader({ window, useOnlyShared: true }).require;
+  const React = browserRequire("devtools/client/shared/vendor/react");
+  const ReactDOM = browserRequire("devtools/client/shared/vendor/react-dom");
 
   Task.spawn(function* () {
     let target = yield targetFromURL(url);
-
-    let notImplemented = function () {
-      throw new Error("Not implemented in a tab");
-    };
-    let fakeToolbox = {
+    let fakeToolbox = yield buildFakeToolbox(
       target,
-      hostType: "bottom",
-      doc: window.document,
-      win: window,
-      on() {}, emit() {}, off() {},
-      initInspector() {},
-      browserRequire: BrowserLoader({
-        window: window,
-        useOnlyShared: true
-      }).require,
-      get React() {
-        return this.browserRequire("devtools/client/shared/vendor/react");
-      },
-      get ReactDOM() {
-        return this.browserRequire("devtools/client/shared/vendor/react-dom");
-      },
-      isToolRegistered() {
-        return false;
-      },
-      currentToolId: "inspector",
-      getCurrentPanel() {
-        return "inspector";
-      },
-      get textboxContextMenuPopup() {
-        notImplemented();
-      },
-      getPanel: notImplemented,
-      openSplitConsole: notImplemented,
-      viewCssSourceInStyleEditor: notImplemented,
-      viewJsSourceInDebugger: notImplemented,
-      viewSource: notImplemented,
-      viewSourceInDebugger: notImplemented,
-      viewSourceInStyleEditor: notImplemented,
-
-      // For attachThread:
-      highlightTool() {},
-      unhighlightTool() {},
-      selectTool() {},
-      raise() {},
-      getNotificationBox() {}
-    };
-
-    // attachThread also expect a toolbox as argument
-    fakeToolbox.threadClient = yield attachThread(fakeToolbox);
-
-    let inspector = InspectorFront(target.client, target.form);
-    let showAllAnonymousContent =
-      Services.prefs.getBoolPref("devtools.inspector.showAllAnonymousContent");
-    let walker = yield inspector.getWalker({ showAllAnonymousContent });
-    let selection = new Selection(walker);
-    let highlighter = yield inspector.getHighlighter(false);
-
-    fakeToolbox.inspector = inspector;
-    fakeToolbox.walker = walker;
-    fakeToolbox.selection = selection;
-    fakeToolbox.highlighter = highlighter;
-    fakeToolbox.highlighterUtils = getHighlighterUtils(fakeToolbox);
-
+      (toolbox) => attachThread(toolbox),
+      { React, ReactDOM, browserRequire }
+    );
     let inspectorUI = new Inspector(fakeToolbox);
     inspectorUI.init();
   }).then(null, e => {
     window.alert("Unable to start the inspector:" + e.message + "\n" + e.stack);
   });
 }
+
+exports.Inspector = Inspector;
+exports.buildFakeToolbox = buildFakeToolbox;

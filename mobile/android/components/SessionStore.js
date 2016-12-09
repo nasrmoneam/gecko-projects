@@ -23,6 +23,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "Utils", "resource://gre/modules/session
 XPCOMUtils.defineLazyServiceGetter(this, "serializationHelper",
                                    "@mozilla.org/network/serialization-helper;1",
                                    "nsISerializationHelper");
+XPCOMUtils.defineLazyServiceGetter(this, "uuidGenerator",
+                                   "@mozilla.org/uuid-generator;1",
+                                   "nsIUUIDGenerator");
 
 function dump(a) {
   Services.console.logStringMessage(a);
@@ -51,6 +54,7 @@ const PRIVACY_FULL = 2;
 
 const PREFS_RESTORE_FROM_CRASH = "browser.sessionstore.resume_from_crash";
 const PREFS_MAX_CRASH_RESUMES = "browser.sessionstore.max_resumed_crashes";
+const PREFS_MAX_TABS_UNDO = "browser.sessionstore.max_tabs_undo";
 
 const MINIMUM_SAVE_DELAY = 2000;
 // We reduce the delay in background because we could be killed at any moment,
@@ -95,6 +99,9 @@ SessionStore.prototype = {
   // The Java UI will tell us which tab to watch out for.
   _keepAsZombieTabId: -1,
 
+  // Mapping from legacy docshellIDs to docshellUUIDs.
+  _docshellUUIDMap: new Map(),
+
   init: function ss_init() {
     loggingEnabled = Services.prefs.getBoolPref("browser.sessionstore.debug_logging");
 
@@ -113,7 +120,11 @@ SessionStore.prototype = {
 
     this._interval = Services.prefs.getIntPref("browser.sessionstore.interval");
     this._backupInterval = Services.prefs.getIntPref("browser.sessionstore.backupInterval");
-    this._maxTabsUndo = Services.prefs.getIntPref("browser.sessionstore.max_tabs_undo");
+
+    this._updateMaxTabsUndo();
+    Services.prefs.addObserver(PREFS_MAX_TABS_UNDO, () => {
+      this._updateMaxTabsUndo();
+    }, false);
 
     // Copy changes in Gecko settings to their Java counterparts,
     // so the startup code can access them
@@ -127,6 +138,13 @@ SessionStore.prototype = {
     }, false);
   },
 
+  _updateMaxTabsUndo: function ss_updateMaxTabsUndo() {
+    this._maxTabsUndo = Services.prefs.getIntPref(PREFS_MAX_TABS_UNDO);
+    if (this._maxTabsUndo == 0) {
+      this._forgetClosedTabs();
+    }
+  },
+
   _clearDisk: function ss_clearDisk() {
     this._sessionDataIsGood = false;
 
@@ -134,6 +152,14 @@ SessionStore.prototype = {
     OS.File.remove(this._sessionFileBackup.path);
     OS.File.remove(this._sessionFilePrevious.path);
     OS.File.remove(this._sessionFileTemp.path);
+  },
+
+  _forgetClosedTabs: function ss_forgetClosedTabs() {
+    for (let [ssid, win] of Object.entries(this._windows)) {
+      win.closedTabs = [];
+    }
+
+    this._lastClosedTabIndex = -1;
   },
 
   observe: function ss_observe(aSubject, aTopic, aData) {
@@ -208,10 +234,7 @@ SessionStore.prototype = {
         this._clearDisk();
 
         // Clear all data about closed tabs
-        for (let [ssid, win] of Object.entries(this._windows))
-          win.closedTabs = [];
-
-        this._lastClosedTabIndex = -1;
+        this._forgetClosedTabs();
 
         if (this._loadState == STATE_RUNNING) {
           // Save the purged state immediately
@@ -1163,7 +1186,7 @@ SessionStore.prototype = {
     }
 
     entry.ID = aEntry.ID;
-    entry.docshellID = aEntry.docshellID;
+    entry.docshellUUID = aEntry.docshellID.number;
 
     if (aEntry.referrerURI) {
       entry.referrer = aEntry.referrerURI.spec;
@@ -1298,8 +1321,21 @@ SessionStore.prototype = {
       shEntry.ID = id;
     }
 
+    // If we have the legacy docshellID on our aEntry, upgrade it to a
+    // docshellUUID by going through the mapping.
     if (aEntry.docshellID) {
-      shEntry.docshellID = aEntry.docshellID;
+      if (!this._docshellUUIDMap.has(aEntry.docshellID)) {
+        // Get the `.number` property out of the nsID such that the docshellUUID
+        // property is correctly stored as a string.
+        this._docshellUUIDMap.set(aEntry.docshellID,
+                                  uuidGenerator.generateUUID().number);
+      }
+      aEntry.docshellUUID = this._docshellUUIDMap.get(aEntry.docshellID);
+      delete aEntry.docshellID;
+    }
+
+    if (aEntry.docshellUUID) {
+      shEntry.docshellID = Components.ID(aEntry.docshellUUID);
     }
 
     if (aEntry.structuredCloneState && aEntry.structuredCloneVersion) {
@@ -1626,7 +1662,7 @@ SessionStore.prototype = {
     }
 
     // Restore the closed tabs array on the current window.
-    if (state.windows[0].closedTabs) {
+    if (state.windows[0].closedTabs && this._maxTabsUndo > 0) {
       this._windows[window.__SSID].closedTabs = state.windows[0].closedTabs;
       log("_restoreWindow() loaded " + state.windows[0].closedTabs.length + " closed tabs");
     }

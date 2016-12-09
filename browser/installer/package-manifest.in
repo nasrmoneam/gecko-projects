@@ -109,6 +109,14 @@
 @BINPATH@/gtk2/@DLL_PREFIX@mozgtk@DLL_SUFFIX@
 #endif
 
+; We don't have a complete view of which dlls to expect when doing an artifact
+; build because we haven't run all of configure, so we trust what's in
+; dist/bin, because everything there was extracted from our original build's
+; package.
+#if defined(MOZ_ARTIFACT_BUILDS) && defined(XP_WIN)
+@BINPATH@/*.dll
+#endif
+
 [browser]
 ; [Base Browser Files]
 #ifndef XP_UNIX
@@ -181,8 +189,8 @@
 @RESPATH@/components/directory.xpt
 @RESPATH@/components/docshell.xpt
 @RESPATH@/components/dom.xpt
-@RESPATH@/components/dom_apps.xpt
 @RESPATH@/components/dom_base.xpt
+@RESPATH@/components/dom_file.xpt
 @RESPATH@/components/dom_system.xpt
 @RESPATH@/components/dom_canvas.xpt
 @RESPATH@/components/dom_core.xpt
@@ -201,7 +209,6 @@
 @RESPATH@/components/dom_range.xpt
 @RESPATH@/components/dom_security.xpt
 @RESPATH@/components/dom_settings.xpt
-@RESPATH@/components/dom_permissionsettings.xpt
 @RESPATH@/components/dom_sidebar.xpt
 @RESPATH@/components/dom_storage.xpt
 @RESPATH@/components/dom_stylesheets.xpt
@@ -342,8 +349,6 @@
 @RESPATH@/components/ConsoleAPIStorage.js
 @RESPATH@/components/BrowserElementParent.manifest
 @RESPATH@/components/BrowserElementParent.js
-@RESPATH@/components/BrowserElementProxy.manifest
-@RESPATH@/components/BrowserElementProxy.js
 @RESPATH@/components/FeedProcessor.manifest
 @RESPATH@/components/FeedProcessor.js
 @RESPATH@/components/WellKnownOpportunisticUtils.js
@@ -402,6 +407,8 @@
 @RESPATH@/components/NetworkGeolocationProvider.manifest
 @RESPATH@/components/NetworkGeolocationProvider.js
 @RESPATH@/components/extensions.manifest
+@RESPATH@/components/EditorUtils.manifest
+@RESPATH@/components/EditorUtils.js
 @RESPATH@/components/addonManager.js
 @RESPATH@/components/amContentHandler.js
 @RESPATH@/components/amInstallTrigger.js
@@ -499,15 +506,11 @@
 @RESPATH@/components/messageWakeupService.manifest
 @RESPATH@/components/SettingsManager.js
 @RESPATH@/components/SettingsManager.manifest
-@RESPATH@/components/AppsService.js
-@RESPATH@/components/AppsService.manifest
 @RESPATH@/components/recording-cmdline.js
 @RESPATH@/components/recording-cmdline.manifest
 @RESPATH@/components/htmlMenuBuilder.js
 @RESPATH@/components/htmlMenuBuilder.manifest
 
-@RESPATH@/components/PermissionSettings.js
-@RESPATH@/components/PermissionSettings.manifest
 @RESPATH@/components/NotificationStorage.js
 @RESPATH@/components/NotificationStorage.manifest
 @RESPATH@/components/Push.js
@@ -527,8 +530,8 @@
 
 @RESPATH@/chrome/marionette@JAREXT@
 @RESPATH@/chrome/marionette.manifest
-@RESPATH@/components/MarionetteComponents.manifest
-@RESPATH@/components/marionettecomponent.js
+@RESPATH@/components/marionette.manifest
+@RESPATH@/components/marionette.js
 
 #ifdef MOZ_WEBSPEECH
 @RESPATH@/components/dom_webspeechsynth.xpt
@@ -548,7 +551,7 @@
 @RESPATH@/components/MozKeyboard.js
 @RESPATH@/components/InputMethod.manifest
 
-#ifdef MOZ_DEBUG
+#if defined(ENABLE_TESTS) && defined(MOZ_DEBUG)
 @RESPATH@/components/TestInterfaceJS.js
 @RESPATH@/components/TestInterfaceJS.manifest
 @RESPATH@/components/TestInterfaceJSMaplike.js
@@ -775,6 +778,7 @@ bin/libfreebl_32int64_3.so
 @BINPATH@/crashreporter.app/
 #else
 @BINPATH@/crashreporter@BIN_SUFFIX@
+@BINPATH@/minidump-analyzer@BIN_SUFFIX@
 @RESPATH@/crashreporter.ini
 #ifdef XP_UNIX
 @RESPATH@/Throbber-small.gif

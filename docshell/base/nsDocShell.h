@@ -207,6 +207,7 @@ public:
                              const nsAString& aFileName,
                              nsIInputStream* aPostDataStream = 0,
                              nsIInputStream* aHeadersDataStream = 0,
+                             bool aNoOpenerImplied = false,
                              nsIDocShell** aDocShell = 0,
                              nsIRequest** aRequest = 0) override;
   NS_IMETHOD OnOverLink(nsIContent* aContent,
@@ -779,8 +780,6 @@ protected:
   static const nsCString FrameTypeToString(uint32_t aFrameType)
   {
     switch (aFrameType) {
-      case FRAME_TYPE_APP:
-        return NS_LITERAL_CSTRING("app");
       case FRAME_TYPE_BROWSER:
         return NS_LITERAL_CSTRING("browser");
       case FRAME_TYPE_REGULAR:
@@ -1000,7 +999,7 @@ protected:
   bool mInEnsureScriptEnv;
 #endif
 
-  uint64_t mHistoryID;
+  nsID mHistoryID;
   uint32_t mDefaultLoadFlags;
 
   static nsIURIFixup* sURIFixup;

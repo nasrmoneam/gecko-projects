@@ -53,7 +53,6 @@ ENV           LC_ALL        en_US.UTF-8
 # Add utilities and configuration
 COPY           dot-files/config              /home/worker/.config
 COPY           dot-files/pulse               /home/worker/.pulse
-COPY           bin                           /home/worker/bin
 RUN            chmod +x bin/*
 # TODO: remove this when buildbot is gone
 COPY           buildprops.json               /home/worker/buildprops.json
@@ -68,9 +67,8 @@ RUN usermod -a -G video worker
 
 RUN mkdir Documents; mkdir Pictures; mkdir Music; mkdir Videos; mkdir artifacts
 
-# install a new enough npm, plus tc-vcs and tc-npm-cache
-RUN npm install -g npm@^2.0.0 \
- && npm install -g taskcluster-vcs@2.3.12 \
+# install tc-vcs and tc-npm-cache
+RUN npm install -g taskcluster-vcs@2.3.12 \
  && npm install -g taskcluster-npm-cache@1.1.14 \
  && rm -rf ~/.npm
 ENV PATH $PATH:/home/worker/bin

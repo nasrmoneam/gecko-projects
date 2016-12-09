@@ -13,7 +13,6 @@ Cu.import("resource://gre/modules/ExtensionManagement.jsm");
 Cu.import("resource://gre/modules/ExtensionUtils.jsm");
 var {
   SingletonEventManager,
-  runSafeSync,
 } = ExtensionUtils;
 
 // EventManager-like class specifically for WebRequest. Inherits from
@@ -28,12 +27,21 @@ function WebRequestEventManager(context, eventName) {
       if (data.isSystemPrincipal) {
         return;
       }
+      let browserData = {};
+      extensions.emit("fill-browser-data", data.browser, browserData);
+      if (filter.tabId != null && browserData.tabId != filter.tabId) {
+        return;
+      }
+      if (filter.windowId != null && browserData.windowId != filter.windowId) {
+        return;
+      }
 
       let data2 = {
         requestId: data.requestId,
         url: data.url,
         originUrl: data.originUrl,
         method: data.method,
+        tabId: browserData.tabId,
         type: data.type,
         timeStamp: Date.now(),
         frameId: ExtensionManagement.getFrameId(data.windowId),
@@ -49,8 +57,6 @@ function WebRequestEventManager(context, eventName) {
         data2.ip = data.ip;
       }
 
-      extensions.emit("fill-browser-data", data.browser, data2);
-
       let optional = ["requestHeaders", "responseHeaders", "statusCode", "statusLine", "error", "redirectUrl",
                       "requestBody"];
       for (let opt of optional) {
@@ -59,7 +65,7 @@ function WebRequestEventManager(context, eventName) {
         }
       }
 
-      return runSafeSync(context, callback, data2);
+      return context.runSafe(callback, data2);
     };
 
     let filter2 = {};

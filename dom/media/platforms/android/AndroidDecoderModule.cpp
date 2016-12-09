@@ -12,6 +12,9 @@
 #include "VPXDecoder.h"
 
 #include "MediaPrefs.h"
+#include "OpusDecoder.h"
+#include "VorbisDecoder.h"
+
 #include "nsPromiseFlatString.h"
 #include "nsIGfxInfo.h"
 
@@ -119,6 +122,11 @@ GetCryptoInfoFromSample(const MediaRawData* aSample)
   return cryptoInfo;
 }
 
+AndroidDecoderModule::AndroidDecoderModule(CDMProxy* aProxy)
+{
+  mProxy = static_cast<MediaDrmCDMProxy*>(aProxy);
+}
+
 bool
 AndroidDecoderModule::SupportsMimeType(const nsACString& aMimeType,
                                        DecoderDoctorDiagnostics* aDiagnostics) const
@@ -151,9 +159,10 @@ AndroidDecoderModule::SupportsMimeType(const nsACString& aMimeType,
     return false;
   }
 
-  // Prefer the gecko decoder for opus; stagefright crashes
+  // Prefer the gecko decoder for opus and vorbis; stagefright crashes
   // on content demuxed from mp4.
-  if (aMimeType.EqualsLiteral("audio/opus")) {
+  if (OpusDataDecoder::IsOpus(aMimeType) ||
+      VorbisDataDecoder::IsVorbis(aMimeType)) {
     LOG("Rejecting audio of type %s", aMimeType.Data());
     return false;
   }
@@ -174,16 +183,24 @@ AndroidDecoderModule::CreateVideoDecoder(const CreateDecoderParams& aParams)
       config.mDisplay.height,
       &format), nullptr);
 
-  RefPtr<MediaDataDecoder> decoder = MediaPrefs::PDMAndroidRemoteCodecEnabled() ?
-      RemoteDataDecoder::CreateVideoDecoder(config,
-                                            format,
-                                            aParams.mCallback,
-                                            aParams.mImageContainer) :
-      MediaCodecDataDecoder::CreateVideoDecoder(config,
-                                                format,
-                                                aParams.mCallback,
-                                                aParams.mImageContainer);
+  nsString drmStubId;
+  if (mProxy) {
+    drmStubId = mProxy->GetMediaDrmStubId();
+  }
 
+  RefPtr<MediaDataDecoder> decoder = MediaPrefs::PDMAndroidRemoteCodecEnabled() ?
+    RemoteDataDecoder::CreateVideoDecoder(config,
+                                          format,
+                                          aParams.mCallback,
+                                          aParams.mImageContainer,
+                                          drmStubId) :
+    MediaCodecDataDecoder::CreateVideoDecoder(config,
+                                              format,
+                                              aParams.mCallback,
+                                              aParams.mImageContainer,
+                                              drmStubId,
+                                              mProxy,
+                                              aParams.mTaskQueue);
   return decoder.forget();
 }
 
@@ -204,10 +221,18 @@ AndroidDecoderModule::CreateAudioDecoder(const CreateDecoderParams& aParams)
       config.mChannels,
       &format), nullptr);
 
+  nsString drmStubId;
+  if (mProxy) {
+    drmStubId = mProxy->GetMediaDrmStubId();
+  }
   RefPtr<MediaDataDecoder> decoder = MediaPrefs::PDMAndroidRemoteCodecEnabled() ?
-      RemoteDataDecoder::CreateAudioDecoder(config, format, aParams.mCallback) :
-      MediaCodecDataDecoder::CreateAudioDecoder(config, format, aParams.mCallback);
-
+      RemoteDataDecoder::CreateAudioDecoder(config, format, aParams.mCallback, drmStubId) :
+      MediaCodecDataDecoder::CreateAudioDecoder(config,
+                                                format,
+                                                aParams.mCallback,
+                                                drmStubId,
+                                                mProxy,
+                                                aParams.mTaskQueue);
   return decoder.forget();
 }
 

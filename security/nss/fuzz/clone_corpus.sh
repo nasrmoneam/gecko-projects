@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cd $(dirname $0)
-git clone https://github.com/mozilla/nss-fuzzing-corpus corpus
+d=$(dirname $0)
+$d/git-copy.sh https://github.com/mozilla/nss-fuzzing-corpus master $d/corpus

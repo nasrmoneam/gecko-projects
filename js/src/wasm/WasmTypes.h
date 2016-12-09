@@ -83,6 +83,7 @@ using mozilla::Unused;
 
 typedef Vector<uint32_t, 0, SystemAllocPolicy> Uint32Vector;
 typedef Vector<uint8_t, 0, SystemAllocPolicy> Bytes;
+typedef UniquePtr<Bytes> UniqueBytes;
 
 typedef int8_t I8x16[16];
 typedef int16_t I16x8[8];
@@ -259,7 +260,7 @@ ToMIRType(ValType vt)
 // generalized to a list of ValType and this enum will go away, replaced,
 // wherever it is used, by a varU32 + list of ValType.
 
-enum class ExprType : uint32_t // fix type so we can cast from any u8 in decoder
+enum class ExprType
 {
     Void  = uint8_t(TypeCode::BlockVoid),
 
@@ -585,6 +586,39 @@ struct Import
 
 typedef Vector<Import, 0, SystemAllocPolicy> ImportVector;
 
+// Export describes the export of a definition in a Module to a field in the
+// export object. For functions, Export stores an index into the
+// FuncExportVector in Metadata. For memory and table exports, there is
+// at most one (default) memory/table so no index is needed. Note: a single
+// definition can be exported by multiple Exports in the ExportVector.
+//
+// ExportVector is built incrementally by ModuleGenerator and then stored
+// immutably by Module.
+
+class Export
+{
+    CacheableChars fieldName_;
+    struct CacheablePod {
+        DefinitionKind kind_;
+        uint32_t index_;
+    } pod;
+
+  public:
+    Export() = default;
+    explicit Export(UniqueChars fieldName, uint32_t index, DefinitionKind kind);
+    explicit Export(UniqueChars fieldName, DefinitionKind kind);
+
+    const char* fieldName() const { return fieldName_.get(); }
+
+    DefinitionKind kind() const { return pod.kind_; }
+    uint32_t funcIndex() const;
+    uint32_t globalIndex() const;
+
+    WASM_DECLARE_SERIALIZABLE(Export)
+};
+
+typedef Vector<Export, 0, SystemAllocPolicy> ExportVector;
+
 // A GlobalDesc describes a single global variable. Currently, asm.js and wasm
 // exposes mutable and immutable private globals, but can't import nor export
 // mutable globals.
@@ -672,6 +706,26 @@ class GlobalDesc
 };
 
 typedef Vector<GlobalDesc, 0, SystemAllocPolicy> GlobalDescVector;
+
+// ElemSegment represents an element segment in the module where each element
+// describes both its function index and its code range.
+
+struct ElemSegment
+{
+    uint32_t tableIndex;
+    InitExpr offset;
+    Uint32Vector elemFuncIndices;
+    Uint32Vector elemCodeRangeIndices;
+
+    ElemSegment() = default;
+    ElemSegment(uint32_t tableIndex, InitExpr offset, Uint32Vector&& elemFuncIndices)
+      : tableIndex(tableIndex), offset(offset), elemFuncIndices(Move(elemFuncIndices))
+    {}
+
+    WASM_DECLARE_SERIALIZABLE(ElemSegment)
+};
+
+typedef Vector<ElemSegment, 0, SystemAllocPolicy> ElemSegmentVector;
 
 // DataSegment describes the offset of a data segment in the bytecode that is
 // to be copied at a given offset into linear memory upon instantiation.
@@ -855,7 +909,7 @@ enum class Trap
 
 // A wrapper around the bytecode offset of a wasm instruction within a whole
 // module. Trap offsets should refer to the first byte of the instruction that
-// triggered the trap and should ultimately derive from ExprIter::trapOffset.
+// triggered the trap and should ultimately derive from OpIter::trapOffset.
 
 struct TrapOffset
 {
@@ -1043,7 +1097,10 @@ struct Assumptions
     bool operator==(const Assumptions& rhs) const;
     bool operator!=(const Assumptions& rhs) const { return !(*this == rhs); }
 
-    WASM_DECLARE_SERIALIZABLE(Assumptions)
+    size_t serializedSize() const;
+    uint8_t* serialize(uint8_t* cursor) const;
+    const uint8_t* deserialize(const uint8_t* cursor, size_t remain);
+    size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 };
 
 // A Module can either be asm.js or wasm.

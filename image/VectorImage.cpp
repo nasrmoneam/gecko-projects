@@ -835,8 +835,8 @@ VectorImage::Draw(gfxContext* aContext,
     return DrawResult::TEMPORARY_ERROR;
   }
 
-  if (mAnimationConsumers == 0 && mProgressTracker) {
-    mProgressTracker->OnUnlockedDraw();
+  if (mAnimationConsumers == 0) {
+    SendOnUnlockedDraw(aFlags);
   }
 
   AutoRestore<bool> autoRestoreIsDrawing(mIsDrawing);
@@ -985,8 +985,19 @@ VectorImage::CreateSurfaceAndShow(const SVGDrawingParameters& aParams, BackendTy
 
   // Send out an invalidation so that surfaces that are still in use get
   // re-locked. See the discussion of the UnlockSurfaces call above.
-  mProgressTracker->SyncNotifyProgress(FLAG_FRAME_COMPLETE,
-                                       GetMaxSizedIntRect());
+  if (!(aParams.flags & FLAG_ASYNC_NOTIFY)) {
+    mProgressTracker->SyncNotifyProgress(FLAG_FRAME_COMPLETE,
+                                         GetMaxSizedIntRect());
+  } else {
+    NotNull<RefPtr<VectorImage>> image = WrapNotNull(this);
+    NS_DispatchToMainThread(NS_NewRunnableFunction([=]() -> void {
+      RefPtr<ProgressTracker> tracker = image->GetProgressTracker();
+      if (tracker) {
+        tracker->SyncNotifyProgress(FLAG_FRAME_COMPLETE,
+                                    GetMaxSizedIntRect());
+      }
+    }));
+  }
 }
 
 
@@ -1015,7 +1026,7 @@ VectorImage::RecoverFromLossOfSurfaces()
 }
 
 NS_IMETHODIMP
-VectorImage::StartDecoding()
+VectorImage::StartDecoding(uint32_t aFlags)
 {
   // Nothing to do for SVG images
   return NS_OK;

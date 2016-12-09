@@ -23,7 +23,7 @@
 #include "prenv.h"
 #include "nsXPCOMPrivate.h"
 
-#if defined(XP_MACOSX) && defined(MOZ_CONTENT_SANDBOX)
+#if defined(MOZ_CONTENT_SANDBOX)
 #include "nsAppDirectoryServiceDefs.h"
 #endif
 
@@ -60,15 +60,11 @@
 using mozilla::MonitorAutoLock;
 using mozilla::ipc::GeckoChildProcessHost;
 
-#ifdef ANDROID
-// Like its predecessor in nsExceptionHandler.cpp, this is
-// the magic number of a file descriptor remapping we must
-// preserve for the child process.
-static const int kMagicAndroidSystemPropFd = 5;
-#endif
-
 #ifdef MOZ_WIDGET_ANDROID
 #include "AndroidBridge.h"
+#include "GeneratedJNIWrappers.h"
+#include "mozilla/jni/Refs.h"
+#include "mozilla/jni/Utils.h"
 #endif
 
 static const bool kLowRightsSubprocesses =
@@ -111,6 +107,34 @@ GeckoChildProcessHost::GeckoChildProcessHost(GeckoProcessType aProcessType,
 #endif
 {
     MOZ_COUNT_CTOR(GeckoChildProcessHost);
+
+#if defined(OS_WIN) && defined(MOZ_CONTENT_SANDBOX)
+    // Add $PROFILE/chrome to the white list because it may located on network
+    // drive.
+    if (mProcessType == GeckoProcessType_Content) {
+        nsCOMPtr<nsIProperties> directoryService(do_GetService(NS_DIRECTORY_SERVICE_CONTRACTID));
+        NS_ASSERTION(directoryService, "Expected XPCOM to be available");
+        if (directoryService) {
+            // Full path to the profile dir
+            nsCOMPtr<nsIFile> profileDir;
+            nsresult rv = directoryService->Get(NS_APP_USER_PROFILE_50_DIR,
+                                                NS_GET_IID(nsIFile),
+                                                getter_AddRefs(profileDir));
+            if (NS_SUCCEEDED(rv)) {
+                profileDir->Append(NS_LITERAL_STRING("chrome"));
+                profileDir->Append(NS_LITERAL_STRING("*"));
+                nsAutoCString path;
+                MOZ_ALWAYS_SUCCEEDS(profileDir->GetNativePath(path));
+                std::wstring wpath = UTF8ToWide(path.get());
+                // If the patch starts with "\\\\", it is a UNC path.
+                if (wpath.find(L"\\\\") == 0) {
+                    wpath.insert(1, L"??\\UNC");
+                }
+                mAllowedFilesRead.push_back(wpath);
+            }
+        }
+    }
+#endif
 }
 
 GeckoChildProcessHost::~GeckoChildProcessHost()
@@ -191,17 +215,7 @@ GeckoChildProcessHost::GetPathToBinary(FilePath& exePath, GeckoProcessType proce
     exePath = exePath.DirName();
   }
 
-#ifdef MOZ_WIDGET_ANDROID
-  exePath = exePath.AppendASCII("lib");
-
-  // We must use the PIE binary on 5.0 and higher
-  const char* processName = mozilla::AndroidBridge::Bridge()->GetAPIVersion() >= 21 ?
-    MOZ_CHILD_PROCESS_NAME_PIE : MOZ_CHILD_PROCESS_NAME;
-
-  exePath = exePath.AppendASCII(processName);
-#else
   exePath = exePath.AppendASCII(MOZ_CHILD_PROCESS_NAME);
-#endif
 
   return BinaryPathType::PluginContainer;
 }
@@ -747,7 +761,8 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 #if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_BSD)
   base::environment_map newEnvVars;
   ChildPrivileges privs = mPrivileges;
-  if (privs == base::PRIVILEGES_DEFAULT) {
+  if (privs == base::PRIVILEGES_DEFAULT ||
+      privs == base::PRIVILEGES_FILEREAD) {
     privs = DefaultChildPrivileges();
   }
 
@@ -767,9 +782,6 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
     nsCString path;
     NS_CopyUnicodeToNative(nsDependentString(gGREBinPath), path);
 # if defined(OS_LINUX) || defined(OS_BSD)
-#  if defined(MOZ_WIDGET_ANDROID)
-    path += "/lib";
-#  endif  // MOZ_WIDGET_ANDROID
     const char *ld_library_path = PR_GetEnv("LD_LIBRARY_PATH");
     nsCString new_ld_lib_path(path.get());
 
@@ -812,28 +824,6 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 
   FilePath exePath;
   BinaryPathType pathType = GetPathToBinary(exePath, mProcessType);
-
-#ifdef MOZ_WIDGET_ANDROID
-  // The java wrapper unpacks this for us but can't make it executable
-  chmod(exePath.value().c_str(), 0700);
-#endif  // MOZ_WIDGET_ANDROID
-
-#ifdef ANDROID
-  // Remap the Android property workspace to a well-known int,
-  // and update the environment to reflect the new value for the
-  // child process.
-  const char *apws = getenv("ANDROID_PROPERTY_WORKSPACE");
-  if (apws) {
-    int fd = atoi(apws);
-    mFileMap.push_back(std::pair<int, int>(fd, kMagicAndroidSystemPropFd));
-
-    char buf[32];
-    char *szptr = strchr(apws, ',');
-
-    snprintf(buf, sizeof(buf), "%d%s", kMagicAndroidSystemPropFd, szptr);
-    newEnvVars["ANDROID_PROPERTY_WORKSPACE"] = buf;
-  }
-#endif  // ANDROID
 
 #ifdef MOZ_WIDGET_GONK
   if (const char *ldPreloadPath = getenv("LD_PRELOAD")) {
@@ -935,11 +925,15 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 
   childArgv.push_back(childProcessType);
 
+#if defined(MOZ_WIDGET_ANDROID)
+  LaunchAndroidService(childProcessType, childArgv, mFileMap, &process);
+#else
   base::LaunchApp(childArgv, mFileMap,
 #if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_BSD)
                   newEnvVars, privs,
 #endif
                   false, &process, arch);
+#endif // defined(MOZ_WIDGET_ANDROID)
 
   // We're in the parent and the child was launched. Close the child FD in the
   // parent as soon as possible, which will allow the parent to detect when the
@@ -974,12 +968,12 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
   if (child_message.GetTranslatedPort(2) == MACH_PORT_NULL) {
     CHROMIUM_LOG(ERROR) << "parent GetTranslatedPort(2) failed.";
   }
-  MachPortSender* parent_recv_port_memory_ack = new MachPortSender(child_message.GetTranslatedPort(2));
+  auto* parent_recv_port_memory_ack = new MachPortSender(child_message.GetTranslatedPort(2));
 
   if (child_message.GetTranslatedPort(3) == MACH_PORT_NULL) {
     CHROMIUM_LOG(ERROR) << "parent GetTranslatedPort(3) failed.";
   }
-  MachPortSender* parent_send_port_memory = new MachPortSender(child_message.GetTranslatedPort(3));
+  auto* parent_send_port_memory = new MachPortSender(child_message.GetTranslatedPort(3));
 
   MachSendMessage parent_message(/* id= */0);
   if (!parent_message.AddDescriptor(MachMsgPortDescriptor(bootstrap_port))) {
@@ -987,13 +981,13 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
     return false;
   }
 
-  ReceivePort* parent_recv_port_memory = new ReceivePort();
+  auto* parent_recv_port_memory = new ReceivePort();
   if (!parent_message.AddDescriptor(MachMsgPortDescriptor(parent_recv_port_memory->GetPort()))) {
     CHROMIUM_LOG(ERROR) << "parent AddDescriptor(" << parent_recv_port_memory->GetPort() << ") failed.";
     return false;
   }
 
-  ReceivePort* parent_send_port_memory_ack = new ReceivePort();
+  auto* parent_send_port_memory_ack = new ReceivePort();
   if (!parent_message.AddDescriptor(MachMsgPortDescriptor(parent_send_port_memory_ack->GetPort()))) {
     CHROMIUM_LOG(ERROR) << "parent AddDescriptor(" << parent_send_port_memory_ack->GetPort() << ") failed.";
     return false;
@@ -1061,7 +1055,8 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
         // For now we treat every failure as fatal in SetSecurityLevelForContentProcess
         // and just crash there right away. Should this change in the future then we
         // should also handle the error here.
-        mSandboxBroker.SetSecurityLevelForContentProcess(mSandboxLevel);
+        mSandboxBroker.SetSecurityLevelForContentProcess(mSandboxLevel,
+                                                         mPrivileges);
         shouldSandboxCurrentProcess = true;
         AddContentSandboxAllowedFiles(mSandboxLevel, mAllowedFilesRead);
       }
@@ -1202,7 +1197,7 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
                             FALSE, 0)
 #endif
      ) {
-    NS_RUNTIMEABORT("cannot open handle to child process");
+    MOZ_CRASH("cannot open handle to child process");
   }
   MonitorAutoLock lock(mMonitor);
   mProcessState = PROCESS_CREATED;
@@ -1226,7 +1221,7 @@ void
 GeckoChildProcessHost::OnChannelConnected(int32_t peer_pid)
 {
   if (!OpenPrivilegedHandle(peer_pid)) {
-    NS_RUNTIMEABORT("can't open handle to child process");
+    MOZ_CRASH("can't open handle to child process");
   }
   MonitorAutoLock lock(mMonitor);
   mProcessState = PROCESS_CONNECTED;
@@ -1266,3 +1261,32 @@ GeckoChildProcessHost::GetQueuedMessages(std::queue<IPC::Message>& queue)
 }
 
 bool GeckoChildProcessHost::sRunSelfAsContentProc(false);
+
+#ifdef MOZ_WIDGET_ANDROID
+void
+GeckoChildProcessHost::LaunchAndroidService(const char* type,
+                                            const std::vector<std::string>& argv,
+                                            const base::file_handle_mapping_vector& fds_to_remap,
+                                            ProcessHandle* process_handle)
+{
+  MOZ_ASSERT((fds_to_remap.size() > 0) && (fds_to_remap.size() <= 2));
+  JNIEnv* env = mozilla::jni::GetEnvForThread();
+  MOZ_ASSERT(env);
+
+  int argvSize = argv.size();
+  jni::ObjectArray::LocalRef jargs = jni::ObjectArray::LocalRef::Adopt(env->NewObjectArray(argvSize, env->FindClass("java/lang/String"), nullptr));
+  for (int ix = 0; ix < argvSize; ix++) {
+    jargs->SetElement(ix, jni::StringParam(argv[ix].c_str(), env));
+  }
+  base::file_handle_mapping_vector::const_iterator it = fds_to_remap.begin();
+  int32_t ipcFd = it->first;
+  it++;
+  // If the Crash Reporter is disabled, there will not be a second file descriptor.
+  int32_t crashFd = (it != fds_to_remap.end()) ? it->first : -1;
+  int32_t handle = java::GeckoAppShell::StartGeckoServiceChildProcess(type, jargs, crashFd, ipcFd);
+
+  if (process_handle) {
+    *process_handle = handle;
+  }
+}
+#endif

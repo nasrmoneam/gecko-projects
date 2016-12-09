@@ -7,7 +7,6 @@
 window.performance.mark('gecko-shell-loadstart');
 
 Cu.import('resource://gre/modules/NotificationDB.jsm');
-Cu.import("resource://gre/modules/AppsUtils.jsm");
 Cu.import('resource://gre/modules/UserAgentOverrides.jsm');
 Cu.import('resource://gre/modules/Keyboard.jsm');
 Cu.import('resource://gre/modules/ErrorPage.jsm');
@@ -15,7 +14,6 @@ Cu.import('resource://gre/modules/AlertsHelper.jsm');
 Cu.import('resource://gre/modules/SystemUpdateService.jsm');
 
 if (isGonk) {
-  Cu.import('resource://gre/modules/NetworkStatsService.jsm');
   Cu.import('resource://gre/modules/ResourceStatsService.jsm');
 }
 
@@ -358,7 +356,6 @@ var shell = {
       document.createElementNS('http://www.w3.org/1999/xhtml', 'html:iframe');
     systemAppFrame.setAttribute('id', 'systemapp');
     systemAppFrame.setAttribute('mozbrowser', 'true');
-    systemAppFrame.setAttribute('mozapp', manifestURL);
     systemAppFrame.setAttribute('allowfullscreen', 'true');
     systemAppFrame.setAttribute('src', 'blank.html');
     let container = document.getElementById('container');

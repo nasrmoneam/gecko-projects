@@ -30,10 +30,10 @@ import os.path
 ARTIFACT_URL = 'https://queue.taskcluster.net/v1/task/{}/artifacts/{}'
 WORKER_TYPE = {
     # default worker types keyed by instance-size
-    'large': 'aws-provisioner-v1/desktop-test-large',
-    'xlarge': 'aws-provisioner-v1/desktop-test-xlarge',
-    'legacy': 'aws-provisioner-v1/desktop-test',
-    'default': 'aws-provisioner-v1/desktop-test-large',
+    'large': 'aws-provisioner-v1/gecko-t-linux-large',
+    'xlarge': 'aws-provisioner-v1/gecko-t-linux-xlarge',
+    'legacy': 'aws-provisioner-v1/gecko-t-linux-medium',
+    'default': 'aws-provisioner-v1/gecko-t-linux-large',
     # windows worker types keyed by test-platform
     'windows7-32-vm': 'aws-provisioner-v1/gecko-t-win7-32',
     'windows7-32': 'aws-provisioner-v1/gecko-t-win7-32-gpu',
@@ -47,6 +47,18 @@ ARTIFACTS = [
     ("public/test", "artifacts/"),
     ("public/test_info/", "build/blobber_upload_dir/"),
 ]
+
+BUILDER_NAME_PREFIX = {
+    'linux64-pgo': 'Ubuntu VM 12.04 x64',
+    'linux64': 'Ubuntu VM 12.04 x64',
+    'linux64-asan': 'Ubuntu ASAN VM 12.04 x64',
+    'linux64-ccov': 'Ubuntu Code Coverage VM 12.04 x64',
+    'linux64-jsdcov': 'Ubuntu Code Coverage VM 12.04 x64',
+    'macosx64': 'Rev7 MacOSX Yosemite 10.10.5',
+    'android-4.3-arm7-api-15': 'Android 4.3 armv7 API 15+',
+    'android-4.2-x86': 'Android 4.2 x86 Emulator',
+    'android-4.3-arm7-api-15-gradle': 'Android 4.3 armv7 API 15+',
+}
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +77,12 @@ def make_task_description(config, tests):
 
         build_label = test['build-label']
 
-        unittest_try_name = test.get('unittest-try-name', test['test-name'])
+        if 'talos-try-name' in test:
+            try_name = test['talos-try-name']
+            attr_try_name = 'talos_try_name'
+        else:
+            try_name = test.get('unittest-try-name', test['test-name'])
+            attr_try_name = 'unittest_try_name'
 
         attr_build_platform, attr_build_type = test['build-platform'].split('/', 1)
 
@@ -84,7 +101,7 @@ def make_task_description(config, tests):
             'test_chunk': str(test['this-chunk']),
             'unittest_suite': suite,
             'unittest_flavor': flavor,
-            'unittest_try_name': unittest_try_name,
+            attr_try_name: try_name,
         })
 
         taskdesc = {}
@@ -329,13 +346,11 @@ def generic_worker_setup(config, test, taskdesc):
     worker['max-run-time'] = test['max-run-time']
     worker['artifacts'] = artifacts
 
-    env = worker['env'] = {
-        # Bug 1306989
+    worker['env'] = {
         'APPDATA': '%cd%\\AppData\\Roaming',
         'LOCALAPPDATA': '%cd%\\AppData\\Local',
         'TEMP': '%cd%\\AppData\\Local\\Temp',
         'TMP': '%cd%\\AppData\\Local\\Temp',
-        'USERPROFILE': '%cd%',
     }
 
     # assemble the command line
@@ -369,13 +384,15 @@ def generic_worker_setup(config, test, taskdesc):
                 if isinstance(c, basestring) and c.startswith('--test-suite'):
                     mh_command[i] += suffix
 
-    worker['command'] = [
-        'mkdir {} {}'.format(env['APPDATA'], env['TMP']),
+    # bug 1311966 - symlink to artifacts until generic worker supports virtual artifact paths
+    artifact_link_commands = ['mklink /d %cd%\\public\\test_info %cd%\\build\\blobber_upload_dir']
+    for link in [a['path'] for a in artifacts if a['path'].startswith('public\\logs\\')]:
+        artifact_link_commands.append('mklink %cd%\\{} %cd%\\{}'.format(link, link[7:]))
+
+    worker['command'] = artifact_link_commands + [
         {'task-reference': 'c:\\mozilla-build\\wget\\wget.exe {}'.format(mozharness_url)},
         'c:\\mozilla-build\\info-zip\\unzip.exe mozharness.zip',
-        {'task-reference': ' '.join(mh_command)},
-        'xcopy build\\blobber_upload_dir public\\test_info /e /i',
-        'copy /y logs\\*.* public\\logs\\'
+        {'task-reference': ' '.join(mh_command)}
     ]
 
 
@@ -443,3 +460,53 @@ def macosx_engine_setup(config, test, taskdesc):
         download_symbols = mozharness['download-symbols']
         download_symbols = {True: 'true', False: 'false'}.get(download_symbols, download_symbols)
         command.append('--download-symbols=' + download_symbols)
+
+
+@worker_setup_function("buildbot-bridge")
+def buildbot_bridge_setup(config, test, taskdesc):
+    branch = config.params['project']
+    platform, build_type = test['build-platform'].split('/')
+    test_name = test.get('talos-try-name', test['test-name'])
+    mozharness = test['mozharness']
+
+    if test['e10s'] and not test_name.endswith('-e10s'):
+        test_name += '-e10s'
+
+    if mozharness.get('chunked', False):
+        this_chunk = test.get('this-chunk')
+        test_name = '{}-{}'.format(test_name, this_chunk)
+
+    worker = taskdesc['worker'] = {}
+    worker['implementation'] = test['worker-implementation']
+
+    taskdesc['worker-type'] = 'buildbot-bridge/buildbot-bridge'
+
+    if test.get('suite', '') == 'talos':
+        buildername = '{} {} talos {}'.format(
+            BUILDER_NAME_PREFIX[platform],
+            branch,
+            test_name
+        )
+        if buildername.startswith('Ubuntu'):
+            buildername = buildername.replace('VM', 'HW')
+    else:
+        buildername = '{} {} {} test {}'.format(
+            BUILDER_NAME_PREFIX[platform],
+            branch,
+            build_type,
+            test_name
+        )
+
+    worker.update({
+        'buildername': buildername,
+        'sourcestamp': {
+            'branch': branch,
+            'repository': config.params['head_repository'],
+            'revision': config.params['head_rev'],
+        },
+        'properties': {
+            'product': test.get('product', 'firefox'),
+            'who': config.params['owner'],
+            'installer_path': mozharness['build-artifact-name'],
+        }
+    })

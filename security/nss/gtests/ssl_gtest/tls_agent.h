@@ -14,6 +14,7 @@
 #include <iostream>
 
 #include "test_io.h"
+#include "tls_filter.h"
 
 #define GTEST_HAS_RTTI 0
 #include "gtest/gtest.h"
@@ -62,6 +63,7 @@ class TlsAgent : public PollTarget {
   static const std::string kServerRsaSign;
   static const std::string kServerRsaPss;
   static const std::string kServerRsaDecrypt;
+  static const std::string kServerRsaChain;  // A cert that requires a chain.
   static const std::string kServerEcdsa256;
   static const std::string kServerEcdsa384;
   static const std::string kServerEcdsa521;
@@ -84,9 +86,16 @@ class TlsAgent : public PollTarget {
 
   void SetPeer(TlsAgent* peer) { adapter_->SetPeer(peer->adapter_); }
 
+  void SetPacketFilter(TlsRecordFilter* filter) {
+    filter->SetAgent(this);
+    adapter_->SetPacketFilter(filter);
+  }
+
   void SetPacketFilter(PacketFilter* filter) {
     adapter_->SetPacketFilter(filter);
   }
+
+  void DeletePacketFilter() { adapter_->SetPacketFilter(nullptr); }
 
   void StartConnect(PRFileDesc* model = nullptr);
   void CheckKEA(SSLKEAType kea_type, SSLNamedGroup group,
@@ -108,6 +117,7 @@ class TlsAgent : public PollTarget {
   void StartRenegotiate();
   bool ConfigServerCert(const std::string& name, bool updateKeyBits = false,
                         const SSLExtraServerCertData* serverCertData = nullptr);
+  bool ConfigServerCertWithChain(const std::string& name);
   bool EnsureTlsSetup(PRFileDesc* modelSocket = nullptr);
 
   void SetupClientAuth();
@@ -138,6 +148,7 @@ class TlsAgent : public PollTarget {
   void WaitForErrorCode(int32_t expected, uint32_t delay) const;
   // Send data on the socket, encrypting it.
   void SendData(size_t bytes, size_t blocksize = 1024);
+  void SendBuffer(const DataBuffer& buf);
   // Send data directly to the underlying socket, skipping the TLS layer.
   void SendDirect(const DataBuffer& buf);
   void ReadBytes();
@@ -151,6 +162,7 @@ class TlsAgent : public PollTarget {
   void CheckSecretsDestroyed();
   void ConfigNamedGroups(const std::vector<SSLNamedGroup>& groups);
   void DisableECDHEServerKeyReuse();
+  bool GetPeerChainLength(size_t* count);
 
   const std::string& name() const { return name_; }
 
@@ -167,7 +179,7 @@ class TlsAgent : public PollTarget {
 
   static const char* state_str(State state) { return states[state]; }
 
-  PRFileDesc* ssl_fd() { return ssl_fd_; }
+  PRFileDesc* ssl_fd() const { return ssl_fd_; }
   DummyPrSocket* adapter() { return adapter_; }
 
   bool is_compressed() const {

@@ -108,7 +108,7 @@ function eventOccurred(event)
   if (events) {
     if (events.length <= gTestEventIndex) {
       ok(false, "Extra " + event.type + " event fired for " + event.target.id +
-                  " " +gPopupTests[gTestIndex].testname);
+                  " " + gPopupTests[gTestIndex].testname);
       return;
     }
 
@@ -247,8 +247,11 @@ function goNextStepSync()
     test.test(test.testname, step);
 
     // no events to check for so just check the result
-    if (!("events" in test))
+    if (!("events" in test)) {
       checkResult();
+    } else if (typeof test.events == "function" && !test.events().length) {
+      checkResult();
+    }
   }
   else {
     finish();

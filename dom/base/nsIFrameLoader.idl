@@ -5,7 +5,6 @@
 
 #include "nsISupports.idl"
 
-interface mozIApplication;
 interface nsFrameLoader;
 interface nsIDocShell;
 interface nsIURI;
@@ -66,14 +65,26 @@ interface nsIFrameLoader : nsISupports
 
   /**
    * Append partial session history from another frame loader.
+   *
+   * @return A promise which will be resolved when the navigation is complete.
    */
-  void appendPartialSessionHistoryAndSwap(in nsIFrameLoader aOther);
+  nsISupports appendPartialSessionHistoryAndSwap(in nsIFrameLoader aOther);
 
   /**
    * If grouped session history is applied, use this function to navigate to
    * an entry of session history object of another frameloader.
+   *
+   * @return A promise which will be resolved when the navigation is complete.
    */
-  void requestGroupedHistoryNavigation(in unsigned long aGlobalIndex);
+  nsISupports requestGroupedHistoryNavigation(in unsigned long aGlobalIndex);
+
+  /**
+   * Adds a blocking promise for the current cross process navigation.
+   * This method can only be called while the "BrowserWillChangeProcess" event
+   * is being fired.
+   */
+  [implicit_jscontext]
+  void addProcessChangeBlockingPromise(in jsval aPromise);
 
   /**
    * Destroy the frame loader and everything inside it. This will
@@ -216,11 +227,10 @@ interface nsIFrameLoader : nsISupports
   [infallible] attribute boolean visible;
 
   /**
-   * Find out whether the owner content really is a mozbrowser or app frame
-   * Especially, a widget frame is regarded as an app frame.  <xul:browser> is
-   * not considered to be a mozbrowser frame.
+   * Find out whether the owner content really is a mozbrowser. <xul:browser>
+   * is not considered to be a mozbrowser frame.
    */
-  readonly attribute boolean ownerIsMozBrowserOrAppFrame;
+  readonly attribute boolean ownerIsMozBrowserFrame;
 
   /**
    * The last known width of the frame. Reading this property will not trigger
@@ -264,12 +274,6 @@ interface nsIFrameLoaderOwner : nsISupports
    */
   [binaryname(FrameLoaderXPCOM)] readonly attribute nsIFrameLoader frameLoader;
   [noscript, notxpcom] alreadyAddRefed_nsFrameLoader GetFrameLoader();
-
-  /**
-   * The principal of parent mozIApplication in case of nested mozbrowser
-   * iframes.
-   */
-  readonly attribute mozIApplication parentApplication;
 
   /**
    * Puts the FrameLoaderOwner in prerendering mode.

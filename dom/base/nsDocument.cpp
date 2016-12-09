@@ -19,6 +19,7 @@
 #include "mozilla/IntegerRange.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Likely.h"
+#include "mozilla/PresShell.h"
 #include <algorithm>
 
 #include "mozilla/Logging.h"
@@ -55,6 +56,7 @@
 
 #include "nsIDOMStyleSheet.h"
 #include "mozilla/dom/Attr.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "nsIDOMDOMImplementation.h"
 #include "nsIDOMDocumentXBL.h"
 #include "mozilla/dom/Element.h"
@@ -81,7 +83,6 @@
 #include "nsCanvasFrame.h"
 #include "nsContentCID.h"
 #include "nsError.h"
-#include "nsPresShell.h"
 #include "nsPresContext.h"
 #include "nsIJSON.h"
 #include "nsThreadUtils.h"
@@ -1190,12 +1191,7 @@ nsDOMStyleSheetSetList::EnsureFresh()
   for (int32_t index = 0; index < count; index++) {
     StyleSheet* sheet = mDocument->GetStyleSheetAt(index);
     NS_ASSERTION(sheet, "Null sheet in sheet list!");
-    // XXXheycam ServoStyleSheets don't expose their title yet.
-    if (sheet->IsServo()) {
-      NS_ERROR("stylo: ServoStyleSets don't expose their title yet");
-      continue;
-    }
-    sheet->AsGecko()->GetTitle(title);
+    sheet->GetTitle(title);
     if (!title.IsEmpty() && !mNames.Contains(title) && !Add(title)) {
       return;
     }
@@ -2872,7 +2868,7 @@ nsDocument::SetPrincipal(nsIPrincipal *aNewPrincipal)
 }
 
 mozilla::dom::DocGroup*
-nsIDocument::GetDocGroup()
+nsIDocument::GetDocGroup() const
 {
 #ifdef DEBUG
   // Sanity check that we have an up-to-date and accurate docgroup
@@ -2885,6 +2881,43 @@ nsIDocument::GetDocGroup()
 #endif
 
   return mDocGroup;
+}
+
+nsresult
+nsIDocument::Dispatch(const char* aName,
+                      TaskCategory aCategory,
+                      already_AddRefed<nsIRunnable>&& aRunnable)
+{
+  // Note that this method may be called off the main thread.
+  if (mDocGroup) {
+    return mDocGroup->Dispatch(aName, aCategory, Move(aRunnable));
+  }
+  return DispatcherTrait::Dispatch(aName, aCategory, Move(aRunnable));
+}
+
+already_AddRefed<nsIEventTarget>
+nsIDocument::EventTargetFor(TaskCategory aCategory) const
+{
+  if (mDocGroup) {
+    return mDocGroup->EventTargetFor(aCategory);
+  }
+  return DispatcherTrait::EventTargetFor(aCategory);
+}
+
+void
+nsIDocument::NoteScriptTrackingStatus(const nsACString& aURL, bool aIsTracking)
+{
+  if (aIsTracking) {
+    mTrackingScripts.PutEntry(aURL);
+  } else {
+    MOZ_ASSERT(!mTrackingScripts.Contains(aURL));
+  }
+}
+
+bool
+nsIDocument::IsScriptTracking(const nsACString& aURL) const
+{
+  return mTrackingScripts.Contains(aURL);
 }
 
 NS_IMETHODIMP
@@ -2936,21 +2969,21 @@ nsDocument::GetAllowPlugins(bool * aAllowPlugins)
 }
 
 bool
-nsDocument::IsElementAnimateEnabled(JSContext* /*unused*/, JSObject* /*unused*/)
+nsDocument::IsElementAnimateEnabled(JSContext* aCx, JSObject* /*unused*/)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  return nsContentUtils::IsCallerChrome() ||
+  return nsContentUtils::IsSystemCaller(aCx) ||
          Preferences::GetBool("dom.animations-api.core.enabled") ||
          Preferences::GetBool("dom.animations-api.element-animate.enabled");
 }
 
 bool
-nsDocument::IsWebAnimationsEnabled(JSContext* /*unused*/, JSObject* /*unused*/)
+nsDocument::IsWebAnimationsEnabled(JSContext* aCx, JSObject* /*unused*/)
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  return nsContentUtils::IsCallerChrome() ||
+  return nsContentUtils::IsSystemCaller(aCx) ||
          Preferences::GetBool("dom.animations-api.core.enabled");
 }
 
@@ -3298,13 +3331,6 @@ already_AddRefed<nsContentList>
 nsIDocument::GetElementsByClassName(const nsAString& aClasses)
 {
   return nsContentUtils::GetElementsByClassName(this, aClasses);
-}
-
-NS_IMETHODIMP
-nsDocument::ReleaseCapture()
-{
-  nsIDocument::ReleaseCapture();
-  return NS_OK;
 }
 
 void
@@ -3953,11 +3979,7 @@ nsDocument::AddStyleSheetToStyleSets(StyleSheet* aSheet)
     className##Init init;                                                     \
     init.mBubbles = true;                                                     \
     init.mCancelable = true;                                                  \
-    /* XXXheycam ServoStyleSheet doesn't implement DOM interfaces yet */      \
-    if (aSheet->IsServo()) {                                                  \
-      NS_ERROR("stylo: can't dispatch events for ServoStyleSheets yet");      \
-    }                                                                         \
-    init.mStylesheet = aSheet->IsGecko() ? aSheet->AsGecko() : nullptr;       \
+    init.mStylesheet = aSheet;                                                \
     init.memberName = argName;                                                \
                                                                               \
     RefPtr<className> event =                                               \
@@ -5065,9 +5087,10 @@ nsDocument::UnblockDOMContentLoaded()
 
   MOZ_ASSERT(mReadyState == READYSTATE_INTERACTIVE);
   if (!mSynchronousDOMContentLoaded) {
+    MOZ_RELEASE_ASSERT(NS_IsMainThread());
     nsCOMPtr<nsIRunnable> ev =
       NewRunnableMethod(this, &nsDocument::DispatchContentLoadedEvents);
-    NS_DispatchToCurrentThread(ev);
+    Dispatch("DispatchContentLoadedEvents", TaskCategory::Other, ev.forget());
   } else {
     DispatchContentLoadedEvents();
   }
@@ -5716,7 +5739,28 @@ nsDocument::IsWebComponentsEnabled(JSContext* aCx, JSObject* aObject)
   nsCOMPtr<nsPIDOMWindowInner> window =
     do_QueryInterface(nsJSUtils::GetStaticScriptGlobal(global));
 
-  if (window) {
+  return IsWebComponentsEnabled(window);
+}
+
+bool
+nsDocument::IsWebComponentsEnabled(dom::NodeInfo* aNodeInfo)
+{
+  if (Preferences::GetBool("dom.webcomponents.enabled")) {
+    return true;
+  }
+
+  nsIDocument* doc = aNodeInfo->GetDocument();
+  // Use GetScopeObject() here so that data documents work the same way as the
+  // main document they're associated with.
+  nsCOMPtr<nsPIDOMWindowInner> window =
+    do_QueryInterface(doc->GetScopeObject());
+  return IsWebComponentsEnabled(window);
+}
+
+bool
+nsDocument::IsWebComponentsEnabled(nsPIDOMWindowInner* aWindow)
+{
+  if (aWindow) {
     nsresult rv;
     nsCOMPtr<nsIPermissionManager> permMgr =
       do_GetService(NS_PERMISSIONMANAGER_CONTRACTID, &rv);
@@ -5724,7 +5768,7 @@ nsDocument::IsWebComponentsEnabled(JSContext* aCx, JSObject* aObject)
 
     uint32_t perm;
     rv = permMgr->TestPermissionFromWindow(
-      window, "moz-extremely-unstable-and-will-change-webcomponents", &perm);
+      aWindow, "moz-extremely-unstable-and-will-change-webcomponents", &perm);
     NS_ENSURE_SUCCESS(rv, false);
 
     return perm == nsIPermissionManager::ALLOW_ACTION;
@@ -5969,20 +6013,12 @@ nsIDocument::GetSelectedStyleSheetSet(nsAString& aSheetSet)
     StyleSheet* sheet = GetStyleSheetAt(index);
     NS_ASSERTION(sheet, "Null sheet in sheet list!");
 
-    // XXXheycam Make this work with ServoStyleSheets.
-    if (sheet->IsServo()) {
-      NS_ERROR("stylo: can't handle alternate ServoStyleSheets yet");
-      continue;
-    }
-
-    bool disabled;
-    sheet->AsGecko()->GetDisabled(&disabled);
-    if (disabled) {
+    if (sheet->Disabled()) {
       // Disabled sheets don't affect the currently selected set
       continue;
     }
 
-    sheet->AsGecko()->GetTitle(title);
+    sheet->GetTitle(title);
 
     if (aSheetSet.IsEmpty()) {
       aSheetSet = title;
@@ -7056,9 +7092,10 @@ nsIDocument::GetURL(nsString& aURL) const
 }
 
 void
-nsIDocument::GetDocumentURIFromJS(nsString& aDocumentURI, ErrorResult& aRv) const
+nsIDocument::GetDocumentURIFromJS(nsString& aDocumentURI, CallerType aCallerType,
+                                  ErrorResult& aRv) const
 {
-  if (!mChromeXHRDocURI || !nsContentUtils::IsCallerChrome()) {
+  if (!mChromeXHRDocURI || aCallerType != CallerType::System) {
     aRv = GetDocumentURI(aDocumentURI);
     return;
   }
@@ -7080,19 +7117,6 @@ nsIDocument::GetDocumentURIObject() const
   }
 
   return mChromeXHRDocURI;
-}
-
-
-// Returns "BackCompat" if we are in quirks mode, "CSS1Compat" if we are
-// in almost standards or full standards mode. See bug 105640.  This was
-// implemented to match MSIE's compatMode property.
-NS_IMETHODIMP
-nsDocument::GetCompatMode(nsAString& aCompatMode)
-{
-  nsString temp;
-  nsIDocument::GetCompatMode(temp);
-  aCompatMode = temp;
-  return NS_OK;
 }
 
 void
@@ -7604,7 +7628,7 @@ nsDocument::GetExistingListenerManager() const
 }
 
 nsresult
-nsDocument::PreHandleEvent(EventChainPreVisitor& aVisitor)
+nsDocument::GetEventTargetParent(EventChainPreVisitor& aVisitor)
 {
   aVisitor.mCanHandle = true;
    // FIXME! This is a hack to make middle mouse paste working also in Editor.
@@ -7613,9 +7637,12 @@ nsDocument::PreHandleEvent(EventChainPreVisitor& aVisitor)
 
   // Load events must not propagate to |window| object, see bug 335251.
   if (aVisitor.mEvent->mMessage != eLoad) {
-    nsGlobalWindow* window = nsGlobalWindow::Cast(GetWindow());
-    aVisitor.mParentTarget =
-      window ? window->GetTargetForEventTargetChain() : nullptr;
+    nsPIDOMWindowInner* innerWindow = GetInnerWindow();
+    if (innerWindow && innerWindow->IsCurrentInnerWindow()) {
+      nsGlobalWindow* window = nsGlobalWindow::Cast(GetWindow());
+      aVisitor.mParentTarget =
+        window ? window->GetTargetForEventTargetChain() : nullptr;
+    }
   }
   return NS_OK;
 }
@@ -10468,13 +10495,6 @@ nsDocument::SetFullscreenRoot(nsIDocument* aRoot)
   mFullscreenRoot = do_GetWeakReference(aRoot);
 }
 
-NS_IMETHODIMP
-nsDocument::MozCancelFullScreen()
-{
-  nsIDocument::ExitFullscreen();
-  return NS_OK;
-}
-
 void
 nsIDocument::ExitFullscreen()
 {
@@ -10988,7 +11008,7 @@ nsresult nsDocument::RemoteFrameFullscreenReverted()
 nsDocument::IsUnprefixedFullscreenEnabled(JSContext* aCx, JSObject* aObject)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  return nsContentUtils::IsCallerChrome() ||
+  return nsContentUtils::IsSystemCaller(aCx) ||
          nsContentUtils::IsUnprefixedFullscreenApiEnabled();
 }
 
@@ -11006,15 +11026,14 @@ HasFullScreenSubDocument(nsIDocument* aDoc)
 static const char*
 GetFullscreenError(nsIDocument* aDoc, bool aCallerIsChrome)
 {
-  if (nsContentUtils::IsFullScreenApiEnabled() && aCallerIsChrome) {
+  bool apiEnabled = nsContentUtils::IsFullScreenApiEnabled();
+  if (apiEnabled && aCallerIsChrome) {
     // Chrome code can always use the full-screen API, provided it's not
-    // explicitly disabled. Note IsCallerChrome() returns true when running
-    // in a Runnable, so don't use GetMozFullScreenEnabled() from a
-    // Runnable!
+    // explicitly disabled.
     return nullptr;
   }
 
-  if (!nsContentUtils::IsFullScreenApiEnabled()) {
+  if (!apiEnabled) {
     return "FullscreenDeniedDisabled";
   }
 
@@ -11412,15 +11431,6 @@ nsDocument::ApplyFullscreen(const FullscreenRequest& aRequest)
   return true;
 }
 
-NS_IMETHODIMP
-nsDocument::GetMozFullScreenElement(nsIDOMElement **aFullScreenElement)
-{
-  Element* el = GetFullscreenElement();
-  nsCOMPtr<nsIDOMElement> retval = do_QueryInterface(el);
-  retval.forget(aFullScreenElement);
-  return NS_OK;
-}
-
 Element*
 nsDocument::GetFullscreenElement()
 {
@@ -11431,25 +11441,10 @@ nsDocument::GetFullscreenElement()
   return element;
 }
 
-NS_IMETHODIMP
-nsDocument::GetMozFullScreen(bool *aFullScreen)
-{
-  *aFullScreen = Fullscreen();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocument::GetMozFullScreenEnabled(bool *aFullScreen)
-{
-  NS_ENSURE_ARG_POINTER(aFullScreen);
-  *aFullScreen = FullscreenEnabled();
-  return NS_OK;
-}
-
 bool
-nsDocument::FullscreenEnabled()
+nsDocument::FullscreenEnabled(CallerType aCallerType)
 {
-  return !GetFullscreenError(this, nsContentUtils::IsCallerChrome());
+  return !GetFullscreenError(this, aCallerType == CallerType::System);
 }
 
 uint16_t
@@ -11670,7 +11665,7 @@ PointerLockRequest::Run()
 }
 
 void
-nsDocument::RequestPointerLock(Element* aElement)
+nsDocument::RequestPointerLock(Element* aElement, CallerType aCallerType)
 {
   NS_ASSERTION(aElement,
     "Must pass non-null element to nsDocument::RequestPointerLock");
@@ -11687,10 +11682,10 @@ nsDocument::RequestPointerLock(Element* aElement)
     return;
   }
 
-  bool userInputOrChromeCaller = EventStateManager::IsHandlingUserInput() ||
-                                 nsContentUtils::IsCallerChrome();
+  bool userInputOrSystemCaller = EventStateManager::IsHandlingUserInput() ||
+                                 aCallerType == CallerType::System;
   NS_DispatchToMainThread(new PointerLockRequest(aElement,
-                                                 userInputOrChromeCaller));
+                                                 userInputOrSystemCaller));
 }
 
 bool
@@ -11771,22 +11766,6 @@ void
 nsIDocument::UnlockPointer(nsIDocument* aDoc)
 {
   nsDocument::UnlockPointer(aDoc);
-}
-
-NS_IMETHODIMP
-nsDocument::MozExitPointerLock()
-{
-  nsIDocument::ExitPointerLock();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocument::GetMozPointerLockElement(nsIDOMElement** aPointerLockedElement)
-{
-  Element* el = nsIDocument::GetPointerLockElement();
-  nsCOMPtr<nsIDOMElement> retval = do_QueryInterface(el);
-  retval.forget(aPointerLockedElement);
-  return NS_OK;
 }
 
 Element*
@@ -11882,7 +11861,7 @@ nsDocument::PostVisibilityUpdateEvent()
 {
   nsCOMPtr<nsIRunnable> event =
     NewRunnableMethod(this, &nsDocument::UpdateVisibilityState);
-  NS_DispatchToMainThread(event);
+  Dispatch("UpdateVisibility", TaskCategory::Other, event.forget());
 }
 
 void
@@ -12059,18 +12038,6 @@ nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const
   // Measurement of the following members may be added later if DMD finds it
   // is worthwhile:
   // - many!
-}
-
-NS_IMETHODIMP
-nsDocument::QuerySelector(const nsAString& aSelector, nsIDOMElement **aReturn)
-{
-  return nsINode::QuerySelector(aSelector, aReturn);
-}
-
-NS_IMETHODIMP
-nsDocument::QuerySelectorAll(const nsAString& aSelector, nsIDOMNodeList **aReturn)
-{
-  return nsINode::QuerySelectorAll(aSelector, aReturn);
 }
 
 already_AddRefed<nsIDocument>
@@ -12261,6 +12228,8 @@ nsIDocument::HasScriptsBlockedBySandbox()
 bool
 nsIDocument::InlineScriptAllowedByCSP()
 {
+  // this function assumes the inline script is parser created
+  //  (e.g., before setting attribute(!) event handlers)
   nsCOMPtr<nsIContentSecurityPolicy> csp;
   nsresult rv = NodePrincipal()->GetCsp(getter_AddRefs(csp));
   NS_ENSURE_SUCCESS(rv, true);
@@ -12268,7 +12237,7 @@ nsIDocument::InlineScriptAllowedByCSP()
   if (csp) {
     nsresult rv = csp->GetAllowsInline(nsIContentPolicy::TYPE_SCRIPT,
                                        EmptyString(), // aNonce
-                                       false,         // parserCreated
+                                       true,          // aParserCreated
                                        EmptyString(), // FIXME get script sample (bug 1314567)
                                        0,             // aLineNumber
                                        &allowsInlineScript);

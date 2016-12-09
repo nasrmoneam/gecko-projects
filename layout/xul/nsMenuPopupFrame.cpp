@@ -1706,23 +1706,23 @@ void nsMenuPopupFrame::CanAdjustEdges(int8_t aHorizontalSide,
     popupAlign = -popupAlign;
   }
 
-  if (aHorizontalSide == (mHFlip ? NS_SIDE_RIGHT : NS_SIDE_LEFT)) {
+  if (aHorizontalSide == (mHFlip ? eSideRight : eSideLeft)) {
     if (popupAlign == POPUPALIGNMENT_TOPLEFT || popupAlign == POPUPALIGNMENT_BOTTOMLEFT) {
       aChange.x = 0;
     }
   }
-  else if (aHorizontalSide == (mHFlip ? NS_SIDE_LEFT : NS_SIDE_RIGHT)) {
+  else if (aHorizontalSide == (mHFlip ? eSideLeft : eSideRight)) {
     if (popupAlign == POPUPALIGNMENT_TOPRIGHT || popupAlign == POPUPALIGNMENT_BOTTOMRIGHT) {
       aChange.x = 0;
     }
   }
 
-  if (aVerticalSide == (mVFlip ? NS_SIDE_BOTTOM : NS_SIDE_TOP)) {
+  if (aVerticalSide == (mVFlip ? eSideBottom : eSideTop)) {
     if (popupAlign == POPUPALIGNMENT_TOPLEFT || popupAlign == POPUPALIGNMENT_TOPRIGHT) {
       aChange.y = 0;
     }
   }
-  else if (aVerticalSide == (mVFlip ? NS_SIDE_TOP : NS_SIDE_BOTTOM)) {
+  else if (aVerticalSide == (mVFlip ? eSideTop : eSideBottom)) {
     if (popupAlign == POPUPALIGNMENT_BOTTOMLEFT || popupAlign == POPUPALIGNMENT_BOTTOMRIGHT) {
       aChange.y = 0;
     }
@@ -1838,7 +1838,7 @@ void nsMenuPopupFrame::ChangeByPage(bool aIsUp)
     // just use this as the newMenu and leave currentMenu null so that no
     // check for a later element is performed. When moving down, set currentMenu
     // so that we look for one page down from the first item.
-    newMenu = nsXULPopupManager::GetNextMenuItem(this, nullptr, true);
+    newMenu = nsXULPopupManager::GetNextMenuItem(this, nullptr, true, false);
     if (!aIsUp) {
       currentMenu = newMenu;
     }
@@ -2066,7 +2066,7 @@ nsMenuPopupFrame::FindMenuWithShortcut(nsIDOMKeyEvent* aKeyEvent, bool& doAction
   //       been destroyed already.  One strategy would be to 
   //       setTimeout(<func>,0) as detailed in:
   //       <http://bugzilla.mozilla.org/show_bug.cgi?id=126675#c32>
-  nsIFrame* firstMenuItem = nsXULPopupManager::GetNextMenuItem(immediateParent, nullptr, true);
+  nsIFrame* firstMenuItem = nsXULPopupManager::GetNextMenuItem(immediateParent, nullptr, true, false);
   nsIFrame* currFrame = firstMenuItem;
 
   int32_t menuAccessKey = -1;
@@ -2131,7 +2131,7 @@ nsMenuPopupFrame::FindMenuWithShortcut(nsIDOMKeyEvent* aKeyEvent, bool& doAction
     }
 
     nsMenuFrame* menu = do_QueryFrame(currFrame);
-    currFrame = nsXULPopupManager::GetNextMenuItem(immediateParent, menu, true);
+    currFrame = nsXULPopupManager::GetNextMenuItem(immediateParent, menu, true, true);
     if (currFrame == firstMenuItem)
       break;
   }

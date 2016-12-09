@@ -82,7 +82,7 @@ def build_tar_package(tar, name, base, directory):
         name = name.replace('\\', '/')
         def f(match):
             return '/' + match.group(1).lower()
-        name = re.sub(r'^([A-Z]):', f, name)
+        name = re.sub(r'^([A-Za-z]):', f, name)
     run_in(base, [tar,
                   "-c",
                   "-%s" % ("J" if ".xz" in name else "j"),
@@ -205,6 +205,8 @@ def build_one_stage(cc, cxx, src_dir, stage_dir, build_libcxx,
                   "-DLLVM_TOOL_LIBCXX_BUILD=%s" % ("ON" if build_libcxx else "OFF"),
                   "-DLIBCXX_LIBCPPABI_VERSION=\"\"",
                   src_dir];
+    if is_windows():
+        cmake_args.insert(-1, "-DLLVM_EXPORT_SYMBOLS_FOR_PLUGINS=ON")
     build_package(build_dir, run_cmake, cmake_args)
 
     if is_linux():

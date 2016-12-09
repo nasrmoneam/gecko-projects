@@ -564,7 +564,7 @@ Cookies.prototype = {
       }
     };
     fileReader.addEventListener("loadend", onLoadEnd, false);
-    fileReader.readAsText(new File(aFile));
+    fileReader.readAsText(File.createFromNsIFile(aFile));
   },
 
   /**
@@ -721,7 +721,7 @@ function getTypedURLs(registryKeyPath) {
 
 
 // Migrator for form passwords on Windows 8 and higher.
-function WindowsVaultFormPasswords () {
+function WindowsVaultFormPasswords() {
 }
 
 WindowsVaultFormPasswords.prototype = {

@@ -42,6 +42,7 @@
 #include "nsIScriptError.h"
 #include "nsIHttpChannel.h"
 
+#include "EventDispatcher.h"
 #include "MediaCodec.h"
 #include "SurfaceTexture.h"
 #include "GLContextProvider.h"
@@ -733,16 +734,25 @@ AndroidBridge::GetGlobalContextRef() {
 }
 
 /* Implementation file */
-NS_IMPL_ISUPPORTS(nsAndroidBridge, nsIAndroidBridge)
+NS_IMPL_ISUPPORTS(nsAndroidBridge,
+                  nsIAndroidEventDispatcher,
+                  nsIAndroidBridge,
+                  nsIObserver)
 
 nsAndroidBridge::nsAndroidBridge()
 {
+  if (jni::IsAvailable()) {
+    RefPtr<widget::EventDispatcher> dispatcher = new widget::EventDispatcher();
+    dispatcher->Attach(java::EventDispatcher::GetInstance(),
+                       /* window */ nullptr);
+    mEventDispatcher = dispatcher;
+  }
+
   AddObservers();
 }
 
 nsAndroidBridge::~nsAndroidBridge()
 {
-  RemoveObservers();
 }
 
 NS_IMETHODIMP nsAndroidBridge::HandleGeckoMessage(JS::HandleValue val,

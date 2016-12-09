@@ -9,7 +9,7 @@ TEST_DIRS += [
 ]
 
 # Change the following line(s) to avoid bug 1081323 (clobber after changing a manifest):
-# * Implement ReadPixel with PBOs.
+# * Adjust failure errata for webgl-conf.
 
 MOCHITEST_MANIFESTS += [
     'test/crash/mochitest.ini',
@@ -108,6 +108,7 @@ UNIFIED_SOURCES += [
     'WebGLExtensionBlendMinMax.cpp',
     'WebGLExtensionColorBufferFloat.cpp',
     'WebGLExtensionColorBufferHalfFloat.cpp',
+    'WebGLExtensionCompressedTextureASTC.cpp',
     'WebGLExtensionCompressedTextureATC.cpp',
     'WebGLExtensionCompressedTextureES3.cpp',
     'WebGLExtensionCompressedTextureETC1.cpp',
@@ -148,7 +149,6 @@ UNIFIED_SOURCES += [
     'WebGLTexelConversions.cpp',
     'WebGLTexture.cpp',
     'WebGLTextureUpload.cpp',
-    'WebGLTimerQuery.cpp',
     'WebGLTransformFeedback.cpp',
     'WebGLUniformLocation.cpp',
     'WebGLValidateStrings.cpp',

@@ -639,10 +639,14 @@ function TypedArrayKeys() {
 }
 
 // ES6 draft rev29 (2014/12/06) 22.2.3.16 %TypedArray%.prototype.lastIndexOf(searchElement [,fromIndex]).
-function TypedArrayLastIndexOf(searchElement, fromIndex = undefined) {
+function TypedArrayLastIndexOf(searchElement/*, fromIndex*/) {
     // This function is not generic.
     if (!IsObject(this) || !IsTypedArray(this)) {
-        return callFunction(CallTypedArrayMethodIfWrapped, this, searchElement, fromIndex,
+        if (arguments.length > 1) {
+            return callFunction(CallTypedArrayMethodIfWrapped, this, searchElement, arguments[1],
+                                "TypedArrayLastIndexOf");
+        }
+        return callFunction(CallTypedArrayMethodIfWrapped, this, searchElement,
                             "TypedArrayLastIndexOf");
     }
 
@@ -659,7 +663,7 @@ function TypedArrayLastIndexOf(searchElement, fromIndex = undefined) {
         return -1;
 
     // Steps 7-8.  Add zero to convert -0 to +0, per ES6 5.2.
-    var n = fromIndex === undefined ? len - 1 : ToInteger(fromIndex) + 0;
+    var n = arguments.length > 1 ? ToInteger(arguments[1]) + 0 : len - 1;
 
     // Steps 9-10.
     var k = n >= 0 ? std_Math_min(n, len - 1) : len + n;
@@ -1654,12 +1658,6 @@ function ArrayBufferSlice(start, end) {
 
 function IsDetachedBufferThis() {
   return IsDetachedBuffer(this);
-}
-
-function ArrayBufferStaticSlice(buf, start, end) {
-    if (arguments.length < 1)
-        ThrowTypeError(JSMSG_MISSING_FUN_ARG, 0, 'ArrayBuffer.slice');
-    return callFunction(ArrayBufferSlice, buf, start, end);
 }
 
 // ES 2016 draft Mar 25, 2016 24.1.3.3.

@@ -46,6 +46,7 @@ struct TLSExtensionDataStr {
     /* registered callbacks that send server hello extensions */
     ssl3HelloExtensionSender serverHelloSenders[SSL_MAX_EXTENSIONS];
     ssl3HelloExtensionSender encryptedExtensionsSenders[SSL_MAX_EXTENSIONS];
+    ssl3HelloExtensionSender certificateSenders[SSL_MAX_EXTENSIONS];
 
     /* Keep track of the extensions that are negotiated. */
     PRUint16 numAdvertised;
@@ -58,9 +59,7 @@ struct TLSExtensionDataStr {
     PRBool emptySessionTicket;
     PRBool sentSessionTicketInClientHello;
     SECItem psk_ke_modes;
-    SECItem psk_auth_modes;
-    PRUint32 ticket_age_add;
-    PRBool ticket_age_add_found;
+    PRUint32 max_early_data_size;
 
     /* SNI Extension related data
      * Names data is not coppied from the input buffer. It can not be
@@ -97,7 +96,9 @@ struct TLSExtensionDataStr {
 
     PRUint16 dtlsSRTPCipherSuite; /* 0 if not selected */
 
-    PRCList remoteKeyShares; /* The other side's public keys (TLS 1.3) */
+    SECItem pskBinder;                /* The PSK binder for the first PSK (TLS 1.3) */
+    unsigned long pskBinderPrefixLen; /* The length of the binder input. */
+    PRCList remoteKeyShares;          /* The other side's public keys (TLS 1.3) */
 };
 
 typedef struct TLSExtensionStr {
@@ -144,12 +145,13 @@ SECStatus ssl3_ExtAppendHandshakeVariable(const sslSocket *ss,
 void ssl3_ExtSendAlert(const sslSocket *ss, SSL3AlertLevel level,
                        SSL3AlertDescription desc);
 void ssl3_ExtDecodeError(const sslSocket *ss);
-SECStatus ssl3_ExtConsumeHandshake(const sslSocket *ss, void *v, PRInt32 bytes,
+SECStatus ssl3_ExtConsumeHandshake(const sslSocket *ss, void *v, PRUint32 bytes,
                                    SSL3Opaque **b, PRUint32 *length);
-PRInt32 ssl3_ExtConsumeHandshakeNumber(const sslSocket *ss, PRInt32 bytes,
-                                       SSL3Opaque **b, PRUint32 *length);
+SECStatus ssl3_ExtConsumeHandshakeNumber(const sslSocket *ss, PRUint32 *num,
+                                         PRUint32 bytes, SSL3Opaque **b,
+                                         PRUint32 *length);
 SECStatus ssl3_ExtConsumeHandshakeVariable(const sslSocket *ss, SECItem *i,
-                                           PRInt32 bytes, SSL3Opaque **b,
+                                           PRUint32 bytes, SSL3Opaque **b,
                                            PRUint32 *length);
 
 #endif

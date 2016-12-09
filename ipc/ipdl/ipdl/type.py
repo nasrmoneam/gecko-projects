@@ -205,7 +205,6 @@ class IPDLType(Type):
     def isAtom(self):  return True
     def isCompound(self): return False
     def isShmem(self): return False
-    def isChmod(self): return False
     def isFD(self): return False
     def isEndpoint(self): return False
 
@@ -424,7 +423,7 @@ class StructType(_CompoundType):
     def itercomponents(self):
         for f in self.fields:
             yield f
-    
+
     def name(self): return self.qname.baseid
     def fullname(self): return str(self.qname)
 
@@ -553,7 +552,7 @@ class SymbolTable:
         self.scopes = [ { } ]   # stack({})
         self.globalScope = self.scopes[0]
         self.currentScope = self.globalScope
-    
+
     def enterScope(self, node):
         assert (isinstance(self.scopes[0], dict)
                 and self.globalScope is self.scopes[0])
@@ -710,16 +709,13 @@ class GatherDecls(TcheckVisitor):
             # a type-neutral |using| that works for C++ and protocol
             # types?
             qname = p.qname()
-            if 0 == len(qname.quals):
-                fullname = None
-            else:
-                fullname = str(qname)
+            fullname = str(qname)
             p.decl = self.declare(
                 loc=p.loc,
                 type=ProtocolType(qname, p.nestedRange, p.sendSemantics,
                                   stateless=(0 == len(p.transitionStmts))),
                 shortname=p.name,
-                fullname=fullname)
+                fullname=None if 0 == len(qname.quals) else fullname)
 
             p.parentEndpointDecl = self.declare(
                 loc=p.loc,
@@ -844,7 +840,7 @@ class GatherDecls(TcheckVisitor):
         # If we've already processed this union, don't do it again.
         if len(utype.components):
             return
-        
+
         for c in ud.components:
             cdecl = self.symtab.lookup(str(c))
             if cdecl is None:
@@ -931,7 +927,7 @@ class GatherDecls(TcheckVisitor):
                     mgdname, p.name)
 
         p.states = { }
-        
+
         if len(p.transitionStmts):
             p.startStates = [ ts for ts in p.transitionStmts
                               if ts.state.start ]
@@ -967,7 +963,7 @@ class GatherDecls(TcheckVisitor):
                     and None is self.symtab.lookup(_DELETE_MSG))):
             # add a special state |state DEAD: null goto DEAD;|
             deadtrans = TransitionStmt.makeNullStmt(State.DEAD)
-            p.states[State.DEAD] = deadtrans           
+            p.states[State.DEAD] = deadtrans
             if p.decl.type.hasReentrantDelete:
                 dyingtrans = TransitionStmt.makeNullStmt(State.DYING)
                 p.states[State.DYING] = dyingtrans
@@ -980,7 +976,7 @@ class GatherDecls(TcheckVisitor):
             # already resolved this guy's state
             if isinstance(actortype.state, Decl):
                 return
-            
+
             if actortype.state is None:
                 # we thought this was a C++ type until type checking,
                 # when we realized it was an IPDL actor type.  But
@@ -1143,8 +1139,7 @@ class GatherDecls(TcheckVisitor):
                     ptname, msgname)
                 ptype = VOID
             else:
-                ptype = self._canonicalType(ptdecl.type, param.typespec,
-                                            chmodallowed=1)
+                ptype = self._canonicalType(ptdecl.type, param.typespec)
             return self.declare(loc=ploc,
                                 type=ptype,
                                 progname=param.name)
@@ -1184,7 +1179,7 @@ class GatherDecls(TcheckVisitor):
         mdecl = self.symtab.lookup(mname)
         if mdecl is not None and mdecl.type.isIPDL() and mdecl.type.isProtocol():
             mdecl = self.symtab.lookup(mname +'Constructor')
-        
+
         if mdecl is None:
             self.error(loc, "message `%s' has not been declared", mname)
         elif not mdecl.type.isMessage():
@@ -1218,30 +1213,12 @@ class GatherDecls(TcheckVisitor):
         t.toStates = set(t.toStates)
 
 
-    def _canonicalType(self, itype, typespec, chmodallowed=0):
+    def _canonicalType(self, itype, typespec):
         loc = typespec.loc
-        
         if itype.isIPDL():
             if itype.isProtocol():
                 itype = ActorType(itype,
-                                  state=typespec.state,
                                   nullable=typespec.nullable)
-            # FIXME/cjones: ShmemChmod is disabled until bug 524193
-            if 0 and chmodallowed and itype.isShmem():
-                itype = ShmemChmodType(
-                    itype,
-                    myChmod=typespec.myChmod,
-                    otherChmod=typespec.otherChmod)
-
-        if ((typespec.myChmod or typespec.otherChmod)
-            and not (itype.isIPDL() and (itype.isShmem() or itype.isChmod()))):
-            self.error(
-                loc,
-                "fine-grained access controls make no sense for type `%s'",
-                itype.name())
-
-        if not chmodallowed and (typespec.myChmod or typespec.otherChmod):
-            self.error(loc, "fine-grained access controls not allowed here")
 
         if typespec.nullable and not (itype.isIPDL() and itype.isActor()):
             self.error(
@@ -1267,7 +1244,7 @@ def checkcycles(p, stack=None):
         # special case for self-managed protocols
         if cp is p:
             continue
-        
+
         if cp in stack:
             return [stack + [p, cp]]
         cycles += checkcycles(cp, stack + [p])
@@ -1348,7 +1325,7 @@ class CheckTypes(TcheckVisitor):
 
     def visitProtocol(self, p):
         self.ptype = p.decl.type
-        
+
         # check that we require no more "power" than our manager protocols
         ptype, pname = p.decl.type, p.decl.shortname
 
@@ -1389,7 +1366,7 @@ class CheckTypes(TcheckVisitor):
             if cycles:
                 self.error(
                     p.decl.loc,
-                    "cycle(s) detected in manager/manages heirarchy: %s",
+                    "cycle(s) detected in manager/manages hierarchy: %s",
                     formatcycles(cycles))
 
         if 1 == len(ptype.managers) and ptype is ptype.manager():
@@ -1473,8 +1450,6 @@ class CheckTypes(TcheckVisitor):
 
 
     def visitManager(self, mgr):
-        # FIXME/bug 541126: check that the protocol graph is acyclic
-        
         pdecl = mgr.of.decl
         ptype, pname = pdecl.type, pdecl.shortname
 
@@ -1543,7 +1518,7 @@ class CheckTypes(TcheckVisitor):
         if mtype.isCtor() and not ptype.isManagerOf(mtype.constructedType()):
             self.error(
                 loc,
-                "ctor for protocol `%s', which is not managed by protocol `%s'", 
+                "ctor for protocol `%s', which is not managed by protocol `%s'",
                 mname[:-len('constructor')], pname)
 
 
@@ -1555,7 +1530,7 @@ class CheckTypes(TcheckVisitor):
             SEND: [ OUT, _YNC ], RECV: [ IN, _YNC ],
             CALL: [ OUT, INTR ],  ANSWER: [ IN, INTR ],
          } [t.trigger]
-        
+
         if (OUT is impliedDirection and t.msg.type.isIn()
             or IN is impliedDirection and t.msg.type.isOut()
             or _YNC is impliedSems and t.msg.type.isInterrupt()
@@ -2167,7 +2142,7 @@ direction as trigger |t|'''
         U2 = stateName(U2)
 
         return T1, M1.msg.progname, U1, T2, M2.msg.progname, U2
-        
+
 
     def reportRaceError(self, loc, S, t1Seq, t2Seq):
         T1, M1, U1, T2, M2, U2 = self._normalizeTransitionSequences(t1Seq, t2Seq)

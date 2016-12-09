@@ -366,10 +366,9 @@ bool NonE10s::SendGetOriginKeyResponse(const uint32_t& aRequestId,
   return true;
 }
 
-template<class Super> bool
+template<class Super> mozilla::ipc::IPCResult
 Parent<Super>::RecvGetOriginKey(const uint32_t& aRequestId,
                                 const nsCString& aOrigin,
-                                const bool& aPrivateBrowsing,
                                 const bool& aPersist)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -381,7 +380,7 @@ Parent<Super>::RecvGetOriginKey(const uint32_t& aRequestId,
   nsresult rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR,
                                        getter_AddRefs(profileDir));
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
+    return IPCResult(this, false);
   }
 
   // Then over to stream-transport thread to do the actual file io.
@@ -395,11 +394,12 @@ Parent<Super>::RecvGetOriginKey(const uint32_t& aRequestId,
   RefPtr<Parent<Super>> that(this);
 
   rv = sts->Dispatch(NewRunnableFrom([this, that, id, profileDir, aOrigin,
-                                      aPrivateBrowsing, aPersist]() -> nsresult {
+                                      aPersist]() -> nsresult {
     MOZ_ASSERT(!NS_IsMainThread());
     mOriginKeyStore->mOriginKeys.SetProfileDir(profileDir);
-    nsCString result;
-    if (aPrivateBrowsing) {
+
+    nsAutoCString result;
+    if (OriginAttributes::IsPrivateBrowsing(aOrigin)) {
       mOriginKeyStore->mPrivateBrowsingOriginKeys.GetOriginKey(aOrigin, result);
     } else {
       mOriginKeyStore->mOriginKeys.GetOriginKey(aOrigin, result, aPersist);
@@ -427,7 +427,7 @@ Parent<Super>::RecvGetOriginKey(const uint32_t& aRequestId,
   }), NS_DISPATCH_NORMAL);
 
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
+    return IPCResult(this, false);
   }
   p->Then([this, that, aRequestId](const nsCString& aKey) mutable {
     if (mDestroyed) {
@@ -436,10 +436,10 @@ Parent<Super>::RecvGetOriginKey(const uint32_t& aRequestId,
     Unused << this->SendGetOriginKeyResponse(aRequestId, aKey);
     return NS_OK;
   });
-  return true;
+  return IPC_OK();
 }
 
-template<class Super> bool
+template<class Super> mozilla::ipc::IPCResult
 Parent<Super>::RecvSanitizeOriginKeys(const uint64_t& aSinceWhen,
                                       const bool& aOnlyPrivateBrowsing)
 {
@@ -448,7 +448,7 @@ Parent<Super>::RecvSanitizeOriginKeys(const uint64_t& aSinceWhen,
   nsresult rv = NS_GetSpecialDirectory(NS_APP_USER_PROFILE_50_DIR,
                                          getter_AddRefs(profileDir));
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
+    return IPCResult(this, false);
   }
   // Over to stream-transport thread to do the file io.
 
@@ -467,9 +467,9 @@ Parent<Super>::RecvSanitizeOriginKeys(const uint64_t& aSinceWhen,
     return NS_OK;
   }), NS_DISPATCH_NORMAL);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    return false;
+    return IPCResult(this, false);
   }
-  return true;
+  return IPC_OK();
 }
 
 template<class Super> void

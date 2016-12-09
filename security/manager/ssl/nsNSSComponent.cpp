@@ -1313,7 +1313,6 @@ typedef struct {
   const char* pref;
   long id;
   bool enabledByDefault;
-  bool weak;
 } CipherPref;
 
 // Update the switch statement in AccumulateCipherSuite in nsNSSCallbacks.cpp
@@ -1369,31 +1368,6 @@ static const CipherPref sCipherPrefs[] = {
  { nullptr, 0 } // end marker
 };
 
-// Bit flags indicating what weak ciphers are enabled.
-// The bit index will correspond to the index in sCipherPrefs.
-// Wrtten by the main thread, read from any threads.
-static Atomic<uint32_t> sEnabledWeakCiphers;
-static_assert(MOZ_ARRAY_LENGTH(sCipherPrefs) - 1 <= sizeof(uint32_t) * CHAR_BIT,
-              "too many cipher suites");
-
-/*static*/ bool
-nsNSSComponent::AreAnyWeakCiphersEnabled()
-{
-  return !!sEnabledWeakCiphers;
-}
-
-/*static*/ void
-nsNSSComponent::UseWeakCiphersOnSocket(PRFileDesc* fd)
-{
-  const uint32_t enabledWeakCiphers = sEnabledWeakCiphers;
-  const CipherPref* const cp = sCipherPrefs;
-  for (size_t i = 0; cp[i].pref; ++i) {
-    if (enabledWeakCiphers & ((uint32_t)1 << i)) {
-      SSL_CipherPrefSet(fd, cp[i].id, true);
-    }
-  }
-}
-
 // This function will convert from pref values like 1, 2, ...
 // to the internal values of SSL_LIBRARY_VERSION_TLS_1_0,
 // SSL_LIBRARY_VERSION_TLS_1_1, ...
@@ -1410,6 +1384,11 @@ nsNSSComponent::FillTLSVersionRange(SSLVersionRange& rangeOut,
         != SECSuccess) {
     return;
   }
+
+  // Clip the defaults by what NSS actually supports to enable
+  // working with a system NSS with different ranges.
+  rangeOut.min = std::max(rangeOut.min, supported.min);
+  rangeOut.max = std::min(rangeOut.max, supported.max);
 
   // convert min/maxFromPrefs to the internal representation
   minFromPrefs += SSL_LIBRARY_VERSION_3_0;
@@ -1429,7 +1408,6 @@ nsNSSComponent::FillTLSVersionRange(SSLVersionRange& rangeOut,
 static const int32_t OCSP_ENABLED_DEFAULT = 1;
 static const bool REQUIRE_SAFE_NEGOTIATION_DEFAULT = false;
 static const bool FALSE_START_ENABLED_DEFAULT = true;
-static const bool NPN_ENABLED_DEFAULT = true;
 static const bool ALPN_ENABLED_DEFAULT = false;
 static const bool ENABLED_0RTT_DATA_DEFAULT = false;
 
@@ -1505,22 +1483,8 @@ CipherSuiteChangeObserver::Observe(nsISupports* aSubject,
       if (prefName.Equals(cp[i].pref)) {
         bool cipherEnabled = Preferences::GetBool(cp[i].pref,
                                                   cp[i].enabledByDefault);
-        if (cp[i].weak) {
-          // Weak ciphers will not be used by default even if they
-          // are enabled in prefs. They are only used on specific
-          // sockets as a part of a fallback mechanism.
-          // Only the main thread will change sEnabledWeakCiphers.
-          uint32_t enabledWeakCiphers = sEnabledWeakCiphers;
-          if (cipherEnabled) {
-            enabledWeakCiphers |= ((uint32_t)1 << i);
-          } else {
-            enabledWeakCiphers &= ~((uint32_t)1 << i);
-          }
-          sEnabledWeakCiphers = enabledWeakCiphers;
-        } else {
-          SSL_CipherPrefSetDefault(cp[i].id, cipherEnabled);
-          SSL_ClearSessionCache();
-        }
+        SSL_CipherPrefSetDefault(cp[i].id, cipherEnabled);
+        SSL_ClearSessionCache();
         break;
       }
     }
@@ -1885,13 +1849,10 @@ nsNSSComponent::InitializeNSS()
                        Preferences::GetBool("security.ssl.enable_false_start",
                                             FALSE_START_ENABLED_DEFAULT));
 
-  // SSL_ENABLE_NPN and SSL_ENABLE_ALPN also require calling
-  // SSL_SetNextProtoNego in order for the extensions to be negotiated.
-  // WebRTC does not do that so it will not use NPN or ALPN even when these
-  // preferences are true.
-  SSL_OptionSetDefault(SSL_ENABLE_NPN,
-                       Preferences::GetBool("security.ssl.enable_npn",
-                                            NPN_ENABLED_DEFAULT));
+  // SSL_ENABLE_ALPN also requires calling SSL_SetNextProtoNego in order for
+  // the extensions to be negotiated.
+  // WebRTC does not do that so it will not use ALPN even when this preference
+  // is true.
   SSL_OptionSetDefault(SSL_ENABLE_ALPN,
                        Preferences::GetBool("security.ssl.enable_alpn",
                                             ALPN_ENABLED_DEFAULT));
@@ -2096,10 +2057,6 @@ nsNSSComponent::Observe(nsISupports* aSubject, const char* aTopic,
       SSL_OptionSetDefault(SSL_ENABLE_FALSE_START,
                            Preferences::GetBool("security.ssl.enable_false_start",
                                                 FALSE_START_ENABLED_DEFAULT));
-    } else if (prefName.EqualsLiteral("security.ssl.enable_npn")) {
-      SSL_OptionSetDefault(SSL_ENABLE_NPN,
-                           Preferences::GetBool("security.ssl.enable_npn",
-                                                NPN_ENABLED_DEFAULT));
     } else if (prefName.EqualsLiteral("security.ssl.enable_alpn")) {
       SSL_OptionSetDefault(SSL_ENABLE_ALPN,
                            Preferences::GetBool("security.ssl.enable_alpn",
@@ -2452,22 +2409,12 @@ InitializeCipherSuite()
   }
 
   // Now only set SSL/TLS ciphers we knew about at compile time
-  uint32_t enabledWeakCiphers = 0;
   const CipherPref* const cp = sCipherPrefs;
   for (size_t i = 0; cp[i].pref; ++i) {
     bool cipherEnabled = Preferences::GetBool(cp[i].pref,
                                               cp[i].enabledByDefault);
-    if (cp[i].weak) {
-      // Weak ciphers are not used by default. See the comment
-      // in CipherSuiteChangeObserver::Observe for details.
-      if (cipherEnabled) {
-        enabledWeakCiphers |= ((uint32_t)1 << i);
-      }
-    } else {
-      SSL_CipherPrefSetDefault(cp[i].id, cipherEnabled);
-    }
+    SSL_CipherPrefSetDefault(cp[i].id, cipherEnabled);
   }
-  sEnabledWeakCiphers = enabledWeakCiphers;
 
   // Enable ciphers for PKCS#12
   SEC_PKCS12EnableCipher(PKCS12_RC4_40, 1);

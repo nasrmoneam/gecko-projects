@@ -11,6 +11,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import org.mozilla.gecko.Telemetry;
+import org.mozilla.gecko.TelemetryContract;
 import org.mozilla.gecko.db.BrowserContract;
 import org.mozilla.gecko.home.HomePager;
 import org.mozilla.gecko.home.activitystream.StreamItem.HighlightItem;
@@ -49,8 +51,10 @@ public class StreamRecyclerAdapter extends RecyclerView.Adapter<StreamItem> impl
             return TopPanel.LAYOUT_ID;
         } else if (position == 1) {
             return StreamItem.HighlightsTitle.LAYOUT_ID;
-        } else {
+        } else if (position < getItemCount()) {
             return HighlightItem.LAYOUT_ID;
+        } else {
+            throw new IllegalArgumentException("Requested position does not exist");
         }
     }
 
@@ -70,7 +74,7 @@ public class StreamRecyclerAdapter extends RecyclerView.Adapter<StreamItem> impl
     }
 
     private int translatePositionToCursor(int position) {
-        if (position == 0) {
+        if (getItemViewType(position) != HighlightItem.LAYOUT_ID) {
             throw new IllegalArgumentException("Requested cursor position for invalid item");
         }
 
@@ -94,8 +98,8 @@ public class StreamRecyclerAdapter extends RecyclerView.Adapter<StreamItem> impl
 
     @Override
     public void onItemClicked(RecyclerView recyclerView, int position, View v) {
-        if (position < 1) {
-            // The header contains top sites and has its own click handling.
+        if (getItemViewType(position) != HighlightItem.LAYOUT_ID) {
+            // Headers (containing topsites and/or the highlights title) do their own click handling as needed
             return;
         }
 
@@ -106,6 +110,8 @@ public class StreamRecyclerAdapter extends RecyclerView.Adapter<StreamItem> impl
                 highlightsCursor.getColumnIndexOrThrow(BrowserContract.Combined.URL));
 
         onUrlOpenListener.onUrlOpen(url, EnumSet.of(HomePager.OnUrlOpenListener.Flags.ALLOW_SWITCH_TO_TAB));
+
+        Telemetry.sendUIEvent(TelemetryContract.Event.LOAD_URL, TelemetryContract.Method.LIST_ITEM, "as_highlights");
     }
 
     @Override

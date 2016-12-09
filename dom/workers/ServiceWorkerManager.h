@@ -33,7 +33,6 @@
 #include "nsTArrayForwardDeclare.h"
 #include "nsTObserverArray.h"
 
-class mozIApplicationClearPrivateDataParams;
 class nsIConsoleReportCollector;
 
 namespace mozilla {
@@ -363,6 +362,9 @@ private:
   ServiceWorkerInfo*
   GetActiveWorkerInfoForDocument(nsIDocument* aDocument);
 
+  void
+  TransitionServiceWorkerRegistrationWorker(ServiceWorkerRegistrationInfo* aRegistration,
+                                            WhichServiceWorker aWhichOne);
   void
   InvalidateServiceWorkerRegistrationWorker(ServiceWorkerRegistrationInfo* aRegistration,
                                             WhichServiceWorker aWhichOnes);

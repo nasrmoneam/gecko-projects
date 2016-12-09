@@ -57,13 +57,19 @@ PrintTargetThebes::MakeDrawTarget(const IntSize& aSize,
 }
 
 already_AddRefed<DrawTarget>
-PrintTargetThebes::GetReferenceDrawTarget()
+PrintTargetThebes::GetReferenceDrawTarget(DrawEventRecorder* aRecorder)
 {
   if (!mRefDT) {
     RefPtr<gfx::DrawTarget> dt =
       gfxPlatform::GetPlatform()->CreateDrawTargetForSurface(mGfxSurface, mSize);
     if (!dt || !dt->IsValid()) {
       return nullptr;
+    }
+    if (aRecorder) {
+      dt = CreateRecordingDrawTarget(aRecorder, dt);
+      if (!dt || !dt->IsValid()) {
+        return nullptr;
+      }
     }
     mRefDT = dt->CreateSimilarDrawTarget(IntSize(1,1), dt->GetFormat());
   }
@@ -72,7 +78,9 @@ PrintTargetThebes::GetReferenceDrawTarget()
 
 nsresult
 PrintTargetThebes::BeginPrinting(const nsAString& aTitle,
-                                 const nsAString& aPrintToFileName)
+                                 const nsAString& aPrintToFileName,
+                                 int32_t aStartPage,
+                                 int32_t aEndPage)
 {
   return mGfxSurface->BeginPrinting(aTitle, aPrintToFileName);
 }

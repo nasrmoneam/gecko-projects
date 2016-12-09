@@ -1736,18 +1736,6 @@ Element::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
     }
   }
 
-  // It would be cleanest to mark nodes as dirty when (a) they're created and
-  // (b) they're unbound from a tree. However, we can't easily do (a) right now,
-  // because IsStyledByServo() is not always easy to check at node creation time,
-  // and the bits have different meaning in the non-IsStyledByServo case.
-  //
-  // So for now, we just mark nodes as dirty when they're inserted into a
-  // document or shadow tree.
-  if (IsStyledByServo() && IsInComposedDoc()) {
-    MOZ_ASSERT(!HasServoData());
-    SetIsDirtyForServo();
-  }
-
   // XXXbz script execution during binding can trigger some of these
   // postcondition asserts....  But we do want that, since things will
   // generally be quite broken when that happens.
@@ -2991,7 +2979,7 @@ Element::CheckHandleEventForLinksPrecondition(EventChainVisitor& aVisitor,
 }
 
 nsresult
-Element::PreHandleEventForLinks(EventChainPreVisitor& aVisitor)
+Element::GetEventTargetParentForLinks(EventChainPreVisitor& aVisitor)
 {
   // Optimisation: return early if this event doesn't interest us.
   // IMPORTANT: this switch and the switch below it must be kept in sync!
@@ -3013,8 +3001,9 @@ Element::PreHandleEventForLinks(EventChainPreVisitor& aVisitor)
 
   nsresult rv = NS_OK;
 
-  // We do the status bar updates in PreHandleEvent so that the status bar gets
-  // updated even if the event is consumed before we have a chance to set it.
+  // We do the status bar updates in GetEventTargetParent so that the status bar
+  // gets updated even if the event is consumed before we have a chance to set
+  // it.
   switch (aVisitor.mEvent->mMessage) {
   // Set the status bar similarly for mouseover and focus
   case eMouseOver:
@@ -3312,14 +3301,6 @@ Element::AttrValueToCORSMode(const nsAttrValue* aValue)
 static const char*
 GetFullScreenError(nsIDocument* aDoc)
 {
-  if (aDoc->NodePrincipal()->GetAppStatus() >= nsIPrincipal::APP_STATUS_INSTALLED) {
-    // Request is in a web app and in the same origin as the web app.
-    // Don't enforce as strict security checks for web apps, the user
-    // is supposed to have trust in them. However documents cross-origin
-    // to the web app must still confirm to the normal security checks.
-    return nullptr;
-  }
-
   if (!nsContentUtils::IsRequestFullScreenAllowed()) {
     return "FullscreenDeniedNotInputDriven";
   }
@@ -3328,7 +3309,7 @@ GetFullScreenError(nsIDocument* aDoc)
 }
 
 void
-Element::RequestFullscreen(ErrorResult& aError)
+Element::RequestFullscreen(CallerType aCallerType, ErrorResult& aError)
 {
   // Only grant full-screen requests if this is called from inside a trusted
   // event handler (i.e. inside an event handler for a user initiated event).
@@ -3343,15 +3324,15 @@ Element::RequestFullscreen(ErrorResult& aError)
   }
 
   auto request = MakeUnique<FullscreenRequest>(this);
-  request->mIsCallerChrome = nsContentUtils::IsCallerChrome();
+  request->mIsCallerChrome = (aCallerType == CallerType::System);
 
   OwnerDoc()->AsyncRequestFullScreen(Move(request));
 }
 
 void
-Element::RequestPointerLock()
+Element::RequestPointerLock(CallerType aCallerType)
 {
-  OwnerDoc()->RequestPointerLock(this);
+  OwnerDoc()->RequestPointerLock(this, aCallerType);
 }
 
 void
@@ -3928,4 +3909,13 @@ Element::UpdateIntersectionObservation(DOMIntersectionObserver* aObserver, int32
     }
   }
   return false;
+}
+
+void
+Element::ClearServoData() {
+#ifdef MOZ_STYLO
+  Servo_Element_ClearData(this);
+#else
+  MOZ_CRASH("Accessing servo node data in non-stylo build");
+#endif
 }

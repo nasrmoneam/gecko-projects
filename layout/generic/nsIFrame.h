@@ -523,6 +523,17 @@ public:
 
   NS_DECL_QUERYFRAME_TARGET(nsIFrame)
 
+  nsIFrame()
+    : mRect()
+    , mContent(nullptr)
+    , mStyleContext(nullptr)
+    , mParent(nullptr)
+    , mNextSibling(nullptr)
+    , mPrevSibling(nullptr)
+  {
+    mozilla::PodZero(&mOverflow);
+  }
+
   nsPresContext* PresContext() const {
     return StyleContext()->PresContext();
   }
@@ -1172,15 +1183,20 @@ public:
    * Indices into aRadii are the NS_CORNER_* constants in nsStyleConsts.h
    * aSkipSides is a union of SIDE_BIT_LEFT/RIGHT/TOP/BOTTOM bits that says
    * which side(s) to skip.
+   *
+   * Note: GetMarginBoxBorderRadii() and GetShapeBoxBorderRadii() work only
+   * on frames that establish block formatting contexts since they don't
+   * participate in margin-collapsing.
    */
   virtual bool GetBorderRadii(const nsSize& aFrameSize,
                               const nsSize& aBorderArea,
                               Sides aSkipSides,
                               nscoord aRadii[8]) const;
   bool GetBorderRadii(nscoord aRadii[8]) const;
-
+  bool GetMarginBoxBorderRadii(nscoord aRadii[8]) const;
   bool GetPaddingBoxBorderRadii(nscoord aRadii[8]) const;
   bool GetContentBoxBorderRadii(nscoord aRadii[8]) const;
+  bool GetShapeBoxBorderRadii(nscoord aRadii[8]) const;
 
   /**
    * Get the position of the frame's baseline, relative to the top of
@@ -2776,14 +2792,14 @@ public:
   /**
    *  called to discover where this frame, or a parent frame has user-select style
    *  applied, which affects that way that it is selected.
-   *    
-   *  @param aIsSelectable out param. Set to true if the frame can be selected
-   *                       (i.e. is not affected by user-select: none)
+   *
    *  @param aSelectStyle  out param. Returns the type of selection style found
    *                        (using values defined in nsStyleConsts.h).
+   *
+   *  @return Whether the frame can be selected (i.e. is not affected by
+   *          user-select: none)
    */
-  virtual nsresult IsSelectable(bool* aIsSelectable,
-                            mozilla::StyleUserSelect* aSelectStyle) const = 0;
+  bool IsSelectable(mozilla::StyleUserSelect* aSelectStyle) const;
 
   /** 
    *  Called to retrieve the SelectionController associated with the frame.

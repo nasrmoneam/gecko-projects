@@ -62,7 +62,7 @@ function cacheDataForContext(loadContextInfo) {
   });
 }
 
-let countMatchingCacheEntries = function (cacheEntries, domain, fileSuffix) {
+let countMatchingCacheEntries = function(cacheEntries, domain, fileSuffix) {
   return cacheEntries.map(entry => entry.uri.asciiSpec)
                      .filter(spec => spec.includes(domain))
                      .filter(spec => spec.includes("file_thirdPartyChild." + fileSuffix))
@@ -73,7 +73,7 @@ function observeChannels(onChannel) {
   // We use a dummy proxy filter to catch all channels, even those that do not
   // generate an "http-on-modify-request" notification, such as link preconnects.
   let proxyFilter = {
-    applyFilter : function (aProxyService, aChannel, aProxy) {
+    applyFilter : function(aProxyService, aChannel, aProxy) {
       // We have the channel; provide it to the callback.
       onChannel(aChannel);
       // Pass on aProxy unmodified.
@@ -86,7 +86,7 @@ function observeChannels(onChannel) {
 }
 
 function startObservingChannels(aMode) {
-  let stopObservingChannels = observeChannels(function (channel) {
+  let stopObservingChannels = observeChannels(function(channel) {
     let originalURISpec = channel.originalURI.spec;
     if (originalURISpec.includes("example.net")) {
       let loadInfo = channel.loadInfo;
@@ -157,12 +157,6 @@ function* doTest(aBrowser) {
     let audioSource = content.document.createElement('source');
     let audioTrack = content.document.createElement('track');
 
-    // Assign attributes for the audio element.
-    audioSource.setAttribute("src", audioURL + URLSuffix);
-    audioSource.setAttribute("type", "audio/ogg");
-    audioTrack.setAttribute("src", trackURL);
-    audioTrack.setAttribute("kind", "subtitles");
-
     // Append the audio and track element into the body, and wait until they're finished.
     yield new Promise(resolve => {
       let audioLoaded = false;
@@ -186,12 +180,20 @@ function* doTest(aBrowser) {
         }
       };
 
+      // Add the event listeners before everything in case we lose events.
+      audioTrack.addEventListener("load", trackListener, false);
+      audio.addEventListener("canplaythrough", audioListener, false);
+
+      // Assign attributes for the audio element.
+      audioSource.setAttribute("src", audioURL + URLSuffix);
+      audioSource.setAttribute("type", "audio/ogg");
+      audioTrack.setAttribute("src", trackURL);
+      audioTrack.setAttribute("kind", "subtitles");
+
       audio.appendChild(audioSource);
       audio.appendChild(audioTrack);
       audio.autoplay = true;
 
-      audioTrack.addEventListener("load", trackListener, false);
-      audio.addEventListener("canplaythrough", audioListener, false);
       content.document.body.appendChild(audio);
     });
 
@@ -202,11 +204,13 @@ function* doTest(aBrowser) {
         resolve();
       };
 
+      // Add the event listener before everything in case we lose the event.
+      video.addEventListener("canplaythrough", listener, false);
+
       // Assign attributes for the video element.
       video.setAttribute("src", videoURL + URLSuffix);
       video.setAttribute("type", "video/ogg");
 
-      video.addEventListener("canplaythrough", listener, false);
       content.document.body.appendChild(video);
     });
   });

@@ -197,7 +197,7 @@ JSRuntime::finishAtoms()
 }
 
 void
-js::MarkAtoms(JSTracer* trc, AutoLockForExclusiveAccess& lock)
+js::TraceAtoms(JSTracer* trc, AutoLockForExclusiveAccess& lock)
 {
     JSRuntime* rt = trc->runtime();
 
@@ -216,11 +216,11 @@ js::MarkAtoms(JSTracer* trc, AutoLockForExclusiveAccess& lock)
 }
 
 void
-js::MarkPermanentAtoms(JSTracer* trc)
+js::TracePermanentAtoms(JSTracer* trc)
 {
     JSRuntime* rt = trc->runtime();
 
-    // Permanent atoms only need to be marked in the runtime which owns them.
+    // Permanent atoms only need to be traced in the runtime which owns them.
     if (rt->parentRuntime)
         return;
 
@@ -239,7 +239,7 @@ js::MarkPermanentAtoms(JSTracer* trc)
 }
 
 void
-js::MarkWellKnownSymbols(JSTracer* trc)
+js::TraceWellKnownSymbols(JSTracer* trc)
 {
     JSRuntime* rt = trc->runtime();
 
@@ -350,7 +350,8 @@ AtomizeAndCopyChars(ExclusiveContext* cx, const CharT* tbchars, size_t length, P
         return nullptr;
     }
 
-    JSAtom* atom = flat->morphAtomizedStringIntoAtom();
+    JSAtom* atom = flat->morphAtomizedStringIntoAtom(lookup.hash);
+    MOZ_ASSERT(atom->hash() == lookup.hash);
 
     // We have held the lock since looking up p, and the operations we've done
     // since then can't GC; therefore the atoms table has not been modified and
@@ -509,6 +510,14 @@ ToAtomSlow(ExclusiveContext* cx, typename MaybeRooted<Value, allowGC>::HandleTyp
         return v.toBoolean() ? cx->names().true_ : cx->names().false_;
     if (v.isNull())
         return cx->names().null;
+    if (v.isSymbol()) {
+        if (cx->shouldBeJSContext() && allowGC) {
+            JS_ReportErrorNumberASCII(cx->asJSContext(), GetErrorMessage, nullptr,
+                                      JSMSG_SYMBOL_TO_STRING);
+        }
+        return nullptr;
+    }
+    MOZ_ASSERT(v.isUndefined());
     return cx->names().undefined;
 }
 

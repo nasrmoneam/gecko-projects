@@ -6,6 +6,8 @@
 
 #include "jit/MacroAssembler-inl.h"
 
+#include "mozilla/CheckedInt.h"
+
 #include "jsfriendapi.h"
 #include "jsprf.h"
 
@@ -33,6 +35,8 @@ using namespace js::jit;
 
 using JS::GenericNaN;
 using JS::ToInt32;
+
+using mozilla::CheckedUint32;
 
 template <typename Source> void
 MacroAssembler::guardTypeSet(const Source& address, const TypeSet* types, BarrierKind kind,
@@ -1059,6 +1063,9 @@ JS_FOR_EACH_TYPED_ARRAY(CREATE_TYPED_ARRAY)
       default:
         MOZ_CRASH("Unsupported TypedArray type");
     }
+
+    if (!(CheckedUint32(nbytes) + sizeof(Value)).isValid())
+        return;
 
     nbytes = JS_ROUNDUP(nbytes, sizeof(Value));
     Nursery& nursery = cx->runtime()->gc.nursery;
@@ -2506,13 +2513,15 @@ MacroAssembler::PushEmptyRooted(VMFunction::RootType rootType)
         MOZ_CRASH("Handle must have root type");
       case VMFunction::RootObject:
       case VMFunction::RootString:
-      case VMFunction::RootPropertyName:
       case VMFunction::RootFunction:
       case VMFunction::RootCell:
         Push(ImmPtr(nullptr));
         break;
       case VMFunction::RootValue:
         Push(UndefinedValue());
+        break;
+      case VMFunction::RootId:
+        Push(ImmWord(JSID_BITS(JSID_VOID)));
         break;
     }
 }
@@ -2526,9 +2535,9 @@ MacroAssembler::popRooted(VMFunction::RootType rootType, Register cellReg,
         MOZ_CRASH("Handle must have root type");
       case VMFunction::RootObject:
       case VMFunction::RootString:
-      case VMFunction::RootPropertyName:
       case VMFunction::RootFunction:
       case VMFunction::RootCell:
+      case VMFunction::RootId:
         Pop(cellReg);
         break;
       case VMFunction::RootValue:

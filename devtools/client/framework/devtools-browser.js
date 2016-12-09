@@ -26,6 +26,7 @@ loader.lazyRequireGetter(this, "Toolbox", "devtools/client/framework/toolbox", t
 loader.lazyRequireGetter(this, "DebuggerServer", "devtools/server/main", true);
 loader.lazyRequireGetter(this, "DebuggerClient", "devtools/shared/client/main", true);
 loader.lazyRequireGetter(this, "BrowserMenus", "devtools/client/framework/browser-menus");
+loader.lazyRequireGetter(this, "findCssSelector", "devtools/shared/inspector/css-logic", true);
 
 loader.lazyImporter(this, "CustomizableUI", "resource:///modules/CustomizableUI.jsm");
 loader.lazyImporter(this, "AppConstants", "resource://gre/modules/AppConstants.jsm");
@@ -226,6 +227,31 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
     } else {
       Services.ww.openWindow(null, "chrome://webide/content/", "webide", "chrome,centerscreen,resizable", null);
     }
+  },
+
+  inspectNode: function (tab, node) {
+    let target = TargetFactory.forTab(tab);
+    let selector = findCssSelector(node);
+
+    return gDevTools.showToolbox(target, "inspector").then(toolbox => {
+      let inspector = toolbox.getCurrentPanel();
+
+      // new-node-front tells us when the node has been selected, whether the
+      // browser is remote or not.
+      let onNewNode = inspector.selection.once("new-node-front");
+
+      inspector.walker.getRootNode().then(rootNode => {
+        return inspector.walker.querySelector(rootNode, selector);
+      }).then(node => {
+        inspector.selection.setNodeFront(node, "browser-context-menu");
+      });
+
+      return onNewNode.then(() => {
+        // Now that the node has been selected, wait until the inspector is
+        // fully updated.
+        return inspector.once("inspector-updated");
+      });
+    });
   },
 
   _getContentProcessTarget: function (processId) {
@@ -726,13 +752,14 @@ gDevTools.getToolDefinitionArray()
 // and the new ones.
 gDevTools.on("tool-registered", function (ev, toolId) {
   let toolDefinition = gDevTools._tools.get(toolId);
-  gDevToolsBrowser._addToolToWindows(toolDefinition);
+  // If the tool has been registered globally, add to all the
+  // available windows.
+  if (toolDefinition) {
+    gDevToolsBrowser._addToolToWindows(toolDefinition);
+  }
 });
 
 gDevTools.on("tool-unregistered", function (ev, toolId) {
-  if (typeof toolId != "string") {
-    toolId = toolId.id;
-  }
   gDevToolsBrowser._removeToolFromWindows(toolId);
 });
 

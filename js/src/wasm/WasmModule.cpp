@@ -137,129 +137,6 @@ LinkData::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
            symbolicLinks.sizeOfExcludingThis(mallocSizeOf);
 }
 
-size_t
-Import::serializedSize() const
-{
-    return module.serializedSize() +
-           field.serializedSize();
-}
-
-uint8_t*
-Import::serialize(uint8_t* cursor) const
-{
-    cursor = module.serialize(cursor);
-    cursor = field.serialize(cursor);
-    return cursor;
-}
-
-const uint8_t*
-Import::deserialize(const uint8_t* cursor)
-{
-    (cursor = module.deserialize(cursor)) &&
-    (cursor = field.deserialize(cursor));
-    return cursor;
-}
-
-size_t
-Import::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
-{
-    return module.sizeOfExcludingThis(mallocSizeOf) +
-           field.sizeOfExcludingThis(mallocSizeOf);
-}
-
-Export::Export(UniqueChars fieldName, uint32_t index, DefinitionKind kind)
-  : fieldName_(Move(fieldName))
-{
-    pod.kind_ = kind;
-    pod.index_ = index;
-}
-
-Export::Export(UniqueChars fieldName, DefinitionKind kind)
-  : fieldName_(Move(fieldName))
-{
-    pod.kind_ = kind;
-    pod.index_ = 0;
-}
-
-uint32_t
-Export::funcIndex() const
-{
-    MOZ_ASSERT(pod.kind_ == DefinitionKind::Function);
-    return pod.index_;
-}
-
-uint32_t
-Export::globalIndex() const
-{
-    MOZ_ASSERT(pod.kind_ == DefinitionKind::Global);
-    return pod.index_;
-}
-
-size_t
-Export::serializedSize() const
-{
-    return fieldName_.serializedSize() +
-           sizeof(pod);
-}
-
-uint8_t*
-Export::serialize(uint8_t* cursor) const
-{
-    cursor = fieldName_.serialize(cursor);
-    cursor = WriteBytes(cursor, &pod, sizeof(pod));
-    return cursor;
-}
-
-const uint8_t*
-Export::deserialize(const uint8_t* cursor)
-{
-    (cursor = fieldName_.deserialize(cursor)) &&
-    (cursor = ReadBytes(cursor, &pod, sizeof(pod)));
-    return cursor;
-}
-
-size_t
-Export::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
-{
-    return fieldName_.sizeOfExcludingThis(mallocSizeOf);
-}
-
-size_t
-ElemSegment::serializedSize() const
-{
-    return sizeof(tableIndex) +
-           sizeof(offset) +
-           SerializedPodVectorSize(elemFuncIndices) +
-           SerializedPodVectorSize(elemCodeRangeIndices);
-}
-
-uint8_t*
-ElemSegment::serialize(uint8_t* cursor) const
-{
-    cursor = WriteBytes(cursor, &tableIndex, sizeof(tableIndex));
-    cursor = WriteBytes(cursor, &offset, sizeof(offset));
-    cursor = SerializePodVector(cursor, elemFuncIndices);
-    cursor = SerializePodVector(cursor, elemCodeRangeIndices);
-    return cursor;
-}
-
-const uint8_t*
-ElemSegment::deserialize(const uint8_t* cursor)
-{
-    (cursor = ReadBytes(cursor, &tableIndex, sizeof(tableIndex))) &&
-    (cursor = ReadBytes(cursor, &offset, sizeof(offset))) &&
-    (cursor = DeserializePodVector(cursor, &elemFuncIndices)) &&
-    (cursor = DeserializePodVector(cursor, &elemCodeRangeIndices));
-    return cursor;
-}
-
-size_t
-ElemSegment::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
-{
-    return elemFuncIndices.sizeOfExcludingThis(mallocSizeOf) +
-           elemCodeRangeIndices.sizeOfExcludingThis(mallocSizeOf);
-}
-
 /* virtual */ void
 Module::serializedSize(size_t* bytecodeSize, size_t* compiledSize) const
 {
@@ -302,11 +179,10 @@ Module::serialize(uint8_t* bytecodeBegin, size_t bytecodeSize,
 }
 
 /* static */ bool
-Module::assumptionsMatch(const Assumptions& current, const uint8_t* cursor)
+Module::assumptionsMatch(const Assumptions& current, const uint8_t* compiledBegin, size_t remain)
 {
     Assumptions cached;
-    cursor = cached.deserialize(cursor);
-    if (!cursor)
+    if (!cached.deserialize(compiledBegin, remain))
         return false;
 
     return current == cached;
@@ -327,10 +203,8 @@ Module::deserialize(const uint8_t* bytecodeBegin, size_t bytecodeSize,
 
     MOZ_RELEASE_ASSERT(bytecodeEnd == bytecodeBegin + bytecodeSize);
 
-    const uint8_t* cursor = compiledBegin;
-
     Assumptions assumptions;
-    cursor = assumptions.deserialize(cursor);
+    const uint8_t* cursor = assumptions.deserialize(compiledBegin, compiledSize);
     if (!cursor)
         return nullptr;
 
@@ -437,7 +311,7 @@ wasm::CompiledModuleAssumptionsMatch(PRFileDesc* compiled, JS::BuildIdCharVector
         return false;
 
     Assumptions assumptions(Move(buildId));
-    return Module::assumptionsMatch(assumptions, mapping.get());
+    return Module::assumptionsMatch(assumptions, mapping.get(), info.size);
 }
 
 SharedModule
@@ -675,6 +549,19 @@ Module::initSegments(JSContext* cx,
     return true;
 }
 
+static const Import&
+FindImportForFuncImport(const ImportVector& imports, uint32_t funcImportIndex)
+{
+    for (const Import& import : imports) {
+        if (import.kind != DefinitionKind::Function)
+            continue;
+        if (funcImportIndex == 0)
+            return import;
+        funcImportIndex--;
+    }
+    MOZ_CRASH("ran out of imports");
+}
+
 bool
 Module::instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) const
 {
@@ -693,7 +580,9 @@ Module::instantiateFunctions(JSContext* cx, Handle<FunctionVector> funcImports) 
         const FuncExport& funcExport = instance.metadata().lookupFuncExport(funcIndex);
 
         if (funcExport.sig() != metadata_->funcImports[i].sig()) {
-            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMPORT_SIG);
+            const Import& import = FindImportForFuncImport(imports_, i);
+            JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_BAD_IMPORT_SIG,
+                                      import.module.get(), import.field.get());
             return false;
         }
     }

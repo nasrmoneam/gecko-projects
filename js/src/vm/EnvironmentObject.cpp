@@ -142,9 +142,8 @@ CallObject::create(JSContext* cx, HandleShape shape, HandleObjectGroup group)
     MOZ_ASSERT(CanBeFinalizedInBackground(kind, &CallObject::class_));
     kind = gc::GetBackgroundAllocKind(kind);
 
-    JSObject* obj = JSObject::create(cx, kind, gc::DefaultHeap, shape, group);
-    if (!obj)
-        return nullptr;
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, gc::DefaultHeap, shape, group));
 
     return &obj->as<CallObject>();
 }
@@ -159,9 +158,9 @@ CallObject::createSingleton(JSContext* cx, HandleShape shape)
     RootedObjectGroup group(cx, ObjectGroup::lazySingletonGroup(cx, &class_, TaggedProto(nullptr)));
     if (!group)
         return nullptr;
-    RootedObject obj(cx, JSObject::create(cx, kind, gc::TenuredHeap, shape, group));
-    if (!obj)
-        return nullptr;
+
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, gc::TenuredHeap, shape, group));
 
     MOZ_ASSERT(obj->isSingleton(),
                "group created inline above must be a singleton");
@@ -190,9 +189,8 @@ CallObject::createTemplateObject(JSContext* cx, HandleScript script, HandleObjec
     MOZ_ASSERT(CanBeFinalizedInBackground(kind, &class_));
     kind = gc::GetBackgroundAllocKind(kind);
 
-    JSObject* obj = JSObject::create(cx, kind, heap, shape, group);
-    if (!obj)
-        return nullptr;
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, heap, shape, group));
 
     CallObject* callObj = &obj->as<CallObject>();
     callObj->initEnclosingEnvironment(enclosing);
@@ -322,14 +320,13 @@ VarEnvironmentObject::create(JSContext* cx, HandleShape shape, HandleObject encl
     MOZ_ASSERT(CanBeFinalizedInBackground(kind, &class_));
     kind = gc::GetBackgroundAllocKind(kind);
 
-    NativeObject* obj = MaybeNativeObject(JSObject::create(cx, kind, heap, shape, group));
-    if (!obj)
-        return nullptr;
-
-    MOZ_ASSERT(!obj->inDictionaryMode());
-    MOZ_ASSERT(obj->isDelegate());
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, heap, shape, group));
 
     VarEnvironmentObject* env = &obj->as<VarEnvironmentObject>();
+    MOZ_ASSERT(!env->inDictionaryMode());
+    MOZ_ASSERT(env->isDelegate());
+
     env->initEnclosingEnvironment(enclosing);
 
     return env;
@@ -439,9 +436,8 @@ ModuleEnvironmentObject::create(ExclusiveContext* cx, HandleModuleObject module)
     MOZ_ASSERT(CanBeFinalizedInBackground(kind, &class_));
     kind = gc::GetBackgroundAllocKind(kind);
 
-    JSObject* obj = JSObject::create(cx, kind, TenuredHeap, shape, group);
-    if (!obj)
-        return nullptr;
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, kind, TenuredHeap, shape, group));
 
     RootedModuleEnvironmentObject env(cx, &obj->as<ModuleEnvironmentObject>());
 
@@ -845,15 +841,14 @@ LexicalEnvironmentObject::createTemplateObject(JSContext* cx, HandleShape shape,
     gc::AllocKind allocKind = gc::GetGCObjectKind(shape->numFixedSlots());
     MOZ_ASSERT(CanBeFinalizedInBackground(allocKind, &LexicalEnvironmentObject::class_));
     allocKind = GetBackgroundAllocKind(allocKind);
-    RootedNativeObject obj(cx,
-        MaybeNativeObject(JSObject::create(cx, allocKind, heap, shape, group)));
-    if (!obj)
-        return nullptr;
 
-    MOZ_ASSERT(!obj->inDictionaryMode());
-    MOZ_ASSERT(obj->isDelegate());
+    JSObject* obj;
+    JS_TRY_VAR_OR_RETURN_NULL(cx, obj, JSObject::create(cx, allocKind, heap, shape, group));
 
     LexicalEnvironmentObject* env = &obj->as<LexicalEnvironmentObject>();
+    MOZ_ASSERT(!env->inDictionaryMode());
+    MOZ_ASSERT(env->isDelegate());
+
     if (enclosing)
         env->initEnclosingEnvironment(enclosing);
 
@@ -1425,7 +1420,8 @@ class DebugEnvironmentProxyHandler : public BaseProxyHandler
         /* Handle unaliased formals, vars, lets, and consts at function scope. */
         if (env->is<CallObject>()) {
             CallObject& callobj = env->as<CallObject>();
-            RootedScript script(cx, callobj.callee().getOrCreateScript(cx));
+            RootedFunction fun(cx, &callobj.callee());
+            RootedScript script(cx, JSFunction::getOrCreateScript(cx, fun));
             if (!script->ensureHasTypes(cx) || !script->ensureHasAnalyzedArgsUsage(cx))
                 return false;
 
@@ -2287,7 +2283,7 @@ DebugEnvironments::init()
 }
 
 void
-DebugEnvironments::mark(JSTracer* trc)
+DebugEnvironments::trace(JSTracer* trc)
 {
     proxiedEnvs.trace(trc);
 }
@@ -2816,7 +2812,7 @@ DebugEnvironments::forwardLiveFrame(JSContext* cx, AbstractFramePtr from, Abstra
 }
 
 /* static */ void
-DebugEnvironments::markLiveFrame(JSTracer* trc, AbstractFramePtr frame)
+DebugEnvironments::traceLiveFrame(JSTracer* trc, AbstractFramePtr frame)
 {
     for (MissingEnvironmentMap::Enum e(missingEnvs); !e.empty(); e.popFront()) {
         if (e.front().key().frame() == frame)
@@ -2960,7 +2956,7 @@ js::GetDebugEnvironmentForFunction(JSContext* cx, HandleFunction fun)
     MOZ_ASSERT(CanUseDebugEnvironmentMaps(cx));
     if (!DebugEnvironments::updateLiveEnvironments(cx))
         return nullptr;
-    JSScript* script = fun->getOrCreateScript(cx);
+    JSScript* script = JSFunction::getOrCreateScript(cx, fun);
     if (!script)
         return nullptr;
     EnvironmentIter ei(cx, fun->environment(), script->enclosingScope());
@@ -3468,11 +3464,13 @@ RemoveReferencedNames(JSContext* cx, HandleScript script, PropertyNameSet& remai
 
     if (script->hasObjects()) {
         ObjectArray* objects = script->objects();
+        RootedFunction fun(cx);
+        RootedScript innerScript(cx);
         for (size_t i = 0; i < objects->length; i++) {
             JSObject* obj = objects->vector[i];
             if (obj->is<JSFunction>() && obj->as<JSFunction>().isInterpreted()) {
-                JSFunction* fun = &obj->as<JSFunction>();
-                RootedScript innerScript(cx, fun->getOrCreateScript(cx));
+                fun = &obj->as<JSFunction>();
+                innerScript = JSFunction::getOrCreateScript(cx, fun);
                 if (!innerScript)
                     return false;
 
@@ -3535,11 +3533,13 @@ AnalyzeEntrainedVariablesInScript(JSContext* cx, HandleScript script, HandleScri
 
     if (innerScript->hasObjects()) {
         ObjectArray* objects = innerScript->objects();
+        RootedFunction fun(cx);
+        RootedScript innerInnerScript(cx);
         for (size_t i = 0; i < objects->length; i++) {
             JSObject* obj = objects->vector[i];
             if (obj->is<JSFunction>() && obj->as<JSFunction>().isInterpreted()) {
-                JSFunction* fun = &obj->as<JSFunction>();
-                RootedScript innerInnerScript(cx, fun->getOrCreateScript(cx));
+                fun = &obj->as<JSFunction>();
+                innerInnerScript = JSFunction::getOrCreateScript(cx, fun);
                 if (!innerInnerScript ||
                     !AnalyzeEntrainedVariablesInScript(cx, script, innerInnerScript))
                 {
@@ -3570,11 +3570,13 @@ js::AnalyzeEntrainedVariables(JSContext* cx, HandleScript script)
         return true;
 
     ObjectArray* objects = script->objects();
+    RootedFunction fun(cx);
+    RootedScript innerScript(cx);
     for (size_t i = 0; i < objects->length; i++) {
         JSObject* obj = objects->vector[i];
         if (obj->is<JSFunction>() && obj->as<JSFunction>().isInterpreted()) {
-            JSFunction* fun = &obj->as<JSFunction>();
-            RootedScript innerScript(cx, fun->getOrCreateScript(cx));
+            fun = &obj->as<JSFunction>();
+            innerScript = JSFunction::getOrCreateScript(cx, fun);
             if (!innerScript)
                 return false;
 

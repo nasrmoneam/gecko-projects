@@ -397,7 +397,7 @@ var TelemetryScheduler = {
    *                 that the reason field of this payload will be changed.
    * @return {Promise} A promise resolved when the ping is saved.
    */
-  _saveAbortedPing: function(now, competingPayload=null) {
+  _saveAbortedPing: function(now, competingPayload = null) {
     this._lastSessionCheckpointTime = now;
     return Impl._saveAbortedSessionPing(competingPayload)
                 .catch(e => this._log.error("_saveAbortedPing - Failed", e));
@@ -645,7 +645,7 @@ this.TelemetrySession = Object.freeze({
   /**
    * Send a notification.
    */
-  observe: function (aSubject, aTopic, aData) {
+  observe: function(aSubject, aTopic, aData) {
     return Impl.observe(aSubject, aTopic, aData);
   },
 });
@@ -981,7 +981,7 @@ var Impl = {
    * @param {keyed} Take a snapshot of keyed or non keyed scalars.
    * @return {Object} The scalar data as a Javascript object.
    */
-  getScalars: function (subsession, clearSubsession, keyed) {
+  getScalars: function(subsession, clearSubsession, keyed) {
     this._log.trace("getScalars - subsession: " + subsession + ", clearSubsession: " +
                     clearSubsession + ", keyed: " + keyed);
 
@@ -1006,6 +1006,24 @@ var Impl = {
     }
 
     return ret;
+  },
+
+  getEvents: function(isSubsession, clearSubsession) {
+    if (!isSubsession) {
+      // We only support scalars for subsessions.
+      this._log.trace("getEvents - We only support events in subsessions.");
+      return [];
+    }
+
+    let events = Telemetry.snapshotBuiltinEvents(this.getDatasetType(),
+                                                 clearSubsession);
+
+    // Don't return the test events outside of test environments.
+    if (!this._testing) {
+      events = events.filter(e => !e[1].startsWith("telemetry.test"));
+    }
+
+    return events;
   },
 
   getThreadHangStats: function getThreadHangStats(stats) {
@@ -1131,7 +1149,7 @@ var Impl = {
     }
     let b = (id, n) => h(id, Ci.nsIMemoryReporter.UNITS_BYTES, n);
     let c = (id, n) => h(id, Ci.nsIMemoryReporter.UNITS_COUNT, n);
-    let cc= (id, n) => h(id, Ci.nsIMemoryReporter.UNITS_COUNT_CUMULATIVE, n);
+    let cc = (id, n) => h(id, Ci.nsIMemoryReporter.UNITS_COUNT_CUMULATIVE, n);
     let p = (id, n) => h(id, Ci.nsIMemoryReporter.UNITS_PERCENTAGE, n);
 
     b("MEMORY_VSIZE", "vsize");
@@ -1280,6 +1298,7 @@ var Impl = {
       parent: {
         scalars: protect(() => this.getScalars(isSubsession, clearSubsession)),
         keyedScalars: protect(() => this.getScalars(isSubsession, clearSubsession, true)),
+        events: protect(() => this.getEvents(isSubsession, clearSubsession)),
       },
       content: {
         histograms: histograms[HISTOGRAM_SUFFIXES.CONTENT],
@@ -1327,6 +1346,13 @@ var Impl = {
         payloadObj.processes.parent.gc = protect(() => GCTelemetry.entries("main", clearSubsession));
         payloadObj.processes.content.gc = protect(() => GCTelemetry.entries("content", clearSubsession));
       }
+
+      // Adding captured stacks to the payload only if any exist and clearing
+      // captures for this sub-session.
+      let stacks = protect(() => Telemetry.snapshotCapturedStacks(true));
+      if (stacks && ("captures" in stacks) && (stacks.captures.length > 0)) {
+        payloadObj.processes.parent.capturedStacks = stacks;
+      }
     }
 
     if (this._childTelemetry.length) {
@@ -1339,7 +1365,7 @@ var Impl = {
   /**
    * Start a new subsession.
    */
-  startNewSubsession: function () {
+  startNewSubsession: function() {
     this._subsessionStartDate = Policy.now();
     this._subsessionStartTimeMonotonic = Policy.monotonicNow();
     this._previousSubsessionId = this._subsessionId;
@@ -1502,7 +1528,7 @@ var Impl = {
           GCTelemetry.init();
         }
 
-        Telemetry.asyncFetchTelemetryData(function () {});
+        Telemetry.asyncFetchTelemetryData(function() {});
 
         if (IS_UNIFIED_TELEMETRY) {
           // Check for a previously written aborted session ping.
@@ -1729,7 +1755,7 @@ var Impl = {
         addEnvironment: true,
       };
       p.push(TelemetryController.submitExternalPing(getPingType(payload), payload, options)
-                                .catch (e => this._log.error("saveShutdownPings - failed to submit saved-session ping", e)));
+                                .catch(e => this._log.error("saveShutdownPings - failed to submit saved-session ping", e)));
     }
 
     // Wait on pings to be saved.
@@ -1844,7 +1870,7 @@ var Impl = {
   /**
    * This observer drives telemetry.
    */
-  observe: function (aSubject, aTopic, aData) {
+  observe: function(aSubject, aTopic, aData) {
     // Prevent the cycle collector begin topic from cluttering the log.
     if (aTopic != TOPIC_CYCLE_COLLECTOR_BEGIN) {
       this._log.trace("observe - " + aTopic + " notified.");

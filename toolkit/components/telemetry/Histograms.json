@@ -1238,19 +1238,6 @@
     "n_buckets": 20,
     "description": "Maximum retention time for the gradient cache. (ms)"
   },
-  "STARTUP_CACHE_AGE_HOURS": {
-    "expires_in_version": "default",
-    "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 20,
-    "description": "Startup cache age (hours)"
-  },
-  "STARTUP_CACHE_INVALID": {
-    "alert_emails": ["perf-telemetry-alerts@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "flag",
-    "description": "Was the disk startup cache file detected as invalid"
-  },
   "WORD_CACHE_HITS_CONTENT": {
     "expires_in_version": "never",
     "kind": "exponential",
@@ -1732,7 +1719,7 @@
     "description": "Whether the URL gets redirected?  (0=200, 1=301, 2=302, 3=304, 4=307, 5=308, 6=400, 7=401, 8=403, 9=404, 10=500, 11=other)"
   },
   "HTTP_NET_VS_CACHE_ONSTART_ISIMG": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1741,7 +1728,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for images. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_NOTIMG": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1750,7 +1737,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for non-images. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_ISIMG": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1759,7 +1746,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for images. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_NOTIMG": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1768,7 +1755,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for non-images. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QSMALL_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1777,7 +1764,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a normal priority and small queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QMED_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1786,7 +1773,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a normal priority and medium queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QBIG_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1795,7 +1782,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a normal priority and large queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QSMALL_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1804,7 +1791,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a high priority and small queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QMED_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1813,7 +1800,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a high priority and medium queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_QBIG_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1822,7 +1809,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for requests with a high priority and large queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QSMALL_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1831,7 +1818,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a normal priority and small queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QMED_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1840,7 +1827,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a normal priority and medium queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QBIG_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1849,7 +1836,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a normal priority and large queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QSMALL_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1858,7 +1845,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a high priority and small queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QMED_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1867,7 +1854,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a high priority and medium queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_QBIG_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1876,7 +1863,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for requests with a high priority and large queue. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_SMALL_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1885,7 +1872,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a small size (<32K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_MED_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1894,7 +1881,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a medium size (<256K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_LARGE_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1903,7 +1890,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a large size (>256K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_SMALL_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1912,7 +1899,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a small size (<32K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_MED_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1921,7 +1908,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a medium size (<256K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_LARGE_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1930,7 +1917,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) for cache files with a large size (>256K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_SMALL_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1939,7 +1926,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a small size (<32K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_MED_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1948,7 +1935,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a medium size (<256K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_LARGE_NORMALPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1957,7 +1944,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a large size (>256K) and normal priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_SMALL_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1966,7 +1953,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a small size (<32K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_MED_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1975,7 +1962,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a medium size (<256K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_LARGE_HIGHPRI": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1984,7 +1971,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) for cache files with a large size (>256K) and high priority. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_REVALIDATED": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -1993,7 +1980,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) revalidated cache entries. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTART_NOTREVALIDATED": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -2002,7 +1989,7 @@
       "description": "Network vs cache time load (OnStartRequest) difference (ms) not revalidated cache entries. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_REVALIDATED": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -2011,7 +1998,7 @@
       "description": "Network vs cache time load (OnStopRequest) difference (ms) revalidated cache entries. Offset by 500 ms."
   },
   "HTTP_NET_VS_CACHE_ONSTOP_NOTREVALIDATED": {
-    "expires_in_version": "never",
+    "expires_in_version": "58",
       "alert_emails": ["necko@mozilla.com"],
       "bug_numbers": [1313095],
       "kind": "linear",
@@ -3659,11 +3646,6 @@
     "n_buckets": 20,
     "description": "Time spent shutting down plugins (ms)"
   },
-  "PLUGIN_CALLED_DIRECTLY": {
-    "expires_in_version": "never",
-    "kind": "flag",
-    "description": "A plugin object was successfully invoked as a function"
-  },
   "FLASH_PLUGIN_STATES": {
     "expires_in_version": "50",
     "kind": "enumerated",
@@ -4077,14 +4059,16 @@
     "n_buckets": 10,
     "description": "Time spent per classifier lookup (ms)"
   },
-  "URLCLASSIFIER_CL_UPDATE_TIME": {
+  "URLCLASSIFIER_CL_KEYED_UPDATE_TIME": {
     "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
     "expires_in_version": "never",
+    "keyed": true,
     "kind": "exponential",
     "low": 20,
-    "high": 15000,
-    "n_buckets": 15,
-    "description": "Time spent per classifier update (ms)"
+    "high": 120000,
+    "n_buckets": 30,
+    "bug_numbers": [1315893],
+    "description": "Time spent per classifier update (ms), keyed by the name of the provider."
   },
   "URLCLASSIFIER_PS_FILELOAD_TIME": {
     "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
@@ -4664,20 +4648,6 @@
     "kind": "count",
     "releaseChannelCollection": "opt-out",
     "description": "Update: count of systems that cannot stage updates (timer initiated)"
-  },
-  "UPDATE_HAS_PREF_URL_OVERRIDE_EXTERNAL": {
-    "alert_emails": ["application-update-telemetry-alerts@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "count",
-    "releaseChannelCollection": "opt-out",
-    "description": "Update: count of systems that have an app.update.url.override preference (externally initiated)"
-  },
-  "UPDATE_HAS_PREF_URL_OVERRIDE_NOTIFY": {
-    "alert_emails": ["application-update-telemetry-alerts@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "count",
-    "releaseChannelCollection": "opt-out",
-    "description": "Update: count of systems that have an app.update.url.override preference (timer initiated)"
   },
   "UPDATE_PREF_UPDATE_CANCELATIONS_EXTERNAL": {
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com"],
@@ -5897,33 +5867,39 @@
     "description": "The size (MB) of the ping data submitted to Telemetry exceeding the maximum size"
   },
   "TELEMETRY_DISCARDED_CONTENT_PINGS_COUNT": {
-    "alert_emails": ["perf-telemetry-alerts@mozilla.com"],
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "count",
     "description": "Count of discarded content payloads."
   },
   "TELEMETRY_COMPRESS": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "high": 3000,
     "n_buckets": 10,
     "description": "Time taken to compress telemetry object (ms)"
   },
-  "TELEMETRY_PING": {
+  "TELEMETRY_SEND_SUCCESS" : {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "bug_numbers": [1318284],
     "expires_in_version": "never",
     "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Time taken to submit telemetry info (ms)"
+    "high": 120000,
+    "n_buckets": 20,
+    "description": "Time needed (in ms) for a successful send of a Telemetry ping to the servers and getting a reply back."
   },
-  "TELEMETRY_SEND" : {
+  "TELEMETRY_SEND_FAILURE" : {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "bug_numbers": [1318284],
     "expires_in_version": "never",
     "kind": "exponential",
-    "high": 3000,
-    "n_buckets": 10,
-    "description": "Time to send the compressed string to the Telemetry servers and get a reply back (ms)"
+    "high": 120000,
+    "n_buckets": 20,
+    "description": "Time needed (in ms) for a failed send of a Telemetry ping to the servers and getting a reply back."
   },
   "TELEMETRY_STRINGIFY" : {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "high": 3000,
@@ -5931,6 +5907,7 @@
     "description": "Time to stringify telemetry object (ms)"
   },
   "TELEMETRY_SUCCESS": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "boolean",
     "description": "Successful telemetry submission"
@@ -6008,11 +5985,13 @@
     "description": "Count of TelemetrySession triggering a daily ping."
   },
   "TELEMETRY_TEST_FLAG": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_COUNT": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "count",
     "description": "a testing histogram; not meant to be touched"
@@ -6025,6 +6004,7 @@
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_COUNT_INIT_NO_RECORD": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "count",
     "description": "a testing histogram; not meant to be touched - initially not recording"
@@ -6056,18 +6036,21 @@
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_KEYED_COUNT_INIT_NO_RECORD": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "count",
     "keyed": true,
     "description": "a testing histogram; not meant to be touched - initially not recording"
   },
   "TELEMETRY_TEST_KEYED_FLAG": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "keyed": true,
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_KEYED_COUNT": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "count",
     "keyed": true,
@@ -6082,18 +6065,21 @@
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_RELEASE_OPTOUT": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "releaseChannelCollection": "opt-out",
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_RELEASE_OPTIN": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "releaseChannelCollection": "opt-in",
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_KEYED_RELEASE_OPTIN": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "keyed": true,
@@ -6101,6 +6087,7 @@
     "description": "a testing histogram; not meant to be touched"
   },
   "TELEMETRY_TEST_KEYED_RELEASE_OPTOUT": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
     "expires_in_version": "never",
     "kind": "flag",
     "keyed": true,
@@ -6132,6 +6119,12 @@
     "expires_in_version" : "never",
     "kind": "boolean",
     "bug_numbers": [1288745],
+    "description": "a testing histogram; not meant to be touched"
+  },
+  "TELEMETRY_TEST_EXPIRED": {
+    "alert_emails": ["telemetry-client-dev@mozilla.com"],
+    "expires_in_version": "4.0a1",
+    "kind": "flag",
     "description": "a testing histogram; not meant to be touched"
   },
   "STARTUP_CRASH_DETECTED": {
@@ -6367,7 +6360,7 @@
   "SEARCH_RESET_RESULT": {
     "alert_emails": ["fqueze@mozilla.com"],
     "bug_numbers": [1203168],
-    "expires_in_version": "53",
+    "expires_in_version": "57",
     "kind": "enumerated",
     "n_values": 5,
     "releaseChannelCollection": "opt-out",
@@ -8425,13 +8418,6 @@
     "n_values": 64,
     "description": "TLS/SSL version intolerance was falsely detected, server rejected handshake (see tlsIntoleranceTelemetryBucket() in nsNSSIOLayer.cpp)."
   },
-  "SSL_WEAK_CIPHERS_FALLBACK": {
-    "alert_emails": ["seceng-telemetry@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "enumerated",
-    "n_values": 64,
-    "description": "Fallback attempted when server did not support any strong cipher suites"
-  },
   "SSL_CIPHER_SUITE_FULL": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
     "expires_in_version": "never",
@@ -8493,14 +8479,14 @@
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 32,
-    "description": "Symmetric cipher used in full handshake (null=0, rc4=1, 3des=4, aes-cbc=7, camellia=8, seed=9, aes-gcm=10)"
+    "description": "Symmetric cipher used in full handshake (null=0, 3des=4, aes-cbc=7, aes-gcm=10, chacha20=11)"
   },
   "SSL_SYMMETRIC_CIPHER_RESUMED": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 32,
-    "description": "Symmetric cipher used in resumed handshake (null=0, rc4=1, 3des=4, aes-cbc=7, camellia=8, seed=9, aes-gcm=10)"
+    "description": "Symmetric cipher used in resumed handshake (null=0, 3des=4, aes-cbc=7, aes-gcm=10, chacha20=11)"
   },
   "SSL_REASONS_FOR_NOT_FALSE_STARTING": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
@@ -8577,7 +8563,7 @@
     "n_values": 10,
     "bug_numbers": [1293231],
     "releaseChannelCollection": "opt-out",
-    "description": "Verification status of Signed Certificate Timestamps received (0=Decoding error, 1=SCT verified, 2=SCT from unknown log, 3=Invalid SCT signature, 4=SCT timestamp is in the future)"
+    "description": "Verification status of Signed Certificate Timestamps received (0=Decoding error, 1=Valid SCT, 2=SCT from unknown log, 3=Invalid SCT signature, 4=SCT timestamp is in the future, 5=Valid SCT from a disqualified log)"
   },
   "SSL_SERVER_AUTH_EKU": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
@@ -8585,11 +8571,6 @@
     "kind": "enumerated",
     "n_values": 10,
     "description": "Presence of of the Server Authenticaton EKU in accepted SSL server certificates (0=No EKU, 1=EKU present and has id_kp_serverAuth, 2=EKU present and has id_kp_serverAuth as well as some other EKU, 3=EKU present but does not contain id_kp_serverAuth)"
-  },
-  "TELEMETRY_TEST_EXPIRED": {
-    "expires_in_version": "4.0a1",
-    "kind": "flag",
-    "description": "a testing histogram; not meant to be touched"
   },
   "TLS_ERROR_REPORT_UI": {
     "expires_in_version": "never",
@@ -8880,12 +8861,16 @@
   "TRACKING_PROTECTION_ENABLED": {
     "expires_in_version": "never",
     "kind": "boolean",
-    "description": "Whether or not a session has tracking protection enabled"
+    "description": "True if tracking protection is enabled globally at the time that a non-Private-Browsing session is initialized.",
+    "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
+    "bug_numbers": [1058133]
   },
   "TRACKING_PROTECTION_PBM_DISABLED": {
     "expires_in_version": "60",
     "kind": "boolean",
-    "description": "Is the tracking protection in private browsing mode disabled?"
+    "description": "True if tracking protection in Private Browsing mode is disabled at the time that a non-Private-Browsing session is initialized.",
+    "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
+    "bug_numbers": [1200944]
   },
   "FENNEC_TRACKING_PROTECTION_STATE": {
     "expires_in_version": "60",
@@ -8899,13 +8884,17 @@
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 4,
-    "description": "Tracking protection shield (0 = not shown, 1 = loaded, 2 = blocked)"
+    "description": "Status of the shield icon for each top-level pageload (outside of Private Browsing mode) when tracking protection is enabled (0 = shield not shown because no trackers were detected, 1 = shield crossed out because TP was disabled on this page by the user, 2 = shield shown because a tracker was blocked)",
+    "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
+    "bug_numbers": [1058133]
   },
   "TRACKING_PROTECTION_EVENTS": {
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 3,
-    "description": "Doorhanger shown = 0, Disable = 1, Enable = 2"
+    "description": "A value of 0 is sent when the security UI changes on pages loaded outside of Private Browsing mode, a value of 1 is sent when users manually disable TP on that page, and 2 is sent when users manually re-enable TP on that page.",
+    "alert_emails": ["safebrowsing-telemetry@mozilla.org"],
+    "bug_numbers": [1058133]
   },
   "SERVICE_WORKER_REGISTRATION_LOADING": {
     "expires_in_version": "never",
@@ -10778,5 +10767,14 @@
     "n_buckets": 50,
     "description": "Time spent painting the contents of a remote browser (ms).",
     "releaseChannelCollection": "opt-out"
+  },
+  "TIME_TO_NON_BLANK_PAINT_MS": {
+    "alert_emails": ["hkirschner@mozilla.com"],
+    "expires_in_version": "55",
+    "kind": "exponential",
+    "high": 100000,
+    "n_buckets": 100,
+    "bug_numbers": [1307242],
+    "description": "The time between navigation start and the first non-blank paint of a foreground root content document, in milliseconds. This only records documents that were in an active docshell throughout the whole time between navigation start and non-blank paint. The non-blank paint timestamp is taken during display list building and does not include rasterization or compositing of that paint."
   }
 }

@@ -10,8 +10,6 @@
 #include "nss.h"
 #include "pk11pub.h"
 #include "seccomon.h"
-#include "ssl.h"
-#include "sslimpl.h"
 
 SECStatus SSLInt_IncrementClientHandshakeVersion(PRFileDesc *fd) {
   sslSocket *ss = ssl_FindSocket(fd);
@@ -94,6 +92,22 @@ PRInt32 SSLInt_CountTls13CipherSpecs(PRFileDesc *fd) {
   return ct;
 }
 
+void SSLInt_PrintTls13CipherSpecs(PRFileDesc *fd) {
+  PRCList *cur_p;
+
+  sslSocket *ss = ssl_FindSocket(fd);
+  if (!ss) {
+    return;
+  }
+
+  fprintf(stderr, "Cipher specs\n");
+  for (cur_p = PR_NEXT_LINK(&ss->ssl3.hs.cipherSpecs);
+       cur_p != &ss->ssl3.hs.cipherSpecs; cur_p = PR_NEXT_LINK(cur_p)) {
+    ssl3CipherSpec *spec = (ssl3CipherSpec *)cur_p;
+    fprintf(stderr, "  %s\n", spec->phase);
+  }
+}
+
 /* Force a timer expiry by backdating when the timer was started.
  * We could set the remaining time to 0 but then backoff would not
  * work properly if we decide to test it. */
@@ -122,7 +136,7 @@ PRBool SSLInt_CheckSecretsDestroyed(PRFileDesc *fd) {
   }
 
   CHECK_SECRET(currentSecret);
-  CHECK_SECRET(resumptionPsk);
+  CHECK_SECRET(resumptionMasterSecret);
   CHECK_SECRET(dheSecret);
   CHECK_SECRET(clientEarlyTrafficSecret);
   CHECK_SECRET(clientHsTrafficSecret);
@@ -296,4 +310,38 @@ SSLKEAType SSLInt_GetKEAType(SSLNamedGroup group) {
   if (!groupDef) return ssl_kea_null;
 
   return groupDef->keaType;
+}
+
+SECStatus SSLInt_SetCipherSpecChangeFunc(PRFileDesc *fd,
+                                         sslCipherSpecChangedFunc func,
+                                         void *arg) {
+  sslSocket *ss;
+
+  ss = ssl_FindSocket(fd);
+  if (!ss) {
+    return SECFailure;
+  }
+
+  ss->ssl3.changedCipherSpecFunc = func;
+  ss->ssl3.changedCipherSpecArg = arg;
+
+  return SECSuccess;
+}
+
+static ssl3KeyMaterial *GetKeyingMaterial(PRBool isServer,
+                                          ssl3CipherSpec *spec) {
+  return isServer ? &spec->server : &spec->client;
+}
+
+PK11SymKey *SSLInt_CipherSpecToKey(PRBool isServer, ssl3CipherSpec *spec) {
+  return GetKeyingMaterial(isServer, spec)->write_key;
+}
+
+SSLCipherAlgorithm SSLInt_CipherSpecToAlgorithm(PRBool isServer,
+                                                ssl3CipherSpec *spec) {
+  return spec->cipher_def->calg;
+}
+
+unsigned char *SSLInt_CipherSpecToIv(PRBool isServer, ssl3CipherSpec *spec) {
+  return GetKeyingMaterial(isServer, spec)->write_iv;
 }

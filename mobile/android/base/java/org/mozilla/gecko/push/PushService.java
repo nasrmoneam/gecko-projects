@@ -27,6 +27,7 @@ import org.mozilla.gecko.gcm.GcmTokenClient;
 import org.mozilla.gecko.push.autopush.AutopushClientException;
 import org.mozilla.gecko.util.BundleEventListener;
 import org.mozilla.gecko.util.EventCallback;
+import org.mozilla.gecko.util.GeckoBundle;
 import org.mozilla.gecko.util.ThreadUtils;
 
 import java.io.File;
@@ -254,7 +255,7 @@ public class PushService implements BundleEventListener {
     }
 
     @Override
-    public void handleMessage(final String event, final Bundle message, final EventCallback callback) {
+    public void handleMessage(final String event, final GeckoBundle message, final EventCallback callback) {
         Log.i(LOG_TAG, "Handling event: " + event);
         ThreadUtils.assertOnBackgroundThread();
 
@@ -395,10 +396,6 @@ public class PushService implements BundleEventListener {
                 return;
             }
             if ("History:GetPrePathLastVisitedTimeMilliseconds".equals(event)) {
-                if (callback == null) {
-                    Log.e(LOG_TAG, "callback must not be null in " + event);
-                    return;
-                }
                 final String prePath = message.getString("prePath");
                 if (prePath == null) {
                     callback.sendError("prePath must not be null in " + event);

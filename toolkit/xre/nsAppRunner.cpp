@@ -277,7 +277,7 @@ extern "C" MOZ_EXPORT void XRE_LibFuzzerSetMain(int argc, char** argv, LibFuzzer
 #endif
 
 namespace mozilla {
-int (*RunGTest)() = 0;
+int (*RunGTest)(int*, char**) = 0;
 } // namespace mozilla
 
 using namespace mozilla;
@@ -885,6 +885,19 @@ nsXULAppInfo::GetUniqueProcessID(uint64_t* aResult)
   } else {
     *aResult = 0;
   }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsXULAppInfo::GetRemoteType(nsAString& aRemoteType)
+{
+  if (XRE_IsContentProcess()) {
+    ContentChild* cc = ContentChild::GetSingleton();
+    aRemoteType.Assign(cc->GetRemoteType());
+  } else {
+    SetDOMStringToNull(aRemoteType);
+  }
+
   return NS_OK;
 }
 
@@ -2748,18 +2761,18 @@ static struct SavedVar {
 
 static void SaveStateForAppInitiatedRestart()
 {
-  for (size_t i = 0; i < ArrayLength(gSavedVars); ++i) {
-    const char *s = PR_GetEnv(gSavedVars[i].name);
+  for (auto & savedVar : gSavedVars) {
+    const char *s = PR_GetEnv(savedVar.name);
     if (s)
-      gSavedVars[i].value = PR_smprintf("%s=%s", gSavedVars[i].name, s);
+      savedVar.value = PR_smprintf("%s=%s", savedVar.name, s);
   }
 }
 
 static void RestoreStateForAppInitiatedRestart()
 {
-  for (size_t i = 0; i < ArrayLength(gSavedVars); ++i) {
-    if (gSavedVars[i].value)
-      PR_SetEnv(gSavedVars[i].value);
+  for (auto & savedVar : gSavedVars) {
+    if (savedVar.value)
+      PR_SetEnv(savedVar.value);
   }
 }
 
@@ -3430,18 +3443,23 @@ XREMain::XRE_mainInit(bool* aExitFlag)
       DWORD len = sizeof(updateRevision);
       DWORD vtype;
 
-      // Windows 7 uses Update Signature, 8 uses "Update Revision".
+      // Windows 7 uses "Update Signature", 8 uses "Update Revision".
+      // For AMD CPUs, "CurrentPatchLevel" is sometimes used.
       // Take the first one we find.
-      LPCWSTR choices[] = {L"Update Signature", L"Update Revision"};
+      LPCWSTR choices[] = {L"Update Signature", L"Update Revision", L"CurrentPatchLevel"};
       for (size_t oneChoice=0; oneChoice<ArrayLength(choices); oneChoice++) {
         if (RegQueryValueExW(key, choices[oneChoice],
                              0, &vtype,
                              reinterpret_cast<LPBYTE>(updateRevision),
-                             &len) == ERROR_SUCCESS &&
-            vtype == REG_BINARY && len == sizeof(updateRevision)) {
-          // The first word is unused
-          cpuUpdateRevision = static_cast<int>(updateRevision[1]);
-          break;
+                             &len) == ERROR_SUCCESS) {
+          if (vtype == REG_BINARY && len == sizeof(updateRevision)) {
+            // The first word is unused
+            cpuUpdateRevision = static_cast<int>(updateRevision[1]);
+            break;
+          } else if (vtype == REG_DWORD && len == sizeof(updateRevision[0])) {
+            cpuUpdateRevision = static_cast<int>(updateRevision[0]);
+            break;
+          }
         }
       }
     }
@@ -3740,7 +3758,7 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
     // RunGTest will only be set if we're in xul-unit
     if (mozilla::RunGTest) {
       gIsGtest = true;
-      result = mozilla::RunGTest();
+      result = mozilla::RunGTest(&gArgc, gArgv);
       gIsGtest = false;
     } else {
       result = 1;

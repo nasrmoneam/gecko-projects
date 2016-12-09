@@ -791,6 +791,13 @@ function PeerConnectionWrapper(label, configuration) {
     }
   };
 
+  this._pc.onicegatheringstatechange = e => {
+    isnot(typeof this._pc.iceGatheringState, "undefined",
+          "iceGetheringState should not be undefined");
+    var gatheringState = this._pc.iceGatheringState;
+    info(this + ": onicegatheringstatechange fired, new state is: " + gatheringState);
+  };
+
   createOneShotEventWrapper(this, this._pc, 'datachannel');
   this._pc.addEventListener('datachannel', e => {
     var wrapper = new DataChannelWrapper(e.channel, this);
@@ -1284,11 +1291,8 @@ PeerConnectionWrapper.prototype = {
         this._pc.onicecandidate = () =>
           ok(false, this.label + " received ICE candidate after end of trickle");
         info(this.label + ": received end of trickle ICE event");
-        /* Bug 1193731. Accroding to WebRTC spec 4.3.1 the ICE Agent first sets
-         * the gathering state to completed (step 3.) before sending out the
-         * null newCandidate in step 4. */
-        todo(this._pc.iceGatheringState === 'completed',
-           "ICE gathering state has reached completed");
+        ok(this._pc.iceGatheringState === 'complete',
+           "ICE gathering state has reached complete");
         resolveEndOfTrickle(this.label);
         return;
       }
@@ -1447,7 +1451,10 @@ PeerConnectionWrapper.prototype = {
   waitForMediaFlow : function() {
     return Promise.all([].concat(
       this.localMediaElements.map(element => this.waitForMediaElementFlow(element)),
-      this.remoteMediaElements.map(element => this.waitForMediaElementFlow(element)),
+      Object.keys(this.expectedRemoteTrackInfoById)
+          .map(id => this.remoteMediaElements
+              .find(e => e.srcObject.getTracks().some(t => t.id == id)))
+          .map(e => this.waitForMediaElementFlow(e)),
       this._pc.getSenders().map(sender => this.waitForRtpFlow(sender.track)),
       this._pc.getReceivers().map(receiver => this.waitForRtpFlow(receiver.track))));
   },
@@ -1823,11 +1830,9 @@ var setupIceServerConfig = useIceServer => {
   // We disable ICE support for HTTP proxy when using a TURN server, because
   // mochitest uses a fake HTTP proxy to serve content, which will eat our STUN
   // packets for TURN TCP.
-  var enableHttpProxy = enable => new Promise(resolve => {
+  var enableHttpProxy = enable =>
     SpecialPowers.pushPrefEnv(
-        {'set': [['media.peerconnection.disable_http_proxy', !enable]]},
-        resolve);
-  });
+      {'set': [['media.peerconnection.disable_http_proxy', !enable]]});
 
   var spawnIceServer = () => new Promise( (resolve, reject) => {
     iceServerWebsocket = new WebSocket("ws://localhost:8191/");

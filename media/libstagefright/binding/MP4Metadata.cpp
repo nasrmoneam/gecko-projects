@@ -143,6 +143,7 @@ public:
   bool ReadTrackIndex(FallibleTArray<Index::Indice>& aDest, mozilla::TrackID aTrackID);
 
 private:
+  void UpdateCrypto();
   Maybe<uint32_t> TrackTypeToGlobalTrackIndex(mozilla::TrackInfo::TrackType aType, size_t aTrackNumber) const;
 
   CryptoFile mCrypto;
@@ -308,6 +309,10 @@ MP4Metadata::GetTrackInfo(mozilla::TrackInfo::TrackType aType,
       VideoInfo *videoRust = infoRust->GetAsVideoInfo(), *video = info->GetAsVideoInfo();
       MOZ_DIAGNOSTIC_ASSERT(videoRust->mDisplay == video->mDisplay);
       MOZ_DIAGNOSTIC_ASSERT(videoRust->mImage == video->mImage);
+      MOZ_DIAGNOSTIC_ASSERT(*videoRust->mExtraData == *video->mExtraData);
+      // mCodecSpecificConfig is for video/mp4-es, not video/avc. Since video/mp4-es
+      // is supported on b2g only, it could be removed from TrackInfo.
+      MOZ_DIAGNOSTIC_ASSERT(*videoRust->mCodecSpecificConfig == *video->mCodecSpecificConfig);
       break;
     }
     default:
@@ -335,7 +340,23 @@ MP4Metadata::CanSeek() const
 const CryptoFile&
 MP4Metadata::Crypto() const
 {
-  return mStagefright->Crypto();
+  const CryptoFile& crypto = mStagefright->Crypto();
+
+#ifdef MOZ_RUST_MP4PARSE
+  const CryptoFile& rustCrypto = mRust->Crypto();
+
+#ifndef RELEASE_OR_BETA
+  if (mRustTestMode) {
+    MOZ_DIAGNOSTIC_ASSERT(rustCrypto.pssh == crypto.pssh);
+  }
+#endif
+
+  if (mPreferRust) {
+    return rustCrypto;
+  }
+#endif
+
+  return crypto;
 }
 
 bool
@@ -640,10 +661,27 @@ MP4MetadataRust::MP4MetadataRust(Stream* aSource)
     MOZ_ASSERT(rv > 0);
     Telemetry::Accumulate(Telemetry::MEDIA_RUST_MP4PARSE_ERROR_CODE, rv);
   }
+
+  UpdateCrypto();
 }
 
 MP4MetadataRust::~MP4MetadataRust()
 {
+}
+
+void
+MP4MetadataRust::UpdateCrypto()
+{
+  mp4parse_pssh_info info = {};
+  if (mp4parse_get_pssh_info(mRustParser.get(), &info) != MP4PARSE_OK) {
+    return;
+  }
+
+  if (info.data.length == 0) {
+    return;
+  }
+
+  mCrypto.Update(info.data.data, info.data.length);
 }
 
 bool
@@ -839,7 +877,6 @@ MP4MetadataRust::CanSeek() const
 const CryptoFile&
 MP4MetadataRust::Crypto() const
 {
-  MOZ_ASSERT(false, "Not yet implemented");
   return mCrypto;
 }
 

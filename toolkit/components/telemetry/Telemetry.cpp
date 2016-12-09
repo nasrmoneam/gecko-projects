@@ -44,6 +44,7 @@
 #include "TelemetryCommon.h"
 #include "TelemetryHistogram.h"
 #include "TelemetryScalar.h"
+#include "TelemetryEvent.h"
 #include "WebrtcTelemetry.h"
 #include "nsTHashtable.h"
 #include "nsHashKeys.h"
@@ -72,9 +73,15 @@
 #include "mozilla/PoisonIOInterposer.h"
 #include "mozilla/StartupTimeline.h"
 #include "mozilla/HangMonitor.h"
+
 #if defined(MOZ_ENABLE_PROFILER_SPS)
 #include "shared-libraries.h"
-#endif
+#if defined(MOZ_STACKWALKING)
+#define ENABLE_STACK_CAPTURE
+#include "mozilla/StackWalk.h"
+#include "nsPrintfCString.h"
+#endif // MOZ_STACKWALKING
+#endif // MOZ_ENABLE_PROFILER_SPS
 
 namespace {
 
@@ -99,6 +106,9 @@ public:
   size_t AddStack(const Telemetry::ProcessedStack& aStack);
   size_t GetStackCount() const;
   size_t SizeOfExcludingThis() const;
+
+  /** Clears the contents of vectors and resets the index. */
+  void Clear();
 private:
   std::vector<Telemetry::ProcessedStack::Module> mModules;
   // A circular buffer to hold the stacks.
@@ -178,9 +188,7 @@ CombinedStacks::SizeOfExcludingThis() const {
   size_t n = 0;
   n += mModules.capacity() * sizeof(Telemetry::ProcessedStack::Module);
   n += mStacks.capacity() * sizeof(Stack);
-  for (std::vector<Stack>::const_iterator i = mStacks.begin(),
-         e = mStacks.end(); i != e; ++i) {
-    const Stack& s = *i;
+  for (const auto & s : mStacks) {
     n += s.capacity() * sizeof(Telemetry::ProcessedStack::Frame);
   }
   return n;
@@ -207,6 +215,13 @@ ComputeAnnotationsKey(const HangAnnotationsPtr& aAnnotations, nsAString& aKeyOut
   return NS_OK;
 }
 
+void
+CombinedStacks::Clear() {
+  mNextIndex = 0;
+  mStacks.clear();
+  mModules.clear();
+}
+
 class HangReports {
 public:
   /**
@@ -224,7 +239,7 @@ public:
       : mHangIndices(aOther.mHangIndices)
       , mAnnotations(Move(aOther.mAnnotations))
     {}
-    ~AnnotationInfo() {}
+    ~AnnotationInfo() = default;
     AnnotationInfo& operator=(AnnotationInfo&& aOther)
     {
       mHangIndices = aOther.mHangIndices;
@@ -384,6 +399,191 @@ HangReports::GetAnnotationInfo() const {
   return mAnnotationInfo;
 }
 
+#if defined(ENABLE_STACK_CAPTURE)
+
+const uint8_t kMaxKeyLength = 50;
+
+/**
+ * Checks if a single character of the key string is valid.
+ *
+ * @param aChar a character to validate.
+ * @return True, if the char is valid, False - otherwise.
+ */
+bool
+IsKeyCharValid(const char aChar)
+{
+  return (aChar >= 'A' && aChar <= 'Z')
+      || (aChar >= 'a' && aChar <= 'z')
+      || (aChar >= '0' && aChar <= '9')
+      || aChar == '-';
+}
+
+/**
+ * Checks if a given string is a valid telemetry key.
+ *
+ * @param aKey is the key string.
+ * @return True, if the key is valid, False - otherwise.
+ */
+bool
+IsKeyValid(const nsACString& aKey)
+{
+  // Check key length.
+  if (aKey.Length() > kMaxKeyLength) {
+    return false;
+  }
+
+  // Check key characters.
+  const char* cur = aKey.BeginReading();
+  const char* end = aKey.EndReading();
+
+  for (; cur < end; ++cur) {
+      if (!IsKeyCharValid(*cur)) {
+        return false;
+      }
+  }
+  return true;
+}
+
+/**
+ * Allows taking a snapshot of a call stack on demand. Captured stacks are
+ * indexed by a string key in a hash table. The stack is only captured Once
+ * for each key. Consequent captures with the same key result in incrementing
+ * capture counter without re-capturing the stack.
+ */
+class KeyedStackCapturer {
+public:
+  KeyedStackCapturer();
+
+  void Capture(const nsACString& aKey);
+  NS_IMETHODIMP ReflectCapturedStacks(JSContext *cx, JS::MutableHandle<JS::Value> ret);
+
+  /**
+   * Resets captured stacks and the information related to them.
+   */
+  void Clear();
+private:
+  /**
+   * Describes how often a stack was captured.
+   */
+  struct StackFrequencyInfo {
+    // A number of times the stack was captured.
+    uint32_t mCount;
+    // Index of the stack inside stacks array.
+    uint32_t mIndex;
+
+    StackFrequencyInfo(uint32_t aCount, uint32_t aIndex)
+      : mCount(aCount)
+      , mIndex(aIndex)
+    {}
+  };
+
+  typedef nsClassHashtable<nsCStringHashKey, StackFrequencyInfo> FrequencyInfoMapType;
+
+  FrequencyInfoMapType mStackInfos;
+  CombinedStacks mStacks;
+  Mutex mStackCapturerMutex;
+};
+
+KeyedStackCapturer::KeyedStackCapturer()
+  : mStackCapturerMutex("Telemetry::StackCapturerMutex")
+{}
+
+void KeyedStackCapturer::Capture(const nsACString& aKey) {
+  // Check if the key is ok.
+  if (!IsKeyValid(aKey)) {
+    NS_WARNING(nsPrintfCString(
+      "Invalid key is used to capture stack in telemetry: '%s'",
+      PromiseFlatCString(aKey).get()
+    ).get());
+    return;
+  }
+
+  // Trying to find and update the stack information.
+  StackFrequencyInfo* info = mStackInfos.Get(aKey);
+  if (info) {
+    // We already recorded this stack before, only increase the count.
+    info->mCount++;
+    return;
+  }
+
+  // Check if we have room for new captures.
+  if (mStackInfos.Count() >= kMaxChromeStacksKept) {
+    // Addressed by Bug 1316793.
+    return;
+  }
+
+  // We haven't captured a stack for this key before, do it now.
+  // Note that this does a stackwalk and is an expensive operation.
+  std::vector<uintptr_t> rawStack;
+  auto callback = [](uint32_t, void* aPC, void*, void* aClosure) {
+    std::vector<uintptr_t>* stack =
+      static_cast<std::vector<uintptr_t>*>(aClosure);
+    stack->push_back(reinterpret_cast<uintptr_t>(aPC));
+  };
+  MozStackWalk(callback, /* skipFrames */ 0,
+              /* maxFrames */ 0, reinterpret_cast<void*>(&rawStack), 0, nullptr);
+  Telemetry::ProcessedStack stack = Telemetry::GetStackAndModules(rawStack);
+
+  // Store the new stack info.
+  MutexAutoLock captureStackMutex(mStackCapturerMutex);
+  size_t stackIndex = mStacks.AddStack(stack);
+  mStackInfos.Put(aKey, new StackFrequencyInfo(1, stackIndex));
+}
+
+NS_IMETHODIMP
+KeyedStackCapturer::ReflectCapturedStacks(JSContext *cx, JS::MutableHandle<JS::Value> ret)
+{
+  MutexAutoLock capturedStackMutex(mStackCapturerMutex);
+
+  // this adds the memoryMap and stacks properties.
+  JS::RootedObject fullReportObj(cx, CreateJSStackObject(cx, mStacks));
+  if (!fullReportObj) {
+    return NS_ERROR_FAILURE;
+  }
+
+  JS::RootedObject keysArray(cx, JS_NewArrayObject(cx, 0));
+  if (!keysArray) {
+    return NS_ERROR_FAILURE;
+  }
+
+  bool ok = JS_DefineProperty(cx, fullReportObj, "captures",
+                              keysArray, JSPROP_ENUMERATE);
+  if (!ok) {
+    return NS_ERROR_FAILURE;
+  }
+
+  size_t keyIndex = 0;
+  for (auto iter = mStackInfos.ConstIter(); !iter.Done(); iter.Next(), ++keyIndex) {
+    const StackFrequencyInfo* info = iter.Data();
+
+    JS::RootedObject infoArray(cx, JS_NewArrayObject(cx, 0));
+    if (!keysArray) {
+      return NS_ERROR_FAILURE;
+    }
+    JS::RootedString str(cx, JS_NewStringCopyZ(cx,
+                         PromiseFlatCString(iter.Key()).get()));
+    if (!str ||
+        !JS_DefineElement(cx, infoArray, 0, str, JSPROP_ENUMERATE) ||
+        !JS_DefineElement(cx, infoArray, 1, info->mIndex, JSPROP_ENUMERATE) ||
+        !JS_DefineElement(cx, infoArray, 2, info->mCount, JSPROP_ENUMERATE) ||
+        !JS_DefineElement(cx, keysArray, keyIndex, infoArray, JSPROP_ENUMERATE)) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
+  ret.setObject(*fullReportObj);
+  return NS_OK;
+}
+
+void
+KeyedStackCapturer::Clear()
+{
+  MutexAutoLock captureStackMutex(mStackCapturerMutex);
+  mStackInfos.Clear();
+  mStacks.Clear();
+}
+#endif
+
 /**
  * IOInterposeObserver recording statistics of main-thread I/O during execution,
  * aimed at consumption by TelemetryImpl
@@ -428,7 +628,7 @@ public:
    * An implementation of Observe that records statistics of all
    * file IO operations.
    */
-  void Observe(Observation& aOb);
+  void Observe(Observation& aOb) override;
 
   /**
    * Reflect recorded file IO statistics into Javascript
@@ -688,6 +888,9 @@ public:
                                int32_t aFirefoxUptime,
                                HangAnnotationsPtr aAnnotations);
 #endif
+#if defined(ENABLE_STACK_CAPTURE)
+  static void DoStackCapture(const nsACString& aKey);
+#endif
   static void RecordThreadHangStats(Telemetry::ThreadHangStats& aStats);
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf);
   struct Stat {
@@ -733,6 +936,12 @@ private:
   Mutex mHashMutex;
   HangReports mHangReports;
   Mutex mHangReportsMutex;
+
+#if defined(ENABLE_STACK_CAPTURE)
+  // Stores data about stacks captured on demand.
+  KeyedStackCapturer mStackCapturer;
+#endif
+
   // mThreadHangStats stores recorded, inactive thread hang stats
   Vector<Telemetry::ThreadHangStats> mThreadHangStats;
   Mutex mThreadHangStatsMutex;
@@ -1322,6 +1531,20 @@ TelemetryImpl::GetChromeHangs(JSContext *cx, JS::MutableHandle<JS::Value> ret)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+TelemetryImpl::SnapshotCapturedStacks(bool clear, JSContext *cx, JS::MutableHandle<JS::Value> ret)
+{
+#if defined(ENABLE_STACK_CAPTURE)
+  nsresult rv = mStackCapturer.ReflectCapturedStacks(cx, ret);
+  if (clear) {
+    mStackCapturer.Clear();
+  }
+  return rv;
+#else
+  return NS_OK;
+#endif
+}
+
 static JSObject *
 CreateJSStackObject(JSContext *cx, const CombinedStacks &stacks) {
   JS::Rooted<JSObject*> ret(cx, JS_NewPlainObject(cx));
@@ -1427,8 +1650,7 @@ IsValidBreakpadId(const std::string &breakpadId) {
   if (breakpadId.size() < 33) {
     return false;
   }
-  for (unsigned i = 0, n = breakpadId.size(); i < n; ++i) {
-    char c = breakpadId[i];
+  for (char c : breakpadId) {
     if ((c < '0' || c > '9') && (c < 'A' || c > 'F')) {
       return false;
     }
@@ -1591,13 +1813,11 @@ CreateJSHangAnnotations(JSContext* cx, const HangAnnotationsVector& annotations,
   // discard duplicated ones.
   nsTHashtable<nsStringHashKey> reportedAnnotations;
   size_t annotationIndex = 0;
-  for (const HangAnnotationsPtr *i = annotations.begin(), *e = annotations.end();
-       i != e; ++i) {
+  for (const auto & curAnnotations : annotations) {
     JS::RootedObject jsAnnotation(cx, JS_NewPlainObject(cx));
     if (!jsAnnotation) {
       continue;
     }
-    const HangAnnotationsPtr& curAnnotations = *i;
     // Build a key to index the current annotations in our hash set.
     nsAutoString annotationsKey;
     nsresult rv = ComputeAnnotationsKey(curAnnotations, annotationsKey);
@@ -1732,9 +1952,9 @@ TelemetryImpl::GetThreadHangStats(JSContext* cx, JS::MutableHandle<JS::Value> re
 
   // Add saved threads next
   MutexAutoLock autoLock(mThreadHangStatsMutex);
-  for (size_t i = 0; i < mThreadHangStats.length(); i++) {
+  for (auto & stat : mThreadHangStats) {
     JS::RootedObject obj(cx,
-      CreateJSThreadHangStats(cx, mThreadHangStats[i]));
+      CreateJSThreadHangStats(cx, stat));
     if (!JS_DefineElement(cx, retObj, threadIndex++, obj, JSPROP_ENUMERATE)) {
       return NS_ERROR_FAILURE;
     }
@@ -1862,6 +2082,7 @@ NS_IMETHODIMP
 TelemetryImpl::SetCanRecordBase(bool canRecord) {
   TelemetryHistogram::SetCanRecordBase(canRecord);
   TelemetryScalar::SetCanRecordBase(canRecord);
+  TelemetryEvent::SetCanRecordBase(canRecord);
   return NS_OK;
 }
 
@@ -1882,6 +2103,7 @@ NS_IMETHODIMP
 TelemetryImpl::SetCanRecordExtended(bool canRecord) {
   TelemetryHistogram::SetCanRecordExtended(canRecord);
   TelemetryScalar::SetCanRecordExtended(canRecord);
+  TelemetryEvent::SetCanRecordExtended(canRecord);
   return NS_OK;
 }
 
@@ -1915,6 +2137,9 @@ TelemetryImpl::CreateTelemetryInstance()
   // Only record scalars from the parent process.
   TelemetryScalar::InitializeGlobalState(XRE_IsParentProcess(), XRE_IsParentProcess());
 
+  // Only record events from the parent process.
+  TelemetryEvent::InitializeGlobalState(XRE_IsParentProcess(), XRE_IsParentProcess());
+
   // Now, create and initialize the Telemetry global state.
   sTelemetry = new TelemetryImpl();
 
@@ -1940,6 +2165,7 @@ TelemetryImpl::ShutdownTelemetry()
   // so as to release any heap storage that would otherwise be kept alive by it.
   TelemetryHistogram::DeInitializeGlobalState();
   TelemetryScalar::DeInitializeGlobalState();
+  TelemetryEvent::DeInitializeGlobalState();
 }
 
 void
@@ -2240,7 +2466,24 @@ TelemetryImpl::RecordChromeHang(uint32_t aDuration,
                                    aSystemUptime, aFirefoxUptime,
                                    Move(annotations));
 }
+
+#if defined(ENABLE_STACK_CAPTURE)
+void
+TelemetryImpl::DoStackCapture(const nsACString& aKey) {
+  if (Telemetry::CanRecordExtended() && XRE_IsParentProcess()) {
+    sTelemetry->mStackCapturer.Capture(aKey);
+  }
+}
 #endif
+#endif
+
+nsresult
+TelemetryImpl::CaptureStack(const nsACString& aKey) {
+#if defined(ENABLE_STACK_CAPTURE)
+  TelemetryImpl::DoStackCapture(aKey);
+#endif
+  return NS_OK;
+}
 
 void
 TelemetryImpl::RecordThreadHangStats(Telemetry::ThreadHangStats& aStats)
@@ -2304,13 +2547,7 @@ TelemetryImpl::GetFileIOReports(JSContext *cx, JS::MutableHandleValue ret)
 NS_IMETHODIMP
 TelemetryImpl::MsSinceProcessStart(double* aResult)
 {
-  bool error;
-  *aResult = (TimeStamp::NowLoRes() -
-              TimeStamp::ProcessCreation(error)).ToMilliseconds();
-  if (error) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-  return NS_OK;
+  return Telemetry::Common::MsSinceProcessStart(aResult);
 }
 
 // Telemetry Scalars IDL Implementation
@@ -2376,6 +2613,31 @@ TelemetryImpl::ClearScalars()
   return NS_OK;
 }
 
+// Telemetry Event IDL implementation.
+
+NS_IMETHODIMP
+TelemetryImpl::RecordEvent(const nsACString & aCategory, const nsACString & aMethod,
+                           const nsACString & aObject, JS::HandleValue aValue,
+                           JS::HandleValue aExtra, JSContext* aCx, uint8_t optional_argc)
+{
+  return TelemetryEvent::RecordEvent(aCategory, aMethod, aObject, aValue, aExtra, aCx, optional_argc);
+}
+
+NS_IMETHODIMP
+TelemetryImpl::SnapshotBuiltinEvents(uint32_t aDataset, bool aClear, JSContext* aCx,
+                                     uint8_t optional_argc, JS::MutableHandleValue aResult)
+{
+  return TelemetryEvent::CreateSnapshots(aDataset, aClear, aCx, optional_argc, aResult);
+}
+
+NS_IMETHODIMP
+TelemetryImpl::ClearEvents()
+{
+  TelemetryEvent::ClearEvents();
+  return NS_OK;
+}
+
+
 NS_IMETHODIMP
 TelemetryImpl::FlushBatchedChildTelemetry()
 {
@@ -2414,6 +2676,7 @@ TelemetryImpl::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf)
 
   n += TelemetryHistogram::GetHistogramSizesofIncludingThis(aMallocSizeOf);
   n += TelemetryScalar::GetScalarSizesOfIncludingThis(aMallocSizeOf);
+  n += TelemetryEvent::SizeOfIncludingThis(aMallocSizeOf);
 
   return n;
 }
@@ -2544,9 +2807,7 @@ RecordShutdownEndTimeStamp() {
 namespace mozilla {
 namespace Telemetry {
 
-ProcessedStack::ProcessedStack()
-{
-}
+ProcessedStack::ProcessedStack() = default;
 
 size_t ProcessedStack::GetStackSize() const
 {
@@ -2658,9 +2919,7 @@ GetStackAndModules(const std::vector<uintptr_t>& aPCs)
 
   // Copy the information to the return value.
   ProcessedStack Ret;
-  for (std::vector<StackFrame>::iterator i = rawStack.begin(),
-         e = rawStack.end(); i != e; ++i) {
-    const StackFrame &rawFrame = *i;
+  for (auto & rawFrame : rawStack) {
     mozilla::Telemetry::ProcessedStack::Frame frame = { rawFrame.mPC, rawFrame.mModIndex };
     Ret.AddFrame(frame);
   }
@@ -2730,10 +2989,10 @@ HangStack::AppendViaBuffer(const char* aText, size_t aLength)
 
   if (prevStart != mBuffer.begin()) {
     // The buffer has moved; we have to adjust pointers in the stack.
-    for (const char** entry = this->begin(); entry != this->end(); entry++) {
-      if (*entry >= prevStart && *entry < prevEnd) {
+    for (auto & entry : *this) {
+      if (entry >= prevStart && entry < prevEnd) {
         // Move from old buffer to new buffer.
-        *entry += mBuffer.begin() - prevStart;
+        entry += mBuffer.begin() - prevStart;
       }
     }
   }
@@ -2893,6 +3152,13 @@ void RecordChromeHang(uint32_t duration,
   TelemetryImpl::RecordChromeHang(duration, aStack,
                                   aSystemUptime, aFirefoxUptime,
                                   Move(aAnnotations));
+}
+
+void CaptureStack(const nsACString& aKey)
+{
+#if defined(ENABLE_STACK_CAPTURE)
+  TelemetryImpl::DoStackCapture(aKey);
+#endif
 }
 #endif
 

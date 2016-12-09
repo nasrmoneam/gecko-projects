@@ -16,6 +16,7 @@
 #include "nsContentCreatorFunctions.h"
 #include "mozilla/ErrorResult.h"
 #include "nsIDOMHTMLMenuElement.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/DOMRect.h"
 #include "mozilla/dom/ValidityState.h"
 #include "mozilla/dom/ElementInlines.h"
@@ -103,7 +104,7 @@ public:
   {
     SetHTMLBoolAttr(nsGkAtoms::hidden, aHidden, aError);
   }
-  virtual void Click();
+  void Click(mozilla::dom::CallerType aCallerType);
   void GetAccessKey(nsString& aAccessKey)
   {
     GetHTMLAttr(nsGkAtoms::accesskey, aAccessKey);
@@ -428,10 +429,6 @@ public:
     *aOffsetHeight = OffsetHeight();
     return NS_OK;
   }
-  NS_IMETHOD DOMClick() final override {
-    Click();
-    return NS_OK;
-  }
   NS_IMETHOD GetTabIndex(int32_t* aTabIndex) final override {
     *aTabIndex = TabIndex();
     return NS_OK;
@@ -505,7 +502,8 @@ public:
    */
   bool CheckHandleEventForAnchorsPreconditions(
          mozilla::EventChainVisitor& aVisitor);
-  nsresult PreHandleEventForAnchors(mozilla::EventChainPreVisitor& aVisitor);
+  nsresult GetEventTargetParentForAnchors(
+             mozilla::EventChainPreVisitor& aVisitor);
   nsresult PostHandleEventForAnchors(mozilla::EventChainPostVisitor& aVisitor);
   bool IsHTMLLink(nsIURI** aURI) const;
 
@@ -1158,14 +1156,18 @@ enum {
   // that means that its form is in the process of being unbound from the tree,
   // and this form element hasn't re-found its form in
   // nsGenericHTMLFormElement::UnbindFromTree yet.
-  MAYBE_ORPHAN_FORM_ELEMENT =             FORM_ELEMENT_FLAG_BIT(1)
+  MAYBE_ORPHAN_FORM_ELEMENT =             FORM_ELEMENT_FLAG_BIT(1),
+
+  // If this flag is set on an nsGenericHTMLElement or an HTMLImageElement, then
+  // the element might be in the past names map of its form.
+  MAY_BE_IN_PAST_NAMES_MAP =              FORM_ELEMENT_FLAG_BIT(2)
 };
 
-// NOTE: I don't think it's possible to have the above two flags set at the
-// same time, so if it becomes an issue we can probably merge them into the
-// same bit.  --bz
+// NOTE: I don't think it's possible to have both ADDED_TO_FORM and
+// MAYBE_ORPHAN_FORM_ELEMENT set at the same time, so if it becomes an issue we
+// can probably merge them into the same bit.  --bz
 
-ASSERT_NODE_FLAGS_SPACE(ELEMENT_TYPE_SPECIFIC_BITS_OFFSET + 2);
+ASSERT_NODE_FLAGS_SPACE(ELEMENT_TYPE_SPECIFIC_BITS_OFFSET + 3);
 
 #undef FORM_ELEMENT_FLAG_BIT
 
@@ -1220,9 +1222,10 @@ public:
   virtual IMEState GetDesiredIMEState() override;
   virtual mozilla::EventStates IntrinsicState() const override;
 
-  virtual nsresult PreHandleEvent(
+  virtual nsresult GetEventTargetParent(
                      mozilla::EventChainPreVisitor& aVisitor) override;
-
+  virtual nsresult PreHandleEvent(
+                     mozilla::EventChainVisitor& aVisitor) override;
   virtual bool IsDisabled() const override;
 
   /**
@@ -1308,7 +1311,7 @@ protected:
   static bool FormIdUpdated(Element* aOldElement, Element* aNewElement,
                               void* aData);
 
-  // Returns true if the event should not be handled from PreHandleEvent
+  // Returns true if the event should not be handled from GetEventTargetParent
   bool IsElementDisabledForEvents(mozilla::EventMessage aMessage,
                                   nsIFrame* aFrame);
 

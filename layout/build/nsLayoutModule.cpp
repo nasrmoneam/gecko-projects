@@ -78,7 +78,6 @@
 #include "DOMStorageManager.h"
 #include "nsJSON.h"
 #include "nsZipArchive.h"
-#include "mozIApplicationClearPrivateDataParams.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/DOMException.h"
 #include "mozilla/dom/DOMRequest.h"
@@ -200,11 +199,6 @@ static void Shutdown();
 #include "StreamingProtocolService.h"
 
 #include "nsIPresentationService.h"
-
-#include "FakeInputPortService.h"
-#include "InputPortData.h"
-#include "InputPortServiceFactory.h"
-#include "nsIInputPortService.h"
 
 #ifdef MOZ_WIDGET_GONK
 #include "GonkGPSGeolocationProvider.h"
@@ -340,9 +334,6 @@ NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIMediaManagerService,
                                          MediaManager::GetInstance)
 NS_GENERIC_FACTORY_CONSTRUCTOR(PresentationDeviceManager)
 NS_GENERIC_FACTORY_CONSTRUCTOR(TextInputProcessor)
-NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(FakeInputPortService,
-                                         InputPortServiceFactory::CreateFakeInputPortService)
-NS_GENERIC_FACTORY_CONSTRUCTOR(InputPortData)
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsIPresentationService,
                                          NS_CreatePresentationService)
 NS_GENERIC_FACTORY_CONSTRUCTOR(PresentationTCPSessionTransport)
@@ -360,7 +351,7 @@ nsresult
 Initialize()
 {
   if (gInitialized) {
-    NS_RUNTIMEABORT("Recursive layout module initialization");
+    MOZ_CRASH("Recursive layout module initialization");
     return NS_ERROR_FAILURE;
   }
   if (XRE_GetProcessType() == GeckoProcessType_GPU) {
@@ -788,9 +779,6 @@ NS_DEFINE_NAMED_CID(NS_SYNTHVOICEREGISTRY_CID);
 NS_DEFINE_NAMED_CID(NS_ACCESSIBILITY_SERVICE_CID);
 #endif
 
-NS_DEFINE_NAMED_CID(FAKE_INPUTPORT_SERVICE_CID);
-NS_DEFINE_NAMED_CID(INPUTPORT_DATA_CID);
-
 NS_DEFINE_NAMED_CID(GECKO_MEDIA_PLUGIN_SERVICE_CID);
 
 NS_DEFINE_NAMED_CID(PRESENTATION_SERVICE_CID);
@@ -1074,8 +1062,6 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kPRESENTATION_DEVICE_MANAGER_CID, false, nullptr, PresentationDeviceManagerConstructor },
   { &kPRESENTATION_TCP_SESSION_TRANSPORT_CID, false, nullptr, PresentationTCPSessionTransportConstructor },
   { &kTEXT_INPUT_PROCESSOR_CID, false, nullptr, TextInputProcessorConstructor },
-  { &kFAKE_INPUTPORT_SERVICE_CID, false, nullptr, FakeInputPortServiceConstructor },
-  { &kINPUTPORT_DATA_CID, false, nullptr, InputPortDataConstructor },
 #ifdef MOZ_B2G
   { &kNS_HARDWARE_KEY_HANDLER_CID, false, nullptr, nsIHardwareKeyHandlerConstructor },
 #endif
@@ -1223,8 +1209,6 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   { PRESENTATION_DEVICE_MANAGER_CONTRACTID, &kPRESENTATION_DEVICE_MANAGER_CID },
   { PRESENTATION_TCP_SESSION_TRANSPORT_CONTRACTID, &kPRESENTATION_TCP_SESSION_TRANSPORT_CID },
   { "@mozilla.org/text-input-processor;1", &kTEXT_INPUT_PROCESSOR_CID },
-  { FAKE_INPUTPORT_SERVICE_CONTRACTID, &kFAKE_INPUTPORT_SERVICE_CID },
-  { INPUTPORT_DATA_CONTRACTID, &kINPUTPORT_DATA_CID },
 #ifdef MOZ_B2G
   { NS_HARDWARE_KEY_HANDLER_CONTRACTID, &kNS_HARDWARE_KEY_HANDLER_CID },
 #endif

@@ -203,7 +203,7 @@ public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSITIMERCALLBACK
 private:
-  ~UITimerCallback() {}
+  ~UITimerCallback() = default;
   uint32_t mPreviousCount;
 };
 
@@ -242,9 +242,7 @@ OverOutElementsWrapper::OverOutElementsWrapper()
 {
 }
 
-OverOutElementsWrapper::~OverOutElementsWrapper()
-{
-}
+OverOutElementsWrapper::~OverOutElementsWrapper() = default;
 
 NS_IMPL_CYCLE_COLLECTION(OverOutElementsWrapper,
                          mLastOverElement,
@@ -1262,9 +1260,9 @@ EventStateManager::IsRemoteTarget(nsIContent* target) {
     return true;
   }
 
-  // <frame/iframe mozbrowser/mozapp>
+  // <frame/iframe mozbrowser>
   nsCOMPtr<nsIMozBrowserFrame> browserFrame = do_QueryInterface(target);
-  if (browserFrame && browserFrame->GetReallyIsBrowserOrApp()) {
+  if (browserFrame && browserFrame->GetReallyIsBrowser()) {
     return !!TabParent::GetFrom(target);
   }
 
@@ -2908,11 +2906,13 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
   NS_ENSURE_ARG(aPresContext);
   NS_ENSURE_ARG_POINTER(aStatus);
 
-  bool dispatchedToContentProcess = HandleCrossProcessEvent(aEvent,
-                                                            aStatus);
-
   mCurrentTarget = aTargetFrame;
   mCurrentTargetContent = nullptr;
+
+  bool dispatchedToContentProcess = HandleCrossProcessEvent(aEvent, aStatus);
+  // NOTE: the above call may have destroyed aTargetFrame, please use
+  // mCurrentTarget henceforth.  This is to avoid using it accidentally:
+  aTargetFrame = nullptr;
 
   // Most of the events we handle below require a frame.
   // Add special cases here.
@@ -3022,7 +3022,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           // If the mousedown happened inside a popup, don't
           // try to set focus on one of its containing elements
           const nsStyleDisplay* display = currFrame->StyleDisplay();
-          if (display->mDisplay == StyleDisplay::Popup) {
+          if (display->mDisplay == StyleDisplay::MozPopup) {
             newFocus = nullptr;
             break;
           }
@@ -3170,7 +3170,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
       ScrollbarsForWheel::MayInactivate();
       WidgetWheelEvent* wheelEvent = aEvent->AsWheelEvent();
       nsIScrollableFrame* scrollTarget =
-        do_QueryFrame(ComputeScrollTarget(aTargetFrame, wheelEvent,
+        do_QueryFrame(ComputeScrollTarget(mCurrentTarget, wheelEvent,
                                           COMPUTE_DEFAULT_ACTION_TARGET));
       if (scrollTarget) {
         scrollTarget->ScrollSnap();
@@ -3193,7 +3193,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
       // because if the scroll target is a plugin, the default action should be
       // chosen by the plugin rather than by our prefs.
       nsIFrame* frameToScroll =
-        ComputeScrollTarget(aTargetFrame, wheelEvent,
+        ComputeScrollTarget(mCurrentTarget, wheelEvent,
                             COMPUTE_DEFAULT_ACTION_TARGET);
       nsPluginFrame* pluginFrame = do_QueryFrame(frameToScroll);
 
@@ -3213,7 +3213,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           // For scrolling of default action, we should honor the mouse wheel
           // transaction.
 
-          ScrollbarsForWheel::PrepareToScrollText(this, aTargetFrame, wheelEvent);
+          ScrollbarsForWheel::PrepareToScrollText(this, mCurrentTarget, wheelEvent);
 
           if (aEvent->mMessage != eWheel ||
               (!wheelEvent->mDeltaX && !wheelEvent->mDeltaY)) {
@@ -3223,8 +3223,8 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           nsIScrollableFrame* scrollTarget = do_QueryFrame(frameToScroll);
           ScrollbarsForWheel::SetActiveScrollTarget(scrollTarget);
 
-          nsIFrame* rootScrollFrame = !aTargetFrame ? nullptr :
-            aTargetFrame->PresContext()->PresShell()->GetRootScrollFrame();
+          nsIFrame* rootScrollFrame = !mCurrentTarget ? nullptr :
+            mCurrentTarget->PresContext()->PresShell()->GetRootScrollFrame();
           nsIScrollableFrame* rootScrollableFrame = nullptr;
           if (rootScrollFrame) {
             rootScrollableFrame = do_QueryFrame(rootScrollFrame);
@@ -3261,7 +3261,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           if (!intDelta) {
             break;
           }
-          DoScrollZoom(aTargetFrame, intDelta);
+          DoScrollZoom(mCurrentTarget, intDelta);
           break;
         }
         case WheelPrefs::ACTION_SEND_TO_PLUGIN:
@@ -3291,7 +3291,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
               // by looking at the scroll overflow values on mCanTriggerSwipe
               // events after they have been processed.
               allDeltaOverflown =
-                !ComputeScrollTarget(aTargetFrame, wheelEvent,
+                !ComputeScrollTarget(mCurrentTarget, wheelEvent,
                                      COMPUTE_DEFAULT_ACTION_TARGET);
             }
           } else {
@@ -3817,7 +3817,7 @@ class MOZ_STACK_CLASS ESMEventCB : public EventDispatchingCallback
 public:
   explicit ESMEventCB(nsIContent* aTarget) : mTarget(aTarget) {}
 
-  virtual void HandleEvent(EventChainPostVisitor& aVisitor)
+  void HandleEvent(EventChainPostVisitor& aVisitor) override
   {
     if (aVisitor.mPresContext) {
       nsIFrame* frame = aVisitor.mPresContext->GetPrimaryFrameFor(mTarget);
@@ -4004,7 +4004,7 @@ public:
     }
   }
 
-  ~EnterLeaveDispatcher()
+  void Dispatch()
   {
     if (mEventMessage == eMouseEnter || mEventMessage == ePointerEnter) {
       for (int32_t i = mTargets.Count() - 1; i >= 0; --i) {
@@ -4089,6 +4089,7 @@ EventStateManager::NotifyMouseOut(WidgetMouseEvent* aMouseEvent,
   // Fire mouseout
   DispatchMouseOrPointerEvent(aMouseEvent, isPointer ? ePointerOut : eMouseOut,
                               wrapper->mLastOverElement, aMovingInto);
+  leaveDispatcher.Dispatch();
 
   wrapper->mLastOverFrame = nullptr;
   wrapper->mLastOverElement = nullptr;
@@ -4162,6 +4163,7 @@ EventStateManager::NotifyMouseOver(WidgetMouseEvent* aMouseEvent,
       DispatchMouseOrPointerEvent(aMouseEvent,
                                   isPointer ? ePointerOver : eMouseOver,
                                   aContent, lastOverElement);
+    enterDispatcher->Dispatch();
     wrapper->mLastOverElement = aContent;
   } else {
     wrapper->mLastOverFrame = nullptr;
@@ -4674,6 +4676,8 @@ EventStateManager::CheckForAndDispatchClick(WidgetMouseEvent* aEvent,
         event2.mClickCount = aEvent->mClickCount;
         event2.mModifiers = aEvent->mModifiers;
         event2.buttons = aEvent->buttons;
+        event2.mTime = aEvent->mTime;
+        event2.mTimeStamp = aEvent->mTimeStamp;
         event2.mFlags.mNoContentDispatch = notDispatchToContents;
         event2.button = aEvent->button;
         event2.inputSource = aEvent->inputSource;

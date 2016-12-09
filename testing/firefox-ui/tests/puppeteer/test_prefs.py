@@ -2,13 +2,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from firefox_ui_harness.testcases import FirefoxTestCase
+from firefox_puppeteer import PuppeteerMixin
+from marionette import MarionetteTestCase
 
 
-class testPreferences(FirefoxTestCase):
+class testPreferences(PuppeteerMixin, MarionetteTestCase):
 
     def setUp(self):
-        FirefoxTestCase.setUp(self)
+        super(testPreferences, self).setUp()
 
         self.new_pref = 'marionette.unittest.set_pref'
         self.unknown_pref = 'marionette.unittest.unknown'
@@ -27,7 +28,7 @@ class testPreferences(FirefoxTestCase):
             self.marionette.clear_pref('browser.tabs.maxOpenBeforeWarn')
             self.marionette.clear_pref('browser.startup.homepage')
         finally:
-            FirefoxTestCase.tearDown(self)
+            super(testPreferences, self).tearDown()
 
     def test_get_pref(self):
         # check correct types
@@ -144,3 +145,21 @@ class testPreferences(FirefoxTestCase):
         # Remove when all self.marionette methods are implemented
         # Please see Bug 1293588
         self.marionette.clear_pref(self.string_pref)
+
+    def test_set_pref_default_branch(self):
+        orig_value = self.puppeteer.prefs.get_pref(self.string_pref, default_branch=True)
+
+        try:
+            self.puppeteer.prefs.set_pref(self.string_pref, 'default', default_branch=True)
+            self.assertEqual(self.puppeteer.prefs.get_pref(self.string_pref), 'default')
+
+            self.puppeteer.prefs.set_pref(self.string_pref, 'user')
+            self.assertEqual(self.puppeteer.prefs.get_pref(self.string_pref), 'user')
+            self.assertEqual(self.puppeteer.prefs.get_pref(self.string_pref, default_branch=True),
+                             'default')
+
+            self.marionette.clear_pref(self.string_pref)
+            self.assertEqual(self.puppeteer.prefs.get_pref(self.string_pref), 'default')
+
+        finally:
+            self.puppeteer.prefs.set_pref(self.string_pref, orig_value, default_branch=True)

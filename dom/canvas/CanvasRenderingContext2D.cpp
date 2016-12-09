@@ -565,7 +565,7 @@ public:
   explicit AdjustedTarget(CanvasRenderingContext2D* aCtx,
                           const gfx::Rect *aBounds = nullptr)
   {
-    mTarget = aCtx->mTarget;
+    mTarget = (DrawTarget*)aCtx->mTarget;
 
     // All rects in this function are in the device space of ctx->mTarget.
 
@@ -1367,23 +1367,37 @@ bool CanvasRenderingContext2D::SwitchRenderingMode(RenderingMode aRenderingMode)
   mBufferProvider = nullptr;
   mResetLayer = true;
 
-  // Borrowing the snapshot must be done after ReturnTarget.
-  RefPtr<SourceSurface> snapshot = oldBufferProvider->BorrowSnapshot();
-
   // Recreate mTarget using the new rendering mode
   RenderingMode attemptedMode = EnsureTarget(nullptr, aRenderingMode);
+
   if (!IsTargetValid()) {
-    oldBufferProvider->ReturnSnapshot(snapshot.forget());
     return false;
+  }
+
+  if (oldBufferProvider && mTarget) {
+    CopyBufferProvider(*oldBufferProvider, *mTarget, IntRect(0, 0, mWidth, mHeight));
   }
 
   // We succeeded, so update mRenderingMode to reflect reality
   mRenderingMode = attemptedMode;
 
-  // Restore the content from the old DrawTarget
-  // Clips and transform were already restored in EnsureTarget.
-  mTarget->CopySurface(snapshot, IntRect(0, 0, mWidth, mHeight), IntPoint());
-  oldBufferProvider->ReturnSnapshot(snapshot.forget());
+  return true;
+}
+
+bool
+CanvasRenderingContext2D::CopyBufferProvider(PersistentBufferProvider& aOld,
+                                             DrawTarget& aTarget,
+                                             IntRect aCopyRect)
+{
+  // Borrowing the snapshot must be done after ReturnTarget.
+  RefPtr<SourceSurface> snapshot = aOld.BorrowSnapshot();
+
+  if (!snapshot) {
+    return false;
+  }
+
+  aTarget.CopySurface(snapshot, aCopyRect, IntPoint());
+  aOld.ReturnSnapshot(snapshot.forget());
   return true;
 }
 
@@ -1438,12 +1452,15 @@ CanvasRenderingContext2D::RemoveDemotableContext(CanvasRenderingContext2D* aCont
     DemotableContexts().erase(iter);
 }
 
+#define MIN_SKIA_GL_DIMENSION 16
+
 bool
 CanvasRenderingContext2D::CheckSizeForSkiaGL(IntSize aSize) {
   MOZ_ASSERT(NS_IsMainThread());
 
   int minsize = Preferences::GetInt("gfx.canvas.min-size-for-skia-gl", 128);
-  if (aSize.width < minsize || aSize.height < minsize) {
+  if (aSize.width < MIN_SKIA_GL_DIMENSION || aSize.height < MIN_SKIA_GL_DIMENSION ||
+      (aSize.width * aSize.height < minsize * minsize)) {
     return false;
   }
 
@@ -1627,24 +1644,41 @@ CanvasRenderingContext2D::EnsureTarget(const gfx::Rect* aCoveredRect,
   if (mode == RenderingMode::SoftwareBackendMode &&
       !TrySharedTarget(newTarget, newProvider) &&
       !TryBasicTarget(newTarget, newProvider)) {
+
+    gfxCriticalError(
+      CriticalLog::DefaultOptions(Factory::ReasonableSurfaceSize(GetSize()))
+    ) << "Failed borrow shared and basic targets.";
+
     SetErrorState();
     return mode;
   }
 
+
   MOZ_ASSERT(newTarget);
   MOZ_ASSERT(newProvider);
+
+  bool needsClear = !canDiscardContent;
+  if (newTarget->GetBackendType() == gfx::BackendType::SKIA) {
+    // Skia expects the unused X channel to contains 0xFF even for opaque operations
+    // so we can't skip clearing in that case, even if we are going to cover the
+    // entire canvas in the next drawing operation.
+    newTarget->ClearRect(canvasRect);
+    needsClear = false;
+  }
+
+  // Try to copy data from the previous buffer provider if there is one.
+  if (!canDiscardContent && mBufferProvider && CopyBufferProvider(*mBufferProvider, *newTarget, persistedRect)) {
+    needsClear = false;
+  }
+
+  if (needsClear) {
+    newTarget->ClearRect(canvasRect);
+  }
 
   mTarget = newTarget.forget();
   mBufferProvider = newProvider.forget();
 
   RegisterAllocation();
-
-  // Skia expects the unused X channel to contains 0 even for opaque operations
-  // so we can't skip clearing in that case, even if we are going to cover the
-  // entire canvas in the next drawing operation.
-  if (!canDiscardContent || mTarget->GetBackendType() == gfx::BackendType::SKIA) {
-    mTarget->ClearRect(canvasRect);
-  }
 
   RestoreClipsAndTransformToTarget();
 
@@ -1686,7 +1720,7 @@ CanvasRenderingContext2D::SetErrorState()
     gCanvasAzureMemoryUsed -= mWidth * mHeight * 4;
   }
 
-  mTarget = sErrorTarget;
+  mTarget = (DrawTarget*)sErrorTarget;
   mBufferProvider = nullptr;
 
   // clear transforms, clips, etc.
@@ -1781,6 +1815,12 @@ CanvasRenderingContext2D::TrySharedTarget(RefPtr<gfx::DrawTarget>& aOutDT,
   aOutProvider = nullptr;
 
   if (!mCanvasElement || !mCanvasElement->OwnerDoc()) {
+    return false;
+  }
+
+  if (mBufferProvider && mBufferProvider->GetType() == LayersBackend::LAYERS_CLIENT) {
+    // we are already using a shared buffer provider, we are allocating a new one
+    // because the current one failed so let's just fall back to the basic provider.
     return false;
   }
 
@@ -1935,7 +1975,7 @@ CanvasRenderingContext2D::InitializeWithDrawTarget(nsIDocShell* aShell,
   IntSize size = aTarget->GetSize();
   SetDimensions(size.width, size.height);
 
-  mTarget = aTarget;
+  mTarget = (DrawTarget*)aTarget;
   mBufferProvider = new PersistentBufferProviderBasic(aTarget);
 
   if (mTarget->GetBackendType() == gfx::BackendType::CAIRO) {
@@ -3114,6 +3154,8 @@ CanvasRenderingContext2D::BeginPath()
 void
 CanvasRenderingContext2D::Fill(const CanvasWindingRule& aWinding)
 {
+  auto autoNotNull = mTarget.MakeAuto();
+
   EnsureUserSpacePath(aWinding);
 
   if (!mPath) {
@@ -4017,6 +4059,11 @@ struct MOZ_STACK_CLASS CanvasBidiProcessor : public nsBidiPresUtils::BidiProcess
     AdjustedTarget target(mCtx);
     RefPtr<gfxContext> thebes =
       gfxContext::CreatePreservingTransformOrNull(target);
+    if (!thebes) {
+      // If CreatePreservingTransformOrNull returns null, it will also have
+      // issued a gfxCriticalNote already, so here we'll just bail out.
+      return;
+    }
     gfxTextRun::DrawParams params(thebes);
 
     if (mState->StyleIsColor(style)) { // Color
@@ -4718,6 +4765,8 @@ CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
                                     uint8_t aOptional_argc,
                                     ErrorResult& aError)
 {
+  auto autoNotNull = mTarget.MakeAuto();
+
   if (mDrawObserver) {
     mDrawObserver->DidDrawCall(CanvasDrawObserver::DrawCallType::DrawImage);
   }
@@ -4976,8 +5025,13 @@ CanvasRenderingContext2D::DrawImage(const CanvasImageSource& aImage,
       // that we need.
       srcSurf = ExtractSubrect(srcSurf, &sourceRect, mTarget);
     }
-    AdjustedTarget(this, bounds.IsEmpty() ? nullptr : &bounds)->
-      DrawSurface(srcSurf,
+
+    AdjustedTarget tempTarget(this, bounds.IsEmpty() ? nullptr : &bounds);
+    if (!tempTarget) {
+      gfxDevCrash(LogReason::InvalidDrawTarget) << "Invalid adjusted target in Canvas2D " << gfx::hexa((DrawTarget*)mTarget) << ", " << NeedToDrawShadow() << NeedToApplyFilter();
+      return;
+    }
+    tempTarget->DrawSurface(srcSurf,
                   gfx::Rect(aDx, aDy, aDw, aDh),
                   sourceRect,
                   DrawSurfaceOptions(samplingFilter, SamplingBounds::UNBOUNDED),
@@ -5933,7 +5987,7 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
   // we have nothing to paint and there is no need to create a surface just
   // to paint nothing. Also, EnsureTarget() can cause creation of a persistent
   // layer manager which must NOT happen during a paint.
-  if ((!mBufferProvider && !mTarget) || !IsTargetValid()) {
+  if (!mBufferProvider && !IsTargetValid()) {
     // No DidTransactionCallback will be received, so mark the context clean
     // now so future invalidations will be dispatched.
     MarkContextClean();

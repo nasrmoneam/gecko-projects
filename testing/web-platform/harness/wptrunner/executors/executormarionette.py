@@ -17,11 +17,11 @@ from ..wpttest import WdspecResult, WdspecSubtestResult
 
 errors = None
 marionette = None
+pytestrunner = None
 webdriver = None
 
 here = os.path.join(os.path.split(__file__)[0])
 
-from . import pytestrunner
 from .base import (ExecutorException,
                    Protocol,
                    RefTestExecutor,
@@ -41,7 +41,7 @@ extra_timeout = 5 # seconds
 
 
 def do_delayed_imports():
-    global errors, marionette, webdriver
+    global errors, marionette
 
     # Marionette client used to be called marionette, recently it changed
     # to marionette_driver for unfathomable reasons
@@ -50,8 +50,6 @@ def do_delayed_imports():
         from marionette import errors
     except ImportError:
         from marionette_driver import marionette, errors
-
-    import webdriver
 
 
 class MarionetteProtocol(Protocol):
@@ -126,10 +124,12 @@ class MarionetteProtocol(Protocol):
         self.load_runner("http")
 
     def set_timeout(self, timeout):
-        """Set the marionette script timeout
+        """Set the Marionette script timeout.
 
-        :param timeout: Script timeout in seconds"""
-        self.marionette.set_script_timeout(timeout * 1000)
+        :param timeout: Script timeout in seconds
+
+        """
+        self.marionette.timeout.script = timeout
         self.timeout = timeout
 
     def load_runner(self, protocol):
@@ -174,7 +174,7 @@ class MarionetteProtocol(Protocol):
     def wait(self):
         socket_timeout = self.marionette.client.sock.gettimeout()
         if socket_timeout:
-            self.marionette.set_script_timeout((socket_timeout / 2) * 1000)
+            self.marionette.timeout.script = socket_timeout / 2
 
         while True:
             try:
@@ -561,6 +561,7 @@ class WdspecRun(object):
 class MarionetteWdspecExecutor(WdspecExecutor):
     def __init__(self, browser, server_config, webdriver_binary,
                  timeout_multiplier=1, close_after_done=True, debug_info=None):
+        self.do_delayed_imports()
         WdspecExecutor.__init__(self, browser, server_config,
                                 timeout_multiplier=timeout_multiplier,
                                 debug_info=debug_info)
@@ -590,3 +591,8 @@ class MarionetteWdspecExecutor(WdspecExecutor):
         harness_result = ("OK", None)
         subtest_results = pytestrunner.run(path, session, timeout=timeout)
         return (harness_result, subtest_results)
+
+    def do_delayed_imports(self):
+        global pytestrunner, webdriver
+        from . import pytestrunner
+        import webdriver

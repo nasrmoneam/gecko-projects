@@ -4,15 +4,15 @@
 
 import time
 
+from firefox_puppeteer import PuppeteerMixin
+from marionette import MarionetteTestCase
 from marionette_driver import By, expected, Wait
 
-from firefox_ui_harness.testcases import FirefoxTestCase
 
-
-class TestSafeBrowsingNotificationBar(FirefoxTestCase):
+class TestSafeBrowsingNotificationBar(PuppeteerMixin, MarionetteTestCase):
 
     def setUp(self):
-        FirefoxTestCase.setUp(self)
+        super(TestSafeBrowsingNotificationBar, self).setUp()
 
         self.test_data = [
             # Unwanted software URL
@@ -56,7 +56,7 @@ class TestSafeBrowsingNotificationBar(FirefoxTestCase):
             self.marionette.clear_pref('browser.safebrowsing.phishing.enabled')
             self.marionette.clear_pref('browser.safebrowsing.malware.enabled')
         finally:
-            FirefoxTestCase.tearDown(self)
+            super(TestSafeBrowsingNotificationBar, self).tearDown()
 
     def test_notification_bar(self):
         with self.marionette.using_context('content'):
@@ -94,7 +94,7 @@ class TestSafeBrowsingNotificationBar(FirefoxTestCase):
         button = self.marionette.find_element(By.ID, 'ignoreWarningButton')
         button.click()
 
-        Wait(self.marionette, timeout=self.browser.timeout_page_load).until(
+        Wait(self.marionette, timeout=self.marionette.timeout.page_load).until(
             expected.element_present(By.ID, 'main-feature'),
             message='Expected target element "#main-feature" has not been found',
         )
@@ -113,7 +113,7 @@ class TestSafeBrowsingNotificationBar(FirefoxTestCase):
 
             self.browser.tabbar.open_tab(lambda _: button.click())
 
-        Wait(self.marionette, timeout=self.browser.timeout_page_load).until(
+        Wait(self.marionette, timeout=self.marionette.timeout.page_load).until(
             lambda mn: report_page in mn.get_url(),
             message='The expected safe-browsing report page has not been opened',
         )
@@ -129,7 +129,7 @@ class TestSafeBrowsingNotificationBar(FirefoxTestCase):
                       .find_element('anon attribute', {'label': label}))
             button.click()
 
-        Wait(self.marionette, timeout=self.browser.timeout_page_load).until(
+        Wait(self.marionette, timeout=self.marionette.timeout.page_load).until(
             lambda mn: self.browser.default_homepage in mn.get_url(),
             message='The default home page has not been loaded',
         )
@@ -143,7 +143,7 @@ class TestSafeBrowsingNotificationBar(FirefoxTestCase):
                                     {'class': 'messageCloseButton close-icon tabbable'}))
             button.click()
 
-            Wait(self.marionette, timeout=self.browser.timeout_page_load).until(
+            Wait(self.marionette, timeout=self.marionette.timeout.page_load).until(
                 expected.element_stale(button),
                 message='The notification bar has not been closed',
             )

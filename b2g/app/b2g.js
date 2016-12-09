@@ -400,9 +400,7 @@ pref("dom.phonenumber.substringmatching.VE", 7);
 pref("dom.phonenumber.substringmatching.CL", 8);
 pref("dom.phonenumber.substringmatching.PE", 7);
 
-// NetworkStats
 #ifdef MOZ_WIDGET_GONK
-pref("dom.mozNetworkStats.enabled", true);
 pref("dom.webapps.firstRunWithSIM", true);
 #endif
 
@@ -413,7 +411,6 @@ pref("dom.mozApps.single_variant_sourcedir", "/persist/svoperapps");
 
 // WebSettings
 pref("dom.mozSettings.enabled", true);
-pref("dom.mozPermissionSettings.enabled", true);
 
 // controls if we want camera support
 pref("device.camera.enabled", true);
@@ -501,9 +498,6 @@ pref("app.update.socket.maxErrors", 20);
 // Enable update logging for now, to diagnose growing pains in the
 // field.
 pref("app.update.log", true);
-
-// SystemUpdate API
-pref("dom.system_update.active", "@mozilla.org/updates/update-prompt;1");
 #else
 // Explicitly disable the shutdown watchdog.  It's enabled by default.
 // When the updater is disabled, we want to know about shutdown hangs.
@@ -613,9 +607,6 @@ pref("hal.processPriorityManager.gonk.MASTER.OomScoreAdjust", 0);
 pref("hal.processPriorityManager.gonk.MASTER.KillUnderKB", 4096);
 pref("hal.processPriorityManager.gonk.MASTER.cgroup", "");
 
-pref("hal.processPriorityManager.gonk.PREALLOC.OomScoreAdjust", 67);
-pref("hal.processPriorityManager.gonk.PREALLOC.cgroup", "apps/bg_non_interactive");
-
 pref("hal.processPriorityManager.gonk.FOREGROUND_HIGH.OomScoreAdjust", 67);
 pref("hal.processPriorityManager.gonk.FOREGROUND_HIGH.KillUnderKB", 5120);
 pref("hal.processPriorityManager.gonk.FOREGROUND_HIGH.cgroup", "apps/critical");
@@ -692,12 +683,6 @@ pref("gonk.notifySoftLowMemUnderKB", 43008);
 // memory pressure event.  (When we're not under memory pressure, we sit
 // blocked on a poll(), and this pref has no effect.)
 pref("gonk.systemMemoryPressureRecoveryPollMS", 5000);
-
-// Enable pre-launching content processes for improved startup time
-// (hiding latency).
-pref("dom.ipc.processPrelaunch.enabled", true);
-// Wait this long before pre-launching a new subprocess.
-pref("dom.ipc.processPrelaunch.delayMs", 5000);
 
 pref("dom.ipc.reuse_parent_app", false);
 
@@ -948,9 +933,6 @@ pref("identity.fxaccounts.skipDeviceRegistration", true);
 
 // Enable mapped array buffer.
 pref("dom.mapped_arraybuffer.enabled", true);
-
-// SystemUpdate API
-pref("dom.system_update.enabled", true);
 
 // UDPSocket API
 pref("dom.udpsocket.enabled", true);

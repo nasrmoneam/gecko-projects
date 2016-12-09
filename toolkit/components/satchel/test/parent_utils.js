@@ -25,11 +25,11 @@ var ParentUtils = {
 
   updateFormHistory(changes) {
     let handler = {
-      handleError: function (error) {
+      handleError: function(error) {
         assert.ok(false, error);
         sendAsyncMessage("formHistoryUpdated", { ok: false });
       },
-      handleCompletion: function (reason) {
+      handleCompletion: function(reason) {
         if (!reason)
           sendAsyncMessage("formHistoryUpdated", { ok: true });
       },
@@ -68,10 +68,16 @@ var ParentUtils = {
 
   checkRowCount(expectedCount, expectedFirstValue = null) {
     ContentTaskUtils.waitForCondition(() => {
-      return gAutocompletePopup.view.matchCount === expectedCount &&
-        (!expectedFirstValue ||
-          expectedCount <= 1 ||
-          gAutocompletePopup.view.getValueAt(0) === expectedFirstValue);
+      // This may be called before gAutocompletePopup has initialised
+      // which causes it to throw
+      try {
+        return gAutocompletePopup.view.matchCount === expectedCount &&
+          (!expectedFirstValue ||
+           expectedCount <= 1 ||
+           gAutocompletePopup.view.getValueAt(0) === expectedFirstValue);
+      } catch (e) {
+        return false;
+      }
     }, "Waiting for row count change: " + expectedCount + " First value: " + expectedFirstValue).then(() => {
       let results = this.getMenuEntries();
       sendAsyncMessage("gotMenuChange", { results });

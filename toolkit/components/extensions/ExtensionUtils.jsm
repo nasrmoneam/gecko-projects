@@ -48,6 +48,13 @@ function getConsole() {
 
 XPCOMUtils.defineLazyGetter(this, "console", getConsole);
 
+let nextId = 0;
+const {uniqueProcessID} = Services.appinfo;
+
+function getUniqueId() {
+  return `${nextId++}-${uniqueProcessID}`;
+}
+
 /**
  * An Error subclass for which complete error messages are always passed
  * to extensions, rather than being interpreted as an unknown error.
@@ -878,8 +885,8 @@ function getMessageManager(target) {
   return target.QueryInterface(Ci.nsIMessageSender);
 }
 
-function flushJarCache(jarFile) {
-  Services.obs.notifyObservers(jarFile, "flush-cache-entry", null);
+function flushJarCache(jarPath) {
+  Services.obs.notifyObservers(null, "flush-cache-entry", jarPath);
 }
 
 const PlatformInfo = Object.freeze({
@@ -1077,7 +1084,11 @@ class MessageManagerProxy {
    * @returns {undefined}
    */
   sendAsyncMessage(...args) {
-    return this.messageManager.sendAsyncMessage(...args);
+    if (this.messageManager) {
+      return this.messageManager.sendAsyncMessage(...args);
+    }
+    /* globals uneval */
+    Cu.reportError(`Cannot send message: Other side disconnected: ${uneval(args)}`);
   }
 
   /**
@@ -1176,6 +1187,7 @@ this.ExtensionUtils = {
   getConsole,
   getInnerWindowID,
   getMessageManager,
+  getUniqueId,
   ignoreEvent,
   injectAPI,
   instanceOf,

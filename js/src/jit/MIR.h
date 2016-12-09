@@ -5439,8 +5439,7 @@ class MWasmTruncateToInt64
         trapOffset_(trapOffset)
     {
         setResultType(MIRType::Int64);
-        setGuard(); // not removable because of possible side-effects.
-        setMovable();
+        setGuard(); // neither removable nor movable because of possible side-effects.
     }
 
   public:
@@ -5472,8 +5471,7 @@ class MWasmTruncateToInt32
       : MUnaryInstruction(def), isUnsigned_(isUnsigned), trapOffset_(trapOffset)
     {
         setResultType(MIRType::Int32);
-        setGuard(); // not removable because of possible side-effects.
-        setMovable();
+        setGuard(); // neither removable nor movable because of possible side-effects.
     }
 
   public:
@@ -6565,11 +6563,20 @@ class MPow
     MPow(MDefinition* input, MDefinition* power, MIRType powerType)
       : MBinaryInstruction(input, power)
     {
-        MOZ_ASSERT(powerType == MIRType::Double || powerType == MIRType::Int32);
+        MOZ_ASSERT(powerType == MIRType::Double ||
+                   powerType == MIRType::Int32 ||
+                   powerType == MIRType::None);
         specialization_ = powerType;
-        setResultType(MIRType::Double);
+        if (powerType == MIRType::None)
+            setResultType(MIRType::Value);
+        else
+            setResultType(MIRType::Double);
         setMovable();
     }
+
+    // Helpers for `foldsTo`
+    MDefinition* foldsConstant(TempAllocator &alloc);
+    MDefinition* foldsConstantPower(TempAllocator &alloc);
 
   public:
     INSTRUCTION_HEADER(Pow)
@@ -6585,6 +6592,8 @@ class MPow
         return congruentIfOperandsEqual(ins);
     }
     AliasSet getAliasSet() const override {
+        if (specialization_ == MIRType::None)
+            return AliasSet::Store(AliasSet::Any);
         return AliasSet::None();
     }
     bool possiblyCalls() const override {
@@ -6592,8 +6601,7 @@ class MPow
     }
     MOZ_MUST_USE bool writeRecoverData(CompactBufferWriter& writer) const override;
     bool canRecoverOnBailout() const override {
-        // Temporarily disable recovery to relieve fuzzer pressure. See bug 1188586.
-        return false;
+        return specialization_ != MIRType::None;
     }
 
     MDefinition* foldsTo(TempAllocator& alloc) override;
@@ -6790,13 +6798,13 @@ class MAdd : public MBinaryArithInstruction
         setResultType(MIRType::Value);
     }
 
-    MAdd(MDefinition* left, MDefinition* right, MIRType type)
+    MAdd(MDefinition* left, MDefinition* right, MIRType type, TruncateKind truncateKind = Truncate)
       : MAdd(left, right)
     {
         specialization_ = type;
         setResultType(type);
         if (type == MIRType::Int32) {
-            setTruncateKind(Truncate);
+            setTruncateKind(truncateKind);
             setCommutative();
         }
     }
@@ -7022,8 +7030,10 @@ class MDiv : public MBinaryArithInstruction
         div->unsigned_ = unsignd;
         div->trapOnError_ = trapOnError;
         div->trapOffset_ = trapOffset;
-        if (trapOnError)
+        if (trapOnError) {
             div->setGuard(); // not removable because of possible side-effects.
+            div->setNotMovable();
+        }
         div->setMustPreserveNaN(mustPreserveNaN);
         if (type == MIRType::Int32)
             div->setTruncateKind(Truncate);
@@ -7156,8 +7166,10 @@ class MMod : public MBinaryArithInstruction
         mod->unsigned_ = unsignd;
         mod->trapOnError_ = trapOnError;
         mod->trapOffset_ = trapOffset;
-        if (trapOnError)
+        if (trapOnError) {
             mod->setGuard(); // not removable because of possible side-effects.
+            mod->setNotMovable();
+        }
         if (type == MIRType::Int32)
             mod->setTruncateKind(Truncate);
         return mod;
@@ -8459,6 +8471,34 @@ class MLambdaArrow
     }
     bool appendRoots(MRootList& roots) const override {
         return info_.appendRoots(roots);
+    }
+};
+
+class MSetFunName
+  : public MAryInstruction<2>,
+    public MixPolicy<ObjectPolicy<0>, BoxPolicy<1> >::Data
+{
+    uint8_t prefixKind_;
+
+    explicit MSetFunName(MDefinition* fun, MDefinition* name, uint8_t prefixKind)
+      : prefixKind_(prefixKind)
+    {
+        initOperand(0, fun);
+        initOperand(1, name);
+        setResultType(MIRType::None);
+    }
+
+  public:
+    INSTRUCTION_HEADER(SetFunName)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, fun), (1, name))
+
+    uint8_t prefixKind() const {
+        return prefixKind_;
+    }
+
+    bool possiblyCalls() const override {
+        return true;
     }
 };
 

@@ -13,6 +13,7 @@ let commonEvents = {
 
 function background(events) {
   let expect;
+  let ignore;
   let defaultOrigin;
 
   browser.test.onMessage.addListener((msg, expected) => {
@@ -21,6 +22,7 @@ function background(events) {
     }
     expect = expected.expect;
     defaultOrigin = expected.origin;
+    ignore = expected.ignore;
     let promises = [];
     // Initialize some stuff we'll need in the tests.
     for (let entry of Object.values(expect)) {
@@ -34,6 +36,9 @@ function background(events) {
       // listening for, exclude onBeforeRedirect and onErrorOccurred
       if (entry.events === undefined) {
         entry.events = Object.keys(events).filter(name => name != "onErrorOccurred" && name != "onBeforeRedirect");
+      }
+      if (entry.optional_events === undefined) {
+        entry.optional_events = [];
       }
     }
     // When every expected entry has finished our test is done.
@@ -52,6 +57,9 @@ function background(events) {
       filename = url.pathname;
     } else {
       filename = url.pathname.split("/").pop();
+    }
+    if (ignore && ignore.includes(filename)) {
+      return;
     }
     let expected = expect[filename];
     if (!expected) {
@@ -153,10 +161,13 @@ function background(events) {
         return result;
       }
       let expectedEvent = expected.events[0] == name;
-      browser.test.assertTrue(expectedEvent, `recieved ${name}`);
       if (expectedEvent) {
         expected.events.shift();
+      } else {
+        // e10s vs. non-e10s errors can end with either onCompleted or onErrorOccurred
+        expectedEvent = expected.optional_events.includes(name);
       }
+      browser.test.assertTrue(expectedEvent, `received ${name}`);
       browser.test.assertEq(expected.type, details.type, "resource type is correct");
       browser.test.assertEq(expected.origin || defaultOrigin, details.originUrl, "origin is correct");
 
@@ -169,8 +180,7 @@ function background(events) {
           browser.test.assertEq("string", typeof expected.test.requestId, `requestid ${expected.test.requestId} is string`);
           browser.test.assertEq("string", typeof details.requestId, `requestid ${details.requestId} is string`);
           browser.test.assertEq("number", typeof parseInt(details.requestId, 10), "parsed requestid is number");
-          browser.test.assertNotEq(expected.test.requestId, details.requestId,
-                                  `last requestId ${expected.test.requestId} different from this one ${details.requestId}`);
+          browser.test.assertEq(expected.test.requestId, details.requestId, "redirects will keep the same requestId");
         } else {
           // Save any values we want to validate in later events.
           expected.test.requestId = details.requestId;
@@ -199,7 +209,7 @@ function background(events) {
       }
       if (name == "onHeadersReceived") {
         browser.test.assertEq(expected.status || 200, details.statusCode,
-                              `expected HTTP status recieved for ${details.url}`);
+                              `expected HTTP status received for ${details.url}`);
         if (expected.headers && expected.headers.response) {
           result.responseHeaders = processHeaders("response", expected, details);
         }

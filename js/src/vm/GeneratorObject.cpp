@@ -6,6 +6,8 @@
 
 #include "vm/GeneratorObject.h"
 
+#include "jsobj.h"
+
 #include "jsatominlines.h"
 #include "jsscriptinlines.h"
 
@@ -309,7 +311,8 @@ GlobalObject::initStarGenerators(JSContext* cx, Handle<GlobalObject*> global)
     RootedObject genFunctionProto(cx, NewSingletonObjectWithFunctionPrototype(cx, global));
     if (!genFunctionProto || !genFunctionProto->setDelegate(cx))
         return false;
-    if (!LinkConstructorAndPrototype(cx, genFunctionProto, genObjectProto) ||
+    if (!LinkConstructorAndPrototype(cx, genFunctionProto, genObjectProto, JSPROP_READONLY,
+                                     JSPROP_READONLY) ||
         !DefineToStringTag(cx, genFunctionProto, cx->names().GeneratorFunction))
     {
         return false;
@@ -326,11 +329,43 @@ GlobalObject::initStarGenerators(JSContext* cx, Handle<GlobalObject*> global)
                                                       SingletonObject));
     if (!genFunction)
         return false;
-    if (!LinkConstructorAndPrototype(cx, genFunction, genFunctionProto))
+    if (!LinkConstructorAndPrototype(cx, genFunction, genFunctionProto,
+                                     JSPROP_PERMANENT | JSPROP_READONLY, JSPROP_READONLY))
+    {
         return false;
+    }
 
     global->setReservedSlot(STAR_GENERATOR_OBJECT_PROTO, ObjectValue(*genObjectProto));
     global->setReservedSlot(STAR_GENERATOR_FUNCTION, ObjectValue(*genFunction));
     global->setReservedSlot(STAR_GENERATOR_FUNCTION_PROTO, ObjectValue(*genFunctionProto));
+    return true;
+}
+
+MOZ_MUST_USE bool
+js::CheckStarGeneratorResumptionValue(JSContext* cx, HandleValue v)
+{
+    // yield/return value should be an Object.
+    if (!v.isObject())
+        return false;
+
+    JSObject* obj = &v.toObject();
+
+    // It should have `done` data property with boolean value.
+    Value doneVal;
+    if (!GetPropertyPure(cx, obj, NameToId(cx->names().done), &doneVal))
+        return false;
+    if (!doneVal.isBoolean())
+        return false;
+
+    // It should have `value` data property, but the type doesn't matter
+    JSObject* ignored;
+    Shape* shape;
+    if (!LookupPropertyPure(cx, obj, NameToId(cx->names().value), &ignored, &shape))
+        return false;
+    if (!shape)
+        return false;
+    if (!shape->hasDefaultGetter())
+        return false;
+
     return true;
 }

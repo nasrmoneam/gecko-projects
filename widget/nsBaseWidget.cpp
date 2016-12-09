@@ -248,6 +248,7 @@ WidgetShutdownObserver::Unregister()
 void
 nsBaseWidget::Shutdown()
 {
+  RevokeTransactionIdAllocator();
   DestroyCompositor();
   FreeShutdownObserver();
 #if defined(XP_WIN) || defined(MOZ_WIDGET_GTK)
@@ -295,6 +296,23 @@ void nsBaseWidget::DestroyCompositor()
   }
 }
 
+// This prevents the layer manager from starting a new transaction during
+// shutdown.
+void
+nsBaseWidget::RevokeTransactionIdAllocator()
+{
+  if (!mLayerManager) {
+    return;
+  }
+
+  ClientLayerManager* clm = mLayerManager->AsClientLayerManager();
+  if (!clm) {
+    return;
+  }
+
+  clm->SetTransactionIdAllocator(nullptr);
+}
+
 void nsBaseWidget::ReleaseContentController()
 {
   if (mRootContentController) {
@@ -313,7 +331,7 @@ void nsBaseWidget::DestroyLayerManager()
 }
 
 void
-nsBaseWidget::OnRenderingDeviceReset()
+nsBaseWidget::OnRenderingDeviceReset(uint64_t aSeqNo)
 {
   if (!mLayerManager || !mCompositorSession) {
     return;
@@ -337,7 +355,7 @@ nsBaseWidget::OnRenderingDeviceReset()
 
   // Recreate the compositor.
   TextureFactoryIdentifier identifier;
-  if (!mCompositorSession->Reset(backendHints, &identifier)) {
+  if (!mCompositorSession->Reset(backendHints, aSeqNo, &identifier)) {
     // No action was taken, so we don't have to do anything.
     return;
   }
@@ -377,6 +395,7 @@ nsBaseWidget::~nsBaseWidget()
   }
 
   FreeShutdownObserver();
+  RevokeTransactionIdAllocator();
   DestroyLayerManager();
 
 #ifdef NOISY_WIDGET_LEAKS
@@ -676,7 +695,7 @@ void nsBaseWidget::SetZIndex(int32_t aZIndex)
   mZIndex = aZIndex;
 
   // reorder this child in its parent's list.
-  nsBaseWidget* parent = static_cast<nsBaseWidget*>(GetParent());
+  auto* parent = static_cast<nsBaseWidget*>(GetParent());
   if (parent) {
     parent->RemoveChild(this);
     // Scope sib outside the for loop so we can check it afterward
@@ -2012,7 +2031,7 @@ nsIWidget::SynthesizeNativeTouchTap(LayoutDeviceIntPoint aPoint, bool aLongTap,
 void
 nsIWidget::OnLongTapTimerCallback(nsITimer* aTimer, void* aClosure)
 {
-  nsIWidget *self = static_cast<nsIWidget *>(aClosure);
+  auto *self = static_cast<nsIWidget *>(aClosure);
 
   if ((self->mLongTapTouchPoint->mStamp + self->mLongTapTouchPoint->mDuration) >
       TimeStamp::Now()) {

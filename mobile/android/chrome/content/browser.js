@@ -42,6 +42,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "PluralForm",
 XPCOMUtils.defineLazyModuleGetter(this, "Downloads",
                                   "resource://gre/modules/Downloads.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "EventDispatcher",
+                                  "resource://gre/modules/Messaging.jsm");
+
 XPCOMUtils.defineLazyModuleGetter(this, "Messaging",
                                   "resource://gre/modules/Messaging.jsm");
 
@@ -331,6 +334,9 @@ const kMaxHistoryListSize = 50;
 function InitLater(fn, object, name) {
   return DelayedInit.schedule(fn, object, name, 15000 /* 15s max wait */);
 }
+
+XPCOMUtils.defineLazyGetter(this, "GlobalEventDispatcher", () => EventDispatcher.instance);
+XPCOMUtils.defineLazyGetter(this, "WindowEventDispatcher", () => EventDispatcher.for(window));
 
 var BrowserApp = {
   _tabs: [],
@@ -892,10 +898,15 @@ var BrowserApp = {
     NativeWindow.contextmenus.add(
       function(aTarget) {
         if (aTarget instanceof HTMLVideoElement) {
-          // If a video element is zero width or height, its essentially
-          // an HTMLAudioElement.
-          if (aTarget.videoWidth == 0 || aTarget.videoHeight == 0 )
+          if (aTarget.readyState == aTarget.HAVE_NOTHING) {
+            // We don't know if the height/width of the video,
+            // show a generic string.
+            return Strings.browser.GetStringFromName("contextmenu.saveMedia");
+          } else if (aTarget.videoWidth == 0 || aTarget.videoHeight == 0) {
+            // If a video element is zero width or height, its essentially
+            // an HTMLAudioElement.
             return Strings.browser.GetStringFromName("contextmenu.saveAudio");
+          }
           return Strings.browser.GetStringFromName("contextmenu.saveVideo");
         } else if (aTarget instanceof HTMLAudioElement) {
           return Strings.browser.GetStringFromName("contextmenu.saveAudio");
@@ -907,9 +918,19 @@ var BrowserApp = {
         UITelemetry.addEvent("save.1", "contextmenu", null, "media");
 
         let url = aTarget.currentSrc || aTarget.src;
-        let filePickerTitleKey = (aTarget instanceof HTMLVideoElement &&
-                                  (aTarget.videoWidth != 0 && aTarget.videoHeight != 0))
-                                  ? "SaveVideoTitle" : "SaveAudioTitle";
+
+        let filePickerTitleKey;
+        if (aTarget instanceof HTMLVideoElement) {
+          if (aTarget.readyState == aTarget.HAVE_NOTHING) {
+            filePickerTitleKey = "SaveMediaTitle";
+          } else if (aTarget.videoWidth == 0 || aTarget.videoHeight == 0) {
+            filePickerTitleKey = "SaveAudioTitle";
+          }
+          filePickerTitleKey = "SaveVideoTitle";
+        } else {
+          filePickerTitleKey = "SaveAudioTitle";
+        }
+
         // Skipped trying to pull MIME type out of cache for now
         ContentAreaUtils.internalSave(url, null, null, null, null, false,
                                       filePickerTitleKey, null, aTarget.ownerDocument.documentURIObject,
@@ -1229,27 +1250,29 @@ var BrowserApp = {
       let ss = Cc["@mozilla.org/browser/sessionstore;1"].getService(Ci.nsISessionStore);
       let closedTabData = ss.getClosedTabs(window)[0];
 
-      let message;
-      let title = closedTabData.entries[closedTabData.index - 1].title;
-      let isPrivate = PrivateBrowsingUtils.isBrowserPrivate(aTab.browser);
+      if (closedTabData) {
+        let message;
+        let title = closedTabData.entries[closedTabData.index - 1].title;
+        let isPrivate = PrivateBrowsingUtils.isBrowserPrivate(aTab.browser);
 
-      if (isPrivate) {
-        message = Strings.browser.GetStringFromName("privateClosedMessage.message");
-      } else if (title) {
-        message = Strings.browser.formatStringFromName("undoCloseToast.message", [title], 1);
-      } else {
-        message = Strings.browser.GetStringFromName("undoCloseToast.messageDefault");
-      }
-
-      Snackbars.show(message, Snackbars.LENGTH_LONG, {
-        action: {
-          label: Strings.browser.GetStringFromName("undoCloseToast.action2"),
-          callback: function() {
-            UITelemetry.addEvent("undo.1", "toast", null, "closetab");
-            ss.undoCloseTab(window, closedTabData);
-          }
+        if (isPrivate) {
+          message = Strings.browser.GetStringFromName("privateClosedMessage.message");
+        } else if (title) {
+          message = Strings.browser.formatStringFromName("undoCloseToast.message", [title], 1);
+        } else {
+          message = Strings.browser.GetStringFromName("undoCloseToast.messageDefault");
         }
-      });
+
+        Snackbars.show(message, Snackbars.LENGTH_LONG, {
+          action: {
+            label: Strings.browser.GetStringFromName("undoCloseToast.action2"),
+            callback: function() {
+              UITelemetry.addEvent("undo.1", "toast", null, "closetab");
+              ss.undoCloseTab(window, closedTabData);
+            }
+          }
+        });
+      }
     }
 
     aTab.destroy();
@@ -2017,7 +2040,7 @@ var BrowserApp = {
       // intl.accept_languages is a comma-separated list, with no q-value params. Those
       // are added when the header is generated.
       chosen = defaultAccept.split(",")
-                            .map(String.trim)
+                            .map((x) => x.trim())
                             .filter((x) => (x != appLocale && x != osLocale));
     } else {
       chosen = [];
@@ -2549,7 +2572,6 @@ var NativeWindow = {
         return [];
       }
 
-      htmlMenu.QueryInterface(Components.interfaces.nsIHTMLMenu);
       htmlMenu.sendShowEvent();
 
       return this._getHTMLContextMenuItemsForMenu(htmlMenu, element);
@@ -3417,15 +3439,6 @@ Tab.prototype = {
     BrowserApp.deck.selectedPanel = selectedPanel;
 
     let attrs = {};
-    if (BrowserApp.manifestUrl) {
-      let appsService = Cc["@mozilla.org/AppsService;1"].getService(Ci.nsIAppsService);
-      let manifest = appsService.getAppByManifestURL(BrowserApp.manifestUrl);
-      if (manifest) {
-        let app = manifest.QueryInterface(Ci.mozIApplication);
-        this.browser.docShell.frameType = Ci.nsIDocShell.FRAME_TYPE_APP;
-        attrs['appId'] = app.localId;
-      }
-    }
 
     // Must be called after appendChild so the docShell has been created.
     this.setActive(false);
@@ -3482,7 +3495,8 @@ Tab.prototype = {
         parentId: ("parentId" in aParams) ? aParams.parentId : -1,
         tabIndex: ("tabIndex" in aParams) ? aParams.tabIndex : -1,
         external: ("external" in aParams) ? aParams.external : false,
-        selected: ("selected" in aParams || aParams.cancelEditMode === true) ? aParams.selected : true,
+        selected: ("selected" in aParams || aParams.cancelEditMode === true)
+                  ? aParams.selected !== false || aParams.cancelEditMode === true : true,
         cancelEditMode: aParams.cancelEditMode === true,
         title: truncate(title, MAX_TITLE_LENGTH),
         delayLoad: aParams.delayLoad || false,
@@ -3517,6 +3531,7 @@ Tab.prototype = {
     this.browser.addEventListener("pageshow", this, true);
     this.browser.addEventListener("MozApplicationManifest", this, true);
     this.browser.addEventListener("TabPreZombify", this, true);
+    this.browser.addEventListener("DOMServiceWorkerFocusClient", this, true);
 
     // Note that the XBL binding is untrusted
     this.browser.addEventListener("PluginBindingAttached", this, true, true);
@@ -3629,6 +3644,7 @@ Tab.prototype = {
     this.browser.removeEventListener("pageshow", this, true);
     this.browser.removeEventListener("MozApplicationManifest", this, true);
     this.browser.removeEventListener("TabPreZombify", this, true);
+    this.browser.removeEventListener("DOMServiceWorkerFocusClient", this, true);
 
     this.browser.removeEventListener("PluginBindingAttached", this, true, true);
     this.browser.removeEventListener("VideoBindingAttached", this, true, true);
@@ -4066,6 +4082,14 @@ Tab.prototype = {
         break;
       }
 
+      case "DOMServiceWorkerFocusClient": {
+        Messaging.sendRequest({
+          type: "Tab:SelectAndForeground",
+          tabID: this.id
+        });
+        break;
+      }
+
       case "pageshow": {
         LoginManagerContent.onPageShow(aEvent, this.browser.contentWindow);
 
@@ -4392,14 +4416,14 @@ Tab.prototype = {
     const mediaDurationThreshold = 1.0;
 
     let audioElements = this.browser.contentDocument.getElementsByTagName("audio");
-    for each (let audio in audioElements) {
+    for (let audio of audioElements) {
       if (audio.paused == inactive && audio.duration > mediaDurationThreshold) {
         return true;
       }
     }
 
     let videoElements = this.browser.contentDocument.getElementsByTagName("video");
-    for each (let video in videoElements) {
+    for (let video of videoElements) {
       if (video.paused == inactive && video.duration > mediaDurationThreshold) {
         return true;
       }
@@ -4509,17 +4533,12 @@ var BrowserEventHandler = {
         this._handleRetargetedTouchStart(aEvent);
         break;
       case 'OpenMediaWithExternalApp': {
-        if (aEvent.target.moz_video_uuid) {
-          return;
-        }
         let mediaSrc = aEvent.target.currentSrc || aEvent.target.src;
-        if (!aEvent.target.moz_video_uuid) {
-          aEvent.target.moz_video_uuid = uuidgen.generateUUID().toString();
-        }
+        let uuid = uuidgen.generateUUID().toString();
         Services.androidBridge.handleGeckoMessage({
           type: "Video:Play",
           uri: mediaSrc,
-          uuid: aEvent.target.moz_video_uuid
+          uuid: uuid
         });
         break;
       }
@@ -5912,9 +5931,10 @@ var IdentityHandler = {
     if (this._lastLocation.hostname &&
         this._overrideService.hasMatchingOverride(this._lastLocation.hostname,
                                                   (this._lastLocation.port || 443),
-                                                  iData.cert, {}, {}))
+                                                  iData.cert, {}, {})) {
       result.verifier = Strings.browser.GetStringFromName("identity.identified.verified_by_you");
-
+      result.securityException = true;
+    }
     return result;
   },
 
@@ -6877,9 +6897,14 @@ var Tabs = {
 };
 
 function ContextMenuItem(args) {
-  this.id = uuidgen.generateUUID().toString();
+  this.id = ContextMenuItem._nextId;
   this.args = args;
+
+  // Limit to Java int range.
+  ContextMenuItem._nextId = (ContextMenuItem._nextId + 1) & 0x7fffffff;
 }
+
+ContextMenuItem._nextId = 1;
 
 ContextMenuItem.prototype = {
   get order() {

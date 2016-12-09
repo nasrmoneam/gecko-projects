@@ -40,6 +40,16 @@ const PC_RECEIVER_CID = Components.ID("{d974b814-8fde-411c-8c45-b86791b81030}");
 const PC_COREQUEST_CID = Components.ID("{74b2122d-65a8-4824-aa9e-3d664cb75dc2}");
 const PC_DTMF_SENDER_CID = Components.ID("{3610C242-654E-11E6-8EC0-6D1BE389A607}");
 
+function logMsg(msg, file, line, flag, winID) {
+  let scriptErrorClass = Cc["@mozilla.org/scripterror;1"];
+  let scriptError = scriptErrorClass.createInstance(Ci.nsIScriptError);
+  scriptError.initWithWindowID(msg, file, null, line, 0, flag,
+                               "content javascript", winID);
+  let console = Cc["@mozilla.org/consoleservice;1"].
+  getService(Ci.nsIConsoleService);
+  console.logMessage(scriptError);
+};
+
 // Global list of PeerConnection objects, so they can be cleaned up when
 // a page is torn down. (Maps inner window ID to an array of PC objects).
 function GlobalPCList() {
@@ -238,9 +248,7 @@ RTCIceCandidate.prototype = {
   }
 };
 
-function RTCSessionDescription() {
-  this.type = this.sdp = null;
-}
+function RTCSessionDescription() {}
 RTCSessionDescription.prototype = {
   classDescription: "RTCSessionDescription",
   classID: PC_SESSION_CID,
@@ -248,11 +256,41 @@ RTCSessionDescription.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports,
                                          Ci.nsIDOMGlobalPropertyInitializer]),
 
-  init: function(win) { this._win = win; },
+  init: function(win) {
+    this._win = win;
+    this._winID = this._win.QueryInterface(Ci.nsIInterfaceRequestor)
+    .getInterface(Ci.nsIDOMWindowUtils).currentInnerWindowID;
+  },
 
-  __init: function(dict) {
-    this.type = dict.type;
-    this.sdp  = dict.sdp;
+  __init: function({ type, sdp }) {
+    Object.assign(this, { _type: type, _sdp: sdp });
+  },
+
+  get type() { return this._type; },
+  set type(type) {
+    this.warn();
+    this._type = type;
+  },
+
+  get sdp() { return this._sdp; },
+  set sdp(sdp) {
+    this.warn();
+    this._sdp = sdp;
+  },
+
+  warn: function() {
+    if (!this._warned) {
+      // Warn once per RTCSessionDescription about deprecated writable usage.
+      this.logWarning("RTCSessionDescription's members are readonly! " +
+                      "Writing to them is deprecated and will break soon!");
+      this._warned = true;
+    }
+  },
+
+  logWarning: function(msg) {
+    let err = this._win.Error();
+    logMsg(msg, err.fileName, err.lineNumber, Ci.nsIScriptError.warningFlag,
+           this._winID);
   }
 };
 
@@ -389,6 +427,7 @@ RTCPeerConnection.prototype = {
     this.makeGetterSetterEH("onremovestream");
     this.makeGetterSetterEH("ondatachannel");
     this.makeGetterSetterEH("oniceconnectionstatechange");
+    this.makeGetterSetterEH("onicegatheringstatechange");
     this.makeGetterSetterEH("onidentityresult");
     this.makeGetterSetterEH("onpeeridentity");
     this.makeGetterSetterEH("onidpassertionerror");
@@ -635,13 +674,7 @@ RTCPeerConnection.prototype = {
   },
 
   logMsg: function(msg, file, line, flag) {
-    let scriptErrorClass = Cc["@mozilla.org/scripterror;1"];
-    let scriptError = scriptErrorClass.createInstance(Ci.nsIScriptError);
-    scriptError.initWithWindowID(msg, file, null, line, 0, flag,
-                                 "content javascript", this._winID);
-    let console = Cc["@mozilla.org/consoleservice;1"].
-      getService(Ci.nsIConsoleService);
-    console.logMessage(scriptError);
+    return logMsg(msg, file, line, flag, this._winID);
   },
 
   getEH: function(type) {
@@ -692,49 +725,6 @@ RTCPeerConnection.prototype = {
       options = optionsOrOnSuccess;
     }
     return this._legacyCatchAndCloseGuard(onSuccess, onError, () => {
-      // TODO: Remove error on constraint-like RTCOptions next cycle (1197021).
-      // Note that webidl bindings make o.mandatory implicit but not o.optional.
-      function convertLegacyOptions(o) {
-        // Detect (mandatory OR optional) AND no other top-level members.
-        let lcy = ((o.mandatory && Object.keys(o.mandatory).length) || o.optional) &&
-            Object.keys(o).length == (o.mandatory? 1 : 0) + (o.optional? 1 : 0);
-        if (!lcy) {
-          return false;
-        }
-        let old = o.mandatory || {};
-        if (o.mandatory) {
-          delete o.mandatory;
-        }
-        if (o.optional) {
-          o.optional.forEach(one => {
-            // The old spec had optional as an array of objects w/1 attribute each.
-            // Assumes our JS-webidl bindings only populate passed-in properties.
-            let key = Object.keys(one)[0];
-            if (key && old[key] === undefined) {
-              old[key] = one[key];
-            }
-          });
-          delete o.optional;
-        }
-        o.offerToReceiveAudio = old.OfferToReceiveAudio;
-        o.offerToReceiveVideo = old.OfferToReceiveVideo;
-        o.mozDontOfferDataChannel = old.MozDontOfferDataChannel;
-        o.mozBundleOnly = old.MozBundleOnly;
-        Object.keys(o).forEach(k => {
-          if (o[k] === undefined) {
-            delete o[k];
-          }
-        });
-        return true;
-      }
-
-      if (options && convertLegacyOptions(options)) {
-        this.logError(
-          "Mandatory/optional in createOffer options no longer works! Use " +
-            JSON.stringify(options) + " instead (note the case difference)!");
-        options = {};
-      }
-
       let origin = Cu.getWebIDLCallerPrincipal().origin;
       return this._chain(() => {
         let p = Promise.all([this.getPermission(), this._certificateReady])
@@ -1010,11 +1000,6 @@ RTCPeerConnection.prototype = {
     stream.getTracks().forEach(track => this.addTrack(track, stream));
   },
 
-  getStreamById: function(id) {
-    throw new this._win.DOMException("getStreamById not yet implemented",
-                                     "NotSupportedError");
-  },
-
   addTrack: function(track, stream) {
     if (stream.currentTime === undefined) {
       throw new this._win.DOMException("invalid stream.", "InvalidParameterError");
@@ -1186,6 +1171,7 @@ RTCPeerConnection.prototype = {
   changeIceGatheringState: function(state) {
     this._iceGatheringState = state;
     _globalPCList.notifyLifecycleObservers(this, "icegatheringstatechange");
+    this.dispatchEvent(new this._win.Event("icegatheringstatechange"));
   },
 
   changeIceConnectionState: function(state) {
@@ -1204,59 +1190,36 @@ RTCPeerConnection.prototype = {
     });
   },
 
-  createDataChannel: function(label, dict) {
+  createDataChannel: function(label, {
+                                maxRetransmits, ordered, negotiated,
+                                id = 0xFFFF,
+                                maxRetransmitTime,
+                                maxPacketLifeTime = maxRetransmitTime,
+                                protocol,
+                              } = {}) {
     this._checkClosed();
-    if (dict == undefined) {
-      dict = {};
-    }
-    if (dict.maxRetransmitNum != undefined) {
-      dict.maxRetransmits = dict.maxRetransmitNum;
-      this.logWarning("Deprecated RTCDataChannelInit dictionary entry maxRetransmitNum used!");
-    }
-    if (dict.outOfOrderAllowed != undefined) {
-      dict.ordered = !dict.outOfOrderAllowed; // the meaning is swapped with
-                                              // the name change
-      this.logWarning("Deprecated RTCDataChannelInit dictionary entry outOfOrderAllowed used!");
-    }
 
-    if (dict.preset != undefined) {
-      dict.negotiated = dict.preset;
-      this.logWarning("Deprecated RTCDataChannelInit dictionary entry preset used!");
+    if (maxRetransmitTime !== undefined) {
+      this.logWarning("Use maxPacketLifeTime instead of deprecated maxRetransmitTime which will stop working soon in createDataChannel!");
     }
-    if (dict.stream != undefined) {
-      dict.id = dict.stream;
-      this.logWarning("Deprecated RTCDataChannelInit dictionary entry stream used!");
-    }
-
-    if (dict.maxRetransmitTime !== null && dict.maxRetransmits !== null) {
+    if (maxPacketLifeTime !== undefined && maxRetransmits !== undefined) {
       throw new this._win.DOMException(
-          "Both maxRetransmitTime and maxRetransmits cannot be provided",
+          "Both maxPacketLifeTime and maxRetransmits cannot be provided",
           "InvalidParameterError");
     }
-    let protocol;
-    if (dict.protocol == undefined) {
-      protocol = "";
-    } else {
-      protocol = dict.protocol;
-    }
-
     // Must determine the type where we still know if entries are undefined.
     let type;
-    if (dict.maxRetransmitTime != undefined) {
+    if (maxPacketLifeTime) {
       type = Ci.IPeerConnection.kDataChannelPartialReliableTimed;
-    } else if (dict.maxRetransmits != undefined) {
+    } else if (maxRetransmits) {
       type = Ci.IPeerConnection.kDataChannelPartialReliableRexmit;
     } else {
       type = Ci.IPeerConnection.kDataChannelReliable;
     }
-
     // Synchronous since it doesn't block.
-    let channel = this._impl.createDataChannel(
-      label, protocol, type, !dict.ordered, dict.maxRetransmitTime,
-      dict.maxRetransmits, dict.negotiated ? true : false,
-      dict.id != undefined ? dict.id : 0xFFFF
-    );
-    return channel;
+    return this._impl.createDataChannel(label, protocol, type, ordered,
+                                        maxPacketLifeTime, maxRetransmits,
+                                        negotiated, id);
   }
 };
 
@@ -1396,6 +1359,9 @@ PeerConnectionObserver.prototype = {
 
   handleIceConnectionStateChange: function(iceConnectionState) {
     let pc = this._dompc;
+    if (pc.iceConnectionState === iceConnectionState) {
+      return;
+    }
     if (pc.iceConnectionState === 'new') {
       var checking_histogram = Services.telemetry.getHistogramById("WEBRTC_ICE_CHECKING_RATE");
       if (iceConnectionState === 'checking') {
@@ -1428,15 +1394,19 @@ PeerConnectionObserver.prototype = {
   //   new        The object was just created, and no networking has occurred
   //              yet.
   //
-  //   gathering  The ICE engine is in the process of gathering candidates for
+  //   gathering  The ICE agent is in the process of gathering candidates for
   //              this RTCPeerConnection.
   //
-  //   complete   The ICE engine has completed gathering. Events such as adding
+  //   complete   The ICE agent has completed gathering. Events such as adding
   //              a new interface or a new TURN server will cause the state to
   //              go back to gathering.
   //
   handleIceGatheringStateChange: function(gatheringState) {
-    this._dompc.changeIceGatheringState(gatheringState);
+    let pc = this._dompc;
+    if (pc.iceGatheringState === gatheringState) {
+      return;
+    }
+    pc.changeIceGatheringState(gatheringState);
   },
 
   onStateChange: function(state) {

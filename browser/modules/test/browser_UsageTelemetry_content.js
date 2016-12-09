@@ -23,6 +23,11 @@ add_task(function* setup() {
   let engineOneOff = Services.search.getEngineByName("MozSearch2");
   Services.search.moveEngine(engineOneOff, 0);
 
+  yield SpecialPowers.pushPrefEnv({"set": [
+    ["dom.select_events.enabled", true], // We want select events to be fired.
+    ["toolkit.telemetry.enabled", true]  // And Extended Telemetry to be enabled.
+  ]});
+
   // Make sure to restore the engine once we're done.
   registerCleanupFunction(function* () {
     Services.search.currentEngine = originalEngine;
@@ -32,8 +37,10 @@ add_task(function* setup() {
 });
 
 add_task(function* test_context_menu() {
-  // Let's reset the counts.
+  // Let's reset the Telemetry data.
   Services.telemetry.clearScalars();
+  Services.telemetry.clearEvents();
+  let search_hist = getSearchCountsHistogram();
 
   // Open a new tab with a page containing some text.
   let tab =
@@ -58,12 +65,20 @@ add_task(function* test_context_menu() {
   let searchItem = contextMenu.getElementsByAttribute("id", "context-searchselect")[0];
   searchItem.click();
 
-  info("Validate the search counts.");
+  info("Validate the search metrics.");
   const scalars =
     Services.telemetry.snapshotKeyedScalars(Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN, false);
   checkKeyedScalar(scalars, SCALAR_CONTEXT_MENU, "search", 1);
   Assert.equal(Object.keys(scalars[SCALAR_CONTEXT_MENU]).length, 1,
                "This search must only increment one entry in the scalar.");
+
+  // Make sure SEARCH_COUNTS contains identical values.
+  checkKeyedHistogram(search_hist, 'other-MozSearch.contextmenu', 1);
+
+  // Also check events.
+  let events = Services.telemetry.snapshotBuiltinEvents(Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN, false);
+  events = events.filter(e => e[1] == "navigation" && e[2] == "search");
+  checkEvents(events, [["navigation", "search", "contextmenu", null, {engine: "other-MozSearch"}]]);
 
   contextMenu.hidePopup();
   yield BrowserTestUtils.removeTab(gBrowser.selectedTab);
@@ -73,6 +88,8 @@ add_task(function* test_context_menu() {
 add_task(function* test_about_newtab() {
   // Let's reset the counts.
   Services.telemetry.clearScalars();
+  Services.telemetry.clearEvents();
+  let search_hist = getSearchCountsHistogram();
 
   let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, "about:newtab", false);
   yield ContentTask.spawn(tab.linkedBrowser, null, function* () {
@@ -91,6 +108,14 @@ add_task(function* test_about_newtab() {
   checkKeyedScalar(scalars, SCALAR_ABOUT_NEWTAB, "search_enter", 1);
   Assert.equal(Object.keys(scalars[SCALAR_ABOUT_NEWTAB]).length, 1,
                "This search must only increment one entry in the scalar.");
+
+  // Make sure SEARCH_COUNTS contains identical values.
+  checkKeyedHistogram(search_hist, 'other-MozSearch.newtab', 1);
+
+  // Also check events.
+  let events = Services.telemetry.snapshotBuiltinEvents(Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN, false);
+  events = events.filter(e => e[1] == "navigation" && e[2] == "search");
+  checkEvents(events, [["navigation", "search", "about_newtab", "enter", {engine: "other-MozSearch"}]]);
 
   yield BrowserTestUtils.removeTab(tab);
 });

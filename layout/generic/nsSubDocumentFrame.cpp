@@ -60,6 +60,7 @@ GetDocumentFromView(nsView* aView)
 
 nsSubDocumentFrame::nsSubDocumentFrame(nsStyleContext* aContext)
   : nsAtomicContainerFrame(aContext)
+  , mInnerView(nullptr)
   , mIsInline(false)
   , mPostedReflowCallback(false)
   , mDidCreateDoc(false)
@@ -505,7 +506,7 @@ nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   }
 
   if (subdocRootFrame) {
-    aBuilder->LeavePresShell(subdocRootFrame);
+    aBuilder->LeavePresShell(subdocRootFrame, &childItems);
 
     if (ignoreViewportScrolling) {
       aBuilder->SetIgnoreScrollFrame(savedIgnoreScrollFrame);

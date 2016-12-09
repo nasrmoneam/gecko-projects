@@ -102,6 +102,7 @@
 #include "nsHtml5Module.h"
 #include "nsHtml5StringParser.h"
 #include "nsIAddonPolicyService.h"
+#include "nsIAnonymousContentCreator.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsICategoryManager.h"
 #include "nsIChannelEventSink.h"
@@ -384,7 +385,7 @@ class DOMEventListenerManagersHashReporter final : public nsIMemoryReporter
 {
   MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
 
-  ~DOMEventListenerManagersHashReporter() {}
+  ~DOMEventListenerManagersHashReporter() = default;
 
 public:
   NS_DECL_ISUPPORTS
@@ -450,7 +451,7 @@ EventListenerManagerHashClearEntry(PLDHashTable *table, PLDHashEntryHdr *entry)
 class SameOriginCheckerImpl final : public nsIChannelEventSink,
                                     public nsIInterfaceRequestor
 {
-  ~SameOriginCheckerImpl() {}
+  ~SameOriginCheckerImpl() = default;
 
   NS_DECL_ISUPPORTS
   NS_DECL_NSICHANNELEVENTSINK
@@ -2125,15 +2126,6 @@ nsContentUtils::ShouldResistFingerprinting(nsIDocShell* aDocShell)
   return !isChrome && sPrivacyResistFingerprinting;
 }
 
-namespace mozilla {
-namespace dom {
-namespace workers {
-extern bool IsCurrentThreadRunningChromeWorker();
-extern JSContext* GetCurrentThreadJSContext();
-} // namespace workers
-} // namespace dom
-} // namespace mozilla
-
 bool
 nsContentUtils::ThreadsafeIsCallerChrome()
 {
@@ -2159,6 +2151,31 @@ nsContentUtils::IsCallerContentXBL()
     }
 
     return xpc::IsContentXBLScope(c);
+}
+
+bool
+nsContentUtils::IsSystemCaller(JSContext* aCx)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+
+  // This is similar to what SubjectPrincipal() does, except we do in fact
+  // assume that we're in a compartment here; anyone who calls this function in
+  // situations where that's not the case is doing it wrong.
+  JSCompartment *compartment = js::GetContextCompartment(aCx);
+  MOZ_ASSERT(compartment);
+
+  JSPrincipals *principals = JS_GetCompartmentPrincipals(compartment);
+  return nsJSPrincipals::get(principals) == sSystemPrincipal;
+}
+
+bool
+nsContentUtils::ThreadsafeIsSystemCaller(JSContext* aCx)
+{
+  if (NS_IsMainThread()) {
+    return IsSystemCaller(aCx);
+  }
+
+  return workers::GetWorkerPrivateFromContext(aCx)->UsesSystemPrincipal();
 }
 
 // static
@@ -3742,6 +3759,16 @@ nsContentUtils::IsPlainTextType(const nsACString& aContentType)
 }
 
 bool
+nsContentUtils::IsUtf8OnlyPlainTextType(const nsACString& aContentType)
+{
+  // NOTE: This must be a subset of the list in IsPlainTextType().
+  return aContentType.EqualsLiteral(TEXT_CACHE_MANIFEST) ||
+         aContentType.EqualsLiteral(APPLICATION_JSON) ||
+         aContentType.EqualsLiteral(TEXT_JSON) ||
+         aContentType.EqualsLiteral(TEXT_VTT);
+}
+
+bool
 nsContentUtils::GetWrapperSafeScriptFilename(nsIDocument* aDocument,
                                              nsIURI* aURI,
                                              nsACString& aScriptURI,
@@ -4556,7 +4583,7 @@ nsContentUtils::CreateContextualFragment(nsINode* aContextNode,
           } else {
             setDefaultNamespace = true;
           }
-          tagName.AppendLiteral("=\"");
+          tagName.AppendLiteral(R"(=")");
           tagName.Append(uriStr);
           tagName.Append('"');
         }
@@ -4571,7 +4598,7 @@ nsContentUtils::CreateContextualFragment(nsINode* aContextNode,
         // default namespace attr in, so that our kids will be in our
         // namespace.
         info->GetNamespaceURI(uriStr);
-        tagName.AppendLiteral(" xmlns=\"");
+        tagName.AppendLiteral(R"( xmlns=")");
         tagName.Append(uriStr);
         tagName.Append('"');
       }
@@ -6323,7 +6350,7 @@ nsContentUtils::AllocClassMatchingInfo(nsINode* aRootNode,
   nsAttrValue attrValue;
   attrValue.ParseAtomArray(*aClasses);
   // nsAttrValue::Equals is sensitive to order, so we'll send an array
-  ClassMatchingInfo* info = new ClassMatchingInfo;
+  auto* info = new ClassMatchingInfo;
   if (attrValue.Type() == nsAttrValue::eAtomArray) {
     info->mClasses.SwapElements(*(attrValue.GetAtomArrayValue()));
   } else if (attrValue.Type() == nsAttrValue::eAtom) {
@@ -6400,7 +6427,7 @@ nsContentUtils::IsUserFocusIgnored(nsINode* aNode)
     nsCOMPtr<nsIMozBrowserFrame> browserFrame = do_QueryInterface(aNode);
     if (browserFrame &&
         aNode->AsElement()->HasAttr(kNameSpaceID_None, nsGkAtoms::ignoreuserfocus) &&
-        browserFrame->GetReallyIsBrowserOrApp()) {
+        browserFrame->GetReallyIsBrowser()) {
       return true;
     }
     nsPIDOMWindowOuter* win = aNode->OwnerDoc()->GetWindow();
@@ -7047,7 +7074,7 @@ nsContentUtils::GetHTMLEditor(nsPresContext* aPresContext)
 }
 
 bool
-nsContentUtils::IsContentInsertionPoint(const nsIContent* aContent)
+nsContentUtils::IsContentInsertionPoint(nsIContent* aContent)
 {
   // Check if the content is a XBL insertion point.
   if (aContent->IsActiveChildrenElement()) {
@@ -7055,11 +7082,9 @@ nsContentUtils::IsContentInsertionPoint(const nsIContent* aContent)
   }
 
   // Check if the content is a web components content insertion point.
-  if (aContent->IsHTMLElement(nsGkAtoms::content)) {
-    return static_cast<const HTMLContentElement*>(aContent)->IsInsertionPoint();
-  }
-
-  return false;
+  HTMLContentElement* contentElement =
+    HTMLContentElement::FromContent(aContent);
+  return contentElement && contentElement->IsInsertionPoint();
 }
 
 // static
@@ -7125,8 +7150,8 @@ nsContentUtils::IsForbiddenSystemRequestHeader(const nsACString& aHeader)
     "cookie", "cookie2", "date", "dnt", "expect", "host", "keep-alive",
     "origin", "referer", "te", "trailer", "transfer-encoding", "upgrade", "via"
   };
-  for (uint32_t i = 0; i < ArrayLength(kInvalidHeaders); ++i) {
-    if (aHeader.LowerCaseEqualsASCII(kInvalidHeaders[i])) {
+  for (auto& kInvalidHeader : kInvalidHeaders) {
+    if (aHeader.LowerCaseEqualsASCII(kInvalidHeader)) {
       return true;
     }
   }
@@ -7907,7 +7932,7 @@ struct GetSurfaceDataShmem
   }
 
   static BufferType
-  GetBuffer(ReturnType aReturnValue)
+  GetBuffer(const ReturnType& aReturnValue)
   {
     return aReturnValue.get<char>();
   }
@@ -8197,7 +8222,7 @@ nsContentUtils::SendKeyEvent(nsIWidget* aWidget,
 }
 
 nsresult
-nsContentUtils::SendMouseEvent(nsCOMPtr<nsIPresShell> aPresShell,
+nsContentUtils::SendMouseEvent(const nsCOMPtr<nsIPresShell>& aPresShell,
                                const nsAString& aType,
                                float aX,
                                float aY,
@@ -8480,10 +8505,8 @@ nsContentUtils::SetFetchReferrerURIWithPolicy(nsIPrincipal* aPrincipal,
     referrerURI = principalURI;
   }
 
-  net::ReferrerPolicy referrerPolicy = aReferrerPolicy;
-  if (referrerPolicy == net::RP_Default) {
-    referrerPolicy = aDoc->GetReferrerPolicy();
-  }
+  net::ReferrerPolicy referrerPolicy = (aReferrerPolicy != net::RP_Unset) ?
+                                       aReferrerPolicy : net::RP_Default;
   return aChannel->SetReferrerWithPolicy(referrerURI, referrerPolicy);
 }
 
@@ -9066,7 +9089,7 @@ StartElement(Element* aContent, StringBuilder& aBuilder)
       continue;
     }
 
-    nsAutoString* attValue = new nsAutoString();
+    auto* attValue = new nsAutoString();
     aContent->GetAttr(attNs, attName, *attValue);
 
     // Filter out special case of <br type="_moz*"> used by the editor.
@@ -9099,9 +9122,9 @@ StartElement(Element* aContent, StringBuilder& aBuilder)
     }
 
     aBuilder.Append(attName);
-    aBuilder.Append("=\"");
+    aBuilder.Append(R"(=")");
     AppendEncodedAttributeValue(attValue, aBuilder);
-    aBuilder.Append("\"");
+    aBuilder.Append(R"(")");
   }
 
   aBuilder.Append(">");
@@ -9148,15 +9171,15 @@ ShouldEscape(nsIContent* aParent)
   static bool sInitialized = false;
   if (!sInitialized) {
     sInitialized = true;
-    for (uint32_t i = 0; i < ArrayLength(nonEscapingElements); ++i) {
-      sFilter.add(nonEscapingElements[i]);
+    for (auto& nonEscapingElement : nonEscapingElements) {
+      sFilter.add(nonEscapingElement);
     }
   }
 
   nsIAtom* tag = aParent->NodeInfo()->NameAtom();
   if (sFilter.mightContain(tag)) {
-    for (uint32_t i = 0; i < ArrayLength(nonEscapingElements); ++i) {
-      if (tag == nonEscapingElements[i]) {
+    for (auto& nonEscapingElement : nonEscapingElements) {
+      if (tag == nonEscapingElement) {
         return false;
       }
     }
@@ -9764,4 +9787,22 @@ nsContentUtils::AttemptLargeAllocationLoad(nsIHttpChannel* aChannel)
   NS_ENSURE_SUCCESS(rv, false);
 
   return reloadSucceeded;
+}
+
+/* static */ void
+nsContentUtils::AppendDocumentLevelNativeAnonymousContentTo(
+    nsIDocument* aDocument,
+    nsTArray<nsIContent*>& aElements)
+{
+  MOZ_ASSERT(aDocument);
+
+  // XXXheycam This probably needs to find the nsCanvasFrame's NAC too.
+  if (nsIPresShell* presShell = aDocument->GetShell()) {
+    if (nsIFrame* scrollFrame = presShell->GetRootScrollFrame()) {
+      nsIAnonymousContentCreator* creator = do_QueryFrame(scrollFrame);
+      MOZ_ASSERT(creator,
+                 "scroll frame should always implement nsIAnonymousContentCreator");
+      creator->AppendAnonymousContentTo(aElements, 0);
+    }
+  }
 }

@@ -65,11 +65,17 @@ class TestMetadata(object):
         for path, tests in test_data.items():
             for metadata in tests:
                 if defaults:
-                    manifest = metadata['manifest']
-                    manifest_defaults = defaults.get(manifest)
-                    if manifest_defaults:
-                        metadata = manifestparser.combine_fields(manifest_defaults,
-                                                                 metadata)
+                    defaults_manifests = [metadata['manifest']]
+
+                    ancestor_manifest = metadata.get('ancestor-manifest')
+                    if ancestor_manifest:
+                        defaults_manifests.append(ancestor_manifest)
+
+                    for manifest in defaults_manifests:
+                        manifest_defaults = defaults.get(manifest)
+                        if manifest_defaults:
+                            metadata = manifestparser.combine_fields(manifest_defaults,
+                                                                     metadata)
                 self._tests_by_path[path].append(metadata)
                 self._test_dirs.add(os.path.dirname(path))
                 flavor = metadata.get('flavor')
@@ -282,12 +288,12 @@ TEST_MANIFESTS = dict(
     FIREFOX_UI_FUNCTIONAL=('firefox-ui-functional', 'firefox-ui', '.', False),
     FIREFOX_UI_UPDATE=('firefox-ui-update', 'firefox-ui', '.', False),
     PUPPETEER_FIREFOX=('firefox-ui-functional', 'firefox-ui', '.', False),
+    PYTHON_UNITTEST=('python', 'python', '.', False),
 
     # marionette tests are run from the srcdir
     # TODO(ato): make packaging work as for other test suites
     MARIONETTE=('marionette', 'marionette', '.', False),
     MARIONETTE_UNIT=('marionette', 'marionette', '.', False),
-    MARIONETTE_UPDATE=('marionette', 'marionette', '.', False),
     MARIONETTE_WEBAPI=('marionette', 'marionette', '.', False),
 
     METRO_CHROME=('metro-chrome', 'testing/mochitest', 'metro', True),
@@ -306,8 +312,7 @@ WEB_PLATFORM_TESTS_FLAVORS = ('web-platform-tests',)
 def all_test_flavors():
     return ([v[0] for v in TEST_MANIFESTS.values()] +
             list(REFTEST_FLAVORS) +
-            list(WEB_PLATFORM_TESTS_FLAVORS) +
-            ['python'])
+            list(WEB_PLATFORM_TESTS_FLAVORS))
 
 class TestInstallInfo(object):
     def __init__(self):

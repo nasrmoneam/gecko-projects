@@ -1230,10 +1230,10 @@ public:
     // We won't need mOnFailure now.
     mOnFailure = nullptr;
 
-    if (!MediaManager::IsPrivateBrowsing(window)) {
+    if (!OriginAttributes::IsPrivateBrowsing(mOrigin)) {
       // Call GetOriginKey again, this time w/persist = true, to promote
       // deviceIds to persistent, in case they're not already. Fire'n'forget.
-      RefPtr<Pledge<nsCString>> p = media::GetOriginKey(mOrigin, false, true);
+      RefPtr<Pledge<nsCString>> p = media::GetOriginKey(mOrigin, true);
     }
     return NS_OK;
   }
@@ -1906,29 +1906,15 @@ MediaManager::NotifyRecordingStatusChange(nsPIDOMWindowInner* aWindow,
   props->SetPropertyAsBool(NS_LITERAL_STRING("isAudio"), aIsAudio);
   props->SetPropertyAsBool(NS_LITERAL_STRING("isVideo"), aIsVideo);
 
-  bool isApp = false;
-  nsString requestURL;
+  nsCString pageURL;
+  nsCOMPtr<nsIURI> docURI = aWindow->GetDocumentURI();
+  NS_ENSURE_TRUE(docURI, NS_ERROR_FAILURE);
 
-  if (nsCOMPtr<nsIDocShell> docShell = aWindow->GetDocShell()) {
-    isApp = docShell->GetIsApp();
-    if (isApp) {
-      nsresult rv = docShell->GetAppManifestURL(requestURL);
-      NS_ENSURE_SUCCESS(rv, rv);
-    }
-  }
+  nsresult rv = docURI->GetSpec(pageURL);
+  NS_ENSURE_SUCCESS(rv, rv);
 
-  if (!isApp) {
-    nsCString pageURL;
-    nsCOMPtr<nsIURI> docURI = aWindow->GetDocumentURI();
-    NS_ENSURE_TRUE(docURI, NS_ERROR_FAILURE);
+  NS_ConvertUTF8toUTF16 requestURL(pageURL);
 
-    nsresult rv = docURI->GetSpec(pageURL);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    requestURL = NS_ConvertUTF8toUTF16(pageURL);
-  }
-
-  props->SetPropertyAsBool(NS_LITERAL_STRING("isApp"), isApp);
   props->SetPropertyAsAString(NS_LITERAL_STRING("requestURL"), requestURL);
 
   obs->NotifyObservers(static_cast<nsIPropertyBag2*>(props),
@@ -1946,13 +1932,6 @@ MediaManager::NotifyRecordingStatusChange(nsPIDOMWindowInner* aWindow,
   }
 
   return NS_OK;
-}
-
-bool MediaManager::IsPrivateBrowsing(nsPIDOMWindowInner* window)
-{
-  nsCOMPtr<nsIDocument> doc = window->GetDoc();
-  nsCOMPtr<nsILoadContext> loadContext = doc->GetLoadContext();
-  return loadContext && loadContext->UsePrivateBrowsing();
 }
 
 int MediaManager::AddDeviceChangeCallback(DeviceChangeCallback* aCallback)
@@ -2093,8 +2072,14 @@ if (privileged) {
                           (uint32_t) GetUserMediaSecurityState::Other);
   }
 
-  nsCString origin;
-  rv = nsPrincipal::GetOriginForURI(docURI, origin);
+  nsCOMPtr<nsIPrincipal> principal =
+    nsGlobalWindow::Cast(aWindow)->GetPrincipal();
+  if (NS_WARN_IF(!principal)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsAutoCString origin;
+  rv = principal->GetOrigin(origin);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -2250,7 +2235,6 @@ if (privileged) {
   StreamListeners* listeners = AddWindowID(windowID);
 
   // Create a disabled listener to act as a placeholder
-  nsIPrincipal* principal = aWindow->GetExtantDoc()->NodePrincipal();
   RefPtr<GetUserMediaCallbackMediaStreamListener> listener =
     new GetUserMediaCallbackMediaStreamListener(mMediaThread, windowID,
                                                 MakePrincipalHandle(principal));
@@ -2274,7 +2258,8 @@ if (privileged) {
     uint32_t videoPerm = nsIPermissionManager::UNKNOWN_ACTION;
     if (IsOn(c.mVideo)) {
       rv = permManager->TestExactPermissionFromPrincipal(
-        principal, "camera", &videoPerm);
+        principal, videoType == MediaSourceEnum::Camera ? "camera" : "screen",
+        &videoPerm);
       NS_ENSURE_SUCCESS(rv, rv);
     }
 
@@ -2505,9 +2490,12 @@ MediaManager::EnumerateDevicesImpl(uint64_t aWindowId,
   // 2. Get the raw devices list
   // 3. Anonymize the raw list with the origin-key.
 
-  bool privateBrowsing = IsPrivateBrowsing(window);
-  nsCString origin;
-  nsPrincipal::GetOriginForURI(window->GetDocumentURI(), origin);
+  nsCOMPtr<nsIPrincipal> principal =
+    nsGlobalWindow::Cast(window)->GetPrincipal();
+  MOZ_ASSERT(principal);
+
+  nsAutoCString origin;
+  principal->GetOrigin(origin);
 
   bool persist = IsActivelyCapturingOrHasAPermission(aWindowId);
 
@@ -2516,8 +2504,7 @@ MediaManager::EnumerateDevicesImpl(uint64_t aWindowId,
   // thread later once GetOriginKey resolves. Needed variables are "captured"
   // (passed by value) safely into the lambda.
 
-  RefPtr<Pledge<nsCString>> p = media::GetOriginKey(origin, privateBrowsing,
-                                                      persist);
+  RefPtr<Pledge<nsCString>> p = media::GetOriginKey(origin, persist);
   p->Then([id, aWindowId, aVideoType, aAudioType,
            aFake](const nsCString& aOriginKey) mutable {
     MOZ_ASSERT(NS_IsMainThread());
@@ -2701,6 +2688,7 @@ MediaManager::OnNavigation(uint64_t aWindowID)
 void
 MediaManager::RemoveMediaDevicesCallback(uint64_t aWindowID)
 {
+  MutexAutoLock lock(mCallbackMutex);
   for (DeviceChangeCallback* observer : mDeviceChangeCallbackList)
   {
     dom::MediaDevices* mediadevices = static_cast<dom::MediaDevices *>(observer);
@@ -2709,7 +2697,7 @@ MediaManager::RemoveMediaDevicesCallback(uint64_t aWindowID)
       nsPIDOMWindowInner* window = mediadevices->GetOwner();
       MOZ_ASSERT(window);
       if (window && window->WindowID() == aWindowID) {
-        DeviceChangeCallback::RemoveDeviceChangeCallback(observer);
+        DeviceChangeCallback::RemoveDeviceChangeCallbackLocked(observer);
         return;
       }
     }

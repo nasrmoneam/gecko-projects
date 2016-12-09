@@ -574,7 +574,7 @@ protected:
   void EnsureTextEventDispatcher();
 
   // Notify the compositor that a device reset has occurred.
-  void OnRenderingDeviceReset();
+  void OnRenderingDeviceReset(uint64_t aSeqNo);
 
   bool UseAPZ();
 
@@ -643,6 +643,7 @@ protected:
   virtual void DestroyCompositor();
   void DestroyLayerManager();
   void ReleaseContentController();
+  void RevokeTransactionIdAllocator();
 
   void FreeShutdownObserver();
 

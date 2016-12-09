@@ -161,19 +161,25 @@ Tracker.prototype = {
     return true;
   },
 
-  removeChangedID: function (id) {
-    if (!id) {
-      this._log.warn("Attempted to remove undefined ID to tracker");
+  removeChangedID: function (...ids) {
+    if (!ids.length || this.ignoreAll) {
       return false;
     }
-    if (this.ignoreAll || this._ignored.includes(id)) {
-      return false;
+    for (let id of ids) {
+      if (!id) {
+        this._log.warn("Attempted to remove undefined ID from tracker");
+        continue;
+      }
+      if (this._ignored.includes(id)) {
+        this._log.debug(`Not removing ignored ID ${id} from tracker`);
+        continue;
+      }
+      if (this.changedIDs[id] != null) {
+        this._log.trace("Removing changed ID " + id);
+        delete this.changedIDs[id];
+      }
     }
-    if (this.changedIDs[id] != null) {
-      this._log.trace("Removing changed ID " + id);
-      delete this.changedIDs[id];
-      this.saveChangedIDs();
-    }
+    this.saveChangedIDs();
     return true;
   },
 
@@ -647,7 +653,7 @@ Engine.prototype = {
   // If this is false, we'll throw, otherwise, we'll ignore the record and
   // continue. This currently can only happen due to the record being larger
   // than the record upload limit.
-  allowSkippedRecord: false,
+  allowSkippedRecord: true,
 
   get prefName() {
     return this.name;
@@ -1123,6 +1129,12 @@ SyncEngine.prototype = {
         return;
       }
 
+      if (self._shouldDeleteRemotely(item)) {
+        self._log.trace("Deleting item from server without applying", item);
+        self._deleteId(item.id);
+        return;
+      }
+
       let shouldApply;
       try {
         shouldApply = self._reconcile(item);
@@ -1260,6 +1272,13 @@ SyncEngine.prototype = {
     Observers.notify("weave:engine:sync:applied", count, this.name);
   },
 
+  // Indicates whether an incoming item should be deleted from the server at
+  // the end of the sync. Engines can override this method to clean up records
+  // that shouldn't be on the server.
+  _shouldDeleteRemotely(remoteItem) {
+    return false;
+  },
+
   _noteApplyFailure: function () {
     // here would be a good place to record telemetry...
   },
@@ -1290,8 +1309,11 @@ SyncEngine.prototype = {
 
   _deleteId: function (id) {
     this._tracker.removeChangedID(id);
+    this._noteDeletedId(id);
+  },
 
-    // Remember this id to delete at the end of sync
+  // Marks an ID for deletion at the end of the sync.
+  _noteDeletedId(id) {
     if (this._delete.ids == null)
       this._delete.ids = [id];
     else
@@ -1570,6 +1592,8 @@ SyncEngine.prototype = {
             if (!this.allowSkippedRecord) {
               throw error;
             }
+            this._modified.delete(id);
+            this._log.warn(`Failed to enqueue record "${id}" (skipping)`, error);
           }
         }
         this._store._sleep(0);
@@ -1618,9 +1642,12 @@ SyncEngine.prototype = {
       return;
     }
 
-    // Mark failed WBOs as changed again so they are reuploaded next time.
-    this.trackRemainingChanges();
-    this._modified.clear();
+    try {
+      // Mark failed WBOs as changed again so they are reuploaded next time.
+      this.trackRemainingChanges();
+    } finally {
+      this._modified.clear();
+    }
   },
 
   _sync: function () {
@@ -1770,6 +1797,11 @@ class Changeset {
   // Adds a change for a tracked ID to the changeset.
   set(id, change) {
     this.changes[id] = change;
+  }
+
+  // Adds multiple entries to the changeset.
+  insert(changes) {
+    Object.assign(this.changes, changes);
   }
 
   // Indicates whether an entry is in the changeset.

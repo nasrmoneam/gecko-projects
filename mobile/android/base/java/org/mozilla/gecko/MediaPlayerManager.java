@@ -16,7 +16,6 @@ import android.util.Log;
 import com.google.android.gms.cast.CastMediaControlIntent;
 
 import org.json.JSONObject;
-import org.mozilla.gecko.annotation.JNITarget;
 import org.mozilla.gecko.annotation.ReflectionTarget;
 import org.mozilla.gecko.AppConstants.Versions;
 import org.mozilla.gecko.util.EventCallback;
@@ -79,7 +78,8 @@ public class MediaPlayerManager extends Fragment implements NativeEventListener 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        GeckoApp.getEventDispatcher().registerGeckoThreadListener(this,
+
+        EventDispatcher.getInstance().registerGeckoThreadListener(this,
                                                                   "MediaPlayer:Load",
                                                                   "MediaPlayer:Start",
                                                                   "MediaPlayer:Stop",
@@ -94,10 +94,8 @@ public class MediaPlayerManager extends Fragment implements NativeEventListener 
     }
 
     @Override
-    @JNITarget
     public void onDestroy() {
-        super.onDestroy();
-        GeckoApp.getEventDispatcher().unregisterGeckoThreadListener(this,
+        EventDispatcher.getInstance().unregisterGeckoThreadListener(this,
                                                                     "MediaPlayer:Load",
                                                                     "MediaPlayer:Start",
                                                                     "MediaPlayer:Stop",
@@ -109,6 +107,8 @@ public class MediaPlayerManager extends Fragment implements NativeEventListener 
                                                                     "AndroidCastDevice:Start",
                                                                     "AndroidCastDevice:Stop",
                                                                     "AndroidCastDevice:SyncDevice");
+
+        super.onDestroy();
     }
 
     // GeckoEventListener implementation
@@ -191,14 +191,13 @@ public class MediaPlayerManager extends Fragment implements NativeEventListener 
                 GeckoAppShell.notifyObservers("AndroidCastDevice:Removed", route.getId());
             }
 
-            @SuppressWarnings("unused")
-            public void onRouteSelected(MediaRouter router, int type, MediaRouter.RouteInfo route) {
+            @Override
+            public void onRouteSelected(MediaRouter router, MediaRouter.RouteInfo route) {
                 updatePresentation();
             }
 
-            // These methods aren't used by the support version Media Router
-            @SuppressWarnings("unused")
-            public void onRouteUnselected(MediaRouter router, int type, RouteInfo route) {
+            @Override
+            public void onRouteUnselected(MediaRouter router, MediaRouter.RouteInfo route) {
                 updatePresentation();
             }
 

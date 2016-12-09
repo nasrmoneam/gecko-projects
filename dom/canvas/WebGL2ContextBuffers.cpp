@@ -31,15 +31,6 @@ WebGL2Context::CopyBufferSubData(GLenum readTarget, GLenum writeTarget,
     if (!writeBuffer)
         return;
 
-    if (readBuffer->mNumActiveTFOs ||
-        writeBuffer->mNumActiveTFOs)
-    {
-        ErrorInvalidOperation("%s: Buffer is bound to an active transform feedback"
-                              " object.",
-                              funcName);
-        return;
-    }
-
     if (!ValidateNonNegative(funcName, "readOffset", readOffset) ||
         !ValidateNonNegative(funcName, "writeOffset", writeOffset) ||
         !ValidateNonNegative(funcName, "size", size))
@@ -64,10 +55,18 @@ WebGL2Context::CopyBufferSubData(GLenum readTarget, GLenum writeTarget,
         return;
     }
 
-    if (readBuffer == writeBuffer &&
-        !ValidateDataRanges(readOffset, writeOffset, size, funcName))
-    {
-        return;
+    if (readBuffer == writeBuffer) {
+        MOZ_ASSERT((CheckedInt<WebGLsizeiptr>(readOffset) + size).isValid());
+        MOZ_ASSERT((CheckedInt<WebGLsizeiptr>(writeOffset) + size).isValid());
+
+        const bool separate = (readOffset + size <= writeOffset ||
+                               writeOffset + size <= readOffset);
+        if (!separate) {
+            ErrorInvalidValue("%s: ranges [readOffset, readOffset + size) and"
+                              " [writeOffset, writeOffset + size) overlap",
+                              funcName);
+            return;
+        }
     }
 
     const auto& readType = readBuffer->Content();
@@ -120,21 +119,6 @@ WebGL2Context::GetBufferSubData(GLenum target, GLintptr srcByteOffset,
         return;
 
     ////
-
-    if (buffer->mNumActiveTFOs) {
-        ErrorInvalidOperation("%s: Buffer is bound to an active transform feedback"
-                              " object.",
-                              funcName);
-        return;
-    }
-
-    if (target == LOCAL_GL_TRANSFORM_FEEDBACK_BUFFER &&
-        mBoundTransformFeedback->mIsActive)
-    {
-        ErrorInvalidOperation("%s: Currently bound transform feedback is active.",
-                              funcName);
-        return;
-    }
 
     if (!CheckedInt<GLsizeiptr>(byteLen).isValid()) {
         ErrorOutOfMemory("%s: Size too large.", funcName);

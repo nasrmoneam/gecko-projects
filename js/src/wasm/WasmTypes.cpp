@@ -567,6 +567,132 @@ SigWithId::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
     return Sig::sizeOfExcludingThis(mallocSizeOf);
 }
 
+size_t
+Import::serializedSize() const
+{
+    return module.serializedSize() +
+           field.serializedSize() +
+           sizeof(kind);
+}
+
+uint8_t*
+Import::serialize(uint8_t* cursor) const
+{
+    cursor = module.serialize(cursor);
+    cursor = field.serialize(cursor);
+    cursor = WriteScalar<DefinitionKind>(cursor, kind);
+    return cursor;
+}
+
+const uint8_t*
+Import::deserialize(const uint8_t* cursor)
+{
+    (cursor = module.deserialize(cursor)) &&
+    (cursor = field.deserialize(cursor)) &&
+    (cursor = ReadScalar<DefinitionKind>(cursor, &kind));
+    return cursor;
+}
+
+size_t
+Import::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
+{
+    return module.sizeOfExcludingThis(mallocSizeOf) +
+           field.sizeOfExcludingThis(mallocSizeOf);
+}
+
+Export::Export(UniqueChars fieldName, uint32_t index, DefinitionKind kind)
+  : fieldName_(Move(fieldName))
+{
+    pod.kind_ = kind;
+    pod.index_ = index;
+}
+
+Export::Export(UniqueChars fieldName, DefinitionKind kind)
+  : fieldName_(Move(fieldName))
+{
+    pod.kind_ = kind;
+    pod.index_ = 0;
+}
+
+uint32_t
+Export::funcIndex() const
+{
+    MOZ_ASSERT(pod.kind_ == DefinitionKind::Function);
+    return pod.index_;
+}
+
+uint32_t
+Export::globalIndex() const
+{
+    MOZ_ASSERT(pod.kind_ == DefinitionKind::Global);
+    return pod.index_;
+}
+
+size_t
+Export::serializedSize() const
+{
+    return fieldName_.serializedSize() +
+           sizeof(pod);
+}
+
+uint8_t*
+Export::serialize(uint8_t* cursor) const
+{
+    cursor = fieldName_.serialize(cursor);
+    cursor = WriteBytes(cursor, &pod, sizeof(pod));
+    return cursor;
+}
+
+const uint8_t*
+Export::deserialize(const uint8_t* cursor)
+{
+    (cursor = fieldName_.deserialize(cursor)) &&
+    (cursor = ReadBytes(cursor, &pod, sizeof(pod)));
+    return cursor;
+}
+
+size_t
+Export::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
+{
+    return fieldName_.sizeOfExcludingThis(mallocSizeOf);
+}
+
+size_t
+ElemSegment::serializedSize() const
+{
+    return sizeof(tableIndex) +
+           sizeof(offset) +
+           SerializedPodVectorSize(elemFuncIndices) +
+           SerializedPodVectorSize(elemCodeRangeIndices);
+}
+
+uint8_t*
+ElemSegment::serialize(uint8_t* cursor) const
+{
+    cursor = WriteBytes(cursor, &tableIndex, sizeof(tableIndex));
+    cursor = WriteBytes(cursor, &offset, sizeof(offset));
+    cursor = SerializePodVector(cursor, elemFuncIndices);
+    cursor = SerializePodVector(cursor, elemCodeRangeIndices);
+    return cursor;
+}
+
+const uint8_t*
+ElemSegment::deserialize(const uint8_t* cursor)
+{
+    (cursor = ReadBytes(cursor, &tableIndex, sizeof(tableIndex))) &&
+    (cursor = ReadBytes(cursor, &offset, sizeof(offset))) &&
+    (cursor = DeserializePodVector(cursor, &elemFuncIndices)) &&
+    (cursor = DeserializePodVector(cursor, &elemCodeRangeIndices));
+    return cursor;
+}
+
+size_t
+ElemSegment::sizeOfExcludingThis(MallocSizeOf mallocSizeOf) const
+{
+    return elemFuncIndices.sizeOfExcludingThis(mallocSizeOf) +
+           elemCodeRangeIndices.sizeOfExcludingThis(mallocSizeOf);
+}
+
 Assumptions::Assumptions(JS::BuildIdCharVector&& buildId)
   : cpuId(GetCPUID()),
     buildId(Move(buildId))
@@ -622,10 +748,10 @@ Assumptions::serialize(uint8_t* cursor) const
 }
 
 const uint8_t*
-Assumptions::deserialize(const uint8_t* cursor)
+Assumptions::deserialize(const uint8_t* cursor, size_t remain)
 {
-    (cursor = ReadScalar<uint32_t>(cursor, &cpuId)) &&
-    (cursor = DeserializePodVector(cursor, &buildId));
+    (cursor = ReadScalarChecked<uint32_t>(cursor, &remain, &cpuId)) &&
+    (cursor = DeserializePodVectorChecked(cursor, &remain, &buildId));
     return cursor;
 }
 

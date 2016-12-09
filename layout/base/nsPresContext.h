@@ -881,11 +881,19 @@ public:
     return mFramesReflowed;
   }
 
-  /**
-   * This table maps border-width enums 'thin', 'medium', 'thick'
-   * to actual nscoord values.
-   */
-  const nscoord* GetBorderWidthTable() { return mBorderWidthTable; }
+  static nscoord GetBorderWidthForKeyword(unsigned int aBorderWidthKeyword)
+  {
+    // This table maps border-width enums 'thin', 'medium', 'thick'
+    // to actual nscoord values.
+    static const nscoord kBorderWidths[] = {
+      CSSPixelsToAppUnits(1),
+      CSSPixelsToAppUnits(3),
+      CSSPixelsToAppUnits(5)
+    };
+    MOZ_ASSERT(size_t(aBorderWidthKeyword) < mozilla::ArrayLength(kBorderWidths));
+
+    return kBorderWidths[aBorderWidthKeyword];
+  }
 
   gfxTextPerfMetrics *GetTextPerfMetrics() { return mTextPerf; }
 
@@ -1055,6 +1063,12 @@ public:
   }
 
   bool IsRootContentDocument() const;
+
+  bool HadNonBlankPaint() const {
+    return mHadNonBlankPaint;
+  }
+
+  void NotifyNonBlankPaint();
 
   bool IsGlyph() const {
     return mIsGlyph;
@@ -1398,6 +1412,9 @@ protected:
 
   // Is there a pref update to process once we have a container?
   unsigned              mNeedsPrefUpdate : 1;
+
+  // Has NotifyNonBlankPaint been called on this PresContext?
+  unsigned              mHadNonBlankPaint : 1;
 
 #ifdef RESTYLE_LOGGING
   // Should we output debug information about restyling for this document?

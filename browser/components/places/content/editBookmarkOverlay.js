@@ -141,7 +141,17 @@ var gEditItemOverlay = {
       yield PlacesUtils.keywords.fetch({ url: this._paneInfo.uri.spec },
                                        e => entries.push(e));
       if (entries.length > 0) {
-        this._keyword = newKeyword = entries[0].keyword;
+        // We show an existing keyword if either POST data was not provided, or
+        // if the POST data is the same.
+        let existingKeyword = entries[0].keyword;
+        let postData = this._paneInfo.postData;
+        if (postData) {
+          let sameEntry = entries.find(e => e.postData === postData);
+          existingKeyword = sameEntry ? sameEntry.keyword : "";
+        }
+        if (existingKeyword) {
+          this._keyword = newKeyword = existingKeyword;
+        }
       }
     }
     this._initTextField(this._keywordField, newKeyword);
@@ -726,7 +736,7 @@ var gEditItemOverlay = {
   _getFolderMenuItem(aFolderId) {
     let menupopup = this._folderMenuList.menupopup;
     let menuItem = Array.prototype.find.call(
-      menupopup.childNodes, menuItem => menuItem.folderId === aFolderId);
+      menupopup.childNodes, item => item.folderId === aFolderId);
     if (menuItem !== undefined)
       return menuItem;
 

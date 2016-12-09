@@ -28,6 +28,15 @@ TEST_P(TlsConnectGeneric, ServerAuthBigRsa) {
   CheckKeys();
 }
 
+TEST_P(TlsConnectGeneric, ServerAuthRsaChain) {
+  Reset(TlsAgent::kServerRsaChain);
+  Connect();
+  CheckKeys();
+  size_t chain_length;
+  EXPECT_TRUE(client_->GetPeerChainLength(&chain_length));
+  EXPECT_EQ(2UL, chain_length);
+}
+
 TEST_P(TlsConnectGeneric, ClientAuth) {
   client_->SetupClientAuth();
   server_->RequestClientAuth(true);
@@ -280,7 +289,7 @@ class BeforeFinished : public TlsRecordFilter {
         state_(BEFORE_CCS) {}
 
  protected:
-  virtual PacketFilter::Action FilterRecord(const RecordHeader& header,
+  virtual PacketFilter::Action FilterRecord(const TlsRecordHeader& header,
                                             const DataBuffer& body,
                                             DataBuffer* out) {
     switch (state_) {
@@ -498,7 +507,7 @@ TEST_P(TlsConnectGenericPre13, AuthCompleteDelayed) {
   EXPECT_EQ(TlsAgent::STATE_CONNECTED, server_->state());
 
   // Remove this before closing or the close_notify alert will trigger it.
-  client_->SetPacketFilter(nullptr);
+  client_->DeletePacketFilter();
 }
 
 // TLS 1.3 handles a delayed AuthComplete callback differently since the
@@ -519,7 +528,7 @@ TEST_P(TlsConnectTls13, AuthCompleteDelayed) {
   EXPECT_EQ(TlsAgent::STATE_CONNECTING, client_->state());
 
   // This should allow the handshake to complete now.
-  client_->SetPacketFilter(nullptr);
+  client_->DeletePacketFilter();
   EXPECT_EQ(SECSuccess, SSL_AuthCertificateComplete(client_->ssl_fd(), 0));
   client_->Handshake();  // Send Finished
   server_->Handshake();  // Transition to connected and send NewSessionTicket

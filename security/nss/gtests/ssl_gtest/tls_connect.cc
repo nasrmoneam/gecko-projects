@@ -373,6 +373,22 @@ void TlsConnectTestBase::ConnectExpectFail() {
   ASSERT_EQ(TlsAgent::STATE_ERROR, server_->state());
 }
 
+void TlsConnectTestBase::ConnectExpectFailOneSide(TlsAgent::Role failing_side) {
+  server_->StartConnect();
+  client_->StartConnect();
+  client_->SetServerKeyBits(server_->server_key_bits());
+  client_->Handshake();
+  server_->Handshake();
+  TlsAgent* fail_agent;
+
+  if (failing_side == TlsAgent::CLIENT) {
+    fail_agent = client_;
+  } else {
+    fail_agent = server_;
+  }
+  ASSERT_TRUE_WAIT(fail_agent->state() == TlsAgent::STATE_ERROR, 5000);
+}
+
 void TlsConnectTestBase::ConfigureVersion(uint16_t version) {
   client_->SetVersionRange(version, version);
   server_->SetVersionRange(version, version);
@@ -618,9 +634,11 @@ void TlsKeyExchangeTest::EnsureKeyShareSetup() {
   EnsureTlsSetup();
   groups_capture_ = new TlsExtensionCapture(ssl_supported_groups_xtn);
   shares_capture_ = new TlsExtensionCapture(ssl_tls13_key_share_xtn);
+  shares_capture2_ = new TlsExtensionCapture(ssl_tls13_key_share_xtn, true);
   std::vector<PacketFilter*> captures;
   captures.push_back(groups_capture_);
   captures.push_back(shares_capture_);
+  captures.push_back(shares_capture2_);
   client_->SetPacketFilter(new ChainedPacketFilter(captures));
   capture_hrr_ =
       new TlsInspectorRecordHandshakeMessage(kTlsHandshakeHelloRetryRequest);
@@ -683,4 +701,24 @@ void TlsKeyExchangeTest::CheckKEXDetails(
   EXPECT_EQ(expect_hrr, capture_hrr_->buffer().len() != 0);
 }
 
+void TlsKeyExchangeTest::CheckKEXDetails(
+    const std::vector<SSLNamedGroup>& expected_groups,
+    const std::vector<SSLNamedGroup>& expected_shares) {
+  CheckKEXDetails(expected_groups, expected_shares, false);
+}
+
+void TlsKeyExchangeTest::CheckKEXDetails(
+    const std::vector<SSLNamedGroup>& expected_groups,
+    const std::vector<SSLNamedGroup>& expected_shares,
+    SSLNamedGroup expected_share2) {
+  CheckKEXDetails(expected_groups, expected_shares, true);
+
+  for (auto it : expected_shares) {
+    EXPECT_NE(expected_share2, it);
+  }
+  std::vector<SSLNamedGroup> expected_shares2 = {expected_share2};
+  std::vector<SSLNamedGroup> shares =
+      GetShareDetails(shares_capture2_->extension());
+  EXPECT_EQ(expected_shares2, shares);
+}
 }  // namespace nss_test

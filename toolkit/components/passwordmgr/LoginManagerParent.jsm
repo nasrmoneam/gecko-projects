@@ -57,7 +57,7 @@ var LoginManagerParent = {
     });
   },
 
-  receiveMessage: function (msg) {
+  receiveMessage: function(msg) {
     let data = msg.data;
     switch (msg.name) {
       case "RemoteLogins:findLogins": {
@@ -175,7 +175,7 @@ var LoginManagerParent = {
         QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver,
                                                Ci.nsISupportsWeakReference]),
 
-        observe: function (subject, topic, data) {
+        observe: function(subject, topic, data) {
           log("Got deferred sendLoginDataToChild notification:", topic);
           // Only run observer once.
           Services.obs.removeObserver(this, "passwordmgr-crypto-login");
@@ -227,7 +227,8 @@ var LoginManagerParent = {
 
   doAutocompleteSearch: function({ formOrigin, actionOrigin,
                                    searchString, previousResult,
-                                   rect, requestId, isSecure, remote }, target) {
+                                   rect, requestId, isSecure, isPasswordField,
+                                   remote }, target) {
     // Note: previousResult is a regular object, not an
     // nsIAutoCompleteResult.
 
@@ -260,7 +261,11 @@ var LoginManagerParent = {
       let match = fullMatch.username;
 
       // Remove results that are too short, or have different prefix.
-      // Also don't offer empty usernames as possible results.
+      // Also don't offer empty usernames as possible results except
+      // for password field.
+      if (isPasswordField) {
+        return true;
+      }
       return match && match.toLowerCase().startsWith(searchStringLower);
     });
 

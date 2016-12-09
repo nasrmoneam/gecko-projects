@@ -8,7 +8,6 @@
 #define nsINode_h___
 
 #include "mozilla/Likely.h"
-#include "mozilla/ServoTypes.h"
 #include "mozilla/UniquePtr.h"
 #include "nsCOMPtr.h"               // for member, local
 #include "nsGkAtoms.h"              // for nsGkAtoms::baseURIProperty
@@ -186,14 +185,13 @@ enum {
   // These two bits are shared by Gecko's and Servo's restyle systems for
   // different purposes. They should not be accessed directly, and access to
   // them should be properly guarded by asserts.
+  //
+  // FIXME(bholley): These should move to Element, and we only need one now.
   NODE_SHARED_RESTYLE_BIT_1 =             NODE_FLAG_BIT(21),
   NODE_SHARED_RESTYLE_BIT_2 =             NODE_FLAG_BIT(22),
 
-  // Whether this node is dirty for Servo's style system.
-  NODE_IS_DIRTY_FOR_SERVO =               NODE_SHARED_RESTYLE_BIT_1,
-
   // Whether this node has dirty descendants for Servo's style system.
-  NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO =  NODE_SHARED_RESTYLE_BIT_2,
+  NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO =  NODE_SHARED_RESTYLE_BIT_1,
 
   // Remaining bits are node type specific.
   NODE_TYPE_SPECIFIC_BITS_OFFSET =        23
@@ -921,6 +919,14 @@ public:
   inline nsINode* GetFlattenedTreeParentNode() const;
 
   /**
+   * Like GetFlattenedTreeParentNode, but returns null for any native
+   * anonymous content that was generated for ancestor frames of the
+   * root element's primary frame, such as scrollbar elements created
+   * by the root scroll frame.
+   */
+  inline nsINode* GetFlattenedTreeParentNodeForStyle() const;
+
+  /**
    * Get the parent nsINode for this node if it is an Element.
    * @return the parent node
    */
@@ -980,48 +986,6 @@ public:
 #else
   bool IsStyledByServo() const { return false; }
 #endif
-
-  bool IsDirtyForServo() const
-  {
-    MOZ_ASSERT(IsStyledByServo());
-    return HasFlag(NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  bool HasDirtyDescendantsForServo() const
-  {
-    MOZ_ASSERT(IsStyledByServo());
-    return HasFlag(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void SetIsDirtyForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void SetHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void SetIsDirtyAndHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    SetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void UnsetIsDirtyForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_IS_DIRTY_FOR_SERVO);
-  }
-
-  void UnsetHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-  }
-
-  void UnsetIsDirtyAndHasDirtyDescendantsForServo() {
-    MOZ_ASSERT(IsStyledByServo());
-    UnsetFlags(NODE_HAS_DIRTY_DESCENDANTS_FOR_SERVO | NODE_IS_DIRTY_FOR_SERVO);
-  }
 
   inline void UnsetRestyleFlagsIfGecko();
 
@@ -1325,6 +1289,14 @@ public:
    */
   virtual bool IsNodeApzAwareInternal() const;
 
+  // HTML elements named <shadow> may or may not be HTMLShadowElement.  This is
+  // a way to ask an element whether it's an HTMLShadowElement.
+  virtual bool IsHTMLShadowElement() const { return false; }
+
+  // Elements named <content> may or may not be HTMLContentElement.  This is a
+  // way to ask an element whether it's an HTMLContentElement.
+  virtual bool IsHTMLContentElement() const { return false; }
+
 protected:
   nsIURI* GetExplicitBaseURI() const {
     if (HasExplicitBaseURI()) {
@@ -1350,15 +1322,11 @@ public:
   already_AddRefed<nsINodeList> QuerySelectorAll(const nsAString& aSelector,
                                                  mozilla::ErrorResult& aResult);
 
-  nsresult QuerySelector(const nsAString& aSelector, nsIDOMElement **aReturn);
-  nsresult QuerySelectorAll(const nsAString& aSelector, nsIDOMNodeList **aReturn);
-
 protected:
   // nsIDocument overrides this with its own (faster) version.  This
   // should really only be called for elements and document fragments.
   mozilla::dom::Element* GetElementById(const nsAString& aId);
 
-public:
   /**
    * Associate an object aData to aKey on this node. If aData is null any
    * previously registered object associated to aKey on this node will
@@ -1384,13 +1352,7 @@ public:
    */
   nsIVariant* GetUserData(const nsAString& aKey);
 
-  nsresult GetUserData(const nsAString& aKey, nsIVariant** aResult)
-  {
-    NS_IF_ADDREF(*aResult = GetUserData(aKey));
-
-    return NS_OK;
-  }
-
+public:
   void LookupPrefix(const nsAString& aNamespace, nsAString& aResult);
   bool IsDefaultNamespace(const nsAString& aNamespaceURI)
   {
@@ -1400,8 +1362,6 @@ public:
   }
   void LookupNamespaceURI(const nsAString& aNamespacePrefix,
                           nsAString& aNamespaceURI);
-
-  nsresult IsEqualNode(nsIDOMNode* aOther, bool* aReturn);
 
   nsIContent* GetNextSibling() const { return mNextSibling; }
   nsIContent* GetPreviousSibling() const { return mPreviousSibling; }
@@ -1436,7 +1396,6 @@ public:
    * anonymous tree.
    */
   bool Contains(const nsINode* aOther) const;
-  nsresult Contains(nsIDOMNode* aOther, bool* aReturn);
 
   bool UnoptimizableCCNode() const;
 
@@ -1984,23 +1943,18 @@ protected:
   // These are just used to implement nsIDOMNode using
   // NS_FORWARD_NSIDOMNODE_TO_NSINODE_HELPER and for quickstubs.
   nsresult GetParentNode(nsIDOMNode** aParentNode);
-  nsresult GetParentElement(nsIDOMElement** aParentElement);
   nsresult GetChildNodes(nsIDOMNodeList** aChildNodes);
   nsresult GetFirstChild(nsIDOMNode** aFirstChild);
   nsresult GetLastChild(nsIDOMNode** aLastChild);
   nsresult GetPreviousSibling(nsIDOMNode** aPrevSibling);
   nsresult GetNextSibling(nsIDOMNode** aNextSibling);
   nsresult GetOwnerDocument(nsIDOMDocument** aOwnerDocument);
-  nsresult CompareDocumentPosition(nsIDOMNode* aOther,
-                                   uint16_t* aReturn);
 
   void EnsurePreInsertionValidity1(nsINode& aNewChild, nsINode* aRefChild,
                                    mozilla::ErrorResult& aError);
   void EnsurePreInsertionValidity2(bool aReplace, nsINode& aNewChild,
                                    nsINode* aRefChild,
                                    mozilla::ErrorResult& aError);
-  nsresult ReplaceOrInsertBefore(bool aReplace, nsIDOMNode *aNewChild,
-                                 nsIDOMNode *aRefChild, nsIDOMNode **aReturn);
   nsINode* ReplaceOrInsertBefore(bool aReplace, nsINode* aNewChild,
                                  nsINode* aRefChild,
                                  mozilla::ErrorResult& aError);
@@ -2071,16 +2025,6 @@ public:
 #undef TOUCH_EVENT
 #undef EVENT
 
-  bool HasServoData() {
-#ifdef MOZ_STYLO
-    return !!mServoData.Get();
-#else
-    MOZ_CRASH("Accessing servo node data in non-stylo build");
-#endif
-  }
-
-  void ClearServoData();
-
 protected:
   static bool Traverse(nsINode *tmp, nsCycleCollectionTraversalCallback &cb);
   static void Unlink(nsINode *tmp);
@@ -2118,11 +2062,6 @@ protected:
 
   // Storage for more members that are usually not needed; allocated lazily.
   nsSlots* mSlots;
-
-#ifdef MOZ_STYLO
-  // Per-node data managed by Servo.
-  mozilla::ServoCell<ServoNodeData*> mServoData;
-#endif
 };
 
 inline nsIDOMNode* GetAsDOMNode(nsINode* aNode)
@@ -2183,10 +2122,6 @@ ToCanonicalSupports(nsINode* aPointer)
   { \
     return nsINode::GetParentNode(aParentNode); \
   } \
-  NS_IMETHOD GetParentElement(nsIDOMElement** aParentElement) __VA_ARGS__ override \
-  { \
-    return nsINode::GetParentElement(aParentElement); \
-  } \
   NS_IMETHOD GetChildNodes(nsIDOMNodeList** aChildNodes) __VA_ARGS__ override \
   { \
     return nsINode::GetChildNodes(aChildNodes); \
@@ -2211,21 +2146,9 @@ ToCanonicalSupports(nsINode* aPointer)
   { \
     return nsINode::GetOwnerDocument(aOwnerDocument); \
   } \
-  NS_IMETHOD InsertBefore(nsIDOMNode* aNewChild, nsIDOMNode* aRefChild, nsIDOMNode** aResult) __VA_ARGS__ override \
-  { \
-    return ReplaceOrInsertBefore(false, aNewChild, aRefChild, aResult); \
-  } \
-  NS_IMETHOD ReplaceChild(nsIDOMNode* aNewChild, nsIDOMNode* aOldChild, nsIDOMNode** aResult) __VA_ARGS__ override \
-  { \
-    return ReplaceOrInsertBefore(true, aNewChild, aOldChild, aResult); \
-  } \
   NS_IMETHOD RemoveChild(nsIDOMNode* aOldChild, nsIDOMNode** aResult) __VA_ARGS__ override \
   { \
     return nsINode::RemoveChild(aOldChild, aResult); \
-  } \
-  NS_IMETHOD AppendChild(nsIDOMNode* aNewChild, nsIDOMNode** aResult) __VA_ARGS__ override \
-  { \
-    return InsertBefore(aNewChild, nullptr, aResult); \
   } \
   NS_IMETHOD HasChildNodes(bool* aResult) __VA_ARGS__ override \
   { \
@@ -2245,11 +2168,6 @@ ToCanonicalSupports(nsINode* aPointer)
     *aResult = clone.forget().take()->AsDOMNode(); \
     return NS_OK; \
   } \
-  NS_IMETHOD Normalize() __VA_ARGS__ override \
-  { \
-    nsINode::Normalize(); \
-    return NS_OK; \
-  } \
   NS_IMETHOD GetNamespaceURI(nsAString& aNamespaceURI) __VA_ARGS__ override \
   { \
     nsINode::GetNamespaceURI(aNamespaceURI); \
@@ -2265,19 +2183,6 @@ ToCanonicalSupports(nsINode* aPointer)
     aLocalName = nsINode::LocalName(); \
     return NS_OK; \
   } \
-  NS_IMETHOD UnusedPlaceholder(bool* aResult) __VA_ARGS__ override \
-  { \
-    *aResult = false; \
-    return NS_OK; \
-  } \
-  NS_IMETHOD GetDOMBaseURI(nsAString& aBaseURI) __VA_ARGS__ override \
-  { \
-    return nsINode::GetBaseURI(aBaseURI); \
-  } \
-  NS_IMETHOD CompareDocumentPosition(nsIDOMNode* aOther, uint16_t* aResult) __VA_ARGS__ override \
-  { \
-    return nsINode::CompareDocumentPosition(aOther, aResult); \
-  } \
   NS_IMETHOD GetTextContent(nsAString& aTextContent) __VA_ARGS__ override \
   { \
     mozilla::ErrorResult rv; \
@@ -2289,37 +2194,6 @@ ToCanonicalSupports(nsINode* aPointer)
     mozilla::ErrorResult rv; \
     nsINode::SetTextContent(aTextContent, rv); \
     return rv.StealNSResult(); \
-  } \
-  NS_IMETHOD LookupPrefix(const nsAString& aNamespaceURI, nsAString& aResult) __VA_ARGS__ override \
-  { \
-    nsINode::LookupPrefix(aNamespaceURI, aResult); \
-    return NS_OK; \
-  } \
-  NS_IMETHOD IsDefaultNamespace(const nsAString& aNamespaceURI, bool* aResult) __VA_ARGS__ override \
-  { \
-    *aResult = nsINode::IsDefaultNamespace(aNamespaceURI); \
-    return NS_OK; \
-  } \
-  NS_IMETHOD LookupNamespaceURI(const nsAString& aPrefix, nsAString& aResult) __VA_ARGS__ override \
-  { \
-    nsINode::LookupNamespaceURI(aPrefix, aResult); \
-    return NS_OK; \
-  } \
-  NS_IMETHOD IsEqualNode(nsIDOMNode* aArg, bool* aResult) __VA_ARGS__ override \
-  { \
-    return nsINode::IsEqualNode(aArg, aResult); \
-  } \
-  NS_IMETHOD SetUserData(const nsAString& aKey, nsIVariant* aData, nsIVariant** aResult) __VA_ARGS__ override \
-  { \
-    return nsINode::SetUserData(aKey, aData, aResult); \
-  } \
-  NS_IMETHOD GetUserData(const nsAString& aKey, nsIVariant** aResult) __VA_ARGS__ override \
-  { \
-    return nsINode::GetUserData(aKey, aResult); \
-  } \
-  NS_IMETHOD Contains(nsIDOMNode* aOther, bool* aResult) __VA_ARGS__ override \
-  { \
-    return nsINode::Contains(aOther, aResult); \
   }
 
 #define NS_FORWARD_NSIDOMNODE_TO_NSINODE \

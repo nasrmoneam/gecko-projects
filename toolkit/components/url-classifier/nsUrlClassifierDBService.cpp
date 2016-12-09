@@ -50,6 +50,10 @@
 #include "Classifier.h"
 #include "ProtocolParser.h"
 #include "nsContentUtils.h"
+#include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/PermissionMessageUtils.h"
+#include "mozilla/dom/URLClassifierChild.h"
+#include "mozilla/ipc/URIUtils.h"
 
 namespace mozilla {
 namespace safebrowsing {
@@ -98,12 +102,6 @@ LazyLogModule gUrlClassifierDbServiceLog("UrlClassifierDbService");
 
 #define CHECK_PHISHING_PREF     "browser.safebrowsing.phishing.enabled"
 #define CHECK_PHISHING_DEFAULT  false
-
-#define CHECK_TRACKING_PREF     "privacy.trackingprotection.enabled"
-#define CHECK_TRACKING_DEFAULT  false
-
-#define CHECK_TRACKING_PB_PREF    "privacy.trackingprotection.pbmode.enabled"
-#define CHECK_TRACKING_PB_DEFAULT false
 
 #define CHECK_BLOCKED_PREF    "browser.safebrowsing.blockedURIs.enabled"
 #define CHECK_BLOCKED_DEFAULT false
@@ -189,6 +187,10 @@ nsUrlClassifierDBServiceWorker::DoLocalLookup(const nsACString& spec,
                                               const nsACString& tables,
                                               LookupResultArray* results)
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   MOZ_ASSERT(!NS_IsMainThread(), "DoLocalLookup must be on background thread");
   if (!results) {
     return NS_ERROR_FAILURE;
@@ -206,11 +208,10 @@ nsUrlClassifierDBServiceWorker::DoLocalLookup(const nsACString& spec,
   return NS_OK;
 }
 
-static nsCString
-ProcessLookupResults(LookupResultArray* results)
+static nsresult
+ProcessLookupResults(LookupResultArray* results, nsTArray<nsCString>& tables)
 {
-  // Build a stringified list of result tables.
-  nsTArray<nsCString> tables;
+  // Build the result array.
   for (uint32_t i = 0; i < results->Length(); i++) {
     LookupResult& result = results->ElementAt(i);
     MOZ_ASSERT(!result.mNoise, "Lookup results should not have noise added");
@@ -219,13 +220,7 @@ ProcessLookupResults(LookupResultArray* results)
       tables.AppendElement(result.mTableName);
     }
   }
-  nsAutoCString tableStr;
-  for (uint32_t i = 0; i < tables.Length(); i++) {
-    if (i != 0)
-      tableStr.Append(',');
-    tableStr.Append(tables[i]);
-  }
-  return tableStr;
+  return NS_OK;
 }
 
 /**
@@ -304,6 +299,10 @@ nsUrlClassifierDBServiceWorker::DoLookup(const nsACString& spec,
 nsresult
 nsUrlClassifierDBServiceWorker::HandlePendingLookups()
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   MutexAutoLock lock(mPendingLookupLock);
   while (mPendingLookups.Length() > 0) {
     PendingLookup lookup = mPendingLookups[0];
@@ -326,6 +325,10 @@ nsUrlClassifierDBServiceWorker::AddNoise(const Prefix aPrefix,
                                          uint32_t aCount,
                                          LookupResultArray& results)
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   if (aCount < 1) {
     return NS_OK;
   }
@@ -355,14 +358,19 @@ nsUrlClassifierDBServiceWorker::Lookup(nsIPrincipal* aPrincipal,
                                        const nsACString& aTables,
                                        nsIUrlClassifierCallback* c)
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   return HandlePendingLookups();
 }
 
 NS_IMETHODIMP
 nsUrlClassifierDBServiceWorker::GetTables(nsIUrlClassifierCallback* c)
 {
-  if (gShuttingDownThread)
+  if (gShuttingDownThread) {
     return NS_ERROR_NOT_INITIALIZED;
+  }
 
   nsresult rv = OpenDb();
   if (NS_FAILED(rv)) {
@@ -436,8 +444,9 @@ nsUrlClassifierDBServiceWorker::BeginStream(const nsACString &table)
   LOG(("nsUrlClassifierDBServiceWorker::BeginStream"));
   MOZ_ASSERT(!NS_IsMainThread(), "Streaming must be on the background thread");
 
-  if (gShuttingDownThread)
+  if (gShuttingDownThread) {
     return NS_ERROR_NOT_INITIALIZED;
+  }
 
   NS_ENSURE_STATE(mUpdateObserver);
   NS_ENSURE_STATE(!mInStream);
@@ -516,8 +525,9 @@ nsUrlClassifierDBServiceWorker::BeginStream(const nsACString &table)
 NS_IMETHODIMP
 nsUrlClassifierDBServiceWorker::UpdateStream(const nsACString& chunk)
 {
-  if (gShuttingDownThread)
+  if (gShuttingDownThread) {
     return NS_ERROR_NOT_INITIALIZED;
+  }
 
   NS_ENSURE_STATE(mInStream);
 
@@ -583,8 +593,10 @@ nsUrlClassifierDBServiceWorker::FinishStream()
 NS_IMETHODIMP
 nsUrlClassifierDBServiceWorker::FinishUpdate()
 {
-  if (gShuttingDownThread)
+  if (gShuttingDownThread) {
     return NS_ERROR_NOT_INITIALIZED;
+  }
+
   NS_ENSURE_STATE(mUpdateObserver);
 
   if (NS_SUCCEEDED(mUpdateStatus)) {
@@ -735,6 +747,10 @@ nsUrlClassifierDBServiceWorker::CloseDb()
 nsresult
 nsUrlClassifierDBServiceWorker::CacheCompletions(CacheResultArray *results)
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   LOG(("nsUrlClassifierDBServiceWorker::CacheCompletions [%p]", this));
   if (!mClassifier)
     return NS_OK;
@@ -814,6 +830,10 @@ nsUrlClassifierDBServiceWorker::CacheMisses(PrefixArray *results)
 nsresult
 nsUrlClassifierDBServiceWorker::OpenDb()
 {
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
   MOZ_ASSERT(!NS_IsMainThread(), "Must initialize DB on background thread");
   // Connection already open, don't do anything.
   if (mClassifier) {
@@ -1143,10 +1163,15 @@ nsUrlClassifierClassifyCallback::HandleEvent(const nsACString& tables)
 // -------------------------------------------------------------------------
 // Proxy class implementation
 
-NS_IMPL_ISUPPORTS(nsUrlClassifierDBService,
-                  nsIUrlClassifierDBService,
-                  nsIURIClassifier,
-                  nsIObserver)
+NS_IMPL_ADDREF(nsUrlClassifierDBService)
+NS_IMPL_RELEASE(nsUrlClassifierDBService)
+NS_INTERFACE_MAP_BEGIN(nsUrlClassifierDBService)
+  // Only nsIURIClassifier is supported in the content process!
+  NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIUrlClassifierDBService, XRE_IsParentProcess())
+  NS_INTERFACE_MAP_ENTRY(nsIURIClassifier)
+  NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIObserver, XRE_IsParentProcess())
+  NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIURIClassifier)
+NS_INTERFACE_MAP_END
 
 /* static */ nsUrlClassifierDBService*
 nsUrlClassifierDBService::GetInstance(nsresult *result)
@@ -1177,7 +1202,6 @@ nsUrlClassifierDBService::GetInstance(nsresult *result)
 nsUrlClassifierDBService::nsUrlClassifierDBService()
  : mCheckMalware(CHECK_MALWARE_DEFAULT)
  , mCheckPhishing(CHECK_PHISHING_DEFAULT)
- , mCheckTracking(CHECK_TRACKING_DEFAULT)
  , mCheckBlockedURIs(CHECK_BLOCKED_DEFAULT)
  , mInUpdate(false)
 {
@@ -1252,14 +1276,26 @@ nsUrlClassifierDBService::Init()
     }
   }
 
+  switch (XRE_GetProcessType()) {
+  case GeckoProcessType_Default:
+    // The parent process is supported.
+    break;
+  case GeckoProcessType_Content:
+    // In a content process, we simply forward all requests to the parent process,
+    // so we can skip the initialization steps here.
+    // Note that since we never register an observer, Shutdown() will also never
+    // be called in the content process.
+    return NS_OK;
+  default:
+    // No other process type is supported!
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
   // Retrieve all the preferences.
   mCheckMalware = Preferences::GetBool(CHECK_MALWARE_PREF,
     CHECK_MALWARE_DEFAULT);
   mCheckPhishing = Preferences::GetBool(CHECK_PHISHING_PREF,
     CHECK_PHISHING_DEFAULT);
-  mCheckTracking =
-    Preferences::GetBool(CHECK_TRACKING_PREF, CHECK_TRACKING_DEFAULT) ||
-    Preferences::GetBool(CHECK_TRACKING_PB_PREF, CHECK_TRACKING_PB_DEFAULT);
   mCheckBlockedURIs = Preferences::GetBool(CHECK_BLOCKED_PREF,
     CHECK_BLOCKED_DEFAULT);
   uint32_t gethashNoise = Preferences::GetUint(GETHASH_NOISE_PREF,
@@ -1268,10 +1304,20 @@ nsUrlClassifierDBService::Init()
     CONFIRM_AGE_DEFAULT_SEC);
   ReadTablesFromPrefs();
 
-  // Force PSM loading on main thread
   nsresult rv;
-  nsCOMPtr<nsICryptoHash> dummy = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
+
+  {
+    // Force PSM loading on main thread
+    nsCOMPtr<nsICryptoHash> dummy = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  {
+    // Force nsIUrlClassifierUtils loading on main thread.
+    nsCOMPtr<nsIUrlClassifierUtils> dummy =
+      do_GetService(NS_URLCLASSIFIERUTILS_CONTRACTID, &rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
 
   // Directory providers must also be accessed on the main thread.
   nsCOMPtr<nsIFile> cacheDir;
@@ -1313,8 +1359,9 @@ nsUrlClassifierDBService::Init()
   if (!observerService)
     return NS_ERROR_FAILURE;
 
+  // The application is about to quit
+  observerService->AddObserver(this, "quit-application", false);
   observerService->AddObserver(this, "profile-before-change", false);
-  observerService->AddObserver(this, "xpcom-shutdown-threads", false);
 
   // XXX: Do we *really* need to be able to change all of these at runtime?
   // Note: These observers should only be added when everything else above has
@@ -1322,8 +1369,6 @@ nsUrlClassifierDBService::Init()
   //       situations. See Bug 1247798 and Bug 1244803.
   Preferences::AddStrongObserver(this, CHECK_MALWARE_PREF);
   Preferences::AddStrongObserver(this, CHECK_PHISHING_PREF);
-  Preferences::AddStrongObserver(this, CHECK_TRACKING_PREF);
-  Preferences::AddStrongObserver(this, CHECK_TRACKING_PB_PREF);
   Preferences::AddStrongObserver(this, CHECK_BLOCKED_PREF);
   Preferences::AddStrongObserver(this, GETHASH_NOISE_PREF);
   Preferences::AddStrongObserver(this, CONFIRM_AGE_PREF);
@@ -1388,6 +1433,20 @@ nsUrlClassifierDBService::Classify(nsIPrincipal* aPrincipal,
                                    bool* result)
 {
   NS_ENSURE_ARG(aPrincipal);
+
+  if (XRE_IsContentProcess()) {
+    using namespace mozilla::dom;
+    auto actor = static_cast<URLClassifierChild*>
+      (ContentChild::GetSingleton()->
+         SendPURLClassifierConstructor(IPC::Principal(aPrincipal),
+                                       aTrackingProtectionEnabled,
+                                       result));
+    if (actor) {
+      actor->SetCallback(c);
+    }
+    return NS_OK;
+  }
+
   NS_ENSURE_TRUE(gDbBackgroundThread, NS_ERROR_NOT_INITIALIZED);
 
   if (!(mCheckMalware || mCheckPhishing || aTrackingProtectionEnabled ||
@@ -1415,12 +1474,54 @@ nsUrlClassifierDBService::Classify(nsIPrincipal* aPrincipal,
 }
 
 NS_IMETHODIMP
-nsUrlClassifierDBService::ClassifyLocalWithTables(nsIURI *aURI,
-                                                  const nsACString & aTables,
-                                                  nsACString & aTableResults)
+nsUrlClassifierDBService::ClassifyLocal(nsIURI *aURI,
+                                        const nsACString& aTables,
+                                        nsACString& aTableResults)
 {
-  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
+  nsTArray<nsCString> results;
+  ClassifyLocalWithTables(aURI, aTables, results);
+
+  // Convert the result array to a comma separated string
+  aTableResults.AssignLiteral("");
+  bool first = true;
+  for (nsCString& result : results) {
+    if (first) {
+      first = false;
+    } else {
+      aTableResults.AppendLiteral(",");
+    }
+    aTableResults.Append(result);
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsUrlClassifierDBService::ClassifyLocalWithTables(nsIURI *aURI,
+                                                  const nsACString& aTables,
+                                                  nsTArray<nsCString>& aTableResults)
+{
   MOZ_ASSERT(NS_IsMainThread(), "ClassifyLocalWithTables must be on main thread");
+  if (gShuttingDownThread) {
+    return NS_ERROR_ABORT;
+  }
+
+  nsresult rv;
+  if (XRE_IsContentProcess()) {
+    using namespace mozilla::dom;
+    using namespace mozilla::ipc;
+    URIParams uri;
+    SerializeURI(aURI, uri);
+    nsAutoCString tables(aTables);
+    bool result = ContentChild::GetSingleton()->SendClassifyLocal(uri, tables,
+                                                                  &rv,
+                                                                  &aTableResults);
+    if (result) {
+      return rv;
+    }
+    return NS_ERROR_FAILURE;
+  }
+
+  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
 
   nsCOMPtr<nsIURI> uri = NS_GetInnermostURI(aURI);
   NS_ENSURE_TRUE(uri, NS_ERROR_FAILURE);
@@ -1429,7 +1530,7 @@ nsUrlClassifierDBService::ClassifyLocalWithTables(nsIURI *aURI,
   // Canonicalize the url
   nsCOMPtr<nsIUrlClassifierUtils> utilsService =
     do_GetService(NS_URLCLASSIFIERUTILS_CONTRACTID);
-  nsresult rv = utilsService->GetKeyForURI(uri, key);
+  rv = utilsService->GetKeyForURI(uri, key);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsAutoPtr<LookupResultArray> results(new LookupResultArray());
@@ -1440,7 +1541,8 @@ nsUrlClassifierDBService::ClassifyLocalWithTables(nsIURI *aURI,
   // In unittests, we may not have been initalized, so don't crash.
   rv = mWorkerProxy->DoLocalLookup(key, aTables, results);
   if (NS_SUCCEEDED(rv)) {
-    aTableResults = ProcessLookupResults(results);
+    rv = ProcessLookupResults(results, aTableResults);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
   return NS_OK;
 }
@@ -1710,11 +1812,6 @@ nsUrlClassifierDBService::Observe(nsISupports *aSubject, const char *aTopic,
     } else if (NS_LITERAL_STRING(CHECK_PHISHING_PREF).Equals(aData)) {
       mCheckPhishing = Preferences::GetBool(CHECK_PHISHING_PREF,
         CHECK_PHISHING_DEFAULT);
-    } else if (NS_LITERAL_STRING(CHECK_TRACKING_PREF).Equals(aData) ||
-               NS_LITERAL_STRING(CHECK_TRACKING_PB_PREF).Equals(aData)) {
-      mCheckTracking =
-        Preferences::GetBool(CHECK_TRACKING_PREF, CHECK_TRACKING_DEFAULT) ||
-        Preferences::GetBool(CHECK_TRACKING_PB_PREF, CHECK_TRACKING_PB_DEFAULT);
     } else if (NS_LITERAL_STRING(CHECK_BLOCKED_PREF).Equals(aData)) {
       mCheckBlockedURIs = Preferences::GetBool(CHECK_BLOCKED_PREF,
         CHECK_BLOCKED_DEFAULT);
@@ -1733,9 +1830,18 @@ nsUrlClassifierDBService::Observe(nsISupports *aSubject, const char *aTopic,
       gFreshnessGuarantee = Preferences::GetInt(CONFIRM_AGE_PREF,
         CONFIRM_AGE_DEFAULT_SEC);
     }
-  } else if (!strcmp(aTopic, "profile-before-change") ||
-             !strcmp(aTopic, "xpcom-shutdown-threads")) {
+  } else if (!strcmp(aTopic, "quit-application")) {
     Shutdown();
+  } else if (!strcmp(aTopic, "profile-before-change")) {
+    // Unit test does not receive "quit-application",
+    // need call shutdown in this case
+    Shutdown();
+    LOG(("joining background thread"));
+    mWorkerProxy = nullptr;
+    nsIThread *backgroundThread = gDbBackgroundThread;
+    gDbBackgroundThread = nullptr;
+    backgroundThread->Shutdown();
+    NS_RELEASE(backgroundThread);
   } else {
     return NS_ERROR_UNEXPECTED;
   }
@@ -1748,9 +1854,12 @@ nsresult
 nsUrlClassifierDBService::Shutdown()
 {
   LOG(("shutting down db service\n"));
+  MOZ_ASSERT(XRE_IsParentProcess());
 
-  if (!gDbBackgroundThread)
+  if (!gDbBackgroundThread || gShuttingDownThread)
     return NS_OK;
+
+  gShuttingDownThread = true;
 
   Telemetry::AutoTimer<Telemetry::URLCLASSIFIER_SHUTDOWN_TIME> timer;
 
@@ -1760,8 +1869,6 @@ nsUrlClassifierDBService::Shutdown()
   if (prefs) {
     prefs->RemoveObserver(CHECK_MALWARE_PREF, this);
     prefs->RemoveObserver(CHECK_PHISHING_PREF, this);
-    prefs->RemoveObserver(CHECK_TRACKING_PREF, this);
-    prefs->RemoveObserver(CHECK_TRACKING_PB_PREF, this);
     prefs->RemoveObserver(CHECK_BLOCKED_PREF, this);
     prefs->RemoveObserver(PHISH_TABLE_PREF, this);
     prefs->RemoveObserver(MALWARE_TABLE_PREF, this);
@@ -1783,18 +1890,6 @@ nsUrlClassifierDBService::Shutdown()
     rv = mWorkerProxy->CloseDb();
     NS_ASSERTION(NS_SUCCEEDED(rv), "failed to post close db event");
   }
-
-  mWorkerProxy = nullptr;
-
-  LOG(("joining background thread"));
-
-  gShuttingDownThread = true;
-
-  nsIThread *backgroundThread = gDbBackgroundThread;
-  gDbBackgroundThread = nullptr;
-  backgroundThread->Shutdown();
-  NS_RELEASE(backgroundThread);
-
   return NS_OK;
 }
 
@@ -1804,3 +1899,9 @@ nsUrlClassifierDBService::BackgroundThread()
   return gDbBackgroundThread;
 }
 
+// static
+bool
+nsUrlClassifierDBService::ShutdownHasStarted()
+{
+  return gShuttingDownThread;
+}

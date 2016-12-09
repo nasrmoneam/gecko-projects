@@ -289,6 +289,7 @@ class nsWindow::GeckoViewSupport final
 public:
     typedef GeckoView::Window::Natives<GeckoViewSupport> Base;
     typedef GeckoEditable::Natives<GeckoViewSupport> EditableBase;
+    typedef SupportsWeakPtr<GeckoViewSupport> SupportsWeakPtr;
 
     MOZ_DECLARE_WEAKREFERENCE_TYPENAME(GeckoViewSupport);
 
@@ -325,8 +326,9 @@ public:
         , mIMETextChangedDuringFlush(false)
         , mIMEMonitorCursor(false)
     {
-        Base::AttachNative(aInstance, this);
-        EditableBase::AttachNative(mEditable, this);
+        Base::AttachNative(aInstance, static_cast<SupportsWeakPtr*>(this));
+        EditableBase::AttachNative(
+                mEditable, static_cast<SupportsWeakPtr*>(this));
     }
 
     ~GeckoViewSupport();
@@ -345,6 +347,7 @@ public:
     static void Open(const jni::Class::LocalRef& aCls,
                      GeckoView::Window::Param aWindow,
                      GeckoView::Param aView, jni::Object::Param aCompositor,
+                     jni::Object::Param aDispatcher,
                      jni::String::Param aChromeURI,
                      int32_t screenId);
 
@@ -353,7 +356,8 @@ public:
 
     // Reattach this nsWindow to a new GeckoView.
     void Reattach(const GeckoView::Window::LocalRef& inst,
-                  GeckoView::Param aView, jni::Object::Param aCompositor);
+                  GeckoView::Param aView, jni::Object::Param aCompositor,
+                  jni::Object::Param aDispatcher);
 
     void LoadUri(jni::String::Param aUri, int32_t aFlags);
 
@@ -930,6 +934,10 @@ public:
 template<> const char
 nsWindow::NativePtr<nsWindow::NPZCSupport>::sName[] = "NPZCSupport";
 
+NS_IMPL_ISUPPORTS(nsWindow::AndroidView,
+                  nsIAndroidEventDispatcher,
+                  nsIAndroidView)
+
 /**
  * Compositor has some unique requirements for its native calls, so make it
  * separate from GeckoViewSupport.
@@ -1059,14 +1067,7 @@ public:
             return; // Already shut down.
         }
 
-        const auto& layerClient = GeckoLayerClient::Ref::From(aClient);
-
-        // If resetting is true, Android destroyed our GeckoApp activity and we
-        // had to recreate it, but all the Gecko-side things were not
-        // destroyed.  We therefore need to link up the new java objects to
-        // Gecko, and that's what we do here.
-        const bool resetting = !!mLayerClient;
-        mLayerClient = layerClient;
+        mLayerClient = GeckoLayerClient::Ref::From(aClient);
 
         MOZ_ASSERT(aNPZC);
         auto npzc = NativePanZoomController::LocalRef(
@@ -1074,15 +1075,12 @@ public:
                 NativePanZoomController::Ref::From(aNPZC));
         mWindow->mNPZCSupport.Attach(npzc, mWindow, npzc);
 
-        layerClient->OnGeckoReady();
+        mLayerClient->OnGeckoReady();
 
-        if (resetting) {
-            // Since we are re-linking the new java objects to Gecko, we need
-            // to get the viewport from the compositor (since the Java copy was
-            // thrown away) and we do that by setting the first-paint flag.
-            if (RefPtr<CompositorBridgeParent> bridge = mWindow->GetCompositorBridgeParent()) {
-                bridge->ForceIsFirstPaint();
-            }
+        // Set the first-paint flag so that we (re-)link any new Java objects
+        // to Gecko, co-ordinate viewports, etc.
+        if (RefPtr<CompositorBridgeParent> bridge = mWindow->GetCompositorBridgeParent()) {
+            bridge->ForceIsFirstPaint();
         }
     }
 
@@ -1318,6 +1316,7 @@ nsWindow::GeckoViewSupport::Open(const jni::Class::LocalRef& aCls,
                                  GeckoView::Window::Param aWindow,
                                  GeckoView::Param aView,
                                  jni::Object::Param aCompositor,
+                                 jni::Object::Param aDispatcher,
                                  jni::String::Param aChromeURI,
                                  int32_t aScreenId)
 {
@@ -1339,9 +1338,13 @@ nsWindow::GeckoViewSupport::Open(const jni::Class::LocalRef& aCls,
         }
     }
 
+    RefPtr<AndroidView> androidView = new AndroidView();
+    androidView->mEventDispatcher->Attach(
+            java::EventDispatcher::Ref::From(aDispatcher), nullptr);
+
     nsCOMPtr<mozIDOMWindowProxy> domWindow;
     ww->OpenWindow(nullptr, url, nullptr, "chrome,dialog=0,resizable,scrollbars=yes",
-                   nullptr, getter_AddRefs(domWindow));
+                   androidView, getter_AddRefs(domWindow));
     MOZ_RELEASE_ASSERT(domWindow);
 
     nsCOMPtr<nsPIDOMWindowOuter> pdomWindow =
@@ -1363,6 +1366,11 @@ nsWindow::GeckoViewSupport::Open(const jni::Class::LocalRef& aCls,
             aCls.Env(), LayerView::Compositor::Ref::From(aCompositor));
     window->mLayerViewSupport.Attach(compositor, window, compositor);
 
+    // Attach again using the new window.
+    androidView->mEventDispatcher->Attach(
+            java::EventDispatcher::Ref::From(aDispatcher), pdomWindow);
+    window->mAndroidView = androidView;
+
     if (window->mWidgetListener) {
         nsCOMPtr<nsIXULWindow> xulWindow(
                 window->mWidgetListener->GetXULWindow());
@@ -1377,6 +1385,10 @@ nsWindow::GeckoViewSupport::Open(const jni::Class::LocalRef& aCls,
 void
 nsWindow::GeckoViewSupport::Close()
 {
+    if (window.mAndroidView) {
+        window.mAndroidView->mEventDispatcher->Detach();
+    }
+
     if (!mDOMWindow) {
         return;
     }
@@ -1388,7 +1400,8 @@ nsWindow::GeckoViewSupport::Close()
 void
 nsWindow::GeckoViewSupport::Reattach(const GeckoView::Window::LocalRef& inst,
                                      GeckoView::Param aView,
-                                     jni::Object::Param aCompositor)
+                                     jni::Object::Param aCompositor,
+                                     jni::Object::Param aDispatcher)
 {
     // Associate our previous GeckoEditable with the new GeckoView.
     mEditable->OnViewChange(aView);
@@ -1406,6 +1419,10 @@ nsWindow::GeckoViewSupport::Reattach(const GeckoView::Window::LocalRef& inst,
             inst.Env(), LayerView::Compositor::Ref::From(aCompositor));
     window.mLayerViewSupport.Attach(compositor, &window, compositor);
     compositor->Reattach();
+
+    MOZ_ASSERT(window.mAndroidView);
+    window.mAndroidView->mEventDispatcher->Attach(
+            java::EventDispatcher::Ref::From(aDispatcher), mDOMWindow);
 }
 
 void
@@ -2308,10 +2325,7 @@ ConvertAndroidKeyCodeToKeyNameIndex(int keyCode, int action,
         case AKEYCODE_RO:                 // Japanese Ro key
             return KEY_NAME_INDEX_USE_STRING;
 
-        case AKEYCODE_ENDCALL:
         case AKEYCODE_NUM:                // XXX Not sure
-        case AKEYCODE_HEADSETHOOK:
-        case AKEYCODE_NOTIFICATION:       // XXX Not sure
         case AKEYCODE_PICTSYMBOLS:
 
         case AKEYCODE_BUTTON_A:
@@ -2330,10 +2344,7 @@ ConvertAndroidKeyCodeToKeyNameIndex(int keyCode, int action,
         case AKEYCODE_BUTTON_SELECT:
         case AKEYCODE_BUTTON_MODE:
 
-        case AKEYCODE_MUTE: // mutes the microphone
         case AKEYCODE_MEDIA_CLOSE:
-
-        case AKEYCODE_DVR:
 
         case AKEYCODE_BUTTON_1:
         case AKEYCODE_BUTTON_2:
@@ -2351,10 +2362,6 @@ ConvertAndroidKeyCodeToKeyNameIndex(int keyCode, int action,
         case AKEYCODE_BUTTON_14:
         case AKEYCODE_BUTTON_15:
         case AKEYCODE_BUTTON_16:
-
-        case AKEYCODE_MANNER_MODE:
-        case AKEYCODE_3D_MODE:
-        case AKEYCODE_CONTACTS:
             return KEY_NAME_INDEX_Unidentified;
 
         case AKEYCODE_UNKNOWN:

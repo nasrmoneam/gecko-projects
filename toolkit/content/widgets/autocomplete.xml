@@ -872,7 +872,7 @@
         <body><![CDATA[
           try {
             var amount = aPage ? 5 : 1;
-            this.selectedIndex = this.getNextIndex(aReverse, amount, this.selectedIndex, this.tree.view.rowCount-1);
+            this.selectedIndex = this.getNextIndex(aReverse, amount, this.selectedIndex, this.tree.view.rowCount - 1);
             if (this.selectedIndex == -1) {
               this.input._focus();
             }
@@ -971,7 +971,7 @@ extends="chrome://global/content/bindings/popup.xml#popup">
           if (aMaxRow < 0)
             return -1;
 
-          var newIdx = aIndex + (aReverse?-1:1)*aAmount;
+          var newIdx = aIndex + (aReverse ? -1 : 1) * aAmount;
           if (aReverse && aIndex == -1 || newIdx > aMaxRow && aIndex != aMaxRow)
             newIdx = aMaxRow;
           else if (!aReverse && aIndex == -1 || newIdx < 0 && aIndex != 0)
@@ -1474,7 +1474,6 @@ extends="chrome://global/content/bindings/popup.xml#popup">
                            class="ac-title-text"
                            xbl:inherits="selected"/>
         </xul:description>
-        <xul:label id="learnMoreLink" align="left" class="text-link"/>
       </xul:vbox>
       <xul:hbox anonid="tags"
                 class="ac-tags"
@@ -1513,19 +1512,10 @@ extends="chrome://global/content/bindings/popup.xml#popup">
     </content>
     <implementation>
       <constructor><![CDATA[
-        let learnMoreLink = document.getElementById("learnMoreLink");
-        learnMoreLink.setAttribute("value", this._stringBundle.GetStringFromName("insecureFieldWarningLearnMore"));
-        learnMoreLink.setAttribute("href", Services.urlFormatter.formatURLPref("app.support.baseURL") + "insecure-form-field-warning");
+        // Unlike other autocomplete items, the height of the insecure warning
+        // increases by wrapping.
+        this._handleOverflow();
       ]]></constructor>
-
-      <property name="_stringBundle">
-        <getter><![CDATA[
-          if (!this.__stringBundle) {
-            this.__stringBundle = Services.strings.createBundle("chrome://passwordmgr/locale/passwordmgr.properties");
-          }
-          return this.__stringBundle;
-        ]]></getter>
-      </property>
     </implementation>
   </binding>
 

@@ -138,9 +138,6 @@ pref("app.update.url", "https://aus5.mozilla.org/update/6/%PRODUCT%/%VERSION%/%B
 // app.update.url.manual is in branding section
 // app.update.url.details is in branding section
 
-// User-settable override to app.update.url for testing purposes.
-//pref("app.update.url.override", "");
-
 // app.update.interval is in branding section
 // app.update.promptWaitTime is in branding section
 
@@ -439,8 +436,6 @@ pref("browser.tabs.showAudioPlayingIcon", true);
 // This should match Chromium's audio indicator delay.
 pref("browser.tabs.delayHidingAudioPlayingIconMS", 3000);
 
-pref("browser.tabs.dontfocusfordialogs", true);
-
 pref("browser.ctrlTab.previews", false);
 
 // By default, do not export HTML at shutdown.
@@ -589,9 +584,7 @@ pref("browser.xul.error_pages.enabled", true);
 pref("browser.xul.error_pages.expert_bad_cert", false);
 
 // Enable captive portal detection.
-#ifdef NIGHTLY_BUILD
 pref("network.captive-portal-service.enabled", true);
-#endif
 
 // If true, network link events will change the value of navigator.onLine
 pref("network.manage-offline-status", true);
@@ -1043,7 +1036,7 @@ pref("browser.taskbar.lists.refreshInSeconds", 120);
 #endif
 
 // The sync engines to use.
-pref("services.sync.registerEngines", "Bookmarks,Form,History,Password,Prefs,Tab,Addons");
+pref("services.sync.registerEngines", "Bookmarks,Form,History,Password,Prefs,Tab,Addons,ExtensionStorage");
 // Preferences to be synced by default
 pref("services.sync.prefs.sync.accessibility.blockautorefresh", true);
 pref("services.sync.prefs.sync.accessibility.browsewithcaret", true);
@@ -1438,6 +1431,7 @@ pref("browser.tabs.remote.autostart.2", true);
 // For the about:tabcrashed page
 pref("browser.tabs.crashReporting.sendReport", true);
 pref("browser.tabs.crashReporting.includeURL", false);
+pref("browser.tabs.crashReporting.requestEmail", false);
 pref("browser.tabs.crashReporting.emailMe", false);
 pref("browser.tabs.crashReporting.email", "");
 

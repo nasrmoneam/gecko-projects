@@ -44,7 +44,6 @@ const PREF_APP_UPDATE_SOCKET_RETRYTIMEOUT  = "app.update.socket.retryTimeout";
 const PREF_APP_UPDATE_STAGING_ENABLED      = "app.update.staging.enabled";
 const PREF_APP_UPDATE_URL                  = "app.update.url";
 const PREF_APP_UPDATE_URL_DETAILS          = "app.update.url.details";
-const PREF_APP_UPDATE_URL_OVERRIDE         = "app.update.url.override";
 
 const PREFBRANCH_APP_UPDATE_NEVER = "app.update.never.";
 
@@ -1793,7 +1792,7 @@ Update.prototype = {
 
 const UpdateServiceFactory = {
   _instance: null,
-  createInstance: function (outer, iid) {
+  createInstance: function(outer, iid) {
     if (outer != null)
       throw Cr.NS_ERROR_NO_AGGREGATION;
     return this._instance == null ? this._instance = new UpdateService() :
@@ -2308,14 +2307,6 @@ UpdateService.prototype = {
       }
     }
 
-    let prefType = Services.prefs.getPrefType(PREF_APP_UPDATE_URL_OVERRIDE);
-    let overridePrefHasValue = prefType != Ci.nsIPrefBranch.PREF_INVALID;
-    // Histogram IDs:
-    // UPDATE_HAS_PREF_URL_OVERRIDE_EXTERNAL
-    // UPDATE_HAS_PREF_URL_OVERRIDE_NOTIFY
-    AUSTLMY.pingGeneric("UPDATE_HAS_PREF_URL_OVERRIDE_" + this._pingSuffix,
-                        overridePrefHasValue, false);
-
     // If a download is in progress or the patch has been staged do nothing.
     if (this.isDownloading) {
       AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_IS_DOWNLOADING);
@@ -2346,18 +2337,8 @@ UpdateService.prototype = {
     } else if (!UpdateUtils.ABI) {
       AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_NO_OS_ABI);
     } else if (!validUpdateURL) {
-      if (overridePrefHasValue) {
-        if (Services.prefs.prefHasUserValue(PREF_APP_UPDATE_URL_OVERRIDE)) {
-          AUSTLMY.pingCheckCode(this._pingSuffix,
-                                AUSTLMY.CHK_INVALID_USER_OVERRIDE_URL);
-        } else {
-          AUSTLMY.pingCheckCode(this._pingSuffix,
-                                AUSTLMY.CHK_INVALID_DEFAULT_OVERRIDE_URL);
-        }
-      } else {
-        AUSTLMY.pingCheckCode(this._pingSuffix,
-                              AUSTLMY.CHK_INVALID_DEFAULT_URL);
-      }
+      AUSTLMY.pingCheckCode(this._pingSuffix,
+                            AUSTLMY.CHK_INVALID_DEFAULT_URL);
     } else if (!getPref("getBoolPref", PREF_APP_UPDATE_ENABLED, true)) {
       AUSTLMY.pingCheckCode(this._pingSuffix, AUSTLMY.CHK_PREF_DISABLED);
     } else if (!hasUpdateMutex()) {
@@ -3236,16 +3217,11 @@ Checker.prototype = {
   getUpdateURL: function UC_getUpdateURL(force) {
     this._forced = force;
 
-    // Use the override URL if specified.
-    let url = getPref("getCharPref", PREF_APP_UPDATE_URL_OVERRIDE, null);
-
-    // Otherwise, construct the update URL from component parts.
-    if (!url) {
-      try {
-        url = Services.prefs.getDefaultBranch(null).
-              getCharPref(PREF_APP_UPDATE_URL);
-      } catch (e) {
-      }
+    let url;
+    try {
+      url = Services.prefs.getDefaultBranch(null).
+            getCharPref(PREF_APP_UPDATE_URL);
+    } catch (e) {
     }
 
     if (!url || url == "") {
@@ -3284,6 +3260,8 @@ Checker.prototype = {
     this._request.channel.loadFlags |= Ci.nsIRequest.LOAD_BYPASS_CACHE;
     // Prevent the request from writing to the cache.
     this._request.channel.loadFlags |= Ci.nsIRequest.INHIBIT_CACHING;
+    // Disable cutting edge features, like TLS 1.3, where middleboxes might brick us
+    this._request.channel.QueryInterface(Ci.nsIHttpChannelInternal).beConservative = true;
 
     this._request.overrideMimeType("text/xml");
     // The Cache-Control header is only interpreted by proxies and the
@@ -4427,7 +4405,7 @@ UpdatePrompt.prototype = {
       updatePrompt: this,
       service: null,
       timer: null,
-      notify: function () {
+      notify: function() {
         // the user hasn't restarted yet => prompt when idle
         this.service.removeObserver(this, "quit-application");
         // If the update window is already open skip showing the UI
@@ -4435,7 +4413,7 @@ UpdatePrompt.prototype = {
           return;
         this.updatePrompt._showUIWhenIdle(parent, uri, features, name, page, update);
       },
-      observe: function (aSubject, aTopic, aData) {
+      observe: function(aSubject, aTopic, aData) {
         switch (aTopic) {
           case "quit-application":
             if (this.timer)
@@ -4503,7 +4481,7 @@ UpdatePrompt.prototype = {
     } else {
       var observer = {
         updatePrompt: this,
-        observe: function (aSubject, aTopic, aData) {
+        observe: function(aSubject, aTopic, aData) {
           switch (aTopic) {
             case "idle":
               // If the update window is already open skip showing the UI

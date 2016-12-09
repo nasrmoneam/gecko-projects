@@ -52,7 +52,7 @@ function swapToInnerBrowser({ tab, containerURL, getInnerBrowser }) {
   return {
 
     start: Task.async(function* () {
-      tab.isReponsiveDesignMode = true;
+      tab.isResponsiveDesignMode = true;
 
       // Freeze navigation temporarily to avoid "blinking" in the location bar.
       freezeNavigationState(tab);
@@ -107,6 +107,17 @@ function swapToInnerBrowser({ tab, containerURL, getInnerBrowser }) {
       tunnel = tunnelToInnerBrowser(tab.linkedBrowser, innerBrowser);
       yield tunnel.start();
 
+      // Swapping browsers disconnects the find bar UI from the browser.
+      // If the find bar has been initialized, reconnect it.
+      if (gBrowser.isFindBarInitialized(tab)) {
+        let findBar = gBrowser.getFindBar(tab);
+        findBar.browser = tab.linkedBrowser;
+        if (!findBar.hidden) {
+          // Force the find bar to activate again, restoring the search string.
+          findBar.onFindCommand();
+        }
+      }
+
       // Force the browser UI to match the new state of the tab and browser.
       thawNavigationState(tab);
       gBrowser.setTabTitle(tab);
@@ -139,13 +150,26 @@ function swapToInnerBrowser({ tab, containerURL, getInnerBrowser }) {
       // 5. Force the original browser tab to be remote since web content is
       //    loaded in the child process, and we're about to swap the content
       //    into this tab.
-      gBrowser.updateBrowserRemoteness(tab.linkedBrowser, true);
+      gBrowser.updateBrowserRemoteness(tab.linkedBrowser, true,
+                                       contentBrowser.remoteType);
 
       // 6. Swap the content into the original browser tab and close the
       //    temporary tab used to hold the content via
       //    `swapBrowsersAndCloseOther`.
       dispatchDevToolsBrowserSwap(contentBrowser, tab.linkedBrowser);
       gBrowser.swapBrowsersAndCloseOther(tab, contentTab);
+
+      // Swapping browsers disconnects the find bar UI from the browser.
+      // If the find bar has been initialized, reconnect it.
+      if (gBrowser.isFindBarInitialized(tab)) {
+        let findBar = gBrowser.getFindBar(tab);
+        findBar.browser = tab.linkedBrowser;
+        if (!findBar.hidden) {
+          // Force the find bar to activate again, restoring the search string.
+          findBar.onFindCommand();
+        }
+      }
+
       gBrowser = null;
 
       // The focus manager seems to get a little dizzy after all this swapping.  If a
@@ -153,7 +177,7 @@ function swapToInnerBrowser({ tab, containerURL, getInnerBrowser }) {
       // have lost focus.  Activate the frame to restore expected focus.
       tab.linkedBrowser.frameLoader.activateRemoteFrame();
 
-      delete tab.isReponsiveDesignMode;
+      delete tab.isResponsiveDesignMode;
     },
 
   };
@@ -207,6 +231,15 @@ function addXULBrowserDecorations(browser) {
     Object.defineProperty(browser, "isRemoteBrowser", {
       get() {
         return this.getAttribute("remote") == "true";
+      },
+      configurable: true,
+      enumerable: true,
+    });
+  }
+  if (browser.remoteType == undefined) {
+    Object.defineProperty(browser, "remoteType", {
+      get() {
+        return this.getAttribute("remoteType");
       },
       configurable: true,
       enumerable: true,

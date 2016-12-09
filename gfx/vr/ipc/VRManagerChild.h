@@ -49,7 +49,7 @@ public:
 
   int GetInputFrameID();
   bool GetVRDisplays(nsTArray<RefPtr<VRDisplayClient> >& aDisplays);
-  bool RefreshVRDisplaysWithCallback(dom::Navigator* aNavigator);
+  bool RefreshVRDisplaysWithCallback(uint64_t aWindowId);
 
   static void InitSameProcess();
   static void InitWithGPUProcess(Endpoint<PVRManagerChild>&& aEndpoint);
@@ -78,9 +78,6 @@ public:
     int32_t *aHandle);
   void CancelFrameRequestCallback(int32_t aHandle);
   void RunFrameRequestCallbacks();
-  // GamepadManager has to be set by the content side to make sure we are using
-  // the same singleton GamepadManager from the same process.
-  void SetGamepadManager(dom::GamepadManager* aGamepadManager);
 
   void UpdateDisplayInfo(nsTArray<VRDisplayInfo>& aDisplayUpdates);
   void FireDOMVRDisplayConnectEvent();
@@ -112,13 +109,13 @@ protected:
                                             const float& aRightEyeHeight) override;
   virtual bool DeallocPVRLayerChild(PVRLayerChild* actor) override;
 
-  virtual bool RecvUpdateDisplayInfo(nsTArray<VRDisplayInfo>&& aDisplayUpdates) override;
+  virtual mozilla::ipc::IPCResult RecvUpdateDisplayInfo(nsTArray<VRDisplayInfo>&& aDisplayUpdates) override;
 
-  virtual bool RecvParentAsyncMessages(InfallibleTArray<AsyncParentMessageData>&& aMessages) override;
+  virtual mozilla::ipc::IPCResult RecvParentAsyncMessages(InfallibleTArray<AsyncParentMessageData>&& aMessages) override;
 
-  virtual bool RecvNotifyVSync() override;
-  virtual bool RecvNotifyVRVSync(const uint32_t& aDisplayID) override;
-  virtual bool RecvGamepadUpdate(const GamepadChangeEvent& aGamepadEvent) override;
+  virtual mozilla::ipc::IPCResult RecvNotifyVSync() override;
+  virtual mozilla::ipc::IPCResult RecvNotifyVRVSync(const uint32_t& aDisplayID) override;
+  virtual mozilla::ipc::IPCResult RecvGamepadUpdate(const GamepadChangeEvent& aGamepadEvent) override;
 
   // ShmemAllocator
 
@@ -152,8 +149,7 @@ private:
 
   nsTArray<RefPtr<VRDisplayClient> > mDisplays;
   bool mDisplaysInitialized;
-  nsTArray<dom::Navigator*> mNavigatorCallbacks;
-  dom::GamepadManager* mGamepadManager;
+  nsTArray<uint64_t> mNavigatorCallbacks;
 
   int32_t mInputFrameID;
 

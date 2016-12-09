@@ -342,8 +342,8 @@ nsGenericHTMLElement::GetOffsetRect(CSSIntRect& aRect)
   if (parent &&
       parent->StylePosition()->mBoxSizing != StyleBoxSizing::Border) {
     const nsStyleBorder* border = parent->StyleBorder();
-    origin.x -= border->GetComputedBorderWidth(NS_SIDE_LEFT);
-    origin.y -= border->GetComputedBorderWidth(NS_SIDE_TOP);
+    origin.x -= border->GetComputedBorderWidth(eSideLeft);
+    origin.y -= border->GetComputedBorderWidth(eSideTop);
   }
 
   // XXX We should really consider subtracting out padding for
@@ -591,16 +591,16 @@ nsGenericHTMLElement::CheckHandleEventForAnchorsPreconditions(
 }
 
 nsresult
-nsGenericHTMLElement::PreHandleEventForAnchors(EventChainPreVisitor& aVisitor)
+nsGenericHTMLElement::GetEventTargetParentForAnchors(EventChainPreVisitor& aVisitor)
 {
-  nsresult rv = nsGenericHTMLElementBase::PreHandleEvent(aVisitor);
+  nsresult rv = nsGenericHTMLElementBase::GetEventTargetParent(aVisitor);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (!CheckHandleEventForAnchorsPreconditions(aVisitor)) {
     return NS_OK;
   }
 
-  return PreHandleEventForLinks(aVisitor);
+  return GetEventTargetParentForLinks(aVisitor);
 }
 
 nsresult
@@ -1791,13 +1791,11 @@ nsGenericHTMLFormElement::ClearForm(bool aRemoveFromForm)
     mForm->RemoveElement(this, true);
 
     if (!nameVal.IsEmpty()) {
-      mForm->RemoveElementFromTable(this, nameVal,
-                                    HTMLFormElement::ElementRemoved);
+      mForm->RemoveElementFromTable(this, nameVal);
     }
 
     if (!idVal.IsEmpty()) {
-      mForm->RemoveElementFromTable(this, idVal,
-                                    HTMLFormElement::ElementRemoved);
+      mForm->RemoveElementFromTable(this, idVal);
     }
   }
 
@@ -1934,8 +1932,7 @@ nsGenericHTMLFormElement::BeforeSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       GetAttr(kNameSpaceID_None, aName, tmp);
 
       if (!tmp.IsEmpty()) {
-        mForm->RemoveElementFromTable(this, tmp,
-                                      HTMLFormElement::AttributeUpdated);
+        mForm->RemoveElementFromTable(this, tmp);
       }
     }
 
@@ -1943,15 +1940,13 @@ nsGenericHTMLFormElement::BeforeSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       GetAttr(kNameSpaceID_None, nsGkAtoms::name, tmp);
 
       if (!tmp.IsEmpty()) {
-        mForm->RemoveElementFromTable(this, tmp,
-                                      HTMLFormElement::AttributeUpdated);
+        mForm->RemoveElementFromTable(this, tmp);
       }
 
       GetAttr(kNameSpaceID_None, nsGkAtoms::id, tmp);
 
       if (!tmp.IsEmpty()) {
-        mForm->RemoveElementFromTable(this, tmp,
-                                      HTMLFormElement::AttributeUpdated);
+        mForm->RemoveElementFromTable(this, tmp);
       }
 
       mForm->RemoveElement(this, false);
@@ -2041,7 +2036,19 @@ nsGenericHTMLFormElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
 }
 
 nsresult
-nsGenericHTMLFormElement::PreHandleEvent(EventChainPreVisitor& aVisitor)
+nsGenericHTMLFormElement::GetEventTargetParent(EventChainPreVisitor& aVisitor)
+{
+  if (aVisitor.mEvent->IsTrusted() && (aVisitor.mEvent->mMessage == eFocus ||
+                                       aVisitor.mEvent->mMessage == eBlur)) {
+    // We have to handle focus/blur event to change focus states in
+    // PreHandleEvent to prevent it breaks event target chain creation.
+    aVisitor.mWantsPreHandleEvent = true;
+  }
+  return nsGenericHTMLElement::GetEventTargetParent(aVisitor);
+}
+
+nsresult
+nsGenericHTMLFormElement::PreHandleEvent(EventChainVisitor& aVisitor)
 {
   if (aVisitor.mEvent->IsTrusted()) {
     switch (aVisitor.mEvent->mMessage) {
@@ -2065,7 +2072,6 @@ nsGenericHTMLFormElement::PreHandleEvent(EventChainPreVisitor& aVisitor)
         break;
     }
   }
-
   return nsGenericHTMLElement::PreHandleEvent(aVisitor);
 }
 
@@ -2413,7 +2419,7 @@ nsGenericHTMLFormElement::IsLabelable() const
 //----------------------------------------------------------------------
 
 void
-nsGenericHTMLElement::Click()
+nsGenericHTMLElement::Click(CallerType aCallerType)
 {
   if (HandlingClick())
     return;
@@ -2432,10 +2438,8 @@ nsGenericHTMLElement::Click()
 
   SetHandlingClick();
 
-  // Click() is never called from native code, but it may be
-  // called from chrome JS. Mark this event trusted if Click()
-  // is called from chrome code.
-  WidgetMouseEvent event(nsContentUtils::IsCallerChrome(),
+  // Mark this event trusted if Click() is called from system code.
+  WidgetMouseEvent event(aCallerType == CallerType::System,
                          eMouseClick, nullptr, WidgetMouseEvent::eReal);
   event.inputSource = nsIDOMMouseEvent::MOZ_SOURCE_UNKNOWN;
 
@@ -2567,13 +2571,6 @@ nsGenericHTMLElement::DispatchSimulatedClick(nsGenericHTMLElement* aElement,
 nsresult
 nsGenericHTMLElement::GetEditor(nsIEditor** aEditor)
 {
-  *aEditor = nullptr;
-
-  // See also HTMLTextFieldAccessible::GetEditor.
-  if (!nsContentUtils::LegacyIsCallerChromeOrNativeCode()) {
-    return NS_ERROR_DOM_SECURITY_ERR;
-  }
-
   NS_IF_ADDREF(*aEditor = GetEditorInternal());
   return NS_OK;
 }
@@ -2945,11 +2942,14 @@ IsOrHasAncestorWithDisplayNone(Element* aElement, nsIPresShell* aPresShell)
     return false;
   }
 
+  // XXXbholley: This could be done more directly with Servo's style system.
   StyleSetHandle styleSet = aPresShell->StyleSet();
   RefPtr<nsStyleContext> sc;
   for (int32_t i = elementsToCheck.Length() - 1; i >= 0; --i) {
     if (sc) {
-      sc = styleSet->ResolveStyleFor(elementsToCheck[i], sc);
+      sc = styleSet->ResolveStyleFor(elementsToCheck[i], sc,
+                                     ConsumeStyleBehavior::DontConsume,
+                                     LazyComputeBehavior::Assert);
     } else {
       sc = nsComputedDOMStyle::GetStyleContextForElementNoFlush(elementsToCheck[i],
                                                                 nullptr, aPresShell);

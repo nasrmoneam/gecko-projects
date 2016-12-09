@@ -29,6 +29,10 @@ if test "$OS_ARCH" = "WINNT"; then
   fi
 fi
 
+if test "$NIGHTLY_BUILD"; then
+  MOZ_RUST_URLPARSE=1
+fi
+
 # Enable building ./signmar and running libmar signature tests
 MOZ_ENABLE_SIGNMAR=1
 
@@ -55,7 +59,6 @@ MOZ_APP_STATIC_INI=1
 MOZ_WEBGL_CONFORMANT=1
 MOZ_JSDOWNLOADS=1
 MOZ_RUST_MP4PARSE=1
-MOZ_RUST_URLPARSE=1
 
 # Enable checking that add-ons are signed by the trusted root
 MOZ_ADDON_SIGNING=1

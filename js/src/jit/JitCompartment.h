@@ -221,9 +221,9 @@ class JitRuntime
     uint8_t* allocateOsrTempData(size_t size);
     void freeOsrTempData();
 
-    static void Mark(JSTracer* trc, js::AutoLockForExclusiveAccess& lock);
-    static void MarkJitcodeGlobalTableUnconditionally(JSTracer* trc);
-    static MOZ_MUST_USE bool MarkJitcodeGlobalTableIteratively(JSTracer* trc);
+    static void Trace(JSTracer* trc, js::AutoLockForExclusiveAccess& lock);
+    static void TraceJitcodeGlobalTable(JSTracer* trc);
+    static MOZ_MUST_USE bool MarkJitcodeGlobalTableIteratively(GCMarker* marker);
     static void SweepJitcodeGlobalTable(JSRuntime* rt);
 
     ExecutableAllocator& execAlloc() {
@@ -391,17 +391,23 @@ class JitZone
     }
 };
 
-enum class CacheKind;
+enum class CacheKind : uint8_t;
 class CacheIRStubInfo;
+
+enum class ICStubEngine : uint8_t {
+    Baseline = 0,
+    IonMonkey
+};
 
 struct CacheIRStubKey : public DefaultHasher<CacheIRStubKey> {
     struct Lookup {
         CacheKind kind;
+        ICStubEngine engine;
         const uint8_t* code;
         uint32_t length;
 
-        Lookup(CacheKind kind, const uint8_t* code, uint32_t length)
-          : kind(kind), code(code), length(length)
+        Lookup(CacheKind kind, ICStubEngine engine, const uint8_t* code, uint32_t length)
+          : kind(kind), engine(engine), code(code), length(length)
         {}
     };
 
@@ -560,7 +566,7 @@ class JitCompartment
     // Initialize code stubs only used by Ion, not Baseline.
     MOZ_MUST_USE bool ensureIonStubsExist(JSContext* cx);
 
-    void mark(JSTracer* trc, JSCompartment* compartment);
+    void trace(JSTracer* trc, JSCompartment* compartment);
     void sweep(FreeOp* fop, JSCompartment* compartment);
 
     JitCode* stringConcatStubNoBarrier() const {

@@ -13,6 +13,7 @@
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/dom/BlobSet.h"
+#include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/FetchUtil.h"
 #include "mozilla/dom/FormData.h"
@@ -1064,10 +1065,75 @@ XMLHttpRequestMainThread::CloseRequestWithError(const ProgressEventType aType)
 }
 
 void
-XMLHttpRequestMainThread::Abort(ErrorResult& arv)
+XMLHttpRequestMainThread::RequestErrorSteps(const ProgressEventType aEventType,
+                                            const nsresult aOptionalException,
+                                            ErrorResult& aRv)
+{
+  // Step 1
+  mState = State::done;
+
+  StopProgressEventTimer();
+
+  // Step 2
+  mFlagSend = false;
+
+  // Step 3
+  ResetResponse();
+
+  // If we're in the destructor, don't risk dispatching an event.
+  if (mFlagDeleted) {
+    mFlagSyncLooping = false;
+    return;
+  }
+
+  // Step 4
+  if (mFlagSynchronous && NS_FAILED(aOptionalException)) {
+    aRv.Throw(aOptionalException);
+    return;
+  }
+
+  // Step 5
+  FireReadystatechangeEvent();
+
+  // Step 6
+  if (mUpload && !mUploadComplete) {
+
+    // Step 6-1
+    mUploadComplete = true;
+
+    // Step 6-2
+    if (mFlagHadUploadListenersOnSend) {
+
+      // Steps 6-3, 6-4 (loadend is fired for us)
+      DispatchProgressEvent(mUpload, aEventType, 0, -1);
+    }
+  }
+
+  // Steps 7 and 8 (loadend is fired for us)
+  DispatchProgressEvent(this, aEventType, 0, -1);
+}
+
+void
+XMLHttpRequestMainThread::Abort(ErrorResult& aRv)
 {
   mFlagAborted = true;
-  CloseRequestWithError(ProgressEventType::abort);
+
+  // Step 1
+  CloseRequest();
+
+  // Step 2
+  if ((mState == State::opened && mFlagSend) ||
+       mState == State::headers_received ||
+       mState == State::loading) {
+    RequestErrorSteps(ProgressEventType::abort, NS_OK, aRv);
+  }
+
+  // Step 3
+  if (mState == State::done) {
+    ChangeState(State::unsent, false); // no ReadystateChange event
+  }
+
+  mFlagSyncLooping = false;
 }
 
 NS_IMETHODIMP
@@ -2541,9 +2607,10 @@ XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
     if (!IsSystemXHR()) {
       nsCOMPtr<nsPIDOMWindowInner> owner = GetOwner();
       nsCOMPtr<nsIDocument> doc = owner ? owner->GetExtantDoc() : nullptr;
+      mozilla::net::ReferrerPolicy referrerPolicy = doc ?
+        doc->GetReferrerPolicy() : mozilla::net::RP_Default;
       nsContentUtils::SetFetchReferrerURIWithPolicy(mPrincipal, doc,
-                                                    httpChannel,
-                                                    mozilla::net::RP_Default);
+                                                    httpChannel, referrerPolicy);
     }
 
     // Some extensions override the http protocol handler and provide their own
@@ -3083,6 +3150,15 @@ XMLHttpRequestMainThread::SetTimeout(uint32_t aTimeout, ErrorResult& aRv)
 }
 
 void
+XMLHttpRequestMainThread::SetTimerEventTarget(nsITimer* aTimer)
+{
+  if (nsCOMPtr<nsIGlobalObject> global = GetOwnerGlobal()) {
+    nsCOMPtr<nsIEventTarget> target = global->EventTargetFor(TaskCategory::Other);
+    aTimer->SetTarget(target);
+  }
+}
+
+void
 XMLHttpRequestMainThread::StartTimeoutTimer()
 {
   MOZ_ASSERT(mRequestSentTime,
@@ -3102,6 +3178,7 @@ XMLHttpRequestMainThread::StartTimeoutTimer()
 
   if (!mTimeoutTimer) {
     mTimeoutTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+    SetTimerEventTarget(mTimeoutTimer);
   }
   uint32_t elapsed =
     (uint32_t)((PR_Now() - mRequestSentTime) / PR_USEC_PER_MSEC);
@@ -3577,6 +3654,7 @@ XMLHttpRequestMainThread::StartProgressEventTimer()
 {
   if (!mProgressNotifier) {
     mProgressNotifier = do_CreateInstance(NS_TIMER_CONTRACTID);
+    SetTimerEventTarget(mProgressNotifier);
   }
   if (mProgressNotifier) {
     mProgressTimerIsActive = true;
@@ -3603,6 +3681,7 @@ XMLHttpRequestMainThread::MaybeStartSyncTimeoutTimer()
   }
 
   mSyncTimeoutTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  SetTimerEventTarget(mSyncTimeoutTimer);
   if (!mSyncTimeoutTimer) {
     return eErrorOrExpired;
   }
@@ -3737,6 +3816,19 @@ XMLHttpRequestMainThread::BlobStoreCompleted(MutableBlobStorage* aBlobStorage,
   }
 
   ChangeStateToDone();
+}
+
+nsresult
+XMLHttpRequestMainThread::GetName(nsACString& aName)
+{
+  aName.AssignLiteral("XMLHttpRequest");
+  return NS_OK;
+}
+
+nsresult
+XMLHttpRequestMainThread::SetName(const char* aName)
+{
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 // nsXMLHttpRequestXPCOMifier implementation

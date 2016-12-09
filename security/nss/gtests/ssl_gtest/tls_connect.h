@@ -68,6 +68,7 @@ class TlsConnectTestBase : public ::testing::Test {
   void CheckConnected();
   // Connect and expect it to fail.
   void ConnectExpectFail();
+  void ConnectExpectFailOneSide(TlsAgent::Role failingSide);
   void ConnectWithCipherSuite(uint16_t cipher_suite);
   // Check that the keys used in the handshake match expectations.
   void CheckKeys(SSLKEAType kea_type, SSLNamedGroup kea_group,
@@ -247,6 +248,7 @@ class TlsKeyExchangeTest : public TlsConnectGeneric {
  protected:
   TlsExtensionCapture* groups_capture_;
   TlsExtensionCapture* shares_capture_;
+  TlsExtensionCapture* shares_capture2_;
   TlsInspectorRecordHandshakeMessage* capture_hrr_;
 
   void EnsureKeyShareSetup();
@@ -254,8 +256,15 @@ class TlsKeyExchangeTest : public TlsConnectGeneric {
   std::vector<SSLNamedGroup> GetGroupDetails(const DataBuffer& ext);
   std::vector<SSLNamedGroup> GetShareDetails(const DataBuffer& ext);
   void CheckKEXDetails(const std::vector<SSLNamedGroup>& expectedGroups,
+                       const std::vector<SSLNamedGroup>& expectedShares);
+  void CheckKEXDetails(const std::vector<SSLNamedGroup>& expectedGroups,
                        const std::vector<SSLNamedGroup>& expectedShares,
-                       bool expect_hrr = false);
+                       SSLNamedGroup expectedShare2);
+
+ private:
+  void CheckKEXDetails(const std::vector<SSLNamedGroup>& expectedGroups,
+                       const std::vector<SSLNamedGroup>& expectedShares,
+                       bool expect_hrr);
 };
 
 class TlsKeyExchangeTest13 : public TlsKeyExchangeTest {};

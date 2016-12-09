@@ -6,14 +6,20 @@
   <script type="text/javascript" src="/tests/SimpleTest/SimpleTest.js"></script>
   <script type="text/javascript" src="/tests/SimpleTest/SpawnTask.js"></script>
   <script type="text/javascript" src="/tests/SimpleTest/ExtensionTestUtils.js"></script>
-  <script type="text/javascript" src="head.js"></script>
   <script type="text/javascript" src="head_webrequest.js"></script>
+  <script type="text/javascript" src="head.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css"/>
 <script>
 "use strict";
 
 let extension;
 add_task(function* setup() {
+  // SelfSupport has a tendency to fire when running this test alone, without
+  // a good way to turn it off we just set the url to ""
+  yield SpecialPowers.pushPrefEnv({
+    set: [["browser.selfsupport.url", ""]],
+  });
+
   // Clear the image cache, since it gets in the way otherwise.
   let imgTools = SpecialPowers.Cc["@mozilla.org/image/tools;1"].getService(SpecialPowers.Ci.imgITools);
   let cache = imgTools.getImgCacheForDocument(document);
@@ -43,9 +49,9 @@ add_task(function* test_webRequest_links() {
       cancel: "onBeforeRequest",
     },
     "file_style_redirect.css": {
-      status: 302,
       type: "stylesheet",
       events: ["onBeforeRequest", "onBeforeSendHeaders", "onBeforeRedirect"],
+      optional_events: ["onHeadersReceived"],
       redirect: "file_style_good.css",
     },
     "file_style_good.css": {
@@ -72,9 +78,9 @@ add_task(function* test_webRequest_images() {
       cancel: "onBeforeRequest",
     },
     "file_image_redirect.png": {
-      status: 302,
       type: "image",
       events: ["onBeforeRequest", "onBeforeSendHeaders", "onBeforeRedirect"],
+      optional_events: ["onHeadersReceived"],
       redirect: "file_image_good.png",
     },
     "file_image_good.png": {
@@ -98,9 +104,9 @@ add_task(function* test_webRequest_scripts() {
       cancel: "onBeforeRequest",
     },
     "file_script_redirect.js": {
-      status: 302,
       type: "script",
       events: ["onBeforeRequest", "onBeforeSendHeaders", "onBeforeRedirect"],
+      optional_events: ["onHeadersReceived"],
       redirect: "file_script_good.js",
     },
     "file_script_good.js": {
@@ -234,6 +240,45 @@ add_task(function* test_webRequest_tabId() {
   yield extension.awaitMessage("done");
 });
 
+add_task(function* test_webRequest_tabId_browser() {
+  async function background(url) {
+    let tabId;
+    browser.test.onMessage.addListener(async (msg, expected) => {
+      await browser.tabs.remove(tabId);
+      browser.test.sendMessage("done");
+    });
+
+    let tab = await browser.tabs.create({url});
+    tabId = tab.id;
+  }
+
+  let tabExt = ExtensionTestUtils.loadExtension({
+    manifest: {
+      permissions: [
+        "tabs",
+      ],
+    },
+    background: `(${background})('${SimpleTest.getTestFileURL("file_sample.html")}?nocache=${Math.random()}')`,
+  });
+
+  let expect = {
+    "file_sample.html": {
+      type: "main_frame",
+    },
+  };
+  // expecting origin == undefined
+  extension.sendMessage("set-expected", {expect});
+  yield extension.awaitMessage("continue");
+
+  // open a tab from a system principal
+  yield tabExt.startup();
+
+  yield extension.awaitMessage("done");
+  tabExt.sendMessage("done");
+  yield tabExt.awaitMessage("done");
+  yield tabExt.unload();
+});
+
 add_task(function* test_webRequest_frames() {
   let expect = {
     "text/plain,webRequestTest": {
@@ -242,7 +287,7 @@ add_task(function* test_webRequest_frames() {
     },
     "text/plain,webRequestTest_bad": {
       type: "sub_frame",
-      events: ["onBeforeRequest", "onErrorOccurred"],
+      events: ["onBeforeRequest", "onCompleted"],
       cancel: "onBeforeRequest",
     },
     "redirection.sjs": {

@@ -614,6 +614,15 @@ pref("media.cache_readahead_limit", 30);
 // chronically starved of video frames. All decoders seen so far have a value
 // of at least 4.
 pref("media.video-queue.default-size", 3);
+// The maximum number of queued frames to send to the compositor.
+// On Android, it needs to be throttled because SurfaceTexture contains only one
+// (the most recent) image data.
+pref("media.video-queue.send-to-compositor-size", 1);
+
+#ifdef NIGHTLY_BUILD
+// Allow to check if the decoder supports recycling only on Fennec nightly build.
+pref("media.decoder.recycle.enabled", true);
+#endif
 
 // Enable the MediaCodec PlatformDecoderModule by default.
 pref("media.android-media-codec.enabled", true);
@@ -839,9 +848,6 @@ pref("reader.toolbar.vertical", false);
 // Whether to use the unified telemetry behavior, requires a restart.
 pref("toolkit.telemetry.unified", false);
 
-// Unified AccessibleCarets (touch-caret and selection-carets).
-pref("layout.accessiblecaret.enabled", true);
-
 // AccessibleCaret CSS for the Android L style assets.
 pref("layout.accessiblecaret.width", "22.0");
 pref("layout.accessiblecaret.height", "22.0");
@@ -904,8 +910,13 @@ pref("identity.fxaccounts.remote.oauth.uri", "https://oauth.accounts.firefox.com
 // Token server used by Firefox Account-authenticated Sync.
 pref("identity.sync.tokenserver.uri", "https://token.services.mozilla.com/1.0/sync/1.5");
 
-// Enable Presentation API
-pref("dom.presentation.enabled", false);
+#ifndef RELEASE_OR_BETA
+// Enable Presentation API on Nightly
+pref("dom.presentation.enabled", true);
+pref("dom.presentation.controller.enabled", true); // enable 1-UA mode
+pref("dom.presentation.receiver.enabled", true); // enable 1-UA mode
+#endif
+
 pref("dom.presentation.discovery.enabled", true);
 pref("dom.presentation.discovery.legacy.enabled", true); // for TV 2.5 backward capability
 

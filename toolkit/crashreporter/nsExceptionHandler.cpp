@@ -292,8 +292,14 @@ static char* childCrashNotifyPipe;
 #  elif defined(XP_LINUX)
 static int serverSocketFd = -1;
 static int clientSocketFd = -1;
-static const int kMagicChildCrashReportFd = 4;
-
+static int gMagicChildCrashReportFd =
+#    if defined(MOZ_WIDGET_ANDROID)
+// On android the fd is set at the time of child creation.
+-1
+#    else
+4
+#    endif // defined(MOZ_WIDGET_ANDROID)
+;
 #  endif
 
 // |dumpMapLock| must protect all access to |pidToMinidump|.
@@ -2113,15 +2119,6 @@ static void ReplaceChar(nsCString& str, const nsACString& character,
   }
 }
 
-static bool DoFindInReadable(const nsACString& str, const nsACString& value)
-{
-  nsACString::const_iterator start, end;
-  str.BeginReading(start);
-  str.EndReading(end);
-
-  return FindInReadable(value, start, end);
-}
-
 static bool
 IsInWhitelist(const nsACString& key)
 {
@@ -2140,11 +2137,11 @@ IsInWhitelist(const nsACString& key)
 static nsresult
 EscapeAnnotation(const nsACString& key, const nsACString& data, nsCString& escapedData)
 {
-  if (DoFindInReadable(key, NS_LITERAL_CSTRING("=")) ||
-      DoFindInReadable(key, NS_LITERAL_CSTRING("\n")))
+  if (FindInReadable(NS_LITERAL_CSTRING("="), key) ||
+      FindInReadable(NS_LITERAL_CSTRING("\n"), key))
     return NS_ERROR_INVALID_ARG;
 
-  if (DoFindInReadable(data, NS_LITERAL_CSTRING("\0")))
+  if (FindInReadable(NS_LITERAL_CSTRING("\0"), data))
     return NS_ERROR_INVALID_ARG;
 
   escapedData = data;
@@ -2303,7 +2300,7 @@ nsresult AppendAppNotesToCrashReport(const nsACString& data)
   if (!GetEnabled())
     return NS_ERROR_NOT_INITIALIZED;
 
-  if (DoFindInReadable(data, NS_LITERAL_CSTRING("\0")))
+  if (FindInReadable(NS_LITERAL_CSTRING("\0"), data))
     return NS_ERROR_INVALID_ARG;
 
   if (!XRE_IsParentProcess()) {
@@ -3443,7 +3440,7 @@ OOPInit()
 #elif defined(XP_LINUX)
   if (!CrashGenerationServer::CreateReportChannel(&serverSocketFd,
                                                   &clientSocketFd))
-    NS_RUNTIMEABORT("can't create crash reporter socketpair()");
+    MOZ_CRASH("can't create crash reporter socketpair()");
 
   const std::string dumpPath =
       gExceptionHandler->minidump_descriptor().directory();
@@ -3471,7 +3468,7 @@ OOPInit()
 #endif
 
   if (!crashServer->Start())
-    NS_RUNTIMEABORT("can't start crash reporter server()");
+    MOZ_CRASH("can't start crash reporter server()");
 
   pidToMinidump = new ChildMinidumpMap();
 
@@ -3722,7 +3719,7 @@ CreateNotificationPipeForChild(int* childCrashFd, int* childCrashRemapFd)
   MOZ_ASSERT(OOPInitialized());
 
   *childCrashFd = clientSocketFd;
-  *childCrashRemapFd = kMagicChildCrashReportFd;
+  *childCrashRemapFd = gMagicChildCrashReportFd;
 
   return true;
 }
@@ -3742,7 +3739,7 @@ SetRemoteExceptionHandler()
                      nullptr,    // no minidump callback
                      nullptr,    // no callback context
                      true,       // install signal handlers
-                     kMagicChildCrashReportFd);
+                     gMagicChildCrashReportFd);
 
   if (gDelayedAnnotations) {
     for (uint32_t i = 0; i < gDelayedAnnotations->Length(); i++) {
@@ -4096,6 +4093,11 @@ UnsetRemoteExceptionHandler()
 }
 
 #if defined(MOZ_WIDGET_ANDROID)
+void SetNotificationPipeForChild(int childCrashFd)
+{
+  gMagicChildCrashReportFd = childCrashFd;
+}
+
 void AddLibraryMapping(const char* library_name,
                        uintptr_t   start_address,
                        size_t      mapping_length,

@@ -21,7 +21,7 @@ tracker.persistChangedIDs = false;
 var fxuri = Utils.makeURI("http://getfirefox.com/");
 var tburi = Utils.makeURI("http://getthunderbird.com/");
 
-add_task(function* test_ignore_specials() {
+add_task(async function test_ignore_specials() {
   _("Ensure that we can't delete bookmark roots.");
 
   // Belt...
@@ -30,7 +30,7 @@ add_task(function* test_ignore_specials() {
   do_check_neq(null, store.idForGUID("toolbar"));
 
   store.applyIncoming(record);
-  yield store.deletePending();
+  await store.deletePending();
 
   // Ensure that the toolbar exists.
   do_check_neq(null, store.idForGUID("toolbar"));
@@ -40,7 +40,7 @@ add_task(function* test_ignore_specials() {
 
   // Braces...
   store.remove(record);
-  yield store.deletePending();
+  await store.deletePending();
   do_check_neq(null, store.idForGUID("toolbar"));
   engine._buildGUIDMap();
 
@@ -167,7 +167,7 @@ add_test(function test_bookmark_createRecord() {
 
     _("Verify that the record is created accordingly.");
     let record = store.createRecord(bmk1_guid);
-    do_check_eq(record.title, null);
+    do_check_eq(record.title, "");
     do_check_eq(record.description, null);
     do_check_eq(record.keyword, null);
 
@@ -244,7 +244,7 @@ add_test(function test_folder_createRecord() {
   }
 });
 
-add_task(function* test_deleted() {
+add_task(async function test_deleted() {
   try {
     _("Create a bookmark that will be deleted.");
     let bmk1_id = PlacesUtils.bookmarks.insertBookmark(
@@ -256,7 +256,7 @@ add_task(function* test_deleted() {
     let record = new PlacesItem("bookmarks", bmk1_guid);
     record.deleted = true;
     store.applyIncoming(record);
-    yield store.deletePending();
+    await store.deletePending();
     _("Ensure it has been deleted.");
     let error;
     try {
@@ -438,8 +438,10 @@ function assertDeleted(id) {
   equal(error.result, Cr.NS_ERROR_ILLEGAL_VALUE)
 }
 
-add_task(function* test_delete_buffering() {
+add_task(async function test_delete_buffering() {
   store.wipe();
+  await PlacesTestUtils.markBookmarksAsSynced();
+
   try {
     _("Create a folder with two bookmarks.");
     let folder = new BookmarkFolder("bookmarks", "testfolder-1");
@@ -503,20 +505,20 @@ add_task(function* test_delete_buffering() {
 
     equal(PlacesUtils.bookmarks.getFolderIdForItem(fxRecordId), folderId);
 
-    ok(store._foldersToDelete.has(folder.id));
-    ok(store._atomsToDelete.has(fxRecord.id));
-    ok(!store._atomsToDelete.has(tbRecord.id));
+    ok(store._itemsToDelete.has(folder.id));
+    ok(store._itemsToDelete.has(fxRecord.id));
+    ok(!store._itemsToDelete.has(tbRecord.id));
 
     _("Process pending deletions and ensure that the right things are deleted.");
-    let updatedGuids = yield store.deletePending();
+    let newChangeRecords = await store.deletePending();
 
-    deepEqual(updatedGuids.sort(), ["get-tndrbrd1", "toolbar"]);
+    deepEqual(Object.keys(newChangeRecords).sort(), ["get-tndrbrd1", "toolbar"]);
 
     assertDeleted(fxRecordId);
     assertDeleted(folderId);
 
-    ok(!store._foldersToDelete.has(folder.id));
-    ok(!store._atomsToDelete.has(fxRecord.id));
+    ok(!store._itemsToDelete.has(folder.id));
+    ok(!store._itemsToDelete.has(fxRecord.id));
 
     equal(PlacesUtils.bookmarks.getFolderIdForItem(tbRecordId),
           PlacesUtils.bookmarks.toolbarFolder);

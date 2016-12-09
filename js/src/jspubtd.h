@@ -19,6 +19,7 @@
 #include "jsprototypes.h"
 #include "jstypes.h"
 
+#include "js/Result.h"
 #include "js/TraceKind.h"
 #include "js/TypeDecls.h"
 
@@ -147,7 +148,7 @@ namespace JS {
 
 class JS_PUBLIC_API(AutoEnterCycleCollection);
 class JS_PUBLIC_API(AutoAssertOnBarrier);
-struct PropertyDescriptor;
+struct JS_PUBLIC_API(PropertyDescriptor);
 
 typedef void (*OffThreadCompileCallback)(void* token, void* callbackData);
 

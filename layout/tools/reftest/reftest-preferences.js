@@ -29,7 +29,9 @@ user_pref("urlclassifier.updateinterval", 172800);
 // Disable downscale-during-decode, since it makes reftests more difficult.
 user_pref("image.downscale-during-decode.enabled", false);
 // Checking whether two files are the same is slow on Windows.
-// Setting this pref makes tests run much faster there.
+// Setting this pref makes tests run much faster there. Reftests also
+// rely on this to load downloadable fonts (which are restricted to same
+// origin policy by default) from outside their directory.
 user_pref("security.fileuri.strict_origin_policy", false);
 // Disable the thumbnailing service
 user_pref("browser.pagethumbnails.capturing_disabled", true);
@@ -122,3 +124,5 @@ user_pref("places.history.enabled", false);
 // For Firefox 52 only, ESR will support non-Flash plugins while release will
 // not, so we keep testing the non-Flash pathways
 user_pref("plugin.load_flash_only", false);
+
+user_pref("media.openUnsupportedTypeWithExternalApp", false);

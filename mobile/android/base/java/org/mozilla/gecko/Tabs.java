@@ -108,6 +108,7 @@ public class Tabs implements GeckoEventListener {
             "Tab:Added",
             "Tab:Close",
             "Tab:Select",
+            "Tab:SelectAndForeground",
             "Content:LocationChange",
             "Content:SecurityChange",
             "Content:StateChange",
@@ -265,7 +266,7 @@ public class Tabs implements GeckoEventListener {
         // This avoids a NPE below, but callers need to be careful to
         // handle this case.
         if (tab == null || oldTab == tab) {
-            return null;
+            return tab;
         }
 
         mSelectedTab = tab;
@@ -523,6 +524,9 @@ public class Tabs implements GeckoEventListener {
             if (event.equals("Tab:Close")) {
                 closeTab(tab);
             } else if (event.equals("Tab:Select")) {
+                selectTab(tab.getId());
+            } else if (event.equals("Tab:SelectAndForeground")) {
+                GeckoAppShell.launchOrBringToFront();
                 selectTab(tab.getId());
             } else if (event.equals("Content:LocationChange")) {
                 tab.handleLocationChange(message);

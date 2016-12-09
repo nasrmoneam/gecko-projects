@@ -208,6 +208,7 @@ const PREF_SEARCH_COHORT = "browser.search.cohort";
 const PREF_E10S_COHORT = "e10s.rollout.cohort";
 
 const COMPOSITOR_CREATED_TOPIC = "compositor:created";
+const COMPOSITOR_PROCESS_ABORTED_TOPIC = "compositor:process-aborted";
 const DISTRIBUTION_CUSTOMIZATION_COMPLETE_TOPIC = "distribution-customization-complete";
 const EXPERIMENTS_CHANGED_TOPIC = "experiments-changed";
 const GFX_FEATURES_READY_TOPIC = "gfx-features-ready";
@@ -488,7 +489,7 @@ EnvironmentAddonBuilder.prototype = {
   },
 
   // nsIObserver
-  observe: function (aSubject, aTopic, aData) {
+  observe: function(aSubject, aTopic, aData) {
     this._environment._log.trace("observe - Topic " + aTopic);
     this._checkForChanges("experiment-changed");
   },
@@ -653,7 +654,7 @@ EnvironmentAddonBuilder.prototype = {
    * Get the plugins data in object form.
    * @return Object containing the plugins data.
    */
-  _getActivePlugins: function () {
+  _getActivePlugins: function() {
     let pluginTags =
       Cc["@mozilla.org/plugin/host;1"].getService(Ci.nsIPluginHost).getPluginTags({});
 
@@ -724,7 +725,7 @@ EnvironmentAddonBuilder.prototype = {
    * Get the active experiment data in object form.
    * @return Object containing the active experiment data.
    */
-  _getActiveExperiment: function () {
+  _getActiveExperiment: function() {
     let experimentInfo = {};
     try {
       let scope = {};
@@ -840,7 +841,7 @@ EnvironmentCache.prototype = {
    * @param listener function(reason, oldEnvironment) - Will receive a reason for
                      the change and the environment data before the change.
    */
-  registerChangeListener: function (name, listener) {
+  registerChangeListener: function(name, listener) {
     this._log.trace("registerChangeListener for " + name);
     if (this._shutdown) {
       this._log.warn("registerChangeListener - already shutdown");
@@ -854,7 +855,7 @@ EnvironmentCache.prototype = {
    * It's fine to call this on an unitialized TelemetryEnvironment.
    * @param name The name of the listener to remove.
    */
-  unregisterChangeListener: function (name) {
+  unregisterChangeListener: function(name) {
     this._log.trace("unregisterChangeListener for " + name);
     if (this._shutdown) {
       this._log.warn("registerChangeListener - already shutdown");
@@ -872,7 +873,7 @@ EnvironmentCache.prototype = {
    * Only used in tests, set the preferences to watch.
    * @param aPreferences A map of preferences names and their recording policy.
    */
-  _watchPreferences: function (aPreferences) {
+  _watchPreferences: function(aPreferences) {
     this._stopWatchingPrefs();
     this._watchedPrefs = aPreferences;
     this._updateSettings();
@@ -885,7 +886,7 @@ EnvironmentCache.prototype = {
    *
    * @return An object containing the preferences values.
    */
-  _getPrefData: function () {
+  _getPrefData: function() {
     let prefData = {};
     for (let [pref, policy] of this._watchedPrefs.entries()) {
       // Only record preferences if they are non-default
@@ -909,7 +910,7 @@ EnvironmentCache.prototype = {
   /**
    * Start watching the preferences.
    */
-  _startWatchingPrefs: function () {
+  _startWatchingPrefs: function() {
     this._log.trace("_startWatchingPrefs - " + this._watchedPrefs);
 
     for (let [pref, options] of this._watchedPrefs) {
@@ -929,7 +930,7 @@ EnvironmentCache.prototype = {
   /**
    * Do not receive any more change notifications for the preferences.
    */
-  _stopWatchingPrefs: function () {
+  _stopWatchingPrefs: function() {
     this._log.trace("_stopWatchingPrefs");
 
     for (let [pref, options] of this._watchedPrefs) {
@@ -939,17 +940,19 @@ EnvironmentCache.prototype = {
     }
   },
 
-  _addObservers: function () {
+  _addObservers: function() {
     // Watch the search engine change and service topics.
     Services.obs.addObserver(this, COMPOSITOR_CREATED_TOPIC, false);
+    Services.obs.addObserver(this, COMPOSITOR_PROCESS_ABORTED_TOPIC, false);
     Services.obs.addObserver(this, DISTRIBUTION_CUSTOMIZATION_COMPLETE_TOPIC, false);
     Services.obs.addObserver(this, GFX_FEATURES_READY_TOPIC, false);
     Services.obs.addObserver(this, SEARCH_ENGINE_MODIFIED_TOPIC, false);
     Services.obs.addObserver(this, SEARCH_SERVICE_TOPIC, false);
   },
 
-  _removeObservers: function () {
+  _removeObservers: function() {
     Services.obs.removeObserver(this, COMPOSITOR_CREATED_TOPIC);
+    Services.obs.removeObserver(this, COMPOSITOR_PROCESS_ABORTED_TOPIC);
     try {
       Services.obs.removeObserver(this, DISTRIBUTION_CUSTOMIZATION_COMPLETE_TOPIC);
     } catch (ex) {}
@@ -958,7 +961,7 @@ EnvironmentCache.prototype = {
     Services.obs.removeObserver(this, SEARCH_SERVICE_TOPIC);
   },
 
-  observe: function (aSubject, aTopic, aData) {
+  observe: function(aSubject, aTopic, aData) {
     this._log.trace("observe - aTopic: " + aTopic + ", aData: " + aData);
     switch (aTopic) {
       case SEARCH_ENGINE_MODIFIED_TOPIC:
@@ -982,6 +985,11 @@ EnvironmentCache.prototype = {
         // first compositor to be created and then query nsIGfxInfo again.
         this._updateGraphicsFeatures();
         break;
+      case COMPOSITOR_PROCESS_ABORTED_TOPIC:
+        // Our compositor process has been killed for whatever reason, so refresh
+        // our reported graphics features and trigger an environment change.
+        this._onCompositorProcessAborted();
+        break;
       case DISTRIBUTION_CUSTOMIZATION_COMPLETE_TOPIC:
         // Distribution customizations are applied after final-ui-startup. query
         // partner prefs again when they are ready.
@@ -996,7 +1004,7 @@ EnvironmentCache.prototype = {
    * @return {String} Returns the search engine identifier, "NONE" if no default search
    *         engine is defined or "UNDEFINED" if no engine identifier or name can be found.
    */
-  _getDefaultSearchEngine: function () {
+  _getDefaultSearchEngine: function() {
     let engine;
     try {
       engine = Services.search.defaultEngine;
@@ -1019,7 +1027,7 @@ EnvironmentCache.prototype = {
   /**
    * Update the default search engine value.
    */
-  _updateSearchEngine: function () {
+  _updateSearchEngine: function() {
     if (!Services.search) {
       // Just ignore cases where the search service is not implemented.
       return;
@@ -1045,7 +1053,7 @@ EnvironmentCache.prototype = {
   /**
    * Update the default search engine value and trigger the environment change.
    */
-  _onSearchEngineChange: function () {
+  _onSearchEngineChange: function() {
     this._log.trace("_onSearchEngineChange");
 
     // Finally trigger the environment change notification.
@@ -1055,9 +1063,23 @@ EnvironmentCache.prototype = {
   },
 
   /**
+   * Refresh the Telemetry environment and trigger an environment change due to
+   * a change in compositor process (normally this will mean we've fallen back
+   * from out-of-process to in-process compositing).
+   */
+  _onCompositorProcessAborted: function() {
+    this._log.trace("_onCompositorProcessAborted");
+
+    // Trigger the environment change notification.
+    let oldEnvironment = Cu.cloneInto(this._currentEnvironment, myScope);
+    this._updateGraphicsFeatures();
+    this._onEnvironmentChange("gfx-features-changed", oldEnvironment);
+  },
+
+  /**
    * Update the graphics features object.
    */
-  _updateGraphicsFeatures: function () {
+  _updateGraphicsFeatures: function() {
     let gfxData = this._currentEnvironment.system.gfx;
     try {
       let gfxInfo = Cc["@mozilla.org/gfx/info;1"].getService(Ci.nsIGfxInfo);
@@ -1078,7 +1100,7 @@ EnvironmentCache.prototype = {
    * Get the build data in object form.
    * @return Object containing the build data.
    */
-  _getBuild: function () {
+  _getBuild: function() {
     let buildData = {
       applicationId: Services.appinfo.ID || null,
       applicationName: Services.appinfo.name || null,
@@ -1106,7 +1128,7 @@ EnvironmentCache.prototype = {
    * Determine if we're the default browser.
    * @returns null on error, true if we are the default browser, or false otherwise.
    */
-  _isDefaultBrowser: function () {
+  _isDefaultBrowser: function() {
     if (AppConstants.platform === "gonk") {
       return true;
     }
@@ -1147,7 +1169,7 @@ EnvironmentCache.prototype = {
   /**
    * Update the cached settings data.
    */
-  _updateSettings: function () {
+  _updateSettings: function() {
     let updateChannel = null;
     try {
       updateChannel = UpdateUtils.getUpdateChannel(false);
@@ -1218,7 +1240,7 @@ EnvironmentCache.prototype = {
    * Get the partner data in object form.
    * @return Object containing the partner data.
    */
-  _getPartner: function () {
+  _getPartner: function() {
     let partnerData = {
       distributionId: Preferences.get(PREF_DISTRIBUTION_ID, null),
       distributionVersion: Preferences.get(PREF_DISTRIBUTION_VERSION, null),
@@ -1238,7 +1260,7 @@ EnvironmentCache.prototype = {
    * Get the CPU information.
    * @return Object containing the CPU information data.
    */
-  _getCpuData: function () {
+  _getCpuData: function() {
     let cpuData = {
       count: getSysinfoProperty("cpucount", null),
       cores: getSysinfoProperty("cpucores", null),
@@ -1273,7 +1295,7 @@ EnvironmentCache.prototype = {
    * @return Object containing the device information data, or null if
    * not a portable device.
    */
-  _getDeviceData: function () {
+  _getDeviceData: function() {
     if (!["gonk", "android"].includes(AppConstants.platform)) {
       return null;
     }
@@ -1290,7 +1312,7 @@ EnvironmentCache.prototype = {
    * Get the OS information.
    * @return Object containing the OS data.
    */
-  _getOSData: function () {
+  _getOSData: function() {
     let data = {
       name: forceToStringOrNull(getSysinfoProperty("name", null)),
       version: forceToStringOrNull(getSysinfoProperty("version", null)),
@@ -1327,7 +1349,7 @@ EnvironmentCache.prototype = {
    * Get the HDD information.
    * @return Object containing the HDD data.
    */
-  _getHDDData: function () {
+  _getHDDData: function() {
     return {
       profile: { // hdd where the profile folder is located
         model: getSysinfoProperty("profileHDDModel", null),
@@ -1348,7 +1370,7 @@ EnvironmentCache.prototype = {
    * Get the GFX information.
    * @return Object containing the GFX data.
    */
-  _getGFXData: function () {
+  _getGFXData: function() {
     let gfxData = {
       D2DEnabled: getGfxField("D2DEnabled", null),
       DWriteEnabled: getGfxField("DWriteEnabled", null),
@@ -1400,7 +1422,7 @@ EnvironmentCache.prototype = {
    * Get the system data in object form.
    * @return Object containing the system data.
    */
-  _getSystem: function () {
+  _getSystem: function() {
     let memoryMB = getSysinfoProperty("memsize", null);
     if (memoryMB) {
       // Send RAM size in megabytes. Rounding because sysinfo doesn't
@@ -1433,7 +1455,7 @@ EnvironmentCache.prototype = {
     return data;
   },
 
-  _onEnvironmentChange: function (what, oldEnvironment) {
+  _onEnvironmentChange: function(what, oldEnvironment) {
     this._log.trace("_onEnvironmentChange for " + what);
 
     // We are already skipping change events in _checkChanges if there is a pending change task running.
@@ -1452,7 +1474,7 @@ EnvironmentCache.prototype = {
     }
   },
 
-  reset: function () {
+  reset: function() {
     this._shutdown = false;
     this._delayedInitFinished = false;
   }

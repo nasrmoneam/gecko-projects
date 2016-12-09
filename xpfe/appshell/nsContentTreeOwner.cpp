@@ -404,6 +404,14 @@ NS_IMETHODIMP nsContentTreeOwner::ShouldLoadURI(nsIDocShell *aDocShell,
   return NS_OK;
 }
 
+NS_IMETHODIMP nsContentTreeOwner::ShouldLoadURIInThisProcess(nsIURI* aURI,
+                                                             bool* aRetVal)
+{
+  MOZ_ASSERT_UNREACHABLE("Should only be called in child process.");
+  *aRetVal = true;
+  return NS_OK;
+}
+
 NS_IMETHODIMP nsContentTreeOwner::ReloadInFreshProcess(nsIDocShell* aDocShell,
                                                        nsIURI* aURI,
                                                        nsIURI* aReferrer,
@@ -818,7 +826,7 @@ nsContentTreeOwner::ProvideWindow(mozIDOMWindowProxy* aParent,
   // open a modal-type window, we're going to create a new <iframe mozbrowser>
   // and return its window here.
   nsCOMPtr<nsIDocShell> docshell = do_GetInterface(aParent);
-  if (docshell && docshell->GetIsInMozBrowserOrApp() &&
+  if (docshell && docshell->GetIsInMozBrowser() &&
       !(aChromeFlags & (nsIWebBrowserChrome::CHROME_MODAL |
                         nsIWebBrowserChrome::CHROME_OPENAS_DIALOG |
                         nsIWebBrowserChrome::CHROME_OPENAS_CHROME))) {

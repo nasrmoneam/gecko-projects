@@ -27,10 +27,8 @@ interfaces = [
     'offline',
     'geolocation',
     'notification',
-    'permission',
     'svg',
     'smil',
-    'apps',
     'push',
 ]
 
@@ -38,7 +36,6 @@ DIRS += ['interfaces/' + i for i in interfaces]
 
 DIRS += [
     'animation',
-    'apps',
     'base',
     'archivereader',
     'bindings',
@@ -51,6 +48,7 @@ DIRS += [
     'encoding',
     'events',
     'fetch',
+    'file',
     'filehandle',
     'filesystem',
     'flyweb',
@@ -58,7 +56,6 @@ DIRS += [
     'geolocation',
     'grid',
     'html',
-    'inputport',
     'json',
     'jsurl',
     'asmjscache',
@@ -106,13 +103,6 @@ DIRS += [
 
 if CONFIG['OS_ARCH'] == 'WINNT':
     DIRS += ['plugins/ipc/hangui']
-
-if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk':
-    DIRS += [
-        'speakermanager',
-        'tethering',
-        'wifi',
-    ]
 
 if CONFIG['MOZ_SECUREELEMENT']:
     DIRS += ['secureelement']

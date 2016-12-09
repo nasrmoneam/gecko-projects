@@ -33,6 +33,7 @@ var {
   SpreadArgs,
   getConsole,
   getInnerWindowID,
+  getUniqueId,
   runSafeSync,
   runSafeSyncWithoutClone,
   instanceOf,
@@ -40,15 +41,13 @@ var {
 
 XPCOMUtils.defineLazyGetter(this, "console", getConsole);
 
-let gContextId = 0;
-
 class BaseContext {
   constructor(envType, extension) {
     this.envType = envType;
     this.onClose = new Set();
     this.checkedLastError = false;
     this._lastError = null;
-    this.contextId = `${++gContextId}-${Services.appinfo.uniqueProcessID}`;
+    this.contextId = getUniqueId();
     this.unloaded = false;
     this.extension = extension;
     this.jsonSandbox = null;
@@ -201,8 +200,6 @@ class BaseContext {
     options.recipient = options.recipient || {};
     options.sender = options.sender || {};
 
-    // TODO(robwu): This should not unconditionally be overwritten once we
-    // support onMessageExternal / onConnectExternal (bugzil.la/1258360).
     options.recipient.extensionId = this.extension.id;
     options.sender.extensionId = this.extension.id;
     options.sender.contextId = this.contextId;
@@ -545,6 +542,7 @@ class SchemaAPIManager extends EventEmitter {
    *     "main" - The main, one and only chrome browser process.
    *     "addon" - An addon process.
    *     "content" - A content process.
+   *     "devtools" - A devtools process.
    */
   constructor(processType) {
     super();
@@ -556,6 +554,8 @@ class SchemaAPIManager extends EventEmitter {
       addon_child: [],
       content_parent: [],
       content_child: [],
+      devtools_parent: [],
+      devtools_child: [],
     };
   }
 
@@ -611,6 +611,8 @@ class SchemaAPIManager extends EventEmitter {
    *     - "addon_child" - addon APIs that runs in an addon process.
    *     - "content_parent" - content script APIs that runs in the main process.
    *     - "content_child" - content script APIs that runs in a content process.
+   *     - "devtools_parent" - devtools APIs that runs in the main process.
+   *     - "devtools_child" - devtools APIs that runs in a devtools process.
    * @param {function(BaseContext)} getAPI A function that returns an object
    *     that will be merged with |chrome| and |browser|. The next example adds
    *     the create, update and remove methods to the tabs API.

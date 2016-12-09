@@ -30,7 +30,7 @@ pref("devtools.toolbox.sidebar.width", 500);
 pref("devtools.toolbox.host", "bottom");
 pref("devtools.toolbox.previousHost", "side");
 pref("devtools.toolbox.selectedTool", "webconsole");
-pref("devtools.toolbox.toolbarSpec", '["splitconsole", "paintflashing toggle","scratchpad","resize toggle","screenshot --fullpage", "rulers", "measure"]');
+pref("devtools.toolbox.toolbarSpec", '["splitconsole", "paintflashing toggle","scratchpad","resize toggle","screenshot --fullpage --file", "rulers", "measure"]');
 pref("devtools.toolbox.sideEnabled", true);
 pref("devtools.toolbox.zoomValue", "1");
 pref("devtools.toolbox.splitconsoleEnabled", false);
@@ -70,6 +70,10 @@ pref("devtools.fontinspector.enabled", true);
 // Enable the Layout View
 pref("devtools.layoutview.enabled", false);
 
+// Grid highlighter preferences
+pref("devtools.gridinspector.showGridLineNumbers", false);
+pref("devtools.gridinspector.showInfiniteLines", false);
+
 // By how many times eyedropper will magnify pixels
 pref("devtools.eyedropper.zoom", 6);
 
@@ -100,12 +104,7 @@ pref("devtools.debugger.pretty-print-enabled", true);
 pref("devtools.debugger.auto-pretty-print", false);
 pref("devtools.debugger.auto-black-box", true);
 pref("devtools.debugger.workers", false);
-
-#if defined(NIGHTLY_BUILD)
 pref("devtools.debugger.new-debugger-frontend", true);
-#else
-pref("devtools.debugger.new-debugger-frontend", false);
-#endif
 
 // The default Debugger UI settings
 pref("devtools.debugger.ui.panes-workers-and-sources-width", 200);
@@ -215,6 +214,10 @@ pref("devtools.styleeditor.mediaSidebarWidth", 238);
 pref("devtools.styleeditor.navSidebarWidth", 245);
 pref("devtools.styleeditor.transitions", true);
 
+// Screenshot Option Settings.
+pref("devtools.screenshot.clipboard.enabled", false);
+pref("devtools.screenshot.audio.enabled", true);
+
 // Enable the Shader Editor.
 pref("devtools.shadereditor.enabled", false);
 
@@ -246,6 +249,7 @@ pref("devtools.webconsole.filter.warn", true);
 pref("devtools.webconsole.filter.info", true);
 pref("devtools.webconsole.filter.log", true);
 pref("devtools.webconsole.filter.debug", true);
+pref("devtools.webconsole.filter.css", false);
 pref("devtools.webconsole.filter.net", false);
 pref("devtools.webconsole.filter.netxhr", false);
 // Deprecated - old console frontend

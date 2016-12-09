@@ -387,6 +387,8 @@ class AssemblerX86Shared : public AssemblerShared
     static Condition UnsignedCondition(Condition cond);
     static Condition ConditionWithoutEqual(Condition cond);
 
+    static DoubleCondition InvertCondition(DoubleCondition cond);
+
     // Return the primary condition to test. Some primary conditions may not
     // handle NaNs properly and may therefore require a secondary condition.
     // Use NaNCondFromDoubleCondition to determine what else is needed.
@@ -1057,17 +1059,24 @@ class AssemblerX86Shared : public AssemblerShared
     CodeOffset callWithPatch() {
         return CodeOffset(masm.call().offset());
     }
+
+    struct AutoPrepareForPatching : X86Encoding::AutoUnprotectAssemblerBufferRegion {
+        explicit AutoPrepareForPatching(AssemblerX86Shared& masm)
+          : X86Encoding::AutoUnprotectAssemblerBufferRegion(masm.masm, 0, masm.size())
+        {}
+    };
+
     void patchCall(uint32_t callerOffset, uint32_t calleeOffset) {
+        // The caller uses AutoUnprotectBuffer.
         unsigned char* code = masm.data();
-        X86Encoding::AutoUnprotectAssemblerBufferRegion unprotect(masm, callerOffset - 4, 4);
         X86Encoding::SetRel32(code + callerOffset, code + calleeOffset);
     }
     CodeOffset farJumpWithPatch() {
         return CodeOffset(masm.jmp().offset());
     }
     void patchFarJump(CodeOffset farJump, uint32_t targetOffset) {
+        // The caller uses AutoUnprotectBuffer.
         unsigned char* code = masm.data();
-        X86Encoding::AutoUnprotectAssemblerBufferRegion unprotect(masm, farJump.offset() - 4, 4);
         X86Encoding::SetRel32(code + farJump.offset(), code + targetOffset);
     }
     static void repatchFarJump(uint8_t* code, uint32_t farJumpOffset, uint32_t targetOffset) {

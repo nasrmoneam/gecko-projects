@@ -185,14 +185,19 @@ FromView(WebGLContext* webgl, const char* funcName, TexImageTarget target,
 
 static UniquePtr<webgl::TexUnpackBytes>
 FromPboOffset(WebGLContext* webgl, const char* funcName, TexImageTarget target,
-              uint32_t width, uint32_t height, uint32_t depth, WebGLsizeiptr pboOffset,
-              size_t availBufferBytes)
+              uint32_t width, uint32_t height, uint32_t depth, WebGLsizeiptr pboOffset)
 {
     if (pboOffset < 0) {
         webgl->ErrorInvalidValue("%s: offset cannot be negative.", funcName);
         return nullptr;
     }
 
+    const auto& buffer = webgl->ValidateBufferSelection(funcName,
+                                                        LOCAL_GL_PIXEL_UNPACK_BUFFER);
+    if (!buffer)
+        return nullptr;
+
+    size_t availBufferBytes = buffer->ByteLength();
     if (size_t(pboOffset) > availBufferBytes) {
         webgl->ErrorInvalidOperation("%s: Offset is passed end of buffer.", funcName);
         return nullptr;
@@ -366,25 +371,12 @@ WebGLContext::From(const char* funcName, TexImageTarget target, GLsizei rawWidth
     }
 
     if (src.mPboOffset) {
-        if (!mBoundPixelUnpackBuffer) {
-            ErrorInvalidOperation("%s: PACK_BUFFER must be non-null.", funcName);
-            return nullptr;
-        }
-
-        if (mBoundPixelUnpackBuffer->mNumActiveTFOs) {
-            ErrorInvalidOperation("%s: Buffer is bound to an active transform feedback"
-                                  " object.",
-                                  funcName);
-            return nullptr;
-        }
-
-        const auto& availBytes = mBoundPixelUnpackBuffer->ByteLength();
         return FromPboOffset(this, funcName, target, width, height, depth,
-                             *(src.mPboOffset), availBytes);
+                             *(src.mPboOffset));
     }
 
     if (mBoundPixelUnpackBuffer) {
-        ErrorInvalidOperation("%s: PACK_BUFFER must be null.", funcName);
+        ErrorInvalidOperation("%s: PIXEL_UNPACK_BUFFER must be null.", funcName);
         return nullptr;
     }
 
@@ -939,6 +931,16 @@ ValidateCompressedTexImageRestrictions(const char* funcName, WebGLContext* webgl
     };
 
     switch (format->compression->family) {
+    case webgl::CompressionFamily::ASTC:
+        if (target == LOCAL_GL_TEXTURE_3D &&
+            !webgl->gl->IsExtensionSupported(gl::GLContext::KHR_texture_compression_astc_hdr))
+        {
+            webgl->ErrorInvalidOperation("%s: TEXTURE_3D requires ASTC's hdr profile.",
+                                         funcName);
+            return false;
+        }
+        break;
+
     case webgl::CompressionFamily::PVRTC:
         if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height)) {
             webgl->ErrorInvalidValue("%s: %s requires power-of-two width and height.",
@@ -1239,8 +1241,11 @@ WebGLTexture::TexImage(const char* funcName, TexImageTarget target, GLint level,
     const GLint zOffset = 0;
 
     GLenum glError;
-    blob->TexOrSubImage(isSubImage, needsRespec, funcName, this, target, level,
-                        driverUnpackInfo, xOffset, yOffset, zOffset, &glError);
+    if (!blob->TexOrSubImage(isSubImage, needsRespec, funcName, this, target, level,
+                             driverUnpackInfo, xOffset, yOffset, zOffset, &glError))
+    {
+        return;
+    }
 
     if (glError == LOCAL_GL_OUT_OF_MEMORY) {
         mContext->ErrorOutOfMemory("%s: Driver ran out of memory during upload.",
@@ -1324,8 +1329,11 @@ WebGLTexture::TexSubImage(const char* funcName, TexImageTarget target, GLint lev
     const bool needsRespec = false;
 
     GLenum glError;
-    blob->TexOrSubImage(isSubImage, needsRespec, funcName, this, target, level,
-                        driverUnpackInfo, xOffset, yOffset, zOffset, &glError);
+    if (!blob->TexOrSubImage(isSubImage, needsRespec, funcName, this, target, level,
+                             driverUnpackInfo, xOffset, yOffset, zOffset, &glError))
+    {
+        return;
+    }
 
     if (glError == LOCAL_GL_OUT_OF_MEMORY) {
         mContext->ErrorOutOfMemory("%s: Driver ran out of memory during upload.",
@@ -1364,25 +1372,12 @@ WebGLContext::FromCompressed(const char* funcName, TexImageTarget target,
     }
 
     if (src.mPboOffset) {
-        if (!mBoundPixelUnpackBuffer) {
-            ErrorInvalidOperation("%s: PACK_BUFFER must be non-null.", funcName);
-            return nullptr;
-        }
-
-        if (mBoundPixelUnpackBuffer->mNumActiveTFOs) {
-            ErrorInvalidOperation("%s: Buffer is bound to an active transform feedback"
-                                  " object.",
-                                  funcName);
-            return nullptr;
-        }
-
-        const auto& availBytes = mBoundPixelUnpackBuffer->ByteLength();
         return FromPboOffset(this, funcName, target, width, height, depth,
-                             *(src.mPboOffset), availBytes);
+                             *(src.mPboOffset));
     }
 
     if (mBoundPixelUnpackBuffer) {
-        ErrorInvalidOperation("%s: PACK_BUFFER must be null.", funcName);
+        ErrorInvalidOperation("%s: PIXEL_UNPACK_BUFFER must be null.", funcName);
         return nullptr;
     }
 
@@ -1912,7 +1907,7 @@ ValidateCopyDestUsage(const char* funcName, WebGLContext* webgl,
 }
 
 bool
-WebGLTexture::ValidateCopyTexImageForFeedback(const char* funcName, uint32_t level) const
+WebGLTexture::ValidateCopyTexImageForFeedback(const char* funcName, uint32_t level, GLint layer) const
 {
     const auto& fb = mContext->mBoundReadFramebuffer;
     if (fb) {
@@ -1920,6 +1915,7 @@ WebGLTexture::ValidateCopyTexImageForFeedback(const char* funcName, uint32_t lev
         MOZ_ASSERT(attach);
 
         if (attach->Texture() == this &&
+            attach->Layer() == layer &&
             uint32_t(attach->MipLevel()) == level)
         {
             // Note that the TexImageTargets *don't* have to match for this to be
@@ -2110,7 +2106,7 @@ WebGLTexture::CopyTexSubImage(const char* funcName, TexImageTarget target, GLint
         return;
     auto srcFormat = srcUsage->format;
 
-    if (!ValidateCopyTexImageForFeedback(funcName, level))
+    if (!ValidateCopyTexImageForFeedback(funcName, level, zOffset))
         return;
 
     ////////////////////////////////////

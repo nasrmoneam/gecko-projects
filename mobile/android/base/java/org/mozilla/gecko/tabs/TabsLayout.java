@@ -30,7 +30,7 @@ public abstract class TabsLayout extends RecyclerView
 
     private final boolean isPrivate;
     private TabsPanel tabsPanel;
-    private final TabsLayoutRecyclerAdapter tabsAdapter;
+    private final TabsLayoutAdapter tabsAdapter;
 
     public TabsLayout(Context context, AttributeSet attrs, int itemViewLayoutResId) {
         super(context, attrs);
@@ -39,7 +39,7 @@ public abstract class TabsLayout extends RecyclerView
         isPrivate = (a.getInt(R.styleable.TabsLayout_tabs, 0x0) == 1);
         a.recycle();
 
-        tabsAdapter = new TabsLayoutRecyclerAdapter(context, itemViewLayoutResId, isPrivate,
+        tabsAdapter = new TabsLayoutAdapter(context, itemViewLayoutResId, isPrivate,
                 /* close on click listener */
                 new Button.OnClickListener() {
                     @Override
@@ -101,8 +101,8 @@ public abstract class TabsLayout extends RecyclerView
                 final int tabIndex = Integer.parseInt(data);
                 tabsAdapter.notifyTabInserted(tab, tabIndex);
                 if (addAtIndexRequiresScroll(tabIndex)) {
-                    // (The current Tabs implementation updates the SELECTED tab *after* this
-                    // call to ADDED, so don't just call updateSelectedPosition().)
+                    // (The SELECTED tab is updated *after* this call to ADDED, so don't just call
+                    // updateSelectedPosition().)
                     scrollToPosition(tabIndex);
                 }
                 break;
@@ -124,23 +124,34 @@ public abstract class TabsLayout extends RecyclerView
         }
     }
 
-    // Addition of a tab at selected positions (dependent on LayoutManager) will result in a tab
-    // being added out of view - return true if index is such a position.
+    /**
+     * Addition of a tab at selected positions (dependent on LayoutManager) will result in a tab
+     * being added out of view - return true if {@code index} is such a position.
+     */
     abstract protected boolean addAtIndexRequiresScroll(int index);
+
+    protected int getSelectedAdapterPosition() {
+        return tabsAdapter.getPositionForTab(Tabs.getInstance().getSelectedTab());
+    }
 
     @Override
     public void onItemClicked(RecyclerView recyclerView, int position, View v) {
         final TabsLayoutItemView item = (TabsLayoutItemView) v;
         final int tabId = item.getTabId();
-        final Tabs tabs = Tabs.getInstance();
-        tabs.selectTab(tabId);
+        final Tab tab = Tabs.getInstance().selectTab(tabId);
+        if (tab == null) {
+            // The tab that was clicked no longer exists in the tabs list (which can happen if you
+            // tap on a tab while its remove animation is running), so ignore the click.
+            return;
+        }
+
         autoHidePanel();
-        tabs.notifyListeners(tabs.getTab(tabId), Tabs.TabEvents.OPENED_FROM_TABS_TRAY);
+        Tabs.getInstance().notifyListeners(tab, Tabs.TabEvents.OPENED_FROM_TABS_TRAY);
     }
 
-    // Updates the selected position in the list so that it will be scrolled to the right place.
-    private void updateSelectedPosition() {
-        final int selected = tabsAdapter.getPositionForTab(Tabs.getInstance().getSelectedTab());
+    /** Updates the selected position in the list so that it will be scrolled to the right place. */
+    protected void updateSelectedPosition() {
+        final int selected = getSelectedAdapterPosition();
         if (selected != NO_POSITION) {
             scrollToPosition(selected);
         }
@@ -165,9 +176,14 @@ public abstract class TabsLayout extends RecyclerView
     private void closeTab(View view) {
         final TabsLayoutItemView itemView = (TabsLayoutItemView) view;
         final Tab tab = getTabForView(itemView);
+        if (tab == null) {
+            // We can be null here if this is the second closeTab call resulting from a sufficiently
+            // fast double tap on the close tab button.
+            return;
+        }
+
         final boolean closingLastTab = tabsAdapter.getItemCount() == 1;
         Tabs.getInstance().closeTab(tab, true);
-
         if (closingLastTab) {
             autoHidePanel();
         }
@@ -187,6 +203,15 @@ public abstract class TabsLayout extends RecyclerView
     @Override
     public void onItemDismiss(View view) {
         closeTab(view);
+    }
+
+    @Override
+    public void onChildAttachedToWindow(View child) {
+        // Make sure we reset any attributes that may have been animated in this child's previous
+        // incarnation.
+        child.setTranslationX(0);
+        child.setTranslationY(0);
+        child.setAlpha(1);
     }
 
     private Tab getTabForView(View view) {

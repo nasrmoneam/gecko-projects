@@ -89,20 +89,7 @@ task_description_schema = Schema({
         'product': Any('firefox', 'mobile'),
 
         # the names to use for this job in the TaskCluster index
-        'job-name': Any(
-            # Assuming the job is named "normally", this is the v2 job name,
-            # and the v1 and buildbot routes will be determined appropriately.
-            basestring,
-
-            # otherwise, give separate names for each of the legacy index
-            # routes; if a name is omitted, no corresponding route will be
-            # created.
-            {
-                # the name as it appears in buildbot routes
-                Optional('buildbot'): basestring,
-                Required('gecko-v2'): basestring,
-            }
-        ),
+        'job-name': basestring,
 
         # The rank that the task will receive in the TaskCluster
         # index.  A newly completed task supercedes the currently
@@ -139,6 +126,9 @@ task_description_schema = Schema({
     # be substituted in this string:
     #  {level} -- the scm level of this push
     'worker-type': basestring,
+
+    # Whether the job should use sccache compiler caching.
+    Required('needs-sccache', default=False): bool,
 
     # information specific to the worker implementation that will run this task
     'worker': Any({
@@ -296,8 +286,11 @@ GROUP_NAMES = {
     'tc-Fxfn-r-e10s': 'Firefox functional tests (remote) executed by TaskCluster with e10s',
     'tc-M': 'Mochitests executed by TaskCluster',
     'tc-M-e10s': 'Mochitests executed by TaskCluster with e10s',
+    'tc-M-V': 'Mochitests on Valgrind executed by TaskCluster',
     'tc-R': 'Reftests executed by TaskCluster',
     'tc-R-e10s': 'Reftests executed by TaskCluster with e10s',
+    'tc-T': 'Talos performance tests executed by TaskCluster',
+    'tc-T-e10s': 'Talos performance tests executed by TaskCluster with e10s',
     'tc-VP': 'VideoPuppeteer tests executed by TaskCluster',
     'tc-W': 'Web platform tests executed by TaskCluster',
     'tc-W-e10s': 'Web platform tests executed by TaskCluster with e10s',
@@ -310,15 +303,10 @@ GROUP_NAMES = {
 }
 UNKNOWN_GROUP_NAME = "Treeherder group {} has no name; add it to " + __file__
 
-BUILDBOT_ROUTE_TEMPLATES = [
-    "index.buildbot.branches.{project}.{job-name-buildbot}",
-    "index.buildbot.revisions.{head_rev}.{project}.{job-name-buildbot}",
-]
-
 V2_ROUTE_TEMPLATES = [
-    "index.gecko.v2.{project}.latest.{product}.{job-name-gecko-v2}",
-    "index.gecko.v2.{project}.pushdate.{build_date_long}.{product}.{job-name-gecko-v2}",
-    "index.gecko.v2.{project}.revision.{head_rev}.{product}.{job-name-gecko-v2}",
+    "index.gecko.v2.{project}.latest.{product}.{job-name}",
+    "index.gecko.v2.{project}.pushdate.{build_date_long}.{product}.{job-name}",
+    "index.gecko.v2.{project}.revision.{head_rev}.{product}.{job-name}",
 ]
 
 # the roots of the treeherder routes, keyed by treeherder environment
@@ -368,6 +356,14 @@ def build_docker_worker_payload(config, task, task_def):
 
     if worker.get('chain-of-trust'):
         features['chainOfTrust'] = True
+
+    if task.get('needs-sccache'):
+        features['taskclusterProxy'] = True
+        task_def['scopes'].append(
+            'assume:project:taskcluster:level-{level}-sccache-buckets'.format(
+                level=config.params['level'])
+        )
+        worker['env']['USE_SCCACHE'] = '1'
 
     capabilities = {}
 
@@ -450,6 +446,8 @@ def build_generic_worker_payload(config, task, task_def):
         'osGroups': worker.get('os-groups', []),
     }
 
+    # needs-sccache is handled in mozharness_on_windows
+
     if 'retry-exit-status' in worker:
         raise Exception("retry-exit-status not supported in generic-worker")
 
@@ -470,6 +468,20 @@ def build_macosx_engine_payload(config, task, task_def):
         'env': worker['env'],
         'artifacts': artifacts,
     }
+
+    if task.get('needs-sccache'):
+        raise Exception('needs-sccache not supported in macosx-engine')
+
+
+@payload_builder('buildbot-bridge')
+def build_buildbot_bridge_payload(config, task, task_def):
+    worker = task['worker']
+    task_def['payload'] = {
+        'buildername': worker['buildername'],
+        'sourcestamp': worker['sourcestamp'],
+        'properties': worker['properties'],
+    }
+
 
 transforms = TransformSequence()
 
@@ -493,30 +505,17 @@ def add_index_routes(config, tasks):
             continue
 
         job_name = index['job-name']
-        # unpack the v2 name to v1 and buildbot names
-        if isinstance(job_name, basestring):
-            base_name, type_name = job_name.rsplit('-', 1)
-            job_name = {
-                'buildbot': base_name,
-                'gecko-v2': '{}-{}'.format(base_name, type_name),
-            }
-
-        if job_name['gecko-v2'] not in JOB_NAME_WHITELIST:
-            raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name['gecko-v2']))
+        if job_name not in JOB_NAME_WHITELIST:
+            raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name))
 
         subs = config.params.copy()
-        for n in job_name:
-            subs['job-name-' + n] = job_name[n]
+        subs['job-name'] = job_name
         subs['build_date_long'] = time.strftime("%Y.%m.%d.%Y%m%d%H%M%S",
                                                 time.gmtime(config.params['build_date']))
         subs['product'] = index['product']
 
-        if 'buildbot' in job_name:
-            for tpl in BUILDBOT_ROUTE_TEMPLATES:
-                routes.append(tpl.format(**subs))
-        if 'gecko-v2' in job_name:
-            for tpl in V2_ROUTE_TEMPLATES:
-                routes.append(tpl.format(**subs))
+        for tpl in V2_ROUTE_TEMPLATES:
+            routes.append(tpl.format(**subs))
 
         # The default behavior is to rank tasks according to their tier
         extra_index = task.setdefault('extra', {}).setdefault('index', {})
@@ -637,7 +636,7 @@ def check_v2_routes():
     for mh, tg in [
             ('{index}', 'index'),
             ('{build_product}', '{product}'),
-            ('{build_name}-{build_type}', '{job-name-gecko-v2}'),
+            ('{build_name}-{build_type}', '{job-name}'),
             ('{year}.{month}.{day}.{pushdate}', '{build_date_long}')]:
         routes = [r.replace(mh, tg) for r in routes]
 

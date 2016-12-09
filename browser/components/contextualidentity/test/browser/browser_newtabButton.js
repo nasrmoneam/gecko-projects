@@ -12,6 +12,7 @@ add_task(function* test() {
   let newTabButton = document.getAnonymousElementByAttribute(newTab, "anonid", "tabs-newtab-button");
   ok(newTabButton, "New tab button exists");
   ok(!newTabButton.hidden, "New tab button is visible");
+  yield BrowserTestUtils.waitForCondition(() => !!document.getAnonymousElementByAttribute(newTab, "anonid", "newtab-popup"), "Wait for popup to exist");
   let popup = document.getAnonymousElementByAttribute(newTab, "anonid", "newtab-popup");
 
   for (let i = 1; i <= 4; i++) {
@@ -31,4 +32,19 @@ add_task(function* test() {
     is(tab.getAttribute('usercontextid'), i, `New tab has UCI equal ${i}`);
     yield BrowserTestUtils.removeTab(tab);
   }
+});
+
+
+add_task(function* test_private_mode() {
+  let privateWindow = yield BrowserTestUtils.openNewBrowserWindow({private: true});
+  let privateDocument = privateWindow.document;
+  let {tabContainer} = privateWindow.gBrowser;
+  let newTab = privateDocument.getAnonymousElementByAttribute(tabContainer, "anonid", "tabs-newtab-button");
+  let newTab2 = privateDocument.getElementById("new-tab-button");
+  // Check to ensure we are talking about the right button
+  ok(!!newTab.clientWidth, "new tab button should not be hidden");
+  ok(!newTab2.clientWidth, "overflow new tab button should be hidden");
+  let popup = privateDocument.getAnonymousElementByAttribute(newTab, "anonid", "newtab-popup");
+  ok(!popup, "new tab should not have a popup");
+  yield BrowserTestUtils.closeWindow(privateWindow);
 });

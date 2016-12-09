@@ -375,6 +375,7 @@ nsHttpChannel::Connect()
     mConnectionInfo->SetAnonymous((mLoadFlags & LOAD_ANONYMOUS) != 0);
     mConnectionInfo->SetPrivate(mPrivateBrowsing);
     mConnectionInfo->SetNoSpdy(mCaps & NS_HTTP_DISALLOW_SPDY);
+    mConnectionInfo->SetBeConservative((mCaps & NS_HTTP_BE_CONSERVATIVE) || mBeConservative);
 
     // Consider opening a TCP connection right away.
     SpeculativeConnect();
@@ -789,8 +790,12 @@ nsHttpChannel::SetupTransaction()
         }
     }
 
-    if (!mAllowSpdy)
+    if (!mAllowSpdy) {
         mCaps |= NS_HTTP_DISALLOW_SPDY;
+    }
+    if (mBeConservative) {
+        mCaps |= NS_HTTP_BE_CONSERVATIVE;
+    }
 
     // Use the URI path if not proxying (transparent proxying such as proxy
     // CONNECT does not count here). Also figure out what HTTP version to use.
@@ -5512,6 +5517,42 @@ NS_IMETHODIMP nsHttpChannel::OnAuthCancelled(bool userCancel)
     return NS_OK;
 }
 
+NS_IMETHODIMP nsHttpChannel::CloseStickyConnection()
+{
+    LOG(("nsHttpChannel::CloseStickyConnection this=%p", this));
+
+    // Require we are between OnStartRequest and OnStopRequest, because
+    // what we do here takes effect in OnStopRequest (not reusing the
+    // connection for next authentication round).
+    if (!mIsPending) {
+        LOG(("  channel not pending"));
+        NS_ERROR("CloseStickyConnection not called before OnStopRequest, won't have any effect");
+        return NS_ERROR_UNEXPECTED;
+    }
+
+    MOZ_ASSERT(mTransaction);
+    if (!mTransaction) {
+        return NS_ERROR_UNEXPECTED;
+    }
+
+    if (!(mCaps & NS_HTTP_STICKY_CONNECTION ||
+          mTransaction->Caps() & NS_HTTP_STICKY_CONNECTION)) {
+        LOG(("  not sticky"));
+        return NS_OK;
+    }
+
+    RefPtr<nsAHttpConnection> conn = mTransaction->GetConnectionReference();
+    if (!conn) {
+        LOG(("  no connection"));
+        return NS_OK;
+    }
+
+    // This turns the IsPersistent() indicator on the connection to false,
+    // and makes us throw it away in OnStopRequest.
+    conn->DontReuse();
+    return NS_OK;
+}
+
 //-----------------------------------------------------------------------------
 // nsHttpChannel::nsISupports
 //-----------------------------------------------------------------------------
@@ -5688,6 +5729,11 @@ nsHttpChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *context)
 
     AddCookiesToRequest();
 
+    // Set user agent override, do so before OnOpeningRequest notification
+    // since we want to allow consumers of that notification change or remove
+    // the User-Agent request header.
+    HttpBaseChannel::SetDocshellUserAgentOverride();
+
     // After we notify any observers (on-opening-request, loadGroup, etc) we
     // must return NS_OK and return any errors asynchronously via
     // OnStart/OnStopRequest.  Observers may add a reference to the channel
@@ -5698,9 +5744,6 @@ nsHttpChannel::AsyncOpen(nsIStreamListener *listener, nsISupports *context)
     if (!(mLoadFlags & LOAD_REPLACE)) {
         gHttpHandler->OnOpeningRequest(this);
     }
-
-    // Set user agent override
-    HttpBaseChannel::SetDocshellUserAgentOverride();
 
     mIsPending = true;
     mWasOpened = true;
@@ -5883,12 +5926,14 @@ nsHttpChannel::BeginConnect()
         return AsyncCall(&nsHttpChannel::HandleAsyncAPIRedirect);
     }
     // Check to see if this principal exists on local blocklists.
-    RefPtr<nsChannelClassifier> channelClassifier = new nsChannelClassifier();
+    RefPtr<nsChannelClassifier> channelClassifier = new nsChannelClassifier(this);
     if (mLoadFlags & LOAD_CLASSIFY_URI) {
         nsCOMPtr<nsIURIClassifier> classifier = do_GetService(NS_URICLASSIFIERSERVICE_CONTRACTID);
         bool tpEnabled = false;
-        channelClassifier->ShouldEnableTrackingProtection(this, &tpEnabled);
-        if (classifier && tpEnabled) {
+        channelClassifier->ShouldEnableTrackingProtection(&tpEnabled);
+        bool annotateChannelEnabled =
+            Preferences::GetBool("privacy.trackingprotection.annotate_channels");
+        if (classifier && (tpEnabled || annotateChannelEnabled)) {
             // We skip speculative connections by setting mLocalBlocklist only
             // when tracking protection is enabled. Though we could do this for
             // both phishing and malware, it is not necessary for correctness,
@@ -5899,7 +5944,7 @@ nsHttpChannel::BeginConnect()
             if (NS_SUCCEEDED(rv) && uri) {
                 nsAutoCString tables;
                 Preferences::GetCString("urlclassifier.trackingTable", &tables);
-                nsAutoCString results;
+                nsTArray<nsCString> results;
                 rv = classifier->ClassifyLocalWithTables(uri, tables, results);
                 if (NS_SUCCEEDED(rv) && !results.IsEmpty()) {
                     LOG(("nsHttpChannel::ClassifyLocalWithTables found "
@@ -6010,7 +6055,7 @@ nsHttpChannel::BeginConnect()
     // be overridden.
     LOG(("nsHttpChannel::Starting nsChannelClassifier %p [this=%p]",
          channelClassifier.get(), this));
-    channelClassifier->Start(this);
+    channelClassifier->Start();
     if (callContinueBeginConnect) {
         return ContinueBeginConnectWithResult();
     }

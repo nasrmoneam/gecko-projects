@@ -8,6 +8,7 @@
 #define mozilla_dom_Navigator_h
 
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/ErrorResult.h"
 #include "nsIDOMNavigator.h"
@@ -73,7 +74,6 @@ class Connection;
 } // namespace network
 
 class PowerManager;
-class InputPortManager;
 class DeviceStorageAreaListener;
 class Presentation;
 class LegacyMozTCPSocket;
@@ -127,10 +127,13 @@ public:
 
   // The XPCOM GetProduct is OK
   // The XPCOM GetLanguage is OK
-  void GetUserAgent(nsString& aUserAgent, ErrorResult& /* unused */)
-  {
-    GetUserAgent(aUserAgent);
-  }
+  void GetAppName(nsAString& aAppName, CallerType aCallerType) const;
+  void GetAppVersion(nsAString& aAppName, CallerType aCallerType,
+                     ErrorResult& aRv) const;
+  void GetPlatform(nsAString& aPlatform, CallerType aCallerType,
+                   ErrorResult& aRv) const;
+  void GetUserAgent(nsAString& aUserAgent, CallerType aCallerType,
+                    ErrorResult& aRv) const;
   bool OnLine();
   void RegisterProtocolHandler(const nsAString& aScheme, const nsAString& aURL,
                                const nsAString& aTitle, ErrorResult& aRv);
@@ -171,18 +174,14 @@ public:
   {
     aRv = GetAppCodeName(aAppCodeName);
   }
-  void GetOscpu(nsString& aOscpu, ErrorResult& aRv)
-  {
-    aRv = GetOscpu(aOscpu);
-  }
+  void GetOscpu(nsAString& aOscpu, CallerType aCallerType,
+                ErrorResult& aRv) const;
   // The XPCOM GetVendor is OK
   // The XPCOM GetVendorSub is OK
   // The XPCOM GetProductSub is OK
   bool CookieEnabled();
-  void GetBuildID(nsString& aBuildID, ErrorResult& aRv)
-  {
-    aRv = GetBuildID(aBuildID);
-  }
+  void GetBuildID(nsAString& aBuildID, CallerType aCallerType,
+                  ErrorResult& aRv) const;
   PowerManager* GetMozPower(ErrorResult& aRv);
   bool JavaEnabled(ErrorResult& aRv);
   uint64_t HardwareConcurrency();
@@ -209,7 +208,6 @@ public:
                                 ErrorResult& aRv);
 
   DesktopNotificationCenter* GetMozNotification(ErrorResult& aRv);
-  InputPortManager* GetInputPortManager(ErrorResult& aRv);
   already_AddRefed<LegacyMozTCPSocket> MozTCPSocket();
   network::Connection* GetConnection(ErrorResult& aRv);
   MediaDevices* GetMediaDevices(ErrorResult& aRv);
@@ -302,7 +300,6 @@ private:
   RefPtr<battery::BatteryManager> mBatteryManager;
   RefPtr<Promise> mBatteryPromise;
   RefPtr<PowerManager> mPowerManager;
-  RefPtr<InputPortManager> mInputPortManager;
   RefPtr<network::Connection> mConnection;
 #ifdef MOZ_AUDIO_CHANNEL_MANAGER
   RefPtr<system::AudioChannelManager> mAudioChannelManager;

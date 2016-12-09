@@ -31,6 +31,7 @@
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmModule.h"
 #include "wasm/WasmSignalHandlers.h"
+#include "wasm/WasmValidate.h"
 
 #include "jsobjinlines.h"
 
@@ -47,9 +48,6 @@ using mozilla::Nothing;
 bool
 wasm::HasCompilerSupport(ExclusiveContext* cx)
 {
-    if (!cx->options().wasm())
-        return false;
-
     if (gc::SystemPageSize() > wasm::PageSize)
         return false;
 
@@ -74,6 +72,12 @@ wasm::HasCompilerSupport(ExclusiveContext* cx)
 #else
     return true;
 #endif
+}
+
+bool
+wasm::HasSupport(ExclusiveContext* cx)
+{
+    return cx->options().wasm() && HasCompilerSupport(cx);
 }
 
 // ============================================================================
@@ -707,18 +711,27 @@ GetBufferSource(JSContext* cx, JSObject* obj, unsigned errorNumber, MutableBytes
 
     JSObject* unwrapped = CheckedUnwrap(obj);
 
+    size_t byteLength = 0;
+    uint8_t* ptr = nullptr;
     if (unwrapped && unwrapped->is<TypedArrayObject>()) {
         TypedArrayObject& view = unwrapped->as<TypedArrayObject>();
-        return (*bytecode)->append((uint8_t*)view.viewDataEither().unwrap(), view.byteLength());
-    }
-
-    if (unwrapped && unwrapped->is<ArrayBufferObject>()) {
+        byteLength = view.byteLength();
+        ptr = (uint8_t*)view.viewDataEither().unwrap();
+    } else if (unwrapped && unwrapped->is<ArrayBufferObject>()) {
         ArrayBufferObject& buffer = unwrapped->as<ArrayBufferObject>();
-        return (*bytecode)->append(buffer.dataPointer(), buffer.byteLength());
+        byteLength = buffer.byteLength();
+        ptr = buffer.dataPointer();
+    } else {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, errorNumber);
+        return false;
     }
 
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, errorNumber);
-    return false;
+    if (!(*bytecode)->append(ptr, byteLength)) {
+        ReportOutOfMemory(cx);
+        return false;
+    }
+
+    return true;
 }
 
 static bool
@@ -1670,14 +1683,14 @@ ResolveCompilation(JSContext* cx, Module& module, Handle<PromiseObject*> promise
     return promise->resolve(cx, resolutionValue);
 }
 
-struct CompileTask : PromiseTask
+struct CompilePromiseTask : PromiseTask
 {
     MutableBytes bytecode;
     CompileArgs  compileArgs;
     UniqueChars  error;
     SharedModule module;
 
-    CompileTask(JSContext* cx, Handle<PromiseObject*> promise)
+    CompilePromiseTask(JSContext* cx, Handle<PromiseObject*> promise)
       : PromiseTask(cx, promise)
     {}
 
@@ -1745,7 +1758,7 @@ WebAssembly_compile(JSContext* cx, unsigned argc, Value* vp)
     if (!promise)
         return false;
 
-    auto task = cx->make_unique<CompileTask>(cx, promise);
+    auto task = cx->make_unique<CompilePromiseTask>(cx, promise);
     if (!task)
         return false;
 
@@ -1793,12 +1806,12 @@ ResolveInstantiation(JSContext* cx, Module& module, HandleObject importObj,
     return promise->resolve(cx, val);
 }
 
-struct InstantiateTask : CompileTask
+struct InstantiatePromiseTask : CompilePromiseTask
 {
     PersistentRootedObject importObj;
 
-    InstantiateTask(JSContext* cx, Handle<PromiseObject*> promise, HandleObject importObj)
-      : CompileTask(cx, promise),
+    InstantiatePromiseTask(JSContext* cx, Handle<PromiseObject*> promise, HandleObject importObj)
+      : CompilePromiseTask(cx, promise),
         importObj(cx, importObj)
     {}
 
@@ -1865,7 +1878,7 @@ WebAssembly_instantiate(JSContext* cx, unsigned argc, Value* vp)
         if (!promise->resolve(cx, resolutionValue))
             return false;
     } else {
-        auto task = cx->make_unique<InstantiateTask>(cx, promise, importObj);
+        auto task = cx->make_unique<InstantiatePromiseTask>(cx, promise, importObj);
         if (!task)
             return false;
 
@@ -1893,12 +1906,8 @@ WebAssembly_validate(JSContext* cx, unsigned argc, Value* vp)
     if (!GetBufferSource(cx, callArgs, "WebAssembly.validate", &bytecode))
         return false;
 
-    CompileArgs compileArgs;
-    if (!InitCompileArgs(cx, &compileArgs))
-        return false;
-
     UniqueChars error;
-    bool validated = !!Compile(*bytecode, compileArgs, &error);
+    bool validated = Validate(*bytecode, &error);
 
     // If the reason for validation failure was OOM (signalled by null error
     // message), report out-of-memory so that validate's return is always
@@ -1981,7 +1990,7 @@ InitErrorClass(JSContext* cx, HandleObject wasm, const char* name, JSExnType exn
 JSObject*
 js::InitWebAssemblyClass(JSContext* cx, HandleObject obj)
 {
-    MOZ_RELEASE_ASSERT(HasCompilerSupport(cx));
+    MOZ_RELEASE_ASSERT(HasSupport(cx));
 
     Handle<GlobalObject*> global = obj.as<GlobalObject>();
     MOZ_ASSERT(!global->isStandardClassResolved(JSProto_WebAssembly));

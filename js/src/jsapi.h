@@ -14,7 +14,6 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Range.h"
 #include "mozilla/RangedPtr.h"
-#include "mozilla/RefCounted.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Variant.h"
 
@@ -34,6 +33,7 @@
 #include "js/Id.h"
 #include "js/Principals.h"
 #include "js/Realm.h"
+#include "js/RefCounted.h"
 #include "js/RootingAPI.h"
 #include "js/TracingAPI.h"
 #include "js/Utility.h"
@@ -650,7 +650,8 @@ typedef enum JSExnType {
         JSEXN_DEBUGGEEWOULDRUN,
         JSEXN_WASMCOMPILEERROR,
         JSEXN_WASMRUNTIMEERROR,
-    JSEXN_WARN,
+    JSEXN_ERROR_LIMIT,
+    JSEXN_WARN = JSEXN_ERROR_LIMIT,
     JSEXN_LIMIT
 } JSExnType;
 
@@ -874,11 +875,7 @@ class MOZ_STACK_CLASS SourceBufferHolder final
 
 #define JSFUN_CONSTRUCTOR      0x400    /* native that can be called as a ctor */
 
-//                             0x800    /* Unused */
-
-#define JSFUN_HAS_REST        0x1000    /* function has ...rest parameter. */
-
-#define JSFUN_FLAGS_MASK      0x1e00    /* | of all the JSFUN_* flags */
+#define JSFUN_FLAGS_MASK       0x600    /* | of all the JSFUN_* flags */
 
 /*
  * If set, will allow redefining a non-configurable property, but only on a
@@ -951,6 +948,13 @@ JS_DoubleIsInt32(double d, int32_t* ip);
 
 extern JS_PUBLIC_API(JSType)
 JS_TypeOfValue(JSContext* cx, JS::Handle<JS::Value> v);
+
+namespace JS {
+
+extern JS_PUBLIC_API(const char*)
+InformalValueTypeName(const JS::Value& v);
+
+} /* namespace JS */
 
 extern JS_PUBLIC_API(bool)
 JS_StrictlyEqual(JSContext* cx, JS::Handle<JS::Value> v1, JS::Handle<JS::Value> v2, bool* equal);
@@ -1095,7 +1099,12 @@ class JS_PUBLIC_API(ContextOptions) {
         dumpStackOnDebuggeeWouldRun_(false),
         werror_(false),
         strictMode_(false),
-        extraWarnings_(false)
+        extraWarnings_(false),
+#ifdef NIGHTLY_BUILD
+        forEachStatement_(false)
+#else
+        forEachStatement_(true)
+#endif
     {
     }
 
@@ -1219,6 +1228,12 @@ class JS_PUBLIC_API(ContextOptions) {
         return *this;
     }
 
+    bool forEachStatement() const { return forEachStatement_; }
+    ContextOptions& setForEachStatement(bool flag) {
+        forEachStatement_ = flag;
+        return *this;
+    }
+
   private:
     bool baseline_ : 1;
     bool ion_ : 1;
@@ -1234,6 +1249,7 @@ class JS_PUBLIC_API(ContextOptions) {
     bool werror_ : 1;
     bool strictMode_ : 1;
     bool extraWarnings_ : 1;
+    bool forEachStatement_: 1;
 };
 
 JS_PUBLIC_API(ContextOptions&)
@@ -2504,7 +2520,7 @@ JS_FreezeObject(JSContext* cx, JS::Handle<JSObject*> obj);
 
 namespace JS {
 
-struct PropertyDescriptor {
+struct JS_PUBLIC_API(PropertyDescriptor) {
     JSObject* obj;
     unsigned attrs;
     JSGetterOp getter;
@@ -3425,6 +3441,30 @@ JS_GetArrayLength(JSContext* cx, JS::Handle<JSObject*> obj, uint32_t* lengthp);
 extern JS_PUBLIC_API(bool)
 JS_SetArrayLength(JSContext* cx, JS::Handle<JSObject*> obj, uint32_t length);
 
+namespace JS {
+
+/**
+ * Returns true and sets |*isMap| indicating whether |obj| is an Map object
+ * or a wrapper around one, otherwise returns false on failure.
+ *
+ * This method returns true with |*isMap == false| when passed a proxy whose
+ * target is an Map, or when passed a revoked proxy.
+ */
+extern JS_PUBLIC_API(bool)
+IsMapObject(JSContext* cx, JS::HandleObject obj, bool* isMap);
+
+/**
+ * Returns true and sets |*isSet| indicating whether |obj| is an Set object
+ * or a wrapper around one, otherwise returns false on failure.
+ *
+ * This method returns true with |*isSet == false| when passed a proxy whose
+ * target is an Set, or when passed a revoked proxy.
+ */
+extern JS_PUBLIC_API(bool)
+IsSetObject(JSContext* cx, JS::HandleObject obj, bool* isSet);
+
+} /* namespace JS */
+
 /**
  * Assign 'undefined' to all of the object's non-reserved slots. Note: this is
  * done for all slots, regardless of the associated property descriptor.
@@ -3750,6 +3790,7 @@ class JS_FRIEND_API(TransitiveCompileOptions)
         canLazilyParse(true),
         strictOption(false),
         extraWarningsOption(false),
+        forEachStatementOption(false),
         werrorOption(false),
         asmJSOption(AsmJSOption::Disabled),
         throwOnAsmJSValidationFailureOption(false),
@@ -3785,6 +3826,7 @@ class JS_FRIEND_API(TransitiveCompileOptions)
     bool canLazilyParse;
     bool strictOption;
     bool extraWarningsOption;
+    bool forEachStatementOption;
     bool werrorOption;
     AsmJSOption asmJSOption;
     bool throwOnAsmJSValidationFailureOption;
@@ -4601,13 +4643,6 @@ typedef bool
  */
 extern JS_PUBLIC_API(void)
 SetAsyncTaskCallbacks(JSContext* cx, StartAsyncTaskCallback start, FinishAsyncTaskCallback finish);
-
-} // namespace JS
-
-extern JS_PUBLIC_API(bool)
-JS_IsRunning(JSContext* cx);
-
-namespace JS {
 
 /**
  * This class can be used to store a pointer to the youngest frame of a saved
@@ -6052,7 +6087,7 @@ SetBuildIdOp(JSContext* cx, BuildIdOp buildIdOp);
  * by calling createObject().
  */
 
-struct WasmModule : mozilla::external::AtomicRefCounted<WasmModule>
+struct WasmModule : js::AtomicRefCounted<WasmModule>
 {
     MOZ_DECLARE_REFCOUNTED_TYPENAME(WasmModule)
     virtual ~WasmModule() {}
@@ -6141,6 +6176,12 @@ class MOZ_STACK_CLASS JS_PUBLIC_API(ForOfIterator) {
      * after this call, do not examine val.
      */
     bool next(JS::MutableHandleValue val, bool* done);
+
+    /**
+     * Close the iterator.
+     * For the case that completion type is throw.
+     */
+    void closeThrow();
 
     /**
      * If initialized with throwOnNonCallable = false, check whether

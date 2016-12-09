@@ -75,7 +75,7 @@ add_task(function* test_pending_dumps() {
   }
 
   for (let i = 0; i < COUNT; i++) {
-    Assert.equal(entries[i].id, ids[COUNT-i-1], "Entries sorted by mtime");
+    Assert.equal(entries[i].id, ids[COUNT - i - 1], "Entries sorted by mtime");
   }
 });
 
@@ -430,7 +430,7 @@ add_task(function* test_addCrash() {
   crash = map.get("gpu-crash");
   Assert.ok(!!crash);
   Assert.equal(crash.crashDate, DUMMY_DATE);
-  Assert.equal(crash.type, m.PROCESS_TYPE_GPU+ "-" + m.CRASH_TYPE_CRASH);
+  Assert.equal(crash.type, m.PROCESS_TYPE_GPU + "-" + m.CRASH_TYPE_CRASH);
   Assert.ok(crash.isOfType(m.PROCESS_TYPE_GPU, m.CRASH_TYPE_CRASH));
 
   crash = map.get("changing-item");
@@ -464,6 +464,36 @@ add_task(function* test_addSubmissionAttemptAndResult() {
   crashes = yield m.getCrashes();
   Assert.equal(crashes.length, 1);
 
+  let submissions = crashes[0].submissions;
+  Assert.ok(!!submissions);
+
+  let submission = submissions.get("submission");
+  Assert.ok(!!submission);
+  Assert.equal(submission.requestDate.getTime(), DUMMY_DATE.getTime());
+  Assert.equal(submission.responseDate.getTime(), DUMMY_DATE_2.getTime());
+  Assert.equal(submission.result, m.SUBMISSION_RESULT_OK);
+});
+
+add_task(function* test_addSubmissionAttemptEarlyCall() {
+  let m = yield getManager();
+
+  let crashes = yield m.getCrashes();
+  Assert.equal(crashes.length, 0);
+
+  let p = m.ensureCrashIsPresent("main-crash").then(() => {
+    return m.addSubmissionAttempt("main-crash", "submission", DUMMY_DATE);
+  }).then(() => {
+    return m.addSubmissionResult("main-crash", "submission", DUMMY_DATE_2,
+                                 m.SUBMISSION_RESULT_OK);
+  });
+
+  yield m.addCrash(m.PROCESS_TYPE_MAIN, m.CRASH_TYPE_CRASH,
+                   "main-crash", DUMMY_DATE);
+
+  crashes = yield m.getCrashes();
+  Assert.equal(crashes.length, 1);
+
+  yield p;
   let submissions = crashes[0].submissions;
   Assert.ok(!!submissions);
 

@@ -875,10 +875,15 @@ function pollForReadyState(msg, start = undefined, callback = undefined) {
         callback();
         sendOk(command_id);
 
+      // document with an insecure cert
+      } else if (doc.readyState == "interactive" &&
+          doc.baseURI.startsWith("about:certerror")) {
+        callback();
+        sendError(new InsecureCertificateError(), command_id);
+
       // we have reached an error url without requesting it
       } else if (doc.readyState == "interactive" &&
-          /about:.+(error)\?/.exec(doc.baseURI) &&
-          !doc.baseURI.startsWith(url)) {
+          /about:.+(error)\?/.exec(doc.baseURI)) {
         callback();
         sendError(new UnknownError("Reached error page: " + doc.baseURI), command_id);
 
@@ -991,11 +996,13 @@ function get(msg) {
       sawLoad = true;
     }
 
-    // We also need to make sure that the DOMContentLoaded we saw isn't
-    // for the initial about:blank of a newly created docShell.
-    let loadedNonAboutBlank = docShell.hasLoadedNonBlankURI;
+    // We also need to make sure that if the requested URL is not about:blank
+    // the DOMContentLoaded we saw isn't for the initial about:blank of a newly
+    // created docShell.
+    let loadedRequestedURI = (requestedURL == "about:blank") ||
+        docShell.hasLoadedNonBlankURI;
 
-    if (correctFrame && sawLoad && loadedNonAboutBlank) {
+    if (correctFrame && sawLoad && loadedRequestedURI) {
       webProgress.removeProgressListener(loadListener);
       pollForReadyState(msg, start, () => {
         removeEventListener("DOMContentLoaded", onDOMContentLoaded, false);
@@ -1063,9 +1070,7 @@ function getTitle() {
  * Get source of the current browsing context's DOM.
  */
 function getPageSource() {
-  let XMLSerializer = curContainer.frame.XMLSerializer;
-  let source = new XMLSerializer().serializeToString(curContainer.frame.document);
-  return source;
+  return curContainer.frame.document.documentElement.outerHTML;
 }
 
 /**

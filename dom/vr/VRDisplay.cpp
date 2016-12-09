@@ -77,10 +77,10 @@ VRDisplayCapabilities::MaxLayers() const
 }
 
 /*static*/ bool
-VRDisplay::RefreshVRDisplays(dom::Navigator* aNavigator)
+VRDisplay::RefreshVRDisplays(uint64_t aWindowId)
 {
   gfx::VRManagerChild* vm = gfx::VRManagerChild::Get();
-  return vm && vm->RefreshVRDisplaysWithCallback(aNavigator);
+  return vm && vm->RefreshVRDisplaysWithCallback(aWindowId);
 }
 
 /*static*/ void
@@ -637,6 +637,7 @@ VRFrameData::VRFrameData(nsISupports* aParent)
   , mRightProjectionMatrix(nullptr)
   , mRightViewMatrix(nullptr)
 {
+  mozilla::HoldJSObjects(this);
   mPose = new VRPose(aParent);
 }
 

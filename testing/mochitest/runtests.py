@@ -1300,6 +1300,7 @@ toolbar#nav-bar {
         if self._active_tests:
             return self._active_tests
 
+        tests = []
         manifest = self.getTestManifest(options)
         if manifest:
             if options.extra_mozinfo_json:
@@ -1429,7 +1430,8 @@ toolbar#nav-bar {
             if os.path.exists(masterPath):
                 manifest = TestManifest([masterPath], strict=False)
             else:
-                self._log.warning(
+                manifest = None
+                self.log.warning(
                     'TestManifest masterPath %s does not exist' %
                     masterPath)
 
@@ -1648,17 +1650,6 @@ toolbar#nav-bar {
         # get extensions to install
         extensions = self.getExtensionsToInstall(options)
 
-        # web apps
-        appsPath = os.path.join(
-            SCRIPT_DIR,
-            'profile_data',
-            'webapps_mochitest.json')
-        if os.path.exists(appsPath):
-            with open(appsPath) as apps_file:
-                apps = json.load(apps_file)
-        else:
-            apps = None
-
         # preferences
         preferences = [
             os.path.join(
@@ -1710,7 +1701,6 @@ toolbar#nav-bar {
                                addons=extensions,
                                locations=self.locations,
                                preferences=prefs,
-                               apps=apps,
                                proxy=proxy
                                )
 

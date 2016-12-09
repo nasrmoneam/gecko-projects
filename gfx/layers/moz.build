@@ -168,9 +168,9 @@ EXPORTS.mozilla.layers += [
     'ipc/CompositorBridgeChild.h',
     'ipc/CompositorBridgeParent.h',
     'ipc/CompositorThread.h',
+    'ipc/CompositorVsyncScheduler.h',
+    'ipc/CompositorVsyncSchedulerOwner.h',
     'ipc/CrossProcessCompositorBridgeParent.h',
-    'ipc/GonkNativeHandle.h',
-    'ipc/GonkNativeHandleUtils.h',
     'ipc/ImageBridgeChild.h',
     'ipc/ImageBridgeParent.h',
     'ipc/ImageContainerChild.h',
@@ -274,6 +274,7 @@ UNIFIED_SOURCES += [
     'AsyncCanvasRenderer.cpp',
     'AxisPhysicsModel.cpp',
     'AxisPhysicsMSDModel.cpp',
+    'basic/BasicBorderLayer.cpp',
     'basic/BasicCanvasLayer.cpp',
     'basic/BasicColorLayer.cpp',
     'basic/BasicCompositor.cpp',
@@ -282,17 +283,20 @@ UNIFIED_SOURCES += [
     'basic/BasicLayerManager.cpp',
     'basic/BasicLayersImpl.cpp',
     'basic/BasicPaintedLayer.cpp',
+    'basic/BasicTextLayer.cpp',
     'basic/TextureHostBasic.cpp',
     'BSPTree.cpp',
     'BufferTexture.cpp',
     'BufferUnrotate.cpp',
     'client/CanvasClient.cpp',
+    'client/ClientBorderLayer.cpp',
     'client/ClientCanvasLayer.cpp',
     'client/ClientColorLayer.cpp',
     'client/ClientContainerLayer.cpp',
     'client/ClientImageLayer.cpp',
     'client/ClientLayerManager.cpp',
     'client/ClientPaintedLayer.cpp',
+    'client/ClientTextLayer.cpp',
     'client/ClientTiledPaintedLayer.cpp',
     'client/CompositableChild.cpp',
     'client/CompositableClient.cpp',
@@ -317,7 +321,6 @@ UNIFIED_SOURCES += [
     'composite/ImageHost.cpp',
     'composite/ImageLayerComposite.cpp',
     'composite/LayerManagerComposite.cpp',
-    'composite/PaintCounter.cpp',
     'composite/PaintedLayerComposite.cpp',
     'composite/TextRenderer.cpp',
     'composite/TextureHost.cpp',
@@ -338,6 +341,7 @@ UNIFIED_SOURCES += [
     'ipc/CompositorBridgeChild.cpp',
     'ipc/CompositorBridgeParent.cpp',
     'ipc/CompositorThread.cpp',
+    'ipc/CompositorVsyncScheduler.cpp',
     'ipc/CrossProcessCompositorBridgeParent.cpp',
     'ipc/ImageBridgeChild.cpp',
     'ipc/ImageBridgeParent.cpp',
@@ -445,3 +449,8 @@ LOCAL_INCLUDES += CONFIG['SKIA_INCLUDES']
 
 if CONFIG['GNU_CXX']:
     CXXFLAGS += ['-Wno-error=shadow']
+
+if CONFIG['MOZ_ENABLE_SKIA']:
+  UNIFIED_SOURCES += [
+    'composite/PaintCounter.cpp',
+  ]

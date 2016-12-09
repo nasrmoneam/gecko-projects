@@ -97,7 +97,7 @@ this.PropertyListUtils = Object.freeze({
           if (!file.exists())
             throw new Error("The file pointed by aFile does not exist");
 
-          file = new File(file);
+          file = File.createFromNsIFile(file);
         }
 
         let fileReader = new FileReader();
@@ -785,7 +785,7 @@ XMLPropertyListReader.prototype = {
    * @return Returns value of "name" property of target by default. Otherwise returns
    *         updated target.
    */
-function LazyMapProxyHandler () {
+function LazyMapProxyHandler() {
   return {
     _lazyGetters: new Set(),
     get: function(target, name) {

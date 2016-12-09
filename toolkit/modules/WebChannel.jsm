@@ -9,6 +9,8 @@
 
 this.EXPORTED_SYMBOLS = ["WebChannel", "WebChannelBroker"];
 
+const ERRNO_MISSING_PRINCIPAL          = 1;
+const ERRNO_NO_SUCH_CHANNEL            = 2;
 const ERRNO_UNKNOWN_ERROR              = 999;
 const ERROR_UNKNOWN                    = "UNKNOWN_ERROR";
 
@@ -31,7 +33,7 @@ var WebChannelBroker = Object.create({
    *
    * @param channel {WebChannel}
    */
-  registerChannel: function (channel) {
+  registerChannel: function(channel) {
     if (!this._channelMap.has(channel)) {
       this._channelMap.set(channel);
     } else {
@@ -53,7 +55,7 @@ var WebChannelBroker = Object.create({
    *
    * Removes the specified channel from the channel map
    */
-  unregisterChannel: function (channelToRemove) {
+  unregisterChannel: function(channelToRemove) {
     if (!this._channelMap.delete(channelToRemove)) {
       Cu.reportError("Failed to unregister the channel. Channel not found.");
     }
@@ -64,7 +66,7 @@ var WebChannelBroker = Object.create({
    *        Message Manager event
    * @private
    */
-  _listener: function (event) {
+  _listener: function(event) {
     let data = event.data;
     let sendingContext = {
       browser: event.target,
@@ -83,7 +85,7 @@ var WebChannelBroker = Object.create({
 
     if (data && data.id) {
       if (!event.principal) {
-        this._sendErrorEventToContent(data.id, sendingContext, "Message principal missing");
+        this._sendErrorEventToContent(data.id, sendingContext, ERRNO_MISSING_PRINCIPAL, "Message principal missing");
       } else {
         let validChannelFound = false;
         data.message = data.message || {};
@@ -98,7 +100,7 @@ var WebChannelBroker = Object.create({
 
         // if no valid origins send an event that there is no such valid channel
         if (!validChannelFound) {
-          this._sendErrorEventToContent(data.id, sendingContext, "No Such Channel");
+          this._sendErrorEventToContent(data.id, sendingContext, ERRNO_NO_SUCH_CHANNEL, "No Such Channel");
         }
       }
     } else {
@@ -127,7 +129,7 @@ var WebChannelBroker = Object.create({
    *        Error message
    * @private
    */
-  _sendErrorEventToContent: function (id, sendingContext, errorMsg) {
+  _sendErrorEventToContent: function(id, sendingContext, errorNo, errorMsg) {
     let { browser: targetBrowser, eventTarget, principal: targetPrincipal } = sendingContext;
 
     errorMsg = errorMsg || "Web Channel Broker error";
@@ -135,7 +137,10 @@ var WebChannelBroker = Object.create({
     if (targetBrowser && targetBrowser.messageManager) {
       targetBrowser.messageManager.sendAsyncMessage("WebChannelMessageToContent", {
         id: id,
-        error: errorMsg,
+        message: {
+          errno: errorNo,
+          error: errorMsg,
+        },
       }, { eventTarget: eventTarget }, targetPrincipal);
     } else {
       Cu.reportError("Failed to send a WebChannel error. Target invalid.");
@@ -171,7 +176,7 @@ this.WebChannel = function(id, originOrPermission) {
       // The permission manager operates on domain names rather than true
       // origins (bug 1066517).  To mitigate that, we explicitly check that
       // the scheme is https://.
-      let uri = Services.io.newURI(requestPrincipal.origin, null, null);
+      let uri = Services.io.newURI(requestPrincipal.originNoSuffix, null, null);
       if (uri.scheme != "https") {
         return false;
       }
@@ -183,7 +188,7 @@ this.WebChannel = function(id, originOrPermission) {
   } else {
     // a simple URI, so just check for an exact match.
     this._originCheckCallback = requestPrincipal => {
-      return originOrPermission.prePath === requestPrincipal.origin;
+      return originOrPermission.prePath === requestPrincipal.originNoSuffix;
     }
   }
   this._originOrPermission = originOrPermission;
@@ -240,7 +245,7 @@ this.WebChannel.prototype = {
    *                      The <Principal> of the EventTarget where the
    *                      message was sent.
    */
-  listen: function (callback) {
+  listen: function(callback) {
     if (this._deliverCallback) {
       throw new Error("Failed to listen. Listener already attached.");
     } else if (!callback) {
@@ -255,7 +260,7 @@ this.WebChannel.prototype = {
    * Resets the callback for messages on this channel
    * Removes the channel from the WebChannelBroker
    */
-  stopListening: function () {
+  stopListening: function() {
     this._broker.unregisterChannel(this);
     this._deliverCallback = null;
   },
@@ -278,7 +283,7 @@ this.WebChannel.prototype = {
    *               Optional eventTarget within the browser, use to send to a
    *               specific element, e.g., an iframe.
    */
-  send: function (message, target) {
+  send: function(message, target) {
     let { browser, principal, eventTarget } = target;
 
     if (message && browser && browser.messageManager && principal) {

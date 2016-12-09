@@ -95,8 +95,20 @@ static ProtectedRegionTree sProtectedRegions;
 bool
 MemoryProtectionExceptionHandler::isDisabled()
 {
-    // There isn't currently any reason to disable it.
+#if defined(XP_WIN) && defined(MOZ_ASAN)
+    // Under Windows ASan, WasmFaultHandler registers itself at 'last' priority
+    // in order to let ASan's ShadowExceptionHandler stay at 'first' priority.
+    // Unfortunately that results in spurious wasm faults passing through the
+    // MemoryProtectionExceptionHandler, which breaks its assumption that any
+    // faults it sees are fatal. Just disable this handler in that case, as the
+    // crash annotations provided here are not critical for ASan builds.
+    return true;
+#elif defined(RELEASE_OR_BETA)
+    // Disable the exception handler for Beta and Release builds.
+    return true;
+#else
     return false;
+#endif
 }
 
 void

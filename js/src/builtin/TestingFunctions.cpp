@@ -140,7 +140,7 @@ GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp)
     if (!JS_SetProperty(cx, info, "has-ctypes", value))
         return false;
 
-#ifdef JS_CPU_X86
+#if defined(_M_IX86) || defined(__i386__)
     value = BooleanValue(true);
 #else
     value = BooleanValue(false);
@@ -148,7 +148,7 @@ GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp)
     if (!JS_SetProperty(cx, info, "x86", value))
         return false;
 
-#ifdef JS_CPU_X64
+#if defined(_M_X64) || defined(__x86_64__)
     value = BooleanValue(true);
 #else
     value = BooleanValue(false);
@@ -517,7 +517,7 @@ static bool
 WasmIsSupported(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    args.rval().setBoolean(wasm::HasCompilerSupport(cx));
+    args.rval().setBoolean(wasm::HasSupport(cx));
     return true;
 }
 
@@ -1740,8 +1740,8 @@ ReadSPSProfilingStack(JSContext* cx, unsigned argc, Value* vp)
 
     struct InlineFrameInfo
     {
-        InlineFrameInfo(const char* kind, UniqueChars&& label)
-          : kind(kind), label(mozilla::Move(label)) {}
+        InlineFrameInfo(const char* kind, char* label)
+          : kind(kind), label(label) {}
         const char* kind;
         UniqueChars label;
     };
@@ -1775,7 +1775,11 @@ ReadSPSProfilingStack(JSContext* cx, unsigned argc, Value* vp)
                 frameKindStr = "unknown";
             }
 
-            if (!frameInfo.back().emplaceBack(frameKindStr, mozilla::Move(frames[i].label)))
+            char* label = JS_strdup(cx, frames[i].label);
+            if (!label)
+                return false;
+
+            if (!frameInfo.back().emplaceBack(frameKindStr, label))
                 return false;
         }
     }
@@ -1808,8 +1812,9 @@ ReadSPSProfilingStack(JSContext* cx, unsigned argc, Value* vp)
             if (!JS_DefineProperty(cx, inlineFrameInfo, "kind", frameKind, propAttrs))
                 return false;
 
-            auto chars = inlineFrame.label.release();
-            frameLabel = NewString<CanGC>(cx, reinterpret_cast<Latin1Char*>(chars), strlen(chars));
+            size_t length = strlen(inlineFrame.label.get());
+            auto label = reinterpret_cast<Latin1Char*>(inlineFrame.label.release());
+            frameLabel = NewString<CanGC>(cx, label, length);
             if (!frameLabel)
                 return false;
 
@@ -2577,7 +2582,7 @@ SharedAddress(JSContext* cx, unsigned argc, Value* vp)
 #else
     RootedObject obj(cx, CheckedUnwrap(&args[0].toObject()));
     if (!obj) {
-        JS_ReportErrorASCII(cx, "Permission denied to access object");
+        ReportAccessDenied(cx);
         return false;
     }
     if (!obj->is<SharedArrayBufferObject>()) {
@@ -3269,13 +3274,13 @@ ByteSizeOfScript(JSContext*cx, unsigned argc, Value* vp)
         return false;
     }
 
-    JSFunction* fun = &args[0].toObject().as<JSFunction>();
+    RootedFunction fun(cx, &args[0].toObject().as<JSFunction>());
     if (fun->isNative()) {
         JS_ReportErrorASCII(cx, "Argument must be a scripted function");
         return false;
     }
 
-    RootedScript script(cx, fun->getOrCreateScript(cx));
+    RootedScript script(cx, JSFunction::getOrCreateScript(cx, fun));
     if (!script)
         return false;
 
@@ -3574,12 +3579,12 @@ GetLcovInfo(JSContext* cx, unsigned argc, Value* vp)
     if (args.hasDefined(0)) {
         global = ToObject(cx, args[0]);
         if (!global) {
-            JS_ReportErrorASCII(cx, "First argument should be an object");
+            JS_ReportErrorASCII(cx, "Permission denied to access global");
             return false;
         }
         global = CheckedUnwrap(global);
         if (!global) {
-            JS_ReportErrorASCII(cx, "Permission denied to access global");
+            ReportAccessDenied(cx);
             return false;
         }
         if (!global->is<GlobalObject>()) {
@@ -4081,6 +4086,24 @@ DisRegExp(JSContext* cx, unsigned argc, Value* vp)
     return true;
 }
 #endif // DEBUG
+
+static bool
+EnableForEach(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    JS::ContextOptionsRef(cx).setForEachStatement(true);
+    args.rval().setUndefined();
+    return true;
+}
+
+static bool
+DisableForEach(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+    JS::ContextOptionsRef(cx).setForEachStatement(false);
+    args.rval().setUndefined();
+    return true;
+}
 
 static const JSFunctionSpecWithHelp TestingFunctions[] = {
     JS_FN_HELP("gc", ::GC, 0, 0,
@@ -4611,6 +4634,14 @@ gc::ZealModeHelpText),
     JS_FN_HELP("getModuleEnvironmentValue", GetModuleEnvironmentValue, 2, 0,
 "getModuleEnvironmentValue(module, name)",
 "  Get the value of a bound name in a module environment.\n"),
+
+    JS_FN_HELP("enableForEach", EnableForEach, 0, 0,
+"enableForEach()",
+"  Enables the deprecated, non-standard for-each.\n"),
+
+    JS_FN_HELP("disableForEach", DisableForEach, 0, 0,
+"disableForEach()",
+"  Disables the deprecated, non-standard for-each.\n"),
 
     JS_FS_HELP_END
 };

@@ -38,18 +38,15 @@ enum RTCIceConnectionState {
 };
 
 dictionary RTCDataChannelInit {
-  boolean         ordered = true;
-  unsigned short? maxRetransmitTime = null;
-  unsigned short? maxRetransmits = null;
-  DOMString       protocol = "";
-  boolean         negotiated = false; // spec currently says 'true'; we disagree
-  unsigned short? id = null;
+  boolean        ordered = true;
+  unsigned short maxPacketLifeTime;
+  unsigned short maxRetransmits;
+  DOMString      protocol = "";
+  boolean        negotiated = false;
+  unsigned short id;
 
-  // these are deprecated due to renaming in the spec, but still supported for Fx22
-  boolean outOfOrderAllowed; // now ordered, and the default changes to keep behavior the same
-  unsigned short maxRetransmitNum; // now maxRetransmits
-  boolean preset; // now negotiated
-  unsigned short stream; // now id
+  // These are deprecated due to renaming in the spec, but still supported for Fx53
+  unsigned short maxRetransmitTime;
 };
 
 dictionary RTCOfferAnswerOptions {
@@ -67,17 +64,6 @@ dictionary RTCOfferOptions : RTCOfferAnswerOptions {
   // Mozilla proprietary options (at risk: Bug 1196974)
   boolean mozDontOfferDataChannel;
   boolean mozBundleOnly;
-
-  // TODO: Remove old constraint-like RTCOptions support soon (Bug 1064223).
-  DeprecatedRTCOfferOptionsSet mandatory;
-  sequence<DeprecatedRTCOfferOptionsSet> _optional;
-};
-
-dictionary DeprecatedRTCOfferOptionsSet {
-  boolean OfferToReceiveAudio;     // Note the uppercase 'O'
-  boolean OfferToReceiveVideo;     // Note the uppercase 'O'
-  boolean MozDontOfferDataChannel; // Note the uppercase 'M'
-  boolean MozBundleOnly;           // Note the uppercase 'M'
 };
 
 interface RTCDataChannel;
@@ -120,8 +106,6 @@ interface RTCPeerConnection : EventTarget  {
   sequence<MediaStream> getLocalStreams ();
   [UnsafeInPrerendering, Deprecated="RTCPeerConnectionGetStreams"]
   sequence<MediaStream> getRemoteStreams ();
-  [UnsafeInPrerendering]
-  MediaStream? getStreamById (DOMString streamId);
   void addStream (MediaStream stream);
 
   // replaces addStream; fails if already added
@@ -148,6 +132,7 @@ interface RTCPeerConnection : EventTarget  {
   attribute EventHandler ontrack;     // replaces onaddtrack and onaddstream.
   attribute EventHandler onremovestream;
   attribute EventHandler oniceconnectionstatechange;
+  attribute EventHandler onicegatheringstatechange;
 
   Promise<RTCStatsReport> getStats (optional MediaStreamTrack? selector);
 

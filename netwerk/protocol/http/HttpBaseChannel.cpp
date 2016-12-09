@@ -87,6 +87,7 @@ HttpBaseChannel::HttpBaseChannel()
   , mTimingEnabled(false)
   , mAllowSpdy(true)
   , mAllowAltSvc(true)
+  , mBeConservative(false)
   , mResponseTimeoutEnabled(true)
   , mAllRedirectsSameOrigin(true)
   , mAllRedirectsPassTimingAllowCheck(true)
@@ -1288,7 +1289,7 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI *referrer,
   if(NS_FAILED(rv)) {
     return rv;
   }
-  mReferrerPolicy = REFERRER_POLICY_NO_REFERRER_WHEN_DOWNGRADE;
+  mReferrerPolicy = referrerPolicy;
 
   if (!referrer) {
     return NS_OK;
@@ -1296,7 +1297,6 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI *referrer,
 
   // Don't send referrer at all when the meta referrer setting is "no-referrer"
   if (referrerPolicy == REFERRER_POLICY_NO_REFERRER) {
-    mReferrerPolicy = REFERRER_POLICY_NO_REFERRER;
     return NS_OK;
   }
 
@@ -1581,7 +1581,6 @@ HttpBaseChannel::SetReferrerWithPolicy(nsIURI *referrer,
   if (NS_FAILED(rv)) return rv;
 
   mReferrer = clone;
-  mReferrerPolicy = referrerPolicy;
   return NS_OK;
 }
 
@@ -2191,7 +2190,7 @@ HttpBaseChannel::AddSecurityMessage(const nsAString &aMessageTag,
     return NS_ERROR_FAILURE;
   }
 
-  uint32_t innerWindowID = loadInfo->GetInnerWindowID();
+  auto innerWindowID = loadInfo->GetInnerWindowID();
 
   nsXPIDLString errorText;
   rv = nsContentUtils::GetLocalizedString(
@@ -2303,6 +2302,22 @@ NS_IMETHODIMP
 HttpBaseChannel::SetAllowAltSvc(bool aAllowAltSvc)
 {
   mAllowAltSvc = aAllowAltSvc;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpBaseChannel::GetBeConservative(bool *aBeConservative)
+{
+  NS_ENSURE_ARG_POINTER(aBeConservative);
+
+  *aBeConservative = mBeConservative;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+HttpBaseChannel::SetBeConservative(bool aBeConservative)
+{
+  mBeConservative = aBeConservative;
   return NS_OK;
 }
 
@@ -2952,13 +2967,9 @@ HttpBaseChannel::SetupReplacementChannel(nsIURI       *newURI,
       if (loadContext) {
         loadContext->GetOriginAttributes(docShellAttrs);
       }
-      MOZ_ASSERT(docShellAttrs.mFirstPartyDomain.IsEmpty(),
-                 "top-level docshell shouldn't have firstPartyDomain attribute.");
 
       NeckoOriginAttributes attrs = newLoadInfo->GetOriginAttributes();
 
-      MOZ_ASSERT(docShellAttrs.mAppId == attrs.mAppId,
-                "docshell and necko should have the same appId attribute.");
       MOZ_ASSERT(docShellAttrs.mUserContextId == attrs.mUserContextId,
                 "docshell and necko should have the same userContextId attribute.");
       MOZ_ASSERT(docShellAttrs.mInIsolatedMozBrowser == attrs.mInIsolatedMozBrowser,
@@ -3075,10 +3086,11 @@ HttpBaseChannel::SetupReplacementChannel(nsIURI       *newURI,
   httpChannel->SetRequestContextID(mRequestContextID);
 
   if (httpInternal) {
-    // Convey third party cookie and spdy flags.
+    // Convey third party cookie, conservative, and spdy flags.
     httpInternal->SetThirdPartyFlags(mThirdPartyFlags);
     httpInternal->SetAllowSpdy(mAllowSpdy);
     httpInternal->SetAllowAltSvc(mAllowAltSvc);
+    httpInternal->SetBeConservative(mBeConservative);
 
     RefPtr<nsHttpChannel> realChannel;
     CallQueryInterface(newChannel, realChannel.StartAssignment());

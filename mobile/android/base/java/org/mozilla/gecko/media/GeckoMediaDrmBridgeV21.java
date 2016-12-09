@@ -21,14 +21,16 @@ import android.annotation.SuppressLint;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.media.DeniedByServerException;
 import android.media.MediaCrypto;
 import android.media.MediaCryptoException;
 import android.media.MediaDrm;
 import android.media.MediaDrmException;
+import android.media.NotProvisionedException;
 import android.util.Log;
 
 public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
-    private static final String LOGTAG = "GeckoMediaDrmBridgeV21";
+    protected final String LOGTAG;
     private static final String INVALID_SESSION_ID = "Invalid";
     private static final String WIDEVINE_KEY_SYSTEM = "com.widevine.alpha";
     private static final boolean DEBUG = false;
@@ -53,9 +55,9 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
     private MediaCrypto mCrypto;
     protected MediaDrm mDrm;
 
-    public static int LICENSE_REQUEST_INITIAL = 0; /*MediaKeyMessageType::License_request*/
-    public static int LICENSE_REQUEST_RENEWAL = 1; /*MediaKeyMessageType::License_renewal*/
-    public static int LICENSE_REQUEST_RELEASE = 2; /*MediaKeyMessageType::License_release*/
+    public static final int LICENSE_REQUEST_INITIAL = 0; /*MediaKeyMessageType::License_request*/
+    public static final int LICENSE_REQUEST_RENEWAL = 1; /*MediaKeyMessageType::License_renewal*/
+    public static final int LICENSE_REQUEST_RELEASE = 2; /*MediaKeyMessageType::License_release*/
 
     // Store session data while provisioning
     private static class PendingCreateSessionData {
@@ -98,7 +100,8 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
     }
 
     GeckoMediaDrmBridgeV21(String keySystem) throws Exception {
-        if (DEBUG) Log.d(LOGTAG, "GeckoMediaDrmBridgeV21()");
+        LOGTAG = getClass().getSimpleName();
+        if (DEBUG) Log.d(LOGTAG, "GeckoMediaDrmBridgeV21 ctor");
 
         mProvisioningPromiseId = 0;
         mSessionIds = new HashSet<ByteBuffer>();
@@ -142,7 +145,6 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
         }
 
         ByteBuffer sessionId = null;
-        String strSessionId = null;
         try {
             boolean hasMediaCrypto = ensureMediaCryptoCreated();
             if (!hasMediaCrypto) {
@@ -170,9 +172,8 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
                              LICENSE_REQUEST_INITIAL,
                              request.getData());
             mSessionMIMETypes.put(sessionId, initDataType);
-            strSessionId = new String(sessionId.array());
             mSessionIds.add(sessionId);
-            if (DEBUG) Log.d(LOGTAG, " StringID : " + strSessionId + " is put into mSessionIds ");
+            if (DEBUG) Log.d(LOGTAG, " StringID : " + new String(sessionId.array()) + " is put into mSessionIds ");
         } catch (android.media.NotProvisionedException e) {
             if (DEBUG) Log.d(LOGTAG, "Device not provisioned:" + e.getMessage());
             if (sessionId != null) {
@@ -211,25 +212,13 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
                     Log.d(LOGTAG, "InfoMap : key(" + strKey + ")/value(" + strValue + ")");
                 }
             }
-            SessionKeyInfo[] keyInfos = new SessionKeyInfo[1];
-            keyInfos[0] = new SessionKeyInfo(DUMMY_KEY_ID,
-                                             MediaDrm.KeyStatus.STATUS_USABLE);
-            onSessionBatchedKeyChanged(session.array(), keyInfos);
-            if (DEBUG) Log.d(LOGTAG, "Key successfully added for session " + sessionId);
+            HandleKeyStatusChangeByDummyKey(sessionId);
             onSessionUpdated(promiseId, session.array());
             return;
-        } catch (android.media.NotProvisionedException e) {
-            if (DEBUG) Log.d(LOGTAG, "Failed to provide key response:" + e.getMessage());
-            onSessionError(session.array(), "Got NotProvisionedException.");
-            onRejectPromise(promiseId, "Not provisioned during updateSession.");
-        } catch (android.media.DeniedByServerException e) {
-            if (DEBUG) Log.d(LOGTAG, "Failed to provide key response:" + e.getMessage());
-            onSessionError(session.array(), "Got DeniedByServerException.");
-            onRejectPromise(promiseId, "Denied by server during updateSession.");
-        } catch (java.lang.IllegalStateException e) {
-            if (DEBUG) Log.d(LOGTAG, "Exception when calling provideKeyResponse():" + e.getMessage());
-            onSessionError(session.array(), "Got IllegalStateException.");
-            onRejectPromise(promiseId, "Rejected during updateSession.");
+        } catch (final NotProvisionedException | DeniedByServerException | IllegalStateException e) {
+            if (DEBUG) Log.d(LOGTAG, "Failed to provide key response:", e);
+            onSessionError(session.array(), "Got exception during updateSession.");
+            onRejectPromise(promiseId, "Got exception during updateSession.");
         }
         release();
         return;
@@ -290,6 +279,15 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
     public MediaCrypto getMediaCrypto() {
         if (DEBUG) Log.d(LOGTAG, "getMediaCrypto()");
         return mCrypto;
+    }
+
+    protected void HandleKeyStatusChangeByDummyKey(String sessionId)
+    {
+        SessionKeyInfo[] keyInfos = new SessionKeyInfo[1];
+        keyInfos[0] = new SessionKeyInfo(DUMMY_KEY_ID,
+                                         MediaDrm.KeyStatus.STATUS_USABLE);
+        onSessionBatchedKeyChanged(sessionId.getBytes(), keyInfos);
+        if (DEBUG) Log.d(LOGTAG, "Key successfully added for session " + sessionId);
     }
 
     protected void onSessionCreated(int createSessionToken,
@@ -371,7 +369,6 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
             }
             // On L, these events are treated as exceptions and handled correspondingly.
             // Leaving this code block for logging message.
-            String sessionId = new String(session.array());
             switch (event) {
                 case MediaDrm.EVENT_PROVISION_REQUIRED:
                     if (DEBUG) Log.d(LOGTAG, "MediaDrm.EVENT_PROVISION_REQUIRED");
@@ -381,10 +378,10 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
                     // No need to handle here if we're not in privacy mode.
                     break;
                 case MediaDrm.EVENT_KEY_EXPIRED:
-                    if (DEBUG) Log.d(LOGTAG, "MediaDrm.EVENT_KEY_EXPIRED, sessionId=" + sessionId);
+                    if (DEBUG) Log.d(LOGTAG, "MediaDrm.EVENT_KEY_EXPIRED, sessionId=" + new String(session.array()));
                     break;
                 case MediaDrm.EVENT_VENDOR_DEFINED:
-                    if (DEBUG) Log.d(LOGTAG, "MediaDrm.EVENT_VENDOR_DEFINED, sessionId=" + sessionId);
+                    if (DEBUG) Log.d(LOGTAG, "MediaDrm.EVENT_VENDOR_DEFINED, sessionId=" + new String(session.array()));
                     break;
                 default:
                     if (DEBUG) Log.d(LOGTAG, "Invalid DRM event " + event);
@@ -414,7 +411,7 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
         }
     }
 
-    private boolean sessionExists(ByteBuffer session) {
+    protected boolean sessionExists(ByteBuffer session) {
         if (mCryptoSessionId == null) {
             if (DEBUG) Log.d(LOGTAG, "Session doesn't exist because media crypto session is not created.");
             return false;
@@ -592,9 +589,8 @@ public class GeckoMediaDrmBridgeV21 implements GeckoMediaDrm {
             if (MediaCrypto.isCryptoSchemeSupported(mSchemeUUID)) {
                 final byte [] cryptoSessionId = mCryptoSessionId.array();
                 mCrypto = new MediaCrypto(mSchemeUUID, cryptoSessionId);
-                String strCryptoSessionId = new String(cryptoSessionId);
                 mSessionIds.add(mCryptoSessionId);
-                if (DEBUG) Log.d(LOGTAG, "MediaCrypto successfully created! - SId " + INVALID_SESSION_ID + ", " + strCryptoSessionId);
+                if (DEBUG) Log.d(LOGTAG, "MediaCrypto successfully created! - SId " + INVALID_SESSION_ID + ", " + new String(cryptoSessionId));
                 return true;
             } else {
                 if (DEBUG) Log.d(LOGTAG, "Cannot create MediaCrypto for unsupported scheme.");

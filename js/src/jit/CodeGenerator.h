@@ -134,6 +134,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitOutOfLineLambdaArrow(OutOfLineLambdaArrow* ool);
     void visitLambdaArrow(LLambdaArrow* lir);
     void visitLambdaForSingleton(LLambdaForSingleton* lir);
+    void visitSetFunName(LSetFunName* lir);
     void visitPointer(LPointer* lir);
     void visitKeepAliveObject(LKeepAliveObject* lir);
     void visitSlots(LSlots* lir);
@@ -263,6 +264,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitHypot(LHypot* lir);
     void visitPowI(LPowI* lir);
     void visitPowD(LPowD* lir);
+    void visitPowV(LPowV* lir);
     void visitMathFunctionD(LMathFunctionD* ins);
     void visitMathFunctionF(LMathFunctionF* ins);
     void visitModD(LModD* ins);

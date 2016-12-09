@@ -467,7 +467,8 @@ IonBuilder::canInlineTarget(JSFunction* target, CallInfo& callInfo)
     // Allow constructing lazy scripts when performing the definite properties
     // analysis, as baseline has not been used to warm the caller up yet.
     if (target->isInterpreted() && info().analysisMode() == Analysis_DefiniteProperties) {
-        RootedScript script(analysisContext, target->getOrCreateScript(analysisContext));
+        RootedFunction fun(analysisContext, target);
+        RootedScript script(analysisContext, JSFunction::getOrCreateScript(analysisContext, fun));
         if (!script)
             return InliningDecision_Error;
 
@@ -2114,6 +2115,9 @@ IonBuilder::inspectOpcode(JSOp op)
 
       case JSOP_LAMBDA_ARROW:
         return jsop_lambda_arrow(info().getFunction(pc));
+
+      case JSOP_SETFUNNAME:
+        return jsop_setfunname(GET_UINT8(pc));
 
       case JSOP_ITER:
         return jsop_iter(GET_INT8(pc));
@@ -5090,11 +5094,12 @@ IonBuilder::jsop_pow()
     if (!arithTrySharedStub(&emitted, JSOP_POW, base, exponent) || emitted)
         return emitted;
 
-    // For now, use MIRType::Double, as a safe cover-all. See bug 1188079.
-    MPow* pow = MPow::New(alloc(), base, exponent, MIRType::Double);
+    // For now, use MIRType::None as a safe cover-all. See bug 1188079.
+    MPow* pow = MPow::New(alloc(), base, exponent, MIRType::None);
     current->add(pow);
     current->push(pow);
-    return true;
+    MOZ_ASSERT(pow->isEffectful());
+    return resumeAfter(pow);
 }
 
 bool
@@ -5255,8 +5260,13 @@ IonBuilder::inlineScriptedCall(CallInfo& callInfo, JSFunction* target)
         // the inlining was aborted for a non-exception reason.
         if (inlineBuilder.abortReason_ == AbortReason_Disable) {
             calleeScript->setUninlineable();
-            current = backup.restore();
-            return InliningStatus_NotInlined;
+            if (!JitOptions.disableInlineBacktracking) {
+                current = backup.restore();
+                return InliningStatus_NotInlined;
+            }
+            abortReason_ = AbortReason_Inlining;
+        } else if (inlineBuilder.abortReason_ == AbortReason_Inlining) {
+            abortReason_ = AbortReason_Inlining;
         } else if (inlineBuilder.abortReason_ == AbortReason_Alloc) {
             abortReason_ = AbortReason_Alloc;
         } else if (inlineBuilder.abortReason_ == AbortReason_PreliminaryObjects) {
@@ -5285,8 +5295,12 @@ IonBuilder::inlineScriptedCall(CallInfo& callInfo, JSFunction* target)
     if (returns.empty()) {
         // Inlining of functions that have no exit is not supported.
         calleeScript->setUninlineable();
-        current = backup.restore();
-        return InliningStatus_NotInlined;
+        if (!JitOptions.disableInlineBacktracking) {
+            current = backup.restore();
+            return InliningStatus_NotInlined;
+        }
+        abortReason_ = AbortReason_Inlining;
+        return InliningStatus_Error;
     }
     MDefinition* retvalDefn = patchInlinedReturns(callInfo, returns, returnBlock);
     if (!retvalDefn)
@@ -11154,6 +11168,7 @@ IonBuilder::testCommonGetterSetter(TemporaryTypeSet* types, PropertyName* name,
                                    Shape* globalShape/* = nullptr*/,
                                    MDefinition** globalGuard/* = nullptr */)
 {
+    MOZ_ASSERT(foundProto);
     MOZ_ASSERT_IF(globalShape, globalGuard);
     bool guardGlobal;
 
@@ -12140,7 +12155,7 @@ IonBuilder::addShapeGuardsForGetterSetter(MDefinition* obj, JSObject* holder, Sh
                 const BaselineInspector::ObjectGroupVector& convertUnboxedGroups,
                 bool isOwnProperty)
 {
-    MOZ_ASSERT(holder);
+    MOZ_ASSERT(isOwnProperty == !holder);
     MOZ_ASSERT(holderShape);
 
     obj = convertUnboxedObjects(obj, convertUnboxedGroups);
@@ -12158,7 +12173,7 @@ IonBuilder::addShapeGuardsForGetterSetter(MDefinition* obj, JSObject* holder, Sh
 
 bool
 IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName* name,
-                                   TemporaryTypeSet* types)
+                                   TemporaryTypeSet* types, bool innerized)
 {
     MOZ_ASSERT(*emitted == false);
 
@@ -12169,7 +12184,7 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
     bool isOwnProperty = false;
     BaselineInspector::ReceiverVector receivers(alloc());
     BaselineInspector::ObjectGroupVector convertUnboxedGroups(alloc());
-    if (!inspector->commonGetPropFunction(pc, &foundProto, &lastProperty, &commonGetter,
+    if (!inspector->commonGetPropFunction(pc, innerized, &foundProto, &lastProperty, &commonGetter,
                                           &globalShape, &isOwnProperty,
                                           receivers, convertUnboxedGroups))
     {
@@ -12179,13 +12194,17 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
     TemporaryTypeSet* objTypes = obj->resultTypeSet();
     MDefinition* guard = nullptr;
     MDefinition* globalGuard = nullptr;
-    bool canUseTIForGetter =
-        testCommonGetterSetter(objTypes, name, /* isGetter = */ true,
-                               foundProto, lastProperty, commonGetter, &guard,
-                               globalShape, &globalGuard);
+    bool canUseTIForGetter = false;
+    if (!isOwnProperty) {
+        // If it's not an own property, try to use TI to avoid shape guards.
+        // For own properties we use the path below.
+        canUseTIForGetter = testCommonGetterSetter(objTypes, name, /* isGetter = */ true,
+                                                   foundProto, lastProperty, commonGetter, &guard,
+                                                   globalShape, &globalGuard);
+    }
     if (!canUseTIForGetter) {
-        // If type information is bad, we can still optimize the getter if we
-        // shape guard.
+        // If it's an own property or type information is bad, we can still
+        // optimize the getter if we shape guard.
         obj = addShapeGuardsForGetterSetter(obj, foundProto, lastProperty,
                                             receivers, convertUnboxedGroups,
                                             isOwnProperty);
@@ -12646,8 +12665,11 @@ IonBuilder::getPropTryInnerize(bool* emitted, MDefinition* obj, PropertyName* na
             return *emitted;
 
         trackOptimizationAttempt(TrackedStrategy::GetProp_CommonGetter);
-        if (!getPropTryCommonGetter(emitted, inner, name, types) || *emitted)
+        if (!getPropTryCommonGetter(emitted, inner, name, types, /* innerized = */true) ||
+            *emitted)
+        {
             return *emitted;
+        }
     }
 
     // Passing the inner object to GetProperty IC is safe, see the
@@ -12750,12 +12772,16 @@ IonBuilder::setPropTryCommonSetter(bool* emitted, MDefinition* obj,
 
     TemporaryTypeSet* objTypes = obj->resultTypeSet();
     MDefinition* guard = nullptr;
-    bool canUseTIForSetter =
-        testCommonGetterSetter(objTypes, name, /* isGetter = */ false,
-                               foundProto, lastProperty, commonSetter, &guard);
+    bool canUseTIForSetter = false;
+    if (!isOwnProperty) {
+        // If it's not an own property, try to use TI to avoid shape guards.
+        // For own properties we use the path below.
+        canUseTIForSetter = testCommonGetterSetter(objTypes, name, /* isGetter = */ false,
+                                                   foundProto, lastProperty, commonSetter, &guard);
+    }
     if (!canUseTIForSetter) {
-        // If type information is bad, we can still optimize the setter if we
-        // shape guard.
+        // If it's an own property or type information is bad, we can still
+        // optimize the setter if we shape guard.
         obj = addShapeGuardsForGetterSetter(obj, foundProto, lastProperty,
                                             receivers, convertUnboxedGroups,
                                             isOwnProperty);
@@ -13339,6 +13365,21 @@ IonBuilder::jsop_lambda_arrow(JSFunction* fun)
                                           newTargetDef, fun);
     current->add(ins);
     current->push(ins);
+
+    return resumeAfter(ins);
+}
+
+bool
+IonBuilder::jsop_setfunname(uint8_t prefixKind)
+{
+    MDefinition* name = current->pop();
+    MDefinition* fun = current->pop();
+    MOZ_ASSERT(fun->type() == MIRType::Object);
+
+    MSetFunName* ins = MSetFunName::New(alloc(), fun, name, prefixKind);
+
+    current->add(ins);
+    current->push(fun);
 
     return resumeAfter(ins);
 }

@@ -41,6 +41,9 @@ test_description_schema = Schema({
     # the test-name
     Optional('unittest-try-name'): basestring,
 
+    # the name by which this talos test is addressed in try syntax
+    Optional('talos-try-name'): basestring,
+
     # the symbol, or group(symbol), under which this task should appear in
     # treeherder.
     'treeherder-symbol': basestring,
@@ -63,7 +66,10 @@ test_description_schema = Schema({
     ),
 
     # the sheriffing tier for this task (default: set based on test platform)
-    Optional('tier'): int,
+    Optional('tier'): Any(
+        int,
+        {'by-test-platform': {basestring: int}},
+    ),
 
     # number of chunks to create for this task.  This can be keyed by test
     # platform by passing a dictionary in the `by-test-platform` key.  If the
@@ -224,6 +230,9 @@ test_description_schema = Schema({
 
     # the name of the test (the key in tests.yml)
     'test-name': basestring,
+
+    # the product name, defaults to firefox
+    Optional('product'): basestring,
 
 }, required=True)
 

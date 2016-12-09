@@ -7,9 +7,16 @@
   overflow: hidden;
 }
 
-#react-clear-button-hook,
-#react-details-pane-toggle-hook {
+.devtools-toolbar-container {
   display: flex;
+  justify-content: space-between;
+}
+
+.devtools-toolbar-group {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 /**
@@ -45,8 +52,9 @@
 @media (max-width: 700px) {
   #toolbar-spacer,
   #details-pane-toggle,
+  #details-pane.pane-collapsed,
   .requests-menu-waterfall,
-  #requests-menu-network-summary-button > .toolbarbutton-text {
+  #requests-menu-network-summary-button > .summary-info-text {
     display: none;
   }
 }
@@ -134,6 +142,11 @@
 
 #requests-menu-toolbar {
   padding: 0;
+}
+
+#requests-menu-filter-buttons {
+  display: flex;
+  flex-wrap: nowrap;
 }
 
 .theme-firebug #requests-menu-toolbar {
@@ -743,14 +756,34 @@
 /* Performance analysis buttons */
 
 #requests-menu-network-summary-button {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   background: none;
   box-shadow: none;
   border-color: transparent;
-  list-style-image: url(images/profiler-stopwatch.svg);
   padding-inline-end: 0;
   cursor: pointer;
   margin-inline-end: 1em;
   min-width: 0;
+}
+
+#requests-menu-network-summary-button > .summary-info-icon {
+  background-image: url(images/profiler-stopwatch.svg);
+  filter: var(--icon-filter);
+  width: 16px;
+  height: 16px;
+  opacity: 0.8;
+}
+
+#requests-menu-network-summary-button > .summary-info-text {
+  opacity: 0.8;
+  margin-inline-start: 0.5em;
+}
+
+#requests-menu-network-summary-button:hover > .summary-info-icon,
+#requests-menu-network-summary-button:hover > .summary-info-text {
+  opacity: 1;
 }
 
 /* Performance analysis view */

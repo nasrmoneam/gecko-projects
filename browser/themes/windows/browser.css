@@ -822,7 +822,7 @@ toolbar[brighttext] .toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker {
 
 #nav-bar .toolbarbutton-1[type=panel] > .toolbarbutton-icon,
 #nav-bar .toolbarbutton-1[type=panel] > .toolbarbutton-badge-stack,
-#nav-bar .toolbarbutton-1[type=menu]:not(#PanelUI-menu-button):not(#back-button):not(#forward-button) > .toolbarbutton-icon,
+#nav-bar .toolbarbutton-1[type=menu]:not(#PanelUI-menu-button):not(#back-button):not(#forward-button):not(#new-tab-button) > .toolbarbutton-icon,
 #nav-bar .toolbarbutton-1[type=menu]:not(#PanelUI-menu-button) > .toolbarbutton-badge-stack,
 #nav-bar .toolbarbutton-1[type=menu] > .toolbarbutton-text /* hack for add-ons that forcefully display the label */ {
   padding-inline-end: 17px;
@@ -1106,7 +1106,11 @@ toolbar[brighttext] #close-button {
   #minimize-button,
   #restore-button,
   #close-button {
-    list-style-image: url("chrome://global/skin/icons/windowControls.png");
+    /* Important to ensure this applies even on toolbar[brighttext] */
+    list-style-image: url("chrome://global/skin/icons/windowControls.png") !important;
+    /* Also override background color to a avoid hover background styling
+     * leaking through around the image. */
+    background-color: transparent !important;
     padding: 0;
   }
 
@@ -1645,54 +1649,14 @@ html|span.ac-emphasize-text-url {
   list-style-image: url("chrome://browser/skin/urlbar-star.svg#star-inverted");
 }
 
-.autocomplete-treebody::-moz-tree-image(bookmark, treecolAutoCompleteImage) {
-  list-style-image: url("chrome://browser/skin/places/autocomplete-star.png");
-  -moz-image-region: rect(0 16px 16px 0);
-  width: 16px;
-  height: 16px;
-}
-
-@media (min-resolution: 1.1dppx) {
-  .autocomplete-treebody::-moz-tree-image(bookmark, treecolAutoCompleteImage) {
-    list-style-image: url("chrome://browser/skin/places/autocomplete-star@2x.png");
-    -moz-image-region: rect(0 32px 32px 0);
-  }
-}
-
-@media not all and (-moz-os-version: windows-vista) and (-moz-windows-default-theme) {
-  @media not all and (-moz-os-version: windows-win7) and (-moz-windows-default-theme) {
-    .autocomplete-treebody::-moz-tree-image(selected, current, bookmark, treecolAutoCompleteImage) {
-      -moz-image-region: rect(0 32px 16px 16px);
-    }
-
-    @media (min-resolution: 1.1dppx) {
-      .autocomplete-treebody::-moz-tree-image(selected, current, bookmark, treecolAutoCompleteImage) {
-        -moz-image-region: rect(0 64px 32px 32px);
-      }
-    }
-
-    .autocomplete-treebody::-moz-tree-image(keyword, treecolAutoCompleteImage, selected) {
-      list-style-image: url(chrome://global/skin/icons/autocomplete-search.svg#search-icon-inverted);
-    }
-  }
-}
-
 .ac-type-icon[type=keyword],
-.ac-site-icon[type=searchengine],
-.autocomplete-treebody::-moz-tree-image(keyword, treecolAutoCompleteImage) {
+.ac-site-icon[type=searchengine] {
   list-style-image: url(chrome://global/skin/icons/autocomplete-search.svg#search-icon);
 }
 
 .ac-type-icon[type=keyword][selected],
-.ac-site-icon[type=searchengine][selected],
-.autocomplete-treebody::-moz-tree-image(keyword, treecolAutoCompleteImage, selected) {
+.ac-site-icon[type=searchengine][selected] {
   list-style-image: url(chrome://global/skin/icons/autocomplete-search.svg#search-icon-inverted);
-}
-
-.autocomplete-treebody::-moz-tree-image(tag, treecolAutoCompleteImage) {
-  list-style-image: url("chrome://browser/skin/places/tag.png");
-  width: 16px;
-  height: 16px;
 }
 
 .ac-type-icon[type=switchtab],
@@ -2668,19 +2632,16 @@ notification.pluginVulnerable > .notification-inner > .messageCloseButton {
 
 #ContentSelectDropdown > menupopup > menucaption,
 #ContentSelectDropdown > menupopup > menuitem {
-  padding: 4px 6px;
+  padding: 0 6px;
+  border-width: 0;
 }
 
 #ContentSelectDropdown > menupopup > menucaption > .menu-iconic-text,
 #ContentSelectDropdown > menupopup > menuitem > .menu-iconic-text {
-  font: message-box;
-  font-size: 11px;
-  /**
-   * Remove the extra vertical padding set by menu.css since
-   * the menuitem itself will include enough padding.
-   */
-  padding-top: 0px;
-  padding-bottom: 0px;
+  /* Padding should follow the 4/12 ratio, where 12px is the default font-size
+     with 4px being the preferred padding size. */
+  padding-top: .3333em;
+  padding-bottom: .3333em;
 }
 
 #ContentSelectDropdown > menupopup > menucaption > .menu-iconic-text {
@@ -2700,8 +2661,10 @@ notification.pluginVulnerable > .notification-inner > .messageCloseButton {
   color: GrayText;
 }
 
-#ContentSelectDropdown > .isOpenedViaTouch > menucaption,
-#ContentSelectDropdown > .isOpenedViaTouch > menuitem {
-  padding-top: 11px;
-  padding-bottom: 11px;
+#ContentSelectDropdown > .isOpenedViaTouch > menucaption > .menu-iconic-text,
+#ContentSelectDropdown > .isOpenedViaTouch > menuitem > .menu-iconic-text {
+  /* Touch padding should follow the 11/12 ratio, where 12px is the default
+     font-size with 11px being the preferred padding size. */
+  padding-top: .9167em;
+  padding-bottom: .9167em;
 }

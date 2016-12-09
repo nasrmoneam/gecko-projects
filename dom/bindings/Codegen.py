@@ -1696,7 +1696,7 @@ class CGClassConstructor(CGAbstractStaticMethod):
         chromeOnlyCheck = ""
         if isChromeOnly(self._ctor):
             chromeOnlyCheck = dedent("""
-                if (!nsContentUtils::ThreadsafeIsCallerChrome()) {
+                if (!nsContentUtils::ThreadsafeIsSystemCaller(cx)) {
                   return ThrowingConstructor(cx, argc, vp);
                 }
 
@@ -2883,7 +2883,7 @@ class CGCreateInterfaceObjectsMethod(CGAbstractMethod):
         else:
             properties = "nullptr"
         if self.properties.hasChromeOnly():
-            chromeProperties = "nsContentUtils::ThreadsafeIsCallerChrome() ? sChromeOnlyNativeProperties.Upcast() : nullptr"
+            chromeProperties = "nsContentUtils::ThreadsafeIsSystemCaller(aCx) ? sChromeOnlyNativeProperties.Upcast() : nullptr"
         else:
             chromeProperties = "nullptr"
 
@@ -3293,7 +3293,7 @@ def getConditionList(idlobj, cxName, objName):
         assert isinstance(pref, list) and len(pref) == 1
         conditions.append('Preferences::GetBool("%s")' % pref[0])
     if idlobj.getExtendedAttribute("ChromeOnly"):
-        conditions.append("nsContentUtils::ThreadsafeIsCallerChrome()")
+        conditions.append("nsContentUtils::ThreadsafeIsSystemCaller(%s)" % cxName)
     func = idlobj.getExtendedAttribute("Func")
     if func:
         assert isinstance(func, list) and len(func) == 1
@@ -3438,7 +3438,7 @@ def InitUnforgeablePropertiesOnHolder(descriptor, properties, failureCode,
         if array.hasChromeOnly():
             unforgeables.append(
                 CGIfWrapper(CGGeneric(template % array.variableName(True)),
-                            "nsContentUtils::ThreadsafeIsCallerChrome()"))
+                            "nsContentUtils::ThreadsafeIsSystemCaller(aCx)"))
 
     if descriptor.interface.getExtendedAttribute("Unforgeable"):
         # We do our undefined toJSON and toPrimitive here, not as a regular
@@ -3781,7 +3781,7 @@ class CGWrapGlobalMethod(CGAbstractMethod):
         else:
             properties = "nullptr"
         if self.properties.hasChromeOnly():
-            chromeProperties = "nsContentUtils::ThreadsafeIsCallerChrome() ? sChromeOnlyNativeProperties.Upcast() : nullptr"
+            chromeProperties = "nsContentUtils::ThreadsafeIsSystemCaller(aCx) ? sChromeOnlyNativeProperties.Upcast() : nullptr"
         else:
             chromeProperties = "nullptr"
 
@@ -5783,30 +5783,24 @@ def getJSToNativeConversionInfo(type, descriptorProvider, failureCode=None,
             exceptionCode=exceptionCode)
 
         if failureCode is not None:
-            if isDefinitelyObject:
-                dictionaryTest = "IsObjectValueConvertibleToDictionary"
+            # This means we're part of an overload or union conversion, and
+            # should simply skip stuff if our value is not convertible to
+            # dictionary, instead of trying and throwing.  If we're either
+            # isDefinitelyObject or isNullOrUndefined then we're convertible to
+            # dictionary and don't need to check here.
+            if isDefinitelyObject or isNullOrUndefined:
+                template = conversionCode
             else:
-                dictionaryTest = "IsConvertibleToDictionary"
-
-            template = fill("""
-                { // scope for isConvertible
-                  bool isConvertible;
-                  if (!${testConvertible}(cx, ${val}, &isConvertible)) {
-                    $*{exceptionCode}
-                  }
-                  if (!isConvertible) {
-                    $*{failureCode}
-                  }
-
-                  $*{conversionCode}
-                }
-
-                """,
-                testConvertible=dictionaryTest,
-                val=val,
-                exceptionCode=exceptionCode,
-                failureCode=failureCode,
-                conversionCode=conversionCode)
+                template = fill(
+                    """
+                    if (!IsConvertibleToDictionary(${val})) {
+                      $*{failureCode}
+                    }
+                    $*{conversionCode}
+                    """,
+                    val=val,
+                    failureCode=failureCode,
+                    conversionCode=conversionCode)
         else:
             template = conversionCode
 
@@ -6911,6 +6905,9 @@ class CGCallGenerator(CGThing):
     needsSubjectPrincipal is a boolean indicating whether the call should
     receive the subject nsIPrincipal as argument.
 
+    needsCallerType is a boolean indicating whether the call should receive
+    a PrincipalType for the caller.
+
     isFallible is a boolean indicating whether the call should be fallible.
 
     resultVar: If the returnType is not void, then the result of the call is
@@ -6918,8 +6915,8 @@ class CGCallGenerator(CGThing):
     declaring the result variable. If the caller doesn't care about the result
     value, resultVar can be omitted.
     """
-    def __init__(self, isFallible, needsSubjectPrincipal, arguments, argsPre,
-                 returnType, extendedAttributes, descriptor,
+    def __init__(self, isFallible, needsSubjectPrincipal, needsCallerType,
+                 arguments, argsPre, returnType, extendedAttributes, descriptor,
                  nativeMethodName, static, object="self", argsPost=[],
                  resultVar=None):
         CGThing.__init__(self)
@@ -6980,6 +6977,13 @@ class CGCallGenerator(CGThing):
 
         if needsSubjectPrincipal:
             args.append(CGGeneric("subjectPrincipal"))
+
+        if needsCallerType:
+            if descriptor.interface.isExposedInAnyWorker():
+                systemCallerGetter = "nsContentUtils::ThreadsafeIsSystemCaller"
+            else:
+                systemCallerGetter = "nsContentUtils::IsSystemCaller"
+            args.append(CGGeneric("%s(cx) ? CallerType::System : CallerType::NonSystem" % systemCallerGetter))
 
         if isFallible:
             args.append(CGGeneric("rv"))
@@ -7219,6 +7223,8 @@ def wrapArgIntoCurrentCompartment(arg, value, isMember=True):
 def needsContainsHack(m):
     return m.getExtendedAttribute("ReturnValueNeedsContainsHack")
 
+def needsCallerType(m):
+    return m.getExtendedAttribute("NeedsCallerType")
 
 class CGPerSignatureCall(CGThing):
     """
@@ -7518,6 +7524,7 @@ class CGPerSignatureCall(CGThing):
             cgThings.append(CGCallGenerator(
                 self.isFallible(),
                 idlNode.getExtendedAttribute('NeedsSubjectPrincipal'),
+                needsCallerType(idlNode),
                 self.getArguments(), argsPre, returnType,
                 self.extendedAttributes, descriptor,
                 nativeMethodName,
@@ -7599,7 +7606,7 @@ class CGPerSignatureCall(CGThing):
                 # migrate some DOMStringLists to FrozenArray.
                 postConversionSteps += dedent(
                     """
-                    if (args.rval().isObject() && nsContentUtils::ThreadsafeIsCallerChrome()) {
+                    if (args.rval().isObject() && nsContentUtils::ThreadsafeIsSystemCaller(cx)) {
                       JS::Rooted<JSObject*> rvalObj(cx, &args.rval().toObject());
                       JS::Rooted<JS::Value> includesVal(cx);
                       if (!JS_GetProperty(cx, rvalObj, "includes", &includesVal) ||
@@ -8017,12 +8024,12 @@ class CGMethodCall(CGThing):
             # 1)  A platform object that's not a platform array object, being
             #     passed to an interface or "object" arg.
             # 2)  A Date object being passed to a Date or "object" arg.
-            # 3)  A RegExp object being passed to a RegExp or "object" arg.
-            # 4)  A callable object being passed to a callback or "object" arg.
-            # 5)  An iterable object being passed to a sequence arg.
-            # 6)  Any non-Date and non-RegExp object being passed to a
-            #     array or callback interface or dictionary or
-            #     "object" arg.
+            #     XXXbz This is actually gone from the spec now, but we still
+            #     have some APIs using Date.
+            # 3)  A callable object being passed to a callback or "object" arg.
+            # 4)  An iterable object being passed to a sequence arg.
+            # 5)  Any object being passed to a array or callback interface or
+            #     dictionary or "object" arg.
 
             # First grab all the overloads that have a non-callback interface
             # (which includes typed arrays and arraybuffers) at the
@@ -12578,14 +12585,8 @@ class CGDictionary(CGThing):
         else:
             body += dedent(
                 """
-                { // scope for isConvertible
-                  bool isConvertible;
-                  if (!IsConvertibleToDictionary(cx, val, &isConvertible)) {
-                    return false;
-                  }
-                  if (!isConvertible) {
-                    return ThrowErrorMessage(cx, MSG_NOT_DICTIONARY, sourceDescription);
-                  }
+                if (!IsConvertibleToDictionary(val)) {
+                  return ThrowErrorMessage(cx, MSG_NOT_DICTIONARY, sourceDescription);
                 }
 
                 """)
@@ -13638,7 +13639,8 @@ class CGBindingRoot(CGThing):
         def descriptorHasChromeOnly(desc):
             ctor = desc.interface.ctor()
 
-            return (any(isChromeOnly(a) or needsContainsHack(a)
+            return (any(isChromeOnly(a) or needsContainsHack(a) or
+                        needsCallerType(a)
                         for a in desc.interface.members) or
                     desc.interface.getExtendedAttribute("ChromeOnly") is not None or
                     # JS-implemented interfaces with an interface object get a
@@ -14081,7 +14083,14 @@ class CGNativeMember(ClassMethod):
 
         # And the nsIPrincipal
         if self.member.getExtendedAttribute('NeedsSubjectPrincipal'):
-            args.append(Argument("nsIPrincipal&", "aPrincipal"))
+            # Cheat and assume self.descriptorProvider is a descriptor
+            if self.descriptorProvider.interface.isExposedInAnyWorker():
+                args.append(Argument("Maybe<nsIPrincipal*>", "aSubjectPrincipal"))
+            else:
+                args.append(Argument("nsIPrincipal&", "aPrincipal"))
+        # And the caller type, if desired.
+        if needsCallerType(self.member):
+            args.append(Argument("CallerType", "aCallerType"))
         # And the ErrorResult
         if 'infallible' not in self.extendedAttrs:
             # Use aRv so it won't conflict with local vars named "rv"

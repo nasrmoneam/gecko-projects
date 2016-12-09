@@ -30,8 +30,6 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/HashFunctions.h"
 
-#include "nsIAppsService.h"
-
 using namespace mozilla;
 
 static bool gIsWhitelistingTestDomains = false;
@@ -104,14 +102,14 @@ nsPrincipal::GetScriptLocation(nsACString &aStr)
   return mCodebase->GetSpec(aStr);
 }
 
-/* static */ nsresult
-nsPrincipal::GetOriginForURI(nsIURI* aURI, nsACString& aOrigin)
+nsresult
+nsPrincipal::GetOriginInternal(nsACString& aOrigin)
 {
-  if (!aURI) {
+  if (!mCodebase) {
     return NS_ERROR_FAILURE;
   }
 
-  nsCOMPtr<nsIURI> origin = NS_GetInnermostURI(aURI);
+  nsCOMPtr<nsIURI> origin = NS_GetInnermostURI(mCodebase);
   if (!origin) {
     return NS_ERROR_FAILURE;
   }
@@ -178,12 +176,6 @@ nsPrincipal::GetOriginForURI(nsIURI* aURI, nsACString& aOrigin)
   }
 
   return NS_OK;
-}
-
-nsresult
-nsPrincipal::GetOriginInternal(nsACString& aOrigin)
-{
-  return GetOriginForURI(mCodebase, aOrigin);
 }
 
 bool

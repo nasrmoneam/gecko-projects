@@ -15,8 +15,17 @@
 #include "ssl.h"
 #include "sslerr.h"
 #include "sslproto.h"
+#include "ssl3prot.h"
 
 #include "nsskeys.h"
+
+static const char* kVersionDisableFlags[] = {
+  "no-ssl3",
+  "no-tls1",
+  "no-tls11",
+  "no-tls12",
+  "no-tls13"
+};
 
 bool exitCodeUnimplemented = false;
 
@@ -144,12 +153,125 @@ class TestAgent {
     return true;
   }
 
+  static bool ConvertFromWireVersion(SSLProtocolVariant variant,
+                                     int wire_version,
+                                     uint16_t* lib_version) {
+    // These default values are used when {min,max}-version isn't given.
+    if (wire_version == 0 || wire_version == 0xffff) {
+      *lib_version = static_cast<uint16_t>(wire_version);
+      return true;
+    }
+
+#ifdef TLS_1_3_DRAFT_VERSION
+    if (wire_version == (0x7f00 | TLS_1_3_DRAFT_VERSION)) {
+      // N.B. SSL_LIBRARY_VERSION_DTLS_1_3_WIRE == SSL_LIBRARY_VERSION_TLS_1_3
+      wire_version = SSL_LIBRARY_VERSION_TLS_1_3;
+    }
+#endif
+
+    if (variant == ssl_variant_datagram) {
+      switch (wire_version) {
+      case SSL_LIBRARY_VERSION_DTLS_1_0_WIRE:
+        *lib_version = SSL_LIBRARY_VERSION_DTLS_1_0;
+        break;
+      case SSL_LIBRARY_VERSION_DTLS_1_2_WIRE:
+        *lib_version = SSL_LIBRARY_VERSION_DTLS_1_2;
+        break;
+      case SSL_LIBRARY_VERSION_DTLS_1_3_WIRE:
+        *lib_version = SSL_LIBRARY_VERSION_DTLS_1_3;
+        break;
+      default:
+        std::cerr << "Unrecognized DTLS version " << wire_version << ".\n";
+        return false;
+      }
+    } else {
+      if (wire_version < SSL_LIBRARY_VERSION_3_0 ||
+          wire_version > SSL_LIBRARY_VERSION_TLS_1_3) {
+        std::cerr << "Unrecognized TLS version " << wire_version << ".\n";
+        return false;
+      }
+      *lib_version = static_cast<uint16_t>(wire_version);
+    }
+    return true;
+  }
+
+  bool GetVersionRange(SSLVersionRange* range_out, SSLProtocolVariant variant) {
+    SSLVersionRange supported;
+    if (SSL_VersionRangeGetSupported(variant, &supported) != SECSuccess) {
+      return false;
+    }
+
+    uint16_t min_allowed;
+    uint16_t max_allowed;
+    if (!ConvertFromWireVersion(variant, cfg_.get<int>("min-version"),
+                                &min_allowed)) {
+      return false;
+    }
+    if (!ConvertFromWireVersion(variant, cfg_.get<int>("max-version"),
+                                &max_allowed)) {
+      return false;
+    }
+
+    min_allowed = std::max(min_allowed, supported.min);
+    max_allowed = std::min(max_allowed, supported.max);
+
+    bool found_min = false;
+    bool found_max = false;
+    // Ignore -no-ssl3, because SSLv3 is never supported.
+    for (size_t i = 1; i < PR_ARRAY_SIZE(kVersionDisableFlags); ++i) {
+      auto version =
+        static_cast<uint16_t>(SSL_LIBRARY_VERSION_TLS_1_0 + (i - 1));
+      if (variant == ssl_variant_datagram) {
+        // In DTLS mode, the -no-tlsN flags refer to DTLS versions,
+        // but NSS wants the corresponding TLS versions.
+        if (version == SSL_LIBRARY_VERSION_TLS_1_1) {
+          // DTLS 1.1 doesn't exist.
+          continue;
+        }
+        if (version == SSL_LIBRARY_VERSION_TLS_1_0) {
+          version = SSL_LIBRARY_VERSION_DTLS_1_0;
+        }
+      }
+
+      if (version < min_allowed) {
+        continue;
+      }
+      if (version > max_allowed) {
+        break;
+      }
+
+      const bool allowed = !cfg_.get<bool>(kVersionDisableFlags[i]);
+
+      if (!found_min && allowed) {
+        found_min = true;
+        range_out->min = version;
+      }
+      if (found_min && !found_max) {
+        if (allowed) {
+          range_out->max = version;
+        } else {
+          found_max = true;
+        }
+      }
+      if (found_max && allowed) {
+        std::cerr << "Discontiguous version range.\n";
+        return false;
+      }
+    }
+
+    if (!found_min) {
+      std::cerr << "All versions disabled.\n";
+    }
+    return found_min;
+  }
+
   bool SetupOptions() {
     SECStatus rv = SSL_OptionSet(ssl_fd_, SSL_ENABLE_SESSION_TICKETS, PR_TRUE);
     if (rv != SECSuccess) return false;
 
-    SSLVersionRange vrange = {SSL_LIBRARY_VERSION_TLS_1_0,
-                              SSL_LIBRARY_VERSION_TLS_1_3};
+    SSLVersionRange vrange;
+    if (!GetVersionRange(&vrange, ssl_variant_stream)) return false;
+
     rv = SSL_VersionRangeSet(ssl_fd_, &vrange);
     if (rv != SECSuccess) return false;
 
@@ -268,6 +390,11 @@ std::unique_ptr<const Config> ReadConfig(int argc, char** argv) {
   cfg->AddEntry<int>("resume-count", 0);
   cfg->AddEntry<std::string>("key-file", "");
   cfg->AddEntry<std::string>("cert-file", "");
+  cfg->AddEntry<int>("min-version", 0);
+  cfg->AddEntry<int>("max-version", 0xffff);
+  for (auto flag : kVersionDisableFlags) {
+    cfg->AddEntry<bool>(flag, false);
+  }
 
   auto rv = cfg->ParseArgs(argc, argv);
   switch (rv) {

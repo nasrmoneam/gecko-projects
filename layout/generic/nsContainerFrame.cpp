@@ -10,6 +10,8 @@
 #include "mozilla/dom/HTMLDetailsElement.h"
 #include "mozilla/dom/HTMLSummaryElement.h"
 #include "nsAbsoluteContainingBlock.h"
+#include "nsAttrValue.h"
+#include "nsAttrValueInlines.h"
 #include "nsIDocument.h"
 #include "nsPresContext.h"
 #include "nsStyleContext.h"
@@ -29,6 +31,7 @@
 #include "nsBoxLayoutState.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsBlockFrame.h"
+#include "nsBulletFrame.h"
 #include "nsPlaceholderFrame.h"
 #include "mozilla/AutoRestore.h"
 #include "nsIFrameInlines.h"
@@ -834,9 +837,9 @@ nsContainerFrame::DoInlineIntrinsicISize(nsRenderingContext *aRenderingContext,
                   aType == nsLayoutUtils::PREF_ISIZE, "bad type");
 
   WritingMode wm = GetWritingMode();
-  mozilla::css::Side startSide =
+  mozilla::Side startSide =
     wm.PhysicalSideForInlineAxis(eLogicalEdgeStart);
-  mozilla::css::Side endSide =
+  mozilla::Side endSide =
     wm.PhysicalSideForInlineAxis(eLogicalEdgeEnd);
 
   const nsStylePadding *stylePadding = StylePadding();
@@ -1879,12 +1882,10 @@ nsContainerFrame::RenumberFrameAndDescendants(int32_t* aOrdinal,
   }
 
   // Do not renumber list for summary elements.
-  if (HTMLDetailsElement::IsDetailsEnabled()) {
-    HTMLSummaryElement* summary =
-      HTMLSummaryElement::FromContent(kid->GetContent());
-    if (summary && summary->IsMainSummary()) {
-      return false;
-    }
+  HTMLSummaryElement* summary =
+    HTMLSummaryElement::FromContent(kid->GetContent());
+  if (summary && summary->IsMainSummary()) {
+    return false;
   }
 
   bool kidRenumberedABullet = false;

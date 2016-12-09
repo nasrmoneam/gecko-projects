@@ -6,6 +6,7 @@
 #include "GPUProcessManager.h"
 #include "GPUProcessHost.h"
 #include "GPUProcessListener.h"
+#include "mozilla/Sprintf.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/layers/APZCTreeManager.h"
@@ -60,6 +61,7 @@ GPUProcessManager::Shutdown()
 GPUProcessManager::GPUProcessManager()
  : mTaskFactory(this),
    mNextLayerTreeId(0),
+   mNextResetSequenceNo(0),
    mNumProcessAttempts(0),
    mDeviceResetCount(0),
    mProcess(nullptr),
@@ -232,7 +234,7 @@ GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost)
   MOZ_ASSERT(mProcess && mProcess == aHost);
 
   if (!mProcess->IsConnected()) {
-    DisableGPUProcess("Failed to launch GPU process");
+    DisableGPUProcess("Failed to connect GPU process");
     return;
   }
 
@@ -269,8 +271,8 @@ ShouldLimitDeviceResets(uint32_t count, int32_t deltaMilliseconds)
   int32_t timeLimit = gfxPrefs::DeviceResetThresholdMilliseconds();
   int32_t countLimit = gfxPrefs::DeviceResetLimitCount();
 
-  bool hasTimeLimit = timeLimit != -1;
-  bool hasCountLimit = countLimit != -1;
+  bool hasTimeLimit = timeLimit >= 0;
+  bool hasCountLimit = countLimit >= 0;
 
   bool triggeredTime = deltaMilliseconds < timeLimit;
   bool triggeredCount = count > (uint32_t)countLimit;
@@ -306,10 +308,12 @@ GPUProcessManager::OnProcessDeviceReset(GPUProcessHost* aHost)
     HandleProcessLost();
     return;
   }
+  
+  uint64_t seqNo = GetNextDeviceResetSequenceNumber();
 
   // We're good, do a reset like normal
   for (auto& session : mRemoteSessions) {
-    session->NotifyDeviceReset();
+    session->NotifyDeviceReset(seqNo);
   }
 }
 
@@ -321,7 +325,10 @@ GPUProcessManager::OnProcessUnexpectedShutdown(GPUProcessHost* aHost)
   DestroyProcess();
 
   if (mNumProcessAttempts > uint32_t(gfxPrefs::GPUProcessDevMaxRestarts())) {
-    DisableGPUProcess("GPU processed crashed too many times");
+    char disableMessage[64];
+    SprintfLiteral(disableMessage, "GPU process disabled after %d attempts",
+                   mNumProcessAttempts);
+    DisableGPUProcess(disableMessage);
   }
 
   HandleProcessLost();

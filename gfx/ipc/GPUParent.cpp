@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* vim: set ts=8 sts=2 et sw=2 tw=99: */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -22,6 +22,7 @@
 #include "mozilla/dom/VideoDecoderManagerParent.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageBridgeParent.h"
+#include "mozilla/dom/VideoDecoderManagerChild.h"
 #include "mozilla/layers/LayerTreeOwnerTracker.h"
 #include "nsDebugImpl.h"
 #include "nsExceptionHandler.h"
@@ -105,7 +106,6 @@ GPUParent::Init(base::ProcessId aParentPid,
   CompositorThreadHolder::Start();
   APZThreadUtils::SetControllerThread(CompositorThreadHolder::Loop());
   APZCTreeManager::InitializeGlobalState();
-  VRManager::ManagerInit();
   LayerTreeOwnerTracker::Initialize();
   mozilla::ipc::SetThisProcessName("GPU Process");
 #ifdef XP_WIN
@@ -138,7 +138,7 @@ GPUParent::NotifyDeviceReset()
   Unused << SendNotifyDeviceReset();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvInit(nsTArray<GfxPrefSetting>&& prefs,
                     nsTArray<GfxVarUpdate>&& vars,
                     const DevicePrefs& devicePrefs)
@@ -185,48 +185,49 @@ GPUParent::RecvInit(nsTArray<GfxPrefSetting>&& prefs,
   }
 #endif
 
+  VRManager::ManagerInit();
   // Send a message to the UI process that we're done.
   GPUDeviceData data;
   RecvGetDeviceStatus(&data);
   Unused << SendInitComplete(data);
 
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvInitVsyncBridge(Endpoint<PVsyncBridgeParent>&& aVsyncEndpoint)
 {
   mVsyncBridge = VsyncBridgeParent::Start(Move(aVsyncEndpoint));
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvInitImageBridge(Endpoint<PImageBridgeParent>&& aEndpoint)
 {
   ImageBridgeParent::CreateForGPUProcess(Move(aEndpoint));
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvInitVRManager(Endpoint<PVRManagerParent>&& aEndpoint)
 {
   VRManagerParent::CreateForGPUProcess(Move(aEndpoint));
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvUpdatePref(const GfxPrefSetting& setting)
 {
   gfxPrefs::Pref* pref = gfxPrefs::all()[setting.index()];
   pref->SetCachedValue(setting.value());
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvUpdateVar(const GfxVarUpdate& aUpdate)
 {
   gfxVars::ApplyUpdate(aUpdate);
-  return true;
+  return IPC_OK();
 }
 
 static void
@@ -250,7 +251,7 @@ CopyFeatureChange(Feature aFeature, FeatureChange* aOut)
   *aOut = FeatureFailure(feature.GetValue(), message, feature.GetFailureId());
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvGetDeviceStatus(GPUDeviceData* aOut)
 {
   CopyFeatureChange(Feature::D3D11_COMPOSITING, &aOut->d3d11Compositing());
@@ -267,7 +268,7 @@ GPUParent::RecvGetDeviceStatus(GPUDeviceData* aOut)
   aOut->gpuDevice() = null_t();
 #endif
 
-  return true;
+  return IPC_OK();
 }
 
 static void
@@ -279,7 +280,7 @@ OpenParent(RefPtr<CompositorBridgeParent> aParent,
   }
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNewWidgetCompositor(Endpoint<layers::PCompositorBridgeParent>&& aEndpoint,
                                    const CSSToLayoutDeviceScale& aScale,
                                    const TimeDuration& aVsyncRate,
@@ -291,51 +292,63 @@ GPUParent::RecvNewWidgetCompositor(Endpoint<layers::PCompositorBridgeParent>&& a
 
   MessageLoop* loop = CompositorThreadHolder::Loop();
   loop->PostTask(NewRunnableFunction(OpenParent, cbp, Move(aEndpoint)));
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNewContentCompositorBridge(Endpoint<PCompositorBridgeParent>&& aEndpoint)
 {
-  return CompositorBridgeParent::CreateForContent(Move(aEndpoint));
+  if (!CompositorBridgeParent::CreateForContent(Move(aEndpoint))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNewContentImageBridge(Endpoint<PImageBridgeParent>&& aEndpoint)
 {
-  return ImageBridgeParent::CreateForContent(Move(aEndpoint));
+  if (!ImageBridgeParent::CreateForContent(Move(aEndpoint))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNewContentVRManager(Endpoint<PVRManagerParent>&& aEndpoint)
 {
-  return VRManagerParent::CreateForContent(Move(aEndpoint));
+  if (!VRManagerParent::CreateForContent(Move(aEndpoint))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNewContentVideoDecoderManager(Endpoint<PVideoDecoderManagerParent>&& aEndpoint)
 {
-  return dom::VideoDecoderManagerParent::CreateForContent(Move(aEndpoint));
+  if (!dom::VideoDecoderManagerParent::CreateForContent(Move(aEndpoint))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvAddLayerTreeIdMapping(nsTArray<LayerTreeIdMapping>&& aMappings)
 {
   for (const LayerTreeIdMapping& map : aMappings) {
     LayerTreeOwnerTracker::Get()->Map(map.layersId(), map.ownerId());
   }
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvRemoveLayerTreeIdMapping(const LayerTreeIdMapping& aMapping)
 {
   LayerTreeOwnerTracker::Get()->Unmap(aMapping.layersId(), aMapping.ownerId());
   CompositorBridgeParent::DeallocateLayerTreeId(aMapping.layersId());
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 GPUParent::RecvNotifyGpuObservers(const nsCString& aTopic)
 {
   nsCOMPtr<nsIObserverService> obsSvc = mozilla::services::GetObserverService();
@@ -343,7 +356,7 @@ GPUParent::RecvNotifyGpuObservers(const nsCString& aTopic)
   if (obsSvc) {
     obsSvc->NotifyObservers(nullptr, aTopic.get(), nullptr);
   }
-  return true;
+  return IPC_OK();
 }
 
 void
@@ -368,6 +381,7 @@ GPUParent::ActorDestroy(ActorDestroyReason aWhy)
     mVsyncBridge->Shutdown();
     mVsyncBridge = nullptr;
   }
+  dom::VideoDecoderManagerParent::ShutdownVideoBridge();
   CompositorThreadHolder::Shutdown();
   Factory::ShutDown();
 #if defined(XP_WIN)

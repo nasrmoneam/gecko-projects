@@ -5,87 +5,29 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/layers/CrossProcessCompositorBridgeParent.h"
-#include <stdio.h>                      // for fprintf, stdout
 #include <stdint.h>                     // for uint64_t
-#include <map>                          // for _Rb_tree_iterator, etc
-#include <utility>                      // for pair
 #include "LayerTransactionParent.h"     // for LayerTransactionParent
-#include "RenderTrace.h"                // for RenderTraceLayers
 #include "base/message_loop.h"          // for MessageLoop
-#include "base/process.h"               // for ProcessId
 #include "base/task.h"                  // for CancelableTask, etc
 #include "base/thread.h"                // for Thread
-#include "gfxContext.h"                 // for gfxContext
-#include "gfxPlatform.h"                // for gfxPlatform
-#include "TreeTraversal.h"              // for ForEachNode
-#ifdef MOZ_WIDGET_GTK
-#include "gfxPlatformGtk.h"             // for gfxPlatform
-#endif
-#include "gfxPrefs.h"                   // for gfxPrefs
-#include "mozilla/AutoRestore.h"        // for AutoRestore
-#include "mozilla/ClearOnShutdown.h"    // for ClearOnShutdown
-#include "mozilla/DebugOnly.h"          // for DebugOnly
-#include "mozilla/dom/ContentParent.h"
-#include "mozilla/dom/TabParent.h"
-#include "mozilla/gfx/2D.h"          // for DrawTarget
-#include "mozilla/gfx/Point.h"          // for IntSize
-#include "mozilla/gfx/Rect.h"          // for IntSize
-#include "VRManager.h"                  // for VRManager
 #include "mozilla/ipc/Transport.h"      // for Transport
 #include "mozilla/layers/APZCTreeManager.h"  // for APZCTreeManager
 #include "mozilla/layers/APZCTreeManagerParent.h"  // for APZCTreeManagerParent
 #include "mozilla/layers/APZThreadUtils.h"  // for APZCTreeManager
 #include "mozilla/layers/AsyncCompositionManager.h"
-#include "mozilla/layers/BasicCompositor.h"  // for BasicCompositor
-#include "mozilla/layers/Compositor.h"  // for Compositor
-#include "mozilla/layers/CompositorOGL.h"  // for CompositorOGL
 #include "mozilla/layers/CompositorThread.h"
-#include "mozilla/layers/CompositorTypes.h"
-#include "mozilla/layers/FrameUniformityData.h"
-#include "mozilla/layers/ImageBridgeParent.h"
 #include "mozilla/layers/LayerManagerComposite.h"
 #include "mozilla/layers/LayerTreeOwnerTracker.h"
-#include "mozilla/layers/LayersTypes.h"
 #include "mozilla/layers/PLayerTransactionParent.h"
 #include "mozilla/layers/RemoteContentController.h"
-#include "mozilla/layout/RenderFrameParent.h"
-#include "mozilla/media/MediaSystemResourceService.h" // for MediaSystemResourceService
 #include "mozilla/mozalloc.h"           // for operator new, etc
-#include "mozilla/Telemetry.h"
-#ifdef MOZ_WIDGET_GTK
-#include "basic/X11BasicCompositor.h" // for X11BasicCompositor
-#endif
-#include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsDebug.h"                    // for NS_ASSERTION, etc
-#include "nsISupportsImpl.h"            // for MOZ_COUNT_CTOR, etc
-#include "nsIWidget.h"                  // for nsIWidget
 #include "nsTArray.h"                   // for nsTArray
-#include "nsThreadUtils.h"              // for NS_IsMainThread
 #include "nsXULAppAPI.h"                // for XRE_GetIOMessageLoop
-#ifdef XP_WIN
-#include "mozilla/layers/CompositorD3D11.h"
-#include "mozilla/layers/CompositorD3D9.h"
-#endif
-#include "GeckoProfiler.h"
-#include "mozilla/ipc/ProtocolTypes.h"
 #include "mozilla/Unused.h"
-#include "mozilla/Hal.h"
-#include "mozilla/HalTypes.h"
 #include "mozilla/StaticPtr.h"
-#include "mozilla/Telemetry.h"
-#ifdef MOZ_ENABLE_PROFILER_SPS
-#include "ProfilerMarkers.h"
-#endif
-#include "mozilla/VsyncDispatcher.h"
-#if defined(XP_WIN) || defined(MOZ_WIDGET_GTK)
-#include "VsyncSource.h"
-#endif
-#include "mozilla/widget/CompositorWidget.h"
-#ifdef MOZ_WIDGET_SUPPORTS_OOP_COMPOSITING
-# include "mozilla/widget/CompositorWidgetParent.h"
-#endif
 
-#include "LayerScope.h"
+using namespace std;
 
 namespace mozilla {
 
@@ -95,12 +37,14 @@ namespace layers {
 typedef map<uint64_t, CompositorBridgeParent::LayerTreeState> LayerTreeMap;
 extern LayerTreeMap sIndirectLayerTrees;
 extern StaticAutoPtr<mozilla::Monitor> sIndirectLayerTreesLock;
+void UpdateIndirectTree(uint64_t aId, Layer* aRoot, const TargetConfig& aTargetConfig);
+void EraseLayerState(uint64_t aId);
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvRequestNotifyAfterRemotePaint()
 {
   mNotifyAfterRemotePaint = true;
-  return true;
+  return IPC_OK();
 }
 
 void
@@ -136,7 +80,7 @@ CrossProcessCompositorBridgeParent::AllocPLayerTransactionParent(
 
   if (state && state->mLayerManager) {
     state->mCrossProcessParent = this;
-    LayerManagerComposite* lm = state->mLayerManager;
+    HostLayerManager* lm = state->mLayerManager;
     *aTextureFactoryIdentifier = lm->GetCompositor()->GetTextureFactoryIdentifier();
     *aSuccess = true;
     LayerTransactionParent* p = new LayerTransactionParent(lm, this, aId);
@@ -164,20 +108,20 @@ CrossProcessCompositorBridgeParent::DeallocPLayerTransactionParent(PLayerTransac
   return true;
 }
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvAsyncPanZoomEnabled(const uint64_t& aLayersId, bool* aHasAPZ)
 {
   // Check to see if this child process has access to this layer tree.
   if (!LayerTreeOwnerTracker::Get()->IsMapped(aLayersId, OtherPid())) {
     NS_ERROR("Unexpected layers id in RecvAsyncPanZoomEnabled; dropping message...");
-    return false;
+    return IPC_FAIL_NO_REASON(this);
   }
 
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
   CompositorBridgeParent::LayerTreeState& state = sIndirectLayerTrees[aLayersId];
 
   *aHasAPZ = state.mParent ? state.mParent->AsyncPanZoomEnabled() : false;
-  return true;
+  return IPC_OK();
 }
 
 PAPZCTreeManagerParent*
@@ -246,7 +190,7 @@ CrossProcessCompositorBridgeParent::DeallocPAPZParent(PAPZParent* aActor)
   return true;
 }
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvNotifyChildCreated(const uint64_t& child)
 {
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
@@ -255,10 +199,10 @@ CrossProcessCompositorBridgeParent::RecvNotifyChildCreated(const uint64_t& child
     CompositorBridgeParent::LayerTreeState* lts = &it->second;
     if (lts->mParent && lts->mCrossProcessParent == this) {
       lts->mParent->NotifyChildCreated(child);
-      return true;
+      return IPC_OK();
     }
   }
-  return false;
+  return IPC_FAIL_NO_REASON(this);
 }
 
 void
@@ -461,7 +405,7 @@ CrossProcessCompositorBridgeParent::GetCompositionManager(LayerTransactionParent
   return state->mParent->GetCompositionManager(aLayerTree);
 }
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvAcknowledgeCompositorUpdate(const uint64_t& aLayersId)
 {
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
@@ -472,7 +416,7 @@ CrossProcessCompositorBridgeParent::RecvAcknowledgeCompositorUpdate(const uint64
   }
   MOZ_ASSERT(state.mPendingCompositorUpdates > 0);
   state.mPendingCompositorUpdates--;
-  return true;
+  return IPC_OK();
 }
 
 void
@@ -531,7 +475,7 @@ CrossProcessCompositorBridgeParent::IsSameProcess() const
   return OtherPid() == base::GetCurrentProcId();
 }
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvClearApproximatelyVisibleRegions(const uint64_t& aLayersId,
                                                                          const uint32_t& aPresShellId)
 {
@@ -543,10 +487,10 @@ CrossProcessCompositorBridgeParent::RecvClearApproximatelyVisibleRegions(const u
   if (parent) {
     parent->ClearApproximatelyVisibleRegions(aLayersId, Some(aPresShellId));
   }
-  return true;
+  return IPC_OK();
 }
 
-bool
+mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvNotifyApproximatelyVisibleRegion(const ScrollableLayerGuid& aGuid,
                                                                          const CSSIntRegion& aRegion)
 {
@@ -556,9 +500,12 @@ CrossProcessCompositorBridgeParent::RecvNotifyApproximatelyVisibleRegion(const S
     parent = sIndirectLayerTrees[aGuid.mLayersId].mParent;
   }
   if (parent) {
-    return parent->RecvNotifyApproximatelyVisibleRegion(aGuid, aRegion);
+    if (!parent->RecvNotifyApproximatelyVisibleRegion(aGuid, aRegion)) {
+      return IPC_FAIL_NO_REASON(this);
+    }
+    return IPC_OK();;
   }
-  return true;
+  return IPC_OK();
 }
 
 void

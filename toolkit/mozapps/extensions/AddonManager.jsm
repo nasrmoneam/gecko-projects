@@ -63,8 +63,6 @@ var PREF_EM_CHECK_COMPATIBILITY = MOZ_COMPATIBILITY_NIGHTLY ?
                                   PREF_EM_CHECK_COMPATIBILITY_BASE + ".nightly" :
                                   undefined;
 
-const TOOLKIT_ID                      = "toolkit@mozilla.org";
-
 const VALID_TYPES_REGEXP = /^[\w\-]+$/;
 
 const WEBAPI_INSTALL_HOSTS = ["addons.mozilla.org", "testpilot.firefox.com"];
@@ -1310,7 +1308,6 @@ var AddonManagerInternal = {
         break;
       }
       case PREF_EM_UPDATE_ENABLED: {
-        let oldValue = gUpdateEnabled;
         try {
           gUpdateEnabled = Services.prefs.getBoolPref(PREF_EM_UPDATE_ENABLED);
         } catch (e) {
@@ -1321,7 +1318,6 @@ var AddonManagerInternal = {
         break;
       }
       case PREF_EM_AUTOUPDATE_DEFAULT: {
-        let oldValue = gAutoUpdateDefault;
         try {
           gAutoUpdateDefault = Services.prefs.getBoolPref(PREF_EM_AUTOUPDATE_DEFAULT);
         } catch (e) {
@@ -1870,13 +1866,12 @@ var AddonManagerInternal = {
    *         Optional placeholder icons while the add-on is being downloaded
    * @param  aVersion
    *         An optional placeholder version while the add-on is being downloaded
-   * @param  aLoadGroup
-   *         An optional nsILoadGroup to associate any network requests with
+   * @param  aBrowser
+   *         An optional <browser> element for download permissions prompts.
    * @throws if the aUrl, aCallback or aMimetype arguments are not specified
    */
-  getInstallForURL: function(aUrl, aCallback, aMimetype,
-                                                  aHash, aName, aIcons,
-                                                  aVersion, aBrowser) {
+  getInstallForURL: function(aUrl, aCallback, aMimetype, aHash, aName,
+                             aIcons, aVersion, aBrowser) {
     if (!gStarted)
       throw Components.Exception("AddonManager is not initialized",
                                  Cr.NS_ERROR_NOT_INITIALIZED);
@@ -2618,11 +2613,9 @@ var AddonManagerInternal = {
     let addons = [];
 
     new AsyncObjectCaller(this.providers, "getAddonsWithOperationsByTypes", {
-      nextObject: function getAddonsWithOperationsByTypes_nextObject
-                           (aCaller, aProvider) {
+      nextObject: function(aCaller, aProvider) {
         callProviderAsync(aProvider, "getAddonsWithOperationsByTypes", aTypes,
-                          function getAddonsWithOperationsByTypes_concatAddons
-                                   (aProviderAddons) {
+                          function(aProviderAddons) {
           if (aProviderAddons) {
             addons = addons.concat(aProviderAddons);
           }
@@ -3199,16 +3192,22 @@ this.AddonManager = {
     ["STATE_DOWNLOADED", 3],
     // The download failed.
     ["STATE_DOWNLOAD_FAILED", 4],
+    // The install may not proceed until the user accepts permissions
+    ["STATE_AWAITING_PERMISSIONS", 5],
+    // Any permission prompts are done
+    ["STATE_PERMISSION_GRANTED", 6],
     // The install has been postponed.
-    ["STATE_POSTPONED", 5],
+    ["STATE_POSTPONED", 7],
+    // The install is ready to be applied.
+    ["STATE_READY", 8],
     // The add-on is being installed.
-    ["STATE_INSTALLING", 6],
+    ["STATE_INSTALLING", 9],
     // The add-on has been installed.
-    ["STATE_INSTALLED", 7],
+    ["STATE_INSTALLED", 10],
     // The install failed.
-    ["STATE_INSTALL_FAILED", 8],
+    ["STATE_INSTALL_FAILED", 11],
     // The install has been cancelled.
-    ["STATE_CANCELLED", 9],
+    ["STATE_CANCELLED", 12],
   ]),
 
   // Constants representing different types of errors while downloading an

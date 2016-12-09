@@ -803,7 +803,7 @@ public:
   NS_DECL_NSIDOMDOCUMENTXBL
 
   // nsIDOMEventTarget
-  virtual nsresult PreHandleEvent(
+  virtual nsresult GetEventTargetParent(
                      mozilla::EventChainPreVisitor& aVisitor) override;
   virtual mozilla::EventListenerManager*
     GetOrCreateListenerManager() override;
@@ -1080,10 +1080,11 @@ public:
   Element* FullScreenStackTop();
 
   // DOM-exposed fullscreen API
-  bool FullscreenEnabled() override;
+  bool FullscreenEnabled(mozilla::dom::CallerType aCallerType) override;
   Element* GetFullscreenElement() override;
 
-  void RequestPointerLock(Element* aElement) override;
+  void RequestPointerLock(Element* aElement,
+                          mozilla::dom::CallerType aCallerType) override;
   bool SetPointerLock(Element* aElement, int aCursorStyle);
   static void UnlockPointer(nsIDocument* aDoc = nullptr);
 
@@ -1381,7 +1382,13 @@ public:
   virtual already_AddRefed<mozilla::dom::CustomElementRegistry>
     GetCustomElementRegistry() override;
 
+  // Check whether web components are enabled for the global of aObject.
   static bool IsWebComponentsEnabled(JSContext* aCx, JSObject* aObject);
+  // Check whether web components are enabled for the global of the document
+  // this nodeinfo comes from.
+  static bool IsWebComponentsEnabled(mozilla::dom::NodeInfo* aNodeInfo);
+  // Check whether web components are enabled for the given window.
+  static bool IsWebComponentsEnabled(nsPIDOMWindowInner* aWindow);
 
   RefPtr<mozilla::EventListenerManager> mListenerManager;
   RefPtr<mozilla::dom::StyleSheetList> mDOMStyleSheets;

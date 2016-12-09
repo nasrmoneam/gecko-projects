@@ -39,6 +39,7 @@
 #include "mozilla/Logging.h"
 #include "zlib.h"
 #include "Classifier.h"
+#include "nsUrlClassifierDBService.h"
 
 // Main store for SafeBrowsing protocol data. We store
 // known add/sub chunks, prefixes and completions in memory
@@ -206,13 +207,16 @@ TableUpdateV4::NewChecksum(const std::string& aChecksum)
   mChecksum.Assign(aChecksum.data(), aChecksum.size());
 }
 
-HashStore::HashStore(const nsACString& aTableName, nsIFile* aRootStoreDir)
+HashStore::HashStore(const nsACString& aTableName,
+                     const nsACString& aProvider,
+                     nsIFile* aRootStoreDir)
   : mTableName(aTableName)
   , mInUpdate(false)
   , mFileSize(0)
 {
   nsresult rv = Classifier::GetPrivateStoreDirectory(aRootStoreDir,
                                                      aTableName,
+                                                     aProvider,
                                                      getter_AddRefs(mStoreDirectory));
   if (NS_FAILED(rv)) {
     LOG(("Failed to get private store directory for %s", mTableName.get()));
@@ -221,8 +225,7 @@ HashStore::HashStore(const nsACString& aTableName, nsIFile* aRootStoreDir)
 }
 
 HashStore::~HashStore()
-{
-}
+= default;
 
 nsresult
 HashStore::Reset()
@@ -949,6 +952,9 @@ nsresult
 HashStore::WriteFile()
 {
   NS_ASSERTION(mInUpdate, "Must be in update to write database.");
+  if (nsUrlClassifierDBService::ShutdownHasStarted()) {
+    return NS_ERROR_ABORT;
+  }
 
   nsCOMPtr<nsIFile> storeFile;
   nsresult rv = mStoreDirectory->Clone(getter_AddRefs(storeFile));

@@ -84,6 +84,8 @@ struct EnumEntry {
   size_t length;
 };
 
+enum class CallerType : uint32_t;
+
 class MOZ_STACK_CLASS GlobalObject
 {
 public:
@@ -112,6 +114,10 @@ public:
   // It returns the subjectPrincipal if called on the main-thread, otherwise
   // a nullptr is returned.
   nsIPrincipal* GetSubjectPrincipal() const;
+
+  // Get the caller type.  Note that this needs to be called before anyone has
+  // had a chance to mess with the JSContext.
+  dom::CallerType CallerType() const;
 
 protected:
   JS::Rooted<JSObject*> mGlobalJSObject;
@@ -522,6 +528,12 @@ public:
 };
 
 } // namespace binding_detail
+
+// Enum to represent a system or non-system caller type.
+enum class CallerType : uint32_t {
+  System,
+  NonSystem
+};
 
 } // namespace dom
 } // namespace mozilla

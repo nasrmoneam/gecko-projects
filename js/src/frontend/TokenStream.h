@@ -570,6 +570,14 @@ class MOZ_STACK_CLASS TokenStream
         return true;
     }
 
+    MOZ_MUST_USE bool peekOffset(uint32_t* offset, Modifier modifier = None) {
+        TokenPos pos;
+        if (!peekTokenPos(&pos, modifier))
+            return false;
+        *offset = pos.begin;
+        return true;
+    }
+
     // This is like peekToken(), with one exception:  if there is an EOL
     // between the end of the current token and the start of the next token, it
     // return true and store TOK_EOL in |*ttp|.  In that case, no token with
@@ -952,6 +960,7 @@ class MOZ_STACK_CLASS TokenStream
     uint32_t peekExtendedUnicodeEscape(uint32_t* codePoint);
     uint32_t matchUnicodeEscapeIdStart(uint32_t* codePoint);
     bool matchUnicodeEscapeIdent(uint32_t* codePoint);
+    bool matchTrailForLeadSurrogate(char16_t lead, char16_t* trail, uint32_t* codePoint);
     bool peekChars(int n, char16_t* cp);
 
     MOZ_MUST_USE bool getDirectives(bool isMultiline, bool shouldWarnDeprecated);

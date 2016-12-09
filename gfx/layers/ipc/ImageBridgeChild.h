@@ -189,10 +189,10 @@ public:
   virtual bool
   DeallocPImageContainerChild(PImageContainerChild* actor) override;
 
-  virtual bool
+  virtual mozilla::ipc::IPCResult
   RecvParentAsyncMessages(InfallibleTArray<AsyncParentMessageData>&& aMessages) override;
 
-  virtual bool
+  virtual mozilla::ipc::IPCResult
   RecvDidComposite(InfallibleTArray<ImageCompositeNotification>&& aNotifications) override;
 
   // Create an ImageClient from any thread.
@@ -303,13 +303,13 @@ public:
   virtual void UseTiledLayerBuffer(CompositableClient* aCompositable,
                                    const SurfaceDescriptorTiles& aTileLayerDescriptor) override
   {
-    NS_RUNTIMEABORT("should not be called");
+    MOZ_CRASH("should not be called");
   }
 
   virtual void UpdateTextureRegion(CompositableClient* aCompositable,
                                    const ThebesBufferData& aThebesBufferData,
                                    const nsIntRegion& aUpdatedRegion) override {
-    NS_RUNTIMEABORT("should not be called");
+    MOZ_CRASH("should not be called");
   }
 
   // ISurfaceAllocator

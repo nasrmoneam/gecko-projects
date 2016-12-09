@@ -32,12 +32,13 @@
 #include "nsExpirationTracker.h"
 #include "nsClassHashtable.h"
 #include "prclist.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/dom/Dispatcher.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/StyleBackendType.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/UniquePtr.h"
 #include <bitset>                        // for member
 
 #ifdef MOZILLA_INTERNAL_API
@@ -166,6 +167,8 @@ template<typename> class Sequence;
 template<typename, typename> class CallbackObjectHolder;
 typedef CallbackObjectHolder<NodeFilter, nsIDOMNodeFilter> NodeFilterHolder;
 
+enum class CallerType : uint32_t;
+
 } // namespace dom
 } // namespace mozilla
 
@@ -202,7 +205,8 @@ class nsContentList;
 
 // Document interface.  This is implemented by all document objects in
 // Gecko.
-class nsIDocument : public nsINode
+class nsIDocument : public nsINode,
+                    public mozilla::dom::DispatcherTrait
 {
   typedef mozilla::dom::GlobalObject GlobalObject;
 
@@ -1439,7 +1443,8 @@ public:
    */
   void DispatchFullscreenError(const char* aMessage);
 
-  virtual void RequestPointerLock(Element* aElement) = 0;
+  virtual void RequestPointerLock(Element* aElement,
+                                  mozilla::dom::CallerType aCallerType) = 0;
 
   static void UnlockPointer(nsIDocument* aDoc = nullptr);
 
@@ -2551,6 +2556,7 @@ public:
   // when accessed from chrome privileged script and
   // from content privileged script for compatibility.
   void GetDocumentURIFromJS(nsString& aDocumentURI,
+                            mozilla::dom::CallerType aCallerType,
                             mozilla::ErrorResult& aRv) const;
   void GetCompatMode(nsString& retval) const;
   void GetCharacterSet(nsAString& retval) const;
@@ -2667,7 +2673,7 @@ public:
                                   Element* aElement) = 0;
   nsIURI* GetDocumentURIObject() const;
   // Not const because all the full-screen goop is not const
-  virtual bool FullscreenEnabled() = 0;
+  virtual bool FullscreenEnabled(mozilla::dom::CallerType aCallerType) = 0;
   virtual Element* GetFullscreenElement() = 0;
   bool Fullscreen()
   {
@@ -2850,7 +2856,7 @@ public:
     return mHasScrollLinkedEffect;
   }
 
-  mozilla::dom::DocGroup* GetDocGroup();
+  mozilla::dom::DocGroup* GetDocGroup() const;
 
   virtual void AddIntersectionObserver(
     mozilla::dom::DOMIntersectionObserver* aObserver) = 0;
@@ -2860,6 +2866,20 @@ public:
   virtual void UpdateIntersectionObservations() = 0;
   virtual void ScheduleIntersectionObserverNotification() = 0;
   virtual void NotifyIntersectionObservers() = 0;
+
+  // Dispatch a runnable related to the document.
+  virtual nsresult Dispatch(const char* aName,
+                            mozilla::dom::TaskCategory aCategory,
+                            already_AddRefed<nsIRunnable>&& aRunnable) override;
+
+  virtual already_AddRefed<nsIEventTarget>
+  EventTargetFor(mozilla::dom::TaskCategory aCategory) const override;
+
+  // The URLs passed to these functions should match what
+  // JS::DescribeScriptedCaller() returns, since these APIs are used to
+  // determine whether some code is being called from a tracking script.
+  void NoteScriptTrackingStatus(const nsACString& aURL, bool isTracking);
+  bool IsScriptTracking(const nsACString& aURL) const;
 
 protected:
   bool GetUseCounter(mozilla::UseCounter aUseCounter)
@@ -3008,6 +3028,10 @@ protected:
   // Our readyState
   ReadyState mReadyState;
 
+  // Whether this document has (or will have, once we have a pres shell) a
+  // Gecko- or Servo-backed style system.
+  mozilla::StyleBackendType mStyleBackendType;
+
 #ifdef MOZILLA_INTERNAL_API
   // Our visibility state
   mozilla::dom::VisibilityState mVisibilityState;
@@ -3015,10 +3039,6 @@ protected:
 #else
   uint32_t mDummy;
 #endif
-
-  // Whether this document has (or will have, once we have a pres shell) a
-  // Gecko- or Servo-backed style system.
-  mozilla::StyleBackendType mStyleBackendType;
 
   // True if BIDI is enabled.
   bool mBidiEnabled : 1;
@@ -3319,6 +3339,11 @@ protected:
   mozilla::TimeStamp mPageUnloadingEventTimeStamp;
 
   RefPtr<mozilla::dom::DocGroup> mDocGroup;
+
+  // The set of all the tracking script URLs.  URLs are added to this set by
+  // calling NoteScriptTrackingStatus().  Currently we assume that a URL not
+  // existing in the set means the corresponding script isn't a tracking script.
+  nsTHashtable<nsCStringHashKey> mTrackingScripts;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(nsIDocument, NS_IDOCUMENT_IID)

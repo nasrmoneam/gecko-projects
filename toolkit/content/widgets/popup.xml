@@ -246,6 +246,12 @@
       </xul:arrowscrollbox>
     </content>
 
+    <implementation>
+      <field name="scrollBox" readonly="true">
+        document.getAnonymousElementByAttribute(this, "class", "popup-internal-box");
+      </field>
+    </implementation>
+
     <handlers>
       <handler event="popupshowing" phase="target">
         <![CDATA[
@@ -281,7 +287,7 @@
             let tmp = {};
             Components.utils.import("resource://gre/modules/WindowDraggingUtils.jsm", tmp);
             let draghandle = new tmp.WindowDraggingElement(this);
-            draghandle.mouseDownCheck = function () {
+            draghandle.mouseDownCheck = function() {
               return this._dragBindingAlive;
             }
           } catch (e) {}
@@ -628,9 +634,9 @@
 
   <binding id="popup-scrollbars" extends="chrome://global/content/bindings/popup.xml#popup">
     <content>
-      <xul:hbox class="popup-internal-box" flex="1" orient="vertical" style="overflow: auto;">
+      <xul:scrollbox class="popup-internal-box" flex="1" orient="vertical" style="overflow: auto;">
         <children/>
-      </xul:hbox>
+      </xul:scrollbox>
     </content>
   </binding>
 

@@ -6,7 +6,6 @@
 
 const {l10n} = require("devtools/shared/inspector/css-logic");
 const {ELEMENT_STYLE} = require("devtools/shared/specs/styles");
-const {PREF_ORIG_SOURCES} = require("devtools/client/styleeditor/utils");
 const {Rule} = require("devtools/client/inspector/rules/models/rule");
 const {InplaceEditor, editableField, editableItem} =
       require("devtools/client/shared/inplace-editor");
@@ -32,6 +31,8 @@ const {Task} = require("devtools/shared/task");
 const STYLE_INSPECTOR_PROPERTIES = "devtools/shared/locales/styleinspector.properties";
 const {LocalizationHelper} = require("devtools/shared/l10n");
 const STYLE_INSPECTOR_L10N = new LocalizationHelper(STYLE_INSPECTOR_PROPERTIES);
+
+const PREF_ORIG_SOURCES = "devtools.styleeditor.source-maps-enabled";
 
 /**
  * RuleEditor is responsible for the following:
@@ -154,7 +155,7 @@ RuleEditor.prototype = {
 
       let selectorHighlighter = createChild(header, "span", {
         class: "ruleview-selectorhighlighter" +
-               (this.ruleView.highlightedSelector === selector ?
+               (this.ruleView.highlighters.selectorHighlighterShown === selector ?
                 " highlighted" : ""),
         title: l10n("rule.selectorHighlighter.tooltip")
       });
@@ -585,9 +586,9 @@ RuleEditor.prototype = {
       this.element.parentNode.replaceChild(editor.element, this.element);
 
       // Remove highlight for modified selector
-      if (ruleView.highlightedSelector) {
+      if (ruleView.highlighters.selectorHighlighterShown) {
         ruleView.toggleSelectorHighlighter(ruleView.lastSelectorIcon,
-          ruleView.highlightedSelector);
+          ruleView.highlighters.selectorHighlighterShown);
       }
 
       editor._moveSelectorFocus(direction);

@@ -130,6 +130,7 @@ class GlobalObject : public NativeObject
 
     enum WarnOnceFlag : int32_t {
         WARN_WATCH_DEPRECATED                   = 1 << 0,
+        WARN_ARRAYBUFFER_SLICE_DEPRECATED       = 1 << 1,
     };
 
     // Emit the specified warning if the given slot in |obj|'s global isn't
@@ -424,6 +425,18 @@ class GlobalObject : public NativeObject
         if (!ensureConstructor(cx, global, key))
             return nullptr;
         return &global->getPrototype(key).toObject();
+    }
+
+    static JSFunction*
+    getOrCreateErrorConstructor(JSContext* cx, Handle<GlobalObject*> global) {
+        if (!ensureConstructor(cx, global, JSProto_Error))
+            return nullptr;
+        return &global->getConstructor(JSProto_Error).toObject().as<JSFunction>();
+    }
+
+    static JSObject*
+    getOrCreateErrorPrototype(JSContext* cx, Handle<GlobalObject*> global) {
+        return getOrCreateCustomErrorPrototype(cx, global, JSEXN_ERR);
     }
 
     static NativeObject* getOrCreateSetPrototype(JSContext* cx, Handle<GlobalObject*> global) {
@@ -725,6 +738,12 @@ class GlobalObject : public NativeObject
         return true;
     }
 
+    // Warn about use of the deprecated (static) ArrayBuffer.slice method.
+    static bool warnOnceAboutArrayBufferSlice(JSContext* cx, HandleObject obj) {
+        return warnOnceAbout(cx, obj, WARN_ARRAYBUFFER_SLICE_DEPRECATED,
+                             JSMSG_ARRAYBUFFER_SLICE_DEPRECATED);
+    }
+
     static bool getOrCreateEval(JSContext* cx, Handle<GlobalObject*> global,
                                 MutableHandleObject eval);
 
@@ -945,12 +964,14 @@ GlobalObject::createArrayFromBuffer<uint8_clamped>() const
 }
 
 /*
- * Define ctor.prototype = proto as non-enumerable, non-configurable, and
- * non-writable; define proto.constructor = ctor as non-enumerable but
- * configurable and writable.
+ * Unless otherwise specified, define ctor.prototype = proto as non-enumerable,
+ * non-configurable, and non-writable; and define proto.constructor = ctor as
+ * non-enumerable but configurable and writable.
  */
 extern bool
-LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor, JSObject* proto);
+LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor, JSObject* proto,
+                            unsigned prototypeAttrs = JSPROP_PERMANENT | JSPROP_READONLY,
+                            unsigned constructorAttrs = 0);
 
 /*
  * Define properties and/or functions on any object. Either ps or fs, or both,
@@ -996,10 +1017,7 @@ GenericCreatePrototype(JSContext* cx, JSProtoKey key)
 inline JSProtoKey
 StandardProtoKeyOrNull(const JSObject* obj)
 {
-    JSProtoKey key = JSCLASS_CACHED_PROTO_KEY(obj->getClass());
-    if (key == JSProto_Error)
-        return GetExceptionProtoKey(obj->as<ErrorObject>().type());
-    return key;
+    return JSCLASS_CACHED_PROTO_KEY(obj->getClass());
 }
 
 JSObject*

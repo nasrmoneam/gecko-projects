@@ -66,8 +66,6 @@ enum class SurfaceMode : int8_t {
 };
 
 // LayerRenderState for Composer2D
-// We currently only support Composer2D using gralloc. If we want to be backed
-// by other surfaces we will need a more generic LayerRenderState.
 enum class LayerRenderStateFlags : int8_t {
   LAYER_RENDER_STATE_DEFAULT = 0,
   ORIGIN_BOTTOM_LEFT = 1 << 0,
@@ -243,6 +241,10 @@ typedef gfx::Matrix4x4Typed<LayerPixel, CSSTransformedLayerPixel> CSSTransformMa
 // PixelCastJustification is provided for this purpose.
 typedef gfx::Matrix4x4Typed<ParentLayerPixel, ParentLayerPixel> AsyncTransformComponentMatrix;
 typedef gfx::Matrix4x4Typed<CSSTransformedLayerPixel, ParentLayerPixel> AsyncTransformMatrix;
+
+typedef Array<gfx::Color, 4> BorderColors;
+typedef Array<LayerSize, 4> BorderCorners;
+typedef Array<LayerCoord, 4> BorderWidths;
 
 } // namespace layers
 } // namespace mozilla

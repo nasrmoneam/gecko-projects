@@ -77,11 +77,9 @@ function loadFaviconHandler(metadata, response) {
 
 add_task(function* setup() {
   // Make sure userContext is enabled.
-  yield new Promise(resolve => {
-    SpecialPowers.pushPrefEnv({"set": [
-      ["privacy.userContext.enabled", true]
-    ]}, resolve);
-  });
+  yield SpecialPowers.pushPrefEnv({"set": [
+    ["privacy.userContext.enabled", true]
+  ]});
 
   // Create a http server for the image cache test.
   if (!gHttpServer) {
@@ -118,7 +116,7 @@ add_task(function* test() {
     let tabInfo = yield* openTabInUserContext(testURL, userContextId);
 
     // Write a cookie according to the userContext.
-    yield ContentTask.spawn(tabInfo.browser, { userContext: USER_CONTEXTS[userContextId] }, function (arg) {
+    yield ContentTask.spawn(tabInfo.browser, { userContext: USER_CONTEXTS[userContextId] }, function(arg) {
       content.document.cookie = "userContext=" + arg.userContext;
     });
 

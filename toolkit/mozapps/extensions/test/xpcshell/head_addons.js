@@ -2,6 +2,8 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+/* eslint no-unused-vars: ["error", {vars: "local", args: "none"}] */
+
 var AM_Cc = Components.classes;
 var AM_Ci = Components.interfaces;
 var AM_Cu = Components.utils;
@@ -47,6 +49,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "Extension",
                                   "resource://gre/modules/Extension.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ExtensionTestUtils",
                                   "resource://testing-common/ExtensionXPCShellUtils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "ExtensionTestCommon",
+                                  "resource://testing-common/ExtensionTestCommon.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "HttpServer",
                                   "resource://testing-common/httpd.js");
 XPCOMUtils.defineLazyModuleGetter(this, "MockAsyncShutdown",
@@ -70,6 +74,7 @@ const {
   promiseAddonsByIDs,
   promiseAddonsWithOperationsByTypes,
   promiseCompleteAllInstalls,
+  promiseCompleteInstall,
   promiseConsoleOutput,
   promiseFindAddonUpdates,
   promiseInstallAllFiles,
@@ -828,7 +833,7 @@ const AddonListener = {
 
   onEnabled: function(aAddon) {
     do_print(`Got onEnabled event for ${aAddon.id}`);
-    let [event, expectedRestart] = getExpectedEvent(aAddon.id);
+    let [event] = getExpectedEvent(aAddon.id);
     do_check_eq("onEnabled", event);
     do_check_false(hasFlag(aAddon.permissions, AddonManager.PERM_CAN_ENABLE));
     return check_test_completed(arguments);
@@ -847,7 +852,7 @@ const AddonListener = {
 
   onDisabled: function(aAddon) {
     do_print(`Got onDisabled event for ${aAddon.id}`);
-    let [event, expectedRestart] = getExpectedEvent(aAddon.id);
+    let [event] = getExpectedEvent(aAddon.id);
     do_check_eq("onDisabled", event);
     do_check_false(hasFlag(aAddon.permissions, AddonManager.PERM_CAN_DISABLE));
     return check_test_completed(arguments);
@@ -865,7 +870,7 @@ const AddonListener = {
 
   onInstalled: function(aAddon) {
     do_print(`Got onInstalled event for ${aAddon.id}`);
-    let [event, expectedRestart] = getExpectedEvent(aAddon.id);
+    let [event] = getExpectedEvent(aAddon.id);
     do_check_eq("onInstalled", event);
     return check_test_completed(arguments);
   },
@@ -882,14 +887,14 @@ const AddonListener = {
 
   onUninstalled: function(aAddon) {
     do_print(`Got onUninstalled event for ${aAddon.id}`);
-    let [event, expectedRestart] = getExpectedEvent(aAddon.id);
+    let [event] = getExpectedEvent(aAddon.id);
     do_check_eq("onUninstalled", event);
     return check_test_completed(arguments);
   },
 
   onOperationCancelled: function(aAddon) {
     do_print(`Got onOperationCancelled event for ${aAddon.id}`);
-    let [event, expectedRestart] = getExpectedEvent(aAddon.id);
+    let [event] = getExpectedEvent(aAddon.id);
     do_check_eq("onOperationCancelled", event);
     return check_test_completed(arguments);
   }

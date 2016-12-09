@@ -16,9 +16,10 @@ this.EXPORTED_SYMBOLS = ["NarrateControls"];
 
 var gStrings = Services.strings.createBundle("chrome://global/locale/narrate.properties");
 
-function NarrateControls(mm, win) {
+function NarrateControls(mm, win, languagePromise) {
   this._mm = mm;
   this._winRef = Cu.getWeakReference(win);
+  this._languagePromise = languagePromise;
 
   win.addEventListener("unload", this);
 
@@ -104,13 +105,13 @@ function NarrateControls(mm, win) {
       </div>
       <div id="narrate-rate" class="narrate-row">
         <input id="narrate-rate-input" value="0" title="${"speed"}"
-               step="25" max="100" min="-100" type="range">
+               step="5" max="100" min="-100" type="range">
       </div>
       <div id="narrate-voices" class="narrate-row"></div>
       <div class="dropdown-arrow"></div>
     </li>`;
 
-  this.narrator = new Narrator(win);
+  this.narrator = new Narrator(win, languagePromise);
 
   let branch = Services.prefs.getBranch("narrate.");
   let selectLabel = gStrings.GetStringFromName("selectvoicelabel");
@@ -163,7 +164,7 @@ NarrateControls.prototype = {
    * Returns true if synth voices are available.
    */
   _setupVoices: function() {
-    return this.narrator.languagePromise.then(language => {
+    return this._languagePromise.then(language => {
       this.voiceSelect.clear();
       let win = this._win;
       let voicePrefs = this._getVoicePref();
@@ -227,7 +228,7 @@ NarrateControls.prototype = {
   _onVoiceChange: function() {
     let voice = this.voice;
     this.narrator.setVoice(voice);
-    this.narrator.languagePromise.then(language => {
+    this._languagePromise.then(language => {
       if (language) {
         let voicePref = this._getVoicePref();
         voicePref[language || "default"] = voice;

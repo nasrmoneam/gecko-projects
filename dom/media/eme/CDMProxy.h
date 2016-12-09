@@ -95,8 +95,9 @@ public:
   virtual void Init(PromiseId aPromiseId,
                     const nsAString& aOrigin,
                     const nsAString& aTopLevelOrigin,
-                    const nsAString& aName,
-                    bool aInPrivateBrowsing) = 0;
+                    const nsAString& aName) = 0;
+
+  virtual void OnSetDecryptorId(uint32_t aId) {}
 
   // Main thread only.
   // Uses the CDM to create a key session.
@@ -218,6 +219,8 @@ public:
 #ifdef DEBUG
   virtual bool IsOnOwnerThread() = 0;
 #endif
+
+  virtual uint32_t GetDecryptorId() { return 0; }
 
 protected:
   virtual ~CDMProxy() {}

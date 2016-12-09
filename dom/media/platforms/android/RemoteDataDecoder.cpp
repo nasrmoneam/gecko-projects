@@ -114,6 +114,40 @@ struct SampleTime final
 class RemoteVideoDecoder final : public RemoteDataDecoder
 {
 public:
+  // Hold an output buffer and render it to the surface when the frame is sent to compositor, or
+  // release it if not presented.
+  class RenderOrReleaseOutput : public VideoData::Listener
+  {
+  public:
+    RenderOrReleaseOutput(java::CodecProxy::Param aCodec, java::Sample::Param aSample)
+      : mCodec(aCodec),
+        mSample(aSample)
+    {}
+
+    ~RenderOrReleaseOutput()
+    {
+      ReleaseOutput(false);
+    }
+
+    void OnSentToCompositor() override
+    {
+      ReleaseOutput(true);
+      mCodec = nullptr;
+      mSample = nullptr;
+    }
+
+  private:
+    void ReleaseOutput(bool aToRender)
+    {
+      if (mCodec && mSample) {
+        mCodec->ReleaseOutput(mSample, aToRender);
+      }
+    }
+
+    java::CodecProxy::GlobalRef mCodec;
+    java::Sample::GlobalRef mSample;
+  };
+
   class CallbacksSupport final : public JavaCallbacksSupport
   {
   public:
@@ -168,6 +202,9 @@ public:
                                                   mDecoder->mConfig.mDisplay.width,
                                                   mDecoder->mConfig.mDisplay.height));
 
+        UniquePtr<VideoData::Listener> listener(new RenderOrReleaseOutput(mDecoder->mJavaDecoder, aSample));
+        v->SetListener(Move(listener));
+
         mDecoderCallback->Output(v);
       }
 
@@ -185,9 +222,10 @@ public:
   RemoteVideoDecoder(const VideoInfo& aConfig,
                    MediaFormat::Param aFormat,
                    MediaDataDecoderCallback* aCallback,
-                   layers::ImageContainer* aImageContainer)
+                   layers::ImageContainer* aImageContainer,
+                   const nsString& aDrmStubId)
     : RemoteDataDecoder(MediaData::Type::VIDEO_DATA, aConfig.mMimeType,
-                        aFormat, aCallback)
+                        aFormat, aCallback, aDrmStubId)
     , mImageContainer(aImageContainer)
     , mConfig(aConfig)
   {
@@ -213,11 +251,14 @@ public:
     JavaCallbacksSupport::AttachNative(mJavaCallbacks,
                                        mozilla::MakeUnique<CallbacksSupport>(this, mCallback));
 
-    mJavaDecoder = CodecProxy::Create(mFormat, mSurfaceTexture->JavaSurface(), mJavaCallbacks);
+    mJavaDecoder = CodecProxy::Create(mFormat,
+                                      mSurfaceTexture->JavaSurface(),
+                                      mJavaCallbacks,
+                                      mDrmStubId);
     if (mJavaDecoder == nullptr) {
       return InitPromise::CreateAndReject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
     }
-
+    mIsCodecSupportAdaptivePlayback = mJavaDecoder->IsAdaptivePlaybackSupported();
     mInputDurations.Clear();
 
     return InitPromise::CreateAndResolve(TrackInfo::kVideoTrack, __func__);
@@ -240,6 +281,8 @@ public:
     RemoteDataDecoder::Input(aSample);
     mInputDurations.Put(aSample->mDuration);
   }
+
+  bool SupportDecoderRecycling() const override { return mIsCodecSupportAdaptivePlayback; }
 
 private:
   class DurationQueue {
@@ -275,16 +318,18 @@ private:
   const VideoInfo& mConfig;
   RefPtr<AndroidSurfaceTexture> mSurfaceTexture;
   DurationQueue mInputDurations;
+  bool mIsCodecSupportAdaptivePlayback = false;
 };
 
 class RemoteAudioDecoder final : public RemoteDataDecoder
 {
 public:
   RemoteAudioDecoder(const AudioInfo& aConfig,
-                   MediaFormat::Param aFormat,
-                   MediaDataDecoderCallback* aCallback)
+                     MediaFormat::Param aFormat,
+                     MediaDataDecoderCallback* aCallback,
+                     const nsString& aDrmStubId)
     : RemoteDataDecoder(MediaData::Type::AUDIO_DATA, aConfig.mMimeType,
-                        aFormat, aCallback)
+                        aFormat, aCallback, aDrmStubId)
     , mConfig(aConfig)
   {
     JNIEnv* const env = jni::GetEnvForThread();
@@ -311,7 +356,7 @@ public:
     JavaCallbacksSupport::AttachNative(mJavaCallbacks,
                                        mozilla::MakeUnique<CallbacksSupport>(this, mCallback));
 
-    mJavaDecoder = CodecProxy::Create(mFormat, nullptr, mJavaCallbacks);
+    mJavaDecoder = CodecProxy::Create(mFormat, nullptr, mJavaCallbacks, mDrmStubId);
     if (mJavaDecoder == nullptr) {
       return InitPromise::CreateAndReject(NS_ERROR_DOM_MEDIA_FATAL_ERR, __func__);
     }
@@ -410,28 +455,32 @@ private:
 MediaDataDecoder*
 RemoteDataDecoder::CreateAudioDecoder(const AudioInfo& aConfig,
                                           MediaFormat::Param aFormat,
-                                          MediaDataDecoderCallback* aCallback)
+                                          MediaDataDecoderCallback* aCallback,
+                                          const nsString& aDrmStubId)
 {
-  return new RemoteAudioDecoder(aConfig, aFormat, aCallback);
+  return new RemoteAudioDecoder(aConfig, aFormat, aCallback, aDrmStubId);
 }
 
 MediaDataDecoder*
 RemoteDataDecoder::CreateVideoDecoder(const VideoInfo& aConfig,
                                           MediaFormat::Param aFormat,
                                           MediaDataDecoderCallback* aCallback,
-                                          layers::ImageContainer* aImageContainer)
+                                          layers::ImageContainer* aImageContainer,
+                                          const nsString& aDrmStubId)
 {
-  return new RemoteVideoDecoder(aConfig, aFormat, aCallback, aImageContainer);
+  return new RemoteVideoDecoder(aConfig, aFormat, aCallback, aImageContainer, aDrmStubId);
 }
 
 RemoteDataDecoder::RemoteDataDecoder(MediaData::Type aType,
                                      const nsACString& aMimeType,
                                      MediaFormat::Param aFormat,
-                                     MediaDataDecoderCallback* aCallback)
+                                     MediaDataDecoderCallback* aCallback,
+                                     const nsString& aDrmStubId)
   : mType(aType)
   , mMimeType(aMimeType)
   , mFormat(aFormat)
   , mCallback(aCallback)
+  , mDrmStubId(aDrmStubId)
 {
 }
 

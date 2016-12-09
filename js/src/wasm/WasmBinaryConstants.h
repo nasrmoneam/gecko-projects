@@ -27,7 +27,10 @@ namespace wasm {
 static const uint32_t MagicNumber        = 0x6d736100; // "\0asm"
 static const uint32_t EncodingVersion    = 0x0d;
 
-enum class SectionId {
+static const char NameSectionName[]      = "name";
+
+enum class SectionId
+{
     UserDefined                          = 0,
     Type                                 = 1,
     Import                               = 2,
@@ -41,8 +44,6 @@ enum class SectionId {
     Code                                 = 10,
     Data                                 = 11
 };
-
-static const char NameSectionName[] = "name";
 
 enum class TypeCode
 {
@@ -69,12 +70,10 @@ enum class TypeCode
     // Special code representing the block signature ()->()
     BlockVoid                            = 0x40,  // SLEB128(-0x40)
 
-    // Type codes currently always fit in a single byte
-    Max                                  = 0x7f,
     Limit                                = 0x80
 };
 
-enum class ValType : uint32_t // fix type so we can cast from any u8 in decoder
+enum class ValType
 {
     I32                                  = uint8_t(TypeCode::I32),
     I64                                  = uint8_t(TypeCode::I64),
@@ -115,7 +114,7 @@ enum class MemoryTableFlags
     Default                              = 0x0
 };
 
-enum class Expr : uint32_t // fix type so we can cast from any u16 in decoder
+enum class Op
 {
     // Control flow operators
     Unreachable                          = 0x00,

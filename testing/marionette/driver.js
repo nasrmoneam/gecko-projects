@@ -18,14 +18,18 @@ XPCOMUtils.defineLazyServiceGetter(
     this, "cookieManager", "@mozilla.org/cookiemanager;1", "nsICookieManager2");
 
 Cu.import("chrome://marionette/content/accessibility.js");
+Cu.import("chrome://marionette/content/action.js");
+Cu.import("chrome://marionette/content/addon.js");
 Cu.import("chrome://marionette/content/assert.js");
 Cu.import("chrome://marionette/content/atom.js");
 Cu.import("chrome://marionette/content/browser.js");
+Cu.import("chrome://marionette/content/cert.js");
 Cu.import("chrome://marionette/content/element.js");
 Cu.import("chrome://marionette/content/error.js");
 Cu.import("chrome://marionette/content/evaluate.js");
 Cu.import("chrome://marionette/content/event.js");
 Cu.import("chrome://marionette/content/interaction.js");
+Cu.import("chrome://marionette/content/l10n.js");
 Cu.import("chrome://marionette/content/legacyaction.js");
 Cu.import("chrome://marionette/content/logging.js");
 Cu.import("chrome://marionette/content/modal.js");
@@ -105,28 +109,41 @@ this.GeckoDriver = function(appName, server) {
   this.browsers = {};
   // points to current browser
   this.curBrowser = null;
-  this.context = Context.CONTENT;
-  this.scriptTimeout = 30000;  // 30 seconds
-  this.searchTimeout = null;
-  this.pageTimeout = 300000;  // five minutes
-  this.timer = null;
-  this.inactivityTimer = null;
-  this.marionetteLog = new logging.ContentLogger();
   // topmost chrome frame
   this.mainFrame = null;
   // chrome iframe that currently has focus
   this.curFrame = null;
   this.mainContentFrameId = null;
-  this.importedScripts = new evaluate.ScriptStorageService([Context.CHROME, Context.CONTENT]);
-  this.currentFrameElement = null;
-  this.testName = null;
   this.mozBrowserClose = null;
-  this.sandboxes = new Sandboxes(() => this.getCurrentWindow());
+  this.currentFrameElement = null;
   // frame ID of the current remote frame, used for mozbrowserclose events
   this.oopFrameId = null;
   this.observing = null;
   this._browserIds = new WeakMap();
+
+  // user-defined timeouts
+  this.scriptTimeout = 30000;  // 30 seconds
+  this.searchTimeout = null;
+  this.pageTimeout = 300000;  // five minutes
+
+  // Unsigned or invalid TLS certificates will be ignored if secureTLS
+  // is set to false.
+  this.secureTLS = true;
+
+  // The curent context decides if commands should affect chrome- or
+  // content space.
+  this.context = Context.CONTENT;
+
+  this.importedScripts = new evaluate.ScriptStorageService(
+      [Context.CHROME, Context.CONTENT]);
+  this.sandboxes = new Sandboxes(() => this.getCurrentWindow());
   this.actions = new action.Chain();
+
+  this.timer = null;
+  this.inactivityTimer = null;
+
+  this.marionetteLog = new logging.ContentLogger();
+  this.testName = null;
 
   this.sessionCapabilities = {
     // mandated capabilities
@@ -134,24 +151,17 @@ this.GeckoDriver = function(appName, server) {
     "browserVersion": Services.appinfo.version,
     "platformName": Services.sysinfo.getProperty("name").toLowerCase(),
     "platformVersion": Services.sysinfo.getProperty("version"),
-    "specificationLevel": 0,
+    "acceptInsecureCerts": !this.secureTLS,
 
     // supported features
     "raisesAccessibilityExceptions": false,
     "rotatable": this.appName == "B2G",
-    "acceptSslCerts": false,
-    "takesElementScreenshot": true,
-    "takesScreenshot": true,
     "proxy": {},
 
-    // Selenium 2 compat
-    "platform": Services.sysinfo.getProperty("name").toUpperCase(),
-
     // proprietary extensions
-    "XULappId" : Services.appinfo.ID,
-    "appBuildId" : Services.appinfo.appBuildID,
-    "processId" : Services.appinfo.processID,
-    "version": Services.appinfo.version,
+    "specificationLevel": 0,
+    "moz:processID": Services.appinfo.processID,
+    "moz:profile": Services.dirsvc.get("ProfD", Ci.nsIFile).path,
   };
 
   this.mm = globalMessageManager;
@@ -167,6 +177,8 @@ this.GeckoDriver = function(appName, server) {
     this.dialog = new modal.Dialog(() => this.curBrowser, winr);
   };
   modal.addHandler(handleDialog);
+
+  this.actions = new action.Chain();
 };
 
 GeckoDriver.prototype.QueryInterface = XPCOMUtils.generateQI([
@@ -486,6 +498,16 @@ GeckoDriver.prototype.newSession = function*(cmd, resp) {
 
   this.newSessionCommandId = cmd.id;
   this.setSessionCapabilities(cmd.parameters.capabilities);
+
+  this.scriptTimeout = 10000;
+
+  this.secureTLS = !this.sessionCapabilities.acceptInsecureCerts;
+  if (!this.secureTLS) {
+    logger.warn("TLS certificate errors will be ignored for this session");
+    let acceptAllCerts = new cert.InsecureSweepingOverride();
+    cert.installOverride(acceptAllCerts);
+  }
+
   // If we are testing accessibility with marionette, start a11y service in
   // chrome first. This will ensure that we do not have any content-only
   // services hanging around.
@@ -493,8 +515,6 @@ GeckoDriver.prototype.newSession = function*(cmd, resp) {
       accessibility.service) {
     logger.info("Preemptively starting accessibility service in Chrome");
   }
-
-  this.scriptTimeout = 10000;
 
   let registerBrowsers = this.registerPromise();
   let browserListening = this.listeningPromise();
@@ -643,6 +663,7 @@ GeckoDriver.prototype.setSessionCapabilities = function(newCaps) {
   let caps = copy(this.sessionCapabilities);
   caps = copy(newCaps, caps);
   logger.config("Changing capabilities: " + JSON.stringify(caps));
+
   this.sessionCapabilities = caps;
 };
 
@@ -1395,17 +1416,22 @@ GeckoDriver.prototype.switchToParentFrame = function*(cmd, resp) {
 GeckoDriver.prototype.switchToFrame = function*(cmd, resp) {
   let {id, element, focus} = cmd.parameters;
 
-  let checkTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+  const otherErrorsExpr = /about:.+(error)|(blocked)\?/;
+  const checkTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+
   let curWindow = this.getCurrentWindow();
 
   let checkLoad = function() {
-    let errorRegex = /about:.+(error)|(blocked)\?/;
-    let curWindow = this.getCurrentWindow();
-    if (curWindow.document.readyState == "complete") {
+    let win = this.getCurrentWindow();
+    if (win.document.readyState == "complete") {
       return;
-    } else if (curWindow.document.readyState == "interactive" &&
-        errorRegex.exec(curWindow.document.baseURI)) {
-      throw new UnknownError("Error loading page");
+    } else if (win.document.readyState == "interactive") {
+      let baseURI = win.document.baseURI;
+      if (baseURI.startsWith("about:certerror")) {
+        throw new InsecureCertificateError();
+      } else if (otherErrorsExpr.exec(win.document.baseURI)) {
+        throw new UnknownError("Error loading page");
+      }
     }
 
     checkTimer.initWithCallback(checkLoad.bind(this), 100, Ci.nsITimer.TYPE_ONE_SHOT);
@@ -1544,6 +1570,14 @@ GeckoDriver.prototype.switchToFrame = function*(cmd, resp) {
   }
 };
 
+GeckoDriver.prototype.getTimeouts = function(cmd, resp) {
+  return {
+    "implicit": this.searchTimeout,
+    "script": this.scriptTimeout,
+    "page load": this.pageTimeout,
+  };
+};
+
 /**
  * Set timeout for page loading, searching, and scripts.
  *
@@ -1555,7 +1589,7 @@ GeckoDriver.prototype.switchToFrame = function*(cmd, resp) {
  *     If timeout type key is unknown, or the value provided with it is
  *     not an integer.
  */
-GeckoDriver.prototype.timeouts = function(cmd, resp) {
+GeckoDriver.prototype.setTimeouts = function(cmd, resp) {
   // backwards compatibility with old API
   // that accepted a dictionary {type: <string>, ms: <number>}
   let timeouts = {};
@@ -2281,7 +2315,9 @@ GeckoDriver.prototype.sessionTearDown = function(cmd, resp) {
     }
     this.observing = null;
   }
+
   this.sandboxes.clear();
+  cert.uninstallOverride();
 };
 
 /**
@@ -2604,6 +2640,34 @@ GeckoDriver.prototype.quitApplication = function(cmd, resp) {
   Services.startup.quit(flags);
 };
 
+GeckoDriver.prototype.installAddon = function(cmd, resp) {
+  if (this.appName != "Firefox") {
+    throw new UnsupportedOperationError();
+  }
+
+  let path = cmd.parameters.path;
+  let temp = cmd.parameters.temporary || false;
+  if (typeof path == "undefined" || typeof path != "string" ||
+      typeof temp != "boolean") {
+    throw InvalidArgumentError();
+  }
+
+  return addon.install(path, temp);
+};
+
+GeckoDriver.prototype.uninstallAddon = function(cmd, resp) {
+  if (this.appName != "Firefox") {
+    throw new UnsupportedOperationError();
+  }
+
+  let id = cmd.parameters.id;
+  if (typeof id == "undefined" || typeof id != "string") {
+    throw new InvalidArgumentError();
+  }
+
+  return addon.uninstall(id);
+};
+
 /**
  * Helper function to convert an outerWindowID into a UID that Marionette
  * tracks.
@@ -2718,6 +2782,60 @@ GeckoDriver.prototype.responseCompleted = function () {
   }
 };
 
+/**
+ * Retrieve the localized string for the specified entity id.
+ *
+ * Example:
+ *     localizeEntity(["chrome://global/locale/about.dtd"], "about.version")
+ *
+ * @param {Array.<string>} urls
+ *     Array of .dtd URLs.
+ * @param {string} id
+ *     The ID of the entity to retrieve the localized string for.
+ *
+ * @return {string}
+ *     The localized string for the requested entity.
+ */
+GeckoDriver.prototype.localizeEntity = function(cmd, resp) {
+  let {urls, id} = cmd.parameters;
+
+  if (!Array.isArray(urls)) {
+    throw new InvalidArgumentError("Value of `urls` should be of type 'Array'");
+  }
+  if (typeof id != "string") {
+    throw new InvalidArgumentError("Value of `id` should be of type 'string'");
+  }
+
+  resp.body.value = l10n.localizeEntity(urls, id);
+}
+
+/**
+ * Retrieve the localized string for the specified property id.
+ *
+ * Example:
+ *     localizeProperty(["chrome://global/locale/findbar.properties"], "FastFind")
+ *
+ * @param {Array.<string>} urls
+ *     Array of .properties URLs.
+ * @param {string} id
+ *     The ID of the property to retrieve the localized string for.
+ *
+ * @return {string}
+ *     The localized string for the requested property.
+ */
+GeckoDriver.prototype.localizeProperty = function(cmd, resp) {
+  let {urls, id} = cmd.parameters;
+
+  if (!Array.isArray(urls)) {
+    throw new InvalidArgumentError("Value of `urls` should be of type 'Array'");
+  }
+  if (typeof id != "string") {
+    throw new InvalidArgumentError("Value of `id` should be of type 'string'");
+  }
+
+  resp.body.value = l10n.localizeProperty(urls, id);
+}
+
 GeckoDriver.prototype.commands = {
   "getMarionetteID": GeckoDriver.prototype.getMarionetteID,
   "sayHello": GeckoDriver.prototype.sayHello,
@@ -2728,7 +2846,9 @@ GeckoDriver.prototype.commands = {
   "setContext": GeckoDriver.prototype.setContext,
   "getContext": GeckoDriver.prototype.getContext,
   "executeScript": GeckoDriver.prototype.executeScript,
-  "timeouts": GeckoDriver.prototype.timeouts,
+  "getTimeouts": GeckoDriver.prototype.getTimeouts,
+  "timeouts": GeckoDriver.prototype.setTimeouts,  // deprecated until Firefox 55
+  "setTimeouts": GeckoDriver.prototype.setTimeouts,
   "singleTap": GeckoDriver.prototype.singleTap,
   "actionChain": GeckoDriver.prototype.actionChain,
   "multiAction": GeckoDriver.prototype.multiAction,
@@ -2752,21 +2872,15 @@ GeckoDriver.prototype.commands = {
   "getWindowType": GeckoDriver.prototype.getWindowType,
   "getPageSource": GeckoDriver.prototype.getPageSource,
   "get": GeckoDriver.prototype.get,
-  "goUrl": GeckoDriver.prototype.get,  // deprecated
   "getCurrentUrl": GeckoDriver.prototype.getCurrentUrl,
-  "getUrl": GeckoDriver.prototype.getCurrentUrl,  // deprecated
   "goBack": GeckoDriver.prototype.goBack,
   "goForward": GeckoDriver.prototype.goForward,
   "refresh":  GeckoDriver.prototype.refresh,
   "getWindowHandle": GeckoDriver.prototype.getWindowHandle,
-  "getCurrentWindowHandle":  GeckoDriver.prototype.getWindowHandle,  // Selenium 2 compat
   "getChromeWindowHandle": GeckoDriver.prototype.getChromeWindowHandle,
   "getCurrentChromeWindowHandle": GeckoDriver.prototype.getChromeWindowHandle,
-  "getWindow":  GeckoDriver.prototype.getWindowHandle,  // deprecated
   "getWindowHandles": GeckoDriver.prototype.getWindowHandles,
   "getChromeWindowHandles": GeckoDriver.prototype.getChromeWindowHandles,
-  "getCurrentWindowHandles": GeckoDriver.prototype.getWindowHandles,  // Selenium 2 compat
-  "getWindows":  GeckoDriver.prototype.getWindowHandles,  // deprecated
   "getWindowPosition": GeckoDriver.prototype.getWindowPosition,
   "setWindowPosition": GeckoDriver.prototype.setWindowPosition,
   "getActiveFrame": GeckoDriver.prototype.getActiveFrame,
@@ -2779,15 +2893,11 @@ GeckoDriver.prototype.commands = {
   "clearImportedScripts": GeckoDriver.prototype.clearImportedScripts,
   "getAppCacheStatus": GeckoDriver.prototype.getAppCacheStatus,
   "close": GeckoDriver.prototype.close,
-  "closeWindow": GeckoDriver.prototype.close,  // deprecated
   "closeChromeWindow": GeckoDriver.prototype.closeChromeWindow,
   "setTestName": GeckoDriver.prototype.setTestName,
   "takeScreenshot": GeckoDriver.prototype.takeScreenshot,
-  "screenShot": GeckoDriver.prototype.takeScreenshot,  // deprecated
-  "screenshot": GeckoDriver.prototype.takeScreenshot,  // Selenium 2 compat
   "addCookie": GeckoDriver.prototype.addCookie,
   "getCookies": GeckoDriver.prototype.getCookies,
-  "getAllCookies": GeckoDriver.prototype.getCookies,  // deprecated
   "deleteAllCookies": GeckoDriver.prototype.deleteAllCookies,
   "deleteCookie": GeckoDriver.prototype.deleteCookie,
   "getActiveElement": GeckoDriver.prototype.getActiveElement,
@@ -2802,4 +2912,10 @@ GeckoDriver.prototype.commands = {
   "sendKeysToDialog": GeckoDriver.prototype.sendKeysToDialog,
   "acceptConnections": GeckoDriver.prototype.acceptConnections,
   "quitApplication": GeckoDriver.prototype.quitApplication,
+
+  "localization:l10n:localizeEntity": GeckoDriver.prototype.localizeEntity,
+  "localization:l10n:localizeProperty": GeckoDriver.prototype.localizeProperty,
+
+  "addon:install": GeckoDriver.prototype.installAddon,
+  "addon:uninstall": GeckoDriver.prototype.uninstallAddon,
 };

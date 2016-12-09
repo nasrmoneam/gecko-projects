@@ -127,7 +127,7 @@ WebGLTexture::WrapObject(JSContext* cx, JS::Handle<JSObject*> givenProto) {
 }
 
 WebGLTexture::WebGLTexture(WebGLContext* webgl, GLuint tex)
-    : WebGLContextBoundObject(webgl)
+    : WebGLRefCountedObject(webgl)
     , mGLName(tex)
     , mTarget(LOCAL_GL_NONE)
     , mFaceCount(0)
@@ -664,9 +664,10 @@ WebGLTexture::PopulateMipChain(uint32_t firstLevel, uint32_t lastLevel)
 bool
 WebGLTexture::BindTexture(TexTarget texTarget)
 {
-    // silently ignore a deleted texture
-    if (IsDeleted())
+    if (IsDeleted()) {
+        mContext->ErrorInvalidOperation("bindTexture: Cannot bind a deleted object.");
         return false;
+    }
 
     const bool isFirstBinding = !HasEverBeenBound();
     if (!isFirstBinding && mTarget != texTarget) {

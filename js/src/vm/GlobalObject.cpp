@@ -99,7 +99,7 @@ js::GlobalObject::getTypedObjectModule() const {
 GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key)
 {
     if (key == JSProto_WebAssembly)
-        return !wasm::HasCompilerSupport(cx);
+        return !wasm::HasSupport(cx);
 
 #ifdef ENABLE_SHARED_ARRAY_BUFFER
     // Return true if the given constructor has been disabled at run-time.
@@ -622,17 +622,18 @@ GlobalObject::createBlankPrototypeInheriting(JSContext* cx, const Class* clasp, 
 }
 
 bool
-js::LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor_, JSObject* proto_)
+js::LinkConstructorAndPrototype(JSContext* cx, JSObject* ctor_, JSObject* proto_,
+                                unsigned prototypeAttrs, unsigned constructorAttrs)
 {
     RootedObject ctor(cx, ctor_), proto(cx, proto_);
 
     RootedValue protoVal(cx, ObjectValue(*proto));
     RootedValue ctorVal(cx, ObjectValue(*ctor));
 
-    return DefineProperty(cx, ctor, cx->names().prototype, protoVal,
-                          nullptr, nullptr, JSPROP_PERMANENT | JSPROP_READONLY) &&
-           DefineProperty(cx, proto, cx->names().constructor, ctorVal,
-                          nullptr, nullptr, 0);
+    return DefineProperty(cx, ctor, cx->names().prototype, protoVal, nullptr, nullptr,
+                          prototypeAttrs) &&
+           DefineProperty(cx, proto, cx->names().constructor, ctorVal, nullptr, nullptr,
+                          constructorAttrs);
 }
 
 bool
@@ -802,10 +803,10 @@ GlobalObject::getSelfHostedFunction(JSContext* cx, Handle<GlobalObject*> global,
         return false;
     if (exists) {
         RootedFunction fun(cx, &funVal.toObject().as<JSFunction>());
-        if (fun->name() == name)
+        if (fun->explicitName() == name)
             return true;
 
-        if (fun->name() == selfHostedName) {
+        if (fun->explicitName() == selfHostedName) {
             // This function was initially cloned because it was called by
             // other self-hosted code, so the clone kept its self-hosted name,
             // instead of getting the name it's intended to have in content

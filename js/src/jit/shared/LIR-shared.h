@@ -3760,6 +3760,20 @@ class LPowD : public LCallInstructionHelper<1, 2, 1>
     }
 };
 
+class LPowV : public LCallInstructionHelper<BOX_PIECES, 2 * BOX_PIECES, 0>
+{
+  public:
+    LIR_HEADER(PowV)
+
+    LPowV(const LBoxAllocation& value, const LBoxAllocation& power) {
+        setBoxOperand(ValueInput, value);
+        setBoxOperand(PowerInput, power);
+    }
+
+    static const size_t ValueInput = 0;
+    static const size_t PowerInput = BOX_PIECES;
+};
+
 class LMathFunctionD : public LCallInstructionHelper<1, 1, 1>
 {
   public:
@@ -4992,6 +5006,25 @@ class LLambdaArrow : public LInstructionHelper<1, 1 + BOX_PIECES, 0>
     }
     const MLambdaArrow* mir() const {
         return mir_->toLambdaArrow();
+    }
+};
+
+class LSetFunName : public LCallInstructionHelper<1, 1 + BOX_PIECES, 0>
+{
+  public:
+    LIR_HEADER(SetFunName)
+
+    static const size_t NameValue = 1;
+
+    LSetFunName(const LAllocation& fun, const LBoxAllocation& name) {
+        setOperand(0, fun);
+        setBoxOperand(NameValue, name);
+    }
+    const LAllocation* fun() {
+        return getOperand(0);
+    }
+    const MSetFunName* mir() const {
+        return mir_->toSetFunName();
     }
 };
 

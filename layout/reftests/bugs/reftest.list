@@ -462,8 +462,8 @@ fuzzy-if(skiaContent,2,3) == 339289-1.html 339289-1-ref.html
 != 345563-sub.xhtml 345563-sup.xhtml
 == 346189-1.xul 346189-1-ref.xul
 fuzzy-if(skiaContent,4,2) == 346774-1a.html 346774-1-ref.html
-== 346774-1b.html 346774-1-ref.html
-== 346774-1c.html 346774-1-ref.html
+fuzzy-if(skiaContent,4,2) == 346774-1b.html 346774-1-ref.html
+fuzzy-if(skiaContent,4,2) == 346774-1c.html 346774-1-ref.html
 == 347348-1.xhtml 347348-1-ref.xhtml
 == 347496-1.xhtml 347496-1-ref.xhtml
 == 347912-1.html 347912-1-ref.html
@@ -1820,7 +1820,7 @@ HTTP(..) == 983985-2.html 983985-2-ref.html
 == 985303-1a.html 985303-1-ref.html
 == 985303-1b.html 985303-1-ref.html
 == 987680-1.html 987680-1-ref.html
-fuzzy-if(d2d,1,36) == 991046-1.html 991046-1-ref.html
+fuzzy-if(d2d,1,601) == 991046-1.html 991046-1-ref.html
 pref(layout.css.overflow-clip-box.enabled,true) fuzzy-if(skiaContent,2,845) == 992447.html 992447-ref.html
 == 1003425-1.html 1003425-1-ref.html
 == 1003425-2.html 1003425-2-ref.html
@@ -1973,10 +1973,18 @@ fuzzy(8,1900) == 1291528.html 1291528-ref.html
 # should be same.  |fuzzy()| here allows the difference in border, but not
 # background color.
 fuzzy(255,1000) skip-if(!cocoaWidget) == 1294102-1.html 1294102-1-ref.html
+random-if(Android) fuzzy-if(skiaContent,15,50) == 1295466-1.xhtml 1295466-1-ref.xhtml #bug 982547
+fuzzy(2,320000) == 1315113-1.html 1315113-1-ref.html
+fuzzy(2,20000) == 1315113-2.html 1315113-2-ref.html
 == 1315632-1.html 1315632-1-ref.html
+fuzzy(2,40000) == 1316719-1a.html 1316719-1-ref.html
+fuzzy(2,40000) == 1316719-1b.html 1316719-1-ref.html
+fuzzy(2,40000) == 1316719-1c.html 1316719-1-ref.html
 
 HTTP == 652991-1a.html 652991-1-ref.html
 HTTP == 652991-1b.html 652991-1-ref.html
 HTTP == 652991-2.html 652991-2-ref.html
 HTTP == 652991-3.html 652991-3-ref.html
 HTTP == 652991-4.html 652991-4-ref.html
+
+

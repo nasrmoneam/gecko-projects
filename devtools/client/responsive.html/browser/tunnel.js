@@ -23,6 +23,7 @@ function debug(msg) {
  * list at /devtools/client/responsive.html/docs/browser-swap.md.
  */
 const SWAPPED_BROWSER_STATE = [
+  "_remoteFinder",
   "_securityUI",
   "_documentURI",
   "_documentContentType",
@@ -143,6 +144,7 @@ function tunnelToInnerBrowser(outer, inner) {
       // down to the inner browser by this tunnel, the tab's remoteness effectively is the
       // remoteness of the inner browser.
       outer.setAttribute("remote", "true");
+      outer.setAttribute("remoteType", inner.remoteType);
 
       // Clear out any cached state that references the current non-remote XBL binding,
       // such as form fill controllers.  Otherwise they will remain in place and leak the
@@ -269,6 +271,7 @@ function tunnelToInnerBrowser(outer, inner) {
 
       // Reset @remote since this is now back to a regular, non-remote browser
       outer.setAttribute("remote", "false");
+      outer.removeAttribute("remoteType");
 
       // Delete browser window properties exposed on content's owner global
       delete inner.ownerGlobal.PopupNotifications;
@@ -312,7 +315,8 @@ function copyPermanentKey(outer, inner) {
   // what SessionStore uses to identify each browser.
   let outerMM = outer[FRAME_LOADER].messageManager;
   let onHistoryEntry = message => {
-    let history = message.data.data.history;
+    let data = message.data.data;
+    let history = data.history || data.historychange;
     if (!history || !history.entries) {
       // Wait for a message that contains history data
       return;
@@ -349,11 +353,6 @@ MessageManagerTunnel.prototype = {
    * the outer browser's real message manager.
    */
   PASS_THROUGH_METHODS: [
-    "killChild",
-    "assertPermission",
-    "assertContainApp",
-    "assertAppHasPermission",
-    "assertAppHasStatus",
     "removeDelayedFrameScript",
     "getDelayedFrameScripts",
     "loadProcessScript",
@@ -430,7 +429,7 @@ MessageManagerTunnel.prototype = {
     "InlineSpellChecker:",
     // Messages sent from pageinfo.js
     "PageInfo:",
-    // Messsage sent from printUtils.js
+    // Messages sent from printUtils.js
     "Printing:",
     // Messages sent from browser-social.js
     "Social:",
@@ -450,7 +449,7 @@ MessageManagerTunnel.prototype = {
     "Finder:",
     // Messages sent to pageinfo.js
     "PageInfo:",
-    // Messsage sent from printUtils.js
+    // Messages sent to printUtils.js
     "Printing:",
     // Messages sent to browser-social.js
     "Social:",

@@ -8,6 +8,7 @@
 #include "SandboxFilterUtil.h"
 
 #include "SandboxBrokerClient.h"
+#include "SandboxInfo.h"
 #include "SandboxInternal.h"
 #include "SandboxLogging.h"
 
@@ -91,6 +92,16 @@ private:
     return syscall(__NR_tgkill, getpid(), aArgs.args[0], aArgs.args[1]);
   }
 #endif
+
+  static intptr_t SetNoNewPrivsTrap(ArgsRef& aArgs, void* aux) {
+    if (gSetSandboxFilter == nullptr) {
+      // Called after BroadcastSetThreadSandbox finished, therefore
+      // not our doing and not expected.
+      return BlockedSyscallTrap(aArgs, nullptr);
+    }
+    // Signal that the filter is already in place.
+    return -ETXTBSY;
+  }
 
 public:
   virtual ResultExpr InvalidSyscall() const override {
@@ -249,8 +260,16 @@ public:
 #endif
 
       // prctl
-    case __NR_prctl:
-      return PrctlPolicy();
+    case __NR_prctl: {
+      if (SandboxInfo::Get().Test(SandboxInfo::kHasSeccompTSync)) {
+        return PrctlPolicy();
+      }
+
+      Arg<int> option(0);
+      return If(option == PR_SET_NO_NEW_PRIVS,
+                Trap(SetNoNewPrivsTrap, nullptr))
+        .Else(PrctlPolicy());
+    }
 
       // NSPR can call this when creating a thread, but it will accept a
       // polite "no".
@@ -715,6 +734,18 @@ public:
     CASES_FOR_getresuid:
     CASES_FOR_getresgid:
       return Allow();
+
+    case __NR_prlimit64: {
+      // Allow only the getrlimit() use case.  (glibc seems to use
+      // only pid 0 to indicate the current process; pid == getpid()
+      // is equivalent and could also be allowed if needed.)
+      Arg<pid_t> pid(0);
+      // This is really a const struct ::rlimit*, but Arg<> doesn't
+      // work with pointers, only integer types.
+      Arg<uintptr_t> new_limit(2);
+      return If(AllOf(pid == 0, new_limit == 0), Allow())
+        .Else(InvalidSyscall());
+    }
 
     case __NR_umask:
     case __NR_kill:

@@ -2,16 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+/* eslint-disable mozilla/reject-some-requires */
 /* globals document, window, dumpn, $, gNetwork, EVENTS, Prefs,
            NetMonitorController, NetMonitorView */
 
 "use strict";
 
-/* eslint-disable mozilla/reject-some-requires */
 const { Cu } = require("chrome");
 const {Task} = require("devtools/shared/task");
 const {DeferredTask} = Cu.import("resource://gre/modules/DeferredTask.jsm", {});
-/* eslint-disable mozilla/reject-some-requires */
 const {SideMenuWidget} = require("resource://devtools/client/shared/widgets/SideMenuWidget.jsm");
 const {HTMLTooltip} = require("devtools/client/shared/widgets/tooltip/HTMLTooltip");
 const {setImageTooltip, getImageDimensions} =
@@ -19,23 +18,20 @@ const {setImageTooltip, getImageDimensions} =
 const {Heritage, WidgetMethods, setNamedTimeout} =
   require("devtools/client/shared/widgets/view-helpers");
 const {CurlUtils} = require("devtools/client/shared/curl");
-const {PluralForm} = require("devtools/shared/plural-form");
 const {Filters, isFreetextMatch} = require("./filter-predicates");
 const {Sorters} = require("./sort-predicates");
 const {L10N, WEBCONSOLE_L10N} = require("./l10n");
 const {formDataURI,
        writeHeaderText,
+       decodeUnicodeUrl,
        getKeyWithEvent,
        getAbbreviatedMimeType,
-       getUriNameWithQuery,
-       getUriHostPort,
-       getUriHost,
+       getUrlBaseNameWithQuery,
+       getUrlHost,
+       getUrlHostName,
        loadCauseString} = require("./request-utils");
 const Actions = require("./actions/index");
 const RequestListContextMenu = require("./request-list-context-menu");
-
-loader.lazyRequireGetter(this, "NetworkHelper",
-  "devtools/shared/webconsole/network-helper");
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 const EPSILON = 0.001;
@@ -90,10 +86,11 @@ function storeWatcher(initialValue, reduceValue, onChange) {
   let currentValue = initialValue;
 
   return () => {
+    const oldValue = currentValue;
     const newValue = reduceValue(currentValue);
-    if (newValue !== currentValue) {
-      onChange(newValue, currentValue);
+    if (newValue !== oldValue) {
       currentValue = newValue;
+      onChange(newValue, oldValue);
     }
   };
 }
@@ -129,8 +126,6 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     let widgetParentEl = $("#requests-menu-contents");
     this.widget = new SideMenuWidget(widgetParentEl);
     this._splitter = $("#network-inspector-view-splitter");
-    this._summary = $("#requests-menu-network-summary-button");
-    this._summary.setAttribute("label", L10N.getStr("networkMenu.empty"));
 
     // Create a tooltip for the newly appended network request item.
     this.tooltip = new HTMLTooltip(NetMonitorController._toolbox.doc, { type: "arrow" });
@@ -211,13 +206,10 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     if (NetMonitorController.supportsPerfStats) {
       $("#requests-menu-perf-notice-button").addEventListener("command",
         this._onContextPerfCommand, false);
-      $("#requests-menu-network-summary-button").addEventListener("command",
-        this._onContextPerfCommand, false);
       $("#network-statistics-back-button").addEventListener("command",
         this._onContextPerfCommand, false);
     } else {
       $("#notice-perf-message").hidden = true;
-      $("#requests-menu-network-summary-button").hidden = true;
     }
 
     if (!NetMonitorController.supportsTransferredResponseSize) {
@@ -256,8 +248,6 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     $("#requests-menu-reload-notice-button").removeEventListener("command",
       this._onReloadCommand, false);
     $("#requests-menu-perf-notice-button").removeEventListener("command",
-      this._onContextPerfCommand, false);
-    $("#requests-menu-network-summary-button").removeEventListener("command",
       this._onContextPerfCommand, false);
     $("#network-statistics-back-button").removeEventListener("command",
       this._onContextPerfCommand, false);
@@ -422,7 +412,7 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
    */
   reFilterRequests: function () {
     this.filterContents(this._filterPredicate);
-    this.refreshSummary();
+    this.updateRequests();
     this.refreshZebra();
   },
 
@@ -541,7 +531,7 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
         break;
     }
 
-    this.refreshSummary();
+    this.updateRequests();
     this.refreshZebra();
   },
 
@@ -552,41 +542,17 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     NetMonitorController.NetworkEventsHandler.clearMarkers();
     NetMonitorView.Sidebar.toggle(false);
 
-    this.store.dispatch(Actions.disableToggleButton(true));
     $("#requests-menu-empty-notice").hidden = false;
 
     this.empty();
-    this.refreshSummary();
+    this.updateRequests();
   },
 
   /**
-   * Refreshes the status displayed in this container's footer, providing
-   * concise information about all requests.
+   * Update store request itmes and trigger related UI update
    */
-  refreshSummary: function () {
-    let visibleItems = this.visibleItems;
-    let visibleRequestsCount = visibleItems.length;
-    if (!visibleRequestsCount) {
-      this._summary.setAttribute("label", L10N.getStr("networkMenu.empty"));
-      return;
-    }
-
-    let totalBytes = this._getTotalBytesOfRequests(visibleItems);
-    let totalMillis =
-      this._getNewestRequest(visibleItems).attachment.endedMillis -
-      this._getOldestRequest(visibleItems).attachment.startedMillis;
-
-    // https://developer.mozilla.org/en-US/docs/Localization_and_Plurals
-    let str = PluralForm.get(visibleRequestsCount,
-      L10N.getStr("networkMenu.summary"));
-
-    this._summary.setAttribute("label", str
-      .replace("#1", visibleRequestsCount)
-      .replace("#2", L10N.numberWithDecimals((totalBytes || 0) / 1024,
-        CONTENT_SIZE_DECIMALS))
-      .replace("#3", L10N.numberWithDecimals((totalMillis || 0) / 1000,
-        REQUEST_TIME_DECIMALS))
-    );
+  updateRequests: function () {
+    this.store.dispatch(Actions.updateRequests(this.visibleItems));
   },
 
   /**
@@ -865,7 +831,6 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     this._updateQueue = [];
     this._addQueue = [];
 
-    this.store.dispatch(Actions.disableToggleButton(!this.itemCount));
     $("#requests-menu-empty-notice").hidden = !!this.itemCount;
 
     // Make sure all the requests are sorted and filtered.
@@ -875,7 +840,7 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     // so this doesn't happen once per network event update).
     this.sortContents();
     this.filterContents();
-    this.refreshSummary();
+    this.updateRequests();
     this.refreshZebra();
 
     // Rescale all the waterfalls so that everything is visible at once.
@@ -957,17 +922,10 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
         break;
       }
       case "url": {
-        let uri;
-        try {
-          uri = NetworkHelper.nsIURL(value);
-        } catch (e) {
-          // User input may not make a well-formed url yet.
-          break;
-        }
-        let nameWithQuery = getUriNameWithQuery(uri);
-        let hostPort = getUriHostPort(uri);
-        let host = getUriHost(uri);
-        let unicodeUrl = NetworkHelper.convertToUnicode(unescape(uri.spec));
+        let nameWithQuery = getUrlBaseNameWithQuery(value);
+        let hostPort = getUrlHost(value);
+        let host = getUrlHostName(value);
+        let unicodeUrl = decodeUnicodeUrl(value);
 
         let file = $(".requests-menu-file", target);
         file.setAttribute("value", nameWithQuery);
@@ -1556,59 +1514,6 @@ RequestsMenuView.prototype = Heritage.extend(WidgetMethods, {
     if (this._lastRequestEndedMillis < unixTime) {
       this._lastRequestEndedMillis = unixTime;
     }
-  },
-
-  /**
-   * Gets the total number of bytes representing the cumulated content size of
-   * a set of requests. Returns 0 for an empty set.
-   *
-   * @param array itemsArray
-   * @return number
-   */
-  _getTotalBytesOfRequests: function (itemsArray) {
-    if (!itemsArray.length) {
-      return 0;
-    }
-
-    let result = 0;
-    itemsArray.forEach(item => {
-      let size = item.attachment.contentSize;
-      result += (typeof size == "number") ? size : 0;
-    });
-
-    return result;
-  },
-
-  /**
-   * Gets the oldest (first performed) request in a set. Returns null for an
-   * empty set.
-   *
-   * @param array itemsArray
-   * @return object
-   */
-  _getOldestRequest: function (itemsArray) {
-    if (!itemsArray.length) {
-      return null;
-    }
-    return itemsArray.reduce((prev, curr) =>
-      prev.attachment.startedMillis < curr.attachment.startedMillis ?
-        prev : curr);
-  },
-
-  /**
-   * Gets the newest (latest performed) request in a set. Returns null for an
-   * empty set.
-   *
-   * @param array itemsArray
-   * @return object
-   */
-  _getNewestRequest: function (itemsArray) {
-    if (!itemsArray.length) {
-      return null;
-    }
-    return itemsArray.reduce((prev, curr) =>
-      prev.attachment.startedMillis > curr.attachment.startedMillis ?
-        prev : curr);
   },
 
   /**

@@ -803,7 +803,11 @@ public:
     /**
      * When set, return only content in the same document as aFrame.
      */
-    IGNORE_CROSS_DOC = 0x04
+    IGNORE_CROSS_DOC = 0x04,
+    /**
+     * When set, return only content that is actually visible.
+     */
+    ONLY_VISIBLE = 0x08
   };
 
   /**
@@ -1938,7 +1942,7 @@ public:
    * given side.
    */
   static bool HasNonZeroCornerOnSide(const nsStyleCorners& aCorners,
-                                       mozilla::css::Side aSide);
+                                       mozilla::Side aSide);
 
   /**
    * Determine if a widget is likely to require transparency or translucency.

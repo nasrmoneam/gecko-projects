@@ -1028,6 +1028,9 @@ protected:
   bool ParseAlignJustifySelf(nsCSSPropertyID aPropID);
   // parsing 'align/justify-content' from the css-align spec
   bool ParseAlignJustifyContent(nsCSSPropertyID aPropID);
+  bool ParsePlaceContent();
+  bool ParsePlaceItems();
+  bool ParsePlaceSelf();
 
   // for 'clip' and '-moz-image-region'
   bool ParseRect(nsCSSPropertyID aPropID);
@@ -1053,6 +1056,7 @@ protected:
   bool ParseOneFamily(nsAString& aFamily, bool& aOneKeyword, bool& aQuoted);
   bool ParseFamily(nsCSSValue& aValue);
   bool ParseFontFeatureSettings(nsCSSValue& aValue);
+  bool ParseFontVariationSettings(nsCSSValue& aValue);
   bool ParseFontSrc(nsCSSValue& aValue);
   bool ParseFontSrcFormat(InfallibleTArray<nsCSSValue>& values);
   bool ParseFontRanges(nsCSSValue& aValue);
@@ -4397,11 +4401,27 @@ CSSParserImpl::ParseKeyframesRule(RuleAppendFunc aAppendFunc, void* aData)
     return false;
   }
 
-  if (mToken.mType != eCSSToken_Ident) {
+  if (mToken.mType != eCSSToken_Ident && mToken.mType != eCSSToken_String) {
     REPORT_UNEXPECTED_TOKEN(PEKeyframeBadName);
     UngetToken();
     return false;
   }
+
+  if (mToken.mType == eCSSToken_Ident) {
+    // Check for keywords that are not allowed as custom-ident for the
+    // keyframes-name: standard CSS-wide keywords, plus 'none'.
+    static const nsCSSKeyword excludedKeywords[] = {
+      eCSSKeyword_none,
+      eCSSKeyword_UNKNOWN
+    };
+    nsCSSValue value;
+    if (!ParseCustomIdent(value, mToken.mIdent, excludedKeywords)) {
+      REPORT_UNEXPECTED_TOKEN(PEKeyframeBadName);
+      UngetToken();
+      return false;
+    }
+  }
+
   nsString name(mToken.mIdent);
 
   if (!ExpectSymbol('{', true)) {
@@ -6336,7 +6356,6 @@ CSSParserImpl::ParsePseudoClassWithIdentArg(nsCSSSelector& aSelector,
   // only 'ltr' and 'rtl' (case-insensitively) will match anything, any
   // other identifier is still valid.
   if (aType == CSSPseudoClassType::mozLocaleDir ||
-      aType == CSSPseudoClassType::mozDir ||
       aType == CSSPseudoClassType::dir) {
     nsContentUtils::ASCIIToLower(mToken.mIdent); // case insensitive
   }
@@ -8148,10 +8167,14 @@ CSSParserImpl::ParseVariant(nsCSSValue& aValue,
   }
   if ((aVariantMask & VARIANT_CALC) &&
       IsCSSTokenCalcFunction(*tk)) {
-    // calc() currently allows only lengths and percents and number inside it.
-    // And note that in current implementation, number cannot be mixed with
-    // length and percent.
-    if (!ParseCalc(aValue, aVariantMask & VARIANT_LPN)) {
+    // calc() currently allows only lengths, percents, numbers, and integers.
+    //
+    // Note that VARIANT_NUMBER can be mixed with VARIANT_LENGTH and
+    // VARIANT_PERCENTAGE in the list of allowed types (numbers can be used as
+    // coefficients).
+    // However, the the resulting type is not a mixed type with number.
+    // VARIANT_INTEGER can't be mixed with anything else.
+    if (!ParseCalc(aValue, aVariantMask & (VARIANT_LPN | VARIANT_INTEGER))) {
       return CSSParseResult::Error;
     }
     return CSSParseResult::Ok;
@@ -10202,6 +10225,87 @@ CSSParserImpl::ParseAlignJustifyContent(nsCSSPropertyID aPropID)
   return true;
 }
 
+// place-content: [ normal | <baseline-position> | <content-distribution> |
+//                  <content-position> ]{1,2}
+bool
+CSSParserImpl::ParsePlaceContent()
+{
+  nsCSSValue first;
+  if (ParseSingleTokenVariant(first, VARIANT_INHERIT, nullptr)) {
+    AppendValue(eCSSProperty_align_content, first);
+    AppendValue(eCSSProperty_justify_content, first);
+    return true;
+  }
+  if (!ParseAlignEnum(first, nsCSSProps::kAlignNormalBaseline) &&
+      !ParseEnum(first, nsCSSProps::kAlignContentDistribution) &&
+      !ParseEnum(first, nsCSSProps::kAlignContentPosition)) {
+    return false;
+  }
+  AppendValue(eCSSProperty_align_content, first);
+  nsCSSValue second;
+  if (!ParseAlignEnum(second, nsCSSProps::kAlignNormalBaseline) &&
+      !ParseEnum(second, nsCSSProps::kAlignContentDistribution) &&
+      !ParseEnum(second, nsCSSProps::kAlignContentPosition)) {
+    AppendValue(eCSSProperty_justify_content, first);
+  } else {
+    AppendValue(eCSSProperty_justify_content, second);
+  }
+  return true;
+}
+
+// place-items:  <x> [ auto | <x> ]?
+// <x> = [ normal | stretch | <baseline-position> | <self-position> ]
+bool
+CSSParserImpl::ParsePlaceItems()
+{
+  nsCSSValue first;
+  if (ParseSingleTokenVariant(first, VARIANT_INHERIT, nullptr)) {
+    AppendValue(eCSSProperty_align_items, first);
+    AppendValue(eCSSProperty_justify_items, first);
+    return true;
+  }
+  if (!ParseAlignEnum(first, nsCSSProps::kAlignNormalStretchBaseline) &&
+      !ParseEnum(first, nsCSSProps::kAlignSelfPosition)) {
+    return false;
+  }
+  AppendValue(eCSSProperty_align_items, first);
+  nsCSSValue second;
+  // Note: 'auto' is valid for justify-items, but not align-items.
+  if (!ParseAlignEnum(second, nsCSSProps::kAlignAutoNormalStretchBaseline) &&
+      !ParseEnum(second, nsCSSProps::kAlignSelfPosition)) {
+    AppendValue(eCSSProperty_justify_items, first);
+  } else {
+    AppendValue(eCSSProperty_justify_items, second);
+  }
+  return true;
+}
+
+// place-self: [ auto | normal | stretch | <baseline-position> |
+//               <self-position> ]{1,2}
+bool
+CSSParserImpl::ParsePlaceSelf()
+{
+  nsCSSValue first;
+  if (ParseSingleTokenVariant(first, VARIANT_INHERIT, nullptr)) {
+    AppendValue(eCSSProperty_align_self, first);
+    AppendValue(eCSSProperty_justify_self, first);
+    return true;
+  }
+  if (!ParseAlignEnum(first, nsCSSProps::kAlignAutoNormalStretchBaseline) &&
+      !ParseEnum(first, nsCSSProps::kAlignSelfPosition)) {
+    return false;
+  }
+  AppendValue(eCSSProperty_align_self, first);
+  nsCSSValue second;
+  if (!ParseAlignEnum(second, nsCSSProps::kAlignAutoNormalStretchBaseline) &&
+      !ParseEnum(second, nsCSSProps::kAlignSelfPosition)) {
+    AppendValue(eCSSProperty_justify_self, first);
+  } else {
+    AppendValue(eCSSProperty_justify_self, second);
+  }
+  return true;
+}
+
 // <color-stop> : <color> [ <percentage> | <length> ]?
 bool
 CSSParserImpl::ParseColorStop(nsCSSValueGradient* aGradient)
@@ -11718,6 +11822,12 @@ bool
 CSSParserImpl::ParsePropertyByFunction(nsCSSPropertyID aPropID)
 {
   switch (aPropID) {  // handle shorthand or multiple properties
+  case eCSSProperty_place_content:
+    return ParsePlaceContent();
+  case eCSSProperty_place_items:
+    return ParsePlaceItems();
+  case eCSSProperty_place_self:
+    return ParsePlaceSelf();
   case eCSSProperty_background:
     return ParseImageLayers(nsStyleImageLayers::kBackgroundLayerTable);
   case eCSSProperty_background_repeat:
@@ -11990,6 +12100,8 @@ CSSParserImpl::ParseSingleValuePropertyByFunction(nsCSSValue& aValue,
       return ParseFontVariantNumeric(aValue);
     case eCSSProperty_font_feature_settings:
       return ParseFontFeatureSettings(aValue);
+    case eCSSProperty_font_variation_settings:
+      return ParseFontVariationSettings(aValue);
     case eCSSProperty_font_weight:
       return ParseFontWeight(aValue);
     case eCSSProperty_image_orientation:
@@ -13638,6 +13750,9 @@ CSSParserImpl::ParseCalc(nsCSSValue &aValue, uint32_t aVariantMask)
   // This can be done without lookahead when we assume that the property
   // values cannot themselves be numbers.
   MOZ_ASSERT(aVariantMask != 0, "unexpected variant mask");
+  MOZ_ASSERT(!(aVariantMask & VARIANT_LPN) != !(aVariantMask & VARIANT_INTEGER),
+             "variant mask must intersect with exactly one of VARIANT_LPN "
+             "or VARIANT_INTEGER");
 
   bool oldUnitlessLengthQuirk = mUnitlessLengthQuirk;
   mUnitlessLengthQuirk = false;
@@ -13708,21 +13823,6 @@ CSSParserImpl::ParseCalcAdditiveExpression(nsCSSValue& aValue,
   }
 }
 
-struct ReduceNumberCalcOps : public mozilla::css::BasicFloatCalcOps,
-                             public mozilla::css::CSSValueInputCalcOps
-{
-  result_type ComputeLeafValue(const nsCSSValue& aValue)
-  {
-    MOZ_ASSERT(aValue.GetUnit() == eCSSUnit_Number, "unexpected unit");
-    return aValue.GetFloatValue();
-  }
-
-  float ComputeNumber(const nsCSSValue& aValue)
-  {
-    return mozilla::css::ComputeCalc(aValue, *this);
-  }
-};
-
 //  * If aVariantMask is VARIANT_NUMBER, this function parses the
 //    <number-multiplicative-expression> production.
 //  * If aVariantMask does not contain VARIANT_NUMBER, this function
@@ -13748,9 +13848,18 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
   nsCSSValue *storage = &aValue;
   for (;;) {
     uint32_t variantMask;
-    if (afterDivision || gotValue) {
+    if (aVariantMask & VARIANT_INTEGER) {
+      MOZ_ASSERT(aVariantMask == VARIANT_INTEGER,
+                 "integers in calc expressions can't be mixed with anything "
+                 "else.");
+      variantMask = aVariantMask;
+    } else if (afterDivision || gotValue) {
+      // At this point in the calc expression, we expect a coefficient or a
+      // divisor, which must be a number. (Not a length/%/etc.)
       variantMask = VARIANT_NUMBER;
     } else {
+      // At this point in the calc expression, we'll accept a coefficient
+      // (a number) or a value of whatever type |aVariantMask| specifies.
       variantMask = aVariantMask | VARIANT_NUMBER;
     }
     if (!ParseCalcTerm(*storage, variantMask))
@@ -13764,7 +13873,7 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
     if (variantMask & VARIANT_NUMBER) {
       // Simplify the value immediately so we can check for division by
       // zero.
-      ReduceNumberCalcOps ops;
+      mozilla::css::ReduceNumberCalcOps ops;
       float number = mozilla::css::ComputeCalc(*storage, ops);
       if (number == 0.0 && afterDivision)
         return false;
@@ -13778,9 +13887,15 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
         MOZ_ASSERT(storage == &aValue.GetArrayValue()->Item(1),
                    "unexpected relationship to current storage");
         nsCSSValue &leftValue = aValue.GetArrayValue()->Item(0);
-        ReduceNumberCalcOps ops;
-        float number = mozilla::css::ComputeCalc(leftValue, ops);
-        leftValue.SetFloatValue(number, eCSSUnit_Number);
+        if (variantMask & VARIANT_INTEGER) {
+          mozilla::css::ReduceIntegerCalcOps ops;
+          int integer = mozilla::css::ComputeCalc(leftValue, ops);
+          leftValue.SetIntValue(integer, eCSSUnit_Integer);
+        } else {
+          mozilla::css::ReduceNumberCalcOps ops;
+          float number = mozilla::css::ComputeCalc(leftValue, ops);
+          leftValue.SetFloatValue(number, eCSSUnit_Number);
+        }
       }
     }
 
@@ -13794,6 +13909,19 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
       unit = gotValue ? eCSSUnit_Calc_Times_R : eCSSUnit_Calc_Times_L;
       afterDivision = false;
     } else if (mToken.IsSymbol('/')) {
+      if (variantMask & VARIANT_INTEGER) {
+        // Integers aren't mixed with anything else (see the assert at the top
+        // of CSSParserImpl::ParseCalc).
+        // We don't allow division at all in calc()s for expressions where an
+        // integer is expected, because calc() division can't be resolved to
+        // an integer, as implied by spec text about '/' here:
+        // https://drafts.csswg.org/css-values-3/#calc-type-checking
+        // We've consumed the '/' token, but it doesn't matter as we're in an
+        // error-handling situation where we've already consumed a lot of
+        // other tokens (e.g. the token before the '/'). ParseVariant will
+        // indicate this with CSSParseResult::Error.
+        return false;
+      }
       unit = eCSSUnit_Calc_Divided;
       afterDivision = true;
     } else {
@@ -13853,15 +13981,24 @@ CSSParserImpl::ParseCalcTerm(nsCSSValue& aValue, uint32_t& aVariantMask)
   }
   // ... or just a value
   UngetToken();
-  // Always pass VARIANT_NUMBER to ParseVariant so that unitless zero
-  // always gets picked up
-  if (ParseVariant(aValue, aVariantMask | VARIANT_NUMBER, nullptr) !=
-      CSSParseResult::Ok) {
-    return false;
-  }
-  // ...and do the VARIANT_NUMBER check ourselves.
-  if (!(aVariantMask & VARIANT_NUMBER) && aValue.GetUnit() == eCSSUnit_Number) {
-    return false;
+  if (aVariantMask & VARIANT_INTEGER) {
+    // Integers aren't mixed with anything else (see the assert at the
+    // top of CSSParserImpl::ParseCalc).
+    if (ParseVariant(aValue, aVariantMask, nullptr) != CSSParseResult::Ok) {
+      return false;
+    }
+  } else {
+    // Always pass VARIANT_NUMBER to ParseVariant so that unitless zero
+    // always gets picked up (we want to catch unitless zeroes using
+    // VARIANT_NUMBER and then error out)
+    if (ParseVariant(aValue, aVariantMask | VARIANT_NUMBER, nullptr) !=
+        CSSParseResult::Ok) {
+      return false;
+    }
+    // ...and do the VARIANT_NUMBER check ourselves.
+    if (!(aVariantMask & VARIANT_NUMBER) && aValue.GetUnit() == eCSSUnit_Number) {
+      return false;
+    }
   }
   // If we did the value parsing, we need to adjust aVariantMask to
   // reflect which option we took (see above).
@@ -15174,7 +15311,9 @@ CSSParserImpl::ParseFontFeatureSettings(nsCSSValue& aValue)
     return true;
   }
 
-  nsCSSValuePairList *cur = aValue.SetPairListValue();
+  auto resultHead = MakeUnique<nsCSSValuePairList>();
+  nsCSSValuePairList* cur = resultHead.get();
+
   for (;;) {
     // feature tag
     if (!GetToken(true)) {
@@ -15216,6 +15355,57 @@ CSSParserImpl::ParseFontFeatureSettings(nsCSSValue& aValue)
     cur->mNext = new nsCSSValuePairList;
     cur = cur->mNext;
   }
+
+  aValue.AdoptPairListValue(Move(resultHead));
+
+  return true;
+}
+
+bool
+CSSParserImpl::ParseFontVariationSettings(nsCSSValue& aValue)
+{
+  if (ParseSingleTokenVariant(aValue, VARIANT_INHERIT | VARIANT_NORMAL,
+                              nullptr)) {
+    return true;
+  }
+
+  auto resultHead = MakeUnique<nsCSSValuePairList>();
+  nsCSSValuePairList* cur = resultHead.get();
+
+  for (;;) {
+    // variation tag
+    if (!GetToken(true)) {
+      return false;
+    }
+
+    // variation tags are subject to the same validation as feature tags
+    if (mToken.mType != eCSSToken_String ||
+        !ValidFontFeatureTag(mToken.mIdent)) {
+      UngetToken();
+      return false;
+    }
+    cur->mXValue.SetStringValue(mToken.mIdent, eCSSUnit_String);
+
+    if (!GetToken(true)) {
+      return false;
+    }
+
+    if (mToken.mType == eCSSToken_Number) {
+      cur->mYValue.SetFloatValue(mToken.mNumber, eCSSUnit_Number);
+    } else {
+      UngetToken();
+      return false;
+    }
+
+    if (!ExpectSymbol(',', true)) {
+      break;
+    }
+
+    cur->mNext = new nsCSSValuePairList;
+    cur = cur->mNext;
+  }
+
+  aValue.AdoptPairListValue(Move(resultHead));
 
   return true;
 }
