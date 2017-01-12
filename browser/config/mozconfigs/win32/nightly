@@ -4,7 +4,7 @@
 ac_add_options --enable-profiling
 ac_add_options --enable-verify-mar
 
-ac_add_options --with-branding=browser/branding/nightly
+ac_add_options --enable-official-branding
 
 . "$topsrcdir/build/mozconfig.rust"
 
