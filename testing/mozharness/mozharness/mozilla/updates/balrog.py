@@ -33,6 +33,8 @@ class BalrogMixin(object):
         if "branch" not in balrog_props["properties"]:
             balrog_props["properties"]["branch"] = self.branch
 
+        balrog_props["properties"]["mar_signing_format"] = 'mar'
+
         self.dump_config(props_path, balrog_props)
 
     def submit_balrog_updates(self, release_type="nightly", product=None):

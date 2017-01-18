@@ -34,7 +34,6 @@ from mozharness.mozilla.buildbot import (
     BuildbotMixin,
     EXIT_STATUS_DICT,
     TBPL_STATUS_DICT,
-    TBPL_EXCEPTION,
     TBPL_FAILURE,
     TBPL_RETRY,
     TBPL_WARNING,
@@ -1496,6 +1495,8 @@ or run without that action (ie: --no-{action})"
             # get the size/hash of the mar
             for upload_file in files:
                 if upload_file.endswith(packageName):
+                    self.set_buildbot_property('mar_signing_format', 'mar',
+                                               write_to_file=True)
                     self.set_buildbot_property('completeMarSize',
                                                self.query_filesize(upload_file),
                                                write_to_file=True)

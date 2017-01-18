@@ -941,6 +941,7 @@ class DesktopSingleLocale(LocalesMixin, ReleaseMixin, MockMixin, BuildbotMixin,
         self.set_buildbot_property("completeMarHash", self.query_sha512sum(c_marfile))
         self.set_buildbot_property("completeMarUrl", c_mar_url)
         self.set_buildbot_property("locale", locale)
+        self.set_buildbot_property("mar_signing_format", "mar")
         if "partialInfo" in self.package_urls[locale]:
             self.set_buildbot_property("partialInfo",
                                        self.package_urls[locale]["partialInfo"])
@@ -1044,6 +1045,7 @@ class DesktopSingleLocale(LocalesMixin, ReleaseMixin, MockMixin, BuildbotMixin,
             'appName': self.config['appName'],
             'platform': self.config['platform'],
             'completeMarUrls':  {locale: self._query_complete_mar_url(locale) for locale in locales},
+            'mar_signing_format': 'mar',
         }
         self.info('funsize info: %s' % funsize_info)
         self.set_buildbot_property('funsize_info', json.dumps(funsize_info),
