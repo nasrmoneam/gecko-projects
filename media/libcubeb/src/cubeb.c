@@ -55,7 +55,6 @@ int audiotrack_init(cubeb ** context, char const * context_name);
 int kai_init(cubeb ** context, char const * context_name);
 #endif
 
-
 static int
 validate_stream_params(cubeb_stream_params * input_stream_params,
                        cubeb_stream_params * output_stream_params)
@@ -96,8 +95,6 @@ validate_stream_params(cubeb_stream_params * input_stream_params,
   return CUBEB_ERROR_INVALID_FORMAT;
 }
 
-
-
 static int
 validate_latency(int latency)
 {
@@ -111,11 +108,11 @@ int
 cubeb_init(cubeb ** context, char const * context_name)
 {
   int (* init[])(cubeb **, char const *) = {
-#if defined(USE_JACK)
-    jack_init,
-#endif
 #if defined(USE_PULSE)
     pulse_init,
+#endif
+#if defined(USE_JACK)
+    jack_init,
 #endif
 #if defined(USE_ALSA)
     alsa_init,
@@ -216,6 +213,20 @@ cubeb_get_preferred_sample_rate(cubeb * context, uint32_t * rate)
   }
 
   return context->ops->get_preferred_sample_rate(context, rate);
+}
+
+int
+cubeb_get_preferred_channel_layout(cubeb * context, cubeb_channel_layout * layout)
+{
+  if (!context || !layout) {
+    return CUBEB_ERROR_INVALID_PARAMETER;
+  }
+
+  if (!context->ops->get_preferred_channel_layout) {
+    return CUBEB_ERROR_NOT_SUPPORTED;
+  }
+
+  return context->ops->get_preferred_channel_layout(context, layout);
 }
 
 void
@@ -557,12 +568,5 @@ int cubeb_set_log_callback(cubeb_log_level log_level,
   g_log_level = log_level;
 
   return CUBEB_OK;
-}
-
-void
-cubeb_crash()
-{
-  abort();
-  *((volatile int *) NULL) = 0;
 }
 

@@ -226,6 +226,11 @@ public class Distribution {
                     String preferencesJSON = "";
                     try {
                         final File descFile = distribution.getDistributionFile("preferences.json");
+                        if (descFile == null) {
+                            // This can happen if we have a distribution directory, but no
+                            // preferences.json file.
+                            throw new IOException("preferences.json not found");
+                        }
                         preferencesJSON = FileUtils.readStringFromFile(descFile);
                     } catch (IOException e) {
                         Log.e(LOGTAG, "Error getting distribution descriptor file.", e);
@@ -297,6 +302,14 @@ public class Distribution {
 
                 // This will bail if we aren't delayed, or we already have a distribution.
                 distribution.processDelayedReferrer(ref);
+
+                // On Android 5+ we might receive the referrer intent
+                // and never actually launch the browser, which is the usual signal
+                // for the distribution init process to complete.
+                // Attempt to init here to handle that case.
+                // Profile setup that relies on the distribution will occur
+                // when the browser is eventually launched, via `addOnDistributionReadyCallback`.
+                distribution.doInit();
             }
         });
     }
@@ -680,6 +693,28 @@ public class Distribution {
      */
     private boolean checkSystemDistribution() {
         return checkDirectories(getSystemDistributionDirectories(context));
+    }
+
+    /**
+     * @return true if we should wait for a system distribution to load.
+     * Not applicable to APK or OTA distributions.
+     */
+    public boolean shouldWaitForSystemDistribution() {
+        if (state == STATE_NONE) {
+            return false;
+        }
+        if (state == STATE_SET) {
+            return true;
+        }
+
+        final String[] directories = getSystemDistributionDirectories(context);
+        for (String path : directories) {
+            final File directory = new File(path);
+            if (directory.exists()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

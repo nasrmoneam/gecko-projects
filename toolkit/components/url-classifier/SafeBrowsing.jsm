@@ -50,7 +50,13 @@ const tablePreferences = [
   "urlclassifier.downloadAllowTable",
   "urlclassifier.trackingTable",
   "urlclassifier.trackingWhitelistTable",
-  "urlclassifier.blockedTable"
+  "urlclassifier.blockedTable",
+  "urlclassifier.flashAllowTable",
+  "urlclassifier.flashAllowExceptTable",
+  "urlclassifier.flashTable",
+  "urlclassifier.flashExceptTable",
+  "urlclassifier.flashSubDocTable",
+  "urlclassifier.flashSubDocExceptTable"
 ];
 
 this.SafeBrowsing = {
@@ -64,6 +70,7 @@ this.SafeBrowsing = {
     Services.prefs.addObserver("browser.safebrowsing", this, false);
     Services.prefs.addObserver("privacy.trackingprotection", this, false);
     Services.prefs.addObserver("urlclassifier", this, false);
+    Services.prefs.addObserver("plugins.flashBlock.enabled", this, false);
 
     this.readPrefs();
     this.addMozEntries();
@@ -112,6 +119,9 @@ this.SafeBrowsing = {
     for (let i = 0; i < this.blockedLists.length; ++i) {
       this.registerTableWithURLs(this.blockedLists[i]);
     }
+    for (let i = 0; i < this.flashLists.length; ++i) {
+      this.registerTableWithURLs(this.flashLists[i]);
+    }
   },
 
 
@@ -121,6 +131,7 @@ this.SafeBrowsing = {
   trackingEnabled:      false,
   blockedEnabled:       false,
   trackingAnnotations:  false,
+  flashBlockEnabled:    false,
 
   phishingLists:                [],
   malwareLists:                 [],
@@ -135,17 +146,16 @@ this.SafeBrowsing = {
 
   reportURL:             null,
 
-  getReportURL: function(kind, URI) {
+  getReportURL: function(kind, info) {
     let pref;
     switch (kind) {
       case "Phish":
         pref = "browser.safebrowsing.reportPhishURL";
         break;
+
       case "PhishMistake":
-        pref = "browser.safebrowsing.reportPhishMistakeURL";
-        break;
       case "MalwareMistake":
-        pref = "browser.safebrowsing.reportMalwareMistakeURL";
+        pref = "browser.safebrowsing.provider." + info.provider + ".report" + kind + "URL";
         break;
 
       default:
@@ -153,16 +163,20 @@ this.SafeBrowsing = {
         Components.utils.reportError(err);
         throw err;
     }
+
+    if (!info.list || !info.uri) {
+      return null;
+    }
+
     let reportUrl = Services.urlFormatter.formatURLPref(pref);
+    // formatURLPref might return "about:blank" if getting the pref fails
+    if (reportUrl == "about:blank") {
+      reportUrl = null;
+    }
 
-    let pageUri = URI.clone();
-
-    // Remove the query to avoid including potentially sensitive data
-    if (pageUri instanceof Ci.nsIURL)
-      pageUri.query = '';
-
-    reportUrl += encodeURIComponent(pageUri.asciiSpec);
-
+    if (reportUrl) {
+      reportUrl += encodeURIComponent(info.uri);
+    }
     return reportUrl;
   },
 
@@ -183,6 +197,11 @@ this.SafeBrowsing = {
     this.trackingEnabled = Services.prefs.getBoolPref("privacy.trackingprotection.enabled") || Services.prefs.getBoolPref("privacy.trackingprotection.pbmode.enabled");
     this.blockedEnabled = Services.prefs.getBoolPref("browser.safebrowsing.blockedURIs.enabled");
     this.trackingAnnotations = Services.prefs.getBoolPref("privacy.trackingprotection.annotate_channels");
+    this.flashBlockEnabled = Services.prefs.getBoolPref("plugins.flashBlock.enabled");
+
+    let flashAllowTable, flashAllowExceptTable, flashTable,
+        flashExceptTable, flashSubDocTable,
+        flashSubDocExceptTable;
 
     [this.phishingLists,
      this.malwareLists,
@@ -190,7 +209,19 @@ this.SafeBrowsing = {
      this.downloadAllowLists,
      this.trackingProtectionLists,
      this.trackingProtectionWhitelists,
-     this.blockedLists] = tablePreferences.map(getLists);
+     this.blockedLists,
+     flashAllowTable,
+     flashAllowExceptTable,
+     flashTable,
+     flashExceptTable,
+     flashSubDocTable,
+     flashSubDocExceptTable] = tablePreferences.map(getLists);
+
+    this.flashLists = flashAllowTable.concat(flashAllowExceptTable,
+                                             flashTable,
+                                             flashExceptTable,
+                                             flashSubDocTable,
+                                             flashSubDocExceptTable)
 
     this.updateProviderURLs();
     this.registerTables();
@@ -269,7 +300,7 @@ this.SafeBrowsing = {
     log("phishingEnabled:", this.phishingEnabled, "malwareEnabled:",
         this.malwareEnabled, "trackingEnabled:", this.trackingEnabled,
         "blockedEnabled:", this.blockedEnabled, "trackingAnnotations",
-        this.trackingAnnotations);
+        this.trackingAnnotations, "flashBlockEnabled", this.flashBlockEnabled);
 
     let listManager = Cc["@mozilla.org/url-classifier/listmanager;1"].
                       getService(Ci.nsIUrlListManager);
@@ -323,6 +354,13 @@ this.SafeBrowsing = {
         listManager.disableUpdate(this.blockedLists[i]);
       }
     }
+    for (let i = 0; i < this.flashLists.length; ++i) {
+      if (this.flashBlockEnabled) {
+        listManager.enableUpdate(this.flashLists[i]);
+      } else {
+        listManager.disableUpdate(this.flashLists[i]);
+      }
+    }
     listManager.maybeToggleUpdateChecking();
   },
 
@@ -339,6 +377,13 @@ this.SafeBrowsing = {
     ];
     const whitelistURL  = "itisatrap.org/?resource=itisatracker.org";
     const blockedURL    = "itisatrap.org/firefox/blocked.html";
+
+    const flashDenyURL = "flashblock.itisatrap.org/";
+    const flashDenyExceptURL = "except.flashblock.itisatrap.org/";
+    const flashAllowURL = "flashallow.itisatrap.org/";
+    const flashAllowExceptURL = "except.flashallow.itisatrap.org/";
+    const flashSubDocURL = "flashsubdoc.itisatrap.org/";
+    const flashSubDocExceptURL = "except.flashsubdoc.itisatrap.org/";
 
     let update = "n:1000\ni:test-malware-simple\nad:1\n" +
                  "a:1:32:" + malwareURL.length + "\n" +
@@ -361,6 +406,24 @@ this.SafeBrowsing = {
     update += "n:1000\ni:test-block-simple\nad:1\n" +
               "a:1:32:" + blockedURL.length + "\n" +
               blockedURL;
+    update += "n:1000\ni:test-flash-simple\nad:1\n" +
+              "a:1:32:" + flashDenyURL.length + "\n" +
+              flashDenyURL;
+    update += "n:1000\ni:testexcept-flash-simple\nad:1\n" +
+              "a:1:32:" + flashDenyExceptURL.length + "\n" +
+              flashDenyExceptURL;
+    update += "n:1000\ni:test-flashallow-simple\nad:1\n" +
+              "a:1:32:" + flashAllowURL.length + "\n" +
+              flashAllowURL;
+    update += "n:1000\ni:testexcept-flashallow-simple\nad:1\n" +
+              "a:1:32:" + flashAllowExceptURL.length + "\n" +
+              flashAllowExceptURL;
+    update += "n:1000\ni:test-flashsubdoc-simple\nad:1\n" +
+              "a:1:32:" + flashSubDocURL.length + "\n" +
+              flashSubDocURL;
+    update += "n:1000\ni:testexcept-flashsubdoc-simple\nad:1\n" +
+              "a:1:32:" + flashSubDocExceptURL.length + "\n" +
+              flashSubDocExceptURL;
     log("addMozEntries:", update);
 
     let db = Cc["@mozilla.org/url-classifier/dbservice;1"].
@@ -381,7 +444,7 @@ this.SafeBrowsing = {
     };
 
     try {
-      let tables = "test-malware-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple";
+      let tables = "test-malware-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple,test-flash-simple,testexcept-flash-simple,test-flashallow-simple,testexcept-flashallow-simple,test-flashsubdoc-simple,testexcept-flashsubdoc-simple";
       db.beginUpdate(dummyListener, tables, "");
       db.beginStream("", "");
       db.updateStream(update);

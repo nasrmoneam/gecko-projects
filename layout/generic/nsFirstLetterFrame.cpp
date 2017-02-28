@@ -14,8 +14,8 @@
 #include "mozilla/StyleSetHandle.h"
 #include "mozilla/StyleSetHandleInlines.h"
 #include "nsFrameManager.h"
-#include "mozilla/RestyleManagerHandle.h"
-#include "mozilla/RestyleManagerHandleInlines.h"
+#include "mozilla/RestyleManager.h"
+#include "mozilla/RestyleManagerInlines.h"
 #include "nsPlaceholderFrame.h"
 #include "nsCSSFrameConstructor.h"
 
@@ -83,7 +83,7 @@ nsFirstLetterFrame::SetInitialChildList(ChildListID  aListID,
 {
   MOZ_ASSERT(aListID == kPrincipalList, "Principal child list is the only "
              "list that nsFirstLetterFrame should set via this function");
-  RestyleManagerHandle restyleManager = PresContext()->RestyleManager();
+  RestyleManager* restyleManager = PresContext()->RestyleManager();
 
   for (nsFrameList::Enumerator e(aChildList); !e.AtEnd(); e.Next()) {
     NS_ASSERTION(e.get()->GetParent() == this, "Unexpected parent");
@@ -195,7 +195,7 @@ nsFirstLetterFrame::Reflow(nsPresContext*          aPresContext,
     // When there is no lineLayout provided, we provide our own. The
     // only time that the first-letter-frame is not reflowing in a
     // line context is when its floating.
-    WritingMode kidWritingMode = GetWritingMode(kid);
+    WritingMode kidWritingMode = WritingModeForLine(wm, kid);
     LogicalSize kidAvailSize = availSize.ConvertTo(kidWritingMode, wm);
     ReflowInput rs(aPresContext, aReflowInput, kid, kidAvailSize);
     nsLineLayout ll(aPresContext, nullptr, &aReflowInput, nullptr, nullptr);
@@ -265,10 +265,10 @@ nsFirstLetterFrame::Reflow(nsPresContext*          aPresContext,
     }
   }
 
-  if (!NS_INLINE_IS_BREAK_BEFORE(aReflowStatus)) {
+  if (!aReflowStatus.IsInlineBreakBefore()) {
     // Create a continuation or remove existing continuations based on
     // the reflow completion status.
-    if (NS_FRAME_IS_COMPLETE(aReflowStatus)) {
+    if (aReflowStatus.IsComplete()) {
       if (aReflowInput.mLineLayout) {
         aReflowInput.mLineLayout->SetFirstLetterStyleOK(false);
       }

@@ -43,7 +43,6 @@ EXPORTS += [
     'HTMLSplitOnSpacesTokenizer.h',
     'IframeSandboxKeywordList.h',
     'mozAutoDocUpdate.h',
-    'mozFlushType.h',
     'nsAtomListUtils.h',
     'nsAttrAndChildArray.h',
     'nsAttrName.h',
@@ -137,6 +136,7 @@ if CONFIG['MOZ_WEBRTC']:
 EXPORTS.mozilla += [
     'CORSMode.h',
     'FeedWriterEnabled.h',
+    'FlushType.h',
     'TextInputProcessor.h',
     'UseCounter.h',
 ]
@@ -154,7 +154,7 @@ EXPORTS.mozilla.dom += [
     'Comment.h',
     'CustomElementRegistry.h',
     'DirectionalityUtils.h',
-    'Dispatcher.h',
+    'DispatcherTrait.h',
     'DocGroup.h',
     'DocumentFragment.h',
     'DocumentType.h',
@@ -205,11 +205,18 @@ EXPORTS.mozilla.dom += [
     'TabGroup.h',
     'Text.h',
     'Timeout.h',
+    'TimeoutHandler.h',
+    'TimeoutManager.h',
     'TreeWalker.h',
     'WebKitCSSMatrix.h',
     'WebSocket.h',
     'WindowOrientationObserver.h',
 ]
+
+if CONFIG['FUZZING']:
+    EXPORTS.mozilla.dom += [
+        'FuzzingFunctions.h',
+    ]
 
 UNIFIED_SOURCES += [
     'AnonymousContent.cpp',
@@ -224,7 +231,7 @@ UNIFIED_SOURCES += [
     'Crypto.cpp',
     'CustomElementRegistry.cpp',
     'DirectionalityUtils.cpp',
-    'Dispatcher.cpp',
+    'DispatcherTrait.cpp',
     'DocGroup.cpp',
     'DocumentFragment.cpp',
     'DocumentType.cpp',
@@ -344,6 +351,8 @@ UNIFIED_SOURCES += [
     'TextInputProcessor.cpp',
     'ThirdPartyUtil.cpp',
     'Timeout.cpp',
+    'TimeoutHandler.cpp',
+    'TimeoutManager.cpp',
     'TreeWalker.cpp',
     'WebKitCSSMatrix.cpp',
     'WebSocket.cpp',
@@ -354,6 +363,11 @@ UNIFIED_SOURCES += [
 if CONFIG['MOZ_WEBRTC']:
     UNIFIED_SOURCES += [
         'nsDOMDataChannel.cpp',
+    ]
+
+if CONFIG['FUZZING']:
+    UNIFIED_SOURCES += [
+        'FuzzingFunctions.cpp',
     ]
 
 # these files couldn't be in UNIFIED_SOURCES for now for reasons given below:

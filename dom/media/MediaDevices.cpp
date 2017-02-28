@@ -15,8 +15,31 @@
 #include "nsPIDOMWindow.h"
 #include "nsQueryObject.h"
 
+#define DEVICECHANGE_HOLD_TIME_IN_MS 1000
+
 namespace mozilla {
 namespace dom {
+
+class FuzzTimerCallBack final : public nsITimerCallback
+{
+  ~FuzzTimerCallBack() {}
+
+public:
+  explicit FuzzTimerCallBack(MediaDevices* aMediaDevices) : mMediaDevices(aMediaDevices) {}
+
+  NS_DECL_ISUPPORTS
+
+  NS_IMETHOD Notify(nsITimer* aTimer) final
+  {
+    mMediaDevices->DispatchTrustedEvent(NS_LITERAL_STRING("devicechange"));
+    return NS_OK;
+  }
+
+private:
+  nsCOMPtr<MediaDevices> mMediaDevices;
+};
+
+NS_IMPL_ISUPPORTS(FuzzTimerCallBack, nsITimerCallback)
 
 class MediaDevices::GumResolver : public nsIDOMGetUserMediaSuccessCallback
 {
@@ -151,6 +174,7 @@ NS_IMPL_ISUPPORTS(MediaDevices::GumRejecter, nsIDOMGetUserMediaErrorCallback)
 
 already_AddRefed<Promise>
 MediaDevices::GetUserMedia(const MediaStreamConstraints& aConstraints,
+			   CallerType aCallerType,
                            ErrorResult &aRv)
 {
   nsPIDOMWindowInner* window = GetOwner();
@@ -162,7 +186,8 @@ MediaDevices::GetUserMedia(const MediaStreamConstraints& aConstraints,
   RefPtr<GumRejecter> rejecter = new GumRejecter(p);
 
   aRv = MediaManager::Get()->GetUserMedia(window, aConstraints,
-                                          resolver, rejecter);
+                                          resolver, rejecter,
+					  aCallerType);
   return p.forget();
 }
 
@@ -192,15 +217,29 @@ MediaDevices::OnDeviceChange()
 {
   MOZ_ASSERT(NS_IsMainThread());
   nsresult rv = CheckInnerWindowCorrectness();
-  if (NS_FAILED(rv))
+  if (NS_FAILED(rv)) {
+    MOZ_ASSERT(false);
     return;
+  }
 
   if (!(MediaManager::Get()->IsActivelyCapturingOrHasAPermission(GetOwner()->WindowID()) ||
     Preferences::GetBool("media.navigator.permission.disabled", false))) {
     return;
   }
 
-  DispatchTrustedEvent(NS_LITERAL_STRING("devicechange"));
+  if (!mFuzzTimer)
+  {
+    mFuzzTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  }
+
+  if (!mFuzzTimer) {
+    MOZ_ASSERT(false);
+    return;
+  }
+
+  mFuzzTimer->Cancel();
+  RefPtr<FuzzTimerCallBack> cb = new FuzzTimerCallBack(this);
+  mFuzzTimer->InitWithCallback(cb, DEVICECHANGE_HOLD_TIME_IN_MS, nsITimer::TYPE_ONE_SHOT);
 }
 
 mozilla::dom::EventHandlerNonNull*

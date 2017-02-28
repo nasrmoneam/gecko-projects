@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 const { utils: Cu } = Components;
-const { Sqlite } = Cu.import("resource://gre/modules/Sqlite.jsm");
-const { Task } = Cu.import("resource://gre/modules/Task.jsm");
-const { Kinto } = Cu.import("resource://services-common/kinto-offline-client.js");
+const { Sqlite } = Cu.import("resource://gre/modules/Sqlite.jsm", {});
+const { Task } = Cu.import("resource://gre/modules/Task.jsm", {});
+const { Kinto } = Cu.import("resource://services-common/kinto-offline-client.js", {});
 
 const SQLITE_PATH = "kinto.sqlite";
 
@@ -173,6 +173,11 @@ const statements = {
   "scanAllRecords": `SELECT * FROM collection_data;`,
 
   "clearCollectionMetadata": `DELETE FROM collection_metadata;`,
+
+  "calculateStorage": `
+    SELECT collection_name, SUM(LENGTH(record)) as size, COUNT(record) as num_records
+      FROM collection_data
+        GROUP BY collection_name;`,
 };
 
 const createStatements = [
@@ -288,7 +293,7 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
     };
     return this._executeStatement(statements.getRecord, params).then(result => {
       if (result.length == 0) {
-        return;
+        return null;
       }
       return JSON.parse(result[0].getResultByName("record"));
     });
@@ -329,7 +334,7 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
       yield connection.executeTransaction(function* doImport() {
         for (let record of records) {
           const params = {
-            collection_name: collection_name,
+            collection_name,
             record_id: record.id,
             record: JSON.stringify(record),
           };
@@ -337,7 +342,7 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
         }
         const lastModified = Math.max(...records.map(record => record.last_modified));
         const params = {
-          collection_name: collection_name,
+          collection_name,
         };
         const previousLastModified = yield connection.execute(
           statements.getLastModified, params).then(result => {
@@ -347,7 +352,7 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
           });
         if (lastModified > previousLastModified) {
           const params = {
-            collection_name: collection_name,
+            collection_name,
             last_modified: lastModified,
           };
           yield connection.execute(statements.saveLastModified, params);
@@ -380,6 +385,17 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
       });
   }
 
+  calculateStorage() {
+    return this._executeStatement(statements.calculateStorage, {})
+      .then(result => {
+        return Array.from(result, row => ({
+          collectionName: row.getResultByName("collection_name"),
+          size: row.getResultByName("size"),
+          numRecords: row.getResultByName("num_records"),
+        }));
+      });
+  }
+
   /**
    * Reset the sync status of every record and collection we have
    * access to.
@@ -393,15 +409,14 @@ class FirefoxAdapter extends Kinto.adapters.BaseAdapter {
 
     return this._connection.executeTransaction(function* (conn) {
       const promises = [];
-      yield conn.execute(statements.scanAllRecords, null, function (row) {
+      yield conn.execute(statements.scanAllRecords, null, function(row) {
         const record = JSON.parse(row.getResultByName("record"));
         const record_id = row.getResultByName("record_id");
         const collection_name = row.getResultByName("collection_name");
         if (record._status === "deleted") {
           // Garbage collect deleted records.
           promises.push(conn.execute(statements.deleteData, { collection_name, record_id }));
-        }
-        else {
+        } else {
           const newRecord = Object.assign({}, record, {
             _status: "created",
             last_modified: undefined,

@@ -5,8 +5,8 @@
 import time
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import By, expected, Wait
+from marionette_harness import MarionetteTestCase
 
 
 class TestSafeBrowsingNotificationBar(PuppeteerMixin, MarionetteTestCase):
@@ -25,20 +25,24 @@ class TestSafeBrowsingNotificationBar(PuppeteerMixin, MarionetteTestCase):
             },
             # Phishing URL info
             {
-                'button_property': 'safebrowsing.notADeceptiveSiteButton.label',
-                'report_page': 'google.com/safebrowsing/report_error',
+                # First two properties are not needed, because only url which
+                # matches google's list could be reported
+                'button_property': None,
+                'report_page': None,
                 'unsafe_page': 'https://www.itisatrap.org/firefox/its-a-trap.html'
             },
             # Malware URL object
             {
-                'button_property': 'safebrowsing.notAnAttackButton.label',
-                'report_page': 'stopbadware.org',
+                # First two properties are not needed, because only url which
+                # matches google's list could be reported
+                'button_property': None,
+                'report_page': None,
                 'unsafe_page': 'https://www.itisatrap.org/firefox/its-an-attack.html'
             }
         ]
 
-        self.puppeteer.prefs.set_pref('browser.safebrowsing.phishing.enabled', True)
-        self.puppeteer.prefs.set_pref('browser.safebrowsing.malware.enabled', True)
+        self.marionette.set_pref('browser.safebrowsing.phishing.enabled', True)
+        self.marionette.set_pref('browser.safebrowsing.malware.enabled', True)
 
         # Give the browser a little time, because SafeBrowsing.jsm takes a while
         # between start up and adding the example urls to the db.
@@ -107,7 +111,7 @@ class TestSafeBrowsingNotificationBar(PuppeteerMixin, MarionetteTestCase):
     def check_not_badware_button(self, button_property, report_page):
         with self.marionette.using_context('chrome'):
             # TODO: update to use safe browsing notification bar class when bug 1139544 lands
-            label = self.browser.get_property(button_property)
+            label = self.browser.localize_property(button_property)
             button = (self.marionette.find_element(By.ID, 'content')
                       .find_element('anon attribute', {'label': label}))
 
@@ -124,7 +128,7 @@ class TestSafeBrowsingNotificationBar(PuppeteerMixin, MarionetteTestCase):
     def check_get_me_out_of_here_button(self):
         with self.marionette.using_context('chrome'):
             # TODO: update to use safe browsing notification bar class when bug 1139544 lands
-            label = self.browser.get_property('safebrowsing.getMeOutOfHereButton.label')
+            label = self.browser.localize_property('safebrowsing.getMeOutOfHereButton.label')
             button = (self.marionette.find_element(By.ID, 'content')
                       .find_element('anon attribute', {'label': label}))
             button.click()

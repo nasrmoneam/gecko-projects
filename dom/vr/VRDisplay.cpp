@@ -132,7 +132,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(VREyeParameters)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mParent, mFOV)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(VREyeParameters)
@@ -218,7 +217,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(VRStageParameters)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mParent)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(VRStageParameters)
@@ -466,9 +464,12 @@ VRDisplay::RequestPresent(const nsTArray<VRLayer>& aLayers, ErrorResult& aRv)
   nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
   NS_ENSURE_TRUE(obs, nullptr);
 
-  if (mClient->GetIsPresenting()) {
+  if (!IsPresenting() && IsAnyPresenting()) {
     // Only one presentation allowed per VRDisplay
     // on a first-come-first-serve basis.
+    // If this Javascript context is presenting, then we can replace our
+    // presentation with a new one containing new layers but we should never
+    // replace the presentation of another context.
     promise->MaybeRejectWithUndefined();
   } else {
     mPresentation = mClient->BeginPresentation(aLayers);
@@ -588,6 +589,14 @@ VRDisplay::IsPresenting() const
 }
 
 bool
+VRDisplay::IsAnyPresenting() const
+{
+  // IsAnyPresenting returns true if any Javascript context is presenting
+  // even if this context is not presenting.
+  return IsPresenting() || mClient->GetIsPresenting();
+}
+
+bool
 VRDisplay::IsConnected() const
 {
   return mClient->GetIsConnected();
@@ -616,7 +625,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(VRFrameData)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mParent, mPose)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(VRFrameData)

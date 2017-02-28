@@ -14,30 +14,13 @@
 #include <stdlib.h>
 #include <vector>
 #include <sstream>
+#include "mozilla/Unused.h"
+#include "nsNativeCharsetUtils.h"
 
 #include "shared-libraries.h"
 
-#ifndef MAC_OS_X_VERSION_10_6
-#define MAC_OS_X_VERSION_10_6 1060
-#endif
-
-#if MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_6
-// borrowed from Breakpad
-// Fallback declarations for TASK_DYLD_INFO and friends, introduced in
-// <mach/task_info.h> in the Mac OS X 10.6 SDK.
-#define TASK_DYLD_INFO 17
-struct task_dyld_info {
-    mach_vm_address_t all_image_info_addr;
-    mach_vm_size_t all_image_info_size;
-  };
-typedef struct task_dyld_info task_dyld_info_data_t;
-typedef struct task_dyld_info *task_dyld_info_t;
-#define TASK_DYLD_INFO_COUNT (sizeof(task_dyld_info_data_t) / sizeof(natural_t))
-
-#endif
-
 // Architecture specific abstraction.
-#ifdef __i386__
+#if defined(GP_ARCH_x86)
 typedef mach_header platform_mach_header;
 typedef segment_command mach_segment_command_type;
 #define MACHO_MAGIC_NUMBER MH_MAGIC
@@ -89,8 +72,11 @@ void addSharedLibrary(const platform_mach_header* header, char *name, SharedLibr
     uuid << '0';
   }
 
+  nsAutoString nameStr;
+  mozilla::Unused << NS_WARN_IF(NS_FAILED(NS_CopyNativeToUnicode(nsDependentCString(name), nameStr)));
+
   info.AddSharedLibrary(SharedLibrary(start, start + size, 0, uuid.str(),
-                                      name));
+                                      nameStr, nameStr, ""));
 }
 
 // Use dyld to inspect the macho image information. We can build the SharedLibraryEntry structure

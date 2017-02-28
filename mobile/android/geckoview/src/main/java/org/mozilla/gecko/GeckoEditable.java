@@ -14,7 +14,6 @@ import java.lang.reflect.Proxy;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.json.JSONObject;
-import org.mozilla.gecko.AppConstants.Versions;
 import org.mozilla.gecko.annotation.WrapForJNI;
 import org.mozilla.gecko.gfx.LayerView;
 import org.mozilla.gecko.mozglue.JNIObject;
@@ -331,7 +330,7 @@ final class GeckoEditable extends JNIObject
             final int selEnd = Selection.getSelectionEnd(mCurrentText);
             Selection.setSelection(mShadowText, selStart, selEnd);
 
-            if (DEBUG && !mShadowText.equals(mCurrentText)) {
+            if (DEBUG && !checkEqualText(mShadowText, mCurrentText)) {
                 // Sanity check.
                 throw new IllegalStateException("Failed to sync: " +
                         mShadowStart + '-' + mShadowOldEnd + '-' + mShadowNewEnd + '/' +
@@ -355,6 +354,32 @@ final class GeckoEditable extends JNIObject
             mCurrentNewEnd = mShadowNewEnd = 0;
             mCurrentSelectionChanged = false;
         }
+    }
+
+    private static boolean checkEqualText(final Spanned s1, final Spanned s2) {
+        if (!s1.toString().equals(s2.toString())) {
+            return false;
+        }
+
+        final Object[] o1s = s1.getSpans(0, s1.length(), Object.class);
+        final Object[] o2s = s2.getSpans(0, s2.length(), Object.class);
+
+        o1loop: for (final Object o1 : o1s) {
+            for (final Object o2 : o2s)  {
+                if (o1 != o2) {
+                    continue;
+                }
+                if (s1.getSpanStart(o1) != s2.getSpanStart(o2) ||
+                        s1.getSpanEnd(o1) != s2.getSpanEnd(o2) ||
+                        s1.getSpanFlags(o1) != s2.getSpanFlags(o2)) {
+                    return false;
+                }
+                continue o1loop;
+            }
+            // o1 not found in o2s.
+            return false;
+        }
+        return true;
     }
 
     /* An action that alters the Editable
@@ -1110,7 +1135,7 @@ final class GeckoEditable extends JNIObject
         });
     }
 
-    @WrapForJNI(calledFrom = "gecko")
+    @WrapForJNI(calledFrom = "gecko", exceptionMode = "ignore")
     private void onSelectionChange(final int start, final int end) {
         if (DEBUG) {
             // GeckoEditableListener methods should all be called from the Gecko thread
@@ -1139,7 +1164,7 @@ final class GeckoEditable extends JNIObject
                TextUtils.regionMatches(mText.getCurrentText(), start, newText, 0, oldEnd - start);
     }
 
-    @WrapForJNI(calledFrom = "gecko")
+    @WrapForJNI(calledFrom = "gecko", exceptionMode = "ignore")
     private void onTextChange(final CharSequence text, final int start,
                               final int unboundedOldEnd, final int unboundedNewEnd) {
         if (DEBUG) {
@@ -1205,8 +1230,9 @@ final class GeckoEditable extends JNIObject
                 // with Gecko here.
                 mIgnoreSelectionChange = false;
 
-            } else if (indexInText == 0 && text.length() == action.mSequence.length()) {
-                // The new text exactly matches our sequence, so do a direct replace.
+            } else if (indexInText == 0 && text.length() == action.mSequence.length() &&
+                    oldEnd - start == action.mEnd - action.mStart) {
+                // The new change exactly matches our saved change, so do a direct replace.
                 mText.currentReplace(start, oldEnd, action.mSequence);
 
                 // Ignore the next selection change because the selection change is a

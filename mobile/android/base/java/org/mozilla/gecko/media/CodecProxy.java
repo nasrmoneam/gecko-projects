@@ -53,6 +53,7 @@ public final class CodecProxy {
 
     private class CallbacksForwarder extends ICodecCallbacks.Stub {
         private final Callbacks mCallbacks;
+        private boolean mEndOfInput;
 
         CallbacksForwarder(Callbacks callbacks) {
             mCallbacks = callbacks;
@@ -60,7 +61,9 @@ public final class CodecProxy {
 
         @Override
         public void onInputExhausted() throws RemoteException {
-            mCallbacks.onInputExhausted();
+            if (!mEndOfInput) {
+                mCallbacks.onInputExhausted();
+            }
         }
 
         @Override
@@ -72,9 +75,7 @@ public final class CodecProxy {
         public void onOutput(Sample sample) throws RemoteException {
             if (mOutputSurface != null) {
                 // Don't render to surface just yet. Callback will make that happen when it's time.
-                if (!sample.isEOS() || sample.info.size > 0) {
-                    mSurfaceOutputs.offer(sample);
-                }
+                mSurfaceOutputs.offer(sample);
                 mCallbacks.onOutput(sample);
             } else {
                 // Non-surface output needs no rendering.
@@ -91,6 +92,10 @@ public final class CodecProxy {
 
         private void reportError(boolean fatal) {
             mCallbacks.onError(fatal);
+        }
+
+        private void setEndOfInput(boolean end) {
+            mEndOfInput = end;
         }
     }
 
@@ -119,7 +124,9 @@ public final class CodecProxy {
     boolean init(ICodec remote) {
         try {
             remote.setCallbacks(mCallbacks);
-            remote.configure(mFormat, mOutputSurface, 0, mRemoteDrmStubId);
+            if (!remote.configure(mFormat, mOutputSurface, 0, mRemoteDrmStubId)) {
+                return false;
+            }
             remote.start();
         } catch (RemoteException e) {
             e.printStackTrace();
@@ -164,23 +171,31 @@ public final class CodecProxy {
             return false;
         }
         try {
-            Sample sample = (info.flags == MediaCodec.BUFFER_FLAG_END_OF_STREAM) ?
-                    Sample.EOS : mRemote.dequeueInput(info.size).set(bytes, info, cryptoInfo);
+            Sample sample = processInput(bytes, info, cryptoInfo);
+            if (sample == null) {
+                return false;
+            }
             mRemote.queueInput(sample);
             sample.dispose();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return false;
-        } catch (DeadObjectException e) {
-            return false;
-        } catch (RemoteException e) {
-            e.printStackTrace();
+        } catch (RemoteException | IOException e) {
             Log.e(LOGTAG, "fail to input sample: size=" + info.size +
                     ", pts=" + info.presentationTimeUs +
-                    ", flags=" + Integer.toHexString(info.flags));
+                    ", flags=" + Integer.toHexString(info.flags), e);
             return false;
         }
+
         return true;
+    }
+
+    private Sample processInput(ByteBuffer bytes, BufferInfo info, CryptoInfo cryptoInfo)
+            throws RemoteException, IOException {
+        if (info.flags == MediaCodec.BUFFER_FLAG_END_OF_STREAM) {
+            mCallbacks.setEndOfInput(true);
+            return Sample.EOS;
+        } else {
+            mCallbacks.setEndOfInput(false);
+            return mRemote.dequeueInput(info.size).set(bytes, info, cryptoInfo);
+        }
     }
 
     @WrapForJNI
@@ -190,7 +205,7 @@ public final class CodecProxy {
             return false;
         }
         try {
-            if (DEBUG) Log.d(LOGTAG, "flush " + this);
+            if (DEBUG) { Log.d(LOGTAG, "flush " + this); }
             mRemote.flush();
         } catch (DeadObjectException e) {
             return false;
@@ -207,7 +222,7 @@ public final class CodecProxy {
             Log.w(LOGTAG, "codec already ended");
             return true;
         }
-        if (DEBUG) Log.d(LOGTAG, "release " + this);
+        if (DEBUG) { Log.d(LOGTAG, "release " + this); }
 
         if (!mSurfaceOutputs.isEmpty()) {
             // Flushing output buffers to surface may cause some frames to be skipped and
@@ -247,11 +262,12 @@ public final class CodecProxy {
             return true;
         }
 
-        if (DEBUG && !render) Log.d(LOGTAG, "drop output:" + sample.info.presentationTimeUs);
+        if (DEBUG && !render) { Log.d(LOGTAG, "drop output:" + sample.info.presentationTimeUs); }
 
         try {
             mRemote.releaseOutput(sample, render);
         } catch (RemoteException e) {
+            Log.e(LOGTAG, "remote fail to render output:" + sample.info.presentationTimeUs);
             e.printStackTrace();
         }
         sample.dispose();
@@ -259,7 +275,7 @@ public final class CodecProxy {
         return true;
     }
 
-    /* package */ synchronized void reportError(boolean fatal) {
+    /* package */ void reportError(boolean fatal) {
         mCallbacks.reportError(fatal);
     }
 }

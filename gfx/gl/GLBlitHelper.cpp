@@ -765,7 +765,7 @@ GLBlitHelper::BlitPlanarYCbCrImage(layers::PlanarYCbCrImage* yuvImage)
         mGL->fUniform2f(mCbCrTexScaleLoc, (float)yuvData->mCbCrSize.width/yuvData->mCbCrStride, 1.0f);
     }
 
-    float* yuvToRgb = gfxUtils::Get3x3YuvColorMatrix(yuvData->mYUVColorSpace);
+    const auto& yuvToRgb = gfxUtils::YuvToRgbMatrix3x3ColumnMajor(yuvData->mYUVColorSpace);
     mGL->fUniformMatrix3fv(mYuvColorMatrixLoc, 1, 0, yuvToRgb);
 
     mGL->fDrawArrays(LOCAL_GL_TRIANGLE_STRIP, 0, 4);
@@ -831,7 +831,7 @@ GLBlitHelper::BlitImageToFramebuffer(layers::Image* srcImage,
     switch (srcImage->GetFormat()) {
     case ImageFormat::PLANAR_YCBCR:
         type = ConvertPlanarYCbCr;
-        srcOrigin = OriginPos::TopLeft;
+        srcOrigin = OriginPos::BottomLeft;
         break;
 
 #ifdef MOZ_WIDGET_ANDROID
@@ -839,7 +839,6 @@ GLBlitHelper::BlitImageToFramebuffer(layers::Image* srcImage,
         type = ConvertSurfaceTexture;
         srcOrigin = srcImage->AsSurfaceTextureImage()->GetOriginPos();
         break;
-
     case ImageFormat::EGLIMAGE:
         type = ConvertEGLImage;
         srcOrigin = srcImage->AsEGLImageImage()->GetOriginPos();
@@ -955,6 +954,7 @@ GLBlitHelper::DrawBlitTextureToFramebuffer(GLuint srcTex, GLuint destFB,
     }
 
     ScopedGLDrawState autoStates(mGL);
+    const ScopedBindFramebuffer bindFB(mGL);
     if (internalFBs) {
         mGL->Screen()->BindFB_Internal(destFB);
     } else {
@@ -973,6 +973,7 @@ GLBlitHelper::DrawBlitTextureToFramebuffer(GLuint srcTex, GLuint destFB,
         return;
     }
 
+    const ScopedBindTexture bindTex(mGL, srcTex, srcTarget);
     mGL->fDrawArrays(LOCAL_GL_TRIANGLE_STRIP, 0, 4);
 }
 

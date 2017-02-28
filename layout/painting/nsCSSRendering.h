@@ -147,7 +147,7 @@ public:
    * definitions from the CSS Image Values and Replaced Content spec. See
    * http://dev.w3.org/csswg/css-images-3/#sizing .
    */
-   
+
   /**
    * Compute the intrinsic size of the image as defined in the CSS Image Values
    * spec. The intrinsic size is the unscaled size which the image would ideally
@@ -209,17 +209,18 @@ public:
                         const nsSize& aDefaultSize);
 
   /**
-   * Draws the image to the target rendering context using background-specific
-   * arguments.
+   * Draws the image to the target rendering context using
+   * {background|mask}-specific arguments.
    * @see nsLayoutUtils::DrawImage() for parameters.
    */
-  DrawResult DrawBackground(nsPresContext*       aPresContext,
-                            nsRenderingContext&  aRenderingContext,
-                            const nsRect&        aDest,
-                            const nsRect&        aFill,
-                            const nsPoint&       aAnchor,
-                            const nsRect&        aDirty,
-                            const nsSize&        aRepeatSize);
+  DrawResult DrawLayer(nsPresContext*       aPresContext,
+                       nsRenderingContext&  aRenderingContext,
+                       const nsRect&        aDest,
+                       const nsRect&        aFill,
+                       const nsPoint&       aAnchor,
+                       const nsRect&        aDirty,
+                       const nsSize&        aRepeatSize,
+                       float                aOpacity);
 
   /**
    * Draw the image to a single component of a border-image style rendering.
@@ -281,7 +282,8 @@ private:
                   const nsRect&        aFill,
                   const nsPoint&       aAnchor,
                   const nsSize&        aRepeatSize,
-                  const mozilla::CSSIntRect& aSrc);
+                  const mozilla::CSSIntRect& aSrc,
+                  float                aOpacity = 1.0);
 
   /**
    * Helper method for creating a gfxDrawable from mPaintServerFrame or
@@ -352,6 +354,7 @@ struct nsBackgroundLayerState {
 };
 
 struct nsCSSRendering {
+  typedef mozilla::gfx::Color Color;
   typedef mozilla::gfx::CompositionOp CompositionOp;
   typedef mozilla::gfx::DrawTarget DrawTarget;
   typedef mozilla::gfx::Float Float;
@@ -377,6 +380,17 @@ struct nsCSSRendering {
                                   nsIFrame* aForFrame,
                                   const nsRect& aFrameArea);
 
+  static nsRect GetShadowRect(const nsRect aFrameArea,
+                              bool aNativeTheme,
+                              nsIFrame* aForFrame);
+  static mozilla::gfx::Color GetShadowColor(nsCSSShadowItem* aShadow,
+                                   nsIFrame* aFrame,
+                                   float aOpacity);
+  // Returns if the frame has a themed frame.
+  // aMaybeHasBorderRadius will return false if we can early detect
+  // that we don't have a border radius.
+  static bool HasBoxShadowNativeTheme(nsIFrame* aFrame,
+                                      bool& aMaybeHasBorderRadius);
   static void PaintBoxShadowOuter(nsPresContext* aPresContext,
                                   nsRenderingContext& aRenderingContext,
                                   nsIFrame* aForFrame,
@@ -436,6 +450,13 @@ struct nsCSSRendering {
                                       nsStyleContext* aStyleContext,
                                       Sides aSkipSides = Sides());
 
+  static mozilla::Maybe<nsCSSBorderRenderer>
+  CreateBorderRendererForOutline(nsPresContext* aPresContext,
+                                 nsRenderingContext* aRenderingContext,
+                                 nsIFrame* aForFrame,
+                                 const nsRect& aDirtyRect,
+                                 const nsRect& aBorderArea,
+                                 nsStyleContext* aStyleContext);
 
   /**
    * Render the outline for an element using css rendering rules
@@ -477,7 +498,8 @@ struct nsCSSRendering {
                             const nsRect& aFill,
                             const nsSize& aRepeatSize,
                             const mozilla::CSSIntRect& aSrc,
-                            const nsSize& aIntrinsiceSize);
+                            const nsSize& aIntrinsiceSize,
+                            float aOpacity = 1.0);
 
   /**
    * Find the frame whose background style should be used to draw the
@@ -574,10 +596,10 @@ struct nsCSSRendering {
                     bool* aOutIsTransformedFixed = nullptr);
 
   struct ImageLayerClipState {
-    nsRect mBGClipArea;  // Affected by mClippedRadii
+    nsRect mBGClipArea;            // Affected by mClippedRadii
     nsRect mAdditionalBGClipArea;  // Not affected by mClippedRadii
-    nsRect mDirtyRect;
-    gfxRect mDirtyRectGfx;
+    nsRect mDirtyRectInAppUnits;
+    gfxRect mDirtyRectInDevPx;
 
     nscoord mRadii[8];
     RectCornerRadii mClippedRadii;
@@ -587,6 +609,16 @@ struct nsCSSRendering {
     // Whether we are being asked to draw with a caller provided background
     // clipping area. If this is true we also disable rounded corners.
     bool mCustomClip;
+
+    ImageLayerClipState()
+     : mHasRoundedCorners(false),
+       mHasAdditionalBGClipArea(false),
+       mCustomClip(false)
+    {
+      memset(mRadii, 0, sizeof(nscoord) * 8);
+    }
+
+    bool IsValid() const;
   };
 
   static void
@@ -634,13 +666,15 @@ struct nsCSSRendering {
                                     // value means painting one specific
                                     // layer only.
     CompositionOp compositionOp;
+    float opacity;
 
     static PaintBGParams ForAllLayers(nsPresContext& aPresCtx,
                                       nsRenderingContext& aRenderingCtx,
                                       const nsRect& aDirtyRect,
                                       const nsRect& aBorderArea,
                                       nsIFrame *aFrame,
-                                      uint32_t aPaintFlags);
+                                      uint32_t aPaintFlags,
+                                      float aOpacity = 1.0);
     static PaintBGParams ForSingleLayer(nsPresContext& aPresCtx,
                                         nsRenderingContext& aRenderingCtx,
                                         const nsRect& aDirtyRect,
@@ -648,7 +682,8 @@ struct nsCSSRendering {
                                         nsIFrame *aFrame,
                                         uint32_t aPaintFlags,
                                         int32_t aLayer,
-                                        CompositionOp aCompositionOp  = CompositionOp::OP_OVER);
+                                        CompositionOp aCompositionOp  = CompositionOp::OP_OVER,
+                                        float aOpacity = 1.0);
 
   private:
     PaintBGParams(nsPresContext& aPresCtx,
@@ -658,7 +693,8 @@ struct nsCSSRendering {
                   nsIFrame* aFrame,
                   uint32_t aPaintFlags,
                   int32_t aLayer,
-                  CompositionOp aCompositionOp)
+                  CompositionOp aCompositionOp,
+                  float aOpacity)
      : presCtx(aPresCtx),
        renderingCtx(aRenderingCtx),
        dirtyRect(aDirtyRect),
@@ -666,27 +702,29 @@ struct nsCSSRendering {
        frame(aFrame),
        paintFlags(aPaintFlags),
        layer(aLayer),
-       compositionOp(aCompositionOp) {}
+       compositionOp(aCompositionOp),
+       opacity(aOpacity) {}
   };
 
-  static DrawResult PaintBackground(const PaintBGParams& aParams);
+  static DrawResult PaintStyleImageLayer(const PaintBGParams& aParams);
 
 
   /**
-   * Same as |PaintBackground|, except using the provided style structs.
+   * Same as |PaintStyleImageLayer|, except using the provided style structs.
    * This short-circuits the code that ensures that the root element's
-   * background is drawn on the canvas.
-   * The aLayer parameter allows you to paint a single layer of the background.
+   * {background|mask} is drawn on the canvas.
+   * The aLayer parameter allows you to paint a single layer of the
+   * {background|mask}.
    * The default value for aLayer, -1, means that all layers will be painted.
    * The background color will only be painted if the back-most layer is also
-   * being painted.
+   * being painted and (aParams.paintFlags & PAINTBG_MASK_IMAGE) is false.
    * aCompositionOp is only respected if a single layer is specified (aLayer != -1).
    * If all layers are painted, the image layer's blend mode (or the mask
    * layer's composition mode) will be used.
    */
-  static DrawResult PaintBackgroundWithSC(const PaintBGParams& aParams,
-                                          nsStyleContext *mBackgroundSC,
-                                          const nsStyleBorder& aBorder);
+  static DrawResult PaintStyleImageLayerWithSC(const PaintBGParams& aParams,
+                                               nsStyleContext *mBackgroundSC,
+                                               const nsStyleBorder& aBorder);
 
   /**
    * Returns the rectangle covered by the given background layer image, taking
@@ -714,17 +752,17 @@ struct nsCSSRendering {
 
   // Draw a border segment in the table collapsing border model without
   // beveling corners
-  static void DrawTableBorderSegment(DrawTarget&          aDrawTarget,
-                                     uint8_t              aBorderStyle,
-                                     nscolor              aBorderColor,
-                                     const nsStyleBackground* aBGColor,
-                                     const nsRect&        aBorderRect,
-                                     int32_t              aAppUnitsPerDevPixel,
-                                     int32_t              aAppUnitsPerCSSPixel,
-                                     uint8_t              aStartBevelSide = 0,
-                                     nscoord              aStartBevelOffset = 0,
-                                     uint8_t              aEndBevelSide = 0,
-                                     nscoord              aEndBevelOffset = 0);
+  static void DrawTableBorderSegment(DrawTarget&   aDrawTarget,
+                                     uint8_t       aBorderStyle,
+                                     nscolor       aBorderColor,
+                                     nscolor       aBGColor,
+                                     const nsRect& aBorderRect,
+                                     int32_t       aAppUnitsPerDevPixel,
+                                     int32_t       aAppUnitsPerCSSPixel,
+                                     uint8_t       aStartBevelSide = 0,
+                                     nscoord       aStartBevelOffset = 0,
+                                     uint8_t       aEndBevelSide = 0,
+                                     nscoord       aEndBevelOffset = 0);
 
   // NOTE: pt, dirtyRect, lineSize, ascent, offset in the following
   //       structs are non-rounded device pixels, not app units.

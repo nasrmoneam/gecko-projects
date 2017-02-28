@@ -33,7 +33,7 @@ loader.lazyRequireGetter(this, "gSequenceId", "devtools/client/webconsole/jsterm
 loader.lazyImporter(this, "VariablesView", "resource://devtools/client/shared/widgets/VariablesView.jsm");
 loader.lazyImporter(this, "VariablesViewController", "resource://devtools/client/shared/widgets/VariablesViewController.jsm");
 loader.lazyRequireGetter(this, "gDevTools", "devtools/client/framework/devtools", true);
-loader.lazyRequireGetter(this, "KeyShortcuts", "devtools/client/shared/key-shortcuts", true);
+loader.lazyRequireGetter(this, "KeyShortcuts", "devtools/client/shared/key-shortcuts");
 loader.lazyRequireGetter(this, "ZoomKeys", "devtools/client/shared/zoom-keys");
 loader.lazyRequireGetter(this, "WebConsoleConnectionProxy", "devtools/client/webconsole/webconsole-connection-proxy", true);
 
@@ -224,10 +224,13 @@ function WebConsoleFrame(webConsoleOwner) {
   this._outputTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
   this._outputTimerInitialized = false;
 
-  let require = BrowserLoaderModule.BrowserLoader({
+  let toolbox = gDevTools.getToolbox(this.owner.target);
+  let {require} = BrowserLoaderModule.BrowserLoader({
     window: this.window,
-    useOnlyShared: true
-  }).require;
+    useOnlyShared: true,
+    // The toolbox isn't available for the browser console.
+    commonLibRequire: toolbox ? toolbox.browserRequire : null,
+  });
 
   this.React = require("devtools/client/shared/vendor/react");
   this.ReactDOM = require("devtools/client/shared/vendor/react-dom");
@@ -780,8 +783,8 @@ WebConsoleFrame.prototype = {
                              Ci.nsITimer.TYPE_ONE_SHOT);
     };
 
-    this.filterBox.addEventListener("command", onChange, false);
-    this.filterBox.addEventListener("input", onChange, false);
+    this.filterBox.addEventListener("command", onChange);
+    this.filterBox.addEventListener("input", onChange);
   },
 
   /**
@@ -801,13 +804,13 @@ WebConsoleFrame.prototype = {
     Array.forEach(categories, function (button) {
       button.addEventListener("contextmenu", () => {
         button.open = true;
-      }, false);
-      button.addEventListener("click", this._toggleFilter, false);
+      });
+      button.addEventListener("click", this._toggleFilter);
 
       let someChecked = false;
       let severities = button.querySelectorAll("menuitem[prefKey]");
       Array.forEach(severities, function (menuItem) {
-        menuItem.addEventListener("command", this._toggleFilter, false);
+        menuItem.addEventListener("command", this._toggleFilter);
 
         let prefKey = menuItem.getAttribute("prefKey");
         let checked = this.filterPrefs[prefKey];
@@ -861,7 +864,7 @@ WebConsoleFrame.prototype = {
     tempLabel.textContent = "x";
     doc.documentElement.appendChild(tempLabel);
     this._inputCharWidth = tempLabel.offsetWidth;
-    tempLabel.parentNode.removeChild(tempLabel);
+    tempLabel.remove();
     // Calculate the width of the chevron placed at the beginning of the input
     // box. Remove 4 more pixels to accomodate the padding of the popup.
     this._chevronWidth = +doc.defaultView.getComputedStyle(this.inputNode)
@@ -1498,8 +1501,8 @@ WebConsoleFrame.prototype = {
     // it makes sense to only display the protcol, host and port (prePath).
     // This also means messages are grouped for a single origin.
     if (scriptError.category && scriptError.category == "SHA-1 Signature") {
-      let sourceURI = Services.io.newURI(scriptError.sourceName, null, null)
-                      .QueryInterface(Ci.nsIURL);
+      let sourceURI = Services.io.newURI(scriptError.sourceName)
+                                 .QueryInterface(Ci.nsIURL);
       displayOrigin = sourceURI.prePath;
     }
 
@@ -2661,7 +2664,7 @@ WebConsoleFrame.prototype = {
       this._mousedown = true;
       this._startX = event.clientX;
       this._startY = event.clientY;
-    }, false);
+    });
 
     node.addEventListener("click", (event) => {
       let mousedown = this._mousedown;
@@ -2686,7 +2689,7 @@ WebConsoleFrame.prototype = {
       this._startX = this._startY = undefined;
 
       callback.call(this, event);
-    }, false);
+    });
   },
 
   /**

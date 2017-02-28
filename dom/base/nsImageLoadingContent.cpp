@@ -766,13 +766,8 @@ nsImageLoadingContent::LoadImage(const nsAString& aNewURI,
   // Parse the URI string to get image URI
   nsCOMPtr<nsIURI> imageURI;
   nsresult rv = StringToURI(aNewURI, doc, getter_AddRefs(imageURI));
-  if (NS_FAILED(rv)) {
-    // Cancel image requests and then fire error and loadend events per spec
-    CancelImageRequests(aNotify);
-    FireEvent(NS_LITERAL_STRING("error"));
-    FireEvent(NS_LITERAL_STRING("loadend"));
-    return NS_OK;
-  }
+  NS_ENSURE_SUCCESS(rv, rv);
+  // XXXbiesi fire onerror if that failed?
 
   NS_TryToSetImmutable(imageURI);
 
@@ -1397,11 +1392,11 @@ nsImageLoadingContent::GetRegisteredFlagForRequest(imgIRequest* aRequest)
 {
   if (aRequest == mCurrentRequest) {
     return &mCurrentRequestRegistered;
-  } else if (aRequest == mPendingRequest) {
-    return &mPendingRequestRegistered;
-  } else {
-    return nullptr;
   }
+  if (aRequest == mPendingRequest) {
+    return &mPendingRequestRegistered;
+  }
+  return nullptr;
 }
 
 void

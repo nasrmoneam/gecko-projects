@@ -9,7 +9,7 @@ add_task(function* testExecuteScript() {
     let tasks = [
       // Insert CSS file.
       {
-        background: "transparent",
+        background: "rgba(0, 0, 0, 0)",
         foreground: "rgb(0, 113, 4)",
         promise: () => {
           return browser.tabs.insertCSS({
@@ -29,7 +29,7 @@ add_task(function* testExecuteScript() {
       },
       // Remove CSS code again.
       {
-        background: "transparent",
+        background: "rgba(0, 0, 0, 0)",
         foreground: "rgb(0, 113, 4)",
         promise: () => {
           return browser.tabs.removeCSS({
@@ -39,11 +39,33 @@ add_task(function* testExecuteScript() {
       },
       // Remove CSS file again.
       {
-        background: "transparent",
+        background: "rgba(0, 0, 0, 0)",
         foreground: "rgb(0, 0, 0)",
         promise: () => {
           return browser.tabs.removeCSS({
             file: "file2.css",
+          });
+        },
+      },
+      // Insert CSS code.
+      {
+        background: "rgb(42, 42, 42)",
+        foreground: "rgb(0, 0, 0)",
+        promise: () => {
+          return browser.tabs.insertCSS({
+            code: "* { background: rgb(42, 42, 42) }",
+            cssOrigin: "user",
+          });
+        },
+      },
+      // Remove CSS code again.
+      {
+        background: "rgba(0, 0, 0, 0)",
+        foreground: "rgb(0, 0, 0)",
+        promise: () => {
+          return browser.tabs.removeCSS({
+            code: "* { background: rgb(42, 42, 42) }",
+            cssOrigin: "user",
           });
         },
       },

@@ -143,7 +143,7 @@ FTPChannelParent::DoAsyncOpen(const URIParams& aURI,
     return SendFailedAsyncOpen(rv);
   }
 
-  NeckoOriginAttributes attrs;
+  OriginAttributes attrs;
   rv = loadInfo->GetOriginAttributes(&attrs);
   if (NS_FAILED(rv)) {
     return SendFailedAsyncOpen(rv);
@@ -208,7 +208,7 @@ FTPChannelParent::ConnectChannel(const uint32_t& channelId)
   if (NS_SUCCEEDED(rv))
     mChannel = channel;
 
-  LOG(("  found channel %p, rv=%08x", mChannel.get(), rv));
+  LOG(("  found channel %p, rv=%08" PRIx32, mChannel.get(), static_cast<uint32_t>(rv)));
 
   return true;
 }
@@ -498,8 +498,8 @@ FTPChannelParent::OnStopRequest(nsIRequest* aRequest,
                                 nsISupports* aContext,
                                 nsresult aStatusCode)
 {
-  LOG(("FTPChannelParent::OnStopRequest: [this=%p status=%ul]\n",
-       this, aStatusCode));
+  LOG(("FTPChannelParent::OnStopRequest: [this=%p status=%" PRIu32 "]\n",
+       this, static_cast<uint32_t>(aStatusCode)));
 
   if (mDivertingFromChild) {
     MOZ_RELEASE_ASSERT(mDivertToListener,
@@ -558,6 +558,22 @@ FTPChannelParent::SetParentListener(HttpChannelParentListener* aListener)
 
 NS_IMETHODIMP
 FTPChannelParent::NotifyTrackingProtectionDisabled()
+{
+  // One day, this should probably be filled in.
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+FTPChannelParent::NotifyTrackingResource()
+{
+  // One day, this should probably be filled in.
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+FTPChannelParent::SetClassifierMatchedInfo(const nsACString& aList,
+                                           const nsACString& aProvider,
+                                           const nsACString& aPrefix)
 {
   // One day, this should probably be filled in.
   return NS_OK;

@@ -34,7 +34,7 @@ TracedTaskCommon::~TracedTaskCommon()
 void
 TracedTaskCommon::Init()
 {
-  TraceInfo* info = GetOrCreateTraceInfo();
+  TraceInfoHolder info = GetOrCreateTraceInfo();
   ENSURE_TRUE_VOID(info);
 
   mTaskId = GenNewUniqueTaskId();
@@ -54,7 +54,7 @@ TracedTaskCommon::DispatchTask(int aDelayTimeMs)
 void
 TracedTaskCommon::GetTLSTraceInfo()
 {
-  TraceInfo* info = GetOrCreateTraceInfo();
+  TraceInfoHolder info = GetOrCreateTraceInfo();
   ENSURE_TRUE_VOID(info);
 
   mSourceEventType = info->mCurTraceSourceType;
@@ -66,7 +66,7 @@ TracedTaskCommon::GetTLSTraceInfo()
 void
 TracedTaskCommon::SetTLSTraceInfo()
 {
-  TraceInfo* info = GetOrCreateTraceInfo();
+  TraceInfoHolder info = GetOrCreateTraceInfo();
   ENSURE_TRUE_VOID(info);
 
   if (mIsTraceInfoInit) {
@@ -79,7 +79,7 @@ TracedTaskCommon::SetTLSTraceInfo()
 void
 TracedTaskCommon::ClearTLSTraceInfo()
 {
-  TraceInfo* info = GetOrCreateTraceInfo();
+  TraceInfoHolder info = GetOrCreateTraceInfo();
   ENSURE_TRUE_VOID(info);
 
   info->mCurTraceSourceId = 0;
@@ -118,10 +118,10 @@ TracedRunnable::Run()
  * CreateTracedRunnable() returns a TracedRunnable wrapping the original
  * nsIRunnable object, aRunnable.
  */
-already_AddRefed<nsIRunnable>
+already_AddRefed<Runnable>
 CreateTracedRunnable(already_AddRefed<nsIRunnable>&& aRunnable)
 {
-  nsCOMPtr<nsIRunnable> runnable = new TracedRunnable(Move(aRunnable));
+  RefPtr<Runnable> runnable = new TracedRunnable(Move(aRunnable));
   return runnable.forget();
 }
 

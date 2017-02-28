@@ -3,8 +3,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import By, Wait
+from marionette_harness import MarionetteTestCase
 
 
 class TestStarInAutocomplete(PuppeteerMixin, MarionetteTestCase):
@@ -22,7 +22,7 @@ class TestStarInAutocomplete(PuppeteerMixin, MarionetteTestCase):
         self.test_urls = [self.marionette.absolute_url('layout/mozilla_grants.html')]
 
         # Disable search suggestions to only get results for history and bookmarks
-        self.puppeteer.prefs.set_pref(self.PREF_SUGGEST_SEARCHES, False)
+        self.marionette.set_pref(self.PREF_SUGGEST_SEARCHES, False)
 
         with self.marionette.using_context('content'):
             self.marionette.navigate('about:blank')

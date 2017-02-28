@@ -68,8 +68,8 @@ static void ComputeBorderCornerDimensions(const Float* aBorderWidths,
 #define PREV_SIDE(_s) mozilla::Side(((_s) + 3) & 3)
 
 // given a corner index, get the previous and next corner index
-#define NEXT_CORNER(_s) mozilla::css::Corner(((_s) + 1) & 3)
-#define PREV_CORNER(_s) mozilla::css::Corner(((_s) + 3) & 3)
+#define NEXT_CORNER(_s) Corner(((_s) + 1) & 3)
+#define PREV_CORNER(_s) Corner(((_s) + 3) & 3)
 
 // from the given base color and the background color, turn
 // color into a color for the given border pattern style
@@ -108,34 +108,34 @@ IsZeroSize(const Size& sz) {
 
 /* static */ bool
 nsCSSBorderRenderer::AllCornersZeroSize(const RectCornerRadii& corners) {
-  return IsZeroSize(corners[NS_CORNER_TOP_LEFT]) &&
-    IsZeroSize(corners[NS_CORNER_TOP_RIGHT]) &&
-    IsZeroSize(corners[NS_CORNER_BOTTOM_RIGHT]) &&
-    IsZeroSize(corners[NS_CORNER_BOTTOM_LEFT]);
+  return IsZeroSize(corners[eCornerTopLeft]) &&
+    IsZeroSize(corners[eCornerTopRight]) &&
+    IsZeroSize(corners[eCornerBottomRight]) &&
+    IsZeroSize(corners[eCornerBottomLeft]);
 }
 
 static mozilla::Side
-GetHorizontalSide(mozilla::css::Corner aCorner)
+GetHorizontalSide(Corner aCorner)
 {
   return (aCorner == C_TL || aCorner == C_TR) ? eSideTop : eSideBottom;
 }
 
 static mozilla::Side
-GetVerticalSide(mozilla::css::Corner aCorner)
+GetVerticalSide(Corner aCorner)
 {
   return (aCorner == C_TL || aCorner == C_BL) ? eSideLeft : eSideRight;
 }
 
-static mozilla::css::Corner
+static Corner
 GetCWCorner(mozilla::Side aSide)
 {
-  return mozilla::css::Corner(NEXT_SIDE(aSide));
+  return Corner(NEXT_SIDE(aSide));
 }
 
-static mozilla::css::Corner
+static Corner
 GetCCWCorner(mozilla::Side aSide)
 {
-  return mozilla::css::Corner(aSide);
+  return Corner(aSide);
 }
 
 static bool
@@ -334,7 +334,7 @@ nsCSSBorderRenderer::AreBorderSideFinalStylesSame(uint8_t aSides)
 }
 
 bool
-nsCSSBorderRenderer::IsSolidCornerStyle(uint8_t aStyle, mozilla::css::Corner aCorner)
+nsCSSBorderRenderer::IsSolidCornerStyle(uint8_t aStyle, Corner aCorner)
 {
   switch (aStyle) {
     case NS_STYLE_BORDER_STYLE_SOLID:
@@ -342,11 +342,11 @@ nsCSSBorderRenderer::IsSolidCornerStyle(uint8_t aStyle, mozilla::css::Corner aCo
 
     case NS_STYLE_BORDER_STYLE_INSET:
     case NS_STYLE_BORDER_STYLE_OUTSET:
-      return (aCorner == NS_CORNER_TOP_LEFT || aCorner == NS_CORNER_BOTTOM_RIGHT);
+      return (aCorner == eCornerTopLeft || aCorner == eCornerBottomRight);
 
     case NS_STYLE_BORDER_STYLE_GROOVE:
     case NS_STYLE_BORDER_STYLE_RIDGE:
-      return mOneUnitBorder && (aCorner == NS_CORNER_TOP_LEFT || aCorner == NS_CORNER_BOTTOM_RIGHT);
+      return mOneUnitBorder && (aCorner == eCornerTopLeft || aCorner == eCornerBottomRight);
 
     case NS_STYLE_BORDER_STYLE_DOUBLE:
       return mOneUnitBorder;
@@ -357,7 +357,7 @@ nsCSSBorderRenderer::IsSolidCornerStyle(uint8_t aStyle, mozilla::css::Corner aCo
 }
 
 bool
-nsCSSBorderRenderer::IsCornerMergeable(mozilla::css::Corner aCorner)
+nsCSSBorderRenderer::IsCornerMergeable(Corner aCorner)
 {
   // Corner between dotted borders with same width and small radii is
   // merged into single dot.
@@ -407,7 +407,7 @@ nsCSSBorderRenderer::IsCornerMergeable(mozilla::css::Corner aCorner)
 }
 
 BorderColorStyle
-nsCSSBorderRenderer::BorderColorStyleForSolidCorner(uint8_t aStyle, mozilla::css::Corner aCorner)
+nsCSSBorderRenderer::BorderColorStyleForSolidCorner(uint8_t aStyle, Corner aCorner)
 {
   // note that this function assumes that the corner is already solid,
   // as per the earlier function
@@ -418,17 +418,17 @@ nsCSSBorderRenderer::BorderColorStyleForSolidCorner(uint8_t aStyle, mozilla::css
 
     case NS_STYLE_BORDER_STYLE_INSET:
     case NS_STYLE_BORDER_STYLE_GROOVE:
-      if (aCorner == NS_CORNER_TOP_LEFT)
+      if (aCorner == eCornerTopLeft)
         return BorderColorStyleDark;
-      else if (aCorner == NS_CORNER_BOTTOM_RIGHT)
+      else if (aCorner == eCornerBottomRight)
         return BorderColorStyleLight;
       break;
 
     case NS_STYLE_BORDER_STYLE_OUTSET:
     case NS_STYLE_BORDER_STYLE_RIDGE:
-      if (aCorner == NS_CORNER_TOP_LEFT)
+      if (aCorner == eCornerTopLeft)
         return BorderColorStyleLight;
-      else if (aCorner == NS_CORNER_BOTTOM_RIGHT)
+      else if (aCorner == eCornerBottomRight)
         return BorderColorStyleDark;
       break;
   }
@@ -437,7 +437,7 @@ nsCSSBorderRenderer::BorderColorStyleForSolidCorner(uint8_t aStyle, mozilla::css
 }
 
 Rect
-nsCSSBorderRenderer::GetCornerRect(mozilla::css::Corner aCorner)
+nsCSSBorderRenderer::GetCornerRect(Corner aCorner)
 {
   Point offset(0.f, 0.f);
 
@@ -676,8 +676,9 @@ nsCSSBorderRenderer::GetSideClipSubPath(mozilla::Side aSide)
 
 Point
 nsCSSBorderRenderer::GetStraightBorderPoint(mozilla::Side aSide,
-                                            mozilla::css::Corner aCorner,
-                                            bool* aIsUnfilled)
+                                            Corner aCorner,
+                                            bool* aIsUnfilled,
+                                            Float aDotOffset)
 {
   // Calculate the end point of the side for dashed/dotted border, that is also
   // the end point of the corner curve.  The point is specified by aSide and
@@ -735,6 +736,15 @@ nsCSSBorderRenderer::GetStraightBorderPoint(mozilla::Side aSide,
   if (IsZeroSize(radius)) {
     radius.width = 0.0f;
     radius.height = 0.0f;
+  }
+  if (style == NS_STYLE_BORDER_STYLE_DOTTED) {
+    // Offset the dot's location along the side toward the corner by a
+    // multiple of its width.
+    if (isHorizontal) {
+      P.x -= signs[0] * aDotOffset * borderWidth;
+    } else {
+      P.y -= signs[1] * aDotOffset * borderWidth;
+    }
   }
   if (style == NS_STYLE_BORDER_STYLE_DOTTED &&
       otherStyle == NS_STYLE_BORDER_STYLE_DOTTED) {
@@ -1061,7 +1071,7 @@ nsCSSBorderRenderer::GetStraightBorderPoint(mozilla::Side aSide,
 void
 nsCSSBorderRenderer::GetOuterAndInnerBezier(Bezier* aOuterBezier,
                                             Bezier* aInnerBezier,
-                                            mozilla::css::Corner aCorner)
+                                            Corner aCorner)
 {
   // Return bezier control points for outer and inner curve for given corner.
   //
@@ -1767,9 +1777,10 @@ nsCSSBorderRenderer::SetupDashedOptions(StrokeOptions* aStrokeOptions,
       // Draw half segments on both ends.
       aStrokeOptions->mDashOffset = halfDash;
     }
-  } else if (isCorner) {
+  } else if (style != NS_STYLE_BORDER_STYLE_DOTTED && isCorner) {
     // If side ends with filled full segment, corner should start with unfilled
-    // full segment.
+    // full segment. Not needed for dotted corners, as they overlap one dot with
+    // the side's end.
     //
     //     corner            side
     //   ------------>|<---------------------------
@@ -1853,8 +1864,10 @@ nsCSSBorderRenderer::DrawDashedOrDottedSide(mozilla::Side aSide)
 
   nscolor borderColor = mBorderColors[aSide];
   bool ignored;
-  Point start = GetStraightBorderPoint(aSide, GetCCWCorner(aSide), &ignored);
-  Point end = GetStraightBorderPoint(aSide, GetCWCorner(aSide), &ignored);
+  // Get the start and end points of the side, ensuring that any dot origins get
+  // pushed outward to account for stroking.
+  Point start = GetStraightBorderPoint(aSide, GetCCWCorner(aSide), &ignored, 0.5f);
+  Point end = GetStraightBorderPoint(aSide, GetCWCorner(aSide), &ignored, 0.5f);
   if (borderWidth < 2.0f) {
     // Round start to draw dot on each pixel.
     if (IsHorizontalSide(aSide)) {
@@ -1873,9 +1886,44 @@ nsCSSBorderRenderer::DrawDashedOrDottedSide(mozilla::Side aSide)
   Float dash[2];
   SetupDashedOptions(&strokeOptions, dash, aSide, borderLength, false);
 
+  // For dotted sides that can merge with their prior dotted sides, advance the
+  // dash offset to measure the distance around the combined path. This prevents
+  // two dots from bunching together at a corner.
+  mozilla::Side mergeSide = aSide;
+  while (IsCornerMergeable(GetCCWCorner(mergeSide))) {
+    mergeSide = PREV_SIDE(mergeSide);
+    // If we looped all the way around, measure starting at the top side, since
+    // we need to pick a fixed location to start measuring distance from still.
+    if (mergeSide == aSide) {
+      mergeSide = eSideTop;
+      break;
+    }
+  }
+  while (mergeSide != aSide) {
+    // Measure the length of the merged side starting from a possibly unmergeable
+    // corner up to the merged corner. A merged corner effectively has no border
+    // radius, so we can just use the cheaper AtCorner to find the end point.
+    Float mergeLength =
+      GetBorderLength(mergeSide,
+                      GetStraightBorderPoint(mergeSide, GetCCWCorner(mergeSide), &ignored, 0.5f),
+                      mOuterRect.AtCorner(GetCWCorner(mergeSide)));
+    // Add in the merged side length. Also offset the dash progress by an extra
+    // dot's width to avoid drawing a dot that would overdraw where the merged side
+    // would have ended in a gap, i.e. O_O_
+    //                                    O
+    strokeOptions.mDashOffset += mergeLength + borderWidth;
+    mergeSide = NEXT_SIDE(mergeSide);
+  }
+
+  DrawOptions drawOptions;
+  if (mBorderStyles[aSide] == NS_STYLE_BORDER_STYLE_DOTTED) {
+    drawOptions.mAntialiasMode = AntialiasMode::NONE;
+  }
+
   mDrawTarget->StrokeLine(start, end,
                           ColorPattern(ToDeviceColor(borderColor)),
-                          strokeOptions);
+                          strokeOptions,
+                          drawOptions);
 }
 
 void
@@ -2260,7 +2308,7 @@ nsCSSBorderRenderer::DrawDottedSideSlow(mozilla::Side aSide)
 
 void
 nsCSSBorderRenderer::DrawDashedOrDottedCorner(mozilla::Side aSide,
-                                              mozilla::css::Corner aCorner)
+                                              Corner aCorner)
 {
   // Draw dashed/dotted corner with following approach.
   //
@@ -2335,8 +2383,11 @@ nsCSSBorderRenderer::DrawDashedOrDottedCorner(mozilla::Side aSide,
   nscolor borderColor = mBorderColors[aSide];
   Point points[4];
   bool ignored;
-  points[0] = GetStraightBorderPoint(sideH, aCorner, &ignored);
-  points[3] = GetStraightBorderPoint(sideV, aCorner, &ignored);
+  // Get the start and end points of the corner arc, ensuring that any dot
+  // origins get pushed backwards towards the edges of the corner rect to
+  // account for stroking.
+  points[0] = GetStraightBorderPoint(sideH, aCorner, &ignored, -0.5f);
+  points[3] = GetStraightBorderPoint(sideV, aCorner, &ignored, -0.5f);
   // Round points to draw dot on each pixel.
   if (borderWidthH < 2.0f) {
     points[0].x = round(points[0].x);
@@ -2366,7 +2417,7 @@ nsCSSBorderRenderer::DrawDashedOrDottedCorner(mozilla::Side aSide,
 
 void
 nsCSSBorderRenderer::DrawDottedCornerSlow(mozilla::Side aSide,
-                                          mozilla::css::Corner aCorner)
+                                          Corner aCorner)
 {
   NS_ASSERTION(mBorderStyles[aSide] == NS_STYLE_BORDER_STYLE_DOTTED,
                "Style should be dotted.");
@@ -2443,7 +2494,7 @@ DashedPathOverlapsRect(Rect& pathRect,
 
 void
 nsCSSBorderRenderer::DrawDashedCornerSlow(mozilla::Side aSide,
-                                          mozilla::css::Corner aCorner)
+                                          Corner aCorner)
 {
   NS_ASSERTION(mBorderStyles[aSide] == NS_STYLE_BORDER_STYLE_DASHED,
                "Style should be dashed.");
@@ -2559,7 +2610,7 @@ nsCSSBorderRenderer::DrawDashedCornerSlow(mozilla::Side aSide,
 
 void
 nsCSSBorderRenderer::DrawFallbackSolidCorner(mozilla::Side aSide,
-                                             mozilla::css::Corner aCorner)
+                                             Corner aCorner)
 {
   // Render too large dashed or dotted corner with solid style, to avoid hangup
   // inside DashedCornerFinder and DottedCornerFinder.
@@ -2788,7 +2839,7 @@ ComputeCornerSkirtSize(Float aAlpha1, Float aAlpha2,
 // seams when anti-aliased drawing is used.
 static void
 DrawBorderRadius(DrawTarget* aDrawTarget,
-                 mozilla::css::Corner c,
+                 Corner c,
                  const Point& aOuterCorner, const Point& aInnerCorner,
                  const twoFloats& aCornerMultPrev, const twoFloats& aCornerMultNext,
                  const Size& aCornerDims,
@@ -2995,8 +3046,8 @@ nsCSSBorderRenderer::DrawNoCompositeColorSolidBorder()
     // Thus, the CCW corner of the next side will end up drawn here.
 
     // the corner index -- either 1 2 3 0 (cw) or 0 3 2 1 (ccw)
-    mozilla::css::Corner c = mozilla::css::Corner((i+1) % 4);
-    mozilla::css::Corner prevCorner = mozilla::css::Corner(i);
+    Corner c = Corner((i+1) % 4);
+    Corner prevCorner = Corner(i);
 
     // i+2 and i+3 respectively.  These are used to index into the corner
     // multiplier table, and were deduced by calculating out the long form
@@ -3213,29 +3264,6 @@ nsCSSBorderRenderer::DrawBorders()
 
   if (allBordersSame &&
       mCompositeColors[0] == nullptr &&
-      allBordersSameWidth &&
-      mBorderStyles[0] == NS_STYLE_BORDER_STYLE_DOTTED &&
-      mBorderWidths[0] < 3 &&
-      mNoBorderRadius &&
-      !mAvoidStroke)
-  {
-    // Very simple case. We draw this rectangular dotted borner without
-    // antialiasing. The dots should be pixel aligned.
-    Rect rect = mOuterRect;
-    rect.Deflate(mBorderWidths[0] / 2.0);
-    Float dash = mBorderWidths[0];
-    strokeOptions.mDashPattern = &dash;
-    strokeOptions.mDashLength = 1;
-    strokeOptions.mDashOffset = 0.5f * dash;
-    DrawOptions drawOptions;
-    drawOptions.mAntialiasMode = AntialiasMode::NONE;
-    mDrawTarget->StrokeRect(rect, color, strokeOptions, drawOptions);
-    return;
-  }
-
-
-  if (allBordersSame &&
-      mCompositeColors[0] == nullptr &&
       mBorderStyles[0] == NS_STYLE_BORDER_STYLE_SOLID &&
       !mAvoidStroke &&
       !mNoBorderRadius)
@@ -3357,14 +3385,14 @@ nsCSSBorderRenderer::DrawBorders()
      * a 1.0 unit border all around and no border radius.
      */
 
-    NS_FOR_CSS_CORNERS(corner) {
+    NS_FOR_CSS_FULL_CORNERS(corner) {
       const mozilla::Side sides[2] = { mozilla::Side(corner), PREV_SIDE(corner) };
 
       if (!IsZeroSize(mBorderRadii[corner]))
         continue;
 
       if (mBorderWidths[sides[0]] == 1.0 && mBorderWidths[sides[1]] == 1.0) {
-        if (corner == NS_CORNER_TOP_LEFT || corner == NS_CORNER_TOP_RIGHT)
+        if (corner == eCornerTopLeft || corner == eCornerTopRight)
           mBorderCornerDimensions[corner].width = 0.0;
         else
           mBorderCornerDimensions[corner].height = 0.0;
@@ -3372,7 +3400,7 @@ nsCSSBorderRenderer::DrawBorders()
     }
 
     // First, the corners
-    NS_FOR_CSS_CORNERS(corner) {
+    NS_FOR_CSS_FULL_CORNERS(corner) {
       // if there's no corner, don't do all this work for it
       if (IsZeroSize(mBorderCornerDimensions[corner]))
         continue;

@@ -6,9 +6,11 @@
 
 SOURCES += [
     'nsCollationUnix.cpp',
-    'nsDateTimeFormatUnix.cpp',
     'nsPosixLocale.cpp',
 ]
+
+if CONFIG['ENABLE_INTL_API']:
+    SOURCES += ['OSPreferences_unix.cpp']
 
 if CONFIG['OS_TARGET'] == 'Android':
     SOURCES += [

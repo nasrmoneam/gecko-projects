@@ -13,7 +13,6 @@ const PAGE_2 = "data:text/html,<html><body>Another%20regular,%20everyday,%20norm
 add_task(function* test_initialize() {
   yield SpecialPowers.pushPrefEnv({
     set: [
-      [ "dom.ipc.processCount", 1 ],
       [ "browser.tabs.animate", false]
   ] });
 });
@@ -125,7 +124,7 @@ function promiseTabCrashedReady(browser) {
  * Checks that if a tab crashes, that information about the tab crashed
  * page does not get added to the tab history.
  */
-add_task(function test_crash_page_not_in_history() {
+add_task(function* test_crash_page_not_in_history() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -154,7 +153,7 @@ add_task(function test_crash_page_not_in_history() {
  * to a non-blacklisted site (so the browser becomes remote again), that
  * we record history for that new visit.
  */
-add_task(function test_revived_history_from_remote() {
+add_task(function* test_revived_history_from_remote() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -193,7 +192,7 @@ add_task(function test_revived_history_from_remote() {
  * to a blacklisted site (so the browser stays non-remote), that
  * we record history for that new visit.
  */
-add_task(function test_revived_history_from_non_remote() {
+add_task(function* test_revived_history_from_non_remote() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -231,7 +230,7 @@ add_task(function test_revived_history_from_non_remote() {
  * Checks that we can revive a crashed tab back to the page that
  * it was on when it crashed.
  */
-add_task(function test_revive_tab_from_session_store() {
+add_task(function* test_revive_tab_from_session_store() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -241,7 +240,7 @@ add_task(function test_revive_tab_from_session_store() {
   browser.loadURI(PAGE_1);
   yield promiseBrowserLoaded(browser);
 
-  let newTab2 = gBrowser.addTab();
+  let newTab2 = gBrowser.addTab("about:blank", { sameProcessAsFrameLoader: browser.frameLoader });
   let browser2 = newTab2.linkedBrowser;
   ok(browser2.isRemoteBrowser, "Should be a remote browser");
   yield promiseBrowserLoaded(browser2);
@@ -284,7 +283,7 @@ add_task(function test_revive_tab_from_session_store() {
  * Checks that we can revive multiple crashed tabs back to the pages
  * that they were on when they crashed.
  */
-add_task(function test_revive_all_tabs_from_session_store() {
+add_task(function* test_revive_all_tabs_from_session_store() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -298,7 +297,7 @@ add_task(function test_revive_all_tabs_from_session_store() {
   // a second window, since only selected tabs will show
   // about:tabcrashed.
   let win2 = yield BrowserTestUtils.openNewBrowserWindow();
-  let newTab2 = win2.gBrowser.addTab(PAGE_1);
+  let newTab2 = win2.gBrowser.addTab(PAGE_1, { sameProcessAsFrameLoader: browser.frameLoader });
   win2.gBrowser.selectedTab = newTab2;
   let browser2 = newTab2.linkedBrowser;
   ok(browser2.isRemoteBrowser, "Should be a remote browser");
@@ -344,7 +343,7 @@ add_task(function test_revive_all_tabs_from_session_store() {
 /**
  * Checks that about:tabcrashed can close the current tab
  */
-add_task(function test_close_tab_after_crash() {
+add_task(function* test_close_tab_after_crash() {
   let newTab = gBrowser.addTab();
   gBrowser.selectedTab = newTab;
   let browser = newTab.linkedBrowser;
@@ -405,7 +404,7 @@ add_task(function* test_hide_restore_all_button() {
   // Load up a second window so we can get another tab to show
   // about:tabcrashed
   let win2 = yield BrowserTestUtils.openNewBrowserWindow();
-  let newTab3 = win2.gBrowser.addTab(PAGE_2);
+  let newTab3 = win2.gBrowser.addTab(PAGE_2, { sameProcessAsFrameLoader: browser.frameLoader });
   win2.gBrowser.selectedTab = newTab3;
   let otherWinBrowser = newTab3.linkedBrowser;
   yield promiseBrowserLoaded(otherWinBrowser);

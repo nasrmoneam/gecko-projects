@@ -42,16 +42,12 @@
 
 class nsPIDOMWindowOuter;
 
-namespace base {
-class Thread;
-} // end namespace base
-
 typedef void* EGLSurface;
+class nsIRunnable;
 
 namespace mozilla {
 
 class AutoLocalJNIFrame;
-class Runnable;
 
 namespace hal {
 class BatteryInformation;
@@ -157,8 +153,6 @@ public:
     // DeleteGlobalRef() when the context is no longer needed.
     jobject GetGlobalContextRef(void);
 
-    void HandleGeckoMessage(JSContext* cx, JS::HandleObject message);
-
     void GetCurrentBatteryInformation(hal::BatteryInformation* aBatteryInfo);
 
     void GetCurrentNetworkInformation(hal::NetworkInformation* aNetworkInfo);
@@ -239,7 +233,7 @@ private:
     mozilla::Mutex mUiTaskQueueLock;
 
 public:
-    void PostTaskToUiThread(already_AddRefed<Runnable> aTask, int aDelayMs);
+    void PostTaskToUiThread(already_AddRefed<nsIRunnable> aTask, int aDelayMs);
     int64_t RunDelayedUiThreadTasks();
 };
 

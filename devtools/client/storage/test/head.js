@@ -15,6 +15,7 @@ Services.scriptloader.loadSubScript(
 const {TableWidget} = require("devtools/client/shared/widgets/TableWidget");
 const SPLIT_CONSOLE_PREF = "devtools.toolbox.splitconsoleEnabled";
 const STORAGE_PREF = "devtools.storage.enabled";
+const DOM_CACHE = "dom.caches.enabled";
 const DUMPEMIT_PREF = "devtools.dump.emit";
 const DEBUGGERLOG_PREF = "devtools.debugger.log";
 // Allows Cache API to be working on usage `http` test page
@@ -38,25 +39,25 @@ Services.prefs.setBoolPref(STORAGE_PREF, true);
 Services.prefs.setBoolPref(CACHES_ON_HTTP_PREF, true);
 registerCleanupFunction(() => {
   gToolbox = gPanelWindow = gWindow = gUI = null;
-  Services.prefs.clearUserPref(STORAGE_PREF);
-  Services.prefs.clearUserPref(SPLIT_CONSOLE_PREF);
-  Services.prefs.clearUserPref(DUMPEMIT_PREF);
-  Services.prefs.clearUserPref(DEBUGGERLOG_PREF);
   Services.prefs.clearUserPref(CACHES_ON_HTTP_PREF);
+  Services.prefs.clearUserPref(DEBUGGERLOG_PREF);
+  Services.prefs.clearUserPref(DOM_CACHE);
+  Services.prefs.clearUserPref(DUMPEMIT_PREF);
+  Services.prefs.clearUserPref(SPLIT_CONSOLE_PREF);
+  Services.prefs.clearUserPref(STORAGE_PREF);
 });
 
 /**
  * This generator function opens the given url in a new tab, then sets up the
- * page by waiting for all cookies, indexedDB items etc. to be created; Then
- * opens the storage inspector and waits for the storage tree and table to be
- * populated.
+ * page by waiting for all cookies, indexedDB items etc.
  *
  * @param url {String} The url to be opened in the new tab
+ * @param options {Object} The tab options for the new tab
  *
- * @return {Promise} A promise that resolves after storage inspector is ready
+ * @return {Promise} A promise that resolves after the tab is ready
  */
-function* openTabAndSetupStorage(url) {
-  let tab = yield addTab(url);
+function* openTab(url, options = {}) {
+  let tab = yield addTab(url, options);
   let content = tab.linkedBrowser.contentWindow;
 
   gWindow = content.wrappedJSObject;
@@ -105,6 +106,24 @@ function* openTabAndSetupStorage(url) {
       }
     }
   });
+
+  return tab;
+}
+
+/**
+ * This generator function opens the given url in a new tab, then sets up the
+ * page by waiting for all cookies, indexedDB items etc. to be created; Then
+ * opens the storage inspector and waits for the storage tree and table to be
+ * populated.
+ *
+ * @param url {String} The url to be opened in the new tab
+ * @param options {Object} The tab options for the new tab
+ *
+ * @return {Promise} A promise that resolves after storage inspector is ready
+ */
+function* openTabAndSetupStorage(url, options = {}) {
+  // open tab
+  yield openTab(url, options);
 
   // open storage inspector
   return yield openStoragePanel();
@@ -202,46 +221,50 @@ function forceCollections() {
 function* finishTests() {
   // Bug 1233497 makes it so that we can no longer yield CPOWs from Tasks.
   // We work around this by calling clear() via a ContentTask instead.
-  yield ContentTask.spawn(gBrowser.selectedBrowser, null, function* () {
-    /**
-     * Get all windows including frames recursively.
-     *
-     * @param {Window} [baseWindow]
-     *        The base window at which to start looking for child windows
-     *        (optional).
-     * @return {Set}
-     *         A set of windows.
-     */
-    function getAllWindows(baseWindow) {
-      let windows = new Set();
+  while (gBrowser.tabs.length > 1) {
+    yield ContentTask.spawn(gBrowser.selectedBrowser, null, function* () {
+      /**
+       * Get all windows including frames recursively.
+       *
+       * @param {Window} [baseWindow]
+       *        The base window at which to start looking for child windows
+       *        (optional).
+       * @return {Set}
+       *         A set of windows.
+       */
+      function getAllWindows(baseWindow) {
+        let windows = new Set();
 
-      let _getAllWindows = function (win) {
-        windows.add(win.wrappedJSObject);
+        let _getAllWindows = function (win) {
+          windows.add(win.wrappedJSObject);
 
-        for (let i = 0; i < win.length; i++) {
-          _getAllWindows(win[i]);
+          for (let i = 0; i < win.length; i++) {
+            _getAllWindows(win[i]);
+          }
+        };
+        _getAllWindows(baseWindow);
+
+        return windows;
+      }
+
+      let windows = getAllWindows(content);
+      for (let win of windows) {
+        // Some windows (e.g., about: URLs) don't have storage available
+        try {
+          win.localStorage.clear();
+          win.sessionStorage.clear();
+        } catch (ex) {
+          // ignore
         }
-      };
-      _getAllWindows(baseWindow);
 
-      return windows;
-    }
-
-    let windows = getAllWindows(content);
-    for (let win of windows) {
-      // Some windows (e.g., about: URLs) don't have storage available
-      try {
-        win.localStorage.clear();
-        win.sessionStorage.clear();
-      } catch (ex) {
-        // ignore
+        if (win.clear) {
+          yield win.clear();
+        }
       }
+    });
 
-      if (win.clear) {
-        yield win.clear();
-      }
-    }
-  });
+    yield closeTabAndToolbox(gBrowser.selectedTab);
+  }
 
   Services.cookies.removeAll();
   forceCollections();
@@ -886,7 +909,7 @@ function setPermission(url, permission) {
 
   let uri = Components.classes["@mozilla.org/network/io-service;1"]
                       .getService(Components.interfaces.nsIIOService)
-                      .newURI(url, null, null);
+                      .newURI(url);
   let ssm = Components.classes["@mozilla.org/scriptsecuritymanager;1"]
                       .getService(Ci.nsIScriptSecurityManager);
   let principal = ssm.createCodebasePrincipal(uri, {});

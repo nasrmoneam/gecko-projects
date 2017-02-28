@@ -376,30 +376,26 @@ class XPCShellTestThread(Thread):
         mozinfo.output_to_file(mozInfoJSPath)
         return mozInfoJSPath
 
-    def buildCmdHead(self, headfiles, tailfiles, xpcscmd):
+    def buildCmdHead(self, headfiles, xpcscmd):
         """
-          Build the command line arguments for the head and tail files,
+          Build the command line arguments for the head files,
           along with the address of the webserver which some tests require.
 
           On a remote system, this is overloaded to resolve quoting issues over a secondary command line.
         """
         cmdH = ", ".join(['"' + f.replace('\\', '/') + '"'
                        for f in headfiles])
-        cmdT = ", ".join(['"' + f.replace('\\', '/') + '"'
-                       for f in tailfiles])
 
         dbgport = 0 if self.jsDebuggerInfo is None else self.jsDebuggerInfo.port
 
         return xpcscmd + \
                 ['-e', 'const _SERVER_ADDR = "localhost"',
                  '-e', 'const _HEAD_FILES = [%s];' % cmdH,
-                 '-e', 'const _TAIL_FILES = [%s];' % cmdT,
                  '-e', 'const _JSDEBUGGER_PORT = %d;' % dbgport,
                 ]
 
-    def getHeadAndTailFiles(self, test):
-        """Obtain lists of head- and tail files.  Returns a tuple
-        containing a list of head files and a list of tail files.
+    def getHeadFiles(self, test):
+        """Obtain lists of head- files.  Returns a list of head files.
         """
         def sanitize_list(s, kind):
             for f in s.strip().split(' '):
@@ -417,13 +413,11 @@ class XPCShellTestThread(Thread):
                 yield path
 
         headlist = test.get('head', '')
-        taillist = test.get('tail', '')
-        return (list(sanitize_list(headlist, 'head')),
-                list(sanitize_list(taillist, 'tail')))
+        return list(sanitize_list(headlist, 'head'))
 
     def buildXpcsCmd(self):
         """
-          Load the root head.js file as the first file in our test path, before other head, test, and tail files.
+          Load the root head.js file as the first file in our test path, before other head, and test files.
           On a remote system, we overload this to add additional command line arguments, so this gets overloaded.
         """
         # - NOTE: if you rename/add any of the constants set here, update
@@ -623,8 +617,8 @@ class XPCShellTestThread(Thread):
         self.mozInfoJSPath = self.setupMozinfoJS()
 
         self.buildXpcsCmd()
-        head_files, tail_files = self.getHeadAndTailFiles(self.test_object)
-        cmdH = self.buildCmdHead(head_files, tail_files, self.xpcsCmd)
+        head_files = self.getHeadFiles(self.test_object)
+        cmdH = self.buildCmdHead(head_files, self.xpcsCmd)
 
         # The test file will have to be loaded after the head files.
         cmdT = self.buildCmdTestFile(path)
@@ -992,43 +986,55 @@ class XPCShellTests(object):
         """
           Run node for HTTP/2 tests, if available, and updates mozinfo as appropriate.
         """
-        nodeBin = None
+        if os.getenv('MOZ_ASSUME_NODE_RUNNING', None):
+            self.log.info('Assuming required node servers are already running')
+            if not os.getenv('MOZHTTP2_PORT', None):
+                self.log.warning('MOZHTTP2_PORT environment variable not set. Tests requiring http/2 will fail.')
+            return
 
         # We try to find the node executable in the path given to us by the user in
         # the MOZ_NODE_PATH environment variable
-        localPath = os.getenv('MOZ_NODE_PATH', None)
-        if localPath and os.path.exists(localPath) and os.path.isfile(localPath):
-            nodeBin = localPath
+        nodeBin = os.getenv('MOZ_NODE_PATH', None)
+        if not nodeBin:
+            self.log.warning('MOZ_NODE_PATH environment variable not set. Tests requiring http/2 will fail.')
+            return
 
-        if os.getenv('MOZ_ASSUME_NODE_RUNNING', None):
-            self.log.info('Assuming required node servers are already running')
-        elif nodeBin:
-            self.log.info('Found node at %s' % (nodeBin,))
+        if not os.path.exists(nodeBin) or not os.path.isfile(nodeBin):
+            error = 'node not found at MOZ_NODE_PATH %s' % (nodeBin)
+            self.log.error(error)
+            raise IOError(error)
 
-            def startServer(name, serverJs):
-                if os.path.exists(serverJs):
-                    # OK, we found our server, let's try to get it running
-                    self.log.info('Found %s at %s' % (name, serverJs))
-                    try:
-                        # We pipe stdin to node because the server will exit when its
-                        # stdin reaches EOF
-                        process = Popen([nodeBin, serverJs], stdin=PIPE, stdout=PIPE,
-                                stderr=PIPE, env=self.env, cwd=os.getcwd())
-                        self.nodeProc[name] = process
+        self.log.info('Found node at %s' % (nodeBin,))
 
-                        # Check to make sure the server starts properly by waiting for it to
-                        # tell us it's started
-                        msg = process.stdout.readline()
-                        if 'server listening' in msg:
-                            searchObj = re.search( r'HTTP2 server listening on port (.*)', msg, 0)
-                            if searchObj:
-                              self.env["MOZHTTP2_PORT"] = searchObj.group(1)
-                    except OSError, e:
-                        # This occurs if the subprocess couldn't be started
-                        self.log.error('Could not run %s server: %s' % (name, str(e)))
+        def startServer(name, serverJs):
+            if not os.path.exists(serverJs):
+                error = '%s not found at %s' % (name, serverJs)
+                self.log.error(error)
+                raise IOError(error)
 
-            myDir = os.path.split(os.path.abspath(__file__))[0]
-            startServer('moz-http2', os.path.join(myDir, 'moz-http2', 'moz-http2.js'))
+            # OK, we found our server, let's try to get it running
+            self.log.info('Found %s at %s' % (name, serverJs))
+            try:
+                # We pipe stdin to node because the server will exit when its
+                # stdin reaches EOF
+                process = Popen([nodeBin, serverJs], stdin=PIPE, stdout=PIPE,
+                        stderr=PIPE, env=self.env, cwd=os.getcwd())
+                self.nodeProc[name] = process
+
+                # Check to make sure the server starts properly by waiting for it to
+                # tell us it's started
+                msg = process.stdout.readline()
+                if 'server listening' in msg:
+                    searchObj = re.search( r'HTTP2 server listening on port (.*)', msg, 0)
+                    if searchObj:
+                      self.env["MOZHTTP2_PORT"] = searchObj.group(1)
+            except OSError, e:
+                # This occurs if the subprocess couldn't be started
+                self.log.error('Could not run %s server: %s' % (name, str(e)))
+                raise
+
+        myDir = os.path.split(os.path.abspath(__file__))[0]
+        startServer('moz-http2', os.path.join(myDir, 'moz-http2', 'moz-http2.js'))
 
     def shutdownNode(self):
         """
@@ -1219,6 +1225,10 @@ class XPCShellTests(object):
 
         mozinfo.update(self.mozInfo)
 
+        # Add a flag to mozinfo to indicate that code coverage is enabled.
+        if self.jscovdir:
+            mozinfo.update({"coverage": True})
+
         self.stack_fixer_function = None
         if self.utility_path and os.path.exists(self.utility_path):
             self.stack_fixer_function = get_stack_fixer_function(self.utility_path, self.symbolsPath)
@@ -1234,8 +1244,8 @@ class XPCShellTests(object):
         if "appname" in self.mozInfo:
             appDirKey = self.mozInfo["appname"] + "-appdir"
 
-        # We have to do this before we build the test list so we know whether or
-        # not to run tests that depend on having the node http/2 server
+        # We have to do this before we run tests that depend on having the node
+        # http/2 server.
         self.trySetupNode()
 
         pStdout, pStderr = self.getPipes()

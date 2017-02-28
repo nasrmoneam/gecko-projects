@@ -16,8 +16,7 @@ NS_IMPL_CYCLE_COLLECTION_CLASS(PerformanceMainThread)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(PerformanceMainThread,
                                                 Performance)
 NS_IMPL_CYCLE_COLLECTION_UNLINK(mTiming,
-                                mNavigation,
-                                mParentPerformance)
+                                mNavigation)
   tmp->mMozMemory = nullptr;
   mozilla::DropJSObjects(this);
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -25,9 +24,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(PerformanceMainThread,
                                                   Performance)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTiming,
-                                    mNavigation,
-                                    mParentPerformance)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
+                                    mNavigation)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(PerformanceMainThread,
@@ -46,12 +43,10 @@ NS_INTERFACE_MAP_END_INHERITING(Performance)
 
 PerformanceMainThread::PerformanceMainThread(nsPIDOMWindowInner* aWindow,
                                              nsDOMNavigationTiming* aDOMTiming,
-                                             nsITimedChannel* aChannel,
-                                             Performance* aParentPerformance)
+                                             nsITimedChannel* aChannel)
   : Performance(aWindow)
   , mDOMTiming(aDOMTiming)
   , mChannel(aChannel)
-  , mParentPerformance(aParentPerformance)
 {
   MOZ_ASSERT(aWindow, "Parent window object should be provided");
 }
@@ -79,7 +74,7 @@ PerformanceTiming*
 PerformanceMainThread::Timing()
 {
   if (!mTiming) {
-    // For navigation timing, the third argument (an nsIHtttpChannel) is null
+    // For navigation timing, the third argument (an nsIHttpChannel) is null
     // since the cross-domain redirect were already checked.  The last argument
     // (zero time) for performance.timing is the navigation start value.
     mTiming = new PerformanceTiming(this, mChannel, nullptr,
@@ -107,12 +102,6 @@ PerformanceMainThread::Navigation()
   }
 
   return mNavigation;
-}
-
-DOMHighResTimeStamp
-PerformanceMainThread::Now() const
-{
-  return RoundTime(GetDOMTiming()->TimeStampToDOMHighRes(TimeStamp::Now()));
 }
 
 /**

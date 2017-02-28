@@ -33,12 +33,14 @@
 #include "mozilla/LoadContext.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
+#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
 #include "nsDebug.h"
+#include "nsDependentSubstring.h"
 #include "nsError.h"
 #include "nsNetCID.h"
 #include "nsReadableUtils.h"
@@ -51,11 +53,11 @@
 #include "nsIContentPolicy.h"
 #include "nsILoadInfo.h"
 #include "nsContentUtils.h"
+#include "nsWeakReference.h"
 
 using mozilla::ArrayLength;
 using mozilla::BasePrincipal;
-using mozilla::DocShellOriginAttributes;
-using mozilla::PrincipalOriginAttributes;
+using mozilla::OriginAttributes;
 using mozilla::Preferences;
 using mozilla::TimeStamp;
 using mozilla::Telemetry::Accumulate;
@@ -93,7 +95,8 @@ class PendingDBLookup;
 // This class is private to ApplicationReputationService.
 class PendingLookup final : public nsIStreamListener,
                             public nsITimerCallback,
-                            public nsIObserver
+                            public nsIObserver,
+                            public nsSupportsWeakReference
 {
 public:
   NS_DECL_ISUPPORTS
@@ -309,7 +312,7 @@ PendingDBLookup::LookupSpecInternal(const nsACString& aSpec)
   rv = ios->NewURI(aSpec, nullptr, nullptr, getter_AddRefs(uri));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  PrincipalOriginAttributes attrs;
+  OriginAttributes attrs;
   nsCOMPtr<nsIPrincipal> principal =
     BasePrincipal::CreateCodebasePrincipal(uri, attrs);
   if (!principal) {
@@ -373,7 +376,8 @@ PendingDBLookup::HandleEvent(const nsACString& tables)
 NS_IMPL_ISUPPORTS(PendingLookup,
                   nsIStreamListener,
                   nsIRequestObserver,
-                  nsIObserver)
+                  nsIObserver,
+                  nsISupportsWeakReference)
 
 PendingLookup::PendingLookup(nsIApplicationReputationQuery* aQuery,
                              nsIApplicationReputationCallback* aCallback) :
@@ -390,7 +394,7 @@ PendingLookup::~PendingLookup()
   LOG(("Destroying pending lookup [this = %p]", this));
 }
 
-static const char16_t* kBinaryFileExtensions[] = {
+static const char16_t* const kBinaryFileExtensions[] = {
     // Extracted from the "File Type Policies" Chrome extension
     //u".001",
     //u".7z",
@@ -771,7 +775,7 @@ PendingLookup::LookupNext()
   // There are no more URIs to check against local list. If the file is
   // not eligible for remote lookup, bail.
   if (!IsBinaryFile()) {
-    LOG(("Not eligible for remote lookups [this=%x]", this));
+    LOG(("Not eligible for remote lookups [this=%p]", this));
     return OnComplete(false, NS_OK);
   }
   nsresult rv = SendRemoteQuery();
@@ -883,17 +887,19 @@ PendingLookup::GenerateWhitelistStringsForChain(
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIX509Cert> signer;
-  rv = certDB->ConstructX509(
+  nsDependentCSubstring signerDER(
     const_cast<char *>(aChain.element(0).certificate().data()),
-    aChain.element(0).certificate().size(), getter_AddRefs(signer));
+    aChain.element(0).certificate().size());
+  rv = certDB->ConstructX509(signerDER, getter_AddRefs(signer));
   NS_ENSURE_SUCCESS(rv, rv);
 
   for (int i = 1; i < aChain.element_size(); ++i) {
     // Get the issuer.
     nsCOMPtr<nsIX509Cert> issuer;
-    rv = certDB->ConstructX509(
+    nsDependentCSubstring issuerDER(
       const_cast<char *>(aChain.element(i).certificate().data()),
-      aChain.element(i).certificate().size(), getter_AddRefs(issuer));
+      aChain.element(i).certificate().size());
+    rv = certDB->ConstructX509(issuerDER, getter_AddRefs(issuer));
     NS_ENSURE_SUCCESS(rv, rv);
 
     rv = GenerateWhitelistStringsForPair(signer, issuer);
@@ -1072,7 +1078,7 @@ PendingLookup::OnComplete(bool shouldBlock, nsresult rv, uint32_t verdict)
   Accumulate(mozilla::Telemetry::APPLICATION_REPUTATION_SHOULD_BLOCK,
     shouldBlock);
   double t = (TimeStamp::Now() - mStartTime).ToMilliseconds();
-  LOG(("Application Reputation verdict is %lu, obtained in %f ms [this = %p]",
+  LOG(("Application Reputation verdict is %u, obtained in %f ms [this = %p]",
        verdict, t, this));
   if (shouldBlock) {
     LOG(("Application Reputation check failed, blocking bad binary [this = %p]",
@@ -1252,7 +1258,7 @@ PendingLookup::SendRemoteQueryInternal()
   if (!mRequest.SerializeToString(&serialized)) {
     return NS_ERROR_UNEXPECTED;
   }
-  LOG(("Serialized protocol buffer [this = %p]: (length=%d) %s", this,
+  LOG(("Serialized protocol buffer [this = %p]: (length=%" PRIuSIZE ") %s", this,
        serialized.length(), serialized.c_str()));
 
   // Set the input stream to the serialized protocol buffer
@@ -1278,8 +1284,9 @@ PendingLookup::SendRemoteQueryInternal()
 
   nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
   if (loadInfo) {
-    loadInfo->SetOriginAttributes(
-      mozilla::NeckoOriginAttributes(NECKO_SAFEBROWSING_APP_ID, false));
+    mozilla::OriginAttributes attrs;
+    attrs.mFirstPartyDomain.AssignLiteral(NECKO_SAFEBROWSING_FIRST_PARTY_DOMAIN);
+    loadInfo->SetOriginAttributes(attrs);
   }
 
   nsCOMPtr<nsIHttpChannel> httpChannel(do_QueryInterface(mChannel, &rv));
@@ -1293,14 +1300,6 @@ PendingLookup::SendRemoteQueryInternal()
   rv = uploadChannel->ExplicitSetUploadStream(sstream,
     NS_LITERAL_CSTRING("application/octet-stream"), serialized.size(),
     NS_LITERAL_CSTRING("POST"), false);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // Set the Safebrowsing cookie jar, so that the regular Google cookie is not
-  // sent with this request. See bug 897516.
-  DocShellOriginAttributes attrs;
-  attrs.mAppId = NECKO_SAFEBROWSING_APP_ID;
-  nsCOMPtr<nsIInterfaceRequestor> loadContext = new mozilla::LoadContext(attrs);
-  rv = mChannel->SetNotificationCallbacks(loadContext);
   NS_ENSURE_SUCCESS(rv, rv);
 
   uint32_t timeoutMs = Preferences::GetUint(PREF_SB_DOWNLOADS_REMOTE_TIMEOUT, 10000);
@@ -1547,6 +1546,6 @@ nsresult ApplicationReputationService::QueryReputationInternal(
     return NS_ERROR_FAILURE;
   }
 
-  observerService->AddObserver(lookup, "quit-application", false);
+  observerService->AddObserver(lookup, "quit-application", true);
   return lookup->StartLookup();
 }

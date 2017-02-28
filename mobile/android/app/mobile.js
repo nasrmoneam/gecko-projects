@@ -172,6 +172,7 @@ pref("browser.helperApps.deleteTempFileOnExit", false);
 
 /* password manager */
 pref("signon.rememberSignons", true);
+pref("signon.autofillForms.http", true);
 pref("signon.expireMasterPassword", false);
 pref("signon.debug", false);
 
@@ -300,12 +301,6 @@ pref("browser.search.noCurrentEngine", true);
 
 // Control media casting & mirroring features
 pref("browser.casting.enabled", true);
-#ifdef RELEASE_OR_BETA
-// Chromecast mirroring is broken (bug 1131084)
-pref("browser.mirroring.enabled", false);
-#else
-pref("browser.mirroring.enabled", true);
-#endif
 
 // Enable sparse localization by setting a few package locale overrides
 pref("chrome.override_package.global", "browser");
@@ -560,12 +555,14 @@ pref("ui.dragThresholdY", 25);
 pref("layers.acceleration.disabled", false);
 pref("layers.async-video.enabled", true);
 
-pref("apz.content_response_timeout", 600);
+// APZ physics settings (fling acceleration, fling curving and axis lock) have
+// been reviewed by UX
 pref("apz.allow_immediate_handoff", false);
-pref("apz.touch_start_tolerance", "0.06");
 pref("apz.axis_lock.breakout_angle", "0.7853982");    // PI / 4 (45 degrees)
-// APZ physics settings reviewed by UX
 pref("apz.axis_lock.mode", 1); // Use "strict" axis locking
+pref("apz.content_response_timeout", 600);
+pref("apz.drag.enabled", false);
+pref("apz.fling_accel_interval_ms", 750);
 pref("apz.fling_curve_function_x1", "0.59");
 pref("apz.fling_curve_function_y1", "0.46");
 pref("apz.fling_curve_function_x2", "0.05");
@@ -575,8 +572,8 @@ pref("apz.fling_curve_threshold_inches_per_ms", "0.01");
 pref("apz.fling_friction", "0.004");
 pref("apz.fling_stopped_threshold", "0.0");
 pref("apz.max_velocity_inches_per_ms", "0.07");
-pref("apz.fling_accel_interval_ms", 750);
 pref("apz.overscroll.enabled", true);
+pref("apz.touch_start_tolerance", "0.06");
 
 pref("layers.progressive-paint", true);
 pref("layers.low-precision-buffer", true);
@@ -619,21 +616,22 @@ pref("media.video-queue.default-size", 3);
 // (the most recent) image data.
 pref("media.video-queue.send-to-compositor-size", 1);
 
-#ifdef NIGHTLY_BUILD
 // Allow to check if the decoder supports recycling only on Fennec nightly build.
 pref("media.decoder.recycle.enabled", true);
-#endif
 
 // Enable the MediaCodec PlatformDecoderModule by default.
 pref("media.android-media-codec.enabled", true);
 pref("media.android-media-codec.preferred", true);
-// Run decoder in seperate process.
-pref("media.android-remote-codec.enabled", false);
 
 // Enable MSE
 pref("media.mediasource.enabled", true);
 
 pref("media.mediadrm-widevinecdm.visible", true);
+
+#ifdef NIGHTLY_BUILD
+// Enable EME (Encrypted Media Extensions)
+pref("media.eme.enabled", true);
+#endif
 
 // optimize images memory usage
 pref("image.downscale-during-decode.enabled", true);
@@ -735,10 +733,6 @@ pref("media.stagefright.omxcodec.flags", 0);
 // Coalesce touch events to prevent them from flooding the event queue
 pref("dom.event.touch.coalescing.enabled", false);
 
-// default orientation for the app, default to undefined
-// the java GeckoScreenOrientationListener needs this to be defined
-pref("app.orientation.default", "");
-
 // On memory pressure, release dirty but unused pages held by jemalloc
 // back to the system.
 pref("memory.free_dirty_pages", true);
@@ -783,6 +777,7 @@ pref("dom.phonenumber.substringmatching.VE", 7);
 // Enable hardware-accelerated Skia canvas
 pref("gfx.canvas.azure.backends", "skia");
 pref("gfx.canvas.azure.accelerated", true);
+pref("gfx.canvas.azure.accelerated.limit", 64);
 
 // See ua-update.json.in for the packaged UA override list
 pref("general.useragent.updates.enabled", true);
@@ -916,9 +911,6 @@ pref("dom.presentation.enabled", true);
 pref("dom.presentation.controller.enabled", true); // enable 1-UA mode
 pref("dom.presentation.receiver.enabled", true); // enable 1-UA mode
 #endif
-
-pref("dom.presentation.discovery.enabled", true);
-pref("dom.presentation.discovery.legacy.enabled", true); // for TV 2.5 backward capability
 
 pref("dom.audiochannel.audioCompeting", true);
 pref("dom.audiochannel.mediaControl", true);

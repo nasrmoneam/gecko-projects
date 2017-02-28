@@ -7,16 +7,18 @@
 #define FAKE_DECRYPTOR_H__
 
 #include "gmp-decryption.h"
-#include "gmp-async-shutdown.h"
 #include <string>
 #include "mozilla/Attributes.h"
 
-class FakeDecryptor : public GMPDecryptor7 {
+class FakeDecryptor : public GMPDecryptor {
 public:
 
-  explicit FakeDecryptor(GMPDecryptorHost* aHost);
+  explicit FakeDecryptor();
 
-  void Init(GMPDecryptorCallback* aCallback) override {
+  void Init(GMPDecryptorCallback* aCallback,
+            bool aDistinctiveIdentifierRequired,
+            bool aPersistentStateRequired) override
+  {
     mCallback = aCallback;
   }
 
@@ -61,7 +63,8 @@ public:
   }
 
   void Decrypt(GMPBuffer* aBuffer,
-               GMPEncryptedBufferMetadata* aMetadata) override
+               GMPEncryptedBufferMetadata* aMetadata,
+               uint64_t aDurationUses) override
   {
   }
 
@@ -69,34 +72,14 @@ public:
 
   static void Message(const std::string& aMessage);
 
-  void ProcessRecordNames(GMPRecordIterator* aRecordIterator,
-                          GMPErr aStatus);
-
-  static void SetNodeId(const char* aNodeId, uint32_t aLength) {
-    sNodeId = std::string(aNodeId, aNodeId + aLength);
-  }
-
 private:
 
   virtual ~FakeDecryptor() {}
   static FakeDecryptor* sInstance;
-  static std::string sNodeId;
 
   void TestStorage();
 
   GMPDecryptorCallback* mCallback;
-  GMPDecryptorHost* mHost;
-};
-
-class TestAsyncShutdown : public GMPAsyncShutdown {
-public:
-  explicit TestAsyncShutdown(GMPAsyncShutdownHost* aHost)
-    : mHost(aHost)
-  {
-  }
-  void BeginShutdown() override;
-private:
-  GMPAsyncShutdownHost* mHost;
 };
 
 #endif

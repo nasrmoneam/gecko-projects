@@ -49,7 +49,6 @@
 #include "nsCOMPtr.h"                   // for already_AddRefed
 #include "nsDebug.h"                    // for NS_WARNING, NS_RUNTIMEABORT, etc
 #include "nsISupportsImpl.h"            // for Layer::AddRef, etc
-#include "nsIWidget.h"                  // for nsIWidget
 #include "nsPoint.h"                    // for nsIntPoint
 #include "nsRect.h"                     // for mozilla::gfx::IntRect
 #include "nsRegion.h"                   // for nsIntRegion, etc
@@ -61,6 +60,7 @@
 #include "opengl/CompositorOGL.h"
 #include "GLContextEGL.h"
 #include "GLContextProvider.h"
+#include "mozilla/widget/AndroidCompositorWidget.h"
 #include "ScopedGLHelpers.h"
 #endif
 #include "GeckoProfiler.h"
@@ -411,7 +411,7 @@ LayerManagerComposite::EndTransaction(const TimeStamp& aTimeStamp,
   // Set composition timestamp here because we need it in
   // ComputeEffectiveTransforms (so the correct video frame size is picked) and
   // also to compute invalid regions properly.
-  mCompositor->SetCompositionTime(aTimeStamp);
+  SetCompositionTime(aTimeStamp);
 
   if (mRoot && !(aFlags & END_NO_IMMEDIATE_REDRAW)) {
     MOZ_ASSERT(!aTimeStamp.IsNull());
@@ -573,7 +573,7 @@ LayerManagerComposite::RenderDebugOverlay(const IntRect& aBounds)
   bool drawFps = gfxPrefs::LayersDrawFPS();
   bool drawFrameCounter = gfxPrefs::DrawFrameCounter();
   bool drawFrameColorBars = gfxPrefs::CompositorDrawColorBars();
-  
+
   TimeStamp now = TimeStamp::Now();
 
   if (drawFps) {
@@ -926,7 +926,8 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
 
   // Render our layers.
   RootLayer()->Prepare(ViewAs<RenderTargetPixel>(clipRect, PixelCastJustification::RenderTargetIsParentLayerForRoot));
-  RootLayer()->RenderLayer(clipRect.ToUnknownRect());
+  RootLayer()->RenderLayer(clipRect.ToUnknownRect(), Nothing());
+  RootLayer()->Cleanup();
 
   if (!mRegionToClear.IsEmpty()) {
     for (auto iter = mRegionToClear.RectIter(); !iter.Done(); iter.Next()) {
@@ -1037,16 +1038,14 @@ private:
 void
 LayerManagerComposite::RenderToPresentationSurface()
 {
-#ifdef MOZ_WIDGET_ANDROID
-  nsIWidget* const widget = mCompositor->GetWidget()->RealWidget();
-  auto window = static_cast<ANativeWindow*>(
-      widget->GetNativeData(NS_PRESENTATION_WINDOW));
+  widget::CompositorWidget* const widget = mCompositor->GetWidget();
+  ANativeWindow* window = widget->AsAndroid()->GetPresentationANativeWindow();
 
   if (!window) {
     return;
   }
 
-  EGLSurface surface = widget->GetNativeData(NS_PRESENTATION_SURFACE);
+  EGLSurface surface = widget->AsAndroid()->GetPresentationEGLSurface();
 
   if (!surface) {
     //create surface;
@@ -1055,8 +1054,7 @@ LayerManagerComposite::RenderToPresentationSurface()
       return;
     }
 
-    widget->SetNativeData(NS_PRESENTATION_SURFACE,
-                          reinterpret_cast<uintptr_t>(surface));
+    widget->AsAndroid()->SetPresentationEGLSurface(surface);
   }
 
   CompositorOGL* compositor = mCompositor->AsCompositorOGL();
@@ -1070,7 +1068,6 @@ LayerManagerComposite::RenderToPresentationSurface()
   const IntSize windowSize(ANativeWindow_getWidth(window),
                            ANativeWindow_getHeight(window));
 
-#endif
 
   if ((windowSize.width <= 0) || (windowSize.height <= 0)) {
     return;
@@ -1133,7 +1130,7 @@ LayerManagerComposite::RenderToPresentationSurface()
   const IntRect clipRect = IntRect::Truncate(0, 0, actualWidth, actualHeight);
 
   RootLayer()->Prepare(RenderTargetIntRect::FromUnknownRect(clipRect));
-  RootLayer()->RenderLayer(clipRect);
+  RootLayer()->RenderLayer(clipRect, Nothing());
 
   mCompositor->EndFrame();
 }
@@ -1170,7 +1167,8 @@ public:
 
   virtual void Destroy() override { mDestroyed = true; }
 
-  virtual void RenderLayer(const gfx::IntRect& aClipRect) override {}
+  virtual void RenderLayer(const gfx::IntRect& aClipRect,
+                           const Maybe<gfx::Polygon>& aGeometry) override {}
   virtual void CleanupResources() override {};
 
   virtual void GenEffectChain(EffectChain& aEffect) override {}
@@ -1213,7 +1211,8 @@ public:
 
   virtual void Destroy() override { mDestroyed = true; }
 
-  virtual void RenderLayer(const gfx::IntRect& aClipRect) override {}
+  virtual void RenderLayer(const gfx::IntRect& aClipRect,
+                           const Maybe<gfx::Polygon>& aGeometry) override {}
   virtual void CleanupResources() override {};
 
   virtual void GenEffectChain(EffectChain& aEffect) override {}
@@ -1406,9 +1405,15 @@ bool
 LayerManagerComposite::AsyncPanZoomEnabled() const
 {
   if (CompositorBridgeParent* bridge = mCompositor->GetCompositorBridgeParent()) {
-    return bridge->AsyncPanZoomEnabled();
+    return bridge->GetOptions().UseAPZ();
   }
   return false;
+}
+
+bool
+LayerManagerComposite::AlwaysScheduleComposite() const
+{
+  return !!(mCompositor->GetDiagnosticTypes() & DiagnosticTypes::FLASH_BORDERS);
 }
 
 nsIntRegion

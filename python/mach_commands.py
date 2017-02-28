@@ -17,6 +17,7 @@ from concurrent.futures import (
 
 import mozinfo
 from manifestparser import TestManifest
+from manifestparser import filters as mpf
 
 from mozbuild.base import (
     MachCommandBase,
@@ -65,6 +66,10 @@ class MachCommands(MachCommandBase):
         default=1,
         type=int,
         help='Number of concurrent jobs to run. Default is 1.')
+    @CommandArgument('--subsuite',
+        default=None,
+        help=('Python subsuite to run. If not specified, all subsuites are run. '
+             'Use the string `default` to only run tests without a subsuite.'))
     @CommandArgument('tests', nargs='*',
         metavar='TEST',
         help=('Tests to run. Each test can be a single file or a directory. '
@@ -133,7 +138,14 @@ class MachCommands(MachCommandBase):
 
         mp = TestManifest()
         mp.tests.extend(test_objects)
-        tests = mp.active_tests(disabled=False, **mozinfo.info)
+
+        filters = []
+        if subsuite == 'default':
+            filters.append(mpf.subsuite(None))
+        elif subsuite:
+            filters.append(mpf.subsuite(subsuite))
+
+        tests = mp.active_tests(filters=filters, disabled=False, **mozinfo.info)
 
         self.jobs = jobs
         self.terminate = False
@@ -146,11 +158,13 @@ class MachCommands(MachCommandBase):
 
             try:
                 for future in as_completed(futures):
-                    output, ret = future.result()
+                    output, ret, test_path = future.result()
 
                     for line in output:
                         self.log(logging.INFO, 'python-test', {'line': line.rstrip()}, '{line}')
 
+                    if ret and not return_code:
+                        self.log(logging.ERROR, 'python-test', {'test_path': test_path, 'ret': ret}, 'Setting retcode to {ret} from {test_path}')
                     return_code = return_code or ret
             except KeyboardInterrupt:
                 # Hack to force stop currently running threads.
@@ -159,6 +173,7 @@ class MachCommands(MachCommandBase):
                 thread._threads_queues.clear()
                 raise
 
+        self.log(logging.INFO, 'python-test', {'return_code': return_code}, 'Return code from mach python-test: {return_code}')
         return return_code
 
     def _run_python_test(self, test_path):
@@ -204,4 +219,4 @@ class MachCommands(MachCommandBase):
             else:
                 _log('Test passed: {}'.format(test_path))
 
-        return output, return_code
+        return output, return_code, test_path

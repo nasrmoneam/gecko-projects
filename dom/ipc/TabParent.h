@@ -8,6 +8,7 @@
 #define mozilla_tabs_TabParent_h
 
 #include "js/TypeDecls.h"
+#include "LiveResizeListener.h"
 #include "mozilla/ContentCache.h"
 #include "mozilla/dom/AudioChannelBinding.h"
 #include "mozilla/dom/ipc/IdType.h"
@@ -91,6 +92,7 @@ class TabParent final : public PBrowserParent
                       , public TabContext
                       , public nsAPostRefreshObserver
                       , public nsIWebBrowserPersistable
+                      , public LiveResizeListener
 {
   typedef mozilla::dom::ClonedMessageData ClonedMessageData;
 
@@ -172,9 +174,6 @@ public:
   virtual mozilla::ipc::IPCResult RecvEvent(const RemoteDOMEvent& aEvent) override;
 
   virtual mozilla::ipc::IPCResult RecvReplyKeyEvent(const WidgetKeyboardEvent& aEvent) override;
-
-  virtual mozilla::ipc::IPCResult
-  RecvDispatchAfterKeyboardEvent(const WidgetKeyboardEvent& aEvent) override;
 
   virtual mozilla::ipc::IPCResult
   RecvAccessKeyNotHandled(const WidgetKeyboardEvent& aEvent) override;
@@ -353,7 +352,7 @@ public:
 
   virtual PDocAccessibleParent*
   AllocPDocAccessibleParent(PDocAccessibleParent*, const uint64_t&,
-                            const uint32_t&) override;
+                            const uint32_t&, const IAccessibleHolder&) override;
 
   virtual bool DeallocPDocAccessibleParent(PDocAccessibleParent*) override;
 
@@ -361,7 +360,8 @@ public:
   RecvPDocAccessibleConstructor(PDocAccessibleParent* aDoc,
                                 PDocAccessibleParent* aParentDoc,
                                 const uint64_t& aParentID,
-                                const uint32_t& aMsaaID) override;
+                                const uint32_t& aMsaaID,
+                                const IAccessibleHolder& aDocCOMProxy) override;
 
   /**
    * Return the top level doc accessible parent for this tab.
@@ -369,6 +369,8 @@ public:
   a11y::DocAccessibleParent* GetTopLevelDocAccessible() const;
 
   void LoadURL(nsIURI* aURI);
+
+  void InitRenderFrame();
 
   // XXX/cjones: it's not clear what we gain by hiding these
   // message-sending functions under a layer of indirection and
@@ -454,17 +456,17 @@ public:
                     int32_t aCharCode, int32_t aModifiers,
                     bool aPreventDefault);
 
-  bool SendRealMouseEvent(mozilla::WidgetMouseEvent& event);
+  bool SendRealMouseEvent(mozilla::WidgetMouseEvent& aEvent);
 
   bool SendRealDragEvent(mozilla::WidgetDragEvent& aEvent,
                          uint32_t aDragAction,
                          uint32_t aDropEffect);
 
-  bool SendMouseWheelEvent(mozilla::WidgetWheelEvent& event);
+  bool SendMouseWheelEvent(mozilla::WidgetWheelEvent& aEvent);
 
-  bool SendRealKeyEvent(mozilla::WidgetKeyboardEvent& event);
+  bool SendRealKeyEvent(mozilla::WidgetKeyboardEvent& aEvent);
 
-  bool SendRealTouchEvent(WidgetTouchEvent& event);
+  bool SendRealTouchEvent(WidgetTouchEvent& aEvent);
 
   bool SendHandleTap(TapType aType,
                      const LayoutDevicePoint& aPoint,
@@ -512,9 +514,9 @@ public:
 
   bool HandleQueryContentEvent(mozilla::WidgetQueryContentEvent& aEvent);
 
-  bool SendCompositionEvent(mozilla::WidgetCompositionEvent& event);
+  bool SendCompositionEvent(mozilla::WidgetCompositionEvent& aEvent);
 
-  bool SendSelectionEvent(mozilla::WidgetSelectionEvent& event);
+  bool SendSelectionEvent(mozilla::WidgetSelectionEvent& aEvent);
 
   bool SendPasteTransferable(const IPCDataTransfer& aDataTransfer,
                              const bool& aIsPrivateData,
@@ -593,6 +595,10 @@ public:
 
   mozilla::ipc::IPCResult RecvEnsureLayersConnected() override;
 
+  // LiveResizeListener implementation
+  void LiveResizeStarted() override;
+  void LiveResizeStopped() override;
+
 protected:
   bool ReceiveMessage(const nsString& aMessage,
                       bool aSync,
@@ -629,7 +635,9 @@ protected:
   virtual mozilla::ipc::IPCResult RecvAudioChannelActivityNotification(const uint32_t& aAudioChannel,
                                                                        const bool& aActive) override;
 
-  virtual mozilla::ipc::IPCResult RecvNotifySessionHistoryChange(const uint32_t& aCount) override;
+  virtual mozilla::ipc::IPCResult RecvSHistoryUpdate(const uint32_t& aCount,
+                                                     const uint32_t& aLocalIndex,
+                                                     const bool& aTruncate) override;
 
   virtual mozilla::ipc::IPCResult RecvRequestCrossBrowserNavigation(const uint32_t& aGlobalIndex) override;
 
@@ -769,12 +777,6 @@ private:
   // If this flag is set, then the tab's layers will be preserved even when
   // the tab's docshell is inactive.
   bool mPreserveLayers;
-
-  // Normally we call ForceTabPaint when activating a tab. But we don't do this
-  // the first time we activate a tab. The tab is probably busy running the
-  // initial content scripts and we don't want to force painting then; they're
-  // probably quick and there's some cost to forcing painting.
-  bool mFirstActivate;
 
 public:
   static TabParent* GetTabParentFromLayersId(uint64_t aLayersId);

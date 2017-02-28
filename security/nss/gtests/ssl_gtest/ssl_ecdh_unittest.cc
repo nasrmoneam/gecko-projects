@@ -58,7 +58,7 @@ TEST_P(TlsConnectTls12, ConnectEcdheP384) {
   Reset(TlsAgent::kServerEcdsa384);
   ConnectWithCipherSuite(TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
   CheckKeys(ssl_kea_ecdh, ssl_grp_ec_secp384r1, ssl_auth_ecdsa,
-            ssl_sig_ecdsa_secp384r1_sha384);
+            ssl_sig_ecdsa_secp256r1_sha256);
 }
 
 TEST_P(TlsConnectGeneric, ConnectEcdheP384Client) {
@@ -75,8 +75,8 @@ TEST_P(TlsConnectGeneric, ConnectEcdheP384Client) {
 // This causes a HelloRetryRequest in TLS 1.3.  Earlier versions don't care.
 TEST_P(TlsConnectGeneric, ConnectEcdheP384Server) {
   EnsureTlsSetup();
-  auto hrr_capture =
-      new TlsInspectorRecordHandshakeMessage(kTlsHandshakeHelloRetryRequest);
+  auto hrr_capture = std::make_shared<TlsInspectorRecordHandshakeMessage>(
+      kTlsHandshakeHelloRetryRequest);
   server_->SetPacketFilter(hrr_capture);
   const std::vector<SSLNamedGroup> groups = {ssl_grp_ec_secp384r1};
   server_->ConfigNamedGroups(groups);
@@ -189,6 +189,60 @@ TEST_P(TlsConnectGenericPre13, P384PriorityFromModelSocket) {
 
   CheckKeys(ssl_kea_ecdh, ssl_grp_ec_secp384r1, ssl_auth_rsa_sign,
             ssl_sig_rsa_pss_sha256);
+}
+
+class TlsKeyExchangeGroupCapture : public TlsHandshakeFilter {
+ public:
+  TlsKeyExchangeGroupCapture() : group_(ssl_grp_none) {}
+
+  SSLNamedGroup group() const { return group_; }
+
+ protected:
+  virtual PacketFilter::Action FilterHandshake(const HandshakeHeader &header,
+                                               const DataBuffer &input,
+                                               DataBuffer *output) {
+    if (header.handshake_type() != kTlsHandshakeServerKeyExchange) {
+      return KEEP;
+    }
+
+    uint32_t value = 0;
+    EXPECT_TRUE(input.Read(0, 1, &value));
+    EXPECT_EQ(3U, value) << "curve type has to be 3";
+
+    EXPECT_TRUE(input.Read(1, 2, &value));
+    group_ = static_cast<SSLNamedGroup>(value);
+
+    return KEEP;
+  }
+
+ private:
+  SSLNamedGroup group_;
+};
+
+// If we strip the client's supported groups extension, the server should assume
+// P-256 is supported by the client (<= 1.2 only).
+TEST_P(TlsConnectGenericPre13, DropSupportedGroupExtensionP256) {
+  EnsureTlsSetup();
+  client_->SetPacketFilter(
+      std::make_shared<TlsExtensionDropper>(ssl_supported_groups_xtn));
+  auto group_capture = std::make_shared<TlsKeyExchangeGroupCapture>();
+  server_->SetPacketFilter(group_capture);
+
+  ConnectExpectFail();
+  client_->CheckErrorCode(SSL_ERROR_DECRYPT_ERROR_ALERT);
+  server_->CheckErrorCode(SSL_ERROR_BAD_HANDSHAKE_HASH_VALUE);
+
+  EXPECT_EQ(ssl_grp_ec_secp256r1, group_capture->group());
+}
+
+// Supported groups is mandatory in TLS 1.3.
+TEST_P(TlsConnectTls13, DropSupportedGroupExtension) {
+  EnsureTlsSetup();
+  client_->SetPacketFilter(
+      std::make_shared<TlsExtensionDropper>(ssl_supported_groups_xtn));
+  ConnectExpectFail();
+  client_->CheckErrorCode(SSL_ERROR_MISSING_EXTENSION_ALERT);
+  server_->CheckErrorCode(SSL_ERROR_MISSING_SUPPORTED_GROUPS_EXTENSION);
 }
 
 // If we only have a lame group, we fall back to static RSA.
@@ -507,14 +561,14 @@ class ECCServerKEXFilter : public TlsHandshakeFilter {
 
 TEST_P(TlsConnectGenericPre13, ConnectECDHEmptyServerPoint) {
   // add packet filter
-  server_->SetPacketFilter(new ECCServerKEXFilter());
+  server_->SetPacketFilter(std::make_shared<ECCServerKEXFilter>());
   ConnectExpectFail();
   client_->CheckErrorCode(SSL_ERROR_RX_MALFORMED_SERVER_KEY_EXCH);
 }
 
 TEST_P(TlsConnectGenericPre13, ConnectECDHEmptyClientPoint) {
   // add packet filter
-  client_->SetPacketFilter(new ECCClientKEXFilter());
+  client_->SetPacketFilter(std::make_shared<ECCClientKEXFilter>());
   ConnectExpectFail();
   server_->CheckErrorCode(SSL_ERROR_RX_MALFORMED_CLIENT_KEY_EXCH);
 }

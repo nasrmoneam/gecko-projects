@@ -125,7 +125,7 @@ public:
   ~TiledLayerBufferComposite();
 
   bool UseTiles(const SurfaceDescriptorTiles& aTileDescriptors,
-                Compositor* aCompositor,
+                HostLayerManager* aLayerManager,
                 ISurfaceAllocator* aAllocator);
 
   void Clear();
@@ -173,37 +173,12 @@ protected:
   ~TiledContentHost();
 
 public:
-  virtual LayerRenderState GetRenderState() override
-  {
-    // If we have exactly one high precision tile, then we can support hwc.
-    if (mTiledBuffer.GetTileCount() == 1 &&
-        mLowPrecisionTiledBuffer.GetTileCount() == 0) {
-      TextureHost* host = mTiledBuffer.GetTile(0).mTextureHost;
-      if (host) {
-        MOZ_ASSERT(!mTiledBuffer.GetTile(0).mTextureHostOnWhite, "Component alpha not supported!");
-
-        gfx::IntPoint offset = mTiledBuffer.GetTileOffset(mTiledBuffer.GetPlacement().TilePosition(0));
-
-        // Don't try to use HWC if the content doesn't start at the top-left of the tile.
-        if (offset != GetValidRegion().GetBounds().TopLeft()) {
-          return LayerRenderState();
-        }
-
-        LayerRenderState state = host->GetRenderState();
-        state.SetOffset(offset);
-        return state;
-      }
-    }
-    return LayerRenderState();
-  }
-
   // Generate effect for layerscope when using hwc.
   virtual already_AddRefed<TexturedEffect> GenEffect(const gfx::SamplingFilter aSamplingFilter) override;
 
   virtual bool UpdateThebes(const ThebesBufferData& aData,
                             const nsIntRegion& aUpdated,
-                            const nsIntRegion& aOldValidRegionBack,
-                            nsIntRegion* aUpdatedRegionBack) override
+                            const nsIntRegion& aOldValidRegionBack) override
   {
     NS_ERROR("N/A for tiled layers");
     return false;
@@ -236,7 +211,8 @@ public:
                          const gfx::Matrix4x4& aTransform,
                          const gfx::SamplingFilter aSamplingFilter,
                          const gfx::IntRect& aClipRect,
-                         const nsIntRegion* aVisibleRegion = nullptr) override;
+                         const nsIntRegion* aVisibleRegion = nullptr,
+                         const Maybe<gfx::Polygon>& aGeometry = Nothing()) override;
 
   virtual CompositableType GetType() override { return CompositableType::CONTENT_TILED; }
 
@@ -266,7 +242,8 @@ private:
                          const gfx::SamplingFilter aSamplingFilter,
                          const gfx::IntRect& aClipRect,
                          nsIntRegion aMaskRegion,
-                         gfx::Matrix4x4 aTransform);
+                         gfx::Matrix4x4 aTransform,
+                         const Maybe<gfx::Polygon>& aGeometry);
 
   // Renders a single given tile.
   void RenderTile(TileHost& aTile,
@@ -278,7 +255,8 @@ private:
                   const nsIntRegion& aScreenRegion,
                   const gfx::IntPoint& aTextureOffset,
                   const gfx::IntSize& aTextureBounds,
-                  const gfx::Rect& aVisibleRect);
+                  const gfx::Rect& aVisibleRect,
+                  const Maybe<gfx::Polygon>& aGeometry);
 
   void EnsureTileStore() {}
 

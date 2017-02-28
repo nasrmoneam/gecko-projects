@@ -1376,10 +1376,7 @@
       ; behaviors depending on the windows version. The following code attempts
       ; to address these differences.
       ;
-      ; On XP (no SP, SP1, SP2), Vista: An empty default string
-      ; must be set under ddeexec. Empty strings propagate to CR.
-      ;
-      ; Win7: IE does not configure ddeexec, so issues with left over ddeexec keys
+      ; IE does not configure ddeexec, so issues with left over ddeexec keys
       ; in LM are reduced. We configure an empty ddeexec key with an empty default
       ; string in CU to be sure.
       ;
@@ -1450,8 +1447,7 @@
 
 !macro RegisterDLL DLL
 
-  ; The x64 regsvr32.exe registers x86 DLL's properly on Windows Vista and above
-  ; (not on Windows XP http://support.microsoft.com/kb/282747) so just use it
+  ; The x64 regsvr32.exe registers x86 DLL's properly so just use it
   ; when installing on an x64 systems even when installing an x86 application.
   ${If} ${RunningX64}
     ${DisableX64FSRedirection}
@@ -1465,8 +1461,7 @@
 
 !macro UnregisterDLL DLL
 
-  ; The x64 regsvr32.exe registers x86 DLL's properly on Windows Vista and above
-  ; (not on Windows XP http://support.microsoft.com/kb/282747) so just use it
+  ; The x64 regsvr32.exe registers x86 DLL's properly so just use it
   ; when installing on an x64 systems even when installing an x86 application.
   ${If} ${RunningX64}
     ${DisableX64FSRedirection}
@@ -3261,7 +3256,11 @@
       ${${_MOZFUNC_UN}GetLongPath} "$INSTDIR" $R6
       StrLen $R4 "$R6"
 
+!ifdef HAVE_64BIT_BUILD
+      ${${_MOZFUNC_UN}GetLongPath} "$PROGRAMFILES64" $R5
+!else
       ${${_MOZFUNC_UN}GetLongPath} "$PROGRAMFILES" $R5
+!endif
       StrLen $R3 "$R5"
 
       ${If} $R7 != "" ; _OLD_REL_PATH was passed
@@ -4988,9 +4987,6 @@
 
       ${GetParameters} $R8
 
-      ; Require elevation if the user can elevate
-      ${ElevateUAC}
-
       ${If} $R8 != ""
         ; Default install type
         StrCpy $InstallType ${INSTALLTYPE_BASIC}
@@ -5043,14 +5039,28 @@
               FileClose $R5
               Delete $R6
               ${If} ${Errors}
-                ; Nothing initialized so no need to call OnEndCommon
-                Quit
+                ; Attempt to elevate and then try again.
+                ${ElevateUAC}
+                GetTempFileName $R6 "$INSTDIR"
+                FileOpen $R5 "$R6" w
+                FileWrite $R5 "Write Access Test"
+                FileClose $R5
+                Delete $R6
+                ${If} ${Errors}
+                  ; Nothing initialized so no need to call OnEndCommon
+                  Quit
+                ${EndIf}
               ${EndIf}
             ${Else}
               CreateDirectory "$INSTDIR"
               ${If} ${Errors}
-                ; Nothing initialized so no need to call OnEndCommon
-                Quit
+                ; Attempt to elevate and then try again.
+                ${ElevateUAC}
+                CreateDirectory "$INSTDIR"
+                ${If} ${Errors}
+                  ; Nothing initialized so no need to call OnEndCommon
+                  Quit
+                ${EndIf}
               ${EndIf}
             ${EndIf}
 
@@ -5085,6 +5095,9 @@
             ReadINIStr $R8 $R7 "Install" "MaintenanceService"
             ${If} $R8 == "false"
               StrCpy $InstallMaintenanceService "0"
+            ${Else}
+              ; Installing the service always requires elevation.
+              ${ElevateUAC}
             ${EndIf}
 
             !ifndef NO_STARTMENU_DIR
@@ -5094,9 +5107,19 @@
               ${EndIf}
             !endif
           ${EndIf}
+        ${Else}
+          ; If this isn't an INI install, we need to try to elevate now.
+          ; We'll check the user's permission level later on to determine the
+          ; default install path (which will be the real install path for /S).
+          ; If an INI file is used, we try to elevate down that path when needed.
+          ${ElevateUAC}
         ${EndUnless}
       ${EndIf}
       ClearErrors
+
+      ${IfNot} ${Silent}
+        ${ElevateUAC}
+      ${EndIf}
 
       Pop $R5
       Pop $R6
@@ -5683,7 +5706,7 @@
 # UAC Related Macros
 
 /**
- * Provides UAC elevation support for Vista and above (requires the UAC plugin).
+ * Provides UAC elevation support (requires the UAC plugin).
  *
  * $0 = return values from calls to the UAC plugin (always uses $0)
  * $R9 = return values from GetParameters and GetOptions macros
@@ -5707,87 +5730,83 @@
       Push $0
 
 !ifndef NONADMIN_ELEVATE
-        ${If} ${AtLeastWinVista}
-          UAC::IsAdmin
-          ; If the user is not an admin already
-          ${If} "$0" != "1"
-            UAC::SupportsUAC
-            ; If the system supports UAC
-            ${If} "$0" == "1"
-              UAC::GetElevationType
-              ; If the user account has a split token
-              ${If} "$0" == "3"
-                UAC::RunElevated
-                UAC::Unload
-                ; Nothing besides UAC initialized so no need to call OnEndCommon
-                Quit
-              ${EndIf}
-            ${EndIf}
-          ${Else}
-            ${GetParameters} $R9
-            ${If} $R9 != ""
-              ClearErrors
-              ${GetOptions} "$R9" "/UAC:" $0
-              ; If the command line contains /UAC then we need to initialize
-              ; the UAC plugin to use UAC::ExecCodeSegment to execute code in
-              ; the non-elevated context.
-              ${Unless} ${Errors}
-                UAC::RunElevated
-              ${EndUnless}
-            ${EndIf}
+      UAC::IsAdmin
+      ; If the user is not an admin already
+      ${If} "$0" != "1"
+        UAC::SupportsUAC
+        ; If the system supports UAC
+        ${If} "$0" == "1"
+          UAC::GetElevationType
+          ; If the user account has a split token
+          ${If} "$0" == "3"
+            UAC::RunElevated
+            UAC::Unload
+            ; Nothing besides UAC initialized so no need to call OnEndCommon
+            Quit
           ${EndIf}
         ${EndIf}
-!else
-      ${If} ${AtLeastWinVista}
-        UAC::IsAdmin
-        ; If the user is not an admin already
-        ${If} "$0" != "1"
-          UAC::SupportsUAC
-          ; If the system supports UAC require that the user elevate
-          ${If} "$0" == "1"
-            UAC::GetElevationType
-            ; If the user account has a split token
-            ${If} "$0" == "3"
-              UAC::RunElevated
-              UAC::Unload
-              ; Nothing besides UAC initialized so no need to call OnEndCommon
-              Quit
-            ${EndIf}
-          ${Else}
-            ; Check if UAC is enabled. If the user has turned UAC on or off
-            ; without rebooting this value will be incorrect. This is an
-            ; edgecase that we have to live with when trying to allow
-            ; installing when the user doesn't have privileges such as a public
-            ; computer while trying to also achieve UAC elevation. When this
-            ; happens the user will be presented with the runas dialog if the
-            ; value is 1 and won't be presented with the UAC dialog when the
-            ; value is 0.
-            ReadRegDWord $R9 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableLUA"
-            ${If} "$R9" == "1"
-              ; This will display the UAC version of the runas dialog which
-              ; requires a password for an existing user account.
-              UAC::RunElevated
-              ${If} "$0" == "0" ; Was elevation successful
-                UAC::Unload
-                ; Nothing besides UAC initialized so no need to call OnEndCommon
-                Quit
-              ${EndIf}
-              ; Unload UAC since the elevation request was not successful and
-              ; install anyway.
-              UAC::Unload
-            ${EndIf}
-          ${EndIf}
-        ${Else}
+      ${Else}
+        ${GetParameters} $R9
+        ${If} $R9 != ""
           ClearErrors
-          ${${_MOZFUNC_UN}GetParameters} $R9
-          ${${_MOZFUNC_UN}GetOptions} "$R9" "/UAC:" $R9
-          ; If the command line contains /UAC then we need to initialize the UAC
-          ; plugin to use UAC::ExecCodeSegment to execute code in the
-          ; non-elevated context.
+          ${GetOptions} "$R9" "/UAC:" $0
+          ; If the command line contains /UAC then we need to initialize
+          ; the UAC plugin to use UAC::ExecCodeSegment to execute code in
+          ; the non-elevated context.
           ${Unless} ${Errors}
             UAC::RunElevated
           ${EndUnless}
         ${EndIf}
+      ${EndIf}
+!else
+      UAC::IsAdmin
+      ; If the user is not an admin already
+      ${If} "$0" != "1"
+        UAC::SupportsUAC
+        ; If the system supports UAC require that the user elevate
+        ${If} "$0" == "1"
+          UAC::GetElevationType
+          ; If the user account has a split token
+          ${If} "$0" == "3"
+            UAC::RunElevated
+            UAC::Unload
+            ; Nothing besides UAC initialized so no need to call OnEndCommon
+            Quit
+          ${EndIf}
+        ${Else}
+          ; Check if UAC is enabled. If the user has turned UAC on or off
+          ; without rebooting this value will be incorrect. This is an
+          ; edgecase that we have to live with when trying to allow
+          ; installing when the user doesn't have privileges such as a public
+          ; computer while trying to also achieve UAC elevation. When this
+          ; happens the user will be presented with the runas dialog if the
+          ; value is 1 and won't be presented with the UAC dialog when the
+          ; value is 0.
+          ReadRegDWord $R9 HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" "EnableLUA"
+          ${If} "$R9" == "1"
+            ; This will display the UAC version of the runas dialog which
+            ; requires a password for an existing user account.
+            UAC::RunElevated
+            ${If} "$0" == "0" ; Was elevation successful
+              UAC::Unload
+              ; Nothing besides UAC initialized so no need to call OnEndCommon
+              Quit
+            ${EndIf}
+            ; Unload UAC since the elevation request was not successful and
+            ; install anyway.
+            UAC::Unload
+          ${EndIf}
+        ${EndIf}
+      ${Else}
+        ClearErrors
+        ${${_MOZFUNC_UN}GetParameters} $R9
+        ${${_MOZFUNC_UN}GetOptions} "$R9" "/UAC:" $R9
+        ; If the command line contains /UAC then we need to initialize the UAC
+        ; plugin to use UAC::ExecCodeSegment to execute code in the
+        ; non-elevated context.
+        ${Unless} ${Errors}
+          UAC::RunElevated
+        ${EndUnless}
       ${EndIf}
 !endif
 
@@ -5851,10 +5870,6 @@
     !define ${_MOZFUNC_UN}UnloadUAC "!insertmacro ${_MOZFUNC_UN}UnloadUACCall"
 
     Function ${_MOZFUNC_UN}UnloadUAC
-      ${Unless} ${AtLeastWinVista}
-        Return
-      ${EndUnless}
-
       Push $R9
 
       ClearErrors
@@ -5984,13 +5999,7 @@
       ${LogMsg} "App Version: $R8"
       ${LogMsg} "GRE Version: $R9"
 
-      ${If} ${IsWinXP}
-        ${LogMsg} "OS Name    : Windows XP"
-      ${ElseIf} ${IsWin2003}
-        ${LogMsg} "OS Name    : Windows 2003"
-      ${ElseIf} ${IsWinVista}
-        ${LogMsg} "OS Name    : Windows Vista"
-      ${ElseIf} ${IsWin7}
+      ${If} ${IsWin7}
         ${LogMsg} "OS Name    : Windows 7"
       ${ElseIf} ${IsWin8}
         ${LogMsg} "OS Name    : Windows 8"
@@ -6472,8 +6481,8 @@
 # Macros for managing specific Windows version features
 
 /**
- * Sets the permitted layered service provider (LSP) categories on Windows
- * Vista and above for the application. Consumers should call this after an
+ * Sets the permitted layered service provider (LSP) categories
+ * for the application. Consumers should call this after an
  * installation log section has completed since this macro will log the results
  * to the installation log along with a header.
  *
@@ -6506,10 +6515,6 @@
     !define ${_MOZFUNC_UN}SetAppLSPCategories "!insertmacro ${_MOZFUNC_UN}SetAppLSPCategoriesCall"
 
     Function ${_MOZFUNC_UN}SetAppLSPCategories
-      ${Unless} ${AtLeastWinVista}
-        Return
-      ${EndUnless}
-
       Exch $R9
       Push $R8
       Push $R7
@@ -7834,4 +7839,3 @@
   Pop $1
   Exch $0 ; return elapsed seconds
 !macroend
-

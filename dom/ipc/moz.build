@@ -20,12 +20,12 @@ EXPORTS.mozilla.dom += [
     'ContentBridgeParent.h',
     'ContentChild.h',
     'ContentParent.h',
+    'ContentPrefs.h',
     'ContentProcess.h',
     'ContentProcessManager.h',
     'CPOWManagerGetter.h',
-    'CrashReporterChild.h',
-    'CrashReporterParent.h',
     'FilePickerParent.h',
+    'MemoryReportRequest.h',
     'nsIContentChild.h',
     'nsIContentParent.h',
     'PermissionMessageUtils.h',
@@ -38,6 +38,7 @@ EXPORTS.mozilla.dom += [
 ]
 
 EXPORTS.mozilla += [
+    'PreallocatedProcessManager.h',
     'ProcessHangMonitor.h',
     'ProcessHangMonitorIPC.h',
     'ProcessPriorityManager.h',
@@ -48,14 +49,16 @@ UNIFIED_SOURCES += [
     'ContentBridgeChild.cpp',
     'ContentBridgeParent.cpp',
     'ContentParent.cpp',
+    'ContentPrefs.cpp',
     'ContentProcess.cpp',
     'ContentProcessManager.cpp',
-    'CrashReporterParent.cpp',
     'DatePickerParent.cpp',
     'FilePickerParent.cpp',
+    'MemoryReportRequest.cpp',
     'nsIContentChild.cpp',
     'nsIContentParent.cpp',
     'PermissionMessageUtils.cpp',
+    'PreallocatedProcessManager.cpp',
     'ProcessPriorityManager.cpp',
     'ScreenManagerParent.cpp',
     'StructuredCloneData.cpp',
@@ -67,17 +70,15 @@ UNIFIED_SOURCES += [
     'URLClassifierParent.cpp',
 ]
 
-# CrashReporterChild.cpp cannot be compiled in unified mode because of name clashes
-# in OS X headers.
 # ContentChild.cpp cannot be compiled in unified mode on  linux due to Time conflict
 SOURCES += [
     'ContentChild.cpp',
-    'CrashReporterChild.cpp',
     'ProcessHangMonitor.cpp',
 ]
 
 IPDL_SOURCES += [
     'DOMTypes.ipdlh',
+    'MemoryReportTypes.ipdlh',
     'PBrowser.ipdl',
     'PBrowserOrId.ipdlh',
     'PColorPicker.ipdl',
@@ -85,17 +86,16 @@ IPDL_SOURCES += [
     'PContentBridge.ipdl',
     'PContentPermission.ipdlh',
     'PContentPermissionRequest.ipdl',
-    'PCrashReporter.ipdl',
     'PCycleCollectWithLogs.ipdl',
     'PDatePicker.ipdl',
     'PDocumentRenderer.ipdl',
     'PFilePicker.ipdl',
-    'PMemoryReportRequest.ipdl',
     'PPluginWidget.ipdl',
     'PProcessHangMonitor.ipdl',
     'PScreenManager.ipdl',
     'PTabContext.ipdlh',
     'PURLClassifier.ipdl',
+    'PURLClassifierInfo.ipdlh',
     'ServiceWorkerConfiguration.ipdlh',
 ]
 
@@ -126,7 +126,6 @@ LOCAL_INCLUDES += [
     '/dom/security',
     '/dom/storage',
     '/dom/workers',
-    '/embedding/components/printingui/ipc',
     '/extensions/cookie',
     '/extensions/spellcheck/src',
     '/gfx/2d',
@@ -134,6 +133,7 @@ LOCAL_INCLUDES += [
     '/layout/base',
     '/media/webrtc',
     '/netwerk/base',
+    '/toolkit/components/printingui/ipc',
     '/toolkit/crashreporter',
     '/toolkit/xre',
     '/uriloader/exthandler',

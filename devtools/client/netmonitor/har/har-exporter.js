@@ -2,21 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* eslint-disable mozilla/reject-some-requires */
-
 "use strict";
 
-const { Cc, Ci } = require("chrome");
 const Services = require("Services");
-const { XPCOMUtils } = require("resource://gre/modules/XPCOMUtils.jsm");
-const { resolve } = require("promise");
+const clipboardHelper = require("devtools/shared/platform/clipboard");
 const { HarUtils } = require("./har-utils.js");
 const { HarBuilder } = require("./har-builder.js");
-
-XPCOMUtils.defineLazyGetter(this, "clipboardHelper", function () {
-  return Cc["@mozilla.org/widget/clipboardhelper;1"]
-    .getService(Ci.nsIClipboardHelper);
-});
 
 var uid = 1;
 
@@ -46,8 +37,7 @@ const HarExporter = {
    *   are also included in the HAR file (can produce significantly bigger
    *   amount of data).
    *
-   * - items {Array}: List of Network requests to be exported. It is possible
-   *   to use directly: NetMonitorView.RequestsMenu.items
+   * - items {Array}: List of Network requests to be exported.
    *
    * - jsonp {Boolean}: If set to true the export format is HARP (support
    *   for JSONP syntax).
@@ -59,8 +49,8 @@ const HarExporter = {
    *   This represents great disk-space optimization.
    *
    * - defaultFileName {String}: Default name of the target HAR file.
-   *   The default file name supports formatters, see:
-   *   https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/toLocaleFormat
+   *   The default file name supports the format specifier %date to output the
+   *   current date/time.
    *
    * - defaultLogDir {String}: Default log directory for automated logs.
    *
@@ -84,7 +74,7 @@ const HarExporter = {
       options.jsonp, options.compress);
 
     if (!file) {
-      return resolve();
+      return Promise.resolve();
     }
 
     trace.log("HarExporter.save; " + options.defaultFileName, options);
@@ -133,12 +123,12 @@ const HarExporter = {
       // Do not export an empty HAR file, unless the user
       // explicitly says so (using the forceExport option).
       if (!har.log.entries.length && !options.forceExport) {
-        return resolve();
+        return Promise.resolve();
       }
 
       let jsonString = this.stringify(har);
       if (!jsonString) {
-        return resolve();
+        return Promise.resolve();
       }
 
       // If JSONP is wanted, wrap the string in a function call

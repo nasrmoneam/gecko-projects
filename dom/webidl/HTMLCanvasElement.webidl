@@ -13,6 +13,7 @@
 interface nsISupports;
 interface Variant;
 
+[HTMLConstructor]
 interface HTMLCanvasElement : HTMLElement {
   [Pure, SetterThrows]
            attribute unsigned long width;
@@ -67,4 +68,4 @@ interface MozCanvasPrintState
 
 callback PrintCallback = void(MozCanvasPrintState ctx);
 
-callback BlobCallback = void(Blob blob);
+callback BlobCallback = void(Blob? blob);

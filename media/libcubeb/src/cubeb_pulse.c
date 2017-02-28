@@ -12,6 +12,7 @@
 #include <string.h>
 #include "cubeb/cubeb.h"
 #include "cubeb-internal.h"
+#include "cubeb_mixer.h"
 #include <stdio.h>
 
 #ifdef DISABLE_LIBPULSE_DLOPEN
@@ -20,7 +21,7 @@
 #define WRAP(x) cubeb_##x
 #define LIBPULSE_API_VISIT(X)                   \
   X(pa_channel_map_can_balance)                 \
-  X(pa_channel_map_init_auto)                   \
+  X(pa_channel_map_init)                        \
   X(pa_context_connect)                         \
   X(pa_context_disconnect)                      \
   X(pa_context_drain)                           \
@@ -468,6 +469,73 @@ stream_update_timing_info(cubeb_stream * stm)
   return r;
 }
 
+static pa_channel_position_t
+cubeb_channel_to_pa_channel(cubeb_channel channel)
+{
+  assert(channel != CHANNEL_INVALID);
+
+  // This variable may be used for multiple times, so we should avoid to
+  // allocate it in stack, or it will be created and removed repeatedly.
+  // Use static to allocate this local variable in data space instead of stack.
+  static pa_channel_position_t map[CHANNEL_MAX] = {
+    // PA_CHANNEL_POSITION_INVALID,      // CHANNEL_INVALID
+    PA_CHANNEL_POSITION_MONO,         // CHANNEL_MONO
+    PA_CHANNEL_POSITION_FRONT_LEFT,   // CHANNEL_LEFT
+    PA_CHANNEL_POSITION_FRONT_RIGHT,  // CHANNEL_RIGHT
+    PA_CHANNEL_POSITION_FRONT_CENTER, // CHANNEL_CENTER
+    PA_CHANNEL_POSITION_SIDE_LEFT,    // CHANNEL_LS
+    PA_CHANNEL_POSITION_SIDE_RIGHT,   // CHANNEL_RS
+    PA_CHANNEL_POSITION_REAR_LEFT,    // CHANNEL_RLS
+    PA_CHANNEL_POSITION_REAR_CENTER,  // CHANNEL_RCENTER
+    PA_CHANNEL_POSITION_REAR_RIGHT,   // CHANNEL_RRS
+    PA_CHANNEL_POSITION_LFE           // CHANNEL_LFE
+  };
+
+  return map[channel];
+}
+
+static cubeb_channel
+pa_channel_to_cubeb_channel(pa_channel_position_t channel)
+{
+  assert(channel != PA_CHANNEL_POSITION_INVALID);
+  switch(channel) {
+    case PA_CHANNEL_POSITION_MONO: return CHANNEL_MONO;
+    case PA_CHANNEL_POSITION_FRONT_LEFT: return CHANNEL_LEFT;
+    case PA_CHANNEL_POSITION_FRONT_RIGHT: return CHANNEL_RIGHT;
+    case PA_CHANNEL_POSITION_FRONT_CENTER: return CHANNEL_CENTER;
+    case PA_CHANNEL_POSITION_SIDE_LEFT: return CHANNEL_LS;
+    case PA_CHANNEL_POSITION_SIDE_RIGHT: return CHANNEL_RS;
+    case PA_CHANNEL_POSITION_REAR_LEFT: return CHANNEL_RLS;
+    case PA_CHANNEL_POSITION_REAR_CENTER: return CHANNEL_RCENTER;
+    case PA_CHANNEL_POSITION_REAR_RIGHT: return CHANNEL_RRS;
+    case PA_CHANNEL_POSITION_LFE: return CHANNEL_LFE;
+    default: return CHANNEL_INVALID;
+  }
+}
+
+static void
+layout_to_channel_map(cubeb_channel_layout layout, pa_channel_map * cm)
+{
+  assert(cm && layout != CUBEB_LAYOUT_UNDEFINED);
+
+  WRAP(pa_channel_map_init)(cm);
+  cm->channels = CUBEB_CHANNEL_LAYOUT_MAPS[layout].channels;
+  for (uint8_t i = 0 ; i < cm->channels ; ++i) {
+    cm->map[i] = cubeb_channel_to_pa_channel(CHANNEL_INDEX_TO_ORDER[layout][i]);
+  }
+}
+
+static cubeb_channel_layout
+channel_map_to_layout(pa_channel_map * cm)
+{
+  cubeb_channel_map cubeb_map;
+  cubeb_map.channels = cm->channels;
+  for (uint32_t i = 0 ; i < cm->channels ; ++i) {
+    cubeb_map.map[i] = pa_channel_to_cubeb_channel(cm->map[i]);
+  }
+  return cubeb_channel_map_to_layout(&cubeb_map);
+}
+
 static void pulse_context_destroy(cubeb * ctx);
 static void pulse_destroy(cubeb * ctx);
 
@@ -597,6 +665,23 @@ pulse_get_preferred_sample_rate(cubeb * ctx, uint32_t * rate)
 }
 
 static int
+pulse_get_preferred_channel_layout(cubeb * ctx, cubeb_channel_layout * layout)
+{
+  assert(ctx && layout);
+  (void)ctx;
+
+  WRAP(pa_threaded_mainloop_lock)(ctx->mainloop);
+  while (!ctx->default_sink_info) {
+    WRAP(pa_threaded_mainloop_wait)(ctx->mainloop);
+  }
+  WRAP(pa_threaded_mainloop_unlock)(ctx->mainloop);
+
+  *layout = channel_map_to_layout(&ctx->default_sink_info->channel_map);
+
+  return CUBEB_OK;
+}
+
+static int
 pulse_get_min_latency(cubeb * ctx, cubeb_stream_params params, uint32_t * latency_frames)
 {
   (void)ctx;
@@ -672,7 +757,8 @@ create_pa_stream(cubeb_stream * stm,
                  cubeb_stream_params * stream_params,
                  char const * stream_name)
 {
-  assert(stm && stream_params);
+  assert(stm && stream_params && stream_params->layout != CUBEB_LAYOUT_UNDEFINED &&
+         CUBEB_CHANNEL_LAYOUT_MAPS[stream_params->layout].channels == stream_params->channels);
   *pa_stm = NULL;
   pa_sample_spec ss;
   ss.format = to_pulse_format(stream_params->format);
@@ -681,7 +767,10 @@ create_pa_stream(cubeb_stream * stm,
   ss.rate = stream_params->rate;
   ss.channels = stream_params->channels;
 
-  *pa_stm = WRAP(pa_stream_new)(stm->context->context, stream_name, &ss, NULL);
+  pa_channel_map cm;
+  layout_to_channel_map(stream_params->layout, &cm);
+
+  *pa_stm = WRAP(pa_stream_new)(stm->context->context, stream_name, &ss, &cm);
   return (*pa_stm == NULL) ? CUBEB_ERROR : CUBEB_OK;
 }
 
@@ -1111,7 +1200,7 @@ pulse_get_state_from_sink_port(pa_sink_port_info * info)
       return CUBEB_DEVICE_STATE_ENABLED;
   }
 
-  return CUBEB_DEVICE_STATE_DISABLED;
+  return CUBEB_DEVICE_STATE_ENABLED;
 }
 
 static void
@@ -1141,7 +1230,8 @@ pulse_sink_info_cb(pa_context * context, const pa_sink_info * info,
 
   devinfo->type = CUBEB_DEVICE_TYPE_OUTPUT;
   devinfo->state = pulse_get_state_from_sink_port(info->active_port);
-  devinfo->preferred = strcmp(info->name, list_data->default_sink_name) == 0;
+  devinfo->preferred = (strcmp(info->name, list_data->default_sink_name) == 0) ?
+				 CUBEB_DEVICE_PREF_ALL : CUBEB_DEVICE_PREF_NONE;
 
   devinfo->format = CUBEB_DEVICE_FMT_ALL;
   devinfo->default_format = pulse_format_to_cubeb_format(info->sample_spec.format);
@@ -1171,7 +1261,7 @@ pulse_get_state_from_source_port(pa_source_port_info * info)
       return CUBEB_DEVICE_STATE_ENABLED;
   }
 
-  return CUBEB_DEVICE_STATE_DISABLED;
+  return CUBEB_DEVICE_STATE_ENABLED;
 }
 
 static void
@@ -1201,7 +1291,8 @@ pulse_source_info_cb(pa_context * context, const pa_source_info * info,
 
   devinfo->type = CUBEB_DEVICE_TYPE_INPUT;
   devinfo->state = pulse_get_state_from_source_port(info->active_port);
-  devinfo->preferred = strcmp(info->name, list_data->default_source_name) == 0;
+  devinfo->preferred = (strcmp(info->name, list_data->default_source_name) == 0) ?
+				   CUBEB_DEVICE_PREF_ALL : CUBEB_DEVICE_PREF_NONE;
 
   devinfo->format = CUBEB_DEVICE_FMT_ALL;
   devinfo->default_format = pulse_format_to_cubeb_format(info->sample_spec.format);
@@ -1410,6 +1501,7 @@ static struct cubeb_ops const pulse_ops = {
   .get_max_channel_count = pulse_get_max_channel_count,
   .get_min_latency = pulse_get_min_latency,
   .get_preferred_sample_rate = pulse_get_preferred_sample_rate,
+  .get_preferred_channel_layout = pulse_get_preferred_channel_layout,
   .enumerate_devices = pulse_enumerate_devices,
   .destroy = pulse_destroy,
   .stream_init = pulse_stream_init,

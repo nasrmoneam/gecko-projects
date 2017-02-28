@@ -10,5 +10,7 @@ DevToolsModules(
     'App.js',
     'Grid.js',
     'GridDisplaySettings.js',
+    'GridItem.js',
     'GridList.js',
+    'GridOutline.js',
 )

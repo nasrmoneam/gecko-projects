@@ -47,5 +47,8 @@ PK11SymKey *SSLInt_CipherSpecToKey(PRBool isServer, ssl3CipherSpec *spec);
 SSLCipherAlgorithm SSLInt_CipherSpecToAlgorithm(PRBool isServer,
                                                 ssl3CipherSpec *spec);
 unsigned char *SSLInt_CipherSpecToIv(PRBool isServer, ssl3CipherSpec *spec);
+SECStatus SSLInt_EnableShortHeaders(PRFileDesc *fd);
+SECStatus SSLInt_UsingShortHeaders(PRFileDesc *fd, PRBool *result);
+void SSLInt_SetTicketLifetime(uint32_t lifetime);
 
 #endif  // ndef libssl_internals_h_

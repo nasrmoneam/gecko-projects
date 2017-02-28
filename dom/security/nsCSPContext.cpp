@@ -168,9 +168,10 @@ nsCSPContext::ShouldLoad(nsContentPolicyType aContentType,
     }
   }
 
-  // aExtra is only non-null if the channel got redirected.
-  bool wasRedirected = (aExtra != nullptr);
+  // aExtra holds the original URI of the channel if the
+  // channel got redirected (until we fix Bug 1332422).
   nsCOMPtr<nsIURI> originalURI = do_QueryInterface(aExtra);
+  bool wasRedirected = originalURI;
 
   bool permitted = permitsInternal(dir,
                                    aContentLocation,
@@ -346,9 +347,9 @@ NS_IMETHODIMP
 nsCSPContext::GetReferrerPolicy(uint32_t* outPolicy, bool* outIsSet)
 {
   *outIsSet = false;
-  *outPolicy = mozilla::net::RP_Default;
+  *outPolicy = mozilla::net::RP_Unset;
   nsAutoString refpol;
-  mozilla::net::ReferrerPolicy previousPolicy = mozilla::net::RP_Default;
+  mozilla::net::ReferrerPolicy previousPolicy = mozilla::net::RP_Unset;
   for (uint32_t i = 0; i < mPolicies.Length(); i++) {
     mPolicies[i]->getReferrerPolicy(refpol);
     // only set the referrer policy if not delievered through a CSPRO and
@@ -1012,7 +1013,7 @@ nsCSPContext::SendReports(nsISupports* aBlockedContentSource,
 
     if (NS_FAILED(rv)) {
       const char16_t* params[] = { reportURIs[r].get() };
-      CSPCONTEXTLOG(("AsyncOpen failed for report URI %s", params[0]));
+      CSPCONTEXTLOG(("AsyncOpen failed for report URI %s", NS_ConvertUTF16toUTF8(params[0]).get()));
       logToConsole(u"triedToSendReport", params, ArrayLength(params),
                    aSourceFile, aScriptSample, aLineNum, 0, nsIScriptError::errorFlag);
     } else {
@@ -1227,6 +1228,10 @@ nsCSPContext::PermitsAncestry(nsIDocShell* aDocShell, bool* outPermitsAncestry)
   // iterate through each docShell parent item
   while (NS_SUCCEEDED(treeItem->GetParent(getter_AddRefs(parentTreeItem))) &&
          parentTreeItem != nullptr) {
+    // stop when reaching chrome
+    if (parentTreeItem->ItemType() == nsIDocShellTreeItem::typeChrome) {
+      break;
+    }
 
     nsIDocument* doc = parentTreeItem->GetDocument();
     NS_ASSERTION(doc, "Could not get nsIDocument from nsIDocShellTreeItem in nsCSPContext::PermitsAncestry");
@@ -1235,12 +1240,6 @@ nsCSPContext::PermitsAncestry(nsIDocShell* aDocShell, bool* outPermitsAncestry)
     currentURI = doc->GetDocumentURI();
 
     if (currentURI) {
-      // stop when reaching chrome
-      bool isChrome = false;
-      rv = currentURI->SchemeIs("chrome", &isChrome);
-      NS_ENSURE_SUCCESS(rv, rv);
-      if (isChrome) { break; }
-
       // delete the userpass from the URI.
       rv = currentURI->CloneIgnoringRef(getter_AddRefs(uriClone));
       NS_ENSURE_SUCCESS(rv, rv);
@@ -1373,7 +1372,7 @@ nsCSPContext::GetCSPSandboxFlags(uint32_t* aOutSandboxFlags)
       mPolicies[i]->toString(policy);
 
       CSPCONTEXTLOG(("nsCSPContext::GetCSPSandboxFlags, report only policy, ignoring sandbox in: %s",
-                    policy.get()));
+                     NS_ConvertUTF16toUTF8(policy).get()));
 
       const char16_t* params[] = { policy.get() };
       logToConsole(u"ignoringReportOnlyDirective", params, ArrayLength(params),

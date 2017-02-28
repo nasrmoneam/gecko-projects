@@ -13,30 +13,105 @@
 #include "mozilla/CSSStyleSheet.h"
 
 #include "mozAutoDocUpdate.h"
-#include "nsIMediaList.h"
+#include "nsMediaList.h"
 #include "nsNullPrincipal.h"
 
 namespace mozilla {
 
 StyleSheet::StyleSheet(StyleBackendType aType, css::SheetParsingMode aParsingMode)
-  : mDocument(nullptr)
+  : mParent(nullptr)
+  , mDocument(nullptr)
   , mOwningNode(nullptr)
   , mParsingMode(aParsingMode)
   , mType(aType)
   , mDisabled(false)
+  , mDocumentAssociationMode(NotOwnedByDocument)
+  , mInner(nullptr)
 {
 }
 
 StyleSheet::StyleSheet(const StyleSheet& aCopy,
                        nsIDocument* aDocumentToUse,
                        nsINode* aOwningNodeToUse)
-  : mTitle(aCopy.mTitle)
+  : mParent(nullptr)
+  , mTitle(aCopy.mTitle)
   , mDocument(aDocumentToUse)
   , mOwningNode(aOwningNodeToUse)
   , mParsingMode(aCopy.mParsingMode)
   , mType(aCopy.mType)
   , mDisabled(aCopy.mDisabled)
+    // We only use this constructor during cloning.  It's the cloner's
+    // responsibility to notify us if we end up being owned by a document.
+  , mDocumentAssociationMode(NotOwnedByDocument)
+  , mInner(aCopy.mInner) // Shallow copy, but concrete subclasses will fix up.
 {
+  MOZ_ASSERT(mInner, "Should only copy StyleSheets with an mInner.");
+  mInner->AddSheet(this);
+
+  if (aCopy.mMedia) {
+    // XXX This is wrong; we should be keeping @import rules and
+    // sheets in sync!
+    mMedia = aCopy.mMedia->Clone();
+  }
+}
+
+StyleSheet::~StyleSheet()
+{
+  MOZ_ASSERT(mInner, "Should have an mInner at time of destruction.");
+  MOZ_ASSERT(mInner->mSheets.Contains(this), "Our mInner should include us.");
+  mInner->RemoveSheet(this);
+  mInner = nullptr;
+
+  DropMedia();
+}
+
+void
+StyleSheet::UnlinkInner()
+{
+  // We can only have a cycle through our inner if we have a unique inner,
+  // because otherwise there are no JS wrappers for anything in the inner.
+  if (mInner->mSheets.Length() != 1) {
+    return;
+  }
+
+  // Have to be a bit careful with child sheets, because we want to
+  // drop their mNext pointers and null out their mParent and
+  // mDocument, but don't want to work with deleted objects.  And we
+  // don't want to do any addrefing in the process, just to make sure
+  // we don't confuse the cycle collector (though on the face of it,
+  // addref/release pairs during unlink should probably be ok).
+  RefPtr<StyleSheet> child;
+  child.swap(SheetInfo().mFirstChild);
+  while (child) {
+    MOZ_ASSERT(child->mParent == this, "We have a unique inner!");
+    child->mParent = nullptr;
+    child->mDocument = nullptr;
+
+    RefPtr<StyleSheet> next;
+    // Null out child->mNext, but don't let it die yet
+    next.swap(child->mNext);
+    // Switch to looking at the old value of child->mNext next iteration
+    child.swap(next);
+    // "next" is now our previous value of child; it'll get released
+    // as we loop around.
+  }
+}
+
+void
+StyleSheet::TraverseInner(nsCycleCollectionTraversalCallback &cb)
+{
+  // We can only have a cycle through our inner if we have a unique inner,
+  // because otherwise there are no JS wrappers for anything in the inner.
+  if (mInner->mSheets.Length() != 1) {
+    return;
+  }
+
+  StyleSheet* childSheet = GetFirstChild();
+  while (childSheet) {
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "child sheet");
+    cb.NoteXPCOMChild(NS_ISUPPORTS_CAST(nsIDOMCSSStyleSheet*, childSheet));
+    childSheet = childSheet->mNext;
+  }
 }
 
 // QueryInterface implementation for StyleSheet
@@ -49,7 +124,20 @@ NS_INTERFACE_MAP_END
 NS_IMPL_CYCLE_COLLECTING_ADDREF(StyleSheet)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(StyleSheet)
 
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_0(StyleSheet)
+NS_IMPL_CYCLE_COLLECTION_CLASS(StyleSheet)
+
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(StyleSheet)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMedia)
+  tmp->TraverseInner(cb);
+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(StyleSheet)
+  tmp->DropMedia();
+  tmp->UnlinkInner();
+  NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
+NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+
+NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(StyleSheet)
 
 mozilla::dom::CSSStyleSheetParsingMode
 StyleSheet::ParsingModeDOM()
@@ -94,6 +182,22 @@ StyleSheet::SetComplete()
   }
 }
 
+void
+StyleSheet::SetEnabled(bool aEnabled)
+{
+  // Internal method, so callers must handle BeginUpdate/EndUpdate
+  bool oldDisabled = mDisabled;
+  mDisabled = !aEnabled;
+
+  if (IsComplete() && oldDisabled != mDisabled) {
+    EnabledStateChanged();
+
+    if (mDocument) {
+      mDocument->SetStyleSheetApplicableState(this, !mDisabled);
+    }
+  }
+}
+
 StyleSheetInfo::StyleSheetInfo(CORSMode aCORSMode,
                                ReferrerPolicy aReferrerPolicy,
                                const dom::SRIMetadata& aIntegrity)
@@ -109,6 +213,43 @@ StyleSheetInfo::StyleSheetInfo(CORSMode aCORSMode,
   if (!mPrincipal) {
     NS_RUNTIMEABORT("nsNullPrincipal::Init failed");
   }
+}
+
+StyleSheetInfo::StyleSheetInfo(StyleSheetInfo& aCopy,
+                               StyleSheet* aPrimarySheet)
+  : mSheetURI(aCopy.mSheetURI)
+  , mOriginalSheetURI(aCopy.mOriginalSheetURI)
+  , mBaseURI(aCopy.mBaseURI)
+  , mPrincipal(aCopy.mPrincipal)
+  , mCORSMode(aCopy.mCORSMode)
+  , mReferrerPolicy(aCopy.mReferrerPolicy)
+  , mIntegrity(aCopy.mIntegrity)
+  , mComplete(aCopy.mComplete)
+  , mFirstChild()  // We don't rebuild the child because we're making a copy
+                   // without children.
+#ifdef DEBUG
+  , mPrincipalSet(aCopy.mPrincipalSet)
+#endif
+{
+  AddSheet(aPrimarySheet);
+}
+
+void
+StyleSheetInfo::AddSheet(StyleSheet* aSheet)
+{
+  mSheets.AppendElement(aSheet);
+}
+
+void
+StyleSheetInfo::RemoveSheet(StyleSheet* aSheet)
+{
+  if (1 == mSheets.Length()) {
+    NS_ASSERTION(aSheet == mSheets.ElementAt(0), "bad parent");
+    delete this;
+    return;
+  }
+
+  mSheets.RemoveElement(aSheet);
 }
 
 // nsIDOMStyleSheet interface
@@ -132,11 +273,7 @@ StyleSheet::SetDisabled(bool aDisabled)
 {
   // DOM method, so handle BeginUpdate/EndUpdate
   MOZ_AUTO_DOC_UPDATE(mDocument, UPDATE_STYLE, true);
-  if (IsGecko()) {
-    AsGecko()->SetEnabled(!aDisabled);
-  } else {
-    MOZ_CRASH("stylo: unimplemented SetEnabled");
-  }
+  SetEnabled(!aDisabled);
   return NS_OK;
 }
 
@@ -261,7 +398,28 @@ StyleSheet::DeleteRule(uint32_t aIndex,
   FORWARD_INTERNAL(DeleteRuleInternal, (aIndex, aRv))
 }
 
+void
+StyleSheet::EnabledStateChanged()
+{
+  FORWARD_INTERNAL(EnabledStateChangedInternal, ())
+}
+
 #undef FORWARD_INTERNAL
+
+void
+StyleSheet::UnparentChildren()
+{
+  // XXXbz this is a little bogus; see the XXX comment where we
+  // declare mFirstChild in StyleSheetInfo.
+  for (StyleSheet* child = GetFirstChild();
+       child;
+       child = child->mNext) {
+    if (child->mParent == this) {
+      child->mParent = nullptr;
+      child->mDocument = nullptr;
+    }
+  }
+}
 
 void
 StyleSheet::SubjectSubsumesInnerPrincipal(nsIPrincipal& aSubjectPrincipal,
@@ -318,6 +476,138 @@ StyleSheet::AreRulesAvailable(nsIPrincipal& aSubjectPrincipal,
     return false;
   }
   return true;
+}
+
+StyleSheet*
+StyleSheet::GetFirstChild() const
+{
+  return SheetInfo().mFirstChild;
+}
+
+void
+StyleSheet::SetAssociatedDocument(nsIDocument* aDocument,
+                                  DocumentAssociationMode aAssociationMode)
+{
+  MOZ_ASSERT_IF(!aDocument, aAssociationMode == NotOwnedByDocument);
+
+  // not ref counted
+  mDocument = aDocument;
+  mDocumentAssociationMode = aAssociationMode;
+
+  // Now set the same document on all our child sheets....
+  // XXXbz this is a little bogus; see the XXX comment where we
+  // declare mFirstChild.
+  for (StyleSheet* child = GetFirstChild();
+       child; child = child->mNext) {
+    if (child->mParent == this) {
+      child->SetAssociatedDocument(aDocument, aAssociationMode);
+    }
+  }
+}
+
+void
+StyleSheet::ClearAssociatedDocument()
+{
+  SetAssociatedDocument(nullptr, NotOwnedByDocument);
+}
+
+void
+StyleSheet::AppendStyleSheet(StyleSheet* aSheet)
+{
+  NS_PRECONDITION(nullptr != aSheet, "null arg");
+
+  WillDirty();
+  RefPtr<StyleSheet>* tail = &SheetInfo().mFirstChild;
+  while (*tail) {
+    tail = &(*tail)->mNext;
+  }
+  *tail = aSheet;
+
+  // This is not reference counted. Our parent tells us when
+  // it's going away.
+  aSheet->mParent = this;
+  aSheet->mDocument = mDocument;
+  DidDirty();
+}
+
+size_t
+StyleSheet::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
+{
+  size_t n = 0;
+  const StyleSheet* s = this;
+  while (s) {
+    n += aMallocSizeOf(s);
+
+    // Measurement of the following members may be added later if DMD finds it
+    // is worthwhile:
+    // - s->mTitle
+    // - s->mMedia
+
+    s = s->mNext;
+  }
+  return n;
+}
+
+#ifdef DEBUG
+void
+StyleSheet::List(FILE* out, int32_t aIndent) const
+{
+  int32_t index;
+
+  // Indent
+  nsAutoCString str;
+  for (index = aIndent; --index >= 0; ) {
+    str.AppendLiteral("  ");
+  }
+
+  str.AppendLiteral("CSS Style Sheet: ");
+  nsAutoCString urlSpec;
+  nsresult rv = GetSheetURI()->GetSpec(urlSpec);
+  if (NS_SUCCEEDED(rv) && !urlSpec.IsEmpty()) {
+    str.Append(urlSpec);
+  }
+
+  if (mMedia) {
+    str.AppendLiteral(" media: ");
+    nsAutoString  buffer;
+    mMedia->GetText(buffer);
+    AppendUTF16toUTF8(buffer, str);
+  }
+  str.Append('\n');
+  fprintf_stderr(out, "%s", str.get());
+
+  for (const StyleSheet* child = GetFirstChild();
+       child;
+       child = child->mNext) {
+    child->List(out, aIndent + 1);
+  }
+}
+#endif
+
+void
+StyleSheet::SetMedia(nsMediaList* aMedia)
+{
+  mMedia = aMedia;
+}
+
+void
+StyleSheet::DropMedia()
+{
+  if (mMedia) {
+    mMedia->SetStyleSheet(nullptr);
+    mMedia = nullptr;
+  }
+}
+
+nsMediaList*
+StyleSheet::Media()
+{
+  if (!mMedia) {
+    mMedia = new nsMediaList();
+    mMedia->SetStyleSheet(this);
+  }
+
+  return mMedia;
 }
 
 // nsWrapperCache

@@ -93,7 +93,7 @@ nsXPCWrappedJS::CanSkip()
 }
 
 NS_IMETHODIMP
-NS_CYCLE_COLLECTION_CLASSNAME(nsXPCWrappedJS)::Traverse
+NS_CYCLE_COLLECTION_CLASSNAME(nsXPCWrappedJS)::TraverseNative
    (void* p, nsCycleCollectionTraversalCallback& cb)
 {
     nsISupports* s = static_cast<nsISupports*>(p);
@@ -697,10 +697,10 @@ NS_IMETHODIMP
 nsXPCWrappedJS::DebugDump(int16_t depth)
 {
 #ifdef DEBUG
-    XPC_LOG_ALWAYS(("nsXPCWrappedJS @ %x with mRefCnt = %d", this, mRefCnt.get()));
+    XPC_LOG_ALWAYS(("nsXPCWrappedJS @ %p with mRefCnt = %" PRIuPTR, this, mRefCnt.get()));
         XPC_LOG_INDENT();
 
-        XPC_LOG_ALWAYS(("%s wrapper around JSObject @ %x", \
+        XPC_LOG_ALWAYS(("%s wrapper around JSObject @ %p",              \
                         IsRootWrapper() ? "ROOT":"non-root", mJSObj.get()));
         char* name;
         GetClass()->GetInterfaceInfo()->GetName(&name);
@@ -711,7 +711,7 @@ nsXPCWrappedJS::DebugDump(int16_t depth)
         XPC_LOG_ALWAYS(("IID number is %s", iid ? iid : "invalid"));
         if (iid)
             free(iid);
-        XPC_LOG_ALWAYS(("nsXPCWrappedJSClass @ %x", mClass.get()));
+        XPC_LOG_ALWAYS(("nsXPCWrappedJSClass @ %p", mClass.get()));
 
         if (!IsRootWrapper())
             XPC_LOG_OUTDENT();

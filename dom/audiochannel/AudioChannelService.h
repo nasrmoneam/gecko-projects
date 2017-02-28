@@ -65,9 +65,15 @@ public:
   NS_DECL_NSIOBSERVER
   NS_DECL_NSIAUDIOCHANNELSERVICE
 
-  enum AudibleState : bool {
-    eAudible = true,
-    eNotAudible = false
+  /**
+   * eNotAudible : agent is not audible
+   * eMaybeAudible : agent is not audible now, but it might be audible later
+   * eAudible : agent is audible now
+   */
+  enum AudibleState : uint8_t {
+    eNotAudible = 0,
+    eMaybeAudible = 1,
+    eAudible = 2
   };
 
   enum AudioCaptureState : bool {
@@ -83,16 +89,24 @@ public:
 
   /**
    * Returns the AudioChannelServce singleton.
-   * If AudioChannelServce is not exist, create and return new one.
+   * If AudioChannelService doesn't exist, create and return new one.
    * Only to be called from main thread.
    */
   static already_AddRefed<AudioChannelService> GetOrCreate();
+
+  /**
+   * Returns the AudioChannelService singleton if one exists.
+   * If AudioChannelService doesn't exist, returns null.
+   */
+  static already_AddRefed<AudioChannelService> Get();
 
   static bool IsAudioChannelMutedByDefault();
 
   static PRLogModuleInfo* GetAudioChannelLog();
 
   static bool IsEnableAudioCompeting();
+
+  static bool IsServiceStarted();
 
   /**
    * Any audio channel agent that starts playing should register itself to
@@ -141,6 +155,8 @@ public:
                             bool aMuted);
 
   bool IsAudioChannelActive(nsPIDOMWindowOuter* aWindow, AudioChannel aChannel);
+
+  bool IsWindowActive(nsPIDOMWindowOuter* aWindow);
 
   /**
    * Return true if there is a telephony channel active in this process
@@ -191,6 +207,10 @@ public:
   void ChildStatusReceived(uint64_t aChildID, bool aTelephonyChannel,
                            bool aContentOrNormalChannel, bool aAnyChannel);
 
+  void NotifyCreatedNewAgent(AudioChannelAgent* aAgent);
+
+  void NotifyMediaResumedFromBlock(nsPIDOMWindowOuter* aWindow);
+
 private:
   AudioChannelService();
   ~AudioChannelService();
@@ -213,8 +233,7 @@ private:
   void SetDefaultVolumeControlChannelInternal(int32_t aChannel,
                                               bool aVisible, uint64_t aChildID);
 
-  void RefreshAgentsAudioFocusChanged(AudioChannelAgent* aAgent,
-                                      bool aActive);
+  void RefreshAgentsAudioFocusChanged(AudioChannelAgent* aAgent);
 
   class AudioChannelConfig final : public AudioPlaybackConfig
   {
@@ -235,18 +254,21 @@ private:
       : mWindowID(aWindowID)
       , mIsAudioCaptured(false)
       , mOwningAudioFocus(!AudioChannelService::IsEnableAudioCompeting())
+      , mShouldSendBlockStopEvent(false)
     {
       // Workaround for bug1183033, system channel type can always playback.
       mChannels[(int16_t)AudioChannel::System].mMuted = false;
     }
 
-    void AudioFocusChanged(AudioChannelAgent* aNewPlayingAgent, bool aActive);
+    void AudioFocusChanged(AudioChannelAgent* aNewPlayingAgent);
     void AudioAudibleChanged(AudioChannelAgent* aAgent,
                              AudibleState aAudible,
                              AudibleChangedReasons aReason);
 
     void AppendAgent(AudioChannelAgent* aAgent, AudibleState aAudible);
     void RemoveAgent(AudioChannelAgent* aAgent);
+
+    void NotifyMediaBlockStop(nsPIDOMWindowOuter* aWindow);
 
     uint64_t mWindowID;
     bool mIsAudioCaptured;
@@ -260,6 +282,9 @@ private:
     // lose audio focus when other windows starts playing.
     bool mOwningAudioFocus;
 
+    // If we've dispatched "blockStart" event, we must dispatch another event
+    // "blockStop" when the window is resumed from suspend-block.
+    bool mShouldSendBlockStopEvent;
   private:
     void AudioCapturedChanged(AudioChannelAgent* aAgent,
                               AudioCaptureState aCapture);
@@ -281,14 +306,15 @@ private:
 
     void NotifyChannelActive(uint64_t aWindowID, AudioChannel aChannel,
                              bool aActive);
-    void MaybeNotifyMediaBlocked(AudioChannelAgent* aAgent);
+    void MaybeNotifyMediaBlockStart(AudioChannelAgent* aAgent);
 
     void RequestAudioFocus(AudioChannelAgent* aAgent);
-    void NotifyAudioCompetingChanged(AudioChannelAgent* aAgent, bool aActive);
+
+    // We need to do audio competing only when the new incoming agent started.
+    void NotifyAudioCompetingChanged(AudioChannelAgent* aAgent);
 
     uint32_t GetCompetingBehavior(AudioChannelAgent* aAgent,
-                                  int32_t aIncomingChannelType,
-                                  bool aIncomingChannelActive) const;
+                                  int32_t aIncomingChannelType) const;
     bool IsAgentInvolvingInAudioCompeting(AudioChannelAgent* aAgent) const;
     bool IsAudioCompetingInSameTab() const;
     bool IsContainingPlayingAgent(AudioChannelAgent* aAgent) const;

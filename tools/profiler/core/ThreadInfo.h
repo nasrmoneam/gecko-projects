@@ -7,6 +7,9 @@
 #ifndef MOZ_THREAD_INFO_H
 #define MOZ_THREAD_INFO_H
 
+#include "mozilla/UniquePtrExtensions.h"
+
+#include "ProfileBuffer.h"
 #include "platform.h"
 
 class ThreadInfo {
@@ -15,52 +18,94 @@ class ThreadInfo {
 
   virtual ~ThreadInfo();
 
-  const char* Name() const { return mName; }
+  const char* Name() const { return mName.get(); }
   int ThreadId() const { return mThreadId; }
 
   bool IsMainThread() const { return mIsMainThread; }
   PseudoStack* Stack() const { return mPseudoStack; }
 
-  void SetProfile(ThreadProfile* aProfile) { mProfile = aProfile; }
-  ThreadProfile* Profile() const { return mProfile; }
+  void SetProfile(ProfileBuffer* aBuffer) { mBuffer = aBuffer; }
 
-  PlatformData* GetPlatformData() const { return mPlatformData; }
+  PlatformData* GetPlatformData() const { return mPlatformData.get(); }
   void* StackTop() const { return mStackTop; }
 
   virtual void SetPendingDelete();
   bool IsPendingDelete() const { return mPendingDelete; }
 
-#ifndef SPS_STANDALONE
-  /**
-   * May be null for the main thread if the profiler was started during startup
-   */
-  nsIThread* GetThread() const { return mThread.get(); }
-
-#endif
-
   bool CanInvokeJS() const;
 
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
+
  private:
-  char* mName;
+  mozilla::UniqueFreePtr<char> mName;
   int mThreadId;
   const bool mIsMainThread;
   PseudoStack* mPseudoStack;
-  PlatformData* mPlatformData;
-  ThreadProfile* mProfile;
+  UniquePlatformData mPlatformData;
   void* mStackTop;
-#ifndef SPS_STANDALONE
+
+  // May be null for the main thread if the profiler was started during startup.
   nsCOMPtr<nsIThread> mThread;
-#endif
+
   bool mPendingDelete;
-};
 
-// Just like ThreadInfo, but owns a reference to the PseudoStack.
-class StackOwningThreadInfo : public ThreadInfo {
- public:
-  StackOwningThreadInfo(const char* aName, int aThreadId, bool aIsMainThread, PseudoStack* aPseudoStack, void* aStackTop);
-  virtual ~StackOwningThreadInfo();
+  //
+  // The following code is only used for threads that are being profiled, i.e.
+  // for which SetProfile() has been called.
+  //
 
-  virtual void SetPendingDelete();
+public:
+  bool hasProfile() { return !!mBuffer; }
+
+  void addTag(const ProfileBufferEntry& aTag);
+
+  // Track a marker which has been inserted into the thread profile.
+  // This marker can safely be deleted once the generation has
+  // expired.
+  void addStoredMarker(ProfilerMarker* aStoredMarker);
+  mozilla::Mutex& GetMutex();
+  void StreamJSON(SpliceableJSONWriter& aWriter, double aSinceTime = 0);
+
+  // Call this method when the JS entries inside the buffer are about to
+  // become invalid, i.e., just before JS shutdown.
+  void FlushSamplesAndMarkers();
+
+  void BeginUnwind();
+  virtual void EndUnwind();
+
+  void DuplicateLastSample(const mozilla::TimeStamp& aStartTime);
+
+  ThreadResponsiveness* GetThreadResponsiveness() { return &mRespInfo; }
+
+  void UpdateThreadResponsiveness() {
+    mRespInfo.Update(mIsMainThread, mThread);
+  }
+
+  uint32_t bufferGeneration() const { return mBuffer->mGeneration; }
+
+protected:
+  void StreamSamplesAndMarkers(SpliceableJSONWriter& aWriter, double aSinceTime,
+                               UniqueStacks& aUniqueStacks);
+
+private:
+  FRIEND_TEST(ThreadProfile, InsertOneTag);
+  FRIEND_TEST(ThreadProfile, InsertOneTagWithTinyBuffer);
+  FRIEND_TEST(ThreadProfile, InsertTagsNoWrap);
+  FRIEND_TEST(ThreadProfile, InsertTagsWrap);
+  FRIEND_TEST(ThreadProfile, MemoryMeasure);
+
+  RefPtr<ProfileBuffer> mBuffer;
+
+  // JS frames in the buffer may require a live JSRuntime to stream (e.g.,
+  // stringifying JIT frames). In the case of JSRuntime destruction,
+  // FlushSamplesAndMarkers should be called to save them. These are spliced
+  // into the final stream.
+  mozilla::UniquePtr<char[]> mSavedStreamedSamples;
+  mozilla::UniquePtr<char[]> mSavedStreamedMarkers;
+  mozilla::Maybe<UniqueStacks> mUniqueStacks;
+
+  mozilla::UniquePtr<mozilla::Mutex> mMutex;
+  ThreadResponsiveness mRespInfo;
 };
 
 #endif

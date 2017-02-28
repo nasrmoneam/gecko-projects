@@ -13,7 +13,7 @@
 #include "nsSplitterFrame.h"
 #include "nsGkAtoms.h"
 #include "nsIDOMElement.h"
-#include "nsIDOMXULElement.h"
+#include "nsXULElement.h"
 #include "nsPresContext.h"
 #include "nsRenderingContext.h"
 #include "nsIDocument.h"
@@ -287,7 +287,6 @@ nsSplitterFrame::Init(nsIContent*       aContent,
         nsStyleContext* parentStyleContext = StyleContext()->GetParent();
         RefPtr<nsStyleContext> newContext = PresContext()->StyleSet()->
           ResolveStyleFor(aContent->AsElement(), parentStyleContext,
-                          ConsumeStyleBehavior::Consume,
                           LazyComputeBehavior::Allow);
         SetStyleContextWithoutNotification(newContext);
       }
@@ -424,7 +423,8 @@ nsSplitterFrameInner::MouseUp(nsPresContext* aPresContext,
 
     // if we dragged then fire a command event.
     if (mDidDrag) {
-      nsCOMPtr<nsIDOMXULElement> element = do_QueryInterface(mOuter->GetContent());
+      RefPtr<nsXULElement> element =
+        nsXULElement::FromContent(mOuter->GetContent());
       element->DoCommand();
     }
 

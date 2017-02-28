@@ -31,6 +31,7 @@ class nsCString;
 namespace mozilla {
 
 class TimeStamp;
+class Runnable;
 
 namespace tasktracer {
 
@@ -66,7 +67,7 @@ void ShutdownTaskTracer();
 
 // Add a label to the currently running task, aFormat is the message to log,
 // followed by corresponding parameters.
-void AddLabel(const char* aFormat, ...);
+void AddLabel(const char* aFormat, ...) MOZ_FORMAT_PRINTF(1, 2);
 
 void StartLogging();
 void StopLogging();
@@ -79,7 +80,7 @@ PRTime GetStartTime();
  * Internal functions.
  */
 
-already_AddRefed<nsIRunnable>
+already_AddRefed<Runnable>
 CreateTracedRunnable(already_AddRefed<nsIRunnable>&& aRunnable);
 
 // Free the TraceInfo allocated on a thread's TLS. Currently we are wrapping
@@ -91,6 +92,14 @@ const char* GetJSLabelPrefix();
 
 void GetCurTraceInfo(uint64_t* aOutSourceEventId, uint64_t* aOutParentTaskId,
                      SourceEventType* aOutSourceEventType);
+
+class AutoScopedLabel
+{
+  char* mLabel;
+public:
+  explicit AutoScopedLabel(const char* aFormat, ...);
+  ~AutoScopedLabel();
+};
 
 } // namespace tasktracer
 } // namespace mozilla.

@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 
 from ..lint import check_file_contents
+from .base import check_errors
 import os
 import pytest
 import six
@@ -25,7 +26,7 @@ INTERESTING_FILE_NAMES = {
 
 def check_with_files(input_bytes):
     return {
-        filename: (check_file_contents("", filename, six.BytesIO(input_bytes)), kind)
+        filename: (check_file_contents("", filename, six.BytesIO(input_bytes), False), kind)
         for (filename, kind) in
         (
             (os.path.join("html", filename), kind)
@@ -39,6 +40,8 @@ def test_trailing_whitespace():
     error_map = check_with_files(b"test; ")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("TRAILING WHITESPACE", "Whitespace at EOL", filename, 1)]
         if kind == "web-strict":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, None))
@@ -49,6 +52,8 @@ def test_indent_tabs():
     error_map = check_with_files(b"def foo():\n\x09pass")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("INDENT TABS", "Tabs used for indentation", filename, 2)]
         if kind == "web-strict":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, None))
@@ -59,6 +64,8 @@ def test_cr_not_at_eol():
     error_map = check_with_files(b"line1\rline2\r")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("CR AT EOL", "CR character in line separator", filename, 1)]
         if kind == "web-strict":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, None))
@@ -69,6 +76,8 @@ def test_cr_at_eol():
     error_map = check_with_files(b"line1\r\nline2\r\n")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [
             ("CR AT EOL", "CR character in line separator", filename, 1),
             ("CR AT EOL", "CR character in line separator", filename, 2),
@@ -82,6 +91,8 @@ def test_w3c_test_org():
     error_map = check_with_files(b"import('http://www.w3c-test.org/')")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("W3C-TEST.ORG", "External w3c-test.org domain used", filename, 1)]
         if kind == "python":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, 1))
@@ -94,6 +105,8 @@ def test_webidl2_js():
     error_map = check_with_files(b"<script src=/resources/webidl2.js>")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("WEBIDL2.JS", "Legacy webidl2.js script used", filename, 1)]
         if kind == "python":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, 1))
@@ -106,6 +119,8 @@ def test_console():
     error_map = check_with_files(b"<script>\nconsole.log('error');\nconsole.error ('log')\n</script>")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict", "js"]:
             assert errors == [
                 ("CONSOLE", "Console logging API used", filename, 2),
@@ -126,6 +141,8 @@ def test_meta_timeout():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict"]:
             assert errors == [
                 ("MULTIPLE-TIMEOUT", "More than one meta name='timeout'", filename, None),
@@ -148,6 +165,8 @@ def test_early_testharnessreport():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict"]:
             assert errors == [
                 ("EARLY-TESTHARNESSREPORT", "testharnessreport.js script seen before testharness.js script", filename, None),
@@ -168,6 +187,8 @@ def test_multiple_testharness():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict"]:
             assert errors == [
                 ("MULTIPLE-TESTHARNESS", "More than one <script src='/resources/testharness.js'>", filename, None),
@@ -190,6 +211,8 @@ def test_multiple_testharnessreport():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict"]:
             assert errors == [
                 ("MULTIPLE-TESTHARNESSREPORT", "More than one <script src='/resources/testharnessreport.js'>", filename, None),
@@ -211,6 +234,8 @@ def test_present_testharnesscss():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind in ["web-lax", "web-strict"]:
             assert errors == [
                 ("PRESENT-TESTHARNESSCSS", "Explicit link to testharness.css present", filename, None),
@@ -233,6 +258,8 @@ def test_testharness_path():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("W3C-TEST.ORG", "External w3c-test.org domain used", filename, 5)]
         if kind == "python":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, 1))
@@ -258,6 +285,8 @@ def test_testharnessreport_path():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         expected = [("W3C-TEST.ORG", "External w3c-test.org domain used", filename, 5)]
         if kind == "python":
             expected.append(("PARSE-FAILED", "Unable to parse file", filename, 1))
@@ -282,6 +311,8 @@ def test_not_testharness_path():
     error_map = check_with_files(code)
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind == "python":
             assert errors == [
                 ("PARSE-FAILED", "Unable to parse file", filename, 1),
@@ -295,6 +326,8 @@ def test_print_statement():
     error_map = check_with_files(b"def foo():\n  print 'statement'\n  print\n")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind == "python":
             assert errors == [
                 ("PRINT STATEMENT", "Print function used", filename, 2),
@@ -312,6 +345,8 @@ def test_print_function():
     error_map = check_with_files(b"def foo():\n  print('function')\n")
 
     for (filename, (errors, kind)) in error_map.items():
+        check_errors(errors)
+
         if kind == "python":
             assert errors == [
                 ("PRINT STATEMENT", "Print function used", filename, 2),
@@ -345,7 +380,8 @@ def fifth():
 def test_open_mode():
     for method in ["open", "file"]:
         code = open_mode_code.format(method).encode("utf-8")
-        errors = check_file_contents("", "test.py", six.BytesIO(code))
+        errors = check_file_contents("", "test.py", six.BytesIO(code), False)
+        check_errors(errors)
 
         message = ("File opened without providing an explicit mode (note: " +
                    "binary files must be read with 'b' in the mode flags)")
@@ -354,3 +390,68 @@ def test_open_mode():
             ("OPEN-NO-MODE", message, "test.py", 3),
             ("OPEN-NO-MODE", message, "test.py", 12),
         ]
+
+
+@pytest.mark.parametrize(
+    "filename,css_mode,expect_error",
+    [
+        ("foo/bar.html", False, False),
+        ("foo/bar.html", True, True),
+        ("css/bar.html", False, True),
+        ("css/bar.html", True, True),
+    ])
+def test_css_support_file(filename, css_mode, expect_error):
+    errors = check_file_contents("", filename, six.BytesIO(b""), css_mode)
+    check_errors(errors)
+
+    if expect_error:
+        assert errors == [
+            ('SUPPORT-WRONG-DIR',
+             'Support file not in support directory',
+             filename,
+             None),
+        ]
+    else:
+        assert errors == []
+
+
+@pytest.mark.parametrize("filename", [
+    "foo.worker.js",
+    "foo.any.js",
+])
+@pytest.mark.parametrize("input,error", [
+    (b"""//META: timeout=long\n""", None),
+    (b"""// META: timeout=long\n""", None),
+    (b"""//  META: timeout=long\n""", None),
+    (b"""// META: script=foo.js\n""", None),
+    (b"""\n// META: timeout=long\n""", (2, "STRAY-METADATA")),
+    (b""" // META: timeout=long\n""", (1, "INDENTED-METADATA")),
+    (b"""// META: timeout=long\n// META: timeout=long\n""", None),
+    (b"""// META: timeout=long\n\n// META: timeout=long\n""", (3, "STRAY-METADATA")),
+    (b"""// META: timeout=long\n// Start of the test\n// META: timeout=long\n""", (3, "STRAY-METADATA")),
+    (b"""// META:\n""", (1, "BROKEN-METADATA")),
+    (b"""// META: foobar\n""", (1, "BROKEN-METADATA")),
+    (b"""// META: foo=bar\n""", (1, "UNKNOWN-METADATA")),
+    (b"""// META: timeout=bar\n""", (1, "UNKNOWN-TIMEOUT-METADATA")),
+])
+def test_script_metadata(filename, input, error):
+    errors = check_file_contents("", filename, six.BytesIO(input), False)
+    check_errors(errors)
+
+    if error is not None:
+        line, kind = error
+        messages = {
+            "STRAY-METADATA": "Metadata comments should start the file",
+            "INDENTED-METADATA": "Metadata comments should start the line",
+            "BROKEN-METADATA": "Metadata comment is not formatted correctly",
+            "UNKNOWN-TIMEOUT-METADATA": "Unexpected value for timeout metadata",
+            "UNKNOWN-METADATA": "Unexpected kind of metadata",
+        }
+        assert errors == [
+            (kind,
+             messages[kind],
+             filename,
+             line),
+        ]
+    else:
+        assert errors == []

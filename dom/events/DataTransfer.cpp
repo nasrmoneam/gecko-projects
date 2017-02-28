@@ -57,7 +57,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(DataTransfer)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mItems)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDragTarget)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDragImage)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(DataTransfer)
 
@@ -106,8 +105,11 @@ DataTransfer::DataTransfer(nsISupports* aParent, EventMessage aEventMessage,
       aEventMessage == eDragStart) {
     mReadOnly = false;
   } else if (mIsExternal) {
-    if (aEventMessage == ePaste) {
-      CacheExternalClipboardFormats();
+    if (aEventMessage == ePasteNoFormatting) {
+      mEventMessage = ePaste;
+      CacheExternalClipboardFormats(true);
+    } else if (aEventMessage == ePaste) {
+      CacheExternalClipboardFormats(false);
     } else if (aEventMessage >= eDragDropEventFirst &&
                aEventMessage <= eDragDropEventLast) {
       CacheExternalDragFormats();
@@ -758,28 +760,36 @@ DataTransfer::MozClearDataAtHelper(const nsAString& aFormat, uint32_t aIndex,
 }
 
 void
-DataTransfer::SetDragImage(Element& aImage, int32_t aX, int32_t aY,
-                           ErrorResult& aRv)
+DataTransfer::SetDragImage(Element& aImage, int32_t aX, int32_t aY)
 {
-  if (mReadOnly) {
-    aRv.Throw(NS_ERROR_DOM_NO_MODIFICATION_ALLOWED_ERR);
-    return;
+  if (!mReadOnly) {
+    mDragImage = &aImage;
+    mDragImageX = aX;
+    mDragImageY = aY;
   }
-
-  mDragImage = &aImage;
-  mDragImageX = aX;
-  mDragImageY = aY;
 }
 
 NS_IMETHODIMP
 DataTransfer::SetDragImage(nsIDOMElement* aImage, int32_t aX, int32_t aY)
 {
-  ErrorResult rv;
   nsCOMPtr<Element> image = do_QueryInterface(aImage);
   if (image) {
-    SetDragImage(*image, aX, aY, rv);
+    SetDragImage(*image, aX, aY);
   }
-  return rv.StealNSResult();
+  return NS_OK;
+}
+
+void
+DataTransfer::UpdateDragImage(Element& aImage, int32_t aX, int32_t aY)
+{
+  if (mEventMessage < eDragDropEventFirst || mEventMessage > eDragDropEventLast) {
+    return;
+  }
+
+  nsCOMPtr<nsIDragSession> dragSession = nsContentUtils::GetDragSession();
+  if (dragSession) {
+    dragSession->UpdateDragImage(aImage.AsDOMNode(), aX, aY);
+  }
 }
 
 already_AddRefed<Promise>
@@ -1349,7 +1359,7 @@ DataTransfer::CacheExternalDragFormats()
 }
 
 void
-DataTransfer::CacheExternalClipboardFormats()
+DataTransfer::CacheExternalClipboardFormats(bool aPlainTextOnly)
 {
   NS_ASSERTION(mEventMessage == ePaste,
                "caching clipboard data for invalid event");
@@ -1367,6 +1377,17 @@ DataTransfer::CacheExternalClipboardFormats()
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
   nsCOMPtr<nsIPrincipal> sysPrincipal;
   ssm->GetSystemPrincipal(getter_AddRefs(sysPrincipal));
+
+  if (aPlainTextOnly) {
+    bool supported;
+    const char* unicodeMime[] = { kUnicodeMime };
+    clipboard->HasDataMatchingFlavors(unicodeMime, 1, mClipboardType,
+                                      &supported);
+    if (supported) {
+      CacheExternalData(kUnicodeMime, 0, sysPrincipal, false);
+    }
+    return;
+  }
 
   // Check if the clipboard has any files
   bool hasFileData = false;

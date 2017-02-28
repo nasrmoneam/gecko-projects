@@ -28,7 +28,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 
 /* globals processCount */
 
-XPCOMUtils.defineLazyPreferenceGetter(this, "processCount", "dom.ipc.processCount");
+XPCOMUtils.defineLazyPreferenceGetter(this, "processCount", "dom.ipc.processCount.extension");
 
 XPCOMUtils.defineLazyModuleGetter(this, "AddonManager",
                                   "resource://gre/modules/AddonManager.jsm");
@@ -377,10 +377,30 @@ this.ExtensionData = class {
       hosts: this.whiteListedHosts.pat,
       apis: [...this.apiNames],
     };
+
+    if (Array.isArray(this.manifest.content_scripts)) {
+      for (let entry of this.manifest.content_scripts) {
+        result.hosts.push(...entry.matches);
+      }
+    }
     const EXP_PATTERN = /^experiments\.\w+/;
     result.permissions = [...this.permissions]
       .filter(p => !result.hosts.includes(p) && !EXP_PATTERN.test(p));
     return result;
+  }
+
+  // Compute the difference between two sets of permissions, suitable
+  // for presenting to the user.
+  static comparePermissions(oldPermissions, newPermissions) {
+    // See bug 1331769: should we do something more complicated to
+    // compare host permissions?
+    // e.g., if we go from <all_urls> to a specific host or from
+    // a *.domain.com to specific-host.domain.com that's actually a
+    // drop in permissions but the simple test below will cause a prompt.
+    return {
+      hosts: newPermissions.hosts.filter(perm => !oldPermissions.hosts.includes(perm)),
+      permissions: newPermissions.permissions.filter(perm => !oldPermissions.permissions.includes(perm)),
+    };
   }
 
   // Reads the extension's |manifest.json| file, and stores its
@@ -429,10 +449,21 @@ this.ExtensionData = class {
         // Errors are handled by the type checks above.
       }
 
+      let containersEnabled = true;
+      try {
+        containersEnabled = Services.prefs.getBoolPref("privacy.userContext.enabled");
+      } catch (e) {
+        // If we fail here, we are in some xpcshell test.
+      }
+
       let permissions = this.manifest.permissions || [];
 
       let whitelist = [];
       for (let perm of permissions) {
+        if (perm == "contextualIdentities" && !containersEnabled) {
+          continue;
+        }
+
         this.permissions.add(perm);
 
         let match = /^(\w+)(?:\.(\w+)(?:\.\w+)*)?$/.exec(perm);
@@ -613,6 +644,8 @@ this.Extension = class extends ExtensionData {
     if (this.remote && processCount !== 1) {
       throw new Error("Out-of-process WebExtensions are not supported with multiple child processes");
     }
+    // This is filled in the first time an extension child is created.
+    this.parentMessageManager = null;
 
     this.id = addonData.id;
     this.baseURI = NetUtil.newURI(this.getURL("")).QueryInterface(Ci.nsIURL);
@@ -630,17 +663,6 @@ this.Extension = class extends ExtensionData {
     this.webAccessibleResources = null;
 
     this.emitter = new EventEmitter();
-  }
-
-  get parentMessageManager() {
-    if (this.remote) {
-      // We currently run extensions in the normal web content process. Since
-      // we currently only support remote extensions in single-child e10s,
-      // child 0 is always the current process, and child 1 is always the
-      // remote extension process.
-      return Services.ppmm.getChildAt(1);
-    }
-    return Services.ppmm.getChildAt(0);
   }
 
   static set browserUpdated(updated) {
@@ -696,7 +718,7 @@ this.Extension = class extends ExtensionData {
 
   // Checks that the given URL is a child of our baseURI.
   isExtensionURL(url) {
-    let uri = Services.io.newURI(url, null, null);
+    let uri = Services.io.newURI(url);
 
     let common = this.baseURI.getCommonBaseSpec(uri);
     return common == this.baseURI.spec;
@@ -903,7 +925,8 @@ this.Extension = class extends ExtensionData {
     });
   }
 
-  shutdown() {
+  shutdown(reason) {
+    this.shutdownReason = reason;
     this.hasShutdown = true;
 
     Services.ppmm.removeMessageListener(this.MESSAGE_EMIT_EVENT, this);
@@ -939,7 +962,7 @@ this.Extension = class extends ExtensionData {
   }
 
   observe(subject, topic, data) {
-    if (topic == "xpcom-shutdown") {
+    if (topic === "xpcom-shutdown") {
       this.cleanupGeneratedFile();
     }
   }

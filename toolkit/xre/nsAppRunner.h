@@ -42,10 +42,8 @@ class nsString;
 
 extern nsXREDirProvider* gDirServiceProvider;
 
-// NOTE: gAppData will be null in embedded contexts. The "size" parameter
-// will be the size of the original structure passed to XRE_main, but the
-// structure will have all of the members available.
-extern const nsXREAppData* gAppData;
+// NOTE: gAppData will be null in embedded contexts.
+extern const mozilla::XREAppData* gAppData;
 extern bool gSafeMode;
 
 extern int    gArgc;
@@ -134,5 +132,9 @@ void SetupErrorHandling(const char* progname);
  * represents not blocking.
  */
 uint32_t MultiprocessBlockPolicy();
+
+#ifdef MOZ_WIDGET_GTK
+const char* DetectDisplay();
+#endif
 
 #endif // nsAppRunner_h__

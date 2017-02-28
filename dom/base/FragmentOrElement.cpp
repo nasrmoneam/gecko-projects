@@ -23,6 +23,7 @@
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/EventStates.h"
+#include "mozilla/ServoRestyleManager.h"
 #include "mozilla/dom/Attr.h"
 #include "nsDOMAttributeMap.h"
 #include "nsIAtom.h"
@@ -92,7 +93,6 @@
 #include "nsICategoryManager.h"
 #include "nsGenericHTMLElement.h"
 #include "nsIEditor.h"
-#include "nsIEditorIMESupport.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsIControllers.h"
 #include "nsView.h"
@@ -124,6 +124,7 @@
 
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/dom/HTMLTemplateElement.h"
+#include "mozilla/dom/SVGUseElement.h"
 
 #include "nsStyledElement.h"
 #include "nsIContentInlines.h"
@@ -263,12 +264,11 @@ nsIContent::GetDesiredIMEState()
     return IMEState(IMEState::DISABLED);
   }
   nsIEditor* editor = nsContentUtils::GetHTMLEditor(pc);
-  nsCOMPtr<nsIEditorIMESupport> imeEditor = do_QueryInterface(editor);
-  if (!imeEditor) {
+  if (!editor) {
     return IMEState(IMEState::DISABLED);
   }
   IMEState state;
-  imeEditor->GetPreferredIMEState(&state);
+  editor->GetPreferredIMEState(&state);
   return state;
 }
 
@@ -343,6 +343,14 @@ nsIContent::LookupNamespaceURIInternal(const nsAString& aNamespacePrefix,
 already_AddRefed<nsIURI>
 nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
 {
+  if (IsInAnonymousSubtree() && IsAnonymousContentInSVGUseSubtree()) {
+    nsIContent* bindingParent = GetBindingParent();
+    MOZ_ASSERT(bindingParent);
+    SVGUseElement* useElement = static_cast<SVGUseElement*>(bindingParent);
+    // XXX Ignore xml:base as we are removing it.
+    return do_AddRef(useElement->GetContentBaseURI());
+  }
+
   nsIDocument* doc = OwnerDoc();
   // Start with document base
   nsCOMPtr<nsIURI> base = doc->GetBaseURI(aTryUseXHRDocBaseURI);
@@ -372,12 +380,6 @@ nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
       }
     }
 
-    nsIURI* explicitBaseURI = elem->GetExplicitBaseURI();
-    if (explicitBaseURI) {
-      base = explicitBaseURI;
-      break;
-    }
-
     // Otherwise check for xml:base attribute
     elem->GetAttr(kNameSpaceID_XML, nsGkAtoms::base, attr);
     if (!attr.IsEmpty()) {
@@ -386,20 +388,23 @@ nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
     elem = elem->GetParent();
   } while(elem);
 
-  // Now resolve against all xml:base attrs
-  for (uint32_t i = baseAttrs.Length() - 1; i != uint32_t(-1); --i) {
-    nsCOMPtr<nsIURI> newBase;
-    nsresult rv = NS_NewURI(getter_AddRefs(newBase), baseAttrs[i],
-                            doc->GetDocumentCharacterSet().get(), base);
-    // Do a security check, almost the same as nsDocument::SetBaseURL()
-    // Only need to do this on the final uri
-    if (NS_SUCCEEDED(rv) && i == 0) {
-      rv = nsContentUtils::GetSecurityManager()->
-        CheckLoadURIWithPrincipal(NodePrincipal(), newBase,
-                                  nsIScriptSecurityManager::STANDARD);
-    }
-    if (NS_SUCCEEDED(rv)) {
-      base.swap(newBase);
+  if (!baseAttrs.IsEmpty()) {
+    doc->WarnOnceAbout(nsIDocument::eXMLBaseAttribute);
+    // Now resolve against all xml:base attrs
+    for (uint32_t i = baseAttrs.Length() - 1; i != uint32_t(-1); --i) {
+      nsCOMPtr<nsIURI> newBase;
+      nsresult rv = NS_NewURI(getter_AddRefs(newBase), baseAttrs[i],
+                              doc->GetDocumentCharacterSet().get(), base);
+      // Do a security check, almost the same as nsDocument::SetBaseURL()
+      // Only need to do this on the final uri
+      if (NS_SUCCEEDED(rv) && i == 0) {
+        rv = nsContentUtils::GetSecurityManager()->
+          CheckLoadURIWithPrincipal(NodePrincipal(), newBase,
+                                    nsIScriptSecurityManager::STANDARD);
+      }
+      if (NS_SUCCEEDED(rv)) {
+        base.swap(newBase);
+      }
     }
   }
 
@@ -418,7 +423,7 @@ static bool
 NeedsScriptTraverse(nsINode* aNode)
 {
   return aNode->PreservingWrapper() && aNode->GetWrapperPreserveColor() &&
-         !aNode->IsBlackAndDoesNotNeedTracing(aNode);
+         !aNode->HasKnownLiveWrapperAndDoesNotNeedTracing(aNode);
 }
 
 //----------------------------------------------------------------------
@@ -432,13 +437,13 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(nsChildContentList)
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_0(nsChildContentList)
 
 // nsChildContentList only ever has a single child, its wrapper, so if
-// the wrapper is black, the list can't be part of a garbage cycle.
+// the wrapper is known-live, the list can't be part of a garbage cycle.
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_BEGIN(nsChildContentList)
-  return tmp->IsBlack();
+  return tmp->HasKnownLiveWrapper();
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_END
 
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_IN_CC_BEGIN(nsChildContentList)
-  return tmp->IsBlackAndDoesNotNeedTracing(tmp);
+  return tmp->HasKnownLiveWrapperAndDoesNotNeedTracing(tmp);
 NS_IMPL_CYCLE_COLLECTION_CAN_SKIP_IN_CC_END
 
 // CanSkipThis returns false to avoid problems with incomplete unlinking.
@@ -621,6 +626,12 @@ FragmentOrElement::nsDOMSlots::Traverse(nsCycleCollectionTraversalCallback &cb, 
       mCustomElementData->mCallbackQueue[i]->Traverse(cb);
     }
   }
+
+  for (auto iter = mRegisteredIntersectionObservers.Iter(); !iter.Done(); iter.Next()) {
+    DOMIntersectionObserver* observer = iter.Key();
+    NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "mSlots->mRegisteredIntersectionObservers[i]");
+    cb.NoteXPCOMChild(observer);
+  }
 }
 
 void
@@ -643,6 +654,7 @@ FragmentOrElement::nsDOMSlots::Unlink(bool aIsXUL)
   mChildrenList = nullptr;
   mCustomElementData = nullptr;
   mClassList = nullptr;
+  mRegisteredIntersectionObservers.Clear();
 }
 
 size_t
@@ -1112,6 +1124,12 @@ FragmentOrElement::SetXBLInsertionParent(nsIContent* aContent)
       slots->mXBLInsertionParent = nullptr;
     }
   }
+
+  // We just changed the flattened tree, so any Servo style data is now invalid.
+  // We rely on nsXBLService::LoadBindings to re-traverse the subtree afterwards.
+  if (IsStyledByServo() && IsElement() && AsElement()->HasServoData()) {
+    ServoRestyleManager::ClearServoDataFromSubtree(AsElement());
+  }
 }
 
 CustomElementData*
@@ -1155,10 +1173,10 @@ FragmentOrElement::RemoveChildAt(uint32_t aIndex, bool aNotify)
 
 void
 FragmentOrElement::GetTextContentInternal(nsAString& aTextContent,
-                                          ErrorResult& aError)
+                                          OOMReporter& aError)
 {
   if (!nsContentUtils::GetNodeTextContent(this, true, aTextContent, fallible)) {
-    aError.Throw(NS_ERROR_OUT_OF_MEMORY);
+    aError.ReportOOM();
   }
 }
 
@@ -1231,6 +1249,7 @@ class ContentUnbinder : public Runnable
 {
 public:
   ContentUnbinder()
+    : Runnable("ContentUnbinder")
   {
     mLast = this;
   }
@@ -1394,6 +1413,13 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(FragmentOrElement)
   {
     nsDOMSlots *slots = tmp->GetExistingDOMSlots();
     if (slots) {
+      if (tmp->IsElement()) {
+        Element* elem = tmp->AsElement();
+        for (auto iter = slots->mRegisteredIntersectionObservers.Iter(); !iter.Done(); iter.Next()) {
+          DOMIntersectionObserver* observer = iter.Key();
+          observer->UnlinkTarget(*elem);
+        }
+      }
       slots->Unlink(tmp->IsXULElement());
     }
   }
@@ -1530,14 +1556,14 @@ FragmentOrElement::CanSkipInCC(nsINode* aNode)
   }
 
   // nodesToUnpurple contains nodes which will be removed
-  // from the purple buffer if the DOM tree is black.
+  // from the purple buffer if the DOM tree is known-live.
   AutoTArray<nsIContent*, 1020> nodesToUnpurple;
   // grayNodes need script traverse, so they aren't removed from
-  // the purple buffer, but are marked to be in black subtree so that
+  // the purple buffer, but are marked to be in known-live subtree so that
   // traverse is faster.
   AutoTArray<nsINode*, 1020> grayNodes;
 
-  bool foundBlack = root->IsBlack();
+  bool foundLiveWrapper = root->HasKnownLiveWrapper();
   if (root != currentDoc) {
     currentDoc = nullptr;
     if (NeedsScriptTraverse(root)) {
@@ -1548,14 +1574,14 @@ FragmentOrElement::CanSkipInCC(nsINode* aNode)
   }
 
   // Traverse the subtree and check if we could know without CC
-  // that it is black.
+  // that it is known-live.
   // Note, this traverse is non-virtual and inline, so it should be a lot faster
   // than CC's generic traverse.
   for (nsIContent* node = root->GetFirstChild(); node;
        node = node->GetNextNode(root)) {
-    foundBlack = foundBlack || node->IsBlack();
-    if (foundBlack && currentDoc) {
-      // If we can mark the whole document black, no need to optimize
+    foundLiveWrapper = foundLiveWrapper || node->HasKnownLiveWrapper();
+    if (foundLiveWrapper && currentDoc) {
+      // If we can mark the whole document known-live, no need to optimize
       // so much, since when the next purple node in the document will be
       // handled, it is fast to check that currentDoc is in CCGeneration.
       break;
@@ -1569,15 +1595,15 @@ FragmentOrElement::CanSkipInCC(nsINode* aNode)
   }
 
   root->SetCCMarkedRoot(true);
-  root->SetInCCBlackTree(foundBlack);
+  root->SetInCCBlackTree(foundLiveWrapper);
   gCCBlackMarkedNodes->PutEntry(root);
 
-  if (!foundBlack) {
+  if (!foundLiveWrapper) {
     return false;
   }
 
   if (currentDoc) {
-    // Special case documents. If we know the document is black,
+    // Special case documents. If we know the document is known-live,
     // we can mark the document to be in CCGeneration.
     currentDoc->
       MarkUncollectableForCCGeneration(nsCCUncollectableMarker::sGeneration);
@@ -1589,7 +1615,7 @@ FragmentOrElement::CanSkipInCC(nsINode* aNode)
     }
   }
 
-  // Subtree is black, we can remove non-gray purple nodes from
+  // Subtree is known-live, we can remove non-gray purple nodes from
   // purple buffer.
   for (uint32_t i = 0; i < nodesToUnpurple.Length(); ++i) {
     nsIContent* purple = nodesToUnpurple[i];
@@ -1664,12 +1690,12 @@ OwnedByBindingManager(nsIDocument* aCurrentDoc, nsINode* aNode)
   return aNode->IsElement() && aNode->AsElement()->GetXBLBinding();
 }
 
-// CanSkip checks if aNode is black, and if it is, returns
-// true. If aNode is in a black DOM tree, CanSkip may also remove other objects
-// from purple buffer and unmark event listeners and user data.
-// If the root of the DOM tree is a document, less optimizations are done
-// since checking the blackness of the current document is usually fast and we
-// don't want slow down such common cases.
+// CanSkip checks if aNode is known-live, and if it is, returns true. If aNode
+// is in a known-live DOM tree, CanSkip may also remove other objects from
+// purple buffer and unmark event listeners and user data.  If the root of the
+// DOM tree is a document, less optimizations are done since checking the
+// liveness of the current document is usually fast and we don't want slow down
+// such common cases.
 bool
 FragmentOrElement::CanSkip(nsINode* aNode, bool aRemovingAllowed)
 {
@@ -1707,11 +1733,11 @@ FragmentOrElement::CanSkip(nsINode* aNode, bool aRemovingAllowed)
   // gray.
   AutoTArray<nsIContent*, 1020> nodesToClear;
 
-  bool foundBlack = root->IsBlack();
+  bool foundLiveWrapper = root->HasKnownLiveWrapper();
   bool domOnlyCycle = false;
   if (root != currentDoc) {
     currentDoc = nullptr;
-    if (!foundBlack) {
+    if (!foundLiveWrapper) {
       domOnlyCycle = static_cast<nsIContent*>(root)->OwnedOnlyByTheDOMTree();
     }
     if (ShouldClearPurple(static_cast<nsIContent*>(root))) {
@@ -1720,16 +1746,16 @@ FragmentOrElement::CanSkip(nsINode* aNode, bool aRemovingAllowed)
   }
 
   // Traverse the subtree and check if we could know without CC
-  // that it is black.
+  // that it is known-live.
   // Note, this traverse is non-virtual and inline, so it should be a lot faster
   // than CC's generic traverse.
   for (nsIContent* node = root->GetFirstChild(); node;
        node = node->GetNextNode(root)) {
-    foundBlack = foundBlack || node->IsBlack();
-    if (foundBlack) {
+    foundLiveWrapper = foundLiveWrapper || node->HasKnownLiveWrapper();
+    if (foundLiveWrapper) {
       domOnlyCycle = false;
       if (currentDoc) {
-        // If we can mark the whole document black, no need to optimize
+        // If we can mark the whole document live, no need to optimize
         // so much, since when the next purple node in the document will be
         // handled, it is fast to check that the currentDoc is in CCGeneration.
         break;
@@ -1744,13 +1770,13 @@ FragmentOrElement::CanSkip(nsINode* aNode, bool aRemovingAllowed)
       domOnlyCycle = domOnlyCycle && node->OwnedOnlyByTheDOMTree();
       if (ShouldClearPurple(node)) {
         // Collect interesting nodes which we can clear if we find that
-        // they are kept alive in a black tree or are in a DOM-only cycle.
+        // they are kept alive in a known-live tree or are in a DOM-only cycle.
         nodesToClear.AppendElement(node);
       }
     }
   }
 
-  if (!currentDoc || !foundBlack) {
+  if (!currentDoc || !foundLiveWrapper) {
     root->SetIsPurpleRoot(true);
     if (domOnlyCycle) {
       if (!gNodesToUnbind) {
@@ -1772,19 +1798,19 @@ FragmentOrElement::CanSkip(nsINode* aNode, bool aRemovingAllowed)
     }
   }
 
-  if (!foundBlack) {
+  if (!foundLiveWrapper) {
     return false;
   }
 
   if (currentDoc) {
-    // Special case documents. If we know the document is black,
+    // Special case documents. If we know the document is known-live,
     // we can mark the document to be in CCGeneration.
     currentDoc->
       MarkUncollectableForCCGeneration(nsCCUncollectableMarker::sGeneration);
     MarkNodeChildren(currentDoc);
   }
 
-  // Subtree is black, so we can remove purple nodes from
+  // Subtree is known-live, so we can remove purple nodes from
   // purple buffer and mark stuff that to be certainly alive.
   for (uint32_t i = 0; i < nodesToClear.Length(); ++i) {
     nsIContent* n = nodesToClear[i];
@@ -1804,7 +1830,7 @@ FragmentOrElement::CanSkipThis(nsINode* aNode)
   if (nsCCUncollectableMarker::sGeneration == 0) {
     return false;
   }
-  if (aNode->IsBlack()) {
+  if (aNode->HasKnownLiveWrapper()) {
     return true;
   }
   nsIDocument* c = aNode->GetUncomposedDoc();
@@ -1866,7 +1892,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(FragmentOrElement)
     }
 
     nsAutoString classes;
-    const nsAttrValue* classAttrValue = tmp->GetClasses();
+    const nsAttrValue* classAttrValue = tmp->IsElement() ?
+      tmp->AsElement()->GetClasses() : nullptr;
     if (classAttrValue) {
       classes.AppendLiteral(" class='");
       nsAutoString classString;
@@ -1897,10 +1924,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(FragmentOrElement)
   else {
     NS_IMPL_CYCLE_COLLECTION_DESCRIBE(FragmentOrElement, tmp->mRefCnt.get())
   }
-
-  // Always need to traverse script objects, so do that before we check
-  // if we're uncollectable.
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 
   if (!nsINode::Traverse(tmp, cb)) {
     return NS_SUCCESS_INTERRUPTED_TRAVERSE;

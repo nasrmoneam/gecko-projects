@@ -593,13 +593,13 @@ public:
    * its presentation context (presentation contexts <b>must not</b> be
    * shared among multiple presentation shells).
    */
-  virtual already_AddRefed<nsIPresShell> CreateShell(
-      nsPresContext* aContext,
-      nsViewManager* aViewManager,
-      mozilla::StyleSetHandle aStyleSet) override;
+  already_AddRefed<nsIPresShell> CreateShell(nsPresContext* aContext,
+                                             nsViewManager* aViewManager,
+                                             mozilla::StyleSetHandle aStyleSet)
+    final;
   virtual void DeleteShell() override;
 
-  virtual nsresult GetAllowPlugins(bool* aAllowPlugins) override;
+  virtual bool GetAllowPlugins() override;
 
   static bool IsElementAnimateEnabled(JSContext* aCx, JSObject* aObject);
   static bool IsWebAnimationsEnabled(JSContext* aCx, JSObject* aObject);
@@ -714,8 +714,8 @@ public:
   virtual void StyleRuleRemoved(mozilla::StyleSheet* aStyleSheet,
                                 mozilla::css::Rule* aStyleRule) override;
 
-  virtual void FlushPendingNotifications(mozFlushType aType) override;
-  virtual void FlushExternalResources(mozFlushType aType) override;
+  virtual void FlushPendingNotifications(mozilla::FlushType aType) override;
+  virtual void FlushExternalResources(mozilla::FlushType aType) override;
   virtual void SetXMLDeclaration(const char16_t *aVersion,
                                  const char16_t *aEncoding,
                                  const int32_t aStandalone) override;
@@ -774,7 +774,19 @@ public:
 
   virtual nsViewportInfo GetViewportInfo(const mozilla::ScreenIntSize& aDisplaySize) override;
 
-  void ReportUseCounters();
+  enum class UseCounterReportKind {
+    // Flush the document's use counters only; the use counters for any
+    // external resource documents will be flushed when the external
+    // resource documents themselves are destroyed.
+    eDefault,
+
+    // Flush use counters for the document and for its external resource
+    // documents. (Should only be necessary for tests, where we need
+    // flushing to happen synchronously and deterministically.)
+    eIncludeExternalResources,
+  };
+
+  void ReportUseCounters(UseCounterReportKind aKind = UseCounterReportKind::eDefault);
 
   virtual void AddIntersectionObserver(
     mozilla::dom::DOMIntersectionObserver* aObserver) override;
@@ -895,21 +907,13 @@ public:
   virtual mozilla::PendingAnimationTracker*
   GetOrCreatePendingAnimationTracker() override;
 
-  virtual void SuppressEventHandling(SuppressionType aWhat,
-                                     uint32_t aIncrease) override;
+  virtual void SuppressEventHandling(uint32_t aIncrease) override;
 
-  virtual void UnsuppressEventHandlingAndFireEvents(SuppressionType aWhat,
-                                                    bool aFireEvents) override;
+  virtual void UnsuppressEventHandlingAndFireEvents(bool aFireEvents) override;
 
   void DecreaseEventSuppression() {
     MOZ_ASSERT(mEventsSuppressed);
     --mEventsSuppressed;
-    MaybeRescheduleAnimationFrameNotifications();
-  }
-
-  void ResumeAnimations() {
-    MOZ_ASSERT(mAnimationsPaused);
-    --mAnimationsPaused;
     MaybeRescheduleAnimationFrameNotifications();
   }
 
@@ -1128,7 +1132,7 @@ public:
                                                   ErrorResult& rv) override;
   virtual already_AddRefed<Element> CreateElementNS(const nsAString& aNamespaceURI,
                                                     const nsAString& aQualifiedName,
-                                                    const mozilla::dom::ElementCreationOptions& aOptions,
+                                                    const mozilla::dom::ElementCreationOptionsOrString& aOptions,
                                                     mozilla::ErrorResult& rv) override;
 
   virtual nsIDocument* MasterDocument() override
@@ -1273,10 +1277,6 @@ public:
   bool ContainsMSEContent();
 
 protected:
-  already_AddRefed<nsIPresShell> doCreateShell(nsPresContext* aContext,
-                                               nsViewManager* aViewManager,
-                                               mozilla::StyleSetHandle aStyleSet);
-
   void RemoveDocStyleSheetsFromStyleSets();
   void RemoveStyleSheetsFromStyleSets(
       const nsTArray<RefPtr<mozilla::StyleSheet>>& aSheets,
@@ -1297,6 +1297,8 @@ protected:
 
   void UpdateScreenOrientation();
 
+  virtual mozilla::dom::FlashClassification DocumentFlashClassification() override;
+
 #define NS_DOCUMENT_NOTIFY_OBSERVERS(func_, params_)                        \
   NS_OBSERVER_ARRAY_NOTIFY_XPCOM_OBSERVERS(mObservers, nsIDocumentObserver, \
                                            func_, params_);
@@ -1316,6 +1318,14 @@ protected:
   // events. It returns false if the fullscreen element ready check
   // fails and nothing gets changed.
   bool ApplyFullscreen(const FullscreenRequest& aRequest);
+
+  // Retrieves the classification of the Flash plugins in the document based on
+  // the classification lists.
+  mozilla::dom::FlashClassification PrincipalFlashClassification(bool aIsTopLevel);
+
+  // Attempts to determine the Flash classification of this page based on the
+  // the classification lists and the classification of parent documents.
+  mozilla::dom::FlashClassification ComputeFlashClassification();
 
   nsTArray<nsIObserver*> mCharSetObservers;
 
@@ -1341,7 +1351,8 @@ protected:
   nsTObserverArray<nsIDocumentObserver*> mObservers;
 
   // Array of intersection observers
-  nsTArray<RefPtr<mozilla::dom::DOMIntersectionObserver>> mIntersectionObservers;
+  nsTHashtable<nsPtrHashKey<mozilla::dom::DOMIntersectionObserver>>
+    mIntersectionObservers;
 
   // Tracker for animations that are waiting to start.
   // nullptr until GetOrCreatePendingAnimationTracker is called.
@@ -1361,6 +1372,7 @@ protected:
   // non-null when this document is in fullscreen mode.
   nsWeakPtr mFullscreenRoot;
 
+  mozilla::dom::FlashClassification mFlashClassification;
 private:
   static bool CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* aVp);
 
@@ -1425,10 +1437,6 @@ public:
   bool mSynchronousDOMContentLoaded:1;
 
   bool mInXBLUpdate:1;
-
-  // Whether we're currently under a FlushPendingNotifications call to
-  // our presshell.  This is used to handle flush reentry correctly.
-  bool mInFlush:1;
 
   // Parser aborted. True if the parser of this document was forcibly
   // terminated instead of letting it finish at its own pace.
@@ -1520,7 +1528,7 @@ private:
   void ClearAllBoxObjects();
 
   // Returns true if the scheme for the url for this document is "about"
-  bool IsAboutPage();
+  bool IsAboutPage() const;
 
   // These are not implemented and not supported.
   nsDocument(const nsDocument& aOther);

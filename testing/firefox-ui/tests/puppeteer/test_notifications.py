@@ -7,9 +7,9 @@ from firefox_puppeteer.ui.browser.notifications import (
     AddOnInstallFailedNotification,
     AddOnInstallConfirmationNotification,
 )
-from marionette import MarionetteTestCase
 from marionette_driver import By
 from marionette_driver.errors import TimeoutException
+from marionette_harness import MarionetteTestCase
 
 
 class TestNotifications(PuppeteerMixin, MarionetteTestCase):
@@ -17,7 +17,7 @@ class TestNotifications(PuppeteerMixin, MarionetteTestCase):
     def setUp(self):
         super(TestNotifications, self).setUp()
 
-        self.puppeteer.prefs.set_pref('extensions.install.requireSecureOrigin', False)
+        self.marionette.set_pref('extensions.install.requireSecureOrigin', False)
 
         self.addons_url = self.marionette.absolute_url('addons/extensions/')
         self.puppeteer.utils.permissions.add(self.marionette.baseurl, 'install')
@@ -69,7 +69,7 @@ class TestNotifications(PuppeteerMixin, MarionetteTestCase):
     def test_addon_install_failed_notification(self):
         """Trigger add-on blocked notification using an unsigned add-on"""
         # Ensure that installing unsigned extensions will fail
-        self.puppeteer.prefs.set_pref('xpinstall.signatures.required', True)
+        self.marionette.set_pref('xpinstall.signatures.required', True)
 
         self.trigger_addon_notification(
             'restartless_addon_unsigned.xpi',

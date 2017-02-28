@@ -14,18 +14,16 @@
 #include "nsClassHashtable.h"
 #include "nsITelemetry.h"
 
-#include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ToJSValue.h"
-#include "mozilla/gfx/GPUParent.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/StartupTimeline.h"
 #include "mozilla/StaticMutex.h"
-#include "mozilla/StaticPtr.h"
 #include "mozilla/Unused.h"
 
 #include "TelemetryCommon.h"
 #include "TelemetryHistogram.h"
+#include "ipc/TelemetryIPCAccumulator.h"
 
 #include "base/histogram.h"
 
@@ -37,10 +35,11 @@ using base::FlagHistogram;
 using base::LinearHistogram;
 using mozilla::StaticMutex;
 using mozilla::StaticMutexAutoLock;
-using mozilla::StaticAutoPtr;
 using mozilla::Telemetry::Accumulation;
 using mozilla::Telemetry::KeyedAccumulation;
+using mozilla::Telemetry::Common::LogToBrowserConsole;
 
+namespace TelemetryIPCAccumulator = mozilla::TelemetryIPCAccumulator;
 
 ////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////
@@ -113,7 +112,7 @@ using mozilla::Telemetry::Common::IsInDataset;
 
 class KeyedHistogram;
 
-typedef nsBaseHashtableET<nsDepCharHashKey, mozilla::Telemetry::ID>
+typedef nsBaseHashtableET<nsDepCharHashKey, mozilla::Telemetry::HistogramID>
           CharPtrEntryType;
 
 typedef AutoHashtable<CharPtrEntryType> HistogramMapType;
@@ -196,13 +195,6 @@ AddonMapType gAddonMap;
 // The singleton StatisticsRecorder object for this process.
 base::StatisticsRecorder* gStatisticsRecorder = nullptr;
 
-// For batching and sending child process accumulations to the parent
-nsITimer* gIPCTimer = nullptr;
-mozilla::Atomic<bool, mozilla::Relaxed> gIPCTimerArmed(false);
-mozilla::Atomic<bool, mozilla::Relaxed> gIPCTimerArming(false);
-StaticAutoPtr<nsTArray<Accumulation>> gAccumulations;
-StaticAutoPtr<nsTArray<KeyedAccumulation>> gKeyedAccumulations;
-
 } // namespace
 
 
@@ -214,24 +206,13 @@ StaticAutoPtr<nsTArray<KeyedAccumulation>> gKeyedAccumulations;
 namespace {
 
 // List of histogram IDs which should have recording disabled initially.
-const mozilla::Telemetry::ID kRecordingInitiallyDisabledIDs[] = {
+const mozilla::Telemetry::HistogramID kRecordingInitiallyDisabledIDs[] = {
   mozilla::Telemetry::FX_REFRESH_DRIVER_SYNC_SCROLL_FRAME_DELAY_MS,
 
   // The array must not be empty. Leave these item here.
   mozilla::Telemetry::TELEMETRY_TEST_COUNT_INIT_NO_RECORD,
   mozilla::Telemetry::TELEMETRY_TEST_KEYED_COUNT_INIT_NO_RECORD
 };
-
-// Sending each remote accumulation immediately places undue strain on the
-// IPC subsystem. Batch the remote accumulations for a period of time before
-// sending them all at once. This value was chosen as a balance between data
-// timeliness and performance (see bug 1218576)
-const uint32_t kBatchTimeoutMs = 2000;
-
-// To stop growing unbounded in memory while waiting for kBatchTimeoutMs to
-// drain the g*Accumulations arrays, request an immediate flush if the arrays
-// manage to reach this high water mark of elements.
-const size_t kAccumulationsArrayHighWaterMark = 5 * 1024;
 
 } // namespace
 
@@ -254,9 +235,9 @@ internal_CanRecordExtended() {
 }
 
 bool
-internal_IsHistogramEnumId(mozilla::Telemetry::ID aID)
+internal_IsHistogramEnumId(mozilla::Telemetry::HistogramID aID)
 {
-  static_assert(((mozilla::Telemetry::ID)-1 > 0), "ID should be unsigned.");
+  static_assert(((mozilla::Telemetry::HistogramID)-1 > 0), "ID should be unsigned.");
   return aID < mozilla::Telemetry::HistogramCount;
 }
 
@@ -337,18 +318,6 @@ HistogramInfo::label_id(const char* label, uint32_t* labelId) const
   }
 
   return NS_ERROR_FAILURE;
-}
-
-void internal_DispatchToMainThread(already_AddRefed<nsIRunnable>&& aEvent)
-{
-  nsCOMPtr<nsIRunnable> event(aEvent);
-  nsCOMPtr<nsIThread> thread;
-  nsresult rv = NS_GetMainThread(getter_AddRefs(thread));
-  if (NS_FAILED(rv)) {
-    NS_WARNING("NS_FAILED DispatchToMainThread. Maybe we're shutting down?");
-    return;
-  }
-  thread->Dispatch(event, 0);
 }
 
 } // namespace
@@ -480,7 +449,7 @@ internal_GetHistogramMapEntry(const char* aName)
 }
 
 nsresult
-internal_GetHistogramEnumId(const char *name, mozilla::Telemetry::ID *id)
+internal_GetHistogramEnumId(const char *name, mozilla::Telemetry::HistogramID *id)
 {
   if (!gInitDone) {
     return NS_ERROR_FAILURE;
@@ -496,7 +465,7 @@ internal_GetHistogramEnumId(const char *name, mozilla::Telemetry::ID *id)
 
 // O(1) histogram lookup by numeric id
 nsresult
-internal_GetHistogramByEnumId(mozilla::Telemetry::ID id, Histogram **ret, GeckoProcessType aProcessType)
+internal_GetHistogramByEnumId(mozilla::Telemetry::HistogramID id, Histogram **ret, GeckoProcessType aProcessType)
 {
   static Histogram* knownHistograms[mozilla::Telemetry::HistogramCount] = {0};
   static Histogram* knownContentHistograms[mozilla::Telemetry::HistogramCount] = {0};
@@ -566,7 +535,7 @@ internal_GetHistogramByEnumId(mozilla::Telemetry::ID id, Histogram **ret, GeckoP
 nsresult
 internal_GetHistogramByName(const nsACString &name, Histogram **ret)
 {
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv
     = internal_GetHistogramEnumId(PromiseFlatCString(name).get(), &id);
   if (NS_FAILED(rv)) {
@@ -591,7 +560,7 @@ internal_GetHistogramByName(const nsACString &name, Histogram **ret)
  */
 Histogram*
 internal_CloneHistogram(const nsACString& newName,
-                        mozilla::Telemetry::ID existingId,
+                        mozilla::Telemetry::HistogramID existingId,
                         Histogram& existing)
 {
   const HistogramInfo &info = gHistograms[existingId];
@@ -624,7 +593,7 @@ GetProcessFromName(const std::string& aString)
 Histogram*
 internal_GetSubsessionHistogram(Histogram& existing)
 {
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv
     = internal_GetHistogramEnumId(existing.histogram_name().c_str(), &id);
   if (NS_FAILED(rv) || gHistograms[id].keyed) {
@@ -703,7 +672,7 @@ internal_HistogramAdd(Histogram& histogram, int32_t value)
   // We only really care about the dataset of the histogram if we are not recording
   // extended telemetry. Otherwise, we always record histogram data.
   if (!internal_CanRecordExtended()) {
-    mozilla::Telemetry::ID id;
+    mozilla::Telemetry::HistogramID id;
     nsresult rv
       = internal_GetHistogramEnumId(histogram.histogram_name().c_str(), &id);
     if (NS_FAILED(rv)) {
@@ -745,13 +714,13 @@ internal_HistogramClear(Histogram& aHistogram, bool onlySubsession)
 
 namespace {
 
-void internal_Accumulate(mozilla::Telemetry::ID aHistogram, uint32_t aSample);
+void internal_Accumulate(mozilla::Telemetry::HistogramID aHistogram, uint32_t aSample);
 
 void
 internal_IdentifyCorruptHistograms(StatisticsRecorder::Histograms &hs)
 {
   for (auto h : hs) {
-    mozilla::Telemetry::ID id;
+    mozilla::Telemetry::HistogramID id;
     nsresult rv = internal_GetHistogramEnumId(h->histogram_name().c_str(), &id);
     // This histogram isn't a static histogram, just ignore it.
     if (NS_FAILED(rv)) {
@@ -769,7 +738,7 @@ internal_IdentifyCorruptHistograms(StatisticsRecorder::Histograms &hs)
     bool corrupt = (check != Histogram::NO_INCONSISTENCIES);
 
     if (corrupt) {
-      mozilla::Telemetry::ID corruptID = mozilla::Telemetry::HistogramCount;
+      mozilla::Telemetry::HistogramID corruptID = mozilla::Telemetry::HistogramCount;
       if (check & Histogram::RANGE_CHECKSUM_ERROR) {
         corruptID = mozilla::Telemetry::RANGE_CHECKSUM_ERRORS;
       } else if (check & Histogram::BUCKET_ORDER_ERROR) {
@@ -869,7 +838,7 @@ bool
 internal_ShouldReflectHistogram(Histogram *h)
 {
   const char *name = h->histogram_name().c_str();
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv = internal_GetHistogramEnumId(name, &id);
   if (NS_FAILED(rv)) {
     // GetHistogramEnumId generally should not fail.  But a lookup
@@ -883,9 +852,8 @@ internal_ShouldReflectHistogram(Histogram *h)
       return false;
     }
     return true;
-  } else {
-    return !gCorruptHistograms[id];
   }
+  return !gCorruptHistograms[id];
 }
 
 } // namespace
@@ -917,7 +885,7 @@ public:
   nsresult Add(const nsCString& key, uint32_t aSample);
   void Clear(bool subsession);
 
-  nsresult GetEnumId(mozilla::Telemetry::ID& id);
+  nsresult GetEnumId(mozilla::Telemetry::HistogramID& id);
 
 private:
   typedef nsBaseHashtableET<nsCStringHashKey, Histogram*> KeyedHistogramEntry;
@@ -1153,7 +1121,7 @@ KeyedHistogram::GetJSSnapshot(JSContext* cx, JS::Handle<JSObject*> obj,
 }
 
 nsresult
-KeyedHistogram::GetEnumId(mozilla::Telemetry::ID& id)
+KeyedHistogram::GetEnumId(mozilla::Telemetry::HistogramID& id)
 {
   return internal_GetHistogramEnumId(mName.get(), &id);
 }
@@ -1301,13 +1269,8 @@ static StaticMutex gTelemetryHistogramMutex;
 namespace {
 
 void
-internal_SetHistogramRecordingEnabled(mozilla::Telemetry::ID aID, bool aEnabled)
+internal_SetHistogramRecordingEnabled(mozilla::Telemetry::HistogramID aID, bool aEnabled)
 {
-  if (!internal_IsHistogramEnumId(aID)) {
-    MOZ_ASSERT(false, "Telemetry::SetHistogramRecordingEnabled(...) must be used with an enum id");
-    return;
-  }
-
   if (gHistograms[aID].keyed) {
     const nsDependentCString id(gHistograms[aID].id());
     KeyedHistogram* keyed = internal_GetKeyedHistogramById(id);
@@ -1327,42 +1290,8 @@ internal_SetHistogramRecordingEnabled(mozilla::Telemetry::ID aID, bool aEnabled)
   MOZ_ASSERT(false, "Telemetry::SetHistogramRecordingEnabled(...) id not found");
 }
 
-void internal_armIPCTimerMainThread()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  gIPCTimerArming = false;
-  if (gIPCTimerArmed) {
-    return;
-  }
-  if (!gIPCTimer) {
-    CallCreateInstance(NS_TIMER_CONTRACTID, &gIPCTimer);
-  }
-  if (gIPCTimer) {
-    gIPCTimer->InitWithFuncCallback(TelemetryHistogram::IPCTimerFired,
-                                    nullptr, kBatchTimeoutMs,
-                                    nsITimer::TYPE_ONE_SHOT);
-    gIPCTimerArmed = true;
-  }
-}
-
-void internal_armIPCTimer()
-{
-  if (gIPCTimerArmed || gIPCTimerArming) {
-    return;
-  }
-  gIPCTimerArming = true;
-  if (NS_IsMainThread()) {
-    internal_armIPCTimerMainThread();
-  } else {
-    internal_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
-      StaticMutexAutoLock locker(gTelemetryHistogramMutex);
-      internal_armIPCTimerMainThread();
-    }));
-  }
-}
-
 bool
-internal_RemoteAccumulate(mozilla::Telemetry::ID aId, uint32_t aSample)
+internal_RemoteAccumulate(mozilla::Telemetry::HistogramID aId, uint32_t aSample)
 {
   if (XRE_IsParentProcess()) {
     return false;
@@ -1372,21 +1301,12 @@ internal_RemoteAccumulate(mozilla::Telemetry::ID aId, uint32_t aSample)
   if (NS_SUCCEEDED(rv) && !h->IsRecordingEnabled()) {
     return true;
   }
-  if (!gAccumulations) {
-    gAccumulations = new nsTArray<Accumulation>();
-  }
-  if (gAccumulations->Length() == kAccumulationsArrayHighWaterMark) {
-    internal_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
-      TelemetryHistogram::IPCTimerFired(nullptr, nullptr);
-    }));
-  }
-  gAccumulations->AppendElement(Accumulation{aId, aSample});
-  internal_armIPCTimer();
+  TelemetryIPCAccumulator::AccumulateChildHistogram(aId, aSample);
   return true;
 }
 
 bool
-internal_RemoteAccumulate(mozilla::Telemetry::ID aId,
+internal_RemoteAccumulate(mozilla::Telemetry::HistogramID aId,
                     const nsCString& aKey, uint32_t aSample)
 {
   if (XRE_IsParentProcess()) {
@@ -1399,24 +1319,13 @@ internal_RemoteAccumulate(mozilla::Telemetry::ID aId,
   if (!keyed->IsRecordingEnabled()) {
     return false;
   }
-  if (!gKeyedAccumulations) {
-    gKeyedAccumulations = new nsTArray<KeyedAccumulation>();
-  }
-  if (gKeyedAccumulations->Length() == kAccumulationsArrayHighWaterMark) {
-    internal_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
-      TelemetryHistogram::IPCTimerFired(nullptr, nullptr);
-    }));
-  }
-  gKeyedAccumulations->AppendElement(KeyedAccumulation{aId, aSample, aKey});
-  internal_armIPCTimer();
+  TelemetryIPCAccumulator::AccumulateChildKeyedHistogram(aId, aKey, aSample);
   return true;
 }
 
-void internal_Accumulate(mozilla::Telemetry::ID aHistogram, uint32_t aSample)
+void internal_Accumulate(mozilla::Telemetry::HistogramID aHistogram, uint32_t aSample)
 {
-  bool isValid = internal_IsHistogramEnumId(aHistogram);
-  MOZ_ASSERT(isValid, "Accumulation using invalid id");
-  if (!internal_CanRecordBase() || !isValid ||
+  if (!internal_CanRecordBase() ||
       internal_RemoteAccumulate(aHistogram, aSample)) {
     return;
   }
@@ -1428,12 +1337,10 @@ void internal_Accumulate(mozilla::Telemetry::ID aHistogram, uint32_t aSample)
 }
 
 void
-internal_Accumulate(mozilla::Telemetry::ID aID,
+internal_Accumulate(mozilla::Telemetry::HistogramID aID,
                     const nsCString& aKey, uint32_t aSample)
 {
-  bool isValid = internal_IsHistogramEnumId(aID);
-  MOZ_ASSERT(isValid, "Child keyed telemetry accumulation using invalid id");
-  if (!gInitDone || !internal_CanRecordBase() || !isValid ||
+  if (!gInitDone || !internal_CanRecordBase() ||
       internal_RemoteAccumulate(aID, aKey, aSample)) {
     return;
   }
@@ -1452,7 +1359,7 @@ internal_Accumulate(Histogram& aHistogram, uint32_t aSample)
     return;
   }
 
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv = internal_GetHistogramEnumId(aHistogram.histogram_name().c_str(), &id);
   if (NS_SUCCEEDED(rv)) {
     internal_RemoteAccumulate(id, aSample);
@@ -1468,14 +1375,14 @@ internal_Accumulate(KeyedHistogram& aKeyed,
     return;
   }
 
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   if (NS_SUCCEEDED(aKeyed.GetEnumId(id))) {
     internal_RemoteAccumulate(id, aKey, aSample);
   }
 }
 
 void
-internal_AccumulateChild(GeckoProcessType aProcessType, mozilla::Telemetry::ID aId, uint32_t aSample)
+internal_AccumulateChild(GeckoProcessType aProcessType, mozilla::Telemetry::HistogramID aId, uint32_t aSample)
 {
   if (!internal_CanRecordBase()) {
     return;
@@ -1490,7 +1397,7 @@ internal_AccumulateChild(GeckoProcessType aProcessType, mozilla::Telemetry::ID a
 }
 
 void
-internal_AccumulateChildKeyed(GeckoProcessType aProcessType, mozilla::Telemetry::ID aId,
+internal_AccumulateChildKeyed(GeckoProcessType aProcessType, mozilla::Telemetry::HistogramID aId,
                               const nsCString& aKey, uint32_t aSample)
 {
   if (!gInitDone || !internal_CanRecordBase()) {
@@ -1554,13 +1461,16 @@ internal_JSHistogram_Add(JSContext *cx, unsigned argc, JS::Value *vp)
   Histogram::ClassType type = h->histogram_type();
 
   JS::CallArgs args = CallArgsFromVp(argc, vp);
+  // This function should always return |undefined| and never fail but
+  // rather report failures using the console.
+  args.rval().setUndefined();
 
   if (!internal_CanRecordBase()) {
     return true;
   }
 
   uint32_t value = 0;
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   if ((type == base::CountHistogram::COUNT_HISTOGRAM) && (args.length() == 0)) {
     // If we don't have an argument for the count histogram, assume an increment of 1.
     // Otherwise, make sure to run some sanity checks on the argument.
@@ -1572,30 +1482,31 @@ internal_JSHistogram_Add(JSContext *cx, unsigned argc, JS::Value *vp)
     // For categorical histograms we allow passing a string argument that specifies the label.
     nsAutoJSString label;
     if (!label.init(cx, args[0])) {
-      JS_ReportErrorASCII(cx, "Invalid string parameter");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Invalid string parameter"));
+      return true;
     }
 
     nsresult rv = gHistograms[id].label_id(NS_ConvertUTF16toUTF8(label).get(), &value);
     if (NS_FAILED(rv)) {
-      JS_ReportErrorASCII(cx, "Unknown label for categorical histogram");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag,
+                          NS_LITERAL_STRING("Unknown label for categorical histogram"));
+      return true;
     }
   } else {
     // All other accumulations expect one numerical argument.
     if (!args.length()) {
-      JS_ReportErrorASCII(cx, "Expected one argument");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Expected one argument"));
+      return true;
     }
 
     if (!(args[0].isNumber() || args[0].isBoolean())) {
-      JS_ReportErrorASCII(cx, "Not a number");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Not a number"));
+      return true;
     }
 
     if (!JS::ToUint32(cx, args[0], &value)) {
-      JS_ReportErrorASCII(cx, "Failed to convert argument");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Failed to convert argument"));
+      return true;
     }
   }
 
@@ -1675,7 +1586,7 @@ internal_JSHistogram_Dataset(JSContext *cx, unsigned argc, JS::Value *vp)
   }
 
   Histogram *h = static_cast<Histogram*>(JS_GetPrivate(obj));
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv = internal_GetHistogramEnumId(h->histogram_name().c_str(), &id);
   if (NS_SUCCEEDED(rv)) {
     args.rval().setNumber(gHistograms[id].dataset);
@@ -1818,15 +1729,18 @@ internal_JSKeyedHistogram_Add(JSContext *cx, unsigned argc, JS::Value *vp)
   }
 
   JS::CallArgs args = CallArgsFromVp(argc, vp);
+  // This function should always return |undefined| and never fail but
+  // rather report failures using the console.
+  args.rval().setUndefined();
   if (args.length() < 1) {
-    JS_ReportErrorASCII(cx, "Expected one argument");
-    return false;
+    LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Expected one argument"));
+    return true;
   }
 
   nsAutoJSString key;
   if (!args[0].isString() || !key.init(cx, args[0])) {
-    JS_ReportErrorASCII(cx, "Not a string");
-    return false;
+    LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Not a string"));
+    return true;
   }
 
   const uint32_t type = keyed->GetHistogramType();
@@ -1836,17 +1750,19 @@ internal_JSKeyedHistogram_Add(JSContext *cx, unsigned argc, JS::Value *vp)
   int32_t value = 1;
   if ((type != base::CountHistogram::COUNT_HISTOGRAM) || (args.length() == 2)) {
     if (args.length() < 2) {
-      JS_ReportErrorASCII(cx, "Expected two arguments for this histogram type");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag,
+                          NS_LITERAL_STRING("Expected two arguments for this histogram type"));
+      return true;
     }
 
     if (!(args[1].isNumber() || args[1].isBoolean())) {
-      JS_ReportErrorASCII(cx, "Not a number");
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Not a number"));
+      return true;
     }
 
     if (!JS::ToInt32(cx, args[1], &value)) {
-      return false;
+      LogToBrowserConsole(nsIScriptError::errorFlag, NS_LITERAL_STRING("Failed to convert argument"));
+      return true;
     }
   }
 
@@ -2051,7 +1967,7 @@ void TelemetryHistogram::InitializeGlobalState(bool canRecordBase,
   // Note that the histogram names are statically allocated.
   for (uint32_t i = 0; i < mozilla::Telemetry::HistogramCount; i++) {
     CharPtrEntryType *entry = gHistogramMap.PutEntry(gHistograms[i].id());
-    entry->mData = (mozilla::Telemetry::ID) i;
+    entry->mData = (mozilla::Telemetry::HistogramID) i;
   }
 
 #ifdef DEBUG
@@ -2117,11 +2033,6 @@ void TelemetryHistogram::DeInitializeGlobalState()
   gHistogramMap.Clear();
   gKeyedHistograms.Clear();
   gAddonMap.Clear();
-  gAccumulations = nullptr;
-  gKeyedAccumulations = nullptr;
-  if (gIPCTimer) {
-    NS_RELEASE(gIPCTimer);
-  }
   gInitDone = false;
 }
 
@@ -2168,9 +2079,14 @@ TelemetryHistogram::InitHistogramRecordingEnabled()
 }
 
 void
-TelemetryHistogram::SetHistogramRecordingEnabled(mozilla::Telemetry::ID aID,
+TelemetryHistogram::SetHistogramRecordingEnabled(mozilla::Telemetry::HistogramID aID,
                                                  bool aEnabled)
 {
+  if (NS_WARN_IF(!internal_IsHistogramEnumId(aID))) {
+    MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
+    return;
+  }
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
   internal_SetHistogramRecordingEnabled(aID, aEnabled);
 }
@@ -2199,17 +2115,27 @@ TelemetryHistogram::SetHistogramRecordingEnabled(const nsACString &id,
 
 
 void
-TelemetryHistogram::Accumulate(mozilla::Telemetry::ID aHistogram,
+TelemetryHistogram::Accumulate(mozilla::Telemetry::HistogramID aID,
                                uint32_t aSample)
 {
+  if (NS_WARN_IF(!internal_IsHistogramEnumId(aID))) {
+    MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
+    return;
+  }
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
-  internal_Accumulate(aHistogram, aSample);
+  internal_Accumulate(aID, aSample);
 }
 
 void
-TelemetryHistogram::Accumulate(mozilla::Telemetry::ID aID,
+TelemetryHistogram::Accumulate(mozilla::Telemetry::HistogramID aID,
                                const nsCString& aKey, uint32_t aSample)
 {
+  if (NS_WARN_IF(!internal_IsHistogramEnumId(aID))) {
+    MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
+    return;
+  }
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
   internal_Accumulate(aID, aKey, aSample);
 }
@@ -2221,7 +2147,7 @@ TelemetryHistogram::Accumulate(const char* name, uint32_t sample)
   if (!internal_CanRecordBase()) {
     return;
   }
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv = internal_GetHistogramEnumId(name, &id);
   if (NS_FAILED(rv)) {
     return;
@@ -2237,7 +2163,7 @@ TelemetryHistogram::Accumulate(const char* name,
   if (!internal_CanRecordBase()) {
     return;
   }
-  mozilla::Telemetry::ID id;
+  mozilla::Telemetry::HistogramID id;
   nsresult rv = internal_GetHistogramEnumId(name, &id);
   if (NS_SUCCEEDED(rv)) {
     internal_Accumulate(id, key, sample);
@@ -2245,9 +2171,14 @@ TelemetryHistogram::Accumulate(const char* name,
 }
 
 void
-TelemetryHistogram::AccumulateCategorical(mozilla::Telemetry::ID aId,
+TelemetryHistogram::AccumulateCategorical(mozilla::Telemetry::HistogramID aId,
                                           const nsCString& label)
 {
+  if (NS_WARN_IF(!internal_IsHistogramEnumId(aId))) {
+    MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
+    return;
+  }
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
   if (!internal_CanRecordBase()) {
     return;
@@ -2264,14 +2195,14 @@ TelemetryHistogram::AccumulateChild(GeckoProcessType aProcessType,
                                     const nsTArray<Accumulation>& aAccumulations)
 {
   MOZ_ASSERT(XRE_IsParentProcess());
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
   if (!internal_CanRecordBase()) {
     return;
   }
   for (uint32_t i = 0; i < aAccumulations.Length(); ++i) {
-    bool isValid = internal_IsHistogramEnumId(aAccumulations[i].mId);
-    MOZ_ASSERT(isValid);
-    if (!isValid) {
+    if (NS_WARN_IF(!internal_IsHistogramEnumId(aAccumulations[i].mId))) {
+      MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
       continue;
     }
     internal_AccumulateChild(aProcessType, aAccumulations[i].mId, aAccumulations[i].mSample);
@@ -2288,9 +2219,8 @@ TelemetryHistogram::AccumulateChildKeyed(GeckoProcessType aProcessType,
     return;
   }
   for (uint32_t i = 0; i < aAccumulations.Length(); ++i) {
-    bool isValid = internal_IsHistogramEnumId(aAccumulations[i].mId);
-    MOZ_ASSERT(isValid);
-    if (!isValid) {
+    if (NS_WARN_IF(!internal_IsHistogramEnumId(aAccumulations[i].mId))) {
+      MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
       continue;
     }
     internal_AccumulateChildKeyed(aProcessType,
@@ -2332,8 +2262,13 @@ TelemetryHistogram::GetKeyedHistogramById(const nsACString &name,
 }
 
 const char*
-TelemetryHistogram::GetHistogramName(mozilla::Telemetry::ID id)
+TelemetryHistogram::GetHistogramName(mozilla::Telemetry::HistogramID id)
 {
+  if (NS_WARN_IF(!internal_IsHistogramEnumId(id))) {
+    MOZ_ASSERT_UNREACHABLE("Histogram usage requires valid ids.");
+    return nullptr;
+  }
+
   StaticMutexAutoLock locker(gTelemetryHistogramMutex);
   const HistogramInfo& h = gHistograms[id];
   return h.id();
@@ -2369,7 +2304,7 @@ TelemetryHistogram::CreateHistogramSnapshots(JSContext *cx,
         type == nsITelemetry::HISTOGRAM_COUNT) {
       Histogram *h;
       mozilla::DebugOnly<nsresult> rv;
-      mozilla::Telemetry::ID id = mozilla::Telemetry::ID(i);
+      mozilla::Telemetry::HistogramID id = mozilla::Telemetry::HistogramID(i);
 
       rv = internal_GetHistogramByEnumId(id, &h, GeckoProcessType_Default);
       MOZ_ASSERT(NS_SUCCEEDED(rv));
@@ -2641,63 +2576,4 @@ TelemetryHistogram::GetHistogramSizesofIncludingThis(mozilla::MallocSizeOf
     n += h->SizeOfIncludingThis(aMallocSizeOf);
   }
   return n;
-}
-
-// This method takes the lock only to double-buffer the batched telemetry.
-// It releases the lock before calling out to IPC code which can (and does)
-// Accumulate (which would deadlock)
-//
-// To ensure we don't loop IPCTimerFired->AccumulateChild->arm timer, we don't
-// unset gIPCTimerArmed until the IPC completes
-//
-// This function must be called on the main thread, otherwise IPC will fail.
-void
-TelemetryHistogram::IPCTimerFired(nsITimer* aTimer, void* aClosure)
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  nsTArray<Accumulation> accumulationsToSend;
-  nsTArray<KeyedAccumulation> keyedAccumulationsToSend;
-  {
-    StaticMutexAutoLock locker(gTelemetryHistogramMutex);
-    if (gAccumulations) {
-      accumulationsToSend.SwapElements(*gAccumulations);
-    }
-    if (gKeyedAccumulations) {
-      keyedAccumulationsToSend.SwapElements(*gKeyedAccumulations);
-    }
-  }
-
-  switch (XRE_GetProcessType()) {
-    case GeckoProcessType_Content: {
-      mozilla::dom::ContentChild* contentChild = mozilla::dom::ContentChild::GetSingleton();
-      mozilla::Unused << NS_WARN_IF(!contentChild);
-      if (contentChild) {
-        if (accumulationsToSend.Length()) {
-          mozilla::Unused <<
-            NS_WARN_IF(!contentChild->SendAccumulateChildHistogram(accumulationsToSend));
-        }
-        if (keyedAccumulationsToSend.Length()) {
-          mozilla::Unused <<
-            NS_WARN_IF(!contentChild->SendAccumulateChildKeyedHistogram(keyedAccumulationsToSend));
-        }
-      }
-      break;
-    }
-    case GeckoProcessType_GPU: {
-      if (mozilla::gfx::GPUParent* gpu = mozilla::gfx::GPUParent::GetSingleton()) {
-        if (accumulationsToSend.Length()) {
-          mozilla::Unused << gpu->SendAccumulateChildHistogram(accumulationsToSend);
-        }
-        if (keyedAccumulationsToSend.Length()) {
-          mozilla::Unused << gpu->SendAccumulateChildKeyedHistogram(keyedAccumulationsToSend);
-        }
-      }
-      break;
-    }
-    default:
-      MOZ_ASSERT_UNREACHABLE("Unsupported process type");
-      break;
-  }
-
-  gIPCTimerArmed = false;
 }

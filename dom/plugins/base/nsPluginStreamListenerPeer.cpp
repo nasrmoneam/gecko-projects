@@ -920,7 +920,7 @@ NS_IMETHODIMP nsPluginStreamListenerPeer::OnDataAvailable(nsIRequest *request,
   GetURL(&url);
 
   PLUGIN_LOG(PLUGIN_LOG_NOISY,
-             ("nsPluginStreamListenerPeer::OnDataAvailable this=%p request=%p, offset=%llu, length=%u, url=%s\n",
+             ("nsPluginStreamListenerPeer::OnDataAvailable this=%p request=%p, offset=%" PRIu64 ", length=%u, url=%s\n",
               this, request, sourceOffset, aLength, url ? url : "no url set"));
 
   // if the plugin has requested an AsFileOnly stream, then don't
@@ -1005,8 +1005,8 @@ NS_IMETHODIMP nsPluginStreamListenerPeer::OnStopRequest(nsIRequest *request,
   }
 
   PLUGIN_LOG(PLUGIN_LOG_NOISY,
-             ("nsPluginStreamListenerPeer::OnStopRequest this=%p aStatus=%d request=%p\n",
-              this, aStatus, request));
+             ("nsPluginStreamListenerPeer::OnStopRequest this=%p aStatus=%" PRIu32 " request=%p\n",
+              this, static_cast<uint32_t>(aStatus), request));
 
   // for ByteRangeRequest we're just updating the mDataForwardToRequest hash and return.
   nsCOMPtr<nsIByteRangeRequest> brr = do_QueryInterface(request);
@@ -1157,7 +1157,7 @@ nsresult nsPluginStreamListenerPeer::SetUpStreamListener(nsIRequest *request,
         uint32_t major, minor;
         if (NS_SUCCEEDED(httpChannelInternal->GetResponseVersion(&major,
                                                                  &minor))) {
-          ver = nsPrintfCString("/%lu.%lu", major, minor);
+          ver = nsPrintfCString("/%" PRIu32 ".%" PRIu32, major, minor);
         }
       }
 
@@ -1168,7 +1168,7 @@ nsresult nsPluginStreamListenerPeer::SetUpStreamListener(nsIRequest *request,
       }
 
       // Assemble everything and pass to listener.
-      nsPrintfCString status("HTTP%s %lu %s", ver.get(), statusNum,
+      nsPrintfCString status("HTTP%s %" PRIu32 " %s", ver.get(), statusNum,
                              statusText.get());
       static_cast<nsIHTTPHeaderListener*>(mPStreamListener)->StatusLine(status.get());
     }
@@ -1291,19 +1291,28 @@ nsPluginStreamListenerPeer::GetInterfaceGlobal(const nsIID& aIID, void** result)
   }
 
   RefPtr<nsPluginInstanceOwner> owner = mPluginInstance->GetOwner();
-  if (owner) {
-    nsCOMPtr<nsIDocument> doc;
-    nsresult rv = owner->GetDocument(getter_AddRefs(doc));
-    if (NS_SUCCEEDED(rv) && doc) {
-      if  (nsPIDOMWindowOuter *window = doc->GetWindow()) {
-        nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(window);
-        nsCOMPtr<nsIInterfaceRequestor> ir = do_QueryInterface(webNav);
-        return ir->GetInterface(aIID, result);
-      }
-    }
+  if (!owner) {
+    return NS_ERROR_FAILURE;
   }
 
-  return NS_ERROR_FAILURE;
+  nsCOMPtr<nsIDocument> doc;
+  nsresult rv = owner->GetDocument(getter_AddRefs(doc));
+  if (NS_FAILED(rv) || !doc) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsPIDOMWindowOuter *window = doc->GetWindow();
+  if (!window) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIWebNavigation> webNav = do_GetInterface(window);
+  nsCOMPtr<nsIInterfaceRequestor> ir = do_QueryInterface(webNav);
+  if (!ir) {
+    return NS_ERROR_FAILURE;
+  }
+
+  return ir->GetInterface(aIID, result);
 }
 
 NS_IMETHODIMP

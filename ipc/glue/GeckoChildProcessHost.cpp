@@ -51,6 +51,10 @@
 #endif
 #endif
 
+#if defined(XP_LINUX) && defined(MOZ_SANDBOX)
+#include "mozilla/SandboxReporter.h"
+#endif
+
 #include "nsTArray.h"
 #include "nsClassHashtable.h"
 #include "nsHashKeys.h"
@@ -337,7 +341,7 @@ GeckoChildProcessHost::PrepareLaunch()
   if (mProcessType == GeckoProcessType_Content) {
     mSandboxLevel = Preferences::GetInt("security.sandbox.content.level");
     mEnableSandboxLogging =
-      Preferences::GetBool("security.sandbox.windows.log");
+      Preferences::GetBool("security.sandbox.logging.enabled");
   }
 #endif
 
@@ -346,7 +350,7 @@ GeckoChildProcessHost::PrepareLaunch()
   // thread and they may not have access to prefs in the child process, so allow
   // them to turn on logging via an environment variable.
   mEnableSandboxLogging = mEnableSandboxLogging
-                          || !!PR_GetEnv("MOZ_WIN_SANDBOX_LOGGING");
+                          || !!PR_GetEnv("MOZ_SANDBOX_LOGGING");
 #endif
 #endif
 }
@@ -910,6 +914,15 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 #  elif defined(MOZ_WIDGET_COCOA)
   childArgv.push_back(CrashReporter::GetChildNotificationPipe());
 #  endif  // OS_LINUX
+#endif
+
+#if defined(XP_LINUX) && defined(MOZ_SANDBOX)
+  {
+    int srcFd, dstFd;
+    SandboxReporter::Singleton()
+      ->GetClientFileDescriptorMapping(&srcFd, &dstFd);
+    mFileMap.push_back(std::make_pair(srcFd, dstFd));
+  }
 #endif
 
 #ifdef MOZ_WIDGET_COCOA

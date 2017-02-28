@@ -20,6 +20,7 @@
 #include "nsNetUtil.h"
 #include "nsScriptLoader.h"
 #include "nsFrameLoader.h"
+#include "nsIInputStream.h"
 #include "nsIXULRuntime.h"
 #include "nsIScriptError.h"
 #include "nsIConsoleService.h"
@@ -34,7 +35,7 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/MessagePort.h"
-#include "mozilla/dom/nsIContentParent.h"
+#include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/dom/ProcessGlobal.h"
 #include "mozilla/dom/SameProcessMessageQueue.h"
@@ -136,7 +137,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsFrameMessageManager)
   }
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mChildManagers)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mParentManager)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN(nsFrameMessageManager)
@@ -778,6 +778,12 @@ nsFrameMessageManager::GetChildAt(uint32_t aIndex,
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsFrameMessageManager::ReleaseCachedProcesses()
+{
+  ContentParent::ReleaseCachedProcesses();
+  return NS_OK;
+}
 
 // nsIContentFrameMessageManager
 
@@ -803,9 +809,8 @@ nsFrameMessageManager::PrivateNoteIntentionalCrash()
   if (XRE_IsContentProcess()) {
     mozilla::NoteIntentionalCrash("tab");
     return NS_OK;
-  } else {
-    return NS_ERROR_NOT_IMPLEMENTED;
   }
+  return NS_ERROR_NOT_IMPLEMENTED;
 }
 
 NS_IMETHODIMP
@@ -1656,7 +1661,7 @@ nsMessageManagerScriptExecutor::InitChildGlobalInternal(
   const uint32_t flags = nsIXPConnect::INIT_JS_STANDARD_CLASSES;
 
   JS::CompartmentOptions options;
-  options.creationOptions().setZone(JS::SystemZone);
+  options.creationOptions().setSystemZone();
   options.behaviors().setVersion(JSVERSION_LATEST);
 
   if (xpc::SharedMemoryEnabled()) {

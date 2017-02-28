@@ -185,6 +185,10 @@ nsHttpPipeline::OnHeadersAvailable(nsAHttpTransaction *trans,
     GetConnectionInfo(getter_AddRefs(ci));
     MOZ_ASSERT(ci);
 
+    if (!ci) {
+        return NS_ERROR_UNEXPECTED;
+    }
+
     bool pipeliningBefore = gHttpHandler->ConnMgr()->SupportsPipelining(ci);
 
     // trans has now received its response headers; forward to the real connection
@@ -193,10 +197,11 @@ nsHttpPipeline::OnHeadersAvailable(nsAHttpTransaction *trans,
                                                   responseHead,
                                                   reset);
 
-    if (!pipeliningBefore && gHttpHandler->ConnMgr()->SupportsPipelining(ci))
+    if (!pipeliningBefore && gHttpHandler->ConnMgr()->SupportsPipelining(ci)) {
         // The received headers have expanded the eligible
         // pipeline depth for this connection
         gHttpHandler->ConnMgr()->ProcessPendingQForEntry(ci);
+    }
 
     return rv;
 }
@@ -204,8 +209,8 @@ nsHttpPipeline::OnHeadersAvailable(nsAHttpTransaction *trans,
 void
 nsHttpPipeline::CloseTransaction(nsAHttpTransaction *aTrans, nsresult reason)
 {
-    LOG(("nsHttpPipeline::CloseTransaction [this=%p trans=%p reason=%x]\n",
-        this, aTrans, reason));
+    LOG(("nsHttpPipeline::CloseTransaction [this=%p trans=%p reason=%" PRIx32 "]\n",
+         this, aTrans, static_cast<uint32_t>(reason)));
 
     MOZ_ASSERT(PR_GetCurrentThread() == gSocketThread);
     MOZ_ASSERT(NS_FAILED(reason), "expecting failure code");
@@ -437,8 +442,8 @@ void
 nsHttpPipeline::OnTransportStatus(nsITransport* transport,
                                   nsresult status, int64_t progress)
 {
-    LOG(("nsHttpPipeline::OnStatus [this=%p status=%x progress=%lld]\n",
-        this, status, progress));
+    LOG(("nsHttpPipeline::OnStatus [this=%p status=%" PRIx32 " progress=%" PRId64 "]\n",
+         this, static_cast<uint32_t>(status), progress));
 
     MOZ_ASSERT(PR_GetCurrentThread() == gSocketThread);
 
@@ -776,7 +781,8 @@ nsHttpPipeline::CancelPipeline(nsresult originalReason)
 void
 nsHttpPipeline::Close(nsresult reason)
 {
-    LOG(("nsHttpPipeline::Close [this=%p reason=%x]\n", this, reason));
+    LOG(("nsHttpPipeline::Close [this=%p reason=%" PRIx32 "]\n",
+         this, static_cast<uint32_t>(reason)));
 
     if (mClosed) {
         LOG(("  already closed\n"));

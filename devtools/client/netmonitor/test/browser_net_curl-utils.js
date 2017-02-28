@@ -13,10 +13,11 @@ add_task(function* () {
   let { tab, monitor } = yield initNetMonitor(CURL_UTILS_URL);
   info("Starting test... ");
 
-  let { NetMonitorView, gNetwork } = monitor.panelWin;
-  let { RequestsMenu } = NetMonitorView;
+  let { document, gStore, windowRequire, gNetwork } = monitor.panelWin;
+  let Actions = windowRequire("devtools/client/netmonitor/actions/index");
+  let { getSortedRequests } = windowRequire("devtools/client/netmonitor/selectors/index");
 
-  RequestsMenu.lazyUpdate = false;
+  gStore.dispatch(Actions.batchEnable(false));
 
   let wait = waitForNetworkEvents(monitor, 1, 3);
   yield ContentTask.spawn(tab.linkedBrowser, SIMPLE_SJS, function* (url) {
@@ -25,26 +26,31 @@ add_task(function* () {
   yield wait;
 
   let requests = {
-    get: RequestsMenu.getItemAtIndex(0),
-    post: RequestsMenu.getItemAtIndex(1),
-    multipart: RequestsMenu.getItemAtIndex(2),
-    multipartForm: RequestsMenu.getItemAtIndex(3)
+    get: getSortedRequests(gStore.getState()).get(0),
+    post: getSortedRequests(gStore.getState()).get(1),
+    multipart: getSortedRequests(gStore.getState()).get(2),
+    multipartForm: getSortedRequests(gStore.getState()).get(3),
   };
 
-  let data = yield createCurlData(requests.get.attachment, gNetwork);
+  let data = yield createCurlData(requests.get, gNetwork);
   testFindHeader(data);
 
-  data = yield createCurlData(requests.post.attachment, gNetwork);
+  data = yield createCurlData(requests.post, gNetwork);
   testIsUrlEncodedRequest(data);
   testWritePostDataTextParams(data);
 
-  data = yield createCurlData(requests.multipart.attachment, gNetwork);
+  data = yield createCurlData(requests.multipart, gNetwork);
   testIsMultipartRequest(data);
   testGetMultipartBoundary(data);
+  testMultiPartHeaders(data);
   testRemoveBinaryDataFromMultipartText(data);
 
-  data = yield createCurlData(requests.multipartForm.attachment, gNetwork);
-  testGetHeadersFromMultipartText(data);
+  data = yield createCurlData(requests.multipartForm, gNetwork);
+  testMultiPartHeaders(data);
+
+  testGetHeadersFromMultipartText({
+    postDataText: "Content-Type: text/plain\r\n\r\n",
+  });
 
   if (Services.appinfo.OS != "WINNT") {
     testEscapeStringPosix();
@@ -77,6 +83,14 @@ function testFindHeader(data) {
     "The search should be case insensitive.");
   is(doesNotExist, null,
     "Should return null when a header is not found.");
+}
+
+function testMultiPartHeaders(data) {
+  let headers = data.headers;
+  let contentType = CurlUtils.findHeader(headers, "Content-Type");
+
+  ok(contentType.startsWith("multipart/form-data; boundary="),
+     "Multi-part content type header is present in headers array");
 }
 
 function testWritePostDataTextParams(data) {

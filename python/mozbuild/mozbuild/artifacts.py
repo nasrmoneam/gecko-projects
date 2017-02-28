@@ -63,6 +63,7 @@ import zipfile
 import pylru
 import taskcluster
 
+from mozbuild.action.test_archive import OBJDIR_TEST_FILES
 from mozbuild.util import (
     ensureParentDir,
     FileAvoidWrite,
@@ -127,7 +128,9 @@ class ArtifactJob(object):
         ('bin/pk12util', ('bin', 'bin')),
         ('bin/ssltunnel', ('bin', 'bin')),
         ('bin/xpcshell', ('bin', 'bin')),
-        ('bin/plugins/*', ('bin/plugins', 'plugins'))
+        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
+        ('bin/plugins/*', ('bin/plugins', 'plugins')),
+        ('bin/components/*', ('bin/components', 'bin/components')),
     }
 
     # We can tell our input is a test archive by this suffix, which happens to
@@ -195,6 +198,18 @@ class ArtifactJob(object):
                     mode = entry['external_attr'] >> 16
                     writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
                     added_entry = True
+                    break
+                for files_entry in OBJDIR_TEST_FILES.values():
+                    origin_pattern = files_entry['pattern']
+                    leaf_filename = filename
+                    if 'dest' in files_entry:
+                        dest = files_entry['dest']
+                        origin_pattern = mozpath.join(dest, origin_pattern)
+                        leaf_filename = filename[len(dest) + 1:]
+                    if mozpath.match(filename, origin_pattern):
+                        destpath = mozpath.join('..', files_entry['base'], leaf_filename)
+                        mode = entry['external_attr'] >> 16
+                        writer.add(destpath.encode('utf-8'), reader[filename], mode=mode)
 
         if not added_entry:
             raise ValueError('Archive format changed! No pattern from "{patterns}"'
@@ -222,7 +237,7 @@ class AndroidArtifactJob(ArtifactJob):
         '**/interfaces.xpt',
     }
 
-    def process_artifact(self, filename, processed_filename):
+    def process_package_artifact(self, filename, processed_filename):
         # Extract all .so files into the root, which will get copied into dist/bin.
         with JarWriter(file=processed_filename, optimize=False, compress_level=5) as writer:
             for p, f in UnpackFinder(JarFinder(filename, JarReader(filename))):
@@ -252,6 +267,7 @@ class LinuxArtifactJob(ArtifactJob):
         'firefox/firefox',
         'firefox/firefox-bin',
         'firefox/minidump-analyzer',
+        'firefox/pingsender',
         'firefox/platform.ini',
         'firefox/plugin-container',
         'firefox/updater',
@@ -337,6 +353,7 @@ class MacArtifactJob(ArtifactJob):
                 'libmozavutil.dylib',
                 'libmozavcodec.dylib',
                 'libsoftokn3.dylib',
+                'pingsender',
                 'plugin-container.app/Contents/MacOS/plugin-container',
                 'updater.app/Contents/MacOS/org.mozilla.updater',
                 # 'xpcshell',
@@ -407,7 +424,9 @@ class WinArtifactJob(ArtifactJob):
         ('bin/pk12util.exe', ('bin', 'bin')),
         ('bin/ssltunnel.exe', ('bin', 'bin')),
         ('bin/xpcshell.exe', ('bin', 'bin')),
-        ('bin/plugins/*', ('bin/plugins', 'plugins'))
+        ('bin/plugins/gmp-*/*/*', ('bin/plugins', 'bin')),
+        ('bin/plugins/*', ('bin/plugins', 'plugins')),
+        ('bin/components/*', ('bin/components', 'bin/components')),
     }
 
     def process_package_artifact(self, filename, processed_filename):
@@ -436,32 +455,32 @@ class WinArtifactJob(ArtifactJob):
 # https://tools.taskcluster.net/index/artifacts/#gecko.v2.mozilla-central.latest/gecko.v2.mozilla-central.latest
 # The values correpsond to a pair of (<package regex>, <test archive regex>).
 JOB_DETAILS = {
-    'android-api-15-opt': (AndroidArtifactJob, ('(public/build/fennec-(.*)\.android-arm.apk|public/build/target.apk)',
-                                                None)),
-    'android-api-15-debug': (AndroidArtifactJob, ('public/build/target.apk',
-                                                  None)),
-    'android-x86-opt': (AndroidArtifactJob, ('public/build/target.apk',
-                                         None)),
-    'linux-opt': (LinuxArtifactJob, ('public/build/firefox-(.*)\.linux-i686\.tar\.bz2',
-                                     'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'linux-debug': (LinuxArtifactJob, ('public/build/firefox-(.*)\.linux-i686\.tar\.bz2',
-                                 'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'linux64-opt': (LinuxArtifactJob, ('public/build/firefox-(.*)\.linux-x86_64\.tar\.bz2',
-                                       'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'linux64-debug': (LinuxArtifactJob, ('public/build/target\.tar\.bz2',
-                                         'public/build/target\.common\.tests\.zip')),
-    'macosx64-opt': (MacArtifactJob, ('public/build/firefox-(.*)\.mac\.dmg',
-                                      'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'macosx64-debug': (MacArtifactJob, ('public/build/firefox-(.*)\.mac64\.dmg',
-                                  'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win32-opt': (WinArtifactJob, ('public/build/firefox-(.*)\.win32.zip',
-                                   'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win32-debug': (WinArtifactJob, ('public/build/firefox-(.*)\.win32.zip',
-                               'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win64-opt': (WinArtifactJob, ('public/build/firefox-(.*)\.win64.zip',
-                                   'public/build/firefox-(.*)\.common\.tests\.zip')),
-    'win64-debug': (WinArtifactJob, ('public/build/firefox-(.*)\.win64.zip',
-                               'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'android-api-15-opt': (AndroidArtifactJob, (r'(public/build/fennec-(.*)\.android-arm.apk|public/build/target\.apk)',
+                                                r'public/build/fennec-(.*)\.common\.tests\.zip|public/build/target\.common\.tests\.zip')),
+    'android-api-15-debug': (AndroidArtifactJob, (r'public/build/target\.apk',
+                                                  r'public/build/target\.common\.tests\.zip')),
+    'android-x86-opt': (AndroidArtifactJob, (r'public/build/target\.apk',
+                                             r'public/build/target\.common\.tests\.zip')),
+    'linux-opt': (LinuxArtifactJob, (r'public/build/target\.tar\.bz2',
+                                     r'public/build/target\.common\.tests\.zip')),
+    'linux-debug': (LinuxArtifactJob, (r'public/build/target\.tar\.bz2',
+                                       r'public/build/target\.common\.tests\.zip')),
+    'linux64-opt': (LinuxArtifactJob, (r'public/build/target\.tar\.bz2',
+                                       r'public/build/target\.common\.tests\.zip')),
+    'linux64-debug': (LinuxArtifactJob, (r'public/build/target\.tar\.bz2',
+                                         r'public/build/target\.common\.tests\.zip')),
+    'macosx64-opt': (MacArtifactJob, (r'public/build/firefox-(.*)\.mac\.dmg',
+                                      r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'macosx64-debug': (MacArtifactJob, (r'public/build/firefox-(.*)\.mac\.dmg',
+                                        r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'win32-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32.zip',
+                                   r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'win32-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win32.zip',
+                                     r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'win64-opt': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64.zip',
+                                   r'public/build/firefox-(.*)\.common\.tests\.zip')),
+    'win64-debug': (WinArtifactJob, (r'public/build/firefox-(.*)\.win64.zip',
+                                     r'public/build/firefox-(.*)\.common\.tests\.zip')),
 }
 
 
@@ -1044,7 +1063,8 @@ class Artifacts(object):
                   'revision': revision},
                  'Will only accept artifacts from a pushhead at {revision} '
                  '(matched revset "{revset}").')
-        pushheads = [(list(CANDIDATE_TREES), revision)]
+        # Include try in our search to allow pulling from a specific push.
+        pushheads = [(list(CANDIDATE_TREES) + ['try'], revision)]
         return self._install_from_hg_pushheads(pushheads, distdir)
 
     def install_from(self, source, distdir):

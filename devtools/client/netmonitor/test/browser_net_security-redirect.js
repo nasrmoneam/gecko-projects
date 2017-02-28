@@ -10,9 +10,14 @@
 
 add_task(function* () {
   let { tab, monitor } = yield initNetMonitor(CUSTOM_GET_URL);
-  let { $, NetMonitorView } = monitor.panelWin;
-  let { RequestsMenu } = NetMonitorView;
-  RequestsMenu.lazyUpdate = false;
+  let { document, gStore, windowRequire } = monitor.panelWin;
+  let Actions = windowRequire("devtools/client/netmonitor/actions/index");
+  let {
+    getDisplayedRequests,
+    getSortedRequests,
+  } = windowRequire("devtools/client/netmonitor/selectors/index");
+
+  gStore.dispatch(Actions.batchEnable(false));
 
   let wait = waitForNetworkEvents(monitor, 2);
   yield ContentTask.spawn(tab.linkedBrowser, HTTPS_REDIRECT_SJS, function* (url) {
@@ -20,13 +25,13 @@ add_task(function* () {
   });
   yield wait;
 
-  is(RequestsMenu.itemCount, 2, "There were two requests due to redirect.");
+  is(gStore.getState().requests.requests.size, 2, "There were two requests due to redirect.");
 
-  let initial = RequestsMenu.items[0];
-  let redirect = RequestsMenu.items[1];
+  let initial = getSortedRequests(gStore.getState()).get(0);
+  let redirect = getSortedRequests(gStore.getState()).get(1);
 
-  let initialSecurityIcon = $(".requests-security-state-icon", initial.target);
-  let redirectSecurityIcon = $(".requests-security-state-icon", redirect.target);
+  let initialSecurityIcon = document.querySelectorAll(".requests-security-state-icon")[0];
+  let redirectSecurityIcon = document.querySelectorAll(".requests-security-state-icon")[1];
 
   ok(initialSecurityIcon.classList.contains("security-state-insecure"),
      "Initial request was marked insecure.");

@@ -29,8 +29,13 @@
 #include "mozilla/dom/TouchEvent.h"
 #include "mozilla/TimelineConsumers.h"
 #include "mozilla/EventTimelineMarker.h"
+#include "mozilla/TimeStamp.h"
 
 #include "EventListenerService.h"
+#include "GeckoProfiler.h"
+#ifdef MOZ_GECKO_PROFILER
+#include "ProfilerMarkers.h"
+#endif
 #include "nsCOMArray.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
@@ -113,19 +118,6 @@ IsWebkitPrefixSupportEnabled()
   }
 
   return sIsWebkitPrefixSupportEnabled;
-}
-
-static bool
-IsPrefixedPointerLockEnabled()
-{
-  static bool sIsPrefixedPointerLockEnabled;
-  static bool sIsPrefCached = false;
-  if (!sIsPrefCached) {
-    sIsPrefCached = true;
-    Preferences::AddBoolVarCache(&sIsPrefixedPointerLockEnabled,
-                                 "pointer-lock-api.prefixed.enabled");
-  }
-  return sIsPrefixedPointerLockEnabled;
 }
 
 EventListenerManagerBase::EventListenerManagerBase()
@@ -408,13 +400,11 @@ EventListenerManager::AddEventListenerInternal(
 #endif
       window->SetHasMouseEnterLeaveEventListeners();
     }
-#ifdef MOZ_GAMEPAD
   } else if (aEventMessage >= eGamepadEventFirst &&
              aEventMessage <= eGamepadEventLast) {
     if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
       window->SetHasGamepadEventListener();
     }
-#endif
   } else if (aTypeAtom == nsGkAtoms::onkeydown ||
              aTypeAtom == nsGkAtoms::onkeypress ||
              aTypeAtom == nsGkAtoms::onkeyup) {
@@ -1161,14 +1151,6 @@ EventListenerManager::GetLegacyEventMessage(EventMessage aEventMessage) const
         return eWebkitAnimationIteration;
       }
     }
-    if (IsPrefixedPointerLockEnabled()) {
-      if (aEventMessage == ePointerLockChange) {
-        return eMozPointerLockChange;
-      }
-      if (aEventMessage == ePointerLockError) {
-        return eMozPointerLockError;
-      }
-    }
   }
 
   switch (aEventMessage) {
@@ -1283,7 +1265,39 @@ EventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
               listener = listenerHolder.ptr();
               hasRemovedListener = true;
             }
-            if (NS_FAILED(HandleEventSubType(listener, *aDOMEvent, aCurrentTarget))) {
+
+            nsresult rv = NS_OK;
+            if (profiler_is_active()) {
+#ifdef MOZ_GECKO_PROFILER
+              // Add a profiler label and a profiler marker for the actual
+              // dispatch of the event.
+              // This is a very hot code path, so we need to make sure not to
+              // do this extra work when we're not profiling.
+              nsAutoString typeStr;
+              (*aDOMEvent)->GetType(typeStr);
+              PROFILER_LABEL_PRINTF("EventListenerManager", "HandleEventInternal",
+                                    js::ProfileEntry::Category::EVENTS,
+                                    "%s",
+                                    NS_LossyConvertUTF16toASCII(typeStr).get());
+              TimeStamp startTime = TimeStamp::Now();
+
+              rv = HandleEventSubType(listener, *aDOMEvent, aCurrentTarget);
+
+              TimeStamp endTime = TimeStamp::Now();
+              uint16_t phase;
+              (*aDOMEvent)->GetEventPhase(&phase);
+              PROFILER_MARKER_PAYLOAD("DOMEvent",
+                                      new DOMEventMarkerPayload(typeStr, phase,
+                                                                startTime,
+                                                                endTime));
+#else
+              MOZ_CRASH("Gecko Profiler is N/A but profiler_is_active() returned true");
+#endif
+            } else {
+              rv = HandleEventSubType(listener, *aDOMEvent, aCurrentTarget);
+            }
+
+            if (NS_FAILED(rv)) {
               aEvent->mFlags.mExceptionWasRaised = true;
             }
             aEvent->mFlags.mInPassiveListener = false;
@@ -1300,9 +1314,10 @@ EventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
     // If we didn't find any matching listeners, and our event has a legacy
     // version, we'll now switch to looking for that legacy version and we'll
     // recheck our listeners.
-    if (hasListenerForCurrentGroup || usingLegacyMessage) {
-      // (No need to recheck listeners, because we already found a match, or we
-      // already rechecked them.)
+    if (hasListenerForCurrentGroup ||
+        usingLegacyMessage || !aEvent->IsTrusted()) {
+      // No need to recheck listeners, because we already found a match, we
+      // already rechecked them, or it is not a trusted event.
       break;
     }
     EventMessage legacyEventMessage = GetLegacyEventMessage(eventMessage);
@@ -1557,10 +1572,16 @@ EventListenerManager::GetListenerInfo(nsCOMArray<nsIEventListenerInfo>* aList)
     } else {
       eventType.Assign(Substring(nsDependentAtomString(listener.mTypeAtom), 2));
     }
+    nsCOMPtr<nsIDOMEventListener> callback = listener.mListener.ToXPCOMCallback();
+    if (!callback) {
+      // This will be null for cross-compartment event listeners which have been
+      // destroyed.
+      continue;
+    }
     // EventListenerInfo is defined in XPCOM, so we have to go ahead
     // and convert to an XPCOM callback here...
     RefPtr<EventListenerInfo> info =
-      new EventListenerInfo(eventType, listener.mListener.ToXPCOMCallback(),
+      new EventListenerInfo(eventType, callback.forget(),
                             listener.mFlags.mCapture,
                             listener.mFlags.mAllowUntrustedEvents,
                             listener.mFlags.mInSystemGroup);

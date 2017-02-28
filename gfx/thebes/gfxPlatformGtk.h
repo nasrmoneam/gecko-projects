@@ -95,6 +95,8 @@ public:
      */
     virtual void FlushContentDrawing() override;
 
+    FT_Library GetFTLibrary() override;
+
 #if (MOZ_WIDGET_GTK == 2)
     static void SetGdkDrawable(cairo_surface_t *target,
                                GdkDrawable *drawable);
@@ -133,11 +135,6 @@ public:
     }
 
     bool AccelerateLayersByDefault() override {
-#ifdef NIGHTLY_BUILD
-      // Only enable the GL compositor on Nightly for now until we have
-      // sufficient data for blocklisting.
-      return true;
-#endif
       return false;
     }
 

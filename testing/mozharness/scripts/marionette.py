@@ -22,13 +22,17 @@ from mozharness.mozilla.blob_upload import BlobUploadMixin, blobupload_config_op
 from mozharness.mozilla.testing.errors import LogcatErrorList
 from mozharness.mozilla.testing.testbase import TestingMixin, testing_config_options
 from mozharness.mozilla.testing.unittest import TestSummaryOutputParserHelper
+from mozharness.mozilla.testing.codecoverage import (
+    CodeCoverageMixin,
+    code_coverage_config_options
+)
 from mozharness.mozilla.structuredlog import StructuredOutputParser
 
 # TODO: we could remove emulator specific code after B2G ICS emulator buildbot
 #       builds is turned off, Bug 1209180.
 
 
-class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMixin):
+class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMixin, CodeCoverageMixin):
     config_options = [[
         ["--application"],
         {"action": "store",
@@ -94,7 +98,8 @@ class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMix
         "help": "Permits a software GL implementation (such as LLVMPipe) to use the GL compositor."
         }
      ]] + copy.deepcopy(testing_config_options) \
-        + copy.deepcopy(blobupload_config_options)
+        + copy.deepcopy(blobupload_config_options) \
+        + copy.deepcopy(code_coverage_config_options)
 
     error_list = [
         {'substr': 'FAILED (errors=', 'level': WARNING},
@@ -152,10 +157,10 @@ class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMix
         dirs['abs_test_install_dir'] = os.path.join(
             abs_dirs['abs_work_dir'], 'tests')
         dirs['abs_marionette_dir'] = os.path.join(
-            dirs['abs_test_install_dir'], 'marionette', 'harness', 'marionette')
+            dirs['abs_test_install_dir'], 'marionette', 'harness', 'marionette_harness')
         dirs['abs_marionette_tests_dir'] = os.path.join(
             dirs['abs_test_install_dir'], 'marionette', 'tests', 'testing',
-            'marionette', 'harness', 'marionette', 'tests')
+            'marionette', 'harness', 'marionette_harness', 'tests')
         dirs['abs_gecko_dir'] = os.path.join(
             abs_dirs['abs_work_dir'], 'gecko')
         dirs['abs_emulator_dir'] = os.path.join(
@@ -235,6 +240,9 @@ class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMix
                                     'marionette_raw.log')
         error_summary_file = os.path.join(dirs['abs_blob_upload_dir'],
                                           'marionette_errorsummary.log')
+        html_report_file = os.path.join(dirs['abs_blob_upload_dir'],
+                                        'report.html')
+
         config_fmt_args = {
             # emulator builds require a longer timeout
             'timeout': 60000 if self.config.get('emulator') else 10000,
@@ -248,6 +256,7 @@ class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMix
             'address': self.config.get('marionette_address'),
             'raw_log_file': raw_log_file,
             'error_summary_file': error_summary_file,
+            'html_report_file': html_report_file,
             'gecko_log': dirs["abs_blob_upload_dir"],
             'this_chunk': self.config.get('this_chunk', 1),
             'total_chunks': self.config.get('total_chunks', 1)
@@ -298,6 +307,7 @@ class MarionetteTest(TestingMixin, MercurialScript, BlobUploadMixin, TransferMix
             env['MINIDUMP_STACKWALK'] = self.minidump_stackwalk_path
         env['MOZ_UPLOAD_DIR'] = self.query_abs_dirs()['abs_blob_upload_dir']
         env['MINIDUMP_SAVE_PATH'] = self.query_abs_dirs()['abs_blob_upload_dir']
+        env['RUST_BACKTRACE'] = '1'
 
         if self.config['allow_software_gl_layers']:
             env['MOZ_LAYERS_ALLOW_SOFTWARE_GL'] = '1'

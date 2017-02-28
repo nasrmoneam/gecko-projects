@@ -534,7 +534,7 @@ ProcessPriorityManagerImpl::GetParticularProcessPriorityManager(
     mParticularManagers.Put(cpId, pppm);
 
     FireTestOnlyObserverNotification("process-created",
-      nsPrintfCString("%lld", cpId));
+      nsPrintfCString("%" PRIu64, cpId));
   }
 
   return pppm.forget();
@@ -1058,9 +1058,7 @@ ParticularProcessPriorityManager::ComputePriority()
   }
 
   if (isVisible) {
-    return HasAppType("inputmethod") ?
-      PROCESS_PRIORITY_FOREGROUND_KEYBOARD :
-      PROCESS_PRIORITY_FOREGROUND;
+    return PROCESS_PRIORITY_FOREGROUND;
   }
 
   if ((mHoldsCPUWakeLock || mHoldsHighPriorityWakeLock) &&
@@ -1197,7 +1195,7 @@ ParticularProcessPriorityManager::FireTestOnlyObserverNotification(
     return;
   }
 
-  nsAutoCString data(nsPrintfCString("%lld", ChildID()));
+  nsAutoCString data(nsPrintfCString("%" PRIu64, ChildID()));
   if (!aData.IsEmpty()) {
     data.Append(':');
     data.Append(aData);

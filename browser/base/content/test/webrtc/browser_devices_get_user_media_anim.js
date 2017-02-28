@@ -22,13 +22,15 @@ var gTests = [
       });
       yield expectObserverCalled("getUserMedia:response:allow");
       yield expectObserverCalled("recording-device-events");
-      let expected = [];
+      let expected = {};
       if (aVideo)
-        expected.push("Camera");
+        expected.video = true;
       if (aAudio)
-        expected.push("Microphone");
-      is((yield getMediaCaptureState()), expected.join("And"),
-         "expected stream to be shared");
+        expected.audio = true;
+      Assert.deepEqual((yield getMediaCaptureState()), expected,
+                       "expected " + Object.keys(expected).join(" and ") +
+                       " to be shared");
+
 
       // Check the attribute on the tab, and check there's no visible
       // sharing icon on the tab
@@ -83,9 +85,7 @@ function test() {
 
   browser.messageManager.loadFrameScript(CONTENT_SCRIPT_HELPER, true);
 
-  browser.addEventListener("load", function onload() {
-    browser.removeEventListener("load", onload, true);
-
+  browser.addEventListener("load", function() {
     is(PopupNotifications._currentNotifications.length, 0,
        "should start the test without any prior popup notification");
 
@@ -101,7 +101,7 @@ function test() {
      ok(false, "Unexpected Exception: " + ex);
      finish();
     });
-  }, true);
+  }, {capture: true, once: true});
   let rootDir = getRootDirectory(gTestPath);
   rootDir = rootDir.replace("chrome://mochitests/content/",
                             "https://example.com/");

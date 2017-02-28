@@ -39,7 +39,6 @@ public:
   {
     LOG(("NotifyCacheFileListenerEvent::NotifyCacheFileListenerEvent() "
          "[this=%p]", this));
-    MOZ_COUNT_CTOR(NotifyCacheFileListenerEvent);
   }
 
 protected:
@@ -47,7 +46,6 @@ protected:
   {
     LOG(("NotifyCacheFileListenerEvent::~NotifyCacheFileListenerEvent() "
          "[this=%p]", this));
-    MOZ_COUNT_DTOR(NotifyCacheFileListenerEvent);
   }
 
 public:
@@ -78,7 +76,6 @@ public:
   {
     LOG(("NotifyChunkListenerEvent::NotifyChunkListenerEvent() [this=%p]",
          this));
-    MOZ_COUNT_CTOR(NotifyChunkListenerEvent);
   }
 
 protected:
@@ -86,7 +83,6 @@ protected:
   {
     LOG(("NotifyChunkListenerEvent::~NotifyChunkListenerEvent() [this=%p]",
          this));
-    MOZ_COUNT_DTOR(NotifyChunkListenerEvent);
   }
 
 public:
@@ -114,7 +110,6 @@ public:
   explicit DoomFileHelper(CacheFileListener *aListener)
     : mListener(aListener)
   {
-    MOZ_COUNT_CTOR(DoomFileHelper);
   }
 
 
@@ -159,7 +154,6 @@ public:
 private:
   virtual ~DoomFileHelper()
   {
-    MOZ_COUNT_DTOR(DoomFileHelper);
   }
 
   nsCOMPtr<CacheFileListener>  mListener;
@@ -333,8 +327,8 @@ CacheFile::OnChunkRead(nsresult aResult, CacheFileChunk *aChunk)
 
   uint32_t index = aChunk->Index();
 
-  LOG(("CacheFile::OnChunkRead() [this=%p, rv=0x%08x, chunk=%p, idx=%u]",
-       this, aResult, aChunk, index));
+  LOG(("CacheFile::OnChunkRead() [this=%p, rv=0x%08" PRIx32 ", chunk=%p, idx=%u]",
+       this, static_cast<uint32_t>(aResult), aChunk, index));
 
   if (NS_FAILED(aResult)) {
     SetError(aResult);
@@ -362,8 +356,8 @@ CacheFile::OnChunkWritten(nsresult aResult, CacheFileChunk *aChunk)
 
   nsresult rv;
 
-  LOG(("CacheFile::OnChunkWritten() [this=%p, rv=0x%08x, chunk=%p, idx=%u]",
-       this, aResult, aChunk, aChunk->Index()));
+  LOG(("CacheFile::OnChunkWritten() [this=%p, rv=0x%08" PRIx32 ", chunk=%p, idx=%u]",
+       this, static_cast<uint32_t>(aResult), aChunk, aChunk->Index()));
 
   MOZ_ASSERT(!mMemoryOnly);
   MOZ_ASSERT(!mOpeningFile);
@@ -390,7 +384,7 @@ CacheFile::OnChunkWritten(nsresult aResult, CacheFileChunk *aChunk)
 
   if (aChunk->mRefCnt != 2) {
     LOG(("CacheFile::OnChunkWritten() - Chunk is still used [this=%p, chunk=%p,"
-         " refcnt=%d]", this, aChunk, aChunk->mRefCnt.get()));
+         " refcnt=%" PRIuPTR "]", this, aChunk, aChunk->mRefCnt.get()));
 
     return NS_OK;
   }
@@ -484,8 +478,8 @@ CacheFile::OnFileOpened(CacheFileHandle *aHandle, nsresult aResult)
                (!mListener && mMetadata));  // createNew
     MOZ_ASSERT(!mMemoryOnly || mMetadata); // memory-only was set on new entry
 
-    LOG(("CacheFile::OnFileOpened() [this=%p, rv=0x%08x, handle=%p]",
-         this, aResult, aHandle));
+    LOG(("CacheFile::OnFileOpened() [this=%p, rv=0x%08" PRIx32 ", handle=%p]",
+         this, static_cast<uint32_t>(aResult), aHandle));
 
     mOpeningFile = false;
 
@@ -614,7 +608,8 @@ CacheFile::OnMetadataRead(nsresult aResult)
 {
   MOZ_ASSERT(mListener);
 
-  LOG(("CacheFile::OnMetadataRead() [this=%p, rv=0x%08x]", this, aResult));
+  LOG(("CacheFile::OnMetadataRead() [this=%p, rv=0x%08" PRIx32 "]",
+       this, static_cast<uint32_t>(aResult)));
 
   bool isNew = false;
   if (NS_SUCCEEDED(aResult)) {
@@ -655,7 +650,8 @@ CacheFile::OnMetadataWritten(nsresult aResult)
 {
   CacheFileAutoLock lock(this);
 
-  LOG(("CacheFile::OnMetadataWritten() [this=%p, rv=0x%08x]", this, aResult));
+  LOG(("CacheFile::OnMetadataWritten() [this=%p, rv=0x%08" PRIx32 "]",
+       this, static_cast<uint32_t>(aResult)));
 
   MOZ_ASSERT(mWritingMetadata);
   mWritingMetadata = false;
@@ -693,8 +689,8 @@ CacheFile::OnFileDoomed(CacheFileHandle *aHandle, nsresult aResult)
 
     MOZ_ASSERT(mListener);
 
-    LOG(("CacheFile::OnFileDoomed() [this=%p, rv=0x%08x, handle=%p]",
-         this, aResult, aHandle));
+    LOG(("CacheFile::OnFileDoomed() [this=%p, rv=0x%08" PRIx32 ", handle=%p]",
+         this, static_cast<uint32_t>(aResult), aHandle));
 
     mListener.swap(listener);
   }
@@ -743,7 +739,7 @@ CacheFile::OpenInputStream(nsICacheEntry *aEntryHandle, nsIInputStream **_retval
 
   if (NS_FAILED(mStatus)) {
     LOG(("CacheFile::OpenInputStream() - CacheFile is in a failure state "
-         "[this=%p, status=0x%08x]", this, mStatus));
+         "[this=%p, status=0x%08" PRIx32 "]", this, static_cast<uint32_t>(mStatus)));
 
     // Don't allow opening the input stream when this CacheFile is in
     // a failed state.  This is the only way to protect consumers correctly
@@ -797,7 +793,7 @@ CacheFile::OpenAlternativeInputStream(nsICacheEntry *aEntryHandle,
 
   if (NS_FAILED(mStatus)) {
     LOG(("CacheFile::OpenAlternativeInputStream() - CacheFile is in a failure "
-         "state [this=%p, status=0x%08x]", this, mStatus));
+         "state [this=%p, status=0x%08" PRIx32 "]", this, static_cast<uint32_t>(mStatus)));
 
     // Don't allow opening the input stream when this CacheFile is in
     // a failed state.  This is the only way to protect consumers correctly
@@ -1374,7 +1370,7 @@ CacheFile::GetChunkLocked(uint32_t aIndex, ECallerType aCaller,
       // If this ever really happen it is better to fail rather than crashing on
       // a null handle.
       LOG(("CacheFile::GetChunkLocked() - Unexpected state! Offset < mDataSize "
-           "for memory-only entry. [this=%p, off=%lld, mDataSize=%lld]",
+           "for memory-only entry. [this=%p, off=%" PRId64 ", mDataSize=%" PRId64 "]",
            this, off, mDataSize));
 
       return NS_ERROR_UNEXPECTED;
@@ -1618,7 +1614,7 @@ CacheFile::DeactivateChunk(CacheFileChunk *aChunk)
 
     if (aChunk->mRefCnt != 2) {
       LOG(("CacheFile::DeactivateChunk() - Chunk is still used [this=%p, "
-           "chunk=%p, refcnt=%d]", this, aChunk, aChunk->mRefCnt.get()));
+           "chunk=%p, refcnt=%" PRIuPTR "]", this, aChunk, aChunk->mRefCnt.get()));
 
       // somebody got the reference before the lock was acquired
       return NS_OK;
@@ -1654,7 +1650,8 @@ CacheFile::DeactivateChunk(CacheFileChunk *aChunk)
     if (NS_FAILED(mStatus)) {
       // Don't write any chunk to disk since this entry will be doomed
       LOG(("CacheFile::DeactivateChunk() - Releasing chunk because of status "
-           "[this=%p, chunk=%p, mStatus=0x%08x]", this, chunk.get(), mStatus));
+           "[this=%p, chunk=%p, mStatus=0x%08" PRIx32 "]",
+           this, chunk.get(), static_cast<uint32_t>(mStatus)));
 
       RemoveChunkInternal(chunk, false);
       return mStatus;
@@ -1669,8 +1666,8 @@ CacheFile::DeactivateChunk(CacheFileChunk *aChunk)
       rv = chunk->Write(mHandle, this);
       if (NS_FAILED(rv)) {
         LOG(("CacheFile::DeactivateChunk() - CacheFileChunk::Write() failed "
-             "synchronously. Removing it. [this=%p, chunk=%p, rv=0x%08x]",
-             this, chunk.get(), rv));
+             "synchronously. Removing it. [this=%p, chunk=%p, rv=0x%08" PRIx32 "]",
+             this, chunk.get(), static_cast<uint32_t>(rv)));
 
         RemoveChunkInternal(chunk, false);
 
@@ -1898,8 +1895,8 @@ CacheFile::RemoveInput(CacheFileInputStream *aInput, nsresult aStatus)
 {
   CacheFileAutoLock lock(this);
 
-  LOG(("CacheFile::RemoveInput() [this=%p, input=%p, status=0x%08x]", this,
-       aInput, aStatus));
+  LOG(("CacheFile::RemoveInput() [this=%p, input=%p, status=0x%08" PRIx32 "]", this,
+       aInput, static_cast<uint32_t>(aStatus)));
 
   DebugOnly<bool> found;
   found = mInputs.RemoveElement(aInput);
@@ -1925,8 +1922,8 @@ CacheFile::RemoveOutput(CacheFileOutputStream *aOutput, nsresult aStatus)
 {
   AssertOwnsLock();
 
-  LOG(("CacheFile::RemoveOutput() [this=%p, output=%p, status=0x%08x]", this,
-       aOutput, aStatus));
+  LOG(("CacheFile::RemoveOutput() [this=%p, output=%p, status=0x%08" PRIx32 "]", this,
+       aOutput, static_cast<uint32_t>(aStatus)));
 
   if (mOutput != aOutput) {
     LOG(("CacheFile::RemoveOutput() - This output was already removed, ignoring"
@@ -1966,8 +1963,8 @@ CacheFile::NotifyChunkListener(CacheFileChunkListener *aCallback,
                                CacheFileChunk *aChunk)
 {
   LOG(("CacheFile::NotifyChunkListener() [this=%p, listener=%p, target=%p, "
-       "rv=0x%08x, idx=%u, chunk=%p]", this, aCallback, aTarget, aResult,
-       aChunkIdx, aChunk));
+       "rv=0x%08" PRIx32 ", idx=%u, chunk=%p]", this, aCallback, aTarget,
+       static_cast<uint32_t>(aResult), aChunkIdx, aChunk));
 
   nsresult rv;
   RefPtr<NotifyChunkListenerEvent> ev;
@@ -2015,8 +2012,8 @@ nsresult
 CacheFile::NotifyChunkListeners(uint32_t aIndex, nsresult aResult,
                                 CacheFileChunk *aChunk)
 {
-  LOG(("CacheFile::NotifyChunkListeners() [this=%p, idx=%u, rv=0x%08x, "
-       "chunk=%p]", this, aIndex, aResult, aChunk));
+  LOG(("CacheFile::NotifyChunkListeners() [this=%p, idx=%u, rv=0x%08" PRIx32 ", "
+       "chunk=%p]", this, aIndex, static_cast<uint32_t>(aResult), aChunk));
 
   AssertOwnsLock();
 

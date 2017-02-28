@@ -195,132 +195,159 @@ enum nsSpread {
 #define NS_CARRIED_BOTTOM_MARGIN_IS_AUTO 0x2
 
 //----------------------------------------------------------------------
+// Reflow status returned by the Reflow() methods.
+class nsReflowStatus final {
+  using StyleClear = mozilla::StyleClear;
 
-/**
- * Reflow status returned by the reflow methods. There are three
- * completion statuses, represented by two bit flags.
- *
- * NS_FRAME_COMPLETE means the frame is fully complete.
- *
- * NS_FRAME_NOT_COMPLETE bit flag means the frame does not map all its
- * content, and that the parent frame should create a continuing frame.
- * If this bit isn't set it means the frame does map all its content.
- * This bit is mutually exclusive with NS_FRAME_OVERFLOW_INCOMPLETE.
- *
- * NS_FRAME_OVERFLOW_INCOMPLETE bit flag means that the frame has
- * overflow that is not complete, but its own box is complete.
- * (This happens when content overflows a fixed-height box.)
- * The reflower should place and size the frame and continue its reflow,
- * but needs to create an overflow container as a continuation for this
- * frame. See nsContainerFrame.h for more information.
- * This bit is mutually exclusive with NS_FRAME_NOT_COMPLETE.
- * 
- * Please use the SET macro for handling
- * NS_FRAME_NOT_COMPLETE and NS_FRAME_OVERFLOW_INCOMPLETE.
- *
- * NS_FRAME_REFLOW_NEXTINFLOW bit flag means that the next-in-flow is
- * dirty, and also needs to be reflowed. This status only makes sense
- * for a frame that is not complete, i.e. you wouldn't set both
- * NS_FRAME_COMPLETE and NS_FRAME_REFLOW_NEXTINFLOW.
- *
- * The low 8 bits of the nsReflowStatus are reserved for future extensions;
- * the remaining 24 bits are zero (and available for extensions; however
- * API's that accept/return nsReflowStatus must not receive/return any
- * extension bits).
- *
- * @see #Reflow()
- */
-typedef uint32_t nsReflowStatus;
+public:
+  nsReflowStatus()
+    : mBreakType(StyleClear::None)
+    , mIncomplete(false)
+    , mOverflowIncomplete(false)
+    , mNextInFlowNeedsReflow(false)
+    , mTruncated(false)
+    , mInlineBreak(false)
+    , mInlineBreakAfter(false)
+    , mFirstLetterComplete(false)
+  {}
 
-#define NS_FRAME_COMPLETE             0       // Note: not a bit!
-#define NS_FRAME_NOT_COMPLETE         0x1
-#define NS_FRAME_REFLOW_NEXTINFLOW    0x2
-#define NS_FRAME_OVERFLOW_INCOMPLETE  0x4
+  // Reset all the bit-fields.
+  void Reset() {
+    mBreakType = StyleClear::None;
+    mIncomplete = false;
+    mOverflowIncomplete = false;
+    mNextInFlowNeedsReflow = false;
+    mTruncated = false;
+    mInlineBreak = false;
+    mInlineBreakAfter = false;
+    mFirstLetterComplete = false;
+  }
 
-#define NS_FRAME_IS_COMPLETE(status) \
-  (0 == ((status) & NS_FRAME_NOT_COMPLETE))
+  // Return true if all flags are cleared.
+  bool IsEmpty() const {
+    return (!mIncomplete &&
+            !mOverflowIncomplete &&
+            !mNextInFlowNeedsReflow &&
+            !mTruncated &&
+            !mInlineBreak &&
+            !mInlineBreakAfter &&
+            !mFirstLetterComplete);
+  }
 
-#define NS_FRAME_IS_NOT_COMPLETE(status) \
-  (0 != ((status) & NS_FRAME_NOT_COMPLETE))
+  // mIncomplete bit flag means the frame does not map all its content, and
+  // that the parent frame should create a continuing frame. If this bit
+  // isn't set, it means the frame does map all its content. This bit is
+  // mutually exclusive with mOverflowIncomplete.
+  //
+  // mOverflowIncomplete bit flag means that the frame has overflow that is
+  // not complete, but its own box is complete. (This happens when content
+  // overflows a fixed-height box.) The reflower should place and size the
+  // frame and continue its reflow, but needs to create an overflow
+  // container as a continuation for this frame. See nsContainerFrame.h for
+  // more information. This bit is mutually exclusive with mIncomplete.
+  //
+  // If both mIncomplete and mOverflowIncomplete are not set, the frame is
+  // fully complete.
+  bool IsComplete() const { return !mIncomplete; }
+  bool IsIncomplete() const { return mIncomplete; }
+  bool IsOverflowIncomplete() const { return mOverflowIncomplete; }
+  bool IsFullyComplete() const {
+    return !IsIncomplete() && !IsOverflowIncomplete();
+  }
 
-#define NS_FRAME_OVERFLOW_IS_INCOMPLETE(status) \
-  (0 != ((status) & NS_FRAME_OVERFLOW_INCOMPLETE))
+  void SetIncomplete() {
+    mIncomplete = true;
+    mOverflowIncomplete = false;
+  }
+  void SetOverflowIncomplete() {
+    mIncomplete = false;
+    mOverflowIncomplete = true;
+  }
 
-#define NS_FRAME_IS_FULLY_COMPLETE(status) \
-  (NS_FRAME_IS_COMPLETE(status) && !NS_FRAME_OVERFLOW_IS_INCOMPLETE(status))
+  // mNextInFlowNeedsReflow bit flag means that the next-in-flow is dirty,
+  // and also needs to be reflowed. This status only makes sense for a frame
+  // that is not complete, i.e. you wouldn't set mNextInFlowNeedsReflow when
+  // IsComplete() is true.
+  bool NextInFlowNeedsReflow() const { return mNextInFlowNeedsReflow; }
+  void SetNextInFlowNeedsReflow() { mNextInFlowNeedsReflow = true; }
 
-// These macros set or switch incomplete statuses without touching the
-// NS_FRAME_REFLOW_NEXTINFLOW bit.
-#define NS_FRAME_SET_INCOMPLETE(status) \
-  status = (status & ~NS_FRAME_OVERFLOW_INCOMPLETE) | NS_FRAME_NOT_COMPLETE
+  // mTruncated bit flag means that the part of the frame before the first
+  // possible break point was unable to fit in the available space.
+  // Therefore, the entire frame should be moved to the next continuation of
+  // the parent frame. A frame that begins at the top of the page must never
+  // be truncated. Doing so would likely cause an infinite loop.
+  bool IsTruncated() const { return mTruncated; }
+  void UpdateTruncated(const mozilla::ReflowInput& aReflowInput,
+                       const mozilla::ReflowOutput& aMetrics);
 
-#define NS_FRAME_SET_OVERFLOW_INCOMPLETE(status) \
-  status = (status & ~NS_FRAME_NOT_COMPLETE) | NS_FRAME_OVERFLOW_INCOMPLETE
+  // Merge the frame completion status bits from aStatus into this.
+  void MergeCompletionStatusFrom(const nsReflowStatus& aStatus)
+  {
+    mIncomplete |= aStatus.mIncomplete;
+    mOverflowIncomplete |= aStatus.mOverflowIncomplete;
+    mNextInFlowNeedsReflow |= aStatus.mNextInFlowNeedsReflow;
+    mTruncated |= aStatus.mTruncated;
+    if (mIncomplete) {
+      mOverflowIncomplete = false;
+    }
+  }
 
-// This bit is set, when a break is requested. This bit is orthogonal
-// to the nsIFrame::nsReflowStatus completion bits.
-#define NS_INLINE_BREAK              0x0100
+  // mInlineBreak bit flag means a break is requested.
+  bool IsInlineBreak() const { return mInlineBreak; }
 
-// When a break is requested, this bit when set indicates that the
-// break should occur after the frame just reflowed; when the bit is
-// clear the break should occur before the frame just reflowed.
-#define NS_INLINE_BREAK_BEFORE       0x0000
-#define NS_INLINE_BREAK_AFTER        0x0200
+  // Suppose a break is requested. When mInlineBreakAfter is set, the break
+  // should occur after the frame just reflowed; when mInlineBreakAfter is
+  // clear, the break should occur before the frame just reflowed.
+  bool IsInlineBreakBefore() const { return mInlineBreak && !mInlineBreakAfter; }
+  bool IsInlineBreakAfter() const { return mInlineBreak && mInlineBreakAfter; }
+  StyleClear BreakType() const { return mBreakType; }
 
-// The type of break requested can be found in these bits.
-#define NS_INLINE_BREAK_TYPE_MASK    0xF000
+  // Set the inline line-break-before status, and reset other bit flags. The
+  // break type is StyleClear::Line. Note that other frame completion status
+  // isn't expected to matter after calling this method.
+  void SetInlineLineBreakBeforeAndReset() {
+    Reset();
+    mBreakType = StyleClear::Line;
+    mInlineBreak = true;
+    mInlineBreakAfter = false;
+  }
 
-// Set when a break was induced by completion of a first-letter
-#define NS_INLINE_BREAK_FIRST_LETTER_COMPLETE 0x10000
+  // Set the inline line-break-after status. The break type can be changed
+  // via the optional aBreakType param.
+  void SetInlineLineBreakAfter(StyleClear aBreakType = StyleClear::Line) {
+    mBreakType = aBreakType;
+    mInlineBreak = true;
+    mInlineBreakAfter = true;
+  }
 
-//----------------------------------------
-// Macros that use those bits
+  // mFirstLetterComplete bit flag means the break was induced by
+  // completion of a first-letter.
+  bool FirstLetterComplete() const { return mFirstLetterComplete; }
+  void SetFirstLetterComplete() { mFirstLetterComplete = true; }
 
-#define NS_INLINE_IS_BREAK(_status) \
-  (0 != ((_status) & NS_INLINE_BREAK))
+private:
+  StyleClear mBreakType;
 
-#define NS_INLINE_IS_BREAK_AFTER(_status) \
-  (0 != ((_status) & NS_INLINE_BREAK_AFTER))
+  // Frame completion status bit flags.
+  bool mIncomplete : 1;
+  bool mOverflowIncomplete : 1;
+  bool mNextInFlowNeedsReflow : 1;
+  bool mTruncated : 1;
 
-#define NS_INLINE_IS_BREAK_BEFORE(_status) \
-  (NS_INLINE_BREAK == ((_status) & (NS_INLINE_BREAK|NS_INLINE_BREAK_AFTER)))
+  // Inline break status bit flags.
+  bool mInlineBreak : 1;
+  bool mInlineBreakAfter : 1;
+  bool mFirstLetterComplete : 1;
+};
 
-#define NS_INLINE_GET_BREAK_TYPE(_status) \
-  (static_cast<StyleClear>(((_status) >> 12) & 0xF))
+#define NS_FRAME_SET_TRUNCATION(aStatus, aReflowInput, aMetrics) \
+  aStatus.UpdateTruncated(aReflowInput, aMetrics);
 
-#define NS_INLINE_MAKE_BREAK_TYPE(_type)  (static_cast<int>(_type) << 12)
-
-// Construct a line-break-before status. Note that there is no
-// completion status for a line-break before because we *know* that
-// the frame will be reflowed later and hence its current completion
-// status doesn't matter.
-#define NS_INLINE_LINE_BREAK_BEFORE()                                   \
-  (NS_INLINE_BREAK | NS_INLINE_BREAK_BEFORE |                           \
-   NS_INLINE_MAKE_BREAK_TYPE(StyleClear::Line))
-
-// Take a completion status and add to it the desire to have a
-// line-break after. For this macro we do need the completion status
-// because the user of the status will need to know whether to
-// continue the frame or not.
-#define NS_INLINE_LINE_BREAK_AFTER(_completionStatus)                   \
-  ((_completionStatus) | NS_INLINE_BREAK | NS_INLINE_BREAK_AFTER |      \
-   NS_INLINE_MAKE_BREAK_TYPE(StyleClear::Line))
-
-// A frame is "truncated" if the part of the frame before the first
-// possible break point was unable to fit in the available vertical
-// space.  Therefore, the entire frame should be moved to the next page.
-// A frame that begins at the top of the page must never be "truncated".
-// Doing so would likely cause an infinite loop.
-#define NS_FRAME_TRUNCATED  0x0010
-#define NS_FRAME_IS_TRUNCATED(status) \
-  (0 != ((status) & NS_FRAME_TRUNCATED))
-#define NS_FRAME_SET_TRUNCATION(status, aReflowInput, aMetrics) \
-  aReflowInput.SetTruncated(aMetrics, &status);
-
-// Merge the incompleteness, truncation and NS_FRAME_REFLOW_NEXTINFLOW
-// status from aSecondary into aPrimary.
-void NS_MergeReflowStatusInto(nsReflowStatus* aPrimary,
-                              nsReflowStatus aSecondary);
+#ifdef DEBUG
+// Convert nsReflowStatus to a human-readable string.
+std::ostream&
+operator<<(std::ostream& aStream, const nsReflowStatus& aStatus);
+#endif
 
 //----------------------------------------------------------------------
 
@@ -417,6 +444,24 @@ enum nsBidiDirection {
 };
 
 namespace mozilla {
+
+// https://drafts.csswg.org/css-align-3/#baseline-sharing-group
+enum BaselineSharingGroup
+{
+  // NOTE Used as an array index so must be 0 and 1.
+  eFirst = 0,
+  eLast = 1,
+};
+
+// Loosely: https://drafts.csswg.org/css-align-3/#shared-alignment-context
+enum class AlignmentContext
+{
+  eInline,
+  eTable,
+  eFlexbox,
+  eGrid,
+};
+
 /*
  * For replaced elements only. Gets the intrinsic dimensions of this element.
  * The dimensions may only be one of the following two types:
@@ -499,6 +544,8 @@ static void ReleaseValue(T* aPropertyValue)
 class nsIFrame : public nsQueryFrame
 {
 public:
+  using AlignmentContext = mozilla::AlignmentContext;
+  using BaselineSharingGroup = mozilla::BaselineSharingGroup;
   template <typename T> using Maybe = mozilla::Maybe<T>;
   using Nothing = mozilla::Nothing;
   using OnNonvisible = mozilla::OnNonvisible;
@@ -707,8 +754,9 @@ public:
   #undef STYLE_STRUCT
 
   /** Also forward GetVisitedDependentColor to the style context */
-  nscolor GetVisitedDependentColor(nsCSSPropertyID aProperty)
-    { return mStyleContext->GetVisitedDependentColor(aProperty); }
+  template<typename T, typename S>
+  nscolor GetVisitedDependentColor(T S::* aField)
+    { return mStyleContext->GetVisitedDependentColor(aField); }
 
   /**
    * These methods are to access any additional style contexts that
@@ -745,13 +793,16 @@ public:
   }
 
   /**
-   * Get the writing mode of this frame, but if it is styled with
-   * unicode-bidi: plaintext, reset the direction to the resolved paragraph
+   * Construct a writing mode for line layout in this frame.  This is
+   * the writing mode of this frame, except that if this frame is styled with
+   * unicode-bidi:plaintext, we reset the direction to the resolved paragraph
    * level of the given subframe (typically the first frame on the line),
-   * not this frame's writing mode, because the container frame could be split
-   * by hard line breaks into multiple paragraphs with different base direction.
+   * because the container frame could be split by hard line breaks into
+   * multiple paragraphs with different base direction.
+   * @param aSelfWM the WM of 'this'
    */
-  mozilla::WritingMode GetWritingMode(nsIFrame* aSubFrame) const;
+  mozilla::WritingMode WritingModeForLine(mozilla::WritingMode aSelfWM,
+                                          nsIFrame* aSubFrame) const;
 
   /**
    * Bounding rect of the frame. The values are in app units, and the origin is
@@ -1141,7 +1192,7 @@ public:
   /**
    * Get the size, in app units, of the border radii. It returns FALSE iff all
    * returned radii == 0 (so no border radii), TRUE otherwise.
-   * For the aRadii indexes, use the NS_CORNER_* constants in nsStyleConsts.h
+   * For the aRadii indexes, use the enum HalfCorner constants in gfx/2d/Types.h
    * If a side is skipped via aSkipSides, its corners are forced to 0.
    *
    * All corner radii are then adjusted so they do not require more
@@ -1168,7 +1219,7 @@ public:
    * padding box, out to outline box) by reducing radii or increasing
    * nonzero radii as appropriate.
    *
-   * Indices into aRadii are the NS_CORNER_* constants in nsStyleConsts.h
+   * Indices into aRadii are the enum HalfCorner constants in gfx/2d/Types.h
    *
    * Note that InsetBorderRadii is lossy, since it can turn nonzero
    * radii into zero, and OutsetBorderRadii does not inflate zero radii.
@@ -1180,8 +1231,8 @@ public:
 
   /**
    * Fill in border radii for this frame.  Return whether any are nonzero.
-   * Indices into aRadii are the NS_CORNER_* constants in nsStyleConsts.h
-   * aSkipSides is a union of SIDE_BIT_LEFT/RIGHT/TOP/BOTTOM bits that says
+   * Indices into aRadii are the enum HalfCorner constants in gfx/2d/Types.h
+   * aSkipSides is a union of eSideBitsLeft/Right/Top/Bottom bits that says
    * which side(s) to skip.
    *
    * Note: GetMarginBoxBorderRadii() and GetShapeBoxBorderRadii() work only
@@ -1199,11 +1250,93 @@ public:
   bool GetShapeBoxBorderRadii(nscoord aRadii[8]) const;
 
   /**
+   * XXX: this method will likely be replaced by GetVerticalAlignBaseline
    * Get the position of the frame's baseline, relative to the top of
    * the frame (its top border edge).  Only valid when Reflow is not
    * needed.
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context, with the ltr/rtl
+   * direction tweak done by nsIFrame::GetWritingMode(nsIFrame*) in inline
+   * contexts (see that method).
    */
-  virtual nscoord GetLogicalBaseline(mozilla::WritingMode aWritingMode) const = 0;
+  virtual nscoord GetLogicalBaseline(mozilla::WritingMode aWM) const = 0;
+
+  /**
+   * Synthesize a first(last) inline-axis baseline from our margin-box.
+   * An alphabetical baseline is at the start(end) edge and a central baseline
+   * is at the center of our block-axis margin-box (aWM tells which to use).
+   * https://drafts.csswg.org/css-align-3/#synthesize-baselines
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context
+   * @return an offset from our border-box block-axis start(end) edge for
+   * a first(last) baseline respectively
+   * (implemented in nsIFrameInlines.h)
+   */
+  inline nscoord SynthesizeBaselineBOffsetFromMarginBox(
+                   mozilla::WritingMode aWM,
+                   BaselineSharingGroup aGroup) const;
+
+  /**
+   * Synthesize a first(last) inline-axis baseline from our border-box.
+   * An alphabetical baseline is at the start(end) edge and a central baseline
+   * is at the center of our block-axis border-box (aWM tells which to use).
+   * https://drafts.csswg.org/css-align-3/#synthesize-baselines
+   * @note The returned value is only valid when reflow is not needed.
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context
+   * @return an offset from our border-box block-axis start(end) edge for
+   * a first(last) baseline respectively
+   * (implemented in nsIFrameInlines.h)
+   */
+  inline nscoord SynthesizeBaselineBOffsetFromBorderBox(
+                   mozilla::WritingMode aWM,
+                   BaselineSharingGroup aGroup) const;
+
+  /**
+   * Return the position of the frame's inline-axis baseline, or synthesize one
+   * for the given alignment context. The returned baseline is the distance from
+   * the block-axis border-box start(end) edge for aBaselineGroup eFirst(eLast).
+   * @note The returned value is only valid when reflow is not needed.
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context
+   * @param aBaselineOffset out-param, only valid if the method returns true
+   * (implemented in nsIFrameInlines.h)
+   */
+  inline nscoord BaselineBOffset(mozilla::WritingMode aWM,
+                                 BaselineSharingGroup aBaselineGroup,
+                                 AlignmentContext     aAlignmentContext) const;
+
+  /**
+   * XXX: this method is taking over the role that GetLogicalBaseline has.
+   * Return true if the frame has a CSS2 'vertical-align' baseline.
+   * If it has, then the returned baseline is the distance from the block-
+   * axis border-box start edge.
+   * @note This method should only be used in AlignmentContext::eInline contexts.
+   * @note The returned value is only valid when reflow is not needed.
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context
+   * @param aBaseline the baseline offset, only valid if the method returns true
+   */
+  virtual bool GetVerticalAlignBaseline(mozilla::WritingMode aWM,
+                                        nscoord* aBaseline) const {
+    return false;
+  }
+
+  /**
+   * Return true if the frame has a first(last) inline-axis natural baseline per
+   * CSS Box Alignment.  If so, then the returned baseline is the distance from
+   * the block-axis border-box start(end) edge for aBaselineGroup eFirst(eLast).
+   * https://drafts.csswg.org/css-align-3/#natural-baseline
+   * @note The returned value is only valid when reflow is not needed.
+   * @note You should only call this on frames with a WM that's parallel to aWM.
+   * @param aWM the writing-mode of the alignment context
+   * @param aBaseline the baseline offset, only valid if the method returns true
+   */
+  virtual bool GetNaturalBaselineBOffset(mozilla::WritingMode aWM,
+                                         BaselineSharingGroup aBaselineGroup,
+                                         nscoord*             aBaseline) const {
+    return false;
+  }
 
   /**
    * Get the position of the baseline on which the caret needs to be placed,
@@ -1277,7 +1410,7 @@ protected:
    * implementation.
    */
   virtual void OnVisibilityChange(Visibility aNewVisibility,
-                                  Maybe<OnNonvisible> aNonvisibleAction = Nothing());
+                                  const Maybe<OnNonvisible>& aNonvisibleAction = Nothing());
 
 public:
 
@@ -1299,7 +1432,7 @@ public:
    *                          associated with to discard their surfaces if
    *                          possible.
    */
-  void DecApproximateVisibleCount(Maybe<OnNonvisible> aNonvisibleAction = Nothing());
+  void DecApproximateVisibleCount(const Maybe<OnNonvisible>& aNonvisibleAction = Nothing());
   void IncApproximateVisibleCount();
 
 
@@ -1918,11 +2051,29 @@ public:
   };
 
   struct InlinePrefISizeData : public InlineIntrinsicISizeData {
+    typedef mozilla::StyleClear StyleClear;
+
     InlinePrefISizeData()
       : mLineIsEmpty(true)
     {}
 
-    void ForceBreak();
+    /**
+     * Finish the current line and start a new line.
+     *
+     * @param aBreakType controls whether isize of floats are considered
+     * and what floats are kept for the next line:
+     *  * |None| skips handling floats, which means no floats are
+     *    removed, and isizes of floats are not considered either.
+     *  * |Both| takes floats into consideration when computing isize
+     *    of the current line, and removes all floats after that.
+     *  * |Left| and |Right| do the same as |Both| except that they only
+     *    remove floats on the given side, and any floats on the other
+     *    side that are prior to a float on the given side that has a
+     *    'clear' property that clears them.
+     * All other values of StyleClear must be converted to the four
+     * physical values above for this function.
+     */
+    void ForceBreak(StyleClear aBreakType = StyleClear::Both);
 
     // The default implementation for nsIFrame::AddInlinePrefISize.
     void DefaultAddInlinePrefISize(nscoord aISize);
@@ -2172,7 +2323,7 @@ public:
    * frame state will be cleared.
    *
    * XXX This doesn't make sense. If the frame is reflowed but not complete, then
-   * the status should be NS_FRAME_NOT_COMPLETE and not NS_FRAME_COMPLETE
+   * the status should have mIncomplete bit set.
    * XXX Don't we want the semantics to dictate that we only call this once for
    * a given reflow?
    */

@@ -14,6 +14,9 @@ exports.grid = {
   // The id of the grid
   id: PropTypes.number,
 
+  // The color for the grid overlay highlighter
+  color: PropTypes.string,
+
   // The grid fragment object of the grid container
   gridFragments: PropTypes.array,
 

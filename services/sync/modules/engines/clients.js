@@ -128,12 +128,15 @@ ClientEngine.prototype = {
   /**
    * Obtain information about device types.
    *
-   * Returns a Map of device types to integer counts.
+   * Returns a Map of device types to integer counts. Guaranteed to include
+   * "desktop" (which will have at least 1 - this device) and "mobile" (which
+   * may have zero) counts. It almost certainly will include only these 2.
    */
   get deviceTypes() {
     let counts = new Map();
 
-    counts.set(this.localType, 1);
+    counts.set(this.localType, 1); // currently this must be DEVICE_TYPE_DESKTOP
+    counts.set(DEVICE_TYPE_MOBILE, 0);
 
     for (let id in this._store._remoteClients) {
       let record = this._store._remoteClients[id];
@@ -251,9 +254,16 @@ ClientEngine.prototype = {
     const allCommands = this._readCommands();
     const clientCommands = allCommands[clientId] || [];
     if (hasDupeCommand(clientCommands, command)) {
-      return;
+      return false;
     }
     allCommands[clientId] = clientCommands.concat(command);
+    this._saveCommands(allCommands);
+    return true;
+  },
+
+  _removeClientCommands(clientId) {
+    const allCommands = this._readCommands();
+    delete allCommands[clientId];
     this._saveCommands(allCommands);
   },
 
@@ -378,16 +388,18 @@ ClientEngine.prototype = {
 
   _syncFinish() {
     // Record histograms for our device types, and also write them to a pref
-    // so non-histogram telemetry (eg, UITelemetry) has easy access to them.
+    // so non-histogram telemetry (eg, UITelemetry) and the sync scheduler
+    // has easy access to them, and so they are accurate even before we've
+    // successfully synced the first time after startup.
     for (let [deviceType, count] of this.deviceTypes) {
       let hid;
       let prefName = this.name + ".devices.";
       switch (deviceType) {
-        case "desktop":
+        case DEVICE_TYPE_DESKTOP:
           hid = "WEAVE_DEVICE_COUNT_DESKTOP";
           prefName += "desktop";
           break;
-        case "mobile":
+        case DEVICE_TYPE_MOBILE:
           hid = "WEAVE_DEVICE_COUNT_MOBILE";
           prefName += "mobile";
           break;
@@ -477,7 +489,7 @@ ClientEngine.prototype = {
    * @param args Array of arguments/data for command
    * @param clientId Client to send command to
    */
-  _sendCommandToClient: function sendCommandToClient(command, args, clientId) {
+  _sendCommandToClient(command, args, clientId, telemetryExtra) {
     this._log.trace("Sending " + command + " to " + clientId);
 
     let client = this._store._remoteClients[clientId];
@@ -489,13 +501,24 @@ ClientEngine.prototype = {
     }
 
     let action = {
-      command: command,
-      args: args,
+      command,
+      args,
+      // We send the flowID to the other client so *it* can report it in its
+      // telemetry - we record it in ours below.
+      flowID: telemetryExtra.flowID,
     };
 
-    this._log.trace("Client " + clientId + " got a new action: " + [command, args]);
-    this._addClientCommand(clientId, action);
-    this._tracker.addChangedID(clientId);
+    if (this._addClientCommand(clientId, action)) {
+      this._log.trace(`Client ${clientId} got a new action`, [command, args]);
+      this._tracker.addChangedID(clientId);
+      try {
+        telemetryExtra.deviceID = this.service.identity.hashedDeviceID(clientId);
+      } catch (_) {}
+
+      this.service.recordTelemetryEvent("sendcommand", command, undefined, telemetryExtra);
+    } else {
+      this._log.trace(`Client ${clientId} got a duplicate action`, [command, args]);
+    }
   },
 
   /**
@@ -515,8 +538,11 @@ ClientEngine.prototype = {
       let URIsToDisplay = [];
       // Process each command in order.
       for (let rawCommand of commands) {
-        let {command, args} = rawCommand;
+        let {command, args, flowID} = rawCommand;
         this._log.debug("Processing command: " + command + "(" + args + ")");
+
+        this.service.recordTelemetryEvent("processcommand", command, undefined,
+                                          { flowID });
 
         let engines = [args[0]];
         switch (command) {
@@ -570,27 +596,35 @@ ClientEngine.prototype = {
    * @param clientId
    *        Client ID to send command to. If undefined, send to all remote
    *        clients.
+   * @param flowID
+   *        A unique identifier used to track success for this operation across
+   *        devices.
    */
-  sendCommand: function sendCommand(command, args, clientId) {
+  sendCommand(command, args, clientId = null, telemetryExtra = {}) {
     let commandData = this._commands[command];
     // Don't send commands that we don't know about.
     if (!commandData) {
       this._log.error("Unknown command to send: " + command);
       return;
-    }
-    // Don't send a command with the wrong number of arguments.
-    else if (!args || args.length != commandData.args) {
+    } else if (!args || args.length != commandData.args) {
+      // Don't send a command with the wrong number of arguments.
       this._log.error("Expected " + commandData.args + " args for '" +
                       command + "', but got " + args);
       return;
     }
 
+    // We allocate a "flowID" here, so it is used for each client.
+    telemetryExtra = Object.assign({}, telemetryExtra); // don't clobber the caller's object
+    if (!telemetryExtra.flowID) {
+      telemetryExtra.flowID = Utils.makeGUID();
+    }
+
     if (clientId) {
-      this._sendCommandToClient(command, args, clientId);
+      this._sendCommandToClient(command, args, clientId, telemetryExtra);
     } else {
       for (let [id, record] of Object.entries(this._store._remoteClients)) {
         if (!record.stale) {
-          this._sendCommandToClient(command, args, id);
+          this._sendCommandToClient(command, args, id, telemetryExtra);
         }
       }
     }
@@ -651,6 +685,8 @@ ClientEngine.prototype = {
   _removeRemoteClient(id) {
     delete this._store._remoteClients[id];
     this._tracker.removeChangedID(id);
+    this._removeClientCommands(id);
+    this._modified.delete(id);
   },
 };
 
@@ -688,7 +724,7 @@ ClientStore.prototype = {
       fxAccounts.getDeviceId().then(id => cb(null, id), cb);
       try {
         record.fxaDeviceId = cb.wait();
-      } catch(error) {
+      } catch (error) {
         this._log.warn("failed to get fxa device id", error);
       }
       record.name = this.engine.localName;

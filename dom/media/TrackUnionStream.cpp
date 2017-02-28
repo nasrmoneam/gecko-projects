@@ -46,8 +46,8 @@ namespace mozilla {
 LazyLogModule gTrackUnionStreamLog("TrackUnionStream");
 #define STREAM_LOG(type, msg) MOZ_LOG(gTrackUnionStreamLog, type, msg)
 
-TrackUnionStream::TrackUnionStream() :
-  ProcessedMediaStream(), mNextAvailableTrackID(1)
+TrackUnionStream::TrackUnionStream(AbstractThread* aMainThread) :
+  ProcessedMediaStream(aMainThread), mNextAvailableTrackID(1)
 {
 }
 
@@ -58,7 +58,9 @@ TrackUnionStream::TrackUnionStream() :
       if (mTrackMap[i].mInputPort == aPort) {
         STREAM_LOG(LogLevel::Debug, ("TrackUnionStream %p removing trackmap entry %d", this, i));
         EndTrack(i);
-        for (auto listener : mTrackMap[i].mOwnedDirectListeners) {
+        nsTArray<RefPtr<DirectMediaStreamTrackListener>> listeners(
+          mTrackMap[i].mOwnedDirectListeners);
+        for (auto listener : listeners) {
           // Remove listeners while the entry still exists.
           RemoveDirectTrackListenerImpl(listener, mTrackMap[i].mOutputTrackID);
         }

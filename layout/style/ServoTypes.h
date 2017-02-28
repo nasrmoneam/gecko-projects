@@ -35,14 +35,6 @@ struct ServoCell {
   ServoCell() : value() {};
 };
 
-// Indicates whether a style resolution should be considered to consume the style
-// for the construction of a layout frame, or whether the caller is just
-// peeking.
-enum class ConsumeStyleBehavior {
-  Consume,
-  DontConsume,
-};
-
 // Indicates whether the Servo style system should expect the style on an element
 // to have already been resolved (i.e. via a parallel traversal), or whether it
 // may be lazily computed.
@@ -51,11 +43,12 @@ enum class LazyComputeBehavior {
   Assert,
 };
 
-// Indicates whether the Servo style system should skip processing on the root
-// element and start processing with its children.
-enum class SkipRootBehavior {
-  Skip,
-  DontSkip,
+// Indicates whether the Servo style system should perform normal processing or
+// whether it should only process unstyled children of the root and their
+// descendants.
+enum class TraversalRootBehavior {
+  Normal,
+  UnstyledChildrenOnly,
 };
 
 } // namespace mozilla

@@ -19,6 +19,7 @@ import org.mozilla.gecko.SiteIdentity.MixedMode;
 import org.mozilla.gecko.SiteIdentity.SecurityMode;
 import org.mozilla.gecko.SiteIdentity.TrackingMode;
 import org.mozilla.gecko.Tab;
+import org.mozilla.gecko.Tabs;
 import org.mozilla.gecko.animation.PropertyAnimator;
 import org.mozilla.gecko.animation.ViewHelper;
 import org.mozilla.gecko.toolbar.BrowserToolbarTabletBase.ForwardButtonAnimation;
@@ -44,7 +45,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 
-import com.keepsafe.switchboard.SwitchBoard;
+import org.mozilla.gecko.switchboard.SwitchBoard;
 
 /**
 * {@code ToolbarDisplayLayout} is the UI for when the toolbar is in
@@ -168,6 +169,12 @@ public class ToolbarDisplayLayout extends ThemedLinearLayout {
         super.onAttachedToWindow();
 
         mIsAttached = true;
+
+        final Tab selectedTab = Tabs.getInstance().getSelectedTab();
+        if (selectedTab != null) {
+            // A tab was selected before we became ready; update to that tab now.
+            updateFromTab(selectedTab, EnumSet.allOf(UpdateFlags.class));
+        }
 
         mSiteIdentityPopup.registerListeners();
 
@@ -397,9 +404,9 @@ public class ToolbarDisplayLayout extends ThemedLinearLayout {
             imageLevel = LEVEL_SHIELD_DISABLED;
         } else if (trackingMode == TrackingMode.TRACKING_CONTENT_BLOCKED) {
             imageLevel = LEVEL_SHIELD_ENABLED;
-        } else if (activeMixedMode == MixedMode.MIXED_CONTENT_LOADED) {
+        } else if (activeMixedMode == MixedMode.LOADED) {
             imageLevel = LEVEL_LOCK_DISABLED;
-        } else if (displayMixedMode == MixedMode.MIXED_CONTENT_LOADED) {
+        } else if (displayMixedMode == MixedMode.LOADED) {
             imageLevel = LEVEL_WARNING_MINOR;
         }
 

@@ -9,7 +9,6 @@
 #include "basicutil.h"
 #include "secder.h"
 #include "secitem.h"
-#include "secutil.h"
 #include "nspr.h"
 #include <stdio.h>
 
@@ -72,7 +71,6 @@ init_params(ECParams *ecParams, ECCurveName curve, PLArenaPool **arena,
     ecParams->fieldID.size = ecCurve_map[curve]->size;
     ecParams->fieldID.type = type;
     ecParams->cofactor = ecCurve_map[curve]->cofactor;
-    ecParams->pointSize = ecCurve_map[curve]->pointSize;
 
     return SECSuccess;
 }

@@ -20,13 +20,9 @@
 namespace mozilla {
 namespace gmp {
 
-GMPDecryptorChild::GMPDecryptorChild(GMPContentChild* aPlugin,
-                                     const nsTArray<uint8_t>& aPluginVoucher,
-                                     const nsTArray<uint8_t>& aSandboxVoucher)
+GMPDecryptorChild::GMPDecryptorChild(GMPContentChild* aPlugin)
   : mSession(nullptr)
   , mPlugin(aPlugin)
-  , mPluginVoucher(aPluginVoucher)
-  , mSandboxVoucher(aSandboxVoucher)
 {
   MOZ_ASSERT(mPlugin);
 }
@@ -222,28 +218,6 @@ GMPDecryptorChild::SetCapabilities(uint64_t aCaps)
   // Deprecated.
 }
 
-void
-GMPDecryptorChild::GetSandboxVoucher(const uint8_t** aVoucher,
-                                     uint32_t* aVoucherLength)
-{
-  if (!aVoucher || !aVoucherLength) {
-    return;
-  }
-  *aVoucher = mSandboxVoucher.Elements();
-  *aVoucherLength = mSandboxVoucher.Length();
-}
-
-void
-GMPDecryptorChild::GetPluginVoucher(const uint8_t** aVoucher,
-                                    uint32_t* aVoucherLength)
-{
-  if (!aVoucher || !aVoucherLength) {
-    return;
-  }
-  *aVoucher = mPluginVoucher.Elements();
-  *aVoucherLength = mPluginVoucher.Length();
-}
-
 mozilla::ipc::IPCResult
 GMPDecryptorChild::RecvInit(const bool& aDistinctiveIdentifierRequired,
                             const bool& aPersistentStateRequired)
@@ -358,7 +332,8 @@ GMPDecryptorChild::RecvSetServerCertificate(const uint32_t& aPromiseId,
 mozilla::ipc::IPCResult
 GMPDecryptorChild::RecvDecrypt(const uint32_t& aId,
                                InfallibleTArray<uint8_t>&& aBuffer,
-                               const GMPDecryptionData& aMetadata)
+                               const GMPDecryptionData& aMetadata,
+                               const uint64_t& aDurationUsecs)
 {
   if (!mSession) {
     return IPC_FAIL_NO_REASON(this);
@@ -372,7 +347,7 @@ GMPDecryptorChild::RecvDecrypt(const uint32_t& aId,
   GMPEncryptedBufferDataImpl* metadata = new GMPEncryptedBufferDataImpl(aMetadata);
   buffer->SetMetadata(metadata);
 
-  mSession->Decrypt(buffer, metadata);
+  mSession->Decrypt(buffer, metadata, aDurationUsecs);
   return IPC_OK();
 }
 

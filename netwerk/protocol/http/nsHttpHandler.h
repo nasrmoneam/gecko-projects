@@ -27,6 +27,7 @@ class nsIIOService;
 class nsIRequestContextService;
 class nsISiteSecurityService;
 class nsIStreamConverterService;
+class nsIThrottlingService;
 class nsITimer;
 class nsIUUIDGenerator;
 
@@ -81,6 +82,7 @@ public:
     nsHttpVersion  ProxyHttpVersion()        { return mProxyHttpVersion; }
     uint8_t        ReferrerLevel()           { return mReferrerLevel; }
     bool           SpoofReferrerSource()     { return mSpoofReferrerSource; }
+    bool           HideOnionReferrerSource() { return mHideOnionReferrerSource; }
     uint8_t        ReferrerTrimmingPolicy()  { return mReferrerTrimmingPolicy; }
     uint8_t        ReferrerXOriginTrimmingPolicy() {
         return mReferrerXOriginTrimmingPolicy;
@@ -243,7 +245,7 @@ public:
                                  nsProxyInfo *proxyInfo,
                                  nsIInterfaceRequestor *callbacks,
                                  uint32_t caps,
-                                 const NeckoOriginAttributes &originAttributes)
+                                 const OriginAttributes &originAttributes)
     {
         mConnMgr->UpdateAltServiceMapping(map, proxyInfo, callbacks, caps,
                                           originAttributes);
@@ -251,9 +253,10 @@ public:
 
     already_AddRefed<AltSvcMapping> GetAltServiceMapping(const nsACString &scheme,
                                                          const nsACString &host,
-                                                         int32_t port, bool pb)
+                                                         int32_t port, bool pb,
+                                                         const OriginAttributes &originAttributes)
     {
-        return mConnMgr->GetAltServiceMapping(scheme, host, port, pb);
+        return mConnMgr->GetAltServiceMapping(scheme, host, port, pb, originAttributes);
     }
 
     //
@@ -264,6 +267,7 @@ public:
     nsresult GetIOService(nsIIOService** service);
     nsICookieService * GetCookieService(); // not addrefed
     nsISiteSecurityService * GetSSService();
+    nsIThrottlingService * GetThrottlingService();
 
     // callable from socket thread only
     uint32_t Get32BitsOfPseudoRandom();
@@ -405,6 +409,7 @@ private:
     nsMainThreadPtrHandle<nsIStreamConverterService> mStreamConvSvc;
     nsMainThreadPtrHandle<nsICookieService>          mCookieService;
     nsMainThreadPtrHandle<nsISiteSecurityService>    mSSService;
+    nsMainThreadPtrHandle<nsIThrottlingService>      mThrottlingService;
 
     // the authentication credentials cache
     nsHttpAuthCache mAuthCache;
@@ -422,6 +427,7 @@ private:
     uint32_t mCapabilities;
     uint8_t  mReferrerLevel;
     uint8_t  mSpoofReferrerSource;
+    uint8_t  mHideOnionReferrerSource;
     uint8_t  mReferrerTrimmingPolicy;
     uint8_t  mReferrerXOriginTrimmingPolicy;
     uint8_t  mReferrerXOriginPolicy;

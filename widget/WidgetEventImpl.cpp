@@ -12,6 +12,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
+#include "nsIDOMEventTarget.h"
 #include "nsPrintfCString.h"
 
 namespace mozilla {
@@ -236,6 +237,7 @@ WidgetEvent::HasMouseEventMessage() const
     case eMouseUp:
     case eMouseClick:
     case eMouseDoubleClick:
+    case eMouseAuxClick:
     case eMouseEnterIntoWidget:
     case eMouseExitFromWidget:
     case eMouseActivate:
@@ -276,10 +278,6 @@ WidgetEvent::HasKeyEventMessage() const
     case eKeyUp:
     case eKeyDownOnPlugin:
     case eKeyUpOnPlugin:
-    case eBeforeKeyDown:
-    case eBeforeKeyUp:
-    case eAfterKeyDown:
-    case eAfterKeyUp:
     case eAccessKeyNotFound:
       return true;
     default:
@@ -315,6 +313,41 @@ WidgetEvent::HasPluginActivationEventMessage() const
  *
  * Specific event checking methods.
  ******************************************************************************/
+
+bool
+WidgetEvent::CanBeSentToRemoteProcess() const
+{
+  // If this event is explicitly marked as shouldn't be sent to remote process,
+  // just return false.
+  if (mFlags.mNoCrossProcessBoundaryForwarding) {
+    return false;
+  }
+
+  if (mClass == eKeyboardEventClass ||
+      mClass == eWheelEventClass) {
+    return true;
+  }
+
+  switch (mMessage) {
+    case eMouseDown:
+    case eMouseUp:
+    case eMouseMove:
+    case eContextMenu:
+    case eMouseEnterIntoWidget:
+    case eMouseExitFromWidget:
+    case eMouseTouchDrag:
+    case eTouchStart:
+    case eTouchMove:
+    case eTouchEnd:
+    case eTouchCancel:
+    case eDragOver:
+    case eDragExit:
+    case eDrop:
+      return true;
+    default:
+      return false;
+  }
+}
 
 bool
 WidgetEvent::IsRetargetedNativeEventDelivererForPlugin() const
@@ -387,6 +420,9 @@ WidgetEvent::IsAllowedToDispatchDOMEvent() const
            mMessage == eMouseUp)) {
         return false;
       }
+      if (mMessage == eMouseTouchDrag) {
+        return false;
+      }
       MOZ_FALLTHROUGH;
     case ePointerEventClass:
       // We want synthesized mouse moves to cause mouseover and mouseout
@@ -423,6 +459,39 @@ WidgetEvent::IsAllowedToDispatchInSystemGroup() const
   // if we do, prevent default on mouse events can't prevent default behaviors
   // anymore.
   return mClass != ePointerEventClass;
+}
+
+/******************************************************************************
+ * mozilla::WidgetEvent
+ *
+ * Misc methods.
+ ******************************************************************************/
+
+static dom::EventTarget*
+GetTargetForDOMEvent(nsIDOMEventTarget* aTarget)
+{
+  return aTarget ? aTarget->GetTargetForDOMEvent() : nullptr;
+}
+
+dom::EventTarget*
+WidgetEvent::GetDOMEventTarget() const
+{
+  return GetTargetForDOMEvent(mTarget);
+}
+
+dom::EventTarget*
+WidgetEvent::GetCurrentDOMEventTarget() const
+{
+  return GetTargetForDOMEvent(mCurrentTarget);
+}
+
+dom::EventTarget*
+WidgetEvent::GetOriginalDOMEventTarget() const
+{
+  if (mOriginalTarget) {
+    return GetTargetForDOMEvent(mOriginalTarget);
+  }
+  return GetDOMEventTarget();
 }
 
 /******************************************************************************
@@ -826,12 +895,12 @@ WidgetKeyboardEvent::ComputeLocationFromCodeValue(CodeNameIndex aCodeNameIndex)
     case CODE_NAME_INDEX_ControlLeft:
     case CODE_NAME_INDEX_OSLeft:
     case CODE_NAME_INDEX_ShiftLeft:
-      return nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT;
+      return eKeyLocationLeft;
     case CODE_NAME_INDEX_AltRight:
     case CODE_NAME_INDEX_ControlRight:
     case CODE_NAME_INDEX_OSRight:
     case CODE_NAME_INDEX_ShiftRight:
-      return nsIDOMKeyEvent::DOM_KEY_LOCATION_RIGHT;
+      return eKeyLocationRight;
     case CODE_NAME_INDEX_Numpad0:
     case CODE_NAME_INDEX_Numpad1:
     case CODE_NAME_INDEX_Numpad2:
@@ -860,9 +929,9 @@ WidgetKeyboardEvent::ComputeLocationFromCodeValue(CodeNameIndex aCodeNameIndex)
     case CODE_NAME_INDEX_NumpadParenLeft:
     case CODE_NAME_INDEX_NumpadParenRight:
     case CODE_NAME_INDEX_NumpadSubtract:
-      return nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD;
+      return eKeyLocationNumpad;
     default:
-      return nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD;
+      return eKeyLocationStandard;
   }
 }
 

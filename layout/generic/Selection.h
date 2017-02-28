@@ -11,6 +11,7 @@
 
 #include "mozilla/AutoRestore.h"
 #include "mozilla/TextRange.h"
+#include "mozilla/UniquePtr.h"
 #include "nsISelection.h"
 #include "nsISelectionController.h"
 #include "nsISelectionListener.h"
@@ -25,6 +26,8 @@ class nsIContentIterator;
 class nsIFrame;
 class nsFrameSelection;
 struct SelectionDetails;
+class nsCopySupport;
+class nsHTMLCopyEncoder;
 
 namespace mozilla {
 class ErrorResult;
@@ -137,12 +140,15 @@ public:
   //  NS_IMETHOD   GetPrimaryFrameForRangeEndpoint(nsIDOMNode *aNode, int32_t aOffset, bool aIsEndNode, nsIFrame **aResultFrame);
   NS_IMETHOD   GetPrimaryFrameForAnchorNode(nsIFrame **aResultFrame);
   NS_IMETHOD   GetPrimaryFrameForFocusNode(nsIFrame **aResultFrame, int32_t *aOffset, bool aVisual);
-  NS_IMETHOD   LookUpSelection(nsIContent *aContent,
-                               int32_t aContentOffset,
-                               int32_t aContentLength,
-                               SelectionDetails** aReturnDetails,
-                               SelectionType aSelectionType,
-                               bool aSlowCheck);
+
+  UniquePtr<SelectionDetails> LookUpSelection(
+    nsIContent* aContent,
+    int32_t aContentOffset,
+    int32_t aContentLength,
+    UniquePtr<SelectionDetails> aDetailsHead,
+    SelectionType aSelectionType,
+    bool aSlowCheck);
+
   NS_IMETHOD   Repaint(nsPresContext* aPresContext);
 
   // Note: StartAutoScrollTimer might destroy arbitrary frames etc.
@@ -195,6 +201,10 @@ public:
   void Modify(const nsAString& aAlter, const nsAString& aDirection,
               const nsAString& aGranularity, mozilla::ErrorResult& aRv);
 
+  void SetBaseAndExtent(nsINode& aAnchorNode, uint32_t aAnchorOffset,
+                        nsINode& aFocusNode, uint32_t aFocusOffset,
+                        mozilla::ErrorResult& aRv);
+
   bool GetInterlinePosition(mozilla::ErrorResult& aRv);
   void SetInterlinePosition(bool aValue, mozilla::ErrorResult& aRv);
 
@@ -235,6 +245,12 @@ private:
 
   // Note: DoAutoScroll might destroy arbitrary frames etc.
   nsresult DoAutoScroll(nsIFrame *aFrame, nsPoint& aPoint);
+
+  // XXX Please don't add additional uses of this method, it's only for
+  // XXX supporting broken code (bug 1245883) in the following classes:
+  friend class ::nsCopySupport;
+  friend class ::nsHTMLCopyEncoder;
+  void AddRangeInternal(nsRange& aRange, nsIDocument* aDocument, ErrorResult&);
 
 public:
   SelectionType GetType() const { return mSelectionType; }

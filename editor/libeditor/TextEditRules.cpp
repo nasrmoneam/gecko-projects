@@ -38,6 +38,7 @@
 #include "nsISupportsBase.h"
 #include "nsLiteralString.h"
 #include "nsUnicharUtils.h"
+#include "nsIHTMLCollection.h"
 
 namespace mozilla {
 
@@ -443,8 +444,8 @@ TextEditRules::CollapseSelectionToTrailingBRIfNeeded(Selection* aSelection)
   int32_t selOffset;
   nsCOMPtr<nsIDOMNode> selNode;
   nsresult rv =
-    mTextEditor->GetStartNodeAndOffset(aSelection,
-                                       getter_AddRefs(selNode), &selOffset);
+    EditorBase::GetStartNodeAndOffset(aSelection,
+                                      getter_AddRefs(selNode), &selOffset);
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsIDOMText> nodeAsText = do_QueryInterface(selNode);
@@ -712,7 +713,7 @@ TextEditRules::WillInsertText(EditAction aAction,
 
   // don't put text in places that can't have it
   NS_ENSURE_STATE(mTextEditor);
-  if (!mTextEditor->IsTextNode(selNode) &&
+  if (!EditorBase::IsTextNode(selNode) &&
       !mTextEditor->CanContainTag(*selNode, *nsGkAtoms::textTagName)) {
     return NS_ERROR_FAILURE;
   }
@@ -887,10 +888,9 @@ TextEditRules::WillDeleteSelection(Selection* aSelection,
   } else {
     nsCOMPtr<nsIDOMNode> startNode;
     int32_t startOffset;
-    NS_ENSURE_STATE(mTextEditor);
     nsresult rv =
-      mTextEditor->GetStartNodeAndOffset(aSelection, getter_AddRefs(startNode),
-                                         &startOffset);
+      EditorBase::GetStartNodeAndOffset(aSelection, getter_AddRefs(startNode),
+                                        &startOffset);
     NS_ENSURE_SUCCESS(rv, rv);
     NS_ENSURE_TRUE(startNode, NS_ERROR_FAILURE);
 
@@ -932,15 +932,14 @@ TextEditRules::DidDeleteSelection(Selection* aSelection,
 {
   nsCOMPtr<nsIDOMNode> startNode;
   int32_t startOffset;
-  NS_ENSURE_STATE(mTextEditor);
   nsresult rv =
-    mTextEditor->GetStartNodeAndOffset(aSelection,
-                                       getter_AddRefs(startNode), &startOffset);
+    EditorBase::GetStartNodeAndOffset(aSelection,
+                                      getter_AddRefs(startNode), &startOffset);
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(startNode, NS_ERROR_FAILURE);
 
   // delete empty text nodes at selection
-  if (mTextEditor->IsTextNode(startNode)) {
+  if (EditorBase::IsTextNode(startNode)) {
     nsCOMPtr<nsIDOMText> textNode = do_QueryInterface(startNode);
     uint32_t strLength;
     rv = textNode->GetLength(&strLength);
@@ -948,6 +947,7 @@ TextEditRules::DidDeleteSelection(Selection* aSelection,
 
     // are we in an empty text node?
     if (!strLength) {
+      NS_ENSURE_STATE(mTextEditor);
       rv = mTextEditor->DeleteNode(startNode);
       NS_ENSURE_SUCCESS(rv, rv);
     }
@@ -1029,32 +1029,25 @@ TextEditRules::DidRedo(Selection* aSelection,
   }
 
   NS_ENSURE_STATE(mTextEditor);
-  nsCOMPtr<nsIDOMElement> theRoot = do_QueryInterface(mTextEditor->GetRoot());
+  RefPtr<Element> theRoot = mTextEditor->GetRoot();
   NS_ENSURE_TRUE(theRoot, NS_ERROR_FAILURE);
 
-  nsCOMPtr<nsIDOMHTMLCollection> nodeList;
-  nsresult rv = theRoot->GetElementsByTagName(NS_LITERAL_STRING("br"),
-                                              getter_AddRefs(nodeList));
-  NS_ENSURE_SUCCESS(rv, rv);
-  if (nodeList) {
-    uint32_t len;
-    nodeList->GetLength(&len);
+  nsCOMPtr<nsIHTMLCollection> nodeList =
+    theRoot->GetElementsByTagName(NS_LITERAL_STRING("br"));
+  MOZ_ASSERT(nodeList);
+  uint32_t len = nodeList->Length();
 
-    if (len != 1) {
-      // only in the case of one br could there be the bogus node
-      mBogusNode = nullptr;
-      return NS_OK;
-    }
+  if (len != 1) {
+    // only in the case of one br could there be the bogus node
+    mBogusNode = nullptr;
+    return NS_OK;
+  }
 
-    nsCOMPtr<nsIDOMNode> node;
-    nodeList->Item(0, getter_AddRefs(node));
-    nsCOMPtr<nsIContent> content = do_QueryInterface(node);
-    MOZ_ASSERT(content);
-    if (mTextEditor->IsMozEditorBogusNode(content)) {
-      mBogusNode = node;
-    } else {
-      mBogusNode = nullptr;
-    }
+  RefPtr<Element> node = nodeList->Item(0);
+  if (mTextEditor->IsMozEditorBogusNode(node)) {
+    mBogusNode = do_QueryInterface(node);
+  } else {
+    mBogusNode = nullptr;
   }
   return NS_OK;
 }
@@ -1425,9 +1418,9 @@ TextEditRules::CreateMozBR(nsIDOMNode* inParent,
   NS_ENSURE_SUCCESS(rv, rv);
 
   // give it special moz attr
-  nsCOMPtr<nsIDOMElement> brElem = do_QueryInterface(brNode);
+  nsCOMPtr<Element> brElem = do_QueryInterface(brNode);
   if (brElem) {
-    rv = mTextEditor->SetAttribute(brElem, NS_LITERAL_STRING("type"),
+    rv = mTextEditor->SetAttribute(brElem, nsGkAtoms::type,
                                    NS_LITERAL_STRING("_moz"));
     NS_ENSURE_SUCCESS(rv, rv);
   }

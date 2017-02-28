@@ -296,7 +296,7 @@ nsVideoFrame::Reflow(nsPresContext* aPresContext,
 
   NS_PRECONDITION(mState & NS_FRAME_IN_REFLOW, "frame is not in reflow");
 
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
 
   const WritingMode myWM = aReflowInput.GetWritingMode();
   nscoord contentBoxBSize = aReflowInput.ComputedBSize();
@@ -377,7 +377,9 @@ nsVideoFrame::Reflow(nsPresContext* aPresContext,
                   borderPadding.left, borderPadding.top, 0, aStatus);
 
       if (child->GetContent() == mVideoControls && isBSizeShrinkWrapping) {
-        contentBoxBSize = kidDesiredSize.BSize(myWM);
+        // Resolve our own BSize based on the controls' size in the same axis.
+        contentBoxBSize = myWM.IsOrthogonalTo(wm) ?
+          kidDesiredSize.ISize(wm) : kidDesiredSize.BSize(wm);
       }
 
       FinishReflowChild(child, aPresContext,
@@ -744,7 +746,7 @@ nsVideoFrame::AttributeChanged(int32_t aNameSpaceID,
 
 void
 nsVideoFrame::OnVisibilityChange(Visibility aNewVisibility,
-                                 Maybe<OnNonvisible> aNonvisibleAction)
+                                 const Maybe<OnNonvisible>& aNonvisibleAction)
 {
   if (HasVideoElement()) {
     nsCOMPtr<nsIDOMHTMLMediaElement> mediaDomElement = do_QueryInterface(mContent);

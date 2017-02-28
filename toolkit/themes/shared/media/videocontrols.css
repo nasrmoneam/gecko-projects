@@ -186,7 +186,7 @@ audio > xul|videocontrols {
   border: none;
   border-radius: 50%;
   background-color: #ffffff;
-  filter: drop-shadow(0px 0px 5px rgba(0,0,0,0.65));
+  filter: drop-shadow(0px 0px 2px rgba(0,0,0,0.65));
 }
 
 .volumeControl::-moz-focus-outer,
@@ -331,7 +331,7 @@ audio > xul|videocontrols {
 }
 
 .textTrackList > .textTrackItem[on] {
-  color: #00b6f0;
+  color: #48a0f7;
 }
 
 .positionLabel,
@@ -340,24 +340,20 @@ audio > xul|videocontrols {
 }
 
 .positionDurationBox {
-  min-width: 9ch;
   text-align: center;
   padding-inline-start: 1px;
   padding-inline-end: 9px;
   white-space: nowrap;
   font: message-box;
   font-size: 13px;
-  font-size-adjust: 0.6;
+  font-size-adjust: 0.55;
   color: #ffffff;
-}
-
-.positionDurationBox[positionOnly] {
-  min-width: 4ch;
 }
 
 %ifdef XP_MACOSX
 .positionDurationBox {
   font-size-adjust: unset;
+  font-family: "Helvetica Neue", "Helvetica", sans-serif;
 }
 %endif
 
@@ -476,3 +472,21 @@ audio > xul|videocontrols {
 [error="errorGeneric"]         > [anonid="errorGeneric"] {
   display: inline;
 }
+
+/* For high contrast theme in Windows */
+%ifdef XP_WIN
+.controlsSpacer,
+.clickToPlay {
+  background-color: transparent;
+}
+
+@media (-moz-windows-default-theme) {
+  .controlsSpacer {
+    background-color: rgba(255,255,255,.4);
+  }
+
+  .clickToPlay {
+    background-color: #1a1a1a;
+  }
+}
+%endif

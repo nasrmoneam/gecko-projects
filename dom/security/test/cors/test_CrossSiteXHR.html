@@ -14,7 +14,7 @@
   
 </div>
 <pre id="test">
-<script class="testbody" type="application/javascript;version=1.8">
+<script class="testbody" type="application/javascript">
 
 const runPreflightTests = 1;
 const runCookieTests = 1;
@@ -31,7 +31,7 @@ function initTest() {
 function initTestCallback() {
   window.addEventListener("message", function(e) {
     gen.next(e.data);
-  }, false);
+  });
 
   gen = runTest();
   

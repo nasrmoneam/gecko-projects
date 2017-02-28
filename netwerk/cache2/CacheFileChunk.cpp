@@ -8,6 +8,8 @@
 #include "CacheFile.h"
 #include "nsThreadUtils.h"
 
+#include "mozilla/IntegerPrintfMacros.h"
+
 namespace mozilla {
 namespace net {
 
@@ -251,7 +253,6 @@ public:
   {
     LOG(("NotifyUpdateListenerEvent::NotifyUpdateListenerEvent() [this=%p]",
          this));
-    MOZ_COUNT_CTOR(NotifyUpdateListenerEvent);
   }
 
 protected:
@@ -259,7 +260,6 @@ protected:
   {
     LOG(("NotifyUpdateListenerEvent::~NotifyUpdateListenerEvent() [this=%p]",
          this));
-    MOZ_COUNT_DTOR(NotifyUpdateListenerEvent);
   }
 
 public:
@@ -347,15 +347,12 @@ CacheFileChunk::CacheFileChunk(CacheFile *aFile, uint32_t aIndex,
 {
   LOG(("CacheFileChunk::CacheFileChunk() [this=%p, index=%u, initByWriter=%d]",
        this, aIndex, aInitByWriter));
-  MOZ_COUNT_CTOR(CacheFileChunk);
-
   mBuf = new CacheFileChunkBuffer(this);
 }
 
 CacheFileChunk::~CacheFileChunk()
 {
   LOG(("CacheFileChunk::~CacheFileChunk() [this=%p]", this));
-  MOZ_COUNT_DTOR(CacheFileChunk);
 }
 
 void
@@ -644,8 +641,8 @@ nsresult
 CacheFileChunk::OnDataWritten(CacheFileHandle *aHandle, const char *aBuf,
                               nsresult aResult)
 {
-  LOG(("CacheFileChunk::OnDataWritten() [this=%p, handle=%p, result=0x%08x]",
-       this, aHandle, aResult));
+  LOG(("CacheFileChunk::OnDataWritten() [this=%p, handle=%p, result=0x%08" PRIx32 "]",
+       this, aHandle, static_cast<uint32_t>(aResult)));
 
   nsCOMPtr<CacheFileChunkListener> listener;
 
@@ -674,8 +671,8 @@ nsresult
 CacheFileChunk::OnDataRead(CacheFileHandle *aHandle, char *aBuf,
                            nsresult aResult)
 {
-  LOG(("CacheFileChunk::OnDataRead() [this=%p, handle=%p, result=0x%08x]",
-       this, aHandle, aResult));
+  LOG(("CacheFileChunk::OnDataRead() [this=%p, handle=%p, result=0x%08" PRIx32 "]",
+       this, aHandle, static_cast<uint32_t>(aResult)));
 
   nsCOMPtr<CacheFileChunkListener> listener;
 
@@ -783,7 +780,8 @@ CacheFileChunk::GetStatus()
 void
 CacheFileChunk::SetError(nsresult aStatus)
 {
-  LOG(("CacheFileChunk::SetError() [this=%p, status=0x%08x]", this, aStatus));
+  LOG(("CacheFileChunk::SetError() [this=%p, status=0x%08" PRIx32 "]",
+       this, static_cast<uint32_t>(aStatus)));
 
   MOZ_ASSERT(NS_FAILED(aStatus));
 

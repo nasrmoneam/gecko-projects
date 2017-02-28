@@ -6,26 +6,24 @@
 
 #include "SyncProfile.h"
 
-SyncProfile::SyncProfile(ThreadInfo* aInfo, int aEntrySize)
-  : ThreadProfile(aInfo, new ProfileBuffer(aEntrySize))
+SyncProfile::SyncProfile(int aThreadId, PseudoStack* aStack)
+  : ThreadInfo("SyncProfile", aThreadId, /* isMainThread = */ false, aStack,
+               /* stackTop = */ nullptr)
   , mOwnerState(REFERENCED)
 {
   MOZ_COUNT_CTOR(SyncProfile);
+  SetProfile(new ProfileBuffer(GET_BACKTRACE_DEFAULT_ENTRIES));
 }
 
 SyncProfile::~SyncProfile()
 {
   MOZ_COUNT_DTOR(SyncProfile);
-
-  // SyncProfile owns the ThreadInfo; see NewSyncProfile.
-  ThreadInfo* info = GetThreadInfo();
-  delete info;
 }
 
 bool
 SyncProfile::ShouldDestroy()
 {
-  ::MutexAutoLock lock(GetMutex());
+  mozilla::MutexAutoLock lock(GetMutex());
   if (mOwnerState == OWNED) {
     mOwnerState = OWNER_DESTROYING;
     return true;
@@ -42,7 +40,7 @@ SyncProfile::EndUnwind()
   }
   // Save mOwnerState before we release the mutex
   OwnerState ownerState = mOwnerState;
-  ThreadProfile::EndUnwind();
+  ThreadInfo::EndUnwind();
   if (ownerState == ORPHANED) {
     delete this;
   }
@@ -53,5 +51,5 @@ SyncProfile::EndUnwind()
 void
 SyncProfile::StreamJSON(SpliceableJSONWriter& aWriter, UniqueStacks& aUniqueStacks)
 {
-  ThreadProfile::StreamSamplesAndMarkers(aWriter, /* aSinceTime = */ 0, aUniqueStacks);
+  ThreadInfo::StreamSamplesAndMarkers(aWriter, /* aSinceTime = */ 0, aUniqueStacks);
 }

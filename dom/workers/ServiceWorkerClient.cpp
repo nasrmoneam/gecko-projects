@@ -34,7 +34,8 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(ServiceWorkerClient)
 NS_INTERFACE_MAP_END
 
 ServiceWorkerClientInfo::ServiceWorkerClientInfo(nsIDocument* aDoc)
-  : mWindowId(0)
+  : mType(ClientType::Window)
+  , mWindowId(0)
   , mFrameType(FrameType::None)
 {
   MOZ_ASSERT(aDoc);
@@ -80,6 +81,12 @@ JSObject*
 ServiceWorkerClient::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto)
 {
   return ClientBinding::Wrap(aCx, this, aGivenProto);
+}
+
+ClientType
+ServiceWorkerClient::Type() const
+{
+  return mType;
 }
 
 namespace {
@@ -191,7 +198,7 @@ private:
 
 void
 ServiceWorkerClient::PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
-                                 const Optional<Sequence<JS::Value>>& aTransferable,
+                                 const Sequence<JSObject*>& aTransferable,
                                  ErrorResult& aRv)
 {
   WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
@@ -199,20 +206,11 @@ ServiceWorkerClient::PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
   workerPrivate->AssertIsOnWorkerThread();
 
   JS::Rooted<JS::Value> transferable(aCx, JS::UndefinedValue());
-  if (aTransferable.WasPassed()) {
-    const Sequence<JS::Value>& realTransferable = aTransferable.Value();
 
-    JS::HandleValueArray elements =
-      JS::HandleValueArray::fromMarkedLocation(realTransferable.Length(),
-                                               realTransferable.Elements());
-
-    JSObject* array = JS_NewArrayObject(aCx, elements);
-    if (!array) {
-      aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
-      return;
-    }
-
-    transferable.setObject(*array);
+  aRv = nsContentUtils::CreateJSValueFromSequenceOfObject(aCx, aTransferable,
+                                                          &transferable);
+  if (NS_WARN_IF(aRv.Failed())) {
+    return;
   }
 
   RefPtr<ServiceWorkerClientPostMessageRunnable> runnable =

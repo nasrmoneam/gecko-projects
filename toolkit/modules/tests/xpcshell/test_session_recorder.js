@@ -31,7 +31,7 @@ function monkeypatchStartupInfo(recorder, start = new Date(), offset = 500) {
 function sleep(wait) {
   let deferred = Promise.defer();
 
-  let timer = CommonUtils.namedTimer(function onTimer() {
+  CommonUtils.namedTimer(function onTimer() {
     deferred.resolve();
   }, wait, deferred.promise, "_sleepTimer");
 
@@ -101,7 +101,7 @@ add_task(function* test_current_availability() {
   let recordCount = 0;
 
   Object.defineProperty(recorder, "recordStartupFields", {
-    value: function() {
+    value() {
       recordCount++;
       return oldRecord.call(recorder);
     }
@@ -303,4 +303,3 @@ add_task(function* test_record_activity() {
 
   recorder.onShutdown();
 });
-

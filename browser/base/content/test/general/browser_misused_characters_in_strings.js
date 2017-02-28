@@ -18,19 +18,15 @@ let gWhitelist = [{
     type: "single-quote"
   }, {
     file: "netError.dtd",
-    key: "weakCryptoAdvanced.longDesc",
-    type: "single-quote"
-  }, {
-    file: "netError.dtd",
-    key: "weakCryptoAdvanced.override",
-    type: "single-quote"
-  }, {
-    file: "netError.dtd",
     key: "inadequateSecurityError.longDesc",
     type: "single-quote"
   }, {
     file: "netError.dtd",
-    key: "certerror.wrongSystemTime",
+    key: "certerror.wrongSystemTime2",
+    type: "single-quote"
+  }, {
+    file: "netError.dtd",
+    key: "certerror.wrongSystemTimeWithoutReference",
     type: "single-quote"
   }, {
     file: "phishing-afterload-warning-message.dtd",
@@ -104,10 +100,6 @@ let gWhitelist = [{
     file: "pocket.properties",
     key: "tos",
     type: "double-quote"
-  }, {
-    file: "pocket.properties",
-    key: "tos",
-    type: "apostrophe"
   }, {
     file: "aboutNetworking.dtd",
     key: "aboutNetworking.logTutorial",

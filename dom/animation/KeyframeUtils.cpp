@@ -10,6 +10,7 @@
 #include "mozilla/Move.h"
 #include "mozilla/RangedArray.h"
 #include "mozilla/ServoBindings.h"
+#include "mozilla/ServoBindingTypes.h"
 #include "mozilla/StyleAnimationValue.h"
 #include "mozilla/TimingParams.h"
 #include "mozilla/dom/BaseKeyframeTypesBinding.h" // For FastBaseKeyframe etc.
@@ -18,10 +19,12 @@
 #include "mozilla/dom/KeyframeEffectReadOnly.h" // For PropertyValuesPair etc.
 #include "jsapi.h" // For ForOfIterator etc.
 #include "nsClassHashtable.h"
+#include "nsContentUtils.h" // For GetContextForContent
 #include "nsCSSParser.h"
 #include "nsCSSPropertyIDSet.h"
 #include "nsCSSProps.h"
 #include "nsCSSPseudoElements.h" // For CSSPseudoElementType
+#include "nsStyleContext.h"
 #include "nsTArray.h"
 #include <algorithm> // For std::stable_sort
 
@@ -269,7 +272,8 @@ struct AdditionalProperty
 struct KeyframeValueEntry
 {
   nsCSSPropertyID mProperty;
-  StyleAnimationValue mValue;
+  AnimationValue mValue;
+
   float mOffset;
   Maybe<ComputedTimingFunction> mTimingFunction;
   dom::CompositeOperation mComposite;
@@ -512,8 +516,8 @@ KeyframeUtils::ApplySpacing(nsTArray<Keyframe>& aKeyframes,
   }
 
   // Fill in remaining missing offsets.
-  const Keyframe* const last = aKeyframes.cend() - 1;
-  const RangedPtr<Keyframe> begin(aKeyframes.begin(), aKeyframes.Length());
+  const Keyframe* const last = &aKeyframes.LastElement();
+  const RangedPtr<Keyframe> begin(aKeyframes.Elements(), aKeyframes.Length());
   RangedPtr<Keyframe> keyframeA = begin;
   while (keyframeA != last) {
     // Find keyframe A and keyframe B *between* which we will apply spacing.
@@ -588,14 +592,37 @@ KeyframeUtils::ApplyDistributeSpacing(nsTArray<Keyframe>& aKeyframes)
 }
 
 /* static */ nsTArray<ComputedKeyframeValues>
+KeyframeUtils::GetComputedKeyframeValues(
+  const nsTArray<Keyframe>& aKeyframes,
+  dom::Element* aElement,
+  const ServoComputedStyleValues& aServoValues)
+{
+  MOZ_ASSERT(aElement);
+  MOZ_ASSERT(aElement->OwnerDoc()->IsStyledByServo());
+
+  nsPresContext* presContext = nsContentUtils::GetContextForContent(aElement);
+  MOZ_ASSERT(presContext);
+
+  nsTArray<ComputedKeyframeValues> result(aKeyframes.Length());
+
+  // Construct each nsTArray<PropertyStyleAnimationValuePair> here.
+  result.AppendElements(aKeyframes.Length());
+
+  Servo_GetComputedKeyframeValues(&aKeyframes,
+                                  aServoValues.mCurrentStyle,
+                                  aServoValues.mParentStyle,
+                                  presContext,
+                                  &result);
+  return result;
+}
+
+/* static */ nsTArray<ComputedKeyframeValues>
 KeyframeUtils::GetComputedKeyframeValues(const nsTArray<Keyframe>& aKeyframes,
                                          dom::Element* aElement,
                                          nsStyleContext* aStyleContext)
 {
   MOZ_ASSERT(aStyleContext);
   MOZ_ASSERT(aElement);
-
-  StyleBackendType styleBackend = aElement->OwnerDoc()->GetStyleBackendType();
 
   const size_t len = aKeyframes.Length();
   nsTArray<ComputedKeyframeValues> result(len);
@@ -605,12 +632,11 @@ KeyframeUtils::GetComputedKeyframeValues(const nsTArray<Keyframe>& aKeyframes,
     ComputedKeyframeValues* computedValues = result.AppendElement();
     for (const PropertyValuePair& pair :
            PropertyPriorityIterator(frame.mPropertyValues)) {
-      MOZ_ASSERT(!pair.mServoDeclarationBlock ||
-                 styleBackend == StyleBackendType::Servo,
+      MOZ_ASSERT(!pair.mServoDeclarationBlock,
                  "Animation values were parsed using Servo backend but target"
                  " element is not using Servo backend?");
 
-      if (IsInvalidValuePair(pair, styleBackend)) {
+      if (IsInvalidValuePair(pair, StyleBackendType::Gecko)) {
         continue;
       }
 
@@ -618,33 +644,25 @@ KeyframeUtils::GetComputedKeyframeValues(const nsTArray<Keyframe>& aKeyframes,
       // a KeyframeValueEntry for each value.
       nsTArray<PropertyStyleAnimationValuePair> values;
 
-      if (styleBackend == StyleBackendType::Servo) {
+      // For shorthands, we store the string as a token stream so we need to
+      // extract that first.
+      if (nsCSSProps::IsShorthand(pair.mProperty)) {
+        nsCSSValueTokenStream* tokenStream = pair.mValue.GetTokenStreamValue();
         if (!StyleAnimationValue::ComputeValues(pair.mProperty,
-              CSSEnabledState::eForAllContent, aStyleContext,
-              *pair.mServoDeclarationBlock, values)) {
+              CSSEnabledState::eForAllContent, aElement, aStyleContext,
+              tokenStream->mTokenStream, /* aUseSVGMode */ false, values) ||
+            IsComputeValuesFailureKey(pair)) {
           continue;
         }
       } else {
-        // For shorthands, we store the string as a token stream so we need to
-        // extract that first.
-        if (nsCSSProps::IsShorthand(pair.mProperty)) {
-          nsCSSValueTokenStream* tokenStream = pair.mValue.GetTokenStreamValue();
-          if (!StyleAnimationValue::ComputeValues(pair.mProperty,
-                CSSEnabledState::eForAllContent, aElement, aStyleContext,
-                tokenStream->mTokenStream, /* aUseSVGMode */ false, values) ||
-              IsComputeValuesFailureKey(pair)) {
-            continue;
-          }
-        } else {
-          if (!StyleAnimationValue::ComputeValues(pair.mProperty,
-                CSSEnabledState::eForAllContent, aElement, aStyleContext,
-                pair.mValue, /* aUseSVGMode */ false, values)) {
-            continue;
-          }
-          MOZ_ASSERT(values.Length() == 1,
-                    "Longhand properties should produce a single"
-                    " StyleAnimationValue");
+        if (!StyleAnimationValue::ComputeValues(pair.mProperty,
+              CSSEnabledState::eForAllContent, aElement, aStyleContext,
+              pair.mValue, /* aUseSVGMode */ false, values)) {
+          continue;
         }
+        MOZ_ASSERT(values.Length() == 1,
+                  "Longhand properties should produce a single"
+                  " StyleAnimationValue");
       }
 
       for (auto& value : values) {
@@ -653,8 +671,8 @@ KeyframeUtils::GetComputedKeyframeValues(const nsTArray<Keyframe>& aKeyframes,
         if (propertiesOnThisKeyframe.HasProperty(value.mProperty)) {
           continue;
         }
-        computedValues->AppendElement(value);
         propertiesOnThisKeyframe.AddProperty(value.mProperty);
+        computedValues->AppendElement(Move(value));
       }
     }
   }
@@ -667,8 +685,7 @@ KeyframeUtils::GetComputedKeyframeValues(const nsTArray<Keyframe>& aKeyframes,
 KeyframeUtils::GetAnimationPropertiesFromKeyframes(
   const nsTArray<Keyframe>& aKeyframes,
   const nsTArray<ComputedKeyframeValues>& aComputedValues,
-  dom::CompositeOperation aEffectComposite,
-  nsStyleContext* aStyleContext)
+  dom::CompositeOperation aEffectComposite)
 {
   MOZ_ASSERT(aKeyframes.Length() == aComputedValues.Length(),
              "Array length mismatch");
@@ -814,10 +831,7 @@ ConvertKeyframeSequence(JSContext* aCx,
     }
 
     if (keyframeDict.mComposite.WasPassed()) {
-      // FIXME: Bug 1311620: We don't support additive animation yet.
-      if (keyframeDict.mComposite.Value() != dom::CompositeOperation::Add) {
-        keyframe->mComposite.emplace(keyframeDict.mComposite.Value());
-      }
+      keyframe->mComposite.emplace(keyframeDict.mComposite.Value());
     }
 
     ErrorResult rv;
@@ -1313,6 +1327,16 @@ BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
       }
     }
 
+    // Skip this entry if the next entry has the same offset except for initial
+    // and final ones. We will handle missing keyframe in the next loop
+    // if the property is changed on the next entry.
+    if (aEntries[i].mProperty == aEntries[i + 1].mProperty &&
+        aEntries[i].mOffset == aEntries[i + 1].mOffset &&
+        aEntries[i].mOffset != 1.0f && aEntries[i].mOffset != 0.0f) {
+      ++i;
+      continue;
+    }
+
     // No keyframe for this property at offset 1.
     if (aEntries[i].mProperty != aEntries[i + 1].mProperty &&
         aEntries[i].mOffset != 1.0f) {
@@ -1323,14 +1347,20 @@ BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
       continue;
     }
 
-    // Starting from i, determine the next [i, j] interval from which to
-    // generate a segment.
-    size_t j;
+    // Starting from i + 1, determine the next [i, j] interval from which to
+    // generate a segment. Basically, j is i + 1, but there are some special
+    // cases for offset 0 and 1, so we need to handle them specifically.
+    // Note: From this moment, we make sure [i + 1] is valid and
+    //       there must be an initial entry (i.e. mOffset = 0.0) and
+    //       a final entry (i.e. mOffset = 1.0). Besides, all the entries
+    //       with the same offsets except for initial/final ones are filtered
+    //       out already.
+    size_t j = i + 1;
     if (aEntries[i].mOffset == 0.0f && aEntries[i + 1].mOffset == 0.0f) {
       // We need to generate an initial zero-length segment.
       MOZ_ASSERT(aEntries[i].mProperty == aEntries[i + 1].mProperty);
-      j = i + 1;
-      while (aEntries[j + 1].mOffset == 0.0f &&
+      while (j + 1 < n &&
+             aEntries[j + 1].mOffset == 0.0f &&
              aEntries[j + 1].mProperty == aEntries[j].mProperty) {
         ++j;
       }
@@ -1338,7 +1368,6 @@ BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
       if (aEntries[i + 1].mOffset == 1.0f &&
           aEntries[i + 1].mProperty == aEntries[i].mProperty) {
         // We need to generate a final zero-length segment.
-        j = i + 1;
         while (j + 1 < n &&
                aEntries[j + 1].mOffset == 1.0f &&
                aEntries[j + 1].mProperty == aEntries[j].mProperty) {
@@ -1351,12 +1380,6 @@ BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
         ++i;
         continue;
       }
-    } else {
-      while (aEntries[i].mOffset == aEntries[i + 1].mOffset &&
-             aEntries[i].mProperty == aEntries[i + 1].mProperty) {
-        ++i;
-      }
-      j = i + 1;
     }
 
     // If we've moved on to a new property, create a new AnimationProperty
@@ -1374,13 +1397,13 @@ BuildSegmentsFromValueEntries(nsTArray<KeyframeValueEntry>& aEntries,
     // Now generate the segment.
     AnimationPropertySegment* segment =
       animationProperty->mSegments.AppendElement();
-    segment->mFromKey   = aEntries[i].mOffset;
-    segment->mToKey     = aEntries[j].mOffset;
-    segment->mFromValue = aEntries[i].mValue;
-    segment->mToValue   = aEntries[j].mValue;
+    segment->mFromKey        = aEntries[i].mOffset;
+    segment->mToKey          = aEntries[j].mOffset;
+    segment->mFromValue      = aEntries[i].mValue;
+    segment->mToValue        = aEntries[j].mValue;
     segment->mTimingFunction = aEntries[i].mTimingFunction;
-    segment->mFromComposite = aEntries[i].mComposite;
-    segment->mToComposite = aEntries[j].mComposite;
+    segment->mFromComposite  = aEntries[i].mComposite;
+    segment->mToComposite    = aEntries[j].mComposite;
 
     i = j;
   }
@@ -1419,10 +1442,7 @@ GetKeyframeListFromPropertyIndexedKeyframe(JSContext* aCx,
 
   Maybe<dom::CompositeOperation> composite;
   if (keyframeDict.mComposite.WasPassed()) {
-    // FIXME: Bug 1311620: We don't support additive animation yet.
-    if (keyframeDict.mComposite.Value() != dom::CompositeOperation::Add) {
-      composite.emplace(keyframeDict.mComposite.Value());
-    }
+    composite.emplace(keyframeDict.mComposite.Value());
   }
 
   Maybe<ComputedTimingFunction> easing =
@@ -1466,7 +1486,9 @@ GetKeyframeListFromPropertyIndexedKeyframe(JSContext* aCx,
     size_t i = 0;
 
     for (const nsString& stringValue : pair.mValues) {
-      double offset = i++ / double(n);
+      // For single-valued lists, the single value should be added to a
+      // keyframe with offset 1.
+      double offset = n ? i++ / double(n) : 1;
       Keyframe* keyframe = processedKeyframes.LookupOrAdd(offset);
       if (keyframe->mPropertyValues.IsEmpty()) {
         keyframe->mTimingFunction = easing;
@@ -1761,8 +1783,8 @@ GetCumulativeDistances(const nsTArray<ComputedKeyframeValues>& aValues,
           double componentDistance = 0.0;
           if (StyleAnimationValue::ComputeDistance(
                 prop,
-                prevPacedValues[propIdx].mValue,
-                pacedValues[propIdx].mValue,
+                prevPacedValues[propIdx].mValue.mGecko,
+                pacedValues[propIdx].mValue.mGecko,
                 aStyleContext,
                 componentDistance)) {
             dist += componentDistance * componentDistance;
@@ -1775,8 +1797,8 @@ GetCumulativeDistances(const nsTArray<ComputedKeyframeValues>& aValues,
         // no distance between the previous paced value and this value.
         Unused <<
           StyleAnimationValue::ComputeDistance(aPacedProperty,
-                                               prevPacedValues[0].mValue,
-                                               pacedValues[0].mValue,
+                                               prevPacedValues[0].mValue.mGecko,
+                                               pacedValues[0].mValue.mGecko,
                                                aStyleContext,
                                                dist);
       }

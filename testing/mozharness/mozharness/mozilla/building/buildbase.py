@@ -350,6 +350,8 @@ class BuildOptionParser(object):
         'cross-debug': 'builds/releng_sub_%s_configs/%s_cross_debug.py',
         'cross-opt-st-an': 'builds/releng_sub_%s_configs/%s_cross_opt_st_an.py',
         'cross-universal': 'builds/releng_sub_%s_configs/%s_cross_universal.py',
+        'cross-qr-debug': 'builds/releng_sub_%s_configs/%s_cross_qr_debug.py',
+        'cross-qr-opt': 'builds/releng_sub_%s_configs/%s_cross_qr_opt.py',
         'debug': 'builds/releng_sub_%s_configs/%s_debug.py',
         'asan-and-debug': 'builds/releng_sub_%s_configs/%s_asan_and_debug.py',
         'asan-tc-and-debug': 'builds/releng_sub_%s_configs/%s_asan_tc_and_debug.py',
@@ -375,6 +377,8 @@ class BuildOptionParser(object):
         'valgrind' : 'builds/releng_sub_%s_configs/%s_valgrind.py',
         'artifact': 'builds/releng_sub_%s_configs/%s_artifact.py',
         'debug-artifact': 'builds/releng_sub_%s_configs/%s_debug_artifact.py',
+        'qr-debug': 'builds/releng_sub_%s_configs/%s_qr_debug.py',
+        'qr-opt': 'builds/releng_sub_%s_configs/%s_qr_opt.py',
     }
     build_pool_cfg_file = 'builds/build_pool_specifics.py'
     branch_cfg_file = 'builds/branch_specifics.py'
@@ -931,11 +935,6 @@ or run without that action (ie: --no-{action})"
                     'stage_ssh_key': c['stage_ssh_key']
                 }
 
-        if self.query_is_nightly():
-            mach_env['LATEST_MAR_DIR'] = c['latest_mar_dir'] % {
-                'branch': self.branch
-            }
-
         # this prevents taskcluster from overwriting the target files with
         # the multilocale files. Put everything from the en-US build in a
         # separate folder.
@@ -1417,11 +1416,6 @@ or run without that action (ie: --no-{action})"
             task_id=self.buildbot_config['properties'].get('upload_to_task_id'),
         )
 
-        # TODO: Bug 1165980 - these should be in tree
-        routes.extend([
-            "%s.buildbot.branches.%s.%s" % (index, self.branch, self.stage_platform),
-            "%s.buildbot.revisions.%s.%s.%s" % (index, revision, self.branch, self.stage_platform),
-        ])
         task = tc.create_task(routes)
         tc.claim_task(task)
 
@@ -2002,6 +1996,13 @@ or run without that action (ie: --no-{action})"
         build_metrics = self._load_build_resources()
         if build_metrics:
             perfherder_data['suites'].append(build_metrics)
+
+        if self.query_is_nightly():
+            for suite in perfherder_data['suites']:
+                if 'extraOptions' in suite:
+                    suite['extraOptions'] = ['nightly'] + suite['extraOptions']
+                else:
+                    suite['extraOptions'] = ['nightly']
 
         if perfherder_data["suites"]:
             self.info('PERFHERDER_DATA: %s' % json.dumps(perfherder_data))

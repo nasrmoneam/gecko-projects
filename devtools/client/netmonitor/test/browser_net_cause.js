@@ -15,7 +15,7 @@ const EXPECTED_REQUESTS = [
     method: "GET",
     url: CAUSE_URL,
     causeType: "document",
-    causeUri: "",
+    causeUri: null,
     // The document load has internal privileged JS code on the stack
     stack: true
   },
@@ -88,26 +88,36 @@ add_task(function* () {
   // We can't use about:blank here, because initNetMonitor checks that the
   // page has actually made at least one request.
   let { tab, monitor } = yield initNetMonitor(SIMPLE_URL);
-  let { $, NetMonitorView } = monitor.panelWin;
-  let { RequestsMenu } = NetMonitorView;
-  RequestsMenu.lazyUpdate = false;
 
+  let { document, gStore, windowRequire } = monitor.panelWin;
+  let Actions = windowRequire("devtools/client/netmonitor/actions/index");
+  let {
+    getDisplayedRequests,
+    getSortedRequests,
+  } = windowRequire("devtools/client/netmonitor/selectors/index");
+
+  gStore.dispatch(Actions.batchEnable(false));
   let wait = waitForNetworkEvents(monitor, EXPECTED_REQUESTS.length);
   tab.linkedBrowser.loadURI(CAUSE_URL);
   yield wait;
 
-  is(RequestsMenu.itemCount, EXPECTED_REQUESTS.length,
+  is(gStore.getState().requests.requests.size, EXPECTED_REQUESTS.length,
     "All the page events should be recorded.");
 
   EXPECTED_REQUESTS.forEach((spec, i) => {
     let { method, url, causeType, causeUri, stack } = spec;
 
-    let requestItem = RequestsMenu.getItemAtIndex(i);
-    verifyRequestItemTarget(requestItem,
-      method, url, { cause: { type: causeType, loadingDocumentUri: causeUri } }
+    let requestItem = getSortedRequests(gStore.getState()).get(i);
+    verifyRequestItemTarget(
+      document,
+      getDisplayedRequests(gStore.getState()),
+      requestItem,
+      method,
+      url,
+      { cause: { type: causeType, loadingDocumentUri: causeUri } }
     );
 
-    let { stacktrace } = requestItem.attachment.cause;
+    let { stacktrace } = requestItem.cause;
     let stackLen = stacktrace ? stacktrace.length : 0;
 
     if (stack) {
@@ -134,12 +144,11 @@ add_task(function* () {
   });
 
   // Sort the requests by cause and check the order
-  EventUtils.sendMouseEvent({ type: "click" }, $("#requests-menu-cause-button"));
+  EventUtils.sendMouseEvent({ type: "click" },
+    document.querySelector("#requests-list-cause-button"));
   let expectedOrder = EXPECTED_REQUESTS.map(r => r.causeType).sort();
   expectedOrder.forEach((expectedCause, i) => {
-    let { target } = RequestsMenu.getItemAtIndex(i);
-    let causeLabel = target.querySelector(".requests-menu-cause-label");
-    let cause = causeLabel.getAttribute("value");
+    const cause = getSortedRequests(gStore.getState()).get(i).cause.type;
     is(cause, expectedCause, `The request #${i} has the expected cause after sorting`);
   });
 

@@ -10,13 +10,14 @@ Services.scriptloader.loadSubScript(
   "chrome://mochitests/content/browser/devtools/client/framework/test/shared-head.js",
   this);
 
+const { EVENTS } = require("devtools/client/netmonitor/constants");
 var { Toolbox } = require("devtools/client/framework/toolbox");
 const {
   decodeUnicodeUrl,
   getUrlBaseName,
   getUrlQuery,
   getUrlHost,
-} = require("devtools/client/netmonitor/request-utils");
+} = require("devtools/client/netmonitor/utils/request-utils");
 
 const EXAMPLE_URL = "http://example.com/browser/devtools/client/netmonitor/test/";
 const HTTPS_EXAMPLE_URL = "https://example.com/browser/devtools/client/netmonitor/test/";
@@ -39,6 +40,8 @@ const JSON_LONG_URL = EXAMPLE_URL + "html_json-long-test-page.html";
 const JSON_MALFORMED_URL = EXAMPLE_URL + "html_json-malformed-test-page.html";
 const JSON_CUSTOM_MIME_URL = EXAMPLE_URL + "html_json-custom-mime-test-page.html";
 const JSON_TEXT_MIME_URL = EXAMPLE_URL + "html_json-text-mime-test-page.html";
+const JSON_B64_URL = EXAMPLE_URL + "html_json-b64.html";
+const JSON_BASIC_URL = EXAMPLE_URL + "html_json-basic.html";
 const SORTING_URL = EXAMPLE_URL + "html_sorting-test-page.html";
 const FILTERING_URL = EXAMPLE_URL + "html_filter-test-page.html";
 const INFINITE_GET_URL = EXAMPLE_URL + "html_infinite-get-page.html";
@@ -149,7 +152,7 @@ function restartNetMonitor(monitor, newUrl) {
   info("Restarting the specified network monitor.");
 
   return Task.spawn(function* () {
-    let tab = monitor.target.tab;
+    let tab = monitor.toolbox.target.tab;
     let url = newUrl || tab.linkedBrowser.currentURI.spec;
 
     let onDestroyed = monitor.once("destroyed");
@@ -164,7 +167,7 @@ function teardown(monitor) {
   info("Destroying the specified network monitor.");
 
   return Task.spawn(function* () {
-    let tab = monitor.target.tab;
+    let tab = monitor.toolbox.target.tab;
 
     let onDestroyed = monitor.once("destroyed");
     yield removeTab(tab);
@@ -174,14 +177,10 @@ function teardown(monitor) {
 
 function waitForNetworkEvents(aMonitor, aGetRequests, aPostRequests = 0) {
   let deferred = promise.defer();
-
   let panel = aMonitor.panelWin;
-  let events = panel.EVENTS;
-
   let progress = {};
   let genericEvents = 0;
   let postEvents = 0;
-
   let awaitedEventsToListeners = [
     ["UPDATING_REQUEST_HEADERS", onGenericEvent],
     ["RECEIVED_REQUEST_HEADERS", onGenericEvent],
@@ -208,7 +207,7 @@ function waitForNetworkEvents(aMonitor, aGetRequests, aPostRequests = 0) {
 
   function updateProgressForURL(url, event) {
     initProgressForURL(url);
-    progress[url][Object.keys(events).find(e => events[e] == event)] = 1;
+    progress[url][Object.keys(EVENTS).find(e => EVENTS[e] == event)] = 1;
   }
 
   function onGenericEvent(event, actor) {
@@ -241,71 +240,67 @@ function waitForNetworkEvents(aMonitor, aGetRequests, aPostRequests = 0) {
     if (genericEvents >= (aGetRequests + aPostRequests) * 13 &&
         postEvents >= aPostRequests * 2) {
 
-      awaitedEventsToListeners.forEach(([e, l]) => panel.off(events[e], l));
+      awaitedEventsToListeners.forEach(([e, l]) => panel.off(EVENTS[e], l));
       executeSoon(deferred.resolve);
     }
   }
 
-  awaitedEventsToListeners.forEach(([e, l]) => panel.on(events[e], l));
+  awaitedEventsToListeners.forEach(([e, l]) => panel.on(EVENTS[e], l));
   return deferred.promise;
 }
 
-function verifyRequestItemTarget(aRequestItem, aMethod, aUrl, aData = {}) {
+function verifyRequestItemTarget(document, requestList, requestItem, aMethod,
+                                 aUrl, aData = {}) {
   info("> Verifying: " + aMethod + " " + aUrl + " " + aData.toSource());
-  // This bloats log sizes significantly in automation (bug 992485)
-  // info("> Request: " + aRequestItem.attachment.toSource());
 
-  let requestsMenu = aRequestItem.ownerView;
-  let widgetIndex = requestsMenu.indexOfItem(aRequestItem);
-  let visibleIndex = requestsMenu.visibleItems.indexOf(aRequestItem);
+  let visibleIndex = requestList.indexOf(requestItem);
 
-  info("Widget index of item: " + widgetIndex);
   info("Visible index of item: " + visibleIndex);
 
   let { fuzzyUrl, status, statusText, cause, type, fullMimeType,
         transferred, size, time, displayedStatus } = aData;
-  let { attachment, target } = aRequestItem;
 
+  let target = document.querySelectorAll(".request-list-item")[visibleIndex];
   let unicodeUrl = decodeUnicodeUrl(aUrl);
   let name = getUrlBaseName(aUrl);
   let query = getUrlQuery(aUrl);
   let hostPort = getUrlHost(aUrl);
-  let remoteAddress = attachment.remoteAddress;
+  let remoteAddress = requestItem.remoteAddress;
 
   if (fuzzyUrl) {
-    ok(attachment.method.startsWith(aMethod), "The attached method is correct.");
-    ok(attachment.url.startsWith(aUrl), "The attached url is correct.");
+    ok(requestItem.method.startsWith(aMethod), "The attached method is correct.");
+    ok(requestItem.url.startsWith(aUrl), "The attached url is correct.");
   } else {
-    is(attachment.method, aMethod, "The attached method is correct.");
-    is(attachment.url, aUrl, "The attached url is correct.");
+    is(requestItem.method, aMethod, "The attached method is correct.");
+    is(requestItem.url, aUrl, "The attached url is correct.");
   }
 
-  is(target.querySelector(".requests-menu-method").getAttribute("value"),
+  is(target.querySelector(".requests-list-method").textContent,
     aMethod, "The displayed method is correct.");
 
   if (fuzzyUrl) {
-    ok(target.querySelector(".requests-menu-file").getAttribute("value").startsWith(
+    ok(target.querySelector(".requests-list-file").textContent.startsWith(
       name + (query ? "?" + query : "")), "The displayed file is correct.");
-    ok(target.querySelector(".requests-menu-file").getAttribute("tooltiptext").startsWith(unicodeUrl),
+    ok(target.querySelector(".requests-list-file").getAttribute("title").startsWith(unicodeUrl),
       "The tooltip file is correct.");
   } else {
-    is(target.querySelector(".requests-menu-file").getAttribute("value"),
+    is(target.querySelector(".requests-list-file").textContent,
       name + (query ? "?" + query : ""), "The displayed file is correct.");
-    is(target.querySelector(".requests-menu-file").getAttribute("tooltiptext"),
+    is(target.querySelector(".requests-list-file").getAttribute("title"),
       unicodeUrl, "The tooltip file is correct.");
   }
 
-  is(target.querySelector(".requests-menu-domain").getAttribute("value"),
+  is(target.querySelector(".requests-list-domain").textContent,
     hostPort, "The displayed domain is correct.");
 
   let domainTooltip = hostPort + (remoteAddress ? " (" + remoteAddress + ")" : "");
-  is(target.querySelector(".requests-menu-domain").getAttribute("tooltiptext"),
+  is(target.querySelector(".requests-list-domain").getAttribute("title"),
     domainTooltip, "The tooltip domain is correct.");
 
   if (status !== undefined) {
-    let value = target.querySelector(".requests-menu-status-icon").getAttribute("code");
-    let codeValue = target.querySelector(".requests-menu-status-code").getAttribute("value");
-    let tooltip = target.querySelector(".requests-menu-status").getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-status-icon").getAttribute("data-code");
+    let codeValue = target.querySelector(".requests-list-status-code").textContent;
+    let tooltip = target.querySelector(".requests-list-status").getAttribute("title");
     info("Displayed status: " + value);
     info("Displayed code: " + codeValue);
     info("Tooltip status: " + tooltip);
@@ -314,65 +309,60 @@ function verifyRequestItemTarget(aRequestItem, aMethod, aUrl, aData = {}) {
     is(tooltip, status + " " + statusText, "The tooltip status is correct.");
   }
   if (cause !== undefined) {
-    let causeLabel = target.querySelector(".requests-menu-cause-label");
-    let value = causeLabel.getAttribute("value");
-    let tooltip = causeLabel.getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-cause > .subitem-label").textContent;
+    let tooltip = target.querySelector(".requests-list-cause").getAttribute("title");
     info("Displayed cause: " + value);
     info("Tooltip cause: " + tooltip);
     is(value, cause.type, "The displayed cause is correct.");
     is(tooltip, cause.loadingDocumentUri, "The tooltip cause is correct.")
   }
   if (type !== undefined) {
-    let value = target.querySelector(".requests-menu-type").getAttribute("value");
-    let tooltip = target.querySelector(".requests-menu-type").getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-type").textContent;
+    let tooltip = target.querySelector(".requests-list-type").getAttribute("title");
     info("Displayed type: " + value);
     info("Tooltip type: " + tooltip);
     is(value, type, "The displayed type is correct.");
     is(tooltip, fullMimeType, "The tooltip type is correct.");
   }
   if (transferred !== undefined) {
-    let value = target.querySelector(".requests-menu-transferred").getAttribute("value");
-    let tooltip = target.querySelector(".requests-menu-transferred").getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-transferred").textContent;
+    let tooltip = target.querySelector(".requests-list-transferred").getAttribute("title");
     info("Displayed transferred size: " + value);
     info("Tooltip transferred size: " + tooltip);
     is(value, transferred, "The displayed transferred size is correct.");
     is(tooltip, transferred, "The tooltip transferred size is correct.");
   }
   if (size !== undefined) {
-    let value = target.querySelector(".requests-menu-size").getAttribute("value");
-    let tooltip = target.querySelector(".requests-menu-size").getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-size").textContent;
+    let tooltip = target.querySelector(".requests-list-size").getAttribute("title");
     info("Displayed size: " + value);
     info("Tooltip size: " + tooltip);
     is(value, size, "The displayed size is correct.");
     is(tooltip, size, "The tooltip size is correct.");
   }
   if (time !== undefined) {
-    let value = target.querySelector(".requests-menu-timings-total").getAttribute("value");
-    let tooltip = target.querySelector(".requests-menu-timings-total").getAttribute("tooltiptext");
+    let value = target.querySelector(".requests-list-timings-total").textContent;
+    let tooltip = target.querySelector(".requests-list-timings-total").getAttribute("title");
     info("Displayed time: " + value);
     info("Tooltip time: " + tooltip);
     ok(~~(value.match(/[0-9]+/)) >= 0, "The displayed time is correct.");
     ok(~~(tooltip.match(/[0-9]+/)) >= 0, "The tooltip time is correct.");
   }
 
-  if (visibleIndex != -1) {
-    if (visibleIndex % 2 == 0) {
-      ok(aRequestItem.target.hasAttribute("even"),
-        aRequestItem.value + " should have 'even' attribute.");
-      ok(!aRequestItem.target.hasAttribute("odd"),
-        aRequestItem.value + " shouldn't have 'odd' attribute.");
+  if (visibleIndex !== -1) {
+    if (visibleIndex % 2 === 0) {
+      ok(target.classList.contains("even"), "Item should have 'even' class.");
+      ok(!target.classList.contains("odd"), "Item shouldn't have 'odd' class.");
     } else {
-      ok(!aRequestItem.target.hasAttribute("even"),
-        aRequestItem.value + " shouldn't have 'even' attribute.");
-      ok(aRequestItem.target.hasAttribute("odd"),
-        aRequestItem.value + " should have 'odd' attribute.");
+      ok(!target.classList.contains("even"), "Item shouldn't have 'even' class.");
+      ok(target.classList.contains("odd"), "Item should have 'odd' class.");
     }
   }
 }
 
 /**
  * Helper function for waiting for an event to fire before resolving a promise.
- * Example: waitFor(aMonitor.panelWin, aMonitor.panelWin.EVENTS.TAB_UPDATED);
+ * Example: waitFor(aMonitor.panelWin, EVENT_NAME);
  *
  * @param object subject
  *        The event emitter object that is being listened to.
@@ -395,9 +385,9 @@ function waitFor(subject, eventName) {
  */
 function testFilterButtons(monitor, filterType) {
   let doc = monitor.panelWin.document;
-  let target = doc.querySelector("#requests-menu-filter-" + filterType + "-button");
+  let target = doc.querySelector(".requests-list-filter-" + filterType + "-button");
   ok(target, `Filter button '${filterType}' was found`);
-  let buttons = [...doc.querySelectorAll(".menu-filter-button")];
+  let buttons = [...doc.querySelectorAll("#requests-list-filter-buttons button")];
   ok(buttons.length > 0, "More than zero filter buttons were found");
 
   // Only target should be checked.
@@ -415,15 +405,19 @@ function testFilterButtons(monitor, filterType) {
  */
 function testFilterButtonsCustom(aMonitor, aIsChecked) {
   let doc = aMonitor.panelWin.document;
-  let buttons = doc.querySelectorAll(".menu-filter-button");
+  let buttons = doc.querySelectorAll("#requests-list-filter-buttons button");
   for (let i = 0; i < aIsChecked.length; i++) {
     let button = buttons[i];
     if (aIsChecked[i]) {
       is(button.classList.contains("checked"), true,
         "The " + button.id + " button should have a 'checked' class.");
+      is(button.getAttribute("aria-pressed"), "true",
+        "The " + button.id + " button should set 'aria-pressed' = true.");
     } else {
       is(button.classList.contains("checked"), false,
         "The " + button.id + " button should not have a 'checked' class.");
+      is(button.getAttribute("aria-pressed"), "false",
+        "The " + button.id + " button should set 'aria-pressed' = false.");
     }
   }
 }
@@ -500,24 +494,4 @@ function waitForContentMessage(name) {
     def.resolve(msg);
   });
   return def.promise;
-}
-
-/**
- * Open the requestMenu menu and return all of it's items in a flat array
- * @param {netmonitorPanel} netmonitor
- * @param {Event} event mouse event with screenX and screenX coordinates
- * @return An array of MenuItems
- */
-function openContextMenuAndGetAllItems(netmonitor, event) {
-  let menu = netmonitor.RequestsMenu.contextMenu.open(event);
-
-  // Flatten all menu items into a single array to make searching through it easier
-  let allItems = [].concat.apply([], menu.items.map(function addItem(item) {
-    if (item.submenu) {
-      return addItem(item.submenu.items);
-    }
-    return item;
-  }));
-
-  return allItems;
 }

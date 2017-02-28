@@ -1,4 +1,5 @@
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
+Components.utils.import("resource:///modules/SitePermissions.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "Promise",
   "resource://gre/modules/Promise.jsm");
@@ -7,7 +8,7 @@ const PREF_PERMISSION_FAKE = "media.navigator.permission.fake";
 const CONTENT_SCRIPT_HELPER = getRootDirectory(gTestPath) + "get_user_media_content_script.js";
 
 function waitForCondition(condition, nextTest, errorMsg, retryTimes) {
-  retryTimes = typeof retryTimes !== 'undefined' ?  retryTimes : 30;
+  retryTimes = typeof retryTimes !== "undefined" ? retryTimes : 30;
   var tries = 0;
   var interval = setInterval(function() {
     if (tries >= retryTimes) {
@@ -48,9 +49,7 @@ function promiseWindow(url) {
   return new Promise(resolve => {
     Services.obs.addObserver(function obs(win) {
       win.QueryInterface(Ci.nsIDOMWindow);
-      win.addEventListener("load", function loadHandler() {
-        win.removeEventListener("load", loadHandler);
-
+      win.addEventListener("load", function() {
         if (win.location.href !== url) {
           info("ignoring a window with this url: " + win.location.href);
           return;
@@ -58,7 +57,7 @@ function promiseWindow(url) {
 
         Services.obs.removeObserver(obs, "domwindowopened");
         resolve(win);
-      });
+      }, {once: true});
     }, "domwindowopened", false);
   });
 }
@@ -102,7 +101,7 @@ function* assertWebRTCIndicatorStatus(expected) {
     if (expected.audio)
       expectAudio = true;
     if (expected.screen)
-      expectScreen = true;
+      expectScreen = expected.screen;
   }
   is(ui.showCameraIndicator, expectVideo, "camera global indicator as expected");
   is(ui.showMicrophoneIndicator, expectAudio, "microphone global indicator as expected");
@@ -125,7 +124,7 @@ function* assertWebRTCIndicatorStatus(expected) {
               win.removeEventListener("unload", listener);
               resolve();
             }
-          }, false);
+          });
         });
       }
     }
@@ -168,10 +167,9 @@ function promisePopupEvent(popup, eventSuffix) {
 
   let eventType = "popup" + eventSuffix;
   let deferred = Promise.defer();
-  popup.addEventListener(eventType, function onPopupShown(event) {
-    popup.removeEventListener(eventType, onPopupShown);
+  popup.addEventListener(eventType, function(event) {
     deferred.resolve();
-  });
+  }, {once: true});
 
   return deferred.promise;
 }
@@ -217,15 +215,25 @@ function expectObserverCalled(aTopic) {
   });
 }
 
-function expectNoObserverCalled() {
+function expectNoObserverCalled(aIgnoreDeviceEvents = false) {
   return new Promise(resolve => {
     let mm = _mm();
     mm.addMessageListener("Test:ExpectNoObserverCalled:Reply",
                           function listener({data}) {
       mm.removeMessageListener("Test:ExpectNoObserverCalled:Reply", listener);
       for (let topic in data) {
-        if (data[topic])
+        if (!data[topic])
+          continue;
+
+        // If we are stopping tracks that were created from 2 different
+        // getUserMedia calls, the "recording-device-events" notification is
+        // fired twice on Windows and Mac, and intermittently twice on Linux.
+        if (topic == "recording-device-events" && aIgnoreDeviceEvents) {
+          todo(false, "Got " + data[topic] + " unexpected " + topic +
+               " notifications, see bug 1320994");
+        } else {
           is(data[topic], 0, topic + " notification unexpected");
+        }
       }
       resolve();
     });
@@ -233,18 +241,26 @@ function expectNoObserverCalled() {
   });
 }
 
-function promiseMessage(aMessage, aAction) {
-  let promise = new Promise((resolve, reject) => {
+function promiseMessageReceived() {
+  return new Promise((resolve, reject) => {
     let mm = _mm();
     mm.addMessageListener("Test:MessageReceived", function listener({data}) {
+      mm.removeMessageListener("Test:MessageReceived", listener);
+      resolve(data);
+    });
+    mm.sendAsyncMessage("Test:WaitForMessage");
+  });
+}
+
+function promiseMessage(aMessage, aAction) {
+  let promise = new Promise((resolve, reject) => {
+    promiseMessageReceived(aAction).then(data => {
       is(data, aMessage, "received " + aMessage);
       if (data == aMessage)
         resolve();
       else
         reject();
-      mm.removeMessageListener("Test:MessageReceived", listener);
     });
-    mm.sendAsyncMessage("Test:WaitForMessage");
   });
 
   if (aAction)
@@ -256,15 +272,13 @@ function promiseMessage(aMessage, aAction) {
 function promisePopupNotificationShown(aName, aAction) {
   let deferred = Promise.defer();
 
-  PopupNotifications.panel.addEventListener("popupshown", function popupNotifShown() {
-    PopupNotifications.panel.removeEventListener("popupshown", popupNotifShown);
-
+  PopupNotifications.panel.addEventListener("popupshown", function() {
     ok(!!PopupNotifications.getNotification(aName), aName + " notification shown");
     ok(PopupNotifications.isPanelOpen, "notification panel open");
     ok(!!PopupNotifications.panel.firstChild, "notification panel populated");
 
     deferred.resolve();
-  });
+  }, {once: true});
 
   if (aAction)
     aAction();
@@ -328,7 +342,8 @@ function getMediaCaptureState() {
   });
 }
 
-function* stopSharing(aType = "camera") {
+function* stopSharing(aType = "camera", aShouldKeepSharing = false,
+                      aExpectDoubleRecordingEvent = false) {
   let promiseRecordingEvent = promiseObserverCalled("recording-device-events");
   gIdentityHandler._identityBox.click();
   let permissions = document.getElementById("identity-popup-permission-list");
@@ -339,14 +354,22 @@ function* stopSharing(aType = "camera") {
   gIdentityHandler._identityPopup.hidden = true;
   yield promiseRecordingEvent;
   yield expectObserverCalled("getUserMedia:revoke");
-  yield expectObserverCalled("recording-window-ended");
-  yield expectNoObserverCalled();
-  yield* checkNotSharing();
+
+  // If we are stopping screen sharing and expect to still have another stream,
+  // "recording-window-ended" won't be fired.
+  if (!aShouldKeepSharing)
+    yield expectObserverCalled("recording-window-ended");
+
+  yield expectNoObserverCalled(aExpectDoubleRecordingEvent);
+
+  if (!aShouldKeepSharing)
+    yield* checkNotSharing();
 }
 
-function promiseRequestDevice(aRequestAudio, aRequestVideo, aFrameId, aType) {
+function promiseRequestDevice(aRequestAudio, aRequestVideo, aFrameId, aType,
+                              aBrowser = gBrowser.selectedBrowser) {
   info("requesting devices");
-  return ContentTask.spawn(gBrowser.selectedBrowser,
+  return ContentTask.spawn(aBrowser,
                            {aRequestAudio, aRequestVideo, aFrameId, aType},
                            function*(args) {
     let global = content.wrappedJSObject;
@@ -356,13 +379,16 @@ function promiseRequestDevice(aRequestAudio, aRequestVideo, aFrameId, aType) {
   });
 }
 
-function* closeStream(aAlreadyClosed, aFrameId) {
+function* closeStream(aAlreadyClosed, aFrameId, aStreamCount = 1) {
   yield expectNoObserverCalled();
 
   let promises;
   if (!aAlreadyClosed) {
-    promises = [promiseObserverCalled("recording-device-events"),
-                promiseObserverCalled("recording-window-ended")];
+    promises = [];
+    for (let i = 0; i < aStreamCount; i++) {
+      promises.push(promiseObserverCalled("recording-device-events"));
+    }
+    promises.push(promiseObserverCalled("recording-window-ended"));
   }
 
   info("closing the stream");
@@ -379,7 +405,21 @@ function* closeStream(aAlreadyClosed, aFrameId) {
   yield* assertWebRTCIndicatorStatus(null);
 }
 
-function checkDeviceSelectors(aAudio, aVideo) {
+function* reloadAndAssertClosedStreams() {
+  info("reloading the web page");
+  let promises = [
+    promiseObserverCalled("recording-device-events"),
+    promiseObserverCalled("recording-window-ended")
+  ];
+  yield ContentTask.spawn(gBrowser.selectedBrowser, null,
+                          "() => content.location.reload()");
+  yield Promise.all(promises);
+
+  yield expectNoObserverCalled();
+  yield checkNotSharing();
+}
+
+function checkDeviceSelectors(aAudio, aVideo, aScreen) {
   let micSelector = document.getElementById("webRTC-selectMicrophone");
   if (aAudio)
     ok(!micSelector.hidden, "microphone selector visible");
@@ -391,6 +431,12 @@ function checkDeviceSelectors(aAudio, aVideo) {
     ok(!cameraSelector.hidden, "camera selector visible");
   else
     ok(cameraSelector.hidden, "camera selector hidden");
+
+  let screenSelector = document.getElementById("webRTC-selectWindowOrScreen");
+  if (aScreen)
+    ok(!screenSelector.hidden, "screen selector visible");
+  else
+    ok(screenSelector.hidden, "screen selector hidden");
 }
 
 function* checkSharingUI(aExpected, aWin = window) {
@@ -399,7 +445,9 @@ function* checkSharingUI(aExpected, aWin = window) {
   let identityBox = doc.getElementById("identity-box");
   ok(identityBox.hasAttribute("sharing"), "sharing attribute is set");
   let sharing = identityBox.getAttribute("sharing");
-  if (aExpected.video)
+  if (aExpected.screen)
+    is(sharing, "screen", "showing screen icon on the control center icon");
+  else if (aExpected.video)
     is(sharing, "camera", "showing camera icon on the control center icon");
   else if (aExpected.audio)
     is(sharing, "microphone", "showing mic icon on the control center icon");
@@ -439,10 +487,22 @@ function* checkSharingUI(aExpected, aWin = window) {
 }
 
 function* checkNotSharing() {
-  is((yield getMediaCaptureState()), "none", "expected nothing to be shared");
+  Assert.deepEqual((yield getMediaCaptureState()), {},
+                   "expected nothing to be shared");
 
   ok(!document.getElementById("identity-box").hasAttribute("sharing"),
      "no sharing indicator on the control center icon");
 
   yield* assertWebRTCIndicatorStatus(null);
+}
+
+function promiseReloadFrame(aFrameId) {
+  return ContentTask.spawn(gBrowser.selectedBrowser, aFrameId, function*(contentFrameId) {
+    content.wrappedJSObject
+           .document
+           .getElementById(contentFrameId)
+           .contentWindow
+           .location
+           .reload();
+  });
 }

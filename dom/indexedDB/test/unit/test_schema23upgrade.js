@@ -5,7 +5,7 @@
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const openParams = [
     // This one lives in storage/default/http+++www.mozilla.org
@@ -23,7 +23,7 @@ function testSteps()
                          .getService(SpecialPowers.Ci.nsIScriptSecurityManager);
 
   function openDatabase(params) {
-    let uri = ios.newURI(params.url, null, null);
+    let uri = ios.newURI(params.url);
     let principal =
       ssm.createCodebasePrincipal(uri,
                                   {appId: params.appId || ssm.NO_APPID,

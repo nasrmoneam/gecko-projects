@@ -103,7 +103,7 @@ public:
    * This class handles the dispatching of scroll events to content.
    *
    * nsRefreshDriver maintains three lists of refresh observers, one for each
-   * flush type: Flush_Style, Flush_Layout, and Flush_Display.
+   * flush type: FlushType::Style, FlushType::Layout, and FlushType::Display.
    *
    * During a tick, it runs through each list of observers, in order, and runs
    * them. To iterate over each list, it uses an EndLimitedIterator, which is
@@ -113,10 +113,10 @@ public:
    * observer of that flush type, will not run until the next tick.
    *
    * During main-thread animation-driven scrolling, ScrollEvents are *posted*
-   * by AsyncScroll::WillRefresh(). AsyncScroll registers itself as a Flush_Style
+   * by AsyncScroll::WillRefresh(). AsyncScroll registers itself as a FlushType::Style
    * refresh observer.
    *
-   * Posting a scroll event, as of bug 1250550, registers a Flush_Layout
+   * Posting a scroll event, as of bug 1250550, registers a FlushType::Layout
    * refresh observer, which *fires* the event when run. This allows the event
    * to be fired to content in the same refresh driver tick as it is posted.
    * This is an important invariant to maintain to reduce scroll event latency
@@ -397,7 +397,6 @@ public:
   }
   void SetScrollableByAPZ(bool aScrollable);
   void SetZoomableByAPZ(bool aZoomable);
-  void SetScrollsClipOnUnscrolledOutOfFlow();
 
   bool UsesContainerScrolling() const;
 
@@ -459,6 +458,10 @@ public:
   bool ShouldSuppressScrollbarRepaints() const {
     return mSuppressScrollbarRepaints;
   }
+
+  bool DragScroll(WidgetEvent* aEvent);
+
+  void AsyncScrollbarDragRejected();
 
   // owning references to the nsIAnonymousContentCreator-built content
   nsCOMPtr<nsIContent> mHScrollbarContent;
@@ -595,8 +598,6 @@ public:
   // True if we don't want the scrollbar to repaint itself right now.
   bool mSuppressScrollbarRepaints:1;
 
-  bool mScrollsClipOnUnscrolledOutOfFlow:1;
-
   mozilla::layout::ScrollVelocityQueue mVelocityQueue;
 
 protected:
@@ -722,6 +723,12 @@ public:
 
   virtual bool ComputeCustomOverflow(nsOverflowAreas& aOverflowAreas) override {
     return mHelper.ComputeCustomOverflow(aOverflowAreas);
+  }
+
+  bool GetVerticalAlignBaseline(mozilla::WritingMode aWM,
+                                nscoord* aBaseline) const override {
+    *aBaseline = GetLogicalBaseline(aWM);
+    return true;
   }
 
   // Recomputes the scrollable overflow area we store in the helper to take children
@@ -1025,12 +1032,17 @@ public:
   void SetZoomableByAPZ(bool aZoomable) override {
     mHelper.SetZoomableByAPZ(aZoomable);
   }
-  void SetScrollsClipOnUnscrolledOutOfFlow() override {
-    mHelper.SetScrollsClipOnUnscrolledOutOfFlow();
-  }
   
   ScrollSnapInfo GetScrollSnapInfo() const override {
     return mHelper.GetScrollSnapInfo();
+  }
+
+  virtual bool DragScroll(mozilla::WidgetEvent* aEvent) override {
+    return mHelper.DragScroll(aEvent);
+  }
+
+  virtual void AsyncScrollbarDragRejected() override {
+    return mHelper.AsyncScrollbarDragRejected();
   }
 
 #ifdef DEBUG_FRAME_DUMP
@@ -1108,6 +1120,12 @@ public:
 
   virtual bool ComputeCustomOverflow(nsOverflowAreas& aOverflowAreas) override {
     return mHelper.ComputeCustomOverflow(aOverflowAreas);
+  }
+
+  bool GetVerticalAlignBaseline(mozilla::WritingMode aWM,
+                                nscoord* aBaseline) const override {
+    *aBaseline = GetLogicalBaseline(aWM);
+    return true;
   }
 
   // Called to set the child frames. We typically have three: the scroll area,
@@ -1434,9 +1452,6 @@ public:
   void SetZoomableByAPZ(bool aZoomable) override {
     mHelper.SetZoomableByAPZ(aZoomable);
   }
-  void SetScrollsClipOnUnscrolledOutOfFlow() override {
-    mHelper.SetScrollsClipOnUnscrolledOutOfFlow();
-  }
   virtual bool DecideScrollableLayer(nsDisplayListBuilder* aBuilder,
                                      nsRect* aDirtyRect,
                                      bool aAllowCreateDisplayPort) override {
@@ -1454,6 +1469,14 @@ public:
 
   ScrollSnapInfo GetScrollSnapInfo() const override {
     return mHelper.GetScrollSnapInfo();
+  }
+
+  virtual bool DragScroll(mozilla::WidgetEvent* aEvent) override {
+    return mHelper.DragScroll(aEvent);
+  }
+
+  virtual void AsyncScrollbarDragRejected() override {
+    return mHelper.AsyncScrollbarDragRejected();
   }
 
 #ifdef DEBUG_FRAME_DUMP

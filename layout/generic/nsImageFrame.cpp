@@ -78,6 +78,7 @@
 #include "mozilla/Preferences.h"
 
 #include "mozilla/dom/Link.h"
+#include "SVGImageContext.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -958,7 +959,7 @@ nsImageFrame::Reflow(nsPresContext*          aPresContext,
 
   NS_PRECONDITION(mState & NS_FRAME_IN_REFLOW, "frame is not in reflow");
 
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
 
   // see if we have a frozen size (i.e. a fixed width and height)
   if (HaveFixedSize(aReflowInput)) {
@@ -1011,7 +1012,8 @@ nsImageFrame::Reflow(nsPresContext*          aPresContext,
     // our desired height was greater than 0, so to avoid infinite
     // splitting, use 1 pixel as the min
     aMetrics.Height() = std::max(nsPresContext::CSSPixelsToAppUnits(1), aReflowInput.AvailableHeight());
-    aStatus = NS_FRAME_NOT_COMPLETE;
+    aStatus.Reset();
+    aStatus.SetIncomplete();
   }
 
   aMetrics.SetOverflowAreasToDesiredBounds();
@@ -1423,7 +1425,7 @@ nsImageFrame::DisplayAltFeedback(nsRenderingContext& aRenderingContext,
                   inner.y, size, size);
       result = nsLayoutUtils::DrawSingleImage(*gfx, PresContext(), imgCon,
         nsLayoutUtils::GetSamplingFilterForFrame(this), dest, aDirtyRect,
-        nullptr, aFlags);
+        /* no SVGImageContext */ Nothing(), aFlags);
     }
 
     // If we could not draw the icon, just draw some graffiti in the mean time.
@@ -1700,7 +1702,7 @@ nsImageFrame::PaintImage(nsRenderingContext& aRenderingContext, nsPoint aPt,
     nsLayoutUtils::DrawSingleImage(*aRenderingContext.ThebesContext(),
       PresContext(), aImage,
       nsLayoutUtils::GetSamplingFilterForFrame(this), dest, aDirtyRect,
-      nullptr, flags, &anchorPoint);
+      /* no SVGImageContext */ Nothing(), flags, &anchorPoint);
 
   nsImageMap* map = GetImageMap();
   if (map) {
@@ -2059,7 +2061,6 @@ nsImageFrame::GetCursor(const nsPoint& aPoint,
       RefPtr<nsStyleContext> areaStyle = 
         PresContext()->PresShell()->StyleSet()->
           ResolveStyleFor(area->AsElement(), StyleContext(),
-                          ConsumeStyleBehavior::DontConsume,
                           LazyComputeBehavior::Allow);
       FillCursorInformationFromStyle(areaStyle->StyleUserInterface(),
                                      aCursor);
@@ -2094,7 +2095,7 @@ nsImageFrame::AttributeChanged(int32_t aNameSpaceID,
 
 void
 nsImageFrame::OnVisibilityChange(Visibility aNewVisibility,
-                                 Maybe<OnNonvisible> aNonvisibleAction)
+                                 const Maybe<OnNonvisible>& aNonvisibleAction)
 {
   nsCOMPtr<nsIImageLoadingContent> imageLoader = do_QueryInterface(mContent);
   if (!imageLoader) {
@@ -2210,7 +2211,7 @@ nsImageFrame::LoadIcon(const nsAString& aSpec,
                                        relevant for cookies, so does not
                                        apply to icons. */
                        nullptr,      /* referrer (not relevant for icons) */
-                       mozilla::net::RP_Default,
+                       mozilla::net::RP_Unset,
                        nullptr,      /* principal (not relevant for icons) */
                        loadGroup,
                        gIconLoad,

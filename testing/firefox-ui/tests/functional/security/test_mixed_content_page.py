@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
+from marionette_harness import MarionetteTestCase
 
 
 class TestMixedContentPage(PuppeteerMixin, MarionetteTestCase):
@@ -25,7 +25,7 @@ class TestMixedContentPage(PuppeteerMixin, MarionetteTestCase):
         with self.marionette.using_context('content'):
             self.marionette.navigate(self.url)
 
-        self.assertEqual(self.locationbar.identity_box.get_attribute('className'),
+        self.assertEqual(self.locationbar.identity_box.get_property('className'),
                          'unknownIdentity mixedDisplayContent')
 
         # Open the identity popup

@@ -2,6 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+ /* import-globals-from timekeeper.js */
+ /* import-globals-from spinner.js */
+
 "use strict";
 
 function TimePicker(context) {
@@ -10,8 +13,6 @@ function TimePicker(context) {
 }
 
 {
-  const debug = 0 ? console.log.bind(console, "[timepicker]") : function() {};
-
   const DAY_PERIOD_IN_HOURS = 12,
         SECOND_IN_MS = 1000,
         MINUTE_IN_MS = 60000,
@@ -78,7 +79,7 @@ function TimePicker(context) {
      * Initalize the spinner components.
      */
     _createComponents() {
-      const { locale, step, format } = this.props;
+      const { locale, format } = this.props;
       const { timeKeeper } = this.state;
 
       const wrapSetValueFn = (setTimeFunction) => {
@@ -206,7 +207,7 @@ function TimePicker(context) {
       // The panel is listening to window for postMessage event, so we
       // do postMessage to itself to send data to input boxes.
       window.postMessage({
-        name: "TimePickerPopupChanged",
+        name: "PickerPopupChanged",
         detail: {
           hour,
           minute,
@@ -218,6 +219,7 @@ function TimePicker(context) {
     },
     _attachEventListeners() {
       window.addEventListener("message", this);
+      document.addEventListener("mousedown", this);
     },
 
     /**
@@ -231,6 +233,12 @@ function TimePicker(context) {
           this.handleMessage(event);
           break;
         }
+        case "mousedown": {
+          // Use preventDefault to keep focus on input boxes
+          event.preventDefault();
+          event.target.setCapture();
+          break;
+        }
       }
     },
 
@@ -241,11 +249,11 @@ function TimePicker(context) {
      */
     handleMessage(event) {
       switch (event.data.name) {
-        case "TimePickerSetValue": {
+        case "PickerSetValue": {
           this.set(event.data.detail);
           break;
         }
-        case "TimePickerInit": {
+        case "PickerInit": {
           this.init(event.data.detail);
           break;
         }

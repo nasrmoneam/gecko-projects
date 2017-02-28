@@ -9,12 +9,14 @@
 #include "mozIThirdPartyUtil.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsContentUtils.h"
+#include "nsIAddonPolicyService.h"
 #include "nsICacheEntry.h"
 #include "nsICachingChannel.h"
 #include "nsIChannel.h"
 #include "nsIDocShell.h"
 #include "nsIDocument.h"
 #include "nsIDOMDocument.h"
+#include "nsIHttpChannel.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsIIOService.h"
 #include "nsIParentChannel.h"
@@ -31,10 +33,12 @@
 #include "nsNetUtil.h"
 #include "nsPIDOMWindow.h"
 #include "nsXULAppAPI.h"
+#include "nsQueryObject.h"
 
 #include "mozilla/ErrorNames.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/net/HttpBaseChannel.h"
 
 namespace mozilla {
 namespace net {
@@ -44,12 +48,21 @@ namespace net {
 //
 static LazyLogModule gChannelClassifierLog("nsChannelClassifier");
 
+// Whether channels should be annotated as being on the tracking protection
+// list.
+static bool sAnnotateChannelEnabled = false;
+// Whether the priority of the channels annotated as being on the tracking
+// protection list should be lowered.
+static bool sLowerNetworkPriority = false;
+static bool sIsInited = false;
+
 #undef LOG
 #define LOG(args)     MOZ_LOG(gChannelClassifierLog, LogLevel::Debug, args)
 #define LOG_ENABLED() MOZ_LOG_TEST(gChannelClassifierLog, LogLevel::Debug)
 
 NS_IMPL_ISUPPORTS(nsChannelClassifier,
-                  nsIURIClassifierCallback)
+                  nsIURIClassifierCallback,
+                  nsIObserver)
 
 nsChannelClassifier::nsChannelClassifier(nsIChannel *aChannel)
   : mIsAllowListed(false),
@@ -58,6 +71,13 @@ nsChannelClassifier::nsChannelClassifier(nsIChannel *aChannel)
     mTrackingProtectionEnabled(Nothing())
 {
   MOZ_ASSERT(mChannel);
+  if (!sIsInited) {
+    sIsInited = true;
+    Preferences::AddBoolVarCache(&sAnnotateChannelEnabled,
+                                 "privacy.trackingprotection.annotate_channels");
+    Preferences::AddBoolVarCache(&sLowerNetworkPriority,
+                                 "privacy.trackingprotection.lower_network_priority");
+  }
 }
 
 nsresult
@@ -127,6 +147,10 @@ nsChannelClassifier::ShouldEnableTrackingProtectionInternal(nsIChannel *aChannel
              this, aChannel, chanURI->GetSpecOrDefault().get()));
       }
       return NS_OK;
+    }
+
+    if (AddonMayLoad(aChannel, chanURI)) {
+        return NS_OK;
     }
 
     nsCOMPtr<nsIIOService> ios = do_GetService(NS_IOSERVICE_CONTRACTID, &rv);
@@ -214,6 +238,23 @@ nsChannelClassifier::ShouldEnableTrackingProtectionInternal(nsIChannel *aChannel
     return NotifyTrackingProtectionDisabled(aChannel);
 }
 
+bool
+nsChannelClassifier::AddonMayLoad(nsIChannel *aChannel, nsIURI *aUri)
+{
+    nsCOMPtr<nsILoadInfo> channelLoadInfo = aChannel->GetLoadInfo();
+    if (!channelLoadInfo)
+        return false;
+
+    // loadingPrincipal is used here to ensure we are loading into an
+    // addon principal.  This allows an addon, with explicit permission, to
+    // call out to API endpoints that may otherwise get blocked.
+    nsIPrincipal* loadingPrincipal = channelLoadInfo->LoadingPrincipal();
+    if (!loadingPrincipal)
+        return false;
+
+    return BasePrincipal::Cast(loadingPrincipal)->AddonAllowsLoad(aUri, true);
+}
+
 // static
 nsresult
 nsChannelClassifier::NotifyTrackingProtectionDisabled(nsIChannel *aChannel)
@@ -270,7 +311,8 @@ nsChannelClassifier::Start()
   if (NS_FAILED(rv)) {
     // If we aren't getting a callback for any reason, assume a good verdict and
     // make sure we resume the channel if necessary.
-    OnClassifyComplete(NS_OK);
+    OnClassifyComplete(NS_OK, NS_LITERAL_CSTRING(""),NS_LITERAL_CSTRING(""),
+                       NS_LITERAL_CSTRING(""));
   }
 }
 
@@ -360,14 +402,6 @@ nsChannelClassifier::StartInternal()
       trackingProtectionEnabled = mTrackingProtectionEnabled.value();
     }
 
-    static bool sAnnotateChannelEnabled = false;
-    static bool sIsInited = false;
-    if (!sIsInited) {
-      sIsInited = true;
-      Preferences::AddBoolVarCache(&sAnnotateChannelEnabled,
-                                   "privacy.trackingprotection.annotate_channels");
-    }
-
     if (LOG_ENABLED()) {
       nsCOMPtr<nsIURI> principalURI;
       principal->GetURI(getter_AddRefs(principalURI));
@@ -401,6 +435,8 @@ nsChannelClassifier::StartInternal()
         return NS_ERROR_FAILURE;
     }
 
+    // Add an observer for shutdown
+    AddShutdownObserver();
     return NS_OK;
 }
 
@@ -538,19 +574,33 @@ nsChannelClassifier::SameLoadingURI(nsIDocument *aDoc, nsIChannel *aChannel)
 
 // static
 nsresult
-nsChannelClassifier::SetBlockedTrackingContent(nsIChannel *channel)
+nsChannelClassifier::SetBlockedContent(nsIChannel *channel,
+                                       nsresult aErrorCode,
+                                       const nsACString& aList,
+                                       const nsACString& aProvider,
+                                       const nsACString& aPrefix)
 {
+  NS_ENSURE_ARG(!aList.IsEmpty());
+  NS_ENSURE_ARG(!aPrefix.IsEmpty());
+
   // Can be called in EITHER the parent or child process.
   nsCOMPtr<nsIParentChannel> parentChannel;
   NS_QueryNotificationCallbacks(channel, parentChannel);
   if (parentChannel) {
-    // This channel is a parent-process proxy for a child process request. The
-    // actual channel will be notified via the status passed to
-    // nsIRequest::Cancel and do this for us.
+    // This channel is a parent-process proxy for a child process request.
+    // Tell the child process channel to do this instead.
+    parentChannel->SetClassifierMatchedInfo(aList, aProvider, aPrefix);
     return NS_OK;
   }
 
   nsresult rv;
+  nsCOMPtr<nsIClassifiedChannel> classifiedChannel = do_QueryInterface(channel, &rv);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  if (classifiedChannel) {
+    classifiedChannel->SetMatchedInfo(aList, aProvider, aPrefix);
+  }
+
   nsCOMPtr<mozIDOMWindowProxy> win;
   nsCOMPtr<mozIThirdPartyUtil> thirdPartyUtil =
     do_GetService(THIRDPARTYUTIL_CONTRACTID, &rv);
@@ -583,9 +633,14 @@ nsChannelClassifier::SetBlockedTrackingContent(nsIChannel *channel)
   if (!securityUI) {
     return NS_OK;
   }
-  doc->SetHasTrackingContentBlocked(true);
   securityUI->GetState(&state);
-  state |= nsIWebProgressListener::STATE_BLOCKED_TRACKING_CONTENT;
+  if (aErrorCode == NS_ERROR_TRACKING_URI) {
+    doc->SetHasTrackingContentBlocked(true);
+    state |= nsIWebProgressListener::STATE_BLOCKED_TRACKING_CONTENT;
+  } else {
+    state |= nsIWebProgressListener::STATE_BLOCKED_UNSAFE_CONTENT;
+  }
+
   eventSink->OnSecurityChange(nullptr, state);
 
   // Log a warning to the web console.
@@ -593,11 +648,17 @@ nsChannelClassifier::SetBlockedTrackingContent(nsIChannel *channel)
   channel->GetURI(getter_AddRefs(uri));
   NS_ConvertUTF8toUTF16 spec(uri->GetSpecOrDefault());
   const char16_t* params[] = { spec.get() };
+  const char* message = (aErrorCode == NS_ERROR_TRACKING_URI) ?
+    "TrackingUriBlocked" : "UnsafeUriBlocked";
+  nsCString category = (aErrorCode == NS_ERROR_TRACKING_URI) ?
+    NS_LITERAL_CSTRING("Tracking Protection") :
+    NS_LITERAL_CSTRING("Safe Browsing");
+
   nsContentUtils::ReportToConsole(nsIScriptError::warningFlag,
-                                  NS_LITERAL_CSTRING("Tracking Protection"),
+                                  category,
                                   doc,
                                   nsContentUtils::eNECKO_PROPERTIES,
-                                  "TrackingUriBlocked",
+                                  message,
                                   params, ArrayLength(params));
 
   return NS_OK;
@@ -668,7 +729,10 @@ nsChannelClassifier::IsTrackerWhitelisted()
 }
 
 NS_IMETHODIMP
-nsChannelClassifier::OnClassifyComplete(nsresult aErrorCode)
+nsChannelClassifier::OnClassifyComplete(nsresult aErrorCode,
+                                        const nsACString& aList,
+                                        const nsACString& aProvider,
+                                        const nsACString& aPrefix)
 {
     // Should only be called in the parent process.
     MOZ_ASSERT(XRE_IsParentProcess());
@@ -695,17 +759,34 @@ nsChannelClassifier::OnClassifyComplete(nsresult aErrorCode)
 
       if (aErrorCode == NS_ERROR_TRACKING_URI &&
           !mTrackingProtectionEnabled.valueOr(false)) {
-        if (LOG_ENABLED()) {
-          nsCOMPtr<nsIURI> uri;
-          mChannel->GetURI(getter_AddRefs(uri));
-          LOG(("nsChannelClassifier[%p]: lower the priority of channel %p"
-               ", since %s is a tracker", this, mChannel.get(),
-               uri->GetSpecOrDefault().get()));
+        if (sAnnotateChannelEnabled) {
+          nsCOMPtr<nsIParentChannel> parentChannel;
+          NS_QueryNotificationCallbacks(mChannel, parentChannel);
+          if (parentChannel) {
+            // This channel is a parent-process proxy for a child process
+            // request. We should notify the child process as well.
+            parentChannel->NotifyTrackingResource();
+          }
+          RefPtr<HttpBaseChannel> httpChannel = do_QueryObject(mChannel);
+          if (httpChannel) {
+            httpChannel->SetIsTrackingResource();
+          }
         }
-        nsCOMPtr<nsISupportsPriority> p = do_QueryInterface(mChannel);
-        if (p) {
-          p->SetPriority(nsISupportsPriority::PRIORITY_LOWEST);
+
+        if (sLowerNetworkPriority) {
+          if (LOG_ENABLED()) {
+            nsCOMPtr<nsIURI> uri;
+            mChannel->GetURI(getter_AddRefs(uri));
+            LOG(("nsChannelClassifier[%p]: lower the priority of channel %p"
+                 ", since %s is a tracker", this, mChannel.get(),
+                 uri->GetSpecOrDefault().get()));
+          }
+          nsCOMPtr<nsISupportsPriority> p = do_QueryInterface(mChannel);
+          if (p) {
+            p->SetPriority(nsISupportsPriority::PRIORITY_LOWEST);
+          }
         }
+
         aErrorCode = NS_OK;
       }
 
@@ -718,12 +799,11 @@ nsChannelClassifier::OnClassifyComplete(nsresult aErrorCode)
                uri->GetSpecOrDefault().get(), errorName.get()));
         }
 
-        // Channel will be cancelled (page element blocked) due to tracking.
+        // Channel will be cancelled (page element blocked) due to tracking
+        // protection or Safe Browsing.
         // Do update the security state of the document and fire a security
         // change event.
-        if (aErrorCode == NS_ERROR_TRACKING_URI) {
-          SetBlockedTrackingContent(mChannel);
-        }
+        SetBlockedContent(mChannel, aErrorCode, aList, aProvider, aPrefix);
 
         mChannel->Cancel(aErrorCode);
       }
@@ -733,8 +813,49 @@ nsChannelClassifier::OnClassifyComplete(nsresult aErrorCode)
     }
 
     mChannel = nullptr;
+    RemoveShutdownObserver();
 
     return NS_OK;
+}
+
+void
+nsChannelClassifier::AddShutdownObserver()
+{
+  nsCOMPtr<nsIObserverService> observerService = mozilla::services::GetObserverService();
+  if (observerService) {
+    observerService->AddObserver(this, "profile-change-net-teardown", false);
+  }
+}
+
+void
+nsChannelClassifier::RemoveShutdownObserver()
+{
+  nsCOMPtr<nsIObserverService> observerService = mozilla::services::GetObserverService();
+  if (observerService) {
+    observerService->RemoveObserver(this, "profile-change-net-teardown");
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// nsIObserver implementation
+NS_IMETHODIMP
+nsChannelClassifier::Observe(nsISupports *aSubject, const char *aTopic,
+                             const char16_t *aData)
+{
+  if (!strcmp(aTopic, "profile-change-net-teardown")) {
+    // If we aren't getting a callback for any reason, make sure
+    // we resume the channel.
+
+    if (mChannel && mSuspendedChannel) {
+      mSuspendedChannel = false;
+      mChannel->Cancel(NS_ERROR_ABORT);
+      mChannel->Resume();
+    }
+
+    RemoveShutdownObserver();
+  }
+
+  return NS_OK;
 }
 
 } // namespace net

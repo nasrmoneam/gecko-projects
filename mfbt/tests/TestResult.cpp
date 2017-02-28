@@ -4,6 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include <string.h>
 #include "mozilla/Result.h"
 
 using mozilla::GenericErrorResult;
@@ -24,6 +25,28 @@ static_assert(sizeof(Result<char*, Failed*>) > sizeof(char*),
               "Result with unaligned success type `char*` must not be pointer-sized");
 static_assert(sizeof(Result<int*, char*>) > sizeof(char*),
               "Result with unaligned error type `char*` must not be pointer-sized");
+
+enum Foo8 : uint8_t {};
+enum Foo16 : uint16_t {};
+enum Foo32 : uint32_t {};
+static_assert(sizeof(Result<Ok, Foo8>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+static_assert(sizeof(Result<Ok, Foo16>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+static_assert(sizeof(Foo32) >= sizeof(uintptr_t) ||
+              sizeof(Result<Ok, Foo32>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+
+static_assert(sizeof(Result<Foo16, Foo8>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+static_assert(sizeof(Result<Foo8, Foo16>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+static_assert(sizeof(Foo32) >= sizeof(uintptr_t) ||
+              sizeof(Result<Foo32, Foo16>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
+static_assert(sizeof(Foo32) >= sizeof(uintptr_t) ||
+              sizeof(Result<Foo16, Foo32>) <= sizeof(uintptr_t),
+              "Result with small types should be pointer-sized");
 
 static GenericErrorResult<Failed&>
 Fail()
@@ -160,6 +183,66 @@ ReferenceTest()
   MOZ_RELEASE_ASSERT(&res.unwrapErr() == &merror);
 }
 
+static void
+MapTest()
+{
+  struct MyError {
+    int x;
+
+    explicit MyError(int y) : x(y) { }
+  };
+
+  // Mapping over success values.
+  Result<int, MyError> res(5);
+  bool invoked = false;
+  auto res2 = res.map([&invoked](int x) {
+    MOZ_RELEASE_ASSERT(x == 5);
+    invoked = true;
+    return "hello";
+  });
+  MOZ_RELEASE_ASSERT(res2.isOk());
+  MOZ_RELEASE_ASSERT(invoked);
+  MOZ_RELEASE_ASSERT(strcmp(res2.unwrap(), "hello") == 0);
+
+  // Mapping over error values.
+  MyError err(1);
+  Result<char, MyError> res3(err);
+  MOZ_RELEASE_ASSERT(res3.isErr());
+  Result<char, MyError> res4 = res3.map([](int x) {
+    MOZ_RELEASE_ASSERT(false);
+    return 'a';
+  });
+  MOZ_RELEASE_ASSERT(res4.isErr());
+  MOZ_RELEASE_ASSERT(res4.unwrapErr().x == err.x);
+
+  // Function pointers instead of lamdbas as the mapping function.
+  Result<const char*, MyError> res5("hello");
+  auto res6 = res5.map(strlen);
+  MOZ_RELEASE_ASSERT(res6.isOk());
+  MOZ_RELEASE_ASSERT(res6.unwrap() == 5);
+}
+
+static void
+AndThenTest()
+{
+  // `andThen`ing over success results.
+  Result<int, const char*> r1(10);
+  Result<int, const char*> r2 = r1.andThen([](int x) {
+    return Result<int, const char*>(x + 1);
+  });
+  MOZ_RELEASE_ASSERT(r2.isOk());
+  MOZ_RELEASE_ASSERT(r2.unwrap() == 11);
+
+  // `andThen`ing over error results.
+  Result<int, const char*> r3("error");
+  Result<int, const char*> r4 = r3.andThen([](int x) {
+    MOZ_RELEASE_ASSERT(false);
+    return Result<int, const char*>(1);
+  });
+  MOZ_RELEASE_ASSERT(r4.isErr());
+  MOZ_RELEASE_ASSERT(r3.unwrapErr() == r4.unwrapErr());
+}
+
 /* * */
 
 int main()
@@ -168,5 +251,7 @@ int main()
   TypeConversionTests();
   EmptyValueTest();
   ReferenceTest();
+  MapTest();
+  AndThenTest();
   return 0;
 }

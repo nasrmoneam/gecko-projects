@@ -35,7 +35,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: true,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
       label: LABEL_NO_USERNAME,
@@ -63,10 +63,10 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: false,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
-      label: "This connection is not secure. Logins entered here could be compromised.",
+      label: "Logins entered here could be compromised. Learn More",
       style: "insecureWarning"
     }, {
       value: "",
@@ -95,7 +95,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: true,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "emptypass1",
       label: LABEL_NO_USERNAME,
@@ -123,10 +123,10 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: false,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
-      label: "This connection is not secure. Logins entered here could be compromised.",
+      label: "Logins entered here could be compromised. Learn More",
       style: "insecureWarning"
     }, {
       value: "emptypass1",
@@ -155,7 +155,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: true,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
       label: LABEL_NO_USERNAME,
@@ -183,7 +183,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: false,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
       label: LABEL_NO_USERNAME,
@@ -211,7 +211,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: true,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "emptypass1",
       label: LABEL_NO_USERNAME,
@@ -239,7 +239,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: true,
     isSecure: false,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "emptypass1",
       label: LABEL_NO_USERNAME,
@@ -267,7 +267,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: true,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
       label: LABEL_NO_USERNAME,
@@ -295,10 +295,10 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: false,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
-      label: "This connection is not secure. Logins entered here could be compromised.",
+      label: "Logins entered here could be compromised. Learn More",
       style: "insecureWarning"
     }, {
       value: "",
@@ -327,7 +327,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: true,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "emptypass1",
       label: LABEL_NO_USERNAME,
@@ -355,10 +355,10 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: false,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
-      label: "This connection is not secure. Logins entered here could be compromised.",
+      label: "Logins entered here could be compromised. Learn More",
       style: "insecureWarning"
     }, {
       value: "emptypass1",
@@ -387,7 +387,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: true,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "",
       label: LABEL_NO_USERNAME,
@@ -415,7 +415,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: false,
     isPasswordField: false,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: []
   },
   {
@@ -423,7 +423,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: true,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: [{
       value: "emptypass1",
       label: LABEL_NO_USERNAME,
@@ -451,7 +451,7 @@ let expectedResults = [
     insecureAutoFillFormsEnabled: false,
     isSecure: false,
     isPasswordField: true,
-    matchingLogins: matchingLogins,
+    matchingLogins,
     items: []
   },
 ];

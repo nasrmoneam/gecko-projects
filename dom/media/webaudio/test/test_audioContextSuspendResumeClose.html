@@ -48,10 +48,12 @@ function tryToCreateNodeOnClosedContext(ctx) {
 }
 
 function loadFile(url, callback) {
+  todo(false, "loadFile: " + url);
   var xhr = new XMLHttpRequest();
   xhr.open("GET", url, true);
   xhr.responseType = "arraybuffer";
   xhr.onload = function() {
+    todo(false, "loadFile: " + url + " calling callback...");
     callback(xhr.response);
   };
   xhr.send();
@@ -326,9 +328,7 @@ function testOfflineAudioContext() {
   var o = new OfflineAudioContext(1, 44100, 44100);
   is(o.state, "suspended", "OfflineAudioContext should start in suspended state.");
 
-  expectRejectedPromise(o, "suspend", "NotSupportedError");
   expectRejectedPromise(o, "resume", "NotSupportedError");
-  expectRejectedPromise(o, "close", "NotSupportedError");
 
   var previousState = o.state,
       finishedRendering = false;

@@ -375,6 +375,34 @@ this.SessionStore = {
     }
     return number <= FORMAT_VERSION;
   },
+
+  /**
+   * Filters out not worth-saving tabs from a given browser state object.
+   *
+   * @param aState (object)
+   *        The browser state for which we remove worth-saving tabs.
+   *        The given object will be modified.
+   */
+  keepOnlyWorthSavingTabs: function (aState) {
+    for (let i = aState.windows.length - 1; i >= 0; i--) {
+      let win = aState.windows[i];
+      for (let j = win.tabs.length - 1; j >= 0; j--) {
+        let tab = win.tabs[j];
+        if (!SessionStoreInternal._shouldSaveTab(tab)) {
+          win.tabs.splice(j, 1);
+          if (win.selected > j) {
+            win.selected--;
+          }
+        }
+      }
+      if (!win.tabs.length) {
+        aState.windows.splice(i, 1);
+        if (aState.selectedWindow > i) {
+          aState.selectedWindow--;
+        }
+      }
+    }
+  },
 };
 
 // Freeze the SessionStore object. We don't want anyone to modify it.
@@ -600,12 +628,14 @@ var SessionStoreInternal = {
               // replace the crashed session with a restore-page-only session
               let url = "about:sessionrestore";
               let formdata = {id: {sessionData: state}, url};
-              state = { windows: [{ tabs: [{ entries: [{url}], formdata }] }] };
+              let entry = {url, triggeringPrincipal_base64: Utils.SERIALIZED_SYSTEMPRINCIPAL };
+              state = { windows: [{ tabs: [{ entries: [entry], formdata }] }] };
             } else if (this._hasSingleTabWithURL(state.windows,
                                                  "about:welcomeback")) {
               // On a single about:welcomeback URL that crashed, replace about:welcomeback
               // with about:sessionrestore, to make clear to the user that we crashed.
               state.windows[0].tabs[0].entries[0].url = "about:sessionrestore";
+              state.windows[0].tabs[0].entries[0].triggeringPrincipal_base64 = Utils.SERIALIZED_SYSTEMPRINCIPAL;
             }
           }
 
@@ -853,10 +883,8 @@ var SessionStoreInternal = {
         if (activePageData) {
           if (activePageData.title) {
             tab.label = activePageData.title;
-            tab.crop = "end";
           } else if (activePageData.url != "about:blank") {
             tab.label = activePageData.url;
-            tab.crop = "center";
           }
         } else if (tab.hasAttribute("customizemode")) {
           win.gCustomizeMode.setTab(tab);
@@ -2919,7 +2947,9 @@ var SessionStoreInternal = {
    * @returns object
    */
   getCurrentState: function (aUpdateAll) {
-    this._handleClosedWindows();
+    this._handleClosedWindows().then(() => {
+      this._notifyOfClosedObjectsChange();
+    });
 
     var activeWindow = this._getMostRecentBrowserWindow();
 
@@ -3587,7 +3617,7 @@ var SessionStoreInternal = {
    *        true if we want to reload into a fresh process
    */
   restoreTabContent: function (aTab, aLoadArguments = null, aReloadInFreshProcess = false) {
-    if (aTab.hasAttribute("customizemode")) {
+    if (aTab.hasAttribute("customizemode") && !aLoadArguments) {
       return;
     }
 
@@ -3611,8 +3641,17 @@ var SessionStoreInternal = {
     // flip the remoteness of any browser that is not being displayed.
     this.markTabAsRestoring(aTab);
 
+    // We need a new frameloader either if we are reloading into a fresh
+    // process, or we have a browser with a grouped session history (as we don't
+    // support restoring into browsers with grouped session histories directly).
+    let newFrameloader =
+      aReloadInFreshProcess || !!browser.frameLoader.groupedSHistory;
     let isRemotenessUpdate =
-      tabbrowser.updateBrowserRemotenessByURL(browser, uri, aReloadInFreshProcess);
+      tabbrowser.updateBrowserRemotenessByURL(browser, uri, {
+        freshProcess: aReloadInFreshProcess,
+        newFrameloader: newFrameloader,
+      });
+
     if (isRemotenessUpdate) {
       // We updated the remoteness, so we need to send the history down again.
       //
@@ -3971,12 +4010,14 @@ var SessionStoreInternal = {
   _handleClosedWindows: function ssi_handleClosedWindows() {
     var windowsEnum = Services.wm.getEnumerator("navigator:browser");
 
+    let promises = [];
     while (windowsEnum.hasMoreElements()) {
       var window = windowsEnum.getNext();
       if (window.closed) {
-        this.onClose(window);
+        promises.push(this.onClose(window));
       }
     }
+    return Promise.all(promises);
   },
 
   /**
@@ -3991,7 +4032,7 @@ var SessionStoreInternal = {
     argString.data = "";
 
     // Build feature string
-    let features = "chrome,dialog=no,macsuppressanimation,all";
+    let features = "chrome,dialog=no,suppressanimation,all";
     let winState = aState.windows[0];
     WINDOW_ATTRIBUTES.forEach(function(aFeature) {
       // Use !isNaN as an easy way to ignore sizemode and check for numbers
@@ -4157,8 +4198,27 @@ var SessionStoreInternal = {
            !(aTabState.entries.length == 1 &&
                 (aTabState.entries[0].url == "about:blank" ||
                  aTabState.entries[0].url == "about:newtab" ||
+                 aTabState.entries[0].url == "about:printpreview" ||
                  aTabState.entries[0].url == "about:privatebrowsing") &&
                  !aTabState.userTypedValue);
+  },
+
+  /**
+   * Determine if the tab state we're passed is something we should keep to be
+   * reopened at session restore. This is used when we are saving the current
+   * session state to disk. This method is very similar to _shouldSaveTabState,
+   * however, "about:blank" and "about:newtab" tabs will still be saved to disk.
+   *
+   * @param aTabState
+   *        The current tab state
+   * @returns boolean
+   */
+  _shouldSaveTab: function ssi_shouldSaveTab(aTabState) {
+    // If the tab has one of the following transient about: history entry,
+    // then we don't actually want to write this tab's data to disk.
+    return aTabState.entries.length &&
+           !(aTabState.entries[0].url == "about:printpreview" ||
+             aTabState.entries[0].url == "about:privatebrowsing");
   },
 
   /**

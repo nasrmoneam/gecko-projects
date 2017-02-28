@@ -15,8 +15,8 @@ var DevToolsUtils = require("devtools/shared/DevToolsUtils");
 loader.lazyRequireGetter(this, "RootActor", "devtools/server/actors/root", true);
 loader.lazyRequireGetter(this, "BrowserAddonActor", "devtools/server/actors/addon", true);
 loader.lazyRequireGetter(this, "WebExtensionActor", "devtools/server/actors/webextension", true);
-loader.lazyRequireGetter(this, "WorkerActorList", "devtools/server/actors/worker", true);
-loader.lazyRequireGetter(this, "ServiceWorkerRegistrationActorList", "devtools/server/actors/worker", true);
+loader.lazyRequireGetter(this, "WorkerActorList", "devtools/server/actors/worker-list", true);
+loader.lazyRequireGetter(this, "ServiceWorkerRegistrationActorList", "devtools/server/actors/worker-list", true);
 loader.lazyRequireGetter(this, "ProcessActorList", "devtools/server/actors/process", true);
 loader.lazyImporter(this, "AddonManager", "resource://gre/modules/AddonManager.jsm");
 
@@ -283,6 +283,14 @@ BrowserTabList.prototype.getList = function () {
             // Set the 'selected' properties on all actors correctly.
             actor.selected = selected;
             return actor;
+          }, e => {
+            if (e.error === "tabDestroyed") {
+              // Return null if a tab was destroyed while retrieving the tab list.
+              return null;
+            }
+
+            // Forward unexpected errors.
+            throw e;
           })
     );
   }
@@ -294,7 +302,10 @@ BrowserTabList.prototype.getList = function () {
   this._mustNotify = true;
   this._checkListening();
 
-  return promise.all(actorPromises);
+  return promise.all(actorPromises).then(values => {
+    // Filter out null values if we received a tabDestroyed error.
+    return values.filter(value => value != null);
+  });
 };
 
 BrowserTabList.prototype._getActorForBrowser = function (browser) {
@@ -608,7 +619,7 @@ BrowserTabList.prototype.onOpenWindow =
 DevToolsUtils.makeInfallible(function (window) {
   let handleLoad = DevToolsUtils.makeInfallible(() => {
     /* We don't want any further load events from this window. */
-    window.removeEventListener("load", handleLoad, false);
+    window.removeEventListener("load", handleLoad);
 
     if (appShellDOMWindowType(window) !== DebuggerServer.chromeWindowType) {
       return;
@@ -616,13 +627,13 @@ DevToolsUtils.makeInfallible(function (window) {
 
     // Listen for future tab activity.
     if (this._listeningForTabOpen) {
-      window.addEventListener("TabOpen", this, false);
-      window.addEventListener("TabSelect", this, false);
-      window.addEventListener("TabAttrModified", this, false);
+      window.addEventListener("TabOpen", this);
+      window.addEventListener("TabSelect", this);
+      window.addEventListener("TabAttrModified", this);
     }
     if (this._listeningForTabClose) {
-      window.addEventListener("TabClose", this, false);
-      window.addEventListener("TabRemotenessChange", this, false);
+      window.addEventListener("TabClose", this);
+      window.addEventListener("TabRemotenessChange", this);
     }
     if (this._listeningForTitleChange) {
       window.messageManager.addMessageListener("DOMTitleChanged", this);
@@ -643,7 +654,7 @@ DevToolsUtils.makeInfallible(function (window) {
   window = window.QueryInterface(Ci.nsIInterfaceRequestor)
                  .getInterface(Ci.nsIDOMWindow);
 
-  window.addEventListener("load", handleLoad, false);
+  window.addEventListener("load", handleLoad);
 }, "BrowserTabList.prototype.onOpenWindow");
 
 BrowserTabList.prototype.onCloseWindow =
@@ -667,7 +678,7 @@ DevToolsUtils.makeInfallible(function (window) {
      */
     for (let [browser, actor] of this._actorByBrowser) {
       /* The browser document of a closed window has no default view. */
-      if (!browser.ownerDocument.defaultView) {
+      if (!browser.ownerGlobal) {
         this._handleActorClose(actor, browser);
       }
     }
@@ -694,6 +705,13 @@ function BrowserTabActor(connection, browser) {
 BrowserTabActor.prototype = {
   connect() {
     let onDestroy = () => {
+      if (this._deferredUpdate) {
+        // Reject the update promise if the tab was destroyed while requesting an update
+        this._deferredUpdate.reject({
+          error: "tabDestroyed",
+          message: "Tab destroyed while performing a BrowserTabActor update"
+        });
+      }
       this._form = null;
     };
     let connect = DebuggerServer.connectToChild(this._conn, this._browser, onDestroy);
@@ -722,7 +740,7 @@ BrowserTabActor.prototype = {
     // so only request form update if some code is still listening on the other
     // side.
     if (this._form) {
-      let deferred = promise.defer();
+      this._deferredUpdate = promise.defer();
       let onFormUpdate = msg => {
         // There may be more than just one childtab.js up and running
         if (this._form.actor != msg.json.actor) {
@@ -730,11 +748,11 @@ BrowserTabActor.prototype = {
         }
         this._mm.removeMessageListener("debug:form", onFormUpdate);
         this._form = msg.json;
-        deferred.resolve(this);
+        this._deferredUpdate.resolve(this);
       };
       this._mm.addMessageListener("debug:form", onFormUpdate);
       this._mm.sendAsyncMessage("debug:form");
-      return deferred.promise;
+      return this._deferredUpdate.promise;
     }
 
     return this.connect();

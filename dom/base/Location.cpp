@@ -33,6 +33,7 @@
 #include "nsCycleCollectionParticipant.h"
 #include "nsNullPrincipal.h"
 #include "ScriptSettings.h"
+#include "mozilla/Unused.h"
 #include "mozilla/dom/LocationBinding.h"
 
 namespace mozilla {
@@ -79,7 +80,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Location)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mInnerWindow)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 NS_IMPL_CYCLE_COLLECTION_TRACE_WRAPPERCACHE(Location)
@@ -110,7 +110,7 @@ Location::CheckURL(nsIURI* aURI, nsIDocShellLoadInfo** aLoadInfo)
 
   nsCOMPtr<nsIPrincipal> triggeringPrincipal;
   nsCOMPtr<nsIURI> sourceURI;
-  net::ReferrerPolicy referrerPolicy = net::RP_Default;
+  net::ReferrerPolicy referrerPolicy = net::RP_Unset;
 
   if (JSContext *cx = nsContentUtils::GetCurrentJSContext()) {
     // No cx means that there's no JS running, or at least no JS that
@@ -577,19 +577,17 @@ Location::GetPathname(nsAString& aPathname)
   aPathname.Truncate();
 
   nsCOMPtr<nsIURI> uri;
-  nsresult result = NS_OK;
+  nsresult result = GetURI(getter_AddRefs(uri));
+  if (NS_FAILED(result) || !uri) {
+    return result;
+  }
 
-  result = GetURI(getter_AddRefs(uri));
+  nsAutoCString file;
 
-  nsCOMPtr<nsIURIWithQuery> url(do_QueryInterface(uri));
-  if (url) {
-    nsAutoCString file;
+  result = uri->GetFilePath(file);
 
-    result = url->GetFilePath(file);
-
-    if (NS_SUCCEEDED(result)) {
-      AppendUTF8toUTF16(file, aPathname);
-    }
+  if (NS_SUCCEEDED(result)) {
+    AppendUTF8toUTF16(file, aPathname);
   }
 
   return result;
@@ -604,8 +602,7 @@ Location::SetPathname(const nsAString& aPathname)
     return rv;
   }
 
-  nsCOMPtr<nsIURIWithQuery> url(do_QueryInterface(uri));
-  if (url && NS_SUCCEEDED(url->SetFilePath(NS_ConvertUTF16toUTF8(aPathname)))) {
+  if (NS_SUCCEEDED(uri->SetFilePath(NS_ConvertUTF16toUTF8(aPathname)))) {
     return SetURI(uri);
   }
 
@@ -703,9 +700,17 @@ Location::SetProtocol(const nsAString& aProtocol)
     return rv;
   }
 
-  rv = uri->SetScheme(NS_ConvertUTF16toUTF8(aProtocol));
+  nsAString::const_iterator start, end;
+  aProtocol.BeginReading(start);
+  aProtocol.EndReading(end);
+  nsAString::const_iterator iter(start);
+  Unused << FindCharInReadable(':', iter, end);
+
+  rv = uri->SetScheme(NS_ConvertUTF16toUTF8(Substring(start, iter)));
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+    // Oh, I wish nsStandardURL returned NS_ERROR_MALFORMED_URI for _all_ the
+    // malformed cases, not just some of them!
+    return NS_ERROR_DOM_SYNTAX_ERR;
   }
   nsAutoCString newSpec;
   rv = uri->GetSpec(newSpec);
@@ -715,7 +720,27 @@ Location::SetProtocol(const nsAString& aProtocol)
   // We may want a new URI class for the new URI, so recreate it:
   rv = NS_NewURI(getter_AddRefs(uri), newSpec);
   if (NS_FAILED(rv)) {
+    if (rv == NS_ERROR_MALFORMED_URI) {
+      rv = NS_ERROR_DOM_SYNTAX_ERR;
+    }
     return rv;
+  }
+
+  bool isHttp;
+  rv = uri->SchemeIs("http", &isHttp);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  bool isHttps;
+  rv = uri->SchemeIs("https", &isHttps);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  if (!isHttp && !isHttps) {
+    // No-op, per spec.
+    return NS_OK;
   }
 
   return SetURI(uri);

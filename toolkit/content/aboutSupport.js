@@ -19,7 +19,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "PlacesDBUtils",
 
 window.addEventListener("load", function onload(event) {
   try {
-  window.removeEventListener("load", onload, false);
+  window.removeEventListener("load", onload);
   Troubleshoot.snapshot(function(snapshot) {
     for (let prop in snapshotFormatters)
       snapshotFormatters[prop](snapshot[prop]);
@@ -29,7 +29,7 @@ window.addEventListener("load", function onload(event) {
   } catch (e) {
     Cu.reportError("stack of load error for about:support: " + e + ": " + e.stack);
   }
-}, false);
+});
 
 // Each property in this object corresponds to a property in Troubleshoot.jsm's
 // snapshot data.  Each function is passed its property's corresponding data,
@@ -37,6 +37,7 @@ window.addEventListener("load", function onload(event) {
 var snapshotFormatters = {
 
   application: function application(data) {
+    let strings = stringBundle();
     $("application-box").textContent = data.name;
     $("useragent-box").textContent = data.userAgent;
     $("os-box").textContent = data.osVersion;
@@ -49,7 +50,7 @@ var snapshotFormatters = {
     if (data.updateChannel)
       $("updatechannel-box").textContent = data.updateChannel;
 
-    let statusText = stringBundle().GetStringFromName("multiProcessStatus.unknown");
+    let statusText = strings.GetStringFromName("multiProcessStatus.unknown");
 
     // Whitelist of known values with string descriptions:
     switch (data.autoStartStatus) {
@@ -60,7 +61,7 @@ var snapshotFormatters = {
       case 6:
       case 7:
       case 8:
-        statusText = stringBundle().GetStringFromName("multiProcessStatus." + data.autoStartStatus);
+        statusText = strings.GetStringFromName("multiProcessStatus." + data.autoStartStatus);
         break;
 
       case 10:
@@ -68,8 +69,14 @@ var snapshotFormatters = {
         break;
     }
 
-    $("multiprocess-box").textContent = stringBundle().formatStringFromName("multiProcessWindows",
+    $("multiprocess-box").textContent = strings.formatStringFromName("multiProcessWindows",
       [data.numRemoteWindows, data.numTotalWindows, statusText], 3);
+
+    let keyGoogleFound = data.keyGoogleFound ? "found" : "missing";
+    $("key-google-box").textContent = strings.GetStringFromName(keyGoogleFound);
+
+    let keyMozillaFound = data.keyMozillaFound ? "found" : "missing";
+    $("key-mozilla-box").textContent = strings.GetStringFromName(keyMozillaFound);
 
     $("safemode-box").textContent = data.safeMode;
   },
@@ -89,8 +96,7 @@ var snapshotFormatters = {
       // Ignore any non http/https urls
       if (!/^https?:/i.test(reportURL))
         reportURL = null;
-    }
-    catch (e) { }
+    } catch (e) { }
     if (!reportURL) {
       $("crashes-noConfig").style.display = "block";
       $("crashes-noConfig").classList.remove("no-copy");
@@ -110,22 +116,17 @@ var snapshotFormatters = {
       let date = new Date(crash.date);
       let timePassed = dateNow - date;
       let formattedDate;
-      if (timePassed >= 24 * 60 * 60 * 1000)
-      {
+      if (timePassed >= 24 * 60 * 60 * 1000) {
         let daysPassed = Math.round(timePassed / (24 * 60 * 60 * 1000));
         let daysPassedString = strings.GetStringFromName("crashesTimeDays");
         formattedDate = PluralForm.get(daysPassed, daysPassedString)
                                   .replace("#1", daysPassed);
-      }
-      else if (timePassed >= 60 * 60 * 1000)
-      {
+      } else if (timePassed >= 60 * 60 * 1000) {
         let hoursPassed = Math.round(timePassed / (60 * 60 * 1000));
         let hoursPassedString = strings.GetStringFromName("crashesTimeHours");
         formattedDate = PluralForm.get(hoursPassed, hoursPassedString)
                                   .replace("#1", hoursPassed);
-      }
-      else
-      {
+      } else {
         let minutesPassed = Math.max(Math.round(timePassed / (60 * 1000)), 1);
         let minutesPassedString = strings.GetStringFromName("crashesTimeMinutes");
         formattedDate = PluralForm.get(minutesPassed, minutesPassedString)
@@ -203,8 +204,7 @@ var snapshotFormatters = {
         try {
           return strings.formatStringFromName(nameOrMsg, msgArray,
                                               msgArray.length);
-        }
-        catch (err) {
+        } catch (err) {
           // Throws if nameOrMsg is not a name in the bundle.  This shouldn't
           // actually happen though, since msgArray.length > 1 => nameOrMsg is a
           // name in the bundle, not a message, and the remaining msgArray
@@ -214,8 +214,7 @@ var snapshotFormatters = {
       }
       try {
         return strings.GetStringFromName(nameOrMsg);
-      }
-      catch (err) {
+      } catch (err) {
         // Throws if nameOrMsg is not a name in the bundle.
       }
       return nameOrMsg;
@@ -225,15 +224,15 @@ var snapshotFormatters = {
     let apzInfo = [];
     let formatApzInfo = function(info) {
       let out = [];
-      for (let type of ['Wheel', 'Touch', 'Drag']) {
-        let key = 'Apz' + type + 'Input';
+      for (let type of ["Wheel", "Touch", "Drag"]) {
+        let key = "Apz" + type + "Input";
 
         if (!(key in info))
           continue;
 
         delete info[key];
 
-        let message = localizedMsg([type.toLowerCase() + 'Enabled']);
+        let message = localizedMsg([type.toLowerCase() + "Enabled"]);
         out.push(message);
       }
 
@@ -255,9 +254,12 @@ var snapshotFormatters = {
           title = key;
         }
       }
+      let td = $.new("td", value);
+      td.style["white-space"] = "pre-wrap";
+
       return $.new("tr", [
         $.new("th", title, "column"),
-        $.new("td", value),
+        td,
       ]);
     }
 
@@ -290,7 +292,7 @@ var snapshotFormatters = {
       delete data.info;
     }
 
-    if (AppConstants.NIGHTLY_BUILD) {
+    if (AppConstants.NIGHTLY_BUILD || AppConstants.MOZ_DEV_EDITION) {
       let windowUtils = window.QueryInterface(Ci.nsIInterfaceRequestor)
                               .getInterface(Ci.nsIDOMWindowUtils);
       let gpuProcessPid = windowUtils.gpuProcessPid;
@@ -381,8 +383,16 @@ var snapshotFormatters = {
            apzInfo.length
            ? apzInfo.join("; ")
            : localizedMsg(["apzNone"]));
-    addRowFromKey("features", "webglRenderer");
+    addRowFromKey("features", "webgl1WSIInfo");
+    addRowFromKey("features", "webgl1Renderer");
+    addRowFromKey("features", "webgl1Version");
+    addRowFromKey("features", "webgl1DriverExtensions");
+    addRowFromKey("features", "webgl1Extensions");
+    addRowFromKey("features", "webgl2WSIInfo");
     addRowFromKey("features", "webgl2Renderer");
+    addRowFromKey("features", "webgl2Version");
+    addRowFromKey("features", "webgl2DriverExtensions");
+    addRowFromKey("features", "webgl2Extensions");
     addRowFromKey("features", "supportsHardwareH264", "hardwareH264");
     addRowFromKey("features", "currentAudioBackend", "audioBackend");
     addRowFromKey("features", "direct2DEnabled", "#Direct2D");
@@ -437,7 +447,7 @@ var snapshotFormatters = {
     showGpu("gpu-2", "2");
 
     // Remove adapter keys.
-    for (let [prop, key] of adapterKeys) {
+    for (let [prop, /* key */] of adapterKeys) {
       delete data[prop];
       delete data[prop + "2"];
     }
@@ -465,8 +475,8 @@ var snapshotFormatters = {
           let contents;
           if (entry.message.length > 0 && entry.message[0] == "#") {
             // This is a failure ID. See nsIGfxInfo.idl.
-            let m;
-            if (m = /#BLOCKLIST_FEATURE_FAILURE_BUG_(\d+)/.exec(entry.message)) {
+            let m = /#BLOCKLIST_FEATURE_FAILURE_BUG_(\d+)/.exec(entry.message);
+            if (m) {
               let bugSpan = $.new("span");
               bugSpan.textContent = strings.GetStringFromName("blocklistedBug") + "; ";
 
@@ -507,14 +517,11 @@ var snapshotFormatters = {
     if (crashGuards.length) {
       for (let guard of crashGuards) {
         let resetButton = $.new("button");
-        let onClickReset = (function(guard) {
-          // Note - need this wrapper until bug 449811 fixes |guard| scoping.
-          return function() {
-            Services.prefs.setIntPref(guard.prefName, 0);
-            resetButton.removeEventListener("click", onClickReset);
-            resetButton.disabled = true;
-          };
-        })(guard);
+        let onClickReset = function() {
+          Services.prefs.setIntPref(guard.prefName, 0);
+          resetButton.removeEventListener("click", onClickReset);
+          resetButton.disabled = true;
+        };
 
         resetButton.textContent = strings.GetStringFromName("resetOnNextRestart");
         resetButton.addEventListener("click", onClickReset);
@@ -589,10 +596,35 @@ var snapshotFormatters = {
           data[key] === data["hasUserNamespaces"]) {
         continue;
       }
+      if (key === "syscallLog") {
+	// Not in this table.
+	continue;
+      }
       tbody.appendChild($.new("tr", [
         $.new("th", strings.GetStringFromName(key), "column"),
-        $.new("td", data[key])
+        $.new("td", data[key]),
       ]));
+    }
+
+    let syscallBody = $("sandbox-syscalls-tbody");
+    let argsHead = $("sandbox-syscalls-argshead");
+    for (let syscall of data.syscallLog) {
+      if (argsHead.colSpan < syscall.args.length) {
+	argsHead.colSpan = syscall.args.length;
+      }
+      let cells = [
+	$.new("td", syscall.index, "integer"),
+	$.new("td", syscall.msecAgo / 1000),
+	$.new("td", syscall.pid, "integer"),
+	$.new("td", syscall.tid, "integer"),
+	$.new("td", strings.GetStringFromName("sandboxProcType." +
+					      syscall.procType)),
+	$.new("td", syscall.syscall, "integer"),
+      ];
+      for (let arg of syscall.args) {
+	cells.push($.new("td", arg, "integer"));
+      }
+      syscallBody.appendChild($.new("tr", cells));
     }
   },
 };
@@ -623,8 +655,7 @@ function stringBundle() {
            "chrome://global/locale/aboutSupport.properties");
 }
 
-function assembleFromGraphicsFailure(i, data)
-{
+function assembleFromGraphicsFailure(i, data) {
   // Only cover the cases we have today; for example, we do not have
   // log failures that assert and we assume the log level is 1/error.
   let message = data.failures[i];
@@ -685,8 +716,7 @@ function copyRawDataToClipboard(button) {
         Services.androidBridge.handleGeckoMessage(message);
       }
     });
-  }
-  catch (err) {
+  } catch (err) {
     if (button)
       button.disabled = false;
     throw err;
@@ -759,7 +789,7 @@ function Serializer() {
 
 Serializer.prototype = {
 
-  serialize: function(rootElem) {
+  serialize(rootElem) {
     this._lines = [];
     this._startNewLine();
     this._serializeElement(rootElem);
@@ -778,7 +808,7 @@ Serializer.prototype = {
     return this._lines[this._lines.length - 1] = val;
   },
 
-  _serializeElement: function(elem) {
+  _serializeElement(elem) {
     if (this._ignoreElement(elem))
       return;
 
@@ -796,8 +826,7 @@ Serializer.prototype = {
         let text = this._nodeText(child);
         this._appendText(text);
         hasText = hasText || !!text.trim();
-      }
-      else if (child.nodeType == Node.ELEMENT_NODE)
+      } else if (child.nodeType == Node.ELEMENT_NODE)
         this._serializeElement(child);
     }
 
@@ -820,7 +849,7 @@ Serializer.prototype = {
     }
   },
 
-  _startNewLine: function(lines) {
+  _startNewLine(lines) {
     let currLine = this._currentLine;
     if (currLine) {
       // The current line is not empty.  Trim it.
@@ -832,15 +861,15 @@ Serializer.prototype = {
     this._lines.push("");
   },
 
-  _appendText: function(text, lines) {
+  _appendText(text, lines) {
     this._currentLine += text;
   },
 
-  _isHiddenSubHeading: function(th) {
+  _isHiddenSubHeading(th) {
     return th.parentNode.parentNode.style.display == "none";
   },
 
-  _serializeTable: function(table) {
+  _serializeTable(table) {
     // Collect the table's column headings if in fact there are any.  First
     // check thead.  If there's no thead, check the first tr.
     let colHeadings = {};
@@ -920,11 +949,11 @@ Serializer.prototype = {
     this._startNewLine();
   },
 
-  _ignoreElement: function(elem) {
+  _ignoreElement(elem) {
     return elem.classList.contains("no-copy");
   },
 
-  _nodeText: function(node) {
+  _nodeText(node) {
     return node.textContent.replace(/\s+/g, " ");
   },
 };
@@ -987,8 +1016,7 @@ function setupEventListeners() {
   $("restart-in-safe-mode-button").addEventListener("click", function(event) {
     if (Services.obs.enumerateObservers("restart-in-safe-mode").hasMoreElements()) {
       Services.obs.notifyObservers(null, "restart-in-safe-mode", "");
-    }
-    else {
+    } else {
       safeModeRestart();
     }
   });

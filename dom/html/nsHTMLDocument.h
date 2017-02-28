@@ -54,11 +54,6 @@ public:
   virtual void ResetToURI(nsIURI* aURI, nsILoadGroup* aLoadGroup,
                           nsIPrincipal* aPrincipal) override;
 
-  virtual already_AddRefed<nsIPresShell> CreateShell(
-      nsPresContext* aContext,
-      nsViewManager* aViewManager,
-      mozilla::StyleSetHandle aStyleSet) override;
-
   virtual nsresult StartDocumentLoad(const char* aCommand,
                                      nsIChannel* aChannel,
                                      nsILoadGroup* aLoadGroup,
@@ -223,10 +218,10 @@ public:
                      mozilla::ErrorResult& rv);
   bool ExecCommand(const nsAString& aCommandID, bool aDoShowUI,
                    const nsAString& aValue,
-                   mozilla::dom::CallerType aCallerType,
+                   nsIPrincipal& aSubjectPrincipal,
                    mozilla::ErrorResult& rv);
   bool QueryCommandEnabled(const nsAString& aCommandID,
-                           mozilla::dom::CallerType aCallerType,
+                           nsIPrincipal& aSubjectPrincipal,
                            mozilla::ErrorResult& rv);
   bool QueryCommandIndeterm(const nsAString& aCommandID,
                             mozilla::ErrorResult& rv);
@@ -265,12 +260,13 @@ protected:
 
   nsIContent *MatchId(nsIContent *aContent, const nsAString& aId);
 
-  static bool MatchLinks(nsIContent *aContent, int32_t aNamespaceID,
+  static bool MatchLinks(mozilla::dom::Element* aElement, int32_t aNamespaceID,
+                         nsIAtom* aAtom, void* aData);
+  static bool MatchAnchors(mozilla::dom::Element* aElement, int32_t aNamespaceID,
                            nsIAtom* aAtom, void* aData);
-  static bool MatchAnchors(nsIContent *aContent, int32_t aNamespaceID,
-                             nsIAtom* aAtom, void* aData);
-  static bool MatchNameAttribute(nsIContent* aContent, int32_t aNamespaceID,
-                                   nsIAtom* aAtom, void* aData);
+  static bool MatchNameAttribute(mozilla::dom::Element* aElement,
+                                 int32_t aNamespaceID,
+                                 nsIAtom* aAtom, void* aData);
   static void* UseExistingNameString(nsINode* aRootNode, const nsString* aName);
 
   static void DocumentWriteTerminationFunc(nsISupports *aRef);

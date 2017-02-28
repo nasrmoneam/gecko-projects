@@ -53,6 +53,7 @@ private:
   // Convenience typedefs:
   typedef nsCSSProps::KTableEntry KTableEntry;
   typedef mozilla::dom::CSSValue CSSValue;
+  typedef mozilla::StyleGeometryBox StyleGeometryBox;
 
 public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -87,6 +88,16 @@ public:
   GetStyleContextForElement(mozilla::dom::Element* aElement, nsIAtom* aPseudo,
                             nsIPresShell* aPresShell,
                             StyleType aStyleType = eAll);
+
+  enum AnimationFlag {
+    eWithAnimation,
+    eWithoutAnimation,
+  };
+  // Similar to the above but ignoring animation rules and with StyleType::eAll.
+  static already_AddRefed<nsStyleContext>
+  GetStyleContextForElementWithoutAnimation(mozilla::dom::Element* aElement,
+                                            nsIAtom* aPseudo,
+                                            nsIPresShell* aPresShell);
 
   static already_AddRefed<nsStyleContext>
   GetStyleContextForElementNoFlush(mozilla::dom::Element* aElement,
@@ -143,6 +154,13 @@ private:
   void SetResolvedStyleContext(RefPtr<nsStyleContext>&& aContext);
   void SetFrameStyleContext(nsStyleContext* aContext);
 
+  static already_AddRefed<nsStyleContext>
+  DoGetStyleContextForElementNoFlush(mozilla::dom::Element* aElement,
+                                     nsIAtom* aPseudo,
+                                     nsIPresShell* aPresShell,
+                                     StyleType aStyleType,
+                                     AnimationFlag aAnimationFlag);
+
 #define STYLE_STRUCT(name_, checkdata_cb_)                              \
   const nsStyle##name_ * Style##name_() {                               \
     return mStyleContext->Style##name_();                               \
@@ -151,7 +169,7 @@ private:
 #undef STYLE_STRUCT
 
   already_AddRefed<CSSValue> GetEllipseRadii(const nsStyleCorners& aRadius,
-                                             uint8_t aFullCorner);
+                                             mozilla::Corner aFullCorner);
 
   already_AddRefed<CSSValue> GetOffsetWidthFor(mozilla::Side aSide);
 
@@ -201,12 +219,6 @@ private:
   already_AddRefed<CSSValue> GetCSSShadowArray(nsCSSShadowArray* aArray,
                                                const nscolor& aDefaultColor,
                                                bool aIsBoxShadow);
-
-  already_AddRefed<CSSValue> GetBackgroundList(
-    uint8_t nsStyleImageLayers::Layer::* aMember,
-    uint32_t nsStyleImageLayers::* aCount,
-    const nsStyleImageLayers& aLayers,
-    const KTableEntry aTable[]);
 
   void GetCSSGradientString(const nsStyleGradient* aGradient,
                             nsAString& aString);
@@ -424,8 +436,9 @@ private:
   already_AddRefed<CSSValue> DoGetTextIndent();
   already_AddRefed<CSSValue> DoGetTextOrientation();
   already_AddRefed<CSSValue> DoGetTextOverflow();
-  already_AddRefed<CSSValue> DoGetTextTransform();
   already_AddRefed<CSSValue> DoGetTextShadow();
+  already_AddRefed<CSSValue> DoGetTextSizeAdjust();
+  already_AddRefed<CSSValue> DoGetTextTransform();
   already_AddRefed<CSSValue> DoGetLetterSpacing();
   already_AddRefed<CSSValue> DoGetWordSpacing();
   already_AddRefed<CSSValue> DoGetWhiteSpace();
@@ -433,7 +446,6 @@ private:
   already_AddRefed<CSSValue> DoGetOverflowWrap();
   already_AddRefed<CSSValue> DoGetHyphens();
   already_AddRefed<CSSValue> DoGetTabSize();
-  already_AddRefed<CSSValue> DoGetTextSizeAdjust();
   already_AddRefed<CSSValue> DoGetWebkitTextFillColor();
   already_AddRefed<CSSValue> DoGetWebkitTextStrokeColor();
   already_AddRefed<CSSValue> DoGetWebkitTextStrokeWidth();
@@ -487,6 +499,7 @@ private:
   already_AddRefed<CSSValue> DoGetShapeOutside();
 
   /* User interface properties */
+  already_AddRefed<CSSValue> DoGetCaretColor();
   already_AddRefed<CSSValue> DoGetCursor();
   already_AddRefed<CSSValue> DoGetForceBrokenImageIcon();
   already_AddRefed<CSSValue> DoGetIMEMode();
@@ -582,8 +595,6 @@ private:
   /* Custom properties */
   already_AddRefed<CSSValue> DoGetCustomProperty(const nsAString& aPropertyName);
 
-  nsDOMCSSValueList* GetROCSSValueList(bool aCommaDelimited);
-
   /* Helper functions */
   void SetToRGBAColor(nsROCSSPrimitiveValue* aValue, nscolor aColor);
   void SetValueFromComplexColor(nsROCSSPrimitiveValue* aValue,
@@ -650,9 +661,8 @@ private:
   already_AddRefed<CSSValue> CreatePrimitiveValueForStyleFilter(
     const nsStyleFilter& aStyleFilter);
 
-  template<typename ReferenceBox>
   already_AddRefed<CSSValue>
-  GetShapeSource(const mozilla::StyleShapeSource<ReferenceBox>& aShapeSource,
+  GetShapeSource(const mozilla::StyleShapeSource& aShapeSource,
                  const KTableEntry aBoxKeywordTable[]);
 
   template<typename ReferenceBox>

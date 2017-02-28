@@ -39,6 +39,7 @@ public:
   }
 
 private:
+  const mozilla::dom::ClientType mType;
   nsString mClientId;
   uint64_t mWindowId;
   nsString mUrl;
@@ -59,6 +60,7 @@ public:
   ServiceWorkerClient(nsISupports* aOwner,
                       const ServiceWorkerClientInfo& aClientInfo)
     : mOwner(aOwner)
+    , mType(aClientInfo.mType)
     , mId(aClientInfo.mClientId)
     , mUrl(aClientInfo.mUrl)
     , mWindowId(aClientInfo.mWindowId)
@@ -90,10 +92,12 @@ public:
     return mFrameType;
   }
 
+  mozilla::dom::ClientType
+  Type() const;
+
   void
   PostMessage(JSContext* aCx, JS::Handle<JS::Value> aMessage,
-              const Optional<Sequence<JS::Value>>& aTransferable,
-              ErrorResult& aRv);
+              const Sequence<JSObject*>& aTransferable, ErrorResult& aRv);
 
   JSObject* WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto) override;
 
@@ -103,6 +107,7 @@ protected:
 
 private:
   nsCOMPtr<nsISupports> mOwner;
+  const ClientType mType;
   nsString mId;
   nsString mUrl;
 

@@ -852,6 +852,7 @@ ReflowInput::InitFrameType(nsIAtom* aFrameType)
     case StyleDisplay::Flex:
     case StyleDisplay::WebkitBox:
     case StyleDisplay::Grid:
+    case StyleDisplay::FlowRoot:
     case StyleDisplay::RubyTextContainer:
       frameType = NS_CSS_FRAME_TYPE_BLOCK;
       break;
@@ -2388,8 +2389,12 @@ ReflowInput::InitConstraints(nsPresContext*     aPresContext,
       nsIAtom* alignCBType = alignCB ? alignCB->GetType() : nullptr;
       if (alignCBType == nsGkAtoms::tableWrapperFrame &&
           alignCB->GetParent()) {
-        alignCB = alignCB->GetParent();
-        alignCBType = alignCB->GetType();
+        auto parentCBType = alignCB->GetParent()->GetType();
+        // XXX grid-specific for now; maybe remove this check after we address bug 799725
+        if (parentCBType == nsGkAtoms::gridContainerFrame) {
+          alignCB = alignCB->GetParent();
+          alignCBType = parentCBType;
+        }
       }
       if (alignCBType == nsGkAtoms::gridContainerFrame) {
         // Shrink-wrap grid items that will be aligned (rather than stretched)
@@ -3033,24 +3038,6 @@ ReflowInput::ComputeMinMaxValues(const LogicalSize&aCBSize)
   // 'max-height', 'max-height' is set to the value of 'min-height'
   if (ComputedMinBSize() > ComputedMaxBSize()) {
     ComputedMaxBSize() = ComputedMinBSize();
-  }
-}
-
-void
-ReflowInput::SetTruncated(const ReflowOutput& aMetrics,
-                                nsReflowStatus* aStatus) const
-{
-  const WritingMode containerWM = aMetrics.GetWritingMode();
-  if (GetWritingMode().IsOrthogonalTo(containerWM)) {
-    // Orthogonal flows are always reflowed with an unconstrained dimension,
-    // so should never end up truncated (see ReflowInput::Init()).
-    *aStatus &= ~NS_FRAME_TRUNCATED;
-  } else if (AvailableBSize() != NS_UNCONSTRAINEDSIZE &&
-             AvailableBSize() < aMetrics.BSize(containerWM) &&
-             !mFlags.mIsTopOfPage) {
-    *aStatus |= NS_FRAME_TRUNCATED;
-  } else {
-    *aStatus &= ~NS_FRAME_TRUNCATED;
   }
 }
 

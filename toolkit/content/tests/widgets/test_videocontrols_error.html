@@ -18,9 +18,6 @@
 <script clas="testbody" type="application/javascript">
   SimpleTest.waitForExplicitFinish();
 
-  const domUtils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"].
-    getService(SpecialPowers.Ci.inIDOMUtils);
-
   const video = document.getElementById("video");
   const statusOverlay = getAnonElementWithinVideoByAttribute(video, "anonid", "statusOverlay");
   const statusIcon = getAnonElementWithinVideoByAttribute(video, "anonid", "statusIcon");
@@ -62,7 +59,7 @@
     SpecialPowers.pushPrefEnv({"set": [["media.cache_size", 40000]]}, startTest);
   }
 
-  window.addEventListener("load", loadevent, false);
+  window.addEventListener("load", loadevent);
 </script>
 </pre>
 </body>

@@ -42,10 +42,7 @@ this.l10n = {};
  * @return {string}
  *     The localized string for the requested entity.
  */
-l10n.localizeEntity = function(urls, id) {
-  // Add xhtml11.dtd to prevent missing entity errors with XHTML files
-  urls.push("resource:///res/dtd/xhtml11.dtd");
-
+l10n.localizeEntity = function (urls, id) {
   // Build a string which contains all possible entity locations
   let locations = [];
   urls.forEach((url, index) => {
@@ -79,7 +76,7 @@ l10n.localizeEntity = function(urls, id) {
  * @return {string}
  *     The localized string for the requested property.
  */
-l10n.localizeProperty = function(urls, id) {
+l10n.localizeProperty = function (urls, id) {
   let property = null;
 
   for (let url of urls) {

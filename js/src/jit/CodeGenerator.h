@@ -42,6 +42,7 @@ class OutOfLineUnboxFloatingPoint;
 class OutOfLineStoreElementHole;
 class OutOfLineTypeOfV;
 class OutOfLineUpdateCache;
+class OutOfLineICFallback;
 class OutOfLineCallPostWriteBarrier;
 class OutOfLineCallPostWriteElementBarrier;
 class OutOfLineIsCallable;
@@ -286,6 +287,8 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitSinCos(LSinCos *lir);
     void visitStringSplit(LStringSplit* lir);
     void visitFunctionEnvironment(LFunctionEnvironment* lir);
+    void visitNewLexicalEnvironmentObject(LNewLexicalEnvironmentObject* lir);
+    void visitCopyLexicalEnvironmentObject(LCopyLexicalEnvironmentObject* lir);
     void visitCallGetProperty(LCallGetProperty* lir);
     void visitCallGetElement(LCallGetElement* lir);
     void visitCallSetElement(LCallSetElement* lir);
@@ -365,6 +368,12 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitCallDOMNative(LCallDOMNative* lir);
     void visitCallGetIntrinsicValue(LCallGetIntrinsicValue* lir);
     void visitCallBindVar(LCallBindVar* lir);
+    enum CallableOrConstructor {
+        Callable,
+        Constructor
+    };
+    template <CallableOrConstructor mode>
+    void emitIsCallableOrConstructor(Register object, Register output, Label* failure);
     void visitIsCallable(LIsCallable* lir);
     void visitOutOfLineIsCallable(OutOfLineIsCallable* ool);
     void visitIsConstructor(LIsConstructor* lir);
@@ -385,6 +394,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitArrowNewTarget(LArrowNewTarget* ins);
     void visitCheckReturn(LCheckReturn* ins);
     void visitCheckIsObj(LCheckIsObj* ins);
+    void visitCheckIsCallable(LCheckIsCallable* ins);
     void visitCheckObjCoercible(LCheckObjCoercible* ins);
     void visitDebugCheckSelfHosted(LDebugCheckSelfHosted* ins);
     void visitNaNToZero(LNaNToZero* ins);
@@ -402,6 +412,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
 
     // Inline caches visitors.
     void visitOutOfLineCache(OutOfLineUpdateCache* ool);
+    void visitOutOfLineICFallback(OutOfLineICFallback* ool);
 
     void visitGetPropertyCacheV(LGetPropertyCacheV* ins);
     void visitGetPropertyCacheT(LGetPropertyCacheT* ins);
@@ -410,8 +421,6 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitSetPropertyCache(LSetPropertyCache* ins);
     void visitGetNameCache(LGetNameCache* ins);
 
-    void visitGetPropertyIC(OutOfLineUpdateCache* ool, DataPtr<GetPropertyIC>& ic);
-    void visitSetPropertyIC(OutOfLineUpdateCache* ool, DataPtr<SetPropertyIC>& ic);
     void visitBindNameIC(OutOfLineUpdateCache* ool, DataPtr<BindNameIC>& ic);
     void visitNameIC(OutOfLineUpdateCache* ool, DataPtr<NameIC>& ic);
 
@@ -446,12 +455,12 @@ class CodeGenerator final : public CodeGeneratorSpecific
     }
 
   private:
-    void addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
-                             const ConstantOrRegister& id, TypedOrValueRegister output,
-                             bool monitoredResult, bool allowDoubleResult,
-                             jsbytecode* profilerLeavePc);
+    void addGetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs,
+                             TypedOrValueRegister value, const ConstantOrRegister& id,
+                             TypedOrValueRegister output, Register maybeTemp, bool monitoredResult,
+                             bool allowDoubleResult, jsbytecode* profilerLeavePc);
     void addSetPropertyCache(LInstruction* ins, LiveRegisterSet liveRegs, Register objReg,
-                             Register temp, Register tempUnbox, FloatRegister tempDouble,
+                             Register temp, FloatRegister tempDouble,
                              FloatRegister tempF32, const ConstantOrRegister& id,
                              const ConstantOrRegister& value,
                              bool strict, bool needsTypeBarrier, bool guardHoles,

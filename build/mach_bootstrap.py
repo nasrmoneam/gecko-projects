@@ -53,6 +53,7 @@ SEARCH_PATHS = [
     'python/slugid',
     'python/py',
     'python/pytest',
+    'python/pytoml',
     'python/redo',
     'python/voluptuous',
     'build',
@@ -68,7 +69,7 @@ SEARCH_PATHS = [
     'testing/firefox-ui/harness',
     'testing/marionette/client',
     'testing/marionette/harness',
-    'testing/marionette/harness/marionette/runner/mixins/browsermob-proxy-py',
+    'testing/marionette/harness/marionette_harness/runner/mixins/browsermob-proxy-py',
     'testing/marionette/puppeteer/firefox',
     'testing/mozbase/mozcrash',
     'testing/mozbase/mozdebug',
@@ -203,6 +204,9 @@ def bootstrap(topsrcdir, mozilla_dir=None):
     sys.path[0:0] = [os.path.join(mozilla_dir, path) for path in SEARCH_PATHS]
     import mach.main
     from mozboot.util import get_state_dir
+
+    from mozbuild.util import patch_main
+    patch_main()
 
     def telemetry_handler(context, data):
         # We have not opted-in to telemetry

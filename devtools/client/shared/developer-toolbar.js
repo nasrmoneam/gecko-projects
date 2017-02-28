@@ -10,7 +10,6 @@ const defer = require("devtools/shared/defer");
 const Services = require("Services");
 const { TargetFactory } = require("devtools/client/framework/target");
 const Telemetry = require("devtools/client/shared/telemetry");
-const {ViewHelpers} = require("devtools/client/shared/widgets/view-helpers");
 const {LocalizationHelper} = require("devtools/shared/l10n");
 const L10N = new LocalizationHelper("devtools/client/locales/toolbox.properties");
 const {Task} = require("devtools/shared/task");
@@ -37,6 +36,28 @@ loader.lazyRequireGetter(this, "EventEmitter", "devtools/shared/event-emitter");
  */
 var CommandUtils = {
   /**
+   * Caches requisitions created when calling executeOnTarget:
+   * Target => Requisition Promise
+   */
+  _requisitions: new WeakMap(),
+
+  /**
+   * Utility to execute a command string on a given target
+   */
+  executeOnTarget: Task.async(function* (target, command) {
+    let requisitionPromise = this._requisitions.get(target);
+    if (!requisitionPromise) {
+      requisitionPromise = this.createRequisition(target, {
+        environment: CommandUtils.createEnvironment({ target }, "target")
+      });
+      // Store the promise to avoid races by storing the promise immediately
+      this._requisitions.set(target, requisitionPromise);
+    }
+    let requisition = yield requisitionPromise;
+    requisition.updateExec(command);
+  }),
+
+  /**
    * Utility to ensure that things are loaded in the correct order
    */
   createRequisition: function (target, options) {
@@ -55,115 +76,6 @@ var CommandUtils = {
   destroyRequisition: function (requisition, target) {
     requisition.destroy();
     gcliInit.releaseSystem(target);
-  },
-
-  /**
-   * Read a toolbarSpec from preferences
-   * @param pref The name of the preference to read
-   */
-  getCommandbarSpec: function (pref) {
-    let value = prefBranch.getComplexValue(pref, Ci.nsISupportsString).data;
-    return JSON.parse(value);
-  },
-
-  /**
-   * A toolbarSpec is an array of strings each of which is a GCLI command.
-   *
-   * Warning: this method uses the unload event of the window that owns the
-   * buttons that are of type checkbox. this means that we don't properly
-   * unregister event handlers until the window is destroyed.
-   */
-  createButtons: function (toolbarSpec, target, document, requisition) {
-    return util.promiseEach(toolbarSpec, typed => {
-      // Ask GCLI to parse the typed string (doesn't execute it)
-      return requisition.update(typed).then(() => {
-        let button = document.createElementNS(NS_XHTML, "button");
-
-        // Ignore invalid commands
-        let command = requisition.commandAssignment.value;
-        if (command == null) {
-          throw new Error("No command '" + typed + "'");
-        }
-
-        if (command.buttonId != null) {
-          button.id = command.buttonId;
-          if (command.buttonClass != null) {
-            button.className = command.buttonClass;
-          }
-        } else {
-          button.setAttribute("text-as-image", "true");
-          button.setAttribute("label", command.name);
-        }
-
-        button.classList.add("devtools-button");
-
-        if (command.tooltipText != null) {
-          button.setAttribute("title", command.tooltipText);
-        } else if (command.description != null) {
-          button.setAttribute("title", command.description);
-        }
-
-        button.addEventListener("click",
-          requisition.updateExec.bind(requisition, typed));
-
-        button.addEventListener("keypress", (event) => {
-          if (ViewHelpers.isSpaceOrReturn(event)) {
-            event.preventDefault();
-            requisition.updateExec(typed);
-          }
-        }, false);
-
-        // Allow the command button to be toggleable
-        let onChange = null;
-        if (command.state) {
-          button.setAttribute("autocheck", false);
-
-          /**
-           * The onChange event should be called with an event object that
-           * contains a target property which specifies which target the event
-           * applies to. For legacy reasons the event object can also contain
-           * a tab property.
-           */
-          onChange = (eventName, ev) => {
-            if (ev.target == target || ev.tab == target.tab) {
-              let updateChecked = (checked) => {
-                if (checked) {
-                  button.setAttribute("checked", true);
-                } else if (button.hasAttribute("checked")) {
-                  button.removeAttribute("checked");
-                }
-              };
-
-              // isChecked would normally be synchronous. An annoying quirk
-              // of the 'csscoverage toggle' command forces us to accept a
-              // promise here, but doing Promise.resolve(reply).then(...) here
-              // makes this async for everyone, which breaks some tests so we
-              // treat non-promise replies separately to keep then synchronous.
-              let reply = command.state.isChecked(target);
-              if (typeof reply.then == "function") {
-                reply.then(updateChecked, console.error);
-              } else {
-                updateChecked(reply);
-              }
-            }
-          };
-
-          command.state.onChange(target, onChange);
-          onChange("", { target: target });
-        }
-        document.defaultView.addEventListener("unload", function (event) {
-          if (onChange && command.state.offChange) {
-            command.state.offChange(target, onChange);
-          }
-          button.remove();
-          button = null;
-        }, { once: true });
-
-        requisition.clear();
-
-        return button;
-      });
-    });
   },
 
   /**
@@ -505,8 +417,8 @@ DeveloperToolbar.prototype.show = function (focus) {
     this.onOutput.add(this.outputPanel._outputChanged, this.outputPanel);
 
     let tabbrowser = this._chromeWindow.gBrowser;
-    tabbrowser.tabContainer.addEventListener("TabSelect", this, false);
-    tabbrowser.tabContainer.addEventListener("TabClose", this, false);
+    tabbrowser.tabContainer.addEventListener("TabSelect", this);
+    tabbrowser.tabContainer.addEventListener("TabClose", this);
     tabbrowser.addEventListener("load", this, true);
     tabbrowser.addEventListener("beforeunload", this, true);
 
@@ -645,8 +557,8 @@ DeveloperToolbar.prototype.destroy = function () {
   }
 
   let tabbrowser = this._chromeWindow.gBrowser;
-  tabbrowser.tabContainer.removeEventListener("TabSelect", this, false);
-  tabbrowser.tabContainer.removeEventListener("TabClose", this, false);
+  tabbrowser.tabContainer.removeEventListener("TabSelect", this);
+  tabbrowser.tabContainer.removeEventListener("TabClose", this);
   tabbrowser.removeEventListener("load", this, true);
   tabbrowser.removeEventListener("beforeunload", this, true);
 
@@ -950,8 +862,8 @@ OutputPanel.prototype._init = function (devtoolbar) {
    so it can be styled correctly. */
 OutputPanel.prototype._copyTheme = function () {
   if (this.document) {
-    let theme =
-      this._devtoolbar._doc.documentElement.getAttribute("devtoolstheme");
+    let theme = this._devtoolbar._doc.getElementById("browser-bottombox")
+                  .getAttribute("devtoolstheme");
     this.document.documentElement.setAttribute("devtoolstheme", theme);
   }
 };
@@ -1270,8 +1182,8 @@ TooltipPanel.prototype._init = function (devtoolbar) {
    so it can be styled correctly. */
 TooltipPanel.prototype._copyTheme = function () {
   if (this.document) {
-    let theme =
-      this._devtoolbar._doc.documentElement.getAttribute("devtoolstheme");
+    let theme = this._devtoolbar._doc.getElementById("browser-bottombox")
+                  .getAttribute("devtoolstheme");
     this.document.documentElement.setAttribute("devtoolstheme", theme);
   }
 };

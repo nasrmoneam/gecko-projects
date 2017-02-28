@@ -304,8 +304,10 @@ WebGLContext::ValidateUniformMatrixArraySetter(WebGLUniformLocation* loc,
     if (!loc->ValidateArrayLength(setterElemSize, setterArraySize, funcName))
         return false;
 
-    if (!ValidateUniformMatrixTranspose(setterTranspose, funcName))
+    if (setterTranspose && !IsWebGL2()) {
+        ErrorInvalidValue("%s: `transpose` must be false.", funcName);
         return false;
+    }
 
     const auto& elemCount = loc->mInfo->mActiveInfo->mElemCount;
     MOZ_ASSERT(elemCount > loc->mArrayIndex);
@@ -336,56 +338,6 @@ WebGLContext::ValidateAttribIndex(GLuint index, const char* info)
     }
 
     return valid;
-}
-
-bool
-WebGLContext::ValidateAttribPointer(bool integerMode, GLuint index, GLint size, GLenum type,
-                                    WebGLboolean normalized, GLsizei stride,
-                                    WebGLintptr byteOffset, const char* info)
-{
-    WebGLBuffer* buffer = mBoundArrayBuffer;
-    if (!buffer) {
-        ErrorInvalidOperation("%s: must have valid GL_ARRAY_BUFFER binding", info);
-        return false;
-    }
-
-    uint32_t requiredAlignment = 0;
-    if (!ValidateAttribPointerType(integerMode, type, &requiredAlignment, info))
-        return false;
-
-    // requiredAlignment should always be a power of two
-    MOZ_ASSERT(IsPowerOfTwo(requiredAlignment));
-    GLsizei requiredAlignmentMask = requiredAlignment - 1;
-
-    if (size < 1 || size > 4) {
-        ErrorInvalidValue("%s: invalid element size", info);
-        return false;
-    }
-
-    // see WebGL spec section 6.6 "Vertex Attribute Data Stride"
-    if (stride < 0 || stride > 255) {
-        ErrorInvalidValue("%s: negative or too large stride", info);
-        return false;
-    }
-
-    if (byteOffset < 0) {
-        ErrorInvalidValue("%s: negative offset", info);
-        return false;
-    }
-
-    if (stride & requiredAlignmentMask) {
-        ErrorInvalidOperation("%s: stride doesn't satisfy the alignment "
-                              "requirement of given type", info);
-        return false;
-    }
-
-    if (byteOffset & requiredAlignmentMask) {
-        ErrorInvalidOperation("%s: byteOffset doesn't satisfy the alignment "
-                              "requirement of given type", info);
-        return false;
-    }
-
-    return true;
 }
 
 bool
@@ -501,6 +453,7 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     mDitherEnabled = true;
     mRasterizerDiscardEnabled = false;
     mScissorTestEnabled = false;
+    mGenerateMipmapHint = LOCAL_GL_DONT_CARE;
 
     // Bindings, etc.
     mActiveTexture = 0;
@@ -525,14 +478,10 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
 
     MakeContextCurrent();
 
-    // For OpenGL compat. profiles, we always keep vertex attrib 0 array enabled.
-    if (gl->IsCompatibilityProfile())
-        gl->fEnableVertexAttribArray(0);
-
     if (MinCapabilityMode())
         mGLMaxVertexAttribs = MINVALUE_GL_MAX_VERTEX_ATTRIBS;
     else
-        gl->fGetIntegerv(LOCAL_GL_MAX_VERTEX_ATTRIBS, &mGLMaxVertexAttribs);
+        gl->GetUIntegerv(LOCAL_GL_MAX_VERTEX_ATTRIBS, &mGLMaxVertexAttribs);
 
     if (mGLMaxVertexAttribs < 8) {
         const nsPrintfCString reason("GL_MAX_VERTEX_ATTRIBS: %d is < 8!",
@@ -561,6 +510,8 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
     mBound3DTextures.SetLength(mGLMaxTextureUnits);
     mBound2DArrayTextures.SetLength(mGLMaxTextureUnits);
     mBoundSamplers.SetLength(mGLMaxTextureUnits);
+
+    gl->fGetIntegerv(LOCAL_GL_MAX_VIEWPORT_DIMS, (GLint*)mImplMaxViewportDims);
 
     ////////////////
 
@@ -729,13 +680,6 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
         return false;
     }
 
-    // Default value for all disabled vertex attributes is [0, 0, 0, 1]
-    mVertexAttribType = MakeUnique<GLenum[]>(mGLMaxVertexAttribs);
-    for (int32_t index = 0; index < mGLMaxVertexAttribs; ++index) {
-        mVertexAttribType[index] = LOCAL_GL_FLOAT;
-        VertexAttrib4f(index, 0, 0, 0, 1);
-    }
-
     mDefaultVertexArray = WebGLVertexArray::Create(this);
     mDefaultVertexArray->mAttribs.SetLength(mGLMaxVertexAttribs);
     mBoundVertexArray = mDefaultVertexArray;
@@ -772,6 +716,15 @@ WebGLContext::InitAndValidateGL(FailureReason* const out_failReason)
 
     mPrimRestartTypeBytes = 0;
 
+    mGenericVertexAttribTypes.reset(new GLenum[mGLMaxVertexAttribs]);
+    std::fill_n(mGenericVertexAttribTypes.get(), mGLMaxVertexAttribs, LOCAL_GL_FLOAT);
+
+    static const float kDefaultGenericVertexAttribData[4] = { 0, 0, 0, 1 };
+    memcpy(mGenericVertexAttrib0Data, kDefaultGenericVertexAttribData,
+           sizeof(mGenericVertexAttrib0Data));
+
+    mFakeVertexAttrib0BufferObject = 0;
+
     return true;
 }
 
@@ -798,8 +751,7 @@ WebGLContext::ValidateFramebufferTarget(GLenum target,
         return true;
     }
 
-    ErrorInvalidEnum("%s: Invalid target: %s (0x%04x).", info, EnumName(target),
-                     target);
+    ErrorInvalidEnumArg(info, "target", target);
     return false;
 }
 

@@ -37,10 +37,6 @@
 namespace mozilla {
 namespace dom {
 
-namespace workers {
-extern bool IsCurrentThreadRunningChromeWorker();
-} // namespace workers
-
 static char *sPopupAllowedEvents;
 
 static bool sReturnHighResTimeStamp = false;
@@ -230,7 +226,6 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Event)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPresContext)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExplicitOriginalTarget)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 
@@ -271,16 +266,10 @@ Event::GetType(nsAString& aType)
   return NS_OK;
 }
 
-static EventTarget*
-GetDOMEventTarget(nsIDOMEventTarget* aTarget)
-{
-  return aTarget ? aTarget->GetTargetForDOMEvent() : nullptr;
-}
-
 EventTarget*
 Event::GetTarget() const
 {
-  return GetDOMEventTarget(mEvent->mTarget);
+  return mEvent->GetDOMEventTarget();
 }
 
 NS_IMETHODIMP
@@ -293,7 +282,7 @@ Event::GetTarget(nsIDOMEventTarget** aTarget)
 EventTarget*
 Event::GetCurrentTarget() const
 {
-  return GetDOMEventTarget(mEvent->mCurrentTarget);
+  return mEvent->GetCurrentDOMEventTarget();
 }
 
 NS_IMETHODIMP
@@ -340,11 +329,7 @@ Event::GetExplicitOriginalTarget(nsIDOMEventTarget** aRealEventTarget)
 EventTarget*
 Event::GetOriginalTarget() const
 {
-  if (mEvent->mOriginalTarget) {
-    return GetDOMEventTarget(mEvent->mOriginalTarget);
-  }
-
-  return GetTarget();
+  return mEvent->GetOriginalDOMEventTarget();
 }
 
 NS_IMETHODIMP
@@ -378,7 +363,7 @@ bool
 Event::Init(mozilla::dom::EventTarget* aGlobal)
 {
   if (!mIsMainThreadEvent) {
-    return nsContentUtils::ThreadsafeIsCallerChrome();
+    return workers::IsCurrentThreadRunningChromeWorker();
   }
   bool trusted = false;
   nsCOMPtr<nsPIDOMWindowInner> w = do_QueryInterface(aGlobal);
@@ -403,8 +388,17 @@ Event::Constructor(const GlobalObject& aGlobal,
                    ErrorResult& aRv)
 {
   nsCOMPtr<mozilla::dom::EventTarget> t = do_QueryInterface(aGlobal.GetAsSupports());
-  RefPtr<Event> e = new Event(t, nullptr, nullptr);
-  bool trusted = e->Init(t);
+  return Constructor(t, aType, aParam);
+}
+
+// static
+already_AddRefed<Event>
+Event::Constructor(EventTarget* aEventTarget,
+                   const nsAString& aType,
+                   const EventInit& aParam)
+{
+  RefPtr<Event> e = new Event(aEventTarget, nullptr, nullptr);
+  bool trusted = e->Init(aEventTarget);
   e->InitEvent(aType, aParam.mBubbles, aParam.mCancelable);
   e->SetTrusted(trusted);
   e->SetComposed(aParam.mComposed);
@@ -566,6 +560,34 @@ Event::SetEventType(const nsAString& aEventTypeArg)
     mEvent->SetComposed(aEventTypeArg);
   }
   mEvent->SetDefaultComposedInNativeAnonymousContent();
+}
+
+already_AddRefed<EventTarget>
+Event::EnsureWebAccessibleRelatedTarget(EventTarget* aRelatedTarget)
+{
+  nsCOMPtr<EventTarget> relatedTarget = aRelatedTarget;
+  if (relatedTarget) {
+    nsCOMPtr<nsIContent> content = do_QueryInterface(relatedTarget);
+    nsCOMPtr<nsIContent> currentTarget =
+      do_QueryInterface(mEvent->mCurrentTarget);
+
+    if (content && content->ChromeOnlyAccess() &&
+        !nsContentUtils::CanAccessNativeAnon()) {
+      content = content->FindFirstNonChromeOnlyAccessContent();
+      relatedTarget = do_QueryInterface(content);
+    }
+
+    nsIContent* shadowRelatedTarget =
+      GetShadowRelatedTarget(currentTarget, content);
+    if (shadowRelatedTarget) {
+      relatedTarget = shadowRelatedTarget;
+    }
+
+    if (relatedTarget) {
+      relatedTarget = relatedTarget->GetTargetForDOMEvent();
+    }
+  }
+  return relatedTarget.forget();
 }
 
 void
@@ -1006,7 +1028,7 @@ Event::GetOffsetCoords(nsPresContext* aPresContext,
   if (!shell) {
     return CSSIntPoint(0, 0);
   }
-  shell->FlushPendingNotifications(Flush_Layout);
+  shell->FlushPendingNotifications(FlushType::Layout);
   nsIFrame* frame = content->GetPrimaryFrame();
   if (!frame) {
     return CSSIntPoint(0, 0);
@@ -1094,16 +1116,11 @@ Event::TimeStamp() const
     return perf->GetDOMTiming()->TimeStampToDOMHighRes(mEvent->mTimeStamp);
   }
 
-  // For dedicated workers, we should make times relative to the navigation
-  // start of the document that created the worker, which is the same as the
-  // timebase for performance.now().
   workers::WorkerPrivate* workerPrivate =
     workers::GetCurrentThreadWorkerPrivate();
   MOZ_ASSERT(workerPrivate);
 
-  TimeDuration duration =
-    mEvent->mTimeStamp - workerPrivate->NowBaseTimeStamp();
-  return duration.ToMilliseconds();
+  return workerPrivate->TimeStampToDOMHighRes(mEvent->mTimeStamp);
 }
 
 bool
@@ -1185,7 +1202,7 @@ Event::Deserialize(const IPC::Message* aMsg, PickleIterator* aIter)
 }
 
 NS_IMETHODIMP_(void)
-Event::SetOwner(mozilla::dom::EventTarget* aOwner)
+Event::SetOwner(EventTarget* aOwner)
 {
   mOwner = nullptr;
 
@@ -1266,7 +1283,9 @@ Event::GetCancelBubble(bool* aCancelBubble)
 NS_IMETHODIMP
 Event::SetCancelBubble(bool aCancelBubble)
 {
-  mEvent->mFlags.mPropagationStopped = aCancelBubble;
+  if (aCancelBubble) {
+    mEvent->StopPropagation();
+  }
   return NS_OK;
 }
 

@@ -15,6 +15,8 @@ Cu.import("resource://gre/modules/AppConstants.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
+                                  "resource:///modules/E10SUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ExtensionUtils",
                                   "resource://gre/modules/ExtensionUtils.jsm");
 
@@ -205,8 +207,8 @@ var Service = {
   // Checks whether a given extension can load this URI (typically via
   // an XML HTTP request). The manifest.json |permissions| directive
   // determines this.
-  checkAddonMayLoad(extension, uri) {
-    return extension.whiteListedHosts.matchesIgnoringPath(uri);
+  checkAddonMayLoad(extension, uri, explicit = false) {
+    return extension.whiteListedHosts.matchesIgnoringPath(uri, explicit);
   },
 
   generateBackgroundPageUrl(extension) {
@@ -281,7 +283,18 @@ function getAPILevelForWindow(window, addonId) {
     let parentDocument = parentWindow.document;
     let parentIsSystemPrincipal = Services.scriptSecurityManager
                                           .isSystemPrincipal(parentDocument.nodePrincipal);
+
     if (parentDocument.location.href == "about:addons" && parentIsSystemPrincipal) {
+      return FULL_PRIVILEGES;
+    }
+
+    // NOTE: Special handling for devtools panels using a chrome iframe here
+    // for the devtools panel, it is needed because a content iframe breaks
+    // switching between docked and undocked mode (see bug 1075490).
+    let devtoolsBrowser = parentDocument.querySelector(
+      "browser[webextension-view-type='devtools_panel']");
+    if (devtoolsBrowser && devtoolsBrowser.contentWindow === window &&
+        parentIsSystemPrincipal) {
       return FULL_PRIVILEGES;
     }
 
@@ -305,8 +318,10 @@ function getAPILevelForWindow(window, addonId) {
 
 ExtensionManagement = {
   get isExtensionProcess() {
-    return (this.useRemoteWebExtensions ||
-            Services.appinfo.processType === Services.appinfo.PROCESS_TYPE_DEFAULT);
+    if (this.useRemoteWebExtensions) {
+      return Services.appinfo.remoteType === E10SUtils.EXTENSION_REMOTE_TYPE;
+    }
+    return Services.appinfo.processType === Services.appinfo.PROCESS_TYPE_DEFAULT;
   },
 
   startupExtension: Service.startupExtension.bind(Service),

@@ -8,6 +8,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 import os
 import json
 import logging
+import re
 
 import time
 import yaml
@@ -16,7 +17,7 @@ from .generator import TaskGraphGenerator
 from .create import create_tasks
 from .parameters import Parameters
 from .taskgraph import TaskGraph
-from .util.verifydoc import verify_docs
+from actions import render_actions_json
 
 from taskgraph.util.templates import Templates
 from taskgraph.util.time import (
@@ -55,6 +56,20 @@ PER_PROJECT_PARAMETERS = {
         'optimize_target_tasks': True,
     },
 
+    'mozilla-beta': {
+        'target_tasks_method': 'mozilla_beta_tasks',
+        'optimize_target_tasks': True,
+    },
+    'mozilla-release': {
+        'target_tasks_method': 'mozilla_release_tasks',
+        'optimize_target_tasks': True,
+    },
+
+    'pine': {
+        'target_tasks_method': 'pine_tasks',
+        'optimize_target_tasks': True,
+    },
+
     # the default parameters are used for projects that do not match above.
     'default': {
         'target_tasks_method': 'default',
@@ -76,7 +91,6 @@ def taskgraph_decision(options):
     """
 
     parameters = get_decision_parameters(options)
-    verify_parameters(parameters)
     # create a TaskGraphGenerator instance
     tgg = TaskGraphGenerator(
         root_dir=options['root'],
@@ -87,6 +101,9 @@ def taskgraph_decision(options):
 
     # write out the yml file for action tasks
     write_artifact('action.yml', get_action_yml(parameters))
+
+    # write out the public/actions.json file
+    write_artifact('actions.json', render_actions_json(parameters))
 
     # write out the full graph for reference
     full_task_json = tgg.full_task_graph.to_json()
@@ -131,7 +148,6 @@ def get_decision_parameters(options):
     # Define default filter list, as most configurations shouldn't need
     # custom filters.
     parameters['filters'] = [
-        'check_servo',
         'target_tasks_method',
     ]
 
@@ -180,19 +196,18 @@ def write_artifact(filename, data):
 def get_action_yml(parameters):
     templates = Templates(os.path.join(GECKO, "taskcluster/taskgraph"))
     action_parameters = parameters.copy()
+
+    match = re.match(r'https://(hg.mozilla.org)/(.*?)/?$', action_parameters['head_repository'])
+    if not match:
+        raise Exception('Unrecognized head_repository')
+    repo_scope = 'assume:repo:{}/{}:*'.format(
+        match.group(1), match.group(2))
+
     action_parameters.update({
-        "decision_task_id": "{{decision_task_id}}",
-        "task_labels": "{{task_labels}}",
+        "action": "{{action}}",
+        "action_args": "{{action_args}}",
+        "repo_scope": repo_scope,
         "from_now": json_time_from_now,
         "now": current_json_time()
     })
     return templates.load('action.yml', action_parameters)
-
-
-def verify_parameters(parameters):
-        parameters_dict = dict(**parameters)
-        verify_docs(
-            filename="parameters.rst",
-            identifiers=parameters_dict.keys(),
-            appearing_as="inline-literal"
-         )

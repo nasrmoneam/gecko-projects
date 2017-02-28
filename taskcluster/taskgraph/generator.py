@@ -6,13 +6,18 @@ from __future__ import absolute_import, print_function, unicode_literals
 import logging
 import os
 import yaml
+import copy
 
 from . import filter_tasks
 from .graph import Graph
 from .taskgraph import TaskGraph
 from .optimize import optimize_task_graph
 from .util.python_path import find_object
-from .util.verifydoc import verify_docs
+from .util.verify import (
+    verify_docs,
+    verify_task_graph_symbol,
+    verify_gecko_v2_routes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +39,15 @@ class Kind(object):
 
     def load_tasks(self, parameters, loaded_tasks):
         impl_class = self._get_impl_class()
-        return impl_class.load_tasks(self.name, self.path, self.config,
+        config = copy.deepcopy(self.config)
+
+        if 'parse-commit' in self.config:
+            parse_commit = find_object(config['parse-commit'])
+            config['args'] = parse_commit(parameters['message'])
+        else:
+            config['args'] = None
+
+        return impl_class.load_tasks(self.name, self.path, config,
                                      parameters, loaded_tasks)
 
 
@@ -61,6 +74,8 @@ class TaskGraphGenerator(object):
         """
         self.root_dir = root_dir
         self.parameters = parameters
+
+        self.verify_parameters(self.parameters)
 
         filters = parameters.get('filters', [])
 
@@ -190,6 +205,8 @@ class TaskGraphGenerator(object):
 
         full_task_graph = TaskGraph(all_tasks,
                                     Graph(full_task_set.graph.nodes, edges))
+        full_task_graph.for_each_task(verify_task_graph_symbol, scratch_pad={})
+        full_task_graph.for_each_task(verify_gecko_v2_routes, scratch_pad={})
         logger.info("Full task graph contains %d tasks and %d dependencies" % (
             len(full_task_set.graph.nodes), len(edges)))
         yield 'full_task_graph', full_task_graph
@@ -236,6 +253,14 @@ class TaskGraphGenerator(object):
                 raise AttributeError("No such run result {}".format(name))
             self._run_results[k] = v
         return self._run_results[name]
+
+    def verify_parameters(self, parameters):
+        parameters_dict = dict(**parameters)
+        verify_docs(
+            filename="parameters.rst",
+            identifiers=parameters_dict.keys(),
+            appearing_as="inline-literal"
+         )
 
     def verify_kinds(self, kinds):
         verify_docs(

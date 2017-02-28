@@ -121,7 +121,8 @@ public:
                                    int32_t aClickCount,
                                    int32_t aModifiers,
                                    bool aIgnoreRootScrollFrame,
-                                   unsigned short aInputSourceArg);
+                                   unsigned short aInputSourceArg,
+                                   uint32_t aPointerId);
 
     /* Fire a single-tap event at the given point. The event is dispatched
      * via the given widget. */
@@ -138,8 +139,12 @@ public:
      * sent to the compositor, which will then post a message back to APZ's
      * controller thread. Otherwise, the provided widget's SetConfirmedTargetAPZC
      * method is invoked immediately.
+     *
+     * Returns true if any displayports need to be set. (A caller may be
+     * interested to know this, because they may need to delay certain actions
+     * until after the displayport comes into effect.)
      */
-    static void SendSetTargetAPZCNotification(nsIWidget* aWidget,
+    static bool SendSetTargetAPZCNotification(nsIWidget* aWidget,
                                               nsIDocument* aDocument,
                                               const WidgetGUIEvent& aEvent,
                                               const ScrollableLayerGuid& aGuid,
@@ -158,6 +163,8 @@ public:
 
     /* Notify content that the repaint flush is complete. */
     static void NotifyFlushComplete(nsIPresShell* aShell);
+
+    static void NotifyAsyncScrollbarDragRejected(const FrameMetrics::ViewID& aScrollId);
 
     /* Temporarily ignore the Displayport for better paint performance. If at
      * all possible, pass in a presShell if you have one at the call site, we

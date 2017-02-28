@@ -6,8 +6,10 @@
 
 #include "CertBlocklist.h"
 
+#include "mozilla/Assertions.h"
 #include "mozilla/Base64.h"
 #include "mozilla/Casting.h"
+#include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Unused.h"
@@ -512,7 +514,7 @@ CertBlocklist::SaveEntries()
   }
 
   nsCOMPtr<nsISafeOutputStream> safeStream = do_QueryInterface(outputStream);
-  NS_ASSERTION(safeStream, "expected a safe output stream!");
+  MOZ_ASSERT(safeStream, "expected a safe output stream!");
   if (!safeStream) {
     return NS_ERROR_FAILURE;
   }
@@ -637,7 +639,7 @@ CertBlocklist::IsBlocklistFresh(bool* _retval)
     int64_t interval = now - lastUpdate;
     MOZ_LOG(gCertBlockPRLog, LogLevel::Warning,
            ("CertBlocklist::IsBlocklistFresh we're after the last BlocklistUpdate "
-            "interval is %i, staleness %u", interval, sMaxStaleness));
+            "interval is %" PRId64 ", staleness %u", interval, sMaxStaleness));
     *_retval = sMaxStaleness > interval;
   }
   MOZ_LOG(gCertBlockPRLog, LogLevel::Warning,

@@ -81,11 +81,6 @@ public:
 
   uint64_t GetSerial() const { return mSerial; }
 
-  virtual mozilla::ipc::IPCResult RecvDestroySync() override {
-    DestroyIfNeeded();
-    return IPC_OK();
-  }
-
   HostIPCAllocator* mSurfaceAllocator;
   RefPtr<TextureHost> mTextureHost;
   // mSerial is unique in TextureClient's process.
@@ -202,7 +197,8 @@ TextureHost::Create(const SurfaceDescriptor& aDesc,
       return CreateTextureHostOGL(aDesc, aDeallocator, aFlags);
 
     case SurfaceDescriptor::TSurfaceDescriptorMacIOSurface:
-      if (aBackend == LayersBackend::LAYERS_OPENGL) {
+      if (aBackend == LayersBackend::LAYERS_OPENGL ||
+          aBackend == LayersBackend::LAYERS_WR) {
         return CreateTextureHostOGL(aDesc, aDeallocator, aFlags);
       } else {
         return CreateTextureHostBasic(aDesc, aDeallocator, aFlags);
@@ -577,8 +573,13 @@ BufferTextureHost::EnsureWrappingTextureSource()
 {
   MOZ_ASSERT(!mHasIntermediateBuffer);
 
-  if (mFirstSource) {
+  if (mFirstSource && mFirstSource->IsOwnedBy(this)) {
     return true;
+  }
+  // We don't own it, apparently.
+  if (mFirstSource) {
+    mNeedsFullUpdate = true;
+    mFirstSource = nullptr;
   }
 
   if (!mCompositor) {

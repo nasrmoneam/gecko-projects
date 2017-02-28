@@ -5,7 +5,7 @@
 
 var testGenerator = testSteps();
 
-function testSteps()
+function* testSteps()
 {
   const openParams = [
     // This one lives in storage/default/http+++localhost
@@ -105,7 +105,7 @@ function testSteps()
   function openDatabase(params) {
     let request;
     if ("url" in params) {
-      let uri = ios.newURI(params.url, null, null);
+      let uri = ios.newURI(params.url);
       let principal =
         ssm.createCodebasePrincipal(uri,
                                     {appId: params.appId || ssm.NO_APPID,

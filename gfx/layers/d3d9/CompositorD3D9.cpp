@@ -215,6 +215,7 @@ CompositorD3D9::SetRenderTarget(CompositingRenderTarget *aRenderTarget)
 {
   MOZ_ASSERT(aRenderTarget && mDeviceManager);
   RefPtr<CompositingRenderTargetD3D9> oldRT = mCurrentRT;
+  Unused << oldRT;
   mCurrentRT = static_cast<CompositingRenderTargetD3D9*>(aRenderTarget);
   mCurrentRT->BindRenderTarget(device());
   PrepareViewport(mCurrentRT->GetSize());
@@ -419,7 +420,7 @@ CompositorD3D9::DrawQuad(const gfx::Rect &aRect,
       }
 
 
-      float* yuvToRgb = gfxUtils::Get4x3YuvColorMatrix(ycbcrEffect->mYUVColorSpace);
+      const float* yuvToRgb = gfxUtils::YuvToRgbMatrix4x3RowMajor(ycbcrEffect->mYUVColorSpace);
       d3d9Device->SetPixelShaderConstantF(CBmYuvColorMatrix, yuvToRgb, 3);
 
       TextureSourceD3D9* sourceY  = source->GetSubSource(Y)->AsSourceD3D9();
@@ -573,7 +574,7 @@ CompositorD3D9::SetMask(const EffectChain &aEffectChain, uint32_t aMaskTexture)
   Rect bounds = Rect(Point(), Size(maskEffect->mSize));
   bounds = maskTransform.As2D().TransformBounds(bounds);
 
-  device()->SetVertexShaderConstantF(DeviceManagerD3D9::sMaskQuadRegister, 
+  device()->SetVertexShaderConstantF(DeviceManagerD3D9::sMaskQuadRegister,
                                      ShaderConstantRect(bounds.x,
                                                         bounds.y,
                                                         bounds.width,
@@ -898,7 +899,7 @@ CreateDataSurfaceForTexture(IDirect3DDevice9* aDevice,
 class AutoSurfaceLock
 {
  public:
-  AutoSurfaceLock(IDirect3DSurface9* aSurface, DWORD aFlags = 0) {
+  explicit AutoSurfaceLock(IDirect3DSurface9* aSurface, DWORD aFlags = 0) {
     PodZero(&mRect);
 
     HRESULT hr = aSurface->LockRect(&mRect, nullptr, aFlags);

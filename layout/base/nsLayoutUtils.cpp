@@ -22,6 +22,7 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/Unused.h"
 #include "nsCharTraits.h"
+#include "nsDocument.h"
 #include "nsFontMetrics.h"
 #include "nsPresContext.h"
 #include "nsIContent.h"
@@ -84,6 +85,7 @@
 #include "gfxEnv.h"
 #include "gfxUtils.h"
 #include "nsDataHashtable.h"
+#include "nsTableWrapperFrame.h"
 #include "nsTextFrame.h"
 #include "nsFontFaceList.h"
 #include "nsFontInflationData.h"
@@ -114,9 +116,11 @@
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/RuleNodeCacheConditions.h"
+#include "mozilla/StyleAnimationValueInlines.h"
 #include "mozilla/StyleSetHandle.h"
 #include "mozilla/StyleSetHandleInlines.h"
 #include "RegionBuilder.h"
+#include "SVGSVGElement.h"
 
 #ifdef MOZ_XUL
 #include "nsXULPopupManager.h"
@@ -125,8 +129,8 @@
 #include "GeckoProfiler.h"
 #include "nsAnimationManager.h"
 #include "nsTransitionManager.h"
-#include "mozilla/RestyleManagerHandle.h"
-#include "mozilla/RestyleManagerHandleInlines.h"
+#include "mozilla/RestyleManager.h"
+#include "mozilla/RestyleManagerInlines.h"
 #include "LayoutLogging.h"
 
 // Make sure getpid() works.
@@ -147,6 +151,7 @@ using namespace mozilla::gfx;
 #define GRID_ENABLED_PREF_NAME "layout.css.grid.enabled"
 #define GRID_TEMPLATE_SUBGRID_ENABLED_PREF_NAME "layout.css.grid-template-subgrid-value.enabled"
 #define WEBKIT_PREFIXES_ENABLED_PREF_NAME "layout.css.prefixes.webkit"
+#define DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME "layout.css.display-flow-root.enabled"
 #define TEXT_ALIGN_UNSAFE_ENABLED_PREF_NAME "layout.css.text-align-unsafe-value.enabled"
 #define FLOAT_LOGICAL_VALUES_ENABLED_PREF_NAME "layout.css.float-logical-values.enabled"
 #define BG_CLIP_TEXT_ENABLED_PREF_NAME "layout.css.background-clip-text.enabled"
@@ -308,6 +313,36 @@ WebkitPrefixEnabledPrefChangeCallback(const char* aPrefName, void* aClosure)
     nsCSSProps::kDisplayKTable[sIndexOfWebkitInlineFlexInDisplayTable].mKeyword =
       isWebkitPrefixSupportEnabled ?
       eCSSKeyword__webkit_inline_flex : eCSSKeyword_UNKNOWN;
+  }
+}
+
+// When the pref "layout.css.display-flow-root.enabled" changes, this function is
+// invoked to let us update kDisplayKTable, to selectively disable or restore
+// the entries for "flow-root" in that table.
+static void
+DisplayFlowRootEnabledPrefChangeCallback(const char* aPrefName, void* aClosure)
+{
+  NS_ASSERTION(strcmp(aPrefName, DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME) == 0,
+               "Did you misspell " DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME " ?");
+
+  static bool sIsDisplayFlowRootKeywordIndexInitialized;
+  static int32_t sIndexOfFlowRootInDisplayTable;
+  bool isDisplayFlowRootEnabled =
+    Preferences::GetBool(DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME, false);
+
+  if (!sIsDisplayFlowRootKeywordIndexInitialized) {
+    // First run: find the position of "flow-root" in kDisplayKTable.
+    sIndexOfFlowRootInDisplayTable =
+      nsCSSProps::FindIndexOfKeyword(eCSSKeyword_flow_root,
+                                     nsCSSProps::kDisplayKTable);
+    sIsDisplayFlowRootKeywordIndexInitialized = true;
+  }
+
+  // OK -- now, stomp on or restore the "flow-root" entry in kDisplayKTable,
+  // depending on whether the pref is enabled vs. disabled.
+  if (sIndexOfFlowRootInDisplayTable >= 0) {
+    nsCSSProps::kDisplayKTable[sIndexOfFlowRootInDisplayTable].mKeyword =
+      isDisplayFlowRootEnabled ? eCSSKeyword_flow_root : eCSSKeyword_UNKNOWN;
   }
 }
 
@@ -517,7 +552,7 @@ GetSuitableScale(float aMaxScale, float aMinScale,
 
 static inline void
 UpdateMinMaxScale(const nsIFrame* aFrame,
-                  const StyleAnimationValue& aValue,
+                  const AnimationValue& aValue,
                   gfxSize& aMinScale,
                   gfxSize& aMaxScale)
 {
@@ -553,12 +588,11 @@ GetMinAndMaxScaleForAnimationProperty(const nsIFrame* aFrame,
 
       // We need to factor in the scale of the base style if the base style
       // will be used on the compositor.
-      if (effect->NeedsBaseStyle(prop.mProperty)) {
-        EffectSet* effects = EffectSet::GetEffectSet(aFrame);
-        StyleAnimationValue baseStyle =
-          effects->GetBaseStyle(prop.mProperty);
-        MOZ_ASSERT(!baseStyle.IsNull(), "The base value should be set");
-        UpdateMinMaxScale(aFrame, baseStyle, aMinScale, aMaxScale);
+      StyleAnimationValue baseStyle = effect->BaseStyle(prop.mProperty);
+      if (!baseStyle.IsNull()) {
+        // FIXME: Bug 1311257: We need to get the baseStyle for
+        //        RawServoAnimationValue.
+        UpdateMinMaxScale(aFrame, { baseStyle, nullptr }, aMinScale, aMaxScale);
       }
 
       for (const AnimationPropertySegment& segment : prop.mSegments) {
@@ -2451,18 +2485,18 @@ nsLayoutUtils::RoundedRectIntersectRect(const nsRect& aRoundedRect,
   // rectFullHeight and rectFullWidth together will approximately contain
   // the total area of the frame minus the rounded corners.
   nsRect rectFullHeight = aRoundedRect;
-  nscoord xDiff = std::max(aRadii[NS_CORNER_TOP_LEFT_X], aRadii[NS_CORNER_BOTTOM_LEFT_X]);
+  nscoord xDiff = std::max(aRadii[eCornerTopLeftX], aRadii[eCornerBottomLeftX]);
   rectFullHeight.x += xDiff;
-  rectFullHeight.width -= std::max(aRadii[NS_CORNER_TOP_RIGHT_X],
-                                 aRadii[NS_CORNER_BOTTOM_RIGHT_X]) + xDiff;
+  rectFullHeight.width -= std::max(aRadii[eCornerTopRightX],
+                                   aRadii[eCornerBottomRightX]) + xDiff;
   nsRect r1;
   r1.IntersectRect(rectFullHeight, aContainedRect);
 
   nsRect rectFullWidth = aRoundedRect;
-  nscoord yDiff = std::max(aRadii[NS_CORNER_TOP_LEFT_Y], aRadii[NS_CORNER_TOP_RIGHT_Y]);
+  nscoord yDiff = std::max(aRadii[eCornerTopLeftY], aRadii[eCornerTopRightY]);
   rectFullWidth.y += yDiff;
-  rectFullWidth.height -= std::max(aRadii[NS_CORNER_BOTTOM_LEFT_Y],
-                                 aRadii[NS_CORNER_BOTTOM_RIGHT_Y]) + yDiff;
+  rectFullWidth.height -= std::max(aRadii[eCornerBottomLeftY],
+                                   aRadii[eCornerBottomRightY]) + yDiff;
   nsRect r2;
   r2.IntersectRect(rectFullWidth, aContainedRect);
 
@@ -2544,17 +2578,17 @@ nsLayoutUtils::RoundedRectIntersectsRect(const nsRect& aRoundedRect,
   // top left corner of aBounds when rounded by aRadii, etc.  If any
   // corner is not, then fail; otherwise succeed.
   return CheckCorner(insets.left, insets.top,
-                     aRadii[NS_CORNER_TOP_LEFT_X],
-                     aRadii[NS_CORNER_TOP_LEFT_Y]) &&
+                     aRadii[eCornerTopLeftX],
+                     aRadii[eCornerTopLeftY]) &&
          CheckCorner(insets.right, insets.top,
-                     aRadii[NS_CORNER_TOP_RIGHT_X],
-                     aRadii[NS_CORNER_TOP_RIGHT_Y]) &&
+                     aRadii[eCornerTopRightX],
+                     aRadii[eCornerTopRightY]) &&
          CheckCorner(insets.right, insets.bottom,
-                     aRadii[NS_CORNER_BOTTOM_RIGHT_X],
-                     aRadii[NS_CORNER_BOTTOM_RIGHT_Y]) &&
+                     aRadii[eCornerBottomRightX],
+                     aRadii[eCornerBottomRightY]) &&
          CheckCorner(insets.left, insets.bottom,
-                     aRadii[NS_CORNER_BOTTOM_LEFT_X],
-                     aRadii[NS_CORNER_BOTTOM_LEFT_Y]);
+                     aRadii[eCornerBottomLeftX],
+                     aRadii[eCornerBottomLeftY]);
 }
 
 nsRect
@@ -3361,10 +3395,12 @@ nsLayoutUtils::ExpireDisplayPortOnAsyncScrollableAncestor(nsIFrame* aFrame)
     }
     frame = do_QueryFrame(scrollAncestor);
     MOZ_ASSERT(frame);
+    if (!frame) {
+      break;
+    }
     MOZ_ASSERT(scrollAncestor->WantAsyncScroll() ||
       frame->PresContext()->PresShell()->GetRootScrollFrame() == frame);
-    if (nsLayoutUtils::AsyncPanZoomEnabled(frame) &&
-        nsLayoutUtils::HasDisplayPort(frame->GetContent())) {
+    if (nsLayoutUtils::HasDisplayPort(frame->GetContent())) {
       scrollAncestor->TriggerDisplayPortExpiration();
       // Stop after the first trigger. If it failed, there's no point in
       // continuing because all the rest of the frames we encounter are going
@@ -3492,72 +3528,77 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
     }
   }
 
-  builder.EnterPresShell(aFrame);
   nsRect dirtyRect = visibleRegion.GetBounds();
+
   {
-    // If a scrollable container layer is created in nsDisplayList::PaintForFrame,
-    // it will be the scroll parent for display items that are built in the
-    // BuildDisplayListForStackingContext call below. We need to set the scroll
-    // parent on the display list builder while we build those items, so that they
-    // can pick up their scroll parent's id.
-    ViewID id = FrameMetrics::NULL_SCROLL_ID;
-    if (ignoreViewportScrolling && presContext->IsRootContentDocument()) {
-      if (nsIFrame* rootScrollFrame = presShell->GetRootScrollFrame()) {
-        if (nsIContent* content = rootScrollFrame->GetContent()) {
-          id = nsLayoutUtils::FindOrCreateIDFor(content);
-        }
-      }
-    }
-    else if (presShell->GetDocument() && presShell->GetDocument()->IsRootDisplayDocument()
-        && !presShell->GetRootScrollFrame()) {
-      // In cases where the root document is a XUL document, we want to take
-      // the ViewID from the root element, as that will be the ViewID of the
-      // root APZC in the tree. Skip doing this in cases where we know
-      // nsGfxScrollFrame::BuilDisplayList will do it instead.
-      if (dom::Element* element = presShell->GetDocument()->GetDocumentElement()) {
-        id = nsLayoutUtils::FindOrCreateIDFor(element);
-      }
-    }
-
-    nsDisplayListBuilder::AutoCurrentScrollParentIdSetter idSetter(&builder, id);
-
     PROFILER_LABEL("nsLayoutUtils", "PaintFrame::BuildDisplayList",
       js::ProfileEntry::Category::GRAPHICS);
-
+    GeckoProfilerTracingRAII tracer("Paint", "DisplayList");
 
     PaintTelemetry::AutoRecord record(PaintTelemetry::Metric::DisplayList);
-    aFrame->BuildDisplayListForStackingContext(&builder, dirtyRect, &list);
+
+    builder.EnterPresShell(aFrame);
+    {
+      // If a scrollable container layer is created in nsDisplayList::PaintForFrame,
+      // it will be the scroll parent for display items that are built in the
+      // BuildDisplayListForStackingContext call below. We need to set the scroll
+      // parent on the display list builder while we build those items, so that they
+      // can pick up their scroll parent's id.
+      ViewID id = FrameMetrics::NULL_SCROLL_ID;
+      if (ignoreViewportScrolling && presContext->IsRootContentDocument()) {
+        if (nsIFrame* rootScrollFrame = presShell->GetRootScrollFrame()) {
+          if (nsIContent* content = rootScrollFrame->GetContent()) {
+            id = nsLayoutUtils::FindOrCreateIDFor(content);
+          }
+        }
+      }
+      else if (presShell->GetDocument() && presShell->GetDocument()->IsRootDisplayDocument()
+          && !presShell->GetRootScrollFrame()) {
+        // In cases where the root document is a XUL document, we want to take
+        // the ViewID from the root element, as that will be the ViewID of the
+        // root APZC in the tree. Skip doing this in cases where we know
+        // nsGfxScrollFrame::BuilDisplayList will do it instead.
+        if (dom::Element* element = presShell->GetDocument()->GetDocumentElement()) {
+          id = nsLayoutUtils::FindOrCreateIDFor(element);
+        }
+      }
+
+      nsDisplayListBuilder::AutoCurrentScrollParentIdSetter idSetter(&builder, id);
+
+      aFrame->BuildDisplayListForStackingContext(&builder, dirtyRect, &list);
+    }
+
+    nsIAtom* frameType = aFrame->GetType();
+
+    // For the viewport frame in print preview/page layout we want to paint
+    // the grey background behind the page, not the canvas color.
+    if (frameType == nsGkAtoms::viewportFrame &&
+        nsLayoutUtils::NeedsPrintPreviewBackground(presContext)) {
+      nsRect bounds = nsRect(builder.ToReferenceFrame(aFrame),
+                             aFrame->GetSize());
+      nsDisplayListBuilder::AutoBuildingDisplayList
+        buildingDisplayList(&builder, aFrame, bounds, false);
+      presShell->AddPrintPreviewBackgroundItem(builder, list, aFrame, bounds);
+    } else if (frameType != nsGkAtoms::pageFrame) {
+      // For printing, this function is first called on an nsPageFrame, which
+      // creates a display list with a PageContent item. The PageContent item's
+      // paint function calls this function on the nsPageFrame's child which is
+      // an nsPageContentFrame. We only want to add the canvas background color
+      // item once, for the nsPageContentFrame.
+
+      // Add the canvas background color to the bottom of the list. This
+      // happens after we've built the list so that AddCanvasBackgroundColorItem
+      // can monkey with the contents if necessary.
+      canvasArea.IntersectRect(canvasArea, visibleRegion.GetBounds());
+      nsDisplayListBuilder::AutoBuildingDisplayList
+        buildingDisplayList(&builder, aFrame, canvasArea, false);
+      presShell->AddCanvasBackgroundColorItem(
+             builder, list, aFrame, canvasArea, aBackstop);
+    }
+
+    builder.LeavePresShell(aFrame, &list);
   }
 
-  nsIAtom* frameType = aFrame->GetType();
-
-  // For the viewport frame in print preview/page layout we want to paint
-  // the grey background behind the page, not the canvas color.
-  if (frameType == nsGkAtoms::viewportFrame &&
-      nsLayoutUtils::NeedsPrintPreviewBackground(presContext)) {
-    nsRect bounds = nsRect(builder.ToReferenceFrame(aFrame),
-                           aFrame->GetSize());
-    nsDisplayListBuilder::AutoBuildingDisplayList
-      buildingDisplayList(&builder, aFrame, bounds, false);
-    presShell->AddPrintPreviewBackgroundItem(builder, list, aFrame, bounds);
-  } else if (frameType != nsGkAtoms::pageFrame) {
-    // For printing, this function is first called on an nsPageFrame, which
-    // creates a display list with a PageContent item. The PageContent item's
-    // paint function calls this function on the nsPageFrame's child which is
-    // an nsPageContentFrame. We only want to add the canvas background color
-    // item once, for the nsPageContentFrame.
-
-    // Add the canvas background color to the bottom of the list. This
-    // happens after we've built the list so that AddCanvasBackgroundColorItem
-    // can monkey with the contents if necessary.
-    canvasArea.IntersectRect(canvasArea, visibleRegion.GetBounds());
-    nsDisplayListBuilder::AutoBuildingDisplayList
-      buildingDisplayList(&builder, aFrame, canvasArea, false);
-    presShell->AddCanvasBackgroundColorItem(
-           builder, list, aFrame, canvasArea, aBackstop);
-  }
-
-  builder.LeavePresShell(aFrame, &list);
   Telemetry::AccumulateTimeDelta(Telemetry::PAINT_BUILD_DISPLAYLIST_TIME,
                                  startBuildDisplayList);
 
@@ -3938,14 +3979,39 @@ struct BoxToRectAndText : public BoxToRect {
                    mozilla::dom::DOMStringList* aTextList, uint32_t aFlags)
     : BoxToRect(aRelativeTo, aCallback, aFlags), mTextList(aTextList) {}
 
-  virtual void AddBox(nsIFrame* aFrame) override {
-    BoxToRect::AddBox(aFrame);
-    if (mTextList) {
-      nsIContent* content = aFrame->GetContent();
+  static void AccumulateText(nsIFrame* aFrame, nsAString& aResult) {
+    MOZ_ASSERT(aFrame);
+
+    // Get all the text in aFrame and child frames, while respecting
+    // the content offsets in each of the nsTextFrames.
+    if (aFrame->GetType() == nsGkAtoms::textFrame) {
+      nsTextFrame* textFrame = static_cast<nsTextFrame*>(aFrame);
+
+      nsIContent* content = textFrame->GetContent();
       nsAutoString textContent;
       mozilla::ErrorResult err; // ignored
       content->GetTextContent(textContent, err);
-      mTextList->Add(textContent);
+
+      const nsAString& textSubstring =
+        Substring(textContent,
+                  textFrame->GetContentOffset(),
+                  textFrame->GetContentLength());
+      aResult.Append(textSubstring);
+    }
+
+    for (nsIFrame* child = aFrame->PrincipalChildList().FirstChild();
+         child;
+         child = child->GetNextSibling()) {
+      AccumulateText(child, aResult);
+    }
+  }
+
+  virtual void AddBox(nsIFrame* aFrame) override {
+    BoxToRect::AddBox(aFrame);
+    if (mTextList) {
+      nsAutoString textForFrame;
+      AccumulateText(aFrame, textForFrame);
+      mTextList->Add(textForFrame);
     }
   }
 };
@@ -5546,13 +5612,12 @@ ShouldDarkenColors(nsPresContext* aPresContext)
 }
 
 nscolor
-nsLayoutUtils::GetColor(nsIFrame* aFrame, nsCSSPropertyID aProperty)
+nsLayoutUtils::DarkenColorIfNeeded(nsIFrame* aFrame, nscolor aColor)
 {
-  nscolor color = aFrame->GetVisitedDependentColor(aProperty);
   if (ShouldDarkenColors(aFrame->PresContext())) {
-    color = DarkenColor(color);
+    return DarkenColor(aColor);
   }
-  return color;
+  return aColor;
 }
 
 gfxFloat
@@ -5701,13 +5766,14 @@ nsLayoutUtils::AppUnitBoundsOfString(const char16_t* aString,
 }
 
 void
-nsLayoutUtils::DrawString(const nsIFrame*       aFrame,
-                          nsFontMetrics&        aFontMetrics,
-                          nsRenderingContext*   aContext,
-                          const char16_t*      aString,
-                          int32_t               aLength,
-                          nsPoint               aPoint,
-                          nsStyleContext*       aStyleContext)
+nsLayoutUtils::DrawString(const nsIFrame*     aFrame,
+                          nsFontMetrics&      aFontMetrics,
+                          nsRenderingContext* aContext,
+                          const char16_t*     aString,
+                          int32_t             aLength,
+                          nsPoint             aPoint,
+                          nsStyleContext*     aStyleContext,
+                          DrawStringFlags     aFlags)
 {
   nsresult rv = NS_ERROR_FAILURE;
 
@@ -5715,7 +5781,13 @@ nsLayoutUtils::DrawString(const nsIFrame*       aFrame,
   if (!aStyleContext) {
     aStyleContext = aFrame->StyleContext();
   }
-  aFontMetrics.SetVertical(WritingMode(aStyleContext).IsVertical());
+
+  if (aFlags & DrawStringFlags::eForceHorizontal) {
+    aFontMetrics.SetVertical(false);
+  } else {
+    aFontMetrics.SetVertical(WritingMode(aStyleContext).IsVertical());
+  }
+
   aFontMetrics.SetTextOrientation(
     aStyleContext->StyleVisibility()->mTextOrientation);
 
@@ -5869,6 +5941,19 @@ nsLayoutUtils::GetFirstLinePosition(WritingMode aWM,
     if (fType == nsGkAtoms::tableWrapperFrame  ||
         fType == nsGkAtoms::flexContainerFrame ||
         fType == nsGkAtoms::gridContainerFrame) {
+      if ((fType == nsGkAtoms::gridContainerFrame &&
+           aFrame->HasAnyStateBits(NS_STATE_GRID_SYNTHESIZE_BASELINE)) ||
+          (fType == nsGkAtoms::flexContainerFrame &&
+           aFrame->HasAnyStateBits(NS_STATE_FLEX_SYNTHESIZE_BASELINE)) ||
+          (fType == nsGkAtoms::tableWrapperFrame &&
+           static_cast<const nsTableWrapperFrame*>(aFrame)->GetRowCount() == 0)) {
+        // empty grid/flex/table container
+        aResult->mBStart = 0;
+        aResult->mBaseline = aFrame->SynthesizeBaselineBOffsetFromBorderBox(aWM,
+                                       BaselineSharingGroup::eFirst);
+        aResult->mBEnd = aFrame->BSize(aWM);
+        return true;
+      }
       aResult->mBStart = 0;
       aResult->mBaseline = aFrame->GetLogicalBaseline(aWM);
       // This is what we want for the list bullet caller; not sure if
@@ -6416,9 +6501,10 @@ DrawImageInternal(gfxContext&            aContext,
                   const nsRect&          aFill,
                   const nsPoint&         aAnchor,
                   const nsRect&          aDirty,
-                  const SVGImageContext* aSVGContext,
+                  const Maybe<const SVGImageContext>& aSVGContext,
                   uint32_t               aImageFlags,
-                  ExtendMode             aExtendMode = ExtendMode::CLAMP)
+                  ExtendMode             aExtendMode = ExtendMode::CLAMP,
+                  float                  aOpacity = 1.0)
 {
   DrawResult result = DrawResult::SUCCESS;
 
@@ -6451,15 +6537,16 @@ DrawImageInternal(gfxContext&            aContext,
 
     destCtx->SetMatrix(params.imageSpaceToDeviceSpace);
 
-    Maybe<SVGImageContext> svgContext = ToMaybe(aSVGContext);
-    if (!svgContext) {
+    Maybe<const SVGImageContext> fallbackContext;
+    if (!aSVGContext) {
       // Use the default viewport.
-      svgContext = Some(SVGImageContext(params.svgViewportSize, Nothing()));
+      fallbackContext.emplace(params.svgViewportSize);
     }
 
     result = aImage->Draw(destCtx, params.size, params.region,
                           imgIContainer::FRAME_CURRENT, aSamplingFilter,
-                          svgContext, aImageFlags);
+                          aSVGContext ? aSVGContext : fallbackContext,
+                          aImageFlags, aOpacity);
 
   }
 
@@ -6501,7 +6588,7 @@ nsLayoutUtils::DrawSingleUnscaledImage(gfxContext&          aContext,
   return DrawImageInternal(aContext, aPresContext,
                            aImage, aSamplingFilter,
                            dest, fill, aDest, aDirty ? *aDirty : dest,
-                           nullptr, aImageFlags);
+                           /* no SVGImageContext */ Nothing(), aImageFlags);
 }
 
 /* static */ DrawResult
@@ -6511,7 +6598,7 @@ nsLayoutUtils::DrawSingleImage(gfxContext&            aContext,
                                const SamplingFilter   aSamplingFilter,
                                const nsRect&          aDest,
                                const nsRect&          aDirty,
-                               const SVGImageContext* aSVGContext,
+                               const Maybe<const SVGImageContext>& aSVGContext,
                                uint32_t               aImageFlags,
                                const nsPoint*         aAnchorPoint,
                                const nsRect*          aSourceArea)
@@ -6519,8 +6606,9 @@ nsLayoutUtils::DrawSingleImage(gfxContext&            aContext,
   nscoord appUnitsPerCSSPixel = nsDeviceContext::AppUnitsPerCSSPixel();
   CSSIntSize pixelImageSize(ComputeSizeForDrawingWithFallback(aImage, aDest.Size()));
   if (pixelImageSize.width < 1 || pixelImageSize.height < 1) {
-    NS_WARNING("Image width or height is non-positive");
-    return DrawResult::TEMPORARY_ERROR;
+    NS_ASSERTION(pixelImageSize.width >= 0 && pixelImageSize.height >= 0,
+                 "Image width or height is negative");
+    return DrawResult::SUCCESS;  // no point in drawing a zero size image
   }
 
   nsSize imageSize(CSSPixel::ToAppUnits(pixelImageSize));
@@ -6631,18 +6719,20 @@ nsLayoutUtils::DrawBackgroundImage(gfxContext&         aContext,
                                    const nsPoint&      aAnchor,
                                    const nsRect&       aDirty,
                                    uint32_t            aImageFlags,
-                                   ExtendMode          aExtendMode)
+                                   ExtendMode          aExtendMode,
+                                   float               aOpacity)
 {
   PROFILER_LABEL("layout", "nsLayoutUtils::DrawBackgroundImage",
                  js::ProfileEntry::Category::GRAPHICS);
 
-  SVGImageContext svgContext(aImageSize, Nothing());
+  const Maybe<const SVGImageContext> svgContext(Some(SVGImageContext(aImageSize)));
 
   /* Fast path when there is no need for image spacing */
   if (aRepeatSize.width == aDest.width && aRepeatSize.height == aDest.height) {
     return DrawImageInternal(aContext, aPresContext, aImage,
                              aSamplingFilter, aDest, aFill, aAnchor,
-                             aDirty, &svgContext, aImageFlags, aExtendMode);
+                             aDirty, svgContext, aImageFlags, aExtendMode,
+                             aOpacity);
   }
 
   nsPoint firstTilePos = aDest.TopLeft() +
@@ -6652,8 +6742,9 @@ nsLayoutUtils::DrawBackgroundImage(gfxContext&         aContext,
     for (int32_t j = firstTilePos.y; j < aFill.YMost(); j += aRepeatSize.height) {
       nsRect dest(i, j, aDest.width, aDest.height);
       DrawResult result = DrawImageInternal(aContext, aPresContext, aImage, aSamplingFilter,
-                                            dest, dest, aAnchor, aDirty, &svgContext,
-                                            aImageFlags, ExtendMode::CLAMP);
+                                            dest, dest, aAnchor, aDirty, svgContext,
+                                            aImageFlags, ExtendMode::CLAMP,
+                                            aOpacity);
       if (result != DrawResult::SUCCESS) {
         return result;
       }
@@ -6672,11 +6763,15 @@ nsLayoutUtils::DrawImage(gfxContext&         aContext,
                          const nsRect&       aFill,
                          const nsPoint&      aAnchor,
                          const nsRect&       aDirty,
-                         uint32_t            aImageFlags)
+                         uint32_t            aImageFlags,
+                         float               aOpacity)
 {
   return DrawImageInternal(aContext, aPresContext, aImage,
                            aSamplingFilter, aDest, aFill, aAnchor,
-                           aDirty, nullptr, aImageFlags);
+                           aDirty,
+                           /* no SVGImageContext */ Nothing(),
+                           aImageFlags, ExtendMode::CLAMP,
+                           aOpacity);
 }
 
 /* static */ nsRect
@@ -6734,17 +6829,17 @@ nsLayoutUtils::HasNonZeroCorner(const nsStyleCorners& aCorners)
   return false;
 }
 
-// aCorner is a "full corner" value, i.e. NS_CORNER_TOP_LEFT etc
+// aCorner is a "full corner" value, i.e. eCornerTopLeft etc.
 static bool IsCornerAdjacentToSide(uint8_t aCorner, Side aSide)
 {
-  static_assert((int)eSideTop == NS_CORNER_TOP_LEFT, "Check for Full Corner");
-  static_assert((int)eSideRight == NS_CORNER_TOP_RIGHT, "Check for Full Corner");
-  static_assert((int)eSideBottom == NS_CORNER_BOTTOM_RIGHT, "Check for Full Corner");
-  static_assert((int)eSideLeft == NS_CORNER_BOTTOM_LEFT, "Check for Full Corner");
-  static_assert((int)eSideTop == ((NS_CORNER_TOP_RIGHT - 1)&3), "Check for Full Corner");
-  static_assert((int)eSideRight == ((NS_CORNER_BOTTOM_RIGHT - 1)&3), "Check for Full Corner");
-  static_assert((int)eSideBottom == ((NS_CORNER_BOTTOM_LEFT - 1)&3), "Check for Full Corner");
-  static_assert((int)eSideLeft == ((NS_CORNER_TOP_LEFT - 1)&3), "Check for Full Corner");
+  static_assert((int)eSideTop == eCornerTopLeft, "Check for Full Corner");
+  static_assert((int)eSideRight == eCornerTopRight, "Check for Full Corner");
+  static_assert((int)eSideBottom == eCornerBottomRight, "Check for Full Corner");
+  static_assert((int)eSideLeft == eCornerBottomLeft, "Check for Full Corner");
+  static_assert((int)eSideTop == ((eCornerTopRight - 1)&3), "Check for Full Corner");
+  static_assert((int)eSideRight == ((eCornerBottomRight - 1)&3), "Check for Full Corner");
+  static_assert((int)eSideBottom == ((eCornerBottomLeft - 1)&3), "Check for Full Corner");
+  static_assert((int)eSideLeft == ((eCornerTopLeft - 1)&3), "Check for Full Corner");
 
   return aSide == aCorner || aSide == ((aCorner - 1)&3);
 }
@@ -6753,14 +6848,14 @@ static bool IsCornerAdjacentToSide(uint8_t aCorner, Side aSide)
 nsLayoutUtils::HasNonZeroCornerOnSide(const nsStyleCorners& aCorners,
                                       Side aSide)
 {
-  static_assert(NS_CORNER_TOP_LEFT_X/2 == NS_CORNER_TOP_LEFT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_TOP_LEFT_Y/2 == NS_CORNER_TOP_LEFT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_TOP_RIGHT_X/2 == NS_CORNER_TOP_RIGHT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_TOP_RIGHT_Y/2 == NS_CORNER_TOP_RIGHT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_BOTTOM_RIGHT_X/2 == NS_CORNER_BOTTOM_RIGHT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_BOTTOM_RIGHT_Y/2 == NS_CORNER_BOTTOM_RIGHT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_BOTTOM_LEFT_X/2 == NS_CORNER_BOTTOM_LEFT, "Check for Non Zero on side");
-  static_assert(NS_CORNER_BOTTOM_LEFT_Y/2 == NS_CORNER_BOTTOM_LEFT, "Check for Non Zero on side");
+  static_assert(eCornerTopLeftX/2 == eCornerTopLeft, "Check for Non Zero on side");
+  static_assert(eCornerTopLeftY/2 == eCornerTopLeft, "Check for Non Zero on side");
+  static_assert(eCornerTopRightX/2 == eCornerTopRight, "Check for Non Zero on side");
+  static_assert(eCornerTopRightY/2 == eCornerTopRight, "Check for Non Zero on side");
+  static_assert(eCornerBottomRightX/2 == eCornerBottomRight, "Check for Non Zero on side");
+  static_assert(eCornerBottomRightY/2 == eCornerBottomRight, "Check for Non Zero on side");
+  static_assert(eCornerBottomLeftX/2 == eCornerBottomLeft, "Check for Non Zero on side");
+  static_assert(eCornerBottomLeftY/2 == eCornerBottomLeft, "Check for Non Zero on side");
 
   NS_FOR_CSS_HALF_CORNERS(corner) {
     // corner is a "half corner" value, so dividing by two gives us a
@@ -6806,9 +6901,9 @@ nsLayoutUtils::GetFrameTransparency(nsIFrame* aBackgroundFrame,
     return eTransparencyTransparent;
   }
   const nsStyleBackground* bg = bgSC->StyleBackground();
-  if (NS_GET_A(bg->mBackgroundColor) < 255 ||
+  if (NS_GET_A(bg->BackgroundColor(bgSC)) < 255 ||
       // bottom layer's clip is used for the color
-      bg->BottomLayer().mClip != NS_STYLE_IMAGELAYER_CLIP_BORDER)
+      bg->BottomLayer().mClip != StyleGeometryBox::Border)
     return eTransparencyTransparent;
   return eTransparencyOpaque;
 }
@@ -7530,6 +7625,8 @@ static const PrefCallbacks kPrefCallbacks[] = {
     WebkitPrefixEnabledPrefChangeCallback },
   { TEXT_ALIGN_UNSAFE_ENABLED_PREF_NAME,
     TextAlignUnsafeEnabledPrefChangeCallback },
+  { DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME,
+    DisplayFlowRootEnabledPrefChangeCallback },
   { FLOAT_LOGICAL_VALUES_ENABLED_PREF_NAME,
     FloatLogicalValuesEnabledPrefChangeCallback },
   { BG_CLIP_TEXT_ENABLED_PREF_NAME,
@@ -8387,10 +8484,10 @@ namespace layout {
 void
 MaybeSetupTransactionIdAllocator(layers::LayerManager* aManager, nsView* aView)
 {
-  if (aManager->GetBackendType() == layers::LayersBackend::LAYERS_CLIENT) {
-    layers::ClientLayerManager *manager = static_cast<layers::ClientLayerManager*>(aManager);
+  if (aManager->GetBackendType() == LayersBackend::LAYERS_CLIENT ||
+      aManager->GetBackendType() == LayersBackend::LAYERS_WR) {
     nsRefreshDriver *refresh = aView->GetViewManager()->GetPresShell()->GetPresContext()->RefreshDriver();
-    manager->SetTransactionIdAllocator(refresh);
+    aManager->SetTransactionIdAllocator(refresh);
   }
 }
 
@@ -8751,8 +8848,9 @@ nsLayoutUtils::ComputeScrollMetadata(nsIFrame* aForFrame,
     } else {
       nsStyleContext* backgroundStyle;
       if (nsCSSRendering::FindBackground(aScrollFrame, &backgroundStyle)) {
-        metadata.SetBackgroundColor(Color::FromABGR(
-          backgroundStyle->StyleBackground()->mBackgroundColor));
+        nscolor backgroundColor = backgroundStyle->
+          StyleBackground()->BackgroundColor(backgroundStyle);
+        metadata.SetBackgroundColor(Color::FromABGR(backgroundColor));
       }
     }
   }
@@ -9161,4 +9259,135 @@ nsLayoutUtils::IsInvisibleBreak(nsINode* aNode, nsIFrame** aNextLineFrame)
   }
 
   return lineNonEmpty;
+}
+
+static nsRect
+ComputeSVGReferenceRect(nsIFrame* aFrame,
+                        StyleGeometryBox aGeometryBox)
+{
+  MOZ_ASSERT(aFrame->GetContent()->IsSVGElement());
+  nsRect r;
+
+  // For SVG elements without associated CSS layout box, the used value for
+  // content-box, padding-box, border-box and margin-box is fill-box.
+  switch (aGeometryBox) {
+    case StyleGeometryBox::Stroke: {
+      // XXX Bug 1299876
+      // The size of srtoke-box is not correct if this graphic element has
+      // specific stroke-linejoin or stroke-linecap.
+      gfxRect bbox = nsSVGUtils::GetBBox(aFrame,
+                nsSVGUtils::eBBoxIncludeFill | nsSVGUtils::eBBoxIncludeStroke);
+      r = nsLayoutUtils::RoundGfxRectToAppRect(bbox,
+                                         nsPresContext::AppUnitsPerCSSPixel());
+      break;
+    }
+    case StyleGeometryBox::View: {
+      nsIContent* content = aFrame->GetContent();
+      nsSVGElement* element = static_cast<nsSVGElement*>(content);
+      SVGSVGElement* svgElement = element->GetCtx();
+      MOZ_ASSERT(svgElement);
+
+      if (svgElement && svgElement->HasViewBoxRect()) {
+        // If a ‘viewBox‘ attribute is specified for the SVG viewport creating
+        // element:
+        // 1. The reference box is positioned at the origin of the coordinate
+        //    system established by the ‘viewBox‘ attribute.
+        // 2. The dimension of the reference box is set to the width and height
+        //    values of the ‘viewBox‘ attribute.
+        nsSVGViewBox* viewBox = svgElement->GetViewBox();
+        const nsSVGViewBoxRect& value = viewBox->GetAnimValue();
+        r = nsRect(nsPresContext::CSSPixelsToAppUnits(value.x),
+                   nsPresContext::CSSPixelsToAppUnits(value.y),
+                   nsPresContext::CSSPixelsToAppUnits(value.width),
+                   nsPresContext::CSSPixelsToAppUnits(value.height));
+      } else {
+        // No viewBox is specified, uses the nearest SVG viewport as reference
+        // box.
+        svgFloatSize viewportSize = svgElement->GetViewportSize();
+        r = nsRect(0, 0,
+                   nsPresContext::CSSPixelsToAppUnits(viewportSize.width),
+                   nsPresContext::CSSPixelsToAppUnits(viewportSize.height));
+      }
+
+      break;
+    }
+    case StyleGeometryBox::NoBox:
+    case StyleGeometryBox::Border:
+    case StyleGeometryBox::Content:
+    case StyleGeometryBox::Padding:
+    case StyleGeometryBox::Margin:
+    case StyleGeometryBox::Fill: {
+      gfxRect bbox = nsSVGUtils::GetBBox(aFrame,
+                                         nsSVGUtils::eBBoxIncludeFill);
+      r = nsLayoutUtils::RoundGfxRectToAppRect(bbox,
+                                         nsPresContext::AppUnitsPerCSSPixel());
+      break;
+    }
+    default:{
+      MOZ_ASSERT_UNREACHABLE("unknown StyleGeometryBox type");
+      gfxRect bbox = nsSVGUtils::GetBBox(aFrame,
+                                         nsSVGUtils::eBBoxIncludeFill);
+      r = nsLayoutUtils::RoundGfxRectToAppRect(bbox,
+                                         nsPresContext::AppUnitsPerCSSPixel());
+      break;
+    }
+  }
+
+  return r;
+}
+
+static nsRect
+ComputeHTMLReferenceRect(nsIFrame* aFrame,
+                         StyleGeometryBox aGeometryBox)
+{
+  nsRect r;
+
+  // For elements with associated CSS layout box, the used value for fill-box,
+  // stroke-box and view-box is border-box.
+  switch (aGeometryBox) {
+    case StyleGeometryBox::Content:
+      r = aFrame->GetContentRectRelativeToSelf();
+      break;
+    case StyleGeometryBox::Padding:
+      r = aFrame->GetPaddingRectRelativeToSelf();
+      break;
+    case StyleGeometryBox::Margin:
+      r = aFrame->GetMarginRectRelativeToSelf();
+      break;
+    case StyleGeometryBox::NoBox:
+    case StyleGeometryBox::Border:
+    case StyleGeometryBox::Fill:
+    case StyleGeometryBox::Stroke:
+    case StyleGeometryBox::View:
+      r = aFrame->GetRectRelativeToSelf();
+      break;
+    default:
+      MOZ_ASSERT_UNREACHABLE("unknown StyleGeometryBox type");
+      r = aFrame->GetRectRelativeToSelf();
+      break;
+  }
+
+  return r;
+}
+
+/* static */ nsRect
+nsLayoutUtils::ComputeGeometryBox(nsIFrame* aFrame,
+                                  StyleGeometryBox aGeometryBox)
+{
+  // We use ComputeSVGReferenceRect for all SVG elements, except <svg>
+  // element, which does have an associated CSS layout box. In this case we
+  // should still use ComputeHTMLReferenceRect for region computing.
+  nsRect r = HasCSSBoxLayout(aFrame)
+             ? ComputeHTMLReferenceRect(aFrame, aGeometryBox)
+             : ComputeSVGReferenceRect(aFrame, aGeometryBox);
+
+  return r;
+}
+
+/* static */ bool
+nsLayoutUtils::HasCSSBoxLayout(nsIFrame* aFrame)
+{
+  // Except SVG outer element, all SVG element does not have CSS box layout.
+  return !aFrame->IsFrameOfType(nsIFrame::eSVG) ||
+          aFrame->GetType() == nsGkAtoms::svgOuterSVGFrame;
 }

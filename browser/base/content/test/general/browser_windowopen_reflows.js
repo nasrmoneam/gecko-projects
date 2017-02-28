@@ -73,7 +73,7 @@ function test() {
 }
 
 var observer = {
-  reflow: function(start, end) {
+  reflow(start, end) {
     // Gather information about the current code path.
     let stack = new Error().stack;
     let path = stack.split("\n").slice(1).map(line => {
@@ -99,7 +99,7 @@ var observer = {
     ok(false, "unexpected uninterruptible reflow '" + pathWithLineNumbers + "'");
   },
 
-  reflowInterruptible: function(start, end) {
+  reflowInterruptible(start, end) {
     // We're not interested in interruptible reflows.
   },
 
@@ -108,8 +108,12 @@ var observer = {
 };
 
 function waitForMozAfterPaint(win, callback) {
+  let dwu = win.QueryInterface(Ci.nsIInterfaceRequestor)
+               .getInterface(Ci.nsIDOMWindowUtils);
+  let lastTransactionId = dwu.lastTransactionId;
+
   win.addEventListener("MozAfterPaint", function onEnd(event) {
-    if (event.target != win)
+    if (event.target != win || event.transactionId <= lastTransactionId)
       return;
     win.removeEventListener("MozAfterPaint", onEnd);
     executeSoon(callback);

@@ -7,6 +7,7 @@
 "use strict";
 
 const { getRootBindingParent } = require("devtools/shared/layout/utils");
+const { getTabPrefs } = require("devtools/shared/indentation");
 
 /*
  * About the objects defined in this file:
@@ -130,6 +131,7 @@ exports.shortSource = function (sheet) {
 };
 
 const TAB_CHARS = "\t";
+const SPACE_CHARS = " ";
 
 /**
  * Prettify minified CSS text.
@@ -283,8 +285,20 @@ function prettifyCSS(text, ruleCount) {
       }
     }
 
+    // Get preference of the user regarding what to use for indentation,
+    // spaces or tabs.
+    let tabPrefs = getTabPrefs();
+
     if (isCloseBrace) {
-      indent = TAB_CHARS.repeat(--indentLevel);
+      // Even if the stylesheet contains extra closing braces, the indent level should
+      // remain > 0.
+      indentLevel = Math.max(0, indentLevel - 1);
+
+      if (tabPrefs.indentWithTabs) {
+        indent = TAB_CHARS.repeat(indentLevel);
+      } else {
+        indent = SPACE_CHARS.repeat(indentLevel);
+      }
       result = result + indent + "}";
     }
 
@@ -297,7 +311,11 @@ function prettifyCSS(text, ruleCount) {
         result += " ";
       }
       result += "{";
-      indent = TAB_CHARS.repeat(++indentLevel);
+      if (tabPrefs.indentWithTabs) {
+        indent = TAB_CHARS.repeat(++indentLevel);
+      } else {
+        indent = SPACE_CHARS.repeat(++indentLevel);
+      }
     }
 
     // Now it is time to insert a newline.  However first we want to
@@ -406,3 +424,53 @@ function findCssSelector(ele) {
   return selector;
 }
 exports.findCssSelector = findCssSelector;
+
+/**
+ * Get the full CSS path for a given element.
+ * @returns a string that can be used as a CSS selector for the element. It might not
+ * match the element uniquely. It does however, represent the full path from the root
+ * node to the element.
+ */
+function getCssPath(ele) {
+  ele = getRootBindingParent(ele);
+  const document = ele.ownerDocument;
+  if (!document || !document.contains(ele)) {
+    throw new Error("getCssPath received element not inside document");
+  }
+
+  const getElementSelector = element => {
+    if (!element.localName) {
+      return "";
+    }
+
+    let label = element.nodeName == element.nodeName.toUpperCase()
+                ? element.localName.toLowerCase()
+                : element.localName;
+
+    if (element.id) {
+      label += "#" + element.id;
+    }
+
+    if (element.classList) {
+      for (let cl of element.classList) {
+        label += "." + cl;
+      }
+    }
+
+    return label;
+  };
+
+  let paths = [];
+
+  while (ele) {
+    if (!ele || ele.nodeType !== Node.ELEMENT_NODE) {
+      break;
+    }
+
+    paths.splice(0, 0, getElementSelector(ele));
+    ele = ele.parentNode;
+  }
+
+  return paths.length ? paths.join(" ") : "";
+}
+exports.getCssPath = getCssPath;

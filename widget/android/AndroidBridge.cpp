@@ -37,7 +37,6 @@
 #include "nsIDOMClientRect.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "nsPrintfCString.h"
-#include "NativeJSContainer.h"
 #include "nsContentUtils.h"
 #include "nsIScriptError.h"
 #include "nsIHttpChannel.h"
@@ -665,15 +664,6 @@ AndroidBridge::GetCurrentBatteryInformation(hal::BatteryInformation* aBatteryInf
 }
 
 void
-AndroidBridge::HandleGeckoMessage(JSContext* cx, JS::HandleObject object)
-{
-    ALOG_BRIDGE("%s", __PRETTY_FUNCTION__);
-
-    auto message = widget::CreateNativeJSContainer(cx, object);
-    GeckoAppShell::HandleGeckoMessage(message);
-}
-
-void
 AndroidBridge::GetCurrentNetworkInformation(hal::NetworkInformation* aNetworkInfo)
 {
     ALOG_BRIDGE("AndroidBridge::GetCurrentNetworkInformation");
@@ -758,34 +748,41 @@ nsAndroidBridge::~nsAndroidBridge()
 NS_IMETHODIMP nsAndroidBridge::HandleGeckoMessage(JS::HandleValue val,
                                                   JSContext *cx)
 {
-    if (val.isObject()) {
-        JS::RootedObject object(cx, &val.toObject());
-        AndroidBridge::Bridge()->HandleGeckoMessage(cx, object);
-        return NS_OK;
-    }
-
-    // Now handle legacy JSON messages.
-    if (!val.isString()) {
-        return NS_ERROR_INVALID_ARG;
-    }
-    JS::RootedString jsonStr(cx, val.toString());
-
-    JS::RootedValue jsonVal(cx);
-    if (!JS_ParseJSON(cx, jsonStr, &jsonVal) || !jsonVal.isObject()) {
-        return NS_ERROR_INVALID_ARG;
-    }
-
     // Spit out a warning before sending the message.
     nsContentUtils::ReportToConsoleNonLocalized(
-        NS_LITERAL_STRING("Use of JSON is deprecated. "
-            "Please pass Javascript objects directly to handleGeckoMessage."),
+        NS_LITERAL_STRING("Use of handleGeckoMessage is deprecated. "
+                          "Please use EventDispatcher from Messaging.jsm."),
         nsIScriptError::warningFlag,
         NS_LITERAL_CSTRING("nsIAndroidBridge"),
         nullptr);
 
-    JS::RootedObject object(cx, &jsonVal.toObject());
-    AndroidBridge::Bridge()->HandleGeckoMessage(cx, object);
-    return NS_OK;
+    JS::RootedValue jsonVal(cx);
+
+    if (val.isObject()) {
+        jsonVal = val;
+
+    } else {
+        // Handle legacy JSON messages.
+        if (!val.isString()) {
+            return NS_ERROR_INVALID_ARG;
+        }
+        JS::RootedString jsonStr(cx, val.toString());
+
+        if (!JS_ParseJSON(cx, jsonStr, &jsonVal) || !jsonVal.isObject()) {
+            JS_ClearPendingException(cx);
+            return NS_ERROR_INVALID_ARG;
+        }
+    }
+
+    JS::RootedObject jsonObj(cx, &jsonVal.toObject());
+    JS::RootedValue typeVal(cx);
+
+    if (!JS_GetProperty(cx, jsonObj, "type", &typeVal)) {
+        JS_ClearPendingException(cx);
+        return NS_ERROR_INVALID_ARG;
+    }
+
+    return Dispatch(typeVal, jsonVal, /* callback */ nullptr, cx);
 }
 
 NS_IMETHODIMP nsAndroidBridge::ContentDocumentChanged(mozIDOMWindowProxy* aWindow)
@@ -999,12 +996,12 @@ class AndroidBridge::DelayedTask
     using TimeDuration = mozilla::TimeDuration;
 
 public:
-    DelayedTask(already_AddRefed<Runnable> aTask)
+    DelayedTask(already_AddRefed<nsIRunnable> aTask)
         : mTask(aTask)
         , mRunTime() // Null timestamp representing no delay.
     {}
 
-    DelayedTask(already_AddRefed<Runnable> aTask, int aDelayMs)
+    DelayedTask(already_AddRefed<nsIRunnable> aTask, int aDelayMs)
         : mTask(aTask)
         , mRunTime(TimeStamp::Now() + TimeDuration::FromMilliseconds(aDelayMs))
     {}
@@ -1027,19 +1024,19 @@ public:
         return 0;
     }
 
-    already_AddRefed<Runnable> TakeTask()
+    already_AddRefed<nsIRunnable> TakeTask()
     {
         return mTask.forget();
     }
 
 private:
-    RefPtr<Runnable> mTask;
+    nsCOMPtr<nsIRunnable> mTask;
     const TimeStamp mRunTime;
 };
 
 
 void
-AndroidBridge::PostTaskToUiThread(already_AddRefed<Runnable> aTask, int aDelayMs)
+AndroidBridge::PostTaskToUiThread(already_AddRefed<nsIRunnable> aTask, int aDelayMs)
 {
     // add the new task into the mUiTaskQueue, sorted with
     // the earliest task first in the queue
@@ -1086,7 +1083,7 @@ AndroidBridge::RunDelayedUiThreadTasks()
         }
 
         // Retrieve task before unlocking/running.
-        RefPtr<Runnable> nextTask(mUiTaskQueue[0].TakeTask());
+        nsCOMPtr<nsIRunnable> nextTask(mUiTaskQueue[0].TakeTask());
         mUiTaskQueue.RemoveElementAt(0);
 
         // Unlock to allow posting new tasks reentrantly.

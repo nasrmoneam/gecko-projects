@@ -18,10 +18,9 @@
 <script clas="testbody" type="application/javascript">
   SimpleTest.waitForExplicitFinish();
 
-  const domUtils = SpecialPowers.Cc["@mozilla.org/inspector/dom-utils;1"].
-    getService(SpecialPowers.Ci.inIDOMUtils);
   const video = document.getElementById("video");
   const ccBtn = getAnonElementWithinVideoByAttribute(video, "anonid", "closedCaptionButton");
+  const ttList = getAnonElementWithinVideoByAttribute(video, "anonid", "textTrackList");
   const testCases = [];
 
   testCases.push(() => new Promise(resolve => {
@@ -72,12 +71,35 @@
 
     SimpleTest.executeSoon(() => {
       is(ccBtn.getAttribute("enabled"), "true", "CC button should be enabled");
-      caption.mode = "disabled";
 
       resolve();
     });
   }));
 
+  testCases.push(() => new Promise(resolve => {
+    synthesizeMouseAtCenter(ccBtn, {});
+
+    SimpleTest.executeSoon(() => {
+      is(ttList.hasAttribute("hidden"), false, "Texttrack menu should show up");
+      is(ttList.lastChild.getAttribute("on"), "true", "The last added item should be highlighted");
+
+      resolve();
+    });
+  }));
+
+  testCases.push(() => new Promise(resolve => {
+    const tt = ttList.children[1];
+
+    isnot(tt.getAttribute("on"), "true", "Item should be off before click");
+    synthesizeMouseAtCenter(tt, {});
+
+    SimpleTest.executeSoon(() => {
+      is(tt.getAttribute("on"), "true", "Selected item should be enabled");
+      is(ttList.getAttribute("hidden"), "true", "Should hide texttrack menu once clicked on an item");
+
+      resolve();
+    });
+  }));
 
   function executeTestCases(tasks) {
     return tasks.reduce((promise, task) => promise.then(task), Promise.resolve());
@@ -89,14 +111,14 @@
 
   function startMediaLoad() {
     video.src = "seek_with_sound.ogg";
-    video.addEventListener("loadedmetadata", loadedmetadata, false);
+    video.addEventListener("loadedmetadata", loadedmetadata);
   }
 
   function loadevent() {
     SpecialPowers.pushPrefEnv({"set": [["media.cache_size", 40000]]}, startMediaLoad);
   }
 
-  window.addEventListener("load", loadevent, false);
+  window.addEventListener("load", loadevent);
 </script>
 </pre>
 </body>

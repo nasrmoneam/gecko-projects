@@ -92,18 +92,6 @@ var gTests = [
     ref:     "",
     relativeURI: "data/text/plain,2",
     nsIURL:  true, nsINestedURI: false },
-  { spec:    "ftp://",
-    scheme:  "ftp",
-    prePath: "ftp://",
-    path:    "/",
-    ref:     "",
-    nsIURL:  true, nsINestedURI: false },
-  { spec:    "ftp:///",
-    scheme:  "ftp",
-    prePath: "ftp://",
-    path:    "/",
-    ref:     "",
-    nsIURL:  true, nsINestedURI: false },
   { spec:    "ftp://ftp.mozilla.org/pub/mozilla.org/README",
     scheme:  "ftp",
     prePath: "ftp://ftp.mozilla.org",
@@ -135,18 +123,6 @@ var gTests = [
     path:    "//mozilla.org/",
     ref:     "",
     nsIURL:  false, nsINestedURI: false },
-  { spec:    "http://",
-    scheme:  "http",
-    prePath: "http://",
-    path:    "/",
-    ref:     "",
-    nsIURL:  true, nsINestedURI: false },
-  { spec:    "http:///",
-    scheme:  "http",
-    prePath: "http://",
-    path:    "/",
-    ref:     "",
-    nsIURL:  true, nsINestedURI: false },
   { spec:    "http://www.example.com/",
     scheme:  "http",
     prePath: "http://www.example.com",
@@ -569,19 +545,17 @@ function run_test()
 {
   // UTF-8 check - From bug 622981
   // ASCII
-  let base = gIoService.newURI("http://example.org/xenia?", null, null);
+  let base = gIoService.newURI("http://example.org/xenia?");
   let resolved = gIoService.newURI("?x", null, base);
-  let expected = gIoService.newURI("http://example.org/xenia?x",
-                                  null, null);
+  let expected = gIoService.newURI("http://example.org/xenia?x");
   do_info("Bug 662981: ACSII - comparing " + resolved.spec + " and " + expected.spec);
   do_check_true(resolved.equals(expected));
 
   // UTF-8 character "è"
   // Bug 622981 was triggered by an empty query string
-  base = gIoService.newURI("http://example.org/xènia?", null, null);
+  base = gIoService.newURI("http://example.org/xènia?");
   resolved = gIoService.newURI("?x", null, base);
-  expected = gIoService.newURI("http://example.org/xènia?x",
-                              null, null);
+  expected = gIoService.newURI("http://example.org/xènia?x");
   do_info("Bug 662981: UTF8 - comparing " + resolved.spec + " and " + expected.spec);
   do_check_true(resolved.equals(expected));
 

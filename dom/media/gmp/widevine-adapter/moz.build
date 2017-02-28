@@ -7,10 +7,16 @@
 SOURCES += [
     'WidevineAdapter.cpp',
     'WidevineDecryptor.cpp',
+    'WidevineDummyDecoder.cpp',
     'WidevineFileIO.cpp',
     'WidevineUtils.cpp',
     'WidevineVideoDecoder.cpp',
     'WidevineVideoFrame.cpp',
+]
+
+EXPORTS += [
+    'WidevineDecryptor.h',
+    'WidevineUtils.h'
 ]
 
 FINAL_LIBRARY = 'xul'

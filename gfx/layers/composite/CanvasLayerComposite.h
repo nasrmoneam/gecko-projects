@@ -39,8 +39,6 @@ public:
     MOZ_CRASH("Incompatibe surface type");
   }
 
-  virtual LayerRenderState GetRenderState() override;
-
   virtual bool SetCompositableHost(CompositableHost* aHost) override;
 
   virtual void Disconnect() override
@@ -51,7 +49,8 @@ public:
   virtual void SetLayerManager(HostLayerManager* aManager) override;
 
   virtual Layer* GetLayer() override;
-  virtual void RenderLayer(const gfx::IntRect& aClipRect) override;
+  virtual void RenderLayer(const gfx::IntRect& aClipRect,
+                           const Maybe<gfx::Polygon>& aGeometry) override;
 
   virtual void CleanupResources() override;
 

@@ -117,26 +117,6 @@ struct ActorHandle
     int mId;
 };
 
-// Used internally to represent a "trigger" that might cause a state
-// transition.  Triggers are normalized across parent+child to Send
-// and Recv (instead of child-in, child-out, parent-in, parent-out) so
-// that they can share the same state machine implementation.  To
-// further normalize, |Send| is used for 'call', |Recv| for 'answer'.
-struct Trigger
-{
-    enum Action { Send, Recv };
-
-    Trigger(Action action, int32_t msg) :
-        mAction(action),
-        mMessage(msg)
-    {
-      MOZ_ASSERT(0 <= msg && msg < INT32_MAX);
-    }
-
-    uint32_t mAction : 1;
-    uint32_t mMessage : 31;
-};
-
 // What happens if Interrupt calls race?
 enum RacyInterruptPolicy {
     RIPError,
@@ -209,6 +189,9 @@ public:
     // aActor.
     void SetEventTargetForActor(IProtocol* aActor, nsIEventTarget* aEventTarget);
 
+    // Returns the event target set by SetEventTargetForActor() if available.
+    virtual nsIEventTarget* GetActorEventTarget();
+
 protected:
     friend class IToplevelProtocol;
 
@@ -217,6 +200,9 @@ protected:
     void SetIPCChannel(MessageChannel* aChannel) { mChannel = aChannel; }
 
     virtual void SetEventTargetForActorInternal(IProtocol* aActor, nsIEventTarget* aEventTarget);
+
+    virtual already_AddRefed<nsIEventTarget>
+    GetActorEventTargetInternal(IProtocol* aActor);
 
     static const int32_t kNullActorId = 0;
     static const int32_t kFreedActorId = 1;
@@ -382,11 +368,20 @@ public:
     virtual already_AddRefed<nsIEventTarget>
     GetMessageEventTarget(const Message& aMsg);
 
+    already_AddRefed<nsIEventTarget>
+    GetActorEventTarget(IProtocol* aActor);
+
+    virtual nsIEventTarget*
+    GetActorEventTarget();
+
 protected:
     virtual already_AddRefed<nsIEventTarget>
     GetConstructedEventTarget(const Message& aMsg) { return nullptr; }
 
     virtual void SetEventTargetForActorInternal(IProtocol* aActor, nsIEventTarget* aEventTarget);
+
+    virtual already_AddRefed<nsIEventTarget>
+    GetActorEventTargetInternal(IProtocol* aActor);
 
   private:
     ProtocolId mProtocolId;
@@ -428,7 +423,7 @@ public:
 inline bool
 LoggingEnabled()
 {
-#if defined(DEBUG)
+#if defined(DEBUG) || defined(FUZZING)
     return !!PR_GetEnv("MOZ_IPC_MESSAGE_LOG");
 #else
     return false;
@@ -438,7 +433,7 @@ LoggingEnabled()
 inline bool
 LoggingEnabledFor(const char *aTopLevelProtocol)
 {
-#if defined(DEBUG)
+#if defined(DEBUG) || defined(FUZZING)
     const char *filter = PR_GetEnv("MOZ_IPC_MESSAGE_LOG");
     if (!filter) {
         return false;

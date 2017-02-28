@@ -478,7 +478,7 @@ var Bookmarks = Object.freeze({
    * @return {Promise} resolved when the removal is complete.
    * @resolves once the removal is complete.
    */
-  eraseEverything: function(options = {}) {
+  eraseEverything(options = {}) {
     return PlacesUtils.withConnectionWrapper("Bookmarks.jsm: eraseEverything",
       db => db.executeTransaction(function* () {
         const folderGuids = [this.toolbarGuid, this.menuGuid, this.unfiledGuid,
@@ -512,7 +512,7 @@ var Bookmarks = Object.freeze({
     if (numberOfItems === undefined) {
       throw new Error("numberOfItems argument is required");
     }
-    if (!typeof numberOfItems === 'number' || (numberOfItems % 1) !== 0) {
+    if (!typeof numberOfItems === "number" || (numberOfItems % 1) !== 0) {
       throw new Error("numberOfItems argument must be an integer");
     }
     if (numberOfItems <= 0) {
@@ -694,7 +694,10 @@ var Bookmarks = Object.freeze({
    * @param orderedChildrenGuids
    *        Ordered array of the children's GUIDs.  If this list contains
    *        non-existing entries they will be ignored.  If the list is
-   *        incomplete, missing entries will be appended.
+   *        incomplete, and the current child list is already in order with
+   *        respect to orderedChildrenGuids, no change is made. Otherwise, the
+   *        new items are appended but maintain their current order relative to
+   *        eachother.
    * @param {Object} [options={}]
    *        Additional options. Currently supports the following properties:
    *         - source: The change source, forwarded to all bookmark observers.
@@ -767,7 +770,7 @@ var Bookmarks = Object.freeze({
       throw new Error("Query object is required");
     }
     if (typeof query === "string") {
-      query = { query: query };
+      query = { query };
     }
     if (typeof query !== "object") {
       throw new Error("Query must be an object or a string");
@@ -852,9 +855,9 @@ function updateBookmark(info, item, newParent) {
                           , fragment: "fk = (SELECT id FROM moz_places WHERE url_hash = hash(:url) AND url = :url)" });
       }
 
+      let newIndex = info.hasOwnProperty("index") ? info.index : item.index;
       if (newParent) {
         // For simplicity, update the index regardless.
-        let newIndex = info.hasOwnProperty("index") ? info.index : item.index;
         tuples.set("position", { value: newIndex });
 
         if (newParent.guid == item.parentGuid) {
@@ -868,7 +871,7 @@ function updateBookmark(info, item, newParent) {
             `UPDATE moz_bookmarks SET position = position + :sign
              WHERE parent = :newParentId
                AND position BETWEEN :lowIndex AND :highIndex
-            `, { sign: sign, newParentId: newParent._id,
+            `, { sign, newParentId: newParent._id,
                  lowIndex: Math.min(item.index, newIndex),
                  highIndex: Math.max(item.index, newIndex) });
         } else {
@@ -885,7 +888,7 @@ function updateBookmark(info, item, newParent) {
             `UPDATE moz_bookmarks SET position = position + :sign
              WHERE parent = :newParentId
                AND position >= :newIndex
-            `, { sign: +1, newParentId: newParent._id, newIndex: newIndex });
+            `, { sign: +1, newParentId: newParent._id, newIndex });
 
           yield setAncestorsLastModified(db, item.parentGuid, info.lastModified,
                                          syncChangeDelta);
@@ -936,6 +939,16 @@ function updateBookmark(info, item, newParent) {
                          [...tuples.entries()].reduce((p, c) => { p[c[0]] = c[1].value; return p; }, {})));
 
       if (newParent) {
+        if (newParent.guid == item.parentGuid) {
+          // Mark all affected separators as changed
+          // Also bumps the change counter if the item itself is a separator
+          const startIndex = Math.min(newIndex, item.index);
+          yield adjustSeparatorsSyncCounter(db, newParent._id, startIndex, syncChangeDelta);
+        } else {
+          // Mark all affected separators as changed
+          yield adjustSeparatorsSyncCounter(db, item._parentId, item.index, syncChangeDelta);
+          yield adjustSeparatorsSyncCounter(db, newParent._id, newIndex, syncChangeDelta);
+        }
         // Remove the Sync orphan annotation from reparented items. We don't
         // notify annotation observers about this because this is a temporary,
         // internal anno that's only used by Sync.
@@ -1014,6 +1027,9 @@ function insertBookmark(item, parent) {
              title: item.title, date_added: PlacesUtils.toPRTime(item.dateAdded),
              last_modified: PlacesUtils.toPRTime(item.lastModified), guid: item.guid,
              syncChangeCounter: syncChangeDelta, syncStatus });
+
+      // Mark all affected separators as changed
+      yield adjustSeparatorsSyncCounter(db, parent._id, item.index + 1, syncChangeDelta);
 
       if (hasExistingGuid) {
         // Remove stale tombstones if we're reinserting an item.
@@ -1247,6 +1263,9 @@ function removeBookmark(item, options) {
       let syncChangeDelta =
         PlacesSyncUtils.bookmarks.determineSyncChangeDelta(options.source);
 
+      // Mark all affected separators as changed
+      yield adjustSeparatorsSyncCounter(db, item._parentId, item.index, syncChangeDelta);
+
       if (isUntagging) {
         // If we're removing a tag entry, increment the change counter for all
         // bookmarks with the tagged URL.
@@ -1278,89 +1297,119 @@ function reorderChildren(parent, orderedChildrenGuids, options) {
     db => db.executeTransaction(function* () {
       // Select all of the direct children for the given parent.
       let children = yield fetchBookmarksByParent({ parentGuid: parent.guid });
-      if (!children.length)
-        return undefined;
+      if (!children.length) {
+        return [];
+      }
 
-      // Build a map of GUIDs to indices for fast lookups in the comparator
-      // function.
+      // Maps of GUIDs to indices for fast lookups in the comparator function.
       let guidIndices = new Map();
+      let currentIndices = new Map();
       for (let i = 0; i < orderedChildrenGuids.length; ++i) {
         let guid = orderedChildrenGuids[i];
         guidIndices.set(guid, i);
       }
 
-      // Reorder the children array according to the specified order, provided
-      // GUIDs come first, others are appended in somehow random order.
-      children.sort((a, b) => {
-        // This works provided fetchBookmarksByParent returns sorted children.
-        if (!guidIndices.has(a.guid) && !guidIndices.has(b.guid)) {
-          return 0;
-        }
-        if (!guidIndices.has(a.guid)) {
-          return 1;
-        }
-        if (!guidIndices.has(b.guid)) {
-          return -1;
-        }
-        return guidIndices.get(a.guid) < guidIndices.get(b.guid) ? -1 : 1;
-       });
+      // If we got an incomplete list but everything we have is in the right
+      // order, we do nothing.
+      let needReorder = true;
+      let requestedChildIndices = [];
+      for (let i = 0; i < children.length; ++i) {
+        // Take the opportunity to build currentIndices here, since we already
+        // are iterating over the children array.
+        currentIndices.set(children[i].guid, i);
 
-      // Update the bookmarks position now.  If any unknown guid have been
-      // inserted meanwhile, its position will be set to -position, and we'll
-      // handle it later.
-      // To do the update in a single step, we build a VALUES (guid, position)
-      // table.  We then use count() in the sorting table to avoid skipping values
-      // when no more existing GUIDs have been provided.
-      let valuesTable = children.map((child, i) => `("${child.guid}", ${i})`)
-                                .join();
-      yield db.execute(
-        `WITH sorting(g, p) AS (
-           VALUES ${valuesTable}
-         )
-         UPDATE moz_bookmarks SET position = (
-           SELECT CASE count(*) WHEN 0 THEN -position
-                                       ELSE count(*) - 1
-                  END
-           FROM sorting a
-           JOIN sorting b ON b.p <= a.p
-           WHERE a.g = guid
-         )
-         WHERE parent = :parentId
-        `, { parentId: parent._id});
-
-      let syncChangeDelta =
-        PlacesSyncUtils.bookmarks.determineSyncChangeDelta(options.source);
-      if (syncChangeDelta) {
-        // Flag the parent as having a change.
-        yield db.executeCached(`
-          UPDATE moz_bookmarks SET
-            syncChangeCounter = syncChangeCounter + :syncChangeDelta
-          WHERE id = :parentId`,
-          { parentId: parent._id, syncChangeDelta });
+        if (guidIndices.has(children[i].guid)) {
+          let index = guidIndices.get(children[i].guid);
+          requestedChildIndices.push(index);
+        }
       }
 
-      // Update position of items that could have been inserted in the meanwhile.
-      // Since this can happen rarely and it's only done for schema coherence
-      // resonds, we won't notify about these changes.
-      yield db.executeCached(
-        `CREATE TEMP TRIGGER moz_bookmarks_reorder_trigger
-           AFTER UPDATE OF position ON moz_bookmarks
-           WHEN NEW.position = -1
-         BEGIN
-           UPDATE moz_bookmarks
-           SET position = (SELECT MAX(position) FROM moz_bookmarks
-                           WHERE parent = NEW.parent) +
-                          (SELECT count(*) FROM moz_bookmarks
-                           WHERE parent = NEW.parent
-                             AND position BETWEEN OLD.position AND -1)
-           WHERE guid = NEW.guid;
-         END
-        `);
+      if (requestedChildIndices.length) {
+        needReorder = false;
+        for (let i = 1; i < requestedChildIndices.length; ++i) {
+          if (requestedChildIndices[i - 1] > requestedChildIndices[i]) {
+            needReorder = true;
+            break;
+          }
+        }
+      }
 
-      yield db.executeCached(
-        `UPDATE moz_bookmarks SET position = -1 WHERE position < 0`);
+      if (needReorder) {
 
-      yield db.executeCached(`DROP TRIGGER moz_bookmarks_reorder_trigger`);
+
+        // Reorder the children array according to the specified order, provided
+        // GUIDs come first, others are appended in somehow random order.
+        children.sort((a, b) => {
+          // This works provided fetchBookmarksByParent returns sorted children.
+          if (!guidIndices.has(a.guid) && !guidIndices.has(b.guid)) {
+            return currentIndices.get(a.guid) < currentIndices.get(b.guid) ? -1 : 1;
+          }
+          if (!guidIndices.has(a.guid)) {
+            return 1;
+          }
+          if (!guidIndices.has(b.guid)) {
+            return -1;
+          }
+          return guidIndices.get(a.guid) < guidIndices.get(b.guid) ? -1 : 1;
+        });
+
+        // Update the bookmarks position now.  If any unknown guid have been
+        // inserted meanwhile, its position will be set to -position, and we'll
+        // handle it later.
+        // To do the update in a single step, we build a VALUES (guid, position)
+        // table.  We then use count() in the sorting table to avoid skipping values
+        // when no more existing GUIDs have been provided.
+        let valuesTable = children.map((child, i) => `("${child.guid}", ${i})`)
+                                  .join();
+        yield db.execute(
+          `WITH sorting(g, p) AS (
+             VALUES ${valuesTable}
+           )
+           UPDATE moz_bookmarks SET position = (
+             SELECT CASE count(*) WHEN 0 THEN -position
+                                         ELSE count(*) - 1
+                    END
+             FROM sorting a
+             JOIN sorting b ON b.p <= a.p
+             WHERE a.g = guid
+           )
+           WHERE parent = :parentId
+          `, { parentId: parent._id});
+
+        let syncChangeDelta =
+          PlacesSyncUtils.bookmarks.determineSyncChangeDelta(options.source);
+        if (syncChangeDelta) {
+          // Flag the parent as having a change.
+          yield db.executeCached(`
+            UPDATE moz_bookmarks SET
+              syncChangeCounter = syncChangeCounter + :syncChangeDelta
+            WHERE id = :parentId`,
+            { parentId: parent._id, syncChangeDelta });
+        }
+
+        // Update position of items that could have been inserted in the meanwhile.
+        // Since this can happen rarely and it's only done for schema coherence
+        // resonds, we won't notify about these changes.
+        yield db.executeCached(
+          `CREATE TEMP TRIGGER moz_bookmarks_reorder_trigger
+             AFTER UPDATE OF position ON moz_bookmarks
+             WHEN NEW.position = -1
+           BEGIN
+             UPDATE moz_bookmarks
+             SET position = (SELECT MAX(position) FROM moz_bookmarks
+                             WHERE parent = NEW.parent) +
+                            (SELECT count(*) FROM moz_bookmarks
+                             WHERE parent = NEW.parent
+                               AND position BETWEEN OLD.position AND -1)
+             WHERE guid = NEW.guid;
+           END
+          `);
+
+        yield db.executeCached(
+          `UPDATE moz_bookmarks SET position = -1 WHERE position < 0`);
+
+        yield db.executeCached(`DROP TRIGGER moz_bookmarks_reorder_trigger`);
+      }
 
       // Remove the Sync orphan annotation from the reordered children, so that
       // Sync doesn't try to reparent them once it sees the original parents. We
@@ -1380,7 +1429,7 @@ function reorderChildren(parent, orderedChildrenGuids, options) {
         { orphanAnno: PlacesSyncUtils.bookmarks.SYNC_PARENT_ANNO });
 
       return children;
-    }.bind(this))
+    })
   );
 }
 
@@ -1765,4 +1814,23 @@ function addSyncChangesForBookmarksInFolder(db, folder, syncChangeDelta) {
           fk = (SELECT fk FROM moz_bookmarks WHERE parent = :parent)
     `,
     { syncChangeDelta, type: Bookmarks.TYPE_BOOKMARK, parent: folder._id });
+}
+
+function adjustSeparatorsSyncCounter(db, parentId, startIndex, syncChangeDelta) {
+  if (!syncChangeDelta) {
+    return Promise.resolve();
+  }
+
+  return db.executeCached(`
+    UPDATE moz_bookmarks
+    SET syncChangeCounter = syncChangeCounter + :delta
+    WHERE parent = :parent AND position >= :start_index
+      AND type = :item_type
+    `,
+    {
+      delta: syncChangeDelta,
+      parent: parentId,
+      start_index: startIndex,
+      item_type: Bookmarks.TYPE_SEPARATOR
+    });
 }

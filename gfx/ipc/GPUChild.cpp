@@ -10,7 +10,9 @@
 #include "GPUProcessHost.h"
 #include "GPUProcessManager.h"
 #include "mozilla/Telemetry.h"
+#include "mozilla/TelemetryIPC.h"
 #include "mozilla/dom/CheckerboardReportService.h"
+#include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/gfx/gfxVars.h"
 #if defined(XP_WIN)
 # include "mozilla/gfx/DeviceManagerDx.h"
@@ -82,7 +84,7 @@ GPUChild::EnsureGPUReady()
   SendGetDeviceStatus(&data);
 
   gfxPlatform::GetPlatform()->ImportGPUDeviceData(data);
-  Telemetry::AccumulateTimeDelta(Telemetry::GPU_PROCESS_LAUNCH_TIME_MS, mHost->GetLaunchTime());
+  Telemetry::AccumulateTimeDelta(Telemetry::GPU_PROCESS_LAUNCH_TIME_MS_2, mHost->GetLaunchTime());
   mGPUReady = true;
 }
 
@@ -95,7 +97,7 @@ GPUChild::RecvInitComplete(const GPUDeviceData& aData)
   }
 
   gfxPlatform::GetPlatform()->ImportGPUDeviceData(aData);
-  Telemetry::AccumulateTimeDelta(Telemetry::GPU_PROCESS_LAUNCH_TIME_MS, mHost->GetLaunchTime());
+  Telemetry::AccumulateTimeDelta(Telemetry::GPU_PROCESS_LAUNCH_TIME_MS_2, mHost->GetLaunchTime());
   mGPUReady = true;
   return IPC_OK();
 }
@@ -120,10 +122,13 @@ GPUChild::RecvGraphicsError(const nsCString& aError)
 }
 
 mozilla::ipc::IPCResult
-GPUChild::RecvInitCrashReporter(Shmem&& aShmem)
+GPUChild::RecvInitCrashReporter(Shmem&& aShmem, const NativeThreadId& aThreadId)
 {
 #ifdef MOZ_CRASHREPORTER
-  mCrashReporter = MakeUnique<ipc::CrashReporterHost>(GeckoProcessType_GPU, aShmem);
+  mCrashReporter = MakeUnique<ipc::CrashReporterHost>(
+    GeckoProcessType_GPU,
+    aShmem,
+    aThreadId);
 #endif
   return IPC_OK();
 }
@@ -140,16 +145,30 @@ GPUChild::RecvNotifyUiObservers(const nsCString& aTopic)
 }
 
 mozilla::ipc::IPCResult
-GPUChild::RecvAccumulateChildHistogram(InfallibleTArray<Accumulation>&& aAccumulations)
+GPUChild::RecvAccumulateChildHistograms(InfallibleTArray<Accumulation>&& aAccumulations)
 {
-  Telemetry::AccumulateChild(GeckoProcessType_GPU, aAccumulations);
+  TelemetryIPC::AccumulateChildHistograms(GeckoProcessType_GPU, aAccumulations);
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult
-GPUChild::RecvAccumulateChildKeyedHistogram(InfallibleTArray<KeyedAccumulation>&& aAccumulations)
+GPUChild::RecvAccumulateChildKeyedHistograms(InfallibleTArray<KeyedAccumulation>&& aAccumulations)
 {
-  Telemetry::AccumulateChildKeyed(GeckoProcessType_GPU, aAccumulations);
+  TelemetryIPC::AccumulateChildKeyedHistograms(GeckoProcessType_GPU, aAccumulations);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+GPUChild::RecvUpdateChildScalars(InfallibleTArray<ScalarAction>&& aScalarActions)
+{
+  TelemetryIPC::UpdateChildScalars(GeckoProcessType_GPU, aScalarActions);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+GPUChild::RecvUpdateChildKeyedScalars(InfallibleTArray<KeyedScalarAction>&& aScalarActions)
+{
+  TelemetryIPC::UpdateChildKeyedScalars(GeckoProcessType_GPU, aScalarActions);
   return IPC_OK();
 }
 
@@ -157,6 +176,40 @@ mozilla::ipc::IPCResult
 GPUChild::RecvNotifyDeviceReset()
 {
   mHost->mListener->OnProcessDeviceReset(mHost);
+  return IPC_OK();
+}
+
+bool
+GPUChild::SendRequestMemoryReport(const uint32_t& aGeneration,
+                                  const bool& aAnonymize,
+                                  const bool& aMinimizeMemoryUsage,
+                                  const MaybeFileDesc& aDMDFile)
+{
+  mMemoryReportRequest = MakeUnique<MemoryReportRequestHost>(aGeneration);
+  Unused << PGPUChild::SendRequestMemoryReport(
+    aGeneration,
+    aAnonymize,
+    aMinimizeMemoryUsage,
+    aDMDFile);
+  return true;
+}
+
+mozilla::ipc::IPCResult
+GPUChild::RecvAddMemoryReport(const MemoryReport& aReport)
+{
+  if (mMemoryReportRequest) {
+    mMemoryReportRequest->RecvReport(aReport);
+  }
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+GPUChild::RecvFinishMemoryReport(const uint32_t& aGeneration)
+{
+  if (mMemoryReportRequest) {
+    mMemoryReportRequest->Finish(aGeneration);
+    mMemoryReportRequest = nullptr;
+  }
   return IPC_OK();
 }
 
@@ -170,8 +223,9 @@ GPUChild::ActorDestroy(ActorDestroyReason aWhy)
       mCrashReporter = nullptr;
     }
 #endif
+
     Telemetry::Accumulate(Telemetry::SUBPROCESS_ABNORMAL_ABORT,
-        nsDependentCString(XRE_ChildProcessTypeToString(GeckoProcessType_GPU), 1));
+        nsDependentCString(XRE_ChildProcessTypeToString(GeckoProcessType_GPU)), 1);
 
     // Notify the Telemetry environment so that we can refresh and do a subsession split
     if (nsCOMPtr<nsIObserverService> obsvc = services::GetObserverService()) {

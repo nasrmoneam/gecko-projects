@@ -11,7 +11,6 @@ EXTRA_COMPONENTS += [
 
 UNIFIED_SOURCES += [
     'DeviceProviderHelpers.cpp',
-    'DisplayDeviceProvider.cpp',
     'MulticastDNSDeviceProvider.cpp',
     'PresentationDeviceProviderModule.cpp',
 ]
@@ -27,13 +26,6 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'android':
         # For android presentation device
         'AndroidCastDeviceProvider.js',
         'AndroidCastDeviceProvider.manifest',
-        # for TV 2.5 device backward capability
-        'LegacyPresentationControlService.js',
-        'LegacyProviders.manifest',
-    ]
-
-    UNIFIED_SOURCES += [
-        'LegacyMDNSDeviceProvider.cpp',
     ]
 
 include('/ipc/chromium/chromium-config.mozbuild')

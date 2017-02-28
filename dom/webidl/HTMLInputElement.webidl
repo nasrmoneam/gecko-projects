@@ -21,6 +21,7 @@ enum SelectionMode {
 
 interface nsIControllers;
 
+[HTMLConstructor]
 interface HTMLInputElement : HTMLElement {
   [Pure, SetterThrows]
            attribute DOMString accept;
@@ -239,6 +240,9 @@ partial interface HTMLInputElement {
 dictionary DateTimeValue {
   long hour;
   long minute;
+  long year;
+  long month;
+  long day;
 };
 
 partial interface HTMLInputElement {

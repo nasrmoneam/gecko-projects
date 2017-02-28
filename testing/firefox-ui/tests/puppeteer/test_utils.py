@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
+from marionette_harness import MarionetteTestCase
 
 
 class TestSanitize(PuppeteerMixin, MarionetteTestCase):
@@ -13,7 +13,8 @@ class TestSanitize(PuppeteerMixin, MarionetteTestCase):
 
         # Clear all previous history and cookies.
         self.puppeteer.places.remove_all_history()
-        self.marionette.delete_all_cookies()
+        with self.marionette.using_context('content'):
+            self.marionette.delete_all_cookies()
 
         self.urls = [
             'layout/mozilla_projects.html',
@@ -38,6 +39,10 @@ class TestSanitize(PuppeteerMixin, MarionetteTestCase):
 
     def test_sanitize_cookies(self):
         """ Clears cookies. """
-        self.assertIsNotNone(self.marionette.get_cookie('litmus_1'))
+        with self.marionette.using_context('content'):
+            self.assertIsNotNone(self.marionette.get_cookie('litmus_1'))
+
         self.puppeteer.utils.sanitize(data_type={"cookies": True})
-        self.assertIsNone(self.marionette.get_cookie('litmus_1'))
+
+        with self.marionette.using_context('content'):
+            self.assertIsNone(self.marionette.get_cookie('litmus_1'))

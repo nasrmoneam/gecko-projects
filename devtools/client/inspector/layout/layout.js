@@ -6,10 +6,14 @@
 
 const Services = require("Services");
 const { Task } = require("devtools/shared/task");
+
 const { createFactory, createElement } = require("devtools/client/shared/vendor/react");
 const { Provider } = require("devtools/client/shared/vendor/react-redux");
 
+const SwatchColorPickerTooltip = require("devtools/client/shared/widgets/tooltip/SwatchColorPickerTooltip");
+
 const {
+  updateGridColor,
   updateGridHighlighted,
   updateGrids,
 } = require("./actions/grids");
@@ -19,29 +23,37 @@ const {
 } = require("./actions/highlighter-settings");
 
 const App = createFactory(require("./components/App"));
-const Store = require("./store");
 
 const { LocalizationHelper } = require("devtools/shared/l10n");
 const INSPECTOR_L10N =
   new LocalizationHelper("devtools/client/locales/inspector.properties");
 
 const SHOW_GRID_LINE_NUMBERS = "devtools.gridinspector.showGridLineNumbers";
+const SHOW_GRID_OUTLINE_PREF = "devtools.gridinspector.showGridOutline";
 const SHOW_INFINITE_LINES_PREF = "devtools.gridinspector.showInfiniteLines";
+
+// Default grid colors.
+const GRID_COLORS = [
+  "#05E4EE",
+  "#BB9DFF",
+  "#FFB53B",
+  "#71F362",
+  "#FF90FF",
+  "#FF90FF",
+  "#1B80FF",
+  "#FF2647"
+];
 
 function LayoutView(inspector, window) {
   this.document = window.document;
   this.highlighters = inspector.highlighters;
   this.inspector = inspector;
-  this.store = null;
+  this.store = inspector.store;
   this.walker = this.inspector.walker;
 
   this.onGridLayoutChange = this.onGridLayoutChange.bind(this);
   this.onHighlighterChange = this.onHighlighterChange.bind(this);
   this.onSidebarSelect = this.onSidebarSelect.bind(this);
-
-  this.highlighters.on("grid-highlighter-hidden", this.onHighlighterChange);
-  this.highlighters.on("grid-highlighter-shown", this.onHighlighterChange);
-  this.inspector.sidebar.on("select", this.onSidebarSelect);
 
   this.init();
 }
@@ -57,12 +69,99 @@ LayoutView.prototype = {
       return;
     }
 
+    let {
+      onHideBoxModelHighlighter,
+      onShowBoxModelEditor,
+      onShowBoxModelHighlighter,
+    } = this.inspector.boxmodel.getComponentProps();
+
     this.layoutInspector = yield this.inspector.walker.getLayoutInspector();
-    let store = this.store = Store();
 
     this.loadHighlighterSettings();
 
+    this.highlighters.on("grid-highlighter-hidden", this.onHighlighterChange);
+    this.highlighters.on("grid-highlighter-shown", this.onHighlighterChange);
+    this.inspector.sidebar.on("select", this.onSidebarSelect);
+
+    // Create a shared SwatchColorPicker instance to be reused by all GridItem components.
+    this.swatchColorPickerTooltip = new SwatchColorPickerTooltip(
+      this.inspector.toolbox.doc,
+      this.inspector,
+      {
+        supportsCssColor4ColorFunction: () => false
+      }
+    );
+
     let app = App({
+      /**
+       * Retrieve the shared SwatchColorPicker instance.
+       */
+      getSwatchColorPickerTooltip: () => {
+        return this.swatchColorPickerTooltip;
+      },
+
+      /**
+       * Set the inspector selection.
+       * @param {NodeFront} nodeFront
+       *        The NodeFront corresponding to the new selection.
+       */
+      setSelectedNode: (nodeFront) => {
+        this.inspector.selection.setNodeFront(nodeFront, "layout-panel");
+      },
+
+      /**
+       * Shows the box model properties under the box model if true, otherwise, hidden by
+       * default.
+       */
+      showBoxModelProperties: true,
+
+      /**
+       * Shows the grid outline if user preferences are set to true, otherwise, hidden by
+       * default.
+       */
+      showGridOutline: Services.prefs.getBoolPref(SHOW_GRID_OUTLINE_PREF),
+
+      onHideBoxModelHighlighter,
+
+      /**
+       * Handler for a change in the grid overlay color picker for a grid container.
+       *
+       * @param  {NodeFront} node
+       *         The NodeFront of the grid container element for which the grid color is
+       *         being updated.
+       * @param  {String} color
+       *         A hex string representing the color to use.
+       */
+      onSetGridOverlayColor: (node, color) => {
+        this.store.dispatch(updateGridColor(node, color));
+        let { grids } = this.store.getState();
+
+        // If the grid for which the color was updated currently has a highlighter, update
+        // the color.
+        for (let grid of grids) {
+          if (grid.nodeFront === node && grid.highlighted) {
+            let highlighterSettings = this.getGridHighlighterSettings(node);
+            this.highlighters.showGridHighlighter(node, highlighterSettings);
+          }
+        }
+      },
+
+      onShowBoxModelEditor,
+      onShowBoxModelHighlighter,
+
+     /**
+       * Shows the box-model highlighter on the element corresponding to the provided
+       * NodeFront.
+       *
+       * @param  {NodeFront} nodeFront
+       *         The node to highlight.
+       * @param  {Object} options
+       *         Options passed to the highlighter actor.
+       */
+      onShowBoxModelHighlighterForNode: (nodeFront, options) => {
+        let toolbox = this.inspector.toolbox;
+        toolbox.highlighterUtils.highlightNodeFront(nodeFront, options);
+      },
 
       /**
        * Handler for a change in the input checkboxes in the GridList component.
@@ -73,13 +172,13 @@ LayoutView.prototype = {
        *         highlighter is toggled on/off for.
        */
       onToggleGridHighlighter: node => {
-        let { highlighterSettings } = this.store.getState();
+        let highlighterSettings = this.getGridHighlighterSettings(node);
         this.highlighters.toggleGridHighlighter(node, highlighterSettings);
       },
 
       /**
        * Handler for a change in the show grid line numbers checkbox in the
-       * GridDisplaySettings component. TOggles on/off the option to show the grid line
+       * GridDisplaySettings component. Toggles on/off the option to show the grid line
        * numbers in the grid highlighter. Refreshes the shown grid highlighter for the
        * grids currently highlighted.
        *
@@ -90,10 +189,11 @@ LayoutView.prototype = {
         this.store.dispatch(updateShowGridLineNumbers(enabled));
         Services.prefs.setBoolPref(SHOW_GRID_LINE_NUMBERS, enabled);
 
-        let { grids, highlighterSettings } = this.store.getState();
+        let { grids } = this.store.getState();
 
         for (let grid of grids) {
           if (grid.highlighted) {
+            let highlighterSettings = this.getGridHighlighterSettings(grid.nodeFront);
             this.highlighters.showGridHighlighter(grid.nodeFront, highlighterSettings);
           }
         }
@@ -112,19 +212,19 @@ LayoutView.prototype = {
         this.store.dispatch(updateShowInfiniteLines(enabled));
         Services.prefs.setBoolPref(SHOW_INFINITE_LINES_PREF, enabled);
 
-        let { grids, highlighterSettings } = this.store.getState();
+        let { grids } = this.store.getState();
 
         for (let grid of grids) {
           if (grid.highlighted) {
+            let highlighterSettings = this.getGridHighlighterSettings(grid.nodeFront);
             this.highlighters.showGridHighlighter(grid.nodeFront, highlighterSettings);
           }
         }
-      },
-
+      }
     });
 
     let provider = createElement(Provider, {
-      store,
+      store: this.store,
       id: "layoutview",
       title: INSPECTOR_L10N.getStr("inspector.sidebar.layoutViewTitle2"),
       key: "layoutview",
@@ -158,6 +258,43 @@ LayoutView.prototype = {
   },
 
   /**
+   * Returns the color set for the grid highlighter associated with the provided
+   * nodeFront.
+   *
+   * @param  {NodeFront} nodeFront
+   *         The NodeFront for which we need the color.
+   */
+  getGridColorForNodeFront(nodeFront) {
+    let { grids } = this.store.getState();
+
+    for (let grid of grids) {
+      if (grid.nodeFront === nodeFront) {
+        return grid.color;
+      }
+    }
+
+    return null;
+  },
+
+  /**
+   * Create a highlighter settings object for the provided nodeFront.
+   *
+   * @param  {NodeFront} nodeFront
+   *         The NodeFront for which we need highlighter settings.
+   */
+  getGridHighlighterSettings(nodeFront) {
+    let { highlighterSettings } = this.store.getState();
+
+    // Get the grid color for the provided nodeFront.
+    let color = this.getGridColorForNodeFront(nodeFront);
+
+    // Merge the grid color to the generic highlighter settings.
+    return Object.assign({}, highlighterSettings, {
+      color
+    });
+  },
+
+  /**
    * Returns true if the layout panel is visible, and false otherwise.
    */
   isPanelVisible() {
@@ -180,13 +317,13 @@ LayoutView.prototype = {
   },
 
   /**
-   * Refreshes the layout view by dispatching the new grid data. This is called when the
+   * Updates the grid panel by dispatching the new grid data. This is called when the
    * layout view becomes visible or the view needs to be updated with new grid data.
    *
    * @param {Array|null} gridFronts
    *        Optional array of all GridFront in the current page.
    */
-  refresh: Task.async(function* (gridFronts) {
+  updateGridPanel: Task.async(function* (gridFronts) {
     // Stop refreshing if the inspector or store is already destroyed.
     if (!this.inspector || !this.store) {
       return;
@@ -202,8 +339,12 @@ LayoutView.prototype = {
       let grid = gridFronts[i];
       let nodeFront = yield this.walker.getNodeFromActor(grid.actorID, ["containerEl"]);
 
+      let fallbackColor = GRID_COLORS[i % GRID_COLORS.length];
+      let color = this.getGridColorForNodeFront(nodeFront) || fallbackColor;
+
       grids.push({
         id: i,
+        color,
         gridFragments: grid.gridFragments,
         highlighted: nodeFront == this.highlighters.gridHighlighterShown,
         nodeFront,
@@ -221,7 +362,7 @@ LayoutView.prototype = {
    */
   onGridLayoutChange(grids) {
     if (this.isPanelVisible()) {
-      this.refresh(grids);
+      this.updateGridPanel(grids);
     }
   },
 
@@ -253,9 +394,9 @@ LayoutView.prototype = {
     }
 
     this.layoutInspector.on("grid-layout-changed", this.onGridLayoutChange);
-    this.refresh();
+    this.updateGridPanel();
   },
 
 };
 
-exports.LayoutView = LayoutView;
+module.exports = LayoutView;

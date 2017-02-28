@@ -280,6 +280,11 @@ private:
       surfacePathPrefix.Append("x");
       surfacePathPrefix.AppendInt(counter.Key().Size().height);
 
+      if (counter.Values().SharedHandles() > 0) {
+        surfacePathPrefix.Append(", shared:");
+        surfacePathPrefix.AppendInt(uint32_t(counter.Values().SharedHandles()));
+      }
+
       if (counter.Type() == SurfaceMemoryCounterType::NORMAL) {
         PlaybackType playback = counter.Key().Playback();
         surfacePathPrefix.Append(playback == PlaybackType::eAnimated
@@ -645,8 +650,9 @@ ValidateSecurityInfo(imgRequest* request, bool forcePrincipalCheck,
   // document principal isn't the same, we can't use this request.
   if (request->GetCORSMode() != corsmode) {
     return false;
-  } else if (request->GetCORSMode() != imgIRequest::CORS_NONE ||
-             forcePrincipalCheck) {
+  }
+  if (request->GetCORSMode() != imgIRequest::CORS_NONE ||
+      forcePrincipalCheck) {
     nsCOMPtr<nsIPrincipal> otherprincipal = request->GetLoadingPrincipal();
 
     // If we previously had a principal, but we don't now, we can't use this
@@ -752,11 +758,13 @@ NewImageChannel(nsIChannel** aResult,
       // If this is a favicon loading, we will use the originAttributes from the
       // loadingPrincipal as the channel's originAttributes. This allows the favicon
       // loading from XUL will use the correct originAttributes.
-      NeckoOriginAttributes neckoAttrs;
-      neckoAttrs.InheritFromDocToNecko(BasePrincipal::Cast(aLoadingPrincipal)->OriginAttributesRef());
+      OriginAttributes attrs;
+      attrs.Inherit(aLoadingPrincipal->OriginAttributesRef());
 
       nsCOMPtr<nsILoadInfo> loadInfo = (*aResult)->GetLoadInfo();
-      rv = loadInfo->SetOriginAttributes(neckoAttrs);
+      if (loadInfo) {
+        rv = loadInfo->SetOriginAttributes(attrs);
+      }
     }
   } else {
     // either we are loading something inside a document, in which case
@@ -781,14 +789,16 @@ NewImageChannel(nsIChannel** aResult,
     // Use the OriginAttributes from the loading principal, if one is available,
     // and adjust the private browsing ID based on what kind of load the caller
     // has asked us to perform.
-    NeckoOriginAttributes neckoAttrs;
+    OriginAttributes attrs;
     if (aLoadingPrincipal) {
-      neckoAttrs.InheritFromDocToNecko(BasePrincipal::Cast(aLoadingPrincipal)->OriginAttributesRef());
+      attrs.Inherit(aLoadingPrincipal->OriginAttributesRef());
     }
-    neckoAttrs.mPrivateBrowsingId = aRespectPrivacy ? 1 : 0;
+    attrs.mPrivateBrowsingId = aRespectPrivacy ? 1 : 0;
 
     nsCOMPtr<nsILoadInfo> loadInfo = (*aResult)->GetLoadInfo();
-    rv = loadInfo->SetOriginAttributes(neckoAttrs);
+    if (loadInfo) {
+      rv = loadInfo->SetOriginAttributes(attrs);
+    }
   }
 
   if (NS_FAILED(rv)) {
@@ -1334,9 +1344,9 @@ imgLoader::ClearCache(bool chrome)
 
   if (chrome) {
     return ClearChromeImageCache();
-  } else {
-    return ClearImageCache();
   }
+  return ClearImageCache();
+
 }
 
 NS_IMETHODIMP
@@ -1348,11 +1358,11 @@ imgLoader::FindEntryProperties(nsIURI* uri,
 
   nsCOMPtr<nsIDocument> doc = do_QueryInterface(aDOMDoc);
 
-  PrincipalOriginAttributes attrs;
+  OriginAttributes attrs;
   if (doc) {
     nsCOMPtr<nsIPrincipal> principal = doc->NodePrincipal();
     if (principal) {
-      attrs = BasePrincipal::Cast(principal)->OriginAttributesRef();
+      attrs = principal->OriginAttributesRef();
     }
   }
 
@@ -1629,80 +1639,79 @@ imgLoader::ValidateRequestWithNewChannel(imgRequest* request,
 
     return NS_SUCCEEDED(rv);
 
-  } else {
-    // We will rely on Necko to cache this request when it's possible, and to
-    // tell imgCacheValidator::OnStartRequest whether the request came from its
-    // cache.
-    nsCOMPtr<nsIChannel> newChannel;
-    bool forcePrincipalCheck;
-    rv = NewImageChannel(getter_AddRefs(newChannel),
-                         &forcePrincipalCheck,
-                         aURI,
-                         aInitialDocumentURI,
-                         aCORSMode,
-                         aReferrerURI,
-                         aReferrerPolicy,
-                         aLoadGroup,
-                         mAcceptHeader,
-                         aLoadFlags,
-                         aLoadPolicyType,
-                         aLoadingPrincipal,
-                         aCX,
-                         mRespectPrivacy);
-    if (NS_FAILED(rv)) {
-      return false;
-    }
-
-    RefPtr<imgRequestProxy> req;
-    rv = CreateNewProxyForRequest(request, aLoadGroup, aObserver,
-                                  aLoadFlags, getter_AddRefs(req));
-    if (NS_FAILED(rv)) {
-      return false;
-    }
-
-    // Make sure that OnStatus/OnProgress calls have the right request set...
-    RefPtr<nsProgressNotificationProxy> progressproxy =
-        new nsProgressNotificationProxy(newChannel, req);
-    if (!progressproxy) {
-      return false;
-    }
-
-    RefPtr<imgCacheValidator> hvc =
-      new imgCacheValidator(progressproxy, this, request, aCX,
-                            forcePrincipalCheck);
-
-    // Casting needed here to get past multiple inheritance.
-    nsCOMPtr<nsIStreamListener> listener =
-      do_QueryInterface(static_cast<nsIThreadRetargetableStreamListener*>(hvc));
-    NS_ENSURE_TRUE(listener, false);
-
-    // We must set the notification callbacks before setting up the
-    // CORS listener, because that's also interested inthe
-    // notification callbacks.
-    newChannel->SetNotificationCallbacks(hvc);
-
-    request->SetValidator(hvc);
-
-    // We will send notifications from imgCacheValidator::OnStartRequest().
-    // In the mean time, we must defer notifications because we are added to
-    // the imgRequest's proxy list, and we can get extra notifications
-    // resulting from methods such as StartDecoding(). See bug 579122.
-    req->SetNotificationsDeferred(true);
-
-    // Add the proxy without notifying
-    hvc->AddProxy(req);
-
-    mozilla::net::PredictorLearn(aURI, aInitialDocumentURI,
-        nsINetworkPredictor::LEARN_LOAD_SUBRESOURCE, aLoadGroup);
-
-    rv = newChannel->AsyncOpen2(listener);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return false;
-    }
-
-    req.forget(aProxyRequest);
-    return true;
   }
+  // We will rely on Necko to cache this request when it's possible, and to
+  // tell imgCacheValidator::OnStartRequest whether the request came from its
+  // cache.
+  nsCOMPtr<nsIChannel> newChannel;
+  bool forcePrincipalCheck;
+  rv = NewImageChannel(getter_AddRefs(newChannel),
+                       &forcePrincipalCheck,
+                       aURI,
+                       aInitialDocumentURI,
+                       aCORSMode,
+                       aReferrerURI,
+                       aReferrerPolicy,
+                       aLoadGroup,
+                       mAcceptHeader,
+                       aLoadFlags,
+                       aLoadPolicyType,
+                       aLoadingPrincipal,
+                       aCX,
+                       mRespectPrivacy);
+  if (NS_FAILED(rv)) {
+    return false;
+  }
+
+  RefPtr<imgRequestProxy> req;
+  rv = CreateNewProxyForRequest(request, aLoadGroup, aObserver,
+                                aLoadFlags, getter_AddRefs(req));
+  if (NS_FAILED(rv)) {
+    return false;
+  }
+
+  // Make sure that OnStatus/OnProgress calls have the right request set...
+  RefPtr<nsProgressNotificationProxy> progressproxy =
+    new nsProgressNotificationProxy(newChannel, req);
+  if (!progressproxy) {
+    return false;
+  }
+
+  RefPtr<imgCacheValidator> hvc =
+    new imgCacheValidator(progressproxy, this, request, aCX,
+                          forcePrincipalCheck);
+
+  // Casting needed here to get past multiple inheritance.
+  nsCOMPtr<nsIStreamListener> listener =
+    do_QueryInterface(static_cast<nsIThreadRetargetableStreamListener*>(hvc));
+  NS_ENSURE_TRUE(listener, false);
+
+  // We must set the notification callbacks before setting up the
+  // CORS listener, because that's also interested inthe
+  // notification callbacks.
+  newChannel->SetNotificationCallbacks(hvc);
+
+  request->SetValidator(hvc);
+
+  // We will send notifications from imgCacheValidator::OnStartRequest().
+  // In the mean time, we must defer notifications because we are added to
+  // the imgRequest's proxy list, and we can get extra notifications
+  // resulting from methods such as StartDecoding(). See bug 579122.
+  req->SetNotificationsDeferred(true);
+
+  // Add the proxy without notifying
+  hvc->AddProxy(req);
+
+  mozilla::net::PredictorLearn(aURI, aInitialDocumentURI,
+                               nsINetworkPredictor::LEARN_LOAD_SUBRESOURCE, aLoadGroup);
+
+  rv = newChannel->AsyncOpen2(listener);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return false;
+  }
+
+  req.forget(aProxyRequest);
+  return true;
 }
 
 bool
@@ -1872,10 +1881,8 @@ imgLoader::RemoveFromCache(const ImageCacheKey& aKey)
     AddToUncachedImages(request);
 
     return true;
-
-  } else {
-    return false;
   }
+  return false;
 }
 
 bool
@@ -2009,8 +2016,7 @@ imgLoader::LoadImageXPCOM(nsIURI* aURI,
     nsresult rv = LoadImage(aURI,
                             aInitialDocumentURI,
                             aReferrerURI,
-                            refpol == mozilla::net::RP_Unset ?
-                              mozilla::net::RP_Default : refpol,
+                            refpol,
                             aLoadingPrincipal,
                             aLoadGroup,
                             aObserver,
@@ -2112,9 +2118,9 @@ imgLoader::LoadImage(nsIURI* aURI,
   // XXX For now ignore aCacheKey. We will need it in the future
   // for correctly dealing with image load requests that are a result
   // of post data.
-  PrincipalOriginAttributes attrs;
+  OriginAttributes attrs;
   if (aLoadingPrincipal) {
-    attrs = BasePrincipal::Cast(aLoadingPrincipal)->OriginAttributesRef();
+    attrs = aLoadingPrincipal->OriginAttributesRef();
   }
   ImageCacheKey key(aURI, attrs, aLoadingDocument, rv);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -2215,8 +2221,8 @@ imgLoader::LoadImage(nsIURI* aURI,
 
     if (NS_FAILED(openRes)) {
       MOZ_LOG(gImgLog, LogLevel::Debug,
-             ("[this=%p] imgLoader::LoadImage -- AsyncOpen2() failed: 0x%x\n",
-              this, openRes));
+             ("[this=%p] imgLoader::LoadImage -- AsyncOpen2() failed: 0x%" PRIx32 "\n",
+              this, static_cast<uint32_t>(openRes)));
       request->CancelAndAbort(openRes);
       return openRes;
     }
@@ -2324,9 +2330,9 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
   NS_ENSURE_TRUE(channel, NS_ERROR_FAILURE);
   nsCOMPtr<nsILoadInfo> loadInfo = channel->GetLoadInfo();
 
-  PrincipalOriginAttributes attrs;
+  OriginAttributes attrs;
   if (loadInfo) {
-    attrs.InheritFromNecko(loadInfo->GetOriginAttributes());
+    attrs.Inherit(loadInfo->GetOriginAttributes());
   }
 
   nsresult rv;
@@ -2365,7 +2371,7 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
         ? loadInfo->InternalContentPolicyType()
         : nsIContentPolicy::TYPE_INTERNAL_IMAGE;
 
-      if (ValidateEntry(entry, uri, nullptr, nullptr, RP_Default,
+      if (ValidateEntry(entry, uri, nullptr, nullptr, RP_Unset,
                         nullptr, aObserver, aCX, requestFlags,
                         policyType, false, nullptr,
                         nullptr, imgIRequest::CORS_NONE)) {
@@ -2454,7 +2460,7 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
     // can set aHadInsecureRedirect to false here.
     rv = request->Init(originalURI, uri, /* aHadInsecureRedirect = */ false,
                        channel, channel, entry, aCX, nullptr,
-                       imgIRequest::CORS_NONE, RP_Default);
+                       imgIRequest::CORS_NONE, RP_Unset);
     NS_ENSURE_SUCCESS(rv, rv);
 
     RefPtr<ProxyListener> pl =
@@ -2682,9 +2688,9 @@ ProxyListener::CheckListenerChain()
     rv = retargetableListener->CheckListenerChain();
   }
   MOZ_LOG(gImgLog, LogLevel::Debug,
-         ("ProxyListener::CheckListenerChain %s [this=%p listener=%p rv=%x]",
+         ("ProxyListener::CheckListenerChain %s [this=%p listener=%p rv=%" PRIx32 "]",
           (NS_SUCCEEDED(rv) ? "success" : "failure"),
-          this, (nsIStreamListener*)mDestListener, rv));
+          this, (nsIStreamListener*)mDestListener, static_cast<uint32_t>(rv)));
   return rv;
 }
 
@@ -2904,8 +2910,8 @@ imgCacheValidator::CheckListenerChain()
     rv = retargetableListener->CheckListenerChain();
   }
   MOZ_LOG(gImgLog, LogLevel::Debug,
-         ("[this=%p] imgCacheValidator::CheckListenerChain -- rv %d=%s",
-          this, NS_SUCCEEDED(rv) ? "succeeded" : "failed", rv));
+         ("[this=%p] imgCacheValidator::CheckListenerChain -- rv %" PRId32 "=%s",
+          this, static_cast<uint32_t>(rv), NS_SUCCEEDED(rv) ? "succeeded" : "failed"));
   return rv;
 }
 

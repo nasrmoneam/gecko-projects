@@ -3,7 +3,6 @@ var testRanCounter = 0;
 var expectedTestCount = 0;
 
 function testHasRun() {
- //alert(testRanCounter);
  ++testRanCounter;
  if (testRanCounter == expectedTestCount) {
     SimpleTest.finish();
@@ -60,8 +59,7 @@ function testFile(file, contents, test) {
   };
   xhr.addEventListener("load",
                        getXHRLoadHandler(contents, contents.length,
-                                         "XMLHttpRequest send of " + test),
-                       false);
+                                         "XMLHttpRequest send of " + test));
   xhr.overrideMimeType('text/plain; charset=x-user-defined');
   xhr.send(file);
   expectedTestCount++;
@@ -117,14 +115,6 @@ function convertXHRBinary(s) {
     res += String.fromCharCode(s.charCodeAt(i) & 255);
   }
   return res;
-}
-
-function testHasRun() {
- //alert(testRanCounter);
- ++testRanCounter;
- if (testRanCounter == expectedTestCount) {
-    SimpleTest.finish();
-  }
 }
 
 function gc() {

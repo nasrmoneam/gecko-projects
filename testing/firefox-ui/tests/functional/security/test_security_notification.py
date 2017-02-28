@@ -5,9 +5,9 @@
 import time
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import By, Wait
 from marionette_driver.errors import MarionetteException
+from marionette_harness import MarionetteTestCase
 
 
 class TestSecurityNotification(PuppeteerMixin, MarionetteTestCase):
@@ -50,7 +50,7 @@ class TestSecurityNotification(PuppeteerMixin, MarionetteTestCase):
             self.marionette.navigate(self.urls[1])
 
         Wait(self.marionette).until(lambda _: (
-            self.identity_box.get_attribute('className') == 'verifiedIdentity')
+            self.identity_box.get_property('className') == 'verifiedIdentity')
         )
 
     def test_insecure_website(self):
@@ -58,5 +58,5 @@ class TestSecurityNotification(PuppeteerMixin, MarionetteTestCase):
             self.marionette.navigate(self.urls[2])
 
         Wait(self.marionette).until(lambda _: (
-            self.identity_box.get_attribute('className') == 'unknownIdentity')
+            self.identity_box.get_property('className') == 'unknownIdentity')
         )

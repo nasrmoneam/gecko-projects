@@ -208,13 +208,12 @@ public:
    * objects for places components.
    */
   nsIStringBundle* GetBundle();
-  nsIStringBundle* GetDateFormatBundle();
   nsICollation* GetCollation();
   void GetStringFromName(const char16_t* aName, nsACString& aResult);
   void GetAgeInDaysString(int32_t aInt, const char16_t *aName,
                           nsACString& aResult);
-  void GetMonthName(int32_t aIndex, nsACString& aResult);
-  void GetMonthYear(int32_t aMonth, int32_t aYear, nsACString& aResult);
+  static void GetMonthName(const PRExplodedTime& aTime, nsACString& aResult);
+  static void GetMonthYear(const PRExplodedTime& aTime, nsACString& aResult);
 
   // Returns whether history is enabled or not.
   bool IsHistoryDisabled() {
@@ -394,8 +393,13 @@ public:
   }
 
   int32_t GetFrecencyTransitionBonus(int32_t aTransitionType,
-                                     bool aVisited) const
+                                     bool aVisited,
+                                     bool aRedirect = false) const
   {
+    if (aRedirect) {
+      return mRedirectSourceVisitBonus;
+    }
+
     switch (aTransitionType) {
       case nsINavHistoryService::TRANSITION_EMBED:
         return mEmbedVisitBonus;
@@ -560,7 +564,6 @@ protected:
 
   // localization
   nsCOMPtr<nsIStringBundle> mBundle;
-  nsCOMPtr<nsIStringBundle> mDateFormatBundle;
   nsCOMPtr<nsICollation> mCollation;
 
   // recent events
@@ -619,6 +622,7 @@ protected:
   int32_t mDownloadVisitBonus;
   int32_t mPermRedirectVisitBonus;
   int32_t mTempRedirectVisitBonus;
+  int32_t mRedirectSourceVisitBonus;
   int32_t mDefaultVisitBonus;
   int32_t mUnvisitedBookmarkBonus;
   int32_t mUnvisitedTypedBonus;

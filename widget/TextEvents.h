@@ -41,6 +41,14 @@ enum
 
 namespace mozilla {
 
+enum : uint32_t
+{
+  eKeyLocationStandard = nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD,
+  eKeyLocationLeft     = nsIDOMKeyEvent::DOM_KEY_LOCATION_LEFT,
+  eKeyLocationRight    = nsIDOMKeyEvent::DOM_KEY_LOCATION_RIGHT,
+  eKeyLocationNumpad   = nsIDOMKeyEvent::DOM_KEY_LOCATION_NUMPAD
+};
+
 const nsCString GetDOMKeyCodeName(uint32_t aKeyCode);
 
 namespace dom {
@@ -108,14 +116,14 @@ protected:
     , mKeyCode(0)
     , mCharCode(0)
     , mPseudoCharCode(0)
-    , mLocation(nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD)
+    , mLocation(eKeyLocationStandard)
     , mAccessKeyForwardedToChild(false)
     , mUniqueId(0)
 #ifdef XP_MACOSX
     , mNativeModifierFlags(0)
     , mNativeKeyCode(0)
 #endif // #ifdef XP_MACOSX
-    , mKeyNameIndex(mozilla::KEY_NAME_INDEX_Unidentified)
+    , mKeyNameIndex(KEY_NAME_INDEX_Unidentified)
     , mCodeNameIndex(CODE_NAME_INDEX_UNKNOWN)
     , mInputMethodAppState(eNotHandled)
     , mIsChar(false)
@@ -137,14 +145,14 @@ public:
     , mKeyCode(0)
     , mCharCode(0)
     , mPseudoCharCode(0)
-    , mLocation(nsIDOMKeyEvent::DOM_KEY_LOCATION_STANDARD)
+    , mLocation(eKeyLocationStandard)
     , mAccessKeyForwardedToChild(false)
     , mUniqueId(0)
 #ifdef XP_MACOSX
     , mNativeModifierFlags(0)
     , mNativeKeyCode(0)
 #endif // #ifdef XP_MACOSX
-    , mKeyNameIndex(mozilla::KEY_NAME_INDEX_Unidentified)
+    , mKeyNameIndex(KEY_NAME_INDEX_Unidentified)
     , mCodeNameIndex(CODE_NAME_INDEX_UNKNOWN)
     , mInputMethodAppState(eNotHandled)
     , mIsChar(false)
@@ -227,7 +235,7 @@ public:
   // This stores mCharCode value of keypress event which is fired with same
   // key value and same modifier state.
   uint32_t mPseudoCharCode;
-  // One of nsIDOMKeyEvent::DOM_KEY_LOCATION_*
+  // One of eKeyLocation*
   uint32_t mLocation;
   // True if accesskey handling was forwarded to the child via
   // TabParent::HandleAccessKey. In this case, parent process menu access key
@@ -340,8 +348,8 @@ public:
 
   /**
    * ComputeLocationFromCodeValue() returns one of .mLocation value
-   * (nsIDOMKeyEvent::DOM_KEY_LOCATION_*) which is the most preferred value
-   * for the specified specified code value.
+   * (eKeyLocation*) which is the most preferred value for the specified code
+   * value.
    */
   static uint32_t ComputeLocationFromCodeValue(CodeNameIndex aCodeNameIndex);
 
@@ -418,73 +426,6 @@ private:
                           CodeNameIndex> CodeNameIndexHashtable;
   static KeyNameIndexHashtable* sKeyNameIndexHashtable;
   static CodeNameIndexHashtable* sCodeNameIndexHashtable;
-};
-
-
-/******************************************************************************
- * mozilla::InternalBeforeAfterKeyboardEvent
- *
- * This is extended from WidgetKeyboardEvent and is mapped to DOM event
- * "BeforeAfterKeyboardEvent".
- *
- * Event mMessage: eBeforeKeyDown
- *                 eBeforeKeyUp
- *                 eAfterKeyDown
- *                 eAfterKeyUp
- ******************************************************************************/
-class InternalBeforeAfterKeyboardEvent : public WidgetKeyboardEvent
-{
-private:
-  friend class dom::PBrowserParent;
-  friend class dom::PBrowserChild;
-
-  InternalBeforeAfterKeyboardEvent()
-  {
-  }
-
-public:
-  // Extra member for InternalBeforeAfterKeyboardEvent. Indicates whether
-  // default actions of keydown/keyup event is prevented.
-  Nullable<bool> mEmbeddedCancelled;
-
-  virtual InternalBeforeAfterKeyboardEvent* AsBeforeAfterKeyboardEvent() override
-  {
-    return this;
-  }
-
-  InternalBeforeAfterKeyboardEvent(bool aIsTrusted, EventMessage aMessage,
-                                   nsIWidget* aWidget)
-    : WidgetKeyboardEvent(aIsTrusted, aMessage, aWidget,
-                          eBeforeAfterKeyboardEventClass)
-  {
-  }
-
-  virtual WidgetEvent* Duplicate() const override
-  {
-    MOZ_ASSERT(mClass == eBeforeAfterKeyboardEventClass,
-               "Duplicate() must be overridden by sub class");
-    // Not copying widget, it is a weak reference.
-    InternalBeforeAfterKeyboardEvent* result =
-      new InternalBeforeAfterKeyboardEvent(false, mMessage, nullptr);
-    result->AssignBeforeAfterKeyEventData(*this, true);
-    result->mFlags = mFlags;
-    return result;
-  }
-
-  void AssignBeforeAfterKeyEventData(
-         const InternalBeforeAfterKeyboardEvent& aEvent,
-         bool aCopyTargets)
-  {
-    AssignKeyEventData(aEvent, aCopyTargets);
-    mEmbeddedCancelled = aEvent.mEmbeddedCancelled;
-  }
-
-  void AssignBeforeAfterKeyEventData(
-         const WidgetKeyboardEvent& aEvent,
-         bool aCopyTargets)
-  {
-    AssignKeyEventData(aEvent, aCopyTargets);
-  }
 };
 
 /******************************************************************************

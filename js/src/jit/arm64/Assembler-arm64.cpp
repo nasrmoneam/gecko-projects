@@ -161,6 +161,7 @@ Assembler::executableCopy(uint8_t* buffer)
             // into a single instruction call + nop in some instances, but this will work.
         }
     }
+    AutoFlushICache::setRange(uintptr_t(buffer), armbuffer_.size());
 }
 
 BufferOffset
@@ -625,7 +626,7 @@ Assembler::FixupNurseryObjects(JSContext* cx, JitCode* code, CompactBufferReader
     }
 
     if (hasNurseryPointers)
-        cx->runtime()->gc.storeBuffer.putWholeCell(code);
+        cx->zone()->group()->storeBuffer().putWholeCell(code);
 }
 
 void

@@ -13,8 +13,8 @@
 
 #include "mozilla/Attributes.h"
 #include "mozilla/LinkedList.h"
-#include "mozilla/RestyleManagerBase.h"
-#include "mozilla/RestyleManagerHandle.h"
+#include "mozilla/RestyleManager.h"
+#include "mozilla/RestyleManager.h"
 
 #include "nsCOMPtr.h"
 #include "nsILayoutHistoryState.h"
@@ -55,7 +55,7 @@ public:
   typedef mozilla::dom::Element Element;
 
   friend class mozilla::RestyleManager;
-  friend class mozilla::RestyleManagerBase;
+  friend class mozilla::GeckoRestyleManager;
   friend class mozilla::ServoRestyleManager;
 
   nsCSSFrameConstructor(nsIDocument* aDocument, nsIPresShell* aPresShell);
@@ -73,7 +73,7 @@ private:
   nsCSSFrameConstructor& operator=(const nsCSSFrameConstructor& aCopy) = delete;
 
 public:
-  mozilla::RestyleManagerHandle RestyleManager() const
+  mozilla::RestyleManager* RestyleManager() const
     { return mPresShell->GetPresContext()->RestyleManager(); }
 
   nsIFrame* ConstructRootFrame();
@@ -364,7 +364,8 @@ private:
   already_AddRefed<nsStyleContext>
   ResolveStyleContext(nsStyleContext*          aParentStyleContext,
                       nsIContent*              aContent,
-                      nsFrameConstructorState* aState);
+                      nsFrameConstructorState* aState,
+                      Element*                 aOriginatingElementOrNull = nullptr);
 
   // Add the frame construction items for the given aContent and aParentFrame
   // to the list.  This might add more than one item in some rare cases.
@@ -1440,12 +1441,6 @@ private:
                                nsFrameItems& aFrameItems);
   static bool AtLineBoundary(FCItemIterator& aIter);
 
-  nsresult CreateAnonymousFrames(nsFrameConstructorState& aState,
-                                 nsIContent*              aParent,
-                                 nsContainerFrame*        aParentFrame,
-                                 PendingBinding*          aPendingBinding,
-                                 nsFrameItems&            aChildItems);
-
   nsresult GetAnonymousContent(nsIContent* aParent,
                                nsIFrame* aParentFrame,
                                nsTArray<nsIAnonymousContentCreator::ContentInfo>& aAnonContent);
@@ -2067,17 +2062,8 @@ private:
                       nsIContent*            aContent,
                       mozilla::StyleDisplay& aDisplay);
 
-  void QuotesDirty() {
-    NS_PRECONDITION(mUpdateCount != 0, "Instant quote updates are bad news");
-    mQuotesDirty = true;
-    mDocument->SetNeedLayoutFlush();
-  }
-
-  void CountersDirty() {
-    NS_PRECONDITION(mUpdateCount != 0, "Instant counter updates are bad news");
-    mCountersDirty = true;
-    mDocument->SetNeedLayoutFlush();
-  }
+  void QuotesDirty();
+  void CountersDirty();
 
   /**
    * Add the pair (aContent, aStyleContext) to the undisplayed items
@@ -2114,7 +2100,6 @@ private:
   // This is the containing block that contains the root element ---
   // the real "initial containing block" according to CSS 2.1.
   nsContainerFrame*   mDocElementContainingBlock;
-  nsIFrame*           mGfxScrollFrame;
   nsIFrame*           mPageSequenceFrame;
   nsQuoteList         mQuoteList;
   nsCounterManager    mCounterManager;

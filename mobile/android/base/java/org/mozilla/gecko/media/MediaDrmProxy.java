@@ -47,8 +47,8 @@ public final class MediaDrmProxy {
     private String mDrmStubId;
 
     private static boolean isSystemSupported() {
-        // Support versions >= LOLLIPOP
-        if (AppConstants.Versions.preLollipop) {
+        // Support versions >= Marshmallow
+        if (AppConstants.Versions.preMarshmallow) {
             if (DEBUG) Log.d(LOGTAG, "System Not supported !!, current SDK version is " + Build.VERSION.SDK_INT);
             return false;
         }
@@ -250,23 +250,18 @@ public final class MediaDrmProxy {
 
     @WrapForJNI(calledFrom = "gecko")
     public static MediaDrmProxy create(String keySystem,
-                                       Callbacks nativeCallbacks,
-                                       boolean isRemote) {
-        MediaDrmProxy proxy = new MediaDrmProxy(keySystem, nativeCallbacks, isRemote);
+                                       Callbacks nativeCallbacks) {
+        MediaDrmProxy proxy = new MediaDrmProxy(keySystem, nativeCallbacks);
         return proxy;
     }
 
-    MediaDrmProxy(String keySystem, Callbacks nativeCallbacks, boolean isRemote) {
+    MediaDrmProxy(String keySystem, Callbacks nativeCallbacks) {
         if (DEBUG) Log.d(LOGTAG, "Constructing MediaDrmProxy");
         try {
             mDrmStubId = UUID.randomUUID().toString();
-            if (isRemote) {
-                IMediaDrmBridge remoteBridge =
-                    RemoteManager.getInstance().createRemoteMediaDrmBridge(keySystem, mDrmStubId);
-                mImpl = new RemoteMediaDrmBridge(remoteBridge);
-            } else {
-                mImpl = new LocalMediaDrmBridge(keySystem);
-            }
+            IMediaDrmBridge remoteBridge =
+                RemoteManager.getInstance().createRemoteMediaDrmBridge(keySystem, mDrmStubId);
+            mImpl = new RemoteMediaDrmBridge(remoteBridge);
             mImpl.setCallbacks(new MediaDrmProxyCallbacks(this, nativeCallbacks));
             sProxyList.add(this);
         } catch (Exception e) {

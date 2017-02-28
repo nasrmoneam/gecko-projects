@@ -7,17 +7,20 @@ package org.mozilla.gecko.util;
 
 import org.mozilla.gecko.annotation.RobocopTarget;
 import org.mozilla.gecko.annotation.WrapForJNI;
+import org.mozilla.gecko.AppConstants;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import android.os.Bundle;
+import android.os.Parcelable;
 import android.support.v4.util.SimpleArrayMap;
 
 import java.lang.reflect.Array;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.Set;
 
 /**
  * A lighter-weight version of Bundle that adds support for type coercion (e.g.
@@ -44,9 +47,11 @@ public final class GeckoBundle {
     @WrapForJNI(calledFrom = "gecko")
     private static boolean unboxBoolean(Boolean b) { return b; }
     @WrapForJNI(calledFrom = "gecko")
-    private static int unboxInteger(Integer i) { return i; }
+    private static int unboxInteger(Number i) { return i.intValue(); }
     @WrapForJNI(calledFrom = "gecko")
-    private static double unboxDouble(Double d) { return d; }
+    private static double unboxDouble(Number d) { return d.doubleValue(); }
+    @WrapForJNI(calledFrom = "gecko")
+    private static String unboxString(Object s) { return s.toString(); }
 
     private SimpleArrayMap<String, Object> mMap;
 
@@ -172,7 +177,7 @@ public final class GeckoBundle {
         return getDouble(key, 0.0);
     }
 
-    private double[] getDoubleArray(final int[] array) {
+    private static double[] getDoubleArray(final int[] array) {
         final int len = array.length;
         final double[] ret = new double[len];
         for (int i = 0; i < len; i++) {
@@ -218,7 +223,7 @@ public final class GeckoBundle {
         return getInt(key, 0);
     }
 
-    private int[] getIntArray(final double[] array) {
+    private static int[] getIntArray(final double[] array) {
         final int len = array.length;
         final int[] ret = new int[len];
         for (int i = 0; i < len; i++) {
@@ -266,7 +271,7 @@ public final class GeckoBundle {
 
     // The only case where we convert String[] to/from GeckoBundle[] is if every element
     // is null.
-    private int getNullArrayLength(final Object array) {
+    private static int getNullArrayLength(final Object array) {
         final int len = Array.getLength(array);
         for (int i = 0; i < len; i++) {
             if (Array.get(array, i) != null) {
@@ -347,14 +352,6 @@ public final class GeckoBundle {
             ret[i] = mMap.valueAt(i);
         }
         return ret;
-    }
-
-    /**
-     * @hide
-     * XXX: temporary helper for converting Bundle to GeckoBundle.
-     */
-    public void put(final String key, final Object value) {
-        mMap.put(key, value);
     }
 
     /**
@@ -624,6 +621,215 @@ public final class GeckoBundle {
         return mMap.size();
     }
 
+    private static Object normalizeValue(final Object value) {
+        if (value instanceof Integer) {
+            // We treat int and double as the same type.
+            return ((Integer) value).doubleValue();
+
+        } else if (value instanceof int[]) {
+            // We treat int[] and double[] as the same type.
+            final int[] array = (int[]) value;
+            return array.length == 0 ? EMPTY_STRING_ARRAY : getDoubleArray(array);
+
+        } else if (value != null && value.getClass().isArray()) {
+            // We treat arrays of all nulls as the same type, including empty arrays.
+            final int len = Array.getLength(value);
+            for (int i = 0; i < len; i++) {
+                if (Array.get(value, i) != null) {
+                    return value;
+                }
+            }
+            return len == 0 ? EMPTY_STRING_ARRAY : new String[len];
+        }
+        return value;
+    }
+
+    @Override // Object
+    public boolean equals(Object other) {
+        if (!(other instanceof GeckoBundle)) {
+            return false;
+        }
+
+        // Support library's SimpleArrayMap.equals is buggy, so roll our own version.
+        final SimpleArrayMap<String, Object> otherMap = ((GeckoBundle) other).mMap;
+        if (mMap == otherMap) {
+            return true;
+        }
+        if (mMap.size() != otherMap.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < mMap.size(); i++) {
+            final String thisKey = mMap.keyAt(i);
+            final int otherKey = otherMap.indexOfKey(thisKey);
+            if (otherKey < 0) {
+                return false;
+            }
+            final Object thisValue = normalizeValue(mMap.valueAt(i));
+            final Object otherValue = normalizeValue(otherMap.valueAt(otherKey));
+            if (thisValue == otherValue) {
+                continue;
+            } else if (thisValue == null || otherValue == null) {
+                return false;
+            }
+
+            final Class<?> thisClass = thisValue.getClass();
+            final Class<?> otherClass = otherValue.getClass();
+            if (thisClass != otherClass && !thisClass.equals(otherClass)) {
+                return false;
+            } else if (!thisClass.isArray()) {
+                if (!thisValue.equals(otherValue)) {
+                    return false;
+                }
+                continue;
+            }
+
+            // Work with both primitive arrays and Object arrays, unlike Arrays.equals().
+            final int thisLen = Array.getLength(thisValue);
+            final int otherLen = Array.getLength(otherValue);
+            if (thisLen != otherLen) {
+                return false;
+            }
+            for (int j = 0; j < thisLen; j++) {
+                final Object thisElem = Array.get(thisValue, j);
+                final Object otherElem = Array.get(otherValue, j);
+                if (thisElem != otherElem && (thisElem == null ||
+                        otherElem == null || !thisElem.equals(otherElem))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override // Object
+    public int hashCode() {
+        return mMap.hashCode();
+    }
+
+    @Override // Object
+    public String toString() {
+        return mMap.toString();
+    }
+
+    public JSONObject toJSONObject() throws JSONException {
+        final JSONObject out = new JSONObject();
+        for (int i = 0; i < mMap.size(); i++) {
+            final Object value = mMap.valueAt(i);
+            final Object jsonValue;
+
+            if (value instanceof GeckoBundle) {
+                jsonValue = ((GeckoBundle) value).toJSONObject();
+            } else if (value instanceof GeckoBundle[]) {
+                final GeckoBundle[] array = (GeckoBundle[]) value;
+                final JSONArray jsonArray = new JSONArray();
+                for (int j = 0; j < array.length; j++) {
+                    jsonArray.put(array[j] == null ? JSONObject.NULL : array[j].toJSONObject());
+                }
+                jsonValue = jsonArray;
+            } else if (AppConstants.Versions.feature19Plus) {
+                final Object wrapped = JSONObject.wrap(value);
+                jsonValue = wrapped != null ? wrapped : value.toString();
+            } else if (value == null) {
+                jsonValue = JSONObject.NULL;
+            } else if (value.getClass().isArray()) {
+                final JSONArray jsonArray = new JSONArray();
+                for (int j = 0; j < Array.getLength(value); j++) {
+                    jsonArray.put(Array.get(value, j));
+                }
+                jsonValue = jsonArray;
+            } else {
+                jsonValue = value;
+            }
+            out.put(mMap.keyAt(i), jsonValue);
+        }
+        return out;
+    }
+
+    public Bundle toBundle() {
+        final Bundle out = new Bundle(mMap.size());
+        for (int i = 0; i < mMap.size(); i++) {
+            final String key = mMap.keyAt(i);
+            final Object val = mMap.valueAt(i);
+
+            if (val == null) {
+                out.putString(key, null);
+            } else if (val instanceof GeckoBundle) {
+                out.putBundle(key, ((GeckoBundle) val).toBundle());
+            } else if (val instanceof GeckoBundle[]) {
+                final GeckoBundle[] array = (GeckoBundle[]) val;
+                final Parcelable[] parcelables = new Parcelable[array.length];
+                for (int j = 0; j < array.length; j++) {
+                    if (array[j] != null) {
+                        parcelables[j] = array[j].toBundle();
+                    }
+                }
+                out.putParcelableArray(key, parcelables);
+            } else if (val instanceof Boolean) {
+                out.putBoolean(key, (Boolean) val);
+            } else if (val instanceof boolean[]) {
+                out.putBooleanArray(key, (boolean[]) val);
+            } else if (val instanceof Byte || val instanceof Short || val instanceof Integer) {
+                out.putInt(key, ((Number) val).intValue());
+            } else if (val instanceof int[]) {
+                out.putIntArray(key, (int[]) val);
+            } else if (val instanceof Float || val instanceof Double || val instanceof Long) {
+                out.putDouble(key, ((Number) val).doubleValue());
+            } else if (val instanceof double[]) {
+                out.putDoubleArray(key, (double[]) val);
+            } else if (val instanceof CharSequence || val instanceof Character) {
+                out.putString(key, val.toString());
+            } else if (val instanceof String[]) {
+                out.putStringArray(key, (String[]) val);
+            } else {
+                throw new UnsupportedOperationException();
+            }
+        }
+        return out;
+    }
+
+    public static GeckoBundle fromBundle(final Bundle bundle) {
+        if (bundle == null) {
+            return null;
+        }
+
+        final String[] keys = new String[bundle.size()];
+        final Object[] values = new Object[bundle.size()];
+        int i = 0;
+
+        for (final String key : bundle.keySet()) {
+            final Object value = bundle.get(key);
+            keys[i] = key;
+
+            if (value instanceof Bundle || value == null) {
+                values[i] = fromBundle((Bundle) value);
+            } else if (value instanceof Parcelable[]) {
+                final Parcelable[] array = (Parcelable[]) value;
+                final GeckoBundle[] out = new GeckoBundle[array.length];
+                for (int j = 0; j < array.length; j++) {
+                    out[j] = fromBundle((Bundle) array[j]);
+                }
+                values[i] = out;
+            } else if (value instanceof Boolean || value instanceof Integer ||
+                    value instanceof Double || value instanceof String ||
+                    value instanceof boolean[] || value instanceof int[] ||
+                    value instanceof double[] || value instanceof String[]) {
+                values[i] = value;
+            } else if (value instanceof Byte || value instanceof Short) {
+                values[i] = ((Number) value).intValue();
+            } else if (value instanceof Float || value instanceof Long) {
+                values[i] = ((Number) value).doubleValue();
+            } else if (value instanceof CharSequence || value instanceof Character) {
+                values[i] = value.toString();
+            } else {
+                throw new UnsupportedOperationException();
+            }
+
+            i++;
+        }
+        return new GeckoBundle(keys, values);
+    }
+
     private static Object fromJSONValue(Object value) throws JSONException {
         if (value instanceof JSONObject || value == JSONObject.NULL) {
             return fromJSONObject((JSONObject) value);
@@ -659,13 +865,14 @@ public final class GeckoBundle {
             }
             return out;
         }
-        if (value instanceof Boolean) {
+        if (value instanceof Boolean || value instanceof Integer ||
+                value instanceof Double || value instanceof String) {
             return value;
         }
-        if (value instanceof Byte || value instanceof Short || value instanceof Integer) {
+        if (value instanceof Byte || value instanceof Short) {
             return ((Number) value).intValue();
         }
-        if (value instanceof Float || value instanceof Double || value instanceof Long) {
+        if (value instanceof Float || value instanceof Long) {
             return ((Number) value).doubleValue();
         }
         return value != null ? value.toString() : null;

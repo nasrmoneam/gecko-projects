@@ -64,15 +64,6 @@ ImageLayerComposite::Disconnect()
   Destroy();
 }
 
-LayerRenderState
-ImageLayerComposite::GetRenderState()
-{
-  if (mImageHost && mImageHost->IsAttached()) {
-    return mImageHost->GetRenderState();
-  }
-  return LayerRenderState();
-}
-
 Layer*
 ImageLayerComposite::GetLayer()
 {
@@ -90,7 +81,8 @@ ImageLayerComposite::SetLayerManager(HostLayerManager* aManager)
 }
 
 void
-ImageLayerComposite::RenderLayer(const IntRect& aClipRect)
+ImageLayerComposite::RenderLayer(const IntRect& aClipRect,
+                                 const Maybe<gfx::Polygon>& aGeometry)
 {
   if (!mImageHost || !mImageHost->IsAttached()) {
     return;

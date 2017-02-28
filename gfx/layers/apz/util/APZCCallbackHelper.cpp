@@ -513,14 +513,15 @@ APZCCallbackHelper::DispatchMouseEvent(const nsCOMPtr<nsIPresShell>& aPresShell,
                                        int32_t aClickCount,
                                        int32_t aModifiers,
                                        bool aIgnoreRootScrollFrame,
-                                       unsigned short aInputSourceArg)
+                                       unsigned short aInputSourceArg,
+                                       uint32_t aPointerId)
 {
   NS_ENSURE_TRUE(aPresShell, true);
 
   bool defaultPrevented = false;
   nsContentUtils::SendMouseEvent(aPresShell, aType, aPoint.x, aPoint.y,
       aButton, nsIDOMWindowUtils::MOUSE_BUTTONS_NOT_SPECIFIED, aClickCount,
-      aModifiers, aIgnoreRootScrollFrame, 0, aInputSourceArg, false,
+      aModifiers, aIgnoreRootScrollFrame, 0, aInputSourceArg, aPointerId, false,
       &defaultPrevented, false, /* aIsWidgetEventSynthesized = */ false);
   return defaultPrevented;
 }
@@ -584,7 +585,7 @@ UpdateRootFrameForTouchTargetDocument(nsIFrame* aRootFrame)
   // Re-target so that the hit test is performed relative to the frame for the
   // Root Content Document instead of the Root Document which are different in
   // Android. See bug 1229752 comment 16 for an explanation of why this is necessary.
-  if (nsIDocument* doc = aRootFrame->PresContext()->PresShell()->GetTouchEventTargetDocument()) {
+  if (nsIDocument* doc = aRootFrame->PresContext()->PresShell()->GetPrimaryContentDocument()) {
     if (nsIPresShell* shell = doc->GetShell()) {
       if (nsIFrame* frame = shell->GetRootFrame()) {
         return frame;
@@ -745,7 +746,7 @@ SendSetTargetAPZCNotificationHelper(nsIWidget* aWidget,
   }
 }
 
-void
+bool
 APZCCallbackHelper::SendSetTargetAPZCNotification(nsIWidget* aWidget,
                                                   nsIDocument* aDocument,
                                                   const WidgetGUIEvent& aEvent,
@@ -753,7 +754,7 @@ APZCCallbackHelper::SendSetTargetAPZCNotification(nsIWidget* aWidget,
                                                   uint64_t aInputBlockId)
 {
   if (!aWidget || !aDocument) {
-    return;
+    return false;
   }
   if (aInputBlockId == sLastTargetAPZCNotificationInputBlock) {
     // We have already confirmed the target APZC for a previous event of this
@@ -762,7 +763,7 @@ APZCCallbackHelper::SendSetTargetAPZCNotification(nsIWidget* aWidget,
     // race the original confirmation (which needs to go through a layers
     // transaction).
     APZCCH_LOG("Not resending target APZC confirmation for input block %" PRIu64 "\n", aInputBlockId);
-    return;
+    return false;
   }
   sLastTargetAPZCNotificationInputBlock = aInputBlockId;
   if (nsIPresShell* shell = aDocument->GetShell()) {
@@ -794,8 +795,11 @@ APZCCallbackHelper::SendSetTargetAPZCNotification(nsIWidget* aWidget,
           Move(targets),
           waitForRefresh);
       }
+
+      return waitForRefresh;
     }
   }
+  return false;
 }
 
 void
@@ -906,6 +910,15 @@ APZCCallbackHelper::IsScrollInProgress(nsIScrollableFrame* aFrame)
   return aFrame->IsProcessingAsyncScroll()
          || nsLayoutUtils::CanScrollOriginClobberApz(aFrame->LastScrollOrigin())
          || aFrame->LastSmoothScrollOrigin();
+}
+
+/* static */ void
+APZCCallbackHelper::NotifyAsyncScrollbarDragRejected(const FrameMetrics::ViewID& aScrollId)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (nsIScrollableFrame* scrollFrame = nsLayoutUtils::FindScrollableFrameFor(aScrollId)) {
+    scrollFrame->AsyncScrollbarDragRejected();
+  }
 }
 
 /* static */ void

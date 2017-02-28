@@ -438,7 +438,7 @@ QuotaManagerService::PerformIdleMaintenance()
 #ifdef MOZ_WIDGET_ANDROID
   // Android XPCShell doesn't load the AndroidBridge that is needed to make
   // GetCurrentBatteryInformation work...
-  if (!QuotaManager::kRunningXPCShellTests)
+  if (!QuotaManager::IsRunningXPCShellTests())
 #endif
   {
     // In order to give the correct battery level, hal must have registered
@@ -450,7 +450,7 @@ QuotaManagerService::PerformIdleMaintenance()
 
   // If we're running XPCShell because we always want to be able to test this
   // code so pretend that we're always charging.
-  if (QuotaManager::kRunningXPCShellTests) {
+  if (QuotaManager::IsRunningXPCShellTests()) {
     batteryInfo.level() = 100;
     batteryInfo.charging() = true;
   }
@@ -459,7 +459,7 @@ QuotaManagerService::PerformIdleMaintenance()
     return;
   }
 
-  if (QuotaManager::kRunningXPCShellTests) {
+  if (QuotaManager::IsRunningXPCShellTests()) {
     // We don't want user activity to impact this code if we're running tests.
     Unused << Observe(nullptr, OBSERVER_TOPIC_IDLE, nullptr);
   } else if (!mIdleObserverRegistered) {
@@ -540,7 +540,6 @@ NS_IMETHODIMP
 QuotaManagerService::Clear(nsIQuotaRequest** _retval)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(nsContentUtils::IsCallerChrome());
 
   if (NS_WARN_IF(!gTestingMode)) {
     return NS_ERROR_UNEXPECTED;
@@ -569,10 +568,9 @@ QuotaManagerService::ClearStoragesForPrincipal(nsIPrincipal* aPrincipal,
 {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aPrincipal);
-  MOZ_ASSERT(nsContentUtils::IsCallerChrome());
 
   nsCString suffix;
-  BasePrincipal::Cast(aPrincipal)->OriginAttributesRef().CreateSuffix(suffix);
+  aPrincipal->OriginAttributesRef().CreateSuffix(suffix);
 
   if (NS_WARN_IF(aClearAll && !suffix.IsEmpty())) {
     // The originAttributes should be default originAttributes when the
@@ -626,7 +624,6 @@ NS_IMETHODIMP
 QuotaManagerService::Reset(nsIQuotaRequest** _retval)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  MOZ_ASSERT(nsContentUtils::IsCallerChrome());
 
   if (NS_WARN_IF(!gTestingMode)) {
     return NS_ERROR_UNEXPECTED;

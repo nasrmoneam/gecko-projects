@@ -233,7 +233,7 @@ WeakMap_trace(JSTracer* trc, JSObject* obj)
 static void
 WeakMap_finalize(FreeOp* fop, JSObject* obj)
 {
-    MOZ_ASSERT(fop->maybeOffMainThread());
+    MOZ_ASSERT(fop->maybeOnHelperThread());
     if (ObjectValueMap* map = obj->as<WeakMapObject>().getMap()) {
 #ifdef DEBUG
         map->~ObjectValueMap();
@@ -350,14 +350,14 @@ InitWeakMapClass(JSContext* cx, HandleObject obj, bool defineMembers)
 {
     MOZ_ASSERT(obj->isNative());
 
-    Rooted<GlobalObject*> global(cx, &obj->as<GlobalObject>());
+    Handle<GlobalObject*> global = obj.as<GlobalObject>();
 
     RootedPlainObject proto(cx, NewBuiltinClassInstance<PlainObject>(cx));
     if (!proto)
         return nullptr;
 
-    RootedFunction ctor(cx, global->createConstructor(cx, WeakMap_construct,
-                                                      cx->names().WeakMap, 0));
+    RootedFunction ctor(cx, GlobalObject::createConstructor(cx, WeakMap_construct,
+                                                            cx->names().WeakMap, 0));
     if (!ctor)
         return nullptr;
 

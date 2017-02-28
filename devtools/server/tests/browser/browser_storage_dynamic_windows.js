@@ -9,8 +9,8 @@ Services.scriptloader.loadSubScript("chrome://mochitests/content/browser/devtool
 
 const beforeReload = {
   cookies: {
-    "test1.example.org": ["c1", "cs2", "c3", "uc1"],
-    "sectest1.example.org": ["uc1", "cs2"]
+    "http://test1.example.org": ["c1", "cs2", "c3", "uc1"],
+    "http://sectest1.example.org": ["uc1", "cs2"]
   },
   localStorage: {
     "http://test1.example.org": ["ls1", "ls2"],
@@ -99,7 +99,12 @@ function testAddIframe(front) {
         "https://sectest1.example.org": ["iframe-s-ss1"]
       },
       cookies: {
-        "sectest1.example.org": [
+        "https://sectest1.example.org": [
+          getCookieId("cs2", ".example.org", "/"),
+          getCookieId("sc1", "sectest1.example.org",
+                      "/browser/devtools/server/tests/browser/")
+        ],
+        "http://sectest1.example.org": [
           getCookieId("sc1", "sectest1.example.org",
                       "/browser/devtools/server/tests/browser/")
         ]
@@ -158,8 +163,10 @@ function testAddIframe(front) {
 
     front.on("stores-update", onStoresUpdate);
 
+    // eslint-disable-next-line mozilla/no-cpows-in-tests
     let iframe = content.document.createElement("iframe");
     iframe.src = ALT_DOMAIN_SECURED + "storage-secured-iframe.html";
+    // eslint-disable-next-line mozilla/no-cpows-in-tests
     content.document.querySelector("body").appendChild(iframe);
   });
 }
@@ -224,12 +231,14 @@ function testRemoveIframe(front) {
 
     front.on("stores-update", onStoresUpdate);
 
-    for (let iframe of content.document.querySelectorAll("iframe")) {
-      if (iframe.src.startsWith("http:")) {
-        iframe.remove();
-        break;
+    ContentTask.spawn(gBrowser.selectedBrowser, {}, () => {
+      for (let iframe of content.document.querySelectorAll("iframe")) {
+        if (iframe.src.startsWith("http:")) {
+          iframe.remove();
+          break;
+        }
       }
-    }
+    });
   });
 }
 

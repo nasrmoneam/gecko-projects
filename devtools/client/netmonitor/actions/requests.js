@@ -5,21 +5,101 @@
 "use strict";
 
 const {
-  UPDATE_REQUESTS,
+  ADD_REQUEST,
+  CLEAR_REQUESTS,
+  CLONE_SELECTED_REQUEST,
+  REMOVE_SELECTED_CUSTOM_REQUEST,
+  SEND_CUSTOM_REQUEST,
+  UPDATE_REQUEST,
 } = require("../constants");
+const { getSelectedRequest } = require("../selectors/index");
+
+function addRequest(id, data, batch) {
+  return {
+    type: ADD_REQUEST,
+    id,
+    data,
+    meta: { batch },
+  };
+}
+
+function updateRequest(id, data, batch) {
+  return {
+    type: UPDATE_REQUEST,
+    id,
+    data,
+    meta: { batch },
+  };
+}
 
 /**
- * Update request items
- *
- * @param {array} requests - visible request items
+ * Clone the currently selected request, set the "isCustom" attribute.
+ * Used by the "Edit and Resend" feature.
  */
-function updateRequests(items) {
+function cloneSelectedRequest() {
   return {
-    type: UPDATE_REQUESTS,
-    items,
+    type: CLONE_SELECTED_REQUEST
+  };
+}
+
+/**
+ * Send a new HTTP request using the data in the custom request form.
+ */
+function sendCustomRequest() {
+  if (!window.NetMonitorController.supportsCustomRequest) {
+    return cloneSelectedRequest();
+  }
+
+  return (dispatch, getState) => {
+    const selected = getSelectedRequest(getState());
+
+    if (!selected) {
+      return;
+    }
+
+    // Send a new HTTP request using the data in the custom request form
+    let data = {
+      url: selected.url,
+      method: selected.method,
+      httpVersion: selected.httpVersion,
+    };
+    if (selected.requestHeaders) {
+      data.headers = selected.requestHeaders.headers;
+    }
+    if (selected.requestPostData) {
+      data.body = selected.requestPostData.postData.text;
+    }
+
+    window.NetMonitorController.webConsoleClient.sendHTTPRequest(data, (response) => {
+      return dispatch({
+        type: SEND_CUSTOM_REQUEST,
+        id: response.eventActor.actor,
+      });
+    });
+  };
+}
+
+/**
+ * Remove a request from the list. Supports removing only cloned requests with a
+ * "isCustom" attribute. Other requests never need to be removed.
+ */
+function removeSelectedCustomRequest() {
+  return {
+    type: REMOVE_SELECTED_CUSTOM_REQUEST
+  };
+}
+
+function clearRequests() {
+  return {
+    type: CLEAR_REQUESTS
   };
 }
 
 module.exports = {
-  updateRequests,
+  addRequest,
+  clearRequests,
+  cloneSelectedRequest,
+  removeSelectedCustomRequest,
+  sendCustomRequest,
+  updateRequest,
 };

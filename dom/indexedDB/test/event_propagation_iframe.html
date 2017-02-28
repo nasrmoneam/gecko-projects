@@ -6,7 +6,7 @@
 <head>
   <title>Indexed Database Property Test</title>
 
-  <script type="text/javascript;version=1.7">
+  <script type="text/javascript">
 
     let testGenerator = testSteps();
 
@@ -104,7 +104,7 @@
       yield undefined;
 
       let transaction = db.transaction("foo", "readwrite");
-      transaction.addEventListener("error", errorEventCounter, false);
+      transaction.addEventListener("error", errorEventCounter);
       transaction.addEventListener("error", errorEventCounter, true);
 
       let objectStore = transaction.objectStore("foo");
@@ -122,7 +122,7 @@
       yield undefined;
 
       transaction = db.transaction("foo", "readwrite");
-      transaction.addEventListener("error", errorEventCounter, false);
+      transaction.addEventListener("error", errorEventCounter);
       transaction.addEventListener("error", errorEventCounter, true);
 
       objectStore = transaction.objectStore("foo");

@@ -32,6 +32,7 @@
 #include "mozilla/ProcessPriorityManager.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
+#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/Telemetry.h"
 #include "nsContentUtils.h"
 #include "nsDisplayList.h"
@@ -114,13 +115,16 @@ WebGLContextOptions::WebGLContextOptions()
 
 WebGLContext::WebGLContext()
     : WebGLContextUnchecked(nullptr)
+    , mMaxPerfWarnings(gfxPrefs::WebGLMaxPerfWarnings())
+    , mNumPerfWarnings(0)
+    , mMaxAcceptableFBStatusInvals(gfxPrefs::WebGLMaxAcceptableFBStatusInvals())
     , mBufferFetchingIsVerified(false)
     , mBufferFetchingHasPerVertex(false)
     , mMaxFetchedVertices(0)
     , mMaxFetchedInstances(0)
     , mLayerIsMirror(false)
     , mBypassShaderValidation(false)
-    , mBuffersForUB_Dirty(true)
+    , mEmptyTFO(0)
     , mContextLossHandler(this)
     , mNeedsFakeNoAlpha(false)
     , mNeedsFakeNoDepth(false)
@@ -142,18 +146,6 @@ WebGLContext::WebGLContext()
     mUnderlyingGLError = 0;
 
     mActiveTexture = 0;
-
-    mVertexAttrib0Vector[0] = 0;
-    mVertexAttrib0Vector[1] = 0;
-    mVertexAttrib0Vector[2] = 0;
-    mVertexAttrib0Vector[3] = 1;
-    mFakeVertexAttrib0BufferObjectVector[0] = 0;
-    mFakeVertexAttrib0BufferObjectVector[1] = 0;
-    mFakeVertexAttrib0BufferObjectVector[2] = 0;
-    mFakeVertexAttrib0BufferObjectVector[3] = 1;
-    mFakeVertexAttrib0BufferObjectSize = 0;
-    mFakeVertexAttrib0BufferObject = 0;
-    mFakeVertexAttrib0BufferStatus = WebGLVertexAttrib0Status::Default;
 
     mStencilRefFront = 0;
     mStencilRefBack = 0;
@@ -202,8 +194,6 @@ WebGLContext::WebGLContext()
     mLastUseIndex = 0;
 
     InvalidateBufferFetching();
-
-    mBackbufferNeedsClear = true;
 
     mDisableFragHighP = false;
 
@@ -264,7 +254,6 @@ WebGLContext::DestroyResourcesAndContext()
     mQuerySlot_TimeElapsed = nullptr;
 
     mIndexedUniformBufferBindings.clear();
-    OnUBIndexedBindingsChanged();
 
     //////
 
@@ -279,6 +268,13 @@ WebGLContext::DestroyResourcesAndContext()
     ClearLinkedList(mTextures);
     ClearLinkedList(mTransformFeedbacks);
     ClearLinkedList(mVertexArrays);
+
+    //////
+
+    if (mEmptyTFO) {
+        gl->fDeleteTransformFeedbacks(1, &mEmptyTFO);
+        mEmptyTFO = 0;
+    }
 
     //////
 
@@ -759,7 +755,7 @@ WebGLContext::CreateAndInitGL(bool forceEnabled,
 
             out_failReasons->push_back(reason);
 
-            GenerateWarning(reason.info.BeginReading());
+            GenerateWarning("%s", reason.info.BeginReading());
             tryNativeGL = false;
         }
     }
@@ -1087,6 +1083,7 @@ WebGLContext::SetDimensions(int32_t signedWidth, int32_t signedHeight)
     MakeContextCurrent();
 
     gl->fViewport(0, 0, mWidth, mHeight);
+    mViewportX = mViewportY = 0;
     mViewportWidth = mWidth;
     mViewportHeight = mHeight;
 
@@ -1133,14 +1130,6 @@ WebGLContext::ClearBackbufferIfNeeded()
 {
     if (!mBackbufferNeedsClear)
         return;
-
-#ifdef DEBUG
-    gl->MakeCurrent();
-
-    GLuint fb = 0;
-    gl->GetUIntegerv(LOCAL_GL_FRAMEBUFFER_BINDING, &fb);
-    MOZ_ASSERT(fb == 0);
-#endif
 
     ClearScreen();
 
@@ -1223,13 +1212,13 @@ WebGLContext::LoseOldestWebGLContextIfLimitExceeded()
     }
 
     if (numContextsThisPrincipal > kMaxWebGLContextsPerPrincipal) {
-        GenerateWarning("Exceeded %d live WebGL contexts for this principal, losing the "
+        GenerateWarning("Exceeded %" PRIuSIZE " live WebGL contexts for this principal, losing the "
                         "least recently used one.", kMaxWebGLContextsPerPrincipal);
         MOZ_ASSERT(oldestContextThisPrincipal); // if we reach this point, this can't be null
         const_cast<WebGLContext*>(oldestContextThisPrincipal)->LoseContext();
     } else if (numContexts > kMaxWebGLContexts) {
-        GenerateWarning("Exceeded %d live WebGL contexts, losing the least recently used one.",
-                        kMaxWebGLContexts);
+        GenerateWarning("Exceeded %" PRIuSIZE " live WebGL contexts, losing the least "
+                        "recently used one.", kMaxWebGLContexts);
         MOZ_ASSERT(oldestContext); // if we reach this point, this can't be null
         const_cast<WebGLContext*>(oldestContext)->LoseContext();
     }
@@ -2038,12 +2027,16 @@ WebGLContext::ValidateCurFBForRead(const char* funcName,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-WebGLContext::ScopedMaskWorkaround::ScopedMaskWorkaround(WebGLContext& webgl)
+WebGLContext::ScopedDrawCallWrapper::ScopedDrawCallWrapper(WebGLContext& webgl)
     : mWebGL(webgl)
     , mFakeNoAlpha(ShouldFakeNoAlpha(webgl))
     , mFakeNoDepth(ShouldFakeNoDepth(webgl))
     , mFakeNoStencil(ShouldFakeNoStencil(webgl))
 {
+    if (!mWebGL.mBoundDrawFramebuffer) {
+        mWebGL.ClearBackbufferIfNeeded();
+    }
+
     if (mFakeNoAlpha) {
         mWebGL.gl->fColorMask(mWebGL.mColorWriteMask[0],
                               mWebGL.mColorWriteMask[1],
@@ -2058,7 +2051,7 @@ WebGLContext::ScopedMaskWorkaround::ScopedMaskWorkaround(WebGLContext& webgl)
     }
 }
 
-WebGLContext::ScopedMaskWorkaround::~ScopedMaskWorkaround()
+WebGLContext::ScopedDrawCallWrapper::~ScopedDrawCallWrapper()
 {
     if (mFakeNoAlpha) {
         mWebGL.gl->fColorMask(mWebGL.mColorWriteMask[0],
@@ -2073,14 +2066,29 @@ WebGLContext::ScopedMaskWorkaround::~ScopedMaskWorkaround()
         MOZ_ASSERT(mWebGL.mStencilTestEnabled);
         mWebGL.gl->fEnable(LOCAL_GL_STENCIL_TEST);
     }
+
+    if (!mWebGL.mBoundDrawFramebuffer) {
+        mWebGL.Invalidate();
+        mWebGL.mShouldPresent = true;
+    }
 }
 
 /*static*/ bool
-WebGLContext::ScopedMaskWorkaround::HasDepthButNoStencil(const WebGLFramebuffer* fb)
+WebGLContext::ScopedDrawCallWrapper::HasDepthButNoStencil(const WebGLFramebuffer* fb)
 {
     const auto& depth = fb->DepthAttachment();
     const auto& stencil = fb->StencilAttachment();
     return depth.IsDefined() && !stencil.IsDefined();
+}
+
+////
+
+void
+WebGLContext::OnBeforeReadCall()
+{
+    if (!mBoundReadFramebuffer) {
+        ClearBackbufferIfNeeded();
+    }
 }
 
 ////////////////////////////////////////
@@ -2219,190 +2227,6 @@ Intersect(uint32_t srcSize, int32_t dstStartInSrc, uint32_t dstSize,
 
     int32_t intEndInSrc = std::min<int32_t>(srcSize, dstStartInSrc + dstSize);
     *out_intSize = std::max<int32_t>(0, intEndInSrc - *out_intStartInSrc);
-}
-
-static bool
-ZeroTexImageWithClear(WebGLContext* webgl, GLContext* gl, TexImageTarget target,
-                      GLuint tex, uint32_t level, const webgl::FormatUsageInfo* usage,
-                      uint32_t width, uint32_t height)
-{
-    MOZ_ASSERT(gl->IsCurrent());
-
-    ScopedFramebuffer scopedFB(gl);
-    ScopedBindFramebuffer scopedBindFB(gl, scopedFB.FB());
-
-    const auto format = usage->format;
-
-    GLenum attachPoint = 0;
-    GLbitfield clearBits = 0;
-
-    if (format->IsColorFormat()) {
-        attachPoint = LOCAL_GL_COLOR_ATTACHMENT0;
-        clearBits = LOCAL_GL_COLOR_BUFFER_BIT;
-    }
-
-    if (format->d) {
-        attachPoint = LOCAL_GL_DEPTH_ATTACHMENT;
-        clearBits |= LOCAL_GL_DEPTH_BUFFER_BIT;
-    }
-
-    if (format->s) {
-        attachPoint = (format->d ? LOCAL_GL_DEPTH_STENCIL_ATTACHMENT
-                                 : LOCAL_GL_STENCIL_ATTACHMENT);
-        clearBits |= LOCAL_GL_STENCIL_BUFFER_BIT;
-    }
-
-    MOZ_RELEASE_ASSERT(attachPoint && clearBits, "GFX: No bits cleared.");
-
-    {
-        gl::GLContext::LocalErrorScope errorScope(*gl);
-        gl->fFramebufferTexture2D(LOCAL_GL_FRAMEBUFFER, attachPoint, target.get(), tex,
-                                  level);
-        if (errorScope.GetError()) {
-            MOZ_ASSERT(false);
-            return false;
-        }
-    }
-
-    auto status = gl->fCheckFramebufferStatus(LOCAL_GL_FRAMEBUFFER);
-    if (status != LOCAL_GL_FRAMEBUFFER_COMPLETE)
-        return false;
-
-    {
-        gl::GLContext::LocalErrorScope errorScope(*gl);
-
-        const bool fakeNoAlpha = false;
-        webgl->ForceClearFramebufferWithDefaultValues(clearBits, fakeNoAlpha);
-        if (errorScope.GetError()) {
-            MOZ_ASSERT(false);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool
-ZeroTextureData(WebGLContext* webgl, const char* funcName, GLuint tex,
-                TexImageTarget target, uint32_t level,
-                const webgl::FormatUsageInfo* usage, uint32_t xOffset, uint32_t yOffset,
-                uint32_t zOffset, uint32_t width, uint32_t height, uint32_t depth)
-{
-    // This has two usecases:
-    // 1. Lazy zeroing of uninitialized textures:
-    //    a. Before draw, when FakeBlack isn't viable. (TexStorage + Draw*)
-    //    b. Before partial upload. (TexStorage + TexSubImage)
-    // 2. Zero subrects from out-of-bounds blits. (CopyTex(Sub)Image)
-
-    // We have no sympathy for any of these cases.
-
-    // "Doctor, it hurts when I do this!" "Well don't do that!"
-    webgl->GenerateWarning("%s: This operation requires zeroing texture data. This is"
-                           " slow.",
-                           funcName);
-
-    gl::GLContext* gl = webgl->GL();
-    gl->MakeCurrent();
-
-    GLenum scopeBindTarget;
-    switch (target.get()) {
-    case LOCAL_GL_TEXTURE_CUBE_MAP_POSITIVE_X:
-    case LOCAL_GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
-    case LOCAL_GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
-    case LOCAL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
-    case LOCAL_GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
-    case LOCAL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
-        scopeBindTarget = LOCAL_GL_TEXTURE_CUBE_MAP;
-        break;
-    default:
-        scopeBindTarget = target.get();
-        break;
-    }
-    ScopedBindTexture scopeBindTexture(gl, tex, scopeBindTarget);
-    auto compression = usage->format->compression;
-    if (compression) {
-        MOZ_RELEASE_ASSERT(!xOffset && !yOffset && !zOffset, "GFX: Can't zero compressed texture with offsets.");
-
-        auto sizedFormat = usage->format->sizedFormat;
-        MOZ_RELEASE_ASSERT(sizedFormat, "GFX: texture sized format not set");
-
-        const auto fnSizeInBlocks = [](CheckedUint32 pixels, uint8_t pixelsPerBlock) {
-            return RoundUpToMultipleOf(pixels, pixelsPerBlock) / pixelsPerBlock;
-        };
-
-        const auto widthBlocks = fnSizeInBlocks(width, compression->blockWidth);
-        const auto heightBlocks = fnSizeInBlocks(height, compression->blockHeight);
-
-        CheckedUint32 checkedByteCount = compression->bytesPerBlock;
-        checkedByteCount *= widthBlocks;
-        checkedByteCount *= heightBlocks;
-        checkedByteCount *= depth;
-
-        if (!checkedByteCount.isValid())
-            return false;
-
-        const size_t byteCount = checkedByteCount.value();
-
-        UniqueBuffer zeros = calloc(1, byteCount);
-        if (!zeros)
-            return false;
-
-        ScopedUnpackReset scopedReset(webgl);
-        gl->fPixelStorei(LOCAL_GL_UNPACK_ALIGNMENT, 1); // Don't bother with striding it
-                                                        // well.
-
-        GLenum error = DoCompressedTexSubImage(gl, target.get(), level, xOffset, yOffset,
-                                               zOffset, width, height, depth, sizedFormat,
-                                               byteCount, zeros.get());
-        if (error)
-            return false;
-
-        return true;
-    }
-
-    const auto driverUnpackInfo = usage->idealUnpack;
-    MOZ_RELEASE_ASSERT(driverUnpackInfo, "GFX: ideal unpack info not set.");
-
-    if (usage->IsRenderable() && depth == 1 &&
-        !xOffset && !yOffset && !zOffset)
-    {
-        // While we would like to skip the extra complexity of trying to zero with an FB
-        // clear, ANGLE_depth_texture requires this.
-        do {
-            if (ZeroTexImageWithClear(webgl, gl, target, tex, level, usage, width,
-                                      height))
-            {
-                return true;
-            }
-        } while (false);
-    }
-
-    const webgl::PackingInfo packing = driverUnpackInfo->ToPacking();
-
-    const auto bytesPerPixel = webgl::BytesPerPixel(packing);
-
-    CheckedUint32 checkedByteCount = bytesPerPixel;
-    checkedByteCount *= width;
-    checkedByteCount *= height;
-    checkedByteCount *= depth;
-
-    if (!checkedByteCount.isValid())
-        return false;
-
-    const size_t byteCount = checkedByteCount.value();
-
-    UniqueBuffer zeros = calloc(1, byteCount);
-    if (!zeros)
-        return false;
-
-    ScopedUnpackReset scopedReset(webgl);
-    gl->fPixelStorei(LOCAL_GL_UNPACK_ALIGNMENT, 1); // Don't bother with striding it well.
-    const auto error = DoTexSubImage(gl, target, level, xOffset, yOffset, zOffset, width,
-                                     height, depth, packing, zeros.get());
-    if (error)
-        return false;
-
-    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2569,42 +2393,6 @@ WebGLContext::ValidateArrayBufferView(const char* funcName,
 
     *out_bytes = bytes + (elemOffset * elemSize);
     *out_byteLen = elemCount * elemSize;
-    return true;
-}
-
-////
-
-const decltype(WebGLContext::mBuffersForUB)&
-WebGLContext::BuffersForUB() const
-{
-    if (mBuffersForUB_Dirty) {
-        mBuffersForUB.clear();
-        for (const auto& cur : mIndexedUniformBufferBindings) {
-            if (cur.mBufferBinding) {
-                mBuffersForUB.insert(cur.mBufferBinding.get());
-            }
-        }
-        mBuffersForUB_Dirty = false;
-    }
-    return mBuffersForUB;
-}
-
-////
-
-bool
-WebGLContext::ValidateForNonTransformFeedback(const char* funcName, WebGLBuffer* buffer)
-{
-    if (!mBoundTransformFeedback)
-        return true;
-
-    const auto& buffersForTF = mBoundTransformFeedback->BuffersForTF();
-    if (buffersForTF.count(buffer)) {
-        ErrorInvalidOperation("%s: Specified WebGLBuffer is currently bound for transform"
-                              " feedback.",
-                              funcName);
-        return false;
-    }
-
     return true;
 }
 

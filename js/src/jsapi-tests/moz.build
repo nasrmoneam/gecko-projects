@@ -44,6 +44,7 @@ UNIFIED_SOURCES += [
     'testGCChunkPool.cpp',
     'testGCExactRooting.cpp',
     'testGCFinalizeCallback.cpp',
+    'testGCGrayMarking.cpp',
     'testGCHeapPostBarriers.cpp',
     'testGCHooks.cpp',
     'testGCMarking.cpp',
@@ -77,6 +78,7 @@ UNIFIED_SOURCES += [
     'testPrintf.cpp',
     'testPrivateGCThingValue.cpp',
     'testProfileStrings.cpp',
+    'testPromise.cpp',
     'testPropCache.cpp',
     'testRegExp.cpp',
     'testResolveRecursion.cpp',
@@ -122,11 +124,6 @@ if CONFIG['ENABLE_ION']:
         'testJitRangeAnalysis.cpp',
         'testJitRegisterSet.cpp',
         'testJitRValueAlloc.cpp',
-    ]
-
-if CONFIG['SPIDERMONKEY_PROMISE']:
-    UNIFIED_SOURCES += [
-        'testPromise.cpp',
     ]
 
 DEFINES['EXPORT_JS_API'] = True

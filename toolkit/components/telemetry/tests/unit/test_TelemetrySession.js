@@ -18,6 +18,7 @@ Cu.import("resource://gre/modules/TelemetrySession.jsm", this);
 Cu.import("resource://gre/modules/TelemetryStorage.jsm", this);
 Cu.import("resource://gre/modules/TelemetryEnvironment.jsm", this);
 Cu.import("resource://gre/modules/TelemetrySend.jsm", this);
+Cu.import("resource://gre/modules/TelemetryUtils.jsm", this);
 Cu.import("resource://gre/modules/Task.jsm", this);
 Cu.import("resource://gre/modules/Promise.jsm", this);
 Cu.import("resource://gre/modules/Preferences.jsm");
@@ -74,12 +75,6 @@ XPCOMUtils.defineLazyGetter(this, "DATAREPORTING_PATH", function() {
 var gClientID = null;
 var gMonotonicNow = 0;
 
-function generateUUID() {
-  let str = Cc["@mozilla.org/uuid-generator;1"].getService(Ci.nsIUUIDGenerator).generateUUID().toString();
-  // strip {}
-  return str.substring(1, str.length - 1);
-}
-
 function truncateDateToDays(date) {
   return new Date(date.getFullYear(),
                   date.getMonth(),
@@ -98,13 +93,13 @@ function sendPing() {
 }
 
 function fakeGenerateUUID(sessionFunc, subsessionFunc) {
-  let session = Cu.import("resource://gre/modules/TelemetrySession.jsm");
+  let session = Cu.import("resource://gre/modules/TelemetrySession.jsm", {});
   session.Policy.generateSessionUUID = sessionFunc;
   session.Policy.generateSubsessionUUID = subsessionFunc;
 }
 
 function fakeIdleNotification(topic) {
-  let session = Cu.import("resource://gre/modules/TelemetrySession.jsm");
+  let session = Cu.import("resource://gre/modules/TelemetrySession.jsm", {});
   return session.TelemetryScheduler.observe(null, topic, null);
 }
 
@@ -274,7 +269,7 @@ function checkScalars(processes) {
   const scalars = parentProcess.scalars;
   for (let name in scalars) {
     Assert.equal(typeof name, "string", "Scalar names must be strings.");
-    checkScalar(scalar[name]);
+    checkScalar(scalars [name]);
   }
 
   // Check that we have valid keyed scalar entries.
@@ -286,7 +281,7 @@ function checkScalars(processes) {
     for (let key in keyedScalars[name]) {
       Assert.equal(typeof key, "string", "Keyed scalar keys must be strings.");
       Assert.ok(key.length <= 70, "Keyed scalar keys can't have more than 70 characters.");
-      checkScalar(scalar[name][key]);
+      checkScalar(scalars[name][key]);
     }
   }
 }
@@ -427,8 +422,8 @@ function checkPayload(payload, reason, successfulPings, savedPings) {
   // Telemetry doesn't touch a memory reporter with these units that's
   // available on all platforms.
 
-  Assert.ok('MEMORY_JS_GC_HEAP' in payload.histograms); // UNITS_BYTES
-  Assert.ok('MEMORY_JS_COMPARTMENTS_SYSTEM' in payload.histograms); // UNITS_COUNT
+  Assert.ok("MEMORY_JS_GC_HEAP" in payload.histograms); // UNITS_BYTES
+  Assert.ok("MEMORY_JS_COMPARTMENTS_SYSTEM" in payload.histograms); // UNITS_COUNT
 
   // We should have included addon histograms.
   Assert.ok("addonHistograms" in payload);
@@ -606,7 +601,7 @@ add_task(function* test_simplePing() {
   Assert.equal(payload.info.subsessionLength, SESSION_DURATION_IN_MINUTES * 60);
 
   // Restore the UUID generator so we don't mess with other tests.
-  fakeGenerateUUID(generateUUID, generateUUID);
+  fakeGenerateUUID(TelemetryUtils.generateUUID, TelemetryUtils.generateUUID);
 });
 
 // Saves the current session histograms, reloads them, performs a ping
@@ -716,6 +711,9 @@ add_task(function* test_checkSubsessionEvents() {
   Telemetry.clearEvents();
   yield TelemetryController.testReset();
 
+  // Enable recording for the test events.
+  Telemetry.setEventRecordingEnabled("telemetry.test", true);
+
   // Record some events.
   let expected = [
     ["telemetry.test", "test1", "object1", "a", null],
@@ -796,7 +794,7 @@ add_task(function* test_checkSubsessionHistograms() {
   // "classic" histograms. However, histograms can change
   // between us collecting the different payloads, so we only
   // check for deep equality on known stable histograms.
-  checkHistograms = (classic, subsession) => {
+  let checkHistograms = (classic, subsession) => {
     for (let id of Object.keys(classic)) {
       if (!registeredIds.has(id)) {
         continue;
@@ -814,7 +812,7 @@ add_task(function* test_checkSubsessionHistograms() {
   };
 
   // Same as above, except for keyed histograms.
-  checkKeyedHistograms = (classic, subsession) => {
+  let checkKeyedHistograms = (classic, subsession) => {
     for (let id of Object.keys(classic)) {
       if (!registeredIds.has(id)) {
         continue;
@@ -953,7 +951,7 @@ add_task(function* test_checkSubsessionData() {
   let activeTicksAtSubsessionStart = sessionRecorder.activeTicks;
   let expectedActiveTicks = activeTicksAtSubsessionStart;
 
-  incrementActiveTicks = () => {
+  let incrementActiveTicks = () => {
     sessionRecorder.incrementActiveTicks();
     ++expectedActiveTicks;
   }
@@ -1356,7 +1354,7 @@ add_task(function* test_savedSessionData() {
   yield TelemetryController.testShutdown();
 
   // Restore the UUID generator so we don't mess with other tests.
-  fakeGenerateUUID(generateUUID, generateUUID);
+  fakeGenerateUUID(TelemetryUtils.generateUUID, TelemetryUtils.generateUUID);
 
   // Load back the serialised session data.
   let data = yield CommonUtils.readJSON(dataFilePath);
@@ -1394,7 +1392,7 @@ add_task(function* test_sessionData_ShortSession() {
   Assert.equal(0, getSnapshot("TELEMETRY_SESSIONDATA_FAILED_VALIDATION").sum);
 
   // Restore the UUID generation functions.
-  fakeGenerateUUID(generateUUID, generateUUID);
+  fakeGenerateUUID(TelemetryUtils.generateUUID, TelemetryUtils.generateUUID);
 
   // Start TelemetryController so that it loads the session data file. We expect the profile
   // subsession counter to be incremented by 1 again.
@@ -1457,7 +1455,7 @@ add_task(function* test_invalidSessionData() {
   yield TelemetryController.testShutdown();
 
   // Restore the UUID generator so we don't mess with other tests.
-  fakeGenerateUUID(generateUUID, generateUUID);
+  fakeGenerateUUID(TelemetryUtils.generateUUID, TelemetryUtils.generateUUID);
 
   // Load back the serialised session data.
   let data = yield CommonUtils.readJSON(dataFilePath);

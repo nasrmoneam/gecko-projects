@@ -65,6 +65,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsContentSink)
   NS_INTERFACE_MAP_ENTRY(nsIDocumentObserver)
   NS_INTERFACE_MAP_ENTRY(nsIMutationObserver)
   NS_INTERFACE_MAP_ENTRY(nsITimerCallback)
+  NS_INTERFACE_MAP_ENTRY(nsINamed)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDocumentObserver)
 NS_INTERFACE_MAP_END
 
@@ -714,6 +715,14 @@ nsContentSink::ProcessLink(const nsSubstring& aAnchor, const nsSubstring& aHref,
   // prefetch href if relation is "next" or "prefetch"
   if (hasPrefetch || (linkTypes & nsStyleLinkElement::eNEXT)) {
     PrefetchHref(aHref, mDocument, hasPrefetch);
+  }
+
+  if (linkTypes & nsStyleLinkElement::ePRERENDER) {
+    nsCOMPtr<nsIURI> href;
+    nsresult rv = NS_NewURI(getter_AddRefs(href), aHref);
+    if (NS_SUCCEEDED(rv)) {
+      mDocument->PrerenderHref(href);
+    }
   }
 
   if (!aHref.IsEmpty() && (linkTypes & nsStyleLinkElement::eDNS_PREFETCH)) {
@@ -1618,4 +1627,17 @@ nsContentSink::NotifyDocElementCreated(nsIDocument* aDoc)
   nsContentUtils::DispatchChromeEvent(aDoc, aDoc,
                                       NS_LITERAL_STRING("DOMDocElementInserted"),
                                       true, false);
+}
+
+NS_IMETHODIMP
+nsContentSink::GetName(nsACString& aName)
+{
+  aName.AssignASCII("nsContentSink_timer");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsContentSink::SetName(const char* aName)
+{
+  return NS_ERROR_NOT_IMPLEMENTED;
 }

@@ -9,7 +9,9 @@
 // A helper actor for inspector and markupview tests.
 
 const { Cc, Ci, Cu } = require("chrome");
-const {getRect, getElementFromPoint, getAdjustedQuads} = require("devtools/shared/layout/utils");
+const {
+  getRect, getElementFromPoint, getAdjustedQuads, getWindowDimensions
+} = require("devtools/shared/layout/utils");
 const defer = require("devtools/shared/defer");
 const {Task} = require("devtools/shared/task");
 const {isContentStylesheet} = require("devtools/shared/inspector/css-logic");
@@ -289,6 +291,12 @@ var testSpec = protocol.generateActorSpec({
       response: {
         value: RetVal("json")
       }
+    },
+    getWindowDimensions: {
+      request: {},
+      response: {
+        value: RetVal("json")
+      }
     }
   }
 });
@@ -431,10 +439,9 @@ var TestActor = exports.TestActor = protocol.ActorClassWithSpec(testSpec, {
   waitForEventOnNode: function (eventName, selector) {
     return new Promise(resolve => {
       let node = selector ? this._querySelector(selector) : this.content;
-      node.addEventListener(eventName, function onEvent() {
-        node.removeEventListener(eventName, onEvent);
+      node.addEventListener(eventName, function () {
         resolve();
-      });
+      }, {once: true});
     });
   },
 
@@ -692,12 +699,10 @@ var TestActor = exports.TestActor = protocol.ActorClassWithSpec(testSpec, {
     }
 
     let deferred = defer();
-    this.content.addEventListener("scroll", function onScroll(event) {
-      this.removeEventListener("scroll", onScroll);
-
+    this.content.addEventListener("scroll", function (event) {
       let data = {x: this.content.scrollX, y: this.content.scrollY};
       deferred.resolve(data);
-    });
+    }, {once: true});
 
     this.content[relative ? "scrollBy" : "scrollTo"](x, y);
 
@@ -785,6 +790,16 @@ var TestActor = exports.TestActor = protocol.ActorClassWithSpec(testSpec, {
     }
 
     return sheets;
+  },
+
+  /**
+   * Returns the window's dimensions for the `window` given.
+   *
+   * @return {Object} An object with `width` and `height` properties, representing the
+   * number of pixels for the document's size.
+   */
+  getWindowDimensions: function () {
+    return getWindowDimensions(this.content);
   }
 });
 

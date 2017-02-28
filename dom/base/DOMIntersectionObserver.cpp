@@ -43,15 +43,17 @@ NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(DOMIntersectionObserver)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
+  tmp->Disconnect();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mDocument)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCallback)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mRoot)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mQueuedEntries)
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(DOMIntersectionObserver)
-  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_SCRIPT_OBJECTS
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mDocument)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCallback)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mRoot)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mQueuedEntries)
@@ -159,24 +161,26 @@ DOMIntersectionObserver::Observe(Element& aTarget)
 void
 DOMIntersectionObserver::Unobserve(Element& aTarget)
 {
-  if (UnlinkTarget(aTarget)) {
-    aTarget.UnregisterIntersectionObserver(this);
+  if (mObservationTargets.Count() == 1) {
+    Disconnect();
+    return;
   }
+
+  mObservationTargets.RemoveEntry(&aTarget);
+  aTarget.UnregisterIntersectionObserver(this);
 }
 
-bool
+void
 DOMIntersectionObserver::UnlinkTarget(Element& aTarget)
 {
     if (!mObservationTargets.Contains(&aTarget)) {
-        return false;
+        return;
     }
 
     mObservationTargets.RemoveEntry(&aTarget);
     if (mObservationTargets.Count() == 0) {
         Disconnect();
-        return false;
     }
-    return true;
 }
 
 void
@@ -185,9 +189,11 @@ DOMIntersectionObserver::Connect()
   if (mConnected) {
     return;
   }
-  nsIDocument* document = mOwner->GetExtantDoc();
-  document->AddIntersectionObserver(this);
+
   mConnected = true;
+  if (mDocument) {
+    mDocument->AddIntersectionObserver(this);
+  }
 }
 
 void
@@ -203,9 +209,8 @@ DOMIntersectionObserver::Disconnect()
     target->UnregisterIntersectionObserver(this);
   }
   mObservationTargets.Clear();
-  if (mOwner) {
-    nsIDocument* document = mOwner->GetExtantDoc();
-    document->RemoveIntersectionObserver(this);
+  if (mDocument) {
+    mDocument->RemoveIntersectionObserver(this);
   }
 }
 

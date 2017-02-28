@@ -13,7 +13,7 @@ add_task(function* testExecuteScript() {
   async function background() {
     let tasks = [
       {
-        background: "transparent",
+        background: "rgba(0, 0, 0, 0)",
         foreground: "rgb(0, 113, 4)",
         promise: () => {
           return browser.tabs.insertCSS({
@@ -28,6 +28,33 @@ add_task(function* testExecuteScript() {
           return browser.tabs.insertCSS({
             code: "* { background: rgb(42, 42, 42) }",
           });
+        },
+      },
+      {
+        background: "rgb(42, 42, 42)",
+        foreground: "rgb(0, 113, 4)",
+        promise: () => {
+          return browser.tabs.insertCSS({
+            code: "* { background: rgb(100, 100, 100) !important }",
+            cssOrigin: "author",
+          }).then(r => browser.tabs.insertCSS({
+            code: "* { background: rgb(42, 42, 42) !important }",
+            cssOrigin: "author",
+          }));
+        },
+      },
+      {
+        background: "rgb(100, 100, 100)",
+        foreground: "rgb(0, 113, 4)",
+        promise: () => {
+          // User has higher importance
+          return browser.tabs.insertCSS({
+            code: "* { background: rgb(100, 100, 100) !important }",
+            cssOrigin: "user",
+          }).then(r => browser.tabs.insertCSS({
+            code: "* { background: rgb(42, 42, 42) !important }",
+            cssOrigin: "author",
+          }));
         },
       },
     ];

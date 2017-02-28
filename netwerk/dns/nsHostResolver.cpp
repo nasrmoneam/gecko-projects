@@ -6,7 +6,7 @@
 #if defined(HAVE_RES_NINIT)
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>   
+#include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <resolv.h>
 #define RES_RETRY_ON_FAILURE
@@ -29,6 +29,7 @@
 #include "nsURLHelper.h"
 #include "nsThreadUtils.h"
 #include "GetAddrInfo.h"
+#include "GeckoProfiler.h"
 
 #include "mozilla/HashFunctions.h"
 #include "mozilla/TimeStamp.h"
@@ -293,7 +294,8 @@ nsHostRecord::CheckExpiration(const mozilla::TimeStamp& now) const {
     if (!mGraceStart.IsNull() && now >= mGraceStart
             && !mValidEnd.IsNull() && now < mValidEnd) {
         return nsHostRecord::EXP_GRACE;
-    } else if (!mValidEnd.IsNull() && now < mValidEnd) {
+    }
+    if (!mValidEnd.IsNull() && now < mValidEnd) {
         return nsHostRecord::EXP_VALID;
     }
 
@@ -361,7 +363,8 @@ nsHostRecord::GetPriority(uint16_t aFlags)
 {
     if (IsHighPriority(aFlags)){
         return nsHostRecord::DNS_PRIORITY_HIGH;
-    } else if (IsMediumPriority(aFlags)) {
+    }
+    if (IsMediumPriority(aFlags)) {
         return nsHostRecord::DNS_PRIORITY_MEDIUM;
     }
 
@@ -1435,10 +1438,15 @@ nsHostResolver::SizeOfIncludingThis(MallocSizeOf mallocSizeOf) const
 void
 nsHostResolver::ThreadFunc(void *arg)
 {
+    char stackTop;
+
     LOG(("DNS lookup thread - starting execution.\n"));
 
     static nsThreadPoolNaming naming;
-    naming.SetThreadPoolName(NS_LITERAL_CSTRING("DNS Resolver"));
+    nsCString name = naming.GetNextThreadName("DNS Resolver");
+
+    PR_SetCurrentThreadName(name.BeginReading());
+    profiler_register_thread(name.BeginReading(), &stackTop);
 
 #if defined(RES_RETRY_ON_FAILURE)
     nsResState rs;
@@ -1475,7 +1483,7 @@ nsHostResolver::ThreadFunc(void *arg)
                 uint32_t millis = static_cast<uint32_t>(elapsed.ToMilliseconds());
 
                 if (NS_SUCCEEDED(status)) {
-                    Telemetry::ID histogramID;
+                    Telemetry::HistogramID histogramID;
                     if (!rec->addr_info_gencnt) {
                         // Time for initial lookup.
                         histogramID = Telemetry::DNS_LOOKUP_TIME;
@@ -1509,6 +1517,8 @@ nsHostResolver::ThreadFunc(void *arg)
     resolver->mThreadCount--;
     NS_RELEASE(resolver);
     LOG(("DNS lookup thread - queue empty, thread finished.\n"));
+
+    profiler_unregister_thread();
 }
 
 nsresult

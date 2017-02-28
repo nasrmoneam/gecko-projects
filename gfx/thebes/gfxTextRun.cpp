@@ -10,6 +10,7 @@
 #include "gfxUserFontSet.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/PathHelpers.h"
+#include "mozilla/SizePrintfMacros.h"
 #include "mozilla/Sprintf.h"
 #include "nsGkAtoms.h"
 #include "nsILanguageAtomService.h"
@@ -154,7 +155,6 @@ gfxTextRun::gfxTextRun(const gfxTextRunFactory::Parameters *aParams,
     , mShapingState(eShapingState_Normal)
 {
     NS_ASSERTION(mAppUnitsPerDevUnit > 0, "Invalid app unit scale");
-    MOZ_COUNT_CTOR(gfxTextRun);
     NS_ADDREF(mFontGroup);
 
 #ifndef RELEASE_OR_BETA
@@ -199,8 +199,6 @@ gfxTextRun::~gfxTextRun()
 #endif
         NS_RELEASE(mFontGroup);
     }
-
-    MOZ_COUNT_DTOR(gfxTextRun);
 }
 
 void
@@ -243,7 +241,7 @@ gfxTextRun::ComputeLigatureData(Range aPartRange,
     NS_ASSERTION(aPartRange.start < aPartRange.end,
                  "Computing ligature data for empty range");
     NS_ASSERTION(aPartRange.end <= GetLength(), "Character length overflow");
-  
+
     LigatureData result;
     const CompressedGlyph *charGlyphs = mCharacterGlyphs;
 
@@ -391,7 +389,7 @@ gfxTextRun::ShrinkToLigatureBoundaries(Range* aRange) const
 {
     if (aRange->start >= aRange->end)
         return;
-  
+
     const CompressedGlyph *charGlyphs = mCharacterGlyphs;
 
     while (aRange->start < aRange->end &&
@@ -439,7 +437,7 @@ ClipPartialLigature(const gfxTextRun* aTextRun,
         } else {
             *aEnd = std::min(*aEnd, endEdge);
         }
-    }    
+    }
 }
 
 void
@@ -618,11 +616,17 @@ gfxTextRun::Draw(Range aRange, gfxPoint aPt, const DrawParams& aParams) const
         HasNonOpaqueNonTransparentColor(aParams.context, currentColor) &&
         HasSyntheticBoldOrColor(this, aRange)) {
         needToRestore = true;
-        // measure text, use the bounding box
+        // Measure text; use the bounding box to determine the area we need
+        // to buffer.
         gfxTextRun::Metrics metrics = MeasureText(
             aRange, gfxFont::LOOSE_INK_EXTENTS,
             aParams.context->GetDrawTarget(), aParams.provider);
-        metrics.mBoundingBox.MoveBy(aPt);
+        if (IsRightToLeft()) {
+            metrics.mBoundingBox.MoveBy(gfxPoint(aPt.x - metrics.mAdvanceWidth,
+                                                 aPt.y));
+        } else {
+            metrics.mBoundingBox.MoveBy(aPt);
+        }
         syntheticBoldBuffer.PushSolidColor(metrics.mBoundingBox, currentColor,
                                            GetAppUnitsPerDevUnit());
     }
@@ -788,7 +792,7 @@ gfxTextRun::AccumulatePartialLigatureMetrics(gfxFont *aFont, Range aRange,
     // ligature. Shift it left.
     metrics.mBoundingBox.x -=
         IsRightToLeft() ? metrics.mAdvanceWidth - (data.mPartAdvance + data.mPartWidth)
-            : data.mPartAdvance;    
+            : data.mPartAdvance;
     metrics.mAdvanceWidth = data.mPartWidth;
 
     aMetrics->CombineWith(metrics, IsRightToLeft());
@@ -865,8 +869,8 @@ gfxTextRun::BreakAndMeasureText(uint32_t aStart, uint32_t aMaxLength,
     }
     bool hyphenBuffer[MEASUREMENT_BUFFER_SIZE];
     bool haveHyphenation = aProvider &&
-        (aProvider->GetHyphensOption() == NS_STYLE_HYPHENS_AUTO ||
-         (aProvider->GetHyphensOption() == NS_STYLE_HYPHENS_MANUAL &&
+        (aProvider->GetHyphensOption() == StyleHyphens::Auto ||
+         (aProvider->GetHyphensOption() == StyleHyphens::Manual &&
           (mFlags & gfxTextRunFactory::TEXT_ENABLE_HYPHEN_BREAKS) != 0));
     if (haveHyphenation) {
         aProvider->GetHyphenationBreaks(bufferRange, hyphenBuffer);
@@ -904,7 +908,7 @@ gfxTextRun::BreakAndMeasureText(uint32_t aStart, uint32_t aMaxLength,
         }
 
         // There can't be a word-wrap break opportunity at the beginning of the
-        // line: if the width is too small for even one character to fit, it 
+        // line: if the width is too small for even one character to fit, it
         // could be the first and last break opportunity on the line, and that
         // would trigger an infinite loop.
         if (aSuppressBreak != eSuppressAllBreaks &&
@@ -922,7 +926,7 @@ gfxTextRun::BreakAndMeasureText(uint32_t aStart, uint32_t aMaxLength,
                 if (atHyphenationBreak) {
                     hyphenatedAdvance += aProvider->GetHyphenWidth();
                 }
-            
+
                 if (lastBreak < 0 || width + hyphenatedAdvance - trimmableAdvance <= aWidth) {
                     // We can break here.
                     lastBreak = i;
@@ -942,7 +946,7 @@ gfxTextRun::BreakAndMeasureText(uint32_t aStart, uint32_t aMaxLength,
                 }
             }
         }
-        
+
         gfxFloat charAdvance;
         if (i >= ligatureRange.start && i < ligatureRange.end) {
             charAdvance = GetAdvanceForGlyphs(Range(i, i + 1));
@@ -955,7 +959,7 @@ gfxTextRun::BreakAndMeasureText(uint32_t aStart, uint32_t aMaxLength,
             charAdvance =
                 ComputePartialLigatureWidth(Range(i, i + 1), aProvider);
         }
-        
+
         advance += charAdvance;
         if (aTrimWhitespace || aWhitespaceCanHang) {
             if (mCharacterGlyphs[i].CharIsSpace()) {
@@ -1116,7 +1120,7 @@ gfxTextRun::AddGlyphRun(gfxFont *aFont, uint8_t aMatchType,
                  "mixed orientation should have been resolved");
     if (!aFont) {
         return NS_OK;
-    }    
+    }
     uint32_t numGlyphRuns = mGlyphRuns.Length();
     if (!aForceNewRun && numGlyphRuns > 0) {
         GlyphRun *lastGlyphRun = &mGlyphRuns[numGlyphRuns - 1];
@@ -1376,7 +1380,7 @@ gfxTextRun::SetSpaceGlyph(gfxFont* aFont, DrawTarget* aDrawTarget,
         (GetFlags() & gfxTextRunFactory::TEXT_ORIENT_VERTICAL_UPRIGHT) != 0;
     gfxShapedWord* sw = aFont->GetShapedWord(aDrawTarget,
                                              &space, 1,
-                                             gfxShapedWord::HashMix(0, ' '), 
+                                             gfxShapedWord::HashMix(0, ' '),
                                              Script::LATIN,
                                              vertical,
                                              mAppUnitsPerDevUnit,
@@ -1442,7 +1446,7 @@ gfxTextRun::FetchGlyphExtents(DrawTarget* aRefDrawTarget)
         bool fontIsSetup = false;
         uint32_t j;
         gfxGlyphExtents *extents = font->GetOrCreateGlyphExtents(mAppUnitsPerDevUnit);
-  
+
         for (j = start; j < end; ++j) {
             const gfxTextRun::CompressedGlyph *glyphData = &charGlyphs[j];
             if (glyphData->IsSimpleGlyph()) {
@@ -1914,13 +1918,13 @@ gfxFontGroup::Copy(const gfxFontStyle *aStyle)
     return fg;
 }
 
-bool 
+bool
 gfxFontGroup::IsInvalidChar(uint8_t ch)
 {
     return ((ch & 0x7f) < 0x20 || ch == 0x7f);
 }
 
-bool 
+bool
 gfxFontGroup::IsInvalidChar(char16_t ch)
 {
     // All printable 7-bit ASCII values are OK
@@ -2171,7 +2175,7 @@ gfxFontGroup::InitTextRun(DrawTarget* aDrawTarget,
                 nsAutoCString str((const char*)aString, aLength);
                 MOZ_LOG(log, LogLevel::Warning,\
                        ("(%s) fontgroup: [%s] default: %s lang: %s script: %d "
-                        "len %d weight: %d width: %d style: %s size: %6.2f %d-byte "
+                        "len %d weight: %d width: %d style: %s size: %6.2f %" PRIuSIZE "-byte "
                         "TEXTRUN [%s] ENDTEXTRUN\n",
                         (mStyle.systemFont ? "textrunui" : "textrun"),
                         NS_ConvertUTF16toUTF8(families).get(),
@@ -2179,7 +2183,7 @@ gfxFontGroup::InitTextRun(DrawTarget* aDrawTarget,
                          "serif" :
                          (mFamilyList.GetDefaultFontType() == eFamily_sans_serif ?
                           "sans-serif" : "none")),
-                        lang.get(), Script::LATIN, aLength,
+                        lang.get(), static_cast<int>(Script::LATIN), aLength,
                         uint32_t(mStyle.weight), uint32_t(mStyle.stretch),
                         (mStyle.style & NS_FONT_STYLE_ITALIC ? "italic" :
                         (mStyle.style & NS_FONT_STYLE_OBLIQUE ? "oblique" :
@@ -2220,14 +2224,14 @@ gfxFontGroup::InitTextRun(DrawTarget* aDrawTarget,
                     MOZ_LOG(log, LogLevel::Warning,\
                            ("(%s) fontgroup: [%s] default: %s lang: %s script: %d "
                             "len %d weight: %d width: %d style: %s size: %6.2f "
-                            "%d-byte TEXTRUN [%s] ENDTEXTRUN\n",
+                            "%" PRIuSIZE "-byte TEXTRUN [%s] ENDTEXTRUN\n",
                             (mStyle.systemFont ? "textrunui" : "textrun"),
                             NS_ConvertUTF16toUTF8(families).get(),
                             (mFamilyList.GetDefaultFontType() == eFamily_serif ?
                              "serif" :
                              (mFamilyList.GetDefaultFontType() == eFamily_sans_serif ?
                               "sans-serif" : "none")),
-                            lang.get(), runScript, runLen,
+                            lang.get(), static_cast<int>(runScript), runLen,
                             uint32_t(mStyle.weight), uint32_t(mStyle.stretch),
                             (mStyle.style & NS_FONT_STYLE_ITALIC ? "italic" :
                             (mStyle.style & NS_FONT_STYLE_OBLIQUE ? "oblique" :
@@ -2998,7 +3002,7 @@ void gfxFontGroup::ComputeRanges(nsTArray<gfxTextRange>& aRanges,
                  "serif" :
                  (mFamilyList.GetDefaultFontType() == eFamily_sans_serif ?
                   "sans-serif" : "none")),
-                lang.get(), aRunScript,
+                lang.get(), static_cast<int>(aRunScript),
                 fontMatches.get()));
     }
 #endif
@@ -3151,7 +3155,7 @@ already_AddRefed<gfxFont>
 gfxFontGroup::WhichSystemFontSupportsChar(uint32_t aCh, uint32_t aNextCh,
                                           Script aRunScript)
 {
-    gfxFontEntry *fe = 
+    gfxFontEntry *fe =
         gfxPlatformFontList::PlatformFontList()->
             SystemFindFontForChar(aCh, aNextCh, aRunScript, &mStyle);
     if (fe) {

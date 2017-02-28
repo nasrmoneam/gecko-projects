@@ -20,7 +20,7 @@
 this.EXPORTED_SYMBOLS = ["Kinto"];
 
 /*
- * Version 6.0.0 - de9dd38
+ * Version 8.0.0 - 57d2836
  */
 
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Kinto = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
@@ -118,6 +118,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 const DEFAULT_BUCKET_NAME = "default";
 const DEFAULT_REMOTE = "http://localhost:8888/v1";
+const DEFAULT_RETRY = 1;
 
 /**
  * KintoBase class.
@@ -159,6 +160,7 @@ class KintoBase {
    * - `{Object}`       `adapterOptions` Options given to the adapter.
    * - `{String}`       `dbPrefix`       The DB name prefix.
    * - `{Object}`       `headers`        The HTTP headers to use.
+   * - `{Object}`       `retry`          Number of retries when the server fails to process the request (default: `1`)
    * - `{String}`       `requestMode`    The HTTP CORS mode to use.
    * - `{Number}`       `timeout`        The requests timeout in ms (default: `5000`).
    *
@@ -167,14 +169,15 @@ class KintoBase {
   constructor(options = {}) {
     const defaults = {
       bucket: DEFAULT_BUCKET_NAME,
-      remote: DEFAULT_REMOTE
+      remote: DEFAULT_REMOTE,
+      retry: DEFAULT_RETRY
     };
     this._options = _extends({}, defaults, options);
     if (!this._options.adapter) {
       throw new Error("No adapter provided");
     }
 
-    const { remote, events, headers, requestMode, timeout, ApiClass } = this._options;
+    const { remote, events, headers, retry, requestMode, timeout, ApiClass } = this._options;
 
     // public properties
 
@@ -182,7 +185,7 @@ class KintoBase {
      * The kinto HTTP client instance.
      * @type {KintoClient}
      */
-    this.api = new ApiClass(remote, { events, headers, requestMode, timeout });
+    this.api = new ApiClass(remote, { events, headers, retry, requestMode, timeout });
     /**
      * The event emitter instance.
      * @type {EventEmitter}
@@ -195,24 +198,37 @@ class KintoBase {
    * will set collection-level options like e.g. `remoteTransformers`.
    *
    * @param  {String} collName The collection name.
-   * @param  {Object} options  May contain the following fields:
-   *                           remoteTransformers: Array<RemoteTransformer>
+   * @param  {Object} [options={}]                 Extra options or override client's options.
+   * @param  {Object} [options.idSchema]           IdSchema instance (default: UUID)
+   * @param  {Object} [options.remoteTransformers] Array<RemoteTransformer> (default: `[]`])
+   * @param  {Object} [options.hooks]              Array<Hook> (default: `[]`])
    * @return {Collection}
    */
   collection(collName, options = {}) {
     if (!collName) {
       throw new Error("missing collection name");
     }
+    const {
+      bucket,
+      events,
+      adapter,
+      adapterOptions,
+      dbPrefix
+    } = _extends({}, this._options, options);
+    const {
+      idSchema,
+      remoteTransformers,
+      hooks
+    } = options;
 
-    const bucket = this._options.bucket;
     return new _collection2.default(bucket, collName, this.api, {
-      events: this._options.events,
-      adapter: this._options.adapter,
-      adapterOptions: this._options.adapterOptions,
-      dbPrefix: this._options.dbPrefix,
-      idSchema: options.idSchema,
-      remoteTransformers: options.remoteTransformers,
-      hooks: options.hooks
+      events,
+      adapter,
+      adapterOptions,
+      dbPrefix,
+      idSchema,
+      remoteTransformers,
+      hooks
     });
   }
 }
@@ -417,7 +433,7 @@ class IDB extends _base2.default {
       this._db.close(); // indexedDB.close is synchronous
       this._db = null;
     }
-    return super.close();
+    return Promise.resolve();
   }
 
   /**
@@ -747,26 +763,6 @@ Object.defineProperty(exports, "__esModule", {
 });
 class BaseAdapter {
   /**
-   * Opens a connection to the database.
-   *
-   * @abstract
-   * @return {Promise}
-   */
-  open() {
-    return Promise.resolve();
-  }
-
-  /**
-   * Closes current connection to the database.
-   *
-   * @abstract
-   * @return {Promise}
-   */
-  close() {
-    return Promise.resolve();
-  }
-
-  /**
    * Deletes every records present in the database.
    *
    * @abstract
@@ -1074,7 +1070,7 @@ class Collection {
       throw new Error("No adapter provided");
     }
     const dbPrefix = options.dbPrefix || "";
-    const db = new DBAdapter(`${ dbPrefix }${ bucket }/${ name }`, options.adapterOptions);
+    const db = new DBAdapter(`${dbPrefix}${bucket}/${name}`, options.adapterOptions);
     if (!(db instanceof _base2.default)) {
       throw new Error("Unsupported adapter.");
     }
@@ -1272,10 +1268,10 @@ class Collection {
    * @return {Promise}
    */
   _encodeRecord(type, record) {
-    if (!this[`${ type }Transformers`].length) {
+    if (!this[`${type}Transformers`].length) {
       return Promise.resolve(record);
     }
-    return (0, _utils.waterfall)(this[`${ type }Transformers`].map(transformer => {
+    return (0, _utils.waterfall)(this[`${type}Transformers`].map(transformer => {
       return record => transformer.encode(record);
     }), record);
   }
@@ -1288,10 +1284,10 @@ class Collection {
    * @return {Promise}
    */
   _decodeRecord(type, record) {
-    if (!this[`${ type }Transformers`].length) {
+    if (!this[`${type}Transformers`].length) {
       return Promise.resolve(record);
     }
-    return (0, _utils.waterfall)(this[`${ type }Transformers`].reverse().map(transformer => {
+    return (0, _utils.waterfall)(this[`${type}Transformers`].reverse().map(transformer => {
       return record => transformer.decode(record);
     }), record);
   }
@@ -1334,7 +1330,7 @@ class Collection {
       _status: options.synced ? "synced" : "created"
     });
     if (!this.idSchema.validate(newRecord.id)) {
-      return reject(`Invalid Id: ${ newRecord.id }`);
+      return reject(`Invalid Id: ${newRecord.id}`);
     }
     return this.execute(txn => txn.create(newRecord), { preloadIds: [newRecord.id] }).catch(err => {
       if (options.useRecordId) {
@@ -1367,7 +1363,7 @@ class Collection {
       return Promise.reject(new Error("Cannot update a record missing id."));
     }
     if (!this.idSchema.validate(record.id)) {
-      return Promise.reject(new Error(`Invalid Id: ${ record.id }`));
+      return Promise.reject(new Error(`Invalid Id: ${record.id}`));
     }
 
     return this.execute(txn => txn.update(record, options), { preloadIds: [record.id] });
@@ -1390,7 +1386,7 @@ class Collection {
       return Promise.reject(new Error("Cannot update a record missing id."));
     }
     if (!this.idSchema.validate(record.id)) {
-      return Promise.reject(new Error(`Invalid Id: ${ record.id }`));
+      return Promise.reject(new Error(`Invalid Id: ${record.id}`));
     }
 
     return this.execute(txn => txn.upsert(record), { preloadIds: [record.id] });
@@ -1623,7 +1619,7 @@ class Collection {
   execute(doOperations, { preloadIds = [] } = {}) {
     for (let id of preloadIds) {
       if (!this.idSchema.validate(id)) {
-        return Promise.reject(Error(`Invalid Id: ${ id }`));
+        return Promise.reject(Error(`Invalid Id: ${id}`));
       }
     }
 
@@ -1684,10 +1680,7 @@ class Collection {
       const unsynced = yield _this6.list({ filters: { _status: ["created", "updated"] }, order: "" });
       const deleted = yield _this6.list({ filters: { _status: "deleted" }, order: "" }, { includeDeleted: true });
 
-      const toSync = yield Promise.all(unsynced.data.map(_this6._encodeRecord.bind(_this6, "remote")));
-      const toDelete = yield Promise.all(deleted.data.map(_this6._encodeRecord.bind(_this6, "remote")));
-
-      return { toSync, toDelete };
+      return yield Promise.all(unsynced.data.concat(deleted.data).map(_this6._encodeRecord.bind(_this6, "remote")));
     })();
   }
 
@@ -1735,8 +1728,9 @@ class Collection {
       // First fetch remote changes from the server
       const { data, last_modified } = yield client.listRecords({
         // Since should be ETag (see https://github.com/Kinto/kinto.js/issues/356)
-        since: options.lastModified ? `${ options.lastModified }` : undefined,
+        since: options.lastModified ? `${options.lastModified}` : undefined,
         headers: options.headers,
+        retry: options.retry,
         filters
       });
       // last_modified is the ETag header value (string).
@@ -1783,7 +1777,7 @@ class Collection {
         const resultThenable = result && typeof result.then === "function";
         const resultChanges = result && result.hasOwnProperty("changes");
         if (!(resultThenable || resultChanges)) {
-          throw new Error(`Invalid return value for hook: ${ JSON.stringify(result) } has no 'then()' or 'changes' properties`);
+          throw new Error(`Invalid return value for hook: ${JSON.stringify(result)} has no 'then()' or 'changes' properties`);
         }
         return result;
       };
@@ -1802,7 +1796,7 @@ class Collection {
    * @param  {Object}                 options          The options object.
    * @return {Promise}
    */
-  pushChanges(client, { toDelete = [], toSync }, syncResultObject, options = {}) {
+  pushChanges(client, changes, syncResultObject, options = {}) {
     var _this8 = this;
 
     return _asyncToGenerator(function* () {
@@ -1810,6 +1804,12 @@ class Collection {
         return syncResultObject;
       }
       const safe = !options.strategy || options.strategy !== Collection.CLIENT_WINS;
+      const toDelete = changes.filter(function (r) {
+        return r._status == "deleted";
+      });
+      const toSync = changes.filter(function (r) {
+        return r._status != "deleted";
+      });
 
       // Perform a batch request with every changes.
       const synced = yield client.batch(function (batch) {
@@ -1828,7 +1828,12 @@ class Collection {
             batch.updateRecord(published);
           }
         });
-      }, { headers: options.headers, safe, aggregate: true });
+      }, {
+        headers: options.headers,
+        retry: options.retry,
+        safe,
+        aggregate: true
+      });
 
       // Store outgoing errors into sync result object
       syncResultObject.add("errors", synced.errors.map(function (e) {
@@ -1837,7 +1842,9 @@ class Collection {
 
       // Store outgoing conflicts into sync result object
       const conflicts = [];
-      for (let { type, local, remote } of synced.conflicts) {
+      for (let _ref of synced.conflicts) {
+        let { type, local, remote } = _ref;
+
         // Note: we ensure that local data are actually available, as they may
         // be missing in the case of a published deletion.
         const safeLocal = local && local.data || { id: remote.id };
@@ -1930,6 +1937,7 @@ class Collection {
    *
    * Options:
    * - {Object} headers: HTTP headers to attach to outgoing requests.
+   * - {Number} retry: Number of retries when server fails to process the request (default: 1).
    * - {Collection.strategy} strategy: See {@link Collection.strategy}.
    * - {Boolean} ignoreBackoff: Force synchronization even if server is currently
    *   backed off.
@@ -1944,6 +1952,7 @@ class Collection {
   sync(options = {
     strategy: Collection.strategy.MANUAL,
     headers: {},
+    retry: 1,
     ignoreBackoff: false,
     bucket: null,
     collection: null,
@@ -1952,6 +1961,11 @@ class Collection {
     var _this9 = this;
 
     return _asyncToGenerator(function* () {
+      options = _extends({}, options, {
+        bucket: options.bucket || _this9.bucket,
+        collection: options.collection || _this9.name
+      });
+
       const previousRemote = _this9.api.remote;
       if (options.remote) {
         // Note: setting the remote ensures it's valid, throws when invalid.
@@ -1959,10 +1973,10 @@ class Collection {
       }
       if (!options.ignoreBackoff && _this9.api.backoff > 0) {
         const seconds = Math.ceil(_this9.api.backoff / 1000);
-        return Promise.reject(new Error(`Server is asking clients to back off; retry in ${ seconds }s or use the ignoreBackoff option.`));
+        return Promise.reject(new Error(`Server is asking clients to back off; retry in ${seconds}s or use the ignoreBackoff option.`));
       }
 
-      const client = _this9.api.bucket(options.bucket || _this9.bucket).collection(options.collection || _this9.name);
+      const client = _this9.api.bucket(options.bucket).collection(options.collection);
 
       const result = new SyncResultObject();
       try {
@@ -1971,10 +1985,10 @@ class Collection {
         const { lastModified } = result;
 
         // Fetch local changes
-        const { toDelete, toSync } = yield _this9.gatherLocalChanges();
+        const toSync = yield _this9.gatherLocalChanges();
 
         // Publish local changes and pull local resolutions
-        yield _this9.pushChanges(client, { toDelete, toSync }, result, options);
+        yield _this9.pushChanges(client, toSync, result, options);
 
         // Publish local resolution of push conflicts to server (on CLIENT_WINS)
         const resolvedUnsynced = result.resolved.filter(function (r) {
@@ -1982,7 +1996,7 @@ class Collection {
         });
         if (resolvedUnsynced.length > 0) {
           const resolvedEncoded = yield Promise.all(resolvedUnsynced.map(_this9._encodeRecord.bind(_this9, "remote")));
-          yield _this9.pushChanges(client, { toSync: resolvedEncoded }, result, options);
+          yield _this9.pushChanges(client, resolvedEncoded, result, options);
         }
         // Perform a last pull to catch changes that occured after the last pull,
         // while local changes were pushed. Do not do it nothing was pushed.
@@ -1997,10 +2011,14 @@ class Collection {
           // No conflict occured, persist collection's lastModified value
           _this9._lastModified = yield _this9.db.saveLastModified(result.lastModified);
         }
+      } catch (e) {
+        _this9.events.emit("sync:error", _extends({}, options, { error: e }));
+        throw e;
       } finally {
         // Ensure API default remote is reverted if a custom one's been used
         _this9.api.remote = previousRemote;
       }
+      _this9.events.emit("sync:success", _extends({}, options, { result }));
       return result;
     })();
   }
@@ -2087,7 +2105,9 @@ class CollectionTransaction {
    * been executed successfully.
    */
   emitEvents() {
-    for (let { action, payload } of this._events) {
+    for (let _ref2 of this._events) {
+      let { action, payload } = _ref2;
+
       this.collection.events.emit(action, payload);
     }
     if (this._events.length > 0) {
@@ -2124,7 +2144,7 @@ class CollectionTransaction {
   get(id, options = { includeDeleted: false }) {
     const res = this.getAny(id);
     if (!res.data || !options.includeDeleted && res.data._status === "deleted") {
-      throw new Error(`Record with id=${ id } not found.`);
+      throw new Error(`Record with id=${id} not found.`);
     }
 
     return res;
@@ -2146,7 +2166,7 @@ class CollectionTransaction {
     const existing = this.adapterTransaction.get(id);
     const alreadyDeleted = existing && existing._status == "deleted";
     if (!existing || alreadyDeleted && options.virtual) {
-      throw new Error(`Record with id=${ id } not found.`);
+      throw new Error(`Record with id=${id} not found.`);
     }
     // Virtual updates status.
     if (options.virtual) {
@@ -2190,7 +2210,7 @@ class CollectionTransaction {
       throw new Error("Cannot create a record missing id");
     }
     if (!this.collection.idSchema.validate(record.id)) {
-      throw new Error(`Invalid Id: ${ record.id }`);
+      throw new Error(`Invalid Id: ${record.id}`);
     }
 
     this.adapterTransaction.create(record);
@@ -2218,12 +2238,12 @@ class CollectionTransaction {
       throw new Error("Cannot update a record missing id.");
     }
     if (!this.collection.idSchema.validate(record.id)) {
-      throw new Error(`Invalid Id: ${ record.id }`);
+      throw new Error(`Invalid Id: ${record.id}`);
     }
 
     const oldRecord = this.adapterTransaction.get(record.id);
     if (!oldRecord) {
-      throw new Error(`Record with id=${ record.id } not found.`);
+      throw new Error(`Record with id=${record.id} not found.`);
     }
     const newRecord = options.patch ? _extends({}, oldRecord, record) : record;
     const updated = this._updateRaw(oldRecord, newRecord, options);
@@ -2275,7 +2295,7 @@ class CollectionTransaction {
       throw new Error("Cannot update a record missing id.");
     }
     if (!this.collection.idSchema.validate(record.id)) {
-      throw new Error(`Invalid Id: ${ record.id }`);
+      throw new Error(`Invalid Id: ${record.id}`);
     }
     let oldRecord = this.adapterTransaction.get(record.id);
     const updated = this._updateRaw(oldRecord, record);

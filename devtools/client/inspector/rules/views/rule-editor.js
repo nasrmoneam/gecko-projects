@@ -6,7 +6,7 @@
 
 const {l10n} = require("devtools/shared/inspector/css-logic");
 const {ELEMENT_STYLE} = require("devtools/shared/specs/styles");
-const {Rule} = require("devtools/client/inspector/rules/models/rule");
+const Rule = require("devtools/client/inspector/rules/models/rule");
 const {InplaceEditor, editableField, editableItem} =
       require("devtools/client/shared/inplace-editor");
 const {TextPropertyEditor} =
@@ -17,7 +17,7 @@ const {
   promiseWarn
 } = require("devtools/client/inspector/shared/utils");
 const {
-  parseDeclarations,
+  parseNamedDeclarations,
   parsePseudoClassesAndAttributes,
   SELECTOR_ATTRIBUTE,
   SELECTOR_ELEMENT,
@@ -138,7 +138,7 @@ RuleEditor.prototype = {
       this.selectorText.addEventListener("click", event => {
         // Clicks within the selector shouldn't propagate any further.
         event.stopPropagation();
-      }, false);
+      });
 
       editableField({
         element: this.selectorText,
@@ -149,19 +149,34 @@ RuleEditor.prototype = {
     }
 
     if (this.rule.domRule.type !== CSSRule.KEYFRAME_RULE) {
-      let selector = this.rule.domRule.selectors
-               ? this.rule.domRule.selectors.join(", ")
-               : this.ruleView.inspector.selectionCssSelector;
+      Task.spawn(function* () {
+        let selector;
 
-      let selectorHighlighter = createChild(header, "span", {
-        class: "ruleview-selectorhighlighter" +
-               (this.ruleView.highlighters.selectorHighlighterShown === selector ?
-                " highlighted" : ""),
-        title: l10n("rule.selectorHighlighter.tooltip")
-      });
-      selectorHighlighter.addEventListener("click", () => {
-        this.ruleView.toggleSelectorHighlighter(selectorHighlighter, selector);
-      });
+        if (this.rule.domRule.selectors) {
+          // This is a "normal" rule with a selector.
+          selector = this.rule.domRule.selectors.join(", ");
+        } else if (this.rule.inherited) {
+          // This is an inline style from an inherited rule. Need to resolve the unique
+          // selector from the node which rule this is inherited from.
+          selector = yield this.rule.inherited.getUniqueSelector();
+        } else {
+          // This is an inline style from the current node.
+          selector = this.ruleView.inspector.selectionCssSelector;
+        }
+
+        let selectorHighlighter = createChild(header, "span", {
+          class: "ruleview-selectorhighlighter" +
+                 (this.ruleView.highlighters.selectorHighlighterShown === selector ?
+                  " highlighted" : ""),
+          title: l10n("rule.selectorHighlighter.tooltip")
+        });
+        selectorHighlighter.addEventListener("click", () => {
+          this.ruleView.toggleSelectorHighlighter(selectorHighlighter, selector);
+        });
+
+        this.uniqueSelector = selector;
+        this.emit("selector-icon-created");
+      }.bind(this));
     }
 
     this.openBrace = createChild(header, "span", {
@@ -198,11 +213,11 @@ RuleEditor.prototype = {
         }
         // Cleanup the _ruleViewIsEditing flag
         this._ruleViewIsEditing = false;
-      }, false);
+      });
 
       this.element.addEventListener("mousedown", () => {
         this.doc.defaultView.focus();
-      }, false);
+      });
 
       // Create a property editor when the close brace is clicked.
       editableItem({ element: this.closeBrace }, () => {
@@ -453,7 +468,7 @@ RuleEditor.prototype = {
 
     // Auto-close the input if multiple rules get pasted into new property.
     this.editor.input.addEventListener("paste",
-      blurOnMultipleProperties(this.rule.cssProperties), false);
+      blurOnMultipleProperties(this.rule.cssProperties));
   },
 
   /**
@@ -473,8 +488,7 @@ RuleEditor.prototype = {
     // case, we're creating a new declaration, it doesn't make sense to accept
     // these entries
     this.multipleAddedProperties =
-      parseDeclarations(this.rule.cssProperties.isKnown, value, true)
-      .filter(d => d.name);
+      parseNamedDeclarations(this.rule.cssProperties.isKnown, value, true);
 
     // Blur the editor field now and deal with adding declarations later when
     // the field gets destroyed (see _newPropertyDestroy)
@@ -618,4 +632,4 @@ RuleEditor.prototype = {
   }
 };
 
-exports.RuleEditor = RuleEditor;
+module.exports = RuleEditor;

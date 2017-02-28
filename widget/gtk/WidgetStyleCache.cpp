@@ -880,9 +880,16 @@ GetCssNodeStyleInternal(WidgetNodeType aNodeType)
         // the background color, and so a transparent background would lead to
         // a transparent resizer.  gtk_render_handle() also uses the
         // background color to draw a background, and so this style otherwise
-        // matches MOZ_GTK_TEXT_VIEW_TEXT to match the background with
-        // textarea elements.  GtkTextView creates a separate text window and
-        // so the background should not be transparent.
+        // matches what is used in GtkTextView to match the background with
+        // textarea elements.
+        GdkRGBA color;
+        gtk_style_context_get_background_color(style, GTK_STATE_FLAG_NORMAL,
+                                               &color);
+        if (color.alpha == 0.0) {
+          g_object_unref(style);
+          style = CreateStyleForWidget(gtk_text_view_new(),
+                                       MOZ_GTK_SCROLLED_WINDOW);
+        }
         gtk_style_context_add_class(style, GTK_STYLE_CLASS_GRIP);
       }
       break;
@@ -997,6 +1004,13 @@ GetWidgetStyleInternal(WidgetNodeType aNodeType)
     case MOZ_GTK_PROGRESS_TROUGH:
       return GetWidgetStyleWithClass(MOZ_GTK_PROGRESSBAR,
                                      GTK_STYLE_CLASS_TROUGH);
+    case MOZ_GTK_PROGRESS_CHUNK: {
+      GtkStyleContext* style =
+        GetWidgetStyleWithClass(MOZ_GTK_PROGRESSBAR,
+                                GTK_STYLE_CLASS_PROGRESSBAR);
+      gtk_style_context_remove_class(style, GTK_STYLE_CLASS_TROUGH);
+      return style;
+    }
     case MOZ_GTK_GRIPPER:
       return GetWidgetStyleWithClass(MOZ_GTK_GRIPPER,
                                      GTK_STYLE_CLASS_GRIP);
@@ -1016,6 +1030,14 @@ GetWidgetStyleInternal(WidgetNodeType aNodeType)
       GtkStyleContext* style =
         GetWidgetStyleWithClass(MOZ_GTK_TEXT_VIEW, GTK_STYLE_CLASS_VIEW);
       if (aNodeType == MOZ_GTK_RESIZER) {
+        // The "grip" class provides the correct builtin icon from
+        // gtk_render_handle().  The icon is drawn with shaded variants of
+        // the background color, and so a transparent background would lead to
+        // a transparent resizer.  gtk_render_handle() also uses the
+        // background color to draw a background, and so this style otherwise
+        // matches MOZ_GTK_TEXT_VIEW_TEXT to match the background with
+        // textarea elements.  GtkTextView creates a separate text window and
+        // so the background should not be transparent.
         gtk_style_context_add_class(style, GTK_STYLE_CLASS_GRIP);
       }
       return style;

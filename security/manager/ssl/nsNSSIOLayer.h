@@ -8,6 +8,7 @@
 #define nsNSSIOLayer_h
 
 #include "TransportSecurityInfo.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/TimeStamp.h"
 #include "nsCOMPtr.h"
 #include "nsDataHashtable.h"
@@ -19,13 +20,13 @@
 #include "sslt.h"
 
 namespace mozilla {
-class NeckoOriginAttributes;
+class OriginAttributes;
 namespace psm {
 class SharedSSLState;
 } // namespace psm
 } // namespace mozilla
 
-using mozilla::NeckoOriginAttributes;
+using mozilla::OriginAttributes;
 
 class nsIObserver;
 
@@ -218,7 +219,6 @@ public:
   void removeInsecureFallbackSite(const nsACString& hostname, uint16_t port);
   bool isInsecureFallbackSite(const nsACString& hostname);
 
-  bool mFalseStartRequireNPN;
   uint16_t mVersionFallbackLimit;
 private:
   mozilla::Mutex mutex;
@@ -229,7 +229,7 @@ nsresult nsSSLIOLayerNewSocket(int32_t family,
                                const char* host,
                                int32_t port,
                                nsIProxyInfo *proxy,
-                               const NeckoOriginAttributes& originAttributes,
+                               const OriginAttributes& originAttributes,
                                PRFileDesc** fd,
                                nsISupports** securityInfo,
                                bool forSTARTTLS,
@@ -239,7 +239,7 @@ nsresult nsSSLIOLayerAddToSocket(int32_t family,
                                  const char* host,
                                  int32_t port,
                                  nsIProxyInfo *proxy,
-                                 const NeckoOriginAttributes& originAttributes,
+                                 const OriginAttributes& originAttributes,
                                  PRFileDesc* fd,
                                  nsISupports** securityInfo,
                                  bool forSTARTTLS,

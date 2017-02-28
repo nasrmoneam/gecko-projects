@@ -141,6 +141,7 @@ public:
       TextureFactoryIdentifier(LayersBackend::LAYERS_OPENGL,
                                XRE_GetProcessType(),
                                GetMaxTextureSize(),
+                               false,
                                mFBOTextureTarget == LOCAL_GL_TEXTURE_2D,
                                SupportsPartialTextureUpdate());
     return result;
@@ -170,6 +171,8 @@ public:
                             gfx::Float aOpacity,
                             const gfx::Matrix4x4& aTransform,
                             const gfx::Rect& aVisibleRect) override;
+
+  virtual bool SupportsLayerGeometry() const override;
 
   virtual void EndFrame() override;
 

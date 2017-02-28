@@ -183,6 +183,7 @@ config = {
         "plain-gpu": ["--subsuite=gpu"],
         "plain-clipboard": ["--subsuite=clipboard"],
         "plain-chunked": ["--chunk-by-dir=4"],
+        "plain-chunked-coverage": ["--chunk-by-dir=4", "--timeout=1200"],
         "mochitest-media": ["--subsuite=media"],
         "chrome": ["--flavor=chrome"],
         "chrome-gpu": ["--flavor=chrome", "--subsuite=gpu"],
@@ -203,6 +204,7 @@ config = {
         "jetpack-package-clipboard": ["--flavor=jetpack-package", "--subsuite=clipboard"],
         "jetpack-addon": ["--flavor=jetpack-addon"],
         "a11y": ["--flavor=a11y"],
+        "mochitest-style": ["--disable-e10s", "--failure-pattern-file=stylo-failures.md", "layout/style/test"],
     },
     # local reftest suites
     "all_reftest_suites": {
@@ -225,7 +227,8 @@ config = {
             "tests": ["tests/reftest/tests/layout/reftests/reftest.list"]},
         "reftest-stylo": {
             "options": ["--suite=reftest",
-                        "--disable-e10s"],
+                        "--disable-e10s",
+                        "--setpref=reftest.compareStyloToGecko=true"],
             "tests": ["tests/reftest/tests/layout/reftests/reftest-stylo.list"],
         },
     },
@@ -243,7 +246,8 @@ config = {
         },
         "xpcshell-coverage": {
             "options": ["--xpcshell=%(abs_app_dir)s/" + XPCSHELL_NAME,
-                        "--manifest=tests/xpcshell/tests/xpcshell.ini"],
+                        "--manifest=tests/xpcshell/tests/xpcshell.ini",
+                        "--sequential"],
             "tests": []
         },
     },

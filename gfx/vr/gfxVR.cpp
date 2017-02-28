@@ -6,10 +6,8 @@
 #include <math.h>
 
 #include "gfxVR.h"
-#ifdef MOZ_GAMEPAD
 #include "mozilla/dom/GamepadEventTypes.h"
 #include "mozilla/dom/GamepadBinding.h"
-#endif
 
 #ifndef M_PI
 # define M_PI 3.14159265358979323846
@@ -18,11 +16,10 @@
 using namespace mozilla;
 using namespace mozilla::gfx;
 
-Atomic<uint32_t> VRDisplayManager::sDisplayBase(0);
-Atomic<uint32_t> VRControllerManager::sControllerBase(0);
+Atomic<uint32_t> VRSystemManager::sDisplayBase(0);
 
 /* static */ uint32_t
-VRDisplayManager::AllocateDisplayID()
+VRSystemManager::AllocateDisplayID()
 {
   return ++sDisplayBase;
 }
@@ -61,19 +58,16 @@ VRFieldOfView::ConstructProjectionMatrix(float zNear, float zFar,
   return mobj;
 }
 
-/* static */ uint32_t
-VRControllerManager::AllocateControllerID()
-{
-  return ++sControllerBase;
-}
-
 void
-VRControllerManager::AddGamepad(const char* aID, uint32_t aMapping,
-                                uint32_t aNumButtons, uint32_t aNumAxes)
+VRSystemManager::AddGamepad(const VRControllerInfo& controllerInfo)
 {
-  dom::GamepadAdded a(NS_ConvertUTF8toUTF16(nsDependentCString(aID)), mControllerCount,
-                     aMapping, dom::GamepadServiceType::VR, aNumButtons,
-                     aNumAxes);
+  dom::GamepadAdded a(NS_ConvertUTF8toUTF16(controllerInfo.GetControllerName()),
+                      mControllerCount,
+                      controllerInfo.GetMappingType(),
+                      controllerInfo.GetHand(),
+                      dom::GamepadServiceType::VR,
+                      controllerInfo.GetNumButtons(),
+                      controllerInfo.GetNumAxes());
 
   VRManager* vm = VRManager::Get();
   MOZ_ASSERT(vm);
@@ -81,7 +75,7 @@ VRControllerManager::AddGamepad(const char* aID, uint32_t aMapping,
 }
 
 void
-VRControllerManager::RemoveGamepad(uint32_t aIndex)
+VRSystemManager::RemoveGamepad(uint32_t aIndex)
 {
   dom::GamepadRemoved a(aIndex, dom::GamepadServiceType::VR);
 
@@ -91,8 +85,8 @@ VRControllerManager::RemoveGamepad(uint32_t aIndex)
 }
 
 void
-VRControllerManager::NewButtonEvent(uint32_t aIndex, uint32_t aButton,
-                                    bool aPressed)
+VRSystemManager::NewButtonEvent(uint32_t aIndex, uint32_t aButton,
+                                bool aPressed)
 {
   dom::GamepadButtonInformation a(aIndex, dom::GamepadServiceType::VR,
                                   aButton, aPressed, aPressed ? 1.0L : 0.0L);
@@ -103,8 +97,8 @@ VRControllerManager::NewButtonEvent(uint32_t aIndex, uint32_t aButton,
 }
 
 void
-VRControllerManager::NewAxisMove(uint32_t aIndex, uint32_t aAxis,
-                                 double aValue)
+VRSystemManager::NewAxisMove(uint32_t aIndex, uint32_t aAxis,
+                             double aValue)
 {
   dom::GamepadAxisInformation a(aIndex, dom::GamepadServiceType::VR,
                                 aAxis, aValue);
@@ -115,8 +109,8 @@ VRControllerManager::NewAxisMove(uint32_t aIndex, uint32_t aAxis,
 }
 
 void
-VRControllerManager::NewPoseState(uint32_t aIndex,
-                                  const dom::GamepadPoseState& aPose)
+VRSystemManager::NewPoseState(uint32_t aIndex,
+                              const dom::GamepadPoseState& aPose)
 {
   dom::GamepadPoseInformation a(aIndex, dom::GamepadServiceType::VR,
                                 aPose);

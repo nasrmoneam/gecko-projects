@@ -16,6 +16,7 @@
 #include "nsILoadInfo.h"
 #include "nsIIOService.h"
 #include "mozilla/Services.h"
+#include "mozilla/Unused.h"
 #include "nsNetCID.h"
 #include "nsServiceManagerUtils.h"
 
@@ -48,7 +49,7 @@ class nsIIncrementalStreamLoaderObserver;
 class nsIUnicharStreamLoader;
 class nsIUnicharStreamLoaderObserver;
 
-namespace mozilla { class NeckoOriginAttributes; }
+namespace mozilla { class OriginAttributes; }
 
 template <class> class nsCOMPtr;
 template <typename> struct already_AddRefed;
@@ -478,14 +479,6 @@ nsresult NS_NewLocalFileInputStream(nsIInputStream **result,
                                     int32_t          perm          = -1,
                                     int32_t          behaviorFlags = 0);
 
-nsresult NS_NewPartialLocalFileInputStream(nsIInputStream **result,
-                                           nsIFile         *file,
-                                           uint64_t         offset,
-                                           uint64_t         length,
-                                           int32_t          ioFlags       = -1,
-                                           int32_t          perm          = -1,
-                                           int32_t          behaviorFlags = 0);
-
 nsresult NS_NewLocalFileOutputStream(nsIOutputStream **result,
                                      nsIFile          *file,
                                      int32_t           ioFlags       = -1,
@@ -598,13 +591,13 @@ NS_QueryNotificationCallbacks(T            *channel,
     *result = nullptr;
 
     nsCOMPtr<nsIInterfaceRequestor> cbs;
-    channel->GetNotificationCallbacks(getter_AddRefs(cbs));
+    mozilla::Unused << channel->GetNotificationCallbacks(getter_AddRefs(cbs));
     if (cbs)
         cbs->GetInterface(iid, result);
     if (!*result) {
         // try load group's notification callbacks...
         nsCOMPtr<nsILoadGroup> loadGroup;
-        channel->GetLoadGroup(getter_AddRefs(loadGroup));
+        mozilla::Unused << channel->GetLoadGroup(getter_AddRefs(loadGroup));
         if (loadGroup) {
             loadGroup->GetNotificationCallbacks(getter_AddRefs(cbs));
             if (cbs)
@@ -657,10 +650,10 @@ NS_QueryNotificationCallbacks(nsIInterfaceRequestor  *callbacks,
 bool NS_UsePrivateBrowsing(nsIChannel *channel);
 
 /**
- * Extract the NeckoOriginAttributes from the channel's triggering principal.
+ * Extract the OriginAttributes from the channel's triggering principal.
  */
 bool NS_GetOriginAttributes(nsIChannel *aChannel,
-                            mozilla::NeckoOriginAttributes &aAttributes);
+                            mozilla::OriginAttributes &aAttributes);
 
 /**
  * Returns true if the channel has visited any cross-origin URLs on any
@@ -672,8 +665,12 @@ bool NS_HasBeenCrossOrigin(nsIChannel* aChannel, bool aReport = false);
 // know about script security manager.
 #define NECKO_NO_APP_ID 0
 #define NECKO_UNKNOWN_APP_ID UINT32_MAX
-// special app id reserved for separating the safebrowsing cookie
-#define NECKO_SAFEBROWSING_APP_ID UINT32_MAX - 1
+
+// Unique first-party domain for separating the safebrowsing cookie.
+// Note if this value is changed, code in test_cookiejars_safebrowsing.js
+// should also be changed.
+#define NECKO_SAFEBROWSING_FIRST_PARTY_DOMAIN \
+  "safebrowsing.86868755-6b82-4842-b301-72671a0db32e.mozilla"
 
 /**
  * Determines whether appcache should be checked for a given URI.
@@ -950,6 +947,7 @@ nsresult NS_ShouldSecureUpgrade(nsIURI* aURI,
                                 nsIPrincipal* aChannelResultPrincipal,
                                 bool aPrivateBrowsing,
                                 bool aAllowSTS,
+                                const mozilla::OriginAttributes& aOriginAttributes,
                                 bool& aShouldUpgrade);
 
 /**
@@ -958,6 +956,12 @@ nsresult NS_ShouldSecureUpgrade(nsIURI* aURI,
 nsresult NS_GetSecureUpgradedURI(nsIURI* aURI, nsIURI** aUpgradedURI);
 
 nsresult NS_CompareLoadInfoAndLoadContext(nsIChannel *aChannel);
+
+/**
+ * Return default referrer policy which is controlled by user
+ * pref network.http.referer.userControlPolicy
+ */
+uint32_t NS_GetDefaultReferrerPolicy();
 
 namespace mozilla {
 namespace net {

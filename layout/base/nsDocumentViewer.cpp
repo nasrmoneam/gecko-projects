@@ -225,8 +225,6 @@ class nsDocumentViewer final : public nsIContentViewer,
 public:
   nsDocumentViewer();
 
-  NS_DECL_AND_IMPL_ZEROING_OPERATOR_NEW
-
   // nsISupports interface...
   NS_DECL_ISUPPORTS
 
@@ -457,7 +455,7 @@ class nsDocumentShownDispatcher : public Runnable
 {
 public:
   explicit nsDocumentShownDispatcher(nsCOMPtr<nsIDocument> aDocument)
-  : mDocument(aDocument) {}
+    : Runnable("nsDocumentShownDispatcher"), mDocument(aDocument) {}
 
   NS_IMETHOD Run() override;
 
@@ -506,14 +504,36 @@ void nsDocumentViewer::PrepareToStartLoad()
 #endif // NS_PRINTING
 }
 
-// Note: operator new zeros our memory, so no need to init things to null.
 nsDocumentViewer::nsDocumentViewer()
-  : mTextZoom(1.0), mPageZoom(1.0), mOverrideDPPX(0.0), mMinFontSize(0),
+  : mParentWidget(nullptr),
+    mAttachedToParent(false),
+    mTextZoom(1.0),
+    mPageZoom(1.0),
+    mOverrideDPPX(0.0),
+    mMinFontSize(0),
+    mNumURLStarts(0),
+    mDestroyRefCount(0),
+    mStopped(false),
+    mLoaded(false),
+    mDeferredWindowClose(false),
     mIsSticky(true),
-#ifdef NS_PRINT_PREVIEW
+    mInPermitUnload(false),
+    mInPermitUnloadPrompt(false),
+#ifdef NS_PRINTING
+    mClosingWhilePrinting(false),
+#if NS_PRINT_PREVIEW
+    mPrintPreviewZoomed(false),
+    mPrintIsPending(false),
+    mPrintDocIsFullyLoaded(false),
+    mOriginalPrintPreviewScale(0.0),
     mPrintPreviewZoom(1.0),
-#endif
+#endif // NS_PRINT_PREVIEW
+#ifdef DEBUG
+    mDebugFile(nullptr),
+#endif // DEBUG
+#endif // NS_PRINTING
     mHintCharsetSource(kCharsetUninitialized),
+    mIsPageMode(false),
     mInitializedForPrintPreview(false),
     mHidden(false)
 {
@@ -606,8 +626,7 @@ nsDocumentViewer::SyncParentSubDocMap()
   if (mDocument &&
       parent_doc->GetSubDocumentFor(element) != mDocument &&
       parent_doc->EventHandlingSuppressed()) {
-    mDocument->SuppressEventHandling(nsIDocument::eEvents,
-                                     parent_doc->EventHandlingSuppressed());
+    mDocument->SuppressEventHandling(parent_doc->EventHandlingSuppressed());
   }
   return parent_doc->SetSubDocumentFor(element, mDocument);
 }
@@ -676,7 +695,7 @@ nsDocumentViewer::InitPresentationStuff(bool aDoInitialReflow)
     // Note that we are flushing before we add mPresShell as an observer
     // to avoid bogus notifications.
 
-    mDocument->FlushPendingNotifications(Flush_ContentAndNotify);
+    mDocument->FlushPendingNotifications(FlushType::ContentAndNotify);
   }
 
   mPresShell->BeginObservingDocument();
@@ -950,7 +969,7 @@ nsDocumentViewer::LoadComplete(nsresult aStatus)
   if (mPresShell && !mStopped) {
     // Hold strong ref because this could conceivably run script
     nsCOMPtr<nsIPresShell> shell = mPresShell;
-    shell->FlushPendingNotifications(Flush_Layout);
+    shell->FlushPendingNotifications(FlushType::Layout);
   }
 
   nsresult rv = NS_OK;
@@ -1064,6 +1083,10 @@ nsDocumentViewer::LoadComplete(nsresult aStatus)
   }
 
   nsJSContext::LoadEnd();
+
+  // It's probably a good idea to GC soon since we have finished loading.
+  nsJSContext::PokeGC(JS::gcreason::LOAD_END,
+                      mDocument ? mDocument->GetWrapperPreserveColor() : nullptr);
 
 #ifdef NS_PRINTING
   // Check to see if someone tried to print during the load
@@ -1314,6 +1337,13 @@ nsDocumentViewer::PageHide(bool aIsUnload)
     return NS_ERROR_NULL_POINTER;
   }
 
+  if (aIsUnload) {
+    // Poke the GC. The window might be collectable garbage now.
+    nsJSContext::PokeGC(JS::gcreason::PAGE_HIDE,
+                        mDocument->GetWrapperPreserveColor(),
+                        NS_GC_DELAY * 2);
+  }
+
   mDocument->OnPageHide(!aIsUnload, nullptr);
 
   // inform the window so that the focus state is reset.
@@ -1323,9 +1353,6 @@ nsDocumentViewer::PageHide(bool aIsUnload)
     window->PageHidden();
 
   if (aIsUnload) {
-    // Poke the GC. The window might be collectable garbage now.
-    nsJSContext::PokeGC(JS::gcreason::PAGE_HIDE, NS_GC_DELAY * 2);
-
     // if Destroy() was called during OnPageHide(), mDocument is nullptr.
     NS_ENSURE_STATE(mDocument);
 
@@ -2375,19 +2402,15 @@ nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument)
     }
   }
 
-  if (styleSet->IsGecko()) {
-    nsStyleSheetService* sheetService = nsStyleSheetService::GetInstance();
-    if (sheetService) {
-      for (StyleSheet* sheet : *sheetService->AgentStyleSheets()) {
-        styleSet->AppendStyleSheet(SheetType::Agent, sheet);
-      }
-      for (StyleSheet* sheet : Reversed(*sheetService->UserStyleSheets())) {
-        styleSet->PrependStyleSheet(SheetType::User, sheet);
-      }
+  nsStyleSheetService* sheetService = nsStyleSheetService::GetInstance();
+  if (sheetService) {
+    for (StyleSheet* sheet : *sheetService->AgentStyleSheets(backendType)) {
+      styleSet->AppendStyleSheet(SheetType::Agent, sheet);
     }
-  } else {
-    NS_WARNING("stylo: Not yet checking nsStyleSheetService for Servo-backed "
-               "documents. See bug 1290224");
+    for (StyleSheet* sheet :
+           Reversed(*sheetService->UserStyleSheets(backendType))) {
+      styleSet->PrependStyleSheet(SheetType::User, sheet);
+    }
   }
 
   // Caller will handle calling EndUpdate, per contract.
@@ -2397,6 +2420,12 @@ nsDocumentViewer::CreateStyleSet(nsIDocument* aDocument)
 NS_IMETHODIMP
 nsDocumentViewer::ClearHistoryEntry()
 {
+  if (mDocument) {
+    nsJSContext::PokeGC(JS::gcreason::PAGE_HIDE,
+                        mDocument->GetWrapperPreserveColor(),
+                        NS_GC_DELAY * 2);
+  }
+
   mSHEntry = nullptr;
   return NS_OK;
 }
@@ -3403,7 +3432,7 @@ nsDocumentViewer::GetContentSizeInternal(int32_t* aWidth, int32_t* aHeight,
 
   // Flush out all content and style updates. We can't use a resize reflow
   // because it won't change some sizes that a style change reflow will.
-  mDocument->FlushPendingNotifications(Flush_Layout);
+  mDocument->FlushPendingNotifications(FlushType::Layout);
 
   nsIFrame *root = presShell->GetRootFrame();
   NS_ENSURE_TRUE(root, NS_ERROR_FAILURE);
@@ -3809,6 +3838,8 @@ nsDocumentViewer::Print(nsIPrintSettings*       aPrintSettings,
   }
 
   // Dispatch 'beforeprint' event and ensure 'afterprint' will be dispatched:
+  MOZ_ASSERT(!mAutoBeforeAndAfterPrint,
+             "We don't want to dispatch nested beforeprint/afterprint");
   nsAutoPtr<AutoPrintEventDispatcher> autoBeforeAndAfterPrint(
     new AutoPrintEventDispatcher(mDocument));
   NS_ENSURE_STATE(!GetIsPrinting());
@@ -3891,8 +3922,17 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
   NS_ENSURE_STATE(doc);
 
   // Dispatch 'beforeprint' event and ensure 'afterprint' will be dispatched:
-  nsAutoPtr<AutoPrintEventDispatcher> autoBeforeAndAfterPrint(
-    new AutoPrintEventDispatcher(doc));
+  // XXX Currently[1] when the user switches between portrait and landscape
+  // mode in print preview, we re-enter this function before
+  // mAutoBeforeAndAfterPrint (if set) is cleared to dispatch the 'afterprint'
+  // event.  To avoid sending multiple 'beforeprint'/'afterprint' events we
+  // must avoid creating a new AutoPrintEventDispatcher object here if we
+  // already have one saved in mAutoBeforeAndAfterPrint.
+  // [1] Until PDF.js is removed (though, maybe after that as well).
+  nsAutoPtr<AutoPrintEventDispatcher> autoBeforeAndAfterPrint;
+  if (!mAutoBeforeAndAfterPrint) {
+    autoBeforeAndAfterPrint = new AutoPrintEventDispatcher(doc);
+  }
   NS_ENSURE_STATE(!GetIsPrinting());
   // beforeprint event may have caused ContentViewer to be shutdown.
   NS_ENSURE_STATE(mContainer);
@@ -3916,7 +3956,8 @@ nsDocumentViewer::PrintPreview(nsIPrintSettings* aPrintSettings,
       return rv;
     }
   }
-  if (mPrintEngine->HasPrintCallbackCanvas()) {
+  if (autoBeforeAndAfterPrint &&
+      mPrintEngine->HasPrintCallbackCanvas()) {
     // Postpone the 'afterprint' event until after the mozPrintCallback
     // callbacks have been called:
     mAutoBeforeAndAfterPrint = autoBeforeAndAfterPrint;

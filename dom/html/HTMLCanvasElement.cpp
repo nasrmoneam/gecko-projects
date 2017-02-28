@@ -108,6 +108,8 @@ public:
   {
     MOZ_ASSERT(NS_IsMainThread());
 
+    PROFILER_LABEL("HTMLCanvasElement", "FrameCapture", js::ProfileEntry::Category::OTHER);
+
     if (!mOwningElement) {
       return;
     }
@@ -126,18 +128,29 @@ public:
       return;
     }
 
-    RefPtr<SourceSurface> snapshot = mOwningElement->GetSurfaceSnapshot(nullptr);
-    if (!snapshot) {
-      return;
+    RefPtr<SourceSurface> snapshot;
+    {
+      PROFILER_LABEL("HTMLCanvasElement", "GetSnapshot", js::ProfileEntry::Category::OTHER);
+      snapshot = mOwningElement->GetSurfaceSnapshot(nullptr);
+      if (!snapshot) {
+        return;
+      }
     }
 
-    RefPtr<DataSourceSurface> copy = CopySurface(snapshot);
-    if (!copy) {
-      return;
+    RefPtr<DataSourceSurface> copy;
+    {
+      PROFILER_LABEL("HTMLCanvasElement", "CopySnapshot", js::ProfileEntry::Category::OTHER);
+      copy = CopySurface(snapshot);
+      if (!copy) {
+        return;
+      }
     }
 
-    mOwningElement->SetFrameCapture(copy.forget());
-    mOwningElement->MarkContextCleanForFrameCapture();
+    {
+      PROFILER_LABEL("HTMLCanvasElement", "SetFrame", js::ProfileEntry::Category::OTHER);
+      mOwningElement->SetFrameCapture(copy.forget(), aTime);
+      mOwningElement->MarkContextCleanForFrameCapture();
+    }
   }
 
   void DetachFromRefreshDriver()
@@ -157,7 +170,7 @@ public:
 
     MOZ_ASSERT(mRefreshDriver);
     if (mRefreshDriver) {
-      mRefreshDriver->AddRefreshObserver(this, Flush_Display);
+      mRefreshDriver->AddRefreshObserver(this, FlushType::Display);
       mRegistered = true;
     }
   }
@@ -170,7 +183,7 @@ public:
 
     MOZ_ASSERT(mRefreshDriver);
     if (mRefreshDriver) {
-      mRefreshDriver->RemoveRefreshObserver(this, Flush_Display);
+      mRefreshDriver->RemoveRefreshObserver(this, FlushType::Display);
       mRegistered = false;
     }
   }
@@ -824,6 +837,21 @@ HTMLCanvasElement::ToBlob(JSContext* aCx,
   nsCOMPtr<nsIGlobalObject> global = OwnerDoc()->GetScopeObject();
   MOZ_ASSERT(global);
 
+  nsIntSize elemSize = GetWidthHeight();
+  if (elemSize.width == 0 || elemSize.height == 0) {
+    // According to spec, blob should return null if either its horizontal
+    // dimension or its vertical dimension is zero. See link below.
+    // https://html.spec.whatwg.org/multipage/scripting.html#dom-canvas-toblob
+    OwnerDoc()->Dispatch("FireNullBlobEvent",
+                  TaskCategory::Other,
+                  NewRunnableMethod<Blob*, const char*>(
+                          &aCallback,
+                          static_cast<void(BlobCallback::*)(
+                            Blob*, const char*)>(&BlobCallback::Call),
+                          nullptr, nullptr));
+    return;
+  }
+
   CanvasRenderingContextHelper::ToBlob(aCx, global, aCallback, aType,
                                        aParams, aRv);
 
@@ -1261,7 +1289,8 @@ HTMLCanvasElement::ProcessDestroyedFrameListeners()
 }
 
 void
-HTMLCanvasElement::SetFrameCapture(already_AddRefed<SourceSurface> aSurface)
+HTMLCanvasElement::SetFrameCapture(already_AddRefed<SourceSurface> aSurface,
+                                   const TimeStamp& aTime)
 {
   RefPtr<SourceSurface> surface = aSurface;
   RefPtr<SourceSurfaceImage> image = new SourceSurfaceImage(surface->GetSize(), surface);
@@ -1272,7 +1301,7 @@ HTMLCanvasElement::SetFrameCapture(already_AddRefed<SourceSurface> aSurface)
     }
 
     RefPtr<Image> imageRefCopy = image.get();
-    listener->NewFrame(imageRefCopy.forget());
+    listener->NewFrame(imageRefCopy.forget(), aTime);
   }
 }
 

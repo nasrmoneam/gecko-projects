@@ -14,7 +14,7 @@
 
 <body>
   <pre id="test"></pre>
-  <script type="application/javascript;version=1.8">
+  <script type="application/javascript">
   /*globals SpecialPowers, SimpleTest, is, ok, */
   'use strict';
 
@@ -36,6 +36,9 @@
   }, {
     name: 'push',
     type: 'desktop-notification'
+  }, {
+    name: 'persistent-storage',
+    type: 'persistent-storage'
   }, ];
 
   const UNSUPPORTED_PERMISSIONS = [

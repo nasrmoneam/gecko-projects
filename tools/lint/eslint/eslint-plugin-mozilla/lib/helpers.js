@@ -23,6 +23,7 @@ var definitions = [
   /^loader\.lazyRequireGetter\(this, "(\w+)"/,
   /^XPCOMUtils\.defineLazyGetter\(this, "(\w+)"/,
   /^XPCOMUtils\.defineLazyModuleGetter\(this, "(\w+)"/,
+  /^XPCOMUtils\.defineLazyPreferenceGetter\(this, "(\w+)"/,
   /^XPCOMUtils\.defineLazyServiceGetter\(this, "(\w+)"/,
   /^XPCOMUtils\.defineConstant\(this, "(\w+)"/,
   /^DevToolsUtils\.defineLazyModuleGetter\(this, "(\w+)"/,
@@ -36,6 +37,8 @@ var definitions = [
 var imports = [
   /^(?:Cu|Components\.utils)\.import\(".*\/((.*?)\.jsm?)"(?:, this)?\)/,
 ];
+
+var workerImportFilenameMatch = /(.*\/)*(.*?\.jsm?)/;
 
 module.exports = {
   /**
@@ -167,8 +170,47 @@ module.exports = {
    *         The root of the repository.
    *
    * @return {Array}
-   *         An array of variable names defined.
+   *         An array of objects that contain details about the globals:
+   *         - {String} name
+   *                    The name of the global.
+   *         - {Boolean} writable
+   *                     If the global is writeable or not.
    */
+  convertWorkerExpressionToGlobals: function(node, isGlobal, repository, dirname) {
+    var getGlobalsForFile = require("./globals").getGlobalsForFile;
+
+    if (!modules) {
+      modules = require(path.join(repository, "tools", "lint", "eslint", "modules.json"));
+    }
+
+    let results = [];
+    let expr = node.expression;
+
+    if (node.expression.type === "CallExpression" &&
+        expr.callee &&
+        expr.callee.type === "Identifier" &&
+        expr.callee.name === "importScripts") {
+      for (var arg of expr.arguments) {
+        var match = arg.value.match(workerImportFilenameMatch);
+        if (match) {
+          if (!match[1]) {
+            let filePath = path.resolve(dirname, match[2]);
+            if (fs.existsSync(filePath)) {
+              let additionalGlobals = getGlobalsForFile(filePath);
+              results = results.concat(additionalGlobals);
+            }
+          } else if (match[2] in modules) {
+            results = results.concat(modules[match[2]].map(name => {
+              return { name, writable: true };
+            }));
+          }
+        }
+      }
+    }
+
+    return results;
+  },
+
   convertExpressionToGlobals: function(node, isGlobal, repository) {
     if (!modules) {
       modules = require(path.join(repository, "tools", "lint", "eslint", "modules.json"));
@@ -457,6 +499,12 @@ module.exports = {
     }
 
     return null;
+  },
+
+  getIsWorker: function(filePath) {
+    let filename = path.basename(this.cleanUpPath(filePath)).toLowerCase();
+
+    return filename.includes("worker");
   },
 
   /**

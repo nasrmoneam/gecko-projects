@@ -7,6 +7,7 @@
 #define GFX_LayerManagerComposite_H
 
 #include <stdint.h>                     // for int32_t, uint32_t
+#include "CompositableHost.h"           // for CompositableHost, ImageCompositeNotificationInfo
 #include "GLDefs.h"                     // for GLenum
 #include "Layers.h"
 #include "Units.h"                      // for ParentLayerIntRect
@@ -49,7 +50,6 @@ namespace layers {
 
 class CanvasLayerComposite;
 class ColorLayerComposite;
-class CompositableHost;
 class Compositor;
 class ContainerLayerComposite;
 struct EffectChain;
@@ -104,8 +104,6 @@ public:
   {
     MOZ_CRASH("GFX: Shouldn't be called for composited layer manager");
   }
-  virtual TextureFactoryIdentifier GetTextureFactoryIdentifier() = 0;
-
 
   virtual void ForcePresent() = 0;
   virtual void AddInvalidRegion(const nsIntRegion& aRegion) = 0;
@@ -128,7 +126,11 @@ public:
   // layer or texture updates against the old compositor.
   virtual void ChangeCompositor(Compositor* aNewCompositor) = 0;
 
-  void ExtractImageCompositeNotifications(nsTArray<ImageCompositeNotification>* aNotifications)
+  virtual HostLayerManager* AsHostLayerManager() override {
+    return this;
+  }
+
+  void ExtractImageCompositeNotifications(nsTArray<ImageCompositeNotificationInfo>* aNotifications)
   {
     aNotifications->AppendElements(Move(mImageCompositeNotifications));
   }
@@ -160,12 +162,35 @@ public:
   // overlay.
   void SetWindowOverlayChanged() { mWindowOverlayChanged = true; }
 
-
   void SetPaintTime(const TimeDuration& aPaintTime) { mLastPaintTime = aPaintTime; }
+
+  virtual bool AlwaysScheduleComposite() const {
+    return false;
+  }
+
+  TimeStamp GetCompositionTime() const {
+    return mCompositionTime;
+  }
+  void SetCompositionTime(TimeStamp aTimeStamp) {
+    mCompositionTime = aTimeStamp;
+    if (!mCompositionTime.IsNull() && !mCompositeUntilTime.IsNull() &&
+        mCompositionTime >= mCompositeUntilTime) {
+      mCompositeUntilTime = TimeStamp();
+    }
+  }
+  void CompositeUntil(TimeStamp aTimeStamp) {
+    if (mCompositeUntilTime.IsNull() ||
+        mCompositeUntilTime < aTimeStamp) {
+      mCompositeUntilTime = aTimeStamp;
+    }
+  }
+  TimeStamp GetCompositeUntilTime() const {
+    return mCompositeUntilTime;
+  }
 
 protected:
   bool mDebugOverlayWantsNextFrame;
-  nsTArray<ImageCompositeNotification> mImageCompositeNotifications;
+  nsTArray<ImageCompositeNotificationInfo> mImageCompositeNotifications;
   // Testing property. If hardware composer is supported, this will return
   // true if the last frame was deemed 'too complicated' to be rendered.
   float mWarningLevel;
@@ -174,6 +199,14 @@ protected:
   bool mWindowOverlayChanged;
   TimeDuration mLastPaintTime;
   TimeStamp mRenderStartTime;
+
+  // Render time for the current composition.
+  TimeStamp mCompositionTime;
+
+  // When nonnull, during rendering, some compositable indicated that it will
+  // change its rendering at this time. In order not to miss it, we composite
+  // on every vsync until this time occurs (this is the latest such time).
+  TimeStamp mCompositeUntilTime;
 };
 
 // A layer manager implementation that uses the Compositor API
@@ -249,6 +282,8 @@ public:
     CreateOptimalMaskDrawTarget(const IntSize &aSize) override;
 
   virtual const char* Name() const override { return ""; }
+
+  bool AlwaysScheduleComposite() const override;
 
   /**
    * Post-processes layers before composition. This performs the following:
@@ -346,7 +381,8 @@ public:
 
   bool AsyncPanZoomEnabled() const override;
 
-  void AppendImageCompositeNotification(const ImageCompositeNotification& aNotification)
+public:
+  void AppendImageCompositeNotification(const ImageCompositeNotificationInfo& aNotification)
   {
     // Only send composite notifications when we're drawing to the screen,
     // because that's what they mean.
@@ -357,6 +393,8 @@ public:
       mImageCompositeNotifications.AppendElement(aNotification);
     }
   }
+
+public:
   virtual TextureFactoryIdentifier GetTextureFactoryIdentifier() override
   {
     return mCompositor->GetTextureFactoryIdentifier();
@@ -523,7 +561,7 @@ public:
   gfx::Matrix4x4 GetShadowTransform();
   bool GetShadowTransformSetByAnimation() { return mShadowTransformSetByAnimation; }
   bool GetShadowOpacitySetByAnimation() { return mShadowOpacitySetByAnimation; }
-  
+
   /**
    * Return true if a checkerboarding background color needs to be drawn
    * for this layer.
@@ -577,6 +615,7 @@ public:
    * concrete class destructor
    */
   virtual void Destroy();
+  virtual void Cleanup() {}
 
   /**
    * Perform a first pass over the layer tree to render all of the intermediate
@@ -587,7 +626,8 @@ public:
   virtual void Prepare(const RenderTargetIntRect& aClipRect) {}
 
   // TODO: This should also take RenderTargetIntRect like Prepare.
-  virtual void RenderLayer(const gfx::IntRect& aClipRect) = 0;
+  virtual void RenderLayer(const gfx::IntRect& aClipRect,
+                           const Maybe<gfx::Polygon>& aGeometry) = 0;
 
   virtual bool SetCompositableHost(CompositableHost*)
   {

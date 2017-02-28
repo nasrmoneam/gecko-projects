@@ -39,6 +39,8 @@
 #include "nsIOService.h"
 #include "nsIRequestContext.h"
 #include "nsIHttpAuthenticator.h"
+#include "NSSErrorsService.h"
+#include "sslerr.h"
 #include <algorithm>
 
 #ifdef MOZ_WIDGET_GONK
@@ -140,6 +142,7 @@ nsHttpTransaction::nsHttpTransaction()
     , mSynchronousRatePaceRequest(false)
     , mClassOfService(0)
     , m0RTTInProgress(false)
+    , mTransportStatus(NS_OK)
 {
     LOG(("Creating nsHttpTransaction @%p\n", this));
     gHttpHandler->GetMaxPipelineObjectSize(&mMaxPipelineObjectSize);
@@ -530,8 +533,52 @@ void
 nsHttpTransaction::OnTransportStatus(nsITransport* transport,
                                      nsresult status, int64_t progress)
 {
-    LOG(("nsHttpTransaction::OnSocketStatus [this=%p status=%x progress=%lld]\n",
-        this, status, progress));
+    LOG(("nsHttpTransaction::OnSocketStatus [this=%p status=%" PRIx32 " progress=%" PRId64 "]\n",
+         this, static_cast<uint32_t>(status), progress));
+
+    // A transaction can given to multiple HalfOpen sockets (this is a bug in
+    // nsHttpConnectionMgr). We are going to fix it here as a work around to be
+    // able to uplift it.
+    switch(status) {
+    case NS_NET_STATUS_RESOLVING_HOST:
+        if (mTransportStatus != NS_OK) {
+            LOG(("nsHttpTransaction::OnSocketStatus - ignore socket events "
+                 "from backup transport"));
+            return;
+        }
+        break;
+    case NS_NET_STATUS_RESOLVED_HOST:
+        if (mTransportStatus != NS_NET_STATUS_RESOLVING_HOST &&
+            mTransportStatus != NS_OK) {
+            LOG(("nsHttpTransaction::OnSocketStatus - ignore socket events "
+                 "from backup transport"));
+            return;
+        }
+        break;
+    case NS_NET_STATUS_CONNECTING_TO:
+        if (mTransportStatus != NS_NET_STATUS_RESOLVING_HOST &&
+            mTransportStatus != NS_NET_STATUS_RESOLVED_HOST  &&
+            mTransportStatus != NS_OK) {
+            LOG(("nsHttpTransaction::OnSocketStatus - ignore socket events "
+                 "from backup transport"));
+            return;
+        }
+        break;
+    case NS_NET_STATUS_CONNECTED_TO:
+        if (mTransportStatus != NS_NET_STATUS_RESOLVING_HOST &&
+            mTransportStatus != NS_NET_STATUS_RESOLVED_HOST &&
+            mTransportStatus != NS_NET_STATUS_CONNECTING_TO &&
+            mTransportStatus != NS_OK) {
+            LOG(("nsHttpTransaction::OnSocketStatus - ignore socket events "
+                 "from backup transport"));
+            return;
+        }
+        break;
+    default:
+        LOG(("nsHttpTransaction::OnSocketStatus - a new event"));
+    }
+
+    mTransportStatus = status;
 
     if (status == NS_NET_STATUS_CONNECTED_TO ||
         status == NS_NET_STATUS_WAITING_FOR) {
@@ -864,7 +911,8 @@ nsHttpTransaction::WriteSegments(nsAHttpSegmentWriter *writer,
 void
 nsHttpTransaction::Close(nsresult reason)
 {
-    LOG(("nsHttpTransaction::Close [this=%p reason=%x]\n", this, reason));
+    LOG(("nsHttpTransaction::Close [this=%p reason=%" PRIx32 "]\n",
+         this, static_cast<uint32_t>(reason)));
 
     MOZ_ASSERT(PR_GetCurrentThread() == gSocketThread);
     if (reason == NS_BINDING_RETARGETED) {
@@ -943,7 +991,9 @@ nsHttpTransaction::Close(nsresult reason)
     // connection.  It will break that connection and also confuse the channel's
     // auth provider, beliving the cached credentials are wrong and asking for
     // the password mistakenly again from the user.
-    if ((reason == NS_ERROR_NET_RESET || reason == NS_OK) &&
+    if ((reason == NS_ERROR_NET_RESET ||
+         reason == NS_OK ||
+         reason == psm::GetXPCOMFromNSSError(SSL_ERROR_DOWNGRADE_WITH_EARLY_DATA)) &&
         !(mCaps & NS_HTTP_STICKY_CONNECTION)) {
 
         if (mForceRestart && NS_SUCCEEDED(Restart())) {
@@ -972,9 +1022,10 @@ nsHttpTransaction::Close(nsresult reason)
         bool reallySentData =
             mSentData && (!mConnection || mConnection->BytesWritten());
 
-        if (!mReceivedData &&
+        if (reason == psm::GetXPCOMFromNSSError(SSL_ERROR_DOWNGRADE_WITH_EARLY_DATA) ||
+            (!mReceivedData &&
             ((mRequestHead && mRequestHead->IsSafeMethod()) ||
-             !reallySentData || connReused)) {
+             !reallySentData || connReused))) {
             // if restarting fails, then we must proceed to close the pipe,
             // which will notify the channel that the transaction failed.
 
@@ -1183,8 +1234,8 @@ nsHttpTransaction::RestartInProgress()
     if (!mRestartInProgressVerifier.IsSetup())
         return NS_ERROR_NET_RESET;
 
-    LOG(("Will restart transaction %p and skip first %lld bytes, "
-         "old Content-Length %lld",
+    LOG(("Will restart transaction %p and skip first %" PRId64 " bytes, "
+         "old Content-Length %" PRId64,
          this, mContentRead, mContentLength));
 
     mRestartInProgressVerifier.SetAlreadyProcessed(
@@ -1268,6 +1319,8 @@ nsHttpTransaction::Restart()
             mRequestHead->SetHeader(nsHttp::Alternate_Service_Used, NS_LITERAL_CSTRING("0"));
         }
     }
+
+    mTransportStatus = NS_OK;
 
     return gHttpHandler->InitiateTransaction(this, mPriority);
 }
@@ -1730,7 +1783,7 @@ nsHttpTransaction::HandleContent(char *buf,
         uint32_t ignore =
             static_cast<uint32_t>(std::min<int64_t>(toReadBeforeRestart, UINT32_MAX));
         ignore = std::min(*contentRead, ignore);
-        LOG(("Due To Restart ignoring %d of remaining %ld",
+        LOG(("Due To Restart ignoring %d of remaining %" PRId64,
              ignore, toReadBeforeRestart));
         *contentRead -= ignore;
         mContentRead += ignore;
@@ -1743,7 +1796,7 @@ nsHttpTransaction::HandleContent(char *buf,
         mContentRead += *contentRead;
     }
 
-    LOG(("nsHttpTransaction::HandleContent [this=%p count=%u read=%u mContentRead=%lld mContentLength=%lld]\n",
+    LOG(("nsHttpTransaction::HandleContent [this=%p count=%u read=%u mContentRead=%" PRId64 " mContentLength=%" PRId64 "]\n",
         this, count, *contentRead, mContentRead, mContentLength));
 
     // Check the size of chunked responses. If we exceed the max pipeline size
@@ -1963,7 +2016,7 @@ nsHttpTransaction::DisableSpdy()
 void
 nsHttpTransaction::CheckForStickyAuthScheme()
 {
-  LOG(("nsHttpTransaction::CheckForStickyAuthScheme this=%p"));
+  LOG(("nsHttpTransaction::CheckForStickyAuthScheme this=%p", this));
 
   MOZ_ASSERT(mHaveAllHeaders);
   MOZ_ASSERT(mResponseHead);
@@ -2382,7 +2435,7 @@ nsHttpTransaction::Do0RTT()
 }
 
 nsresult
-nsHttpTransaction::Finish0RTT(bool aRestart)
+nsHttpTransaction::Finish0RTT(bool aRestart, bool aAlpnChanged /* ignored */)
 {
     MOZ_ASSERT(m0RTTInProgress);
     m0RTTInProgress = false;

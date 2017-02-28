@@ -32,7 +32,6 @@ const SCRIPTS = [
   "browser/base/content/browser-addons.js",
   "browser/base/content/browser-ctrlTab.js",
   "browser/base/content/browser-customization.js",
-  "browser/base/content/browser-devedition.js",
   "browser/base/content/browser-feeds.js",
   "browser/base/content/browser-fullScreenAndPointerLock.js",
   "browser/base/content/browser-fullZoom.js",
@@ -49,19 +48,27 @@ const SCRIPTS = [
   "browser/base/content/browser-thumbnails.js",
   "browser/base/content/browser-trackingprotection.js",
   "browser/base/content/browser-data-submission-info-bar.js",
-  "browser/base/content/browser-fxaccounts.js"
+  "browser/base/content/browser-fxaccounts.js",
+  // This gets loaded into the same scopes as browser.js via browser.xul and
+  // placesOverlay.xul.
+  "toolkit/content/globalOverlay.js",
+  // Via editMenuOverlay.xul
+  "toolkit/content/editMenuOverlay.js"
 ];
 
 module.exports = function(context) {
   return {
     Program: function(node) {
-      if (helpers.getTestType(this) != "browser" &&
-          !helpers.getIsHeadFile(this)) {
+      let filepath = helpers.getAbsoluteFilePath(context);
+      let root = helpers.getRootDir(filepath);
+      let relativepath = path.relative(root, filepath);
+
+      if ((helpers.getTestType(this) != "browser" &&
+          !helpers.getIsHeadFile(this)) &&
+          !relativepath.includes("content")) {
         return;
       }
 
-      let filepath = helpers.getAbsoluteFilePath(context);
-      let root = helpers.getRootDir(filepath);
       for (let script of SCRIPTS) {
         let fileName = path.join(root, script);
         try {

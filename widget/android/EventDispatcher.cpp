@@ -238,7 +238,11 @@ BoxObject(JSContext* aCx, JS::HandleValue aData, jni::Object::LocalRef& aOut)
 
         NS_ENSURE_TRUE(CheckJS(aCx, JS_IdToValue(aCx, id, &idVal)),
                        NS_ERROR_FAILURE);
-        NS_ENSURE_TRUE(idVal.isString(), NS_ERROR_FAILURE);
+
+        JS::RootedString idStr(aCx, JS::ToString(aCx, idVal));
+        NS_ENSURE_TRUE(CheckJS(aCx, !!idStr), NS_ERROR_FAILURE);
+
+        idVal.setString(idStr);
         NS_ENSURE_SUCCESS(BoxString(aCx, idVal, key), NS_ERROR_FAILURE);
         NS_ENSURE_TRUE(CheckJS(aCx, JS_GetPropertyById(aCx, obj, id, &val)),
                        NS_ERROR_FAILURE);
@@ -423,7 +427,7 @@ UnboxArrayPrimitive(JSContext* aCx, const jni::Object::LocalRef& aData,
     });
 
     const size_t len = env->GetArrayLength(jarray);
-    elements.initCapacity(len);
+    NS_ENSURE_TRUE(elements.initCapacity(len), NS_ERROR_FAILURE);
 
     for (size_t i = 0; i < len; i++) {
         NS_ENSURE_TRUE(elements.append((*ToValue)(Type(array[i]))),
@@ -484,12 +488,18 @@ UnboxValue(JSContext* aCx, const jni::Object::LocalRef& aData,
         aOut.setNull();
     } else if (aData.IsInstanceOf<jni::Boolean>()) {
         aOut.setBoolean(java::GeckoBundle::UnboxBoolean(aData));
-    } else if (aData.IsInstanceOf<jni::Integer>()) {
+    } else if (aData.IsInstanceOf<jni::Integer>() ||
+            aData.IsInstanceOf<jni::Byte>() ||
+            aData.IsInstanceOf<jni::Short>()) {
         aOut.setInt32(java::GeckoBundle::UnboxInteger(aData));
-    } else if (aData.IsInstanceOf<jni::Double>()) {
+    } else if (aData.IsInstanceOf<jni::Double>() ||
+            aData.IsInstanceOf<jni::Float>() ||
+            aData.IsInstanceOf<jni::Long>()) {
         aOut.setNumber(java::GeckoBundle::UnboxDouble(aData));
     } else if (aData.IsInstanceOf<jni::String>()) {
         return UnboxString(aCx, aData, aOut);
+    } else if (aData.IsInstanceOf<jni::Character>()) {
+        return UnboxString(aCx, java::GeckoBundle::UnboxString(aData), aOut);
     } else if (aData.IsInstanceOf<java::GeckoBundle>()) {
         return UnboxBundle(aCx, aData, aOut);
 
@@ -710,17 +720,26 @@ EventDispatcher::DispatchOnGecko(ListenersList* list, const nsAString& aEvent,
 }
 
 NS_IMETHODIMP
-EventDispatcher::Dispatch(const nsAString& aEvent, JS::HandleValue aData,
+EventDispatcher::Dispatch(JS::HandleValue aEvent, JS::HandleValue aData,
                           nsIAndroidEventCallback* aCallback, JSContext* aCx)
 {
     MOZ_ASSERT(NS_IsMainThread());
 
+    if (!aEvent.isString()) {
+        NS_WARNING("Invalid event name");
+        return NS_ERROR_INVALID_ARG;
+    }
+
+    nsAutoJSString event;
+    NS_ENSURE_TRUE(CheckJS(aCx, event.init(aCx, aEvent.toString())),
+                   NS_ERROR_OUT_OF_MEMORY);
+
     // Don't need to lock here because we're on the main thread, and we can't
     // race against Register/UnregisterListener.
 
-    ListenersList* list = mListenersMap.Get(aEvent);
+    ListenersList* list = mListenersMap.Get(event);
     if (list) {
-        return DispatchOnGecko(list, aEvent, aData, aCallback);
+        return DispatchOnGecko(list, event, aData, aCallback);
     }
 
     if (!mDispatcher) {
@@ -728,7 +747,7 @@ EventDispatcher::Dispatch(const nsAString& aEvent, JS::HandleValue aData,
     }
 
     jni::Object::LocalRef data(jni::GetGeckoThreadEnv());
-    nsresult rv = BoxData(aEvent, aCx, aData, data, /* ObjectOnly */ true);
+    nsresult rv = BoxData(event, aCx, aData, data, /* ObjectOnly */ true);
     NS_ENSURE_SUCCESS(rv, JS_IsExceptionPending(aCx) ? NS_OK : rv);
 
     dom::AutoNoJSAPI nojsapi;
@@ -743,7 +762,7 @@ EventDispatcher::Dispatch(const nsAString& aEvent, JS::HandleValue aData,
                         aCallback, mDOMWindow));
     }
 
-    mDispatcher->DispatchToThreads(aEvent, /* js */ nullptr, data, callback);
+    mDispatcher->DispatchToThreads(event, data, callback);
     return NS_OK;
 }
 
@@ -945,6 +964,14 @@ EventDispatcher::DispatchToGecko(jni::String::Param aEvent,
     }
 
     DispatchOnGecko(list, event, data, callback);
+}
+
+/* static */
+nsresult
+EventDispatcher::UnboxBundle(JSContext* aCx, jni::Object::Param aData,
+                             JS::MutableHandleValue aOut)
+{
+    return detail::UnboxBundle(aCx, aData, aOut);
 }
 
 } // namespace widget

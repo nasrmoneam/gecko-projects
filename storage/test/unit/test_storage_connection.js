@@ -181,13 +181,12 @@ add_task(function* test_createTable() {
 });
 
 add_task(function* test_defaultSynchronousAtNormal() {
-  var msc = getOpenedDatabase();
+  getOpenedDatabase();
   var stmt = createStatement("PRAGMA synchronous;");
   try {
     stmt.executeStep();
     do_check_eq(1, stmt.getInt32(0));
-  }
-  finally {
+  } finally {
     stmt.reset();
     stmt.finalize();
   }

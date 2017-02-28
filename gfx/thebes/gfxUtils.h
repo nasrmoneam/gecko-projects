@@ -26,7 +26,9 @@ class nsIPresShell;
 
 namespace mozilla {
 namespace layers {
+class GlyphArray;
 struct PlanarYCbCrData;
+class WebRenderCommand;
 } // namespace layers
 namespace image {
 class ImageRegion;
@@ -42,7 +44,6 @@ public:
     typedef mozilla::gfx::SourceSurface SourceSurface;
     typedef mozilla::gfx::SurfaceFormat SurfaceFormat;
     typedef mozilla::image::ImageRegion ImageRegion;
-    typedef mozilla::YUVColorSpace YUVColorSpace;
 
     /*
      * Premultiply or Unpremultiply aSourceSurface, writing the result
@@ -136,12 +137,8 @@ public:
      */
     static void ClearThebesSurface(gfxASurface* aSurface);
 
-    /**
-     * Get array of yuv to rgb conversion matrix.
-     */
-    static float* Get4x3YuvColorMatrix(YUVColorSpace aYUVColorSpace);
-
-    static float* Get3x3YuvColorMatrix(YUVColorSpace aYUVColorSpace);
+    static const float* YuvToRgbMatrix4x3RowMajor(mozilla::YUVColorSpace aYUVColorSpace);
+    static const float* YuvToRgbMatrix3x3ColumnMajor(mozilla::YUVColorSpace aYUVColorSpace);
 
     /**
      * Creates a copy of aSurface, but having the SurfaceFormat aFormat.
@@ -187,9 +184,6 @@ public:
     static already_AddRefed<DataSourceSurface>
     CopySurfaceToDataSourceSurfaceWithFormat(SourceSurface* aSurface,
                                              SurfaceFormat aFormat);
-
-    static const uint8_t sUnpremultiplyTable[256*256];
-    static const uint8_t sPremultiplyTable[256*256];
 
     /**
      * Return a color that can be used to identify a frame with a given frame number.
@@ -313,6 +307,37 @@ SafeBytesForBitmap(uint32_t aWidth, uint32_t aHeight, unsigned aBytesPerPixel)
   CheckedInt<uint32_t> height = uint32_t(aHeight);
   return width * height * aBytesPerPixel;
 }
+
+class WebRenderGlyphHelper final {
+public:
+  WebRenderGlyphHelper()
+    : mFontData(nullptr)
+    , mFontDataLength(0)
+    , mIndex(0)
+    , mGlyphSize(0.0)
+  {
+  }
+
+  ~WebRenderGlyphHelper()
+  {
+    if (mFontData) {
+      free(mFontData);
+    }
+  }
+
+  void BuildWebRenderCommands(nsTArray<layers::WebRenderCommand>& aCommands,
+                              const nsTArray<layers::GlyphArray>& aGlyphs,
+                              ScaledFont* aFont,
+                              const Point& aOffset,
+                              const Rect& aBounds,
+                              const Rect& aClip);
+
+public:
+  uint8_t* mFontData;
+  uint32_t mFontDataLength;
+  uint32_t mIndex;
+  float mGlyphSize;
+};
 
 } // namespace gfx
 } // namespace mozilla

@@ -9,6 +9,7 @@
 #define gc_Nursery_h
 
 #include "mozilla/EnumeratedArray.h"
+#include "mozilla/TimeStamp.h"
 
 #include "jsalloc.h"
 #include "jspubtd.h"
@@ -57,6 +58,7 @@ class ObjectElements;
 class NativeObject;
 class Nursery;
 class HeapSlot;
+class ZoneGroup;
 
 void SetGCZeal(JSRuntime*, uint8_t, uint32_t);
 
@@ -194,14 +196,14 @@ class Nursery
     static const size_t MaxNurseryBufferSize = 1024;
 
     /* Do a minor collection. */
-    void collect(JSRuntime* rt, JS::gcreason::Reason reason);
+    void collect(JS::gcreason::Reason reason);
 
     /*
      * Check if the thing at |*ref| in the Nursery has been forwarded. If so,
      * sets |*ref| to the new location of the object and returns true. Otherwise
      * returns false and leaves |*ref| unset.
      */
-    MOZ_ALWAYS_INLINE MOZ_MUST_USE bool getForwardedPointer(JSObject** ref) const;
+    MOZ_ALWAYS_INLINE MOZ_MUST_USE static bool getForwardedPointer(JSObject** ref);
 
     /* Forward a slots/elements pointer stored in an Ion frame. */
     void forwardBufferPointer(HeapSlot** pSlotsElems);
@@ -219,8 +221,8 @@ class Nursery
     void waitBackgroundFreeEnd();
 
     MOZ_MUST_USE bool addedUniqueIdToCell(gc::Cell* cell) {
-        if (!IsInsideNursery(cell) || !isEnabled())
-            return true;
+        MOZ_ASSERT(IsInsideNursery(cell));
+        MOZ_ASSERT(isEnabled());
         MOZ_ASSERT(cellsWithUid_.initialized());
         MOZ_ASSERT(!cellsWithUid_.has(cell));
         return cellsWithUid_.put(cell);
@@ -235,6 +237,8 @@ class Nursery
         return numChunks() * gc::ChunkSize;
     }
     size_t sizeOfMallocedBuffers(mozilla::MallocSizeOf mallocSizeOf) const {
+        if (!mallocedBuffers.initialized())
+            return 0;
         size_t total = 0;
         for (MallocedBuffersSet::Range r = mallocedBuffers.all(); !r.empty(); r.popFront())
             total += mallocSizeOf(r.front());
@@ -258,10 +262,21 @@ class Nursery
 #endif
 
     /* Print header line for profile times. */
-    void printProfileHeader();
+    static void printProfileHeader();
 
     /* Print total profile times on shutdown. */
     void printTotalProfileTimes();
+
+    void* addressOfCurrentEnd() const { return (void*)&currentEnd_; }
+    void* addressOfPosition() const { return (void*)&position_; }
+
+    void requestMinorGC(JS::gcreason::Reason reason) const;
+
+    bool minorGCRequested() const { return minorGCTriggerReason_ != JS::gcreason::NO_REASON; }
+    JS::gcreason::Reason minorGCTriggerReason() const { return minorGCTriggerReason_; }
+    void clearMinorGCRequest() { minorGCTriggerReason_ = JS::gcreason::NO_REASON; }
+
+    bool enableProfiling() const { return enableProfiling_; }
 
   private:
     /* The amount of space in the mapped nursery available to allocations. */
@@ -280,11 +295,6 @@ class Nursery
     static_assert(sizeof(NurseryChunk) == gc::ChunkSize,
                   "Nursery chunk size must match gc::Chunk size.");
 
-    /*
-     * The start and end pointers are stored under the runtime so that we can
-     * inline the isInsideNursery check into embedder code. Use the start()
-     * and heapEnd() functions to access these values.
-     */
     JSRuntime* runtime_;
 
     /* Vector of allocated chunks to allocate from. */
@@ -309,12 +319,19 @@ class Nursery
     /* Promotion rate for the previous minor collection. */
     double previousPromotionRate_;
 
-    /* Report minor collections taking at least this many us, if enabled. */
-    int64_t profileThreshold_;
+    /* Report minor collections taking at least this long, if enabled. */
+    mozilla::TimeDuration profileThreshold_;
     bool enableProfiling_;
 
     /* Report ObjectGroups with at lest this many instances tenured. */
     int64_t reportTenurings_;
+
+    /*
+     * Whether and why a collection of this nursery has been requested. This is
+     * mutable as it is set by the store buffer, which otherwise cannot modify
+     * anything in the nursery.
+     */
+    mutable JS::gcreason::Reason minorGCTriggerReason_;
 
     /* Profiling data. */
 
@@ -327,11 +344,14 @@ class Nursery
         KeyCount
     };
 
-    using ProfileTimes = mozilla::EnumeratedArray<ProfileKey, ProfileKey::KeyCount, int64_t>;
+    using ProfileTimes =
+        mozilla::EnumeratedArray<ProfileKey, ProfileKey::KeyCount, mozilla::TimeStamp>;
+    using ProfileDurations =
+        mozilla::EnumeratedArray<ProfileKey, ProfileKey::KeyCount, mozilla::TimeDuration>;
 
     ProfileTimes startTimes_;
-    ProfileTimes profileTimes_;
-    ProfileTimes totalTimes_;
+    ProfileDurations profileDurations_;
+    ProfileDurations totalDurations_;
     uint64_t minorGcCount_;
 
     /*
@@ -402,17 +422,11 @@ class Nursery
     }
 
     MOZ_ALWAYS_INLINE uintptr_t currentEnd() const {
-        MOZ_ASSERT(runtime_);
         MOZ_ASSERT(currentEnd_ == chunk(currentChunk_).end());
         return currentEnd_;
     }
-    void* addressOfCurrentEnd() const {
-        MOZ_ASSERT(runtime_);
-        return (void*)&currentEnd_;
-    }
 
     uintptr_t position() const { return position_; }
-    void* addressOfPosition() const { return (void*)&position_; }
 
     JSRuntime* runtime() const { return runtime_; }
 
@@ -422,7 +436,7 @@ class Nursery
     /* Common internal allocator function. */
     void* allocate(size_t size);
 
-    double doCollection(JSRuntime* rt, JS::gcreason::Reason reason,
+    double doCollection(JS::gcreason::Reason reason,
                         gc::TenureCountCache& tenureCounts);
 
     /*
@@ -457,11 +471,12 @@ class Nursery
     void minimizeAllocableSpace();
 
     /* Profile recording and printing. */
+    void maybeClearProfileDurations();
     void startProfile(ProfileKey key);
     void endProfile(ProfileKey key);
     void maybeStartProfile(ProfileKey key);
     void maybeEndProfile(ProfileKey key);
-    static void printProfileTimes(const ProfileTimes& times);
+    static void printProfileDurations(const ProfileDurations& times);
 
     friend class TenuringTracer;
     friend class gc::MinorCollectionTracer;

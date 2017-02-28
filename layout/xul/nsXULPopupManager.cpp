@@ -12,7 +12,7 @@
 #include "nsContentUtils.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMEvent.h"
-#include "nsIDOMXULElement.h"
+#include "nsXULElement.h"
 #include "nsIDOMXULMenuListElement.h"
 #include "nsIXULDocument.h"
 #include "nsIXULTemplateBuilder.h"
@@ -107,6 +107,20 @@ void nsMenuChainItem::Detach(nsMenuChainItem** aRoot)
     NS_ASSERTION(this == *aRoot, "Unexpected - popup with no child not at end of chain");
     *aRoot = mParent;
     SetParent(nullptr);
+  }
+}
+
+void
+nsMenuChainItem::UpdateFollowAnchor()
+{
+  mFollowAnchor = mFrame->ShouldFollowAnchor(mCurrentRect);
+}
+
+void
+nsMenuChainItem::CheckForAnchorChange()
+{
+  if (mFollowAnchor) {
+    mFrame->CheckForAnchorChange(mCurrentRect);
   }
 }
 
@@ -555,7 +569,7 @@ nsXULPopupManager::GetPopupFrameForContent(nsIContent* aContent, bool aShouldFlu
     if (document) {
       nsCOMPtr<nsIPresShell> presShell = document->GetShell();
       if (presShell)
-        presShell->FlushPendingNotifications(Flush_Layout);
+        presShell->FlushPendingNotifications(FlushType::Layout);
     }
   }
 
@@ -678,10 +692,9 @@ nsXULPopupManager::ShowMenu(nsIContent *aMenu,
   if (aMenu) {
     nsIContent* element = aMenu;
     do {
-      nsCOMPtr<nsIDOMXULElement> xulelem = do_QueryInterface(element);
+      RefPtr<nsXULElement> xulelem = nsXULElement::FromContent(element);
       if (xulelem) {
-        nsCOMPtr<nsIXULTemplateBuilder> builder;
-        xulelem->GetBuilder(getter_AddRefs(builder));
+        nsCOMPtr<nsIXULTemplateBuilder> builder = xulelem->GetBuilder();
         if (builder) {
           builder->CreateContents(aMenu, true);
           break;
@@ -943,6 +956,8 @@ nsXULPopupManager::ShowPopupCallback(nsIContent* aPopup,
     mPopups = item;
     SetCaptureState(oldmenu);
   }
+
+  item->UpdateFollowAnchor();
 
   if (aSelectFirstItem) {
     nsMenuFrame* next = GetNextMenuItem(aPopupFrame, nullptr, true, false);
@@ -1226,14 +1241,6 @@ nsXULPopupManager::HidePopupCallback(nsIContent* aPopup,
 }
 
 void
-nsXULPopupManager::HidePopup(nsIFrame* aFrame)
-{
-  nsMenuPopupFrame* popup = do_QueryFrame(aFrame);
-  if (popup)
-    HidePopup(aFrame->GetContent(), false, true, false, false);
-}
-
-void
 nsXULPopupManager::HidePopupAfterDelay(nsMenuPopupFrame* aPopup)
 {
   // Don't close up immediately.
@@ -1363,6 +1370,41 @@ nsXULPopupManager::HidePopupsInDocShell(nsIDocShellTreeItem* aDocShellToHide)
   }
 
   HidePopupsInList(popupsToHide);
+}
+
+void
+nsXULPopupManager::UpdatePopupPositions(nsRefreshDriver* aRefreshDriver)
+{
+  if (!mPopups && !mNoHidePanels) {
+    return;
+  }
+
+  for (int32_t i = 0; i < 2; i++) {
+    nsMenuChainItem* item = i == 0 ? mPopups : mNoHidePanels;
+    while (item) {
+      if (item->Frame()->PresContext()->RefreshDriver() == aRefreshDriver) {
+        item->CheckForAnchorChange();
+      }
+
+      item = item->GetParent();
+    }
+  }
+}
+
+void
+nsXULPopupManager::UpdateFollowAnchor(nsMenuPopupFrame* aPopup)
+{
+  for (int32_t i = 0; i < 2; i++) {
+    nsMenuChainItem* item = i == 0 ? mPopups : mNoHidePanels;
+    while (item) {
+      if (item->Frame() == aPopup) {
+        item->UpdateFollowAnchor();
+        break;
+      }
+
+      item = item->GetParent();
+    }
+  }
 }
 
 void
@@ -1597,7 +1639,7 @@ nsXULPopupManager::FirePopupHidingEvent(nsIContent* aPopup,
 
         if (!animate.EqualsLiteral("false") &&
             (!animate.EqualsLiteral("cancel") || aIsCancel)) {
-          presShell->FlushPendingNotifications(Flush_Layout);
+          presShell->FlushPendingNotifications(FlushType::Layout);
 
           // Get the frame again in case the flush caused it to go away
           popupFrame = do_QueryFrame(aPopup->GetPrimaryFrame());
@@ -2619,6 +2661,17 @@ nsXULPopupManager::HandleEvent(nsIDOMEvent* aEvent)
 
   NS_ABORT();
 
+  return NS_OK;
+}
+
+nsresult
+nsXULPopupManager::UpdateIgnoreKeys(bool aIgnoreKeys)
+{
+  nsMenuChainItem* item = GetTopVisibleMenu();
+  if (item) {
+    item->SetIgnoreKeys(aIgnoreKeys ? eIgnoreKeys_True : eIgnoreKeys_Shortcuts);
+  }
+  UpdateKeyboardListeners();
   return NS_OK;
 }
 

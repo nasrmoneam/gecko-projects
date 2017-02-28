@@ -219,7 +219,8 @@ nsAString::Compare(const char_type* aOther, ComparatorFunc aComparator) const
   if (result == 0) {
     if (selflen < otherlen) {
       return -1;
-    } else if (selflen > otherlen) {
+    }
+    if (selflen > otherlen) {
       return 1;
     }
   }
@@ -239,7 +240,8 @@ nsAString::Compare(const self_type& aOther, ComparatorFunc aComparator) const
   if (result == 0) {
     if (selflen < otherlen) {
       return -1;
-    } else if (selflen > otherlen) {
+    }
+    if (selflen > otherlen) {
       return 1;
     }
   }
@@ -758,7 +760,8 @@ nsACString::Compare(const char_type* aOther, ComparatorFunc aComparator) const
   if (result == 0) {
     if (selflen < otherlen) {
       return -1;
-    } else if (selflen > otherlen) {
+    }
+    if (selflen > otherlen) {
       return 1;
     }
   }
@@ -778,7 +781,8 @@ nsACString::Compare(const self_type& aOther, ComparatorFunc aComparator) const
   if (result == 0) {
     if (selflen < otherlen) {
       return -1;
-    } else if (selflen > otherlen) {
+    }
+    if (selflen > otherlen) {
       return 1;
     }
   }
@@ -1301,4 +1305,36 @@ ParseString(const nsACString& aSource, char aDelimiter,
   }
 
   return true;
+}
+
+const nsDependentSubstring
+Substring(const char16_t* aStart, const char16_t* aEnd)
+{
+  MOZ_RELEASE_ASSERT(aStart <= aEnd, "Overflow!");
+  MOZ_ASSERT(uint32_t(aEnd - aStart) == uintptr_t(aEnd - aStart),
+             "string too long");
+  return nsDependentSubstring(aStart, uint32_t(aEnd - aStart));
+}
+
+const nsDependentSubstring
+StringTail(const nsAString& aStr, uint32_t aCount)
+{
+  MOZ_RELEASE_ASSERT(aStr.Length() >= aCount, "Overflow!");
+  return nsDependentSubstring(aStr, aStr.Length() - aCount, aCount);
+}
+
+const nsDependentCSubstring
+Substring(const char* aStart, const char* aEnd)
+{
+  MOZ_RELEASE_ASSERT(aStart <= aEnd, "Overflow!");
+  MOZ_ASSERT(uint32_t(aEnd - aStart) == uintptr_t(aEnd - aStart),
+             "string too long");
+  return nsDependentCSubstring(aStart, uint32_t(aEnd - aStart));
+}
+
+inline const nsDependentCSubstring
+StringTail(const nsACString& aStr, uint32_t aCount)
+{
+  MOZ_RELEASE_ASSERT(aStr.Length() >= aCount, "Overflow!");
+  return nsDependentCSubstring(aStr, aStr.Length() - aCount, aCount);
 }

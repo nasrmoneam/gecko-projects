@@ -1206,7 +1206,7 @@ PluginInstanceParent::SetScrollCaptureId(uint64_t aScrollCaptureId)
     return NS_ERROR_FAILURE;
   }
 
-  mImageContainer = new ImageContainer(aScrollCaptureId);
+  mImageContainer = new ImageContainer(CompositableHandle(aScrollCaptureId));
   return NS_OK;
 }
 
@@ -1439,24 +1439,6 @@ PluginInstanceParent::NPP_GetValue(NPPVariable aVariable,
         (*(NPBool*)_retval) = wantsAllStreams;
         return NPERR_NO_ERROR;
     }
-
-#ifdef MOZ_X11
-    case NPPVpluginNeedsXEmbed: {
-        bool needsXEmbed;
-        NPError rv;
-
-        if (!CallNPP_GetValue_NPPVpluginNeedsXEmbed(&needsXEmbed, &rv)) {
-            return NPERR_GENERIC_ERROR;
-        }
-
-        if (NPERR_NO_ERROR != rv) {
-            return rv;
-        }
-
-        (*(NPBool*)_retval) = needsXEmbed;
-        return NPERR_NO_ERROR;
-    }
-#endif
 
     case NPPVpluginScriptableNPObject: {
         PPluginScriptableObjectParent* actor;
@@ -2083,17 +2065,6 @@ PluginInstanceParent::RecvRedrawPlugin()
     }
 
     inst->RedrawPlugin();
-    return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-PluginInstanceParent::RecvNegotiatedCarbon()
-{
-    nsNPAPIPluginInstance *inst = static_cast<nsNPAPIPluginInstance*>(mNPP->ndata);
-    if (!inst) {
-        return IPC_FAIL_NO_REASON(this);
-    }
-    inst->CarbonNPAPIFailure();
     return IPC_OK();
 }
 

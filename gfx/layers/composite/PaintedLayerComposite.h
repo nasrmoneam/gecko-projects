@@ -41,8 +41,6 @@ protected:
 public:
   virtual void Disconnect() override;
 
-  virtual LayerRenderState GetRenderState() override;
-
   CompositableHost* GetCompositableHost() override;
 
   virtual void Destroy() override;
@@ -51,7 +49,8 @@ public:
 
   virtual void SetLayerManager(HostLayerManager* aManager) override;
 
-  virtual void RenderLayer(const gfx::IntRect& aClipRect) override;
+  virtual void RenderLayer(const gfx::IntRect& aClipRect,
+                           const Maybe<gfx::Polygon>& aGeometry) override;
 
   virtual void CleanupResources() override;
 

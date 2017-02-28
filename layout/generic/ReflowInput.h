@@ -337,7 +337,8 @@ struct ReflowInput : public SizeComputationInput {
   // parent's reflow state
   const ReflowInput* mParentReflowInput;
 
-  // pointer to the float manager associated with this area
+  // A non-owning pointer to the float manager associated with this area,
+  // which points to the object owned by nsAutoFloatManager::mNew.
   nsFloatManager* mFloatManager;
 
   // LineLayout object (only for inline reflow; set to nullptr otherwise)
@@ -681,10 +682,10 @@ public:
    *        below).
    */
   ReflowInput(nsPresContext*              aPresContext,
-                    nsIFrame*                   aFrame,
-                    nsRenderingContext*         aRenderingContext,
-                    const mozilla::LogicalSize& aAvailableSpace,
-                    uint32_t                    aFlags = 0);
+              nsIFrame*                   aFrame,
+              nsRenderingContext*         aRenderingContext,
+              const mozilla::LogicalSize& aAvailableSpace,
+              uint32_t                    aFlags = 0);
 
   /**
    * Initialize a reflow state for a child frame's reflow. Some parts of the
@@ -703,11 +704,11 @@ public:
    *        below).
    */
   ReflowInput(nsPresContext*              aPresContext,
-                    const ReflowInput&    aParentReflowInput,
-                    nsIFrame*                   aFrame,
-                    const mozilla::LogicalSize& aAvailableSpace,
-                    const mozilla::LogicalSize* aContainingBlockSize = nullptr,
-                    uint32_t                    aFlags = 0);
+              const ReflowInput&    aParentReflowInput,
+              nsIFrame*                   aFrame,
+              const mozilla::LogicalSize& aAvailableSpace,
+              const mozilla::LogicalSize* aContainingBlockSize = nullptr,
+              uint32_t                    aFlags = 0);
 
   // Values for |aFlags| passed to constructor
   enum {

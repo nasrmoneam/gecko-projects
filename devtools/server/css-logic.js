@@ -34,8 +34,6 @@ const DevToolsUtils = require("devtools/shared/DevToolsUtils");
 const nodeConstants = require("devtools/shared/dom-node-constants");
 const {l10n, isContentStylesheet, shortSource, FILTER, STATUS} = require("devtools/shared/inspector/css-logic");
 
-loader.lazyRequireGetter(this, "CSSLexer", "devtools/shared/css/lexer");
-
 /**
  * @param {function} isInherited A function that determines if the CSS property
  *                   is inherited.
@@ -251,7 +249,7 @@ CssLogic.prototype = {
       cssSheet._passId = this._passId;
 
       // Find import and keyframes rules.
-      for (let aDomRule of domSheet.cssRules) {
+      for (let aDomRule of cssSheet.getCssRules()) {
         if (aDomRule.type == CSSRule.IMPORT_RULE &&
             aDomRule.styleSheet &&
             this.mediaMatches(aDomRule)) {
@@ -684,14 +682,12 @@ CssLogic.getComputedStyle = function (node) {
   if (!node ||
       Cu.isDeadWrapper(node) ||
       node.nodeType !== nodeConstants.ELEMENT_NODE ||
-      !node.ownerDocument ||
-      !node.ownerDocument.defaultView) {
+      !node.ownerGlobal) {
     return null;
   }
 
   let {bindingElement, pseudo} = CssLogic.getBindingElementAndPseudo(node);
-  return node.ownerDocument.defaultView.getComputedStyle(bindingElement,
-                                                         pseudo);
+  return node.ownerGlobal.getComputedStyle(bindingElement, pseudo);
 };
 
 /**
@@ -823,9 +819,29 @@ CssSheet.prototype = {
    * @return {number} the number of nsIDOMCSSRule objects in this stylesheet.
    */
   get ruleCount() {
-    return this._ruleCount > -1 ?
-      this._ruleCount :
-      this.domSheet.cssRules.length;
+    try {
+      return this._ruleCount > -1 ?
+        this._ruleCount :
+        this.getCssRules().length;
+    } catch (e) {
+      return 0;
+    }
+  },
+
+  /**
+   * Retrieve the array of css rules for this stylesheet.
+   *
+   * Accessing cssRules on a stylesheet that is not completely loaded can throw a
+   * DOMException (Bug 625013). This wrapper will return an empty array instead.
+   *
+   * @return {Array} array of css rules.
+   **/
+  getCssRules: function () {
+    try {
+      return this.domSheet.cssRules;
+    } catch (e) {
+      return [];
+    }
   },
 
   /**

@@ -43,12 +43,13 @@ public:
   NS_DECL_NSAHTTPSEGMENTREADER
   NS_DECL_NSAHTTPSEGMENTWRITER
 
- Http2Session(nsISocketTransport *, uint32_t version);
+ Http2Session(nsISocketTransport *, uint32_t version, bool attemptingEarlyData);
 
   bool AddStream(nsAHttpTransaction *, int32_t,
                  bool, nsIInterfaceRequestor *) override;
   bool CanReuse() override { return !mShouldGoAway && !mClosed; }
   bool RoomForMoreStreams() override;
+  uint32_t SpdyVersion() override;
 
   // When the connection is active this is called up to once every 1 second
   // return the interval (in seconds) that the connection next wants to
@@ -235,6 +236,8 @@ public:
   // overload of nsAHttpTransaction
   nsresult ReadSegmentsAgain(nsAHttpSegmentReader *, uint32_t, uint32_t *, bool *) override final;
   nsresult WriteSegmentsAgain(nsAHttpSegmentWriter *, uint32_t , uint32_t *, bool *) override final;
+  bool Do0RTT() override final { return true; }
+  nsresult Finish0RTT(bool aRestart, bool aAlpnChanged) override final;
 
 private:
 
@@ -483,6 +486,9 @@ private:
   // to make sure streams aren't shared across sessions.
   uint64_t        mSerial;
 
+  // Telemetry for continued headers (pushed and pulled) for quic design
+  uint32_t        mAggregatedHeaderSize;
+
   // If push is disabled, we want to be able to send PROTOCOL_ERRORs if we
   // receive a PUSH_PROMISE, but we have to wait for the SETTINGS ACK before
   // we can actually tell the other end to go away. These help us keep track
@@ -491,6 +497,10 @@ private:
   bool mGoAwayOnPush;
 
   bool mUseH2Deps;
+
+  bool mAttemptingEarlyData;
+  // The ID(s) of the stream(s) that we are getting 0RTT data from.
+  nsTArray<uint32_t> m0RTTStreams;
 
 private:
 /// connect tunnels

@@ -14,7 +14,6 @@
 #include "nsNetUtil.h"
 #include "nsUnicharUtils.h"
 #include "nsPrintfCString.h"
-#include "prprf.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/storage.h"
 
@@ -339,6 +338,40 @@ nsNavBookmarks::AdjustIndices(int64_t aFolderId,
 }
 
 
+nsresult
+nsNavBookmarks::AdjustSeparatorsSyncCounter(int64_t aFolderId,
+                                            int32_t aStartIndex,
+                                            int64_t aSyncChangeDelta)
+{
+  MOZ_ASSERT(aStartIndex >= 0, "Bad start position");
+  if (!aSyncChangeDelta) {
+    return NS_OK;
+  }
+
+  nsCOMPtr<mozIStorageStatement> stmt = mDB->GetStatement(
+    "UPDATE moz_bookmarks SET syncChangeCounter = syncChangeCounter + :delta "
+      "WHERE parent = :parent AND position >= :start_index "
+      "AND type = :item_type "
+  );
+  NS_ENSURE_STATE(stmt);
+  mozStorageStatementScoper scoper(stmt);
+
+  nsresult rv = stmt->BindInt64ByName(NS_LITERAL_CSTRING("delta"), aSyncChangeDelta);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = stmt->BindInt64ByName(NS_LITERAL_CSTRING("parent"), aFolderId);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = stmt->BindInt32ByName(NS_LITERAL_CSTRING("start_index"), aStartIndex);
+  NS_ENSURE_SUCCESS(rv, rv);
+  rv = stmt->BindInt32ByName(NS_LITERAL_CSTRING("item_type"), TYPE_SEPARATOR);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  rv = stmt->Execute();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  return NS_OK;
+}
+
+
 NS_IMETHODIMP
 nsNavBookmarks::GetPlacesRoot(int64_t* aRoot)
 {
@@ -513,6 +546,10 @@ nsNavBookmarks::InsertBookmarkInDB(int64_t aPlaceId,
     rv = AddSyncChangesForBookmarksWithURI(aURI, syncChangeDelta);
     NS_ENSURE_SUCCESS(rv, rv);
   }
+
+  // Mark all affected separators as changed
+  rv = AdjustSeparatorsSyncCounter(aParentId, aIndex + 1, syncChangeDelta);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // Add a cache entry since we know everything about this bookmark.
   BookmarkData bookmark;
@@ -703,6 +740,10 @@ nsNavBookmarks::RemoveItem(int64_t aItemId, uint16_t aSource)
   bookmark.lastModified = RoundedPRNow();
   rv = SetItemDateInternal(LAST_MODIFIED, syncChangeDelta,
                            bookmark.parentId, bookmark.lastModified);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Mark all affected separators as changed
+  rv = AdjustSeparatorsSyncCounter(bookmark.parentId, bookmark.position, syncChangeDelta);
   NS_ENSURE_SUCCESS(rv, rv);
 
   if (isUntagging) {
@@ -1414,12 +1455,23 @@ nsNavBookmarks::MoveItem(int64_t aItemId,
     // change. Update the item's last modified date without bumping its counter.
     rv = SetItemDateInternal(LAST_MODIFIED, 0, bookmark.id, now);
     NS_ENSURE_SUCCESS(rv, rv);
+
+    // Mark all affected separators as changed
+    int32_t startIndex = std::min(bookmark.position, newIndex);
+    rv = AdjustSeparatorsSyncCounter(bookmark.parentId, startIndex, syncChangeDelta);
+    NS_ENSURE_SUCCESS(rv, rv);
   } else {
     // Otherwise, if we're moving between containers, both parents and the child
     // need sync changes.
     rv = SetItemDateInternal(LAST_MODIFIED, syncChangeDelta, aNewParent, now);
     NS_ENSURE_SUCCESS(rv, rv);
     rv = SetItemDateInternal(LAST_MODIFIED, syncChangeDelta, bookmark.id, now);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // Mark all affected separators as changed
+    rv = AdjustSeparatorsSyncCounter(bookmark.parentId, bookmark.position, syncChangeDelta);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = AdjustSeparatorsSyncCounter(aNewParent, newIndex, syncChangeDelta);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
@@ -1614,7 +1666,7 @@ nsNavBookmarks::SetItemDateAdded(int64_t aItemId, PRTime aDateAdded,
                    OnItemChanged(bookmark.id,
                                  NS_LITERAL_CSTRING("dateAdded"),
                                  false,
-                                 nsPrintfCString("%lld", bookmark.dateAdded),
+                                 nsPrintfCString("%" PRId64, bookmark.dateAdded),
                                  bookmark.dateAdded,
                                  bookmark.type,
                                  bookmark.parentId,
@@ -1684,7 +1736,7 @@ nsNavBookmarks::SetItemLastModified(int64_t aItemId, PRTime aLastModified,
                    OnItemChanged(bookmark.id,
                                  NS_LITERAL_CSTRING("lastModified"),
                                  false,
-                                 nsPrintfCString("%lld", bookmark.lastModified),
+                                 nsPrintfCString("%" PRId64, bookmark.lastModified),
                                  bookmark.lastModified,
                                  bookmark.type,
                                  bookmark.parentId,
@@ -2739,6 +2791,9 @@ nsNavBookmarks::SetItemIndex(int64_t aItemId,
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
+  rv = AdjustSeparatorsSyncCounter(bookmark.parentId, aNewIndex, syncChangeDelta);
+  NS_ENSURE_SUCCESS(rv, rv);
+
   rv = PreventSyncReparenting(bookmark);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -3039,47 +3094,6 @@ nsNavBookmarks::GetKeywordForBookmark(int64_t aBookmarkId, nsAString& aKeyword)
   }
 
   aKeyword.SetIsVoid(true);
-
-  return NS_OK;
-}
-
-
-NS_IMETHODIMP
-nsNavBookmarks::GetURIForKeyword(const nsAString& aUserCasedKeyword,
-                                 nsIURI** aURI)
-{
-  NS_ENSURE_ARG_POINTER(aURI);
-  NS_ENSURE_TRUE(!aUserCasedKeyword.IsEmpty(), NS_ERROR_INVALID_ARG);
-  *aURI = nullptr;
-
-  PLACES_WARN_DEPRECATED();
-
-  // Shortcuts are always lowercased internally.
-  nsAutoString keyword(aUserCasedKeyword);
-  ToLowerCase(keyword);
-
-  nsCOMPtr<mozIStorageStatement> stmt = mDB->GetStatement(NS_LITERAL_CSTRING(
-    "SELECT h.url "
-    "FROM moz_places h "
-    "JOIN moz_keywords k ON k.place_id = h.id "
-    "WHERE k.keyword = :keyword"
-  ));
-  NS_ENSURE_STATE(stmt);
-  mozStorageStatementScoper scoper(stmt);
-
-  nsresult rv = stmt->BindStringByName(NS_LITERAL_CSTRING("keyword"), keyword);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  bool hasMore;
-  if (NS_SUCCEEDED(stmt->ExecuteStep(&hasMore)) && hasMore) {
-    nsAutoCString spec;
-    rv = stmt->GetUTF8String(0, spec);
-    NS_ENSURE_SUCCESS(rv, rv);
-    nsCOMPtr<nsIURI> uri;
-    rv = NS_NewURI(getter_AddRefs(uri), spec);
-    NS_ENSURE_SUCCESS(rv, rv);
-    uri.forget(aURI);
-  }
 
   return NS_OK;
 }

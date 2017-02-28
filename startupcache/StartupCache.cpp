@@ -36,6 +36,7 @@
 #include "nsThreadUtils.h"
 #include "nsXULAppAPI.h"
 #include "nsIProtocolHandler.h"
+#include "GeckoProfiler.h"
 
 #ifdef IS_BIG_ENDIAN
 #define SC_ENDIAN "big"
@@ -455,8 +456,6 @@ StartupCache::WriteToDisk()
 
   // Our reader's view of the archive is outdated now, reload it.
   LoadArchive();
-  
-  return;
 }
 
 void
@@ -503,6 +502,7 @@ StartupCache::WaitOnWriteThread()
 void
 StartupCache::ThreadedWrite(void *aClosure)
 {
+  AutoProfilerRegister registerThread("StartupCache");
   PR_SetCurrentThreadName("StartupCache");
   mozilla::IOInterposer::RegisterCurrentThread();
   /*
@@ -589,8 +589,9 @@ StartupCache::ResetStartupWriteTimer()
     rv = mTimer->Cancel();
   NS_ENSURE_SUCCESS(rv, rv);
   // Wait for 10 seconds, then write out the cache.
-  mTimer->InitWithFuncCallback(StartupCache::WriteTimeout, this, 60000,
-                               nsITimer::TYPE_ONE_SHOT);
+  mTimer->InitWithNamedFuncCallback(StartupCache::WriteTimeout, this, 60000,
+                                    nsITimer::TYPE_ONE_SHOT,
+                                    "StartupCache::WriteTimeout");
   return NS_OK;
 }
 

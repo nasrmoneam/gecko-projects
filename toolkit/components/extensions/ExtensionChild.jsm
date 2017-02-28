@@ -41,7 +41,7 @@ Cu.import("resource://gre/modules/ExtensionUtils.jsm");
 
 const {
   DefaultMap,
-  EventManager,
+  LimitedSet,
   SingletonEventManager,
   SpreadArgs,
   defineLazyGetter,
@@ -119,17 +119,17 @@ class Port {
         this.postMessage(json);
       },
 
-      onDisconnect: new EventManager(this.context, "Port.onDisconnect", fire => {
+      onDisconnect: new SingletonEventManager(this.context, "Port.onDisconnect", fire => {
         return this.registerOnDisconnect(error => {
           portError = error && this.context.normalizeError(error);
-          fire.withoutClone(portObj);
+          fire.asyncWithoutClone(portObj);
         });
       }).api(),
 
-      onMessage: new EventManager(this.context, "Port.onMessage", fire => {
+      onMessage: new SingletonEventManager(this.context, "Port.onMessage", fire => {
         return this.registerOnMessage(msg => {
           msg = Cu.cloneInto(msg, this.context.cloneScope);
-          fire.withoutClone(msg, portObj);
+          fire.asyncWithoutClone(msg, portObj);
         });
       }).api(),
 
@@ -330,7 +330,7 @@ class Messenger {
   }
 
   onMessage(name) {
-    return new SingletonEventManager(this.context, name, callback => {
+    return new SingletonEventManager(this.context, name, fire => {
       let listener = {
         messageFilterPermissive: this.optionalFilter,
         messageFilterStrict: this.filter,
@@ -360,7 +360,7 @@ class Messenger {
 
           // Note: We intentionally do not use runSafe here so that any
           // errors are propagated to the message sender.
-          let result = callback(message, sender, sendResponse);
+          let result = fire.raw(message, sender, sendResponse);
           if (result instanceof this.context.cloneScope.Promise) {
             return result;
           } else if (result === true) {
@@ -412,7 +412,7 @@ class Messenger {
   }
 
   onConnect(name) {
-    return new SingletonEventManager(this.context, name, callback => {
+    return new SingletonEventManager(this.context, name, fire => {
       let listener = {
         messageFilterPermissive: this.optionalFilter,
         messageFilterStrict: this.filter,
@@ -431,7 +431,7 @@ class Messenger {
             delete recipient.tab;
           }
           let port = new Port(this.context, mm, this.messageManagers, name, portId, sender, recipient);
-          this.context.runSafeWithoutClone(callback, port.api());
+          fire.asyncWithoutClone(port.api());
           return true;
         },
       };
@@ -545,6 +545,7 @@ class ProxyAPIImplementation extends SchemaAPIInterface {
     let id = map.listeners.get(listener);
     map.listeners.delete(listener);
     map.ids.delete(id);
+    map.removedIds.add(id);
 
     this.childApiManager.messageManager.sendAsyncMessage("API:RemoveListener", {
       childId: this.childApiManager.id,
@@ -584,6 +585,7 @@ class ChildAPIManager {
     this.listeners = new DefaultMap(() => ({
       ids: new Map(),
       listeners: new Map(),
+      removedIds: new LimitedSet(10),
     }));
 
     // Map[callId -> Deferred]
@@ -612,8 +614,10 @@ class ChildAPIManager {
         if (listener) {
           return this.context.runSafe(listener, ...data.args);
         }
-
-        Cu.reportError(`Unknown listener at childId=${data.childId} path=${data.path} listenerId=${data.listenerId}\n`);
+        if (!map.removedIds.has(data.listenerId)) {
+          Services.console.logStringMessage(
+            `Unknown listener at childId=${data.childId} path=${data.path} listenerId=${data.listenerId}\n`);
+        }
         break;
 
       case "API:CallResult":
@@ -761,7 +765,7 @@ class ExtensionBaseContextChild extends BaseContext {
    * @param {string} params.envType One of "addon_child" or "devtools_child".
    * @param {nsIDOMWindow} params.contentWindow The window where the addon runs.
    * @param {string} params.viewType One of "background", "popup", "tab",
-   *   "devtools_page" or "devtools_panel".
+   *   "sidebar", "devtools_page" or "devtools_panel".
    * @param {number} [params.tabId] This tab's ID, used if viewType is "tab".
    */
   constructor(extension, params) {
@@ -813,7 +817,7 @@ class ExtensionBaseContextChild extends BaseContext {
   }
 
   get windowId() {
-    if (this.viewType == "tab" || this.viewType == "popup") {
+    if (["tab", "popup", "sidebar"].includes(this.viewType)) {
       let globalView = ExtensionChild.contentGlobals.get(this.messageManager);
       return globalView ? globalView.windowId : -1;
     }
@@ -865,8 +869,8 @@ class ExtensionPageContextChild extends ExtensionBaseContextChild {
    * @param {BrowserExtensionContent} extension This context's owner.
    * @param {object} params
    * @param {nsIDOMWindow} params.contentWindow The window where the addon runs.
-   * @param {string} params.viewType One of "background", "popup" or "tab".
-   *     "background" and "tab" are used by `browser.extension.getViews`.
+   * @param {string} params.viewType One of "background", "popup", "sidebar" or "tab".
+   *     "background", "sidebar" and "tab" are used by `browser.extension.getViews`.
    *     "popup" is only used internally to identify page action and browser
    *     action popups and options_ui pages.
    * @param {number} [params.tabId] This tab's ID, used if viewType is "tab".
@@ -903,9 +907,9 @@ defineLazyGetter(ExtensionPageContextChild.prototype, "childManager", function()
   return childManager;
 });
 
-class DevtoolsContextChild extends ExtensionBaseContextChild {
+class DevToolsContextChild extends ExtensionBaseContextChild {
   /**
-   * This DevtoolsContextChild represents a devtools-related addon execution
+   * This DevToolsContextChild represents a devtools-related addon execution
    * environment that has access to the devtools API namespace and to the same subset
    * of APIs available in a content script execution environment.
    *
@@ -930,7 +934,7 @@ class DevtoolsContextChild extends ExtensionBaseContextChild {
   }
 }
 
-defineLazyGetter(DevtoolsContextChild.prototype, "childManager", function() {
+defineLazyGetter(DevToolsContextChild.prototype, "childManager", function() {
   let localApis = {};
   devtoolsAPIManager.generateAPIs(this, localApis);
 
@@ -1091,7 +1095,7 @@ ExtensionChild = {
     let uri = contentWindow.document.documentURIObject;
 
     if (devtoolsToolboxInfo) {
-      context = new DevtoolsContextChild(extension, {
+      context = new DevToolsContextChild(extension, {
         viewType, contentWindow, uri, tabId, devtoolsToolboxInfo,
       });
     } else {

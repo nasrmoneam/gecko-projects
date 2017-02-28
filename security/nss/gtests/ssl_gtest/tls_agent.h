@@ -18,6 +18,7 @@
 
 #define GTEST_HAS_RTTI 0
 #include "gtest/gtest.h"
+#include "scoped_ptrs.h"
 
 extern bool g_ssl_gtest_verbose;
 
@@ -43,6 +44,8 @@ const extern std::vector<SSLNamedGroup> kECDHEGroups;
 const extern std::vector<SSLNamedGroup> kFFDHEGroups;
 const extern std::vector<SSLNamedGroup> kFasterDHEGroups;
 
+// These functions are called from callbacks.  They use bare pointers because
+// TlsAgent sets up the callback and it doesn't know who owns it.
 typedef std::function<SECStatus(TlsAgent* agent, bool checksig, bool isServer)>
     AuthCertificateCallbackFunction;
 
@@ -74,24 +77,16 @@ class TlsAgent : public PollTarget {
   TlsAgent(const std::string& name, Role role, Mode mode);
   virtual ~TlsAgent();
 
-  bool Init() {
-    pr_fd_ = DummyPrSocket::CreateFD(role_str(), mode_);
-    if (!pr_fd_) return false;
-
-    adapter_ = DummyPrSocket::GetAdapter(pr_fd_);
-    if (!adapter_) return false;
-
-    return true;
+  void SetPeer(std::shared_ptr<TlsAgent>& peer) {
+    adapter_->SetPeer(peer->adapter_);
   }
 
-  void SetPeer(TlsAgent* peer) { adapter_->SetPeer(peer->adapter_); }
-
-  void SetPacketFilter(TlsRecordFilter* filter) {
+  void SetTlsRecordFilter(std::shared_ptr<TlsRecordFilter> filter) {
     filter->SetAgent(this);
     adapter_->SetPacketFilter(filter);
   }
 
-  void SetPacketFilter(PacketFilter* filter) {
+  void SetPacketFilter(std::shared_ptr<PacketFilter> filter) {
     adapter_->SetPacketFilter(filter);
   }
 
@@ -115,6 +110,9 @@ class TlsAgent : public PollTarget {
   void PrepareForRenegotiate();
   // Prepares for renegotiation, then actually triggers it.
   void StartRenegotiate();
+  static bool LoadCertificate(const std::string& name,
+                              ScopedCERTCertificate* cert,
+                              ScopedSECKEYPrivateKey* priv);
   bool ConfigServerCert(const std::string& name, bool updateKeyBits = false,
                         const SSLExtraServerCertData* serverCertData = nullptr);
   bool ConfigServerCertWithChain(const std::string& name);
@@ -122,13 +120,13 @@ class TlsAgent : public PollTarget {
 
   void SetupClientAuth();
   void RequestClientAuth(bool requireAuth);
-  bool GetClientAuthCredentials(CERTCertificate** cert,
-                                SECKEYPrivateKey** priv) const;
 
   void ConfigureSessionCache(SessionResumptionMode mode);
   void SetSessionTicketsEnabled(bool en);
   void SetSessionCacheEnabled(bool en);
   void Set0RttEnabled(bool en);
+  void SetFallbackSCSVEnabled(bool en);
+  void SetShortHeadersEnabled();
   void SetVersionRange(uint16_t minver, uint16_t maxver);
   void GetVersionRange(uint16_t* minver, uint16_t* maxver);
   void CheckPreliminaryInfo();
@@ -138,6 +136,7 @@ class TlsAgent : public PollTarget {
   void ExpectReadWriteError();
   void EnableFalseStart();
   void ExpectResumption();
+  void ExpectShortHeaders();
   void SetSignatureSchemes(const SSLSignatureScheme* schemes, size_t count);
   void EnableAlpn(const uint8_t* val, size_t len);
   void CheckAlpn(SSLNextProtoState expected_state,
@@ -172,15 +171,15 @@ class TlsAgent : public PollTarget {
   State state() const { return state_; }
 
   const CERTCertificate* peer_cert() const {
-    return SSL_PeerCertificate(ssl_fd_);
+    return SSL_PeerCertificate(ssl_fd_.get());
   }
 
   const char* state_str() const { return state_str(state()); }
 
   static const char* state_str(State state) { return states[state]; }
 
-  PRFileDesc* ssl_fd() const { return ssl_fd_; }
-  DummyPrSocket* adapter() { return adapter_; }
+  PRFileDesc* ssl_fd() const { return ssl_fd_.get(); }
+  std::shared_ptr<DummyPrSocket>& adapter() { return adapter_; }
 
   bool is_compressed() const {
     return info_.compressionMethod != ssl_compression_null;
@@ -343,13 +342,12 @@ class TlsAgent : public PollTarget {
 
   const std::string name_;
   Mode mode_;
-  uint16_t server_key_bits_;
-  PRFileDesc* pr_fd_;
-  DummyPrSocket* adapter_;
-  PRFileDesc* ssl_fd_;
   Role role_;
+  uint16_t server_key_bits_;
+  std::shared_ptr<DummyPrSocket> adapter_;
+  ScopedPRFileDesc ssl_fd_;
   State state_;
-  Poller::Timer* timer_handle_;
+  std::shared_ptr<Poller::Timer> timer_handle_;
   bool falsestart_enabled_;
   uint16_t expected_version_;
   uint16_t expected_cipher_suite_;
@@ -369,6 +367,7 @@ class TlsAgent : public PollTarget {
   HandshakeCallbackFunction handshake_callback_;
   AuthCertificateCallbackFunction auth_certificate_callback_;
   SniCallbackFunction sni_callback_;
+  bool expect_short_headers_;
 };
 
 inline std::ostream& operator<<(std::ostream& stream,
@@ -381,12 +380,11 @@ class TlsAgentTestBase : public ::testing::Test {
   static ::testing::internal::ParamGenerator<std::string> kTlsRolesAll;
 
   TlsAgentTestBase(TlsAgent::Role role, Mode mode)
-      : agent_(nullptr), fd_(nullptr), role_(role), mode_(mode) {}
-  ~TlsAgentTestBase() {
-    if (fd_) {
-      PR_Close(fd_);
-    }
-  }
+      : agent_(nullptr),
+        role_(role),
+        mode_(mode),
+        sink_adapter_(new DummyPrSocket("sink", mode)) {}
+  virtual ~TlsAgentTestBase() {}
 
   void SetUp();
   void TearDown();
@@ -420,10 +418,11 @@ class TlsAgentTestBase : public ::testing::Test {
   void ProcessMessage(const DataBuffer& buffer, TlsAgent::State expected_state,
                       int32_t error_code = 0);
 
-  TlsAgent* agent_;
-  PRFileDesc* fd_;
+  std::unique_ptr<TlsAgent> agent_;
   TlsAgent::Role role_;
   Mode mode_;
+  // This adapter is here just to accept packets from this agent.
+  std::shared_ptr<DummyPrSocket> sink_adapter_;
 };
 
 class TlsAgentTest : public TlsAgentTestBase,

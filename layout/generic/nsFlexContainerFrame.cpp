@@ -33,6 +33,8 @@ typedef nsFlexContainerFrame::FlexItem FlexItem;
 typedef nsFlexContainerFrame::FlexLine FlexLine;
 typedef nsFlexContainerFrame::FlexboxAxisTracker FlexboxAxisTracker;
 typedef nsFlexContainerFrame::StrutInfo StrutInfo;
+typedef nsFlexContainerFrame::CachedMeasuringReflowResult
+          CachedMeasuringReflowResult;
 
 static mozilla::LazyLogModule gFlexContainerLog("nsFlexContainerFrame");
 
@@ -455,7 +457,8 @@ public:
         nsLayoutUtils::GetLastLineBaseline(mWM, mFrame, &mAscent);
 
       if (!found) {
-        mAscent = mFrame->GetLogicalBaseline(mWM);
+        mAscent = mFrame->SynthesizeBaselineBOffsetFromBorderBox(mWM,
+                            BaselineSharingGroup::eFirst);
       }
     }
     return mAscent;
@@ -1286,7 +1289,7 @@ nsFlexContainerFrame::CSSAlignmentForAbsPosChild(
     } else {
       // Single-line, or multi-line but the (one) line stretches to fill
       // container. Respect align-self.
-      alignment = aChildRI.mStylePosition->UsedAlignSelf(nullptr);
+      alignment = aChildRI.mStylePosition->UsedAlignSelf(StyleContext());
       // XXX strip off <overflow-position> bits until we implement it
       // (bug 1311892)
       alignment &= ~NS_STYLE_ALIGN_FLAG_BITS;
@@ -1307,8 +1310,6 @@ nsFlexContainerFrame::CSSAlignmentForAbsPosChild(
     alignment = isAxisReversed ? NS_STYLE_ALIGN_END : NS_STYLE_ALIGN_START;
   } else if (alignment == NS_STYLE_ALIGN_FLEX_END) {
     alignment = isAxisReversed ? NS_STYLE_ALIGN_START : NS_STYLE_ALIGN_END;
-  } else if (alignment == NS_STYLE_ALIGN_AUTO) {
-    alignment = NS_STYLE_ALIGN_START;
   } else if (alignment == NS_STYLE_ALIGN_LEFT ||
              alignment == NS_STYLE_ALIGN_RIGHT) {
     if (aLogicalAxis == eLogicalAxisInline) {
@@ -1766,6 +1767,108 @@ nsFlexContainerFrame::
   }
 }
 
+/**
+ * A cached result for a measuring reflow.
+ *
+ * Right now we only need to cache the available size and the computed height
+ * for checking that the reflow input is valid, and the height and the ascent
+ * to be used. This can be extended later if needed.
+ *
+ * The assumption here is that a given flex item measurement won't change until
+ * either the available size or computed height changes, or the flex container
+ * intrinsic size is marked as dirty (due to a style or DOM change).
+ *
+ * In particular the computed height may change between measuring reflows due to
+ * how the mIsFlexContainerMeasuringReflow flag affects size computation (see
+ * bug 1336708).
+ *
+ * Caching it prevents us from doing exponential reflows in cases of deeply
+ * nested flex and scroll frames.
+ *
+ * We store them in the frame property table for simplicity.
+ */
+class nsFlexContainerFrame::CachedMeasuringReflowResult
+{
+  // Members that are part of the cache key:
+  const LogicalSize mAvailableSize;
+  const nscoord mComputedHeight;
+
+  // Members that are part of the cache value:
+  const nscoord mHeight;
+  const nscoord mAscent;
+
+public:
+  CachedMeasuringReflowResult(const ReflowInput& aReflowInput,
+                              const ReflowOutput& aDesiredSize)
+    : mAvailableSize(aReflowInput.AvailableSize())
+    , mComputedHeight(aReflowInput.ComputedHeight())
+    , mHeight(aDesiredSize.Height())
+    , mAscent(aDesiredSize.BlockStartAscent())
+  {}
+
+  bool IsValidFor(const ReflowInput& aReflowInput) const {
+    return mAvailableSize == aReflowInput.AvailableSize() &&
+      mComputedHeight == aReflowInput.ComputedHeight();
+  }
+
+  nscoord Height() const { return mHeight; }
+
+  nscoord Ascent() const { return mAscent; }
+};
+
+NS_DECLARE_FRAME_PROPERTY_DELETABLE(CachedFlexMeasuringReflow,
+                                    CachedMeasuringReflowResult);
+
+const CachedMeasuringReflowResult&
+nsFlexContainerFrame::MeasureAscentAndHeightForFlexItem(
+  FlexItem& aItem,
+  nsPresContext* aPresContext,
+  ReflowInput& aChildReflowInput)
+{
+  const FrameProperties props = aItem.Frame()->Properties();
+  if (const auto* cachedResult = props.Get(CachedFlexMeasuringReflow())) {
+    if (cachedResult->IsValidFor(aChildReflowInput)) {
+      return *cachedResult;
+    }
+  }
+
+  ReflowOutput childDesiredSize(aChildReflowInput);
+  nsReflowStatus childReflowStatus;
+
+  const uint32_t flags = NS_FRAME_NO_MOVE_FRAME;
+  ReflowChild(aItem.Frame(), aPresContext,
+              childDesiredSize, aChildReflowInput,
+              0, 0, flags, childReflowStatus);
+  aItem.SetHadMeasuringReflow();
+
+  // XXXdholbert Once we do pagination / splitting, we'll need to actually
+  // handle incomplete childReflowStatuses. But for now, we give our kids
+  // unconstrained available height, which means they should always complete.
+  MOZ_ASSERT(childReflowStatus.IsComplete(),
+             "We gave flex item unconstrained available height, so it "
+             "should be complete");
+
+  // Tell the child we're done with its initial reflow.
+  // (Necessary for e.g. GetBaseline() to work below w/out asserting)
+  FinishReflowChild(aItem.Frame(), aPresContext,
+                    childDesiredSize, &aChildReflowInput, 0, 0, flags);
+
+  auto result =
+    new CachedMeasuringReflowResult(aChildReflowInput, childDesiredSize);
+
+  props.Set(CachedFlexMeasuringReflow(), result);
+  return *result;
+}
+
+/* virtual */ void
+nsFlexContainerFrame::MarkIntrinsicISizesDirty()
+{
+  for (nsIFrame* childFrame : mFrames) {
+    childFrame->Properties().Delete(CachedFlexMeasuringReflow());
+  }
+  nsContainerFrame::MarkIntrinsicISizesDirty();
+}
+
 nscoord
 nsFlexContainerFrame::
   MeasureFlexItemContentHeight(nsPresContext* aPresContext,
@@ -1793,27 +1896,15 @@ nsFlexContainerFrame::
     childRIForMeasuringHeight.SetVResize(true);
   }
 
-  ReflowOutput childDesiredSize(childRIForMeasuringHeight);
-  nsReflowStatus childReflowStatus;
-  const uint32_t flags = NS_FRAME_NO_MOVE_FRAME;
-  ReflowChild(aFlexItem.Frame(), aPresContext,
-              childDesiredSize, childRIForMeasuringHeight,
-              0, 0, flags, childReflowStatus);
+  const CachedMeasuringReflowResult& reflowResult =
+    MeasureAscentAndHeightForFlexItem(aFlexItem, aPresContext,
+                                      childRIForMeasuringHeight);
 
-  MOZ_ASSERT(NS_FRAME_IS_COMPLETE(childReflowStatus),
-             "We gave flex item unconstrained available height, so it "
-             "should be complete");
-
-  FinishReflowChild(aFlexItem.Frame(), aPresContext,
-                    childDesiredSize, &childRIForMeasuringHeight,
-                    0, 0, flags);
-
-  aFlexItem.SetHadMeasuringReflow();
-  aFlexItem.SetAscent(childDesiredSize.BlockStartAscent());
+  aFlexItem.SetAscent(reflowResult.Ascent());
 
   // Subtract border/padding in vertical axis, to get _just_
   // the effective computed value of the "height" property.
-  nscoord childDesiredHeight = childDesiredSize.Height() -
+  nscoord childDesiredHeight = reflowResult.Height() -
     childRIForMeasuringHeight.ComputedPhysicalBorderPadding().TopBottom();
 
   return std::max(0, childDesiredHeight);
@@ -2324,6 +2415,10 @@ nsFlexContainerFrame::GetLogicalBaseline(mozilla::WritingMode aWM) const
   NS_ASSERTION(mBaselineFromLastReflow != NS_INTRINSIC_WIDTH_UNKNOWN,
                "baseline has not been set");
 
+  if (HasAnyStateBits(NS_STATE_FLEX_SYNTHESIZE_BASELINE)) {
+    // Return a baseline synthesized from our margin-box.
+    return nsContainerFrame::GetLogicalBaseline(aWM);
+  }
   return mBaselineFromLastReflow;
 }
 
@@ -3806,7 +3901,7 @@ ResolveFlexContainerMainSize(const ReflowInput& aReflowInput,
     // XXXdholbert For now, we don't support pushing children to our next
     // continuation or splitting children, so "amount of BSize required by
     // our children" is just the main-size (BSize) of our longest flex line.
-    NS_FRAME_SET_INCOMPLETE(aStatus);
+    aStatus.SetIncomplete();
     nscoord largestLineOuterSize = GetLargestLineMainSize(aFirstLine);
 
     if (largestLineOuterSize <= aAvailableBSizeForContent) {
@@ -3866,7 +3961,7 @@ nsFlexContainerFrame::ComputeCrossSize(const ReflowInput& aReflowInput,
     // XXXdholbert For now, we don't support pushing children to our next
     // continuation or splitting children, so "amount of BSize required by
     // our children" is just the sum of our FlexLines' BSizes (cross sizes).
-    NS_FRAME_SET_INCOMPLETE(aStatus);
+    aStatus.SetIncomplete();
     if (aSumLineCrossSizes <= aAvailableBSizeForContent) {
       return aAvailableBSizeForContent;
     }
@@ -3965,25 +4060,10 @@ nsFlexContainerFrame::SizeItemInCrossAxis(
     // whether any of its ancestors are being resized).
     aChildReflowInput.SetVResize(true);
   }
-  ReflowOutput childDesiredSize(aChildReflowInput);
-  nsReflowStatus childReflowStatus;
-  const uint32_t flags = NS_FRAME_NO_MOVE_FRAME;
-  ReflowChild(aItem.Frame(), aPresContext,
-              childDesiredSize, aChildReflowInput,
-              0, 0, flags, childReflowStatus);
-  aItem.SetHadMeasuringReflow();
 
-  // XXXdholbert Once we do pagination / splitting, we'll need to actually
-  // handle incomplete childReflowStatuses. But for now, we give our kids
-  // unconstrained available height, which means they should always complete.
-  MOZ_ASSERT(NS_FRAME_IS_COMPLETE(childReflowStatus),
-             "We gave flex item unconstrained available height, so it "
-             "should be complete");
-
-  // Tell the child we're done with its initial reflow.
-  // (Necessary for e.g. GetBaseline() to work below w/out asserting)
-  FinishReflowChild(aItem.Frame(), aPresContext,
-                    childDesiredSize, &aChildReflowInput, 0, 0, flags);
+  // Potentially reflow the item, and get the sizing info.
+  const CachedMeasuringReflowResult& reflowResult =
+    MeasureAscentAndHeightForFlexItem(aItem, aPresContext, aChildReflowInput);
 
   // Save the sizing info that we learned from this reflow
   // -----------------------------------------------------
@@ -3995,7 +4075,7 @@ nsFlexContainerFrame::SizeItemInCrossAxis(
   // so we don't bother with making aAxisTracker pick the cross-axis component
   // for us.)
   nscoord crossAxisBorderPadding = aItem.GetBorderPadding().TopBottom();
-  if (childDesiredSize.Height() < crossAxisBorderPadding) {
+  if (reflowResult.Height() < crossAxisBorderPadding) {
     // Child's requested size isn't large enough for its border/padding!
     // This is OK for the trivial nsFrame::Reflow() impl, but other frame
     // classes should know better. So, if we get here, the child had better be
@@ -4008,10 +4088,10 @@ nsFlexContainerFrame::SizeItemInCrossAxis(
     aItem.SetCrossSize(0);
   } else {
     // (normal case)
-    aItem.SetCrossSize(childDesiredSize.Height() - crossAxisBorderPadding);
+    aItem.SetCrossSize(reflowResult.Height() - crossAxisBorderPadding);
   }
 
-  aItem.SetAscent(childDesiredSize.BlockStartAscent());
+  aItem.SetAscent(reflowResult.Ascent());
 }
 
 void
@@ -4247,7 +4327,7 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
                                    nsTArray<StrutInfo>& aStruts,
                                    const FlexboxAxisTracker& aAxisTracker)
 {
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
 
   LinkedList<FlexLine> lines;
   nsTArray<nsIFrame*> placeholderKids;
@@ -4258,6 +4338,14 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
                     aAvailableBSizeForContent,
                     aStruts, aAxisTracker,
                     placeholderKids, lines);
+
+  if (lines.getFirst()->IsEmpty() &&
+      !lines.getFirst()->getNext()) {
+    // We have no flex items, our parent should synthesize a baseline if needed.
+    AddStateBits(NS_STATE_FLEX_SYNTHESIZE_BASELINE);
+  } else {
+    RemoveStateBits(NS_STATE_FLEX_SYNTHESIZE_BASELINE);
+  }
 
   aContentBoxMainSize =
     ResolveFlexContainerMainSize(aReflowInput, aAxisTracker,
@@ -4293,7 +4381,7 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
         LogicalSize availSize = aReflowInput.ComputedSize(wm);
         availSize.BSize(wm) = NS_UNCONSTRAINEDSIZE;
         ReflowInput childReflowInput(aPresContext, aReflowInput,
-                                           item->Frame(), availSize);
+                                     item->Frame(), availSize);
         if (!sizeOverride) {
           // Directly override the computed main-size, by tweaking reflow state:
           if (aAxisTracker.IsMainAxisHorizontal()) {
@@ -4519,12 +4607,15 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
     flexContainerAscent = desiredSizeInFlexWM.BSize(flexWM);
   }
 
-  // XXXdholbert flexContainerAscent needs to be in terms of
-  // our parent's writing-mode here. See bug 1155322.
-  aDesiredSize.SetBlockStartAscent(flexContainerAscent);
-
-  // Cache this baseline for use outside of this call.
-  mBaselineFromLastReflow = flexContainerAscent;
+  if (HasAnyStateBits(NS_STATE_FLEX_SYNTHESIZE_BASELINE)) {
+    // This will force our parent to call GetLogicalBaseline, which will
+    // synthesize a margin-box baseline.
+    aDesiredSize.SetBlockStartAscent(ReflowOutput::ASK_FOR_BASELINE);
+  } else {
+    // XXXdholbert flexContainerAscent needs to be in terms of
+    // our parent's writing-mode here. See bug 1155322.
+    aDesiredSize.SetBlockStartAscent(flexContainerAscent);
+  }
 
   // Now: If we're complete, add bottom border/padding to desired height (which
   // we skipped via skipSides) -- unless that pushes us over available height,
@@ -4533,7 +4624,7 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
   // NOTE: If we're auto-height, we allow our bottom border/padding to push us
   // over the available height without requesting a continuation, for
   // consistency with the behavior of "display:block" elements.
-  if (NS_FRAME_IS_COMPLETE(aStatus)) {
+  if (aStatus.IsComplete()) {
     nscoord desiredBSizeWithBEndBP =
       desiredSizeInFlexWM.BSize(flexWM) + blockEndContainerBP;
 
@@ -4545,8 +4636,18 @@ nsFlexContainerFrame::DoFlexLayout(nsPresContext*           aPresContext,
       desiredSizeInFlexWM.BSize(flexWM) = desiredBSizeWithBEndBP;
     } else {
       // We couldn't fit bottom border/padding, so we'll need a continuation.
-      NS_FRAME_SET_INCOMPLETE(aStatus);
+      aStatus.SetIncomplete();
     }
+  }
+
+  // Calculate the container baselines so that our parent can baseline-align us.
+  mBaselineFromLastReflow = flexContainerAscent;
+  mLastBaselineFromLastReflow = lines.getLast()->GetLastBaselineOffset();
+  if (mLastBaselineFromLastReflow == nscoord_MIN) {
+    // XXX we fall back to a mirrored first baseline here for now, but this
+    // should probably use the last baseline of the last item or something.
+    mLastBaselineFromLastReflow =
+      desiredSizeInFlexWM.BSize(flexWM) - flexContainerAscent;
   }
 
   // Convert flex container's final desired size to parent's WM, for outparam.
@@ -4677,7 +4778,7 @@ nsFlexContainerFrame::ReflowFlexItem(nsPresContext* aPresContext,
   // handle incomplete childReflowStatuses. But for now, we give our kids
   // unconstrained available height, which means they should always
   // complete.
-  MOZ_ASSERT(NS_FRAME_IS_COMPLETE(childReflowStatus),
+  MOZ_ASSERT(childReflowStatus.IsComplete(),
              "We gave flex item unconstrained available height, so it "
              "should be complete");
 

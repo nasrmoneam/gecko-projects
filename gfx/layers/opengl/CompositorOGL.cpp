@@ -1720,7 +1720,7 @@ CompositorOGL::Resume()
     return false;
 
   // RenewSurface internally calls MakeCurrent.
-  return gl()->RenewSurface(GetWidget()->RealWidget());
+  return gl()->RenewSurface(GetWidget());
 #endif
   return true;
 }
@@ -1817,6 +1817,12 @@ PerUnitTexturePoolOGL::DestroyTextures()
     }
   }
   mTextures.SetLength(0);
+}
+
+bool
+CompositorOGL::SupportsLayerGeometry() const
+{
+  return gfxPrefs::OGLLayerGeometry();
 }
 
 } // namespace layers

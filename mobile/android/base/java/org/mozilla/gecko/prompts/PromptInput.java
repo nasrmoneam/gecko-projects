@@ -18,6 +18,7 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.support.design.widget.TextInputLayout;
 import android.support.v7.widget.AppCompatCheckBox;
+import android.widget.CheckBox;
 import android.text.Html;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -61,7 +62,7 @@ public abstract class PromptInput {
 
         public EditInput(GeckoBundle object) {
             super(object);
-            mHint = object.getString("hint");
+            mHint = object.getString("hint", "");
             mAutofocus = object.getBoolean("autofocus");
         }
 
@@ -145,7 +146,7 @@ public abstract class PromptInput {
 
         @Override
         public View getView(Context context) throws UnsupportedOperationException {
-            final CheckBox checkbox = new AppCompatCheckBox(context);
+            final CheckBox checkbox = new CheckBox(context);
             checkbox.setLayoutParams(new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
             checkbox.setText(mLabel);
             checkbox.setChecked(mChecked);
@@ -330,17 +331,38 @@ public abstract class PromptInput {
     }
 
     public PromptInput(GeckoBundle obj) {
-        mLabel = obj.getString("label");
-        mType = obj.getString("type");
-        String id = obj.getString("id");
+        mLabel = obj.getString("label", "");
+        mType = obj.getString("type", "");
+        String id = obj.getString("id", "");
         mId = TextUtils.isEmpty(id) ? mType : id;
-        mValue = obj.getString("value");
-        mMaxValue = obj.getString("max");
-        mMinValue = obj.getString("min");
+        mValue = obj.getString("value", "");
+        mMaxValue = obj.getString("max", "");
+        mMinValue = obj.getString("min", "");
+    }
+
+    public void putInBundle(final GeckoBundle bundle) {
+        final String id = getId();
+        final Object value = getValue();
+
+        if (value == null) {
+            bundle.putBundle(id, null);
+        } else if (value instanceof Boolean) {
+            bundle.putBoolean(id, (Boolean) value);
+        } else if (value instanceof Double) {
+            bundle.putDouble(id, (Double) value);
+        } else if (value instanceof Integer) {
+            bundle.putInt(id, (Integer) value);
+        } else if (value instanceof CharSequence) {
+            bundle.putString(id, value.toString());
+        } else if (value instanceof GeckoBundle) {
+            bundle.putBundle(id, (GeckoBundle) value);
+        } else {
+            throw new UnsupportedOperationException(value.getClass().toString());
+        }
     }
 
     public static PromptInput getInput(GeckoBundle obj) {
-        String type = obj.getString("type");
+        String type = obj.getString("type", "");
         switch (type) {
             case EditInput.INPUT_TYPE:
                 return new EditInput(obj);

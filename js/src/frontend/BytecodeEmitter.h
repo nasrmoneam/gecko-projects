@@ -32,7 +32,7 @@ class TokenStream;
 class CGConstList {
     Vector<Value> list;
   public:
-    explicit CGConstList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGConstList(JSContext* cx) : list(cx) {}
     MOZ_MUST_USE bool append(const Value& v) {
         MOZ_ASSERT_IF(v.isString(), v.toString()->isAtom());
         return list.append(v);
@@ -43,12 +43,10 @@ class CGConstList {
 
 struct CGObjectList {
     uint32_t            length;     /* number of emitted so far objects */
-    ObjectBox*          firstbox;  /* first emitted object */
     ObjectBox*          lastbox;   /* last emitted object */
 
-    CGObjectList() : length(0), firstbox(nullptr), lastbox(nullptr) {}
+    CGObjectList() : length(0), lastbox(nullptr) {}
 
-    bool isAdded(ObjectBox* objbox);
     unsigned add(ObjectBox* objbox);
     unsigned indexOf(JSObject* obj);
     void finish(ObjectArray* array);
@@ -58,7 +56,7 @@ struct CGObjectList {
 struct MOZ_STACK_CLASS CGScopeList {
     Rooted<GCVector<Scope*>> vector;
 
-    explicit CGScopeList(ExclusiveContext* cx)
+    explicit CGScopeList(JSContext* cx)
       : vector(cx, GCVector<Scope*>(cx))
     { }
 
@@ -69,7 +67,7 @@ struct MOZ_STACK_CLASS CGScopeList {
 
 struct CGTryNoteList {
     Vector<JSTryNote> list;
-    explicit CGTryNoteList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGTryNoteList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(JSTryNoteKind kind, uint32_t stackDepth, size_t start, size_t end);
     size_t length() const { return list.length(); }
@@ -91,7 +89,7 @@ struct CGScopeNote : public ScopeNote
 
 struct CGScopeNoteList {
     Vector<CGScopeNote> list;
-    explicit CGScopeNoteList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGScopeNoteList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(uint32_t scopeIndex, uint32_t offset, bool inPrologue,
                              uint32_t parent);
@@ -102,7 +100,7 @@ struct CGScopeNoteList {
 
 struct CGYieldOffsetList {
     Vector<uint32_t> list;
-    explicit CGYieldOffsetList(ExclusiveContext* cx) : list(cx) {}
+    explicit CGYieldOffsetList(JSContext* cx) : list(cx) {}
 
     MOZ_MUST_USE bool append(uint32_t offset) { return list.append(offset); }
     size_t length() const { return list.length(); }
@@ -177,7 +175,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     SharedContext* const sc;      /* context shared between parsing and bytecode generation */
 
-    ExclusiveContext* const cx;
+    JSContext* const cx;
 
     BytecodeEmitter* const parent;  /* enclosing function or global context */
 
@@ -195,7 +193,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
                                        last SRC_COLSPAN-annotated opcode */
         JumpTarget lastTarget;      // Last jump target emitted.
 
-        EmitSection(ExclusiveContext* cx, uint32_t lineNum)
+        EmitSection(JSContext* cx, uint32_t lineNum)
           : code(cx), notes(cx), lastNoteOffset(0), currentLine(lineNum), lastColumn(0),
             lastTarget{ -1 - ptrdiff_t(JSOP_JUMPTARGET_LENGTH) }
         {}
@@ -352,9 +350,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     MOZ_MUST_USE bool maybeSetDisplayURL();
     MOZ_MUST_USE bool maybeSetSourceMap();
-    void tellDebuggerAboutCompiledScript(ExclusiveContext* cx);
+    void tellDebuggerAboutCompiledScript(JSContext* cx);
 
-    inline TokenStream* tokenStream();
+    inline TokenStream& tokenStream();
 
     BytecodeVector& code() const { return current->code; }
     jsbytecode* code(ptrdiff_t offset) const { return current->code.begin() + offset; }
@@ -388,7 +386,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     }
 
     bool reportError(ParseNode* pn, unsigned errorNumber, ...);
-    bool reportStrictWarning(ParseNode* pn, unsigned errorNumber, ...);
+    bool reportExtraWarning(ParseNode* pn, unsigned errorNumber, ...);
     bool reportStrictModeError(ParseNode* pn, unsigned errorNumber, ...);
 
     // If pn contains a useful expression, return true with *answer set to true.
@@ -475,6 +473,9 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     // Helper to emit JSOP_CHECKISOBJ.
     MOZ_MUST_USE bool emitCheckIsObj(CheckIsObjectKind kind);
 
+    // Helper to emit JSOP_CHECKISCALLABLE.
+    MOZ_MUST_USE bool emitCheckIsCallable(CheckIsCallableKind kind);
+
     // Emit a bytecode followed by an uint16 immediate operand stored in
     // big-endian order.
     MOZ_MUST_USE bool emitUint16Operand(JSOp op, uint32_t operand);
@@ -547,6 +548,8 @@ struct MOZ_STACK_CLASS BytecodeEmitter
 
     MOZ_MUST_USE bool emitGetNameAtLocation(JSAtom* name, const NameLocation& loc,
                                             bool callContext = false);
+    MOZ_MUST_USE bool emitGetNameAtLocationForCompoundAssignment(JSAtom* name,
+                                                                 const NameLocation& loc);
     MOZ_MUST_USE bool emitGetName(JSAtom* name, bool callContext = false) {
         return emitGetNameAtLocation(name, lookupName(name), callContext);
     }
@@ -611,7 +614,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     // Emit bytecode to put operands for a JSOP_GETELEM/CALLELEM/SETELEM/DELELEM
     // opcode onto the stack in the right order. In the case of SETELEM, the
     // value to be assigned must already be pushed.
-    enum class EmitElemOption { Get, Set, Call, IncDec, CompoundAssign };
+    enum class EmitElemOption { Get, Set, Call, IncDec, CompoundAssign, Ref };
     MOZ_MUST_USE bool emitElemOperands(ParseNode* pn, EmitElemOption opts);
 
     MOZ_MUST_USE bool emitElemOpBase(JSOp op);
@@ -644,11 +647,18 @@ struct MOZ_STACK_CLASS BytecodeEmitter
         DestructuringAssignment
     };
 
-    // emitDestructuringLHS assumes the to-be-destructured value has been pushed on
-    // the stack and emits code to destructure a single lhs expression (either a
-    // name or a compound []/{} expression).
-    MOZ_MUST_USE bool emitDestructuringLHS(ParseNode* target, DestructuringFlavor flav);
-    MOZ_MUST_USE bool emitDestructuringLHSInBranch(ParseNode* target, DestructuringFlavor flav);
+    // emitDestructuringLHSRef emits the lhs expression's reference.
+    // If the lhs expression is object property |OBJ.prop|, it emits |OBJ|.
+    // If it's object element |OBJ[ELEM]|, it emits |OBJ| and |ELEM|.
+    // If there's nothing to evaluate for the reference, it emits nothing.
+    // |emitted| parameter receives the number of values pushed onto the stack.
+    MOZ_MUST_USE bool emitDestructuringLHSRef(ParseNode* target, size_t* emitted);
+
+    // emitSetOrInitializeDestructuring assumes the lhs expression's reference
+    // and the to-be-destructured value has been pushed on the stack.  It emits
+    // code to destructure a single lhs expression (either a name or a compound
+    // []/{} expression).
+    MOZ_MUST_USE bool emitSetOrInitializeDestructuring(ParseNode* target, DestructuringFlavor flav);
 
     // emitDestructuringOps assumes the to-be-destructured value has been
     // pushed on the stack and emits code to destructure each part of a [] or
@@ -674,6 +684,12 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     // Pops iterator from the top of the stack. Pushes the result of |.next()|
     // onto the stack.
     MOZ_MUST_USE bool emitIteratorNext(ParseNode* pn, bool allowSelfHosted = false);
+    MOZ_MUST_USE bool emitIteratorClose(CompletionKind completionKind = CompletionKind::Normal,
+                                        bool allowSelfHosted = false);
+
+    template <typename InnerEmitter>
+    MOZ_MUST_USE bool wrapWithDestructuringIteratorCloseTryNote(int32_t iterDepth,
+                                                                InnerEmitter emitter);
 
     // Check if the value on top of the stack is "undefined". If so, replace
     // that value on the stack with the value defined by |defaultExpr|.
@@ -721,7 +737,7 @@ struct MOZ_STACK_CLASS BytecodeEmitter
     MOZ_MUST_USE bool emitSelfHostedCallFunction(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedResumeGenerator(ParseNode* pn);
     MOZ_MUST_USE bool emitSelfHostedForceInterpreter(ParseNode* pn);
-    MOZ_MUST_USE bool emitSelfHostedAllowContentSpread(ParseNode* pn);
+    MOZ_MUST_USE bool emitSelfHostedAllowContentIter(ParseNode* pn);
 
     MOZ_MUST_USE bool emitComprehensionFor(ParseNode* compFor);
     MOZ_MUST_USE bool emitComprehensionForIn(ParseNode* pn);

@@ -3,8 +3,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import Wait
+from marionette_harness import MarionetteTestCase
 
 
 class TestBrowserWindowShortcuts(PuppeteerMixin, MarionetteTestCase):
@@ -16,7 +16,7 @@ class TestBrowserWindowShortcuts(PuppeteerMixin, MarionetteTestCase):
 
         # TODO: To be moved to the upcoming add-ons library
         def opener(tab):
-            tab.window.send_shortcut(tab.window.get_entity('addons.commandkey'),
+            tab.window.send_shortcut(tab.window.localize_entity('addons.commandkey'),
                                      accel=True, shift=True)
         self.browser.tabbar.open_tab(opener)
 
@@ -41,7 +41,8 @@ class TestBrowserWindowShortcuts(PuppeteerMixin, MarionetteTestCase):
             key = 'searchFocusUnix.commandkey'
         else:
             key = 'searchFocus.commandkey'
-        self.browser.send_shortcut(self.browser.get_entity(key), accel=True)
+        self.browser.send_shortcut(self.browser.localize_entity(key),
+                                   accel=True)
 
         # TODO: Check that the right input box is focused
         # Located below searchbar as class="autocomplete-textbox textbox-input"

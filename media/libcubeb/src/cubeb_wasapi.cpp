@@ -4,6 +4,7 @@
  * This program is made available under an ISC-style license.  See the
  * accompanying file LICENSE for details.
  */
+#define _WIN32_WINNT 0x0600
 #define NOMINMAX
 
 #include <initguid.h>
@@ -27,6 +28,7 @@
 
 #include "cubeb/cubeb.h"
 #include "cubeb-internal.h"
+#include "cubeb_mixer.h"
 #include "cubeb_resampler.h"
 #include "cubeb_utils.h"
 
@@ -158,10 +160,6 @@ private:
   HRESULT result;
 };
 
-typedef HANDLE (WINAPI *set_mm_thread_characteristics_function)(
-                                      const char * TaskName, LPDWORD TaskIndex);
-typedef BOOL (WINAPI *revert_mm_thread_characteristics_function)(HANDLE handle);
-
 extern cubeb_ops const wasapi_ops;
 
 int wasapi_stream_stop(cubeb_stream * stm);
@@ -175,11 +173,6 @@ static std::unique_ptr<wchar_t const []> utf8_to_wstr(char const * str);
 
 struct cubeb {
   cubeb_ops const * ops = &wasapi_ops;
-  /* Library dynamically opened to increase the render thread priority, and
-     the two function pointers we need. */
-  HMODULE mmcss_module = nullptr;
-  set_mm_thread_characteristics_function set_mm_thread_characteristics = nullptr;
-  revert_mm_thread_characteristics_function revert_mm_thread_characteristics = nullptr;
 };
 
 class wasapi_endpoint_notification_client;
@@ -198,12 +191,12 @@ struct cubeb_stream {
   /* Mixer pameters. We need to convert the input stream to this
      samplerate/channel layout, as WASAPI does not resample nor upmix
      itself. */
-  cubeb_stream_params input_mix_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0 };
-  cubeb_stream_params output_mix_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0 };
+  cubeb_stream_params input_mix_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0, CUBEB_LAYOUT_UNDEFINED };
+  cubeb_stream_params output_mix_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0, CUBEB_LAYOUT_UNDEFINED };
   /* Stream parameters. This is what the client requested,
    * and what will be presented in the callback. */
-  cubeb_stream_params input_stream_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0 };
-  cubeb_stream_params output_stream_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0 };
+  cubeb_stream_params input_stream_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0, CUBEB_LAYOUT_UNDEFINED };
+  cubeb_stream_params output_stream_params = { CUBEB_SAMPLE_FLOAT32NE, 0, 0, CUBEB_LAYOUT_UNDEFINED };
   /* The input and output device, or NULL for default. */
   std::unique_ptr<const wchar_t[]> input_device;
   std::unique_ptr<const wchar_t[]> output_device;
@@ -392,21 +385,89 @@ bool has_output(cubeb_stream * stm)
   return stm->output_stream_params.rate != 0;
 }
 
-bool should_upmix(cubeb_stream_params & stream, cubeb_stream_params & mixer)
-{
-  return mixer.channels > stream.channels;
-}
-
-bool should_downmix(cubeb_stream_params & stream, cubeb_stream_params & mixer)
-{
-  return mixer.channels < stream.channels;
-}
-
 double stream_to_mix_samplerate_ratio(cubeb_stream_params & stream, cubeb_stream_params & mixer)
 {
   return double(stream.rate) / mixer.rate;
 }
 
+/* Convert the channel layout into the corresponding KSAUDIO_CHANNEL_CONFIG.
+   See more: https://msdn.microsoft.com/en-us/library/windows/hardware/ff537083(v=vs.85).aspx */
+#define MASK_DUAL_MONO      (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT)
+#define MASK_DUAL_MONO_LFE  (MASK_DUAL_MONO | SPEAKER_LOW_FREQUENCY)
+#define MASK_MONO           (KSAUDIO_SPEAKER_MONO)
+#define MASK_MONO_LFE       (MASK_MONO | SPEAKER_LOW_FREQUENCY)
+#define MASK_STEREO         (KSAUDIO_SPEAKER_STEREO)
+#define MASK_STEREO_LFE     (MASK_STEREO | SPEAKER_LOW_FREQUENCY)
+#define MASK_3F             (MASK_STEREO | SPEAKER_FRONT_CENTER)
+#define MASK_3F_LFE         (MASK_3F | SPEAKER_LOW_FREQUENCY)
+#define MASK_2F1            (MASK_STEREO | SPEAKER_BACK_CENTER)
+#define MASK_2F1_LFE        (MASK_2F1 | SPEAKER_LOW_FREQUENCY)
+#define MASK_3F1            (KSAUDIO_SPEAKER_SURROUND)
+#define MASK_3F1_LFE        (MASK_3F1 | SPEAKER_LOW_FREQUENCY)
+#define MASK_2F2            (MASK_STEREO | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT)
+#define MASK_2F2_LFE        (MASK_2F2 | SPEAKER_LOW_FREQUENCY)
+#define MASK_3F2            (MASK_3F | SPEAKER_SIDE_LEFT | SPEAKER_SIDE_RIGHT)
+#define MASK_3F2_LFE        (KSAUDIO_SPEAKER_5POINT1_SURROUND)
+#define MASK_3F3R_LFE       (MASK_3F2_LFE | SPEAKER_BACK_CENTER)
+#define MASK_3F4_LFE        (KSAUDIO_SPEAKER_7POINT1_SURROUND)
+
+static DWORD
+channel_layout_to_mask(cubeb_channel_layout layout)
+{
+  XASSERT(layout > CUBEB_LAYOUT_UNDEFINED && layout < CUBEB_LAYOUT_MAX &&
+          "This mask conversion is not allowed.");
+
+  // This variable may be used for multiple times, so we should avoid to
+  // allocate it in stack, or it will be created and removed repeatedly.
+  // Use static to allocate this local variable in data space instead of stack.
+  static DWORD map[CUBEB_LAYOUT_MAX] = {
+    0,                    // CUBEB_LAYOUT_UNDEFINED (this won't be used.)
+    MASK_DUAL_MONO,       // CUBEB_LAYOUT_DUAL_MONO
+    MASK_DUAL_MONO_LFE,   // CUBEB_LAYOUT_DUAL_MONO_LFE
+    MASK_MONO,            // CUBEB_LAYOUT_MONO
+    MASK_MONO_LFE,        // CUBEB_LAYOUT_MONO_LFE
+    MASK_STEREO,          // CUBEB_LAYOUT_STEREO
+    MASK_STEREO_LFE,      // CUBEB_LAYOUT_STEREO_LFE
+    MASK_3F,              // CUBEB_LAYOUT_3F
+    MASK_3F_LFE,          // CUBEB_LAYOUT_3F_LFE
+    MASK_2F1,             // CUBEB_LAYOUT_2F1
+    MASK_2F1_LFE,         // CUBEB_LAYOUT_2F1_LFE
+    MASK_3F1,             // CUBEB_LAYOUT_3F1
+    MASK_3F1_LFE,         // CUBEB_LAYOUT_3F1_LFE
+    MASK_2F2,             // CUBEB_LAYOUT_2F2
+    MASK_2F2_LFE,         // CUBEB_LAYOUT_2F2_LFE
+    MASK_3F2,             // CUBEB_LAYOUT_3F2
+    MASK_3F2_LFE,         // CUBEB_LAYOUT_3F2_LFE
+    MASK_3F3R_LFE,        // CUBEB_LAYOUT_3F3R_LFE
+    MASK_3F4_LFE,         // CUBEB_LAYOUT_3F4_LFE
+  };
+  return map[layout];
+}
+
+cubeb_channel_layout
+mask_to_channel_layout(DWORD mask)
+{
+  switch (mask) {
+    // MASK_DUAL_MONO(_LFE) is same as STEREO(_LFE), so we skip it.
+    case MASK_MONO: return CUBEB_LAYOUT_MONO;
+    case MASK_MONO_LFE: return CUBEB_LAYOUT_MONO_LFE;
+    case MASK_STEREO: return CUBEB_LAYOUT_STEREO;
+    case MASK_STEREO_LFE: return CUBEB_LAYOUT_STEREO_LFE;
+    case MASK_3F: return CUBEB_LAYOUT_3F;
+    case MASK_3F_LFE: return CUBEB_LAYOUT_3F_LFE;
+    case MASK_2F1: return CUBEB_LAYOUT_2F1;
+    case MASK_2F1_LFE: return CUBEB_LAYOUT_2F1_LFE;
+    case MASK_3F1: return CUBEB_LAYOUT_3F1;
+    case MASK_3F1_LFE: return CUBEB_LAYOUT_3F1_LFE;
+    case MASK_2F2: return CUBEB_LAYOUT_2F2;
+    case MASK_2F2_LFE: return CUBEB_LAYOUT_2F2_LFE;
+    case MASK_3F2: return CUBEB_LAYOUT_3F2;
+    case MASK_3F2_LFE: return CUBEB_LAYOUT_3F2_LFE;
+    case MASK_3F3R_LFE: return CUBEB_LAYOUT_3F3R_LFE;
+    case MASK_3F4_LFE: return CUBEB_LAYOUT_3F4_LFE;
+    default: return CUBEB_LAYOUT_UNDEFINED;
+  }
+}
 
 uint32_t
 get_rate(cubeb_stream * stm)
@@ -439,71 +500,13 @@ frames_to_hns(cubeb_stream * stm, uint32_t frames)
    return frames * 1000 / get_rate(stm);
 }
 
-/* Upmix function, copies a mono channel into L and R */
-template<typename T>
-void
-mono_to_stereo(T * in, long insamples, T * out, int32_t out_channels)
-{
-  for (int i = 0, j = 0; i < insamples; ++i, j += out_channels) {
-    out[j] = out[j + 1] = in[i];
-  }
-}
-
-template<typename T>
-void
-upmix(T * in, long inframes, T * out, int32_t in_channels, int32_t out_channels)
-{
-  XASSERT(out_channels >= in_channels && in_channels > 0);
-
-  /* Either way, if we have 2 or more channels, the first two are L and R. */
-  /* If we are playing a mono stream over stereo speakers, copy the data over. */
-  if (in_channels == 1 && out_channels >= 2) {
-    mono_to_stereo(in, inframes, out, out_channels);
-  } else {
-    /* Copy through. */
-    for (int i = 0, o = 0; i < inframes * in_channels;
-        i += in_channels, o += out_channels) {
-      for (int j = 0; j < in_channels; ++j) {
-        out[o + j] = in[i + j];
-      }
-    }
-  }
-
-  /* Check if more channels. */
-  if (out_channels <= 2) {
-    return;
-  }
-
-  /* Put silence in remaining channels. */
-  for (long i = 0, o = 0; i < inframes; ++i, o += out_channels) {
-    for (int j = 2; j < out_channels; ++j) {
-      out[o + j] = 0.0;
-    }
-  }
-}
-
-template<typename T>
-void
-downmix(T * in, long inframes, T * out, int32_t in_channels, int32_t out_channels)
-{
-  XASSERT(in_channels >= out_channels);
-  /* We could use a downmix matrix here, applying mixing weight based on the
-     channel, but directsound and winmm simply drop the channels that cannot be
-     rendered by the hardware, so we do the same for consistency. */
-  long out_index = 0;
-  for (long i = 0; i < inframes * in_channels; i += in_channels) {
-    for (int j = 0; j < out_channels; ++j) {
-      out[out_index + j] = in[i + j];
-    }
-    out_index += out_channels;
-  }
-}
-
 /* This returns the size of a frame in the stream, before the eventual upmix
    occurs. */
 static size_t
 frames_to_bytes_before_mix(cubeb_stream * stm, size_t frames)
 {
+  // This is called only when we has a output client.
+  XASSERT(has_output(stm));
   size_t stream_frame_size = stm->output_stream_params.channels * sizeof(float);
   return stream_frame_size * frames;
 }
@@ -519,8 +522,8 @@ refill(cubeb_stream * stm, float * input_buffer, long input_frames_count,
      avoid a copy. */
   float * dest = nullptr;
   if (has_output(stm)) {
-    if (should_upmix(stm->output_stream_params, stm->output_mix_params) ||
-        should_downmix(stm->output_stream_params, stm->output_mix_params)) {
+    if (cubeb_should_upmix(&stm->output_stream_params, &stm->output_mix_params) ||
+        cubeb_should_downmix(&stm->output_stream_params, &stm->output_mix_params)) {
       dest = stm->mix_buffer.data();
     } else {
       dest = output_buffer;
@@ -551,12 +554,13 @@ refill(cubeb_stream * stm, float * input_buffer, long input_frames_count,
   XASSERT(out_frames == output_frames_needed || stm->draining || !has_output(stm));
 
   if (has_output(stm)) {
-    if (should_upmix(stm->output_stream_params, stm->output_mix_params)) {
-      upmix(dest, out_frames, output_buffer,
-            stm->output_stream_params.channels, stm->output_mix_params.channels);
-    } else if (should_downmix(stm->output_stream_params, stm->output_mix_params)) {
-      downmix(dest, out_frames, output_buffer,
-              stm->output_stream_params.channels, stm->output_mix_params.channels);
+    if (cubeb_should_upmix(&stm->output_stream_params, &stm->output_mix_params)) {
+      cubeb_upmix_float(dest, out_frames, output_buffer,
+                        stm->output_stream_params.channels, stm->output_mix_params.channels);
+    } else if (cubeb_should_downmix(&stm->output_stream_params, &stm->output_mix_params)) {
+      cubeb_downmix_float(dest, out_frames, output_buffer,
+                          stm->output_stream_params.channels, stm->output_mix_params.channels,
+                          stm->output_stream_params.layout, stm->output_mix_params.layout);
     }
   }
 
@@ -615,23 +619,25 @@ bool get_input_buffer(cubeb_stream * stm)
       LOG("insert silence: ps=%u", packet_size);
       stm->linear_input_buffer.push_silence(packet_size * stm->input_stream_params.channels);
     } else {
-      if (should_upmix(stm->input_mix_params, stm->input_stream_params)) {
+      if (cubeb_should_upmix(&stm->input_mix_params, &stm->input_stream_params)) {
         bool ok = stm->linear_input_buffer.reserve(stm->linear_input_buffer.length() +
                                                    packet_size * stm->input_stream_params.channels);
         XASSERT(ok);
-        upmix(reinterpret_cast<float*>(input_packet), packet_size,
-              stm->linear_input_buffer.data() + stm->linear_input_buffer.length(),
-              stm->input_mix_params.channels,
-              stm->input_stream_params.channels);
+        cubeb_upmix_float(reinterpret_cast<float*>(input_packet), packet_size,
+                          stm->linear_input_buffer.data() + stm->linear_input_buffer.length(),
+                          stm->input_mix_params.channels,
+                          stm->input_stream_params.channels);
         stm->linear_input_buffer.set_length(stm->linear_input_buffer.length() + packet_size * stm->input_stream_params.channels);
-      } else if (should_downmix(stm->input_mix_params, stm->input_stream_params)) {
+      } else if (cubeb_should_downmix(&stm->input_mix_params, &stm->input_stream_params)) {
         bool ok = stm->linear_input_buffer.reserve(stm->linear_input_buffer.length() +
                                                    packet_size * stm->input_stream_params.channels);
         XASSERT(ok);
-        downmix(reinterpret_cast<float*>(input_packet), packet_size,
-                stm->linear_input_buffer.data() + stm->linear_input_buffer.length(),
-                stm->input_mix_params.channels,
-                stm->input_stream_params.channels);
+        cubeb_downmix_float(reinterpret_cast<float*>(input_packet), packet_size,
+                            stm->linear_input_buffer.data() + stm->linear_input_buffer.length(),
+                            stm->input_mix_params.channels,
+                            stm->input_stream_params.channels,
+                            stm->input_mix_params.layout,
+                            stm->input_stream_params.layout);
         stm->linear_input_buffer.set_length(stm->linear_input_buffer.length() + packet_size * stm->input_stream_params.channels);
       } else {
         stm->linear_input_buffer.push(reinterpret_cast<float*>(input_packet),
@@ -728,15 +734,6 @@ refill_callback_duplex(cubeb_stream * stm)
     return true;
   }
 
-  // When WASAPI has not filled the input buffer yet, send silence.
-  double output_duration = double(output_frames) / stm->output_mix_params.rate;
-  double input_duration = double(stm->linear_input_buffer.length() / stm->input_stream_params.channels) / stm->input_mix_params.rate;
-  if (input_duration < output_duration) {
-    size_t padding = size_t(round((output_duration - input_duration) * stm->input_mix_params.rate));
-    LOG("padding silence: out=%f in=%f pad=%u", output_duration, input_duration, padding);
-    stm->linear_input_buffer.push_front_silence(padding * stm->input_stream_params.channels);
-  }
-
   LOGV("Duplex callback: input frames: %Iu, output frames: %Iu",
        stm->linear_input_buffer.length(), output_frames);
 
@@ -781,7 +778,8 @@ refill_callback_input(cubeb_stream * stm)
                      nullptr,
                      0);
 
-  consumed_all_buffer = read == stm->linear_input_buffer.length();
+  XASSERT(read >= 0);
+  consumed_all_buffer = (unsigned long) read == stm->linear_input_buffer.length();
 
   stm->linear_input_buffer.clear();
 
@@ -817,7 +815,7 @@ refill_callback_output(cubeb_stream * stm)
        output_frames, got);
 
   XASSERT(got >= 0);
-  XASSERT(got == output_frames || stm->draining);
+  XASSERT((unsigned long) got == output_frames || stm->draining);
 
   hr = stm->render_client->ReleaseBuffer(got, 0);
   if (FAILED(hr)) {
@@ -825,7 +823,7 @@ refill_callback_output(cubeb_stream * stm)
     return false;
   }
 
-  return got == output_frames || stm->draining;
+  return (unsigned long) got == output_frames || stm->draining;
 }
 
 static unsigned int __stdcall
@@ -853,13 +851,16 @@ wasapi_stream_render_loop(LPVOID stream)
 
   /* We could consider using "Pro Audio" here for WebAudio and
      maybe WebRTC. */
-  mmcss_handle =
-    stm->context->set_mm_thread_characteristics("Audio", &mmcss_task_index);
+  mmcss_handle = AvSetMmThreadCharacteristicsA("Audio", &mmcss_task_index);
   if (!mmcss_handle) {
     /* This is not fatal, but we might glitch under heavy load. */
     LOG("Unable to use mmcss to bump the render thread priority: %lx", GetLastError());
   }
 
+  // This has already been nulled out, simply exit.
+  if (!emergency_bailout) {
+    is_playing = false;
+  }
 
   /* WaitForMultipleObjects timeout can trigger in cases where we don't want to
      treat it as a timeout, such as across a system sleep/wake cycle.  Trigger
@@ -957,23 +958,13 @@ wasapi_stream_render_loop(LPVOID stream)
   }
 
   if (mmcss_handle) {
-    stm->context->revert_mm_thread_characteristics(mmcss_handle);
+    AvRevertMmThreadCharacteristics(mmcss_handle);
   }
 
   return 0;
 }
 
 void wasapi_destroy(cubeb * context);
-
-HANDLE WINAPI set_mm_thread_characteristics_noop(const char *, LPDWORD mmcss_task_index)
-{
-  return (HANDLE)1;
-}
-
-BOOL WINAPI revert_mm_thread_characteristics_noop(HANDLE mmcss_handle)
-{
-  return true;
-}
 
 HRESULT register_notification_client(cubeb_stream * stm)
 {
@@ -1152,27 +1143,6 @@ int wasapi_init(cubeb ** context, char const * context_name)
 
   ctx->ops = &wasapi_ops;
 
-  ctx->mmcss_module = LoadLibraryA("Avrt.dll");
-
-  if (ctx->mmcss_module) {
-    ctx->set_mm_thread_characteristics =
-      (set_mm_thread_characteristics_function) GetProcAddress(
-          ctx->mmcss_module, "AvSetMmThreadCharacteristicsA");
-    ctx->revert_mm_thread_characteristics =
-      (revert_mm_thread_characteristics_function) GetProcAddress(
-          ctx->mmcss_module, "AvRevertMmThreadCharacteristics");
-    if (!(ctx->set_mm_thread_characteristics && ctx->revert_mm_thread_characteristics)) {
-      LOG("Could not load AvSetMmThreadCharacteristics or AvRevertMmThreadCharacteristics: %lx", GetLastError());
-      FreeLibrary(ctx->mmcss_module);
-    }
-  } else {
-    // This is not a fatal error, but we might end up glitching when
-    // the system is under high load.
-    LOG("Could not load Avrt.dll");
-    ctx->set_mm_thread_characteristics = &set_mm_thread_characteristics_noop;
-    ctx->revert_mm_thread_characteristics = &revert_mm_thread_characteristics_noop;
-  }
-
   *context = ctx;
 
   return CUBEB_OK;
@@ -1201,32 +1171,38 @@ bool stop_and_join_render_thread(cubeb_stream * stm)
     /* Something weird happened, leak the thread and continue the shutdown
      * process. */
     *(stm->emergency_bailout) = true;
+    // We give the ownership to the rendering thread.
+    stm->emergency_bailout = nullptr;
     LOG("Destroy WaitForSingleObject on thread timed out,"
         " leaking the thread: %lx", GetLastError());
     rv = false;
   }
   if (r == WAIT_FAILED) {
     *(stm->emergency_bailout) = true;
+    // We give the ownership to the rendering thread.
+    stm->emergency_bailout = nullptr;
     LOG("Destroy WaitForSingleObject on thread failed: %lx", GetLastError());
     rv = false;
   }
 
-  LOG("Closing thread.");
 
-  CloseHandle(stm->thread);
-  stm->thread = NULL;
+  // Only attempts to close and null out the thread and event if the
+  // WaitForSingleObject above succeeded, so that calling this function again
+  // attemps to clean up the thread and event each time.
+  if (rv) {
+    LOG("Closing thread.");
+    CloseHandle(stm->thread);
+    stm->thread = NULL;
 
-  CloseHandle(stm->shutdown_event);
-  stm->shutdown_event = 0;
+    CloseHandle(stm->shutdown_event);
+    stm->shutdown_event = 0;
+  }
 
   return rv;
 }
 
 void wasapi_destroy(cubeb * context)
 {
-  if (context->mmcss_module) {
-    FreeLibrary(context->mmcss_module);
-  }
   delete context;
 }
 
@@ -1359,6 +1335,44 @@ wasapi_get_preferred_sample_rate(cubeb * ctx, uint32_t * rate)
   return CUBEB_OK;
 }
 
+int
+wasapi_get_preferred_channel_layout(cubeb * context, cubeb_channel_layout * layout)
+{
+  HRESULT hr;
+  auto_com com;
+  if (!com.ok()) {
+    return CUBEB_ERROR;
+  }
+
+  com_ptr<IMMDevice> device;
+  hr = get_default_endpoint(device, eRender);
+  if (FAILED(hr)) {
+    return CUBEB_ERROR;
+  }
+
+  com_ptr<IAudioClient> client;
+  hr = device->Activate(__uuidof(IAudioClient),
+                        CLSCTX_INPROC_SERVER,
+                        NULL, client.receive_vpp());
+  if (FAILED(hr)) {
+    return CUBEB_ERROR;
+  }
+
+  WAVEFORMATEX * tmp = nullptr;
+  hr = client->GetMixFormat(&tmp);
+  if (FAILED(hr)) {
+    return CUBEB_ERROR;
+  }
+  com_heap_ptr<WAVEFORMATEX> mix_format(tmp);
+
+  WAVEFORMATEXTENSIBLE * format_pcm = reinterpret_cast<WAVEFORMATEXTENSIBLE *>(mix_format.get());
+  *layout = mask_to_channel_layout(format_pcm->dwChannelMask);
+
+  LOG("Preferred channel layout: %s", CUBEB_CHANNEL_LAYOUT_MAPS[*layout].name);
+
+  return CUBEB_OK;
+}
+
 void wasapi_stream_destroy(cubeb_stream * stm);
 
 /* Based on the mix format and the stream format, try to find a way to play
@@ -1366,12 +1380,7 @@ void wasapi_stream_destroy(cubeb_stream * stm);
 static void
 handle_channel_layout(cubeb_stream * stm,  com_heap_ptr<WAVEFORMATEX> & mix_format, const cubeb_stream_params * stream_params)
 {
-  /* Common case: the hardware is stereo. Up-mixing and down-mixing will be
-     handled in the callback. */
-  if (mix_format->nChannels <= 2) {
-    return;
-  }
-
+  XASSERT(stream_params->layout != CUBEB_LAYOUT_UNDEFINED);
   /* The docs say that GetMixFormat is always of type WAVEFORMATEXTENSIBLE [1],
      so the reinterpret_cast below should be safe. In practice, this is not
      true, and we just want to bail out and let the rest of the code find a good
@@ -1386,19 +1395,10 @@ handle_channel_layout(cubeb_stream * stm,  com_heap_ptr<WAVEFORMATEX> & mix_form
   /* Stash a copy of the original mix format in case we need to restore it later. */
   WAVEFORMATEXTENSIBLE hw_mix_format = *format_pcm;
 
-  /* The hardware is in surround mode, we want to only use front left and front
-     right. Try that, and check if it works. */
-  switch (stream_params->channels) {
-    case 1: /* Mono */
-      format_pcm->dwChannelMask = KSAUDIO_SPEAKER_MONO;
-      break;
-    case 2: /* Stereo */
-      format_pcm->dwChannelMask = KSAUDIO_SPEAKER_STEREO;
-      break;
-    default:
-      XASSERT(false && "Channel layout not supported.");
-      break;
-  }
+  /* Get the channel mask by the channel layout.
+     If the layout is not supported, we will get a closest settings below. */
+  format_pcm->dwChannelMask = channel_layout_to_mask(stream_params->layout);
+
   mix_format->nChannels = stream_params->channels;
   mix_format->nBlockAlign = mix_format->wBitsPerSample * mix_format->nChannels / 8;
   mix_format->nAvgBytesPerSec = mix_format->nSamplesPerSec * mix_format->nBlockAlign;
@@ -1499,16 +1499,39 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
   }
   com_heap_ptr<WAVEFORMATEX> mix_format(tmp);
 
-  handle_channel_layout(stm, mix_format, stream_params);
+  /* Set channel layout only when there're more than two channels. Otherwise,
+   * use the default setting retrieved from the stream format of the audio
+   * engine's internal processing by GetMixFormat. */
+  if (mix_format->nChannels > 2) {
+    /* Currently, we only support mono and stereo for capture stream. */
+    if (direction == eCapture) {
+      XASSERT(false && "Multichannel recording is not supported.");
+    }
+
+    handle_channel_layout(stm, mix_format, stream_params);
+  }
 
   /* Shared mode WASAPI always supports float32 sample format, so this
    * is safe. */
   mix_params->format = CUBEB_SAMPLE_FLOAT32NE;
   mix_params->rate = mix_format->nSamplesPerSec;
   mix_params->channels = mix_format->nChannels;
-  LOG("Setup requested=[f=%d r=%u c=%u] mix=[f=%d r=%u c=%u]",
+  WAVEFORMATEXTENSIBLE * format_pcm = reinterpret_cast<WAVEFORMATEXTENSIBLE *>(mix_format.get());
+  mix_params->layout = mask_to_channel_layout(format_pcm->dwChannelMask);
+  if (mix_params->layout == CUBEB_LAYOUT_UNDEFINED) {
+    LOG("Output using undefined layout!\n");
+  } else if (mix_format->nChannels != CUBEB_CHANNEL_LAYOUT_MAPS[mix_params->layout].channels) {
+    // The CUBEB_CHANNEL_LAYOUT_MAPS[mix_params->layout].channels may be
+    // different from the mix_params->channels. 6 channel ouput with stereo
+    // layout is acceptable in Windows. If this happens, it should not downmix
+    // audio according to layout.
+    LOG("Channel count is different from the layout standard!\n");
+  }
+  LOG("Setup requested=[f=%d r=%u c=%u l=%s] mix=[f=%d r=%u c=%u l=%s]",
       stream_params->format, stream_params->rate, stream_params->channels,
-      mix_params->format, mix_params->rate, mix_params->channels);
+      CUBEB_CHANNEL_LAYOUT_MAPS[stream_params->layout].name,
+      mix_params->format, mix_params->rate, mix_params->channels,
+      CUBEB_CHANNEL_LAYOUT_MAPS[mix_params->layout].name);
 
   hr = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                 AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
@@ -1530,8 +1553,8 @@ int setup_wasapi_stream_one_side(cubeb_stream * stm,
   }
   // Input is up/down mixed when depacketized in get_input_buffer.
   if (has_output(stm) &&
-      (should_upmix(*stream_params, *mix_params) ||
-       should_downmix(*stream_params, *mix_params))) {
+      (cubeb_should_upmix(stream_params, mix_params) ||
+       cubeb_should_downmix(stream_params, mix_params))) {
     stm->mix_buffer.resize(frames_to_bytes_before_mix(stm, *buffer_frame_count));
   }
 
@@ -1580,6 +1603,21 @@ int setup_wasapi_stream(cubeb_stream * stm)
                                       stm->input_available_event,
                                       stm->capture_client,
                                       &stm->input_mix_params);
+
+    // We initializing an input stream, buffer ahead two buffers worth of silence.
+    // This delays the input side slightly, but allow to not glitch when no input
+    // is available when calling into the resampler to call the callback: the input
+    // refill event will be set shortly after to compensate for this lack of data.
+    // In debug, four buffers are used, to avoid tripping up assertions down the line.
+#if !defined(NDEBUG)
+    const int silent_buffer_count = 2;
+#else
+    const int silent_buffer_count = 4;
+#endif
+    stm->linear_input_buffer.push_silence(stm->input_buffer_frame_count *
+                                          stm->input_stream_params.channels *
+                                          silent_buffer_count);
+
     if (rv != CUBEB_OK) {
       LOG("Failure to open the input side.");
       return rv;
@@ -1712,10 +1750,14 @@ wasapi_stream_init(cubeb * context, cubeb_stream ** stream,
   if (input_stream_params) {
     stm->input_stream_params = *input_stream_params;
     stm->input_device = utf8_to_wstr(reinterpret_cast<char const *>(input_device));
+    // Make sure the layout matches the channel count.
+    XASSERT(stm->input_stream_params.channels == CUBEB_CHANNEL_LAYOUT_MAPS[stm->input_stream_params.layout].channels);
   }
   if (output_stream_params) {
     stm->output_stream_params = *output_stream_params;
     stm->output_device = utf8_to_wstr(reinterpret_cast<char const *>(output_device));
+    // Make sure the layout matches the channel count.
+    XASSERT(stm->output_stream_params.channels == CUBEB_CHANNEL_LAYOUT_MAPS[stm->output_stream_params.layout].channels);
   }
 
   stm->latency = latency_frames;
@@ -1795,9 +1837,6 @@ void wasapi_stream_destroy(cubeb_stream * stm)
   if (stop_and_join_render_thread(stm)) {
     delete stm->emergency_bailout.load();
     stm->emergency_bailout = nullptr;
-  } else {
-    // If we're leaking, it must be that this is true.
-    XASSERT(*(stm->emergency_bailout));
   }
 
   unregister_notification_client(stm);
@@ -1859,10 +1898,10 @@ int stream_start_one_side(cubeb_stream * stm, StreamDirection dir)
 
 int wasapi_stream_start(cubeb_stream * stm)
 {
+  auto_lock lock(stm->stream_reset_lock);
+
   XASSERT(stm && !stm->thread && !stm->shutdown_event);
   XASSERT(stm->output_client || stm->input_client);
-
-  auto_lock lock(stm->stream_reset_lock);
 
   stm->emergency_bailout = new std::atomic<bool>(false);
 
@@ -1921,11 +1960,11 @@ int wasapi_stream_stop(cubeb_stream * stm)
       }
     }
 
-
     stm->state_callback(stm, stm->user_ptr, CUBEB_STATE_STOPPED);
   }
 
   if (stop_and_join_render_thread(stm)) {
+    // This is null if we've given the pointer to the other thread
     if (stm->emergency_bailout.load()) {
       delete stm->emergency_bailout.load();
       stm->emergency_bailout = nullptr;
@@ -2252,6 +2291,7 @@ cubeb_ops const wasapi_ops = {
   /*.get_max_channel_count =*/ wasapi_get_max_channel_count,
   /*.get_min_latency =*/ wasapi_get_min_latency,
   /*.get_preferred_sample_rate =*/ wasapi_get_preferred_sample_rate,
+  /*.get_preferred_channel_layout =*/ wasapi_get_preferred_channel_layout,
   /*.enumerate_devices =*/ wasapi_enumerate_devices,
   /*.destroy =*/ wasapi_destroy,
   /*.stream_init =*/ wasapi_stream_init,

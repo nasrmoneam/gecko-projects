@@ -9,7 +9,7 @@
 #include "mozilla/net/PCookieServiceParent.h"
 
 class nsCookieService;
-namespace mozilla { class NeckoOriginAttributes; }
+namespace mozilla { class OriginAttributes; }
 
 namespace mozilla {
 namespace net {
@@ -25,16 +25,14 @@ protected:
 
   virtual mozilla::ipc::IPCResult RecvGetCookieString(const URIParams& aHost,
                                                       const bool& aIsForeign,
-                                                      const bool& aFromHttp,
-                                                      const NeckoOriginAttributes& aAttrs,
+                                                      const OriginAttributes& aAttrs,
                                                       nsCString* aResult) override;
 
   virtual mozilla::ipc::IPCResult RecvSetCookieString(const URIParams& aHost,
                                                       const bool& aIsForeign,
                                                       const nsCString& aCookieString,
                                                       const nsCString& aServerTime,
-                                                      const bool& aFromHttp,
-                                                      const NeckoOriginAttributes& aAttrs) override;
+                                                      const OriginAttributes& aAttrs) override;
 
   RefPtr<nsCookieService> mCookieService;
 };

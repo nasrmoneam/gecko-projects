@@ -19,6 +19,8 @@
 #include "Client.h"
 #include "PersistenceType.h"
 
+#include "prenv.h"
+
 #define QUOTA_MANAGER_CONTRACTID "@mozilla.org/dom/quota/manager;1"
 
 class mozIStorageConnection;
@@ -42,11 +44,7 @@ class QuotaObject;
 class NS_NO_VTABLE RefCountedObject
 {
 public:
-  NS_IMETHOD_(MozExternalRefCountType)
-  AddRef() = 0;
-
-  NS_IMETHOD_(MozExternalRefCountType)
-  Release() = 0;
+  NS_INLINE_DECL_PURE_VIRTUAL_REFCOUNTING
 };
 
 class DirectoryLock
@@ -113,7 +111,11 @@ private:
 public:
   NS_INLINE_DECL_REFCOUNTING(QuotaManager)
 
-  static const bool kRunningXPCShellTests;
+  static bool IsRunningXPCShellTests()
+  {
+    static bool kRunningXPCShellTests = !!PR_GetEnv("XPCSHELL_TEST_PROFILE_DIR");
+    return kRunningXPCShellTests;
+  }
 
   static const char kReplaceChars[];
 
@@ -250,9 +252,9 @@ public:
 
   // XXX RemoveMe once bug 1170279 gets fixed.
   void
-  OpenDirectoryInternal(Nullable<PersistenceType> aPersistenceType,
+  OpenDirectoryInternal(const Nullable<PersistenceType>& aPersistenceType,
                         const OriginScope& aOriginScope,
-                        Nullable<Client::Type> aClientType,
+                        const Nullable<Client::Type>& aClientType,
                         bool aExclusive,
                         OpenDirectoryListener* aOpenListener);
 
@@ -405,11 +407,11 @@ private:
   Shutdown();
 
   already_AddRefed<DirectoryLockImpl>
-  CreateDirectoryLock(Nullable<PersistenceType> aPersistenceType,
+  CreateDirectoryLock(const Nullable<PersistenceType>& aPersistenceType,
                       const nsACString& aGroup,
                       const OriginScope& aOriginScope,
-                      Nullable<bool> aIsApp,
-                      Nullable<Client::Type> aClientType,
+                      const Nullable<bool>& aIsApp,
+                      const Nullable<Client::Type>& aClientType,
                       bool aExclusive,
                       bool aInternal,
                       OpenDirectoryListener* aOpenListener);
@@ -449,11 +451,11 @@ private:
   MaybeRemoveOldDirectories();
 
   nsresult
-  UpgradeStorageFrom0ToCurrent(mozIStorageConnection* aConnection);
+  UpgradeStorageFrom0_0To1_0(mozIStorageConnection* aConnection);
 
 #if 0
   nsresult
-  UpgradeStorageFrom1To2(mozIStorageConnection* aConnection);
+  UpgradeStorageFrom1_0To2_0(mozIStorageConnection* aConnection);
 #endif
 
   nsresult

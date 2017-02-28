@@ -46,9 +46,9 @@
 #include "nsNPAPIPluginInstance.h"
 #include "mozilla/dom/Performance.h"
 #include "mozilla/dom/WindowBinding.h"
+#include "mozilla/GeckoRestyleManager.h"
 #include "mozilla/RestyleManager.h"
-#include "mozilla/RestyleManagerHandle.h"
-#include "mozilla/RestyleManagerHandleInlines.h"
+#include "mozilla/RestyleManagerInlines.h"
 #include "Layers.h"
 #include "imgIContainer.h"
 #include "mozilla/dom/ScriptSettings.h"
@@ -69,6 +69,10 @@
 #include "nsAnimationManager.h"
 #include "nsIDOMEvent.h"
 #include "nsDisplayList.h"
+
+#ifdef MOZ_XUL
+#include "nsXULPopupManager.h"
+#endif
 
 using namespace mozilla;
 using namespace mozilla::widget;
@@ -311,18 +315,17 @@ protected:
 
     LOG("[%p] ticking drivers...", this);
     // RD is short for RefreshDriver
-    profiler_tracing("Paint", "RD", TRACING_INTERVAL_START);
+    GeckoProfilerTracingRAII tracer("Paint", "RefreshDriverTick");
 
     TickRefreshDrivers(jsnow, now, mContentRefreshDrivers);
     TickRefreshDrivers(jsnow, now, mRootRefreshDrivers);
 
-    profiler_tracing("Paint", "RD", TRACING_INTERVAL_END);
     LOG("[%p] done.", this);
   }
 
   static void TickDriver(nsRefreshDriver* driver, int64_t jsnow, TimeStamp now)
   {
-    LOG(">> TickDriver: %p (jsnow: %lld)", driver, jsnow);
+    LOG(">> TickDriver: %p (jsnow: %" PRId64 ")", driver, jsnow);
     driver->Tick(jsnow, now);
   }
 
@@ -482,6 +485,34 @@ private:
       MOZ_ASSERT(NS_IsMainThread());
     }
 
+    class ParentProcessVsyncNotifier final: public Runnable,
+                                            public nsIRunnablePriority
+    {
+    public:
+      ParentProcessVsyncNotifier(RefreshDriverVsyncObserver* aObserver,
+                                 TimeStamp aVsyncTimestamp)
+        : mObserver(aObserver), mVsyncTimestamp(aVsyncTimestamp) {}
+
+      NS_DECL_ISUPPORTS_INHERITED
+
+      NS_IMETHOD Run() override
+      {
+        mObserver->TickRefreshDriver(mVsyncTimestamp);
+        return NS_OK;
+      }
+
+      NS_IMETHOD GetPriority(uint32_t* aPriority) override
+      {
+        *aPriority = nsIRunnablePriority::PRIORITY_HIGH;
+        return NS_OK;
+      }
+
+    private:
+      ~ParentProcessVsyncNotifier() {}
+      RefPtr<RefreshDriverVsyncObserver> mObserver;
+      TimeStamp mVsyncTimestamp;
+    };
+
     bool NotifyVsync(TimeStamp aVsyncTimestamp) override
     {
       if (!NS_IsMainThread()) {
@@ -499,11 +530,24 @@ private:
         }
 
         nsCOMPtr<nsIRunnable> vsyncEvent =
-             NewRunnableMethod<TimeStamp>(this,
-                                          &RefreshDriverVsyncObserver::TickRefreshDriver,
-                                          aVsyncTimestamp);
+          new ParentProcessVsyncNotifier(this, aVsyncTimestamp);
         NS_DispatchToMainThread(vsyncEvent);
       } else {
+        mRecentVsync = aVsyncTimestamp;
+        if (!mBlockUntil.IsNull() && mBlockUntil > aVsyncTimestamp) {
+          if (mProcessedVsync) {
+            // Re-post vsync update as a normal priority runnable. This way
+            // runnables already in normal priority queue get processed.
+            mProcessedVsync = false;
+            nsCOMPtr<nsIRunnable> vsyncEvent =
+              NewRunnableMethod<>(
+                this, &RefreshDriverVsyncObserver::NormalPriorityNotify);
+            NS_DispatchToMainThread(vsyncEvent);
+          }
+
+          return true;
+        }
+
         TickRefreshDriver(aVsyncTimestamp);
       }
 
@@ -522,6 +566,19 @@ private:
         mLastChildTick = TimeStamp::Now();
       }
     }
+
+    void NormalPriorityNotify()
+    {
+      if (mLastProcessedTickInChildProcess.IsNull() ||
+          mRecentVsync > mLastProcessedTickInChildProcess) {
+        // mBlockUntil is for high priority vsync notifications only.
+        mBlockUntil = TimeStamp();
+        TickRefreshDriver(mRecentVsync);
+      }
+
+      mProcessedVsync = true;
+    }
+
   private:
     ~RefreshDriverVsyncObserver() = default;
 
@@ -553,7 +610,9 @@ private:
       } else {
         // Request the vsync rate from the parent process. Might be a few vsyncs
         // until the parent responds.
-        mVsyncRate = mVsyncRefreshDriverTimer->mVsyncChild->GetVsyncRate();
+        if (mVsyncRefreshDriverTimer) {
+          mVsyncRate = mVsyncRefreshDriverTimer->mVsyncChild->GetVsyncRate();
+        }
       }
     #endif
     }
@@ -578,7 +637,9 @@ private:
         aVsyncTimestamp = mRecentVsync;
         mProcessedVsync = true;
       } else {
+
         mLastChildTick = TimeStamp::Now();
+        mLastProcessedTickInChildProcess = aVsyncTimestamp;
       }
       MOZ_ASSERT(aVsyncTimestamp <= TimeStamp::Now());
 
@@ -587,6 +648,11 @@ private:
       // before use.
       if (mVsyncRefreshDriverTimer) {
         mVsyncRefreshDriverTimer->RunRefreshDrivers(aVsyncTimestamp);
+      }
+
+      if (!XRE_IsParentProcess()) {
+        TimeDuration tickDuration = TimeStamp::Now() - mLastChildTick;
+        mBlockUntil = aVsyncTimestamp + tickDuration;
       }
     }
 
@@ -597,6 +663,8 @@ private:
     Monitor mRefreshTickLock;
     TimeStamp mRecentVsync;
     TimeStamp mLastChildTick;
+    TimeStamp mLastProcessedTickInChildProcess;
+    TimeStamp mBlockUntil;
     TimeDuration mVsyncRate;
     bool mProcessedVsync;
   }; // RefreshDriverVsyncObserver
@@ -678,6 +746,11 @@ private:
   RefPtr<VsyncChild> mVsyncChild;
   TimeDuration mVsyncRate;
 }; // VsyncRefreshDriverTimer
+
+NS_IMPL_ISUPPORTS_INHERITED(VsyncRefreshDriverTimer::
+                            RefreshDriverVsyncObserver::
+                            ParentProcessVsyncNotifier,
+                            Runnable, nsIRunnablePriority)
 
 /**
  * Since the content process takes some time to setup
@@ -1048,17 +1121,6 @@ nsRefreshDriver::GetMinRecomputeVisibilityInterval()
   return TimeDuration::FromMilliseconds(interval);
 }
 
-/* static */ mozilla::TimeDuration
-nsRefreshDriver::GetMinNotifyIntersectionObserversInterval()
-{
-  int32_t interval =
-    Preferences::GetInt("layout.visibility.min-notify-intersection-observers-interval-ms", -1);
-  if (interval <= 0) {
-    interval = DEFAULT_NOTIFY_INTERSECTION_OBSERVERS_INTERVAL_MS;
-  }
-  return TimeDuration::FromMilliseconds(interval);
-}
-
 double
 nsRefreshDriver::GetRefreshTimerInterval() const
 {
@@ -1091,8 +1153,6 @@ nsRefreshDriver::ChooseTimer() const
 
 nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
   : mActiveTimer(nullptr),
-    mReflowCause(nullptr),
-    mStyleCause(nullptr),
     mPresContext(aPresContext),
     mRootRefresh(nullptr),
     mPendingTransaction(0),
@@ -1101,8 +1161,6 @@ nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
     mThrottledFrameRequestInterval(TimeDuration::FromMilliseconds(
                                      GetThrottledTimerInterval())),
     mMinRecomputeVisibilityInterval(GetMinRecomputeVisibilityInterval()),
-    mMinNotifyIntersectionObserversInterval(
-      GetMinNotifyIntersectionObserversInterval()),
     mThrottled(false),
     mNeedToRecomputeVisibility(false),
     mTestControllingRefreshes(false),
@@ -1123,7 +1181,6 @@ nsRefreshDriver::nsRefreshDriver(nsPresContext* aPresContext)
   mMostRecentTick = mMostRecentRefresh;
   mNextThrottledFrameRequestTick = mMostRecentTick;
   mNextRecomputeVisibilityTick = mMostRecentTick;
-  mNextNotifyIntersectionObserversTick = mMostRecentTick;
 
   ++sRefreshDriverCount;
 }
@@ -1139,16 +1196,9 @@ nsRefreshDriver::~nsRefreshDriver()
              "sRefreshDriverCount!");
 
   if (mRootRefresh) {
-    mRootRefresh->RemoveRefreshObserver(this, Flush_Style);
+    mRootRefresh->RemoveRefreshObserver(this, FlushType::Style);
     mRootRefresh = nullptr;
   }
-  for (nsIPresShell* shell : mPresShellsToInvalidateIfHidden) {
-    shell->InvalidatePresShellIfHidden();
-  }
-  mPresShellsToInvalidateIfHidden.Clear();
-
-  profiler_free_backtrace(mStyleCause);
-  profiler_free_backtrace(mReflowCause);
 }
 
 // Method for testing.  See nsIDOMWindowUtils.advanceTimeAndRefresh
@@ -1190,7 +1240,11 @@ nsRefreshDriver::RestoreNormalRefresh()
 TimeStamp
 nsRefreshDriver::MostRecentRefresh() const
 {
-  const_cast<nsRefreshDriver*>(this)->EnsureTimerStarted();
+  // In case of stylo traversal, we have already activated the refresh driver in
+  // ServoRestyleManager::ProcessPendingRestyles().
+  if (!ServoStyleSet::IsInServoTraversal()) {
+    const_cast<nsRefreshDriver*>(this)->EnsureTimerStarted();
+  }
 
   return mMostRecentRefresh;
 }
@@ -1205,7 +1259,7 @@ nsRefreshDriver::MostRecentRefreshEpochTime() const
 
 bool
 nsRefreshDriver::AddRefreshObserver(nsARefreshObserver* aObserver,
-                                    mozFlushType aFlushType)
+                                    FlushType aFlushType)
 {
   ObserverArray& array = ArrayFor(aFlushType);
   bool success = array.AppendElement(aObserver) != nullptr;
@@ -1215,7 +1269,7 @@ nsRefreshDriver::AddRefreshObserver(nsARefreshObserver* aObserver,
 
 bool
 nsRefreshDriver::RemoveRefreshObserver(nsARefreshObserver* aObserver,
-                                       mozFlushType aFlushType)
+                                       FlushType aFlushType)
 {
   ObserverArray& array = ArrayFor(aFlushType);
   return array.RemoveElement(aObserver);
@@ -1273,6 +1327,10 @@ nsRefreshDriver::RemoveImageRequest(imgIRequest* aRequest)
 void
 nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags)
 {
+  MOZ_ASSERT(!ServoStyleSet::IsInServoTraversal(),
+             "EnsureTimerStarted should be called only when we are not "
+             "in servo traversal");
+
   if (mTestControllingRefreshes)
     return;
 
@@ -1456,18 +1514,17 @@ nsRefreshDriver::ImageRequestCount() const
 }
 
 nsRefreshDriver::ObserverArray&
-nsRefreshDriver::ArrayFor(mozFlushType aFlushType)
+nsRefreshDriver::ArrayFor(FlushType aFlushType)
 {
   switch (aFlushType) {
-    case Flush_Style:
+    case FlushType::Style:
       return mObservers[0];
-    case Flush_Layout:
+    case FlushType::Layout:
       return mObservers[1];
-    case Flush_Display:
+    case FlushType::Display:
       return mObservers[2];
     default:
-      MOZ_ASSERT(false, "bad flush type");
-      return *static_cast<ObserverArray*>(nullptr);
+      MOZ_CRASH("We don't track refresh observers for this flush type");
   }
 }
 
@@ -1586,7 +1643,8 @@ nsRefreshDriver::DispatchPendingEvents()
 static bool
 CollectDocuments(nsIDocument* aDocument, void* aDocArray)
 {
-  static_cast<nsCOMArray<nsIDocument>*>(aDocArray)->AppendObject(aDocument);
+  static_cast<AutoTArray<nsCOMPtr<nsIDocument>, 32>*>(aDocArray)->
+    AppendElement(aDocument);
   aDocument->EnumerateSubDocuments(CollectDocuments, aDocArray);
   return true;
 }
@@ -1598,10 +1656,10 @@ nsRefreshDriver::DispatchAnimationEvents()
     return;
   }
 
-  nsCOMArray<nsIDocument> documents;
+  AutoTArray<nsCOMPtr<nsIDocument>, 32> documents;
   CollectDocuments(mPresContext->Document(), &documents);
 
-  for (int32_t i = 0; i < documents.Count(); ++i) {
+  for (uint32_t i = 0; i < documents.Length(); ++i) {
     nsIDocument* doc = documents[i];
     nsIPresShell* shell = doc->GetShell();
     if (!shell) {
@@ -1688,7 +1746,7 @@ nsRefreshDriver::RunFrameRequestCallbacks(TimeStamp aNowTime)
   mFrameRequestCallbackDocs.Clear();
 
   if (!frameRequestCallbacks.IsEmpty()) {
-    profiler_tracing("Paint", "Scripts", TRACING_INTERVAL_START);
+    GeckoProfilerTracingRAII tracer("Paint", "Scripts");
     for (const DocumentFrameCallbacks& docCallbacks : frameRequestCallbacks) {
       // XXXbz Bug 863140: GetInnerWindow can return the outer
       // window in some cases.
@@ -1706,7 +1764,6 @@ nsRefreshDriver::RunFrameRequestCallbacks(TimeStamp aNowTime)
         callback->Call(timeStamp);
       }
     }
-    profiler_tracing("Paint", "Scripts", TRACING_INTERVAL_END);
   }
 }
 
@@ -1755,7 +1812,7 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
   }
   mMostRecentTick = aNowTime;
   if (mRootRefresh) {
-    mRootRefresh->RemoveRefreshObserver(this, Flush_Style);
+    mRootRefresh->RemoveRefreshObserver(this, FlushType::Style);
     mRootRefresh = nullptr;
   }
   mSkippedPaints = false;
@@ -1810,14 +1867,14 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
     }
 
     if (i == 0) {
-      // This is the Flush_Style case.
+      // This is the FlushType::Style case.
 
       DispatchAnimationEvents();
       DispatchPendingEvents();
       RunFrameRequestCallbacks(aNowTime);
 
       if (mPresContext && mPresContext->GetPresShell()) {
-        bool tracingStyleFlush = false;
+        Maybe<GeckoProfilerTracingRAII> tracingStyleFlush;
         AutoTArray<nsIPresShell*, 16> observers;
         observers.AppendElements(mStyleFlushObservers);
         for (uint32_t j = observers.Length();
@@ -1829,17 +1886,16 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
             continue;
 
           if (!tracingStyleFlush) {
-            tracingStyleFlush = true;
-            profiler_tracing("Paint", "Styles", mStyleCause, TRACING_INTERVAL_START);
+            tracingStyleFlush.emplace("Paint", "Styles", Move(mStyleCause));
             mStyleCause = nullptr;
           }
 
           nsCOMPtr<nsIPresShell> shellKungFuDeathGrip(shell);
           mStyleFlushObservers.RemoveElement(shell);
-          RestyleManagerHandle restyleManager =
+          RestyleManager* restyleManager =
             shell->GetPresContext()->RestyleManager();
           restyleManager->SetObservingRefreshDriver(false);
-          shell->FlushPendingNotifications(ChangesToFlush(Flush_Style, false));
+          shell->FlushPendingNotifications(ChangesToFlush(FlushType::Style, false));
           // Inform the FontFaceSet that we ticked, so that it can resolve its
           // ready promise if it needs to (though it might still be waiting on
           // a layout flush).
@@ -1849,15 +1905,10 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
           }
           mNeedToRecomputeVisibility = true;
         }
-
-
-        if (tracingStyleFlush) {
-          profiler_tracing("Paint", "Styles", TRACING_INTERVAL_END);
-        }
       }
     } else if  (i == 1) {
-      // This is the Flush_Layout case.
-      bool tracingLayoutFlush = false;
+      // This is the FlushType::Layout case.
+      Maybe<GeckoProfilerTracingRAII> tracingLayoutFlush;
       AutoTArray<nsIPresShell*, 16> observers;
       observers.AppendElements(mLayoutFlushObservers);
       for (uint32_t j = observers.Length();
@@ -1869,8 +1920,7 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
           continue;
 
         if (!tracingLayoutFlush) {
-          tracingLayoutFlush = true;
-          profiler_tracing("Paint", "Reflow", mReflowCause, TRACING_INTERVAL_START);
+          tracingLayoutFlush.emplace("Paint", "Reflow");
           mReflowCause = nullptr;
         }
 
@@ -1878,9 +1928,9 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
         mLayoutFlushObservers.RemoveElement(shell);
         shell->mReflowScheduled = false;
         shell->mSuppressInterruptibleReflows = false;
-        mozFlushType flushType = HasPendingAnimations(shell)
-                               ? Flush_Layout
-                               : Flush_InterruptibleLayout;
+        FlushType flushType = HasPendingAnimations(shell)
+                               ? FlushType::Layout
+                               : FlushType::InterruptibleLayout;
         shell->FlushPendingNotifications(ChangesToFlush(flushType, false));
         // Inform the FontFaceSet that we ticked, so that it can resolve its
         // ready promise if it needs to.
@@ -1889,10 +1939,6 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
           presContext->NotifyFontFaceSetOnRefresh();
         }
         mNeedToRecomputeVisibility = true;
-      }
-
-      if (tracingLayoutFlush) {
-        profiler_tracing("Paint", "Reflow", TRACING_INTERVAL_END);
       }
     }
 
@@ -1914,20 +1960,21 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
     presShell->ScheduleApproximateFrameVisibilityUpdateNow();
   }
 
-  bool notifyIntersectionObservers = false;
-  if (aNowTime >= mNextNotifyIntersectionObserversTick) {
-    mNextNotifyIntersectionObserversTick =
-      aNowTime + mMinNotifyIntersectionObserversInterval;
-    notifyIntersectionObservers = true;
+#ifdef MOZ_XUL
+  // Update any popups that may need to be moved or hidden due to their
+  // anchor changing.
+  nsXULPopupManager* pm = nsXULPopupManager::GetInstance();
+  if (pm) {
+    pm->UpdatePopupPositions(this);
   }
+#endif
+
   nsCOMArray<nsIDocument> documents;
   CollectDocuments(mPresContext->Document(), &documents);
   for (int32_t i = 0; i < documents.Count(); ++i) {
     nsIDocument* doc = documents[i];
     doc->UpdateIntersectionObservations();
-    if (notifyIntersectionObservers) {
-      doc->ScheduleIntersectionObserverNotification();
-    }
+    doc->ScheduleIntersectionObserverNotification();
   }
 
   /*
@@ -1985,11 +2032,6 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
       imagesToRefresh[i]->RequestRefresh(aNowTime);
     }
   }
-
-  for (nsIPresShell* shell : mPresShellsToInvalidateIfHidden) {
-    shell->InvalidatePresShellIfHidden();
-  }
-  mPresShellsToInvalidateIfHidden.Clear();
 
   bool notifyGC = false;
   if (mViewManagerFlushIsPending) {
@@ -2052,6 +2094,7 @@ nsRefreshDriver::Tick(int64_t aNowEpoch, TimeStamp aNowTime)
   }
 
   if (notifyGC && nsContentUtils::XPConnect()) {
+    GeckoProfilerTracingRAII tracer("Paint", "NotifyDidPaint");
     nsContentUtils::XPConnect()->NotifyDidPaint();
     nsJSContext::NotifyDidPaint();
   }
@@ -2110,9 +2153,8 @@ nsRefreshDriver::FinishedWaitingForTransaction()
   if (mSkippedPaints &&
       !IsInRefresh() &&
       (ObserverCount() || ImageRequestCount())) {
-    profiler_tracing("Paint", "RD", TRACING_INTERVAL_START);
+    GeckoProfilerTracingRAII tracer("Paint", "RefreshDriverTick");
     DoRefresh();
-    profiler_tracing("Paint", "RD", TRACING_INTERVAL_END);
   }
   mSkippedPaints = false;
   mWarningThreshold = 1;
@@ -2175,7 +2217,7 @@ nsRefreshDriver::NotifyTransactionCompleted(uint64_t aTransactionId)
 void
 nsRefreshDriver::WillRefresh(mozilla::TimeStamp aTime)
 {
-  mRootRefresh->RemoveRefreshObserver(this, Flush_Style);
+  mRootRefresh->RemoveRefreshObserver(this, FlushType::Style);
   mRootRefresh = nullptr;
   if (mSkippedPaints) {
     DoRefresh();
@@ -2212,9 +2254,9 @@ nsRefreshDriver::IsWaitingForPaint(mozilla::TimeStamp aTime)
       if (rootRefresh->IsWaitingForPaint(aTime)) {
         if (mRootRefresh != rootRefresh) {
           if (mRootRefresh) {
-            mRootRefresh->RemoveRefreshObserver(this, Flush_Style);
+            mRootRefresh->RemoveRefreshObserver(this, FlushType::Style);
           }
-          rootRefresh->AddRefreshObserver(this, Flush_Style);
+          rootRefresh->AddRefreshObserver(this, FlushType::Style);
           mRootRefresh = rootRefresh;
         }
         mSkippedPaints = true;
@@ -2267,7 +2309,7 @@ nsRefreshDriver::DoRefresh()
 #ifdef DEBUG
 bool
 nsRefreshDriver::IsRefreshObserver(nsARefreshObserver* aObserver,
-                                   mozFlushType aFlushType)
+                                   FlushType aFlushType)
 {
   ObserverArray& array = ArrayFor(aFlushType);
   return array.Contains(aObserver);
@@ -2323,7 +2365,7 @@ nsRefreshDriver::ScheduleEventDispatch(nsINode* aTarget, nsIDOMEvent* aEvent)
 void
 nsRefreshDriver::CancelPendingEvents(nsIDocument* aDocument)
 {
-  for (auto i : Reversed(MakeRange(mPendingEvents.Length()))) {
+  for (auto i : Reversed(IntegerRange(mPendingEvents.Length()))) {
     if (mPendingEvents[i].mTarget->OwnerDoc() == aDocument) {
       mPendingEvents.RemoveElementAt(i);
     }

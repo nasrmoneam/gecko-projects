@@ -33,14 +33,15 @@ function doTest() {
     gBrowser.addTab("about:blank", {skipAnimation: true});
   gBrowser.pinTab(tabs[0]);
 
-  tabstrip.addEventListener("overflow", runOverflowTests, false);
+  tabstrip.addEventListener("overflow", runOverflowTests);
 }
 
 function runOverflowTests(aEvent) {
-  if (aEvent.detail != 1)
+  if (aEvent.detail != 1 ||
+      aEvent.target != tabstrip)
     return;
 
-  tabstrip.removeEventListener("overflow", runOverflowTests, false);
+  tabstrip.removeEventListener("overflow", runOverflowTests);
 
   var upButton = tabstrip._scrollButtonUp;
   var downButton = tabstrip._scrollButtonDown;

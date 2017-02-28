@@ -116,8 +116,8 @@ else
 LIBRARY			:= $(REAL_LIBRARY).$(LIBS_DESC_SUFFIX)
 endif
 else
-# Only build actual library if it is installed in DIST/lib or SDK
-ifeq (,$(SDK_LIBRARY)$(DIST_INSTALL)$(NO_EXPAND_LIBS))
+# Only build actual library if it is installed in DIST/lib
+ifeq (,$(DIST_INSTALL)$(NO_EXPAND_LIBS))
 LIBRARY			:= $(REAL_LIBRARY).$(LIBS_DESC_SUFFIX)
 else
 ifdef NO_EXPAND_LIBS
@@ -153,22 +153,7 @@ endif # LIBRARY
 ifeq ($(OS_ARCH),WINNT)
 ifndef GNU_CC
 
-#
-# Unless we're building SIMPLE_PROGRAMS, all C++ files share a PDB file per
-# directory. For parallel builds, this PDB file is shared and locked by
-# MSPDBSRV.EXE, starting with MSVC8 SP1. If you're using MSVC 7.1 or MSVC8
-# without SP1, don't do parallel builds.
-#
-# The final PDB for libraries and programs is created by the linker and uses
-# a different name from the single PDB file created by the compiler. See
-# bug 462740.
-#
-
-ifdef SIMPLE_PROGRAMS
 COMPILE_PDB_FLAG ?= -Fd$(basename $(@F)).pdb
-else
-COMPILE_PDB_FLAG ?= -Fdgenerated.pdb
-endif
 COMPILE_CFLAGS += $(COMPILE_PDB_FLAG)
 COMPILE_CXXFLAGS += $(COMPILE_PDB_FLAG)
 
@@ -206,8 +191,11 @@ HOST_CFLAGS += $(HOST_PDB_FLAG)
 HOST_CXXFLAGS += $(HOST_PDB_FLAG)
 endif
 
-# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass
+# Don't build SIMPLE_PROGRAMS during the MOZ_PROFILE_GENERATE pass, and do not
+# attempt to install them
 ifdef MOZ_PROFILE_GENERATE
+$(foreach category,$(INSTALL_TARGETS),\
+  $(eval $(category)_FILES := $(foreach file,$($(category)_FILES),$(if $(filter $(SIMPLE_PROGRAMS),$(notdir $(file))),,$(file)))))
 SIMPLE_PROGRAMS :=
 endif
 
@@ -249,7 +237,6 @@ SIMPLE_PROGRAMS :=
 HOST_LIBRARY :=
 HOST_PROGRAM :=
 HOST_SIMPLE_PROGRAMS :=
-SDK_LIBRARY :=
 endif
 
 ALL_TRASH = \
@@ -547,7 +534,7 @@ OBJ_TARGETS = $(OBJS) $(PROGOBJS) $(HOST_OBJS) $(HOST_PROGOBJS)
 
 compile:: host target
 
-host:: $(HOST_LIBRARY) $(HOST_PROGRAM) $(HOST_SIMPLE_PROGRAMS) $(HOST_RUST_PROGRAMS)
+host:: $(HOST_LIBRARY) $(HOST_PROGRAM) $(HOST_SIMPLE_PROGRAMS) $(HOST_RUST_PROGRAMS) $(HOST_RUST_LIBRARY_FILE)
 
 target:: $(LIBRARY) $(SHARED_LIBRARY) $(PROGRAM) $(SIMPLE_PROGRAMS) $(RUST_LIBRARY_FILE) $(RUST_PROGRAMS)
 
@@ -912,14 +899,14 @@ cargo_target_flag := --target=$(RUST_TARGET)
 # Permit users to pass flags to cargo from their mozconfigs (e.g. --color=always).
 cargo_build_flags = $(CARGOFLAGS)
 ifndef MOZ_DEBUG
-cargo_build_flags = --release
+cargo_build_flags += --release
 endif
-ifdef MOZ_CARGO_SUPPORTS_FROZEN
 cargo_build_flags += --frozen
-endif
 
 cargo_build_flags += --manifest-path $(CARGO_FILE)
+ifdef BUILD_VERBOSE_LOG
 cargo_build_flags += --verbose
+endif
 
 # Enable color output if original stdout was a TTY and color settings
 # aren't already present. This essentially restores the default behavior
@@ -939,10 +926,23 @@ endif
 # optimization level here, if necessary.  (The Cargo.toml files already
 # specify debug-assertions appropriately for --{disable,enable}-debug.)
 ifndef MOZ_OPTIMIZE
-rustflags_override = RUSTFLAGS='-C opt-level=0'
+rustflags = -C opt-level=0
+# Unfortunately, -C opt-level=0 implies -C debug-assertions, so we need
+# to explicitly disable them when MOZ_DEBUG is not set.
+ifndef MOZ_DEBUG
+rustflags += -C debug-assertions=no
+endif
+rustflags_override = RUSTFLAGS='$(rustflags)'
 endif
 
-CARGO_BUILD = env $(rustflags_override) CARGO_TARGET_DIR=. RUSTC=$(RUSTC) MOZ_DIST=$(DIST) $(CARGO) build $(cargo_build_flags)
+CARGO_BUILD = env $(rustflags_override) \
+	CARGO_TARGET_DIR=$(CARGO_TARGET_DIR) \
+	RUSTC=$(RUSTC) \
+	MOZ_DIST=$(ABS_DIST) \
+	LIBCLANG_PATH=$(MOZ_LIBCLANG_PATH) \
+	CLANG_PATH=$(MOZ_CLANG_PATH) \
+	PKG_CONFIG_ALLOW_CROSS=1 \
+	$(CARGO) build $(cargo_build_flags)
 
 ifdef RUST_LIBRARY_FILE
 
@@ -961,6 +961,19 @@ force-cargo-library-build:
 
 $(RUST_LIBRARY_FILE): force-cargo-library-build
 endif # RUST_LIBRARY_FILE
+
+ifdef HOST_RUST_LIBRARY_FILE
+
+ifdef HOST_RUST_LIBRARY_FEATURES
+host_rust_features_flag := --features "$(HOST_RUST_LIBRARY_FEATURES)"
+endif
+
+force-cargo-host-library-build:
+	$(REPORT_BUILD)
+	$(CARGO_BUILD) --lib $(cargo_host_flag) $(host_rust_features_flag)
+
+$(HOST_RUST_LIBRARY_FILE): force-cargo-host-library-build
+endif # HOST_RUST_LIBRARY_FILE
 
 ifdef RUST_PROGRAMS
 force-cargo-program-build:
@@ -1176,18 +1189,6 @@ PREF_DIR = defaults/pref
 ifneq (,$(DIST_SUBDIR)$(XPI_NAME))
 PREF_DIR = defaults/preferences
 endif
-
-################################################################################
-# SDK
-
-ifneq (,$(SDK_LIBRARY))
-ifndef NO_DIST_INSTALL
-SDK_LIBRARY_FILES := $(SDK_LIBRARY)
-SDK_LIBRARY_DEST := $(SDK_LIB_DIR)
-SDK_LIBRARY_TARGET := target
-INSTALL_TARGETS += SDK_LIBRARY
-endif
-endif # SDK_LIBRARY
 
 ################################################################################
 # CHROME PACKAGING
@@ -1532,12 +1533,6 @@ endif #}
 documentation:
 	@cd $(DEPTH)
 	$(DOXYGEN) $(DEPTH)/config/doxygen.cfg
-
-ifdef ENABLE_TESTS
-check::
-	$(LOOP_OVER_DIRS)
-endif
-
 
 FREEZE_VARIABLES = \
   CSRCS \

@@ -349,7 +349,8 @@ imgRequestProxy::CancelAndForgetObserver(nsresult aStatus)
   mIsInLoadGroup = oldIsInLoadGroup;
 
   if (mIsInLoadGroup) {
-    NS_DispatchToCurrentThread(NewRunnableMethod(this, &imgRequestProxy::DoRemoveFromLoadGroup));
+    NS_DispatchToCurrentThread(NewRunnableMethod("imgRequestProxy::DoRemoveFromLoadGroup",
+                                                 this, &imgRequestProxy::DoRemoveFromLoadGroup));
   }
 
   NullOutListener();
@@ -373,6 +374,24 @@ imgRequestProxy::StartDecoding(uint32_t aFlags)
   }
 
   return NS_OK;
+}
+
+bool
+imgRequestProxy::StartDecodingWithResult(uint32_t aFlags)
+{
+  // Flag this, so we know to transfer the request if our owner changes
+  mDecodeRequested = true;
+
+  RefPtr<Image> image = GetImage();
+  if (image) {
+    return image->StartDecodingWithResult(aFlags);
+  }
+
+  if (GetOwner()) {
+    GetOwner()->StartDecoding();
+  }
+
+  return false;
 }
 
 NS_IMETHODIMP

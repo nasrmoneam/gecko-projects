@@ -105,20 +105,13 @@ def locFromTok(p, num):
 ##-----------------------------------------------------------------------------
 
 reserved = set((
-        'answer',
-        'as',
         'async',
         'both',
-        'bridges',
-        'call',
         'child',
         'class',
         'compress',
         'compressall',
-        '__delete__',
-        'delete',                       # reserve 'delete' to prevent its use
         'from',
-        'goto',
         'include',
         'intr',
         'manager',
@@ -126,17 +119,11 @@ reserved = set((
         'namespace',
         'nested',
         'nullable',
-        'opens',
         'or',
         'parent',
         'prio',
         'protocol',
-        'recv',
         'returns',
-        'send',
-        'spawns',
-        'start',
-        'state',
         'struct',
         'sync',
         'union',
@@ -348,7 +335,7 @@ def p_ProtocolDefn(p):
     protocol = p[5]
     protocol.loc = locFromTok(p, 2)
     protocol.name = p[3]
-    protocol.nestedRange = p[1][0]
+    protocol.nested = p[1][0]
     protocol.sendSemantics = p[1][1]
     p[0] = protocol
 
@@ -357,61 +344,9 @@ def p_ProtocolDefn(p):
 
 
 def p_ProtocolBody(p):
-    """ProtocolBody : SpawnsStmtsOpt"""
+    """ProtocolBody : ManagersStmtOpt"""
     p[0] = p[1]
 
-##--------------------
-## spawns/bridges/opens stmts
-
-def p_SpawnsStmtsOpt(p):
-    """SpawnsStmtsOpt : SpawnsStmt SpawnsStmtsOpt
-                      | BridgesStmtsOpt"""
-    if 2 == len(p):
-        p[0] = p[1]
-    else:
-        p[2].spawnsStmts.insert(0, p[1])
-        p[0] = p[2]
-
-def p_SpawnsStmt(p):
-    """SpawnsStmt : PARENT SPAWNS ID AsOpt ';'
-                  | CHILD SPAWNS ID AsOpt ';'"""
-    p[0] = SpawnsStmt(locFromTok(p, 1), p[1], p[3], p[4])
-
-def p_AsOpt(p):
-    """AsOpt : AS PARENT
-             | AS CHILD
-             | """
-    if 3 == len(p):
-        p[0] = p[2]
-    else:
-        p[0] = 'child'
-
-def p_BridgesStmtsOpt(p):
-    """BridgesStmtsOpt : BridgesStmt BridgesStmtsOpt
-                       | OpensStmtsOpt"""
-    if 2 == len(p):
-        p[0] = p[1]
-    else:
-        p[2].bridgesStmts.insert(0, p[1])
-        p[0] = p[2]
-
-def p_BridgesStmt(p):
-    """BridgesStmt : BRIDGES ID ',' ID ';'"""
-    p[0] = BridgesStmt(locFromTok(p, 1), p[2], p[4])
-
-def p_OpensStmtsOpt(p):
-    """OpensStmtsOpt : OpensStmt OpensStmtsOpt
-                     | ManagersStmtOpt"""
-    if 2 == len(p):
-        p[0] = p[1]
-    else:
-        p[2].opensStmts.insert(0, p[1])
-        p[0] = p[2]
-
-def p_OpensStmt(p):
-    """OpensStmt : PARENT OPENS ID ';'
-                 | CHILD OPENS ID ';'"""
-    p[0] = OpensStmt(locFromTok(p, 1), p[1], p[3])
 
 ##--------------------
 ## manager/manages stmts
@@ -460,9 +395,10 @@ def p_ManagesStmt(p):
 
 def p_MessageDeclsOpt(p):
     """MessageDeclsOpt : MessageDeclThing MessageDeclsOpt
-                       | TransitionStmtsOpt"""
-    if 2 == len(p):
-        p[0] = p[1]
+                       | """
+    if 1 == len(p):
+        # we fill in |loc| in the Protocol rule
+        p[0] = Protocol(None)
     else:
         p[2].messageDecls.insert(0, p[1])
         p[0] = p[2]
@@ -502,25 +438,16 @@ def p_MessageDecl(p):
     p[0] = msg
 
 def p_MessageBody(p):
-    """MessageBody : MessageId MessageInParams MessageOutParams OptionalMessageModifiers"""
+    """MessageBody : ID MessageInParams MessageOutParams OptionalMessageModifiers"""
     # FIXME/cjones: need better loc info: use one of the quals
-    loc, name = p[1]
-    msg = MessageDecl(loc)
+    name = p[1]
+    msg = MessageDecl(locFromTok(p, 1))
     msg.name = name
     msg.addInParams(p[2])
     msg.addOutParams(p[3])
     msg.addModifiers(p[4])
 
     p[0] = msg
-
-def p_MessageId(p):
-    """MessageId : ID
-                 | __DELETE__
-                 | DELETE"""
-    loc = locFromTok(p, 1)
-    if 'delete' == p[1]:
-        _error(loc, "`delete' is a reserved identifier")
-    p[0] = [ loc, p[1] ]
 
 def p_MessageInParams(p):
     """MessageInParams : '(' ParamList ')'"""
@@ -560,71 +487,6 @@ def p_MessageCompress(p):
                        | COMPRESSALL"""
     p[0] = p[1]
 
-##--------------------
-## State machine
-
-def p_TransitionStmtsOpt(p):
-    """TransitionStmtsOpt : TransitionStmt TransitionStmtsOpt
-                          |"""
-    if 1 == len(p):
-        # we fill in |loc| in the Protocol rule
-        p[0] = Protocol(None)
-    else:
-        p[2].transitionStmts.insert(0, p[1])
-        p[0] = p[2]
-
-def p_TransitionStmt(p):
-    """TransitionStmt : OptionalStart STATE State ':' Transitions"""
-    p[3].start = p[1]
-    p[0] = TransitionStmt(locFromTok(p, 2), p[3], p[5])
-
-def p_OptionalStart(p):
-    """OptionalStart : START
-                     | """
-    p[0] = (len(p) == 2)                # True iff 'start' specified
-
-def p_Transitions(p):
-    """Transitions : Transitions Transition
-                   | Transition"""
-    if 3 == len(p):
-        p[1].append(p[2])
-        p[0] = p[1]
-    else:
-        p[0] = [ p[1] ]
-
-def p_Transition(p):
-    """Transition : Trigger ID GOTO StateList ';'
-                  | Trigger __DELETE__ ';'
-                  | Trigger DELETE ';'"""
-    if 'delete' == p[2]:
-        _error(locFromTok(p, 1), "`delete' is a reserved identifier")
-
-    loc, trigger = p[1]
-    if 6 == len(p):
-        nextstates = p[4]
-    else:
-        nextstates = [ State.DEAD ]
-    p[0] = Transition(loc, trigger, p[2], nextstates)
-
-def p_Trigger(p):
-    """Trigger : SEND
-               | RECV
-               | CALL
-               | ANSWER"""
-    p[0] = [ locFromTok(p, 1), Transition.nameToTrigger(p[1]) ]
-
-def p_StateList(p):
-    """StateList : StateList OR State
-                 | State"""
-    if 2 == len(p):
-        p[0] = [ p[1] ]
-    else:
-        p[1].append(p[3])
-        p[0] = p[1]
-
-def p_State(p):
-    """State : ID"""
-    p[0] = State(locFromTok(p, 1), p[1])
 
 ##--------------------
 ## Minor stuff
@@ -683,7 +545,7 @@ def p_OptionalProtocolSendSemanticsQual(p):
     """OptionalProtocolSendSemanticsQual : ProtocolSendSemanticsQual
                                          | """
     if 2 == len(p): p[0] = p[1]
-    else:           p[0] = [ (NOT_NESTED, NOT_NESTED), ASYNC ]
+    else:           p[0] = [ NOT_NESTED, ASYNC ]
 
 def p_ProtocolSendSemanticsQual(p):
     """ProtocolSendSemanticsQual : ASYNC
@@ -693,10 +555,10 @@ def p_ProtocolSendSemanticsQual(p):
                                  | INTR"""
     if p[1] == 'nested':
         mtype = p[6]
-        nested = (NOT_NESTED, p[4])
+        nested = p[4]
     else:
         mtype = p[1]
-        nested = (NOT_NESTED, NOT_NESTED)
+        nested = NOT_NESTED
 
     if mtype == 'async': mtype = ASYNC
     elif mtype == 'sync': mtype = SYNC

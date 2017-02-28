@@ -142,6 +142,10 @@ public:
                                      LayoutDeviceIntPoint aPoint,
                                      CSSIntPoint aDefaultPoint);
 
+  static already_AddRefed<Event> Constructor(EventTarget* aEventTarget,
+                                             const nsAString& aType,
+                                             const EventInit& aParam);
+
   static already_AddRefed<Event> Constructor(const GlobalObject& aGlobal,
                                              const nsAString& aType,
                                              const EventInit& aParam,
@@ -283,6 +287,9 @@ protected:
   {
     mEvent->SetComposed(aComposed);
   }
+
+  already_AddRefed<EventTarget>
+  EnsureWebAccessibleRelatedTarget(EventTarget* aRelatedTarget);
 
   mozilla::WidgetEvent*       mEvent;
   RefPtr<nsPresContext>     mPresContext;

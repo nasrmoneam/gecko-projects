@@ -34,6 +34,7 @@
 #include "VsyncSource.h"
 #endif
 #include "mozilla/widget/CompositorWidget.h"
+#include "VRManager.h"
 
 namespace mozilla {
 
@@ -83,7 +84,6 @@ CompositorVsyncScheduler::CompositorVsyncScheduler(CompositorVsyncSchedulerOwner
   , mSetNeedsCompositeMonitor("SetNeedsCompositeMonitor")
   , mSetNeedsCompositeTask(nullptr)
 {
-  MOZ_ASSERT(NS_IsMainThread() || XRE_GetProcessType() == GeckoProcessType_GPU);
   mVsyncObserver = new Observer(this);
 
   // mAsapScheduling is set on the main thread during init,
@@ -189,6 +189,11 @@ CompositorVsyncScheduler::SetNeedsComposite()
   mNeedsComposite++;
   if (!mIsObservingVsync && mNeedsComposite) {
     ObserveVsync();
+    // Starting to observe vsync is an async operation that goes
+    // through the main thread of the UI process. It's possible that
+    // we're blocking there waiting on a composite, so schedule an initial
+    // one now to get things started.
+    PostCompositeTask(TimeStamp::Now());
   }
 }
 

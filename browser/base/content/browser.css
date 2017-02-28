@@ -324,6 +324,10 @@ toolbarpaletteitem > toolbaritem[sdkstylewidget="true"][cui-areatype="toolbar"] 
   .webextension-page-action {
     list-style-image: var(--webextension-urlbar-image);
   }
+
+  .webextension-menuitem {
+    list-style-image: var(--webextension-menuitem-image);
+  }
 }
 
 @media (min-resolution: 1.1dppx) {
@@ -339,6 +343,15 @@ toolbarpaletteitem > toolbaritem[sdkstylewidget="true"][cui-areatype="toolbar"] 
   .webextension-page-action {
     list-style-image: var(--webextension-urlbar-image-2x);
   }
+
+  .webextension-menuitem {
+    list-style-image: var(--webextension-menuitem-image-2x);
+  }
+}
+
+toolbarbutton.webextension-menuitem > .toolbarbutton-icon {
+  width: 16px;
+  height: 16px;
 }
 
 toolbarpaletteitem[removable="false"] {
@@ -434,13 +447,7 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
   background-position: bottom left;
 }
 
-.menuitem-tooltip {
-  -moz-binding: url("chrome://browser/content/urlbarBindings.xml#menuitem-tooltip");
-}
-
-.menuitem-iconic-tooltip,
-.menuitem-tooltip[type="checkbox"],
-.menuitem-tooltip[type="radio"] {
+.menuitem-iconic-tooltip {
   -moz-binding: url("chrome://browser/content/urlbarBindings.xml#menuitem-iconic-tooltip");
 }
 
@@ -565,16 +572,19 @@ toolbar:not(#TabsToolbar) > #personal-bookmarks {
   visibility: collapse;
 }
 
+#urlbar[pageproxystate="invalid"] > #identity-box > #blocked-permissions-container,
+#urlbar[pageproxystate="invalid"] > #identity-box > #notification-popup-box,
 #urlbar[pageproxystate="invalid"] > #identity-box > #identity-icon-labels {
   visibility: collapse;
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box {
-  pointer-events: none;
+#identity-box {
+  -moz-user-focus: normal;
 }
 
-#urlbar[pageproxystate="invalid"] > #identity-box > #notification-popup-box {
-  pointer-events: auto;
+#urlbar[pageproxystate="invalid"] > #identity-box {
+  pointer-events: none;
+  -moz-user-focus: ignore;
 }
 
 #identity-icon-labels {
@@ -813,7 +823,6 @@ html|*#fullscreen-exit-button {
 .popup-anchor {
   /* should occupy space but not be visible */
   opacity: 0;
-  visibility: hidden;
   pointer-events: none;
   -moz-stack-sizing: ignore;
 }

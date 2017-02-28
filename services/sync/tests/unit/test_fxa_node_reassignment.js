@@ -18,6 +18,8 @@ Cu.import("resource://services-sync/browserid_identity.js");
 Cu.import("resource://testing-common/services/sync/utils.js");
 Cu.import("resource://gre/modules/PromiseUtils.jsm");
 
+// Disables all built-in engines. Important for avoiding errors thrown by the
+// add-ons engine.
 Service.engineManager.clear();
 
 function run_test() {
@@ -28,8 +30,6 @@ function run_test() {
   Log.repository.getLogger("Sync.Service").level       = Log.Level.Trace;
   Log.repository.getLogger("Sync.SyncScheduler").level = Log.Level.Trace;
   initTestLogging();
-
-  Service.engineManager.register(RotaryEngine);
 
   // Setup the FxA identity manager and cluster manager.
   Status.__authManager = Service.identity = new BrowserIDManager();
@@ -80,12 +80,12 @@ function prepareServer(cbAfterTokenFetch) {
   let numReassigns = 0;
   return configureIdentity(config).then(() => {
     Service.identity._tokenServerClient = {
-      getTokenFromBrowserIDAssertion: function(uri, assertion, cb) {
+      getTokenFromBrowserIDAssertion(uri, assertion, cb) {
         // Build a new URL with trailing zeros for the SYNC_VERSION part - this
         // will still be seen as equivalent by the test server, but different
         // by sync itself.
         numReassigns += 1;
-        let trailingZeros = new Array(numReassigns + 1).join('0');
+        let trailingZeros = new Array(numReassigns + 1).join("0");
         let token = config.fxaccount.token;
         token.endpoint = server.baseURI + "1.1" + trailingZeros + "/johndoe";
         token.uid = config.username;
@@ -104,12 +104,12 @@ function getReassigned() {
   try {
     return Services.prefs.getBoolPref("services.sync.lastSyncReassigned");
   } catch (ex) {
-    if (ex.result == Cr.NS_ERROR_UNEXPECTED) {
-      return false;
+    if (ex.result != Cr.NS_ERROR_UNEXPECTED) {
+      do_throw("Got exception retrieving lastSyncReassigned: " +
+               Log.exceptionStr(ex));
     }
-    do_throw("Got exception retrieving lastSyncReassigned: " +
-             Log.exceptionStr(ex));
   }
+  return false;
 }
 
 /**
@@ -144,7 +144,7 @@ async function syncAndExpectNodeReassignment(server, firstNotification, between,
 
       // Make absolutely sure that any event listeners are done with their work
       // before we proceed.
-      waitForZeroTimer(function () {
+      waitForZeroTimer(function() {
         _("Second sync nextTick.");
         do_check_eq(numTokenRequests, numTokenRequestsBefore + 1, "fetched a new token");
         Service.startOver();
@@ -161,7 +161,7 @@ async function syncAndExpectNodeReassignment(server, firstNotification, between,
   if (Service.isLoggedIn) {
     _("Making request to " + url + " which should 401");
     let request = new RESTRequest(url);
-    request.get(function () {
+    request.get(function() {
       do_check_eq(request.response.status, 401);
       Utils.nextTick(onwards);
     });
@@ -210,8 +210,7 @@ add_task(async function test_momentary_401_engine() {
   let john   = server.user("johndoe");
 
   _("Enabling the Rotary engine.");
-  let engine = Service.engineManager.get("rotary");
-  engine.enabled = true;
+  let { engine, tracker } = registerRotaryEngine();
 
   // We need the server to be correctly set up prior to experimenting. Do this
   // through a sync.
@@ -253,6 +252,9 @@ add_task(async function test_momentary_401_engine() {
                                       between,
                                       "weave:service:sync:finish",
                                       Service.storageURL + "rotary");
+
+  tracker.clearChangedIDs();
+  Service.engineManager.unregister(engine);
 });
 
 // This test ends up being a failing info fetch *after we're already logged in*.

@@ -9,7 +9,7 @@
 #include <algorithm>
 
 #include "mozilla/Preferences.h"
-#include "mozilla/dom/File.h"
+#include "mozilla/dom/FileBlobImpl.h"
 #include "mozilla/dom/FileSystemBase.h"
 #include "mozilla/dom/FileSystemUtils.h"
 #include "mozilla/dom/PFileSystemParams.h"
@@ -20,6 +20,7 @@
 #include "mozilla/ipc/PBackgroundChild.h"
 #include "nsIFile.h"
 #include "nsNetUtil.h"
+#include "nsIInputStream.h"
 #include "nsIOutputStream.h"
 #include "nsStringGlue.h"
 
@@ -140,11 +141,8 @@ CreateFileTaskChild::SetSuccessRequestResult(const FileSystemResponseValue& aVal
 
   const FileSystemFileResponse& r = aValue.get_FileSystemFileResponse();
 
-  NS_ConvertUTF16toUTF8 path(r.realPath());
-  aRv = NS_NewNativeLocalFile(path, true, getter_AddRefs(mTargetPath));
-  if (NS_WARN_IF(aRv.Failed())) {
-    return;
-  }
+  mBlobImpl = static_cast<BlobChild*>(r.blobChild())->GetBlobImpl();
+  MOZ_ASSERT(mBlobImpl);
 }
 
 void
@@ -163,9 +161,10 @@ CreateFileTaskChild::HandlerCallback()
     return;
   }
 
-  RefPtr<File> file = File::CreateFromFile(mFileSystem->GetParentObject(),
-                                           mTargetPath);
+  RefPtr<File> file = File::Create(mFileSystem->GetParentObject(), mBlobImpl);
   mPromise->MaybeResolve(file);
+
+  mBlobImpl = nullptr;
   mPromise = nullptr;
 }
 
@@ -194,8 +193,8 @@ CreateFileTaskParent::Create(FileSystemBase* aFileSystem,
   RefPtr<CreateFileTaskParent> task =
     new CreateFileTaskParent(aFileSystem, aParam, aParent);
 
-  NS_ConvertUTF16toUTF8 path(aParam.realPath());
-  aRv = NS_NewNativeLocalFile(path, true, getter_AddRefs(task->mTargetPath));
+  aRv = NS_NewLocalFile(aParam.realPath(), true,
+                        getter_AddRefs(task->mTargetPath));
   if (NS_WARN_IF(aRv.Failed())) {
     return nullptr;
   }
@@ -234,13 +233,10 @@ CreateFileTaskParent::GetSuccessRequestResult(ErrorResult& aRv) const
 {
   AssertIsOnBackgroundThread();
 
-  nsAutoString path;
-  aRv = mTargetPath->GetPath(path);
-  if (NS_WARN_IF(aRv.Failed())) {
-    return FileSystemDirectoryResponse();
-  }
-
-  return FileSystemFileResponse(path, EmptyString());
+  RefPtr<BlobImpl> blobImpl = new FileBlobImpl(mTargetPath);
+  BlobParent* blobParent =
+    BlobParent::GetOrCreate(mRequestParent->Manager(), blobImpl);
+  return FileSystemFileResponse(blobParent, nullptr);
 }
 
 nsresult

@@ -10,6 +10,7 @@
 #include <math.h>
 
 #include "DrawMode.h"
+#include "DrawResult.h"
 #include "gfx2DGlue.h"
 #include "gfxMatrix.h"
 #include "gfxPoint.h"
@@ -39,7 +40,6 @@ class nsSVGElement;
 class nsSVGEnum;
 class nsSVGLength2;
 class nsSVGOuterSVGFrame;
-class nsSVGPathGeometryFrame;
 class nsTextFrame;
 
 struct nsStyleSVG;
@@ -48,6 +48,7 @@ struct nsRect;
 namespace mozilla {
 class SVGContextPaint;
 struct SVGContextPaintImpl;
+class SVGGeometryFrame;
 namespace dom {
 class Element;
 class UserSpaceMetrics;
@@ -186,6 +187,7 @@ public:
   typedef mozilla::gfx::Size Size;
   typedef mozilla::SVGContextPaint SVGContextPaint;
   typedef mozilla::SVGContextPaintImpl SVGContextPaintImpl;
+  typedef mozilla::SVGGeometryFrame SVGGeometryFrame;
   typedef mozilla::image::DrawResult DrawResult;
 
   static void Init();
@@ -194,10 +196,9 @@ public:
 
   /**
    * Gets the nearest nsSVGInnerSVGFrame or nsSVGOuterSVGFrame frame. aFrame
-   * must be an SVG frame. If aFrame is of type nsGkAtoms::svgOuterSVGFrame,
-   * returns nullptr.
+   * must be an SVG frame.
    */
-  static nsSVGDisplayContainerFrame* GetNearestSVGViewport(nsIFrame *aFrame);
+  static nsIFrame* GetNearestSVGViewport(nsIFrame *aFrame);
 
   /**
    * Returns the frame's post-filter visual overflow rect when passed the
@@ -482,7 +483,7 @@ public:
                                                nsTextFrame* aFrame,
                                                const gfxMatrix& aMatrix);
   static gfxRect PathExtentsToMaxStrokeExtents(const gfxRect& aPathExtents,
-                                               nsSVGPathGeometryFrame* aFrame,
+                                               SVGGeometryFrame* aFrame,
                                                const gfxMatrix& aMatrix);
 
   /**
@@ -595,6 +596,15 @@ public:
 
   static float
   ComputeOpacity(nsIFrame* aFrame, bool aHandleOpacity);
+
+  /**
+   * SVG frames expect to paint in SVG user units, which are equal to CSS px
+   * units. This method provides a transform matrix to multiply onto a
+   * gfxContext's current transform to convert the context's current units from
+   * its usual dev pixels to SVG user units/CSS px to keep the SVG code happy.
+   */
+  static gfxMatrix
+  GetCSSPxToDevPxMatrix(nsIFrame* aNonSVGFrame);
 };
 
 #endif

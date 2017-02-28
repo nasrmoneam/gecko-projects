@@ -128,9 +128,6 @@ class MachCommands(MachCommandBase):
     @CommandArgument('--message',
                      required=True,
                      help='Commit message to be parsed. Example: "try: -b do -p all -u all"')
-    @CommandArgument('--revision-hash',
-                     required=True,
-                     help='Treeherder revision hash (long revision id) to attach results to')
     @CommandArgument('--project',
                      required=True,
                      help='Project to use for creating task graph. Example: --project=try')
@@ -171,7 +168,7 @@ class MachCommands(MachCommandBase):
             sys.exit(1)
 
     @SubCommand('taskgraph', 'action-task',
-                description="Run the action task")
+                description="Run the add-tasks task. DEPRECATED! Use 'add-tasks' instead.")
     @CommandArgument('--root', '-r',
                      default='taskcluster/ci',
                      help="root of the taskgraph definition relative to topsrcdir")
@@ -189,7 +186,129 @@ class MachCommands(MachCommandBase):
         import taskgraph.action
         try:
             self.setup_logging()
-            return taskgraph.action.taskgraph_action(options)
+            return taskgraph.action.add_tasks(options['decision_id'],
+                                              options['task_labels'].split(','))
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+    @SubCommand('taskgraph', 'add-tasks',
+                description="Run the add-tasks task")
+    @CommandArgument('--root', '-r',
+                     default='taskcluster/ci',
+                     help="root of the taskgraph definition relative to topsrcdir")
+    @CommandArgument('--decision-id',
+                     required=True,
+                     help="Decision Task ID of the reference decision task")
+    @CommandArgument('--task-labels',
+                     required=True,
+                     help='Comma separated list of task labels to be scheduled')
+    def taskgraph_add_tasks(self, **options):
+        """Run the action task: Generates a task graph using the set of labels
+        provided in the task-labels parameter. It uses the full-task file of
+        the gecko decision task."""
+
+        import taskgraph.action
+        try:
+            self.setup_logging()
+            return taskgraph.action.add_tasks(options['decision_id'],
+                                              options['task_labels'].split(','))
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+    @SubCommand('taskgraph', 'backfill',
+                description="Run the backfill task")
+    @CommandArgument('--root', '-r',
+                     default='taskcluster/ci',
+                     help="root of the taskgraph definition relative to topsrcdir")
+    @CommandArgument('--project',
+                     required=True,
+                     help="Project of the jobs that need to be backfilled.")
+    @CommandArgument('--job-id',
+                     required=True,
+                     help="Id of the job to be backfilled.")
+    def taskgraph_backfill(self, **options):
+        """Run the backfill task: Given a job in a project, it will
+        add that job type to any previous revisions in treeherder
+        until either a hard limit is met or a green version of that
+        job is found."""
+
+        import taskgraph.action
+        try:
+            self.setup_logging()
+            return taskgraph.action.backfill(options['project'], options['job_id'])
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+    @SubCommand('taskgraph', 'cron',
+                description="Run the cron task")
+    @CommandArgument('--base-repository',
+                     required=True,
+                     help='URL for "base" repository to clone')
+    @CommandArgument('--head-repository',
+                     required=True,
+                     help='URL for "head" repository to fetch')
+    @CommandArgument('--head-ref',
+                     required=True,
+                     help='Reference to fetch in head-repository (usually "default")')
+    @CommandArgument('--project',
+                     required=True,
+                     help='Project to use for creating tasks. Example: --project=mozilla-central')
+    @CommandArgument('--level',
+                     required=True,
+                     help='SCM level of this repository')
+    @CommandArgument('--force-run',
+                     required=False,
+                     help='If given, force this cronjob to run regardless of time, '
+                     'and run no others')
+    @CommandArgument('--no-create',
+                     required=False,
+                     action='store_true',
+                     help='Do not actually create tasks')
+    def taskgraph_cron(self, **options):
+        """Run the cron task; this task creates zero or more decision tasks.  It is run
+        from the hooks service on a regular basis."""
+        import taskgraph.cron
+        try:
+            self.setup_logging()
+            return taskgraph.cron.taskgraph_cron(options)
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+    @SubCommand('taskgraph', 'add-talos',
+                description="Run the add-talos task")
+    @CommandArgument('--root', '-r',
+                     default='taskcluster/ci',
+                     help="root of the taskgraph definition relative to topsrcdir")
+    @CommandArgument('--decision-task-id',
+                     required=True,
+                     help="Id of the decision task that is part of the push to be talos'd")
+    @CommandArgument('--times',
+                     required=False,
+                     default=1,
+                     type=int,
+                     help="Number of times to add each job.")
+    def taskgraph_add_talos(self, **options):
+        """Add all talos jobs for a push."""
+
+        import taskgraph.action
+        try:
+            self.setup_logging()
+            return taskgraph.action.add_talos(options['decision_task_id'], options['times'])
+        except Exception:
+            traceback.print_exc()
+            sys.exit(1)
+
+    @SubCommand('taskgraph', 'action-callback',
+                description='Run action callback used by action tasks')
+    def action_callback(self, **options):
+        import actions
+        try:
+            self.setup_logging()
+            return actions.trigger_action_callback()
         except Exception:
             traceback.print_exc()
             sys.exit(1)

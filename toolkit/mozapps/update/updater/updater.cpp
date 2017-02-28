@@ -899,9 +899,8 @@ static int rename_file(const NS_tchar *spath, const NS_tchar *dpath,
       LOG(("rename_file: path present, but not a file: " LOG_S ", err: %d",
            spath, errno));
       return RENAME_ERROR_EXPECTED_FILE;
-    } else {
-      LOG(("rename_file: proceeding to rename the directory"));
     }
+    LOG(("rename_file: proceeding to rename the directory"));
   }
 
   if (!NS_taccess(dpath, F_OK)) {
@@ -3501,10 +3500,25 @@ int NS_main(int argc, NS_tchar **argv)
       *d = NS_T('\0');
       ++d;
 
+      const size_t callbackBackupPathBufSize =
+        sizeof(gCallbackBackupPath)/sizeof(gCallbackBackupPath[0]);
+      const int callbackBackupPathLen =
+        NS_tsnprintf(gCallbackBackupPath, callbackBackupPathBufSize,
+                     NS_T("%s" CALLBACK_BACKUP_EXT), argv[callbackIndex]);
+
+      if (callbackBackupPathLen < 0 ||
+          callbackBackupPathLen >= static_cast<int>(callbackBackupPathBufSize)) {
+        LOG(("NS_main: callback backup path truncated"));
+        LogFinish();
+        WriteStatusFile(USAGE_ERROR);
+
+        // Don't attempt to launch the callback when the callback path is
+        // longer than expected.
+        EXIT_WHEN_ELEVATED(elevatedLockFilePath, updateLockFileHandle, 1);
+        return 1;
+      }
+
       // Make a copy of the callback executable so it can be read when patching.
-      NS_tsnprintf(gCallbackBackupPath,
-                   sizeof(gCallbackBackupPath)/sizeof(gCallbackBackupPath[0]),
-                   NS_T("%s" CALLBACK_BACKUP_EXT), argv[callbackIndex]);
       NS_tremove(gCallbackBackupPath);
       if(!CopyFileW(argv[callbackIndex], gCallbackBackupPath, true)) {
         DWORD copyFileError = GetLastError();

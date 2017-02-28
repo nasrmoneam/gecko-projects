@@ -135,6 +135,10 @@ public:
   {
     return mOldInfo->GetDataSize(aDataSize);
   }
+  NS_IMETHOD GetLoadContextInfo(nsILoadContextInfo** aInfo) override
+  {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
 
   NS_IMETHOD AsyncDoom(nsICacheEntryDoomCallback* listener) override;
   NS_IMETHOD GetPersistent(bool *aPersistToDisk) override;
@@ -249,7 +253,6 @@ class _OldVisitCallbackWrapper : public nsICacheVisitor
   , mLoadInfo(aInfo)
   , mHit(false)
   {
-    MOZ_COUNT_CTOR(_OldVisitCallbackWrapper);
   }
 
 private:

@@ -72,11 +72,11 @@ gfxGDIFont::~gfxGDIFont()
     delete mMetrics;
 }
 
-gfxFont*
+UniquePtr<gfxFont>
 gfxGDIFont::CopyWithAntialiasOption(AntialiasOption anAAOption)
 {
-    return new gfxGDIFont(static_cast<GDIFontEntry*>(mFontEntry.get()),
-                          &mStyle, mNeedsBold, anAAOption);
+    auto entry = static_cast<GDIFontEntry*>(mFontEntry.get());
+    return MakeUnique<gfxGDIFont>(entry, &mStyle, mNeedsBold, anAAOption);
 }
 
 bool
@@ -461,8 +461,7 @@ gfxGDIFont::FillLogFont(LOGFONTW& aLogFont, gfxFloat aSize,
         weight = mNeedsBold ? 700 : fe->Weight();
     }
 
-    fe->FillLogFont(&aLogFont, weight, aSize, 
-                    (mAntialiasOption == kAntialiasSubpixel) ? true : false);
+    fe->FillLogFont(&aLogFont, weight, aSize);
 
     // If GDI synthetic italic is wanted, force the lfItalic field to true
     if (aUseGDIFakeItalic) {

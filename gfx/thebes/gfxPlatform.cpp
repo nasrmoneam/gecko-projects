@@ -7,6 +7,7 @@
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/ISurfaceAllocator.h"     // for GfxMemoryImageReporter
+#include "mozilla/webrender/RenderThread.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/GraphicsMessages.h"
@@ -94,6 +95,7 @@
 
 #ifdef MOZ_WIDGET_ANDROID
 #include "TexturePoolOGL.h"
+#include "mozilla/layers/UiCompositorControllerChild.h"
 #endif
 
 #ifdef USE_SKIA
@@ -500,7 +502,6 @@ gfxPlatform::gfxPlatform()
   , mTilesInfoCollector(this, &gfxPlatform::GetTilesSupportInfo)
   , mCompositorBackend(layers::LayersBackend::LAYERS_NONE)
   , mScreenDepth(0)
-  , mDeviceCounter(0)
 {
     mAllowDownloadableFonts = UNINITIALIZED_VALUE;
     mFallbackUsesCmaps = UNINITIALIZED_VALUE;
@@ -743,6 +744,10 @@ gfxPlatform::Init()
         MOZ_CRASH("Could not initialize gfxFontCache");
     }
 
+#ifdef MOZ_ENABLE_FREETYPE
+    Factory::SetFTLibrary(gPlatform->GetFTLibrary());
+#endif
+
     /* Create and register our CMS Override observer. */
     gPlatform->mSRGBOverrideObserver = new SRGBOverrideObserver();
     Preferences::AddWeakObserver(gPlatform->mSRGBOverrideObserver, GFX_PREF_CMS_FORCE_SRGB);
@@ -935,6 +940,9 @@ gfxPlatform::InitLayersIPC()
 
     if (XRE_IsParentProcess())
     {
+        if (gfxVars::UseWebRender()) {
+            wr::RenderThread::Start();
+        }
         layers::CompositorThreadHolder::Start();
     }
 }
@@ -958,9 +966,14 @@ gfxPlatform::ShutdownLayersIPC()
         gfx::VRManagerChild::ShutDown();
         layers::CompositorBridgeChild::ShutDown();
         layers::ImageBridgeChild::ShutDown();
-
+#if defined(MOZ_WIDGET_ANDROID)
+        layers::UiCompositorControllerChild::Shutdown();
+#endif // defined(MOZ_WIDGET_ANDROID)
         // This has to happen after shutting down the child protocols.
         layers::CompositorThreadHolder::Shutdown();
+        if (gfxVars::UseWebRender()) {
+            wr::RenderThread::ShutDown();
+        }
     } else {
       // TODO: There are other kind of processes and we should make sure gfx
       // stuff is either not created there or shut down properly.
@@ -1415,11 +1428,9 @@ gfxPlatform::CreateDrawTargetForBackend(BackendType aBackend, const IntSize& aSi
     if (!surf || surf->CairoStatus()) {
       return nullptr;
     }
-
     return CreateDrawTargetForSurface(surf, aSize);
-  } else {
-    return Factory::CreateDrawTarget(aBackend, aSize, aFormat);
   }
+  return Factory::CreateDrawTarget(aBackend, aSize, aFormat);
 }
 
 already_AddRefed<DrawTarget>
@@ -1443,7 +1454,7 @@ gfxPlatform::CreateOffscreenCanvasDrawTarget(const IntSize& aSize, SurfaceFormat
 already_AddRefed<DrawTarget>
 gfxPlatform::CreateOffscreenContentDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
 {
-  NS_ASSERTION(mPreferredCanvasBackend != BackendType::NONE, "No backend.");
+  NS_ASSERTION(mContentBackend != BackendType::NONE, "No backend.");
   return CreateDrawTargetForBackend(mContentBackend, aSize, aFormat);
 }
 
@@ -1469,7 +1480,11 @@ gfxPlatform::CreateSimilarSoftwareDrawTarget(DrawTarget* aDT,
 }
 
 /* static */ already_AddRefed<DrawTarget>
-gfxPlatform::CreateDrawTargetForData(unsigned char* aData, const IntSize& aSize, int32_t aStride, SurfaceFormat aFormat)
+gfxPlatform::CreateDrawTargetForData(unsigned char* aData,
+                                     const IntSize& aSize,
+                                     int32_t aStride,
+                                     SurfaceFormat aFormat,
+                                     bool aUninitialized)
 {
   BackendType backendType = gfxVars::ContentBackend();
   NS_ASSERTION(backendType != BackendType::NONE, "No backend.");
@@ -1484,7 +1499,8 @@ gfxPlatform::CreateDrawTargetForData(unsigned char* aData, const IntSize& aSize,
 
   RefPtr<DrawTarget> dt = Factory::CreateDrawTargetForData(backendType,
                                                            aData, aSize,
-                                                           aStride, aFormat);
+                                                           aStride, aFormat,
+                                                           aUninitialized);
 
   return dt.forget();
 }
@@ -2195,6 +2211,7 @@ gfxPlatform::InitAcceleration()
                                          nullptr,
                                          Preferences::ExactMatch);
     InitGPUProcessPrefs();
+    InitWebRenderConfig();
   }
 }
 
@@ -2203,31 +2220,31 @@ gfxPlatform::InitGPUProcessPrefs()
 {
   // We want to hide this from about:support, so only set a default if the
   // pref is known to be true.
-  if (!gfxPrefs::GPUProcessDevEnabled() && !gfxPrefs::GPUProcessDevForceEnabled()) {
+  if (!gfxPrefs::GPUProcessEnabled() && !gfxPrefs::GPUProcessForceEnabled()) {
     return;
   }
 
   FeatureState& gpuProc = gfxConfig::GetFeature(Feature::GPU_PROCESS);
 
-  gpuProc.SetDefaultFromPref(
-    gfxPrefs::GetGPUProcessDevEnabledPrefName(),
-    true,
-    gfxPrefs::GetGPUProcessDevEnabledPrefDefault());
-
-  if (gfxPrefs::GPUProcessDevForceEnabled()) {
-    gpuProc.UserForceEnable("User force-enabled via pref");
-  }
-
   // We require E10S - otherwise, there is very little benefit to the GPU
   // process, since the UI process must still use acceleration for
   // performance.
   if (!BrowserTabsRemoteAutostart()) {
-    gpuProc.ForceDisable(
+    gpuProc.DisableByDefault(
       FeatureStatus::Unavailable,
       "Multi-process mode is not enabled",
       NS_LITERAL_CSTRING("FEATURE_FAILURE_NO_E10S"));
-    return;
+  } else {
+    gpuProc.SetDefaultFromPref(
+      gfxPrefs::GetGPUProcessEnabledPrefName(),
+      true,
+      gfxPrefs::GetGPUProcessEnabledPrefDefault());
   }
+
+  if (gfxPrefs::GPUProcessForceEnabled()) {
+    gpuProc.UserForceEnable("User force-enabled via pref");
+  }
+
   if (InSafeMode()) {
     gpuProc.ForceDisable(
       FeatureStatus::Blocked,
@@ -2279,6 +2296,47 @@ gfxPlatform::InitCompositorAccelerationPrefs()
     feature.ForceDisable(FeatureStatus::Blocked, "Acceleration blocked by safe-mode",
                          NS_LITERAL_CSTRING("FEATURE_FAILURE_COMP_SAFEMODE"));
   }
+}
+
+void
+gfxPlatform::InitWebRenderConfig()
+{
+  FeatureState& featureWebRender = gfxConfig::GetFeature(Feature::WEBRENDER);
+
+  featureWebRender.EnableByDefault();
+
+  if (!Preferences::GetBool("gfx.webrender.enabled", false)) {
+    featureWebRender.UserDisable(
+      "User disabled WebRender",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_WEBRENDER_DISABLED"));
+  }
+
+  // WebRender relies on the GPU process when on Windows
+#ifdef XP_WIN
+  if (!gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
+    featureWebRender.ForceDisable(
+      FeatureStatus::Unavailable,
+      "GPU Process is disabled",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_GPU_PROCESS_DISABLED"));
+  }
+#endif
+
+  if (InSafeMode()) {
+    featureWebRender.ForceDisable(
+      FeatureStatus::Unavailable,
+      "Safe-mode is enabled",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_SAFE_MODE"));
+  }
+
+#ifndef MOZ_ENABLE_WEBRENDER
+  featureWebRender.ForceDisable(
+    FeatureStatus::Unavailable,
+    "Build doesn't include WebRender",
+    NS_LITERAL_CSTRING("FEATURE_FAILURE_NO_WEBRENDER"));
+#endif
+
+  // gfxFeature is not usable in the GPU process, so we use gfxVars to transmit this feature
+  gfxVars::SetUseWebRender(gfxConfig::IsEnabled(Feature::WEBRENDER));
 }
 
 bool
@@ -2403,6 +2461,27 @@ gfxPlatform::GetDefaultFrameRate()
 }
 
 void
+gfxPlatform::GetAzureBackendInfo(mozilla::widget::InfoObject& aObj)
+{
+  if (gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
+    aObj.DefineProperty("AzureCanvasBackend (UI Process)", GetBackendName(mPreferredCanvasBackend));
+    aObj.DefineProperty("AzureFallbackCanvasBackend (UI Process)", GetBackendName(mFallbackCanvasBackend));
+    aObj.DefineProperty("AzureContentBackend (UI Process)", GetBackendName(mContentBackend));
+
+    if (gfxConfig::IsEnabled(gfx::Feature::DIRECT2D)) {
+      aObj.DefineProperty("AzureCanvasBackend", "Direct2D 1.1");
+      aObj.DefineProperty("AzureContentBackend", "Direct2D 1.1");
+    }
+  } else {
+    aObj.DefineProperty("AzureCanvasBackend", GetBackendName(mPreferredCanvasBackend));
+    aObj.DefineProperty("AzureFallbackCanvasBackend", GetBackendName(mFallbackCanvasBackend));
+    aObj.DefineProperty("AzureContentBackend", GetBackendName(mContentBackend));
+  }
+
+  aObj.DefineProperty("AzureCanvasAccelerated", AllowOpenGLCanvas());
+}
+
+void
 gfxPlatform::GetApzSupportInfo(mozilla::widget::InfoObject& aObj)
 {
   if (!gfxPlatform::AsyncPanZoomEnabled()) {
@@ -2510,6 +2589,18 @@ gfxPlatform::NotifyCompositorCreated(LayersBackend aBackend)
   }));
 }
 
+/* static */ void
+gfxPlatform::NotifyGPUProcessDisabled()
+{
+  if (gfxConfig::IsEnabled(Feature::WEBRENDER)) {
+    gfxConfig::GetFeature(Feature::WEBRENDER).ForceDisable(
+      FeatureStatus::Unavailable,
+      "GPU Process is disabled",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_GPU_PROCESS_DISABLED"));
+    gfxVars::SetUseWebRender(false);
+  }
+}
+
 void
 gfxPlatform::FetchAndImportContentDeviceData()
 {
@@ -2557,12 +2648,6 @@ bool
 gfxPlatform::SupportsApzDragInput() const
 {
   return gfxPrefs::APZDragEnabled();
-}
-
-void
-gfxPlatform::BumpDeviceCounter()
-{
-  mDeviceCounter++;
 }
 
 void

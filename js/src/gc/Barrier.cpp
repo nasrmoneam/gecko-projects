@@ -22,9 +22,10 @@
 namespace js {
 
 bool
-RuntimeFromMainThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone)
+RuntimeFromActiveCooperatingThreadIsHeapMajorCollecting(JS::shadow::Zone* shadowZone)
 {
-    return shadowZone->runtimeFromMainThread()->isHeapMajorCollecting();
+    MOZ_ASSERT(CurrentThreadCanAccessRuntime(shadowZone->runtimeFromActiveCooperatingThread()));
+    return JS::CurrentThreadIsHeapMajorCollecting();
 }
 
 #ifdef DEBUG
@@ -51,34 +52,35 @@ HeapSlot::preconditionForSet(NativeObject* owner, Kind kind, uint32_t slot) cons
          : &owner->getDenseElement(slot) == (const Value*)this;
 }
 
-bool
-HeapSlot::preconditionForWriteBarrierPost(NativeObject* obj, Kind kind, uint32_t slot,
-                                          const Value& target) const
+void
+HeapSlot::assertPreconditionForWriteBarrierPost(NativeObject* obj, Kind kind, uint32_t slot,
+                                                const Value& target) const
 {
-    bool isCorrectSlot = kind == Slot
-                         ? obj->getSlotAddressUnchecked(slot)->get() == target
-                         : static_cast<HeapSlot*>(obj->getDenseElements() + slot)->get() == target;
-    bool isBlackToGray = target.isMarkable() &&
-                         IsMarkedBlack(obj) && JS::GCThingIsMarkedGray(JS::GCCellPtr(target));
-    return isCorrectSlot && !isBlackToGray;
+    if (kind == Slot)
+        MOZ_ASSERT(obj->getSlotAddressUnchecked(slot)->get() == target);
+    else
+        MOZ_ASSERT(static_cast<HeapSlot*>(obj->getDenseElements() + slot)->get() == target);
+
+    MOZ_ASSERT_IF(target.isGCThing() && IsMarkedBlack(obj),
+                  !JS::GCThingIsMarkedGray(JS::GCCellPtr(target)));
 }
 
 bool
 CurrentThreadIsIonCompiling()
 {
-    return TlsPerThreadData.get()->ionCompiling;
+    return TlsContext.get()->ionCompiling;
 }
 
 bool
 CurrentThreadIsIonCompilingSafeForMinorGC()
 {
-    return TlsPerThreadData.get()->ionCompilingSafeForMinorGC;
+    return TlsContext.get()->ionCompilingSafeForMinorGC;
 }
 
 bool
 CurrentThreadIsGCSweeping()
 {
-    return TlsPerThreadData.get()->gcSweeping;
+    return TlsContext.get()->gcSweeping;
 }
 
 #endif // DEBUG
@@ -145,9 +147,9 @@ MovableCellHasher<T>::hash(const Lookup& l)
         return 0;
 
     // We have to access the zone from-any-thread here: a worker thread may be
-    // cloning a self-hosted object from the main-thread-runtime-owned self-
-    // hosting zone into the off-main-thread runtime. The zone's uid lock will
-    // protect against multiple workers doing this simultaneously.
+    // cloning a self-hosted object from the main runtime's self- hosting zone
+    // into another runtime. The zone's uid lock will protect against multiple
+    // workers doing this simultaneously.
     MOZ_ASSERT(CurrentThreadCanAccessZone(l->zoneFromAnyThread()) ||
                l->zoneFromAnyThread()->isSelfHostingZone());
 

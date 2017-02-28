@@ -57,7 +57,7 @@ describe("FilterButtons::enableFilterOnly:", () => {
     FilterButtons()
   ));
 
-  store.dispatch(Actions.enableFilterTypeOnly("xhr"));
+  store.dispatch(Actions.enableRequestFilterTypeOnly("xhr"));
   asExpected(wrapper, expectXHRTypes, `when enableFilterOnly("xhr") is called`);
 });
 
@@ -83,19 +83,19 @@ describe("FilterButtons::toggleFilter:", () => {
     FilterButtons()
   ));
 
-  store.dispatch(Actions.toggleFilterType("xhr"));
-  store.dispatch(Actions.toggleFilterType("js"));
-  asExpected(wrapper, expectXHRJSTypes, `when xhr, js is toggled`);
+  store.dispatch(Actions.toggleRequestFilterType("xhr"));
+  store.dispatch(Actions.toggleRequestFilterType("js"));
+  asExpected(wrapper, expectXHRJSTypes, "when xhr, js is toggled");
 });
 
 function asExpected(wrapper, expectTypes, description) {
   for (let type of Object.keys(expectTypes)) {
     let checked = expectTypes[type] ? "checked" : "not checked";
     let className = expectTypes[type] ?
-        "menu-filter-button checked": "menu-filter-button";
+        "devtools-button checked" : "devtools-button";
     it(`'${type}' button is ${checked} ${description}`, () => {
-      expect(wrapper.find(`#requests-menu-filter-${type}-button`).html())
-      .toBe(`<button id="requests-menu-filter-${type}-button" class="` + className +
+      expect(wrapper.find(`.requests-list-filter-${type}-button`).html())
+      .toBe(`<button class="` + className +
             `" data-key="${type}">netmonitor.toolbar.filter.${type}</button>`);
     });
   }

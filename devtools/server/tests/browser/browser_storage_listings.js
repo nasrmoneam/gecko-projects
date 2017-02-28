@@ -9,7 +9,7 @@ Services.scriptloader.loadSubScript("chrome://mochitests/content/browser/devtool
 
 const storeMap = {
   cookies: {
-    "test1.example.org": [
+    "http://test1.example.org": [
       {
         name: "c1",
         value: "foobar",
@@ -38,7 +38,29 @@ const storeMap = {
         isSecure: true,
       }
     ],
-    "sectest1.example.org": [
+
+    "http://sectest1.example.org": [
+      {
+        name: "cs2",
+        value: "sessionCookie",
+        path: "/",
+        host: ".example.org",
+        expires: 0,
+        isDomain: true,
+        isSecure: false,
+      },
+      {
+        name: "sc1",
+        value: "foobar",
+        path: "/browser/devtools/server/tests/browser/",
+        host: "sectest1.example.org",
+        expires: 0,
+        isDomain: false,
+        isSecure: false,
+      }
+    ],
+
+    "https://sectest1.example.org": [
       {
         name: "uc1",
         value: "foobar",
@@ -206,7 +228,7 @@ const IDBValues = {
         },
       ]
     },
-    "http://sectest1.example.org" : {},
+    "http://sectest1.example.org": {},
     "https://sectest1.example.org": {
       "idb-s1 (default)": [
         {
@@ -275,7 +297,7 @@ const IDBValues = {
       ],
       "idb2 (default)#obj3": []
     },
-    "http://sectest1.example.org" : {},
+    "http://sectest1.example.org": {},
     "https://sectest1.example.org": {
       "idb-s1 (default)#obj-s1": [
         {
@@ -309,13 +331,6 @@ const IDBValues = {
   }
 };
 
-function finishTests(client) {
-
-  let closeConnection = () => {
-
-  };
-}
-
 function* testStores(data) {
   ok(data.cookies, "Cookies storage actor is present");
   ok(data.localStorage, "Local Storage storage actor is present");
@@ -328,7 +343,7 @@ function* testStores(data) {
 }
 
 function testCookies(cookiesActor) {
-  is(Object.keys(cookiesActor.hosts).length, 2,
+  is(Object.keys(cookiesActor.hosts).length, 3,
                  "Correct number of host entries for cookies");
   return testCookiesObjects(0, cookiesActor.hosts, cookiesActor);
 }
@@ -492,8 +507,8 @@ var testIndexedDBs = Task.async(function* (index, hosts, indexedDBActor) {
   yield testIndexedDBs(++index, hosts, indexedDBActor);
 });
 
-var testObjectStores = Task.async(function* (index, hosts, indexedDBActor) {
-  let host = Object.keys(hosts)[index];
+var testObjectStores = Task.async(function* (ix, hosts, indexedDBActor) {
+  let host = Object.keys(hosts)[ix];
   let matchItems = (data, db) => {
     is(data.total, IDBValues.objectStoreDetails[host][db].length,
        "Number of object stores in host " + host + " matches");
@@ -537,10 +552,10 @@ var testObjectStores = Task.async(function* (index, hosts, indexedDBActor) {
       yield indexedDBActor.getStoreObjects(host, [JSON.stringify(objName)])
     ), objName[0]);
   }
-  if (index == Object.keys(hosts).length - 1) {
+  if (ix == Object.keys(hosts).length - 1) {
     return;
   }
-  yield testObjectStores(++index, hosts, indexedDBActor);
+  yield testObjectStores(++ix, hosts, indexedDBActor);
 });
 
 var testIDBEntries = Task.async(function* (index, hosts, indexedDBActor) {

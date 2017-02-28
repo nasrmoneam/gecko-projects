@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "2D.h"
+#include "Swizzle.h"
 
 #ifdef USE_CAIRO
 #include "DrawTargetCairo.h"
@@ -32,6 +33,7 @@
 
 #ifdef MOZ_WIDGET_GTK
 #include "ScaledFontFontconfig.h"
+#include "NativeFontResourceFontconfig.h"
 #endif
 
 #ifdef WIN32
@@ -40,6 +42,7 @@
 #include "NativeFontResourceDWrite.h"
 #include <d3d10_1.h>
 #include "HelpersD2D.h"
+#include "HelpersWinFonts.h"
 #endif
 
 #include "DrawTargetDual.h"
@@ -156,9 +159,14 @@ namespace gfx {
 // In Gecko, this value is managed by gfx.logging.level in gfxPrefs.
 int32_t LoggingPrefs::sGfxLogLevel = LOG_DEFAULT;
 
+#ifdef MOZ_ENABLE_FREETYPE
+FT_Library Factory::mFTLibrary = nullptr;
+#endif
+
 #ifdef WIN32
-ID3D11Device *Factory::mD3D11Device;
-ID2D1Device *Factory::mD2D1Device;
+ID3D11Device *Factory::mD3D11Device = nullptr;
+ID2D1Device *Factory::mD2D1Device = nullptr;
+IDWriteFactory *Factory::mDWriteFactory = nullptr;
 #endif
 
 DrawEventRecorder *Factory::mRecorder;
@@ -191,6 +199,12 @@ Factory::ShutDown()
     delete sConfig;
     sConfig = nullptr;
   }
+
+#ifdef MOZ_ENABLE_FREETYPE
+  if (mFTLibrary) {
+    mFTLibrary = nullptr;
+  }
+#endif
 }
 
 bool
@@ -254,7 +268,6 @@ Factory::CheckSurfaceSize(const IntSize &sz,
                           int32_t allocLimit)
 {
   if (sz.width <= 0 || sz.height <= 0) {
-    gfxDebug() << "Surface width or height <= 0!";
     return false;
   }
 
@@ -491,6 +504,8 @@ Factory::CreateScaledFontForNativeFont(const NativeFont &aNativeFont, Float aSiz
 
 already_AddRefed<NativeFontResource>
 Factory::CreateNativeFontResource(uint8_t *aData, uint32_t aSize,
+                                  uint32_t aVariationCount,
+                                  const ScaledFont::VariationSetting* aVariations,
                                   FontType aType)
 {
   switch (aType) {
@@ -507,15 +522,18 @@ Factory::CreateNativeFontResource(uint8_t *aData, uint32_t aSize,
 #endif
     {
 #ifdef WIN32
-      if (GetDirect3D11Device()) {
+      if (GetDWriteFactory()) {
         return NativeFontResourceDWrite::Create(aData, aSize,
                                                 /* aNeedsCairo = */ true);
       } else {
         return NativeFontResourceGDI::Create(aData, aSize,
                                              /* aNeedsCairo = */ true);
       }
-#elif XP_DARWIN
-      return NativeFontResourceMac::Create(aData, aSize);
+#elif defined(XP_DARWIN)
+      return NativeFontResourceMac::Create(aData, aSize,
+                                           aVariationCount, aVariations);
+#elif defined(MOZ_WIDGET_GTK)
+      return NativeFontResourceFontconfig::Create(aData, aSize);
 #else
       gfxWarning() << "Unable to create cairo scaled font from truetype data";
       return nullptr;
@@ -523,6 +541,24 @@ Factory::CreateNativeFontResource(uint8_t *aData, uint32_t aSize,
     }
   default:
     gfxWarning() << "Unable to create requested font resource from truetype data";
+    return nullptr;
+  }
+}
+
+already_AddRefed<ScaledFont>
+Factory::CreateScaledFontFromFontDescriptor(FontType aType, const uint8_t* aData, uint32_t aDataLength, Float aSize)
+{
+  switch (aType) {
+#ifdef WIN32
+  case FontType::GDI:
+    return ScaledFontWin::CreateFromFontDescriptor(aData, aDataLength, aSize);
+#endif
+#ifdef MOZ_WIDGET_GTK
+  case FontType::FONTCONFIG:
+    return ScaledFontFontconfig::CreateFromFontDescriptor(aData, aDataLength, aSize);
+#endif
+  default:
+    gfxWarning() << "Invalid type specified for ScaledFont font descriptor";
     return nullptr;
   }
 }
@@ -569,6 +605,21 @@ Factory::CreateDualDrawTarget(DrawTarget *targetA, DrawTarget *targetB)
 }
 
 
+#ifdef MOZ_ENABLE_FREETYPE
+void
+Factory::SetFTLibrary(FT_Library aFTLibrary)
+{
+  mFTLibrary = aFTLibrary;
+}
+
+FT_Library
+Factory::GetFTLibrary()
+{
+  MOZ_ASSERT(mFTLibrary);
+  return mFTLibrary;
+}
+#endif
+
 #ifdef WIN32
 already_AddRefed<DrawTarget>
 Factory::CreateDrawTargetForD3D11Texture(ID3D11Texture2D *aTexture, SurfaceFormat aFormat)
@@ -592,6 +643,13 @@ Factory::CreateDrawTargetForD3D11Texture(ID3D11Texture2D *aTexture, SurfaceForma
 
   // Failed
   return nullptr;
+}
+
+bool
+Factory::SetDWriteFactory(IDWriteFactory *aFactory)
+{
+  mDWriteFactory = aFactory;
+  return true;
 }
 
 bool
@@ -635,6 +693,12 @@ Factory::GetD2D1Device()
   return mD2D1Device;
 }
 
+IDWriteFactory*
+Factory::GetDWriteFactory()
+{
+  return mDWriteFactory;
+}
+
 bool
 Factory::SupportsD2D1()
 {
@@ -645,6 +709,15 @@ already_AddRefed<GlyphRenderingOptions>
 Factory::CreateDWriteGlyphRenderingOptions(IDWriteRenderingParams *aParams)
 {
   return MakeAndAddRef<GlyphRenderingOptionsDWrite>(aParams);
+}
+
+BYTE sSystemTextQuality = CLEARTYPE_QUALITY;
+void
+Factory::UpdateSystemTextQuality()
+{
+#ifdef WIN32
+  gfx::UpdateSystemTextQuality();
+#endif
 }
 
 uint64_t
@@ -835,16 +908,6 @@ Factory::CreateDataSourceSurfaceWithStride(const IntSize &aSize,
   return nullptr;
 }
 
-static uint16_t
-PackRGB565(uint8_t r, uint8_t g, uint8_t b)
-{
-  uint16_t pixel = ((r << 11) & 0xf800) |
-                   ((g <<  5) & 0x07e0) |
-                   ((b      ) & 0x001f);
-
-  return pixel;
-}
-
 void
 Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
                                DataSourceSurface* aDest)
@@ -861,20 +924,6 @@ Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
              aDest->GetFormat() == SurfaceFormat::B8G8R8X8 ||
              aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16);
 
-  const bool isSrcBGR = aSource->GetFormat() == SurfaceFormat::B8G8R8A8 ||
-                        aSource->GetFormat() == SurfaceFormat::B8G8R8X8;
-  const bool isDestBGR = aDest->GetFormat() == SurfaceFormat::B8G8R8A8 ||
-                         aDest->GetFormat() == SurfaceFormat::B8G8R8X8;
-  const bool needsSwap02 = isSrcBGR != isDestBGR;
-
-  const bool srcHasAlpha = aSource->GetFormat() == SurfaceFormat::R8G8B8A8 ||
-                           aSource->GetFormat() == SurfaceFormat::B8G8R8A8;
-  const bool destHasAlpha = aDest->GetFormat() == SurfaceFormat::R8G8B8A8 ||
-                            aDest->GetFormat() == SurfaceFormat::B8G8R8A8;
-  const bool needsAlphaMask = !srcHasAlpha && destHasAlpha;
-
-  const bool needsConvertTo16Bits = aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16;
-
   DataSourceSurface::MappedSurface srcMap;
   DataSourceSurface::MappedSurface destMap;
   if (!aSource->Map(DataSourceSurface::MapType::READ, &srcMap) ||
@@ -883,44 +932,9 @@ Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
     return;
   }
 
-  MOZ_ASSERT(srcMap.mStride >= 0);
-  MOZ_ASSERT(destMap.mStride >= 0);
-
-  const size_t srcBPP = BytesPerPixel(aSource->GetFormat());
-  const size_t srcRowBytes = aSource->GetSize().width * srcBPP;
-  const size_t srcRowHole = srcMap.mStride - srcRowBytes;
-
-  const size_t destBPP = BytesPerPixel(aDest->GetFormat());
-  const size_t destRowBytes = aDest->GetSize().width * destBPP;
-  const size_t destRowHole = destMap.mStride - destRowBytes;
-
-  uint8_t* srcRow = srcMap.mData;
-  uint8_t* destRow = destMap.mData;
-  const size_t rows = aSource->GetSize().height;
-  for (size_t i = 0; i < rows; i++) {
-    const uint8_t* srcRowEnd = srcRow + srcRowBytes;
-
-    while (srcRow != srcRowEnd) {
-      uint8_t d0 = needsSwap02 ? srcRow[2] : srcRow[0];
-      uint8_t d1 = srcRow[1];
-      uint8_t d2 = needsSwap02 ? srcRow[0] : srcRow[2];
-      uint8_t d3 = needsAlphaMask ? 0xff : srcRow[3];
-
-      if (needsConvertTo16Bits) {
-        *(uint16_t*)destRow = PackRGB565(d0, d1, d2);
-      } else {
-        destRow[0] = d0;
-        destRow[1] = d1;
-        destRow[2] = d2;
-        destRow[3] = d3;
-      }
-      srcRow += srcBPP;
-      destRow += destBPP;
-    }
-
-    srcRow += srcRowHole;
-    destRow += destRowHole;
-  }
+  SwizzleData(srcMap.mData, srcMap.mStride, aSource->GetFormat(),
+              destMap.mData, destMap.mStride, aDest->GetFormat(),
+              aSource->GetSize());
 
   aSource->Unmap();
   aDest->Unmap();

@@ -22,8 +22,7 @@ namespace dom {
 NS_IMPL_ISUPPORTS(ContentBridgeChild,
                   nsIContentChild)
 
-ContentBridgeChild::ContentBridgeChild(Transport* aTransport)
-  : mTransport(aTransport)
+ContentBridgeChild::ContentBridgeChild()
 {}
 
 ContentBridgeChild::~ContentBridgeChild()
@@ -36,17 +35,14 @@ ContentBridgeChild::ActorDestroy(ActorDestroyReason aWhy)
   MessageLoop::current()->PostTask(NewRunnableMethod(this, &ContentBridgeChild::DeferredDestroy));
 }
 
-/*static*/ ContentBridgeChild*
-ContentBridgeChild::Create(Transport* aTransport, ProcessId aOtherPid)
+/*static*/ void
+ContentBridgeChild::Create(Endpoint<PContentBridgeChild>&& aEndpoint)
 {
-  RefPtr<ContentBridgeChild> bridge =
-    new ContentBridgeChild(aTransport);
+  RefPtr<ContentBridgeChild> bridge = new ContentBridgeChild();
   bridge->mSelfRef = bridge;
 
-  DebugOnly<bool> ok = bridge->Open(aTransport, aOtherPid, XRE_GetIOMessageLoop());
+  DebugOnly<bool> ok = aEndpoint.Bind(bridge);
   MOZ_ASSERT(ok);
-
-  return bridge;
 }
 
 void
@@ -152,15 +148,12 @@ ContentBridgeChild::RecvPBrowserConstructor(PBrowserChild* aActor,
                                             const ContentParentId& aCpID,
                                             const bool& aIsForBrowser)
 {
-  if (!ContentChild::GetSingleton()->RecvPBrowserConstructor(aActor,
-                                                             aTabId,
-                                                             aContext,
-                                                             aChromeFlags,
-                                                             aCpID,
-                                                             aIsForBrowser)) {
-    return IPC_FAIL_NO_REASON(this);
-  }
-  return IPC_OK();
+  return nsIContentChild::RecvPBrowserConstructor(aActor,
+                                                  aTabId,
+                                                  aContext,
+                                                  aChromeFlags,
+                                                  aCpID,
+                                                  aIsForBrowser);
 }
 
 PBlobChild*

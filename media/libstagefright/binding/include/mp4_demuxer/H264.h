@@ -9,6 +9,31 @@
 
 namespace mp4_demuxer {
 
+// Spec 7.4.2.1
+#define MAX_SPS_COUNT 32
+#define MAX_PPS_COUNT 256
+
+// NAL unit types
+enum NAL_TYPES {
+    H264_NAL_SLICE           = 1,
+    H264_NAL_DPA             = 2,
+    H264_NAL_DPB             = 3,
+    H264_NAL_DPC             = 4,
+    H264_NAL_IDR_SLICE       = 5,
+    H264_NAL_SEI             = 6,
+    H264_NAL_SPS             = 7,
+    H264_NAL_PPS             = 8,
+    H264_NAL_AUD             = 9,
+    H264_NAL_END_SEQUENCE    = 10,
+    H264_NAL_END_STREAM      = 11,
+    H264_NAL_FILLER_DATA     = 12,
+    H264_NAL_SPS_EXT         = 13,
+    H264_NAL_PREFIX          = 14,
+    H264_NAL_AUXILIARY_SLICE = 19,
+    H264_NAL_SLICE_EXT       = 20,
+    H264_NAL_SLICE_EXT_DVC   = 21,
+};
+
 class BitReader;
 
 struct SPSData
@@ -189,7 +214,7 @@ struct SPSData
     process for inter prediction of any picture in the
     sequence. max_num_ref_frames also determines the size of the sliding
     window operation as specified in subclause 8.2.5.3. The value of
-    max_num_ref_frames shall be in the range of 0 to MaxDpbSize (as
+    max_num_ref_frames shall be in the range of 0 to MaxDpbFrames (as
     specified in subclause A.3.1 or A.3.2), inclusive.
    */
   uint32_t max_num_ref_frames;
@@ -359,8 +384,13 @@ struct SPSData
 
   uint8_t matrix_coefficients;
   bool chroma_loc_info_present_flag;
-  uint32_t chroma_sample_loc_type_top_field;
-  uint32_t chroma_sample_loc_type_bottom_field;
+  /*
+    The value of chroma_sample_loc_type_top_field and
+    chroma_sample_loc_type_bottom_field shall be in the range of 0 to 5,
+    inclusive
+  */
+  uint8_t chroma_sample_loc_type_top_field;
+  uint8_t chroma_sample_loc_type_bottom_field;
   bool timing_info_present_flag;
   uint32_t num_units_in_tick;
   uint32_t time_scale;
@@ -560,12 +590,18 @@ struct PPSData
   PPSData();
 };
 
+typedef AutoTArray<SPSData, MAX_SPS_COUNT> SPSDataSet;
+typedef AutoTArray<PPSData, MAX_PPS_COUNT> PPSDataSet;
+
+struct H264ParametersSet
+{
+  SPSDataSet SPSes;
+  PPSDataSet PPSes;
+};
+
 class H264
 {
 public:
-  static bool DecodeSPSFromExtraData(const mozilla::MediaByteBuffer* aExtraData,
-                                     SPSData& aDest);
-
   /* Extract RAW BYTE SEQUENCE PAYLOAD from NAL content.
      Returns nullptr if invalid content.
      This is compliant to ITU H.264 7.3.1 Syntax in tabular form NAL unit syntax
@@ -577,8 +613,11 @@ public:
   // otherwise. If false, then content will be adjusted accordingly.
   static bool EnsureSPSIsSane(SPSData& aSPS);
 
-  static bool DecodePPSFromExtraData(const mozilla::MediaByteBuffer* aExtraData,
-                                     const SPSData& aSPS, PPSData& aDest);
+  static bool DecodeSPSFromExtraData(const mozilla::MediaByteBuffer* aExtraData,
+                                     SPSData& aDest);
+
+  static bool DecodeParametersSet(const mozilla::MediaByteBuffer* aExtraData,
+                                  H264ParametersSet& aDest);
 
   // If the given aExtraData is valid, return the aExtraData.max_num_ref_frames
   // clamped to be in the range of [4, 16]; otherwise return 4.
@@ -605,12 +644,19 @@ public:
   static const uint8_t ZZ_SCAN8[64];
 
 private:
+  static bool DecodeSPSDataSetFromExtraData(const mozilla::MediaByteBuffer* aExtraData,
+                                            SPSDataSet& aDest);
+
+  static bool DecodePPSDataSetFromExtraData(const mozilla::MediaByteBuffer* aExtraData,
+                                            const SPSDataSet& aPS,
+                                            PPSDataSet& aDest);
+
   /* Decode SPS NAL RBSP and fill SPSData structure */
   static bool DecodeSPS(const mozilla::MediaByteBuffer* aSPS, SPSData& aDest);
   /* Decode PPS NAL RBSP and fill PPSData structure */
-  static bool DecodePPS(const mozilla::MediaByteBuffer* aPPS, const SPSData& aSPS,
-                        PPSData& aDest);
-  static void vui_parameters(BitReader& aBr, SPSData& aDest);
+  static bool DecodePPS(const mozilla::MediaByteBuffer* aPPS,
+                        const SPSDataSet& aSPSs, PPSData& aDest);
+  static bool vui_parameters(BitReader& aBr, SPSData& aDest);
   // Read HRD parameters, all data is ignored.
   static void hrd_parameters(BitReader& aBr);
 };

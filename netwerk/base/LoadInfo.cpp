@@ -29,11 +29,10 @@ namespace mozilla {
 namespace net {
 
 static void
-InheritOriginAttributes(nsIPrincipal* aLoadingPrincipal, NeckoOriginAttributes& aAttrs)
+InheritOriginAttributes(nsIPrincipal* aLoadingPrincipal,
+                        OriginAttributes& aAttrs)
 {
-  const PrincipalOriginAttributes attrs =
-    BasePrincipal::Cast(aLoadingPrincipal)->OriginAttributesRef();
-  aAttrs.InheritFromDocToNecko(attrs);
+  aAttrs.Inherit(aLoadingPrincipal->OriginAttributesRef());
 }
 
 LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
@@ -95,8 +94,9 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
 
   // if the load is sandboxed, we can not also inherit the principal
   if (mSecurityFlags & nsILoadInfo::SEC_SANDBOXED) {
-    mSecurityFlags ^= nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL;
-    mForceInheritPrincipalDropped = true;
+    mForceInheritPrincipalDropped =
+      (mSecurityFlags & nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL);
+    mSecurityFlags &= ~nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL;
   }
 
   if (aLoadingContext) {
@@ -245,8 +245,9 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow,
 
   // if the load is sandboxed, we can not also inherit the principal
   if (mSecurityFlags & nsILoadInfo::SEC_SANDBOXED) {
-    mSecurityFlags ^= nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL;
-    mForceInheritPrincipalDropped = true;
+    mForceInheritPrincipalDropped =
+      (mSecurityFlags & nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL);
+    mSecurityFlags &= ~nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL;
   }
 
   // NB: Ignore the current inner window since we're navigating away from it.
@@ -260,7 +261,7 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow,
   // get the docshell from the outerwindow, and then get the originattributes
   nsCOMPtr<nsIDocShell> docShell = aOuterWindow->GetDocShell();
   MOZ_ASSERT(docShell);
-  const DocShellOriginAttributes attrs =
+  const OriginAttributes attrs =
     nsDocShell::Cast(docShell)->GetOriginAttributes();
 
   if (docShell->ItemType() == nsIDocShellTreeItem::typeChrome) {
@@ -268,13 +269,14 @@ LoadInfo::LoadInfo(nsPIDOMWindowOuter* aOuterWindow,
                "chrome docshell shouldn't have mPrivateBrowsingId set.");
   }
 
-  mOriginAttributes.InheritFromDocShellToNecko(attrs);
+  mOriginAttributes.Inherit(attrs);
 }
 
 LoadInfo::LoadInfo(const LoadInfo& rhs)
   : mLoadingPrincipal(rhs.mLoadingPrincipal)
   , mTriggeringPrincipal(rhs.mTriggeringPrincipal)
   , mPrincipalToInherit(rhs.mPrincipalToInherit)
+  , mSandboxedLoadingPrincipal(rhs.mSandboxedLoadingPrincipal)
   , mLoadingContext(rhs.mLoadingContext)
   , mSecurityFlags(rhs.mSecurityFlags)
   , mInternalContentPolicyType(rhs.mInternalContentPolicyType)
@@ -305,6 +307,7 @@ LoadInfo::LoadInfo(const LoadInfo& rhs)
 LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
                    nsIPrincipal* aTriggeringPrincipal,
                    nsIPrincipal* aPrincipalToInherit,
+                   nsIPrincipal* aSandboxedLoadingPrincipal,
                    nsSecurityFlags aSecurityFlags,
                    nsContentPolicyType aContentPolicyType,
                    LoadTainting aTainting,
@@ -319,7 +322,7 @@ LoadInfo::LoadInfo(nsIPrincipal* aLoadingPrincipal,
                    bool aEnforceSecurity,
                    bool aInitialSecurityCheckDone,
                    bool aIsThirdPartyContext,
-                   const NeckoOriginAttributes& aOriginAttributes,
+                   const OriginAttributes& aOriginAttributes,
                    nsTArray<nsCOMPtr<nsIPrincipal>>& aRedirectChainIncludingInternalRedirects,
                    nsTArray<nsCOMPtr<nsIPrincipal>>& aRedirectChain,
                    const nsTArray<nsCString>& aCorsUnsafeHeaders,
@@ -457,6 +460,31 @@ nsIPrincipal*
 LoadInfo::PrincipalToInherit()
 {
   return mPrincipalToInherit;
+}
+
+NS_IMETHODIMP
+LoadInfo::GetSandboxedLoadingPrincipal(nsIPrincipal** aPrincipal)
+{
+  if (!(mSecurityFlags & nsILoadInfo::SEC_SANDBOXED)) {
+    *aPrincipal = nullptr;
+    return NS_OK;
+  }
+
+  if (!mSandboxedLoadingPrincipal) {
+    if (mLoadingPrincipal) {
+      mSandboxedLoadingPrincipal =
+        nsNullPrincipal::CreateWithInheritedAttributes(mLoadingPrincipal);
+    } else {
+      OriginAttributes attrs(mOriginAttributes);
+      attrs.StripAttributes(OriginAttributes::STRIP_ADDON_ID);
+      mSandboxedLoadingPrincipal = nsNullPrincipal::Create(attrs);
+    }
+  }
+  MOZ_ASSERT(mSandboxedLoadingPrincipal);
+
+  nsCOMPtr<nsIPrincipal> copy(mSandboxedLoadingPrincipal);
+  copy.forget(aPrincipal);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -697,9 +725,9 @@ LoadInfo::ResetPrincipalsToNullPrincipal()
 {
   // take the originAttributes from the LoadInfo and create
   // a new NullPrincipal using those origin attributes.
-  PrincipalOriginAttributes pAttrs;
-  pAttrs.InheritFromNecko(mOriginAttributes);
-  nsCOMPtr<nsIPrincipal> newNullPrincipal = nsNullPrincipal::Create(pAttrs);
+  OriginAttributes attrs;
+  attrs.Inherit(mOriginAttributes);
+  nsCOMPtr<nsIPrincipal> newNullPrincipal = nsNullPrincipal::Create(attrs);
 
   MOZ_ASSERT(mInternalContentPolicyType != nsIContentPolicy::TYPE_DOCUMENT ||
              !mLoadingPrincipal,
@@ -724,7 +752,7 @@ NS_IMETHODIMP
 LoadInfo::SetScriptableOriginAttributes(JSContext* aCx,
   JS::Handle<JS::Value> aOriginAttributes)
 {
-  NeckoOriginAttributes attrs;
+  OriginAttributes attrs;
   if (!aOriginAttributes.isObject() || !attrs.Init(aCx, aOriginAttributes)) {
     return NS_ERROR_INVALID_ARG;
   }
@@ -734,7 +762,7 @@ LoadInfo::SetScriptableOriginAttributes(JSContext* aCx,
 }
 
 nsresult
-LoadInfo::GetOriginAttributes(mozilla::NeckoOriginAttributes* aOriginAttributes)
+LoadInfo::GetOriginAttributes(mozilla::OriginAttributes* aOriginAttributes)
 {
   NS_ENSURE_ARG(aOriginAttributes);
   *aOriginAttributes = mOriginAttributes;
@@ -742,7 +770,7 @@ LoadInfo::GetOriginAttributes(mozilla::NeckoOriginAttributes* aOriginAttributes)
 }
 
 nsresult
-LoadInfo::SetOriginAttributes(const mozilla::NeckoOriginAttributes& aOriginAttributes)
+LoadInfo::SetOriginAttributes(const mozilla::OriginAttributes& aOriginAttributes)
 {
   mOriginAttributes = aOriginAttributes;
   return NS_OK;
@@ -857,6 +885,12 @@ LoadInfo::SetIsPreflight()
   MOZ_ASSERT(GetSecurityMode() == nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS);
   MOZ_ASSERT(!mInitialSecurityCheckDone);
   mIsPreflight = true;
+}
+
+void
+LoadInfo::SetUpgradeInsecureRequests()
+{
+  mUpgradeInsecureRequests = true;
 }
 
 NS_IMETHODIMP

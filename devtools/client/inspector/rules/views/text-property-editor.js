@@ -189,12 +189,18 @@ TextPropertyEditor.prototype = {
     this.filterProperty.addEventListener("click", event => {
       this.ruleEditor.ruleView.setFilterStyles("`" + this.prop.name + "`");
       event.stopPropagation();
-    }, false);
+    });
 
     // Holds the viewers for the computed properties.
     // will be populated in |_updateComputed|.
     this.computed = createChild(this.element, "ul", {
       class: "ruleview-computedlist",
+    });
+
+    // Holds the viewers for the overridden shorthand properties.
+    // will be populated in |_updateShorthandOverridden|.
+    this.shorthandOverridden = createChild(this.element, "ul", {
+      class: "ruleview-overridden-items",
     });
 
     // Only bind event handlers if the rule is editable.
@@ -209,7 +215,7 @@ TextPropertyEditor.prototype = {
         if (event.target === this.nameContainer) {
           this.nameSpan.click();
         }
-      }, false);
+      });
 
       editableField({
         start: this._onStartEditing,
@@ -225,7 +231,7 @@ TextPropertyEditor.prototype = {
 
       // Auto blur name field on multiple CSS rules get pasted in.
       this.nameContainer.addEventListener("paste",
-        blurOnMultipleProperties(this.cssProperties), false);
+        blurOnMultipleProperties(this.cssProperties));
 
       this.valueContainer.addEventListener("click", (event) => {
         // Clicks within the value shouldn't propagate any further.
@@ -235,7 +241,7 @@ TextPropertyEditor.prototype = {
         if (event.target === this.valueContainer) {
           this.valueSpan.click();
         }
-      }, false);
+      });
 
       // The mousedown event could trigger a blur event on nameContainer, which
       // will trigger a call to the update function. The update function clears
@@ -261,12 +267,12 @@ TextPropertyEditor.prototype = {
             index: similarElements.indexOf(clickedEl)
           };
         }
-      }, false);
+      });
 
       this.valueSpan.addEventListener("mouseup", (event) => {
         this._clickedElementOptions = null;
         this._hasPendingClick = false;
-      }, false);
+      });
 
       this.valueSpan.addEventListener("click", (event) => {
         let target = event.target;
@@ -276,7 +282,7 @@ TextPropertyEditor.prototype = {
           event.preventDefault();
           this.browserWindow.openUILinkIn(target.href, "tab");
         }
-      }, false);
+      });
 
       editableField({
         start: this._onStartEditing,
@@ -454,8 +460,9 @@ TextPropertyEditor.prototype = {
       elToClick.click();
     }
 
-    // Populate the computed styles.
+    // Populate the computed styles and shorthand overridden styles.
     this._updateComputed();
+    this._updateShorthandOverridden();
 
     // Update the rule property highlight.
     this.ruleView._updatePropertyHighlight(this);
@@ -469,7 +476,7 @@ TextPropertyEditor.prototype = {
 
   /**
    * Update the visibility of the enable checkbox, the warning indicator and
-   * the filter property, as well as the overriden state of the property.
+   * the filter property, as well as the overridden state of the property.
    */
   updatePropertyState: function () {
     if (this.prop.enabled) {
@@ -527,43 +534,84 @@ TextPropertyEditor.prototype = {
         continue;
       }
 
-      let li = createChild(this.computed, "li", {
-        class: "ruleview-computed"
-      });
-
-      if (computed.overridden) {
-        li.classList.add("ruleview-overridden");
-      }
-
-      createChild(li, "span", {
-        class: "ruleview-propertyname theme-fg-color5",
-        textContent: computed.name
-      });
-      appendText(li, ": ");
-
-      let outputParser = this.ruleView._outputParser;
-      let frag = outputParser.parseCssProperty(
-        computed.name, computed.value, {
-          colorSwatchClass: "ruleview-swatch ruleview-colorswatch",
-          urlClass: "theme-link",
-          baseURI: this.sheetHref
-        }
-      );
-
-      // Store the computed property value that was parsed for output
-      computed.parsedValue = frag.textContent;
-
-      createChild(li, "span", {
-        class: "ruleview-propertyvalue theme-fg-color1",
-        child: frag
-      });
-
-      appendText(li, ";");
-
       // Store the computed style element for easy access when highlighting
       // styles
-      computed.element = li;
+      computed.element = this._createComputedListItem(this.computed, computed,
+        "ruleview-computed");
     }
+  },
+
+  /**
+   * Update the indicator for overridden shorthand styles. The shorthand
+   * overridden styles themselves are populated on demand, when they
+   * become visible.
+   */
+  _updateShorthandOverridden: function () {
+    this.shorthandOverridden.innerHTML = "";
+
+    this._populatedShorthandOverridden = false;
+    this._populateShorthandOverridden();
+  },
+
+  /**
+   * Populate the list of overridden shorthand styles.
+   */
+  _populateShorthandOverridden: function () {
+    if (this._populatedShorthandOverridden || this.prop.overridden) {
+      return;
+    }
+    this._populatedShorthandOverridden = true;
+
+    for (let computed of this.prop.computed) {
+      // Don't display duplicate information or show properties
+      // that are completely overridden.
+      if (computed.name === this.prop.name || !computed.overridden) {
+        continue;
+      }
+
+      this._createComputedListItem(this.shorthandOverridden, computed,
+        "ruleview-overridden-item");
+    }
+  },
+
+  /**
+   * Creates and populates a list item with the computed CSS property.
+   */
+  _createComputedListItem: function (parentEl, computed, className) {
+    let li = createChild(parentEl, "li", {
+      class: className
+    });
+
+    if (computed.overridden) {
+      li.classList.add("ruleview-overridden");
+    }
+
+    createChild(li, "span", {
+      class: "ruleview-propertyname theme-fg-color5",
+      textContent: computed.name
+    });
+    appendText(li, ": ");
+
+    let outputParser = this.ruleView._outputParser;
+    let frag = outputParser.parseCssProperty(
+      computed.name, computed.value, {
+        colorSwatchClass: "ruleview-swatch ruleview-colorswatch",
+        urlClass: "theme-link",
+        baseURI: this.sheetHref
+      }
+    );
+
+    // Store the computed property value that was parsed for output
+    computed.parsedValue = frag.textContent;
+
+    createChild(li, "span", {
+      class: "ruleview-propertyvalue theme-fg-color1",
+      child: frag
+    });
+
+    appendText(li, ";");
+
+    return li;
   },
 
   /**
@@ -593,9 +641,12 @@ TextPropertyEditor.prototype = {
       this.expander.removeAttribute("open");
       this.computed.removeAttribute("filter-open");
       this.computed.removeAttribute("user-open");
+      this.shorthandOverridden.removeAttribute("hidden");
+      this._populateShorthandOverridden();
     } else {
       this.expander.setAttribute("open", "true");
       this.computed.setAttribute("user-open", "");
+      this.shorthandOverridden.setAttribute("hidden", "true");
       this._populateComputed();
     }
 
@@ -700,7 +751,7 @@ TextPropertyEditor.prototype = {
       }
     }
 
-    this.element.parentNode.removeChild(this.element);
+    this.element.remove();
     this.ruleEditor.rule.editClosestTextProperty(this.prop, direction);
     this.nameSpan.textProperty = null;
     this.valueSpan.textProperty = null;
@@ -868,12 +919,14 @@ TextPropertyEditor.prototype = {
   },
 
   /**
-   * Returns true if the property is a `display: grid` declaration.
+   * Returns true if the property is a `display: [inline-]grid` declaration.
    *
-   * @return {Boolean} true if the property is a `display: grid` declaration.
+   * @return {Boolean} true if the property is a `display: [inline-]grid` declaration.
    */
   isDisplayGrid: function () {
-    return this.prop.name === "display" && this.prop.value === "grid";
+    return this.prop.name === "display" &&
+      (this.prop.value === "grid" ||
+       this.prop.value === "inline-grid");
   }
 };
 

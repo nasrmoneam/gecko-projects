@@ -30,7 +30,8 @@
 #include "mozilla/ReflowOutput.h"
 #include "ImageContainer.h"
 #include "gfx2DGlue.h"
-
+#include "nsStyleConsts.h"
+#include "SVGImageContext.h"
 #include <limits>
 #include <algorithm>
 
@@ -65,7 +66,6 @@ struct nsOverflowAreas;
 namespace mozilla {
 enum class CSSPseudoElementType : uint8_t;
 class EventListenerManager;
-class SVGImageContext;
 struct IntrinsicSize;
 struct ContainerLayerParameters;
 class WritingMode;
@@ -117,6 +117,13 @@ enum class RelativeTo {
   ScrollFrame
 };
 
+// Flags to customize the behavior of nsLayoutUtils::DrawString.
+enum class DrawStringFlags {
+  eDefault         = 0x0,
+  eForceHorizontal = 0x1 // Forces the text to be drawn horizontally.
+};
+MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(DrawStringFlags)
+
 /**
  * nsLayoutUtils is a namespace class used for various helper
  * functions that are useful in multiple places in layout.  The goal
@@ -152,6 +159,8 @@ public:
   typedef mozilla::CSSRect CSSRect;
   typedef mozilla::ScreenMargin ScreenMargin;
   typedef mozilla::LayoutDeviceIntSize LayoutDeviceIntSize;
+  typedef mozilla::StyleGeometryBox StyleGeometryBox;
+  typedef mozilla::SVGImageContext SVGImageContext;
 
   /**
    * Finds previously assigned ViewID for the given content element, if any.
@@ -1034,7 +1043,7 @@ public:
   /**
    * Return whether any part of aTestRect is inside of the rounded
    * rectangle formed by aBounds and aRadii (which are indexed by the
-   * NS_CORNER_* constants in nsStyleConsts.h). This is precise.
+   * enum HalfCorner constants in gfx/2d/Types.h). This is precise.
    */
   static bool RoundedRectIntersectsRect(const nsRect& aRoundedRect,
                                         const nscoord aRadii[8],
@@ -1545,8 +1554,18 @@ public:
   static nscoord MinISizeFromInline(nsIFrame* aFrame,
                                     nsRenderingContext* aRenderingContext);
 
-  // Get a suitable foreground color for painting aProperty for aFrame.
-  static nscolor GetColor(nsIFrame* aFrame, nsCSSPropertyID aProperty);
+  // Get a suitable foreground color for painting aColor for aFrame.
+  static nscolor DarkenColorIfNeeded(nsIFrame* aFrame, nscolor aColor);
+
+  // Get a suitable foreground color for painting aField for aFrame.
+  // Type of aFrame is made a template parameter because nsIFrame is not
+  // a complete type in the header. Type-safety is not harmed given that
+  // DarkenColorIfNeeded requires an nsIFrame pointer.
+  template<typename Frame, typename T, typename S>
+  static nscolor GetColor(Frame* aFrame, T S::* aField) {
+    nscolor color = aFrame->GetVisitedDependentColor(aField);
+    return DarkenColorIfNeeded(aFrame, color);
+  }
 
   // Get a baseline y position in app units that is snapped to device pixels.
   static gfxFloat GetSnappedBaselineY(nsIFrame* aFrame, gfxContext* aContext,
@@ -1595,13 +1614,14 @@ public:
                                                  nsFontMetrics& aFontMetrics,
                                                  DrawTarget* aDrawTarget);
 
-  static void DrawString(const nsIFrame*       aFrame,
-                         nsFontMetrics&        aFontMetrics,
-                         nsRenderingContext*   aContext,
-                         const char16_t*      aString,
-                         int32_t               aLength,
-                         nsPoint               aPoint,
-                         nsStyleContext*       aStyleContext = nullptr);
+  static void DrawString(const nsIFrame*     aFrame,
+                         nsFontMetrics&      aFontMetrics,
+                         nsRenderingContext* aContext,
+                         const char16_t*     aString,
+                         int32_t             aLength,
+                         nsPoint             aPoint,
+                         nsStyleContext*     aStyleContext = nullptr,
+                         DrawStringFlags     aFlags = DrawStringFlags::eDefault);
 
   /**
    * Supports only LTR or RTL. Bidi (mixed direction) is not supported.
@@ -1712,6 +1732,34 @@ public:
    */
   static SamplingFilter GetSamplingFilterForFrame(nsIFrame* aFrame);
 
+  static inline void InitDashPattern(StrokeOptions& aStrokeOptions,
+                                     uint8_t aBorderStyle) {
+    if (aBorderStyle == NS_STYLE_BORDER_STYLE_DOTTED) {
+      static Float dot[] = { 1.f, 1.f };
+      aStrokeOptions.mDashLength = MOZ_ARRAY_LENGTH(dot);
+      aStrokeOptions.mDashPattern = dot;
+    } else if (aBorderStyle == NS_STYLE_BORDER_STYLE_DASHED) {
+      static Float dash[] = { 5.f, 5.f };
+      aStrokeOptions.mDashLength = MOZ_ARRAY_LENGTH(dash);
+      aStrokeOptions.mDashPattern = dash;
+    } else {
+      aStrokeOptions.mDashLength = 0;
+      aStrokeOptions.mDashPattern = nullptr;
+    }
+  }
+
+  /**
+   * Convert an nsRect to a gfxRect.
+   */
+  static gfxRect RectToGfxRect(const nsRect& aRect,
+                               int32_t aAppUnitsPerDevPixel);
+
+  static gfxPoint PointToGfxPoint(const nsPoint& aPoint,
+                                  int32_t aAppUnitsPerPixel) {
+    return gfxPoint(gfxFloat(aPoint.x) / aAppUnitsPerPixel,
+                    gfxFloat(aPoint.y) / aAppUnitsPerPixel);
+  }
+
   /* N.B. The only difference between variants of the Draw*Image
    * functions below is the type of the aImage argument.
    */
@@ -1754,7 +1802,8 @@ public:
                                         const nsPoint&      aAnchor,
                                         const nsRect&       aDirty,
                                         uint32_t            aImageFlags,
-                                        ExtendMode          aExtendMode);
+                                        ExtendMode          aExtendMode,
+                                        float               aOpacity);
 
   /**
    * Draw an image.
@@ -1779,35 +1828,8 @@ public:
                               const nsRect&       aFill,
                               const nsPoint&      aAnchor,
                               const nsRect&       aDirty,
-                              uint32_t            aImageFlags);
-
-  static inline void InitDashPattern(StrokeOptions& aStrokeOptions,
-                                     uint8_t aBorderStyle) {
-    if (aBorderStyle == NS_STYLE_BORDER_STYLE_DOTTED) {
-      static Float dot[] = { 1.f, 1.f };
-      aStrokeOptions.mDashLength = MOZ_ARRAY_LENGTH(dot);
-      aStrokeOptions.mDashPattern = dot;
-    } else if (aBorderStyle == NS_STYLE_BORDER_STYLE_DASHED) {
-      static Float dash[] = { 5.f, 5.f };
-      aStrokeOptions.mDashLength = MOZ_ARRAY_LENGTH(dash);
-      aStrokeOptions.mDashPattern = dash;
-    } else {
-      aStrokeOptions.mDashLength = 0;
-      aStrokeOptions.mDashPattern = nullptr;
-    }
-  }
-
-  /**
-   * Convert an nsRect to a gfxRect.
-   */
-  static gfxRect RectToGfxRect(const nsRect& aRect,
-                               int32_t aAppUnitsPerDevPixel);
-
-  static gfxPoint PointToGfxPoint(const nsPoint& aPoint,
-                                  int32_t aAppUnitsPerPixel) {
-    return gfxPoint(gfxFloat(aPoint.x) / aAppUnitsPerPixel,
-                    gfxFloat(aPoint.y) / aAppUnitsPerPixel);
-  }
+                              uint32_t            aImageFlags,
+                              float               aOpacity = 1.0);
 
   /**
    * Draw a whole image without scaling or tiling.
@@ -1843,10 +1865,14 @@ public:
    *   @param aImage            The image.
    *   @param aDest             The area that the image should fill.
    *   @param aDirty            Pixels outside this area may be skipped.
-   *   @param aSVGContext       If non-null, SVG-related rendering context
-   *                            such as overridden attributes on the image
-   *                            document's root <svg> node. Ignored for
-   *                            raster images.
+   *   @param aSVGContext       Optionally provides an SVGImageContext.
+   *                            Callers should pass an SVGImageContext with at
+   *                            least the viewport size set if aImage may be of
+   *                            type imgIContainer::TYPE_VECTOR, or pass
+   *                            Nothing() if it is of type
+   *                            imgIContainer::TYPE_RASTER (to save cycles
+   *                            constructing an SVGImageContext, since this
+   *                            argument will be ignored for raster images).
    *   @param aImageFlags       Image flags of the imgIContainer::FLAG_*
    *                            variety.
    *   @param aAnchor           If non-null, a point which we will ensure
@@ -1862,7 +1888,7 @@ public:
                                     const SamplingFilter aSamplingFilter,
                                     const nsRect&       aDest,
                                     const nsRect&       aDirty,
-                                    const mozilla::SVGImageContext* aSVGContext,
+                                    const mozilla::Maybe<const SVGImageContext>& aSVGContext,
                                     uint32_t            aImageFlags,
                                     const nsPoint*      aAnchorPoint = nullptr,
                                     const nsRect*       aSourceArea = nullptr);
@@ -2868,6 +2894,14 @@ public:
    *                          next line exists, null otherwise.
    */
   static bool IsInvisibleBreak(nsINode* aNode, nsIFrame** aNextLineFrame = nullptr);
+
+  static nsRect ComputeGeometryBox(nsIFrame* aFrame,
+                                   StyleGeometryBox aGeometryBox);
+
+  /*
+   * Check whether aFrame is associated with CSS layout box.
+   */
+  static bool HasCSSBoxLayout(nsIFrame* aFrame);
 
 private:
   static uint32_t sFontSizeInflationEmPerLine;

@@ -5,8 +5,8 @@
 from urlparse import urlparse
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import expected, Wait
+from marionette_harness import MarionetteTestCase
 
 
 class TestNoCertificate(PuppeteerMixin, MarionetteTestCase):
@@ -39,7 +39,7 @@ class TestNoCertificate(PuppeteerMixin, MarionetteTestCase):
         self.assertFalse(favicon_hidden, 'The identity icon is visible')
 
         # Check that the identity box organization label is blank
-        self.assertEqual(self.locationbar.identity_organization_label.get_attribute('value'), '',
+        self.assertEqual(self.locationbar.identity_organization_label.get_property('value'), '',
                          'The organization has no label')
 
         # Open the identity popup
@@ -70,12 +70,12 @@ class TestNoCertificate(PuppeteerMixin, MarionetteTestCase):
 
         # Check the domain listed on the security panel contains the url's host name
         self.assertIn(urlparse(self.url).hostname,
-                      page_info.deck.security.domain.get_attribute('value'))
+                      page_info.deck.security.domain.get_property('value'))
 
         # Check the owner label equals localized 'securityNoOwner'
-        self.assertEqual(page_info.deck.security.owner.get_attribute('value'),
-                         page_info.get_property('securityNoOwner'))
+        self.assertEqual(page_info.deck.security.owner.get_property('value'),
+                         page_info.localize_property('securityNoOwner'))
 
         # Check the verifier label equals localized 'notset'
-        self.assertEqual(page_info.deck.security.verifier.get_attribute('value'),
-                         page_info.get_property('notset'))
+        self.assertEqual(page_info.deck.security.verifier.get_property('value'),
+                         page_info.localize_property('notset'))

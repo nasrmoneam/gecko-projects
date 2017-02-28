@@ -15,11 +15,14 @@
 #include "mozilla/layers/APZCTreeManagerParent.h"  // for APZCTreeManagerParent
 #include "mozilla/layers/APZThreadUtils.h"  // for APZCTreeManager
 #include "mozilla/layers/AsyncCompositionManager.h"
+#include "mozilla/layers/CompositorOptions.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/LayerManagerComposite.h"
 #include "mozilla/layers/LayerTreeOwnerTracker.h"
 #include "mozilla/layers/PLayerTransactionParent.h"
 #include "mozilla/layers/RemoteContentController.h"
+#include "mozilla/layers/WebRenderBridgeParent.h"
+#include "mozilla/layers/WebRenderCompositableHolder.h"
 #include "mozilla/mozalloc.h"           // for operator new, etc
 #include "nsDebug.h"                    // for NS_ASSERTION, etc
 #include "nsTArray.h"                   // for nsTArray
@@ -86,14 +89,14 @@ CrossProcessCompositorBridgeParent::AllocPLayerTransactionParent(
     LayerTransactionParent* p = new LayerTransactionParent(lm, this, aId);
     p->AddIPDLReference();
     sIndirectLayerTrees[aId].mLayerTree = p;
-    p->SetPendingCompositorUpdates(state->mPendingCompositorUpdates);
+    if (state->mPendingCompositorUpdate) {
+      p->SetPendingCompositorUpdate(state->mPendingCompositorUpdate.value());
+    }
     return p;
   }
 
   NS_WARNING("Created child without a matching parent?");
-  // XXX: should be false, but that causes us to fail some tests on Mac w/ OMTC.
-  // Bug 900745. change *aSuccess to false to see test failures.
-  *aSuccess = true;
+  *aSuccess = false;
   LayerTransactionParent* p = new LayerTransactionParent(nullptr, this, aId);
   p->AddIPDLReference();
   return p;
@@ -109,18 +112,21 @@ CrossProcessCompositorBridgeParent::DeallocPLayerTransactionParent(PLayerTransac
 }
 
 mozilla::ipc::IPCResult
-CrossProcessCompositorBridgeParent::RecvAsyncPanZoomEnabled(const uint64_t& aLayersId, bool* aHasAPZ)
+CrossProcessCompositorBridgeParent::RecvGetCompositorOptions(const uint64_t& aLayersId,
+                                                             CompositorOptions* aOptions)
 {
   // Check to see if this child process has access to this layer tree.
   if (!LayerTreeOwnerTracker::Get()->IsMapped(aLayersId, OtherPid())) {
-    NS_ERROR("Unexpected layers id in RecvAsyncPanZoomEnabled; dropping message...");
+    NS_ERROR("Unexpected layers id in RecvGetCompositorOptions; dropping message...");
     return IPC_FAIL_NO_REASON(this);
   }
 
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
   CompositorBridgeParent::LayerTreeState& state = sIndirectLayerTrees[aLayersId];
 
-  *aHasAPZ = state.mParent ? state.mParent->AsyncPanZoomEnabled() : false;
+  if (state.mParent) {
+    *aOptions = state.mParent->GetOptions();
+  }
   return IPC_OK();
 }
 
@@ -190,6 +196,54 @@ CrossProcessCompositorBridgeParent::DeallocPAPZParent(PAPZParent* aActor)
   return true;
 }
 
+PWebRenderBridgeParent*
+CrossProcessCompositorBridgeParent::AllocPWebRenderBridgeParent(const wr::PipelineId& aPipelineId,
+                                                                TextureFactoryIdentifier* aTextureFactoryIdentifier)
+{
+#ifndef MOZ_ENABLE_WEBRENDER
+  // Extra guard since this in the parent process and we don't want a malicious
+  // child process invoking this codepath before it's ready
+  MOZ_RELEASE_ASSERT(false);
+#endif
+  // Check to see if this child process has access to this layer tree.
+  if (!LayerTreeOwnerTracker::Get()->IsMapped(aPipelineId.mHandle, OtherPid())) {
+    NS_ERROR("Unexpected layers id in AllocPAPZCTreeManagerParent; dropping message...");
+    return nullptr;
+  }
+
+  auto pipelineHandle = aPipelineId.mHandle;
+  MonitorAutoLock lock(*sIndirectLayerTreesLock);
+  MOZ_ASSERT(sIndirectLayerTrees.find(pipelineHandle) != sIndirectLayerTrees.end());
+  MOZ_ASSERT(sIndirectLayerTrees[pipelineHandle].mWrBridge == nullptr);
+  CompositorBridgeParent* cbp = sIndirectLayerTrees[pipelineHandle].mParent;
+  WebRenderBridgeParent* root = sIndirectLayerTrees[cbp->RootLayerTreeId()].mWrBridge.get();
+
+  WebRenderBridgeParent* parent = nullptr;
+  RefPtr<wr::WebRenderAPI> api = root->GetWebRenderAPI();
+  RefPtr<WebRenderCompositableHolder> holder = root->CompositableHolder();
+  parent = new WebRenderBridgeParent(this, aPipelineId, nullptr, Move(api), Move(holder));
+
+  parent->AddRef(); // IPDL reference
+  sIndirectLayerTrees[pipelineHandle].mCrossProcessParent = this;
+  sIndirectLayerTrees[pipelineHandle].mWrBridge = parent;
+  *aTextureFactoryIdentifier = parent->GetTextureFactoryIdentifier();
+  return parent;
+}
+
+bool
+CrossProcessCompositorBridgeParent::DeallocPWebRenderBridgeParent(PWebRenderBridgeParent* aActor)
+{
+#ifndef MOZ_ENABLE_WEBRENDER
+  // Extra guard since this in the parent process and we don't want a malicious
+  // child process invoking this codepath before it's ready
+  MOZ_RELEASE_ASSERT(false);
+#endif
+  WebRenderBridgeParent* parent = static_cast<WebRenderBridgeParent*>(aActor);
+  EraseLayerState(parent->PipelineId().mHandle);
+  parent->Release(); // IPDL reference
+  return true;
+}
+
 mozilla::ipc::IPCResult
 CrossProcessCompositorBridgeParent::RecvNotifyChildCreated(const uint64_t& child)
 {
@@ -208,14 +262,7 @@ CrossProcessCompositorBridgeParent::RecvNotifyChildCreated(const uint64_t& child
 void
 CrossProcessCompositorBridgeParent::ShadowLayersUpdated(
   LayerTransactionParent* aLayerTree,
-  const uint64_t& aTransactionId,
-  const TargetConfig& aTargetConfig,
-  const InfallibleTArray<PluginWindowData>& aPlugins,
-  bool aIsFirstPaint,
-  bool aScheduleComposite,
-  uint32_t aPaintSequenceNumber,
-  bool aIsRepeatTransaction,
-  int32_t /*aPaintSyncId: unused*/,
+  const TransactionInfo& aInfo,
   bool aHitTestUpdate)
 {
   uint64_t id = aLayerTree->GetId();
@@ -228,20 +275,27 @@ CrossProcessCompositorBridgeParent::ShadowLayersUpdated(
     return;
   }
   MOZ_ASSERT(state->mParent);
-  state->mParent->ScheduleRotationOnCompositorThread(aTargetConfig, aIsFirstPaint);
+  state->mParent->ScheduleRotationOnCompositorThread(
+    aInfo.targetConfig(),
+    aInfo.isFirstPaint());
 
   Layer* shadowRoot = aLayerTree->GetRoot();
   if (shadowRoot) {
     CompositorBridgeParent::SetShadowProperties(shadowRoot);
   }
-  UpdateIndirectTree(id, shadowRoot, aTargetConfig);
+  UpdateIndirectTree(id, shadowRoot, aInfo.targetConfig());
 
   // Cache the plugin data for this remote layer tree
-  state->mPluginData = aPlugins;
+  state->mPluginData = aInfo.plugins();
   state->mUpdatedPluginDataAvailable = true;
 
-  state->mParent->NotifyShadowTreeTransaction(id, aIsFirstPaint, aScheduleComposite,
-      aPaintSequenceNumber, aIsRepeatTransaction, aHitTestUpdate);
+  state->mParent->NotifyShadowTreeTransaction(
+    id,
+    aInfo.isFirstPaint(),
+    aInfo.scheduleComposite(),
+    aInfo.paintSequenceNumber(),
+    aInfo.isRepeatTransaction(),
+    aHitTestUpdate);
 
   // Send the 'remote paint ready' message to the content thread if it has already asked.
   if(mNotifyAfterRemotePaint)  {
@@ -255,7 +309,7 @@ CrossProcessCompositorBridgeParent::ShadowLayersUpdated(
     Unused << state->mParent->SendObserveLayerUpdate(id, aLayerTree->GetChildEpoch(), true);
   }
 
-  aLayerTree->SetPendingTransactionId(aTransactionId);
+  aLayerTree->SetPendingTransactionId(aInfo.id());
 }
 
 void
@@ -268,6 +322,9 @@ CrossProcessCompositorBridgeParent::DidComposite(
   if (LayerTransactionParent *layerTree = sIndirectLayerTrees[aId].mLayerTree) {
     Unused << SendDidComposite(aId, layerTree->GetPendingTransactionId(), aCompositeStart, aCompositeEnd);
     layerTree->SetPendingTransactionId(0);
+  } else if (WebRenderBridgeParent* wrbridge = sIndirectLayerTrees[aId].mWrBridge) {
+    Unused << SendDidComposite(aId, wrbridge->GetPendingTransactionId(), aCompositeStart, aCompositeEnd);
+    wrbridge->SetPendingTransactionId(0);
   }
 }
 
@@ -406,16 +463,18 @@ CrossProcessCompositorBridgeParent::GetCompositionManager(LayerTransactionParent
 }
 
 mozilla::ipc::IPCResult
-CrossProcessCompositorBridgeParent::RecvAcknowledgeCompositorUpdate(const uint64_t& aLayersId)
+CrossProcessCompositorBridgeParent::RecvAcknowledgeCompositorUpdate(const uint64_t& aLayersId,
+                                                                    const uint64_t& aSeqNo)
 {
   MonitorAutoLock lock(*sIndirectLayerTreesLock);
   CompositorBridgeParent::LayerTreeState& state = sIndirectLayerTrees[aLayersId];
 
   if (LayerTransactionParent* ltp = state.mLayerTree) {
-    ltp->AcknowledgeCompositorUpdate();
+    ltp->AcknowledgeCompositorUpdate(aSeqNo);
   }
-  MOZ_ASSERT(state.mPendingCompositorUpdates > 0);
-  state.mPendingCompositorUpdates--;
+  if (state.mPendingCompositorUpdate == Some(aSeqNo)) {
+    state.mPendingCompositorUpdate = Nothing();
+  }
   return IPC_OK();
 }
 
@@ -448,7 +507,7 @@ CrossProcessCompositorBridgeParent::AllocPTextureParent(const SurfaceDescriptor&
 
   TextureFlags flags = aFlags;
 
-  if (!state || state->mPendingCompositorUpdates) {
+  if (!state || state->mPendingCompositorUpdate) {
     // The compositor was recreated, and we're receiving layers updates for a
     // a layer manager that will soon be discarded or invalidated. We can't
     // return null because this will mess up deserialization later and we'll
@@ -521,6 +580,20 @@ CrossProcessCompositorBridgeParent::UpdatePaintTime(LayerTransactionParent* aLay
   }
 
   state->mParent->UpdatePaintTime(aLayerTree, aPaintTime);
+}
+
+void
+CrossProcessCompositorBridgeParent::ObserveLayerUpdate(uint64_t aLayersId, uint64_t aEpoch, bool aActive)
+{
+  MOZ_ASSERT(aLayersId != 0);
+
+  CompositorBridgeParent::LayerTreeState* state =
+    CompositorBridgeParent::GetIndirectShadowTree(aLayersId);
+  if (!state || !state->mParent) {
+    return;
+  }
+
+  Unused << state->mParent->SendObserveLayerUpdate(aLayersId, aEpoch, aActive);
 }
 
 } // namespace layers

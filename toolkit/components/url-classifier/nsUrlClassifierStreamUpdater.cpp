@@ -10,6 +10,7 @@
 #include "nsIUploadChannel.h"
 #include "nsIURI.h"
 #include "nsIUrlClassifierDBService.h"
+#include "nsUrlClassifierUtils.h"
 #include "nsNetUtil.h"
 #include "nsStreamUtils.h"
 #include "nsStringStream.h"
@@ -23,8 +24,7 @@
 #include "mozilla/Telemetry.h"
 #include "nsContentUtils.h"
 #include "nsIURLFormatter.h"
-
-using mozilla::DocShellOriginAttributes;
+#include "Classifier.h"
 
 static const char* gQuitApplicationMessage = "quit-application";
 
@@ -39,7 +39,7 @@ static mozilla::LazyLogModule gUrlClassifierStreamUpdaterLog("UrlClassifierStrea
 
 // Calls nsIURLFormatter::TrimSensitiveURLs to remove sensitive
 // info from the logging message.
-static void TrimAndLog(const char* aFmt, ...)
+static MOZ_FORMAT_PRINTF(1, 2) void TrimAndLog(const char* aFmt, ...)
 {
   nsString raw;
 
@@ -57,9 +57,10 @@ static void TrimAndLog(const char* aFmt, ...)
     trimmed = EmptyString();
   }
 
+  // Use %s so we aren't exposing random strings to printf interpolation.
   MOZ_LOG(gUrlClassifierStreamUpdaterLog,
           mozilla::LogLevel::Debug,
-          (NS_ConvertUTF16toUTF8(trimmed).get()));
+          ("%s", NS_ConvertUTF16toUTF8(trimmed).get()));
 }
 
 // This class does absolutely nothing, except pass requests onto the DBService.
@@ -98,6 +99,7 @@ nsUrlClassifierStreamUpdater::DownloadDone()
   mSuccessCallback = nullptr;
   mUpdateErrorCallback = nullptr;
   mDownloadErrorCallback = nullptr;
+  mTelemetryProvider.Truncate();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -130,7 +132,11 @@ nsUrlClassifierStreamUpdater::FetchUpdate(nsIURI *aUpdateUrl,
   NS_ENSURE_SUCCESS(rv, rv);
 
   nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
-  loadInfo->SetOriginAttributes(mozilla::NeckoOriginAttributes(NECKO_SAFEBROWSING_APP_ID, false));
+  mozilla::OriginAttributes attrs;
+  attrs.mFirstPartyDomain.AssignLiteral(NECKO_SAFEBROWSING_FIRST_PARTY_DOMAIN);
+  if (loadInfo) {
+    loadInfo->SetOriginAttributes(attrs);
+  }
 
   mBeganStream = false;
 
@@ -173,15 +179,6 @@ nsUrlClassifierStreamUpdater::FetchUpdate(nsIURI *aUpdateUrl,
     rv = httpChannel->SetRequestHeader(NS_LITERAL_CSTRING("Connection"), NS_LITERAL_CSTRING("close"), false);
     NS_ENSURE_SUCCESS(rv, rv);
   }
-
-  // Create a custom LoadContext for SafeBrowsing, so we can use callbacks on
-  // the channel to query the appId which allows separation of safebrowsing
-  // cookies in a separate jar.
-  DocShellOriginAttributes attrs;
-  attrs.mAppId = NECKO_SAFEBROWSING_APP_ID;
-  nsCOMPtr<nsIInterfaceRequestor> sbContext = new mozilla::LoadContext(attrs);
-  rv = mChannel->SetNotificationCallbacks(sbContext);
-  NS_ENSURE_SUCCESS(rv, rv);
 
   // Make the request.
   rv = mChannel->AsyncOpen2(this);
@@ -291,6 +288,14 @@ nsUrlClassifierStreamUpdater::DownloadUpdates(
     return rv;
   }
 
+  nsCOMPtr<nsIUrlClassifierUtils> urlUtil =
+    do_GetService(NS_URLCLASSIFIERUTILS_CONTRACTID);
+
+  nsTArray<nsCString> tables;
+  mozilla::safebrowsing::Classifier::SplitTables(aRequestTables, tables);
+  urlUtil->GetTelemetryProvider(tables.SafeElementAt(0, EmptyCString()),
+                                mTelemetryProvider);
+
   mSuccessCallback = aSuccessCallback;
   mUpdateErrorCallback = aUpdateErrorCallback;
   mDownloadErrorCallback = aDownloadErrorCallback;
@@ -399,7 +404,8 @@ nsUrlClassifierStreamUpdater::StreamFinished(nsresult status,
   // We are a service and may not be reset with Init between calls, so reset
   // mBeganStream manually.
   mBeganStream = false;
-  LOG(("nsUrlClassifierStreamUpdater::StreamFinished [%x, %d]", status, requestedDelay));
+  LOG(("nsUrlClassifierStreamUpdater::StreamFinished [%" PRIx32 ", %d]",
+       static_cast<uint32_t>(status), requestedDelay));
   if (NS_FAILED(status) || mPendingUpdates.Length() == 0) {
     // We're done.
     LOG(("nsUrlClassifierStreamUpdater::Done [this=%p]", this));
@@ -501,6 +507,32 @@ nsUrlClassifierStreamUpdater::AddRequestBody(const nsACString &aRequestBody)
   NS_ENSURE_SUCCESS(rv, rv);
 
   return NS_OK;
+}
+
+// We might need to expand the bucket here if telemetry shows lots of errors
+// are neither connection errors nor DNS errors.
+static uint8_t NetworkErrorToBucket(nsresult rv)
+{
+  switch(rv) {
+  // Connection errors
+  case NS_ERROR_ALREADY_CONNECTED:        return 2;
+  case NS_ERROR_NOT_CONNECTED:            return 3;
+  case NS_ERROR_CONNECTION_REFUSED:       return 4;
+  case NS_ERROR_NET_TIMEOUT:              return 5;
+  case NS_ERROR_OFFLINE:                  return 6;
+  case NS_ERROR_PORT_ACCESS_NOT_ALLOWED:  return 7;
+  case NS_ERROR_NET_RESET:                return 8;
+  case NS_ERROR_NET_INTERRUPT:            return 9;
+  case NS_ERROR_PROXY_CONNECTION_REFUSED: return 10;
+  case NS_ERROR_NET_PARTIAL_TRANSFER:     return 11;
+  case NS_ERROR_NET_INADEQUATE_SECURITY:  return 12;
+  // DNS errors
+  case NS_ERROR_UNKNOWN_HOST:             return 13;
+  case NS_ERROR_DNS_LOOKUP_QUEUE_FULL:    return 14;
+  case NS_ERROR_UNKNOWN_PROXY_HOST:       return 15;
+  // Others
+  default:                                return 1;
+  }
 }
 
 // Map the HTTP response code to a Telemetry bucket
@@ -643,12 +675,14 @@ nsUrlClassifierStreamUpdater::OnStartRequest(nsIRequest *request,
            spec.get(), this));
     }
 
+    uint8_t netErrCode = NS_FAILED(status) ? NetworkErrorToBucket(status) : 0;
+    mozilla::Telemetry::Accumulate(
+      mozilla::Telemetry::URLCLASSIFIER_UPDATE_REMOTE_NETWORK_ERROR,
+      mTelemetryProvider, netErrCode);
+
     if (NS_FAILED(status)) {
       // Assume we're overloading the server and trigger backoff.
       downloadError = true;
-      mozilla::Telemetry::Accumulate(mozilla::Telemetry::URLCLASSIFIER_UPDATE_REMOTE_STATUS,
-                                     15 /* unknown response code */);
-
     } else {
       bool succeeded = false;
       rv = httpChannel->GetRequestSucceeded(&succeeded);
@@ -657,8 +691,8 @@ nsUrlClassifierStreamUpdater::OnStartRequest(nsIRequest *request,
       uint32_t requestStatus;
       rv = httpChannel->GetResponseStatus(&requestStatus);
       NS_ENSURE_SUCCESS(rv, rv);
-      mozilla::Telemetry::Accumulate(mozilla::Telemetry::URLCLASSIFIER_UPDATE_REMOTE_STATUS,
-                                     HTTPStatusToBucket(requestStatus));
+      mozilla::Telemetry::Accumulate(mozilla::Telemetry::URLCLASSIFIER_UPDATE_REMOTE_STATUS2,
+                                     mTelemetryProvider, HTTPStatusToBucket(requestStatus));
       LOG(("nsUrlClassifierStreamUpdater::OnStartRequest %s (%d)", succeeded ?
            "succeeded" : "failed", requestStatus));
       if (!succeeded) {
@@ -705,7 +739,7 @@ nsUrlClassifierStreamUpdater::OnDataAvailable(nsIRequest *request,
   LOG(("OnDataAvailable (%d bytes)", aLength));
 
   if (aSourceOffset > MAX_FILE_SIZE) {
-    LOG(("OnDataAvailable::Abort because exceeded the maximum file size(%lld)", aSourceOffset));
+    LOG(("OnDataAvailable::Abort because exceeded the maximum file size(%" PRIu64 ")", aSourceOffset));
     return NS_ERROR_FILE_TOO_BIG;
   }
 
@@ -730,8 +764,8 @@ nsUrlClassifierStreamUpdater::OnStopRequest(nsIRequest *request, nsISupports* co
   if (!mDBService)
     return NS_ERROR_NOT_INITIALIZED;
 
-  LOG(("OnStopRequest (status %x, beganStream %s, this=%p)", aStatus,
-       mBeganStream ? "true" : "false", this));
+  LOG(("OnStopRequest (status %" PRIx32 ", beganStream %s, this=%p)",
+       static_cast<uint32_t>(aStatus), mBeganStream ? "true" : "false", this));
 
   nsresult rv;
 

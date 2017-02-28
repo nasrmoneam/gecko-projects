@@ -46,8 +46,8 @@
 #include "nsSVGOuterSVGFrame.h"
 #include "mozilla/dom/SVGClipPathElement.h"
 #include "mozilla/dom/SVGPathElement.h"
-#include "nsSVGPathGeometryElement.h"
-#include "nsSVGPathGeometryFrame.h"
+#include "SVGGeometryElement.h"
+#include "SVGGeometryFrame.h"
 #include "nsSVGPaintServerFrame.h"
 #include "mozilla/dom/SVGSVGElement.h"
 #include "nsTextFrame.h"
@@ -58,6 +58,7 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::gfx;
+using namespace mozilla::image;
 
 static bool sSVGPathCachingEnabled;
 static bool sSVGDisplayListHitTestingEnabled;
@@ -147,21 +148,20 @@ nsSVGUtils::Init()
                                "svg.new-getBBox.enabled");
 }
 
-nsSVGDisplayContainerFrame*
+nsIFrame*
 nsSVGUtils::GetNearestSVGViewport(nsIFrame *aFrame)
 {
   NS_ASSERTION(aFrame->IsFrameOfType(nsIFrame::eSVG), "SVG frame expected");
-  if (aFrame->GetType() == nsGkAtoms::svgOuterSVGFrame) {
-    return nullptr;
-  }
-  while ((aFrame = aFrame->GetParent())) {
+
+  for (; aFrame &&  aFrame->IsFrameOfType(nsIFrame::eSVG);
+       aFrame = aFrame->GetParent()) {
     NS_ASSERTION(aFrame->IsFrameOfType(nsIFrame::eSVG), "SVG frame expected");
     if (aFrame->GetType() == nsGkAtoms::svgInnerSVGFrame ||
         aFrame->GetType() == nsGkAtoms::svgOuterSVGFrame) {
-      return do_QueryFrame(aFrame);
+      return aFrame;
     }
   }
-  NS_NOTREACHED("This is not reached. It's only needed to compile.");
+
   return nullptr;
 }
 
@@ -398,7 +398,7 @@ nsSVGUtils::GetCanvasTM(nsIFrame *aFrame)
   // XXX yuck, we really need a common interface for GetCanvasTM
 
   if (!aFrame->IsFrameOfType(nsIFrame::eSVG)) {
-    return nsSVGIntegrationUtils::GetCSSPxToDevPxMatrix(aFrame);
+    return GetCSSPxToDevPxMatrix(aFrame);
   }
 
   nsIAtom* type = aFrame->GetType();
@@ -406,7 +406,7 @@ nsSVGUtils::GetCanvasTM(nsIFrame *aFrame)
     return static_cast<nsSVGForeignObjectFrame*>(aFrame)->GetCanvasTM();
   }
   if (type == nsGkAtoms::svgOuterSVGFrame) {
-    return nsSVGIntegrationUtils::GetCSSPxToDevPxMatrix(aFrame);
+    return GetCSSPxToDevPxMatrix(aFrame);
   }
 
   nsSVGContainerFrame *containerFrame = do_QueryFrame(aFrame);
@@ -414,7 +414,7 @@ nsSVGUtils::GetCanvasTM(nsIFrame *aFrame)
     return containerFrame->GetCanvasTM();
   }
 
-  return static_cast<nsSVGPathGeometryFrame*>(aFrame)->GetCanvasTM();
+  return static_cast<SVGGeometryFrame*>(aFrame)->GetCanvasTM();
 }
 
 gfxMatrix
@@ -524,8 +524,7 @@ nsSVGUtils::DetermineMaskUsage(nsIFrame* aFrame, bool aHandleOpacity,
   aUsage.shouldGenerateMaskLayer = maskFrames.Length() == 1 && maskFrames[0];
 #endif
 
-  bool isOK = effectProperties.HasNoFilterOrHasValidFilter();
-  nsSVGClipPathFrame *clipPathFrame = effectProperties.GetClipPathFrame(&isOK);
+  nsSVGClipPathFrame *clipPathFrame = effectProperties.GetClipPathFrame();
   MOZ_ASSERT_IF(clipPathFrame,
                 svgReset->mClipPath.GetType() == StyleShapeSourceType::URL);
 
@@ -740,13 +739,14 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
      so make sure all applicable ones are set again. */
   nsSVGEffects::EffectProperties effectProperties =
     nsSVGEffects::GetEffectProperties(aFrame);
-  bool isOK = effectProperties.HasNoFilterOrHasValidFilter();
-  nsSVGClipPathFrame *clipPathFrame = effectProperties.GetClipPathFrame(&isOK);
-  nsSVGMaskFrame *maskFrame = effectProperties.GetFirstMaskFrame(&isOK);
-  if (!isOK) {
+  if (effectProperties.HasInvalidEffects()) {
     // Some resource is invalid. We shouldn't paint anything.
     return DrawResult::SUCCESS;
   }
+
+  nsSVGClipPathFrame *clipPathFrame = effectProperties.GetClipPathFrame();
+  nsTArray<nsSVGMaskFrame*> masks = effectProperties.GetMaskFrames();
+  nsSVGMaskFrame *maskFrame = masks.IsEmpty() ? nullptr : masks[0];
 
   MixModeBlender blender(aFrame, &aContext);
   gfxContext* target = blender.ShouldCreateDrawTargetForBlend()
@@ -763,12 +763,19 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
   bool shouldGenerateMask = (maskUsage.opacity != 1.0f ||
                              maskUsage.shouldGenerateClipMaskLayer ||
                              maskUsage.shouldGenerateMaskLayer);
+  bool shouldPushMask = false;
 
   if (shouldGenerateMask) {
     Matrix maskTransform;
     RefPtr<SourceSurface> maskSurface;
 
-    if (maskUsage.shouldGenerateMaskLayer) {
+    // maskFrame can be nullptr even if maskUsage.shouldGenerateMaskLayer is
+    // true. That happens when a user gives an unresolvable mask-id, such as
+    //   mask:url()
+    //   mask:url(#id-which-does-not-exist)
+    // Since we only uses nsSVGUtils with SVG elements, not like mask on an
+    // HTML element, we should treat an unresolvable mask as no-mask here.
+    if (maskUsage.shouldGenerateMaskLayer && maskFrame) {
       uint8_t maskMode =
         aFrame->StyleSVGReset()->mMask.mLayers[0].mMaskMode;
       nsSVGMaskFrame::MaskParams params(&aContext, aFrame, aTransform,
@@ -781,6 +788,7 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
         // failure in nsSVGMaskFrame::GetMaskForMaskedFrame.
         return result;
       }
+      shouldPushMask = true;
     }
 
     if (maskUsage.shouldGenerateClipMaskLayer) {
@@ -800,13 +808,21 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
         // failure in nsSVGClipPathFrame::GetClipMask.
         return result;
       }
+      shouldPushMask = true;
+    }
+
+    if (!maskUsage.shouldGenerateClipMaskLayer &&
+        !maskUsage.shouldGenerateMaskLayer) {
+      shouldPushMask = true;
     }
 
     // SVG mask multiply opacity into maskSurface already, so we do not bother
     // to apply opacity again.
-    float opacity = maskFrame ? 1.0 : maskUsage.opacity;
-    target->PushGroupForBlendBack(gfxContentType::COLOR_ALPHA, opacity,
-                                  maskSurface, maskTransform);
+    if (shouldPushMask) {
+      target->PushGroupForBlendBack(gfxContentType::COLOR_ALPHA,
+                                    maskFrame ? 1.0 : maskUsage.opacity,
+                                    maskSurface, maskTransform);
+    }
   }
 
   /* If this frame has only a trivial clipPath, set up cairo's clipping now so
@@ -843,9 +859,10 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
       dirtyRegion = &tmpDirtyRegion;
     }
     SVGPaintCallback paintCallback;
-    nsFilterInstance::PaintFilteredFrame(aFrame, target->GetDrawTarget(),
-                                         aTransform, &paintCallback,
-                                         dirtyRegion);
+    result =
+      nsFilterInstance::PaintFilteredFrame(aFrame, target->GetDrawTarget(),
+                                           aTransform, &paintCallback,
+                                           dirtyRegion);
   } else {
     result = svgChildFrame->PaintSVG(*target, aTransform, aDirtyRect);
   }
@@ -854,7 +871,7 @@ nsSVGUtils::PaintFrameWithEffects(nsIFrame *aFrame,
     aContext.PopClip();
   }
 
-  if (shouldGenerateMask) {
+  if (shouldPushMask) {
     target->PopGroupAndBlend();
   }
 
@@ -879,13 +896,13 @@ nsSVGUtils::HitTestClip(nsIFrame *aFrame, const gfxPoint &aPoint)
     return true;
   }
 
-  bool isOK = true;
-  nsSVGClipPathFrame *clipPathFrame = props.GetClipPathFrame(&isOK);
-  if (!isOK) {
+  if (props.HasInvalidClipPath()) {
     // clipPath is not a valid resource, so nothing gets painted, so
     // hit-testing must fail.
     return false;
   }
+  nsSVGClipPathFrame *clipPathFrame = props.GetClipPathFrame();
+
   if (!clipPathFrame) {
     // clipPath doesn't exist, ignore it.
     return true;
@@ -990,7 +1007,7 @@ nsSVGUtils::ConvertToSurfaceSize(const gfxSize& aSize,
   *aResultOverflows = surfaceSize.width != ceil(aSize.width) ||
     surfaceSize.height != ceil(aSize.height);
 
-  if (!Factory::CheckSurfaceSize(surfaceSize)) {
+  if (!Factory::AllowedSurfaceSize(surfaceSize)) {
     surfaceSize.width = std::min(NS_SVG_OFFSCREEN_MAX_DIMENSION,
                                surfaceSize.width);
     surfaceSize.height = std::min(NS_SVG_OFFSCREEN_MAX_DIMENSION,
@@ -1110,8 +1127,7 @@ nsSVGUtils::GetBBox(nsIFrame *aFrame, uint32_t aFlags)
     }
 
     gfxMatrix matrix;
-    if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame ||
-        aFrame->GetType() == nsGkAtoms::svgUseFrame) {
+    if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame) {
       // The spec says getBBox "Returns the tight bounding box in *current user
       // space*". So we should really be doing this for all elements, but that
       // needs investigation to check that we won't break too much content.
@@ -1127,8 +1143,8 @@ nsSVGUtils::GetBBox(nsIFrame *aFrame, uint32_t aFlags)
       gfxRect clipRect(0, 0, 0, 0);
       float x, y, width, height;
       gfxMatrix tm;
-      gfxRect fillBBox = 
-        svg->GetBBoxContribution(ToMatrix(tm), 
+      gfxRect fillBBox =
+        svg->GetBBoxContribution(ToMatrix(tm),
                                  nsSVGUtils::eBBoxIncludeFill).ToThebesRect();
       x = fillBBox.x;
       y = fillBBox.y;
@@ -1136,7 +1152,7 @@ nsSVGUtils::GetBBox(nsIFrame *aFrame, uint32_t aFlags)
       height = fillBBox.height;
       bool hasClip = aFrame->StyleDisplay()->IsScrollableOverflow();
       if (hasClip) {
-        clipRect = 
+        clipRect =
           nsSVGUtils::GetClipRectForFrame(aFrame, x, y, width, height);
           if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame ||
               aFrame->GetType() == nsGkAtoms::svgUseFrame) {
@@ -1145,35 +1161,32 @@ nsSVGUtils::GetBBox(nsIFrame *aFrame, uint32_t aFlags)
       }
       nsSVGEffects::EffectProperties effectProperties =
         nsSVGEffects::GetEffectProperties(aFrame);
-      bool isOK = true;
-      nsSVGClipPathFrame *clipPathFrame = 
-        effectProperties.GetClipPathFrame(&isOK);
-      if (clipPathFrame && isOK) {
-        SVGClipPathElement *clipContent = 
-          static_cast<SVGClipPathElement*>(clipPathFrame->GetContent());
-        RefPtr<SVGAnimatedEnumeration> units = clipContent->ClipPathUnits();
-        if (units->AnimVal() == SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
-          matrix.Translate(gfxPoint(x, y));
-          matrix.Scale(width, height);
-        } else if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame) {
-          matrix.Reset();
+      if (effectProperties.HasInvalidClipPath()) {
+        bbox = gfxRect(0, 0, 0, 0);
+      } else {
+        nsSVGClipPathFrame *clipPathFrame =
+          effectProperties.GetClipPathFrame();
+        if (clipPathFrame) {
+          SVGClipPathElement *clipContent =
+            static_cast<SVGClipPathElement*>(clipPathFrame->GetContent());
+          RefPtr<SVGAnimatedEnumeration> units = clipContent->ClipPathUnits();
+          if (units->AnimVal() == SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
+            matrix.Translate(gfxPoint(x, y));
+            matrix.Scale(width, height);
+          } else if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame) {
+            matrix.Reset();
+          }
+          bbox =
+            clipPathFrame->GetBBoxForClipPathFrame(bbox, matrix).ToThebesRect();
         }
-        bbox = 
-          clipPathFrame->GetBBoxForClipPathFrame(bbox, matrix).ToThebesRect();
+
         if (hasClip) {
           bbox = bbox.Intersect(clipRect);
         }
-      } else {
-        if (!isOK) {
+
+        if (bbox.IsEmpty()) {
           bbox = gfxRect(0, 0, 0, 0);
-        } else {
-          if (hasClip) {
-            bbox = bbox.Intersect(clipRect);
-          }
         }
-      }
-      if (bbox.IsEmpty()) {
-        bbox = gfxRect(0, 0, 0, 0);
       }
     }
 
@@ -1206,8 +1219,7 @@ nsSVGUtils::FrameSpaceInCSSPxToUserSpaceOffset(nsIFrame *aFrame)
 
   // For foreignObject frames, nsSVGUtils::GetBBox applies their local
   // transform, so we need to do the same here.
-  if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame ||
-      aFrame->GetType() == nsGkAtoms::svgUseFrame) {
+  if (aFrame->GetType() == nsGkAtoms::svgForeignObjectFrame) {
     gfxMatrix transform = static_cast<nsSVGElement*>(aFrame->GetContent())->
         PrependLocalTransformsTo(gfxMatrix(), eChildToUserSpace);
     NS_ASSERTION(!transform.HasNonTranslation(), "we're relying on this being an offset-only transform");
@@ -1264,7 +1276,7 @@ nsSVGUtils::CanOptimizeOpacity(nsIFrame *aFrame)
   }
   nsIAtom *type = aFrame->GetType();
   if (type != nsGkAtoms::svgImageFrame &&
-      type != nsGkAtoms::svgPathGeometryFrame) {
+      type != nsGkAtoms::svgGeometryFrame) {
     return false;
   }
   if (aFrame->StyleEffects()->HasFilters()) {
@@ -1370,7 +1382,7 @@ nsSVGUtils::PathExtentsToMaxStrokeExtents(const gfxRect& aPathExtents,
 
 /*static*/ gfxRect
 nsSVGUtils::PathExtentsToMaxStrokeExtents(const gfxRect& aPathExtents,
-                                          nsSVGPathGeometryFrame* aFrame,
+                                          SVGGeometryFrame* aFrame,
                                           const gfxMatrix& aMatrix)
 {
   bool strokeMayHaveCorners =
@@ -1850,4 +1862,16 @@ nsSVGUtils::ToCanvasBounds(const gfxRect &aUserspaceRect,
   return nsLayoutUtils::RoundGfxRectToAppRect(
                           aToCanvas.TransformBounds(aUserspaceRect),
                           presContext->AppUnitsPerDevPixel());
+}
+
+gfxMatrix
+nsSVGUtils::GetCSSPxToDevPxMatrix(nsIFrame* aNonSVGFrame)
+{
+  int32_t appUnitsPerDevPixel = aNonSVGFrame->PresContext()->AppUnitsPerDevPixel();
+  float devPxPerCSSPx =
+    1 / nsPresContext::AppUnitsToFloatCSSPixels(appUnitsPerDevPixel);
+
+  return gfxMatrix(devPxPerCSSPx, 0.0,
+                   0.0, devPxPerCSSPx,
+                   0.0, 0.0);
 }

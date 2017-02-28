@@ -16,8 +16,8 @@
 #include "nsTableFrame.h"
 #include "celldata.h"
 
-#include "mozilla/RestyleManagerHandle.h"
-#include "mozilla/RestyleManagerHandleInlines.h"
+#include "mozilla/RestyleManager.h"
+#include "mozilla/RestyleManagerInlines.h"
 #include <algorithm>
 
 #include "nsIScriptError.h"
@@ -858,8 +858,9 @@ nsMathMLmtableWrapperFrame::Reflow(nsPresContext*           aPresContext,
                        aReflowInput.ComputedSizeAsContainerIfConstrained());
       blockSize = rect.BSize(wm);
       do {
-        dy += rect.BStart(wm);
-        frame = frame->GetParent();
+        nsIFrame* parent = frame->GetParent();
+        dy += frame->BStart(wm, parent->GetSize());
+        frame = parent;
       } while (frame != this);
     }
   }

@@ -99,6 +99,9 @@ public:
   nsresult OpenAlternativeOutputStream(const nsACString & type, nsIOutputStream * *_retval);
 
   void InvokeAsyncOpen(nsresult rv);
+
+  // Calls SendSetPriority if mIPCClosed is false.
+  void DoSendSetPriority(int16_t aValue);
 protected:
   // used to connect redirected-to channel in parent with just created
   // ChildChannel.  Used during redirects.
@@ -116,7 +119,7 @@ protected:
                    const nsCString&           requestMethod,
                    const OptionalIPCStream&   uploadStream,
                    const bool&                uploadStreamHasHeaders,
-                   const uint16_t&            priority,
+                   const int16_t&             priority,
                    const uint32_t&            classOfService,
                    const uint8_t&             redirectionLimit,
                    const bool&                allowPipelining,
@@ -142,9 +145,10 @@ protected:
                    const bool&                aAllowStaleCacheContent,
                    const nsCString&           aContentTypeHint,
                    const nsCString&           aChannelId,
+                   const uint64_t&            aContentWindowId,
                    const nsCString&           aPreferredAlternativeType);
 
-  virtual mozilla::ipc::IPCResult RecvSetPriority(const uint16_t& priority) override;
+  virtual mozilla::ipc::IPCResult RecvSetPriority(const int16_t& priority) override;
   virtual mozilla::ipc::IPCResult RecvSetClassOfService(const uint32_t& cos) override;
   virtual mozilla::ipc::IPCResult RecvSetCacheTokenCachedCharset(const nsCString& charset) override;
   virtual mozilla::ipc::IPCResult RecvSuspend() override;
@@ -217,11 +221,10 @@ private:
 
   nsAutoPtr<class nsHttpChannel::OfflineCacheEntryAsForeignMarker> mOfflineForeignMarker;
 
-  // state for combining OnStatus/OnProgress with OnDataAvailable
-  // into one IPDL call to child.
-  nsresult mStoredStatus;
-  int64_t mStoredProgress;
-  int64_t mStoredProgressMax;
+  // OnStatus is always called before OnProgress.
+  // Set true in OnStatus if next OnProgress can be ignored
+  // since the information can be recontructed from ODA.
+  bool mIgnoreProgress              : 1;
 
   bool mSentRedirect1Begin          : 1;
   bool mSentRedirect1BeginFailed    : 1;

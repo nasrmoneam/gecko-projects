@@ -14,7 +14,8 @@ template<typename Function>
 void RunTestInNewThread(Function&& aFunction) {
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(mozilla::Forward<Function>(aFunction));
   nsCOMPtr<nsIThread> testingThread;
-  nsresult rv = NS_NewThread(getter_AddRefs(testingThread), r);
+  nsresult rv =
+    NS_NewNamedThread("Testing Thread", getter_AddRefs(testingThread), r);
   ASSERT_EQ(rv, NS_OK);
   testingThread->Shutdown();
 }
@@ -74,5 +75,42 @@ PrefixArrayToPrefixStringMap(const nsTArray<nsCString>& prefixArray,
     nsCString* prefixString = out.LookupOrAdd(prefix.Length());
     prefixString->Append(prefix.BeginReading(), prefix.Length());
   }
+}
+
+nsresult
+PrefixArrayToAddPrefixArrayV2(const nsTArray<nsCString>& prefixArray,
+                              AddPrefixArray& out)
+{
+  out.Clear();
+
+  for (size_t i = 0; i < prefixArray.Length(); i++) {
+    // Create prefix hash from string
+    Prefix hash;
+    static_assert(sizeof(hash.buf) == PREFIX_SIZE, "Prefix must be 4 bytes length");
+    memcpy(hash.buf, prefixArray[i].BeginReading(), PREFIX_SIZE);
+    MOZ_ASSERT(prefixArray[i].Length() == PREFIX_SIZE);
+
+    AddPrefix *add = out.AppendElement(fallible);
+    if (!add) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
+    add->addChunk = i;
+    add->prefix = hash;
+  }
+
+  return NS_OK;
+}
+
+nsCString
+GeneratePrefix(const nsCString& aFragment, uint8_t aLength)
+{
+  Completion complete;
+  nsCOMPtr<nsICryptoHash> cryptoHash = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID);
+  complete.FromPlaintext(aFragment, cryptoHash);
+
+  nsCString hash;
+  hash.Assign((const char *)complete.buf, aLength);
+  return hash;
 }
 

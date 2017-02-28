@@ -6,32 +6,59 @@
 
 const I = require("devtools/client/shared/vendor/immutable");
 const {
-  OPEN_SIDEBAR,
-  TOGGLE_SIDEBAR,
+  CLEAR_REQUESTS,
+  OPEN_NETWORK_DETAILS,
+  OPEN_STATISTICS,
+  REMOVE_SELECTED_CUSTOM_REQUEST,
+  SELECT_DETAILS_PANEL_TAB,
+  SEND_CUSTOM_REQUEST,
+  SELECT_REQUEST,
+  WATERFALL_RESIZE,
 } = require("../constants");
 
-const Sidebar = I.Record({
-  open: false,
-});
-
 const UI = I.Record({
-  sidebar: new Sidebar(),
+  detailsPanelSelectedTab: "headers",
+  networkDetailsOpen: false,
+  statisticsOpen: false,
+  waterfallWidth: null,
 });
 
-function openSidebar(state, action) {
-  return state.setIn(["sidebar", "open"], action.open);
+// Safe bounds for waterfall width (px)
+const REQUESTS_WATERFALL_SAFE_BOUNDS = 90;
+
+function resizeWaterfall(state, action) {
+  return state.set("waterfallWidth", action.width - REQUESTS_WATERFALL_SAFE_BOUNDS);
 }
 
-function toggleSidebar(state, action) {
-  return state.setIn(["sidebar", "open"], !state.sidebar.open);
+function openNetworkDetails(state, action) {
+  return state.set("networkDetailsOpen", action.open);
+}
+
+function openStatistics(state, action) {
+  return state.set("statisticsOpen", action.open);
+}
+
+function setDetailsPanelTab(state, action) {
+  return state.set("detailsPanelSelectedTab", action.id);
 }
 
 function ui(state = new UI(), action) {
   switch (action.type) {
-    case OPEN_SIDEBAR:
-      return openSidebar(state, action);
-    case TOGGLE_SIDEBAR:
-      return toggleSidebar(state, action);
+    case CLEAR_REQUESTS:
+      return openNetworkDetails(state, { open: false });
+    case OPEN_NETWORK_DETAILS:
+      return openNetworkDetails(state, action);
+    case OPEN_STATISTICS:
+      return openStatistics(state, action);
+    case REMOVE_SELECTED_CUSTOM_REQUEST:
+    case SEND_CUSTOM_REQUEST:
+      return openNetworkDetails(state, { open: false });
+    case SELECT_DETAILS_PANEL_TAB:
+      return setDetailsPanelTab(state, action);
+    case SELECT_REQUEST:
+      return openNetworkDetails(state, { open: true });
+    case WATERFALL_RESIZE:
+      return resizeWaterfall(state, action);
     default:
       return state;
   }

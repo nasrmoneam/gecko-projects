@@ -3,8 +3,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import Wait
+from marionette_harness import MarionetteTestCase
 
 
 class TestFaviconInAutocomplete(PuppeteerMixin, MarionetteTestCase):
@@ -16,8 +16,8 @@ class TestFaviconInAutocomplete(PuppeteerMixin, MarionetteTestCase):
         super(TestFaviconInAutocomplete, self).setUp()
 
         # Disable suggestions for searches and bookmarks to get results only for history
-        self.puppeteer.prefs.set_pref(self.PREF_SUGGEST_SEARCHES, False)
-        self.puppeteer.prefs.set_pref(self.PREF_SUGGEST_BOOKMARK, False)
+        self.marionette.set_pref(self.PREF_SUGGEST_SEARCHES, False)
+        self.marionette.set_pref(self.PREF_SUGGEST_BOOKMARK, False)
 
         self.puppeteer.places.remove_all_history()
 

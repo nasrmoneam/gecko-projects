@@ -12,7 +12,9 @@
 #include "nsICacheEntry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/TabChild.h"
+#include "mozilla/dom/TabGroup.h"
 #include "mozilla/ipc/FileDescriptorSetChild.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
 #include "mozilla/net/NeckoChild.h"
@@ -20,6 +22,7 @@
 
 #include "nsISupportsPrimitives.h"
 #include "nsChannelClassifier.h"
+#include "nsGlobalWindow.h"
 #include "nsStringStream.h"
 #include "nsHttpHandler.h"
 #include "nsNetUtil.h"
@@ -38,10 +41,16 @@
 #include "nsContentSecurityManager.h"
 #include "nsIDeprecationWarner.h"
 #include "nsICompressConvStats.h"
+#include "nsIDocument.h"
+#include "nsIDOMWindowUtils.h"
 #include "nsStreamUtils.h"
 
 #ifdef OS_POSIX
 #include "chrome/common/file_descriptor_set_posix.h"
+#endif
+
+#ifdef MOZ_TASK_TRACER
+#include "GeckoTaskTracer.h"
 #endif
 
 using namespace mozilla::dom;
@@ -172,7 +181,7 @@ HttpChannelChild::HttpChannelChild()
   , mShouldParentIntercept(false)
   , mSuspendParentAfterSynthesizeResponse(false)
 {
-  LOG(("Creating HttpChannelChild @%x\n", this));
+  LOG(("Creating HttpChannelChild @%p\n", this));
 
   mChannelCreationTime = PR_Now();
   mChannelCreationTimestamp = TimeStamp::Now();
@@ -182,7 +191,7 @@ HttpChannelChild::HttpChannelChild()
 
 HttpChannelChild::~HttpChannelChild()
 {
-  LOG(("Destroying HttpChannelChild @%x\n", this));
+  LOG(("Destroying HttpChannelChild @%p\n", this));
 }
 
 //-----------------------------------------------------------------------------
@@ -582,31 +591,25 @@ class TransportAndDataEvent : public ChannelEvent
   TransportAndDataEvent(HttpChannelChild* child,
                         const nsresult& channelStatus,
                         const nsresult& transportStatus,
-                        const uint64_t& progress,
-                        const uint64_t& progressMax,
                         const nsCString& data,
                         const uint64_t& offset,
                         const uint32_t& count)
   : mChild(child)
   , mChannelStatus(channelStatus)
   , mTransportStatus(transportStatus)
-  , mProgress(progress)
-  , mProgressMax(progressMax)
   , mData(data)
   , mOffset(offset)
   , mCount(count) {}
 
   void Run()
   {
-    mChild->OnTransportAndData(mChannelStatus, mTransportStatus, mProgress,
-                               mProgressMax, mOffset, mCount, mData);
+    mChild->OnTransportAndData(mChannelStatus, mTransportStatus,
+                               mOffset, mCount, mData);
   }
  private:
   HttpChannelChild* mChild;
   nsresult mChannelStatus;
   nsresult mTransportStatus;
-  uint64_t mProgress;
-  uint64_t mProgressMax;
   nsCString mData;
   uint64_t mOffset;
   uint32_t mCount;
@@ -615,8 +618,6 @@ class TransportAndDataEvent : public ChannelEvent
 mozilla::ipc::IPCResult
 HttpChannelChild::RecvOnTransportAndData(const nsresult& channelStatus,
                                          const nsresult& transportStatus,
-                                         const uint64_t& progress,
-                                         const uint64_t& progressMax,
                                          const uint64_t& offset,
                                          const uint32_t& count,
                                          const nsCString& data)
@@ -626,8 +627,7 @@ HttpChannelChild::RecvOnTransportAndData(const nsresult& channelStatus,
                      "Should not be receiving any more callbacks from parent!");
 
   mEventQ->RunOrEnqueue(new TransportAndDataEvent(this, channelStatus,
-                                                  transportStatus, progress,
-                                                  progressMax, data, offset,
+                                                  transportStatus, data, offset,
                                                   count),
                         mDivertingToParent);
   return IPC_OK();
@@ -672,8 +672,6 @@ HttpChannelChild::MaybeDivertOnData(const nsCString& data,
 void
 HttpChannelChild::OnTransportAndData(const nsresult& channelStatus,
                                      const nsresult& transportStatus,
-                                     const uint64_t progress,
-                                     const uint64_t& progressMax,
                                      const uint64_t& offset,
                                      const uint32_t& count,
                                      const nsCString& data)
@@ -708,6 +706,9 @@ HttpChannelChild::OnTransportAndData(const nsresult& channelStatus,
   AutoEventEnqueuer ensureSerialDispatch(mEventQ);
 
   DoOnStatus(this, transportStatus);
+
+  const int64_t progressMax = mResponseHead->ContentLength();
+  const int64_t progress = offset + count;
   DoOnProgress(this, progress, progressMax);
 
   // OnDataAvailable
@@ -854,8 +855,8 @@ void
 HttpChannelChild::MaybeDivertOnStop(const nsresult& aChannelStatus)
 {
   LOG(("HttpChannelChild::MaybeDivertOnStop [this=%p, "
-       "mDivertingToParent=%d status=%x]", this, mDivertingToParent,
-       aChannelStatus));
+       "mDivertingToParent=%d status=%" PRIx32 "]", this, mDivertingToParent,
+       static_cast<uint32_t>(aChannelStatus)));
   if (mDivertingToParent) {
     SendDivertOnStopRequest(aChannelStatus);
   }
@@ -865,10 +866,8 @@ void
 HttpChannelChild::OnStopRequest(const nsresult& channelStatus,
                                 const ResourceTimingStruct& timing)
 {
-  LOG(("HttpChannelChild::OnStopRequest [this=%p status=%x]\n",
-       this, channelStatus));
-
-  mUploadStream = nullptr;
+  LOG(("HttpChannelChild::OnStopRequest [this=%p status=%" PRIx32 "]\n",
+       this, static_cast<uint32_t>(channelStatus)));
 
   if (mDivertingToParent) {
     MOZ_RELEASE_ASSERT(!mFlushedForDiversion,
@@ -897,7 +896,14 @@ HttpChannelChild::OnStopRequest(const nsresult& channelStatus,
   mTransactionTimings.requestStart = timing.requestStart;
   mTransactionTimings.responseStart = timing.responseStart;
   mTransactionTimings.responseEnd = timing.responseEnd;
-  mAsyncOpenTime = timing.fetchStart;
+
+  // Do not overwrite or adjust the original mAsyncOpenTime by timing.fetchStart
+  // We must use the original child process time in order to account for child
+  // side work and IPC transit overhead.
+  // XXX: This depends on TimeStamp being equivalent across processes.
+  // This is true for modern hardware but for older platforms it is not always
+  // true.
+
   mRedirectStartTimeStamp = timing.redirectStart;
   mRedirectEndTimeStamp = timing.redirectEnd;
   mTransferSize = timing.transferSize;
@@ -945,8 +951,8 @@ HttpChannelChild::OnStopRequest(const nsresult& channelStatus,
 void
 HttpChannelChild::DoPreOnStopRequest(nsresult aStatus)
 {
-  LOG(("HttpChannelChild::DoPreOnStopRequest [this=%p status=%x]\n",
-       this, aStatus));
+  LOG(("HttpChannelChild::DoPreOnStopRequest [this=%p status=%" PRIx32 "]\n",
+       this, static_cast<uint32_t>(aStatus)));
   mIsPending = false;
 
   if (!mCanceled && NS_SUCCEEDED(mStatus)) {
@@ -963,8 +969,23 @@ HttpChannelChild::DoOnStopRequest(nsIRequest* aRequest, nsresult aChannelStatus,
   // NB: We use aChannelStatus here instead of mStatus because if there was an
   // nsCORSListenerProxy on this request, it will override the tracking
   // protection's return value.
-  if (aChannelStatus == NS_ERROR_TRACKING_URI) {
-    nsChannelClassifier::SetBlockedTrackingContent(this);
+  if (aChannelStatus == NS_ERROR_TRACKING_URI ||
+      aChannelStatus == NS_ERROR_MALWARE_URI ||
+      aChannelStatus == NS_ERROR_UNWANTED_URI ||
+      aChannelStatus == NS_ERROR_BLOCKED_URI ||
+      aChannelStatus == NS_ERROR_PHISHING_URI) {
+    nsCString list, provider, prefix;
+
+    nsresult rv = GetMatchedList(list);
+    NS_ENSURE_SUCCESS_VOID(rv);
+
+    rv = GetMatchedProvider(provider);
+    NS_ENSURE_SUCCESS_VOID(rv);
+
+    rv = GetMatchedPrefix(prefix);
+    NS_ENSURE_SUCCESS_VOID(rv);
+
+    nsChannelClassifier::SetBlockedContent(this, aChannelStatus, list, provider, prefix);
   }
 
   MOZ_ASSERT(!mOnStopRequestCalled,
@@ -1012,7 +1033,7 @@ void
 HttpChannelChild::OnProgress(const int64_t& progress,
                              const int64_t& progressMax)
 {
-  LOG(("HttpChannelChild::OnProgress [this=%p progress=%lld/%lld]\n",
+  LOG(("HttpChannelChild::OnProgress [this=%p progress=%" PRId64 "/%" PRId64 "]\n",
        this, progress, progressMax));
 
   if (mCanceled)
@@ -1058,7 +1079,8 @@ HttpChannelChild::RecvOnStatus(const nsresult& status)
 void
 HttpChannelChild::OnStatus(const nsresult& status)
 {
-  LOG(("HttpChannelChild::OnStatus [this=%p status=%x]\n", this, status));
+  LOG(("HttpChannelChild::OnStatus [this=%p status=%" PRIx32 "]\n",
+       this, static_cast<uint32_t>(status)));
 
   if (mCanceled)
     return;
@@ -1114,7 +1136,8 @@ HttpChannelChild::HandleAsyncAbort()
 void
 HttpChannelChild::FailedAsyncOpen(const nsresult& status)
 {
-  LOG(("HttpChannelChild::FailedAsyncOpen [this=%p status=%x]\n", this, status));
+  LOG(("HttpChannelChild::FailedAsyncOpen [this=%p status=%" PRIx32 "]\n",
+       this, static_cast<uint32_t>(status)));
 
   mStatus = status;
 
@@ -1198,6 +1221,10 @@ HttpChannelChild::RecvFinishInterceptedRedirect()
   // Hold a ref to this to keep it from being deleted by Send__delete__()
   RefPtr<HttpChannelChild> self(this);
   Send__delete__(this);
+
+  // Reset the event target since the IPC actor is about to be destroyed.
+  // Following channel event should be handled on main thread.
+  mEventQ->ResetDeliveryTarget();
 
   // The IPDL connection was torn down by a interception logic in
   // CompleteRedirectSetup, and we need to call FinishInterceptedRedirect.
@@ -1484,6 +1511,13 @@ HttpChannelChild::RecvNotifyTrackingProtectionDisabled()
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult
+HttpChannelChild::RecvNotifyTrackingResource()
+{
+  SetIsTrackingResource();
+  return IPC_OK();
+}
+
 void
 HttpChannelChild::FlushedForDiversion()
 {
@@ -1497,6 +1531,14 @@ HttpChannelChild::FlushedForDiversion()
 
   SendDivertComplete();
 }
+
+mozilla::ipc::IPCResult
+HttpChannelChild::RecvSetClassifierMatchedInfo(const ClassifierInfo& aInfo)
+{
+  SetMatchedInfo(aInfo.list(), aInfo.provider(), aInfo.prefix());
+  return IPC_OK();
+}
+
 
 mozilla::ipc::IPCResult
 HttpChannelChild::RecvDivertMessages()
@@ -1601,6 +1643,11 @@ HttpChannelChild::ConnectParent(uint32_t registrarId)
   // until OnStopRequest, or we do a redirect, or we hit an IPDL error.
   AddIPDLReference();
 
+  // This must happen before the constructor message is sent. Otherwise messages
+  // from the parent could arrive quickly and be delivered to the wrong event
+  // target.
+  SetEventTarget();
+
   HttpChannelConnectArgs connectArgs(registrarId, mShouldParentIntercept);
   PBrowserOrId browser = static_cast<ContentChild*>(gNeckoChild->Manager())
                          ->GetBrowserOrId(tabChild);
@@ -1683,7 +1730,7 @@ HttpChannelChild::OnRedirectVerifyCallback(nsresult result)
   nsresult rv;
   OptionalURIParams redirectURI;
 
-  uint32_t referrerPolicy = REFERRER_POLICY_NO_REFERRER_WHEN_DOWNGRADE;
+  uint32_t referrerPolicy = REFERRER_POLICY_UNSET;
   OptionalURIParams referrerURI;
   SerializeURI(nullptr, referrerURI);
 
@@ -1824,7 +1871,7 @@ HttpChannelChild::Cancel(nsresult status)
 NS_IMETHODIMP
 HttpChannelChild::Suspend()
 {
-  LOG(("HttpChannelChild::Suspend [this=%p, mSuspendCount=%lu, "
+  LOG(("HttpChannelChild::Suspend [this=%p, mSuspendCount=%" PRIu32 ", "
        "mDivertingToParent=%d]\n", this, mSuspendCount+1, mDivertingToParent));
   NS_ENSURE_TRUE(RemoteChannelExists() || mInterceptListener,
                  NS_ERROR_NOT_AVAILABLE);
@@ -1849,7 +1896,7 @@ HttpChannelChild::Suspend()
 NS_IMETHODIMP
 HttpChannelChild::Resume()
 {
-  LOG(("HttpChannelChild::Resume [this=%p, mSuspendCount=%lu, "
+  LOG(("HttpChannelChild::Resume [this=%p, mSuspendCount=%" PRIu32 ", "
        "mDivertingToParent=%d]\n", this, mSuspendCount-1, mDivertingToParent));
   NS_ENSURE_TRUE(RemoteChannelExists() || mInterceptListener,
                  NS_ERROR_NOT_AVAILABLE);
@@ -1915,6 +1962,14 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
   NS_ENSURE_TRUE(!mWasOpened, NS_ERROR_ALREADY_OPENED);
 
   mAsyncOpenTime = TimeStamp::Now();
+#ifdef MOZ_TASK_TRACER
+  nsCOMPtr<nsIURI> uri;
+  GetURI(getter_AddRefs(uri));
+  nsAutoCString urispec;
+  uri->GetSpec(urispec);
+  tasktracer::AddLabel("HttpChannelChild::AsyncOpen %s", urispec.get());
+#endif
+  
 
   // Port checked in parent, but duplicate here so we can return with error
   // immediately
@@ -1992,6 +2047,55 @@ HttpChannelChild::AsyncOpen2(nsIStreamListener *aListener)
   return AsyncOpen(listener, nullptr);
 }
 
+// Assigns an nsIEventTarget to our IPDL actor so that IPC messages are sent to
+// the correct DocGroup/TabGroup.
+void
+HttpChannelChild::SetEventTarget()
+{
+  nsCOMPtr<nsILoadInfo> loadInfo;
+  GetLoadInfo(getter_AddRefs(loadInfo));
+  if (!loadInfo) {
+    return;
+  }
+
+  nsCOMPtr<nsIDOMDocument> domDoc;
+  loadInfo->GetLoadingDocument(getter_AddRefs(domDoc));
+  nsCOMPtr<nsIDocument> doc = do_QueryInterface(domDoc);
+  RefPtr<Dispatcher> dispatcher;
+  if (doc) {
+    dispatcher = doc->GetDocGroup();
+  } else {
+    // There's no document yet, but this might be a top-level load where we can
+    // find a TabGroup.
+    uint64_t outerWindowId;
+    if (NS_FAILED(loadInfo->GetOuterWindowID(&outerWindowId))) {
+      // No window. This might be an add-on XHR, a service worker request, or
+      // something else.
+      return;
+    }
+    RefPtr<nsGlobalWindow> window = nsGlobalWindow::GetOuterWindowWithId(outerWindowId);
+    if (!window) {
+      return;
+    }
+
+#ifdef DEBUG
+    // We have a TabGroup. This must be a top-level load.
+    bool isMainDocumentChannel;
+    GetIsMainDocumentChannel(&isMainDocumentChannel);
+    MOZ_ASSERT(isMainDocumentChannel);
+#endif
+
+    dispatcher = window->TabGroup();
+  }
+
+  if (dispatcher) {
+    nsCOMPtr<nsIEventTarget> target =
+      dispatcher->EventTargetFor(TaskCategory::Network);
+    gNeckoChild->SetEventTargetForActor(this, target);
+    mEventQ->RetargetDeliveryTo(target);
+  }
+}
+
 nsresult
 HttpChannelChild::ContinueAsyncOpen()
 {
@@ -2024,6 +2128,18 @@ HttpChannelChild::ContinueAsyncOpen()
   if (MissingRequiredTabChild(tabChild, "http")) {
     return NS_ERROR_ILLEGAL_VALUE;
   }
+
+  // This id identifies the inner window's top-level document,
+  // which changes on every new load or navigation.
+  uint64_t contentWindowId = 0;
+  if (tabChild) {
+    MOZ_ASSERT(tabChild->WebNavigation());
+    nsCOMPtr<nsIDocument> document = tabChild->GetDocument();
+    if (document) {
+      contentWindowId = document->InnerWindowID();
+    }
+  }
+  SetTopLevelContentWindowId(contentWindowId);
 
   HttpChannelOpenArgs openArgs;
   // No access to HttpChannelOpenArgs members, but they each have a
@@ -2119,6 +2235,8 @@ HttpChannelChild::ContinueAsyncOpen()
   mChannelId.ToProvidedString(chid);
   openArgs.channelId().AssignASCII(chid);
 
+  openArgs.contentWindowId() = contentWindowId;
+
   if (tabChild && !tabChild->IPCOpen()) {
     return NS_ERROR_FAILURE;
   }
@@ -2127,6 +2245,11 @@ HttpChannelChild::ContinueAsyncOpen()
   if (cc->IsShuttingDown()) {
     return NS_ERROR_FAILURE;
   }
+
+  // This must happen before the constructor message is sent. Otherwise messages
+  // from the parent could arrive quickly and be delivered to the wrong event
+  // target.
+  SetEventTarget();
 
   // The socket transport in the chrome process now holds a logical ref to us
   // until OnStopRequest, or we do a redirect, or we hit an IPDL error.
@@ -2844,11 +2967,14 @@ HttpChannelChild::ShouldInterceptURI(nsIURI* aURI,
       nsContentUtils::GetSecurityManager()->
         GetChannelResultPrincipal(this, getter_AddRefs(resultPrincipal));
   }
+  OriginAttributes originAttributes;
+  NS_ENSURE_TRUE(NS_GetOriginAttributes(this, originAttributes), false);
   rv = NS_ShouldSecureUpgrade(aURI,
                               mLoadInfo,
                               resultPrincipal,
                               mPrivateBrowsing,
                               mAllowSTS,
+                              originAttributes,
                               aShouldUpgrade);
   NS_ENSURE_SUCCESS(rv, false);
 
@@ -2859,6 +2985,13 @@ HttpChannelChild::ShouldInterceptURI(nsIURI* aURI,
   }
 
   return ShouldIntercept(upgradedURI ? upgradedURI.get() : aURI);
+}
+
+mozilla::ipc::IPCResult
+HttpChannelChild::RecvSetPriority(const int16_t& aPriority)
+{
+  mPriority = aPriority;
+  return IPC_OK();
 }
 
 } // namespace net

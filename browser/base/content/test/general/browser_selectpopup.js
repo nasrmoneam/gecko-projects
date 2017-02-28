@@ -1,9 +1,8 @@
 /* Any copyright is dedicated to the Public Domain.
    http://creativecommons.org/publicdomain/zero/1.0/ */
 
-// This test checks that a <select> with an <optgroup> opens and can be navigated
-// in a child process. This is different than single-process as a <menulist> is used
-// to implement the dropdown list.
+// This test tests <select> in a child process. This is different than
+// single-process as a <menulist> is used to implement the dropdown list.
 
 requestLongerTimeout(2);
 
@@ -11,7 +10,8 @@ const XHTML_DTD = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www
 
 const PAGECONTENT =
   "<html xmlns='http://www.w3.org/1999/xhtml'>" +
-  "<body onload='gChangeEvents = 0;gInputEvents = 0; document.body.firstChild.focus()'><select oninput='gInputEvents++' onchange='gChangeEvents++'>" +
+  "<body onload='gChangeEvents = 0;gInputEvents = 0; gClickEvents = 0; document.body.firstChild.focus()'>" +
+  "<select oninput='gInputEvents++' onchange='gChangeEvents++' onclick='if (event.target == this) gClickEvents++'>" +
   "  <optgroup label='First Group'>" +
   "    <option value='One'>One</option>" +
   "    <option value='Two'>Two</option>" +
@@ -41,6 +41,21 @@ const PAGECONTENT_SMALL =
   "  <option value='Six'>Six</option>" +
   "</select></body></html>";
 
+const PAGECONTENT_GROUPS =
+  "<html>" +
+  "<body><select id='one'>" +
+  "  <optgroup label='Group 1'>" +
+  "    <option value='G1 O1'>G1 O1</option>" +
+  "    <option value='G1 O2'>G1 O2</option>" +
+  "    <option value='G1 O3'>G1 O3</option>" +
+  "  </optgroup>" +
+  "  <optgroup label='Group 2'>" +
+  "    <option value='G2 O1'>G2 O4</option>" +
+  "    <option value='G2 O2'>G2 O5</option>" +
+  "    <option value='Hidden' style='display: none;'>Hidden</option>" +
+  "  </optgroup>" +
+  "</select></body></html>";
+
 const PAGECONTENT_SOMEHIDDEN =
   "<html><head><style>.hidden { display: none; }</style></head>" +
   "<body><select id='one'>" +
@@ -64,8 +79,44 @@ const PAGECONTENT_TRANSLATED =
   "</iframe>" +
   "</div></body></html>";
 
-function openSelectPopup(selectPopup, mode = "key", selector = "select",  win = window)
-{
+const PAGECONTENT_COLORS =
+  "<html><head><style>" +
+  "  .blue { color: #fff; background-color: #00f; }" +
+  "  .green { color: #800080; background-color: green; }" +
+  "  .defaultColor { color: -moz-ComboboxText; }" +
+  "  .defaultBackground { background-color: -moz-Combobox; }" +
+  "</style>" +
+  "<body><select id='one'>" +
+  '  <option value="One" style="color: #fff; background-color: #f00;">{"color": "rgb(255, 255, 255)", "backgroundColor": "rgb(255, 0, 0)"}</option>' +
+  '  <option value="Two" class="blue">{"color": "rgb(255, 255, 255)", "backgroundColor": "rgb(0, 0, 255)"}</option>' +
+  '  <option value="Three" class="green">{"color": "rgb(128, 0, 128)", "backgroundColor": "rgb(0, 128, 0)"}</option>' +
+  '  <option value="Four" class="defaultColor defaultBackground">{"color": "-moz-ComboboxText", "backgroundColor": "rgba(0, 0, 0, 0)", "unstyled": "true"}</option>' +
+  '  <option value="Five" class="defaultColor">{"color": "-moz-ComboboxText", "backgroundColor": "rgba(0, 0, 0, 0)", "unstyled": "true"}</option>' +
+  '  <option value="Six" class="defaultBackground">{"color": "-moz-ComboboxText", "backgroundColor": "rgba(0, 0, 0, 0)", "unstyled": "true"}</option>' +
+  '  <option value="Seven" selected="true">{"unstyled": "true"}</option>' +
+  "</select></body></html>";
+
+const PAGECONTENT_COLORS_ON_SELECT =
+  "<html><head><style>" +
+  "  #one { background-color: #7E3A3A; color: #fff }" +
+  "</style>" +
+  "<body><select id='one'>" +
+  '  <option value="One">{"color": "rgb(255, 255, 255)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+  '  <option value="Two">{"color": "rgb(255, 255, 255)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+  '  <option value="Three">{"color": "rgb(255, 255, 255)", "backgroundColor": "rgba(0, 0, 0, 0)"}</option>' +
+  '  <option value="Four" selected="true">{"end": "true"}</option>' +
+  "</select></body></html>";
+
+const TRANSPARENT_SELECT =
+  "<html><head><style>" +
+  "  #one { background-color: transparent; }" +
+  "</style>" +
+  "<body><select id='one'>" +
+  '  <option value="One">{"unstyled": "true"}</option>' +
+  '  <option value="Two" selected="true">{"end": "true"}</option>' +
+  "</select></body></html>";
+
+function openSelectPopup(selectPopup, mode = "key", selector = "select", win = window) {
   let popupShownPromise = BrowserTestUtils.waitForEvent(selectPopup, "popupshown");
 
   if (mode == "click" || mode == "mousedown") {
@@ -83,39 +134,81 @@ function openSelectPopup(selectPopup, mode = "key", selector = "select",  win = 
   return popupShownPromise;
 }
 
-function hideSelectPopup(selectPopup, mode = "enter", win = window)
-{
-  let popupHiddenPromise = BrowserTestUtils.waitForEvent(selectPopup, "popuphidden");
+function hideSelectPopup(selectPopup, mode = "enter", win = window) {
+  let browser = win.gBrowser.selectedBrowser;
+  let selectClosedPromise = ContentTask.spawn(browser, null, function*() {
+    Cu.import("resource://gre/modules/SelectContentHelper.jsm");
+    return ContentTaskUtils.waitForCondition(() => !SelectContentHelper.open);
+  });
 
   if (mode == "escape") {
     EventUtils.synthesizeKey("KEY_Escape", { code: "Escape" }, win);
-  }
-  else if (mode == "enter") {
+  } else if (mode == "enter") {
     EventUtils.synthesizeKey("KEY_Enter", { code: "Enter" }, win);
-  }
-  else if (mode == "click") {
+  } else if (mode == "click") {
     EventUtils.synthesizeMouseAtCenter(selectPopup.lastChild, { }, win);
   }
 
-  return popupHiddenPromise;
+  return selectClosedPromise;
 }
 
-function getInputEvents()
-{
+function getInputEvents() {
   return ContentTask.spawn(gBrowser.selectedBrowser, {}, function() {
     return content.wrappedJSObject.gInputEvents;
   });
 }
 
-function getChangeEvents()
-{
+function getChangeEvents() {
   return ContentTask.spawn(gBrowser.selectedBrowser, {}, function() {
     return content.wrappedJSObject.gChangeEvents;
   });
 }
 
-function* doSelectTests(contentType, dtd)
-{
+function getClickEvents() {
+  return ContentTask.spawn(gBrowser.selectedBrowser, {}, function() {
+    return content.wrappedJSObject.gClickEvents;
+  });
+}
+
+function getSystemColor(color) {
+  // Need to convert system color to RGB color.
+  let textarea = document.createElementNS("http://www.w3.org/1999/xhtml", "textarea");
+  textarea.style.color = color;
+  return getComputedStyle(textarea).color;
+}
+
+function testOptionColors(index, item, menulist) {
+  // The label contains a JSON string of the expected colors for
+  // `color` and `background-color`.
+  let expected = JSON.parse(item.label);
+
+  for (let color of Object.keys(expected)) {
+    if (color.toLowerCase().includes("color") &&
+        !expected[color].startsWith("rgb")) {
+      expected[color] = getSystemColor(expected[color]);
+    }
+  }
+
+  // Press Down to move the selected item to the next item in the
+  // list and check the colors of this item when it's not selected.
+  EventUtils.synthesizeKey("KEY_ArrowDown", { code: "ArrowDown" });
+
+  if (expected.end) {
+    return;
+  }
+
+  if (expected.unstyled) {
+    ok(!item.hasAttribute("customoptionstyling"),
+      `Item ${index} should not have any custom option styling`);
+  } else {
+    is(getComputedStyle(item).color, expected.color,
+       "Item " + (index) + " has correct foreground color");
+    is(getComputedStyle(item).backgroundColor, expected.backgroundColor,
+       "Item " + (index) + " has correct background color");
+  }
+}
+
+function* doSelectTests(contentType, dtd) {
   const pageUrl = "data:" + contentType + "," + escape(dtd + "\n" + PAGECONTENT);
   let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
 
@@ -157,6 +250,7 @@ function* doSelectTests(contentType, dtd)
 
   is((yield getInputEvents()), 0, "Before closed - number of input events");
   is((yield getChangeEvents()), 0, "Before closed - number of change events");
+  is((yield getClickEvents()), 0, "Before closed - number of click events");
 
   EventUtils.synthesizeKey("a", { accelKey: true });
   yield ContentTask.spawn(gBrowser.selectedBrowser, { isWindows }, function(args) {
@@ -177,32 +271,46 @@ function* doSelectTests(contentType, dtd)
   is(menulist.selectedIndex, 3, "Item 3 still selected");
   is((yield getInputEvents()), 1, "After closed - number of input events");
   is((yield getChangeEvents()), 1, "After closed - number of change events");
+  is((yield getClickEvents()), 0, "After closed - number of click events");
 
   // Opening and closing the popup without changing the value should not fire a change event.
   yield openSelectPopup(selectPopup, "click");
   yield hideSelectPopup(selectPopup, "escape");
   is((yield getInputEvents()), 1, "Open and close with no change - number of input events");
   is((yield getChangeEvents()), 1, "Open and close with no change - number of change events");
+  is((yield getClickEvents()), 1, "Open and close with no change - number of click events");
   EventUtils.synthesizeKey("VK_TAB", { });
   EventUtils.synthesizeKey("VK_TAB", { shiftKey: true });
   is((yield getInputEvents()), 1, "Tab away from select with no change - number of input events");
   is((yield getChangeEvents()), 1, "Tab away from select with no change - number of change events");
+  is((yield getClickEvents()), 1, "Tab away from select with no change - number of click events");
 
   yield openSelectPopup(selectPopup, "click");
   EventUtils.synthesizeKey("KEY_ArrowDown", { code: "ArrowDown" });
   yield hideSelectPopup(selectPopup, "escape");
   is((yield getInputEvents()), isWindows ? 2 : 1, "Open and close with change - number of input events");
   is((yield getChangeEvents()), isWindows ? 2 : 1, "Open and close with change - number of change events");
+  is((yield getClickEvents()), 2, "Open and close with change - number of click events");
   EventUtils.synthesizeKey("VK_TAB", { });
   EventUtils.synthesizeKey("VK_TAB", { shiftKey: true });
   is((yield getInputEvents()), isWindows ? 2 : 1, "Tab away from select with change - number of input events");
   is((yield getChangeEvents()), isWindows ? 2 : 1, "Tab away from select with change - number of change events");
+  is((yield getClickEvents()), 2, "Tab away from select with change - number of click events");
 
   is(selectPopup.lastChild.previousSibling.label, "Seven", "Spaces collapsed");
   is(selectPopup.lastChild.label, "\xA0\xA0Eight\xA0\xA0", "Non-breaking spaces not collapsed");
 
   yield BrowserTestUtils.removeTab(tab);
 }
+
+add_task(function* setup() {
+  yield SpecialPowers.pushPrefEnv({
+    "set": [
+      ["dom.select_popup_in_parent.enabled", true],
+      ["dom.forms.select.customstyling", true]
+    ]
+  });
+});
 
 add_task(function*() {
   yield doSelectTests("text/html", "");
@@ -292,17 +400,16 @@ add_task(function*() {
         if (contentStep[0] == "select") {
           changedWin = content.document.getElementById("frame").contentWindow;
           elem = changedWin.document.getElementById("select");
-        }
-        else {
+        } else {
           elem = content.document.getElementById(contentStep[0]);
         }
 
-        changedWin.addEventListener("MozAfterPaint", function onPaint() {
-          changedWin.removeEventListener("MozAfterPaint", onPaint);
+        changedWin.addEventListener("MozAfterPaint", function() {
           resolve();
-        });
+        }, {once: true});
 
         elem.style = contentStep[1];
+        elem.getBoundingClientRect();
       });
     });
 
@@ -412,8 +519,7 @@ add_task(function* test_event_order() {
   });
 });
 
-function* performLargePopupTests(win)
-{
+function* performLargePopupTests(win) {
   let browser = win.gBrowser.selectedBrowser;
 
   yield ContentTask.spawn(browser, null, function*() {
@@ -439,7 +545,7 @@ function* performLargePopupTests(win)
   // First, check that scrolling does not occur when the mouse is moved over the
   // anchor button but not the popup yet.
   EventUtils.synthesizeMouseAtPoint(popupRect.left + 5, popupRect.top - 10, { type: "mousemove" }, win);
-  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position after mousemove over button");
+  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position after mousemove over button should not change");
 
   EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.top + 10, { type: "mousemove" }, win);
 
@@ -455,10 +561,30 @@ function* performLargePopupTests(win)
   // Releasing the mouse button and moving the mouse does not change the scroll position.
   scrollPos = selectPopup.scrollBox.scrollTop;
   EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.bottom + 25, { type: "mouseup" }, win);
-  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mouseup");
+  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mouseup should not change");
 
   EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.bottom + 20, { type: "mousemove" }, win);
-  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mouseup again");
+  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mousemove after mouseup should not change");
+
+  // Now check dragging with a mousedown on an item
+  let menuRect = selectPopup.childNodes[51].getBoundingClientRect();
+  EventUtils.synthesizeMouseAtPoint(menuRect.left + 5, menuRect.top + 5, { type: "mousedown" }, win);
+
+  // Dragging below the popup scrolls it down.
+  EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.bottom + 20, { type: "mousemove" }, win);
+  ok(selectPopup.scrollBox.scrollTop > scrollPos + 5, "scroll position at drag down from option");
+
+  // Dragging above the popup scrolls it up.
+  EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.top - 20, { type: "mousemove" }, win);
+  ok(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at drag up from option");
+
+  scrollPos = selectPopup.scrollBox.scrollTop;
+  EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.bottom + 25, { type: "mouseup" }, win);
+  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mouseup from option should not change");
+
+  EventUtils.synthesizeMouseAtPoint(popupRect.left + 20, popupRect.bottom + 20, { type: "mousemove" }, win);
+  is(selectPopup.scrollBox.scrollTop, scrollPos, "scroll position at mousemove after mouseup should not change");
+
 
   yield hideSelectPopup(selectPopup, "escape", win);
 
@@ -480,10 +606,21 @@ function* performLargePopupTests(win)
     if (positions.length > 0) {
       let cs = win.getComputedStyle(selectPopup);
       let bpBottom = parseFloat(cs.paddingBottom) + parseFloat(cs.borderBottomWidth);
+      let selectedOption = 60;
 
-      is(selectPopup.childNodes[60].getBoundingClientRect().bottom,
-         selectPopup.getBoundingClientRect().bottom - bpBottom,
-         "Popup scroll at correct position " + bpBottom);
+      if (Services.prefs.getBoolPref("dom.forms.selectSearch")) {
+        // Use option 61 instead of 60, as the 60th option element is actually the
+        // 61st child, since the first child is now the search input field.
+        selectedOption = 61;
+      }
+      // Some of the styles applied to the menuitems are percentages, meaning
+      // that the final layout calculations returned by getBoundingClientRect()
+      // might return floating point values. We don't care about sub-pixel
+      // accuracy, and only care about the final pixel value, so we add a
+      // fuzz-factor of 1.
+      SimpleTest.isfuzzy(selectPopup.childNodes[selectedOption].getBoundingClientRect().bottom,
+                         selectPopup.getBoundingClientRect().bottom - bpBottom,
+                         1, "Popup scroll at correct position " + bpBottom);
     }
 
     yield hideSelectPopup(selectPopup, "enter", win);
@@ -494,10 +631,83 @@ function* performLargePopupTests(win)
     yield ContentTask.spawn(browser, position, function*(contentPosition) {
       let select = content.document.getElementById("one");
       select.setAttribute("style", contentPosition || "");
+      select.getBoundingClientRect();
     });
     yield contentPainted;
   }
 }
+
+function* performSelectSearchTests(win) {
+  let browser = win.gBrowser.selectedBrowser;
+  yield ContentTask.spawn(browser, null, function*() {
+    let doc = content.document;
+    let select = doc.getElementById("one");
+
+    for (var i = 0; i < 40; i++) {
+      select.add(new content.Option("Test" + i));
+    }
+
+    select.options[1].selected = true;
+    select.focus();
+  });
+
+  let selectPopup = win.document.getElementById("ContentSelectDropdown").menupopup;
+  yield openSelectPopup(selectPopup, false, "select", win);
+
+  let searchElement = selectPopup.querySelector("textbox");
+  searchElement.focus();
+
+  EventUtils.synthesizeKey("O", {}, win);
+  is(selectPopup.childNodes[2].hidden, false, "First option should be visible");
+  is(selectPopup.childNodes[3].hidden, false, "Second option should be visible");
+
+  EventUtils.synthesizeKey("3", {}, win);
+  is(selectPopup.childNodes[2].hidden, true, "First option should be hidden");
+  is(selectPopup.childNodes[3].hidden, true, "Second option should be hidden");
+  is(selectPopup.childNodes[4].hidden, false, "Third option should be visible");
+
+  EventUtils.synthesizeKey("Z", {}, win);
+  is(selectPopup.childNodes[4].hidden, true, "Third option should be hidden");
+  is(selectPopup.childNodes[1].hidden, true, "First group header should be hidden");
+
+  EventUtils.synthesizeKey("VK_BACK_SPACE", {}, win);
+  is(selectPopup.childNodes[4].hidden, false, "Third option should be visible");
+
+  EventUtils.synthesizeKey("VK_BACK_SPACE", {}, win);
+  is(selectPopup.childNodes[5].hidden, false, "Second group header should be visible");
+
+  EventUtils.synthesizeKey("VK_BACK_SPACE", {}, win);
+  EventUtils.synthesizeKey("O", {}, win);
+  EventUtils.synthesizeKey("5", {}, win);
+  is(selectPopup.childNodes[5].hidden, false, "Second group header should be visible");
+  is(selectPopup.childNodes[1].hidden, true, "First group header should be hidden");
+
+  EventUtils.synthesizeKey("VK_BACK_SPACE", {}, win);
+  is(selectPopup.childNodes[1].hidden, false, "First group header should be shown");
+
+  EventUtils.synthesizeKey("VK_BACK_SPACE", {}, win);
+  is(selectPopup.childNodes[8].hidden, true, "Option hidden by content should remain hidden");
+
+  yield hideSelectPopup(selectPopup, "escape", win);
+}
+
+// This test checks the functionality of search in select elements with groups
+// and a large number of options.
+add_task(function* test_select_search() {
+  yield SpecialPowers.pushPrefEnv({
+    set: [
+      ["dom.forms.selectSearch", true],
+    ],
+  });
+  const pageUrl = "data:text/html," + escape(PAGECONTENT_GROUPS);
+  let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  yield performSelectSearchTests(window);
+
+  yield BrowserTestUtils.removeTab(tab);
+
+  yield SpecialPowers.popPrefEnv();
+});
 
 // This test checks select elements with a large number of options to ensure that
 // the popup appears within the browser area.
@@ -539,11 +749,10 @@ add_task(function* test_mousemove_correcttarget() {
   yield popupShownPromise;
 
   yield new Promise(resolve => {
-    window.addEventListener("mousemove", function checkForMouseMove(event) {
-      window.removeEventListener("mousemove", checkForMouseMove, true);
+    window.addEventListener("mousemove", function(event) {
       is(event.target.localName.indexOf("menu"), 0, "mouse over menu");
       resolve();
-    }, true);
+    }, {capture: true, once: true});
 
     EventUtils.synthesizeMouseAtCenter(selectPopup.firstChild, { type: "mousemove" });
   });
@@ -592,5 +801,132 @@ add_task(function* test_somehidden() {
   }
 
   yield hideSelectPopup(selectPopup, "escape");
+  yield BrowserTestUtils.removeTab(tab);
+});
+
+// This test checks when a <select> element has styles applied to <option>s within it.
+add_task(function* test_colors_applied_to_popup_items() {
+  const pageUrl = "data:text/html," + escape(PAGECONTENT_COLORS);
+  let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  let menulist = document.getElementById("ContentSelectDropdown");
+  let selectPopup = menulist.menupopup;
+
+  let popupShownPromise = BrowserTestUtils.waitForEvent(selectPopup, "popupshown");
+  yield BrowserTestUtils.synthesizeMouseAtCenter("#one", { type: "mousedown" }, gBrowser.selectedBrowser);
+  yield popupShownPromise;
+
+  // The label contains a JSON string of the expected colors for
+  // `color` and `background-color`.
+  is(selectPopup.parentNode.itemCount, 7, "Correct number of items");
+  let child = selectPopup.firstChild;
+  let idx = 1;
+
+  ok(!child.selected, "The first child should not be selected");
+  while (child) {
+    testOptionColors(idx, child, menulist);
+    idx++;
+    child = child.nextSibling;
+  }
+
+  yield hideSelectPopup(selectPopup, "escape");
+  yield BrowserTestUtils.removeTab(tab);
+});
+
+// This test checks when a <select> element has styles applied to itself.
+add_task(function* test_colors_applied_to_popup() {
+  const pageUrl = "data:text/html," + escape(PAGECONTENT_COLORS_ON_SELECT);
+  let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  let menulist = document.getElementById("ContentSelectDropdown");
+  let selectPopup = menulist.menupopup;
+
+  let popupShownPromise = BrowserTestUtils.waitForEvent(selectPopup, "popupshown");
+  yield BrowserTestUtils.synthesizeMouseAtCenter("#one", { type: "mousedown" }, gBrowser.selectedBrowser);
+  yield popupShownPromise;
+
+  is(selectPopup.parentNode.itemCount, 4, "Correct number of items");
+  let child = selectPopup.firstChild;
+  let idx = 1;
+
+  is(getComputedStyle(selectPopup).color, "rgb(255, 255, 255)",
+    "popup has expected foreground color");
+  is(getComputedStyle(selectPopup).backgroundColor, "rgb(126, 58, 58)",
+    "popup has expected background color");
+
+  ok(!child.selected, "The first child should not be selected");
+  while (child) {
+    testOptionColors(idx, child, menulist);
+    idx++;
+    child = child.nextSibling;
+  }
+
+  yield hideSelectPopup(selectPopup, "escape");
+
+  yield BrowserTestUtils.removeTab(tab);
+});
+
+// This test checks when a <select> element has a transparent background applied to itself.
+add_task(function* test_transparent_applied_to_popup() {
+  const pageUrl = "data:text/html," + escape(TRANSPARENT_SELECT);
+  let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  let menulist = document.getElementById("ContentSelectDropdown");
+  let selectPopup = menulist.menupopup;
+
+  let popupShownPromise = BrowserTestUtils.waitForEvent(selectPopup, "popupshown");
+  yield BrowserTestUtils.synthesizeMouseAtCenter("#one", { type: "mousedown" }, gBrowser.selectedBrowser);
+  yield popupShownPromise;
+
+  is(selectPopup.parentNode.itemCount, 2, "Correct number of items");
+  let child = selectPopup.firstChild;
+  let idx = 1;
+
+  is(getComputedStyle(selectPopup).color, getSystemColor("-moz-ComboboxText"),
+    "popup has expected foreground color");
+  is(getComputedStyle(selectPopup).backgroundColor, getSystemColor("-moz-Combobox"),
+    "popup has expected background color");
+
+  ok(!child.selected, "The first child should not be selected");
+  while (child) {
+    testOptionColors(idx, child, menulist);
+    idx++;
+    child = child.nextSibling;
+  }
+
+  yield hideSelectPopup(selectPopup, "escape");
+
+  yield BrowserTestUtils.removeTab(tab);
+});
+
+// This test checks that the popup is closed when the select element is blurred.
+add_task(function* test_blur_hides_popup() {
+  const pageUrl = "data:text/html," + escape(PAGECONTENT_SMALL);
+  let tab = yield BrowserTestUtils.openNewForegroundTab(gBrowser, pageUrl);
+
+  yield ContentTask.spawn(tab.linkedBrowser, null, function*() {
+    content.addEventListener("blur", function(event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+
+    content.document.getElementById("one").focus();
+  });
+
+  let menulist = document.getElementById("ContentSelectDropdown");
+  let selectPopup = menulist.menupopup;
+
+  yield openSelectPopup(selectPopup);
+
+  let popupHiddenPromise = BrowserTestUtils.waitForEvent(selectPopup, "popuphidden");
+
+  yield ContentTask.spawn(tab.linkedBrowser, null, function*() {
+    content.document.getElementById("one").blur();
+  });
+
+  yield popupHiddenPromise;
+
+  ok(true, "Blur closed popup");
+
   yield BrowserTestUtils.removeTab(tab);
 });

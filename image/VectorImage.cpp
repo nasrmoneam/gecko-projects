@@ -254,11 +254,11 @@ NS_IMPL_ISUPPORTS(SVGLoadEventListener, nsIDOMEventListener)
 class SVGDrawingCallback : public gfxDrawingCallback {
 public:
   SVGDrawingCallback(SVGDocumentWrapper* aSVGDocumentWrapper,
-                     const IntRect& aViewport,
+                     const IntSize& aViewportSize,
                      const IntSize& aSize,
                      uint32_t aImageFlags)
     : mSVGDocumentWrapper(aSVGDocumentWrapper)
-    , mViewport(aViewport)
+    , mViewportSize(aViewportSize)
     , mSize(aSize)
     , mImageFlags(aImageFlags)
   { }
@@ -268,7 +268,7 @@ public:
                           const gfxMatrix& aTransform);
 private:
   RefPtr<SVGDocumentWrapper> mSVGDocumentWrapper;
-  const IntRect              mViewport;
+  const IntSize                mViewportSize;
   const IntSize                mSize;
   uint32_t                     mImageFlags;
 };
@@ -303,16 +303,15 @@ SVGDrawingCallback::operator()(gfxContext* aContext,
   }
   aContext->SetMatrix(
     aContext->CurrentMatrix().PreMultiply(matrix).
-                              Scale(double(mSize.width) / mViewport.width,
-                                    double(mSize.height) / mViewport.height));
+                              Scale(double(mSize.width) / mViewportSize.width,
+                                    double(mSize.height) / mViewportSize.height));
 
   nsPresContext* presContext = presShell->GetPresContext();
   MOZ_ASSERT(presContext, "pres shell w/out pres context");
 
-  nsRect svgRect(presContext->DevPixelsToAppUnits(mViewport.x),
-                 presContext->DevPixelsToAppUnits(mViewport.y),
-                 presContext->DevPixelsToAppUnits(mViewport.width),
-                 presContext->DevPixelsToAppUnits(mViewport.height));
+  nsRect svgRect(0, 0,
+                 presContext->DevPixelsToAppUnits(mViewportSize.width),
+                 presContext->DevPixelsToAppUnits(mViewportSize.height));
 
   uint32_t renderDocFlags = nsIPresShell::RENDER_IGNORE_VIEWPORT_SCROLLING;
   if (!(mImageFlags & imgIContainer::FLAG_SYNC_DECODE)) {
@@ -750,7 +749,8 @@ VectorImage::GetFrameAtSize(const IntSize& aSize,
   MOZ_ASSERT(context); // already checked the draw target above
 
   auto result = Draw(context, aSize, ImageRegion::Create(aSize),
-                     aWhichFrame, SamplingFilter::POINT, Nothing(), aFlags);
+                     aWhichFrame, SamplingFilter::POINT, Nothing(), aFlags,
+                     1.0);
 
   return result == DrawResult::SUCCESS ? dt->Snapshot() : nullptr;
 }
@@ -776,7 +776,8 @@ struct SVGDrawingParameters
                        SamplingFilter aSamplingFilter,
                        const Maybe<SVGImageContext>& aSVGContext,
                        float aAnimationTime,
-                       uint32_t aFlags)
+                       uint32_t aFlags,
+                       float aOpacity)
     : context(aContext)
     , size(aSize.width, aSize.height)
     , region(aRegion)
@@ -785,7 +786,7 @@ struct SVGDrawingParameters
     , viewportSize(aSize)
     , animationTime(aAnimationTime)
     , flags(aFlags)
-    , opacity(aSVGContext ? aSVGContext->GetGlobalOpacity() : 1.0)
+    , opacity(aSVGContext ? aSVGContext->GetGlobalOpacity() : aOpacity)
   {
     if (aSVGContext) {
       CSSIntSize sz = aSVGContext->GetViewportSize();
@@ -812,7 +813,8 @@ VectorImage::Draw(gfxContext* aContext,
                   uint32_t aWhichFrame,
                   SamplingFilter aSamplingFilter,
                   const Maybe<SVGImageContext>& aSVGContext,
-                  uint32_t aFlags)
+                  uint32_t aFlags,
+                  float aOpacity)
 {
   if (aWhichFrame > FRAME_MAX_VALUE) {
     return DrawResult::BAD_ARGS;
@@ -852,9 +854,8 @@ VectorImage::Draw(gfxContext* aContext,
     Maybe<SVGPreserveAspectRatio> aspectRatio =
       Some(SVGPreserveAspectRatio(SVG_PRESERVEASPECTRATIO_NONE,
                                   SVG_MEETORSLICE_UNKNOWN));
-    svgContext =
-      Some(SVGImageContext(aSVGContext->GetViewportSize(),
-                           aspectRatio));
+    svgContext = Some(SVGImageContext(*aSVGContext)); // copy
+    svgContext->SetPreserveAspectRatio(aspectRatio);
   } else {
     svgContext = aSVGContext;
   }
@@ -867,7 +868,7 @@ VectorImage::Draw(gfxContext* aContext,
 
 
   SVGDrawingParameters params(aContext, aSize, aRegion, aSamplingFilter,
-                              svgContext, animTime, aFlags);
+                              svgContext, animTime, aFlags, aOpacity);
 
   // If we have an prerasterized version of this image that matches the
   // drawing parameters, use that.
@@ -875,6 +876,13 @@ VectorImage::Draw(gfxContext* aContext,
   if (svgDrawable) {
     Show(svgDrawable, params);
     return DrawResult::SUCCESS;
+  }
+
+  Maybe<AutoSetRestoreSVGContextPaint> autoContextPaint;
+  if (aSVGContext &&
+      aSVGContext->GetContextPaint()) {
+    autoContextPaint.emplace(aSVGContext->GetContextPaint(),
+                             mSVGDocumentWrapper->GetDocument());
   }
 
   // We didn't get a hit in the surface cache, so we'll need to rerasterize.
@@ -924,7 +932,7 @@ VectorImage::CreateSurfaceAndShow(const SVGDrawingParameters& aParams, BackendTy
 
   RefPtr<gfxDrawingCallback> cb =
     new SVGDrawingCallback(mSVGDocumentWrapper,
-                           IntRect(IntPoint(0, 0), aParams.viewportSize),
+                           aParams.viewportSize,
                            aParams.size,
                            aParams.flags);
 
@@ -990,7 +998,9 @@ VectorImage::CreateSurfaceAndShow(const SVGDrawingParameters& aParams, BackendTy
                                          GetMaxSizedIntRect());
   } else {
     NotNull<RefPtr<VectorImage>> image = WrapNotNull(this);
-    NS_DispatchToMainThread(NS_NewRunnableFunction([=]() -> void {
+    NS_DispatchToMainThread(NS_NewRunnableFunction(
+                              "ProgressTracker::SyncNotifyProgress",
+                              [=]() -> void {
       RefPtr<ProgressTracker> tracker = image->GetProgressTracker();
       if (tracker) {
         tracker->SyncNotifyProgress(FLAG_FRAME_COMPLETE,
@@ -1030,6 +1040,13 @@ VectorImage::StartDecoding(uint32_t aFlags)
 {
   // Nothing to do for SVG images
   return NS_OK;
+}
+
+bool
+VectorImage::StartDecodingWithResult(uint32_t aFlags)
+{
+  // SVG images are ready to draw when they are loaded
+  return mIsFullyLoaded;
 }
 
 NS_IMETHODIMP

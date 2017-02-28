@@ -12,9 +12,6 @@ import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.HashSet;
 
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import org.mozilla.gecko.Actions;
 import org.mozilla.gecko.Element;
 import org.mozilla.gecko.GeckoAppShell;
@@ -24,6 +21,7 @@ import org.mozilla.gecko.R;
 import org.mozilla.gecko.RobocopUtils;
 import org.mozilla.gecko.Tab;
 import org.mozilla.gecko.Tabs;
+import org.mozilla.gecko.util.GeckoBundle;
 
 import android.content.ContentValues;
 import android.content.res.AssetManager;
@@ -68,7 +66,8 @@ abstract class BaseTest extends BaseRobocopTest {
 
     protected void blockForDelayedStartup() {
         try {
-            Actions.EventExpecter delayedStartupExpector = mActions.expectGeckoEvent("Gecko:DelayedStartup");
+            Actions.EventExpecter delayedStartupExpector =
+                    mActions.expectGlobalEvent(Actions.EventType.UI, "Gecko:DelayedStartup");
             delayedStartupExpector.blockForEvent(GECKO_READY_WAIT_MS, true);
             delayedStartupExpector.unregisterListener();
         } catch (Exception e) {
@@ -78,7 +77,8 @@ abstract class BaseTest extends BaseRobocopTest {
 
     protected void blockForGeckoReady() {
         try {
-            Actions.EventExpecter geckoReadyExpector = mActions.expectGeckoEvent("Gecko:Ready");
+            Actions.EventExpecter geckoReadyExpector =
+                    mActions.expectGlobalEvent(Actions.EventType.GECKO, "Gecko:Ready");
             if (!GeckoThread.isRunning()) {
                 geckoReadyExpector.blockForEvent(GECKO_READY_WAIT_MS, true);
             }
@@ -153,7 +153,8 @@ abstract class BaseTest extends BaseRobocopTest {
     }
 
     protected final void hitEnterAndWait() {
-        Actions.EventExpecter contentEventExpecter = mActions.expectGeckoEvent("DOMContentLoaded");
+        Actions.EventExpecter contentEventExpecter =
+                mActions.expectGlobalEvent(Actions.EventType.GECKO, "Content:DOMContentLoaded");
         mActions.sendSpecialKey(Actions.SpecialKey.ENTER);
         // wait for screen to load
         contentEventExpecter.blockForEvent();
@@ -196,7 +197,8 @@ abstract class BaseTest extends BaseRobocopTest {
      * <code>org.mozilla.gecko.Tabs</code> API and wait for DOMContentLoaded.
      */
     protected final void loadUrlAndWait(final String url) {
-        Actions.EventExpecter contentEventExpecter = mActions.expectGeckoEvent("DOMContentLoaded");
+        Actions.EventExpecter contentEventExpecter =
+                mActions.expectGlobalEvent(Actions.EventType.GECKO, "Content:DOMContentLoaded");
         loadUrl(url);
         contentEventExpecter.blockForEvent();
         contentEventExpecter.unregisterListener();
@@ -575,25 +577,22 @@ abstract class BaseTest extends BaseRobocopTest {
             }
         }, MAX_WAIT_MS);
         mAsserter.ok(success, "waiting for add tab view", "add tab view available");
-        final Actions.RepeatedEventExpecter pageShowExpecter = mActions.expectGeckoEvent("Content:PageShow");
+        final Actions.RepeatedEventExpecter pageShowExpecter =
+                mActions.expectGlobalEvent(Actions.EventType.UI, "Content:PageShow");
         mSolo.clickOnView(mSolo.getView(R.id.add_tab));
         waitForAnimationsToFinish();
 
         // Wait until we get a PageShow event for a new tab ID
         for(;;) {
-            try {
-                JSONObject data = new JSONObject(pageShowExpecter.blockForEventData());
-                int tabID = data.getInt("tabID");
-                if (tabID == 0) {
-                    mAsserter.dumpLog("addTab ignoring PageShow for tab 0");
-                    continue;
-                }
-                if (!mKnownTabIDs.contains(tabID)) {
-                    mKnownTabIDs.add(tabID);
-                    break;
-                }
-            } catch(JSONException e) {
-                mAsserter.ok(false, "Exception in addTab", getStackTraceString(e));
+            final GeckoBundle data = pageShowExpecter.blockForBundle();
+            final int tabID = data.getInt("tabID");
+            if (tabID == 0) {
+                mAsserter.dumpLog("addTab ignoring PageShow for tab 0");
+                continue;
+            }
+            if (!mKnownTabIDs.contains(tabID)) {
+                mKnownTabIDs.add(tabID);
+                break;
             }
         }
         pageShowExpecter.unregisterListener();
@@ -759,7 +758,8 @@ abstract class BaseTest extends BaseRobocopTest {
         }
 
         public void back() {
-            Actions.EventExpecter pageShowExpecter = mActions.expectGeckoEvent("Content:PageShow");
+            final Actions.EventExpecter pageShowExpecter =
+                    mActions.expectGlobalEvent(Actions.EventType.UI, "Content:PageShow");
 
             if (devType.equals("tablet")) {
                 Element backBtn = mDriver.findElement(getActivity(), R.id.back);
@@ -773,7 +773,8 @@ abstract class BaseTest extends BaseRobocopTest {
         }
 
         public void forward() {
-            Actions.EventExpecter pageShowExpecter = mActions.expectGeckoEvent("Content:PageShow");
+            final Actions.EventExpecter pageShowExpecter =
+                    mActions.expectGlobalEvent(Actions.EventType.UI, "Content:PageShow");
 
             if (devType.equals("tablet")) {
                 mSolo.waitForView(R.id.forward);

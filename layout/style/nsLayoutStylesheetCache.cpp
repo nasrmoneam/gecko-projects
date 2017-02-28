@@ -498,7 +498,7 @@ ListInterestingFiles(nsString& aAnnotation, nsIFile* aFile,
       aAnnotation.AppendLiteral(" (");
       int64_t size;
       if (NS_SUCCEEDED(aFile->GetFileSize(&size))) {
-        aAnnotation.AppendPrintf("%ld", size);
+        aAnnotation.AppendPrintf("%" PRId64, size);
       } else {
         aAnnotation.AppendLiteral("???");
       }
@@ -599,7 +599,11 @@ AnnotateCrashReport(nsIURI* aURI)
       annotation.AppendLiteral("(ResolveURI failed)\n");
     } else {
       nsAutoCString resolvedSpec;
-      handler->ResolveURI(aURI, resolvedSpec);
+      nsresult rv = handler->ResolveURI(aURI, resolvedSpec);
+      if (NS_FAILED(rv)) {
+        annotation.AppendPrintf("(ResolveURI failed with 0x%08" PRIx32 ")\n",
+                                static_cast<uint32_t>(rv));
+      }
       annotation.Append(NS_ConvertUTF8toUTF16(resolvedSpec));
       annotation.Append('\n');
     }
@@ -691,7 +695,8 @@ AnnotateCrashReport(nsIURI* aURI)
     nsZipFind* find;
     rv = zip->FindInit(nullptr, &find);
     if (NS_FAILED(rv)) {
-      annotation.AppendPrintf("  (FindInit failed with 0x%08x)\n", rv);
+      annotation.AppendPrintf("  (FindInit failed with 0x%08" PRIx32 ")\n",
+                              static_cast<uint32_t>(rv));
     } else if (!find) {
       annotation.AppendLiteral("  (FindInit returned null)\n");
     } else {
@@ -781,7 +786,7 @@ nsLayoutStylesheetCache::LoadSheet(nsIURI* aURI,
   nsresult rv = loader->LoadSheetSync(aURI, aParsingMode, true, aSheet);
   if (NS_FAILED(rv)) {
     ErrorLoadingSheet(aURI,
-      nsPrintfCString("LoadSheetSync failed with error %x", rv).get(),
+      nsPrintfCString("LoadSheetSync failed with error %" PRIx32, static_cast<uint32_t>(rv)).get(),
       aFailureAction);
   }
 }
@@ -866,10 +871,10 @@ nsLayoutStylesheetCache::BuildPreferenceSheet(RefPtr<StyleSheet>* aSheet,
 {
   if (mBackendType == StyleBackendType::Gecko) {
     *aSheet = new CSSStyleSheet(eAgentSheetFeatures, CORS_NONE,
-                                mozilla::net::RP_Default);
+                                mozilla::net::RP_Unset);
   } else {
     *aSheet = new ServoStyleSheet(eAgentSheetFeatures, CORS_NONE,
-                                  mozilla::net::RP_Default, dom::SRIMetadata());
+                                  mozilla::net::RP_Unset, dom::SRIMetadata());
   }
 
   StyleSheet* sheet = *aSheet;
@@ -968,7 +973,10 @@ nsLayoutStylesheetCache::BuildPreferenceSheet(RefPtr<StyleSheet>* aSheet,
   if (sheet->IsGecko()) {
     sheet->AsGecko()->ReparseSheet(sheetText);
   } else {
-    nsresult rv = sheet->AsServo()->ParseSheet(sheetText, uri, uri, nullptr, 0);
+    ServoStyleSheet* servoSheet = sheet->AsServo();
+    // NB: The pref sheet never has @import rules.
+    nsresult rv =
+      servoSheet->ParseSheet(nullptr, sheetText, uri, uri, nullptr, 0);
     // Parsing the about:PreferenceStyleSheet URI can only fail on OOM. If we
     // are OOM before we parsed any documents we might as well abort.
     MOZ_RELEASE_ASSERT(NS_SUCCEEDED(rv));

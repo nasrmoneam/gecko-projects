@@ -37,7 +37,7 @@ var gBrowserThumbnails = {
       Services.prefs.getBoolPref(this.PREF_DISK_CACHE_SSL);
 
     this._tabEvents.forEach(function(aEvent) {
-      gBrowser.tabContainer.addEventListener(aEvent, this, false);
+      gBrowser.tabContainer.addEventListener(aEvent, this);
     }, this);
 
     this._timeouts = new WeakMap();
@@ -49,7 +49,7 @@ var gBrowserThumbnails = {
     Services.prefs.removeObserver(this.PREF_DISK_CACHE_SSL, this);
 
     this._tabEvents.forEach(function(aEvent) {
-      gBrowser.tabContainer.removeEventListener(aEvent, this, false);
+      gBrowser.tabContainer.removeEventListener(aEvent, this);
     }, this);
   },
 
@@ -92,7 +92,8 @@ var gBrowserThumbnails = {
 
   _capture: function Thumbnails_capture(aBrowser) {
     // Only capture about:newtab top sites.
-    if (this._topSiteURLs.indexOf(aBrowser.currentURI.spec) == -1)
+    if (!aBrowser.currentURI ||
+        this._topSiteURLs.indexOf(aBrowser.currentURI.spec) == -1)
       return;
     this._shouldCapture(aBrowser, function(aResult) {
       if (aResult) {
@@ -134,7 +135,7 @@ var gBrowserThumbnails = {
 
   _clearTimeout: function Thumbnails_clearTimeout(aBrowser) {
     if (this._timeouts.has(aBrowser)) {
-      aBrowser.removeEventListener("scroll", this, false);
+      aBrowser.removeEventListener("scroll", this);
       clearTimeout(this._timeouts.get(aBrowser));
       this._timeouts.delete(aBrowser);
     }

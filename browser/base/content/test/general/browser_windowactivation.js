@@ -2,6 +2,8 @@
  * This test checks that window activation state is set properly with multiple tabs.
  */
 
+/* eslint-env mozilla/frame-script */
+
 var testPage = "data:text/html,<body><style>:-moz-window-inactive { background-color: red; }</style><div id='area'></div></body>";
 
 var colorChangeNotifications = 0;
@@ -24,8 +26,7 @@ function reallyRunTests() {
   gURLBar.focus();
 
   var loadCount = 0;
-  function check()
-  {
+  function check() {
     // wait for both tabs to load
     if (++loadCount != 2) {
       return;
@@ -47,10 +48,10 @@ function reallyRunTests() {
 
     switch (colorChangeNotifications) {
       case 1:
-        is(message.data.color, "transparent", "first window initial");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "first window initial");
         break;
       case 2:
-        is(message.data.color, "transparent", "second window initial");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "second window initial");
         runOtherWindowTests();
         break;
       case 3:
@@ -62,17 +63,17 @@ function reallyRunTests() {
         otherWindow.close();
         break;
       case 5:
-        is(message.data.color, "transparent", "first window raised");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "first window raised");
         break;
       case 6:
-        is(message.data.color, "transparent", "second window raised");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "second window raised");
         gBrowser.selectedTab = tab2;
         break;
       case 7:
-        is(message.data.color, "transparent", "first window after tab switch");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "first window after tab switch");
         break;
       case 8:
-        is(message.data.color, "transparent", "second window after tab switch");
+        is(message.data.color, "rgba(0, 0, 0, 0)", "second window after tab switch");
         finishTest();
         break;
       case 9:
@@ -107,10 +108,9 @@ function reallyRunTests() {
   gBrowser.selectedTab = tab1;
 }
 
-function sendGetBackgroundRequest(ifChanged)
-{
-  browser1.messageManager.sendAsyncMessage("Test:GetBackgroundColor", { ifChanged: ifChanged });
-  browser2.messageManager.sendAsyncMessage("Test:GetBackgroundColor", { ifChanged: ifChanged });
+function sendGetBackgroundRequest(ifChanged) {
+  browser1.messageManager.sendAsyncMessage("Test:GetBackgroundColor", { ifChanged });
+  browser2.messageManager.sendAsyncMessage("Test:GetBackgroundColor", { ifChanged });
 }
 
 function runOtherWindowTests() {
@@ -120,16 +120,14 @@ function runOtherWindowTests() {
   }, otherWindow);
 }
 
-function finishTest()
-{
+function finishTest() {
   gBrowser.removeCurrentTab();
   gBrowser.removeCurrentTab();
   otherWindow = null;
   finish();
 }
 
-function childFunction()
-{
+function childFunction() {
   let oldColor = null;
 
   let expectingResponse = false;
@@ -142,7 +140,7 @@ function childFunction()
 
   content.addEventListener("focus", function() {
     sendAsyncMessage("Test:FocusReceived", { });
-  }, false);
+  });
 
   var windowGotActivate = false;
   var windowGotDeactivate = false;
@@ -173,11 +171,11 @@ function childFunction()
       return; /* hasn't loaded yet */
     }
 
-    let color = content.getComputedStyle(area, "").backgroundColor;
+    let color = content.getComputedStyle(area).backgroundColor;
     if (oldColor != color || !ifChanged) {
       expectingResponse = false;
       oldColor = color;
-      sendAsyncMessage("Test:BackgroundColorChanged", { color: color });
+      sendAsyncMessage("Test:BackgroundColorChanged", { color });
     }
   }, 20);
 }

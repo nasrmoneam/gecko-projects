@@ -49,6 +49,7 @@ class PStorageChild;
 class ClonedMessageData;
 class TabChild;
 class GetFilesHelperChild;
+class FileCreatorHelper;
 
 class ContentChild final : public PContentChild
                          , public nsIWindowProvider
@@ -96,9 +97,12 @@ public:
 
   bool Init(MessageLoop* aIOLoop,
             base::ProcessId aParentPid,
-            IPC::Channel* aChannel);
+            IPC::Channel* aChannel,
+            uint64_t aChildID,
+            bool aIsForBrowser);
 
-  void InitXPCOM();
+  void InitXPCOM(const XPCOMInitData& aXPCOMInit,
+                 const mozilla::dom::ipc::StructuredCloneData& aInitialData);
 
   void InitGraphicsDeviceData();
 
@@ -137,33 +141,17 @@ public:
 
   static void AppendProcessId(nsACString& aName);
 
-  ContentBridgeParent* GetLastBridge()
-  {
-    MOZ_ASSERT(mLastBridge);
-    ContentBridgeParent* parent = mLastBridge;
-    mLastBridge = nullptr;
-    return parent;
-  }
+  mozilla::ipc::IPCResult
+  RecvInitContentBridgeChild(Endpoint<PContentBridgeChild>&& aEndpoint) override;
 
-  RefPtr<ContentBridgeParent> mLastBridge;
-
-  PPluginModuleParent *
-  AllocPPluginModuleParent(mozilla::ipc::Transport* transport,
-                           base::ProcessId otherProcess) override;
-
-  PContentBridgeParent*
-  AllocPContentBridgeParent(mozilla::ipc::Transport* transport,
-                            base::ProcessId otherProcess) override;
-  PContentBridgeChild*
-  AllocPContentBridgeChild(mozilla::ipc::Transport* transport,
-                           base::ProcessId otherProcess) override;
-
-  PGMPServiceChild*
-  AllocPGMPServiceChild(mozilla::ipc::Transport* transport,
-                        base::ProcessId otherProcess) override;
+  mozilla::ipc::IPCResult
+  RecvInitGMPService(Endpoint<PGMPServiceChild>&& aGMPService) override;
 
   mozilla::ipc::IPCResult
   RecvGMPsChanged(nsTArray<GMPCapabilityData>&& capabilities) override;
+
+  mozilla::ipc::IPCResult
+  RecvInitProcessHangMonitor(Endpoint<PProcessHangMonitorChild>&& aHangMonitor) override;
 
   mozilla::ipc::IPCResult
   RecvInitRendering(
@@ -179,15 +167,7 @@ public:
     Endpoint<PVRManagerChild>&& aVRBridge,
     Endpoint<PVideoDecoderManagerChild>&& aVideoManager) override;
 
-  PProcessHangMonitorChild*
-  AllocPProcessHangMonitorChild(Transport* aTransport,
-                                ProcessId aOtherProcess) override;
-
   virtual mozilla::ipc::IPCResult RecvSetProcessSandbox(const MaybeFileDesc& aBroker) override;
-
-  PBackgroundChild*
-  AllocPBackgroundChild(Transport* aTransport, ProcessId aOtherProcess)
-                        override;
 
   virtual PBrowserChild* AllocPBrowserChild(const TabId& aTabId,
                                             const IPCTabContext& aContext,
@@ -208,13 +188,6 @@ public:
 
   virtual bool DeallocPBlobChild(PBlobChild* aActor) override;
 
-  virtual PCrashReporterChild*
-  AllocPCrashReporterChild(const mozilla::dom::NativeThreadId& id,
-                           const uint32_t& processType) override;
-
-  virtual bool
-  DeallocPCrashReporterChild(PCrashReporterChild*) override;
-
   virtual PHalChild* AllocPHalChild() override;
   virtual bool DeallocPHalChild(PHalChild*) override;
 
@@ -223,22 +196,6 @@ public:
 
   virtual bool
   DeallocPHeapSnapshotTempFileHelperChild(PHeapSnapshotTempFileHelperChild*) override;
-
-  virtual PMemoryReportRequestChild*
-  AllocPMemoryReportRequestChild(const uint32_t& aGeneration,
-                                 const bool& aAnonymize,
-                                 const bool& aMinimizeMemoryUsage,
-                                 const MaybeFileDesc& aDMDFile) override;
-
-  virtual bool
-  DeallocPMemoryReportRequestChild(PMemoryReportRequestChild* actor) override;
-
-  virtual mozilla::ipc::IPCResult
-  RecvPMemoryReportRequestConstructor(PMemoryReportRequestChild* aChild,
-                                      const uint32_t& aGeneration,
-                                      const bool& aAnonymize,
-                                      const bool &aMinimizeMemoryUsage,
-                                      const MaybeFileDesc &aDMDFile) override;
 
   virtual PCycleCollectWithLogsChild*
   AllocPCycleCollectWithLogsChild(const bool& aDumpAllTraces,
@@ -309,6 +266,7 @@ public:
                                const nsString& aContentDispositionFilename,
                                const bool& aForceSave,
                                const int64_t& aContentLength,
+                               const bool& aWasFileChannel,
                                const OptionalURIParams& aReferrer,
                                PBrowserChild* aBrowser) override;
 
@@ -433,6 +391,14 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvInitBlobURLs(nsTArray<BlobURLRegistrationData>&& aRegistations) override;
 
+  virtual mozilla::ipc::IPCResult
+  RecvDispatchLocalStorageChange(const nsString& aDocumentURI,
+                                 const nsString& aKey,
+                                 const nsString& aOldValue,
+                                 const nsString& aNewValue,
+                                 const IPC::Principal& aPrincipal,
+                                 const bool& aIsPrivate) override;
+
   virtual mozilla::ipc::IPCResult RecvLastPrivateDocShellDestroyed() override;
 
   virtual mozilla::ipc::IPCResult RecvFilePathUpdate(const nsString& aStorageType,
@@ -511,6 +477,12 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvNotifyPushSubscriptionModifiedObservers(const nsCString& aScope,
                                               const IPC::Principal& aPrincipal) override;
+
+  virtual mozilla::ipc::IPCResult RecvActivate(PBrowserChild* aTab) override;
+
+  virtual mozilla::ipc::IPCResult RecvDeactivate(PBrowserChild* aTab) override;
+
+  virtual mozilla::ipc::IPCResult RecvParentActivated(PBrowserChild* aTab, const bool& aActivated) override;
 
   // Get the directory for IndexedDB files. We query the parent for this and
   // cache the value
@@ -605,6 +577,22 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvBlobURLUnregistration(const nsCString& aURI) override;
 
+  virtual mozilla::ipc::IPCResult
+  RecvFileCreationResponse(const nsID& aUUID,
+                           const FileCreationResult& aResult) override;
+
+  mozilla::ipc::IPCResult
+  RecvRequestMemoryReport(
+          const uint32_t& generation,
+          const bool& anonymize,
+          const bool& minimizeMemoryUsage,
+          const MaybeFileDesc& DMDFile) override;
+
+  virtual mozilla::ipc::IPCResult
+  RecvSetXPCOMProcessAttributes(const XPCOMInitData& aXPCOMInit,
+                                const StructuredCloneData& aInitialData,
+                                nsTArray<LookAndFeelInt>&& aLookAndFeelIntCache) override;
+
 #if defined(XP_WIN) && defined(ACCESSIBILITY)
   bool
   SendGetA11yContentId();
@@ -639,6 +627,14 @@ public:
                                              const char* const aErrorMsg,
                                              base::ProcessId aOtherPid);
 
+  // This method is used by FileCreatorHelper for the creation of a BlobImpl.
+  void
+  FileCreationRequest(nsID& aUUID, FileCreatorHelper* aHelper,
+                      const nsAString& aFullPath, const nsAString& aType,
+                      const nsAString& aName,
+                      const Optional<int64_t>& aLastModified,
+                      bool aIsFromNsIFile);
+
 private:
   static void ForceKillTimerCallback(nsITimer* aTimer, void* aClosure);
   void StartForceKillTimer();
@@ -646,6 +642,9 @@ private:
   virtual void ActorDestroy(ActorDestroyReason why) override;
 
   virtual void ProcessingError(Result aCode, const char* aReason) override;
+
+  virtual already_AddRefed<nsIEventTarget>
+  GetConstructedEventTarget(const Message& aMsg) override;
 
   InfallibleTArray<nsAutoPtr<AlertObserver> > mAlertObservers;
   RefPtr<ConsoleListener> mConsoleListener;
@@ -699,6 +698,10 @@ private:
   // This GetFilesHelperChild objects are removed when RecvGetFilesResponse is
   // received.
   nsRefPtrHashtable<nsIDHashKey, GetFilesHelperChild> mGetFilesPendingRequests;
+
+  // Hashtable to keep track of the pending file creation.
+  // These items are removed when RecvFileCreationResponse is received.
+  nsRefPtrHashtable<nsIDHashKey, FileCreatorHelper> mFileCreationPending;
 
   bool mShuttingDown;
 

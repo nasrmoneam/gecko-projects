@@ -155,7 +155,11 @@
       yield testToggleEntireWord();
     }
 
-    function testFindButtonsState(enabled = true) {
+    function testFindButtonsState(enabled = null) {
+      // If `enabled` is not explicitly passed in, we set it to its most logical
+      // value.
+      if (enabled === null)
+        enabled = !!gFindBar._findField.value;
       is(gFindBar.getElement("find-next").disabled, !enabled,
         `Expected the 'next' button to be ${enabled ? 'enabled' : 'disabled'}`);
       is(gFindBar.getElement("find-previous").disabled, !enabled,
@@ -553,6 +557,10 @@
       synthesizeKey("VK_RETURN", {});
       yield promiseHighlightFinished();
       yield promiseExpectRangeCount(3);
+
+      // Uncheck at test end to not interfere with other test functions that are
+      // run after this one.
+      highlightButton.click();
     }
 
     function* testQuickFindText() {
@@ -770,7 +778,7 @@
   <commandset>
     <command id="cmd_find" oncommand="document.getElementById('FindToolbar').onFindCommand();"/>
   </commandset>
-  <browser type="content-primary" flex="1" id="content" src="about:blank"/>
-  <browser type="content-primary" flex="1" id="content-remote" remote="true" src="about:blank"/>
+  <browser type="content" primary="true" flex="1" id="content" src="about:blank"/>
+  <browser type="content" primary="true" flex="1" id="content-remote" remote="true" src="about:blank"/>
   <findbar id="FindToolbar" browserid="content"/>
 </window>

@@ -9,6 +9,15 @@ const {utils: Cu} = Components;
 Cu.import("chrome://marionette/content/assert.js");
 Cu.import("chrome://marionette/content/error.js");
 
+add_test(function test_session() {
+  assert.session({sessionId: "foo"});
+  for (let typ of [null, undefined, ""]) {
+    Assert.throws(() => assert.session({sessionId: typ}), InvalidSessionIDError);
+  }
+
+  run_next_test();
+});
+
 add_test(function test_platforms() {
   // at least one will fail
   let raised;
@@ -31,11 +40,23 @@ add_test(function test_defined() {
   run_next_test();
 });
 
+add_test(function test_number() {
+  assert.number(1);
+  assert.number(0);
+  assert.number(-1);
+  assert.number(1.2);
+  for (let i of ["foo", "1", {}, [], NaN, Infinity, undefined]) {
+    Assert.throws(() => assert.number(i), InvalidArgumentError);
+  }
+  run_next_test();
+});
+
 add_test(function test_integer() {
   assert.integer(1);
   assert.integer(0);
   assert.integer(-1);
   Assert.throws(() => assert.integer("foo"), InvalidArgumentError);
+  Assert.throws(() => assert.integer(1.2), InvalidArgumentError);
 
   run_next_test();
 });
@@ -69,7 +90,27 @@ add_test(function test_string() {
 add_test(function test_object() {
   assert.object({});
   assert.object(new Object());
-  Assert.throws(() => assert.object(42), InvalidArgumentError);
+  for (let typ of [42, "foo", true, null, undefined]) {
+    Assert.throws(() => assert.object(typ), InvalidArgumentError);
+  }
+
+  run_next_test();
+});
+
+add_test(function test_in() {
+  assert.in("foo", {foo: 42});
+  for (let typ of [{}, 42, true, null, undefined]) {
+    Assert.throws(() => assert.in("foo", typ), InvalidArgumentError);
+  }
+
+  run_next_test();
+});
+
+add_test(function test_array() {
+  assert.array([]);
+  assert.array(new Array());
+  Assert.throws(() => assert.array(42), InvalidArgumentError);
+  Assert.throws(() => assert.array({}), InvalidArgumentError);
 
   run_next_test();
 });

@@ -35,7 +35,7 @@ BUILD_KINDS = set([
 
 # anything in this list is governed by -j
 JOB_KINDS = set([
-    'source-check',
+    'source-test',
     'toolchain',
     'marionette-harness',
     'android-stuff',
@@ -88,12 +88,12 @@ UNITTEST_ALIASES = {
     'mochitest-debug': alias_prefix('mochitest-debug-'),
     'mochitest-a11y': alias_contains('mochitest-a11y'),
     'mochitest-bc': alias_prefix('mochitest-browser-chrome'),
-    'mochitest-e10s-bc': alias_prefix('mochitest-e10s-browser-chrome'),
+    'mochitest-e10s-bc': alias_prefix('mochitest-browser-chrome-e10s'),
     'mochitest-browser-chrome': alias_prefix('mochitest-browser-chrome'),
-    'mochitest-e10s-browser-chrome': alias_prefix('mochitest-e10s-browser-chrome'),
+    'mochitest-e10s-browser-chrome': alias_prefix('mochitest-browser-chrome-e10s'),
     'mochitest-chrome': alias_contains('mochitest-chrome'),
     'mochitest-dt': alias_prefix('mochitest-devtools-chrome'),
-    'mochitest-e10s-dt': alias_prefix('mochitest-e10s-devtools-chrome'),
+    'mochitest-e10s-dt': alias_prefix('mochitest-devtools-chrome-e10s'),
     'mochitest-gl': alias_prefix('mochitest-webgl'),
     'mochitest-gl-e10s': alias_prefix('mochitest-webgl-e10s'),
     'mochitest-gpu': alias_prefix('mochitest-gpu'),
@@ -124,7 +124,7 @@ UNITTEST_ALIASES = {
 # substrings.  This is intended only for backward-compatibility.  New test
 # platforms should have their `test_platform` spelled out fully in try syntax.
 UNITTEST_PLATFORM_PRETTY_NAMES = {
-    'Ubuntu': ['linux', 'linux64', 'linux64-asan'],
+    'Ubuntu': ['linux32', 'linux64', 'linux64-asan'],
     'x64': ['linux64', 'linux64-asan'],
     'Android 4.3': ['android-4.3-arm7-api-15'],
     # other commonly-used substrings for platforms not yet supported with
@@ -172,6 +172,84 @@ RIDEALONG_BUILDS = {
 TEST_CHUNK_SUFFIX = re.compile('(.*)-([0-9]+)$')
 
 
+def escape_whitespace_in_brackets(input_str):
+    '''
+    In tests you may restrict them by platform [] inside of the brackets
+    whitespace may occur this is typically invalid shell syntax so we escape it
+    with backslash sequences    .
+    '''
+    result = ""
+    in_brackets = False
+    for char in input_str:
+        if char == '[':
+            in_brackets = True
+            result += char
+            continue
+
+        if char == ']':
+            in_brackets = False
+            result += char
+            continue
+
+        if char == ' ' and in_brackets:
+            result += '\ '
+            continue
+
+        result += char
+
+    return result
+
+
+def find_try_idx(message):
+    # shlex used to ensure we split correctly when giving values to argparse.
+    parts = shlex.split(escape_whitespace_in_brackets(message))
+    try_idx = None
+    for idx, part in enumerate(parts):
+        if part == TRY_DELIMITER:
+            try_idx = idx
+            break
+
+    return try_idx, parts
+
+
+def parse_message(message):
+    try_idx, parts = find_try_idx(message)
+
+    # Argument parser based on try flag flags
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-b', '--build', dest='build_types')
+    parser.add_argument('-p', '--platform', nargs='?',
+                        dest='platforms', const='all', default='all')
+    parser.add_argument('-u', '--unittests', nargs='?',
+                        dest='unittests', const='all', default='all')
+    parser.add_argument('-t', '--talos', nargs='?', dest='talos', const='all', default='none')
+    parser.add_argument('-i', '--interactive',
+                        dest='interactive', action='store_true', default=False)
+    parser.add_argument('-e', '--all-emails',
+                        dest='notifications', action='store_const', const='all')
+    parser.add_argument('-f', '--failure-emails',
+                        dest='notifications', action='store_const', const='failure')
+    parser.add_argument('-j', '--job', dest='jobs', action='append')
+    parser.add_argument('--rebuild-talos', dest='talos_trigger_tests', action='store',
+                        type=int, default=1)
+    parser.add_argument('--setenv', dest='env', action='append')
+    parser.add_argument('--spsProfile', dest='profile', action='store_true')
+    parser.add_argument('--tag', dest='tag', action='store', default=None)
+    parser.add_argument('--no-retry', dest='no_retry', action='store_true')
+
+    # While we are transitioning from BB to TC, we want to push jobs to tc-worker
+    # machines but not overload machines with every try push. Therefore, we add
+    # this temporary option to be able to push jobs to tc-worker.
+    parser.add_argument('-w', '--taskcluster-worker',
+                        dest='taskcluster_worker', action='store_true', default=False)
+
+    # In order to run test jobs multiple times
+    parser.add_argument('--rebuild', dest='trigger_tests', type=int, default=1)
+    parts = parts[try_idx:] if try_idx is not None else []
+    args, _ = parser.parse_known_args(parts[try_idx:])
+    return args
+
+
 class TryOptionSyntax(object):
 
     def __init__(self, message, full_task_graph):
@@ -189,8 +267,11 @@ class TryOptionSyntax(object):
         - trigger_tests: the number of times tests should be triggered (--rebuild)
         - interactive: true if --interactive
         - notifications: either None if no notifications or one of 'all' or 'failure'
-
-        Note that -t is currently completely ignored.
+        - talos_trigger_tests: the number of time talos tests should be triggered (--rebuild-talos)
+        - env: additional environment variables (ENV=value)
+        - profile: run talos in profile mode
+        - tag: restrict tests to the specified tag
+        - no_retry: do not retry failed jobs
 
         The unittests and talos lists contain dictionaries of the form:
 
@@ -208,36 +289,18 @@ class TryOptionSyntax(object):
         self.trigger_tests = 0
         self.interactive = False
         self.notifications = None
+        self.talos_trigger_tests = 0
+        self.env = []
+        self.profile = False
+        self.tag = None
+        self.no_retry = False
 
-        # shlex used to ensure we split correctly when giving values to argparse.
-        parts = shlex.split(self.escape_whitespace_in_brackets(message))
-        try_idx = None
-        for idx, part in enumerate(parts):
-            if part == TRY_DELIMITER:
-                try_idx = idx
-                break
-
+        try_idx, _ = find_try_idx(message)
         if try_idx is None:
-            return
+            return None
 
-        # Argument parser based on try flag flags
-        parser = argparse.ArgumentParser()
-        parser.add_argument('-b', '--build', dest='build_types')
-        parser.add_argument('-p', '--platform', nargs='?',
-                            dest='platforms', const='all', default='all')
-        parser.add_argument('-u', '--unittests', nargs='?',
-                            dest='unittests', const='all', default='all')
-        parser.add_argument('-t', '--talos', nargs='?', dest='talos', const='all', default='all')
-        parser.add_argument('-i', '--interactive',
-                            dest='interactive', action='store_true', default=False)
-        parser.add_argument('-e', '--all-emails',
-                            dest='notifications', action='store_const', const='all')
-        parser.add_argument('-f', '--failure-emails',
-                            dest='notifications', action='store_const', const='failure')
-        parser.add_argument('-j', '--job', dest='jobs', action='append')
-        # In order to run test jobs multiple times
-        parser.add_argument('--rebuild', dest='trigger_tests', type=int, default=1)
-        args, _ = parser.parse_known_args(parts[try_idx:])
+        args = parse_message(message)
+        assert args is not None
 
         self.jobs = self.parse_jobs(args.jobs)
         self.build_types = self.parse_build_types(args.build_types)
@@ -248,6 +311,11 @@ class TryOptionSyntax(object):
         self.trigger_tests = args.trigger_tests
         self.interactive = args.interactive
         self.notifications = args.notifications
+        self.talos_trigger_tests = args.talos_trigger_tests
+        self.env = args.env
+        self.profile = args.profile
+        self.tag = args.tag
+        self.no_retry = args.no_retry
 
     def parse_jobs(self, jobs_arg):
         if not jobs_arg or jobs_arg == ['all']:
@@ -467,33 +535,6 @@ class TryOptionSyntax(object):
                     rv.add(a[len(prefix):])
         return sorted(rv)
 
-    def escape_whitespace_in_brackets(self, input_str):
-        '''
-        In tests you may restrict them by platform [] inside of the brackets
-        whitespace may occur this is typically invalid shell syntax so we escape it
-        with backslash sequences    .
-        '''
-        result = ""
-        in_brackets = False
-        for char in input_str:
-            if char == '[':
-                in_brackets = True
-                result += char
-                continue
-
-            if char == ']':
-                in_brackets = False
-                result += char
-                continue
-
-            if char == ' ' and in_brackets:
-                result += '\ '
-                continue
-
-            result += char
-
-        return result
-
     def task_matches(self, attributes):
         attr = attributes.get
 
@@ -523,7 +564,7 @@ class TryOptionSyntax(object):
                 return False
             return True
 
-        if attr('kind') in ('desktop-test', 'android-test'):
+        if attr('kind') == 'test':
             return match_test(self.unittests, 'unittest_try_name') \
                  or match_test(self.talos, 'talos_try_name')
         elif attr('kind') in JOB_KINDS:
@@ -559,5 +600,10 @@ class TryOptionSyntax(object):
             "jobs: " + none_for_all(self.jobs),
             "trigger_tests: " + str(self.trigger_tests),
             "interactive: " + str(self.interactive),
-            "notifications: " + self.notifications,
+            "notifications: " + str(self.notifications),
+            "talos_trigger_tests: " + str(self.talos_trigger_tests),
+            "env: " + str(self.env),
+            "profile: " + str(self.profile),
+            "tag: " + str(self.tag),
+            "no_retry: " + str(self.no_retry),
         ])

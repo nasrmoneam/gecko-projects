@@ -10,11 +10,11 @@
 #include "mozilla/dom/NodeListBinding.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/css/StyleRule.h"
+#include "mozilla/GenericSpecifiedValuesInlines.h"
 #include "nsGkAtoms.h"
 #include "nsStyleConsts.h"
 #include "nsIAtom.h"
 #include "nsCSSRuleProcessor.h"
-#include "nsRuleData.h"
 #include "nsRuleProcessorData.h"
 #include "nsRuleWalker.h"
 #include "nsCSSParser.h"
@@ -333,8 +333,6 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(DistributedContentList)
 DistributedContentList::DistributedContentList(HTMLContentElement* aHostElement)
   : mParent(aHostElement)
 {
-  MOZ_COUNT_CTOR(DistributedContentList);
-
   if (aHostElement->IsInsertionPoint()) {
     if (aHostElement->MatchedNodes().IsEmpty()) {
       // Fallback content.
@@ -352,7 +350,6 @@ DistributedContentList::DistributedContentList(HTMLContentElement* aHostElement)
 
 DistributedContentList::~DistributedContentList()
 {
-  MOZ_COUNT_DTOR(DistributedContentList);
 }
 
 nsIContent*

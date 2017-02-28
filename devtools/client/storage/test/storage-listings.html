@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE HTML>
 <html>
 <!--
-Bug 970517 - Storage inspector front end - tests
+Storage inspector front end - tests
 -->
 <head>
   <meta charset="utf-8">
@@ -10,7 +10,7 @@ Bug 970517 - Storage inspector front end - tests
 <body>
 <iframe src="http://sectest1.example.org/browser/devtools/client/storage/test/storage-unsecured-iframe.html"></iframe>
 <iframe src="https://sectest1.example.org:443/browser/devtools/client/storage/test/storage-secured-iframe.html"></iframe>
-<script type="application/javascript;version=1.7">
+<script type="application/javascript">
 "use strict";
 let partialHostname = location.hostname.match(/^[^.]+(\..*)$/)[1];
 let cookieExpiresTime1 = 2000000000000;
@@ -110,14 +110,19 @@ let cacheGenerator = async function() {
 
 window.setup = function*() {
   yield idbGenerator();
-  yield cacheGenerator();
+
+  if (window.caches) {
+    yield cacheGenerator();
+  }
 };
 
 window.clear = function*() {
   yield deleteDB("idb1");
   yield deleteDB("idb2");
 
-  yield caches.delete("plop");
+  if (window.caches) {
+    yield caches.delete("plop");
+  }
 
   dump("removed indexedDB and cache data from " + document.location + "\n");
 };

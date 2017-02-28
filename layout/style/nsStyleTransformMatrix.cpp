@@ -18,8 +18,6 @@
 #include "gfxMatrix.h"
 #include "gfxQuaternion.h"
 
-#include <limits>
-
 using namespace mozilla;
 using namespace mozilla::gfx;
 
@@ -751,11 +749,9 @@ ProcessPerspective(Matrix4x4& aMatrix,
 {
   NS_PRECONDITION(aData->Count() == 2, "Invalid array!");
 
-  float depth = std::max(ProcessTranslatePart(aData->Item(1), aContext,
-                                              aPresContext, aConditions,
-                                              nullptr),
-                         std::numeric_limits<float>::epsilon());
-  aMatrix.Perspective(depth);
+  float depth = ProcessTranslatePart(aData->Item(1), aContext,
+                                     aPresContext, aConditions, nullptr);
+  ApplyPerspectiveToMatrix(aMatrix, depth);
 }
 
 
@@ -1261,6 +1257,31 @@ CSSValueArrayTo3DMatrix(nsCSSValue::Array* aArray)
   }
   Matrix4x4 m(array);
   return m;
+}
+
+gfxSize
+GetScaleValue(const nsCSSValueSharedList* aList,
+              const nsIFrame* aForFrame)
+{
+  MOZ_ASSERT(aList && aList->mHead);
+  MOZ_ASSERT(aForFrame);
+
+  RuleNodeCacheConditions dontCare;
+  bool dontCareBool;
+  TransformReferenceBox refBox(aForFrame);
+  Matrix4x4 transform = ReadTransforms(
+                          aList->mHead,
+                          aForFrame->StyleContext(),
+                          aForFrame->PresContext(), dontCare, refBox,
+                          aForFrame->PresContext()->AppUnitsPerDevPixel(),
+                          &dontCareBool);
+  Matrix transform2d;
+  bool canDraw2D = transform.CanDraw2D(&transform2d);
+  if (!canDraw2D) {
+    return gfxSize();
+  }
+
+  return ThebesMatrix(transform2d).ScaleFactors(true);
 }
 
 } // namespace nsStyleTransformMatrix

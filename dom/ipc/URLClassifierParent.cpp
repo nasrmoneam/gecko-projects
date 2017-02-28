@@ -18,13 +18,16 @@ URLClassifierParent::StartClassify(nsIPrincipal* aPrincipal,
                                    bool aUseTrackingProtection,
                                    bool* aSuccess)
 {
+  *aSuccess = false;
+  nsresult rv = NS_OK;
+  // Note that in safe mode, the URL classifier service isn't available, so we
+  // should handle the service not being present gracefully.
   nsCOMPtr<nsIURIClassifier> uriClassifier =
-    do_GetService(NS_URICLASSIFIERSERVICE_CONTRACTID);
-  if (!uriClassifier) {
-    return IPC_FAIL_NO_REASON(this);
+    do_GetService(NS_URICLASSIFIERSERVICE_CONTRACTID, &rv);
+  if (NS_SUCCEEDED(rv)) {
+    rv = uriClassifier->Classify(aPrincipal, aUseTrackingProtection,
+                                 this, aSuccess);
   }
-  nsresult rv = uriClassifier->Classify(aPrincipal, aUseTrackingProtection,
-                                        this, aSuccess);
   if (NS_FAILED(rv) || !*aSuccess) {
     // We treat the case where we fail to classify and the case where the
     // classifier returns successfully but doesn't perform a lookup as the
@@ -32,19 +35,39 @@ URLClassifierParent::StartClassify(nsIPrincipal* aPrincipal,
     // without ever calling out callback in both cases.
     // This means that code using this in the child process will only get a hit
     // on its callback if some classification actually happens.
-    Unused << Send__delete__(this, void_t());
+    *aSuccess = false;
+    ClassificationFailed();
   }
   return IPC_OK();
 }
 
 nsresult
-URLClassifierParent::OnClassifyComplete(nsresult aRv)
+URLClassifierParent::OnClassifyComplete(nsresult aErrorCode,
+                                        const nsACString& aList,
+                                        const nsACString& aProvider,
+                                        const nsACString& aPrefix)
 {
-  Unused << Send__delete__(this, aRv);
+  if (mIPCOpen) {
+    ClassifierInfo info;
+    info.list() = aList;
+    info.prefix() = aPrefix;
+    info.provider() = aProvider;
+
+    Unused << Send__delete__(this, info, aErrorCode);
+  }
   return NS_OK;
+}
+
+void
+URLClassifierParent::ClassificationFailed()
+{
+  if (mIPCOpen) {
+    Unused << Send__delete__(this, void_t(), NS_ERROR_FAILURE);
+  }
 }
 
 void
 URLClassifierParent::ActorDestroy(ActorDestroyReason aWhy)
 {
+  mIPCOpen = false;
 }

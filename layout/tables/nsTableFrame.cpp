@@ -1285,7 +1285,7 @@ static inline bool FrameHasBorderOrBackground(nsTableFrame* tableFrame, nsIFrame
   if (f->StyleBorder()->HasBorder()) {
     return true;
   }
-  if (!f->StyleBackground()->IsTransparent() ||
+  if (!f->StyleBackground()->IsTransparent(f) ||
       f->StyleDisplay()->mAppearance) {
     
     nsTableCellFrame *cellFrame = do_QueryFrame(f);
@@ -1844,7 +1844,7 @@ nsTableFrame::Reflow(nsPresContext*           aPresContext,
   bool isPaginated = aPresContext->IsPaginated();
   WritingMode wm = aReflowInput.GetWritingMode();
 
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
   if (!GetPrevInFlow() && !mTableLayoutStrategy) {
     NS_ERROR("strategy should have been created in Init");
     return;
@@ -1929,7 +1929,7 @@ nsTableFrame::Reflow(nsPresContext*           aPresContext,
     }
 
     // XXXldb Are all these conditions correct?
-    if (needToInitiateSpecialReflow && NS_FRAME_IS_COMPLETE(aStatus)) {
+    if (needToInitiateSpecialReflow && aStatus.IsComplete()) {
       // XXXldb Do we need to set the IsBResize flag on any reflow states?
 
       ReflowInput &mutable_rs =
@@ -1942,7 +1942,7 @@ nsTableFrame::Reflow(nsPresContext*           aPresContext,
       ReflowTable(aDesiredSize, aReflowInput, aReflowInput.AvailableBSize(),
                   lastChildReflowed, aStatus);
 
-      if (lastChildReflowed && NS_FRAME_IS_NOT_COMPLETE(aStatus)) {
+      if (lastChildReflowed && aStatus.IsIncomplete()) {
         // if there is an incomplete child, then set the desired bsize
         // to include it but not the next one
         LogicalMargin borderPadding = GetChildAreaOffset(wm, &aReflowInput);
@@ -2047,7 +2047,7 @@ nsTableFrame::FixupPositionedTableParts(nsPresContext*           aPresContext,
     ReflowInput reflowInput(aPresContext, positionedPart,
                                   aReflowInput.mRenderingContext, availSize,
                                   ReflowInput::DUMMY_PARENT_REFLOW_STATE);
-    nsReflowStatus reflowStatus = NS_FRAME_COMPLETE;
+    nsReflowStatus reflowStatus;
 
     // Reflow absolutely-positioned descendants of the positioned part.
     // FIXME: Unconditionally using NS_UNCONSTRAINEDSIZE for the bsize and
@@ -3022,7 +3022,7 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
                              nsIFrame*&          aLastChildReflowed,
                              nsOverflowAreas&    aOverflowAreas)
 {
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
   aLastChildReflowed = nullptr;
 
   nsIFrame* prevKidFrame = nullptr;
@@ -3098,7 +3098,8 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
           tfoot->SetRepeatable(false);
         }
         PushChildren(rowGroups, childX);
-        aStatus = NS_FRAME_NOT_COMPLETE;
+        aStatus.Reset();
+        aStatus.SetIncomplete();
         break;
       }
 
@@ -3163,20 +3164,20 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
           childX = rowGroups.Length();
         }
       }
-      if (isPaginated && !NS_FRAME_IS_FULLY_COMPLETE(aStatus) &&
+      if (isPaginated && !aStatus.IsFullyComplete() &&
           ShouldAvoidBreakInside(aReflowInput.reflowInput)) {
-        aStatus = NS_INLINE_LINE_BREAK_BEFORE();
+        aStatus.SetInlineLineBreakBeforeAndReset();
         break;
       }
       // see if the rowgroup did not fit on this page might be pushed on
       // the next page
       if (isPaginated &&
-          (NS_INLINE_IS_BREAK_BEFORE(aStatus) ||
-           (NS_FRAME_IS_COMPLETE(aStatus) &&
+          (aStatus.IsInlineBreakBefore() ||
+           (aStatus.IsComplete() &&
             (NS_UNCONSTRAINEDSIZE != kidReflowInput.AvailableHeight()) &&
             kidReflowInput.AvailableHeight() < desiredSize.Height()))) {
         if (ShouldAvoidBreakInside(aReflowInput.reflowInput)) {
-          aStatus = NS_INLINE_LINE_BREAK_BEFORE();
+          aStatus.SetInlineLineBreakBeforeAndReset();
           break;
         }
         // if we are on top of the page place with dataloss
@@ -3194,7 +3195,8 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
               else if (tfoot && tfoot->IsRepeatable()) {
                 tfoot->SetRepeatable(false);
               }
-              aStatus = NS_FRAME_NOT_COMPLETE;
+              aStatus.Reset();
+              aStatus.SetIncomplete();
               PushChildren(rowGroups, childX + 1);
               aLastChildReflowed = kidFrame;
               break;
@@ -3209,7 +3211,8 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
             else if (tfoot && tfoot->IsRepeatable()) {
               tfoot->SetRepeatable(false);
             }
-            aStatus = NS_FRAME_NOT_COMPLETE;
+            aStatus.Reset();
+            aStatus.SetIncomplete();
             PushChildren(rowGroups, childX);
             aLastChildReflowed = prevKidFrame;
             break;
@@ -3233,7 +3236,7 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
 
       pageBreak = false;
       // see if there is a page break after this row group or before the next one
-      if (NS_FRAME_IS_COMPLETE(aStatus) && isPaginated &&
+      if (aStatus.IsComplete() && isPaginated &&
           (NS_UNCONSTRAINEDSIZE != kidReflowInput.AvailableHeight())) {
         nsIFrame* nextKid =
           (childX + 1 < rowGroups.Length()) ? rowGroups[childX + 1] : nullptr;
@@ -3249,11 +3252,11 @@ nsTableFrame::ReflowChildren(TableReflowInput& aReflowInput,
       // Remember where we just were in case we end up pushing children
       prevKidFrame = kidFrame;
 
-      MOZ_ASSERT(!NS_FRAME_IS_NOT_COMPLETE(aStatus) || isPaginated,
+      MOZ_ASSERT(!aStatus.IsIncomplete() || isPaginated,
                  "Table contents should only fragment in paginated contexts");
 
       // Special handling for incomplete children
-      if (isPaginated && NS_FRAME_IS_NOT_COMPLETE(aStatus)) {
+      if (isPaginated && aStatus.IsIncomplete()) {
         nsIFrame* kidNextInFlow = kidFrame->GetNextInFlow();
         if (!kidNextInFlow) {
           // The child doesn't have a next-in-flow so create a continuing
@@ -3805,35 +3808,54 @@ nsTableFrame::GetRowSpacing(int32_t aStartRowIndex,
 }
 
 /* virtual */ nscoord
-nsTableFrame::GetLogicalBaseline(WritingMode aWritingMode) const
+nsTableFrame::GetLogicalBaseline(WritingMode aWM) const
 {
-  nscoord ascent = 0;
+  nscoord baseline;
+  if (!GetNaturalBaselineBOffset(aWM, BaselineSharingGroup::eFirst, &baseline)) {
+    baseline = BSize(aWM);
+  }
+  return baseline;
+}
+
+/* virtual */ bool
+nsTableFrame::GetNaturalBaselineBOffset(WritingMode aWM,
+                                        BaselineSharingGroup aBaselineGroup,
+                                        nscoord*             aBaseline) const
+{
   RowGroupArray orderedRowGroups;
   OrderRowGroups(orderedRowGroups);
-  nsTableRowFrame* firstRow = nullptr;
   // XXX not sure if this should be the size of the containing block instead.
   nsSize containerSize = mRect.Size();
-  for (uint32_t rgIndex = 0; rgIndex < orderedRowGroups.Length(); rgIndex++) {
-    nsTableRowGroupFrame* rgFrame = orderedRowGroups[rgIndex];
-    if (rgFrame->GetRowCount()) {
-      firstRow = rgFrame->GetFirstRow();
-
-      nscoord rgNormalBStart =
-        LogicalRect(aWritingMode, rgFrame->GetNormalRect(), containerSize)
-        .Origin(aWritingMode).B(aWritingMode);
-      nscoord firstRowNormalBStart =
-        LogicalRect(aWritingMode, firstRow->GetNormalRect(), containerSize)
-        .Origin(aWritingMode).B(aWritingMode);
-
-      ascent = rgNormalBStart + firstRowNormalBStart +
-               firstRow->GetRowBaseline(aWritingMode);
-      break;
+  auto TableBaseline = [aWM, containerSize] (nsTableRowGroupFrame* aRowGroup,
+                                             nsTableRowFrame* aRow) {
+    nscoord rgBStart = LogicalRect(aWM, aRowGroup->GetNormalRect(),
+                                   containerSize).BStart(aWM);
+    nscoord rowBStart = LogicalRect(aWM, aRow->GetNormalRect(),
+                                    containerSize).BStart(aWM);
+    return rgBStart + rowBStart + aRow->GetRowBaseline(aWM);
+  };
+  if (aBaselineGroup == BaselineSharingGroup::eFirst) {
+    for (uint32_t rgIndex = 0; rgIndex < orderedRowGroups.Length(); rgIndex++) {
+      nsTableRowGroupFrame* rgFrame = orderedRowGroups[rgIndex];
+      nsTableRowFrame* row = rgFrame->GetFirstRow();
+      if (row) {
+        *aBaseline = TableBaseline(rgFrame, row);
+        return true;
+      }
+    }
+  } else {
+    for (uint32_t rgIndex = orderedRowGroups.Length(); rgIndex-- > 0;) {
+      nsTableRowGroupFrame* rgFrame = orderedRowGroups[rgIndex];
+      nsTableRowFrame* row = rgFrame->GetLastRow();
+      if (row) {
+        *aBaseline = BSize(aWM) - TableBaseline(rgFrame, row);
+        return true;
+      }
     }
   }
-  if (!firstRow)
-    ascent = BSize(aWritingMode);
-  return ascent;
+  return false;
 }
+
 /* ----- global methods ----- */
 
 nsTableFrame*
@@ -4793,8 +4815,8 @@ GetColorAndStyle(const nsIFrame* aFrame,
       (NS_STYLE_BORDER_STYLE_HIDDEN == *aStyle)) {
     return;
   }
-  *aColor = aFrame->StyleContext()->GetVisitedDependentColor(
-    nsCSSProps::SubpropertyEntryFor(eCSSProperty_border_color)[physicalSide]);
+  *aColor = aFrame->StyleContext()->
+    GetVisitedDependentColor(nsStyleBorder::BorderColorFieldFor(physicalSide));
 
   if (aWidth) {
     nscoord width = styleData->GetComputedBorderWidth(physicalSide);
@@ -5834,7 +5856,8 @@ nsTableFrame::CalcBCBorders()
         }
         else {
           tlCorner.Update(eLogicalSideIEnd, currentBorder);
-          tableCellMap->SetBCBorderCorner(eBStartIStart, *iter.mCellMap, 0, 0, colIdx,
+          tableCellMap->SetBCBorderCorner(eLogicalCornerBStartIStart,
+                                          *iter.mCellMap, 0, 0, colIdx,
                                           LogicalSide(tlCorner.ownerSide),
                                           tlCorner.subWidth,
                                           tlCorner.bevel);
@@ -5884,7 +5907,7 @@ nsTableFrame::CalcBCBorders()
         currentBorder = info.GetIStartEdgeBorder();
         BCCornerInfo& tlCorner = (0 == rowB) ? bStartCorners[0] : bEndCorners[0];
         tlCorner.Update(eLogicalSideBEnd, currentBorder);
-        tableCellMap->SetBCBorderCorner(eBStartIStart, *iter.mCellMap,
+        tableCellMap->SetBCBorderCorner(eLogicalCornerBStartIStart, *iter.mCellMap,
                                         iter.mRowGroupStart, rowB, 0,
                                         LogicalSide(tlCorner.ownerSide),
                                         tlCorner.subWidth,
@@ -5923,7 +5946,7 @@ nsTableFrame::CalcBCBorders()
                                  bStartCorners[info.GetCellEndColIndex() + 1] :
                                  bEndCorners[info.GetCellEndColIndex() + 1];
         trCorner.Update(eLogicalSideBEnd, currentBorder);   // bStart-iEnd
-        tableCellMap->SetBCBorderCorner(eBStartIEnd, *iter.mCellMap,
+        tableCellMap->SetBCBorderCorner(eLogicalCornerBStartIEnd, *iter.mCellMap,
                                         iter.mRowGroupStart, rowB,
                                         info.GetCellEndColIndex(),
                                         LogicalSide(trCorner.ownerSide),
@@ -5931,7 +5954,7 @@ nsTableFrame::CalcBCBorders()
                                         trCorner.bevel);
         BCCornerInfo& brCorner = bEndCorners[info.GetCellEndColIndex() + 1];
         brCorner.Set(eLogicalSideBStart, currentBorder); // bEnd-iEnd
-        tableCellMap->SetBCBorderCorner(eBEndIEnd, *iter.mCellMap,
+        tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIEnd, *iter.mCellMap,
                                         iter.mRowGroupStart, rowB,
                                         info.GetCellEndColIndex(),
                                         LogicalSide(brCorner.ownerSide),
@@ -6000,7 +6023,7 @@ nsTableFrame::CalcBCBorders()
         if (info.GetCellEndColIndex() < damageArea.EndCol() &&
             rowB >= damageArea.StartRow()) {
           if (0 != rowB) {
-            tableCellMap->SetBCBorderCorner(eBStartIEnd, *iter.mCellMap,
+            tableCellMap->SetBCBorderCorner(eLogicalCornerBStartIEnd, *iter.mCellMap,
                                             iter.mRowGroupStart, rowB,
                                             info.GetCellEndColIndex(),
                                             LogicalSide(trCorner->ownerSide),
@@ -6009,7 +6032,7 @@ nsTableFrame::CalcBCBorders()
           }
           // store any corners this cell spans together with the aja cell
           for (int32_t rX = rowB + 1; rX < rowB + segLength; rX++) {
-            tableCellMap->SetBCBorderCorner(eBEndIEnd, *iter.mCellMap,
+            tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIEnd, *iter.mCellMap,
                                             iter.mRowGroupStart, rX,
                                             info.GetCellEndColIndex(),
                                             LogicalSide(trCorner->ownerSide),
@@ -6046,7 +6069,7 @@ nsTableFrame::CalcBCBorders()
         // update/store the bEnd-iStart & bEnd-IEnd corners
         BCCornerInfo& blCorner = bEndCorners[colIdx]; // bEnd-iStart
         blCorner.Update(eLogicalSideIEnd, currentBorder);
-        tableCellMap->SetBCBorderCorner(eBEndIStart, *iter.mCellMap,
+        tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIStart, *iter.mCellMap,
                                         iter.mRowGroupStart,
                                         info.GetCellEndRowIndex(),
                                         colIdx,
@@ -6055,7 +6078,7 @@ nsTableFrame::CalcBCBorders()
         BCCornerInfo& brCorner = bEndCorners[colIdx + 1]; // bEnd-iEnd
         brCorner.Update(eLogicalSideIStart, currentBorder);
         if (info.mNumTableCols == colIdx + 1) { // bEnd-IEnd corner of the table
-          tableCellMap->SetBCBorderCorner(eBEndIEnd, *iter.mCellMap,
+          tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIEnd, *iter.mCellMap,
                                           iter.mRowGroupStart,
                                           info.GetCellEndRowIndex(), colIdx,
                                           LogicalSide(brCorner.ownerSide),
@@ -6127,7 +6150,7 @@ nsTableFrame::CalcBCBorders()
         if (info.GetCellEndRowIndex() < damageArea.EndRow() &&
             colIdx >= damageArea.StartCol()) {
           if (hitsSpanBelow) {
-            tableCellMap->SetBCBorderCorner(eBEndIStart, *iter.mCellMap,
+            tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIStart, *iter.mCellMap,
                                             iter.mRowGroupStart,
                                             info.GetCellEndRowIndex(), colIdx,
                                             LogicalSide(blCorner.ownerSide),
@@ -6137,7 +6160,7 @@ nsTableFrame::CalcBCBorders()
           for (int32_t c = colIdx + 1; c < colIdx + segLength; c++) {
             BCCornerInfo& corner = bEndCorners[c];
             corner.Set(eLogicalSideIEnd, currentBorder);
-            tableCellMap->SetBCBorderCorner(eBEndIStart, *iter.mCellMap,
+            tableCellMap->SetBCBorderCorner(eLogicalCornerBEndIStart, *iter.mCellMap,
                                             iter.mRowGroupStart,
                                             info.GetCellEndRowIndex(), c,
                                             LogicalSide(corner.ownerSide),
@@ -6343,7 +6366,7 @@ public:
   nsTableCellMap*       mTableCellMap;
   nsCellMap*            mCellMap;
   WritingMode           mTableWM;
-  const nsStyleBackground* mTableBgColor;
+  nscolor               mTableBgColor;
   nsTableFrame::RowGroupArray mRowGroups;
 
   nsTableRowGroupFrame* mPrevRg;
@@ -6461,7 +6484,7 @@ BCPaintBorderIterator::BCPaintBorderIterator(nsTableFrame* aTable)
 
   nsIFrame* bgFrame =
     nsCSSRendering::FindNonTransparentBackgroundFrame(aTable);
-  mTableBgColor = bgFrame->StyleBackground();
+  mTableBgColor = bgFrame->StyleBackground()->BackgroundColor(bgFrame);
 }
 
 bool
@@ -7431,7 +7454,7 @@ BCPaintBorderIterator::ResetVerInfo()
   if (mBlockDirInfo) {
     memset(mBlockDirInfo, 0, mDamageArea.ColCount() * sizeof(BCBlockDirSeg));
     // XXX reinitialize properly
-    for (auto xIndex : MakeRange(mDamageArea.ColCount())) {
+    for (auto xIndex : IntegerRange(mDamageArea.ColCount())) {
       mBlockDirInfo[xIndex].mColWidth = -1;
     }
   }

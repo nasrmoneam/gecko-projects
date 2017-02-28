@@ -65,12 +65,13 @@ const globalCache = new Map();
  * parents parameter which is a list of the parent nodes of the current node.
  * Each returns an array of globals found.
  *
- * @param  {String} path
+ * @param  {String} filePath
  *         The absolute path of the file being parsed.
  */
-function GlobalsForNode(path) {
-  this.path = path;
-  this.root = helpers.getRootDir(path);
+function GlobalsForNode(filePath) {
+  this.path = filePath;
+  this.dirname = path.dirname(this.path)
+  this.root = helpers.getRootDir(this.path);
 }
 
 GlobalsForNode.prototype = {
@@ -84,17 +85,28 @@ GlobalsForNode.prototype = {
     let filePath = match[1].trim();
 
     if (!path.isAbsolute(filePath)) {
-      let dirName = path.dirname(this.path);
-      filePath = path.resolve(dirName, filePath);
+      filePath = path.resolve(this.dirname, filePath);
     }
 
     return module.exports.getGlobalsForFile(filePath);
   },
 
-  ExpressionStatement(node, parents) {
+  ExpressionStatement(node, parents, globalScope) {
     let isGlobal = helpers.getIsGlobalScope(parents);
-    let names = helpers.convertExpressionToGlobals(node, isGlobal, this.root);
-    return names.map(name => { return { name, writable: true }});
+    let globals = helpers.convertExpressionToGlobals(node, isGlobal, this.root);
+    // Map these globals now, as getGlobalsForFile is pre-mapped.
+    globals = globals.map(name => { return { name, writable: true }});
+
+    // Here we assume that if importScripts is set in the global scope, then
+    // this is a worker. It would be nice if eslint gave us a way of getting
+    // the environment directly.
+    if (globalScope && globalScope.set.get("importScripts")) {
+      let workerDetails = helpers.convertWorkerExpressionToGlobals(node,
+        isGlobal, this.root, this.dirname);
+      globals = globals.concat(workerDetails);
+    }
+
+    return globals;
   },
 };
 
@@ -106,6 +118,12 @@ module.exports = {
    *
    * @param  {String} path
    *         The absolute path of the file to be parsed.
+   * @return {Array}
+   *         An array of objects that contain details about the globals:
+   *         - {String} name
+   *                    The name of the global.
+   *         - {Boolean} writable
+   *                     If the global is writeable or not.
    */
   getGlobalsForFile(path) {
     if (globalCache.has(path)) {
@@ -134,7 +152,8 @@ module.exports = {
       // comment directives
       if (type == "BlockComment") {
         let value = node.value.trim();
-        let match = /^globals?\s+(.+)$/.exec(value);
+        value = value.replace(/\n/g, '');
+        let match = /^globals?\s+(.+)/.exec(value);
         if (match) {
           let values = parseBooleanConfig(match[1].trim(), node);
           for (let name of Object.keys(values)) {
@@ -147,7 +166,7 @@ module.exports = {
       }
 
       if (type in handler) {
-        let newGlobals = handler[type](node, parents);
+        let newGlobals = handler[type](node, parents, globalScope);
         globals.push.apply(globals, newGlobals);
       }
     });
@@ -178,7 +197,10 @@ module.exports = {
 
     for (let type of Object.keys(GlobalsForNode.prototype)) {
       parser[type] = function(node) {
-        let globals = handler[type](node, context.getAncestors());
+        if (type === "Program") {
+          globalScope = context.getScope();
+        }
+        let globals = handler[type](node, context.getAncestors(), globalScope);
         helpers.addGlobals(globals, globalScope);
       }
     }

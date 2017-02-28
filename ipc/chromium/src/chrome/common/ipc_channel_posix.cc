@@ -35,7 +35,7 @@
 #include "mozilla/ipc/ProtocolUtils.h"
 #include "mozilla/UniquePtr.h"
 
-#ifdef MOZ_FAULTY
+#ifdef FUZZING
 #include "mozilla/ipc/Faulty.h"
 #endif
 
@@ -538,13 +538,6 @@ bool Channel::ChannelImpl::ProcessIncomingMessages() {
         " with type " << m.type();
 #endif
 
-#ifdef MOZ_TASK_TRACER
-      AutoSaveCurTraceInfo saveCurTraceInfo;
-      SetCurTraceInfo(m.header()->source_event_id,
-                      m.header()->parent_task_id,
-                      m.header()->source_event_type);
-#endif
-
       if (m.routing_id() == MSG_ROUTING_NONE &&
           m.type() == HELLO_MESSAGE_TYPE) {
         // The Hello message contains only the process id.
@@ -590,7 +583,7 @@ bool Channel::ChannelImpl::ProcessOutgoingMessages() {
   // Write out all the messages we can till the write blocks or there are no
   // more outgoing messages.
   while (!output_queue_.empty()) {
-#ifdef MOZ_FAULTY
+#ifdef FUZZING
     Singleton<mozilla::ipc::Faulty>::get()->MaybeCollectAndClosePipe(pipe_);
 #endif
     Message* msg = output_queue_.front();

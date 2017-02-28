@@ -9,7 +9,6 @@
 const Services = require("Services");
 const { Cc, Ci, Cu } = require("chrome");
 const { DebuggerServer, ActorPool } = require("devtools/server/main");
-const { EnvironmentActor } = require("devtools/server/actors/environment");
 const { ThreadActor } = require("devtools/server/actors/script");
 const { ObjectActor, LongStringActor, createValueGrip, stringIsLong } = require("devtools/server/actors/object");
 const DevToolsUtils = require("devtools/shared/DevToolsUtils");
@@ -27,6 +26,7 @@ loader.lazyRequireGetter(this, "NetUtil", "resource://gre/modules/NetUtil.jsm", 
 loader.lazyRequireGetter(this, "addWebConsoleCommands", "devtools/server/actors/utils/webconsole-utils", true);
 loader.lazyRequireGetter(this, "CONSOLE_WORKER_IDS", "devtools/server/actors/utils/webconsole-utils", true);
 loader.lazyRequireGetter(this, "WebConsoleUtils", "devtools/server/actors/utils/webconsole-utils", true);
+loader.lazyRequireGetter(this, "EnvironmentActor", "devtools/server/actors/environment", true);
 
 // Overwrite implemented listeners for workers so that we don't attempt
 // to load an unsupported module.
@@ -151,8 +151,7 @@ WebConsoleActor.prototype =
    * @type boolean
    */
   get _parentIsContentActor() {
-    return "ContentActor" in DebuggerServer &&
-            this.parentActor instanceof DebuggerServer.ContentActor;
+    return this.parentActor.constructor.name == "ContentActor";
   },
 
   /**
@@ -900,7 +899,8 @@ WebConsoleActor.prototype =
     let evalResult = evalInfo.result;
     let helperResult = evalInfo.helperResult;
 
-    let result, errorDocURL, errorMessage, errorGrip = null, frame = null;
+    let result, errorDocURL, errorMessage, errorNotes = null, errorGrip = null,
+        frame = null;
     if (evalResult) {
       if ("return" in evalResult) {
         result = evalResult.return;
@@ -955,6 +955,23 @@ WebConsoleActor.prototype =
             };
           }
         } catch (ex) {}
+
+        try {
+          let notes = error.errorNotes;
+          if (notes && notes.length) {
+            errorNotes = [];
+            for (let note of notes) {
+              errorNotes.push({
+                messageBody: this._createStringGrip(note.message),
+                frame: {
+                  source: note.fileName,
+                  line: note.lineNumber,
+                  column: note.columnNumber,
+                }
+              });
+            }
+          }
+        } catch (ex) {}
       }
     }
 
@@ -979,6 +996,7 @@ WebConsoleActor.prototype =
       exceptionDocURL: errorDocURL,
       frame,
       helperResult: helperResult,
+      notes: errorNotes,
     };
   },
 
@@ -1512,6 +1530,23 @@ WebConsoleActor.prototype =
       lineText = lineText.substr(0, DebuggerServer.LONG_STRING_INITIAL_LENGTH);
     }
 
+    let notesArray = null;
+    let notes = aPageError.notes;
+    if (notes && notes.length) {
+      notesArray = [];
+      for (let i = 0, len = notes.length; i < len; i++) {
+        let note = notes.queryElementAt(i, Ci.nsIScriptErrorNote);
+        notesArray.push({
+          messageBody: this._createStringGrip(note.errorMessage),
+          frame: {
+            source: note.sourceName,
+            line: note.lineNumber,
+            column: note.columnNumber,
+          }
+        });
+      }
+    }
+
     return {
       errorMessage: this._createStringGrip(aPageError.errorMessage),
       errorMessageName: aPageError.errorMessageName,
@@ -1528,7 +1563,8 @@ WebConsoleActor.prototype =
       strict: !!(aPageError.flags & aPageError.strictFlag),
       info: !!(aPageError.flags & aPageError.infoFlag),
       private: aPageError.isFromPrivateWindow,
-      stacktrace: stack
+      stacktrace: stack,
+      notes: notesArray,
     };
   },
 
@@ -1783,7 +1819,7 @@ WebConsoleActor.prototype =
     try {
       window = this.window.QueryInterface(Ci.nsIInterfaceRequestor)
              .getInterface(Ci.nsIWebNavigation).QueryInterface(Ci.nsIDocShell)
-             .chromeEventHandler.ownerDocument.defaultView;
+             .chromeEventHandler.ownerGlobal;
     }
     catch (ex) {
       // The above can fail because chromeEventHandler is not available for all

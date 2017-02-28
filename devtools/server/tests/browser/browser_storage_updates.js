@@ -5,11 +5,6 @@
 "use strict";
 
 const {StorageFront} = require("devtools/shared/fronts/storage");
-const beforeReload = {
-  cookies: ["test1.example.org", "sectest1.example.org"],
-  localStorage: ["http://test1.example.org", "http://sectest1.example.org"],
-  sessionStorage: ["http://test1.example.org", "http://sectest1.example.org"],
-};
 
 const TESTS = [
   // index 0
@@ -27,7 +22,7 @@ const TESTS = [
     expected: {
       added: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c1", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
             getCookieId("c2", "test1.example.org",
@@ -53,7 +48,7 @@ const TESTS = [
     expected: {
       changed: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c1", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
           ]
@@ -82,7 +77,7 @@ const TESTS = [
     expected: {
       deleted: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c2", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
           ]
@@ -123,7 +118,7 @@ const TESTS = [
     expected: {
       added: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c3", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
           ]
@@ -139,7 +134,7 @@ const TESTS = [
       },
       deleted: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c1", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
           ]
@@ -175,7 +170,7 @@ const TESTS = [
     expected: {
       deleted: {
         cookies: {
-          "test1.example.org": [
+          "http://test1.example.org": [
             getCookieId("c3", "test1.example.org",
                         "/browser/devtools/server/tests/browser/"),
           ]
@@ -303,6 +298,7 @@ function* finishTests(client) {
 
 add_task(function* () {
   let browser = yield addTab(MAIN_DOMAIN + "storage-updates.html");
+  // eslint-disable-next-line mozilla/no-cpows-in-tests
   let doc = browser.contentDocument;
 
   initDebuggerServer();

@@ -5,32 +5,83 @@
 "use strict";
 
 const {
-  OPEN_SIDEBAR,
-  TOGGLE_SIDEBAR,
+  ACTIVITY_TYPE,
+  OPEN_NETWORK_DETAILS,
+  OPEN_STATISTICS,
+  SELECT_DETAILS_PANEL_TAB,
+  WATERFALL_RESIZE,
 } = require("../constants");
 
 /**
- * Change sidebar open state.
+ * Change network details panel.
  *
- * @param {boolean} open - open state
+ * @param {boolean} open - expected network details panel open state
  */
-function openSidebar(open) {
+function openNetworkDetails(open) {
   return {
-    type: OPEN_SIDEBAR,
+    type: OPEN_NETWORK_DETAILS,
     open,
   };
 }
 
 /**
- * Toggle sidebar open state.
+ * Change performance statistics panel open state.
+ *
+ * @param {boolean} visible - expected performance statistics panel open state
  */
-function toggleSidebar() {
+function openStatistics(open) {
+  if (open) {
+    window.NetMonitorController.triggerActivity(ACTIVITY_TYPE.RELOAD.WITH_CACHE_ENABLED);
+  }
   return {
-    type: TOGGLE_SIDEBAR,
+    type: OPEN_STATISTICS,
+    open,
   };
 }
 
+/**
+ * Waterfall width has changed (likely on window resize). Update the UI.
+ */
+function resizeWaterfall(width) {
+  return {
+    type: WATERFALL_RESIZE,
+    width
+  };
+}
+
+/**
+ * Change the selected tab for network details panel.
+ *
+ * @param {string} id - tab id to be selected
+ */
+function selectDetailsPanelTab(id) {
+  return {
+    type: SELECT_DETAILS_PANEL_TAB,
+    id,
+  };
+}
+
+/**
+ * Toggle network details panel.
+ */
+function toggleNetworkDetails() {
+  return (dispatch, getState) =>
+    dispatch(openNetworkDetails(!getState().ui.networkDetailsOpen));
+}
+
+/**
+ * Toggle performance statistics panel.
+ */
+function toggleStatistics() {
+  return (dispatch, getState) =>
+    dispatch(openStatistics(!getState().ui.statisticsOpen));
+}
+
 module.exports = {
-  openSidebar,
-  toggleSidebar,
+  openNetworkDetails,
+  openStatistics,
+  resizeWaterfall,
+  selectDetailsPanelTab,
+  toggleNetworkDetails,
+  toggleStatistics,
 };

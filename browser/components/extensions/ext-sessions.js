@@ -11,7 +11,7 @@ var {
 XPCOMUtils.defineLazyModuleGetter(this, "SessionStore",
                                   "resource:///modules/sessionstore/SessionStore.jsm");
 
-const ssOnChangedTopic = "sessionstore-closed-objects-changed";
+const SS_ON_CLOSED_OBJECTS_CHANGED = "sessionstore-closed-objects-changed";
 
 function getRecentlyClosed(maxResults, extension) {
   let recentlyClosed = [];
@@ -21,16 +21,16 @@ function getRecentlyClosed(maxResults, extension) {
   for (let window of closedWindowData) {
     recentlyClosed.push({
       lastModified: window.closedAt,
-      window: WindowManager.convertFromSessionStoreClosedData(window, extension)});
+      window: Window.convertFromSessionStoreClosedData(extension, window)});
   }
 
   // Get closed tabs
-  for (let window of WindowListManager.browserWindows()) {
+  for (let window of windowTracker.browserWindows()) {
     let closedTabData = SessionStore.getClosedTabData(window, false);
     for (let tab of closedTabData) {
       recentlyClosed.push({
         lastModified: tab.closedAt,
-        tab: TabManager.for(extension).convertFromSessionStoreClosedData(tab, window)});
+        tab: Tab.convertFromSessionStoreClosedData(extension, tab, window)});
     }
   }
 
@@ -46,11 +46,11 @@ function createSession(restored, extension, sessionId) {
   let sessionObj = {lastModified: Date.now()};
   if (restored instanceof Ci.nsIDOMChromeWindow) {
     return promiseObserved("sessionstore-single-window-restored", subject => subject == restored).then(() => {
-      sessionObj.window = WindowManager.convert(extension, restored, {populate: true});
+      sessionObj.window = extension.windowManager.convert(restored, {populate: true});
       return Promise.resolve([sessionObj]);
     });
   }
-  sessionObj.tab = TabManager.for(extension).convert(restored);
+  sessionObj.tab = extension.tabManager.convert(restored);
   return Promise.resolve([sessionObj]);
 }
 
@@ -62,6 +62,7 @@ extensions.registerSchemaAPI("sessions", "addon_parent", context => {
         let maxResults = filter.maxResults == undefined ? this.MAX_SESSION_RESULTS : filter.maxResults;
         return Promise.resolve(getRecentlyClosed(maxResults, extension));
       },
+
       restore: function(sessionId) {
         let session, closedId;
         if (sessionId) {
@@ -74,7 +75,7 @@ extensions.registerSchemaAPI("sessions", "addon_parent", context => {
           // It is a tab, and we cannot call SessionStore.undoCloseTab without a window,
           // so we must find the tab in which case we can just use its closedId.
           let recentlyClosedTabs = [];
-          for (let window of WindowListManager.browserWindows()) {
+          for (let window of windowTracker.browserWindows()) {
             let closedTabData = SessionStore.getClosedTabData(window, false);
             for (let tab of closedTabData) {
               recentlyClosedTabs.push(tab);
@@ -90,31 +91,15 @@ extensions.registerSchemaAPI("sessions", "addon_parent", context => {
         }
         return createSession(session, extension, closedId);
       },
+
       onChanged: new SingletonEventManager(context, "sessions.onChanged", fire => {
-        let listenerCount = 0;
-
-        let observer = {
-          observe: function() {
-            this.emit("changed");
-          },
-        };
-        EventEmitter.decorate(observer);
-
-        let listener = (event) => {
-          context.runSafe(fire);
+        let observer = () => {
+          fire.async();
         };
 
-        observer.on("changed", listener);
-        listenerCount++;
-        if (listenerCount == 1) {
-          Services.obs.addObserver(observer, ssOnChangedTopic, false);
-        }
+        Services.obs.addObserver(observer, SS_ON_CLOSED_OBJECTS_CHANGED, false);
         return () => {
-          observer.off("changed", listener);
-          listenerCount -= 1;
-          if (!listenerCount) {
-            Services.obs.removeObserver(observer, ssOnChangedTopic);
-          }
+          Services.obs.removeObserver(observer, SS_ON_CLOSED_OBJECTS_CHANGED);
         };
       }).api(),
     },

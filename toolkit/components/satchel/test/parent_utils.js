@@ -1,3 +1,7 @@
+/* eslint-env mozilla/frame-script */
+// assert is available to chrome scripts loaded via SpecialPowers.loadChromeScript.
+/* global assert */
+
 const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/FormHistory.jsm");
@@ -25,11 +29,11 @@ var ParentUtils = {
 
   updateFormHistory(changes) {
     let handler = {
-      handleError: function(error) {
+      handleError(error) {
         assert.ok(false, error);
         sendAsyncMessage("formHistoryUpdated", { ok: false });
       },
-      handleCompletion: function(reason) {
+      handleCompletion(reason) {
         if (!reason)
           sendAsyncMessage("formHistoryUpdated", { ok: true });
       },

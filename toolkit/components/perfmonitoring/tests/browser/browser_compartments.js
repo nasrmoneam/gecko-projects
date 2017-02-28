@@ -1,6 +1,8 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+/* eslint-env mozilla/frame-script */
+
 "use strict";
 
 /**
@@ -64,25 +66,25 @@ function frameScript() {
 // A variant of `Assert` that doesn't spam the logs
 // in case of success.
 var SilentAssert = {
-  equal: function(a, b, msg) {
+  equal(a, b, msg) {
     if (a == b) {
       return;
     }
     Assert.equal(a, b, msg);
   },
-  notEqual: function(a, b, msg) {
+  notEqual(a, b, msg) {
     if (a != b) {
       return;
     }
     Assert.notEqual(a, b, msg);
   },
-  ok: function(a, msg) {
+  ok(a, msg) {
     if (a) {
       return;
     }
     Assert.ok(a, msg);
   },
-  leq: function(a, b, msg) {
+  leq(a, b, msg) {
     this.ok(a <= b, `${msg}: ${a} <= ${b}`);
   }
 };

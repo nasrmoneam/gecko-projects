@@ -8,7 +8,6 @@
 #include "LayerScope.h"
 
 #include "nsAppRunner.h"
-#include "Composer2D.h"
 #include "Effects.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/MathAlgorithms.h"
@@ -1569,7 +1568,7 @@ LayerScopeWebSocketManager::SocketHandler::CloseConnection()
 LayerScopeWebSocketManager::LayerScopeWebSocketManager()
     : mHandlerMutex("LayerScopeWebSocketManager::mHandlerMutex")
 {
-    NS_NewThread(getter_AddRefs(mDebugSenderThread));
+    NS_NewNamedThread("LayerScope", getter_AddRefs(mDebugSenderThread));
 
     mServerSocket = do_CreateInstance(NS_SERVERSOCKET_CONTRACTID);
     int port = gfxPrefs::LayerScopePort();

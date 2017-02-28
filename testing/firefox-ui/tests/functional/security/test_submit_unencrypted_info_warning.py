@@ -3,10 +3,10 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from firefox_puppeteer import PuppeteerMixin
-from marionette import MarionetteTestCase
 from marionette_driver import By, expected, Wait
 from marionette_driver.errors import NoAlertPresentException
 from marionette_driver.marionette import Alert
+from marionette_harness import MarionetteTestCase
 
 
 class TestSubmitUnencryptedInfoWarning(PuppeteerMixin, MarionetteTestCase):
@@ -17,7 +17,7 @@ class TestSubmitUnencryptedInfoWarning(PuppeteerMixin, MarionetteTestCase):
         self.url = 'https://ssl-dv.mozqa.com/data/firefox/security/unencryptedsearch.html'
         self.test_string = 'mozilla'
 
-        self.puppeteer.prefs.set_pref('security.warn_submit_insecure', True)
+        self.marionette.set_pref('security.warn_submit_insecure', True)
 
     def tearDown(self):
         try:
@@ -38,7 +38,7 @@ class TestSubmitUnencryptedInfoWarning(PuppeteerMixin, MarionetteTestCase):
             button.click()
 
             # Get the expected warning text and replace its two instances of "##" with "\n\n".
-            message = self.browser.get_property('formPostSecureToInsecureWarning.message')
+            message = self.browser.localize_property('formPostSecureToInsecureWarning.message')
             message = message.replace('##', '\n\n')
 
             # Wait for the warning, verify the expected text matches warning, accept the warning

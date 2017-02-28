@@ -17,7 +17,6 @@ NS_IMPL_RELEASE(RustURL)
 NS_INTERFACE_MAP_BEGIN(RustURL)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIStandardURL)
   NS_INTERFACE_MAP_ENTRY(nsIURI)
-  NS_INTERFACE_MAP_ENTRY(nsIURIWithQuery)
   NS_INTERFACE_MAP_ENTRY(nsIURL)
   // NS_INTERFACE_MAP_ENTRY_CONDITIONAL(nsIFileURL, mSupportsFileURL)
   NS_INTERFACE_MAP_ENTRY(nsIStandardURL)
@@ -316,7 +315,7 @@ RustURL::SchemeIs(const char * aScheme, bool *aRetVal)
   if (NS_FAILED(rv)) {
     return rv;
   }
-  if (scheme.Equals(aScheme)) {
+  if (scheme.Equals(aScheme, nsCaseInsensitiveCStringComparator())) {
     *aRetVal = true;
   }
   return NS_OK;

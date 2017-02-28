@@ -14,7 +14,7 @@ module.exports = {
     "block-spacing": "error",
 
     // No newline before open brace for a block
-    // "brace-style": "error",
+    "brace-style": ["error", "1tbs", { "allowSingleLine": true }],
 
     // No space before always a space after a comma
     "comma-spacing": ["error", {"before": false, "after": true}],
@@ -60,6 +60,15 @@ module.exports = {
     // Use [] instead of Array()
     // "no-array-constructor": "error",
 
+    // Disallow assignment operators in conditional statements
+    "no-cond-assign": "error",
+
+    // Disallow the use of debugger
+    "no-debugger": "error",
+
+    // Disallow deleting variables
+    "no-delete-var": "error",
+
     // No duplicate arguments in function declarations
     "no-dupe-args": "error",
 
@@ -69,8 +78,14 @@ module.exports = {
     // No duplicate cases in switch statements
     "no-duplicate-case": "error",
 
+    // Disallow unnecessary calls to .bind()
+    "no-extra-bind": "error",
+
     // No labels
     "no-labels": "error",
+
+    // Disallow unnecessary nested blocks
+    "no-lone-blocks": "error",
 
     // If an if block ends with a return no need for an else block
     "no-else-return": "error",
@@ -102,6 +117,9 @@ module.exports = {
     // No odd whitespace characters
     "no-irregular-whitespace": "error",
 
+    // Disallow the use of the __iterator__ property
+    "no-iterator": "error",
+
     // No single if block inside an else block
     "no-lonely-if": "error",
 
@@ -109,13 +127,10 @@ module.exports = {
     "no-mixed-spaces-and-tabs": ["error", "smart-tabs"],
 
     // No unnecessary spacing
-    // "no-multi-spaces": ["error", { exceptions: { "AssignmentExpression": true, "VariableDeclarator": true, "ArrayExpression": true, "ObjectExpression": true } }],
+    "no-multi-spaces": ["error", { exceptions: { "AssignmentExpression": true, "VariableDeclarator": true, "ArrayExpression": true, "ObjectExpression": true } }],
 
     // No reassigning native JS objects
     "no-native-reassign": "error",
-
-    // No (!foo in bar)
-    "no-negated-in-lhs": "error",
 
     // Nested ternary statements are confusing
     "no-nested-ternary": "error",
@@ -132,6 +147,12 @@ module.exports = {
     // No redeclaring variables
     "no-redeclare": "error",
 
+    // Disallow multiple spaces in regular expressions
+    "no-regex-spaces": "error",
+
+    // Disallow assignments where both sides are exactly the same
+    "no-self-assign": "error",
+
     // No unnecessary comparisons
     "no-self-compare": "error",
 
@@ -141,11 +162,14 @@ module.exports = {
     // No declaring variables that hide things like arguments
     "no-shadow-restricted-names": "error",
 
+    // Disallow sparse arrays
+    "no-sparse-arrays": "error",
+
     // No trailing whitespace
     "no-trailing-spaces": "error",
 
     // No using undeclared variables
-    // "no-undef": "error",
+    "no-undef": "error",
 
     // Error on newline where a semicolon is needed
     "no-unexpected-multiline": "error",
@@ -153,18 +177,34 @@ module.exports = {
     // No unreachable statements
     "no-unreachable": "error",
 
+    // Disallow control flow statements in finally blocks
+    "no-unsafe-finally": "error",
+
     // No declaring variables that are never used
-    // "no-unused-vars": ["error", {
-    //   "vars": "local",
-    //   "varsIgnorePattern": "^Cc|Ci|Cu|Cr|EXPORTED_SYMBOLS",
-    //   "args": "none",
-    // }],
+    "no-unused-vars": ["error", {
+      "vars": "local",
+      "varsIgnorePattern": "^Cc|Ci|Cu|Cr|EXPORTED_SYMBOLS",
+      "args": "none",
+    }],
 
     // No using variables before defined
     // "no-use-before-define": ["error", "nofunc"],
 
+    // Disallow unnecessary .call() and .apply()
+    "no-useless-call": "error",
+
+    // Disallow redundant return statements
+    "no-useless-return": "error",
+
     // No using with
     "no-with": "error",
+
+    // Require object-literal shorthand with ES6 method syntax
+    "object-shorthand": ["error", "always", { "avoidQuotes": true }],
+
+    // Require double-quotes everywhere, except where quotes are escaped
+    // or template literals are used.
+    "quotes": ["error", "double", { "avoidEscape": true, "allowTemplateLiterals": true }],
 
     // No spacing inside rest or spread expressions
     "rest-spread-spacing": "error",
@@ -207,9 +247,24 @@ module.exports = {
     "browser": true,
   },
   "globals": {
+    "ChromeWorker": false,
+    "ChromeUtils": false,
     "Components": false,
     "dump": true,
+    // Specific to Firefox
+    // https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/InternalError
+    "InternalError": true,
+    "KeyEvent": false,
     "openDialog": false,
+    "MenuBoxObject": false,
+    "SimpleGestureEvent": false,
     "sizeToContent": false,
+    "SharedArrayBuffer": false,
+    // Note: StopIteration will likely be removed as part of removing legacy
+    // generators, see bug 968038.
+    "StopIteration": false,
+    // Specific to Firefox
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/uneval
+    "uneval": false
   }
 };

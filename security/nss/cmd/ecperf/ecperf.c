@@ -9,7 +9,6 @@
 #include "basicutil.h"
 #include "pkcs11.h"
 #include "nspr.h"
-#include "secutil.h"
 #include <stdio.h>
 
 #define __PASTE(x, y) x##y
@@ -105,6 +104,8 @@ typedef struct ThreadDataStr {
     SECStatus status;
     int isSign;
 } ThreadData;
+
+typedef SECItem SECKEYECParams;
 
 void
 PKCS11Thread(void *data)
@@ -563,7 +564,6 @@ ectest_curve_freebl(ECCurveName curve, int iterations, int numThreads,
     ecParams.curve.seed.len = 0;
     ecParams.DEREncoding.data = NULL;
     ecParams.DEREncoding.len = 0;
-    ecParams.pointSize = ecCurve_map[curve]->pointSize;
 
     ecParams.fieldID.size = ecCurve_map[curve]->size;
     ecParams.fieldID.type = fieldType;

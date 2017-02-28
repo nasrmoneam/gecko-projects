@@ -7,13 +7,12 @@
 #ifndef __SYNCPROFILE_H
 #define __SYNCPROFILE_H
 
-#include "ProfileEntry.h"
-#include "ThreadProfile.h"
+#include "ThreadInfo.h"
 
-class SyncProfile : public ThreadProfile
+class SyncProfile : public ThreadInfo
 {
 public:
-  SyncProfile(ThreadInfo* aInfo, int aEntrySize);
+  SyncProfile(int aThreadId, PseudoStack* aStack);
   ~SyncProfile();
 
   // SyncProfiles' stacks are deduplicated in the context of the containing
@@ -21,7 +20,6 @@ public:
   void StreamJSON(SpliceableJSONWriter& aWriter, UniqueStacks& aUniqueStacks);
 
   virtual void EndUnwind();
-  virtual SyncProfile* AsSyncProfile() { return this; }
 
 private:
   friend class ProfilerBacktrace;

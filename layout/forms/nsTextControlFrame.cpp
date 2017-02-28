@@ -13,7 +13,6 @@
 #include "nsCSSPseudoElements.h"
 #include "nsGenericHTMLElement.h"
 #include "nsIEditor.h"
-#include "nsIEditorIMESupport.h"
 #include "nsIPhonetic.h"
 #include "nsTextFragment.h"
 #include "nsIDOMHTMLTextAreaElement.h"
@@ -106,6 +105,7 @@ private:
 
 nsTextControlFrame::nsTextControlFrame(nsStyleContext* aContext)
   : nsContainerFrame(aContext)
+  , mFirstBaseline(NS_INTRINSIC_WIDTH_UNKNOWN)
   , mEditorHasBeenInitialized(false)
   , mIsProcessing(false)
   , mUsePlaceholder(false)
@@ -255,7 +255,7 @@ nsTextControlFrame::EnsureEditorInitialized()
   // Flush out content on our document.  Have to do this, because script
   // blockers don't prevent the sink flushing out content and notifying in the
   // process, which can destroy frames.
-  doc->FlushPendingNotifications(Flush_ContentAndNotify);
+  doc->FlushPendingNotifications(FlushType::ContentAndNotify);
   NS_ENSURE_TRUE(weakFrame.IsAlive(), NS_ERROR_FAILURE);
 
   // Make sure that editor init doesn't do things that would kill us off
@@ -347,32 +347,12 @@ nsTextControlFrame::CreateAnonymousContent(nsTArray<ContentInfo>& aElements)
 
   // Create the placeholder anonymous content if needed.
   if (mUsePlaceholder) {
-    nsIContent* placeholderNode = txtCtrl->CreatePlaceholderNode();
+    Element* placeholderNode = txtCtrl->CreatePlaceholderNode();
     NS_ENSURE_TRUE(placeholderNode, NS_ERROR_OUT_OF_MEMORY);
 
     // Associate ::placeholder pseudo-element with the placeholder node.
-    CSSPseudoElementType pseudoType = CSSPseudoElementType::placeholder;
-
-    // If this is a text input inside a number input then we want to use the
-    // main number input as the source of style for the placeholder frame.
-    nsIFrame* mainInputFrame = this;
-    if (StyleContext()->GetPseudoType() == CSSPseudoElementType::mozNumberText) {
-      do {
-        mainInputFrame = mainInputFrame->GetParent();
-      } while (mainInputFrame &&
-               mainInputFrame->GetType() != nsGkAtoms::numberControlFrame);
-      MOZ_ASSERT(mainInputFrame);
-    }
-
-    RefPtr<nsStyleContext> placeholderStyleContext =
-      PresContext()->StyleSet()->ResolvePseudoElementStyle(
-          mainInputFrame->GetContent()->AsElement(), pseudoType, StyleContext(),
-          placeholderNode->AsElement());
-
-    if (!aElements.AppendElement(ContentInfo(placeholderNode,
-                                 placeholderStyleContext))) {
-      return NS_ERROR_OUT_OF_MEMORY;
-    }
+    placeholderNode->SetPseudoElementType(CSSPseudoElementType::placeholder);
+    aElements.AppendElement(placeholderNode);
 
     if (!IsSingleLineTextControl()) {
       // For textareas, UpdateValueDisplay doesn't initialize the visibility
@@ -534,20 +514,20 @@ nsTextControlFrame::Reflow(nsPresContext*   aPresContext,
               aReflowInput.ComputedLogicalBorderPadding().BStartEnd(wm));
   aDesiredSize.SetSize(wm, finalSize);
 
-  // computation of the ascent wrt the input height
+  // Calculate the baseline and store it in mFirstBaseline.
   nscoord lineHeight = aReflowInput.ComputedBSize();
   float inflation = nsLayoutUtils::FontSizeInflationFor(this);
   if (!IsSingleLineTextControl()) {
     lineHeight = ReflowInput::CalcLineHeight(GetContent(), StyleContext(),
-                                                   NS_AUTOHEIGHT, inflation);
+                                             NS_AUTOHEIGHT, inflation);
   }
   RefPtr<nsFontMetrics> fontMet =
     nsLayoutUtils::GetFontMetricsForFrame(this, inflation);
-  // now adjust for our borders and padding
-  aDesiredSize.SetBlockStartAscent(
+  mFirstBaseline =
     nsLayoutUtils::GetCenteredFontBaseline(fontMet, lineHeight,
                                            wm.IsLineInverted()) +
-    aReflowInput.ComputedLogicalBorderPadding().BStart(wm));
+    aReflowInput.ComputedLogicalBorderPadding().BStart(wm);
+  aDesiredSize.SetBlockStartAscent(mFirstBaseline);
 
   // overflow handling
   aDesiredSize.SetOverflowAreasToDesiredBounds();
@@ -561,7 +541,7 @@ nsTextControlFrame::Reflow(nsPresContext*   aPresContext,
   // take into account css properties that affect overflow handling
   FinishAndStoreOverflow(&aDesiredSize);
 
-  aStatus = NS_FRAME_COMPLETE;
+  aStatus.Reset();
   NS_FRAME_SET_TRUNCATION(aStatus, aReflowInput, aDesiredSize);
 }
 
@@ -1207,11 +1187,9 @@ nsTextControlFrame::GetPhonetic(nsAString& aPhonetic)
   nsresult rv = GetEditor(getter_AddRefs(editor));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsCOMPtr<nsIEditorIMESupport> imeSupport = do_QueryInterface(editor);
-  if (imeSupport) {
-    nsCOMPtr<nsIPhonetic> phonetic = do_QueryInterface(imeSupport);
-    if (phonetic)
-      phonetic->GetPhonetic(aPhonetic);
+  nsCOMPtr<nsIPhonetic> phonetic = do_QueryInterface(editor);
+  if (phonetic) {
+    phonetic->GetPhonetic(aPhonetic);
   }
   return NS_OK;
 }

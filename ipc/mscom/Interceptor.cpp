@@ -30,14 +30,15 @@ Interceptor::Create(STAUniquePtr<IUnknown> aTarget, IInterceptorSink* aSink,
   if (!aOutput) {
     return E_INVALIDARG;
   }
+
   *aOutput = nullptr;
+
   if (!aTarget || !aSink) {
     return E_INVALIDARG;
   }
-  Interceptor* intcpt = new Interceptor(Move(aTarget), aSink);
-  HRESULT hr = intcpt->QueryInterface(aIid, aOutput);
-  static_cast<WeakReferenceSupport*>(intcpt)->Release();
-  return hr;
+
+  RefPtr<WeakReferenceSupport> intcpt(new Interceptor(Move(aTarget), aSink));
+  return intcpt->QueryInterface(aIid, aOutput);
 }
 
 Interceptor::Interceptor(STAUniquePtr<IUnknown> aTarget, IInterceptorSink* aSink)
@@ -61,7 +62,7 @@ Interceptor::~Interceptor()
   MOZ_ASSERT(NS_IsMainThread());
   for (uint32_t index = 0, len = mInterceptorMap.Length(); index < len; ++index) {
     MapEntry& entry = mInterceptorMap[index];
-    entry.mInterceptor->Release();
+    entry.mInterceptor = nullptr;
     entry.mTargetInterface->Release();
   }
 }
@@ -234,12 +235,9 @@ Interceptor::GetInterceptorForIID(REFIID aIid, void** aOutInterceptor)
     if (entry && entry->mInterceptor) {
       unkInterceptor = entry->mInterceptor;
     } else {
-      // We're inserting unkInterceptor into the map but we still want to hang
-      // onto it locally so that we can QI it below.
-      unkInterceptor->AddRef();
-      // OTOH we must not touch the refcount for the target interface
-      // because we are just moving it into the map and its refcounting might
-      // not be thread-safe.
+      // MapEntry has a RefPtr to unkInterceptor, OTOH we must not touch the
+      // refcount for the target interface because we are just moving it into
+      // the map and its refcounting might not be thread-safe.
       IUnknown* rawTargetInterface = targetInterface.release();
       mInterceptorMap.AppendElement(MapEntry(aIid,
                                              unkInterceptor,

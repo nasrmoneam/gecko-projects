@@ -133,8 +133,8 @@ public:
     }
   }
 
-  void SetDragImage(Element& aElement, int32_t aX, int32_t aY,
-                    ErrorResult& aRv);
+  void SetDragImage(Element& aElement, int32_t aX, int32_t aY);
+  void UpdateDragImage(Element& aElement, int32_t aX, int32_t aY);
 
   void GetTypes(nsTArray<nsString>& aTypes, CallerType aCallerType) const;
 
@@ -307,7 +307,7 @@ protected:
   void CacheExternalDragFormats();
 
   // caches the formats that exist in the clipboard
-  void CacheExternalClipboardFormats();
+  void CacheExternalClipboardFormats(bool aPlainTextOnly);
 
   FileList* GetFilesInternal(ErrorResult& aRv, nsIPrincipal* aSubjectPrincipal);
   nsresult GetDataAtInternal(const nsAString& aFormat, uint32_t aIndex,

@@ -8,6 +8,7 @@
 #include "gfxConfig.h"
 #include "gfxCrashReporterUtils.h"
 #include "gfxUtils.h"
+#include "mozilla/layers/CompositorThread.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Telemetry.h"
@@ -50,7 +51,8 @@ static const char* sEGLExtensionNames[] = {
     "EGL_ANDROID_native_fence_sync",
     "EGL_ANDROID_image_crop",
     "EGL_ANGLE_platform_angle",
-    "EGL_ANGLE_platform_angle_d3d"
+    "EGL_ANGLE_platform_angle_d3d",
+    "EGL_ANGLE_d3d_share_handle_client_buffer"
 };
 
 #if defined(ANDROID)
@@ -148,6 +150,14 @@ static bool
 IsAccelAngleSupported(const nsCOMPtr<nsIGfxInfo>& gfxInfo,
                       nsACString* const out_failureId)
 {
+    if (CompositorThreadHolder::IsInCompositorThread()) {
+        // We can only enter here with WebRender, so assert that this is a
+        // WebRender-enabled build.
+#ifndef MOZ_ENABLE_WEBRENDER
+        MOZ_ASSERT(false);
+#endif
+        return true;
+    }
     int32_t angleSupport;
     nsCString failureId;
     gfxUtils::ThreadSafeGetFeatureStatus(gfxInfo,
@@ -214,7 +224,7 @@ public:
             tokenizer.CheckWhite() &&
             tokenizer.Check(Tokenizer::TOKEN_INTEGER, intToken)) {
             *mFailureId = "FAILURE_ID_ANGLE_ID_";
-            mFailureId->AppendPrintf("%i", intToken.AsInteger());
+            mFailureId->AppendPrintf("%" PRIu64, intToken.AsInteger());
         } else {
             *mFailureId = "FAILURE_ID_ANGLE_UNKNOWN";
         }
@@ -321,21 +331,16 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel, nsACString* const out_failureId
         // Also note that we intentionally leak the libs we load.
 
         do {
-            // Windows 8.1 has d3dcompiler_47.dll in the system directory.
+            // Windows 8.1+ has d3dcompiler_47.dll in the system directory.
             // Try it first. Note that _46 will never be in the system
-            // directory and we ship with at least _43. So there is no point
-            // trying _46 and _43 in the system directory.
+            // directory. So there is no point trying _46 in the system
+            // directory.
 
             if (LoadLibrarySystem32(L"d3dcompiler_47.dll"))
                 break;
 
 #ifdef MOZ_D3DCOMPILER_VISTA_DLL
             if (LoadLibraryForEGLOnWindows(NS_LITERAL_STRING(NS_STRINGIFY(MOZ_D3DCOMPILER_VISTA_DLL))))
-                break;
-#endif
-
-#ifdef MOZ_D3DCOMPILER_XP_DLL
-            if (LoadLibraryForEGLOnWindows(NS_LITERAL_STRING(NS_STRINGIFY(MOZ_D3DCOMPILER_XP_DLL))))
                 break;
 #endif
 
@@ -410,6 +415,7 @@ GLLibraryEGL::EnsureInitialized(bool forceAccel, nsACString* const out_failureId
         SYMBOL(BindTexImage),
         SYMBOL(ReleaseTexImage),
         SYMBOL(QuerySurface),
+        SYMBOL(CreatePbufferFromClientBuffer),
         { nullptr, { nullptr } }
     };
 
