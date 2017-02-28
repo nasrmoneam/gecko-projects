@@ -475,13 +475,13 @@ const DownloadsIndicatorView = {
       if (aValue == DownloadsCommon.ATTENTION_NONE) {
         this.indicator.removeAttribute("attention");
         if (inMenu) {
-          gMenuButtonBadgeManager.removeBadge(gMenuButtonBadgeManager.BADGEID_DOWNLOAD);
+          PanelUI.removeNotification(/^download-/);
         }
       } else {
         this.indicator.setAttribute("attention", aValue);
         if (inMenu) {
           let badgeClass = "download-" + aValue;
-          gMenuButtonBadgeManager.addBadge(gMenuButtonBadgeManager.BADGEID_DOWNLOAD, badgeClass);
+          PanelUI.showBadgeOnlyNotification(badgeClass);
         }
       }
     }
