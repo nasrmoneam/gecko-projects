@@ -168,7 +168,6 @@ def GetMarProperties(filename):
         'completeMarFilename': os.path.basename(filename),
         'completeMarSize': mar_size,
         'completeMarHash': mar_hash,
-        'mar_signing_format': 'mar',
     }
 
 def GetUrlProperties(output, package):
