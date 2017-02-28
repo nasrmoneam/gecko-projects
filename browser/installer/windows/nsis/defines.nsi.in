@@ -70,8 +70,8 @@
 !define ARCH "x64"
 !define MinSupportedVer "Microsoft Windows 7 x64"
 #else
+!define MinSupportedVer "Microsoft Windows 7"
 !define ARCH "x86"
-!define MinSupportedVer "Microsoft Windows XP SP2"
 #endif
 
 !define MinSupportedCPU "SSE2"
@@ -105,9 +105,6 @@ VIAddVersionKey "ProductVersion"  "${AppVersion}"
 !define OPTIONS_ITEM_WIDTH_DU 356u
 !define OPTIONS_SUBITEM_EDGE_DU 119u
 !define OPTIONS_SUBITEM_WIDTH_DU 327u
-!define NOW_INSTALLING_TOP_DU 70u
-!define INSTALL_BLURB_TOP_DU 137u
-!define INSTALL_FOOTER_TOP_DU -48u
-!define PROGRESS_BAR_TOP_DU 112u
+!define INSTALL_BLURB_TOP_DU 78u
 !define APPNAME_BMP_EDGE_DU 19u
 !define APPNAME_BMP_TOP_DU 12u
