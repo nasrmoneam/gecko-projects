@@ -71,18 +71,15 @@ const PR_TRUNCATE    = 0x20;
 
 const DEFAULT_UPDATE_VERSION = "999999.0";
 
-const URL_MANUAL_UPDATE = "http://example.com/browser/browser/base/content/test/simpleUpdate/downloadPage.html";
-
-var gURLData = "http://example.com/browser/browser/base/content/test/simpleUpdate/";
-
 const DATA_URI_SPEC = "chrome://mochitests/content/browser/browser/base/content/test/simpleUpdate/";
-
+/* import-globals-from testConstants.js */
+Services.scriptloader.loadSubScript(DATA_URI_SPEC + "testConstants.js", this);
+/* import-globals-from sharedUpdateXML.js */
 Services.scriptloader.loadSubScript(DATA_URI_SPEC + "sharedUpdateXML.js", this);
 
-const REL_PATH_DATA = "browser/browser/base/content/test/simpleUpdate/";
-const SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + FILE_SIMPLE_MAR;
+var gURLData = URL_HOST + "/" + REL_PATH_DATA;
 
-const TEST_UPDATER_DIR = "chrome/toolkit/mozapps/update/tests/data";
+const URL_MANUAL_UPDATE = gURLData + "downloadPage.html";
 
 var DEBUG_AUS_TEST = true;
 
@@ -788,7 +785,7 @@ function copyTestUpdater() {
       // Copy the test updater
       let baseAppDir = getAppBaseDir();
       let testUpdaterDir = Services.dirsvc.get("CurWorkD", Ci.nsILocalFile);
-      let relPath = TEST_UPDATER_DIR;
+      let relPath = REL_PATH_DATA;
       let pathParts = relPath.split("/");
       for (let i = 0; i < pathParts.length; ++i) {
         testUpdaterDir.append(pathParts[i]);

@@ -33,6 +33,12 @@ BROWSER_CHROME_MANIFESTS += [
     'content/test/webrtc/browser.ini',
 ]
 
+TEST_HARNESS_FILES.testing.mochitest.browser.browser.base.content.test.simpleUpdate += [
+    '/toolkit/mozapps/update/tests/chrome/update.sjs',
+    '/toolkit/mozapps/update/tests/data/sharedUpdateXML.js',
+    '/toolkit/mozapps/update/tests/data/simple.mar',
+]
+
 DEFINES['MOZ_APP_VERSION'] = CONFIG['MOZ_APP_VERSION']
 DEFINES['MOZ_APP_VERSION_DISPLAY'] = CONFIG['MOZ_APP_VERSION_DISPLAY']
 

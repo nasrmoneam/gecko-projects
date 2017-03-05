@@ -4,7 +4,7 @@ add_task(function* testPartialPatchApplyFailureWithCompleteValidationFailure() {
   pushPref("Int", PREF_APP_UPDATE_REDOWNLOADPROMPTMAXATTEMPTS, 0);
   let patches = getLocalPatchString("partial", null, null, null, null, null,
                                     STATE_PENDING) +
-                getLocalPatchString("complete", SERVICE_URL, "MD5",
+                getLocalPatchString("complete", null, "MD5",
                                     null, "1234",
                                     "false");
 
