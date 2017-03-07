@@ -72,7 +72,6 @@ const PR_TRUNCATE    = 0x20;
 const DEFAULT_UPDATE_VERSION = "999999.0";
 
 const DATA_URI_SPEC = "chrome://mochitests/content/browser/browser/base/content/test/simpleUpdate/";
-
 /* import-globals-from testConstants.js */
 Services.scriptloader.loadSubScript(DATA_URI_SPEC + "testConstants.js", this);
 /* import-globals-from sharedUpdateXML.js */
