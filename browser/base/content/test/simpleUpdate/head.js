@@ -6,7 +6,6 @@ const IS_WIN = ("@mozilla.org/windows-registry-key;1" in Cc);
 
 const KEY_UPDROOT         = "UpdRootD";
 
-const PREF_APP_UPDATE_LOG                            = "app.update.log";
 const PREF_APP_UPDATE_URL                            = "app.update.url";
 const PREF_APP_UPDATE_DOORHANGER                     = "app.update.doorhanger";
 const PREF_APP_UPDATE_CHANNEL                        = "app.update.channel";
@@ -81,8 +80,6 @@ Services.scriptloader.loadSubScript(DATA_URI_SPEC + "sharedUpdateXML.js", this);
 
 const REL_PATH_DATA = "browser/browser/base/content/test/simpleUpdate/";
 const SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + FILE_SIMPLE_MAR;
-
-var DEBUG_AUS_TEST = true;
 
 XPCOMUtils.defineLazyGetter(this, "gUpdateService", function test_gAUS() {
   return Cc["@mozilla.org/updates/update-service;1"].
@@ -402,9 +399,6 @@ function runUpdateTest(updateParams, checkAttempts, steps) {
     pushPref("Char", PREF_APP_RELEASE_NOTES_URL, "http://example.com/{targetVersion}");
     pushPref("Char", PREF_APP_UPDATE_URL_MANUAL, URL_MANUAL_UPDATE);
     pushPref("Int", PREF_APP_UPDATE_REDOWNLOADPROMPTATTEMPTS, 0);
-    if (DEBUG_AUS_TEST) {
-      pushPref("Bool", PREF_APP_UPDATE_LOG, true);
-    }
 
     let url = URL_HTTP_UPDATE_SJS +
               "?" + updateParams +
@@ -434,9 +428,6 @@ function runUpdateProcessingTest(updates, steps) {
     pushPref("Int", PREF_APP_UPDATE_IDLETIME, 0);
     pushPref("Char", PREF_APP_RELEASE_NOTES_URL, "http://example.com/{targetVersion}");
     pushPref("Char", PREF_APP_UPDATE_URL_MANUAL, URL_MANUAL_UPDATE);
-    if (DEBUG_AUS_TEST) {
-      pushPref("Bool", PREF_APP_UPDATE_LOG, true);
-    }
 
     registerCleanupFunction(() => {
       popPrefs();
