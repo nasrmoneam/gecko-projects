@@ -66,7 +66,7 @@ let gRembemberedPrefs = [];
 
 const DATA_URI_SPEC =  "chrome://mochitests/content/browser/browser/base/content/test/appUpdate/";
 
-var DEBUG_AUS_TEST = false;
+var DEBUG_AUS_TEST = true;
 var gUseTestUpdater = false;
 
 /* import-globals-from testConstants.js */
