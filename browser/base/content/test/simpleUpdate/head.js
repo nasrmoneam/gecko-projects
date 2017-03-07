@@ -82,11 +82,7 @@ Services.scriptloader.loadSubScript(DATA_URI_SPEC + "sharedUpdateXML.js", this);
 const REL_PATH_DATA = "browser/browser/base/content/test/simpleUpdate/";
 const SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + FILE_SIMPLE_MAR;
 
-const TEST_UPDATER_DIR = "chrome/toolkit/mozapps/update/tests/data";
-
 var DEBUG_AUS_TEST = true;
-
-var gUseTestUpdater = false;
 
 XPCOMUtils.defineLazyGetter(this, "gUpdateService", function test_gAUS() {
   return Cc["@mozilla.org/updates/update-service;1"].
@@ -105,10 +101,6 @@ XPCOMUtils.defineLazyGetter(this, "gDefaultPrefBranch", function test_gDPB() {
 });
 
 let gRembemberedPrefs = [];
-
-function delay() {
-  return new Promise(resolve => executeSoon(resolve));
-}
 
 /**
  * Sets the app.update.url default preference.
@@ -414,8 +406,6 @@ function runUpdateTest(updateParams, checkAttempts, steps) {
       pushPref("Bool", PREF_APP_UPDATE_LOG, true);
     }
 
-    yield setupTestUpdater();
-
     let url = URL_HTTP_UPDATE_SJS +
               "?" + updateParams +
               getVersionParams();
@@ -435,19 +425,11 @@ function runUpdateTest(updateParams, checkAttempts, steps) {
     for (let step of steps) {
       yield processStep(step);
     }
-
-    yield finishTestRestoreUpdaterBackup();
   });
 }
 
 function runUpdateProcessingTest(updates, steps) {
   return Task.spawn(function*() {
-    registerCleanupFunction(() => {
-      popPrefs();
-      gMenuButtonUpdateBadge.reset();
-      cleanUpUpdates();
-    });
-
     pushPref("Bool", PREF_APP_UPDATE_ENABLED, true);
     pushPref("Int", PREF_APP_UPDATE_IDLETIME, 0);
     pushPref("Char", PREF_APP_RELEASE_NOTES_URL, "http://example.com/{targetVersion}");
@@ -456,9 +438,13 @@ function runUpdateProcessingTest(updates, steps) {
       pushPref("Bool", PREF_APP_UPDATE_LOG, true);
     }
 
-    pushPref("Bool", PREF_APP_UPDATE_ENABLED, true);
+    registerCleanupFunction(() => {
+      popPrefs();
+      gMenuButtonUpdateBadge.reset();
+      cleanUpUpdates();
+    });
 
-    yield setupTestUpdater();
+    pushPref("Bool", PREF_APP_UPDATE_ENABLED, true);
 
     writeUpdatesToXMLFile(getLocalUpdatesXMLString(updates), true);
 
@@ -471,8 +457,6 @@ function runUpdateProcessingTest(updates, steps) {
     for (let step of steps) {
       yield processStep(step);
     }
-
-    yield finishTestRestoreUpdaterBackup();
   });
 }
 
@@ -726,127 +710,4 @@ function checkWhatsNewLink(id, url) {
      url || URL_HTTP_UPDATE_SJS + "?uiURL=DETAILS",
      "What's new link points to the test_details URL");
   is(whatsNewLink.hidden, false, "What's new link is not hidden.");
-}
-
-/**
- * For tests that use the test updater restores the backed up real updater if
- * it exists and tries again on failure since Windows debug builds at times
- * leave the file in use. After success moveRealUpdater is called to continue
- * the setup of the test updater. For tests that don't use the test updater
- * runTest will be called.
- */
-function setupTestUpdater() {
-  return Task.spawn(function*() {
-    if (gUseTestUpdater) {
-      try {
-        restoreUpdaterBackup();
-      } catch (e) {
-        logTestInfo("Attempt to restore the backed up updater failed... " +
-                    "will try again, Exception: " + e);
-        yield delay();
-        yield setupTestUpdater();
-        return;
-      }
-      yield moveRealUpdater();
-    }
-  });
-}
-
-/**
- * Backs up the real updater and tries again on failure since Windows debug
- * builds at times leave the file in use. After success it will call
- * copyTestUpdater to continue the setup of the test updater.
- */
-function moveRealUpdater() {
-  return Task.spawn(function*() {
-    try {
-      // Move away the real updater
-      let baseAppDir = getAppBaseDir();
-      let updater = baseAppDir.clone();
-      updater.append(FILE_UPDATER_BIN);
-      updater.moveTo(baseAppDir, FILE_UPDATER_BIN_BAK);
-    } catch (e) {
-      logTestInfo("Attempt to move the real updater out of the way failed... " +
-                  "will try again, Exception: " + e);
-      yield delay();
-      yield moveRealUpdater();
-      return;
-    }
-
-    yield copyTestUpdater();
-  });
-}
-
-/**
- * Copies the test updater so it can be used by tests and tries again on failure
- * since Windows debug builds at times leave the file in use. After success it
- * will call runTest to continue the test.
- */
-function copyTestUpdater() {
-  return Task.spawn(function*() {
-    try {
-      // Copy the test updater
-      let baseAppDir = getAppBaseDir();
-      let testUpdaterDir = Services.dirsvc.get("CurWorkD", Ci.nsILocalFile);
-      let relPath = TEST_UPDATER_DIR;
-      let pathParts = relPath.split("/");
-      for (let i = 0; i < pathParts.length; ++i) {
-        testUpdaterDir.append(pathParts[i]);
-      }
-
-      let testUpdater = testUpdaterDir.clone();
-      testUpdater.append(FILE_UPDATER_BIN);
-      testUpdater.copyToFollowingLinks(baseAppDir, FILE_UPDATER_BIN);
-    } catch (e) {
-      logTestInfo("Attempt to copy the test updater failed... " +
-                  "will try again, Exception: " + e);
-      yield delay();
-      yield copyTestUpdater();
-    }
-  });
-}
-
-/**
- * Restores the updater that was backed up. This is called in setupTestUpdater
- * before the backup of the real updater is done in case the previous test
- * failed to restore the updater, in finishTestDefaultWaitForWindowClosed when
- * the test has finished, and in test_9999_cleanup.xul after all tests have
- * finished.
- */
-function restoreUpdaterBackup() {
-  let baseAppDir = getAppBaseDir();
-  let updater = baseAppDir.clone();
-  let updaterBackup = baseAppDir.clone();
-  updater.append(FILE_UPDATER_BIN);
-  updaterBackup.append(FILE_UPDATER_BIN_BAK);
-  if (updaterBackup.exists()) {
-    if (updater.exists()) {
-      updater.remove(true);
-    }
-    updaterBackup.moveTo(baseAppDir, FILE_UPDATER_BIN);
-  }
-}
-
-/**
- * When a test finishes this will repeatedly attempt to restore the real updater
- * for tests that use the test updater and then call
- * finishTestDefaultWaitForWindowClosed after the restore is successful.
- */
-function finishTestRestoreUpdaterBackup() {
-  return Task.spawn(function*() {
-    if (gUseTestUpdater) {
-      try {
-        // Windows debug builds keep the updater file in use for a short period of
-        // time after the updater process exits.
-        restoreUpdaterBackup();
-      } catch (e) {
-        logTestInfo("Attempt to restore the backed up updater failed... " +
-                    "will try again, Exception: " + e);
-
-        yield delay();
-        yield finishTestRestoreUpdaterBackup();
-        return;
-      }
-    }
-  });
 }
