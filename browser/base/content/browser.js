@@ -1489,6 +1489,8 @@ var gBrowserInit = {
 
     gBrowserThumbnails.init();
 
+    gMenuButtonBadgeManager.init();
+
     gMenuButtonUpdateBadge.init();
 
     gExtensionsNotifications.init();
@@ -1658,6 +1660,8 @@ var gBrowserInit = {
     CaptivePortalWatcher.uninit();
 
     gMenuButtonUpdateBadge.uninit();
+
+    gMenuButtonBadgeManager.uninit();
 
     SidebarUI.uninit();
 
@@ -2710,238 +2714,190 @@ function PageProxyClickHandler(aEvent) {
     middleMousePaste(aEvent);
 }
 
-// Setup the hamburger button badges for updates, if enabled.
-var gMenuButtonUpdateBadge = {
-  kTopics: [
-    "update-staged",
-    "update-downloaded",
-    "update-available",
-    "update-error",
-  ],
+var gMenuButtonBadgeManager = {
+  BADGEID_APPUPDATE: "update",
+  BADGEID_DOWNLOAD: "download",
+  BADGEID_FXA: "fxa",
+  BADGEID_ADDONS: "addons",
 
-  timeouts: [],
-
-  tryGetPref(type, name, defaultValue) {
-    try {
-      return Services.prefs[`get${type}Pref`](name);
-    } catch (e) {
-    }
-
-    return defaultValue;
-  },
-
-  get enabled() {
-    return Services.prefs.getBoolPref("app.update.doorhanger");
-  },
-
-  get badgeWaitTime() {
-    return this.tryGetPref("Int",
-                           "app.update.promptBadgeWaitTime",
-                           2 * 24 * 3600 * 1000); // 2 days
-  },
-
-  get redownloadPromptAttempts() {
-    return this.tryGetPref("Int",
-                           "app.update.redownloadPromptAttempts",
-                           0);
-  },
-
-  set redownloadPromptAttempts(value) {
-    Services.prefs.setIntPref("app.update.redownloadPromptAttempts", value);
-  },
-
-  get redownloadPromptMaxAttempts() {
-    return this.tryGetPref("Int",
-                           "app.update.redownloadPromptMaxAttempts",
-                           2);
-  },
+  fxaBadge: null,
+  downloadBadge: null,
+  appUpdateBadge: null,
+  addonsBadge: null,
 
   init() {
+    PanelUI.panel.addEventListener("popupshowing", this, true);
+  },
+
+  uninit() {
+    PanelUI.panel.removeEventListener("popupshowing", this, true);
+  },
+
+  handleEvent(e) {
+    if (e.type === "popupshowing") {
+      this.clearBadges();
+    }
+  },
+
+  _showBadge() {
+    let badgeToShow = this.downloadBadge || this.appUpdateBadge || this.fxaBadge || this.addonsBadge;
+
+    if (badgeToShow) {
+      PanelUI.menuButton.setAttribute("badge-status", badgeToShow);
+    } else {
+      PanelUI.menuButton.removeAttribute("badge-status");
+    }
+  },
+
+  _changeBadge(badgeId, badgeStatus = null) {
+    if (badgeId == this.BADGEID_APPUPDATE) {
+      this.appUpdateBadge = badgeStatus;
+    } else if (badgeId == this.BADGEID_DOWNLOAD) {
+      this.downloadBadge = badgeStatus;
+    } else if (badgeId == this.BADGEID_FXA) {
+      this.fxaBadge = badgeStatus;
+    } else if (badgeId == this.BADGEID_ADDONS) {
+      this.addonsBadge = badgeStatus;
+    } else {
+      Cu.reportError("The badge ID '" + badgeId + "' is unknown!");
+    }
+    this._showBadge();
+  },
+
+  addBadge(badgeId, badgeStatus) {
+    if (!badgeStatus) {
+      Cu.reportError("badgeStatus must be defined");
+      return;
+    }
+    this._changeBadge(badgeId, badgeStatus);
+  },
+
+  removeBadge(badgeId) {
+    this._changeBadge(badgeId);
+  },
+
+  clearBadges() {
+    this.appUpdateBadge = null;
+    this.downloadBadge = null;
+    this.fxaBadge = null;
+    this._showBadge();
+  }
+};
+
+// Setup the hamburger button badges for updates, if enabled.
+var gMenuButtonUpdateBadge = {
+  enabled: false,
+  badgeWaitTime: 0,
+  timer: null,
+  cancelObserverRegistered: false,
+
+  init() {
+    try {
+      this.enabled = Services.prefs.getBoolPref("app.update.badge");
+    } catch (e) {}
     if (this.enabled) {
-      this.kTopics.forEach(t => {
-        Services.obs.addObserver(this, t, false);
-      });
+      try {
+        this.badgeWaitTime = Services.prefs.getIntPref("app.update.badgeWaitTime");
+      } catch (e) {
+        this.badgeWaitTime = 345600; // 4 days
+      }
+      Services.obs.addObserver(this, "update-staged", false);
+      Services.obs.addObserver(this, "update-downloaded", false);
     }
   },
 
   uninit() {
+    if (this.timer)
+      this.timer.cancel();
     if (this.enabled) {
-      this.kTopics.forEach(t => {
-        Services.obs.removeObserver(this, t);
-      });
+      Services.obs.removeObserver(this, "update-staged");
+      Services.obs.removeObserver(this, "update-downloaded");
+      this.enabled = false;
     }
-
-    PanelUI.removeNotification(/^update-/);
-    this.clearCallbacks();
+    if (this.cancelObserverRegistered) {
+      Services.obs.removeObserver(this, "update-canceled");
+      this.cancelObserverRegistered = false;
+    }
   },
 
-  clearCallbacks() {
-    this.timeouts.forEach(t => clearTimeout(t));
-    this.timeouts = [];
-  },
+  onMenuPanelCommand(event) {
+    if (event.originalTarget.getAttribute("update-status") === "succeeded") {
+      // restart the app
+      let cancelQuit = Cc["@mozilla.org/supports-PRBool;1"]
+                       .createInstance(Ci.nsISupportsPRBool);
+      Services.obs.notifyObservers(cancelQuit, "quit-application-requested", "restart");
 
-  addTimeout(time, callback) {
-    this.timeouts.push(setTimeout(() => {
-      this.clearCallbacks();
-      callback();
-    }, time));
-  },
-
-  replaceReleaseNotes(update, whatsNewId) {
-    let whatsNewLink = document.getElementById(whatsNewId);
-    if (update && update.detailsURL) {
-      whatsNewLink.href = update.detailsURL;
+      if (!cancelQuit.data) {
+        Services.startup.quit(Services.startup.eAttemptQuit | Services.startup.eRestart);
+      }
     } else {
-      whatsNewLink.href = Services.urlFormatter.formatURLPref("app.update.url.details");
+      // open the page for manual update
+      let url = Services.urlFormatter.formatURLPref("app.update.url.manual");
+      openUILinkIn(url, "tab");
     }
-  },
-
-  requestRestart() {
-    let cancelQuit = Cc["@mozilla.org/supports-PRBool;1"]
-                     .createInstance(Ci.nsISupportsPRBool);
-    Services.obs.notifyObservers(cancelQuit, "quit-application-requested", "restart");
-
-    if (!cancelQuit.data) {
-      Services.startup.quit(Services.startup.eAttemptQuit | Services.startup.eRestart);
-    }
-  },
-
-  openManualUpdateUrl() {
-    let manualUpdateUrl = Services.urlFormatter.formatURLPref("app.update.url.manual");
-    openUILinkIn(manualUpdateUrl, "tab");
-  },
-
-  showRestartNotification(dismissed) {
-    let action = {
-      callback: () => { gMenuButtonUpdateBadge.requestRestart(); }
-    };
-
-    PanelUI.showNotification("update-restart", action, [], { dismissed });
-  },
-
-  showUpdateAvailableNotification(update, dismissed) {
-    let action = {
-      callback: () => {
-        let updateService = Cc["@mozilla.org/updates/update-service;1"]
-                            .getService(Ci.nsIApplicationUpdateService);
-        updateService.downloadUpdate(update, true);
-      }
-    };
-
-    this.replaceReleaseNotes(update, "update-available-whats-new");
-
-    PanelUI.showNotification("update-available", action, [], { dismissed });
-  },
-
-  showManualUpdateNotification(update, dismissed) {
-    let action = {
-      callback: () => {
-        gMenuButtonUpdateBadge.openManualUpdateUrl();
-      }
-    };
-
-    this.replaceReleaseNotes(update, "update-manual-whats-new");
-
-    PanelUI.showNotification("update-manual", action, [], { dismissed });
-  },
-
-  handleUpdateError(update, status) {
-    switch (status) {
-      case "all-downloads-failed":
-        this.redownloadPromptAttempts++;
-        this.clearCallbacks();
-
-        if (this.redownloadPromptAttempts > this.redownloadPromptMaxAttempts) {
-          this.showManualUpdateNotification(update, false);
-        } else {
-          // clear the selected patch - this will allow us to re-download the update
-          update.selectedPatch.selected = false;
-          this.showUpdateAvailableNotification(update, false);
-        }
-        break;
-      case "check-attempts-exceeded":
-      case "elevation-canceled":
-      case "unknown":
-        // Background update has failed, let's show the UI responsible for
-        // prompting the user to update manually.
-        this.clearCallbacks();
-        this.showManualUpdateNotification(update, false);
-        break;
-    }
-  },
-
-  handleUpdateDownloaded(update, status) {
-    switch (status) {
-      case "pending":
-      case "applied":
-      case "applied-service":
-      case "pending-service":
-      case "success":
-        this.clearCallbacks();
-        this.redownloadPromptAttempts = 0;
-
-        let badgeWaitTime = this.badgeWaitTime;
-        let doorhangerWaitTime = update.promptWaitTime * 1000;
-
-        if (badgeWaitTime < doorhangerWaitTime) {
-          this.addTimeout(badgeWaitTime, () => {
-            this.showRestartNotification(true);
-
-            let remainingTime = doorhangerWaitTime - badgeWaitTime;
-            this.addTimeout(remainingTime, () => {
-              this.showRestartNotification(false);
-            });
-          });
-        } else {
-          this.addTimeout(doorhangerWaitTime, () => {
-            this.showRestartNotification(false);
-          });
-        }
-        break;
-    }
-  },
-
-  handleUpdateAvailable(update, status) {
-    switch (status) {
-      case "show-prompt":
-        // Background update has failed, let's show the UI responsible for
-        // prompting the user to update manually.
-        this.clearCallbacks();
-        this.showUpdateAvailableNotification(update, false);
-        break;
-    }
-  },
-
-  handleUpdateStaged(update, status) {
-    this.handleUpdateDownloaded(update, status);
   },
 
   observe(subject, topic, status) {
-    if (!this.enabled) {
+    if (topic == "update-canceled") {
+      this.reset();
+      return;
+    }
+    if (status == "failed") {
+      // Background update has failed, let's show the UI responsible for
+      // prompting the user to update manually.
+      this.uninit();
+      this.displayBadge(false);
       return;
     }
 
-    let update = subject && subject.QueryInterface(Ci.nsIUpdate);
+    // Give the user badgeWaitTime seconds to react before prompting.
+    this.timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+    this.timer.initWithCallback(this, this.badgeWaitTime * 1000,
+                                this.timer.TYPE_ONE_SHOT);
+    // The timer callback will call uninit() when it completes.
+  },
 
-    switch (topic) {
-      case "update-available":
-        this.handleUpdateAvailable(update, status);
-        break;
-      case "update-downloaded":
-        this.handleUpdateDownloaded(update, status);
-        break;
-      case "update-staged":
-        this.handleUpdateStaged(update, status);
-        break;
-      case "update-error":
-        this.handleUpdateError(update, status);
-        break;
+  notify() {
+    // If the update is successfully applied, or if the updater has fallen back
+    // to non-staged updates, add a badge to the hamburger menu to indicate an
+    // update will be applied once the browser restarts.
+    this.uninit();
+    this.displayBadge(true);
+  },
+
+  displayBadge(succeeded) {
+    let status = succeeded ? "succeeded" : "failed";
+    let badgeStatus = "update-" + status;
+    gMenuButtonBadgeManager.addBadge(gMenuButtonBadgeManager.BADGEID_APPUPDATE, badgeStatus);
+
+    let stringId;
+    let updateButtonText;
+    if (succeeded) {
+      let brandBundle = document.getElementById("bundle_brand");
+      let brandShortName = brandBundle.getString("brandShortName");
+      stringId = "appmenu.restartNeeded.description";
+      updateButtonText = gNavigatorBundle.getFormattedString(stringId,
+                                                             [brandShortName]);
+      Services.obs.addObserver(this, "update-canceled", false);
+      this.cancelObserverRegistered = true;
+    } else {
+      stringId = "appmenu.updateFailed.description";
+      updateButtonText = gNavigatorBundle.getString(stringId);
     }
+
+    let updateButton = document.getElementById("PanelUI-update-status");
+    updateButton.setAttribute("label", updateButtonText);
+    updateButton.setAttribute("update-status", status);
+    updateButton.hidden = false;
   },
 
   reset() {
-    PanelUI.removeNotification(/^update-/);
-    this.clearCallbacks();
+    gMenuButtonBadgeManager.removeBadge(
+      gMenuButtonBadgeManager.BADGEID_APPUPDATE);
+    let updateButton = document.getElementById("PanelUI-update-status");
+    updateButton.hidden = true;
+    this.uninit();
+    this.init();
   }
 };
 
