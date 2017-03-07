@@ -65,6 +65,10 @@ const STATE_FAILED_INVALID_APPLYTO_DIR_STAGED_ERROR =
 const STATE_FAILED_INVALID_APPLYTO_DIR_ERROR =
   STATE_FAILED + STATE_FAILED_DELIMETER + INVALID_APPLYTO_DIR_ERROR;
 
+const URL_HOST = "http://example.com";
+const URL_PATH_UPDATE_XML = "/browser/browser/base/content/test/simpleUpdate/update.sjs";
+const URL_HTTP_UPDATE_SJS = URL_HOST + URL_PATH_UPDATE_XML;
+
 /**
  * Constructs a string representing a remote update xml file.
  *
@@ -123,67 +127,7 @@ function getLocalUpdatesXMLString(aUpdates) {
   }
   return ("<updates xmlns=\"http://www.mozilla.org/2005/app-update\">" +
             aUpdates +
-          "</updates>").replace(/>\s+\n*</g, "><");
-}
-
-/**
- * Constructs a string representing an update element for a local update xml
- * file. See getUpdateString for parameter information not provided below.
- *
- * @param  aPatches
- *         String representing the application update patches.
- * @param  aServiceURL (optional)
- *         The update's xml url.
- *         If not specified it will default to 'http://test_service/'.
- * @param  aIsCompleteUpdate (optional)
- *         The string 'true' if this update was a complete update or the string
- *         'false' if this update was a partial update.
- *         If not specified it will default to 'true'.
- * @param  aChannel (optional)
- *         The update channel name.
- *         If not specified it will default to the default preference value of
- *         app.update.channel.
- * @param  aForegroundDownload (optional)
- *         The string 'true' if this update was manually downloaded or the
- *         string 'false' if this update was automatically downloaded.
- *         If not specified it will default to 'true'.
- * @param  aPreviousAppVersion (optional)
- *         The application version prior to applying the update.
- *         If not specified it will not be present.
- * @return The string representing an update element for an update xml file.
- */
-function getLocalUpdateString(aPatches, aType, aName, aDisplayVersion,
-                              aAppVersion, aBuildID, aDetailsURL, aServiceURL,
-                              aInstallDate, aStatusText, aIsCompleteUpdate,
-                              aChannel, aForegroundDownload, aShowPrompt,
-                              aShowNeverForVersion, aPromptWaitTime,
-                              aBackgroundInterval, aPreviousAppVersion,
-                              aCustom1, aCustom2) {
-  let serviceURL = aServiceURL ? aServiceURL : "http://test_service/";
-  let installDate = aInstallDate ? aInstallDate : "1238441400314";
-  let statusText = aStatusText ? aStatusText : "Install Pending";
-  let isCompleteUpdate =
-    typeof aIsCompleteUpdate == "string" ? aIsCompleteUpdate : "true";
-  let channel = aChannel ? aChannel
-                         : gDefaultPrefBranch.getCharPref(PREF_APP_UPDATE_CHANNEL);
-  let foregroundDownload =
-    typeof aForegroundDownload == "string" ? aForegroundDownload : "true";
-  let previousAppVersion = aPreviousAppVersion ? "previousAppVersion=\"" +
-                                                 aPreviousAppVersion + "\" "
-                                               : "";
-  return getUpdateString(aType, aName, aDisplayVersion, aAppVersion, aBuildID,
-                         aDetailsURL, aShowPrompt, aShowNeverForVersion,
-                         aPromptWaitTime, aBackgroundInterval, aCustom1, aCustom2) +
-                   " " +
-                   previousAppVersion +
-                   "serviceURL=\"" + serviceURL + "\" " +
-                   "installDate=\"" + installDate + "\" " +
-                   "statusText=\"" + statusText + "\" " +
-                   "isCompleteUpdate=\"" + isCompleteUpdate + "\" " +
-                   "channel=\"" + channel + "\" " +
-                   "foregroundDownload=\"" + foregroundDownload + "\">" +
-              aPatches +
-         "  </update>";
+          "</updates>").replace(/>\s+\n*</g, '><');
 }
 
 /**
@@ -231,7 +175,7 @@ function getLocalPatchString(aType, aURL, aHashFunction, aHashValue, aSize,
  *         If not specified it will default to '20080811053724'.
  * @param  aDetailsURL (optional)
  *         The update's details url.
- *         If not specified it will default to 'http://test_details/' due to due
+ *         If not specified it will default to URL_HTTP_UPDATE_SJS + "?uiURL=DETAILS" due to due
  *         to bug 470244.
  * @param  aShowPrompt (optional)
  *         Whether to show the prompt for the update when auto update is
@@ -273,7 +217,7 @@ function getUpdateString(aType, aName, aDisplayVersion, aAppVersion, aBuildID,
 //   let detailsURL = aDetailsURL ? "detailsURL=\"" + aDetailsURL + "\" " : "";
   let detailsURL = "detailsURL=\"" +
                    (aDetailsURL ? aDetailsURL
-                                : "http://test_details/") + "\" ";
+                                : URL_HTTP_UPDATE_SJS + "?uiURL=DETAILS") + "\" ";
   let showPrompt = aShowPrompt ? "showPrompt=\"" + aShowPrompt + "\" " : "";
   let showNeverForVersion = aShowNeverForVersion ? "showNeverForVersion=\"" +
                                                    aShowNeverForVersion + "\" "

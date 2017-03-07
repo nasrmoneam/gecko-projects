@@ -1,7 +1,7 @@
 add_task(function* testPartialPatchApplyFailureWithCompleteAvailable() {
   let patches = getLocalPatchString("partial", null, null, null, null, null,
                                     STATE_PENDING) +
-                getLocalPatchString("complete", null, null, null,
+                getLocalPatchString("complete", SERVICE_URL, null, null,
                                     null, "false");
 
   let promptWaitTime = "0";

@@ -6,9 +6,9 @@
  * Server side http server script for application update tests.
  */
 
-const { classes: Cc, interfaces: Ci } = Components;
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
-const REL_PATH_DATA = "chrome/toolkit/mozapps/update/tests/data/";
+const REL_PATH_DATA = "browser/browser/base/content/test/simpleUpdate/";
 
 function getTestDataFile(aFilename) {
   let file = Cc["@mozilla.org/file/directory_service;1"].
@@ -33,15 +33,14 @@ function loadHelperScript() {
 }
 loadHelperScript();
 
-const URL_HOST = "http://example.com";
-const URL_PATH_UPDATE_XML = "/chrome/toolkit/mozapps/update/tests/chrome/update.sjs";
-const URL_HTTP_UPDATE_SJS = URL_HOST + URL_PATH_UPDATE_XML;
 const SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + FILE_SIMPLE_MAR;
+const BAD_SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + "nothere.mar";
 
 const SLOW_MAR_DOWNLOAD_INTERVAL = 100;
 var gTimer;
 
 function handleRequest(aRequest, aResponse) {
+
   let params = { };
   if (aRequest.queryString) {
     params = parseQueryString(aRequest.queryString);
@@ -106,17 +105,22 @@ function handleRequest(aRequest, aResponse) {
     return;
   }
 
+
   let size;
   let patches = "";
+  let url = params.badURL ? BAD_SERVICE_URL : SERVICE_URL;
+
+  /* dt-removeme */ Cu.reportError("tmp: " + params.badURL);
+
   if (!params.partialPatchOnly) {
     size = SIZE_SIMPLE_MAR + (params.invalidCompleteSize ? "1" : "");
-    patches += getRemotePatchString("complete", SERVICE_URL, "SHA512",
+    patches += getRemotePatchString("complete", url, "SHA512",
                                     SHA512_HASH_SIMPLE_MAR, size);
   }
 
   if (!params.completePatchOnly) {
     size = SIZE_SIMPLE_MAR + (params.invalidPartialSize ? "1" : "");
-    patches += getRemotePatchString("partial", SERVICE_URL, "SHA512",
+    patches += getRemotePatchString("partial", url, "SHA512",
                                     SHA512_HASH_SIMPLE_MAR, size);
   }
 
