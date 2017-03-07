@@ -242,6 +242,9 @@ nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
     mFramesConstructed(0),
     mFramesReflowed(0),
     mInteractionTimeEnabled(true),
+    mTelemetryScrollLastY(0),
+    mTelemetryScrollMaxY(0),
+    mTelemetryScrollTotalY(0),
     mHasPendingInterrupt(false),
     mPendingInterruptFromTest(false),
     mInterruptsEnabled(false),
@@ -3268,9 +3271,10 @@ nsRootPresContext::EnsureEventualDidPaintEvent(uint64_t aTransactionId)
 
   nsCOMPtr<nsITimer> timer = do_CreateInstance("@mozilla.org/timer;1");
   if (timer) {
-    nsresult rv = timer->InitWithCallback(NewTimerCallback([=](){
+    RefPtr<nsRootPresContext> self = this;
+    nsresult rv = timer->InitWithCallback(NewTimerCallback([self, aTransactionId](){
       nsAutoScriptBlocker blockScripts;
-      this->NotifyDidPaintForSubtree(aTransactionId);
+      self->NotifyDidPaintForSubtree(aTransactionId);
     }), 100, nsITimer::TYPE_ONE_SHOT);
 
     if (NS_SUCCEEDED(rv)) {

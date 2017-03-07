@@ -22,6 +22,7 @@
 #if defined(XP_WIN) || defined(XP_MACOSX) || defined(XP_LINUX)
 #include "gfxVROSVR.h"
 #endif
+#include "gfxVRPuppet.h"
 #include "ipc/VRLayerParent.h"
 
 using namespace mozilla;
@@ -47,6 +48,7 @@ VRManager::ManagerInit()
 
 VRManager::VRManager()
   : mInitialized(false)
+  , mVRTestSystemCreated(false)
 {
   MOZ_COUNT_CTOR(VRManager);
   MOZ_ASSERT(sVRManagerSingleton == nullptr);
@@ -382,6 +384,21 @@ VRManager::RemoveControllers()
     mManagers[i]->RemoveControllers();
   }
   mVRControllers.Clear();
+}
+
+void
+VRManager::CreateVRTestSystem()
+{
+  if (mVRTestSystemCreated) {
+    return;
+  }
+
+  RefPtr<VRSystemManager> mgr = VRSystemManagerPuppet::Create();
+  if (mgr) {
+    mgr->Init();
+    mManagers.AppendElement(mgr);
+    mVRTestSystemCreated = true;
+  }
 }
 
 template<class T>

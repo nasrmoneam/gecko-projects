@@ -13,6 +13,17 @@ e.g.
 There are also built-in ESLint environments available as well:
 http://eslint.org/docs/user-guide/configuring#specifying-environments
 
+browser-window
+--------------
+
+Defines the environment for scripts that are in the main browser.xul scope.
+
+places-overlay
+--------------
+
+Defines the environment for scripts that are in a scope where placesOverlay.xul
+is included.
+
 chrome-worker
 -------------
 
@@ -47,13 +58,6 @@ Checks the filename of imported files e.g. ``Cu.import("some/path/Blah.jsm")``
 adds Blah to the global scope.
 
 Note: uses modules.json for a list of globals listed in each file.
-
-import-browserjs-globals
-------------------------
-
-When included files from the main browser UI scripts will be loaded and any
-declared globals will be defined for the current file. This is mostly useful for
-browser-chrome mochitests that call browser functions.
 
 
 import-globals-from

@@ -176,9 +176,6 @@ user_pref("layout.css.contain.enabled", true);
 // Enable CSS initial-letter for testing
 user_pref("layout.css.initial-letter.enabled", true);
 
-// Enable CSS object-fit & object-position for testing
-user_pref("layout.css.object-fit-and-position.enabled", true);
-
 // Enable webkit prefixed CSS features for testing
 user_pref("layout.css.prefixes.webkit", true);
 
@@ -187,6 +184,9 @@ user_pref("layout.css.prefixes.device-pixel-ratio-webkit", true);
 
 // Enable CSS shape-outside for testing
 user_pref("layout.css.shape-outside.enabled", true);
+
+// Enable CSS text-justify for testing
+user_pref("layout.css.text-justify.enabled", true);
 
 // Disable spammy layout warnings because they pollute test logs
 user_pref("layout.spammy_warnings.enabled", false);

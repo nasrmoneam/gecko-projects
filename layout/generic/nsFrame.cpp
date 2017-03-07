@@ -89,6 +89,7 @@
 #include "nsFontInflationData.h"
 #include "nsRegion.h"
 #include "nsIFrameInlines.h"
+#include "nsStyleChangeList.h"
 
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/EffectCompositor.h"
@@ -99,6 +100,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/css/ImageLoader.h"
 #include "mozilla/gfx/Tools.h"
 #include "nsPrintfCString.h"
@@ -406,14 +408,36 @@ nsIFrame::ContentStatesChanged(mozilla::EventStates aStates)
 {
 }
 
+AutoWeakFrame::AutoWeakFrame(const WeakFrame& aOther)
+  : mPrev(nullptr), mFrame(nullptr)
+{
+  Init(aOther.GetFrame());
+}
+
 void
-nsWeakFrame::Init(nsIFrame* aFrame)
+AutoWeakFrame::Init(nsIFrame* aFrame)
 {
   Clear(mFrame ? mFrame->PresContext()->GetPresShell() : nullptr);
   mFrame = aFrame;
   if (mFrame) {
     nsIPresShell* shell = mFrame->PresContext()->GetPresShell();
-    NS_WARNING_ASSERTION(shell, "Null PresShell in nsWeakFrame!");
+    NS_WARNING_ASSERTION(shell, "Null PresShell in AutoWeakFrame!");
+    if (shell) {
+      shell->AddAutoWeakFrame(this);
+    } else {
+      mFrame = nullptr;
+    }
+  }
+}
+
+void
+WeakFrame::Init(nsIFrame* aFrame)
+{
+  Clear(mFrame ? mFrame->PresContext()->GetPresShell() : nullptr);
+  mFrame = aFrame;
+  if (mFrame) {
+    nsIPresShell* shell = mFrame->PresContext()->GetPresShell();
+    MOZ_ASSERT(shell, "Null PresShell in WeakFrame!");
     if (shell) {
       shell->AddWeakFrame(this);
     } else {
@@ -3420,7 +3444,7 @@ nsFrame::HandlePress(nsPresContext* aPresContext,
   RefPtr<nsFrameSelection> fc = const_cast<nsFrameSelection*>(frameselection);
   if (mouseEvent->mClickCount > 1) {
     // These methods aren't const but can't actually delete anything,
-    // so no need for nsWeakFrame.
+    // so no need for AutoWeakFrame.
     fc->SetDragState(true);
     fc->SetMouseDoubleDown(true);
     return HandleMultiplePress(aPresContext, mouseEvent, aEventStatus, control);
@@ -3751,7 +3775,7 @@ NS_IMETHODIMP nsFrame::HandleDrag(nsPresContext* aPresContext,
                                     getter_AddRefs(parentContent),
                                     &contentOffset, &target);      
 
-  nsWeakFrame weakThis = this;
+  AutoWeakFrame weakThis = this;
   if (NS_SUCCEEDED(result) && parentContent) {
     frameselection->HandleTableSelection(parentContent, contentOffset, target,
                                          mouseEvent);
@@ -10028,6 +10052,53 @@ nsFrame::BoxMetrics() const
   return metrics;
 }
 
+void
+nsFrame::UpdateStyleOfChildAnonBox(nsIFrame* aChildFrame,
+                                   ServoStyleSet& aStyleSet,
+                                   nsStyleChangeList& aChangeList,
+                                   nsChangeHint aHintForThisFrame)
+{
+  MOZ_ASSERT(aChildFrame->GetParent() == this,
+             "This should only be used for children!");
+  MOZ_ASSERT(aChildFrame->GetContent() == GetContent(),
+             "What content node is it a frame for?");
+
+  // We could force the caller to pass in the pseudo, since some callers know it
+  // statically...  But this API is a bit nicer.
+  nsIAtom* pseudo = aChildFrame->StyleContext()->GetPseudo();
+  MOZ_ASSERT(nsCSSAnonBoxes::IsAnonBox(pseudo), "Child is not an anon box?");
+
+  // Anon boxes inherit from their parent; that's us.
+  RefPtr<nsStyleContext> newContext =
+    aStyleSet.ResolveAnonymousBoxStyle(pseudo, StyleContext());
+
+  // Figure out whether we have an actual change.  It's important that we do
+  // this, for several reasons:
+  //
+  // 1) Even if all the child's changes are due to properties it inherits from
+  //    us, it's possible that no one ever asked us for those style structs and
+  //    hence changes to them aren't reflected in aHintForThisFrame at all.
+  // 2) Extensions can add/remove stylesheets that change the styles of
+  //    anonymous boxed directly.
+  uint32_t equalStructs, samePointerStructs; // Not used, actually.
+  nsChangeHint childHint = aChildFrame->StyleContext()->CalcStyleDifference(
+    newContext,
+    NS_HintsNotHandledForDescendantsIn(aHintForThisFrame),
+    &equalStructs,
+    &samePointerStructs);
+  if (childHint) {
+    aChangeList.AppendChange(aChildFrame, aChildFrame->GetContent(), childHint);
+  }
+
+  for (nsIFrame* kid = aChildFrame; kid; kid = kid->GetNextContinuation()) {
+    kid->SetStyleContext(newContext);
+  }
+
+  // Now that we've updated the style on aChildFrame, check whether it itself
+  // has anon boxes to deal with.
+  aChildFrame->UpdateStyleOfOwnedAnonBoxes(aStyleSet, aChangeList, childHint);
+}
+
 /* static */ void
 nsIFrame::AddInPopupStateBitToDescendants(nsIFrame* aFrame)
 {
@@ -10240,6 +10311,16 @@ bool
 nsIFrame::IsScrolledOutOfView()
 {
   return IsFrameScrolledOutOfView(this);
+}
+
+/* virtual */
+void
+nsIFrame::DoUpdateStyleOfOwnedAnonBoxes(ServoStyleSet& aStyleSet,
+                                      nsStyleChangeList& aChangeList,
+                                      nsChangeHint aHintForThisFrame)
+{
+  MOZ_ASSERT(!(GetStateBits() & NS_FRAME_OWNS_ANON_BOXES));
+  MOZ_ASSERT(false, "Why did this get called?");
 }
 
 nsIFrame::CaretPosition::CaretPosition()

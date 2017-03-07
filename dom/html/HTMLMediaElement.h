@@ -287,6 +287,8 @@ public:
   // called to notify that the principal of the decoder's media resource has changed.
   void NotifyDecoderPrincipalChanged() final override;
 
+  void GetEMEInfo(nsString& aEMEInfo);
+
   // An interface for observing principal changes on the media elements
   // MediaDecoder. This will also be notified if the active CORSMode changes.
   class DecoderPrincipalChangeObserver
@@ -747,6 +749,8 @@ public:
 
   void SetMediaInfo(const MediaInfo& aInfo);
 
+  virtual AbstractThread* AbstractMainThread() const final override;
+
   // Telemetry: to record the usage of a {visible / invisible} video element as
   // the source of {drawImage(), createPattern(), createImageBitmap() and
   // captureStream()} APIs.
@@ -1185,8 +1189,6 @@ protected:
   {
     return this;
   }
-
-  virtual AbstractThread* AbstractMainThread() const final override;
 
   // Return true if decoding should be paused
   virtual bool GetPaused() final override

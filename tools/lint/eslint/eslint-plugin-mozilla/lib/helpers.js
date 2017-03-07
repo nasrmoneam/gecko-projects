@@ -35,7 +35,7 @@ var definitions = [
 ];
 
 var imports = [
-  /^(?:Cu|Components\.utils)\.import\(".*\/((.*?)\.jsm?)"(?:, this)?\)/,
+  /^(?:Cu|Components\.utils)\.import\(".*\/((.*?)\.jsm?)"(?:, this)?\)/
 ];
 
 var workerImportFilenameMatch = /(.*\/)*(.*?\.jsm?)/;
@@ -71,9 +71,11 @@ module.exports = {
   getASTSource: function(node) {
     switch (node.type) {
       case "MemberExpression":
-        if (node.computed)
+        if (node.computed) {
           throw new Error("getASTSource unsupported computed MemberExpression");
-        return this.getASTSource(node.object) + "." + this.getASTSource(node.property);
+        }
+        return this.getASTSource(node.object) + "." +
+          this.getASTSource(node.property);
       case "ThisExpression":
         return "this";
       case "Identifier":
@@ -92,7 +94,8 @@ module.exports = {
       case "ArrowFunctionExpression":
         return "() => {}";
       case "AssignmentExpression":
-        return this.getASTSource(node.left) + " = " + this.getASTSource(node.right);
+        return this.getASTSource(node.left) + " = " +
+          this.getASTSource(node.right);
       default:
         throw new Error("getASTSource unsupported node type: " + node.type);
     }
@@ -176,11 +179,13 @@ module.exports = {
    *         - {Boolean} writable
    *                     If the global is writeable or not.
    */
-  convertWorkerExpressionToGlobals: function(node, isGlobal, repository, dirname) {
+  convertWorkerExpressionToGlobals: function(node, isGlobal, repository,
+                                             dirname) {
     var getGlobalsForFile = require("./globals").getGlobalsForFile;
 
     if (!modules) {
-      modules = require(path.join(repository, "tools", "lint", "eslint", "modules.json"));
+      modules = require(path.join(repository,
+        "tools", "lint", "eslint", "modules.json"));
     }
 
     let results = [];
@@ -213,13 +218,13 @@ module.exports = {
 
   convertExpressionToGlobals: function(node, isGlobal, repository) {
     if (!modules) {
-      modules = require(path.join(repository, "tools", "lint", "eslint", "modules.json"));
+      modules = require(path.join(repository,
+        "tools", "lint", "eslint", "modules.json"));
     }
 
     try {
       var source = this.getASTSource(node);
-    }
-    catch (e) {
+    } catch (e) {
       return [];
     }
 
@@ -320,7 +325,7 @@ module.exports = {
       sourceType: "script",
       ecmaFeatures: {
         experimentalObjectRestSpread: true,
-        globalReturn: true,
+        globalReturn: true
       }
     };
   },
@@ -349,7 +354,7 @@ module.exports = {
    *
    * @param  {RuleContext} scope
    *         You should pass this from within a rule
-   *         e.g. helpers.getIsHeadFile(this)
+   *         e.g. helpers.getIsHeadFile(context)
    *
    * @return {Boolean}
    *         True or false
@@ -365,7 +370,7 @@ module.exports = {
    *
    * @param  {RuleContext} scope
    *         You should pass this from within a rule
-   *         e.g. helpers.getIsHeadFile(this)
+   *         e.g. helpers.getIsHeadFile(context)
    *
    * @return {String[]}
    *         Paths to head files to load for the test
@@ -378,9 +383,10 @@ module.exports = {
     let filepath = this.cleanUpPath(scope.getFilename());
     let dir = path.dirname(filepath);
 
-    let names = fs.readdirSync(dir)
-                  .filter(name => name.startsWith("head") && name.endsWith(".js"))
-                  .map(name => path.join(dir, name));
+    let names =
+      fs.readdirSync(dir)
+        .filter(name => name.startsWith("head") && name.endsWith(".js"))
+        .map(name => path.join(dir, name));
     return names;
   },
 
@@ -412,7 +418,7 @@ module.exports = {
         manifests.push({
           file: path.join(dir, name),
           manifest
-        })
+        });
       } catch (e) {
       }
     }
@@ -426,7 +432,7 @@ module.exports = {
    *
    * @param  {RuleContext} scope
    *         You should pass this from within a rule
-   *         e.g. helpers.getIsHeadFile(this)
+   *         e.g. helpers.getIsHeadFile(context)
    *
    * @return {String}
    *         The path to the test manifest file
@@ -451,7 +457,7 @@ module.exports = {
    *
    * @param  {RuleContext} scope
    *         You should pass this from within a rule
-   *         e.g. helpers.getIsTest(this)
+   *         e.g. helpers.getIsTest(context)
    *
    * @return {Boolean}
    *         True or false
@@ -471,7 +477,7 @@ module.exports = {
    *
    * @param  {RuleContext} scope
    *         You should pass this from within a rule
-   *         e.g. helpers.getIsHeadFile(this)
+   *         e.g. helpers.getIsHeadFile(context)
    *
    * @return {String or null}
    *         Test type: xpcshell, browser, chrome, mochitest

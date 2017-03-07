@@ -120,6 +120,7 @@ static mozilla::LazyLogModule gMediaElementEventsLog("nsMediaElementEvents");
 
 #include "mozilla/dom/HTMLVideoElement.h"
 #include "mozilla/dom/VideoPlaybackQuality.h"
+#include "HTMLMediaElement.h"
 
 using namespace mozilla::layers;
 using mozilla::net::nsMediaFragmentURIParser;
@@ -997,7 +998,9 @@ private:
   {
     // Muted or the volume should not be ~0
     if (mOwner->mMuted || (std::fabs(mOwner->Volume()) <= 1e-7)) {
-      return AudioChannelService::AudibleState::eNotAudible;
+      return mOwner->HasAudio() ?
+        AudioChannelService::AudibleState::eMaybeAudible :
+        AudioChannelService::AudibleState::eNotAudible;
     }
 
     // No audio track.
@@ -1481,6 +1484,14 @@ HTMLMediaElement::MozRequestDebugInfo(ErrorResult& aRv)
 
   nsAutoString result;
   GetMozDebugReaderData(result);
+
+  if (mMediaKeys) {
+    nsString EMEInfo;
+    GetEMEInfo(EMEInfo);
+    result.AppendLiteral("EME Info: ");
+    result.Append(EMEInfo);
+    result.AppendLiteral("\n");
+  }
 
   if (mDecoder) {
     mDecoder->RequestDebugInfo()->Then(
@@ -4270,6 +4281,7 @@ nsresult HTMLMediaElement::BindToTree(nsIDocument* aDocument, nsIContent* aParen
     // The preload action depends on the value of the autoplay attribute.
     // It's value may have changed, so update it.
     UpdatePreloadAction();
+    aDocument->AddMediaContent(this);
   }
 
   if (mDecoder) {
@@ -4505,6 +4517,9 @@ void HTMLMediaElement::UnbindFromTree(bool aDeep,
                                       bool aNullParent)
 {
   mUnboundFromTree = true;
+  if (OwnerDoc()) {
+    OwnerDoc()->RemoveMediaContent(this);
+  }
 
   nsGenericHTMLElement::UnbindFromTree(aDeep, aNullParent);
 
@@ -6435,13 +6450,6 @@ void HTMLMediaElement::SetRequestHeaders(nsIHttpChannel* aChannel)
   // Send Accept header for video and audio types only (Bug 489071)
   SetAcceptHeader(aChannel);
 
-  // Media elements are likely candidates for HTTP Pipeline head of line
-  // blocking problems, so disable pipelines.
-  nsLoadFlags loadflags;
-  aChannel->GetLoadFlags(&loadflags);
-  loadflags |= nsIRequest::INHIBIT_PIPELINE;
-  aChannel->SetLoadFlags(loadflags);
-
   // Apache doesn't send Content-Length when gzip transfer encoding is used,
   // which prevents us from estimating the video length (if explicit Content-Duration
   // and a length spec in the container are not present either) and from seeking.
@@ -7343,6 +7351,25 @@ HTMLMediaElement::AsyncRejectPendingPlayPromises(nsresult aError)
   OwnerDoc()->Dispatch("nsResolveOrRejectPendingPlayPromisesRunner",
                        TaskCategory::Other,
                        event.forget());
+}
+
+void
+HTMLMediaElement::GetEMEInfo(nsString& aEMEInfo)
+{
+  if (!mMediaKeys) {
+    return;
+  }
+
+  nsString keySystem;
+  mMediaKeys->GetKeySystem(keySystem);
+
+  nsString sessionsInfo;
+  mMediaKeys->GetSessionsInfo(sessionsInfo);
+
+  aEMEInfo.AppendLiteral("Key System=");
+  aEMEInfo.Append(keySystem);
+  aEMEInfo.AppendLiteral(" SessionsInfo=");
+  aEMEInfo.Append(sessionsInfo);
 }
 
 bool HasDebuggerPrivilege(JSContext* aCx, JSObject* aObj)

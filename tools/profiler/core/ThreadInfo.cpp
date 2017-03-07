@@ -22,6 +22,7 @@ ThreadInfo::ThreadInfo(const char* aName, int aThreadId,
   , mPlatformData(AllocPlatformData(aThreadId))
   , mStackTop(aStackTop)
   , mPendingDelete(false)
+  , mHasProfile(false)
   , mMutex(MakeUnique<mozilla::Mutex>("ThreadInfo::mMutex"))
 {
   MOZ_COUNT_CTOR(ThreadInfo);
@@ -64,18 +65,8 @@ ThreadInfo::CanInvokeJS() const
 }
 
 void
-ThreadInfo::addTag(const ProfileBufferEntry& aTag)
-{
-  mBuffer->addTag(aTag);
-}
-
-void
-ThreadInfo::addStoredMarker(ProfilerMarker* aStoredMarker) {
-  mBuffer->addStoredMarker(aStoredMarker);
-}
-
-void
-ThreadInfo::StreamJSON(SpliceableJSONWriter& aWriter, double aSinceTime)
+ThreadInfo::StreamJSON(ProfileBuffer* aBuffer, SpliceableJSONWriter& aWriter,
+                       const TimeStamp& aStartTime, double aSinceTime)
 {
   // mUniqueStacks may already be emplaced from FlushSamplesAndMarkers.
   if (!mUniqueStacks.isSome()) {
@@ -84,7 +75,8 @@ ThreadInfo::StreamJSON(SpliceableJSONWriter& aWriter, double aSinceTime)
 
   aWriter.Start(SpliceableJSONWriter::SingleLineStyle);
   {
-    StreamSamplesAndMarkers(aWriter, aSinceTime, *mUniqueStacks);
+    StreamSamplesAndMarkers(aBuffer, aWriter, aStartTime, aSinceTime,
+                            *mUniqueStacks);
 
     aWriter.StartObjectProperty("stackTable");
     {
@@ -133,7 +125,9 @@ ThreadInfo::StreamJSON(SpliceableJSONWriter& aWriter, double aSinceTime)
 }
 
 void
-ThreadInfo::StreamSamplesAndMarkers(SpliceableJSONWriter& aWriter,
+ThreadInfo::StreamSamplesAndMarkers(ProfileBuffer* aBuffer,
+                                    SpliceableJSONWriter& aWriter,
+                                    const TimeStamp& aStartTime,
                                     double aSinceTime,
                                     UniqueStacks& aUniqueStacks)
 {
@@ -165,7 +159,7 @@ ThreadInfo::StreamSamplesAndMarkers(SpliceableJSONWriter& aWriter,
         aWriter.Splice(mSavedStreamedSamples.get());
         mSavedStreamedSamples.reset();
       }
-      mBuffer->StreamSamplesToJSON(aWriter, mThreadId, aSinceTime,
+      aBuffer->StreamSamplesToJSON(aWriter, mThreadId, aSinceTime,
                                    mPseudoStack->mContext, aUniqueStacks);
     }
     aWriter.EndArray();
@@ -188,7 +182,8 @@ ThreadInfo::StreamSamplesAndMarkers(SpliceableJSONWriter& aWriter,
         aWriter.Splice(mSavedStreamedMarkers.get());
         mSavedStreamedMarkers.reset();
       }
-      mBuffer->StreamMarkersToJSON(aWriter, mThreadId, aSinceTime, aUniqueStacks);
+      aBuffer->StreamMarkersToJSON(aWriter, mThreadId, aStartTime, aSinceTime,
+                                   aUniqueStacks);
     }
     aWriter.EndArray();
   }
@@ -196,7 +191,9 @@ ThreadInfo::StreamSamplesAndMarkers(SpliceableJSONWriter& aWriter,
 }
 
 void
-ThreadInfo::FlushSamplesAndMarkers()
+ThreadInfo::FlushSamplesAndMarkers(ProfileBuffer* aBuffer,
+                                   const TimeStamp& aStartTime)
+
 {
   // This function is used to serialize the current buffer just before
   // JSContext destruction.
@@ -215,7 +212,7 @@ ThreadInfo::FlushSamplesAndMarkers()
     SpliceableChunkedJSONWriter b;
     b.StartBareList();
     {
-      mBuffer->StreamSamplesToJSON(b, mThreadId, /* aSinceTime = */ 0,
+      aBuffer->StreamSamplesToJSON(b, mThreadId, /* aSinceTime = */ 0,
                                    mPseudoStack->mContext, *mUniqueStacks);
     }
     b.EndBareList();
@@ -226,7 +223,8 @@ ThreadInfo::FlushSamplesAndMarkers()
     SpliceableChunkedJSONWriter b;
     b.StartBareList();
     {
-      mBuffer->StreamMarkersToJSON(b, mThreadId, /* aSinceTime = */ 0, *mUniqueStacks);
+      aBuffer->StreamMarkersToJSON(b, mThreadId, aStartTime,
+                                   /* aSinceTime = */ 0, *mUniqueStacks);
     }
     b.EndBareList();
     mSavedStreamedMarkers = b.WriteFunc()->CopyData();
@@ -234,19 +232,13 @@ ThreadInfo::FlushSamplesAndMarkers()
 
   // Reset the buffer. Attempting to symbolicate JS samples after mContext has
   // gone away will crash.
-  mBuffer->reset();
+  aBuffer->reset();
 }
 
 mozilla::Mutex&
 ThreadInfo::GetMutex()
 {
   return *mMutex.get();
-}
-
-void
-ThreadInfo::DuplicateLastSample(const TimeStamp& aStartTime)
-{
-  mBuffer->DuplicateLastSample(mThreadId, aStartTime);
 }
 
 size_t

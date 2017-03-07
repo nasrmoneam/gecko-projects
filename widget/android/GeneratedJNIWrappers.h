@@ -2098,25 +2098,80 @@ public:
 
     static auto New(mozilla::jni::Object::Param) -> GeckoEditable::LocalRef;
 
-    struct DisposeNative_t {
+    struct OnViewChange_t {
         typedef GeckoEditable Owner;
         typedef void ReturnType;
         typedef void SetterType;
-        typedef mozilla::jni::Args<> Args;
-        static constexpr char name[] = "disposeNative";
+        typedef mozilla::jni::Args<
+                mozilla::jni::Object::Param> Args;
+        static constexpr char name[] = "onViewChange";
         static constexpr char signature[] =
-                "()V";
+                "(Lorg/mozilla/gecko/GeckoView;)V";
         static const bool isStatic = false;
         static const mozilla::jni::ExceptionMode exceptionMode =
                 mozilla::jni::ExceptionMode::ABORT;
         static const mozilla::jni::CallingThread callingThread =
-                mozilla::jni::CallingThread::ANY;
+                mozilla::jni::CallingThread::GECKO;
         static const mozilla::jni::DispatchTarget dispatchTarget =
-                mozilla::jni::DispatchTarget::PROXY;
+                mozilla::jni::DispatchTarget::CURRENT;
     };
 
-    struct NotifyIME_t {
+    auto OnViewChange(mozilla::jni::Object::Param) const -> void;
+
+    struct SetDefaultEditableChild_t {
         typedef GeckoEditable Owner;
+        typedef void ReturnType;
+        typedef void SetterType;
+        typedef mozilla::jni::Args<
+                mozilla::jni::Object::Param> Args;
+        static constexpr char name[] = "setDefaultEditableChild";
+        static constexpr char signature[] =
+                "(Lorg/mozilla/gecko/IGeckoEditableChild;)V";
+        static const bool isStatic = false;
+        static const mozilla::jni::ExceptionMode exceptionMode =
+                mozilla::jni::ExceptionMode::ABORT;
+        static const mozilla::jni::CallingThread callingThread =
+                mozilla::jni::CallingThread::GECKO;
+        static const mozilla::jni::DispatchTarget dispatchTarget =
+                mozilla::jni::DispatchTarget::CURRENT;
+    };
+
+    auto SetDefaultEditableChild(mozilla::jni::Object::Param) const -> void;
+
+    static const mozilla::jni::CallingThread callingThread =
+            mozilla::jni::CallingThread::GECKO;
+
+};
+
+class GeckoEditableChild : public mozilla::jni::ObjectBase<GeckoEditableChild>
+{
+public:
+    static const char name[];
+
+    explicit GeckoEditableChild(const Context& ctx) : ObjectBase<GeckoEditableChild>(ctx) {}
+
+    struct New_t {
+        typedef GeckoEditableChild Owner;
+        typedef GeckoEditableChild::LocalRef ReturnType;
+        typedef GeckoEditableChild::Param SetterType;
+        typedef mozilla::jni::Args<
+                mozilla::jni::Object::Param> Args;
+        static constexpr char name[] = "<init>";
+        static constexpr char signature[] =
+                "(Lorg/mozilla/gecko/IGeckoEditableParent;)V";
+        static const bool isStatic = false;
+        static const mozilla::jni::ExceptionMode exceptionMode =
+                mozilla::jni::ExceptionMode::ABORT;
+        static const mozilla::jni::CallingThread callingThread =
+                mozilla::jni::CallingThread::GECKO;
+        static const mozilla::jni::DispatchTarget dispatchTarget =
+                mozilla::jni::DispatchTarget::CURRENT;
+    };
+
+    static auto New(mozilla::jni::Object::Param) -> GeckoEditableChild::LocalRef;
+
+    struct NotifyIME_t {
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2136,7 +2191,7 @@ public:
     auto NotifyIME(int32_t) const -> void;
 
     struct NotifyIMEContext_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2159,7 +2214,7 @@ public:
     auto NotifyIMEContext(int32_t, mozilla::jni::String::Param, mozilla::jni::String::Param, mozilla::jni::String::Param) const -> void;
 
     struct OnDefaultKeyEvent_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2179,7 +2234,7 @@ public:
     auto OnDefaultKeyEvent(mozilla::jni::Object::Param) const -> void;
 
     struct OnImeAddCompositionRange_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2205,7 +2260,7 @@ public:
     };
 
     struct OnImeReplaceText_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2225,7 +2280,7 @@ public:
     };
 
     struct OnImeRequestCursorUpdates_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2243,7 +2298,7 @@ public:
     };
 
     struct OnImeSynchronize_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<> Args;
@@ -2260,7 +2315,7 @@ public:
     };
 
     struct OnImeUpdateComposition_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2279,10 +2334,11 @@ public:
     };
 
     struct OnKeyEvent_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
+                int32_t,
                 int32_t,
                 int32_t,
                 int32_t,
@@ -2291,13 +2347,11 @@ public:
                 int32_t,
                 int32_t,
                 int32_t,
-                int32_t,
-                int32_t,
                 bool,
                 mozilla::jni::Object::Param> Args;
         static constexpr char name[] = "onKeyEvent";
         static constexpr char signature[] =
-                "(IIIIJIIIIIZLandroid/view/KeyEvent;)V";
+                "(IIIIIJIIIZLandroid/view/KeyEvent;)V";
         static const bool isStatic = false;
         static const mozilla::jni::ExceptionMode exceptionMode =
                 mozilla::jni::ExceptionMode::ABORT;
@@ -2308,7 +2362,7 @@ public:
     };
 
     struct OnSelectionChange_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2329,7 +2383,7 @@ public:
     auto OnSelectionChange(int32_t, int32_t) const -> void;
 
     struct OnTextChange_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2351,28 +2405,8 @@ public:
 
     auto OnTextChange(mozilla::jni::String::Param, int32_t, int32_t, int32_t) const -> void;
 
-    struct OnViewChange_t {
-        typedef GeckoEditable Owner;
-        typedef void ReturnType;
-        typedef void SetterType;
-        typedef mozilla::jni::Args<
-                mozilla::jni::Object::Param> Args;
-        static constexpr char name[] = "onViewChange";
-        static constexpr char signature[] =
-                "(Lorg/mozilla/gecko/GeckoView;)V";
-        static const bool isStatic = false;
-        static const mozilla::jni::ExceptionMode exceptionMode =
-                mozilla::jni::ExceptionMode::ABORT;
-        static const mozilla::jni::CallingThread callingThread =
-                mozilla::jni::CallingThread::GECKO;
-        static const mozilla::jni::DispatchTarget dispatchTarget =
-                mozilla::jni::DispatchTarget::CURRENT;
-    };
-
-    auto OnViewChange(mozilla::jni::Object::Param) const -> void;
-
     struct UpdateCompositionRects_t {
-        typedef GeckoEditable Owner;
+        typedef GeckoEditableChild Owner;
         typedef void ReturnType;
         typedef void SetterType;
         typedef mozilla::jni::Args<
@@ -2395,6 +2429,24 @@ public:
             mozilla::jni::CallingThread::ANY;
 
     template<class Impl> class Natives;
+};
+
+class GeckoEditableClient : public mozilla::jni::ObjectBase<GeckoEditableClient>
+{
+public:
+    static const char name[];
+
+    explicit GeckoEditableClient(const Context& ctx) : ObjectBase<GeckoEditableClient>(ctx) {}
+
+    static const int32_t END_MONITOR = 3;
+
+    static const int32_t ONE_SHOT = 1;
+
+    static const int32_t START_MONITOR = 2;
+
+    static const mozilla::jni::CallingThread callingThread =
+            mozilla::jni::CallingThread::ANY;
+
 };
 
 class GeckoEditableListener : public mozilla::jni::ObjectBase<GeckoEditableListener>
