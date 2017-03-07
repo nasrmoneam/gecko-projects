@@ -33,16 +33,11 @@ var scriptFile = Cc['@mozilla.org/file/local;1'].createInstance(Ci.nsILocalFile)
 scriptFile.initWithPath(getState("__LOCATION__"));
 dump("\n" + scriptFile.path + "\n\n");
 scriptFile = scriptFile.parent;
-dump("\n" + scriptFile.path + "\n\n");
 scriptFile.append("testConstants.js");
-dump("\n" + scriptFile.path + "\n\n");
 loadHelperScript(scriptFile);
-dump("\nloaded script file\n\n");
 
 scriptFile = getTestDataFile("sharedUpdateXML.js");
-dump("\n" + scriptFile.path + "\n\n");
 loadHelperScript(scriptFile);
-dump("\nloaded script file\n\n");
 
 const SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + FILE_SIMPLE_MAR;
 const BAD_SERVICE_URL = URL_HOST + "/" + REL_PATH_DATA + "nothere.mar";
@@ -51,7 +46,6 @@ const SLOW_MAR_DOWNLOAD_INTERVAL = 100;
 var gTimer;
 
 function handleRequest(aRequest, aResponse) {
-dump("\nhandleRequest\n\n");
   let params = { };
   if (aRequest.queryString) {
     params = parseQueryString(aRequest.queryString);
