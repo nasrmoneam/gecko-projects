@@ -1117,8 +1117,6 @@ nsWindow::Resize(double aWidth, double aHeight, bool aRepaint)
     if (mIsTopLevel || mListenForResizes) {
         DispatchResized();
     }
-
-    return;
 }
 
 void
@@ -1146,8 +1144,6 @@ nsWindow::Resize(double aX, double aY, double aWidth, double aHeight,
     if (mIsTopLevel || mListenForResizes) {
         DispatchResized();
     }
-
-    return;
 }
 
 void
@@ -6097,15 +6093,6 @@ nsWindow::GetInputContext()
       context = mIMContext->GetInputContext();
   }
   return context;
-}
-
-nsIMEUpdatePreference
-nsWindow::GetIMEUpdatePreference()
-{
-    if (!mIMContext) {
-        return nsIMEUpdatePreference();
-    }
-    return mIMContext->GetIMEUpdatePreference();
 }
 
 TextEventDispatcherListener*

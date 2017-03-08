@@ -157,10 +157,7 @@ var gFxAccounts = {
 
   // Note that updateUI() returns a Promise that's only used by tests.
   updateUI() {
-    let profileInfoEnabled = false;
-    try {
-      profileInfoEnabled = Services.prefs.getBoolPref("identity.fxaccounts.profile_image.enabled");
-    } catch (e) { }
+    let profileInfoEnabled = Services.prefs.getBoolPref("identity.fxaccounts.profile_image.enabled", false);
 
     this.panelUIFooter.hidden = false;
 
@@ -333,7 +330,7 @@ var gFxAccounts = {
   populateSendTabToDevicesMenu(devicesPopup, url, title) {
     // remove existing menu items
     while (devicesPopup.hasChildNodes()) {
-      devicesPopup.removeChild(devicesPopup.firstChild);
+      devicesPopup.firstChild.remove();
     }
 
     const fragment = document.createDocumentFragment();
