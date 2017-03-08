@@ -522,16 +522,7 @@ function writeStringToFile(file, text) {
 
 function processStep({notificationId, button, beforeClick, cleanup}) {
   return Task.spawn(function*() {
-    const promises = NOTIFICATIONS.map(n => waitForEvent(`panelUI-${n}`, "doorhanger-shown"));
-    const topic = yield Promise.race(promises);
-
-    is(topic, `panelUI-${notificationId}`, "The right notification showed up.");
-    if (topic != `panelUI-${notificationId}`) {
-      if (cleanup) {
-        yield Task.spawn(cleanup);
-      }
-      return;
-    }
+    yield waitForEvent(`panelUI-${notificationId}`, "doorhanger-shown");
 
     let notification = document.getElementById(`PanelUI-${notificationId}-notification`);
     is(notification.hidden, false, `${notificationId} notification is showing`);
