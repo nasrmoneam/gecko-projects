@@ -114,9 +114,6 @@ pref("app.update.backgroundMaxErrors", 10);
 // Whether or not app updates are enabled
 pref("app.update.enabled", true);
 
-// Whether or not to use the doorhanger application update UI.
-pref("app.update.doorhanger", true);
-
 // If set to true, the Update Service will automatically download updates when
 // app updates are enabled per the app.update.enabled preference and if the user
 // can apply updates.
