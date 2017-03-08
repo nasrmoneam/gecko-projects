@@ -220,9 +220,9 @@ var gFxAccounts = {
         }
       }
       if (showErrorBadge) {
-        PanelUI.showBadgeOnlyNotification("fxa-needs-authentication");
+        gMenuButtonBadgeManager.addBadge(gMenuButtonBadgeManager.BADGEID_FXA, "fxa-needs-authentication");
       } else {
-        PanelUI.removeNotification("fxa-needs-authentication");
+        gMenuButtonBadgeManager.removeBadge(gMenuButtonBadgeManager.BADGEID_FXA);
       }
     }
 
