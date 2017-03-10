@@ -417,9 +417,6 @@ Any line which doesn't follow the format above would be ignored like comment.
     * test_inherit_storage.html `for property 'border-image-` [5]
     * test_initial_storage.html `for property 'border-image-` [10]
     * test_value_storage.html `(for 'border-image-` [60]
-  * whitespace should be required around '+'/'-' servo/servo#15486
-    * test_property_syntax_errors.html `calc(2em+` [6]
-    * ... `calc(50%+` [8]
   * accepts rubbish for second part of value:
     * test_property_syntax_errors.html `'text-overflow'`: servo/servo#15491 [8]
   * -moz-alt-content parsing is wrong: servo/servo#15726
@@ -454,7 +451,6 @@ Any line which doesn't follow the format above would be ignored like comment.
     * test_shorthand_property_getters.html `should serialize to 4-value` [2]
   * test_variables.html `--weird`: name of custom property is not escaped properly servo/servo#15399 [1]
   * ... `got "--`: CSS-wide keywords in custom properties servo/servo#15401 [3]
-  * test_priority_preservation.html `text-decoration`: not serialize style if it has the initial value servo/servo#15790 [6]
 * Unsupported pseudo-classes
   * :default ##easy##
     * test_bug302186.html [24]
@@ -484,13 +480,11 @@ Any line which doesn't follow the format above would be ignored like comment.
 * Negative value should be rejected
   * test_property_syntax_errors.html `'-10%' not accepted for 'border-image-slice'`: negative percentage servo/servo#15339 [2]
   * ... `transition-duration`: servo/servo#15343 [20]
-  * ... `-radius'`: servo/servo#15345 [30]
   * ... `perspective'`: servo/servo#15337 [20]
   * third length of shadow servo/servo#15490
     * test_property_syntax_errors.html `box-shadow'` [6]
     * ... `'text-shadow'` [2]
     * ... `drop-shadow` [6]
-  * test_property_syntax_errors.html `(-1)`: factor value in filter functions servo/servo#15494 [42]
 * Quirks mode support
   * hashless color servo/servo#15341
     * test_property_syntax_errors.html `color: 000000` [22]
