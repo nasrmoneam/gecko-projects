@@ -4625,12 +4625,10 @@ nsHttpChannel::OpenCacheInputStream(nsICacheEntry* cacheEntry, bool startBufferi
         if (NS_SUCCEEDED(rv)) {
             // We have succeeded.
             mAvailableCachedAltDataType = mPreferredCachedAltDataType;
-            // Clear the header.
-            mCachedResponseHead->SetContentLength(-1);
             // Set the correct data size on the channel.
             int64_t altDataSize;
             if (NS_SUCCEEDED(cacheEntry->GetAltDataSize(&altDataSize))) {
-                mCachedResponseHead->SetContentLength(altDataSize);
+                mAltDataLength = altDataSize;
             }
         }
     }
@@ -6111,6 +6109,10 @@ nsHttpChannel::BeginConnect()
         }
         if (mClassOfService & nsIClassOfService::Unblocked) {
             mCaps |= NS_HTTP_LOAD_UNBLOCKED;
+        }
+        if (mClassOfService & nsIClassOfService::UrgentStart) {
+            mCaps |= NS_HTTP_URGENT_START;
+            SetPriority(nsISupportsPriority::PRIORITY_HIGHEST);
         }
     }
 
