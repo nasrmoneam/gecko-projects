@@ -4983,38 +4983,6 @@
     "releaseChannelCollection": "opt-out",
     "description": "Update: the update wizard page displayed when the UI was closed (mapped in toolkit/mozapps/update/UpdateTelemetry.jsm)"
   },
-  "UPDATE_NOTIFICATION_SHOWN": {
-    "alert_emails": ["dothayer@mozilla.com"],
-    "expires_in_version": "60",
-    "kind": "categorical",
-    "bug_numbers": [893505],
-    "description": "Every time we show a doorhanger notification regarding application updates, we log the type of notification here.",
-    "labels": ["restart", "available", "manual"]
-  },
-  "UPDATE_NOTIFICATION_DISMISSED": {
-    "alert_emails": ["dothayer@mozilla.com"],
-    "expires_in_version": "60",
-    "kind": "categorical",
-    "bug_numbers": [893505],
-    "description": "Every time a user dismisses a doorhanger notification regarding application updates, we log the type of notification here.",
-    "labels": ["restart", "available", "manual"]
-  },
-  "UPDATE_NOTIFICATION_MAIN_ACTION_DOORHANGER": {
-    "alert_emails": ["dothayer@mozilla.com"],
-    "expires_in_version": "60",
-    "kind": "categorical",
-    "bug_numbers": [893505],
-    "description": "Every time a user clicks on the main action of doorhanger notification regarding application updates, we log the type of notification here.",
-    "labels": ["restart", "available", "manual"]
-  },
-  "UPDATE_NOTIFICATION_MAIN_ACTION_MENU": {
-    "alert_emails": ["dothayer@mozilla.com"],
-    "expires_in_version": "60",
-    "kind": "categorical",
-    "bug_numbers": [893505],
-    "description": "Every time a user interacts with the PanelUI menu item for a notification regarding application updates, we log the type of notification here.",
-    "labels": ["restart", "available", "manual"]
-  },
   "THUNDERBIRD_GLODA_SIZE_MB": {
     "expires_in_version": "never",
     "kind": "linear",
