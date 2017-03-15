@@ -130,7 +130,7 @@ fails == background-size-monster-rem.html background-size-monster-rem.html
 == background-size-zoom-repeat.html background-size-zoom-repeat.html
 
 # -moz-default-background-color and -moz-default-color (bug 591341)
-fails == background-moz-default-background-color.html background-moz-default-background-color.html
+== background-moz-default-background-color.html background-moz-default-background-color.html
 
 fails == fixed-bg-with-transform-outside-viewport-1.html fixed-bg-with-transform-outside-viewport-1.html
 fuzzy(2,83) == fixed-bg-border-radius.html fixed-bg-border-radius.html
@@ -175,7 +175,7 @@ fails HTTP == background-referrer.html background-referrer.html
 fuzzy-if(skiaContent,1,8) == background-multiple-with-border-radius.html background-multiple-with-border-radius.html
 == background-repeat-large-area.html background-repeat-large-area.html
 
-fails == background-tiling-zoom-1.html background-tiling-zoom-1.html
+== background-tiling-zoom-1.html background-tiling-zoom-1.html
 
 skip-if(!cocoaWidget) == background-repeat-resampling.html background-repeat-resampling.html
 
