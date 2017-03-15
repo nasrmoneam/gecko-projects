@@ -547,6 +547,10 @@ var FullScreen = {
     }
   },
 
+  get navToolboxHidden() {
+    return this._isChromeCollapsed;
+  },
+
   // Autohide helpers for the context menu item
   getAutohide(aItem) {
     aItem.setAttribute("checked", gPrefService.getBoolPref("browser.fullscreen.autohide"));
@@ -579,6 +583,7 @@ var FullScreen = {
     }
 
     this._isChromeCollapsed = false;
+    Services.obs.notifyObservers(null, "fullscreen-nav-toolbox", "shown");
   },
 
   hideNavToolbox(aAnimate = false) {
@@ -602,6 +607,8 @@ var FullScreen = {
     gNavToolbox.style.marginTop =
       -gNavToolbox.getBoundingClientRect().height + "px";
     this._isChromeCollapsed = true;
+    Services.obs.notifyObservers(null, "fullscreen-nav-toolbox", "hidden");
+
     MousePosTracker.removeListener(this);
   },
 

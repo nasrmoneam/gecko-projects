@@ -16,6 +16,7 @@ MOCHITEST_CHROME_MANIFESTS += [
 
 BROWSER_CHROME_MANIFESTS += [
     'content/test/alerts/browser.ini',
+    'content/test/appUpdate/browser.ini',
     'content/test/captivePortal/browser.ini',
     'content/test/general/browser.ini',
     'content/test/newtab/browser.ini',
@@ -47,5 +48,12 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('windows', 'cocoa'):
 
 if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('windows', 'gtk2', 'gtk3'):
     DEFINES['MENUBAR_CAN_AUTOHIDE'] = 1
+
+TEST_HARNESS_FILES.testing.mochitest.browser.browser.base.content.test.appUpdate += [
+    '/toolkit/mozapps/update/tests/chrome/update.sjs',
+    '/toolkit/mozapps/update/tests/data/shared.js',
+    '/toolkit/mozapps/update/tests/data/sharedUpdateXML.js',
+    '/toolkit/mozapps/update/tests/data/simple.mar',
+]
 
 JAR_MANIFESTS += ['jar.mn']
