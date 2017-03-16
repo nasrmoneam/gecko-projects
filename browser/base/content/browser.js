@@ -2845,10 +2845,11 @@ var gMenuButtonUpdateBadge = {
     let secondaryAction = {
       callback() {
         Services.telemetry.getHistogramById("UPDATE_NOTIFICATION_DISMISSED").add(type);
-      }
+      },
+      dismiss: true
     };
 
-    PanelUI.showNotification("update-" + type, action, [], { dismissed });
+    PanelUI.showNotification("update-" + type, action, [secondaryAction], { dismissed });
     Services.telemetry.getHistogramById("UPDATE_NOTIFICATION_SHOWN").add(type);
   },
 
