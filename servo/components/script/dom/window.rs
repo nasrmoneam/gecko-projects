@@ -379,7 +379,9 @@ impl Window {
 
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn display_alert_dialog(message: &str) {
-    tinyfiledialogs::message_box_ok("Alert!", message, MessageBoxIcon::Warning);
+    if !opts::get().headless {
+        tinyfiledialogs::message_box_ok("Alert!", message, MessageBoxIcon::Warning);
+    }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
@@ -718,10 +720,7 @@ impl WindowMethods for Window {
         let data = try!(StructuredCloneData::write(cx, message));
 
         // Step 9.
-        let runnable = PostMessageHandler::new(self, origin, data);
-        let msg = CommonScriptMsg::RunnableMsg(ScriptThreadEventCategory::DomEvent, box runnable);
-        // TODO(#12718): Use the "posted message task source".
-        let _ = self.script_chan.send(msg);
+        self.post_message(origin, data);
         Ok(())
     }
 
@@ -1908,5 +1907,14 @@ impl Runnable for PostMessageHandler {
         MessageEvent::dispatch_jsval(window.upcast(),
                                      window.upcast(),
                                      message.handle());
+    }
+}
+
+impl Window {
+    pub fn post_message(&self, origin: Option<ImmutableOrigin>, data: StructuredCloneData) {
+        let runnable = PostMessageHandler::new(self, origin, data);
+        let msg = CommonScriptMsg::RunnableMsg(ScriptThreadEventCategory::DomEvent, box runnable);
+        // TODO(#12718): Use the "posted message task source".
+        let _ = self.script_chan.send(msg);
     }
 }

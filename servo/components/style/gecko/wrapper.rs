@@ -651,7 +651,12 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
             NonTSPseudoClass::Checked |
             NonTSPseudoClass::ReadWrite |
             NonTSPseudoClass::Fullscreen |
-            NonTSPseudoClass::Indeterminate => {
+            NonTSPseudoClass::Indeterminate |
+            NonTSPseudoClass::PlaceholderShown |
+            NonTSPseudoClass::Target |
+            NonTSPseudoClass::Valid |
+            NonTSPseudoClass::Invalid |
+            NonTSPseudoClass::MozUIValid => {
                 self.get_state().contains(pseudo_class.state_flag())
             },
             NonTSPseudoClass::ReadOnly => {
@@ -661,7 +666,8 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
             NonTSPseudoClass::MozTableBorderNonzero |
             NonTSPseudoClass::MozBrowserFrame => unsafe {
                 Gecko_MatchesElement(pseudo_class.to_gecko_pseudoclasstype().unwrap(), self.0)
-            }
+            },
+            _ => false
         }
     }
 

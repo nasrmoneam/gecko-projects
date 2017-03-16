@@ -27,11 +27,10 @@ Any line which doesn't follow the format above would be ignored like comment.
 ## Failures
 
 * Media query support:
-  * test_acid3_test46.html: @media support [11]
   * test_bug1089417.html [1]
   * test_bug418986-2.html: matchMedia support [3]
   * test_bug453896_deck.html: &lt;style media&gt; support [8]
-  * test_media_queries.html [684]
+  * test_media_queries.html [657]
   * test_media_queries_dynamic.html [10]
   * test_media_queries_dynamic_xbl.html [2]
   * test_webkit_device_pixel_ratio.html: -webkit-device-pixel-ratio [3]
@@ -40,7 +39,7 @@ Any line which doesn't follow the format above would be ignored like comment.
   * test_display_mode_reflow.html [2]
 * test_all_shorthand.html: all shorthand servo/servo#15055 [*]
 * Animation support:
-  * test_animations.html [36]
+  * test_animations.html [35]
   * test_animations_dynamic_changes.html [1]
   * test_bug716226.html [1]
   * OMTA
@@ -64,7 +63,6 @@ Any line which doesn't follow the format above would be ignored like comment.
   * @import
     * test_bug221428.html [1]
   * @media
-    * test_condition_text_assignment.html [1]
     * test_css_eof_handling.html [1]
     * test_group_insertRule.html [16]
     * test_rules_out_of_sheets.html [1]
@@ -335,7 +333,7 @@ Any line which doesn't follow the format above would be ignored like comment.
     * test_pointer-events.html [2]
     * test_value_storage.html `pointer-events` [8]
   * new syntax of rgba?() and hsla?() functions servo/rust-cssparser#113
-    * test_value_storage.html `'color'` [36]
+    * test_value_storage.html `'color'` [35]
     * ... `rgb(100, 100.0, 100)` [1]
   * color interpolation hint not supported servo/servo#15166
     * test_value_storage.html `'linear-gradient` [50]
@@ -449,7 +447,7 @@ Any line which doesn't follow the format above would be ignored like comment.
   * test_units_length.html [5]
   * test_units_time.html [1]
 * insertRule / deleteRule don't work bug 1336863
-  * test_rule_insertion.html [8]
+  * test_rule_insertion.html [7]
 * @-moz-document support
   * test_rule_serialization.html [2]
   * test_moz_document_rules.html [13]
@@ -459,13 +457,14 @@ Any line which doesn't follow the format above would be ignored like comment.
 * test_css_supports.html: issues around @supports syntax servo/servo#15482 [8]
 * test_author_specified_style.html: support serializing color as author specified [33]
 * browser_newtab_share_rule_processors.js: agent style sheet sharing [1]
+* test_selectors.html `this_better_be_unvisited`: visited handling [2]
 
 ## Assertions
 
 * Content glue not implemented
   * assertion in computed style bug 1337635
   * assertion for unsupported or non-animatable property bug 1343710
-    * test_animations.html asserts [24]
+    * test_animations.html asserts [12]
 
 ## Need Gecko change
 
