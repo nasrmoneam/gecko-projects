@@ -45,6 +45,7 @@ use style::gecko_bindings::bindings::Gecko_AnimationAppendKeyframe;
 use style::gecko_bindings::bindings::RawGeckoComputedKeyframeValuesListBorrowedMut;
 use style::gecko_bindings::bindings::RawGeckoElementBorrowed;
 use style::gecko_bindings::bindings::RawServoAnimationValueBorrowed;
+use style::gecko_bindings::bindings::RawServoAnimationValueMapBorrowed;
 use style::gecko_bindings::bindings::RawServoAnimationValueStrong;
 use style::gecko_bindings::bindings::RawServoImportRuleBorrowed;
 use style::gecko_bindings::bindings::ServoComputedValuesBorrowedOrNull;
@@ -55,7 +56,6 @@ use style::gecko_bindings::structs::{ThreadSafePrincipalHolder, ThreadSafeURIHol
 use style::gecko_bindings::structs::{nsRestyleHint, nsChangeHint};
 use style::gecko_bindings::structs::Loader;
 use style::gecko_bindings::structs::RawGeckoPresContextOwned;
-use style::gecko_bindings::structs::RawServoAnimationValueBorrowedListBorrowed;
 use style::gecko_bindings::structs::ServoStyleSheet;
 use style::gecko_bindings::structs::nsCSSValueSharedList;
 use style::gecko_bindings::structs::nsTimingFunction;
@@ -248,17 +248,15 @@ pub extern "C" fn Servo_AnimationValues_Interpolate(from: RawServoAnimationValue
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_AnimationValues_Uncompute(value: RawServoAnimationValueBorrowedListBorrowed)
-     -> RawServoDeclarationBlockStrong
+pub extern "C" fn Servo_AnimationValueMap_Push(value_map: RawServoAnimationValueMapBorrowed,
+                                               property: nsCSSPropertyID,
+                                               value: RawServoAnimationValueBorrowed)
 {
-    let value = unsafe { value.as_ref().unwrap() };
-    let mut block = PropertyDeclarationBlock::new();
-    for v in value.iter() {
-        let raw_anim = unsafe { v.as_ref().unwrap() };
-        let anim = AnimationValue::as_arc(&raw_anim);
-        block.push(anim.uncompute(), Importance::Normal);
-    }
-    Arc::new(RwLock::new(block)).into_strong()
+    use style::properties::animated_properties::AnimationValueMap;
+
+    let value_map = RwLock::<AnimationValueMap>::as_arc(&value_map);
+    let value = AnimationValue::as_arc(&value).as_ref();
+    value_map.write().insert(property.into(), value.clone());
 }
 
 macro_rules! get_property_id_from_nscsspropertyid {
@@ -1008,7 +1006,7 @@ macro_rules! match_wrap_declared {
     ($longhand:ident, $($property:ident => $inner:expr,)*) => (
         match $longhand {
             $(
-                LonghandId::$property => PropertyDeclaration::$property(DeclaredValue::Value($inner)),
+                LonghandId::$property => PropertyDeclaration::$property($inner),
             )*
             _ => {
                 error!("stylo: Don't know how to handle presentation property {:?}", $longhand);
@@ -1036,7 +1034,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetIdentStringValue(declarations:
                                                              nsCSSPropertyID,
                                                              value:
                                                              *mut nsIAtom) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::properties::longhands::_x_lang::computed_value::T as Lang;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1053,7 +1051,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetKeywordValue(declarations:
                                                          RawServoDeclarationBlockBorrowed,
                                                          property: nsCSSPropertyID,
                                                          value: i32) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::properties::longhands;
     use style::values::specified::{BorderStyle, NoCalcLength};
 
@@ -1088,7 +1086,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetKeywordValue(declarations:
 pub extern "C" fn Servo_DeclarationBlock_SetIntValue(declarations: RawServoDeclarationBlockBorrowed,
                                                      property: nsCSSPropertyID,
                                                      value: i32) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::properties::longhands::_x_span::computed_value::T as Span;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1104,7 +1102,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetPixelValue(declarations:
                                                        RawServoDeclarationBlockBorrowed,
                                                        property: nsCSSPropertyID,
                                                        value: f32) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::properties::longhands::border_spacing::SpecifiedValue as BorderSpacing;
     use style::values::specified::BorderWidth;
     use style::values::specified::length::NoCalcLength;
@@ -1143,7 +1141,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetPercentValue(declarations:
                                                          RawServoDeclarationBlockBorrowed,
                                                          property: nsCSSPropertyID,
                                                          value: f32) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::values::specified::length::Percentage;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1165,7 +1163,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetPercentValue(declarations:
 pub extern "C" fn Servo_DeclarationBlock_SetAutoValue(declarations:
                                                       RawServoDeclarationBlockBorrowed,
                                                       property: nsCSSPropertyID) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::values::specified::LengthOrPercentageOrAuto;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1187,7 +1185,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetAutoValue(declarations:
 pub extern "C" fn Servo_DeclarationBlock_SetCurrentColor(declarations:
                                                          RawServoDeclarationBlockBorrowed,
                                                          property: nsCSSPropertyID) {
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::values::specified::{Color, CSSColor};
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1209,7 +1207,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetColorValue(declarations:
                                                        property: nsCSSPropertyID,
                                                        value: structs::nscolor) {
     use style::gecko::values::convert_nscolor_to_rgba;
-    use style::properties::{DeclaredValue, PropertyDeclaration, LonghandId};
+    use style::properties::{PropertyDeclaration, LonghandId};
     use style::properties::longhands;
     use style::values::specified::{Color, CSSColor};
 
@@ -1234,7 +1232,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetFontFamily(declarations:
                                                        RawServoDeclarationBlockBorrowed,
                                                        value: *const nsAString) {
     use cssparser::Parser;
-    use style::properties::{DeclaredValue, PropertyDeclaration};
+    use style::properties::PropertyDeclaration;
     use style::properties::longhands::font_family::SpecifiedValue as FontFamily;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
@@ -1242,7 +1240,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetFontFamily(declarations:
     let mut parser = Parser::new(&string);
     if let Ok(family) = FontFamily::parse(&mut parser) {
         if parser.is_exhausted() {
-            let decl = PropertyDeclaration::FontFamily(DeclaredValue::Value(family));
+            let decl = PropertyDeclaration::FontFamily(family);
             declarations.write().push(decl, Importance::Normal);
         }
     }
@@ -1251,13 +1249,13 @@ pub extern "C" fn Servo_DeclarationBlock_SetFontFamily(declarations:
 #[no_mangle]
 pub extern "C" fn Servo_DeclarationBlock_SetTextDecorationColorOverride(declarations:
                                                                 RawServoDeclarationBlockBorrowed) {
-    use style::properties::{DeclaredValue, PropertyDeclaration};
+    use style::properties::PropertyDeclaration;
     use style::properties::longhands::text_decoration_line;
 
     let declarations = RwLock::<PropertyDeclarationBlock>::as_arc(&declarations);
     let mut decoration = text_decoration_line::computed_value::none;
     decoration |= text_decoration_line::COLOR_OVERRIDE;
-    let decl = PropertyDeclaration::TextDecorationLine(DeclaredValue::Value(decoration));
+    let decl = PropertyDeclaration::TextDecorationLine(decoration);
     declarations.write().push(decl, Importance::Normal);
 }
 
