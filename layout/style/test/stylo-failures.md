@@ -173,13 +173,6 @@ to mochitest command.
     * test_initial_computation.html `-moz-force-broken-image-icon` [4]
     * test_initial_storage.html `-moz-force-broken-image-icon` [4]
     * test_value_storage.html `-moz-force-broken-image-icon` [4]
-  * -{moz,webkit}-text-size-adjust servo/servo#16002
-    * test_compute_data_with_start_struct.html `-text-size-adjust` [2]
-    * test_inherit_computation.html `-text-size-adjust` [8]
-    * test_inherit_storage.html `-text-size-adjust` [10]
-    * test_initial_computation.html `-text-size-adjust` [4]
-    * test_initial_storage.html `-text-size-adjust` [5]
-    * test_value_storage.html `-text-size-adjust` [12]
   * -moz-transform: need different parsing rules servo/servo#16003
     * test_inherit_computation.html `-moz-transform`: need different parsing rules [2]
     * test_inherit_storage.html `transform`: for -moz-transform [3]
@@ -385,7 +378,6 @@ to mochitest command.
   * background-position invalid 3-value form **issue to be filed**
     * test_shorthand_property_getters.html `should serialize to 4-value` [2]
   * test_variables.html `--weird`: name of custom property is not escaped properly servo/servo#15399 [1]
-  * ... `got "--`: CSS-wide keywords in custom properties servo/servo#15401 [3]
   * image-layer values should omit some of its parts when they are initial servo/servo#15951
     * test_shorthand_property_getters.html `background` [2]
   * counter-{reset,increment} doesn't serialize none servo/servo#15977
@@ -414,14 +406,14 @@ to mochitest command.
   * :-moz-window-inactive bug 1348489
     * test_selectors.html `:-moz-window-inactive` [2]
   * :-moz-{first,last}-node
-    * test_selectors.html `:-moz-` [13]
+    * test_selectors.html `:-moz-` [6]
     * ... `unexpected rule index` [5]
   * :dir
     * test_selectors.html `:dir` [10]
 * issues arround font shorthand servo/servo#15032 servo/servo#15036
-  * test_bug377947.html [2]
+  * test_bug377947.html [1]
   * test_value_storage.html `'font'` [144]
-  * test_shorthand_property_getters.html `font shorthand` [2]
+  * test_shorthand_property_getters.html `font shorthand` [1]
   * test_system_font_serialization.html [10]
 * test_value_storage.html `font-size: calc(`: clamp negative value servo/servo#15296 [3]
 * rounding issue
