@@ -69,6 +69,7 @@ WR_DECL_FFI_2(WrFontKey, uint32_t, uint32_t)
 bool is_in_compositor_thread();
 bool is_in_main_thread();
 bool is_in_render_thread();
+bool is_glcontext_egl(void* glcontext_ptr);
 void* get_proc_address_from_glcontext(void* glcontext_ptr, const char* procname);
 
 // -----
@@ -452,7 +453,7 @@ struct WrVecU8 {
 // an error and causes the build to fail. So for wr_* functions called by
 // destructors in C++ classes, use WR_DESTRUCTOR_SAFE_FUNC instead, which omits
 // the unreachable annotation.
-#ifdef MOZ_ENABLE_WEBRENDER
+#ifdef MOZ_BUILD_WEBRENDER
 #  define WR_INLINE
 #  define WR_FUNC
 #  define WR_DESTRUCTOR_SAFE_FUNC
@@ -484,7 +485,8 @@ WR_FUNC;
 // It is the responsibility of the caller to manage the dst_buffer memory
 // and also free it at the proper time.
 WR_INLINE const uint8_t*
-wr_renderer_readback(uint32_t width, uint32_t height,
+wr_renderer_readback(WrRenderer* renderer,
+                     uint32_t width, uint32_t height,
                      uint8_t* dst_buffer, size_t buffer_length)
 WR_FUNC;
 

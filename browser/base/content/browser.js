@@ -798,13 +798,13 @@ var gPopupBlockerObserver = {
     } catch (e) { }
 
     var bundlePreferences = document.getElementById("bundle_preferences");
-    var params = { blockVisible   : false,
-                   sessionVisible : false,
-                   allowVisible   : true,
-                   prefilledHost  : prefillValue,
-                   permissionType : "popup",
-                   windowTitle    : bundlePreferences.getString("popuppermissionstitle"),
-                   introText      : bundlePreferences.getString("popuppermissionstext") };
+    var params = { blockVisible: false,
+                   sessionVisible: false,
+                   allowVisible: true,
+                   prefilledHost: prefillValue,
+                   permissionType: "popup",
+                   windowTitle: bundlePreferences.getString("popuppermissionstitle"),
+                   introText: bundlePreferences.getString("popuppermissionstext") };
     var existingWindow = Services.wm.getMostRecentWindow("Browser:Permissions");
     if (existingWindow) {
       existingWindow.initWithParams(params);
@@ -3084,7 +3084,7 @@ var BrowserOnClick = {
         securityInfo = getSecurityInfo(securityInfoAsString);
         let sslStatus = securityInfo.QueryInterface(Ci.nsISSLStatusProvider)
                                     .SSLStatus;
-        let params = { exceptionAdded : false,
+        let params = { exceptionAdded: false,
                        sslStatus };
 
         try {
@@ -3639,7 +3639,7 @@ function openHomeDialog(aURL) {
 
   var pressedVal  = Services.prompt.confirmEx(window, promptTitle, promptMsg,
                           Services.prompt.STD_YES_NO_BUTTONS,
-                          null, null, null, null, {value:0});
+                          null, null, null, null, {value: 0});
 
   if (pressedVal == 0) {
     try {
@@ -6260,7 +6260,7 @@ var OfflineApps = {
       let options = {
         persistent: true,
         hideClose: true,
-        controlledItems : [[Cu.getWeakReference(browser), docId, uri]]
+        controlledItems: [[Cu.getWeakReference(browser), docId, uri]]
       };
       notification = PopupNotifications.show(browser, notificationID, message,
                                              anchorID, mainAction,
