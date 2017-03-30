@@ -2398,6 +2398,12 @@ SeekingState::SeekCompleted()
     mMaster->UpdatePlaybackPositionInternal(newCurrentTime);
   }
 
+  // Dispatch an event so that the UI can change in response to the end of
+  // video-only seek
+  if (target.IsVideoOnly()) {
+    mMaster->mOnPlaybackEvent.Notify(MediaEventType::VideoOnlySeekCompleted);
+  }
+
   // Try to decode another frame to detect if we're at the end...
   SLOG("Seek completed, mCurrentPosition=%" PRId64,
        mMaster->mCurrentPosition.Ref());
@@ -2700,7 +2706,8 @@ MediaDecoderStateMachine::CreateAudioSink()
   auto audioSinkCreator = [self] () {
     MOZ_ASSERT(self->OnTaskQueue());
     AudioSink* audioSink = new AudioSink(
-      self->mTaskQueue, self->mAudioQueue, self->GetMediaTime(),
+      self->mTaskQueue, self->mAudioQueue,
+      TimeUnit::FromMicroseconds(self->GetMediaTime()),
       self->Info().mAudio, self->mAudioChannel);
 
     self->mAudibleListener = audioSink->AudibleEvent().Connect(
@@ -3248,7 +3255,7 @@ MediaDecoderStateMachine::StartMediaSink()
   MOZ_ASSERT(OnTaskQueue());
   if (!mMediaSink->IsStarted()) {
     mAudioCompleted = false;
-    mMediaSink->Start(GetMediaTime(), Info());
+    mMediaSink->Start(TimeUnit::FromMicroseconds(GetMediaTime()), Info());
 
     auto videoPromise = mMediaSink->OnEnded(TrackInfo::kVideoTrack);
     auto audioPromise = mMediaSink->OnEnded(TrackInfo::kAudioTrack);
@@ -3475,7 +3482,7 @@ int64_t
 MediaDecoderStateMachine::GetClock(TimeStamp* aTimeStamp) const
 {
   MOZ_ASSERT(OnTaskQueue());
-  int64_t clockTime = mMediaSink->GetPosition(aTimeStamp);
+  int64_t clockTime = mMediaSink->GetPosition(aTimeStamp).ToMicroseconds();
   NS_ASSERTION(GetMediaTime() <= clockTime, "Clock should go forwards.");
   return clockTime;
 }
@@ -3492,7 +3499,7 @@ MediaDecoderStateMachine::UpdatePlaybackPositionPeriodically()
   // Cap the current time to the larger of the audio and video end time.
   // This ensures that if we're running off the system clock, we don't
   // advance the clock to after the media end time.
-  if (VideoEndTime() != -1 || AudioEndTime() != -1) {
+  if (VideoEndTime() > 0 || AudioEndTime() > 0) {
 
     const int64_t clockTime = GetClock();
     // Skip frames up to the frame at the playback position, and figure out
@@ -3649,9 +3656,9 @@ MediaDecoderStateMachine::AudioEndTime() const
 {
   MOZ_ASSERT(OnTaskQueue());
   if (mMediaSink->IsStarted()) {
-    return mMediaSink->GetEndTime(TrackInfo::kAudioTrack);
+    return mMediaSink->GetEndTime(TrackInfo::kAudioTrack).ToMicroseconds();
   }
-  return -1;
+  return 0;
 }
 
 int64_t
@@ -3659,9 +3666,9 @@ MediaDecoderStateMachine::VideoEndTime() const
 {
   MOZ_ASSERT(OnTaskQueue());
   if (mMediaSink->IsStarted()) {
-    return mMediaSink->GetEndTime(TrackInfo::kVideoTrack);
+    return mMediaSink->GetEndTime(TrackInfo::kVideoTrack).ToMicroseconds();
   }
-  return -1;
+  return 0;
 }
 
 void

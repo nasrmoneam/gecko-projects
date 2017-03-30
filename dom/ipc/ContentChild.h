@@ -182,6 +182,12 @@ public:
 
   virtual bool DeallocPBlobChild(PBlobChild* aActor) override;
 
+  virtual PMemoryStreamChild*
+  AllocPMemoryStreamChild(const uint64_t& aSize) override;
+
+  virtual bool
+  DeallocPMemoryStreamChild(PMemoryStreamChild* aActor) override;
+
   virtual PHalChild* AllocPHalChild() override;
   virtual bool DeallocPHalChild(PHalChild*) override;
 
@@ -241,13 +247,6 @@ public:
 
   virtual PParentToChildStreamChild* AllocPParentToChildStreamChild() override;
   virtual bool DeallocPParentToChildStreamChild(PParentToChildStreamChild*) override;
-
-  virtual PScreenManagerChild*
-  AllocPScreenManagerChild(uint32_t* aNumberOfScreens,
-                           float* aSystemDefaultScale,
-                           bool* aSuccess) override;
-
-  virtual bool DeallocPScreenManagerChild(PScreenManagerChild*) override;
 
   virtual PPSMContentDownloaderChild*
   AllocPPSMContentDownloaderChild( const uint32_t& aCertType) override;
@@ -477,6 +476,9 @@ public:
 
   virtual mozilla::ipc::IPCResult RecvParentActivated(PBrowserChild* aTab, const bool& aActivated) override;
 
+  mozilla::ipc::IPCResult
+  RecvRefreshScreens(nsTArray<ScreenDetails>&& aScreens) override;
+
   // Get the directory for IndexedDB files. We query the parent for this and
   // cache the value
   nsString &GetIndexedDBPath();
@@ -492,6 +494,9 @@ public:
   virtual PBlobChild*
   SendPBlobConstructor(PBlobChild* actor,
                        const BlobConstructorParams& params) override;
+
+  virtual PMemoryStreamChild*
+  SendPMemoryStreamConstructor(const uint64_t& aSize) override;
 
   virtual PFileDescriptorSetChild*
   SendPFileDescriptorSetConstructor(const FileDescriptor&) override;

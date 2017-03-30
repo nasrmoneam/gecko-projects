@@ -607,10 +607,7 @@ PuppetWidget::GetLayerManager(PLayerTransactionChild* aShadowManager,
       return mLayerManager;
     }
 
-    bool useWebRender = mTabChild
-        ? mTabChild->GetCompositorOptions().UseWebRender()
-        : gfxVars::UseWebRender();
-    if (useWebRender) {
+    if (gfxVars::UseWebRender()) {
       mLayerManager = new WebRenderLayerManager(this);
     } else {
       mLayerManager = new ClientLayerManager(this);
@@ -634,7 +631,7 @@ PuppetWidget::RecreateLayerManager(PLayerTransactionChild* aShadowManager)
   DestroyLayerManager();
 
   MOZ_ASSERT(mTabChild);
-  if (mTabChild->GetCompositorOptions().UseWebRender()) {
+  if (gfxVars::UseWebRender()) {
     mLayerManager = new WebRenderLayerManager(this);
   } else {
     mLayerManager = new ClientLayerManager(this);
@@ -1358,13 +1355,6 @@ PuppetWidget::GetScreenDimensions()
 }
 
 NS_IMETHODIMP
-PuppetScreen::GetId(uint32_t *outId)
-{
-  *outId = 1;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 PuppetScreen::GetRect(int32_t *outLeft,  int32_t *outTop,
                       int32_t *outWidth, int32_t *outHeight)
 {
@@ -1397,20 +1387,6 @@ PuppetScreen::GetColorDepth(int32_t *aColorDepth)
   return NS_OK;
 }
 
-NS_IMETHODIMP
-PuppetScreen::GetRotation(uint32_t* aRotation)
-{
-  NS_WARNING("Attempt to get screen rotation through nsIScreen::GetRotation().  Nothing should know or care this in sandboxed contexts.  If you want *orientation*, use hal.");
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
-PuppetScreen::SetRotation(uint32_t aRotation)
-{
-  NS_WARNING("Attempt to set screen rotation through nsIScreen::GetRotation().  Nothing should know or care this in sandboxed contexts.  If you want *orientation*, use hal.");
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
 NS_IMPL_ISUPPORTS(PuppetScreenManager, nsIScreenManager)
 
 PuppetScreenManager::PuppetScreenManager()
@@ -1420,14 +1396,6 @@ PuppetScreenManager::PuppetScreenManager()
 
 PuppetScreenManager::~PuppetScreenManager()
 {
-}
-
-NS_IMETHODIMP
-PuppetScreenManager::ScreenForId(uint32_t aId,
-                                 nsIScreen** outScreen)
-{
-  NS_IF_ADDREF(*outScreen = mOneScreen.get());
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1445,20 +1413,6 @@ PuppetScreenManager::ScreenForRect(int32_t inLeft,
                                    nsIScreen** outScreen)
 {
   return GetPrimaryScreen(outScreen);
-}
-
-NS_IMETHODIMP
-PuppetScreenManager::ScreenForNativeWidget(void* aWidget,
-                                           nsIScreen** outScreen)
-{
-  return GetPrimaryScreen(outScreen);
-}
-
-NS_IMETHODIMP
-PuppetScreenManager::GetNumberOfScreens(uint32_t* aNumberOfScreens)
-{
-  *aNumberOfScreens = 1;
-  return NS_OK;
 }
 
 NS_IMETHODIMP

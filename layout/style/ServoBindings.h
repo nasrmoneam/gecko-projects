@@ -38,6 +38,7 @@ namespace mozilla {
   namespace css {
     struct URLValue;
   };
+  enum class UpdateAnimationsTasks : uint8_t;
 }
 using mozilla::FontFamilyList;
 using mozilla::FontFamilyType;
@@ -149,10 +150,7 @@ RawGeckoNodeBorrowedOrNull Gecko_GetNextStyleChild(StyleChildrenIteratorBorrowed
 
 // Selector Matching.
 uint64_t Gecko_ElementState(RawGeckoElementBorrowed element);
-bool Gecko_IsLink(RawGeckoElementBorrowed element);
 bool Gecko_IsTextNode(RawGeckoNodeBorrowed node);
-bool Gecko_IsVisitedLink(RawGeckoElementBorrowed element);
-bool Gecko_IsUnvisitedLink(RawGeckoElementBorrowed element);
 bool Gecko_IsRootElement(RawGeckoElementBorrowed element);
 bool Gecko_MatchesElement(mozilla::CSSPseudoClassType type, RawGeckoElementBorrowed element);
 nsIAtom* Gecko_LocalName(RawGeckoElementBorrowed element);
@@ -201,7 +199,10 @@ bool Gecko_StyleAnimationsEquals(RawGeckoStyleAnimationListBorrowed,
 void Gecko_UpdateAnimations(RawGeckoElementBorrowed aElement,
                             nsIAtom* aPseudoTagOrNull,
                             ServoComputedValuesBorrowedOrNull aComputedValues,
-                            ServoComputedValuesBorrowedOrNull aParentComputedValues);
+                            ServoComputedValuesBorrowedOrNull aParentComputedValues,
+                            mozilla::UpdateAnimationsTasks aTaskBits);
+bool Gecko_ElementHasAnimations(RawGeckoElementBorrowed aElement,
+                                nsIAtom* aPseudoTagOrNull);
 bool Gecko_ElementHasCSSAnimations(RawGeckoElementBorrowed aElement,
                                    nsIAtom* aPseudoTagOrNull);
 
@@ -230,6 +231,7 @@ void Gecko_SetGradientImageValue(nsStyleImage* image, nsStyleGradient* gradient)
 void Gecko_SetUrlImageValue(nsStyleImage* image,
                             ServoBundledURI uri);
 void Gecko_CopyImageValueFrom(nsStyleImage* image, const nsStyleImage* other);
+void Gecko_InitializeImageCropRect(nsStyleImage* image);
 
 nsStyleGradient* Gecko_CreateGradient(uint8_t shape,
                                       uint8_t size,
@@ -377,6 +379,7 @@ bool Gecko_PropertyId_IsPrefEnabled(nsCSSPropertyID id);
 
 void Gecko_nsStyleFont_SetLang(nsStyleFont* font, nsIAtom* atom);
 void Gecko_nsStyleFont_CopyLangFrom(nsStyleFont* aFont, const nsStyleFont* aSource);
+nscoord Gecko_nsStyleFont_GetBaseSize(const nsStyleFont* font, RawGeckoPresContextBorrowed pres_context);
 
 const nsMediaFeature* Gecko_GetMediaFeatures();
 

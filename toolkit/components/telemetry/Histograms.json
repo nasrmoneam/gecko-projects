@@ -266,6 +266,33 @@
     "alert_emails": ["kgupta@mozilla.com"],
     "bug_numbers": [1339220]
   },
+  "COMPOSITOR_ANIMATION_MAX_CONTIGUOUS_DROPS_APZ" : {
+    "expires_in_version": "60",
+    "description": "For APZ/scrolling compositor animations, the maximum number of contiguous frame drops encountered",
+    "kind": "exponential",
+    "high": 7200,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
+  },
+  "COMPOSITOR_ANIMATION_MAX_CONTIGUOUS_DROPS_CHROME" : {
+    "expires_in_version": "60",
+    "description": "For compositor animations of chrome-process layers, the maximum number of contiguous frame drops encountered",
+    "kind": "exponential",
+    "high": 7200,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
+  },
+  "COMPOSITOR_ANIMATION_MAX_CONTIGUOUS_DROPS_CONTENT" : {
+    "expires_in_version": "60",
+    "description": "For compositor animations of content-process layers, the maximum number of contiguous frame drops encountered",
+    "kind": "exponential",
+    "high": 7200,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
+  },
   "COMPOSITOR_ANIMATION_MAX_LAYER_AREA" : {
     "expires_in_version": "58",
     "description": "High-watermark of layer area affected during a compositor animation. Units are layer pixels squared.",
@@ -274,6 +301,33 @@
     "n_buckets": 50,
     "alert_emails": ["kgupta@mozilla.com"],
     "bug_numbers": [1339220]
+  },
+  "COMPOSITOR_ANIMATION_THROUGHPUT_APZ" : {
+    "expires_in_version": "60",
+    "description": "Frame throughput ratio (scaled up to 1000) for APZ/scrolling animations in the compositor.",
+    "kind": "linear",
+    "high": 1500,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
+  },
+  "COMPOSITOR_ANIMATION_THROUGHPUT_CHROME" : {
+    "expires_in_version": "60",
+    "description": "Frame throughput ratio (scaled up to 1000) for compositor animations of chrome-process layers.",
+    "kind": "linear",
+    "high": 1500,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
+  },
+  "COMPOSITOR_ANIMATION_THROUGHPUT_CONTENT" : {
+    "expires_in_version": "60",
+    "description": "Frame throughput ratio (scaled up to 1000) for compositor animations of content-process layers.",
+    "kind": "linear",
+    "high": 1500,
+    "n_buckets": 50,
+    "alert_emails": ["kgupta@mozilla.com"],
+    "bug_numbers": [1338347]
   },
   "CONTENT_PROCESS_LAUNCH_TIME_MS" : {
     "alert_emails": ["bsmedberg@mozilla.com", "mconley@mozilla.com"],
@@ -1429,6 +1483,7 @@
     "description": "Did the browser start after a successful shutdown"
   },
   "IMAGE_DECODE_LATENCY_US": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 50,
@@ -1437,6 +1492,7 @@
     "description": "Time spent decoding an image chunk (us)"
   },
   "IMAGE_DECODE_TIME": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 50,
@@ -1455,6 +1511,7 @@
     "description": "Time spent decoding an animated image (us)"
   },
   "IMAGE_DECODE_ON_DRAW_LATENCY": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 50,
@@ -1473,6 +1530,7 @@
     "description": "Time from starting a decode of an animated image to it showing up on the screen (us)"
   },
   "IMAGE_DECODE_CHUNKS": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "high": 500,
@@ -1480,6 +1538,7 @@
     "description": "Number of chunks per decode attempt"
   },
   "IMAGE_DECODE_COUNT": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "high": 500,
@@ -1496,6 +1555,7 @@
     "description": "Decode count of animated images"
   },
   "IMAGE_DECODE_SPEED_JPEG": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 500,
@@ -1504,6 +1564,7 @@
     "description": "JPEG image decode speed (Kbytes/sec)"
   },
   "IMAGE_DECODE_SPEED_GIF": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 500,
@@ -1512,7 +1573,7 @@
     "description": "GIF image decode speed (Kbytes/sec)"
   },
   "IMAGE_LOAD_TRIGGER_LATENCY_MS": {
-    "alert_emails": ["ehsan@mozilla.com"],
+    "alert_emails": ["ehsan@mozilla.com", "gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "60",
     "bug_numbers": [1347376],
     "kind": "exponential",
@@ -1522,6 +1583,7 @@
     "description": "Measures the number of milliseconds we spend inside imgLoader::LoadImage(). Note: only calls that take more than 500 microseconds and happen in the content process are included in this probe."
   },
   "IMAGE_DECODE_SPEED_PNG": {
+    "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
     "kind": "exponential",
     "low": 500,
@@ -2049,6 +2111,15 @@
       "kind": "enumerated",
       "n_values": 80,
       "description": "Network vs cache time load (OnStopRequest) difference (ms) not revalidated cache entries. Cache wins: 41-50 for 1-100ms, 51-59 for 101-1000ms, 60-68 for 1-10s, 69-73 for 11-60s and 74 for > 1m. Network wins: 39-30 for 1-100ms, 29-21 for 101-1000ms, 20-12 for 1-10s, 11-7 for 11-60s and 6 for > 1m."
+  },
+  "HTTP_ONSTART_SUSPEND_TOTAL_TIME": {
+    "expires_in_version": "58",
+      "alert_emails": ["necko@mozilla.com"],
+      "bug_numbers": [1347948],
+      "kind": "exponential",
+      "high": 60000,
+      "n_buckets": 100,
+      "description": "Time in milliseconds that http channel spent suspended between AsyncOpen and OnStartRequest."
   },
   "HTTP_AUTH_DIALOG_STATS": {
     "expires_in_version": "never",
@@ -8901,14 +8972,14 @@
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 128,
-    "description": "Negotiated cipher suite in full handshake (see key in HandshakeCallback in nsNSSCallbacks.cpp)"
+    "description": "Negotiated cipher suite in full handshake (see key in AccumulateCipherSuite in nsNSSCallbacks.cpp)"
   },
   "SSL_CIPHER_SUITE_RESUMED": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 128,
-    "description": "Negotiated cipher suite in resumed handshake (see key in HandshakeCallback in nsNSSCallbacks.cpp)"
+    "description": "Negotiated cipher suite in resumed handshake (see key in AccumulateCipherSuite in nsNSSCallbacks.cpp)"
   },
   "SSL_KEA_RSA_KEY_SIZE_FULL": {
     "alert_emails": ["seceng-telemetry@mozilla.com"],
@@ -11212,5 +11283,16 @@
     "n_buckets": 100,
     "bug_numbers": [1341531],
     "description": "Time (ms) for the APZ handled wheel event to dispatch, but before handlers executing."
+  },
+  "IPC_SYNC_MESSAGE_MANAGER_LATENCY_MS": {
+    "alert_emails": ["michael@thelayzells.com"],
+    "bug_numbers": [1348113],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "low": 32,
+    "high": 750,
+    "n_buckets": 40,
+    "keyed": true,
+    "description": "Measures the number of milliseconds we spend waiting for sync message manager IPC messages to finish sending, keyed by message name. Note: only messages that wait for more than 500 microseconds are included in this probe."
   }
 }

@@ -34,7 +34,7 @@ to mochitest command.
   * test_bug418986-2.html: matchMedia support [3]
   * test_bug453896_deck.html: &lt;style media&gt; support [8]
   * test_media_queries.html [657]
-  * test_media_queries_dynamic.html [10]
+  * test_media_queries_dynamic.html [11]
   * test_media_queries_dynamic_xbl.html [2]
   * test_webkit_device_pixel_ratio.html: -webkit-device-pixel-ratio [3]
   * browser_bug453896.js [8]
@@ -54,13 +54,14 @@ to mochitest command.
     * test_animations_omta_start.html [1]
     * test_animations_pausing.html [1]
     * test_animations_playbackrate.html [1]
+    * test_animations_reverse.html [1]
   * SMIL Animation
     * test_restyles_in_smil_animation.html [2]
   * CSS Timing Functions: Frames timing functions
     * test_value_storage.html `frames` [30]
   * Property parsing and computation:
     * test_property_syntax_errors.html `animation` [404]
-    * test_value_storage.html `animation` [280]
+    * test_value_storage.html `animation` [91]
 * test_any_dynamic.html: slow selector handling [3]
 * test_bug635286.html: :-moz-any pseudo-class bugs [3]
 * CSSOM support:
@@ -76,7 +77,6 @@ to mochitest command.
 * test_bug357614.html: case-insensitivity for old attrs in attr selector servo/servo#15006 [2]
 * mapped attribute not supported
   * test_bug363146.html [2]
-  * test_bug389464.html: also font-size computation [1]
   * test_html_attribute_computed_values.html: also list-style-type [8]
 * test_bug387615.html: servo/servo#15006 [1]
 * test_bug397427.html: @import issue bug 1331291 and CSSOM support of @import [1]
@@ -93,13 +93,13 @@ to mochitest command.
   * test_transitions_computed_value_combinations.html [145]
   * test_transitions_dynamic_changes.html [10]
   * test_transitions_step_functions.html [24]
-  * test_value_storage.html `transition` [776]
+  * test_value_storage.html `transition` [596]
   * Events:
     * test_animations_event_handler_attribute.html [10]
     * test_animations_event_order.html [11]
 * test_bug798843_pref.html: conditional opentype svg support [7]
 * test_computed_style.html `gradient`: -moz-prefixed radient value [9]
-* ... `mask`: mask-image isn't set properly bug 1347398 [2]
+* ... `mask`: mask-image isn't set properly bug 1347398 [10]
 * ... `fill`: svg paint should distinguish whether there is fallback bug 1347409 [2]
 * ... `stroke`: svg paint should distinguish whether there is fallback bug 1347409 [2]
 * character not properly escaped servo/servo#15947
@@ -235,12 +235,7 @@ to mochitest command.
     * test_initial_storage.html `font-feature-settings` [6]
     * test_value_storage.html `font-feature-settings` [112]
   * font-language-override property bug 1347821
-    * test_compute_data_with_start_struct.html `font-language-override` [2]
-    * test_inherit_computation.html `font-language-override` [8]
-    * test_inherit_storage.html `font-language-override` [12]
-    * test_initial_computation.html `font-language-override` [4]
-    * test_initial_storage.html `font-language-override` [6]
-    * test_value_storage.html `font-language-override` [58]
+    * test_value_storage.html `font-language-override` [16]
   * image-orientation property
     * test_compute_data_with_start_struct.html `image-orientation` [2]
     * test_inherit_computation.html `image-orientation` [4]
@@ -296,8 +291,6 @@ to mochitest command.
   * -webkit-{flex,inline-flex} for display servo/servo#15400
     * test_webkit_flex_display.html [4]
   * test_pixel_lengths.html `mozmm`: mozmm unit [3]
-  * -moz-image-rect value servo/servo#15948
-    * test_value_storage.html `-moz-image-rect` [15]
 * Unsupported values
   * SVG-only values of pointer-events not recognized
     * test_compute_data_with_start_struct.html `pointer-events` [2]
@@ -313,8 +306,8 @@ to mochitest command.
   * color interpolation hint not supported servo/servo#15166
     * test_value_storage.html `'linear-gradient` [50]
   * two-keyword form of background-repeat/mask-repeat servo/servo#14954
-    * test_value_storage.html `background-repeat` [14]
-    * ... `mask-repeat` [24]
+    * test_value_storage.html `background-repeat` [2]
+    * ... `mask-repeat` [6]
   * SVG-in-OpenType values not supported servo/servo#15211
     * test_value_storage.html `context-` [2]
   * writing-mode: sideways-{lr,rl} and SVG values servo/servo#15213
@@ -346,8 +339,8 @@ to mochitest command.
 * Incorrect serialization
   * border-radius and -moz-outline-radius shorthand servo/servo#15169
     * test_priority_preservation.html `border-radius` [4]
-    * test_value_storage.html `border-radius:` [156]
-    * ... `-moz-outline-radius:` [76]
+    * test_value_storage.html `border-radius:` [92]
+    * ... `-moz-outline-radius:` [45]
     * test_shorthand_property_getters.html `should condense to shortest possible` [6]
   * transform property servo/servo#15194
     * test_value_storage.html `'transform` [104]
@@ -356,21 +349,12 @@ to mochitest command.
     * test_specified_value_serialization.html `bug-721136` [27]
     * test_units_angle.html [3]
   * {background,mask}-position lacks comma for serialization servo/servo#15200
-    * test_value_storage.html `background-position` [81]
-    * ... `for 'mask-position` [94]
-    * ... `for '-webkit-mask-position` [188]
-    * ... `for '-webkit-mask` [45]
     * test_shorthand_property_getters.html `background-position` [1]
   * color value not canonicalized servo/servo#15397
     * test_shorthand_property_getters.html `should condense to canonical case` [2]
   * background-position invalid 3-value form **issue to be filed**
     * test_shorthand_property_getters.html `should serialize to 4-value` [2]
   * test_variables.html `--weird`: name of custom property is not escaped properly servo/servo#15399 [1]
-  * image-layer values should omit some of its parts when they are initial servo/servo#15951
-    * test_shorthand_property_getters.html `background` [2]
-  * counter-{reset,increment} doesn't serialize none servo/servo#15977
-    * test_value_storage.html `counter-reset` [2]
-    * test_value_storage.html `counter-increment` [2]
   * :not(*) doesn't serialize properly servo/servo#16017
     * test_selectors.html `:not()` [8]
     * ... `:not(html|)` [1]
@@ -384,8 +368,6 @@ to mochitest command.
   * ::-moz-color-swatch bug 1348492
     * test_selectors.html `::-moz-color-swatch` [1]
 * Unsupported pseudo-classes
-  * :default ##easy##
-    * test_bug302186.html [24]
   * :-moz-locale-dir
     * test_selectors.html `:-moz-locale-dir` [15]
   * :-moz-lwtheme-*
@@ -405,15 +387,11 @@ to mochitest command.
   * ... `0.766667px` [2]
   * ... `105.333px` [2]
 * test_value_storage.html `: var(--a)`: extra whitespace is added for shorthand with variables servo/servo#15295 [*]
-* border-width computed wrong bug 1335990
-  * test_parse_rule.html `border-style` [4]
-  * test_initial_computation.html `0px", expected "3px` [48]
 * Negative value should be rejected
   * test_property_syntax_errors.html `transition-duration`: servo/servo#15343 [20]
   * ... `perspective'`: servo/servo#15449 [20]
   * ... `'text-shadow'`: third length of text-shadow servo/servo#15999 [2]
   * ... `flex-basis`: servo/servo#15902 [6]
-  * ... `border-image-slice`: servo/servo#15339 [2]
 * Quirks mode support
   * hashless color servo/servo#15341
     * test_property_syntax_errors.html `color: 000000` [22]
@@ -439,7 +417,7 @@ to mochitest command.
   * test_variable_serialization_computed.html [35]
   * test_variables.html `custom property name` [2]
 * test_css_supports.html: issues around @supports syntax servo/servo#15482 [8]
-* test_author_specified_style.html: support serializing color as author specified bug 1348165 [33]
+* test_author_specified_style.html: support serializing color as author specified bug 1348165 [27]
 * browser_newtab_share_rule_processors.js: agent style sheet sharing [1]
 * test_selectors.html `this_better_be_unvisited`: visited handling [2]
 

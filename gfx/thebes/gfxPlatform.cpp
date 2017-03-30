@@ -621,6 +621,16 @@ gfxPlatform::Init()
         gfxVars::SetPDMWMFDisableD3D11Dlls(Preferences::GetCString("media.wmf.disable-d3d11-for-dlls"));
         gfxVars::SetPDMWMFDisableD3D9Dlls(Preferences::GetCString("media.wmf.disable-d3d9-for-dlls"));
       }
+
+      nsCOMPtr<nsIFile> file;
+      nsresult rv = NS_GetSpecialDirectory(NS_GRE_DIR, getter_AddRefs(file));
+      if (NS_FAILED(rv)) {
+        gfxVars::SetGREDirectory(nsCString());
+      } else {
+        nsAutoCString nativePath;
+        file->GetNativePath(nativePath);
+        gfxVars::SetGREDirectory(nsCString(nativePath));
+      }
     }
 
     // Drop a note in the crash report if we end up forcing an option that could
@@ -1254,6 +1264,9 @@ gfxPlatform::PopulateScreenInfo()
   }
 
   screen->GetColorDepth(&mScreenDepth);
+  if (XRE_IsParentProcess()) {
+    gfxVars::SetScreenDepth(mScreenDepth);
+  }
 
   int left, top;
   screen->GetRect(&left, &top, &mScreenSize.width, &mScreenSize.height);
@@ -1694,6 +1707,7 @@ gfxPlatform::InitBackendPrefs(uint32_t aCanvasBitmask, BackendType aCanvasDefaul
 
     if (XRE_IsParentProcess()) {
         gfxVars::SetContentBackend(mContentBackend);
+        gfxVars::SetSoftwareBackend(mSoftwareBackend);
     }
 }
 
@@ -2296,9 +2310,12 @@ gfxPlatform::InitWebRenderConfig()
       "WebRender is an opt-in feature",
       NS_LITERAL_CSTRING("FEATURE_FAILURE_DEFAULT_OFF"));
 
-  if (Preferences::GetBool("gfx.webrender.enabled", false)) {
+  bool prefEnabled = Preferences::GetBool("gfx.webrender.enabled", false);
+  if (prefEnabled) {
     featureWebRender.UserEnable("Enabled by pref");
   }
+
+  ScopedGfxFeatureReporter reporter("WR", prefEnabled);
 
   // WebRender relies on the GPU process when on Windows
 #ifdef XP_WIN
@@ -2324,8 +2341,24 @@ gfxPlatform::InitWebRenderConfig()
     NS_LITERAL_CSTRING("FEATURE_FAILURE_NO_WEBRENDER"));
 #endif
 
+#ifdef XP_WIN
+  if (Preferences::GetBool("gfx.webrender.force-angle", false)) {
+    if (!gfxConfig::IsEnabled(Feature::D3D11_HW_ANGLE)) {
+      featureWebRender.ForceDisable(
+        FeatureStatus::Unavailable,
+        "ANGLE is disabled",
+        NS_LITERAL_CSTRING("FEATURE_FAILURE_ANGLE_DISABLED"));
+    } else {
+      gfxVars::SetUseWebRenderANGLE(gfxConfig::IsEnabled(Feature::WEBRENDER));
+    }
+  }
+#endif
+
   // gfxFeature is not usable in the GPU process, so we use gfxVars to transmit this feature
-  gfxVars::SetUseWebRender(gfxConfig::IsEnabled(Feature::WEBRENDER));
+  if (gfxConfig::IsEnabled(Feature::WEBRENDER)) {
+    gfxVars::SetUseWebRender(true);
+    reporter.SetSuccessful();
+  }
 }
 
 bool

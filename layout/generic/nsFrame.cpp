@@ -1310,11 +1310,16 @@ nsIFrame::IsTransformed() const
   return ((mState & NS_FRAME_MAY_BE_TRANSFORMED) &&
           (StyleDisplay()->HasTransform(this) ||
            IsSVGTransformed() ||
-           (mContent &&
-            nsLayoutUtils::HasAnimationOfProperty(this,
-                                                  eCSSProperty_transform) &&
-            IsFrameOfType(eSupportsCSSTransforms) &&
-            mContent->GetPrimaryFrame() == this)));
+           HasAnimationOfTransform()));
+}
+
+bool
+nsIFrame::HasAnimationOfTransform() const
+{
+  return mContent &&
+    nsLayoutUtils::HasAnimationOfProperty(this, eCSSProperty_transform) &&
+    IsFrameOfType(eSupportsCSSTransforms) &&
+    mContent->GetPrimaryFrame() == this;
 }
 
 bool
@@ -2017,7 +2022,7 @@ void
 nsFrame::DisplayOutlineUnconditional(nsDisplayListBuilder*   aBuilder,
                                      const nsDisplayListSet& aLists)
 {
-  if (StyleOutline()->mOutlineStyle == NS_STYLE_BORDER_STYLE_NONE) {
+  if (!StyleOutline()->ShouldPaintOutline()) {
     return;
   }
 
@@ -5622,8 +5627,8 @@ nsIFrame::ComputeTightBounds(DrawTarget* aDrawTarget) const
 nsRect
 nsFrame::ComputeSimpleTightBounds(DrawTarget* aDrawTarget) const
 {
-  if (StyleOutline()->mOutlineStyle != NS_STYLE_BORDER_STYLE_NONE ||
-      StyleBorder()->HasBorder() || !StyleBackground()->IsTransparent(this) ||
+  if (StyleOutline()->ShouldPaintOutline() || StyleBorder()->HasBorder() ||
+      !StyleBackground()->IsTransparent(this) ||
       StyleDisplay()->UsedAppearance()) {
     // Not necessarily tight, due to clipping, negative
     // outline-offset, and lots of other issues, but that's OK
@@ -6910,8 +6915,7 @@ bool
 nsIFrame::IsBlockWrapper() const
 {
   nsIAtom *pseudoType = StyleContext()->GetPseudo();
-  return (pseudoType == nsCSSAnonBoxes::mozAnonymousBlock ||
-          pseudoType == nsCSSAnonBoxes::mozAnonymousPositionedBlock ||
+  return (pseudoType == nsCSSAnonBoxes::mozBlockInsideInlineWrapper ||
           pseudoType == nsCSSAnonBoxes::buttonContent ||
           pseudoType == nsCSSAnonBoxes::cellContent);
 }
@@ -8813,27 +8817,19 @@ ComputeAndIncludeOutlineArea(nsIFrame* aFrame, nsOverflowAreas& aOverflowAreas,
                              const nsSize& aNewSize)
 {
   const nsStyleOutline* outline = aFrame->StyleOutline();
-  const uint8_t outlineStyle = outline->mOutlineStyle;
-  if (outlineStyle == NS_STYLE_BORDER_STYLE_NONE) {
+  if (!outline->ShouldPaintOutline()) {
     return;
   }
 
-  nscoord width = outline->GetOutlineWidth();
-  if (width <= 0 && outlineStyle != NS_STYLE_BORDER_STYLE_AUTO) {
-    return;
-  }
-
-  // When the outline property is set on :-moz-anonymous-block or
-  // :-moz-anonymous-positioned-block pseudo-elements, it inherited
-  // that outline from the inline that was broken because it
-  // contained a block.  In that case, we don't want a really wide
-  // outline if the block inside the inline is narrow, so union the
-  // actual contents of the anonymous blocks.
+  // When the outline property is set on a :-moz-block-inside-inline-wrapper
+  // pseudo-element, it inherited that outline from the inline that was broken
+  // because it contained a block.  In that case, we don't want a really wide
+  // outline if the block inside the inline is narrow, so union the actual
+  // contents of the anonymous blocks.
   nsIFrame *frameForArea = aFrame;
   do {
     nsIAtom *pseudoType = frameForArea->StyleContext()->GetPseudo();
-    if (pseudoType != nsCSSAnonBoxes::mozAnonymousBlock &&
-        pseudoType != nsCSSAnonBoxes::mozAnonymousPositionedBlock)
+    if (pseudoType != nsCSSAnonBoxes::mozBlockInsideInlineWrapper)
       break;
     // If we're done, we really want it and all its later siblings.
     frameForArea = frameForArea->PrincipalChildList().FirstChild();
@@ -8881,7 +8877,7 @@ ComputeAndIncludeOutlineArea(nsIFrame* aFrame, nsOverflowAreas& aOverflowAreas,
   nsRect outerRect(innerRect);
   bool useOutlineAuto = false;
   if (nsLayoutUtils::IsOutlineStyleAutoEnabled()) {
-    useOutlineAuto = outlineStyle == NS_STYLE_BORDER_STYLE_AUTO;
+    useOutlineAuto = outline->mOutlineStyle == NS_STYLE_BORDER_STYLE_AUTO;
     if (MOZ_UNLIKELY(useOutlineAuto)) {
       nsPresContext* presContext = aFrame->PresContext();
       nsITheme* theme = presContext->GetTheme();
@@ -8896,6 +8892,7 @@ ComputeAndIncludeOutlineArea(nsIFrame* aFrame, nsOverflowAreas& aOverflowAreas,
     }
   }
   if (MOZ_LIKELY(!useOutlineAuto)) {
+    nscoord width = outline->GetOutlineWidth();
     outerRect.Inflate(width + offset);
   }
 
@@ -9182,8 +9179,7 @@ GetIBSplitSiblingForAnonymousBlock(const nsIFrame* aFrame)
                "GetIBSplitSibling should only be called on ib-split frames");
 
   nsIAtom* type = aFrame->StyleContext()->GetPseudo();
-  if (type != nsCSSAnonBoxes::mozAnonymousBlock &&
-      type != nsCSSAnonBoxes::mozAnonymousPositionedBlock) {
+  if (type != nsCSSAnonBoxes::mozBlockInsideInlineWrapper) {
     // it's not an anonymous block
     return nullptr;
   }
@@ -9284,8 +9280,7 @@ nsFrame::CorrectStyleParentFrame(nsIFrame* aProspectiveParent,
     // for non-elements.  Those should not be treated as an anon box.
     if (!nsCSSAnonBoxes::IsNonElement(aChildPseudo) &&
         nsCSSAnonBoxes::IsAnonBox(aChildPseudo)) {
-      NS_ASSERTION(aChildPseudo != nsCSSAnonBoxes::mozAnonymousBlock &&
-                   aChildPseudo != nsCSSAnonBoxes::mozAnonymousPositionedBlock,
+      NS_ASSERTION(aChildPseudo != nsCSSAnonBoxes::mozBlockInsideInlineWrapper,
                    "Should have dealt with kids that have "
                    "NS_FRAME_PART_OF_IBSPLIT elsewhere");
       return aProspectiveParent;
@@ -10402,7 +10397,7 @@ IsFrameScrolledOutOfView(nsIFrame *aFrame)
   }
 
   nsIFrame *scrollableParent = do_QueryFrame(scrollableFrame);
-  nsRect rect = aFrame->GetVisualOverflowRect();
+  nsRect rect = aFrame->GetVisualOverflowRectRelativeToSelf();
 
   nsRect transformedRect =
     nsLayoutUtils::TransformFrameRectToAncestor(aFrame,

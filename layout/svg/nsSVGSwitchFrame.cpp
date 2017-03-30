@@ -51,9 +51,9 @@ public:
   // nsSVGDisplayableFrame interface:
   virtual DrawResult PaintSVG(gfxContext& aContext,
                               const gfxMatrix& aTransform,
-                              const nsIntRect* aDirtyRect = nullptr) override;
+                              const nsIntRect* aDirtyRect = nullptr,
+                              uint32_t aFlags = 0) override;
   nsIFrame* GetFrameForPoint(const gfxPoint& aPoint) override;
-  nsRect GetCoveredRegion() override;
   virtual void ReflowSVG() override;
   virtual SVGBBox GetBBoxContribution(const Matrix &aToBBoxUserspace,
                                       uint32_t aFlags) override;
@@ -106,7 +106,8 @@ nsSVGSwitchFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
 DrawResult
 nsSVGSwitchFrame::PaintSVG(gfxContext& aContext,
                            const gfxMatrix& aTransform,
-                           const nsIntRect* aDirtyRect)
+                           const nsIntRect* aDirtyRect,
+                           uint32_t aFlags)
 {
   NS_ASSERTION(!NS_SVGDisplayListPaintingEnabled() ||
                (mState & NS_FRAME_IS_NONDISPLAY),
@@ -158,19 +159,6 @@ nsSVGSwitchFrame::GetFrameForPoint(const gfxPoint& aPoint)
   }
 
   return nullptr;
-}
-
-nsRect
-nsSVGSwitchFrame::GetCoveredRegion()
-{
-  nsRect rect;
-
-  nsIFrame *kid = GetActiveChildFrame();
-  nsSVGDisplayableFrame* child = do_QueryFrame(kid);
-  if (child) {
-    rect = child->GetCoveredRegion();
-  }
-  return rect;
 }
 
 void

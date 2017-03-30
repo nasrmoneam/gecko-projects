@@ -825,6 +825,9 @@ pref("gfx.webrender.enabled", true);
 #else
 pref("gfx.webrender.enabled", false);
 #endif
+#ifdef XP_WIN
+pref("gfx.webrender.force-angle", true);
+#endif
 
 pref("accessibility.browsewithcaret", false);
 pref("accessibility.warn_on_browsewithcaret", true);
@@ -1469,7 +1472,7 @@ pref("network.http.max-persistent-connections-per-server", 6);
 
 // Number of connections that we can open beyond the standard parallelism limit defined
 // by max-persistent-connections-per-server/-proxy to handle urgent-start marked requests
-pref("network.http.max-urgent-start-excessive-connections-per-host", 10);
+pref("network.http.max-urgent-start-excessive-connections-per-host", 3);
 
 // If connecting via a proxy, then a
 // new connection will only be attempted if the number of active persistent
@@ -1623,6 +1626,10 @@ pref("network.http.keep_empty_response_headers_as_empty_string", true);
 
 // Max size, in bytes, for received HTTP response header.
 pref("network.http.max_response_header_size", 393216);
+
+// The ratio of the transaction count for the focused window and the count of
+// all available active connections.
+pref("network.http.focused_window_transaction_ratio", "0.9");
 
 // default values for FTP
 // in a DSCP environment this should be 40 (0x28, or AF11), per RFC-4594,
@@ -2692,7 +2699,11 @@ pref("layout.css.control-characters.visible", true);
 pref("layout.css.column-span.enabled", false);
 
 // Is effect of xml:base disabled for style attribute?
+#ifdef RELEASE_OR_BETA
 pref("layout.css.style-attr-with-xml-base.disabled", false);
+#else
+pref("layout.css.style-attr-with-xml-base.disabled", true);
+#endif
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
@@ -2968,6 +2979,14 @@ pref("svg.new-getBBox.enabled", false);
 
 pref("svg.transform-box.enabled", true);
 
+# This pref controls whether the 'context-fill' and 'context-stroke' keywords
+# can be used in SVG-as-an-image in the content processes to use the fill/
+# stroke specified on the element that embeds the image.  (These keywords are
+# always enabled in the chrome process, regardless of this pref.)
+# Also, these keywords are currently not part of any spec, which is partly why
+# we disable them for web content.
+pref("svg.context-properties.content.enabled", false);
+
 // Default font types and sizes by locale
 pref("font.default.ar", "sans-serif");
 pref("font.minimum-size.ar", 0);
@@ -3216,6 +3235,17 @@ pref("font.size.inflation.mappingIntercept", 1);
  * i/s.
  */
 pref("font.size.inflation.maxRatio", 0);
+
+/**
+ * This setting corresponds to a global text zoom setting affecting
+ * all content that is not already subject to font size inflation.
+ * It is interpreted as a percentage value that is applied on top
+ * of the document's current text zoom setting.
+ *
+ * The resulting total zoom factor (text zoom * system font scale)
+ * will be limited by zoom.minPercent and maxPercent.
+ */
+pref("font.size.systemFontScale", 100);
 
 /*
  * When enabled, the touch.radius and mouse.radius prefs allow events to be dispatched
@@ -5654,5 +5684,8 @@ pref("fuzzing.enabled", false);
 // turn these on and off, instead use the conditional-pref code in gfxPrefs.h
 // to do that.
 pref("layers.advanced.border-layers", 2);
+pref("layers.advanced.boxshadow-inset-layers", 2);
 pref("layers.advanced.boxshadow-outer-layers", 2);
 pref("layers.advanced.caret-layers", 2);
+pref("layers.advanced.displaybuttonborder-layers", 2);
+pref("layers.advanced.outline-layers", 2);

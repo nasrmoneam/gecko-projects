@@ -235,7 +235,6 @@ gvjar = add_java_jar('gecko-view')
 
 gvjar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x
                   for x in [
-    'AlarmReceiver.java',
     'AndroidGamepadManager.java',
     'BaseGeckoInterface.java',
     'Clipboard.java',
@@ -337,6 +336,7 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'ActionModeCompatView.java',
     'ActivityHandlerHelper.java',
     'activitystream/ActivityStream.java',
+    'activitystream/ActivityStreamPreference.java',
     'activitystream/ActivityStreamTelemetry.java',
     'activitystream/ranking/HighlightCandidate.java',
     'activitystream/ranking/HighlightsRanking.java',
@@ -454,6 +454,7 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'GeckoActivityStatus.java',
     'GeckoApp.java',
     'GeckoApplication.java',
+    'GeckoFontScaleListener.java',
     'GeckoJavaSampler.java',
     'GeckoMessageReceiver.java',
     'GeckoProfilesProvider.java',
@@ -653,7 +654,6 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'preferences/CustomListCategory.java',
     'preferences/CustomListPreference.java',
     'preferences/DistroSharedPrefsImport.java',
-    'preferences/FontSizePreference.java',
     'preferences/GeckoPreferenceFragment.java',
     'preferences/GeckoPreferences.java',
     'preferences/LinkPreference.java',
@@ -792,6 +792,8 @@ gbjar.sources += ['java/org/mozilla/gecko/' + x for x in [
     'util/TouchTargetUtil.java',
     'util/ViewUtil.java',
     'webapps/WebAppActivity.java',
+    'webapps/WebAppIndexer.java',
+    'webapps/WebApps.java',
     'widget/ActivityChooserModel.java',
     'widget/AllCapsTextView.java',
     'widget/AnchoredPopup.java',

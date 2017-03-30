@@ -36,6 +36,7 @@
 #include "nsTArray.h"
 
 #include "mozilla/EffectCompositor.h"
+#include "mozilla/EffectSet.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/Keyframe.h"
 #include "mozilla/ServoElementSnapshot.h"
@@ -204,27 +205,9 @@ Gecko_ElementState(RawGeckoElementBorrowed aElement)
 }
 
 bool
-Gecko_IsLink(RawGeckoElementBorrowed aElement)
-{
-  return nsCSSRuleProcessor::IsLink(aElement);
-}
-
-bool
 Gecko_IsTextNode(RawGeckoNodeBorrowed aNode)
 {
   return aNode->NodeInfo()->NodeType() == nsIDOMNode::TEXT_NODE;
-}
-
-bool
-Gecko_IsVisitedLink(RawGeckoElementBorrowed aElement)
-{
-  return aElement->StyleState().HasState(NS_EVENT_STATE_VISITED);
-}
-
-bool
-Gecko_IsUnvisitedLink(RawGeckoElementBorrowed aElement)
-{
-  return aElement->StyleState().HasState(NS_EVENT_STATE_UNVISITED);
 }
 
 bool
@@ -441,32 +424,62 @@ void
 Gecko_UpdateAnimations(RawGeckoElementBorrowed aElement,
                        nsIAtom* aPseudoTagOrNull,
                        ServoComputedValuesBorrowedOrNull aComputedValues,
-                       ServoComputedValuesBorrowedOrNull aParentComputedValues)
+                       ServoComputedValuesBorrowedOrNull aParentComputedValues,
+                       UpdateAnimationsTasks aTaskBits)
 {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aElement);
+  MOZ_ASSERT(!aPseudoTagOrNull ||
+             aPseudoTagOrNull == nsCSSPseudoElements::before ||
+             aPseudoTagOrNull == nsCSSPseudoElements::after);
 
   nsPresContext* presContext = nsContentUtils::GetContextForContent(aElement);
   if (!presContext) {
     return;
   }
 
+  UpdateAnimationsTasks tasks = static_cast<UpdateAnimationsTasks>(aTaskBits);
   if (presContext->IsDynamic() && aElement->IsInComposedDoc()) {
-    presContext->AnimationManager()->
-      UpdateAnimations(const_cast<dom::Element*>(aElement), aPseudoTagOrNull,
-                       aComputedValues, aParentComputedValues);
+    const ServoComputedValuesWithParent servoValues =
+      { aComputedValues, aParentComputedValues };
+    CSSPseudoElementType pseudoType =
+      nsCSSPseudoElements::GetPseudoType(aPseudoTagOrNull,
+                                         CSSEnabledState::eForAllContent);
+
+    if (tasks & UpdateAnimationsTasks::CSSAnimations) {
+      presContext->AnimationManager()->
+        UpdateAnimations(const_cast<dom::Element*>(aElement), pseudoType,
+                         servoValues);
+    }
+    if (tasks & UpdateAnimationsTasks::EffectProperties) {
+      presContext->EffectCompositor()->UpdateEffectProperties(
+        servoValues, const_cast<dom::Element*>(aElement), pseudoType);
+    }
   }
+}
+
+bool
+Gecko_ElementHasAnimations(RawGeckoElementBorrowed aElement,
+                           nsIAtom* aPseudoTagOrNull)
+{
+  MOZ_ASSERT(!aPseudoTagOrNull ||
+             aPseudoTagOrNull == nsCSSPseudoElements::before ||
+             aPseudoTagOrNull == nsCSSPseudoElements::after);
+
+  CSSPseudoElementType pseudoType =
+    nsCSSPseudoElements::GetPseudoType(aPseudoTagOrNull,
+                                       CSSEnabledState::eForAllContent);
+
+  return !!EffectSet::GetEffectSet(aElement, pseudoType);
 }
 
 bool
 Gecko_ElementHasCSSAnimations(RawGeckoElementBorrowed aElement,
                               nsIAtom* aPseudoTagOrNull)
 {
-  if (aPseudoTagOrNull &&
-      aPseudoTagOrNull != nsCSSPseudoElements::before &&
-      aPseudoTagOrNull != nsCSSPseudoElements::after) {
-    return false;
-  }
+  MOZ_ASSERT(!aPseudoTagOrNull ||
+             aPseudoTagOrNull == nsCSSPseudoElements::before ||
+             aPseudoTagOrNull == nsCSSPseudoElements::after);
 
   CSSPseudoElementType pseudoType =
     nsCSSPseudoElements::GetPseudoType(aPseudoTagOrNull,
@@ -924,6 +937,13 @@ Gecko_CopyImageValueFrom(nsStyleImage* aImage, const nsStyleImage* aOther)
   MOZ_ASSERT(aOther);
 
   *aImage = *aOther;
+}
+
+void
+Gecko_InitializeImageCropRect(nsStyleImage* aImage)
+{
+  MOZ_ASSERT(aImage);
+  aImage->SetCropRect(MakeUnique<nsStyleSides>());
 }
 
 void
@@ -1503,6 +1523,12 @@ void
 Gecko_nsStyleFont_CopyLangFrom(nsStyleFont* aFont, const nsStyleFont* aSource)
 {
   aFont->mLanguage = aSource->mLanguage;
+}
+
+nscoord
+Gecko_nsStyleFont_GetBaseSize(const nsStyleFont* aFont, RawGeckoPresContextBorrowed aPresContext)
+{
+  return aPresContext->GetDefaultFont(aFont->mGenericID, aFont->mLanguage)->size;
 }
 
 void

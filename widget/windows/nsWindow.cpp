@@ -143,6 +143,7 @@
 #include "nsThemeConstants.h"
 #include "gfxConfig.h"
 #include "InProcessWinCompositorWidget.h"
+#include "ScreenHelperWin.h"
 
 #include "nsIGfxInfo.h"
 #include "nsUXThemeConstants.h"
@@ -936,6 +937,14 @@ nsWindow::Create(nsIWidget* aParent,
     nsUXThemeData::UpdateTitlebarInfo(mWnd);
   }
 
+  static bool a11yPrimed = false;
+  if (!a11yPrimed &&
+      mWindowType == eWindowType_toplevel) {
+    a11yPrimed = true;
+    if (Preferences::GetInt("accessibility.force_disabled", 0) == -1) {
+      ::PostMessage(mWnd, MOZ_WM_STARTA11Y, 0, 0);
+    }
+  }
   return NS_OK;
 }
 
@@ -5048,6 +5057,11 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
       result = true;
       break;
 
+    case MOZ_WM_STARTA11Y:
+      (void*)GetAccessible();
+      result = true;
+      break;
+
     case WM_ENDSESSION:
     case MOZ_WM_APP_QUIT:
       if (msg == MOZ_WM_APP_QUIT || (wParam == TRUE && sCanQuit == TRI_TRUE))
@@ -5711,6 +5725,12 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
         NotifySizeMoveDone();
       }
 
+      break;
+    }
+
+    case WM_DISPLAYCHANGE:
+    {
+      ScreenHelperWin::RefreshScreens();
       break;
     }
 

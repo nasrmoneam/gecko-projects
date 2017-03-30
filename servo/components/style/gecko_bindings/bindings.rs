@@ -176,6 +176,7 @@ use gecko_bindings::structs::nsresult;
 use gecko_bindings::structs::Loader;
 use gecko_bindings::structs::ServoStyleSheet;
 use gecko_bindings::structs::EffectCompositor_CascadeLevel;
+use gecko_bindings::structs::UpdateAnimationsTasks;
 pub type nsTArrayBorrowed_uintptr_t<'a> = &'a mut ::gecko_bindings::structs::nsTArray<usize>;
 pub type ServoCssRulesStrong = ::gecko_bindings::sugar::ownership::Strong<ServoCssRules>;
 pub type ServoCssRulesBorrowed<'a> = &'a ServoCssRules;
@@ -610,7 +611,12 @@ extern "C" {
                                   aComputedValues:
                                       ServoComputedValuesBorrowedOrNull,
                                   aParentComputedValues:
-                                      ServoComputedValuesBorrowedOrNull);
+                                      ServoComputedValuesBorrowedOrNull,
+                                  aTaskBits: UpdateAnimationsTasks);
+}
+extern "C" {
+    pub fn Gecko_ElementHasAnimations(aElement: RawGeckoElementBorrowed,
+                                      aPseudoTagOrNull: *mut nsIAtom) -> bool;
 }
 extern "C" {
     pub fn Gecko_ElementHasCSSAnimations(aElement: RawGeckoElementBorrowed,
@@ -677,6 +683,9 @@ extern "C" {
 extern "C" {
     pub fn Gecko_CopyImageValueFrom(image: *mut nsStyleImage,
                                     other: *const nsStyleImage);
+}
+extern "C" {
+    pub fn Gecko_InitializeImageCropRect(image: *mut nsStyleImage);
 }
 extern "C" {
     pub fn Gecko_CreateGradient(shape: u8, size: u8, repeating: bool,
@@ -1011,6 +1020,12 @@ extern "C" {
 extern "C" {
     pub fn Gecko_nsStyleFont_CopyLangFrom(aFont: *mut nsStyleFont,
                                           aSource: *const nsStyleFont);
+}
+extern "C" {
+    pub fn Gecko_nsStyleFont_GetBaseSize(font: *const nsStyleFont,
+                                         pres_context:
+                                             RawGeckoPresContextBorrowed)
+     -> nscoord;
 }
 extern "C" {
     pub fn Gecko_GetMediaFeatures() -> *const nsMediaFeature;
@@ -1797,7 +1812,8 @@ extern "C" {
 }
 extern "C" {
     pub fn Servo_ResolveStyle(element: RawGeckoElementBorrowed,
-                              set: RawServoStyleSetBorrowed)
+                              set: RawServoStyleSetBorrowed,
+                              allow_stale: bool)
      -> ServoComputedValuesStrong;
 }
 extern "C" {

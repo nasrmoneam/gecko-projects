@@ -361,10 +361,8 @@ HttpChannelParent::DoAsyncOpen(  const URIParams&           aURI,
     return SendFailedAsyncOpen(rv);
   }
 
-  OriginAttributes attrs;
-  rv = loadInfo->GetOriginAttributes(&attrs);
-  if (NS_FAILED(rv)) {
-    return SendFailedAsyncOpen(rv);
+  if (!loadInfo) {
+    return SendFailedAsyncOpen(NS_ERROR_UNEXPECTED);
   }
 
   nsCOMPtr<nsIChannel> channel;
@@ -838,7 +836,7 @@ HttpChannelParent::RecvMarkOfflineCacheEntryAsForeign()
   return IPC_OK();
 }
 
-class DivertDataAvailableEvent : public ChannelEvent
+class DivertDataAvailableEvent : public MainThreadChannelEvent
 {
 public:
   DivertDataAvailableEvent(HttpChannelParent* aParent,
@@ -933,7 +931,7 @@ HttpChannelParent::DivertOnDataAvailable(const nsCString& data,
   }
 }
 
-class DivertStopRequestEvent : public ChannelEvent
+class DivertStopRequestEvent : public MainThreadChannelEvent
 {
 public:
   DivertStopRequestEvent(HttpChannelParent* aParent,
@@ -994,7 +992,7 @@ HttpChannelParent::DivertOnStopRequest(const nsresult& statusCode)
   mParentListener->OnStopRequest(mChannel, nullptr, status);
 }
 
-class DivertCompleteEvent : public ChannelEvent
+class DivertCompleteEvent : public MainThreadChannelEvent
 {
 public:
   explicit DivertCompleteEvent(HttpChannelParent* aParent)
@@ -1128,11 +1126,14 @@ HttpChannelParent::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext)
              "HttpChannelParent getting OnStartRequest from a different nsHttpChannel instance");
 
   // Send down any permissions which are relevant to this URL if we are
-  // performing a document load.
-  PContentParent* pcp = Manager()->Manager();
-  nsresult rv =
-    static_cast<ContentParent*>(pcp)->TransmitPermissionsFor(chan);
-  MOZ_ASSERT(NS_SUCCEEDED(rv));
+  // performing a document load. We can't do that is mIPCClosed is set.
+  if (!mIPCClosed) {
+    PContentParent* pcp = Manager()->Manager();
+    MOZ_ASSERT(pcp, "We should have a manager if our IPC isn't closed");
+    DebugOnly<nsresult> rv =
+      static_cast<ContentParent*>(pcp)->TransmitPermissionsFor(chan);
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
+  }
 
   nsHttpResponseHead *responseHead = chan->GetResponseHead();
   nsHttpRequestHead  *requestHead = chan->GetRequestHead();
@@ -1200,7 +1201,7 @@ HttpChannelParent::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext)
 
   // !!! We need to lock headers and please don't forget to unlock them !!!
   requestHead->Enter();
-  rv = NS_OK;
+  nsresult rv = NS_OK;
   if (mIPCClosed ||
       !SendOnStartRequest(channelStatus,
                           responseHead ? *responseHead : nsHttpResponseHead(),

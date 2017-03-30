@@ -19,6 +19,7 @@
 #include "mozilla/RestyleManagerInlines.h"
 #include "mozilla/ServoStyleSet.h"
 #include "mozilla/StyleAnimationValue.h"
+#include "mozilla/TypeTraits.h" // For Forward<>
 #include "nsComputedDOMStyle.h" // nsComputedDOMStyle::GetPresShellForContent
 #include "nsContentUtils.h"
 #include "nsCSSPseudoElements.h"
@@ -332,12 +333,8 @@ EffectCompositor::PostRestyleForAnimation(dom::Element* aElement,
       // second traversal so we don't need to post any restyle requests to the
       // PresShell.
       return;
-    } else if (!mPresContext->RestyleManager()->IsInStyleRefresh()) {
-      // FIXME: stylo only supports Self and Subtree hints now, so we override
-      // it for stylo if we are not in process of restyling.
-      hint = eRestyle_Self | eRestyle_Subtree;
     } else {
-      MOZ_ASSERT_UNREACHABLE("Should not request restyle");
+      MOZ_ASSERT(!mPresContext->RestyleManager()->IsInStyleRefresh());
     }
   }
   mPresContext->PresShell()->RestyleForAnimation(element, hint);
@@ -364,9 +361,10 @@ EffectCompositor::PostRestyleForThrottledAnimations()
   }
 }
 
+template<typename StyleType>
 void
-EffectCompositor::UpdateEffectProperties(nsStyleContext* aStyleContext,
-                                         dom::Element* aElement,
+EffectCompositor::UpdateEffectProperties(StyleType&& aStyleType,
+                                         Element* aElement,
                                          CSSPseudoElementType aPseudoType)
 {
   EffectSet* effectSet = EffectSet::GetEffectSet(aElement, aPseudoType);
@@ -374,12 +372,13 @@ EffectCompositor::UpdateEffectProperties(nsStyleContext* aStyleContext,
     return;
   }
 
-  // Style context change might cause CSS cascade level,
-  // e.g removing !important, so we should update the cascading result.
+  // Style context (Gecko) or computed values (Stylo) change might cause CSS
+  // cascade level, e.g removing !important, so we should update the cascading
+  // result.
   effectSet->MarkCascadeNeedsUpdate();
 
   for (KeyframeEffectReadOnly* effect : *effectSet) {
-    effect->UpdateProperties(aStyleContext);
+    effect->UpdateProperties(Forward<StyleType>(aStyleType));
   }
 }
 
@@ -983,8 +982,8 @@ EffectCompositor::PreTraverse()
       // We can't call PostRestyleEvent directly here since we are still in the
       // middle of the servo traversal.
       mPresContext->RestyleManager()->AsServo()->
-        PostRestyleEventForAnimations(target.mElement,
-                                      eRestyle_Self | eRestyle_Subtree);
+        PostRestyleEventForAnimations(target.mElement, eRestyle_CSSAnimations);
+
       foundElementsNeedingRestyle = true;
 
       EffectSet* effects =
@@ -1035,7 +1034,7 @@ EffectCompositor::PreTraverse(dom::Element* aElement, nsIAtom* aPseudoTagOrNull)
     }
 
     mPresContext->RestyleManager()->AsServo()->
-      PostRestyleEventForAnimations(aElement, eRestyle_Self);
+      PostRestyleEventForAnimations(aElement, eRestyle_CSSAnimations);
 
     EffectSet* effects = EffectSet::GetEffectSet(aElement, pseudoType);
     if (effects) {
@@ -1159,5 +1158,19 @@ EffectCompositor::AnimationStyleRuleProcessor::SizeOfIncludingThis(
 {
   return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
 }
+
+template
+void
+EffectCompositor::UpdateEffectProperties<RefPtr<nsStyleContext>&>(
+  RefPtr<nsStyleContext>& aStyleContext,
+  Element* aElement,
+  CSSPseudoElementType aPseudoType);
+
+template
+void
+EffectCompositor::UpdateEffectProperties<const ServoComputedValuesWithParent&>(
+  const ServoComputedValuesWithParent& aServoValues,
+  Element* aElement,
+  CSSPseudoElementType aPseudoType);
 
 } // namespace mozilla

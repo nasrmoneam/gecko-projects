@@ -1635,7 +1635,7 @@ XPCJSContext::~XPCJSContext()
                                           JS_OPTIONS_DOT_STR, this);
 
 #ifdef FUZZING
-    Preferences::UnRegisterCallback(ReloadPrefsCallback, "fuzzing.enabled", this);
+    Preferences::UnregisterCallback(ReloadPrefsCallback, "fuzzing.enabled", this);
 #endif
 }
 
@@ -1943,6 +1943,14 @@ ReportZoneStats(const JS::ZoneStats& zStats,
     ZCREPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("scopes/malloc-heap"),
         zStats.scopesMallocHeap,
         "Arrays of binding names and other binding-related data.");
+
+    ZCREPORT_GC_BYTES(pathPrefix + NS_LITERAL_CSTRING("regexp-shareds/gc-heap"),
+        zStats.regExpSharedsGCHeap,
+        "Shared compiled regexp data.");
+
+    ZCREPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("regexp-shareds/malloc-heap"),
+        zStats.regExpSharedsMallocHeap,
+        "Shared compiled regexp data.");
 
     ZCREPORT_BYTES(pathPrefix + NS_LITERAL_CSTRING("type-pool"),
         zStats.typePool,
@@ -2978,6 +2986,10 @@ JSReporter::CollectReports(WindowPaths* windowPaths,
         KIND_OTHER, rtStats.zTotals.unusedGCThings.jitcode,
         "Unused jitcode cells within non-empty arenas.");
 
+    REPORT_BYTES(NS_LITERAL_CSTRING("js-main-runtime-gc-heap-committed/unused/gc-things/regexp-shareds"),
+        KIND_OTHER, rtStats.zTotals.unusedGCThings.regExpShared,
+        "Unused regexpshared cells within non-empty arenas.");
+
     REPORT_BYTES(NS_LITERAL_CSTRING("js-main-runtime-gc-heap-committed/used/chunk-admin"),
         KIND_OTHER, rtStats.gcHeapChunkAdmin,
         "The same as 'explicit/js-non-window/gc-heap/chunk-admin'.");
@@ -3028,6 +3040,10 @@ JSReporter::CollectReports(WindowPaths* windowPaths,
     MREPORT_BYTES(NS_LITERAL_CSTRING("js-main-runtime-gc-heap-committed/used/gc-things/jitcode"),
         KIND_OTHER, rtStats.zTotals.jitCodesGCHeap,
         "Used jitcode cells.");
+
+    MREPORT_BYTES(NS_LITERAL_CSTRING("js-main-runtime-gc-heap-committed/used/gc-things/regexp-shareds"),
+        KIND_OTHER, rtStats.zTotals.regExpSharedsGCHeap,
+        "Used regexpshared cells.");
 
     MOZ_ASSERT(gcThingTotal == rtStats.gcHeapGCThings);
 

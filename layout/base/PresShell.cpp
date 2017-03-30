@@ -807,8 +807,8 @@ nsIPresShell::nsIPresShell()
     , mFontSizeInflationForceEnabled(false)
     , mFontSizeInflationDisabledInMasterProcess(false)
     , mFontSizeInflationEnabled(false)
-    , mPaintingIsFrozen(false)
     , mFontSizeInflationEnabledIsDirty(false)
+    , mPaintingIsFrozen(false)
     , mIsNeverPainting(false)
     , mInFlush(false)
   {}
@@ -2953,6 +2953,10 @@ PresShell::RecreateFramesFor(nsIContent* aContent)
   nsStyleChangeList changeList(mPresContext->StyleSet()->BackendType());
   changeList.AppendChange(nullptr, aContent, nsChangeHint_ReconstructFrame);
 
+  // We might have restyles pending when we're asked to recreate frames.
+  // Record that we're OK with stale styles being returned, to avoid assertions.
+  ServoStyleSet::AutoAllowStaleStyles guard(mStyleSet->GetAsServo());
+
   // Mark ourselves as not safe to flush while we're doing frame construction.
   ++mChangeNestCount;
   RestyleManager* restyleManager = mPresContext->RestyleManager();
@@ -4302,19 +4306,17 @@ PresShell::DocumentStatesChanged(nsIDocument* aDocument,
   NS_PRECONDITION(!mIsDocumentGone, "Unexpected DocumentStatesChanged");
   NS_PRECONDITION(aDocument == mDocument, "Unexpected aDocument");
 
-  nsStyleSet* styleSet = mStyleSet->GetAsGecko();
-  if (!styleSet) {
+  nsStyleSet* geckoSet = mStyleSet->GetAsGecko();
+  if (!geckoSet) {
     // XXXheycam ServoStyleSets don't support document state selectors,
     // but these are only used in chrome documents, which we are not
     // aiming to support yet.
     NS_WARNING("stylo: ServoStyleSets cannot respond to document state "
                "changes yet (only matters for chrome documents). See bug 1290285.");
-    return;
-  }
 
-  if (mDidInitialize &&
-      styleSet->HasDocumentStateDependentStyle(mDocument->GetRootElement(),
-                                               aStateMask)) {
+  } else if (mDidInitialize &&
+             geckoSet->HasDocumentStateDependentStyle(mDocument->GetRootElement(),
+                                                      aStateMask)) {
     mPresContext->RestyleManager()->PostRestyleEvent(mDocument->GetRootElement(),
                                                      eRestyle_Subtree,
                                                      nsChangeHint(0));
@@ -11032,12 +11034,18 @@ void
 nsIPresShell::RecomputeFontSizeInflationEnabled()
 {
   mFontSizeInflationEnabledIsDirty = false;
+  mFontSizeInflationEnabled = DetermineFontSizeInflationState();
 
+  HandleSystemFontScale();
+}
+
+bool
+nsIPresShell::DetermineFontSizeInflationState()
+{
   MOZ_ASSERT(mPresContext, "our pres context should not be null");
   if ((FontSizeInflationEmPerLine() == 0 &&
       FontSizeInflationMinTwips() == 0) || mPresContext->IsChrome()) {
-    mFontSizeInflationEnabled = false;
-    return;
+    return false;
   }
 
   // Force-enabling font inflation always trumps the heuristics here.
@@ -11046,15 +11054,13 @@ nsIPresShell::RecomputeFontSizeInflationEnabled()
       // We're in a child process.  Cancel inflation if we're not
       // async-pan zoomed.
       if (!tab->AsyncPanZoomEnabled()) {
-        mFontSizeInflationEnabled = false;
-        return;
+        return false;
       }
     } else if (XRE_IsParentProcess()) {
       // We're in the master process.  Cancel inflation if it's been
       // explicitly disabled.
       if (FontSizeInflationDisabledInMasterProcess()) {
-        mFontSizeInflationEnabled = false;
-        return;
+        return false;
       }
     }
   }
@@ -11079,8 +11085,7 @@ nsIPresShell::RecomputeFontSizeInflationEnabled()
   nsCOMPtr<nsIScreenManager> screenMgr =
     do_GetService("@mozilla.org/gfx/screenmanager;1", &rv);
   if (!NS_SUCCEEDED(rv)) {
-    mFontSizeInflationEnabled = false;
-    return;
+    return false;
   }
 
   nsCOMPtr<nsIScreen> screen;
@@ -11093,12 +11098,11 @@ nsIPresShell::RecomputeFontSizeInflationEnabled()
       GetDocument()->GetViewportInfo(ScreenIntSize(screenWidth, screenHeight));
 
     if (vInf.GetDefaultZoom() >= CSSToScreenScale(1.0f) || vInf.IsAutoSizeEnabled()) {
-      mFontSizeInflationEnabled = false;
-      return;
+      return false;
     }
   }
 
-  mFontSizeInflationEnabled = true;
+  return true;
 }
 
 bool
@@ -11109,6 +11113,23 @@ nsIPresShell::FontSizeInflationEnabled()
   }
 
   return mFontSizeInflationEnabled;
+}
+
+void
+nsIPresShell::HandleSystemFontScale()
+{
+  float fontScale = nsLayoutUtils::SystemFontScale();
+  if (fontScale == 0.0f) {
+    return;
+  }
+
+  MOZ_ASSERT(mDocument && mPresContext, "our document and pres context should not be null");
+
+  if (!mFontSizeInflationEnabled && !mDocument->IsSyntheticDocument()) {
+    mPresContext->SetSystemFontScale(fontScale);
+  } else {
+    mPresContext->SetSystemFontScale(1.0f);
+  }
 }
 
 void

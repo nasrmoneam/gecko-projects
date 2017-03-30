@@ -255,6 +255,7 @@ nsHttpChannel::nsHttpChannel()
     , mPostID(0)
     , mRequestTime(0)
     , mOfflineCacheLastModifiedTime(0)
+    , mSuspendTotalTime(0)
     , mInterceptCache(DO_NOT_INTERCEPT)
     , mInterceptionID(gNumIntercepted++)
     , mCacheOpenWithPriority(false)
@@ -6358,8 +6359,8 @@ nsHttpChannel::ContinueBeginConnectWithResult()
     }
 
     LOG(("nsHttpChannel::ContinueBeginConnectWithResult result [this=%p rv=%" PRIx32
-         " mCanceled=%i]\n",
-         this, static_cast<uint32_t>(rv), mCanceled));
+         " mCanceled=%u]\n",
+         this, static_cast<uint32_t>(rv), static_cast<bool>(mCanceled)));
     return rv;
 }
 
@@ -6659,6 +6660,9 @@ nsHttpChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
 
     mAfterOnStartRequestBegun = true;
     mOnStartRequestTimestamp = TimeStamp::Now();
+
+    Telemetry::Accumulate(Telemetry::HTTP_ONSTART_SUSPEND_TOTAL_TIME,
+                          mSuspendTotalTime);
 
     if (!mSecurityInfo && !mCachePump && mTransaction) {
         // grab the security info from the connection object; the transaction
@@ -8424,6 +8428,10 @@ nsHttpChannel::SuspendInternal()
 
     ++mSuspendCount;
 
+    if (mSuspendCount == 1) {
+        mSuspendTimestamp = TimeStamp::NowLoRes();
+    }
+
     nsresult rvTransaction = NS_OK;
     if (mTransactionPump) {
         rvTransaction = mTransactionPump->Suspend();
@@ -8443,10 +8451,15 @@ nsHttpChannel::ResumeInternal()
 
     LOG(("nsHttpChannel::ResumeInternal [this=%p]\n", this));
 
-    if (--mSuspendCount == 0 && mCallOnResume) {
-        nsresult rv = AsyncCall(mCallOnResume);
-        mCallOnResume = nullptr;
-        NS_ENSURE_SUCCESS(rv, rv);
+    if (--mSuspendCount == 0) {
+        mSuspendTotalTime += (TimeStamp::NowLoRes() - mSuspendTimestamp).
+                               ToMilliseconds();
+
+        if (mCallOnResume) {
+            nsresult rv = AsyncCall(mCallOnResume);
+            mCallOnResume = nullptr;
+            NS_ENSURE_SUCCESS(rv, rv);
+        }
     }
 
     nsresult rvTransaction = NS_OK;

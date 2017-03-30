@@ -203,7 +203,7 @@ fails == 201293-1d.html 201293-1d.html
 == 211931-1.html 211931-1.html
 == 212563-1.html 212563-1.html
 == 212563-2.html 212563-2.html
-fails == 213834-1.html 213834-1.html
+== 213834-1.html 213834-1.html
 == 214077-1a.html 214077-1a.html
 == 214077-1b.html 214077-1b.html
 == 218473-1.html 218473-1.html
@@ -330,9 +330,9 @@ fails == 301726-1.html 301726-1.html
 fails == 301726-2.html 301726-2.html
 fails == 302379.html 302379.html
 == 306630-1.html 306630-1.html
-fails == 306660-1.html 306660-1.html
-fails == 306660-2.html 306660-2.html
-fails == 306660-3.html 306660-3.html
+== 306660-1.html 306660-1.html
+== 306660-2.html 306660-2.html
+== 306660-3.html 306660-3.html
 fails == 307076-1.html 307076-1.html
 == 307102-1.html 307102-1.html
 fails == 307102-2.html 307102-2.html
@@ -369,23 +369,23 @@ fails == 315920-3f.html 315920-3f.html
 fails == 315920-4.html 315920-4.html
 fails == 315920-5.html 315920-5.html
 fails == 315920-6.html 315920-6.html
-fails == 315920-7a.html 315920-7a.html
-fails == 315920-7b.html 315920-7b.html
-fails == 315920-7c.html 315920-7c.html
-fails == 315920-8a.html 315920-8a.html
-fails == 315920-8b.html 315920-8b.html # bug 1349909
-fails == 315920-9.html 315920-9.html
+== 315920-7a.html 315920-7a.html
+== 315920-7b.html 315920-7b.html
+== 315920-7c.html 315920-7c.html
+== 315920-8a.html 315920-8a.html
+== 315920-8b.html 315920-8b.html # bug 1349909
+== 315920-9.html 315920-9.html
 == 315920-10.html 315920-10.html
-fails == 315920-11.html 315920-11.html
-fails == 315920-12a.html 315920-12a.html
-fails == 315920-12b.html 315920-12b.html
-fails == 315920-12c.html 315920-12c.html
-fails == 315920-13a.html 315920-13a.html
-fails == 315920-13b.html 315920-13b.html # bug 1349909
-fails == 315920-14.html 315920-14.html
+== 315920-11.html 315920-11.html
+== 315920-12a.html 315920-12a.html
+== 315920-12b.html 315920-12b.html
+== 315920-12c.html 315920-12c.html
+== 315920-13a.html 315920-13a.html
+== 315920-13b.html 315920-13b.html # bug 1349909
+== 315920-14.html 315920-14.html
 == 315920-15.html 315920-15.html
-fails == 315920-16.html 315920-16.html
-fails == 315920-17.html 315920-17.html
+== 315920-16.html 315920-16.html
+== 315920-17.html 315920-17.html
 == 315920-18a.html 315920-18a.html
 == 315920-18b.html 315920-18b.html
 == 315920-18c.html 315920-18c.html
@@ -402,7 +402,7 @@ fails == 315920-22.html 315920-22.html
 fails == 315920-23.html 315920-23.html
 == 315920-24.html 315920-24.html
 == 315920-25.html 315920-25.html
-fails == 315920-26.html 315920-26.html
+== 315920-26.html 315920-26.html
 fails == 315920-27.html 315920-27.html
 fails == 315920-28a.html 315920-28a.html
 fails == 315920-28b.html 315920-28b.html
@@ -481,14 +481,14 @@ fails == 348516-3.html 348516-3.html
 == 348809-1d.html 348809-1d.html
 == 348809-1e.html 348809-1e.html
 == 348809-1f.html 348809-1f.html
-fails == 348809-2a.html 348809-2a.html
-fails == 348809-2b.html 348809-2b.html
-fails == 348809-2c.html 348809-2c.html
-fails == 348809-2d.html 348809-2d.html
-fails == 348809-2e.html 348809-2e.html
-fails == 348809-2f.html 348809-2f.html
-fails == 348809-2g.html 348809-2g.html
-fails == 348809-2h.html 348809-2h.html
+== 348809-2a.html 348809-2a.html
+== 348809-2b.html 348809-2b.html
+== 348809-2c.html 348809-2c.html
+== 348809-2d.html 348809-2d.html
+== 348809-2e.html 348809-2e.html
+== 348809-2f.html 348809-2f.html
+== 348809-2g.html 348809-2g.html
+== 348809-2h.html 348809-2h.html
 fails == 349695-1a.html 349695-1a.html
 fails == 349695-1b.html 349695-1b.html
 # with CoreText rendering due to clipping of one subpixel-antialiasing pixel at end of text
@@ -497,30 +497,30 @@ fails == 349695-1b.html 349695-1b.html
 == 351641-1b.html 351641-1b.html
 == 351641-2a.html 351641-2a.html
 == 351641-2b.html 351641-2b.html
-fails == 352980-1a.html 352980-1a.html
-fails == 352980-1b.html 352980-1b.html
-fails == 352980-1c.html 352980-1c.html
-fails == 352980-1d.html 352980-1d.html
+== 352980-1a.html 352980-1a.html
+== 352980-1b.html 352980-1b.html
+== 352980-1c.html 352980-1c.html
+== 352980-1d.html 352980-1d.html
 == 352980-1e.html 352980-1e.html
-fails == 352980-1f.html 352980-1f.html
+== 352980-1f.html 352980-1f.html
 == 352980-1g.html 352980-1g.html
-fails == 352980-1h.html 352980-1h.html
-fails == 352980-1i.html 352980-1i.html
-fails == 352980-1j.html 352980-1j.html
-fails == 352980-1k.html 352980-1k.html
-fails == 352980-1l.html 352980-1l.html
-fails == 352980-2a.html 352980-2a.html
-fails == 352980-2b.html 352980-2b.html
-fails == 352980-2c.html 352980-2c.html
-fails == 352980-2d.html 352980-2d.html
-fails == 352980-2e.html 352980-2e.html
-fails == 352980-2f.html 352980-2f.html
-fails == 352980-3a.html 352980-3a.html
-fails == 352980-3b.html 352980-3b.html
-fails == 352980-3c.html 352980-3c.html
-fails == 352980-3d.html 352980-3d.html
-fails == 352980-3e.html 352980-3e.html
-fails == 352980-3f.html 352980-3f.html
+== 352980-1h.html 352980-1h.html
+== 352980-1i.html 352980-1i.html
+== 352980-1j.html 352980-1j.html
+== 352980-1k.html 352980-1k.html
+== 352980-1l.html 352980-1l.html
+== 352980-2a.html 352980-2a.html
+== 352980-2b.html 352980-2b.html
+== 352980-2c.html 352980-2c.html
+== 352980-2d.html 352980-2d.html
+== 352980-2e.html 352980-2e.html
+== 352980-2f.html 352980-2f.html
+== 352980-3a.html 352980-3a.html
+== 352980-3b.html 352980-3b.html
+== 352980-3c.html 352980-3c.html
+== 352980-3d.html 352980-3d.html
+== 352980-3e.html 352980-3e.html
+== 352980-3f.html 352980-3f.html
 == 355548-1.xml 355548-1.xml
 == 355548-2.xml 355548-2.xml
 == 355548-3.xml 355548-3.xml
@@ -654,7 +654,7 @@ fails == 372037-1.html 372037-1.html
 == 372062-1.html 372062-1.html
 == 372063-1.html 372063-1.html
 == 372323-1.xhtml 372323-1.xhtml
-fails == 372553-1.html 372553-1.html
+== 372553-1.html 372553-1.html
 == 372632-1.html 372632-1.html
 fails == 372768-1.html 372768-1.html
 == 373295-1.html 373295-1.html
@@ -709,7 +709,7 @@ fails == 379461-3-container-xhtml.html 379461-3-container-xhtml.html # Bug 13410
 fails == 379461-3-container-xhtml.html 379461-3-container-xhtml.html # Bug 1341095
 == 380004-1.html 380004-1.html
 == 380227-1.html 380227-1.html
-fails == 380825-1.html 380825-1.html
+== 380825-1.html 380825-1.html
 == 380842-1.html 380842-1.html
 == 381130-1.html 381130-1.html
 fails == 381507-1.html 381507-1.html
@@ -769,7 +769,7 @@ fails == 386470-1c.html 386470-1c.html  # Bug 1341725
 == 387876-3a.html 387876-3a.html
 == 387876-3b.html 387876-3b.html
 == 388026-1.html 388026-1.html
-fails == 389074-1.html 389074-1.html
+== 389074-1.html 389074-1.html
 == 389224-1.html 389224-1.html
 == 389224-2.html 389224-2.html
 fails == 389468-1.html 389468-1.html
@@ -785,7 +785,7 @@ fails == 389468-1.html 389468-1.html
 == 390318-1e.html 390318-1e.html
 == 390318-1f.html 390318-1f.html
 skip-if(!winWidget) == 391045.html 391045.html
-fails == 391140-1.html 391140-1.html
+== 391140-1.html 391140-1.html
 == 391412-1a.html 391412-1a.html
 == 391412-1b.html 391412-1b.html
 fails == 391909-1.html 391909-1.html
@@ -931,7 +931,7 @@ fails == 407243-1.html 407243-1.html
 == 408656-1c.html 408656-1c.html
 fails == 408782-1a.html 408782-1a.html
 fails == 408782-1b.html 408782-1b.html
-fails == 408782-2a.html 408782-2a.html
+== 408782-2a.html 408782-2a.html
 fails == 408782-2b.html 408782-2b.html
 fails == 409084-1a.html 409084-1a.html
 fails == 409084-1b.html 409084-1b.html
@@ -943,7 +943,7 @@ fuzzy-if(winWidget,123,1600) == 409659-1a.html 409659-1a.html
 fails == 409659-1c.html 409659-1c.html
 fuzzy-if(winWidget,123,1900) == 409659-1d.html 409659-1d.html
 == 410621-1.html 410621-1.html
-fails == 411059-1.html 411059-1.html
+== 411059-1.html 411059-1.html
 == 411334-1.xml 411334-1.xml
 == 411367-1.html 411367-1.html
 == 411367-2.html 411367-2.html
@@ -1020,12 +1020,12 @@ fails == 421710-1.html 421710-1.html
 fails-if(Android) fails-if(usesRepeatResampling) == 421885-1.xml 421885-1.xml
 == 421955-1.html 421955-1.html
 fails == 422249-1.html 422249-1.html
-fails == 422394-1.html 422394-1.html
+== 422394-1.html 422394-1.html
 fails == 422678-1.html 422678-1.html
 == 423130-1.html 423130-1.html
 == 423385-1.html 423385-1.html
 fails == 423599-1.html 423599-1.html
-fails == 423676-1.html 423676-1.html
+== 423676-1.html 423676-1.html
 fails == 423823-1.html 423823-1.html
 == 424074-1.xul 424074-1.xul
 fails-if(Android) == 424074-1.xul 424074-1.xul
@@ -1626,21 +1626,21 @@ fails == 608636-1.html 608636-1.html
 == 608756-1b.html 608756-1b.html
 == 608756-2.html 608756-2.html
 == 609272-1.html 609272-1.html
-fails == 613433-1.html 613433-1.html
-fails == 613433-1.html 613433-1.html
-fails == 613433-1.html 613433-1.html
-fails == 613433-2.html 613433-2.html
-fails == 613433-2.html 613433-2.html
-fails == 613433-2.html 613433-2.html
-fails == 613433-3.html 613433-3.html
-fails == 613433-3.html 613433-3.html
-fails == 613433-3.html 613433-3.html
+== 613433-1.html 613433-1.html
+== 613433-1.html 613433-1.html
+== 613433-1.html 613433-1.html
+== 613433-2.html 613433-2.html
+== 613433-2.html 613433-2.html
+== 613433-2.html 613433-2.html
+== 613433-3.html 613433-3.html
+== 613433-3.html 613433-3.html
+== 613433-3.html 613433-3.html
 == 614272-1.svg 614272-1.svg
 fails HTTP(..) == 615121-1.html 615121-1.html
 fails HTTP(..) == 615121-2.html 615121-2.html
 fails == 617242-1.html 617242-1.html
 fails == 618071.html 618071.html
-fails == 619117-1.html 619117-1.html
+== 619117-1.html 619117-1.html
 fails HTTP(..) == 619511-1.html 619511-1.html
 == 621253-1-externalFilter.html 621253-1-externalFilter.html
 == 621253-1-internalFilter.html 621253-1-internalFilter.html
@@ -1672,11 +1672,11 @@ fails == 641770-1.html 641770-1.html
 == 641856-1.html 641856-1.html
 fails == 645491-1.html 645491-1.html
 fails == 645647-1.html 645647-1.html
-fails == 645647-2.html 645647-2.html
+== 645647-2.html 645647-2.html
 fails == 645768-1.html 645768-1.html
 == 650228-1.html 650228-1.html
-fails needs-focus == 652301-1a.html 652301-1a.html
-fails needs-focus == 652301-1b.html 652301-1b.html
+needs-focus == 652301-1a.html 652301-1a.html
+needs-focus == 652301-1b.html 652301-1b.html
 fails == 652775-1.html 652775-1.html
 fails == 653930-1.html 653930-1.html
 fails HTTP(..) == 654057-1.html 654057-1.html
@@ -1700,9 +1700,9 @@ fails == 670467-2.html 670467-2.html
 == 691571-1.html 691571-1.html
 == 696307-1.html 696307-1.html
 == 696739-1.html 696739-1.html
-needs-focus == 703186-1.html 703186-1.html
+fails needs-focus == 703186-1.html 703186-1.html # Bug 1351724
 needs-focus == 703186-2.html 703186-2.html
-needs-focus == 703186-1.html 703186-1.html
+fails needs-focus == 703186-1.html 703186-1.html # Bug 1351724
 == 711359-1.html 711359-1.html
 == 712849-1.html 712849-1.html
 == 713856-static.html 713856-static.html
@@ -1712,7 +1712,7 @@ needs-focus == 703186-1.html 703186-1.html
 == 714519-2-as.html 714519-2-as.html
 == 714519-2-q.html 714519-2-q.html
 == 718521.html 718521.html
-fails == 720987.html 720987.html
+== 720987.html 720987.html
 == 722888-1.html 722888-1.html
 == 722923-1.html 722923-1.html
 == 723484-1.html 723484-1.html
@@ -1797,12 +1797,12 @@ fails == 897491-2.html 897491-2.html
 == 931853-quirks.html 931853-quirks.html
 fails == 933264-1.html 933264-1.html
 == 936670-1.svg 936670-1.svg
-fails == 941940-1.html 941940-1.html
+== 941940-1.html 941940-1.html
 fails == 942017.html 942017.html
 fails == 942672-1.html 942672-1.html
 == 953334-win32-clipping.html 953334-win32-clipping.html
 fuzzy-if(skiaContent,1,5) == 956513-1.svg 956513-1.svg
-fails == 944291-1.html 944291-1.html
+== 944291-1.html 944291-1.html
 fails == 950436-1.html 950436-1.html
 == 957770-1.svg 957770-1.svg
 fails == 960277-1.html 960277-1.html
@@ -1827,7 +1827,7 @@ fails == 992447.html 992447.html
 == 1003425-1.html 1003425-1.html
 == 1003425-2.html 1003425-2.html
 == 1005405-1.html 1005405-1.html
-fails == 1012640-1.html 1012640-1.html
+== 1012640-1.html 1012640-1.html
 == 1013054-1.html 1013054-1.html
 == 1018522-1.html 1018522-1.html
 == 1021564-1.html 1021564-1.html
@@ -1838,7 +1838,7 @@ pref(browser.display.use_document_fonts,0) == 1022481-1.html 1022481-1.html
 == 1022612-1.html 1022612-1.html
 == 1024473-1.html 1024473-1.html
 == 1025914-1.html 1025914-1.html
-fails == 1042104-1.html 1042104-1.html
+== 1042104-1.html 1042104-1.html
 == 1043537-1.html 1043537-1.html
 == 1044198-1.html 1044198-1.html
 == 1049499-1.html 1049499-1.html
@@ -1936,7 +1936,7 @@ fails == 1155828-1.html 1155828-1.html
 == 1156129-1.html 1156129-1.html
 pref(dom.use_xbl_scopes_for_remote_xul,true) HTTP(..) == 1157127-1.html 1157127-1.html
 fails == 1169331-1.html 1169331-1.html
-fails == 1174332-1.html 1174332-1.html
+== 1174332-1.html 1174332-1.html
 == 1179078-1.html 1179078-1.html
 == 1179288-1.html 1179288-1.html
 == 1190635-1.html 1190635-1.html
@@ -1988,5 +1988,6 @@ HTTP == 652991-1b.html 652991-1b.html
 HTTP == 652991-2.html 652991-2.html
 HTTP == 652991-3.html 652991-3.html
 fails HTTP == 652991-4.html 652991-4.html
+== 1330051.svg 1330051.svg
 
 

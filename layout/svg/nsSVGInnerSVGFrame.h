@@ -54,10 +54,12 @@ public:
   // nsSVGDisplayableFrame interface:
   virtual DrawResult PaintSVG(gfxContext& aContext,
                               const gfxMatrix& aTransform,
-                              const nsIntRect *aDirtyRect = nullptr) override;
-  virtual nsRect GetCoveredRegion() override;
+                              const nsIntRect *aDirtyRect = nullptr,
+                              uint32_t aFlags = 0) override;
   virtual void ReflowSVG() override;
   virtual void NotifySVGChanged(uint32_t aFlags) override;
+  SVGBBox GetBBoxContribution(const Matrix &aToBBoxUserspace,
+                              uint32_t aFlags) override;
   virtual nsIFrame* GetFrameForPoint(const gfxPoint& aPoint) override;
 
   // nsSVGContainerFrame methods:

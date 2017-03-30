@@ -20,6 +20,7 @@ use flow::{BaseFlow, Flow, IS_ABSOLUTELY_POSITIONED};
 use flow_ref::FlowRef;
 use fragment::{CoordinateSystem, Fragment, ImageFragmentInfo, ScannedTextFragmentInfo};
 use fragment::{SpecificFragmentInfo, TruncatedFragmentInfo};
+use gfx::display_list;
 use gfx::display_list::{BLUR_INFLATION_FACTOR, BaseDisplayItem, BorderDetails};
 use gfx::display_list::{BorderDisplayItem, ImageBorder, NormalBorder};
 use gfx::display_list::{BorderRadii, BoxShadowClipMode, BoxShadowDisplayItem, ClippingRegion};
@@ -35,7 +36,7 @@ use list_item::ListItemFlow;
 use model::{self, MaybeAuto};
 use msg::constellation_msg::PipelineId;
 use net_traits::image::base::PixelFormat;
-use net_traits::image_cache_thread::UsePlaceholder;
+use net_traits::image_cache::UsePlaceholder;
 use range::Range;
 use servo_config::opts;
 use servo_url::ServoUrl;
@@ -46,7 +47,7 @@ use std::mem;
 use std::sync::Arc;
 use style::computed_values::{background_attachment, background_clip, background_origin};
 use style::computed_values::{background_repeat, background_size, border_style};
-use style::computed_values::{cursor, image_rendering, overflow_x, border_image_slice};
+use style::computed_values::{cursor, image_rendering, overflow_x};
 use style::computed_values::{pointer_events, position, transform_style, visibility};
 use style::computed_values::_servo_overflow_clip_box as overflow_clip_box;
 use style::computed_values::filter::Filter;
@@ -58,6 +59,7 @@ use style::properties::style_structs;
 use style::servo::restyle_damage::REPAINT;
 use style::values::{RGBA, computed};
 use style::values::computed::{AngleOrCorner, Gradient, GradientKind, LengthOrPercentage, LengthOrPercentageOrAuto};
+use style::values::computed::NumberOrPercentage;
 use style::values::specified::{HorizontalDirection, VerticalDirection};
 use style_traits::CSSPixel;
 use style_traits::cursor::Cursor;
@@ -68,13 +70,13 @@ trait ResolvePercentage {
     fn resolve(&self, length: u32) -> u32;
 }
 
-impl ResolvePercentage for border_image_slice::PercentageOrNumber {
+impl ResolvePercentage for NumberOrPercentage {
     fn resolve(&self, length: u32) -> u32 {
         match *self {
-            border_image_slice::PercentageOrNumber::Percentage(p) => {
+            NumberOrPercentage::Percentage(p) => {
                 (p.0 * length as f32).round() as u32
             }
-            border_image_slice::PercentageOrNumber::Number(n) => {
+            NumberOrPercentage::Number(n) => {
                 n.round() as u32
             }
         }
@@ -155,6 +157,11 @@ pub struct DisplayListBuildState<'a> {
     /// recursively building and processing the display list.
     pub current_scroll_root_id: ScrollRootId,
 
+    /// The scroll root id of the first ancestor which defines a containing block.
+    /// This is necessary because absolutely positioned items should be clipped
+    /// by their containing block's scroll root.
+    pub containing_block_scroll_root_id: ScrollRootId,
+
     /// Vector containing iframe sizes, used to inform the constellation about
     /// new iframe sizes
     pub iframe_sizes: Vec<(PipelineId, TypedSize2D<f32, CSSPixel>)>,
@@ -171,6 +178,7 @@ impl<'a> DisplayListBuildState<'a> {
             processing_scroll_root_element: false,
             current_stacking_context_id: StackingContextId::root(),
             current_scroll_root_id: ScrollRootId::root(),
+            containing_block_scroll_root_id: ScrollRootId::root(),
             iframe_sizes: Vec::new(),
         }
     }
@@ -348,6 +356,12 @@ pub trait FragmentDisplayListBuilding {
                                                clip: &ClippingRegion,
                                                image_url: &ServoUrl,
                                                background_index: usize);
+
+    fn convert_gradient(&self,
+                        absolute_bounds: &Rect<Au>,
+                        gradient: &Gradient,
+                        style: &ServoComputedValues)
+                        -> Option<display_list::Gradient>;
 
     /// Adds the display items necessary to paint the background linear gradient of this fragment
     /// to the appropriate section of the display list.
@@ -610,6 +624,9 @@ impl FragmentDisplayListBuilding for Fragment {
                                                                      i);
                     }
                 }
+                Some(computed::Image::ImageRect(_)) => {
+                    // TODO: Implement `-moz-image-rect`
+                }
             }
         }
     }
@@ -751,45 +768,45 @@ impl FragmentDisplayListBuilding for Fragment {
             let mut stretch_size = image_size;
 
             // Adjust origin and size based on background-repeat
-            match *get_cyclic(&background.background_repeat.0, index) {
-                background_repeat::single_value::T::no_repeat => {
+            let background_repeat = get_cyclic(&background.background_repeat.0, index);
+            match background_repeat.0 {
+                background_repeat::single_value::RepeatKeyword::NoRepeat => {
                     bounds.origin.x = anchor_origin_x;
-                    bounds.origin.y = anchor_origin_y;
                     bounds.size.width = image_size.width;
-                    bounds.size.height = image_size.height;
                 }
-                background_repeat::single_value::T::repeat_x => {
-                    bounds.origin.y = anchor_origin_y;
-                    bounds.size.height = image_size.height;
+                background_repeat::single_value::RepeatKeyword::Repeat => {
                     ImageFragmentInfo::tile_image(&mut bounds.origin.x,
                                                   &mut bounds.size.width,
                                                   anchor_origin_x,
                                                   image_size.width);
                 }
-                background_repeat::single_value::T::repeat_y => {
-                    bounds.origin.x = anchor_origin_x;
-                    bounds.size.width = image_size.width;
-                    ImageFragmentInfo::tile_image(&mut bounds.origin.y,
-                                                  &mut bounds.size.height,
-                                                  anchor_origin_y,
-                                                  image_size.height);
-                }
-                background_repeat::single_value::T::repeat => {
-                    ImageFragmentInfo::tile_image(&mut bounds.origin.x,
-                                                  &mut bounds.size.width,
-                                                  anchor_origin_x,
-                                                  image_size.width);
-                    ImageFragmentInfo::tile_image(&mut bounds.origin.y,
-                                                  &mut bounds.size.height,
-                                                  anchor_origin_y,
-                                                  image_size.height);
-                }
-                background_repeat::single_value::T::space => {
+                background_repeat::single_value::RepeatKeyword::Space => {
                     ImageFragmentInfo::tile_image_spaced(&mut bounds.origin.x,
                                                          &mut bounds.size.width,
                                                          &mut tile_spacing.width,
                                                          anchor_origin_x,
                                                          image_size.width);
+
+                }
+                background_repeat::single_value::RepeatKeyword::Round => {
+                    ImageFragmentInfo::tile_image_round(&mut bounds.origin.x,
+                                                        &mut bounds.size.width,
+                                                        anchor_origin_x,
+                                                        &mut stretch_size.width);
+                }
+            };
+            match background_repeat.1 {
+                background_repeat::single_value::RepeatKeyword::NoRepeat => {
+                    bounds.origin.y = anchor_origin_y;
+                    bounds.size.height = image_size.height;
+                }
+                background_repeat::single_value::RepeatKeyword::Repeat => {
+                    ImageFragmentInfo::tile_image(&mut bounds.origin.y,
+                                                  &mut bounds.size.height,
+                                                  anchor_origin_y,
+                                                  image_size.height);
+                }
+                background_repeat::single_value::RepeatKeyword::Space => {
                     ImageFragmentInfo::tile_image_spaced(&mut bounds.origin.y,
                                                          &mut bounds.size.height,
                                                          &mut tile_spacing.height,
@@ -797,11 +814,7 @@ impl FragmentDisplayListBuilding for Fragment {
                                                          image_size.height);
 
                 }
-                background_repeat::single_value::T::round => {
-                    ImageFragmentInfo::tile_image_round(&mut bounds.origin.x,
-                                                        &mut bounds.size.width,
-                                                        anchor_origin_x,
-                                                        &mut stretch_size.width);
+                background_repeat::single_value::RepeatKeyword::Round => {
                     ImageFragmentInfo::tile_image_round(&mut bounds.origin.y,
                                                         &mut bounds.size.height,
                                                         anchor_origin_y,
@@ -827,20 +840,13 @@ impl FragmentDisplayListBuilding for Fragment {
         }
     }
 
-    fn build_display_list_for_background_gradient(&self,
-                                                  state: &mut DisplayListBuildState,
-                                                  display_list_section: DisplayListSection,
-                                                  absolute_bounds: &Rect<Au>,
-                                                  clip: &ClippingRegion,
-                                                  gradient: &Gradient,
-                                                  style: &ServoComputedValues) {
-        let mut clip = clip.clone();
-        clip.intersect_rect(absolute_bounds);
-
-
+    fn convert_gradient(&self,
+                        absolute_bounds: &Rect<Au>,
+                        gradient: &Gradient,
+                        style: &ServoComputedValues) -> Option<display_list::Gradient> {
         // FIXME: Repeating gradients aren't implemented yet.
         if gradient.repeating {
-          return;
+          return None;
         }
         let angle = if let GradientKind::Linear(angle_or_corner) = gradient.gradient_kind {
             match angle_or_corner {
@@ -865,7 +871,7 @@ impl FragmentDisplayListBuilding for Fragment {
             }
         } else {
             // FIXME: Radial gradients aren't implemented yet.
-            return;
+            return None;
         };
 
         // Get correct gradient line length, based on:
@@ -949,19 +955,39 @@ impl FragmentDisplayListBuilding for Fragment {
         let center = Point2D::new(absolute_bounds.origin.x + absolute_bounds.size.width / 2,
                                   absolute_bounds.origin.y + absolute_bounds.size.height / 2);
 
-        let base = state.create_base_display_item(absolute_bounds,
-                                                  &clip,
-                                                  self.node,
-                                                  style.get_cursor(Cursor::Default),
-                                                  display_list_section);
-        let gradient_display_item = DisplayItem::Gradient(box GradientDisplayItem {
-            base: base,
+        Some(display_list::Gradient {
             start_point: center - delta,
             end_point: center + delta,
             stops: stops,
-        });
+        })
+    }
 
-        state.add_display_item(gradient_display_item);
+    fn build_display_list_for_background_gradient(&self,
+                                                  state: &mut DisplayListBuildState,
+                                                  display_list_section: DisplayListSection,
+                                                  absolute_bounds: &Rect<Au>,
+                                                  clip: &ClippingRegion,
+                                                  gradient: &Gradient,
+                                                  style: &ServoComputedValues) {
+        let mut clip = clip.clone();
+        clip.intersect_rect(absolute_bounds);
+
+        let grad = self.convert_gradient(absolute_bounds, gradient, style);
+
+        if let Some(x) = grad {
+            let base = state.create_base_display_item(absolute_bounds,
+                                                      &clip,
+                                                      self.node,
+                                                      style.get_cursor(Cursor::Default),
+                                                      display_list_section);
+
+            let gradient_display_item = DisplayItem::Gradient(box GradientDisplayItem {
+                base: base,
+                gradient: x,
+            });
+
+            state.add_display_item(gradient_display_item);
+        }
     }
 
     fn build_display_list_for_box_shadow_if_applicable(&self,
@@ -1072,8 +1098,31 @@ impl FragmentDisplayListBuilding for Fragment {
                     }),
                 }));
             }
-            Some(computed::Image::Gradient(..)) => {
-                // TODO(gw): Handle border-image with gradient.
+            Some(computed::Image::Gradient(ref gradient)) => {
+                match gradient.gradient_kind {
+                    GradientKind::Linear(_) => {
+                        let grad = self.convert_gradient(&bounds, gradient, style);
+
+                        if let Some(x) = grad {
+                            state.add_display_item(DisplayItem::Border(box BorderDisplayItem {
+                                base: base,
+                                border_widths: border.to_physical(style.writing_mode),
+                                details: BorderDetails::Gradient(display_list::GradientBorder {
+                                    gradient: x,
+
+                                    // TODO(gw): Support border-image-outset
+                                    outset: SideOffsets2D::zero(),
+                                }),
+                            }));
+                        }
+                    }
+                    GradientKind::Radial(_, _) => {
+                        // TODO(gw): Handle border-image with radial gradient.
+                    }
+                }
+            }
+            Some(computed::Image::ImageRect(..)) => {
+                // TODO: Handle border-image with `-moz-image-rect`.
             }
             Some(computed::Image::Url(ref image_url)) => {
                 if let Some(url) = image_url.url() {
@@ -1860,6 +1909,7 @@ impl BlockFlowDisplayListBuilding for BlockFlow {
         state.current_stacking_context_id = self.base.stacking_context_id;
 
         let original_scroll_root_id = state.current_scroll_root_id;
+        let original_containing_block_scroll_root = state.containing_block_scroll_root_id;
 
         // We are getting the id of the scroll root that contains us here, not the id of
         // any scroll root that we create. If we create a scroll root, its id will be
@@ -1884,12 +1934,19 @@ impl BlockFlowDisplayListBuilding for BlockFlow {
         }
 
         state.current_scroll_root_id = original_scroll_root_id;
+        state.containing_block_scroll_root_id = original_containing_block_scroll_root;
         state.current_stacking_context_id = parent_stacking_context_id;
     }
 
     fn setup_scroll_root_for_block(&mut self, state: &mut DisplayListBuildState) -> ScrollRootId {
-        let containing_scroll_root_id = state.current_scroll_root_id;
+        // If this block is absolutely positioned, we should be clipped and positioned by
+        // the scroll root of our nearest ancestor that establishes a containing block.
+        let containing_scroll_root_id = match self.positioning() {
+            position::T::absolute => state.containing_block_scroll_root_id,
+            _ => state.current_scroll_root_id,
+        };
         self.base.scroll_root_id = containing_scroll_root_id;
+        state.current_scroll_root_id = containing_scroll_root_id;
 
         if !self.style_permits_scrolling_overflow() {
             return containing_scroll_root_id;
@@ -1930,6 +1987,13 @@ impl BlockFlowDisplayListBuilding for BlockFlow {
 
         self.base.scroll_root_id = new_scroll_root_id;
         state.current_scroll_root_id = new_scroll_root_id;
+
+        match self.positioning() {
+            position::T::absolute | position::T::relative | position::T::fixed =>
+                state.containing_block_scroll_root_id = new_scroll_root_id,
+            _ => {}
+        }
+
         containing_scroll_root_id
     }
 

@@ -81,10 +81,13 @@ public:
    *
    * @param aDirtyRect The area being redrawn, in frame offset pixel
    *   coordinates.
+   *
+   * @param aFlags Image flags of the imgIContainer::FLAG_* variety.
    */
   virtual DrawResult PaintSVG(gfxContext& aContext,
                               const gfxMatrix& aTransform,
-                              const nsIntRect* aDirtyRect = nullptr) = 0;
+                              const nsIntRect* aDirtyRect = nullptr,
+                              uint32_t aFlags = 0) = 0;
 
   /**
    * Returns the frame that should handle pointer events at aPoint.  aPoint is
@@ -93,9 +96,6 @@ public:
    * called, any of its descendants or else nullptr.
    */
   virtual nsIFrame* GetFrameForPoint(const gfxPoint& aPoint) = 0;
-
-  // Get bounds in our nsSVGOuterSVGFrame's coordinates space (in app units)
-  virtual nsRect GetCoveredRegion()=0;
 
   // Called on SVG child frames (except NS_FRAME_IS_NONDISPLAY frames)
   // to update and then invalidate their cached bounds. This method is not

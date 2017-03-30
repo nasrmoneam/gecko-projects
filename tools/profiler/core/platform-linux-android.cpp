@@ -65,9 +65,6 @@
 #include "mozilla/PodOperations.h"
 #include "mozilla/DebugOnly.h"
 
-// Memory profile
-#include "nsMemoryReporterManager.h"
-
 #include <string.h>
 #include <list>
 
@@ -84,18 +81,18 @@ SetSampleContext(TickSample* sample, mcontext_t& mcontext)
 {
   // Extracting the sample from the context is extremely machine dependent.
 #if defined(GP_ARCH_x86)
-  sample->pc = reinterpret_cast<Address>(mcontext.gregs[REG_EIP]);
-  sample->sp = reinterpret_cast<Address>(mcontext.gregs[REG_ESP]);
-  sample->fp = reinterpret_cast<Address>(mcontext.gregs[REG_EBP]);
+  sample->mPC = reinterpret_cast<Address>(mcontext.gregs[REG_EIP]);
+  sample->mSP = reinterpret_cast<Address>(mcontext.gregs[REG_ESP]);
+  sample->mFP = reinterpret_cast<Address>(mcontext.gregs[REG_EBP]);
 #elif defined(GP_ARCH_amd64)
-  sample->pc = reinterpret_cast<Address>(mcontext.gregs[REG_RIP]);
-  sample->sp = reinterpret_cast<Address>(mcontext.gregs[REG_RSP]);
-  sample->fp = reinterpret_cast<Address>(mcontext.gregs[REG_RBP]);
+  sample->mPC = reinterpret_cast<Address>(mcontext.gregs[REG_RIP]);
+  sample->mSP = reinterpret_cast<Address>(mcontext.gregs[REG_RSP]);
+  sample->mFP = reinterpret_cast<Address>(mcontext.gregs[REG_RBP]);
 #elif defined(GP_ARCH_arm)
-  sample->pc = reinterpret_cast<Address>(mcontext.arm_pc);
-  sample->sp = reinterpret_cast<Address>(mcontext.arm_sp);
-  sample->fp = reinterpret_cast<Address>(mcontext.arm_fp);
-  sample->lr = reinterpret_cast<Address>(mcontext.arm_lr);
+  sample->mPC = reinterpret_cast<Address>(mcontext.arm_pc);
+  sample->mSP = reinterpret_cast<Address>(mcontext.arm_sp);
+  sample->mFP = reinterpret_cast<Address>(mcontext.arm_fp);
+  sample->mLR = reinterpret_cast<Address>(mcontext.arm_lr);
 #else
 # error "bad platform"
 #endif
@@ -356,32 +353,15 @@ SamplerThread::Stop(PS::LockRef aLock)
 }
 
 void
-SamplerThread::SuspendAndSampleAndResumeThread(
-  PS::LockRef aLock, ThreadInfo* aThreadInfo, bool aIsFirstProfiledThread)
+SamplerThread::SuspendAndSampleAndResumeThread(PS::LockRef aLock,
+                                               TickSample* aSample)
 {
   // Only one sampler thread can be sampling at once.  So we expect to have
   // complete control over |sSigHandlerCoordinator|.
   MOZ_ASSERT(!sSigHandlerCoordinator);
 
-  int sampleeTid = aThreadInfo->ThreadId();
+  int sampleeTid = aSample->mThreadInfo->ThreadId();
   MOZ_RELEASE_ASSERT(sampleeTid != mSamplerTid);
-
-  //----------------------------------------------------------------//
-  // Collect auxiliary information whilst the samplee thread is still
-  // running.
-
-  int64_t rssMemory = 0;
-  int64_t ussMemory = 0;
-  if (aIsFirstProfiledThread && gPS->FeatureMemory(aLock)) {
-    rssMemory = nsMemoryReporterManager::ResidentFast();
-    ussMemory = nsMemoryReporterManager::ResidentUnique();
-  }
-
-  TickSample sample;
-  sample.threadInfo = aThreadInfo;
-  sample.timestamp = mozilla::TimeStamp::Now();
-  sample.rssMemory = rssMemory;
-  sample.ussMemory = ussMemory;
 
   //----------------------------------------------------------------//
   // Suspend the samplee thread and get its context.
@@ -423,13 +403,13 @@ SamplerThread::SuspendAndSampleAndResumeThread(
   // The samplee thread is now frozen and sSigHandlerCoordinator->mUContext is
   // valid.  We can poke around in it and unwind its stack as we like.
 
-  sample.context = &sSigHandlerCoordinator->mUContext;
+  aSample->mContext = &sSigHandlerCoordinator->mUContext;
 
   // Extract the current pc and sp.
-  SetSampleContext(&sample,
+  SetSampleContext(aSample,
                    sSigHandlerCoordinator->mUContext.uc_mcontext);
 
-  Tick(aLock, gPS->Buffer(aLock), &sample);
+  Tick(aLock, gPS->Buffer(aLock), aSample);
 
   //----------------------------------------------------------------//
   // Resume the target thread.
@@ -497,42 +477,6 @@ readCSVArray(char* aCsvList, const char** aBuffer)
   return count;
 }
 
-// Support some of the env variables reported in ReadProfilerEnvVars, plus some
-// extra stuff.
-static void
-ReadProfilerVars(const char* aFileName,
-                 const char** aFeatures, uint32_t* aFeatureCount,
-                 const char** aThreadNames, uint32_t* aThreadCount)
-{
-  FILE* file = fopen(aFileName, "r");
-  const int bufferSize = 1024;
-  char line[bufferSize];
-  char* feature;
-  char* value;
-  char* savePtr;
-
-  if (file) {
-    PS::AutoLock lock(gPSMutex);
-
-    while (fgets(line, bufferSize, file) != nullptr) {
-      feature = strtok_r(line, "=", &savePtr);
-      value = strtok_r(nullptr, "", &savePtr);
-
-      if (strncmp(feature, "MOZ_PROFILER_INTERVAL", bufferSize) == 0) {
-        set_profiler_interval(lock, value);
-      } else if (strncmp(feature, "MOZ_PROFILER_ENTRIES", bufferSize) == 0) {
-        set_profiler_entries(lock, value);
-      } else if (strncmp(feature, "MOZ_PROFILER_FEATURES", bufferSize) == 0) {
-        *aFeatureCount = readCSVArray(value, aFeatures);
-      } else if (strncmp(feature, "threads", bufferSize) == 0) {
-        *aThreadCount = readCSVArray(value, aThreadNames);
-      }
-    }
-
-    fclose(file);
-  }
-}
-
 static void
 DoStartTask()
 {
@@ -547,11 +491,39 @@ DoStartTask()
   const char* features[10];
   const char* profilerConfigFile = "/data/local/tmp/profiler.options";
 
-  ReadProfilerVars(profilerConfigFile, features, &featureCount, threadNames, &threadCount);
+  // Support some of the usual env variables, plus some extra stuff.
+  FILE* file = fopen(profilerConfigFile, "r");
+  int entries = PROFILE_DEFAULT_ENTRIES;
+  int interval = PROFILE_DEFAULT_INTERVAL;
+
+  if (file) {
+    const int bufferSize = 1024;
+    char line[bufferSize];
+    while (fgets(line, bufferSize, file) != nullptr) {
+      char* savePtr;
+      char* feature = strtok_r(line, "=", &savePtr);
+      char* value = strtok_r(nullptr, "", &savePtr);
+
+      if (strncmp(feature, "MOZ_PROFILER_STARTUP_ENTRIES", bufferSize) == 0) {
+        GetEntries(value, &entries);
+      } else if (strncmp(feature, "MOZ_PROFILER_STARTUP_INTERVAL",
+                         bufferSize) == 0) {
+        GetInterval(value, &interval);
+      } else if (strncmp(feature, "MOZ_PROFILER_STARTUP_FEATURES",
+                         bufferSize) == 0) {
+        featureCount = readCSVArray(value, features);
+      } else if (strncmp(feature, "threads", bufferSize) == 0) {
+        threadCount = readCSVArray(value, threadNames);
+      }
+    }
+
+    fclose(file);
+  }
+
   MOZ_ASSERT(featureCount < 10);
   MOZ_ASSERT(threadCount < 10);
 
-  profiler_start(PROFILE_DEFAULT_ENTRIES, /* interval */ 1,
+  profiler_start(entries, interval,
                  features, featureCount, threadNames, threadCount);
 
   freeArray(threadNames, threadCount);
@@ -640,14 +612,12 @@ PlatformInit(PS::LockRef aLock)
 #endif
 
 void
-TickSample::PopulateContext(void* aContext)
+TickSample::PopulateContext(ucontext_t* aContext)
 {
   MOZ_ASSERT(aContext);
-  ucontext_t* pContext = reinterpret_cast<ucontext_t*>(aContext);
-  if (!getcontext(pContext)) {
-    context = pContext;
-    SetSampleContext(this,
-                     reinterpret_cast<ucontext_t*>(aContext)->uc_mcontext);
+  if (!getcontext(aContext)) {
+    mContext = aContext;
+    SetSampleContext(this, aContext->uc_mcontext);
   }
 }
 

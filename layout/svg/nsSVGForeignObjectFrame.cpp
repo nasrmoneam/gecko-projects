@@ -205,7 +205,8 @@ nsSVGForeignObjectFrame::IsSVGTransformed(Matrix *aOwnTransform,
 DrawResult
 nsSVGForeignObjectFrame::PaintSVG(gfxContext& aContext,
                                   const gfxMatrix& aTransform,
-                                  const nsIntRect* aDirtyRect)
+                                  const nsIntRect* aDirtyRect,
+                                  uint32_t aFlags)
 {
   NS_ASSERTION(!NS_SVGDisplayListPaintingEnabled() ||
                (mState & NS_FRAME_IS_NONDISPLAY),
@@ -221,7 +222,7 @@ nsSVGForeignObjectFrame::PaintSVG(gfxContext& aContext,
 
   if (aTransform.IsSingular()) {
     NS_WARNING("Can't render foreignObject element!");
-    return DrawResult::BAD_ARGS;
+    return DrawResult::SUCCESS;
   }
 
   nsRect kidDirtyRect = kid->GetVisualOverflowRect();
@@ -321,20 +322,6 @@ nsSVGForeignObjectFrame::GetFrameForPoint(const gfxPoint& aPoint)
   nsPoint point = nsPoint(NSToIntRound(pt.x), NSToIntRound(pt.y));
 
   return nsLayoutUtils::GetFrameForPoint(kid, point);
-}
-
-nsRect
-nsSVGForeignObjectFrame::GetCoveredRegion()
-{
-  float x, y, w, h;
-  static_cast<SVGForeignObjectElement*>(mContent)->
-    GetAnimatedLengthValues(&x, &y, &w, &h, nullptr);
-  if (w < 0.0f) w = 0.0f;
-  if (h < 0.0f) h = 0.0f;
-  // GetCanvasTM includes the x,y translation
-  return nsSVGUtils::ToCanvasBounds(gfxRect(0.0, 0.0, w, h),
-                                    GetCanvasTM(),
-                                    PresContext());
 }
 
 void

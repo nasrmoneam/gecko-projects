@@ -60,6 +60,20 @@ SurfaceFormatToWrImageFormat(gfx::SurfaceFormat aFormat) {
   }
 }
 
+inline gfx::SurfaceFormat
+WrImageFormatToSurfaceFormat(ImageFormat aFormat) {
+  switch (aFormat) {
+    case ImageFormat::RGBA8:
+      return gfx::SurfaceFormat::B8G8R8A8;
+    case ImageFormat::A8:
+      return gfx::SurfaceFormat::A8;
+    case ImageFormat::RGB8:
+      return gfx::SurfaceFormat::B8G8R8;
+    default:
+      return gfx::SurfaceFormat::UNKNOWN;
+  }
+}
+
 struct ImageDescriptor: public WrImageDescriptor {
   ImageDescriptor(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat)
   {
@@ -148,6 +162,61 @@ static inline WrColor ToWrColor(const gfx::Color& color)
   return c;
 }
 
+template<class T>
+static inline WrPoint ToWrPoint(const gfx::PointTyped<T>& point)
+{
+  WrPoint p;
+  p.x = point.x;
+  p.y = point.y;
+  return p;
+}
+
+template<class T>
+static inline WrPoint ToWrPoint(const gfx::IntPointTyped<T>& point)
+{
+  return ToWrPoint(IntPointToPoint(point));
+}
+
+static inline WrPoint ToWrPoint(const gfx::Point& point)
+{
+  WrPoint p;
+  p.x = point.x;
+  p.y = point.y;
+  return p;
+}
+
+template<class T>
+static inline WrRect ToWrRect(const gfx::RectTyped<T>& rect)
+{
+  WrRect r;
+  r.x = rect.x;
+  r.y = rect.y;
+  r.width = rect.width;
+  r.height = rect.height;
+  return r;
+}
+
+template<class T>
+static inline WrRect ToWrRect(const gfx::IntRectTyped<T>& rect)
+{
+  return ToWrRect(IntRectToRect(rect));
+}
+
+template<class T>
+static inline WrSize ToWrSize(const gfx::SizeTyped<T>& size)
+{
+  WrSize ls;
+  ls.width = size.width;
+  ls.height = size.height;
+  return ls;
+}
+
+template<class T>
+static inline WrSize ToWrSize(const gfx::IntSizeTyped<T>& size)
+{
+  return ToWrSize(IntSizeToSize(size));
+}
+
 static inline WrBorderStyle ToWrBorderStyle(const uint8_t& style)
 {
   switch (style) {
@@ -183,22 +252,6 @@ static inline WrBorderSide ToWrBorderSide(const gfx::Color& color, const uint8_t
   bs.color = ToWrColor(color);
   bs.style = ToWrBorderStyle(style);
   return bs;
-}
-
-static inline WrPoint ToWrPoint(const LayerPoint point)
-{
-  WrPoint lp;
-  lp.x = point.x;
-  lp.y = point.y;
-  return lp;
-}
-
-static inline WrSize ToWrSize(const LayerSize size)
-{
-  WrSize ls;
-  ls.width = size.width;
-  ls.height = size.height;
-  return ls;
 }
 
 static inline WrBorderRadius ToWrUniformBorderRadius(const LayerSize& aSize)
@@ -281,23 +334,6 @@ static inline WrRepeatMode ToWrRepeatMode(uint8_t repeatMode)
 }
 
 template<class T>
-static inline WrRect ToWrRect(const gfx::RectTyped<T>& rect)
-{
-  WrRect r;
-  r.x = rect.x;
-  r.y = rect.y;
-  r.width = rect.width;
-  r.height = rect.height;
-  return r;
-}
-
-template<class T>
-static inline WrRect ToWrRect(const gfx::IntRectTyped<T>& rect)
-{
-  return ToWrRect(IntRectToRect(rect));
-}
-
-template<class T>
 static inline WrComplexClipRegion ToWrComplexClipRegion(const gfx::RectTyped<T>& rect,
                                                         const LayerSize& size)
 {
@@ -305,14 +341,6 @@ static inline WrComplexClipRegion ToWrComplexClipRegion(const gfx::RectTyped<T>&
   complex_clip.rect = wr::ToWrRect(rect);
   complex_clip.radii = wr::ToWrUniformBorderRadius(size);
   return complex_clip;
-}
-
-static inline WrPoint ToWrPoint(const gfx::Point& point)
-{
-  WrPoint p;
-  p.x = point.x;
-  p.y = point.y;
-  return p;
 }
 
 static inline WrExternalImageId ToWrExternalImageId(uint64_t aID)
@@ -422,6 +450,14 @@ struct ByteBuffer
   uint8_t* mData;
   bool mOwned;
 };
+
+inline WrByteSlice RangeToByteSlice(mozilla::Range<uint8_t> aRange) {
+  return WrByteSlice { aRange.begin().get(), aRange.length() };
+}
+
+inline mozilla::Range<uint8_t> ByteSliceToRange(WrByteSlice aWrSlice) {
+  return mozilla::Range<uint8_t>(aWrSlice.mBuffer, aWrSlice.mLength);
+}
 
 struct BuiltDisplayList {
   VecU8 dl;

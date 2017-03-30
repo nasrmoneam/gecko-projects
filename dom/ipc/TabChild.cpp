@@ -431,14 +431,6 @@ TabChild::TabChild(nsIContentChild* aManager,
   }
 }
 
-const CompositorOptions&
-TabChild::GetCompositorOptions() const
-{
-  // If you're calling this before mCompositorOptions is set, well.. don't.
-  MOZ_ASSERT(mCompositorOptions);
-  return mCompositorOptions.ref();
-}
-
 bool
 TabChild::AsyncPanZoomEnabled() const
 {
@@ -2734,7 +2726,11 @@ TabChild::InitAPZState()
   // The ContentProcessController will hold a reference to the tab, and will be destroyed by the compositor or ipdl
   // during destruction.
   RefPtr<GeckoContentController> contentController = new ContentProcessController(this);
-  cbc->SendPAPZConstructor(new APZChild(contentController), mLayersId);
+  APZChild* apzChild = new APZChild(contentController);
+  cbc->SetEventTargetForActor(
+    apzChild, TabGroup()->EventTargetFor(TaskCategory::Other));
+  MOZ_ASSERT(apzChild->GetActorEventTarget());
+  cbc->SendPAPZConstructor(apzChild, mLayersId);
 }
 
 void

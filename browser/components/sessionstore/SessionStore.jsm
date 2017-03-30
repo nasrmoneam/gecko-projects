@@ -221,6 +221,14 @@ function debug(aMsg) {
   }
 }
 
+/**
+ * A global value to tell that fingerprinting resistance is enabled or not.
+ * If it's enabled, the session restore won't restore the window's size and
+ * size mode.
+ * This value is controlled by preference privacy.resistFingerprinting.
+ */
+var gResistFingerprintingEnabled = false;
+
 this.SessionStore = {
   get promiseInitialized() {
     return SessionStoreInternal.promiseInitialized;
@@ -701,6 +709,10 @@ var SessionStoreInternal = {
 
     this._max_windows_undo = this._prefBranch.getIntPref("sessionstore.max_windows_undo");
     this._prefBranch.addObserver("sessionstore.max_windows_undo", this, true);
+
+
+    gResistFingerprintingEnabled = Services.prefs.getBoolPref("privacy.resistFingerprinting");
+    Services.prefs.addObserver("privacy.resistFingerprinting", this, false);
   },
 
   /**
@@ -897,24 +909,8 @@ var SessionStoreInternal = {
           browser.userTypedValue = uri;
         }
 
-        // If the page has a title, set it.
-        if (activePageData) {
-          if (activePageData.title) {
-            tab.label = activePageData.title;
-          } else if (activePageData.url != "about:blank") {
-            tab.label = activePageData.url;
-          }
-        } else if (tab.hasAttribute("customizemode")) {
-          win.gCustomizeMode.setTab(tab);
-        }
-
-        // Restore the tab icon.
-        if ("image" in tabData) {
-          // Use the serialized contentPrincipal with the new icon load.
-          let loadingPrincipal = Utils.deserializePrincipal(tabData.iconLoadingPrincipal);
-          win.gBrowser.setIcon(tab, tabData.image, loadingPrincipal);
-          TabStateCache.update(browser, { image: null, iconLoadingPrincipal: null });
-        }
+        // Update tab label and icon again after the tab history was updated.
+        this.updateTabLabelAndIcon(tab, tabData);
 
         let event = win.document.createEvent("Events");
         event.initEvent("SSTabRestoring", true, false);
@@ -1838,6 +1834,9 @@ var SessionStoreInternal = {
         this._max_windows_undo = this._prefBranch.getIntPref("sessionstore.max_windows_undo");
         this._capClosedWindows();
         break;
+      case "privacy.resistFingerprinting":
+        gResistFingerprintingEnabled = Services.prefs.getBoolPref("privacy.resistFingerprinting");
+        break;
     }
   },
 
@@ -2594,6 +2593,51 @@ var SessionStoreInternal = {
 
     // Neither a tab nor a window was found, return undefined and let the caller decide what to do about it.
     return undefined;
+  },
+
+  /**
+   * Updates the label and icon for a <xul:tab> using the data from
+   * tabData. If the tab being updated happens to be the
+   * customization mode tab, this function will tell the window's
+   * CustomizeMode instance about it.
+   *
+   * @param tab
+   *        The <xul:tab> to update.
+   * @param tabData (optional)
+   *        The tabData to use to update the tab. If the argument is
+   *        not supplied, the data will be retrieved from the cache.
+   */
+  updateTabLabelAndIcon(tab, tabData = null) {
+    let browser = tab.linkedBrowser;
+    let win = browser.ownerGlobal;
+
+    if (!tabData) {
+      tabData = TabState.collect(tab);
+      if (!tabData) {
+        throw new Error("tabData not found for given tab");
+      }
+    }
+
+    let activePageData = tabData.entries[tabData.index - 1] || null;
+
+    // If the page has a title, set it.
+    if (activePageData) {
+      if (activePageData.title) {
+        tab.label = activePageData.title;
+      } else if (activePageData.url != "about:blank") {
+        tab.label = activePageData.url;
+      }
+    } else if (tab.hasAttribute("customizemode")) {
+      win.gCustomizeMode.setTab(tab);
+    }
+
+    // Restore the tab icon.
+    if ("image" in tabData) {
+      // Use the serialized contentPrincipal with the new icon load.
+      let loadingPrincipal = Utils.deserializePrincipal(tabData.iconLoadingPrincipal);
+      win.gBrowser.setIcon(tab, tabData.image, loadingPrincipal);
+      TabStateCache.update(browser, { image: null, iconLoadingPrincipal: null });
+    }
   },
 
   /**
@@ -3463,9 +3507,17 @@ var SessionStoreInternal = {
       this._windows[aWindow.__SSi].selected = aSelectTab;
     }
 
+    // If we restore the selected tab, make sure it goes first.
+    let selectedIndex = aTabs.indexOf(tabbrowser.selectedTab);
+    if (selectedIndex > -1) {
+      this.restoreTab(tabbrowser.selectedTab, aTabData[selectedIndex]);
+    }
+
     // Restore all tabs.
     for (let t = 0; t < aTabs.length; t++) {
-      this.restoreTab(aTabs[t], aTabData[t]);
+      if (t != selectedIndex) {
+        this.restoreTab(aTabs[t], aTabData[t]);
+      }
     }
   },
 
@@ -3594,6 +3646,10 @@ var SessionStoreInternal = {
 
     browser.messageManager.sendAsyncMessage("SessionStore:restoreHistory",
                                             {tabData, epoch, loadArguments});
+
+    // Update tab label and icon to show something
+    // while we wait for the messages to be processed.
+    this.updateTabLabelAndIcon(tab, tabData);
 
     // Restore tab attributes.
     if ("attributes" in tabData) {
@@ -3847,14 +3903,14 @@ var SessionStoreInternal = {
     if (!isNaN(aLeft) && !isNaN(aTop) && (aLeft != win_("screenX") || aTop != win_("screenY"))) {
       aWindow.moveTo(aLeft, aTop);
     }
-    if (aWidth && aHeight && (aWidth != win_("width") || aHeight != win_("height"))) {
+    if (aWidth && aHeight && (aWidth != win_("width") || aHeight != win_("height")) && !gResistFingerprintingEnabled) {
       // Don't resize the window if it's currently maximized and we would
       // maximize it again shortly after.
       if (aSizeMode != "maximized" || win_("sizemode") != "maximized") {
         aWindow.resizeTo(aWidth, aHeight);
       }
     }
-    if (aSizeMode && win_("sizemode") != aSizeMode) {
+    if (aSizeMode && win_("sizemode") != aSizeMode && !gResistFingerprintingEnabled) {
       switch (aSizeMode) {
       case "maximized":
         aWindow.maximize();

@@ -446,14 +446,6 @@ public:
   virtual bool
   DeallocPParentToChildStreamParent(PParentToChildStreamParent* aActor) override;
 
-  virtual PScreenManagerParent*
-  AllocPScreenManagerParent(uint32_t* aNumberOfScreens,
-                            float* aSystemDefaultScale,
-                            bool* aSuccess) override;
-
-  virtual bool
-  DeallocPScreenManagerParent(PScreenManagerParent* aActor) override;
-
   virtual PHalParent* AllocPHalParent() override;
 
   virtual mozilla::ipc::IPCResult RecvPHalConstructor(PHalParent* aActor) override
@@ -832,6 +824,11 @@ private:
   AllocPBlobParent(const BlobConstructorParams& aParams) override;
 
   virtual bool DeallocPBlobParent(PBlobParent* aActor) override;
+
+  virtual PMemoryStreamParent*
+  AllocPMemoryStreamParent(const uint64_t& aSize) override;
+
+  virtual bool DeallocPMemoryStreamParent(PMemoryStreamParent* aActor) override;
 
   virtual mozilla::ipc::IPCResult
   RecvPBlobConstructor(PBlobParent* aActor,
