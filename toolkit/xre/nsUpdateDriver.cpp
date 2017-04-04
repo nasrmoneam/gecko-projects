@@ -49,6 +49,9 @@
 
 using namespace mozilla;
 
+static LazyLogModule sUpdateLog("updatedriver");
+#define LOG(args) MOZ_LOG(sUpdateLog, mozilla::LogLevel::Debug, args)
+
 //
 // We use execv to spawn the updater process on all UNIX systems except Mac OSX
 // since it is known to cause problems on the Mac.  Windows has execv, but it
@@ -73,15 +76,6 @@ using namespace mozilla;
 #define USE_EXECV
 #endif
 
-static PRLogModuleInfo *
-GetUpdateLog()
-{
-  static PRLogModuleInfo *sUpdateLog;
-  if (!sUpdateLog)
-    sUpdateLog = PR_NewLogModule("updatedriver");
-  return sUpdateLog;
-}
-#define LOG(args) MOZ_LOG(GetUpdateLog(), mozilla::LogLevel::Debug, args)
 
 #ifdef XP_WIN
 #define UPDATER_BIN "updater.exe"

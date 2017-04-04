@@ -2362,6 +2362,10 @@ pref("security.cert_pinning.process_headers_from_non_builtin_roots", false);
 // their protocol with the inner URI of the view-source URI
 pref("security.view-source.reachable-from-inner-protocol", false);
 
+// If set to true, in some limited circumstances it may be possible to load
+// privileged content in frames inside unprivileged content.
+pref("security.allow_chrome_frames_inside_content", false);
+
 // Services security settings
 pref("services.settings.server", "https://firefox.settings.services.mozilla.com/v1");
 
@@ -3072,10 +3076,10 @@ pref("dom.ipc.plugins.asyncdrawing.enabled", true);
 pref("dom.ipc.plugins.forcedirect.enabled", true);
 #endif
 
-#ifdef NIGHTLY_BUILD
-pref("dom.ipc.processCount", 4);
-#else
+#ifdef RELEASE_OR_BETA
 pref("dom.ipc.processCount", 1);
+#else
+pref("dom.ipc.processCount", 4);
 #endif
 
 // Default to allow only one file:// URL content process.
@@ -3439,9 +3443,15 @@ pref("font.name-list.sans-serif.he", "Arial");
 pref("font.name-list.monospace.he", "Fixed Miriam Transparent, Miriam Fixed, Rod, Courier New");
 pref("font.name-list.cursive.he", "Guttman Yad, Ktav, Arial");
 
+#ifdef EARLY_BETA_OR_EARLIER
+pref("font.name-list.serif.ja", "Yu Mincho, MS PMincho, MS Mincho, Meiryo, Yu Gothic, MS PGothic, MS Gothic");
+pref("font.name-list.sans-serif.ja", "Meiryo, Yu Gothic, MS PGothic, MS Gothic, Yu Mincho, MS PMincho, MS Mincho");
+pref("font.name-list.monospace.ja", "MS Gothic, MS Mincho, Meiryo, Yu Gothic, Yu Mincho, MS PGothic, MS PMincho");
+#else
 pref("font.name-list.serif.ja", "MS PMincho, MS Mincho, MS PGothic, MS Gothic,Meiryo");
 pref("font.name-list.sans-serif.ja", "MS PGothic, MS Gothic, MS PMincho, MS Mincho,Meiryo");
 pref("font.name-list.monospace.ja", "MS Gothic, MS Mincho, MS PGothic, MS PMincho,Meiryo");
+#endif
 
 pref("font.name-list.serif.ko", "Batang, Gulim");
 pref("font.name-list.sans-serif.ko", "Gulim");
