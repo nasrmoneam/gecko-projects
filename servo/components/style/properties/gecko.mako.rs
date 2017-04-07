@@ -2797,8 +2797,12 @@ fn static_assert() {
                                   -webkit-text-stroke-width text-emphasis-position -moz-tab-size -moz-text-size-adjust">
 
     <% text_align_keyword = Keyword("text-align", "start end left right center justify -moz-center -moz-left " +
-                                                  "-moz-right match-parent char") %>
+                                                  "-moz-right char") %>
+    <% text_align_reachable_keyword = Keyword("text-align", "start end left right center justify char") %>
     ${impl_keyword('text_align', 'mTextAlign', text_align_keyword, need_clone=False)}
+    // Stable rust errors on unreachable patterns, and there is overlap, so we run with the overlapping
+    // constants removed
+    ${impl_keyword_clone('text_align', 'mTextAlign', text_align_reachable_keyword)}
 
     pub fn set_text_shadow(&mut self, v: longhands::text_shadow::computed_value::T) {
         self.gecko.mTextShadow.replace_with_new(v.0.len() as u32);
@@ -2875,6 +2879,15 @@ fn static_assert() {
         match v.0 {
             Some(au) => self.gecko.mLetterSpacing.set(au),
             None => self.gecko.mLetterSpacing.set_value(CoordDataValue::Normal)
+        }
+    }
+
+    pub fn clone_letter_spacing(&self) -> longhands::letter_spacing::computed_value::T {
+        use properties::longhands::letter_spacing::computed_value::T;
+        match self.gecko.mLetterSpacing.as_value() {
+            CoordDataValue::Normal => T(None),
+            CoordDataValue::Coord(coord) => T(Some(Au(coord))),
+            _ => unreachable!("Unexpected computed value for letter-spacing"),
         }
     }
 

@@ -339,10 +339,8 @@ to mochitest command.
     * ... `-moz-outline-radius:` [45]
     * test_shorthand_property_getters.html `should condense to shortest possible` [6]
   * transform property servo/servo#15194
-    * test_value_storage.html `'transform` [104]
-    * ... `"transform` [66]
-    * ... `-webkit-transform` [109]
-    * test_specified_value_serialization.html `bug-721136` [27]
+    * test_property_syntax_errors.html `perspective` [6]
+    * test_specified_value_serialization.html `bug-721136` [26]
     * test_units_angle.html [3]
   * {background,mask}-position lacks comma for serialization servo/servo#15200
     * test_shorthand_property_getters.html `background-position` [1]
@@ -386,7 +384,6 @@ to mochitest command.
 * Negative value should be rejected
   * test_property_syntax_errors.html `transition-duration`: servo/servo#15343 [20]
   * ... `'text-shadow'`: third length of text-shadow servo/servo#15999 [2]
-  * ... `flex-basis`: servo/servo#15902 [6]
 * Quirks mode support
   * hashless color servo/servo#15341
     * test_property_syntax_errors.html `color: 000000` [22]
@@ -420,8 +417,6 @@ to mochitest command.
 
 * Content glue not implemented
   * assertion in computed style bug 1337635
-  * assertion for unsupported or non-animatable property bug 1343710
-    * test_animations.html asserts [12]
 
 ## Need Gecko change
 
