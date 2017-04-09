@@ -1945,7 +1945,7 @@
 
             if (aParams.opener) {
               if (aParams.remoteType) {
-                throw new Exception("Cannot set opener window on a remote browser!");
+                throw new Error("Cannot set opener window on a remote browser!");
               }
               b.QueryInterface(Ci.nsIFrameLoaderOwner).presetOpenerWindow(aParams.opener);
             }
@@ -5475,7 +5475,7 @@
       </handler>
       <handler event="DOMAudioPlaybackStarted">
         <![CDATA[
-          var tab = getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event)
           if (!tab) {
             return;
           }
@@ -5505,7 +5505,7 @@
       </handler>
       <handler event="DOMAudioPlaybackStopped">
         <![CDATA[
-          var tab = getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event)
           if (!tab) {
             return;
           }
@@ -5527,7 +5527,7 @@
       </handler>
       <handler event="DOMAudioPlaybackBlockStarted">
         <![CDATA[
-          var tab = getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event)
           if (!tab) {
             return;
           }
@@ -5541,7 +5541,7 @@
       </handler>
       <handler event="DOMAudioPlaybackBlockStopped">
         <![CDATA[
-          var tab = getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event)
           if (!tab) {
             return;
           }
@@ -5614,11 +5614,12 @@
 
     <handlers>
       <handler event="underflow" phase="capturing"><![CDATA[
-        if (event.target != this)
+        if (event.originalTarget != this._scrollbox)
           return;
 
+        // Ignore vertical events
         if (event.detail == 0)
-          return; // Ignore vertical events
+          return;
 
         var tabs = document.getBindingParent(this);
         tabs.removeAttribute("overflow");
@@ -5632,11 +5633,12 @@
         tabs._positionPinnedTabs();
       ]]></handler>
       <handler event="overflow"><![CDATA[
-        if (event.target != this)
+        if (event.originalTarget != this._scrollbox)
           return;
 
+        // Ignore vertical events
         if (event.detail == 0)
-          return; // Ignore vertical events
+          return;
 
         var tabs = document.getBindingParent(this);
         tabs.setAttribute("overflow", "true");
@@ -6073,16 +6075,19 @@
 
             let scrollButtonWidth = this.mTabstrip._scrollButtonDown.getBoundingClientRect().width;
             let paddingStart = this.mTabstrip.scrollboxPaddingStart;
+            let pinnedTabWidth;
             let width = 0;
 
             for (let i = numPinned - 1; i >= 0; i--) {
               let tab = this.childNodes[i];
-              width += tab.getBoundingClientRect().width;
+              if (!pinnedTabWidth) {
+                pinnedTabWidth = tab.getBoundingClientRect().width;
+              }
+              width += pinnedTabWidth;
               tab.style.marginInlineStart = -(width + scrollButtonWidth + paddingStart) + "px";
             }
 
             this.style.paddingInlineStart = width + paddingStart + "px";
-
           } else {
             this.removeAttribute("positionpinnedtabs");
 

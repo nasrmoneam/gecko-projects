@@ -14,8 +14,6 @@ import android.os.Process;
 import android.support.annotation.NonNull;
 import android.support.annotation.UiThread;
 
-import android.graphics.Rect;
-
 import org.mozilla.gecko.activitystream.ActivityStream;
 import org.mozilla.gecko.adjust.AdjustBrowserAppDelegate;
 import org.mozilla.gecko.annotation.RobocopTarget;
@@ -33,7 +31,6 @@ import org.mozilla.gecko.delegates.OfflineTabStatusDelegate;
 import org.mozilla.gecko.delegates.ScreenshotDelegate;
 import org.mozilla.gecko.distribution.Distribution;
 import org.mozilla.gecko.distribution.DistributionStoreCallback;
-import org.mozilla.gecko.distribution.PartnerBrowserCustomizationsClient;
 import org.mozilla.gecko.dlc.DownloadContentService;
 import org.mozilla.gecko.icons.IconsHelper;
 import org.mozilla.gecko.icons.decoders.IconDirectoryEntry;
@@ -1434,6 +1431,26 @@ public class BrowserApp extends GeckoApp
             return true;
         }
 
+        if (itemId == R.id.set_as_homepage) {
+            final Tab tab = Tabs.getInstance().getSelectedTab();
+            if (tab == null) {
+                return true;
+            }
+
+            final String url = tab.getURL();
+            if (url == null) {
+                return true;
+            }
+            final SharedPreferences prefs = GeckoSharedPrefs.forProfile(this);
+            final SharedPreferences.Editor editor = prefs.edit();
+            editor.putString(GeckoPreferences.PREFS_HOMEPAGE, url);
+            editor.apply();
+
+            Telemetry.sendUIEvent(TelemetryContract.Event.ACTION, TelemetryContract.Method.CONTEXT_MENU,
+                getResources().getResourceEntryName(itemId));
+            return true;
+        }
+
         return false;
     }
 
@@ -2012,7 +2029,7 @@ public class BrowserApp extends GeckoApp
                 Telemetry.addToHistogram("BROWSER_IS_USER_DEFAULT",
                         (isDefaultBrowser(Intent.ACTION_VIEW) ? 1 : 0));
                 Telemetry.addToHistogram("FENNEC_CUSTOM_HOMEPAGE",
-                        (TextUtils.isEmpty(getHomepage()) ? 0 : 1));
+                        (TextUtils.isEmpty(Tabs.getHomepage(this)) ? 0 : 1));
 
                 final SharedPreferences prefs = GeckoSharedPrefs.forProfile(getContext());
                 final boolean hasCustomHomepanels =
@@ -2269,46 +2286,6 @@ public class BrowserApp extends GeckoApp
     @Override
     public boolean areTabsShown() {
         return (mTabsPanel != null && mTabsPanel.isShown());
-    }
-
-    @Override
-    public String getHomepage() {
-        final SharedPreferences preferences = GeckoSharedPrefs.forProfile(this);
-        final String homepagePreference = preferences.getString(GeckoPreferences.PREFS_HOMEPAGE, null);
-
-        final boolean readFromPartnerProvider = preferences.getBoolean(
-                GeckoPreferences.PREFS_READ_PARTNER_CUSTOMIZATIONS_PROVIDER, false);
-
-        if (!readFromPartnerProvider) {
-            // Just return homepage as set by the user (or null).
-            return homepagePreference;
-        }
-
-
-        final String homepagePrevious = preferences.getString(GeckoPreferences.PREFS_HOMEPAGE_PARTNER_COPY, null);
-        if (homepagePrevious != null && !homepagePrevious.equals(homepagePreference)) {
-            // We have read the homepage once and the user has changed it since then. Just use the
-            // value the user has set.
-            return homepagePreference;
-        }
-
-        // This is the first time we read the partner provider or the value has not been altered by the user
-        final String homepagePartner = PartnerBrowserCustomizationsClient.getHomepage(this);
-
-        if (homepagePartner == null) {
-            // We didn't get anything from the provider. Let's just use what we have locally.
-            return homepagePreference;
-        }
-
-        if (!homepagePartner.equals(homepagePrevious)) {
-            // We have a new value. Update the preferences.
-            preferences.edit()
-                    .putString(GeckoPreferences.PREFS_HOMEPAGE, homepagePartner)
-                    .putString(GeckoPreferences.PREFS_HOMEPAGE_PARTNER_COPY, homepagePartner)
-                    .apply();
-        }
-
-        return homepagePartner;
     }
 
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
@@ -2826,7 +2803,7 @@ public class BrowserApp extends GeckoApp
                 @Override
                 public void onFinish() {
                     if (mFirstrunAnimationContainer.showBrowserHint() &&
-                        TextUtils.isEmpty(getHomepage())) {
+                        TextUtils.isEmpty(Tabs.getHomepage(BrowserApp.this))) {
                         enterEditingMode();
                     }
                 }
@@ -3413,6 +3390,7 @@ public class BrowserApp extends GeckoApp
             MenuUtils.safeSetEnabled(aMenu, R.id.subscribe, false);
             MenuUtils.safeSetEnabled(aMenu, R.id.add_search_engine, false);
             MenuUtils.safeSetEnabled(aMenu, R.id.add_to_launcher, false);
+            MenuUtils.safeSetEnabled(aMenu, R.id.set_as_homepage, false);
 
             return true;
         }
@@ -3483,12 +3461,16 @@ public class BrowserApp extends GeckoApp
         share.setEnabled(shareEnabled);
         MenuUtils.safeSetEnabled(aMenu, R.id.downloads, Restrictions.isAllowed(this, Restrictable.DOWNLOAD));
 
+        final boolean distSetAsHomepage = GeckoSharedPrefs.forProfile(this).getBoolean(GeckoPreferences.PREFS_SET_AS_HOMEPAGE, false);
+        MenuUtils.safeSetVisible(aMenu, R.id.set_as_homepage, distSetAsHomepage);
+
         // NOTE: Use MenuUtils.safeSetEnabled because some actions might
         // be on the BrowserToolbar context menu.
         MenuUtils.safeSetEnabled(aMenu, R.id.page, !isAboutHome(tab));
         MenuUtils.safeSetEnabled(aMenu, R.id.subscribe, tab.hasFeeds());
         MenuUtils.safeSetEnabled(aMenu, R.id.add_search_engine, tab.hasOpenSearch());
         MenuUtils.safeSetEnabled(aMenu, R.id.add_to_launcher, !isAboutHome(tab));
+        MenuUtils.safeSetEnabled(aMenu, R.id.set_as_homepage, !isAboutHome(tab));
 
         // This provider also applies to the quick share menu item.
         final GeckoActionProvider provider = ((GeckoMenuItem) share).getGeckoActionProvider();

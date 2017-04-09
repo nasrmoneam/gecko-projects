@@ -12,14 +12,18 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import android.content.SharedPreferences;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import org.mozilla.gecko.annotation.JNITarget;
 import org.mozilla.gecko.annotation.RobocopTarget;
 import org.mozilla.gecko.db.BrowserDB;
+import org.mozilla.gecko.distribution.PartnerBrowserCustomizationsClient;
 import org.mozilla.gecko.gfx.LayerView;
 import org.mozilla.gecko.mozglue.SafeIntent;
 import org.mozilla.gecko.notifications.WhatsNewReceiver;
+import org.mozilla.gecko.preferences.GeckoPreferences;
 import org.mozilla.gecko.reader.ReaderModeUtils;
 import org.mozilla.gecko.util.BundleEventListener;
 import org.mozilla.gecko.util.EventCallback;
@@ -40,6 +44,7 @@ import android.os.Handler;
 import android.provider.Browser;
 import android.support.annotation.UiThread;
 import android.support.v4.content.ContextCompat;
+import android.text.TextUtils;
 import android.util.Log;
 
 import static org.mozilla.gecko.Tab.TabType;
@@ -81,6 +86,8 @@ public class Tabs implements BundleEventListener {
     private static final long PERSIST_TABS_AFTER_MILLISECONDS = 1000 * 2;
 
     public static final int INVALID_TAB_ID = -1;
+    // Used to indicate a new tab should be appended to the current tabs.
+    public static final int NEW_LAST_INDEX = -1;
 
     private static final AtomicInteger sTabId = new AtomicInteger(0);
     private volatile boolean mInitialTabsAdded;
@@ -260,10 +267,17 @@ public class Tabs implements BundleEventListener {
         return tab;
     }
 
-    // Return the index, among those tabs of the chosen type whose privacy setting matches
-    // isPrivate, of the tab at position index in mOrder.  Returns -1, for "new last tab",
-    // when index is -1.
+    /**
+     * Return the index, among those tabs of the chosen {@code type} whose privacy setting matches
+     * {@code isPrivate}, of the tab at position {@code index} in {@code mOrder}.  Returns
+     * {@code NEW_LAST_INDEX} when {@code index} is {@code NEW_LAST_INDEX} or no matches were
+     * found.
+     */
     private int getPrivacySpecificTabIndex(int index, boolean isPrivate, TabType type) {
+        if (index == NEW_LAST_INDEX) {
+            return NEW_LAST_INDEX;
+        }
+
         int privacySpecificIndex = -1;
         for (int i = 0; i <= index; i++) {
             final Tab tab = mOrder.get(i);
@@ -271,7 +285,7 @@ public class Tabs implements BundleEventListener {
                 privacySpecificIndex++;
             }
         }
-        return privacySpecificIndex;
+        return privacySpecificIndex > -1 ? privacySpecificIndex : NEW_LAST_INDEX;
     }
 
     public synchronized void removeTab(int id) {
@@ -423,7 +437,7 @@ public class Tabs implements BundleEventListener {
         removeTab(tabId);
 
         if (nextTab == null) {
-            nextTab = loadUrl(AboutPages.HOME, LOADURL_NEW_TAB);
+            nextTab = loadUrl(getHomepageForNewTab(mAppContext), LOADURL_NEW_TAB);
         }
 
         selectTab(nextTab.getId());
@@ -1022,7 +1036,7 @@ public class Tabs implements BundleEventListener {
             String tabUrl = (url != null && Uri.parse(url).getScheme() != null) ? url : null;
 
             // Add the new tab to the end of the tab order.
-            final int tabIndex = -1;
+            final int tabIndex = NEW_LAST_INDEX;
 
             tabToSelect = addTab(tabId, tabUrl, external, parentId, url, isPrivate, tabIndex, type);
             tabToSelect.setDesktopMode(desktopMode);
@@ -1053,7 +1067,7 @@ public class Tabs implements BundleEventListener {
     }
 
     public Tab addTab() {
-        return loadUrl(AboutPages.HOME, Tabs.LOADURL_NEW_TAB);
+        return loadUrl(getHomepageForNewTab(mAppContext), Tabs.LOADURL_NEW_TAB);
     }
 
     public Tab addPrivateTab() {
@@ -1216,5 +1230,61 @@ public class Tabs implements BundleEventListener {
         data.putInt("toTabId", toTabId);
         data.putInt("toPosition", toPosition);
         EventDispatcher.getInstance().dispatch("Tab:Move", data);
+    }
+
+    @NonNull
+    public static String getHomepageForNewTab(Context context) {
+        final SharedPreferences preferences = GeckoSharedPrefs.forApp(context);
+        final boolean forEveryNewTab = preferences.getBoolean(GeckoPreferences.PREFS_HOMEPAGE_FOR_EVERY_NEW_TAB, false);
+
+        if (forEveryNewTab) {
+            final String homePage = getHomepage(context);
+            if (TextUtils.isEmpty(homePage)) {
+                return AboutPages.HOME;
+            } else {
+                return homePage;
+            }
+        }
+        return AboutPages.HOME;
+    }
+
+    @Nullable
+    public static String getHomepage(Context context) {
+        final SharedPreferences preferences = GeckoSharedPrefs.forProfile(context);
+        final String homepagePreference = preferences.getString(GeckoPreferences.PREFS_HOMEPAGE, AboutPages.HOME);
+
+        final boolean readFromPartnerProvider = preferences.getBoolean(
+                GeckoPreferences.PREFS_READ_PARTNER_CUSTOMIZATIONS_PROVIDER, false);
+
+        if (!readFromPartnerProvider) {
+            // Just return homepage as set by the user (or null).
+            return homepagePreference;
+        }
+
+
+        final String homepagePrevious = preferences.getString(GeckoPreferences.PREFS_HOMEPAGE_PARTNER_COPY, null);
+        if (homepagePrevious != null && !homepagePrevious.equals(homepagePreference)) {
+            // We have read the homepage once and the user has changed it since then. Just use the
+            // value the user has set.
+            return homepagePreference;
+        }
+
+        // This is the first time we read the partner provider or the value has not been altered by the user
+        final String homepagePartner = PartnerBrowserCustomizationsClient.getHomepage(context);
+
+        if (homepagePartner == null) {
+            // We didn't get anything from the provider. Let's just use what we have locally.
+            return homepagePreference;
+        }
+
+        if (!homepagePartner.equals(homepagePrevious)) {
+            // We have a new value. Update the preferences.
+            preferences.edit()
+                    .putString(GeckoPreferences.PREFS_HOMEPAGE, homepagePartner)
+                    .putString(GeckoPreferences.PREFS_HOMEPAGE_PARTNER_COPY, homepagePartner)
+                    .apply();
+        }
+
+        return homepagePartner;
     }
 }

@@ -157,6 +157,7 @@ public class GeckoPreferences
     private static final String PREFS_CLEAR_PRIVATE_DATA_EXIT = NON_PREF_PREFIX + "history.clear_on_exit";
     private static final String PREFS_SCREEN_ADVANCED = NON_PREF_PREFIX + "advanced_screen";
     public static final String PREFS_HOMEPAGE = NON_PREF_PREFIX + "homepage";
+    public static final String PREFS_HOMEPAGE_FOR_EVERY_NEW_TAB = NON_PREF_PREFIX + "newtab.load_homepage";
     public static final String PREFS_HOMEPAGE_PARTNER_COPY = GeckoPreferences.PREFS_HOMEPAGE + ".partner";
     public static final String PREFS_HISTORY_SAVED_SEARCH = NON_PREF_PREFIX + "search.search_history.enabled";
     private static final String PREFS_FAQ_LINK = NON_PREF_PREFIX + "faq.link";
@@ -175,6 +176,7 @@ public class GeckoPreferences
     public static final String PREFS_SEARCH_SUGGESTIONS_ENABLED = "browser.search.suggest.enabled";
     public static final String PREFS_DEFAULT_BROWSER = NON_PREF_PREFIX + "default_browser.link";
     public static final String PREFS_SYSTEM_FONT_SIZE = NON_PREF_PREFIX + "font.size.use_system_font_size";
+    public static final String PREFS_SET_AS_HOMEPAGE = NON_PREF_PREFIX + "distribution.set_as_homepage";
 
     private static final String ACTION_STUMBLER_UPLOAD_PREF = "STUMBLER_PREF";
 

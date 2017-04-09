@@ -10,10 +10,10 @@ use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use context::{SharedStyleContext, StyleContext, ThreadLocalStyleContext};
 use data::{ElementData, ElementStyles, StoredRestyleHint};
 use dom::{DirtyDescendants, NodeInfo, TElement, TNode};
-use matching::{MatchMethods, MatchResults};
+use matching::{MatchMethods, StyleSharingBehavior};
 use restyle_hints::{RESTYLE_DESCENDANTS, RESTYLE_SELF};
 use selector_parser::RestyleDamage;
-use servo_config::opts;
+#[cfg(feature = "servo")] use servo_config::opts;
 use std::borrow::BorrowMut;
 use stylist::Stylist;
 
@@ -100,6 +100,16 @@ impl TraversalDriver {
     }
 }
 
+#[cfg(feature = "servo")]
+fn is_servo_nonincremental_layout() -> bool {
+    opts::get().nonincremental_layout
+}
+
+#[cfg(not(feature = "servo"))]
+fn is_servo_nonincremental_layout() -> bool {
+    false
+}
+
 /// A DOM Traversal trait, that is used to generically implement styling for
 /// Gecko and Servo.
 pub trait DomTraversal<E: TElement> : Sync {
@@ -175,7 +185,7 @@ pub trait DomTraversal<E: TElement> : Sync {
     /// Returns true if traversal is needed for the given node and subtree.
     fn node_needs_traversal(node: E::ConcreteNode, animation_only: bool) -> bool {
         // Non-incremental layout visits every node.
-        if cfg!(feature = "servo") && opts::get().nonincremental_layout {
+        if is_servo_nonincremental_layout() {
             return true;
         }
 
@@ -395,9 +405,9 @@ fn resolve_style_internal<E, F>(context: &mut StyleContext<E>,
         }
 
         // Compute our style.
-        let match_results = element.match_element(context, &mut data);
-        element.cascade_element(context, &mut data,
-                                match_results.primary_is_shareable());
+        context.thread_local.begin_element(element, &data);
+        element.match_and_cascade(context, &mut data, StyleSharingBehavior::Disallow);
+        context.thread_local.end_element(element);
 
         // Conservatively mark us as having dirty descendants, since there might
         // be other unstyled siblings we miss when walking straight up the parent
@@ -587,7 +597,7 @@ fn compute_style<E, D>(_traversal: &D,
         }
     }
 
-    let match_results = match kind {
+    match kind {
         MatchAndCascade => {
             // Ensure the bloom filter is up to date.
             let dom_depth =
@@ -602,42 +612,20 @@ fn compute_style<E, D>(_traversal: &D,
             traversal_data.current_dom_depth = Some(dom_depth);
 
             context.thread_local.bloom_filter.assert_complete(element);
-
-
-            // Perform CSS selector matching.
             context.thread_local.statistics.elements_matched += 1;
-            element.match_element(context, &mut data)
+
+            // Perform the matching and cascading.
+            element.match_and_cascade(context, &mut data, StyleSharingBehavior::Allow);
         }
         CascadeWithReplacements(hint) => {
-            let rule_nodes_changed =
+            let _rule_nodes_changed =
                 element.cascade_with_replacements(hint, context, &mut data);
-            MatchResults {
-                primary_relations: None,
-                rule_nodes_changed: rule_nodes_changed,
-            }
+            element.cascade_primary_and_pseudos(context, &mut data);
         }
         CascadeOnly => {
-            MatchResults {
-                primary_relations: None,
-                rule_nodes_changed: false,
-            }
+            element.cascade_primary_and_pseudos(context, &mut data);
         }
     };
-
-    // Cascade properties and compute values.
-    let shareable = match_results.primary_is_shareable();
-    unsafe {
-        element.cascade_element(context, &mut data, shareable);
-    }
-
-    // If the style is shareable, add it to the LRU cache.
-    if shareable {
-        context.thread_local
-               .style_sharing_candidate_cache
-               .insert_if_possible(&element,
-                                   data.styles().primary.values(),
-                                   match_results.primary_relations.unwrap());
-    }
 }
 
 fn preprocess_children<E, D>(traversal: &D,

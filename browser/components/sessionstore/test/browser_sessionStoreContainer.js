@@ -2,9 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// This file spawns content tasks.
-/* eslint-env mozilla/frame-script */
-
 "use strict";
 
 add_task(function* () {
@@ -113,7 +110,8 @@ add_task(function* test() {
     "set": [ [ "privacy.userContext.enabled", true ] ]
   });
 
-  let lastSessionRestore;
+  Services.cookies.removeAll();
+
   for (let userContextId of Object.keys(USER_CONTEXTS)) {
     // Load the page in 3 different contexts and set a cookie
     // which should only be visible in that context.
@@ -131,13 +129,11 @@ add_task(function* test() {
     // Ensure the tab's session history is up-to-date.
     yield TabStateFlusher.flush(browser);
 
-    lastSessionRestore = ss.getWindowState(window);
-
     // Remove the tab.
     gBrowser.removeTab(tab);
   }
 
-  let state = JSON.parse(lastSessionRestore);
-  is(state.windows[0].cookies.length, USER_CONTEXTS.length,
+  let state = JSON.parse(ss.getBrowserState());
+  is(state.cookies.length, USER_CONTEXTS.length,
     "session restore should have each container's cookie");
 });

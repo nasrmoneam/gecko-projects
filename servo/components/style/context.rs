@@ -5,7 +5,7 @@
 //! The context within which style is calculated.
 #![deny(missing_docs)]
 
-use animation::Animation;
+use animation::{Animation, PropertyAnimation};
 use app_units::Au;
 use bloom::StyleBloom;
 use data::ElementData;
@@ -17,10 +17,10 @@ use matching::StyleSharingCandidateCache;
 use parking_lot::RwLock;
 #[cfg(feature = "gecko")] use selector_parser::PseudoElement;
 use selectors::matching::ElementSelectorFlags;
-use servo_config::opts;
+#[cfg(feature = "servo")] use servo_config::opts;
 use shared_lock::StylesheetGuards;
 use std::collections::HashMap;
-use std::env;
+#[cfg(not(feature = "servo"))] use std::env;
 use std::fmt;
 use std::ops::Add;
 use std::sync::{Arc, Mutex};
@@ -103,13 +103,16 @@ impl<'a> SharedStyleContext<'a> {
 /// Information about the current element being processed. We group this together
 /// into a single struct within ThreadLocalStyleContext so that we can instantiate
 /// and destroy it easily at the beginning and end of element processing.
-struct CurrentElementInfo {
+pub struct CurrentElementInfo {
     /// The element being processed. Currently we use an OpaqueNode since we only
     /// use this for identity checks, but we could use SendElement if there were
     /// a good reason to.
     element: OpaqueNode,
     /// Whether the element is being styled for the first time.
     is_initial_style: bool,
+    /// A Vec of possibly expired animations. Used only by Servo.
+    #[allow(dead_code)]
+    pub possibly_expired_animations: Vec<PropertyAnimation>,
 }
 
 /// Statistics gathered during the traversal. We gather statistics on each thread
@@ -167,6 +170,7 @@ impl fmt::Display for TraversalStatistics {
     }
 }
 
+#[cfg(not(feature = "servo"))]
 lazy_static! {
     /// Whether to dump style statistics, computed statically. We use an environmental
     /// variable so that this is easy to set for Gecko builds, and matches the
@@ -179,10 +183,20 @@ lazy_static! {
     };
 }
 
+#[cfg(feature = "servo")]
+fn shall_stat_style_sharing() -> bool {
+    opts::get().style_sharing_stats
+}
+
+#[cfg(not(feature = "servo"))]
+fn shall_stat_style_sharing() -> bool {
+    *DUMP_STYLE_STATISTICS
+}
+
 impl TraversalStatistics {
     /// Returns whether statistics dumping is enabled.
     pub fn should_dump() -> bool {
-        *DUMP_STYLE_STATISTICS || opts::get().style_sharing_stats
+        shall_stat_style_sharing()
     }
 
     /// Computes the traversal time given the start time in seconds.
@@ -276,7 +290,7 @@ pub struct ThreadLocalStyleContext<E: TElement> {
     /// Statistics about the traversal.
     pub statistics: TraversalStatistics,
     /// Information related to the current element, non-None during processing.
-    current_element_info: Option<CurrentElementInfo>,
+    pub current_element_info: Option<CurrentElementInfo>,
 }
 
 impl<E: TElement> ThreadLocalStyleContext<E> {
@@ -298,6 +312,7 @@ impl<E: TElement> ThreadLocalStyleContext<E> {
         self.current_element_info = Some(CurrentElementInfo {
             element: element.as_node().opaque(),
             is_initial_style: !data.has_styles(),
+            possibly_expired_animations: Vec::new(),
         });
     }
 

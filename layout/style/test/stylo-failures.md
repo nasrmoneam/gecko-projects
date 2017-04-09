@@ -103,7 +103,6 @@ to mochitest command.
 * character not properly escaped servo/servo#15947
   * test_parse_url.html [4]
   * test_bug829816.html [8]
-* test_value_storage.html `for 'marker`: equality of url is not reliable servo/servo#15950 [1]
 * auto value for min-{width,height} servo/servo#15045
 * test_compute_data_with_start_struct.html `timing-function`: incorrectly computing keywords to bezier function servo/servo#15086 [2]
 * test_condition_text.html: @-moz-document, CSSOM support of @media, @support [7]
@@ -339,7 +338,6 @@ to mochitest command.
     * ... `-moz-outline-radius:` [45]
     * test_shorthand_property_getters.html `should condense to shortest possible` [6]
   * transform property servo/servo#15194
-    * test_property_syntax_errors.html `perspective` [6]
     * test_specified_value_serialization.html `bug-721136` [26]
     * test_units_angle.html [3]
   * {background,mask}-position lacks comma for serialization servo/servo#15200

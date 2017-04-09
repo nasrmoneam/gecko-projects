@@ -23,10 +23,11 @@ use gecko_bindings::sugar::refptr::RefPtr;
 use keyframes::{Keyframe, parse_keyframe_list};
 use media_queries::{Device, MediaList, parse_media_query_list};
 use parking_lot::RwLock;
-use parser::{ParserContext, log_css_error};
+use parser::{Parse, ParserContext, log_css_error};
 use properties::{PropertyDeclarationBlock, parse_property_declaration_list};
 use selector_parser::{SelectorImpl, SelectorParser};
 use selectors::parser::SelectorList;
+#[cfg(feature = "servo")]
 use servo_config::prefs::PREFS;
 #[cfg(not(feature = "gecko"))]
 use servo_url::ServoUrl;
@@ -997,6 +998,16 @@ impl<'a, 'b> NestedRuleParser<'a, 'b> {
     }
 }
 
+#[cfg(feature = "servo")]
+fn is_viewport_enabled() -> bool {
+    PREFS.get("layout.viewport.enabled").as_boolean().unwrap_or(false)
+}
+
+#[cfg(not(feature = "servo"))]
+fn is_viewport_enabled() -> bool {
+    true
+}
+
 impl<'a, 'b> AtRuleParser for NestedRuleParser<'a, 'b> {
     type Prelude = AtRulePrelude;
     type AtRule = CssRule;
@@ -1017,8 +1028,7 @@ impl<'a, 'b> AtRuleParser for NestedRuleParser<'a, 'b> {
                 Ok(AtRuleType::WithBlock(AtRulePrelude::FontFace))
             },
             "viewport" => {
-                if PREFS.get("layout.viewport.enabled").as_boolean().unwrap_or(false) ||
-                   cfg!(feature = "gecko") {
+                if is_viewport_enabled() {
                     Ok(AtRuleType::WithBlock(AtRulePrelude::Viewport))
                 } else {
                     Err(())
@@ -1059,7 +1069,7 @@ impl<'a, 'b> AtRuleParser for NestedRuleParser<'a, 'b> {
             }
             AtRulePrelude::Viewport => {
                 Ok(CssRule::Viewport(Arc::new(self.shared_lock.wrap(
-                    try!(ViewportRule::parse(input, self.context))))))
+                    try!(ViewportRule::parse(self.context, input))))))
             }
             AtRulePrelude::Keyframes(name) => {
                 Ok(CssRule::Keyframes(Arc::new(self.shared_lock.wrap(KeyframesRule {
