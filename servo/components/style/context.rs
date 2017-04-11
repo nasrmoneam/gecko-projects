@@ -12,6 +12,7 @@ use data::ElementData;
 use dom::{OpaqueNode, TNode, TElement, SendElement};
 use error_reporting::ParseErrorReporter;
 use euclid::Size2D;
+use font_metrics::FontMetricsProvider;
 #[cfg(feature = "gecko")] use gecko_bindings::structs;
 use matching::StyleSharingCandidateCache;
 use parking_lot::RwLock;
@@ -29,7 +30,7 @@ use stylist::Stylist;
 use thread_state;
 use time;
 use timer::Timer;
-use traversal::DomTraversal;
+use traversal::{DomTraversal, TraversalFlags};
 
 /// This structure is used to create a local style context from a shared one.
 pub struct ThreadLocalStyleContextCreationInfo {
@@ -89,8 +90,8 @@ pub struct SharedStyleContext<'a> {
     /// The QuirksMode state which the document needs to be rendered with
     pub quirks_mode: QuirksMode,
 
-    /// True if the traversal is processing only animation restyles.
-    pub animation_only_restyle: bool,
+    /// Flags controlling how we traverse the tree.
+    pub traversal_flags: TraversalFlags,
 }
 
 impl<'a> SharedStyleContext<'a> {
@@ -291,6 +292,9 @@ pub struct ThreadLocalStyleContext<E: TElement> {
     pub statistics: TraversalStatistics,
     /// Information related to the current element, non-None during processing.
     pub current_element_info: Option<CurrentElementInfo>,
+    /// The struct used to compute and cache font metrics from style
+    /// for evaluation of the font-relative em/ch units and font-size
+    pub font_metrics_provider: E::FontMetricsProvider,
 }
 
 impl<E: TElement> ThreadLocalStyleContext<E> {
@@ -303,6 +307,7 @@ impl<E: TElement> ThreadLocalStyleContext<E> {
             tasks: Vec::new(),
             statistics: TraversalStatistics::default(),
             current_element_info: None,
+            font_metrics_provider: E::FontMetricsProvider::create_from(shared),
         }
     }
 

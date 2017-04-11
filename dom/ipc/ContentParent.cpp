@@ -2236,18 +2236,8 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
     }
   }
 
-  // Ensure the SSS is initialized before we try to use its storage.
-  nsCOMPtr<nsISiteSecurityService> sss = do_GetService("@mozilla.org/ssservice;1");
+  DataStorage::GetAllChildProcessData(xpcomInit.dataStorage());
 
-  nsTArray<nsString> storageFiles;
-  DataStorage::GetAllFileNames(storageFiles);
-  for (auto& file : storageFiles) {
-    dom::DataStorageEntry entry;
-    entry.filename() = file;
-    RefPtr<DataStorage> storage = DataStorage::Get(file);
-    storage->GetAll(&entry.items());
-    xpcomInit.dataStorage().AppendElement(Move(entry));
-  }
   // Must send screen info before send initialData
   ScreenManager& screenManager = ScreenManager::GetSingleton();
   screenManager.CopyScreensToRemote(this);
@@ -4594,7 +4584,8 @@ ContentParent::RecvCreateWindow(PBrowserParent* aThisTab,
                                 InfallibleTArray<FrameScriptInfo>* aFrameScripts,
                                 nsCString* aURLToLoad,
                                 TextureFactoryIdentifier* aTextureFactoryIdentifier,
-                                uint64_t* aLayersId)
+                                uint64_t* aLayersId,
+                                CompositorOptions* aCompositorOptions)
 {
   // We always expect to open a new window here. If we don't, it's an error.
   *aWindowIsNew = true;
@@ -4640,6 +4631,7 @@ ContentParent::RecvCreateWindow(PBrowserParent* aThisTab,
       !newTab->GetRenderFrameInfo(aTextureFactoryIdentifier, aLayersId)) {
     *aResult = NS_ERROR_FAILURE;
   }
+  *aCompositorOptions = rfp->GetCompositorOptions();
 
   return IPC_OK();
 }

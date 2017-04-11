@@ -1,3 +1,4 @@
+
 /* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -1237,6 +1238,13 @@ pref("dom.webapps.useCurrentProfile", false);
 
 pref("dom.cycle_collector.incremental", true);
 
+// Whether Xrays expose properties from the named properties object (aka global
+// scope polluter).  Values are:
+//   0 = properties exposed on Xrays
+//   1 = properties exposed on Xrays, except in web extension content scripts.
+//   2 = properties not exposed on xrays
+pref("dom.allow_named_properties_object_for_xrays", 1);
+
 // Parsing perf prefs. For now just mimic what the old code did.
 #ifndef XP_WIN
 pref("content.sink.pending_event_mode", 0);
@@ -1631,6 +1639,14 @@ pref("network.http.keep_empty_response_headers_as_empty_string", true);
 
 // Max size, in bytes, for received HTTP response header.
 pref("network.http.max_response_header_size", 393216);
+
+// If we should attempt to race the cache and network
+pref("network.http.rcwn.enabled", false);
+pref("network.http.rcwn.cache_queue_normal_threshold", 50);
+pref("network.http.rcwn.cache_queue_priority_threshold", 10);
+// We might attempt to race the cache with the network only if a resource
+// is smaller than this size.
+pref("network.http.rcwn.small_resource_size_kb", 256);
 
 // The ratio of the transaction count for the focused window and the count of
 // all available active connections.
