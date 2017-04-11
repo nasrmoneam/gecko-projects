@@ -16,9 +16,7 @@ fi
 if test "$OS_ARCH" = "WINNT"; then
   MOZ_MAINTENANCE_SERVICE=1
   if ! test "$HAVE_64BIT_BUILD"; then
-    if ! test "$MOZ_DEBUG"; then
-      MOZ_STUB_INSTALLER=1
-    fi
+    MOZ_STUB_INSTALLER=1
   fi
   MOZ_OFFICIAL_BRANDING=1
 fi
