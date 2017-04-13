@@ -159,8 +159,6 @@ var gGREDirOrig;
 var gGREBinDirOrig;
 var gAppDirOrig;
 
-var gApplyToDirOverride;
-
 // Variables are used instead of contants so tests can override these values if
 // necessary.
 var gCallbackBinFile = "callback_app" + BIN_SUFFIX;
@@ -772,6 +770,8 @@ function setupTestCommon() {
   let caller = Components.stack.caller;
   gTestID = caller.filename.toString().split("/").pop().split(".")[0];
 
+  createAppInfo("xpcshell@tests.mozilla.org", APP_INFO_NAME, "1.0", "2.0");
+
   // Tests that don't work with XULRunner.
   const XUL_RUNNER_INCOMPATIBLE = ["marAppApplyUpdateAppBinInUseStageSuccess_win",
                                    "marAppApplyUpdateStageSuccess",
@@ -1105,7 +1105,6 @@ function checkPostUpdateRunningFile(aShouldExist) {
  * update service stub.
  */
 function standardInit() {
-  createAppInfo("xpcshell@tests.mozilla.org", APP_INFO_NAME, "1.0", "2.0");
   // Initialize the update service stub component
   initUpdateServiceStub();
 }
@@ -1131,18 +1130,6 @@ function getAppVersion() {
                   getService(Ci.nsIINIParserFactory).
                   createINIParser(iniFile);
   return iniParser.getString("App", "Version");
-}
-
-/**
- * Override the apply-to directory parameter to be passed to the updater.
- * This ought to cause the updater to fail when using any value that isn't the
- * default, automatically computed one.
- *
- * @param dir
- *        Complete string to use as the apply-to directory parameter.
- */
-function overrideApplyToDir(dir) {
-  gApplyToDirOverride = dir;
 }
 
 /**
@@ -1672,9 +1659,25 @@ function readServiceLogFile() {
  *          tests.
  * @param   aCheckSvcLog
  *          Whether the service log should be checked for service tests.
+ * @param   aPatchDirPath (optional)
+ *          When specified the patch directory path to use for invalid argument
+ *          tests otherwise the normal path will be used.
+ * @param   aInstallDirPath (optional)
+ *          When specified the install directory path to use for invalid
+ *          argument tests otherwise the normal path will be used.
+ * @param   aApplyToDirPath (optional)
+ *          When specified the apply to / working directory path to use for
+ *          invalid argument tests otherwise the normal path will be used.
+ * @param   aCallbackPath (optional)
+ *          When specified the callback path to use for invalid argument tests
+ *          otherwise the normal path will be used.
  */
-function runUpdate(aExpectedStatus, aSwitchApp, aExpectedExitValue,
-                   aCheckSvcLog) {
+function runUpdate(aExpectedStatus, aSwitchApp, aExpectedExitValue, aCheckSvcLog,
+                   aPatchDirPath, aInstallDirPath, aApplyToDirPath,
+                   aCallbackPath) {
+  let isInvalidArgTest = !!aPatchDirPath || !!aInstallDirPath ||
+                         !!aApplyToDirPath || aCallbackPath;
+
   let svcOriginalLog;
   if (IS_SERVICE_TEST) {
     copyFileToTestAppDir(FILE_MAINTENANCE_SERVICE_BIN, false);
@@ -1689,28 +1692,39 @@ function runUpdate(aExpectedStatus, aSwitchApp, aExpectedExitValue,
   Assert.ok(updateBin.exists(),
             MSG_SHOULD_EXIST + getMsgPath(updateBin.path));
 
-  let updatesDirPath = getUpdatesPatchDir().path;
-  let applyToDirPath = getApplyDirFile(null, true).path;
-  let stageDirPath = getStageDirFile(null, true).path;
+  let updatesDirPath = aPatchDirPath || getUpdatesPatchDir().path;
+  let installDirPath = aInstallDirPath || getApplyDirFile(null, true).path;
+  let applyToDirPath = aApplyToDirPath || getApplyDirFile(null, true).path;
+  let stageDirPath = aApplyToDirPath || getStageDirFile(null, true).path;
 
   let callbackApp = getApplyDirFile(DIR_RESOURCES + gCallbackBinFile);
   callbackApp.permissions = PERMS_DIRECTORY;
 
   setAppBundleModTime();
 
-  let args = [updatesDirPath, applyToDirPath];
+  let args = [updatesDirPath, installDirPath];
   if (aSwitchApp) {
-    args[2] = gApplyToDirOverride || stageDirPath;
+    args[2] = stageDirPath;
     args[3] = "0/replace";
   } else {
-    args[2] = gApplyToDirOverride || applyToDirPath;
+    args[2] = applyToDirPath;
     args[3] = "0";
   }
-  args = args.concat([callbackApp.parent.path, callbackApp.path]);
-  args = args.concat(gCallbackArgs);
-  debugDump("running the updater: " + updateBin.path + " " + args.join(" "));
 
-  if (aSwitchApp) {
+  let launchBin = IS_SERVICE_TEST && isInvalidArgTest ? callbackApp : updateBin;
+
+  if (!isInvalidArgTest) {
+    args = args.concat([callbackApp.parent.path, callbackApp.path]);
+    args = args.concat(gCallbackArgs);
+  } else if (IS_SERVICE_TEST) {
+    args = ["launch-service", updateBin.path].concat(args);
+  } else if (aCallbackPath) {
+    args = args.concat([callbackApp.parent.path, aCallbackPath]);
+  }
+
+  debugDump("launching the program: " + launchBin.path + " " + args.join(" "));
+
+  if (aSwitchApp && !isInvalidArgTest) {
     // We want to set the env vars again
     gShouldResetEnv = undefined;
   }
@@ -1719,7 +1733,7 @@ function runUpdate(aExpectedStatus, aSwitchApp, aExpectedExitValue,
 
   let process = Cc["@mozilla.org/process/util;1"].
                 createInstance(Ci.nsIProcess);
-  process.init(updateBin);
+  process.init(launchBin);
   process.run(true, args, args.length);
 
   resetEnvironment();
@@ -1750,9 +1764,11 @@ function runUpdate(aExpectedStatus, aSwitchApp, aExpectedExitValue,
     Assert.notEqual(contents, svcOriginalLog,
                     "the contents of the maintenanceservice.log should not " +
                     "be the same as the original contents");
-    Assert.notEqual(contents.indexOf(LOG_SVC_SUCCESSFUL_LAUNCH), -1,
-                    "the contents of the maintenanceservice.log should " +
-                    "contain the successful launch string");
+    if (!isInvalidArgTest) {
+      Assert.notEqual(contents.indexOf(LOG_SVC_SUCCESSFUL_LAUNCH), -1,
+                      "the contents of the maintenanceservice.log should " +
+                      "contain the successful launch string");
+    }
   }
 
   do_execute_soon(runUpdateFinished);
@@ -1892,10 +1908,15 @@ function stageUpdate(aCheckSvcLog) {
 
   setAppBundleModTime();
   setEnvironment();
-  // Stage the update.
-  Cc["@mozilla.org/updates/update-processor;1"].
-    createInstance(Ci.nsIUpdateProcessor).
-    processUpdate(gUpdateManager.activeUpdate);
+  try {
+    // Stage the update.
+    Cc["@mozilla.org/updates/update-processor;1"].
+      createInstance(Ci.nsIUpdateProcessor).
+      processUpdate(gUpdateManager.activeUpdate);
+  } catch (e) {
+    Assert.ok(false,
+              "error thrown while calling processUpdate, exception: " + e);
+  }
 
   // The environment is not reset here because processUpdate in
   // nsIUpdateProcessor uses a new thread and clearing the environment
@@ -2575,8 +2596,12 @@ function waitForHelperExit() {
  * @param   aPostUpdateAsync
  *          When null the updater.ini is not created otherwise this parameter
  *          is passed to createUpdaterINI.
+ * @param   aPostUpdateExeRelPathPrefix
+ *          When aPostUpdateAsync null this value is ignored otherwise it is
+ *          passed to createUpdaterINI.
  */
-function setupUpdaterTest(aMarFile, aPostUpdateAsync) {
+function setupUpdaterTest(aMarFile, aPostUpdateAsync,
+                          aPostUpdateExeRelPathPrefix = "") {
   let updatesPatchDir = getUpdatesPatchDir();
   if (!updatesPatchDir.exists()) {
     updatesPatchDir.create(Ci.nsIFile.DIRECTORY_TYPE, PERMS_DIRECTORY);
@@ -2661,7 +2686,7 @@ function setupUpdaterTest(aMarFile, aPostUpdateAsync) {
   setupActiveUpdate();
 
   if (aPostUpdateAsync !== null) {
-    createUpdaterINI(aPostUpdateAsync);
+    createUpdaterINI(aPostUpdateAsync, aPostUpdateExeRelPathPrefix);
   }
 
   setupAppFilesAsync();
@@ -2684,8 +2709,10 @@ function createUpdateSettingsINI() {
  *          True or undefined if the post update process should be async. If
  *          undefined ExeAsync will not be added to the updater.ini file in
  *          order to test the default launch behavior which is async.
+ * @param   aExeRelPathPrefix
+ *          A string to prefix the ExeRelPath values in the updater.ini.
  */
-function createUpdaterINI(aIsExeAsync) {
+function createUpdaterINI(aIsExeAsync, aExeRelPathPrefix) {
   let exeArg = "ExeArg=post-update-async\n";
   let exeAsync = "";
   if (aIsExeAsync !== undefined) {
@@ -2697,16 +2724,23 @@ function createUpdaterINI(aIsExeAsync) {
     }
   }
 
+  if (aExeRelPathPrefix && IS_WIN) {
+    aExeRelPathPrefix = aExeRelPathPrefix.replace("/", "\\");
+  }
+
+  let exeRelPathMac = "ExeRelPath=" + aExeRelPathPrefix + DIR_RESOURCES +
+                      gPostUpdateBinFile + "\n";
+  let exeRelPathWin = "ExeRelPath=" + aExeRelPathPrefix + gPostUpdateBinFile + "\n";
   let updaterIniContents = "[Strings]\n" +
                            "Title=Update Test\n" +
                            "Info=Running update test " + gTestID + "\n\n" +
                            "[PostUpdateMac]\n" +
-                           "ExeRelPath=" + DIR_RESOURCES + gPostUpdateBinFile + "\n" +
+                           exeRelPathMac +
                            exeArg +
                            exeAsync +
                            "\n" +
                            "[PostUpdateWin]\n" +
-                           "ExeRelPath=" + gPostUpdateBinFile + "\n" +
+                           exeRelPathWin +
                            exeArg +
                            exeAsync;
   let updaterIni = getApplyDirFile(DIR_RESOURCES + FILE_UPDATER_INI, true);
