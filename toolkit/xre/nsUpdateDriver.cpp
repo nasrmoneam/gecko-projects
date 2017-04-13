@@ -73,8 +73,15 @@ using namespace mozilla;
 #define USE_EXECV
 #endif
 
-static LazyLogModule sUpdateLog("updatedriver");
-#define LOG(args) MOZ_LOG(sUpdateLog, mozilla::LogLevel::Debug, args)
+static PRLogModuleInfo *
+GetUpdateLog()
+{
+  static PRLogModuleInfo *sUpdateLog;
+  if (!sUpdateLog)
+    sUpdateLog = PR_NewLogModule("updatedriver");
+  return sUpdateLog;
+}
+#define LOG(args) MOZ_LOG(GetUpdateLog(), mozilla::LogLevel::Debug, args)
 
 #ifdef XP_WIN
 #define UPDATER_BIN "updater.exe"
