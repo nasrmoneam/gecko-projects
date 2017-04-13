@@ -921,6 +921,8 @@ public:
 
   static void RecordIceCandidates(const uint32_t iceCandidateBitmask,
                                   const bool success);
+  static bool CanRecordBase();
+  static bool CanRecordExtended();
 private:
   TelemetryImpl();
   ~TelemetryImpl();
@@ -952,6 +954,8 @@ private:
   Mutex mHashMutex;
   HangReports mHangReports;
   Mutex mHangReportsMutex;
+  Atomic<bool> mCanRecordBase;
+  Atomic<bool> mCanRecordExtended;
 
 #if defined(ENABLE_STACK_CAPTURE)
   // Stores data about stacks captured on demand.
@@ -1235,6 +1239,8 @@ TelemetryImpl::AsyncFetchTelemetryData(nsIFetchTelemetryDataCallback *aCallback)
 TelemetryImpl::TelemetryImpl()
   : mHashMutex("Telemetry::mHashMutex")
   , mHangReportsMutex("Telemetry::mHangReportsMutex")
+  , mCanRecordBase(false)
+  , mCanRecordExtended(false)
   , mThreadHangStatsMutex("Telemetry::mThreadHangStatsMutex")
   , mCachedTelemetryData(false)
   , mLastShutdownTime(0)
@@ -1310,31 +1316,6 @@ TelemetryImpl::AddSQLInfo(JSContext *cx, JS::Handle<JSObject*> rootObj, bool mai
 }
 
 NS_IMETHODIMP
-TelemetryImpl::RegisterAddonHistogram(const nsACString &id,
-                                      const nsACString &name,
-                                      uint32_t histogramType,
-                                      uint32_t min, uint32_t max,
-                                      uint32_t bucketCount,
-                                      uint8_t optArgCount)
-{
-  return TelemetryHistogram::RegisterAddonHistogram
-            (id, name, histogramType, min, max, bucketCount, optArgCount);
-}
-
-NS_IMETHODIMP
-TelemetryImpl::GetAddonHistogram(const nsACString &id, const nsACString &name,
-                                 JSContext *cx, JS::MutableHandle<JS::Value> ret)
-{
-  return TelemetryHistogram::GetAddonHistogram(id, name, cx, ret);
-}
-
-NS_IMETHODIMP
-TelemetryImpl::UnregisterAddonHistograms(const nsACString &id)
-{
-  return TelemetryHistogram::UnregisterAddonHistograms(id);
-}
-
-NS_IMETHODIMP
 TelemetryImpl::SetHistogramRecordingEnabled(const nsACString &id, bool aEnabled)
 {
   return TelemetryHistogram::SetHistogramRecordingEnabled(id, aEnabled);
@@ -1357,12 +1338,6 @@ TelemetryImpl::SnapshotSubsessionHistograms(bool clearSubsession,
 #else
   return NS_OK;
 #endif
-}
-
-NS_IMETHODIMP
-TelemetryImpl::GetAddonHistogramSnapshots(JSContext *cx, JS::MutableHandle<JS::Value> ret)
-{
-  return TelemetryHistogram::GetAddonHistogramSnapshots(cx, ret);
 }
 
 NS_IMETHODIMP
@@ -2267,15 +2242,18 @@ TelemetryImpl::GetKeyedHistogramById(const nsACString &name, JSContext *cx,
  */
 NS_IMETHODIMP
 TelemetryImpl::GetCanRecordBase(bool *ret) {
-  *ret = TelemetryHistogram::CanRecordBase();
+  *ret = mCanRecordBase;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 TelemetryImpl::SetCanRecordBase(bool canRecord) {
-  TelemetryHistogram::SetCanRecordBase(canRecord);
-  TelemetryScalar::SetCanRecordBase(canRecord);
-  TelemetryEvent::SetCanRecordBase(canRecord);
+  if (canRecord != mCanRecordBase) {
+    TelemetryHistogram::SetCanRecordBase(canRecord);
+    TelemetryScalar::SetCanRecordBase(canRecord);
+    TelemetryEvent::SetCanRecordBase(canRecord);
+    mCanRecordBase = canRecord;
+  }
   return NS_OK;
 }
 
@@ -2288,15 +2266,18 @@ TelemetryImpl::SetCanRecordBase(bool canRecord) {
  */
 NS_IMETHODIMP
 TelemetryImpl::GetCanRecordExtended(bool *ret) {
-  *ret = TelemetryHistogram::CanRecordExtended();
+  *ret = mCanRecordExtended;
   return NS_OK;
 }
 
 NS_IMETHODIMP
 TelemetryImpl::SetCanRecordExtended(bool canRecord) {
-  TelemetryHistogram::SetCanRecordExtended(canRecord);
-  TelemetryScalar::SetCanRecordExtended(canRecord);
-  TelemetryEvent::SetCanRecordExtended(canRecord);
+  if (canRecord != mCanRecordExtended) {
+    TelemetryHistogram::SetCanRecordExtended(canRecord);
+    TelemetryScalar::SetCanRecordExtended(canRecord);
+    TelemetryEvent::SetCanRecordExtended(canRecord);
+    mCanRecordExtended = canRecord;
+  }
   return NS_OK;
 }
 
@@ -2338,6 +2319,9 @@ TelemetryImpl::CreateTelemetryInstance()
   NS_ADDREF(sTelemetry);
   // AddRef for the caller
   nsCOMPtr<nsITelemetry> ret = sTelemetry;
+
+  sTelemetry->mCanRecordBase = useTelemetry;
+  sTelemetry->mCanRecordExtended = useTelemetry;
 
   sTelemetry->InitMemoryReporter();
   InitHistogramRecordingEnabled(); // requires sTelemetry to exist
@@ -2542,6 +2526,7 @@ static constexpr TrackedDBEntry kTrackedDBs[] = {
   TRACKEDDB_ENTRY("cookies.sqlite"),
   TRACKEDDB_ENTRY("downloads.sqlite"),
   TRACKEDDB_ENTRY("extensions.sqlite"),
+  TRACKEDDB_ENTRY("favicons.sqlite"),
   TRACKEDDB_ENTRY("formhistory.sqlite"),
   TRACKEDDB_ENTRY("index.sqlite"),
   TRACKEDDB_ENTRY("netpredictions.sqlite"),
@@ -2687,6 +2672,28 @@ TelemetryImpl::RecordThreadHangStats(Telemetry::ThreadHangStats& aStats)
 
   // Ignore OOM.
   mozilla::Unused << sTelemetry->mThreadHangStats.append(Move(aStats));
+}
+
+bool
+TelemetryImpl::CanRecordBase()
+{
+  if (!sTelemetry) {
+    return false;
+  }
+  bool canRecordBase;
+  nsresult rv = sTelemetry->GetCanRecordBase(&canRecordBase);
+  return NS_SUCCEEDED(rv) && canRecordBase;
+}
+
+bool
+TelemetryImpl::CanRecordExtended()
+{
+  if (!sTelemetry) {
+    return false;
+  }
+  bool canRecordExtended;
+  nsresult rv = sTelemetry->GetCanRecordExtended(&canRecordExtended);
+  return NS_SUCCEEDED(rv) && canRecordExtended;
 }
 
 NS_IMPL_ISUPPORTS(TelemetryImpl, nsITelemetry, nsIMemoryReporter)
@@ -2920,7 +2927,6 @@ TelemetryImpl::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf)
 {
   size_t n = aMallocSizeOf(this);
 
-  // Ignore the hashtables in mAddonMap; they are not significant.
   n += TelemetryHistogram::GetMapShallowSizesOfExcludingThis(aMallocSizeOf);
   n += TelemetryScalar::GetMapShallowSizesOfExcludingThis(aMallocSizeOf);
   n += mWebrtcTelemetry.SizeOfExcludingThis(aMallocSizeOf);
@@ -3355,13 +3361,13 @@ GetHistogramName(HistogramID id)
 bool
 CanRecordBase()
 {
-  return TelemetryHistogram::CanRecordBase();
+  return TelemetryImpl::CanRecordBase();
 }
 
 bool
 CanRecordExtended()
 {
-  return TelemetryHistogram::CanRecordExtended();
+  return TelemetryImpl::CanRecordExtended();
 }
 
 void

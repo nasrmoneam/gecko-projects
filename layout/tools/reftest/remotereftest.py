@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import sys
+import logging
 import os
 import time
 import tempfile
@@ -226,12 +227,15 @@ class RemoteReftest(RefTest):
     def stopWebServer(self, options):
         self.server.stop()
 
-    def createReftestProfile(self, options, manifest):
+    def createReftestProfile(self, options, manifest, startAfter=None):
         profile = RefTest.createReftestProfile(self,
                                                options,
                                                manifest,
                                                server=options.remoteWebServer,
                                                port=options.httpPort)
+        if startAfter is not None:
+            print ("WARNING: Continuing after a crash is not supported for remote "
+                   "reftest yet.")
         profileDir = profile.profile
 
         prefs = {}
@@ -340,6 +344,8 @@ def run_test_harness(parser, options):
     dm_args['adbPath'] = options.adb_path
     if not dm_args['host']:
         dm_args['deviceSerial'] = options.deviceSerial
+    if options.log_tbpl_level == 'debug' or options.log_mach_level == 'debug':
+        dm_args['logLevel'] = logging.DEBUG
 
     try:
         dm = mozdevice.DroidADB(**dm_args)
@@ -384,8 +390,9 @@ def run_test_harness(parser, options):
         return retVal
 
     procName = options.app.split('/')[-1]
-    if (dm.processExist(procName)):
-        dm.killProcess(procName)
+    dm.killProcess(procName)
+    if dm.processExist(procName):
+        print "unable to kill %s before starting tests!" % procName
 
     if options.printDeviceInfo:
         reftest.printDeviceInfo()
