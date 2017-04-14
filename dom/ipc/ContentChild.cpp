@@ -519,7 +519,6 @@ ContentChild::RecvSetXPCOMProcessAttributes(const XPCOMInitData& aXPCOMInit,
                                             nsTArray<LookAndFeelInt>&& aLookAndFeelIntCache)
 {
   mLookAndFeelCache = aLookAndFeelIntCache;
-  gfx::gfxVars::Initialize(&aXPCOMInit.gfxNonDefaultVarUpdates());
   InitXPCOM(aXPCOMInit, aInitialData);
   InitGraphicsDeviceData(aXPCOMInit.contentDeviceData());
   return IPC_OK();
@@ -776,18 +775,6 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
                     GetID(),
                     &tabId);
 
-  TabContext newTabContext = aTabOpener ? *aTabOpener : TabContext();
-  RefPtr<TabChild> newChild = new TabChild(this, tabId,
-                                           newTabContext, aChromeFlags);
-  if (NS_FAILED(newChild->Init())) {
-    return NS_ERROR_ABORT;
-  }
-
-  if (aTabOpener) {
-    MOZ_ASSERT(ipcContext->type() == IPCTabContext::TPopupIPCTabContext);
-    ipcContext->get_PopupIPCTabContext().opener() = aTabOpener;
-  }
-
   // We need to assign a TabGroup to the PBrowser actor before we send it to the
   // parent. Otherwise, the parent could send messages to us before we have a
   // proper TabGroup for that actor.
@@ -798,13 +785,26 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   } else {
     tabGroup = new TabGroup();
   }
+
+  TabContext newTabContext = aTabOpener ? *aTabOpener : TabContext();
+  RefPtr<TabChild> newChild = new TabChild(this, tabId, tabGroup,
+                                           newTabContext, aChromeFlags);
+  if (NS_FAILED(newChild->Init())) {
+    return NS_ERROR_ABORT;
+  }
+
+  if (aTabOpener) {
+    MOZ_ASSERT(ipcContext->type() == IPCTabContext::TPopupIPCTabContext);
+    ipcContext->get_PopupIPCTabContext().opener() = aTabOpener;
+  }
+
   nsCOMPtr<nsIEventTarget> target = tabGroup->EventTargetFor(TaskCategory::Other);
   SetEventTargetForActor(newChild, target);
 
   Unused << SendPBrowserConstructor(
     // We release this ref in DeallocPBrowserChild
     RefPtr<TabChild>(newChild).forget().take(),
-    tabId, *ipcContext, aChromeFlags,
+    tabId, TabId(0), *ipcContext, aChromeFlags,
     GetID(), IsForBrowser());
 
   nsString name(aName);
@@ -1442,12 +1442,14 @@ ContentChild::DeallocPJavaScriptChild(PJavaScriptChild *aChild)
 
 PBrowserChild*
 ContentChild::AllocPBrowserChild(const TabId& aTabId,
+                                 const TabId& aSameTabGroupAs,
                                  const IPCTabContext& aContext,
                                  const uint32_t& aChromeFlags,
                                  const ContentParentId& aCpID,
                                  const bool& aIsForBrowser)
 {
   return nsIContentChild::AllocPBrowserChild(aTabId,
+                                             aSameTabGroupAs,
                                              aContext,
                                              aChromeFlags,
                                              aCpID,
@@ -1457,6 +1459,7 @@ ContentChild::AllocPBrowserChild(const TabId& aTabId,
 bool
 ContentChild::SendPBrowserConstructor(PBrowserChild* aActor,
                                       const TabId& aTabId,
+                                      const TabId& aSameTabGroupAs,
                                       const IPCTabContext& aContext,
                                       const uint32_t& aChromeFlags,
                                       const ContentParentId& aCpID,
@@ -1468,6 +1471,7 @@ ContentChild::SendPBrowserConstructor(PBrowserChild* aActor,
 
   return PContentChild::SendPBrowserConstructor(aActor,
                                                 aTabId,
+                                                aSameTabGroupAs,
                                                 aContext,
                                                 aChromeFlags,
                                                 aCpID,
@@ -1477,6 +1481,7 @@ ContentChild::SendPBrowserConstructor(PBrowserChild* aActor,
 mozilla::ipc::IPCResult
 ContentChild::RecvPBrowserConstructor(PBrowserChild* aActor,
                                       const TabId& aTabId,
+                                      const TabId& aSameTabGroupAs,
                                       const IPCTabContext& aContext,
                                       const uint32_t& aChromeFlags,
                                       const ContentParentId& aCpID,
@@ -1493,8 +1498,13 @@ ContentChild::RecvPBrowserConstructor(PBrowserChild* aActor,
     NS_IdleDispatchToCurrentThread(firstIdleTask.forget());
   }
 
-  return nsIContentChild::RecvPBrowserConstructor(aActor, aTabId, aContext,
-                                                  aChromeFlags, aCpID, aIsForBrowser);
+  return nsIContentChild::RecvPBrowserConstructor(aActor,
+                                                  aTabId,
+                                                  aSameTabGroupAs,
+                                                  aContext,
+                                                  aChromeFlags,
+                                                  aCpID,
+                                                  aIsForBrowser);
 }
 
 void
@@ -3168,6 +3178,32 @@ ContentChild::GetConstructedEventTarget(const Message& aMsg)
 {
   // Currently we only set targets for PBrowser.
   if (aMsg.type() != PContent::Msg_PBrowserConstructor__ID) {
+    return nullptr;
+  }
+
+  ActorHandle handle;
+  TabId tabId, sameTabGroupAs;
+  PickleIterator iter(aMsg);
+  if (!IPC::ReadParam(&aMsg, &iter, &handle)) {
+    return nullptr;
+  }
+  aMsg.IgnoreSentinel(&iter);
+  if (!IPC::ReadParam(&aMsg, &iter, &tabId)) {
+    return nullptr;
+  }
+  aMsg.IgnoreSentinel(&iter);
+  if (!IPC::ReadParam(&aMsg, &iter, &sameTabGroupAs)) {
+    return nullptr;
+  }
+
+  // If sameTabGroupAs is non-zero, then the new tab will be in the same
+  // TabGroup as a previously created tab. Rather than try to find the
+  // previously created tab (whose constructor message may not even have been
+  // processed yet, in theory) and look up its event target, we just use the
+  // default event target. This means that runnables for this tab will not be
+  // labeled. However, this path is only taken for print preview and view
+  // source, which are not performance-sensitive.
+  if (sameTabGroupAs) {
     return nullptr;
   }
 

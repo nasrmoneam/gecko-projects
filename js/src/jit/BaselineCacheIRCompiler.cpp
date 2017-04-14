@@ -247,6 +247,22 @@ BaselineCacheIRCompiler::emitGuardGroup()
 }
 
 bool
+BaselineCacheIRCompiler::emitGuardGroupHasUnanalyzedNewScript()
+{
+    Address addr(stubAddress(reader.stubOffset()));
+    AutoScratchRegister scratch1(allocator, masm);
+    AutoScratchRegister scratch2(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.loadPtr(addr, scratch1);
+    masm.guardGroupHasUnanalyzedNewScript(scratch1, scratch2, failure->label());
+    return true;
+}
+
+bool
 BaselineCacheIRCompiler::emitGuardProto()
 {
     Register obj = allocator.useRegister(masm, reader.objOperandId());
@@ -1827,6 +1843,7 @@ BaselineCacheIRCompiler::init(CacheKind kind)
       case CacheKind::GetElem:
       case CacheKind::SetProp:
       case CacheKind::In:
+      case CacheKind::HasOwn:
         MOZ_ASSERT(numInputs == 2);
         allocator.initInputLocation(0, R0);
         allocator.initInputLocation(1, R1);
@@ -1882,6 +1899,7 @@ jit::AttachBaselineCacheIRStub(JSContext* cx, const CacheIRWriter& writer,
     CacheIRStubKind stubKind;
     switch (kind) {
       case CacheKind::In:
+      case CacheKind::HasOwn:
         stubDataOffset = sizeof(ICCacheIR_Regular);
         stubKind = CacheIRStubKind::Regular;
         break;
