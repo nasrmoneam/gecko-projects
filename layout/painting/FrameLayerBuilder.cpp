@@ -2339,15 +2339,7 @@ ContainerState::GetLayerCreationHint(AnimatedGeometryRoot* aAnimatedGeometryRoot
       break;
     }
     nsIScrollableFrame* scrollable = do_QueryFrame(fParent);
-    if (scrollable
-  #ifdef MOZ_B2G
-        && scrollable->WantAsyncScroll()
-  #endif
-       ) {
-      // WantAsyncScroll() returns false when the frame has overflow:hidden,
-      // so we won't create tiled layers for overflow:hidden frames even if
-      // they have a display port. The main purpose of the WantAsyncScroll check
-      // is to allow the B2G camera app to use hardware composer for compositing.
+    if (scrollable) {
       return LayerManager::SCROLLABLE;
     }
   }
@@ -3660,7 +3652,7 @@ ContainerState::NewPaintedLayerData(nsDisplayItem* aItem,
   PaintedLayerData data;
   data.mAnimatedGeometryRoot = aAnimatedGeometryRoot;
   data.mASR = aASR;
-  data.mClipChain = aClipChain,
+  data.mClipChain = aClipChain;
   data.mAnimatedGeometryRootOffset = aTopLeft;
   data.mReferenceFrame = aItem->ReferenceFrame();
   data.mBackfaceHidden = aItem->Frame()->In3DContextAndBackfaceIsHidden();
@@ -3670,7 +3662,7 @@ ContainerState::NewPaintedLayerData(nsDisplayItem* aItem,
   newLayerEntry->mAnimatedGeometryRoot = aAnimatedGeometryRoot;
   newLayerEntry->mASR = aASR;
   newLayerEntry->mScrollMetadataASR = aScrollMetadataASR;
-  newLayerEntry->mClipChain = aClipChain,
+  newLayerEntry->mClipChain = aClipChain;
   // newLayerEntry->mOpaqueRegion is filled in later from
   // paintedLayerData->mOpaqueRegion, if necessary.
 

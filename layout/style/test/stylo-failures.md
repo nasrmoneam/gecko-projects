@@ -36,7 +36,7 @@ to mochitest command.
   * test_webkit_device_pixel_ratio.html: -webkit-device-pixel-ratio [3]
   * browser_bug453896.js [8]
 * Animation support:
-  * test_animations.html [22]
+  * test_animations.html [19]
   * test_animations_dynamic_changes.html [1]
   * test_bug716226.html [1]
   * OMTA
@@ -78,6 +78,7 @@ to mochitest command.
   * test_value_storage.html `transition` [596]
   * Events:
     * test_animations_event_order.html [2]
+* test_property_syntax_errors.html `radial-gradient` [30]
 * test_computed_style.html `gradient`: -moz-prefixed radient value [9]
 * ... `mask`: mask-image isn't set properly bug 1341667 [10]
 * ... `fill`: svg paint should distinguish whether there is fallback bug 1347409 [2]
@@ -150,13 +151,7 @@ to mochitest command.
     * test_initial_storage.html `-moz-force-broken-image-icon` [4]
     * test_value_storage.html `-moz-force-broken-image-icon` [4]
   * -moz-transform: need different parsing rules servo/servo#16003
-    * test_inherit_computation.html `-moz-transform`: need different parsing rules [2]
-    * test_inherit_storage.html `transform`: for -moz-transform [3]
-    * test_initial_computation.html `-moz-transform`: need different parsing rules [4]
-    * test_initial_storage.html `transform`: for -moz-transform [6]
-    * test_value_storage.html `-moz-transform`: need different parsing rules [280]
-    * test_specified_value_serialization.html `bug-721136` [26]
-    * test_units_angle.html [3]
+    * test_value_storage.html `-moz-transform`: need different parsing rules bug 1357906 [72]
   * test_variables.html `var(--var6)`: -x-system-font [1]
 * Unimplemented CSS properties:
   * place-{content,items,self} shorthands servo/servo#16391
@@ -166,6 +161,7 @@ to mochitest command.
   * font-variant-{alternates,east-asian,ligatures,numeric} properties servo/servo#15957
     * test_property_syntax_errors.html `font-variant-alternates` [2]
     * test_value_storage.html `font-variant` [176]
+    * test_specified_value_serialization.html `bug-721136` [1]
   * touch-action property servo/servo#16372
     * test_compute_data_with_start_struct.html `touch-action` [2]
     * test_inherit_computation.html `touch-action` [2]
@@ -205,8 +201,7 @@ to mochitest command.
   * webkit-prefixed gradient functions servo/servo#15441
     * test_value_storage.html `-webkit-gradient` [225]
     * ... `-webkit-linear-gradient` [10]
-    * ... `-webkit-radial-gradient` [105]
-    * ... `-webkit-repeating-` [20]
+    * ... `-webkit-repeating-linear-gradient` [5]
   * moz-prefixed intrinsic width values bug 1355402
     * test_box_size_keywords.html [16]
     * test_flexbox_flex_shorthand.html `-moz-fit-content` [4]
@@ -232,18 +227,12 @@ to mochitest command.
   * SVG-in-OpenType values not supported servo/servo#15211 bug 1355412
     * test_value_storage.html `context-` [7]
     * test_bug798843_pref.html [7]
-  * -moz-box-orient: {block,inline}-axis bug 1355005
-    * test_value_storage.html `box-orient` [6]
 * Incorrect parsing
   * Incorrect bounds
     * test_bug664955.html `font size is larger than max font size` [2]
   * calc() doesn't support dividing expression servo/servo#15192
     * test_value_storage.html `calc(50px/` [7]
     * ... `calc(2em / ` [9]
-  * size part of shorthand background/mask always desires two values servo/servo#15199
-    * test_value_storage.html `'background'` [20]
-    * ... `/ auto none` [38]
-    * ... `/ auto repeat` [19]
   * border shorthands do not reset border-image servo/servo#15202
     * test_shorthand_property_getters.html `border-image` [1]
     * test_inherit_storage.html `for property 'border-image-` [5]

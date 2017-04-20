@@ -329,18 +329,6 @@ TabParent::RemoveWindowListeners()
   }
 }
 
-void
-TabParent::GetAppType(nsAString& aOut)
-{
-  aOut.Truncate();
-  nsCOMPtr<Element> elem = do_QueryInterface(mFrameElement);
-  if (!elem) {
-    return;
-  }
-
-  elem->GetAttr(kNameSpaceID_None, nsGkAtoms::mozapptype, aOut);
-}
-
 bool
 TabParent::IsVisible() const
 {
@@ -2956,6 +2944,7 @@ public:
   NS_IMETHOD SetLoadGroup(nsILoadGroup*) NO_IMPL
   NS_IMETHOD SetLoadFlags(nsLoadFlags) NO_IMPL
   NS_IMETHOD GetLoadFlags(nsLoadFlags*) NO_IMPL
+  NS_IMETHOD GetIsDocument(bool *) NO_IMPL
   NS_IMETHOD GetOriginalURI(nsIURI**) NO_IMPL
   NS_IMETHOD SetOriginalURI(nsIURI*) NO_IMPL
   NS_IMETHOD GetURI(nsIURI** aUri) override

@@ -1352,11 +1352,170 @@ fn static_assert() {
     pub fn set_font_size(&mut self, v: longhands::font_size::computed_value::T) {
         self.gecko.mFont.size = v.0;
         self.gecko.mSize = v.0;
+        self.gecko.mScriptUnconstrainedSize = v.0;
     }
-    pub fn copy_font_size_from(&mut self, other: &Self) {
-        self.gecko.mFont.size = other.gecko.mFont.size;
-        self.gecko.mSize = other.gecko.mSize;
+
+    /// Set font size, taking into account scriptminsize and scriptlevel
+    /// Returns Some(size) if we have to recompute the script unconstrained size
+    pub fn apply_font_size(&mut self, v: longhands::font_size::computed_value::T,
+                           parent: &Self) -> Option<Au> {
+        let (adjusted_size, adjusted_unconstrained_size)
+            = self.calculate_script_level_size(parent);
+        // In this case, we have been unaffected by scriptminsize, ignore it
+        if parent.gecko.mSize == parent.gecko.mScriptUnconstrainedSize &&
+           adjusted_size == adjusted_unconstrained_size {
+            self.set_font_size(v);
+            None
+        } else {
+            self.gecko.mFont.size = v.0;
+            self.gecko.mSize = v.0;
+            Some(Au(parent.gecko.mScriptUnconstrainedSize))
+        }
     }
+
+    pub fn apply_unconstrained_font_size(&mut self, v: Au) {
+        self.gecko.mScriptUnconstrainedSize = v.0;
+    }
+
+    /// Calculates the constrained and unconstrained font sizes to be inherited
+    /// from the parent.
+    ///
+    /// See ComputeScriptLevelSize in Gecko's nsRuleNode.cpp
+    ///
+    /// scriptlevel is a property that affects how font-size is inherited. If scriptlevel is
+    /// +1, for example, it will inherit as the script size multiplier times
+    /// the parent font. This does not affect cases where the font-size is
+    /// explicitly set.
+    ///
+    /// However, this transformation is not allowed to reduce the size below
+    /// scriptminsize. If this inheritance will reduce it to below
+    /// scriptminsize, it will be set to scriptminsize or the parent size,
+    /// whichever is smaller (the parent size could be smaller than the min size
+    /// because it was explicitly specified).
+    ///
+    /// Now, within a node that has inherited a font-size which was
+    /// crossing scriptminsize once the scriptlevel was applied, a negative
+    /// scriptlevel may be used to increase the size again.
+    ///
+    /// This should work, however if we have already been capped by the
+    /// scriptminsize multiple times, this can lead to a jump in the size.
+    ///
+    /// For example, if we have text of the form:
+    ///
+    /// huge large medium small tiny reallytiny tiny small medium huge
+    ///
+    /// which is represented by progressive nesting and scriptlevel values of
+    /// +1 till the center after which the scriptlevel is -1, the "tiny"s should
+    /// be the same size, as should be the "small"s and "medium"s, etc.
+    ///
+    /// However, if scriptminsize kicked it at around "medium", then
+    /// medium/tiny/reallytiny will all be the same size (the min size).
+    /// A -1 scriptlevel change after this will increase the min size by the
+    /// multiplier, making the second tiny larger than medium.
+    ///
+    /// Instead, we wish for the second "tiny" to still be capped by the script
+    /// level, and when we reach the second "large", it should be the same size
+    /// as the original one.
+    ///
+    /// We do this by cascading two separate font sizes. The font size (mSize)
+    /// is the actual displayed font size. The unconstrained font size
+    /// (mScriptUnconstrainedSize) is the font size in the situation where
+    /// scriptminsize never applied.
+    ///
+    /// We calculate the proposed inherited font size based on scriptlevel and
+    /// the parent unconstrained size, instead of using the parent font size.
+    /// This is stored in the node's unconstrained size and will also be stored
+    /// in the font size provided that it is above the min size.
+    ///
+    /// All of this only applies when inheriting. When the font size is
+    /// manually set, scriptminsize does not apply, and both the real and
+    /// unconstrained size are set to the explicit value. However, if the font
+    /// size is manually set to an em or percent unit, the unconstrained size
+    /// will be set to the value of that unit computed against the parent
+    /// unconstrained size, whereas the font size will be set computing against
+    /// the parent font size.
+    pub fn calculate_script_level_size(&self, parent: &Self) -> (Au, Au) {
+        use std::cmp;
+
+        let delta = self.gecko.mScriptLevel - parent.gecko.mScriptLevel;
+
+        let parent_size = Au(parent.gecko.mSize);
+        let parent_unconstrained_size = Au(parent.gecko.mScriptUnconstrainedSize);
+
+        if delta == 0 {
+            return (parent_size, parent_unconstrained_size)
+        }
+
+        /// XXXManishearth this should also handle text zoom
+        let min = Au(parent.gecko.mScriptMinSize);
+
+        let scale = (parent.gecko.mScriptSizeMultiplier as f32).powi(delta as i32);
+
+        let new_size = parent_size.scale_by(scale);
+        let new_unconstrained_size = parent_unconstrained_size.scale_by(scale);
+
+        if scale < 1. {
+            // The parent size can be smaller than scriptminsize,
+            // e.g. if it was specified explicitly. Don't scale
+            // in this case, but we don't want to set it to scriptminsize
+            // either since that will make it larger.
+            if parent_size < min {
+                (parent_size, new_unconstrained_size)
+            } else {
+                (cmp::max(min, new_size), new_unconstrained_size)
+            }
+        } else {
+            // If the new unconstrained size is larger than the min size,
+            // this means we have escaped the grasp of scriptminsize
+            // and can revert to using the unconstrained size.
+            // However, if the new size is even larger (perhaps due to usage
+            // of em units), use that instead.
+            (cmp::min(new_size, cmp::max(new_unconstrained_size, min)),
+             new_unconstrained_size)
+        }
+    }
+
+    /// This function will also handle scriptminsize and scriptlevel
+    /// so should not be called when you just want the font sizes to be copied.
+    /// Hence the different name.
+    pub fn inherit_font_size_from(&mut self, parent: &Self,
+                                  kw_inherited_size: Option<Au>) {
+        let (adjusted_size, adjusted_unconstrained_size)
+            = self.calculate_script_level_size(parent);
+        if adjusted_size.0 != parent.gecko.mSize ||
+           adjusted_unconstrained_size.0 != parent.gecko.mScriptUnconstrainedSize {
+            // This is incorrect. When there is both a keyword size being inherited
+            // and a scriptlevel change, we must handle the keyword size the same
+            // way we handle em units. This complicates things because we now have
+            // to keep track of the adjusted and unadjusted ratios in the kw font size.
+            // This only affects the use case of a generic font being used in MathML.
+            //
+            // If we were to fix this I would prefer doing it by removing the
+            // ruletree walk on the Gecko side in nsRuleNode::SetGenericFont
+            // and instead using extra bookkeeping in the mSize and mScriptUnconstrainedSize
+            // values, and reusing those instead of font_size_keyword.
+
+
+            // In the case that MathML has given us an adjusted size, apply it.
+            // Keep track of the unconstrained adjusted size.
+            self.gecko.mFont.size = adjusted_size.0;
+            self.gecko.mSize = adjusted_size.0;
+            self.gecko.mScriptUnconstrainedSize = adjusted_unconstrained_size.0;
+        } else if let Some(size) = kw_inherited_size {
+            // Parent element was a keyword-derived size.
+            self.gecko.mFont.size = size.0;
+            self.gecko.mSize = size.0;
+            // MathML constraints didn't apply here, so we can ignore this.
+            self.gecko.mScriptUnconstrainedSize = size.0;
+        } else {
+            // MathML isn't affecting us, and our parent element does not
+            // have a keyword-derived size. Set things normally.
+            self.gecko.mFont.size = parent.gecko.mFont.size;
+            self.gecko.mSize = parent.gecko.mSize;
+            self.gecko.mScriptUnconstrainedSize = parent.gecko.mScriptUnconstrainedSize;
+        }
+    }
+
     pub fn clone_font_size(&self) -> longhands::font_size::computed_value::T {
         Au(self.gecko.mSize)
     }
@@ -1834,12 +1993,14 @@ fn static_assert() {
     <%def name="transform_function_arm(name, keyword, items)">
         <%
             pattern = None
-            if name == "matrix":
-                # m11, m12, m13, ..
-                indices = [str(i) + str(j) for i in range(1, 5) for j in range(1, 5)]
+            if keyword == "matrix3d":
                 # m11: number1, m12: number2, ..
-                single_patterns = ["m%s: number%s" % (index, i + 1) for (i, index) in enumerate(indices)]
-                pattern = "ComputedMatrix { %s }" % ", ".join(single_patterns)
+                single_patterns = ["m%s: %s" % (str(a / 4 + 1) + str(a % 4 + 1), b + str(a + 1)) for (a, b)
+                                   in enumerate(items)]
+                if name == "Matrix":
+                    pattern = "ComputedMatrix { %s }" % ", ".join(single_patterns)
+                else:
+                    pattern = "ComputedMatrixWithPercents { %s }" % ", ".join(single_patterns)
             else:
                 # Generate contents of pattern from items
                 pattern = ", ".join([b + str(a+1) for (a,b) in enumerate(items)])
@@ -1854,7 +2015,7 @@ fn static_assert() {
                 "number" : "bindings::Gecko_CSSValue_SetNumber(%s, %s)",
             }
         %>
-        longhands::transform::computed_value::ComputedOperation::${name.title()}(${pattern}) => {
+        longhands::transform::computed_value::ComputedOperation::${name}(${pattern}) => {
             bindings::Gecko_CSSValue_SetFunction(gecko_value, ${len(items) + 1});
             bindings::Gecko_CSSValue_SetKeyword(
                 bindings::Gecko_CSSValue_GetArrayItem(gecko_value, 0),
@@ -1873,6 +2034,7 @@ fn static_assert() {
         use gecko_bindings::structs::nsCSSKeyword::*;
         use gecko_bindings::sugar::refptr::RefPtr;
         use properties::longhands::transform::computed_value::ComputedMatrix;
+        use properties::longhands::transform::computed_value::ComputedMatrixWithPercents;
 
         unsafe { output.clear() };
 
@@ -1888,12 +2050,14 @@ fn static_assert() {
                                             value list of the same length as the transform vector");
             unsafe {
                 match servo {
-                    ${transform_function_arm("matrix", "matrix3d", ["number"] * 16)}
-                    ${transform_function_arm("skew", "skew", ["angle"] * 2)}
-                    ${transform_function_arm("translate", "translate3d", ["lop", "lop", "length"])}
-                    ${transform_function_arm("scale", "scale3d", ["number"] * 3)}
-                    ${transform_function_arm("rotate", "rotate3d", ["number"] * 3 + ["angle"])}
-                    ${transform_function_arm("perspective", "perspective", ["length"])}
+                    ${transform_function_arm("Matrix", "matrix3d", ["number"] * 16)}
+                    ${transform_function_arm("MatrixWithPercents", "matrix3d", ["number"] * 12 + ["lop"] * 2
+                                             + ["length"] + ["number"])}
+                    ${transform_function_arm("Skew", "skew", ["angle"] * 2)}
+                    ${transform_function_arm("Translate", "translate3d", ["lop", "lop", "length"])}
+                    ${transform_function_arm("Scale", "scale3d", ["number"] * 3)}
+                    ${transform_function_arm("Rotate", "rotate3d", ["number"] * 3 + ["angle"])}
+                    ${transform_function_arm("Perspective", "perspective", ["length"])}
                 }
                 cur = (*cur).mNext;
             }
@@ -1929,19 +2093,19 @@ fn static_assert() {
             }
         %>
         eCSSKeyword_${keyword} => {
-            ComputedOperation::${name.title()}(
-            % if name == "matrix":
+            ComputedOperation::${name}(
+            % if keyword == "matrix3d":
                 ComputedMatrix {
             % endif
             % for index, item in enumerate(items):
-                % if name == "matrix":
+                % if keyword == "matrix3d":
                     m${index / 4 + 1}${index % 4 + 1}:
                 % endif
                 ${css_value_getters[item] % (
                     "bindings::Gecko_CSSValue_GetArrayItemConst(gecko_value, %d)" % (index + 1)
                 )},
             % endfor
-            % if name == "matrix":
+            % if keyword == "matrix3d":
                 }
             % endif
             )
@@ -1968,12 +2132,12 @@ fn static_assert() {
             };
             let servo = unsafe {
                 match transform_function {
-                    ${computed_operation_arm("matrix", "matrix3d", ["number"] * 16)}
-                    ${computed_operation_arm("skew", "skew", ["angle"] * 2)}
-                    ${computed_operation_arm("translate", "translate3d", ["lop", "lop", "length"])}
-                    ${computed_operation_arm("scale", "scale3d", ["number"] * 3)}
-                    ${computed_operation_arm("rotate", "rotate3d", ["number"] * 3 + ["angle"])}
-                    ${computed_operation_arm("perspective", "perspective", ["length"])}
+                    ${computed_operation_arm("Matrix", "matrix3d", ["number"] * 16)}
+                    ${computed_operation_arm("Skew", "skew", ["angle"] * 2)}
+                    ${computed_operation_arm("Translate", "translate3d", ["lop", "lop", "length"])}
+                    ${computed_operation_arm("Scale", "scale3d", ["number"] * 3)}
+                    ${computed_operation_arm("Rotate", "rotate3d", ["number"] * 3 + ["angle"])}
+                    ${computed_operation_arm("Perspective", "perspective", ["length"])}
                     _ => panic!("We shouldn't set any other transform function types"),
                 }
             };
