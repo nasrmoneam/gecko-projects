@@ -503,7 +503,7 @@ mochitest-browser-chrome:
             linux64-jsdcov/opt: 35
             linux64/debug: 16
             linux32/debug: 16
-            linux64-asan/opt: 10
+            linux64-asan/opt: 16
             default: 7
     e10s:
         by-test-platform:
@@ -1343,6 +1343,27 @@ talos-tp5o:
                     - remove_executables.py
         extra-options:
             - --suite=tp5o
+
+talos-perf-reftest:
+    description: "Talos perf-reftest"
+    suite: talos
+    talos-try-name: perfref
+    treeherder-symbol: tc-T(p)
+    run-on-projects:
+        by-test-platform:
+            linux64-stylo/.*: ['try']
+            default: ['try']
+    max-run-time: 3600
+    mozharness:
+        script: talos_script.py
+        no-read-buildbot-config: true
+        config:
+            by-test-platform:
+                default:
+                    - talos/linux_config.py
+                    - remove_executables.py
+        extra-options:
+            - --suite=perf-reftest
 
 awsy:
     description: "Are we slim yet"

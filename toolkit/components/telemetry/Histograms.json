@@ -1608,16 +1608,6 @@
     "n_buckets": 50,
     "description": "GIF image decode speed (Kbytes/sec)"
   },
-  "IMAGE_LOAD_TRIGGER_LATENCY_MS": {
-    "alert_emails": ["ehsan@mozilla.com", "gfx-telemetry-alerts@mozilla.com"],
-    "expires_in_version": "60",
-    "bug_numbers": [1347376],
-    "kind": "exponential",
-    "low": 1,
-    "high": 1000,
-    "n_buckets": 50,
-    "description": "Measures the number of milliseconds we spend inside imgLoader::LoadImage(). Note: only calls that take more than 500 microseconds and happen in the content process are included in this probe."
-  },
   "IMAGE_DECODE_SPEED_PNG": {
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com"],
     "expires_in_version": "never",
@@ -5216,30 +5206,6 @@
     "high": 10000,
     "n_buckets": 50,
     "description": "Firefox: Time taken to run permitUnload on a browser during tab close to see whether or not we're allowed to close the tab (ms)."
-  },
-  "FX_TAB_ANIM_OPEN_PREVIEW_FRAME_INTERVAL_MS": {
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "low": 7,
-    "high": 500,
-    "n_buckets": 50,
-    "description": "Average frame interval during tab open animation of about:newtab (preview=on), when other tabs are unaffected"
-  },
-  "FX_TAB_ANIM_OPEN_FRAME_INTERVAL_MS": {
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "low": 7,
-    "high": 500,
-    "n_buckets": 50,
-    "description": "Average frame interval during tab open animation of about:newtab (preview=off), when other tabs are unaffected"
-  },
-  "FX_TAB_ANIM_ANY_FRAME_INTERVAL_MS": {
-    "expires_in_version": "never",
-    "kind": "exponential",
-    "low": 7,
-    "high": 500,
-    "n_buckets": 50,
-    "description": "Average frame interval during any tab open/close animation (excluding tabstrip scroll)"
   },
   "FX_REFRESH_DRIVER_CHROME_FRAME_DELAY_MS": {
     "alert_emails": ["perf-telemetry-alerts@mozilla.com"],
@@ -11358,5 +11324,77 @@
     "kind": "enumerated",
     "n_values": 99,
     "description": "Count of which display items are being used by type id"
+  },
+  "TIME_TO_DOM_LOADING_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to domLoading."
+  },
+  "TIME_TO_DOM_INTERACTIVE_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to domInteractive."
+  },
+  "TIME_TO_DOM_CONTENT_LOADED_START_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to domContentLoadedEventStart."
+  },
+  "TIME_TO_DOM_CONTENT_LOADED_END_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to domContentLoadedEventEnd."
+  },
+  "TIME_TO_DOM_COMPLETE_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to domComplete."
+  },
+  "TIME_TO_LOAD_EVENT_START_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to loadEventStart."
+  },
+  "TIME_TO_LOAD_EVENT_END_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to loadEventEnd."
+  },
+  "TIME_TO_RESPONSE_START_MS": {
+    "alert_emails": ["wpan@mozilla.com"],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1344893],
+    "description": "Time in milliseconds from navigationStart to responseStart."
   }
 }

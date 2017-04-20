@@ -423,7 +423,7 @@ public:
                                bool aOriginalOpener) override;
 
   // Outer windows only.
-  virtual void EnsureSizeUpToDate() override;
+  virtual void EnsureSizeAndPositionUpToDate() override;
 
   virtual void EnterModalState() override;
   virtual void LeaveModalState() override;
@@ -456,6 +456,8 @@ public:
   virtual void SetHasGamepadEventListener(bool aHasGamepad = true) override;
   void NotifyVREventListenerAdded();
   bool HasUsedVR() const;
+
+  using EventTarget::EventListenerAdded;
   virtual void EventListenerAdded(nsIAtom* aType) override;
 
   // nsIInterfaceRequestor

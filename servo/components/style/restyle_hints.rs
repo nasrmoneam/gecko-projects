@@ -16,8 +16,8 @@ use heapsize::HeapSizeOf;
 use selector_parser::{AttrValue, NonTSPseudoClass, Snapshot, SelectorImpl};
 use selectors::{Element, MatchAttr};
 use selectors::matching::{ElementSelectorFlags, StyleRelations};
-use selectors::matching::matches_complex_selector;
-use selectors::parser::{AttrSelector, Combinator, ComplexSelector, SelectorMethods, SimpleSelector};
+use selectors::matching::matches_selector;
+use selectors::parser::{AttrSelector, Combinator, ComplexSelector, SelectorInner, SelectorMethods, SimpleSelector};
 use selectors::visitor::SelectorVisitor;
 use std::clone::Clone;
 use std::sync::Arc;
@@ -47,6 +47,11 @@ bitflags! {
         /// Rerun selector matching on all later siblings of the element and all
         /// of their descendants.
         const RESTYLE_LATER_SIBLINGS = 0x08,
+
+        /// Replace the style data coming from CSS transitions without updating
+        /// any other style data. This hint is only processed in animation-only
+        /// traversal which is prior to normal traversal.
+        const RESTYLE_CSS_TRANSITIONS = 0x10,
 
         /// Replace the style data coming from CSS animations without updating
         /// any other style data. This hint is only processed in animation-only
@@ -87,6 +92,7 @@ pub fn assert_restyle_hints_match() {
         // (RESTYLE_SELF | RESTYLE_DESCENDANTS).
         nsRestyleHint_eRestyle_Subtree => RESTYLE_DESCENDANTS,
         nsRestyleHint_eRestyle_LaterSiblings => RESTYLE_LATER_SIBLINGS,
+        nsRestyleHint_eRestyle_CSSTransitions => RESTYLE_CSS_TRANSITIONS,
         nsRestyleHint_eRestyle_CSSAnimations => RESTYLE_CSS_ANIMATIONS,
         nsRestyleHint_eRestyle_StyleAttribute => RESTYLE_STYLE_ATTRIBUTE,
     }
@@ -96,7 +102,12 @@ impl RestyleHint {
     /// The subset hints that affect the styling of a single element during the
     /// traversal.
     pub fn for_self() -> Self {
-        RESTYLE_SELF | RESTYLE_STYLE_ATTRIBUTE | RESTYLE_CSS_ANIMATIONS
+        RESTYLE_SELF | RESTYLE_STYLE_ATTRIBUTE | RESTYLE_CSS_ANIMATIONS | RESTYLE_CSS_TRANSITIONS
+    }
+
+    /// The subset hints that are used for animation restyle.
+    pub fn for_animations() -> Self {
+        RESTYLE_CSS_ANIMATIONS | RESTYLE_CSS_TRANSITIONS
     }
 }
 
@@ -287,13 +298,10 @@ impl<'a, E> Element for ElementWrapper<'a, E>
         // snapshot.
         #[cfg(feature = "gecko")]
         {
+            use selectors::matching::matches_complex_selector;
             if let NonTSPseudoClass::MozAny(ref selectors) = *pseudo_class {
                 return selectors.iter().any(|s| {
-                    matches_complex_selector(s,
-                                             self,
-                                             None,
-                                             relations,
-                                             _setter)
+                    matches_complex_selector(s, self, relations, _setter)
                 })
             }
         }
@@ -482,7 +490,7 @@ impl Sensitivities {
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 struct Dependency {
     #[cfg_attr(feature = "servo", ignore_heap_size_of = "Arc")]
-    selector: Arc<ComplexSelector<SelectorImpl>>,
+    selector: SelectorInner<SelectorImpl>,
     hint: RestyleHint,
     sensitivities: Sensitivities,
 }
@@ -592,7 +600,7 @@ impl DependencySet {
                 self.add_dependency(Dependency {
                     sensitivities: sensitivities,
                     hint: hint,
-                    selector: current.clone(),
+                    selector: SelectorInner::new(current.clone()),
                 })
             }
 
@@ -688,13 +696,13 @@ impl DependencySet {
                 // We can ignore the selector flags, since they would have already been set during
                 // original matching for any element that might change its matching behavior here.
                 let matched_then =
-                    matches_complex_selector(&dep.selector, snapshot, None,
-                                             &mut StyleRelations::empty(),
-                                             &mut |_, _| {});
+                    matches_selector(&dep.selector, snapshot, None,
+                                     &mut StyleRelations::empty(),
+                                     &mut |_, _| {});
                 let matches_now =
-                    matches_complex_selector(&dep.selector, element, None,
-                                             &mut StyleRelations::empty(),
-                                             &mut |_, _| {});
+                    matches_selector(&dep.selector, element, None,
+                                     &mut StyleRelations::empty(),
+                                     &mut |_, _| {});
                 if matched_then != matches_now {
                     hint.insert(dep.hint);
                 }

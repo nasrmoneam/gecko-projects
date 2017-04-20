@@ -1317,6 +1317,7 @@ nsIDocument::nsIDocument()
     mIsBeingUsedAsImage(false),
     mIsSyntheticDocument(false),
     mHasLinksToUpdate(false),
+    mHasLinksToUpdateRunnable(false),
     mMayHaveDOMMutationObservers(false),
     mMayHaveAnimationObservers(false),
     mHasMixedActiveContentLoaded(false),
@@ -1882,10 +1883,22 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsDocument)
   nsINode::Unlink(tmp);
 
   // Unlink the mChildren nsAttrAndChildArray.
-  for (int32_t indx = int32_t(tmp->mChildren.ChildCount()) - 1;
-       indx >= 0; --indx) {
-    tmp->mChildren.ChildAt(indx)->UnbindFromTree();
-    tmp->mChildren.RemoveChildAt(indx);
+  uint32_t childCount = tmp->mChildren.ChildCount();
+  if (childCount) {
+    while (childCount-- > 0) {
+      // Hold a strong ref to the node when we remove it, because we may be
+      // the last reference to it.  We need to call TakeChildAt() and
+      // update mFirstChild before calling UnbindFromTree, since this last
+      // can notify various observers and they should really see consistent
+      // tree state.
+      // If this code changes, change the corresponding code in
+      // FragmentOrElement's unlink impl and ContentUnbinder::UnbindSubtree.
+      nsCOMPtr<nsIContent> child = tmp->mChildren.TakeChildAt(childCount);
+      if (childCount == 0) {
+        tmp->mFirstChild = nullptr;
+      }
+      child->UnbindFromTree();
+    }
   }
   tmp->mFirstChild = nullptr;
 
@@ -6139,6 +6152,7 @@ nsDocument::RegisterElement(JSContext* aCx, const nsAString& aType,
     return;
   }
 
+  AutoCEReaction ceReaction(this->GetDocGroup()->CustomElementReactionsStack());
   // Unconditionally convert TYPE to lowercase.
   nsAutoString lcType;
   nsContentUtils::ASCIIToLower(aType, lcType);
@@ -10005,18 +10019,37 @@ void
 nsIDocument::RegisterPendingLinkUpdate(Link* aLink)
 {
   MOZ_ASSERT(!mIsLinkUpdateRegistrationsForbidden);
-  mLinksToUpdate.PutEntry(aLink);
+
+  if (aLink->HasPendingLinkUpdate()) {
+    return;
+  }
+
+  aLink->SetHasPendingLinkUpdate();
+
+  if (!mHasLinksToUpdateRunnable) {
+    nsCOMPtr<nsIRunnable> event =
+      NewRunnableMethod(this, &nsIDocument::FlushPendingLinkUpdatesFromRunnable);
+    nsresult rv =
+      Dispatch("nsIDocument::FlushPendingLinkUpdatesFromRunnable",
+               TaskCategory::Other, event.forget());
+    if (NS_FAILED(rv)) {
+      // If during shutdown posting a runnable doesn't succeed, we probably
+      // don't need to update link states.
+      return;
+    }
+    mHasLinksToUpdateRunnable = true;
+  }
+
+  mLinksToUpdate.InfallibleAppend(aLink);
   mHasLinksToUpdate = true;
 }
 
 void
-nsIDocument::UnregisterPendingLinkUpdate(Link* aLink)
+nsIDocument::FlushPendingLinkUpdatesFromRunnable()
 {
-  MOZ_ASSERT(!mIsLinkUpdateRegistrationsForbidden);
-  if (!mHasLinksToUpdate)
-    return;
-
-  mLinksToUpdate.RemoveEntry(aLink);
+  MOZ_ASSERT(mHasLinksToUpdateRunnable);
+  mHasLinksToUpdateRunnable = false;
+  FlushPendingLinkUpdates();
 }
 
 void
@@ -10030,9 +10063,15 @@ nsIDocument::FlushPendingLinkUpdates()
   AutoRestore<bool> saved(mIsLinkUpdateRegistrationsForbidden);
   mIsLinkUpdateRegistrationsForbidden = true;
 #endif
-  for (auto iter = mLinksToUpdate.ConstIter(); !iter.Done(); iter.Next()) {
-    Link* link = iter.Get()->GetKey();
-    link->GetElement()->UpdateLinkState(link->LinkState());
+  for (auto iter = mLinksToUpdate.Iter(); !iter.Done(); iter.Next()) {
+    Link* link = iter.Get();
+    Element* element = link->GetElement();
+    if (element->OwnerDoc() == this) {
+      link->ClearHasPendingLinkUpdate();
+      if (element->IsInComposedDoc()) {
+        element->UpdateLinkState(link->LinkState());
+      }
+    }
   }
   mLinksToUpdate.Clear();
   mHasLinksToUpdate = false;

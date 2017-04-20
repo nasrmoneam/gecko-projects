@@ -59,6 +59,7 @@
 #include "mozilla/layout/RenderFrameChild.h"
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/net/CaptivePortalService.h"
+#include "mozilla/Omnijar.h"
 #include "mozilla/plugins/PluginInstanceParent.h"
 #include "mozilla/plugins/PluginModuleParent.h"
 #include "mozilla/widget/ScreenManager.h"
@@ -521,6 +522,14 @@ ContentChild::RecvSetXPCOMProcessAttributes(const XPCOMInitData& aXPCOMInit,
   mLookAndFeelCache = aLookAndFeelIntCache;
   InitXPCOM(aXPCOMInit, aInitialData);
   InitGraphicsDeviceData(aXPCOMInit.contentDeviceData());
+
+#ifdef NS_PRINTING
+  // Force the creation of the nsPrintingProxy so that it's IPC counterpart,
+  // PrintingParent, is always available for printing initiated from the parent.
+  // Create nsPrintingProxy instance later than the SystemGroup initialization.
+  RefPtr<nsPrintingProxy> printingProxy = nsPrintingProxy::GetInstance();
+#endif
+
   return IPC_OK();
 }
 
@@ -601,12 +610,6 @@ ContentChild::Init(MessageLoop* aIOLoop,
 
   mID = aChildID;
   mIsForBrowser = aIsForBrowser;
-
-#ifdef NS_PRINTING
-  // Force the creation of the nsPrintingProxy so that it's IPC counterpart,
-  // PrintingParent, is always available for printing initiated from the parent.
-  RefPtr<nsPrintingProxy> printingProxy = nsPrintingProxy::GetInstance();
-#endif
 
   SetProcessName(NS_LITERAL_STRING("Web Content"), true);
 
@@ -1130,12 +1133,15 @@ mozilla::ipc::IPCResult
 ContentChild::RecvInitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor,
                                 Endpoint<PImageBridgeChild>&& aImageBridge,
                                 Endpoint<PVRManagerChild>&& aVRBridge,
-                                Endpoint<PVideoDecoderManagerChild>&& aVideoManager)
+                                Endpoint<PVideoDecoderManagerChild>&& aVideoManager,
+                                nsTArray<uint32_t>&& namespaces)
 {
-  if (!CompositorBridgeChild::InitForContent(Move(aCompositor))) {
+  MOZ_ASSERT(namespaces.Length() == 2);
+
+  if (!CompositorBridgeChild::InitForContent(Move(aCompositor), namespaces[0])) {
     return IPC_FAIL_NO_REASON(this);
   }
-  if (!ImageBridgeChild::InitForContent(Move(aImageBridge))) {
+  if (!ImageBridgeChild::InitForContent(Move(aImageBridge), namespaces[1])) {
     return IPC_FAIL_NO_REASON(this);
   }
   if (!gfx::VRManagerChild::InitForContent(Move(aVRBridge))) {
@@ -1149,8 +1155,10 @@ mozilla::ipc::IPCResult
 ContentChild::RecvReinitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor,
                                   Endpoint<PImageBridgeChild>&& aImageBridge,
                                   Endpoint<PVRManagerChild>&& aVRBridge,
-                                  Endpoint<PVideoDecoderManagerChild>&& aVideoManager)
+                                  Endpoint<PVideoDecoderManagerChild>&& aVideoManager,
+                                  nsTArray<uint32_t>&& namespaces)
 {
+  MOZ_ASSERT(namespaces.Length() == 2);
   nsTArray<RefPtr<TabChild>> tabs = TabChild::GetAll();
 
   // Zap all the old layer managers we have lying around.
@@ -1161,10 +1169,10 @@ ContentChild::RecvReinitRendering(Endpoint<PCompositorBridgeChild>&& aCompositor
   }
 
   // Re-establish singleton bridges to the compositor.
-  if (!CompositorBridgeChild::ReinitForContent(Move(aCompositor))) {
+  if (!CompositorBridgeChild::ReinitForContent(Move(aCompositor), namespaces[0])) {
     return IPC_FAIL_NO_REASON(this);
   }
-  if (!ImageBridgeChild::ReinitForContent(Move(aImageBridge))) {
+  if (!ImageBridgeChild::ReinitForContent(Move(aImageBridge), namespaces[1])) {
     return IPC_FAIL_NO_REASON(this);
   }
   if (!gfx::VRManagerChild::ReinitForContent(Move(aVRBridge))) {
@@ -1223,7 +1231,7 @@ GetAppPaths(nsCString &aAppPath, nsCString &aAppBinaryPath, nsCString &aAppDir)
   if (!dirSvc) {
     return false;
   }
-  rv = dirSvc->Get(NS_XPCOM_CURRENT_PROCESS_DIR,
+  rv = dirSvc->Get(NS_GRE_DIR,
                    NS_GET_IID(nsIFile), getter_AddRefs(appDir));
   if (NS_FAILED(rv)) {
     return false;
@@ -1255,6 +1263,18 @@ GetAppPaths(nsCString &aAppPath, nsCString &aAppBinaryPath, nsCString &aAppDir)
   }
 
   return true;
+}
+
+// Returns whether or not the currently running build is a development build -
+// where development build means "the files in the .app are symlinks to the src
+// directory". This check is implemented by looking for omni.ja in
+// .app/Contents/Resources/.
+static bool
+IsDevelopmentBuild()
+{
+  nsCOMPtr<nsIFile> path = mozilla::Omnijar::GetPath(mozilla::Omnijar::GRE);
+  // If the path doesn't exist, we're a dev build.
+  return path == nullptr;
 }
 
 static bool
@@ -1300,6 +1320,13 @@ StartMacOSContentSandbox()
   }
 
   bool isFileProcess = cc->GetRemoteType().EqualsLiteral(FILE_REMOTE_TYPE);
+  char *developer_repo_dir = nullptr;
+  if (IsDevelopmentBuild()) {
+    // If this is a developer build the resources in the .app are symlinks to
+    // outside of the .app. Therefore in non-release builds we allow reads from
+    // the whole repository. MOZ_DEVELOPER_REPO_DIR is set by mach run.
+    developer_repo_dir = PR_GetEnv("MOZ_DEVELOPER_REPO_DIR");
+  }
 
   MacSandboxInfo info;
   info.type = MacSandboxType_Content;
@@ -1309,7 +1336,11 @@ StartMacOSContentSandbox()
                    PR_GetEnv("MOZ_SANDBOX_LOGGING");
   info.appPath.assign(appPath.get());
   info.appBinaryPath.assign(appBinaryPath.get());
-  info.appDir.assign(appDir.get());
+  if (developer_repo_dir != nullptr) {
+    info.appDir.assign(developer_repo_dir);
+  } else {
+    info.appDir.assign(appDir.get());
+  }
   info.appTempDir.assign(tempDirPath.get());
 
   if (profileDir) {

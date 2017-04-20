@@ -712,18 +712,12 @@ ContentParent::GetOrCreatePool(const nsAString& aContentProcessType)
 /*static*/ uint32_t
 ContentParent::GetMaxProcessCount(const nsAString& aContentProcessType)
 {
+  if (aContentProcessType.EqualsLiteral("web")) {
+    return GetMaxWebProcessCount();
+  }
+
   nsAutoCString processCountPref("dom.ipc.processCount.");
   processCountPref.Append(NS_ConvertUTF16toUTF8(aContentProcessType));
-  bool hasUserValue = Preferences::HasUserValue(processCountPref.get()) ||
-                      Preferences::HasUserValue("dom.ipc.processCount");
-
-  // Let's respect the user's decision to enable multiple content processes
-  // despite some add-ons installed that might performing poorly.
-  if (!hasUserValue &&
-      Preferences::GetBool("extensions.e10sMultiBlocksEnabling", false) &&
-      Preferences::GetBool("extensions.e10sMultiBlockedByAddons", false)) {
-    return 1;
-  }
 
   int32_t maxContentParents;
   if (NS_FAILED(Preferences::GetInt(processCountPref.get(), &maxContentParents))) {
@@ -2301,20 +2295,23 @@ ContentParent::InitInternal(ProcessPriority aInitialPriority,
       Endpoint<PImageBridgeChild> imageBridge;
       Endpoint<PVRManagerChild> vrBridge;
       Endpoint<PVideoDecoderManagerChild> videoManager;
+      nsTArray<uint32_t> namespaces;
 
       DebugOnly<bool> opened = gpm->CreateContentBridges(
         OtherPid(),
         &compositor,
         &imageBridge,
         &vrBridge,
-        &videoManager);
+        &videoManager,
+        &namespaces);
       MOZ_ASSERT(opened);
 
       Unused << SendInitRendering(
         Move(compositor),
         Move(imageBridge),
         Move(vrBridge),
-        Move(videoManager));
+        Move(videoManager),
+        Move(namespaces));
 
       gpm->AddListener(this);
     }
@@ -2449,20 +2446,23 @@ ContentParent::OnCompositorUnexpectedShutdown()
   Endpoint<PImageBridgeChild> imageBridge;
   Endpoint<PVRManagerChild> vrBridge;
   Endpoint<PVideoDecoderManagerChild> videoManager;
+  nsTArray<uint32_t> namespaces;
 
   DebugOnly<bool> opened = gpm->CreateContentBridges(
     OtherPid(),
     &compositor,
     &imageBridge,
     &vrBridge,
-    &videoManager);
+    &videoManager,
+    &namespaces);
   MOZ_ASSERT(opened);
 
   Unused << SendReinitRendering(
     Move(compositor),
     Move(imageBridge),
     Move(vrBridge),
-    Move(videoManager));
+    Move(videoManager),
+    Move(namespaces));
 }
 
 void

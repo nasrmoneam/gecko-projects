@@ -269,8 +269,8 @@ private:
 
   // Info on all the registered threads, both live and dead. ThreadIds in
   // mLiveThreads are unique. ThreadIds in mDeadThreads may not be, because
-  // ThreadIds can be reused. HasProfile() is true for all ThreadInfos in
-  // mDeadThreads because we don't hold onto ThreadInfos for non-profiled dead
+  // ThreadIds can be reused. IsBeingProfiled() is true for all ThreadInfos in
+  // mDeadThreads because we don't hold on to ThreadInfos for non-profiled dead
   // threads.
   ThreadVector mLiveThreads;
   ThreadVector mDeadThreads;
@@ -946,6 +946,32 @@ DoNativeBacktrace(PS::LockRef aLock, ProfileBuffer* aBuffer,
   // assumes that the TaggedUWord holding the stack pointer value is valid, but
   // it should be, since it was constructed that way in the code just above.
 
+  // We could construct |stackImg| so that LUL reads directly from the stack in
+  // question, rather than from a copy of it.  That would reduce overhead and
+  // space use a bit.  However, it gives a problem with dynamic analysis tools
+  // (ASan, TSan, Valgrind) which is that such tools will report invalid or
+  // racing memory accesses, and such accesses will be reported deep inside LUL.
+  // By taking a copy here, we can either sanitise the copy (for Valgrind) or
+  // copy it using an unchecked memcpy (for ASan, TSan).  That way we don't have
+  // to try and suppress errors inside LUL.
+  //
+  // N_STACK_BYTES is set to 160KB.  This is big enough to hold all stacks
+  // observed in some minutes of testing, whilst keeping the size of this
+  // function (DoNativeBacktrace)'s frame reasonable.  Most stacks observed in
+  // practice are small, 4KB or less, and so the copy costs are insignificant
+  // compared to other profiler overhead.
+  //
+  // |stackImg| is allocated on this (the sampling thread's) stack.  That
+  // implies that the frame for this function is at least N_STACK_BYTES large.
+  // In general it would be considered unacceptable to have such a large frame
+  // on a stack, but it only exists for the unwinder thread, and so is not
+  // expected to be a problem.  Allocating it on the heap is troublesome because
+  // this function runs whilst the sampled thread is suspended, so any heap
+  // allocation risks deadlock.  Allocating it as a global variable is not
+  // thread safe, which would be a problem if we ever allow multiple sampler
+  // threads.  Hence allocating it on the stack seems to be the least-worst
+  // option.
+
   lul::StackImage stackImg;
 
   {
@@ -1358,7 +1384,7 @@ locked_profiler_stream_json_for_this_process(PS::LockRef aLock, SpliceableJSONWr
       const PS::ThreadVector& liveThreads = gPS->LiveThreads(aLock);
       for (size_t i = 0; i < liveThreads.size(); i++) {
         ThreadInfo* info = liveThreads.at(i);
-        if (!info->HasProfile()) {
+        if (!info->IsBeingProfiled()) {
           continue;
         }
         info->StreamJSON(gPS->Buffer(aLock), aWriter, gPS->StartTime(aLock),
@@ -1368,7 +1394,7 @@ locked_profiler_stream_json_for_this_process(PS::LockRef aLock, SpliceableJSONWr
       const PS::ThreadVector& deadThreads = gPS->DeadThreads(aLock);
       for (size_t i = 0; i < deadThreads.size(); i++) {
         ThreadInfo* info = deadThreads.at(i);
-        MOZ_ASSERT(info->HasProfile());
+        MOZ_ASSERT(info->IsBeingProfiled());
         info->StreamJSON(gPS->Buffer(aLock), aWriter, gPS->StartTime(aLock),
                          aSinceTime);
       }
@@ -1615,7 +1641,7 @@ SamplerThread::Run()
         for (uint32_t i = 0; i < liveThreads.size(); i++) {
           ThreadInfo* info = liveThreads[i];
 
-          if (!info->HasProfile()) {
+          if (!info->IsBeingProfiled()) {
             // We are not interested in profiling this thread.
             continue;
           }
@@ -1861,10 +1887,9 @@ locked_register_thread(PS::LockRef aLock, const char* aName, void* stackTop)
 
   tlsPseudoStack.set(pseudoStack.get());
 
-  if (ShouldProfileThread(aLock, info)) {
-    info->SetHasProfile();
-
-    if (gPS->IsActive(aLock) && gPS->FeatureJS(aLock)) {
+  if (gPS->IsActive(aLock) && ShouldProfileThread(aLock, info)) {
+    info->StartProfiling();
+    if (gPS->FeatureJS(aLock)) {
       // This startJSSampling() call is on-thread, so we can poll manually to
       // start JS sampling immediately.
       pseudoStack->startJSSampling();
@@ -2352,8 +2377,7 @@ locked_profiler_start(PS::LockRef aLock, int aEntries, double aInterval,
     ThreadInfo* info = liveThreads.at(i);
 
     if (ShouldProfileThread(aLock, info)) {
-      info->SetHasProfile();
-      info->Stack()->reinitializeOnResume();
+      info->StartProfiling();
       if (featureJS) {
         info->Stack()->startJSSampling();
       }
@@ -2479,15 +2503,15 @@ locked_profiler_stop(PS::LockRef aLock)
   }
 #endif
 
-  // Stop JS sampling live threads.
-  if (gPS->FeatureJS(aLock)) {
-    PS::ThreadVector& liveThreads = gPS->LiveThreads(aLock);
-    for (uint32_t i = 0; i < liveThreads.size(); i++) {
-      ThreadInfo* info = liveThreads.at(i);
-      if (ShouldProfileThread(aLock, info)) {
-        MOZ_RELEASE_ASSERT(info->HasProfile());
+  // Stop sampling live threads.
+  PS::ThreadVector& liveThreads = gPS->LiveThreads(aLock);
+  for (uint32_t i = 0; i < liveThreads.size(); i++) {
+    ThreadInfo* info = liveThreads.at(i);
+    if (info->IsBeingProfiled()) {
+      if (gPS->FeatureJS(aLock)) {
         info->Stack()->stopJSSampling();
       }
+      info->StopProfiling();
     }
   }
 
@@ -2499,8 +2523,9 @@ locked_profiler_stop(PS::LockRef aLock)
   }
 
   if (gPS->FeatureJS(aLock)) {
-    // We just called stopJSSampling() on all relevant threads. We can also
-    // manually poll the current thread so it stops profiling immediately.
+    // We just called stopJSSampling() (through ThreadInfo::StopProfiling) on
+    // all relevant threads. We can also manually poll the current thread so
+    // it stops profiling immediately.
     if (PseudoStack* stack = tlsPseudoStack.get()) {
       stack->pollJSSampling();
     }
@@ -2675,7 +2700,8 @@ profiler_is_active()
 void
 profiler_set_frame_number(int aFrameNumber)
 {
-  MOZ_RELEASE_ASSERT(NS_IsMainThread());
+  // This function runs both on (via tests) and off the main thread.
+
   MOZ_RELEASE_ASSERT(gPS);
 
   PS::AutoLock lock(gPSMutex);
@@ -2712,7 +2738,7 @@ profiler_unregister_thread()
   ThreadInfo* info = FindLiveThreadInfo(lock, &i);
   if (info) {
     DEBUG_LOG("profiler_unregister_thread: %s", info->Name());
-    if (gPS->IsActive(lock) && info->HasProfile()) {
+    if (gPS->IsActive(lock) && info->IsBeingProfiled()) {
       gPS->DeadThreads(lock).push_back(info);
     } else {
       delete info;
@@ -3043,7 +3069,7 @@ profiler_clear_js_context()
     // Flush this thread's ThreadInfo, if it is being profiled.
     ThreadInfo* info = FindLiveThreadInfo(lock);
     MOZ_RELEASE_ASSERT(info);
-    if (info->HasProfile()) {
+    if (info->IsBeingProfiled()) {
       info->FlushSamplesAndMarkers(gPS->Buffer(lock), gPS->StartTime(lock));
     }
 

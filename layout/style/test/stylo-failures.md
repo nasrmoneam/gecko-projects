@@ -72,18 +72,12 @@ to mochitest command.
   * test_bug413958.html `monitorConsole` [3]
   * test_parser_diagnostics_unprintables.html [550]
 * Transition support:
-  * test_bug621351.html [4]
   * test_compute_data_with_start_struct.html `transition` [2]
-  * test_transitions.html [63]
-  * test_transitions_and_reframes.html [16]
-  * test_transitions_and_restyles.html [3]
+  * test_transitions.html: pseudo elements [10]
   * test_transitions_computed_value_combinations.html [145]
-  * test_transitions_dynamic_changes.html [10]
-  * test_transitions_step_functions.html [24]
   * test_value_storage.html `transition` [596]
   * Events:
-    * test_animations_event_handler_attribute.html [10]
-    * test_animations_event_order.html [11]
+    * test_animations_event_order.html [2]
 * test_computed_style.html `gradient`: -moz-prefixed radient value [9]
 * ... `mask`: mask-image isn't set properly bug 1341667 [10]
 * ... `fill`: svg paint should distinguish whether there is fallback bug 1347409 [2]
@@ -230,11 +224,7 @@ to mochitest command.
   * test_pixel_lengths.html `mozmm`: mozmm unit bug 1356104 [3]
 * Unsupported values
   * SVG-only values of pointer-events not recognized
-    * test_compute_data_with_start_struct.html `pointer-events` [2]
-    * test_inherit_computation.html `pointer-events` [4]
-    * test_initial_computation.html `pointer-events` [2]
-    * test_pointer-events.html [2]
-    * test_value_storage.html `pointer-events` [8]
+    * test_value_storage.html `pointer-events` [1]
   * new syntax of rgba?() and hsla?() functions servo/rust-cssparser#113
     * test_computed_style.html `css-color-4` [2]
   * color interpolation hint not supported servo/servo#15166
@@ -242,9 +232,6 @@ to mochitest command.
   * SVG-in-OpenType values not supported servo/servo#15211 bug 1355412
     * test_value_storage.html `context-` [7]
     * test_bug798843_pref.html [7]
-  * writing-mode: sideways-{lr,rl} and SVG values servo/servo#15213
-    * test_logical_properties.html `sideways` [1224]
-    * test_value_storage.html `writing-mode` [8]
   * -moz-box-orient: {block,inline}-axis bug 1355005
     * test_value_storage.html `box-orient` [6]
 * Incorrect parsing
