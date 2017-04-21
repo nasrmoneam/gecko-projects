@@ -319,3 +319,15 @@ def target_tasks_nightly_macosx(full_task_graph, parameters):
         if platform in ('macosx64-nightly', ):
             return task.attributes.get('nightly', False)
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
+
+@_target_task('holly_tasks')
+def target_tasks_holly(full_task_graph, parameters):
+    """Bug 1353376 - Turn off buildbot macosx64 opt builds scheduling
+    Run macosx 64 only on holly branch"""
+    def filter(task):
+        platform = task.attributes.get('build_platform')
+        # only select platforms
+        if platform not in ('macosx64'):
+            return False
+        return True
+    return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
