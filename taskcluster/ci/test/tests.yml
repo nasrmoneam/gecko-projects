@@ -1170,11 +1170,16 @@ talos-chrome:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=chromez
+            - --add-option
+            - --webServer,localhost
 
 talos-dromaeojs:
     description: "Talos dromaeojs"
@@ -1191,11 +1196,16 @@ talos-dromaeojs:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=dromaeojs
+            - --add-option
+            - --webServer,localhost
 
 talos-g1:
     description: "Talos g1"
@@ -1212,11 +1222,16 @@ talos-g1:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=g1
+            - --add-option
+            - --webServer,localhost
 
 talos-g2:
     description: "Talos g2"
@@ -1233,11 +1248,16 @@ talos-g2:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=g2
+            - --add-option
+            - --webServer,localhost
 
 talos-g3:
     description: "Talos g3"
@@ -1254,11 +1274,16 @@ talos-g3:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=g3
+            - --add-option
+            - --webServer,localhost
 
 talos-g4:
     description: "Talos g4"
@@ -1275,11 +1300,16 @@ talos-g4:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=g4
+            - --add-option
+            - --webServer,localhost
 
 talos-other:
     description: "Talos other"
@@ -1296,11 +1326,16 @@ talos-other:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=other
+            - --add-option
+            - --webServer,localhost
 
 talos-svgr:
     description: "Talos svgr"
@@ -1317,11 +1352,16 @@ talos-svgr:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=svgr
+            - --add-option
+            - --webServer,localhost
 
 talos-tp5o:
     description: "Talos tp5o"
@@ -1338,11 +1378,16 @@ talos-tp5o:
         no-read-buildbot-config: true
         config:
             by-test-platform:
+                macosx.*:
+                    - remove_executables.py
+                    - talos/mac_config.py
                 default:
                     - talos/linux_config.py
                     - remove_executables.py
         extra-options:
             - --suite=tp5o
+            - --add-option
+            - --webServer,localhost
 
 talos-perf-reftest:
     description: "Talos perf-reftest"
