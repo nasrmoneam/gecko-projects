@@ -383,3 +383,20 @@ function finishTestRestoreUpdaterBackup() {
     }
   });
 }
+
+/**
+ * Makes sure that the window is focus and returns a promise that will resolve once
+ * it is.
+ * @param  aWin
+ *         The window to focus
+ * @return A promise which will resolve once the window is focused.
+ */
+function ensureWindowIsFocused(aWin) {
+  aWin.focus();
+
+  if (Services.focus.activeWindow === aWin) {
+    return Promise.resolve();
+  }
+
+  return BrowserTestUtils.waitForEvent(window, "focus");
+}

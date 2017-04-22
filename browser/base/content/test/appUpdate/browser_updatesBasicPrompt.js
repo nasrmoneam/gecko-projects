@@ -6,6 +6,7 @@ add_task(function* testBasicPrompt() {
   // Open a new window to make sure that it doesn't get in the way
   // of the notification management.
   let extraWindow = yield BrowserTestUtils.openNewBrowserWindow();
+  yield ensureWindowIsFocused(window);
 
   yield runUpdateTest(updateParams, 1, [
     {
