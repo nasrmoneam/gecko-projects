@@ -13,8 +13,6 @@ add_task(function* testMainActionCalled() {
   let extraWindow = yield BrowserTestUtils.openNewBrowserWindow();
 
   yield BrowserTestUtils.withNewTab(options, function*(browser) {
-    yield ensureWindowIsFocused(window);
-
     let doc = browser.ownerDocument;
 
     is(PanelUI.notificationPanel.state, "closed", "update-manual doorhanger is closed.");
@@ -28,23 +26,13 @@ add_task(function* testMainActionCalled() {
     let extraMainAction = {
       callback: () => { extraMainActionCalled = true; }
     };
-    extraWindow.PanelUI.showNotification("update-manual", extraMainAction);
-    is(extraWindow.PanelUI.notificationPanel.state, "closed", "extra update-manual doorhanger is hidden.");
+    extraWindow.PanelUI.showNotification("update-manual", extraMainAction)
 
-    yield ensureWindowIsFocused(extraWindow);
-    isnot(extraWindow.PanelUI.notificationPanel.state, "closed", "update-manual doorhanger is showing.");
-    let extraNotifications = [...extraWindow.PanelUI.notificationPanel.children].filter(n => !n.hidden);
-    is(extraNotifications.length, 1, "PanelUI doorhanger is only displaying one notification.");
-    let extraDoorhanger = extraNotifications[0];
-    is(extraDoorhanger.id, "PanelUI-update-manual-notification", "PanelUI is displaying the update-manual notification.");
-
-    yield ensureWindowIsFocused(window);
     isnot(PanelUI.notificationPanel.state, "closed", "update-manual doorhanger is showing.");
     let notifications = [...PanelUI.notificationPanel.children].filter(n => !n.hidden);
     is(notifications.length, 1, "PanelUI doorhanger is only displaying one notification.");
     let doorhanger = notifications[0];
     is(doorhanger.id, "PanelUI-update-manual-notification", "PanelUI is displaying the update-manual notification.");
-
 
     let mainActionButton = doc.getAnonymousElementByAttribute(doorhanger, "anonid", "button");
     mainActionButton.click();
@@ -74,8 +62,6 @@ add_task(function* testSecondaryActionWorkflow() {
   let extraWindow = yield BrowserTestUtils.openNewBrowserWindow();
 
   yield BrowserTestUtils.withNewTab(options, function*(browser) {
-    yield ensureWindowIsFocused(window);
-
     let doc = browser.ownerDocument;
 
     is(PanelUI.notificationPanel.state, "closed", "update-manual doorhanger is closed.");

@@ -63,7 +63,6 @@ const PanelUI = {
     Services.obs.addObserver(this, "panelUI-notification-dismissed");
 
     window.addEventListener("fullscreen", this);
-    window.addEventListener("focus", this);
     window.matchMedia("(-moz-overlay-scrollbars)").addListener(this._overlayScrollListenerBoundFn);
     CustomizableUI.addListener(this);
 
@@ -101,7 +100,6 @@ const PanelUI = {
     Services.obs.removeObserver(this, "panelUI-notification-dismissed");
 
     window.removeEventListener("fullscreen", this);
-    window.removeEventListener("focus", this);
     this.helpView.removeEventListener("ViewShowing", this._onHelpViewShow);
     this.menuButton.removeEventListener("mousedown", this);
     this.menuButton.removeEventListener("keypress", this);
@@ -301,7 +299,6 @@ const PanelUI = {
         this.toggle(aEvent);
         break;
       case "fullscreen":
-      case "focus":
         this._updateNotifications();
         break;
     }
@@ -689,15 +686,8 @@ const PanelUI = {
         this._showMenuItem(this.notifications[0]);
       }
     } else if (doorhangers.length > 0) {
-      // Only show the doorhanger if the window is focused
-      if (Services.focus.activeWindow !== window) {
-        this._hidePopup();
-        this._showBadge(doorhangers[0]);
-        this._showMenuItem(doorhangers[0]);
-      } else {
-        this._clearBadge();
-        this._showNotificationPanel(doorhangers[0]);
-      }
+      this._clearBadge();
+      this._showNotificationPanel(doorhangers[0]);
     } else {
       this._hidePopup();
       this._showBadge(this.notifications[0]);

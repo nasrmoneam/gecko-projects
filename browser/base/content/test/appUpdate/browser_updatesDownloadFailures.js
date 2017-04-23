@@ -8,7 +8,6 @@ add_task(function* testDownloadFailures() {
 
   // Open a new window to make sure that our pref management isn't duplicated.
   let extraWindow = yield BrowserTestUtils.openNewBrowserWindow();
-  yield ensureWindowIsFocused(window);
 
   yield runUpdateTest(updateParams, 1, [
     {
