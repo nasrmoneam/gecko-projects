@@ -14,10 +14,7 @@ function run_test() {
 
   gTestFiles = gTestFilesCompleteSuccess;
   gTestDirs = gTestDirsCompleteSuccess;
-  // The third parameter will test that a full path to the post update binary
-  // doesn't execute.
-  setupUpdaterTest(FILE_COMPLETE_MAR, undefined,
-                   getApplyDirFile(null, true).path + "/");
+  setupUpdaterTest(FILE_COMPLETE_MAR, undefined);
 }
 
 /**
@@ -31,6 +28,13 @@ function setupUpdaterTestFinished() {
  * Called after the call to runUpdateUsingApp finishes.
  */
 function runUpdateFinished() {
+  checkPostUpdateAppLog();
+}
+
+/**
+ * Called after the call to checkPostUpdateAppLog finishes.
+ */
+function checkPostUpdateAppLogFinished() {
   checkAppBundleModTime();
   standardInit();
   Assert.equal(readStatusState(), STATE_NONE,
@@ -41,7 +45,7 @@ function runUpdateFinished() {
                "the update manager updateCount attribute" + MSG_SHOULD_EQUAL);
   Assert.equal(gUpdateManager.getUpdateAt(0).state, STATE_SUCCEEDED,
                "the update state" + MSG_SHOULD_EQUAL);
-  checkPostUpdateRunningFile(false);
+  checkPostUpdateRunningFile(true);
   checkFilesAfterUpdateSuccess(getApplyDirFile);
   checkUpdateLogContents(LOG_COMPLETE_SUCCESS);
 

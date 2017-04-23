@@ -52,7 +52,7 @@
 #include <errno.h>
 #include <algorithm>
 
-#include "updatecommon.h"
+#include "updatelogging.h"
 #ifdef XP_MACOSX
 #include "updaterfileutils_osx.h"
 #endif // XP_MACOSX
@@ -281,7 +281,7 @@ private:
 
 //-----------------------------------------------------------------------------
 
-static NS_tchar gPatchDirPath[MAXPATHLEN];
+static NS_tchar* gPatchDirPath;
 static NS_tchar gInstallDirPath[MAXPATHLEN];
 static NS_tchar gWorkingDirPath[MAXPATHLEN];
 static ArchiveReader gArchiveReader;
@@ -1972,30 +1972,14 @@ LaunchWinPostProcess(const WCHAR *installationDir,
     return false;
   }
 
-  // The relative path must not contain directory traversals, current directory,
-  // or colons.
-  if (wcsstr(exefile, L"..") != nullptr ||
-      wcsstr(exefile, L"./") != nullptr ||
-      wcsstr(exefile, L".\\") != nullptr ||
-      wcsstr(exefile, L":") != nullptr) {
-    return false;
-  }
-
-  // The relative path must not start with a decimal point, backslash, or
-  // forward slash.
-  if (exefile[0] == L'.' ||
-      exefile[0] == L'\\' ||
-      exefile[0] == L'/') {
+  // Verify that exeFile doesn't contain relative paths
+  if (wcsstr(exefile, L"..") != nullptr) {
     return false;
   }
 
   WCHAR exefullpath[MAX_PATH + 1] = { L'\0' };
   wcsncpy(exefullpath, installationDir, MAX_PATH);
   if (!PathAppendSafe(exefullpath, exefile)) {
-    return false;
-  }
-
-  if (!IsValidFullPath(exefullpath)) {
     return false;
   }
 
@@ -2105,9 +2089,7 @@ WriteStatusFile(const char* aStatus)
 #if defined(XP_WIN)
   // The temp file is not removed on failure since there is client code that
   // will remove it.
-  if (GetTempFileNameW(gPatchDirPath, L"sta", 0, filename) == 0) {
-    return false;
-  }
+  GetTempFileNameW(gPatchDirPath, L"sta", 0, filename);
 #else
   NS_tsnprintf(filename, sizeof(filename)/sizeof(filename[0]),
                NS_T("%s/update.status"), gPatchDirPath);
@@ -2738,26 +2720,9 @@ int NS_main(int argc, NS_tchar **argv)
     return 1;
   }
 
-  // This check is also performed in workmonitor.cpp since the maintenance
-  // service can be called directly.
-  if (!IsValidFullPath(argv[1])) {
-    // Since the status file is written to the patch directory and the patch
-    // directory is invalid don't write the status file.
-    fprintf(stderr, "The patch directory path is not valid for this "  \
-            "application (" LOG_S ")\n", argv[1]);
-    return 1;
-  }
   // The directory containing the update information.
-  NS_tstrncpy(gPatchDirPath, argv[1], MAXPATHLEN);
+  gPatchDirPath = argv[1];
 
-  // This check is also performed in workmonitor.cpp since the maintenance
-  // service can be called directly.
-  if (!IsValidFullPath(argv[2])) {
-    WriteStatusFile(INVALID_INSTALL_DIR_PATH_ERROR);
-    fprintf(stderr, "The install directory path is not valid for this "  \
-            "application (" LOG_S ")\n", argv[2]);
-    return 1;
-  }
   // The directory we're going to update to.
   // We copy this string because we need to remove trailing slashes.  The C++
   // standard says that it's always safe to write to strings pointed to by argv
@@ -2830,14 +2795,6 @@ int NS_main(int argc, NS_tchar **argv)
     }
   }
 
-  // This check is also performed in workmonitor.cpp since the maintenance
-  // service can be called directly.
-  if (!IsValidFullPath(argv[3])) {
-    WriteStatusFile(INVALID_WORKING_DIR_PATH_ERROR);
-    fprintf(stderr, "The working directory path is not valid for this "  \
-            "application (" LOG_S ")\n", argv[3]);
-    return 1;
-  }
   // The directory we're going to update to.
   // We copy this string because we need to remove trailing slashes.  The C++
   // standard says that it's always safe to write to strings pointed to by argv
@@ -2894,8 +2851,6 @@ int NS_main(int argc, NS_tchar **argv)
   LOG(("WORKING DIRECTORY " LOG_S, gWorkingDirPath));
 
 #if defined(XP_WIN)
-  // These checks are also performed in workmonitor.cpp since the maintenance
-  // service can be called directly.
   if (_wcsnicmp(gWorkingDirPath, gInstallDirPath, MAX_PATH) != 0) {
     if (!sStagedUpdate && !sReplaceRequest) {
       WriteStatusFile(INVALID_APPLYTO_DIR_ERROR);
