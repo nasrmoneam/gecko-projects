@@ -78,7 +78,6 @@ to mochitest command.
   * test_value_storage.html `transition` [596]
   * Events:
     * test_animations_event_order.html [2]
-* test_property_syntax_errors.html `radial-gradient` [30]
 * test_computed_style.html `gradient`: -moz-prefixed radient value [9]
 * ... `mask`: mask-image isn't set properly bug 1341667 [10]
 * ... `fill`: svg paint should distinguish whether there is fallback bug 1347409 [2]
@@ -155,7 +154,6 @@ to mochitest command.
   * test_variables.html `var(--var6)`: -x-system-font [1]
 * Unimplemented CSS properties:
   * place-{content,items,self} shorthands servo/servo#16391
-    * test_property_syntax_errors.html `place-` [30]
     * test_align_shorthand_serialization.html [8]
     * test_value_storage.html `place-` [7]
   * font-variant-{alternates,east-asian,ligatures,numeric} properties servo/servo#15957
@@ -200,8 +198,7 @@ to mochitest command.
     * ... `-moz-repeating-` [298]
   * webkit-prefixed gradient functions servo/servo#15441
     * test_value_storage.html `-webkit-gradient` [225]
-    * ... `-webkit-linear-gradient` [10]
-    * ... `-webkit-repeating-linear-gradient` [5]
+    * ... `-webkit-linear-gradient` [5]
   * moz-prefixed intrinsic width values bug 1355402
     * test_box_size_keywords.html [16]
     * test_flexbox_flex_shorthand.html `-moz-fit-content` [4]
@@ -244,9 +241,6 @@ to mochitest command.
     * test_property_syntax_errors.html `mask'` [76]
 * Incorrect serialization
   * border-radius and -moz-outline-radius shorthand servo/servo#15169
-    * test_priority_preservation.html `border-radius` [0]
-    * test_value_storage.html `border-radius:` [0]
-    * test_shorthand_property_getters.html `should condense to shortest possible` [0]
   * color value not canonicalized servo/servo#15397
     * test_shorthand_property_getters.html `should condense to canonical case` [2]
   * test_variables.html `--weird`: name of custom property is not escaped properly servo/servo#15399 [1]
@@ -272,10 +266,9 @@ to mochitest command.
   * :dir
     * test_selectors.html `:dir` [18]
 * issues arround font shorthand bug 1349417
-  * test_bug377947.html [1]
-  * test_value_storage.html `'font'` [160]
+  * test_value_storage.html `'font'` [128]
   * test_shorthand_property_getters.html `font shorthand` [1]
-  * test_system_font_serialization.html [10]
+  * test_system_font_serialization.html [5]
 * clamp negative value from calc() servo/servo#15296
   * test_value_storage.html `font-size: calc(` [3]
   * ... `font-size: var(--a)` [3]
