@@ -23,7 +23,7 @@ function run_test() {
  * Called after the call to setupUpdaterTest finishes.
  */
 function setupUpdaterTestFinished() {
-  runUpdate(STATE_AFTER_RUNUPDATE, false, 1, true, null, null, "test", null);
+  runUpdate(STATE_AFTER_RUNUPDATE, false, 1, true, null, null, "test");
 }
 
 /**
