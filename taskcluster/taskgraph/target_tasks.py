@@ -326,7 +326,7 @@ def target_tasks_holly(full_task_graph, parameters):
     Run macosx 64 only on holly branch"""
     def filter(task):
         platform = task.attributes.get('build_platform')
-        # only select macosx platforms
+        # only select macosx platforms, should really just be opt
         if str(platform) not in ('macosx64'):
             return False
         return True
