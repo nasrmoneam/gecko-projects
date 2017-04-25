@@ -161,7 +161,7 @@ def make_s3_uploader_task(parent_task):
     if parent_task.task['payload']['sourcestamp']['branch'] == 'try':
         worker_type = 'buildbot-try'
     else:
-        worker_type == 'buildbot'
+        worker_type == 'buildbot-bridge'
 
     task_def = {
         # The null-provisioner and buildbot worker type don't actually exist.
