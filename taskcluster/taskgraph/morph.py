@@ -158,6 +158,7 @@ def add_index_tasks(taskgraph, label_to_taskid):
 
 
 def make_s3_uploader_task(parent_task):
+    worker_type = ''
     if parent_task.task['payload']['sourcestamp']['branch'] == 'try':
         worker_type = 'buildbot-try'
     else:
