@@ -1841,6 +1841,16 @@ UpdateService.prototype = {
       return;
     }
 
+    if (update && update.appVersion &&
+        (Services.vc.compare(update.appVersion, Services.appinfo.version) < 0 ||
+         Services.vc.compare(update.appVersion, Services.appinfo.version) == 0 &&
+         update.buildID == Services.appinfo.appBuildID)) {
+      LOG("UpdateService:_postUpdateProcessing - removing update for older " +
+          "application version");
+      cleanupActiveUpdate();
+      return;
+    }
+
     if (status == STATE_DOWNLOADING) {
       LOG("UpdateService:_postUpdateProcessing - patch found in downloading " +
           "state");
