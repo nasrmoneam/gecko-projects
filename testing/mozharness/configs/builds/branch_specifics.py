@@ -254,7 +254,9 @@ config = {
     'graphics': {
         'stage_server': 'upload.ffxbld.productdelivery.prod.mozaws.net',
     },
-    # 'holly': {},
+    'holly': {
+        'stage_server': 'upload.ffxbld.productdelivery.prod.mozaws.net',
+    },
     'jamun': {
         'update_channel': 'beta-dev',
         'enable_release_promotion': 1,
