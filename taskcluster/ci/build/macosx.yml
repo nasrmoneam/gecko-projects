@@ -22,6 +22,7 @@ macosx64/debug:
         custom-build-variant-cfg: cross-debug
         tooltool-downloads: internal
 
+# bug 1353376 - Turn off buildbot macosx64 opt builds scheduling 
 macosx64/opt:
     description: "MacOS X x64"
     index:
