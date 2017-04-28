@@ -325,6 +325,16 @@ public:
   static bool ContentIsCrossDocDescendantOf(nsINode* aPossibleDescendant,
                                               nsINode* aPossibleAncestor);
 
+  /**
+   * As with ContentIsCrossDocDescendantOf but crosses shadow boundaries but not
+   * cross document boundaries.
+   *
+   * @see nsINode::GetFlattenedTreeParentNode()
+   */
+  static bool
+  ContentIsFlattenedTreeDescendantOf(const nsINode* aPossibleDescendant,
+                                     const nsINode* aPossibleAncestor);
+
   /*
    * This method fills the |aArray| with all ancestor nodes of |aNode|
    * including |aNode| at the zero index.
@@ -2872,6 +2882,11 @@ public:
 
   static bool
   IsCustomElementsEnabled() { return sIsCustomElementsEnabled; }
+
+  /**
+   * Compose a tab id with process id and a serial number.
+   */
+  static uint64_t GenerateTabId();
 
 private:
   static bool InitializeEventTable();

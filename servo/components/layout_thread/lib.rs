@@ -60,7 +60,7 @@ use layout::context::heap_size_of_persistent_local_context;
 use layout::display_list_builder::ToGfxColor;
 use layout::flow::{self, Flow, ImmutableFlowUtils, MutableFlowUtils, MutableOwnedFlowUtils};
 use layout::flow_ref::FlowRef;
-use layout::incremental::{LayoutDamageComputation, REFLOW_ENTIRE_DOCUMENT};
+use layout::incremental::{LayoutDamageComputation, REFLOW_ENTIRE_DOCUMENT, RelayoutMode};
 use layout::layout_debug;
 use layout::opaque_node::OpaqueNodeMethods;
 use layout::parallel;
@@ -110,7 +110,7 @@ use style::context::{QuirksMode, ReflowGoal, SharedStyleContext};
 use style::context::{StyleSystemOptions, ThreadLocalStyleContextCreationInfo};
 use style::data::StoredRestyleHint;
 use style::dom::{ShowSubtree, ShowSubtreeDataAndPrimaryValues, TElement, TNode};
-use style::error_reporting::StdoutErrorReporter;
+use style::error_reporting::{NullReporter, RustLogReporter};
 use style::logical_geometry::LogicalPoint;
 use style::media_queries::{Device, MediaList, MediaType};
 use style::servo::restyle_damage::{REFLOW, REFLOW_OUT_OF_FLOW, REPAINT, REPOSITION, STORE_OVERFLOW};
@@ -601,7 +601,7 @@ impl LayoutThread {
             Msg::AddStylesheet(style_info) => {
                 self.handle_add_stylesheet(style_info, possibly_locked_rw_data)
             }
-            Msg::SetQuirksMode => self.handle_set_quirks_mode(possibly_locked_rw_data),
+            Msg::SetQuirksMode(mode) => self.handle_set_quirks_mode(possibly_locked_rw_data, mode),
             Msg::GetRPC(response_chan) => {
                 response_chan.send(box LayoutRPCImpl(self.rw_data.clone()) as
                                    Box<LayoutRPC + Send>).unwrap();
@@ -772,9 +772,11 @@ impl LayoutThread {
     }
 
     /// Sets quirks mode for the document, causing the quirks mode stylesheet to be used.
-    fn handle_set_quirks_mode<'a, 'b>(&self, possibly_locked_rw_data: &mut RwData<'a, 'b>) {
+    fn handle_set_quirks_mode<'a, 'b>(&self,
+                                      possibly_locked_rw_data: &mut RwData<'a, 'b>,
+                                      quirks_mode: QuirksMode) {
         let mut rw_data = possibly_locked_rw_data.lock();
-        Arc::get_mut(&mut rw_data.stylist).unwrap().set_quirks_mode(true);
+        Arc::get_mut(&mut rw_data.stylist).unwrap().set_quirks_mode(quirks_mode);
         possibly_locked_rw_data.block(rw_data);
     }
 
@@ -811,7 +813,7 @@ impl LayoutThread {
     fn solve_constraints(layout_root: &mut Flow,
                          layout_context: &LayoutContext) {
         let _scope = layout_debug_scope!("solve_constraints");
-        sequential::traverse_flow_tree_preorder(layout_root, layout_context);
+        sequential::traverse_flow_tree_preorder(layout_root, layout_context, RelayoutMode::Incremental);
     }
 
     /// Performs layout constraint solving in parallel.
@@ -1587,7 +1589,8 @@ fn get_ua_stylesheets() -> Result<UserAgentStylesheets, &'static str> {
             MediaList::empty(),
             shared_lock.clone(),
             None,
-            &StdoutErrorReporter))
+            &NullReporter,
+            QuirksMode::NoQuirks))
     }
 
     let shared_lock = SharedRwLock::new();
@@ -1600,7 +1603,7 @@ fn get_ua_stylesheets() -> Result<UserAgentStylesheets, &'static str> {
     for &(ref contents, ref url) in &opts::get().user_stylesheets {
         user_or_user_agent_stylesheets.push(Stylesheet::from_bytes(
             &contents, url.clone(), None, None, Origin::User, MediaList::empty(),
-            shared_lock.clone(), None, &StdoutErrorReporter));
+            shared_lock.clone(), None, &RustLogReporter, QuirksMode::NoQuirks));
     }
 
     let quirks_mode_stylesheet = try!(parse_ua_stylesheet(&shared_lock, "quirks-mode.css"));

@@ -354,6 +354,18 @@ public:
     return nullptr;
   }
 
+  Maybe<uint64_t> GetReferentId() const
+  {
+    MOZ_ASSERT(IsValid());
+
+    if (AtBottomLayer()) {
+      return mLayer->AsRefLayer()
+           ? Some(mLayer->AsRefLayer()->GetReferentId())
+           : Nothing();
+    }
+    return Nothing();
+  }
+
   Maybe<ParentLayerIntRect> GetClipRect() const
   {
     MOZ_ASSERT(IsValid());
@@ -409,15 +421,6 @@ public:
     MOZ_ASSERT(IsValid());
 
     return mLayer->GetScrollbarTargetContainerId();
-  }
-
-  int32_t GetScrollThumbLength() const
-  {
-    if (GetScrollbarDirection() == ScrollDirection::VERTICAL) {
-      return mLayer->GetVisibleRegion().GetBounds().height;
-    } else {
-      return mLayer->GetVisibleRegion().GetBounds().width;
-    }
   }
 
   bool IsScrollbarContainer() const

@@ -1547,31 +1547,29 @@ impl Fragment {
             }
         };
 
-        // Take borders and padding for parent inline fragments into account, if necessary.
-        if self.is_primary_fragment() {
-            let writing_mode = self.style.writing_mode;
-            if let Some(ref context) = self.inline_context {
-                for node in &context.nodes {
-                    let mut border_width = node.style.logical_border_width();
-                    let mut padding = model::padding_from_style(&*node.style, Au(0), writing_mode);
-                    let mut margin = model::specified_margin_from_style(&*node.style, writing_mode);
-                    if !node.flags.contains(FIRST_FRAGMENT_OF_ELEMENT) {
-                        border_width.inline_start = Au(0);
-                        padding.inline_start = Au(0);
-                        margin.inline_start = Au(0);
-                    }
-                    if !node.flags.contains(LAST_FRAGMENT_OF_ELEMENT) {
-                        border_width.inline_end = Au(0);
-                        padding.inline_end = Au(0);
-                        margin.inline_end = Au(0);
-                    }
-
-                    result.surrounding_size =
-                        result.surrounding_size +
-                        border_width.inline_start_end() +
-                        padding.inline_start_end() +
-                        margin.inline_start_end();
+        // Take borders and padding for parent inline fragments into account.
+        let writing_mode = self.style.writing_mode;
+        if let Some(ref context) = self.inline_context {
+            for node in &context.nodes {
+                let mut border_width = node.style.logical_border_width();
+                let mut padding = model::padding_from_style(&*node.style, Au(0), writing_mode);
+                let mut margin = model::specified_margin_from_style(&*node.style, writing_mode);
+                if !node.flags.contains(FIRST_FRAGMENT_OF_ELEMENT) {
+                    border_width.inline_start = Au(0);
+                    padding.inline_start = Au(0);
+                    margin.inline_start = Au(0);
                 }
+                if !node.flags.contains(LAST_FRAGMENT_OF_ELEMENT) {
+                    border_width.inline_end = Au(0);
+                    padding.inline_end = Au(0);
+                    margin.inline_end = Au(0);
+                }
+
+                result.surrounding_size =
+                    result.surrounding_size +
+                    border_width.inline_start_end() +
+                    padding.inline_start_end() +
+                    margin.inline_start_end();
             }
         }
 
@@ -2152,7 +2150,7 @@ impl Fragment {
             let block_flow = flow.as_block();
             let start_margin = block_flow.fragment.margin.block_start;
             let end_margin = block_flow.fragment.margin.block_end;
-            if style.get_box().overflow_y.0 == overflow_x::T::visible {
+            if style.get_box().overflow_y == overflow_x::T::visible {
                 if let Some(baseline_offset) = flow.baseline_offset_of_last_line_box_in_flow() {
                     let ascent = baseline_offset + start_margin;
                     let space_below_baseline = block_flow.fragment.border_box.size.block -
@@ -2493,7 +2491,7 @@ impl Fragment {
         match (self.style().get_box().position,
                self.style().get_position().z_index,
                self.style().get_box().overflow_x,
-               self.style().get_box().overflow_y.0) {
+               self.style().get_box().overflow_y) {
             (position::T::absolute,
              Either::Second(Auto),
              overflow_x::T::visible,

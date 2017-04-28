@@ -44,12 +44,6 @@ using namespace mozilla::media;
 
 namespace mozilla {
 
-// The amount of instability we tollerate in calls to
-// MediaDecoder::UpdateEstimatedMediaDuration(); changes of duration
-// less than this are ignored, as they're assumed to be the result of
-// instability in the duration estimation.
-static const uint64_t ESTIMATED_DURATION_FUZZ_FACTOR_USECS = USECS_PER_S / 2;
-
 // avoid redefined macro in unified build
 #undef LOG
 #undef DUMP
@@ -128,6 +122,8 @@ public:
 StaticRefPtr<MediaMemoryTracker> MediaMemoryTracker::sUniqueInstance;
 
 LazyLogModule gMediaTimerLog("MediaTimer");
+
+constexpr TimeUnit MediaDecoder::DEFAULT_NEXT_FRAME_AVAILABLE_BUFFERED;
 
 void
 MediaDecoder::InitStatics()
@@ -405,7 +401,6 @@ MediaDecoder::MediaDecoder(MediaDecoderOwner* aOwner)
   , INIT_MIRROR(mIsAudioDataAudible, false)
   , INIT_CANONICAL(mVolume, 0.0)
   , INIT_CANONICAL(mPreservesPitch, true)
-  , INIT_CANONICAL(mEstimatedDuration, NullableTimeUnit())
   , INIT_CANONICAL(mExplicitDuration, Maybe<double>())
   , INIT_CANONICAL(mPlayState, PLAY_STATE_LOADING)
   , INIT_CANONICAL(mNextState, PLAY_STATE_PAUSED)
@@ -1181,8 +1176,7 @@ MediaDecoder::UpdateLogicalPositionInternal()
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_DIAGNOSTIC_ASSERT(!IsShutdown());
 
-  double currentPosition =
-    static_cast<double>(CurrentPosition()) / static_cast<double>(USECS_PER_S);
+  double currentPosition = CurrentPosition().ToSeconds();
   if (mPlayState == PLAY_STATE_ENDED) {
     currentPosition = std::max(currentPosition, mDuration);
   }
@@ -1232,7 +1226,7 @@ MediaDecoder::DurationChanged()
     GetOwner()->DispatchAsyncEvent(NS_LITERAL_STRING("durationchange"));
   }
 
-  if (CurrentPosition() > TimeUnit::FromSeconds(mDuration).ToMicroseconds()) {
+  if (CurrentPosition() > TimeUnit::FromSeconds(mDuration)) {
     Seek(mDuration, SeekTarget::Accurate);
   }
 }
@@ -1330,29 +1324,6 @@ MediaDecoder::HasSuspendTaint() const
 {
   MOZ_ASSERT(NS_IsMainThread());
   return mHasSuspendTaint;
-}
-
-void
-MediaDecoder::UpdateEstimatedMediaDuration(int64_t aDuration)
-{
-  MOZ_ASSERT(NS_IsMainThread());
-
-  if (mPlayState <= PLAY_STATE_LOADING) {
-    return;
-  }
-
-  // The duration is only changed if its significantly different than the
-  // the current estimate, as the incoming duration is an estimate and so
-  // often is unstable as more data is read and the estimate is updated.
-  // Can result in a durationchangeevent. aDuration is in microseconds.
-  if (mEstimatedDuration.Ref().isSome()
-      && mozilla::Abs(mEstimatedDuration.Ref().ref().ToMicroseconds()
-                      - aDuration)
-         < ESTIMATED_DURATION_FUZZ_FACTOR_USECS) {
-    return;
-  }
-
-  mEstimatedDuration = Some(TimeUnit::FromMicroseconds(aDuration));
 }
 
 bool
@@ -1770,11 +1741,10 @@ MediaDecoder::NextFrameBufferedStatus()
   MOZ_ASSERT(NS_IsMainThread());
   // Next frame hasn't been decoded yet.
   // Use the buffered range to consider if we have the next frame available.
-  TimeUnit currentPosition = TimeUnit::FromMicroseconds(CurrentPosition());
+  auto currentPosition = CurrentPosition();
   media::TimeInterval interval(
     currentPosition,
-    currentPosition
-    + TimeUnit::FromMicroseconds(DEFAULT_NEXT_FRAME_AVAILABLE_BUFFERED));
+    currentPosition + DEFAULT_NEXT_FRAME_AVAILABLE_BUFFERED);
   return GetBuffered().Contains(interval)
          ? MediaDecoderOwner::NEXT_FRAME_AVAILABLE
          : MediaDecoderOwner::NEXT_FRAME_UNAVAILABLE;

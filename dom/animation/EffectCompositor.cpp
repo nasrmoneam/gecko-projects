@@ -519,24 +519,17 @@ EffectCompositor::GetElementToRestyle(dom::Element* aElement,
     return aElement;
   }
 
-  nsIFrame* primaryFrame = aElement->GetPrimaryFrame();
-  if (!primaryFrame) {
-    return nullptr;
-  }
-  nsIFrame* pseudoFrame;
   if (aPseudoType == CSSPseudoElementType::before) {
-    pseudoFrame = nsLayoutUtils::GetBeforeFrame(primaryFrame);
-  } else if (aPseudoType == CSSPseudoElementType::after) {
-    pseudoFrame = nsLayoutUtils::GetAfterFrame(primaryFrame);
-  } else {
-    NS_NOTREACHED("Should not try to get the element to restyle for a pseudo "
-                  "other that :before or :after");
-    return nullptr;
+    return nsLayoutUtils::GetBeforePseudo(aElement);
   }
-  if (!pseudoFrame) {
-    return nullptr;
+
+  if (aPseudoType == CSSPseudoElementType::after) {
+    return nsLayoutUtils::GetAfterPseudo(aElement);
   }
-  return pseudoFrame->GetContent()->AsElement();
+
+  NS_NOTREACHED("Should not try to get the element to restyle for a pseudo "
+                "other that :before or :after");
+  return nullptr;
 }
 
 bool
@@ -961,20 +954,6 @@ EffectCompositor::PreTraverse()
   return PreTraverseInSubtree(nullptr);
 }
 
-static bool
-IsFlattenedTreeDescendantOf(nsINode* aPossibleDescendant,
-                            nsINode* aPossibleAncestor)
-{
-  do {
-    if (aPossibleDescendant == aPossibleAncestor) {
-      return true;
-    }
-    aPossibleDescendant = aPossibleDescendant->GetFlattenedTreeParentNode();
-  } while (aPossibleDescendant);
-
-  return false;
-}
-
 bool
 EffectCompositor::PreTraverseInSubtree(Element* aRoot)
 {
@@ -996,7 +975,9 @@ EffectCompositor::PreTraverseInSubtree(Element* aRoot)
 
       // Ignore restyles that aren't in the flattened tree subtree rooted at
       // aRoot.
-      if (aRoot && !IsFlattenedTreeDescendantOf(target.mElement, aRoot)) {
+      if (aRoot &&
+          !nsContentUtils::ContentIsFlattenedTreeDescendantOf(target.mElement,
+                                                              aRoot)) {
         continue;
       }
 

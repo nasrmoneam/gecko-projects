@@ -98,7 +98,7 @@ class MessageChannel : HasResultCodes, MessageLoop::DestructionObserver
     struct PromiseHolder
     {
         RefPtr<MozPromiseRefcountable> mPromise;
-        std::function<void(const char*)> mRejectFunction;
+        std::function<void(MozPromiseRefcountable*, const char*)> mRejectFunction;
     };
     static Atomic<size_t> gUnresolvedPromises;
     friend class PromiseReporter;
@@ -152,7 +152,7 @@ class MessageChannel : HasResultCodes, MessageLoop::DestructionObserver
     // Call aInvoke for each pending message until it returns false.
     // XXX: You must get permission from an IPC peer to use this function
     //      since it requires custom deserialization and re-orders events.
-    void PeekMessages(std::function<bool(const Message& aMsg)> aInvoke);
+    void PeekMessages(const std::function<bool(const Message& aMsg)>& aInvoke);
 
     // Misc. behavioral traits consumers can request for this channel
     enum ChannelFlags {
@@ -186,8 +186,10 @@ class MessageChannel : HasResultCodes, MessageLoop::DestructionObserver
         }
         PromiseHolder holder;
         holder.mPromise = aPromise;
-        holder.mRejectFunction = [aPromise](const char* aRejectSite) {
-            aPromise->Reject(PromiseRejectReason::ChannelClosed, aRejectSite);
+        holder.mRejectFunction = [](MozPromiseRefcountable* aRejectPromise,
+                                    const char* aRejectSite) {
+            static_cast<Promise*>(aRejectPromise)->Reject(
+                PromiseRejectReason::ChannelClosed, aRejectSite);
         };
         mPendingPromises.insert(std::make_pair(seqno, Move(holder)));
         gUnresolvedPromises++;
@@ -474,6 +476,7 @@ class MessageChannel : HasResultCodes, MessageLoop::DestructionObserver
 
     bool WasTransactionCanceled(int transaction);
     bool ShouldDeferMessage(const Message& aMsg);
+    bool ShouldDeferInterruptMessage(const Message& aMsg, size_t aStackDepth);
     void OnMessageReceivedFromLink(Message&& aMsg);
     void OnChannelErrorFromLink();
 

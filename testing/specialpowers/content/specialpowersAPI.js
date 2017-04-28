@@ -1190,9 +1190,6 @@ SpecialPowersAPI.prototype = {
       let uri = aMessage.json.uri;
       Services.obs.notifyObservers(null, "specialpowers-http-notify-request", uri);
     },
-    "specialpowers-browser-fullZoom:zoomReset": function() {
-      Services.obs.notifyObservers(null, "specialpowers-browser-fullZoom:zoomReset");
-    },
   },
 
   _addObserverProxy: function(notification) {
@@ -2001,7 +1998,6 @@ SpecialPowersAPI.prototype = {
           resolveStartup();
         } else if (msg.data.type == "extensionSetId") {
           extension.id = msg.data.args[0];
-          extension.uuid = msg.data.args[1];
         } else if (msg.data.type == "extensionFailed") {
           state = "failed";
           rejectStartup("startup failed");

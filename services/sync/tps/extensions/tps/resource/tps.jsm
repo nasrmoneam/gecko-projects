@@ -296,10 +296,10 @@ var TPS = {
                    " on window " + JSON.stringify(aWindow));
     switch (action) {
       case ACTION_ADD:
-        BrowserWindows.Add(aWindow.private, function(win) {
+        BrowserWindows.Add(aWindow.private, win => {
           Logger.logInfo("window finished loading");
           this.FinishAsyncOperation();
-        }.bind(this));
+        });
         break;
     }
     Logger.logPass("executing action " + action.toUpperCase() + " on windows");
@@ -672,7 +672,7 @@ var TPS = {
       Logger.logInfo(`About to perform validation for "${engineName}"`);
       let engine = Weave.Service.engineManager.get(engineName);
       let validator = new ValidatorType(engine);
-      let serverRecords = validator.getServerItems(engine);
+      let serverRecords = Async.promiseSpinningly(validator.getServerItems(engine));
       let clientRecords = Async.promiseSpinningly(validator.getClientItems());
       try {
         // This substantially improves the logs for addons while not making a

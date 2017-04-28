@@ -519,6 +519,34 @@ private:
 };
 }
 
+/**
+ * The following function checks whether we need to explicitly resolve the style
+ * again, even though we have a style context coming from the frame.
+ *
+ * This basically checks whether the style is or may be under a ::first-line or
+ * ::first-letter frame, in which case we can't return the frame style, and we
+ * need to resolve it. See bug 505515.
+ */
+static bool
+MustReresolveStyle(const nsStyleContext* aContext)
+{
+  MOZ_ASSERT(aContext);
+
+  if (aContext->HasPseudoElementData()) {
+    if (!aContext->GetPseudo() ||
+        aContext->StyleSource().IsServoComputedValues()) {
+      // TODO(emilio): When ::first-line is supported in Servo, we may want to
+      // fix this to avoid re-resolving pseudo-element styles.
+      return true;
+    }
+
+    return aContext->GetParent() &&
+           aContext->GetParent()->HasPseudoElementData();
+  }
+
+  return false;
+}
+
 already_AddRefed<nsStyleContext>
 nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
                                              nsIAtom* aPseudo,
@@ -543,28 +571,34 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
   // XXX the !aElement->IsHTMLElement(nsGkAtoms::area)
   // check is needed due to bug 135040 (to avoid using
   // mPrimaryFrame). Remove it once that's fixed.
-  if (!aPseudo &&
-      inDocWithShell &&
+  if (inDocWithShell &&
       !aElement->IsHTMLElement(nsGkAtoms::area)) {
-    nsIFrame* frame = nsLayoutUtils::GetStyleFrame(aElement);
+    nsIFrame* frame = nullptr;
+    if (aPseudo == nsCSSPseudoElements::before) {
+      frame = nsLayoutUtils::GetBeforeFrame(aElement);
+    } else if (aPseudo == nsCSSPseudoElements::after) {
+      frame = nsLayoutUtils::GetAfterFrame(aElement);
+    } else if (!aPseudo) {
+      frame = nsLayoutUtils::GetStyleFrame(aElement);
+    }
     if (frame) {
       nsStyleContext* result = frame->StyleContext();
       // Don't use the style context if it was influenced by
       // pseudo-elements, since then it's not the primary style
-      // for this element.
-      if (!result->HasPseudoElementData()) {
+      // for this element / pseudo.
+      if (!MustReresolveStyle(result)) {
         // The existing style context may have animation styles so check if we
         // need to remove them.
         if (aAnimationFlag == eWithoutAnimation) {
           nsPresContext* presContext = presShell->GetPresContext();
           MOZ_ASSERT(presContext, "Should have a prescontext if we have a frame");
-          MOZ_ASSERT(presContext->StyleSet()->IsGecko(),
-                     "stylo: Need ResolveStyleByRemovingAnimation for stylo");
           if (presContext && presContext->StyleSet()->IsGecko()) {
             nsStyleSet* styleSet = presContext->StyleSet()->AsGecko();
             return styleSet->ResolveStyleByRemovingAnimation(
                      aElement, result, eRestyle_AllHintsWithAnimations);
           } else {
+            NS_WARNING("stylo: Getting the unanimated style context is not yet"
+                       " supported for Servo");
             return nullptr;
           }
         }
@@ -579,7 +613,7 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
   // No frame has been created, or we have a pseudo, or we're looking
   // for the default style, so resolve the style ourselves.
 
-  nsPresContext *presContext = presShell->GetPresContext();
+  nsPresContext* presContext = presShell->GetPresContext();
   if (!presContext)
     return nullptr;
 
@@ -758,8 +792,21 @@ nsComputedDOMStyle::UpdateCurrentStyleSources(bool aNeedsLayoutFlush)
   // XXX the !mContent->IsHTMLElement(nsGkAtoms::area)
   // check is needed due to bug 135040 (to avoid using
   // mPrimaryFrame). Remove it once that's fixed.
-  if (!mPseudo && !mContent->IsHTMLElement(nsGkAtoms::area)) {
-    mOuterFrame = mContent->GetPrimaryFrame();
+  if (!mContent->IsHTMLElement(nsGkAtoms::area)) {
+    mOuterFrame = nullptr;
+
+    if (!mPseudo) {
+      mOuterFrame = mContent->GetPrimaryFrame();
+    } else if (mPseudo == nsCSSPseudoElements::before ||
+               mPseudo == nsCSSPseudoElements::after) {
+      nsIAtom* property = mPseudo == nsCSSPseudoElements::before
+                            ? nsGkAtoms::beforePseudoProperty
+                            : nsGkAtoms::afterPseudoProperty;
+
+      auto* pseudo = static_cast<Element*>(mContent->GetProperty(property));
+      mOuterFrame = pseudo ? pseudo->GetPrimaryFrame() : nullptr;
+    }
+
     mInnerFrame = mOuterFrame;
     if (mOuterFrame) {
       nsIAtom* type = mOuterFrame->GetType();
@@ -778,7 +825,7 @@ nsComputedDOMStyle::UpdateCurrentStyleSources(bool aNeedsLayoutFlush)
     }
   }
 
-  if (!mStyleContext || mStyleContext->HasPseudoElementData()) {
+  if (!mStyleContext || MustReresolveStyle(mStyleContext)) {
 #ifdef DEBUG
     if (mStyleContext && mStyleContext->StyleSource().IsGeckoRuleNodeOrNull()) {
       // We want to check that going through this path because of
@@ -2019,6 +2066,13 @@ AppendCSSGradientToBoxPosition(const nsStyleGradient* aGradient,
                                nsAString&             aString,
                                bool&                  aNeedSep)
 {
+  // This function only supports box position keywords. Make sure we're not
+  // calling it with inputs that would have coordinates that aren't
+  // representable with box-position keywords.
+  MOZ_ASSERT(aGradient->mShape == NS_STYLE_GRADIENT_SHAPE_LINEAR &&
+             !(aGradient->mLegacySyntax && aGradient->mMozLegacySyntax),
+             "Only call me for linear-gradient and -webkit-linear-gradient");
+
   float xValue = aGradient->mBgPosX.GetPercentValue();
   float yValue = aGradient->mBgPosY.GetPercentValue();
 
@@ -2028,20 +2082,30 @@ AppendCSSGradientToBoxPosition(const nsStyleGradient* aGradient,
   }
   NS_ASSERTION(yValue != 0.5f || xValue != 0.5f, "invalid box position");
 
-  aString.AppendLiteral("to");
+  if (!aGradient->mLegacySyntax) {
+    // Modern syntax explicitly includes the word "to". Old syntax does not
+    // (and is implicitly "from" the given position instead).
+    aString.AppendLiteral("to ");
+  }
 
   if (yValue == 0.0f) {
-    aString.AppendLiteral(" top");
+    aString.AppendLiteral("top");
   } else if (yValue == 1.0f) {
-    aString.AppendLiteral(" bottom");
+    aString.AppendLiteral("bottom");
   } else if (yValue != 0.5f) { // do not write "center" keyword
     NS_NOTREACHED("invalid box position");
   }
 
+  if (yValue != 0.5f && xValue != 0.5f) {
+    // We're appending both a y-keyword and an x-keyword.
+    // Add a space between them here.
+    aString.AppendLiteral(" ");
+  }
+
   if (xValue == 0.0f) {
-    aString.AppendLiteral(" left");
+    aString.AppendLiteral("left");
   } else if (xValue == 1.0f) {
-    aString.AppendLiteral(" right");
+    aString.AppendLiteral("right");
   } else if (xValue != 0.5f) { // do not write "center" keyword
     NS_NOTREACHED("invalid box position");
   }
@@ -2056,7 +2120,11 @@ nsComputedDOMStyle::GetCSSGradientString(const nsStyleGradient* aGradient,
   if (!aGradient->mLegacySyntax) {
     aString.Truncate();
   } else {
-    aString.AssignLiteral("-moz-");
+    if (aGradient->mMozLegacySyntax) {
+      aString.AssignLiteral("-moz-");
+    } else {
+      aString.AssignLiteral("-webkit-");
+    }
   }
   if (aGradient->mRepeating) {
     aString.AppendLiteral("repeating-");
@@ -2099,7 +2167,9 @@ nsComputedDOMStyle::GetCSSGradientString(const nsStyleGradient* aGradient,
   }
   if (aGradient->mBgPosX.GetUnit() != eStyleUnit_None) {
     MOZ_ASSERT(aGradient->mBgPosY.GetUnit() != eStyleUnit_None);
-    if (!isRadial && !aGradient->mLegacySyntax) {
+    if (!isRadial &&
+        !(aGradient->mLegacySyntax && aGradient->mMozLegacySyntax)) {
+      // linear-gradient() or -webkit-linear-gradient()
       AppendCSSGradientToBoxPosition(aGradient, aString, needSep);
     } else if (aGradient->mBgPosX.GetUnit() != eStyleUnit_Percent ||
                aGradient->mBgPosX.GetPercentValue() != 0.5f ||

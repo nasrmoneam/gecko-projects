@@ -9,14 +9,10 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.Log;
 
-import org.mozilla.gecko.BaseGeckoInterface;
-import org.mozilla.gecko.GeckoProfile;
-import org.mozilla.gecko.GeckoThread;
 import org.mozilla.gecko.GeckoView;
-
-import static org.mozilla.gecko.GeckoView.setGeckoInterface;
 
 public class GeckoViewActivity extends Activity {
     private static final String LOGTAG = "GeckoViewActivity";
@@ -29,8 +25,8 @@ public class GeckoViewActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        setGeckoInterface(new BaseGeckoInterface(this));
+        Log.i(LOGTAG, "zerdatime " + SystemClock.elapsedRealtime() +
+              " - application start");
 
         setContentView(R.layout.geckoview_activity);
 
@@ -41,11 +37,6 @@ public class GeckoViewActivity extends Activity {
         final BasicGeckoViewPrompt prompt = new BasicGeckoViewPrompt();
         prompt.filePickerRequestCode = REQUEST_FILE_PICKER;
         mGeckoView.setPromptDelegate(prompt);
-
-        final GeckoProfile profile = GeckoProfile.get(this);
-
-        GeckoThread.initMainProcess(profile, /* args */ null, /* debugging */ false);
-        GeckoThread.launch();
 
         loadFromIntent(getIntent());
     }
@@ -88,11 +79,15 @@ public class GeckoViewActivity extends Activity {
         @Override
         public void onPageStart(GeckoView view, String url) {
             Log.i(LOGTAG, "Starting to load page at " + url);
+            Log.i(LOGTAG, "zerdatime " + SystemClock.elapsedRealtime() +
+                  " - page load start");
         }
 
         @Override
         public void onPageStop(GeckoView view, boolean success) {
             Log.i(LOGTAG, "Stopping page load " + (success ? "successfully" : "unsuccessfully"));
+            Log.i(LOGTAG, "zerdatime " + SystemClock.elapsedRealtime() +
+                  " - page load stop");
         }
 
         @Override

@@ -468,7 +468,7 @@ const gStoragePressureObserver = {
       Services.prefs.getIntPref("browser.storageManager.pressureNotification.usageThresholdGB");
     let msg = "";
     let buttons = [];
-    let usage = parseInt(data);
+    let usage = subject.QueryInterface(Ci.nsISupportsPRUint64).data
     let prefStrBundle = document.getElementById("bundle_preferences");
     let brandShortName = document.getElementById("bundle_brand").getString("brandShortName");
     let notificationBox = document.getElementById("high-priority-global-notificationbox");
@@ -1603,6 +1603,8 @@ var gBrowserInit = {
         }
       }
     });
+
+    gPageActionButton.init();
 
     this.delayedStartupFinished = true;
 
@@ -4088,7 +4090,7 @@ function FillHistoryMenu(aParent) {
       let item = existingIndex < children.length ?
                    children[existingIndex] : document.createElement("menuitem");
 
-      let entryURI = BrowserUtils.makeURI(entry.url, entry.charset, null);
+      let entryURI = Services.io.newURI(entry.url, entry.charset);
       item.setAttribute("uri", uri);
       item.setAttribute("label", entry.title || uri);
       item.setAttribute("index", j);
@@ -5103,7 +5105,8 @@ nsBrowserAccess.prototype = {
   _openURIInNewTab(aURI, aReferrer, aReferrerPolicy, aIsPrivate,
                              aIsExternal, aForceNotRemote = false,
                              aUserContextId = Ci.nsIScriptSecurityManager.DEFAULT_USER_CONTEXT_ID,
-                             aOpener = null, aTriggeringPrincipal = null) {
+                             aOpener = null, aTriggeringPrincipal = null,
+                             aNextTabParentId = 0) {
     let win, needToFocusWin;
 
     // try the current window.  if we're in a popup, fall back on the most recent browser window
@@ -5136,6 +5139,7 @@ nsBrowserAccess.prototype = {
                                       inBackground: loadInBackground,
                                       forceNotRemote: aForceNotRemote,
                                       opener: aOpener,
+                                      nextTabParentId: aNextTabParentId,
                                       });
     let browser = win.gBrowser.getBrowserForTab(tab);
 
@@ -5238,7 +5242,8 @@ nsBrowserAccess.prototype = {
     return newWindow;
   },
 
-  openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags) {
+  openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags,
+                                                  aNextTabParentId) {
     if (aWhere != Ci.nsIBrowserDOMWindow.OPEN_NEWTAB) {
       dump("Error: openURIInFrame can only open in new tabs");
       return null;
@@ -5257,7 +5262,8 @@ nsBrowserAccess.prototype = {
                                         aParams.isPrivate,
                                         isExternal, false,
                                         userContextId, null,
-                                        aParams.triggeringPrincipal);
+                                        aParams.triggeringPrincipal,
+                                        aNextTabParentId);
     if (browser)
       return browser.QueryInterface(Ci.nsIFrameLoaderOwner);
 
@@ -7750,6 +7756,38 @@ var gIdentityHandler = {
 
     return container;
   }
+};
+
+
+var gPageActionButton = {
+  get button() {
+    delete this.button;
+    return this.button = document.getElementById("urlbar-page-action-button");
+  },
+
+  get panel() {
+    delete this.panel;
+    return this.panel = document.getElementById("page-action-panel");
+  },
+
+  init() {
+    if (getBoolPref("browser.photon.structure.enabled")) {
+      this.button.hidden = false;
+    }
+  },
+
+  onEvent(event) {
+    event.stopPropagation();
+
+    if ((event.type == "click" && event.button != 0) ||
+        (event.type == "keypress" && event.charCode != KeyEvent.DOM_VK_SPACE &&
+         event.keyCode != KeyEvent.DOM_VK_RETURN)) {
+      return; // Left click, space or enter only
+    }
+
+    this.panel.hidden = false;
+    this.panel.openPopup(this.button, "bottomcenter topright");
+  },
 };
 
 function getNotificationBox(aWindow) {

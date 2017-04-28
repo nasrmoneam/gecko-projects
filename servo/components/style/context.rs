@@ -20,7 +20,6 @@ use font_metrics::FontMetricsProvider;
 use matching::StyleSharingCandidateCache;
 use parking_lot::RwLock;
 #[cfg(feature = "gecko")] use properties::ComputedValues;
-#[cfg(feature = "gecko")] use selector_parser::PseudoElement;
 use selectors::matching::ElementSelectorFlags;
 #[cfg(feature = "servo")] use servo_config::opts;
 use shared_lock::StylesheetGuards;
@@ -94,7 +93,11 @@ impl Default for StyleSystemOptions {
     #[cfg(feature = "gecko")]
     fn default() -> Self {
         StyleSystemOptions {
-            disable_style_sharing_cache: get_env("DISABLE_STYLE_SHARING_CACHE"),
+            disable_style_sharing_cache:
+                // Disable the style sharing cache on opt builds until
+                // bug 1358693 is fixed, but keep it on debug builds to make
+                // sure we don't introduce correctness bugs.
+                if cfg!(debug_assertions) { get_env("DISABLE_STYLE_SHARING_CACHE") } else { true },
             dump_style_statistics: get_env("DUMP_STYLE_STATISTICS"),
         }
     }
@@ -266,7 +269,8 @@ impl TraversalStatistics {
 
 #[cfg(feature = "gecko")]
 bitflags! {
-    /// Represents which tasks are performed in a SequentialTask of UpdateAnimations.
+    /// Represents which tasks are performed in a SequentialTask of
+    /// UpdateAnimations.
     pub flags UpdateAnimationsTasks: u8 {
         /// Update CSS Animations.
         const CSS_ANIMATIONS = structs::UpdateAnimationsTasks_CSSAnimations,
@@ -292,10 +296,8 @@ pub enum SequentialTask<E: TElement> {
     /// of the non-animation style traversal, and updating the computed effect properties.
     #[cfg(feature = "gecko")]
     UpdateAnimations {
-        /// The target element.
+        /// The target element or pseudo-element.
         el: SendElement<E>,
-        /// The target pseudo element.
-        pseudo: Option<PseudoElement>,
         /// The before-change style for transitions. We use before-change style as the initial
         /// value of its Keyframe. Required if |tasks| includes CSSTransitions.
         before_change_style: Option<Arc<ComputedValues>>,
@@ -312,8 +314,8 @@ impl<E: TElement> SequentialTask<E> {
         match self {
             Unused(_) => unreachable!(),
             #[cfg(feature = "gecko")]
-            UpdateAnimations { el, pseudo, before_change_style, tasks } => {
-                unsafe { el.update_animations(pseudo.as_ref(), before_change_style, tasks) };
+            UpdateAnimations { el, before_change_style, tasks } => {
+                unsafe { el.update_animations(before_change_style, tasks) };
             }
         }
     }
@@ -322,14 +324,14 @@ impl<E: TElement> SequentialTask<E> {
     /// a given (pseudo-)element.
     #[cfg(feature = "gecko")]
     pub fn update_animations(el: E,
-                             pseudo: Option<PseudoElement>,
                              before_change_style: Option<Arc<ComputedValues>>,
                              tasks: UpdateAnimationsTasks) -> Self {
         use self::SequentialTask::*;
-        UpdateAnimations { el: unsafe { SendElement::new(el) },
-                           pseudo: pseudo,
-                           before_change_style: before_change_style,
-                           tasks: tasks }
+        UpdateAnimations {
+            el: unsafe { SendElement::new(el) },
+            before_change_style: before_change_style,
+            tasks: tasks,
+        }
     }
 }
 

@@ -1165,23 +1165,25 @@ public:
 
   NS_DECLARE_FRAME_PROPERTY_SMALL_VALUE(BidiDataProperty, mozilla::FrameBidiData)
 
-  mozilla::FrameBidiData GetBidiData()
+  mozilla::FrameBidiData GetBidiData() const
   {
-    return Properties().Get(BidiDataProperty());
+    bool exists;
+    mozilla::FrameBidiData bidiData =
+      Properties().Get(BidiDataProperty(), &exists);
+    if (!exists) {
+      bidiData.precedingControl = mozilla::kBidiLevelNone;
+    }
+    return bidiData;
   }
 
-  nsBidiLevel GetBaseLevel()
+  nsBidiLevel GetBaseLevel() const
   {
     return GetBidiData().baseLevel;
   }
 
-  nsBidiLevel GetEmbeddingLevel()
+  nsBidiLevel GetEmbeddingLevel() const
   {
     return GetBidiData().embeddingLevel;
-  }
-
-  nsTArray<nsIContent*>* GetGenConPseudos() {
-    return Properties().Get(GenConProperty());
   }
 
   /**
@@ -2586,10 +2588,12 @@ public:
   nsPoint GetOffsetToCrossDoc(const nsIFrame* aOther, const int32_t aAPD) const;
 
   /**
-   * Get the screen rect of the frame in pixels.
-   * @return the pixel rect of the frame in screen coordinates.
+   * Get the rect of the frame relative to the top-left corner of the
+   * screen in CSS pixels.
+   * @return the CSS pixel rect of the frame relative to the top-left
+   *         corner of the screen.
    */
-  nsIntRect GetScreenRect() const;
+  mozilla::CSSIntRect GetScreenRect() const;
 
   /**
    * Get the screen rect of the frame in app units.

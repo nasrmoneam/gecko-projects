@@ -278,6 +278,10 @@ AndroidDynamicToolbarAnimator::ToolbarAnimatorMessageFromUI(int32_t aMessage)
   case REQUEST_HIDE_TOOLBAR_ANIMATED:
     NotifyControllerPendingAnimation(MOVE_TOOLBAR_UP, eAnimate);
     break;
+  case TOOLBAR_SNAPSHOT_FAILED:
+    mToolbarState = eToolbarVisible;
+    NotifyControllerSnapshotFailed();
+    break;
   default:
     break;
   }
@@ -287,7 +291,7 @@ bool
 AndroidDynamicToolbarAnimator::UpdateAnimation(const TimeStamp& aCurrentFrame)
 {
   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
-  if (mToolbarState != eToolbarAnimating) {
+  if ((mToolbarState != eToolbarAnimating) || mCompositorShutdown) {
     return false;
   }
 
@@ -330,6 +334,8 @@ AndroidDynamicToolbarAnimator::UpdateAnimation(const TimeStamp& aCurrentFrame)
 
   if (!continueAnimating) {
     NotifyControllerAnimationStopped(mCompositorToolbarHeight);
+  } else {
+    UpdateControllerToolbarHeight(mCompositorToolbarHeight);
   }
 
   return continueAnimating;
@@ -579,7 +585,10 @@ AndroidDynamicToolbarAnimator::HandleTouchEnd(StaticToolbarState aCurrentToolbar
 void
 AndroidDynamicToolbarAnimator::PostMessage(int32_t aMessage) {
   RefPtr<UiCompositorControllerParent> uiController = UiCompositorControllerParent::GetFromRootLayerTreeId(mRootLayerTreeId);
-  MOZ_ASSERT(uiController);
+  if (!uiController) {
+    // Looks like IPC may be shutdown.
+    return;
+  }
   // ToolbarAnimatorMessageFromCompositor may be called from any thread.
   uiController->ToolbarAnimatorMessageFromCompositor(aMessage);
 }
@@ -637,6 +646,9 @@ void
 AndroidDynamicToolbarAnimator::UpdateFixedLayerMargins()
 {
   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+  if (mCompositorShutdown) {
+    return;
+  }
   CompositorBridgeParent* parent = CompositorBridgeParent::GetCompositorBridgeParentFromLayersId(mRootLayerTreeId);
   if (parent) {
     ScreenIntCoord surfaceHeight = parent->GetEGLSurfaceSize().height;
@@ -736,7 +748,10 @@ AndroidDynamicToolbarAnimator::StopCompositorAnimation()
     return;
   }
 
-  mToolbarState = eToolbarUnlocked;
+  if (mToolbarState == eToolbarAnimating) {
+    mToolbarState = eToolbarUnlocked;
+  }
+
   NotifyControllerAnimationStopped(mCompositorToolbarHeight);
 }
 
@@ -760,6 +775,10 @@ AndroidDynamicToolbarAnimator::RequestComposite()
 {
   if (!CompositorThreadHolder::IsInCompositorThread()) {
     CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod(this, &AndroidDynamicToolbarAnimator::RequestComposite));
+    return;
+  }
+
+  if (mCompositorShutdown) {
     return;
   }
 
@@ -876,6 +895,19 @@ AndroidDynamicToolbarAnimator::GetFixedLayerMarginsBottom()
 {
   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
   return mCompositorToolbarHeight - (mCompositorSurfaceHeight - mCompositorCompositionSize.height);
+}
+
+void
+AndroidDynamicToolbarAnimator::NotifyControllerSnapshotFailed()
+{
+  if (!APZThreadUtils::IsControllerThread()) {
+    APZThreadUtils::RunOnControllerThread(NewRunnableMethod(this, &AndroidDynamicToolbarAnimator::NotifyControllerSnapshotFailed));
+    return;
+  }
+
+  mControllerToolbarHeight = 0;
+  mControllerState = eNothingPending;
+  UpdateCompositorToolbarHeight(mControllerToolbarHeight);
 }
 
 } // namespace layers

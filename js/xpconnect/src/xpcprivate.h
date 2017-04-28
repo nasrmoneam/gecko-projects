@@ -75,6 +75,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
+#include "mozilla/DebugOnly.h"
 #include "mozilla/GuardObjects.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
@@ -234,7 +235,7 @@ public:
     // non-interface implementation
 public:
     // These get non-addref'd pointers
-    static nsXPConnect*  XPConnect()
+    static nsXPConnect* XPConnect()
     {
         // Do a release-mode assert that we're not doing anything significant in
         // XPConnect off the main thread. If you're an extension developer hitting
@@ -245,9 +246,7 @@ public:
         return gSelf;
     }
 
-    static XPCJSContext* GetContextInstance();
     static XPCJSRuntime* GetRuntimeInstance();
-    XPCJSContext* GetContext() {return mContext;}
 
     static bool IsISupportsDescendant(nsIInterfaceInfo* info);
 
@@ -298,7 +297,6 @@ private:
     static nsXPConnect*             gSelf;
     static bool                     gOnceAliveNowDead;
 
-    XPCJSContext*                   mContext;
     XPCJSRuntime*                   mRuntime;
     bool                            mShuttingDown;
 
@@ -402,9 +400,9 @@ private:
 class XPCJSContext final : public mozilla::CycleCollectedJSContext
 {
 public:
-    static XPCJSContext* newXPCJSContext();
-    static XPCJSContext* Get() { return nsXPConnect::XPConnect()->GetContext(); }
-    static XPCJSContext* GetOnly() { return nsXPConnect::XPConnect()->GetContext(); }
+    static void InitTLS();
+    static XPCJSContext* NewXPCJSContext(XPCJSContext* aPrimaryContext);
+    static XPCJSContext* Get();
 
     XPCJSRuntime* Runtime() const;
 
@@ -490,7 +488,7 @@ private:
     XPCJSContext();
 
     MOZ_IS_CLASS_INIT
-    nsresult Initialize();
+    nsresult Initialize(XPCJSContext* aPrimaryContext);
 
     XPCCallContext*          mCallContext;
     AutoMarkingPtr*          mAutoRoots;
@@ -644,8 +642,8 @@ private:
     explicit XPCJSRuntime(JSContext* aCx);
 
     MOZ_IS_CLASS_INIT
-    void Initialize();
-    void Shutdown() override;
+    void Initialize(JSContext* cx);
+    void Shutdown(JSContext* cx) override;
 
     void ReleaseIncrementally(nsTArray<nsISupports*>& array);
 
@@ -962,6 +960,9 @@ public:
     SweepAllWrappedNativeTearOffs();
 
     static void
+    UpdateWeakPointersInAllScopesAfterGC();
+
+    void
     UpdateWeakPointersAfterGC();
 
     static void
@@ -1444,6 +1445,9 @@ public:
     JSObject*
     GetJSProtoObject() const { return mJSProtoObject; }
 
+    JSObject*
+    GetJSProtoObjectPreserveColor() const { return mJSProtoObject.unbarrieredGet(); }
+
     nsIClassInfo*
     GetClassInfo()     const {return mClassInfo;}
 
@@ -1622,8 +1626,6 @@ public:
         {return HasProto() ?
          (XPCWrappedNativeProto*)
          (XPC_SCOPE_WORD(mMaybeProto) & ~XPC_SCOPE_MASK) : nullptr;}
-
-    void SetProto(XPCWrappedNativeProto* p);
 
     XPCWrappedNativeScope*
     GetScope() const
@@ -2442,9 +2444,8 @@ extern bool
 xpc_DumpJSStack(bool showArgs, bool showLocals, bool showThisProps);
 
 // Return a newly-allocated string containing a representation of the
-// current JS stack.  It is the *caller's* responsibility to free this
-// string with JS_smprintf_free().
-extern char*
+// current JS stack.
+extern JS::UniqueChars
 xpc_PrintJSStack(JSContext* cx, bool showArgs, bool showLocals,
                  bool showThisProps);
 
@@ -2492,24 +2493,25 @@ class MOZ_RAII AutoResolveName
 {
 public:
     AutoResolveName(XPCCallContext& ccx, JS::HandleId name
-                    MOZ_GUARD_OBJECT_NOTIFIER_PARAM) :
-          mOld(ccx, XPCJSContext::Get()->SetResolveName(name))
+                    MOZ_GUARD_OBJECT_NOTIFIER_PARAM)
+        : mContext(ccx.GetContext())
+        , mOld(ccx, mContext->SetResolveName(name))
 #ifdef DEBUG
-          ,mCheck(ccx, name)
+        , mCheck(ccx, name)
 #endif
     {
         MOZ_GUARD_OBJECT_NOTIFIER_INIT;
     }
+
     ~AutoResolveName()
-        {
-#ifdef DEBUG
-            jsid old =
-#endif
-            XPCJSContext::Get()->SetResolveName(mOld);
-            MOZ_ASSERT(old == mCheck, "Bad Nesting!");
-        }
+    {
+        mozilla::DebugOnly<jsid> old =
+            mContext->SetResolveName(mOld);
+        MOZ_ASSERT(old == mCheck, "Bad Nesting!");
+    }
 
 private:
+    XPCJSContext* mContext;
     JS::RootedId mOld;
 #ifdef DEBUG
     JS::RootedId mCheck;
