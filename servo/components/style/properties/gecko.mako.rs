@@ -102,8 +102,10 @@ pub struct ComputedValues {
 }
 
 impl ComputedValues {
-    pub fn inherit_from(parent: &Self, default: &Self) -> Arc<Self> {
-        Arc::new(ComputedValues {
+    /// Inherits style from the parent element, accounting for the default
+    /// computed values that need to be provided as well.
+    pub fn inherit_from(parent: &Self, default: &Self) -> Self {
+        ComputedValues {
             custom_properties: parent.custom_properties.clone(),
             writing_mode: parent.writing_mode,
             root_font_size: parent.root_font_size,
@@ -116,7 +118,7 @@ impl ComputedValues {
             ${style_struct.ident}: default.${style_struct.ident}.clone(),
             % endif
             % endfor
-        })
+        }
     }
 
     pub fn new(custom_properties: Option<Arc<ComputedValuesMap>>,
@@ -944,9 +946,7 @@ fn static_assert() {
         }
 
         if let Some(image) = v.0 {
-            // TODO: We need to make border-image-source match with background-image
-            // until then we are setting with_url to false
-            self.gecko.mBorderImageSource.set(image, false, &mut false)
+            self.gecko.mBorderImageSource.set(image, &mut false)
         }
     }
 
@@ -2766,12 +2766,12 @@ fn static_assert() {
                                                                 .mLayers.iter_mut()) {
             % if shorthand == "background":
                 if let Some(image) = image.0 {
-                    geckoimage.mImage.set(image, true, cacheable)
+                    geckoimage.mImage.set(image, cacheable)
                 }
             % else:
                 use properties::longhands::mask_image::single_value::computed_value::T;
                 match image {
-                    T::Image(image) => geckoimage.mImage.set(image, true, cacheable),
+                    T::Image(image) => geckoimage.mImage.set(image, cacheable),
                     _ => ()
                 }
             % endif
@@ -3256,6 +3256,13 @@ fn static_assert() {
     pub fn copy_border_spacing_from(&mut self, other: &Self) {
         self.gecko.mBorderSpacingCol = other.gecko.mBorderSpacingCol;
         self.gecko.mBorderSpacingRow = other.gecko.mBorderSpacingRow;
+    }
+
+    pub fn clone_border_spacing(&self) -> longhands::border_spacing::computed_value::T {
+        longhands::border_spacing::computed_value::T {
+            horizontal: Au(self.gecko.mBorderSpacingCol),
+            vertical: Au(self.gecko.mBorderSpacingRow)
+        }
     }
 </%self:impl_trait>
 

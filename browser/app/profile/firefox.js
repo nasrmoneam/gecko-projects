@@ -70,6 +70,17 @@ pref("extensions.screenshots.system-disabled", true);
 // See the SCOPE constants in AddonManager.jsm for values to use here.
 pref("extensions.autoDisableScopes", 15);
 
+// This is where the profiler WebExtension API will look for breakpad symbols.
+// NOTE: deliberately http right now since https://symbols.mozilla.org is not supported.
+pref("extensions.geckoProfiler.symbols.url", "http://symbols.mozilla.org/");
+pref("extensions.geckoProfiler.acceptedExtensionIds", "geckoprofiler@mozilla.com");
+#if defined(XP_LINUX) || defined (XP_MACOSX)
+pref("extensions.geckoProfiler.getSymbolRules", "localBreakpad,remoteBreakpad,nm");
+#else // defined(XP_WIN)
+pref("extensions.geckoProfiler.getSymbolRules", "localBreakpad,remoteBreakpad");
+#endif
+
+
 // Add-on content security policies.
 pref("extensions.webextensions.base-content-security-policy", "script-src 'self' https://* moz-extension: blob: filesystem: 'unsafe-eval' 'unsafe-inline'; object-src 'self' https://* moz-extension: blob: filesystem:;");
 pref("extensions.webextensions.default-content-security-policy", "script-src 'self'; object-src 'self';");
@@ -687,6 +698,8 @@ pref("browser.preferences.offlineGroup.enabled", false);
 #else
 pref("browser.preferences.offlineGroup.enabled", true);
 #endif
+
+pref("browser.preferences.defaultPerformanceSettings.enabled", true);
 
 pref("browser.download.show_plugins_in_list", true);
 pref("browser.download.hide_plugins_without_extensions", true);
@@ -1444,6 +1457,8 @@ pref("browser.translation.engine", "bing");
 // Telemetry settings.
 // Determines if Telemetry pings can be archived locally.
 pref("toolkit.telemetry.archive.enabled", true);
+// Enables sending the shutdown ping when Firefox shuts down.
+pref("toolkit.telemetry.shutdownPingSender.enabled", true);
 
 // Telemetry experiments settings.
 pref("experiments.enabled", true);

@@ -31,9 +31,9 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/ 	function __w_pdfjs_require__(moduleId) {
 /******/
 /******/ 		// Check if module is in cache
-/******/ 		if(installedModules[moduleId])
+/******/ 		if(installedModules[moduleId]) {
 /******/ 			return installedModules[moduleId].exports;
-/******/
+/******/ 		}
 /******/ 		// Create a new module (and put it into the cache)
 /******/ 		var module = installedModules[moduleId] = {
 /******/ 			i: moduleId,
@@ -402,7 +402,7 @@ function createValidAbsoluteUrl(url, baseUrl) {
 }
 function shadow(obj, prop, value) {
   Object.defineProperty(obj, prop, {
-    value: value,
+    value,
     enumerable: true,
     configurable: true,
     writable: false
@@ -1019,8 +1019,8 @@ function MessageHandler(sourceName, targetName, comObj) {
           return action[0].call(action[1], data.data);
         }).then(function (result) {
           comObj.postMessage({
-            sourceName: sourceName,
-            targetName: targetName,
+            sourceName,
+            targetName,
             isReply: true,
             callbackId: data.callbackId,
             data: result
@@ -1030,8 +1030,8 @@ function MessageHandler(sourceName, targetName, comObj) {
             reason = reason + '';
           }
           comObj.postMessage({
-            sourceName: sourceName,
-            targetName: targetName,
+            sourceName,
+            targetName,
             isReply: true,
             callbackId: data.callbackId,
             error: reason
@@ -1047,30 +1047,30 @@ function MessageHandler(sourceName, targetName, comObj) {
   comObj.addEventListener('message', this._onComObjOnMessage);
 }
 MessageHandler.prototype = {
-  on: function messageHandlerOn(actionName, handler, scope) {
+  on(actionName, handler, scope) {
     var ah = this.actionHandler;
     if (ah[actionName]) {
       error('There is already an actionName called "' + actionName + '"');
     }
     ah[actionName] = [handler, scope];
   },
-  send: function messageHandlerSend(actionName, data, transfers) {
+  send(actionName, data, transfers) {
     var message = {
       sourceName: this.sourceName,
       targetName: this.targetName,
       action: actionName,
-      data: data
+      data
     };
     this.postMessage(message, transfers);
   },
-  sendWithPromise: function messageHandlerSendWithPromise(actionName, data, transfers) {
+  sendWithPromise(actionName, data, transfers) {
     var callbackId = this.callbackIndex++;
     var message = {
       sourceName: this.sourceName,
       targetName: this.targetName,
       action: actionName,
-      data: data,
-      callbackId: callbackId
+      data,
+      callbackId
     };
     var capability = createPromiseCapability();
     this.callbacksCapabilities[callbackId] = capability;
@@ -1081,14 +1081,14 @@ MessageHandler.prototype = {
     }
     return capability.promise;
   },
-  postMessage: function (message, transfers) {
+  postMessage(message, transfers) {
     if (transfers && this.postMessageTransfers) {
       this.comObj.postMessage(message, transfers);
     } else {
       this.comObj.postMessage(message);
     }
   },
-  destroy: function () {
+  destroy() {
     this.comObj.removeEventListener('message', this._onComObjOnMessage);
   }
 };
@@ -36565,8 +36565,8 @@ exports.Type1Parser = Type1Parser;
 "use strict";
 
 
-var pdfjsVersion = '1.8.243';
-var pdfjsBuild = '96cb599e';
+var pdfjsVersion = '1.8.269';
+var pdfjsBuild = 'acdfc2d8';
 var pdfjsCoreWorker = __w_pdfjs_require__(17);
 ;
 exports.WorkerMessageHandler = pdfjsCoreWorker.WorkerMessageHandler;

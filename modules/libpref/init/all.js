@@ -366,7 +366,7 @@ pref("media.wave.enabled", true);
 pref("media.webm.enabled", true);
 
 pref("media.eme.chromium-api.enabled", true);
-pref("media.eme.chromium-api.video-shmems", 3);
+pref("media.eme.chromium-api.video-shmems", 4);
 
 #ifdef MOZ_APPLEMEDIA
 #ifdef MOZ_WIDGET_UIKIT
@@ -998,6 +998,9 @@ pref("devtools.defaultColorUnit", "authored");
 
 // Used for devtools debugging
 pref("devtools.dump.emit", false);
+
+// Controls whether EventEmitter module throws dump message on each emit
+pref("toolkit.dump.emit", false);
 
 // Disable device discovery logging
 pref("devtools.discovery.log", false);
@@ -4661,7 +4664,6 @@ pref("layers.dump-host-layers", false);
 pref("layers.draw-borders", false);
 pref("layers.draw-tile-borders", false);
 pref("layers.draw-bigimage-borders", false);
-pref("layers.frame-counter", false);
 pref("layers.enable-tiles", false);
 pref("layers.single-tile.enabled", true);
 pref("layers.low-precision-buffer", false);
@@ -5666,7 +5668,7 @@ pref("browser.storageManager.pressureNotification.usageThresholdGB", 5);
 // when the page is reloaded. To turn this feature off, just set the limit to 0.
 pref("prompts.authentication_dialog_abuse_limit", 3);
 
-pref("dom.IntersectionObserver.enabled", false);
+pref("dom.IntersectionObserver.enabled", true);
 
 // Whether module scripts (<script type="module">) are enabled for content.
 pref("dom.moduleScripts.enabled", false);
@@ -5691,3 +5693,4 @@ pref("layers.advanced.boxshadow-outer-layers", 2);
 pref("layers.advanced.caret-layers", 2);
 pref("layers.advanced.displaybuttonborder-layers", 2);
 pref("layers.advanced.outline-layers", 2);
+pref("layers.advanced.solid-color-layers", 2);

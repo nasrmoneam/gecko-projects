@@ -6098,9 +6098,9 @@ nsIFrame::GetOffsetToCrossDoc(const nsIFrame* aOther, const int32_t aAPD) const
   return offset;
 }
 
-nsIntRect nsIFrame::GetScreenRect() const
+CSSIntRect nsIFrame::GetScreenRect() const
 {
-  return GetScreenRectInAppUnits().ToNearestPixels(PresContext()->AppUnitsPerCSSPixel());
+  return CSSIntRect::FromAppUnitsToNearest(GetScreenRectInAppUnits());
 }
 
 nsRect nsIFrame::GetScreenRectInAppUnits() const
@@ -7069,6 +7069,11 @@ nsIFrame::ListGeneric(nsACString& aTo, const char* aPrefix, uint32_t aFlags) con
   }
   if (0 != mState) {
     aTo += nsPrintfCString(" [state=%016llx]", (unsigned long long)mState);
+  }
+  if (Properties().Has(BidiDataProperty())) {
+    FrameBidiData bidi = GetBidiData();
+    aTo += nsPrintfCString(" bidi(%d,%d,%d)", bidi.baseLevel,
+                           bidi.embeddingLevel, bidi.precedingControl);
   }
   if (IsTransformed()) {
     aTo += nsPrintfCString(" transformed");

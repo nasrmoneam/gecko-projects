@@ -50,6 +50,8 @@ impl<'a> StyleAdjuster<'a> {
         }
     }
 
+    /// Apply the blockification rules based on the table in CSS 2.2 section 9.7.
+    /// https://drafts.csswg.org/css2/visuren.html#dis-pos-flo
     fn blockify_if_necessary(&mut self,
                              layout_parent_style: &ComputedValues,
                              skip_root_and_element_display_fixup: bool) {
@@ -82,6 +84,40 @@ impl<'a> StyleAdjuster<'a> {
         if display != blockified_display {
             self.style.mutate_box().set_adjusted_display(blockified_display,
                                                          is_item_or_root);
+        }
+    }
+
+    /// Adjust the style for text style.
+    ///
+    /// The adjustments here are a subset of the adjustments generally, because
+    /// text only inherits properties.
+    ///
+    /// Note that this, for Gecko, comes through Servo_ComputedValues_Inherit.
+    #[cfg(feature = "gecko")]
+    pub fn adjust_for_text(&mut self) {
+        self.adjust_for_text_combine_upright();
+    }
+
+    /// Change writing mode of the text frame for text-combine-upright.
+    ///
+    /// It is safe to look at our own style because we are looking at inherited
+    /// properties, and text is just plain inheritance.
+    ///
+    /// TODO(emilio): we should (Gecko too) revise these adjustments in presence
+    /// of display: contents.
+    #[cfg(feature = "gecko")]
+    fn adjust_for_text_combine_upright(&mut self) {
+        use computed_values::text_combine_upright::T as text_combine_upright;
+        use computed_values::writing_mode::T as writing_mode;
+
+        let writing_mode =
+            self.style.get_inheritedbox().clone_writing_mode();
+        let text_combine_upright =
+            self.style.get_inheritedtext().clone_text_combine_upright();
+
+        if writing_mode != writing_mode::horizontal_tb &&
+           text_combine_upright == text_combine_upright::all {
+            self.style.mutate_inheritedbox().set_writing_mode(writing_mode::horizontal_tb);
         }
     }
 
@@ -223,28 +259,29 @@ impl<'a> StyleAdjuster<'a> {
         }
     }
 
-    /// Adjusts the style to account for display fixups.
+    /// Adjusts the style to account for various fixups that don't fit naturally
+    /// into the cascade.
+    ///
+    /// When comparing to Gecko, this is similar to the work done by
+    /// `nsStyleContext::ApplyStyleFixups`.
     pub fn adjust(mut self,
                   layout_parent_style: &ComputedValues,
                   skip_root_and_element_display_fixup: bool) {
         self.adjust_for_top_layer();
         self.blockify_if_necessary(layout_parent_style,
                                    skip_root_and_element_display_fixup);
-        self.adjust_for_writing_mode(layout_parent_style);
         self.adjust_for_position();
-
         self.adjust_for_overflow();
         #[cfg(feature = "gecko")]
         {
             self.adjust_for_contain();
         }
-
         #[cfg(feature = "servo")]
         {
             self.adjust_for_alignment(layout_parent_style);
         }
-
         self.adjust_for_border_width();
         self.adjust_for_outline();
+        self.adjust_for_writing_mode(layout_parent_style);
     }
 }

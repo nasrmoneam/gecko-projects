@@ -3296,13 +3296,14 @@ var SessionStoreInternal = {
 
     let numVisibleTabs = 0;
 
-    let createLazyBrowser = this._prefBranch.getBoolPref("sessionstore.restore_tabs_lazily") &&
+    let restoreTabsLazily = this._prefBranch.getBoolPref("sessionstore.restore_tabs_lazily") &&
       this._prefBranch.getBoolPref("sessionstore.restore_on_demand");
 
     for (var t = 0; t < newTabCount; t++) {
       // When trying to restore into existing tab, we also take the userContextId
       // into account if present.
       let userContextId = winData.tabs[t].userContextId;
+      let createLazyBrowser = restoreTabsLazily && !winData.tabs[t].pinned;
       let reuseExisting = t < openTabCount &&
                           (tabbrowser.tabs[t].getAttribute("usercontextid") == (userContextId || ""));
       let tab = reuseExisting ? this._maybeUpdateBrowserRemoteness(tabbrowser.tabs[t])
@@ -3708,6 +3709,7 @@ var SessionStoreInternal = {
       formdata: tabData.formdata || null,
       disallow: tabData.disallow || null,
       pageStyle: tabData.pageStyle || null,
+      userContextId: tabData.userContextId || 0,
 
       // This information is only needed until the tab has finished restoring.
       // When that's done it will be removed from the cache and we always
