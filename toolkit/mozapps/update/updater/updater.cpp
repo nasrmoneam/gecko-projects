@@ -2867,8 +2867,6 @@ int NS_main(int argc, NS_tchar **argv)
     *slash = NS_T('\0');
   }
 
-  // These checks are also performed in workmonitor.cpp since the maintenance
-  // service can be called directly.
   if (argc > callbackIndex) {
     if (!IsValidFullPath(argv[callbackIndex])) {
       WriteStatusFile(INVALID_CALLBACK_PATH_ERROR);
