@@ -20,8 +20,8 @@ public:
   void Init(NS_tchar* sourcePath, const NS_tchar* fileName);
   void Finish();
   void Flush();
-  void Printf(const char *fmt, ... );
-  void WarnPrintf(const char *fmt, ... );
+  void Printf(const char *fmt, ... ) MOZ_FORMAT_PRINTF(2, 3);
+  void WarnPrintf(const char *fmt, ... ) MOZ_FORMAT_PRINTF(2, 3);
 
   ~UpdateLog()
   {
