@@ -1169,6 +1169,11 @@ extern "C" {
      -> GeckoFontMetrics;
 }
 extern "C" {
+    pub fn Gecko_GetAppUnitsPerPhysicalInch(pres_context:
+                                                RawGeckoPresContextBorrowed)
+     -> i32;
+}
+extern "C" {
     pub fn Gecko_GetMediaFeatures() -> *const nsMediaFeature;
 }
 extern "C" {
@@ -1570,16 +1575,18 @@ extern "C" {
 extern "C" {
     pub fn Servo_StyleSet_AppendStyleSheet(set: RawServoStyleSetBorrowed,
                                            sheet: RawServoStyleSheetBorrowed,
+                                           unique_id: u32,
                                            flush: bool);
 }
 extern "C" {
     pub fn Servo_StyleSet_PrependStyleSheet(set: RawServoStyleSetBorrowed,
                                             sheet: RawServoStyleSheetBorrowed,
+                                            unique_id: u32,
                                             flush: bool);
 }
 extern "C" {
     pub fn Servo_StyleSet_RemoveStyleSheet(set: RawServoStyleSetBorrowed,
-                                           sheet: RawServoStyleSheetBorrowed,
+                                           unique_id: u32,
                                            flush: bool);
 }
 extern "C" {
@@ -1587,8 +1594,8 @@ extern "C" {
                                                      RawServoStyleSetBorrowed,
                                                  sheet:
                                                      RawServoStyleSheetBorrowed,
-                                                 reference:
-                                                     RawServoStyleSheetBorrowed,
+                                                 unique_id: u32,
+                                                 before_unique_id: u32,
                                                  flush: bool);
 }
 extern "C" {
@@ -1848,6 +1855,15 @@ extern "C" {
     pub fn Servo_AnimationValue_Uncompute(value:
                                               RawServoAnimationValueBorrowed)
      -> RawServoDeclarationBlockStrong;
+}
+extern "C" {
+    pub fn Servo_AnimationValue_Compute(declarations:
+                                            RawServoDeclarationBlockBorrowed,
+                                        style: ServoComputedValuesBorrowed,
+                                        parent_style:
+                                            ServoComputedValuesBorrowedOrNull,
+                                        raw_data: RawServoStyleSetBorrowed)
+     -> RawServoAnimationValueStrong;
 }
 extern "C" {
     pub fn Servo_ParseStyleAttribute(data: *const nsACString,

@@ -24,11 +24,14 @@
 #include "nsStyleContext.h"
 #include "nsStyleSet.h"
 #include "nsComputedDOMStyle.h"
+#include "nsContentUtils.h"
 #include "nsCSSParser.h"
 #include "nsCSSPseudoElements.h"
 #include "mozilla/css/Declaration.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/FloatingPoint.h"
+#include "mozilla/ServoComputedValuesWithParent.h"
+#include "mozilla/KeyframeUtils.h" // KeyframeUtils::ParseProperty
 #include "mozilla/Likely.h"
 #include "mozilla/ServoBindings.h" // RawServoDeclarationBlock
 #include "gfxMatrix.h"
@@ -4192,6 +4195,16 @@ StyleClipBasicShapeToCSSArray(const StyleShapeSource& aClipPath,
   return true;
 }
 
+static void
+SetFallbackValue(nsCSSValuePair* aPair, const nsStyleSVGPaint& aPaint)
+{
+  if (aPaint.GetFallbackType() == eStyleSVGFallbackType_Color) {
+    aPair->mYValue.SetColorValue(aPaint.GetFallbackColor());
+  } else {
+    aPair->mYValue.SetNoneValue();
+  }
+}
+
 bool
 StyleAnimationValue::ExtractComputedValue(nsCSSPropertyID aProperty,
                                           nsStyleContext* aStyleContext,
@@ -4709,22 +4722,33 @@ StyleAnimationValue::ExtractComputedValue(nsCSSPropertyID aProperty,
             NS_WARNING("Null paint server");
             return false;
           }
-          nsAutoPtr<nsCSSValuePair> pair(new nsCSSValuePair);
-          pair->mXValue.SetURLValue(url);
-          pair->mYValue.SetColorValue(paint.GetFallbackColor());
-          aComputedValue.SetAndAdoptCSSValuePairValue(pair.forget(),
-                                                      eUnit_CSSValuePair);
+          if (paint.GetFallbackType() != eStyleSVGFallbackType_NotSet) {
+            nsAutoPtr<nsCSSValuePair> pair(new nsCSSValuePair);
+            pair->mXValue.SetURLValue(url);
+            SetFallbackValue(pair, paint);
+            aComputedValue.SetAndAdoptCSSValuePairValue(pair.forget(),
+                                                        eUnit_CSSValuePair);
+          } else {
+            auto result = MakeUnique<nsCSSValue>();
+            result->SetURLValue(url);
+            aComputedValue.SetAndAdoptCSSValueValue(
+              result.release(), eUnit_URL);
+          }
           return true;
         }
         case eStyleSVGPaintType_ContextFill:
         case eStyleSVGPaintType_ContextStroke: {
-          nsAutoPtr<nsCSSValuePair> pair(new nsCSSValuePair);
-          pair->mXValue.SetIntValue(paint.Type() == eStyleSVGPaintType_ContextFill ?
-                                    NS_COLOR_CONTEXT_FILL : NS_COLOR_CONTEXT_STROKE,
-                                    eCSSUnit_Enumerated);
-          pair->mYValue.SetColorValue(paint.GetFallbackColor());
-          aComputedValue.SetAndAdoptCSSValuePairValue(pair.forget(),
-                                                      eUnit_CSSValuePair);
+          int32_t value = paint.Type() == eStyleSVGPaintType_ContextFill ?
+                            NS_COLOR_CONTEXT_FILL : NS_COLOR_CONTEXT_STROKE;
+          if (paint.GetFallbackType() != eStyleSVGFallbackType_NotSet) {
+            nsAutoPtr<nsCSSValuePair> pair(new nsCSSValuePair);
+            pair->mXValue.SetIntValue(value, eCSSUnit_Enumerated);
+            SetFallbackValue(pair, paint);
+            aComputedValue.SetAndAdoptCSSValuePairValue(pair.forget(),
+                                                        eUnit_CSSValuePair);
+          } else {
+            aComputedValue.SetIntValue(value, eUnit_Enumerated);
+          }
           return true;
         }
         default:
@@ -5195,6 +5219,7 @@ StyleAnimationValue::operator==(const StyleAnimationValue& aOther) const
   return false;
 }
 
+
 // AnimationValue Implementation
 
 bool
@@ -5273,4 +5298,94 @@ AnimationValue::IsInterpolableWith(nsCSSPropertyID aProperty,
   StyleAnimationValue dummy;
   return StyleAnimationValue::Interpolate(
            aProperty, mGecko, aToValue.mGecko, 0.5, dummy);
+}
+
+double
+AnimationValue::ComputeDistance(nsCSSPropertyID aProperty,
+                                const AnimationValue& aOther,
+                                nsStyleContext* aStyleContext) const
+{
+  if (IsNull() || aOther.IsNull()) {
+    return 0.0;
+  }
+
+  MOZ_ASSERT(!mServo != mGecko.IsNull());
+  MOZ_ASSERT(mGecko.IsNull() == aOther.mGecko.IsNull() &&
+             !mServo == !aOther.mServo,
+             "Animation values should have the same style engine");
+
+  if (mServo) {
+    return Servo_AnimationValues_ComputeDistance(mServo, aOther.mServo);
+  }
+
+  double distance = 0.0;
+  return StyleAnimationValue::ComputeDistance(aProperty,
+                                              mGecko,
+                                              aOther.mGecko,
+                                              aStyleContext,
+                                              distance)
+         ? distance
+         : 0.0;
+}
+
+/* static */ AnimationValue
+AnimationValue::FromString(nsCSSPropertyID aProperty,
+                           const nsAString& aValue,
+                           Element* aElement)
+{
+  MOZ_ASSERT(aElement);
+
+  AnimationValue result;
+
+  nsCOMPtr<nsIDocument> doc = aElement->GetComposedDoc();
+  if (!doc) {
+    return result;
+  }
+
+  nsCOMPtr<nsIPresShell> shell = doc->GetShell();
+  if (!shell) {
+    return result;
+  }
+
+  // GetStyleContext() flushes style, so we shouldn't assume that any
+  // non-owning references we have are still valid.
+  RefPtr<nsStyleContext> styleContext =
+    nsComputedDOMStyle::GetStyleContext(aElement, nullptr, shell);
+
+  if (styleContext->StyleSource().IsServoComputedValues()) {
+    nsPresContext* presContext = shell->GetPresContext();
+    if (!presContext) {
+      return result;
+    }
+
+    RefPtr<RawServoDeclarationBlock> declarations =
+      KeyframeUtils::ParseProperty(aProperty, aValue, doc);
+
+    if (!declarations) {
+      return result;
+    }
+
+    // We use the current ServoComputeValues and its parent ServoComputeValues
+    // to reconstruct the Context and then compute the AnimationValue. However,
+    // nsStyleContext::GetParentAllowServo() is going away, so if possible, we
+    // should find another way to get the parent ServoComputedValues.
+    RefPtr<nsStyleContext> parentContext = styleContext->GetParentAllowServo();
+    const ServoComputedValuesWithParent styles = {
+      styleContext->StyleSource().AsServoComputedValues(),
+      parentContext ? parentContext->StyleSource().AsServoComputedValues()
+                    : nullptr
+    };
+
+    result.mServo = presContext->StyleSet()
+                               ->AsServo()
+                               ->ComputeAnimationValue(declarations, styles);
+    return result;
+  }
+
+  if (!StyleAnimationValue::ComputeValue(aProperty, aElement, styleContext,
+                                         aValue, false /* |aUseSVGMode| */,
+                                         result.mGecko)) {
+    MOZ_ASSERT(result.IsNull());
+  }
+  return result;
 }

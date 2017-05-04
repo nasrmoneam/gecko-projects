@@ -50,14 +50,25 @@ SERVO_BINDING_FUNC(Servo_StyleSet_RebuildData, void,
                    RawServoStyleSetBorrowed set)
 SERVO_BINDING_FUNC(Servo_StyleSet_Drop, void, RawServoStyleSetOwned set)
 SERVO_BINDING_FUNC(Servo_StyleSet_AppendStyleSheet, void,
-                   RawServoStyleSetBorrowed set, RawServoStyleSheetBorrowed sheet, bool flush)
+                   RawServoStyleSetBorrowed set,
+                   RawServoStyleSheetBorrowed sheet,
+                   uint32_t unique_id,
+                   bool flush)
 SERVO_BINDING_FUNC(Servo_StyleSet_PrependStyleSheet, void,
-                   RawServoStyleSetBorrowed set, RawServoStyleSheetBorrowed sheet, bool flush)
+                   RawServoStyleSetBorrowed set,
+                   RawServoStyleSheetBorrowed sheet,
+                   uint32_t unique_id,
+                   bool flush)
 SERVO_BINDING_FUNC(Servo_StyleSet_RemoveStyleSheet, void,
-                   RawServoStyleSetBorrowed set, RawServoStyleSheetBorrowed sheet, bool flush)
+                   RawServoStyleSetBorrowed set,
+                   uint32_t unique_id,
+                   bool flush)
 SERVO_BINDING_FUNC(Servo_StyleSet_InsertStyleSheetBefore, void,
-                   RawServoStyleSetBorrowed set, RawServoStyleSheetBorrowed sheet,
-                   RawServoStyleSheetBorrowed reference, bool flush)
+                   RawServoStyleSetBorrowed set,
+                   RawServoStyleSheetBorrowed sheet,
+                   uint32_t unique_id,
+                   uint32_t before_unique_id,
+                   bool flush)
 SERVO_BINDING_FUNC(Servo_StyleSet_FlushStyleSheets, void, RawServoStyleSetBorrowed set)
 SERVO_BINDING_FUNC(Servo_StyleSet_NoteStyleSheetsChanged, void,
                    RawServoStyleSetBorrowed set, bool author_style_disabled)
@@ -187,6 +198,12 @@ SERVO_BINDING_FUNC(Servo_AnimationValue_DeepEqual, bool,
 SERVO_BINDING_FUNC(Servo_AnimationValue_Uncompute,
                    RawServoDeclarationBlockStrong,
                    RawServoAnimationValueBorrowed value)
+SERVO_BINDING_FUNC(Servo_AnimationValue_Compute,
+                   RawServoAnimationValueStrong,
+                   RawServoDeclarationBlockBorrowed declarations,
+                   ServoComputedValuesBorrowed style,
+                   ServoComputedValuesBorrowedOrNull parent_style,
+                   RawServoStyleSetBorrowed raw_data)
 
 // Style attribute
 SERVO_BINDING_FUNC(Servo_ParseStyleAttribute, RawServoDeclarationBlockStrong,

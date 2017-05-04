@@ -683,6 +683,10 @@ pref("plugin.defaultXpi.state", 2);
 pref("plugin.state.flash", 2);
 pref("plugin.state.java", 1);
 
+#ifdef NIGHTLY_BUILD
+pref("plugins.flashBlock.enabled", true);
+#endif
+
 #ifdef XP_WIN
 pref("browser.preferences.instantApply", false);
 #else
@@ -1517,6 +1521,11 @@ pref("browser.tabs.crashReporting.email", "");
 pref("extensions.interposition.enabled", true);
 pref("extensions.interposition.prefetching", true);
 
+// But don't allow non-MPC extensions by default on Nightly
+#if defined(NIGHTLY_BUILD)
+pref("extensions.allow-non-mpc-extensions", false);
+#endif
+
 // Enable blocking of e10s and e10s-multi for add-on users on beta/release.
 #ifdef RELEASE_OR_BETA
 pref("extensions.e10sBlocksEnabling", true);
@@ -1576,6 +1585,8 @@ pref("browser.esedbreader.loglevel", "Error");
 
 pref("browser.laterrun.enabled", false);
 
+pref("dom.ipc.processPrelaunch.enabled", true);
+
 #ifdef EARLY_BETA_OR_EARLIER
 pref("browser.migrate.automigrate.enabled", true);
 #else
@@ -1634,7 +1645,7 @@ pref("browser.crashReports.unsubmittedCheck.autoSubmit", false);
 
 // Preferences for the form autofill system extension
 pref("browser.formautofill.experimental", false);
-pref("browser.formautofill.enabled", false);
+pref("browser.formautofill.enabled", true);
 pref("browser.formautofill.loglevel", "Warn");
 
 // Whether or not to restore a session with lazy-browser tabs.

@@ -116,20 +116,22 @@ NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 #endif
 
 nsBoxFrame::nsBoxFrame(nsStyleContext* aContext,
-                       FrameType aType,
+                       LayoutFrameType aType,
                        bool aIsRoot,
                        nsBoxLayout* aLayoutManager)
   : nsContainerFrame(aContext, aType)
+  , mFlex(0)
+  , mAscent(0)
 {
   mState |= NS_STATE_IS_HORIZONTAL;
   mState |= NS_STATE_AUTO_STRETCH;
 
-  if (aIsRoot) 
+  if (aIsRoot)
      mState |= NS_STATE_IS_ROOT;
 
   mValign = vAlign_Top;
   mHalign = hAlign_Left;
-  
+
   // if no layout manager specified us the static sprocket layout
   nsCOMPtr<nsBoxLayout> layout = aLayoutManager;
 

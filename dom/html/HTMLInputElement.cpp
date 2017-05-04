@@ -441,7 +441,7 @@ struct HTMLInputElement::FileData
 
   void ClearGetFilesHelpers()
   {
-    if (mGetFilesNonRecursiveHelper) {
+    if (mGetFilesRecursiveHelper) {
       mGetFilesRecursiveHelper->Unlink();
       mGetFilesRecursiveHelper = nullptr;
     }
@@ -1548,6 +1548,27 @@ HTMLInputElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
 
   return nsGenericHTMLFormElementWithState::AfterSetAttr(aNameSpaceID, aName,
                                                          aValue, aNotify);
+}
+
+void
+HTMLInputElement::BeforeSetForm(bool aBindToTree)
+{
+  // No need to remove from radio group if we are just binding to tree.
+  if (mType == NS_FORM_INPUT_RADIO && !aBindToTree) {
+    WillRemoveFromRadioGroup();
+  }
+}
+
+void
+HTMLInputElement::AfterClearForm(bool aUnbindOrDelete)
+{
+  MOZ_ASSERT(!mForm);
+
+  // Do not add back to radio group if we are releasing or unbinding from tree.
+  if (mType == NS_FORM_INPUT_RADIO && !aUnbindOrDelete) {
+    AddedToRadioGroup();
+    UpdateValueMissingValidityStateForRadio(false);
+  }
 }
 
 // nsIDOMHTMLInputElement
