@@ -52,6 +52,17 @@ SIGNING_CERT_SCOPES = {
     'default': 'project:releng:signing:cert:dep-signing',
 }
 
+DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
+    'beta': set([
+        'mozilla-beta'
+    ])
+]]
+
+DEVEDITION_SIGNING_CERT_SCOPES = {
+    'beta': 'project:releng:signing:cert:nightly-signing',
+    'default': 'project:releng:signing:cert:dep-signing',
+}
+
 """Map beetmover scope aliases to sets of projects.
 """
 BEETMOVER_SCOPE_ALIAS_TO_PROJECT = [[
@@ -311,6 +322,12 @@ get_signing_cert_scope = functools.partial(
     get_scope_from_project,
     SIGNING_SCOPE_ALIAS_TO_PROJECT,
     SIGNING_CERT_SCOPES
+)
+
+get_devedition_signing_cert_scope = functools.partial(
+    get_scope_from_project,
+    DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT,
+    DEVEDITION_SIGNING_CERT_SCOPES
 )
 
 get_beetmover_bucket_scope = functools.partial(
