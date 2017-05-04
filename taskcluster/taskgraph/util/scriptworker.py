@@ -53,7 +53,7 @@ SIGNING_CERT_SCOPES = {
 }
 
 DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
-    'beta': set([
+    'beta', set([
         'mozilla-beta'
     ])
 ]]
