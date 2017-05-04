@@ -208,6 +208,7 @@ def target_tasks_nightly_linux(full_task_graph, parameters):
 
 
 @_target_task('mozilla_beta_tasks')
+@_target_task('jamun_tasks')
 def target_tasks_mozilla_beta(full_task_graph, parameters):
     """Select the set of tasks required for a promotable beta or release build
     of linux, plus android CI. The candidates build process involves a pipeline
