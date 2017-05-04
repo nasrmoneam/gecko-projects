@@ -41,6 +41,7 @@ SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'all-release-branches', set([
         'mozilla-beta',
         'mozilla-release',
+        'jamun',
     ])
 ]]
 
@@ -54,7 +55,8 @@ SIGNING_CERT_SCOPES = {
 
 DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'beta', set([
-        'mozilla-beta'
+        'mozilla-beta',
+        'jamun',
     ])
 ]]
 
@@ -71,11 +73,13 @@ BEETMOVER_SCOPE_ALIAS_TO_PROJECT = [[
         'mozilla-aurora',
         'mozilla-beta',
         'mozilla-release',
+        'jamun',
     ])
 ], [
     'all-release-branches', set([
         'mozilla-beta',
         'mozilla-release',
+        'jamun',
     ])
 ]]
 
@@ -137,6 +141,7 @@ BALROG_SCOPE_ALIAS_TO_PROJECT = [[
 ], [
     'beta', set([
         'mozilla-beta',
+        'jamun',
     ])
 ], [
     'release', set([
@@ -206,6 +211,7 @@ PUSH_APK_SCOPE_ALIAS_TO_PROJECT = [[
 ], [
     'beta', set([
         'mozilla-beta',
+        'jamun',
     ])
 ], [
     'release', set([
