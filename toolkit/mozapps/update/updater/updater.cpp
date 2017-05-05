@@ -2996,15 +2996,6 @@ int NS_main(int argc, NS_tchar **argv)
 #endif
 
 #ifdef XP_WIN
-  if (sReplaceRequest) {
-    // On Windows, the current working directory of the process should be changed
-    // so that it's not locked.
-    NS_tchar sysDir[MAX_PATH + 1] = { L'\0' };
-    if (GetSystemDirectoryW(sysDir, MAX_PATH + 1)) {
-      NS_tchdir(sysDir);
-    }
-  }
-
 #ifdef MOZ_MAINTENANCE_SERVICE
   sUsingService = EnvHasValue("MOZ_USING_SERVICE");
   putenv(const_cast<char*>("MOZ_USING_SERVICE="));
