@@ -52,7 +52,7 @@ MOZ_APP_ID={ec8030f7-c20a-464f-9b0e-13a3a9e97384}
 # If more than one ID is needed, then you should use a comma separated list
 # of values.
 # The MAR_CHANNEL_ID must not contain the following 3 characters: ",\t "
-if test "$MOZ_UPDATE_CHANNEL" = "aurora"; then
+if test "$MOZ_UPDATE_CHANNEL" = "aurora" || test "$MOZ_UPDATE_CHANNEL" = "aurora-dev"; then
   ACCEPTED_MAR_CHANNEL_IDS=firefox-mozilla-aurora
   MAR_CHANNEL_ID=firefox-mozilla-aurora
 else
