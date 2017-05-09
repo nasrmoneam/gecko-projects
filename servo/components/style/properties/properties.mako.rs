@@ -484,8 +484,8 @@ bitflags! {
         /// This property has values that can establish a containing block for
         /// absolutely positioned elements.
         const ABSPOS_CB = 1 << 2,
-        /// This property(shorthand) is an alias of another property.
-        const ALIAS_PROPERTY = 1 << 3,
+        /// This shorthand property is an alias of another property.
+        const SHORTHAND_ALIAS_PROPERTY = 1 << 3,
     }
 }
 
@@ -1262,8 +1262,14 @@ impl ToCss for PropertyDeclaration {
             PropertyDeclaration::CSSWideKeyword(_, keyword) => keyword.to_css(dest),
             PropertyDeclaration::WithVariables(_, ref with_variables) => {
                 // https://drafts.csswg.org/css-variables/#variables-in-shorthands
-                if with_variables.from_shorthand.is_none() {
-                    dest.write_str(&*with_variables.css)?
+                match with_variables.from_shorthand {
+                    // Normally, we shouldn't be printing variables here if they came from
+                    // shorthands. But we should allow properties that came from shorthand
+                    // aliases. That also matches with the Gecko behavior.
+                    Some(shorthand) if shorthand.flags().contains(SHORTHAND_ALIAS_PROPERTY) =>
+                        dest.write_str(&*with_variables.css)?,
+                    None => dest.write_str(&*with_variables.css)?,
+                    _ => {},
                 }
                 Ok(())
             },
@@ -1341,7 +1347,16 @@ impl PropertyDeclaration {
                     if s == shorthand {
                         Some(&*with_variables.css)
                     } else { None }
-                } else { None }
+                } else {
+                    // Normally, longhand property that doesn't come from a shorthand
+                    // should return None here. But we return Some to longhands if they
+                    // came from a shorthand alias. Because for example, we should be able to
+                    // get -moz-transform's value from transform.
+                    if shorthand.flags().contains(SHORTHAND_ALIAS_PROPERTY) {
+                        return Some(&*with_variables.css);
+                    }
+                    None
+                }
             },
             _ => None,
         }

@@ -2060,6 +2060,8 @@ nsLayoutUtils::SetFixedPositionLayerData(Layer* aLayer,
       } else {
         anchor.x = anchorRect.XMost();
       }
+    } else if (position->mOffset.GetLeftUnit() != eStyleUnit_Auto) {
+      sides |= eSideBitsLeft;
     }
     if (position->mOffset.GetBottomUnit() != eStyleUnit_Auto) {
       sides |= eSideBitsBottom;
@@ -2069,6 +2071,8 @@ nsLayoutUtils::SetFixedPositionLayerData(Layer* aLayer,
       } else {
         anchor.y = anchorRect.YMost();
       }
+    } else if (position->mOffset.GetTopUnit() != eStyleUnit_Auto) {
+      sides |= eSideBitsTop;
     }
   }
 
@@ -9226,7 +9230,7 @@ nsLayoutUtils::ComputePartialPrerenderArea(const nsRect& aDirtyRect,
 nsLayoutUtils::SupportsServoStyleBackend(nsIDocument* aDocument)
 {
   return StyloEnabled() &&
-         aDocument->IsHTMLOrXHTML() &&
+         (aDocument->IsHTMLOrXHTML() || aDocument->IsSVGDocument()) &&
          static_cast<nsDocument*>(aDocument)->IsContentDocument();
 }
 

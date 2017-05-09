@@ -4,6 +4,8 @@ pub use nsstring::{nsACString, nsAString, nsString};
 type nsACString_internal = nsACString;
 type nsAString_internal = nsAString;
 use gecko_bindings::structs::mozilla::css::GridTemplateAreasValue;
+#[allow(unused_imports)]
+use gecko_bindings::structs::mozilla::css::ImageValue;
 use gecko_bindings::structs::mozilla::css::URLValue;
 use gecko_bindings::structs::mozilla::Side;
 use gecko_bindings::structs::RawGeckoAnimationPropertySegment;
@@ -192,6 +194,7 @@ use gecko_bindings::structs::EffectCompositor_CascadeLevel;
 use gecko_bindings::structs::UpdateAnimationsTasks;
 use gecko_bindings::structs::LengthParsingMode;
 use gecko_bindings::structs::InheritTarget;
+use gecko_bindings::structs::URLMatchingFunction;
 pub type nsTArrayBorrowed_uintptr_t<'a> = &'a mut ::gecko_bindings::structs::nsTArray<usize>;
 pub type ServoCssRulesStrong = ::gecko_bindings::sugar::ownership::Strong<ServoCssRules>;
 pub type ServoCssRulesBorrowed<'a> = &'a ServoCssRules;
@@ -1546,6 +1549,14 @@ extern "C" {
 }
 extern "C" {
     pub fn Gecko_UnregisterProfilerThread();
+}
+extern "C" {
+    pub fn Gecko_DocumentRule_UseForPresentation(arg1:
+                                                     RawGeckoPresContextBorrowed,
+                                                 aPattern: *const nsACString,
+                                                 aURLMatchingFunction:
+                                                     URLMatchingFunction)
+     -> bool;
 }
 extern "C" {
     pub fn Servo_Element_ClearData(node: RawGeckoElementBorrowed);

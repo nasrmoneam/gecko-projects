@@ -1122,36 +1122,41 @@ or run without that action (ie: --no-{action})"
             return fn
 
     def _run_tooltool(self):
+        env = self.query_build_env()
+        env.update(self.query_mach_build_env())
+
         self._assert_cfg_valid_for_action(
-            ['tooltool_script', 'tooltool_bootstrap', 'tooltool_url'],
+            ['tooltool_script', 'tooltool_url'],
             'build'
         )
         c = self.config
         dirs = self.query_abs_dirs()
         if not c.get('tooltool_manifest_src'):
             return self.warning(ERROR_MSGS['tooltool_manifest_undetermined'])
-        fetch_script_path = os.path.join(dirs['abs_tools_dir'],
-                                         'scripts',
-                                         'tooltool',
-                                         'tooltool_wrapper.sh')
         tooltool_manifest_path = os.path.join(dirs['abs_src_dir'],
                                               c['tooltool_manifest_src'])
+        python = self.query_exe('python2.7')
         cmd = [
-            'sh',
-            fetch_script_path,
+            python, '-u',
+            os.path.join(dirs['abs_src_dir'], 'mach'),
+            'artifact',
+            'toolchain',
+            '-v',
+            '--retry', '4',
+            '--tooltool-manifest',
             tooltool_manifest_path,
+            '--tooltool-url',
             c['tooltool_url'],
-            c['tooltool_bootstrap'],
         ]
-        cmd.extend(c['tooltool_script'])
         auth_file = self._get_tooltool_auth_file()
         if auth_file:
             cmd.extend(['--authentication-file', auth_file])
         cache = c['env'].get('TOOLTOOL_CACHE')
         if cache:
-            cmd.extend(['-c', cache])
+            cmd.extend(['--cache-dir', cache])
         self.info(str(cmd))
-        self.run_command_m(cmd, cwd=dirs['abs_src_dir'], halt_on_failure=True)
+        self.run_command_m(cmd, cwd=dirs['abs_src_dir'], halt_on_failure=True,
+                           env=env)
 
     def query_revision(self, source_path=None):
         """ returns the revision of the build
@@ -2148,6 +2153,24 @@ or run without that action (ie: --no-{action})"
             self.fatal('type: "%s" is unknown for sendchange type. valid '
                        'strings are "unittest" or "talos"' % test_type)
 
+    def generate_balrog_properties(self):
+        """Generate and upload balrog properties file, if appropriate.
+
+        Wrapper around generate_balrog_props
+        """
+        # generate balrog props as artifacts
+        if not self.config.get('taskcluster_nightly'):
+            return
+
+        # grab any props available from this or previous unclobbered runs
+        self.generate_build_props(console_output=False,
+                                  halt_on_failure=False)
+
+        env = self.query_mach_build_env(multiLocale=False)
+        props_path = os.path.join(env["UPLOAD_PATH"],
+                                  'balrog_props.json')
+        self.generate_balrog_props(props_path)
+
     def update(self):
         """ submit balrog update steps. """
         if self.config.get('forced_artifact_build'):
@@ -2160,14 +2183,6 @@ or run without that action (ie: --no-{action})"
         # grab any props available from this or previous unclobbered runs
         self.generate_build_props(console_output=False,
                                   halt_on_failure=False)
-
-        # generate balrog props as artifacts
-        if self.config.get('taskcluster_nightly'):
-            env = self.query_mach_build_env(multiLocale=False)
-            props_path = os.path.join(env["UPLOAD_PATH"],
-                    'balrog_props.json')
-            self.generate_balrog_props(props_path)
-            return
 
         if self.config.get('skip_balrog_uploads'):
             self.info("Funsize will submit to balrog, skipping submission here.")

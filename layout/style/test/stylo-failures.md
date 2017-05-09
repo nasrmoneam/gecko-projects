@@ -80,8 +80,7 @@ to mochitest command.
 * \@counter-style support bug 1328319
   * test_counter_descriptor_storage.html [1]
   * test_counter_style.html [5]
-  * test_rule_insertion.html `@counter-style` [1]
-  * ... `cjk-decimal` [1]
+  * test_rule_insertion.html `@counter-style` and bug 1361994 (CSSOM support for @-moz-document) [22]
   * test_value_storage.html `symbols(` [30]
   * ... `list-style-type` [60]
   * ... `'list-style'` [30]
@@ -120,8 +119,6 @@ to mochitest command.
 * Some issue with font-feature-settings:
   * test_inherit_computation.html `value for 'font'` [8]
 * Unimplemented prefixed properties:
-  * -moz-transform: need different parsing rules servo/servo#16003
-    * test_value_storage.html `-moz-transform`: need different parsing rules bug 1357906 [70]
   * test_variables.html `var(--var6)`: -x-system-font [1]
 * Unimplemented CSS properties:
   * place-{content,items,self} shorthands servo/servo#16391
@@ -221,13 +218,11 @@ to mochitest command.
 * test_pseudoelement_parsing.html: support parsing some pseudo-classes on some pseudo-elements [5]
 * Unit should be preserved after parsing servo/servo#15346
   * test_units_time.html [1]
-* insertRule / deleteRule don't work bug 1336863
-  * test_rule_insertion.html [5]
-* @-moz-document support bug 1355408
-  * test_rule_serialization.html [2]
-  * test_moz_document_rules.html [13]
-  * test_bug511909.html `@-moz-document` [4]
-  * test_condition_text.html: also \@supports [11]
+* insertRule / deleteRule don't work bug 1336863 and bug 1361994 (CSSOM support for @-moz-document)
+  * test_rule_insertion.html [94]
+* CSSOM support for @-moz-document bug 1361994
+  * test_rule_serialization.html [1]
+  * test_condition_text.html: also \@supports [1]
 * getComputedStyle style doesn't contain custom properties bug 1336891
   * test_variable_serialization_computed.html [35]
   * test_variables.html `custom property name` [2]
