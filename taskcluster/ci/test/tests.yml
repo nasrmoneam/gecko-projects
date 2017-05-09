@@ -1479,6 +1479,7 @@ talos-svgr:
                     mozilla-inbound: false
                     autoland: false
                     try: true
+                    oak: false
             default: both
     mozharness:
         script: talos_script.py

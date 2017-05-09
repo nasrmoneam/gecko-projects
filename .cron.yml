@@ -12,6 +12,7 @@ jobs:
       run-on-projects:
           - mozilla-central
           - mozilla-aurora
+          - date
           - oak
       when:
           by-project:
