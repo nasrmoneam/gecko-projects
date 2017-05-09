@@ -360,12 +360,6 @@ pref("browser.download.folderList", 1);
 pref("browser.download.manager.addToRecentDocs", true);
 pref("browser.download.manager.resumeOnWakeDelay", 10000);
 
-#ifdef RELEASE_OR_BETA
-pref("browser.download.showPanelDropmarker", false);
-#else
-pref("browser.download.showPanelDropmarker", true);
-#endif
-
 // This allows disabling the animated notifications shown by
 // the Downloads Indicator when a download starts or completes.
 pref("browser.download.animateNotifications", true);
@@ -870,6 +864,8 @@ pref("browser.sessionstore.debug", false);
 pref("browser.sessionstore.debug.no_auto_updates", false);
 // Forget closed windows/tabs after two weeks
 pref("browser.sessionstore.cleanup.forget_closed_after", 1209600000);
+// Maximum number of bytes of DOMSessionStorage data we collect per origin.
+pref("browser.sessionstore.dom_storage_limit", 2048);
 
 // allow META refresh by default
 pref("accessibility.blockautorefresh", false);
@@ -1025,7 +1021,7 @@ pref("security.sandbox.windows.log.stackTraceDepth", 0);
 // For information on what the level number means, see
 // SetSecurityLevelForGPUProcess() in
 // security/sandbox/win/src/sandboxbroker/sandboxBroker.cpp
-pref("security.sandbox.gpu.level", 1);
+pref("security.sandbox.gpu.level", 0);
 #endif
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX) && defined(MOZ_CONTENT_SANDBOX)

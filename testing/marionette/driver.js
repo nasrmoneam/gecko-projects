@@ -1280,7 +1280,7 @@ GeckoDriver.prototype.getWindowHandle = function (cmd, resp) {
  *     Unique window handles.
  */
 GeckoDriver.prototype.getWindowHandles = function (cmd, resp) {
-  return this.windowHandles;
+  return this.windowHandles.map(String);
 }
 
 /**
@@ -1313,7 +1313,7 @@ GeckoDriver.prototype.getChromeWindowHandle = function (cmd, resp) {
  *     Unique window handles.
  */
 GeckoDriver.prototype.getChromeWindowHandles = function (cmd, resp) {
-  return this.chromeWindowHandles;
+  return this.chromeWindowHandles.map(String);
 }
 
 /**
@@ -1420,7 +1420,7 @@ GeckoDriver.prototype.setWindowRect = function* (cmd, resp) {
     });
   }
 
-  return {
+  resp.body = {
     "x": win.screenX,
     "y": win.screenY,
     "width": win.outerWidth,
@@ -2906,7 +2906,47 @@ GeckoDriver.prototype.maximizeWindow = function* (cmd, resp) {
     }
   });
 
-  return {
+  resp.body = {
+    x: win.screenX,
+    y: win.screenY,
+    width: win.outerWidth,
+    height: win.outerHeight,
+  };
+};
+
+/**
+ * Synchronously sets the user agent window to full screen as if the user
+ * had done "View > Enter Full Screen", or restores it if it is already
+ * in full screen.
+ *
+ * Not supported on Fennec.
+ *
+ * @return {Map.<string, number>}
+ *     Window rect.
+ *
+ * @throws {UnsupportedOperationError}
+ *     Not available for current application.
+ * @throws {NoSuchWindowError}
+ *     Top-level browsing context has been discarded.
+ * @throws {UnexpectedAlertOpenError}
+ *     A modal dialog is open, blocking this operation.
+ */
+GeckoDriver.prototype.fullscreen = function* (cmd, resp) {
+  assert.firefox();
+  const win = assert.window(this.getCurrentWindow());
+  assert.noUserPrompt(this.dialog);
+
+  yield new Promise(resolve => {
+    win.addEventListener("resize", resolve, {once: true});
+
+    if (win.windowState == win.STATE_FULLSCREEN) {
+      win.document.exitFullscreen();
+    } else {
+      win.document.documentElement.requestFullscreen();
+    }
+  });
+
+  resp.body = {
     x: win.screenX,
     y: win.screenY,
     width: win.outerWidth,
@@ -3358,6 +3398,7 @@ GeckoDriver.prototype.commands = {
   "getWindowSize": GeckoDriver.prototype.getWindowRect, // Redirecting for compatibility
   "setWindowSize": GeckoDriver.prototype.setWindowRect, // Redirecting for compatibility
   "maximizeWindow": GeckoDriver.prototype.maximizeWindow,
+  "fullscreen": GeckoDriver.prototype.fullscreen,
   "dismissDialog": GeckoDriver.prototype.dismissDialog,
   "acceptDialog": GeckoDriver.prototype.acceptDialog,
   "getTextFromDialog": GeckoDriver.prototype.getTextFromDialog,
