@@ -73,6 +73,12 @@ PER_PROJECT_PARAMETERS = {
         'include_nightly': True,
     },
 
+    'jamun': {
+        'target_tasks_method': 'jamun_tasks',
+        'optimize_target_tasks': False,
+        'include_nightly': True,
+    },
+
     'mozilla-release': {
         'target_tasks_method': 'mozilla_release_tasks',
         'optimize_target_tasks': False,

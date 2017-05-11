@@ -97,7 +97,7 @@ linux64-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', ]
+    run-on-projects: [ 'mozilla-beta', 'jamun']
 
 linux/opt:
     description: "Linux32 Opt"
@@ -200,7 +200,7 @@ linux-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', ]
+    run-on-projects: [ 'mozilla-beta', 'jamun']
 
 linux-nightly/opt:
     description: "Linux32 Nightly"

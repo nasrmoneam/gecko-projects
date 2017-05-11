@@ -24,12 +24,7 @@ VERSION_PATH = os.path.join(GECKO, "browser", "config", "version_display.txt")
 
 """Map signing scope aliases to sets of projects.
 
-Currently m-c and DevEdition on m-b use nightly signing; Beta on m-b and m-r
-use release signing. These data structures aren't set-up to handle different
-scopes on the same repo, so we use a different set of them for DevEdition, and
-callers are responsible for using the correct one (by calling the appropriate
-helper below). More context on this in https://bugzilla.mozilla.org/show_bug.cgi?id=1358601.
-
+Currently m-c and m-a use nightly signing; m-b and m-r use release signing.
 We will need to add esr support at some point. Eventually we want to add
 nuance so certain m-b and m-r tasks use dep or nightly signing, and we only
 release sign when we have a signed-off set of candidate builds.  This current
@@ -46,6 +41,7 @@ SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'all-release-branches', set([
         'mozilla-beta',
         'mozilla-release',
+        'jamun',
     ])
 ]]
 
@@ -60,6 +56,7 @@ SIGNING_CERT_SCOPES = {
 DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'beta', set([
         'mozilla-beta',
+        'jamun',
     ])
 ]]
 

@@ -15,6 +15,7 @@ RELEASE_PROJECTS = set([
     'mozilla-aurora',
     'mozilla-beta',
     'mozilla-release',
+    'jamun'
 ])
 
 
