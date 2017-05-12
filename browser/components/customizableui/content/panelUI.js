@@ -40,11 +40,61 @@ const PanelUI = {
       addonNotificationContainer: gPhotonStructure ? "appMenu-addon-banners" : "PanelUI-footer-addons",
 
       overflowFixedList: gPhotonStructure ? "widget-overflow-fixed-list" : "",
+      navbar: "nav-bar",
     };
   },
 
   _initialized: false,
   init() {
+    this._initElements();
+
+    this.notifications = [];
+    this.menuButton.addEventListener("mousedown", this);
+    this.menuButton.addEventListener("keypress", this);
+    this._overlayScrollListenerBoundFn = this._overlayScrollListener.bind(this);
+
+    Services.obs.addObserver(this, "fullscreen-nav-toolbox");
+    Services.obs.addObserver(this, "panelUI-notification-main-action");
+    Services.obs.addObserver(this, "panelUI-notification-dismissed");
+
+    window.addEventListener("fullscreen", this);
+    window.addEventListener("activate", this);
+    window.matchMedia("(-moz-overlay-scrollbars)").addListener(this._overlayScrollListenerBoundFn);
+    CustomizableUI.addListener(this);
+
+    for (let event of this.kEvents) {
+      this.notificationPanel.addEventListener(event, this);
+    }
+
+    this._initPhotonPanel();
+
+    this._initialized = true;
+  },
+
+  reinit() {
+    this._removeEventListeners();
+    // If the Photon pref changes, we need to re-init our element references.
+    this._initElements();
+    this._initPhotonPanel();
+    delete this._readyPromise;
+    this._isReady = false;
+  },
+
+  // We do this sync on init because in order to have the overflow button show up
+  // we need to know whether anything is in the permanent panel area.
+  _initPhotonPanel() {
+    if (gPhotonStructure) {
+      this.overflowFixedList.hidden = false;
+      this.overflowFixedList.nextSibling.hidden = false;
+      CustomizableUI.registerMenuPanel(this.overflowFixedList, CustomizableUI.AREA_FIXED_OVERFLOW_PANEL);
+      this.navbar.setAttribute("photon-structure", "true");
+      this.updateOverflowStatus();
+    } else {
+      this.navbar.removeAttribute("photon-structure");
+    }
+  },
+
+  _initElements() {
     for (let [k, v] of Object.entries(this.kElements)) {
       if (!v) {
         continue;
@@ -57,31 +107,6 @@ const PanelUI = {
         return this[getKey] = document.getElementById(id);
       });
     }
-
-    this.notifications = [];
-    this.menuButton.addEventListener("mousedown", this);
-    this.menuButton.addEventListener("keypress", this);
-    this._overlayScrollListenerBoundFn = this._overlayScrollListener.bind(this);
-
-    Services.obs.addObserver(this, "fullscreen-nav-toolbox");
-    Services.obs.addObserver(this, "panelUI-notification-main-action");
-    Services.obs.addObserver(this, "panelUI-notification-dismissed");
-
-    window.addEventListener("fullscreen", this);
-    window.matchMedia("(-moz-overlay-scrollbars)").addListener(this._overlayScrollListenerBoundFn);
-    CustomizableUI.addListener(this);
-
-    for (let event of this.kEvents) {
-      this.notificationPanel.addEventListener(event, this);
-    }
-
-    if (gPhotonStructure) {
-      this.overflowFixedList.hidden = false;
-      this.overflowFixedList.nextSibling.hidden = false;
-      CustomizableUI.registerMenuPanel(this.overflowFixedList, CustomizableUI.AREA_FIXED_OVERFLOW_PANEL);
-    }
-
-    this._initialized = true;
   },
 
   _eventListenersAdded: false,
@@ -100,9 +125,17 @@ const PanelUI = {
     this._eventListenersAdded = true;
   },
 
-  uninit() {
+  _removeEventListeners() {
     for (let event of this.kEvents) {
       this.panel.removeEventListener(event, this);
+    }
+    this.helpView.removeEventListener("ViewShowing", this._onHelpViewShow);
+    this._eventListenersAdded = false;
+  },
+
+  uninit() {
+    this._removeEventListeners();
+    for (let event of this.kEvents) {
       this.notificationPanel.removeEventListener(event, this);
     }
 
@@ -111,7 +144,7 @@ const PanelUI = {
     Services.obs.removeObserver(this, "panelUI-notification-dismissed");
 
     window.removeEventListener("fullscreen", this);
-    this.helpView.removeEventListener("ViewShowing", this._onHelpViewShow);
+    window.removeEventListener("activate", this);
     this.menuButton.removeEventListener("mousedown", this);
     this.menuButton.removeEventListener("keypress", this);
     window.matchMedia("(-moz-overlay-scrollbars)").removeListener(this._overlayScrollListenerBoundFn);
@@ -325,6 +358,7 @@ const PanelUI = {
         this.toggle(aEvent);
         break;
       case "fullscreen":
+      case "activate":
         this._updateNotifications();
         break;
     }
@@ -364,6 +398,13 @@ const PanelUI = {
    */
   ensureReady(aCustomizing = false) {
     if (this._readyPromise) {
+      return this._readyPromise;
+    }
+    this._ensureEventListenersAdded();
+    if (gPhotonStructure) {
+      this.panel.hidden = false;
+      this._readyPromise = Promise.resolve();
+      this._isReady = true;
       return this._readyPromise;
     }
     this._readyPromise = Task.spawn(function*() {
@@ -457,7 +498,7 @@ const PanelUI = {
       return;
     }
 
-    let container = aAnchor.closest("panelmultiview");
+    let container = aAnchor.closest("panelmultiview,photonpanelmultiview");
     if (container) {
       container.showSubView(aViewId, aAnchor);
     } else if (!aAnchor.open) {
@@ -559,7 +600,24 @@ const PanelUI = {
     this._disableAnimations = false;
   },
 
+  onPhotonChanged() {
+    this.reinit();
+  },
+
+  updateOverflowStatus() {
+    let hasKids = this.overflowFixedList.hasChildNodes();
+    if (hasKids && !this.navbar.hasAttribute("nonemptyoverflow")) {
+      this.navbar.setAttribute("nonemptyoverflow", "true");
+    } else if (!hasKids && this.navbar.hasAttribute("nonemptyoverflow")) {
+      this.navbar.removeAttribute("nonemptyoverflow");
+    }
+  },
+
   onWidgetAfterDOMChange(aNode, aNextNode, aContainer, aWasRemoval) {
+    if (gPhotonStructure && aContainer == this.overflowFixedList) {
+      this.updateOverflowStatus();
+      return;
+    }
     if (aContainer != this.contents) {
       return;
     }
@@ -712,7 +770,8 @@ const PanelUI = {
         this._showBannerItem(this.notifications[0]);
       }
     } else if (doorhangers.length > 0) {
-      if (window.fullScreen) {
+      // Only show the doorhanger if the window is focused and not fullscreen
+      if (window.fullScreen || Services.focus.activeWindow !== window) {
         this._hidePopup();
         this._showBadge(doorhangers[0]);
         this._showBannerItem(doorhangers[0]);
@@ -761,7 +820,8 @@ const PanelUI = {
 
     popupnotification.setAttribute("id", popupnotificationID);
     popupnotification.setAttribute("buttoncommand", "PanelUI._onNotificationButtonEvent(event, 'buttoncommand');");
-    popupnotification.setAttribute("secondarybuttoncommand", "PanelUI._onNotificationButtonEvent(event, 'secondarybuttoncommand');");
+    popupnotification.setAttribute("secondarybuttoncommand",
+      "PanelUI._onNotificationButtonEvent(event, 'secondarybuttoncommand');");
 
     popupnotification.notification = notification;
     popupnotification.hidden = false;

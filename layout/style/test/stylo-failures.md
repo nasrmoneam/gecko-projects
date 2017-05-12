@@ -56,7 +56,7 @@ to mochitest command.
 * CSSOM support:
   * \@import bug 1352968
     * test_bug221428.html [1]
-    * test_css_eof_handling.html: also relies on \@-moz-document [1]
+    * test_css_eof_handling.html [1]
   * \@keyframes bug 1345697
     * test_keyframes_rules.html [1]
     * test_rules_out_of_sheets.html [1]
@@ -80,11 +80,10 @@ to mochitest command.
 * \@counter-style support bug 1328319
   * test_counter_descriptor_storage.html [1]
   * test_counter_style.html [5]
-  * test_rule_insertion.html `@counter-style` and bug 1361994 (CSSOM support for @-moz-document) [22]
   * test_value_storage.html `symbols(` [30]
   * ... `list-style-type` [60]
   * ... `'list-style'` [30]
-  * ... `'content`: various value as list-style-type in counter functions [12]
+  * ... `'content`: various value as list-style-type in counter functions [2]
   * test_html_attribute_computed_values.html `list-style-type` [8]
 * @page support:
   * test_bug887741_at-rules_in_declaration_lists.html `exception` [1]
@@ -132,8 +131,6 @@ to mochitest command.
     * test_inherit_storage.html `font-feature-settings` [2]
     * test_initial_storage.html `font-feature-settings` [1]
     * test_value_storage.html `font-feature-settings` [40]
-  * image-orientation property bug 1341758
-    * test_value_storage.html `image-orientation` [40]
 * Stylesheet cloning is somehow busted bug 1348481
   * test_selectors.html `matched clone` [3]
 * Unsupported prefixed values
@@ -218,11 +215,8 @@ to mochitest command.
 * test_pseudoelement_parsing.html: support parsing some pseudo-classes on some pseudo-elements [5]
 * Unit should be preserved after parsing servo/servo#15346
   * test_units_time.html [1]
-* insertRule / deleteRule don't work bug 1336863 and bug 1361994 (CSSOM support for @-moz-document)
-  * test_rule_insertion.html [94]
-* CSSOM support for @-moz-document bug 1361994
-  * test_rule_serialization.html [1]
-  * test_condition_text.html: also \@supports [1]
+* test_rule_insertion.html: bug 1363665 [83]
+* test_condition_text.html: \@supports bug 1363662 [1]
 * getComputedStyle style doesn't contain custom properties bug 1336891
   * test_variable_serialization_computed.html [35]
   * test_variables.html `custom property name` [2]
