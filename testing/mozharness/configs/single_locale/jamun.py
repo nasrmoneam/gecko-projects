@@ -8,7 +8,7 @@ config = {
     "latest_mar_dir": '/pub/firefox/nightly/latest-jamun-l10n',
 
     # l10n
-    "hg_l10n_base": "https://hg.mozilla.org/releases/l10n/mozilla-aurora",
+    "hg_l10n_base": "https://hg.mozilla.org/releases/l10n/mozilla-beta",
 
     # mar
     "mar_tools_url": os.environ.get(
