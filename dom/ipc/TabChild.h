@@ -568,6 +568,7 @@ public:
   void ClearCachedResources();
   void InvalidateLayers();
   void ReinitRendering();
+  void ReinitRenderingForDeviceReset();
   void CompositorUpdated(const TextureFactoryIdentifier& aNewIdentifier,
                          uint64_t aDeviceResetSeqNo);
 
@@ -841,6 +842,7 @@ private:
   // of handling the last repeated wheel event so that in case event handling
   // takes time, some repeated events can be skipped to not flood child process.
   mozilla::TimeStamp mLastWheelProcessedTimeFromParent;
+  mozilla::TimeDuration mLastWheelProcessingDuration;
   CoalescedWheelData mCoalescedWheelData;
 
   AutoTArray<bool, NUMBER_OF_AUDIO_CHANNELS> mAudioChannelsActive;

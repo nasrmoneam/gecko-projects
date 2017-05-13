@@ -2042,17 +2042,38 @@ or run without that action (ie: --no-{action})"
                     "subtests": size_measurements
                 })
 
+        # Extract compiler warnings count.
+        warnings = self.get_output_from_command(
+            command=[sys.executable, 'mach', 'warnings-list'],
+            cwd=self.query_abs_dirs()['abs_src_dir'],
+            env=self.query_build_env(),
+            # No need to pollute the log.
+            silent=True,
+            # Fail fast.
+            halt_on_failure=True)
+
+        if warnings is not None:
+            perfherder_data['suites'].append({
+                'name': 'compiler warnings',
+                'value': len(warnings.strip().splitlines()),
+                'alertThreshold': 1.0,
+                'subtests': [],
+            })
+
         build_metrics = self._load_build_resources()
         if build_metrics:
             perfherder_data['suites'].append(build_metrics)
         perfherder_data['suites'].extend(self._load_sccache_stats())
 
+        # Ensure all extra options for this configuration are present.
+        for opt in self.config.get('perfherder_extra_options', []):
+            for suite in perfherder_data['suites']:
+                if opt not in suite.get('extraOptions', []):
+                    suite.setdefault('extraOptions', []).append(opt)
+
         if self.query_is_nightly():
             for suite in perfherder_data['suites']:
-                if 'extraOptions' in suite:
-                    suite['extraOptions'] = ['nightly'] + suite['extraOptions']
-                else:
-                    suite['extraOptions'] = ['nightly']
+                suite.setdefault('extraOptions', []).insert(0, 'nightly')
 
         if perfherder_data["suites"]:
             self.info('PERFHERDER_DATA: %s' % json.dumps(perfherder_data))
