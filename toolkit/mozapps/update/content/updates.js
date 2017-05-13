@@ -755,8 +755,25 @@ var gDownloadingPage = {
     var um = CoC["@mozilla.org/updates/update-manager;1"].
              getService(CoI.nsIUpdateManager);
     var activeUpdate = um.activeUpdate;
-    if (activeUpdate)
+    if (activeUpdate) {
+      // It's possible the update has already been downloaded and is being
+      // applied by the time this page is shown, depending on how fast the
+      // download goes and how quickly the 'next' button is clicked to get here.
+      if (activeUpdate.state == STATE_PENDING ||
+          activeUpdate.state == STATE_PENDING_ELEVATE ||
+          activeUpdate.state == STATE_PENDING_SERVICE) {
+        if (aus.canStageUpdates) {
+          this._setUpdateApplying();
+          return;
+        } else {
+          this.cleanUp();
+          gUpdates.wiz.goTo("finished");
+          return;
+        }
+      }
+
       gUpdates.setUpdate(activeUpdate);
+    }
 
     if (!gUpdates.update) {
       LOG("gDownloadingPage", "onPageShow - no valid update to download?!");
@@ -1207,11 +1224,11 @@ var gErrorPatchingPage = {
     switch (gUpdates.update.selectedPatch.state) {
       case STATE_APPLIED:
       case STATE_APPLIED_SERVICE:
-      case STATE_PENDING:
-      case STATE_PENDING_SERVICE:
         gUpdates.wiz.goTo("finished");
         break;
       case STATE_DOWNLOADING:
+      case STATE_PENDING:
+      case STATE_PENDING_SERVICE:
         gUpdates.wiz.goTo("downloading");
         break;
       case STATE_DOWNLOAD_FAILED:
