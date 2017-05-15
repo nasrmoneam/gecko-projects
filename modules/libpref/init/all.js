@@ -648,8 +648,10 @@ pref("apz.axis_lock.direct_pan_angle", "1.047197");   // PI / 3 (60 degrees)
 pref("apz.content_response_timeout", 400);
 #ifdef NIGHTLY_BUILD
 pref("apz.drag.enabled", true);
+pref("apz.drag.initial.enabled", true);
 #else
 pref("apz.drag.enabled", false);
+pref("apz.drag.initial.enabled", false);
 #endif
 pref("apz.danger_zone_x", 50);
 pref("apz.danger_zone_y", 100);
@@ -1233,9 +1235,6 @@ pref("dom.forms.datetime.timepicker", false);
 
 // Support for new @autocomplete values
 pref("dom.forms.autocomplete.experimental", false);
-
-// Enables requestAutocomplete DOM API on forms.
-pref("dom.forms.requestAutocomplete", false);
 
 // Enable search in <select> dropdowns (more than 40 options)
 pref("dom.forms.selectSearch", false);
