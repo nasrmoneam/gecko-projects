@@ -16,10 +16,10 @@ config = {
         "dest": "tools",
     }, {
         "vcs": "hg",
-        "repo": "https://hg.mozilla.org/projects/date",
+        "repo": "https://hg.mozilla.org/projects/jamun",
         "branch": "%(revision)s",
         "dest": "date",
-        "clone_upstream_url": "https://hg.mozilla.org/mozilla-unified",
+        "clone_upstream_url": "https://hg.mozilla.org/projects/jamun",
     }],
     # purge options
     'is_automation': True,
