@@ -62,6 +62,7 @@ use style::gecko_bindings::structs;
 use style::gecko_bindings::structs::{RawServoStyleRule, ServoStyleSheet};
 use style::gecko_bindings::structs::{SheetParsingMode, nsIAtom, nsCSSPropertyID};
 use style::gecko_bindings::structs::{nsRestyleHint, nsChangeHint, nsCSSFontFaceRule};
+use style::gecko_bindings::structs::CompositeOperation;
 use style::gecko_bindings::structs::Loader;
 use style::gecko_bindings::structs::RawGeckoPresContextOwned;
 use style::gecko_bindings::structs::ServoElementSnapshotTable;
@@ -325,12 +326,16 @@ pub extern "C" fn Servo_AnimationCompose(raw_value_map: RawServoAnimationValueMa
     let property: TransitionProperty = css_property.into();
     let value_map = AnimationValueMap::from_ffi_mut(raw_value_map);
 
+    let need_underlying_value = segment.mFromValue.mServo.mRawPtr.is_null() ||
+                                segment.mToValue.mServo.mRawPtr.is_null() ||
+                                segment.mFromComposite != CompositeOperation::Replace ||
+                                segment.mToComposite != CompositeOperation::Replace;
+
     // If either of the segment endpoints are null, get the underlying value to
     // use from the current value in the values map (set by a lower-priority
     // effect), or, if there is no current value, look up the cached base value
     // for this property.
-    let underlying_value = if segment.mFromValue.mServo.mRawPtr.is_null() ||
-                              segment.mToValue.mServo.mRawPtr.is_null() {
+    let underlying_value = if need_underlying_value {
         let previous_composed_value = value_map.get(&property).cloned();
         previous_composed_value.or_else(|| {
             let raw_base_style = unsafe { Gecko_AnimationGetBaseStyle(base_values, css_property) };
@@ -340,26 +345,40 @@ pub extern "C" fn Servo_AnimationCompose(raw_value_map: RawServoAnimationValueMa
         None
     };
 
-    if (segment.mFromValue.mServo.mRawPtr.is_null() ||
-        segment.mToValue.mServo.mRawPtr.is_null()) &&
-        underlying_value.is_none() {
-        warn!("Underlying value should be valid in the case where either 'from' value or 'to' value is null");
+    if need_underlying_value && underlying_value.is_none() {
+        warn!("Underlying value should be valid when we expect to use it");
         return;
     }
 
-    // Declare for making derefenced raw pointer alive outside the if block.
+    // Temporaries used in the following if-block whose lifetimes we need to prlong.
     let raw_from_value;
+    let from_composite_result;
     let from_value = if !segment.mFromValue.mServo.mRawPtr.is_null() {
         raw_from_value = unsafe { &*segment.mFromValue.mServo.mRawPtr };
-        AnimationValue::as_arc(&raw_from_value).as_ref()
+        match segment.mFromComposite {
+            CompositeOperation::Add => {
+                let value_to_composite = AnimationValue::as_arc(&raw_from_value).as_ref();
+                from_composite_result = underlying_value.as_ref().unwrap().add(value_to_composite);
+                from_composite_result.as_ref().unwrap_or(value_to_composite)
+            }
+            _ => { AnimationValue::as_arc(&raw_from_value) }
+        }
     } else {
         underlying_value.as_ref().unwrap()
     };
 
     let raw_to_value;
+    let to_composite_result;
     let to_value = if !segment.mToValue.mServo.mRawPtr.is_null() {
         raw_to_value = unsafe { &*segment.mToValue.mServo.mRawPtr };
-        AnimationValue::as_arc(&raw_to_value).as_ref()
+        match segment.mToComposite {
+            CompositeOperation::Add => {
+                let value_to_composite = AnimationValue::as_arc(&raw_to_value).as_ref();
+                to_composite_result = underlying_value.as_ref().unwrap().add(value_to_composite);
+                to_composite_result.as_ref().unwrap_or(value_to_composite)
+            }
+            _ => { AnimationValue::as_arc(&raw_to_value) }
+        }
     } else {
         underlying_value.as_ref().unwrap()
     };
@@ -552,7 +571,8 @@ pub extern "C" fn Servo_StyleSheet_FromUTF8Bytes(loader: *mut Loader,
                                                  data: *const nsACString,
                                                  mode: SheetParsingMode,
                                                  media_list: *const RawServoMediaList,
-                                                 extra_data: *mut URLExtraData)
+                                                 extra_data: *mut URLExtraData,
+                                                 line_number_offset: u32)
                                                  -> RawServoStyleSheetStrong {
     let global_style_data = &*GLOBAL_STYLE_DATA;
     let input = unsafe { data.as_ref().unwrap().as_str_unchecked() };
@@ -586,7 +606,8 @@ pub extern "C" fn Servo_StyleSheet_FromUTF8Bytes(loader: *mut Loader,
 
     Arc::new(Stylesheet::from_str(
         input, url_data.clone(), origin, media,
-        shared_lock, loader, &RustLogReporter, QuirksMode::NoQuirks, 0u64)
+        shared_lock, loader, &RustLogReporter,
+        QuirksMode::NoQuirks, line_number_offset as u64)
     ).into_strong()
 }
 
@@ -595,7 +616,8 @@ pub extern "C" fn Servo_StyleSheet_ClearAndUpdate(stylesheet: RawServoStyleSheet
                                                   loader: *mut Loader,
                                                   gecko_stylesheet: *mut ServoStyleSheet,
                                                   data: *const nsACString,
-                                                  extra_data: *mut URLExtraData)
+                                                  extra_data: *mut URLExtraData,
+                                                  line_number_offset: u32)
 {
     let input = unsafe { data.as_ref().unwrap().as_str_unchecked() };
     let url_data = unsafe { RefPtr::from_ptr_ref(&extra_data) };
@@ -613,8 +635,8 @@ pub extern "C" fn Servo_StyleSheet_ClearAndUpdate(stylesheet: RawServoStyleSheet
     };
 
     let sheet = Stylesheet::as_arc(&stylesheet);
-    Stylesheet::update_from_str(&sheet, input, url_data,
-                                loader, &RustLogReporter);
+    Stylesheet::update_from_str(&sheet, input, url_data, loader,
+                                &RustLogReporter, line_number_offset as u64);
 }
 
 #[no_mangle]
@@ -763,16 +785,24 @@ macro_rules! impl_basic_rule_funcs {
         to_css: $to_css:ident,
     } => {
         #[no_mangle]
-        pub extern "C" fn $getter(rules: ServoCssRulesBorrowed, index: u32) -> Strong<$raw_type> {
-            read_locked_arc(rules, |rules: &CssRules| {
-                match rules.0[index as usize] {
-                    CssRule::$name(ref rule) => rule.clone().into_strong(),
-                    _ => {
-                        unreachable!(concat!(stringify!($getter), "should only be called ",
-                                             "on a ", stringify!($name), " rule"));
-                    }
+        pub extern "C" fn $getter(rules: ServoCssRulesBorrowed, index: u32,
+                                  line: *mut u32, column: *mut u32)
+            -> Strong<$raw_type> {
+            let global_style_data = &*GLOBAL_STYLE_DATA;
+            let guard = global_style_data.shared_lock.read();
+            let rules = Locked::<CssRules>::as_arc(&rules).read_with(&guard);
+            match rules.0[index as usize] {
+                CssRule::$name(ref rule) => {
+                    let location = rule.read_with(&guard).source_location;
+                    *unsafe { line.as_mut().unwrap() } = location.line as u32;
+                    *unsafe { column.as_mut().unwrap() } = location.column as u32;
+                    rule.clone().into_strong()
+                },
+                _ => {
+                    unreachable!(concat!(stringify!($getter), "should only be called ",
+                                         "on a ", stringify!($name), " rule"));
                 }
-            })
+            }
         }
 
         #[no_mangle]
@@ -905,7 +935,7 @@ pub extern "C" fn Servo_NamespaceRule_GetURI(rule: RawServoNamespaceRuleBorrowed
 #[no_mangle]
 pub extern "C" fn Servo_PageRule_GetStyle(rule: RawServoPageRuleBorrowed) -> RawServoDeclarationBlockStrong {
     read_locked_arc(rule, |rule: &PageRule| {
-        rule.0.clone().into_strong()
+        rule.block.clone().into_strong()
     })
 }
 
@@ -914,7 +944,7 @@ pub extern "C" fn Servo_PageRule_SetStyle(rule: RawServoPageRuleBorrowed,
                                            declarations: RawServoDeclarationBlockBorrowed) {
     let declarations = Locked::<PropertyDeclarationBlock>::as_arc(&declarations);
     write_locked_arc(rule, |rule: &mut PageRule| {
-        rule.0 = declarations.clone();
+        rule.block = declarations.clone();
     })
 }
 
@@ -1805,8 +1835,8 @@ pub extern "C" fn Servo_DeclarationBlock_SetBackgroundImage(declarations:
                                                             raw_extra_data: *mut URLExtraData) {
     use style::properties::PropertyDeclaration;
     use style::properties::longhands::background_image::SpecifiedValue as BackgroundImage;
-    use style::properties::longhands::background_image::single_value::SpecifiedValue as SingleBackgroundImage;
-    use style::values::specified::image::Image;
+    use style::values::Either;
+    use style::values::generics::image::Image;
     use style::values::specified::url::SpecifiedUrl;
 
     let url_data = unsafe { RefPtr::from_ptr_ref(&raw_extra_data) };
@@ -1817,9 +1847,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetBackgroundImage(declarations:
                                      QuirksMode::NoQuirks);
     if let Ok(url) = SpecifiedUrl::parse_from_string(string.into(), &context) {
         let decl = PropertyDeclaration::BackgroundImage(BackgroundImage(
-            vec![SingleBackgroundImage(
-                Some(Image::Url(url))
-            )]
+            vec![Either::Second(Image::Url(url))]
         ));
         write_locked_arc(declarations, |decls: &mut PropertyDeclarationBlock| {
             decls.push(decl, Importance::Normal);

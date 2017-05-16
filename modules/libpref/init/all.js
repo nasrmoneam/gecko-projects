@@ -3096,10 +3096,21 @@ pref("dom.ipc.plugins.unloadTimeoutSecs", 30);
 // Asynchronous plugin initialization is on hold.
 pref("dom.ipc.plugins.asyncInit.enabled", false);
 
-// Use flash async drawing mode
+#ifdef RELEASE_OR_BETA
+#ifdef _AMD64_
+// Allow Flash async drawing mode in 64-bit release builds
 pref("dom.ipc.plugins.asyncdrawing.enabled", true);
-// Force the accelerated path for a subset of Flash wmode values
+// Force the accelerated direct path for a subset of Flash wmode values
 pref("dom.ipc.plugins.forcedirect.enabled", true);
+#else
+// Disable async drawing for 32-bit release builds
+pref("dom.ipc.plugins.asyncdrawing.enabled", false);
+#endif // _AMD64_
+#else
+// Enable in dev channels
+pref("dom.ipc.plugins.asyncdrawing.enabled", true);
+pref("dom.ipc.plugins.forcedirect.enabled", true);
+#endif
 
 #ifdef RELEASE_OR_BETA
 pref("dom.ipc.processCount", 1);
@@ -5219,11 +5230,6 @@ pref("urlclassifier.gethash.timeout_ms", 5000);
 pref("urlclassifier.update.response_timeout_ms", 5000);
 // Download update timeout for Safebrowsing.
 pref("urlclassifier.update.timeout_ms", 60000);
-
-// If an urlclassifier table has not been updated in this number of seconds,
-// a gethash request will be forced to check that the result is still in
-// the database.
-pref("urlclassifier.max-complete-age", 2700);
 
 // Name of the about: page contributed by safebrowsing to handle display of error
 // pages on phishing/malware hits.  (bug 399233)

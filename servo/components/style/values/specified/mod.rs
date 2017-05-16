@@ -28,9 +28,8 @@ use values::specified::calc::CalcNode;
 pub use self::align::{AlignItems, AlignJustifyContent, AlignJustifySelf, JustifyItems};
 pub use self::color::Color;
 pub use self::grid::{GridLine, TrackKeyword};
-pub use self::image::{AngleOrCorner, ColorStop, EndingShape as GradientEndingShape, Gradient};
-pub use self::image::{GradientItem, GradientKind, HorizontalDirection, Image, ImageRect, LayerImage};
-pub use self::image::{LengthOrKeyword, LengthOrPercentageOrKeyword, SizeKeyword, VerticalDirection};
+pub use self::image::{ColorStop, EndingShape as GradientEndingShape, Gradient};
+pub use self::image::{GradientItem, GradientKind, Image, ImageRect, ImageLayer};
 pub use self::length::AbsoluteLength;
 pub use self::length::{FontRelativeLength, ViewportPercentageLength, CharacterWidth, Length, CalcLengthOrPercentage};
 pub use self::length::{Percentage, LengthOrNone, LengthOrNumber, LengthOrPercentage, LengthOrPercentageOrAuto};
@@ -681,7 +680,7 @@ impl ToCss for Number {
 
 /// <number-percentage>
 /// Accepts only non-negative numbers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 #[allow(missing_docs)]
 pub enum NumberOrPercentage {
@@ -691,13 +690,27 @@ pub enum NumberOrPercentage {
 
 no_viewport_percentage!(NumberOrPercentage);
 
-impl Parse for NumberOrPercentage {
-    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ()> {
-        if let Ok(per) = input.try(Percentage::parse_non_negative) {
+impl NumberOrPercentage {
+    fn parse_with_clamping_mode(context: &ParserContext,
+                                input: &mut Parser,
+                                type_: AllowedNumericType)
+                                -> Result<Self, ()> {
+        if let Ok(per) = input.try(|i| Percentage::parse_with_clamping_mode(i, type_)) {
             return Ok(NumberOrPercentage::Percentage(per));
         }
 
-        Number::parse_non_negative(context, input).map(NumberOrPercentage::Number)
+        parse_number_with_clamping_mode(context, input, type_).map(NumberOrPercentage::Number)
+    }
+
+    /// Parse a non-negative number or percentage.
+    pub fn parse_non_negative(context: &ParserContext, input: &mut Parser) -> Result<Self, ()> {
+        Self::parse_with_clamping_mode(context, input, AllowedNumericType::NonNegative)
+    }
+}
+
+impl Parse for NumberOrPercentage {
+    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ()> {
+        Self::parse_with_clamping_mode(context, input, AllowedNumericType::All)
     }
 }
 
@@ -1219,13 +1232,22 @@ impl ToComputedValue for ClipRect {
 
 impl Parse for ClipRect {
     fn parse(context: &ParserContext, input: &mut Parser) -> Result<Self, ()> {
-        use values::specified::{AllowQuirks, Length};
+        Self::parse_quirky(context, input, AllowQuirks::No)
+    }
+}
 
-        fn parse_argument(context: &ParserContext, input: &mut Parser) -> Result<Option<Length>, ()> {
+impl ClipRect {
+    /// Parses a rect(<top>, <left>, <bottom>, <right>), allowing quirks.
+    pub fn parse_quirky(context: &ParserContext, input: &mut Parser,
+                    allow_quirks: AllowQuirks) -> Result<Self, ()> {
+        use values::specified::Length;
+
+        fn parse_argument(context: &ParserContext, input: &mut Parser,
+                          allow_quirks: AllowQuirks) -> Result<Option<Length>, ()> {
             if input.try(|input| input.expect_ident_matching("auto")).is_ok() {
                 Ok(None)
             } else {
-                Length::parse_quirky(context, input, AllowQuirks::Yes).map(Some)
+                Length::parse_quirky(context, input, allow_quirks).map(Some)
             }
         }
 
@@ -1234,21 +1256,21 @@ impl Parse for ClipRect {
         }
 
         input.parse_nested_block(|input| {
-            let top = try!(parse_argument(context, input));
+            let top = try!(parse_argument(context, input, allow_quirks));
             let right;
             let bottom;
             let left;
 
             if input.try(|input| input.expect_comma()).is_ok() {
-                right = try!(parse_argument(context, input));
+                right = try!(parse_argument(context, input, allow_quirks));
                 try!(input.expect_comma());
-                bottom = try!(parse_argument(context, input));
+                bottom = try!(parse_argument(context, input, allow_quirks));
                 try!(input.expect_comma());
-                left = try!(parse_argument(context, input));
+                left = try!(parse_argument(context, input, allow_quirks));
             } else {
-                right = try!(parse_argument(context, input));
-                bottom = try!(parse_argument(context, input));
-                left = try!(parse_argument(context, input));
+                right = try!(parse_argument(context, input, allow_quirks));
+                bottom = try!(parse_argument(context, input, allow_quirks));
+                left = try!(parse_argument(context, input, allow_quirks));
             }
             Ok(ClipRect {
                 top: top,
@@ -1262,6 +1284,18 @@ impl Parse for ClipRect {
 
 /// rect(...) | auto
 pub type ClipRectOrAuto = Either<ClipRect, Auto>;
+
+impl ClipRectOrAuto {
+    /// Parses a ClipRect or Auto, allowing quirks.
+    pub fn parse_quirky(context: &ParserContext, input: &mut Parser,
+                        allow_quirks: AllowQuirks) -> Result<Self, ()> {
+        if let Ok(v) = input.try(|i| ClipRect::parse_quirky(context, i, allow_quirks)) {
+            Ok(Either::First(v))
+        } else {
+            Auto::parse(context, input).map(Either::Second)
+        }
+    }
+}
 
 /// <color> | auto
 pub type ColorOrAuto = Either<CSSColor, Auto>;
