@@ -36,4 +36,5 @@ config = {
         }
     },
     "balrog_use_dummy_suffix": False,
+    "stage_product": "devedition",
 }
