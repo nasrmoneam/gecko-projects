@@ -1,9 +1,9 @@
 import os
 
-BRANCH = "date"
+BRANCH = "jamun"
 MOZILLA_DIR = BRANCH
 EN_US_BINARY_URL = "http://archive.mozilla.org/pub/" \
-                   "mobile/nightly/latest-date-android-api-15/en-US"
+                   "mobile/nightly/latest-jamun-android-api-15/en-US"
 
 config = {
     "branch": BRANCH,
@@ -33,7 +33,7 @@ config = {
         "dest": "tools",
     }, {
         "vcs": "hg",
-        "repo": "https://hg.mozilla.org/projects/date",
+        "repo": "https://hg.mozilla.org/projects/jamun",
         "revision": "%(revision)s",
         "dest": MOZILLA_DIR,
     }],
@@ -48,7 +48,7 @@ config = {
         "MOZ_OBJDIR": "obj-l10n",
         "EN_US_BINARY_URL": os.environ.get("EN_US_BINARY_URL", EN_US_BINARY_URL),
         "LOCALE_MERGEDIR": "%(abs_merge_dir)s/",
-        "MOZ_UPDATE_CHANNEL": "nightly-date",
+        "MOZ_UPDATE_CHANNEL": "nightly-jamun",
     },
     "upload_branch": "%s-android-api-15" % BRANCH,
     "ssh_key_dir": "~/.ssh",

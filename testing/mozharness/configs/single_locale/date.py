@@ -2,9 +2,9 @@ import os
 
 config = {
     "nightly_build": True,
-    "branch": "date",
+    "branch": "jamun",
     "en_us_binary_url": "http://archive.mozilla.org/pub/firefox/nightly/latest-mozilla-central",
-    "update_channel": "nightly-date",
+    "update_channel": "nightly-jamun",
 
     # l10n
     "hg_l10n_base": "https://hg.mozilla.org/l10n-central",
@@ -17,7 +17,7 @@ config = {
     ),
 
     # repositories
-    "mozilla_dir": "date",
+    "mozilla_dir": "jamun",
     "repos": [{
         "vcs": "hg",
         "repo": "https://hg.mozilla.org/build/tools",
@@ -25,9 +25,9 @@ config = {
         "dest": "tools",
     }, {
         "vcs": "hg",
-        "repo": "https://hg.mozilla.org/projects/date",
+        "repo": "https://hg.mozilla.org/projects/jamun",
         "revision": "%(revision)s",
-        "dest": "date",
+        "dest": "jamun",
     }],
     # purge options
     'is_automation': True,

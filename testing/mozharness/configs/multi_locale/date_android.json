@@ -7,7 +7,7 @@
     "locales_dir": "mobile/android/locales",
     "ignore_locales": ["en-US", "multi"],
     "repos": [{
-        "repo": "https://hg.mozilla.org/date",
+        "repo": "https://hg.mozilla.org/jamun",
         "branch": "default",
         "dest": "build"
     },{
