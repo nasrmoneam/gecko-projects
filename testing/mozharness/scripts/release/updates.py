@@ -218,6 +218,8 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
             cmd.extend(["--mar-channel-id", mar_channel_id])
         if "stage_product" in self.config:
             cmd.extend(["--stage-product", self.config["stage_product"]])
+        if "bouncer_product" in self.config:
+            cmd.extend(["--bouncer-product", self.config["bouncer_product"]])
         self.run_command(cmd, halt_on_failure=True, env=env)
 
     def bump_update_verify_configs(self, channel, channel_config):
