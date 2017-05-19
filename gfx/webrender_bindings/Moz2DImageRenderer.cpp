@@ -13,6 +13,10 @@
 
 #include <iostream>
 
+#ifdef MOZ_ENABLE_FREETYPE
+#include "mozilla/ThreadLocal.h"
+#endif
+
 namespace mozilla {
 namespace wr {
 
@@ -29,6 +33,10 @@ public:
   }
 };
 
+#ifdef MOZ_ENABLE_FREETYPE
+static MOZ_THREAD_LOCAL(FT_Library) sFTLibrary;
+#endif
+
 static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
                                 gfx::IntSize aSize,
                                 gfx::SurfaceFormat aFormat,
@@ -44,6 +52,21 @@ static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
   if (aOutput.length() < static_cast<size_t>(aSize.height * stride)) {
     return false;
   }
+
+  void* fontContext = nullptr;
+#ifdef MOZ_ENABLE_FREETYPE
+  if (!sFTLibrary.init()) {
+    return false;
+  }
+  if (!sFTLibrary.get()) {
+    FT_Library library = gfx::Factory::NewFTLibrary();
+    if (!library) {
+      return false;
+    }
+    sFTLibrary.set(library);
+  }
+  fontContext = sFTLibrary.get();
+#endif
 
   // In bindings.rs we allocate a buffer filled with opaque white.
   bool uninitialized = false;
@@ -64,8 +87,7 @@ static bool Moz2DRenderCallback(const Range<const uint8_t> aBlob,
   InMemoryStreamBuffer streamBuffer(aBlob);
   std::istream stream(&streamBuffer);
 
-  gfx::Matrix baseTransform;
-  gfx::InlineTranslator translator(dt, baseTransform);
+  gfx::InlineTranslator translator(dt, fontContext);
 
   auto ret = translator.TranslateRecording(stream);
 

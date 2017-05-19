@@ -7,6 +7,7 @@
 use app_units::Au;
 use devtools_traits::NodeInfo;
 use document_loader::DocumentLoader;
+use dom::bindings::cell::DOMRefCell;
 use dom::bindings::codegen::Bindings::CharacterDataBinding::CharacterDataMethods;
 use dom::bindings::codegen::Bindings::DocumentBinding::DocumentMethods;
 use dom::bindings::codegen::Bindings::ElementBinding::ElementMethods;
@@ -46,6 +47,7 @@ use dom::htmllinkelement::HTMLLinkElement;
 use dom::htmlmetaelement::HTMLMetaElement;
 use dom::htmlstyleelement::HTMLStyleElement;
 use dom::htmltextareaelement::{HTMLTextAreaElement, LayoutHTMLTextAreaElementHelpers};
+use dom::mutationobserver::RegisteredObserver;
 use dom::nodelist::NodeList;
 use dom::processinginstruction::ProcessingInstruction;
 use dom::range::WeakRangeVec;
@@ -61,18 +63,18 @@ use heapsize::{HeapSizeOf, heap_size_of};
 use html5ever::{Prefix, Namespace, QualName};
 use js::jsapi::{JSContext, JSObject, JSRuntime};
 use libc::{self, c_void, uintptr_t};
-use msg::constellation_msg::{FrameId, PipelineId};
+use msg::constellation_msg::{BrowsingContextId, PipelineId};
 use ref_slice::ref_slice;
 use script_layout_interface::{HTMLCanvasData, OpaqueStyleAndLayoutData, SVGSVGData};
 use script_layout_interface::{LayoutElementType, LayoutNodeType, TrustedNodeAddress};
 use script_layout_interface::message::Msg;
 use script_traits::DocumentActivity;
 use script_traits::UntrustedNodeAddress;
-use selectors::matching::matches_selector_list;
+use selectors::matching::{matches_selector_list, MatchingContext, MatchingMode};
 use selectors::parser::SelectorList;
 use servo_url::ServoUrl;
 use std::borrow::ToOwned;
-use std::cell::{Cell, UnsafeCell};
+use std::cell::{Cell, UnsafeCell, RefMut};
 use std::cmp::max;
 use std::default::Default;
 use std::iter;
@@ -137,6 +139,9 @@ pub struct Node {
     /// Must be sent back to the layout thread to be destroyed when this
     /// node is finalized.
     style_and_layout_data: Cell<Option<OpaqueStyleAndLayoutData>>,
+
+    /// Registered observers for this node.
+    mutation_observers: DOMRefCell<Vec<RegisteredObserver>>,
 
     unique_id: UniqueId,
 }
@@ -341,11 +346,14 @@ impl<'a> Iterator for QuerySelectorIterator {
 
     fn next(&mut self) -> Option<Root<Node>> {
         let selectors = &self.selectors.0;
+
         // TODO(cgaebel): Is it worth it to build a bloom filter here
         // (instead of passing `None`)? Probably.
+        let mut ctx = MatchingContext::new(MatchingMode::Normal, None);
+
         self.iterator.by_ref().filter_map(|node| {
             if let Some(element) = Root::downcast(node) {
-                if matches_selector_list(selectors, &element, None) {
+                if matches_selector_list(selectors, &element, &mut ctx) {
                     return Some(Root::upcast(element));
                 }
             }
@@ -361,6 +369,11 @@ impl Node {
         for kid in self.children() {
             kid.teardown();
         }
+    }
+
+    /// Return all registered mutation observers for this node.
+    pub fn registered_mutation_observers(&self) -> RefMut<Vec<RegisteredObserver>> {
+         self.mutation_observers.borrow_mut()
     }
 
     /// Dumps the subtree rooted at this node, for debugging.
@@ -707,8 +720,9 @@ impl Node {
             Err(()) => Err(Error::Syntax),
             // Step 3.
             Ok(selectors) => {
+                let mut ctx = MatchingContext::new(MatchingMode::Normal, None);
                 Ok(self.traverse_preorder().filter_map(Root::downcast).find(|element| {
-                    matches_selector_list(&selectors.0, element, None)
+                    matches_selector_list(&selectors.0, element, &mut ctx)
                 }))
             }
         }
@@ -968,7 +982,7 @@ pub trait LayoutNodeHelpers {
     fn image_url(&self) -> Option<ServoUrl>;
     fn canvas_data(&self) -> Option<HTMLCanvasData>;
     fn svg_data(&self) -> Option<SVGSVGData>;
-    fn iframe_frame_id(&self) -> FrameId;
+    fn iframe_browsing_context_id(&self) -> BrowsingContextId;
     fn iframe_pipeline_id(&self) -> PipelineId;
     fn opaque(&self) -> OpaqueNode;
 }
@@ -1119,10 +1133,10 @@ impl LayoutNodeHelpers for LayoutJS<Node> {
             .map(|svg| svg.data())
     }
 
-    fn iframe_frame_id(&self) -> FrameId {
+    fn iframe_browsing_context_id(&self) -> BrowsingContextId {
         let iframe_element = self.downcast::<HTMLIFrameElement>()
             .expect("not an iframe element!");
-        iframe_element.frame_id()
+        iframe_element.browsing_context_id()
     }
 
     fn iframe_pipeline_id(&self) -> PipelineId {
@@ -1410,6 +1424,8 @@ impl Node {
             ranges: WeakRangeVec::new(),
 
             style_and_layout_data: Cell::new(None),
+
+            mutation_observers: Default::default(),
 
             unique_id: UniqueId::new(),
         }

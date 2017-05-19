@@ -1191,6 +1191,10 @@ case "$target" in
     fi
     ;;
 
+*-solaris*)
+    MOZ_FIX_LINK_PATHS=
+    ;;
+
 esac
 
 AC_SUBST_LIST(MMX_FLAGS)
@@ -2019,7 +2023,7 @@ else
    NSS_CFLAGS="-I${DIST}/include/nss"
    case "${OS_ARCH}" in
         # Only few platforms have been tested with GYP
-        WINNT|Darwin|Linux|DragonFly|FreeBSD|NetBSD|OpenBSD)
+        WINNT|Darwin|Linux|DragonFly|FreeBSD|NetBSD|OpenBSD|SunOS)
             ;;
         *)
             AC_MSG_ERROR([building in-tree NSS is not supported on this platform. Use --with-system-nss])
@@ -4988,11 +4992,6 @@ fi
 AC_SUBST(MOZ_REQUIRE_SIGNING)
 if test "$MOZ_REQUIRE_SIGNING" = 1; then
   AC_DEFINE(MOZ_REQUIRE_SIGNING)
-fi
-
-AC_SUBST(MOZ_JSDOWNLOADS)
-if test -n "$MOZ_JSDOWNLOADS"; then
-  AC_DEFINE(MOZ_JSDOWNLOADS)
 fi
 
 dnl ========================================================

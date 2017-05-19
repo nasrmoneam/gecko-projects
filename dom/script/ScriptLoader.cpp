@@ -633,8 +633,8 @@ ScriptLoader::StartFetchingModuleDependencies(ModuleLoadRequest* aRequest)
 
   // Wait for all imports to become ready.
   RefPtr<GenericPromise::AllPromiseType> allReady =
-    GenericPromise::All(AbstractThread::GetCurrent(), importsReady);
-  allReady->Then(AbstractThread::GetCurrent(), __func__, aRequest,
+    GenericPromise::All(AbstractThread::MainThread(), importsReady);
+  allReady->Then(AbstractThread::MainThread(), __func__, aRequest,
                  &ModuleLoadRequest::DependenciesLoaded,
                  &ModuleLoadRequest::LoadFailed);
 }
@@ -818,6 +818,21 @@ ScriptLoader::IsBytecodeCacheEnabled()
   return sExposeTestInterfaceEnabled;
 }
 
+/* static */ bool
+ScriptLoader::IsEagerBytecodeCache()
+{
+  // When testing, we want to force use of the bytecode cache.
+  static bool sEagerBytecodeCache = false;
+  static bool sForceBytecodeCachePrefCached = false;
+  if (!sForceBytecodeCachePrefCached) {
+    sForceBytecodeCachePrefCached = true;
+    Preferences::AddBoolVarCache(&sEagerBytecodeCache,
+                                 "dom.script_loader.bytecode_cache.eager",
+                                 false);
+  }
+  return sEagerBytecodeCache;
+}
+
 nsresult
 ScriptLoader::RestartLoad(ScriptLoadRequest* aRequest)
 {
@@ -856,7 +871,7 @@ ScriptLoader::StartLoad(ScriptLoadRequest* aRequest)
     ModuleLoadRequest* request = aRequest->AsModuleRequest();
     if (ModuleMapContainsModule(request)) {
       WaitForModuleFetch(request)
-        ->Then(AbstractThread::GetCurrent(), __func__, request,
+        ->Then(AbstractThread::MainThread(), __func__, request,
                &ModuleLoadRequest::ModuleLoaded,
                &ModuleLoadRequest::LoadFailed);
       return NS_OK;
@@ -1864,19 +1879,10 @@ ScriptLoader::FillCompileOptionsForRequest(const AutoJSAPI&jsapi,
     aOptions->setElement(&elementVal.toObject());
   }
 
-  // When testing, we want to force use of the bytecode cache.
-  static bool sForceBytecodeCacheEnabled = false;
-  static bool sForceBytecodeCachePrefCached = false;
-  if (!sForceBytecodeCachePrefCached) {
-    sForceBytecodeCachePrefCached = true;
-    Preferences::AddBoolVarCache(&sForceBytecodeCacheEnabled,
-                                 "dom.script_loader.force_bytecode_cache",
-                                 false);
-  }
   // At the moment, the bytecode cache is only triggered if a script is large
   // enough to be parsed out of the main thread.  Thus, for testing purposes, we
   // force parsing any script out of the main thread.
-  if (sForceBytecodeCacheEnabled) {
+  if (IsEagerBytecodeCache()) {
     aOptions->forceAsync = true;
   }
 
@@ -2566,7 +2572,7 @@ ScriptLoader::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
 
   if (NS_FAILED(rv)) {
     if (sriOk && aRequest->mElement) {
-      
+
       uint32_t lineNo = aRequest->mElement->GetScriptLineNumber();
 
       nsAutoString url;

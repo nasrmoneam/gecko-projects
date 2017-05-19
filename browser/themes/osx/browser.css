@@ -520,6 +520,8 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
 
 /* ::::: nav-bar-inner ::::: */
 
+%include ../shared/urlbar-searchbar.inc.css
+
 %ifdef MOZ_PHOTON_THEME
 
 #main-window {
@@ -527,8 +529,6 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
   --urlbar-border-color-hover: hsla(240, 5%, 5%, .35);
   --urlbar-background-color: -moz-field;
 }
-
-%include ../shared/location-search-bar.inc.css
 
 #urlbar[focused="true"],
 .searchbar-textbox[focused="true"] {
@@ -538,7 +538,7 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
 
 #urlbar,
 .searchbar-textbox {
-  font: icon;
+  font-size: 1.25em;
 }
 
 %else
@@ -581,10 +581,6 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
 .searchbar-textbox[focused="true"] {
   border-color: -moz-mac-focusring;
   box-shadow: var(--focus-ring-box-shadow);
-}
-
-#urlbar-container {
-  -moz-box-align: center;
 }
 
 #urlbar {
@@ -753,14 +749,6 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
 
 #urlbar-search-settings:hover:active {
   background-color: var(--arrowpanel-dimmed-further);
-}
-
-#urlbar-search-splitter {
-  min-width: 8px;
-  width: 8px;
-  background-image: none;
-  margin: 0 -4px;
-  position: relative;
 }
 
 #search-container {
@@ -1364,77 +1352,14 @@ html|span.ac-emphasize-text-url {
   background: url("chrome://browser/skin/subtle-pattern.png") #B3B9C1;
 }
 
+
 /* ----- SIDEBAR ELEMENTS ----- */
+
+%include ../shared/sidebar.inc.css
 
 #sidebar-box {
   -moz-appearance: -moz-mac-source-list;
-  box-shadow: inset -2px 0 0 hsla(0,0%,100%,.2);
 }
-
-sidebarheader {
-  padding: 2px 2px 0;
-  text-shadow: 0 1px 0 hsla(0,0%,100%,.5);
-}
-
-.sidebar-splitter {
-  border-inline-start: none;
-  border-inline-end: 1px solid #b4b4b4;
-  min-width: 1px;
-  width: 3px;
-  background-image: none !important;
-  background-color: transparent;
-  margin-inline-start: -3px;
-  position: relative;
-}
-
-#appcontent ~ .sidebar-splitter {
-  border-inline-start: 1px solid #ccc;
-  border-inline-end: none;
-  margin-inline-start: 0;
-  margin-inline-end: -3px;
-}
-
-.sidebar-title,
-#sidebar-title {
-  color: #596c80;
-  font-weight: bold;
-}
-
-.sidebar-title:-moz-window-inactive,
-#sidebar-title:-moz-window-inactive {
-  color: #868b92;
-}
-
-.sidebar-throbber[loading="true"],
-#sidebar-throbber[loading="true"] {
-  list-style-image: url("chrome://global/skin/icons/loading.png");
-}
-
-@media (min-resolution: 2dppx) {
-  .sidebar-throbber[loading="true"],
-  #sidebar-throbber[loading="true"] {
-    list-style-image: url("chrome://global/skin/icons/loading@2x.png");
-    width: 16px;
-  }
-}
-
-@media (-moz-mac-yosemite-theme) {
-  #sidebar-box {
-    box-shadow: none;
-  }
-
-  sidebarheader {
-    text-shadow: none;
-    font-weight: 500;
-  }
-
-  .sidebar-title,
-  #sidebar-title {
-    color: #636363;
-    font-weight: 500;
-  }
-}
-
 
 /* ----- CONTENT ----- */
 

@@ -37,6 +37,7 @@ nsSHEntry::nsSHEntry()
   , mURIWasModified(false)
   , mIsSrcdocEntry(false)
   , mScrollRestorationIsManual(false)
+  , mLoadedInThisProcess(false)
 {
 }
 
@@ -60,6 +61,7 @@ nsSHEntry::nsSHEntry(const nsSHEntry& aOther)
   , mURIWasModified(aOther.mURIWasModified)
   , mIsSrcdocEntry(aOther.mIsSrcdocEntry)
   , mScrollRestorationIsManual(false)
+  , mLoadedInThisProcess(aOther.mLoadedInThisProcess)
 {
 }
 
@@ -460,6 +462,8 @@ nsSHEntry::Create(nsIURI* aURI, const nsAString& aTitle,
   mIsSrcdocEntry = false;
   mSrcdocData = NullString();
 
+  mLoadedInThisProcess = true;
+
   return NS_OK;
 }
 
@@ -642,6 +646,13 @@ NS_IMETHODIMP
 nsSHEntry::SetScrollRestorationIsManual(bool aIsManual)
 {
   mScrollRestorationIsManual = aIsManual;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSHEntry::GetLoadedInThisProcess(bool* aLoadedInThisProcess)
+{
+  *aLoadedInThisProcess = mLoadedInThisProcess;
   return NS_OK;
 }
 
@@ -966,6 +977,9 @@ nsSHEntry::SetLastTouched(uint32_t aLastTouched)
 NS_IMETHODIMP
 nsSHEntry::SetSHistory(nsISHistory* aSHistory)
 {
-  mShared->mSHistory = do_GetWeakReference(aSHistory);
+  nsWeakPtr shistory = do_GetWeakReference(aSHistory);
+  // mSHistory can not be changed once it's set
+  MOZ_DIAGNOSTIC_ASSERT(!mShared->mSHistory || (mShared->mSHistory == shistory));
+  mShared->mSHistory = shistory;
   return NS_OK;
 }

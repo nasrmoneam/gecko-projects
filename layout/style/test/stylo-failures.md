@@ -90,7 +90,7 @@ to mochitest command.
   * ... `font-feature-settings`: bug 1355366 [10]
 * test_font_face_parser.html `font-weight`: keyword values should be preserved in \@font-face [4]
 * @namespace support:
-  * test_namespace_rule.html: bug 1355715 [16]
+  * test_namespace_rule.html: bug 1355715 [8]
 * test_dont_use_document_colors.html: support of disabling document color bug 1355716 [21]
 * test_font_feature_values_parsing.html: \@font-feature-values support bug 1355721 [107]
 * Grid support bug 1341802
@@ -143,11 +143,6 @@ to mochitest command.
 * Incorrect serialization
   * color value not canonicalized servo/servo#15397
     * test_shorthand_property_getters.html `should condense to canonical case` [2]
-  * :not(*) doesn't serialize properly servo/servo#16017
-    * test_selectors.html `:not()` [8]
-    * ... `:not(html|)` [1]
-  * "*|a" gets serialized as "a" when it should not servo/servo#16020
-    * test_selectors.html `reserialization of *|a` [6]
   * place-{content,items,self} shorthands bug 1363971
     * test_align_shorthand_serialization.html [6]
   * system font serialization with subprop specified bug 1364286
@@ -173,16 +168,8 @@ to mochitest command.
   * ... `font-size: var(--a)` [3]
 * Quirks mode support
   * hashless color servo/servo#15341
-    * test_property_syntax_errors.html `color: 000000` [22]
-    * ... `color: 96ed2a` [22]
-    * ... `color: fff` [4]
-  * unitless length servo/servo#15342
-    * test_property_syntax_errors.html ` 20 ` [6]
-    * ... `: 10 ` [6]
-    * ... ` 2 ` [26]
-    * ... `: 5 ` [84]
-    * ... `border-spacing: ` [6]
-    * ... `rect(1, ` [2]
+    * test_property_syntax_errors.html `color: 000000` [10]
+    * ... `color: 96ed2a` [10]
   * test_hover_quirk.html: hover quirks bug 1355724 [6]
 * Unit should be preserved after parsing servo/servo#15346
   * test_units_time.html [1]
@@ -192,7 +179,6 @@ to mochitest command.
 * test_css_supports.html: issues around @supports syntax servo/servo#15482 [8]
 * test_author_specified_style.html: support serializing color as author specified bug 1348165 [27]
 * browser_newtab_share_rule_processors.js: agent style sheet sharing [1]
-* test_selectors.html `this_better_be_unvisited`: visited handling [1]
 
 ## Assertions
 

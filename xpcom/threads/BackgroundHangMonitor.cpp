@@ -36,10 +36,7 @@
 // attached to a ping. This is due to how large native stacks can be. We want to
 // reduce the chance of a ping being discarded due to it exceeding the maximum
 // ping size.
-//
-// NOTE: 15 is being used to potentially avoid blowing up telemetry ping sizes
-// (see bug 1364243).
-static const uint32_t kMaximumNativeHangStacks = 15;
+static const uint32_t kMaximumNativeHangStacks = 300;
 
 // Maximum depth of the call stack in the reported thread hangs. This value represents
 // the 99.9th percentile of the thread hangs stack depths reported by Telemetry.
@@ -601,7 +598,6 @@ BackgroundHangMonitor::Startup()
 
   if (!strcmp(NS_STRINGIFY(MOZ_UPDATE_CHANNEL), "beta")) {
     if (XRE_IsParentProcess()) { // cached ClientID hasn't been read yet
-      ThreadStackHelper::Startup();
       BackgroundHangThread::Startup();
       BackgroundHangManager::sInstance = new BackgroundHangManager();
 
@@ -615,7 +611,6 @@ BackgroundHangMonitor::Startup()
     }
   }
 
-  ThreadStackHelper::Startup();
   BackgroundHangThread::Startup();
   BackgroundHangManager::sInstance = new BackgroundHangManager();
 #endif
@@ -636,7 +631,6 @@ BackgroundHangMonitor::Shutdown()
      we don't want to hold the lock when it's being destroyed. */
   BackgroundHangManager::sInstance->Shutdown();
   BackgroundHangManager::sInstance = nullptr;
-  ThreadStackHelper::Shutdown();
   BackgroundHangManager::sDisabled = true;
 #endif
 }

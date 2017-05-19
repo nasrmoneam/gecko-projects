@@ -209,6 +209,16 @@ pref("dom.keyboardevent.dispatch_during_composition", false);
 // significantly increase the number of compartments in the system.
 pref("dom.compartment_per_addon", true);
 
+// Whether to enable the JavaScript start-up cache. This causes one of the first
+// execution to record the bytecode of the JavaScript function used, and save it
+// in the existing cache entry. On the following loads of the same script, the
+// bytecode would be loaded from the cache instead of being generated once more.
+pref("dom.script_loader.bytecode_cache.enabled", false); // Not tuned yet.
+
+// Ignore the heuristics of the bytecode cache, and always record on the first
+// visit. (used for testing purposes).
+pref("dom.script_loader.bytecode_cache.eager", false);
+
 // Fastback caching - if this pref is negative, then we calculate the number
 // of content viewers to cache based on the amount of available memory.
 pref("browser.sessionhistory.max_total_viewers", -1);
@@ -633,7 +643,6 @@ pref("layers.geometry.d3d11.enabled", true);
 // gfx/layers/apz/src/AsyncPanZoomController.cpp.
 pref("apz.allow_checkerboarding", true);
 pref("apz.allow_immediate_handoff", true);
-pref("apz.allow_with_webrender", false);
 pref("apz.allow_zooming", false);
 
 // Whether to lock touch scrolling to one axis at a time
@@ -3008,12 +3017,10 @@ pref("hangmonitor.timeout", 0);
 pref("plugins.load_appdir_plugins", false);
 // If true, plugins will be click to play
 pref("plugins.click_to_play", false);
-#ifdef NIGHTLY_BUILD
+
 // This only supports one hidden ctp plugin, edit nsPluginArray.cpp if adding a second
-pref("plugins.navigator.hidden_ctp_plugin", "Shockwave Flash");
-#else
 pref("plugins.navigator.hidden_ctp_plugin", "");
-#endif
+
 // The default value for nsIPluginTag.enabledState (STATE_ENABLED = 2)
 pref("plugin.default.state", 2);
 
@@ -3146,7 +3153,7 @@ pref("browser.tabs.remote.separateFileUriProcess", false);
 // This has been added in case breaking any window references between these
 // sorts of pages, which we have to do when we run them in the normal web
 // content process, causes compatibility issues.
-pref("browser.tabs.remote.allowLinkedWebInFileUriProcess", false);
+pref("browser.tabs.remote.allowLinkedWebInFileUriProcess", true);
 
 // Enable caching of Moz2D Path objects for SVG geometry elements
 pref("svg.path-caching.enabled", true);
@@ -4648,6 +4655,9 @@ pref("layers.bench.enabled", false);
 pref("layers.gpu-process.enabled", true);
 pref("layers.gpu-process.max_restarts", 3);
 pref("media.gpu-process-decoder", true);
+#ifdef NIGHTLY_BUILD
+pref("layers.gpu-process.allow-software", true);
+#endif
 #endif
 
 // Whether to force acceleration on, ignoring blacklists.
@@ -5264,9 +5274,9 @@ pref("browser.safebrowsing.provider.google.reportMalwareMistakeURL", "https://%L
 // Prefs for v4.
 pref("browser.safebrowsing.provider.google4.pver", "4");
 pref("browser.safebrowsing.provider.google4.lists", "goog-badbinurl-proto,goog-downloadwhite-proto,goog-phish-proto,googpub-phish-proto,goog-malware-proto,goog-unwanted-proto");
-pref("browser.safebrowsing.provider.google4.updateURL", "https://safebrowsing.googleapis.com/v4/threatListUpdates:fetch?$ct=application/x-protobuf&key=%GOOGLE_API_KEY%");
+pref("browser.safebrowsing.provider.google4.updateURL", "https://safebrowsing.googleapis.com/v4/threatListUpdates:fetch?$ct=application/x-protobuf&key=%GOOGLE_API_KEY%&$httpMethod=POST");
 #ifdef NIGHTLY_BUILD
-pref("browser.safebrowsing.provider.google4.gethashURL", "https://safebrowsing.googleapis.com/v4/fullHashes:find?$ct=application/x-protobuf&key=%GOOGLE_API_KEY%");
+pref("browser.safebrowsing.provider.google4.gethashURL", "https://safebrowsing.googleapis.com/v4/fullHashes:find?$ct=application/x-protobuf&key=%GOOGLE_API_KEY%&$httpMethod=POST");
 #else
 pref("browser.safebrowsing.provider.google4.gethashURL", "");
 #endif // NIGHTLY_BUILD
@@ -5719,3 +5729,6 @@ pref("layers.advanced.caret-layers", 2);
 pref("layers.advanced.displaybuttonborder-layers", 2);
 pref("layers.advanced.outline-layers", 2);
 pref("layers.advanced.solid-color-layers", 2);
+
+// Enable lowercased response header name
+pref("dom.xhr.lowercase_header.enabled", true);
