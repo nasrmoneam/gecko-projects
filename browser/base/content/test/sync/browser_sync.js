@@ -3,15 +3,36 @@
 
 "use strict";
 
+Cu.import("resource://gre/modules/AppMenuNotifications.jsm");
+
 add_task(async function test_ui_state_notification_calls_updateAllUI() {
-  let called = false;
-  let updateAllUI = gSync.updateAllUI;
-  gSync.updateAllUI = () => { called = true; };
+  let oldUpdateAllUI = gSync.updateAllUI;
+  let state = {
+    status: UIState.STATUS_SIGNED_IN,
+    email: "foo@bar.com",
+    displayName: "Foo Bar",
+    avatarURL: "https://foo.bar",
+    lastSync: new Date(),
+    syncing: true
+  };
+  let calledState = null;
+  gSync.updateAllUI = (newState) => { calledState = newState; };
 
-  Services.obs.notifyObservers(null, UIState.ON_UPDATE);
-  ok(called);
+  updateAllUI(state);
 
-  gSync.updateAllUI = updateAllUI;
+  ok(calledState, "Our updateAllUI function was called.");
+  is(calledState.status, state.status, "The new status matches the provided state's status.");
+  is(calledState.email, state.email, "The new email matches the provided state's email.");
+  is(calledState.syncing, state.syncing, "The new syncing matches the provided state's syncing.");
+
+  updateAllUI({
+    status: UIState.STATUS_SIGNED_IN,
+    email: "foo@bar.com",
+    lastSync: new Date(),
+    syncing: false
+  });
+
+  gSync.updateAllUI = oldUpdateAllUI;
 });
 
 add_task(async function test_ui_state_signedin() {
@@ -24,7 +45,7 @@ add_task(async function test_ui_state_signedin() {
     syncing: false
   };
 
-  gSync.updateAllUI(state);
+  updateAllUI(state);
 
   checkFxABadge(false);
   let statusBarTooltip = gSync.panelUIStatus.getAttribute("signedinTooltiptext");
@@ -51,13 +72,14 @@ add_task(async function test_ui_state_syncing() {
     syncing: true
   };
 
-  gSync.updateAllUI(state);
+  updateAllUI(state);
 
+  checkFxABadge(false);
   checkSyncNowButton("PanelUI-fxa-icon", true);
   checkSyncNowButton("PanelUI-remotetabs-syncnow", true);
 
   // Be good citizens and remove the "syncing" state.
-  gSync.updateAllUI({
+  updateAllUI({
     status: UIState.STATUS_SIGNED_IN,
     email: "foo@bar.com",
     lastSync: new Date(),
@@ -72,9 +94,9 @@ add_task(async function test_ui_state_unconfigured() {
     status: UIState.STATUS_NOT_CONFIGURED
   };
 
-  gSync.updateAllUI(state);
-
   checkFxABadge(false);
+  updateAllUI(state);
+
   let signedOffLabel = gSync.panelUIStatus.getAttribute("defaultlabel");
   let statusBarTooltip = gSync.panelUIStatus.getAttribute("signedinTooltiptext");
   checkPanelUIStatusBar({
@@ -93,7 +115,7 @@ add_task(async function test_ui_state_unverified() {
     syncing: false
   };
 
-  gSync.updateAllUI(state);
+  updateAllUI(state);
 
   checkFxABadge(true);
   let expectedLabel = gSync.panelUIStatus.getAttribute("unverifiedlabel");
@@ -116,7 +138,7 @@ add_task(async function test_ui_state_loginFailed() {
     email: "foo@bar.com"
   };
 
-  gSync.updateAllUI(state);
+  updateAllUI(state);
 
   checkFxABadge(true);
   let expectedLabel = gSync.panelUIStatus.getAttribute("errorlabel");
@@ -150,13 +172,13 @@ add_task(async function test_FormatLastSyncDateMonthAgo() {
 
 function checkFxABadge(shouldBeShown) {
   let isShown = false;
-  for (let notification of PanelUI.notifications) {
+  for (let notification of AppMenuNotifications.notifications) {
     if (notification.id == "fxa-needs-authentication") {
       isShown = true;
       break;
     }
   }
-  is(isShown, shouldBeShown, "the fxa badge has the right visibility");
+  is(isShown, shouldBeShown, "Fxa badge shown matches expected value.");
 }
 
 function checkPanelUIStatusBar({label, tooltip, fxastatus, avatarURL, syncing, syncNowTooltip}) {
@@ -238,4 +260,13 @@ function promiseObserver(topic) {
     }
     Services.obs.addObserver(obs, topic);
   });
+}
+
+function updateAllUI(state) {
+  // Unfortunately since the badge is updated in nsBrowserGlue.js, we need to reach
+  // into UIState's internals to have it grab the correct value, rather than just
+  // calling gSync.updateAllUI
+  UIState._internal._state = state;
+  UIState._internal._syncing = state.syncing;
+  Services.obs.notifyObservers(null, UIState.ON_UPDATE);
 }

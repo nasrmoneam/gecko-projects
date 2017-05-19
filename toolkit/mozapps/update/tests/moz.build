@@ -8,6 +8,8 @@ HAS_MISC_RULE = True
 
 FINAL_TARGET = '_tests/xpcshell/toolkit/mozapps/update/tests/data'
 
+BROWSER_CHROME_MANIFESTS += ['browser/browser.ini']
+
 MOCHITEST_CHROME_MANIFESTS += ['chrome/chrome.ini']
 
 XPCSHELL_TESTS_MANIFESTS += [

@@ -145,6 +145,9 @@ with Files('ShortcutUtils.jsm'):
 with Files('Sqlite.jsm'):
     BUG_COMPONENT = ('Toolkit', 'Storage')
 
+with Files('UpdateListener.jsm'):
+    BUG_COMPONENT = ('Toolkit', 'Application Update')
+
 with Files('UpdateUtils.jsm'):
     BUG_COMPONENT = ('Toolkit', 'Add-ons Manager')
 
@@ -173,6 +176,7 @@ EXTRA_JS_MODULES += [
     'addons/WebRequestCommon.jsm',
     'addons/WebRequestContent.js',
     'addons/WebRequestUpload.jsm',
+    'AppMenuNotifications.jsm',
     'AsyncPrefs.jsm',
     'Battery.jsm',
     'BinarySearch.jsm',
