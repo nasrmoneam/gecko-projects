@@ -179,7 +179,7 @@ const listeners = {
   observe(subject, topic, data) {
     for (let module of this.observers[topic]) {
       try {
-        this[module].observe(subject, topic, data);
+        global[module].observe(subject, topic, data);
       } catch (e) {
         Cu.reportError(e);
       }
