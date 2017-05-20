@@ -2791,7 +2791,13 @@ pref("layout.css.prefixes.transitions", true);
 pref("layout.css.prefixes.animations", true);
 pref("layout.css.prefixes.box-sizing", true);
 pref("layout.css.prefixes.font-features", true);
+
+// Is -moz-prefixed gradient functions enabled?
+#ifdef NIGHTLY_BUILD
+pref("layout.css.prefixes.gradients", false);
+#else
 pref("layout.css.prefixes.gradients", true);
+#endif
 
 // Are webkit-prefixed properties & property-values supported?
 pref("layout.css.prefixes.webkit", true);
@@ -5648,9 +5654,11 @@ pref("media.block-autoplay-until-in-foreground", false);
 pref("media.block-autoplay-until-in-foreground", true);
 #endif
 
-#ifdef MOZ_STYLO
 // Is the Servo-backed style system enabled?
+#ifdef MOZ_STYLO_ENABLE
 pref("layout.css.servo.enabled", true);
+#else
+pref("layout.css.servo.enabled", false);
 #endif
 
 // HSTS Priming
@@ -5722,13 +5730,25 @@ pref("fuzzing.enabled", false);
 // it to a boolean as appropriate. In particular, do NOT add ifdefs here to
 // turn these on and off, instead use the conditional-pref code in gfxPrefs.h
 // to do that.
+pref("layers.advanced.background-color", 2);
+pref("layers.advanced.background-image", 2);
 pref("layers.advanced.border-layers", 2);
 pref("layers.advanced.boxshadow-inset-layers", 2);
 pref("layers.advanced.boxshadow-outer-layers", 2);
+pref("layers.advanced.bullet-layers", 2);
+pref("layers.advanced.button-foreground-layers", 2);
+pref("layers.advanced.canvas-background-color", 2);
 pref("layers.advanced.caret-layers", 2);
+pref("layers.advanced.columnRule-layers", 2);
 pref("layers.advanced.displaybuttonborder-layers", 2);
+pref("layers.advanced.image-layers", 2);
 pref("layers.advanced.outline-layers", 2);
-pref("layers.advanced.solid-color-layers", 2);
+pref("layers.advanced.solid-color", 2);
+pref("layers.advanced.table", 2);
+pref("layers.advanced.text-layers", 2);
+
+// Whether webrender should be used as much as possible.
+pref("gfx.webrendest.enabled", false);
 
 // Enable lowercased response header name
 pref("dom.xhr.lowercase_header.enabled", true);

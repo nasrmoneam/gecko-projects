@@ -61,7 +61,7 @@ extern crate log;
 extern crate matches;
 #[cfg(feature = "gecko")]
 #[macro_use]
-extern crate nsstring_vendor as nsstring;
+pub extern crate nsstring_vendor as nsstring;
 #[cfg(feature = "gecko")] extern crate num_cpus;
 extern crate num_integer;
 extern crate num_traits;
@@ -82,6 +82,9 @@ extern crate style_traits;
 extern crate time;
 #[allow(unused_extern_crates)]
 extern crate unicode_segmentation;
+
+#[macro_use]
+mod macros;
 
 pub mod animation;
 #[allow(missing_docs)] // TODO.
