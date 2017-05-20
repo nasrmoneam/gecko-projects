@@ -22,6 +22,7 @@ add_task(async function testMalformedXml() {
         is(gBrowser.selectedBrowser.currentURI.spec,
            URL_MANUAL_UPDATE, "Landed on manual update page.")
         gBrowser.removeTab(gBrowser.selectedTab);
+        gMenuButtonUpdateBadge.reset();
       }
     },
   ]);

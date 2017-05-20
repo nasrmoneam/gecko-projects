@@ -142,6 +142,7 @@ var gSync = {
   },
 
   updateAllUI(state) {
+    this.updatePanelBadge(state);
     this.updatePanelPopup(state);
     this.updateStateBroadcasters(state);
     this.updateSyncButtonsTooltip(state);
@@ -198,6 +199,15 @@ var gSync = {
         }
       };
       img.src = state.avatarURL;
+    }
+  },
+
+  updatePanelBadge(state) {
+    if (state.status == UIState.STATUS_LOGIN_FAILED ||
+        state.status == UIState.STATUS_NOT_VERIFIED) {
+      PanelUI.showBadgeOnlyNotification("fxa-needs-authentication");
+    } else {
+      PanelUI.removeNotification("fxa-needs-authentication");
     }
   },
 

@@ -13,7 +13,6 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/AppConstants.jsm");
 Cu.import("resource://gre/modules/AsyncPrefs.jsm");
-Cu.import("resource://services-sync/UIState.jsm");
 
 XPCOMUtils.defineLazyServiceGetter(this, "WindowsUIUtils", "@mozilla.org/windows-ui-utils;1", "nsIWindowsUIUtils");
 XPCOMUtils.defineLazyServiceGetter(this, "AlertsService", "@mozilla.org/alerts-service;1", "nsIAlertsService");
@@ -24,22 +23,21 @@ XPCOMUtils.defineLazyGetter(this, "WeaveService", () =>
 // lazy module getters
 
 /* global AboutHome:false, AboutNewTab:false, AddonManager:false,
-          AppMenuNotifications:false, AsyncShutdown:false, AutoCompletePopup:false,
-          BookmarkHTMLUtils:false, BookmarkJSONUtils:false, BrowserUITelemetry:false,
-          BrowserUsageTelemetry:false, ContentClick:false,
-          ContentPrefServiceParent:false, ContentSearch:false,
+          AsyncShutdown:false, AutoCompletePopup:false, BookmarkHTMLUtils:false,
+          BookmarkJSONUtils:false, BrowserUITelemetry:false, BrowserUsageTelemetry:false,
+          ContentClick:false, ContentPrefServiceParent:false, ContentSearch:false,
           DateTimePickerHelper:false, DirectoryLinksProvider:false,
-          ExtensionsUI:false, Feeds:false, FileUtils:false,
-          FormValidationHandler:false, Integration:false,
+          ExtensionsUI:false, Feeds:false,
+          FileUtils:false, FormValidationHandler:false, Integration:false,
           LightweightThemeManager:false, LoginHelper:false, LoginManagerParent:false,
-          NetUtil:false, NewTabUtils:false, OS:false, PageThumbs:false, PdfJs:false,
-          PermissionUI:false, PlacesBackups:false, PlacesUtils:false,
-          PluralForm:false, PrivateBrowsingUtils:false, ProcessHangMonitor:false,
-          ReaderParent:false, RecentWindow:false, RemotePrompt:false,
-          SelfSupportBackend:false, SessionStore:false, ShellService:false,
-          SimpleServiceDiscovery:false, TabCrashHandler:false, Task:false,
-          UITour:false, UpdateListener:false, WebChannel:false, WindowsRegistry:false,
-          webrtcUI:false, UserAgentOverrides: false */
+          NetUtil:false, NewTabUtils:false, OS:false,
+          PageThumbs:false, PdfJs:false, PermissionUI:false, PlacesBackups:false,
+          PlacesUtils:false, PluralForm:false, PrivateBrowsingUtils:false,
+          ProcessHangMonitor:false, ReaderParent:false, RecentWindow:false,
+          RemotePrompt:false, SelfSupportBackend:false, SessionStore:false,
+          ShellService:false, SimpleServiceDiscovery:false, TabCrashHandler:false,
+          Task:false, UITour:false, WebChannel:false,
+          WindowsRegistry:false, webrtcUI:false, UserAgentOverrides: false */
 
 /**
  * IF YOU ADD OR REMOVE FROM THIS LIST, PLEASE UPDATE THE LIST ABOVE AS WELL.
@@ -52,7 +50,6 @@ let initializedModules = {};
   ["AboutHome", "resource:///modules/AboutHome.jsm", "init"],
   ["AboutNewTab", "resource:///modules/AboutNewTab.jsm"],
   ["AddonManager", "resource://gre/modules/AddonManager.jsm"],
-  ["AppMenuNotifications", "resource://gre/modules/AppMenuNotifications.jsm"],
   ["AsyncShutdown", "resource://gre/modules/AsyncShutdown.jsm"],
   ["AutoCompletePopup", "resource://gre/modules/AutoCompletePopup.jsm"],
   ["BookmarkHTMLUtils", "resource://gre/modules/BookmarkHTMLUtils.jsm"],
@@ -93,7 +90,6 @@ let initializedModules = {};
   ["TabCrashHandler", "resource:///modules/ContentCrashHandlers.jsm"],
   ["Task", "resource://gre/modules/Task.jsm"],
   ["UITour", "resource:///modules/UITour.jsm"],
-  ["UpdateListener", "resource://gre/modules/UpdateListener.jsm", "init"],
   ["WebChannel", "resource://gre/modules/WebChannel.jsm"],
   ["WindowsRegistry", "resource://gre/modules/WindowsRegistry.jsm"],
   ["webrtcUI", "resource:///modules/webrtcUI.jsm", "init"],
@@ -132,10 +128,6 @@ const global = this;
 const listeners = {
   observers: {
     "sessionstore-windows-restored": ["SelfSupportBackend"],
-    "update-staged": ["UpdateListener"],
-    "update-downloaded": ["UpdateListener"],
-    "update-available": ["UpdateListener"],
-    "update-error": ["UpdateListener"],
   },
 
   ppmm: {
@@ -182,7 +174,7 @@ const listeners = {
   observe(subject, topic, data) {
     for (let module of this.observers[topic]) {
       try {
-        global[module].observe(subject, topic, data);
+        this[module].observe(subject, topic, data);
       } catch (e) {
         Cu.reportError(e);
       }
@@ -496,9 +488,6 @@ BrowserGlue.prototype = {
       case "test-initialize-sanitizer":
         this._sanitizer.onStartup();
         break;
-      case UIState.ON_UPDATE:
-        this._updateFxaBadges();
-        break;
     }
   },
 
@@ -537,7 +526,6 @@ BrowserGlue.prototype = {
     os.addObserver(this, "restart-in-safe-mode");
     os.addObserver(this, "flash-plugin-hang");
     os.addObserver(this, "xpi-signature-changed");
-    os.addObserver(this, UIState.ON_UPDATE);
 
     this._flashHangCount = 0;
     this._firstWindowReady = new Promise(resolve => this._firstWindowLoaded = resolve);
@@ -592,7 +580,6 @@ BrowserGlue.prototype = {
     os.removeObserver(this, "browser-search-engine-modified");
     os.removeObserver(this, "flash-plugin-hang");
     os.removeObserver(this, "xpi-signature-changed");
-    os.removeObserver(this, UIState.ON_UPDATE);
 
     UserAgentOverrides.uninit();
   },
@@ -2350,16 +2337,6 @@ BrowserGlue.prototype = {
     let nb = win.document.getElementById("global-notificationbox");
     nb.appendNotification(message, "flash-hang", null,
                           nb.PRIORITY_INFO_MEDIUM, buttons);
-  },
-
-  _updateFxaBadges() {
-    let state = UIState.get();
-    if (state.status == UIState.STATUS_LOGIN_FAILED ||
-        state.status == UIState.STATUS_NOT_VERIFIED) {
-      AppMenuNotifications.showBadgeOnlyNotification("fxa-needs-authentication");
-    } else {
-      AppMenuNotifications.removeNotification("fxa-needs-authentication");
-    }
   },
 
   // for XPCOM
