@@ -249,6 +249,8 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
                 "--balrog-url", self.config["balrog_url"],
                 "--build-number", str(self.config["build_number"]),
             ])
+            if "stage_product" in self.config:
+                cmd.extend(["--stage-product", self.config["stage_product"]])
 
             self.run_command(cmd, halt_on_failure=True)
 
