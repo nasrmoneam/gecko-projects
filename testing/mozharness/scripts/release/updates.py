@@ -233,6 +233,7 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
             dirs["abs_tools_dir"],
             "scripts/build-promotion/create-update-verify-config.py")
         patcher_config = self.query_patcher_config(channel_config)
+        patcher_config_product = self.query_patcher_config_product(channel_config)
         for platform in self.config["platforms"]:
             cmd = [self.query_exe("python"), script]
             output = self.query_update_verify_config(channel, platform)
@@ -245,7 +246,7 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
                 "--archive-prefix", self.config["archive_prefix"],
                 "--previous-archive-prefix",
                 self.config["previous_archive_prefix"],
-                "--product", self.config["product"],
+                "--product", patcher_config_product,
                 "--balrog-url", self.config["balrog_url"],
                 "--build-number", str(self.config["build_number"]),
             ])
