@@ -28,6 +28,7 @@ config = {
             "requires_mirrors": True,
             # TODO - when we use a real repo, rename this file # s/MozDate/MozBeta-dev/
             "patcher_config": "mozDevedition-branch-patcher2.cfg",
+            "patcher_config_product_override": "firefox",
             "update_verify_channel": "aurora-dev-localtest",
             "mar_channel_ids": [],
             "channel_names": ["aurora-dev", "aurora-dev-localtest", "aurora-dev-cdntest"],

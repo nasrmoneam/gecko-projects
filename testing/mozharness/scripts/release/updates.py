@@ -178,6 +178,10 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
             channel_config["patcher_config"])
         return patcher_config
 
+    def query_patcher_config_product(self, channel_config):
+        return channel_config.get("patcher_config_product_override") or \
+            self.config["product"]
+
     def query_update_verify_config(self, channel, platform):
         dirs = self.query_abs_dirs()
         uvc = os.path.join(
@@ -196,10 +200,11 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
         script = os.path.join(
             dirs["abs_tools_dir"], "release/patcher-config-bump.pl")
         patcher_config = self.query_patcher_config(channel_config)
+        patcher_config_product = self.query_patcher_config_product(channel_config)
         cmd = [self.query_exe("perl"), script]
         cmd.extend([
-            "-p", self.config["product"],
-            "-r", self.config["product"].capitalize(),
+            "-p", patcher_config_product,
+            "-r", patcher_config_product.capitalize(),
             "-v", self.config["version"],
             "-a", self.config["appVersion"],
             "-o", get_previous_version(
