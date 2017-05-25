@@ -22,7 +22,7 @@ XPCOMUtils.defineLazyGetter(this, "WeaveService", () =>
 
 // lazy module getters
 
-/* global AppMenuNotifications:false, AboutHome:false, AboutNewTab:false, AddonManager:false,
+/* global AboutHome:false, AboutNewTab:false, AddonManager:false, AppMenuNotifications:false,
           AsyncShutdown:false, AutoCompletePopup:false, BookmarkHTMLUtils:false,
           BookmarkJSONUtils:false, BrowserUITelemetry:false, BrowserUsageTelemetry:false,
           ContentClick:false, ContentPrefServiceParent:false, ContentSearch:false,
@@ -36,8 +36,10 @@ XPCOMUtils.defineLazyGetter(this, "WeaveService", () =>
           ProcessHangMonitor:false, ReaderParent:false, RecentWindow:false,
           RemotePrompt:false, SessionStore:false,
           ShellService:false, SimpleServiceDiscovery:false, TabCrashHandler:false,
-          Task:false, UITour:false, UpdateListener:false, WebChannel:false,
-          WindowsRegistry:false, webrtcUI:false, UserAgentOverrides: false */
+          Task:false, UITour:false, UIState:false, UpdateListener:false, WebChannel:false,
+          WindowsRegistry:false, webrtcUI:false */
+
+
 
 /**
  * IF YOU ADD OR REMOVE FROM THIS LIST, PLEASE UPDATE THE LIST ABOVE AS WELL.
@@ -89,13 +91,12 @@ let initializedModules = {};
   ["SimpleServiceDiscovery", "resource://gre/modules/SimpleServiceDiscovery.jsm"],
   ["TabCrashHandler", "resource:///modules/ContentCrashHandlers.jsm"],
   ["Task", "resource://gre/modules/Task.jsm"],
+  ["UIState", "resource://services-sync/UIState.jsm"],
   ["UITour", "resource:///modules/UITour.jsm"],
   ["UpdateListener", "resource://gre/modules/UpdateListener.jsm", "init"],
   ["WebChannel", "resource://gre/modules/WebChannel.jsm"],
   ["WindowsRegistry", "resource://gre/modules/WindowsRegistry.jsm"],
   ["webrtcUI", "resource:///modules/webrtcUI.jsm", "init"],
-  ["UIState", "resource://services-sync/UIState.jsm"],
-  ["UserAgentOverrides", "resource://gre/modules/UserAgentOverrides.jsm"],
 ].forEach(([name, resource, init]) => {
   if (init) {
     XPCOMUtils.defineLazyGetter(this, name, () => {
@@ -544,8 +545,6 @@ BrowserGlue.prototype = {
       // and e10s are active together.
       E10SAccessibilityCheck.init();
     }
-
-    UserAgentOverrides.init();
   },
 
   // cleanup (called on application shutdown)
@@ -590,8 +589,6 @@ BrowserGlue.prototype = {
     os.removeObserver(this, "flash-plugin-hang");
     os.removeObserver(this, "xpi-signature-changed");
     os.removeObserver(this, "sync-ui-state:update");
-
-    UserAgentOverrides.uninit();
   },
 
   _onAppDefaults: function BG__onAppDefaults() {
@@ -616,21 +613,6 @@ BrowserGlue.prototype = {
 
     // handle any UI migration
     this._migrateUI();
-
-    // This is support code for the location bar search suggestions; passing
-    // from opt-in to opt-out should respect the user's choice, thus we need
-    // to cache that choice in a pref for future use.
-    // Note: this is not in migrateUI because we need to uplift it. This
-    // code is also short-lived, since we can remove it as soon as opt-out
-    // search suggestions shipped in release (Bug 1344928).
-    try {
-      let urlbarPrefs = Services.prefs.getBranch("browser.urlbar.");
-      if (!urlbarPrefs.prefHasUserValue("searchSuggestionsChoice") &&
-          urlbarPrefs.getBoolPref("userMadeSearchSuggestionsChoice")) {
-        urlbarPrefs.setBoolPref("searchSuggestionsChoice",
-                                urlbarPrefs.getBoolPref("suggest.searches"));
-      }
-    } catch (ex) { /* missing any of the prefs is not critical */ }
 
     listeners.init();
 
@@ -1727,7 +1709,7 @@ BrowserGlue.prototype = {
 
   // eslint-disable-next-line complexity
   _migrateUI: function BG__migrateUI() {
-    const UI_VERSION = 45;
+    const UI_VERSION = 46;
     const BROWSER_DOCURL = "chrome://browser/content/browser.xul";
 
     let currentUIVersion;
@@ -2027,6 +2009,22 @@ BrowserGlue.prototype = {
         Services.prefs.setBoolPref("browser.shell.didSkipDefaultBrowserCheckOnFirstRun",
                                    !Services.prefs.getBoolPref(LEGACY_PREF));
         Services.prefs.clearUserPref(LEGACY_PREF);
+      }
+    }
+
+    if (currentUIVersion < 46) {
+      // Search suggestions are now on by default.
+      // For privacy reasons, we want to respect previously made user's choice
+      // regarding the feature, so if it's known reflect that choice into the
+      // current pref.
+      // Note that in case of downgrade/upgrade we won't guarantee anything.
+      try {
+        Services.prefs.setBoolPref(
+          "browser.urlbar.suggest.searches",
+          Services.prefs.getBoolPref("browser.urlbar.searchSuggestionsChoice")
+        );
+      } catch (ex) {
+        // The pref is not set, nothing to do.
       }
     }
 

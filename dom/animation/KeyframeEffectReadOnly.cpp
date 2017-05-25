@@ -427,7 +427,7 @@ KeyframeEffectReadOnly::GetUnderlyingStyle(
     // If we are composing with composite operation that is not 'replace'
     // and we have not composed style for the property yet, we have to get
     // the base style for the property.
-    result = BaseStyle(aProperty);
+    result = BaseStyle(aProperty).mGecko;
   }
 
   return result;
@@ -655,8 +655,6 @@ KeyframeEffectReadOnly::ComposeStyleRule(
   }
 }
 
-// Bug 1333311 - We use two branches for Gecko and Stylo. However, it's
-// better to remove the duplicated code.
 void
 KeyframeEffectReadOnly::ComposeStyleRule(
   RawServoAnimationValueMap& aAnimationValues,
@@ -664,14 +662,13 @@ KeyframeEffectReadOnly::ComposeStyleRule(
   const AnimationPropertySegment& aSegment,
   const ComputedTiming& aComputedTiming)
 {
-  // Bug 1329878 - Stylo: Implement accumulate and addition on Servo
-  // AnimationValue.
-
   Servo_AnimationCompose(&aAnimationValues,
                          &mBaseStyleValuesForServo,
                          aProperty.mProperty,
                          &aSegment,
-                         &aComputedTiming);
+                         &aProperty.mSegments.LastElement(),
+                         &aComputedTiming,
+                         mEffectOptions.mIterationComposite);
 }
 
 template<typename ComposeAnimationResult>
@@ -1297,7 +1294,8 @@ KeyframeEffectReadOnly::GetKeyframes(JSContext*& aCx,
           // handle null nsCSSValues for longhand properties.
           DebugOnly<bool> uncomputeResult =
             StyleAnimationValue::UncomputeValue(
-              propertyValue.mProperty, Move(BaseStyle(propertyValue.mProperty)),
+              propertyValue.mProperty,
+              Move(BaseStyle(propertyValue.mProperty).mGecko),
               cssValue);
 
           MOZ_ASSERT(uncomputeResult,
@@ -1848,7 +1846,7 @@ KeyframeEffectReadOnly::ContainsAnimatedScale(const nsIFrame* aFrame) const
       continue;
     }
 
-    StyleAnimationValue baseStyle = BaseStyle(prop.mProperty);
+    AnimationValue baseStyle = BaseStyle(prop.mProperty);
     if (baseStyle.IsNull()) {
       // If we failed to get the base style, we consider it has scale value
       // here just to be safe.

@@ -11,9 +11,9 @@ use cssparser::{Parser, Token};
 use parser::ParserContext;
 use std::ascii::AsciiExt;
 use std::fmt;
-use style_traits::ToCss;
+use style_traits::{HasViewportPercentage, ToCss};
 use style_traits::values::specified::AllowedLengthType;
-use values::{CSSInteger, CSSFloat, HasViewportPercentage};
+use values::{CSSInteger, CSSFloat};
 use values::specified::{Angle, Time};
 use values::specified::length::{FontRelativeLength, NoCalcLength, ViewportPercentageLength};
 
@@ -235,9 +235,9 @@ impl CalcNode {
     ///
     /// This should parse correctly:
     ///
-    ///     * `2`
-    ///     * `2 * 2`
-    ///     * `2 * 2 + 2` (but will leave the `+ 2` unparsed).
+    /// * `2`
+    /// * `2 * 2`
+    /// * `2 * 2 + 2` (but will leave the `+ 2` unparsed).
     ///
     fn parse_product(
         context: &ParserContext,

@@ -43,6 +43,9 @@ namespace mozilla {
     struct URLValue;
     struct ImageValue;
   };
+  namespace dom {
+    enum class IterationCompositeOperation : uint8_t;
+  };
   enum class UpdateAnimationsTasks : uint8_t;
   struct LangGroupFontPrefs;
   class ServoStyleSheet;
@@ -322,7 +325,8 @@ nsStyleContext* Gecko_GetStyleContext(RawGeckoElementBorrowed element,
                                       nsIAtom* aPseudoTagOrNull);
 mozilla::CSSPseudoElementType Gecko_GetImplementedPseudo(RawGeckoElementBorrowed element);
 nsChangeHint Gecko_CalcStyleDifference(nsStyleContext* oldstyle,
-                                       ServoComputedValuesBorrowed newstyle);
+                                       ServoComputedValuesBorrowed newstyle,
+                                       bool* any_style_changed);
 nsChangeHint Gecko_HintsHandledForDescendants(nsChangeHint aHint);
 
 // Get an element snapshot for a given element from the table.
@@ -453,6 +457,7 @@ nsStyleQuoteValues* Gecko_NewStyleQuoteValues(uint32_t len);
 NS_DECL_THREADSAFE_FFI_REFCOUNTING(nsStyleQuoteValues, QuoteValues);
 
 nsCSSValueSharedList* Gecko_NewCSSValueSharedList(uint32_t len);
+nsCSSValueSharedList* Gecko_NewNoneTransform();
 
 // Getter for nsCSSValue
 nsCSSValueBorrowedMut Gecko_CSSValue_GetArrayItem(nsCSSValueBorrowedMut css_value, int32_t index);
@@ -535,6 +540,8 @@ bool Gecko_MatchStringArgPseudo(RawGeckoElementBorrowed element,
                                 mozilla::CSSPseudoClassType type,
                                 const char16_t* ident,
                                 bool* set_slow_selector);
+
+void Gecko_AddPropertyToSet(nsCSSPropertyIDSetBorrowedMut, nsCSSPropertyID);
 
 // Style-struct management.
 #define STYLE_STRUCT(name, checkdata_cb)                                       \

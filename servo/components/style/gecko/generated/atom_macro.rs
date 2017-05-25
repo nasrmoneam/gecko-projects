@@ -2164,6 +2164,8 @@ cfg_if! {
             pub static nsGkAtoms_onreloadpage: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms3remE"]
             pub static nsGkAtoms_rem: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms6remoteE"]
+            pub static nsGkAtoms_remote: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms13removeelementE"]
             pub static nsGkAtoms_removeelement: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms21renderingobserverlistE"]
@@ -2938,6 +2940,8 @@ cfg_if! {
             pub static nsGkAtoms_foreignObject: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms12fractalNoiseE"]
             pub static nsGkAtoms_fractalNoise: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms2frE"]
+            pub static nsGkAtoms_fr: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms2fxE"]
             pub static nsGkAtoms_fx: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms2fyE"]
@@ -7179,6 +7183,8 @@ cfg_if! {
             pub static nsGkAtoms_onreloadpage: *mut nsIAtom;
             #[link_name = "?rem@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_rem: *mut nsIAtom;
+            #[link_name = "?remote@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_remote: *mut nsIAtom;
             #[link_name = "?removeelement@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_removeelement: *mut nsIAtom;
             #[link_name = "?renderingobserverlist@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -7953,6 +7959,8 @@ cfg_if! {
             pub static nsGkAtoms_foreignObject: *mut nsIAtom;
             #[link_name = "?fractalNoise@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_fractalNoise: *mut nsIAtom;
+            #[link_name = "?fr@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_fr: *mut nsIAtom;
             #[link_name = "?fx@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_fx: *mut nsIAtom;
             #[link_name = "?fy@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -12194,6 +12202,8 @@ cfg_if! {
             pub static nsGkAtoms_onreloadpage: *mut nsIAtom;
             #[link_name = "\x01?rem@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_rem: *mut nsIAtom;
+            #[link_name = "\x01?remote@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_remote: *mut nsIAtom;
             #[link_name = "\x01?removeelement@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_removeelement: *mut nsIAtom;
             #[link_name = "\x01?renderingobserverlist@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -12968,6 +12978,8 @@ cfg_if! {
             pub static nsGkAtoms_foreignObject: *mut nsIAtom;
             #[link_name = "\x01?fractalNoise@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_fractalNoise: *mut nsIAtom;
+            #[link_name = "\x01?fr@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_fr: *mut nsIAtom;
             #[link_name = "\x01?fx@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_fx: *mut nsIAtom;
             #[link_name = "\x01?fy@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -17212,6 +17224,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onreloadpage as *mut _) } };
 ("rem") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_rem as *mut _) } };
+("remote") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_remote as *mut _) } };
 ("removeelement") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_removeelement as *mut _) } };
 ("renderingobserverlist") =>
@@ -17986,6 +18000,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_foreignObject as *mut _) } };
 ("fractalNoise") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_fractalNoise as *mut _) } };
+("fr") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_fr as *mut _) } };
 ("fx") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_fx as *mut _) } };
 ("fy") =>

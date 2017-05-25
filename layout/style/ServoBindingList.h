@@ -214,6 +214,10 @@ SERVO_BINDING_FUNC(Servo_Property_IsAnimatable, bool,
                    nsCSSPropertyID property)
 SERVO_BINDING_FUNC(Servo_Property_IsDiscreteAnimatable, bool,
                    nsCSSPropertyID property)
+SERVO_BINDING_FUNC(Servo_GetProperties_Overriding_Animation, void,
+                   RawGeckoElementBorrowed,
+                   RawGeckoCSSPropertyIDListBorrowed,
+                   nsCSSPropertyIDSetBorrowedMut)
 
 // AnimationValues handling
 SERVO_BINDING_FUNC(Servo_AnimationValues_Interpolate,
@@ -312,7 +316,9 @@ SERVO_BINDING_FUNC(Servo_AnimationCompose, void,
                    void* base_values,
                    nsCSSPropertyID property,
                    RawGeckoAnimationPropertySegmentBorrowed animation_segment,
-                   RawGeckoComputedTimingBorrowed computed_timing)
+                   RawGeckoAnimationPropertySegmentBorrowed last_segment,
+                   RawGeckoComputedTimingBorrowed computed_timing,
+                   mozilla::dom::IterationCompositeOperation iteration_composite)
 
 // presentation attributes
 SERVO_BINDING_FUNC(Servo_DeclarationBlock_PropertyIsSet, bool,
@@ -468,6 +474,11 @@ SERVO_BINDING_FUNC(Servo_StyleSet_GetBaseComputedValuesForElement,
                    RawGeckoElementBorrowed element,
                    const mozilla::ServoElementSnapshotTable* snapshots,
                    mozilla::CSSPseudoElementType pseudo_type)
+
+// For canvas font.
+SERVO_BINDING_FUNC(Servo_SerializeFontValueForCanvas, void,
+                   RawServoDeclarationBlockBorrowed declarations,
+                   nsAString* buffer)
 
 // Style-struct management.
 #define STYLE_STRUCT(name, checkdata_cb)                            \

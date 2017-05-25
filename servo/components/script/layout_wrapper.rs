@@ -30,7 +30,7 @@
 
 #![allow(unsafe_code)]
 
-use atomic_refcell::AtomicRefCell;
+use atomic_refcell::{AtomicRef, AtomicRefCell};
 use dom::bindings::inheritance::{CharacterDataTypeId, ElementTypeId};
 use dom::bindings::inheritance::{HTMLElementTypeId, NodeTypeId};
 use dom::bindings::js::LayoutJS;
@@ -486,7 +486,10 @@ impl<'le> TElement for ServoLayoutElement<'le> {
     }
 
     fn has_animations(&self) -> bool {
-        unreachable!("this should be only called on gecko");
+        // We use this function not only for Gecko but also for Servo to know if this element has
+        // animations, so we maybe try to get the important rules of this element. This is used for
+        // off-main thread animations, but we don't support it on Servo, so return false directly.
+        false
     }
 
     fn has_css_animations(&self) -> bool {
@@ -1089,8 +1092,10 @@ impl<'le> ThreadSafeLayoutElement for ServoThreadSafeLayoutElement<'le> {
         self.element.get_attr(namespace, name)
     }
 
-    fn get_style_data(&self) -> Option<&AtomicRefCell<ElementData>> {
+    fn style_data(&self) -> AtomicRef<ElementData> {
         self.element.get_data()
+            .expect("Unstyled layout node?")
+            .borrow()
     }
 }
 

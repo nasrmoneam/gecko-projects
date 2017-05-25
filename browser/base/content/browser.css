@@ -224,7 +224,7 @@ toolbar[customizing] > .overflow-button {
   display: none;
 }
 
-#nav-bar[nonemptyoverflow] > .overflow-button,
+window:not([chromehidden~="toolbar"]) #nav-bar[nonemptyoverflow] > .overflow-button,
 #nav-bar[customizing][photon-structure] > .overflow-button {
   display: -moz-box;
 }
@@ -704,10 +704,6 @@ html|input.urlbar-input[textoverflow]:not([focused]) {
 }
 
 /* ::::: Unified Back-/Forward Button ::::: */
-#back-button > .toolbarbutton-menu-dropmarker,
-#forward-button > .toolbarbutton-menu-dropmarker {
-  display: none;
-}
 .unified-nav-current {
   font-weight: bold;
 }
@@ -1135,6 +1131,29 @@ toolbarpaletteitem[place="palette"] > #downloads-button[indicator] > #downloads-
   #PanelUI-historyItems > toolbarbutton > .toolbarbutton-icon {
     image-rendering: -moz-crisp-edges;
   }
+}
+
+#customization-container {
+  -moz-box-orient: horizontal;
+}
+
+#customization-container[photon] {
+  display: flex;
+  flex-direction: column;
+}
+
+#customization-container[photon] > #customization-content-container {
+  display: flex;
+  flex-grow: 1; /* Grow so there isn't empty space below the footer */
+  min-height: 0; /* Allow this to shrink so the footer doesn't get pushed out. */
+}
+
+#customization-container[photon] > #customization-content-container > #customization-palette-container {
+  flex-grow: 1;
+}
+
+#customization-panelHolder > #widget-overflow-fixed-list {
+  padding-bottom: 50px; /* Make sure there's always space to drop stuff. */
 }
 
 #customization-panelHolder {

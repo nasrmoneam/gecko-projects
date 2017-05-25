@@ -3927,7 +3927,8 @@ PresShell::UnsuppressPainting()
 nsresult
 PresShell::PostReflowCallback(nsIReflowCallback* aCallback)
 {
-  void* result = AllocateMisc(sizeof(nsCallbackEventRequest));
+  void* result = AllocateByObjectID(eArenaObjectID_nsCallbackEventRequest,
+                                    sizeof(nsCallbackEventRequest));
   nsCallbackEventRequest* request = (nsCallbackEventRequest*)result;
 
   request->callback = aCallback;
@@ -3968,7 +3969,7 @@ PresShell::CancelReflowCallback(nsIReflowCallback* aCallback)
           mLastCallbackEventRequest = before;
         }
 
-        FreeMisc(sizeof(nsCallbackEventRequest), toFree);
+        FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, toFree);
       } else {
         before = node;
         node = node->next;
@@ -3986,7 +3987,7 @@ PresShell::CancelPostedReflowCallbacks()
       mLastCallbackEventRequest = nullptr;
     }
     nsIReflowCallback* callback = node->callback;
-    FreeMisc(sizeof(nsCallbackEventRequest), node);
+    FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, node);
     if (callback) {
       callback->ReflowCallbackCanceled();
     }
@@ -4005,7 +4006,7 @@ PresShell::HandlePostedReflowCallbacks(bool aInterruptible)
        mLastCallbackEventRequest = nullptr;
      }
      nsIReflowCallback* callback = node->callback;
-     FreeMisc(sizeof(nsCallbackEventRequest), node);
+     FreeByObjectID(eArenaObjectID_nsCallbackEventRequest, node);
      if (callback) {
        if (callback->ReflowFinished()) {
          shouldFlush = true;
@@ -4584,12 +4585,14 @@ nsIPresShell::RestyleForCSSRuleChanges()
     // If scopeRoots is empty, we know that mStylesHaveChanged was true at
     // the beginning of this function, and that we need to restyle the whole
     // document.
-    restyleManager->PostRestyleEvent(root, eRestyle_Subtree,
-                                     nsChangeHint(0));
+    restyleManager->PostRestyleEventForCSSRuleChanges(root,
+                                                      eRestyle_Subtree,
+                                                      nsChangeHint(0));
   } else {
     for (Element* scopeRoot : scopeRoots) {
-      restyleManager->PostRestyleEvent(scopeRoot, eRestyle_Subtree,
-                                       nsChangeHint(0));
+      restyleManager->PostRestyleEventForCSSRuleChanges(scopeRoot,
+                                                        eRestyle_Subtree,
+                                                        nsChangeHint(0));
     }
   }
 }
@@ -4672,7 +4675,7 @@ PresShell::StyleRuleRemoved(StyleSheet* aStyleSheet)
   RecordStyleSheetChange(aStyleSheet);
 }
 
-nsIFrame*
+nsPlaceholderFrame*
 PresShell::GetPlaceholderFrameFor(nsIFrame* aFrame) const
 {
   return mFrameConstructor->GetPlaceholderFrameFor(aFrame);
@@ -6946,10 +6949,7 @@ FlushThrottledStyles(nsIDocument *aDocument, void *aData)
   if (shell && shell->IsVisible()) {
     nsPresContext* presContext = shell->GetPresContext();
     if (presContext) {
-      if (presContext->RestyleManager()->IsGecko()) {
-        // XXX stylo: ServoRestyleManager doesn't support animations yet.
-        presContext->RestyleManager()->AsGecko()->UpdateOnlyAnimationStyles();
-      }
+      presContext->RestyleManager()->UpdateOnlyAnimationStyles();
     }
   }
 

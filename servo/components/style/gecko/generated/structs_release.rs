@@ -971,11 +971,67 @@ pub mod root {
     pub const NS_STYLE_DISPLAY_MODE_BROWSER: ::std::os::raw::c_uint = 0;
     pub const NS_STYLE_DISPLAY_MODE_MINIMAL_UI: ::std::os::raw::c_uint = 1;
     pub const NS_STYLE_DISPLAY_MODE_STANDALONE: ::std::os::raw::c_uint = 2;
+    pub const CSS_PSEUDO_ELEMENT_IS_CSS2: ::std::os::raw::c_uint = 1;
+    pub const CSS_PSEUDO_ELEMENT_CONTAINS_ELEMENTS: ::std::os::raw::c_uint =
+        2;
+    pub const CSS_PSEUDO_ELEMENT_SUPPORTS_STYLE_ATTRIBUTE:
+              ::std::os::raw::c_uint =
+        4;
+    pub const CSS_PSEUDO_ELEMENT_SUPPORTS_USER_ACTION_STATE:
+              ::std::os::raw::c_uint =
+        8;
+    pub const CSS_PSEUDO_ELEMENT_UA_SHEET_ONLY: ::std::os::raw::c_uint = 16;
+    pub const CSS_PSEUDO_ELEMENT_IS_JS_CREATED_NAC: ::std::os::raw::c_uint =
+        32;
+    pub const kNameSpaceID_Unknown: ::std::os::raw::c_int = -1;
+    pub const kNameSpaceID_XMLNS: ::std::os::raw::c_uint = 1;
+    pub const kNameSpaceID_XML: ::std::os::raw::c_uint = 2;
+    pub const kNameSpaceID_XHTML: ::std::os::raw::c_uint = 3;
+    pub const kNameSpaceID_XLink: ::std::os::raw::c_uint = 4;
+    pub const kNameSpaceID_XSLT: ::std::os::raw::c_uint = 5;
+    pub const kNameSpaceID_XBL: ::std::os::raw::c_uint = 6;
+    pub const kNameSpaceID_MathML: ::std::os::raw::c_uint = 7;
+    pub const kNameSpaceID_RDF: ::std::os::raw::c_uint = 8;
+    pub const kNameSpaceID_XUL: ::std::os::raw::c_uint = 9;
+    pub const kNameSpaceID_SVG: ::std::os::raw::c_uint = 10;
+    pub const kNameSpaceID_disabled_MathML: ::std::os::raw::c_uint = 11;
+    pub const kNameSpaceID_disabled_SVG: ::std::os::raw::c_uint = 12;
+    pub const kNameSpaceID_LastBuiltin: ::std::os::raw::c_uint = 12;
+    pub const kNameSpaceID_Wildcard: ::std::os::raw::c_int = -2147483648;
+    pub const NS_AUTHOR_SPECIFIED_BACKGROUND: ::std::os::raw::c_uint = 1;
+    pub const NS_AUTHOR_SPECIFIED_BORDER: ::std::os::raw::c_uint = 2;
+    pub const NS_AUTHOR_SPECIFIED_PADDING: ::std::os::raw::c_uint = 4;
+    pub const NS_AUTHOR_SPECIFIED_TEXT_SHADOW: ::std::os::raw::c_uint = 8;
+    pub const NS_STYLE_INHERIT_MASK: ::std::os::raw::c_uint = 16777215;
+    pub const NS_STYLE_HAS_TEXT_DECORATION_LINES: ::std::os::raw::c_uint =
+        16777216;
+    pub const NS_STYLE_HAS_PSEUDO_ELEMENT_DATA: ::std::os::raw::c_uint =
+        33554432;
+    pub const NS_STYLE_RELEVANT_LINK_VISITED: ::std::os::raw::c_uint =
+        67108864;
+    pub const NS_STYLE_IS_STYLE_IF_VISITED: ::std::os::raw::c_uint =
+        134217728;
+    pub const NS_STYLE_CHILD_USES_GRANDANCESTOR_STYLE: ::std::os::raw::c_uint
+              =
+        268435456;
+    pub const NS_STYLE_IS_SHARED: ::std::os::raw::c_uint = 536870912;
+    pub const NS_STYLE_IS_GOING_AWAY: ::std::os::raw::c_uint = 1073741824;
+    pub const NS_STYLE_SUPPRESS_LINEBREAK: ::std::os::raw::c_uint =
+        2147483648;
+    pub const NS_STYLE_IN_DISPLAY_NONE_SUBTREE: ::std::os::raw::c_ulonglong =
+        4294967296;
+    pub const NS_STYLE_INELIGIBLE_FOR_SHARING: ::std::os::raw::c_ulonglong =
+        8589934592;
+    pub const NS_STYLE_HAS_CHILD_THAT_USES_RESET_STYLE:
+              ::std::os::raw::c_ulonglong =
+        17179869184;
+    pub const NS_STYLE_IS_TEXT_COMBINED: ::std::os::raw::c_ulonglong =
+        34359738368;
+    pub const NS_STYLE_CONTEXT_TYPE_SHIFT: ::std::os::raw::c_uint = 36;
     pub const NS_THEME_NONE: ::std::os::raw::c_uint = 0;
     pub const NS_THEME_BUTTON: ::std::os::raw::c_uint = 1;
     pub const NS_THEME_RADIO: ::std::os::raw::c_uint = 2;
     pub const NS_THEME_CHECKBOX: ::std::os::raw::c_uint = 3;
-    pub const NS_THEME_AUTO: ::std::os::raw::c_uint = 4;
     pub const NS_THEME_BUTTON_BEVEL: ::std::os::raw::c_uint = 7;
     pub const NS_THEME_FOCUS_OUTLINE: ::std::os::raw::c_uint = 8;
     pub const NS_THEME_TOOLBOX: ::std::os::raw::c_uint = 11;
@@ -1107,63 +1163,6 @@ pub mod root {
     pub const NS_THEME_MAC_ACTIVE_SOURCE_LIST_SELECTION:
               ::std::os::raw::c_uint =
         250;
-    pub const CSS_PSEUDO_ELEMENT_IS_CSS2: ::std::os::raw::c_uint = 1;
-    pub const CSS_PSEUDO_ELEMENT_CONTAINS_ELEMENTS: ::std::os::raw::c_uint =
-        2;
-    pub const CSS_PSEUDO_ELEMENT_SUPPORTS_STYLE_ATTRIBUTE:
-              ::std::os::raw::c_uint =
-        4;
-    pub const CSS_PSEUDO_ELEMENT_SUPPORTS_USER_ACTION_STATE:
-              ::std::os::raw::c_uint =
-        8;
-    pub const CSS_PSEUDO_ELEMENT_UA_SHEET_ONLY: ::std::os::raw::c_uint = 16;
-    pub const CSS_PSEUDO_ELEMENT_IS_JS_CREATED_NAC: ::std::os::raw::c_uint =
-        32;
-    pub const kNameSpaceID_Unknown: ::std::os::raw::c_int = -1;
-    pub const kNameSpaceID_XMLNS: ::std::os::raw::c_uint = 1;
-    pub const kNameSpaceID_XML: ::std::os::raw::c_uint = 2;
-    pub const kNameSpaceID_XHTML: ::std::os::raw::c_uint = 3;
-    pub const kNameSpaceID_XLink: ::std::os::raw::c_uint = 4;
-    pub const kNameSpaceID_XSLT: ::std::os::raw::c_uint = 5;
-    pub const kNameSpaceID_XBL: ::std::os::raw::c_uint = 6;
-    pub const kNameSpaceID_MathML: ::std::os::raw::c_uint = 7;
-    pub const kNameSpaceID_RDF: ::std::os::raw::c_uint = 8;
-    pub const kNameSpaceID_XUL: ::std::os::raw::c_uint = 9;
-    pub const kNameSpaceID_SVG: ::std::os::raw::c_uint = 10;
-    pub const kNameSpaceID_disabled_MathML: ::std::os::raw::c_uint = 11;
-    pub const kNameSpaceID_disabled_SVG: ::std::os::raw::c_uint = 12;
-    pub const kNameSpaceID_LastBuiltin: ::std::os::raw::c_uint = 12;
-    pub const kNameSpaceID_Wildcard: ::std::os::raw::c_int = -2147483648;
-    pub const NS_AUTHOR_SPECIFIED_BACKGROUND: ::std::os::raw::c_uint = 1;
-    pub const NS_AUTHOR_SPECIFIED_BORDER: ::std::os::raw::c_uint = 2;
-    pub const NS_AUTHOR_SPECIFIED_PADDING: ::std::os::raw::c_uint = 4;
-    pub const NS_AUTHOR_SPECIFIED_TEXT_SHADOW: ::std::os::raw::c_uint = 8;
-    pub const NS_STYLE_INHERIT_MASK: ::std::os::raw::c_uint = 16777215;
-    pub const NS_STYLE_HAS_TEXT_DECORATION_LINES: ::std::os::raw::c_uint =
-        16777216;
-    pub const NS_STYLE_HAS_PSEUDO_ELEMENT_DATA: ::std::os::raw::c_uint =
-        33554432;
-    pub const NS_STYLE_RELEVANT_LINK_VISITED: ::std::os::raw::c_uint =
-        67108864;
-    pub const NS_STYLE_IS_STYLE_IF_VISITED: ::std::os::raw::c_uint =
-        134217728;
-    pub const NS_STYLE_CHILD_USES_GRANDANCESTOR_STYLE: ::std::os::raw::c_uint
-              =
-        268435456;
-    pub const NS_STYLE_IS_SHARED: ::std::os::raw::c_uint = 536870912;
-    pub const NS_STYLE_IS_GOING_AWAY: ::std::os::raw::c_uint = 1073741824;
-    pub const NS_STYLE_SUPPRESS_LINEBREAK: ::std::os::raw::c_uint =
-        2147483648;
-    pub const NS_STYLE_IN_DISPLAY_NONE_SUBTREE: ::std::os::raw::c_ulonglong =
-        4294967296;
-    pub const NS_STYLE_INELIGIBLE_FOR_SHARING: ::std::os::raw::c_ulonglong =
-        8589934592;
-    pub const NS_STYLE_HAS_CHILD_THAT_USES_RESET_STYLE:
-              ::std::os::raw::c_ulonglong =
-        17179869184;
-    pub const NS_STYLE_IS_TEXT_COMBINED: ::std::os::raw::c_ulonglong =
-        34359738368;
-    pub const NS_STYLE_CONTEXT_TYPE_SHIFT: ::std::os::raw::c_uint = 36;
     pub mod std {
         #[allow(unused_imports)]
         use self::super::super::root;
@@ -1196,98 +1195,40 @@ pub mod root {
             fn clone(&self) -> Self { *self }
         }
         #[repr(C)]
-        #[derive(Debug, Copy)]
-        pub struct forward_iterator_tag {
+        #[derive(Debug, Copy, Clone)]
+        pub struct iterator {
             pub _address: u8,
         }
-        #[test]
-        fn bindgen_test_layout_forward_iterator_tag() {
-            assert_eq!(::std::mem::size_of::<forward_iterator_tag>() , 1usize
-                       , concat ! (
-                       "Size of: " , stringify ! ( forward_iterator_tag ) ));
-            assert_eq! (::std::mem::align_of::<forward_iterator_tag>() ,
-                        1usize , concat ! (
-                        "Alignment of " , stringify ! ( forward_iterator_tag )
-                        ));
-        }
-        impl Clone for forward_iterator_tag {
-            fn clone(&self) -> Self { *self }
-        }
-        #[repr(C)]
-        #[derive(Debug, Copy)]
-        pub struct bidirectional_iterator_tag {
-            pub _address: u8,
-        }
-        #[test]
-        fn bindgen_test_layout_bidirectional_iterator_tag() {
-            assert_eq!(::std::mem::size_of::<bidirectional_iterator_tag>() ,
-                       1usize , concat ! (
-                       "Size of: " , stringify ! ( bidirectional_iterator_tag
-                       ) ));
-            assert_eq! (::std::mem::align_of::<bidirectional_iterator_tag>() ,
-                        1usize , concat ! (
-                        "Alignment of " , stringify ! (
-                        bidirectional_iterator_tag ) ));
-        }
-        impl Clone for bidirectional_iterator_tag {
-            fn clone(&self) -> Self { *self }
-        }
-        #[repr(C)]
-        #[derive(Debug, Copy)]
-        pub struct random_access_iterator_tag {
-            pub _address: u8,
-        }
-        #[test]
-        fn bindgen_test_layout_random_access_iterator_tag() {
-            assert_eq!(::std::mem::size_of::<random_access_iterator_tag>() ,
-                       1usize , concat ! (
-                       "Size of: " , stringify ! ( random_access_iterator_tag
-                       ) ));
-            assert_eq! (::std::mem::align_of::<random_access_iterator_tag>() ,
-                        1usize , concat ! (
-                        "Alignment of " , stringify ! (
-                        random_access_iterator_tag ) ));
-        }
-        impl Clone for random_access_iterator_tag {
-            fn clone(&self) -> Self { *self }
-        }
+        pub type iterator_iterator_category<_Category> = _Category;
+        pub type iterator_value_type<_Tp> = _Tp;
+        pub type iterator_difference_type<_Distance> = _Distance;
+        pub type iterator_pointer<_Pointer> = _Pointer;
+        pub type iterator_reference<_Reference> = _Reference;
         #[repr(C)]
         pub struct iterator_traits {
             pub _address: u8,
         }
         #[repr(C)]
-        #[derive(Debug, Copy, Clone)]
-        pub struct iterator {
-            pub _address: u8,
+        pub struct reverse_iterator<_Iterator> {
+            pub current: _Iterator,
+            pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<_Iterator>>,
         }
-        pub type iterator_value_type<_Tp> = _Tp;
-        pub type iterator_difference_type<_Distance> = _Distance;
-        pub type iterator_pointer<_Pointer> = _Pointer;
-        pub type iterator_reference<_Reference> = _Reference;
-        pub type iterator_iterator_category<_Category> = _Category;
-        #[repr(C)]
-        pub struct reverse_iterator<_Iter> {
-            pub __t: _Iter,
-            pub current: _Iter,
-            pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<_Iter>>,
-        }
-        pub type reverse_iterator_iterator_type<_Iter> = _Iter;
+        pub type reverse_iterator___traits_type = root::std::iterator_traits;
+        pub type reverse_iterator_iterator_type<_Iterator> = _Iterator;
         pub type reverse_iterator_difference_type =
-            root::std::iterator_traits;
-        pub type reverse_iterator_reference = root::std::iterator_traits;
-        pub type reverse_iterator_pointer = root::std::iterator_traits;
+            root::std::reverse_iterator___traits_type;
+        pub type reverse_iterator_pointer =
+            root::std::reverse_iterator___traits_type;
+        pub type reverse_iterator_reference =
+            root::std::reverse_iterator___traits_type;
         #[repr(C)]
         #[derive(Debug, Copy, Clone)]
         pub struct atomic {
         }
-        pub type atomic___base = u8;
-        #[repr(C)]
-        pub struct __bit_const_reference {
-            pub __seg_: root::std::__bit_const_reference___storage_pointer,
-            pub __mask_: root::std::__bit_const_reference___storage_type,
-        }
-        pub type __bit_const_reference___storage_type = [u8; 0usize];
-        pub type __bit_const_reference___storage_pointer = [u8; 0usize];
+    }
+    pub mod __gnu_cxx {
+        #[allow(unused_imports)]
+        use self::super::super::root;
     }
     pub mod mozilla {
         #[allow(unused_imports)]
@@ -1526,7 +1467,7 @@ pub mod root {
             #[repr(C)]
             #[derive(Debug)]
             pub struct MutexImpl {
-                pub platformData_: [*mut ::std::os::raw::c_void; 8usize],
+                pub platformData_: [*mut ::std::os::raw::c_void; 5usize],
             }
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
@@ -1535,7 +1476,7 @@ pub mod root {
             }
             #[test]
             fn bindgen_test_layout_MutexImpl() {
-                assert_eq!(::std::mem::size_of::<MutexImpl>() , 64usize ,
+                assert_eq!(::std::mem::size_of::<MutexImpl>() , 40usize ,
                            concat ! ( "Size of: " , stringify ! ( MutexImpl )
                            ));
                 assert_eq! (::std::mem::align_of::<MutexImpl>() , 8usize ,
@@ -2131,7 +2072,7 @@ pub mod root {
             }
         }
         #[repr(C)]
-        #[derive(Debug, Copy)]
+        #[derive(Debug)]
         pub struct ThreadSafeAutoRefCnt {
             pub mValue: u64,
         }
@@ -2151,9 +2092,6 @@ pub mod root {
                         "Alignment of field: " , stringify ! (
                         ThreadSafeAutoRefCnt ) , "::" , stringify ! ( mValue )
                         ));
-        }
-        impl Clone for ThreadSafeAutoRefCnt {
-            fn clone(&self) -> Self { *self }
         }
         #[repr(C)]
         #[derive(Debug)]
@@ -2539,78 +2477,118 @@ pub mod root {
                 #[inline]
                 pub fn mIsRootContent(&self) -> bool {
                     let mask = 1usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 0usize;
+                    let val = (unit_field_val & mask) >> 0usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mIsRootContent(&mut self, val: bool) {
                     let mask = 1usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 0usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 0usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mDoSmoothScroll(&self) -> bool {
                     let mask = 2usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 1usize;
+                    let val = (unit_field_val & mask) >> 1usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mDoSmoothScroll(&mut self, val: bool) {
                     let mask = 2usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 1usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 1usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mUseDisplayPortMargins(&self) -> bool {
                     let mask = 4usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 2usize;
+                    let val = (unit_field_val & mask) >> 2usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mUseDisplayPortMargins(&mut self, val: bool) {
                     let mask = 4usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 2usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 2usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mIsScrollInfoLayer(&self) -> bool {
                     let mask = 8usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 3usize;
+                    let val = (unit_field_val & mask) >> 3usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mIsScrollInfoLayer(&mut self, val: bool) {
                     let mask = 8usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 3usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 3usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
+                }
+                #[inline]
+                pub fn new_bitfield_1(mIsRootContent: bool,
+                                      mDoSmoothScroll: bool,
+                                      mUseDisplayPortMargins: bool,
+                                      mIsScrollInfoLayer: bool) -> u8 {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val = { 0 };
+                                            let mIsRootContent =
+                                                mIsRootContent as u8 as u8;
+                                            let mask = 1usize as u8;
+                                            let mIsRootContent =
+                                                (mIsRootContent << 0usize) &
+                                                    mask;
+                                            bitfield_unit_val | mIsRootContent
+                                        };
+                                    let mDoSmoothScroll =
+                                        mDoSmoothScroll as u8 as u8;
+                                    let mask = 2usize as u8;
+                                    let mDoSmoothScroll =
+                                        (mDoSmoothScroll << 1usize) & mask;
+                                    bitfield_unit_val | mDoSmoothScroll
+                                };
+                            let mUseDisplayPortMargins =
+                                mUseDisplayPortMargins as u8 as u8;
+                            let mask = 4usize as u8;
+                            let mUseDisplayPortMargins =
+                                (mUseDisplayPortMargins << 2usize) & mask;
+                            bitfield_unit_val | mUseDisplayPortMargins
+                        };
+                    let mIsScrollInfoLayer = mIsScrollInfoLayer as u8 as u8;
+                    let mask = 8usize as u8;
+                    let mIsScrollInfoLayer =
+                        (mIsScrollInfoLayer << 3usize) & mask;
+                    bitfield_unit_val | mIsScrollInfoLayer
                 }
             }
             #[repr(C)]
@@ -2803,28 +2781,28 @@ pub mod root {
                 #[inline]
                 pub fn mHasScrollgrab(&self) -> bool {
                     let mask = 1usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 0usize;
+                    let val = (unit_field_val & mask) >> 0usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mHasScrollgrab(&mut self, val: bool) {
                     let mask = 1usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 0usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 0usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mAllowVerticalScrollWithWheel(&self) -> bool {
                     let mask = 2usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 1usize;
+                    let val = (unit_field_val & mask) >> 1usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
@@ -2832,69 +2810,125 @@ pub mod root {
                                                          val: bool) {
                     let mask = 2usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 1usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 1usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mIsLayersIdRoot(&self) -> bool {
                     let mask = 4usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 2usize;
+                    let val = (unit_field_val & mask) >> 2usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mIsLayersIdRoot(&mut self, val: bool) {
                     let mask = 4usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 2usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 2usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mUsesContainerScrolling(&self) -> bool {
                     let mask = 8usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 3usize;
+                    let val = (unit_field_val & mask) >> 3usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mUsesContainerScrolling(&mut self, val: bool) {
                     let mask = 8usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 3usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 3usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
                 }
                 #[inline]
                 pub fn mForceDisableApz(&self) -> bool {
                     let mask = 16usize as u8;
-                    let field_val: u8 =
+                    let unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    let val = (field_val & mask) >> 4usize;
+                    let val = (unit_field_val & mask) >> 4usize;
                     unsafe { ::std::mem::transmute(val as u8) }
                 }
                 #[inline]
                 pub fn set_mForceDisableApz(&mut self, val: bool) {
                     let mask = 16usize as u8;
                     let val = val as u8 as u8;
-                    let mut field_val: u8 =
+                    let mut unit_field_val: u8 =
                         unsafe { ::std::mem::transmute(self._bitfield_1) };
-                    field_val &= !mask;
-                    field_val |= (val << 4usize) & mask;
+                    unit_field_val &= !mask;
+                    unit_field_val |= (val << 4usize) & mask;
                     self._bitfield_1 =
-                        unsafe { ::std::mem::transmute(field_val) };
+                        unsafe { ::std::mem::transmute(unit_field_val) };
+                }
+                #[inline]
+                pub fn new_bitfield_1(mHasScrollgrab: bool,
+                                      mAllowVerticalScrollWithWheel: bool,
+                                      mIsLayersIdRoot: bool,
+                                      mUsesContainerScrolling: bool,
+                                      mForceDisableApz: bool) -> u8 {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        { 0 };
+                                                    let mHasScrollgrab =
+                                                        mHasScrollgrab as u8
+                                                            as u8;
+                                                    let mask = 1usize as u8;
+                                                    let mHasScrollgrab =
+                                                        (mHasScrollgrab <<
+                                                             0usize) & mask;
+                                                    bitfield_unit_val |
+                                                        mHasScrollgrab
+                                                };
+                                            let mAllowVerticalScrollWithWheel =
+                                                mAllowVerticalScrollWithWheel
+                                                    as u8 as u8;
+                                            let mask = 2usize as u8;
+                                            let mAllowVerticalScrollWithWheel =
+                                                (mAllowVerticalScrollWithWheel
+                                                     << 1usize) & mask;
+                                            bitfield_unit_val |
+                                                mAllowVerticalScrollWithWheel
+                                        };
+                                    let mIsLayersIdRoot =
+                                        mIsLayersIdRoot as u8 as u8;
+                                    let mask = 4usize as u8;
+                                    let mIsLayersIdRoot =
+                                        (mIsLayersIdRoot << 2usize) & mask;
+                                    bitfield_unit_val | mIsLayersIdRoot
+                                };
+                            let mUsesContainerScrolling =
+                                mUsesContainerScrolling as u8 as u8;
+                            let mask = 8usize as u8;
+                            let mUsesContainerScrolling =
+                                (mUsesContainerScrolling << 3usize) & mask;
+                            bitfield_unit_val | mUsesContainerScrolling
+                        };
+                    let mForceDisableApz = mForceDisableApz as u8 as u8;
+                    let mask = 16usize as u8;
+                    let mForceDisableApz =
+                        (mForceDisableApz << 4usize) & mask;
+                    bitfield_unit_val | mForceDisableApz
                 }
             }
             #[repr(C)]
@@ -3209,6 +3243,12 @@ pub mod root {
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
             pub struct Optional {
+            }
+            #[repr(C)]
+            #[derive(Debug, Copy, Clone)]
+            pub struct NonNull<T> {
+                pub ptr: *mut T,
+                pub _phantom_0: ::std::marker::PhantomData<::std::cell::UnsafeCell<T>>,
             }
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
@@ -3700,9 +3740,20 @@ pub mod root {
                 _unused: [u8; 0],
             }
             #[repr(C)]
-            #[derive(Debug, Copy, Clone)]
+            #[derive(Debug)]
             pub struct EventHandlerNonNull {
-                _unused: [u8; 0],
+                pub _base: root::mozilla::dom::CallbackFunction,
+            }
+            #[test]
+            fn bindgen_test_layout_EventHandlerNonNull() {
+                assert_eq!(::std::mem::size_of::<EventHandlerNonNull>() ,
+                           48usize , concat ! (
+                           "Size of: " , stringify ! ( EventHandlerNonNull )
+                           ));
+                assert_eq! (::std::mem::align_of::<EventHandlerNonNull>() ,
+                            8usize , concat ! (
+                            "Alignment of " , stringify ! (
+                            EventHandlerNonNull ) ));
             }
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
@@ -4901,6 +4952,93 @@ pub mod root {
             }
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
+            pub struct CSSPseudoElement {
+                _unused: [u8; 0],
+            }
+            #[repr(u8)]
+            #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+            pub enum IterationCompositeOperation {
+                Replace = 0,
+                Accumulate = 1,
+                EndGuard_ = 2,
+            }
+            #[repr(C)]
+            #[derive(Debug)]
+            pub struct ElementOrCSSPseudoElement {
+                pub mType: root::mozilla::dom::ElementOrCSSPseudoElement_Type,
+                pub mValue: root::mozilla::dom::ElementOrCSSPseudoElement_Value,
+            }
+            #[repr(u32)]
+            #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+            pub enum ElementOrCSSPseudoElement_Type {
+                eUninitialized = 0,
+                eElement = 1,
+                eCSSPseudoElement = 2,
+            }
+            #[repr(C)]
+            #[derive(Debug, Copy)]
+            pub struct ElementOrCSSPseudoElement_Value {
+                pub mElement: root::__BindgenUnionField<root::mozilla::dom::UnionMember>,
+                pub mCSSPseudoElement: root::__BindgenUnionField<root::mozilla::dom::UnionMember>,
+                pub bindgen_union_field: u64,
+            }
+            #[test]
+            fn bindgen_test_layout_ElementOrCSSPseudoElement_Value() {
+                assert_eq!(::std::mem::size_of::<ElementOrCSSPseudoElement_Value>()
+                           , 8usize , concat ! (
+                           "Size of: " , stringify ! (
+                           ElementOrCSSPseudoElement_Value ) ));
+                assert_eq! (::std::mem::align_of::<ElementOrCSSPseudoElement_Value>()
+                            , 8usize , concat ! (
+                            "Alignment of " , stringify ! (
+                            ElementOrCSSPseudoElement_Value ) ));
+                assert_eq! (unsafe {
+                            & (
+                            * ( 0 as * const ElementOrCSSPseudoElement_Value )
+                            ) . mElement as * const _ as usize } , 0usize ,
+                            concat ! (
+                            "Alignment of field: " , stringify ! (
+                            ElementOrCSSPseudoElement_Value ) , "::" ,
+                            stringify ! ( mElement ) ));
+                assert_eq! (unsafe {
+                            & (
+                            * ( 0 as * const ElementOrCSSPseudoElement_Value )
+                            ) . mCSSPseudoElement as * const _ as usize } ,
+                            0usize , concat ! (
+                            "Alignment of field: " , stringify ! (
+                            ElementOrCSSPseudoElement_Value ) , "::" ,
+                            stringify ! ( mCSSPseudoElement ) ));
+            }
+            impl Clone for ElementOrCSSPseudoElement_Value {
+                fn clone(&self) -> Self { *self }
+            }
+            #[test]
+            fn bindgen_test_layout_ElementOrCSSPseudoElement() {
+                assert_eq!(::std::mem::size_of::<ElementOrCSSPseudoElement>()
+                           , 16usize , concat ! (
+                           "Size of: " , stringify ! (
+                           ElementOrCSSPseudoElement ) ));
+                assert_eq! (::std::mem::align_of::<ElementOrCSSPseudoElement>()
+                            , 8usize , concat ! (
+                            "Alignment of " , stringify ! (
+                            ElementOrCSSPseudoElement ) ));
+                assert_eq! (unsafe {
+                            & ( * ( 0 as * const ElementOrCSSPseudoElement ) )
+                            . mType as * const _ as usize } , 0usize , concat
+                            ! (
+                            "Alignment of field: " , stringify ! (
+                            ElementOrCSSPseudoElement ) , "::" , stringify ! (
+                            mType ) ));
+                assert_eq! (unsafe {
+                            & ( * ( 0 as * const ElementOrCSSPseudoElement ) )
+                            . mValue as * const _ as usize } , 8usize , concat
+                            ! (
+                            "Alignment of field: " , stringify ! (
+                            ElementOrCSSPseudoElement ) , "::" , stringify ! (
+                            mValue ) ));
+            }
+            #[repr(C)]
+            #[derive(Debug, Copy, Clone)]
             pub struct CustomElementData {
                 _unused: [u8; 0],
             }
@@ -4960,7 +5098,7 @@ pub mod root {
                 pub mDataset: *mut root::nsDOMStringMap,
                 /**
      * SMIL Overridde style rules (for SMIL animation of CSS properties)
-     * @see nsIContent::GetSMILOverrideStyle
+     * @see Element::GetSMILOverrideStyle
      */
                 pub mSMILOverrideStyle: root::nsCOMPtr,
                 /**
@@ -5510,11 +5648,6 @@ pub mod root {
             #[repr(C)]
             #[derive(Debug, Copy, Clone)]
             pub struct AnimationFilter {
-                _unused: [u8; 0],
-            }
-            #[repr(C)]
-            #[derive(Debug, Copy, Clone)]
-            pub struct ElementOrCSSPseudoElement {
                 _unused: [u8; 0],
             }
             #[repr(C)]
@@ -6268,7 +6401,12 @@ pub mod root {
         }
         #[repr(i32)]
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-        pub enum TraversalRestyleBehavior { Normal = 0, ForReconstruct = 1, }
+        pub enum TraversalRestyleBehavior {
+            Normal = 0,
+            ForReconstruct = 1,
+            ForAnimationOnly = 2,
+            ForCSSRuleChanges = 3,
+        }
         pub const UpdateAnimationsTasks_CSSAnimations:
                   root::mozilla::UpdateAnimationsTasks =
             1;
@@ -6803,7 +6941,7 @@ pub mod root {
             _unused: [u8; 0],
         }
         #[test]
-        fn __bindgen_test_layout_StaticRefPtr_instantiation_116395() {
+        fn __bindgen_test_layout_StaticRefPtr_instantiation_2() {
             assert_eq!(::std::mem::size_of::<root::mozilla::StaticRefPtr<root::mozilla::URLExtraData>>()
                        , 8usize , concat ! (
                        "Size of template specialization: " , stringify ! (
@@ -7530,7 +7668,7 @@ pub mod root {
         #[repr(C)]
         #[derive(Debug)]
         pub struct StaticPresData {
-            pub mLangService: root::nsCOMPtr,
+            pub mLangService: *mut root::nsLanguageAtomService,
             pub mBorderWidthTable: [root::nscoord; 3usize],
             pub mStaticLangGroupFontPrefs: root::mozilla::LangGroupFontPrefs,
         }
@@ -7566,6 +7704,7 @@ pub mod root {
             pub mRefCnt: root::nsCycleCollectingAutoRefCnt,
             pub mPresContext: *mut root::nsPresContext,
             pub mElementsToRestyle: [u64; 10usize],
+            pub mIsInPreTraverse: bool,
             pub mRuleProcessors: [u64; 2usize],
         }
         pub type EffectCompositor_HasThreadSafeRefCnt =
@@ -7601,6 +7740,12 @@ pub mod root {
             Throttled = 0,
             Standard = 1,
             Layer = 2,
+        }
+        #[repr(i32)]
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+        pub enum EffectCompositor_AnimationRestyleType {
+            Throttled = 0,
+            Full = 1,
         }
         #[repr(C)]
         #[derive(Debug)]
@@ -7661,7 +7806,7 @@ pub mod root {
         pub const EffectCompositor_kCascadeLevelCount: usize = 2;
         #[test]
         fn bindgen_test_layout_EffectCompositor() {
-            assert_eq!(::std::mem::size_of::<EffectCompositor>() , 112usize ,
+            assert_eq!(::std::mem::size_of::<EffectCompositor>() , 120usize ,
                        concat ! (
                        "Size of: " , stringify ! ( EffectCompositor ) ));
             assert_eq! (::std::mem::align_of::<EffectCompositor>() , 8usize ,
@@ -7689,7 +7834,14 @@ pub mod root {
                         mElementsToRestyle ) ));
             assert_eq! (unsafe {
                         & ( * ( 0 as * const EffectCompositor ) ) .
-                        mRuleProcessors as * const _ as usize } , 96usize ,
+                        mIsInPreTraverse as * const _ as usize } , 96usize ,
+                        concat ! (
+                        "Alignment of field: " , stringify ! (
+                        EffectCompositor ) , "::" , stringify ! (
+                        mIsInPreTraverse ) ));
+            assert_eq! (unsafe {
+                        & ( * ( 0 as * const EffectCompositor ) ) .
+                        mRuleProcessors as * const _ as usize } , 104usize ,
                         concat ! (
                         "Alignment of field: " , stringify ! (
                         EffectCompositor ) , "::" , stringify ! (
@@ -7796,7 +7948,7 @@ pub mod root {
         }
         #[test]
         fn bindgen_test_layout_OffTheBooksMutex() {
-            assert_eq!(::std::mem::size_of::<OffTheBooksMutex>() , 64usize ,
+            assert_eq!(::std::mem::size_of::<OffTheBooksMutex>() , 40usize ,
                        concat ! (
                        "Size of: " , stringify ! ( OffTheBooksMutex ) ));
             assert_eq! (::std::mem::align_of::<OffTheBooksMutex>() , 8usize ,
@@ -7815,7 +7967,7 @@ pub mod root {
         }
         #[test]
         fn bindgen_test_layout_Mutex() {
-            assert_eq!(::std::mem::size_of::<Mutex>() , 64usize , concat ! (
+            assert_eq!(::std::mem::size_of::<Mutex>() , 40usize , concat ! (
                        "Size of: " , stringify ! ( Mutex ) ));
             assert_eq! (::std::mem::align_of::<Mutex>() , 8usize , concat ! (
                         "Alignment of " , stringify ! ( Mutex ) ));
@@ -8252,8 +8404,7 @@ pub mod root {
         pub const SERVO_PREF_ENABLED_animation_name: bool = false;
         pub const SERVO_PREF_ENABLED_animation_play_state: bool = false;
         pub const SERVO_PREF_ENABLED_animation_timing_function: bool = false;
-        pub const SERVO_PREF_ENABLED__moz_appearance: bool = true;
-        pub const SERVO_PREF_ENABLED_appearance: bool = true;
+        pub const SERVO_PREF_ENABLED__moz_appearance: bool = false;
         pub const SERVO_PREF_ENABLED_backface_visibility: bool = false;
         pub const SERVO_PREF_ENABLED_background: bool = false;
         pub const SERVO_PREF_ENABLED_background_attachment: bool = false;
@@ -8934,7 +9085,7 @@ pub mod root {
                         ( mValue ) ));
         }
         #[test]
-        fn __bindgen_test_layout_DefaultDelete_instantiation_153384() {
+        fn __bindgen_test_layout_DefaultDelete_instantiation_3() {
             assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                        1usize , concat ! (
                        "Size of template specialization: " , stringify ! (
@@ -11167,28 +11318,6 @@ pub mod root {
     pub struct nsCharTraits {
         pub _address: u8,
     }
-    #[test]
-    fn __bindgen_test_layout_nsCharTraits_instantiation_51822() {
-        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
-                   concat ! (
-                   "Size of template specialization: " , stringify ! (
-                   root::nsCharTraits ) ));
-        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
-                   concat ! (
-                   "Alignment of template specialization: " , stringify ! (
-                   root::nsCharTraits ) ));
-    }
-    #[test]
-    fn __bindgen_test_layout_nsCharTraits_instantiation_51826() {
-        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
-                   concat ! (
-                   "Size of template specialization: " , stringify ! (
-                   root::nsCharTraits ) ));
-        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
-                   concat ! (
-                   "Alignment of template specialization: " , stringify ! (
-                   root::nsCharTraits ) ));
-    }
     /**
  * @see nsTAString
  */
@@ -11858,40 +11987,56 @@ pub mod root {
             #[inline]
             pub fn payload47(&self) -> u64 {
                 let mask = 140737488355327usize as u64;
-                let field_val: u64 =
+                let unit_field_val: u64 =
                     unsafe { ::std::mem::transmute(self._bitfield_1) };
-                let val = (field_val & mask) >> 0usize;
+                let val = (unit_field_val & mask) >> 0usize;
                 unsafe { ::std::mem::transmute(val as u64) }
             }
             #[inline]
             pub fn set_payload47(&mut self, val: u64) {
                 let mask = 140737488355327usize as u64;
                 let val = val as u64 as u64;
-                let mut field_val: u64 =
+                let mut unit_field_val: u64 =
                     unsafe { ::std::mem::transmute(self._bitfield_1) };
-                field_val &= !mask;
-                field_val |= (val << 0usize) & mask;
+                unit_field_val &= !mask;
+                unit_field_val |= (val << 0usize) & mask;
                 self._bitfield_1 =
-                    unsafe { ::std::mem::transmute(field_val) };
+                    unsafe { ::std::mem::transmute(unit_field_val) };
             }
             #[inline]
             pub fn tag(&self) -> root::JSValueTag {
                 let mask = 18446603336221196288usize as u64;
-                let field_val: u64 =
+                let unit_field_val: u64 =
                     unsafe { ::std::mem::transmute(self._bitfield_1) };
-                let val = (field_val & mask) >> 47usize;
+                let val = (unit_field_val & mask) >> 47usize;
                 unsafe { ::std::mem::transmute(val as u32) }
             }
             #[inline]
             pub fn set_tag(&mut self, val: root::JSValueTag) {
                 let mask = 18446603336221196288usize as u64;
                 let val = val as u32 as u64;
-                let mut field_val: u64 =
+                let mut unit_field_val: u64 =
                     unsafe { ::std::mem::transmute(self._bitfield_1) };
-                field_val &= !mask;
-                field_val |= (val << 47usize) & mask;
+                unit_field_val &= !mask;
+                unit_field_val |= (val << 47usize) & mask;
                 self._bitfield_1 =
-                    unsafe { ::std::mem::transmute(field_val) };
+                    unsafe { ::std::mem::transmute(unit_field_val) };
+            }
+            #[inline]
+            pub fn new_bitfield_1(payload47: u64, tag: root::JSValueTag)
+             -> u64 {
+                let bitfield_unit_val =
+                    {
+                        let bitfield_unit_val = { 0 };
+                        let payload47 = payload47 as u64 as u64;
+                        let mask = 140737488355327usize as u64;
+                        let payload47 = (payload47 << 0usize) & mask;
+                        bitfield_unit_val | payload47
+                    };
+                let tag = tag as u32 as u64;
+                let mask = 18446603336221196288usize as u64;
+                let tag = (tag << 47usize) & mask;
+                bitfield_unit_val | tag
             }
         }
         #[repr(C)]
@@ -12815,17 +12960,6 @@ pub mod root {
         pub _base: root::nsCOMPtr_base,
     }
     pub type nsCOMPtr_element_type<T> = T;
-    #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_60935() {
-        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
-                   (
-                   "Size of template specialization: " , stringify ! (
-                   root::nsCOMPtr ) ));
-        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
-                   ! (
-                   "Alignment of template specialization: " , stringify ! (
-                   root::nsCOMPtr ) ));
-    }
     #[repr(C)]
     #[derive(Debug)]
     pub struct nsAutoPtr<T> {
@@ -13172,6 +13306,39 @@ pub mod root {
                     , "::" , stringify ! ( mStr ) ));
     }
     /**
+ * hashkey wrapper using nsISupports* KeyType
+ *
+ * @see nsTHashtable::EntryType for specification
+ */
+    #[repr(C)]
+    #[derive(Debug)]
+    pub struct nsISupportsHashKey {
+        pub _base: root::PLDHashEntryHdr,
+        pub mSupports: root::nsCOMPtr,
+    }
+    pub type nsISupportsHashKey_KeyType = *mut root::nsISupports;
+    pub type nsISupportsHashKey_KeyTypePointer = *const root::nsISupports;
+    pub const nsISupportsHashKey_ALLOW_MEMMOVE:
+              root::nsISupportsHashKey__bindgen_ty_1 =
+        nsISupportsHashKey__bindgen_ty_1::ALLOW_MEMMOVE;
+    #[repr(u32)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub enum nsISupportsHashKey__bindgen_ty_1 { ALLOW_MEMMOVE = 1, }
+    #[test]
+    fn bindgen_test_layout_nsISupportsHashKey() {
+        assert_eq!(::std::mem::size_of::<nsISupportsHashKey>() , 16usize ,
+                   concat ! ( "Size of: " , stringify ! ( nsISupportsHashKey )
+                   ));
+        assert_eq! (::std::mem::align_of::<nsISupportsHashKey>() , 8usize ,
+                    concat ! (
+                    "Alignment of " , stringify ! ( nsISupportsHashKey ) ));
+        assert_eq! (unsafe {
+                    & ( * ( 0 as * const nsISupportsHashKey ) ) . mSupports as
+                    * const _ as usize } , 8usize , concat ! (
+                    "Alignment of field: " , stringify ! ( nsISupportsHashKey
+                    ) , "::" , stringify ! ( mSupports ) ));
+    }
+    /**
  * hashkey wrapper using refcounted * KeyType
  *
  * @see nsTHashtable::EntryType for specification
@@ -13431,38 +13598,55 @@ pub mod root {
         #[inline]
         pub fn mCapacity(&self) -> u32 {
             let mask = 2147483647usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mCapacity(&mut self, val: u32) {
             let mask = 2147483647usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsAutoArray(&self) -> u32 {
             let mask = 2147483648usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 31usize;
+            let val = (unit_field_val & mask) >> 31usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsAutoArray(&mut self, val: u32) {
             let mask = 2147483648usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 31usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 31usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mCapacity: u32, mIsAutoArray: u32) -> u32 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val = { 0 };
+                    let mCapacity = mCapacity as u32 as u32;
+                    let mask = 2147483647usize as u32;
+                    let mCapacity = (mCapacity << 0usize) & mask;
+                    bitfield_unit_val | mCapacity
+                };
+            let mIsAutoArray = mIsAutoArray as u32 as u32;
+            let mask = 2147483648usize as u32;
+            let mIsAutoArray = (mIsAutoArray << 31usize) & mask;
+            bitfield_unit_val | mIsAutoArray
         }
     }
     pub type nscoord = i32;
@@ -14253,6 +14437,28 @@ pub mod root {
         #[inline]
         fn bitor(self, other: Self) -> Self { nsChangeHint(self.0 | other.0) }
     }
+    impl ::std::ops::BitOrAssign for root::nsChangeHint {
+        #[inline]
+        fn bitor_assign(&mut self, rhs: root::nsChangeHint) {
+            self.0 |= rhs.0;
+        }
+    }
+    impl ::std::ops::BitAnd<root::nsChangeHint> for root::nsChangeHint {
+        type
+        Output
+        =
+        Self;
+        #[inline]
+        fn bitand(self, other: Self) -> Self {
+            nsChangeHint(self.0 & other.0)
+        }
+    }
+    impl ::std::ops::BitAndAssign for root::nsChangeHint {
+        #[inline]
+        fn bitand_assign(&mut self, rhs: root::nsChangeHint) {
+            self.0 &= rhs.0;
+        }
+    }
     #[repr(C)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct nsChangeHint(pub u32);
@@ -14288,6 +14494,28 @@ pub mod root {
         #[inline]
         fn bitor(self, other: Self) -> Self {
             nsRestyleHint(self.0 | other.0)
+        }
+    }
+    impl ::std::ops::BitOrAssign for root::nsRestyleHint {
+        #[inline]
+        fn bitor_assign(&mut self, rhs: root::nsRestyleHint) {
+            self.0 |= rhs.0;
+        }
+    }
+    impl ::std::ops::BitAnd<root::nsRestyleHint> for root::nsRestyleHint {
+        type
+        Output
+        =
+        Self;
+        #[inline]
+        fn bitand(self, other: Self) -> Self {
+            nsRestyleHint(self.0 & other.0)
+        }
+    }
+    impl ::std::ops::BitAndAssign for root::nsRestyleHint {
+        #[inline]
+        fn bitand_assign(&mut self, rhs: root::nsRestyleHint) {
+            self.0 &= rhs.0;
         }
     }
     #[repr(C)]
@@ -14376,7 +14604,7 @@ pub mod root {
  * count is 1.
  */
     #[repr(C)]
-    #[derive(Debug, Copy)]
+    #[derive(Debug)]
     pub struct nsStringBuffer {
         pub mRefCount: u32,
         pub mStorageSize: u32,
@@ -14397,9 +14625,6 @@ pub mod root {
                     * const _ as usize } , 4usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStringBuffer ) ,
                     "::" , stringify ! ( mStorageSize ) ));
-    }
-    impl Clone for nsStringBuffer {
-        fn clone(&self) -> Self { *self }
     }
     #[repr(C)]
     #[derive(Debug, Copy)]
@@ -14443,38 +14668,55 @@ pub mod root {
         #[inline]
         pub fn mLength(&self) -> u32 {
             let mask = 2147483647usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mLength(&mut self, val: u32) {
             let mask = 2147483647usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsStatic(&self) -> u32 {
             let mask = 2147483648usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 31usize;
+            let val = (unit_field_val & mask) >> 31usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsStatic(&mut self, val: u32) {
             let mask = 2147483648usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 31usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 31usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mLength: u32, mIsStatic: u32) -> u32 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val = { 0 };
+                    let mLength = mLength as u32 as u32;
+                    let mask = 2147483647usize as u32;
+                    let mLength = (mLength << 0usize) & mask;
+                    bitfield_unit_val | mLength
+                };
+            let mIsStatic = mIsStatic as u32 as u32;
+            let mask = 2147483648usize as u32;
+            let mIsStatic = (mIsStatic << 31usize) & mask;
+            bitfield_unit_val | mIsStatic
         }
     }
     #[repr(C)]
@@ -15248,20 +15490,29 @@ pub mod root {
         #[inline]
         pub fn ownsMessage_(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_ownsMessage_(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(ownsMessage_: bool) -> u8 {
+            let bitfield_unit_val = { 0 };
+            let ownsMessage_ = ownsMessage_ as u8 as u8;
+            let mask = 1usize as u8;
+            let ownsMessage_ = (ownsMessage_ << 0usize) & mask;
+            bitfield_unit_val | ownsMessage_
         }
     }
     /**
@@ -16423,812 +16674,1440 @@ pub mod root {
         #[inline]
         pub fn mBidiEnabled(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mBidiEnabled(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mMathMLEnabled(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mMathMLEnabled(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsInitialDocumentInWindow(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsInitialDocumentInWindow(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIgnoreDocGroupMismatches(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIgnoreDocGroupMismatches(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mLoadedAsData(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mLoadedAsData(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mLoadedAsInteractiveData(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mLoadedAsInteractiveData(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mMayStartLayout(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mMayStartLayout(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHaveFiredTitleChange(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHaveFiredTitleChange(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mBidiEnabled: bool, mMathMLEnabled: bool,
+                              mIsInitialDocumentInWindow: bool,
+                              mIgnoreDocGroupMismatches: bool,
+                              mLoadedAsData: bool,
+                              mLoadedAsInteractiveData: bool,
+                              mMayStartLayout: bool,
+                              mHaveFiredTitleChange: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mBidiEnabled =
+                                                                        mBidiEnabled
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mBidiEnabled =
+                                                                        (mBidiEnabled
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mBidiEnabled
+                                                                };
+                                                            let mMathMLEnabled =
+                                                                mMathMLEnabled
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mMathMLEnabled =
+                                                                (mMathMLEnabled
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mMathMLEnabled
+                                                        };
+                                                    let mIsInitialDocumentInWindow =
+                                                        mIsInitialDocumentInWindow
+                                                            as u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mIsInitialDocumentInWindow =
+                                                        (mIsInitialDocumentInWindow
+                                                             << 2usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mIsInitialDocumentInWindow
+                                                };
+                                            let mIgnoreDocGroupMismatches =
+                                                mIgnoreDocGroupMismatches as
+                                                    u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mIgnoreDocGroupMismatches =
+                                                (mIgnoreDocGroupMismatches <<
+                                                     3usize) & mask;
+                                            bitfield_unit_val |
+                                                mIgnoreDocGroupMismatches
+                                        };
+                                    let mLoadedAsData =
+                                        mLoadedAsData as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mLoadedAsData =
+                                        (mLoadedAsData << 4usize) & mask;
+                                    bitfield_unit_val | mLoadedAsData
+                                };
+                            let mLoadedAsInteractiveData =
+                                mLoadedAsInteractiveData as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mLoadedAsInteractiveData =
+                                (mLoadedAsInteractiveData << 5usize) & mask;
+                            bitfield_unit_val | mLoadedAsInteractiveData
+                        };
+                    let mMayStartLayout = mMayStartLayout as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mMayStartLayout = (mMayStartLayout << 6usize) & mask;
+                    bitfield_unit_val | mMayStartLayout
+                };
+            let mHaveFiredTitleChange = mHaveFiredTitleChange as u8 as u8;
+            let mask = 128usize as u8;
+            let mHaveFiredTitleChange =
+                (mHaveFiredTitleChange << 7usize) & mask;
+            bitfield_unit_val | mHaveFiredTitleChange
         }
         #[inline]
         pub fn mIsShowing(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsShowing(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mVisible(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mVisible(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasReferrerPolicyCSP(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasReferrerPolicyCSP(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mRemovedFromDocShell(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mRemovedFromDocShell(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mAllowDNSPrefetch(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mAllowDNSPrefetch(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsStaticDocument(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsStaticDocument(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mCreatingStaticClone(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mCreatingStaticClone(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mInUnlinkOrDeletion(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mInUnlinkOrDeletion(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_2(mIsShowing: bool, mVisible: bool,
+                              mHasReferrerPolicyCSP: bool,
+                              mRemovedFromDocShell: bool,
+                              mAllowDNSPrefetch: bool,
+                              mIsStaticDocument: bool,
+                              mCreatingStaticClone: bool,
+                              mInUnlinkOrDeletion: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mIsShowing =
+                                                                        mIsShowing
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mIsShowing =
+                                                                        (mIsShowing
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mIsShowing
+                                                                };
+                                                            let mVisible =
+                                                                mVisible as u8
+                                                                    as u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mVisible =
+                                                                (mVisible <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                | mVisible
+                                                        };
+                                                    let mHasReferrerPolicyCSP =
+                                                        mHasReferrerPolicyCSP
+                                                            as u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mHasReferrerPolicyCSP =
+                                                        (mHasReferrerPolicyCSP
+                                                             << 2usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mHasReferrerPolicyCSP
+                                                };
+                                            let mRemovedFromDocShell =
+                                                mRemovedFromDocShell as u8 as
+                                                    u8;
+                                            let mask = 8usize as u8;
+                                            let mRemovedFromDocShell =
+                                                (mRemovedFromDocShell <<
+                                                     3usize) & mask;
+                                            bitfield_unit_val |
+                                                mRemovedFromDocShell
+                                        };
+                                    let mAllowDNSPrefetch =
+                                        mAllowDNSPrefetch as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mAllowDNSPrefetch =
+                                        (mAllowDNSPrefetch << 4usize) & mask;
+                                    bitfield_unit_val | mAllowDNSPrefetch
+                                };
+                            let mIsStaticDocument =
+                                mIsStaticDocument as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mIsStaticDocument =
+                                (mIsStaticDocument << 5usize) & mask;
+                            bitfield_unit_val | mIsStaticDocument
+                        };
+                    let mCreatingStaticClone =
+                        mCreatingStaticClone as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mCreatingStaticClone =
+                        (mCreatingStaticClone << 6usize) & mask;
+                    bitfield_unit_val | mCreatingStaticClone
+                };
+            let mInUnlinkOrDeletion = mInUnlinkOrDeletion as u8 as u8;
+            let mask = 128usize as u8;
+            let mInUnlinkOrDeletion = (mInUnlinkOrDeletion << 7usize) & mask;
+            bitfield_unit_val | mInUnlinkOrDeletion
         }
         #[inline]
         pub fn mHasHadScriptHandlingObject(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasHadScriptHandlingObject(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsBeingUsedAsImage(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsBeingUsedAsImage(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsSyntheticDocument(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsSyntheticDocument(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasLinksToUpdate(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasLinksToUpdate(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasLinksToUpdateRunnable(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasLinksToUpdateRunnable(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mMayHaveDOMMutationObservers(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mMayHaveDOMMutationObservers(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mMayHaveAnimationObservers(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mMayHaveAnimationObservers(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasMixedActiveContentLoaded(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasMixedActiveContentLoaded(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_3(mHasHadScriptHandlingObject: bool,
+                              mIsBeingUsedAsImage: bool,
+                              mIsSyntheticDocument: bool,
+                              mHasLinksToUpdate: bool,
+                              mHasLinksToUpdateRunnable: bool,
+                              mMayHaveDOMMutationObservers: bool,
+                              mMayHaveAnimationObservers: bool,
+                              mHasMixedActiveContentLoaded: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mHasHadScriptHandlingObject =
+                                                                        mHasHadScriptHandlingObject
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mHasHadScriptHandlingObject =
+                                                                        (mHasHadScriptHandlingObject
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mHasHadScriptHandlingObject
+                                                                };
+                                                            let mIsBeingUsedAsImage =
+                                                                mIsBeingUsedAsImage
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mIsBeingUsedAsImage =
+                                                                (mIsBeingUsedAsImage
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mIsBeingUsedAsImage
+                                                        };
+                                                    let mIsSyntheticDocument =
+                                                        mIsSyntheticDocument
+                                                            as u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mIsSyntheticDocument =
+                                                        (mIsSyntheticDocument
+                                                             << 2usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mIsSyntheticDocument
+                                                };
+                                            let mHasLinksToUpdate =
+                                                mHasLinksToUpdate as u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mHasLinksToUpdate =
+                                                (mHasLinksToUpdate << 3usize)
+                                                    & mask;
+                                            bitfield_unit_val |
+                                                mHasLinksToUpdate
+                                        };
+                                    let mHasLinksToUpdateRunnable =
+                                        mHasLinksToUpdateRunnable as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mHasLinksToUpdateRunnable =
+                                        (mHasLinksToUpdateRunnable << 4usize)
+                                            & mask;
+                                    bitfield_unit_val |
+                                        mHasLinksToUpdateRunnable
+                                };
+                            let mMayHaveDOMMutationObservers =
+                                mMayHaveDOMMutationObservers as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mMayHaveDOMMutationObservers =
+                                (mMayHaveDOMMutationObservers << 5usize) &
+                                    mask;
+                            bitfield_unit_val | mMayHaveDOMMutationObservers
+                        };
+                    let mMayHaveAnimationObservers =
+                        mMayHaveAnimationObservers as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mMayHaveAnimationObservers =
+                        (mMayHaveAnimationObservers << 6usize) & mask;
+                    bitfield_unit_val | mMayHaveAnimationObservers
+                };
+            let mHasMixedActiveContentLoaded =
+                mHasMixedActiveContentLoaded as u8 as u8;
+            let mask = 128usize as u8;
+            let mHasMixedActiveContentLoaded =
+                (mHasMixedActiveContentLoaded << 7usize) & mask;
+            bitfield_unit_val | mHasMixedActiveContentLoaded
         }
         #[inline]
         pub fn mHasMixedActiveContentBlocked(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasMixedActiveContentBlocked(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasMixedDisplayContentLoaded(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasMixedDisplayContentLoaded(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasMixedDisplayContentBlocked(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasMixedDisplayContentBlocked(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasMixedContentObjectSubrequest(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasMixedContentObjectSubrequest(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasCSP(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasCSP(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasUnsafeEvalCSP(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasUnsafeEvalCSP(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasUnsafeInlineCSP(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasUnsafeInlineCSP(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasTrackingContentBlocked(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasTrackingContentBlocked(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_4) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_4 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_4 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_4(mHasMixedActiveContentBlocked: bool,
+                              mHasMixedDisplayContentLoaded: bool,
+                              mHasMixedDisplayContentBlocked: bool,
+                              mHasMixedContentObjectSubrequest: bool,
+                              mHasCSP: bool, mHasUnsafeEvalCSP: bool,
+                              mHasUnsafeInlineCSP: bool,
+                              mHasTrackingContentBlocked: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mHasMixedActiveContentBlocked =
+                                                                        mHasMixedActiveContentBlocked
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mHasMixedActiveContentBlocked =
+                                                                        (mHasMixedActiveContentBlocked
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mHasMixedActiveContentBlocked
+                                                                };
+                                                            let mHasMixedDisplayContentLoaded =
+                                                                mHasMixedDisplayContentLoaded
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mHasMixedDisplayContentLoaded =
+                                                                (mHasMixedDisplayContentLoaded
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mHasMixedDisplayContentLoaded
+                                                        };
+                                                    let mHasMixedDisplayContentBlocked =
+                                                        mHasMixedDisplayContentBlocked
+                                                            as u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mHasMixedDisplayContentBlocked =
+                                                        (mHasMixedDisplayContentBlocked
+                                                             << 2usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mHasMixedDisplayContentBlocked
+                                                };
+                                            let mHasMixedContentObjectSubrequest =
+                                                mHasMixedContentObjectSubrequest
+                                                    as u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mHasMixedContentObjectSubrequest =
+                                                (mHasMixedContentObjectSubrequest
+                                                     << 3usize) & mask;
+                                            bitfield_unit_val |
+                                                mHasMixedContentObjectSubrequest
+                                        };
+                                    let mHasCSP = mHasCSP as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mHasCSP = (mHasCSP << 4usize) & mask;
+                                    bitfield_unit_val | mHasCSP
+                                };
+                            let mHasUnsafeEvalCSP =
+                                mHasUnsafeEvalCSP as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mHasUnsafeEvalCSP =
+                                (mHasUnsafeEvalCSP << 5usize) & mask;
+                            bitfield_unit_val | mHasUnsafeEvalCSP
+                        };
+                    let mHasUnsafeInlineCSP = mHasUnsafeInlineCSP as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mHasUnsafeInlineCSP =
+                        (mHasUnsafeInlineCSP << 6usize) & mask;
+                    bitfield_unit_val | mHasUnsafeInlineCSP
+                };
+            let mHasTrackingContentBlocked =
+                mHasTrackingContentBlocked as u8 as u8;
+            let mask = 128usize as u8;
+            let mHasTrackingContentBlocked =
+                (mHasTrackingContentBlocked << 7usize) & mask;
+            bitfield_unit_val | mHasTrackingContentBlocked
         }
         #[inline]
         pub fn mHasTrackingContentLoaded(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasTrackingContentLoaded(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mBFCacheDisallowed(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mBFCacheDisallowed(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasHadDefaultView(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasHadDefaultView(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mStyleSheetChangeEventsEnabled(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mStyleSheetChangeEventsEnabled(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsSrcdocDocument(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsSrcdocDocument(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDidDocumentOpen(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mDidDocumentOpen(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasDisplayDocument(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasDisplayDocument(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFontFaceSetDirty(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mFontFaceSetDirty(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_5) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_5 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_5 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_5(mHasTrackingContentLoaded: bool,
+                              mBFCacheDisallowed: bool,
+                              mHasHadDefaultView: bool,
+                              mStyleSheetChangeEventsEnabled: bool,
+                              mIsSrcdocDocument: bool, mDidDocumentOpen: bool,
+                              mHasDisplayDocument: bool,
+                              mFontFaceSetDirty: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mHasTrackingContentLoaded =
+                                                                        mHasTrackingContentLoaded
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mHasTrackingContentLoaded =
+                                                                        (mHasTrackingContentLoaded
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mHasTrackingContentLoaded
+                                                                };
+                                                            let mBFCacheDisallowed =
+                                                                mBFCacheDisallowed
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mBFCacheDisallowed =
+                                                                (mBFCacheDisallowed
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mBFCacheDisallowed
+                                                        };
+                                                    let mHasHadDefaultView =
+                                                        mHasHadDefaultView as
+                                                            u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mHasHadDefaultView =
+                                                        (mHasHadDefaultView <<
+                                                             2usize) & mask;
+                                                    bitfield_unit_val |
+                                                        mHasHadDefaultView
+                                                };
+                                            let mStyleSheetChangeEventsEnabled =
+                                                mStyleSheetChangeEventsEnabled
+                                                    as u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mStyleSheetChangeEventsEnabled =
+                                                (mStyleSheetChangeEventsEnabled
+                                                     << 3usize) & mask;
+                                            bitfield_unit_val |
+                                                mStyleSheetChangeEventsEnabled
+                                        };
+                                    let mIsSrcdocDocument =
+                                        mIsSrcdocDocument as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mIsSrcdocDocument =
+                                        (mIsSrcdocDocument << 4usize) & mask;
+                                    bitfield_unit_val | mIsSrcdocDocument
+                                };
+                            let mDidDocumentOpen =
+                                mDidDocumentOpen as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mDidDocumentOpen =
+                                (mDidDocumentOpen << 5usize) & mask;
+                            bitfield_unit_val | mDidDocumentOpen
+                        };
+                    let mHasDisplayDocument = mHasDisplayDocument as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mHasDisplayDocument =
+                        (mHasDisplayDocument << 6usize) & mask;
+                    bitfield_unit_val | mHasDisplayDocument
+                };
+            let mFontFaceSetDirty = mFontFaceSetDirty as u8 as u8;
+            let mask = 128usize as u8;
+            let mFontFaceSetDirty = (mFontFaceSetDirty << 7usize) & mask;
+            bitfield_unit_val | mFontFaceSetDirty
         }
         #[inline]
         pub fn mGetUserFontSetCalled(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mGetUserFontSetCalled(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_6 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_6 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPostedFlushUserFontSet(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mPostedFlushUserFontSet(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_6 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_6 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDidFireDOMContentLoaded(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mDidFireDOMContentLoaded(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_6 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_6 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasScrollLinkedEffect(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHasScrollLinkedEffect(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_6 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_6 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFrameRequestCallbacksScheduled(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mFrameRequestCallbacksScheduled(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_6) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_6 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_6 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_6(mGetUserFontSetCalled: bool,
+                              mPostedFlushUserFontSet: bool,
+                              mDidFireDOMContentLoaded: bool,
+                              mHasScrollLinkedEffect: bool,
+                              mFrameRequestCallbacksScheduled: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val = { 0 };
+                                            let mGetUserFontSetCalled =
+                                                mGetUserFontSetCalled as u8 as
+                                                    u8;
+                                            let mask = 1usize as u8;
+                                            let mGetUserFontSetCalled =
+                                                (mGetUserFontSetCalled <<
+                                                     0usize) & mask;
+                                            bitfield_unit_val |
+                                                mGetUserFontSetCalled
+                                        };
+                                    let mPostedFlushUserFontSet =
+                                        mPostedFlushUserFontSet as u8 as u8;
+                                    let mask = 2usize as u8;
+                                    let mPostedFlushUserFontSet =
+                                        (mPostedFlushUserFontSet << 1usize) &
+                                            mask;
+                                    bitfield_unit_val |
+                                        mPostedFlushUserFontSet
+                                };
+                            let mDidFireDOMContentLoaded =
+                                mDidFireDOMContentLoaded as u8 as u8;
+                            let mask = 4usize as u8;
+                            let mDidFireDOMContentLoaded =
+                                (mDidFireDOMContentLoaded << 2usize) & mask;
+                            bitfield_unit_val | mDidFireDOMContentLoaded
+                        };
+                    let mHasScrollLinkedEffect =
+                        mHasScrollLinkedEffect as u8 as u8;
+                    let mask = 8usize as u8;
+                    let mHasScrollLinkedEffect =
+                        (mHasScrollLinkedEffect << 3usize) & mask;
+                    bitfield_unit_val | mHasScrollLinkedEffect
+                };
+            let mFrameRequestCallbacksScheduled =
+                mFrameRequestCallbacksScheduled as u8 as u8;
+            let mask = 16usize as u8;
+            let mFrameRequestCallbacksScheduled =
+                (mFrameRequestCallbacksScheduled << 4usize) & mask;
+            bitfield_unit_val | mFrameRequestCallbacksScheduled
         }
     }
     #[repr(C)]
@@ -17412,7 +18291,7 @@ pub mod root {
         pub mCurAppUnitsPerDevPixel: i32,
         pub mAutoQualityMinFontSizePixelsPref: i32,
         pub mTheme: root::nsCOMPtr,
-        pub mLangService: root::nsCOMPtr,
+        pub mLangService: *mut root::nsLanguageAtomService,
         pub mPrintSettings: root::nsCOMPtr,
         pub mPrefChangedTimer: root::nsCOMPtr,
         pub mBidiEngine: root::mozilla::UniquePtr<root::nsBidi>,
@@ -17439,6 +18318,8 @@ pub mod root {
         pub mImageAnimationMode: u16,
         pub mImageAnimationModePref: u16,
         pub mLangGroupFontPrefs: root::nsPresContext_LangGroupFontPrefs,
+        pub mFontGroupCacheDirty: bool,
+        pub mLanguagesUsed: [u64; 5usize],
         pub mBorderWidthTable: [root::nscoord; 3usize],
         pub mInterruptChecksToSkip: u32,
         pub mElementsRestyled: u64,
@@ -17582,7 +18463,7 @@ pub mod root {
     }
     #[test]
     fn bindgen_test_layout_nsPresContext() {
-        assert_eq!(::std::mem::size_of::<nsPresContext>() , 1312usize , concat
+        assert_eq!(::std::mem::size_of::<nsPresContext>() , 1360usize , concat
                    ! ( "Size of: " , stringify ! ( nsPresContext ) ));
         assert_eq! (::std::mem::align_of::<nsPresContext>() , 8usize , concat
                     ! ( "Alignment of " , stringify ! ( nsPresContext ) ));
@@ -17877,92 +18758,103 @@ pub mod root {
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mLangGroupFontPrefs ) ));
         assert_eq! (unsafe {
+                    & ( * ( 0 as * const nsPresContext ) ) .
+                    mFontGroupCacheDirty as * const _ as usize } , 1184usize ,
+                    concat ! (
+                    "Alignment of field: " , stringify ! ( nsPresContext ) ,
+                    "::" , stringify ! ( mFontGroupCacheDirty ) ));
+        assert_eq! (unsafe {
+                    & ( * ( 0 as * const nsPresContext ) ) . mLanguagesUsed as
+                    * const _ as usize } , 1192usize , concat ! (
+                    "Alignment of field: " , stringify ! ( nsPresContext ) ,
+                    "::" , stringify ! ( mLanguagesUsed ) ));
+        assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mBorderWidthTable
-                    as * const _ as usize } , 1184usize , concat ! (
+                    as * const _ as usize } , 1232usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mBorderWidthTable ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mInterruptChecksToSkip as * const _ as usize } , 1196usize
+                    mInterruptChecksToSkip as * const _ as usize } , 1244usize
                     , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mInterruptChecksToSkip ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mElementsRestyled
-                    as * const _ as usize } , 1200usize , concat ! (
+                    as * const _ as usize } , 1248usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mElementsRestyled ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mFramesConstructed as * const _ as usize } , 1208usize ,
+                    mFramesConstructed as * const _ as usize } , 1256usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFramesConstructed ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mFramesReflowed
-                    as * const _ as usize } , 1216usize , concat ! (
+                    as * const _ as usize } , 1264usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFramesReflowed ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mReflowStartTime
-                    as * const _ as usize } , 1224usize , concat ! (
+                    as * const _ as usize } , 1272usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mReflowStartTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
                     mFirstNonBlankPaintTime as * const _ as usize } ,
-                    1232usize , concat ! (
+                    1280usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFirstNonBlankPaintTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mFirstClickTime
-                    as * const _ as usize } , 1240usize , concat ! (
+                    as * const _ as usize } , 1288usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFirstClickTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mFirstKeyTime as
-                    * const _ as usize } , 1248usize , concat ! (
+                    * const _ as usize } , 1296usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFirstKeyTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mFirstMouseMoveTime as * const _ as usize } , 1256usize ,
+                    mFirstMouseMoveTime as * const _ as usize } , 1304usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFirstMouseMoveTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) . mFirstScrollTime
-                    as * const _ as usize } , 1264usize , concat ! (
+                    as * const _ as usize } , 1312usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mFirstScrollTime ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
                     mInteractionTimeEnabled as * const _ as usize } ,
-                    1272usize , concat ! (
+                    1320usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mInteractionTimeEnabled ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
                     mLastStyleUpdateForAllAnimations as * const _ as usize } ,
-                    1280usize , concat ! (
+                    1328usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mLastStyleUpdateForAllAnimations )
                     ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mTelemetryScrollLastY as * const _ as usize } , 1288usize
+                    mTelemetryScrollLastY as * const _ as usize } , 1336usize
                     , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mTelemetryScrollLastY ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mTelemetryScrollMaxY as * const _ as usize } , 1292usize ,
+                    mTelemetryScrollMaxY as * const _ as usize } , 1340usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mTelemetryScrollMaxY ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsPresContext ) ) .
-                    mTelemetryScrollTotalY as * const _ as usize } , 1296usize
+                    mTelemetryScrollTotalY as * const _ as usize } , 1344usize
                     , concat ! (
                     "Alignment of field: " , stringify ! ( nsPresContext ) ,
                     "::" , stringify ! ( mTelemetryScrollTotalY ) ));
@@ -17971,9 +18863,9 @@ pub mod root {
         #[inline]
         pub fn mHasPendingInterrupt(&self) -> ::std::os::raw::c_uint {
             let mask = 1usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -17981,18 +18873,19 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 1usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingInterruptFromTest(&self) -> ::std::os::raw::c_uint {
             let mask = 2usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18000,18 +18893,19 @@ pub mod root {
                                              val: ::std::os::raw::c_uint) {
             let mask = 2usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mInterruptsEnabled(&self) -> ::std::os::raw::c_uint {
             let mask = 4usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18019,36 +18913,38 @@ pub mod root {
                                       val: ::std::os::raw::c_uint) {
             let mask = 4usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUseDocumentFonts(&self) -> ::std::os::raw::c_uint {
             let mask = 8usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mUseDocumentFonts(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 8usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUseDocumentColors(&self) -> ::std::os::raw::c_uint {
             let mask = 16usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18056,36 +18952,38 @@ pub mod root {
                                       val: ::std::os::raw::c_uint) {
             let mask = 16usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUnderlineLinks(&self) -> ::std::os::raw::c_uint {
             let mask = 32usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mUnderlineLinks(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 32usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mSendAfterPaintToContent(&self) -> ::std::os::raw::c_uint {
             let mask = 64usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18093,36 +18991,38 @@ pub mod root {
                                             val: ::std::os::raw::c_uint) {
             let mask = 64usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUseFocusColors(&self) -> ::std::os::raw::c_uint {
             let mask = 128usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mUseFocusColors(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 128usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFocusRingOnAnything(&self) -> ::std::os::raw::c_uint {
             let mask = 256usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 8usize;
+            let val = (unit_field_val & mask) >> 8usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18130,36 +19030,38 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 256usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 8usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 8usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFocusRingStyle(&self) -> ::std::os::raw::c_uint {
             let mask = 512usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 9usize;
+            let val = (unit_field_val & mask) >> 9usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mFocusRingStyle(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 512usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 9usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 9usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDrawImageBackground(&self) -> ::std::os::raw::c_uint {
             let mask = 1024usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 10usize;
+            let val = (unit_field_val & mask) >> 10usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18167,18 +19069,19 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 1024usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 10usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 10usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDrawColorBackground(&self) -> ::std::os::raw::c_uint {
             let mask = 2048usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 11usize;
+            let val = (unit_field_val & mask) >> 11usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18186,36 +19089,38 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 2048usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 11usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 11usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mNeverAnimate(&self) -> ::std::os::raw::c_uint {
             let mask = 4096usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 12usize;
+            let val = (unit_field_val & mask) >> 12usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mNeverAnimate(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 4096usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 12usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 12usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsRenderingOnlySelection(&self) -> ::std::os::raw::c_uint {
             let mask = 8192usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 13usize;
+            let val = (unit_field_val & mask) >> 13usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18223,36 +19128,38 @@ pub mod root {
                                              val: ::std::os::raw::c_uint) {
             let mask = 8192usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 13usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 13usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPaginated(&self) -> ::std::os::raw::c_uint {
             let mask = 16384usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 14usize;
+            let val = (unit_field_val & mask) >> 14usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mPaginated(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 16384usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 14usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 14usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mCanPaginatedScroll(&self) -> ::std::os::raw::c_uint {
             let mask = 32768usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 15usize;
+            let val = (unit_field_val & mask) >> 15usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18260,36 +19167,38 @@ pub mod root {
                                        val: ::std::os::raw::c_uint) {
             let mask = 32768usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 15usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 15usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDoScaledTwips(&self) -> ::std::os::raw::c_uint {
             let mask = 65536usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 16usize;
+            let val = (unit_field_val & mask) >> 16usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mDoScaledTwips(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 65536usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 16usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 16usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsRootPaginatedDocument(&self) -> ::std::os::raw::c_uint {
             let mask = 131072usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 17usize;
+            let val = (unit_field_val & mask) >> 17usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18297,18 +19206,19 @@ pub mod root {
                                             val: ::std::os::raw::c_uint) {
             let mask = 131072usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 17usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 17usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPrefBidiDirection(&self) -> ::std::os::raw::c_uint {
             let mask = 262144usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 18usize;
+            let val = (unit_field_val & mask) >> 18usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18316,18 +19226,19 @@ pub mod root {
                                       val: ::std::os::raw::c_uint) {
             let mask = 262144usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 18usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 18usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPrefScrollbarSide(&self) -> ::std::os::raw::c_uint {
             let mask = 1572864usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 19usize;
+            let val = (unit_field_val & mask) >> 19usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18335,18 +19246,19 @@ pub mod root {
                                       val: ::std::os::raw::c_uint) {
             let mask = 1572864usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 19usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 19usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingSysColorChanged(&self) -> ::std::os::raw::c_uint {
             let mask = 2097152usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 21usize;
+            let val = (unit_field_val & mask) >> 21usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18354,18 +19266,19 @@ pub mod root {
                                            val: ::std::os::raw::c_uint) {
             let mask = 2097152usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 21usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 21usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingThemeChanged(&self) -> ::std::os::raw::c_uint {
             let mask = 4194304usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 22usize;
+            let val = (unit_field_val & mask) >> 22usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18373,18 +19286,19 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 4194304usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 22usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 22usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingUIResolutionChanged(&self) -> ::std::os::raw::c_uint {
             let mask = 8388608usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 23usize;
+            let val = (unit_field_val & mask) >> 23usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18392,19 +19306,20 @@ pub mod root {
                                                val: ::std::os::raw::c_uint) {
             let mask = 8388608usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 23usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 23usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingMediaFeatureValuesChanged(&self)
          -> ::std::os::raw::c_uint {
             let mask = 16777216usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 24usize;
+            let val = (unit_field_val & mask) >> 24usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18413,19 +19328,20 @@ pub mod root {
                                                          ::std::os::raw::c_uint) {
             let mask = 16777216usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 24usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 24usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPrefChangePendingNeedsReflow(&self)
          -> ::std::os::raw::c_uint {
             let mask = 33554432usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 25usize;
+            let val = (unit_field_val & mask) >> 25usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18434,90 +19350,95 @@ pub mod root {
                                                      ::std::os::raw::c_uint) {
             let mask = 33554432usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 25usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 25usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsEmulatingMedia(&self) -> ::std::os::raw::c_uint {
             let mask = 67108864usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 26usize;
+            let val = (unit_field_val & mask) >> 26usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsEmulatingMedia(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 67108864usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 26usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 26usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsGlyph(&self) -> ::std::os::raw::c_uint {
             let mask = 134217728usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 27usize;
+            let val = (unit_field_val & mask) >> 27usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsGlyph(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 134217728usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 27usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 27usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUsesRootEMUnits(&self) -> ::std::os::raw::c_uint {
             let mask = 268435456usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 28usize;
+            let val = (unit_field_val & mask) >> 28usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mUsesRootEMUnits(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 268435456usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 28usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 28usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUsesExChUnits(&self) -> ::std::os::raw::c_uint {
             let mask = 536870912usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 29usize;
+            let val = (unit_field_val & mask) >> 29usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mUsesExChUnits(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 536870912usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 29usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 29usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mUsesViewportUnits(&self) -> ::std::os::raw::c_uint {
             let mask = 1073741824usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 30usize;
+            let val = (unit_field_val & mask) >> 30usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18525,18 +19446,19 @@ pub mod root {
                                       val: ::std::os::raw::c_uint) {
             let mask = 1073741824usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 30usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 30usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPendingViewportChange(&self) -> ::std::os::raw::c_uint {
             let mask = 2147483648usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 31usize;
+            let val = (unit_field_val & mask) >> 31usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18544,18 +19466,662 @@ pub mod root {
                                           val: ::std::os::raw::c_uint) {
             let mask = 2147483648usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 31usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 31usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mHasPendingInterrupt: ::std::os::raw::c_uint,
+                              mPendingInterruptFromTest:
+                                  ::std::os::raw::c_uint,
+                              mInterruptsEnabled: ::std::os::raw::c_uint,
+                              mUseDocumentFonts: ::std::os::raw::c_uint,
+                              mUseDocumentColors: ::std::os::raw::c_uint,
+                              mUnderlineLinks: ::std::os::raw::c_uint,
+                              mSendAfterPaintToContent:
+                                  ::std::os::raw::c_uint,
+                              mUseFocusColors: ::std::os::raw::c_uint,
+                              mFocusRingOnAnything: ::std::os::raw::c_uint,
+                              mFocusRingStyle: ::std::os::raw::c_uint,
+                              mDrawImageBackground: ::std::os::raw::c_uint,
+                              mDrawColorBackground: ::std::os::raw::c_uint,
+                              mNeverAnimate: ::std::os::raw::c_uint,
+                              mIsRenderingOnlySelection:
+                                  ::std::os::raw::c_uint,
+                              mPaginated: ::std::os::raw::c_uint,
+                              mCanPaginatedScroll: ::std::os::raw::c_uint,
+                              mDoScaledTwips: ::std::os::raw::c_uint,
+                              mIsRootPaginatedDocument:
+                                  ::std::os::raw::c_uint,
+                              mPrefBidiDirection: ::std::os::raw::c_uint,
+                              mPrefScrollbarSide: ::std::os::raw::c_uint,
+                              mPendingSysColorChanged: ::std::os::raw::c_uint,
+                              mPendingThemeChanged: ::std::os::raw::c_uint,
+                              mPendingUIResolutionChanged:
+                                  ::std::os::raw::c_uint,
+                              mPendingMediaFeatureValuesChanged:
+                                  ::std::os::raw::c_uint,
+                              mPrefChangePendingNeedsReflow:
+                                  ::std::os::raw::c_uint,
+                              mIsEmulatingMedia: ::std::os::raw::c_uint,
+                              mIsGlyph: ::std::os::raw::c_uint,
+                              mUsesRootEMUnits: ::std::os::raw::c_uint,
+                              mUsesExChUnits: ::std::os::raw::c_uint,
+                              mUsesViewportUnits: ::std::os::raw::c_uint,
+                              mPendingViewportChange: ::std::os::raw::c_uint)
+         -> u32 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        {
+                                                                            let bitfield_unit_val =
+                                                                                {
+                                                                                    let bitfield_unit_val =
+                                                                                        {
+                                                                                            let bitfield_unit_val =
+                                                                                                {
+                                                                                                    let bitfield_unit_val =
+                                                                                                        {
+                                                                                                            let bitfield_unit_val =
+                                                                                                                {
+                                                                                                                    let bitfield_unit_val =
+                                                                                                                        {
+                                                                                                                            let bitfield_unit_val =
+                                                                                                                                {
+                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                        {
+                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                {
+                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                        {
+                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                {
+                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                        {
+                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                {
+                                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                                        {
+                                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                                {
+                                                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                                                        {
+                                                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                                                {
+                                                                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                                                                        {
+                                                                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                                                                                        {
+                                                                                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                                    let bitfield_unit_val =
+                                                                                                                                                                                                                                                        {
+                                                                                                                                                                                                                                                            let bitfield_unit_val =
+                                                                                                                                                                                                                                                                {
+                                                                                                                                                                                                                                                                    0
+                                                                                                                                                                                                                                                                };
+                                                                                                                                                                                                                                                            let mHasPendingInterrupt =
+                                                                                                                                                                                                                                                                mHasPendingInterrupt
+                                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                                    u32
+                                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                                                            let mask =
+                                                                                                                                                                                                                                                                1usize
+                                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                                                            let mHasPendingInterrupt =
+                                                                                                                                                                                                                                                                (mHasPendingInterrupt
+                                                                                                                                                                                                                                                                     <<
+                                                                                                                                                                                                                                                                     0usize)
+                                                                                                                                                                                                                                                                    &
+                                                                                                                                                                                                                                                                    mask;
+                                                                                                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                                                                                                |
+                                                                                                                                                                                                                                                                mHasPendingInterrupt
+                                                                                                                                                                                                                                                        };
+                                                                                                                                                                                                                                                    let mPendingInterruptFromTest =
+                                                                                                                                                                                                                                                        mPendingInterruptFromTest
+                                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                                            u32
+                                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                                                    let mask =
+                                                                                                                                                                                                                                                        2usize
+                                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                                                    let mPendingInterruptFromTest =
+                                                                                                                                                                                                                                                        (mPendingInterruptFromTest
+                                                                                                                                                                                                                                                             <<
+                                                                                                                                                                                                                                                             1usize)
+                                                                                                                                                                                                                                                            &
+                                                                                                                                                                                                                                                            mask;
+                                                                                                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                                                                                                        |
+                                                                                                                                                                                                                                                        mPendingInterruptFromTest
+                                                                                                                                                                                                                                                };
+                                                                                                                                                                                                                                            let mInterruptsEnabled =
+                                                                                                                                                                                                                                                mInterruptsEnabled
+                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                    u32
+                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                                            let mask =
+                                                                                                                                                                                                                                                4usize
+                                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                                            let mInterruptsEnabled =
+                                                                                                                                                                                                                                                (mInterruptsEnabled
+                                                                                                                                                                                                                                                     <<
+                                                                                                                                                                                                                                                     2usize)
+                                                                                                                                                                                                                                                    &
+                                                                                                                                                                                                                                                    mask;
+                                                                                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                                                                                |
+                                                                                                                                                                                                                                                mInterruptsEnabled
+                                                                                                                                                                                                                                        };
+                                                                                                                                                                                                                                    let mUseDocumentFonts =
+                                                                                                                                                                                                                                        mUseDocumentFonts
+                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                            u32
+                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                                    let mask =
+                                                                                                                                                                                                                                        8usize
+                                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                                    let mUseDocumentFonts =
+                                                                                                                                                                                                                                        (mUseDocumentFonts
+                                                                                                                                                                                                                                             <<
+                                                                                                                                                                                                                                             3usize)
+                                                                                                                                                                                                                                            &
+                                                                                                                                                                                                                                            mask;
+                                                                                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                                                                                        |
+                                                                                                                                                                                                                                        mUseDocumentFonts
+                                                                                                                                                                                                                                };
+                                                                                                                                                                                                                            let mUseDocumentColors =
+                                                                                                                                                                                                                                mUseDocumentColors
+                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                    u32
+                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                            let mask =
+                                                                                                                                                                                                                                16usize
+                                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                                            let mUseDocumentColors =
+                                                                                                                                                                                                                                (mUseDocumentColors
+                                                                                                                                                                                                                                     <<
+                                                                                                                                                                                                                                     4usize)
+                                                                                                                                                                                                                                    &
+                                                                                                                                                                                                                                    mask;
+                                                                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                                                                |
+                                                                                                                                                                                                                                mUseDocumentColors
+                                                                                                                                                                                                                        };
+                                                                                                                                                                                                                    let mUnderlineLinks =
+                                                                                                                                                                                                                        mUnderlineLinks
+                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                            u32
+                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                    let mask =
+                                                                                                                                                                                                                        32usize
+                                                                                                                                                                                                                            as
+                                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                                    let mUnderlineLinks =
+                                                                                                                                                                                                                        (mUnderlineLinks
+                                                                                                                                                                                                                             <<
+                                                                                                                                                                                                                             5usize)
+                                                                                                                                                                                                                            &
+                                                                                                                                                                                                                            mask;
+                                                                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                                                                        |
+                                                                                                                                                                                                                        mUnderlineLinks
+                                                                                                                                                                                                                };
+                                                                                                                                                                                                            let mSendAfterPaintToContent =
+                                                                                                                                                                                                                mSendAfterPaintToContent
+                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                    u32
+                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                            let mask =
+                                                                                                                                                                                                                64usize
+                                                                                                                                                                                                                    as
+                                                                                                                                                                                                                    u32;
+                                                                                                                                                                                                            let mSendAfterPaintToContent =
+                                                                                                                                                                                                                (mSendAfterPaintToContent
+                                                                                                                                                                                                                     <<
+                                                                                                                                                                                                                     6usize)
+                                                                                                                                                                                                                    &
+                                                                                                                                                                                                                    mask;
+                                                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                                                |
+                                                                                                                                                                                                                mSendAfterPaintToContent
+                                                                                                                                                                                                        };
+                                                                                                                                                                                                    let mUseFocusColors =
+                                                                                                                                                                                                        mUseFocusColors
+                                                                                                                                                                                                            as
+                                                                                                                                                                                                            u32
+                                                                                                                                                                                                            as
+                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                    let mask =
+                                                                                                                                                                                                        128usize
+                                                                                                                                                                                                            as
+                                                                                                                                                                                                            u32;
+                                                                                                                                                                                                    let mUseFocusColors =
+                                                                                                                                                                                                        (mUseFocusColors
+                                                                                                                                                                                                             <<
+                                                                                                                                                                                                             7usize)
+                                                                                                                                                                                                            &
+                                                                                                                                                                                                            mask;
+                                                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                                                        |
+                                                                                                                                                                                                        mUseFocusColors
+                                                                                                                                                                                                };
+                                                                                                                                                                                            let mFocusRingOnAnything =
+                                                                                                                                                                                                mFocusRingOnAnything
+                                                                                                                                                                                                    as
+                                                                                                                                                                                                    u32
+                                                                                                                                                                                                    as
+                                                                                                                                                                                                    u32;
+                                                                                                                                                                                            let mask =
+                                                                                                                                                                                                256usize
+                                                                                                                                                                                                    as
+                                                                                                                                                                                                    u32;
+                                                                                                                                                                                            let mFocusRingOnAnything =
+                                                                                                                                                                                                (mFocusRingOnAnything
+                                                                                                                                                                                                     <<
+                                                                                                                                                                                                     8usize)
+                                                                                                                                                                                                    &
+                                                                                                                                                                                                    mask;
+                                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                                |
+                                                                                                                                                                                                mFocusRingOnAnything
+                                                                                                                                                                                        };
+                                                                                                                                                                                    let mFocusRingStyle =
+                                                                                                                                                                                        mFocusRingStyle
+                                                                                                                                                                                            as
+                                                                                                                                                                                            u32
+                                                                                                                                                                                            as
+                                                                                                                                                                                            u32;
+                                                                                                                                                                                    let mask =
+                                                                                                                                                                                        512usize
+                                                                                                                                                                                            as
+                                                                                                                                                                                            u32;
+                                                                                                                                                                                    let mFocusRingStyle =
+                                                                                                                                                                                        (mFocusRingStyle
+                                                                                                                                                                                             <<
+                                                                                                                                                                                             9usize)
+                                                                                                                                                                                            &
+                                                                                                                                                                                            mask;
+                                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                                        |
+                                                                                                                                                                                        mFocusRingStyle
+                                                                                                                                                                                };
+                                                                                                                                                                            let mDrawImageBackground =
+                                                                                                                                                                                mDrawImageBackground
+                                                                                                                                                                                    as
+                                                                                                                                                                                    u32
+                                                                                                                                                                                    as
+                                                                                                                                                                                    u32;
+                                                                                                                                                                            let mask =
+                                                                                                                                                                                1024usize
+                                                                                                                                                                                    as
+                                                                                                                                                                                    u32;
+                                                                                                                                                                            let mDrawImageBackground =
+                                                                                                                                                                                (mDrawImageBackground
+                                                                                                                                                                                     <<
+                                                                                                                                                                                     10usize)
+                                                                                                                                                                                    &
+                                                                                                                                                                                    mask;
+                                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                                |
+                                                                                                                                                                                mDrawImageBackground
+                                                                                                                                                                        };
+                                                                                                                                                                    let mDrawColorBackground =
+                                                                                                                                                                        mDrawColorBackground
+                                                                                                                                                                            as
+                                                                                                                                                                            u32
+                                                                                                                                                                            as
+                                                                                                                                                                            u32;
+                                                                                                                                                                    let mask =
+                                                                                                                                                                        2048usize
+                                                                                                                                                                            as
+                                                                                                                                                                            u32;
+                                                                                                                                                                    let mDrawColorBackground =
+                                                                                                                                                                        (mDrawColorBackground
+                                                                                                                                                                             <<
+                                                                                                                                                                             11usize)
+                                                                                                                                                                            &
+                                                                                                                                                                            mask;
+                                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                                        |
+                                                                                                                                                                        mDrawColorBackground
+                                                                                                                                                                };
+                                                                                                                                                            let mNeverAnimate =
+                                                                                                                                                                mNeverAnimate
+                                                                                                                                                                    as
+                                                                                                                                                                    u32
+                                                                                                                                                                    as
+                                                                                                                                                                    u32;
+                                                                                                                                                            let mask =
+                                                                                                                                                                4096usize
+                                                                                                                                                                    as
+                                                                                                                                                                    u32;
+                                                                                                                                                            let mNeverAnimate =
+                                                                                                                                                                (mNeverAnimate
+                                                                                                                                                                     <<
+                                                                                                                                                                     12usize)
+                                                                                                                                                                    &
+                                                                                                                                                                    mask;
+                                                                                                                                                            bitfield_unit_val
+                                                                                                                                                                |
+                                                                                                                                                                mNeverAnimate
+                                                                                                                                                        };
+                                                                                                                                                    let mIsRenderingOnlySelection =
+                                                                                                                                                        mIsRenderingOnlySelection
+                                                                                                                                                            as
+                                                                                                                                                            u32
+                                                                                                                                                            as
+                                                                                                                                                            u32;
+                                                                                                                                                    let mask =
+                                                                                                                                                        8192usize
+                                                                                                                                                            as
+                                                                                                                                                            u32;
+                                                                                                                                                    let mIsRenderingOnlySelection =
+                                                                                                                                                        (mIsRenderingOnlySelection
+                                                                                                                                                             <<
+                                                                                                                                                             13usize)
+                                                                                                                                                            &
+                                                                                                                                                            mask;
+                                                                                                                                                    bitfield_unit_val
+                                                                                                                                                        |
+                                                                                                                                                        mIsRenderingOnlySelection
+                                                                                                                                                };
+                                                                                                                                            let mPaginated =
+                                                                                                                                                mPaginated
+                                                                                                                                                    as
+                                                                                                                                                    u32
+                                                                                                                                                    as
+                                                                                                                                                    u32;
+                                                                                                                                            let mask =
+                                                                                                                                                16384usize
+                                                                                                                                                    as
+                                                                                                                                                    u32;
+                                                                                                                                            let mPaginated =
+                                                                                                                                                (mPaginated
+                                                                                                                                                     <<
+                                                                                                                                                     14usize)
+                                                                                                                                                    &
+                                                                                                                                                    mask;
+                                                                                                                                            bitfield_unit_val
+                                                                                                                                                |
+                                                                                                                                                mPaginated
+                                                                                                                                        };
+                                                                                                                                    let mCanPaginatedScroll =
+                                                                                                                                        mCanPaginatedScroll
+                                                                                                                                            as
+                                                                                                                                            u32
+                                                                                                                                            as
+                                                                                                                                            u32;
+                                                                                                                                    let mask =
+                                                                                                                                        32768usize
+                                                                                                                                            as
+                                                                                                                                            u32;
+                                                                                                                                    let mCanPaginatedScroll =
+                                                                                                                                        (mCanPaginatedScroll
+                                                                                                                                             <<
+                                                                                                                                             15usize)
+                                                                                                                                            &
+                                                                                                                                            mask;
+                                                                                                                                    bitfield_unit_val
+                                                                                                                                        |
+                                                                                                                                        mCanPaginatedScroll
+                                                                                                                                };
+                                                                                                                            let mDoScaledTwips =
+                                                                                                                                mDoScaledTwips
+                                                                                                                                    as
+                                                                                                                                    u32
+                                                                                                                                    as
+                                                                                                                                    u32;
+                                                                                                                            let mask =
+                                                                                                                                65536usize
+                                                                                                                                    as
+                                                                                                                                    u32;
+                                                                                                                            let mDoScaledTwips =
+                                                                                                                                (mDoScaledTwips
+                                                                                                                                     <<
+                                                                                                                                     16usize)
+                                                                                                                                    &
+                                                                                                                                    mask;
+                                                                                                                            bitfield_unit_val
+                                                                                                                                |
+                                                                                                                                mDoScaledTwips
+                                                                                                                        };
+                                                                                                                    let mIsRootPaginatedDocument =
+                                                                                                                        mIsRootPaginatedDocument
+                                                                                                                            as
+                                                                                                                            u32
+                                                                                                                            as
+                                                                                                                            u32;
+                                                                                                                    let mask =
+                                                                                                                        131072usize
+                                                                                                                            as
+                                                                                                                            u32;
+                                                                                                                    let mIsRootPaginatedDocument =
+                                                                                                                        (mIsRootPaginatedDocument
+                                                                                                                             <<
+                                                                                                                             17usize)
+                                                                                                                            &
+                                                                                                                            mask;
+                                                                                                                    bitfield_unit_val
+                                                                                                                        |
+                                                                                                                        mIsRootPaginatedDocument
+                                                                                                                };
+                                                                                                            let mPrefBidiDirection =
+                                                                                                                mPrefBidiDirection
+                                                                                                                    as
+                                                                                                                    u32
+                                                                                                                    as
+                                                                                                                    u32;
+                                                                                                            let mask =
+                                                                                                                262144usize
+                                                                                                                    as
+                                                                                                                    u32;
+                                                                                                            let mPrefBidiDirection =
+                                                                                                                (mPrefBidiDirection
+                                                                                                                     <<
+                                                                                                                     18usize)
+                                                                                                                    &
+                                                                                                                    mask;
+                                                                                                            bitfield_unit_val
+                                                                                                                |
+                                                                                                                mPrefBidiDirection
+                                                                                                        };
+                                                                                                    let mPrefScrollbarSide =
+                                                                                                        mPrefScrollbarSide
+                                                                                                            as
+                                                                                                            u32
+                                                                                                            as
+                                                                                                            u32;
+                                                                                                    let mask =
+                                                                                                        1572864usize
+                                                                                                            as
+                                                                                                            u32;
+                                                                                                    let mPrefScrollbarSide =
+                                                                                                        (mPrefScrollbarSide
+                                                                                                             <<
+                                                                                                             19usize)
+                                                                                                            &
+                                                                                                            mask;
+                                                                                                    bitfield_unit_val
+                                                                                                        |
+                                                                                                        mPrefScrollbarSide
+                                                                                                };
+                                                                                            let mPendingSysColorChanged =
+                                                                                                mPendingSysColorChanged
+                                                                                                    as
+                                                                                                    u32
+                                                                                                    as
+                                                                                                    u32;
+                                                                                            let mask =
+                                                                                                2097152usize
+                                                                                                    as
+                                                                                                    u32;
+                                                                                            let mPendingSysColorChanged =
+                                                                                                (mPendingSysColorChanged
+                                                                                                     <<
+                                                                                                     21usize)
+                                                                                                    &
+                                                                                                    mask;
+                                                                                            bitfield_unit_val
+                                                                                                |
+                                                                                                mPendingSysColorChanged
+                                                                                        };
+                                                                                    let mPendingThemeChanged =
+                                                                                        mPendingThemeChanged
+                                                                                            as
+                                                                                            u32
+                                                                                            as
+                                                                                            u32;
+                                                                                    let mask =
+                                                                                        4194304usize
+                                                                                            as
+                                                                                            u32;
+                                                                                    let mPendingThemeChanged =
+                                                                                        (mPendingThemeChanged
+                                                                                             <<
+                                                                                             22usize)
+                                                                                            &
+                                                                                            mask;
+                                                                                    bitfield_unit_val
+                                                                                        |
+                                                                                        mPendingThemeChanged
+                                                                                };
+                                                                            let mPendingUIResolutionChanged =
+                                                                                mPendingUIResolutionChanged
+                                                                                    as
+                                                                                    u32
+                                                                                    as
+                                                                                    u32;
+                                                                            let mask =
+                                                                                8388608usize
+                                                                                    as
+                                                                                    u32;
+                                                                            let mPendingUIResolutionChanged =
+                                                                                (mPendingUIResolutionChanged
+                                                                                     <<
+                                                                                     23usize)
+                                                                                    &
+                                                                                    mask;
+                                                                            bitfield_unit_val
+                                                                                |
+                                                                                mPendingUIResolutionChanged
+                                                                        };
+                                                                    let mPendingMediaFeatureValuesChanged =
+                                                                        mPendingMediaFeatureValuesChanged
+                                                                            as
+                                                                            u32
+                                                                            as
+                                                                            u32;
+                                                                    let mask =
+                                                                        16777216usize
+                                                                            as
+                                                                            u32;
+                                                                    let mPendingMediaFeatureValuesChanged =
+                                                                        (mPendingMediaFeatureValuesChanged
+                                                                             <<
+                                                                             24usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mPendingMediaFeatureValuesChanged
+                                                                };
+                                                            let mPrefChangePendingNeedsReflow =
+                                                                mPrefChangePendingNeedsReflow
+                                                                    as u32 as
+                                                                    u32;
+                                                            let mask =
+                                                                33554432usize
+                                                                    as u32;
+                                                            let mPrefChangePendingNeedsReflow =
+                                                                (mPrefChangePendingNeedsReflow
+                                                                     <<
+                                                                     25usize)
+                                                                    & mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mPrefChangePendingNeedsReflow
+                                                        };
+                                                    let mIsEmulatingMedia =
+                                                        mIsEmulatingMedia as
+                                                            u32 as u32;
+                                                    let mask =
+                                                        67108864usize as u32;
+                                                    let mIsEmulatingMedia =
+                                                        (mIsEmulatingMedia <<
+                                                             26usize) & mask;
+                                                    bitfield_unit_val |
+                                                        mIsEmulatingMedia
+                                                };
+                                            let mIsGlyph =
+                                                mIsGlyph as u32 as u32;
+                                            let mask = 134217728usize as u32;
+                                            let mIsGlyph =
+                                                (mIsGlyph << 27usize) & mask;
+                                            bitfield_unit_val | mIsGlyph
+                                        };
+                                    let mUsesRootEMUnits =
+                                        mUsesRootEMUnits as u32 as u32;
+                                    let mask = 268435456usize as u32;
+                                    let mUsesRootEMUnits =
+                                        (mUsesRootEMUnits << 28usize) & mask;
+                                    bitfield_unit_val | mUsesRootEMUnits
+                                };
+                            let mUsesExChUnits = mUsesExChUnits as u32 as u32;
+                            let mask = 536870912usize as u32;
+                            let mUsesExChUnits =
+                                (mUsesExChUnits << 29usize) & mask;
+                            bitfield_unit_val | mUsesExChUnits
+                        };
+                    let mUsesViewportUnits = mUsesViewportUnits as u32 as u32;
+                    let mask = 1073741824usize as u32;
+                    let mUsesViewportUnits =
+                        (mUsesViewportUnits << 30usize) & mask;
+                    bitfield_unit_val | mUsesViewportUnits
+                };
+            let mPendingViewportChange = mPendingViewportChange as u32 as u32;
+            let mask = 2147483648usize as u32;
+            let mPendingViewportChange =
+                (mPendingViewportChange << 31usize) & mask;
+            bitfield_unit_val | mPendingViewportChange
         }
         #[inline]
         pub fn mCounterStylesDirty(&self) -> ::std::os::raw::c_uint {
             let mask = 1usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18563,18 +20129,19 @@ pub mod root {
                                        val: ::std::os::raw::c_uint) {
             let mask = 1usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPostedFlushCounterStyles(&self) -> ::std::os::raw::c_uint {
             let mask = 2usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18582,18 +20149,19 @@ pub mod root {
                                              val: ::std::os::raw::c_uint) {
             let mask = 2usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mSuppressResizeReflow(&self) -> ::std::os::raw::c_uint {
             let mask = 4usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18601,36 +20169,38 @@ pub mod root {
                                          val: ::std::os::raw::c_uint) {
             let mask = 4usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsVisual(&self) -> ::std::os::raw::c_uint {
             let mask = 8usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsVisual(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 8usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFireAfterPaintEvents(&self) -> ::std::os::raw::c_uint {
             let mask = 16usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18638,36 +20208,38 @@ pub mod root {
                                          val: ::std::os::raw::c_uint) {
             let mask = 16usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsChrome(&self) -> ::std::os::raw::c_uint {
             let mask = 32usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIsChrome(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 32usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsChromeOriginImage(&self) -> ::std::os::raw::c_uint {
             let mask = 64usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18675,36 +20247,38 @@ pub mod root {
                                         val: ::std::os::raw::c_uint) {
             let mask = 64usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPaintFlashing(&self) -> ::std::os::raw::c_uint {
             let mask = 128usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mPaintFlashing(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 128usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPaintFlashingInitialized(&self) -> ::std::os::raw::c_uint {
             let mask = 256usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 8usize;
+            let val = (unit_field_val & mask) >> 8usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18712,19 +20286,20 @@ pub mod root {
                                              val: ::std::os::raw::c_uint) {
             let mask = 256usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 8usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 8usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasWarnedAboutPositionedTableParts(&self)
          -> ::std::os::raw::c_uint {
             let mask = 512usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 9usize;
+            let val = (unit_field_val & mask) >> 9usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18733,19 +20308,20 @@ pub mod root {
                                                            ::std::os::raw::c_uint) {
             let mask = 512usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 9usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 9usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHasWarnedAboutTooLargeDashedOrDottedRadius(&self)
          -> ::std::os::raw::c_uint {
             let mask = 1024usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 10usize;
+            let val = (unit_field_val & mask) >> 10usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
@@ -18754,65 +20330,325 @@ pub mod root {
                                                                    ::std::os::raw::c_uint) {
             let mask = 1024usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 10usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 10usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mQuirkSheetAdded(&self) -> ::std::os::raw::c_uint {
             let mask = 2048usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 11usize;
+            let val = (unit_field_val & mask) >> 11usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mQuirkSheetAdded(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 2048usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 11usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 11usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mNeedsPrefUpdate(&self) -> ::std::os::raw::c_uint {
             let mask = 4096usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 12usize;
+            let val = (unit_field_val & mask) >> 12usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mNeedsPrefUpdate(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 4096usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 12usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 12usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHadNonBlankPaint(&self) -> ::std::os::raw::c_uint {
             let mask = 8192usize as u16;
-            let field_val: u16 =
+            let unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 13usize;
+            let val = (unit_field_val & mask) >> 13usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mHadNonBlankPaint(&mut self, val: ::std::os::raw::c_uint) {
             let mask = 8192usize as u16;
             let val = val as u32 as u16;
-            let mut field_val: u16 =
+            let mut unit_field_val: u16 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 13usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 13usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_2(mCounterStylesDirty: ::std::os::raw::c_uint,
+                              mPostedFlushCounterStyles:
+                                  ::std::os::raw::c_uint,
+                              mSuppressResizeReflow: ::std::os::raw::c_uint,
+                              mIsVisual: ::std::os::raw::c_uint,
+                              mFireAfterPaintEvents: ::std::os::raw::c_uint,
+                              mIsChrome: ::std::os::raw::c_uint,
+                              mIsChromeOriginImage: ::std::os::raw::c_uint,
+                              mPaintFlashing: ::std::os::raw::c_uint,
+                              mPaintFlashingInitialized:
+                                  ::std::os::raw::c_uint,
+                              mHasWarnedAboutPositionedTableParts:
+                                  ::std::os::raw::c_uint,
+                              mHasWarnedAboutTooLargeDashedOrDottedRadius:
+                                  ::std::os::raw::c_uint,
+                              mQuirkSheetAdded: ::std::os::raw::c_uint,
+                              mNeedsPrefUpdate: ::std::os::raw::c_uint,
+                              mHadNonBlankPaint: ::std::os::raw::c_uint)
+         -> u16 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        {
+                                                                            let bitfield_unit_val =
+                                                                                {
+                                                                                    let bitfield_unit_val =
+                                                                                        {
+                                                                                            let bitfield_unit_val =
+                                                                                                {
+                                                                                                    let bitfield_unit_val =
+                                                                                                        {
+                                                                                                            let bitfield_unit_val =
+                                                                                                                {
+                                                                                                                    let bitfield_unit_val =
+                                                                                                                        {
+                                                                                                                            0
+                                                                                                                        };
+                                                                                                                    let mCounterStylesDirty =
+                                                                                                                        mCounterStylesDirty
+                                                                                                                            as
+                                                                                                                            u32
+                                                                                                                            as
+                                                                                                                            u16;
+                                                                                                                    let mask =
+                                                                                                                        1usize
+                                                                                                                            as
+                                                                                                                            u16;
+                                                                                                                    let mCounterStylesDirty =
+                                                                                                                        (mCounterStylesDirty
+                                                                                                                             <<
+                                                                                                                             0usize)
+                                                                                                                            &
+                                                                                                                            mask;
+                                                                                                                    bitfield_unit_val
+                                                                                                                        |
+                                                                                                                        mCounterStylesDirty
+                                                                                                                };
+                                                                                                            let mPostedFlushCounterStyles =
+                                                                                                                mPostedFlushCounterStyles
+                                                                                                                    as
+                                                                                                                    u32
+                                                                                                                    as
+                                                                                                                    u16;
+                                                                                                            let mask =
+                                                                                                                2usize
+                                                                                                                    as
+                                                                                                                    u16;
+                                                                                                            let mPostedFlushCounterStyles =
+                                                                                                                (mPostedFlushCounterStyles
+                                                                                                                     <<
+                                                                                                                     1usize)
+                                                                                                                    &
+                                                                                                                    mask;
+                                                                                                            bitfield_unit_val
+                                                                                                                |
+                                                                                                                mPostedFlushCounterStyles
+                                                                                                        };
+                                                                                                    let mSuppressResizeReflow =
+                                                                                                        mSuppressResizeReflow
+                                                                                                            as
+                                                                                                            u32
+                                                                                                            as
+                                                                                                            u16;
+                                                                                                    let mask =
+                                                                                                        4usize
+                                                                                                            as
+                                                                                                            u16;
+                                                                                                    let mSuppressResizeReflow =
+                                                                                                        (mSuppressResizeReflow
+                                                                                                             <<
+                                                                                                             2usize)
+                                                                                                            &
+                                                                                                            mask;
+                                                                                                    bitfield_unit_val
+                                                                                                        |
+                                                                                                        mSuppressResizeReflow
+                                                                                                };
+                                                                                            let mIsVisual =
+                                                                                                mIsVisual
+                                                                                                    as
+                                                                                                    u32
+                                                                                                    as
+                                                                                                    u16;
+                                                                                            let mask =
+                                                                                                8usize
+                                                                                                    as
+                                                                                                    u16;
+                                                                                            let mIsVisual =
+                                                                                                (mIsVisual
+                                                                                                     <<
+                                                                                                     3usize)
+                                                                                                    &
+                                                                                                    mask;
+                                                                                            bitfield_unit_val
+                                                                                                |
+                                                                                                mIsVisual
+                                                                                        };
+                                                                                    let mFireAfterPaintEvents =
+                                                                                        mFireAfterPaintEvents
+                                                                                            as
+                                                                                            u32
+                                                                                            as
+                                                                                            u16;
+                                                                                    let mask =
+                                                                                        16usize
+                                                                                            as
+                                                                                            u16;
+                                                                                    let mFireAfterPaintEvents =
+                                                                                        (mFireAfterPaintEvents
+                                                                                             <<
+                                                                                             4usize)
+                                                                                            &
+                                                                                            mask;
+                                                                                    bitfield_unit_val
+                                                                                        |
+                                                                                        mFireAfterPaintEvents
+                                                                                };
+                                                                            let mIsChrome =
+                                                                                mIsChrome
+                                                                                    as
+                                                                                    u32
+                                                                                    as
+                                                                                    u16;
+                                                                            let mask =
+                                                                                32usize
+                                                                                    as
+                                                                                    u16;
+                                                                            let mIsChrome =
+                                                                                (mIsChrome
+                                                                                     <<
+                                                                                     5usize)
+                                                                                    &
+                                                                                    mask;
+                                                                            bitfield_unit_val
+                                                                                |
+                                                                                mIsChrome
+                                                                        };
+                                                                    let mIsChromeOriginImage =
+                                                                        mIsChromeOriginImage
+                                                                            as
+                                                                            u32
+                                                                            as
+                                                                            u16;
+                                                                    let mask =
+                                                                        64usize
+                                                                            as
+                                                                            u16;
+                                                                    let mIsChromeOriginImage =
+                                                                        (mIsChromeOriginImage
+                                                                             <<
+                                                                             6usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mIsChromeOriginImage
+                                                                };
+                                                            let mPaintFlashing =
+                                                                mPaintFlashing
+                                                                    as u32 as
+                                                                    u16;
+                                                            let mask =
+                                                                128usize as
+                                                                    u16;
+                                                            let mPaintFlashing =
+                                                                (mPaintFlashing
+                                                                     <<
+                                                                     7usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mPaintFlashing
+                                                        };
+                                                    let mPaintFlashingInitialized =
+                                                        mPaintFlashingInitialized
+                                                            as u32 as u16;
+                                                    let mask =
+                                                        256usize as u16;
+                                                    let mPaintFlashingInitialized =
+                                                        (mPaintFlashingInitialized
+                                                             << 8usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mPaintFlashingInitialized
+                                                };
+                                            let mHasWarnedAboutPositionedTableParts =
+                                                mHasWarnedAboutPositionedTableParts
+                                                    as u32 as u16;
+                                            let mask = 512usize as u16;
+                                            let mHasWarnedAboutPositionedTableParts =
+                                                (mHasWarnedAboutPositionedTableParts
+                                                     << 9usize) & mask;
+                                            bitfield_unit_val |
+                                                mHasWarnedAboutPositionedTableParts
+                                        };
+                                    let mHasWarnedAboutTooLargeDashedOrDottedRadius =
+                                        mHasWarnedAboutTooLargeDashedOrDottedRadius
+                                            as u32 as u16;
+                                    let mask = 1024usize as u16;
+                                    let mHasWarnedAboutTooLargeDashedOrDottedRadius =
+                                        (mHasWarnedAboutTooLargeDashedOrDottedRadius
+                                             << 10usize) & mask;
+                                    bitfield_unit_val |
+                                        mHasWarnedAboutTooLargeDashedOrDottedRadius
+                                };
+                            let mQuirkSheetAdded =
+                                mQuirkSheetAdded as u32 as u16;
+                            let mask = 2048usize as u16;
+                            let mQuirkSheetAdded =
+                                (mQuirkSheetAdded << 11usize) & mask;
+                            bitfield_unit_val | mQuirkSheetAdded
+                        };
+                    let mNeedsPrefUpdate = mNeedsPrefUpdate as u32 as u16;
+                    let mask = 4096usize as u16;
+                    let mNeedsPrefUpdate =
+                        (mNeedsPrefUpdate << 12usize) & mask;
+                    bitfield_unit_val | mNeedsPrefUpdate
+                };
+            let mHadNonBlankPaint = mHadNonBlankPaint as u32 as u16;
+            let mask = 8192usize as u16;
+            let mHadNonBlankPaint = (mHadNonBlankPaint << 13usize) & mask;
+            bitfield_unit_val | mHadNonBlankPaint
         }
     }
     #[repr(C)]
@@ -20068,207 +21904,318 @@ pub mod root {
         #[inline]
         pub fn mStylesHaveChanged(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mStylesHaveChanged(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDidInitialize(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mDidInitialize(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsDestroying(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsDestroying(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsReflowing(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsReflowing(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mPaintingSuppressed(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mPaintingSuppressed(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsThemeSupportDisabled(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsThemeSupportDisabled(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsActive(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsActive(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mFrozen(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mFrozen(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mStylesHaveChanged: bool, mDidInitialize: bool,
+                              mIsDestroying: bool, mIsReflowing: bool,
+                              mPaintingSuppressed: bool,
+                              mIsThemeSupportDisabled: bool, mIsActive: bool,
+                              mFrozen: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mStylesHaveChanged =
+                                                                        mStylesHaveChanged
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mStylesHaveChanged =
+                                                                        (mStylesHaveChanged
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mStylesHaveChanged
+                                                                };
+                                                            let mDidInitialize =
+                                                                mDidInitialize
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mDidInitialize =
+                                                                (mDidInitialize
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mDidInitialize
+                                                        };
+                                                    let mIsDestroying =
+                                                        mIsDestroying as u8 as
+                                                            u8;
+                                                    let mask = 4usize as u8;
+                                                    let mIsDestroying =
+                                                        (mIsDestroying <<
+                                                             2usize) & mask;
+                                                    bitfield_unit_val |
+                                                        mIsDestroying
+                                                };
+                                            let mIsReflowing =
+                                                mIsReflowing as u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mIsReflowing =
+                                                (mIsReflowing << 3usize) &
+                                                    mask;
+                                            bitfield_unit_val | mIsReflowing
+                                        };
+                                    let mPaintingSuppressed =
+                                        mPaintingSuppressed as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mPaintingSuppressed =
+                                        (mPaintingSuppressed << 4usize) &
+                                            mask;
+                                    bitfield_unit_val | mPaintingSuppressed
+                                };
+                            let mIsThemeSupportDisabled =
+                                mIsThemeSupportDisabled as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mIsThemeSupportDisabled =
+                                (mIsThemeSupportDisabled << 5usize) & mask;
+                            bitfield_unit_val | mIsThemeSupportDisabled
+                        };
+                    let mIsActive = mIsActive as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mIsActive = (mIsActive << 6usize) & mask;
+                    bitfield_unit_val | mIsActive
+                };
+            let mFrozen = mFrozen as u8 as u8;
+            let mask = 128usize as u8;
+            let mFrozen = (mFrozen << 7usize) & mask;
+            bitfield_unit_val | mFrozen
         }
         #[inline]
         pub fn mIsFirstPaint(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsFirstPaint(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mObservesMutationsForPrint(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mObservesMutationsForPrint(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mSuppressInterruptibleReflows(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mSuppressInterruptibleReflows(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mScrollPositionClampingScrollPortSizeSet(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
@@ -20276,101 +22223,223 @@ pub mod root {
                                                             val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mNeedLayoutFlush(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mNeedLayoutFlush(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mNeedStyleFlush(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mNeedStyleFlush(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mObservingStyleFlushes(&self) -> bool {
             let mask = 64usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 6usize;
+            let val = (unit_field_val & mask) >> 6usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mObservingStyleFlushes(&mut self, val: bool) {
             let mask = 64usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 6usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 6usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mObservingLayoutFlushes(&self) -> bool {
             let mask = 128usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            let val = (field_val & mask) >> 7usize;
+            let val = (unit_field_val & mask) >> 7usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mObservingLayoutFlushes(&mut self, val: bool) {
             let mask = 128usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_2) };
-            field_val &= !mask;
-            field_val |= (val << 7usize) & mask;
-            self._bitfield_2 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 7usize) & mask;
+            self._bitfield_2 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_2(mIsFirstPaint: bool,
+                              mObservesMutationsForPrint: bool,
+                              mSuppressInterruptibleReflows: bool,
+                              mScrollPositionClampingScrollPortSizeSet: bool,
+                              mNeedLayoutFlush: bool, mNeedStyleFlush: bool,
+                              mObservingStyleFlushes: bool,
+                              mObservingLayoutFlushes: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        {
+                                                            let bitfield_unit_val =
+                                                                {
+                                                                    let bitfield_unit_val =
+                                                                        { 0 };
+                                                                    let mIsFirstPaint =
+                                                                        mIsFirstPaint
+                                                                            as
+                                                                            u8
+                                                                            as
+                                                                            u8;
+                                                                    let mask =
+                                                                        1usize
+                                                                            as
+                                                                            u8;
+                                                                    let mIsFirstPaint =
+                                                                        (mIsFirstPaint
+                                                                             <<
+                                                                             0usize)
+                                                                            &
+                                                                            mask;
+                                                                    bitfield_unit_val
+                                                                        |
+                                                                        mIsFirstPaint
+                                                                };
+                                                            let mObservesMutationsForPrint =
+                                                                mObservesMutationsForPrint
+                                                                    as u8 as
+                                                                    u8;
+                                                            let mask =
+                                                                2usize as u8;
+                                                            let mObservesMutationsForPrint =
+                                                                (mObservesMutationsForPrint
+                                                                     <<
+                                                                     1usize) &
+                                                                    mask;
+                                                            bitfield_unit_val
+                                                                |
+                                                                mObservesMutationsForPrint
+                                                        };
+                                                    let mSuppressInterruptibleReflows =
+                                                        mSuppressInterruptibleReflows
+                                                            as u8 as u8;
+                                                    let mask = 4usize as u8;
+                                                    let mSuppressInterruptibleReflows =
+                                                        (mSuppressInterruptibleReflows
+                                                             << 2usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mSuppressInterruptibleReflows
+                                                };
+                                            let mScrollPositionClampingScrollPortSizeSet =
+                                                mScrollPositionClampingScrollPortSizeSet
+                                                    as u8 as u8;
+                                            let mask = 8usize as u8;
+                                            let mScrollPositionClampingScrollPortSizeSet =
+                                                (mScrollPositionClampingScrollPortSizeSet
+                                                     << 3usize) & mask;
+                                            bitfield_unit_val |
+                                                mScrollPositionClampingScrollPortSizeSet
+                                        };
+                                    let mNeedLayoutFlush =
+                                        mNeedLayoutFlush as u8 as u8;
+                                    let mask = 16usize as u8;
+                                    let mNeedLayoutFlush =
+                                        (mNeedLayoutFlush << 4usize) & mask;
+                                    bitfield_unit_val | mNeedLayoutFlush
+                                };
+                            let mNeedStyleFlush = mNeedStyleFlush as u8 as u8;
+                            let mask = 32usize as u8;
+                            let mNeedStyleFlush =
+                                (mNeedStyleFlush << 5usize) & mask;
+                            bitfield_unit_val | mNeedStyleFlush
+                        };
+                    let mObservingStyleFlushes =
+                        mObservingStyleFlushes as u8 as u8;
+                    let mask = 64usize as u8;
+                    let mObservingStyleFlushes =
+                        (mObservingStyleFlushes << 6usize) & mask;
+                    bitfield_unit_val | mObservingStyleFlushes
+                };
+            let mObservingLayoutFlushes = mObservingLayoutFlushes as u8 as u8;
+            let mask = 128usize as u8;
+            let mObservingLayoutFlushes =
+                (mObservingLayoutFlushes << 7usize) & mask;
+            bitfield_unit_val | mObservingLayoutFlushes
         }
         #[inline]
         pub fn mNeedThrottledAnimationFlush(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mNeedThrottledAnimationFlush(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_3) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_3 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_3 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_3(mNeedThrottledAnimationFlush: bool) -> u8 {
+            let bitfield_unit_val = { 0 };
+            let mNeedThrottledAnimationFlush =
+                mNeedThrottledAnimationFlush as u8 as u8;
+            let mask = 1usize as u8;
+            let mNeedThrottledAnimationFlush =
+                (mNeedThrottledAnimationFlush << 0usize) & mask;
+            bitfield_unit_val | mNeedThrottledAnimationFlush
         }
     }
     /**
@@ -20409,57 +22478,57 @@ pub mod root {
     pub struct nsDOMMutationObserver {
         _unused: [u8; 0],
     }
-    pub const NODE_HAS_LISTENERMANAGER: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_LISTENERMANAGER;
-    pub const NODE_HAS_PROPERTIES: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_PROPERTIES;
-    pub const NODE_IS_ANONYMOUS_ROOT: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_ANONYMOUS_ROOT;
-    pub const NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE;
-    pub const NODE_IS_NATIVE_ANONYMOUS_ROOT: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_NATIVE_ANONYMOUS_ROOT;
-    pub const NODE_FORCE_XBL_BINDINGS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_FORCE_XBL_BINDINGS;
-    pub const NODE_MAY_BE_IN_BINDING_MNGR: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_MAY_BE_IN_BINDING_MNGR;
-    pub const NODE_IS_EDITABLE: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_EDITABLE;
-    pub const NODE_IS_NATIVE_ANONYMOUS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_NATIVE_ANONYMOUS;
-    pub const NODE_IS_IN_SHADOW_TREE: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_IN_SHADOW_TREE;
-    pub const NODE_HAS_EMPTY_SELECTOR: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_EMPTY_SELECTOR;
-    pub const NODE_HAS_SLOW_SELECTOR: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_SLOW_SELECTOR;
-    pub const NODE_HAS_EDGE_CHILD_SELECTOR: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_EDGE_CHILD_SELECTOR;
-    pub const NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS;
-    pub const NODE_ALL_SELECTOR_FLAGS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_ALL_SELECTOR_FLAGS;
-    pub const NODE_NEEDS_FRAME: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_NEEDS_FRAME;
-    pub const NODE_DESCENDANTS_NEED_FRAMES: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_DESCENDANTS_NEED_FRAMES;
-    pub const NODE_HAS_ACCESSKEY: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_ACCESSKEY;
-    pub const NODE_HAS_DIRECTION_RTL: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_DIRECTION_RTL;
-    pub const NODE_HAS_DIRECTION_LTR: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_HAS_DIRECTION_LTR;
-    pub const NODE_ALL_DIRECTION_FLAGS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_ALL_DIRECTION_FLAGS;
-    pub const NODE_CHROME_ONLY_ACCESS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_CHROME_ONLY_ACCESS;
-    pub const NODE_IS_ROOT_OF_CHROME_ONLY_ACCESS: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_IS_ROOT_OF_CHROME_ONLY_ACCESS;
-    pub const NODE_TYPE_SPECIFIC_BITS_OFFSET: root::_bindgen_ty_17 =
-        _bindgen_ty_17::NODE_TYPE_SPECIFIC_BITS_OFFSET;
+    pub const NODE_HAS_LISTENERMANAGER: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_LISTENERMANAGER;
+    pub const NODE_HAS_PROPERTIES: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_PROPERTIES;
+    pub const NODE_IS_ANONYMOUS_ROOT: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_ANONYMOUS_ROOT;
+    pub const NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE;
+    pub const NODE_IS_NATIVE_ANONYMOUS_ROOT: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_NATIVE_ANONYMOUS_ROOT;
+    pub const NODE_FORCE_XBL_BINDINGS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_FORCE_XBL_BINDINGS;
+    pub const NODE_MAY_BE_IN_BINDING_MNGR: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_MAY_BE_IN_BINDING_MNGR;
+    pub const NODE_IS_EDITABLE: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_EDITABLE;
+    pub const NODE_IS_NATIVE_ANONYMOUS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_NATIVE_ANONYMOUS;
+    pub const NODE_IS_IN_SHADOW_TREE: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_IN_SHADOW_TREE;
+    pub const NODE_HAS_EMPTY_SELECTOR: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_EMPTY_SELECTOR;
+    pub const NODE_HAS_SLOW_SELECTOR: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_SLOW_SELECTOR;
+    pub const NODE_HAS_EDGE_CHILD_SELECTOR: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_EDGE_CHILD_SELECTOR;
+    pub const NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_SLOW_SELECTOR_LATER_SIBLINGS;
+    pub const NODE_ALL_SELECTOR_FLAGS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_ALL_SELECTOR_FLAGS;
+    pub const NODE_NEEDS_FRAME: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_NEEDS_FRAME;
+    pub const NODE_DESCENDANTS_NEED_FRAMES: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_DESCENDANTS_NEED_FRAMES;
+    pub const NODE_HAS_ACCESSKEY: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_ACCESSKEY;
+    pub const NODE_HAS_DIRECTION_RTL: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_DIRECTION_RTL;
+    pub const NODE_HAS_DIRECTION_LTR: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_HAS_DIRECTION_LTR;
+    pub const NODE_ALL_DIRECTION_FLAGS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_ALL_DIRECTION_FLAGS;
+    pub const NODE_CHROME_ONLY_ACCESS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_CHROME_ONLY_ACCESS;
+    pub const NODE_IS_ROOT_OF_CHROME_ONLY_ACCESS: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_IS_ROOT_OF_CHROME_ONLY_ACCESS;
+    pub const NODE_TYPE_SPECIFIC_BITS_OFFSET: root::_bindgen_ty_82 =
+        _bindgen_ty_82::NODE_TYPE_SPECIFIC_BITS_OFFSET;
     #[repr(u32)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub enum _bindgen_ty_17 {
+    pub enum _bindgen_ty_82 {
         NODE_HAS_LISTENERMANAGER = 4,
         NODE_HAS_PROPERTIES = 8,
         NODE_IS_ANONYMOUS_ROOT = 16,
@@ -21184,6 +23253,12 @@ pub mod root {
     pub const nsFrameState_PLACEHOLDER_STATICPOS_NEEDS_CSSALIGN:
               root::nsFrameState =
         nsFrameState::NS_STATE_CURRENTLY_IN_DEBUG;
+    pub const nsFrameState_PLACEHOLDER_LINE_IS_EMPTY_SO_FAR:
+              root::nsFrameState =
+        nsFrameState::NS_STATE_SET_TO_DEBUG;
+    pub const nsFrameState_PLACEHOLDER_HAVE_LINE_IS_EMPTY_SO_FAR:
+              root::nsFrameState =
+        nsFrameState::NS_STATE_DEBUG_WAS_SET;
     pub const nsFrameState_NS_TABLE_CELL_HAS_PCT_OVER_BSIZE:
               root::nsFrameState =
         nsFrameState::NS_STATE_MENU_HAS_POPUP_LIST;
@@ -21551,6 +23626,11 @@ pub mod root {
     }
     #[repr(C)]
     #[derive(Debug, Copy, Clone)]
+    pub struct nsPlaceholderFrame {
+        _unused: [u8; 0],
+    }
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
     pub struct gfxContext {
         _unused: [u8; 0],
     }
@@ -21806,6 +23886,50 @@ pub mod root {
         nsSizeMode_Maximized = 2,
         nsSizeMode_Fullscreen = 3,
         nsSizeMode_Invalid = 4,
+    }
+    /**
+ * templated hashtable class maps keys to interface pointers.
+ * See nsBaseHashtable for complete declaration.
+ * @param KeyClass a wrapper-class for the hashtable key, see nsHashKeys.h
+ *   for a complete specification.
+ * @param Interface the interface-type being wrapped
+ * @see nsDataHashtable, nsClassHashtable
+ */
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
+    pub struct nsInterfaceHashtable {
+    }
+    pub type nsInterfaceHashtable_KeyType = [u8; 0usize];
+    pub type nsInterfaceHashtable_UserDataType<Interface> = *mut Interface;
+    pub type nsInterfaceHashtable_base_type = root::nsBaseHashtable;
+    #[repr(C)]
+    #[derive(Debug)]
+    pub struct nsLanguageAtomService {
+        pub mLangToGroup: [u64; 5usize],
+        pub mLocaleLanguage: root::nsCOMPtr,
+    }
+    #[test]
+    fn bindgen_test_layout_nsLanguageAtomService() {
+        assert_eq!(::std::mem::size_of::<nsLanguageAtomService>() , 48usize ,
+                   concat ! (
+                   "Size of: " , stringify ! ( nsLanguageAtomService ) ));
+        assert_eq! (::std::mem::align_of::<nsLanguageAtomService>() , 8usize ,
+                    concat ! (
+                    "Alignment of " , stringify ! ( nsLanguageAtomService )
+                    ));
+        assert_eq! (unsafe {
+                    & ( * ( 0 as * const nsLanguageAtomService ) ) .
+                    mLangToGroup as * const _ as usize } , 0usize , concat ! (
+                    "Alignment of field: " , stringify ! (
+                    nsLanguageAtomService ) , "::" , stringify ! (
+                    mLangToGroup ) ));
+        assert_eq! (unsafe {
+                    & ( * ( 0 as * const nsLanguageAtomService ) ) .
+                    mLocaleLanguage as * const _ as usize } , 40usize , concat
+                    ! (
+                    "Alignment of field: " , stringify ! (
+                    nsLanguageAtomService ) , "::" , stringify ! (
+                    mLocaleLanguage ) ));
     }
     #[repr(C)]
     #[derive(Debug, Copy)]
@@ -22418,38 +24542,56 @@ pub mod root {
         #[inline]
         pub fn mGeneration(&self) -> u32 {
             let mask = 15usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mGeneration(&mut self, val: u32) {
             let mask = 15usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIndexInGeneration(&self) -> u32 {
             let mask = 4294967280usize as u32;
-            let field_val: u32 =
+            let unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u32) }
         }
         #[inline]
         pub fn set_mIndexInGeneration(&mut self, val: u32) {
             let mask = 4294967280usize as u32;
             let val = val as u32 as u32;
-            let mut field_val: u32 =
+            let mut unit_field_val: u32 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mGeneration: u32, mIndexInGeneration: u32)
+         -> u32 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val = { 0 };
+                    let mGeneration = mGeneration as u32 as u32;
+                    let mask = 15usize as u32;
+                    let mGeneration = (mGeneration << 0usize) & mask;
+                    bitfield_unit_val | mGeneration
+                };
+            let mIndexInGeneration = mIndexInGeneration as u32 as u32;
+            let mask = 4294967280usize as u32;
+            let mIndexInGeneration = (mIndexInGeneration << 4usize) & mask;
+            bitfield_unit_val | mIndexInGeneration
         }
     }
     #[repr(C)]
@@ -22600,7 +24742,6 @@ pub mod root {
         pub mDisplay: root::mozilla::StyleDisplay,
         pub mOriginalDisplay: root::mozilla::StyleDisplay,
         pub mContain: u8,
-        pub mMozAppearance: u8,
         pub mAppearance: u8,
         pub mPosition: u8,
         pub mFloat: root::mozilla::StyleFloat,
@@ -22679,88 +24820,83 @@ pub mod root {
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mContain ) ));
         assert_eq! (unsafe {
-                    & ( * ( 0 as * const nsStyleDisplay ) ) . mMozAppearance
-                    as * const _ as usize } , 11usize , concat ! (
-                    "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
-                    "::" , stringify ! ( mMozAppearance ) ));
-        assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mAppearance as *
-                    const _ as usize } , 12usize , concat ! (
+                    const _ as usize } , 11usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mAppearance ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mPosition as *
-                    const _ as usize } , 13usize , concat ! (
+                    const _ as usize } , 12usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mPosition ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mFloat as *
-                    const _ as usize } , 14usize , concat ! (
+                    const _ as usize } , 13usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mFloat ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mOriginalFloat
-                    as * const _ as usize } , 15usize , concat ! (
+                    as * const _ as usize } , 14usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mOriginalFloat ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mBreakType as *
-                    const _ as usize } , 16usize , concat ! (
+                    const _ as usize } , 15usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mBreakType ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mBreakInside as
-                    * const _ as usize } , 17usize , concat ! (
+                    * const _ as usize } , 16usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mBreakInside ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mBreakBefore as
-                    * const _ as usize } , 18usize , concat ! (
+                    * const _ as usize } , 17usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mBreakBefore ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mBreakAfter as *
-                    const _ as usize } , 19usize , concat ! (
+                    const _ as usize } , 18usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mBreakAfter ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mOverflowX as *
-                    const _ as usize } , 20usize , concat ! (
+                    const _ as usize } , 19usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mOverflowX ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mOverflowY as *
-                    const _ as usize } , 21usize , concat ! (
+                    const _ as usize } , 20usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mOverflowY ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mOverflowClipBox
-                    as * const _ as usize } , 22usize , concat ! (
+                    as * const _ as usize } , 21usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mOverflowClipBox ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mResize as *
-                    const _ as usize } , 23usize , concat ! (
+                    const _ as usize } , 22usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mResize ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mOrient as *
-                    const _ as usize } , 24usize , concat ! (
+                    const _ as usize } , 23usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mOrient ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mIsolation as *
-                    const _ as usize } , 25usize , concat ! (
+                    const _ as usize } , 24usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mIsolation ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) . mTopLayer as *
-                    const _ as usize } , 26usize , concat ! (
+                    const _ as usize } , 25usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mTopLayer ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsStyleDisplay ) ) .
-                    mWillChangeBitField as * const _ as usize } , 27usize ,
+                    mWillChangeBitField as * const _ as usize } , 26usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsStyleDisplay ) ,
                     "::" , stringify ! ( mWillChangeBitField ) ));
@@ -22946,29 +25082,6 @@ pub mod root {
                     "::" , stringify ! ( mShapeOutside ) ));
     }
     #[repr(C)]
-    #[derive(Debug, Copy)]
-    pub struct nsILanguageAtomService {
-        pub _base: root::nsISupports,
-    }
-    #[repr(C)]
-    #[derive(Debug, Copy, Clone)]
-    pub struct nsILanguageAtomService_COMTypeInfo {
-        pub _address: u8,
-    }
-    #[test]
-    fn bindgen_test_layout_nsILanguageAtomService() {
-        assert_eq!(::std::mem::size_of::<nsILanguageAtomService>() , 8usize ,
-                   concat ! (
-                   "Size of: " , stringify ! ( nsILanguageAtomService ) ));
-        assert_eq! (::std::mem::align_of::<nsILanguageAtomService>() , 8usize
-                    , concat ! (
-                    "Alignment of " , stringify ! ( nsILanguageAtomService )
-                    ));
-    }
-    impl Clone for nsILanguageAtomService {
-        fn clone(&self) -> Self { *self }
-    }
-    #[repr(C)]
     #[derive(Debug, Copy, Clone)]
     pub struct nsBidi {
         _unused: [u8; 0],
@@ -23107,7 +25220,7 @@ pub mod root {
     }
     #[test]
     fn bindgen_test_layout_nsRootPresContext() {
-        assert_eq!(::std::mem::size_of::<nsRootPresContext>() , 1464usize ,
+        assert_eq!(::std::mem::size_of::<nsRootPresContext>() , 1512usize ,
                    concat ! ( "Size of: " , stringify ! ( nsRootPresContext )
                    ));
         assert_eq! (::std::mem::align_of::<nsRootPresContext>() , 8usize ,
@@ -23115,37 +25228,37 @@ pub mod root {
                     "Alignment of " , stringify ! ( nsRootPresContext ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
-                    mNotifyDidPaintTimers as * const _ as usize } , 1312usize
+                    mNotifyDidPaintTimers as * const _ as usize } , 1360usize
                     , concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mNotifyDidPaintTimers ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
                     mApplyPluginGeometryTimer as * const _ as usize } ,
-                    1392usize , concat ! (
+                    1440usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mApplyPluginGeometryTimer ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
-                    mRegisteredPlugins as * const _ as usize } , 1400usize ,
+                    mRegisteredPlugins as * const _ as usize } , 1448usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mRegisteredPlugins ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
-                    mWillPaintObservers as * const _ as usize } , 1440usize ,
+                    mWillPaintObservers as * const _ as usize } , 1488usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mWillPaintObservers ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
                     mWillPaintFallbackEvent as * const _ as usize } ,
-                    1448usize , concat ! (
+                    1496usize , concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mWillPaintFallbackEvent ) ));
         assert_eq! (unsafe {
                     & ( * ( 0 as * const nsRootPresContext ) ) .
-                    mDOMGeneration as * const _ as usize } , 1456usize ,
+                    mDOMGeneration as * const _ as usize } , 1504usize ,
                     concat ! (
                     "Alignment of field: " , stringify ! ( nsRootPresContext )
                     , "::" , stringify ! ( mDOMGeneration ) ));
@@ -23431,489 +25544,491 @@ pub mod root {
         eCSSKeyword_hz = 274,
         eCSSKeyword_icon = 275,
         eCSSKeyword_ignore = 276,
-        eCSSKeyword_in = 277,
-        eCSSKeyword_interlace = 278,
-        eCSSKeyword_inactive = 279,
-        eCSSKeyword_inactiveborder = 280,
-        eCSSKeyword_inactivecaption = 281,
-        eCSSKeyword_inactivecaptiontext = 282,
-        eCSSKeyword_infinite = 283,
-        eCSSKeyword_infobackground = 284,
-        eCSSKeyword_infotext = 285,
-        eCSSKeyword_inherit = 286,
-        eCSSKeyword_initial = 287,
-        eCSSKeyword_inline = 288,
-        eCSSKeyword_inline_axis = 289,
-        eCSSKeyword_inline_block = 290,
-        eCSSKeyword_inline_end = 291,
-        eCSSKeyword_inline_flex = 292,
-        eCSSKeyword_inline_grid = 293,
-        eCSSKeyword_inline_start = 294,
-        eCSSKeyword_inline_table = 295,
-        eCSSKeyword_inset = 296,
-        eCSSKeyword_inside = 297,
-        eCSSKeyword_inter_character = 298,
-        eCSSKeyword_inter_word = 299,
-        eCSSKeyword_interpolatematrix = 300,
-        eCSSKeyword_accumulatematrix = 301,
-        eCSSKeyword_intersect = 302,
-        eCSSKeyword_isolate = 303,
-        eCSSKeyword_isolate_override = 304,
-        eCSSKeyword_invert = 305,
-        eCSSKeyword_italic = 306,
-        eCSSKeyword_japanese_formal = 307,
-        eCSSKeyword_japanese_informal = 308,
-        eCSSKeyword_jis78 = 309,
-        eCSSKeyword_jis83 = 310,
-        eCSSKeyword_jis90 = 311,
-        eCSSKeyword_jis04 = 312,
-        eCSSKeyword_justify = 313,
-        eCSSKeyword_keep_all = 314,
-        eCSSKeyword_khz = 315,
-        eCSSKeyword_korean_hangul_formal = 316,
-        eCSSKeyword_korean_hanja_formal = 317,
-        eCSSKeyword_korean_hanja_informal = 318,
-        eCSSKeyword_landscape = 319,
-        eCSSKeyword_large = 320,
-        eCSSKeyword_larger = 321,
-        eCSSKeyword_last = 322,
-        eCSSKeyword_last_baseline = 323,
-        eCSSKeyword_layout = 324,
-        eCSSKeyword_left = 325,
-        eCSSKeyword_legacy = 326,
-        eCSSKeyword_lighten = 327,
-        eCSSKeyword_lighter = 328,
-        eCSSKeyword_line_through = 329,
-        eCSSKeyword_linear = 330,
-        eCSSKeyword_lining_nums = 331,
-        eCSSKeyword_list_item = 332,
-        eCSSKeyword_local = 333,
-        eCSSKeyword_logical = 334,
-        eCSSKeyword_looped = 335,
-        eCSSKeyword_lowercase = 336,
-        eCSSKeyword_lr = 337,
-        eCSSKeyword_lr_tb = 338,
-        eCSSKeyword_ltr = 339,
-        eCSSKeyword_luminance = 340,
-        eCSSKeyword_luminosity = 341,
-        eCSSKeyword_mandatory = 342,
-        eCSSKeyword_manipulation = 343,
-        eCSSKeyword_manual = 344,
-        eCSSKeyword_margin_box = 345,
-        eCSSKeyword_markers = 346,
-        eCSSKeyword_match_parent = 347,
-        eCSSKeyword_match_source = 348,
-        eCSSKeyword_matrix = 349,
-        eCSSKeyword_matrix3d = 350,
-        eCSSKeyword_max_content = 351,
-        eCSSKeyword_medium = 352,
-        eCSSKeyword_menu = 353,
-        eCSSKeyword_menutext = 354,
-        eCSSKeyword_message_box = 355,
-        eCSSKeyword_middle = 356,
-        eCSSKeyword_min_content = 357,
-        eCSSKeyword_minmax = 358,
-        eCSSKeyword_mix = 359,
-        eCSSKeyword_mixed = 360,
-        eCSSKeyword_mm = 361,
-        eCSSKeyword_monospace = 362,
-        eCSSKeyword_move = 363,
-        eCSSKeyword_ms = 364,
-        eCSSKeyword_multiply = 365,
-        eCSSKeyword_n_resize = 366,
-        eCSSKeyword_narrower = 367,
-        eCSSKeyword_ne_resize = 368,
-        eCSSKeyword_nesw_resize = 369,
-        eCSSKeyword_no_clip = 370,
-        eCSSKeyword_no_close_quote = 371,
-        eCSSKeyword_no_common_ligatures = 372,
-        eCSSKeyword_no_contextual = 373,
-        eCSSKeyword_no_discretionary_ligatures = 374,
-        eCSSKeyword_no_drag = 375,
-        eCSSKeyword_no_drop = 376,
-        eCSSKeyword_no_historical_ligatures = 377,
-        eCSSKeyword_no_open_quote = 378,
-        eCSSKeyword_no_repeat = 379,
-        eCSSKeyword_none = 380,
-        eCSSKeyword_normal = 381,
-        eCSSKeyword_not_allowed = 382,
-        eCSSKeyword_nowrap = 383,
-        eCSSKeyword_numeric = 384,
-        eCSSKeyword_ns_resize = 385,
-        eCSSKeyword_nw_resize = 386,
-        eCSSKeyword_nwse_resize = 387,
-        eCSSKeyword_oblique = 388,
-        eCSSKeyword_oldstyle_nums = 389,
-        eCSSKeyword_opacity = 390,
-        eCSSKeyword_open = 391,
-        eCSSKeyword_open_quote = 392,
-        eCSSKeyword_optional = 393,
-        eCSSKeyword_ordinal = 394,
-        eCSSKeyword_ornaments = 395,
-        eCSSKeyword_outset = 396,
-        eCSSKeyword_outside = 397,
-        eCSSKeyword_over = 398,
-        eCSSKeyword_overlay = 399,
-        eCSSKeyword_overline = 400,
-        eCSSKeyword_paint = 401,
-        eCSSKeyword_padding_box = 402,
-        eCSSKeyword_painted = 403,
-        eCSSKeyword_pan_x = 404,
-        eCSSKeyword_pan_y = 405,
-        eCSSKeyword_paused = 406,
-        eCSSKeyword_pc = 407,
-        eCSSKeyword_perspective = 408,
-        eCSSKeyword_petite_caps = 409,
-        eCSSKeyword_physical = 410,
-        eCSSKeyword_plaintext = 411,
-        eCSSKeyword_pointer = 412,
-        eCSSKeyword_polygon = 413,
-        eCSSKeyword_portrait = 414,
-        eCSSKeyword_pre = 415,
-        eCSSKeyword_pre_wrap = 416,
-        eCSSKeyword_pre_line = 417,
-        eCSSKeyword_preserve_3d = 418,
-        eCSSKeyword_progress = 419,
-        eCSSKeyword_progressive = 420,
-        eCSSKeyword_proportional_nums = 421,
-        eCSSKeyword_proportional_width = 422,
-        eCSSKeyword_proximity = 423,
-        eCSSKeyword_pt = 424,
-        eCSSKeyword_px = 425,
-        eCSSKeyword_rad = 426,
-        eCSSKeyword_read_only = 427,
-        eCSSKeyword_read_write = 428,
-        eCSSKeyword_relative = 429,
-        eCSSKeyword_repeat = 430,
-        eCSSKeyword_repeat_x = 431,
-        eCSSKeyword_repeat_y = 432,
-        eCSSKeyword_reverse = 433,
-        eCSSKeyword_ridge = 434,
-        eCSSKeyword_right = 435,
-        eCSSKeyword_rl = 436,
-        eCSSKeyword_rl_tb = 437,
-        eCSSKeyword_rotate = 438,
-        eCSSKeyword_rotate3d = 439,
-        eCSSKeyword_rotatex = 440,
-        eCSSKeyword_rotatey = 441,
-        eCSSKeyword_rotatez = 442,
-        eCSSKeyword_round = 443,
-        eCSSKeyword_row = 444,
-        eCSSKeyword_row_resize = 445,
-        eCSSKeyword_row_reverse = 446,
-        eCSSKeyword_rtl = 447,
-        eCSSKeyword_ruby = 448,
-        eCSSKeyword_ruby_base = 449,
-        eCSSKeyword_ruby_base_container = 450,
-        eCSSKeyword_ruby_text = 451,
-        eCSSKeyword_ruby_text_container = 452,
-        eCSSKeyword_running = 453,
-        eCSSKeyword_s = 454,
-        eCSSKeyword_s_resize = 455,
-        eCSSKeyword_safe = 456,
-        eCSSKeyword_saturate = 457,
-        eCSSKeyword_saturation = 458,
-        eCSSKeyword_scale = 459,
-        eCSSKeyword_scale_down = 460,
-        eCSSKeyword_scale3d = 461,
-        eCSSKeyword_scalex = 462,
-        eCSSKeyword_scaley = 463,
-        eCSSKeyword_scalez = 464,
-        eCSSKeyword_screen = 465,
-        eCSSKeyword_script = 466,
-        eCSSKeyword_scroll = 467,
-        eCSSKeyword_scrollbar = 468,
-        eCSSKeyword_scrollbar_small = 469,
-        eCSSKeyword_scrollbar_horizontal = 470,
-        eCSSKeyword_scrollbar_vertical = 471,
-        eCSSKeyword_se_resize = 472,
-        eCSSKeyword_select_after = 473,
-        eCSSKeyword_select_all = 474,
-        eCSSKeyword_select_before = 475,
-        eCSSKeyword_select_menu = 476,
-        eCSSKeyword_select_same = 477,
-        eCSSKeyword_self_end = 478,
-        eCSSKeyword_self_start = 479,
-        eCSSKeyword_semi_condensed = 480,
-        eCSSKeyword_semi_expanded = 481,
-        eCSSKeyword_separate = 482,
-        eCSSKeyword_sepia = 483,
-        eCSSKeyword_serif = 484,
-        eCSSKeyword_sesame = 485,
-        eCSSKeyword_show = 486,
-        eCSSKeyword_sideways = 487,
-        eCSSKeyword_sideways_lr = 488,
-        eCSSKeyword_sideways_right = 489,
-        eCSSKeyword_sideways_rl = 490,
-        eCSSKeyword_simp_chinese_formal = 491,
-        eCSSKeyword_simp_chinese_informal = 492,
-        eCSSKeyword_simplified = 493,
-        eCSSKeyword_skew = 494,
-        eCSSKeyword_skewx = 495,
-        eCSSKeyword_skewy = 496,
-        eCSSKeyword_slashed_zero = 497,
-        eCSSKeyword_slice = 498,
-        eCSSKeyword_small = 499,
-        eCSSKeyword_small_caps = 500,
-        eCSSKeyword_small_caption = 501,
-        eCSSKeyword_smaller = 502,
-        eCSSKeyword_smooth = 503,
-        eCSSKeyword_soft = 504,
-        eCSSKeyword_soft_light = 505,
-        eCSSKeyword_solid = 506,
-        eCSSKeyword_space_around = 507,
-        eCSSKeyword_space_between = 508,
-        eCSSKeyword_space_evenly = 509,
-        eCSSKeyword_span = 510,
-        eCSSKeyword_spell_out = 511,
-        eCSSKeyword_square = 512,
-        eCSSKeyword_stacked_fractions = 513,
-        eCSSKeyword_start = 514,
-        eCSSKeyword_static = 515,
-        eCSSKeyword_standalone = 516,
-        eCSSKeyword_status_bar = 517,
-        eCSSKeyword_step_end = 518,
-        eCSSKeyword_step_start = 519,
-        eCSSKeyword_sticky = 520,
-        eCSSKeyword_stretch = 521,
-        eCSSKeyword_stretch_to_fit = 522,
-        eCSSKeyword_stretched = 523,
-        eCSSKeyword_strict = 524,
-        eCSSKeyword_stroke = 525,
-        eCSSKeyword_stroke_box = 526,
-        eCSSKeyword_style = 527,
-        eCSSKeyword_styleset = 528,
-        eCSSKeyword_stylistic = 529,
-        eCSSKeyword_sub = 530,
-        eCSSKeyword_subgrid = 531,
-        eCSSKeyword_subtract = 532,
-        eCSSKeyword_super = 533,
-        eCSSKeyword_sw_resize = 534,
-        eCSSKeyword_swash = 535,
-        eCSSKeyword_swap = 536,
-        eCSSKeyword_table = 537,
-        eCSSKeyword_table_caption = 538,
-        eCSSKeyword_table_cell = 539,
-        eCSSKeyword_table_column = 540,
-        eCSSKeyword_table_column_group = 541,
-        eCSSKeyword_table_footer_group = 542,
-        eCSSKeyword_table_header_group = 543,
-        eCSSKeyword_table_row = 544,
-        eCSSKeyword_table_row_group = 545,
-        eCSSKeyword_tabular_nums = 546,
-        eCSSKeyword_tailed = 547,
-        eCSSKeyword_tb = 548,
-        eCSSKeyword_tb_rl = 549,
-        eCSSKeyword_text = 550,
-        eCSSKeyword_text_bottom = 551,
-        eCSSKeyword_text_top = 552,
-        eCSSKeyword_thick = 553,
-        eCSSKeyword_thin = 554,
-        eCSSKeyword_threeddarkshadow = 555,
-        eCSSKeyword_threedface = 556,
-        eCSSKeyword_threedhighlight = 557,
-        eCSSKeyword_threedlightshadow = 558,
-        eCSSKeyword_threedshadow = 559,
-        eCSSKeyword_titling_caps = 560,
-        eCSSKeyword_toggle = 561,
-        eCSSKeyword_top = 562,
-        eCSSKeyword_top_outside = 563,
-        eCSSKeyword_trad_chinese_formal = 564,
-        eCSSKeyword_trad_chinese_informal = 565,
-        eCSSKeyword_traditional = 566,
-        eCSSKeyword_translate = 567,
-        eCSSKeyword_translate3d = 568,
-        eCSSKeyword_translatex = 569,
-        eCSSKeyword_translatey = 570,
-        eCSSKeyword_translatez = 571,
-        eCSSKeyword_transparent = 572,
-        eCSSKeyword_triangle = 573,
-        eCSSKeyword_tri_state = 574,
-        eCSSKeyword_ultra_condensed = 575,
-        eCSSKeyword_ultra_expanded = 576,
-        eCSSKeyword_under = 577,
-        eCSSKeyword_underline = 578,
-        eCSSKeyword_unicase = 579,
-        eCSSKeyword_unsafe = 580,
-        eCSSKeyword_unset = 581,
-        eCSSKeyword_uppercase = 582,
-        eCSSKeyword_upright = 583,
-        eCSSKeyword_vertical = 584,
-        eCSSKeyword_vertical_lr = 585,
-        eCSSKeyword_vertical_rl = 586,
-        eCSSKeyword_vertical_text = 587,
-        eCSSKeyword_view_box = 588,
-        eCSSKeyword_visible = 589,
-        eCSSKeyword_visiblefill = 590,
-        eCSSKeyword_visiblepainted = 591,
-        eCSSKeyword_visiblestroke = 592,
-        eCSSKeyword_w_resize = 593,
-        eCSSKeyword_wait = 594,
-        eCSSKeyword_wavy = 595,
-        eCSSKeyword_weight = 596,
-        eCSSKeyword_wider = 597,
-        eCSSKeyword_window = 598,
-        eCSSKeyword_windowframe = 599,
-        eCSSKeyword_windowtext = 600,
-        eCSSKeyword_words = 601,
-        eCSSKeyword_wrap = 602,
-        eCSSKeyword_wrap_reverse = 603,
-        eCSSKeyword_write_only = 604,
-        eCSSKeyword_x_large = 605,
-        eCSSKeyword_x_small = 606,
-        eCSSKeyword_xx_large = 607,
-        eCSSKeyword_xx_small = 608,
-        eCSSKeyword_zoom_in = 609,
-        eCSSKeyword_zoom_out = 610,
-        eCSSKeyword_radio = 611,
-        eCSSKeyword_checkbox = 612,
-        eCSSKeyword_button_bevel = 613,
-        eCSSKeyword_toolbox = 614,
-        eCSSKeyword_toolbar = 615,
-        eCSSKeyword_toolbarbutton = 616,
-        eCSSKeyword_toolbargripper = 617,
-        eCSSKeyword_dualbutton = 618,
-        eCSSKeyword_toolbarbutton_dropdown = 619,
-        eCSSKeyword_button_arrow_up = 620,
-        eCSSKeyword_button_arrow_down = 621,
-        eCSSKeyword_button_arrow_next = 622,
-        eCSSKeyword_button_arrow_previous = 623,
-        eCSSKeyword_separator = 624,
-        eCSSKeyword_splitter = 625,
-        eCSSKeyword_statusbar = 626,
-        eCSSKeyword_statusbarpanel = 627,
-        eCSSKeyword_resizerpanel = 628,
-        eCSSKeyword_resizer = 629,
-        eCSSKeyword_listbox = 630,
-        eCSSKeyword_listitem = 631,
-        eCSSKeyword_numbers = 632,
-        eCSSKeyword_number_input = 633,
-        eCSSKeyword_treeview = 634,
-        eCSSKeyword_treeitem = 635,
-        eCSSKeyword_treetwisty = 636,
-        eCSSKeyword_treetwistyopen = 637,
-        eCSSKeyword_treeline = 638,
-        eCSSKeyword_treeheader = 639,
-        eCSSKeyword_treeheadercell = 640,
-        eCSSKeyword_treeheadersortarrow = 641,
-        eCSSKeyword_progressbar = 642,
-        eCSSKeyword_progressbar_vertical = 643,
-        eCSSKeyword_progresschunk = 644,
-        eCSSKeyword_progresschunk_vertical = 645,
-        eCSSKeyword_tab = 646,
-        eCSSKeyword_tabpanels = 647,
-        eCSSKeyword_tabpanel = 648,
-        eCSSKeyword_tab_scroll_arrow_back = 649,
-        eCSSKeyword_tab_scroll_arrow_forward = 650,
-        eCSSKeyword_tooltip = 651,
-        eCSSKeyword_spinner = 652,
-        eCSSKeyword_spinner_upbutton = 653,
-        eCSSKeyword_spinner_downbutton = 654,
-        eCSSKeyword_spinner_textfield = 655,
-        eCSSKeyword_scrollbarbutton_up = 656,
-        eCSSKeyword_scrollbarbutton_down = 657,
-        eCSSKeyword_scrollbarbutton_left = 658,
-        eCSSKeyword_scrollbarbutton_right = 659,
-        eCSSKeyword_scrollbartrack_horizontal = 660,
-        eCSSKeyword_scrollbartrack_vertical = 661,
-        eCSSKeyword_scrollbarthumb_horizontal = 662,
-        eCSSKeyword_scrollbarthumb_vertical = 663,
-        eCSSKeyword_sheet = 664,
-        eCSSKeyword_textfield = 665,
-        eCSSKeyword_textfield_multiline = 666,
-        eCSSKeyword_caret = 667,
-        eCSSKeyword_searchfield = 668,
-        eCSSKeyword_menubar = 669,
-        eCSSKeyword_menupopup = 670,
-        eCSSKeyword_menuitem = 671,
-        eCSSKeyword_checkmenuitem = 672,
-        eCSSKeyword_radiomenuitem = 673,
-        eCSSKeyword_menucheckbox = 674,
-        eCSSKeyword_menuradio = 675,
-        eCSSKeyword_menuseparator = 676,
-        eCSSKeyword_menuarrow = 677,
-        eCSSKeyword_menuimage = 678,
-        eCSSKeyword_menuitemtext = 679,
-        eCSSKeyword_menulist = 680,
-        eCSSKeyword_menulist_button = 681,
-        eCSSKeyword_menulist_text = 682,
-        eCSSKeyword_menulist_textfield = 683,
-        eCSSKeyword_meterbar = 684,
-        eCSSKeyword_meterchunk = 685,
-        eCSSKeyword_minimal_ui = 686,
-        eCSSKeyword_range = 687,
-        eCSSKeyword_range_thumb = 688,
-        eCSSKeyword_sans_serif = 689,
-        eCSSKeyword_sans_serif_bold_italic = 690,
-        eCSSKeyword_sans_serif_italic = 691,
-        eCSSKeyword_scale_horizontal = 692,
-        eCSSKeyword_scale_vertical = 693,
-        eCSSKeyword_scalethumb_horizontal = 694,
-        eCSSKeyword_scalethumb_vertical = 695,
-        eCSSKeyword_scalethumbstart = 696,
-        eCSSKeyword_scalethumbend = 697,
-        eCSSKeyword_scalethumbtick = 698,
-        eCSSKeyword_groupbox = 699,
-        eCSSKeyword_checkbox_container = 700,
-        eCSSKeyword_radio_container = 701,
-        eCSSKeyword_checkbox_label = 702,
-        eCSSKeyword_radio_label = 703,
-        eCSSKeyword_button_focus = 704,
-        eCSSKeyword__moz_win_media_toolbox = 705,
-        eCSSKeyword__moz_win_communications_toolbox = 706,
-        eCSSKeyword__moz_win_browsertabbar_toolbox = 707,
-        eCSSKeyword__moz_win_mediatext = 708,
-        eCSSKeyword__moz_win_communicationstext = 709,
-        eCSSKeyword__moz_win_glass = 710,
-        eCSSKeyword__moz_win_borderless_glass = 711,
-        eCSSKeyword__moz_window_titlebar = 712,
-        eCSSKeyword__moz_window_titlebar_maximized = 713,
-        eCSSKeyword__moz_window_frame_left = 714,
-        eCSSKeyword__moz_window_frame_right = 715,
-        eCSSKeyword__moz_window_frame_bottom = 716,
-        eCSSKeyword__moz_window_button_close = 717,
-        eCSSKeyword__moz_window_button_minimize = 718,
-        eCSSKeyword__moz_window_button_maximize = 719,
-        eCSSKeyword__moz_window_button_restore = 720,
-        eCSSKeyword__moz_window_button_box = 721,
-        eCSSKeyword__moz_window_button_box_maximized = 722,
-        eCSSKeyword__moz_mac_help_button = 723,
-        eCSSKeyword__moz_win_exclude_glass = 724,
-        eCSSKeyword__moz_mac_vibrancy_light = 725,
-        eCSSKeyword__moz_mac_vibrancy_dark = 726,
-        eCSSKeyword__moz_mac_disclosure_button_closed = 727,
-        eCSSKeyword__moz_mac_disclosure_button_open = 728,
-        eCSSKeyword__moz_mac_source_list = 729,
-        eCSSKeyword__moz_mac_source_list_selection = 730,
-        eCSSKeyword__moz_mac_active_source_list_selection = 731,
-        eCSSKeyword_alphabetic = 732,
-        eCSSKeyword_bevel = 733,
-        eCSSKeyword_butt = 734,
-        eCSSKeyword_central = 735,
-        eCSSKeyword_crispedges = 736,
-        eCSSKeyword_evenodd = 737,
-        eCSSKeyword_geometricprecision = 738,
-        eCSSKeyword_hanging = 739,
-        eCSSKeyword_ideographic = 740,
-        eCSSKeyword_linearrgb = 741,
-        eCSSKeyword_mathematical = 742,
-        eCSSKeyword_miter = 743,
-        eCSSKeyword_no_change = 744,
-        eCSSKeyword_non_scaling_stroke = 745,
-        eCSSKeyword_nonzero = 746,
-        eCSSKeyword_optimizelegibility = 747,
-        eCSSKeyword_optimizequality = 748,
-        eCSSKeyword_optimizespeed = 749,
-        eCSSKeyword_reset_size = 750,
-        eCSSKeyword_srgb = 751,
-        eCSSKeyword_symbolic = 752,
-        eCSSKeyword_symbols = 753,
-        eCSSKeyword_text_after_edge = 754,
-        eCSSKeyword_text_before_edge = 755,
-        eCSSKeyword_use_script = 756,
-        eCSSKeyword__moz_crisp_edges = 757,
-        eCSSKeyword_space = 758,
-        eCSSKeyword_COUNT = 759,
+        eCSSKeyword_ignore_horizontal = 277,
+        eCSSKeyword_ignore_vertical = 278,
+        eCSSKeyword_in = 279,
+        eCSSKeyword_interlace = 280,
+        eCSSKeyword_inactive = 281,
+        eCSSKeyword_inactiveborder = 282,
+        eCSSKeyword_inactivecaption = 283,
+        eCSSKeyword_inactivecaptiontext = 284,
+        eCSSKeyword_infinite = 285,
+        eCSSKeyword_infobackground = 286,
+        eCSSKeyword_infotext = 287,
+        eCSSKeyword_inherit = 288,
+        eCSSKeyword_initial = 289,
+        eCSSKeyword_inline = 290,
+        eCSSKeyword_inline_axis = 291,
+        eCSSKeyword_inline_block = 292,
+        eCSSKeyword_inline_end = 293,
+        eCSSKeyword_inline_flex = 294,
+        eCSSKeyword_inline_grid = 295,
+        eCSSKeyword_inline_start = 296,
+        eCSSKeyword_inline_table = 297,
+        eCSSKeyword_inset = 298,
+        eCSSKeyword_inside = 299,
+        eCSSKeyword_inter_character = 300,
+        eCSSKeyword_inter_word = 301,
+        eCSSKeyword_interpolatematrix = 302,
+        eCSSKeyword_accumulatematrix = 303,
+        eCSSKeyword_intersect = 304,
+        eCSSKeyword_isolate = 305,
+        eCSSKeyword_isolate_override = 306,
+        eCSSKeyword_invert = 307,
+        eCSSKeyword_italic = 308,
+        eCSSKeyword_japanese_formal = 309,
+        eCSSKeyword_japanese_informal = 310,
+        eCSSKeyword_jis78 = 311,
+        eCSSKeyword_jis83 = 312,
+        eCSSKeyword_jis90 = 313,
+        eCSSKeyword_jis04 = 314,
+        eCSSKeyword_justify = 315,
+        eCSSKeyword_keep_all = 316,
+        eCSSKeyword_khz = 317,
+        eCSSKeyword_korean_hangul_formal = 318,
+        eCSSKeyword_korean_hanja_formal = 319,
+        eCSSKeyword_korean_hanja_informal = 320,
+        eCSSKeyword_landscape = 321,
+        eCSSKeyword_large = 322,
+        eCSSKeyword_larger = 323,
+        eCSSKeyword_last = 324,
+        eCSSKeyword_last_baseline = 325,
+        eCSSKeyword_layout = 326,
+        eCSSKeyword_left = 327,
+        eCSSKeyword_legacy = 328,
+        eCSSKeyword_lighten = 329,
+        eCSSKeyword_lighter = 330,
+        eCSSKeyword_line_through = 331,
+        eCSSKeyword_linear = 332,
+        eCSSKeyword_lining_nums = 333,
+        eCSSKeyword_list_item = 334,
+        eCSSKeyword_local = 335,
+        eCSSKeyword_logical = 336,
+        eCSSKeyword_looped = 337,
+        eCSSKeyword_lowercase = 338,
+        eCSSKeyword_lr = 339,
+        eCSSKeyword_lr_tb = 340,
+        eCSSKeyword_ltr = 341,
+        eCSSKeyword_luminance = 342,
+        eCSSKeyword_luminosity = 343,
+        eCSSKeyword_mandatory = 344,
+        eCSSKeyword_manipulation = 345,
+        eCSSKeyword_manual = 346,
+        eCSSKeyword_margin_box = 347,
+        eCSSKeyword_markers = 348,
+        eCSSKeyword_match_parent = 349,
+        eCSSKeyword_match_source = 350,
+        eCSSKeyword_matrix = 351,
+        eCSSKeyword_matrix3d = 352,
+        eCSSKeyword_max_content = 353,
+        eCSSKeyword_medium = 354,
+        eCSSKeyword_menu = 355,
+        eCSSKeyword_menutext = 356,
+        eCSSKeyword_message_box = 357,
+        eCSSKeyword_middle = 358,
+        eCSSKeyword_min_content = 359,
+        eCSSKeyword_minmax = 360,
+        eCSSKeyword_mix = 361,
+        eCSSKeyword_mixed = 362,
+        eCSSKeyword_mm = 363,
+        eCSSKeyword_monospace = 364,
+        eCSSKeyword_move = 365,
+        eCSSKeyword_ms = 366,
+        eCSSKeyword_multiply = 367,
+        eCSSKeyword_n_resize = 368,
+        eCSSKeyword_narrower = 369,
+        eCSSKeyword_ne_resize = 370,
+        eCSSKeyword_nesw_resize = 371,
+        eCSSKeyword_no_clip = 372,
+        eCSSKeyword_no_close_quote = 373,
+        eCSSKeyword_no_common_ligatures = 374,
+        eCSSKeyword_no_contextual = 375,
+        eCSSKeyword_no_discretionary_ligatures = 376,
+        eCSSKeyword_no_drag = 377,
+        eCSSKeyword_no_drop = 378,
+        eCSSKeyword_no_historical_ligatures = 379,
+        eCSSKeyword_no_open_quote = 380,
+        eCSSKeyword_no_repeat = 381,
+        eCSSKeyword_none = 382,
+        eCSSKeyword_normal = 383,
+        eCSSKeyword_not_allowed = 384,
+        eCSSKeyword_nowrap = 385,
+        eCSSKeyword_numeric = 386,
+        eCSSKeyword_ns_resize = 387,
+        eCSSKeyword_nw_resize = 388,
+        eCSSKeyword_nwse_resize = 389,
+        eCSSKeyword_oblique = 390,
+        eCSSKeyword_oldstyle_nums = 391,
+        eCSSKeyword_opacity = 392,
+        eCSSKeyword_open = 393,
+        eCSSKeyword_open_quote = 394,
+        eCSSKeyword_optional = 395,
+        eCSSKeyword_ordinal = 396,
+        eCSSKeyword_ornaments = 397,
+        eCSSKeyword_outset = 398,
+        eCSSKeyword_outside = 399,
+        eCSSKeyword_over = 400,
+        eCSSKeyword_overlay = 401,
+        eCSSKeyword_overline = 402,
+        eCSSKeyword_paint = 403,
+        eCSSKeyword_padding_box = 404,
+        eCSSKeyword_painted = 405,
+        eCSSKeyword_pan_x = 406,
+        eCSSKeyword_pan_y = 407,
+        eCSSKeyword_paused = 408,
+        eCSSKeyword_pc = 409,
+        eCSSKeyword_perspective = 410,
+        eCSSKeyword_petite_caps = 411,
+        eCSSKeyword_physical = 412,
+        eCSSKeyword_plaintext = 413,
+        eCSSKeyword_pointer = 414,
+        eCSSKeyword_polygon = 415,
+        eCSSKeyword_portrait = 416,
+        eCSSKeyword_pre = 417,
+        eCSSKeyword_pre_wrap = 418,
+        eCSSKeyword_pre_line = 419,
+        eCSSKeyword_preserve_3d = 420,
+        eCSSKeyword_progress = 421,
+        eCSSKeyword_progressive = 422,
+        eCSSKeyword_proportional_nums = 423,
+        eCSSKeyword_proportional_width = 424,
+        eCSSKeyword_proximity = 425,
+        eCSSKeyword_pt = 426,
+        eCSSKeyword_px = 427,
+        eCSSKeyword_rad = 428,
+        eCSSKeyword_read_only = 429,
+        eCSSKeyword_read_write = 430,
+        eCSSKeyword_relative = 431,
+        eCSSKeyword_repeat = 432,
+        eCSSKeyword_repeat_x = 433,
+        eCSSKeyword_repeat_y = 434,
+        eCSSKeyword_reverse = 435,
+        eCSSKeyword_ridge = 436,
+        eCSSKeyword_right = 437,
+        eCSSKeyword_rl = 438,
+        eCSSKeyword_rl_tb = 439,
+        eCSSKeyword_rotate = 440,
+        eCSSKeyword_rotate3d = 441,
+        eCSSKeyword_rotatex = 442,
+        eCSSKeyword_rotatey = 443,
+        eCSSKeyword_rotatez = 444,
+        eCSSKeyword_round = 445,
+        eCSSKeyword_row = 446,
+        eCSSKeyword_row_resize = 447,
+        eCSSKeyword_row_reverse = 448,
+        eCSSKeyword_rtl = 449,
+        eCSSKeyword_ruby = 450,
+        eCSSKeyword_ruby_base = 451,
+        eCSSKeyword_ruby_base_container = 452,
+        eCSSKeyword_ruby_text = 453,
+        eCSSKeyword_ruby_text_container = 454,
+        eCSSKeyword_running = 455,
+        eCSSKeyword_s = 456,
+        eCSSKeyword_s_resize = 457,
+        eCSSKeyword_safe = 458,
+        eCSSKeyword_saturate = 459,
+        eCSSKeyword_saturation = 460,
+        eCSSKeyword_scale = 461,
+        eCSSKeyword_scale_down = 462,
+        eCSSKeyword_scale3d = 463,
+        eCSSKeyword_scalex = 464,
+        eCSSKeyword_scaley = 465,
+        eCSSKeyword_scalez = 466,
+        eCSSKeyword_screen = 467,
+        eCSSKeyword_script = 468,
+        eCSSKeyword_scroll = 469,
+        eCSSKeyword_scrollbar = 470,
+        eCSSKeyword_scrollbar_small = 471,
+        eCSSKeyword_scrollbar_horizontal = 472,
+        eCSSKeyword_scrollbar_vertical = 473,
+        eCSSKeyword_se_resize = 474,
+        eCSSKeyword_select_after = 475,
+        eCSSKeyword_select_all = 476,
+        eCSSKeyword_select_before = 477,
+        eCSSKeyword_select_menu = 478,
+        eCSSKeyword_select_same = 479,
+        eCSSKeyword_self_end = 480,
+        eCSSKeyword_self_start = 481,
+        eCSSKeyword_semi_condensed = 482,
+        eCSSKeyword_semi_expanded = 483,
+        eCSSKeyword_separate = 484,
+        eCSSKeyword_sepia = 485,
+        eCSSKeyword_serif = 486,
+        eCSSKeyword_sesame = 487,
+        eCSSKeyword_show = 488,
+        eCSSKeyword_sideways = 489,
+        eCSSKeyword_sideways_lr = 490,
+        eCSSKeyword_sideways_right = 491,
+        eCSSKeyword_sideways_rl = 492,
+        eCSSKeyword_simp_chinese_formal = 493,
+        eCSSKeyword_simp_chinese_informal = 494,
+        eCSSKeyword_simplified = 495,
+        eCSSKeyword_skew = 496,
+        eCSSKeyword_skewx = 497,
+        eCSSKeyword_skewy = 498,
+        eCSSKeyword_slashed_zero = 499,
+        eCSSKeyword_slice = 500,
+        eCSSKeyword_small = 501,
+        eCSSKeyword_small_caps = 502,
+        eCSSKeyword_small_caption = 503,
+        eCSSKeyword_smaller = 504,
+        eCSSKeyword_smooth = 505,
+        eCSSKeyword_soft = 506,
+        eCSSKeyword_soft_light = 507,
+        eCSSKeyword_solid = 508,
+        eCSSKeyword_space_around = 509,
+        eCSSKeyword_space_between = 510,
+        eCSSKeyword_space_evenly = 511,
+        eCSSKeyword_span = 512,
+        eCSSKeyword_spell_out = 513,
+        eCSSKeyword_square = 514,
+        eCSSKeyword_stacked_fractions = 515,
+        eCSSKeyword_start = 516,
+        eCSSKeyword_static = 517,
+        eCSSKeyword_standalone = 518,
+        eCSSKeyword_status_bar = 519,
+        eCSSKeyword_step_end = 520,
+        eCSSKeyword_step_start = 521,
+        eCSSKeyword_sticky = 522,
+        eCSSKeyword_stretch = 523,
+        eCSSKeyword_stretch_to_fit = 524,
+        eCSSKeyword_stretched = 525,
+        eCSSKeyword_strict = 526,
+        eCSSKeyword_stroke = 527,
+        eCSSKeyword_stroke_box = 528,
+        eCSSKeyword_style = 529,
+        eCSSKeyword_styleset = 530,
+        eCSSKeyword_stylistic = 531,
+        eCSSKeyword_sub = 532,
+        eCSSKeyword_subgrid = 533,
+        eCSSKeyword_subtract = 534,
+        eCSSKeyword_super = 535,
+        eCSSKeyword_sw_resize = 536,
+        eCSSKeyword_swash = 537,
+        eCSSKeyword_swap = 538,
+        eCSSKeyword_table = 539,
+        eCSSKeyword_table_caption = 540,
+        eCSSKeyword_table_cell = 541,
+        eCSSKeyword_table_column = 542,
+        eCSSKeyword_table_column_group = 543,
+        eCSSKeyword_table_footer_group = 544,
+        eCSSKeyword_table_header_group = 545,
+        eCSSKeyword_table_row = 546,
+        eCSSKeyword_table_row_group = 547,
+        eCSSKeyword_tabular_nums = 548,
+        eCSSKeyword_tailed = 549,
+        eCSSKeyword_tb = 550,
+        eCSSKeyword_tb_rl = 551,
+        eCSSKeyword_text = 552,
+        eCSSKeyword_text_bottom = 553,
+        eCSSKeyword_text_top = 554,
+        eCSSKeyword_thick = 555,
+        eCSSKeyword_thin = 556,
+        eCSSKeyword_threeddarkshadow = 557,
+        eCSSKeyword_threedface = 558,
+        eCSSKeyword_threedhighlight = 559,
+        eCSSKeyword_threedlightshadow = 560,
+        eCSSKeyword_threedshadow = 561,
+        eCSSKeyword_titling_caps = 562,
+        eCSSKeyword_toggle = 563,
+        eCSSKeyword_top = 564,
+        eCSSKeyword_top_outside = 565,
+        eCSSKeyword_trad_chinese_formal = 566,
+        eCSSKeyword_trad_chinese_informal = 567,
+        eCSSKeyword_traditional = 568,
+        eCSSKeyword_translate = 569,
+        eCSSKeyword_translate3d = 570,
+        eCSSKeyword_translatex = 571,
+        eCSSKeyword_translatey = 572,
+        eCSSKeyword_translatez = 573,
+        eCSSKeyword_transparent = 574,
+        eCSSKeyword_triangle = 575,
+        eCSSKeyword_tri_state = 576,
+        eCSSKeyword_ultra_condensed = 577,
+        eCSSKeyword_ultra_expanded = 578,
+        eCSSKeyword_under = 579,
+        eCSSKeyword_underline = 580,
+        eCSSKeyword_unicase = 581,
+        eCSSKeyword_unsafe = 582,
+        eCSSKeyword_unset = 583,
+        eCSSKeyword_uppercase = 584,
+        eCSSKeyword_upright = 585,
+        eCSSKeyword_vertical = 586,
+        eCSSKeyword_vertical_lr = 587,
+        eCSSKeyword_vertical_rl = 588,
+        eCSSKeyword_vertical_text = 589,
+        eCSSKeyword_view_box = 590,
+        eCSSKeyword_visible = 591,
+        eCSSKeyword_visiblefill = 592,
+        eCSSKeyword_visiblepainted = 593,
+        eCSSKeyword_visiblestroke = 594,
+        eCSSKeyword_w_resize = 595,
+        eCSSKeyword_wait = 596,
+        eCSSKeyword_wavy = 597,
+        eCSSKeyword_weight = 598,
+        eCSSKeyword_wider = 599,
+        eCSSKeyword_window = 600,
+        eCSSKeyword_windowframe = 601,
+        eCSSKeyword_windowtext = 602,
+        eCSSKeyword_words = 603,
+        eCSSKeyword_wrap = 604,
+        eCSSKeyword_wrap_reverse = 605,
+        eCSSKeyword_write_only = 606,
+        eCSSKeyword_x_large = 607,
+        eCSSKeyword_x_small = 608,
+        eCSSKeyword_xx_large = 609,
+        eCSSKeyword_xx_small = 610,
+        eCSSKeyword_zoom_in = 611,
+        eCSSKeyword_zoom_out = 612,
+        eCSSKeyword_radio = 613,
+        eCSSKeyword_checkbox = 614,
+        eCSSKeyword_button_bevel = 615,
+        eCSSKeyword_toolbox = 616,
+        eCSSKeyword_toolbar = 617,
+        eCSSKeyword_toolbarbutton = 618,
+        eCSSKeyword_toolbargripper = 619,
+        eCSSKeyword_dualbutton = 620,
+        eCSSKeyword_toolbarbutton_dropdown = 621,
+        eCSSKeyword_button_arrow_up = 622,
+        eCSSKeyword_button_arrow_down = 623,
+        eCSSKeyword_button_arrow_next = 624,
+        eCSSKeyword_button_arrow_previous = 625,
+        eCSSKeyword_separator = 626,
+        eCSSKeyword_splitter = 627,
+        eCSSKeyword_statusbar = 628,
+        eCSSKeyword_statusbarpanel = 629,
+        eCSSKeyword_resizerpanel = 630,
+        eCSSKeyword_resizer = 631,
+        eCSSKeyword_listbox = 632,
+        eCSSKeyword_listitem = 633,
+        eCSSKeyword_numbers = 634,
+        eCSSKeyword_number_input = 635,
+        eCSSKeyword_treeview = 636,
+        eCSSKeyword_treeitem = 637,
+        eCSSKeyword_treetwisty = 638,
+        eCSSKeyword_treetwistyopen = 639,
+        eCSSKeyword_treeline = 640,
+        eCSSKeyword_treeheader = 641,
+        eCSSKeyword_treeheadercell = 642,
+        eCSSKeyword_treeheadersortarrow = 643,
+        eCSSKeyword_progressbar = 644,
+        eCSSKeyword_progressbar_vertical = 645,
+        eCSSKeyword_progresschunk = 646,
+        eCSSKeyword_progresschunk_vertical = 647,
+        eCSSKeyword_tab = 648,
+        eCSSKeyword_tabpanels = 649,
+        eCSSKeyword_tabpanel = 650,
+        eCSSKeyword_tab_scroll_arrow_back = 651,
+        eCSSKeyword_tab_scroll_arrow_forward = 652,
+        eCSSKeyword_tooltip = 653,
+        eCSSKeyword_spinner = 654,
+        eCSSKeyword_spinner_upbutton = 655,
+        eCSSKeyword_spinner_downbutton = 656,
+        eCSSKeyword_spinner_textfield = 657,
+        eCSSKeyword_scrollbarbutton_up = 658,
+        eCSSKeyword_scrollbarbutton_down = 659,
+        eCSSKeyword_scrollbarbutton_left = 660,
+        eCSSKeyword_scrollbarbutton_right = 661,
+        eCSSKeyword_scrollbartrack_horizontal = 662,
+        eCSSKeyword_scrollbartrack_vertical = 663,
+        eCSSKeyword_scrollbarthumb_horizontal = 664,
+        eCSSKeyword_scrollbarthumb_vertical = 665,
+        eCSSKeyword_sheet = 666,
+        eCSSKeyword_textfield = 667,
+        eCSSKeyword_textfield_multiline = 668,
+        eCSSKeyword_caret = 669,
+        eCSSKeyword_searchfield = 670,
+        eCSSKeyword_menubar = 671,
+        eCSSKeyword_menupopup = 672,
+        eCSSKeyword_menuitem = 673,
+        eCSSKeyword_checkmenuitem = 674,
+        eCSSKeyword_radiomenuitem = 675,
+        eCSSKeyword_menucheckbox = 676,
+        eCSSKeyword_menuradio = 677,
+        eCSSKeyword_menuseparator = 678,
+        eCSSKeyword_menuarrow = 679,
+        eCSSKeyword_menuimage = 680,
+        eCSSKeyword_menuitemtext = 681,
+        eCSSKeyword_menulist = 682,
+        eCSSKeyword_menulist_button = 683,
+        eCSSKeyword_menulist_text = 684,
+        eCSSKeyword_menulist_textfield = 685,
+        eCSSKeyword_meterbar = 686,
+        eCSSKeyword_meterchunk = 687,
+        eCSSKeyword_minimal_ui = 688,
+        eCSSKeyword_range = 689,
+        eCSSKeyword_range_thumb = 690,
+        eCSSKeyword_sans_serif = 691,
+        eCSSKeyword_sans_serif_bold_italic = 692,
+        eCSSKeyword_sans_serif_italic = 693,
+        eCSSKeyword_scale_horizontal = 694,
+        eCSSKeyword_scale_vertical = 695,
+        eCSSKeyword_scalethumb_horizontal = 696,
+        eCSSKeyword_scalethumb_vertical = 697,
+        eCSSKeyword_scalethumbstart = 698,
+        eCSSKeyword_scalethumbend = 699,
+        eCSSKeyword_scalethumbtick = 700,
+        eCSSKeyword_groupbox = 701,
+        eCSSKeyword_checkbox_container = 702,
+        eCSSKeyword_radio_container = 703,
+        eCSSKeyword_checkbox_label = 704,
+        eCSSKeyword_radio_label = 705,
+        eCSSKeyword_button_focus = 706,
+        eCSSKeyword__moz_win_media_toolbox = 707,
+        eCSSKeyword__moz_win_communications_toolbox = 708,
+        eCSSKeyword__moz_win_browsertabbar_toolbox = 709,
+        eCSSKeyword__moz_win_mediatext = 710,
+        eCSSKeyword__moz_win_communicationstext = 711,
+        eCSSKeyword__moz_win_glass = 712,
+        eCSSKeyword__moz_win_borderless_glass = 713,
+        eCSSKeyword__moz_window_titlebar = 714,
+        eCSSKeyword__moz_window_titlebar_maximized = 715,
+        eCSSKeyword__moz_window_frame_left = 716,
+        eCSSKeyword__moz_window_frame_right = 717,
+        eCSSKeyword__moz_window_frame_bottom = 718,
+        eCSSKeyword__moz_window_button_close = 719,
+        eCSSKeyword__moz_window_button_minimize = 720,
+        eCSSKeyword__moz_window_button_maximize = 721,
+        eCSSKeyword__moz_window_button_restore = 722,
+        eCSSKeyword__moz_window_button_box = 723,
+        eCSSKeyword__moz_window_button_box_maximized = 724,
+        eCSSKeyword__moz_mac_help_button = 725,
+        eCSSKeyword__moz_win_exclude_glass = 726,
+        eCSSKeyword__moz_mac_vibrancy_light = 727,
+        eCSSKeyword__moz_mac_vibrancy_dark = 728,
+        eCSSKeyword__moz_mac_disclosure_button_closed = 729,
+        eCSSKeyword__moz_mac_disclosure_button_open = 730,
+        eCSSKeyword__moz_mac_source_list = 731,
+        eCSSKeyword__moz_mac_source_list_selection = 732,
+        eCSSKeyword__moz_mac_active_source_list_selection = 733,
+        eCSSKeyword_alphabetic = 734,
+        eCSSKeyword_bevel = 735,
+        eCSSKeyword_butt = 736,
+        eCSSKeyword_central = 737,
+        eCSSKeyword_crispedges = 738,
+        eCSSKeyword_evenodd = 739,
+        eCSSKeyword_geometricprecision = 740,
+        eCSSKeyword_hanging = 741,
+        eCSSKeyword_ideographic = 742,
+        eCSSKeyword_linearrgb = 743,
+        eCSSKeyword_mathematical = 744,
+        eCSSKeyword_miter = 745,
+        eCSSKeyword_no_change = 746,
+        eCSSKeyword_non_scaling_stroke = 747,
+        eCSSKeyword_nonzero = 748,
+        eCSSKeyword_optimizelegibility = 749,
+        eCSSKeyword_optimizequality = 750,
+        eCSSKeyword_optimizespeed = 751,
+        eCSSKeyword_reset_size = 752,
+        eCSSKeyword_srgb = 753,
+        eCSSKeyword_symbolic = 754,
+        eCSSKeyword_symbols = 755,
+        eCSSKeyword_text_after_edge = 756,
+        eCSSKeyword_text_before_edge = 757,
+        eCSSKeyword_use_script = 758,
+        eCSSKeyword__moz_crisp_edges = 759,
+        eCSSKeyword_space = 760,
+        eCSSKeyword_COUNT = 761,
     }
     pub const nsCSSPropertyID_eCSSProperty_COUNT_no_shorthands:
               root::nsCSSPropertyID =
@@ -23948,477 +26063,475 @@ pub mod root {
         eCSSProperty_animation_play_state = 9,
         eCSSProperty_animation_timing_function = 10,
         eCSSProperty__moz_appearance = 11,
-        eCSSProperty_appearance = 12,
-        eCSSProperty_backface_visibility = 13,
-        eCSSProperty_background_attachment = 14,
-        eCSSProperty_background_blend_mode = 15,
-        eCSSProperty_background_clip = 16,
-        eCSSProperty_background_color = 17,
-        eCSSProperty_background_image = 18,
-        eCSSProperty_background_origin = 19,
-        eCSSProperty_background_position_x = 20,
-        eCSSProperty_background_position_y = 21,
-        eCSSProperty_background_repeat = 22,
-        eCSSProperty_background_size = 23,
-        eCSSProperty__moz_binding = 24,
-        eCSSProperty_block_size = 25,
-        eCSSProperty_border_block_end_color = 26,
-        eCSSProperty_border_block_end_style = 27,
-        eCSSProperty_border_block_end_width = 28,
-        eCSSProperty_border_block_start_color = 29,
-        eCSSProperty_border_block_start_style = 30,
-        eCSSProperty_border_block_start_width = 31,
-        eCSSProperty_border_bottom_color = 32,
-        eCSSProperty__moz_border_bottom_colors = 33,
-        eCSSProperty_border_bottom_left_radius = 34,
-        eCSSProperty_border_bottom_right_radius = 35,
-        eCSSProperty_border_bottom_style = 36,
-        eCSSProperty_border_bottom_width = 37,
-        eCSSProperty_border_collapse = 38,
-        eCSSProperty_border_image_outset = 39,
-        eCSSProperty_border_image_repeat = 40,
-        eCSSProperty_border_image_slice = 41,
-        eCSSProperty_border_image_source = 42,
-        eCSSProperty_border_image_width = 43,
-        eCSSProperty_border_inline_end_color = 44,
-        eCSSProperty_border_inline_end_style = 45,
-        eCSSProperty_border_inline_end_width = 46,
-        eCSSProperty_border_inline_start_color = 47,
-        eCSSProperty_border_inline_start_style = 48,
-        eCSSProperty_border_inline_start_width = 49,
-        eCSSProperty_border_left_color = 50,
-        eCSSProperty__moz_border_left_colors = 51,
-        eCSSProperty_border_left_style = 52,
-        eCSSProperty_border_left_width = 53,
-        eCSSProperty_border_right_color = 54,
-        eCSSProperty__moz_border_right_colors = 55,
-        eCSSProperty_border_right_style = 56,
-        eCSSProperty_border_right_width = 57,
-        eCSSProperty_border_spacing = 58,
-        eCSSProperty_border_top_color = 59,
-        eCSSProperty__moz_border_top_colors = 60,
-        eCSSProperty_border_top_left_radius = 61,
-        eCSSProperty_border_top_right_radius = 62,
-        eCSSProperty_border_top_style = 63,
-        eCSSProperty_border_top_width = 64,
-        eCSSProperty_bottom = 65,
-        eCSSProperty__moz_box_align = 66,
-        eCSSProperty_box_decoration_break = 67,
-        eCSSProperty__moz_box_direction = 68,
-        eCSSProperty__moz_box_flex = 69,
-        eCSSProperty__moz_box_ordinal_group = 70,
-        eCSSProperty__moz_box_orient = 71,
-        eCSSProperty__moz_box_pack = 72,
-        eCSSProperty_box_shadow = 73,
-        eCSSProperty_box_sizing = 74,
-        eCSSProperty_caption_side = 75,
-        eCSSProperty_caret_color = 76,
-        eCSSProperty_clear = 77,
-        eCSSProperty_clip = 78,
-        eCSSProperty_clip_path = 79,
-        eCSSProperty_clip_rule = 80,
-        eCSSProperty_color = 81,
-        eCSSProperty_color_adjust = 82,
-        eCSSProperty_color_interpolation = 83,
-        eCSSProperty_color_interpolation_filters = 84,
-        eCSSProperty_column_count = 85,
-        eCSSProperty_column_fill = 86,
-        eCSSProperty_column_gap = 87,
-        eCSSProperty_column_rule_color = 88,
-        eCSSProperty_column_rule_style = 89,
-        eCSSProperty_column_rule_width = 90,
-        eCSSProperty_column_span = 91,
-        eCSSProperty_column_width = 92,
-        eCSSProperty_contain = 93,
-        eCSSProperty_content = 94,
-        eCSSProperty__moz_context_properties = 95,
-        eCSSProperty__moz_control_character_visibility = 96,
-        eCSSProperty_counter_increment = 97,
-        eCSSProperty_counter_reset = 98,
-        eCSSProperty_cursor = 99,
-        eCSSProperty_direction = 100,
-        eCSSProperty_display = 101,
-        eCSSProperty_dominant_baseline = 102,
-        eCSSProperty_empty_cells = 103,
-        eCSSProperty_fill = 104,
-        eCSSProperty_fill_opacity = 105,
-        eCSSProperty_fill_rule = 106,
-        eCSSProperty_filter = 107,
-        eCSSProperty_flex_basis = 108,
-        eCSSProperty_flex_direction = 109,
-        eCSSProperty_flex_grow = 110,
-        eCSSProperty_flex_shrink = 111,
-        eCSSProperty_flex_wrap = 112,
-        eCSSProperty_float_ = 113,
-        eCSSProperty__moz_float_edge = 114,
-        eCSSProperty_flood_color = 115,
-        eCSSProperty_flood_opacity = 116,
-        eCSSProperty_font_family = 117,
-        eCSSProperty_font_feature_settings = 118,
-        eCSSProperty_font_kerning = 119,
-        eCSSProperty_font_language_override = 120,
-        eCSSProperty_font_size = 121,
-        eCSSProperty_font_size_adjust = 122,
-        eCSSProperty_font_stretch = 123,
-        eCSSProperty_font_style = 124,
-        eCSSProperty_font_synthesis = 125,
-        eCSSProperty_font_variant_alternates = 126,
-        eCSSProperty_font_variant_caps = 127,
-        eCSSProperty_font_variant_east_asian = 128,
-        eCSSProperty_font_variant_ligatures = 129,
-        eCSSProperty_font_variant_numeric = 130,
-        eCSSProperty_font_variant_position = 131,
-        eCSSProperty_font_variation_settings = 132,
-        eCSSProperty_font_weight = 133,
-        eCSSProperty__moz_force_broken_image_icon = 134,
-        eCSSProperty_grid_auto_columns = 135,
-        eCSSProperty_grid_auto_flow = 136,
-        eCSSProperty_grid_auto_rows = 137,
-        eCSSProperty_grid_column_end = 138,
-        eCSSProperty_grid_column_gap = 139,
-        eCSSProperty_grid_column_start = 140,
-        eCSSProperty_grid_row_end = 141,
-        eCSSProperty_grid_row_gap = 142,
-        eCSSProperty_grid_row_start = 143,
-        eCSSProperty_grid_template_areas = 144,
-        eCSSProperty_grid_template_columns = 145,
-        eCSSProperty_grid_template_rows = 146,
-        eCSSProperty_height = 147,
-        eCSSProperty_hyphens = 148,
-        eCSSProperty_initial_letter = 149,
-        eCSSProperty_image_orientation = 150,
-        eCSSProperty__moz_image_region = 151,
-        eCSSProperty_image_rendering = 152,
-        eCSSProperty_ime_mode = 153,
-        eCSSProperty_inline_size = 154,
-        eCSSProperty_isolation = 155,
-        eCSSProperty_justify_content = 156,
-        eCSSProperty_justify_items = 157,
-        eCSSProperty_justify_self = 158,
-        eCSSProperty__x_lang = 159,
-        eCSSProperty_left = 160,
-        eCSSProperty_letter_spacing = 161,
-        eCSSProperty_lighting_color = 162,
-        eCSSProperty_line_height = 163,
-        eCSSProperty_list_style_image = 164,
-        eCSSProperty_list_style_position = 165,
-        eCSSProperty_list_style_type = 166,
-        eCSSProperty_margin_block_end = 167,
-        eCSSProperty_margin_block_start = 168,
-        eCSSProperty_margin_bottom = 169,
-        eCSSProperty_margin_inline_end = 170,
-        eCSSProperty_margin_inline_start = 171,
-        eCSSProperty_margin_left = 172,
-        eCSSProperty_margin_right = 173,
-        eCSSProperty_margin_top = 174,
-        eCSSProperty_marker_end = 175,
-        eCSSProperty_marker_mid = 176,
-        eCSSProperty_marker_start = 177,
-        eCSSProperty_mask_clip = 178,
-        eCSSProperty_mask_composite = 179,
-        eCSSProperty_mask_image = 180,
-        eCSSProperty_mask_mode = 181,
-        eCSSProperty_mask_origin = 182,
-        eCSSProperty_mask_position_x = 183,
-        eCSSProperty_mask_position_y = 184,
-        eCSSProperty_mask_repeat = 185,
-        eCSSProperty_mask_size = 186,
-        eCSSProperty_mask_type = 187,
-        eCSSProperty__moz_math_display = 188,
-        eCSSProperty__moz_math_variant = 189,
-        eCSSProperty_max_block_size = 190,
-        eCSSProperty_max_height = 191,
-        eCSSProperty_max_inline_size = 192,
-        eCSSProperty_max_width = 193,
-        eCSSProperty_min_block_size = 194,
-        eCSSProperty__moz_min_font_size_ratio = 195,
-        eCSSProperty_min_height = 196,
-        eCSSProperty_min_inline_size = 197,
-        eCSSProperty_min_width = 198,
-        eCSSProperty_mix_blend_mode = 199,
-        eCSSProperty_object_fit = 200,
-        eCSSProperty_object_position = 201,
-        eCSSProperty_offset_block_end = 202,
-        eCSSProperty_offset_block_start = 203,
-        eCSSProperty_offset_inline_end = 204,
-        eCSSProperty_offset_inline_start = 205,
-        eCSSProperty_opacity = 206,
-        eCSSProperty_order = 207,
-        eCSSProperty__moz_orient = 208,
-        eCSSProperty__moz_osx_font_smoothing = 209,
-        eCSSProperty_outline_color = 210,
-        eCSSProperty_outline_offset = 211,
-        eCSSProperty__moz_outline_radius_bottomleft = 212,
-        eCSSProperty__moz_outline_radius_bottomright = 213,
-        eCSSProperty__moz_outline_radius_topleft = 214,
-        eCSSProperty__moz_outline_radius_topright = 215,
-        eCSSProperty_outline_style = 216,
-        eCSSProperty_outline_width = 217,
-        eCSSProperty_overflow_clip_box = 218,
-        eCSSProperty_overflow_x = 219,
-        eCSSProperty_overflow_y = 220,
-        eCSSProperty_padding_block_end = 221,
-        eCSSProperty_padding_block_start = 222,
-        eCSSProperty_padding_bottom = 223,
-        eCSSProperty_padding_inline_end = 224,
-        eCSSProperty_padding_inline_start = 225,
-        eCSSProperty_padding_left = 226,
-        eCSSProperty_padding_right = 227,
-        eCSSProperty_padding_top = 228,
-        eCSSProperty_page_break_after = 229,
-        eCSSProperty_page_break_before = 230,
-        eCSSProperty_page_break_inside = 231,
-        eCSSProperty_paint_order = 232,
-        eCSSProperty_perspective = 233,
-        eCSSProperty_perspective_origin = 234,
-        eCSSProperty_pointer_events = 235,
-        eCSSProperty_position = 236,
-        eCSSProperty_quotes = 237,
-        eCSSProperty_resize = 238,
-        eCSSProperty_right = 239,
-        eCSSProperty_ruby_align = 240,
-        eCSSProperty_ruby_position = 241,
-        eCSSProperty__moz_script_level = 242,
-        eCSSProperty__moz_script_min_size = 243,
-        eCSSProperty__moz_script_size_multiplier = 244,
-        eCSSProperty_scroll_behavior = 245,
-        eCSSProperty_scroll_snap_coordinate = 246,
-        eCSSProperty_scroll_snap_destination = 247,
-        eCSSProperty_scroll_snap_points_x = 248,
-        eCSSProperty_scroll_snap_points_y = 249,
-        eCSSProperty_scroll_snap_type_x = 250,
-        eCSSProperty_scroll_snap_type_y = 251,
-        eCSSProperty_shape_outside = 252,
-        eCSSProperty_shape_rendering = 253,
-        eCSSProperty__x_span = 254,
-        eCSSProperty__moz_stack_sizing = 255,
-        eCSSProperty_stop_color = 256,
-        eCSSProperty_stop_opacity = 257,
-        eCSSProperty_stroke = 258,
-        eCSSProperty_stroke_dasharray = 259,
-        eCSSProperty_stroke_dashoffset = 260,
-        eCSSProperty_stroke_linecap = 261,
-        eCSSProperty_stroke_linejoin = 262,
-        eCSSProperty_stroke_miterlimit = 263,
-        eCSSProperty_stroke_opacity = 264,
-        eCSSProperty_stroke_width = 265,
-        eCSSProperty__x_system_font = 266,
-        eCSSProperty__moz_tab_size = 267,
-        eCSSProperty_table_layout = 268,
-        eCSSProperty_text_align = 269,
-        eCSSProperty_text_align_last = 270,
-        eCSSProperty_text_anchor = 271,
-        eCSSProperty_text_combine_upright = 272,
-        eCSSProperty_text_decoration_color = 273,
-        eCSSProperty_text_decoration_line = 274,
-        eCSSProperty_text_decoration_style = 275,
-        eCSSProperty_text_emphasis_color = 276,
-        eCSSProperty_text_emphasis_position = 277,
-        eCSSProperty_text_emphasis_style = 278,
-        eCSSProperty__webkit_text_fill_color = 279,
-        eCSSProperty_text_indent = 280,
-        eCSSProperty_text_justify = 281,
-        eCSSProperty_text_orientation = 282,
-        eCSSProperty_text_overflow = 283,
-        eCSSProperty_text_rendering = 284,
-        eCSSProperty_text_shadow = 285,
-        eCSSProperty__moz_text_size_adjust = 286,
-        eCSSProperty__webkit_text_stroke_color = 287,
-        eCSSProperty__webkit_text_stroke_width = 288,
-        eCSSProperty_text_transform = 289,
-        eCSSProperty__x_text_zoom = 290,
-        eCSSProperty_top = 291,
-        eCSSProperty__moz_top_layer = 292,
-        eCSSProperty_touch_action = 293,
-        eCSSProperty_transform = 294,
-        eCSSProperty_transform_box = 295,
-        eCSSProperty_transform_origin = 296,
-        eCSSProperty_transform_style = 297,
-        eCSSProperty_transition_delay = 298,
-        eCSSProperty_transition_duration = 299,
-        eCSSProperty_transition_property = 300,
-        eCSSProperty_transition_timing_function = 301,
-        eCSSProperty_unicode_bidi = 302,
-        eCSSProperty__moz_user_focus = 303,
-        eCSSProperty__moz_user_input = 304,
-        eCSSProperty__moz_user_modify = 305,
-        eCSSProperty__moz_user_select = 306,
-        eCSSProperty_vector_effect = 307,
-        eCSSProperty_vertical_align = 308,
-        eCSSProperty_visibility = 309,
-        eCSSProperty_white_space = 310,
-        eCSSProperty_width = 311,
-        eCSSProperty_will_change = 312,
-        eCSSProperty__moz_window_dragging = 313,
-        eCSSProperty__moz_window_shadow = 314,
-        eCSSProperty_word_break = 315,
-        eCSSProperty_word_spacing = 316,
-        eCSSProperty_overflow_wrap = 317,
-        eCSSProperty_writing_mode = 318,
-        eCSSProperty_z_index = 319,
-        eCSSProperty_all = 320,
-        eCSSProperty_animation = 321,
-        eCSSProperty_background = 322,
-        eCSSProperty_background_position = 323,
-        eCSSProperty_border = 324,
-        eCSSProperty_border_block_end = 325,
-        eCSSProperty_border_block_start = 326,
-        eCSSProperty_border_bottom = 327,
-        eCSSProperty_border_color = 328,
-        eCSSProperty_border_image = 329,
-        eCSSProperty_border_inline_end = 330,
-        eCSSProperty_border_inline_start = 331,
-        eCSSProperty_border_left = 332,
-        eCSSProperty_border_radius = 333,
-        eCSSProperty_border_right = 334,
-        eCSSProperty_border_style = 335,
-        eCSSProperty_border_top = 336,
-        eCSSProperty_border_width = 337,
-        eCSSProperty_column_rule = 338,
-        eCSSProperty_columns = 339,
-        eCSSProperty_flex = 340,
-        eCSSProperty_flex_flow = 341,
-        eCSSProperty_font = 342,
-        eCSSProperty_font_variant = 343,
-        eCSSProperty_grid = 344,
-        eCSSProperty_grid_area = 345,
-        eCSSProperty_grid_column = 346,
-        eCSSProperty_grid_gap = 347,
-        eCSSProperty_grid_row = 348,
-        eCSSProperty_grid_template = 349,
-        eCSSProperty_list_style = 350,
-        eCSSProperty_margin = 351,
-        eCSSProperty_marker = 352,
-        eCSSProperty_mask = 353,
-        eCSSProperty_mask_position = 354,
-        eCSSProperty_outline = 355,
-        eCSSProperty__moz_outline_radius = 356,
-        eCSSProperty_overflow = 357,
-        eCSSProperty_padding = 358,
-        eCSSProperty_place_content = 359,
-        eCSSProperty_place_items = 360,
-        eCSSProperty_place_self = 361,
-        eCSSProperty_scroll_snap_type = 362,
-        eCSSProperty_text_decoration = 363,
-        eCSSProperty_text_emphasis = 364,
-        eCSSProperty__webkit_text_stroke = 365,
-        eCSSProperty__moz_transform = 366,
-        eCSSProperty_transition = 367,
-        eCSSPropertyAlias_WordWrap = 368,
-        eCSSPropertyAlias_MozTransformOrigin = 369,
-        eCSSPropertyAlias_MozPerspectiveOrigin = 370,
-        eCSSPropertyAlias_MozPerspective = 371,
-        eCSSPropertyAlias_MozTransformStyle = 372,
-        eCSSPropertyAlias_MozBackfaceVisibility = 373,
-        eCSSPropertyAlias_MozBorderImage = 374,
-        eCSSPropertyAlias_MozTransition = 375,
-        eCSSPropertyAlias_MozTransitionDelay = 376,
-        eCSSPropertyAlias_MozTransitionDuration = 377,
-        eCSSPropertyAlias_MozTransitionProperty = 378,
-        eCSSPropertyAlias_MozTransitionTimingFunction = 379,
-        eCSSPropertyAlias_MozAnimation = 380,
-        eCSSPropertyAlias_MozAnimationDelay = 381,
-        eCSSPropertyAlias_MozAnimationDirection = 382,
-        eCSSPropertyAlias_MozAnimationDuration = 383,
-        eCSSPropertyAlias_MozAnimationFillMode = 384,
-        eCSSPropertyAlias_MozAnimationIterationCount = 385,
-        eCSSPropertyAlias_MozAnimationName = 386,
-        eCSSPropertyAlias_MozAnimationPlayState = 387,
-        eCSSPropertyAlias_MozAnimationTimingFunction = 388,
-        eCSSPropertyAlias_MozBoxSizing = 389,
-        eCSSPropertyAlias_MozFontFeatureSettings = 390,
-        eCSSPropertyAlias_MozFontLanguageOverride = 391,
-        eCSSPropertyAlias_MozPaddingEnd = 392,
-        eCSSPropertyAlias_MozPaddingStart = 393,
-        eCSSPropertyAlias_MozMarginEnd = 394,
-        eCSSPropertyAlias_MozMarginStart = 395,
-        eCSSPropertyAlias_MozBorderEnd = 396,
-        eCSSPropertyAlias_MozBorderEndColor = 397,
-        eCSSPropertyAlias_MozBorderEndStyle = 398,
-        eCSSPropertyAlias_MozBorderEndWidth = 399,
-        eCSSPropertyAlias_MozBorderStart = 400,
-        eCSSPropertyAlias_MozBorderStartColor = 401,
-        eCSSPropertyAlias_MozBorderStartStyle = 402,
-        eCSSPropertyAlias_MozBorderStartWidth = 403,
-        eCSSPropertyAlias_MozHyphens = 404,
-        eCSSPropertyAlias_MozColumnCount = 405,
-        eCSSPropertyAlias_MozColumnFill = 406,
-        eCSSPropertyAlias_MozColumnGap = 407,
-        eCSSPropertyAlias_MozColumnRule = 408,
-        eCSSPropertyAlias_MozColumnRuleColor = 409,
-        eCSSPropertyAlias_MozColumnRuleStyle = 410,
-        eCSSPropertyAlias_MozColumnRuleWidth = 411,
-        eCSSPropertyAlias_MozColumnWidth = 412,
-        eCSSPropertyAlias_MozColumns = 413,
-        eCSSPropertyAlias_WebkitAnimation = 414,
-        eCSSPropertyAlias_WebkitAnimationDelay = 415,
-        eCSSPropertyAlias_WebkitAnimationDirection = 416,
-        eCSSPropertyAlias_WebkitAnimationDuration = 417,
-        eCSSPropertyAlias_WebkitAnimationFillMode = 418,
-        eCSSPropertyAlias_WebkitAnimationIterationCount = 419,
-        eCSSPropertyAlias_WebkitAnimationName = 420,
-        eCSSPropertyAlias_WebkitAnimationPlayState = 421,
-        eCSSPropertyAlias_WebkitAnimationTimingFunction = 422,
-        eCSSPropertyAlias_WebkitAppearance = 423,
-        eCSSPropertyAlias_WebkitFilter = 424,
-        eCSSPropertyAlias_WebkitTextSizeAdjust = 425,
-        eCSSPropertyAlias_WebkitTransform = 426,
-        eCSSPropertyAlias_WebkitTransformOrigin = 427,
-        eCSSPropertyAlias_WebkitTransformStyle = 428,
-        eCSSPropertyAlias_WebkitBackfaceVisibility = 429,
-        eCSSPropertyAlias_WebkitPerspective = 430,
-        eCSSPropertyAlias_WebkitPerspectiveOrigin = 431,
-        eCSSPropertyAlias_WebkitTransition = 432,
-        eCSSPropertyAlias_WebkitTransitionDelay = 433,
-        eCSSPropertyAlias_WebkitTransitionDuration = 434,
-        eCSSPropertyAlias_WebkitTransitionProperty = 435,
-        eCSSPropertyAlias_WebkitTransitionTimingFunction = 436,
-        eCSSPropertyAlias_WebkitBorderRadius = 437,
-        eCSSPropertyAlias_WebkitBorderTopLeftRadius = 438,
-        eCSSPropertyAlias_WebkitBorderTopRightRadius = 439,
-        eCSSPropertyAlias_WebkitBorderBottomLeftRadius = 440,
-        eCSSPropertyAlias_WebkitBorderBottomRightRadius = 441,
-        eCSSPropertyAlias_WebkitBackgroundClip = 442,
-        eCSSPropertyAlias_WebkitBackgroundOrigin = 443,
-        eCSSPropertyAlias_WebkitBackgroundSize = 444,
-        eCSSPropertyAlias_WebkitBorderImage = 445,
-        eCSSPropertyAlias_WebkitBoxShadow = 446,
-        eCSSPropertyAlias_WebkitBoxSizing = 447,
-        eCSSPropertyAlias_WebkitBoxFlex = 448,
-        eCSSPropertyAlias_WebkitBoxOrdinalGroup = 449,
-        eCSSPropertyAlias_WebkitBoxOrient = 450,
-        eCSSPropertyAlias_WebkitBoxDirection = 451,
-        eCSSPropertyAlias_WebkitBoxAlign = 452,
-        eCSSPropertyAlias_WebkitBoxPack = 453,
-        eCSSPropertyAlias_WebkitFlexDirection = 454,
-        eCSSPropertyAlias_WebkitFlexWrap = 455,
-        eCSSPropertyAlias_WebkitFlexFlow = 456,
-        eCSSPropertyAlias_WebkitOrder = 457,
-        eCSSPropertyAlias_WebkitFlex = 458,
-        eCSSPropertyAlias_WebkitFlexGrow = 459,
-        eCSSPropertyAlias_WebkitFlexShrink = 460,
-        eCSSPropertyAlias_WebkitFlexBasis = 461,
-        eCSSPropertyAlias_WebkitJustifyContent = 462,
-        eCSSPropertyAlias_WebkitAlignItems = 463,
-        eCSSPropertyAlias_WebkitAlignSelf = 464,
-        eCSSPropertyAlias_WebkitAlignContent = 465,
-        eCSSPropertyAlias_WebkitUserSelect = 466,
-        eCSSPropertyAlias_WebkitMask = 467,
-        eCSSPropertyAlias_WebkitMaskClip = 468,
-        eCSSPropertyAlias_WebkitMaskComposite = 469,
-        eCSSPropertyAlias_WebkitMaskImage = 470,
-        eCSSPropertyAlias_WebkitMaskOrigin = 471,
-        eCSSPropertyAlias_WebkitMaskPosition = 472,
-        eCSSPropertyAlias_WebkitMaskPositionX = 473,
-        eCSSPropertyAlias_WebkitMaskPositionY = 474,
-        eCSSPropertyAlias_WebkitMaskRepeat = 475,
-        eCSSPropertyAlias_WebkitMaskSize = 476,
-        eCSSPropertyExtra_no_properties = 477,
-        eCSSPropertyExtra_all_properties = 478,
-        eCSSPropertyExtra_x_none_value = 479,
-        eCSSPropertyExtra_x_auto_value = 480,
-        eCSSPropertyExtra_variable = 481,
-        eCSSProperty_DOM = 482,
+        eCSSProperty_backface_visibility = 12,
+        eCSSProperty_background_attachment = 13,
+        eCSSProperty_background_blend_mode = 14,
+        eCSSProperty_background_clip = 15,
+        eCSSProperty_background_color = 16,
+        eCSSProperty_background_image = 17,
+        eCSSProperty_background_origin = 18,
+        eCSSProperty_background_position_x = 19,
+        eCSSProperty_background_position_y = 20,
+        eCSSProperty_background_repeat = 21,
+        eCSSProperty_background_size = 22,
+        eCSSProperty__moz_binding = 23,
+        eCSSProperty_block_size = 24,
+        eCSSProperty_border_block_end_color = 25,
+        eCSSProperty_border_block_end_style = 26,
+        eCSSProperty_border_block_end_width = 27,
+        eCSSProperty_border_block_start_color = 28,
+        eCSSProperty_border_block_start_style = 29,
+        eCSSProperty_border_block_start_width = 30,
+        eCSSProperty_border_bottom_color = 31,
+        eCSSProperty__moz_border_bottom_colors = 32,
+        eCSSProperty_border_bottom_left_radius = 33,
+        eCSSProperty_border_bottom_right_radius = 34,
+        eCSSProperty_border_bottom_style = 35,
+        eCSSProperty_border_bottom_width = 36,
+        eCSSProperty_border_collapse = 37,
+        eCSSProperty_border_image_outset = 38,
+        eCSSProperty_border_image_repeat = 39,
+        eCSSProperty_border_image_slice = 40,
+        eCSSProperty_border_image_source = 41,
+        eCSSProperty_border_image_width = 42,
+        eCSSProperty_border_inline_end_color = 43,
+        eCSSProperty_border_inline_end_style = 44,
+        eCSSProperty_border_inline_end_width = 45,
+        eCSSProperty_border_inline_start_color = 46,
+        eCSSProperty_border_inline_start_style = 47,
+        eCSSProperty_border_inline_start_width = 48,
+        eCSSProperty_border_left_color = 49,
+        eCSSProperty__moz_border_left_colors = 50,
+        eCSSProperty_border_left_style = 51,
+        eCSSProperty_border_left_width = 52,
+        eCSSProperty_border_right_color = 53,
+        eCSSProperty__moz_border_right_colors = 54,
+        eCSSProperty_border_right_style = 55,
+        eCSSProperty_border_right_width = 56,
+        eCSSProperty_border_spacing = 57,
+        eCSSProperty_border_top_color = 58,
+        eCSSProperty__moz_border_top_colors = 59,
+        eCSSProperty_border_top_left_radius = 60,
+        eCSSProperty_border_top_right_radius = 61,
+        eCSSProperty_border_top_style = 62,
+        eCSSProperty_border_top_width = 63,
+        eCSSProperty_bottom = 64,
+        eCSSProperty__moz_box_align = 65,
+        eCSSProperty_box_decoration_break = 66,
+        eCSSProperty__moz_box_direction = 67,
+        eCSSProperty__moz_box_flex = 68,
+        eCSSProperty__moz_box_ordinal_group = 69,
+        eCSSProperty__moz_box_orient = 70,
+        eCSSProperty__moz_box_pack = 71,
+        eCSSProperty_box_shadow = 72,
+        eCSSProperty_box_sizing = 73,
+        eCSSProperty_caption_side = 74,
+        eCSSProperty_caret_color = 75,
+        eCSSProperty_clear = 76,
+        eCSSProperty_clip = 77,
+        eCSSProperty_clip_path = 78,
+        eCSSProperty_clip_rule = 79,
+        eCSSProperty_color = 80,
+        eCSSProperty_color_adjust = 81,
+        eCSSProperty_color_interpolation = 82,
+        eCSSProperty_color_interpolation_filters = 83,
+        eCSSProperty_column_count = 84,
+        eCSSProperty_column_fill = 85,
+        eCSSProperty_column_gap = 86,
+        eCSSProperty_column_rule_color = 87,
+        eCSSProperty_column_rule_style = 88,
+        eCSSProperty_column_rule_width = 89,
+        eCSSProperty_column_span = 90,
+        eCSSProperty_column_width = 91,
+        eCSSProperty_contain = 92,
+        eCSSProperty_content = 93,
+        eCSSProperty__moz_context_properties = 94,
+        eCSSProperty__moz_control_character_visibility = 95,
+        eCSSProperty_counter_increment = 96,
+        eCSSProperty_counter_reset = 97,
+        eCSSProperty_cursor = 98,
+        eCSSProperty_direction = 99,
+        eCSSProperty_display = 100,
+        eCSSProperty_dominant_baseline = 101,
+        eCSSProperty_empty_cells = 102,
+        eCSSProperty_fill = 103,
+        eCSSProperty_fill_opacity = 104,
+        eCSSProperty_fill_rule = 105,
+        eCSSProperty_filter = 106,
+        eCSSProperty_flex_basis = 107,
+        eCSSProperty_flex_direction = 108,
+        eCSSProperty_flex_grow = 109,
+        eCSSProperty_flex_shrink = 110,
+        eCSSProperty_flex_wrap = 111,
+        eCSSProperty_float_ = 112,
+        eCSSProperty__moz_float_edge = 113,
+        eCSSProperty_flood_color = 114,
+        eCSSProperty_flood_opacity = 115,
+        eCSSProperty_font_family = 116,
+        eCSSProperty_font_feature_settings = 117,
+        eCSSProperty_font_kerning = 118,
+        eCSSProperty_font_language_override = 119,
+        eCSSProperty_font_size = 120,
+        eCSSProperty_font_size_adjust = 121,
+        eCSSProperty_font_stretch = 122,
+        eCSSProperty_font_style = 123,
+        eCSSProperty_font_synthesis = 124,
+        eCSSProperty_font_variant_alternates = 125,
+        eCSSProperty_font_variant_caps = 126,
+        eCSSProperty_font_variant_east_asian = 127,
+        eCSSProperty_font_variant_ligatures = 128,
+        eCSSProperty_font_variant_numeric = 129,
+        eCSSProperty_font_variant_position = 130,
+        eCSSProperty_font_variation_settings = 131,
+        eCSSProperty_font_weight = 132,
+        eCSSProperty__moz_force_broken_image_icon = 133,
+        eCSSProperty_grid_auto_columns = 134,
+        eCSSProperty_grid_auto_flow = 135,
+        eCSSProperty_grid_auto_rows = 136,
+        eCSSProperty_grid_column_end = 137,
+        eCSSProperty_grid_column_gap = 138,
+        eCSSProperty_grid_column_start = 139,
+        eCSSProperty_grid_row_end = 140,
+        eCSSProperty_grid_row_gap = 141,
+        eCSSProperty_grid_row_start = 142,
+        eCSSProperty_grid_template_areas = 143,
+        eCSSProperty_grid_template_columns = 144,
+        eCSSProperty_grid_template_rows = 145,
+        eCSSProperty_height = 146,
+        eCSSProperty_hyphens = 147,
+        eCSSProperty_initial_letter = 148,
+        eCSSProperty_image_orientation = 149,
+        eCSSProperty__moz_image_region = 150,
+        eCSSProperty_image_rendering = 151,
+        eCSSProperty_ime_mode = 152,
+        eCSSProperty_inline_size = 153,
+        eCSSProperty_isolation = 154,
+        eCSSProperty_justify_content = 155,
+        eCSSProperty_justify_items = 156,
+        eCSSProperty_justify_self = 157,
+        eCSSProperty__x_lang = 158,
+        eCSSProperty_left = 159,
+        eCSSProperty_letter_spacing = 160,
+        eCSSProperty_lighting_color = 161,
+        eCSSProperty_line_height = 162,
+        eCSSProperty_list_style_image = 163,
+        eCSSProperty_list_style_position = 164,
+        eCSSProperty_list_style_type = 165,
+        eCSSProperty_margin_block_end = 166,
+        eCSSProperty_margin_block_start = 167,
+        eCSSProperty_margin_bottom = 168,
+        eCSSProperty_margin_inline_end = 169,
+        eCSSProperty_margin_inline_start = 170,
+        eCSSProperty_margin_left = 171,
+        eCSSProperty_margin_right = 172,
+        eCSSProperty_margin_top = 173,
+        eCSSProperty_marker_end = 174,
+        eCSSProperty_marker_mid = 175,
+        eCSSProperty_marker_start = 176,
+        eCSSProperty_mask_clip = 177,
+        eCSSProperty_mask_composite = 178,
+        eCSSProperty_mask_image = 179,
+        eCSSProperty_mask_mode = 180,
+        eCSSProperty_mask_origin = 181,
+        eCSSProperty_mask_position_x = 182,
+        eCSSProperty_mask_position_y = 183,
+        eCSSProperty_mask_repeat = 184,
+        eCSSProperty_mask_size = 185,
+        eCSSProperty_mask_type = 186,
+        eCSSProperty__moz_math_display = 187,
+        eCSSProperty__moz_math_variant = 188,
+        eCSSProperty_max_block_size = 189,
+        eCSSProperty_max_height = 190,
+        eCSSProperty_max_inline_size = 191,
+        eCSSProperty_max_width = 192,
+        eCSSProperty_min_block_size = 193,
+        eCSSProperty__moz_min_font_size_ratio = 194,
+        eCSSProperty_min_height = 195,
+        eCSSProperty_min_inline_size = 196,
+        eCSSProperty_min_width = 197,
+        eCSSProperty_mix_blend_mode = 198,
+        eCSSProperty_object_fit = 199,
+        eCSSProperty_object_position = 200,
+        eCSSProperty_offset_block_end = 201,
+        eCSSProperty_offset_block_start = 202,
+        eCSSProperty_offset_inline_end = 203,
+        eCSSProperty_offset_inline_start = 204,
+        eCSSProperty_opacity = 205,
+        eCSSProperty_order = 206,
+        eCSSProperty__moz_orient = 207,
+        eCSSProperty__moz_osx_font_smoothing = 208,
+        eCSSProperty_outline_color = 209,
+        eCSSProperty_outline_offset = 210,
+        eCSSProperty__moz_outline_radius_bottomleft = 211,
+        eCSSProperty__moz_outline_radius_bottomright = 212,
+        eCSSProperty__moz_outline_radius_topleft = 213,
+        eCSSProperty__moz_outline_radius_topright = 214,
+        eCSSProperty_outline_style = 215,
+        eCSSProperty_outline_width = 216,
+        eCSSProperty_overflow_clip_box = 217,
+        eCSSProperty_overflow_x = 218,
+        eCSSProperty_overflow_y = 219,
+        eCSSProperty_padding_block_end = 220,
+        eCSSProperty_padding_block_start = 221,
+        eCSSProperty_padding_bottom = 222,
+        eCSSProperty_padding_inline_end = 223,
+        eCSSProperty_padding_inline_start = 224,
+        eCSSProperty_padding_left = 225,
+        eCSSProperty_padding_right = 226,
+        eCSSProperty_padding_top = 227,
+        eCSSProperty_page_break_after = 228,
+        eCSSProperty_page_break_before = 229,
+        eCSSProperty_page_break_inside = 230,
+        eCSSProperty_paint_order = 231,
+        eCSSProperty_perspective = 232,
+        eCSSProperty_perspective_origin = 233,
+        eCSSProperty_pointer_events = 234,
+        eCSSProperty_position = 235,
+        eCSSProperty_quotes = 236,
+        eCSSProperty_resize = 237,
+        eCSSProperty_right = 238,
+        eCSSProperty_ruby_align = 239,
+        eCSSProperty_ruby_position = 240,
+        eCSSProperty__moz_script_level = 241,
+        eCSSProperty__moz_script_min_size = 242,
+        eCSSProperty__moz_script_size_multiplier = 243,
+        eCSSProperty_scroll_behavior = 244,
+        eCSSProperty_scroll_snap_coordinate = 245,
+        eCSSProperty_scroll_snap_destination = 246,
+        eCSSProperty_scroll_snap_points_x = 247,
+        eCSSProperty_scroll_snap_points_y = 248,
+        eCSSProperty_scroll_snap_type_x = 249,
+        eCSSProperty_scroll_snap_type_y = 250,
+        eCSSProperty_shape_outside = 251,
+        eCSSProperty_shape_rendering = 252,
+        eCSSProperty__x_span = 253,
+        eCSSProperty__moz_stack_sizing = 254,
+        eCSSProperty_stop_color = 255,
+        eCSSProperty_stop_opacity = 256,
+        eCSSProperty_stroke = 257,
+        eCSSProperty_stroke_dasharray = 258,
+        eCSSProperty_stroke_dashoffset = 259,
+        eCSSProperty_stroke_linecap = 260,
+        eCSSProperty_stroke_linejoin = 261,
+        eCSSProperty_stroke_miterlimit = 262,
+        eCSSProperty_stroke_opacity = 263,
+        eCSSProperty_stroke_width = 264,
+        eCSSProperty__x_system_font = 265,
+        eCSSProperty__moz_tab_size = 266,
+        eCSSProperty_table_layout = 267,
+        eCSSProperty_text_align = 268,
+        eCSSProperty_text_align_last = 269,
+        eCSSProperty_text_anchor = 270,
+        eCSSProperty_text_combine_upright = 271,
+        eCSSProperty_text_decoration_color = 272,
+        eCSSProperty_text_decoration_line = 273,
+        eCSSProperty_text_decoration_style = 274,
+        eCSSProperty_text_emphasis_color = 275,
+        eCSSProperty_text_emphasis_position = 276,
+        eCSSProperty_text_emphasis_style = 277,
+        eCSSProperty__webkit_text_fill_color = 278,
+        eCSSProperty_text_indent = 279,
+        eCSSProperty_text_justify = 280,
+        eCSSProperty_text_orientation = 281,
+        eCSSProperty_text_overflow = 282,
+        eCSSProperty_text_rendering = 283,
+        eCSSProperty_text_shadow = 284,
+        eCSSProperty__moz_text_size_adjust = 285,
+        eCSSProperty__webkit_text_stroke_color = 286,
+        eCSSProperty__webkit_text_stroke_width = 287,
+        eCSSProperty_text_transform = 288,
+        eCSSProperty__x_text_zoom = 289,
+        eCSSProperty_top = 290,
+        eCSSProperty__moz_top_layer = 291,
+        eCSSProperty_touch_action = 292,
+        eCSSProperty_transform = 293,
+        eCSSProperty_transform_box = 294,
+        eCSSProperty_transform_origin = 295,
+        eCSSProperty_transform_style = 296,
+        eCSSProperty_transition_delay = 297,
+        eCSSProperty_transition_duration = 298,
+        eCSSProperty_transition_property = 299,
+        eCSSProperty_transition_timing_function = 300,
+        eCSSProperty_unicode_bidi = 301,
+        eCSSProperty__moz_user_focus = 302,
+        eCSSProperty__moz_user_input = 303,
+        eCSSProperty__moz_user_modify = 304,
+        eCSSProperty__moz_user_select = 305,
+        eCSSProperty_vector_effect = 306,
+        eCSSProperty_vertical_align = 307,
+        eCSSProperty_visibility = 308,
+        eCSSProperty_white_space = 309,
+        eCSSProperty_width = 310,
+        eCSSProperty_will_change = 311,
+        eCSSProperty__moz_window_dragging = 312,
+        eCSSProperty__moz_window_shadow = 313,
+        eCSSProperty_word_break = 314,
+        eCSSProperty_word_spacing = 315,
+        eCSSProperty_overflow_wrap = 316,
+        eCSSProperty_writing_mode = 317,
+        eCSSProperty_z_index = 318,
+        eCSSProperty_all = 319,
+        eCSSProperty_animation = 320,
+        eCSSProperty_background = 321,
+        eCSSProperty_background_position = 322,
+        eCSSProperty_border = 323,
+        eCSSProperty_border_block_end = 324,
+        eCSSProperty_border_block_start = 325,
+        eCSSProperty_border_bottom = 326,
+        eCSSProperty_border_color = 327,
+        eCSSProperty_border_image = 328,
+        eCSSProperty_border_inline_end = 329,
+        eCSSProperty_border_inline_start = 330,
+        eCSSProperty_border_left = 331,
+        eCSSProperty_border_radius = 332,
+        eCSSProperty_border_right = 333,
+        eCSSProperty_border_style = 334,
+        eCSSProperty_border_top = 335,
+        eCSSProperty_border_width = 336,
+        eCSSProperty_column_rule = 337,
+        eCSSProperty_columns = 338,
+        eCSSProperty_flex = 339,
+        eCSSProperty_flex_flow = 340,
+        eCSSProperty_font = 341,
+        eCSSProperty_font_variant = 342,
+        eCSSProperty_grid = 343,
+        eCSSProperty_grid_area = 344,
+        eCSSProperty_grid_column = 345,
+        eCSSProperty_grid_gap = 346,
+        eCSSProperty_grid_row = 347,
+        eCSSProperty_grid_template = 348,
+        eCSSProperty_list_style = 349,
+        eCSSProperty_margin = 350,
+        eCSSProperty_marker = 351,
+        eCSSProperty_mask = 352,
+        eCSSProperty_mask_position = 353,
+        eCSSProperty_outline = 354,
+        eCSSProperty__moz_outline_radius = 355,
+        eCSSProperty_overflow = 356,
+        eCSSProperty_padding = 357,
+        eCSSProperty_place_content = 358,
+        eCSSProperty_place_items = 359,
+        eCSSProperty_place_self = 360,
+        eCSSProperty_scroll_snap_type = 361,
+        eCSSProperty_text_decoration = 362,
+        eCSSProperty_text_emphasis = 363,
+        eCSSProperty__webkit_text_stroke = 364,
+        eCSSProperty__moz_transform = 365,
+        eCSSProperty_transition = 366,
+        eCSSPropertyAlias_WordWrap = 367,
+        eCSSPropertyAlias_MozTransformOrigin = 368,
+        eCSSPropertyAlias_MozPerspectiveOrigin = 369,
+        eCSSPropertyAlias_MozPerspective = 370,
+        eCSSPropertyAlias_MozTransformStyle = 371,
+        eCSSPropertyAlias_MozBackfaceVisibility = 372,
+        eCSSPropertyAlias_MozBorderImage = 373,
+        eCSSPropertyAlias_MozTransition = 374,
+        eCSSPropertyAlias_MozTransitionDelay = 375,
+        eCSSPropertyAlias_MozTransitionDuration = 376,
+        eCSSPropertyAlias_MozTransitionProperty = 377,
+        eCSSPropertyAlias_MozTransitionTimingFunction = 378,
+        eCSSPropertyAlias_MozAnimation = 379,
+        eCSSPropertyAlias_MozAnimationDelay = 380,
+        eCSSPropertyAlias_MozAnimationDirection = 381,
+        eCSSPropertyAlias_MozAnimationDuration = 382,
+        eCSSPropertyAlias_MozAnimationFillMode = 383,
+        eCSSPropertyAlias_MozAnimationIterationCount = 384,
+        eCSSPropertyAlias_MozAnimationName = 385,
+        eCSSPropertyAlias_MozAnimationPlayState = 386,
+        eCSSPropertyAlias_MozAnimationTimingFunction = 387,
+        eCSSPropertyAlias_MozBoxSizing = 388,
+        eCSSPropertyAlias_MozFontFeatureSettings = 389,
+        eCSSPropertyAlias_MozFontLanguageOverride = 390,
+        eCSSPropertyAlias_MozPaddingEnd = 391,
+        eCSSPropertyAlias_MozPaddingStart = 392,
+        eCSSPropertyAlias_MozMarginEnd = 393,
+        eCSSPropertyAlias_MozMarginStart = 394,
+        eCSSPropertyAlias_MozBorderEnd = 395,
+        eCSSPropertyAlias_MozBorderEndColor = 396,
+        eCSSPropertyAlias_MozBorderEndStyle = 397,
+        eCSSPropertyAlias_MozBorderEndWidth = 398,
+        eCSSPropertyAlias_MozBorderStart = 399,
+        eCSSPropertyAlias_MozBorderStartColor = 400,
+        eCSSPropertyAlias_MozBorderStartStyle = 401,
+        eCSSPropertyAlias_MozBorderStartWidth = 402,
+        eCSSPropertyAlias_MozHyphens = 403,
+        eCSSPropertyAlias_MozColumnCount = 404,
+        eCSSPropertyAlias_MozColumnFill = 405,
+        eCSSPropertyAlias_MozColumnGap = 406,
+        eCSSPropertyAlias_MozColumnRule = 407,
+        eCSSPropertyAlias_MozColumnRuleColor = 408,
+        eCSSPropertyAlias_MozColumnRuleStyle = 409,
+        eCSSPropertyAlias_MozColumnRuleWidth = 410,
+        eCSSPropertyAlias_MozColumnWidth = 411,
+        eCSSPropertyAlias_MozColumns = 412,
+        eCSSPropertyAlias_WebkitAnimation = 413,
+        eCSSPropertyAlias_WebkitAnimationDelay = 414,
+        eCSSPropertyAlias_WebkitAnimationDirection = 415,
+        eCSSPropertyAlias_WebkitAnimationDuration = 416,
+        eCSSPropertyAlias_WebkitAnimationFillMode = 417,
+        eCSSPropertyAlias_WebkitAnimationIterationCount = 418,
+        eCSSPropertyAlias_WebkitAnimationName = 419,
+        eCSSPropertyAlias_WebkitAnimationPlayState = 420,
+        eCSSPropertyAlias_WebkitAnimationTimingFunction = 421,
+        eCSSPropertyAlias_WebkitFilter = 422,
+        eCSSPropertyAlias_WebkitTextSizeAdjust = 423,
+        eCSSPropertyAlias_WebkitTransform = 424,
+        eCSSPropertyAlias_WebkitTransformOrigin = 425,
+        eCSSPropertyAlias_WebkitTransformStyle = 426,
+        eCSSPropertyAlias_WebkitBackfaceVisibility = 427,
+        eCSSPropertyAlias_WebkitPerspective = 428,
+        eCSSPropertyAlias_WebkitPerspectiveOrigin = 429,
+        eCSSPropertyAlias_WebkitTransition = 430,
+        eCSSPropertyAlias_WebkitTransitionDelay = 431,
+        eCSSPropertyAlias_WebkitTransitionDuration = 432,
+        eCSSPropertyAlias_WebkitTransitionProperty = 433,
+        eCSSPropertyAlias_WebkitTransitionTimingFunction = 434,
+        eCSSPropertyAlias_WebkitBorderRadius = 435,
+        eCSSPropertyAlias_WebkitBorderTopLeftRadius = 436,
+        eCSSPropertyAlias_WebkitBorderTopRightRadius = 437,
+        eCSSPropertyAlias_WebkitBorderBottomLeftRadius = 438,
+        eCSSPropertyAlias_WebkitBorderBottomRightRadius = 439,
+        eCSSPropertyAlias_WebkitBackgroundClip = 440,
+        eCSSPropertyAlias_WebkitBackgroundOrigin = 441,
+        eCSSPropertyAlias_WebkitBackgroundSize = 442,
+        eCSSPropertyAlias_WebkitBorderImage = 443,
+        eCSSPropertyAlias_WebkitBoxShadow = 444,
+        eCSSPropertyAlias_WebkitBoxSizing = 445,
+        eCSSPropertyAlias_WebkitBoxFlex = 446,
+        eCSSPropertyAlias_WebkitBoxOrdinalGroup = 447,
+        eCSSPropertyAlias_WebkitBoxOrient = 448,
+        eCSSPropertyAlias_WebkitBoxDirection = 449,
+        eCSSPropertyAlias_WebkitBoxAlign = 450,
+        eCSSPropertyAlias_WebkitBoxPack = 451,
+        eCSSPropertyAlias_WebkitFlexDirection = 452,
+        eCSSPropertyAlias_WebkitFlexWrap = 453,
+        eCSSPropertyAlias_WebkitFlexFlow = 454,
+        eCSSPropertyAlias_WebkitOrder = 455,
+        eCSSPropertyAlias_WebkitFlex = 456,
+        eCSSPropertyAlias_WebkitFlexGrow = 457,
+        eCSSPropertyAlias_WebkitFlexShrink = 458,
+        eCSSPropertyAlias_WebkitFlexBasis = 459,
+        eCSSPropertyAlias_WebkitJustifyContent = 460,
+        eCSSPropertyAlias_WebkitAlignItems = 461,
+        eCSSPropertyAlias_WebkitAlignSelf = 462,
+        eCSSPropertyAlias_WebkitAlignContent = 463,
+        eCSSPropertyAlias_WebkitUserSelect = 464,
+        eCSSPropertyAlias_WebkitMask = 465,
+        eCSSPropertyAlias_WebkitMaskClip = 466,
+        eCSSPropertyAlias_WebkitMaskComposite = 467,
+        eCSSPropertyAlias_WebkitMaskImage = 468,
+        eCSSPropertyAlias_WebkitMaskOrigin = 469,
+        eCSSPropertyAlias_WebkitMaskPosition = 470,
+        eCSSPropertyAlias_WebkitMaskPositionX = 471,
+        eCSSPropertyAlias_WebkitMaskPositionY = 472,
+        eCSSPropertyAlias_WebkitMaskRepeat = 473,
+        eCSSPropertyAlias_WebkitMaskSize = 474,
+        eCSSPropertyExtra_no_properties = 475,
+        eCSSPropertyExtra_all_properties = 476,
+        eCSSPropertyExtra_x_none_value = 477,
+        eCSSPropertyExtra_x_auto_value = 478,
+        eCSSPropertyExtra_variable = 479,
+        eCSSProperty_DOM = 480,
     }
     #[repr(i32)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -24581,29 +26694,29 @@ pub mod root {
     extern "C" {
         #[link_name = "_ZN10nsCSSProps9kSIDTableE"]
         pub static mut nsCSSProps_kSIDTable:
-                   [root::nsStyleStructID; 320usize];
+                   [root::nsStyleStructID; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps18kKeywordTableTableE"]
         pub static mut nsCSSProps_kKeywordTableTable:
-                   [*const root::nsCSSProps_KTableEntry; 320usize];
+                   [*const root::nsCSSProps_KTableEntry; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps14kAnimTypeTableE"]
         pub static mut nsCSSProps_kAnimTypeTable:
-                   [root::nsStyleAnimType; 320usize];
+                   [root::nsStyleAnimType; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps23kStyleStructOffsetTableE"]
-        pub static mut nsCSSProps_kStyleStructOffsetTable: [isize; 320usize];
+        pub static mut nsCSSProps_kStyleStructOffsetTable: [isize; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps11kFlagsTableE"]
-        pub static mut nsCSSProps_kFlagsTable: [u32; 368usize];
+        pub static mut nsCSSProps_kFlagsTable: [u32; 367usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps19kParserVariantTableE"]
-        pub static mut nsCSSProps_kParserVariantTable: [u32; 320usize];
+        pub static mut nsCSSProps_kParserVariantTable: [u32; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps17kSubpropertyTableE"]
@@ -24613,7 +26726,7 @@ pub mod root {
     extern "C" {
         #[link_name = "_ZN10nsCSSProps26gShorthandsContainingTableE"]
         pub static mut nsCSSProps_gShorthandsContainingTable:
-                   [*mut root::nsCSSPropertyID; 320usize];
+                   [*mut root::nsCSSPropertyID; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps25gShorthandsContainingPoolE"]
@@ -24626,7 +26739,7 @@ pub mod root {
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps22gPropertyIndexInStructE"]
-        pub static mut nsCSSProps_gPropertyIndexInStruct: [usize; 320usize];
+        pub static mut nsCSSProps_gPropertyIndexInStruct: [usize; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps18kLogicalGroupTableE"]
@@ -24635,21 +26748,21 @@ pub mod root {
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps16gPropertyEnabledE"]
-        pub static mut nsCSSProps_gPropertyEnabled: [bool; 477usize];
+        pub static mut nsCSSProps_gPropertyEnabled: [bool; 475usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps13kIDLNameTableE"]
         pub static mut nsCSSProps_kIDLNameTable:
-                   [*const ::std::os::raw::c_char; 368usize];
+                   [*const ::std::os::raw::c_char; 367usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps25kIDLNameSortPositionTableE"]
-        pub static mut nsCSSProps_kIDLNameSortPositionTable: [i32; 368usize];
+        pub static mut nsCSSProps_kIDLNameSortPositionTable: [i32; 367usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps19gPropertyUseCounterE"]
         pub static mut nsCSSProps_gPropertyUseCounter:
-                   [root::mozilla::UseCounter; 320usize];
+                   [root::mozilla::UseCounter; 319usize];
     }
     extern "C" {
         #[link_name = "_ZN10nsCSSProps25kAnimationDirectionKTableE"]
@@ -24679,11 +26792,6 @@ pub mod root {
     extern "C" {
         #[link_name = "_ZN10nsCSSProps17kAppearanceKTableE"]
         pub static mut nsCSSProps_kAppearanceKTable:
-                   [root::nsCSSProps_KTableEntry; 0usize];
-    }
-    extern "C" {
-        #[link_name = "_ZN10nsCSSProps20kMozAppearanceKTableE"]
-        pub static mut nsCSSProps_kMozAppearanceKTable:
                    [root::nsCSSProps_KTableEntry; 0usize];
     }
     extern "C" {
@@ -26792,7 +28900,7 @@ pub mod root {
     pub type imgRequest_HasThreadSafeRefCnt = root::mozilla::TrueType;
     #[test]
     fn bindgen_test_layout_imgRequest() {
-        assert_eq!(::std::mem::size_of::<imgRequest>() , 400usize , concat ! (
+        assert_eq!(::std::mem::size_of::<imgRequest>() , 376usize , concat ! (
                    "Size of: " , stringify ! ( imgRequest ) ));
         assert_eq! (::std::mem::align_of::<imgRequest>() , 8usize , concat ! (
                     "Alignment of " , stringify ! ( imgRequest ) ));
@@ -26801,110 +28909,175 @@ pub mod root {
         #[inline]
         pub fn mIsMultiPartChannel(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsMultiPartChannel(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mGotData(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mGotData(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsInCache(&self) -> bool {
             let mask = 4usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 2usize;
+            let val = (unit_field_val & mask) >> 2usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsInCache(&mut self, val: bool) {
             let mask = 4usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 2usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 2usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mDecodeRequested(&self) -> bool {
             let mask = 8usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 3usize;
+            let val = (unit_field_val & mask) >> 3usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mDecodeRequested(&mut self, val: bool) {
             let mask = 8usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 3usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 3usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mNewPartPending(&self) -> bool {
             let mask = 16usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 4usize;
+            let val = (unit_field_val & mask) >> 4usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mNewPartPending(&mut self, val: bool) {
             let mask = 16usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 4usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 4usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mHadInsecureRedirect(&self) -> bool {
             let mask = 32usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 5usize;
+            let val = (unit_field_val & mask) >> 5usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mHadInsecureRedirect(&mut self, val: bool) {
             let mask = 32usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 5usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 5usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mIsMultiPartChannel: bool, mGotData: bool,
+                              mIsInCache: bool, mDecodeRequested: bool,
+                              mNewPartPending: bool,
+                              mHadInsecureRedirect: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val =
+                        {
+                            let bitfield_unit_val =
+                                {
+                                    let bitfield_unit_val =
+                                        {
+                                            let bitfield_unit_val =
+                                                {
+                                                    let bitfield_unit_val =
+                                                        { 0 };
+                                                    let mIsMultiPartChannel =
+                                                        mIsMultiPartChannel as
+                                                            u8 as u8;
+                                                    let mask = 1usize as u8;
+                                                    let mIsMultiPartChannel =
+                                                        (mIsMultiPartChannel
+                                                             << 0usize) &
+                                                            mask;
+                                                    bitfield_unit_val |
+                                                        mIsMultiPartChannel
+                                                };
+                                            let mGotData =
+                                                mGotData as u8 as u8;
+                                            let mask = 2usize as u8;
+                                            let mGotData =
+                                                (mGotData << 1usize) & mask;
+                                            bitfield_unit_val | mGotData
+                                        };
+                                    let mIsInCache = mIsInCache as u8 as u8;
+                                    let mask = 4usize as u8;
+                                    let mIsInCache =
+                                        (mIsInCache << 2usize) & mask;
+                                    bitfield_unit_val | mIsInCache
+                                };
+                            let mDecodeRequested =
+                                mDecodeRequested as u8 as u8;
+                            let mask = 8usize as u8;
+                            let mDecodeRequested =
+                                (mDecodeRequested << 3usize) & mask;
+                            bitfield_unit_val | mDecodeRequested
+                        };
+                    let mNewPartPending = mNewPartPending as u8 as u8;
+                    let mask = 16usize as u8;
+                    let mNewPartPending = (mNewPartPending << 4usize) & mask;
+                    bitfield_unit_val | mNewPartPending
+                };
+            let mHadInsecureRedirect = mHadInsecureRedirect as u8 as u8;
+            let mask = 32usize as u8;
+            let mHadInsecureRedirect =
+                (mHadInsecureRedirect << 5usize) & mask;
+            bitfield_unit_val | mHadInsecureRedirect
         }
     }
     #[repr(C)]
@@ -28208,7 +30381,18 @@ pub mod root {
                     ) , "::" , stringify ! ( mQuotePairs ) ));
     }
     #[test]
-    fn __bindgen_test_layout_StaticRefPtr_instantiation_149376() {
+    fn __bindgen_test_layout_StaticRefPtr_instantiation_85() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::StaticRefPtr<root::nsStyleQuoteValues>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::StaticRefPtr<root::nsStyleQuoteValues> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::StaticRefPtr<root::nsStyleQuoteValues>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::StaticRefPtr<root::nsStyleQuoteValues> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_StaticRefPtr_instantiation_86() {
         assert_eq!(::std::mem::size_of::<root::mozilla::StaticRefPtr<root::nsStyleQuoteValues>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -28370,38 +30554,55 @@ pub mod root {
         #[inline]
         pub fn mIsAutoFill(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsAutoFill(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mIsSubgrid(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mIsSubgrid(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mIsAutoFill: bool, mIsSubgrid: bool) -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val = { 0 };
+                    let mIsAutoFill = mIsAutoFill as u8 as u8;
+                    let mask = 1usize as u8;
+                    let mIsAutoFill = (mIsAutoFill << 0usize) & mask;
+                    bitfield_unit_val | mIsAutoFill
+                };
+            let mIsSubgrid = mIsSubgrid as u8 as u8;
+            let mask = 2usize as u8;
+            let mIsSubgrid = (mIsSubgrid << 1usize) & mask;
+            bitfield_unit_val | mIsSubgrid
         }
     }
     #[repr(C)]
@@ -28951,38 +31152,56 @@ pub mod root {
         #[inline]
         pub fn mTextAlignTrue(&self) -> bool {
             let mask = 1usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 0usize;
+            let val = (unit_field_val & mask) >> 0usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mTextAlignTrue(&mut self, val: bool) {
             let mask = 1usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 0usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 0usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
         }
         #[inline]
         pub fn mTextAlignLastTrue(&self) -> bool {
             let mask = 2usize as u8;
-            let field_val: u8 =
+            let unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            let val = (field_val & mask) >> 1usize;
+            let val = (unit_field_val & mask) >> 1usize;
             unsafe { ::std::mem::transmute(val as u8) }
         }
         #[inline]
         pub fn set_mTextAlignLastTrue(&mut self, val: bool) {
             let mask = 2usize as u8;
             let val = val as u8 as u8;
-            let mut field_val: u8 =
+            let mut unit_field_val: u8 =
                 unsafe { ::std::mem::transmute(self._bitfield_1) };
-            field_val &= !mask;
-            field_val |= (val << 1usize) & mask;
-            self._bitfield_1 = unsafe { ::std::mem::transmute(field_val) };
+            unit_field_val &= !mask;
+            unit_field_val |= (val << 1usize) & mask;
+            self._bitfield_1 =
+                unsafe { ::std::mem::transmute(unit_field_val) };
+        }
+        #[inline]
+        pub fn new_bitfield_1(mTextAlignTrue: bool, mTextAlignLastTrue: bool)
+         -> u8 {
+            let bitfield_unit_val =
+                {
+                    let bitfield_unit_val = { 0 };
+                    let mTextAlignTrue = mTextAlignTrue as u8 as u8;
+                    let mask = 1usize as u8;
+                    let mTextAlignTrue = (mTextAlignTrue << 0usize) & mask;
+                    bitfield_unit_val | mTextAlignTrue
+                };
+            let mTextAlignLastTrue = mTextAlignLastTrue as u8 as u8;
+            let mask = 2usize as u8;
+            let mTextAlignLastTrue = (mTextAlignLastTrue << 1usize) & mask;
+            bitfield_unit_val | mTextAlignLastTrue
         }
     }
     #[repr(C)]
@@ -30306,6 +32525,11 @@ pub mod root {
     pub struct RawServoAnimationValue {
         _unused: [u8; 0],
     }
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
+    pub struct nsCSSPropertyIDSet {
+        _unused: [u8; 0],
+    }
     pub type RawGeckoNode = root::nsINode;
     pub type RawGeckoElement = root::mozilla::dom::Element;
     pub type RawGeckoDocument = root::nsIDocument;
@@ -30325,6 +32549,8 @@ pub mod root {
     pub type RawGeckoComputedTiming = root::mozilla::ComputedTiming;
     pub type RawGeckoServoStyleRuleList =
         root::nsTArray<*const root::RawServoStyleRule>;
+    pub type RawGeckoCSSPropertyIDList =
+        root::nsTArray<root::nsCSSPropertyID>;
     pub type RawServoAnimationValueMapBorrowedMut =
         *mut root::RawServoAnimationValueMap;
     pub type RawGeckoNodeBorrowed = *const root::RawGeckoNode;
@@ -30353,6 +32579,8 @@ pub mod root {
         *const root::RawGeckoComputedTiming;
     pub type RawGeckoServoStyleRuleListBorrowedMut =
         *mut root::RawGeckoServoStyleRuleList;
+    pub type RawGeckoCSSPropertyIDListBorrowed =
+        *const root::RawGeckoCSSPropertyIDList;
     /**
  * Utility class to provide scaling defined in a keySplines element.
  */
@@ -30676,48 +32904,48 @@ pub mod root {
     pub struct nsAttrValueOrString {
         _unused: [u8; 0],
     }
-    pub const ELEMENT_SHARED_RESTYLE_BIT_1: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_1;
-    pub const ELEMENT_SHARED_RESTYLE_BIT_2: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_2;
-    pub const ELEMENT_SHARED_RESTYLE_BIT_3: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_3;
-    pub const ELEMENT_SHARED_RESTYLE_BIT_4: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_4;
-    pub const ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_1;
+    pub const ELEMENT_SHARED_RESTYLE_BIT_1: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_1;
+    pub const ELEMENT_SHARED_RESTYLE_BIT_2: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_2;
+    pub const ELEMENT_SHARED_RESTYLE_BIT_3: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_3;
+    pub const ELEMENT_SHARED_RESTYLE_BIT_4: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_4;
+    pub const ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_1;
     pub const ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO:
-              root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_2;
-    pub const ELEMENT_HAS_SNAPSHOT: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_3;
-    pub const ELEMENT_HANDLED_SNAPSHOT: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_4;
-    pub const ELEMENT_HAS_PENDING_RESTYLE: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_1;
-    pub const ELEMENT_IS_POTENTIAL_RESTYLE_ROOT: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_2;
-    pub const ELEMENT_HAS_PENDING_ANIMATION_ONLY_RESTYLE: root::_bindgen_ty_19
+              root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_2;
+    pub const ELEMENT_HAS_SNAPSHOT: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_3;
+    pub const ELEMENT_HANDLED_SNAPSHOT: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_4;
+    pub const ELEMENT_HAS_PENDING_RESTYLE: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_1;
+    pub const ELEMENT_IS_POTENTIAL_RESTYLE_ROOT: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_2;
+    pub const ELEMENT_HAS_PENDING_ANIMATION_ONLY_RESTYLE: root::_bindgen_ty_84
               =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_3;
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_3;
     pub const ELEMENT_IS_POTENTIAL_ANIMATION_ONLY_RESTYLE_ROOT:
-              root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_SHARED_RESTYLE_BIT_4;
-    pub const ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR;
-    pub const ELEMENT_PENDING_RESTYLE_FLAGS: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_PENDING_RESTYLE_FLAGS;
-    pub const ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS;
-    pub const ELEMENT_ALL_RESTYLE_FLAGS: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_ALL_RESTYLE_FLAGS;
-    pub const ELEMENT_HAS_SCROLLGRAB: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_HAS_SCROLLGRAB;
-    pub const ELEMENT_TYPE_SPECIFIC_BITS_OFFSET: root::_bindgen_ty_19 =
-        _bindgen_ty_19::ELEMENT_TYPE_SPECIFIC_BITS_OFFSET;
+              root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_SHARED_RESTYLE_BIT_4;
+    pub const ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR;
+    pub const ELEMENT_PENDING_RESTYLE_FLAGS: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_PENDING_RESTYLE_FLAGS;
+    pub const ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS;
+    pub const ELEMENT_ALL_RESTYLE_FLAGS: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_ALL_RESTYLE_FLAGS;
+    pub const ELEMENT_HAS_SCROLLGRAB: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_HAS_SCROLLGRAB;
+    pub const ELEMENT_TYPE_SPECIFIC_BITS_OFFSET: root::_bindgen_ty_84 =
+        _bindgen_ty_84::ELEMENT_TYPE_SPECIFIC_BITS_OFFSET;
     #[repr(u32)]
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub enum _bindgen_ty_19 {
+    pub enum _bindgen_ty_84 {
         ELEMENT_SHARED_RESTYLE_BIT_1 = 8388608,
         ELEMENT_SHARED_RESTYLE_BIT_2 = 16777216,
         ELEMENT_SHARED_RESTYLE_BIT_3 = 33554432,
@@ -31486,7 +33714,7 @@ pub mod root {
     }
     pub type __builtin_va_list = [root::__va_list_tag; 1usize];
     #[test]
-    fn __bindgen_test_layout_IntegralConstant_instantiation_170931() {
+    fn __bindgen_test_layout_IntegralConstant_instantiation_87() {
         assert_eq!(::std::mem::size_of::<u8>() , 1usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u8 )
                    ));
@@ -31495,7 +33723,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntegralConstant_instantiation_170935() {
+    fn __bindgen_test_layout_IntegralConstant_instantiation_88() {
         assert_eq!(::std::mem::size_of::<u8>() , 1usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u8 )
                    ));
@@ -31504,7 +33732,18 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsReadingIterator_instantiation_171149() {
+    fn __bindgen_test_layout_nsCharTraits_instantiation_89() {
+        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsReadingIterator_instantiation_90() {
         assert_eq!(::std::mem::size_of::<root::nsReadingIterator<u16>>() ,
                    24usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31515,7 +33754,7 @@ pub mod root {
                    root::nsReadingIterator<u16> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsWritingIterator_instantiation_171153() {
+    fn __bindgen_test_layout_nsWritingIterator_instantiation_91() {
         assert_eq!(::std::mem::size_of::<root::nsWritingIterator<u16>>() ,
                    24usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31526,7 +33765,18 @@ pub mod root {
                    root::nsWritingIterator<u16> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsReadingIterator_instantiation_171226() {
+    fn __bindgen_test_layout_nsCharTraits_instantiation_92() {
+        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsReadingIterator_instantiation_93() {
         assert_eq!(::std::mem::size_of::<root::nsReadingIterator<::std::os::raw::c_char>>()
                    , 24usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31537,7 +33787,7 @@ pub mod root {
                    root::nsReadingIterator<::std::os::raw::c_char> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsWritingIterator_instantiation_171230() {
+    fn __bindgen_test_layout_nsWritingIterator_instantiation_94() {
         assert_eq!(::std::mem::size_of::<root::nsWritingIterator<::std::os::raw::c_char>>()
                    , 24usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31548,25 +33798,29 @@ pub mod root {
                    root::nsWritingIterator<::std::os::raw::c_char> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_atomic_instantiation_173213() {
-        assert_eq!(::std::mem::size_of::<u32>() , 4usize , concat ! (
-                   "Size of template specialization: " , stringify ! ( u32 )
-                   ));
-        assert_eq!(::std::mem::align_of::<u32>() , 4usize , concat ! (
+    fn __bindgen_test_layout_nsCharTraits_instantiation_95() {
+        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   u32 ) ));
+                   root::nsCharTraits ) ));
     }
     #[test]
-    fn __bindgen_test_layout_atomic_instantiation_173221() {
-        assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
-                   "Size of template specialization: " , stringify ! ( u64 )
-                   ));
-        assert_eq!(::std::mem::align_of::<u64>() , 8usize , concat ! (
+    fn __bindgen_test_layout_nsCharTraits_instantiation_96() {
+        assert_eq!(::std::mem::size_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCharTraits ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCharTraits>() , 1usize ,
+                   concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   u64 ) ));
+                   root::nsCharTraits ) ));
     }
     #[test]
-    fn __bindgen_test_layout__bindgen_ty_id_173478_instantiation_173475() {
+    fn __bindgen_test_layout__bindgen_ty_id_207736_instantiation_97() {
         assert_eq!(::std::mem::size_of::<u8>() , 1usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u8 )
                    ));
@@ -31575,7 +33829,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout__bindgen_ty_id_173511_instantiation_173508() {
+    fn __bindgen_test_layout__bindgen_ty_id_207772_instantiation_98() {
         assert_eq!(::std::mem::size_of::<u8>() , 1usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u8 )
                    ));
@@ -31584,7 +33838,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_173779() {
+    fn __bindgen_test_layout_nsTArray_instantiation_99() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsCString>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31595,7 +33849,7 @@ pub mod root {
                    root::nsTArray<root::nsCString> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Handle_instantiation_174604() {
+    fn __bindgen_test_layout_Handle_instantiation_100() {
         assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31606,7 +33860,7 @@ pub mod root {
                    root::JS::Handle<*mut root::JSObject> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Handle_instantiation_174620() {
+    fn __bindgen_test_layout_Handle_instantiation_101() {
         assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31617,18 +33871,7 @@ pub mod root {
                    root::JS::Handle<root::JS::Value> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_MutableHandle_instantiation_174630() {
-        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<*mut root::JSObject>>()
-                   , 8usize , concat ! (
-                   "Size of template specialization: " , stringify ! (
-                   root::JS::MutableHandle<*mut root::JSObject> ) ));
-        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<*mut root::JSObject>>()
-                   , 8usize , concat ! (
-                   "Alignment of template specialization: " , stringify ! (
-                   root::JS::MutableHandle<*mut root::JSObject> ) ));
-    }
-    #[test]
-    fn __bindgen_test_layout_MutableHandle_instantiation_174646() {
+    fn __bindgen_test_layout_MutableHandle_instantiation_102() {
         assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31639,7 +33882,7 @@ pub mod root {
                    root::JS::MutableHandle<root::JS::Value> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Rooted_instantiation_174649() {
+    fn __bindgen_test_layout_Rooted_instantiation_103() {
         assert_eq!(::std::mem::size_of::<[u64; 3usize]>() , 24usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -31650,7 +33893,7 @@ pub mod root {
                    [u64; 3usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DeletePolicy_instantiation_174986() {
+    fn __bindgen_test_layout_DeletePolicy_instantiation_104() {
         assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
                    concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31661,7 +33904,7 @@ pub mod root {
                    root::JS::DeletePolicy ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_179915() {
+    fn __bindgen_test_layout_nsTArray_instantiation_105() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31672,7 +33915,7 @@ pub mod root {
                    root::nsTArray<::nsstring::nsStringRepr> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_179919() {
+    fn __bindgen_test_layout_nsTArray_instantiation_106() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::mozilla::FontFamilyName>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31683,7 +33926,7 @@ pub mod root {
                    root::nsTArray<root::mozilla::FontFamilyName> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_179932() {
+    fn __bindgen_test_layout_nsTArray_instantiation_107() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<::std::os::raw::c_uint>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31694,29 +33937,29 @@ pub mod root {
                    root::nsTArray<::std::os::raw::c_uint> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_TenuredHeap_instantiation_180792() {
-        assert_eq!(::std::mem::size_of::<root::JS::TenuredHeap>() , 8usize ,
-                   concat ! (
-                   "Size of template specialization: " , stringify ! (
-                   root::JS::TenuredHeap ) ));
-        assert_eq!(::std::mem::align_of::<root::JS::TenuredHeap>() , 8usize ,
-                   concat ! (
-                   "Alignment of template specialization: " , stringify ! (
-                   root::JS::TenuredHeap ) ));
-    }
-    #[test]
-    fn __bindgen_test_layout_Heap_instantiation_180882() {
-        assert_eq!(::std::mem::size_of::<root::JS::Heap<*mut root::JSObject>>()
+    fn __bindgen_test_layout_nsTArray_instantiation_108() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::std::os::raw::c_uint>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   root::JS::Heap<*mut root::JSObject> ) ));
-        assert_eq!(::std::mem::align_of::<root::JS::Heap<*mut root::JSObject>>()
+                   root::nsTArray<::std::os::raw::c_uint> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::std::os::raw::c_uint>>()
                    , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   root::JS::Heap<*mut root::JSObject> ) ));
+                   root::nsTArray<::std::os::raw::c_uint> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_TErrorResult_instantiation_180992() {
+    fn __bindgen_test_layout_nsTArray_instantiation_109() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_TErrorResult_instantiation_110() {
         assert_eq!(::std::mem::size_of::<root::mozilla::binding_danger::TErrorResult>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31727,7 +33970,7 @@ pub mod root {
                    root::mozilla::binding_danger::TErrorResult ) ));
     }
     #[test]
-    fn __bindgen_test_layout_TErrorResult_instantiation_181008() {
+    fn __bindgen_test_layout_TErrorResult_instantiation_111() {
         assert_eq!(::std::mem::size_of::<root::mozilla::binding_danger::TErrorResult>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31738,7 +33981,7 @@ pub mod root {
                    root::mozilla::binding_danger::TErrorResult ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_181014() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_112() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsStringBuffer>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31749,18 +33992,51 @@ pub mod root {
                    root::already_AddRefed<root::nsStringBuffer> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_181066() {
-        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+    fn __bindgen_test_layout_Handle_instantiation_113() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   root::already_AddRefed<root::nsIAtom> ) ));
-        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
                    , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   root::already_AddRefed<root::nsIAtom> ) ));
+                   root::JS::Handle<*mut root::JSObject> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RefPtr_instantiation_181540() {
+    fn __bindgen_test_layout_MutableHandle_instantiation_114() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_115() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_116() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_117() {
         assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31771,18 +34047,29 @@ pub mod root {
                    root::RefPtr<root::mozilla::StyleSheet> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_181886() {
-        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+    fn __bindgen_test_layout_Handle_instantiation_118() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
-        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
                    , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+                   root::JS::Handle<*mut root::JSObject> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_182129() {
+    fn __bindgen_test_layout_Handle_instantiation_119() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_120() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31793,7 +34080,18 @@ pub mod root {
                    root::already_AddRefed<root::nsIURI> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_182276() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_121() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_122() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsINode>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31804,7 +34102,40 @@ pub mod root {
                    root::already_AddRefed<root::nsINode> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DeletePolicy_instantiation_186364() {
+    fn __bindgen_test_layout_Handle_instantiation_123() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_124() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_125() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DeletePolicy_instantiation_126() {
         assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
                    concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31815,7 +34146,7 @@ pub mod root {
                    root::JS::DeletePolicy ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_186362() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_127() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31826,7 +34157,95 @@ pub mod root {
                    root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_iterator_instantiation_186397() {
+    fn __bindgen_test_layout_DeletePolicy_instantiation_128() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_129() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DeletePolicy_instantiation_130() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_131() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DeletePolicy_instantiation_132() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_133() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DeletePolicy_instantiation_134() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_135() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_iterator_instantiation_136() {
         assert_eq!(::std::mem::size_of::<root::std::iterator>() , 1usize ,
                    concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31837,7 +34256,51 @@ pub mod root {
                    root::std::iterator ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_186951() {
+    fn __bindgen_test_layout_DeletePolicy_instantiation_137() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_138() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DeletePolicy_instantiation_139() {
+        assert_eq!(::std::mem::size_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::DeletePolicy>() , 1usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::DeletePolicy ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_140() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::JSErrorNotes_Note>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::JSErrorNotes_Note> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_141() {
         assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -31848,7 +34311,73 @@ pub mod root {
                    root::nsCOMPtr ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Heap_instantiation_188204() {
+    fn __bindgen_test_layout_Handle_instantiation_142() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_143() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_144() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_145() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_146() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsCString>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsCString> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<root::nsCString>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsCString> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_147() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsCString>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsCString> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<root::nsCString>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsCString> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Heap_instantiation_148() {
         assert_eq!(::std::mem::size_of::<root::JS::Heap<root::JS::Value>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31859,7 +34388,40 @@ pub mod root {
                    root::JS::Heap<root::JS::Value> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_188546() {
+    fn __bindgen_test_layout_Heap_instantiation_149() {
+        assert_eq!(::std::mem::size_of::<root::JS::Heap<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Heap<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Heap<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Heap<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_TenuredHeap_instantiation_150() {
+        assert_eq!(::std::mem::size_of::<root::JS::TenuredHeap>() , 8usize ,
+                   concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::TenuredHeap ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::TenuredHeap>() , 8usize ,
+                   concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::TenuredHeap ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_151() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_152() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::RefPtr<root::mozilla::dom::AnonymousContent>>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31872,18 +34434,29 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_LinkedList_instantiation_188822() {
-        assert_eq!(::std::mem::size_of::<root::mozilla::LinkedList>() ,
-                   24usize , concat ! (
+    fn __bindgen_test_layout_RefPtr_instantiation_153() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   root::mozilla::LinkedList ) ));
-        assert_eq!(::std::mem::align_of::<root::mozilla::LinkedList>() ,
-                   8usize , concat ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   root::mozilla::LinkedList ) ));
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RefPtr_instantiation_188838() {
+    fn __bindgen_test_layout_RefPtr_instantiation_154() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_155() {
         assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::Element>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31894,7 +34467,7 @@ pub mod root {
                    root::RefPtr<root::mozilla::dom::Element> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_188837() {
+    fn __bindgen_test_layout_nsTArray_instantiation_156() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::RefPtr<root::mozilla::dom::Element>>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31907,7 +34480,7 @@ pub mod root {
                    ));
     }
     #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_188867() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_157() {
         assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -31918,7 +34491,7 @@ pub mod root {
                    root::nsCOMPtr ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_188866() {
+    fn __bindgen_test_layout_nsTArray_instantiation_158() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsCOMPtr>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31929,7 +34502,18 @@ pub mod root {
                    root::nsTArray<root::nsCOMPtr> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_188912() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_159() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_160() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIDocument>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31940,7 +34524,51 @@ pub mod root {
                    root::already_AddRefed<root::nsIDocument> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_189077() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_161() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_162() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_163() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIDocument>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIDocument> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIDocument>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIDocument> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_164() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_165() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsContentList>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31951,7 +34579,75 @@ pub mod root {
                    root::already_AddRefed<root::nsContentList> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_189404() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_166() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsContentList>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsContentList> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsContentList>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsContentList> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_167() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsINode> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsINode> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_168() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::Element> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::Element> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_169() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<root::RefPtr<root::mozilla::dom::Element>>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<root::RefPtr<root::mozilla::dom::Element>> )
+                   ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<root::RefPtr<root::mozilla::dom::Element>>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<root::RefPtr<root::mozilla::dom::Element>> )
+                   ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_170() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_171() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_172() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIRunnable>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31962,7 +34658,7 @@ pub mod root {
                    root::already_AddRefed<root::nsIRunnable> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_189497() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_173() {
         assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -31973,7 +34669,7 @@ pub mod root {
                    root::nsCOMPtr ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_189534() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_174() {
         assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -31984,7 +34680,18 @@ pub mod root {
                    root::nsCOMPtr ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_189790() {
+    fn __bindgen_test_layout_Handle_instantiation_175() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_176() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -31995,7 +34702,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_189788() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_177() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsISMILAttr>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32006,7 +34713,62 @@ pub mod root {
                    root::mozilla::UniquePtr<root::nsISMILAttr> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_190328() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_178() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_179() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_180() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_181() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_182() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_183() {
         assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::mozilla::dom::DOMIntersectionObserver>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32019,7 +34781,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsDataHashtable_instantiation_190327() {
+    fn __bindgen_test_layout_nsDataHashtable_instantiation_184() {
         assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32030,7 +34792,18 @@ pub mod root {
                    [u64; 5usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_190532() {
+    fn __bindgen_test_layout_Handle_instantiation_185() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_186() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<*mut root::nsIContent>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32041,7 +34814,40 @@ pub mod root {
                    root::nsTArray<*mut root::nsIContent> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_SupportsWeakPtr_instantiation_190579() {
+    fn __bindgen_test_layout_nsTArray_instantiation_187() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_188() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_189() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_SupportsWeakPtr_instantiation_190() {
         assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u64 )
                    ));
@@ -32050,7 +34856,18 @@ pub mod root {
                    u64 ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_190751() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_191() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_192() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsRect>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32061,7 +34878,7 @@ pub mod root {
                    root::nsTArray<root::nsRect> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_190867() {
+    fn __bindgen_test_layout_DefaultDelete_instantiation_193() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32072,7 +34889,40 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_191033() {
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_194() {
+        assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::nsIAtom>>()
+                   , 16usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsRefPtrHashKey<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsRefPtrHashKey<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsRefPtrHashKey<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_195() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_196() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_197() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsCOMPtr>>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32083,7 +34933,95 @@ pub mod root {
                    root::nsTArray<root::nsCOMPtr> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPIDOMWindow_instantiation_191820() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_198() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_199() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_200() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_201() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_202() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_203() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_204() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_205() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsPIDOMWindow_instantiation_206() {
         assert_eq!(::std::mem::size_of::<[u64; 28usize]>() , 224usize , concat
                    ! (
                    "Size of template specialization: " , stringify ! (
@@ -32094,7 +35032,7 @@ pub mod root {
                    [u64; 28usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_191872() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_207() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIContent>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32105,7 +35043,7 @@ pub mod root {
                    root::already_AddRefed<root::nsIContent> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashtable_instantiation_192053() {
+    fn __bindgen_test_layout_nsRefPtrHashtable_instantiation_208() {
         assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32116,7 +35054,71 @@ pub mod root {
                    [u64; 5usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPtrHashKey_instantiation_192554() {
+    fn __bindgen_test_layout_Handle_instantiation_209() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_210() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_211() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIContent> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIContent> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_212() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_RefPtr_instantiation_213() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::StyleSheet>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::StyleSheet> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_WeakPtr_instantiation_214() {
+        assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! ( u64 )
+                   ));
+        assert_eq!(::std::mem::align_of::<u64>() , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   u64 ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsPtrHashKey_instantiation_215() {
         assert_eq!(::std::mem::size_of::<root::nsPtrHashKey<root::WeakFrame>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32127,7 +35129,29 @@ pub mod root {
                    root::nsPtrHashKey<root::WeakFrame> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_OwningNonNull_instantiation_192669() {
+    fn __bindgen_test_layout_RefPtr_instantiation_216() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::Element> ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::Element> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_217() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_OwningNonNull_instantiation_218() {
         assert_eq!(::std::mem::size_of::<root::mozilla::OwningNonNull<root::nsINode>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32138,7 +35162,84 @@ pub mod root {
                    root::mozilla::OwningNonNull<root::nsINode> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPtrHashKey_instantiation_192954() {
+    fn __bindgen_test_layout_OwningNonNull_instantiation_219() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::OwningNonNull<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::OwningNonNull<root::nsINode> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::OwningNonNull<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::OwningNonNull<root::nsINode> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_OwningNonNull_instantiation_220() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::OwningNonNull<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::OwningNonNull<root::nsINode> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::OwningNonNull<root::nsINode>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::OwningNonNull<root::nsINode> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_221() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_222() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_223() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_224() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_225() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsPtrHashKey_instantiation_226() {
         assert_eq!(::std::mem::size_of::<root::nsPtrHashKey<::std::os::raw::c_void>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32149,7 +35250,7 @@ pub mod root {
                    root::nsPtrHashKey<::std::os::raw::c_void> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_PointTyped_instantiation_193745() {
+    fn __bindgen_test_layout_PointTyped_instantiation_227() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32160,7 +35261,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntPointTyped_instantiation_193750() {
+    fn __bindgen_test_layout_IntPointTyped_instantiation_228() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32171,7 +35272,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_SizeTyped_instantiation_193753() {
+    fn __bindgen_test_layout_SizeTyped_instantiation_229() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32182,7 +35283,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RectTyped_instantiation_193761() {
+    fn __bindgen_test_layout_RectTyped_instantiation_230() {
         assert_eq!(::std::mem::size_of::<[u32; 4usize]>() , 16usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32193,7 +35294,7 @@ pub mod root {
                    [u32; 4usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntPointTyped_instantiation_193793() {
+    fn __bindgen_test_layout_IntPointTyped_instantiation_231() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32204,7 +35305,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntSizeTyped_instantiation_193801() {
+    fn __bindgen_test_layout_IntSizeTyped_instantiation_232() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32215,7 +35316,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntRectTyped_instantiation_193809() {
+    fn __bindgen_test_layout_IntRectTyped_instantiation_233() {
         assert_eq!(::std::mem::size_of::<[u32; 4usize]>() , 16usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32226,7 +35327,7 @@ pub mod root {
                    [u32; 4usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_MarginTyped_instantiation_193976() {
+    fn __bindgen_test_layout_MarginTyped_instantiation_234() {
         assert_eq!(::std::mem::size_of::<[u32; 4usize]>() , 16usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32237,7 +35338,7 @@ pub mod root {
                    [u32; 4usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RectTyped_instantiation_194011() {
+    fn __bindgen_test_layout_RectTyped_instantiation_235() {
         assert_eq!(::std::mem::size_of::<[u32; 4usize]>() , 16usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32248,7 +35349,7 @@ pub mod root {
                    [u32; 4usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_IntRectTyped_instantiation_194016() {
+    fn __bindgen_test_layout_IntRectTyped_instantiation_236() {
         assert_eq!(::std::mem::size_of::<[u32; 4usize]>() , 16usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32259,7 +35360,7 @@ pub mod root {
                    [u32; 4usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_ScaleFactor_instantiation_194062() {
+    fn __bindgen_test_layout_ScaleFactor_instantiation_237() {
         assert_eq!(::std::mem::size_of::<u32>() , 4usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u32 )
                    ));
@@ -32268,7 +35369,7 @@ pub mod root {
                    u32 ) ));
     }
     #[test]
-    fn __bindgen_test_layout_ScaleFactors2D_instantiation_194162() {
+    fn __bindgen_test_layout_ScaleFactors2D_instantiation_238() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32279,7 +35380,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_ScaleFactors2D_instantiation_194170() {
+    fn __bindgen_test_layout_ScaleFactors2D_instantiation_239() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32290,7 +35391,7 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_ScaleFactors2D_instantiation_194214() {
+    fn __bindgen_test_layout_ScaleFactors2D_instantiation_240() {
         assert_eq!(::std::mem::size_of::<[u32; 2usize]>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32301,7 +35402,51 @@ pub mod root {
                    [u32; 2usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_194844() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_241() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_242() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_243() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_244() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_245() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::mozilla::FramePropertyTable_PropertyValue>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32314,7 +35459,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPtrHashKey_instantiation_194860() {
+    fn __bindgen_test_layout_nsPtrHashKey_instantiation_246() {
         assert_eq!(::std::mem::size_of::<root::nsPtrHashKey<root::nsIFrame>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32325,7 +35470,18 @@ pub mod root {
                    root::nsPtrHashKey<root::nsIFrame> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPIDOMWindow_instantiation_197996() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_247() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIRunnable>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIRunnable> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsPIDOMWindow_instantiation_248() {
         assert_eq!(::std::mem::size_of::<[u64; 28usize]>() , 224usize , concat
                    ! (
                    "Size of template specialization: " , stringify ! (
@@ -32336,7 +35492,29 @@ pub mod root {
                    [u64; 28usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_198626() {
+    fn __bindgen_test_layout_MutableHandle_instantiation_249() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_250() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_251() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::CSSValue>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32347,7 +35525,7 @@ pub mod root {
                    root::already_AddRefed<root::mozilla::dom::CSSValue> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_198717() {
+    fn __bindgen_test_layout_DefaultDelete_instantiation_252() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32358,7 +35536,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashtable_instantiation_198721() {
+    fn __bindgen_test_layout_nsRefPtrHashtable_instantiation_253() {
         assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32369,7 +35547,29 @@ pub mod root {
                    [u64; 5usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_199910() {
+    fn __bindgen_test_layout_Rooted_instantiation_254() {
+        assert_eq!(::std::mem::size_of::<[u64; 3usize]>() , 24usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   [u64; 3usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u64; 3usize]>() , 8usize , concat !
+                   (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u64; 3usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Rooted_instantiation_255() {
+        assert_eq!(::std::mem::size_of::<[u64; 3usize]>() , 24usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   [u64; 3usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u64; 3usize]>() , 8usize , concat !
+                   (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u64; 3usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_256() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsISupports>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32380,7 +35580,7 @@ pub mod root {
                    root::already_AddRefed<root::nsISupports> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsCOMPtr_instantiation_200497() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_257() {
         assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32391,7 +35591,128 @@ pub mod root {
                    root::nsCOMPtr ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_202040() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_258() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_259() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_260() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_261() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_262() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_263() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_264() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_265() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_266() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_267() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_268() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_269() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<f64>>() , 8usize ,
                    concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32402,7 +35723,7 @@ pub mod root {
                    root::nsTArray<f64> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RefPtr_instantiation_202052() {
+    fn __bindgen_test_layout_RefPtr_instantiation_270() {
         assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32415,7 +35736,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_202051() {
+    fn __bindgen_test_layout_nsTArray_instantiation_271() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32428,7 +35749,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPtrHashKey_instantiation_202085() {
+    fn __bindgen_test_layout_nsPtrHashKey_instantiation_272() {
         assert_eq!(::std::mem::size_of::<root::nsPtrHashKey<root::mozilla::dom::Element>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32439,7 +35760,20 @@ pub mod root {
                    root::nsPtrHashKey<root::mozilla::dom::Element> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_202182() {
+    fn __bindgen_test_layout_RefPtr_instantiation_273() {
+        assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>
+                   ) ));
+        assert_eq!(::std::mem::align_of::<root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::RefPtr<root::mozilla::dom::DOMIntersectionObserverEntry>
+                   ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_274() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::ProfilerBacktrace>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32450,7 +35784,73 @@ pub mod root {
                    root::mozilla::UniquePtr<root::ProfilerBacktrace> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsDataHashtable_instantiation_203960() {
+    fn __bindgen_test_layout_nsTArray_instantiation_275() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_276() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_277() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_278() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_279() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_280() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsDataHashtable_instantiation_281() {
         assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32461,7 +35861,7 @@ pub mod root {
                    [u64; 5usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_OwningNonNull_instantiation_203999() {
+    fn __bindgen_test_layout_OwningNonNull_instantiation_282() {
         assert_eq!(::std::mem::size_of::<root::mozilla::OwningNonNull<root::mozilla::EffectCompositor_AnimationStyleRuleProcessor>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32474,7 +35874,7 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_204022() {
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_283() {
         assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::nsIAtom>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32485,7 +35885,7 @@ pub mod root {
                    root::nsRefPtrHashKey<root::nsIAtom> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_204058() {
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_284() {
         assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::nsIContent>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32496,7 +35896,18 @@ pub mod root {
                    root::nsRefPtrHashKey<root::nsIContent> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_204603() {
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_285() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_286() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32507,7 +35918,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_204617() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_287() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32518,7 +35929,7 @@ pub mod root {
                    root::already_AddRefed<root::mozilla::URLExtraData> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsMainThreadPtrHolder_instantiation_204621() {
+    fn __bindgen_test_layout_nsMainThreadPtrHolder_instantiation_288() {
         assert_eq!(::std::mem::size_of::<root::nsMainThreadPtrHolder<root::nsIURI>>()
                    , 24usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32529,7 +35940,62 @@ pub mod root {
                    root::nsMainThreadPtrHolder<root::nsIURI> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsPtrHashKey_instantiation_204695() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_289() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_290() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_291() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_292() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_293() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::URLExtraData>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::URLExtraData> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsPtrHashKey_instantiation_294() {
         assert_eq!(::std::mem::size_of::<root::nsPtrHashKey<root::nsIDocument>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32540,7 +36006,18 @@ pub mod root {
                    root::nsPtrHashKey<root::nsIDocument> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_204982() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_295() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_296() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32551,7 +36028,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_204980() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_297() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsCSSValueList>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32562,7 +36039,7 @@ pub mod root {
                    root::mozilla::UniquePtr<root::nsCSSValueList> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_204988() {
+    fn __bindgen_test_layout_DefaultDelete_instantiation_298() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32573,7 +36050,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_204986() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_299() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsCSSValuePairList>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32584,18 +36061,18 @@ pub mod root {
                    root::mozilla::UniquePtr<root::nsCSSValuePairList> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Maybe_instantiation_205258() {
-        assert_eq!(::std::mem::size_of::<[u64; 2usize]>() , 16usize , concat !
-                   (
+    fn __bindgen_test_layout_already_AddRefed_instantiation_300() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsStringBuffer>>()
+                   , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   [u64; 2usize] ) ));
-        assert_eq!(::std::mem::align_of::<[u64; 2usize]>() , 8usize , concat !
-                   (
+                   root::already_AddRefed<root::nsStringBuffer> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsStringBuffer>>()
+                   , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   [u64; 2usize] ) ));
+                   root::already_AddRefed<root::nsStringBuffer> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_SupportsWeakPtr_instantiation_205425() {
+    fn __bindgen_test_layout_SupportsWeakPtr_instantiation_301() {
         assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u64 )
                    ));
@@ -32604,7 +36081,40 @@ pub mod root {
                    u64 ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Maybe_instantiation_205583() {
+    fn __bindgen_test_layout_nsTArray_instantiation_302() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_303() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_304() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Maybe_instantiation_305() {
         assert_eq!(::std::mem::size_of::<[u32; 3usize]>() , 12usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32615,7 +36125,18 @@ pub mod root {
                    [u32; 3usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_already_AddRefed_instantiation_205598() {
+    fn __bindgen_test_layout_Maybe_instantiation_306() {
+        assert_eq!(::std::mem::size_of::<[u32; 3usize]>() , 12usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   [u32; 3usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u32; 3usize]>() , 4usize , concat !
+                   (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u32; 3usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_307() {
         assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsStyleImageRequest>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32626,7 +36147,18 @@ pub mod root {
                    root::already_AddRefed<root::nsStyleImageRequest> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_205606() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_308() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIAtom>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIAtom> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_309() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32637,7 +36169,7 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_UniquePtr_instantiation_205604() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_310() {
         assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsStyleSides>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32648,7 +36180,7 @@ pub mod root {
                    root::mozilla::UniquePtr<root::nsStyleSides> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_DefaultDelete_instantiation_205645() {
+    fn __bindgen_test_layout_DefaultDelete_instantiation_311() {
         assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
                    1usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32659,7 +36191,62 @@ pub mod root {
                    root::mozilla::DefaultDelete ) ));
     }
     #[test]
-    fn __bindgen_test_layout_pair_instantiation_205796() {
+    fn __bindgen_test_layout_UniquePtr_instantiation_312() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsStyleSides>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsStyleSides> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::nsStyleSides>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsStyleSides> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_313() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::nsIURI> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Maybe_instantiation_314() {
+        assert_eq!(::std::mem::size_of::<[u32; 3usize]>() , 12usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   [u32; 3usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u32; 3usize]>() , 4usize , concat !
+                   (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u32; 3usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_315() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_316() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_pair_instantiation_317() {
         assert_eq!(::std::mem::size_of::<root::std::pair<::nsstring::nsStringRepr, ::nsstring::nsStringRepr>>()
                    , 32usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32670,7 +36257,7 @@ pub mod root {
                    root::std::pair<::nsstring::nsStringRepr, ::nsstring::nsStringRepr> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_205795() {
+    fn __bindgen_test_layout_nsTArray_instantiation_318() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::std::pair<::nsstring::nsStringRepr,
                                                      ::nsstring::nsStringRepr>>>()
                    , 8usize , concat ! (
@@ -32685,18 +36272,187 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RefPtr_instantiation_206789() {
-        assert_eq!(::std::mem::size_of::<root::RefPtr<root::RawServoAnimationValue>>()
+    fn __bindgen_test_layout_already_AddRefed_instantiation_319() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::nsIURI>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   root::RefPtr<root::RawServoAnimationValue> ) ));
-        assert_eq!(::std::mem::align_of::<root::RefPtr<root::RawServoAnimationValue>>()
+                   root::already_AddRefed<root::nsIURI> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::nsIURI>>()
                    , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   root::RefPtr<root::RawServoAnimationValue> ) ));
+                   root::already_AddRefed<root::nsIURI> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_BaseTimeDuration_instantiation_208511() {
+    fn __bindgen_test_layout_nsTArray_instantiation_320() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_321() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsStyleCoord>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsStyleCoord> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<root::nsStyleCoord>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsStyleCoord> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_322() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<root::nsStyleCoord>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsStyleCoord> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<root::nsStyleCoord>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<root::nsStyleCoord> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_323() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsStyleAutoArray_instantiation_324() {
+        assert_eq!(::std::mem::size_of::<root::nsStyleAutoArray<root::mozilla::StyleAnimation>>()
+                   , 64usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsStyleAutoArray<root::mozilla::StyleAnimation> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsStyleAutoArray<root::mozilla::StyleAnimation>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsStyleAutoArray<root::mozilla::StyleAnimation> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_325() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_326() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsCSSValueList>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsCSSValueList> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::nsCSSValueList>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsCSSValueList> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_DefaultDelete_instantiation_327() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::DefaultDelete>() ,
+                   1usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::DefaultDelete ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_UniquePtr_instantiation_328() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::UniquePtr<root::nsCSSValuePairList>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsCSSValuePairList> ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::UniquePtr<root::nsCSSValuePairList>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::UniquePtr<root::nsCSSValuePairList> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_NonNull_instantiation_329() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::dom::NonNull<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::dom::NonNull<root::mozilla::dom::Element> )
+                   ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::dom::NonNull<root::mozilla::dom::Element>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::dom::NonNull<root::mozilla::dom::Element> )
+                   ));
+    }
+    #[test]
+    fn __bindgen_test_layout_NonNull_instantiation_330() {
+        assert_eq!(::std::mem::size_of::<root::mozilla::dom::NonNull<root::mozilla::dom::CSSPseudoElement>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::mozilla::dom::NonNull<root::mozilla::dom::CSSPseudoElement>
+                   ) ));
+        assert_eq!(::std::mem::align_of::<root::mozilla::dom::NonNull<root::mozilla::dom::CSSPseudoElement>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::mozilla::dom::NonNull<root::mozilla::dom::CSSPseudoElement>
+                   ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_331() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_332() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Maybe_instantiation_333() {
+        assert_eq!(::std::mem::size_of::<[u64; 18usize]>() , 144usize , concat
+                   ! (
+                   "Size of template specialization: " , stringify ! (
+                   [u64; 18usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u64; 18usize]>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u64; 18usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Maybe_instantiation_334() {
+        assert_eq!(::std::mem::size_of::<[u64; 18usize]>() , 144usize , concat
+                   ! (
+                   "Size of template specialization: " , stringify ! (
+                   [u64; 18usize] ) ));
+        assert_eq!(::std::mem::align_of::<[u64; 18usize]>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   [u64; 18usize] ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_BaseTimeDuration_instantiation_335() {
         assert_eq!(::std::mem::size_of::<root::mozilla::BaseTimeDuration>() ,
                    8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32707,7 +36463,86 @@ pub mod root {
                    root::mozilla::BaseTimeDuration ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_209103() {
+    fn __bindgen_test_layout_already_AddRefed_instantiation_336() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_337() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_338() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_339() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<*mut root::nsIContent>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<*mut root::nsIContent> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsCOMPtr_instantiation_340() {
+        assert_eq!(::std::mem::size_of::<root::nsCOMPtr>() , 8usize , concat !
+                   (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+        assert_eq!(::std::mem::align_of::<root::nsCOMPtr>() , 8usize , concat
+                   ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsCOMPtr ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_341() {
+        assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::mozilla::dom::DOMIntersectionObserver>>()
+                   , 16usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsRefPtrHashKey<root::mozilla::dom::DOMIntersectionObserver>
+                   ) ));
+        assert_eq!(::std::mem::align_of::<root::nsRefPtrHashKey<root::mozilla::dom::DOMIntersectionObserver>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsRefPtrHashKey<root::mozilla::dom::DOMIntersectionObserver>
+                   ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_342() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::NodeInfo>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::NodeInfo> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_343() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<root::mozilla::DisplayItemClip_RoundedRect>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32720,29 +36555,29 @@ pub mod root {
                    ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Maybe_instantiation_209359() {
-        assert_eq!(::std::mem::size_of::<[u64; 2usize]>() , 16usize , concat !
-                   (
+    fn __bindgen_test_layout_Handle_instantiation_344() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   [u64; 2usize] ) ));
-        assert_eq!(::std::mem::align_of::<[u64; 2usize]>() , 8usize , concat !
-                   (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   [u64; 2usize] ) ));
+                   root::JS::Handle<*mut root::JSObject> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Maybe_instantiation_209366() {
-        assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
-                   (
+    fn __bindgen_test_layout_Handle_instantiation_345() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
-                   [u64; 5usize] ) ));
-        assert_eq!(::std::mem::align_of::<[u64; 5usize]>() , 8usize , concat !
-                   (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
                    "Alignment of template specialization: " , stringify ! (
-                   [u64; 5usize] ) ));
+                   root::JS::Handle<*mut root::JSObject> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_RefPtr_instantiation_209541() {
+    fn __bindgen_test_layout_RefPtr_instantiation_346() {
         assert_eq!(::std::mem::size_of::<root::RefPtr<root::mozilla::dom::DOMRect>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32753,7 +36588,29 @@ pub mod root {
                    root::RefPtr<root::mozilla::dom::DOMRect> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_Sequence_instantiation_209785() {
+    fn __bindgen_test_layout_Handle_instantiation_347() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_348() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Sequence_instantiation_349() {
         assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! ( u64 )
                    ));
@@ -32762,7 +36619,102 @@ pub mod root {
                    u64 ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_210084() {
+    fn __bindgen_test_layout_Handle_instantiation_350() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Sequence_instantiation_351() {
+        assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! ( u64 )
+                   ));
+        assert_eq!(::std::mem::align_of::<u64>() , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   u64 ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Sequence_instantiation_352() {
+        assert_eq!(::std::mem::size_of::<u64>() , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! ( u64 )
+                   ));
+        assert_eq!(::std::mem::align_of::<u64>() , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   u64 ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_353() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_354() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_355() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_356() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_MutableHandle_instantiation_357() {
+        assert_eq!(::std::mem::size_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::MutableHandle<root::JS::Value>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::MutableHandle<root::JS::Value> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_358() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsRefPtrHashKey_instantiation_359() {
         assert_eq!(::std::mem::size_of::<root::nsRefPtrHashKey<root::mozilla::dom::Element>>()
                    , 16usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32773,7 +36725,7 @@ pub mod root {
                    root::nsRefPtrHashKey<root::mozilla::dom::Element> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsClassHashtable_instantiation_210083() {
+    fn __bindgen_test_layout_nsClassHashtable_instantiation_360() {
         assert_eq!(::std::mem::size_of::<[u64; 5usize]>() , 40usize , concat !
                    (
                    "Size of template specialization: " , stringify ! (
@@ -32784,7 +36736,51 @@ pub mod root {
                    [u64; 5usize] ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsTArray_instantiation_211313() {
+    fn __bindgen_test_layout_Handle_instantiation_361() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_362() {
+        assert_eq!(::std::mem::size_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+        assert_eq!(::std::mem::align_of::<root::nsTArray<::nsstring::nsStringRepr>>() ,
+                   8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::nsTArray<::nsstring::nsStringRepr> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_already_AddRefed_instantiation_363() {
+        assert_eq!(::std::mem::size_of::<root::already_AddRefed<root::mozilla::dom::CSSValue>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::CSSValue> ) ));
+        assert_eq!(::std::mem::align_of::<root::already_AddRefed<root::mozilla::dom::CSSValue>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::already_AddRefed<root::mozilla::dom::CSSValue> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_Handle_instantiation_364() {
+        assert_eq!(::std::mem::size_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Size of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+        assert_eq!(::std::mem::align_of::<root::JS::Handle<*mut root::JSObject>>()
+                   , 8usize , concat ! (
+                   "Alignment of template specialization: " , stringify ! (
+                   root::JS::Handle<*mut root::JSObject> ) ));
+    }
+    #[test]
+    fn __bindgen_test_layout_nsTArray_instantiation_365() {
         assert_eq!(::std::mem::size_of::<root::nsTArray<*mut root::mozilla::css::DocumentRule>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (
@@ -32795,7 +36791,7 @@ pub mod root {
                    root::nsTArray<*mut root::mozilla::css::DocumentRule> ) ));
     }
     #[test]
-    fn __bindgen_test_layout_nsAutoPtr_instantiation_211349() {
+    fn __bindgen_test_layout_nsAutoPtr_instantiation_366() {
         assert_eq!(::std::mem::size_of::<root::nsAutoPtr<root::nsMediaQuery>>()
                    , 8usize , concat ! (
                    "Size of template specialization: " , stringify ! (

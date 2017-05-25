@@ -34,10 +34,10 @@ use parser::{PARSING_MODE_DEFAULT, Parse, ParserContext};
 use properties::animated_properties::TransitionProperty;
 #[cfg(feature = "servo")] use servo_config::prefs::PREFS;
 use shared_lock::StylesheetGuards;
-use style_traits::ToCss;
+use style_traits::{HasViewportPercentage, ToCss};
 use stylesheets::{CssRuleType, Origin, UrlExtraData};
 #[cfg(feature = "servo")] use values::Either;
-use values::{HasViewportPercentage, computed};
+use values::computed;
 use cascade_info::CascadeInfo;
 use rule_tree::StrongRuleNode;
 use style_adjuster::StyleAdjuster;
@@ -250,7 +250,7 @@ pub mod animated_properties {
 }
 
 /// A set of longhand properties
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct LonghandIdSet {
     storage: [u32; (${len(data.longhands)} - 1 + 32) / 32]
 }
@@ -954,7 +954,7 @@ impl PropertyId {
         }
     }
 
-    /// Returns a property id from Gecko's nsCSSPropertyID.
+    /// Returns an nsCSSPropertyID.
     #[cfg(feature = "gecko")]
     #[allow(non_upper_case_globals)]
     pub fn to_nscsspropertyid(&self) -> Result<nsCSSPropertyID, ()> {
@@ -1812,6 +1812,18 @@ impl ComputedValues {
     ///
     /// Since this isn't supported in Servo, this is always false for Servo.
     pub fn is_display_contents(&self) -> bool { false }
+
+    #[inline]
+    /// Returns whether the "content" property for the given style is completely
+    /// ineffective, and would yield an empty `::before` or `::after`
+    /// pseudo-element.
+    pub fn ineffective_content_property(&self) -> bool {
+        use properties::longhands::content::computed_value::T;
+        match self.get_counters().content {
+            T::Normal | T::None => true,
+            T::Items(ref items) => items.is_empty(),
+        }
+    }
 
     /// Whether the current style is multicolumn.
     #[inline]
