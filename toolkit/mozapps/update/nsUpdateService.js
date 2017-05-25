@@ -2482,9 +2482,10 @@ function UpdateManager() {
     // rewrite the active-update.xml file without the broken update.
     if (readStatusFile(getUpdatesDir()) == STATE_NONE) {
       cleanUpUpdatesDir();
-      this._writeUpdatesToXMLFile([], getUpdateFile([FILE_ACTIVE_UPDATE_XML]));
-    } else
+      this._removeActiveUpdateFile();
+    } else {
       this._activeUpdate = updates[0];
+    }
   }
 }
 UpdateManager.prototype = {
@@ -2546,10 +2547,11 @@ UpdateManager.prototype = {
       const ELEMENT_NODE = Ci.nsIDOMNode.ELEMENT_NODE;
       var updateCount = doc.documentElement.childNodes.length;
       for (var i = 0; i < updateCount; ++i) {
-        var updateElement = doc.documentElement.childNodes.item(i);
+        let updateElement = doc.documentElement.childNodes.item(i);
         if (updateElement.nodeType != ELEMENT_NODE ||
-            updateElement.localName != "update")
+            updateElement.localName != "update") {
           continue;
+        }
 
         updateElement.QueryInterface(Ci.nsIDOMElement);
         let update;
@@ -2561,9 +2563,9 @@ UpdateManager.prototype = {
         }
         result.push(update);
       }
-    } catch (e) {
+    } catch (ex) {
       LOG("UpdateManager:_loadXMLFileIntoArray - error constructing update " +
-          "list. Exception: " + e);
+          "list. Exception: " + ex);
     }
     fileStream.close();
     return result;
@@ -2576,10 +2578,13 @@ UpdateManager.prototype = {
     if (!this._updates) {
       this._updates = this._loadXMLFileIntoArray(getUpdateFile(
                         [FILE_UPDATES_XML]));
-      var activeUpdates = this._loadXMLFileIntoArray(getUpdateFile(
-                            [FILE_ACTIVE_UPDATE_XML]));
-      if (activeUpdates.length > 0)
-        this._activeUpdate = activeUpdates[0];
+      if (!this._activeUpdate) {
+        let activeUpdates = this._loadXMLFileIntoArray(getUpdateFile(
+                              [FILE_ACTIVE_UPDATE_XML]));
+        if (activeUpdates.length > 0) {
+          this._activeUpdate = activeUpdates[0];
+        }
+      }
     }
   },
 
@@ -2630,9 +2635,11 @@ UpdateManager.prototype = {
       // If |activeUpdate| is null, we have updated both lists - the active list
       // and the history list, so we want to write both files.
       this.saveUpdates();
-    } else
+    } else {
       this._writeUpdatesToXMLFile([this._activeUpdate],
                                   getUpdateFile([FILE_ACTIVE_UPDATE_XML]));
+    }
+
     return activeUpdate;
   },
 
@@ -2643,8 +2650,10 @@ UpdateManager.prototype = {
    *          The nsIUpdate object to add.
    */
   _addUpdate: function UM__addUpdate(update) {
-    if (!update)
+    if (!update) {
       return;
+    }
+
     this._ensureUpdates();
     // Only the latest update entry is checked so the the latest successful
     // step for an update is recorded and all failures are kept. This way
@@ -2663,6 +2672,16 @@ UpdateManager.prototype = {
     }
     // Otherwise add it to the front of the list.
     this._updates.unshift(update);
+  },
+
+  /**
+   * Removes the active-update.xml file.
+   */
+  _removeActiveUpdateFile() {
+    try {
+      getUpdateFile([FILE_ACTIVE_UPDATE_XML]).remove(false);
+    } catch (e) {
+    }
   },
 
   /**
@@ -2709,10 +2728,13 @@ UpdateManager.prototype = {
    * See nsIUpdateService.idl
    */
   saveUpdates: function UM_saveUpdates() {
-    this._writeUpdatesToXMLFile([this._activeUpdate],
-                                getUpdateFile([FILE_ACTIVE_UPDATE_XML]));
-    if (this._activeUpdate)
+    if (this._activeUpdate) {
+      this._writeUpdatesToXMLFile([this._activeUpdate],
+                                  getUpdateFile([FILE_ACTIVE_UPDATE_XML]));
       this._addUpdate(this._activeUpdate);
+    } else {
+      this._removeActiveUpdateFile();
+    }
 
     this._ensureUpdates();
     // Don't write updates that don't have a state to the updates.xml file.

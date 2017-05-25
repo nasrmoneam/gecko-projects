@@ -36,11 +36,9 @@ function run_test() {
 
   Assert.ok(!gUpdateManager.activeUpdate,
             "there should not be an active update");
-  // Verify that the active-update.xml file has had the update from the old
-  // channel removed.
-  let file = getUpdatesXMLFile(true);
-  Assert.equal(readFile(file), getLocalUpdatesXMLString(""),
-               "the contents of active-update.xml" + MSG_SHOULD_EQUAL);
+  // Verify that the active-update.xml file no longer exists.
+  Assert.ok(!getUpdatesXMLFile(true).exists(),
+            "the active-update.xml file" + MSG_SHOULD_NOT_EXIST);
 
   doTestFinish();
 }
