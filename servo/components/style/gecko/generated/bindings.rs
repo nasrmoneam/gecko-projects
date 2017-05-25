@@ -80,6 +80,9 @@ unsafe impl Sync for nsStyleContent {}
 use gecko_bindings::structs::nsStyleContentData;
 unsafe impl Send for nsStyleContentData {}
 unsafe impl Sync for nsStyleContentData {}
+use gecko_bindings::structs::nsStyleContentData_CounterFunction;
+unsafe impl Send for nsStyleContentData_CounterFunction {}
+unsafe impl Sync for nsStyleContentData_CounterFunction {}
 use gecko_bindings::structs::nsStyleContentType;
 unsafe impl Send for nsStyleContentType {}
 unsafe impl Sync for nsStyleContentType {}
@@ -202,6 +205,7 @@ use gecko_bindings::structs::UpdateAnimationsTasks;
 use gecko_bindings::structs::ParsingMode;
 use gecko_bindings::structs::InheritTarget;
 use gecko_bindings::structs::URLMatchingFunction;
+use gecko_bindings::structs::StyleRuleInclusion;
 pub type nsTArrayBorrowed_uintptr_t<'a> = &'a mut ::gecko_bindings::structs::nsTArray<usize>;
 pub type RawServoStyleSetOwned = ::gecko_bindings::sugar::ownership::Owned<RawServoStyleSet>;
 pub type RawServoStyleSetOwnedOrNull = ::gecko_bindings::sugar::ownership::OwnedOrNull<RawServoStyleSet>;
@@ -919,8 +923,9 @@ extern "C" {
                                           aImageValue: *mut ImageValue);
 }
 extern "C" {
-    pub fn Gecko_SetContentDataArray(content_data: *mut nsStyleContentData,
-                                     type_: nsStyleContentType, len: u32);
+    pub fn Gecko_SetCounterFunction(content_data: *mut nsStyleContentData,
+                                    type_: nsStyleContentType)
+     -> *mut nsStyleContentData_CounterFunction;
 }
 extern "C" {
     pub fn Gecko_GetNodeFlags(node: RawGeckoNodeBorrowed) -> u32;
@@ -1733,6 +1738,10 @@ extern "C" {
      -> ServoCssRulesStrong;
 }
 extern "C" {
+    pub fn Servo_StyleSheet_Clone(sheet: RawServoStyleSheetBorrowed)
+     -> RawServoStyleSheetStrong;
+}
+extern "C" {
     pub fn Servo_StyleSet_Init(pres_context: RawGeckoPresContextOwned)
      -> RawServoStyleSetOwned;
 }
@@ -2410,6 +2419,11 @@ extern "C" {
      -> ServoComputedValuesStrong;
 }
 extern "C" {
+    pub fn Servo_ComputedValues_GetVisitedStyle(values:
+                                                    ServoComputedValuesBorrowed)
+     -> ServoComputedValuesStrong;
+}
+extern "C" {
     pub fn Servo_Initialize(dummy_url_data: *mut RawGeckoURLExtraData);
 }
 extern "C" {
@@ -2449,6 +2463,7 @@ extern "C" {
 extern "C" {
     pub fn Servo_ResolveStyleLazily(element: RawGeckoElementBorrowed,
                                     pseudo_type: CSSPseudoElementType,
+                                    rule_inclusion: StyleRuleInclusion,
                                     snapshots:
                                         *const ServoElementSnapshotTable,
                                     set: RawServoStyleSetBorrowed)

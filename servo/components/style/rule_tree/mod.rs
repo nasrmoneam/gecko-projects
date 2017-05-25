@@ -8,7 +8,7 @@
 
 #[cfg(feature = "servo")]
 use heapsize::HeapSizeOf;
-use properties::{Importance, LonghandIdSet, PropertyDeclarationBlock};
+use properties::{AnimationRules, Importance, LonghandIdSet, PropertyDeclarationBlock};
 use shared_lock::{Locked, StylesheetGuards, SharedRwLockReadGuard};
 use smallvec::SmallVec;
 use std::io::{self, Write};
@@ -16,6 +16,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use stylearc::Arc;
 use stylesheets::StyleRule;
+use stylist::ApplicableDeclarationList;
 use thread_state;
 
 /// The rule tree, the structure servo uses to preserve the results of selector
@@ -213,6 +214,18 @@ impl RuleTree {
         }
 
         current
+    }
+
+    /// Given a list of applicable declarations, insert the rules and return the
+    /// corresponding rule node.
+    pub fn compute_rule_node(&self,
+                             applicable_declarations: &mut ApplicableDeclarationList,
+                             guards: &StylesheetGuards)
+                             -> StrongRuleNode
+    {
+        let rules = applicable_declarations.drain().map(|d| (d.source, d.level));
+        let rule_node = self.insert_ordered_rules_with_important(rules, guards);
+        rule_node
     }
 
     /// Insert the given rules, that must be in proper order by specifity, and
@@ -632,6 +645,8 @@ struct WeakRuleNode {
 /// A strong reference to a rule node.
 #[derive(Debug, PartialEq)]
 pub struct StrongRuleNode {
+    // TODO: Mark this as NonZero once stable to save space inside Option.
+    // https://github.com/rust-lang/rust/issues/27730
     ptr: *mut RuleNode,
 }
 
@@ -1141,6 +1156,56 @@ impl StrongRuleNode {
             }
         }
         result
+    }
+
+    /// Returns PropertyDeclarationBlock for this node.
+    /// This function must be called only for animation level node.
+    fn get_animation_style(&self) -> &Arc<Locked<PropertyDeclarationBlock>> {
+        debug_assert!(self.cascade_level().is_animation(),
+                      "The cascade level should be an animation level");
+        match *self.style_source().unwrap() {
+            StyleSource::Declarations(ref block) => block,
+            StyleSource::Style(_) => unreachable!("animating style should not be a style rule"),
+        }
+    }
+
+    /// Returns SMIL override declaration block if exists.
+    pub fn get_smil_animation_rule(&self) -> Option<&Arc<Locked<PropertyDeclarationBlock>>> {
+        if cfg!(feature = "servo") {
+            // Servo has no knowledge of a SMIL rule, so just avoid looking for it.
+            return None;
+        }
+
+        self.self_and_ancestors()
+            .take_while(|node| node.cascade_level() >= CascadeLevel::SMILOverride)
+            .find(|node| node.cascade_level() == CascadeLevel::SMILOverride)
+            .map(|node| node.get_animation_style())
+    }
+
+    /// Returns AnimationRules that has processed during animation-only restyles.
+    pub fn get_animation_rules(&self) -> AnimationRules {
+        if cfg!(feature = "servo") {
+            return AnimationRules(None, None);
+        }
+
+        let mut animation = None;
+        let mut transition = None;
+
+        for node in self.self_and_ancestors()
+                        .take_while(|node| node.cascade_level() >= CascadeLevel::Animations) {
+            match node.cascade_level() {
+                CascadeLevel::Animations => {
+                    debug_assert!(animation.is_none());
+                    animation = Some(node.get_animation_style())
+                },
+                CascadeLevel::Transitions => {
+                    debug_assert!(transition.is_none());
+                    transition = Some(node.get_animation_style())
+                },
+                _ => {},
+            }
+        }
+        AnimationRules(animation, transition)
     }
 }
 

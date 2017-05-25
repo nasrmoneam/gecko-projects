@@ -33,13 +33,11 @@ to mochitest command.
   * "layout.css.prefixes.device-pixel-ratio-webkit" support bug 1366956
     * test_media_queries.html `-device-pixel-ratio` [27]
     * test_webkit_device_pixel_ratio.html [3]
-  * test_media_queries.html `-webkit-transform-3d`: serialize -webkit-prefix servo/servo#17000 [2]
-  * test_media_queries.html `resolution`: non-positive value should be rejected bug 1366961 [9]
   * test_media_queries_dynamic.html `restyle count`: support elementsRestyled [6]
   * test_media_queries_dynamic_xbl.html: xbl support bug 1290276 [2]
 * Animation support:
   * OMTA
-    * test_animations_omta.html: bug 1361938, bug 1361663 [*]
+    * test_animations_omta.html: bug 1361938, bug 1340005 [*]
   * SMIL Animation
     * test_restyles_in_smil_animation.html [2]
 * CSSOM support:
@@ -76,14 +74,10 @@ to mochitest command.
   * test_grid_container_shorthands.html [65]
   * test_grid_item_shorthands.html [23]
   * test_grid_shorthand_serialization.html [28]
-  * test_inherit_computation.html `grid` [4]
-  * test_inherit_storage.html `'grid` [13]
-  * ... `"grid` [2]
-  * test_initial_computation.html `grid` [8]
-  * test_initial_storage.html `grid` [30]
-  * test_property_syntax_errors.html `grid`: actually there are issues with this [28]
-  * test_value_storage.html `'grid` [577]
-  * test_exposed_prop_accessors.html `grid` [2]
+  * test_inherit_computation.html `grid` [2]
+  * test_initial_computation.html `grid` [4]
+  * test_property_syntax_errors.html `grid`: actually there are issues with this [8]
+  * test_value_storage.html `'grid` [195]
 * Unimplemented CSS properties:
   * font-variant shorthand bug 1356134
     * test_value_storage.html `'font-variant'` [65]
@@ -103,16 +97,9 @@ to mochitest command.
     * test_value_storage.html `context-` [7]
     * test_bug798843_pref.html [7]
 * Incorrect parsing
-  * mask shorthand servo/servo#15772
-    * test_property_syntax_errors.html `mask'` [76]
   * different parsing bug 1364260
     * test_supports_rules.html [6]
     * test_condition_text.html [1]
-  * test_property_syntax_errors.html `text`: incorrectly accept text for background shorthand servo/servo#17018 [40]
-  * color is accepted everywhere
-    * test_property_syntax_errors.html `url(404.png) transparent` [20]
-    * ... `url(404.png) red` [20]
-    * ... `url(404.png) rgb` [40]
 * Incorrect serialization
   * color value not canonicalized servo/servo#15397
     * test_shorthand_property_getters.html `should condense to canonical case` [2]
@@ -127,8 +114,6 @@ to mochitest command.
 * Unsupported pseudo-elements or anon boxes
   * :-moz-tree bits bug 1348488
     * test_selectors.html `:-moz-tree` [10]
-  * :-moz-placeholder bug 1348490
-    * test_selectors.html `:-moz-placeholder` [1]
 * Unsupported pseudo-classes
   * :-moz-locale-dir is internal bug 1367310
     * test_selectors.html `:-moz-locale-dir` [15]
@@ -148,7 +133,13 @@ to mochitest command.
 * test_css_supports.html: issues around @supports syntax servo/servo#15482 [8]
 * test_author_specified_style.html: support serializing color as author specified bug 1348165 [27]
 * browser_newtab_share_rule_processors.js: agent style sheet sharing [1]
-* test_default_computed_style.html: getDefaultComputedStyle bug 1366157 [1]
+* :visited support (bug 1328509)
+  * test_visited_reftests.html `selector-descendant-2.xhtml` [2]
+  * ... `selector-child-2.xhtml` [2]
+  * ... `color-on-bullets-1.html` [2]
+  * ... `inherit-keyword-1.xhtml` [2]
+  * ... `mathml-links.html` [2]
+  * ... `caret-color-on-visited-1.html` [2]
 
 ## Assertions
 
@@ -162,8 +153,6 @@ to mochitest command.
 * test_property_syntax_errors.html `linear-gradient(0,`: unitless zero as degree bug 1363292 [10]
 * test_specified_value_serialization.html `-webkit-radial-gradient`: bug 1367299 [1]
 * test_variables.html `var(--var6)`: irrelevant test for stylo bug 1367306 [1]
-* clip and origin should be allowed to separated in shorthand bug 1188074
-  * test_property_syntax_errors.html `padding-box` [80]
 * Difference in rect serialization bug 1367028
   * test_shorthand_property_getters.html `5 5 5 5` [1]
 
