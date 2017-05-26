@@ -2572,19 +2572,13 @@ UpdateManager.prototype = {
   },
 
   /**
-   * Load the update manager, initializing state from state files.
+   * Initialize update history from the updates.xml file. The active update is
+   * initialized on load of nsIUpdateManager.
    */
   _ensureUpdates: function UM__ensureUpdates() {
     if (!this._updates) {
       this._updates = this._loadXMLFileIntoArray(getUpdateFile(
                         [FILE_UPDATES_XML]));
-      if (!this._activeUpdate) {
-        let activeUpdates = this._loadXMLFileIntoArray(getUpdateFile(
-                              [FILE_ACTIVE_UPDATE_XML]));
-        if (activeUpdates.length > 0) {
-          this._activeUpdate = activeUpdates[0];
-        }
-      }
     }
   },
 
