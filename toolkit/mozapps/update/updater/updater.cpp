@@ -218,6 +218,36 @@ struct MARChannelStringTable {
 
 //-----------------------------------------------------------------------------
 
+#ifdef XP_MACOSX
+#include <sys/types.h>
+#include <sys/stat.h>
+
+// Just a simple class that sets a umask value in its constructor and resets
+// it in its destructor.
+class UmaskContext
+{
+public:
+  UmaskContext(mode_t umaskToSet);
+  ~UmaskContext();
+
+private:
+  mode_t mPreviousUmask;
+};
+
+UmaskContext::UmaskContext(mode_t umaskToSet)
+{
+  this->mPreviousUmask = umask(umaskToSet);
+}
+
+UmaskContext::~UmaskContext()
+{
+  umask(this->mPreviousUmask);
+}
+
+#endif
+
+//-----------------------------------------------------------------------------
+
 typedef void (* ThreadFunc)(void *param);
 
 #ifdef XP_WIN
@@ -2671,6 +2701,11 @@ int NS_main(int argc, NS_tchar **argv)
   const int callbackIndex = 6;
 
 #ifdef XP_MACOSX
+  // We want to control file permissions explicitly, or else we could end up
+  // corrupting installs for other users on the system. Accordingly, set the
+  // umask to 0 for all file creations below and reset it on exit. See Bug 1337007
+  UmaskContext umaskContext(0);
+
   bool isElevated =
     strstr(argv[0], "/Library/PrivilegedHelperTools/org.mozilla.updater") != 0;
   if (isElevated) {
