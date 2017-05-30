@@ -63,9 +63,6 @@ pref("extensions.hotfix.certs.2.sha1Fingerprint", "39:E7:2B:7A:5B:CF:37:78:F9:5D
 // Check AUS for system add-on updates.
 pref("extensions.systemAddon.update.url", "https://aus5.mozilla.org/update/3/SystemAddons/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml");
 
-// Disable screenshots for now, Shield will enable this.
-pref("extensions.screenshots.system-disabled", true);
-
 // Disable add-ons that are not installed by the user in all scopes by default.
 // See the SCOPE constants in AddonManager.jsm for values to use here.
 pref("extensions.autoDisableScopes", 15);
@@ -661,6 +658,12 @@ pref("accessibility.loadedInLastSession", false);
 
 pref("plugins.click_to_play", true);
 pref("plugins.testmode", false);
+
+// Should plugins that are hidden show the infobar UI?
+pref("plugins.show_infobar", true);
+
+// Should dismissing the hidden plugin infobar suppress it permanently?
+pref("plugins.remember_infobar_dismissal", false);
 
 pref("plugin.default.state", 1);
 
@@ -1458,6 +1461,8 @@ pref("browser.translation.engine", "bing");
 pref("toolkit.telemetry.archive.enabled", true);
 // Enables sending the shutdown ping when Firefox shuts down.
 pref("toolkit.telemetry.shutdownPingSender.enabled", true);
+// Enables sending the 'new-profile' ping on new profiles.
+pref("toolkit.telemetry.newProfilePing.enabled", true);
 
 // Telemetry experiments settings.
 pref("experiments.enabled", true);

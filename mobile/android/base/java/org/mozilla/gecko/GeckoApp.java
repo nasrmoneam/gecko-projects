@@ -20,6 +20,7 @@ import org.mozilla.gecko.home.HomeConfig.PanelType;
 import org.mozilla.gecko.menu.GeckoMenu;
 import org.mozilla.gecko.menu.GeckoMenuInflater;
 import org.mozilla.gecko.menu.MenuPanel;
+import org.mozilla.gecko.mma.MmaDelegate;
 import org.mozilla.gecko.notifications.NotificationHelper;
 import org.mozilla.gecko.util.IntentUtils;
 import org.mozilla.gecko.mozglue.SafeIntent;
@@ -121,12 +122,13 @@ import java.util.concurrent.TimeUnit;
 import static org.mozilla.gecko.Tabs.INTENT_EXTRA_SESSION_UUID;
 import static org.mozilla.gecko.Tabs.INTENT_EXTRA_TAB_ID;
 import static org.mozilla.gecko.Tabs.INVALID_TAB_ID;
+import static org.mozilla.gecko.mma.MmaDelegate.DOWNLOAD_VIDEOS_OR_ANY_OTHER_MEDIA;
+import static org.mozilla.gecko.mma.MmaDelegate.LOADS_ARTICLES;
 
 public abstract class GeckoApp extends GeckoActivity
                                implements AnchoredPopup.OnVisibilityChangeListener,
                                           BundleEventListener,
                                           ContextGetter,
-                                          GeckoAppShell.GeckoInterface,
                                           GeckoMenu.Callback,
                                           GeckoMenu.MenuPresenter,
                                           GeckoView.ContentListener,
@@ -187,7 +189,6 @@ public abstract class GeckoApp extends GeckoActivity
 
     protected RelativeLayout mGeckoLayout;
     private OrientationEventListener mCameraOrientationEventListener;
-    public List<GeckoAppShell.AppStateListener> mAppStateListeners = new LinkedList<GeckoAppShell.AppStateListener>();
     protected MenuPanel mMenuPanel;
     protected Menu mMenu;
     protected boolean mIsRestoringActivity;
@@ -404,16 +405,6 @@ public abstract class GeckoApp extends GeckoActivity
 
     public SharedPreferences getSharedPreferencesForProfile() {
         return GeckoSharedPrefs.forProfile(this);
-    }
-
-    @Override
-    public void addAppStateListener(GeckoAppShell.AppStateListener listener) {
-        mAppStateListeners.add(listener);
-    }
-
-    @Override
-    public void removeAppStateListener(GeckoAppShell.AppStateListener listener) {
-        mAppStateListeners.remove(listener);
     }
 
     @Override
@@ -882,7 +873,15 @@ public abstract class GeckoApp extends GeckoActivity
             final SharedPreferences prefs = getSharedPreferences();
             int count = prefs.getInt(PREFS_FLASH_USAGE, 0);
             prefs.edit().putInt(PREFS_FLASH_USAGE, ++count).apply();
+
+        } else if ("Mma:reader_available".equals(event)) {
+            MmaDelegate.track(LOADS_ARTICLES);
+
+        } else if ("Mma:web_save_media".equals(event) || "Mma:web_save_image".equals(event)) {
+            MmaDelegate.track(DOWNLOAD_VIDEOS_OR_ANY_OTHER_MEDIA);
+
         }
+
     }
 
     /**
@@ -1289,7 +1288,6 @@ public abstract class GeckoApp extends GeckoActivity
         // When that's fixed, `this` can change to
         // `(GeckoApplication) getApplication()` here.
         GeckoAppShell.setContextGetter(this);
-        GeckoAppShell.setGeckoInterface(this);
         GeckoAppShell.setScreenOrientationDelegate(this);
 
         // Tell Stumbler to register a local broadcast listener to listen for preference intents.
@@ -1409,6 +1407,9 @@ public abstract class GeckoApp extends GeckoActivity
             "DevToolsAuth:Scan",
             "DOMFullScreen:Start",
             "DOMFullScreen:Stop",
+            "Mma:reader_available",
+            "Mma:web_save_image",
+            "Mma:web_save_media",
             "Permissions:Data",
             "PrivateBrowsing:Data",
             "RuntimePermissions:Check",
@@ -1842,9 +1843,6 @@ public abstract class GeckoApp extends GeckoActivity
             startActivity(settingsIntent);
         }
 
-        //app state callbacks
-        mAppStateListeners = new LinkedList<GeckoAppShell.AppStateListener>();
-
         mPromptService = new PromptService(this);
 
         // Trigger the completion of the telemetry timer that wraps activity startup,
@@ -2127,30 +2125,6 @@ public abstract class GeckoApp extends GeckoActivity
     }
 
     @Override
-    public void enableOrientationListener() {
-        // Start listening for orientation events
-        mCameraOrientationEventListener = new OrientationEventListener(this) {
-            @Override
-            public void onOrientationChanged(int orientation) {
-                if (mAppStateListeners != null) {
-                    for (GeckoAppShell.AppStateListener listener: mAppStateListeners) {
-                        listener.onOrientationChanged();
-                    }
-                }
-            }
-        };
-        mCameraOrientationEventListener.enable();
-    }
-
-    @Override
-    public void disableOrientationListener() {
-        if (mCameraOrientationEventListener != null) {
-            mCameraOrientationEventListener.disable();
-            mCameraOrientationEventListener = null;
-        }
-    }
-
-    @Override
     protected void onNewIntent(Intent externalIntent) {
         final SafeIntent intent = new SafeIntent(externalIntent);
         final String action = intent.getAction();
@@ -2284,7 +2258,6 @@ public abstract class GeckoApp extends GeckoActivity
 
         foregrounded = true;
 
-        GeckoAppShell.setGeckoInterface(this);
         GeckoAppShell.setScreenOrientationDelegate(this);
 
         // If mIgnoreLastSelectedTab is set, we're either the first activity to run, so our startup
@@ -2317,12 +2290,6 @@ public abstract class GeckoApp extends GeckoActivity
         int newOrientation = getResources().getConfiguration().orientation;
         if (GeckoScreenOrientation.getInstance().update(newOrientation)) {
             refreshChrome();
-        }
-
-        if (mAppStateListeners != null) {
-            for (GeckoAppShell.AppStateListener listener : mAppStateListeners) {
-                listener.onResume();
-            }
         }
 
         // We use two times: a pseudo-unique wall-clock time to identify the
@@ -2432,12 +2399,6 @@ public abstract class GeckoApp extends GeckoActivity
             }
         });
 
-        if (mAppStateListeners != null) {
-            for (GeckoAppShell.AppStateListener listener : mAppStateListeners) {
-                listener.onPause();
-            }
-        }
-
         super.onPause();
     }
 
@@ -2497,6 +2458,9 @@ public abstract class GeckoApp extends GeckoActivity
             "DevToolsAuth:Scan",
             "DOMFullScreen:Start",
             "DOMFullScreen:Stop",
+            "Mma:reader_available",
+            "Mma:web_save_image",
+            "Mma:web_save_media",
             "Permissions:Data",
             "PrivateBrowsing:Data",
             "RuntimePermissions:Check",
@@ -2769,12 +2733,6 @@ public abstract class GeckoApp extends GeckoActivity
         mLayerView.setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
 
-    @Override
-    public boolean openUriExternal(String targetURI, String mimeType, String packageName, String className, String action, String title) {
-        // Default to showing prompt in private browsing to be safe.
-        return IntentHelper.openUriExternal(targetURI, mimeType, packageName, className, action, title, true);
-    }
-
     public static class MainLayout extends RelativeLayout {
         private TouchEventInterceptor mTouchEventInterceptor;
         private MotionEventInterceptor mMotionEventInterceptor;
@@ -2979,25 +2937,6 @@ public abstract class GeckoApp extends GeckoActivity
     }
 
     protected void recordStartupActionTelemetry(final String passedURL, final String action) {
-    }
-
-    @Override
-    public String[] getHandlersForMimeType(String mimeType, String action) {
-        Intent intent = IntentHelper.getIntentForActionString(action);
-        if (mimeType != null && mimeType.length() > 0)
-            intent.setType(mimeType);
-        return IntentHelper.getHandlersForIntent(intent);
-    }
-
-    @Override
-    public String[] getHandlersForURL(String url, String action) {
-        // May contain the whole URL or just the protocol.
-        Uri uri = url.indexOf(':') >= 0 ? Uri.parse(url) : new Uri.Builder().scheme(url).build();
-
-        Intent intent = IntentHelper.getOpenURIIntent(getApplicationContext(), uri.toString(), "",
-                TextUtils.isEmpty(action) ? Intent.ACTION_VIEW : action, "");
-
-        return IntentHelper.getHandlersForIntent(intent);
     }
 
     public GeckoView getGeckoView() {

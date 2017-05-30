@@ -37,7 +37,7 @@ ${helpers.predefined_type("column-gap",
                           spec="https://drafts.csswg.org/css-multicol/#propdef-column-gap")}
 
 ${helpers.single_keyword("column-fill", "balance auto", extra_prefixes="moz",
-                         products="gecko", animation_value_type="none",
+                         products="gecko", animation_value_type="discrete",
                          spec="https://drafts.csswg.org/css-multicol/#propdef-column-fill")}
 
 ${helpers.predefined_type("column-rule-width", "BorderWidth", "Au::from_px(3)",
@@ -54,14 +54,13 @@ ${helpers.predefined_type("column-rule-color", "CSSColor",
                           complex_color=True, need_clone=True,
                           spec="https://drafts.csswg.org/css-multicol/#propdef-column-rule-color")}
 
-// It's not implemented in servo or gecko yet.
 ${helpers.single_keyword("column-span", "none all",
-                         products="none", animation_value_type="none",
+                         products="gecko", animation_value_type="discrete",
                          spec="https://drafts.csswg.org/css-multicol/#propdef-column-span")}
 
 ${helpers.single_keyword("column-rule-style",
                          "none hidden dotted dashed solid double groove ridge inset outset",
                          products="gecko", extra_prefixes="moz",
                          gecko_constant_prefix="NS_STYLE_BORDER_STYLE",
-                         animation_value_type="none",
+                         animation_value_type="discrete",
                          spec="https://drafts.csswg.org/css-multicol/#propdef-column-rule-style")}

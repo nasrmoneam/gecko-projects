@@ -22,6 +22,7 @@
 #include "InsertTextTransaction.h"      // for InsertTextTransaction
 #include "JoinNodeTransaction.h"        // for JoinNodeTransaction
 #include "PlaceholderTransaction.h"     // for PlaceholderTransaction
+#include "SetTextTransaction.h"         // for SetTextTransaction
 #include "SplitNodeTransaction.h"       // for SplitNodeTransaction
 #include "StyleSheetTransactions.h"     // for AddStyleSheetTransaction, etc.
 #include "TextEditUtils.h"              // for TextEditUtils
@@ -69,7 +70,6 @@
 #include "nsIDOMMouseEvent.h"           // for nsIDOMMouseEvent
 #include "nsIDOMNode.h"                 // for nsIDOMNode, etc.
 #include "nsIDOMNodeList.h"             // for nsIDOMNodeList
-#include "nsIDOMText.h"                 // for nsIDOMText
 #include "nsIDocument.h"                // for nsIDocument
 #include "nsIDocumentStateListener.h"   // for nsIDocumentStateListener
 #include "nsIEditActionListener.h"      // for nsIEditActionListener
@@ -2648,6 +2648,59 @@ EditorBase::NotifyDocumentListeners(
   return rv;
 }
 
+nsresult
+EditorBase::SetTextImpl(const nsAString& aString, Text& aCharData)
+{
+  RefPtr<SetTextTransaction> transaction =
+    CreateTxnForSetText(aString, aCharData);
+  if (NS_WARN_IF(!transaction)) {
+    return NS_ERROR_FAILURE;
+  }
+
+  uint32_t length = aCharData.Length();
+
+  AutoRules beginRulesSniffing(this, EditAction::setText,
+                               nsIEditor::eNext);
+
+  // Let listeners know what's up
+  {
+    AutoActionListenerArray listeners(mActionListeners);
+    for (auto& listener : listeners) {
+      if (length) {
+        listener->WillDeleteText(
+          static_cast<nsIDOMCharacterData*>(aCharData.AsDOMNode()), 0,
+          length);
+      }
+      if (!aString.IsEmpty()) {
+        listener->WillInsertText(
+          static_cast<nsIDOMCharacterData*>(aCharData.AsDOMNode()), 0,
+          aString);
+      }
+    }
+  }
+
+  nsresult rv = DoTransaction(transaction);
+
+  // Let listeners know what happened
+  {
+    AutoActionListenerArray listeners(mActionListeners);
+    for (auto& listener : listeners) {
+      if (length) {
+        listener->DidDeleteText(
+          static_cast<nsIDOMCharacterData*>(aCharData.AsDOMNode()), 0,
+          length, rv);
+      }
+      if (!aString.IsEmpty()) {
+        listener->DidInsertText(
+          static_cast<nsIDOMCharacterData*>(aCharData.AsDOMNode()), 0,
+          aString, rv);
+      }
+    }
+  }
+
+  return rv;
+}
+
 already_AddRefed<InsertTextTransaction>
 EditorBase::CreateTxnForInsertText(const nsAString& aStringToInsert,
                                    Text& aTextNode,
@@ -2656,6 +2709,15 @@ EditorBase::CreateTxnForInsertText(const nsAString& aStringToInsert,
   RefPtr<InsertTextTransaction> transaction =
     new InsertTextTransaction(aTextNode, aOffset, aStringToInsert, *this,
                               &mRangeUpdater);
+  return transaction.forget();
+}
+
+already_AddRefed<SetTextTransaction>
+EditorBase::CreateTxnForSetText(const nsAString& aString,
+                                Text& aTextNode)
+{
+  RefPtr<SetTextTransaction> transaction =
+    new SetTextTransaction(aTextNode, aString, *this, &mRangeUpdater);
   return transaction.forget();
 }
 

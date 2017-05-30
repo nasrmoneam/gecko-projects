@@ -867,7 +867,11 @@ nsGlobalWindow::ExecuteIdleRequest(TimeStamp aDeadline)
   mIdleRequestExecutor->MaybeUpdateIdlePeriodLimit();
   nsresult result = RunIdleRequest(request, deadline, false);
 
-  mIdleRequestExecutor->MaybeDispatch();
+  // Running the idle callback could've suspended the window, in which
+  // case mIdleRequestExecutor will be null.
+  if (mIdleRequestExecutor) {
+    mIdleRequestExecutor->MaybeDispatch();
+  }
   return result;
 }
 
@@ -9651,8 +9655,7 @@ public:
                                                                   : js::NukeWindowReferences);
         } else {
           // We only want to nuke wrappers for the chrome->content case
-          js::NukeCrossCompartmentWrappers(cx, BrowserCompartmentMatcher(),
-                                           js::SingleCompartment(cpt),
+          js::NukeCrossCompartmentWrappers(cx, BrowserCompartmentMatcher(), cpt,
                                            win->IsInnerWindow() ? js::DontNukeWindowReferences
                                                                 : js::NukeWindowReferences,
                                            js::NukeIncomingReferences);

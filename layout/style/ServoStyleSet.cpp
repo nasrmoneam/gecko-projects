@@ -25,6 +25,7 @@
 #include "nsSMILAnimationController.h"
 #include "nsStyleContext.h"
 #include "nsStyleSet.h"
+#include "gfxUserFontSet.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -43,6 +44,7 @@ ServoStyleSet::ServoStyleSet()
   , mAllowResolveStaleStyles(false)
   , mAuthorStyleDisabled(false)
   , mStylistState(StylistState::NotDirty)
+  , mUserFontSetUpdateGeneration(0)
   , mNeedsRestyleAfterEnsureUniqueInner(false)
 {
 }
@@ -128,10 +130,8 @@ ServoStyleSet::Shutdown()
 void
 ServoStyleSet::InvalidateStyleForCSSRuleChanges()
 {
-  if (Element* root = mPresContext->Document()->GetRootElement()) {
-    mPresContext->RestyleManager()->PostRestyleEventForCSSRuleChanges(
-        root, eRestyle_Subtree, nsChangeHint(0));
-  }
+  MOZ_ASSERT(StylistNeedsUpdate());
+  mPresContext->RestyleManager()->AsServo()->PostRestyleEventForCSSRuleChanges();
 }
 
 size_t
@@ -165,17 +165,7 @@ ServoStyleSet::SetAuthorStyleDisabled(bool aStyleDisabled)
   }
 
   mAuthorStyleDisabled = aStyleDisabled;
-
-  // If we've just disabled, we have to note the stylesheets have changed and
-  // call flush directly, since the PresShell won't.
-  if (mAuthorStyleDisabled) {
-    NoteStyleSheetsChanged();
-  }
-  // If we've just enabled, then PresShell will trigger the notification and
-  // later flush when the stylesheet objects are enabled in JS.
-  //
-  // TODO(emilio): Users can have JS disabled, can't they? Will that affect that
-  // notification on content documents?
+  ForceAllStyleDirty();
 
   return NS_OK;
 }
@@ -322,7 +312,13 @@ ServoStyleSet::PreTraverseSync()
   mPresContext->Document()->GetDocumentState();
 
   // Ensure that the @font-face data is not stale
-  mPresContext->Document()->GetUserFontSet();
+  if (gfxUserFontSet* userFontSet = mPresContext->Document()->GetUserFontSet()) {
+    uint64_t generation = userFontSet->GetGeneration();
+    if (generation != mUserFontSetUpdateGeneration) {
+      mPresContext->DeviceContext()->UpdateFontCacheUserFonts(userFontSet);
+      mUserFontSetUpdateGeneration = generation;
+    }
+  }
 
   UpdateStylistIfNeeded();
   mPresContext->CacheAllLangs();
@@ -967,10 +963,31 @@ ServoStyleSet::StyleSubtreeForReconstruct(Element* aRoot)
 }
 
 void
-ServoStyleSet::NoteStyleSheetsChanged()
+ServoStyleSet::ForceAllStyleDirty()
 {
   SetStylistStyleSheetsDirty();
   Servo_StyleSet_NoteStyleSheetsChanged(mRawSet.get(), mAuthorStyleDisabled);
+}
+
+void
+ServoStyleSet::RecordStyleSheetChange(
+    ServoStyleSheet* aSheet,
+    StyleSheet::ChangeType aChangeType)
+{
+  SetStylistStyleSheetsDirty();
+  switch (aChangeType) {
+    case StyleSheet::ChangeType::RuleAdded:
+    case StyleSheet::ChangeType::RuleRemoved:
+    case StyleSheet::ChangeType::RuleChanged:
+      // FIXME(emilio): We can presumably do better in a bunch of these.
+      return ForceAllStyleDirty();
+    case StyleSheet::ChangeType::ApplicableStateChanged:
+    case StyleSheet::ChangeType::Added:
+    case StyleSheet::ChangeType::Removed:
+      // Do nothing, we've already recorded the change in the
+      // Append/Remove/Replace methods, etc, and will act consequently.
+      return;
+  }
 }
 
 #ifdef DEBUG
@@ -1189,7 +1206,8 @@ ServoStyleSet::UpdateStylist()
   if (mStylistState == StylistState::FullyDirty) {
     RebuildData();
   } else {
-    Servo_StyleSet_FlushStyleSheets(mRawSet.get());
+    Element* root = mPresContext->Document()->GetDocumentElement();
+    Servo_StyleSet_FlushStyleSheets(mRawSet.get(), root);
   }
   mStylistState = StylistState::NotDirty;
 }

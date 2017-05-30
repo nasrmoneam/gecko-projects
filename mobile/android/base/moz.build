@@ -367,7 +367,6 @@ gvjar = add_java_jar('gecko-view')
 gvjar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x
                   for x in [
     'AndroidGamepadManager.java',
-    'BaseGeckoInterface.java',
     'Clipboard.java',
     'ContextGetter.java',
     'CrashHandler.java',
@@ -461,6 +460,19 @@ gvjar.sources += [geckoview_thirdparty_source_dir + f for f in [
     'java/com/googlecode/eyesfree/braille/selfbraille/SelfBrailleClient.java',
     'java/com/googlecode/eyesfree/braille/selfbraille/WriteData.java',
 ]]
+
+if CONFIG['MOZ_ANDROID_HLS_SUPPORT']:
+    gvjar.sources += [geckoview_source_dir + 'java/org/mozilla/gecko/' + x for x in [
+        'media/GeckoAudioInfo.java',
+        'media/GeckoHlsAudioRenderer.java',
+        'media/GeckoHlsPlayer.java',
+        'media/GeckoHlsRendererBase.java',
+        'media/GeckoHlsSample.java',
+        'media/GeckoHlsVideoRenderer.java',
+        'media/GeckoVideoInfo.java',
+        'media/Utils.java',
+    ]]
+
 
 gvjar.extra_jars += [
     CONFIG['ANDROID_SUPPORT_ANNOTATIONS_JAR_LIB'],

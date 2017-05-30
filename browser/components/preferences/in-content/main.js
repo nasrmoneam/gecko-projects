@@ -96,16 +96,6 @@ var gMainPane = {
     });
     this.updateSuggestsCheckbox();
 
-    let processCountPref =
-      document.getElementById("dom.ipc.processCount");
-    processCountPref.addEventListener("change", () => {
-      this.updateDefaultPerformanceSettingsPref();
-    });
-    let accelerationPref =
-      document.getElementById("layers.acceleration.disabled");
-    accelerationPref.addEventListener("change", () => {
-      this.updateDefaultPerformanceSettingsPref();
-    });
     this.updateDefaultPerformanceSettingsPref();
 
     let defaultPerformancePref =
@@ -663,16 +653,8 @@ var gMainPane = {
     }
   },
 
-  /**
-   * When the user toggles the layers.acceleration.disabled pref,
-   * sync its new value to the gfx.direct2d.disabled pref too.
-   */
   updateHardwareAcceleration() {
-    if (AppConstants.platform == "win") {
-      var fromPref = document.getElementById("layers.acceleration.disabled");
-      var toPref = document.getElementById("gfx.direct2d.disabled");
-      toPref.value = fromPref.value;
-    }
+    // Placeholder for restart on change
   },
 
   // FONTS
