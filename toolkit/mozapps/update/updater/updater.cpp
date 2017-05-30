@@ -227,7 +227,7 @@ struct MARChannelStringTable {
 class UmaskContext
 {
 public:
-  UmaskContext(mode_t umaskToSet);
+  explicit UmaskContext(mode_t umaskToSet);
   ~UmaskContext();
 
 private:
@@ -236,12 +236,12 @@ private:
 
 UmaskContext::UmaskContext(mode_t umaskToSet)
 {
-  this->mPreviousUmask = umask(umaskToSet);
+  mPreviousUmask = umask(umaskToSet);
 }
 
 UmaskContext::~UmaskContext()
 {
-  umask(this->mPreviousUmask);
+  umask(mPreviousUmask);
 }
 
 #endif
