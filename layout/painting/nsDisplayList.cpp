@@ -3988,8 +3988,8 @@ nsDisplayImageContainer::ConfigureLayer(ImageLayer* aLayer,
                         : IntSize(imageWidth, imageHeight);
 
   const int32_t factor = mFrame->PresContext()->AppUnitsPerDevPixel();
-  const LayoutDeviceRect destRect =
-    LayoutDeviceRect::FromAppUnits(GetDestRect(), factor);
+  const LayoutDeviceRect destRect(
+    LayoutDeviceIntRect::FromAppUnitsToNearest(GetDestRect(), factor));
 
   const LayoutDevicePoint p = destRect.TopLeft();
   Matrix transform = Matrix::Translation(p.x, p.y);
@@ -4045,8 +4045,8 @@ nsDisplayImageContainer::CanOptimizeToImageLayer(LayerManager* aManager,
   }
 
   const int32_t factor = mFrame->PresContext()->AppUnitsPerDevPixel();
-  const LayoutDeviceRect destRect =
-    LayoutDeviceRect::FromAppUnits(GetDestRect(), factor);
+  const LayoutDeviceRect destRect(
+    LayoutDeviceIntRect::FromAppUnitsToNearest(GetDestRect(), factor));
 
   // Calculate the scaling factor for the frame.
   const gfxSize scale = gfxSize(destRect.width / imageWidth,
@@ -4056,6 +4056,14 @@ nsDisplayImageContainer::CanOptimizeToImageLayer(LayerManager* aManager,
     // This would look awful as long as we can't use high-quality downscaling
     // for image layers (bug 803703), so don't turn this into an image layer.
     return false;
+  }
+
+  if (mFrame->IsImageFrame()) {
+    // Image layer doesn't support draw focus ring for image map.
+    nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+    if (f->HasImageMap()) {
+      return false;
+    }
   }
 
   return true;
@@ -8382,7 +8390,7 @@ nsDisplayMask::BuildLayer(nsDisplayListBuilder* aBuilder,
   return container.forget();
 }
 
-void
+bool
 nsDisplayMask::PaintMask(nsDisplayListBuilder* aBuilder,
                          gfxContext* aMaskContext)
 {
@@ -8401,6 +8409,8 @@ nsDisplayMask::PaintMask(nsDisplayListBuilder* aBuilder,
   nsSVGIntegrationUtils::PaintMask(params);
 
   nsDisplayMaskGeometry::UpdateDrawResult(this, imgParmas.result);
+
+  return imgParmas.result == mozilla::image::DrawResult::SUCCESS;
 }
 
 LayerState

@@ -2357,10 +2357,14 @@
             var t = document.createElementNS(NS_XUL, "tab");
 
             aURI = aURI || "about:blank";
+            let aURIObject = null;
+            try {
+              aURIObject = Services.io.newURI(aURI);
+            } catch (ex) { /* we'll try to fix up this URL later */ }
 
             let lazyBrowserURI;
             if (aCreateLazyBrowser && aURI != "about:blank") {
-              lazyBrowserURI = Services.io.newURI(aURI);
+              lazyBrowserURI = aURIObject;
               aURI = "about:blank";
             }
 
@@ -2506,8 +2510,14 @@
             var evt = new CustomEvent("TabOpen", { bubbles: true, detail });
             t.dispatchEvent(evt);
 
-            if (!usingPreloadedContent && aOriginPrincipal) {
-              b.createAboutBlankContentViewer(aOriginPrincipal);
+            if (!usingPreloadedContent && aOriginPrincipal && aURI) {
+              let {URI_INHERITS_SECURITY_CONTEXT} = Ci.nsIProtocolHandler;
+              // Unless we know for sure we're not inheriting principals,
+              // force the about:blank viewer to have the right principal:
+              if (!aURIObject ||
+                  (Services.io.getProtocolFlags(aURIObject.scheme) & URI_INHERITS_SECURITY_CONTEXT)) {
+                b.createAboutBlankContentViewer(aOriginPrincipal);
+              }
             }
 
             // If we didn't swap docShells with a preloaded browser
@@ -6031,19 +6041,16 @@
       <field name="_closeButtonsUpdatePending">false</field>
       <method name="adjustTabstrip">
         <body><![CDATA[
+          // If we're overflowing, tabs are at their minimum widths.
+          if (this.getAttribute("overflow") == "true") {
+            this.setAttribute("closebuttons", "activetab");
+            return;
+          }
+
           if (this._closeButtonsUpdatePending) {
             return;
           }
           this._closeButtonsUpdatePending = true;
-
-          // If we're overflowing, tabs are at their minimum widths.
-          if (this.getAttribute("overflow") == "true") {
-            window.requestAnimationFrame(() => {
-              this._closeButtonsUpdatePending = false;
-              this.setAttribute("closebuttons", "activetab");
-            });
-            return;
-          }
 
           // Wait until after the next paint to get current layout data from
           // getBoundsWithoutFlushing.

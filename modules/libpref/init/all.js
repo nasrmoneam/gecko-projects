@@ -2919,11 +2919,7 @@ pref("layout.css.control-characters.visible", true);
 pref("layout.css.column-span.enabled", false);
 
 // Is effect of xml:base disabled for style attribute?
-#ifdef RELEASE_OR_BETA
-pref("layout.css.style-attr-with-xml-base.disabled", false);
-#else
 pref("layout.css.style-attr-with-xml-base.disabled", true);
-#endif
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
@@ -4654,7 +4650,7 @@ pref("network.tcp.keepalive.retry_interval", 1); // seconds
 pref("network.tcp.keepalive.probe_count", 4);
 #endif
 
-pref("network.tcp.tcp_fastopen_enable", false);
+pref("network.tcp.tcp_fastopen_enable", true);
 pref("network.tcp.tcp_fastopen_consecutive_failure_limit", 5);
 
 // Whether to disable acceleration for all widgets.
@@ -4847,7 +4843,7 @@ pref("layers.popups.compositing.enabled", false);
 
 // Report Site Issue button
 pref("extensions.webcompat-reporter.newIssueEndpoint", "https://webcompat.com/issues/new");
-#ifdef NIGHTLY_BUILD
+#ifndef RELEASE_OR_BETA
 pref("extensions.webcompat-reporter.enabled", true);
 #else
 pref("extensions.webcompat-reporter.enabled", false);

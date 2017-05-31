@@ -24,14 +24,6 @@
     "kind": "flag",
     "description": "has the IAccessibleTable accessibility interface been used"
   },
-  "A11Y_UPDATE_TIME": {
-    "record_in_processes": ["main", "content"],
-    "expires_in_version": "default",
-    "kind": "exponential",
-    "high": 10000,
-    "n_buckets": 50,
-    "description": "time spent updating accessibility (ms)"
-  },
   "ADDON_CONTENT_POLICY_SHIM_BLOCKING_LOADING_MS": {
     "record_in_processes": ["main", "content"],
     "expires_in_version": "58",
@@ -5820,6 +5812,16 @@
     "description": "Update: the application update doorhanger type that was displayed.",
     "labels": ["restart", "available", "manual"]
   },
+  "UPDATE_NOTIFICATION_BADGE_SHOWN": {
+    "record_in_processes": ["main"],
+    "alert_emails": ["application-update-telemetry-alerts@mozilla.com"],
+    "expires_in_version": "never",
+    "kind": "categorical",
+    "bug_numbers": [893505, 1365204],
+    "releaseChannelCollection": "opt-out",
+    "description": "Update: the application update badge type that was displayed.",
+    "labels": ["restart", "available", "manual"]
+  },
   "UPDATE_NOTIFICATION_DISMISSED": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["application-update-telemetry-alerts@mozilla.com"],
@@ -8350,6 +8352,15 @@
     "n_values": 50,
     "description": "Counts of the maximum number of shared memory buffers used for transferring video frames between the CDM and Gecko processes during playback of DRM'd video. Reported once per CDMVideoDecoder instance, i.e., once per JavaScript SourceBuffer during playback of video using EME."
   },
+  "MEDIA_EME_REQUEST_DEPRECATED_WARNINGS": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["cpearce@mozilla.com"],
+    "bug_numbers": [1368596],
+    "expires_in_version": "60",
+    "kind": "enumerated",
+    "n_values": 10,
+    "description": "Counts types of deprecation warnings logged on every successful call to navigator.requestMediaKeySystemAccess(). 0=No warnings logged, 1=MediaEMENoCapabilitiesDeprecatedWarning, 2=MediaEMENoCodecsDeprecatedWarning."
+  },
   "MEDIACACHE_WATERMARK_KB": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["gsquelart@mozilla.com"],
@@ -10792,6 +10803,14 @@
     "kind": "enumerated",
     "n_values": 20,
     "description": "Methods invoked under window.crypto.subtle (0=encrypt, 1=decrypt, 2=sign, 3=verify, 4=digest, 5=generateKey, 6=deriveKey, 7=deriveBits, 8=importKey, 9=exportKey, 10=wrapKey, 11=unwrapKey)"
+  },
+  "WEBCRYPTO_METHOD_SECURE": {
+    "alert_emails": ["seceng-telemetry@mozilla.com"],
+    "record_in_processes": ["main", "content"],
+    "expires_in_version": "60",
+    "kind": "boolean",
+    "bug_numbers": [1333140],
+    "description": "Whether a method invoked under window.crypto.subtle is in a secure context"
   },
   "WEBCRYPTO_ALG": {
     "record_in_processes": ["main", "content"],
@@ -13253,5 +13272,16 @@
     "high": 60000,
     "n_buckets": 100,
     "description": "The amount of time it takes to load a WebExtensions background page, from when the build function is called to when the page has finished processing the onload event."
+  },
+  "WEBEXT_EXTENSION_STARTUP_MS": {
+    "record_in_processes": ["main"],
+    "alert_emails": ["addons-dev-internal@mozilla.com"],
+    "bug_numbers": [1353171],
+    "expires_in_version": "60",
+    "kind": "exponential",
+    "releaseChannelCollection": "opt-out",
+    "high": 50000,
+    "n_buckets": 100,
+    "description": "The amount of time it takes for a WebExtension to start up, from when the startup function is called to when the startup promise resolves."
   }
 }
