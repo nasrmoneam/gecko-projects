@@ -171,39 +171,6 @@ crc32(const unsigned char *buf, unsigned int len)
 
 //-----------------------------------------------------------------------------
 
-// A simple stack based container for a FILE struct that closes the
-// file descriptor from its destructor.
-class AutoFile
-{
-public:
-  explicit AutoFile(FILE* file = nullptr)
-    : mFile(file) {
-  }
-
-  ~AutoFile() {
-    if (mFile != nullptr)
-      fclose(mFile);
-  }
-
-  AutoFile &operator=(FILE* file) {
-    if (mFile != 0)
-      fclose(mFile);
-    mFile = file;
-    return *this;
-  }
-
-  operator FILE*() {
-    return mFile;
-  }
-
-  FILE* get() {
-    return mFile;
-  }
-
-private:
-  FILE* mFile;
-};
-
 struct MARChannelStringTable {
   MARChannelStringTable()
   {
@@ -646,32 +613,6 @@ static FILE* ensure_open(const NS_tchar *path, const NS_tchar *flags, unsigned i
     return nullptr;
   }
   return f;
-}
-
-// Ensure that the directory containing this file exists.
-static int ensure_parent_dir(const NS_tchar *path)
-{
-  int rv = OK;
-
-  NS_tchar *slash = (NS_tchar *) NS_tstrrchr(path, NS_T('/'));
-  if (slash) {
-    *slash = NS_T('\0');
-    rv = ensure_parent_dir(path);
-    // Only attempt to create the directory if we're not at the root
-    if (rv == OK && *path) {
-      rv = NS_tmkdir(path, 0755);
-      // If the directory already exists, then ignore the error.
-      if (rv < 0 && errno != EEXIST) {
-        LOG(("ensure_parent_dir: failed to create directory: " LOG_S ", " \
-             "err: %d", path, errno));
-        rv = WRITE_ERROR;
-      } else {
-        rv = OK;
-      }
-    }
-    *slash = NS_T('/');
-  }
-  return rv;
 }
 
 #ifdef XP_UNIX
