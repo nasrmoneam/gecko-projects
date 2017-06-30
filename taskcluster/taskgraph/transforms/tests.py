@@ -35,8 +35,6 @@ from voluptuous import (
 
 import copy
 import logging
-import requests
-from collections import defaultdict
 
 # default worker types keyed by instance-size
 LINUX_WORKER_TYPES = {
@@ -53,7 +51,10 @@ WINDOWS_WORKER_TYPES = {
     'windows10-64-vm': 'aws-provisioner-v1/gecko-t-win10-64',
     'windows10-64': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
     'windows10-64-asan': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
-    'macosx64': 'scl3-puppet/os-x-10-10-gw'
+}
+
+MACOSX_WORKER_TYPES = {
+    'macosx64': 'releng-hardware/gecko-t-osx-1010',
 }
 
 logger = logging.getLogger(__name__)
@@ -375,13 +376,7 @@ def set_target(config, tests):
     for test in tests:
         build_platform = test['build-platform']
         if build_platform.startswith('macosx'):
-            if build_platform.split('/')[1] == 'opt':
-                target = 'firefox-{}.en-US.{}.dmg'.format(
-                    get_firefox_version(),
-                    'mac',
-                )
-            else:
-                target = 'target.dmg'
+            target = 'target.dmg'
         elif build_platform.startswith('android'):
             if 'geckoview' in test['test-name']:
                 target = 'geckoview_example.apk'
@@ -439,6 +434,10 @@ def set_tier(config, tests):
                                          'linux64-pgo/opt',
                                          'linux64-devedition/opt',
                                          'linux64-asan/opt',
+                                         'windows7-32/debug',
+                                         'windows7-32-vm/debug',
+                                         'macosx64/opt',
+                                         'macosx64/debug',
                                          'android-4.3-arm7-api-15/opt',
                                          'android-4.3-arm7-api-15/debug',
                                          'android-4.2-x86/opt']:
@@ -509,9 +508,19 @@ def enable_code_coverage(config, tests):
             test['mozharness'].setdefault('extra-options', []).append('--code-coverage')
             test['when'] = {}
             test['instance-size'] = 'xlarge'
-            test['run-on-projects'] = []
+            test['run-on-projects'] = ['mozilla-central']
+
+            if test['test-name'].startswith('talos'):
+                test['max-run-time'] = 7200
+                test['mozharness']['config'] = ['talos/linux64_config_taskcluster.py']
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--cycles,1')
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--tppagecycles,1')
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--no-upload-results')
         elif test['build-platform'] == 'linux64-jsdcov/opt':
-            test['run-on-projects'] = []
+            test['run-on-projects'] = ['mozilla-central']
         yield test
 
 
@@ -698,14 +707,14 @@ def set_worker_type(config, tests):
         test_platform = test['test-platform']
         if test_platform.startswith('macosx'):
             # note that some portion of these will be allocated to BBB below
-            test['worker-type'] = 'tc-worker-provisioner/gecko-t-osx-10-10'
+            test['worker-type'] = MACOSX_WORKER_TYPES['macosx64']
         elif test_platform.startswith('win'):
             if test.get('suite', '') == 'talos':
                 test['worker-type'] = 'buildbot-bridge/buildbot-bridge'
             else:
                 test['worker-type'] = WINDOWS_WORKER_TYPES[test_platform.split('/')[0]]
         elif test_platform.startswith('linux') or test_platform.startswith('android'):
-            if test.get('suite', '') == 'talos':
+            if test.get('suite', '') == 'talos' and test['build-platform'] != 'linux64-ccov/opt':
                 if config.config['args'].taskcluster_worker:
                     test['worker-type'] = 'releng-hardware/gecko-t-linux-talos'
                 else:
@@ -716,33 +725,6 @@ def set_worker_type(config, tests):
             raise Exception("unknown test_platform {}".format(test_platform))
 
         yield test
-
-
-@transforms.add
-def allocate_to_bbb(config, tests):
-    """Make the load balancing between taskcluster and buildbot"""
-    j = get_load_balacing_settings()
-
-    tests_set = defaultdict(list)
-    for test in tests:
-        tests_set[test['test-platform']].append(test)
-
-    # Make the load balancing between taskcluster and buildbot
-    for test_platform, t in tests_set.iteritems():
-        # We sort the list to make the order of the tasks deterministic
-        t.sort(key=lambda x: (x['test-name'], x.get('this_chunk', 1)))
-        # The json file tells the percentage of tasks that run on
-        # taskcluster. The logic here is inverted, as tasks have been
-        # previously assigned to taskcluster. Therefore we assign the
-        # 1-p tasks to buildbot-bridge.
-        n = j.get(test_platform, 1.0)
-        if not (test_platform.startswith('mac')
-                and config.config['args'].taskcluster_worker):
-            for i in range(int(n * len(t)), len(t)):
-                t[i]['worker-type'] = 'buildbot-bridge/buildbot-bridge'
-
-        for y in t:
-            yield y
 
 
 @transforms.add
@@ -833,11 +815,3 @@ def normpath(path):
 def get_firefox_version():
     with open('browser/config/version.txt', 'r') as f:
         return f.readline().strip()
-
-
-def get_load_balacing_settings():
-    url = "https://s3.amazonaws.com/taskcluster-graph-scheduling/tests-load.json"
-    try:
-        return requests.get(url).json()
-    except Exception:
-        return {}

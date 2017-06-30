@@ -122,7 +122,8 @@ class HandoffRunnable : public mozilla::Runnable
 {
 public:
   explicit HandoffRunnable(ICallFrame* aCallFrame, IUnknown* aTargetInterface)
-    : mCallFrame(aCallFrame)
+    : Runnable("HandoffRunnable")
+    , mCallFrame(aCallFrame)
     , mTargetInterface(aTargetInterface)
     , mResult(E_UNEXPECTED)
   {
@@ -221,7 +222,8 @@ MainThreadHandoff::Release()
       // main thread right now, so we send a reference to ourselves to the main
       // thread to be re-released there.
       RefPtr<MainThreadHandoff> self = this;
-      NS_ReleaseOnMainThread(self.forget());
+      NS_ReleaseOnMainThread(
+        "MainThreadHandoff", self.forget());
     }
   }
   return newRefCnt;
@@ -453,6 +455,7 @@ MainThreadHandoff::GetHandler(NotNull<CLSID*> aHandlerClsid)
   if (!mHandlerProvider) {
     return E_NOTIMPL;
   }
+
   return mHandlerProvider->GetHandler(aHandlerClsid);
 }
 
@@ -505,7 +508,10 @@ MainThreadHandoff::OnWalkInterface(REFIID aIid, PVOID* aInterface,
 
   // First make sure that aInterface isn't a proxy - we don't want to wrap
   // those.
-  MOZ_ASSERT(!IsProxy(origInterface.get()));
+  if (IsProxy(origInterface.get())) {
+    *aInterface = origInterface.release();
+    return S_OK;
+  }
 
   RefPtr<IInterceptor> interceptor;
   HRESULT hr = mInterceptor->Resolve(IID_IInterceptor,
@@ -543,7 +549,7 @@ MainThreadHandoff::OnWalkInterface(REFIID aIid, PVOID* aInterface,
       };
 
       MainThreadInvoker invoker;
-      invoker.Invoke(NS_NewRunnableFunction(checkFn));
+      invoker.Invoke(NS_NewRunnableFunction("MainThreadHandoff::OnWalkInterface", checkFn));
     }
 
     if (areTargetsEqual) {

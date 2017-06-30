@@ -61,7 +61,13 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
             "dest": "enable_webrender",
             "default": False,
             "help": "Tries to enable the WebRender compositor."}
-         ]
+         ],
+        [["--parallel-stylo-traversal"], {
+            "action": "store_true",
+            "dest": "parallel_stylo_traversal",
+            "default": False,
+            "help": "Forcibly enable parallel traversal in Stylo with STYLO_THREADS=4"}
+         ],
     ] + copy.deepcopy(testing_config_options) + \
         copy.deepcopy(blobupload_config_options) + \
         copy.deepcopy(code_coverage_config_options)
@@ -73,7 +79,6 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
                 'clobber',
                 'read-buildbot-config',
                 'download-and-extract',
-                'fetch-geckodriver',
                 'create-virtualenv',
                 'pull',
                 'install',
@@ -90,7 +95,6 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
         self.installer_path = c.get('installer_path')
         self.binary_path = c.get('binary_path')
         self.abs_app_dir = None
-        self.geckodriver_path = None
 
     def query_abs_app_dir(self):
         """We can't set this in advance, because OSX install directories
@@ -111,6 +115,7 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
         dirs = {}
         dirs['abs_app_install_dir'] = os.path.join(abs_dirs['abs_work_dir'], 'application')
         dirs['abs_test_install_dir'] = os.path.join(abs_dirs['abs_work_dir'], 'tests')
+        dirs['abs_test_bin_dir'] = os.path.join(dirs['abs_test_install_dir'], 'bin')
         dirs["abs_wpttest_dir"] = os.path.join(dirs['abs_test_install_dir'], "web-platform")
         dirs['abs_blob_upload_dir'] = os.path.join(abs_dirs['abs_work_dir'], 'blobber_upload_dir')
 
@@ -165,14 +170,20 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
         if not c["e10s"]:
             cmd.append("--disable-e10s")
 
+        if c["parallel_stylo_traversal"]:
+            cmd.append("--stylo-threads=4")
+
         for opt in ["total_chunks", "this_chunk"]:
             val = c.get(opt)
             if val:
                 cmd.append("--%s=%s" % (opt.replace("_", "-"), val))
 
         if "wdspec" in c.get("test_type", []):
-            assert self.geckodriver_path is not None
-            cmd.append("--webdriver-binary=%s" % self.geckodriver_path)
+            geckodriver_path = os.path.join(dirs["abs_test_bin_dir"], "geckodriver")
+            if not os.path.isfile(geckodriver_path):
+                self.fatal("Unable to find geckodriver binary "
+                           "in common test package: %s" % geckodriver_path)
+            cmd.append("--webdriver-binary=%s" % geckodriver_path)
 
         options = list(c.get("options", []))
 
@@ -196,54 +207,35 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
 
     def download_and_extract(self):
         super(WebPlatformTest, self).download_and_extract(
-            extract_dirs=["bin/*",
+            extract_dirs=["mach",
+                          "bin/*",
                           "config/*",
                           "mozbase/*",
                           "marionette/*",
-                          "tools/wptserve/*",
+                          "tools/*",
                           "web-platform/*"],
             suite_categories=["web-platform"])
 
-    def fetch_geckodriver(self):
-        c = self.config
+    def _install_fonts(self):
+        # Ensure the Ahem font is available
         dirs = self.query_abs_dirs()
 
-        platform_name = self.platform_name()
-
-        if "wdspec" not in c.get("test_type", []):
-            return
-
-        if platform_name != "linux64":
-            self.fatal("Don't have a geckodriver for %s" % platform_name)
-
-        tooltool_path = os.path.join(dirs["abs_test_install_dir"],
-                                     "config",
-                                     "tooltool-manifests",
-                                     TOOLTOOL_PLATFORM_DIR[platform_name],
-                                     "geckodriver.manifest")
-
-        with open(tooltool_path) as f:
-            manifest = json.load(f)
-
-        assert len(manifest) == 1
-        geckodriver_filename = manifest[0]["filename"]
-        assert geckodriver_filename.endswith(".tar.gz")
-
-        self.tooltool_fetch(
-            manifest=tooltool_path,
-            output_dir=dirs['abs_work_dir'],
-            cache=c.get('tooltool_cache')
-        )
-
-        compressed_path = os.path.join(dirs['abs_work_dir'], geckodriver_filename)
-        tar = self.query_exe('tar', return_type="list")
-        self.run_command(tar + ["xf", compressed_path], cwd=dirs['abs_work_dir'],
-                         halt_on_failure=True, fatal_exit_code=3)
-        self.geckodriver_path = os.path.join(dirs['abs_work_dir'], "geckodriver")
+        if not sys.platform.startswith("darwin"):
+            font_path = os.path.join(os.path.dirname(self.binary_path), "fonts")
+        else:
+            font_path = os.path.join(os.path.dirname(self.binary_path), os.pardir, "Resources", "res", "fonts")
+        if not os.path.exists(font_path):
+            os.makedirs(font_path)
+        ahem_src = os.path.join(dirs["abs_wpttest_dir"], "tests", "fonts", "Ahem.ttf")
+        ahem_dest = os.path.join(font_path, "Ahem.ttf")
+        with open(ahem_src) as src, open(ahem_dest, "w") as dest:
+            dest.write(src.read())
 
     def run_tests(self):
         dirs = self.query_abs_dirs()
         cmd = self._query_cmd()
+
+        self._install_fonts()
 
         parser = StructuredOutputParser(config=self.config,
                                         log_obj=self.log_obj,
@@ -257,6 +249,8 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
             env['MOZ_LAYERS_ALLOW_SOFTWARE_GL'] = '1'
         if self.config['enable_webrender']:
             env['MOZ_WEBRENDER'] = '1'
+
+        env['STYLO_THREADS'] = '4' if self.config['parallel_stylo_traversal'] else '1'
 
         env = self.query_env(partial_env=env, log_level=INFO)
 

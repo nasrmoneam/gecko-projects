@@ -206,15 +206,11 @@ var Settings = {
     {
       pref: PREF_FHR_UPLOAD_ENABLED,
       defaultPrefValue: false,
-      descriptionEnabledId: "description-upload-enabled",
-      descriptionDisabledId: "description-upload-disabled",
     },
     // extended "Telemetry" recording
     {
       pref: PREF_TELEMETRY_ENABLED,
       defaultPrefValue: false,
-      descriptionEnabledId: "description-extended-recording-enabled",
-      descriptionDisabledId: "description-extended-recording-disabled",
     },
   ],
 
@@ -236,12 +232,12 @@ var Settings = {
         } else {
           // Show the data choices preferences on desktop.
           let mainWindow = getMainWindowWithPreferencesPane();
-          // The advanced subpanes are only supported in the old organization, which will
-          // be removed by bug 1349689.
+          // The advanced subpanes are only supported in the old organization,
+          // which will be removed by bug 1349689.
           if (Preferences.get("browser.preferences.useOldOrganization")) {
             mainWindow.openAdvancedPreferences("dataChoicesTab", {origin: "aboutTelemetry"});
           } else {
-            mainWindow.openPreferences("paneAdvanced", {origin: "aboutTelemetry"});
+            mainWindow.openPreferences("privacy-reports", {origin: "aboutTelemetry"});
           }
         }
       });
@@ -254,28 +250,33 @@ var Settings = {
     }
   },
 
+  getStatusStringForSetting(setting) {
+    let enabled = Preferences.get(setting.pref, setting.defaultPrefValue);
+    let status = bundle.GetStringFromName(enabled ? "telemetryEnabled" : "telemetryDisabled");
+    return status;
+  },
+
   /**
    * Updates the button & text at the top of the page to reflect Telemetry state.
    */
   render() {
-    for (let setting of this.SETTINGS) {
-      let enabledElement = document.getElementById(setting.descriptionEnabledId);
-      let disabledElement = document.getElementById(setting.descriptionDisabledId);
+    let homeExplanation = document.getElementById("home-explanation");
+    let fhrEnabled = this.getStatusStringForSetting(this.SETTINGS[0]);
+    let extendedEnabled = this.getStatusStringForSetting(this.SETTINGS[1]);
+    let parameters = [fhrEnabled, extendedEnabled].map(this.convertStringToLink);
 
-      if (Preferences.get(setting.pref, setting.defaultPrefValue)) {
-        enabledElement.classList.remove("hidden");
-        disabledElement.classList.add("hidden");
-      } else {
-        enabledElement.classList.add("hidden");
-        disabledElement.classList.remove("hidden");
-      }
-    }
-  }
+    let explanation = bundle.formatStringFromName("homeExplanation", parameters, 2);
+    homeExplanation.innerHTML = explanation;
+    this.attachObservers()
+  },
+
+  convertStringToLink(string) {
+    return "<a href=\"\" class=\"change-data-choices-link\">" + string + "</a>";
+  },
 };
 
 var PingPicker = {
   viewCurrentPingData: null,
-  viewStructuredPingData: null,
   _archivedPings: null,
 
   attachObservers() {
@@ -327,13 +328,21 @@ var PingPicker = {
     this.update();
   },
 
+  render() {
+    let pings = bundle.GetStringFromName("pingExplanationLink");
+    let pingLink = "<a href=\"http://gecko.readthedocs.io/en/latest/toolkit/components/telemetry/telemetry/concepts/pings.html\">&quot;" + pings + "&quot;</a>";
+    let pingName = "<span class=\"change-ping\">" + this._getSelectedPingName() + "</span>";
+
+    let explanation = bundle.formatStringFromName("pingExplanation", [pingLink, pingName], 2);
+    let pingExplanation = document.getElementById("ping-explanation");
+    pingExplanation.innerHTML = explanation;
+    GenericSubsection.deleteAllSubSections();
+  },
+
   async update() {
     let viewCurrent = document.getElementById("ping-source-current").checked;
-    let viewStructured = document.getElementById("ping-source-structured").checked;
     let currentChanged = viewCurrent !== this.viewCurrentPingData;
-    let structuredChanged = viewStructured !== this.viewStructuredPingData;
     this.viewCurrentPingData = viewCurrent;
-    this.viewStructuredPingData = viewStructured;
 
     // If we have no archived pings, disable the ping archive selection.
     // This can happen on new profiles or if the ping archive is disabled.
@@ -343,21 +352,13 @@ var PingPicker = {
 
     if (currentChanged) {
       if (this.viewCurrentPingData) {
-        document.getElementById("current-ping-picker").classList.remove("hidden");
-        document.getElementById("archived-ping-picker").classList.add("hidden");
+        document.getElementById("current-ping-picker").hidden = false;
+        document.getElementById("archived-ping-picker").hidden = true;
         this._updateCurrentPingData();
       } else {
-        document.getElementById("current-ping-picker").classList.add("hidden");
+        document.getElementById("current-ping-picker").hidden = true;
         await this._updateArchivedPingList(archivedPingList);
-        document.getElementById("archived-ping-picker").classList.remove("hidden");
-      }
-    }
-
-    if (structuredChanged) {
-      if (this.viewStructuredPingData) {
-        this._showStructuredPingData();
-      } else {
-        this._showRawPingData();
+        document.getElementById("archived-ping-picker").hidden = false;
       }
     }
   },
@@ -463,6 +464,14 @@ var PingPicker = {
     }
   },
 
+  _getSelectedPingName() {
+    if (this.viewCurrentPingData) return "current";
+
+    let pingSelector = document.getElementById("choose-ping-id");
+    let selected = pingSelector.selectedOptions.item(0);
+    return selected.textContent;
+  },
+
   _getSelectedPingId() {
     let pingSelector = document.getElementById("choose-ping-id");
     let selected = pingSelector.selectedOptions.item(0);
@@ -486,13 +495,11 @@ var PingPicker = {
   },
 
   _showRawPingData() {
-    document.getElementById("raw-ping-data-section").classList.remove("hidden");
-    document.getElementById("structured-ping-data-section").classList.add("hidden");
+    show(document.getElementById("category-raw"));
   },
 
   _showStructuredPingData() {
-    document.getElementById("raw-ping-data-section").classList.add("hidden");
-    document.getElementById("structured-ping-data-section").classList.remove("hidden");
+    show(document.getElementById("category-home"));
   },
 };
 
@@ -502,46 +509,20 @@ var GeneralData = {
    */
   render(aPing) {
     setHasData("general-data-section", true);
-    let table = document.createElement("table");
+    let generalDataSection = document.getElementById("general-data");
+    removeAllChildNodes(generalDataSection);
 
-    let caption = document.createElement("caption");
-    let captionString = bundle.GetStringFromName("generalDataTitle");
-    caption.appendChild(document.createTextNode(captionString + "\n"));
-    table.appendChild(caption);
-
-    let headings = document.createElement("tr");
-    this.appendColumn(headings, "th", bundle.GetStringFromName("generalDataHeadingName") + "\t");
-    this.appendColumn(headings, "th", bundle.GetStringFromName("generalDataHeadingValue") + "\t");
-    table.appendChild(headings);
+    const headings = [
+      "namesHeader",
+      "valuesHeader",
+    ].map(h => bundle.GetStringFromName(h));
 
     // The payload & environment parts are handled by other renderers.
     let ignoreSections = ["payload", "environment"];
     let data = explodeObject(filterObject(aPing, ignoreSections));
 
-    for (let [path, value] of data) {
-        let row = document.createElement("tr");
-        this.appendColumn(row, "td", path + "\t");
-        this.appendColumn(row, "td", value + "\t");
-        table.appendChild(row);
-    }
-
-    let dataDiv = document.getElementById("general-data");
-    removeAllChildNodes(dataDiv);
-    dataDiv.appendChild(table);
-  },
-
-  /**
-   * Helper function for appending a column to the data table.
-   *
-   * @param aRowElement Parent row element
-   * @param aColType Column's tag name
-   * @param aColText Column contents
-   */
-  appendColumn(aRowElement, aColType, aColText) {
-    let colElement = document.createElement(aColType);
-    let colTextElement = document.createTextNode(aColText);
-    colElement.appendChild(colTextElement);
-    aRowElement.appendChild(colElement);
+    const table = GenericTable.render(data, headings);
+    generalDataSection.appendChild(table);
   },
 };
 
@@ -558,71 +539,14 @@ var EnvironmentData = {
       return;
     }
 
-    let data = sectionalizeObject(ping.environment);
-
-    for (let [section, sectionData] of data) {
-      if (section == "addons") {
-        break;
-      }
-
-      let table = document.createElement("table");
-      this.appendHeading(table);
-
-      for (let [path, value] of sectionData) {
-        let row = document.createElement("tr");
-        this.appendColumn(row, "td", path);
-        this.appendColumn(row, "td", value);
-        table.appendChild(row);
-      }
-
-      let hasData = sectionData.size > 0;
-      this.createSubsection(section, hasData, table, dataDiv);
-    }
+    let ignore = ["addons"];
+    let env = filterObject(ping.environment, ignore);
+    let sections = sectionalizeObject(env);
+    GenericSubsection.render(sections, dataDiv, "environment-data-section");
 
     // We use specialized rendering here to make the addon and plugin listings
     // more readable.
     this.createAddonSection(dataDiv, ping);
-  },
-
-  createSubsection(title, hasSubdata, subSectionData, dataDiv) {
-    let dataSection = document.createElement("section");
-    dataSection.classList.add("data-subsection");
-
-    if (hasSubdata) {
-      dataSection.classList.add("has-subdata");
-    }
-
-    // Create section heading
-    let sectionName = document.createElement("h2");
-    sectionName.setAttribute("class", "section-name");
-    sectionName.appendChild(document.createTextNode(title));
-    sectionName.addEventListener("click", toggleSection);
-
-    // Create caption for toggling the subsection visibility.
-    let toggleCaption = document.createElement("span");
-    toggleCaption.setAttribute("class", "toggle-caption");
-    let toggleText = bundle.GetStringFromName("environmentDataSubsectionToggle");
-    toggleCaption.appendChild(document.createTextNode(" " + toggleText));
-    toggleCaption.addEventListener("click", toggleSection);
-
-    // Create caption for empty subsections.
-    let emptyCaption = document.createElement("span");
-    emptyCaption.setAttribute("class", "empty-caption");
-    let emptyText = bundle.GetStringFromName("environmentDataSubsectionEmpty");
-    emptyCaption.appendChild(document.createTextNode(" " + emptyText));
-
-    // Create data container
-    let data = document.createElement("div");
-    data.setAttribute("class", "subsection-data subdata");
-    data.appendChild(subSectionData);
-
-    // Append elements
-    dataSection.appendChild(sectionName);
-    dataSection.appendChild(toggleCaption);
-    dataSection.appendChild(emptyCaption);
-    dataSection.appendChild(data);
-
-    dataDiv.appendChild(dataSection);
   },
 
   renderPersona(addonObj, addonSection, sectionTitle) {
@@ -671,27 +595,14 @@ var EnvironmentData = {
 
   renderKeyValueObject(addonObj, addonSection, sectionTitle) {
     let data = explodeObject(addonObj);
-    let table = document.createElement("table");
+    let table = GenericTable.render(data);
     table.setAttribute("class", sectionTitle);
     this.appendAddonSubsectionTitle(sectionTitle, table);
-    this.appendHeading(table);
-
-    for (let [key, value] of data) {
-      this.appendRow(table, key, value);
-    }
-
     addonSection.appendChild(table);
   },
 
   appendAddonID(table, addonID) {
     this.appendRow(table, "id", addonID);
-  },
-
-  appendHeading(table) {
-    let headings = document.createElement("tr");
-    this.appendColumn(headings, "th", bundle.GetStringFromName("environmentDataHeadingName"));
-    this.appendColumn(headings, "th", bundle.GetStringFromName("environmentDataHeadingValue"));
-    table.appendChild(headings);
   },
 
   appendHeadingName(table, name) {
@@ -710,6 +621,7 @@ var EnvironmentData = {
 
   createAddonSection(dataDiv, ping) {
     let addonSection = document.createElement("div");
+    addonSection.setAttribute("class", "subsection-data subdata");
     let addons = ping.environment.addons;
     this.renderAddonsObject(addons.activeAddons, addonSection, "activeAddons");
     this.renderActivePlugins(addons.activePlugins, addonSection, "activePlugins");
@@ -719,7 +631,9 @@ var EnvironmentData = {
     this.renderPersona(addons, addonSection, "persona");
 
     let hasAddonData = Object.keys(ping.environment.addons).length > 0;
-    this.createSubsection("addons", hasAddonData, addonSection, dataDiv);
+    let s = GenericSubsection.renderSubsectionHeader("addons", hasAddonData, "environment-data-section");
+    s.appendChild(addonSection);
+    dataDiv.appendChild(s);
   },
 
   appendRow(table, id, value) {
@@ -836,7 +750,7 @@ var SlowSQL = {
 
     setHasData("slow-sql-section", true);
     if (debugSlowSql) {
-      document.getElementById("sql-warning").classList.remove("hidden");
+      document.getElementById("sql-warning").hidden = false;
     }
 
     let slowSqlDiv = document.getElementById("slow-sql-tables");
@@ -962,11 +876,11 @@ var StackRenderer = {
 
     let fetchE = document.getElementById(aPrefix + "-fetch-symbols");
     if (fetchE) {
-      fetchE.classList.remove("hidden");
+      fetchE.hidden = false;
     }
     let hideE = document.getElementById(aPrefix + "-hide-symbols");
     if (hideE) {
-      hideE.classList.add("hidden");
+      hideE.hidden = true;
     }
 
     if (aStacks.length == 0) {
@@ -1010,8 +924,8 @@ var RawPayload = {
    * Renders the raw payload
    */
   render(aPing) {
-    setHasData("raw-payload-section", true);
-    let pre = document.getElementById("raw-payload-data-pre");
+    setHasData("raw-ping-data-section", true);
+    let pre = document.getElementById("raw-ping-data");
     pre.textContent = JSON.stringify(aPing.payload, null, 2);
   }
 };
@@ -1034,9 +948,9 @@ function SymbolicationRequest_handleSymbolResponse() {
     return;
 
   let fetchElement = document.getElementById(this.prefix + "-fetch-symbols");
-  fetchElement.classList.add("hidden");
+  fetchElement.hidden = true;
   let hideElement = document.getElementById(this.prefix + "-hide-symbols");
-  hideElement.classList.remove("hidden");
+  hideElement.hidden = false;
   let div = document.getElementById(this.prefix + "-data");
   removeAllChildNodes(div);
   let errorMessage = bundle.GetStringFromName("errorFetchingSymbols");
@@ -1470,80 +1384,79 @@ function RenderObject(aObject) {
   return output + "}";
 }
 
-var KeyValueTable = {
-  /**
-   * Returns a 2-column table with keys and values
-   * @param aMeasurements Each key in this JS object is rendered as a row in
-   *                      the table with its corresponding value
-   * @param aKeysLabel    Column header for the keys column
-   * @param aValuesLabel  Column header for the values column
-   */
-  render: function KeyValueTable_render(aMeasurements, aKeysLabel, aValuesLabel) {
-    let table = document.createElement("table");
-    this.renderHeader(table, aKeysLabel, aValuesLabel);
-    this.renderBody(table, aMeasurements);
-    return table;
+var GenericSubsection = {
+
+  addSubSectionToSidebar(id, title) {
+    let category = document.querySelector("#categories > [value=" + id + "]");
+    category.classList.add("has-subsection");
+    let subCategory = document.createElement("div");
+    subCategory.classList.add("category-subsection");
+    subCategory.setAttribute("value", id + "-" + title);
+    subCategory.addEventListener("click", (ev) => {
+      let section = ev.target;
+      showSubSection(section);
+    });
+    subCategory.appendChild(document.createTextNode(title))
+    category.appendChild(subCategory);
   },
 
-  /**
-   * Create the table header
-   * Tabs & newlines added to cells to make it easier to copy-paste.
-   *
-   * @param aTable Table element
-   * @param aKeysLabel    Column header for the keys column
-   * @param aValuesLabel  Column header for the values column
-   */
-  renderHeader: function KeyValueTable_renderHeader(aTable, aKeysLabel, aValuesLabel) {
-    let headerRow = document.createElement("tr");
-    aTable.appendChild(headerRow);
-
-    let keysColumn = document.createElement("th");
-    keysColumn.appendChild(document.createTextNode(aKeysLabel + "\t"));
-    let valuesColumn = document.createElement("th");
-    valuesColumn.appendChild(document.createTextNode(aValuesLabel + "\n"));
-
-    headerRow.appendChild(keysColumn);
-    headerRow.appendChild(valuesColumn);
-  },
-
-  /**
-   * Create the table body
-   * Tabs & newlines added to cells to make it easier to copy-paste.
-   *
-   * @param aTable Table element
-   * @param aMeasurements Key/value map
-   */
-  renderBody: function KeyValueTable_renderBody(aTable, aMeasurements) {
-    for (let [key, value] of Object.entries(aMeasurements)) {
-      // use .valueOf() to unbox Number, String, etc. objects
-      if (value &&
-         (typeof value == "object") &&
-         (typeof value.valueOf() == "object")) {
-        value = RenderObject(value);
-      }
-
-      let newRow = document.createElement("tr");
-      aTable.appendChild(newRow);
-
-      let keyField = document.createElement("td");
-      keyField.appendChild(document.createTextNode(key + "\t"));
-      newRow.appendChild(keyField);
-
-      let valueField = document.createElement("td");
-      valueField.appendChild(document.createTextNode(value + "\n"));
-      newRow.appendChild(valueField);
+  render(data, dataDiv, sectionID) {
+    for (let [title, sectionData] of data) {
+      let hasData = sectionData.size > 0;
+      let s = this.renderSubsectionHeader(title, hasData, sectionID);
+      s.appendChild(this.renderSubsectionData(title, sectionData));
+      dataDiv.appendChild(s);
     }
-  }
-};
+  },
+
+  renderSubsectionHeader(title, hasData, sectionID) {
+    this.addSubSectionToSidebar(sectionID, title);
+    let section = document.createElement("section");
+    section.setAttribute("id", sectionID + "-" + title);
+    section.classList.add("data-subsection", "expanded");
+    if (hasData) {
+      section.classList.add("has-subdata");
+    }
+    return section;
+  },
+
+  renderSubsectionData(title, data) {
+    // Create data container
+    let dataDiv = document.createElement("div");
+    dataDiv.setAttribute("class", "subsection-data subdata");
+    // Instanciate the data
+    let table = GenericTable.render(data);
+    let caption = document.createElement("caption");
+    caption.textContent = title;
+    table.appendChild(caption);
+    dataDiv.appendChild(table);
+
+    return dataDiv;
+  },
+
+  deleteAllSubSections() {
+    let subsections = document.querySelectorAll(".category-subsection");
+    subsections.forEach((el) => {
+      el.parentElement.removeChild(el);
+    })
+  },
+
+}
 
 var GenericTable = {
+
+  defaultHeadings: [
+    bundle.GetStringFromName("keysHeader"),
+    bundle.GetStringFromName("valuesHeader")
+  ],
+
   /**
    * Returns a n-column table.
    * @param rows An array of arrays, each containing data to render
    *             for one row.
    * @param headings The column header strings.
    */
-  render(rows, headings) {
+  render(rows, headings = this.defaultHeadings) {
     let table = document.createElement("table");
     this.renderHeader(table, headings);
     this.renderBody(table, rows);
@@ -1599,7 +1512,7 @@ var GenericTable = {
         newRow.appendChild(field);
       }
     }
-  }
+  },
 };
 
 var KeyedHistogram = {
@@ -1645,11 +1558,13 @@ var AddonDetails = {
       let titleText = bundle.formatStringFromName("addonProvider", [provider], 1);
       providerSection.appendChild(document.createTextNode(titleText));
       addonSection.appendChild(providerSection);
-      addonSection.appendChild(
-        KeyValueTable.render(addonDetails[provider],
-                             this.tableIDTitle, this.tableDetailsTitle));
+
+      let headingStrings = [this.tableIDTitle, this.tableDetailsTitle ]
+      let table = GenericTable.render(explodeObject(addonDetails[provider]),
+                                      headingStrings);
+      addonSection.appendChild(table);
     }
-  }
+  },
 };
 
 var Scalars = {
@@ -1677,11 +1592,13 @@ var Scalars = {
       return;
     }
 
-    const headingName = bundle.GetStringFromName("namesHeader");
-    const headingValue = bundle.GetStringFromName("valuesHeader");
-    const table = KeyValueTable.render(scalars, headingName, headingValue);
+    const headings = [
+      "namesHeader",
+      "valuesHeader",
+    ].map(h => bundle.GetStringFromName(h));
+    const table = GenericTable.render(explodeObject(scalars), headings);
     scalarsSection.appendChild(table);
-  }
+  },
 };
 
 var KeyedScalars = {
@@ -1709,18 +1626,20 @@ var KeyedScalars = {
       return;
     }
 
-    const headingName = bundle.GetStringFromName("namesHeader");
-    const headingValue = bundle.GetStringFromName("valuesHeader");
+    const headings = [
+      "namesHeader",
+      "valuesHeader",
+    ].map(h => bundle.GetStringFromName(h));
     for (let scalar in keyedScalars) {
       // Add the name of the scalar.
       let scalarNameSection = document.createElement("h2");
       scalarNameSection.appendChild(document.createTextNode(scalar));
       scalarsSection.appendChild(scalarNameSection);
       // Populate the section with the key-value pairs from the scalar.
-      const table = KeyValueTable.render(keyedScalars[scalar], headingName, headingValue);
+      const table = GenericTable.render(explodeObject(keyedScalars[scalar]), headings);
       scalarsSection.appendChild(table);
     }
-  }
+  },
 };
 
 var Events = {
@@ -1763,7 +1682,7 @@ var Events = {
 
     const table = GenericTable.render(events, headings);
     eventsSection.appendChild(table);
-  }
+  },
 };
 
 /**
@@ -1775,6 +1694,10 @@ var Events = {
 function setHasData(aSectionID, aHasData) {
   let sectionElement = document.getElementById(aSectionID);
   sectionElement.classList[aHasData ? "add" : "remove"]("has-data");
+
+  // Display or Hide the section in the sidebar
+  let sectionCategory = document.querySelector(".category[value=" + aSectionID + "]");
+  sectionCategory.classList[aHasData ? "add" : "remove"]("has-data");
 }
 
 /**
@@ -1811,11 +1734,58 @@ function setupPageHeader() {
 }
 
 /**
+ * Change the section displayed
+ */
+function show(selected) {
+  let current_button = document.querySelector(".category.selected");
+  current_button.classList.remove("selected");
+  selected.classList.add("selected");
+  // Hack because subsection text appear selected. See Bug 1375114.
+  document.getSelection().empty();
+
+  let current_section = document.querySelector(".active");
+  let selected_section = document.getElementById(selected.getAttribute("value"));
+  if (current_section == selected_section)
+    return;
+  current_section.classList.remove("active");
+  current_section.hidden = true;
+  selected_section.classList.add("active");
+  selected_section.hidden = false;
+
+  let title = selected.querySelector(".category-name").textContent;
+  document.getElementById("sectionTitle").textContent = title;
+}
+
+function showSubSection(selected) {
+  let current_selection = document.querySelector(".category-subsection.selected");
+  if (current_selection)
+    current_selection.classList.remove("selected");
+  selected.classList.add("selected");
+
+  let section = document.getElementById(selected.getAttribute("value"));
+  section.parentElement.childNodes.forEach((element) => {
+    element.classList.remove("expanded");
+  }, this);
+  section.classList.add("expanded");
+
+  let title = selected.parentElement.querySelector(".category-name").textContent;
+  document.getElementById("sectionTitle").textContent = title + " - " + selected.textContent;
+  document.getSelection().empty(); // prevent subsection text selection
+}
+
+/**
  * Initializes load/unload, pref change and mouse-click listeners
  */
 function setupListeners() {
   Settings.attachObservers();
   PingPicker.attachObservers();
+
+  let menu = document.getElementById("categories");
+  menu.addEventListener("click", (e) => {
+    if (e.target && e.target.parentNode == menu) {
+      show(e.target)
+    }
+  });
 
   // Clean up observers when page is closed
   window.addEventListener("unload",
@@ -1943,52 +1913,156 @@ var LateWritesSingleton = {
     let memoryMap = lateWrites.memoryMap;
     StackRenderer.renderStacks("late-writes", stacks, memoryMap,
                                LateWritesSingleton.renderHeader);
-  }
+  },
 };
 
-/**
- * Helper function for sorting the startup milestones in the Simple Measurements
- * section into temporal order.
- *
- * @param aSimpleMeasurements Telemetry ping's "Simple Measurements" data
- * @return Sorted measurements
- */
-function sortStartupMilestones(aSimpleMeasurements) {
-  const telemetryTimestamps = TelemetryTimestamps.get();
-  let startupEvents = Services.startup.getStartupInfo();
-  delete startupEvents["process"];
+var HistogramSection = {
+  render(aPayload) {
+    let hgramDiv = document.getElementById("histograms");
+    removeAllChildNodes(hgramDiv);
 
-  function keyIsMilestone(k) {
-    return (k in startupEvents) || (k in telemetryTimestamps);
-  }
+    let histograms = aPayload.histograms;
 
-  let sortedKeys = Object.keys(aSimpleMeasurements);
+    let hgramsSelect = document.getElementById("histograms-processes");
+    let hgramsOption = hgramsSelect.selectedOptions.item(0);
+    let hgramsProcess = hgramsOption.getAttribute("value");
+    // "parent" histograms/keyedHistograms aren't under "parent". Fix that up.
+    if (hgramsProcess === "parent") {
+      hgramsProcess = "";
+    }
+    if (hgramsProcess &&
+        "processes" in aPayload &&
+        hgramsProcess in aPayload.processes) {
+      histograms = aPayload.processes[hgramsProcess].histograms;
+    }
 
-  // Sort the measurements, with startup milestones at the front + ordered by time
-  sortedKeys.sort(function keyCompare(keyA, keyB) {
-    let isKeyAMilestone = keyIsMilestone(keyA);
-    let isKeyBMilestone = keyIsMilestone(keyB);
+    let hasData = Object.keys(histograms).length > 0;
+    setHasData("histograms-section", hasData || hgramsSelect.options.length);
 
-    // First order by startup vs non-startup measurement
-    if (isKeyAMilestone && !isKeyBMilestone)
-      return -1;
-    if (!isKeyAMilestone && isKeyBMilestone)
-      return 1;
-    // Don't change order of non-startup measurements
-    if (!isKeyAMilestone && !isKeyBMilestone)
-      return 0;
+    if (hasData) {
+      for (let [name, hgram] of Object.entries(histograms)) {
+        Histogram.render(hgramDiv, name, hgram, {unpacked: true});
+      }
 
-    // If both keys are startup measurements, order them by value
-    return aSimpleMeasurements[keyA] - aSimpleMeasurements[keyB];
-  });
+      let filterBox = document.getElementById("histograms-filter");
+      filterBox.addEventListener("input", Histogram.histogramFilterChanged);
+      if (filterBox.value.trim() != "") { // on load, no need to filter if empty
+        Histogram.filterHistograms(hgramDiv, filterBox.value);
+      }
 
-  // Insert measurements into a result object in sort-order
-  let result = {};
-  for (let key of sortedKeys) {
-    result[key] = aSimpleMeasurements[key];
-  }
+      setHasData("histograms-section", true);
+    }
+  },
+}
 
-  return result;
+var KeyedHistogramSection = {
+  render(aPayload) {
+    let keyedDiv = document.getElementById("keyed-histograms");
+    removeAllChildNodes(keyedDiv);
+
+    let keyedHistograms = aPayload.keyedHistograms;
+
+    let keyedHgramsSelect = document.getElementById("keyed-histograms-processes");
+    let keyedHgramsOption = keyedHgramsSelect.selectedOptions.item(0);
+    let keyedHgramsProcess = keyedHgramsOption.getAttribute("value");
+    // "parent" histograms/keyedHistograms aren't under "parent". Fix that up.
+    if (keyedHgramsProcess === "parent") {
+      keyedHgramsProcess = "";
+    }
+    if (keyedHgramsProcess &&
+        "processes" in aPayload &&
+        keyedHgramsProcess in aPayload.processes) {
+      keyedHistograms = aPayload.processes[keyedHgramsProcess].keyedHistograms;
+    }
+
+    setHasData("keyed-histograms-section", keyedHgramsSelect.options.length);
+    if (keyedHistograms) {
+      let hasData = false;
+      for (let [id, keyed] of Object.entries(keyedHistograms)) {
+        if (Object.keys(keyed).length > 0) {
+          hasData = true;
+          KeyedHistogram.render(keyedDiv, id, keyed, {unpacked: true});
+        }
+      }
+      setHasData("keyed-histograms-section", hasData || keyedHgramsSelect.options.length);
+    }
+  },
+}
+
+var SessionInformation = {
+  render(aPayload) {
+    let infoSection = document.getElementById("session-info");
+    removeAllChildNodes(infoSection);
+
+    let hasData = Object.keys(aPayload.info).length > 0;
+    setHasData("session-info-section", hasData);
+
+    if (hasData) {
+      const table = GenericTable.render(explodeObject(aPayload.info));
+      infoSection.appendChild(table);
+    }
+  },
+}
+
+var SimpleMeasurements = {
+  render(aPayload) {
+    let simpleSection = document.getElementById("simple-measurements");
+    removeAllChildNodes(simpleSection);
+
+    let simpleMeasurements = this.sortStartupMilestones(aPayload.simpleMeasurements);
+    let hasData = Object.keys(simpleMeasurements).length > 0;
+    setHasData("simple-measurements-section", hasData);
+
+    if (hasData) {
+      const table = GenericTable.render(explodeObject(simpleMeasurements));
+      simpleSection.appendChild(table);
+    }
+  },
+
+  /**
+   * Helper function for sorting the startup milestones in the Simple Measurements
+   * section into temporal order.
+   *
+   * @param aSimpleMeasurements Telemetry ping's "Simple Measurements" data
+   * @return Sorted measurements
+   */
+  sortStartupMilestones(aSimpleMeasurements) {
+    const telemetryTimestamps = TelemetryTimestamps.get();
+    let startupEvents = Services.startup.getStartupInfo();
+    delete startupEvents["process"];
+
+    function keyIsMilestone(k) {
+      return (k in startupEvents) || (k in telemetryTimestamps);
+    }
+
+    let sortedKeys = Object.keys(aSimpleMeasurements);
+
+    // Sort the measurements, with startup milestones at the front + ordered by time
+    sortedKeys.sort(function keyCompare(keyA, keyB) {
+      let isKeyAMilestone = keyIsMilestone(keyA);
+      let isKeyBMilestone = keyIsMilestone(keyB);
+
+      // First order by startup vs non-startup measurement
+      if (isKeyAMilestone && !isKeyBMilestone)
+        return -1;
+      if (!isKeyAMilestone && isKeyBMilestone)
+        return 1;
+      // Don't change order of non-startup measurements
+      if (!isKeyAMilestone && !isKeyBMilestone)
+        return 0;
+
+      // If both keys are startup measurements, order them by value
+      return aSimpleMeasurements[keyA] - aSimpleMeasurements[keyB];
+    });
+
+    // Insert measurements into a result object in sort-order
+    let result = {};
+    for (let key of sortedKeys) {
+      result[key] = aSimpleMeasurements[key];
+    }
+
+    return result;
+  },
 }
 
 function renderProcessList(ping, selectEl) {
@@ -2050,28 +2124,20 @@ function renderPayloadList(ping) {
   }
 }
 
-function toggleElementHidden(element, isHidden) {
-  if (isHidden) {
-    element.classList.add("hidden");
-  } else {
-    element.classList.remove("hidden");
-  }
-}
-
 function togglePingSections(isMainPing) {
   // We always show the sections that are "common" to all pings.
-  // The raw payload section is only used for pings other than "main" and "saved-session".
-  let commonSections = new Set(["general-data-section", "environment-data-section"]);
-  let otherPingSections = new Set(["raw-payload-section"]);
+  let commonSections = new Set(["heading",
+                                "home",
+                                "general-data-section",
+                                "environment-data-section",
+                                "raw-ping-data-section"]);
 
-  let elements = document.getElementById("structured-ping-data-section").children;
+  let elements = document.querySelectorAll(".category");
   for (let section of elements) {
-    if (commonSections.has(section.id)) {
+    if (commonSections.has(section.getAttribute("value"))) {
       continue;
     }
-
-    let showElement = isMainPing != otherPingSections.has(section.id);
-    toggleElementHidden(section, !showElement);
+    section.classList.toggle("has-data", isMainPing);
   }
 }
 
@@ -2079,21 +2145,18 @@ function displayPingData(ping, updatePayloadList = false) {
   gPingData = ping;
 
   // Render raw ping data.
-  let pre = document.getElementById("raw-ping-data");
-  pre.textContent = JSON.stringify(gPingData, null, 2);
+  RawPayload.render(ping);
 
   try {
+    PingPicker.render();
     displayRichPingData(ping, updatePayloadList);
   } catch (err) {
+    console.log(err);
     PingPicker._showRawPingData();
   }
 }
 
 function displayRichPingData(ping, updatePayloadList) {
-  // Update the structured data rendering.
-  const keysHeader = bundle.GetStringFromName("keysHeader");
-  const valuesHeader = bundle.GetStringFromName("valuesHeader");
-
   // Update the payload list and process lists
   if (updatePayloadList) {
     renderPayloadList(ping);
@@ -2116,7 +2179,6 @@ function displayRichPingData(ping, updatePayloadList) {
   togglePingSections(isMainPing);
 
   if (!isMainPing) {
-    RawPayload.render(ping);
     return;
   }
 
@@ -2149,120 +2211,25 @@ function displayRichPingData(ping, updatePayloadList) {
   CapturedStacks.render(payload);
 
   // Show simple measurements
-  let simpleMeasurements = sortStartupMilestones(payload.simpleMeasurements);
-  let hasData = Object.keys(simpleMeasurements).length > 0;
-  setHasData("simple-measurements-section", hasData);
-  let simpleSection = document.getElementById("simple-measurements");
-  removeAllChildNodes(simpleSection);
-
-  if (hasData) {
-    simpleSection.appendChild(KeyValueTable.render(simpleMeasurements,
-                                                   keysHeader, valuesHeader));
-  }
+  SimpleMeasurements.render(payload);
 
   LateWritesSingleton.renderLateWrites(payload.lateWrites);
 
   // Show basic session info gathered
-  hasData = Object.keys(ping.payload.info).length > 0;
-  setHasData("session-info-section", hasData);
-  let infoSection = document.getElementById("session-info");
-  removeAllChildNodes(infoSection);
-
-  if (hasData) {
-    infoSection.appendChild(KeyValueTable.render(ping.payload.info,
-                                                 keysHeader, valuesHeader));
-  }
+  SessionInformation.render(payload);
 
   // Show scalar data.
   Scalars.render(payload);
   KeyedScalars.render(payload);
 
   // Show histogram data
-  let hgramDiv = document.getElementById("histograms");
-  removeAllChildNodes(hgramDiv);
-
-  let histograms = payload.histograms;
-
-  let hgramsSelect = document.getElementById("histograms-processes");
-  let hgramsOption = hgramsSelect.selectedOptions.item(0);
-  let hgramsProcess = hgramsOption.getAttribute("value");
-  // "parent" histograms/keyedHistograms aren't under "parent". Fix that up.
-  if (hgramsProcess === "parent") {
-    hgramsProcess = "";
-  }
-  if (hgramsProcess &&
-      "processes" in ping.payload &&
-      hgramsProcess in ping.payload.processes) {
-    histograms = ping.payload.processes[hgramsProcess].histograms;
-  }
-
-  hasData = Object.keys(histograms).length > 0;
-  setHasData("histograms-section", hasData || hgramsSelect.options.length);
-
-  if (hasData) {
-    for (let [name, hgram] of Object.entries(histograms)) {
-      Histogram.render(hgramDiv, name, hgram, {unpacked: true});
-    }
-
-    let filterBox = document.getElementById("histograms-filter");
-    filterBox.addEventListener("input", Histogram.histogramFilterChanged);
-    if (filterBox.value.trim() != "") { // on load, no need to filter if empty
-      Histogram.filterHistograms(hgramDiv, filterBox.value);
-    }
-
-    setHasData("histograms-section", true);
-  }
+  HistogramSection.render(payload);
 
   // Show keyed histogram data
-  let keyedDiv = document.getElementById("keyed-histograms");
-  removeAllChildNodes(keyedDiv);
-
-  let keyedHistograms = payload.keyedHistograms;
-
-  let keyedHgramsSelect = document.getElementById("keyed-histograms-processes");
-  let keyedHgramsOption = keyedHgramsSelect.selectedOptions.item(0);
-  let keyedHgramsProcess = keyedHgramsOption.getAttribute("value");
-  // "parent" histograms/keyedHistograms aren't under "parent". Fix that up.
-  if (keyedHgramsProcess === "parent") {
-    keyedHgramsProcess = "";
-  }
-  if (keyedHgramsProcess &&
-      "processes" in ping.payload &&
-      keyedHgramsProcess in ping.payload.processes) {
-    keyedHistograms = ping.payload.processes[keyedHgramsProcess].keyedHistograms;
-  }
-
-  setHasData("keyed-histograms-section", keyedHgramsSelect.options.length);
-  if (keyedHistograms) {
-    let hasData = false;
-    for (let [id, keyed] of Object.entries(keyedHistograms)) {
-      if (Object.keys(keyed).length > 0) {
-        hasData = true;
-        KeyedHistogram.render(keyedDiv, id, keyed, {unpacked: true});
-      }
-    }
-    setHasData("keyed-histograms-section", hasData || keyedHgramsSelect.options.length);
-  }
+  KeyedHistogramSection.render(payload);
 
   // Show event data.
   Events.render(payload);
-
-  // Show addon histogram data
-  let addonDiv = document.getElementById("addon-histograms");
-  removeAllChildNodes(addonDiv);
-
-  let addonHistogramsRendered = false;
-  let addonData = payload.addonHistograms;
-  if (addonData) {
-    for (let [addon, histograms] of Object.entries(addonData)) {
-      for (let [name, hgram] of Object.entries(histograms)) {
-        addonHistogramsRendered = true;
-        Histogram.render(addonDiv, addon + ": " + name, hgram, {unpacked: true});
-      }
-    }
-  }
-
-  setHasData("addon-histograms-section", addonHistogramsRendered);
 }
 
 window.addEventListener("load", onLoad);

@@ -22,14 +22,13 @@ const INITIAL_STATE = {
     // The history (and possibly default) links
     rows: []
   },
-  Search: {
-    // The search engine currently set by the browser
-    currentEngine: {
-      name: "",
-      icon: ""
-    },
-    // All possible search engines
-    engines: []
+  Prefs: {
+    initialized: false,
+    values: {}
+  },
+  Dialog: {
+    visible: false,
+    data: {}
   }
 };
 
@@ -100,23 +99,34 @@ function TopSites(prevState = INITIAL_STATE.TopSites, action) {
   }
 }
 
-function Search(prevState = INITIAL_STATE.Search, action) {
+function Dialog(prevState = INITIAL_STATE.Dialog, action) {
   switch (action.type) {
-    case at.SEARCH_STATE_UPDATED: {
-      if (!action.data) {
-        return prevState;
-      }
-      let {currentEngine, engines} = action.data;
-      return Object.assign({}, prevState, {
-        currentEngine,
-        engines
-      });
-    }
+    case at.DIALOG_OPEN:
+      return Object.assign({}, prevState, {visible: true, data: action.data});
+    case at.DIALOG_CANCEL:
+      return Object.assign({}, prevState, {visible: false});
+    case at.DELETE_HISTORY_URL:
+      return Object.assign({}, INITIAL_STATE.Dialog);
     default:
       return prevState;
   }
 }
+
+function Prefs(prevState = INITIAL_STATE.Prefs, action) {
+  let newValues;
+  switch (action.type) {
+    case at.PREFS_INITIAL_VALUES:
+      return Object.assign({}, prevState, {initialized: true, values: action.data});
+    case at.PREF_CHANGED:
+      newValues = Object.assign({}, prevState.values);
+      newValues[action.data.name] = action.data.value;
+      return Object.assign({}, prevState, {values: newValues});
+    default:
+      return prevState;
+  }
+}
+
 this.INITIAL_STATE = INITIAL_STATE;
-this.reducers = {TopSites, App, Search};
+this.reducers = {TopSites, App, Prefs, Dialog};
 
 this.EXPORTED_SYMBOLS = ["reducers", "INITIAL_STATE"];

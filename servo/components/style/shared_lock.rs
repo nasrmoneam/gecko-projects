@@ -10,6 +10,8 @@ use atomic_refcell::{AtomicRefCell, AtomicRef, AtomicRefMut};
 use parking_lot::RwLock;
 use std::cell::UnsafeCell;
 use std::fmt;
+#[cfg(feature = "gecko")]
+use std::ptr;
 use stylearc::Arc;
 
 /// A shared read/write lock that can protect multiple objects.
@@ -154,7 +156,7 @@ impl<T> Locked<T> {
 
     #[cfg(feature = "gecko")]
     fn same_lock_as(&self, derefed_guard: &SomethingZeroSizedButTyped) -> bool {
-        ::ptr_eq(self.shared_lock.cell.as_ptr(), derefed_guard)
+        ptr::eq(self.shared_lock.cell.as_ptr(), derefed_guard)
     }
 
     /// Access the data for reading.
@@ -224,6 +226,17 @@ pub trait ToCssWithGuard {
         self.to_css(guard, &mut s).unwrap();
         s
     }
+}
+
+/// A trait to do a deep clone of a given CSS type. Gets a lock and a read
+/// guard, in order to be able to read and clone nested structures.
+pub trait DeepCloneWithLock : Sized {
+    /// Deep clones this object.
+    fn deep_clone_with_lock(
+        &self,
+        lock: &SharedRwLock,
+        guard: &SharedRwLockReadGuard
+    ) -> Self;
 }
 
 /// Guards for a document

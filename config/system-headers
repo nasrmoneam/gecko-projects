@@ -1,3 +1,4 @@
+atomic.h
 nspr.h
 plarena.h
 plarenas.h
@@ -1325,6 +1326,7 @@ unicode/ucol.h
 unicode/udat.h
 unicode/udatpg.h
 unicode/uenum.h
+unicode/unistr.h
 unicode/unorm.h
 unicode/unum.h
 unicode/upluralrules.h

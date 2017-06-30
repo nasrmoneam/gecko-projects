@@ -37,9 +37,6 @@ const Cr = Components.results;
 const Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
-Cu.import("resource://gre/modules/TelemetryStopwatch.jsm");
-Cu.import("resource://gre/modules/PrivateBrowsingUtils.jsm");
-Cu.import("resource://gre/modules/Promise.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "console",
   "resource://gre/modules/Console.jsm");
@@ -49,6 +46,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "StartupPerformance",
   "resource:///modules/sessionstore/StartupPerformance.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "CrashMonitor",
   "resource://gre/modules/CrashMonitor.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
+  "resource://gre/modules/PrivateBrowsingUtils.jsm");
 
 const STATE_RUNNING_STR = "running";
 
@@ -156,6 +155,16 @@ SessionStartup.prototype = {
       gOnceInitializedDeferred.resolve();
       return;
     }
+
+    let initialState = this._initialState;
+    Services.tm.idleDispatchToMainThread(() => {
+      let pinnedTabCount = initialState.windows.reduce((winAcc, win) => {
+        return winAcc + win.tabs.reduce((tabAcc, tab) => {
+          return tabAcc + (tab.pinned ? 1 : 0);
+        }, 0);
+      }, 0);
+      Services.telemetry.scalarSet("browser.engagement.restored_pinned_tabs_count", pinnedTabCount);
+    }, 60000);
 
     let shouldResumeSessionOnce = Services.prefs.getBoolPref("browser.sessionstore.resume_session_once");
     let shouldResumeSession = shouldResumeSessionOnce ||

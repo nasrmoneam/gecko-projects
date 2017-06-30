@@ -9,6 +9,7 @@ const { OS } = Cu.import("resource://gre/modules/osfile.jsm", {});
 const { Kinto } = Cu.import("resource://services-common/kinto-offline-client.js", {});
 const { FirefoxAdapter } = Cu.import("resource://services-common/kinto-storage-adapter.js", {});
 const BlocklistClients = Cu.import("resource://services-common/blocklist-clients.js", {});
+const { UptakeTelemetry } = Cu.import("resource://services-common/uptake-telemetry.js", {});
 
 const BinaryInputStream = CC("@mozilla.org/binaryinputstream;1",
   "nsIBinaryInputStream", "setInputStream");
@@ -35,13 +36,13 @@ function kintoCollection(collectionName, sqliteHandle) {
   return new Kinto(config).collection(collectionName);
 }
 
-function* readJSON(filepath) {
-  const binaryData = yield OS.File.read(filepath);
+async function readJSON(filepath) {
+  const binaryData = await OS.File.read(filepath);
   const textData = (new TextDecoder()).decode(binaryData);
   return Promise.resolve(JSON.parse(textData));
 }
 
-function* clear_state() {
+async function clear_state() {
   for (let {client} of gBlocklistClients) {
     // Remove last server times.
     Services.prefs.clearUserPref(client.lastCheckTimePref);
@@ -49,17 +50,17 @@ function* clear_state() {
     // Clear local DB.
     let sqliteHandle;
     try {
-      sqliteHandle = yield FirefoxAdapter.openConnection({path: kintoFilename});
+      sqliteHandle = await FirefoxAdapter.openConnection({path: kintoFilename});
       const collection = kintoCollection(client.collectionName, sqliteHandle);
-      yield collection.clear();
+      await collection.clear();
     } finally {
-      yield sqliteHandle.close();
+      await sqliteHandle.close();
     }
 
     // Remove JSON dumps folders in profile dir.
     const dumpFile = OS.Path.join(OS.Constants.Path.profileDir, client.filename);
     const folder = OS.Path.dirname(dumpFile);
-    yield OS.File.removeDir(folder, { ignoreAbsent: true });
+    await OS.File.removeDir(folder, { ignoreAbsent: true });
   }
 }
 
@@ -113,60 +114,60 @@ function run_test() {
   });
 }
 
-add_task(function* test_records_obtained_from_server_are_stored_in_db() {
+add_task(async function test_records_obtained_from_server_are_stored_in_db() {
   for (let {client} of gBlocklistClients) {
     // Test an empty db populates
-    yield client.maybeSync(2000, Date.now(), {loadDump: false});
+    await client.maybeSync(2000, Date.now(), {loadDump: false});
 
     // Open the collection, verify it's been populated:
     // Our test data has a single record; it should be in the local collection
-    const sqliteHandle = yield FirefoxAdapter.openConnection({path: kintoFilename});
+    const sqliteHandle = await FirefoxAdapter.openConnection({path: kintoFilename});
     let collection = kintoCollection(client.collectionName, sqliteHandle);
-    let list = yield collection.list();
+    let list = await collection.list();
     equal(list.data.length, 1);
-    yield sqliteHandle.close();
+    await sqliteHandle.close();
   }
 });
 add_task(clear_state);
 
-add_task(function* test_list_is_written_to_file_in_profile() {
+add_task(async function test_list_is_written_to_file_in_profile() {
   for (let {client, testData} of gBlocklistClients) {
     const filePath = OS.Path.join(OS.Constants.Path.profileDir, client.filename);
     const profFile = new FileUtils.File(filePath);
     strictEqual(profFile.exists(), false);
 
-    yield client.maybeSync(2000, Date.now(), {loadDump: false});
+    await client.maybeSync(2000, Date.now(), {loadDump: false});
 
     strictEqual(profFile.exists(), true);
-    const content = yield readJSON(profFile.path);
+    const content = await readJSON(profFile.path);
     equal(content.data[0].blockID, testData[testData.length - 1]);
   }
 });
 add_task(clear_state);
 
-add_task(function* test_current_server_time_is_saved_in_pref() {
+add_task(async function test_current_server_time_is_saved_in_pref() {
   for (let {client} of gBlocklistClients) {
     const serverTime = Date.now();
-    yield client.maybeSync(2000, serverTime);
+    await client.maybeSync(2000, serverTime);
     const after = Services.prefs.getIntPref(client.lastCheckTimePref);
     equal(after, Math.round(serverTime / 1000));
   }
 });
 add_task(clear_state);
 
-add_task(function* test_update_json_file_when_addons_has_changes() {
+add_task(async function test_update_json_file_when_addons_has_changes() {
   for (let {client, testData} of gBlocklistClients) {
-    yield client.maybeSync(2000, Date.now() - 1000, {loadDump: false});
+    await client.maybeSync(2000, Date.now() - 1000, {loadDump: false});
     const filePath = OS.Path.join(OS.Constants.Path.profileDir, client.filename);
     const profFile = new FileUtils.File(filePath);
     const fileLastModified = profFile.lastModifiedTime = profFile.lastModifiedTime - 1000;
     const serverTime = Date.now();
 
-    yield client.maybeSync(3001, serverTime);
+    await client.maybeSync(3001, serverTime);
 
     // File was updated.
     notEqual(fileLastModified, profFile.lastModifiedTime);
-    const content = yield readJSON(profFile.path);
+    const content = await readJSON(profFile.path);
     deepEqual(content.data.map((r) => r.blockID), testData);
     // Server time was updated.
     const after = Services.prefs.getIntPref(client.lastCheckTimePref);
@@ -175,9 +176,9 @@ add_task(function* test_update_json_file_when_addons_has_changes() {
 });
 add_task(clear_state);
 
-add_task(function* test_sends_reload_message_when_blocklist_has_changes() {
+add_task(async function test_sends_reload_message_when_blocklist_has_changes() {
   for (let {client} of gBlocklistClients) {
-    let received = yield new Promise((resolve, reject) => {
+    let received = await new Promise((resolve, reject) => {
       Services.ppmm.addMessageListener("Blocklist:reload-from-disk", {
         receiveMessage(aMsg) { resolve(aMsg) }
       });
@@ -190,26 +191,102 @@ add_task(function* test_sends_reload_message_when_blocklist_has_changes() {
 });
 add_task(clear_state);
 
-add_task(function* test_do_nothing_when_blocklist_is_up_to_date() {
+add_task(async function test_telemetry_reports_up_to_date() {
   for (let {client} of gBlocklistClients) {
-    yield client.maybeSync(2000, Date.now() - 1000, {loadDump: false});
+    await client.maybeSync(2000, Date.now() - 1000, {loadDump: false});
     const filePath = OS.Path.join(OS.Constants.Path.profileDir, client.filename);
     const profFile = new FileUtils.File(filePath);
     const fileLastModified = profFile.lastModifiedTime = profFile.lastModifiedTime - 1000;
     const serverTime = Date.now();
+    const startHistogram = getUptakeTelemetrySnapshot(client.identifier);
 
-    yield client.maybeSync(3000, serverTime);
+    await client.maybeSync(3000, serverTime);
 
     // File was not updated.
     equal(fileLastModified, profFile.lastModifiedTime);
     // Server time was updated.
     const after = Services.prefs.getIntPref(client.lastCheckTimePref);
     equal(after, Math.round(serverTime / 1000));
+    // No Telemetry was sent.
+    const endHistogram = getUptakeTelemetrySnapshot(client.identifier);
+    const expectedIncrements = {[UptakeTelemetry.STATUS.UP_TO_DATE]: 1};
+    checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
   }
 });
 add_task(clear_state);
 
+add_task(async function test_telemetry_if_sync_succeeds() {
+  // We test each client because Telemetry requires preleminary declarations.
+  for (let {client} of gBlocklistClients) {
+    const serverTime = Date.now();
+    const startHistogram = getUptakeTelemetrySnapshot(client.identifier);
 
+    await client.maybeSync(2000, serverTime, {loadDump: false});
+
+    const endHistogram = getUptakeTelemetrySnapshot(client.identifier);
+    const expectedIncrements = {[UptakeTelemetry.STATUS.SUCCESS]: 1};
+    checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
+  }
+});
+add_task(clear_state);
+
+add_task(async function test_telemetry_reports_if_application_fails() {
+  const {client} = gBlocklistClients[0];
+  const serverTime = Date.now();
+  const startHistogram = getUptakeTelemetrySnapshot(client.identifier);
+  const backup = client.processCallback;
+  client.processCallback = () => { throw new Error("boom"); };
+
+  try {
+    await client.maybeSync(2000, serverTime, {loadDump: false});
+  } catch (e) {}
+
+  client.processCallback = backup;
+
+  const endHistogram = getUptakeTelemetrySnapshot(client.identifier);
+  const expectedIncrements = {[UptakeTelemetry.STATUS.APPLY_ERROR]: 1};
+  checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
+});
+add_task(clear_state);
+
+add_task(async function test_telemetry_reports_if_sync_fails() {
+  const {client} = gBlocklistClients[0];
+  const serverTime = Date.now();
+
+  const sqliteHandle = await FirefoxAdapter.openConnection({path: kintoFilename});
+  const collection = kintoCollection(client.collectionName, sqliteHandle);
+  await collection.db.saveLastModified(9999);
+  await sqliteHandle.close();
+
+  const startHistogram = getUptakeTelemetrySnapshot(client.identifier);
+
+  try {
+    await client.maybeSync(10000, serverTime);
+  } catch (e) {}
+
+  const endHistogram = getUptakeTelemetrySnapshot(client.identifier);
+  const expectedIncrements = {[UptakeTelemetry.STATUS.SYNC_ERROR]: 1};
+  checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
+});
+add_task(clear_state);
+
+add_task(async function test_telemetry_reports_unknown_errors() {
+  const {client} = gBlocklistClients[0];
+  const serverTime = Date.now();
+  const backup = FirefoxAdapter.openConnection;
+  FirefoxAdapter.openConnection = () => { throw new Error("Internal"); };
+  const startHistogram = getUptakeTelemetrySnapshot(client.identifier);
+
+  try {
+    await client.maybeSync(2000, serverTime);
+  } catch (e) {}
+
+  FirefoxAdapter.openConnection = backup;
+  const endHistogram = getUptakeTelemetrySnapshot(client.identifier);
+  const expectedIncrements = {[UptakeTelemetry.STATUS.UNKNOWN_ERROR]: 1};
+  checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
+});
+add_task(clear_state);
 
 // get a response for a given request from sample data
 function getSampleResponse(req, port) {
@@ -406,6 +483,20 @@ function getSampleResponse(req, port) {
         "os": "Darwin 11",
         "featureStatus": "BLOCKED_DEVICE"
       }]})
+    },
+    "GET:/v1/buckets/blocklists/collections/addons/records?_sort=-last_modified&_since=9999": {
+      "sampleHeaders": [
+        "Access-Control-Allow-Origin: *",
+        "Access-Control-Expose-Headers: Retry-After, Content-Length, Alert, Backoff",
+        "Content-Type: application/json; charset=UTF-8",
+        "Server: waitress",
+      ],
+      "status": {status: 503, statusText: "Service Unavailable"},
+      "responseBody": JSON.stringify({
+        code: 503,
+        errno: 999,
+        error: "Service Unavailable",
+      })
     }
   };
   return responses[`${req.method}:${req.path}?${req.queryString}`] ||

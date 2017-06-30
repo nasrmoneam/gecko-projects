@@ -45,6 +45,7 @@
 namespace mozilla {
 namespace dom {
 
+using namespace mozilla::dom::indexedDB;
 using namespace mozilla::dom::quota;
 using namespace mozilla::ipc;
 
@@ -100,9 +101,6 @@ IDBFactory::IDBFactory()
   , mBackgroundActorFailed(false)
   , mPrivateBrowsingMode(false)
 {
-#ifdef DEBUG
-  mOwningThread = PR_GetCurrentThread();
-#endif
   AssertIsOnOwningThread();
 }
 
@@ -303,7 +301,7 @@ IDBFactory::CreateForJSInternal(JSContext* aCx,
   factory->mOwningObject = aOwningObject;
   mozilla::HoldJSObjects(factory.get());
   factory->mEventTarget = NS_IsMainThread() ?
-    SystemGroup::EventTargetFor(TaskCategory::Other) : NS_GetCurrentThread();
+    SystemGroup::EventTargetFor(TaskCategory::Other) : GetCurrentThreadEventTarget();
   factory->mInnerWindowID = aInnerWindowID;
 
   factory.forget(aFactory);
@@ -419,23 +417,23 @@ IDBFactory::AllowedForPrincipal(nsIPrincipal* aPrincipal,
   return true;
 }
 
-#ifdef DEBUG
+void
+IDBFactory::UpdateActiveTransactionCount(int32_t aDelta)
+{
+  AssertIsOnOwningThread();
+  if (mWindow) {
+    mWindow->UpdateActiveIndexedDBTransactionCount(aDelta);
+  }
+}
 
 void
-IDBFactory::AssertIsOnOwningThread() const
+IDBFactory::UpdateActiveDatabaseCount(int32_t aDelta)
 {
-  MOZ_ASSERT(mOwningThread);
-  MOZ_ASSERT(PR_GetCurrentThread() == mOwningThread);
+  AssertIsOnOwningThread();
+  if (mWindow) {
+    mWindow->UpdateActiveIndexedDBDatabaseCount(aDelta);
+  }
 }
-
-PRThread*
-IDBFactory::OwningThread() const
-{
-  MOZ_ASSERT(mOwningThread);
-  return mOwningThread;
-}
-
-#endif // DEBUG
 
 bool
 IDBFactory::IsChrome() const

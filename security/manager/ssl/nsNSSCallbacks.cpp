@@ -68,7 +68,8 @@ public:
 };
 
 nsHTTPDownloadEvent::nsHTTPDownloadEvent()
-:mResponsibleForDoneSignal(true)
+  : mozilla::Runnable("nsHTTPDownloadEvent")
+  , mResponsibleForDoneSignal(true)
 {
 }
 
@@ -196,6 +197,7 @@ nsHTTPDownloadEvent::Run()
 struct nsCancelHTTPDownloadEvent : Runnable {
   RefPtr<nsHTTPListener> mListener;
 
+  nsCancelHTTPDownloadEvent() : Runnable("nsCancelHTTPDownloadEvent") {}
   NS_IMETHOD Run() override {
     mListener->FreeLoadGroup(true);
     mListener = nullptr;
@@ -565,7 +567,7 @@ nsHTTPListener::~nsHTTPListener()
   }
 
   if (mLoader) {
-    NS_ReleaseOnMainThread(mLoader.forget());
+    NS_ReleaseOnMainThread("nsHTTPListener::mLoader", mLoader.forget());
   }
 }
 
@@ -1132,7 +1134,7 @@ DetermineEVAndCTStatusAndSetNewCert(RefPtr<nsSSLStatus> sslStatus,
     sctsFromTLSExtension,
     mozilla::pkix::Now(),
     infoObject,
-    infoObject->GetHostNameRaw(),
+    infoObject->GetHostName(),
     unusedBuiltChain,
     &peerCertChain,
     saveIntermediates,

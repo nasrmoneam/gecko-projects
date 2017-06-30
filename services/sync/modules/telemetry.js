@@ -26,6 +26,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "TelemetryController",
                               "resource://gre/modules/TelemetryController.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryUtils",
                                   "resource://gre/modules/TelemetryUtils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "TelemetryEnvironment",
+                                  "resource://gre/modules/TelemetryEnvironment.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
 
@@ -402,6 +404,22 @@ class TelemetryRecord {
   }
 }
 
+function cleanErrorMessage(error) {
+  // There's a chance the profiledir is in the error string which is PII we
+  // want to avoid including in the ping.
+  error = error.replace(reProfileDir, "[profileDir]");
+  // MSG_INVALID_URL from /dom/bindings/Errors.msg -- no way to access this
+  // directly from JS.
+  if (error.endsWith("is not a valid URL.")) {
+    error = "<URL> is not a valid URL.";
+  }
+  // Try to filter things that look somewhat like a URL (in that they contain a
+  // colon in the middle of non-whitespace), in case anything else is including
+  // these in error messages.
+  error = error.replace(/\S+:\S+/g, "<URL>");
+  return error;
+}
+
 class SyncTelemetryImpl {
   constructor(allowedEngines) {
     log.level = Log.Level[Svc.Prefs.get("log.logger.telemetry", "Trace")];
@@ -426,6 +444,7 @@ class SyncTelemetryImpl {
 
   getPingJSON(reason) {
     return {
+      os: TelemetryEnvironment.currentEnvironment["system"]["os"],
       why: reason,
       discarded: this.discarded || undefined,
       version: PING_FORMAT_VERSION,
@@ -666,9 +685,7 @@ class SyncTelemetryImpl {
         // This is hacky, but I can't imagine that it's not also accurate.
         return { name: "othererror", error };
       }
-      // There's a chance the profiledir is in the error string which is PII we
-      // want to avoid including in the ping.
-      error = error.replace(reProfileDir, "[profileDir]");
+      error = cleanErrorMessage(error);
       return { name: "unexpectederror", error };
     }
 
@@ -698,9 +715,8 @@ class SyncTelemetryImpl {
 
     return {
       name: "unexpectederror",
-      // as above, remove the profile dir value.
-      error: String(error).replace(reProfileDir, "[profileDir]")
-    }
+      error: cleanErrorMessage(String(error))
+    };
   }
 
 }

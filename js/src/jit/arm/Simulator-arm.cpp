@@ -1547,6 +1547,17 @@ Simulator::exclusiveMonitorClear()
     exclusiveMonitorHeld_ = false;
 }
 
+void
+Simulator::startInterrupt(WasmActivation* activation)
+{
+    JS::ProfilingFrameIterator::RegisterState state;
+    state.pc = (void*) get_pc();
+    state.fp = (void*) get_register(fp);
+    state.sp = (void*) get_register(sp);
+    state.lr = (void*) get_register(lr);
+    activation->startInterrupt(state);
+}
+
 // The signal handler only redirects the PC to the interrupt stub when the PC is
 // in function code. However, this guard is racy for the ARM simulator since the
 // signal handler samples PC in the middle of simulating an instruction and thus
@@ -1558,7 +1569,7 @@ Simulator::handleWasmInterrupt()
     void* pc = (void*)get_pc();
     uint8_t* fp = (uint8_t*)get_register(r11);
 
-    WasmActivation* activation = wasm::MaybeActiveActivation(cx_);
+    WasmActivation* activation = wasm::ActivationIfInnermost(cx_);
     const wasm::CodeSegment* segment;
     const wasm::Code* code = activation->compartment()->wasm.lookupCode(pc, &segment);
     if (!code || !segment->containsFunctionPC(pc))
@@ -1568,7 +1579,7 @@ Simulator::handleWasmInterrupt()
     if (!fp)
         return;
 
-    activation->startInterrupt(pc, fp);
+    startInterrupt(activation);
     set_pc(int32_t(segment->interruptCode()));
 }
 
@@ -1581,7 +1592,7 @@ Simulator::handleWasmInterrupt()
 bool
 Simulator::handleWasmFault(int32_t addr, unsigned numBytes)
 {
-    WasmActivation* act = wasm::MaybeActiveActivation(cx_);
+    WasmActivation* act = wasm::ActivationIfInnermost(cx_);
     if (!act)
         return false;
 
@@ -1594,7 +1605,7 @@ Simulator::handleWasmFault(int32_t addr, unsigned numBytes)
     const wasm::CodeSegment* segment;
     const wasm::MemoryAccess* memoryAccess = instance->code().lookupMemoryAccess(pc, &segment);
     if (!memoryAccess) {
-        act->startInterrupt(pc, fp);
+        startInterrupt(act);
         if (!instance->code().containsCodePC(pc, &segment))
             MOZ_CRASH("Cannot map PC to trap handler");
         set_pc(int32_t(segment->outOfBoundsCode()));
@@ -4782,6 +4793,19 @@ Simulator::disable_single_stepping()
     single_step_callback_arg_ = nullptr;
 }
 
+static void
+FakeInterruptHandler()
+{
+    JSContext* cx = TlsContext.get();
+    uint8_t* pc = cx->simulator()->get_pc_as<uint8_t*>();
+
+    const wasm::CodeSegment* cs = nullptr;
+    if (!wasm::InInterruptibleCode(cx, pc, &cs))
+        return;
+
+    cx->simulator()->trigger_wasm_interrupt();
+}
+
 template<bool EnableStopSimAt>
 void
 Simulator::execute()
@@ -4801,6 +4825,8 @@ Simulator::execute()
         } else {
             if (single_stepping_)
                 single_step_callback_(single_step_callback_arg_, this, (void*)program_counter);
+            if (MOZ_UNLIKELY(JitOptions.simulatorAlwaysInterrupt))
+                FakeInterruptHandler();
             SimInstruction* instr = reinterpret_cast<SimInstruction*>(program_counter);
             instructionDecode(instr);
             icount_++;

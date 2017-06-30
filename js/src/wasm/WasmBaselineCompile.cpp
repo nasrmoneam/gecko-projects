@@ -2341,6 +2341,10 @@ class BaseCompiler
         // frame size. Flush the constant pool in case it needs to be patched.
         MOZ_ASSERT(maxFramePushed_ >= localSize_);
         masm.flush();
+
+        // Precondition for patching.
+        if (masm.oom())
+            return false;
         masm.patchAdd32ToPtr(stackAddOffset_, Imm32(-int32_t(maxFramePushed_ - localSize_)));
 
         // Since we just overflowed the stack, to be on the safe side, pop the
@@ -2747,15 +2751,7 @@ class BaseCompiler
         RegF32 rv = RegF32(ReturnFloat32Reg);
         MOZ_ASSERT(isAvailable(rv));
         needF32(rv);
-#if defined(JS_CODEGEN_X86)
-        if (call.usesSystemAbi) {
-            masm.reserveStack(sizeof(float));
-            Operand op(esp, 0);
-            masm.fstp32(op);
-            masm.loadFloat32(op, rv);
-            masm.freeStack(sizeof(float));
-        }
-#elif defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM)
         if (call.usesSystemAbi && !call.hardFP)
             masm.ma_vxfer(r0, rv);
 #endif
@@ -2766,15 +2762,7 @@ class BaseCompiler
         RegF64 rv = RegF64(ReturnDoubleReg);
         MOZ_ASSERT(isAvailable(rv));
         needF64(rv);
-#if defined(JS_CODEGEN_X86)
-        if (call.usesSystemAbi) {
-            masm.reserveStack(sizeof(double));
-            Operand op(esp, 0);
-            masm.fstp(op);
-            masm.loadDouble(op, rv);
-            masm.freeStack(sizeof(double));
-        }
-#elif defined(JS_CODEGEN_ARM)
+#if defined(JS_CODEGEN_ARM)
         if (call.usesSystemAbi && !call.hardFP)
             masm.ma_vxfer(r0, r1, rv);
 #endif

@@ -7,8 +7,6 @@
 
 #include "mozilla/ipc/MessageChannel.h"
 
-#include "MessageLoopAbstractThreadWrapper.h"
-#include "mozilla/AbstractThread.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/dom/ScriptSettings.h"
@@ -521,7 +519,7 @@ MessageChannel::MessageChannel(const char* aName,
     mLink(nullptr),
     mWorkerLoop(nullptr),
     mChannelErrorTask(nullptr),
-    mWorkerLoopID(-1),
+    mWorkerThread(nullptr),
     mTimeoutMs(kNoTimeout),
     mInTimeoutSecondHalf(false),
     mNextSeqno(0),
@@ -539,7 +537,8 @@ MessageChannel::MessageChannel(const char* aName,
     mNotifiedChannelDone(false),
     mFlags(REQUIRE_DEFAULT),
     mPeerPidSet(false),
-    mPeerPid(-1)
+    mPeerPid(-1),
+    mIsPostponingSends(false)
 {
     MOZ_COUNT_CTOR(ipc::MessageChannel);
 
@@ -548,8 +547,10 @@ MessageChannel::MessageChannel(const char* aName,
     mIsSyncWaitingOnNonMainThread = false;
 #endif
 
-    mOnChannelConnectedTask =
-        NewNonOwningCancelableRunnableMethod(this, &MessageChannel::DispatchOnChannelConnected);
+    mOnChannelConnectedTask = NewNonOwningCancelableRunnableMethod(
+      "ipc::MessageChannel::DispatchOnChannelConnected",
+      this,
+      &MessageChannel::DispatchOnChannelConnected);
 
 #ifdef OS_WIN
     mEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -689,7 +690,7 @@ MessageChannel::WillDestroyCurrentMessageLoop()
 void
 MessageChannel::Clear()
 {
-    // Don't clear mWorkerLoopID; we use it in AssertLinkThread() and
+    // Don't clear mWorkerThread; we use it in AssertLinkThread() and
     // AssertWorkerThread().
     //
     // Also don't clear mListener.  If we clear it, then sending a message
@@ -750,23 +751,6 @@ MessageChannel::Clear()
     }
 }
 
-class AbstractThreadWrapperCleanup : public MessageLoop::DestructionObserver
-{
-public:
-    explicit AbstractThreadWrapperCleanup(already_AddRefed<AbstractThread> aWrapper)
-        : mWrapper(aWrapper)
-    {}
-    virtual ~AbstractThreadWrapperCleanup() override {}
-    virtual void WillDestroyCurrentMessageLoop() override
-    {
-        mWrapper = nullptr;
-        MessageLoop::current()->RemoveDestructionObserver(this);
-        delete this;
-    }
-private:
-    RefPtr<AbstractThread> mWrapper;
-};
-
 bool
 MessageChannel::Open(Transport* aTransport, MessageLoop* aIOLoop, Side aSide)
 {
@@ -774,16 +758,9 @@ MessageChannel::Open(Transport* aTransport, MessageLoop* aIOLoop, Side aSide)
 
     mMonitor = new RefCountedMonitor();
     mWorkerLoop = MessageLoop::current();
-    mWorkerLoopID = mWorkerLoop->id();
+    mWorkerThread = GetCurrentVirtualThread();
     mWorkerLoop->AddDestructionObserver(this);
     mListener->SetIsMainThreadProtocol();
-
-    if (!AbstractThread::GetCurrent()) {
-        mWorkerLoop->AddDestructionObserver(
-            new AbstractThreadWrapperCleanup(
-                MessageLoopAbstractThreadWrapper::Create(mWorkerLoop)));
-    }
-
 
     ProcessLink *link = new ProcessLink(this);
     link->Open(aTransport, aIOLoop, aSide); // :TODO: n.b.: sets mChild
@@ -825,10 +802,12 @@ MessageChannel::Open(MessageChannel *aTargetChan, MessageLoop *aTargetLoop, Side
 
     MonitorAutoLock lock(*mMonitor);
     mChannelState = ChannelOpening;
-    aTargetLoop->PostTask(NewNonOwningRunnableMethod
-                          <MessageChannel*, Side>(aTargetChan,
-                                                  &MessageChannel::OnOpenAsSlave,
-                                                  this, oppSide));
+    aTargetLoop->PostTask(NewNonOwningRunnableMethod<MessageChannel*, Side>(
+      "ipc::MessageChannel::OnOpenAsSlave",
+      aTargetChan,
+      &MessageChannel::OnOpenAsSlave,
+      this,
+      oppSide));
 
     while (ChannelOpening == mChannelState)
         mMonitor->Wait();
@@ -860,15 +839,9 @@ void
 MessageChannel::CommonThreadOpenInit(MessageChannel *aTargetChan, Side aSide)
 {
     mWorkerLoop = MessageLoop::current();
-    mWorkerLoopID = mWorkerLoop->id();
+    mWorkerThread = GetCurrentVirtualThread();
     mWorkerLoop->AddDestructionObserver(this);
     mListener->SetIsMainThreadProtocol();
-
-    if (!AbstractThread::GetCurrent()) {
-        mWorkerLoop->AddDestructionObserver(
-            new AbstractThreadWrapperCleanup(
-                MessageLoopAbstractThreadWrapper::Create(mWorkerLoop)));
-    }
 
     mLink = new ThreadLink(this, aTargetChan);
     mSide = aSide;
@@ -933,8 +906,51 @@ MessageChannel::Send(Message* aMsg)
         ReportConnectionError("MessageChannel", msg);
         return false;
     }
-    mLink->SendMessage(msg.forget());
+
+    SendMessageToLink(msg.forget());
     return true;
+}
+
+void
+MessageChannel::SendMessageToLink(Message* aMsg)
+{
+    if (mIsPostponingSends) {
+        UniquePtr<Message> msg(aMsg);
+        mPostponedSends.push_back(Move(msg));
+        return;
+    }
+    mLink->SendMessage(aMsg);
+}
+
+void
+MessageChannel::BeginPostponingSends()
+{
+    AssertWorkerThread();
+    mMonitor->AssertNotCurrentThreadOwns();
+
+    MonitorAutoLock lock(*mMonitor);
+    {
+        MOZ_ASSERT(!mIsPostponingSends);
+        mIsPostponingSends = true;
+    }
+}
+
+void
+MessageChannel::StopPostponingSends()
+{
+    // Note: this can be called from any thread.
+    MonitorAutoLock lock(*mMonitor);
+
+    MOZ_ASSERT(mIsPostponingSends);
+
+    for (UniquePtr<Message>& iter : mPostponedSends) {
+      mLink->SendMessage(iter.release());
+    }
+
+    // We unset this after SendMessage so we can make correct thread
+    // assertions in MessageLink.
+    mIsPostponingSends = false;
+    mPostponedSends.clear();
 }
 
 already_AddRefed<MozPromiseRefcountable>
@@ -1397,6 +1413,7 @@ MessageChannel::Send(Message* aMsg, Message* aReply)
         msg->nested_level() < AwaitingSyncReplyNestedLevel())
     {
         MOZ_RELEASE_ASSERT(DispatchingSyncMessage() || DispatchingAsyncMessage());
+        MOZ_RELEASE_ASSERT(!mIsPostponingSends);
         IPC_LOG("Cancel from Send");
         CancelMessage *cancel = new CancelMessage(CurrentNestedInsideSyncTransaction());
         CancelTransaction(CurrentNestedInsideSyncTransaction());
@@ -1445,7 +1462,7 @@ MessageChannel::Send(Message* aMsg, Message* aReply)
     // msg will be destroyed soon, but name() is not owned by msg.
     const char* msgName = msg->name();
 
-    mLink->SendMessage(msg.forget());
+    SendMessageToLink(msg.forget());
 
     while (true) {
         MOZ_RELEASE_ASSERT(!transact.IsCanceled());
@@ -1576,6 +1593,7 @@ MessageChannel::Call(Message* aMsg, Message* aReply)
     IPC_ASSERT(!DispatchingSyncMessage(),
                "violation of sync handler invariant");
     IPC_ASSERT(msg->is_interrupt(), "can only Call() Interrupt messages here");
+    IPC_ASSERT(!mIsPostponingSends, "not postponing sends");
 
     msg->set_seqno(NextSeqno());
     msg->set_interrupt_remote_stack_depth_guess(mRemoteStackDepthGuess);
@@ -2556,12 +2574,14 @@ MessageChannel::OnNotifyMaybeChannelError()
     }
 
     if (IsOnCxxStack()) {
-        mChannelErrorTask =
-            NewNonOwningCancelableRunnableMethod(this, &MessageChannel::OnNotifyMaybeChannelError);
-        RefPtr<Runnable> task = mChannelErrorTask;
-        // 10 ms delay is completely arbitrary
-        mWorkerLoop->PostDelayedTask(task.forget(), 10);
-        return;
+      mChannelErrorTask = NewNonOwningCancelableRunnableMethod(
+        "ipc::MessageChannel::OnNotifyMaybeChannelError",
+        this,
+        &MessageChannel::OnNotifyMaybeChannelError);
+      RefPtr<Runnable> task = mChannelErrorTask;
+      // 10 ms delay is completely arbitrary
+      mWorkerLoop->PostDelayedTask(task.forget(), 10);
+      return;
     }
 
     NotifyMaybeChannelError();
@@ -2576,8 +2596,10 @@ MessageChannel::PostErrorNotifyTask()
         return;
 
     // This must be the last code that runs on this thread!
-    mChannelErrorTask =
-        NewNonOwningCancelableRunnableMethod(this, &MessageChannel::OnNotifyMaybeChannelError);
+    mChannelErrorTask = NewNonOwningCancelableRunnableMethod(
+      "ipc::MessageChannel::OnNotifyMaybeChannelError",
+      this,
+      &MessageChannel::OnNotifyMaybeChannelError);
     RefPtr<Runnable> task = mChannelErrorTask;
     mWorkerLoop->PostTask(task.forget());
 }

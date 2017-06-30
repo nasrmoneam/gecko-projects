@@ -34,7 +34,7 @@ use msg::constellation_msg::PipelineId;
 use net_traits::{CookieSource, FetchMetadata, NetworkError, ReferrerPolicy};
 use net_traits::request::{CacheMode, CredentialsMode, Destination, Origin};
 use net_traits::request::{RedirectMode, Referrer, Request, RequestMode};
-use net_traits::request::{ResponseTainting, Type};
+use net_traits::request::{ResponseTainting, ServiceWorkersMode, Type};
 use net_traits::response::{HttpsState, Response, ResponseBody, ResponseType};
 use resource_thread::AuthCache;
 use servo_url::{ImmutableOrigin, ServoUrl};
@@ -53,7 +53,7 @@ use unicase::UniCase;
 use uuid;
 
 fn read_block<R: Read>(reader: &mut R) -> Result<Data, ()> {
-    let mut buf = vec![0; 1024];
+    let mut buf = vec![0; 32768];
 
     match reader.read(&mut buf) {
         Ok(len) if len > 0 => {
@@ -317,7 +317,7 @@ impl StreamedResponse {
     fn from_http_response(response: WrappedHttpResponse) -> io::Result<StreamedResponse> {
         let decoder = match response.content_encoding() {
             Some(Encoding::Gzip) => {
-                Decoder::Gzip(try!(GzDecoder::new(response)))
+                Decoder::Gzip(GzDecoder::new(response)?)
             }
             Some(Encoding::Deflate) => {
                 Decoder::Deflate(DeflateDecoder::new(response))
@@ -521,15 +521,29 @@ pub fn http_fetch(request: &mut Request,
     // nothing to do, since actual_response is a function on response
 
     // Step 3
-    if !request.skip_service_worker && !request.is_service_worker_global_scope {
+    if request.service_workers_mode != ServiceWorkersMode::None {
         // Substep 1
-        // TODO (handle fetch unimplemented)
+        if request.service_workers_mode == ServiceWorkersMode::All {
+            // TODO (handle fetch unimplemented)
+        }
 
+        // Substep 2
+        if response.is_none() && request.is_subresource_request() && match request.origin {
+            Origin::Origin(ref origin) if *origin == request.url().origin() => true,
+            _ => false,
+        } {
+            // TODO (handle foreign fetch unimplemented)
+        }
+
+        // Substep 3
         if let Some(ref res) = response {
-            // Substep 2
+            // Subsubstep 1
+            // TODO: transmit body for request
+
+            // Subsubstep 2
             // nothing to do, since actual_response is a function on response
 
-            // Substep 3
+            // Subsubstep 3
             if (res.response_type == ResponseType::Opaque &&
                 request.mode != RequestMode::NoCors) ||
                (res.response_type == ResponseType::OpaqueRedirect &&
@@ -539,7 +553,7 @@ pub fn http_fetch(request: &mut Request,
                 return Response::network_error(NetworkError::Internal("Request failed".into()));
             }
 
-            // Substep 4
+            // Subsubstep 4
             // TODO: set response's CSP list on actual_response
         }
     }
@@ -576,7 +590,9 @@ pub fn http_fetch(request: &mut Request,
         }
 
         // Substep 2
-        request.skip_service_worker = true;
+        if request.redirect_mode == RedirectMode::Follow {
+            request.service_workers_mode = ServiceWorkersMode::Foreign;
+        }
 
         // Substep 3
         let mut fetch_result = http_network_or_cache_fetch(
@@ -674,14 +690,14 @@ pub fn http_fetch(request: &mut Request,
 }
 
 /// [HTTP redirect fetch](https://fetch.spec.whatwg.org#http-redirect-fetch)
-fn http_redirect_fetch(request: &mut Request,
-                       cache: &mut CorsCache,
-                       response: Response,
-                       cors_flag: bool,
-                       target: Target,
-                       done_chan: &mut DoneChannel,
-                       context: &FetchContext)
-                       -> Response {
+pub fn http_redirect_fetch(request: &mut Request,
+                           cache: &mut CorsCache,
+                           response: Response,
+                           cors_flag: bool,
+                           target: Target,
+                           done_chan: &mut DoneChannel,
+                           context: &FetchContext)
+                           -> Response {
     // Step 1
     assert!(response.return_internal);
 
@@ -749,8 +765,10 @@ fn http_redirect_fetch(request: &mut Request,
     // Step 12
     // TODO implement referrer policy
 
+    let recursive_flag = request.redirect_mode != RedirectMode::Manual;
+
     // Step 13
-    main_fetch(request, cache, cors_flag, true, target, done_chan, context)
+    main_fetch(request, cache, cors_flag, recursive_flag, target, done_chan, context)
 }
 
 fn try_immutable_origin_to_hyper_origin(url_origin: &ImmutableOrigin) -> Option<HyperOrigin> {
@@ -1108,6 +1126,7 @@ fn http_network_fetch(request: &Request,
                                 res.response.status_raw().1.as_bytes().to_vec()));
     response.headers = res.response.headers.clone();
     response.referrer = request.referrer.to_url().cloned();
+    response.referrer_policy = request.referrer_policy.clone();
 
     let res_body = response.body.clone();
 
@@ -1235,8 +1254,7 @@ fn cors_preflight_fetch(request: &Request,
                         context: &FetchContext)
                         -> Response {
     // Step 1
-    let mut preflight = Request::new(request.current_url(), Some(request.origin.clone()),
-                                     request.is_service_worker_global_scope, request.pipeline_id);
+    let mut preflight = Request::new(request.current_url(), Some(request.origin.clone()), request.pipeline_id);
     preflight.method = Method::Options;
     preflight.initiator = request.initiator.clone();
     preflight.type_ = request.type_.clone();
@@ -1337,7 +1355,7 @@ fn cors_check(request: &Request, response: &Response) -> Result<(), ()> {
     let origin = response.headers.get::<AccessControlAllowOrigin>().cloned();
 
     // Step 2
-    let origin = try!(origin.ok_or(()));
+    let origin = origin.ok_or(())?;
 
     // Step 3
     if request.credentials_mode != CredentialsMode::Include &&

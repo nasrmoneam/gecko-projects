@@ -21,6 +21,7 @@
 #include "mozilla/Likely.h"
 #include "mozilla/LinkedList.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/ServoBindings.h"
 #include "nsAbsoluteContainingBlock.h"
 #include "nsCSSPseudoElements.h"
 #include "nsIAtom.h"
@@ -86,6 +87,7 @@
 #include "nsAutoLayoutPhase.h"
 #include "nsStyleStructInlines.h"
 #include "nsPageContentFrame.h"
+#include "mozilla/GeckoStyleContext.h"
 #include "mozilla/RestyleManager.h"
 #include "mozilla/RestyleManagerInlines.h"
 #include "StickyScrollContainer.h"
@@ -155,6 +157,8 @@ nsIFrame*
 NS_NewSVGAFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 nsIFrame*
 NS_NewSVGSwitchFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
+nsIFrame*
+NS_NewSVGSymbolFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 nsIFrame*
 NS_NewSVGTextFrame(nsIPresShell* aPresShell, nsStyleContext* aContext);
 nsIFrame*
@@ -512,7 +516,11 @@ ReparentFrames(nsCSSFrameConstructor* aFrameConstructor,
 static inline bool
 IsFramePartOfIBSplit(nsIFrame* aFrame)
 {
-  return (aFrame->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT) != 0;
+  bool result = (aFrame->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT) != 0;
+  MOZ_ASSERT(!result || static_cast<nsBlockFrame*>(do_QueryFrame(aFrame)) ||
+                        static_cast<nsInlineFrame*>(do_QueryFrame(aFrame)),
+             "only block/inline frames can have NS_FRAME_PART_OF_IBSPLIT");
+  return result;
 }
 
 static nsContainerFrame* GetIBSplitSibling(nsIFrame* aFrame)
@@ -720,10 +728,9 @@ nsAbsoluteItems::nsAbsoluteItems(nsContainerFrame* aContainingBlock)
 void
 nsAbsoluteItems::AddChild(nsIFrame* aChild)
 {
-  NS_ASSERTION(aChild->PresContext()->FrameManager()->
-               GetPlaceholderFrameFor(aChild),
-               "Child without placeholder being added to nsAbsoluteItems?");
   aChild->AddStateBits(NS_FRAME_OUT_OF_FLOW);
+  NS_ASSERTION(aChild->GetPlaceholderFrame(),
+               "Child without placeholder being added to nsAbsoluteItems?");
   nsFrameItems::AddChild(aChild);
 }
 
@@ -1650,7 +1657,8 @@ nsCSSFrameConstructor::NotifyDestroyingFrame(nsIFrame* aFrame)
       QuotesDirty();
   }
 
-  if (mCounterManager.DestroyNodesFor(aFrame)) {
+  if (aFrame->HasAnyStateBits(NS_FRAME_HAS_CSS_COUNTER_STYLE) &&
+      mCounterManager.DestroyNodesFor(aFrame)) {
     // Technically we don't need to update anything if we destroyed only
     // USE nodes.  However, this is unlikely to happen in the real world
     // since USE nodes generally go along with INCREMENT nodes.
@@ -1912,6 +1920,21 @@ nsCSSFrameConstructor::CreateGeneratedContentItem(nsFrameConstructorState& aStat
     return;
   }
 
+  // Servo has already eagerly computed the style for the container, so we can
+  // just stick the style on the element and avoid an additional traversal.
+  //
+  // We don't do this for pseudos that may trigger animations or transitions,
+  // since those need to be kicked off by the traversal machinery.
+  bool isServo = pseudoStyleContext->IsServo();
+  bool hasServoAnimations = false;
+  if (isServo) {
+    ServoComputedValues* servoStyle = pseudoStyleContext->ComputedValues();
+    hasServoAnimations = Servo_ComputedValues_SpecifiesAnimationsOrTransitions(servoStyle);
+    if (!hasServoAnimations) {
+      Servo_SetExplicitStyle(container, servoStyle);
+    }
+  }
+
   // stylo: ServoRestyleManager does not handle transitions yet, and when it
   // does it probably won't need to track reframed style contexts to start
   // transitions correctly.
@@ -1934,17 +1957,30 @@ nsCSSFrameConstructor::CreateGeneratedContentItem(nsFrameConstructorState& aStat
   }
 
   uint32_t contentCount = pseudoStyleContext->StyleContent()->ContentCount();
+  bool createdChildElement = false;
   for (uint32_t contentIndex = 0; contentIndex < contentCount; contentIndex++) {
     nsCOMPtr<nsIContent> content =
       CreateGeneratedContent(aState, aParentContent, pseudoStyleContext,
                              contentIndex);
     if (content) {
       container->AppendChildTo(content, false);
+      if (content->IsElement()) {
+        createdChildElement = true;
+      }
     }
   }
 
-  if (aParentContent->IsStyledByServo()) {
-    mPresShell->StyleSet()->AsServo()->StyleNewSubtree(container);
+  // We may need to do a synchronous servo traversal in various uncommon cases.
+  if (isServo) {
+    if (hasServoAnimations) {
+      // If animations are involved, we avoid the SetExplicitStyle optimization
+      // above.
+      mPresShell->StyleSet()->AsServo()->StyleNewSubtree(container);
+    } else if (createdChildElement) {
+      // If we created any children elements, Servo needs to traverse them, but
+      // the root is already set up.
+      mPresShell->StyleSet()->AsServo()->StyleNewChildren(container);
+    }
   }
 
   AddFrameConstructionItemsInternal(aState, container, aParentFrame, elemName,
@@ -2742,16 +2778,6 @@ nsCSSFrameConstructor::ConstructRootFrame()
 
   StyleSetHandle styleSet = mPresShell->StyleSet();
 
-  // Set up our style rule observer.
-  // XXXbz wouldn't this make more sense as part of presshell init?
-  if (styleSet->IsGecko()) {
-    // XXXheycam We don't support XBL bindings providing style to
-    // ServoStyleSets yet.
-    styleSet->AsGecko()->SetBindingManager(mDocument->BindingManager());
-  } else {
-    NS_WARNING("stylo: cannot get ServoStyleSheets from XBL bindings yet. See bug 1290276.");
-  }
-
   // --------- BUILD VIEWPORT -----------
   RefPtr<nsStyleContext> viewportPseudoStyle =
     styleSet->ResolveInheritingAnonymousBoxStyle(nsCSSAnonBoxes::viewport,
@@ -2763,6 +2789,8 @@ nsCSSFrameConstructor::ConstructRootFrame()
   // Would it really kill us to pass in the root element or something?
   // What would that break?
   viewportFrame->Init(nullptr, nullptr, nullptr);
+
+  viewportFrame->AddStateBits(NS_FRAME_OWNS_ANON_BOXES);
 
   // Bind the viewport frame to the root view
   nsView* rootView = mPresShell->GetViewManager()->GetRootView();
@@ -2879,6 +2907,7 @@ nsCSSFrameConstructor::SetUpDocElementContainingBlock(nsIContent* aDocElement)
     rootFrame = NS_NewSimplePageSequenceFrame(mPresShell, viewportPseudoStyle);
     mPageSequenceFrame = rootFrame;
     rootPseudo = nsCSSAnonBoxes::pageSequence;
+    rootFrame->AddStateBits(NS_FRAME_OWNS_ANON_BOXES);
   }
 
 
@@ -2972,6 +3001,7 @@ nsCSSFrameConstructor::SetUpDocElementContainingBlock(nsIContent* aDocElement)
     nsContainerFrame* canvasFrame;
     nsContainerFrame* pageFrame =
       ConstructPageFrame(mPresShell, rootFrame, nullptr, canvasFrame);
+    pageFrame->AddStateBits(NS_FRAME_OWNS_ANON_BOXES);
     SetInitialSingleChild(rootFrame, pageFrame);
 
     // The eventual parent of the document element frame.
@@ -3046,6 +3076,9 @@ nsCSSFrameConstructor::ConstructPageFrame(nsIPresShell*  aPresShell,
     NS_ASSERTION(prevPageContentFrame, "missing page content frame");
   }
   pageContentFrame->Init(nullptr, pageFrame, prevPageContentFrame);
+  if (!prevPageContentFrame) {
+    pageContentFrame->AddStateBits(NS_FRAME_OWNS_ANON_BOXES);
+  }
   SetInitialSingleChild(pageFrame, pageContentFrame);
   // Make it an absolute container for fixed-pos elements
   pageContentFrame->AddStateBits(NS_FRAME_CAN_HAVE_ABSPOS_CHILDREN);
@@ -3087,13 +3120,11 @@ nsCSSFrameConstructor::CreatePlaceholderFrameFor(nsIPresShell*     aPresShell,
 
   placeholderFrame->Init(aContent, aParentFrame, aPrevInFlow);
 
-  // The placeholder frame has a pointer back to the out-of-flow frame
+  // Associate the placeholder/out-of-flow with each other.
   placeholderFrame->SetOutOfFlowFrame(aFrame);
+  aFrame->SetProperty(nsIFrame::PlaceholderFrameProperty(), placeholderFrame);
 
   aFrame->AddStateBits(NS_FRAME_OUT_OF_FLOW);
-
-  // Add mapping from absolutely positioned frame to its placeholder frame
-  aPresShell->FrameManager()->RegisterPlaceholderFrame(placeholderFrame);
 
   return placeholderFrame;
 }
@@ -3808,6 +3839,9 @@ nsCSSFrameConstructor::FindObjectData(Element* aElement,
     SIMPLE_INT_CREATE(nsIObjectLoadingContent::TYPE_IMAGE,
                       NS_NewImageFrame),
     SIMPLE_INT_CREATE(nsIObjectLoadingContent::TYPE_DOCUMENT,
+                      NS_NewSubDocumentFrame),
+    // Fake plugin handlers load as documents
+    SIMPLE_INT_CREATE(nsIObjectLoadingContent::TYPE_FAKE_PLUGIN,
                       NS_NewSubDocumentFrame)
     // Nothing for TYPE_NULL so we'll construct frames by display there
   };
@@ -5582,6 +5616,7 @@ nsCSSFrameConstructor::FindSVGData(Element* aElement,
     SIMPLE_SVG_CREATE(svg, NS_NewSVGInnerSVGFrame),
     SIMPLE_SVG_CREATE(g, NS_NewSVGGFrame),
     SIMPLE_SVG_CREATE(svgSwitch, NS_NewSVGSwitchFrame),
+    SIMPLE_SVG_CREATE(symbol, NS_NewSVGSymbolFrame),
     SIMPLE_SVG_CREATE(polygon, NS_NewSVGGeometryFrame),
     SIMPLE_SVG_CREATE(polyline, NS_NewSVGGeometryFrame),
     SIMPLE_SVG_CREATE(circle, NS_NewSVGGeometryFrame),
@@ -5824,14 +5859,27 @@ nsCSSFrameConstructor::AddFrameConstructionItemsInternal(nsFrameConstructorState
         aState.AddPendingBinding(newPendingBinding.forget());
       }
 
-      if (aContent->IsStyledByServo()) {
-        NS_WARNING("stylo: Skipping Unsupported binding re-resolve. This needs fixing.");
-        resolveStyle = false;
-      }
-
       if (resolveStyle) {
-        styleContext =
-          ResolveStyleContext(styleContext->GetParent(), aContent, &aState);
+        if (aContent->IsStyledByServo()) {
+          Element* element = aContent->AsElement();
+          ServoStyleSet* styleSet = mPresShell->StyleSet()->AsServo();
+
+          // XXX: We should have a better way to restyle ourselves.
+          ServoRestyleManager::ClearServoDataFromSubtree(element);
+          styleSet->StyleNewSubtree(element);
+
+          // Servo's should_traverse_children() in traversal.rs skips
+          // styling descendants of elements with a -moz-binding the
+          // first time. Thus call StyleNewChildren() again.
+          styleSet->StyleNewChildren(element);
+
+          styleContext =
+            styleSet->ResolveStyleFor(element, nullptr, LazyComputeBehavior::Allow);
+        } else {
+          styleContext =
+            ResolveStyleContext(styleContext->GetParent(), aContent, &aState);
+        }
+
         display = styleContext->StyleDisplay();
         aStyleContext = styleContext;
       }
@@ -6789,7 +6837,7 @@ nsCSSFrameConstructor::FindFrameForContentSibling(nsIContent* aContent,
   // If the frame is out-of-flow, GetPrimaryFrame() will have returned the
   // out-of-flow frame; we want the placeholder.
   if (sibling->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
-    nsIFrame* placeholderFrame = GetPlaceholderFrameFor(sibling);
+    nsIFrame* placeholderFrame = sibling->GetPlaceholderFrame();
     NS_ASSERTION(placeholderFrame, "no placeholder for out-of-flow frame");
     sibling = placeholderFrame;
   }
@@ -7488,8 +7536,8 @@ nsCSSFrameConstructor::ContentAppended(nsIContent* aContainer,
                                        bool aForReconstruction,
                                        TreeMatchContext* aProvidedTreeMatchContext)
 {
-  MOZ_ASSERT_IF(aProvidedTreeMatchContext, !aAllowLazyConstruction);
-  MOZ_ASSERT_IF(aAllowLazyConstruction, !RestyleManager()->IsInStyleRefresh());
+  MOZ_ASSERT(!aProvidedTreeMatchContext || !aAllowLazyConstruction);
+  MOZ_ASSERT(!aAllowLazyConstruction || !RestyleManager()->IsInStyleRefresh());
 
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
   NS_PRECONDITION(mUpdateCount != 0,
@@ -7892,8 +7940,8 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
                                             bool aForReconstruction,
                                             TreeMatchContext* aProvidedTreeMatchContext)
 {
-  MOZ_ASSERT_IF(aProvidedTreeMatchContext, !aAllowLazyConstruction);
-  MOZ_ASSERT_IF(aAllowLazyConstruction, !RestyleManager()->IsInStyleRefresh());
+  MOZ_ASSERT(!aProvidedTreeMatchContext || !aAllowLazyConstruction);
+  MOZ_ASSERT(!aAllowLazyConstruction || !RestyleManager()->IsInStyleRefresh());
 
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
   NS_PRECONDITION(mUpdateCount != 0,
@@ -8216,7 +8264,7 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
         // the placeholder frame.
         if (insertion.mParentFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
           nsPlaceholderFrame* placeholderFrame =
-            GetPlaceholderFrameFor(insertion.mParentFrame);
+            insertion.mParentFrame->GetPlaceholderFrame();
           NS_ASSERTION(placeholderFrame, "No placeholder for out-of-flow?");
           insertion.mParentFrame = placeholderFrame->GetParent();
         } else {
@@ -8727,7 +8775,7 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*  aContainer,
     // :first-letter style applies.
     nsIFrame* inflowChild = childFrame;
     if (childFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
-      inflowChild = GetPlaceholderFrameFor(childFrame);
+      inflowChild = childFrame->GetPlaceholderFrame();
       NS_ASSERTION(inflowChild, "No placeholder for out-of-flow?");
     }
     nsContainerFrame* containingBlock =
@@ -8783,7 +8831,7 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent*  aContainer,
 
     // Notify the parent frame that it should delete the frame
     if (childFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
-      childFrame = GetPlaceholderFrameFor(childFrame);
+      childFrame = childFrame->GetPlaceholderFrame();
       NS_ASSERTION(childFrame, "Missing placeholder frame for out of flow.");
       parentFrame = childFrame->GetParent();
     }
@@ -9425,7 +9473,7 @@ nsCSSFrameConstructor::ReplicateFixedFrames(nsPageContentFrame* aParentFrame)
   // are within fixed frames, because that would cause duplicates on the new
   // page - bug 389619)
   for (nsIFrame* fixed = firstFixed; fixed; fixed = fixed->GetNextSibling()) {
-    nsIFrame* prevPlaceholder = GetPlaceholderFrameFor(fixed);
+    nsIFrame* prevPlaceholder = fixed->GetPlaceholderFrame();
     if (prevPlaceholder &&
         nsLayoutUtils::IsProperAncestorFrame(prevCanvasFrame, prevPlaceholder)) {
       // We want to use the same style as the primary style frame for
@@ -9691,7 +9739,7 @@ nsCSSFrameConstructor::MaybeRecreateContainerForFrameRemoval(nsIFrame* aFrame,
   // Now check for possibly needing to reconstruct due to a pseudo parent
   nsIFrame* inFlowFrame =
     (aFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) ?
-      GetPlaceholderFrameFor(aFrame) : aFrame;
+      aFrame->GetPlaceholderFrame() : aFrame;
   MOZ_ASSERT(inFlowFrame, "How did that happen?");
   MOZ_ASSERT(inFlowFrame == inFlowFrame->FirstContinuation(),
              "placeholder for primary frame has previous continuations?");
@@ -10939,9 +10987,9 @@ nsCSSFrameConstructor::AddFCItemsForAnonymousContent(
   for (uint32_t i = 0; i < aAnonymousItems.Length(); ++i) {
     nsIContent* content = aAnonymousItems[i].mContent;
     // Gecko-styled nodes should have no pending restyle flags.
-    MOZ_ASSERT_IF(!content->IsStyledByServo(),
-                  !content->IsElement() ||
-                  !(content->GetFlags() & ELEMENT_ALL_RESTYLE_FLAGS));
+    MOZ_ASSERT(content->IsStyledByServo() ||
+               !content->IsElement() ||
+               !(content->GetFlags() & ELEMENT_ALL_RESTYLE_FLAGS));
     // Assert some things about this content
     MOZ_ASSERT(!(content->GetFlags() &
                  (NODE_DESCENDANTS_NEED_FRAMES | NODE_NEEDS_FRAME)),
@@ -10955,15 +11003,15 @@ nsCSSFrameConstructor::AddFCItemsForAnonymousContent(
     RefPtr<nsStyleContext> styleContext;
     Maybe<TreeMatchContext::AutoParentDisplayBasedStyleFixupSkipper>
       parentDisplayBasedStyleFixupSkipper;
-    MOZ_ASSERT_IF(!aState.mTreeMatchContext, content->IsStyledByServo());
+    MOZ_ASSERT(aState.mTreeMatchContext || content->IsStyledByServo());
     if (aState.mTreeMatchContext) {
       parentDisplayBasedStyleFixupSkipper.emplace(*aState.mTreeMatchContext);
     }
 
     // Make sure we eagerly performed the servo cascade when the anonymous
     // nodes were created.
-    MOZ_ASSERT_IF(content->IsStyledByServo() && content->IsElement(),
-                  content->AsElement()->HasServoData());
+    MOZ_ASSERT(!content->IsStyledByServo() || !content->IsElement() ||
+               content->AsElement()->HasServoData());
 
     // Determine whether this NAC is pseudo-implementing.
     nsIAtom* pseudo = nullptr;
@@ -11052,9 +11100,9 @@ nsCSSFrameConstructor::AddFCItemsForAnonymousContent(
     // The only way we can not have a style parent now is if inheritFrame is the
     // canvas frame and we're the NAC parent for all the things added via
     // nsIDocument::InsertAnonymousContent.
-    MOZ_ASSERT_IF(!styleParentFrame, inheritFrame->IsCanvasFrame());
+    MOZ_ASSERT(styleParentFrame || inheritFrame->IsCanvasFrame());
     // And that anonymous div has no pseudo.
-    MOZ_ASSERT_IF(!styleParentFrame, !pseudo);
+    MOZ_ASSERT(styleParentFrame || !pseudo);
 
     Element* originating =
       pseudo ? styleParentFrame->GetContent()->AsElement() : nullptr;
@@ -11179,7 +11227,7 @@ nsCSSFrameConstructor::ProcessChildren(nsFrameConstructorState& aState,
     // a flex/grid container frame, not just has display:flex/grid.
     Maybe<TreeMatchContext::AutoParentDisplayBasedStyleFixupSkipper>
       parentDisplayBasedStyleFixupSkipper;
-    MOZ_ASSERT_IF(!aState.mTreeMatchContext, aContent->IsStyledByServo());
+    MOZ_ASSERT(aState.mTreeMatchContext || aContent->IsStyledByServo());
     if (!isFlexOrGridContainer && aState.mTreeMatchContext) {
       parentDisplayBasedStyleFixupSkipper.emplace(*aState.mTreeMatchContext);
     }
@@ -11611,7 +11659,7 @@ static bool IsFirstLetterContent(nsIContent* aContent)
 /**
  * Create a letter frame, only make it a floating frame.
  */
-void
+nsFirstLetterFrame*
 nsCSSFrameConstructor::CreateFloatingLetterFrame(
   nsFrameConstructorState& aState,
   nsIContent* aTextContent,
@@ -11676,6 +11724,8 @@ nsCSSFrameConstructor::CreateFloatingLetterFrame(
   if (nextTextFrame) {
     aResult.AddChild(nextTextFrame);
   }
+
+  return letterFrame;
 }
 
 /**
@@ -11694,7 +11744,8 @@ nsCSSFrameConstructor::CreateLetterFrame(nsContainerFrame* aBlockFrame,
   NS_ASSERTION(nsLayoutUtils::GetAsBlock(aBlockFrame),
                  "Not a block frame?");
 
-  // Get style context for the first-letter-frame
+  // Get style context for the first-letter-frame.  Keep this in sync with
+  // nsBlockFrame::UpdatePseudoElementStyles.
   nsStyleContext* parentStyleContext =
     nsFrame::CorrectStyleParentFrame(aParentFrame,
                                      nsCSSPseudoElements::firstLetter)->
@@ -11732,15 +11783,16 @@ nsCSSFrameConstructor::CreateLetterFrame(nsContainerFrame* aBlockFrame,
 
     // Create the right type of first-letter frame
     const nsStyleDisplay* display = sc->StyleDisplay();
+    nsFirstLetterFrame* letterFrame;
     if (display->IsFloatingStyle() &&
         !nsSVGUtils::IsInSVGTextSubtree(aParentFrame)) {
       // Make a floating first-letter frame
-      CreateFloatingLetterFrame(state, aTextContent, textFrame,
-                                aParentFrame, sc, aResult);
+      letterFrame = CreateFloatingLetterFrame(state, aTextContent, textFrame,
+                                              aParentFrame, sc, aResult);
     }
     else {
       // Make an inflow first-letter frame
-      nsFirstLetterFrame* letterFrame = NS_NewFirstLetterFrame(mPresShell, sc);
+      letterFrame = NS_NewFirstLetterFrame(mPresShell, sc);
 
       // Initialize the first-letter-frame.  We don't want to use a text
       // content for a non-text frame (because we want its primary frame to
@@ -11757,6 +11809,12 @@ nsCSSFrameConstructor::CreateLetterFrame(nsContainerFrame* aBlockFrame,
                    "should have the first continuation here");
       aBlockFrame->AddStateBits(NS_BLOCK_HAS_FIRST_LETTER_CHILD);
     }
+    MOZ_ASSERT(!aBlockFrame->GetPrevContinuation(),
+               "Setting up a first-letter frame on a non-first block continuation?");
+    auto parent = static_cast<nsContainerFrame*>(aParentFrame->FirstContinuation());
+    parent->SetHasFirstLetterChild();
+    aBlockFrame->SetProperty(nsContainerFrame::FirstLetterProperty(),
+                             letterFrame);
     aTextContent->SetPrimaryFrame(textFrame);
   }
 }
@@ -11890,7 +11948,7 @@ nsCSSFrameConstructor::RemoveFloatingFirstLetterFrames(
   }
 
   // Discover the placeholder frame for the letter frame
-  nsPlaceholderFrame* placeholderFrame = GetPlaceholderFrameFor(floatFrame);
+  nsPlaceholderFrame* placeholderFrame = floatFrame->GetPlaceholderFrame();
   if (!placeholderFrame) {
     // Somethings really wrong
     return;
@@ -11900,6 +11958,8 @@ nsCSSFrameConstructor::RemoveFloatingFirstLetterFrames(
     // Somethings really wrong
     return;
   }
+  static_cast<nsContainerFrame*>(parentFrame->FirstContinuation())->
+    ClearHasFirstLetterChild();
 
   // Create a new text frame with the right style context that maps
   // all of the content that was previously part of the letter frame
@@ -11965,6 +12025,8 @@ nsCSSFrameConstructor::RemoveFirstLetterFrames(nsIPresShell* aPresShell,
   while (kid) {
     if (kid->IsLetterFrame()) {
       // Bingo. Found it. First steal away the text frame.
+      static_cast<nsContainerFrame*>(aFrame->FirstContinuation())->
+        ClearHasFirstLetterChild();
       nsIFrame* textFrame = kid->PrincipalChildList().FirstChild();
       if (!textFrame) {
         break;
@@ -12033,6 +12095,7 @@ nsCSSFrameConstructor::RemoveLetterFrames(nsIPresShell* aPresShell,
 {
   aBlockFrame =
     static_cast<nsContainerFrame*>(aBlockFrame->FirstContinuation());
+  aBlockFrame->RemoveProperty(nsContainerFrame::FirstLetterProperty());
   nsContainerFrame* continuation = aBlockFrame;
 
   bool stopLooking = false;

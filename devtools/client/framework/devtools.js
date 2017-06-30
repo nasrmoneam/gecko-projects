@@ -16,6 +16,11 @@ loader.lazyRequireGetter(this, "ToolboxHostManager", "devtools/client/framework/
 loader.lazyRequireGetter(this, "gDevToolsBrowser", "devtools/client/framework/devtools-browser", true);
 loader.lazyImporter(this, "ScratchpadManager", "resource://devtools/client/scratchpad/scratchpad-manager.jsm");
 
+// Dependencies required for addon sdk compatibility layer.
+loader.lazyRequireGetter(this, "DebuggerServer", "devtools/server/main", true);
+loader.lazyRequireGetter(this, "DebuggerClient", "devtools/shared/client/main", true);
+loader.lazyImporter(this, "BrowserToolboxProcess", "resource://devtools/client/framework/ToolboxProcess.jsm");
+
 const {defaultTools: DefaultTools, defaultThemes: DefaultThemes} =
   require("devtools/client/definitions");
 const EventEmitter = require("devtools/shared/event-emitter");
@@ -531,6 +536,89 @@ DevTools.prototype = {
    */
   getTargetForTab: function (tab) {
     return TargetFactory.forTab(tab);
+  },
+
+  /**
+   * Compatibility layer for addon-sdk. Remove when Firefox 57 hits release.
+   * Initialize the debugger server if needed and and create a connection.
+   *
+   * @return {DebuggerTransport} a client-side DebuggerTransport for communicating with
+   *         the created connection.
+   */
+  connectDebuggerServer: function () {
+    if (!DebuggerServer.initialized) {
+      DebuggerServer.init();
+      DebuggerServer.addBrowserActors();
+    }
+
+    return DebuggerServer.connectPipe();
+  },
+
+  /**
+   * Compatibility layer for addon-sdk. Remove when Firefox 57 hits release.
+   *
+   * Create a connection to the debugger server and return a debugger client for this
+   * new connection.
+   */
+  createDebuggerClient: function () {
+    let transport = this.connectDebuggerServer();
+    return new DebuggerClient(transport);
+  },
+
+  /**
+   * Compatibility layer for addon-sdk. Remove when Firefox 57 hits release.
+   *
+   * Create a BrowserToolbox process linked to the provided addon id.
+   */
+  initBrowserToolboxProcessForAddon: function (addonID) {
+    BrowserToolboxProcess.init({ addonID });
+  },
+
+  /**
+   * Called from the DevToolsShim, used by nsContextMenu.js.
+   *
+   * @param {XULTab} tab
+   *        The browser tab on which inspect node was used.
+   * @param {Array} selectors
+   *        An array of CSS selectors to find the target node. Several selectors can be
+   *        needed if the element is nested in frames and not directly in the root
+   *        document.
+   * @return {Promise} a promise that resolves when the node is selected in the inspector
+   *         markup view.
+   */
+  async inspectNode(tab, nodeSelectors) {
+    let target = TargetFactory.forTab(tab);
+
+    let toolbox = await gDevTools.showToolbox(target, "inspector");
+    let inspector = toolbox.getCurrentPanel();
+
+    // new-node-front tells us when the node has been selected, whether the
+    // browser is remote or not.
+    let onNewNode = inspector.selection.once("new-node-front");
+
+    // Evaluate the cross iframes query selectors
+    async function querySelectors(nodeFront) {
+      let selector = nodeSelectors.pop();
+      if (!selector) {
+        return nodeFront;
+      }
+      nodeFront = await inspector.walker.querySelector(nodeFront, selector);
+      if (nodeSelectors.length > 0) {
+        let { nodes } = await inspector.walker.children(nodeFront);
+        // This is the NodeFront for the document node inside the iframe
+        nodeFront = nodes[0];
+      }
+      return querySelectors(nodeFront);
+    }
+    let nodeFront = await inspector.walker.getRootNode();
+    nodeFront = await querySelectors(nodeFront);
+    // Select the final node
+    inspector.selection.setNodeFront(nodeFront, "browser-context-menu");
+
+    await onNewNode;
+    // Now that the node has been selected, wait until the inspector is
+    // fully updated.
+    await inspector.once("inspector-updated");
   },
 
   /**

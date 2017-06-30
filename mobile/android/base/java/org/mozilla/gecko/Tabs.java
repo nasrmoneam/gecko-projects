@@ -44,6 +44,7 @@ import android.database.sqlite.SQLiteException;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.provider.Browser;
 import android.support.annotation.UiThread;
 import android.support.v4.content.ContextCompat;
@@ -51,7 +52,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import static org.mozilla.gecko.Tab.TabType;
-import static org.mozilla.gecko.mma.MmaDelegate.VISITING_A_WEBSITE_WITH_MATCH_TO_PAST_HISTORY;
+import static org.mozilla.gecko.mma.MmaDelegate.REVISIT_WEBSITE;
 
 public class Tabs implements BundleEventListener {
     private static final String LOGTAG = "GeckoTabs";
@@ -101,6 +102,7 @@ public class Tabs implements BundleEventListener {
     private volatile boolean mInitialTabsAdded;
 
     private Context mAppContext;
+    private EventDispatcher mEventDispatcher;
     private LayerView mLayerView;
     private ContentObserver mBookmarksContentObserver;
     private PersistTabsRunnable mPersistTabsRunnable;
@@ -165,18 +167,11 @@ public class Tabs implements BundleEventListener {
         mPrivateClearColor = Color.RED;
     }
 
-    public synchronized void attachToContext(Context context, LayerView layerView) {
+    public synchronized void attachToContext(Context context, LayerView layerView, EventDispatcher eventDispatcher) {
         final Context appContext = context.getApplicationContext();
-        if (mAppContext == appContext) {
-            return;
-        }
-
-        if (mAppContext != null) {
-            // This should never happen.
-            Log.w(LOGTAG, "The application context has changed!");
-        }
 
         mAppContext = appContext;
+        mEventDispatcher = eventDispatcher;
         mLayerView = layerView;
         mPrivateClearColor = ContextCompat.getColor(context, R.color.tabs_tray_grey_pressed);
         mAccountManager = AccountManager.get(appContext);
@@ -196,6 +191,10 @@ public class Tabs implements BundleEventListener {
             final GeckoProfile profile = GeckoProfile.get(context);
             BrowserDB.from(profile).registerBookmarkObserver(getContentResolver(), mBookmarksContentObserver);
         }
+    }
+
+    public void detachFromContext() {
+        mLayerView = null;
     }
 
     /**
@@ -332,6 +331,7 @@ public class Tabs implements BundleEventListener {
         // Pass a message to Gecko to update tab state in BrowserApp.
         final GeckoBundle data = new GeckoBundle(1);
         data.putInt("id", tab.getId());
+        mEventDispatcher.dispatch("Tab:Selected", data);
         EventDispatcher.getInstance().dispatch("Tab:Selected", data);
         return tab;
     }
@@ -473,7 +473,7 @@ public class Tabs implements BundleEventListener {
         final GeckoBundle data = new GeckoBundle(2);
         data.putInt("tabId", tabId);
         data.putBoolean("showUndoToast", showUndoToast);
-        EventDispatcher.getInstance().dispatch("Tab:Closed", data);
+        mEventDispatcher.dispatch("Tab:Closed", data);
     }
 
     /** Return the tab that will be selected by default after this one is closed */
@@ -645,10 +645,14 @@ public class Tabs implements BundleEventListener {
                 return;
             }
             if ((state & GeckoAppShell.WPL_STATE_START) != 0) {
+                Log.i(LOGTAG, "zerdatime " + SystemClock.elapsedRealtime() +
+                      " - page load start");
                 final boolean restoring = message.getBoolean("restoring");
                 tab.handleDocumentStart(restoring, message.getString("uri"));
                 notifyListeners(tab, Tabs.TabEvents.START);
             } else if ((state & GeckoAppShell.WPL_STATE_STOP) != 0) {
+                Log.i(LOGTAG, "zerdatime " + SystemClock.elapsedRealtime() +
+                      " - page load stop");
                 tab.handleDocumentStop(message.getBoolean("success"));
                 notifyListeners(tab, Tabs.TabEvents.STOP);
             }
@@ -1083,7 +1087,7 @@ public class Tabs implements BundleEventListener {
             }
         }
 
-        EventDispatcher.getInstance().dispatch("Tab:Load", data);
+        mEventDispatcher.dispatch("Tab:Load", data);
 
         if (tabToSelect == null) {
             return null;
@@ -1106,7 +1110,7 @@ public class Tabs implements BundleEventListener {
     private void tracking(String url) {
         AddToHomeScreenPromotion.URLHistory history = AddToHomeScreenPromotion.getHistoryForURL(mAppContext, url);
         if (history != null && history.visits > 0) {
-            MmaDelegate.track(VISITING_A_WEBSITE_WITH_MATCH_TO_PAST_HISTORY, history.visits);
+            MmaDelegate.track(REVISIT_WEBSITE, history.visits);
         }
     }
 
@@ -1277,7 +1281,7 @@ public class Tabs implements BundleEventListener {
         data.putInt("fromPosition", fromPosition);
         data.putInt("toTabId", toTabId);
         data.putInt("toPosition", toPosition);
-        EventDispatcher.getInstance().dispatch("Tab:Move", data);
+        mEventDispatcher.dispatch("Tab:Move", data);
     }
 
     /**

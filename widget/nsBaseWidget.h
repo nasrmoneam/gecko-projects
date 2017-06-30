@@ -168,6 +168,11 @@ public:
     return mSizeMode;
   }
 
+  virtual bool            IsFullyOccluded() const override
+  {
+    return mIsFullyOccluded;
+  }
+
   virtual nsCursor        GetCursor() override;
   virtual void            SetCursor(nsCursor aCursor) override;
   virtual nsresult        SetCursor(imgIContainer* aCursor,
@@ -202,7 +207,7 @@ public:
   //
   // A reference to the session object is held until this function has
   // returned.
-  void NotifyRemoteCompositorSessionLost(mozilla::layers::CompositorSession* aSession);
+  void NotifyCompositorSessionLost(mozilla::layers::CompositorSession* aSession);
 
   mozilla::CompositorVsyncDispatcher* GetCompositorVsyncDispatcher();
   void            CreateCompositorVsyncDispatcher();
@@ -687,6 +692,7 @@ protected:
   bool              mUpdateCursor;
   bool              mUseAttachedEvents;
   bool              mIMEHasFocus;
+  bool              mIsFullyOccluded;
 #if defined(XP_WIN) || defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK)
   bool              mAccessibilityInUseFlag;
 #endif

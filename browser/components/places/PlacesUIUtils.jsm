@@ -579,9 +579,9 @@ this.PlacesUIUtils = {
       if (!this.PLACES_FLAVORS.includes(aData.type))
         throw new Error(`itemGuid unexpectedly set on ${aData.type} data`);
 
-      let info = { guid: aData.itemGuid
-                 , newParentGuid: aNewParentGuid
-                 , newIndex: aIndex };
+      let info = { guid: aData.itemGuid,
+                   newParentGuid: aNewParentGuid,
+                   newIndex: aIndex };
       if (aCopy) {
         info.excludingAnnotation = "Places/SmartBookmark";
         return PlacesTransactions.Copy(info);
@@ -597,16 +597,16 @@ this.PlacesUIUtils = {
       throw new Error("Can't copy a container from a legacy-transactions build");
 
     if (aData.type == PlacesUtils.TYPE_X_MOZ_PLACE_SEPARATOR) {
-      return PlacesTransactions.NewSeparator({ parentGuid: aNewParentGuid
-                                             , index: aIndex });
+      return PlacesTransactions.NewSeparator({ parentGuid: aNewParentGuid,
+                                               index: aIndex });
     }
 
     let title = aData.type != PlacesUtils.TYPE_UNICODE ? aData.title
                                                        : aData.uri;
-    return PlacesTransactions.NewBookmark({ uri: NetUtil.newURI(aData.uri)
-                                          , title
-                                          , parentGuid: aNewParentGuid
-                                          , index: aIndex });
+    return PlacesTransactions.NewBookmark({ url: Services.io.newURI(aData.uri),
+                                            title,
+                                            parentGuid: aNewParentGuid,
+                                            index: aIndex });
   },
 
   /**
@@ -663,6 +663,10 @@ this.PlacesUIUtils = {
    */
   getViewForNode: function PUIU_getViewForNode(aNode) {
     let node = aNode;
+
+    if (node.localName == "panelview" && node._placesView) {
+      return node._placesView;
+    }
 
     // The view for a <menu> of which its associated menupopup is a places
     // view, is the menupopup.
@@ -949,7 +953,7 @@ this.PlacesUIUtils = {
       return;
     }
 
-    var loadInBackground = where == "tabshifted" ? true : false;
+    var loadInBackground = where == "tabshifted";
     // For consistency, we want all the bookmarks to open in new tabs, instead
     // of having one of them replace the currently focused tab.  Hence we call
     // loadTabs with aReplace set to false.
@@ -1010,12 +1014,10 @@ this.PlacesUIUtils = {
    * @param   aEvent
    *          The DOM mouse/key event with modifier keys set that track the
    *          user's preferred destination window or tab.
-   * @param   aView
-   *          The controller associated with aNode.
    */
   openNodeWithEvent:
-  function PUIU_openNodeWithEvent(aNode, aEvent, aView) {
-    let window = aView.ownerWindow;
+  function PUIU_openNodeWithEvent(aNode, aEvent) {
+    let window = aEvent.target.ownerGlobal;
     this._openNodeIn(aNode, window.whereToOpenLink(aEvent, false, true), window);
   },
 

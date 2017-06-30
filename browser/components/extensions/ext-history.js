@@ -2,6 +2,9 @@
 /* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
+// The ext-* files are imported into the same scopes.
+/* import-globals-from ext-browserAction.js */
+
 XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
                                   "resource://gre/modules/NetUtil.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PlacesUtils",
@@ -25,7 +28,7 @@ for (let [transition, transitionType] of TRANSITION_TO_TRANSITION_TYPES_MAP) {
   TRANSITION_TYPE_TO_TRANSITIONS_MAP.set(transitionType, transition);
 }
 
-function getTransitionType(transition) {
+const getTransitionType = transition => {
   // cannot set a default value for the transition argument as the framework sets it to null
   transition = transition || "link";
   let transitionType = TRANSITION_TO_TRANSITION_TYPES_MAP.get(transition);
@@ -33,18 +36,18 @@ function getTransitionType(transition) {
     throw new Error(`|${transition}| is not a supported transition for history`);
   }
   return transitionType;
-}
+};
 
-function getTransition(transitionType) {
+const getTransition = transitionType => {
   return TRANSITION_TYPE_TO_TRANSITIONS_MAP.get(transitionType) || "link";
-}
+};
 
 /*
  * Converts a nsINavHistoryResultNode into a HistoryItem
  *
  * https://developer.mozilla.org/en-US/docs/XPCOM_Interface_Reference/nsINavHistoryResultNode
  */
-function convertNodeToHistoryItem(node) {
+const convertNodeToHistoryItem = node => {
   return {
     id: node.pageGuid,
     url: node.uri,
@@ -52,14 +55,14 @@ function convertNodeToHistoryItem(node) {
     lastVisitTime: PlacesUtils.toDate(node.time).getTime(),
     visitCount: node.accessCount,
   };
-}
+};
 
 /*
  * Converts a nsINavHistoryResultNode into a VisitItem
  *
  * https://developer.mozilla.org/en-US/docs/XPCOM_Interface_Reference/nsINavHistoryResultNode
  */
-function convertNodeToVisitItem(node) {
+const convertNodeToVisitItem = node => {
   return {
     id: node.pageGuid,
     visitId: node.visitId,
@@ -67,14 +70,14 @@ function convertNodeToVisitItem(node) {
     referringVisitId: node.fromVisitId,
     transition: getTransition(node.visitType),
   };
-}
+};
 
 /*
  * Converts a nsINavHistoryContainerResultNode into an array of objects
  *
  * https://developer.mozilla.org/en-US/docs/XPCOM_Interface_Reference/nsINavHistoryContainerResultNode
  */
-function convertNavHistoryContainerResultNode(container, converter) {
+const convertNavHistoryContainerResultNode = (container, converter) => {
   let results = [];
   container.containerOpen = true;
   for (let i = 0; i < container.childCount; i++) {
@@ -83,21 +86,21 @@ function convertNavHistoryContainerResultNode(container, converter) {
   }
   container.containerOpen = false;
   return results;
-}
+};
 
 var _observer;
 
-function getObserver() {
+const getHistoryObserver = () => {
   if (!_observer) {
     _observer = {
       onDeleteURI: function(uri, guid, reason) {
         this.emit("visitRemoved", {allHistory: false, urls: [uri.spec]});
       },
-      onVisit: function(uri, visitId, time, sessionId, referringId, transitionType, guid, hidden, visitCount, typed) {
+      onVisit: function(uri, visitId, time, sessionId, referringId, transitionType, guid, hidden, visitCount, typed, lastKnownTitle) {
         let data = {
           id: guid,
           url: uri.spec,
-          title: "",
+          title: lastKnownTitle || "",
           lastVisitTime: time / 1000,  // time from Places is microseconds,
           visitCount,
           typedCount: typed,
@@ -123,7 +126,7 @@ function getObserver() {
     PlacesUtils.history.addObserver(_observer);
   }
   return _observer;
-}
+};
 
 this.history = class extends ExtensionAPI {
   getAPI(context) {
@@ -216,36 +219,36 @@ this.history = class extends ExtensionAPI {
           return Promise.resolve(results);
         },
 
-        onVisited: new SingletonEventManager(context, "history.onVisited", fire => {
+        onVisited: new EventManager(context, "history.onVisited", fire => {
           let listener = (event, data) => {
             fire.sync(data);
           };
 
-          getObserver().on("visited", listener);
+          getHistoryObserver().on("visited", listener);
           return () => {
-            getObserver().off("visited", listener);
+            getHistoryObserver().off("visited", listener);
           };
         }).api(),
 
-        onVisitRemoved: new SingletonEventManager(context, "history.onVisitRemoved", fire => {
+        onVisitRemoved: new EventManager(context, "history.onVisitRemoved", fire => {
           let listener = (event, data) => {
             fire.sync(data);
           };
 
-          getObserver().on("visitRemoved", listener);
+          getHistoryObserver().on("visitRemoved", listener);
           return () => {
-            getObserver().off("visitRemoved", listener);
+            getHistoryObserver().off("visitRemoved", listener);
           };
         }).api(),
 
-        onTitleChanged: new SingletonEventManager(context, "history.onTitleChanged", fire => {
+        onTitleChanged: new EventManager(context, "history.onTitleChanged", fire => {
           let listener = (event, data) => {
             fire.sync(data);
           };
 
-          getObserver().on("titleChanged", listener);
+          getHistoryObserver().on("titleChanged", listener);
           return () => {
-            getObserver().off("titleChanged", listener);
+            getHistoryObserver().off("titleChanged", listener);
           };
         }).api(),
       },

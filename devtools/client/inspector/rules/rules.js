@@ -29,7 +29,7 @@ const {
 } = require("devtools/client/inspector/shared/node-types");
 const StyleInspectorMenu = require("devtools/client/inspector/shared/style-inspector-menu");
 const TooltipsOverlay = require("devtools/client/inspector/shared/tooltips-overlay");
-const {createChild, promiseWarn, throttle} = require("devtools/client/inspector/shared/utils");
+const {createChild, promiseWarn, debounce} = require("devtools/client/inspector/shared/utils");
 const EventEmitter = require("devtools/shared/event-emitter");
 const KeyShortcuts = require("devtools/client/shared/key-shortcuts");
 const clipboardHelper = require("devtools/shared/platform/clipboard");
@@ -107,8 +107,8 @@ function CssRuleView(inspector, document, store, pageStyle) {
   this.store = store || {};
   this.pageStyle = pageStyle;
 
-  // Allow tests to override throttling behavior, as this can cause intermittents.
-  this.throttle = throttle;
+  // Allow tests to override debouncing behavior, as this can cause intermittents.
+  this.debounce = debounce;
 
   this.cssProperties = getCssProperties(inspector.toolbox);
 
@@ -778,7 +778,7 @@ CssRuleView.prototype = {
           document.documentElement.namespaceURI;
       this._dummyElement = document.createElementNS(namespaceURI,
                                                    this.element.tagName);
-    }).then(null, promiseWarn);
+    }).catch(promiseWarn);
 
     let elementStyle = new ElementStyle(element, this, this.store,
       this.pageStyle, this.showUserAgentStyles);
@@ -801,7 +801,7 @@ CssRuleView.prototype = {
           this._changed();
         };
       }
-    }).then(null, e => {
+    }).catch(e => {
       if (this._elementStyle === elementStyle) {
         this._stopSelectingElement();
         this._clearRules();
@@ -886,7 +886,7 @@ CssRuleView.prototype = {
       return onEditorsReady.then(() => {
         this.emit("ruleview-refreshed");
       }, e => console.error(e));
-    }).then(null, promiseWarn);
+    }).catch(promiseWarn);
   },
 
   /**

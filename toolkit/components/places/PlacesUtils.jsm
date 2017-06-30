@@ -4,25 +4,25 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 this.EXPORTED_SYMBOLS = [
-  "PlacesUtils"
-, "PlacesAggregatedTransaction"
-, "PlacesCreateFolderTransaction"
-, "PlacesCreateBookmarkTransaction"
-, "PlacesCreateSeparatorTransaction"
-, "PlacesCreateLivemarkTransaction"
-, "PlacesMoveItemTransaction"
-, "PlacesRemoveItemTransaction"
-, "PlacesEditItemTitleTransaction"
-, "PlacesEditBookmarkURITransaction"
-, "PlacesSetItemAnnotationTransaction"
-, "PlacesSetPageAnnotationTransaction"
-, "PlacesEditBookmarkKeywordTransaction"
-, "PlacesEditBookmarkPostDataTransaction"
-, "PlacesEditItemDateAddedTransaction"
-, "PlacesEditItemLastModifiedTransaction"
-, "PlacesSortFolderByNameTransaction"
-, "PlacesTagURITransaction"
-, "PlacesUntagURITransaction"
+  "PlacesUtils",
+  "PlacesAggregatedTransaction",
+  "PlacesCreateFolderTransaction",
+  "PlacesCreateBookmarkTransaction",
+  "PlacesCreateSeparatorTransaction",
+  "PlacesCreateLivemarkTransaction",
+  "PlacesMoveItemTransaction",
+  "PlacesRemoveItemTransaction",
+  "PlacesEditItemTitleTransaction",
+  "PlacesEditBookmarkURITransaction",
+  "PlacesSetItemAnnotationTransaction",
+  "PlacesSetPageAnnotationTransaction",
+  "PlacesEditBookmarkKeywordTransaction",
+  "PlacesEditBookmarkPostDataTransaction",
+  "PlacesEditItemDateAddedTransaction",
+  "PlacesEditItemLastModifiedTransaction",
+  "PlacesSortFolderByNameTransaction",
+  "PlacesTagURITransaction",
+  "PlacesUntagURITransaction"
 ];
 
 const { classes: Cc, interfaces: Ci, results: Cr, utils: Cu } = Components;
@@ -39,8 +39,6 @@ XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Sqlite",
                                   "resource://gre/modules/Sqlite.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Promise",
-                                  "resource://gre/modules/Promise.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Deprecated",
                                   "resource://gre/modules/Deprecated.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Bookmarks",
@@ -212,6 +210,7 @@ function serializeNode(aNode, aIsLivemark) {
 // Imposed to limit database size.
 const DB_URL_LENGTH_MAX = 65536;
 const DB_TITLE_LENGTH_MAX = 4096;
+const DB_DESCRIPTION_LENGTH_MAX = 1024;
 
 /**
  * List of bookmark object validators, one per each known property.
@@ -227,9 +226,9 @@ const BOOKMARK_VALIDATORS = Object.freeze({
   dateAdded: simpleValidateFunc(v => v.constructor.name == "Date"),
   lastModified: simpleValidateFunc(v => v.constructor.name == "Date"),
   type: simpleValidateFunc(v => Number.isInteger(v) &&
-                                [ PlacesUtils.bookmarks.TYPE_BOOKMARK
-                                , PlacesUtils.bookmarks.TYPE_FOLDER
-                                , PlacesUtils.bookmarks.TYPE_SEPARATOR ].includes(v)),
+                                [ PlacesUtils.bookmarks.TYPE_BOOKMARK,
+                                  PlacesUtils.bookmarks.TYPE_FOLDER,
+                                  PlacesUtils.bookmarks.TYPE_SEPARATOR ].includes(v)),
   title: v => {
     simpleValidateFunc(val => val === null || typeof(val) == "string").call(this, v);
     if (!v)
@@ -249,6 +248,11 @@ const BOOKMARK_VALIDATORS = Object.freeze({
   },
   source: simpleValidateFunc(v => Number.isInteger(v) &&
                                   Object.values(PlacesUtils.bookmarks.SOURCES).includes(v)),
+  annos: simpleValidateFunc(v => Array.isArray(v) && v.length),
+  keyword: simpleValidateFunc(v => (typeof(v) == "string") && v.length),
+  charset: simpleValidateFunc(v => (typeof(v) == "string") && v.length),
+  postData: simpleValidateFunc(v => (typeof(v) == "string") && v.length),
+  tags: simpleValidateFunc(v => Array.isArray(v) && v.length),
 });
 
 // Sync bookmark records can contain additional properties.
@@ -584,8 +588,8 @@ this.PlacesUtils = {
   SYNC_CHANGE_RECORD_VALIDATORS,
 
   QueryInterface: XPCOMUtils.generateQI([
-    Ci.nsIObserver
-  , Ci.nsITransactionListener
+    Ci.nsIObserver,
+    Ci.nsITransactionListener
   ]),
 
   _shutdownFunctions: [],
@@ -988,20 +992,52 @@ this.PlacesUtils = {
       visits: [],
     };
 
+    if (typeof pageInfo != "object" || !pageInfo) {
+      throw new TypeError("pageInfo must be an object");
+    }
+
     if (!pageInfo.url) {
       throw new TypeError("PageInfo object must have a url property");
     }
 
     info.url = this.normalizeToURLOrGUID(pageInfo.url);
 
-    if (!validateVisits) {
-      return info;
+    if (typeof pageInfo.guid === "string" && this.isValidGuid(pageInfo.guid)) {
+      info.guid = pageInfo.guid;
+    } else if (pageInfo.guid) {
+      throw new TypeError(`guid property of PageInfo object: ${pageInfo.guid} is invalid`);
     }
 
     if (typeof pageInfo.title === "string") {
       info.title = pageInfo.title;
     } else if (pageInfo.title != null && pageInfo.title != undefined) {
       throw new TypeError(`title property of PageInfo object: ${pageInfo.title} must be a string if provided`);
+    }
+
+    if (typeof pageInfo.description === "string" || pageInfo.description === null) {
+      info.description = pageInfo.description ? pageInfo.description.slice(0, DB_DESCRIPTION_LENGTH_MAX) : null;
+    } else if (pageInfo.description !== undefined) {
+      throw new TypeError(`description property of pageInfo object: ${pageInfo.description} must be either a string or null if provided`);
+    }
+
+    if (pageInfo.previewImageURL || pageInfo.previewImageURL === null) {
+      let previewImageURL = pageInfo.previewImageURL;
+
+      if (previewImageURL === null) {
+        info.previewImageURL = null;
+      } else if (typeof(previewImageURL) === "string" && previewImageURL.length <= DB_URL_LENGTH_MAX) {
+        info.previewImageURL = new URL(previewImageURL);
+      } else if (previewImageURL instanceof Ci.nsIURI && previewImageURL.spec.length <= DB_URL_LENGTH_MAX) {
+        info.previewImageURL = new URL(previewImageURL.spec);
+      } else if (previewImageURL instanceof URL && previewImageURL.href.length <= DB_URL_LENGTH_MAX) {
+        info.previewImageURL = previewImageURL;
+      } else {
+        throw new TypeError("previewImageURL property of pageInfo object: ${previewImageURL} is invalid");
+      }
+    }
+
+    if (!validateVisits) {
+      return info;
     }
 
     if (!pageInfo.visits || !Array.isArray(pageInfo.visits) || !pageInfo.visits.length) {
@@ -1075,6 +1111,9 @@ this.PlacesUtils = {
    */
   getFolderContents:
   function PU_getFolderContents(aFolderId, aExcludeItems, aExpandQueries) {
+    if (typeof aFolderId !== "number") {
+      throw new Error("aFolderId should be a number.");
+    }
     var query = this.history.getNewQuery();
     query.setFolders([aFolderId], 1);
     var options = this.history.getNewQueryOptions();
@@ -1332,17 +1371,7 @@ this.PlacesUtils = {
    */
   getBookmarksForURI:
   function PU_getBookmarksForURI(aURI) {
-    var bmkIds = this.bookmarks.getBookmarkIdsForURI(aURI);
-
-    // filter the ids list
-    return bmkIds.filter(function(aID) {
-      var parentId = this.bookmarks.getFolderIdForItem(aID);
-      var grandparentId = this.bookmarks.getFolderIdForItem(parentId);
-      // item under a tag container
-      if (grandparentId == this.tagsFolderId)
-        return false;
-      return true;
-    }, this);
+    return this.bookmarks.getBookmarkIdsForURI(aURI);
   },
 
   /**
@@ -1355,23 +1384,8 @@ this.PlacesUtils = {
    */
   getMostRecentBookmarkForURI:
   function PU_getMostRecentBookmarkForURI(aURI) {
-    var bmkIds = this.bookmarks.getBookmarkIdsForURI(aURI);
-    for (var i = 0; i < bmkIds.length; i++) {
-      // Find the first folder which isn't a tag container
-      var itemId = bmkIds[i];
-      var parentId = this.bookmarks.getFolderIdForItem(itemId);
-      // Optimization: if this is a direct child of a root we don't need to
-      // check if its grandparent is a tag.
-      if (parentId == this.unfiledBookmarksFolderId ||
-          parentId == this.toolbarFolderId ||
-          parentId == this.bookmarksMenuFolderId)
-        return itemId;
-
-      var grandparentId = this.bookmarks.getFolderIdForItem(parentId);
-      if (grandparentId != this.tagsFolderId)
-        return itemId;
-    }
-    return -1;
+    let bmkIds = this.bookmarks.getBookmarkIdsForURI(aURI);
+    return bmkIds.length ? bmkIds[0] : -1;
   },
 
   /**
@@ -1599,8 +1613,8 @@ this.PlacesUtils = {
   /**
    * Sets the character-set for a URI.
    *
-   * @param aURI nsIURI
-   * @param aCharset character-set value.
+   * @param {nsIURI} aURI
+   * @param {String} aCharset character-set value.
    * @return {Promise}
    */
   setCharsetForURI: function PU_setCharsetForURI(aURI, aCharset) {
@@ -1748,13 +1762,22 @@ this.PlacesUtils = {
    * @param aGuid
    *        an item GUID
    * @return {Promise}
-   * @resolves to the GUID.
+   * @resolves to the item id.
    * @rejects if there's no item for the given GUID.
    */
   promiseItemId(aGuid) {
     return GuidHelper.getItemId(aGuid)
   },
 
+  /**
+   * Get the item ids for multiple items (a bookmark, a folder or a separator)
+   * given the unique ids for each item.
+   *
+   * @param {Array} aGuids An array of item GUIDs.
+   * @return {Promise}
+   * @resolves to a Map of item ids.
+   * @rejects if not all of the GUIDs could be found.
+   */
   promiseManyItemIds(aGuids) {
     return GuidHelper.getManyItemIds(aGuids);
   },
@@ -1977,10 +2000,10 @@ this.PlacesUtils = {
         try {
           // This is the first row.
           rootItem = item = await createItemInfoObject(row, true);
-          Object.defineProperty(rootItem, "itemsCount", { value: 1
-                                                        , writable: true
-                                                        , enumerable: false
-                                                        , configurable: false });
+          Object.defineProperty(rootItem, "itemsCount", { value: 1,
+                                                          writable: true,
+                                                          enumerable: false,
+                                                          configurable: false });
         } catch (ex) {
           throw new Error("Failed to fetch the data for the root item " + ex);
         }
@@ -3076,11 +3099,11 @@ PlacesCreateLivemarkTransaction.prototype = {
 
   doTransaction: function CLTXN_doTransaction() {
     this._promise = PlacesUtils.livemarks.addLivemark(
-      { title: this.item.title
-      , feedURI: this.item.feedURI
-      , parentId: this.item.parentId
-      , index: this.item.index
-      , siteURI: this.item.siteURI
+      { title: this.item.title,
+        feedURI: this.item.feedURI,
+        parentId: this.item.parentId,
+        index: this.item.index,
+        siteURI: this.item.siteURI
       }).then(aLivemark => {
         this.item.id = aLivemark.id;
         if (this.item.annotations && this.item.annotations.length > 0) {
@@ -3094,7 +3117,7 @@ PlacesCreateLivemarkTransaction.prototype = {
     // The getLivemark callback may fail, but it is used just to serialize,
     // so it doesn't matter.
     this._promise = PlacesUtils.livemarks.getLivemark({ id: this.item.id })
-      .then(null, null).then( () => {
+      .catch(() => {}).then(() => {
         PlacesUtils.bookmarks.removeItem(this.item.id);
       });
   }
@@ -3146,13 +3169,13 @@ PlacesRemoveLivemarkTransaction.prototype = {
     // The getLivemark callback is expected to receive a failure status but it
     // is used just to serialize, so doesn't matter.
     PlacesUtils.livemarks.getLivemark({ id: this.item.id })
-      .then(null, () => {
-        PlacesUtils.livemarks.addLivemark({ parentId: this.item.parentId
-                                          , title: this.item.title
-                                          , siteURI: this.item.siteURI
-                                          , feedURI: this.item.feedURI
-                                          , index: this.item.index
-                                          , lastModified: this.item.lastModified
+      .catch(() => {
+        PlacesUtils.livemarks.addLivemark({ parentId: this.item.parentId,
+                                            title: this.item.title,
+                                            siteURI: this.item.siteURI,
+                                            feedURI: this.item.feedURI,
+                                            index: this.item.index,
+                                            lastModified: this.item.lastModified
                                           }).then(
           aLivemark => {
             let itemId = aLivemark.id;
@@ -3576,10 +3599,7 @@ PlacesEditBookmarkKeywordTransaction.prototype = {
                  .then(() => done = true);
     // TODO: Until we can move to PlacesTransactions.jsm, we must spin the
     // events loop :(
-    let thread = Services.tm.currentThread;
-    while (!done) {
-      thread.processNextEvent(true);
-    }
+    Services.tm.spinEventLoopUntil(() => done);
   },
 
   undoTransaction: function EBKTXN_undoTransaction() {
@@ -3601,10 +3621,9 @@ PlacesEditBookmarkKeywordTransaction.prototype = {
                  .then(() => done = true);
     // TODO: Until we can move to PlacesTransactions.jsm, we must spin the
     // events loop :(
-    let thread = Services.tm.currentThread;
-    while (!done) {
-      thread.processNextEvent(true);
-    }
+    Services.tm.spinEventLoopUntil(() => {
+      return done;
+    });
   }
 };
 

@@ -207,13 +207,12 @@ private:
  */
 class nsCounterManager {
 public:
-    nsCounterManager();
     // Returns true if dirty
     bool AddCounterResetsAndIncrements(nsIFrame *aFrame);
 
     // Gets the appropriate counter list, creating it if necessary.
     // Guaranteed to return non-null. (Uses an infallible hashtable API.)
-    nsCounterList* CounterListFor(const nsSubstring& aCounterName);
+    nsCounterList* CounterListFor(const nsAString& aCounterName);
 
     // Clean up data in any dirty counter lists.
     void RecalcAll();

@@ -88,7 +88,7 @@ RestyleTracker::ProcessOneRestyle(Element* aElement,
         GeckoRestyleManager::StructsToLog() != 0) {
       LOG_RESTYLE("style context tree before restyle:");
       LOG_RESTYLE_INDENT();
-      primaryFrame->StyleContext()->LogStyleContextTree(
+      primaryFrame->StyleContext()->AsGecko()->LogStyleContextTree(
           LoggingDepth(), GeckoRestyleManager::StructsToLog());
     }
 #endif
@@ -114,8 +114,8 @@ RestyleTracker::DoProcessRestyles()
       docURL = uri->GetSpecOrDefault();
     }
   }
-  PROFILER_LABEL_DYNAMIC("RestyleTracker", "ProcessRestyles",
-                         js::ProfileEntry::Category::CSS, docURL.get());
+  AUTO_PROFILER_LABEL_DYNAMIC("RestyleTracker::DoProcessRestyles", CSS,
+                              docURL.get());
 
   nsDocShell* docShell = static_cast<nsDocShell*>(mRestyleManager->PresContext()->GetDocShell());
   RefPtr<TimelineConsumers> timelines = TimelineConsumers::Get();
@@ -255,9 +255,9 @@ RestyleTracker::DoProcessRestyles()
               data->mRestyleHint, MarkerTracingType::START)));
         }
 
-        Maybe<GeckoProfilerTracingRAII> profilerRAII;
+        Maybe<AutoProfilerTracing> tracing;
         if (profiler_feature_active(ProfilerFeature::Restyle)) {
-          profilerRAII.emplace("Paint", "Styles", Move(data->mBacktrace));
+          tracing.emplace("Paint", "Styles", Move(data->mBacktrace));
         }
         ProcessOneRestyle(element, data->mRestyleHint, data->mChangeHint,
                           data->mRestyleHintData);
@@ -359,9 +359,9 @@ RestyleTracker::DoProcessRestyles()
                       index++, count);
           LOG_RESTYLE_INDENT();
 
-          Maybe<GeckoProfilerTracingRAII> profilerRAII;
+          Maybe<AutoProfilerTracing> tracing;
           if (profiler_feature_active(ProfilerFeature::Restyle)) {
-            profilerRAII.emplace("Paint", "Styles", Move(currentRestyle->mBacktrace));
+            tracing.emplace("Paint", "Styles", Move(currentRestyle->mBacktrace));
           }
           if (isTimelineRecording) {
             timelines->AddMarkerForDocShell(docShell, Move(

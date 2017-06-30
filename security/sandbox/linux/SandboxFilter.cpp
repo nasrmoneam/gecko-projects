@@ -196,6 +196,8 @@ public:
       return Allow();
 
       // Asynchronous I/O
+    case __NR_epoll_create1:
+    case __NR_epoll_create:
     case __NR_epoll_wait:
     case __NR_epoll_pwait:
     case __NR_epoll_ctl:
@@ -555,7 +557,6 @@ public:
     case SYS_SEND:
     case SYS_SOCKET: // DANGEROUS
     case SYS_CONNECT: // DANGEROUS
-    case SYS_ACCEPT4: // Used by a11y; see bug 1361238
     case SYS_GETSOCKOPT:
     case SYS_SETSOCKOPT:
     case SYS_GETSOCKNAME:
@@ -677,6 +678,11 @@ public:
       return If((mode & S_IFMT) == S_IFCHR, Error(EPERM))
         .Else(InvalidSyscall());
     }
+
+      // For ORBit called by GConf (on some systems) to get proxy
+      // settings.  Can remove when bug 1325242 happens in some form.
+    case __NR_utime:
+      return Error(EPERM);
 #endif
 
     case __NR_readlinkat:

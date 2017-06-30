@@ -149,6 +149,7 @@ public:
     {
         struct NoOpRunnable : Runnable
         {
+            NoOpRunnable() : Runnable("NoOpRunnable") {}
             NS_IMETHOD Run() override { return NS_OK; }
         };
 
@@ -194,9 +195,10 @@ public:
         // We really want to send a notification like profile-before-change,
         // but profile-before-change ends up shutting some things down instead
         // of flushing data
-        nsIPrefService* prefs = Preferences::GetService();
+        Preferences* prefs = static_cast<Preferences *>(Preferences::GetService());
         if (prefs) {
-            prefs->SavePrefFile(nullptr);
+            // Force a main thread blocking save
+            prefs->SavePrefFileBlocking();
         }
     }
 
@@ -676,8 +678,7 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
 {
     EVLOG("nsAppShell::ProcessNextNativeEvent %d", mayWait);
 
-    PROFILER_LABEL("nsAppShell", "ProcessNextNativeEvent",
-        js::ProfileEntry::Category::EVENTS);
+    AUTO_PROFILER_LABEL("nsAppShell::ProcessNextNativeEvent", EVENTS);
 
     mozilla::UniquePtr<Event> curEvent;
 
@@ -695,8 +696,8 @@ nsAppShell::ProcessNextNativeEvent(bool mayWait)
                 return true;
             }
 
-            PROFILER_LABEL("nsAppShell", "ProcessNextNativeEvent::Wait",
-                js::ProfileEntry::Category::EVENTS);
+            AUTO_PROFILER_LABEL("nsAppShell::ProcessNextNativeEvent:Wait",
+                                EVENTS);
             mozilla::HangMonitor::Suspend();
 
             curEvent = mEventQueue.Pop(/* mayWait */ true);

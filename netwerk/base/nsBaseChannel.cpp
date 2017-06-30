@@ -69,7 +69,8 @@ nsBaseChannel::nsBaseChannel()
 
 nsBaseChannel::~nsBaseChannel()
 {
-  NS_ReleaseOnMainThread(mLoadInfo.forget());
+  NS_ReleaseOnMainThread(
+    "nsBaseChannel::mLoadInfo", mLoadInfo.forget());
 }
 
 nsresult
@@ -907,9 +908,10 @@ nsBaseChannel::OnDataAvailable(nsIRequest *request, nsISupports *ctxt,
         OnTransportStatusAsyncEvent(nsBaseChannel* aChannel,
                                     int64_t aProgress,
                                     int64_t aContentLength)
-          : mChannel(aChannel),
-            mProgress(aProgress),
-            mContentLength(aContentLength)
+          : mozilla::Runnable("OnTransportStatusAsyncEvent")
+          , mChannel(aChannel)
+          , mProgress(aProgress)
+          , mContentLength(aContentLength)
         { }
 
         NS_IMETHOD Run() override

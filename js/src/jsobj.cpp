@@ -486,12 +486,7 @@ js::SetIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level)
     if (!PreventExtensions(cx, obj, level))
         return false;
 
-    // Steps 6-7.
-    AutoIdVector keys(cx);
-    if (!GetPropertyKeys(cx, obj, JSITER_HIDDEN | JSITER_OWNONLY | JSITER_SYMBOLS, &keys))
-        return false;
-
-    // Steps 8-9, loosely interpreted.
+    // Steps 6-9, loosely interpreted.
     if (obj->isNative() && !obj->as<NativeObject>().inDictionaryMode() &&
         !obj->is<TypedArrayObject>() && !obj->is<MappedArgumentsObject>())
     {
@@ -510,7 +505,8 @@ js::SetIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level)
             return false;
 
         // Get an in-order list of the shapes in this object.
-        Rooted<ShapeVector> shapes(cx, ShapeVector(cx));
+        using ShapeVec = GCVector<Shape*, 8>;
+        Rooted<ShapeVec> shapes(cx, ShapeVec(cx));
         for (Shape::Range<NoGC> r(nobj->lastProperty()); !r.empty(); r.popFront()) {
             if (!shapes.append(&r.front()))
                 return false;
@@ -540,6 +536,11 @@ js::SetIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level)
             obj->as<ArrayObject>().setNonWritableLength(cx);
         }
     } else {
+        // Steps 6-7.
+        AutoIdVector keys(cx);
+        if (!GetPropertyKeys(cx, obj, JSITER_HIDDEN | JSITER_OWNONLY | JSITER_SYMBOLS, &keys))
+            return false;
+
         RootedId id(cx);
         Rooted<PropertyDescriptor> desc(cx);
 
@@ -575,6 +576,12 @@ js::SetIntegrityLevel(JSContext* cx, HandleObject obj, IntegrityLevel level)
             if (!DefineProperty(cx, obj, id, desc))
                 return false;
         }
+    }
+
+    // Finally, freeze the dense elements.
+    if (level == IntegrityLevel::Frozen && obj->isNative()) {
+        if (!ObjectElements::FreezeElements(cx, obj.as<NativeObject>()))
+            return false;
     }
 
     return true;
@@ -2195,56 +2202,6 @@ JS::IdentifyStandardConstructor(JSObject* obj)
 }
 
 bool
-JSObject::isCallable() const
-{
-    if (is<JSFunction>())
-        return true;
-    return callHook() != nullptr;
-}
-
-bool
-JSObject::isConstructor() const
-{
-    if (is<JSFunction>()) {
-        const JSFunction& fun = as<JSFunction>();
-        return fun.isConstructor();
-    }
-    return constructHook() != nullptr;
-}
-
-JSNative
-JSObject::callHook() const
-{
-    const js::Class* clasp = getClass();
-
-    if (JSNative call = clasp->getCall())
-        return call;
-
-    if (is<js::ProxyObject>()) {
-        const js::ProxyObject& p = as<js::ProxyObject>();
-        if (p.handler()->isCallable(const_cast<JSObject*>(this)))
-            return js::proxy_Call;
-    }
-    return nullptr;
-}
-
-JSNative
-JSObject::constructHook() const
-{
-    const js::Class* clasp = getClass();
-
-    if (JSNative construct = clasp->getConstruct())
-        return construct;
-
-    if (is<js::ProxyObject>()) {
-        const js::ProxyObject& p = as<js::ProxyObject>();
-        if (p.handler()->isConstructor(const_cast<JSObject*>(this)))
-            return js::proxy_Construct;
-    }
-    return nullptr;
-}
-
-bool
 js::LookupProperty(JSContext* cx, HandleObject obj, js::HandleId id,
                    MutableHandleObject objp, MutableHandle<PropertyResult> propp)
 {
@@ -2761,33 +2718,38 @@ js::PreventExtensions(JSContext* cx, HandleObject obj, ObjectOpResult& result, I
         return false;
 
     // Force lazy properties to be resolved.
-    AutoIdVector props(cx);
-    if (!js::GetPropertyKeys(cx, obj, JSITER_HIDDEN | JSITER_OWNONLY, &props))
-        return false;
-
-    // Actually prevent extension. If the object is being frozen, do it by
-    // setting the frozen flag on both the object and the object group.
-    // Otherwise, fallback to sparsifying the object, which makes sure no
-    // element can be added without a call to isExtensible, at the cost of
-    // performance.
     if (obj->isNative()) {
-        if (level == IntegrityLevel::Frozen) {
-            MarkObjectGroupFlags(cx, obj, OBJECT_FLAG_FROZEN);
-            if (!ObjectElements::FreezeElements(cx, obj.as<NativeObject>()))
+        const Class* clasp = obj->getClass();
+        if (JSEnumerateOp enumerate = clasp->getEnumerate()) {
+            if (!enumerate(cx, obj.as<NativeObject>()))
                 return false;
-        } else if (!NativeObject::sparsifyDenseElements(cx, obj.as<NativeObject>())) {
-            return false;
+        }
+        if (clasp->getNewEnumerate() && clasp->getResolve()) {
+            AutoIdVector properties(cx);
+            if (!clasp->getNewEnumerate()(cx, obj, properties, /* enumerableOnly = */ false))
+                return false;
+
+            RootedId id(cx);
+            for (size_t i = 0; i < properties.length(); i++) {
+                id = properties[i];
+                bool found;
+                if (!HasOwnProperty(cx, obj, id, &found))
+                    return false;
+            }
         }
     }
 
-    if (!JSObject::setFlags(cx, obj, BaseShape::NOT_EXTENSIBLE, JSObject::GENERATE_SHAPE)) {
-        // We failed to mark the object non-extensible, so reset the frozen
-        // flag on the elements.
-        MOZ_ASSERT(obj->nonProxyIsExtensible());
-        if (obj->isNative() && obj->as<NativeObject>().getElementsHeader()->isFrozen())
-            obj->as<NativeObject>().getElementsHeader()->markNotFrozen();
-        return false;
+    // Sparsify dense elements, to make sure no element can be added without a
+    // call to isExtensible, at the cost of performance. If the object is being
+    // frozen, the caller is responsible for freezing the elements (and all
+    // other properties).
+    if (obj->isNative() && level != IntegrityLevel::Frozen) {
+        if (!NativeObject::sparsifyDenseElements(cx, obj.as<NativeObject>()))
+            return false;
     }
+
+    if (!JSObject::setFlags(cx, obj, BaseShape::NOT_EXTENSIBLE, JSObject::GENERATE_SHAPE))
+        return false;
 
     return result.succeed();
 }
@@ -3013,18 +2975,6 @@ js::UnwatchProperty(JSContext* cx, HandleObject obj, HandleId id)
     return UnwatchGuts(cx, obj, id);
 }
 
-const char*
-js::GetObjectClassName(JSContext* cx, HandleObject obj)
-{
-    assertSameCompartment(cx, obj);
-
-    if (obj->is<ProxyObject>())
-        return Proxy::className(cx, obj);
-
-    return obj->getClass()->name;
-}
-
-
 /* * */
 
 extern bool
@@ -3200,9 +3150,8 @@ js::ToPrimitiveSlow(JSContext* cx, JSType preferredType, MutableHandleValue vp)
     RootedObject obj(cx, &vp.toObject());
 
     // Steps 4-5.
-    RootedId id(cx, SYMBOL_TO_JSID(cx->wellKnownSymbols().toPrimitive));
     RootedValue method(cx);
-    if (!GetProperty(cx, obj, obj, id, &method))
+    if (!GetInterestingSymbolProperty(cx, obj, cx->wellKnownSymbols().toPrimitive, &method))
         return false;
 
     // Step 6.
@@ -3543,6 +3492,12 @@ JSObject::uninlinedIsProxy() const
     return is<ProxyObject>();
 }
 
+bool
+JSObject::uninlinedNonProxyIsExtensible() const
+{
+    return nonProxyIsExtensible();
+}
+
 void
 JSObject::dump(FILE* fp) const
 {
@@ -3564,6 +3519,7 @@ JSObject::dump(FILE* fp) const
     if (obj->isDelegate()) fprintf(fp, " delegate");
     if (!obj->is<ProxyObject>() && !obj->nonProxyIsExtensible()) fprintf(fp, " not_extensible");
     if (obj->isIndexed()) fprintf(fp, " indexed");
+    if (obj->maybeHasInterestingSymbolProperty()) fprintf(fp, " maybe_has_interesting_symbol");
     if (obj->isBoundFunction()) fprintf(fp, " bound_function");
     if (obj->isQualifiedVarObj()) fprintf(fp, " varobj");
     if (obj->isUnqualifiedVarObj()) fprintf(fp, " unqualified_varobj");

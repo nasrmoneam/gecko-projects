@@ -24,7 +24,6 @@ const kPaletteItemContextMenu = "customizationPaletteItemContextMenu";
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource:///modules/CustomizableUI.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
-Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/AddonManager.jsm");
 Cu.import("resource://gre/modules/AppConstants.jsm");
 
@@ -218,10 +217,12 @@ CustomizeMode.prototype = {
     }
 
     if (!gTab) {
-      this.setTab(this.browser.loadOneTab("about:blank",
-                                          { inBackground: false,
-                                            forceNotRemote: true,
-                                            skipAnimation: true }));
+      this.setTab(this.browser.loadOneTab("about:blank", {
+        inBackground: false,
+        forceNotRemote: true,
+        skipAnimation: true,
+        triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+      }));
       return;
     }
     if (!gTab.selected) {
@@ -312,22 +313,30 @@ CustomizeMode.prototype = {
         window.PanelUI.menuButton.open = true;
         window.PanelUI.beginBatchUpdate();
 
-        // The menu panel is lazy, and registers itself when the popup shows. We
-        // need to force the menu panel to register itself, or else customization
-        // is really not going to work. We pass "true" to ensureReady to
-        // indicate that we're handling calling startBatchUpdate and
-        // endBatchUpdate.
+        // The menu panel is lazy, and registers itself when the popup shows.
+        // If it hasn't been opened yet, we need to force the menu panel to
+        // register itself, or else customization is not going to work.
+        // We pass "true" to ensureReady to indicate that we're handling
+        // calling startBatchUpdate and endBatchUpdate.
         if (!window.PanelUI.isReady) {
           await window.PanelUI.ensureReady(true);
+          // Up to now, it will have been hidden, and its XBL bindings won't have
+          // been constructed. Unhiding it won't trigger the construction of
+          // those bindings immediately, but the next layout flush will.
+          // Because we don't want to sync flush layout, we wait for the next
+          // natural style/layout flush.
+          await new Promise(resolve => window.requestIdleCallback(resolve));
         }
 
         // Hide the palette before starting the transition for increased perf.
         this.visiblePalette.hidden = true;
         this.visiblePalette.removeAttribute("showing");
 
-        // Disable the button-text fade-out mask
-        // during the transition for increased perf.
-        window.PanelUI.contents.setAttribute("customize-transitioning", "true");
+        if (!AppConstants.MOZ_PHOTON_THEME) {
+          // Disable the button-text fade-out mask
+          // during the transition for increased perf.
+          window.PanelUI.contents.setAttribute("customize-transitioning", "true");
+        }
 
         // Move the mainView in the panel to the holder so that we can see it
         // while customizing.
@@ -405,7 +414,9 @@ CustomizeMode.prototype = {
       this._updateEmptyPaletteNotice();
 
       this._updateLWThemeButtonIcon();
-      this.maybeShowTip(panelHolder);
+      if (!AppConstants.MOZ_PHOTON_THEME) {
+        this.maybeShowTip(panelHolder);
+      }
 
       this._handler.isEnteringCustomizeMode = false;
       if (!gPhotonStructure) {
@@ -424,7 +435,7 @@ CustomizeMode.prototype = {
       if (!this._wantToBeInCustomizeMode) {
         this.exit();
       }
-    })().then(null, e => {
+    })().catch(e => {
       log.error("Error entering customize mode", e);
       // We should ensure this has been called, and calling it again doesn't hurt:
       window.PanelUI.endBatchUpdate();
@@ -594,7 +605,7 @@ CustomizeMode.prototype = {
       if (this._wantToBeInCustomizeMode) {
         this.enter();
       }
-    })().then(null, e => {
+    })().catch(e => {
       log.error("Error exiting customize mode", e);
       if (!gPhotonStructure) {
         // We should ensure this has been called, and calling it again doesn't hurt:
@@ -627,6 +638,17 @@ CustomizeMode.prototype = {
    * excluding certain styles while in any phase of customize mode.
    */
   _doTransition(aEntering) {
+    if (AppConstants.MOZ_PHOTON_THEME) {
+      let docEl = this.document.documentElement;
+      if (aEntering) {
+        docEl.setAttribute("customizing", true);
+        docEl.setAttribute("customize-entered", true);
+      } else {
+        docEl.removeAttribute("customizing");
+        docEl.removeAttribute("customize-entered");
+      }
+      return Promise.resolve();
+    }
     let deck = this.document.getElementById("content-deck");
     let customizeTransitionEndPromise = new Promise(resolve => {
       let customizeTransitionEnd = (aEvent) => {
@@ -864,7 +886,7 @@ CustomizeMode.prototype = {
       }
       this.visiblePalette.hidden = false;
       this.window.gNavToolbox.palette = this._stowedPalette;
-    })().then(null, log.error);
+    })().catch(log.error);
   },
 
   isCustomizableItem(aNode) {
@@ -1070,7 +1092,7 @@ CustomizeMode.prototype = {
     this._addDragHandlers(target);
     for (let child of target.children) {
       if (this.isCustomizableItem(child) && !this.isWrappedToolbarItem(child)) {
-        await this.deferredWrapToolbarItem(child, CustomizableUI.getPlaceForItem(child)).then(null, log.error);
+        await this.deferredWrapToolbarItem(child, CustomizableUI.getPlaceForItem(child)).catch(log.error);
       }
     }
     this.areas.add(target);
@@ -1105,6 +1127,10 @@ CustomizeMode.prototype = {
   },
 
   _addDragHandlers(aTarget) {
+    // Allow dropping on the padding of the arrow panel.
+    if (gPhotonStructure && aTarget.id == CustomizableUI.AREA_FIXED_OVERFLOW_PANEL) {
+      aTarget = this.document.getElementById("customization-panelHolder");
+    }
     aTarget.addEventListener("dragstart", this, true);
     aTarget.addEventListener("dragover", this, true);
     aTarget.addEventListener("dragexit", this, true);
@@ -1121,6 +1147,11 @@ CustomizeMode.prototype = {
   },
 
   _removeDragHandlers(aTarget) {
+    // Remove handler from different target if it was added to
+    // allow dropping on the padding of the arrow panel.
+    if (gPhotonStructure && aTarget.id == CustomizableUI.AREA_FIXED_OVERFLOW_PANEL) {
+      aTarget = this.document.getElementById("customization-panelHolder");
+    }
     aTarget.removeEventListener("dragstart", this, true);
     aTarget.removeEventListener("dragover", this, true);
     aTarget.removeEventListener("dragexit", this, true);
@@ -1147,7 +1178,7 @@ CustomizeMode.prototype = {
         this._removeDragHandlers(target);
       }
       this.areas.clear();
-    })().then(null, log.error);
+    })().catch(log.error);
   },
 
   _removeExtraToolbarsIfEmpty() {
@@ -1203,7 +1234,7 @@ CustomizeMode.prototype = {
       if (!this._wantToBeInCustomizeMode) {
         this.exit();
       }
-    })().then(null, log.error);
+    })().catch(log.error);
   },
 
   undoReset() {
@@ -1227,7 +1258,7 @@ CustomizeMode.prototype = {
       this._updateUndoResetButton();
       this._updateEmptyPaletteNotice();
       this.resetting = false;
-    })().then(null, log.error);
+    })().catch(log.error);
   },
 
   _onToolbarVisibilityChange(aEvent) {
@@ -2188,6 +2219,14 @@ CustomizeMode.prototype = {
   },
 
   _getCustomizableParent(aElement) {
+    if (gPhotonStructure && aElement) {
+      // Deal with drag/drop on the padding of the panel in photon.
+      let containingPanelHolder = aElement.closest("#customization-panelHolder");
+      if (containingPanelHolder) {
+        return containingPanelHolder.firstChild;
+      }
+    }
+
     let areas = CustomizableUI.areas;
     areas.push(kPaletteId);
     while (aElement) {
@@ -2196,6 +2235,7 @@ CustomizeMode.prototype = {
       }
       aElement = aElement.parentNode;
     }
+
     return null;
   },
 

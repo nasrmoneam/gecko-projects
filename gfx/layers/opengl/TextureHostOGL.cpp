@@ -58,8 +58,6 @@ CreateTextureHostOGL(const SurfaceDescriptor& aDesc,
       const SurfaceTextureDescriptor& desc = aDesc.get_SurfaceTextureDescriptor();
       java::GeckoSurfaceTexture::LocalRef surfaceTexture = java::GeckoSurfaceTexture::Lookup(desc.handle());
 
-      MOZ_RELEASE_ASSERT(surfaceTexture);
-
       result = new SurfaceTextureHost(aFlags,
                                       surfaceTexture,
                                       desc.size(),
@@ -419,12 +417,22 @@ SurfaceTextureHost::SurfaceTextureHost(TextureFlags aFlags,
   , mSize(aSize)
   , mContinuousUpdate(aContinuousUpdate)
 {
+  if (!mSurfTex) {
+    return;
+  }
+
   // Continuous update makes no sense with single buffer mode
   MOZ_ASSERT(!mSurfTex->IsSingleBuffer() || !mContinuousUpdate);
+
+  mSurfTex->IncrementUse();
 }
 
 SurfaceTextureHost::~SurfaceTextureHost()
 {
+  if (mSurfTex) {
+    mSurfTex->DecrementUse();
+    mSurfTex = nullptr;
+  }
 }
 
 void
@@ -435,7 +443,7 @@ SurfaceTextureHost::PrepareTextureSource(CompositableTextureSourceRef& aTexture)
     return;
   }
 
-  if (!mContinuousUpdate) {
+  if (!mContinuousUpdate && mSurfTex) {
     // UpdateTexImage() advances the internal buffer queue, so we only want to call this
     // once per transactionwhen we are not in continuous mode (as we are here). Otherwise,
     // the SurfaceTexture content will be de-synced from the rest of the page in subsequent
@@ -453,7 +461,10 @@ SurfaceTextureHost::gl() const
 bool
 SurfaceTextureHost::Lock()
 {
-  MOZ_ASSERT(mSurfTex);
+  if (!mSurfTex) {
+    return false;
+  }
+
   GLContext* gl = this->gl();
   if (!gl || !gl->MakeCurrent()) {
     return false;
@@ -497,7 +508,7 @@ SurfaceTextureHost::SetTextureSourceProvider(TextureSourceProvider* aProvider)
 void
 SurfaceTextureHost::NotifyNotUsed()
 {
-  if (mSurfTex->IsSingleBuffer()) {
+  if (mSurfTex && mSurfTex->IsSingleBuffer()) {
     mSurfTex->ReleaseTexImage();
   }
 
@@ -516,7 +527,11 @@ SurfaceTextureHost::DeallocateDeviceData()
   if (mTextureSource) {
     mTextureSource->DeallocateDeviceData();
   }
-  mSurfTex = nullptr;
+
+  if (mSurfTex) {
+    mSurfTex->DecrementUse();
+    mSurfTex = nullptr;
+  }
 }
 
 #endif // MOZ_WIDGET_ANDROID

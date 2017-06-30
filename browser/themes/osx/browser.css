@@ -6,7 +6,6 @@
 
 %include shared.inc
 %define toolbarButtonPressed :hover:active:not([disabled="true"]):not([cui-areatype="menu-panel"])
-%define windowButtonMarginTop 11px
 
 @namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
 @namespace html url("http://www.w3.org/1999/xhtml");
@@ -15,14 +14,13 @@
 %include ../shared/browser.inc.css
 
 :root {
-  --space-above-tabbar: 9px;
-  --tabs-toolbar-color: #333;
-
   --toolbarbutton-vertical-text-padding: calc(var(--toolbarbutton-inner-padding) + 1px);
 
 %ifdef MOZ_PHOTON_THEME
   --toolbarbutton-border-radius: 4px;
 %else
+  --space-above-tabbar: 9px;
+
   --toolbarbutton-border-radius: 3px;
 
   --toolbarbutton-hover-background: hsla(0,0%,100%,.1) linear-gradient(hsla(0,0%,100%,.3), hsla(0,0%,100%,.1)) padding-box;
@@ -40,9 +38,9 @@
   --toolbarbutton-active-boxshadow: 0 1px 0 hsla(0,0%,100%,.5),
                                     0 1px 0 hsla(0,0%,0%,.05) inset,
                                     0 1px 1px hsla(0,0%,0%,.2) inset;
-%endif
 
   --toolbarbutton-checkedhover-backgroundcolor: hsla(0,0%,0%,.09);
+%endif
 
   --urlbar-dropmarker-url: url("chrome://browser/skin/urlbar-history-dropmarker.png");
   --urlbar-dropmarker-region: rect(0, 11px, 14px, 0);
@@ -134,7 +132,11 @@ toolbar:-moz-lwtheme {
  * tabstrip can overlap it.
  */
 #main-window[tabsintitlebar] > #titlebar {
+%ifndef MOZ_PHOTON_THEME
   min-height: calc(var(--tab-min-height) + var(--space-above-tabbar) - var(--tab-toolbar-navbar-overlap));
+%else
+  min-height: calc(var(--tab-min-height) - var(--tab-toolbar-navbar-overlap));
+%endif
 }
 
 /**
@@ -146,7 +148,11 @@ toolbar:-moz-lwtheme {
 
 #main-window[tabsintitlebar] > #titlebar > #titlebar-content > #titlebar-buttonbox-container,
 #main-window[tabsintitlebar] > #titlebar > #titlebar-content > #titlebar-secondary-buttonbox > #titlebar-fullscreen-button {
-  margin-top: @windowButtonMarginTop@;
+%ifdef MOZ_PHOTON_THEME
+  margin-top: 6px;
+%else
+  margin-top: 11px;
+%endif
 }
 
 #main-window:not([tabsintitlebar]) > #titlebar > #titlebar-content > #titlebar-buttonbox-container,
@@ -154,9 +160,11 @@ toolbar:-moz-lwtheme {
   margin-top: 3px;
 }
 
+%ifndef MOZ_PHOTON_THEME
 #main-window[customize-entered] > #titlebar {
   -moz-appearance: none;
 }
+%endif
 
 /** End titlebar **/
 
@@ -473,6 +481,14 @@ toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-p
   background: none;
   box-shadow: none;
   border: none;
+}
+
+/* On Mac, native buttons keep their full opacity when they become disabled
+ * and only the glyph or text on top of them becomes less opaque. */
+#back-button[disabled="true"] > .toolbarbutton-icon {
+  opacity: 1 !important;
+  -moz-context-properties: fill, fill-opacity;
+  fill-opacity: 0.4;
 }
 
 /* Inactive elements are faded out on OSX */
@@ -835,11 +851,13 @@ html|span.ac-emphasize-text-url {
 }
 
 .ac-type-icon[type=bookmark] {
-  list-style-image: url("chrome://browser/skin/urlbar-star.svg#star");
+  list-style-image: url("chrome://browser/skin/bookmark.svg");
+  -moz-context-properties: fill;
+  fill: #b2b2b2;
 }
 
 .ac-type-icon[type=bookmark][selected][current] {
-  list-style-image: url("chrome://browser/skin/urlbar-star.svg#star-inverted");
+  fill: white;
 }
 
 .ac-type-icon[type=keyword],
@@ -856,12 +874,14 @@ html|span.ac-emphasize-text-url {
 
 .ac-type-icon[type=switchtab],
 .ac-type-icon[type=remotetab] {
-  list-style-image: url("chrome://browser/skin/urlbar-tab.svg#tab");
+  list-style-image: url("chrome://browser/skin/urlbar-tab.svg");
+  -moz-context-properties: fill;
+  fill: #b2b2b2;
 }
 
 .ac-type-icon[type=switchtab][selected],
 .ac-type-icon[type=remotetab][selected] {
-  list-style-image: url("chrome://browser/skin/urlbar-tab.svg#tab-inverted");
+  fill: white;
 }
 
 .autocomplete-treebody::-moz-tree-cell-text(treecolAutoCompleteComment) {
@@ -1351,8 +1371,14 @@ html|span.ac-emphasize-text-url {
 }
 
 #sidebar-header {
-  /* match the font size used in side bar content */
-  font-size: 12px;
+  /* system font size is a bit smaller in mac, so need more ems. */
+  font-size: 1.4545em;
+  border-bottom: 1px solid hsla(240, 5%, 5%, .1);
+  background-color: transparent;
+}
+
+.sidebar-splitter {
+  border-color: hsla(240, 5%, 5%, .1);
 }
 
 /* ----- CONTENT ----- */
@@ -1499,7 +1525,11 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
 
 .tabbrowser-tab[visuallyselected=true]:not(:-moz-lwtheme) {
   /* overriding tabbox.css */
+%ifdef MOZ_PHOTON_THEME
+  color: hsl(240, 5%, 5%);
+%else
   color: inherit;
+%endif
 }
 
 .tabbrowser-tab[visuallyselected=true] {
@@ -1525,20 +1555,34 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
   margin-bottom: calc(-1 * var(--tab-toolbar-navbar-overlap));
 }
 
+%ifndef MOZ_PHOTON_THEME
 #main-window:not([customizing]) #navigator-toolbox[inFullscreen] > #TabsToolbar:not(:-moz-lwtheme),
 #main-window:not(:-moz-any([customizing],[tabsintitlebar])) #navigator-toolbox > #TabsToolbar:not(:-moz-lwtheme) {
+%else
+:root:not([customizing]):not([tabsintitlebar]):not([inFullscreen]) #TabsToolbar:not(:-moz-lwtheme) {
+%endif
   -moz-appearance: toolbar;
 }
 
 #TabsToolbar:not(:-moz-lwtheme) {
-  color: var(--tabs-toolbar-color);
+  color: #333;
   text-shadow: @loweredShadow@;
 }
 
+%ifdef MOZ_PHOTON_THEME
+:root:-moz-any([inFullscreen], [tabsintitlebar]):not([customizing]) #TabsToolbar:not(:-moz-lwtheme) {
+  -moz-appearance: none;
+  background-color: #232323;
+  color: hsl(240, 9%, 98%);
+  text-shadow: none;
+}
+%endif
+
+%ifndef MOZ_PHOTON_THEME
 #navigator-toolbox[inFullscreen] > #TabsToolbar {
   padding-top: var(--space-above-tabbar);
 }
-
+%endif
 #tabbrowser-tabs {
   -moz-box-align: stretch;
 }
@@ -1769,10 +1813,6 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
   }
 }
 
-#alltabs-button > .toolbarbutton-menu-dropmarker {
-  display: none;
-}
-
 /* All Tabs Menupopup */
 .alltabs-item > .menu-iconic-left > .menu-iconic-icon {
   list-style-image: url("chrome://mozapps/skin/places/defaultFavicon.svg");
@@ -1973,9 +2013,25 @@ html|*.addon-webext-perm-list {
   margin-inline-start: 0;
 }
 
-.popup-notification-description[popupid="addon-webext-permissions"] {
-  margin: 0;
-  padding: 0;
+.popup-notification-description[popupid="addon-webext-permissions"],
+.popup-notification-description[popupid="addon-installed"] {
+  display: none;
+}
+
+.addon-webext-perm-notification-content,
+.addon-installed-notification-content {
+  margin-top: 0;
+}
+
+#addon-webext-perm-header {
+  /* Align the text more closely with the icon by clearing some top line height. */
+  margin-top: -1px;
+  margin-inline-start: 0;
+}
+
+#addon-installed-notification-header {
+  /* Align the text more closely with the icon by clearing some top line height. */
+  margin-top: -1px;
 }
 
 .addon-webext-name {
@@ -1984,16 +2040,20 @@ html|*.addon-webext-perm-list {
   margin: 0;
 }
 
-.addon-addon-icon {
+.addon-addon-icon,
+.addon-toolbar-icon {
   width: 14px;
   height: 14px;
+  vertical-align: bottom;
+  margin-bottom: 1px;
+}
+
+.addon-addon-icon {
   list-style-image: url("chrome://browser/skin/menuPanel.svg");
   -moz-image-region: rect(0px, 288px, 32px, 256px);
 }
 
 .addon-toolbar-icon {
-  width: 14px;
-  height: 14px;
   list-style-image: url("chrome://browser/skin/menu.svg");
   -moz-context-properties: fill;
   fill: var(--toolbarbutton-icon-fill);
@@ -2084,6 +2144,7 @@ html|*.addon-webext-perm-list {
 
 %include ../shared/customizableui/customizeMode.inc.css
 
+%ifndef MOZ_PHOTON_THEME
 #main-window[customizing] {
   background-color: rgb(178,178,178);
 }
@@ -2147,7 +2208,9 @@ html|*.addon-webext-perm-list {
   border-right: 3px solid transparent;
   border-left: 3px solid transparent;
 }
+%endif
 
+%ifndef MOZ_PHOTON_THEME
 @media (min-resolution: 2dppx) {
   .customization-tipPanel-infoBox {
     background-image: url(chrome://browser/skin/customizableui/info-icon-customizeTip@2x.png);
@@ -2167,6 +2230,7 @@ html|*.addon-webext-perm-list {
     list-style-image: url("chrome://browser/skin/customizableui/panelarrow-customizeTip@2x.png");
   }
 }
+%endif
 
 /* End customization mode */
 
@@ -2210,7 +2274,9 @@ html|*.addon-webext-perm-list {
 }
 
 #TabsToolbar > .private-browsing-indicator {
+%ifndef MOZ_PHOTON_THEME
   transform: translateY(calc(-1 * var(--space-above-tabbar)));
+%endif
   /* We offset by 38px for mask graphic, plus 4px to account for the
    * margin-left, which sums to 42px.
    */

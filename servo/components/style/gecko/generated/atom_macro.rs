@@ -658,6 +658,84 @@ cfg_if! {
             pub static nsGkAtoms_div: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms2dlE"]
             pub static nsGkAtoms_dl: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docAbstractE"]
+            pub static nsGkAtoms_docAbstract: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms18docAcknowledgmentsE"]
+            pub static nsGkAtoms_docAcknowledgments: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms12docAfterwordE"]
+            pub static nsGkAtoms_docAfterword: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docAppendixE"]
+            pub static nsGkAtoms_docAppendix: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docBacklinkE"]
+            pub static nsGkAtoms_docBacklink: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms14docBiblioentryE"]
+            pub static nsGkAtoms_docBiblioentry: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms15docBibliographyE"]
+            pub static nsGkAtoms_docBibliography: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms12docBibliorefE"]
+            pub static nsGkAtoms_docBiblioref: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docChapterE"]
+            pub static nsGkAtoms_docChapter: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docColophonE"]
+            pub static nsGkAtoms_docColophon: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms13docConclusionE"]
+            pub static nsGkAtoms_docConclusion: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms8docCoverE"]
+            pub static nsGkAtoms_docCover: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms9docCreditE"]
+            pub static nsGkAtoms_docCredit: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docCreditsE"]
+            pub static nsGkAtoms_docCredits: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms13docDedicationE"]
+            pub static nsGkAtoms_docDedication: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docEndnoteE"]
+            pub static nsGkAtoms_docEndnote: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docEndnotesE"]
+            pub static nsGkAtoms_docEndnotes: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docEpigraphE"]
+            pub static nsGkAtoms_docEpigraph: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docEpilogueE"]
+            pub static nsGkAtoms_docEpilogue: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms9docErrataE"]
+            pub static nsGkAtoms_docErrata: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docExampleE"]
+            pub static nsGkAtoms_docExample: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docFootnoteE"]
+            pub static nsGkAtoms_docFootnote: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docForewordE"]
+            pub static nsGkAtoms_docForeword: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docGlossaryE"]
+            pub static nsGkAtoms_docGlossary: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docGlossrefE"]
+            pub static nsGkAtoms_docGlossref: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms8docIndexE"]
+            pub static nsGkAtoms_docIndex: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms15docIntroductionE"]
+            pub static nsGkAtoms_docIntroduction: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docNoterefE"]
+            pub static nsGkAtoms_docNoteref: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms9docNoticeE"]
+            pub static nsGkAtoms_docNotice: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms12docPagebreakE"]
+            pub static nsGkAtoms_docPagebreak: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docPagelistE"]
+            pub static nsGkAtoms_docPagelist: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms7docPartE"]
+            pub static nsGkAtoms_docPart: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms10docPrefaceE"]
+            pub static nsGkAtoms_docPreface: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docPrologueE"]
+            pub static nsGkAtoms_docPrologue: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms12docPullquoteE"]
+            pub static nsGkAtoms_docPullquote: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms6docQnaE"]
+            pub static nsGkAtoms_docQna: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms11docSubtitleE"]
+            pub static nsGkAtoms_docSubtitle: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms6docTipE"]
+            pub static nsGkAtoms_docTip: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms6docTocE"]
+            pub static nsGkAtoms_docToc: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms13doctypePublicE"]
             pub static nsGkAtoms_doctypePublic: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms13doctypeSystemE"]
@@ -786,6 +864,8 @@ cfg_if! {
             pub static nsGkAtoms_field: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms8fieldsetE"]
             pub static nsGkAtoms_fieldset: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms4fileE"]
+            pub static nsGkAtoms_file: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms10figcaptionE"]
             pub static nsGkAtoms_figcaption: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms6figureE"]
@@ -906,6 +986,8 @@ cfg_if! {
             pub static nsGkAtoms_handlers: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms4HARDE"]
             pub static nsGkAtoms_HARD: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms8haspopupE"]
+            pub static nsGkAtoms_haspopup: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms11hasSameNodeE"]
             pub static nsGkAtoms_hasSameNode: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms4hboxE"]
@@ -1074,6 +1156,8 @@ cfg_if! {
             pub static nsGkAtoms_kind: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms5labelE"]
             pub static nsGkAtoms_label: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms6labelsE"]
+            pub static nsGkAtoms_labels: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms4langE"]
             pub static nsGkAtoms_lang: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms8languageE"]
@@ -1296,8 +1380,6 @@ cfg_if! {
             pub static nsGkAtoms_moz_action_hint: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms18x_moz_errormessageE"]
             pub static nsGkAtoms_x_moz_errormessage: *mut nsIAtom;
-            #[link_name = "_ZN9nsGkAtoms17msthemecompatibleE"]
-            pub static nsGkAtoms_msthemecompatible: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms8multicolE"]
             pub static nsGkAtoms_multicol: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms8multipleE"]
@@ -1482,6 +1564,8 @@ cfg_if! {
             pub static nsGkAtoms_onchargingtimechange: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms10oncheckingE"]
             pub static nsGkAtoms_onchecking: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms21onCheckboxStateChangeE"]
+            pub static nsGkAtoms_onCheckboxStateChange: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms7onclickE"]
             pub static nsGkAtoms_onclick: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms16onclirmodechangeE"]
@@ -1818,6 +1902,8 @@ cfg_if! {
             pub static nsGkAtoms_onptychange: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms18onradiostatechangeE"]
             pub static nsGkAtoms_onradiostatechange: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms18onRadioStateChangeE"]
+            pub static nsGkAtoms_onRadioStateChange: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms13onrdsdisabledE"]
             pub static nsGkAtoms_onrdsdisabled: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms12onrdsenabledE"]
@@ -2496,6 +2582,8 @@ cfg_if! {
             pub static nsGkAtoms_text_decoration: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms9terminateE"]
             pub static nsGkAtoms_terminate: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms4termE"]
+            pub static nsGkAtoms_term: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms4testE"]
             pub static nsGkAtoms_test: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms4textE"]
@@ -3938,6 +4026,14 @@ cfg_if! {
             pub static nsGkAtoms_ondevicechange: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms33mozinputrangeignorepreventdefaultE"]
             pub static nsGkAtoms_mozinputrangeignorepreventdefault: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms13moz_extensionE"]
+            pub static nsGkAtoms_moz_extension: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms18all_urlsPermissionE"]
+            pub static nsGkAtoms_all_urlsPermission: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms4httpE"]
+            pub static nsGkAtoms_http: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms5httpsE"]
+            pub static nsGkAtoms_https: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms12cdataTagNameE"]
             pub static nsGkAtoms_cdataTagName: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms14commentTagNameE"]
@@ -4118,6 +4214,8 @@ cfg_if! {
             pub static nsGkAtoms_paintRequestTime: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms14pseudoPropertyE"]
             pub static nsGkAtoms_pseudoProperty: *mut nsIAtom;
+            #[link_name = "_ZN9nsGkAtoms17manualNACPropertyE"]
+            pub static nsGkAtoms_manualNACProperty: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms8JapaneseE"]
             pub static nsGkAtoms_Japanese: *mut nsIAtom;
             #[link_name = "_ZN9nsGkAtoms7ChineseE"]
@@ -5681,6 +5779,84 @@ cfg_if! {
             pub static nsGkAtoms_div: *mut nsIAtom;
             #[link_name = "?dl@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_dl: *mut nsIAtom;
+            #[link_name = "?docAbstract@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docAbstract: *mut nsIAtom;
+            #[link_name = "?docAcknowledgments@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docAcknowledgments: *mut nsIAtom;
+            #[link_name = "?docAfterword@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docAfterword: *mut nsIAtom;
+            #[link_name = "?docAppendix@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docAppendix: *mut nsIAtom;
+            #[link_name = "?docBacklink@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docBacklink: *mut nsIAtom;
+            #[link_name = "?docBiblioentry@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docBiblioentry: *mut nsIAtom;
+            #[link_name = "?docBibliography@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docBibliography: *mut nsIAtom;
+            #[link_name = "?docBiblioref@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docBiblioref: *mut nsIAtom;
+            #[link_name = "?docChapter@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docChapter: *mut nsIAtom;
+            #[link_name = "?docColophon@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docColophon: *mut nsIAtom;
+            #[link_name = "?docConclusion@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docConclusion: *mut nsIAtom;
+            #[link_name = "?docCover@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docCover: *mut nsIAtom;
+            #[link_name = "?docCredit@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docCredit: *mut nsIAtom;
+            #[link_name = "?docCredits@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docCredits: *mut nsIAtom;
+            #[link_name = "?docDedication@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docDedication: *mut nsIAtom;
+            #[link_name = "?docEndnote@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docEndnote: *mut nsIAtom;
+            #[link_name = "?docEndnotes@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docEndnotes: *mut nsIAtom;
+            #[link_name = "?docEpigraph@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docEpigraph: *mut nsIAtom;
+            #[link_name = "?docEpilogue@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docEpilogue: *mut nsIAtom;
+            #[link_name = "?docErrata@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docErrata: *mut nsIAtom;
+            #[link_name = "?docExample@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docExample: *mut nsIAtom;
+            #[link_name = "?docFootnote@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docFootnote: *mut nsIAtom;
+            #[link_name = "?docForeword@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docForeword: *mut nsIAtom;
+            #[link_name = "?docGlossary@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docGlossary: *mut nsIAtom;
+            #[link_name = "?docGlossref@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docGlossref: *mut nsIAtom;
+            #[link_name = "?docIndex@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docIndex: *mut nsIAtom;
+            #[link_name = "?docIntroduction@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docIntroduction: *mut nsIAtom;
+            #[link_name = "?docNoteref@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docNoteref: *mut nsIAtom;
+            #[link_name = "?docNotice@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docNotice: *mut nsIAtom;
+            #[link_name = "?docPagebreak@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPagebreak: *mut nsIAtom;
+            #[link_name = "?docPagelist@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPagelist: *mut nsIAtom;
+            #[link_name = "?docPart@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPart: *mut nsIAtom;
+            #[link_name = "?docPreface@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPreface: *mut nsIAtom;
+            #[link_name = "?docPrologue@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPrologue: *mut nsIAtom;
+            #[link_name = "?docPullquote@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docPullquote: *mut nsIAtom;
+            #[link_name = "?docQna@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docQna: *mut nsIAtom;
+            #[link_name = "?docSubtitle@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docSubtitle: *mut nsIAtom;
+            #[link_name = "?docTip@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docTip: *mut nsIAtom;
+            #[link_name = "?docToc@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_docToc: *mut nsIAtom;
             #[link_name = "?doctypePublic@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_doctypePublic: *mut nsIAtom;
             #[link_name = "?doctypeSystem@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -5809,6 +5985,8 @@ cfg_if! {
             pub static nsGkAtoms_field: *mut nsIAtom;
             #[link_name = "?fieldset@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_fieldset: *mut nsIAtom;
+            #[link_name = "?file@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_file: *mut nsIAtom;
             #[link_name = "?figcaption@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_figcaption: *mut nsIAtom;
             #[link_name = "?figure@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -5929,6 +6107,8 @@ cfg_if! {
             pub static nsGkAtoms_handlers: *mut nsIAtom;
             #[link_name = "?HARD@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_HARD: *mut nsIAtom;
+            #[link_name = "?haspopup@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_haspopup: *mut nsIAtom;
             #[link_name = "?hasSameNode@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_hasSameNode: *mut nsIAtom;
             #[link_name = "?hbox@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -6097,6 +6277,8 @@ cfg_if! {
             pub static nsGkAtoms_kind: *mut nsIAtom;
             #[link_name = "?label@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_label: *mut nsIAtom;
+            #[link_name = "?labels@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_labels: *mut nsIAtom;
             #[link_name = "?lang@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_lang: *mut nsIAtom;
             #[link_name = "?language@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -6319,8 +6501,6 @@ cfg_if! {
             pub static nsGkAtoms_moz_action_hint: *mut nsIAtom;
             #[link_name = "?x_moz_errormessage@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_x_moz_errormessage: *mut nsIAtom;
-            #[link_name = "?msthemecompatible@nsGkAtoms@@2PEAVnsIAtom@@EA"]
-            pub static nsGkAtoms_msthemecompatible: *mut nsIAtom;
             #[link_name = "?multicol@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_multicol: *mut nsIAtom;
             #[link_name = "?multiple@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -6505,6 +6685,8 @@ cfg_if! {
             pub static nsGkAtoms_onchargingtimechange: *mut nsIAtom;
             #[link_name = "?onchecking@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_onchecking: *mut nsIAtom;
+            #[link_name = "?onCheckboxStateChange@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_onCheckboxStateChange: *mut nsIAtom;
             #[link_name = "?onclick@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_onclick: *mut nsIAtom;
             #[link_name = "?onclirmodechange@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -6841,6 +7023,8 @@ cfg_if! {
             pub static nsGkAtoms_onptychange: *mut nsIAtom;
             #[link_name = "?onradiostatechange@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_onradiostatechange: *mut nsIAtom;
+            #[link_name = "?onRadioStateChange@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_onRadioStateChange: *mut nsIAtom;
             #[link_name = "?onrdsdisabled@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_onrdsdisabled: *mut nsIAtom;
             #[link_name = "?onrdsenabled@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -7519,6 +7703,8 @@ cfg_if! {
             pub static nsGkAtoms_text_decoration: *mut nsIAtom;
             #[link_name = "?terminate@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_terminate: *mut nsIAtom;
+            #[link_name = "?term@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_term: *mut nsIAtom;
             #[link_name = "?test@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_test: *mut nsIAtom;
             #[link_name = "?text@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -8961,6 +9147,14 @@ cfg_if! {
             pub static nsGkAtoms_ondevicechange: *mut nsIAtom;
             #[link_name = "?mozinputrangeignorepreventdefault@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_mozinputrangeignorepreventdefault: *mut nsIAtom;
+            #[link_name = "?moz_extension@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_moz_extension: *mut nsIAtom;
+            #[link_name = "?all_urlsPermission@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_all_urlsPermission: *mut nsIAtom;
+            #[link_name = "?http@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_http: *mut nsIAtom;
+            #[link_name = "?https@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_https: *mut nsIAtom;
             #[link_name = "?cdataTagName@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_cdataTagName: *mut nsIAtom;
             #[link_name = "?commentTagName@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -9141,6 +9335,8 @@ cfg_if! {
             pub static nsGkAtoms_paintRequestTime: *mut nsIAtom;
             #[link_name = "?pseudoProperty@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_pseudoProperty: *mut nsIAtom;
+            #[link_name = "?manualNACProperty@nsGkAtoms@@2PEAVnsIAtom@@EA"]
+            pub static nsGkAtoms_manualNACProperty: *mut nsIAtom;
             #[link_name = "?Japanese@nsGkAtoms@@2PEAVnsIAtom@@EA"]
             pub static nsGkAtoms_Japanese: *mut nsIAtom;
             #[link_name = "?Chinese@nsGkAtoms@@2PEAVnsIAtom@@EA"]
@@ -10704,6 +10900,84 @@ cfg_if! {
             pub static nsGkAtoms_div: *mut nsIAtom;
             #[link_name = "\x01?dl@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_dl: *mut nsIAtom;
+            #[link_name = "\x01?docAbstract@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docAbstract: *mut nsIAtom;
+            #[link_name = "\x01?docAcknowledgments@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docAcknowledgments: *mut nsIAtom;
+            #[link_name = "\x01?docAfterword@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docAfterword: *mut nsIAtom;
+            #[link_name = "\x01?docAppendix@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docAppendix: *mut nsIAtom;
+            #[link_name = "\x01?docBacklink@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docBacklink: *mut nsIAtom;
+            #[link_name = "\x01?docBiblioentry@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docBiblioentry: *mut nsIAtom;
+            #[link_name = "\x01?docBibliography@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docBibliography: *mut nsIAtom;
+            #[link_name = "\x01?docBiblioref@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docBiblioref: *mut nsIAtom;
+            #[link_name = "\x01?docChapter@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docChapter: *mut nsIAtom;
+            #[link_name = "\x01?docColophon@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docColophon: *mut nsIAtom;
+            #[link_name = "\x01?docConclusion@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docConclusion: *mut nsIAtom;
+            #[link_name = "\x01?docCover@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docCover: *mut nsIAtom;
+            #[link_name = "\x01?docCredit@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docCredit: *mut nsIAtom;
+            #[link_name = "\x01?docCredits@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docCredits: *mut nsIAtom;
+            #[link_name = "\x01?docDedication@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docDedication: *mut nsIAtom;
+            #[link_name = "\x01?docEndnote@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docEndnote: *mut nsIAtom;
+            #[link_name = "\x01?docEndnotes@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docEndnotes: *mut nsIAtom;
+            #[link_name = "\x01?docEpigraph@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docEpigraph: *mut nsIAtom;
+            #[link_name = "\x01?docEpilogue@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docEpilogue: *mut nsIAtom;
+            #[link_name = "\x01?docErrata@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docErrata: *mut nsIAtom;
+            #[link_name = "\x01?docExample@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docExample: *mut nsIAtom;
+            #[link_name = "\x01?docFootnote@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docFootnote: *mut nsIAtom;
+            #[link_name = "\x01?docForeword@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docForeword: *mut nsIAtom;
+            #[link_name = "\x01?docGlossary@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docGlossary: *mut nsIAtom;
+            #[link_name = "\x01?docGlossref@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docGlossref: *mut nsIAtom;
+            #[link_name = "\x01?docIndex@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docIndex: *mut nsIAtom;
+            #[link_name = "\x01?docIntroduction@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docIntroduction: *mut nsIAtom;
+            #[link_name = "\x01?docNoteref@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docNoteref: *mut nsIAtom;
+            #[link_name = "\x01?docNotice@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docNotice: *mut nsIAtom;
+            #[link_name = "\x01?docPagebreak@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPagebreak: *mut nsIAtom;
+            #[link_name = "\x01?docPagelist@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPagelist: *mut nsIAtom;
+            #[link_name = "\x01?docPart@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPart: *mut nsIAtom;
+            #[link_name = "\x01?docPreface@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPreface: *mut nsIAtom;
+            #[link_name = "\x01?docPrologue@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPrologue: *mut nsIAtom;
+            #[link_name = "\x01?docPullquote@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docPullquote: *mut nsIAtom;
+            #[link_name = "\x01?docQna@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docQna: *mut nsIAtom;
+            #[link_name = "\x01?docSubtitle@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docSubtitle: *mut nsIAtom;
+            #[link_name = "\x01?docTip@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docTip: *mut nsIAtom;
+            #[link_name = "\x01?docToc@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_docToc: *mut nsIAtom;
             #[link_name = "\x01?doctypePublic@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_doctypePublic: *mut nsIAtom;
             #[link_name = "\x01?doctypeSystem@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -10832,6 +11106,8 @@ cfg_if! {
             pub static nsGkAtoms_field: *mut nsIAtom;
             #[link_name = "\x01?fieldset@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_fieldset: *mut nsIAtom;
+            #[link_name = "\x01?file@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_file: *mut nsIAtom;
             #[link_name = "\x01?figcaption@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_figcaption: *mut nsIAtom;
             #[link_name = "\x01?figure@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -10952,6 +11228,8 @@ cfg_if! {
             pub static nsGkAtoms_handlers: *mut nsIAtom;
             #[link_name = "\x01?HARD@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_HARD: *mut nsIAtom;
+            #[link_name = "\x01?haspopup@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_haspopup: *mut nsIAtom;
             #[link_name = "\x01?hasSameNode@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_hasSameNode: *mut nsIAtom;
             #[link_name = "\x01?hbox@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -11120,6 +11398,8 @@ cfg_if! {
             pub static nsGkAtoms_kind: *mut nsIAtom;
             #[link_name = "\x01?label@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_label: *mut nsIAtom;
+            #[link_name = "\x01?labels@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_labels: *mut nsIAtom;
             #[link_name = "\x01?lang@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_lang: *mut nsIAtom;
             #[link_name = "\x01?language@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -11342,8 +11622,6 @@ cfg_if! {
             pub static nsGkAtoms_moz_action_hint: *mut nsIAtom;
             #[link_name = "\x01?x_moz_errormessage@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_x_moz_errormessage: *mut nsIAtom;
-            #[link_name = "\x01?msthemecompatible@nsGkAtoms@@2PAVnsIAtom@@A"]
-            pub static nsGkAtoms_msthemecompatible: *mut nsIAtom;
             #[link_name = "\x01?multicol@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_multicol: *mut nsIAtom;
             #[link_name = "\x01?multiple@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -11528,6 +11806,8 @@ cfg_if! {
             pub static nsGkAtoms_onchargingtimechange: *mut nsIAtom;
             #[link_name = "\x01?onchecking@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_onchecking: *mut nsIAtom;
+            #[link_name = "\x01?onCheckboxStateChange@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_onCheckboxStateChange: *mut nsIAtom;
             #[link_name = "\x01?onclick@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_onclick: *mut nsIAtom;
             #[link_name = "\x01?onclirmodechange@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -11864,6 +12144,8 @@ cfg_if! {
             pub static nsGkAtoms_onptychange: *mut nsIAtom;
             #[link_name = "\x01?onradiostatechange@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_onradiostatechange: *mut nsIAtom;
+            #[link_name = "\x01?onRadioStateChange@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_onRadioStateChange: *mut nsIAtom;
             #[link_name = "\x01?onrdsdisabled@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_onrdsdisabled: *mut nsIAtom;
             #[link_name = "\x01?onrdsenabled@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -12542,6 +12824,8 @@ cfg_if! {
             pub static nsGkAtoms_text_decoration: *mut nsIAtom;
             #[link_name = "\x01?terminate@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_terminate: *mut nsIAtom;
+            #[link_name = "\x01?term@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_term: *mut nsIAtom;
             #[link_name = "\x01?test@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_test: *mut nsIAtom;
             #[link_name = "\x01?text@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -13984,6 +14268,14 @@ cfg_if! {
             pub static nsGkAtoms_ondevicechange: *mut nsIAtom;
             #[link_name = "\x01?mozinputrangeignorepreventdefault@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_mozinputrangeignorepreventdefault: *mut nsIAtom;
+            #[link_name = "\x01?moz_extension@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_moz_extension: *mut nsIAtom;
+            #[link_name = "\x01?all_urlsPermission@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_all_urlsPermission: *mut nsIAtom;
+            #[link_name = "\x01?http@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_http: *mut nsIAtom;
+            #[link_name = "\x01?https@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_https: *mut nsIAtom;
             #[link_name = "\x01?cdataTagName@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_cdataTagName: *mut nsIAtom;
             #[link_name = "\x01?commentTagName@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -14164,6 +14456,8 @@ cfg_if! {
             pub static nsGkAtoms_paintRequestTime: *mut nsIAtom;
             #[link_name = "\x01?pseudoProperty@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_pseudoProperty: *mut nsIAtom;
+            #[link_name = "\x01?manualNACProperty@nsGkAtoms@@2PAVnsIAtom@@A"]
+            pub static nsGkAtoms_manualNACProperty: *mut nsIAtom;
             #[link_name = "\x01?Japanese@nsGkAtoms@@2PAVnsIAtom@@A"]
             pub static nsGkAtoms_Japanese: *mut nsIAtom;
             #[link_name = "\x01?Chinese@nsGkAtoms@@2PAVnsIAtom@@A"]
@@ -15730,6 +16024,84 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_div as *mut _) } };
 ("dl") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_dl as *mut _) } };
+("doc-abstract") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docAbstract as *mut _) } };
+("doc-acknowledgments") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docAcknowledgments as *mut _) } };
+("doc-afterword") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docAfterword as *mut _) } };
+("doc-appendix") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docAppendix as *mut _) } };
+("doc-backlink") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docBacklink as *mut _) } };
+("doc-biblioentry") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docBiblioentry as *mut _) } };
+("doc-bibliography") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docBibliography as *mut _) } };
+("doc-biblioref") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docBiblioref as *mut _) } };
+("doc-chapter") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docChapter as *mut _) } };
+("doc-colophon") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docColophon as *mut _) } };
+("doc-conclusion") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docConclusion as *mut _) } };
+("doc-cover") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docCover as *mut _) } };
+("doc-credit") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docCredit as *mut _) } };
+("doc-credits") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docCredits as *mut _) } };
+("doc-dedication") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docDedication as *mut _) } };
+("doc-endnote") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docEndnote as *mut _) } };
+("doc-endnotes") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docEndnotes as *mut _) } };
+("doc-epigraph") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docEpigraph as *mut _) } };
+("doc-epilogue") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docEpilogue as *mut _) } };
+("doc-errata") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docErrata as *mut _) } };
+("doc-example") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docExample as *mut _) } };
+("doc-footnote") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docFootnote as *mut _) } };
+("doc-foreword") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docForeword as *mut _) } };
+("doc-glossary") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docGlossary as *mut _) } };
+("doc-glossref") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docGlossref as *mut _) } };
+("doc-index") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docIndex as *mut _) } };
+("doc-introduction") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docIntroduction as *mut _) } };
+("doc-noteref") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docNoteref as *mut _) } };
+("doc-notice") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docNotice as *mut _) } };
+("doc-pagebreak") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPagebreak as *mut _) } };
+("doc-pagelist") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPagelist as *mut _) } };
+("doc-part") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPart as *mut _) } };
+("doc-preface") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPreface as *mut _) } };
+("doc-prologue") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPrologue as *mut _) } };
+("doc-pullquote") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docPullquote as *mut _) } };
+("doc-qna") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docQna as *mut _) } };
+("doc-subtitle") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docSubtitle as *mut _) } };
+("doc-tip") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docTip as *mut _) } };
+("doc-toc") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_docToc as *mut _) } };
 ("doctype-public") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_doctypePublic as *mut _) } };
 ("doctype-system") =>
@@ -15858,6 +16230,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_field as *mut _) } };
 ("fieldset") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_fieldset as *mut _) } };
+("file") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_file as *mut _) } };
 ("figcaption") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_figcaption as *mut _) } };
 ("figure") =>
@@ -15978,6 +16352,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_handlers as *mut _) } };
 ("HARD") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_HARD as *mut _) } };
+("haspopup") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_haspopup as *mut _) } };
 ("has-same-node") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_hasSameNode as *mut _) } };
 ("hbox") =>
@@ -16146,6 +16522,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_kind as *mut _) } };
 ("label") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_label as *mut _) } };
+("labels") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_labels as *mut _) } };
 ("lang") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_lang as *mut _) } };
 ("language") =>
@@ -16368,8 +16746,6 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_moz_action_hint as *mut _) } };
 ("x-moz-errormessage") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_x_moz_errormessage as *mut _) } };
-("msthemecompatible") =>
-  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_msthemecompatible as *mut _) } };
 ("multicol") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_multicol as *mut _) } };
 ("multiple") =>
@@ -16554,6 +16930,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onchargingtimechange as *mut _) } };
 ("onchecking") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onchecking as *mut _) } };
+("onCheckboxStateChange") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onCheckboxStateChange as *mut _) } };
 ("onclick") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onclick as *mut _) } };
 ("onclirmodechange") =>
@@ -16890,6 +17268,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onptychange as *mut _) } };
 ("onradiostatechange") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onradiostatechange as *mut _) } };
+("onRadioStateChange") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onRadioStateChange as *mut _) } };
 ("onrdsdisabled") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_onrdsdisabled as *mut _) } };
 ("onrdsenabled") =>
@@ -17568,6 +17948,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_text_decoration as *mut _) } };
 ("terminate") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_terminate as *mut _) } };
+("term") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_term as *mut _) } };
 ("test") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_test as *mut _) } };
 ("text") =>
@@ -19010,6 +19392,14 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_ondevicechange as *mut _) } };
 ("mozinputrangeignorepreventdefault") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_mozinputrangeignorepreventdefault as *mut _) } };
+("moz-extension") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_moz_extension as *mut _) } };
+("<all_urls>") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_all_urlsPermission as *mut _) } };
+("http") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_http as *mut _) } };
+("https") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_https as *mut _) } };
 ("#cdata-section") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_cdataTagName as *mut _) } };
 ("#comment") =>
@@ -19190,6 +19580,8 @@ macro_rules! atom {
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_paintRequestTime as *mut _) } };
 ("PseudoProperty") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_pseudoProperty as *mut _) } };
+("ManualNACProperty") =>
+  { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_manualNACProperty as *mut _) } };
 ("ja") =>
   { unsafe { $crate::string_cache::atom_macro::atom_from_static($crate::string_cache::atom_macro::nsGkAtoms_Japanese as *mut _) } };
 ("zh-CN") =>

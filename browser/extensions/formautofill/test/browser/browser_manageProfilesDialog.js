@@ -7,6 +7,8 @@ const TEST_SELECTORS = {
   btnEdit: "#edit",
 };
 
+const DIALOG_SIZE = "width=600,height=400";
+
 function waitForAddresses() {
   return new Promise(resolve => {
     Services.cpmm.addMessageListener("FormAutofill:Addresses", function getResult(result) {
@@ -16,13 +18,6 @@ function waitForAddresses() {
     });
   });
 }
-
-registerCleanupFunction(async function() {
-  let addresses = await getAddresses();
-  if (addresses.length) {
-    await removeAddresses(addresses.map(address => address.guid));
-  }
-});
 
 add_task(async function test_manageProfilesInitialState() {
   await BrowserTestUtils.withNewTab({gBrowser, url: MANAGE_PROFILES_DIALOG_URL}, async function(browser) {
@@ -40,12 +35,25 @@ add_task(async function test_manageProfilesInitialState() {
   });
 });
 
+add_task(async function test_cancelManageProfileDialogWithESC() {
+  await new Promise(resolve => {
+    let win = window.openDialog(MANAGE_PROFILES_DIALOG_URL);
+    win.addEventListener("load", () => {
+      win.addEventListener("unload", () => {
+        ok(true, "Manage profiles dialog is closed with ESC key");
+        resolve();
+      }, {once: true});
+      EventUtils.synthesizeKey("VK_ESCAPE", {}, win);
+    }, {once: true});
+  });
+});
+
 add_task(async function test_removingSingleAndMultipleProfiles() {
   await saveAddress(TEST_ADDRESS_1);
   await saveAddress(TEST_ADDRESS_2);
   await saveAddress(TEST_ADDRESS_3);
 
-  let win = window.openDialog(MANAGE_PROFILES_DIALOG_URL);
+  let win = window.openDialog(MANAGE_PROFILES_DIALOG_URL, null, DIALOG_SIZE);
   await waitForAddresses();
 
   let selAddresses = win.document.querySelector(TEST_SELECTORS.selAddresses);
@@ -74,7 +82,7 @@ add_task(async function test_removingSingleAndMultipleProfiles() {
 });
 
 add_task(async function test_profilesDialogWatchesStorageChanges() {
-  let win = window.openDialog(MANAGE_PROFILES_DIALOG_URL);
+  let win = window.openDialog(MANAGE_PROFILES_DIALOG_URL, null, DIALOG_SIZE);
   await waitForAddresses();
 
   let selAddresses = win.document.querySelector(TEST_SELECTORS.selAddresses);

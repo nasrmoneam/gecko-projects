@@ -7,6 +7,9 @@
 with Files("**"):
     BUG_COMPONENT = ("Core", "Widget: Win32")
 
+with Files("*CompositorWidget*"):
+    BUG_COMPONENT = ("Core", "Graphics")
+
 TEST_DIRS += ['tests']
 
 EXPORTS += [
@@ -113,6 +116,7 @@ LOCAL_INCLUDES += [
     '/layout/xul',
     '/toolkit/xre',
     '/widget',
+    '/widget/headless',
     '/xpcom/base',
 ]
 

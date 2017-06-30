@@ -1,4 +1,5 @@
 Cu.import("resource://testing-common/httpd.js");
+const { UptakeTelemetry } = Cu.import("resource://services-common/uptake-telemetry.js", {});
 
 var server;
 
@@ -8,9 +9,12 @@ const PREF_LAST_UPDATE = "services.blocklist.last_update_seconds";
 const PREF_LAST_ETAG = "services.blocklist.last_etag";
 const PREF_CLOCK_SKEW_SECONDS = "services.blocklist.clock_skew_seconds";
 
+// Telemetry report result.
+const TELEMETRY_HISTOGRAM_KEY = "settings-changes-monitoring";
+
 // Check to ensure maybeSync is called with correct values when a changes
 // document contains information on when a collection was last modified
-add_task(function* test_check_maybeSync() {
+add_task(async function test_check_maybeSync() {
   const changesPath = "/v1/buckets/monitor/collections/changes/records";
 
   // register a handler
@@ -64,7 +68,10 @@ add_task(function* test_check_maybeSync() {
       do_check_eq(serverTime, 2000);
     }
   });
-  yield updater.checkVersions();
+
+  const startHistogram = getUptakeTelemetrySnapshot(TELEMETRY_HISTOGRAM_KEY);
+
+  await updater.checkVersions();
 
   // check the last_update is updated
   do_check_eq(Services.prefs.getIntPref(PREF_LAST_UPDATE), 2);
@@ -85,7 +92,7 @@ add_task(function* test_check_maybeSync() {
   updater.addTestBlocklistClient("test-collection", {
     maybeSync: () => { throw new Error("Should not be called"); }
   });
-  yield updater.checkVersions();
+  await updater.checkVersions();
   // Last update is overwritten
   do_check_eq(Services.prefs.getIntPref(PREF_LAST_UPDATE), 2);
 
@@ -102,14 +109,15 @@ add_task(function* test_check_maybeSync() {
     response.setStatusLine(null, 503, "Service Unavailable");
   }
   server.registerPathHandler(changesPath, simulateErrorResponse);
+
   // checkVersions() fails with adequate error.
   let error;
   try {
-    yield updater.checkVersions();
+    await updater.checkVersions();
   } catch (e) {
     error = e;
   }
-  do_check_eq(error.message, "Polling for changes failed.");
+  do_check_true(/Polling for changes failed/.test(error.message));
   // When an error occurs, last update was not overwritten (see Date header above).
   do_check_eq(Services.prefs.getIntPref(PREF_LAST_UPDATE), 2);
 
@@ -118,7 +126,7 @@ add_task(function* test_check_maybeSync() {
   // set to a time in the future
   server.registerPathHandler(changesPath, handleResponse.bind(null, Date.now() + 10000));
 
-  yield updater.checkVersions();
+  await updater.checkVersions();
 
   clockDifference = Services.prefs.getIntPref(PREF_CLOCK_SKEW_SECONDS);
   // we previously set the serverTime to Date.now() + 10000 ms past epoch
@@ -135,10 +143,10 @@ add_task(function* test_check_maybeSync() {
   }
   server.registerPathHandler(changesPath, simulateBackoffResponse);
   // First will work.
-  yield updater.checkVersions();
+  await updater.checkVersions();
   // Second will fail because we haven't waited.
   try {
-    yield updater.checkVersions();
+    await updater.checkVersions();
     // The previous line should have thrown an error.
     do_check_true(false);
   } catch (e) {
@@ -147,9 +155,28 @@ add_task(function* test_check_maybeSync() {
   // Once backoff time has expired, polling for changes can start again.
   server.registerPathHandler(changesPath, handleResponse.bind(null, 2000));
   Services.prefs.setCharPref(PREF_SETTINGS_SERVER_BACKOFF, `${Date.now() - 1000}`);
-  yield updater.checkVersions();
+  await updater.checkVersions();
   // Backoff tracking preference was cleared.
   do_check_false(Services.prefs.prefHasUserValue(PREF_SETTINGS_SERVER_BACKOFF));
+
+
+  // Simulate a network error (to check telemetry report).
+  Services.prefs.setCharPref(PREF_SETTINGS_SERVER, "http://localhost:42/v1");
+  try {
+    await updater.checkVersions();
+  } catch (e) {}
+
+  const endHistogram = getUptakeTelemetrySnapshot(TELEMETRY_HISTOGRAM_KEY);
+  // ensure that we've accumulated the correct telemetry
+  const expectedIncrements = {
+    [UptakeTelemetry.STATUS.UP_TO_DATE]: 4,
+    [UptakeTelemetry.STATUS.SUCCESS]: 1,
+    [UptakeTelemetry.STATUS.BACKOFF]: 1,
+    [UptakeTelemetry.STATUS.SERVER_ERROR]: 1,
+    [UptakeTelemetry.STATUS.NETWORK_ERROR]: 1,
+    [UptakeTelemetry.STATUS.UNKNOWN_ERROR]: 0,
+  };
+  checkUptakeTelemetry(startHistogram, endHistogram, expectedIncrements);
 });
 
 function run_test() {

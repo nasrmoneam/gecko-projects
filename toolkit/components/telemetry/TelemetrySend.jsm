@@ -92,6 +92,16 @@ const SEND_MAXIMUM_BACKOFF_DELAY_MS = 120 * MS_IN_A_MINUTE;
 // The age of a pending ping to be considered overdue (in milliseconds).
 const OVERDUE_PING_FILE_AGE = 7 * 24 * 60 * MS_IN_A_MINUTE; // 1 week
 
+// Strings to map from XHR.errorCode to TELEMETRY_SEND_FAILURE_TYPE.
+// Echoes XMLHttpRequestMainThread's ErrorType enum.
+const XHR_ERROR_TYPE = [
+  "eOK",
+  "eRequest",
+  "eUnreachable",
+  "eChannelOpen",
+  "eRedirect",
+];
+
 function monotonicNow() {
   try {
     return Telemetry.msSinceProcessStart();
@@ -1091,8 +1101,12 @@ var TelemetrySendImpl = {
     let onRequestFinished = (success, event) => {
       let onCompletion = () => {
         if (success) {
+          let histogram = Telemetry.getHistogramById("TELEMETRY_SUCCESSFUL_SEND_PINGS_SIZE_KB");
+          histogram.add(compressedPingSizeKB);
           deferred.resolve();
         } else {
+          let histogram = Telemetry.getHistogramById("TELEMETRY_FAILED_SEND_PINGS_SIZE_KB");
+          histogram.add(compressedPingSizeKB);
           deferred.reject(event);
         }
       };
@@ -1107,7 +1121,13 @@ var TelemetrySendImpl = {
     };
 
     let errorhandler = (event) => {
-      this._log.error("_doPing - error making request to " + url + ": " + event.type);
+      let failure = event.type;
+      if (failure === "error") {
+        failure = XHR_ERROR_TYPE[request.errorCode];
+      }
+      Telemetry.getHistogramById("TELEMETRY_SEND_FAILURE_TYPE").add(failure);
+
+      this._log.error("_doPing - error making request to " + url + ": " + failure);
       onRequestFinished(false, event);
     };
     request.onerror = errorhandler;
@@ -1150,10 +1170,10 @@ var TelemetrySendImpl = {
     let converter = Cc["@mozilla.org/intl/scriptableunicodeconverter"]
                     .createInstance(Ci.nsIScriptableUnicodeConverter);
     converter.charset = "UTF-8";
-    let startTime = new Date();
+    let startTime = monotonicNow();
     let utf8Payload = converter.ConvertFromUnicode(JSON.stringify(networkPayload));
     utf8Payload += converter.Finish();
-    Telemetry.getHistogramById("TELEMETRY_STRINGIFY").add(new Date() - startTime);
+    Telemetry.getHistogramById("TELEMETRY_STRINGIFY").add(monotonicNow() - startTime);
 
     // Check the size and drop pings which are too big.
     const pingSizeBytes = utf8Payload.length;
@@ -1169,10 +1189,11 @@ var TelemetrySendImpl = {
 
     let payloadStream = Cc["@mozilla.org/io/string-input-stream;1"]
                         .createInstance(Ci.nsIStringInputStream);
-    startTime = new Date();
+    startTime = monotonicNow();
     payloadStream.data = gzipCompressString(utf8Payload);
-    Telemetry.getHistogramById("TELEMETRY_COMPRESS").add(new Date() - startTime);
-    startTime = new Date();
+
+    const compressedPingSizeKB = Math.floor(payloadStream.data.length / 1024);
+    Telemetry.getHistogramById("TELEMETRY_COMPRESS").add(monotonicNow() - startTime);
     request.send(payloadStream);
 
     return deferred.promise;

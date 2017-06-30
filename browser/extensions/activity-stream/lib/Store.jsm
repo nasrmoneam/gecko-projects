@@ -1,17 +1,14 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-/* global Preferences */
 "use strict";
 
 const {utils: Cu} = Components;
 
-const {redux} = Cu.import("resource://activity-stream/vendor/Redux.jsm", {});
-const {reducers} = Cu.import("resource://activity-stream/common/Reducers.jsm", {});
 const {ActivityStreamMessageChannel} = Cu.import("resource://activity-stream/lib/ActivityStreamMessageChannel.jsm", {});
-
-const PREF_PREFIX = "browser.newtabpage.activity-stream.";
-Cu.import("resource://gre/modules/Preferences.jsm");
+const {Prefs} = Cu.import("resource://activity-stream/lib/ActivityStreamPrefs.jsm", {});
+const {reducers} = Cu.import("resource://activity-stream/common/Reducers.jsm", {});
+const {redux} = Cu.import("resource://activity-stream/vendor/Redux.jsm", {});
 
 /**
  * Store - This has a similar structure to a redux store, but includes some extra
@@ -30,14 +27,11 @@ this.Store = class Store {
     this._middleware = this._middleware.bind(this);
     // Bind each redux method so we can call it directly from the Store. E.g.,
     // store.dispatch() will call store._store.dispatch();
-    ["dispatch", "getState", "subscribe"].forEach(method => {
-      this[method] = function(...args) {
-        return this._store[method](...args);
-      }.bind(this);
-    });
+    for (const method of ["dispatch", "getState", "subscribe"]) {
+      this[method] = (...args) => this._store[method](...args);
+    }
     this.feeds = new Map();
-    this._feedFactories = null;
-    this._prefHandlers = new Map();
+    this._prefs = new Prefs();
     this._messageChannel = new ActivityStreamMessageChannel({dispatch: this.dispatch});
     this._store = redux.createStore(
       redux.combineReducers(reducers),
@@ -50,10 +44,14 @@ this.Store = class Store {
    *               it calls each feed's .onAction method, if one
    *               is defined.
    */
-  _middleware(store) {
+  _middleware() {
     return next => action => {
       next(action);
-      this.feeds.forEach(s => s.onAction && s.onAction(action));
+      for (const store of this.feeds.values()) {
+        if (store.onAction) {
+          store.onAction(action);
+        }
+      }
     };
   }
 
@@ -64,7 +62,7 @@ this.Store = class Store {
    *                           passed to Store.init
    */
   initFeed(feedName) {
-    const feed = this._feedFactories[feedName]();
+    const feed = this._feedFactories.get(feedName)();
     feed.store = this;
     this.feeds.set(feedName, feed);
   }
@@ -87,46 +85,34 @@ this.Store = class Store {
   }
 
   /**
-   * maybeStartFeedAndListenForPrefChanges - Listen for pref changes that turn a
-   *     feed off/on, and as long as that pref was not explicitly set to
-   *     false, initialize the feed immediately.
-   *
-   * @param  {string} name The name of a feed, as defined in the object passed
-   *                       to Store.init
+   * onPrefChanged - Listener for handling feed changes.
    */
-  maybeStartFeedAndListenForPrefChanges(name) {
-    const prefName = PREF_PREFIX + name;
-
-    // If the pref was never set, set it to true by default.
-    if (!Preferences.has(prefName)) {
-      Preferences.set(prefName, true);
-    }
-
-    // Create a listener that turns the feed off/on based on changes
-    // to the pref, and cache it so we can unlisten on shut-down.
-    const onPrefChanged = isEnabled => (isEnabled ? this.initFeed(name) : this.uninitFeed(name));
-    this._prefHandlers.set(prefName, onPrefChanged);
-    Preferences.observe(prefName, onPrefChanged);
-
-    // TODO: This should propbably be done in a generic pref manager for Activity Stream.
-    // If the pref is true, start the feed immediately.
-    if (Preferences.get(prefName)) {
-      this.initFeed(name);
+  onPrefChanged(name, value) {
+    if (this._feedFactories.has(name)) {
+      if (value) {
+        this.initFeed(name);
+      } else {
+        this.uninitFeed(name);
+      }
     }
   }
 
   /**
    * init - Initializes the ActivityStreamMessageChannel channel, and adds feeds.
    *
-   * @param  {array} feeds An array of objects with an optional .onAction method
+   * @param  {Map} feedFactories A Map of feeds with the name of the pref for
+   *                                the feed as the key and a function that
+   *                                constructs an instance of the feed.
    */
-  init(feedConstructors) {
-    if (feedConstructors) {
-      this._feedFactories = feedConstructors;
-      for (const name of Object.keys(feedConstructors)) {
-        this.maybeStartFeedAndListenForPrefChanges(name);
+  init(feedFactories) {
+    this._feedFactories = feedFactories;
+    for (const pref of feedFactories.keys()) {
+      if (this._prefs.get(pref)) {
+        this.initFeed(pref);
       }
     }
+
+    this._prefs.observeBranch(this);
     this._messageChannel.createChannel();
   }
 
@@ -137,14 +123,12 @@ this.Store = class Store {
    * @return {type}  description
    */
   uninit() {
+    this._prefs.ignoreBranch(this);
     this.feeds.forEach(feed => this.uninitFeed(feed));
-    this._prefHandlers.forEach((handler, pref) => Preferences.ignore(pref, handler));
-    this._prefHandlers.clear();
-    this._feedFactories = null;
     this.feeds.clear();
+    this._feedFactories = null;
     this._messageChannel.destroyChannel();
   }
 };
 
-this.PREF_PREFIX = PREF_PREFIX;
-this.EXPORTED_SYMBOLS = ["Store", "PREF_PREFIX"];
+this.EXPORTED_SYMBOLS = ["Store"];

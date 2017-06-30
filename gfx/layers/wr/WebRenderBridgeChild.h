@@ -64,6 +64,7 @@ public:
   void DPEnd(wr::DisplayListBuilder &aBuilder, const gfx::IntSize& aSize,
              bool aIsSync, uint64_t aTransactionId,
              const WebRenderScrollData& aScrollData);
+  void ProcessWebRenderParentCommands();
 
   CompositorBridgeChild* GetCompositorBridgeChild();
 
@@ -73,7 +74,10 @@ public:
   TextureForwarder* GetTextureForwarder() override;
   LayersIPCActor* GetLayersIPCActor() override;
 
-  wr::ExternalImageId AllocExternalImageId(const CompositableHandle& aHandle);
+  void AddPipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId,
+                                         const CompositableHandle& aHandlee);
+  void RemovePipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId);
+
   wr::ExternalImageId AllocExternalImageIdForCompositable(CompositableClient* aCompositable);
   void DeallocExternalImageId(wr::ExternalImageId& aImageId);
 
@@ -81,7 +85,7 @@ public:
    * Clean this up, finishing with SendShutDown() which will cause __delete__
    * to be sent from the parent side.
    */
-  void Destroy();
+  void Destroy(bool aIsSync);
   bool IPCOpen() const { return mIPCOpen && !mDestroyed; }
   bool IsDestroyed() const { return mDestroyed; }
 
@@ -90,6 +94,11 @@ public:
   void SetNamespace(uint32_t aIdNamespace)
   {
     mIdNamespace = aIdNamespace;
+  }
+
+  WrImageKey GetNextImageKey()
+  {
+    return WrImageKey{ GetNamespace(), GetNextResourceId() };
   }
 
   void PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArray<GlyphArray>& aGlyphs,
@@ -131,6 +140,8 @@ private:
   bool InForwarderThread() override;
 
   void ActorDestroy(ActorDestroyReason why) override;
+
+  virtual mozilla::ipc::IPCResult RecvWrUpdated(const uint32_t& aNewIdNameSpace) override;
 
   void AddIPDLReference() {
     MOZ_ASSERT(mIPCOpen == false);

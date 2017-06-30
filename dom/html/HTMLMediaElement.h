@@ -23,6 +23,7 @@
 #include "mozilla/StateWatching.h"
 #include "nsGkAtoms.h"
 #include "PrincipalChangeObserver.h"
+#include "nsStubMutationObserver.h"
 
 // X.h on Linux #defines CurrentTime as 0L, so we have to #undef it here.
 #ifdef CurrentTime
@@ -42,6 +43,7 @@ typedef uint8_t AudibleState;
 
 namespace mozilla {
 class AbstractThread;
+class ChannelMediaDecoder;
 class DecoderDoctorDiagnostics;
 class DOMMediaStream;
 class ErrorResult;
@@ -83,7 +85,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
                          public nsIDOMHTMLMediaElement,
                          public MediaDecoderOwner,
                          public PrincipalChangeObserver<DOMMediaStream>,
-                         public SupportsWeakPtr<HTMLMediaElement>
+                         public SupportsWeakPtr<HTMLMediaElement>,
+                         public nsStubMutationObserver
 {
 public:
   typedef mozilla::TimeStamp TimeStamp;
@@ -95,6 +98,8 @@ public:
   typedef mozilla::MetadataTags MetadataTags;
 
   MOZ_DECLARE_WEAKREFERENCE_TYPENAME(HTMLMediaElement)
+  NS_DECL_NSIMUTATIONOBSERVER_CONTENTINSERTED
+  NS_DECL_NSIMUTATIONOBSERVER_CONTENTREMOVED
 
   CORSMode GetCORSMode() {
     return mCORSMode;
@@ -126,22 +131,6 @@ public:
                               nsIAtom* aAttribute,
                               const nsAString& aValue,
                               nsAttrValue& aResult) override;
-  // SetAttr override.  C++ is stupid, so have to override both
-  // overloaded methods.
-  nsresult SetAttr(int32_t aNameSpaceID, nsIAtom* aName,
-                   const nsAString& aValue, bool aNotify)
-  {
-    return SetAttr(aNameSpaceID, aName, nullptr, aValue, aNotify);
-  }
-  virtual nsresult SetAttr(int32_t aNameSpaceID, nsIAtom* aName,
-                           nsIAtom* aPrefix, const nsAString& aValue,
-                           bool aNotify) override;
-  virtual nsresult UnsetAttr(int32_t aNameSpaceID, nsIAtom* aAttr,
-                             bool aNotify) override;
-  virtual nsresult AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
-                                const nsAttrValue* aValue,
-                                const nsAttrValue* aOldValue,
-                                bool aNotify) override;
 
   virtual nsresult BindToTree(nsIDocument* aDocument, nsIContent* aParent,
                               nsIContent* aBindingParent,
@@ -955,7 +944,7 @@ protected:
    * element.
    * mLoadingSrc must already be set.
    */
-  nsresult InitializeDecoderAsClone(MediaDecoder* aOriginal);
+  nsresult InitializeDecoderAsClone(ChannelMediaDecoder* aOriginal);
 
   /**
    * Initialize a decoder to load the given channel. The decoder's stream
@@ -969,9 +958,7 @@ protected:
    * Finish setting up the decoder after Load() has been called on it.
    * Called by InitializeDecoderForChannel/InitializeDecoderAsClone.
    */
-  nsresult FinishDecoderSetup(MediaDecoder* aDecoder,
-                              MediaResource* aStream,
-                              nsIStreamListener **aListener);
+  nsresult FinishDecoderSetup(MediaDecoder* aDecoder);
 
   /**
    * Call this after setting up mLoadingSrc and mDecoder.
@@ -1279,6 +1266,9 @@ protected:
   // Anything we need to check after played success and not related with spec.
   void UpdateCustomPolicyAfterPlayed();
 
+  // True if this element can be captured, false otherwise.
+  bool CanBeCaptured(bool aCaptureAudio);
+
   class nsAsyncEventRunner;
   class nsNotifyAboutPlayingRunner;
   class nsResolveOrRejectPendingPlayPromisesRunner;
@@ -1314,6 +1304,14 @@ protected:
   // Mark the decoder owned by the element as tainted so that the
   // suspend-video-decoder is disabled.
   void MarkAsTainted();
+
+  virtual nsresult AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
+                                const nsAttrValue* aValue,
+                                const nsAttrValue* aOldValue,
+                                bool aNotify) override;
+  virtual nsresult OnAttrSetButNotChanged(int32_t aNamespaceID, nsIAtom* aName,
+                                          const nsAttrValueOrString& aValue,
+                                          bool aNotify) override;
 
   // The current decoder. Load() has been called on this decoder.
   // At most one of mDecoder and mSrcStream can be non-null.
@@ -1385,8 +1383,10 @@ protected:
   uint32_t mCurrentLoadID;
 
   // Points to the child source elements, used to iterate through the children
-  // when selecting a resource to load.
-  RefPtr<nsRange> mSourcePointer;
+  // when selecting a resource to load.  This is the index of the child element
+  // that is the current 'candidate' in:
+  // https://html.spec.whatwg.org/multipage/media.html#concept-media-load-algorithm
+  uint32_t mSourcePointer;
 
   // Points to the document whose load we're blocking. This is the document
   // we're bound to when loading starts.
@@ -1722,6 +1722,16 @@ public:
     uint32_t mCount;
   };
 private:
+  /**
+   * This function is called by AfterSetAttr and OnAttrSetButNotChanged.
+   * It will not be called if the value is being unset.
+   *
+   * @param aNamespaceID the namespace of the attr being set
+   * @param aName the localname of the attribute being set
+   * @param aNotify Whether we plan to notify document observers.
+   */
+  void AfterMaybeChangeAttr(int32_t aNamespaceID, nsIAtom* aName, bool aNotify);
+
   // Total time a video has spent playing.
   TimeDurationAccumulator mPlayTime;
 

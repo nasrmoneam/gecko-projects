@@ -84,6 +84,10 @@
 #include "nsJSUtils.h"
 #include "nsWrapperCache.h"
 #include "nsStringBuffer.h"
+#include "GeckoProfiler.h"
+#ifdef MOZ_GECKO_PROFILER
+#include "ProfilerMarkerPayload.h"
+#endif
 
 #ifdef MOZ_CRASHREPORTER
 #include "nsExceptionHandler.h"
@@ -833,15 +837,17 @@ CycleCollectedJSRuntime::GCSliceCallback(JSContext* aContext,
 #ifdef MOZ_GECKO_PROFILER
   if (profiler_is_active()) {
     if (aProgress == JS::GC_CYCLE_END) {
-      auto payload = new GCMajorMarkerPayload(aDesc.startTime(aContext),
-                                              aDesc.endTime(aContext),
-                                              aDesc.summaryToJSON(aContext));
-      PROFILER_MARKER_PAYLOAD("GCMajor", payload);
+      profiler_add_marker(
+        "GCMajor",
+        MakeUnique<GCMajorMarkerPayload>(aDesc.startTime(aContext),
+                                         aDesc.endTime(aContext),
+                                         aDesc.summaryToJSON(aContext)));
     } else if (aProgress == JS::GC_SLICE_END) {
-      auto payload = new GCSliceMarkerPayload(aDesc.lastSliceStart(aContext),
-                                              aDesc.lastSliceEnd(aContext),
-                                              aDesc.sliceToJSON(aContext));
-      PROFILER_MARKER_PAYLOAD("GCSlice", payload);
+      profiler_add_marker(
+        "GCSlice",
+        MakeUnique<GCSliceMarkerPayload>(aDesc.lastSliceStart(aContext),
+                                         aDesc.lastSliceEnd(aContext),
+                                         aDesc.sliceToJSON(aContext)));
     }
   }
 #endif
@@ -924,19 +930,19 @@ CycleCollectedJSRuntime::GCNurseryCollectionCallback(JSContext* aContext,
     timelines->AddMarkerForAllObservedDocShells(abstractMarker);
   }
 
-#ifdef MOZ_GECKO_PROFILER
   if (aProgress == JS::GCNurseryProgress::GC_NURSERY_COLLECTION_START) {
     self->mLatestNurseryCollectionStart = TimeStamp::Now();
   } else if ((aProgress == JS::GCNurseryProgress::GC_NURSERY_COLLECTION_END) &&
              profiler_is_active())
   {
-    PROFILER_MARKER_PAYLOAD(
+#ifdef MOZ_GECKO_PROFILER
+    profiler_add_marker(
       "GCMinor",
-      new GCMinorMarkerPayload(self->mLatestNurseryCollectionStart,
-                               TimeStamp::Now(),
-                               JS::MinorGcToJSON(aContext)));
-  }
+      MakeUnique<GCMinorMarkerPayload>(self->mLatestNurseryCollectionStart,
+                                       TimeStamp::Now(),
+                                       JS::MinorGcToJSON(aContext)));
 #endif
+  }
 
   if (self->mPrevGCNurseryCollectionCallback) {
     self->mPrevGCNurseryCollectionCallback(aContext, aProgress, aReason);
@@ -1095,12 +1101,10 @@ struct ClearJSHolder : public TraceCallbacks
 void
 CycleCollectedJSRuntime::RemoveJSHolder(void* aHolder)
 {
-  nsScriptObjectTracer* tracer = mJSHolders.Get(aHolder);
-  if (!tracer) {
-    return;
+  if (auto entry = mJSHolders.Lookup(aHolder)) {
+    entry.Data()->Trace(aHolder, ClearJSHolder(), nullptr);
+    entry.Remove();
   }
-  tracer->Trace(aHolder, ClearJSHolder(), nullptr);
-  mJSHolders.Remove(aHolder);
 }
 
 #ifdef DEBUG
@@ -1242,12 +1246,11 @@ CycleCollectedJSRuntime::DeferredFinalize(DeferredFinalizeAppendFunction aAppend
                                           DeferredFinalizeFunction aFunc,
                                           void* aThing)
 {
-  void* thingArray = nullptr;
-  bool hadThingArray = mDeferredFinalizerTable.Get(aFunc, &thingArray);
-
-  thingArray = aAppendFunc(thingArray, aThing);
-  if (!hadThingArray) {
-    mDeferredFinalizerTable.Put(aFunc, thingArray);
+  if (auto entry = mDeferredFinalizerTable.LookupForAdd(aFunc)) {
+    aAppendFunc(entry.Data(), aThing);
+  } else {
+    entry.OrInsert(
+      [aAppendFunc, aThing] () { return aAppendFunc(nullptr, aThing); });
   }
 }
 

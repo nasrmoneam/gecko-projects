@@ -118,14 +118,6 @@ public:
 
   void CacheFrameLoader(nsFrameLoader* aFrameLoader);
 
-  /**
-   * Returns true iff this TabParent's nsIFrameLoader is visible.
-   *
-   * The frameloader's visibility can be independent of e.g. its docshell's
-   * visibility.
-   */
-  bool IsVisible() const;
-
   nsIBrowserDOMWindow *GetBrowserDOMWindow() const { return mBrowserDOMWindow; }
 
   void SetBrowserDOMWindow(nsIBrowserDOMWindow* aBrowserDOMWindow)
@@ -161,8 +153,7 @@ public:
                                                   const int32_t& aShellItemWidth,
                                                   const int32_t& aShellItemHeight) override;
 
-  virtual mozilla::ipc::IPCResult RecvDropLinks(nsTArray<nsString>&& aLinks,
-                                                const PrincipalInfo& aTriggeringPrincipalInfo) override;
+  virtual mozilla::ipc::IPCResult RecvDropLinks(nsTArray<nsString>&& aLinks) override;
 
   virtual mozilla::ipc::IPCResult RecvEvent(const RemoteDOMEvent& aEvent) override;
 
@@ -174,16 +165,13 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvSetHasBeforeUnload(const bool& aHasBeforeUnload) override;
 
-  virtual mozilla::ipc::IPCResult RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
-                                                             PRenderFrameParent* aRenderFrame,
-                                                             const nsString& aURL,
-                                                             const nsString& aName,
-                                                             const nsString& aFeatures,
-                                                             bool* aOutWindowOpened,
-                                                             TextureFactoryIdentifier* aTextureFactoryIdentifier,
-                                                             uint64_t* aLayersId,
-                                                             CompositorOptions* aCompositorOptions,
-                                                             uint32_t* aMaxTouchPoints) override;
+  virtual mozilla::ipc::IPCResult
+  RecvBrowserFrameOpenWindow(PBrowserParent* aOpener,
+                             PRenderFrameParent* aRenderFrame,
+                             const nsString& aURL,
+                             const nsString& aName,
+                             const nsString& aFeatures,
+                             BrowserFrameOpenWindowResolver&& aResolve) override;
 
   virtual mozilla::ipc::IPCResult
   RecvSyncMessage(const nsString& aMessage,
@@ -317,8 +305,6 @@ public:
 
   virtual mozilla::ipc::IPCResult RecvGetWidgetRounding(int32_t* aValue) override;
 
-  virtual mozilla::ipc::IPCResult RecvGetWidgetNativeData(WindowsHandle* aValue) override;
-
   virtual mozilla::ipc::IPCResult RecvSetNativeChildOfShareableWindow(const uintptr_t& childWindow) override;
 
   virtual mozilla::ipc::IPCResult RecvDispatchFocusToTopLevelWindow() override;
@@ -370,6 +356,8 @@ public:
   void Show(const ScreenIntSize& aSize, bool aParentIsActive);
 
   void UpdateDimensions(const nsIntRect& aRect, const ScreenIntSize& aSize);
+
+  DimensionInfo GetDimensionInfo();
 
   void SizeModeChanged(const nsSizeMode& aSizeMode);
 

@@ -64,7 +64,9 @@ browser/components/sessionstore/test/unit/data/sessionstore_invalid.js
 browser/components/tabview/**
 # generated & special files in cld2
 browser/components/translation/cld2/**
-# Screenshots is imported as a system add-on and has its own lint rules currently.
+# Screenshots and Follow-on search are imported as a system add-on and have
+# their own lint rules currently.
+browser/extensions/followonsearch/**
 browser/extensions/screenshots/**
 browser/extensions/pdfjs/content/build**
 browser/extensions/pdfjs/content/web**
@@ -213,6 +215,7 @@ dom/locales/**
 dom/manifest/**
 dom/mathml/**
 dom/media/**
+!dom/media/*.js*
 dom/messagechannel/**
 dom/network/**
 dom/notification/**
@@ -248,6 +251,9 @@ dom/xhr/**
 dom/xml/**
 dom/xslt/**
 dom/xul/**
+
+# Third-party
+dom/media/webvtt/**
 
 # Exclude everything but self-hosted JS
 js/ductwork/**
@@ -295,13 +301,27 @@ security/nss/**
 services/sync/modules/constants.js
 services/sync/services-sync.js
 
-# testing/ exclusions
-testing/marionette/**
+# Remote protocol exclusions
+testing/marionette/test_*.js
+testing/marionette/atom.js
+testing/marionette/legacyaction.js
+testing/marionette/client/**
+testing/marionette/harness/**
+
+# other testing/ exclusions
 testing/mochitest/**
-testing/modules/**
+# third party modules
+testing/modules/ajv-4.1.1.js
+testing/modules/sinon-2.3.2.js
 # octothorpe used for pref file comment causes parsing error
 testing/mozbase/mozprofile/tests/files/prefs_with_comments.js
-testing/talos/**
+testing/talos/talos/scripts/jszip.min.js
+testing/talos/talos/startup_test/sessionrestore/profile/sessionstore.js
+testing/talos/talos/tests/canvasmark/**
+testing/talos/talos/tests/dromaeo/**
+testing/talos/talos/tests/v8_7/**
+testing/talos/talos/tests/kraken/**
+
 testing/web-platform/**
 testing/xpcshell/moz-http2/**
 testing/xpcshell/node-http2/**

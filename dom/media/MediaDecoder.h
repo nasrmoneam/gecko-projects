@@ -7,15 +7,23 @@
 #if !defined(MediaDecoder_h_)
 #define MediaDecoder_h_
 
+#include "AbstractMediaDecoder.h"
+#include "DecoderDoctorDiagnostics.h"
+#include "MediaDecoderOwner.h"
+#include "MediaEventSource.h"
+#include "MediaMetadataManager.h"
+#include "MediaResource.h"
+#include "MediaStatistics.h"
+#include "MediaStreamGraph.h"
+#include "SeekTarget.h"
+#include "TimeUnits.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/CDMProxy.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/ReentrantMonitor.h"
 #include "mozilla/StateMirroring.h"
 #include "mozilla/StateWatching.h"
-
 #include "mozilla/dom/AudioChannelBinding.h"
-
 #include "necko-config.h"
 #include "nsAutoPtr.h"
 #include "nsCOMPtr.h"
@@ -23,19 +31,6 @@
 #include "nsISupports.h"
 #include "nsITimer.h"
 
-#include "AbstractMediaDecoder.h"
-#include "DecoderDoctorDiagnostics.h"
-#include "MediaDecoderOwner.h"
-#include "MediaEventSource.h"
-#include "MediaMetadataManager.h"
-#include "MediaResource.h"
-#include "MediaResourceCallback.h"
-#include "MediaStatistics.h"
-#include "MediaStreamGraph.h"
-#include "TimeUnits.h"
-#include "SeekTarget.h"
-
-class nsIStreamListener;
 class nsIPrincipal;
 
 namespace mozilla {
@@ -57,46 +52,43 @@ enum class Visibility : uint8_t;
 #undef GetCurrentTime
 #endif
 
+struct MOZ_STACK_CLASS MediaDecoderInit
+{
+  MediaDecoderOwner* const mOwner;
+  const dom::AudioChannel mAudioChannel;
+  const double mVolume;
+  const bool mPreservesPitch;
+  const double mPlaybackRate;
+  const bool mMinimizePreroll;
+  const bool mHasSuspendTaint;
+  const bool mLooping;
+  const MediaContainerType mContainerType;
+
+  MediaDecoderInit(MediaDecoderOwner* aOwner,
+                   dom::AudioChannel aAudioChannel,
+                   double aVolume,
+                   bool aPreservesPitch,
+                   double aPlaybackRate,
+                   bool aMinimizePreroll,
+                   bool aHasSuspendTaint,
+                   bool aLooping,
+                   const MediaContainerType& aContainerType)
+    : mOwner(aOwner)
+    , mAudioChannel(aAudioChannel)
+    , mVolume(aVolume)
+    , mPreservesPitch(aPreservesPitch)
+    , mPlaybackRate(aPlaybackRate)
+    , mMinimizePreroll(aMinimizePreroll)
+    , mHasSuspendTaint(aHasSuspendTaint)
+    , mLooping(aLooping)
+    , mContainerType(aContainerType)
+  {
+  }
+};
+
 class MediaDecoder : public AbstractMediaDecoder
 {
 public:
-  // Used to register with MediaResource to receive notifications which will
-  // be forwarded to MediaDecoder.
-  class ResourceCallback : public MediaResourceCallback
-  {
-    // Throttle calls to MediaDecoder::NotifyDataArrived()
-    // to be at most once per 500ms.
-    static const uint32_t sDelay = 500;
-
-  public:
-    explicit ResourceCallback(AbstractThread* aMainThread);
-    // Start to receive notifications from ResourceCallback.
-    void Connect(MediaDecoder* aDecoder);
-    // Called upon shutdown to stop receiving notifications.
-    void Disconnect();
-
-  private:
-    /* MediaResourceCallback functions */
-    MediaDecoderOwner* GetMediaOwner() const override;
-    void SetInfinite(bool aInfinite) override;
-    void NotifyNetworkError() override;
-    void NotifyDecodeError() override;
-    void NotifyDataArrived() override;
-    void NotifyBytesDownloaded() override;
-    void NotifyDataEnded(nsresult aStatus) override;
-    void NotifyPrincipalChanged() override;
-    void NotifySuspendedStatusChanged() override;
-    void NotifyBytesConsumed(int64_t aBytes, int64_t aOffset) override;
-
-    static void TimerCallback(nsITimer* aTimer, void* aClosure);
-
-    // The decoder to send notifications. Main-thread only.
-    MediaDecoder* mDecoder = nullptr;
-    nsCOMPtr<nsITimer> mTimer;
-    bool mTimerArmed = false;
-    const RefPtr<AbstractThread> mAbstractMainThread;
-  };
-
   typedef MozPromise<bool /* aIgnored */, bool /* aIgnored */,
                      /* IsExclusive = */ true>
     SeekPromise;
@@ -117,15 +109,12 @@ public:
   // Must be called exactly once, on the main thread, during startup.
   static void InitStatics();
 
-  explicit MediaDecoder(MediaDecoderOwner* aOwner);
+  explicit MediaDecoder(MediaDecoderInit& aInit);
 
-  // Return a callback object used to register with MediaResource to receive
-  // notifications.
-  MediaResourceCallback* GetResourceCallback() const;
+  // Returns the container content type of the resource.
+  // Safe to call from any thread.
+  const MediaContainerType& ContainerType() const { return mContainerType; }
 
-  // Create a new decoder of the same type as this one.
-  // Subclasses must implement this.
-  virtual MediaDecoder* Clone(MediaDecoderOwner* aOwner) = 0;
   // Create a new state machine to run this decoder.
   // Subclasses must implement this.
   virtual MediaDecoderStateMachine* CreateStateMachine() = 0;
@@ -138,14 +127,6 @@ public:
   // The decoder should notify its owner to drop the reference to the decoder
   // to prevent further calls into the decoder.
   void NotifyXPCOMShutdown();
-
-  // Start downloading the media. Decode the downloaded data up to the
-  // point of the first frame of data.
-  // This is called at most once per decoder, after Init().
-  virtual nsresult Load(nsIStreamListener** aListener);
-
-  // Called in |Load| to open mResource.
-  nsresult OpenResource(nsIStreamListener** aStreamListener);
 
   // Called if the media file encounters a network error.
   void NetworkError();
@@ -161,11 +142,6 @@ public:
   MediaResource* GetResource() const final override
   {
     return mResource;
-  }
-  void SetResource(MediaResource* aResource)
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-    mResource = aResource;
   }
 
   // Return the principal of the current URI being played or downloaded.
@@ -195,15 +171,11 @@ public:
   // Pause video playback.
   virtual void Pause();
   // Adjust the speed of the playback, optionally with pitch correction,
-  virtual void SetVolume(double aVolume);
+  void SetVolume(double aVolume);
 
-  virtual void SetPlaybackRate(double aPlaybackRate);
+  void SetPlaybackRate(double aPlaybackRate);
   void SetPreservesPitch(bool aPreservesPitch);
-
-  // Directs the decoder to not preroll extra samples until the media is
-  // played. This reduces the memory overhead of media elements that may
-  // not be played. Note that seeking also doesn't cause us start prerolling.
-  void SetMinimizePrerollUntilPlaybackStarts();
+  void SetLooping(bool aLooping);
 
   bool GetMinimizePreroll() const { return mMinimizePreroll; }
 
@@ -227,10 +199,6 @@ public:
 
   // Return true if the stream is infinite (see SetInfinite).
   bool IsInfinite() const;
-
-  // Called by MediaResource when some data has been received.
-  // Call on the main thread only.
-  virtual void NotifyBytesDownloaded();
 
   // Called as data arrives on the stream and is read into the cache.  Called
   // on the main thread only.
@@ -357,7 +325,6 @@ private:
   // to buffer, given the current download and playback rates.
   virtual bool CanPlayThrough();
 
-  void SetAudioChannel(dom::AudioChannel aChannel) { mAudioChannel = aChannel; }
   dom::AudioChannel GetAudioChannel() { return mAudioChannel; }
 
   // Called from HTMLMediaElement when owner document activity changes
@@ -516,9 +483,6 @@ protected:
   // State-watching manager.
   WatchManager<MediaDecoder> mWatchManager;
 
-  // Used by the ogg decoder to watch mStateMachineIsShutdown.
-  virtual void ShutdownBitChanged() {}
-
   double ExplicitDuration() { return mExplicitDuration.Ref().ref(); }
 
   void SetExplicitDuration(double aValue)
@@ -612,14 +576,47 @@ private:
   // Explicitly prievate to force access via accessors.
   RefPtr<MediaDecoderStateMachine> mDecoderStateMachine;
 
-  RefPtr<ResourceCallback> mResourceCallback;
-
   MozPromiseHolder<CDMProxyPromise> mCDMProxyPromiseHolder;
   RefPtr<CDMProxyPromise> mCDMProxyPromise;
 
 protected:
+  void NotifyDataArrivedInternal();
   void DiscardOngoingSeekIfExists();
   virtual void CallSeek(const SeekTarget& aTarget);
+
+  // Called to recompute playback rate and notify 'progress' event.
+  // Call on the main thread only.
+  void DownloadProgressed();
+
+  // A media stream is assumed to be infinite if the metadata doesn't
+  // contain the duration, and range requests are not supported, and
+  // no headers give a hint of a possible duration (Content-Length,
+  // Content-Duration, and variants), and we cannot seek in the media
+  // stream to determine the duration.
+  //
+  // When the media stream ends, we can know the duration, thus the stream is
+  // no longer considered to be infinite.
+  void SetInfinite(bool aInfinite);
+
+  // Called by MediaResource when the "cache suspended" status changes.
+  // If MediaResource::IsSuspendedByCache returns true, then the decoder
+  // should stop buffering or otherwise waiting for download progress and
+  // start consuming data, if possible, because the cache is full.
+  void NotifySuspendedStatusChanged();
+
+  // Called by MediaResource when the principal of the resource has
+  // changed. Called on main thread only.
+  void NotifyPrincipalChanged();
+
+  // Called by the MediaResource to keep track of the number of bytes read
+  // from the resource. Called on the main by an event runner dispatched
+  // by the MediaResource read functions.
+  void NotifyBytesConsumed(int64_t aBytes, int64_t aOffset);
+
+  // Called by nsChannelToPipeListener or MediaResource when the
+  // download has ended. Called on the main thread only. aStatus is
+  // the result from OnStopRequest.
+  void NotifyDownloadEnded(nsresult aStatus);
 
   MozPromiseRequestHolder<SeekPromise> mSeekRequest;
 
@@ -660,7 +657,7 @@ protected:
   // Data needed to estimate playback data rate. The timeline used for
   // this estimate is "decode time" (where the "current time" is the
   // time of the last decoded video frame).
-  RefPtr<MediaChannelStatistics> mPlaybackStatistics;
+  MediaChannelStatistics mPlaybackStatistics;
 
   // True when our media stream has been pinned. We pin the stream
   // while seeking.
@@ -668,13 +665,13 @@ protected:
 
   // Be assigned from media element during the initialization and pass to
   // AudioStream Class.
-  dom::AudioChannel mAudioChannel;
+  const dom::AudioChannel mAudioChannel;
 
   // True if the decoder has been directed to minimize its preroll before
   // playback starts. After the first time playback starts, we don't attempt
   // to minimize preroll, as we assume the user is likely to keep playing,
   // or play the media again.
-  bool mMinimizePreroll;
+  const bool mMinimizePreroll;
 
   // True if we've already fired metadataloaded.
   bool mFiredMetadataLoaded;
@@ -718,8 +715,8 @@ protected:
   MediaEventListener mOnMediaNotSeekable;
 
 protected:
-  // Whether the state machine is shut down.
-  Mirror<bool> mStateMachineIsShutdown;
+  // PlaybackRate and pitch preservation status we should start at.
+  double mPlaybackRate;
 
   // Buffered range, mirrored from the reader.
   Mirror<media::TimeIntervals> mBuffered;
@@ -745,10 +742,9 @@ protected:
   // Volume of playback.  0.0 = muted. 1.0 = full volume.
   Canonical<double> mVolume;
 
-  // PlaybackRate and pitch preservation status we should start at.
-  double mPlaybackRate = 1;
-
   Canonical<bool> mPreservesPitch;
+
+  Canonical<bool> mLooping;
 
   // Media duration set explicitly by JS. At present, this is only ever present
   // for MSE.
@@ -795,6 +791,10 @@ public:
   {
     return &mPreservesPitch;
   }
+  AbstractCanonical<bool>* CanonicalLooping()
+  {
+    return &mLooping;
+  }
   AbstractCanonical<Maybe<double>>* CanonicalExplicitDuration()
   {
     return &mExplicitDuration;
@@ -830,43 +830,12 @@ private:
   // Notify owner when the audible state changed
   void NotifyAudibleStateChanged();
 
-  /* Functions called by ResourceCallback */
-
-  // A media stream is assumed to be infinite if the metadata doesn't
-  // contain the duration, and range requests are not supported, and
-  // no headers give a hint of a possible duration (Content-Length,
-  // Content-Duration, and variants), and we cannot seek in the media
-  // stream to determine the duration.
-  //
-  // When the media stream ends, we can know the duration, thus the stream is
-  // no longer considered to be infinite.
-  void SetInfinite(bool aInfinite);
-
-  // Called by MediaResource when the principal of the resource has
-  // changed. Called on main thread only.
-  void NotifyPrincipalChanged();
-
-  // Called by MediaResource when the "cache suspended" status changes.
-  // If MediaResource::IsSuspendedByCache returns true, then the decoder
-  // should stop buffering or otherwise waiting for download progress and
-  // start consuming data, if possible, because the cache is full.
-  void NotifySuspendedStatusChanged();
-
-  // Called by the MediaResource to keep track of the number of bytes read
-  // from the resource. Called on the main by an event runner dispatched
-  // by the MediaResource read functions.
-  void NotifyBytesConsumed(int64_t aBytes, int64_t aOffset);
-
-  // Called by nsChannelToPipeListener or MediaResource when the
-  // download has ended. Called on the main thread only. aStatus is
-  // the result from OnStopRequest.
-  void NotifyDownloadEnded(nsresult aStatus);
-
   bool mTelemetryReported;
 
   // Used to debug how mOwner becomes a dangling pointer in bug 1326294.
   bool mIsMediaElement;
   WeakPtr<dom::HTMLMediaElement> mElement;
+  const MediaContainerType mContainerType;
 };
 
 } // namespace mozilla

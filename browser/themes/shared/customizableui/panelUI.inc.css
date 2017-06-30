@@ -26,6 +26,11 @@
   --appmenu-yellow-warning-color: #FFEFBF;
   --appmenu-yellow-warning-hover-color: #FFE8A2;
   --appmenu-yellow-warning-active-color: #FFE38F;
+  --panel-palette-icon-size: 32px;
+}
+
+:root[photon-structure] {
+  --panel-palette-icon-size: 16px;
 }
 
 #PanelUI-popup #PanelUI-contents:empty {
@@ -261,7 +266,8 @@ photonpanelmultiview .panel-subview-header {
 }
 
 #appMenu-popup > .panel-arrowcontainer > .panel-arrowcontent,
-#PanelUI-popup > .panel-arrowcontainer > .panel-arrowcontent {
+#PanelUI-popup > .panel-arrowcontainer > .panel-arrowcontent,
+panel[photon] > .panel-arrowcontainer > .panel-arrowcontent {
   overflow: hidden;
 }
 
@@ -338,25 +344,25 @@ panelview:not([mainview]) .toolbarbutton-text,
 
 /* START photonpanelview adjustments */
 
-#appMenu-popup > .panel-arrowcontainer > .panel-arrowcontent {
+#appMenu-popup > .panel-arrowcontainer > .panel-arrowcontent,
+panel[photon] > .panel-arrowcontainer > .panel-arrowcontent {
   padding: 0;
   border-radius: 0;
 }
 
 photonpanelmultiview panelview {
   background: var(--arrowpanel-background);
-  padding: 6px 0;
-  min-width: @menuPanelWidth@;
+  padding: 0;
 }
 
-photonpanelmultiview panelview[title] {
-  padding-top: 0;
+#appMenu-popup panelview,
+#customizationui-widget-multiview panelview:not([extension]) {
+  min-width: @menuPanelWidth@;
+  max-width: 30em;
 }
 
 photonpanelmultiview .panel-subview-body {
-  /*XXXmikedeboer this flex is unnecessary, so I unset it for our case. It might
-                  break other panels, though, so I refrain from removing it above. */
-  -moz-box-flex: unset;
+  margin: 4px 0;
 }
 
 /* END photonpanelview adjustments */
@@ -389,7 +395,7 @@ photonpanelmultiview .panel-subview-body {
   margin: 0;
 }
 
-toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item),
+:root:not([photon-structure]) toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-item),
 .panelUI-grid .toolbarbutton-1,
 .panel-customization-placeholder-child {
   -moz-appearance: none;
@@ -401,22 +407,19 @@ toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-it
 /* In order to have button labels constrained appropriately, items inside the toolbarpaletteitem
  * should have a min-width set so they abide by the width set above (which they do outside of
  * customize mode because they're in a flexed container) */
-toolbarpaletteitem[place="panel"]:not([haswideitem=true]) > .toolbarbutton-1 {
+:root:not([photon-structure]) toolbarpaletteitem[place="panel"]:not([haswideitem=true]) > .toolbarbutton-1 {
   min-width: 0.01px;
 }
 
 /* Help SDK buttons fit in. */
 toolbarpaletteitem[place="palette"] > toolbarbutton[constrain-size="true"] > .toolbarbutton-icon,
 toolbarpaletteitem[place="palette"] > toolbarbutton[constrain-size="true"] > .toolbarbutton-badge-stack > .toolbarbutton-icon,
+toolbarpaletteitem[place="palette"] > toolbaritem[sdkstylewidget="true"] > .toolbarbutton-1 > .toolbarbutton-icon,
+toolbarpaletteitem[place="panel"] > toolbaritem[sdkstylewidget="true"] > .toolbarbutton-1 > .toolbarbutton-icon,
 toolbarbutton[constrain-size="true"][cui-areatype="menu-panel"] > .toolbarbutton-icon,
 toolbarbutton[constrain-size="true"][cui-areatype="menu-panel"] > .toolbarbutton-badge-stack > .toolbarbutton-icon {
-  height: 32px;
-  width: 32px;
-}
-
-toolbarpaletteitem:-moz-any([place="palette"], [place="panel"]) > toolbaritem[sdkstylewidget="true"] > .toolbarbutton-1 > .toolbarbutton-icon {
-  width: 32px;
-  height: 32px;
+  height: @panelPaletteIconSize@;
+  width: @panelPaletteIconSize@;
 }
 
 .customization-palette .toolbarbutton-1 {
@@ -534,10 +537,21 @@ toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-it
 .panelUI-grid #bookmarks-toolbar-placeholder > .toolbarbutton-icon,
 .customization-palette #bookmarks-toolbar-placeholder > .toolbarbutton-icon,
 .panel-customization-placeholder-child > .toolbarbutton-icon {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: @panelPaletteIconSize@;
+  height: @panelPaletteIconSize@;
+  min-width: @panelPaletteIconSize@;
+  min-height: @panelPaletteIconSize@;
+}
+
+.panelUI-grid .toolbarbutton-1 > .toolbarbutton-menubutton-button > .toolbarbutton-icon,
+.panelUI-grid .toolbarbutton-1 > .toolbarbutton-icon,
+.panelUI-grid .toolbarbutton-1 > .toolbarbutton-badge-stack,
+:root:not([photon-structure]) .customization-palette .toolbarbutton-1 > .toolbarbutton-menubutton-button > .toolbarbutton-icon,
+:root:not([photon-structure]) .customization-palette .toolbarbutton-1 > .toolbarbutton-icon,
+:root:not([photon-structure]) .customization-palette .toolbarbutton-1 > .toolbarbutton-badge-stack,
+.panelUI-grid #bookmarks-toolbar-placeholder > .toolbarbutton-icon,
+:root:not([photon-structure]) .customization-palette #bookmarks-toolbar-placeholder > .toolbarbutton-icon,
+.panel-customization-placeholder-child > .toolbarbutton-icon {
   /* Explanation for the below formula (A / B - C)
      A
        Each button is @menuPanelButtonWidth@ wide
@@ -556,17 +570,22 @@ toolbaritem[cui-areatype="menu-panel"][sdkstylewidget="true"]:not(.panel-wide-it
 /* above we treat the container as the icon for the margins, that is so the
 /* badge itself is positioned correctly. Here we make sure that the icon itself
 /* has the minimum size we want, but no padding/margin. */
-.panelUI-grid .toolbarbutton-1 > .toolbarbutton-badge-stack > .toolbarbutton-icon,
-.customization-palette .toolbarbutton-1 > .toolbarbutton-badge-stack > .toolbarbutton-icon {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+.customization-palette .toolbarbutton-1 > .toolbarbutton-badge-stack > .toolbarbutton-icon,
+.panelUI-grid .toolbarbutton-1 > .toolbarbutton-badge-stack > .toolbarbutton-icon {
+  width: @panelPaletteIconSize@;
+  height: @panelPaletteIconSize@;
+  min-width: @panelPaletteIconSize@;
+  min-height: @panelPaletteIconSize@;
   margin: 0;
   padding: 0;
 }
 
-toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
+:root[photon-structure] .customization-palette .toolbarbutton-1 {
+  padding: 12px 0 9px;
+  margin: 0;
+}
+
+:root[photon-structure] toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
   -moz-box-flex: 1;
 }
 
@@ -726,30 +745,18 @@ toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
 }
 
 /* FxAccount indicator bits. */
+#appMenu-fxa-container:not([fxastatus="signedin"]) {
+  margin-inline-end: 0;
+}
+
 #appMenu-fxa-label,
 #appMenu-fxa-icon {
-  padding: 4px;
-  -moz-appearance: none;
-  box-shadow: none;
-  border-radius: 0;
-  border: 0 none;
-  -moz-box-orient: horizontal;
   -moz-image-region: rect(0, 16px, 16px, 0);
   list-style-image: url(chrome://browser/skin/sync-horizontalbar.png);
 }
 
 #appMenu-fxa-label {
   -moz-box-flex: 1;
-  padding-inline-start: 12px;
-  margin: 0;
-}
-
-#appMenu-fxa-icon {
-  margin: 0 10px;
-}
-
-#appMenu-fxa-icon > .toolbarbutton-text {
-  display: none;
 }
 
 #appMenu-fxa-icon[syncstatus="active"] {
@@ -777,10 +784,6 @@ toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
   }
 }
 
-#appMenu-fxa-container {
-  -moz-box-orient: horizontal;
-}
-
 /* Handle different UI states. */
 #appMenu-fxa-container[fxastatus="signedin"] > #appMenu-fxa-status > #appMenu-fxa-label > .toolbarbutton-icon,
 #appMenu-fxa-container:not([fxastatus="signedin"]) > toolbarseparator,
@@ -794,23 +797,9 @@ toolbarpaletteitem[place="palette"] > toolbaritem > toolbarbutton {
   padding-inline-start: 28px;
   margin-inline-start: -28px;
 }
-#appMenu-fxa-container[fxastatus="signedin"] > #appMenu-fxa-status {
-  margin-inline-end: 10px;
-}
 
 #appMenu-fxa-container[fxastatus="signedin"] > #appMenu-fxa-status > #appMenu-fxa-avatar {
   margin-inline-start: 12px;
-}
-
-#appMenu-fxa-container[fxastatus="signedin"] > toolbarseparator {
-  -moz-appearance: none;
-  height: 24px;
-  margin: 0;
-  border: 0 none;
-  width: 1px;
-  /* Use background: rather than background-color: to override background-image
-   * styles on OS X */
-  background: var(--arrowpanel-dimmed);
 }
 
 /* Error states */
@@ -1180,7 +1169,7 @@ panelview .toolbarbutton-1,
 .widget-overflow-list .toolbarbutton-1,
 .panelUI-grid .toolbarbutton-1 > .toolbarbutton-menubutton-button,
 .share-provider-button,
-.toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
+:root:not([photon-structure]) .toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
   -moz-appearance: none;
   padding: 0 6px;
   background-color: transparent;
@@ -1193,7 +1182,7 @@ panelview .toolbarbutton-1,
 .subviewbutton,
 .widget-overflow-list .toolbarbutton-1,
 .share-provider-button,
-.toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
+:root:not([photon-structure]) .toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
   border-width: 1px;
 }
 
@@ -1271,11 +1260,12 @@ panelview:not([mainView]) .subviewbutton.panel-subview-footer > .toolbarbutton-t
 
 /* START photon adjustments */
 
-photonpanelmultiview .PanelUI-subView .subviewbutton:not(.panel-subview-footer) {
+photonpanelmultiview .PanelUI-subView .subviewbutton,
+photonpanelmultiview .cui-widget-panelview .subviewbutton:not(.panel-subview-footer),
+photonpanelmultiview .subview-subheader {
   border-radius: 0;
   border-width: 0;
-  margin-left: 0;
-  margin-right: 0;
+  margin: 0;
   padding: 4px 12px;
 }
 
@@ -1283,18 +1273,22 @@ photonpanelmultiview .subviewbutton:focus {
   outline: 0;
 }
 
-photonpanelmultiview .subviewbutton-iconic:not(.subviewbutton-back) > .toolbarbutton-text,
-photonpanelmultiview .subviewbutton[checked="true"] > .toolbarbutton-text,
-photonpanelmultiview .panel-banner-item > .toolbarbutton-multiline-text {
-  padding-inline-start: 8px; /* See '.subviewbutton-iconic > .toolbarbutton-text' rule above. */
-}
-
-photonpanelmultiview .subviewbutton:not(.subviewbutton-iconic):not([checked="true"]) > .toolbarbutton-text {
+photonpanelmultiview .subviewbutton > .toolbarbutton-text {
+  padding: 0;
   padding-inline-start: 24px; /* This is 16px for the icon + 8px for the padding as defined above. */
 }
 
-photonpanelmultiview .PanelUI-subView .panel-subview-footer {
-  font-size: 1.2rem;
+photonpanelmultiview .subviewbutton-iconic > .toolbarbutton-text,
+photonpanelmultiview .cui-withicon > .toolbarbutton-text,
+photonpanelmultiview .subviewbutton[image] > .toolbarbutton-text,
+photonpanelmultiview .subviewbutton[checked="true"] > .toolbarbutton-text {
+  padding-inline-start: 8px; /* See '.subviewbutton-iconic > .toolbarbutton-text' rule above. */
+}
+
+photonpanelmultiview .panel-banner-item > .toolbarbutton-multiline-text {
+  font: menu;
+  padding: 0;
+  padding-inline-start: 8px; /* See '.subviewbutton-iconic > .toolbarbutton-text' rule above. */
 }
 
 photonpanelmultiview .subviewbutton {
@@ -1312,10 +1306,11 @@ photonpanelmultiview .subviewbutton > .menu-iconic-left {
   margin-inline-end: 0;
 }
 
-photonpanelmultiview .toolbaritem-combined-buttons:-moz-any(:not([cui-areatype="toolbar"]), [overflowedItem="true"]) {
+photonpanelmultiview .toolbaritem-combined-buttons@inAnyPanel@ {
   -moz-box-align: center;
   -moz-box-orient: horizontal;
   border: 0;
+  border-radius: 0;
   margin-inline-end: 8px;
 }
 
@@ -1334,13 +1329,52 @@ photonpanelmultiview .PanelUI-subView .toolbaritem-combined-buttons > .subviewbu
   padding: 4px;
 }
 
-photonpanelmultiview .PanelUI-subView .toolbaritem-combined-buttons > .subviewbutton > .toolbarbutton-text {
+#appMenu-zoom-controls > .subviewbutton {
+  margin-inline-start: 10px;
+}
+
+.toolbaritem-combined-buttons > toolbarseparator[orient="vertical"] + .subviewbutton,
+#appMenu-zoom-controls > toolbarseparator[orient="vertical"] + .subviewbutton {
+  margin-inline-start: 0;
+}
+
+photonpanelmultiview .PanelUI-subView .toolbaritem-combined-buttons >
+  .subviewbutton-iconic > .toolbarbutton-text,
+photonpanelmultiview .PanelUI-subView .toolbaritem-combined-buttons >
+  .subviewbutton:not(.subviewbutton-iconic) > .toolbarbutton-icon {
   display: none;
+}
+
+/* Using this selector, because this way the hover and active selectors will apply properly. */
+photonpanelmultiview .PanelUI-subView .toolbaritem-combined-buttons >
+  .subviewbutton:not(.subviewbutton-iconic) {
+  background-color: #f9f9f9;
+  border: 1px solid #e1e1e1;
+  border-radius: 10000px;
+  padding: 1px 8px;
+}
+
+photonpanelmultiview .toolbaritem-combined-buttons > .subviewbutton:not(.subviewbutton-iconic) > .toolbarbutton-text {
+  font-size: 1em;
+  padding-inline-start: 0;
 }
 
 photonpanelmultiview .panel-banner-item::after {
   margin-inline-end: 14px;
   margin-inline-start: 10px;
+}
+
+photonpanelmultiview .subview-subheader {
+  color: GrayText;
+}
+
+photonpanelmultiview .subview-subheader,
+photonpanelmultiview .panel-subview-footer {
+  font: menu;
+}
+
+photonpanelmultiview panelview:not([mainView]) .subviewbutton.panel-subview-footer > .toolbarbutton-text {
+  text-align: start;
 }
 
 /* END photon adjustments */
@@ -1467,6 +1501,15 @@ menuitem.panel-subview-footer@menuStateActive@,
   margin-right: 10px;
 }
 
+.PanelUI-subView toolbarseparator[orient="vertical"] {
+  height: 24px;
+  border-inline-start: 1px solid var(--panel-separator-color);
+  border-top: none;
+  margin: 0;
+  margin-inline-start: 4px;
+  margin-inline-end: 5px;
+}
+
 .subviewbutton > .menu-accel-container {
   -moz-box-pack: start;
   margin-inline-start: 10px;
@@ -1538,6 +1581,9 @@ toolbarbutton[panel-multiview-anchor="true"]:-moz-locale-dir(rtl) {
   background-position: left calc(@menuPanelButtonWidth@ / 2 - var(--panel-ui-exit-subview-gutter-width) + 2px) center;
 }
 
+toolbarpaletteitem[place="palette"] > .toolbarbutton-1 > .toolbarbutton-menu-dropmarker,
+#bookmarks-menu-button[cui-areatype="menu-panel"] > .toolbarbutton-menu-dropmarker,
+#bookmarks-menu-button[overflowedItem] > .toolbarbutton-menu-dropmarker,
 toolbarpaletteitem[place="palette"] > .toolbarbutton-1 > .toolbarbutton-menubutton-dropmarker,
 #bookmarks-menu-button[cui-areatype="menu-panel"] > .toolbarbutton-menubutton-dropmarker {
   display: none;
@@ -1579,7 +1625,7 @@ toolbarpaletteitem[haswideitem][place="panel"] + toolbarpaletteitem[haswideitem]
   margin-top: -1px;
 }
 
-.toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
+:root:not([photon-structure]) .toolbaritem-combined-buttons@inAnyPanel@ > toolbarbutton {
   border: 0;
   padding: .5em;
   margin: 0;
@@ -1593,8 +1639,8 @@ toolbarpaletteitem[haswideitem][place="panel"] + toolbarpaletteitem[haswideitem]
   -moz-box-orient: horizontal;
 }
 
-#edit-controls@inAnyPanel@ > #copy-button,
-#zoom-controls@inAnyPanel@ > #zoom-reset-button {
+:root:not([photon-structure]) #edit-controls@inAnyPanel@ > #copy-button,
+:root:not([photon-structure]) #zoom-controls@inAnyPanel@ > #zoom-reset-button {
   /* reduce the width with 2px for this button to compensate for two separators
      of 1px. */
   min-width: calc(@menuPanelButtonWidth@ - 2px);
@@ -2039,7 +2085,6 @@ menuitem[checked="true"].subviewbutton > .menu-iconic-left {
   display: flex;
   flex: 1 auto;
   height: 40px; /* fixed item height to prevent flex sizing; height + 2*4px padding */
-  margin-bottom: 6px;
   padding: 4px;
 }
 
@@ -2065,12 +2110,28 @@ photonpanelmultiview .PanelUI-subView .panel-header > .subviewbutton-back {
 }
 
 .panel-header > .subviewbutton-back > .toolbarbutton-text {
-  display: none;
+  /* !important to override .cui-widget-panel toolbarbutton:not([wrap]) > .toolbarbutton-text
+   * selector further down. */
+  display: none !important;
 }
 
 photonpanelmultiview .PanelUI-subView toolbarseparator {
   margin-inline-start: 0;
   margin-inline-end: 0;
+}
+
+photonpanelmultiview#customizationui-widget-multiview > .panel-viewcontainer {
+  overflow: hidden;
+}
+
+/* This is explicitly overriding the overflow properties set above. */
+photonpanelmultiview .cui-widget-panelview {
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+photonpanelmultiview #panelMenu_pocket {
+  display: none;
 }
 
 /* END photon adjustments */

@@ -177,6 +177,26 @@ this.DevToolsShim = {
     this.gDevTools.restoreScratchpadSession(scratchpads);
   },
 
+  /**
+   * Called from nsContextMenu.js in mozilla-central when using the Inspect Element
+   * context menu item.
+   *
+   * @param {XULTab} tab
+   *        The browser tab on which inspect node was used.
+   * @param {Array} selectors
+   *        An array of CSS selectors to find the target node. Several selectors can be
+   *        needed if the element is nested in frames and not directly in the root
+   *        document.
+   * @return {Promise} a promise that resolves when the node is selected in the inspector
+   *         markup view or that resolves immediately if DevTools are not installed.
+   */
+  inspectNode: function (tab, selectors) {
+    if (!this.isInstalled()) {
+      return Promise.resolve();
+    }
+    return this.gDevTools.inspectNode(tab, selectors);
+  },
+
   _onDevToolsRegistered: function () {
     // Register all pending event listeners on the real gDevTools object.
     for (let [event, listener] of this.listeners) {
@@ -196,3 +216,40 @@ this.DevToolsShim = {
     this.themes = [];
   },
 };
+
+/**
+ * Compatibility layer for addon-sdk. Remove when Firefox 57 hits release.
+ *
+ * The methods below are used by classes and tests from addon-sdk/
+ * If DevTools are not installed when calling one of them, the call will throw.
+ */
+
+let addonSdkMethods = [
+  "closeToolbox",
+  "connectDebuggerServer",
+  "createDebuggerClient",
+  "getTargetForTab",
+  "getToolbox",
+  "initBrowserToolboxProcessForAddon",
+  "showToolbox",
+];
+
+/**
+ * Compatibility layer for webextensions.
+ *
+ * Those methods are called only after a DevTools webextension was loaded in DevTools,
+ * therefore DevTools should always be available when they are called.
+ */
+let webExtensionsMethods = [
+  "getTheme",
+];
+
+for (let method of [...addonSdkMethods, ...webExtensionsMethods]) {
+  this.DevToolsShim[method] = function () {
+    if (!this.isInstalled()) {
+      throw new Error(`Method ${method} unavailable if DevTools are not installed`);
+    }
+
+    return this.gDevTools[method].apply(this.gDevTools, arguments);
+  };
+}

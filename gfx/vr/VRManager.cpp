@@ -17,9 +17,9 @@
 #include "gfxVR.h"
 #if defined(XP_WIN)
 #include "gfxVROculus.h"
-#include "gfxVROpenVR.h"
 #endif
-#if defined(XP_WIN) || defined(XP_MACOSX) || defined(XP_LINUX)
+#if defined(XP_WIN) || defined(XP_MACOSX) || (defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID))
+#include "gfxVROpenVR.h"
 #include "gfxVROSVR.h"
 #endif
 #include "gfxVRPuppet.h"
@@ -75,14 +75,15 @@ VRManager::VRManager()
   if (mgr) {
     mManagers.AppendElement(mgr);
   }
-  // OpenVR is cross platform compatible, but supported only on Windows for now
+#endif
+
+#if defined(XP_WIN) || defined(XP_MACOSX) || (defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID))
+  // OpenVR is cross platform compatible
   mgr = VRSystemManagerOpenVR::Create();
   if (mgr) {
     mManagers.AppendElement(mgr);
   }
-#endif
 
-#if defined(XP_WIN) || defined(XP_MACOSX) || defined(XP_LINUX)
   // OSVR is cross platform compatible
   mgr = VRSystemManagerOSVR::Create();
   if (mgr) {
@@ -168,15 +169,17 @@ VRManager::NotifyVsync(const TimeStamp& aVsyncTimestamp)
 
   for (auto iter = mVRManagerParents.Iter(); !iter.Done(); iter.Next()) {
     VRManagerParent *vmp = iter.Get()->GetKey();
-    if (mVRDisplays.Count()) {
-      Unused << vmp->SendNotifyVSync();
-    }
     bHaveEventListener |= vmp->HaveEventListener();
     bHaveControllerListener |= vmp->HaveControllerListener();
   }
 
+  // VRDisplayHost::NotifyVSync may modify mVRDisplays, so we iterate
+  // through a local copy here.
+  nsTArray<RefPtr<VRDisplayHost>> displays;
   for (auto iter = mVRDisplays.Iter(); !iter.Done(); iter.Next()) {
-    gfx::VRDisplayHost* display = iter.UserData();
+    displays.AppendElement(iter.UserData());
+  }
+  for (const auto& display: displays) {
     display->NotifyVSync();
   }
 
@@ -239,9 +242,12 @@ VRManager::NotifyVRVsync(const uint32_t& aDisplayID)
     }
   }
 
-  for (auto iter = mVRManagerParents.Iter(); !iter.Done(); iter.Next()) {
-    Unused << iter.Get()->GetKey()->SendNotifyVRVSync(aDisplayID);
+  RefPtr<VRDisplayHost> display = GetDisplay(aDisplayID);
+  if (display) {
+    display->StartFrame();
   }
+
+  RefreshVRDisplays();
 }
 
 void
@@ -339,7 +345,7 @@ VRManager::SubmitFrame(VRLayerParent* aLayer, layers::PTextureParent* aTexture,
   mLastFrame = th;
   RefPtr<VRDisplayHost> display = GetDisplay(aLayer->GetDisplayID());
   if (display) {
-    display->SubmitFrame(aLayer, 0, aTexture, aLeftEyeRect, aRightEyeRect);
+    display->SubmitFrame(aLayer, aTexture, aLeftEyeRect, aRightEyeRect);
   }
 }
 

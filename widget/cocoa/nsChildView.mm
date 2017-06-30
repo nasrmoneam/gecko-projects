@@ -68,6 +68,8 @@
 #include "mozilla/layers/CompositorBridgeParent.h"
 #include "mozilla/layers/BasicCompositor.h"
 #include "mozilla/layers/InputAPZContext.h"
+#include "mozilla/layers/WebRenderBridgeChild.h"
+#include "mozilla/webrender/WebRenderAPI.h"
 #include "mozilla/widget/CompositorWidget.h"
 #include "gfxUtils.h"
 #include "gfxPrefs.h"
@@ -2043,7 +2045,9 @@ nsChildView::PrepareWindowEffects()
     mIsCoveringTitlebar = [(ChildView*)mView isCoveringTitlebar];
     NSInteger styleMask = [[mView window] styleMask];
     bool wasFullscreen = mIsFullscreen;
-    mIsFullscreen = (styleMask & NSFullScreenWindowMask) || !(styleMask & NSTitledWindowMask);
+    nsCocoaWindow* windowWidget = GetXULWindowWidget();
+    mIsFullscreen = (styleMask & NSFullScreenWindowMask) ||
+                    (windowWidget && windowWidget->InFullScreenMode());
 
     canBeOpaque = mIsFullscreen && wasFullscreen;
     if (canBeOpaque && VibrancyManager::SystemSupportsVibrancy()) {
@@ -2070,6 +2074,51 @@ nsChildView::CleanupWindowEffects()
   mResizerImage = nullptr;
   mCornerMaskImage = nullptr;
   mTitlebarImage = nullptr;
+}
+
+void
+nsChildView::AddWindowOverlayWebRenderCommands(layers::WebRenderBridgeChild* aWrBridge,
+                                               wr::DisplayListBuilder& aBuilder)
+{
+  PrepareWindowEffects();
+
+  LayoutDeviceIntRegion updatedTitlebarRegion;
+  updatedTitlebarRegion.And(mUpdatedTitlebarRegion, mTitlebarRect);
+  mUpdatedTitlebarRegion.SetEmpty();
+
+  if (mTitlebarCGContext) {
+    gfx::IntSize size(CGBitmapContextGetWidth(mTitlebarCGContext),
+                      CGBitmapContextGetHeight(mTitlebarCGContext));
+    size_t stride = CGBitmapContextGetBytesPerRow(mTitlebarCGContext);
+    size_t titlebarCGContextDataLength = stride * size.height;
+    gfx::SurfaceFormat format = gfx::SurfaceFormat::B8G8R8A8;
+    wr::ByteBuffer buffer(
+      titlebarCGContextDataLength,
+      static_cast<uint8_t *>(CGBitmapContextGetData(mTitlebarCGContext)));
+
+    if (!mTitlebarImageKey) {
+      mTitlebarImageKey = Some(aWrBridge->GetNextImageKey());
+      aWrBridge->SendAddImage(*mTitlebarImageKey, size, stride, format, buffer);
+      updatedTitlebarRegion.SetEmpty();
+    }
+
+    if (!updatedTitlebarRegion.IsEmpty()) {
+      aWrBridge->SendUpdateImage(*mTitlebarImageKey, size, format, buffer);
+    }
+
+    WrRect rect = wr::ToWrRect(mTitlebarRect);
+    aBuilder.PushImage(WrRect{ 0, 0, float(size.width), float(size.height) },
+                       rect, wr::ImageRendering::Auto, *mTitlebarImageKey);
+  }
+}
+
+void
+nsChildView::CleanupWebRenderWindowOverlay(layers::WebRenderBridgeChild* aWrBridge)
+{
+  if (mTitlebarImageKey) {
+    aWrBridge->SendDeleteImage(*mTitlebarImageKey);
+    mTitlebarImageKey = Nothing();
+  }
 }
 
 bool
@@ -3222,7 +3271,7 @@ class WidgetsReleaserRunnable final : public mozilla::Runnable
 {
 public:
   explicit WidgetsReleaserRunnable(nsTArray<nsCOMPtr<nsIWidget>>&& aWidgetArray)
-    : mWidgetArray(aWidgetArray)
+    : mozilla::Runnable("WidgetsReleaserRunnable"), mWidgetArray(aWidgetArray)
   {
   }
 
@@ -3765,12 +3814,6 @@ NSEvent* gLastDragMouseDownEvent = nil;
 {
   CGContextRef cgContext = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
   [self drawRect:aRect inContext:cgContext];
-
-  // If we're a transparent window and our contents have changed, we need
-  // to make sure the shadow is updated to the new contents.
-  if ([[self window] isKindOfClass:[BaseWindow class]]) {
-    [(BaseWindow*)[self window] deferredInvalidateShadow];
-  }
 }
 
 - (void)drawRect:(NSRect)aRect inContext:(CGContextRef)aContext
@@ -3811,8 +3854,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
     return;
   }
 
-  PROFILER_LABEL("ChildView", "drawRect",
-    js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("ChildView::drawRect", GRAPHICS);
 
   // The CGContext that drawRect supplies us with comes with a transform that
   // scales one user space unit to one Cocoa point, which can consist of
@@ -3879,8 +3921,7 @@ NSEvent* gLastDragMouseDownEvent = nil;
 
 - (void)drawUsingOpenGL
 {
-  PROFILER_LABEL("ChildView", "drawUsingOpenGL",
-    js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("ChildView::drawUsingOpenGL", GRAPHICS);
 
   if (![self isUsingOpenGL] || !mGeckoChild->IsVisible())
     return;

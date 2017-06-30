@@ -17,10 +17,13 @@ UNIFIED_SOURCES += [
     'TestCRT.cpp',
     'TestEncoding.cpp',
     'TestEscapeURL.cpp',
+    'TestEventTargetQI.cpp',
     'TestExpirationTracker.cpp',
     'TestFile.cpp',
     'TestGCPostBarriers.cpp',
     'TestID.cpp',
+    'TestMozPromise.cpp',
+    'TestMultiplexInputStream.cpp',
     'TestNsDeque.cpp',
     'TestNSPRLogModulesParser.cpp',
     'TestObserverArray.cpp',
@@ -41,6 +44,7 @@ UNIFIED_SOURCES += [
     'TestTArray2.cpp',
     'TestTaskQueue.cpp',
     'TestTextFormatter.cpp',
+    'TestThreadManager.cpp',
     'TestThreadPool.cpp',
     'TestThreadPoolListener.cpp',
     'TestThreads.cpp',
@@ -83,3 +87,5 @@ LOCAL_INCLUDES += [
 ]
 
 FINAL_LIBRARY = 'xul-gtest'
+
+include('/ipc/chromium/chromium-config.mozbuild')

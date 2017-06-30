@@ -65,12 +65,14 @@ VRManagerParent::AllocPVRLayerParent(const uint32_t& aDisplayID,
                                      const float& aRightEyeX,
                                      const float& aRightEyeY,
                                      const float& aRightEyeWidth,
-                                     const float& aRightEyeHeight)
+                                     const float& aRightEyeHeight,
+                                     const uint32_t& aGroup)
 {
   RefPtr<VRLayerParent> layer;
   layer = new VRLayerParent(aDisplayID,
                             Rect(aLeftEyeX, aLeftEyeY, aLeftEyeWidth, aLeftEyeHeight),
-                            Rect(aRightEyeX, aRightEyeY, aRightEyeWidth, aRightEyeHeight));
+                            Rect(aRightEyeX, aRightEyeY, aRightEyeWidth, aRightEyeHeight),
+                            aGroup);
   VRManager* vm = VRManager::Get();
   RefPtr<gfx::VRDisplayHost> display = vm->GetDisplay(aDisplayID);
   if (display) {
@@ -163,7 +165,10 @@ VRManagerParent::CreateForContent(Endpoint<PVRManagerParent>&& aEndpoint)
 
   RefPtr<VRManagerParent> vmp = new VRManagerParent(aEndpoint.OtherPid(), true);
   loop->PostTask(NewRunnableMethod<Endpoint<PVRManagerParent>&&>(
-    vmp, &VRManagerParent::Bind, Move(aEndpoint)));
+    "gfx::VRManagerParent::Bind",
+    vmp,
+    &VRManagerParent::Bind,
+    Move(aEndpoint)));
 
   return true;
 }
@@ -204,7 +209,10 @@ VRManagerParent::CreateForGPUProcess(Endpoint<PVRManagerParent>&& aEndpoint)
   RefPtr<VRManagerParent> vmp = new VRManagerParent(aEndpoint.OtherPid(), false);
   vmp->mCompositorThreadHolder = layers::CompositorThreadHolder::GetSingleton();
   loop->PostTask(NewRunnableMethod<Endpoint<PVRManagerParent>&&>(
-    vmp, &VRManagerParent::Bind, Move(aEndpoint)));
+    "gfx::VRManagerParent::Bind",
+    vmp,
+    &VRManagerParent::Bind,
+    Move(aEndpoint)));
   return true;
 }
 
@@ -219,7 +227,10 @@ void
 VRManagerParent::ActorDestroy(ActorDestroyReason why)
 {
   UnregisterFromManager();
-  MessageLoop::current()->PostTask(NewRunnableMethod(this, &VRManagerParent::DeferredDestroy));
+  MessageLoop::current()->PostTask(
+    NewRunnableMethod("gfx::VRManagerParent::DeferredDestroy",
+                      this,
+                      &VRManagerParent::DeferredDestroy));
 }
 
 void
@@ -254,12 +265,12 @@ VRManagerParent::RecvResetSensor(const uint32_t& aDisplayID)
 }
 
 mozilla::ipc::IPCResult
-VRManagerParent::RecvGetSensorState(const uint32_t& aDisplayID, VRHMDSensorState* aState)
+VRManagerParent::RecvSetGroupMask(const uint32_t& aDisplayID, const uint32_t& aGroupMask)
 {
   VRManager* vm = VRManager::Get();
   RefPtr<gfx::VRDisplayHost> display = vm->GetDisplay(aDisplayID);
   if (display != nullptr) {
-    *aState = display->GetSensorState();
+    display->SetGroupMask(aGroupMask);
   }
   return IPC_OK();
 }

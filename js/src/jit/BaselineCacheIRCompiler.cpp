@@ -848,6 +848,39 @@ BaselineCacheIRCompiler::emitLoadStringResult()
     return true;
 }
 
+typedef bool (*StringSplitHelperFn)(JSContext*, HandleString, HandleString, HandleObjectGroup,
+                              uint32_t limit, MutableHandleValue);
+static const VMFunction StringSplitHelperInfo =
+    FunctionInfo<StringSplitHelperFn>(StringSplitHelper, "StringSplitHelper");
+
+bool
+BaselineCacheIRCompiler::emitCallStringSplitResult()
+{
+    Register str = allocator.useRegister(masm, reader.stringOperandId());
+    Register sep = allocator.useRegister(masm, reader.stringOperandId());
+    Address groupAddr(stubAddress(reader.stubOffset()));
+
+    AutoScratchRegister scratch(allocator, masm);
+    allocator.discardStack(masm);
+
+    AutoStubFrame stubFrame(*this);
+    stubFrame.enter(masm, scratch);
+
+    // Load the group in the scratch register.
+    masm.loadPtr(groupAddr, scratch);
+
+    masm.Push(Imm32(INT32_MAX));
+    masm.Push(scratch);
+    masm.Push(sep);
+    masm.Push(str);
+
+    if (!callVM(masm, StringSplitHelperInfo))
+        return false;
+
+    stubFrame.leave(masm);
+    return true;
+}
+
 bool
 BaselineCacheIRCompiler::callTypeUpdateIC(Register obj, ValueOperand val, Register scratch,
                                           LiveGeneralRegisterSet saveRegs)
@@ -1796,6 +1829,15 @@ BaselineCacheIRCompiler::emitLoadObject()
 }
 
 bool
+BaselineCacheIRCompiler::emitLoadStackValue()
+{
+    ValueOperand val = allocator.defineValueRegister(masm, reader.valOperandId());
+    Address addr = allocator.addressOf(masm, BaselineFrameSlot(reader.uint32Immediate()));
+    masm.loadValue(addr, val);
+    return true;
+}
+
+bool
 BaselineCacheIRCompiler::emitGuardDOMExpandoMissingOrGuardShape()
 {
     ValueOperand val = allocator.useValueRegister(masm, reader.valOperandId());
@@ -1875,6 +1917,7 @@ BaselineCacheIRCompiler::init(CacheKind kind)
         allocator.initInputLocation(0, R0);
         break;
       case CacheKind::GetElem:
+      case CacheKind::GetPropSuper:
       case CacheKind::SetProp:
       case CacheKind::In:
       case CacheKind::HasOwn:
@@ -1882,6 +1925,7 @@ BaselineCacheIRCompiler::init(CacheKind kind)
         allocator.initInputLocation(0, R0);
         allocator.initInputLocation(1, R1);
         break;
+      case CacheKind::GetElemSuper:
       case CacheKind::SetElem:
         MOZ_ASSERT(numInputs == 3);
         allocator.initInputLocation(0, R0);
@@ -1894,6 +1938,15 @@ BaselineCacheIRCompiler::init(CacheKind kind)
         allocator.initInputLocation(0, R0.scratchReg(), JSVAL_TYPE_OBJECT);
 #if defined(JS_NUNBOX32)
         // availableGeneralRegs can't know that GetName/BindName is only using
+        // the payloadReg and not typeReg on x86.
+        available.add(R0.typeReg());
+#endif
+        break;
+      case CacheKind::Call:
+        MOZ_ASSERT(numInputs == 1);
+        allocator.initInputLocation(0, R0.scratchReg(), JSVAL_TYPE_INT32);
+#if defined(JS_NUNBOX32)
+        // availableGeneralRegs can't know that Call is only using
         // the payloadReg and not typeReg on x86.
         available.add(R0.typeReg());
 #endif
@@ -1943,6 +1996,9 @@ jit::AttachBaselineCacheIRStub(JSContext* cx, const CacheIRWriter& writer,
       case CacheKind::GetProp:
       case CacheKind::GetElem:
       case CacheKind::GetName:
+      case CacheKind::GetPropSuper:
+      case CacheKind::GetElemSuper:
+      case CacheKind::Call:
         stubDataOffset = sizeof(ICCacheIR_Monitored);
         stubKind = CacheIRStubKind::Monitored;
         break;

@@ -6,12 +6,7 @@ use CompositionPipeline;
 use SendableFrameTree;
 use compositor_thread::{CompositorProxy, CompositorReceiver};
 use compositor_thread::{InitialCompositorState, Msg, RenderListener};
-use delayed_composition::DelayedCompositionTimerProxy;
-use euclid::Point2D;
-use euclid::point::TypedPoint2D;
-use euclid::rect::TypedRect;
-use euclid::scale_factor::ScaleFactor;
-use euclid::size::TypedSize2D;
+use euclid::{Point2D, TypedPoint2D, TypedVector2D, TypedRect, ScaleFactor, TypedSize2D};
 use gfx_traits::Epoch;
 use gleam::gl;
 use image::{DynamicImage, ImageFormat, RgbImage};
@@ -39,7 +34,7 @@ use style_traits::viewport::ViewportConstraints;
 use time::{precise_time_ns, precise_time_s};
 use touch::{TouchHandler, TouchAction};
 use webrender;
-use webrender_traits::{self, ClipId, LayoutPoint, ScrollEventPhase, ScrollLocation, ScrollClamping};
+use webrender_traits::{self, ClipId, LayoutPoint, LayoutVector2D, ScrollEventPhase, ScrollLocation, ScrollClamping};
 use windowing::{self, MouseWindowEvent, WindowEvent, WindowMethods, WindowNavigateMsg};
 
 #[derive(Debug, PartialEq)]
@@ -103,7 +98,7 @@ pub struct IOCompositor<Window: WindowMethods> {
     window: Rc<Window>,
 
     /// The port on which we receive messages.
-    port: Box<CompositorReceiver>,
+    port: CompositorReceiver,
 
     /// The root pipeline.
     root_pipeline: Option<CompositionPipeline>,
@@ -133,10 +128,7 @@ pub struct IOCompositor<Window: WindowMethods> {
     /// The device pixel ratio for this window.
     scale_factor: ScaleFactor<f32, DeviceIndependentPixel, DevicePixel>,
 
-    channel_to_self: Box<CompositorProxy + Send>,
-
-    /// A handle to the delayed composition timer.
-    delayed_composition_timer: DelayedCompositionTimerProxy,
+    channel_to_self: CompositorProxy,
 
     /// The type of composition to perform
     composite_target: CompositeTarget,
@@ -156,11 +148,6 @@ pub struct IOCompositor<Window: WindowMethods> {
 
     /// The time of the last zoom action has started.
     zoom_time: f64,
-
-    /// Whether the page being rendered has loaded completely.
-    /// Differs from ReadyState because we can finish loading (ready)
-    /// many times for a single page.
-    got_load_complete_message: bool,
 
     /// The current frame tree ID (used to reject old paint buffers)
     frame_tree_id: FrameTreeId,
@@ -216,7 +203,6 @@ struct ScrollZoomEvent {
 #[derive(PartialEq, Debug)]
 enum CompositionRequest {
     NoCompositingNecessary,
-    DelayedComposite(u64),
     CompositeNow(CompositingReason),
 }
 
@@ -317,11 +303,11 @@ fn initialize_png(gl: &gl::Gl, width: usize, height: usize) -> RenderTargetInfo 
 }
 
 struct RenderNotifier {
-    compositor_proxy: Box<CompositorProxy>,
+    compositor_proxy: CompositorProxy,
 }
 
 impl RenderNotifier {
-    fn new(compositor_proxy: Box<CompositorProxy>,
+    fn new(compositor_proxy: CompositorProxy,
            _: Sender<ConstellationMsg>) -> RenderNotifier {
         RenderNotifier {
             compositor_proxy: compositor_proxy,
@@ -341,7 +327,7 @@ impl webrender_traits::RenderNotifier for RenderNotifier {
 
 // Used to dispatch functions from webrender to the main thread's event loop.
 struct CompositorThreadDispatcher {
-    compositor_proxy: Box<CompositorProxy>
+    compositor_proxy: CompositorProxy
 }
 
 impl webrender_traits::RenderDispatcher for CompositorThreadDispatcher {
@@ -372,7 +358,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             scale: ScaleFactor::new(1.0),
             scale_factor: scale_factor,
             channel_to_self: state.sender.clone_compositor_proxy(),
-            delayed_composition_timer: DelayedCompositionTimerProxy::new(state.sender),
             composition_request: CompositionRequest::NoCompositingNecessary,
             touch_handler: TouchHandler::new(),
             pending_scroll_zoom_events: Vec::new(),
@@ -385,7 +370,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             max_viewport_zoom: None,
             zoom_action: false,
             zoom_time: 0f64,
-            got_load_complete_message: false,
             frame_tree_id: FrameTreeId(0),
             constellation_chan: state.constellation_chan,
             time_profiler_chan: state.time_profiler_chan,
@@ -446,8 +430,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             self.time_profiler_chan.send(time::ProfilerMsg::Exit(sender));
             let _ = receiver.recv();
         }
-
-        self.delayed_composition_timer.shutdown();
 
         self.shutdown_state = ShutdownState::FinishedShuttingDown;
     }
@@ -516,8 +498,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
             }
 
             (Msg::LoadComplete, ShutdownState::NotShuttingDown) => {
-                self.got_load_complete_message = true;
-
                 // If we're painting in headless mode, schedule a recomposite.
                 if opts::get().output_file.is_some() || opts::get().exit_after_load {
                     self.composite_if_necessary(CompositingReason::Headless);
@@ -533,16 +513,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 let allow = self.window.allow_navigation(url);
                 if let Err(e) = response_chan.send(allow) {
                     warn!("Failed to send allow_navigation result ({}).", e);
-                }
-            }
-
-            (Msg::DelayedCompositionTimeout(timestamp), ShutdownState::NotShuttingDown) => {
-                if let CompositionRequest::DelayedComposite(this_timestamp) =
-                    self.composition_request {
-                    if timestamp == this_timestamp {
-                        self.composition_request = CompositionRequest::CompositeNow(
-                            CompositingReason::DelayedCompositeTimeout)
-                    }
                 }
             }
 
@@ -765,18 +735,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         }
     }
 
-    fn schedule_delayed_composite_if_necessary(&mut self) {
-        match self.composition_request {
-            CompositionRequest::CompositeNow(_) => return,
-            CompositionRequest::DelayedComposite(_) |
-            CompositionRequest::NoCompositingNecessary => {}
-        }
-
-        let timestamp = precise_time_ns();
-        self.delayed_composition_timer.schedule_composite(timestamp);
-        self.composition_request = CompositionRequest::DelayedComposite(timestamp);
-    }
-
     fn scroll_fragment_to_point(&mut self, id: ClipId, point: Point2D<f32>) {
         self.webrender_api.scroll_node_with_id(LayoutPoint::from_untyped(&point), id,
                                                ScrollClamping::ToContentBounds);
@@ -901,7 +859,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
 
     fn on_load_url_window_event(&mut self, url_string: String) {
         debug!("osmain: loading URL `{}`", url_string);
-        self.got_load_complete_message = false;
         match ServoUrl::parse(&url_string) {
             Ok(url) => {
                 let msg = match self.root_pipeline {
@@ -1018,10 +975,12 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         match self.touch_handler.on_touch_move(identifier, point) {
             TouchAction::Scroll(delta) => {
                 match point.cast() {
-                    Some(point) => self.on_scroll_window_event(ScrollLocation::Delta(
-                                                               webrender_traits::LayerPoint::from_untyped(
-                                                               &delta.to_untyped())),
-                                                               point),
+                    Some(point) => self.on_scroll_window_event(
+                        ScrollLocation::Delta(
+                            LayoutVector2D::from_untyped(&delta.to_untyped())
+                        ),
+                        point
+                    ),
                     None => error!("Point cast failed."),
                 }
             }
@@ -1029,7 +988,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 let cursor = TypedPoint2D::new(-1, -1);  // Make sure this hits the base layer.
                 self.pending_scroll_zoom_events.push(ScrollZoomEvent {
                     magnification: magnification,
-                    scroll_location: ScrollLocation::Delta(webrender_traits::LayerPoint::from_untyped(
+                    scroll_location: ScrollLocation::Delta(webrender_traits::LayoutVector2D::from_untyped(
                                                            &scroll_delta.to_untyped())),
                     cursor: cursor,
                     phase: ScrollEventPhase::Move(true),
@@ -1164,9 +1123,9 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                             break;
                         }
                     };
-                    let delta = (TypedPoint2D::from_untyped(&combined_delta.to_untyped()) / self.scale)
-                                 .to_untyped();
-                    let delta = webrender_traits::LayerPoint::from_untyped(&delta);
+                    // TODO: units don't match!
+                    let delta = combined_delta / self.scale.get();
+
                     let cursor =
                         (combined_event.cursor.to_f32() / self.scale).to_untyped();
                     let location = webrender_traits::ScrollLocation::Delta(delta);
@@ -1180,7 +1139,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 (last_combined_event @ &mut None, _) => {
                     *last_combined_event = Some(ScrollZoomEvent {
                         magnification: scroll_event.magnification,
-                        scroll_location: ScrollLocation::Delta(webrender_traits::LayerPoint::from_untyped(
+                        scroll_location: ScrollLocation::Delta(webrender_traits::LayoutVector2D::from_untyped(
                                                                &this_delta.to_untyped())),
                         cursor: this_cursor,
                         phase: scroll_event.phase,
@@ -1217,9 +1176,9 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         if let Some(combined_event) = last_combined_event {
             let scroll_location = match combined_event.scroll_location {
                 ScrollLocation::Delta(delta) => {
-                    let scaled_delta = (TypedPoint2D::from_untyped(&delta.to_untyped()) / self.scale)
+                    let scaled_delta = (TypedVector2D::from_untyped(&delta.to_untyped()) / self.scale)
                                        .to_untyped();
-                    let calculated_delta = webrender_traits::LayoutPoint::from_untyped(&scaled_delta);
+                    let calculated_delta = webrender_traits::LayoutVector2D::from_untyped(&scaled_delta);
                                            ScrollLocation::Delta(calculated_delta)
                 },
                 // Leave ScrollLocation unchanged if it is Start or End location.
@@ -1246,13 +1205,18 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                    pipeline_ids.push(*pipeline_id);
             }
         }
+        let animation_state = if pipeline_ids.is_empty() {
+            windowing::AnimationState::Idle
+        } else {
+            windowing::AnimationState::Animating
+        };
+        self.window.set_animation_state(animation_state);
         for pipeline_id in &pipeline_ids {
             self.tick_animations_for_pipeline(*pipeline_id)
         }
     }
 
     fn tick_animations_for_pipeline(&mut self, pipeline_id: PipelineId) {
-        self.schedule_delayed_composite_if_necessary();
         let animation_callbacks_running = self.pipeline_details(pipeline_id).animation_callbacks_running;
         if animation_callbacks_running {
             let msg = ConstellationMsg::TickAnimation(pipeline_id, AnimationTickType::Script);
@@ -1327,7 +1291,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
     fn on_pinch_zoom_window_event(&mut self, magnification: f32) {
         self.pending_scroll_zoom_events.push(ScrollZoomEvent {
             magnification: magnification,
-            scroll_location: ScrollLocation::Delta(TypedPoint2D::zero()), // TODO: Scroll to keep the center in view?
+            scroll_location: ScrollLocation::Delta(TypedVector2D::zero()), // TODO: Scroll to keep the center in view?
             cursor:  TypedPoint2D::new(-1, -1), // Make sure this hits the base layer.
             phase: ScrollEventPhase::Move(true),
             event_count: 1,
@@ -1502,19 +1466,15 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         };
 
         if wait_for_stable_image {
-            match self.is_ready_to_paint_image_output() {
-                Ok(()) => {
-                    // The current image is ready to output. However, if there are animations active,
-                    // tick those instead and continue waiting for the image output to be stable AND
-                    // all active animations to complete.
-                    if self.animations_active() {
-                        self.process_animations();
-                        return Err(UnableToComposite::NotReadyToPaintImage(NotReadyToPaint::AnimationsActive));
-                    }
-                }
-                Err(result) => {
-                    return Err(UnableToComposite::NotReadyToPaintImage(result))
-                }
+            // The current image may be ready to output. However, if there are animations active,
+            // tick those instead and continue waiting for the image output to be stable AND
+            // all active animations to complete.
+            if self.animations_active() {
+                self.process_animations();
+                return Err(UnableToComposite::NotReadyToPaintImage(NotReadyToPaint::AnimationsActive));
+            }
+            if let Err(result) = self.is_ready_to_paint_image_output() {
+                return Err(UnableToComposite::NotReadyToPaintImage(result))
             }
         }
 
@@ -1650,14 +1610,6 @@ impl<Window: WindowMethods> IOCompositor<Window> {
                 _ => compositor_messages.push(msg),
             }
         }
-        if found_recomposite_msg {
-            compositor_messages.retain(|msg| {
-                match *msg {
-                    Msg::DelayedCompositionTimeout(_) => false,
-                    _ => true,
-                }
-            })
-        }
         for msg in compositor_messages {
             if !self.handle_browser_message(msg) {
                 break
@@ -1679,8 +1631,7 @@ impl<Window: WindowMethods> IOCompositor<Window> {
         }
 
         match self.composition_request {
-            CompositionRequest::NoCompositingNecessary |
-            CompositionRequest::DelayedComposite(_) => {}
+            CompositionRequest::NoCompositingNecessary => {}
             CompositionRequest::CompositeNow(_) => {
                 self.composite()
             }

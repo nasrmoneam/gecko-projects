@@ -1,5 +1,10 @@
 "use strict";
 
+// The ext-* files are imported into the same scopes.
+/* import-globals-from ext-toolkit.js */
+
+XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
+                                  "resource://gre/modules/AppConstants.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Downloads",
                                   "resource://gre/modules/Downloads.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "DownloadPaths",
@@ -14,10 +19,12 @@ XPCOMUtils.defineLazyModuleGetter(this, "EventEmitter",
                                   "resource://gre/modules/EventEmitter.jsm");
 
 var {
-  ignoreEvent,
   normalizeTime,
-  PlatformInfo,
 } = ExtensionUtils;
+
+var {
+  ignoreEvent,
+} = ExtensionCommon;
 
 const DOWNLOAD_ITEM_FIELDS = ["id", "url", "referrer", "filename", "incognito",
                               "danger", "mime", "startTime", "endTime",
@@ -228,7 +235,7 @@ const DownloadMap = {
 
 // Create a callable function that filters a DownloadItem based on a
 // query object of the type passed to search() or erase().
-function downloadQuery(query) {
+const downloadQuery = query => {
   let queryTerms = [];
   let queryNegativeTerms = [];
   if (query.query != null) {
@@ -330,9 +337,9 @@ function downloadQuery(query) {
 
     return true;
   };
-}
+};
 
-function queryHelper(query) {
+const queryHelper = query => {
   let matchFn;
   try {
     matchFn = downloadQuery(query);
@@ -383,7 +390,7 @@ function queryHelper(query) {
     }
     return results;
   });
-}
+};
 
 this.downloads = class extends ExtensionAPI {
   getAPI(context) {
@@ -392,7 +399,7 @@ this.downloads = class extends ExtensionAPI {
       downloads: {
         download(options) {
           let {filename} = options;
-          if (filename && PlatformInfo.os === "win") {
+          if (filename && AppConstants.platform === "win") {
             // cross platform javascript code uses "/"
             filename = filename.replace(/\//g, "\\");
           }
@@ -449,7 +456,7 @@ this.downloads = class extends ExtensionAPI {
             return Promise.resolve();
           }
 
-          function createTarget(downloadsDir) {
+          async function createTarget(downloadsDir) {
             let target;
             if (filename) {
               target = OS.Path.join(downloadsDir, filename);
@@ -465,46 +472,49 @@ this.downloads = class extends ExtensionAPI {
 
             // Create any needed subdirectories if required by filename.
             const dir = OS.Path.dirname(target);
-            return OS.File.makeDir(dir, {from: downloadsDir}).then(() => {
-              return OS.File.exists(target);
-            }).then(exists => {
+            await OS.File.makeDir(dir, {from: downloadsDir});
+
+            if (await OS.File.exists(target)) {
               // This has a race, something else could come along and create
               // the file between this test and them time the download code
               // creates the target file.  But we can't easily fix it without
               // modifying DownloadCore so we live with it for now.
-              if (exists) {
-                switch (options.conflictAction) {
-                  case "uniquify":
-                  default:
-                    target = DownloadPaths.createNiceUniqueFile(new FileUtils.File(target)).path;
-                    break;
-
-                  case "overwrite":
-                    break;
-                }
-              }
-            }).then(() => {
-              if (!options.saveAs) {
-                return Promise.resolve(target);
-              }
-
-              // Setup the file picker Save As dialog.
-              const picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-              const window = Services.wm.getMostRecentWindow("navigator:browser");
-              picker.init(window, null, Ci.nsIFilePicker.modeSave);
-              picker.displayDirectory = new FileUtils.File(dir);
-              picker.appendFilters(Ci.nsIFilePicker.filterAll);
-              picker.defaultString = OS.Path.basename(target);
-
-              // Open the dialog and resolve/reject with the result.
-              return new Promise((resolve, reject) => {
-                picker.open(result => {
-                  if (result === Ci.nsIFilePicker.returnCancel) {
-                    reject({message: "Download canceled by the user"});
-                  } else {
-                    resolve(picker.file.path);
+              switch (options.conflictAction) {
+                case "uniquify":
+                default:
+                  target = DownloadPaths.createNiceUniqueFile(new FileUtils.File(target)).path;
+                  if (options.saveAs) {
+                    // createNiceUniqueFile actually creates the file, which
+                    // is premature if we need to show a SaveAs dialog.
+                    await OS.File.remove(target);
                   }
-                });
+                  break;
+
+                case "overwrite":
+                  break;
+              }
+            }
+
+            if (!options.saveAs) {
+              return target;
+            }
+
+            // Setup the file picker Save As dialog.
+            const picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+            const window = Services.wm.getMostRecentWindow("navigator:browser");
+            picker.init(window, null, Ci.nsIFilePicker.modeSave);
+            picker.displayDirectory = new FileUtils.File(dir);
+            picker.appendFilters(Ci.nsIFilePicker.filterAll);
+            picker.defaultString = OS.Path.basename(target);
+
+            // Open the dialog and resolve/reject with the result.
+            return new Promise((resolve, reject) => {
+              picker.open(result => {
+                if (result === Ci.nsIFilePicker.returnCancel) {
+                  reject({message: "Download canceled by the user"});
+                } else {
+                  resolve(picker.file.path);
+                }
               });
             });
           }
@@ -635,7 +645,7 @@ this.downloads = class extends ExtensionAPI {
           });
         },
 
-        open(downloadId) {
+        open_parent(downloadId) {
           return DownloadMap.lazyInit().then(() => {
             let download = DownloadMap.fromId(downloadId).download;
             if (download.succeeded) {
@@ -728,7 +738,7 @@ this.downloads = class extends ExtensionAPI {
         //   ...
         // }
 
-        onChanged: new SingletonEventManager(context, "downloads.onChanged", fire => {
+        onChanged: new EventManager(context, "downloads.onChanged", fire => {
           const handler = (what, item) => {
             let changes = {};
             const noundef = val => (val === undefined) ? null : val;
@@ -756,7 +766,7 @@ this.downloads = class extends ExtensionAPI {
           };
         }).api(),
 
-        onCreated: new SingletonEventManager(context, "downloads.onCreated", fire => {
+        onCreated: new EventManager(context, "downloads.onCreated", fire => {
           const handler = (what, item) => {
             fire.async(item.serialize());
           };
@@ -770,7 +780,7 @@ this.downloads = class extends ExtensionAPI {
           };
         }).api(),
 
-        onErased: new SingletonEventManager(context, "downloads.onErased", fire => {
+        onErased: new EventManager(context, "downloads.onErased", fire => {
           const handler = (what, item) => {
             fire.async(item.id);
           };

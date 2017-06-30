@@ -31,7 +31,6 @@
 #include "jstypes.h"
 #include "jsutil.h"
 
-#include "builtin/Intl.h"
 #include "builtin/RegExp.h"
 #include "jit/InlinableNatives.h"
 #include "js/Conversions.h"
@@ -437,6 +436,7 @@ static const ClassOps StringObjectClassOps = {
     nullptr, /* getProperty */
     nullptr, /* setProperty */
     str_enumerate,
+    nullptr, /* newEnumerate */
     str_resolve,
     str_mayResolve
 };
@@ -603,23 +603,124 @@ js::SubstringKernel(JSContext* cx, HandleString str, int32_t beginInt, int32_t l
     return NewDependentString(cx, str, begin, len);
 }
 
-template <typename CharT>
-static auto
-ReallocChars(JSContext* cx, UniquePtr<CharT[], JS::FreePolicy> chars, size_t oldLength,
-             size_t newLength)
-  -> decltype(chars)
-{
-    using AnyCharPtr = decltype(chars);
+template <typename CharT> struct MaximumInlineLength;
 
-    CharT* oldChars = chars.release();
-    CharT* newChars = cx->pod_realloc(oldChars, oldLength, newLength);
-    if (!newChars) {
-        js_free(oldChars);
-        return AnyCharPtr();
+template<> struct MaximumInlineLength<Latin1Char> {
+    static constexpr size_t value = JSFatInlineString::MAX_LENGTH_LATIN1;
+};
+
+template<> struct MaximumInlineLength<char16_t> {
+    static constexpr size_t value = JSFatInlineString::MAX_LENGTH_TWO_BYTE;
+};
+
+// Character buffer class used for ToLowerCase and ToUpperCase operations.
+//
+// Case conversion operations normally return a string with the same length as
+// the input string. To avoid over-allocation, we optimistically allocate an
+// array with same size as the input string and only when we detect special
+// casing characters, which can change the output string length, we reallocate
+// the output buffer to the final string length.
+//
+// As a further mean to improve runtime performance, the character buffer
+// contains an inline storage, so we don't need to heap-allocate an array when
+// a JSInlineString will be used for the output string.
+//
+// Why not use mozilla::Vector instead? mozilla::Vector doesn't provide enough
+// fine-grained control to avoid over-allocation when (re)allocating for exact
+// buffer sizes. This led to visible performance regressions in µ-benchmarks.
+template <typename CharT>
+class MOZ_NON_PARAM InlineCharBuffer
+{
+    using CharPtr = UniquePtr<CharT[], JS::FreePolicy>;
+    static constexpr size_t InlineCapacity = MaximumInlineLength<CharT>::value;
+
+    CharT inlineStorage[InlineCapacity];
+    CharPtr heapStorage;
+
+#ifdef DEBUG
+    // In debug mode, we keep track of the requested string lengths to ensure
+    // all character buffer methods are called in the correct order and with
+    // the expected argument values.
+    size_t lastRequestedLength = 0;
+
+    void assertValidRequest(size_t expectedLastLength, size_t length) {
+        MOZ_ASSERT(length > expectedLastLength, "cannot shrink requested length");
+        MOZ_ASSERT(lastRequestedLength == expectedLastLength);
+        lastRequestedLength = length;
+    }
+#else
+    void assertValidRequest(size_t expectedLastLength, size_t length) {}
+#endif
+
+  public:
+    CharT* get()
+    {
+        return heapStorage ? heapStorage.get() : inlineStorage;
     }
 
-    return AnyCharPtr(newChars);
-}
+    bool maybeAlloc(JSContext* cx, size_t length)
+    {
+        assertValidRequest(0, length);
+
+        if (length <= InlineCapacity)
+            return true;
+
+        MOZ_ASSERT(!heapStorage, "heap storage already allocated");
+        heapStorage = cx->make_pod_array<CharT>(length + 1);
+        return !!heapStorage;
+    }
+
+    bool maybeRealloc(JSContext* cx, size_t oldLength, size_t newLength)
+    {
+        assertValidRequest(oldLength, newLength);
+
+        if (newLength <= InlineCapacity)
+            return true;
+
+        if (!heapStorage) {
+            heapStorage = cx->make_pod_array<CharT>(newLength + 1);
+            if (!heapStorage)
+                return false;
+
+            MOZ_ASSERT(oldLength <= InlineCapacity);
+            PodCopy(heapStorage.get(), inlineStorage, oldLength);
+            return true;
+        }
+
+        CharT* oldChars = heapStorage.release();
+        CharT* newChars = cx->pod_realloc(oldChars, oldLength + 1, newLength + 1);
+        if (!newChars) {
+            js_free(oldChars);
+            return false;
+        }
+
+        heapStorage.reset(newChars);
+        return true;
+    }
+
+    JSString* toString(JSContext* cx, size_t length)
+    {
+        MOZ_ASSERT(length == lastRequestedLength);
+
+        if (JSInlineString::lengthFits<CharT>(length)) {
+            MOZ_ASSERT(!heapStorage,
+                       "expected only inline storage when length fits in inline string");
+
+            mozilla::Range<const CharT> range(inlineStorage, length);
+            return NewInlineString<CanGC>(cx, range);
+        }
+
+        MOZ_ASSERT(heapStorage, "heap storage was not allocated for non-inline string");
+
+        heapStorage.get()[length] = '\0'; // Null-terminate
+        JSString* res = NewStringDontDeflate<CanGC>(cx, heapStorage.get(), length);
+        if (!res)
+            return nullptr;
+
+        mozilla::Unused << heapStorage.release();
+        return res;
+    }
+};
 
 /**
  * U+03A3 GREEK CAPITAL LETTER SIGMA has two different lower case mappings
@@ -759,8 +860,6 @@ ToLowerCaseImpl(CharT* destChars, const CharT* srcChars, size_t startIndex, size
     }
 
     MOZ_ASSERT(j == destLength);
-    destChars[destLength] = '\0';
-
     return srcLength;
 }
 
@@ -791,9 +890,9 @@ ToLowerCase(JSContext* cx, JSLinearString* str)
 {
     // Unlike toUpperCase, toLowerCase has the nice invariant that if the
     // input is a Latin-1 string, the output is also a Latin-1 string.
-    using AnyCharPtr = UniquePtr<CharT[], JS::FreePolicy>;
 
-    AnyCharPtr newChars;
+    InlineCharBuffer<CharT> newChars;
+
     const size_t length = str->length();
     size_t resultLength;
     {
@@ -807,6 +906,18 @@ ToLowerCase(JSContext* cx, JSLinearString* str)
                    "U+0130 has a simple lower case mapping");
         MOZ_ASSERT(unicode::CanLowerCase(unicode::GREEK_CAPITAL_LETTER_SIGMA),
                    "U+03A3 has a simple lower case mapping");
+
+        // One element Latin-1 strings can be directly retrieved from the
+        // static strings cache.
+        if (IsSame<CharT, Latin1Char>::value) {
+            if (length == 1) {
+                char16_t lower = unicode::ToLowerCase(chars[0]);
+                MOZ_ASSERT(lower <= JSString::MAX_LATIN1_CHAR);
+                MOZ_ASSERT(StaticStrings::hasUnit(lower));
+
+                return cx->staticStrings().getUnit(lower);
+            }
+        }
 
         // Look for the first character that changes when lowercased.
         size_t i = 0;
@@ -833,8 +944,7 @@ ToLowerCase(JSContext* cx, JSLinearString* str)
             return str;
 
         resultLength = length;
-        newChars = cx->make_pod_array<CharT>(resultLength + 1);
-        if (!newChars)
+        if (!newChars.maybeAlloc(cx, resultLength))
             return nullptr;
 
         PodCopy(newChars.get(), chars, i);
@@ -845,23 +955,15 @@ ToLowerCase(JSContext* cx, JSLinearString* str)
                        "Latin-1 strings don't have special lower case mappings");
             resultLength = ToLowerCaseLength(chars, readChars, length);
 
-            AnyCharPtr buf = ReallocChars(cx, Move(newChars), length + 1, resultLength + 1);
-            if (!buf)
+            if (!newChars.maybeRealloc(cx, length, resultLength))
                 return nullptr;
-
-            newChars = Move(buf);
 
             MOZ_ALWAYS_TRUE(length ==
                 ToLowerCaseImpl(newChars.get(), chars, readChars, length, resultLength));
         }
     }
 
-    JSString* res = NewStringDontDeflate<CanGC>(cx, newChars.get(), resultLength);
-    if (!res)
-        return nullptr;
-
-    mozilla::Unused << newChars.release();
-    return res;
+    return newChars.toString(cx, resultLength);
 }
 
 JSString*
@@ -1022,8 +1124,6 @@ ToUpperCaseImpl(DestChar* destChars, const SrcChar* srcChars, size_t startIndex,
     }
 
     MOZ_ASSERT(j == destLength);
-    destChars[destLength] = '\0';
-
     return srcLength;
 }
 
@@ -1067,52 +1167,67 @@ CopyChars(CharT* destChars, const CharT* srcChars, size_t length)
 }
 
 template <typename DestChar, typename SrcChar>
-static inline UniquePtr<DestChar[], JS::FreePolicy>
-ToUpperCase(JSContext* cx, const SrcChar* chars, size_t startIndex, size_t length,
-            size_t* resultLength)
+static inline bool
+ToUpperCase(JSContext* cx, InlineCharBuffer<DestChar>& newChars, const SrcChar* chars,
+            size_t startIndex, size_t length, size_t* resultLength)
 {
     MOZ_ASSERT(startIndex < length);
 
-    using DestCharPtr = UniquePtr<DestChar[], JS::FreePolicy>;
-
     *resultLength = length;
-    DestCharPtr buf = cx->make_pod_array<DestChar>(length + 1);
-    if (!buf)
-        return buf;
+    if (!newChars.maybeAlloc(cx, length))
+        return false;
 
-    CopyChars(buf.get(), chars, startIndex);
+    CopyChars(newChars.get(), chars, startIndex);
 
-    size_t readChars = ToUpperCaseImpl(buf.get(), chars, startIndex, length, length);
+    size_t readChars = ToUpperCaseImpl(newChars.get(), chars, startIndex, length, length);
     if (readChars < length) {
         size_t actualLength = ToUpperCaseLength(chars, readChars, length);
 
         *resultLength = actualLength;
-        DestCharPtr buf2 = ReallocChars(cx, Move(buf), length + 1, actualLength + 1);
-        if (!buf2)
-            return buf2;
-
-        buf = Move(buf2);
+        if (!newChars.maybeRealloc(cx, length, actualLength))
+            return false;
 
         MOZ_ALWAYS_TRUE(length ==
-            ToUpperCaseImpl(buf.get(), chars, readChars, length, actualLength));
+            ToUpperCaseImpl(newChars.get(), chars, readChars, length, actualLength));
     }
 
-    return buf;
+    return true;
 }
 
 template <typename CharT>
 static JSString*
 ToUpperCase(JSContext* cx, JSLinearString* str)
 {
-    using Latin1CharPtr = UniquePtr<Latin1Char[], JS::FreePolicy>;
-    using TwoByteCharPtr = UniquePtr<char16_t[], JS::FreePolicy>;
+    using Latin1Buffer = InlineCharBuffer<Latin1Char>;
+    using TwoByteBuffer = InlineCharBuffer<char16_t>;
 
-    mozilla::MaybeOneOf<Latin1CharPtr, TwoByteCharPtr> newChars;
+    mozilla::MaybeOneOf<Latin1Buffer, TwoByteBuffer> newChars;
     const size_t length = str->length();
     size_t resultLength;
     {
         AutoCheckCannotGC nogc;
         const CharT* chars = str->chars<CharT>(nogc);
+
+        // Most one element Latin-1 strings can be directly retrieved from the
+        // static strings cache.
+        if (IsSame<CharT, Latin1Char>::value) {
+            if (length == 1) {
+                Latin1Char c = chars[0];
+                if (c != unicode::MICRO_SIGN &&
+                    c != unicode::LATIN_SMALL_LETTER_Y_WITH_DIAERESIS &&
+                    c != unicode::LATIN_SMALL_LETTER_SHARP_S)
+                {
+                    char16_t upper = unicode::ToUpperCase(c);
+                    MOZ_ASSERT(upper <= JSString::MAX_LATIN1_CHAR);
+                    MOZ_ASSERT(StaticStrings::hasUnit(upper));
+
+                    return cx->staticStrings().getUnit(upper);
+                }
+
+                MOZ_ASSERT(unicode::ToUpperCase(c) > JSString::MAX_LATIN1_CHAR ||
+                           CanUpperCaseSpecialCasing(c));
+            }
+        }
 
         // Look for the first character that changes when uppercased.
         size_t i = 0;
@@ -1171,36 +1286,21 @@ ToUpperCase(JSContext* cx, JSLinearString* str)
         }
 
         if (resultIsLatin1) {
-            Latin1CharPtr buf = ToUpperCase<Latin1Char>(cx, chars, i, length, &resultLength);
-            if (!buf)
-                return nullptr;
+            newChars.construct<Latin1Buffer>();
 
-            newChars.construct<Latin1CharPtr>(Move(buf));
+            if (!ToUpperCase(cx, newChars.ref<Latin1Buffer>(), chars, i, length, &resultLength))
+                return nullptr;
         } else {
-            TwoByteCharPtr buf = ToUpperCase<char16_t>(cx, chars, i, length, &resultLength);
-            if (!buf)
-                return nullptr;
+            newChars.construct<TwoByteBuffer>();
 
-            newChars.construct<TwoByteCharPtr>(Move(buf));
+            if (!ToUpperCase(cx, newChars.ref<TwoByteBuffer>(), chars, i, length, &resultLength))
+                return nullptr;
         }
     }
 
-    JSString* res;
-    if (newChars.constructed<Latin1CharPtr>()) {
-        res = NewStringDontDeflate<CanGC>(cx, newChars.ref<Latin1CharPtr>().get(), resultLength);
-        if (!res)
-            return nullptr;
-
-        mozilla::Unused << newChars.ref<Latin1CharPtr>().release();
-    } else {
-        res = NewStringDontDeflate<CanGC>(cx, newChars.ref<TwoByteCharPtr>().get(), resultLength);
-        if (!res)
-            return nullptr;
-
-        mozilla::Unused << newChars.ref<TwoByteCharPtr>().release();
-    }
-
-    return res;
+    return newChars.constructed<Latin1Buffer>()
+           ? newChars.ref<Latin1Buffer>().toString(cx, resultLength)
+           : newChars.ref<TwoByteBuffer>().toString(cx, resultLength);
 }
 
 JSString*
@@ -1341,12 +1441,8 @@ js::str_normalize(JSContext* cx, unsigned argc, Value* vp)
         }
     }
 
-    JSLinearString* linear = str->ensureLinear(cx);
-    if (!linear)
-        return false;
-
     // Latin-1 strings are already in Normalization Form C.
-    if (form == NFC && linear->hasLatin1Chars()) {
+    if (form == NFC && str->hasLatin1Chars()) {
         // Step 7.
         args.rval().setString(str);
         return true;
@@ -1354,7 +1450,7 @@ js::str_normalize(JSContext* cx, unsigned argc, Value* vp)
 
     // Step 6.
     AutoStableStringChars stableChars(cx);
-    if (!stableChars.initTwoByte(cx, linear))
+    if (!stableChars.initTwoByte(cx, str))
         return false;
 
     mozilla::Range<const char16_t> srcChars = stableChars.twoByteRange();
@@ -1379,8 +1475,8 @@ js::str_normalize(JSContext* cx, unsigned argc, Value* vp)
     }
 
     int32_t spanLength = unorm2_spanQuickCheckYes(normalizer,
-                                                  Char16ToUChar(srcChars.begin().get()),
-                                                  srcChars.length(), &status);
+                                                  srcChars.begin().get(), srcChars.length(),
+                                                  &status);
     if (U_FAILURE(status)) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_INTERNAL_INTL_ERROR);
         return false;
@@ -1407,10 +1503,9 @@ js::str_normalize(JSContext* cx, unsigned argc, Value* vp)
     mozilla::RangedPtr<const char16_t> remainingStart = srcChars.begin() + spanLength;
     size_t remainingLength = srcChars.length() - size_t(spanLength);
 
-    int32_t size = unorm2_normalizeSecondAndAppend(normalizer, Char16ToUChar(chars.begin()),
-                                                   spanLength, chars.length(),
-                                                   Char16ToUChar(remainingStart.get()),
-                                                   remainingLength, &status);
+    int32_t size = unorm2_normalizeSecondAndAppend(normalizer,
+                                                   chars.begin(), spanLength, chars.length(),
+                                                   remainingStart.get(), remainingLength, &status);
     if (status == U_BUFFER_OVERFLOW_ERROR) {
         MOZ_ASSERT(size >= 0);
         if (!chars.resize(size))
@@ -1419,9 +1514,9 @@ js::str_normalize(JSContext* cx, unsigned argc, Value* vp)
 #ifdef DEBUG
         int32_t finalSize =
 #endif
-        unorm2_normalizeSecondAndAppend(normalizer, Char16ToUChar(chars.begin()), spanLength,
-                                        chars.length(), Char16ToUChar(remainingStart.get()),
-                                        remainingLength, &status);
+        unorm2_normalizeSecondAndAppend(normalizer,
+                                        chars.begin(), spanLength, chars.length(),
+                                        remainingStart.get(), remainingLength, &status);
         MOZ_ASSERT_IF(!U_FAILURE(status), size == finalSize);
     }
     if (U_FAILURE(status)) {
@@ -1630,63 +1725,18 @@ FirstCharMatcherUnrolled(const TextChar* text, uint32_t n, const PatChar pat)
 static const char*
 FirstCharMatcher8bit(const char* text, uint32_t n, const char pat)
 {
-#if  defined(__clang__)
-    return FirstCharMatcherUnrolled<char, char>(text, n, pat);
-#else
     return reinterpret_cast<const char*>(memchr(text, pat, n));
-#endif
-}
-
-static const char16_t*
-FirstCharMatcher16bit(const char16_t* text, uint32_t n, const char16_t pat)
-{
-#if defined(XP_DARWIN) || defined(XP_WIN)
-    /*
-     * Performance of memchr is horrible in OSX. Windows is better,
-     * but it is still better to use UnrolledMatcher.
-     */
-    return FirstCharMatcherUnrolled<char16_t, char16_t>(text, n, pat);
-#else
-    /*
-     * For linux the best performance is obtained by slightly hacking memchr.
-     * memchr works only on 8bit char but char16_t is 16bit. So we treat char16_t
-     * in blocks of 8bit and use memchr.
-     */
-
-    const char* text8 = (const char*) text;
-    const char* pat8 = reinterpret_cast<const char*>(&pat);
-
-    MOZ_ASSERT(n < UINT32_MAX/2);
-    n *= 2;
-
-    uint32_t i = 0;
-    while (i < n) {
-        /* Find the first 8 bits of 16bit character in text. */
-        const char* pos8 = FirstCharMatcher8bit(text8 + i, n - i, pat8[0]);
-        if (pos8 == nullptr)
-            return nullptr;
-        i = static_cast<uint32_t>(pos8 - text8);
-
-        /* Incorrect match if it matches the last 8 bits of 16bit char. */
-        if (i % 2 != 0) {
-            i++;
-            continue;
-        }
-
-        /* Test if last 8 bits match last 8 bits of 16bit char. */
-        if (pat8[1] == text8[i + 1])
-            return (text + (i/2));
-
-        i += 2;
-    }
-    return nullptr;
-#endif
 }
 
 template <class InnerMatch, typename TextChar, typename PatChar>
 static int
 Matcher(const TextChar* text, uint32_t textlen, const PatChar* pat, uint32_t patlen)
 {
+    MOZ_ASSERT(patlen > 0);
+
+    if (sizeof(TextChar) == 1 && sizeof(PatChar) > 1 && pat[0] > 0xff)
+        return -1;
+
     const typename InnerMatch::Extent extent = InnerMatch::computeExtent(pat, patlen);
 
     uint32_t i = 0;
@@ -1694,12 +1744,12 @@ Matcher(const TextChar* text, uint32_t textlen, const PatChar* pat, uint32_t pat
     while (i < n) {
         const TextChar* pos;
 
-        if (sizeof(TextChar) == 2 && sizeof(PatChar) == 2)
-            pos = (TextChar*) FirstCharMatcher16bit((char16_t*)text + i, n - i, pat[0]);
-        else if (sizeof(TextChar) == 1 && sizeof(PatChar) == 1)
+        if (sizeof(TextChar) == 1) {
+            MOZ_ASSERT(pat[0] <= 0xff);
             pos = (TextChar*) FirstCharMatcher8bit((char*) text + i, n - i, pat[0]);
-        else
-            pos = (TextChar*) FirstCharMatcherUnrolled<TextChar, PatChar>(text + i, n - i, pat[0]);
+        } else {
+            pos = FirstCharMatcherUnrolled(text + i, n - i, char16_t(pat[0]));
+        }
 
         if (pos == nullptr)
             return -1;
@@ -1800,7 +1850,7 @@ StringMatch(JSLinearString* text, JSLinearString* pat, uint32_t start = 0)
     return (match == -1) ? -1 : start + match;
 }
 
-static const size_t sRopeMatchThresholdRatioLog2 = 5;
+static const size_t sRopeMatchThresholdRatioLog2 = 4;
 
 bool
 js::StringHasPattern(JSLinearString* text, const char16_t* pat, uint32_t patLen)
@@ -2950,6 +3000,67 @@ CharSplitHelper(JSContext* cx, HandleLinearString str, uint32_t limit, HandleObj
     return NewCopiedArrayTryUseGroup(cx, group, splits.begin(), splits.length());
 }
 
+template <typename TextChar>
+static MOZ_ALWAYS_INLINE JSObject*
+SplitSingleCharHelper(JSContext* cx, HandleLinearString str, const TextChar* text,
+                      uint32_t textLen, char16_t patCh, HandleObjectGroup group)
+{
+    // Count the number of occurrences of patCh within text.
+    uint32_t count = 0;
+    for (size_t index = 0; index < textLen; index++) {
+        if (static_cast<char16_t>(text[index]) == patCh)
+            count++;
+    }
+
+    // Handle zero-occurrence case - return input string in an array.
+    if (count == 0) {
+        RootedValue strValue(cx, StringValue(str.get()));
+        return NewCopiedArrayTryUseGroup(cx, group, &strValue.get(), 1);
+    }
+
+    // Reserve memory for substring values.
+    AutoValueVector splits(cx);
+    if (!splits.reserve(count + 1))
+        return nullptr;
+
+    // Add substrings.
+    size_t lastEndIndex = 0;
+    for (size_t index = 0; index < textLen; index++) {
+        if (static_cast<char16_t>(text[index]) == patCh) {
+            size_t subLength = size_t(index - lastEndIndex);
+            JSString* sub = NewDependentString(cx, str, lastEndIndex, subLength);
+            if (!sub || !splits.append(StringValue(sub)))
+                return nullptr;
+            lastEndIndex = index + 1;
+        }
+    }
+
+    // Add substring for tail of string (after last match).
+    JSString* sub = NewDependentString(cx, str, lastEndIndex, textLen - lastEndIndex);
+    if (!sub || !splits.append(StringValue(sub)))
+        return nullptr;
+
+    return NewCopiedArrayTryUseGroup(cx, group, splits.begin(), splits.length());
+}
+
+// ES 2016 draft Mar 25, 2016 21.1.3.17 steps 4, 8, 12-18.
+static JSObject*
+SplitSingleCharHelper(JSContext* cx, HandleLinearString str, char16_t ch, HandleObjectGroup group) {
+
+    // Step 12.
+    size_t strLength = str->length();
+
+    AutoStableStringChars linearChars(cx);
+    if (!linearChars.init(cx, str))
+        return nullptr;
+
+    if (linearChars.isLatin1()) {
+        return SplitSingleCharHelper(cx, str, linearChars.latin1Chars(), strLength, ch, group);
+    } else {
+        return SplitSingleCharHelper(cx, str, linearChars.twoByteChars(), strLength, ch, group);
+    }
+}
+
 // ES 2016 draft Mar 25, 2016 21.1.3.17 steps 4, 8, 12-18.
 JSObject*
 js::str_split_string(JSContext* cx, HandleObjectGroup group, HandleString str, HandleString sep, uint32_t limit)
@@ -2965,6 +3076,11 @@ js::str_split_string(JSContext* cx, HandleObjectGroup group, HandleString str, H
 
     if (linearSep->length() == 0)
         return CharSplitHelper(cx, linearStr, limit, group);
+
+    if (linearSep->length() == 1 && limit >= static_cast<uint32_t>(INT32_MAX)) {
+        char16_t ch = linearSep->latin1OrTwoByteChar(0);
+        return SplitSingleCharHelper(cx, linearStr, ch, group);
+    }
 
     return SplitHelper(cx, linearStr, limit, linearSep, group);
 }

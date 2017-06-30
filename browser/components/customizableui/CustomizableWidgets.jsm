@@ -596,21 +596,23 @@ const CustomizableWidgets = [
     }
   }, {
     id: "sidebar-button",
-    type: "view",
-    viewId: "PanelUI-sidebar",
     tooltiptext: "sidebar-button.tooltiptext2",
-    onViewShowing(aEvent) {
-      // Populate the subview with whatever menuitems are in the
-      // sidebar menu. We skip menu elements, because the menu panel has no way
-      // of dealing with those right now.
-      let doc = aEvent.target.ownerDocument;
-      let menu = doc.getElementById("viewSidebarMenu");
+    onCommand(aEvent) {
+      let win = aEvent.target.ownerGlobal;
+      win.SidebarUI.toggle();
+    },
+    onCreated(aNode) {
+      // Add an observer so the button is checked while the sidebar is open
+      let doc = aNode.ownerDocument;
+      let obChecked = doc.createElementNS(kNSXUL, "observes");
+      obChecked.setAttribute("element", "sidebar-box");
+      obChecked.setAttribute("attribute", "checked");
+      let obPosition = doc.createElementNS(kNSXUL, "observes");
+      obPosition.setAttribute("element", "sidebar-box");
+      obPosition.setAttribute("attribute", "positionend");
 
-      // First clear any existing menuitems then populate. Add it to the
-      // standard menu first, then copy all sidebar options to the panel.
-      let sidebarItems = doc.getElementById("PanelUI-sidebarItems");
-      clearSubview(sidebarItems);
-      fillSubviewFromMenuItems([...menu.children], sidebarItems);
+      aNode.appendChild(obChecked);
+      aNode.appendChild(obPosition);
     }
   }, {
     id: "social-share-button",
@@ -873,6 +875,17 @@ const CustomizableWidgets = [
               aArea == this.currentArea &&
               aArea == CustomizableUI.AREA_PANEL) {
             updateCombinedWidgetStyle(node, aArea);
+          }
+        },
+
+        onWidgetOverflow(aWidgetNode) {
+          if (aWidgetNode == node) {
+            node.ownerGlobal.updateEditUIVisibility();
+          }
+        },
+        onWidgetUnderflow(aWidgetNode) {
+          if (aWidgetNode == node) {
+            node.ownerGlobal.updateEditUIVisibility();
           }
         },
       };

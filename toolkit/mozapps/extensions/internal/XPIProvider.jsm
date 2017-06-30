@@ -11,6 +11,8 @@ const Cu = Components.utils;
 
 this.EXPORTED_SYMBOLS = ["XPIProvider", "XPIInternal"];
 
+/* globals WebExtensionPolicy */
+
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/AddonManager.jsm");
@@ -26,8 +28,6 @@ XPCOMUtils.defineLazyModuleGetter(this, "ChromeManifestParser",
                                   "resource://gre/modules/ChromeManifestParser.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "LightweightThemeManager",
                                   "resource://gre/modules/LightweightThemeManager.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "ExtensionManagement",
-                                  "resource://gre/modules/ExtensionManagement.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Locale",
                                   "resource://gre/modules/Locale.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "FileUtils",
@@ -38,12 +38,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
                                   "resource://gre/modules/NetUtil.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PermissionsUtils",
                                   "resource://gre/modules/PermissionsUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Promise",
-                                  "resource://gre/modules/Promise.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "OS",
                                   "resource://gre/modules/osfile.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "BrowserToolboxProcess",
-                                  "resource://devtools/client/framework/ToolboxProcess.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ConsoleAPI",
                                   "resource://gre/modules/Console.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ProductAddonChecker",
@@ -197,7 +193,7 @@ XPCOMUtils.defineConstant(this, "DB_SCHEMA", 21);
 
 XPCOMUtils.defineLazyPreferenceGetter(this, "ALLOW_NON_MPC", PREF_ALLOW_NON_MPC);
 
-const NOTIFICATION_TOOLBOXPROCESS_LOADED      = "ToolboxProcessLoaded";
+const NOTIFICATION_TOOLBOX_CONNECTION_CHANGE      = "toolbox-connection-change";
 
 // Properties that exist in the install manifest
 const PROP_LOCALE_SINGLE = ["name", "description", "creator", "homepageURL"];
@@ -242,20 +238,6 @@ const BOOTSTRAP_REASONS = {
   ADDON_UPGRADE: 7,
   ADDON_DOWNGRADE: 8
 };
-
-// Map new string type identifiers to old style nsIUpdateItem types
-// Type 32 was previously used for multipackage xpi files so it should
-// not be re-used since old files with that type may be floating around.
-const TYPES = {
-  extension: 2,
-  theme: 4,
-  locale: 8,
-  dictionary: 64,
-  experiment: 128,
-};
-
-if (!AppConstants.RELEASE_OR_BETA)
-  TYPES.apiextension = 256;
 
 // Some add-on types that we track internally are presented as other types
 // externally
@@ -565,7 +547,7 @@ function writeStringToFile(file, string) {
     stream.init(file, FileUtils.MODE_WRONLY | FileUtils.MODE_CREATE |
                             FileUtils.MODE_TRUNCATE, FileUtils.PERMS_FILE,
                            0);
-    converter.init(stream, "UTF-8", 0, 0x0000);
+    converter.init(stream, "UTF-8");
     converter.writeString(string);
   } finally {
     converter.close();
@@ -905,7 +887,7 @@ function isUsableAddon(aAddon) {
   }
 
   if (!AddonSettings.ALLOW_LEGACY_EXTENSIONS &&
-      aAddon.type == "extension" && !aAddon.isSystem &&
+      aAddon.type == "extension" && !aAddon._installLocation.isSystem &&
       aAddon.signedState !== AddonManager.SIGNEDSTATE_PRIVILEGED) {
     logger.warn(`disabling legacy extension ${aAddon.id}`);
     return false;
@@ -1026,10 +1008,7 @@ function syncLoadManifestFromFile(aFile, aInstallLocation) {
     result = val
   });
 
-  let thread = Services.tm.currentThread;
-
-  while (success === undefined)
-    thread.processNextEvent(true);
+  Services.tm.spinEventLoopUntil(() => success !== undefined);
 
   if (!success)
     throw result;
@@ -1897,8 +1876,6 @@ this.XPIProvider = {
   _telemetryDetails: {},
   // A Map from an add-on install to its ID
   _addonFileMap: new Map(),
-  // Flag to know if ToolboxProcess.jsm has already been loaded by someone or not
-  _toolboxProcessLoaded: false,
   // Have we started shutting down bootstrap add-ons?
   _closing: false,
 
@@ -2240,21 +2217,7 @@ this.XPIProvider = {
       Services.prefs.addObserver(PREF_ALLOW_LEGACY, this);
       Services.prefs.addObserver(PREF_ALLOW_NON_MPC, this);
       Services.obs.addObserver(this, NOTIFICATION_FLUSH_PERMISSIONS);
-
-      // Cu.isModuleLoaded can fail here for external XUL apps where there is
-      // no chrome.manifest that defines resource://devtools.
-      if (ResProtocolHandler.hasSubstitution("devtools")) {
-        if (Cu.isModuleLoaded("resource://devtools/client/framework/ToolboxProcess.jsm")) {
-          // If BrowserToolboxProcess is already loaded, set the boolean to true
-          // and do whatever is needed
-          this._toolboxProcessLoaded = true;
-          BrowserToolboxProcess.on("connectionchange",
-                                   this.onDebugConnectionChange.bind(this));
-        } else {
-          // Else, wait for it to load
-          Services.obs.addObserver(this, NOTIFICATION_TOOLBOXPROCESS_LOADED);
-        }
-      }
+      Services.obs.addObserver(this, NOTIFICATION_TOOLBOX_CONNECTION_CHANGE);
 
 
       let flushCaches = this.checkForChanges(aAppChanged, aOldAppVersion,
@@ -3935,12 +3898,12 @@ this.XPIProvider = {
     }
   },
 
-  onDebugConnectionChange(aEvent, aWhat, aConnection) {
-    if (aWhat != "opened")
+  onDebugConnectionChange({what, connection}) {
+    if (what != "opened")
       return;
 
     for (let [id, val] of this.activeAddons) {
-      aConnection.setAddonOptions(
+      connection.setAddonOptions(
         id, { global: val.bootstrapScope });
     }
   },
@@ -3956,11 +3919,9 @@ this.XPIProvider = {
         this.importPermissions();
       }
       return;
-    } else if (aTopic == NOTIFICATION_TOOLBOXPROCESS_LOADED) {
-      Services.obs.removeObserver(this, NOTIFICATION_TOOLBOXPROCESS_LOADED);
-      this._toolboxProcessLoaded = true;
-      BrowserToolboxProcess.on("connectionchange",
-                               this.onDebugConnectionChange.bind(this));
+    } else if (aTopic == NOTIFICATION_TOOLBOX_CONNECTION_CHANGE) {
+      this.onDebugConnectionChange(aSubject.wrappedJSObject);
+      return;
     }
 
     if (aTopic == "nsPref:changed") {
@@ -4327,13 +4288,9 @@ this.XPIProvider = {
       logger.warn("Error loading bootstrap.js for " + aId, e);
     }
 
-    // Only access BrowserToolboxProcess if ToolboxProcess.jsm has been
-    // initialized as otherwise, when it will be initialized, all addons'
-    // globals will be added anyways
-    if (this._toolboxProcessLoaded) {
-      BrowserToolboxProcess.setAddonOptions(aId,
-        { global: activeAddon.bootstrapScope });
-    }
+    // Notify the BrowserToolboxProcess that a new addon has been loaded.
+    let wrappedJSObject = { id: aId, options: { global: activeAddon.bootstrapScope }};
+    Services.obs.notifyObservers({ wrappedJSObject }, "toolbox-update-addon-options");
   },
 
   /**
@@ -4352,11 +4309,9 @@ this.XPIProvider = {
     this.activeAddons.delete(aId);
     this.addAddonsToCrashReporter();
 
-    // Only access BrowserToolboxProcess if ToolboxProcess.jsm has been
-    // initialized as otherwise, there won't be any addon globals added to it
-    if (this._toolboxProcessLoaded) {
-      BrowserToolboxProcess.setAddonOptions(aId, { global: null });
-    }
+    // Notify the BrowserToolboxProcess that an addon has been unloaded.
+    let wrappedJSObject = { id: aId, options: { global: null }};
+    Services.obs.notifyObservers({ wrappedJSObject }, "toolbox-update-addon-options");
   },
 
   /**
@@ -5232,10 +5187,11 @@ AddonWrapper.prototype = {
         // DB and should be a relative URL.  However, extensions with
         // options pages installed before bug 1293721 was fixed got absolute
         // URLs in the addons db.  This code handles both cases.
-        let base = ExtensionManagement.getURLForExtension(addon.id);
-        if (!base) {
+        let policy = WebExtensionPolicy.getByID(addon.id);
+        if (!policy) {
           return null;
         }
+        let base = policy.getURL();
         return new URL(addon.optionsURL, base).href;
       }
       return addon.optionsURL;
@@ -6063,7 +6019,7 @@ class MutableDirectoryInstallLocation extends DirectoryInstallLocation {
 
     OS.File.makeDir(this._directory.path);
     let stagepath = OS.Path.join(this._directory.path, DIR_STAGE);
-    return this._stagingDirPromise = OS.File.makeDir(stagepath).then(null, (e) => {
+    return this._stagingDirPromise = OS.File.makeDir(stagepath).catch((e) => {
       if (e instanceof OS.File.Error && e.becauseExists)
         return;
       logger.error("Failed to create staging directory", e);

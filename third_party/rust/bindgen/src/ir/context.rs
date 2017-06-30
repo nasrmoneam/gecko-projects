@@ -165,6 +165,9 @@ pub struct BindgenContext<'ctx> {
     /// The set of `TypeKind::Comp` items found during parsing that need their
     /// bitfield allocation units computed. Drained in `compute_bitfield_units`.
     need_bitfield_allocation: Vec<ItemId>,
+
+    /// Whether we need the mangling hack which removes the prefixing underscore.
+    needs_mangling_hack: bool,
 }
 
 /// A traversal of whitelisted items.
@@ -232,6 +235,42 @@ impl<'ctx> BindgenContext<'ctx> {
                                           parse_options)
                 .expect("TranslationUnit::parse failed");
 
+        // TODO(emilio): Use the CXTargetInfo here when available.
+        //
+        // see: https://reviews.llvm.org/D32389
+        let mut effective_target = None;
+        for opt in &options.clang_args {
+            if opt.starts_with("--target=") {
+                let mut split = opt.split('=');
+                split.next();
+                effective_target = Some(split.next().unwrap().to_owned());
+                break;
+            }
+        }
+
+        if effective_target.is_none() {
+            use std::env;
+            // If we're running from a build script, try to find the cargo
+            // target.
+            effective_target = env::var("TARGET").ok();
+        }
+
+        if effective_target.is_none() {
+            const HOST_TARGET: &'static str =
+                include_str!(concat!(env!("OUT_DIR"), "/host-target.txt"));
+            effective_target = Some(HOST_TARGET.to_owned());
+        }
+
+        // Mac os and Win32 need __ for mangled symbols but rust will automatically
+        // prepend the extra _.
+        //
+        // We need to make sure that we don't include __ because rust will turn into
+        // ___.
+        let effective_target = effective_target.unwrap();
+        let needs_mangling_hack =
+            effective_target.contains("darwin") ||
+            effective_target == "i686-pc-win32";
+
         let root_module = Self::build_root_module(ItemId(0));
         let mut me = BindgenContext {
             items: Default::default(),
@@ -253,6 +292,7 @@ impl<'ctx> BindgenContext<'ctx> {
             generated_bindegen_complex: Cell::new(false),
             used_template_parameters: None,
             need_bitfield_allocation: Default::default(),
+            needs_mangling_hack: needs_mangling_hack,
         };
 
         me.add_item(root_module, None, None);
@@ -762,6 +802,11 @@ impl<'ctx> BindgenContext<'ctx> {
     fn build_root_module(id: ItemId) -> Item {
         let module = Module::new(Some("root".into()), ModuleKind::Normal);
         Item::new(id, None, None, id, ItemKind::Module(module))
+    }
+
+    /// Returns the target triple bindgen is running over.
+    pub fn needs_mangling_hack(&self) -> bool {
+        self.needs_mangling_hack
     }
 
     /// Get the root module.

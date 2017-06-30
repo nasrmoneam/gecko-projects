@@ -64,7 +64,7 @@ nsFtpControlConnection::OnInputStreamReady(nsIAsyncInputStream *stream)
     return NS_OK;
 }
 
-nsFtpControlConnection::nsFtpControlConnection(const nsCSubstring& host,
+nsFtpControlConnection::nsFtpControlConnection(const nsACString& host,
                                                uint32_t port)
     : mServerType(0), mSessionId(gFtpHandler->GetSessionId())
     , mUseUTF8(false), mHost(host), mPort(port)
@@ -110,7 +110,7 @@ nsFtpControlConnection::Connect(nsIProxyInfo* proxyInfo,
 
     // proxy transport events back to current thread
     if (eventSink)
-        mSocket->SetEventSink(eventSink, NS_GetCurrentThread());
+        mSocket->SetEventSink(eventSink, GetCurrentThreadEventTarget());
 
     // open buffered, blocking output stream to socket.  so long as commands
     // do not exceed 1024 bytes in length, the writing thread (the main thread)
@@ -147,7 +147,7 @@ nsFtpControlConnection::WaitData(nsFtpControlConnectionListener *listener)
     NS_ENSURE_STATE(mSocketInput);
 
     mListener = listener;
-    return mSocketInput->AsyncWait(this, 0, 0, NS_GetCurrentThread());
+    return mSocketInput->AsyncWait(this, 0, 0, GetCurrentThreadEventTarget());
 }
 
 nsresult 
@@ -172,7 +172,7 @@ nsFtpControlConnection::Disconnect(nsresult status)
 }
 
 nsresult 
-nsFtpControlConnection::Write(const nsCSubstring& command)
+nsFtpControlConnection::Write(const nsACString& command)
 {
     NS_ENSURE_STATE(mSocketOutput);
 

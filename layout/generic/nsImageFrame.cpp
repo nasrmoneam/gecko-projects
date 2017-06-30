@@ -8,8 +8,10 @@
 #include "nsImageFrame.h"
 
 #include "gfx2DGlue.h"
+#include "gfxContext.h"
 #include "gfxUtils.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/Encoding.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/Helpers.h"
@@ -23,7 +25,6 @@
 #include "nsString.h"
 #include "nsPrintfCString.h"
 #include "nsPresContext.h"
-#include "nsRenderingContext.h"
 #include "nsIPresShell.h"
 #include "nsGkAtoms.h"
 #include "nsIDocument.h"
@@ -800,7 +801,7 @@ nsImageFrame::EnsureIntrinsicSizeAndRatio()
       // image request is null or image size not known, probably an
       // invalid image specified
       if (!(GetStateBits() & NS_FRAME_GENERATED_CONTENT)) {
-        bool imageBroken = false;
+        bool imageInvalid = false;
         // check for broken images. valid null images (eg. img src="") are
         // not considered broken because they have no image requests
         nsCOMPtr<nsIImageLoadingContent> imageLoader = do_QueryInterface(mContent);
@@ -808,14 +809,21 @@ nsImageFrame::EnsureIntrinsicSizeAndRatio()
           nsCOMPtr<imgIRequest> currentRequest;
           imageLoader->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
                                   getter_AddRefs(currentRequest));
-          uint32_t imageStatus;
-          imageBroken =
-            currentRequest &&
-            NS_SUCCEEDED(currentRequest->GetImageStatus(&imageStatus)) &&
-            (imageStatus & imgIRequest::STATUS_ERROR);
+          if (currentRequest) {
+            uint32_t imageStatus;
+            imageInvalid =
+              NS_SUCCEEDED(currentRequest->GetImageStatus(&imageStatus)) &&
+              (imageStatus & imgIRequest::STATUS_ERROR);
+          } else {
+            // check if images are user-disabled (or blocked for other
+            // reasons)
+            int16_t imageBlockingStatus;
+            imageLoader->GetImageBlockingStatus(&imageBlockingStatus);
+            imageInvalid = imageBlockingStatus != nsIContentPolicy::ACCEPT;
+          }
         }
         // invalid image specified. make the image big enough for the "broken" icon
-        if (imageBroken) {
+        if (imageInvalid) {
           nscoord edgeLengthToUse =
             nsPresContext::CSSPixelsToAppUnits(
               ICON_SIZE + (2 * (ICON_PADDING + ALT_BORDER_WIDTH)));
@@ -830,7 +838,7 @@ nsImageFrame::EnsureIntrinsicSizeAndRatio()
 
 /* virtual */
 LogicalSize
-nsImageFrame::ComputeSize(nsRenderingContext *aRenderingContext,
+nsImageFrame::ComputeSize(gfxContext *aRenderingContext,
                           WritingMode aWM,
                           const LogicalSize& aCBSize,
                           nscoord aAvailableISize,
@@ -915,7 +923,7 @@ nsImageFrame::GetContinuationOffset() const
 }
 
 /* virtual */ nscoord
-nsImageFrame::GetMinISize(nsRenderingContext *aRenderingContext)
+nsImageFrame::GetMinISize(gfxContext *aRenderingContext)
 {
   // XXX The caller doesn't account for constraints of the height,
   // min-height, and max-height properties.
@@ -927,7 +935,7 @@ nsImageFrame::GetMinISize(nsRenderingContext *aRenderingContext)
 }
 
 /* virtual */ nscoord
-nsImageFrame::GetPrefISize(nsRenderingContext *aRenderingContext)
+nsImageFrame::GetPrefISize(gfxContext *aRenderingContext)
 {
   // XXX The caller doesn't account for constraints of the height,
   // min-height, and max-height properties.
@@ -1097,7 +1105,7 @@ nsImageFrame::MeasureString(const char16_t*     aString,
                             int32_t              aLength,
                             nscoord              aMaxWidth,
                             uint32_t&            aMaxFit,
-                            nsRenderingContext& aContext,
+                            gfxContext& aContext,
                             nsFontMetrics& aFontMetrics)
 {
   nscoord totalWidth = 0;
@@ -1158,13 +1166,12 @@ nsImageFrame::MeasureString(const char16_t*     aString,
 // between words if a word would extend past the edge of the rectangle
 void
 nsImageFrame::DisplayAltText(nsPresContext*      aPresContext,
-                             nsRenderingContext& aRenderingContext,
+                             gfxContext&          aRenderingContext,
                              const nsString&      aAltText,
                              const nsRect&        aRect)
 {
   // Set font and color
-  aRenderingContext.ThebesContext()->
-    SetColor(Color::FromABGR(StyleColor()->mColor));
+  aRenderingContext.SetColor(Color::FromABGR(StyleColor()->mColor));
   RefPtr<nsFontMetrics> fm =
     nsLayoutUtils::GetInflatedFontMetricsForFrame(this);
 
@@ -1315,7 +1322,7 @@ public:
   }
 
   virtual void Paint(nsDisplayListBuilder* aBuilder,
-                     nsRenderingContext* aCtx) override
+                     gfxContext* aCtx) override
   {
     // Always sync decode, because these icons are UI, and since they're not
     // discardable we'll pay the price of sync decoding at most once.
@@ -1335,7 +1342,7 @@ public:
 };
 
 DrawResult
-nsImageFrame::DisplayAltFeedback(nsRenderingContext& aRenderingContext,
+nsImageFrame::DisplayAltFeedback(gfxContext& aRenderingContext,
                                  const nsRect& aDirtyRect,
                                  nsPoint aPt,
                                  uint32_t aFlags)
@@ -1388,12 +1395,11 @@ nsImageFrame::DisplayAltFeedback(nsRenderingContext& aRenderingContext,
   }
 
   DrawTarget* drawTarget = aRenderingContext.GetDrawTarget();
-  gfxContext* gfx = aRenderingContext.ThebesContext();
 
   // Clip so we don't render outside the inner rect
-  gfx->Save();
-  gfx->Clip(NSRectToSnappedRect(inner, PresContext()->AppUnitsPerDevPixel(),
-                                *drawTarget));
+  aRenderingContext.Save();
+  aRenderingContext.Clip(
+    NSRectToSnappedRect(inner, PresContext()->AppUnitsPerDevPixel(), *drawTarget));
 
   DrawResult result = DrawResult::NOT_READY;
 
@@ -1430,7 +1436,7 @@ nsImageFrame::DisplayAltFeedback(nsRenderingContext& aRenderingContext,
       MOZ_ASSERT(imgCon, "Load complete, but no image container?");
       nsRect dest(flushRight ? inner.XMost() - size : inner.x,
                   inner.y, size, size);
-      result = nsLayoutUtils::DrawSingleImage(*gfx, PresContext(), imgCon,
+      result = nsLayoutUtils::DrawSingleImage(aRenderingContext, PresContext(), imgCon,
         nsLayoutUtils::GetSamplingFilterForFrame(this), dest, aDirtyRect,
         /* no SVGImageContext */ Nothing(), aFlags);
     }
@@ -1486,7 +1492,7 @@ nsImageFrame::DisplayAltFeedback(nsRenderingContext& aRenderingContext,
     }
   }
 
-  aRenderingContext.ThebesContext()->Restore();
+  aRenderingContext.Restore();
 
   return result;
 }
@@ -1510,7 +1516,7 @@ static void PaintDebugImageMap(nsIFrame* aFrame, DrawTarget* aDrawTarget,
 
 void
 nsDisplayImage::Paint(nsDisplayListBuilder* aBuilder,
-                      nsRenderingContext* aCtx)
+                      gfxContext* aCtx)
 {
   uint32_t flags = imgIContainer::FLAG_NONE;
   if (aBuilder->ShouldSyncDecodeImages()) {
@@ -1624,11 +1630,8 @@ nsDisplayImage::GetLayerState(nsDisplayListBuilder* aBuilder,
     }
   }
 
-  uint32_t flags = aBuilder->ShouldSyncDecodeImages()
-                 ? imgIContainer::FLAG_SYNC_DECODE
-                 : imgIContainer::FLAG_NONE;
 
-  if (!mImage->IsImageContainerAvailable(aManager, flags)) {
+  if (!CanOptimizeToImageLayer(aManager, aBuilder)) {
     return LAYER_NONE;
   }
 
@@ -1683,7 +1686,7 @@ nsDisplayImage::BuildLayer(nsDisplayListBuilder* aBuilder,
 }
 
 DrawResult
-nsImageFrame::PaintImage(nsRenderingContext& aRenderingContext, nsPoint aPt,
+nsImageFrame::PaintImage(gfxContext& aRenderingContext, nsPoint aPt,
                          const nsRect& aDirtyRect, imgIContainer* aImage,
                          uint32_t aFlags)
 {
@@ -1716,7 +1719,7 @@ nsImageFrame::PaintImage(nsRenderingContext& aRenderingContext, nsPoint aPt,
   SVGImageContext::MaybeStoreContextPaint(svgContext, this, aImage);
 
   DrawResult result =
-    nsLayoutUtils::DrawSingleImage(*aRenderingContext.ThebesContext(),
+    nsLayoutUtils::DrawSingleImage(aRenderingContext,
       PresContext(), aImage,
       nsLayoutUtils::GetSamplingFilterForFrame(this), dest, aDirtyRect,
       svgContext, flags, &anchorPoint);
@@ -2246,7 +2249,7 @@ nsImageFrame::GetDocumentCharacterSet(nsACString& aCharset) const
   if (mContent) {
     NS_ASSERTION(mContent->GetComposedDoc(),
                  "Frame still alive after content removed from document!");
-    aCharset = mContent->GetComposedDoc()->GetDocumentCharacterSet();
+    mContent->GetComposedDoc()->GetDocumentCharacterSet()->Name(aCharset);
   }
 }
 
@@ -2455,7 +2458,7 @@ IsInAutoWidthTableCellForQuirk(nsIFrame *aFrame)
 }
 
 /* virtual */ void
-nsImageFrame::AddInlineMinISize(nsRenderingContext* aRenderingContext,
+nsImageFrame::AddInlineMinISize(gfxContext* aRenderingContext,
                                 nsIFrame::InlineMinISizeData* aData)
 {
   nscoord isize = nsLayoutUtils::IntrinsicForContainer(aRenderingContext,

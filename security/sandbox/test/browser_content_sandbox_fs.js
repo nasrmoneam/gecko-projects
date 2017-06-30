@@ -145,7 +145,7 @@ function minHomeReadSandboxLevel(level) {
 // Tests reading various files and directories from file and web
 // content processes.
 //
-add_task(function* () {
+add_task(async function() {
   // This test is only relevant in e10s
   if (!gMultiProcessBrowser) {
     ok(false, "e10s is enabled");
@@ -174,10 +174,6 @@ add_task(function* () {
 
   info(`security.sandbox.content.level=${level}`);
   ok(level > 0, "content sandbox is enabled.");
-  if (level == 0) {
-    info("content sandbox is not enabled, exiting");
-    return;
-  }
 
   let isFileIOSandboxed = isContentFileIOSandboxed(level);
 
@@ -199,11 +195,11 @@ add_task(function* () {
 });
 
 // Test if the content process can create in $HOME, this should fail
-function* createFileInHome() {
+async function createFileInHome() {
   let browser = gBrowser.selectedBrowser;
   let homeFile = fileInHomeDir();
   let path = homeFile.path;
-  let fileCreated = yield ContentTask.spawn(browser, path, createFile);
+  let fileCreated = await ContentTask.spawn(browser, path, createFile);
   ok(fileCreated == false, "creating a file in home dir is not permitted");
   if (fileCreated == true) {
     // content process successfully created the file, now remove it
@@ -212,35 +208,25 @@ function* createFileInHome() {
 }
 
 // Test if the content process can create a temp file, should pass
-function* createTempFile() {
+async function createTempFile() {
   let browser = gBrowser.selectedBrowser;
   let path = fileInTempDir().path;
-  let fileCreated = yield ContentTask.spawn(browser, path, createFile);
+  let fileCreated = await ContentTask.spawn(browser, path, createFile);
   ok(fileCreated == true, "creating a file in content temp is permitted");
   // now delete the file
-  let fileDeleted = yield ContentTask.spawn(browser, path, deleteFile);
+  let fileDeleted = await ContentTask.spawn(browser, path, deleteFile);
   ok(fileDeleted == true, "deleting a file in content temp is permitted");
 }
 
 // Test reading files and dirs from web and file content processes.
-function* testFileAccess() {
+async function testFileAccess() {
   // for tests that run in a web content process
   let webBrowser = gBrowser.selectedBrowser;
 
-  // For now, we'll only test file access from the file content process if
-  // the file content process is enabled. Once the file content process is
-  // ready to ride the trains, this test should be changed to always test
-  // file content process access. We use todo() to cause failures
-  // if the file process is enabled on a non-Nightly release so that we'll
-  // know to update this test to always run the tests. i.e., we'll want to
-  // catch bugs that accidentally disable file content process.
+  // Ensure that the file content process is enabled.
   let fileContentProcessEnabled =
     prefs.getBoolPref("browser.tabs.remote.separateFileUriProcess");
-  if (isNightly()) {
-    ok(fileContentProcessEnabled, "separate file content process is enabled");
-  } else {
-    todo(fileContentProcessEnabled, "separate file content process is enabled");
-  }
+  ok(fileContentProcessEnabled, "separate file content process is enabled");
 
   // for tests that run in a file content process
   let fileBrowser = undefined;
@@ -380,6 +366,34 @@ function* testFileAccess() {
         minLevel: 0,
       });
     }
+
+    // Test that we cannot read from /Volumes at level 3
+    let volumes = GetDir("/Volumes");
+    tests.push({
+      desc:     "/Volumes",
+      ok:       false,
+      browser:  webBrowser,
+      file:     volumes,
+      minLevel: minHomeReadSandboxLevel(),
+    });
+    // Test that we cannot read from /Network at level 3
+    let network = GetDir("/Network");
+    tests.push({
+      desc:     "/Network",
+      ok:       false,
+      browser:  webBrowser,
+      file:     network,
+      minLevel: minHomeReadSandboxLevel(),
+    });
+    // Test that we cannot read from /Users at level 3
+    let users = GetDir("/Users");
+    tests.push({
+      desc:     "/Users",
+      ok:       false,
+      browser:  webBrowser,
+      file:     users,
+      minLevel: minHomeReadSandboxLevel(),
+    });
   }
 
   let extensionsDir = GetProfileEntry("extensions");
@@ -429,7 +443,7 @@ function* testFileAccess() {
     let okString = test.ok ? "allowed" : "blocked";
     let processType = test.browser === webBrowser ? "web" : "file";
 
-    let result = yield ContentTask.spawn(test.browser, test.file.path,
+    let result = await ContentTask.spawn(test.browser, test.file.path,
         testFunc);
 
     ok(result.ok == test.ok,

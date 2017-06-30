@@ -10,7 +10,6 @@ ac_add_options --disable-tests
 ac_add_options --with-android-min-sdk=15
 ac_add_options --target=arm-linux-androideabi
 
-ac_add_options --with-system-zlib
 ac_add_options --enable-updater
 ac_add_options --enable-update-channel=${MOZ_UPDATE_CHANNEL}
 
@@ -29,5 +28,7 @@ mk_add_options AUTOCLOBBER=
 ac_add_options --without-mozilla-api-keyfile
 ac_add_options --without-adjust-sdk-keyfile
 ac_add_options --without-leanplum-sdk-keyfile
+# Similarly explicitly disable install tracking for l10n, we'll inherit from en-US
+export MOZ_INSTALL_TRACKING=
 
 . "$topsrcdir/mobile/android/config/mozconfigs/common.override"

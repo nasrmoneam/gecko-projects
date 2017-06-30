@@ -24,6 +24,7 @@
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/ServoRestyleManager.h"
+#include "mozilla/TextEditor.h"
 #include "mozilla/URLExtraData.h"
 #include "mozilla/dom/Attr.h"
 #include "nsDOMAttributeMap.h"
@@ -93,7 +94,6 @@
 #include "nsNodeInfoManager.h"
 #include "nsICategoryManager.h"
 #include "nsGenericHTMLElement.h"
-#include "nsIEditor.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsIControllers.h"
 #include "nsView.h"
@@ -348,6 +348,33 @@ nsIContent::LookupNamespaceURIInternal(const nsAString& aNamespacePrefix,
   return NS_ERROR_FAILURE;
 }
 
+nsIAtom*
+nsIContent::GetLang() const
+{
+  for (const auto* content = this; content; content = content->GetParent()) {
+    if (!content->GetAttrCount() || !content->IsElement()) {
+      continue;
+    }
+
+    auto* element = content->AsElement();
+
+    // xml:lang has precedence over lang on HTML elements (see
+    // XHTML1 section C.7).
+    const nsAttrValue* attr =
+      element->GetParsedAttr(nsGkAtoms::lang, kNameSpaceID_XML);
+    if (!attr && element->SupportsLangAttr()) {
+      attr = element->GetParsedAttr(nsGkAtoms::lang);
+    }
+    if (attr) {
+      MOZ_ASSERT(attr->Type() == nsAttrValue::eAtom);
+      MOZ_ASSERT(attr->GetAtomValue());
+      return attr->GetAtomValue();
+    }
+  }
+
+  return nullptr;
+}
+
 already_AddRefed<nsIURI>
 nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
 {
@@ -402,7 +429,7 @@ nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
     for (uint32_t i = baseAttrs.Length() - 1; i != uint32_t(-1); --i) {
       nsCOMPtr<nsIURI> newBase;
       nsresult rv = NS_NewURI(getter_AddRefs(newBase), baseAttrs[i],
-                              doc->GetDocumentCharacterSet().get(), base);
+                              doc->GetDocumentCharacterSet(), base);
       // Do a security check, almost the same as nsDocument::SetBaseURL()
       // Only need to do this on the final uri
       if (NS_SUCCEEDED(rv) && i == 0) {
@@ -677,6 +704,9 @@ FragmentOrElement::nsDOMSlots::Traverse(nsCycleCollectionTraversalCallback &cb, 
   NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "mSlots->mChildrenList");
   cb.NoteXPCOMChild(NS_ISUPPORTS_CAST(nsIDOMNodeList*, mChildrenList));
 
+  NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "mSlots->mLabelsList");
+  cb.NoteXPCOMChild(NS_ISUPPORTS_CAST(nsIDOMNodeList*, mLabelsList));
+
   NS_CYCLE_COLLECTION_NOTE_EDGE_NAME(cb, "mSlots->mClassList");
   cb.NoteXPCOMChild(mClassList.get());
 
@@ -711,6 +741,7 @@ FragmentOrElement::nsDOMSlots::Unlink(bool aIsXUL)
   mShadowRoot = nullptr;
   mContainingShadow = nullptr;
   mChildrenList = nullptr;
+  mLabelsList = nullptr;
   mCustomElementData = nullptr;
   mClassList = nullptr;
   mRegisteredIntersectionObservers.Clear();
@@ -2258,8 +2289,8 @@ FragmentOrElement::GetMarkup(bool aIncludeSelf, nsAString& aMarkup)
 
   if (IsEditable()) {
     nsCOMPtr<Element> elem = do_QueryInterface(this);
-    nsIEditor* editor = elem ? elem->GetEditorInternal() : nullptr;
-    if (editor && editor->OutputsMozDirty()) {
+    TextEditor* textEditor = elem ? elem->GetTextEditorInternal() : nullptr;
+    if (textEditor && textEditor->OutputsMozDirty()) {
       flags &= ~nsIDocumentEncoder::OutputIgnoreMozDirty;
     }
   }

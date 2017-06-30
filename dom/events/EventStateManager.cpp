@@ -95,6 +95,7 @@
 #include "GeckoProfiler.h"
 #include "Units.h"
 #include "mozilla/layers/APZCTreeManager.h"
+#include "nsIObjectLoadingContent.h"
 
 #ifdef XP_MACOSX
 #import <ApplicationServices/ApplicationServices.h>
@@ -1282,25 +1283,9 @@ EventStateManager::DispatchCrossProcessEvent(WidgetEvent* aEvent,
 }
 
 bool
-EventStateManager::IsRemoteTarget(nsIContent* target) {
-  if (!target) {
-    return false;
-  }
-
-  // <browser/iframe remote=true> from XUL
-  if (target->IsAnyOfXULElements(nsGkAtoms::browser, nsGkAtoms::iframe) &&
-      target->AttrValueIs(kNameSpaceID_None, nsGkAtoms::Remote,
-                          nsGkAtoms::_true, eIgnoreCase)) {
-    return true;
-  }
-
-  // <frame/iframe mozbrowser>
-  nsCOMPtr<nsIMozBrowserFrame> browserFrame = do_QueryInterface(target);
-  if (browserFrame && browserFrame->GetReallyIsBrowser()) {
-    return !!TabParent::GetFrom(target);
-  }
-
-  return false;
+EventStateManager::IsRemoteTarget(nsIContent* target)
+{
+  return !!TabParent::GetFrom(target);
 }
 
 bool
@@ -1427,9 +1412,12 @@ EventStateManager::CreateClickHoldTimer(nsPresContext* inPresContext,
     int32_t clickHoldDelay =
       Preferences::GetInt("ui.click_hold_context_menus.delay", 500);
     mClickHoldTimer->SetTarget(SystemGroup::EventTargetFor(TaskCategory::Other));
-    mClickHoldTimer->InitWithFuncCallback(sClickHoldCallback, this,
-                                          clickHoldDelay,
-                                          nsITimer::TYPE_ONE_SHOT);
+    mClickHoldTimer->InitWithNamedFuncCallback(
+      sClickHoldCallback,
+      this,
+      clickHoldDelay,
+      nsITimer::TYPE_ONE_SHOT,
+      "EventStateManager::CreateClickHoldTimer");
   }
 } // CreateClickHoldTimer
 
@@ -3880,8 +3868,7 @@ CreateMouseOrPointerWidgetEvent(WidgetMouseEvent* aMouseEvent,
 {
   WidgetPointerEvent* sourcePointer = aMouseEvent->AsPointerEvent();
   if (sourcePointer) {
-    PROFILER_LABEL("Input", "DispatchPointerEvent",
-      js::ProfileEntry::Category::EVENTS);
+    AUTO_PROFILER_LABEL("CreateMouseOrPointerWidgetEvent", EVENTS);
 
     nsAutoPtr<WidgetPointerEvent> newPointerEvent;
     newPointerEvent =
@@ -3948,11 +3935,6 @@ EventStateManager::DispatchMouseOrPointerEvent(WidgetMouseEvent* aMouseEvent,
   mCurrentTargetContent = aTargetContent;
 
   nsIFrame* targetFrame = nullptr;
-
-  if (aMouseEvent->AsMouseEvent()) {
-    PROFILER_LABEL("Input", "DispatchMouseEvent",
-      js::ProfileEntry::Category::EVENTS);
-  }
 
   nsEventStatus status = nsEventStatus_eIgnore;
   ESMEventCB callback(aTargetContent);
@@ -4345,13 +4327,8 @@ EventStateManager::GetWrapperByEventID(WidgetMouseEvent* aEvent)
     }
     return mMouseEnterLeaveHelper;
   }
-  RefPtr<OverOutElementsWrapper> helper;
-  if (!mPointersEnterLeaveHelper.Get(pointer->pointerId, getter_AddRefs(helper))) {
-    helper = new OverOutElementsWrapper();
-    mPointersEnterLeaveHelper.Put(pointer->pointerId, helper);
-  }
-
-  return helper;
+  return mPointersEnterLeaveHelper.LookupForAdd(pointer->pointerId).OrInsert(
+           [] () { return new OverOutElementsWrapper(); });
 }
 
 /* static */ void
@@ -5310,7 +5287,7 @@ EventStateManager::DoContentCommandScrollEvent(
   aEvent->mSucceeded = true;
 
   nsIScrollableFrame* sf =
-    ps->GetFrameToScrollAsScrollable(nsIPresShell::eEither);
+    ps->GetScrollableFrameToScroll(nsIPresShell::eEither);
   aEvent->mIsEnabled = sf ?
     (aEvent->mScroll.mIsHorizontal ?
       WheelHandlingUtils::CanScrollOn(sf, aEvent->mScroll.mAmount, 0) :

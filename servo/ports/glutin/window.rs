@@ -5,13 +5,10 @@
 //! A windowing implementation using glutin.
 
 use NestedEventLoopListener;
-use compositing::compositor_thread::{self, CompositorProxy, CompositorReceiver};
-use compositing::windowing::{MouseWindowEvent, WindowNavigateMsg};
+use compositing::compositor_thread::EventLoopWaker;
+use compositing::windowing::{AnimationState, MouseWindowEvent, WindowNavigateMsg};
 use compositing::windowing::{WindowEvent, WindowMethods};
-use euclid::{Point2D, Size2D, TypedPoint2D};
-use euclid::rect::TypedRect;
-use euclid::scale_factor::ScaleFactor;
-use euclid::size::TypedSize2D;
+use euclid::{Point2D, Size2D, TypedPoint2D, TypedVector2D, TypedRect, ScaleFactor, TypedSize2D};
 #[cfg(target_os = "windows")]
 use gdi32;
 use gleam::gl;
@@ -41,7 +38,6 @@ use std::mem;
 use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
-use std::sync::mpsc::{Sender, channel};
 use style_traits::cursor::Cursor;
 #[cfg(target_os = "windows")]
 use user32;
@@ -200,6 +196,8 @@ pub struct Window {
     #[cfg(not(target_os = "windows"))]
     pressed_key_map: RefCell<Vec<(ScanCode, char)>>,
 
+    animation_state: Cell<AnimationState>,
+
     gl: Rc<gl::Gl>,
 }
 
@@ -222,7 +220,7 @@ impl Window {
                parent: Option<glutin::WindowID>) -> Rc<Window> {
         let win_size: TypedSize2D<u32, DevicePixel> =
             (window_size.to_f32() * window_creation_scale_factor())
-                .to_uint().cast().expect("Window size should fit in u32");
+                .to_usize().cast().expect("Window size should fit in u32");
         let width = win_size.to_untyped().width;
         let height = win_size.to_untyped().height;
 
@@ -320,6 +318,7 @@ impl Window {
             #[cfg(target_os = "windows")]
             last_pressed_key: Cell::new(None),
             gl: gl.clone(),
+            animation_state: Cell::new(AnimationState::Idle),
         };
 
         window.present();
@@ -502,7 +501,7 @@ impl Window {
                     MouseScrollDelta::LineDelta(dx, dy) => (dx, dy * LINE_HEIGHT),
                     MouseScrollDelta::PixelDelta(dx, dy) => (dx, dy),
                 };
-                let scroll_location = ScrollLocation::Delta(TypedPoint2D::new(dx, dy));
+                let scroll_location = ScrollLocation::Delta(TypedVector2D::new(dx, dy));
                 if let Some((x, y)) = pos {
                     self.mouse_pos.set(Point2D::new(x, y));
                     self.event_queue.borrow_mut().push(
@@ -659,10 +658,14 @@ impl Window {
         let mut events = mem::replace(&mut *self.event_queue.borrow_mut(), Vec::new());
         let mut close_event = false;
 
+        let poll = self.animation_state.get() == AnimationState::Animating ||
+                   opts::get().output_file.is_some() ||
+                   opts::get().exit_after_load ||
+                   opts::get().headless;
         // When writing to a file then exiting, use event
         // polling so that we don't block on a GUI event
         // such as mouse click.
-        if opts::get().output_file.is_some() || opts::get().exit_after_load || opts::get().headless {
+        if poll {
             match self.kind {
                 WindowKind::Window(ref window) => {
                     while let Some(event) = window.poll_events().next() {
@@ -1009,6 +1012,10 @@ impl WindowMethods for Window {
 
     }
 
+    fn set_animation_state(&self, state: AnimationState) {
+        self.animation_state.set(state);
+    }
+
     fn set_inner_size(&self, size: Size2D<u32>) {
         match self.kind {
             WindowKind::Window(ref window) => {
@@ -1047,17 +1054,27 @@ impl WindowMethods for Window {
         }
     }
 
-    fn create_compositor_channel(&self)
-                                 -> (Box<CompositorProxy + Send>, Box<CompositorReceiver>) {
-        let (sender, receiver) = channel();
-
+    fn create_event_loop_waker(&self) -> Box<EventLoopWaker> {
+        struct GlutinEventLoopWaker {
+            window_proxy: Option<glutin::WindowProxy>,
+        }
+        impl EventLoopWaker for GlutinEventLoopWaker {
+            fn wake(&self) {
+                // kick the OS event loop awake.
+                if let Some(ref window_proxy) = self.window_proxy {
+                    window_proxy.wakeup_event_loop()
+                }
+            }
+            fn clone(&self) -> Box<EventLoopWaker + Send> {
+                box GlutinEventLoopWaker {
+                    window_proxy: self.window_proxy.clone(),
+                }
+            }
+        }
         let window_proxy = create_window_proxy(self);
-
-        (box GlutinCompositorProxy {
-             sender: sender,
-             window_proxy: window_proxy,
-         } as Box<CompositorProxy + Send>,
-         box receiver as Box<CompositorReceiver>)
+        box GlutinEventLoopWaker {
+            window_proxy: window_proxy,
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1223,7 +1240,7 @@ impl WindowMethods for Window {
             }
 
             (NONE, None, Key::PageDown) => {
-               let scroll_location = ScrollLocation::Delta(TypedPoint2D::new(0.0,
+               let scroll_location = ScrollLocation::Delta(TypedVector2D::new(0.0,
                                    -self.framebuffer_size()
                                         .to_f32()
                                         .to_untyped()
@@ -1232,7 +1249,7 @@ impl WindowMethods for Window {
                                    TouchEventType::Move);
             }
             (NONE, None, Key::PageUp) => {
-                let scroll_location = ScrollLocation::Delta(TypedPoint2D::new(0.0,
+                let scroll_location = ScrollLocation::Delta(TypedVector2D::new(0.0,
                                    self.framebuffer_size()
                                        .to_f32()
                                        .to_untyped()
@@ -1250,18 +1267,18 @@ impl WindowMethods for Window {
             }
 
             (NONE, None, Key::Up) => {
-                self.scroll_window(ScrollLocation::Delta(TypedPoint2D::new(0.0, 3.0 * LINE_HEIGHT)),
+                self.scroll_window(ScrollLocation::Delta(TypedVector2D::new(0.0, 3.0 * LINE_HEIGHT)),
                                    TouchEventType::Move);
             }
             (NONE, None, Key::Down) => {
-                self.scroll_window(ScrollLocation::Delta(TypedPoint2D::new(0.0, -3.0 * LINE_HEIGHT)),
+                self.scroll_window(ScrollLocation::Delta(TypedVector2D::new(0.0, -3.0 * LINE_HEIGHT)),
                                    TouchEventType::Move);
             }
             (NONE, None, Key::Left) => {
-                self.scroll_window(ScrollLocation::Delta(TypedPoint2D::new(LINE_HEIGHT, 0.0)), TouchEventType::Move);
+                self.scroll_window(ScrollLocation::Delta(TypedVector2D::new(LINE_HEIGHT, 0.0)), TouchEventType::Move);
             }
             (NONE, None, Key::Right) => {
-                self.scroll_window(ScrollLocation::Delta(TypedPoint2D::new(-LINE_HEIGHT, 0.0)), TouchEventType::Move);
+                self.scroll_window(ScrollLocation::Delta(TypedVector2D::new(-LINE_HEIGHT, 0.0)), TouchEventType::Move);
             }
             (CMD_OR_CONTROL, Some('r'), _) => {
                 if let Some(true) = PREFS.get("shell.builtin-key-shortcuts.enabled").as_boolean() {
@@ -1285,30 +1302,7 @@ impl WindowMethods for Window {
     }
 
     fn supports_clipboard(&self) -> bool {
-        false
-    }
-}
-
-struct GlutinCompositorProxy {
-    sender: Sender<compositor_thread::Msg>,
-    window_proxy: Option<glutin::WindowProxy>,
-}
-
-impl CompositorProxy for GlutinCompositorProxy {
-    fn send(&self, msg: compositor_thread::Msg) {
-        // Send a message and kick the OS event loop awake.
-        if let Err(err) = self.sender.send(msg) {
-            warn!("Failed to send response ({}).", err);
-        }
-        if let Some(ref window_proxy) = self.window_proxy {
-            window_proxy.wakeup_event_loop()
-        }
-    }
-    fn clone_compositor_proxy(&self) -> Box<CompositorProxy + Send> {
-        box GlutinCompositorProxy {
-            sender: self.sender.clone(),
-            window_proxy: self.window_proxy.clone(),
-        } as Box<CompositorProxy + Send>
+        true
     }
 }
 

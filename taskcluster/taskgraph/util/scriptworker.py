@@ -40,7 +40,6 @@ This is a list of list-pairs, for ordering.
 SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'all-nightly-branches', set([
         'mozilla-central',
-        'mozilla-aurora',
         'oak',
     ])
 ], [
@@ -74,7 +73,6 @@ DEVEDITION_SIGNING_CERT_SCOPES = {
 BEETMOVER_SCOPE_ALIAS_TO_PROJECT = [[
     'all-nightly-branches', set([
         'mozilla-central',
-        'mozilla-aurora',
         'mozilla-beta',
         'mozilla-release',
         'oak',
@@ -138,10 +136,6 @@ BALROG_SCOPE_ALIAS_TO_PROJECT = [[
     'nightly', set([
         'mozilla-central',
         'oak',
-    ])
-], [
-    'aurora', set([
-        'mozilla-aurora',
     ])
 ], [
     'beta', set([

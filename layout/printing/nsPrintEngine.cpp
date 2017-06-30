@@ -73,6 +73,7 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsISelectionController.h"
 
 // Misc
+#include "gfxContext.h"
 #include "mozilla/gfx/DrawEventRecorder.h"
 #include "mozilla/layout/RemotePrintJobChild.h"
 #include "nsISupportsUtils.h"
@@ -93,7 +94,6 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsDeviceContextSpecProxy.h"
 #include "nsViewManager.h"
 #include "nsView.h"
-#include "nsRenderingContext.h"
 
 #include "nsIPageSequenceFrame.h"
 #include "nsIURL.h"
@@ -3690,8 +3690,10 @@ nsPrintEngine::Observe(nsISupports *aSubject, const char *aTopic, const char16_t
 //---------------------------------------------------------------
 class nsPrintCompletionEvent : public Runnable {
 public:
-  explicit nsPrintCompletionEvent(nsIDocumentViewerPrint *docViewerPrint)
-    : mDocViewerPrint(docViewerPrint) {
+  explicit nsPrintCompletionEvent(nsIDocumentViewerPrint* docViewerPrint)
+    : mozilla::Runnable("nsPrintCompletionEvent")
+    , mDocViewerPrint(docViewerPrint)
+  {
     NS_ASSERTION(mDocViewerPrint, "mDocViewerPrint is null.");
   }
 
@@ -3813,7 +3815,7 @@ static void RootFrameList(nsPresContext* aPresContext, FILE* out, int32_t aInden
  */
 static void DumpFrames(FILE*                 out,
                        nsPresContext*       aPresContext,
-                       nsRenderingContext * aRendContext,
+                       gfxContext * aRendContext,
                        nsIFrame *            aFrame,
                        int32_t               aLevel)
 {

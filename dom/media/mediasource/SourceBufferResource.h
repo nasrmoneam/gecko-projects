@@ -38,16 +38,11 @@ class SourceBuffer;
 class SourceBufferResource final : public MediaResource
 {
 public:
-  explicit SourceBufferResource(const MediaContainerType& aType);
+  SourceBufferResource();
   nsresult Close() override;
   void Suspend(bool aCloseImmediately) override { UNIMPLEMENTED(); }
   void Resume() override { UNIMPLEMENTED(); }
   already_AddRefed<nsIPrincipal> GetCurrentPrincipal() override
-  {
-    UNIMPLEMENTED();
-    return nullptr;
-  }
-  already_AddRefed<MediaResource> CloneData(MediaResourceCallback*) override
   {
     UNIMPLEMENTED();
     return nullptr;
@@ -61,6 +56,8 @@ public:
                   char* aBuffer,
                   uint32_t aCount,
                   uint32_t* aBytes) override;
+  // Memory-based and no locks, caching discouraged.
+  bool ShouldCacheReads() override { return false; }
   int64_t Tell() override { return mOffset; }
   void Pin() override { UNIMPLEMENTED(); }
   void Unpin() override { UNIMPLEMENTED(); }
@@ -84,8 +81,14 @@ public:
   }
   int64_t GetCachedDataEnd(int64_t aOffset) override
   {
-    UNIMPLEMENTED();
-    return -1;
+    MOZ_ASSERT(OnTaskQueue());
+    MOZ_ASSERT(aOffset >= 0);
+    if (uint64_t(aOffset) < mInputBuffer.GetOffset() ||
+        aOffset >= GetLength()) {
+      // aOffset is outside of the buffered range.
+      return aOffset;
+    }
+    return GetLength();
   }
   bool IsDataCachedToEndOfResource(int64_t aOffset) override { return false; }
   bool IsSuspendedByCache() override
@@ -122,14 +125,11 @@ public:
     return NS_OK;
   }
 
-  const MediaContainerType& GetContentType() const override { return mType; }
-
   size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const override
   {
     MOZ_ASSERT(OnTaskQueue());
 
     size_t size = MediaResource::SizeOfExcludingThis(aMallocSizeOf);
-    size += mType.SizeOfExcludingThis(aMallocSizeOf);
     size += mInputBuffer.SizeOfExcludingThis(aMallocSizeOf);
 
     return size;
@@ -184,7 +184,6 @@ private:
                           char* aBuffer,
                           uint32_t aCount,
                           uint32_t* aBytes);
-  const MediaContainerType mType;
 
 #if defined(DEBUG)
   const RefPtr<TaskQueue> mTaskQueue;

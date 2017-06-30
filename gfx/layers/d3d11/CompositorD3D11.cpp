@@ -47,7 +47,7 @@ using namespace gfx;
 
 namespace layers {
 
-static bool CanUsePartialPresents(ID3D11Device* aDevice);
+bool CanUsePartialPresents(ID3D11Device* aDevice);
 
 const FLOAT sBlendFactor[] = { 0, 0, 0, 0 };
 
@@ -255,7 +255,7 @@ CompositorD3D11::Initialize(nsCString* const out_failureReason)
   return true;
 }
 
-static bool
+bool
 CanUsePartialPresents(ID3D11Device* aDevice)
 {
   if (gfxPrefs::PartialPresent() > 0) {
@@ -967,7 +967,7 @@ CompositorD3D11::BeginFrame(const nsIntRegion& aInvalidRegion,
   // this is important because resizing our buffers when mimised will fail and
   // cause a crash when we're restored.
   NS_ASSERTION(mHwnd, "Couldn't find an HWND when initialising?");
-  if (::IsIconic(mHwnd)) {
+  if (mWidget->IsHidden()) {
     // We are not going to render, and not going to call EndFrame so we have to
     // read-unlock our textures to prevent them from accumulating.
     ReadUnlockTextures();

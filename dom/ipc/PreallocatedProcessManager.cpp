@@ -43,6 +43,7 @@ public:
   void AllocateOnIdle();
   void AllocateNow();
   already_AddRefed<ContentParent> Take();
+  bool Provide(ContentParent* aParent);
 
 private:
   static mozilla::StaticRefPtr<PreallocatedProcessManagerImpl> sSingleton;
@@ -163,7 +164,24 @@ PreallocatedProcessManagerImpl::RereadPrefs()
 already_AddRefed<ContentParent>
 PreallocatedProcessManagerImpl::Take()
 {
+  if (!mEnabled || mShutdown) {
+    return nullptr;
+  }
+
   return mPreallocatedProcess.forget();
+}
+
+bool
+PreallocatedProcessManagerImpl::Provide(ContentParent* aParent)
+{
+  if (mEnabled && !mShutdown && !mPreallocatedProcess) {
+    mPreallocatedProcess = aParent;
+  }
+
+  // We might get a call from both NotifyTabDestroying and NotifyTabDestroyed with the same
+  // ContentParent. Returning true here for both calls is important to avoid the cached process
+  // to be destroyed.
+  return aParent == mPreallocatedProcess;
 }
 
 void
@@ -188,7 +206,9 @@ PreallocatedProcessManagerImpl::AllocateAfterDelay()
   // message loop in practice never goes idle, that didn't work out well.
   // Let's just launch the process after the delay.
   NS_DelayedDispatchToCurrentThread(
-    NewRunnableMethod(this, &PreallocatedProcessManagerImpl::AllocateNow),
+    NewRunnableMethod("PreallocatedProcessManagerImpl::AllocateNow",
+                      this,
+                      &PreallocatedProcessManagerImpl::AllocateNow),
     Preferences::GetUint("dom.ipc.processPrelaunch.delayMs",
                          DEFAULT_ALLOCATE_DELAY));
 }
@@ -200,7 +220,10 @@ PreallocatedProcessManagerImpl::AllocateOnIdle()
     return;
   }
 
-  NS_IdleDispatchToCurrentThread(NewRunnableMethod(this, &PreallocatedProcessManagerImpl::AllocateNow));
+  NS_IdleDispatchToCurrentThread(
+    NewRunnableMethod("PreallocatedProcessManagerImpl::AllocateNow",
+                      this,
+                      &PreallocatedProcessManagerImpl::AllocateNow));
 }
 
 void
@@ -280,6 +303,12 @@ PreallocatedProcessManager::AllocateNow()
 PreallocatedProcessManager::Take()
 {
   return GetPPMImpl()->Take();
+}
+
+/* static */ bool
+PreallocatedProcessManager::Provide(ContentParent* aParent)
+{
+  return GetPPMImpl()->Provide(aParent);
 }
 
 } // namespace mozilla

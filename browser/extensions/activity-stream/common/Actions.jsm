@@ -17,11 +17,20 @@ const globalImportContext = typeof Window === "undefined" ? BACKGROUND_PROCESS :
 // Export for tests
 this.globalImportContext = globalImportContext;
 
-const actionTypes = [
+// Create an object that avoids accidental differing key/value pairs:
+// {
+//   INIT: "INIT",
+//   UNINIT: "UNINIT"
+// }
+const actionTypes = {};
+for (const type of [
   "BLOCK_URL",
   "BOOKMARK_URL",
   "DELETE_BOOKMARK_BY_ID",
   "DELETE_HISTORY_URL",
+  "DELETE_HISTORY_URL_CONFIRM",
+  "DIALOG_CANCEL",
+  "DIALOG_OPEN",
   "INIT",
   "LOCALE_UPDATED",
   "NEW_TAB_INITIAL_STATE",
@@ -30,27 +39,24 @@ const actionTypes = [
   "NEW_TAB_VISIBLE",
   "OPEN_NEW_WINDOW",
   "OPEN_PRIVATE_WINDOW",
-  "PERFORM_SEARCH",
   "PLACES_BOOKMARK_ADDED",
   "PLACES_BOOKMARK_CHANGED",
   "PLACES_BOOKMARK_REMOVED",
   "PLACES_HISTORY_CLEARED",
   "PLACES_LINK_BLOCKED",
   "PLACES_LINK_DELETED",
+  "PREFS_INITIAL_VALUES",
+  "PREF_CHANGED",
   "SCREENSHOT_UPDATED",
-  "SEARCH_STATE_UPDATED",
+  "SET_PREF",
   "TELEMETRY_PERFORMANCE_EVENT",
   "TELEMETRY_UNDESIRED_EVENT",
   "TELEMETRY_USER_EVENT",
   "TOP_SITES_UPDATED",
   "UNINIT"
-// The line below creates an object like this:
-// {
-//   INIT: "INIT",
-//   UNINIT: "UNINIT"
-// }
-// It prevents accidentally adding a different key/value name.
-].reduce((obj, type) => { obj[type] = type; return obj; }, {});
+]) {
+  actionTypes[type] = type;
+}
 
 // Helper function for creating routed actions between content and main
 // Not intended to be used by consumers
@@ -162,6 +168,11 @@ function PerfEvent(data, importContext = globalImportContext) {
   return importContext === UI_CODE ? SendToMain(action) : action;
 }
 
+function SetPref(name, value, importContext = globalImportContext) {
+  const action = {type: actionTypes.SET_PREF, data: {name, value}};
+  return importContext === UI_CODE ? SendToMain(action) : action;
+}
+
 this.actionTypes = actionTypes;
 
 this.actionCreators = {
@@ -170,7 +181,8 @@ this.actionCreators = {
   UndesiredEvent,
   PerfEvent,
   SendToContent,
-  SendToMain
+  SendToMain,
+  SetPref
 };
 
 // These are helpers to test for certain kinds of actions

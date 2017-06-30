@@ -34,8 +34,12 @@ UiCompositorControllerParent::Start(const uint64_t& aRootLayerTreeId, Endpoint<P
 {
   RefPtr<UiCompositorControllerParent> parent = new UiCompositorControllerParent(aRootLayerTreeId);
 
-  RefPtr<Runnable> task = NewRunnableMethod<Endpoint<PUiCompositorControllerParent>&&>(
-    parent, &UiCompositorControllerParent::Open, Move(aEndpoint));
+  RefPtr<Runnable> task =
+    NewRunnableMethod<Endpoint<PUiCompositorControllerParent>&&>(
+      "layers::UiCompositorControllerParent::Open",
+      parent,
+      &UiCompositorControllerParent::Open,
+      Move(aEndpoint));
   CompositorThreadHolder::Loop()->PostTask(task.forget());
 
   return parent;
@@ -209,7 +213,12 @@ UiCompositorControllerParent::ToolbarAnimatorMessageFromCompositor(int32_t aMess
 {
   // This function can be call from ether compositor or controller thread.
   if (!CompositorThreadHolder::IsInCompositorThread()) {
-    CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<int32_t>(this, &UiCompositorControllerParent::ToolbarAnimatorMessageFromCompositor, aMessage));
+    CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<int32_t>(
+      "layers::UiCompositorControllerParent::"
+      "ToolbarAnimatorMessageFromCompositor",
+      this,
+      &UiCompositorControllerParent::ToolbarAnimatorMessageFromCompositor,
+      aMessage));
     return;
   }
 
@@ -241,7 +250,10 @@ UiCompositorControllerParent::InitializeForSameProcess()
   // This function is called by UiCompositorControllerChild in the main thread.
   // So dispatch to the compositor thread to Initialize.
   if (!CompositorThreadHolder::IsInCompositorThread()) {
-    CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod(this, &UiCompositorControllerParent::InitializeForSameProcess));
+    CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod(
+      "layers::UiCompositorControllerParent::InitializeForSameProcess",
+      this,
+      &UiCompositorControllerParent::InitializeForSameProcess));
     return;
   }
 
@@ -265,7 +277,12 @@ UiCompositorControllerParent::Initialize()
   MOZ_ASSERT(state->mParent);
   state->mUiControllerParent = this;
 #if defined(MOZ_WIDGET_ANDROID)
-  state->mParent->GetAPZCTreeManager()->InitializeDynamicToolbarAnimator(mRootLayerTreeId);
+  RefPtr<APZCTreeManager> manager = state->mParent->GetAPZCTreeManager();
+  // Since this is called from the UI thread. It is possible the compositor has already
+  // started shutting down and the APZCTreeManager could be a nullptr.
+  if (manager) {
+    manager->InitializeDynamicToolbarAnimator(mRootLayerTreeId);
+  }
 #endif
 }
 

@@ -43,6 +43,7 @@
 #include "mozilla/RestyleManager.h"
 #include "mozilla/RestyleManagerInlines.h"
 #include "nsQueryObject.h"
+#include "nsStyleContextInlines.h"
 
 #include <inttypes.h>
 
@@ -308,7 +309,7 @@ nsStyleSet::BeginReconstruct()
 
   // Clear any ArenaRefPtr-managed style contexts, as we don't want them
   // held on to after the rule tree has been reconstructed.
-  PresContext()->PresShell()->ClearArenaRefPtrs(eArenaObjectID_nsStyleContext);
+  PresContext()->PresShell()->ClearArenaRefPtrs(eArenaObjectID_GeckoStyleContext);
 
   // Clear our cached style contexts for non-inheriting anonymous boxes.
   ClearNonInheritingStyleContexts();
@@ -926,7 +927,7 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
 
   RefPtr<nsStyleContext> result;
   if (aParentContext)
-    result = aParentContext->FindChildWithRules(aPseudoTag, aRuleNode,
+    result = aParentContext->AsGecko()->FindChildWithRules(aPseudoTag, aRuleNode,
                                                 aVisitedRuleNode,
                                                 relevantLinkVisited);
 
@@ -972,7 +973,7 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
       PresContext()->AnimationManager()->UpdateAnimations(result,
                                                           aElementForAnimation);
       PresContext()->EffectCompositor()->UpdateEffectProperties(
-        result, aElementForAnimation, result->GetPseudoType());
+        result.get(), aElementForAnimation, result->GetPseudoType());
 
       animRule = PresContext()->EffectCompositor()->
                    GetAnimationRule(aElementForAnimation,
@@ -1100,8 +1101,7 @@ nsStyleSet::FileRules(nsIStyleRuleProcessor::EnumFunc aCollectorFunc,
                       RuleProcessorData* aData, Element* aElement,
                       nsRuleWalker* aRuleWalker)
 {
-  PROFILER_LABEL("nsStyleSet", "FileRules",
-    js::ProfileEntry::Category::CSS);
+  AUTO_PROFILER_LABEL("nsStyleSet::FileRules", CSS);
 
   NS_ASSERTION(mBatching == 0, "rule processors out of date");
 
@@ -2009,8 +2009,7 @@ already_AddRefed<nsStyleContext>
 nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
                                     CSSPseudoElementType aType,
                                     nsStyleContext* aParentContext,
-                                    TreeMatchContext& aTreeMatchContext,
-                                    Element* aPseudoElement)
+                                    TreeMatchContext& aTreeMatchContext)
 {
   NS_ENSURE_FALSE(mInShutdown, nullptr);
 
@@ -2023,7 +2022,7 @@ nsStyleSet::ProbePseudoElementStyle(Element* aParentElement,
   aTreeMatchContext.ResetForUnvisitedMatching();
   PseudoElementRuleProcessorData data(PresContext(), aParentElement,
                                       &ruleWalker, aType, aTreeMatchContext,
-                                      aPseudoElement);
+                                      /* aPseudoElement = */ nullptr);
   WalkRestrictionRule(aType, &ruleWalker);
   // not the root if there was a restriction rule
   nsRuleNode *adjustedRoot = ruleWalker.CurrentNode();
@@ -2402,7 +2401,7 @@ nsStyleSet::RecordShadowStyleChange(ShadowRoot* aShadowRoot)
 void
 nsStyleSet::InvalidateStyleForCSSRuleChanges()
 {
-  MOZ_ASSERT_IF(mStylesHaveChanged, mChangedScopeStyleRoots.IsEmpty());
+  MOZ_ASSERT(!mStylesHaveChanged || mChangedScopeStyleRoots.IsEmpty());
 
   AutoTArray<RefPtr<mozilla::dom::Element>, 1> scopeRoots;
   mChangedScopeStyleRoots.SwapElements(scopeRoots);

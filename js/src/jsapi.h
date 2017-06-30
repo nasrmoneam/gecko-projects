@@ -1494,9 +1494,10 @@ JS_InitStandardClasses(JSContext* cx, JS::Handle<JSObject*> obj);
  * as usual for bool result-typed API entry points.
  *
  * This API can be called directly from a global object class's resolve op,
- * to define standard classes lazily.  The class's enumerate op should call
- * JS_EnumerateStandardClasses(cx, obj), to define eagerly during for..in
- * loops any classes not yet resolved lazily.
+ * to define standard classes lazily. The class should either have an enumerate
+ * hook that calls JS_EnumerateStandardClasses, or a newEnumerate hook that
+ * calls JS_NewEnumerateStandardClasses. newEnumerate is preferred because it's
+ * faster (does not define all standard classes).
  */
 extern JS_PUBLIC_API(bool)
 JS_ResolveStandardClass(JSContext* cx, JS::HandleObject obj, JS::HandleId id, bool* resolved);
@@ -1506,6 +1507,10 @@ JS_MayResolveStandardClass(const JSAtomState& names, jsid id, JSObject* maybeObj
 
 extern JS_PUBLIC_API(bool)
 JS_EnumerateStandardClasses(JSContext* cx, JS::HandleObject obj);
+
+extern JS_PUBLIC_API(bool)
+JS_NewEnumerateStandardClasses(JSContext* cx, JS::HandleObject obj, JS::AutoIdVector& properties,
+                               bool enumerableOnly);
 
 extern JS_PUBLIC_API(bool)
 JS_GetClassObject(JSContext* cx, JSProtoKey key, JS::MutableHandle<JSObject*> objp);
@@ -6048,20 +6053,21 @@ JS_SetParallelParsingEnabled(JSContext* cx, bool enabled);
 extern JS_PUBLIC_API(void)
 JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
 
-#define JIT_COMPILER_OPTIONS(Register)                                     \
-    Register(BASELINE_WARMUP_TRIGGER, "baseline.warmup.trigger")           \
-    Register(ION_WARMUP_TRIGGER, "ion.warmup.trigger")                     \
-    Register(ION_GVN_ENABLE, "ion.gvn.enable")                             \
-    Register(ION_FORCE_IC, "ion.forceinlineCaches")                        \
-    Register(ION_ENABLE, "ion.enable")                                     \
+#define JIT_COMPILER_OPTIONS(Register)                                      \
+    Register(BASELINE_WARMUP_TRIGGER, "baseline.warmup.trigger")            \
+    Register(ION_WARMUP_TRIGGER, "ion.warmup.trigger")                      \
+    Register(ION_GVN_ENABLE, "ion.gvn.enable")                              \
+    Register(ION_FORCE_IC, "ion.forceinlineCaches")                         \
+    Register(ION_ENABLE, "ion.enable")                                      \
     Register(ION_INTERRUPT_WITHOUT_SIGNAL, "ion.interrupt-without-signals") \
-    Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis")         \
-    Register(BASELINE_ENABLE, "baseline.enable")                           \
-    Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable") \
-    Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                   \
-    Register(JUMP_THRESHOLD, "jump-threshold")                             \
-    Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                 \
-    Register(WASM_TEST_MODE, "wasm.test-mode")                             \
+    Register(ION_CHECK_RANGE_ANALYSIS, "ion.check-range-analysis")          \
+    Register(BASELINE_ENABLE, "baseline.enable")                            \
+    Register(OFFTHREAD_COMPILATION_ENABLE, "offthread-compilation.enable")  \
+    Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                    \
+    Register(JUMP_THRESHOLD, "jump-threshold")                              \
+    Register(SIMULATOR_ALWAYS_INTERRUPT, "simulator.always-interrupt")      \
+    Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                  \
+    Register(WASM_TEST_MODE, "wasm.test-mode")                              \
     Register(WASM_FOLD_OFFSETS, "wasm.fold-offsets")
 
 typedef enum JSJitCompilerOption {

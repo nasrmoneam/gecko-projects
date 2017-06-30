@@ -3,11 +3,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/layers/CompositorBridgeChild.h"
+#include "mozilla/layers/CompositorManagerChild.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ImageBridgeChild.h"
 #include "mozilla/layers/ISurfaceAllocator.h"     // for GfxMemoryImageReporter
 #include "mozilla/webrender/RenderThread.h"
+#include "mozilla/layers/PaintThread.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/gfx/GraphicsMessages.h"
@@ -136,6 +137,7 @@ class mozilla::gl::SkiaGLGlue : public GenericAtomicRefCounted {
 #include "gfxVR.h"
 #include "VRManagerChild.h"
 #include "mozilla/gfx/GPUParent.h"
+#include "mozilla/layers/MemoryReportingMLGPU.h"
 #include "prsystem.h"
 
 namespace mozilla {
@@ -151,6 +153,8 @@ using namespace mozilla::gfx;
 
 gfxPlatform *gPlatform = nullptr;
 static bool gEverInitialized = false;
+
+const ContentDeviceData* gContentDeviceInitData = nullptr;
 
 static Mutex* gGfxPlatformPrefsLock = nullptr;
 
@@ -308,7 +312,11 @@ class LogForwarderEvent : public Runnable
 
   NS_DECL_ISUPPORTS_INHERITED
 
-  explicit LogForwarderEvent(const nsCString& aMessage) : mMessage(aMessage) {}
+  explicit LogForwarderEvent(const nsCString& aMessage)
+    : mozilla::Runnable("LogForwarderEvent")
+    , mMessage(aMessage)
+  {
+  }
 
   NS_IMETHOD Run() override {
     MOZ_ASSERT(NS_IsMainThread() && (XRE_IsContentProcess() || XRE_IsGPUProcess()));
@@ -362,7 +370,11 @@ class CrashTelemetryEvent : public Runnable
 
   NS_DECL_ISUPPORTS_INHERITED
 
-  explicit CrashTelemetryEvent(uint32_t aReason) : mReason(aReason) {}
+  explicit CrashTelemetryEvent(uint32_t aReason)
+    : mozilla::Runnable("CrashTelemetryEvent")
+    , mReason(aReason)
+  {
+  }
 
   NS_IMETHOD Run() override {
     MOZ_ASSERT(NS_IsMainThread());
@@ -527,6 +539,8 @@ gfxPlatform*
 gfxPlatform::GetPlatform()
 {
     if (!gPlatform) {
+        MOZ_RELEASE_ASSERT(!XRE_IsContentProcess(),
+                           "Content Process should have called InitChild() before first GetPlatform()");
         Init();
     }
     return gPlatform;
@@ -536,6 +550,19 @@ bool
 gfxPlatform::Initialized()
 {
   return !!gPlatform;
+}
+
+/* static */ void
+gfxPlatform::InitChild(const ContentDeviceData& aData)
+{
+  MOZ_ASSERT(XRE_IsContentProcess());
+  MOZ_RELEASE_ASSERT(!gPlatform,
+                     "InitChild() should be called before first GetPlatform()");
+  // Make the provided initial ContentDeviceData available to the init
+  // routines, so they don't have to do a sync request from the parent.
+  gContentDeviceInitData = &aData;
+  Init();
+  gContentDeviceInitData = nullptr;
 }
 
 void RecordingPrefChanged(const char *aPrefName, void *aClosure)
@@ -575,12 +602,12 @@ static uint32_t GetSkiaGlyphCacheSize()
 {
     // Only increase font cache size on non-android to save memory.
 #if !defined(MOZ_WIDGET_ANDROID)
-    // 10mb as the default cache size on desktop due to talos perf tweaking.
+    // 10mb as the default pref cache size on desktop due to talos perf tweaking.
     // Chromium uses 20mb and skia default uses 2mb.
     // We don't need to change the font cache count since we usually
     // cache thrash due to asian character sets in talos.
     // Only increase memory on the content proces
-    uint32_t cacheSize = 10 * 1024 * 1024;
+    uint32_t cacheSize = gfxPrefs::SkiaContentFontCacheSize() * 1024 * 1024;
     if (mozilla::BrowserTabsRemoteAutostart()) {
       return XRE_IsContentProcess() ? cacheSize : kDefaultGlyphCacheSize;
     }
@@ -694,6 +721,7 @@ gfxPlatform::Init()
 #endif
     gPlatform->InitAcceleration();
     gPlatform->InitWebRenderConfig();
+    gPlatform->InitOMTPConfig();
 
     if (gfxConfig::IsEnabled(Feature::GPU_PROCESS)) {
       GPUProcessManager* gpu = GPUProcessManager::Get();
@@ -778,6 +806,7 @@ gfxPlatform::Init()
     }
 
     RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
+    mlg::InitializeMemoryReporters();
 
     if (XRE_IsParentProcess()) {
       if (gfxPlatform::ForceSoftwareVsync()) {
@@ -942,18 +971,22 @@ gfxPlatform::Shutdown()
 /* static */ void
 gfxPlatform::InitLayersIPC()
 {
-    if (sLayersIPCIsUp) {
-      return;
-    }
-    sLayersIPCIsUp = true;
+  if (sLayersIPCIsUp) {
+    return;
+  }
+  sLayersIPCIsUp = true;
 
-    if (XRE_IsParentProcess())
-    {
-        if (gfxVars::UseWebRender()) {
-            wr::RenderThread::Start();
-        }
-        layers::CompositorThreadHolder::Start();
+  if (XRE_IsContentProcess()) {
+    if (gfxVars::UseOMTP()) {
+      layers::PaintThread::Start();
     }
+  } else if (XRE_IsParentProcess()) {
+    if (gfxVars::UseWebRender()) {
+      wr::RenderThread::Start();
+    }
+
+    layers::CompositorThreadHolder::Start();
+  }
 }
 
 /* static */ void
@@ -968,18 +1001,23 @@ gfxPlatform::ShutdownLayersIPC()
         gfx::VRManagerChild::ShutDown();
         // cf bug 1215265.
         if (gfxPrefs::ChildProcessShutdown()) {
-          layers::CompositorBridgeChild::ShutDown();
+          layers::CompositorManagerChild::Shutdown();
           layers::ImageBridgeChild::ShutDown();
+        }
+
+        if (gfxVars::UseOMTP()) {
+          layers::PaintThread::Shutdown();
         }
     } else if (XRE_IsParentProcess()) {
         gfx::VRManagerChild::ShutDown();
-        layers::CompositorBridgeChild::ShutDown();
+        layers::CompositorManagerChild::Shutdown();
         layers::ImageBridgeChild::ShutDown();
         // This has to happen after shutting down the child protocols.
         layers::CompositorThreadHolder::Shutdown();
         if (gfxVars::UseWebRender()) {
-            wr::RenderThread::ShutDown();
+          wr::RenderThread::ShutDown();
         }
+
     } else {
       // TODO: There are other kind of processes and we should make sure gfx
       // stuff is either not created there or shut down properly.
@@ -2397,6 +2435,48 @@ gfxPlatform::InitWebRenderConfig()
   }
 }
 
+void
+gfxPlatform::InitOMTPConfig()
+{
+  bool prefEnabled = Preferences::GetBool("layers.omtp.enabled", false);
+
+  // We don't want to report anything for this feature when turned off, as it is still early in development
+  if (!prefEnabled) {
+    return;
+  }
+
+  ScopedGfxFeatureReporter reporter("OMTP", prefEnabled);
+
+  if (!XRE_IsParentProcess()) {
+    // The parent process runs through all the real decision-making code
+    // later in this function. For other processes we still want to report
+    // the state of the feature for crash reports.
+    if (gfxVars::UseOMTP()) {
+      reporter.SetSuccessful();
+    }
+    return;
+  }
+
+  FeatureState& featureOMTP = gfxConfig::GetFeature(Feature::OMTP);
+
+  featureOMTP.DisableByDefault(
+      FeatureStatus::OptIn,
+      "OMTP is an opt-in feature",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_DEFAULT_OFF"));
+
+  featureOMTP.UserEnable("Enabled by pref");
+
+  if (InSafeMode()) {
+    featureOMTP.ForceDisable(FeatureStatus::Blocked, "OMTP blocked by safe-mode",
+                         NS_LITERAL_CSTRING("FEATURE_FAILURE_COMP_SAFEMODE"));
+  }
+
+  if (gfxConfig::IsEnabled(Feature::OMTP)) {
+    gfxVars::SetUseOMTP(true);
+    reporter.SetSuccessful();
+  }
+}
+
 bool
 gfxPlatform::CanUseHardwareVideoDecoding()
 {
@@ -2436,15 +2516,11 @@ already_AddRefed<ScaledFont>
 gfxPlatform::GetScaledFontForFontWithCairoSkia(DrawTarget* aTarget, gfxFont* aFont)
 {
     NativeFont nativeFont;
-    if (aTarget->GetBackendType() == BackendType::CAIRO || aTarget->GetBackendType() == BackendType::SKIA) {
-        nativeFont.mType = NativeFontType::CAIRO_FONT_FACE;
-        nativeFont.mFont = aFont->GetCairoScaledFont();
-        return Factory::CreateScaledFontForNativeFont(nativeFont,
-                                                      aFont->GetUnscaledFont(),
-                                                      aFont->GetAdjustedSize());
-    }
-
-    return nullptr;
+    nativeFont.mType = NativeFontType::CAIRO_FONT_FACE;
+    nativeFont.mFont = aFont->GetCairoScaledFont();
+    return Factory::CreateScaledFontForNativeFont(nativeFont,
+                                                  aFont->GetUnscaledFont(),
+                                                  aFont->GetAdjustedSize());
 }
 
 /* static */ bool
@@ -2559,6 +2635,10 @@ gfxPlatform::GetApzSupportInfo(mozilla::widget::InfoObject& aObj)
   if (SupportsApzDragInput()) {
     aObj.DefineProperty("ApzDragInput", 1);
   }
+
+  if (SupportsApzKeyboardInput() && !gfxPrefs::AccessibilityBrowseWithCaret()) {
+    aObj.DefineProperty("ApzKeyboardInput", 1);
+  }
 }
 
 void
@@ -2647,11 +2727,12 @@ gfxPlatform::NotifyCompositorCreated(LayersBackend aBackend)
   mCompositorBackend = aBackend;
 
   // Notify that we created a compositor, so telemetry can update.
-  NS_DispatchToMainThread(NS_NewRunnableFunction([] {
-    if (nsCOMPtr<nsIObserverService> obsvc = services::GetObserverService()) {
-      obsvc->NotifyObservers(nullptr, "compositor:created", nullptr);
-    }
-  }));
+  NS_DispatchToMainThread(
+    NS_NewRunnableFunction("gfxPlatform::NotifyCompositorCreated", [] {
+      if (nsCOMPtr<nsIObserverService> obsvc = services::GetObserverService()) {
+        obsvc->NotifyObservers(nullptr, "compositor:created", nullptr);
+      }
+    }));
 }
 
 /* static */ void
@@ -2670,6 +2751,11 @@ void
 gfxPlatform::FetchAndImportContentDeviceData()
 {
   MOZ_ASSERT(XRE_IsContentProcess());
+
+  if (gContentDeviceInitData) {
+    ImportContentDeviceData(*gContentDeviceInitData);
+    return;
+  }
 
   mozilla::dom::ContentChild* cc = mozilla::dom::ContentChild::GetSingleton();
 
@@ -2707,6 +2793,7 @@ gfxPlatform::ImportGPUDeviceData(const mozilla::gfx::GPUDeviceData& aData)
   MOZ_ASSERT(XRE_IsParentProcess());
 
   gfxConfig::ImportChange(Feature::OPENGL_COMPOSITING, aData.oglCompositing());
+  gfxConfig::ImportChange(Feature::ADVANCED_LAYERS, aData.advancedLayers());
 }
 
 bool
@@ -2719,6 +2806,12 @@ bool
 gfxPlatform::SupportsApzDragInput() const
 {
   return gfxPrefs::APZDragEnabled();
+}
+
+bool
+gfxPlatform::SupportsApzKeyboardInput() const
+{
+  return gfxPrefs::APZKeyboardEnabled();
 }
 
 void

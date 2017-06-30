@@ -16,6 +16,7 @@
 #include "nsIHttpHeaderVisitor.h"
 #include "nsIRedirectChannelRegistrar.h"
 #include "nsIPromptFactory.h"
+#include "nsIWindowWatcher.h"
 #include "nsQueryObject.h"
 
 using mozilla::Unused;
@@ -304,7 +305,8 @@ class FinishSynthesizedResponse : public Runnable
   nsCOMPtr<nsIInterceptedChannel> mChannel;
 public:
   explicit FinishSynthesizedResponse(nsIInterceptedChannel* aChannel)
-  : mChannel(aChannel)
+    : Runnable("net::FinishSynthesizedResponse")
+    , mChannel(aChannel)
   {
   }
 

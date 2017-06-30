@@ -40,32 +40,6 @@ WebRenderDisplayItemLayer::RenderLayer(wr::DisplayListBuilder& aBuilder,
 
   ScrollingLayersHelper scroller(this, aBuilder, aSc);
 
-  Maybe<WrImageMask> mask = BuildWrMaskLayer(nullptr);
-  WrImageMask* imageMask = mask.ptrOr(nullptr);
-
-  ParentLayerRect clip = GetLocalTransformTyped().TransformBounds(Bounds());
-  if (GetClipRect()) {
-    clip = ParentLayerRect(GetClipRect().ref());
-  }
-
-  // As with WebRenderTextLayer, I'm not 100% sure this is correct, but I
-  // think it is. Because we don't push a stacking context for this layer,
-  // WR doesn't know about the transform on this layer. The display items
-  // that we push as part of this layer already take the transform into
-  // account. When we set the clip rect we also need to explicitly apply
-  // the transform to make sure it gets taken into account.
-  // In a sense this is the opposite of what WebRenderLayer::ClipRect() does,
-  // because there we remove the transform from the clip rect to bring it
-  // into the coordinate space of the local stacking context, but here we
-  // need to apply the transform to the bounds to take it into the coordinate
-  // space of the enclosing stacking context.
-  // The conversion from ParentLayerPixel to LayerPixel below is a result of
-  // changing the reference layer from "this layer" to the "the layer that
-  // created aSc".
-  LayerRect clipInParentLayerSpace = ViewAs<LayerPixel>(clip,
-      PixelCastJustification::MovingDownToChildren);
-  aBuilder.PushClip(aSc.ToRelativeWrRect(clipInParentLayerSpace), imageMask);
-
   if (mItem) {
     WrSize contentSize; // this won't actually be used by anything
     wr::DisplayListBuilder builder(WrBridge()->GetPipeline(), contentSize);
@@ -87,10 +61,8 @@ WebRenderDisplayItemLayer::RenderLayer(wr::DisplayListBuilder& aBuilder,
     }
   }
 
-  aBuilder.PushBuiltDisplayList(Move(mBuiltDisplayList));
+  aBuilder.PushBuiltDisplayList(mBuiltDisplayList);
   WrBridge()->AddWebRenderParentCommands(mParentCommands);
-
-  aBuilder.PopClip();
 }
 
 Maybe<wr::ImageKey>
@@ -150,8 +122,8 @@ WebRenderDisplayItemLayer::PushItemAsBlobImage(wr::DisplayListBuilder& aBuilder,
 
   RefPtr<gfx::DrawEventRecorderMemory> recorder = MakeAndAddRef<gfx::DrawEventRecorderMemory>();
   RefPtr<gfx::DrawTarget> dummyDt =
-    gfx::Factory::CreateDrawTarget(gfx::BackendType::SKIA, imageSize.ToUnknownSize(), gfx::SurfaceFormat::B8G8R8X8);
-  RefPtr<gfx::DrawTarget> dt = gfx::Factory::CreateRecordingDrawTarget(recorder, dummyDt);
+    gfx::Factory::CreateDrawTarget(gfx::BackendType::SKIA, gfx::IntSize(1, 1), gfx::SurfaceFormat::B8G8R8X8);
+  RefPtr<gfx::DrawTarget> dt = gfx::Factory::CreateRecordingDrawTarget(recorder, dummyDt, imageSize.ToUnknownSize());
   LayerPoint offset = ViewAs<LayerPixel>(
       LayoutDevicePoint::FromAppUnits(mItem->ToReferenceFrame(), appUnitsPerDevPixel),
       PixelCastJustification::WebRenderHasUnitResolution);
@@ -161,23 +133,18 @@ WebRenderDisplayItemLayer::PushItemAsBlobImage(wr::DisplayListBuilder& aBuilder,
     RefPtr<gfxContext> context = gfxContext::CreateOrNull(dt, offset.ToUnknownPoint());
     MOZ_ASSERT(context);
 
-    nsRenderingContext ctx(context);
-    mItem->Paint(mBuilder, &ctx);
+    mItem->Paint(mBuilder, context);
   }
 
-  wr::ByteBuffer bytes;
-  bytes.Allocate(recorder->RecordingSize());
-  DebugOnly<bool> ok = recorder->CopyRecording((char*)bytes.AsSlice().begin().get(), bytes.AsSlice().length());
-  MOZ_ASSERT(ok);
+  wr::ByteBuffer bytes(recorder->mOutputStream.mLength, (uint8_t*)recorder->mOutputStream.mData);
 
   WrRect dest = aSc.ToRelativeWrRect(imageRect + offset);
-  WrClipRegionToken clipRegion = aBuilder.PushClipRegion(dest);
   WrImageKey key = GetImageKey();
   WrBridge()->SendAddBlobImage(key, imageSize.ToUnknownSize(), imageSize.width * 4, dt->GetFormat(), bytes);
   WrManager()->AddImageKeyForDiscard(key);
 
   aBuilder.PushImage(dest,
-                     clipRegion,
+                     dest,
                      wr::ImageRendering::Auto,
                      key);
   return true;

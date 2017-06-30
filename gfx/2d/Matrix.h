@@ -872,12 +872,6 @@ public:
   template<class F>
   GFX2D_API RectTyped<TargetUnits, F> TransformBounds(const RectTyped<SourceUnits, F>& aRect) const
   {
-    Point4DTyped<TargetUnits, F> verts[4];
-    verts[0] = TransformPoint(Point4DTyped<SourceUnits, F>(aRect.x, aRect.y, 0.0, 1.0));
-    verts[1] = TransformPoint(Point4DTyped<SourceUnits, F>(aRect.XMost(), aRect.y, 0.0, 1.0));
-    verts[2] = TransformPoint(Point4DTyped<SourceUnits, F>(aRect.XMost(), aRect.YMost(), 0.0, 1.0));
-    verts[3] = TransformPoint(Point4DTyped<SourceUnits, F>(aRect.x, aRect.YMost(), 0.0, 1.0));
-
     PointTyped<TargetUnits, F> quad[4];
     F min_x, max_x;
     F min_y, max_y;
@@ -1577,6 +1571,20 @@ public:
    */
   bool HasPerspectiveComponent() const {
     return _14 != 0 || _24 != 0 || _34 != 0 || _44 != 1;
+  }
+
+  /* Returns true if the matrix is a rectilinear transformation (i.e.
+   * grid-aligned rectangles are transformed to grid-aligned rectangles).
+   * This should only be called on 2D matrices.
+   */
+  bool IsRectilinear() const {
+    MOZ_ASSERT(Is2D());
+    if (gfx::FuzzyEqual(_12, 0) && gfx::FuzzyEqual(_21, 0)) {
+      return true;
+    } else if (gfx::FuzzyEqual(_22, 0) && gfx::FuzzyEqual(_11, 0)) {
+      return true;
+    }
+    return false;
   }
 
   /**

@@ -4,26 +4,25 @@
 
 #include "VideoUtils.h"
 
-#include "mozilla/Base64.h"
-#include "mozilla/TaskQueue.h"
-#include "mozilla/Telemetry.h"
-
+#include "ImageContainer.h"
 #include "MediaContainerType.h"
 #include "MediaPrefs.h"
 #include "MediaResource.h"
 #include "TimeUnits.h"
-#include "nsMathUtils.h"
-#include "nsSize.h"
 #include "VorbisUtils.h"
-#include "ImageContainer.h"
+#include "mozilla/Base64.h"
 #include "mozilla/SharedThreadPool.h"
-#include "nsIRandomGenerator.h"
-#include "nsIServiceManager.h"
-#include "nsServiceManagerUtils.h"
-#include "nsIConsoleService.h"
-#include "nsThreadUtils.h"
+#include "mozilla/TaskQueue.h"
+#include "mozilla/Telemetry.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "nsContentTypeParser.h"
+#include "nsIConsoleService.h"
+#include "nsIRandomGenerator.h"
+#include "nsIServiceManager.h"
+#include "nsMathUtils.h"
+#include "nsServiceManagerUtils.h"
+#include "nsSize.h"
+#include "nsThreadUtils.h"
 
 #include <functional>
 #include <stdint.h>
@@ -322,8 +321,9 @@ SimpleTimer::Cancel() {
 #ifdef DEBUG
     nsCOMPtr<nsIEventTarget> target;
     mTimer->GetTarget(getter_AddRefs(target));
-    nsCOMPtr<nsIThread> thread(do_QueryInterface(target));
-    MOZ_ASSERT(NS_GetCurrentThread() == thread);
+    bool onCurrent;
+    nsresult rv = target->IsOnCurrentThread(&onCurrent);
+    MOZ_ASSERT(NS_SUCCEEDED(rv) && onCurrent);
 #endif
     mTimer->Cancel();
     mTimer = nullptr;
@@ -342,18 +342,18 @@ SimpleTimer::Notify(nsITimer *timer) {
 }
 
 nsresult
-SimpleTimer::Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIThread* aTarget)
+SimpleTimer::Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIEventTarget* aTarget)
 {
   nsresult rv;
 
   // Get target thread first, so we don't have to cancel the timer if it fails.
-  nsCOMPtr<nsIThread> target;
+  nsCOMPtr<nsIEventTarget> target;
   if (aTarget) {
     target = aTarget;
   } else {
-    rv = NS_GetMainThread(getter_AddRefs(target));
-    if (NS_FAILED(rv)) {
-      return rv;
+    target = GetMainThreadEventTarget();
+    if (!target) {
+      return NS_ERROR_NOT_AVAILABLE;
     }
   }
 
@@ -363,7 +363,7 @@ SimpleTimer::Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIThread* aTarget)
   }
   // Note: set target before InitWithCallback in case the timer fires before
   // we change the event target.
-  rv = timer->SetTarget(aTarget);
+  rv = timer->SetTarget(target);
   if (NS_FAILED(rv)) {
     timer->Cancel();
     return rv;
@@ -381,7 +381,7 @@ SimpleTimer::Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIThread* aTarget)
 NS_IMPL_ISUPPORTS(SimpleTimer, nsITimerCallback)
 
 already_AddRefed<SimpleTimer>
-SimpleTimer::Create(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIThread* aTarget)
+SimpleTimer::Create(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIEventTarget* aTarget)
 {
   RefPtr<SimpleTimer> t(new SimpleTimer());
   if (NS_FAILED(t->Init(aTask, aTimeoutMs, aTarget))) {
@@ -395,8 +395,8 @@ LogToBrowserConsole(const nsAString& aMsg)
 {
   if (!NS_IsMainThread()) {
     nsString msg(aMsg);
-    nsCOMPtr<nsIRunnable> task =
-      NS_NewRunnableFunction([msg]() { LogToBrowserConsole(msg); });
+    nsCOMPtr<nsIRunnable> task = NS_NewRunnableFunction(
+      "LogToBrowserConsole", [msg]() { LogToBrowserConsole(msg); });
     SystemGroup::Dispatch("LogToBrowserConsole", TaskCategory::Other, task.forget());
     return;
   }
@@ -417,7 +417,7 @@ ParseCodecsString(const nsAString& aCodecs, nsTArray<nsString>& aOutCodecs)
   bool expectMoreTokens = false;
   nsCharSeparatedTokenizer tokenizer(aCodecs, ',');
   while (tokenizer.hasMoreTokens()) {
-    const nsSubstring& token = tokenizer.nextToken();
+    const nsAString& token = tokenizer.nextToken();
     expectMoreTokens = tokenizer.separatorAfterCurrentToken();
     aOutCodecs.AppendElement(token);
   }

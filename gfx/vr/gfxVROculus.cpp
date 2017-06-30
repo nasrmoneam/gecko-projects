@@ -66,6 +66,7 @@ static pfn_ovr_Shutdown ovr_Shutdown = nullptr;
 static pfn_ovr_GetLastErrorInfo ovr_GetLastErrorInfo = nullptr;
 static pfn_ovr_GetVersionString ovr_GetVersionString = nullptr;
 static pfn_ovr_TraceMessage ovr_TraceMessage = nullptr;
+static pfn_ovr_IdentifyClient ovr_IdentifyClient = nullptr;
 static pfn_ovr_GetHmdDesc ovr_GetHmdDesc = nullptr;
 static pfn_ovr_GetTrackerCount ovr_GetTrackerCount = nullptr;
 static pfn_ovr_GetTrackerDesc ovr_GetTrackerDesc = nullptr;
@@ -75,12 +76,25 @@ static pfn_ovr_GetSessionStatus ovr_GetSessionStatus = nullptr;
 static pfn_ovr_SetTrackingOriginType ovr_SetTrackingOriginType = nullptr;
 static pfn_ovr_GetTrackingOriginType ovr_GetTrackingOriginType = nullptr;
 static pfn_ovr_RecenterTrackingOrigin ovr_RecenterTrackingOrigin = nullptr;
+static pfn_ovr_SpecifyTrackingOrigin ovr_SpecifyTrackingOrigin = nullptr;
 static pfn_ovr_ClearShouldRecenterFlag ovr_ClearShouldRecenterFlag = nullptr;
 static pfn_ovr_GetTrackingState ovr_GetTrackingState = nullptr;
+static pfn_ovr_GetDevicePoses ovr_GetDevicePoses = nullptr;
 static pfn_ovr_GetTrackerPose ovr_GetTrackerPose = nullptr;
 static pfn_ovr_GetInputState ovr_GetInputState = nullptr;
 static pfn_ovr_GetConnectedControllerTypes ovr_GetConnectedControllerTypes = nullptr;
+static pfn_ovr_GetTouchHapticsDesc ovr_GetTouchHapticsDesc = nullptr;
 static pfn_ovr_SetControllerVibration ovr_SetControllerVibration = nullptr;
+static pfn_ovr_SubmitControllerVibration ovr_SubmitControllerVibration = nullptr;
+static pfn_ovr_GetControllerVibrationState ovr_GetControllerVibrationState = nullptr;
+static pfn_ovr_TestBoundary ovr_TestBoundary = nullptr;
+static pfn_ovr_TestBoundaryPoint ovr_TestBoundaryPoint = nullptr;
+static pfn_ovr_SetBoundaryLookAndFeel ovr_SetBoundaryLookAndFeel = nullptr;
+static pfn_ovr_ResetBoundaryLookAndFeel ovr_ResetBoundaryLookAndFeel = nullptr;
+static pfn_ovr_GetBoundaryGeometry ovr_GetBoundaryGeometry = nullptr;
+static pfn_ovr_GetBoundaryDimensions ovr_GetBoundaryDimensions = nullptr;
+static pfn_ovr_GetBoundaryVisible ovr_GetBoundaryVisible = nullptr;
+static pfn_ovr_RequestBoundaryVisible ovr_RequestBoundaryVisible = nullptr;
 static pfn_ovr_GetTextureSwapChainLength ovr_GetTextureSwapChainLength = nullptr;
 static pfn_ovr_GetTextureSwapChainCurrentIndex ovr_GetTextureSwapChainCurrentIndex = nullptr;
 static pfn_ovr_GetTextureSwapChainDesc ovr_GetTextureSwapChainDesc = nullptr;
@@ -90,6 +104,8 @@ static pfn_ovr_DestroyMirrorTexture ovr_DestroyMirrorTexture = nullptr;
 static pfn_ovr_GetFovTextureSize ovr_GetFovTextureSize = nullptr;
 static pfn_ovr_GetRenderDesc ovr_GetRenderDesc = nullptr;
 static pfn_ovr_SubmitFrame ovr_SubmitFrame = nullptr;
+static pfn_ovr_GetPerfStats ovr_GetPerfStats = nullptr;
+static pfn_ovr_ResetPerfStats ovr_ResetPerfStats = nullptr;
 static pfn_ovr_GetPredictedDisplayTime ovr_GetPredictedDisplayTime = nullptr;
 static pfn_ovr_GetTimeInSeconds ovr_GetTimeInSeconds = nullptr;
 static pfn_ovr_GetBool ovr_GetBool = nullptr;
@@ -102,7 +118,8 @@ static pfn_ovr_GetFloatArray ovr_GetFloatArray = nullptr;
 static pfn_ovr_SetFloatArray ovr_SetFloatArray = nullptr;
 static pfn_ovr_GetString ovr_GetString = nullptr;
 static pfn_ovr_SetString ovr_SetString = nullptr;
-static pfn_ovr_GetBoundaryDimensions ovr_GetBoundaryDimensions = nullptr;
+static pfn_ovr_GetExternalCameras ovr_GetExternalCameras = nullptr;
+static pfn_ovr_SetExternalCameraProperties ovr_SetExternalCameraProperties = nullptr;
 
 #ifdef XP_WIN
 static pfn_ovr_CreateTextureSwapChainDX ovr_CreateTextureSwapChainDX = nullptr;
@@ -124,7 +141,7 @@ static pfn_ovr_GetMirrorTextureBufferGL ovr_GetMirrorTextureBufferGL = nullptr;
 
 #define OVR_PRODUCT_VERSION 1
 #define OVR_MAJOR_VERSION   1
-#define OVR_MINOR_VERSION   10
+#define OVR_MINOR_VERSION   15
 
 enum class OculusLeftControllerButtonType : uint16_t {
   LThumb,
@@ -240,6 +257,7 @@ VRSystemManagerOculus::LoadOvrLib()
   REQUIRE_FUNCTION(ovr_GetLastErrorInfo);
   REQUIRE_FUNCTION(ovr_GetVersionString);
   REQUIRE_FUNCTION(ovr_TraceMessage);
+  REQUIRE_FUNCTION(ovr_IdentifyClient);
   REQUIRE_FUNCTION(ovr_GetHmdDesc);
   REQUIRE_FUNCTION(ovr_GetTrackerCount);
   REQUIRE_FUNCTION(ovr_GetTrackerDesc);
@@ -249,12 +267,25 @@ VRSystemManagerOculus::LoadOvrLib()
   REQUIRE_FUNCTION(ovr_SetTrackingOriginType);
   REQUIRE_FUNCTION(ovr_GetTrackingOriginType);
   REQUIRE_FUNCTION(ovr_RecenterTrackingOrigin);
+  REQUIRE_FUNCTION(ovr_SpecifyTrackingOrigin);
   REQUIRE_FUNCTION(ovr_ClearShouldRecenterFlag);
   REQUIRE_FUNCTION(ovr_GetTrackingState);
+  REQUIRE_FUNCTION(ovr_GetDevicePoses);
   REQUIRE_FUNCTION(ovr_GetTrackerPose);
   REQUIRE_FUNCTION(ovr_GetInputState);
   REQUIRE_FUNCTION(ovr_GetConnectedControllerTypes);
+  REQUIRE_FUNCTION(ovr_GetTouchHapticsDesc);
   REQUIRE_FUNCTION(ovr_SetControllerVibration);
+  REQUIRE_FUNCTION(ovr_SubmitControllerVibration);
+  REQUIRE_FUNCTION(ovr_GetControllerVibrationState);
+  REQUIRE_FUNCTION(ovr_TestBoundary);
+  REQUIRE_FUNCTION(ovr_TestBoundaryPoint);
+  REQUIRE_FUNCTION(ovr_SetBoundaryLookAndFeel);
+  REQUIRE_FUNCTION(ovr_ResetBoundaryLookAndFeel);
+  REQUIRE_FUNCTION(ovr_GetBoundaryGeometry);
+  REQUIRE_FUNCTION(ovr_GetBoundaryDimensions);
+  REQUIRE_FUNCTION(ovr_GetBoundaryVisible);
+  REQUIRE_FUNCTION(ovr_RequestBoundaryVisible);
   REQUIRE_FUNCTION(ovr_GetTextureSwapChainLength);
   REQUIRE_FUNCTION(ovr_GetTextureSwapChainCurrentIndex);
   REQUIRE_FUNCTION(ovr_GetTextureSwapChainDesc);
@@ -264,6 +295,8 @@ VRSystemManagerOculus::LoadOvrLib()
   REQUIRE_FUNCTION(ovr_GetFovTextureSize);
   REQUIRE_FUNCTION(ovr_GetRenderDesc);
   REQUIRE_FUNCTION(ovr_SubmitFrame);
+  REQUIRE_FUNCTION(ovr_GetPerfStats);
+  REQUIRE_FUNCTION(ovr_ResetPerfStats);
   REQUIRE_FUNCTION(ovr_GetPredictedDisplayTime);
   REQUIRE_FUNCTION(ovr_GetTimeInSeconds);
   REQUIRE_FUNCTION(ovr_GetBool);
@@ -276,7 +309,8 @@ VRSystemManagerOculus::LoadOvrLib()
   REQUIRE_FUNCTION(ovr_SetFloatArray);
   REQUIRE_FUNCTION(ovr_GetString);
   REQUIRE_FUNCTION(ovr_SetString);
-  REQUIRE_FUNCTION(ovr_GetBoundaryDimensions);
+  REQUIRE_FUNCTION(ovr_GetExternalCameras);
+  REQUIRE_FUNCTION(ovr_SetExternalCameraProperties);
 
 #ifdef XP_WIN
 
@@ -438,29 +472,26 @@ VRDisplayOculus::ZeroSensor()
 VRHMDSensorState
 VRDisplayOculus::GetSensorState()
 {
-  mInputFrameID++;
-
   VRHMDSensorState result;
-  double frameDelta = 0.0f;
+  double predictedFrameTime = 0.0f;
   if (gfxPrefs::VRPosePredictionEnabled()) {
     // XXX We might need to call ovr_GetPredictedDisplayTime even if we don't use the result.
     // If we don't call it, the Oculus driver will spew out many warnings...
-    double predictedFrameTime = ovr_GetPredictedDisplayTime(mSession, 0);
-    frameDelta = predictedFrameTime - ovr_GetTimeInSeconds();
+    predictedFrameTime = ovr_GetPredictedDisplayTime(mSession, 0);
   }
-  result = GetSensorState(frameDelta);
-  result.inputFrameID = mInputFrameID;
-  mLastSensorState[result.inputFrameID % kMaxLatencyFrames] = result;
+  result = GetSensorState(predictedFrameTime);
+  result.inputFrameID = mDisplayInfo.mFrameId;
   result.position[1] -= mEyeHeight;
+  mDisplayInfo.mLastSensorState[result.inputFrameID % kVRMaxLatencyFrames] = result;
   return result;
 }
 
 VRHMDSensorState
-VRDisplayOculus::GetSensorState(double timeOffset)
+VRDisplayOculus::GetSensorState(double absTime)
 {
   VRHMDSensorState result;
 
-  ovrTrackingState state = ovr_GetTrackingState(mSession, timeOffset, true);
+  ovrTrackingState state = ovr_GetTrackingState(mSession, absTime, true);
   ovrPoseStatef& pose(state.HeadPose);
 
   result.timestamp = pose.TimeInSeconds;
@@ -695,15 +726,14 @@ VRDisplayOculus::UpdateConstantBuffers()
   return true;
 }
 
-void
+bool
 VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
   const IntSize& aSize,
-  const VRHMDSensorState& aSensorState,
   const gfx::Rect& aLeftEyeRect,
   const gfx::Rect& aRightEyeRect)
 {
   if (!mIsPresenting) {
-    return;
+    return false;
   }
   if (mRenderTargets.IsEmpty()) {
     /**
@@ -714,7 +744,7 @@ VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
      *       that frames are not being presented.
      *       See Bug 1299309.
      **/
-    return;
+    return false;
   }
   MOZ_ASSERT(mDevice);
   MOZ_ASSERT(mContext);
@@ -767,6 +797,10 @@ VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
   mContext->VSSetShader(mQuadVS, nullptr, 0);
   mContext->PSSetShader(mQuadPS, nullptr, 0);
   ID3D11ShaderResourceView* srView = aSource->GetShaderResourceView();
+  if (!srView) {
+    NS_WARNING("Failed to get SRV for Oculus");
+    return false;
+  }
   mContext->PSSetShaderResources(0 /* 0 == TexSlot::RGB */, 1, &srView);
   // XXX Use Constant from TexSlot in CompositorD3D11.cpp?
 
@@ -775,7 +809,7 @@ VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
 
   if (!UpdateConstantBuffers()) {
     NS_WARNING("Failed to update constant buffers for Oculus");
-    return;
+    return false;
   }
 
   mContext->Draw(4, 0);
@@ -783,7 +817,7 @@ VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
   ovrResult orv = ovr_CommitTextureSwapChain(mSession, mTextureSet);
   if (orv != ovrSuccess) {
     NS_WARNING("ovr_CommitTextureSwapChain failed.\n");
-    return;
+    return false;
   }
 
   ovrLayerEyeFov layer;
@@ -808,33 +842,42 @@ VRDisplayOculus::SubmitFrame(TextureSourceD3D11* aSource,
   const ovrVector3f hmdToEyeViewOffset[2] = { { l.x, l.y, l.z },
                                               { r.x, r.y, r.z } };
 
+  const VRHMDSensorState& sensorState = mDisplayInfo.GetSensorState();
+
   for (uint32_t i = 0; i < 2; ++i) {
-    Quaternion o(aSensorState.orientation[0],
-      aSensorState.orientation[1],
-      aSensorState.orientation[2],
-      aSensorState.orientation[3]);
+    Quaternion o(sensorState.orientation[0],
+      sensorState.orientation[1],
+      sensorState.orientation[2],
+      sensorState.orientation[3]);
     Point3D vo(hmdToEyeViewOffset[i].x, hmdToEyeViewOffset[i].y, hmdToEyeViewOffset[i].z);
     Point3D p = o.RotatePoint(vo);
     layer.RenderPose[i].Orientation.x = o.x;
     layer.RenderPose[i].Orientation.y = o.y;
     layer.RenderPose[i].Orientation.z = o.z;
     layer.RenderPose[i].Orientation.w = o.w;
-    layer.RenderPose[i].Position.x = p.x + aSensorState.position[0];
-    layer.RenderPose[i].Position.y = p.y + aSensorState.position[1];
-    layer.RenderPose[i].Position.z = p.z + aSensorState.position[2];
+    layer.RenderPose[i].Position.x = p.x + sensorState.position[0];
+    layer.RenderPose[i].Position.y = p.y + sensorState.position[1];
+    layer.RenderPose[i].Position.z = p.z + sensorState.position[2];
   }
 
   ovrLayerHeader *layers = &layer.Header;
-  orv = ovr_SubmitFrame(mSession, aSensorState.inputFrameID, nullptr, &layers, 1);
+  orv = ovr_SubmitFrame(mSession, mDisplayInfo.mFrameId, nullptr, &layers, 1);
+  // ovr_SubmitFrame will fail during the Oculus health and safety warning.
+  // and will start succeeding once the warning has been dismissed by the user.
 
-  if (orv != ovrSuccess) {
-    printf_stderr("ovr_SubmitFrame failed.\n");
+  if (!OVR_UNQUALIFIED_SUCCESS(orv)) {
+    /**
+     * We wish to throttle the framerate for any case that the rendered
+     * result is not visible.  In some cases, such as during the Oculus
+     * "health and safety warning", orv will be > 0 (OVR_SUCCESS but not
+     * OVR_UNQUALIFIED_SUCCESS) and ovr_SubmitFrame will not block.
+     * In this case, returning true would have resulted in an unthrottled
+     * render loop hiting excessive frame rates and consuming resources.
+     */
+    return false;
   }
 
-  // Trigger the next VSync immediately
-  VRManager *vm = VRManager::Get();
-  MOZ_ASSERT(vm);
-  vm->NotifyVRVsync(mDisplayInfo.mDisplayID);
+  return true;
 }
 
 void
@@ -843,6 +886,8 @@ VRDisplayOculus::NotifyVSync()
   ovrSessionStatus sessionStatus;
   ovrResult ovr = ovr_GetSessionStatus(mSession, &sessionStatus);
   mDisplayInfo.mIsConnected = (ovr == ovrSuccess && sessionStatus.HmdPresent);
+
+  VRDisplayHost::NotifyVSync();
 }
 
 VRControllerOculus::VRControllerOculus(dom::GamepadHand aHand)
@@ -985,9 +1030,10 @@ VRControllerOculus::UpdateVibrateHaptic(ovrSession aSession,
     MOZ_ASSERT(mVibrateThread);
 
     RefPtr<Runnable> runnable =
-      NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t, uint32_t>
-        (this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
-         aHapticIndex, aIntensity, (duration > kVibrateRate) ? remainingTime : 0, aVibrateIndex, aPromiseID);
+      NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t, uint32_t>(
+        "VRControllerOculus::UpdateVibrateHaptic",
+        this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
+        aHapticIndex, aIntensity, (duration > kVibrateRate) ? remainingTime : 0, aVibrateIndex, aPromiseID);
     NS_DelayedDispatchToCurrentThread(runnable.forget(),
                                       (duration > kVibrateRate) ? kVibrateRate : remainingTime);
   } else {
@@ -1024,8 +1070,9 @@ VRControllerOculus::VibrateHapticComplete(ovrSession aSession, uint32_t aPromise
   VRManager *vm = VRManager::Get();
   MOZ_ASSERT(vm);
 
-  CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>
-    (vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
+  CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>(
+                                             "VRManager::NotifyVibrateHapticCompleted",
+                                             vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
 }
 
 void
@@ -1049,7 +1096,8 @@ VRControllerOculus::VibrateHaptic(ovrSession aSession,
 
   RefPtr<Runnable> runnable =
        NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t, uint32_t>
-         (this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
+         ("VRControllerOculus::UpdateVibrateHaptic",
+          this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
           aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromiseID);
   mVibrateThread->Dispatch(runnable.forget(), NS_DISPATCH_NORMAL);
 }
@@ -1167,7 +1215,7 @@ VRSystemManagerOculus::GetIsPresenting()
 {
   if (mHMDInfo) {
     VRDisplayInfo displayInfo(mHMDInfo->GetDisplayInfo());
-    return displayInfo.GetIsPresenting();
+    return displayInfo.GetPresentingGroups() != 0;
   }
 
   return false;

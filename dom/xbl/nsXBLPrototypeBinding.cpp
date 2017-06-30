@@ -230,12 +230,10 @@ nsXBLPrototypeBinding::GetAllowScripts() const
 }
 
 bool
-nsXBLPrototypeBinding::LoadResources()
+nsXBLPrototypeBinding::LoadResources(nsIContent* aBoundElement)
 {
   if (mResources) {
-    bool result;
-    mResources->LoadResources(&result);
-    return result;
+    return mResources->LoadResources(aBoundElement);
   }
 
   return true;
@@ -569,6 +567,12 @@ nsXBLPrototypeBinding::GetRuleProcessor()
   }
 
   return nullptr;
+}
+
+const ServoStyleSet*
+nsXBLPrototypeBinding::GetServoStyleSet() const
+{
+  return mResources ? mResources->GetServoStyleSet() : nullptr;
 }
 
 void
@@ -1628,7 +1632,7 @@ nsXBLPrototypeBinding::ResolveBaseBinding()
     mBinding->UnsetAttr(kNameSpaceID_None, nsGkAtoms::display, false);
 
     return NS_NewURI(getter_AddRefs(mBaseBindingURI), value,
-                     doc->GetDocumentCharacterSet().get(),
+                     doc->GetDocumentCharacterSet(),
                      doc->GetDocBaseURI());
   }
 

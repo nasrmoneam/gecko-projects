@@ -158,6 +158,7 @@ public:
     inline void RecordShadowStyleChange(mozilla::dom::ShadowRoot* aShadowRoot);
     inline bool StyleSheetsHaveChanged() const;
     inline void InvalidateStyleForCSSRuleChanges();
+    inline bool MediumFeaturesChanged();
     inline already_AddRefed<nsStyleContext>
     ProbePseudoElementStyle(dom::Element* aParentElement,
                             mozilla::CSSPseudoElementType aType,
@@ -166,8 +167,7 @@ public:
     ProbePseudoElementStyle(dom::Element* aParentElement,
                             mozilla::CSSPseudoElementType aType,
                             nsStyleContext* aParentContext,
-                            TreeMatchContext* aTreeMatchContext,
-                            dom::Element* aPseudoElement = nullptr);
+                            TreeMatchContext* aTreeMatchContext);
     inline nsRestyleHint HasStateDependentStyle(dom::Element* aElement,
                                                 EventStates aStateMask);
     inline nsRestyleHint HasStateDependentStyle(

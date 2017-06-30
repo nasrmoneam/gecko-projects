@@ -63,7 +63,7 @@
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 15);
+/******/ 	return __webpack_require__(__webpack_require__.s = 18);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -97,16 +97,15 @@ const globalImportContext = typeof Window === "undefined" ? BACKGROUND_PROCESS :
 // Export for tests
 
 
-const actionTypes = ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "INIT", "LOCALE_UPDATED", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_UNLOAD", "NEW_TAB_VISIBLE", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PERFORM_SEARCH", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "SCREENSHOT_UPDATED", "SEARCH_STATE_UPDATED", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_UPDATED", "UNINIT"
-// The line below creates an object like this:
+// Create an object that avoids accidental differing key/value pairs:
 // {
 //   INIT: "INIT",
 //   UNINIT: "UNINIT"
 // }
-// It prevents accidentally adding a different key/value name.
-].reduce((obj, type) => {
-  obj[type] = type;return obj;
-}, {});
+const actionTypes = {};
+for (const type of ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "DELETE_HISTORY_URL_CONFIRM", "DIALOG_CANCEL", "DIALOG_OPEN", "INIT", "LOCALE_UPDATED", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_UNLOAD", "NEW_TAB_VISIBLE", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "SCREENSHOT_UPDATED", "SET_PREF", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_UPDATED", "UNINIT"]) {
+  actionTypes[type] = type;
+}
 
 // Helper function for creating routed actions between content and main
 // Not intended to be used by consumers
@@ -222,13 +221,21 @@ function PerfEvent(data) {
   return importContext === UI_CODE ? SendToMain(action) : action;
 }
 
+function SetPref(name, value) {
+  let importContext = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : globalImportContext;
+
+  const action = { type: actionTypes.SET_PREF, data: { name, value } };
+  return importContext === UI_CODE ? SendToMain(action) : action;
+}
+
 var actionCreators = {
   BroadcastToContent,
   UserEvent,
   UndesiredEvent,
   PerfEvent,
   SendToContent,
-  SendToMain
+  SendToMain,
+  SetPref
 };
 
 // These are helpers to test for certain kinds of actions
@@ -304,8 +311,10 @@ var _require2 = __webpack_require__(3);
 const addLocaleData = _require2.addLocaleData,
       IntlProvider = _require2.IntlProvider;
 
-const TopSites = __webpack_require__(12);
-const Search = __webpack_require__(11);
+const TopSites = __webpack_require__(14);
+const Search = __webpack_require__(13);
+const ConfirmDialog = __webpack_require__(9);
+const PreferencesPane = __webpack_require__(12);
 
 // Locales that should be displayed RTL
 const RTL_LIST = ["ar", "he", "fa", "ur"];
@@ -342,10 +351,13 @@ class Base extends React.Component {
   }
 
   render() {
-    var _props$App = this.props.App;
-    let locale = _props$App.locale,
-        strings = _props$App.strings,
-        initialized = _props$App.initialized;
+    const props = this.props;
+    var _props$App = props.App;
+    const locale = _props$App.locale,
+          strings = _props$App.strings,
+          initialized = _props$App.initialized;
+
+    const prefs = props.Prefs.values;
 
     if (!initialized) {
       return null;
@@ -360,15 +372,17 @@ class Base extends React.Component {
         React.createElement(
           "main",
           null,
-          React.createElement(Search, null),
-          React.createElement(TopSites, null)
-        )
+          prefs.showSearch && React.createElement(Search, null),
+          prefs.showTopSites && React.createElement(TopSites, null),
+          React.createElement(ConfirmDialog, null)
+        ),
+        React.createElement(PreferencesPane, null)
       )
     );
   }
 }
 
-module.exports = connect(state => ({ App: state.App }))(Base);
+module.exports = connect(state => ({ App: state.App, Prefs: state.Prefs }))(Base);
 
 /***/ }),
 /* 5 */
@@ -381,6 +395,10 @@ var _require = __webpack_require__(1);
 
 const at = _require.actionTypes;
 
+var _require2 = __webpack_require__(16);
+
+const perfSvc = _require2.perfService;
+
 
 const VISIBLE = "visible";
 const VISIBILITY_CHANGE_EVENT = "visibilitychange";
@@ -392,7 +410,7 @@ module.exports = class DetectUserSessionStart {
     // Overrides for testing
     this.sendAsyncMessage = options.sendAsyncMessage || window.sendAsyncMessage;
     this.document = options.document || document;
-
+    this._perfService = options.perfService || perfSvc;
     this._onVisibilityChange = this._onVisibilityChange.bind(this);
   }
 
@@ -414,11 +432,19 @@ module.exports = class DetectUserSessionStart {
   }
 
   /**
-   * _sendEvent - Sends a message to the main process to indicate the current tab
-   *             is now visible to the user.
+   * _sendEvent - Sends a message to the main process to indicate the current
+   *              tab is now visible to the user, includes the
+   *              visibility-change-event time in ms from the UNIX epoch.
    */
   _sendEvent() {
-    this.sendAsyncMessage("ActivityStream:ContentToMain", { type: at.NEW_TAB_VISIBLE });
+    this._perfService.mark("visibility-change-event");
+
+    let absVisChangeTime = this._perfService.getMostRecentAbsMarkStartByName("visibility-change-event");
+
+    this.sendAsyncMessage("ActivityStream:ContentToMain", {
+      type: at.NEW_TAB_VISIBLE,
+      data: { absVisibilityChangeTime: absVisChangeTime }
+    });
   }
 
   /**
@@ -440,9 +466,9 @@ module.exports = class DetectUserSessionStart {
 "use strict";
 
 
-/* globals sendAsyncMessage, addMessageListener */
+/* eslint-env mozilla/frame-script */
 
-var _require = __webpack_require__(14);
+var _require = __webpack_require__(17);
 
 const createStore = _require.createStore,
       combineReducers = _require.combineReducers,
@@ -545,14 +571,13 @@ const INITIAL_STATE = {
     // The history (and possibly default) links
     rows: []
   },
-  Search: {
-    // The search engine currently set by the browser
-    currentEngine: {
-      name: "",
-      icon: ""
-    },
-    // All possible search engines
-    engines: []
+  Prefs: {
+    initialized: false,
+    values: {}
+  },
+  Dialog: {
+    visible: false,
+    data: {}
   }
 };
 
@@ -637,30 +662,40 @@ function TopSites() {
   }
 }
 
-function Search() {
-  let prevState = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : INITIAL_STATE.Search;
+function Dialog() {
+  let prevState = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : INITIAL_STATE.Dialog;
   let action = arguments[1];
 
   switch (action.type) {
-    case at.SEARCH_STATE_UPDATED:
-      {
-        if (!action.data) {
-          return prevState;
-        }
-        var _action$data3 = action.data;
-        let currentEngine = _action$data3.currentEngine,
-            engines = _action$data3.engines;
-
-        return Object.assign({}, prevState, {
-          currentEngine,
-          engines
-        });
-      }
+    case at.DIALOG_OPEN:
+      return Object.assign({}, prevState, { visible: true, data: action.data });
+    case at.DIALOG_CANCEL:
+      return Object.assign({}, prevState, { visible: false });
+    case at.DELETE_HISTORY_URL:
+      return Object.assign({}, INITIAL_STATE.Dialog);
     default:
       return prevState;
   }
 }
-var reducers = { TopSites, App, Search };
+
+function Prefs() {
+  let prevState = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : INITIAL_STATE.Prefs;
+  let action = arguments[1];
+
+  let newValues;
+  switch (action.type) {
+    case at.PREFS_INITIAL_VALUES:
+      return Object.assign({}, prevState, { initialized: true, values: action.data });
+    case at.PREF_CHANGED:
+      newValues = Object.assign({}, prevState.values);
+      newValues[action.data.name] = action.data.value;
+      return Object.assign({}, prevState, { values: newValues });
+    default:
+      return prevState;
+  }
+}
+
+var reducers = { TopSites, App, Prefs, Dialog };
 module.exports = {
   reducers,
   INITIAL_STATE
@@ -674,6 +709,125 @@ module.exports = ReactDOM;
 
 /***/ }),
 /* 9 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+const React = __webpack_require__(0);
+
+var _require = __webpack_require__(2);
+
+const connect = _require.connect;
+
+var _require2 = __webpack_require__(3);
+
+const FormattedMessage = _require2.FormattedMessage;
+
+var _require3 = __webpack_require__(1);
+
+const actionTypes = _require3.actionTypes,
+      ac = _require3.actionCreators;
+
+/**
+ * ConfirmDialog component.
+ * One primary action button, one cancel button.
+ *
+ * Content displayed is controlled by `data` prop the component receives.
+ * Example:
+ * data: {
+ *   // Any sort of data needed to be passed around by actions.
+ *   payload: site.url,
+ *   // Primary button SendToMain action.
+ *   action: "DELETE_HISTORY_URL",
+ *   // Primary button USerEvent action.
+ *   userEvent: "DELETE",
+ *   // Array of locale ids to display.
+ *   message_body: ["confirm_history_delete_p1", "confirm_history_delete_notice_p2"],
+ *   // Text for primary button.
+ *   confirm_button_string_id: "menu_action_delete"
+ * },
+ */
+
+const ConfirmDialog = React.createClass({
+  displayName: "ConfirmDialog",
+
+  getDefaultProps() {
+    return {
+      visible: false,
+      data: {}
+    };
+  },
+
+  _handleCancelBtn() {
+    this.props.dispatch({ type: actionTypes.DIALOG_CANCEL });
+    this.props.dispatch(ac.UserEvent({ event: actionTypes.DIALOG_CANCEL }));
+  },
+
+  _handleConfirmBtn() {
+    this.props.data.onConfirm.forEach(this.props.dispatch);
+  },
+
+  _renderModalMessage() {
+    const message_body = this.props.data.body_string_id;
+
+    if (!message_body) {
+      return null;
+    }
+
+    return React.createElement(
+      "span",
+      null,
+      message_body.map(msg => React.createElement(
+        "p",
+        { key: msg },
+        React.createElement(FormattedMessage, { id: msg })
+      ))
+    );
+  },
+
+  render() {
+    if (!this.props.visible) {
+      return null;
+    }
+
+    return React.createElement(
+      "div",
+      { className: "confirmation-dialog" },
+      React.createElement("div", { className: "modal-overlay", onClick: this._handleCancelBtn }),
+      React.createElement(
+        "div",
+        { className: "modal", ref: "modal" },
+        React.createElement(
+          "section",
+          { className: "modal-message" },
+          this._renderModalMessage()
+        ),
+        React.createElement(
+          "section",
+          { className: "actions" },
+          React.createElement(
+            "button",
+            { ref: "cancelButton", onClick: this._handleCancelBtn },
+            React.createElement(FormattedMessage, { id: "topsites_form_cancel_button" })
+          ),
+          React.createElement(
+            "button",
+            { ref: "confirmButton", className: "done", onClick: this._handleConfirmBtn },
+            React.createElement(FormattedMessage, { id: this.props.data.confirm_button_string_id })
+          )
+        )
+      )
+    );
+  }
+});
+
+module.exports = connect(state => state.Dialog)(ConfirmDialog);
+module.exports._unconnected = ConfirmDialog;
+module.exports.Dialog = ConfirmDialog;
+
+/***/ }),
+/* 10 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -756,7 +910,7 @@ class ContextMenu extends React.Component {
 module.exports = ContextMenu;
 
 /***/ }),
-/* 10 */
+/* 11 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -768,79 +922,120 @@ var _require = __webpack_require__(3);
 
 const injectIntl = _require.injectIntl;
 
-const ContextMenu = __webpack_require__(9);
+const ContextMenu = __webpack_require__(10);
 
 var _require2 = __webpack_require__(1);
 
-const actionTypes = _require2.actionTypes,
-      actionCreators = _require2.actionCreators;
+const at = _require2.actionTypes,
+      ac = _require2.actionCreators;
 
+
+const RemoveBookmark = site => ({
+  id: "menu_action_remove_bookmark",
+  icon: "bookmark-remove",
+  action: ac.SendToMain({
+    type: at.DELETE_BOOKMARK_BY_ID,
+    data: site.bookmarkGuid
+  }),
+  userEvent: "BOOKMARK_DELETE"
+});
+
+const AddBookmark = site => ({
+  id: "menu_action_bookmark",
+  icon: "bookmark",
+  action: ac.SendToMain({
+    type: at.BOOKMARK_URL,
+    data: site.url
+  }),
+  userEvent: "BOOKMARK_ADD"
+});
+
+const OpenInNewWindow = site => ({
+  id: "menu_action_open_new_window",
+  icon: "new-window",
+  action: ac.SendToMain({
+    type: at.OPEN_NEW_WINDOW,
+    data: { url: site.url }
+  }),
+  userEvent: "OPEN_NEW_WINDOW"
+});
+
+const OpenInPrivateWindow = site => ({
+  id: "menu_action_open_private_window",
+  icon: "new-window-private",
+  action: ac.SendToMain({
+    type: at.OPEN_PRIVATE_WINDOW,
+    data: { url: site.url }
+  }),
+  userEvent: "OPEN_PRIVATE_WINDOW"
+});
+
+const BlockUrl = site => ({
+  id: "menu_action_dismiss",
+  icon: "dismiss",
+  action: ac.SendToMain({
+    type: at.BLOCK_URL,
+    data: site.url
+  }),
+  userEvent: "BLOCK"
+});
+
+const DeleteUrl = site => ({
+  id: "menu_action_delete",
+  icon: "delete",
+  action: {
+    type: at.DIALOG_OPEN,
+    data: {
+      onConfirm: [ac.SendToMain({ type: at.DELETE_HISTORY_URL, data: site.url }), ac.UserEvent({ event: "DELETE" })],
+      body_string_id: ["confirm_history_delete_p1", "confirm_history_delete_notice_p2"],
+      confirm_button_string_id: "menu_action_delete"
+    }
+  },
+  userEvent: "DIALOG_OPEN"
+});
 
 class LinkMenu extends React.Component {
-  getBookmarkStatus(site) {
-    return site.bookmarkGuid ? {
-      id: "menu_action_remove_bookmark",
-      icon: "bookmark-remove",
-      action: "DELETE_BOOKMARK_BY_ID",
-      data: site.bookmarkGuid
-    } : {
-      id: "menu_action_bookmark",
-      icon: "bookmark",
-      action: "BOOKMARK_URL",
-      data: site.url
-    };
-  }
-  getDefaultContextMenu(site) {
-    return [{
-      id: "menu_action_open_new_window",
-      icon: "new-window",
-      action: "OPEN_NEW_WINDOW",
-      data: { url: site.url }
-    }, {
-      id: "menu_action_open_private_window",
-      icon: "new-window-private",
-      action: "OPEN_PRIVATE_WINDOW",
-      data: { url: site.url }
-    }];
-  }
   getOptions() {
-    var _props = this.props;
-    const dispatch = _props.dispatch,
-          site = _props.site;
+    const props = this.props;
+    const site = props.site;
 
-    // default top sites have a limited set of context menu options
+    const isBookmark = site.bookmarkGuid;
+    const isDefault = site.isDefault;
 
-    let options = this.getDefaultContextMenu(site);
+    const options = [
 
-    // all other top sites have all the following context menu options
-    if (!site.isDefault) {
-      options = [this.getBookmarkStatus(site), { type: "separator" }, ...options, { type: "separator" }, {
-        id: "menu_action_dismiss",
-        icon: "dismiss",
-        action: "BLOCK_URL",
-        data: site.url
-      }, {
-        id: "menu_action_delete",
-        icon: "delete",
-        action: "DELETE_HISTORY_URL",
-        data: site.url
-      }];
-    }
-    options.forEach(option => {
-      let action = option.action,
-          data = option.data,
-          id = option.id,
-          type = option.type;
-      // Convert message ids to localized labels and add onClick function
+    // Bookmarks
+    !isDefault && (isBookmark ? RemoveBookmark(site) : AddBookmark(site)), !isDefault && { type: "separator" },
+
+    // Menu items for all sites
+    OpenInNewWindow(site), OpenInPrivateWindow(site),
+
+    // Blocking and deleting
+    !isDefault && { type: "separator" }, !isDefault && BlockUrl(site), !isDefault && DeleteUrl(site)].filter(o => o).map(option => {
+      const action = option.action,
+            id = option.id,
+            type = option.type,
+            userEvent = option.userEvent;
 
       if (!type && id) {
-        option.label = this.props.intl.formatMessage(option);
-        option.onClick = () => dispatch(actionCreators.SendToMain({ type: actionTypes[action], data }));
+        option.label = props.intl.formatMessage(option);
+        option.onClick = () => {
+          props.dispatch(action);
+          if (userEvent) {
+            props.dispatch(ac.UserEvent({
+              event: userEvent,
+              source: props.source,
+              action_position: props.index
+            }));
+          }
+        };
       }
+      return option;
     });
 
-    // this is for a11y - we want to know which item is the first and which item
-    // is the last, so we can close the context menu accordingly
+    // This is for accessibility to support making each item tabbable.
+    // We want to know which item is the first and which item
+    // is the last, so we can close the context menu accordingly.
     options[0].first = true;
     options[options.length - 1].last = true;
     return options;
@@ -857,10 +1052,137 @@ module.exports = injectIntl(LinkMenu);
 module.exports._unconnected = LinkMenu;
 
 /***/ }),
-/* 11 */
+/* 12 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
+
+
+const React = __webpack_require__(0);
+
+var _require = __webpack_require__(2);
+
+const connect = _require.connect;
+
+var _require2 = __webpack_require__(3);
+
+const injectIntl = _require2.injectIntl,
+      FormattedMessage = _require2.FormattedMessage;
+
+var _require3 = __webpack_require__(1);
+
+const ac = _require3.actionCreators;
+
+
+const PreferencesInput = props => React.createElement(
+  "section",
+  null,
+  React.createElement("input", { type: "checkbox", id: props.prefName, name: props.prefName, checked: props.value, onChange: props.onChange, className: props.className }),
+  React.createElement(
+    "label",
+    { htmlFor: props.prefName },
+    React.createElement(FormattedMessage, { id: props.titleStringId })
+  ),
+  props.descStringId && React.createElement(
+    "p",
+    { className: "prefs-input-description" },
+    React.createElement(FormattedMessage, { id: props.descStringId })
+  )
+);
+
+class PreferencesPane extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { visible: false };
+    this.handleClickOutside = this.handleClickOutside.bind(this);
+    this.handleChange = this.handleChange.bind(this);
+    this.togglePane = this.togglePane.bind(this);
+  }
+  componentDidMount() {
+    document.addEventListener("click", this.handleClickOutside);
+  }
+  componentWillUnmount() {
+    document.removeEventListener("click", this.handleClickOutside);
+  }
+  handleClickOutside(event) {
+    // if we are showing the sidebar and there is a click outside, close it.
+    if (this.state.visible && !this.refs.wrapper.contains(event.target)) {
+      this.togglePane();
+    }
+  }
+  handleChange(event) {
+    const target = event.target;
+    this.props.dispatch(ac.SetPref(target.name, target.checked));
+  }
+  togglePane() {
+    this.setState({ visible: !this.state.visible });
+    const event = this.state.visible ? "CLOSE_NEWTAB_PREFS" : "OPEN_NEWTAB_PREFS";
+    this.props.dispatch(ac.UserEvent({ event }));
+  }
+  render() {
+    const props = this.props;
+    const prefs = props.Prefs.values;
+    const isVisible = this.state.visible;
+    return React.createElement(
+      "div",
+      { className: "prefs-pane-wrapper", ref: "wrapper" },
+      React.createElement(
+        "div",
+        { className: "prefs-pane-button" },
+        React.createElement("button", {
+          className: `prefs-button icon ${isVisible ? "icon-dismiss" : "icon-settings"}`,
+          title: props.intl.formatMessage({ id: isVisible ? "settings_pane_done_button" : "settings_pane_button_label" }),
+          onClick: this.togglePane })
+      ),
+      React.createElement(
+        "div",
+        { className: "prefs-pane" },
+        React.createElement(
+          "div",
+          { className: `sidebar ${isVisible ? "" : "hidden"}` },
+          React.createElement(
+            "div",
+            { className: "prefs-modal-inner-wrapper" },
+            React.createElement(
+              "h1",
+              null,
+              React.createElement(FormattedMessage, { id: "settings_pane_header" })
+            ),
+            React.createElement(
+              "p",
+              null,
+              React.createElement(FormattedMessage, { id: "settings_pane_body" })
+            ),
+            React.createElement(PreferencesInput, { className: "showSearch", prefName: "showSearch", value: prefs.showSearch, onChange: this.handleChange,
+              titleStringId: "settings_pane_search_header", descStringId: "settings_pane_search_body" }),
+            React.createElement(PreferencesInput, { className: "showTopSites", prefName: "showTopSites", value: prefs.showTopSites, onChange: this.handleChange,
+              titleStringId: "settings_pane_topsites_header", descStringId: "settings_pane_topsites_body" })
+          ),
+          React.createElement(
+            "section",
+            { className: "actions" },
+            React.createElement(
+              "button",
+              { className: "done", onClick: this.togglePane },
+              React.createElement(FormattedMessage, { id: "settings_pane_done_button" })
+            )
+          )
+        )
+      )
+    );
+  }
+}
+
+module.exports = connect(state => ({ Prefs: state.Prefs }))(injectIntl(PreferencesPane));
+module.exports.PreferencesPane = PreferencesPane;
+module.exports.PreferencesInput = PreferencesInput;
+
+/***/ }),
+/* 13 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/* globals ContentSearchUIController */
 
 
 const React = __webpack_require__(0);
@@ -876,48 +1198,52 @@ const FormattedMessage = _require2.FormattedMessage,
 
 var _require3 = __webpack_require__(1);
 
-const actionTypes = _require3.actionTypes,
-      actionCreators = _require3.actionCreators;
+const ac = _require3.actionCreators;
 
 
 class Search extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { searchString: "" };
     this.onClick = this.onClick.bind(this);
-    this.onChange = this.onChange.bind(this);
+    this.onInputMount = this.onInputMount.bind(this);
   }
 
-  componentWillMount() {
-    // Trigger initialization of ContentSearch in case it hasn't happened yet
-    dispatchEvent(new CustomEvent("ContentSearchClient", { detail: {} }));
-  }
-
-  performSearch(options) {
-    let searchData = {
-      engineName: options.engineName,
-      searchString: options.searchString,
-      searchPurpose: "newtab",
-      healthReportKey: "newtab"
-    };
-    this.props.dispatch(actionCreators.SendToMain({ type: actionTypes.PERFORM_SEARCH, data: searchData }));
+  handleEvent(event) {
+    // Also track search events with our own telemetry
+    if (event.detail.type === "Search") {
+      this.props.dispatch(ac.UserEvent({ event: "SEARCH" }));
+    }
   }
   onClick(event) {
-    const currentEngine = this.props.Search.currentEngine;
+    this.controller.search(event);
+  }
+  onInputMount(input) {
+    if (input) {
+      // The first "newtab" parameter here is called the "healthReportKey" and needs
+      // to be "newtab" so that BrowserUsageTelemetry.jsm knows to handle events with
+      // this name, and can add the appropriate telemetry probes for search. Without the
+      // correct name, certain tests like browser_UsageTelemetry_content.js will fail (See
+      // github ticket #2348 for more details)
+      this.controller = new ContentSearchUIController(input, input.parentNode, "newtab", "newtab");
+      addEventListener("ContentSearchClient", this);
+    } else {
+      this.controller = null;
+      removeEventListener("ContentSearchClient", this);
+    }
+  }
 
-    event.preventDefault();
-    this.performSearch({ engineName: currentEngine.name, searchString: this.state.searchString });
-  }
-  onChange(event) {
-    this.setState({ searchString: event.target.value });
-  }
+  /*
+   * Do not change the ID on the input field, as legacy newtab code
+   * specifically looks for the id 'newtab-search-text' on input fields
+   * in order to execute searches in various tests
+   */
   render() {
     return React.createElement(
       "form",
       { className: "search-wrapper" },
       React.createElement(
         "label",
-        { htmlFor: "search-input", className: "search-label" },
+        { htmlFor: "newtab-search-text", className: "search-label" },
         React.createElement(
           "span",
           { className: "sr-only" },
@@ -925,13 +1251,12 @@ class Search extends React.Component {
         )
       ),
       React.createElement("input", {
-        id: "search-input",
+        id: "newtab-search-text",
         maxLength: "256",
-        onChange: this.onChange,
         placeholder: this.props.intl.formatMessage({ id: "search_web_placeholder" }),
+        ref: this.onInputMount,
         title: this.props.intl.formatMessage({ id: "search_web_placeholder" }),
-        type: "search",
-        value: this.state.searchString }),
+        type: "search" }),
       React.createElement(
         "button",
         {
@@ -948,11 +1273,11 @@ class Search extends React.Component {
   }
 }
 
-module.exports = connect(state => ({ Search: state.Search }))(injectIntl(Search));
+module.exports = connect()(injectIntl(Search));
 module.exports._unconnected = Search;
 
 /***/ }),
-/* 12 */
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -968,8 +1293,14 @@ var _require2 = __webpack_require__(3);
 
 const FormattedMessage = _require2.FormattedMessage;
 
-const shortURL = __webpack_require__(13);
-const LinkMenu = __webpack_require__(10);
+const shortURL = __webpack_require__(15);
+const LinkMenu = __webpack_require__(11);
+
+var _require3 = __webpack_require__(1);
+
+const ac = _require3.actionCreators;
+
+const TOP_SITES_SOURCE = "TOP_SITES";
 
 class TopSite extends React.Component {
   constructor(props) {
@@ -979,6 +1310,13 @@ class TopSite extends React.Component {
   toggleContextMenu(event, index) {
     this.setState({ showContextMenu: true, activeTile: index });
   }
+  trackClick() {
+    this.props.dispatch(ac.UserEvent({
+      event: "CLICK",
+      source: TOP_SITES_SOURCE,
+      action_position: this.props.index
+    }));
+  }
   render() {
     var _props = this.props;
     const link = _props.link,
@@ -986,7 +1324,7 @@ class TopSite extends React.Component {
           dispatch = _props.dispatch;
 
     const isContextMenuOpen = this.state.showContextMenu && this.state.activeTile === index;
-    const title = shortURL(link);
+    const title = link.pinTitle || shortURL(link);
     const screenshotClassName = `screenshot${link.screenshot ? " active" : ""}`;
     const topSiteOuterClassName = `top-site-outer${isContextMenuOpen ? " active" : ""}`;
     const style = { backgroundImage: link.screenshot ? `url(${link.screenshot})` : "none" };
@@ -995,7 +1333,7 @@ class TopSite extends React.Component {
       { className: topSiteOuterClassName, key: link.url },
       React.createElement(
         "a",
-        { href: link.url },
+        { onClick: () => this.trackClick(), href: link.url },
         React.createElement(
           "div",
           { className: "tile", "aria-hidden": true },
@@ -1008,8 +1346,13 @@ class TopSite extends React.Component {
         ),
         React.createElement(
           "div",
-          { className: "title" },
-          title
+          { className: `title ${link.isPinned ? "pinned" : ""}` },
+          link.isPinned && React.createElement("div", { className: "icon icon-pin-small" }),
+          React.createElement(
+            "span",
+            null,
+            title
+          )
         )
       ),
       React.createElement(
@@ -1030,7 +1373,8 @@ class TopSite extends React.Component {
         visible: isContextMenuOpen,
         onUpdate: val => this.setState({ showContextMenu: val }),
         site: link,
-        index: index })
+        index: index,
+        source: TOP_SITES_SOURCE })
     );
   }
 }
@@ -1046,7 +1390,11 @@ const TopSites = props => React.createElement(
   React.createElement(
     "ul",
     { className: "top-sites-list" },
-    props.TopSites.rows.map((link, index) => React.createElement(TopSite, { dispatch: props.dispatch, key: link.url, link: link, index: index }))
+    props.TopSites.rows.map((link, index) => React.createElement(TopSite, {
+      key: link.url,
+      dispatch: props.dispatch,
+      link: link,
+      index: index }))
   )
 );
 
@@ -1055,7 +1403,7 @@ module.exports._unconnected = TopSites;
 module.exports.TopSite = TopSite;
 
 /***/ }),
-/* 13 */
+/* 15 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1090,13 +1438,118 @@ module.exports = function shortURL(link) {
 };
 
 /***/ }),
-/* 14 */
+/* 16 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+/* globals Services */
+
+
+let usablePerfObj;
+
+let Cu;
+const isRunningInChrome = typeof Window === "undefined";
+
+/* istanbul ignore if */
+if (isRunningInChrome) {
+  Cu = Components.utils;
+} else {
+  Cu = { import() {} };
+}
+
+Cu.import("resource://gre/modules/Services.jsm");
+
+/* istanbul ignore if */
+if (isRunningInChrome) {
+  // Borrow the high-resolution timer from the hidden window....
+  usablePerfObj = Services.appShell.hiddenDOMWindow.performance;
+} else {
+  // we must be running in content space
+  usablePerfObj = performance;
+}
+
+var _PerfService = function _PerfService(options) {
+  // For testing, so that we can use a fake Window.performance object with
+  // known state.
+  if (options && options.performanceObj) {
+    this._perf = options.performanceObj;
+  } else {
+    this._perf = usablePerfObj;
+  }
+};
+
+_PerfService.prototype = {
+  /**
+   * Calls the underlying mark() method on the appropriate Window.performance
+   * object to add a mark with the given name to the appropriate performance
+   * timeline.
+   *
+   * @param  {String} name  the name to give the current mark
+   * @return {void}
+   */
+  mark: function mark(str) {
+    this._perf.mark(str);
+  },
+
+  /**
+   * Calls the underlying getEntriesByName on the appropriate Window.performance
+   * object.
+   *
+   * @param  {String} name
+   * @param  {String} type eg "mark"
+   * @return {Array}       Performance* objects
+   */
+  getEntriesByName: function getEntriesByName(name, type) {
+    return this._perf.getEntriesByName(name, type);
+  },
+
+  /**
+   * The timeOrigin property from the appropriate performance object.
+   * Used to ensure that timestamps from the add-on code and the content code
+   * are comparable.
+   *
+   * @return {Number} A double of milliseconds with a precision of 0.5us.
+   */
+  get timeOrigin() {
+    return this._perf.timeOrigin;
+  },
+
+  /**
+   * This returns the startTime from the most recen!t performance.mark()
+   * with the given name.
+   *
+   * @param  {String} name  the name to lookup the start time for
+   *
+   * @return {Number}       the returned start time, as a DOMHighResTimeStamp
+   *
+   * @throws {Error}        "No Marks with the name ..." if none are available
+   */
+  getMostRecentAbsMarkStartByName(name) {
+    let entries = this.getEntriesByName(name, "mark");
+
+    if (!entries.length) {
+      throw new Error(`No marks with the name ${name}`);
+    }
+
+    let mostRecentEntry = entries[entries.length - 1];
+    return this._perf.timeOrigin + mostRecentEntry.startTime;
+  }
+};
+
+var perfService = new _PerfService();
+module.exports = {
+  _PerfService,
+  perfService
+};
+
+/***/ }),
+/* 17 */
 /***/ (function(module, exports) {
 
 module.exports = Redux;
 
 /***/ }),
-/* 15 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";

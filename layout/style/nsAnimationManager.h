@@ -13,6 +13,7 @@
 #include "mozilla/Keyframe.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/TimeStamp.h"
+#include "nsRFPService.h"
 
 class nsIGlobalObject;
 class nsStyleContext;
@@ -20,7 +21,6 @@ struct nsStyleDisplay;
 struct ServoComputedValues;
 
 namespace mozilla {
-struct ServoComputedValuesWithParent;
 namespace css {
 class Declaration;
 } /* namespace css */
@@ -41,7 +41,7 @@ struct AnimationEventInfo {
   AnimationEventInfo(dom::Element* aElement,
                      CSSPseudoElementType aPseudoType,
                      EventMessage aMessage,
-                     const nsSubstring& aAnimationName,
+                     const nsAString& aAnimationName,
                      const StickyTimeDuration& aElapsedTime,
                      const TimeStamp& aTimeStamp,
                      dom::Animation* aAnimation)
@@ -52,7 +52,8 @@ struct AnimationEventInfo {
   {
     // XXX Looks like nobody initialize WidgetEvent::time
     mEvent.mAnimationName = aAnimationName;
-    mEvent.mElapsedTime = aElapsedTime.ToSeconds();
+    mEvent.mElapsedTime =
+      nsRFPService::ReduceTimePrecisionAsSecs(aElapsedTime.ToSeconds());
     mEvent.mPseudoElement =
       AnimationCollection<dom::CSSAnimation>::PseudoTypeAsString(aPseudoType);
   }
@@ -75,7 +76,7 @@ class CSSAnimation final : public Animation
 {
 public:
  explicit CSSAnimation(nsIGlobalObject* aGlobal,
-                       const nsSubstring& aAnimationName)
+                       const nsAString& aAnimationName)
     : dom::Animation(aGlobal)
     , mAnimationName(aAnimationName)
     , mIsStylePaused(false)
@@ -188,7 +189,7 @@ protected:
   // This is used for setting the elapsedTime member of CSS AnimationEvents.
   TimeDuration InitialAdvance() const {
     return mEffect ?
-           std::max(TimeDuration(), mEffect->SpecifiedTiming().mDelay * -1) :
+           std::max(TimeDuration(), mEffect->SpecifiedTiming().Delay() * -1) :
            TimeDuration();
   }
 
@@ -332,7 +333,7 @@ public:
   void UpdateAnimations(
     mozilla::dom::Element* aElement,
     mozilla::CSSPseudoElementType aPseudoType,
-    const mozilla::ServoComputedValuesWithParent& aServoValues);
+    const ServoComputedValues* aComputedValues);
 
   /**
    * Add a pending event.

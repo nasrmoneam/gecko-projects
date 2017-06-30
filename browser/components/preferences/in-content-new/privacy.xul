@@ -76,7 +76,10 @@
   <preference id="browser.privatebrowsing.autostart"
               name="browser.privatebrowsing.autostart"
               type="bool"/>
-
+  <!-- Do not track -->
+  <preference id="privacy.donottrackheader.enabled"
+              name="privacy.donottrackheader.enabled"
+              type="bool"/>
   <!-- DRM content -->
   <preference id="media.eme.enabled"
               name="media.eme.enabled"
@@ -180,6 +183,41 @@
   <label class="header-name" flex="1">&panePrivacySecurity.title;</label>
 </hbox>
 
+<!-- Permissions -->
+<groupbox id="permissionsGroup" data-category="panePrivacy" hidden="true">
+  <caption><label>&permissions.label;</label></caption>
+  <separator class="thin"/>
+  <hbox align="start">
+    <checkbox id="popupPolicy" preference="dom.disable_open_during_load"
+              label="&blockPopups.label;" accesskey="&blockPopups.accesskey;"
+              onsyncfrompreference="return gPrivacyPane.updateButtons('popupPolicyButton',
+                                         'dom.disable_open_during_load');"
+              flex="1" />
+    <button id="popupPolicyButton"
+            class="accessory-button"
+            label="&popupExceptions.label;"
+            accesskey="&popupExceptions.accesskey;"
+            searchkeywords="&address.label; &button.cancel.label; &button.ok.label;"/>
+  </hbox>
+  <hbox id="addonInstallBox">
+    <checkbox id="warnAddonInstall"
+              label="&warnOnAddonInstall.label;"
+              accesskey="&warnOnAddonInstall.accesskey;"
+              preference="xpinstall.whitelist.required"
+              onsyncfrompreference="return gPrivacyPane.readWarnAddonInstall();"
+              flex="1" />
+    <button id="addonExceptions"
+            class="accessory-button"
+            label="&addonExceptions.label;"
+            accesskey="&addonExceptions.accesskey;"
+            searchkeywords="&address.label;
+                            &allow.label;
+                            &removepermission.label;
+                            &removeallpermissions.label;
+                            &button.cancel.label;
+                            &button.ok.label;"/>
+  </hbox>
+</groupbox>
 
 <!-- History -->
 <groupbox id="historyGroup" data-category="panePrivacy" hidden="true">
@@ -191,9 +229,31 @@
     </label>
     <menulist id="historyMode">
       <menupopup>
-        <menuitem label="&historyHeader.remember.label;" value="remember"/>
-        <menuitem label="&historyHeader.dontremember.label;" value="dontremember"/>
-        <menuitem label="&historyHeader.custom.label;" value="custom"/>
+        <menuitem label="&historyHeader.remember.label;" value="remember" searchkeywords="&rememberDescription.label;
+                                                                                          &rememberActions.pre.label;
+                                                                                          &rememberActions.clearHistory.label;
+                                                                                          &rememberActions.middle.label;
+                                                                                          &rememberActions.removeCookies.label;
+                                                                                          &rememberActions.post.label;"/>
+        <menuitem label="&historyHeader.dontremember.label;" value="dontremember" searchkeywords="&dontrememberDescription.label;
+                                                                                                  &dontrememberActions.pre.label;
+                                                                                                  &dontrememberActions.clearHistory.label;
+                                                                                                  &dontrememberActions.post.label;"/>
+        <menuitem label="&historyHeader.custom.label;" value="custom" searchkeywords="&privateBrowsingPermanent2.label;
+                                                                                      &rememberHistory2.label;
+                                                                                      &rememberSearchForm.label;
+                                                                                      &acceptCookies.label;
+                                                                                      &cookieExceptions.label;
+                                                                                      &acceptThirdParty.pre.label;
+                                                                                      &acceptThirdParty.always.label;
+                                                                                      &acceptThirdParty.visited.label;
+                                                                                      &acceptThirdParty.never.label;
+                                                                                      &keepUntil.label;
+                                                                                      &expire.label;
+                                                                                      &close.label;
+                                                                                      &showCookies.label;
+                                                                                      &clearOnClose.label;
+                                                                                      &clearOnCloseSettings.label;"/>
       </menupopup>
     </menulist>
     <label>&historyHeader.post.label;</label>
@@ -344,22 +404,48 @@
 <!-- Tracking -->
 <groupbox id="trackingGroup" data-category="panePrivacy" hidden="true">
   <caption><label>&trackingProtectionHeader2.label;</label></caption>
-  <vbox id="trackingprotectionbox" hidden="true">
+  <vbox>
     <hbox align="start">
       <vbox flex="1">
         <description>
-          &trackingProtection.description;
-          <label id="trackingProtectionLearnMore" class="learnMore text-link">&trackingProtectionLearnMore.label;</label>
-        </description>
-        <description id="trackingProtectionDesc"
-                     control="trackingProtectionRadioGroup">
-          &trackingProtection.radioGroupLabel;
+          &trackingProtection2.description;
         </description>
       </vbox>
       <spacer flex="1"/>
+    </hbox>
+    <hbox>
+      <vbox id="trackingProtectionBox" flex="1" hidden="true">
+        <description id="trackingProtectionDesc"
+                     control="trackingProtectionRadioGroup">
+          &trackingProtection2.radioGroupLabel;
+           <label id="trackingProtectionLearnMore" class="learnMore text-link">&trackingProtectionLearnMore.label;</label>
+        </description>
+        <radiogroup id="trackingProtectionRadioGroup" aria-labelledby="trackingProtectionDesc">
+          <radio value="always"
+                 label="&trackingProtectionAlways.label;"
+                 accesskey="&trackingProtectionAlways.accesskey;"/>
+          <radio value="private"
+                 label="&trackingProtectionPrivate.label;"
+                 accesskey="&trackingProtectionPrivate.accesskey;"/>
+          <radio value="never"
+                 label="&trackingProtectionNever.label;"
+                 accesskey="&trackingProtectionNever.accesskey;"/>
+        </radiogroup>
+      </vbox>
+      <vbox id="trackingProtectionPBMBox" flex="1">
+        <hbox align="center">
+          <checkbox id="trackingProtectionPBM"
+                    preference="privacy.trackingprotection.pbmode.enabled"
+                    accesskey="&trackingProtectionPBM6.accesskey;"/>
+          <label flex="1">&trackingProtectionPBM6.label;<label id="trackingProtectionPBMLearnMore"
+                 class="learnMore text-link">&trackingProtectionPBMLearnMore.label;</label>
+          </label>
+        </hbox>
+      </vbox>
       <vbox id="trackingProtectionAdvancedSettings">
         <button id="trackingProtectionExceptions"
                 class="accessory-button"
+                hidden="true"
                 label="&trackingProtectionExceptions.label;"
                 accesskey="&trackingProtectionExceptions.accesskey;"
                 preference="pref.privacy.disable_button.tracking_protection_exceptions"
@@ -375,55 +461,16 @@
                 searchkeywords="&button.cancel.label; &button.ok.label;"/>
       </vbox>
     </hbox>
-    <radiogroup id="trackingProtectionRadioGroup" aria-labelledby="trackingProtectionDesc">
-      <radio value="always"
-             label="&trackingProtectionAlways.label;"
-             accesskey="&trackingProtectionAlways.accesskey;"/>
-      <radio value="private"
-             label="&trackingProtectionPrivate.label;"
-             accesskey="&trackingProtectionPrivate.accesskey;"/>
-      <radio value="never"
-             label="&trackingProtectionNever.label;"
-             accesskey="&trackingProtectionNever.accesskey;"/>
-    </radiogroup>
+    <vbox id="doNotTrackLearnMoreBox">
+      <label>&doNotTrack.description;<label
+      class="learnMore text-link" href="https://www.mozilla.org/dnt"
+      >&doNotTrack.learnMore.label;</label></label>
+      <radiogroup id="doNotTrackRadioGroup" aria-labelledby="doNotTrackDesc" preference="privacy.donottrackheader.enabled">
+        <radio value="false" label="&doNotTrack.default.label;"/>
+        <radio value="true" label="&doNotTrack.always.label;"/>
+      </radiogroup>
+    </vbox>
   </vbox>
-  <vbox id="trackingprotectionpbmbox">
-    <caption><label>&tracking.label;</label></caption>
-    <hbox align="center">
-      <checkbox id="trackingProtectionPBM"
-                preference="privacy.trackingprotection.pbmode.enabled"
-                accesskey="&trackingProtectionPBM5.accesskey;"
-                label="&trackingProtectionPBM5.label;" />
-      <label id="trackingProtectionPBMLearnMore"
-             class="learnMore text-link">&trackingProtectionPBMLearnMore.label;</label>
-      <spacer flex="1" />
-      <button id="changeBlockListPBM"
-              label="&changeBlockList.label;" accesskey="&changeBlockList.accesskey;"
-              preference="pref.privacy.disable_button.change_blocklist"/>
-    </hbox>
-  </vbox>
-  <vbox>
-    <description>&doNotTrack.pre.label;<label
-    class="text-link" id="doNotTrackSettings"
-    >&doNotTrack.settings.label;</label>&doNotTrack.post.label;</description>
-  </vbox>
-</groupbox>
-
-<!-- Pop-ups -->
-<groupbox id="miscGroup" data-category="panePrivacy" hidden="true">
-  <caption><label>&popups.label;</label></caption>
-  <hbox align="start">
-    <checkbox id="popupPolicy" preference="dom.disable_open_during_load"
-              label="&blockPopups.label;" accesskey="&blockPopups.accesskey;"
-              onsyncfrompreference="return gPrivacyPane.updateButtons('popupPolicyButton',
-                                         'dom.disable_open_during_load');"
-              flex="1" />
-    <button id="popupPolicyButton"
-            class="accessory-button"
-            label="&popupExceptions.label;"
-            accesskey="&popupExceptions.accesskey;"
-            searchkeywords="&address.label; &button.cancel.label; &button.ok.label;"/>
-  </hbox>
 </groupbox>
 
 <!-- Notifications -->
@@ -482,30 +529,9 @@
   </label>
 </groupbox>
 
-<!-- addons, forgery (phishing) UI Security -->
-<groupbox id="addonsPhishingGroup" data-category="panePrivacy" hidden="true">
+<!-- Forgery (phishing) UI Security -->
+<groupbox id="phishingGroup" data-category="panePrivacy" hidden="true">
   <caption><label>&security.label;</label></caption>
-
-  <hbox id="addonInstallBox">
-    <checkbox id="warnAddonInstall"
-              label="&warnOnAddonInstall.label;"
-              accesskey="&warnOnAddonInstall.accesskey;"
-              preference="xpinstall.whitelist.required"
-              onsyncfrompreference="return gPrivacyPane.readWarnAddonInstall();"
-              flex="1" />
-    <button id="addonExceptions"
-            class="accessory-button"
-            label="&addonExceptions.label;"
-            accesskey="&addonExceptions.accesskey;"
-            searchkeywords="&address.label;
-                            &allow.label;
-                            &removepermission.label;
-                            &removeallpermissions.label;
-                            &button.cancel.label;
-                            &button.ok.label;"/>
-  </hbox>
-
-  <separator class="thin"/>
   <checkbox id="enableSafeBrowsing"
             label="&enableSafeBrowsing.label;"
             accesskey="&enableSafeBrowsing.accesskey;" />
@@ -760,9 +786,14 @@
 </groupbox>
 
 <!-- Data Choices -->
-#ifdef MOZ_TELEMETRY_REPORTING
-<groupbox id="historyGroup" data-category="panePrivacy" data-subcategory="reports" hidden="true">
+#ifdef MOZ_DATA_REPORTING
+
+<groupbox id="telemetryGroup" data-category="panePrivacy" data-subcategory="reports" hidden="true">
 <caption><label>&reports.label;</label></caption>
+#ifndef MOZ_TELEMETRY_REPORTING
+  <description id="TelemetryDisabledDesc" control="telemetryGroup">&healthReportingDisabled.label;</description>
+#endif
+
   <hbox align="center">
     <checkbox id="submitHealthReportBox" label="&enableHealthReport.label;"
               accesskey="&enableHealthReport.accesskey;"/>
@@ -782,14 +813,9 @@
                  class="indent">&telemetryDesc.label;</description>
   </vbox>
 </groupbox>
-#endif
 
-#ifdef MOZ_DATA_REPORTING
 #ifdef MOZ_CRASHREPORTER
 <groupbox id="crashReporterGroup" data-category="panePrivacy" data-subcategory="reports" hidden="true">
-#ifndef MOZ_TELEMETRY_REPORTING
-<caption><label>&reports.label;</label></caption>
-#endif
   <hbox align="center">
     <checkbox id="automaticallySubmitCrashesBox"
               preference="browser.crashReports.unsubmittedCheck.autoSubmit"

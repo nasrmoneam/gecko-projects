@@ -65,7 +65,8 @@ public:
   DispatchKeyNeededEvent(AbstractMediaDecoder* aDecoder,
                          nsTArray<uint8_t>& aInitData,
                          const nsString& aInitDataType)
-    : mDecoder(aDecoder)
+    : Runnable("DispatchKeyNeededEvent")
+    , mDecoder(aDecoder)
     , mInitData(aInitData)
     , mInitDataType(aInitDataType)
   {
@@ -97,7 +98,9 @@ TrackBuffersManager::TrackBuffersManager(MediaSourceDecoder* aParentDecoder,
   , mParser(ContainerParser::CreateForMIMEType(aType))
   , mProcessedInput(0)
   , mTaskQueue(aParentDecoder->GetDemuxer()->GetTaskQueue())
-  , mParentDecoder(new nsMainThreadPtrHolder<MediaSourceDecoder>(aParentDecoder, false /* strict */))
+  , mParentDecoder(
+      new nsMainThreadPtrHolder<MediaSourceDecoder>(
+        "TrackBuffersManager::mParentDecoder", aParentDecoder, false /* strict */))
   , mAbstractMainThread(aParentDecoder->AbstractMainThread())
   , mEnded(false)
   , mVideoEvictionThreshold(Preferences::GetUint("media.mediasource.eviction_threshold.video",
@@ -145,7 +148,10 @@ TrackBuffersManager::QueueTask(SourceBufferTask* aTask)
 {
   if (!OnTaskQueue()) {
     GetTaskQueue()->Dispatch(NewRunnableMethod<RefPtr<SourceBufferTask>>(
-      this, &TrackBuffersManager::QueueTask, aTask));
+      "TrackBuffersManager::QueueTask",
+      this,
+      &TrackBuffersManager::QueueTask,
+      aTask));
     return;
   }
   MOZ_ASSERT(OnTaskQueue());
@@ -210,7 +216,10 @@ TrackBuffersManager::ProcessTasks()
     default:
       NS_WARNING("Invalid Task");
   }
-  GetTaskQueue()->Dispatch(NewRunnableMethod(this, &TrackBuffersManager::ProcessTasks));
+  GetTaskQueue()->Dispatch(
+    NewRunnableMethod("TrackBuffersManager::ProcessTasks",
+                      this,
+                      &TrackBuffersManager::ProcessTasks));
 }
 
 // The MSE spec requires that we abort the current SegmentParserLoop
@@ -393,7 +402,7 @@ TrackBuffersManager::CompleteResetParserState()
     mCurrentInputBuffer->EvictAll();
     // The demuxer will be recreated during the next run of SegmentParserLoop.
     // As such we don't need to notify it that data has been removed.
-    mCurrentInputBuffer = new SourceBufferResource(mType);
+    mCurrentInputBuffer = new SourceBufferResource();
   }
 
   // We could be left with a demuxer in an unusable state. It needs to be
@@ -788,7 +797,10 @@ TrackBuffersManager::RejectAppend(const MediaResult& aRejectValue, const char* a
 void
 TrackBuffersManager::ScheduleSegmentParserLoop()
 {
-  GetTaskQueue()->Dispatch(NewRunnableMethod(this, &TrackBuffersManager::SegmentParserLoop));
+  GetTaskQueue()->Dispatch(
+    NewRunnableMethod("TrackBuffersManager::SegmentParserLoop",
+                      this,
+                      &TrackBuffersManager::SegmentParserLoop));
 }
 
 void
@@ -837,7 +849,7 @@ TrackBuffersManager::ResetDemuxingState()
 {
   MOZ_ASSERT(mParser && mParser->HasInitData());
   RecreateParser(true);
-  mCurrentInputBuffer = new SourceBufferResource(mType);
+  mCurrentInputBuffer = new SourceBufferResource();
   // The demuxer isn't initialized yet ; we don't want to notify it
   // that data has been appended yet ; so we simply append the init segment
   // to the resource.
@@ -872,11 +884,12 @@ TrackBuffersManager::OnDemuxerResetDone(const MediaResult& aResult)
 
   if (aResult != NS_OK && mParentDecoder) {
     RefPtr<TrackBuffersManager> self = this;
-    mAbstractMainThread->Dispatch(NS_NewRunnableFunction([self, aResult] () {
-      if (self->mParentDecoder && self->mParentDecoder->GetOwner()) {
-        self->mParentDecoder->GetOwner()->DecodeWarning(aResult);
-      }
-    }));
+    mAbstractMainThread->Dispatch(NS_NewRunnableFunction(
+      "TrackBuffersManager::OnDemuxerResetDone", [self, aResult]() {
+        if (self->mParentDecoder && self->mParentDecoder->GetOwner()) {
+          self->mParentDecoder->GetOwner()->DecodeWarning(aResult);
+        }
+      }));
   }
 
   // Recreate track demuxers.
@@ -930,7 +943,7 @@ TrackBuffersManager::InitializationSegmentReceived()
     return;
   }
 
-  mCurrentInputBuffer = new SourceBufferResource(mType);
+  mCurrentInputBuffer = new SourceBufferResource();
   // The demuxer isn't initialized yet ; we don't want to notify it
   // that data has been appended yet ; so we simply append the init segment
   // to the resource.
@@ -997,10 +1010,11 @@ TrackBuffersManager::OnDemuxerInitDone(const MediaResult& aResult)
   int64_t duration = std::max(videoDuration, audioDuration);
   // 1. Update the duration attribute if it currently equals NaN.
   // Those steps are performed by the MediaSourceDecoder::SetInitialDuration
-  mAbstractMainThread->Dispatch(NewRunnableMethod<int64_t>
-                                (mParentDecoder.get(),
-                                &MediaSourceDecoder::SetInitialDuration,
-                                duration ? duration : -1));
+  mAbstractMainThread->Dispatch(
+    NewRunnableMethod<int64_t>("MediaSourceDecoder::SetInitialDuration",
+                               mParentDecoder.get(),
+                               &MediaSourceDecoder::SetInitialDuration,
+                               duration ? duration : -1));
 
   // 2. If the initialization segment has no audio, video, or text tracks, then
   // run the append error algorithm with the decode error parameter set to true
@@ -1157,11 +1171,12 @@ TrackBuffersManager::OnDemuxerInitDone(const MediaResult& aResult)
 
   if (aResult != NS_OK && mParentDecoder) {
     RefPtr<TrackBuffersManager> self = this;
-    mAbstractMainThread->Dispatch(NS_NewRunnableFunction([self, aResult] () {
-      if (self->mParentDecoder && self->mParentDecoder->GetOwner()) {
-        self->mParentDecoder->GetOwner()->DecodeWarning(aResult);
-      }
-    }));
+    mAbstractMainThread->Dispatch(NS_NewRunnableFunction(
+      "TrackBuffersManager::OnDemuxerInitDone", [self, aResult]() {
+        if (self->mParentDecoder && self->mParentDecoder->GetOwner()) {
+          self->mParentDecoder->GetOwner()->DecodeWarning(aResult);
+        }
+      }));
   }
 }
 

@@ -12,9 +12,12 @@ const {
 const { connect } = require("devtools/client/shared/vendor/react-redux");
 
 const {
-  getAllMessages,
+  getAllMessagesById,
   getAllMessagesUiById,
   getAllMessagesTableDataById,
+  getAllNetworkMessagesUpdateById,
+  getVisibleMessages,
+  getAllRepeatById,
 } = require("devtools/client/webconsole/new-console-output/selectors/messages");
 const MessageContainer = createFactory(require("devtools/client/webconsole/new-console-output/components/message-container").MessageContainer);
 
@@ -33,6 +36,9 @@ const ConsoleOutput = createClass({
     dispatch: PropTypes.func.isRequired,
     timestampsVisible: PropTypes.bool,
     messagesTableData: PropTypes.object.isRequired,
+    messagesRepeat: PropTypes.object.isRequired,
+    networkMessagesUpdate: PropTypes.object.isRequired,
+    visibleMessages: PropTypes.array.isRequired,
   },
 
   componentDidMount() {
@@ -53,7 +59,7 @@ const ConsoleOutput = createClass({
     // Figure out if we are at the bottom. If so, then any new message should be scrolled
     // into view.
     const lastChild = outputNode.lastChild;
-    const delta = nextProps.messages.size - this.props.messages.size;
+    const delta = nextProps.visibleMessages.length - this.props.visibleMessages.length;
     this.shouldScrollBottom = delta > 0 && isScrolledToBottom(lastChild, outputNode);
   },
 
@@ -72,27 +78,27 @@ const ConsoleOutput = createClass({
   render() {
     let {
       dispatch,
+      visibleMessages,
       messages,
       messagesUi,
       messagesTableData,
+      messagesRepeat,
+      networkMessagesUpdate,
       serviceContainer,
       timestampsVisible,
     } = this.props;
 
-    let messageNodes = messages.map((message) => {
-      return (
-        MessageContainer({
-          dispatch,
-          message,
-          key: message.id,
-          serviceContainer,
-          open: messagesUi.includes(message.id),
-          tableData: messagesTableData.get(message.id),
-          indent: message.indent,
-          timestampsVisible,
-        })
-      );
-    });
+    let messageNodes = visibleMessages.map((messageId) => MessageContainer({
+      dispatch,
+      key: messageId,
+      serviceContainer,
+      open: messagesUi.includes(messageId),
+      tableData: messagesTableData.get(messageId),
+      timestampsVisible,
+      repeat: messagesRepeat[messageId],
+      networkMessageUpdate: networkMessagesUpdate[messageId],
+      getMessage: () => messages.get(messageId)
+    }));
 
     return (
       dom.div({
@@ -120,9 +126,12 @@ function isScrolledToBottom(outputNode, scrollNode) {
 
 function mapStateToProps(state, props) {
   return {
-    messages: getAllMessages(state),
+    messages: getAllMessagesById(state),
+    visibleMessages: getVisibleMessages(state),
     messagesUi: getAllMessagesUiById(state),
     messagesTableData: getAllMessagesTableDataById(state),
+    messagesRepeat: getAllRepeatById(state),
+    networkMessagesUpdate: getAllNetworkMessagesUpdateById(state),
     timestampsVisible: state.ui.timestampsVisible,
   };
 }

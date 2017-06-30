@@ -6,20 +6,21 @@
 #if !defined(AndroidMediaDecoder_h_)
 #define AndroidMediaDecoder_h_
 
-#include "MediaDecoder.h"
+#include "ChannelMediaDecoder.h"
 #include "AndroidMediaDecoder.h"
 #include "MediaContainerType.h"
 
 namespace mozilla {
 
-class AndroidMediaDecoder : public MediaDecoder
+class AndroidMediaDecoder : public ChannelMediaDecoder
 {
   MediaContainerType mType;
 public:
-  AndroidMediaDecoder(MediaDecoderOwner* aOwner, const MediaContainerType& aType);
+  AndroidMediaDecoder(MediaDecoderInit& aInit, const MediaContainerType& aType);
 
-  MediaDecoder* Clone(MediaDecoderOwner* aOwner) override {
-    return new AndroidMediaDecoder(aOwner, mType);
+  ChannelMediaDecoder* Clone(MediaDecoderInit& aInit) override
+  {
+    return new AndroidMediaDecoder(aInit, mType);
   }
   MediaDecoderStateMachine* CreateStateMachine() override;
 };

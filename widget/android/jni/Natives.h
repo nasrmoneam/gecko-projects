@@ -404,9 +404,10 @@ class ProxyNativeCall : public AbstractCall
     Call(const typename Owner::LocalRef& inst,
          mozilla::IndexSequence<Indices...>) const
     {
-        Impl* const impl = NativePtr<Impl>::Get(inst);
-        MOZ_CATCH_JNI_EXCEPTION(inst.Env());
-        (impl->*mNativeCall)(inst, mozilla::Get<Indices>(mArgs)...);
+        if (Impl* const impl = NativePtr<Impl>::Get(inst)) {
+            MOZ_CATCH_JNI_EXCEPTION(inst.Env());
+            (impl->*mNativeCall)(inst, mozilla::Get<Indices>(mArgs)...);
+        }
     }
 
     template<bool Static, bool ThisArg, size_t... Indices>
@@ -414,9 +415,10 @@ class ProxyNativeCall : public AbstractCall
     Call(const typename Owner::LocalRef& inst,
          mozilla::IndexSequence<Indices...>) const
     {
-        Impl* const impl = NativePtr<Impl>::Get(inst);
-        MOZ_CATCH_JNI_EXCEPTION(inst.Env());
-        (impl->*mNativeCall)(mozilla::Get<Indices>(mArgs)...);
+        if (Impl* const impl = NativePtr<Impl>::Get(inst)) {
+            MOZ_CATCH_JNI_EXCEPTION(inst.Env());
+            (impl->*mNativeCall)(mozilla::Get<Indices>(mArgs)...);
+        }
     }
 
     template<size_t... Indices>
@@ -527,7 +529,7 @@ struct Dispatcher
         // For a static method, do not forward the "this arg" (i.e. the class
         // local ref) if the implementation does not request it. This saves us
         // a pair of calls to add/delete global ref.
-        NS_DispatchToMainThread(NS_NewRunnableFunction(ProxyNativeCall<
+        NS_DispatchToMainThread(NS_NewRunnableFunction("ProxyNativeCall", ProxyNativeCall<
                 Impl, typename Traits::Owner, IsStatic, HasThisArg,
                 Args...>(HasThisArg || !IsStatic ? thisArg : nullptr,
                           Forward<ProxyArgs>(args)...)));

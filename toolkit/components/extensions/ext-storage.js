@@ -1,5 +1,8 @@
 "use strict";
 
+// The ext-* files are imported into the same scopes.
+/* import-globals-from ext-toolkit.js */
+
 XPCOMUtils.defineLazyModuleGetter(this, "ExtensionStorage",
                                   "resource://gre/modules/ExtensionStorage.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "extensionStorageSync",
@@ -11,7 +14,7 @@ var {
   ExtensionError,
 } = ExtensionUtils;
 
-function enforceNoTemporaryAddon(extensionId) {
+const enforceNoTemporaryAddon = extensionId => {
   const EXCEPTION_MESSAGE =
         "The storage API will not work with a temporary addon ID. " +
         "Please add an explicit addon ID to your manifest. " +
@@ -19,7 +22,7 @@ function enforceNoTemporaryAddon(extensionId) {
   if (AddonManagerPrivate.isTemporaryInstallID(extensionId)) {
     throw new ExtensionError(EXCEPTION_MESSAGE);
   }
-}
+};
 
 this.storage = class extends ExtensionAPI {
   getAPI(context) {
@@ -31,7 +34,7 @@ this.storage = class extends ExtensionAPI {
             return ExtensionStorage.get(extension.id, spec);
           },
           set: function(items) {
-            return ExtensionStorage.set(extension.id, items, context);
+            return ExtensionStorage.set(extension.id, items);
           },
           remove: function(keys) {
             return ExtensionStorage.remove(extension.id, keys);
@@ -60,7 +63,7 @@ this.storage = class extends ExtensionAPI {
           },
         },
 
-        onChanged: new SingletonEventManager(context, "storage.onChanged", fire => {
+        onChanged: new EventManager(context, "storage.onChanged", fire => {
           let listenerLocal = changes => {
             fire.async(changes, "local");
           };

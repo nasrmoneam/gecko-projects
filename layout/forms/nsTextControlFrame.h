@@ -17,8 +17,8 @@
 class nsISelectionController;
 class EditorInitializerEntryTracker;
 class nsTextEditorState;
-class nsIEditor;
 namespace mozilla {
+class TextEditor;
 enum class CSSPseudoElementType : uint8_t;
 namespace dom {
 class Element;
@@ -44,11 +44,11 @@ public:
     return do_QueryFrame(PrincipalChildList().FirstChild());
   }
 
-  virtual nscoord GetMinISize(nsRenderingContext* aRenderingContext) override;
-  virtual nscoord GetPrefISize(nsRenderingContext* aRenderingContext) override;
+  virtual nscoord GetMinISize(gfxContext* aRenderingContext) override;
+  virtual nscoord GetPrefISize(gfxContext* aRenderingContext) override;
 
   virtual mozilla::LogicalSize
-  ComputeAutoSize(nsRenderingContext*         aRenderingContext,
+  ComputeAutoSize(gfxContext*                 aRenderingContext,
                   mozilla::WritingMode        aWM,
                   const mozilla::LogicalSize& aCBSize,
                   nscoord                     aAvailableISize,
@@ -139,7 +139,7 @@ public:
 
 //==== NSITEXTCONTROLFRAME
 
-  NS_IMETHOD    GetEditor(nsIEditor **aEditor) override;
+  NS_IMETHOD_(already_AddRefed<mozilla::TextEditor>) GetTextEditor() override;
   NS_IMETHOD    SetSelectionRange(uint32_t aSelectionStart,
                                   uint32_t aSelectionEnd,
                                   SelectionDirection aDirection = eNone) override;
@@ -233,8 +233,11 @@ protected:
 
   class EditorInitializer : public mozilla::Runnable {
   public:
-    explicit EditorInitializer(nsTextControlFrame* aFrame) :
-      mFrame(aFrame) {}
+    explicit EditorInitializer(nsTextControlFrame* aFrame)
+      : mozilla::Runnable("nsTextControlFrame::EditorInitializer")
+      , mFrame(aFrame)
+    {
+    }
 
     NS_IMETHOD Run() override;
 
@@ -252,8 +255,11 @@ protected:
 
   class ScrollOnFocusEvent : public mozilla::Runnable {
   public:
-    explicit ScrollOnFocusEvent(nsTextControlFrame* aFrame) :
-      mFrame(aFrame) {}
+    explicit ScrollOnFocusEvent(nsTextControlFrame* aFrame)
+      : mozilla::Runnable("nsTextControlFrame::ScrollOnFocusEvent")
+      , mFrame(aFrame)
+    {
+    }
 
     NS_DECL_NSIRUNNABLE
 
@@ -300,7 +306,7 @@ protected:
   // Compute our intrinsic size.  This does not include any borders, paddings,
   // etc.  Just the size of our actual area for the text (and the scrollbars,
   // for <textarea>).
-  mozilla::LogicalSize CalcIntrinsicSize(nsRenderingContext* aRenderingContext,
+  mozilla::LogicalSize CalcIntrinsicSize(gfxContext* aRenderingContext,
                                          mozilla::WritingMode aWM,
                                          float aFontSizeInflation) const;
 

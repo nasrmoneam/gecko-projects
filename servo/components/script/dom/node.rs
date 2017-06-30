@@ -33,7 +33,7 @@ use dom::cssstylesheet::CSSStyleSheet;
 use dom::document::{Document, DocumentSource, HasBrowsingContext, IsHTMLDocument};
 use dom::documentfragment::DocumentFragment;
 use dom::documenttype::DocumentType;
-use dom::element::{Element, ElementCreator};
+use dom::element::{CustomElementCreationMode, Element, ElementCreator};
 use dom::eventtarget::EventTarget;
 use dom::globalscope::GlobalScope;
 use dom::htmlbodyelement::HTMLBodyElement;
@@ -56,9 +56,7 @@ use dom::text::Text;
 use dom::virtualmethods::{VirtualMethods, vtable_for};
 use dom::window::Window;
 use dom_struct::dom_struct;
-use euclid::point::Point2D;
-use euclid::rect::Rect;
-use euclid::size::Size2D;
+use euclid::{Point2D, Vector2D, Rect, Size2D};
 use heapsize::{HeapSizeOf, heap_size_of};
 use html5ever::{Prefix, Namespace, QualName};
 use js::jsapi::{JSContext, JSObject, JSRuntime};
@@ -345,13 +343,13 @@ impl<'a> Iterator for QuerySelectorIterator {
     type Item = Root<Node>;
 
     fn next(&mut self) -> Option<Root<Node>> {
-        let selectors = &self.selectors.0;
-
-        // TODO(cgaebel): Is it worth it to build a bloom filter here
-        // (instead of passing `None`)? Probably.
-        let mut ctx = MatchingContext::new(MatchingMode::Normal, None);
+        let selectors = &self.selectors;
 
         self.iterator.by_ref().filter_map(|node| {
+            // TODO(cgaebel): Is it worth it to build a bloom filter here
+            // (instead of passing `None`)? Probably.
+            let mut ctx = MatchingContext::new(MatchingMode::Normal, None,
+                node.owner_doc().quirks_mode());
             if let Some(element) = Root::downcast(node) {
                 if matches_selector_list(selectors, &element, &mut ctx) {
                     return Some(Root::upcast(element));
@@ -430,6 +428,11 @@ impl Node {
         self.preceding_siblings().count() as u32
     }
 
+    /// Returns true if this node has a parent.
+    pub fn has_parent(&self) -> bool {
+        self.parent_node.get().is_some()
+    }
+
     pub fn children_count(&self) -> u32 {
         self.children_count.get()
     }
@@ -501,15 +504,17 @@ impl Node {
         TreeIterator::new(self)
     }
 
-    pub fn inclusively_following_siblings(&self) -> NodeSiblingIterator {
-        NodeSiblingIterator {
+    pub fn inclusively_following_siblings(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: Some(Root::from_ref(self)),
+            next_node: |n| n.GetNextSibling(),
         }
     }
 
-    pub fn inclusively_preceding_siblings(&self) -> ReverseSiblingIterator {
-        ReverseSiblingIterator {
+    pub fn inclusively_preceding_siblings(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: Some(Root::from_ref(self)),
+            next_node: |n| n.GetPreviousSibling(),
         }
     }
 
@@ -521,15 +526,17 @@ impl Node {
         parent.ancestors().any(|ancestor| &*ancestor == self)
     }
 
-    pub fn following_siblings(&self) -> NodeSiblingIterator {
-        NodeSiblingIterator {
+    pub fn following_siblings(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: self.GetNextSibling(),
+            next_node: |n| n.GetNextSibling(),
         }
     }
 
-    pub fn preceding_siblings(&self) -> ReverseSiblingIterator {
-        ReverseSiblingIterator {
+    pub fn preceding_siblings(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: self.GetPreviousSibling(),
+            next_node: |n| n.GetPreviousSibling(),
         }
     }
 
@@ -547,9 +554,10 @@ impl Node {
         }
     }
 
-    pub fn descending_last_children(&self) -> LastChildIterator {
-        LastChildIterator {
+    pub fn descending_last_children(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: self.GetLastChild(),
+            next_node: |n| n.GetLastChild(),
         }
     }
 
@@ -612,7 +620,7 @@ impl Node {
         }
     }
 
-    pub fn scroll_offset(&self) -> Point2D<f32> {
+    pub fn scroll_offset(&self) -> Vector2D<f32> {
         let document = self.owner_doc();
         let window = document.window();
         window.scroll_offset_query(self)
@@ -633,7 +641,7 @@ impl Node {
         let viable_previous_sibling = first_node_not_in(self.preceding_siblings(), &nodes);
 
         // Step 4.
-        let node = try!(self.owner_doc().node_from_nodes_and_strings(nodes));
+        let node = self.owner_doc().node_from_nodes_and_strings(nodes)?;
 
         // Step 5.
         let viable_previous_sibling = match viable_previous_sibling {
@@ -642,7 +650,7 @@ impl Node {
         };
 
         // Step 6.
-        try!(Node::pre_insert(&node, &parent, viable_previous_sibling.r()));
+        Node::pre_insert(&node, &parent, viable_previous_sibling.r())?;
 
         Ok(())
     }
@@ -662,10 +670,10 @@ impl Node {
         let viable_next_sibling = first_node_not_in(self.following_siblings(), &nodes);
 
         // Step 4.
-        let node = try!(self.owner_doc().node_from_nodes_and_strings(nodes));
+        let node = self.owner_doc().node_from_nodes_and_strings(nodes)?;
 
         // Step 5.
-        try!(Node::pre_insert(&node, &parent, viable_next_sibling.r()));
+        Node::pre_insert(&node, &parent, viable_next_sibling.r())?;
 
         Ok(())
     }
@@ -682,13 +690,13 @@ impl Node {
         // Step 3.
         let viable_next_sibling = first_node_not_in(self.following_siblings(), &nodes);
         // Step 4.
-        let node = try!(self.owner_doc().node_from_nodes_and_strings(nodes));
+        let node = self.owner_doc().node_from_nodes_and_strings(nodes)?;
         if self.parent_node == Some(&*parent) {
             // Step 5.
-            try!(parent.ReplaceChild(&node, self));
+            parent.ReplaceChild(&node, self)?;
         } else {
             // Step 6.
-            try!(Node::pre_insert(&node, &parent, viable_next_sibling.r()));
+            Node::pre_insert(&node, &parent, viable_next_sibling.r())?;
         }
         Ok(())
     }
@@ -697,7 +705,7 @@ impl Node {
     pub fn prepend(&self, nodes: Vec<NodeOrString>) -> ErrorResult {
         // Step 1.
         let doc = self.owner_doc();
-        let node = try!(doc.node_from_nodes_and_strings(nodes));
+        let node = doc.node_from_nodes_and_strings(nodes)?;
         // Step 2.
         let first_child = self.first_child.get();
         Node::pre_insert(&node, self, first_child.r()).map(|_| ())
@@ -707,7 +715,7 @@ impl Node {
     pub fn append(&self, nodes: Vec<NodeOrString>) -> ErrorResult {
         // Step 1.
         let doc = self.owner_doc();
-        let node = try!(doc.node_from_nodes_and_strings(nodes));
+        let node = doc.node_from_nodes_and_strings(nodes)?;
         // Step 2.
         self.AppendChild(&node).map(|_| ())
     }
@@ -717,12 +725,13 @@ impl Node {
         // Step 1.
         match SelectorParser::parse_author_origin_no_namespace(&selectors) {
             // Step 2.
-            Err(()) => Err(Error::Syntax),
+            Err(_) => Err(Error::Syntax),
             // Step 3.
             Ok(selectors) => {
-                let mut ctx = MatchingContext::new(MatchingMode::Normal, None);
+                let mut ctx = MatchingContext::new(MatchingMode::Normal, None,
+                                                   self.owner_doc().quirks_mode());
                 Ok(self.traverse_preorder().filter_map(Root::downcast).find(|element| {
-                    matches_selector_list(&selectors.0, element, &mut ctx)
+                    matches_selector_list(&selectors, element, &mut ctx)
                 }))
             }
         }
@@ -737,7 +746,7 @@ impl Node {
         // Step 1.
         match SelectorParser::parse_author_origin_no_namespace(&selectors) {
             // Step 2.
-            Err(()) => Err(Error::Syntax),
+            Err(_) => Err(Error::Syntax),
             // Step 3.
             Ok(selectors) => {
                 let mut descendants = self.traverse_preorder();
@@ -752,19 +761,21 @@ impl Node {
     #[allow(unsafe_code)]
     pub fn query_selector_all(&self, selectors: DOMString) -> Fallible<Root<NodeList>> {
         let window = window_from_node(self);
-        let iter = try!(self.query_selector_iter(selectors));
+        let iter = self.query_selector_iter(selectors)?;
         Ok(NodeList::new_simple_list(&window, iter))
     }
 
-    pub fn ancestors(&self) -> AncestorIterator {
-        AncestorIterator {
-            current: self.GetParentNode()
+    pub fn ancestors(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
+            current: self.GetParentNode(),
+            next_node: |n| n.GetParentNode(),
         }
     }
 
-    pub fn inclusive_ancestors(&self) -> AncestorIterator {
-        AncestorIterator {
-            current: Some(Root::from_ref(self))
+    pub fn inclusive_ancestors(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
+            current: Some(Root::from_ref(self)),
+            next_node: |n| n.GetParentNode(),
         }
     }
 
@@ -784,15 +795,17 @@ impl Node {
         self.is_in_doc() && self.owner_doc().browsing_context().is_some()
     }
 
-    pub fn children(&self) -> NodeSiblingIterator {
-        NodeSiblingIterator {
+    pub fn children(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: self.GetFirstChild(),
+            next_node: |n| n.GetNextSibling(),
         }
     }
 
-    pub fn rev_children(&self) -> ReverseSiblingIterator {
-        ReverseSiblingIterator {
+    pub fn rev_children(&self) -> impl Iterator<Item=Root<Node>> {
+        SimpleNodeIterator {
             current: self.GetLastChild(),
+            next_node: |n| n.GetPreviousSibling(),
         }
     }
 
@@ -853,7 +866,7 @@ impl Node {
         {
             let tr_node = tr.upcast::<Node>();
             if index == -1 {
-                try!(self.InsertBefore(tr_node, None));
+                self.InsertBefore(tr_node, None)?;
             } else {
                 let items = get_items();
                 let node = match items.elements_iter()
@@ -864,7 +877,7 @@ impl Node {
                     None => return Err(Error::IndexSize),
                     Some(node) => node,
                 };
-                try!(self.InsertBefore(tr_node, node.r()));
+                self.InsertBefore(tr_node, node.r())?;
             }
         }
 
@@ -1158,40 +1171,6 @@ impl LayoutNodeHelpers for LayoutJS<Node> {
 // Iteration and traversal
 //
 
-pub struct NodeSiblingIterator {
-    current: Option<Root<Node>>,
-}
-
-impl Iterator for NodeSiblingIterator {
-    type Item = Root<Node>;
-
-    fn next(&mut self) -> Option<Root<Node>> {
-        let current = match self.current.take() {
-            None => return None,
-            Some(current) => current,
-        };
-        self.current = current.GetNextSibling();
-        Some(current)
-    }
-}
-
-pub struct ReverseSiblingIterator {
-    current: Option<Root<Node>>,
-}
-
-impl Iterator for ReverseSiblingIterator {
-    type Item = Root<Node>;
-
-    fn next(&mut self) -> Option<Root<Node>> {
-        let current = match self.current.take() {
-            None => return None,
-            Some(current) => current,
-        };
-        self.current = current.GetPreviousSibling();
-        Some(current)
-    }
-}
-
 pub struct FollowingNodeIterator {
     current: Option<Root<Node>>,
     root: Root<Node>,
@@ -1284,37 +1263,22 @@ impl Iterator for PrecedingNodeIterator {
     }
 }
 
-pub struct LastChildIterator {
+struct SimpleNodeIterator<I>
+    where I: Fn(&Node) -> Option<Root<Node>>
+{
     current: Option<Root<Node>>,
+    next_node: I,
 }
 
-impl Iterator for LastChildIterator {
+impl<I> Iterator for SimpleNodeIterator<I>
+    where I: Fn(&Node) -> Option<Root<Node>>
+{
     type Item = Root<Node>;
 
-    fn next(&mut self) -> Option<Root<Node>> {
-        let current = match self.current.take() {
-            None => return None,
-            Some(current) => current,
-        };
-        self.current = current.GetLastChild();
-        Some(current)
-    }
-}
-
-pub struct AncestorIterator {
-    current: Option<Root<Node>>,
-}
-
-impl Iterator for AncestorIterator {
-    type Item = Root<Node>;
-
-    fn next(&mut self) -> Option<Root<Node>> {
-        let current = match self.current.take() {
-            None => return None,
-            Some(current) => current,
-        };
-        self.current = current.GetParentNode();
-        Some(current)
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current.take();
+        self.current = current.as_ref().and_then(|c| (self.next_node)(c));
+        current
     }
 }
 
@@ -1567,7 +1531,7 @@ impl Node {
     pub fn pre_insert(node: &Node, parent: &Node, child: Option<&Node>)
                       -> Fallible<Root<Node>> {
         // Step 1.
-        try!(Node::ensure_pre_insertion_validity(node, parent, child));
+        Node::ensure_pre_insertion_validity(node, parent, child)?;
 
         // Steps 2-3.
         let reference_child_root;
@@ -1819,12 +1783,15 @@ impl Node {
             NodeTypeId::Element(..) => {
                 let element = node.downcast::<Element>().unwrap();
                 let name = QualName {
-                    prefix: element.prefix().map(|p| Prefix::from(&**p)),
+                    prefix: element.prefix().as_ref().map(|p| Prefix::from(&**p)),
                     ns: element.namespace().clone(),
                     local: element.local_name().clone()
                 };
                 let element = Element::create(name,
-                    &document, ElementCreator::ScriptCreated);
+                                              element.get_is(),
+                                              &document,
+                                              ElementCreator::ScriptCreated,
+                                              CustomElementCreationMode::Asynchronous);
                 Root::upcast::<Node>(element)
             },
         };
@@ -2285,7 +2252,7 @@ impl NodeMethods for Node {
             let element = node.downcast::<Element>().unwrap();
             let other_element = other.downcast::<Element>().unwrap();
             (*element.namespace() == *other_element.namespace()) &&
-            (element.prefix() == other_element.prefix()) &&
+            (*element.prefix() == *other_element.prefix()) &&
             (*element.local_name() == *other_element.local_name()) &&
             (element.attrs().len() == other_element.attrs().len())
         }

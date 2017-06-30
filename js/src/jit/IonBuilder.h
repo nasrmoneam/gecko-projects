@@ -633,6 +633,9 @@ class IonBuilder
     InliningResult inlineArraySlice(CallInfo& callInfo);
     InliningResult inlineArrayJoin(CallInfo& callInfo);
 
+    // Boolean natives.
+    InliningResult inlineBoolean(CallInfo& callInfo);
+
     // Iterator intrinsics.
     InliningResult inlineNewIterator(CallInfo& callInfo, MNewIterator::Type type);
 
@@ -775,6 +778,7 @@ class IonBuilder
     InliningResult inlineIsConstructing(CallInfo& callInfo);
     InliningResult inlineSubstringKernel(CallInfo& callInfo);
     InliningResult inlineObjectHasPrototype(CallInfo& callInfo);
+    InliningResult inlineFinishBoundFunctionInit(CallInfo& callInfo);
 
     // Testing functions.
     InliningResult inlineBailout(CallInfo& callInfo);

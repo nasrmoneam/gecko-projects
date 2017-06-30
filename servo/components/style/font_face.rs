@@ -12,44 +12,33 @@
 use computed_values::{font_feature_settings, font_stretch, font_style, font_weight};
 use computed_values::font_family::FamilyName;
 use cssparser::{AtRuleParser, DeclarationListParser, DeclarationParser, Parser};
-use cssparser::SourceLocation;
+use cssparser::{SourceLocation, CompactCowStr};
+use error_reporting::ContextualParseError;
 #[cfg(feature = "gecko")] use gecko_bindings::structs::CSSFontFaceDescriptors;
 #[cfg(feature = "gecko")] use cssparser::UnicodeRange;
 use parser::{ParserContext, log_css_error, Parse};
+#[cfg(feature = "gecko")]
+use properties::longhands::font_language_override;
+use selectors::parser::SelectorParseError;
 use shared_lock::{SharedRwLockReadGuard, ToCssWithGuard};
 use std::fmt;
-use style_traits::{ToCss, OneOrMoreCommaSeparated};
+use style_traits::{Comma, OneOrMoreSeparated, ParseError, StyleParseError, ToCss};
 use values::specified::url::SpecifiedUrl;
 
 /// A source for a font-face rule.
-#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
+#[derive(Clone, Debug, Eq, PartialEq, ToCss)]
 pub enum Source {
     /// A `url()` source.
     Url(UrlSource),
     /// A `local()` source.
+    #[css(function)]
     Local(FamilyName),
 }
 
-impl ToCss for Source {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
-        where W: fmt::Write,
-    {
-        match *self {
-            Source::Url(ref url) => {
-                try!(dest.write_str("url(\""));
-                try!(url.to_css(dest));
-            },
-            Source::Local(ref family) => {
-                try!(dest.write_str("local(\""));
-                try!(family.to_css(dest));
-            },
-        }
-        dest.write_str("\")")
-    }
+impl OneOrMoreSeparated for Source {
+    type S = Comma;
 }
-
-impl OneOrMoreCommaSeparated for Source {}
 
 /// A `UrlSource` represents a font-face source that has been specified with a
 /// `url()` function.
@@ -68,7 +57,7 @@ impl ToCss for UrlSource {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
         where W: fmt::Write,
     {
-        dest.write_str(self.url.as_str())
+        self.url.to_css(dest)
     }
 }
 
@@ -83,6 +72,66 @@ define_css_keyword_enum!(FontDisplay:
                          "optional" => Optional);
 add_impls_for_keyword_enum!(FontDisplay);
 
+/// A font-weight value for a @font-face rule.
+/// The font-weight CSS property specifies the weight or boldness of the font.
+#[cfg(feature = "gecko")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FontWeight {
+    /// Numeric font weights for fonts that provide more than just normal and bold.
+    Weight(font_weight::T),
+    /// Normal font weight. Same as 400.
+    Normal,
+    /// Bold font weight. Same as 700.
+    Bold,
+}
+
+#[cfg(feature = "gecko")]
+impl ToCss for FontWeight {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
+        match *self {
+            FontWeight::Normal => dest.write_str("normal"),
+            FontWeight::Bold => dest.write_str("bold"),
+            FontWeight::Weight(ref weight) => weight.to_css(dest),
+        }
+    }
+}
+
+#[cfg(feature = "gecko")]
+impl Parse for FontWeight {
+    fn parse<'i, 't>(_: &ParserContext, input: &mut Parser<'i, 't>)
+        -> Result<FontWeight, ParseError<'i>> {
+        let result = input.try(|input| {
+            let ident = input.expect_ident().map_err(|_| ())?;
+            match_ignore_ascii_case! { &ident,
+                "normal" => Ok(FontWeight::Normal),
+                "bold" => Ok(FontWeight::Bold),
+                _ => Err(())
+            }
+        });
+        result.or_else(|_| {
+            FontWeight::from_int(input.expect_integer()?)
+                .map_err(|()| StyleParseError::UnspecifiedError.into())
+        })
+    }
+}
+
+#[cfg(feature = "gecko")]
+impl FontWeight {
+    fn from_int(kw: i32) -> Result<Self, ()> {
+        match kw {
+            100 => Ok(FontWeight::Weight(font_weight::T::Weight100)),
+            200 => Ok(FontWeight::Weight(font_weight::T::Weight200)),
+            300 => Ok(FontWeight::Weight(font_weight::T::Weight300)),
+            400 => Ok(FontWeight::Weight(font_weight::T::Weight400)),
+            500 => Ok(FontWeight::Weight(font_weight::T::Weight500)),
+            600 => Ok(FontWeight::Weight(font_weight::T::Weight600)),
+            700 => Ok(FontWeight::Weight(font_weight::T::Weight700)),
+            800 => Ok(FontWeight::Weight(font_weight::T::Weight800)),
+            900 => Ok(FontWeight::Weight(font_weight::T::Weight900)),
+            _ => Err(())
+        }
+    }
+}
 /// Parse the block inside a `@font-face` rule.
 ///
 /// Note that the prelude parsing code lives in the `stylesheets` module.
@@ -97,11 +146,11 @@ pub fn parse_font_face_block(context: &ParserContext, input: &mut Parser, locati
         };
         let mut iter = DeclarationListParser::new(input, parser);
         while let Some(declaration) = iter.next() {
-            if let Err(range) = declaration {
-                let pos = range.start;
-                let message = format!("Unsupported @font-face descriptor declaration: '{}'",
-                                      iter.input.slice(range));
-                log_css_error(iter.input, pos, &*message, context);
+            if let Err(err) = declaration {
+                let pos = err.span.start;
+                let error = ContextualParseError::UnsupportedFontFaceDescriptor(
+                    iter.input.slice(err.span), err.error);
+                log_css_error(iter.input, pos, error, context);
             }
         }
     }
@@ -154,13 +203,15 @@ struct FontFaceRuleParser<'a, 'b: 'a> {
 }
 
 /// Default methods reject all at rules.
-impl<'a, 'b> AtRuleParser for FontFaceRuleParser<'a, 'b> {
+impl<'a, 'b, 'i> AtRuleParser<'i> for FontFaceRuleParser<'a, 'b> {
     type Prelude = ();
     type AtRule = ();
+    type Error = SelectorParseError<'i, StyleParseError<'i>>;
 }
 
 impl Parse for Source {
-    fn parse(context: &ParserContext, input: &mut Parser) -> Result<Source, ()> {
+    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
+                     -> Result<Source, ParseError<'i>> {
         if input.try(|input| input.expect_function_matching("local")).is_ok() {
             return input.parse_nested_block(|input| {
                 FamilyName::parse(context, input)
@@ -247,11 +298,13 @@ macro_rules! font_face_descriptors_common {
             }
         }
 
-       impl<'a, 'b> DeclarationParser for FontFaceRuleParser<'a, 'b> {
-            type Declaration = ();
+       impl<'a, 'b, 'i> DeclarationParser<'i> for FontFaceRuleParser<'a, 'b> {
+           type Declaration = ();
+           type Error = SelectorParseError<'i, StyleParseError<'i>>;
 
-            fn parse_value(&mut self, name: &str, input: &mut Parser) -> Result<(), ()> {
-                match_ignore_ascii_case! { name,
+           fn parse_value<'t>(&mut self, name: CompactCowStr<'i>, input: &mut Parser<'i, 't>)
+                              -> Result<(), ParseError<'i>> {
+                match_ignore_ascii_case! { &*name,
                     $(
                         $name => {
                             // DeclarationParser also calls parse_entirely
@@ -262,7 +315,7 @@ macro_rules! font_face_descriptors_common {
                             self.rule.$ident = Some(value)
                         }
                     )*
-                    _ => return Err(())
+                    _ => return Err(SelectorParseError::UnexpectedIdent(name.clone()).into())
                 }
                 Ok(())
             }
@@ -338,7 +391,7 @@ font_face_descriptors! {
         "font-style" style / mStyle: font_style::T = font_style::T::normal,
 
         /// The weight of this font face
-        "font-weight" weight / mWeight: font_weight::T = font_weight::T::Weight400 /* normal */,
+        "font-weight" weight / mWeight: FontWeight = FontWeight::Normal,
 
         /// The stretch of this font face
         "font-stretch" stretch / mStretch: font_stretch::T = font_stretch::T::normal,
@@ -356,7 +409,10 @@ font_face_descriptors! {
             font_feature_settings::T::Normal
         },
 
-        // FIXME: add font-language-override.
+        /// The language override of this font face.
+        "font-language-override" language_override / mFontLanguageOverride: font_language_override::SpecifiedValue = {
+            font_language_override::SpecifiedValue::Normal
+        },
     ]
 }
 

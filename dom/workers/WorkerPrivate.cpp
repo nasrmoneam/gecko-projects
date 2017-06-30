@@ -353,6 +353,7 @@ class MainThreadReleaseRunnable final : public Runnable
 public:
   MainThreadReleaseRunnable(nsTArray<nsCOMPtr<nsISupports>>& aDoomed,
                             nsCOMPtr<nsILoadGroup>& aLoadGroupToCancel)
+    : mozilla::Runnable("MainThreadReleaseRunnable")
   {
     mDoomed.SwapElements(aDoomed);
     mLoadGroupToCancel.swap(aLoadGroupToCancel);
@@ -427,7 +428,8 @@ class TopLevelWorkerFinishedRunnable final : public Runnable
 
 public:
   explicit TopLevelWorkerFinishedRunnable(WorkerPrivate* aFinishedWorker)
-  : mFinishedWorker(aFinishedWorker)
+    : mozilla::Runnable("TopLevelWorkerFinishedRunnable")
+    , mFinishedWorker(aFinishedWorker)
   {
     aFinishedWorker->AssertIsOnWorkerThread();
   }
@@ -1545,44 +1547,6 @@ private:
   }
 };
 
-class DummyRunnable final
-  : public WorkerRunnable
-{
-public:
-  explicit
-  DummyRunnable(WorkerPrivate* aWorkerPrivate)
-    : WorkerRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
-  {
-    aWorkerPrivate->AssertIsOnWorkerThread();
-  }
-
-private:
-  ~DummyRunnable()
-  {
-    mWorkerPrivate->AssertIsOnWorkerThread();
-  }
-
-  virtual bool
-  PreDispatch(WorkerPrivate* aWorkerPrivate) override
-  {
-    MOZ_ASSERT_UNREACHABLE("Should never call Dispatch on this!");
-    return true;
-  }
-
-  virtual void
-  PostDispatch(WorkerPrivate* aWorkerPrivate, bool aDispatchResult) override
-  {
-    MOZ_ASSERT_UNREACHABLE("Should never call Dispatch on this!");
-  }
-
-  virtual bool
-  WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
-  {
-    // Do nothing.
-    return true;
-  }
-};
-
 PRThread*
 PRThreadFromThread(nsIThread* aThread)
 {
@@ -1718,18 +1682,23 @@ public:
     return NS_ERROR_NOT_IMPLEMENTED;
   }
 
+  NS_IMETHOD_(bool) IsOnCurrentThreadInfallible() override
+  {
+    MutexAutoLock lock(mMutex);
+
+    if (!mWorkerPrivate) {
+      return false;
+    }
+
+    return mWorkerPrivate->IsOnCurrentThread();
+  }
+
   NS_IMETHOD
   IsOnCurrentThread(bool* aIsOnCurrentThread) override
   {
     MOZ_ASSERT(aIsOnCurrentThread);
-    MutexAutoLock lock(mMutex);
-
-    if (!mWorkerPrivate) {
-      *aIsOnCurrentThread = false;
-      return NS_OK;
-    }
-
-    return mWorkerPrivate->IsOnCurrentThread(aIsOnCurrentThread);
+    *aIsOnCurrentThread = IsOnCurrentThreadInfallible();
+    return NS_OK;
   }
 
   NS_DECL_THREADSAFE_ISUPPORTS
@@ -1939,7 +1908,7 @@ WorkerLoadInfo::SetPrincipalFromChannel(nsIChannel* aChannel)
   return SetPrincipalOnMainThread(principal, loadGroup);
 }
 
-#if defined(DEBUG) || !defined(RELEASE_OR_BETA)
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
 bool
 WorkerLoadInfo::FinalChannelPrincipalIsValid(nsIChannel* aChannel)
 {
@@ -2027,7 +1996,7 @@ WorkerLoadInfo::PrincipalURIMatchesScriptURL()
 
   return equal;
 }
-#endif // defined(DEBUG) || !defined(RELEASE_OR_BETA)
+#endif // MOZ_DIAGNOSTIC_ASSERT_ENABLED
 
 bool
 WorkerLoadInfo::ProxyReleaseMainThreadObjects(WorkerPrivate* aWorkerPrivate)
@@ -2065,7 +2034,7 @@ WorkerLoadInfo::ProxyReleaseMainThreadObjects(WorkerPrivate* aWorkerPrivate,
 
 template <class Derived>
 class WorkerPrivateParent<Derived>::EventTarget final
-  : public nsIEventTarget
+  : public nsISerialEventTarget
 {
   // This mutex protects mWorkerPrivate and must be acquired *before* the
   // WorkerPrivate's mutex whenever they must both be held.
@@ -2098,7 +2067,7 @@ public:
     {
       MutexAutoLock lock(mMutex);
 
-      MOZ_ASSERT(mWorkerPrivate);
+      // Note, Disable() can be called more than once safely.
       mWorkerPrivate = nullptr;
       mNestedEventTarget.swap(nestedEventTarget);
     }
@@ -2573,11 +2542,13 @@ WorkerPrivate::MemoryReporter::FinishCollectRunnable::FinishCollectRunnable(
   nsISupports* aHandlerData,
   bool aAnonymize,
   const nsACString& aPath)
-  : mHandleReport(aHandleReport),
-    mHandlerData(aHandlerData),
-    mAnonymize(aAnonymize),
-    mSuccess(false),
-    mCxStats(aPath)
+  : mozilla::Runnable(
+      "dom::workers::WorkerPrivate::MemoryReporter::FinishCollectRunnable")
+  , mHandleReport(aHandleReport)
+  , mHandlerData(aHandlerData)
+  , mAnonymize(aAnonymize)
+  , mSuccess(false)
+  , mCxStats(aPath)
 { }
 
 NS_IMETHODIMP
@@ -3003,29 +2974,41 @@ WorkerPrivateParent<Derived>::MaybeWrapAsWorkerRunnable(already_AddRefed<nsIRunn
 }
 
 template <class Derived>
-already_AddRefed<nsIEventTarget>
+already_AddRefed<nsISerialEventTarget>
 WorkerPrivateParent<Derived>::GetEventTarget()
 {
   WorkerPrivate* self = ParentAsWorkerPrivate();
 
-  nsCOMPtr<nsIEventTarget> target;
+  nsCOMPtr<nsISerialEventTarget> target;
+
+  bool needAutoDisable = false;
 
   {
     MutexAutoLock lock(mMutex);
 
-    if (!mEventTarget &&
-        ParentStatus() <= Running &&
-        self->mStatus <= Running) {
+    if (!mEventTarget) {
       mEventTarget = new EventTarget(self);
+
+      // If the worker is already shutting down then we want to
+      // immediately disable the event target.  This will cause
+      // the Dispatch() method to fail, but the event target
+      // will still exist.
+      if (self->mStatus > Running) {
+        needAutoDisable = true;
+      }
     }
 
     target = mEventTarget;
   }
 
-  NS_WARNING_ASSERTION(
-    target,
-    "Requested event target for a worker that is already shutting down!");
+  // Make sure to call Disable() outside of the mutex since it
+  // also internally locks a mutex.
+  if (needAutoDisable) {
+    mEventTarget->Disable();
+  }
 
+
+  MOZ_DIAGNOSTIC_ASSERT(target);
   return target.forget();
 }
 
@@ -3922,7 +3905,7 @@ WorkerPrivateParent<Derived>::SetPrincipalFromChannel(nsIChannel* aChannel)
   return mLoadInfo.SetPrincipalFromChannel(aChannel);
 }
 
-#if defined(DEBUG) || !defined(RELEASE_OR_BETA)
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
 template <class Derived>
 bool
 WorkerPrivateParent<Derived>::FinalChannelPrincipalIsValid(nsIChannel* aChannel)
@@ -4034,7 +4017,6 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 template <class Derived>
 NS_IMPL_CYCLE_COLLECTION_TRACE_BEGIN_INHERITED(WorkerPrivateParent<Derived>,
                                                DOMEventTargetHelper)
-  tmp->AssertIsOnParentThread();
 NS_IMPL_CYCLE_COLLECTION_TRACE_END
 
 #ifdef DEBUG
@@ -4071,7 +4053,7 @@ WorkerPrivateParent<Derived>::AssertInnerWindowIsCorrect() const
 
 #endif
 
-#if defined(DEBUG) || !defined(RELEASE_OR_BETA)
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
 template <class Derived>
 bool
 WorkerPrivateParent<Derived>::PrincipalIsValid() const
@@ -4088,8 +4070,9 @@ class PostDebuggerMessageRunnable final : public Runnable
 public:
   PostDebuggerMessageRunnable(WorkerDebugger* aDebugger,
                               const nsAString& aMessage)
-  : mDebugger(aDebugger),
-    mMessage(aMessage)
+    : mozilla::Runnable("PostDebuggerMessageRunnable")
+    , mDebugger(aDebugger)
+    , mMessage(aMessage)
   {
   }
 
@@ -4115,12 +4098,14 @@ class ReportDebuggerErrorRunnable final : public Runnable
 
 public:
   ReportDebuggerErrorRunnable(WorkerDebugger* aDebugger,
-                              const nsAString& aFilename, uint32_t aLineno,
+                              const nsAString& aFilename,
+                              uint32_t aLineno,
                               const nsAString& aMessage)
-  : mDebugger(aDebugger),
-    mFilename(aFilename),
-    mLineno(aLineno),
-    mMessage(aMessage)
+    : mozilla::Runnable("ReportDebuggerErrorRunnable")
+    , mDebugger(aDebugger)
+    , mFilename(aFilename)
+    , mLineno(aLineno)
+    , mMessage(aMessage)
   {
   }
 
@@ -4150,7 +4135,8 @@ WorkerDebugger::~WorkerDebugger()
 
   if (!NS_IsMainThread()) {
     for (size_t index = 0; index < mListeners.Length(); ++index) {
-      NS_ReleaseOnMainThread(mListeners[index].forget());
+      NS_ReleaseOnMainThread(
+        "WorkerDebugger::mListeners", mListeners[index].forget());
     }
   }
 }
@@ -4438,7 +4424,7 @@ WorkerPrivate::WorkerPrivate(WorkerPrivate* aParent,
   , mPRThread(nullptr)
   , mNumHoldersPreventingShutdownStart(0)
   , mDebuggerEventLoopLevel(0)
-  , mMainThreadEventTarget(do_GetMainThread())
+  , mMainThreadEventTarget(GetMainThreadEventTarget())
   , mWorkerControlEventTarget(new WorkerControlEventTarget(this))
   , mErrorHandlerRecursionCount(0)
   , mNextTimeoutId(1)
@@ -4465,7 +4451,7 @@ WorkerPrivate::WorkerPrivate(WorkerPrivate* aParent,
     mOnLine = !NS_IsOffline();
   }
 
-  nsCOMPtr<nsIEventTarget> target;
+  nsCOMPtr<nsISerialEventTarget> target;
 
   // A child worker just inherits the parent workers ThrottledEventQueue
   // and main thread target for now.  This is mainly due to the restriction
@@ -4481,10 +4467,8 @@ WorkerPrivate::WorkerPrivate(WorkerPrivate* aParent,
   target = GetWindow() ? GetWindow()->EventTargetFor(TaskCategory::Worker) : nullptr;
 
   if (!target) {
-    nsCOMPtr<nsIThread> mainThread;
-    NS_GetMainThread(getter_AddRefs(mainThread));
-    MOZ_DIAGNOSTIC_ASSERT(mainThread);
-    target = mainThread;
+    target = GetMainThreadSerialEventTarget();
+    MOZ_DIAGNOSTIC_ASSERT(target);
   }
 
   // Throttle events to the main thread using a ThrottledEventQueue specific to
@@ -5361,16 +5345,13 @@ WorkerPrivate::InterruptCallback(JSContext* aCx)
   return true;
 }
 
-nsresult
-WorkerPrivate::IsOnCurrentThread(bool* aIsOnCurrentThread)
+bool
+WorkerPrivate::IsOnCurrentThread()
 {
   // May be called on any thread!
 
-  MOZ_ASSERT(aIsOnCurrentThread);
   MOZ_ASSERT(mPRThread);
-
-  *aIsOnCurrentThread = PR_GetCurrentThread() == mPRThread;
-  return NS_OK;
+  return PR_GetCurrentThread() == mPRThread;
 }
 
 void
@@ -6165,7 +6146,6 @@ WorkerPrivate::NotifyInternal(JSContext* aCx, Status aStatus)
     MutexAutoLock lock(mMutex);
 
     if (mStatus >= aStatus) {
-      MOZ_ASSERT(!mEventTarget);
       return true;
     }
 
@@ -6178,18 +6158,16 @@ WorkerPrivate::NotifyInternal(JSContext* aCx, Status aStatus)
       Close();
     }
 
-    mEventTarget.swap(eventTarget);
+    eventTarget = mEventTarget;
   }
 
-  // Now that mStatus > Running, no-one can create a new WorkerEventTarget or
-  // WorkerCrossThreadDispatcher if we don't already have one.
+  // Disable the event target, if it exists.
   if (eventTarget) {
     // Since we'll no longer process events, make sure we no longer allow anyone
     // to post them. We have to do this without mMutex held, since our mutex
     // must be acquired *after* the WorkerEventTarget's mutex when they're both
     // held.
     eventTarget->Disable();
-    eventTarget = nullptr;
   }
 
   if (mCrossThreadDispatcher) {
@@ -7021,6 +6999,7 @@ NS_IMPL_RELEASE(WorkerPrivateParent<Derived>::EventTarget)
 
 template <class Derived>
 NS_INTERFACE_MAP_BEGIN(WorkerPrivateParent<Derived>::EventTarget)
+  NS_INTERFACE_MAP_ENTRY(nsISerialEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsIEventTarget)
   NS_INTERFACE_MAP_ENTRY(nsISupports)
 #ifdef DEBUG
@@ -7103,12 +7082,25 @@ EventTarget::IsOnCurrentThread(bool* aIsOnCurrentThread)
     return NS_ERROR_UNEXPECTED;
   }
 
-  nsresult rv = mWorkerPrivate->IsOnCurrentThread(aIsOnCurrentThread);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
+  *aIsOnCurrentThread = mWorkerPrivate->IsOnCurrentThread();
+  return NS_OK;
+}
+
+template <class Derived>
+NS_IMETHODIMP_(bool)
+WorkerPrivateParent<Derived>::
+EventTarget::IsOnCurrentThreadInfallible()
+{
+  // May be called on any thread!
+
+  MutexAutoLock lock(mMutex);
+
+  if (!mWorkerPrivate) {
+    NS_WARNING("A worker's event target was used after the worker has !");
+    return false;
   }
 
-  return NS_OK;
+  return mWorkerPrivate->IsOnCurrentThread();
 }
 
 BEGIN_WORKERS_NAMESPACE

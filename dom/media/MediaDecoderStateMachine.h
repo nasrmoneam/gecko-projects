@@ -184,8 +184,11 @@ public:
 
   void DispatchSetPlaybackRate(double aPlaybackRate)
   {
-    OwnerThread()->DispatchStateChange(NewRunnableMethod<double>(
-      this, &MediaDecoderStateMachine::SetPlaybackRate, aPlaybackRate));
+    OwnerThread()->DispatchStateChange(
+      NewRunnableMethod<double>("MediaDecoderStateMachine::SetPlaybackRate",
+                                this,
+                                &MediaDecoderStateMachine::SetPlaybackRate,
+                                aPlaybackRate));
   }
 
   RefPtr<ShutdownPromise> BeginShutdown();
@@ -194,11 +197,14 @@ public:
   void DispatchSetFragmentEndTime(const media::TimeUnit& aEndTime)
   {
     RefPtr<MediaDecoderStateMachine> self = this;
-    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction([self, aEndTime] () {
-      // A negative number means we don't have a fragment end time at all.
-      self->mFragmentEndTime = aEndTime >= media::TimeUnit::Zero()
-        ? aEndTime : media::TimeUnit::Invalid();
-    });
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+      "MediaDecoderStateMachine::DispatchSetFragmentEndTime",
+      [self, aEndTime]() {
+        // A negative number means we don't have a fragment end time at all.
+        self->mFragmentEndTime = aEndTime >= media::TimeUnit::Zero()
+                                   ? aEndTime
+                                   : media::TimeUnit::Invalid();
+      });
     OwnerThread()->Dispatch(r.forget());
   }
 
@@ -304,9 +310,6 @@ private:
 
   bool HaveEnoughDecodedAudio();
   bool HaveEnoughDecodedVideo();
-
-  // True if shutdown process has begun.
-  bool IsShutdown() const;
 
   // Returns true if we're currently playing. The decoder monitor must
   // be held.
@@ -430,8 +433,7 @@ protected:
   void RequestAudioData();
 
   // Start a task to decode video.
-  void RequestVideoData(bool aSkipToNextKeyframe,
-                        const media::TimeUnit& aCurrentTime);
+  void RequestVideoData(const media::TimeUnit& aCurrentTime);
 
   void WaitForData(MediaData::Type aType);
 
@@ -705,6 +707,10 @@ private:
   // Pitch preservation for the playback rate.
   Mirror<bool> mPreservesPitch;
 
+  // Whether to seek back to the start of the media resource
+  // upon reaching the end.
+  Mirror<bool> mLooping;
+
   // True if the media is same-origin with the element. Data can only be
   // passed to MediaStreams when this is true.
   Mirror<bool> mSameOriginMedia;
@@ -726,9 +732,6 @@ private:
   // Duration of the media. This is guaranteed to be non-null after we finish
   // decoding the first frame.
   Canonical<media::NullableTimeUnit> mDuration;
-
-  // Whether we're currently in or transitioning to shutdown state.
-  Canonical<bool> mIsShutdown;
 
   // The status of our next frame. Mirrored on the main thread and used to
   // compute ready state.
@@ -752,7 +755,6 @@ public:
   {
     return &mDuration;
   }
-  AbstractCanonical<bool>* CanonicalIsShutdown() { return &mIsShutdown; }
   AbstractCanonical<NextFrameStatus>* CanonicalNextFrameStatus()
   {
     return &mNextFrameStatus;

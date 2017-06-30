@@ -253,28 +253,6 @@ interface nsINavHistoryContainerResultNode : nsINavHistoryResultNode
    * container.
    */
   unsigned long getChildIndex(in nsINavHistoryResultNode aNode);
-
-  /**
-   * Look for a node in the container by some of its details.  Does not search
-   * closed containers.
-   *
-   * @param aURI
-   *        the node's uri attribute value
-   * @param aTime
-   *        the node's time attribute value.
-   * @param aItemId
-   *        the node's itemId attribute value.
-   * @param aRecursive
-   *        whether or not to search recursively.
-   *
-   * @throws NS_ERROR_NOT_AVAILABLE if this container is closed.
-   * @return a result node that matches the given details if any, null
-   *         otherwise.
-   */
-  nsINavHistoryResultNode findNodeByDetails(in AUTF8String aURIString,
-                                            in PRTime aTime,
-                                            in long long aItemId,
-                                            in boolean aRecursive);
 };
 
 
@@ -376,10 +354,10 @@ interface nsINavHistoryResultObserver : nsISupports
    * @param aNode
    *        a result node
    * @param aNewURI
-   *        the new uri
+   *        the old uri
    */
   void nodeURIChanged(in nsINavHistoryResultNode aNode,
-                      in AUTF8String aNewURI);
+                      in AUTF8String aOldURI);
 
   /**
    * Called right after aNode's icon property has changed.
@@ -397,14 +375,14 @@ interface nsINavHistoryResultObserver : nsISupports
    *
    * @param aNode
    *        a uri result node
-   * @param aNewVisitDate
-   *        the new visit date
-   * @param aNewAccessCount
-   *        the new access-count
+   * @param aOldVisitDate
+   *        the old visit date
+   * @param aOldAccessCount
+   *        the old access-count
    */
   void nodeHistoryDetailsChanged(in nsINavHistoryResultNode aNode,
-                                 in PRTime aNewVisitDate,
-                                 in unsigned long aNewAccessCount);
+                                 in PRTime aOldVisitDate,
+                                 in unsigned long aOldAccessCount);
 
   /**
    * Called when the tags set on the uri represented by aNode have changed.

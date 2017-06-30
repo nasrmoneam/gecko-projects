@@ -173,6 +173,28 @@ DrawTargetCaptureImpl::PushClipRect(const Rect& aRect)
 }
 
 void
+DrawTargetCaptureImpl::PushLayer(bool aOpaque,
+                                 Float aOpacity,
+                                 SourceSurface* aMask,
+                                 const Matrix& aMaskTransform,
+                                 const IntRect& aBounds,
+                                 bool aCopyBackground)
+{
+  AppendCommand(PushLayerCommand)(aOpaque,
+                                  aOpacity,
+                                  aMask,
+                                  aMaskTransform,
+                                  aBounds,
+                                  aCopyBackground);
+}
+
+void
+DrawTargetCaptureImpl::PopLayer()
+{
+  AppendCommand(PopLayerCommand)();
+}
+
+void
 DrawTargetCaptureImpl::PopClip()
 {
   AppendCommand(PopClipCommand)();
@@ -182,6 +204,11 @@ void
 DrawTargetCaptureImpl::SetTransform(const Matrix& aTransform)
 {
   AppendCommand(SetTransformCommand)(aTransform);
+
+  // Have to update the transform for this DT
+  // because some code paths query the current transform
+  // to render specific things.
+  DrawTarget::SetTransform(aTransform);
 }
 
 void

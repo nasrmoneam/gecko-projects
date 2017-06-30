@@ -424,6 +424,13 @@ public:
 
   static void DirtyCallback();
 
+  // Explicitly choosing synchronous or asynchronous (if allowed)
+  // preferences file write.  Only for the default file.  The guarantee
+  // for the "blocking" is that when it returns, the file on disk
+  // reflect the current state of preferences.
+  nsresult SavePrefFileBlocking();
+  nsresult SavePrefFileAsynchronous();
+
 protected:
   virtual ~Preferences();
 
@@ -435,12 +442,21 @@ protected:
    *         or the error code related to the read attempt.
    */
   nsresult UseDefaultPrefFile();
-  nsresult UseUserPrefFile();
-  nsresult ReadAndOwnUserPrefFile(nsIFile *aFile);
-  nsresult ReadAndOwnSharedUserPrefFile(nsIFile *aFile);
-  nsresult SavePrefFileInternal(nsIFile* aFile);
-  nsresult WritePrefFile(nsIFile* aFile);
+  void UseUserPrefFile();
   nsresult MakeBackupPrefFile(nsIFile *aFile);
+
+  // Default pref file save can be blocking or not.
+  enum class SaveMethod {
+    Blocking,
+    Asynchronous
+  };
+
+  // Off main thread is only respected for the default aFile value (nullptr)
+  nsresult SavePrefFileInternal(nsIFile* aFile, SaveMethod aSaveMethod);
+  nsresult WritePrefFile(nsIFile* aFile, SaveMethod aSaveMethod);
+
+  // If this is false, only blocking writes, on main thread are allowed.
+  bool AllowOffMainThreadSave();
 
   /**
    * Helpers for implementing
@@ -469,7 +485,8 @@ protected:
 
 private:
   nsCOMPtr<nsIFile>        mCurrentFile;
-  bool                     mDirty;
+  bool                     mDirty = false;
+  bool                     mProfileShutdown = false;
 
   static Preferences*      sPreferences;
   static nsIPrefBranch*    sRootBranch;

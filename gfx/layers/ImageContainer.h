@@ -58,7 +58,12 @@ public:
    */
   class SurfaceReleaser : public mozilla::Runnable {
   public:
-    explicit SurfaceReleaser(RawRef aRef) : mRef(aRef) {}
+    explicit SurfaceReleaser(RawRef aRef)
+      : mozilla::Runnable(
+          "nsAutoRefTraits<nsMainThreadSourceSurfaceRef>::SurfaceReleaser")
+      , mRef(aRef)
+    {
+    }
     NS_IMETHOD Run() override {
       mRef->Release();
       return NS_OK;
@@ -96,7 +101,12 @@ public:
    */
   class SurfaceReleaser : public mozilla::Runnable {
   public:
-    explicit SurfaceReleaser(RawRef aRef) : mRef(aRef) {}
+    explicit SurfaceReleaser(RawRef aRef)
+      : mozilla::Runnable(
+          "nsAutoRefTraits<nsOwningThreadSourceSurfaceRef>::SurfaceReleaser")
+      , mRef(aRef)
+    {
+    }
     NS_IMETHOD Run() override {
       mRef->Release();
       return NS_OK;
@@ -107,25 +117,23 @@ public:
   static RawRef Void() { return nullptr; }
   void Release(RawRef aRawRef)
   {
-    MOZ_ASSERT(mOwningThread);
-    bool current;
-    mOwningThread->IsOnCurrentThread(&current);
-    if (current) {
+    MOZ_ASSERT(mOwningEventTarget);
+    if (mOwningEventTarget->IsOnCurrentThread()) {
       aRawRef->Release();
       return;
     }
     nsCOMPtr<nsIRunnable> runnable = new SurfaceReleaser(aRawRef);
-    mOwningThread->Dispatch(runnable, nsIThread::DISPATCH_NORMAL);
+    mOwningEventTarget->Dispatch(runnable, nsIThread::DISPATCH_NORMAL);
   }
   void AddRef(RawRef aRawRef)
   {
-    MOZ_ASSERT(!mOwningThread);
-    NS_GetCurrentThread(getter_AddRefs(mOwningThread));
+    MOZ_ASSERT(!mOwningEventTarget);
+    mOwningEventTarget = mozilla::GetCurrentThreadSerialEventTarget();
     aRawRef->AddRef();
   }
 
 private:
-  nsCOMPtr<nsIThread> mOwningThread;
+  nsCOMPtr<nsISerialEventTarget> mOwningEventTarget;
 };
 
 #endif
@@ -152,6 +160,9 @@ class PlanarYCbCrImage;
 class TextureClient;
 class KnowsCompositor;
 class NVImage;
+#ifdef XP_WIN
+class D3D11YCbCrRecycleAllocator;
+#endif
 
 struct ImageBackendData
 {
@@ -543,6 +554,11 @@ public:
     return mImageFactory;
   }
 
+#ifdef XP_WIN
+  D3D11YCbCrRecycleAllocator* GetD3D11YCbCrRecycleAllocator(
+    KnowsCompositor* aAllocator);
+#endif
+
   /**
    * Returns the delay between the last composited image's presentation
    * timestamp and when it was first composited. It's possible for the delay
@@ -612,6 +628,10 @@ private:
   // image", and any other state which is shared between threads.
   ReentrantMonitor mReentrantMonitor;
 
+#ifdef XP_WIN
+  RefPtr<D3D11YCbCrRecycleAllocator> mD3D11YCbCrRecycleAllocator;
+#endif
+
   nsTArray<OwningImage> mCurrentImages;
 
   // Updates every time mActiveImage changes
@@ -671,6 +691,23 @@ public:
   Image* GetImage() const
   {
     return mImages.IsEmpty() ? nullptr : mImages[0].mImage.get();
+  }
+
+  Image* GetImage(TimeStamp aTimeStamp) const
+  {
+    if (mImages.IsEmpty()) {
+      return nullptr;
+    }
+
+    MOZ_ASSERT(!aTimeStamp.IsNull());
+    uint32_t chosenIndex = 0;
+
+    while (chosenIndex + 1 < mImages.Length() &&
+           mImages[chosenIndex + 1].mTimeStamp <= aTimeStamp) {
+      ++chosenIndex;
+    }
+
+    return mImages[chosenIndex].mImage.get();
   }
 
 private:

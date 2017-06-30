@@ -41,9 +41,25 @@ struct MainThreadRelease
       return;
     }
     DebugOnly<nsresult> rv =
-      NS_DispatchToMainThread(NewNonOwningRunnableMethod(aPtr,
+      NS_DispatchToMainThread(NewNonOwningRunnableMethod("mscom::MainThreadRelease",
+                                                         aPtr,
                                                          &T::Release));
     MOZ_ASSERT(NS_SUCCEEDED(rv));
+  }
+};
+
+template <typename T>
+struct MTADelete
+{
+  void operator()(T* aPtr)
+  {
+    if (!aPtr) {
+      return;
+    }
+
+    EnsureMTA::AsyncOperation([aPtr]() -> void {
+      delete aPtr;
+    });
   }
 };
 
@@ -55,9 +71,12 @@ struct MTARelease
     if (!aPtr) {
       return;
     }
-    EnsureMTA([&]() -> void
-    {
-      aPtr->Release();
+
+    // Static analysis doesn't recognize that, even though aPtr escapes the
+    // current scope, we are in effect moving our strong ref into the lambda.
+    void* ptr = aPtr;
+    EnsureMTA::AsyncOperation([ptr]() -> void {
+      reinterpret_cast<T*>(ptr)->Release();
     });
   }
 };
@@ -70,14 +89,18 @@ struct MTAReleaseInChildProcess
     if (!aPtr) {
       return;
     }
+
     if (XRE_IsParentProcess()) {
       MOZ_ASSERT(NS_IsMainThread());
       aPtr->Release();
       return;
     }
-    EnsureMTA([&]() -> void
-    {
-      aPtr->Release();
+
+    // Static analysis doesn't recognize that, even though aPtr escapes the
+    // current scope, we are in effect moving our strong ref into the lambda.
+    void* ptr = aPtr;
+    EnsureMTA::AsyncOperation([ptr]() -> void {
+      reinterpret_cast<T*>(ptr)->Release();
     });
   }
 };
@@ -97,6 +120,9 @@ using STAUniquePtr = mozilla::UniquePtr<T, detail::MainThreadRelease<T>>;
 
 template <typename T>
 using MTAUniquePtr = mozilla::UniquePtr<T, detail::MTARelease<T>>;
+
+template <typename T>
+using MTADeletePtr = mozilla::UniquePtr<T, detail::MTADelete<T>>;
 
 template <typename T>
 using ProxyUniquePtr = mozilla::UniquePtr<T, detail::MTAReleaseInChildProcess<T>>;
@@ -218,7 +244,7 @@ template <typename T>
 inline ProxyUniquePtr<T>
 ToProxyUniquePtr(const RefPtr<T>& aRefPtr)
 {
-  MOZ_ASSERT(IsProxy(aRawPtr));
+  MOZ_ASSERT(IsProxy(aRefPtr));
   MOZ_ASSERT((XRE_IsParentProcess() && NS_IsMainThread()) ||
              (XRE_IsContentProcess() && IsCurrentThreadMTA()));
 

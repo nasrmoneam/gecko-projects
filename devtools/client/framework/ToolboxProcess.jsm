@@ -6,7 +6,7 @@
 
 "use strict";
 
-const { classes: Cc, interfaces: Ci, utils: Cu, results: Cr } = Components;
+const { interfaces: Ci, utils: Cu, results: Cr } = Components;
 
 const DBG_XUL = "chrome://devtools/content/framework/toolbox-process-window.xul";
 const CHROME_DEBUGGER_PROFILE_NAME = "chrome_debugger_profile";
@@ -14,6 +14,7 @@ const CHROME_DEBUGGER_PROFILE_NAME = "chrome_debugger_profile";
 const { require, DevToolsLoader } = Cu.import("resource://devtools/shared/Loader.jsm", {});
 const { XPCOMUtils } = require("resource://gre/modules/XPCOMUtils.jsm");
 
+XPCOMUtils.defineLazyModuleGetter(this, "Subprocess", "resource://gre/modules/Subprocess.jsm");
 XPCOMUtils.defineLazyGetter(this, "Telemetry", function () {
   return require("devtools/client/shared/telemetry");
 });
@@ -69,6 +70,8 @@ this.BrowserToolboxProcess = function BrowserToolboxProcess(onClose, onRun, opti
   }
 
   this._telemetry = new Telemetry();
+
+  this._onConnectionChange = this._onConnectionChange.bind(this);
 
   this.close = this.close.bind(this);
   Services.obs.addObserver(this.close, "quit-application");
@@ -132,7 +135,7 @@ BrowserToolboxProcess.prototype = {
     dumpn("Created a separate loader instance for the DebuggerServer.");
 
     // Forward interesting events.
-    this.debuggerServer.on("connectionchange", this.emit);
+    this.debuggerServer.on("connectionchange", this._onConnectionChange);
 
     this.debuggerServer.init();
     // We mainly need a root actor and tab actors for opening a toolbox, even
@@ -231,9 +234,8 @@ BrowserToolboxProcess.prototype = {
    */
   _create: function () {
     dumpn("Initializing chrome debugging process.");
-    let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
-    this._dbgProcess = process;
-    process.init(Services.dirsvc.get("XREExeF", Ci.nsIFile));
+
+    let command = Services.dirsvc.get("XREExeF", Ci.nsIFile).path;
 
     let xulURI = DBG_XUL;
 
@@ -260,28 +262,46 @@ BrowserToolboxProcess.prototype = {
       args.push("-purgecaches");
     }
 
-    // Disable safe mode for the new process in case this was opened via the
-    // keyboard shortcut.
-    let nsIEnvironment = Cc["@mozilla.org/process/environment;1"]
-                           .getService(Ci.nsIEnvironment);
-    let originalValue = nsIEnvironment.get("MOZ_DISABLE_SAFE_MODE_KEY");
-    nsIEnvironment.set("MOZ_DISABLE_SAFE_MODE_KEY", "1");
+    this._dbgProcessPromise = Subprocess.call({
+      command,
+      arguments: args,
+      environmentAppend: true,
+      environment: {
+        // Disable safe mode for the new process in case this was opened via the
+        // keyboard shortcut.
+        MOZ_DISABLE_SAFE_MODE_KEY: "1",
+      },
+    }).then(proc => {
+      this._dbgProcess = proc;
 
-    process.runwAsync(args, args.length, { observe: () => this.close() });
+      this._telemetry.toolOpened("jsbrowserdebugger");
 
-    // Now that the process has started, it's safe to reset the env variable.
-    nsIEnvironment.set("MOZ_DISABLE_SAFE_MODE_KEY", originalValue);
+      dumpn("Chrome toolbox is now running...");
+      this.emit("run", this);
 
-    this._telemetry.toolOpened("jsbrowserdebugger");
+      proc.stdin.close();
+      proc.wait().then(() => this.close());
+      return proc;
+    });
+  },
 
-    dumpn("Chrome toolbox is now running...");
-    this.emit("run", this);
+  /**
+   * Called upon receiving the connectionchange event from a debuggerServer.
+   *
+   * @param {String} what
+   *        Type of connection change (can be either 'opened' or 'closed').
+   * @param {DebuggerServerConnection} connection
+   *        The connection that was opened or closed.
+   */
+  _onConnectionChange: function (evt, what, connection) {
+    let wrappedJSObject = { what, connection };
+    Services.obs.notifyObservers({ wrappedJSObject }, "toolbox-connection-change");
   },
 
   /**
    * Closes the remote debugging server and kills the toolbox process.
    */
-  close: function () {
+  close: async function () {
     if (this.closed) {
       return;
     }
@@ -289,13 +309,12 @@ BrowserToolboxProcess.prototype = {
     dumpn("Cleaning up the chrome debugging process.");
     Services.obs.removeObserver(this.close, "quit-application");
 
-    if (this._dbgProcess.isRunning) {
-      this._dbgProcess.kill();
-    }
+    this._dbgProcess.stdout.close();
+    await this._dbgProcess.kill();
 
     this._telemetry.toolClosed("jsbrowserdebugger");
     if (this.debuggerServer) {
-      this.debuggerServer.off("connectionchange", this.emit);
+      this.debuggerServer.off("connectionchange", this._onConnectionChange);
       this.debuggerServer.destroy();
       this.debuggerServer = null;
     }
@@ -333,4 +352,9 @@ Services.prefs.addObserver("devtools.debugger.log", {
   }
 });
 
-Services.obs.notifyObservers(null, "ToolboxProcessLoaded");
+Services.prefs.addObserver("toolbox-update-addon-options", {
+  observe: (subject) => {
+    let {id, options} = subject.wrappedJSObject;
+    BrowserToolboxProcess.setAddonOptions(id, options);
+  }
+});

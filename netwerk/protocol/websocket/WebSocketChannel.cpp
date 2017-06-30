@@ -65,10 +65,6 @@
 #include "zlib.h"
 #include <algorithm>
 
-#ifdef MOZ_WIDGET_GONK
-#include "NetStatistics.h"
-#endif
-
 // rather than slurp up all of nsIWebSocket.idl, which lives outside necko, just
 // dupe one constant we need from it
 #define CLOSE_GOING_AWAY 1001
@@ -713,11 +709,13 @@ NS_IMPL_ISUPPORTS(CallOnServerClose, nsIRunnable)
 class CallAcknowledge final : public CancelableRunnable
 {
 public:
-  CallAcknowledge(WebSocketChannel* aChannel,
-                  uint32_t aSize)
-    : mChannel(aChannel),
-      mListenerMT(mChannel->mListenerMT),
-      mSize(aSize) {}
+  CallAcknowledge(WebSocketChannel* aChannel, uint32_t aSize)
+    : CancelableRunnable("net::CallAcknowledge")
+    , mChannel(aChannel)
+    , mListenerMT(mChannel->mListenerMT)
+    , mSize(aSize)
+  {
+  }
 
   NS_IMETHOD Run() override
   {
@@ -1235,14 +1233,14 @@ WebSocketChannel::~WebSocketChannel()
   while ((mCurrentOut = (OutboundMessage *) mOutgoingMessages.PopFront()))
     delete mCurrentOut;
 
-  NS_ReleaseOnMainThread(mURI.forget());
-  NS_ReleaseOnMainThread(mOriginalURI.forget());
+  NS_ReleaseOnMainThread("WebSocketChannel::mURI", mURI.forget());
+  NS_ReleaseOnMainThread("WebSocketChannel::mOriginalURI", mOriginalURI.forget());
 
   mListenerMT = nullptr;
 
-  NS_ReleaseOnMainThread(mLoadGroup.forget());
-  NS_ReleaseOnMainThread(mLoadInfo.forget());
-  NS_ReleaseOnMainThread(mService.forget());
+  NS_ReleaseOnMainThread("WebSocketChannel::mLoadGroup", mLoadGroup.forget());
+  NS_ReleaseOnMainThread("WebSocketChannel::mLoadInfo", mLoadInfo.forget());
+  NS_ReleaseOnMainThread("WebSocketChannel::mService", mService.forget());
 }
 
 NS_IMETHODIMP
@@ -1267,7 +1265,9 @@ WebSocketChannel::Observe(nsISupports *subject,
         // Next we check mDataStarted, which we need to do on mTargetThread.
         if (!IsOnTargetThread()) {
           mTargetThread->Dispatch(
-            NewRunnableMethod(this, &WebSocketChannel::OnNetworkChanged),
+            NewRunnableMethod("net::WebSocketChannel::OnNetworkChanged",
+                              this,
+                              &WebSocketChannel::OnNetworkChanged),
             NS_DISPATCH_NORMAL);
         } else {
           nsresult rv = OnNetworkChanged();
@@ -1295,7 +1295,9 @@ WebSocketChannel::OnNetworkChanged()
     }
 
     return mSocketThread->Dispatch(
-      NewRunnableMethod(this, &WebSocketChannel::OnNetworkChanged),
+      NewRunnableMethod("net::WebSocketChannel::OnNetworkChanged",
+                        this,
+                        &WebSocketChannel::OnNetworkChanged),
       NS_DISPATCH_NORMAL);
   }
 
@@ -1382,8 +1384,10 @@ WebSocketChannel::BeginOpen(bool aCalledFromAdmissionManager)
     // When called from nsWSAdmissionManager post an event to avoid potential
     // re-entering of nsWSAdmissionManager and its lock.
     NS_DispatchToMainThread(
-      NewRunnableMethod(this, &WebSocketChannel::BeginOpenInternal),
-                           NS_DISPATCH_NORMAL);
+      NewRunnableMethod("net::WebSocketChannel::BeginOpenInternal",
+                        this,
+                        &WebSocketChannel::BeginOpenInternal),
+      NS_DISPATCH_NORMAL);
   } else {
     BeginOpenInternal();
   }
@@ -2300,7 +2304,8 @@ class RemoveObserverRunnable : public Runnable
 
 public:
   explicit RemoveObserverRunnable(WebSocketChannel* aChannel)
-    : mChannel(aChannel)
+    : Runnable("net::RemoveObserverRunnable")
+    , mChannel(aChannel)
   {}
 
   NS_IMETHOD Run() override
@@ -2370,10 +2375,10 @@ WebSocketChannel::StopSession(nsresult reason)
 
   if (!mOpenedHttpChannel) {
     // The HTTP channel information will never be used in this case
-    NS_ReleaseOnMainThread(mChannel.forget());
-    NS_ReleaseOnMainThread(mHttpChannel.forget());
-    NS_ReleaseOnMainThread(mLoadGroup.forget());
-    NS_ReleaseOnMainThread(mCallbacks.forget());
+    NS_ReleaseOnMainThread("WebSocketChannel::mChannel", mChannel.forget());
+    NS_ReleaseOnMainThread("WebSocketChannel::mHttpChannel", mHttpChannel.forget());
+    NS_ReleaseOnMainThread("WebSocketChannel::mLoadGroup", mLoadGroup.forget());
+    NS_ReleaseOnMainThread("WebSocketChannel::mCallbacks", mCallbacks.forget());
   }
 
   if (mCloseTimer) {
@@ -2895,11 +2900,10 @@ WebSocketChannel::DoAdmissionDNS()
     mPort = (mEncrypted ? kDefaultWSSPort : kDefaultWSPort);
   nsCOMPtr<nsIDNSService> dns = do_GetService(NS_DNSSERVICE_CONTRACTID, &rv);
   NS_ENSURE_SUCCESS(rv, rv);
-  nsCOMPtr<nsIThread> mainThread;
-  NS_GetMainThread(getter_AddRefs(mainThread));
+  nsCOMPtr<nsIEventTarget> main = GetMainThreadEventTarget();
   MOZ_ASSERT(!mCancelable);
   return dns->AsyncResolveNative(hostName, 0, this,
-                                 mainThread, mLoadInfo->GetOriginAttributes(),
+                                 main, mLoadInfo->GetOriginAttributes(),
                                  getter_AddRefs(mCancelable));
 }
 
@@ -2945,7 +2949,9 @@ WebSocketChannel::StartWebsocketData()
 
   if (!IsOnTargetThread()) {
     return mTargetThread->Dispatch(
-      NewRunnableMethod(this, &WebSocketChannel::StartWebsocketData),
+      NewRunnableMethod("net::WebSocketChannel::StartWebsocketData",
+                        this,
+                        &WebSocketChannel::StartWebsocketData),
       NS_DISPATCH_NORMAL);
   }
 
@@ -2958,7 +2964,8 @@ WebSocketChannel::StartWebsocketData()
     LOG(("WebSocketChannel::StartWebsocketData mSocketIn->AsyncWait() failed "
          "with error 0x%08" PRIx32, static_cast<uint32_t>(rv)));
     return mSocketThread->Dispatch(
-      NewRunnableMethod<nsresult>(this,
+      NewRunnableMethod<nsresult>("net::WebSocketChannel::AbortSession",
+                                  this,
                                   &WebSocketChannel::AbortSession,
                                   rv),
       NS_DISPATCH_NORMAL);
@@ -2966,7 +2973,9 @@ WebSocketChannel::StartWebsocketData()
 
   if (mPingInterval) {
     rv = mSocketThread->Dispatch(
-      NewRunnableMethod(this, &WebSocketChannel::StartPinging),
+      NewRunnableMethod("net::WebSocketChannel::StartPinging",
+                        this,
+                        &WebSocketChannel::StartPinging),
       NS_DISPATCH_NORMAL);
     if (NS_FAILED(rv)) {
       LOG(("WebSocketChannel::StartWebsocketData Could not start pinging, "
@@ -3346,7 +3355,7 @@ WebSocketChannel::AsyncOpen(nsIURI *aURI,
 
   // Ensure target thread is set.
   if (!mTargetThread) {
-    mTargetThread = do_GetMainThread();
+    mTargetThread = GetMainThreadEventTarget();
   }
 
   mSocketThread = do_GetService(NS_SOCKETTRANSPORTSERVICE_CONTRACTID, &rv);

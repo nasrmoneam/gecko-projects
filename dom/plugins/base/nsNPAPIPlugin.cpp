@@ -101,6 +101,7 @@ using mozilla::plugins::PluginModuleContentParent;
 #include <android/log.h>
 #include "android_npapi.h"
 #include "ANPBase.h"
+#include "FennecJNIWrappers.h"
 #include "GeneratedJNIWrappers.h"
 #undef LOG
 #define LOG(args...)  __android_log_print(ANDROID_LOG_INFO, "GeckoPlugins" , ## args)
@@ -246,7 +247,7 @@ nsNPAPIPlugin::RunPluginOOP(const nsPluginTag *aPluginTag)
 inline PluginLibrary*
 GetNewPluginLibrary(nsPluginTag *aPluginTag)
 {
-  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("GetNewPluginLibrary", OTHER);
 
   if (!aPluginTag) {
     return nullptr;
@@ -266,7 +267,7 @@ GetNewPluginLibrary(nsPluginTag *aPluginTag)
 nsresult
 nsNPAPIPlugin::CreatePlugin(nsPluginTag *aPluginTag, nsNPAPIPlugin** aResult)
 {
-  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("nsNPAPIPlugin::CreatePlugin", OTHER);
   *aResult = nullptr;
 
   if (!aPluginTag) {
@@ -2082,10 +2083,13 @@ _getvalue(NPP npp, NPNVariable variable, void *result)
 
     case kJavaContext_ANPGetValue: {
       LOG("get java context");
-      auto ret = java::GeckoAppShell::GetContext();
-      if (!ret)
-        return NPERR_GENERIC_ERROR;
 
+      auto ret = npp && jni::IsFennec()
+          ? java::GeckoApp::GetPluginContext()
+          : java::GeckoAppShell::GetApplicationContext();
+      if (!ret) {
+        return NPERR_GENERIC_ERROR;
+      }
       *static_cast<jobject*>(result) = ret.Forget();
       return NPERR_NO_ERROR;
     }

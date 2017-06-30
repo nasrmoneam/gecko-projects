@@ -430,7 +430,7 @@ RasterImage::WillDrawOpaqueNow()
   // If we are not locked our decoded data could get discard at any time (ie
   // between the call to this function and when we are asked to draw), so we
   // have to return false if we are unlocked.
-  if (IsUnlocked()) {
+  if (mLockCount == 0) {
     return false;
   }
 
@@ -471,6 +471,7 @@ RasterImage::OnSurfaceDiscardedInternal(bool aAnimatedFramesDiscarded)
 
   if (aAnimatedFramesDiscarded && mAnimationState) {
     MOZ_ASSERT(gfxPrefs::ImageMemAnimatedDiscardable());
+    mImageContainer = nullptr;
     gfx::IntRect rect =
       mAnimationState->UpdateState(mAnimationFinished, this, mSize);
     NotifyProgress(NoProgress, rect);
@@ -638,7 +639,7 @@ RasterImage::GetImageContainer(LayerManager* aManager, uint32_t aFlags)
     return nullptr;
   }
 
-  if (IsUnlocked()) {
+  if (mAnimationConsumers == 0) {
     SendOnUnlockedDraw(aFlags);
   }
 
@@ -1086,6 +1087,7 @@ RasterImage::Discard()
   SurfaceCache::RemoveImage(ImageKey(this));
 
   if (mAnimationState) {
+    mImageContainer = nullptr;
     gfx::IntRect rect =
       mAnimationState->UpdateState(mAnimationFinished, this, mSize);
     NotifyProgress(NoProgress, rect);
@@ -1191,16 +1193,12 @@ LaunchDecodingTask(IDecodingTask* aTask,
 
     // If we have all the data, we can sync decode if requested.
     if (aFlags & imgIContainer::FLAG_SYNC_DECODE) {
-      PROFILER_LABEL_DYNAMIC("DecodePool", "SyncRunIfPossible",
-        js::ProfileEntry::Category::GRAPHICS, uri.get());
-      DecodePool::Singleton()->SyncRunIfPossible(aTask);
+      DecodePool::Singleton()->SyncRunIfPossible(aTask, uri);
       return true;
     }
 
     if (aFlags & imgIContainer::FLAG_SYNC_DECODE_IF_FAST) {
-      PROFILER_LABEL_DYNAMIC("DecodePool", "SyncRunIfPreferred",
-        js::ProfileEntry::Category::GRAPHICS, uri.get());
-      return DecodePool::Singleton()->SyncRunIfPreferred(aTask);
+      return DecodePool::Singleton()->SyncRunIfPreferred(aTask, uri);
     }
   }
 
@@ -1261,20 +1259,13 @@ RasterImage::Decode(const IntSize& aSize,
     task = DecoderFactory::CreateAnimationDecoder(mDecoderType, WrapNotNull(this),
                                                   mSourceBuffer, mSize,
                                                   decoderFlags, surfaceFlags);
-    // We may not be able to send an invalidation right here because of async
-    // notifications but that shouldn't be a problem because we shouldn't be
-    // getting a non-empty rect back from UpdateState. This is because UpdateState
-    // will only return a non-empty rect if we are currently decoded, or the
-    // animation is finished. We can't be decoded because we are creating a decoder
-    // here. If the animation is finished then the composited frame would have
-    // been valid when the animation finished, and it's not possible to mark
-    // the composited frame as invalid when the animation is finished. So
-    // the composited frame can't change from invalid to valid in this UpdateState
-    // call, and hence no rect can be returned.
+    // We pass false for aAllowInvalidation because we may be asked to use
+    // async notifications. Any potential invalidation here will be sent when
+    // RequestRefresh is called, or NotifyDecodeComplete.
 #ifdef DEBUG
     gfx::IntRect rect =
 #endif
-      mAnimationState->UpdateState(mAnimationFinished, this, mSize);
+      mAnimationState->UpdateState(mAnimationFinished, this, mSize, false);
     MOZ_ASSERT(rect.IsEmpty());
   } else {
     task = DecoderFactory::CreateDecoder(mDecoderType, WrapNotNull(this),
@@ -1404,6 +1395,19 @@ RasterImage::DrawInternal(DrawableSurface&& aSurface,
   ImageRegion region(aRegion);
   bool frameIsFinished = aSurface->IsFinished();
 
+#ifdef DEBUG
+  // Record the image drawing for startup performance testing.
+  if (NS_IsMainThread()) {
+    nsCOMPtr<nsIObserverService> obs = services::GetObserverService();
+    if (NS_WARN_IF(obs)) {
+      nsCOMPtr<nsIURI> imageURI = mURI->ToIURI();
+      nsAutoCString spec;
+      imageURI->GetSpec(spec);
+      obs->NotifyObservers(nullptr, "image-drawing", NS_ConvertUTF8toUTF16(spec).get());
+    }
+  }
+#endif
+
   // By now we may have a frame with the requested size. If not, we need to
   // adjust the drawing parameters accordingly.
   IntSize finalSize = aSurface->GetImageSize();
@@ -1460,7 +1464,7 @@ RasterImage::Draw(gfxContext* aContext,
     return DrawResult::BAD_ARGS;
   }
 
-  if (IsUnlocked()) {
+  if (mAnimationConsumers == 0) {
     SendOnUnlockedDraw(aFlags);
   }
 
@@ -1615,7 +1619,8 @@ RasterImage::HandleErrorWorker::DispatchIfNeeded(RasterImage* aImage)
 }
 
 RasterImage::HandleErrorWorker::HandleErrorWorker(RasterImage* aImage)
-  : mImage(aImage)
+  : Runnable("image::RasterImage::HandleErrorWorker")
+  , mImage(aImage)
 {
   MOZ_ASSERT(mImage, "Should have image");
 }

@@ -7,26 +7,25 @@
 #ifndef VideoUtils_h
 #define VideoUtils_h
 
+#include "AudioSampleFormat.h"
 #include "MediaInfo.h"
+#include "TimeUnits.h"
+#include "VideoLimits.h"
+#include "mozilla/AbstractThread.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/CheckedInt.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/ReentrantMonitor.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
-
 #include "nsAutoPtr.h"
+#include "nsCOMPtr.h"
 #include "nsIThread.h"
-#include "nsSize.h"
+#include "nsITimer.h"
 #include "nsRect.h"
-
+#include "nsSize.h"
 #include "nsThreadUtils.h"
 #include "prtime.h"
-#include "AudioSampleFormat.h"
-#include "TimeUnits.h"
-#include "nsITimer.h"
-#include "nsCOMPtr.h"
-#include "VideoLimits.h"
 
 using mozilla::CheckedInt64;
 using mozilla::CheckedUint64;
@@ -91,7 +90,11 @@ private:
 class ShutdownThreadEvent : public Runnable
 {
 public:
-  explicit ShutdownThreadEvent(nsIThread* aThread) : mThread(aThread) {}
+  explicit ShutdownThreadEvent(nsIThread* aThread)
+    : Runnable("ShutdownThreadEvent")
+    , mThread(aThread)
+  {
+  }
   ~ShutdownThreadEvent() {}
   NS_IMETHOD Run() override {
     mThread->Shutdown();
@@ -266,8 +269,11 @@ RefPtr<GenericPromise> InvokeUntil(Work aWork, Condition aCondition) {
       } else if (aLocalCondition()) {
         aPromise->Resolve(true, __func__);
       } else {
-        nsCOMPtr<nsIRunnable> r =
-          NS_NewRunnableFunction([aPromise, aLocalWork, aLocalCondition] () { Iteration(aPromise, aLocalWork, aLocalCondition); });
+        nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+          "InvokeUntil::Helper::Iteration",
+          [aPromise, aLocalWork, aLocalCondition]() {
+            Iteration(aPromise, aLocalWork, aLocalCondition);
+          });
         AbstractThread::GetCurrent()->Dispatch(r.forget());
       }
     }
@@ -287,14 +293,14 @@ public:
   // on thread aTarget. If aTarget is null, task is run on the main thread.
   static already_AddRefed<SimpleTimer> Create(nsIRunnable* aTask,
                                               uint32_t aTimeoutMs,
-                                              nsIThread* aTarget = nullptr);
+                                              nsIEventTarget* aTarget = nullptr);
   void Cancel();
 
   NS_IMETHOD Notify(nsITimer *timer) override;
 
 private:
   virtual ~SimpleTimer() {}
-  nsresult Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIThread* aTarget);
+  nsresult Init(nsIRunnable* aTask, uint32_t aTimeoutMs, nsIEventTarget* aTarget);
 
   RefPtr<nsIRunnable> mTask;
   nsCOMPtr<nsITimer> mTimer;

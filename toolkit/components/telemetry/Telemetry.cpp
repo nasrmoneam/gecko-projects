@@ -84,12 +84,11 @@
 #include "mozilla/HangMonitor.h"
 #include "nsNativeCharsetUtils.h"
 #include "nsProxyRelease.h"
+#include "HangReports.h"
 
 #if defined(MOZ_GECKO_PROFILER)
 #include "shared-libraries.h"
-#define ENABLE_STACK_CAPTURE
-#include "mozilla/StackWalk.h"
-#include "nsPrintfCString.h"
+#include "KeyedStackCapturer.h"
 #endif // MOZ_GECKO_PROFILER
 
 namespace {
@@ -99,515 +98,12 @@ using namespace mozilla::HangMonitor;
 using Telemetry::Common::AutoHashtable;
 using mozilla::dom::Promise;
 using mozilla::dom::AutoJSAPI;
-
-// The maximum number of chrome hangs stacks that we're keeping.
-const size_t kMaxChromeStacksKept = 50;
-// The maximum depth of a single chrome hang stack.
-const size_t kMaxChromeStackDepth = 50;
-
-// This class is conceptually a list of ProcessedStack objects, but it represents them
-// more efficiently by keeping a single global list of modules.
-class CombinedStacks {
-public:
-  explicit CombinedStacks(size_t aMaxStacksCount = kMaxChromeStacksKept)
-    : mNextIndex(0)
-    , mMaxStacksCount(aMaxStacksCount)
-  {}
-
-  typedef std::vector<Telemetry::ProcessedStack::Frame> Stack;
-  const Telemetry::ProcessedStack::Module& GetModule(unsigned aIndex) const;
-  size_t GetModuleCount() const;
-  const Stack& GetStack(unsigned aIndex) const;
-  size_t AddStack(const Telemetry::ProcessedStack& aStack);
-  size_t GetStackCount() const;
-  size_t SizeOfExcludingThis() const;
-
-#if defined(ENABLE_STACK_CAPTURE)
-  /** Clears the contents of vectors and resets the index. */
-  void Clear();
-#endif
-private:
-  std::vector<Telemetry::ProcessedStack::Module> mModules;
-  // A circular buffer to hold the stacks.
-  std::vector<Stack> mStacks;
-  // The index of the next buffer element to write to in mStacks.
-  size_t mNextIndex;
-  // The maximum number of stacks to keep in the CombinedStacks object.
-  size_t mMaxStacksCount;
-};
-
-static JSObject *
-CreateJSStackObject(JSContext *cx, const CombinedStacks &stacks);
-
-size_t
-CombinedStacks::GetModuleCount() const {
-  return mModules.size();
-}
-
-const Telemetry::ProcessedStack::Module&
-CombinedStacks::GetModule(unsigned aIndex) const {
-  return mModules[aIndex];
-}
-
-size_t
-CombinedStacks::AddStack(const Telemetry::ProcessedStack& aStack) {
-  // Advance the indices of the circular queue holding the stacks.
-  size_t index = mNextIndex++ % mMaxStacksCount;
-  // Grow the vector up to the maximum size, if needed.
-  if (mStacks.size() < mMaxStacksCount) {
-    mStacks.resize(mStacks.size() + 1);
-  }
-  // Get a reference to the location holding the new stack.
-  CombinedStacks::Stack& adjustedStack = mStacks[index];
-  // If we're using an old stack to hold aStack, clear it.
-  adjustedStack.clear();
-
-  size_t stackSize = aStack.GetStackSize();
-  for (size_t i = 0; i < stackSize; ++i) {
-    const Telemetry::ProcessedStack::Frame& frame = aStack.GetFrame(i);
-    uint16_t modIndex;
-    if (frame.mModIndex == std::numeric_limits<uint16_t>::max()) {
-      modIndex = frame.mModIndex;
-    } else {
-      const Telemetry::ProcessedStack::Module& module =
-        aStack.GetModule(frame.mModIndex);
-      std::vector<Telemetry::ProcessedStack::Module>::iterator modIterator =
-        std::find(mModules.begin(), mModules.end(), module);
-      if (modIterator == mModules.end()) {
-        mModules.push_back(module);
-        modIndex = mModules.size() - 1;
-      } else {
-        modIndex = modIterator - mModules.begin();
-      }
-    }
-    Telemetry::ProcessedStack::Frame adjustedFrame = { frame.mOffset, modIndex };
-    adjustedStack.push_back(adjustedFrame);
-  }
-  return index;
-}
-
-const CombinedStacks::Stack&
-CombinedStacks::GetStack(unsigned aIndex) const {
-  return mStacks[aIndex];
-}
-
-size_t
-CombinedStacks::GetStackCount() const {
-  return mStacks.size();
-}
-
-size_t
-CombinedStacks::SizeOfExcludingThis() const {
-  // This is a crude approximation. We would like to do something like
-  // aMallocSizeOf(&mModules[0]), but on linux aMallocSizeOf will call
-  // malloc_usable_size which is only safe on the pointers returned by malloc.
-  // While it works on current libstdc++, it is better to be safe and not assume
-  // that &vec[0] points to one. We could use a custom allocator, but
-  // it doesn't seem worth it.
-  size_t n = 0;
-  n += mModules.capacity() * sizeof(Telemetry::ProcessedStack::Module);
-  n += mStacks.capacity() * sizeof(Stack);
-  for (const auto & s : mStacks) {
-    n += s.capacity() * sizeof(Telemetry::ProcessedStack::Frame);
-  }
-  return n;
-}
-
-// This utility function generates a string key that is used to index the annotations
-// in a hash map from |HangReports::AddHang|.
-nsresult
-ComputeAnnotationsKey(const HangAnnotationsPtr& aAnnotations, nsAString& aKeyOut)
-{
-  UniquePtr<HangAnnotations::Enumerator> annotationsEnum = aAnnotations->GetEnumerator();
-  if (!annotationsEnum) {
-    return NS_ERROR_FAILURE;
-  }
-
-  // Append all the attributes to the key, to uniquely identify this annotation.
-  nsAutoString  key;
-  nsAutoString  value;
-  while (annotationsEnum->Next(key, value)) {
-    aKeyOut.Append(key);
-    aKeyOut.Append(value);
-  }
-
-  return NS_OK;
-}
-
-#if defined(ENABLE_STACK_CAPTURE)
-void
-CombinedStacks::Clear() {
-  mNextIndex = 0;
-  mStacks.clear();
-  mModules.clear();
-}
-#endif
-
-class HangReports {
-public:
-  /**
-   * This struct encapsulates information for an individual ChromeHang annotation.
-   * mHangIndex is the index of the corresponding ChromeHang.
-   */
-  struct AnnotationInfo {
-    AnnotationInfo(uint32_t aHangIndex,
-                   HangAnnotationsPtr aAnnotations)
-      : mAnnotations(Move(aAnnotations))
-    {
-      mHangIndices.AppendElement(aHangIndex);
-    }
-    AnnotationInfo(AnnotationInfo&& aOther)
-      : mHangIndices(aOther.mHangIndices)
-      , mAnnotations(Move(aOther.mAnnotations))
-    {}
-    ~AnnotationInfo() = default;
-    AnnotationInfo& operator=(AnnotationInfo&& aOther)
-    {
-      mHangIndices = aOther.mHangIndices;
-      mAnnotations = Move(aOther.mAnnotations);
-      return *this;
-    }
-    // To save memory, a single AnnotationInfo can be associated to multiple chrome
-    // hangs. The following array holds the index of each related chrome hang.
-    nsTArray<uint32_t> mHangIndices;
-    HangAnnotationsPtr mAnnotations;
-
-  private:
-    // Force move constructor
-    AnnotationInfo(const AnnotationInfo& aOther) = delete;
-    void operator=(const AnnotationInfo& aOther) = delete;
-  };
-  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
-#if defined(MOZ_GECKO_PROFILER)
-  void AddHang(const Telemetry::ProcessedStack& aStack, uint32_t aDuration,
-               int32_t aSystemUptime, int32_t aFirefoxUptime,
-               HangAnnotationsPtr aAnnotations);
-  void PruneStackReferences(const size_t aRemovedStackIndex);
-#endif
-  uint32_t GetDuration(unsigned aIndex) const;
-  int32_t GetSystemUptime(unsigned aIndex) const;
-  int32_t GetFirefoxUptime(unsigned aIndex) const;
-  const nsClassHashtable<nsStringHashKey, AnnotationInfo>& GetAnnotationInfo() const;
-  const CombinedStacks& GetStacks() const;
-private:
-  /**
-   * This struct encapsulates the data for an individual ChromeHang, excluding
-   * annotations.
-   */
-  struct HangInfo {
-    // Hang duration (in seconds)
-    uint32_t mDuration;
-    // System uptime (in minutes) at the time of the hang
-    int32_t mSystemUptime;
-    // Firefox uptime (in minutes) at the time of the hang
-    int32_t mFirefoxUptime;
-  };
-  std::vector<HangInfo> mHangInfo;
-  nsClassHashtable<nsStringHashKey, AnnotationInfo> mAnnotationInfo;
-  CombinedStacks mStacks;
-};
+using mozilla::Telemetry::HangReports;
+using mozilla::Telemetry::CombinedStacks;
+using mozilla::Telemetry::ComputeAnnotationsKey;
 
 #if defined(MOZ_GECKO_PROFILER)
-void
-HangReports::AddHang(const Telemetry::ProcessedStack& aStack,
-                     uint32_t aDuration,
-                     int32_t aSystemUptime,
-                     int32_t aFirefoxUptime,
-                     HangAnnotationsPtr aAnnotations) {
-  // Append the new stack to the stack's circular queue.
-  size_t hangIndex = mStacks.AddStack(aStack);
-  // Append the hang info at the same index, in mHangInfo.
-  HangInfo info = { aDuration, aSystemUptime, aFirefoxUptime };
-  if (mHangInfo.size() < kMaxChromeStacksKept) {
-    mHangInfo.push_back(info);
-  } else {
-    mHangInfo[hangIndex] = info;
-    // Remove any reference to the stack overwritten in the circular queue
-    // from the annotations.
-    PruneStackReferences(hangIndex);
-  }
-
-  if (!aAnnotations) {
-    return;
-  }
-
-  nsAutoString annotationsKey;
-  // Generate a key to index aAnnotations in the hash map.
-  nsresult rv = ComputeAnnotationsKey(aAnnotations, annotationsKey);
-  if (NS_FAILED(rv)) {
-    return;
-  }
-
-  AnnotationInfo* annotationsEntry = mAnnotationInfo.Get(annotationsKey);
-  if (annotationsEntry) {
-    // If the key is already in the hash map, append the index of the chrome hang
-    // to its indices.
-    annotationsEntry->mHangIndices.AppendElement(hangIndex);
-    return;
-  }
-
-  // If the key was not found, add the annotations to the hash map.
-  mAnnotationInfo.Put(annotationsKey, new AnnotationInfo(hangIndex, Move(aAnnotations)));
-}
-
-/**
- * This function removes links to discarded chrome hangs stacks and prunes unused
- * annotations.
- */
-void
-HangReports::PruneStackReferences(const size_t aRemovedStackIndex) {
-  // We need to adjust the indices that link annotations to chrome hangs. Since we
-  // removed a stack, we must remove all references to it and prune annotations
-  // linked to no stacks.
-  for (auto iter = mAnnotationInfo.Iter(); !iter.Done(); iter.Next()) {
-    nsTArray<uint32_t>& stackIndices = iter.Data()->mHangIndices;
-    size_t toRemove = stackIndices.NoIndex;
-    for (size_t k = 0; k < stackIndices.Length(); k++) {
-      // Is this index referencing the removed stack?
-      if (stackIndices[k] == aRemovedStackIndex) {
-        toRemove = k;
-        break;
-      }
-    }
-
-    // Remove the index referencing the old stack from the annotation.
-    if (toRemove != stackIndices.NoIndex) {
-      stackIndices.RemoveElementAt(toRemove);
-    }
-
-    // If this annotation no longer references any stack, drop it.
-    if (!stackIndices.Length()) {
-      iter.Remove();
-    }
-  }
-}
-#endif
-
-size_t
-HangReports::SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
-  size_t n = 0;
-  n += mStacks.SizeOfExcludingThis();
-  // This is a crude approximation. See comment on
-  // CombinedStacks::SizeOfExcludingThis.
-  n += mHangInfo.capacity() * sizeof(HangInfo);
-  n += mAnnotationInfo.ShallowSizeOfExcludingThis(aMallocSizeOf);
-  n += mAnnotationInfo.Count() * sizeof(AnnotationInfo);
-  for (auto iter = mAnnotationInfo.ConstIter(); !iter.Done(); iter.Next()) {
-    n += iter.Key().SizeOfExcludingThisIfUnshared(aMallocSizeOf);
-    n += iter.Data()->mAnnotations->SizeOfIncludingThis(aMallocSizeOf);
-  }
-  return n;
-}
-
-const CombinedStacks&
-HangReports::GetStacks() const {
-  return mStacks;
-}
-
-uint32_t
-HangReports::GetDuration(unsigned aIndex) const {
-  return mHangInfo[aIndex].mDuration;
-}
-
-int32_t
-HangReports::GetSystemUptime(unsigned aIndex) const {
-  return mHangInfo[aIndex].mSystemUptime;
-}
-
-int32_t
-HangReports::GetFirefoxUptime(unsigned aIndex) const {
-  return mHangInfo[aIndex].mFirefoxUptime;
-}
-
-const nsClassHashtable<nsStringHashKey, HangReports::AnnotationInfo>&
-HangReports::GetAnnotationInfo() const {
-  return mAnnotationInfo;
-}
-
-#if defined(ENABLE_STACK_CAPTURE)
-
-const uint8_t kMaxKeyLength = 50;
-
-/**
- * Checks if a single character of the key string is valid.
- *
- * @param aChar a character to validate.
- * @return True, if the char is valid, False - otherwise.
- */
-bool
-IsKeyCharValid(const char aChar)
-{
-  return (aChar >= 'A' && aChar <= 'Z')
-      || (aChar >= 'a' && aChar <= 'z')
-      || (aChar >= '0' && aChar <= '9')
-      || aChar == '-';
-}
-
-/**
- * Checks if a given string is a valid telemetry key.
- *
- * @param aKey is the key string.
- * @return True, if the key is valid, False - otherwise.
- */
-bool
-IsKeyValid(const nsACString& aKey)
-{
-  // Check key length.
-  if (aKey.Length() > kMaxKeyLength) {
-    return false;
-  }
-
-  // Check key characters.
-  const char* cur = aKey.BeginReading();
-  const char* end = aKey.EndReading();
-
-  for (; cur < end; ++cur) {
-      if (!IsKeyCharValid(*cur)) {
-        return false;
-      }
-  }
-  return true;
-}
-
-/**
- * Allows taking a snapshot of a call stack on demand. Captured stacks are
- * indexed by a string key in a hash table. The stack is only captured Once
- * for each key. Consequent captures with the same key result in incrementing
- * capture counter without re-capturing the stack.
- */
-class KeyedStackCapturer {
-public:
-  KeyedStackCapturer();
-
-  void Capture(const nsACString& aKey);
-  NS_IMETHODIMP ReflectCapturedStacks(JSContext *cx, JS::MutableHandle<JS::Value> ret);
-
-  /**
-   * Resets captured stacks and the information related to them.
-   */
-  void Clear();
-private:
-  /**
-   * Describes how often a stack was captured.
-   */
-  struct StackFrequencyInfo {
-    // A number of times the stack was captured.
-    uint32_t mCount;
-    // Index of the stack inside stacks array.
-    uint32_t mIndex;
-
-    StackFrequencyInfo(uint32_t aCount, uint32_t aIndex)
-      : mCount(aCount)
-      , mIndex(aIndex)
-    {}
-  };
-
-  typedef nsClassHashtable<nsCStringHashKey, StackFrequencyInfo> FrequencyInfoMapType;
-
-  FrequencyInfoMapType mStackInfos;
-  CombinedStacks mStacks;
-  Mutex mStackCapturerMutex;
-};
-
-KeyedStackCapturer::KeyedStackCapturer()
-  : mStackCapturerMutex("Telemetry::StackCapturerMutex")
-{}
-
-void KeyedStackCapturer::Capture(const nsACString& aKey) {
-  MutexAutoLock captureStackMutex(mStackCapturerMutex);
-
-  // Check if the key is ok.
-  if (!IsKeyValid(aKey)) {
-    NS_WARNING(nsPrintfCString(
-      "Invalid key is used to capture stack in telemetry: '%s'",
-      PromiseFlatCString(aKey).get()
-    ).get());
-    return;
-  }
-
-  // Trying to find and update the stack information.
-  StackFrequencyInfo* info = mStackInfos.Get(aKey);
-  if (info) {
-    // We already recorded this stack before, only increase the count.
-    info->mCount++;
-    return;
-  }
-
-  // Check if we have room for new captures.
-  if (mStackInfos.Count() >= kMaxChromeStacksKept) {
-    // Addressed by Bug 1316793.
-    return;
-  }
-
-  // We haven't captured a stack for this key before, do it now.
-  // Note that this does a stackwalk and is an expensive operation.
-  std::vector<uintptr_t> rawStack;
-  auto callback = [](uint32_t, void* aPC, void*, void* aClosure) {
-    std::vector<uintptr_t>* stack =
-      static_cast<std::vector<uintptr_t>*>(aClosure);
-    stack->push_back(reinterpret_cast<uintptr_t>(aPC));
-  };
-  MozStackWalk(callback, /* skipFrames */ 0,
-              /* maxFrames */ 0, reinterpret_cast<void*>(&rawStack), 0, nullptr);
-  Telemetry::ProcessedStack stack = Telemetry::GetStackAndModules(rawStack);
-
-  // Store the new stack info.
-  size_t stackIndex = mStacks.AddStack(stack);
-  mStackInfos.Put(aKey, new StackFrequencyInfo(1, stackIndex));
-}
-
-NS_IMETHODIMP
-KeyedStackCapturer::ReflectCapturedStacks(JSContext *cx, JS::MutableHandle<JS::Value> ret)
-{
-  MutexAutoLock capturedStackMutex(mStackCapturerMutex);
-
-  // this adds the memoryMap and stacks properties.
-  JS::RootedObject fullReportObj(cx, CreateJSStackObject(cx, mStacks));
-  if (!fullReportObj) {
-    return NS_ERROR_FAILURE;
-  }
-
-  JS::RootedObject keysArray(cx, JS_NewArrayObject(cx, 0));
-  if (!keysArray) {
-    return NS_ERROR_FAILURE;
-  }
-
-  bool ok = JS_DefineProperty(cx, fullReportObj, "captures",
-                              keysArray, JSPROP_ENUMERATE);
-  if (!ok) {
-    return NS_ERROR_FAILURE;
-  }
-
-  size_t keyIndex = 0;
-  for (auto iter = mStackInfos.ConstIter(); !iter.Done(); iter.Next(), ++keyIndex) {
-    const StackFrequencyInfo* info = iter.Data();
-
-    JS::RootedObject infoArray(cx, JS_NewArrayObject(cx, 0));
-    if (!keysArray) {
-      return NS_ERROR_FAILURE;
-    }
-    JS::RootedString str(cx, JS_NewStringCopyZ(cx,
-                         PromiseFlatCString(iter.Key()).get()));
-    if (!str ||
-        !JS_DefineElement(cx, infoArray, 0, str, JSPROP_ENUMERATE) ||
-        !JS_DefineElement(cx, infoArray, 1, info->mIndex, JSPROP_ENUMERATE) ||
-        !JS_DefineElement(cx, infoArray, 2, info->mCount, JSPROP_ENUMERATE) ||
-        !JS_DefineElement(cx, keysArray, keyIndex, infoArray, JSPROP_ENUMERATE)) {
-      return NS_ERROR_FAILURE;
-    }
-  }
-
-  ret.setObject(*fullReportObj);
-  return NS_OK;
-}
-
-void
-KeyedStackCapturer::Clear()
-{
-  MutexAutoLock captureStackMutex(mStackCapturerMutex);
-  mStackInfos.Clear();
-  mStacks.Clear();
-}
+using mozilla::Telemetry::KeyedStackCapturer;
 #endif
 
 /**
@@ -770,7 +266,7 @@ void TelemetryIOInterposeObserver::Observe(Observation& aOb)
 
   // Get the filename
   const char16_t* filename = aOb.Filename();
- 
+
   // Discard observations without filename
   if (!filename) {
     return;
@@ -914,10 +410,10 @@ public:
                                int32_t aFirefoxUptime,
                                HangAnnotationsPtr aAnnotations);
 #endif
-#if defined(ENABLE_STACK_CAPTURE)
+#if defined(MOZ_GECKO_PROFILER)
   static void DoStackCapture(const nsACString& aKey);
 #endif
-  static void RecordThreadHangStats(Telemetry::ThreadHangStats& aStats);
+  static void RecordThreadHangStats(Telemetry::ThreadHangStats&& aStats);
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf);
   struct Stat {
     uint32_t hitCount;
@@ -967,7 +463,7 @@ private:
   Atomic<bool> mCanRecordBase;
   Atomic<bool> mCanRecordExtended;
 
-#if defined(ENABLE_STACK_CAPTURE)
+#if defined(MOZ_GECKO_PROFILER)
   // Stores data about stacks captured on demand.
   KeyedStackCapturer mStackCapturer;
 #endif
@@ -1057,10 +553,11 @@ public:
   nsFetchTelemetryData(const char* aShutdownTimeFilename,
                        nsIFile* aFailedProfileLockFile,
                        nsIFile* aProfileDir)
-    : mShutdownTimeFilename(aShutdownTimeFilename),
-      mFailedProfileLockFile(aFailedProfileLockFile),
-      mTelemetry(TelemetryImpl::sTelemetry),
-      mProfileDir(aProfileDir)
+    : mozilla::Runnable("nsFetchTelemetryData")
+    , mShutdownTimeFilename(aShutdownTimeFilename)
+    , mFailedProfileLockFile(aFailedProfileLockFile)
+    , mTelemetry(TelemetryImpl::sTelemetry)
+    , mProfileDir(aProfileDir)
   {
   }
 
@@ -1081,11 +578,13 @@ public:
 
   NS_IMETHOD Run() override {
     LoadFailedLockCount(mTelemetry->mFailedLockCount);
-    mTelemetry->mLastShutdownTime = 
+    mTelemetry->mLastShutdownTime =
       ReadLastShutdownDuration(mShutdownTimeFilename);
     mTelemetry->ReadLateWritesStacks(mProfileDir);
     nsCOMPtr<nsIRunnable> e =
-      NewRunnableMethod(this, &nsFetchTelemetryData::MainThread);
+      NewRunnableMethod("nsFetchTelemetryData::MainThread",
+                        this,
+                        &nsFetchTelemetryData::MainThread);
     NS_ENSURE_STATE(e);
     NS_DispatchToMainThread(e);
     return NS_OK;
@@ -1541,7 +1040,7 @@ TelemetryImpl::GetChromeHangs(JSContext *cx, JS::MutableHandle<JS::Value> ret)
 NS_IMETHODIMP
 TelemetryImpl::SnapshotCapturedStacks(bool clear, JSContext *cx, JS::MutableHandle<JS::Value> ret)
 {
-#if defined(ENABLE_STACK_CAPTURE)
+#if defined(MOZ_GECKO_PROFILER)
   nsresult rv = mStackCapturer.ReflectCapturedStacks(cx, ret);
   if (clear) {
     mStackCapturer.Clear();
@@ -1552,100 +1051,6 @@ TelemetryImpl::SnapshotCapturedStacks(bool clear, JSContext *cx, JS::MutableHand
 #endif
 }
 
-static JSObject *
-CreateJSStackObject(JSContext *cx, const CombinedStacks &stacks) {
-  JS::Rooted<JSObject*> ret(cx, JS_NewPlainObject(cx));
-  if (!ret) {
-    return nullptr;
-  }
-
-  JS::Rooted<JSObject*> moduleArray(cx, JS_NewArrayObject(cx, 0));
-  if (!moduleArray) {
-    return nullptr;
-  }
-  bool ok = JS_DefineProperty(cx, ret, "memoryMap", moduleArray,
-                              JSPROP_ENUMERATE);
-  if (!ok) {
-    return nullptr;
-  }
-
-  const size_t moduleCount = stacks.GetModuleCount();
-  for (size_t moduleIndex = 0; moduleIndex < moduleCount; ++moduleIndex) {
-    // Current module
-    const Telemetry::ProcessedStack::Module& module =
-      stacks.GetModule(moduleIndex);
-
-    JS::Rooted<JSObject*> moduleInfoArray(cx, JS_NewArrayObject(cx, 0));
-    if (!moduleInfoArray) {
-      return nullptr;
-    }
-    if (!JS_DefineElement(cx, moduleArray, moduleIndex, moduleInfoArray,
-                          JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-
-    unsigned index = 0;
-
-    // Module name
-    JS::Rooted<JSString*> str(cx, JS_NewUCStringCopyZ(cx, module.mName.get()));
-    if (!str || !JS_DefineElement(cx, moduleInfoArray, index++, str, JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-
-    // Module breakpad identifier
-    JS::Rooted<JSString*> id(cx, JS_NewStringCopyZ(cx, module.mBreakpadId.c_str()));
-    if (!id || !JS_DefineElement(cx, moduleInfoArray, index++, id, JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-  }
-
-  JS::Rooted<JSObject*> reportArray(cx, JS_NewArrayObject(cx, 0));
-  if (!reportArray) {
-    return nullptr;
-  }
-  ok = JS_DefineProperty(cx, ret, "stacks", reportArray, JSPROP_ENUMERATE);
-  if (!ok) {
-    return nullptr;
-  }
-
-  const size_t length = stacks.GetStackCount();
-  for (size_t i = 0; i < length; ++i) {
-    // Represent call stack PCs as (module index, offset) pairs.
-    JS::Rooted<JSObject*> pcArray(cx, JS_NewArrayObject(cx, 0));
-    if (!pcArray) {
-      return nullptr;
-    }
-
-    if (!JS_DefineElement(cx, reportArray, i, pcArray, JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-
-    const CombinedStacks::Stack& stack = stacks.GetStack(i);
-    const uint32_t pcCount = stack.size();
-    for (size_t pcIndex = 0; pcIndex < pcCount; ++pcIndex) {
-      const Telemetry::ProcessedStack::Frame& frame = stack[pcIndex];
-      JS::Rooted<JSObject*> framePair(cx, JS_NewArrayObject(cx, 0));
-      if (!framePair) {
-        return nullptr;
-      }
-      int modIndex = (std::numeric_limits<uint16_t>::max() == frame.mModIndex) ?
-        -1 : frame.mModIndex;
-      if (!JS_DefineElement(cx, framePair, 0, modIndex, JSPROP_ENUMERATE)) {
-        return nullptr;
-      }
-      if (!JS_DefineElement(cx, framePair, 1, static_cast<double>(frame.mOffset),
-                            JSPROP_ENUMERATE)) {
-        return nullptr;
-      }
-      if (!JS_DefineElement(cx, pcArray, pcIndex, framePair, JSPROP_ENUMERATE)) {
-        return nullptr;
-      }
-    }
-  }
-
-  return ret;
-}
-
 #if defined(MOZ_GECKO_PROFILER)
 class GetLoadedModulesResultRunnable final : public Runnable
 {
@@ -1654,8 +1059,10 @@ class GetLoadedModulesResultRunnable final : public Runnable
   nsCOMPtr<nsIThread> mWorkerThread;
 
 public:
-  GetLoadedModulesResultRunnable(const nsMainThreadPtrHandle<Promise>& aPromise, const SharedLibraryInfo& rawModules)
-    : mPromise(aPromise)
+  GetLoadedModulesResultRunnable(const nsMainThreadPtrHandle<Promise>& aPromise,
+                                 const SharedLibraryInfo& rawModules)
+    : mozilla::Runnable("GetLoadedModulesResultRunnable")
+    , mPromise(aPromise)
     , mRawModules(rawModules)
     , mWorkerThread(do_GetCurrentThread())
   {
@@ -1773,8 +1180,10 @@ class GetLoadedModulesRunnable final : public Runnable
   nsMainThreadPtrHandle<Promise> mPromise;
 
 public:
-  explicit GetLoadedModulesRunnable(const nsMainThreadPtrHandle<Promise>& aPromise)
-    : mPromise(aPromise)
+  explicit GetLoadedModulesRunnable(
+    const nsMainThreadPtrHandle<Promise>& aPromise)
+    : mozilla::Runnable("GetLoadedModulesRunnable")
+    , mPromise(aPromise)
   { }
 
   NS_IMETHOD
@@ -1809,7 +1218,8 @@ TelemetryImpl::GetLoadedModules(JSContext *cx, nsISupports** aPromise)
     return NS_OK;
   }
 
-  nsMainThreadPtrHandle<Promise> mainThreadPromise(new nsMainThreadPtrHolder<Promise>(promise));
+  nsMainThreadPtrHandle<Promise> mainThreadPromise(
+    new nsMainThreadPtrHolder<Promise>("Promise", promise));
   nsCOMPtr<nsIRunnable> runnable = new GetLoadedModulesRunnable(mainThreadPromise);
   promise.forget(aPromise);
 
@@ -1905,224 +1315,6 @@ ReadStack(const char *aFileName, Telemetry::ProcessedStack &aStack)
   }
 
   aStack = stack;
-}
-
-static JSObject*
-CreateJSTimeHistogram(JSContext* cx, const Telemetry::TimeHistogram& time)
-{
-  /* Create JS representation of TimeHistogram,
-     in the format of Chromium-style histograms. */
-  JS::RootedObject ret(cx, JS_NewPlainObject(cx));
-  if (!ret) {
-    return nullptr;
-  }
-
-  if (!JS_DefineProperty(cx, ret, "min", time.GetBucketMin(0),
-                         JSPROP_ENUMERATE) ||
-      !JS_DefineProperty(cx, ret, "max",
-                         time.GetBucketMax(ArrayLength(time) - 1),
-                         JSPROP_ENUMERATE) ||
-      !JS_DefineProperty(cx, ret, "histogram_type",
-                         nsITelemetry::HISTOGRAM_EXPONENTIAL,
-                         JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-  // TODO: calculate "sum"
-  if (!JS_DefineProperty(cx, ret, "sum", 0, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-
-  JS::RootedObject ranges(
-    cx, JS_NewArrayObject(cx, ArrayLength(time) + 1));
-  JS::RootedObject counts(
-    cx, JS_NewArrayObject(cx, ArrayLength(time) + 1));
-  if (!ranges || !counts) {
-    return nullptr;
-  }
-  /* In a Chromium-style histogram, the first bucket is an "under" bucket
-     that represents all values below the histogram's range. */
-  if (!JS_DefineElement(cx, ranges, 0, time.GetBucketMin(0), JSPROP_ENUMERATE) ||
-      !JS_DefineElement(cx, counts, 0, 0, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-  for (size_t i = 0; i < ArrayLength(time); i++) {
-    if (!JS_DefineElement(cx, ranges, i + 1, time.GetBucketMax(i),
-                          JSPROP_ENUMERATE) ||
-        !JS_DefineElement(cx, counts, i + 1, time[i], JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-  }
-  if (!JS_DefineProperty(cx, ret, "ranges", ranges, JSPROP_ENUMERATE) ||
-      !JS_DefineProperty(cx, ret, "counts", counts, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-  return ret;
-}
-
-static JSObject*
-CreateJSHangStack(JSContext* cx, const Telemetry::HangStack& stack)
-{
-  JS::RootedObject ret(cx, JS_NewArrayObject(cx, stack.length()));
-  if (!ret) {
-    return nullptr;
-  }
-  for (size_t i = 0; i < stack.length(); i++) {
-    JS::RootedString string(cx, JS_NewStringCopyZ(cx, stack[i]));
-    if (!JS_DefineElement(cx, ret, i, string, JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-  }
-  return ret;
-}
-
-static void
-CreateJSHangAnnotations(JSContext* cx, const HangAnnotationsVector& annotations,
-                        JS::MutableHandleObject returnedObject)
-{
-  JS::RootedObject annotationsArray(cx, JS_NewArrayObject(cx, 0));
-  if (!annotationsArray) {
-    returnedObject.set(nullptr);
-    return;
-  }
-  // We keep track of the annotations we reported in this hash set, so we can
-  // discard duplicated ones.
-  nsTHashtable<nsStringHashKey> reportedAnnotations;
-  size_t annotationIndex = 0;
-  for (const auto & curAnnotations : annotations) {
-    JS::RootedObject jsAnnotation(cx, JS_NewPlainObject(cx));
-    if (!jsAnnotation) {
-      continue;
-    }
-    // Build a key to index the current annotations in our hash set.
-    nsAutoString annotationsKey;
-    nsresult rv = ComputeAnnotationsKey(curAnnotations, annotationsKey);
-    if (NS_FAILED(rv)) {
-      continue;
-    }
-    // Check if the annotations are in the set. If that's the case, don't double report.
-    if (reportedAnnotations.GetEntry(annotationsKey)) {
-      continue;
-    }
-    // If not, report them.
-    reportedAnnotations.PutEntry(annotationsKey);
-    UniquePtr<HangAnnotations::Enumerator> annotationsEnum =
-      curAnnotations->GetEnumerator();
-    if (!annotationsEnum) {
-      continue;
-    }
-    nsAutoString key;
-    nsAutoString value;
-    while (annotationsEnum->Next(key, value)) {
-      JS::RootedValue jsValue(cx);
-      jsValue.setString(JS_NewUCStringCopyN(cx, value.get(), value.Length()));
-      if (!JS_DefineUCProperty(cx, jsAnnotation, key.get(), key.Length(),
-                               jsValue, JSPROP_ENUMERATE)) {
-        returnedObject.set(nullptr);
-        return;
-      }
-    }
-    if (!JS_SetElement(cx, annotationsArray, annotationIndex, jsAnnotation)) {
-      continue;
-    }
-    ++annotationIndex;
-  }
-  // Return the array using a |MutableHandleObject| to avoid triggering a false
-  // positive rooting issue in the hazard analysis build.
-  returnedObject.set(annotationsArray);
-}
-
-static JSObject*
-CreateJSHangHistogram(JSContext* cx, const Telemetry::HangHistogram& hang)
-{
-  JS::RootedObject ret(cx, JS_NewPlainObject(cx));
-  if (!ret) {
-    return nullptr;
-  }
-
-  JS::RootedObject stack(cx, CreateJSHangStack(cx, hang.GetStack()));
-  JS::RootedObject time(cx, CreateJSTimeHistogram(cx, hang));
-  auto& hangAnnotations = hang.GetAnnotations();
-  JS::RootedObject annotations(cx);
-  CreateJSHangAnnotations(cx, hangAnnotations, &annotations);
-
-  if (!stack ||
-      !time ||
-      !annotations ||
-      !JS_DefineProperty(cx, ret, "stack", stack, JSPROP_ENUMERATE) ||
-      !JS_DefineProperty(cx, ret, "histogram", time, JSPROP_ENUMERATE) ||
-      (!hangAnnotations.empty() && // <-- Only define annotations when nonempty
-        !JS_DefineProperty(cx, ret, "annotations", annotations, JSPROP_ENUMERATE))) {
-    return nullptr;
-  }
-
-  return ret;
-}
-
-static JSObject*
-CreateJSThreadHangStats(JSContext* cx, const Telemetry::ThreadHangStats& thread)
-{
-  JS::RootedObject ret(cx, JS_NewPlainObject(cx));
-  if (!ret) {
-    return nullptr;
-  }
-  JS::RootedString name(cx, JS_NewStringCopyZ(cx, thread.GetName()));
-  if (!name ||
-      !JS_DefineProperty(cx, ret, "name", name, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-
-  JS::RootedObject activity(cx, CreateJSTimeHistogram(cx, thread.mActivity));
-  if (!activity ||
-      !JS_DefineProperty(cx, ret, "activity", activity, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-
-  // Create a CombinedStacks instance which will contain all of the stacks
-  // collected by the BHR. Specify a custom maxStacksCount to ensure that all of
-  // our native hang stacks fit.
-  CombinedStacks combinedStacks(Telemetry::kMaximumNativeHangStacks);
-
-  // Process the hangs into a hangs object.
-  JS::RootedObject hangs(cx, JS_NewArrayObject(cx, 0));
-  if (!hangs) {
-    return nullptr;
-  }
-  for (size_t i = 0; i < thread.mHangs.length(); i++) {
-    JS::RootedObject obj(cx, CreateJSHangHistogram(cx, thread.mHangs[i]));
-    if (!ret) {
-      return nullptr;
-    }
-
-    // Check if we have a native stack, and if we do, add it to combinedStacks,
-    // and store its index in the 'nativeStack' member of the hang object.
-    const Telemetry::NativeHangStack& stack = thread.mHangs[i].GetNativeStack();
-    if (!stack.empty() &&
-        combinedStacks.GetStackCount() < Telemetry::kMaximumNativeHangStacks) {
-      Telemetry::ProcessedStack processed = Telemetry::GetStackAndModules(stack);
-      uint32_t index = combinedStacks.AddStack(processed);
-      if (!JS_DefineProperty(cx, obj, "nativeStack", index, JSPROP_ENUMERATE)) {
-        return nullptr;
-      }
-    }
-
-    if (!JS_DefineElement(cx, hangs, i, obj, JSPROP_ENUMERATE)) {
-      return nullptr;
-    }
-  }
-  if (!JS_DefineProperty(cx, ret, "hangs", hangs, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-
-  JS::RootedObject fullReportObj(cx, CreateJSStackObject(cx, combinedStacks));
-  if (!fullReportObj) {
-    return nullptr;
-  }
-
-  if (!JS_DefineProperty(cx, ret, "nativeStacks", fullReportObj, JSPROP_ENUMERATE)) {
-    return nullptr;
-  }
-
-  return ret;
 }
 
 NS_IMETHODIMP
@@ -2674,7 +1866,6 @@ TelemetryImpl::RecordChromeHang(uint32_t aDuration,
                                    Move(annotations));
 }
 
-#if defined(ENABLE_STACK_CAPTURE)
 void
 TelemetryImpl::DoStackCapture(const nsACString& aKey) {
   if (Telemetry::CanRecordExtended() && XRE_IsParentProcess()) {
@@ -2682,18 +1873,17 @@ TelemetryImpl::DoStackCapture(const nsACString& aKey) {
   }
 }
 #endif
-#endif
 
 nsresult
 TelemetryImpl::CaptureStack(const nsACString& aKey) {
-#if defined(ENABLE_STACK_CAPTURE)
+#if defined(MOZ_GECKO_PROFILER)
   TelemetryImpl::DoStackCapture(aKey);
 #endif
   return NS_OK;
 }
 
 void
-TelemetryImpl::RecordThreadHangStats(Telemetry::ThreadHangStats& aStats)
+TelemetryImpl::RecordThreadHangStats(Telemetry::ThreadHangStats&& aStats)
 {
   if (!sTelemetry || !TelemetryHistogram::CanRecordExtended())
     return;
@@ -2931,25 +2121,6 @@ TelemetryImpl::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf)
   return n;
 }
 
-struct StackFrame
-{
-  uintptr_t mPC;      // The program counter at this position in the call stack.
-  uint16_t mIndex;    // The number of this frame in the call stack.
-  uint16_t mModIndex; // The index of module that has this program counter.
-};
-
-#ifdef MOZ_GECKO_PROFILER
-static bool CompareByPC(const StackFrame &a, const StackFrame &b)
-{
-  return a.mPC < b.mPC;
-}
-
-static bool CompareByIndex(const StackFrame &a, const StackFrame &b)
-{
-  return a.mIndex < b.mIndex;
-}
-#endif
-
 } // namespace
 
 
@@ -3045,231 +2216,6 @@ RecordShutdownEndTimeStamp() {
   PR_Rename(tmpName.get(), name.get());
 }
 
-} // namespace mozilla
-
-
-////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////
-//
-// EXTERNALLY VISIBLE FUNCTIONS in mozilla::Telemetry::
-// These are NOT listed in Telemetry.h
-
-namespace mozilla {
-namespace Telemetry {
-
-ProcessedStack::ProcessedStack() = default;
-
-size_t ProcessedStack::GetStackSize() const
-{
-  return mStack.size();
-}
-
-size_t ProcessedStack::GetNumModules() const
-{
-  return mModules.size();
-}
-
-bool ProcessedStack::Module::operator==(const Module& aOther) const {
-  return  mName == aOther.mName &&
-    mBreakpadId == aOther.mBreakpadId;
-}
-
-const ProcessedStack::Frame &ProcessedStack::GetFrame(unsigned aIndex) const
-{
-  MOZ_ASSERT(aIndex < mStack.size());
-  return mStack[aIndex];
-}
-
-void ProcessedStack::AddFrame(const Frame &aFrame)
-{
-  mStack.push_back(aFrame);
-}
-
-const ProcessedStack::Module &ProcessedStack::GetModule(unsigned aIndex) const
-{
-  MOZ_ASSERT(aIndex < mModules.size());
-  return mModules[aIndex];
-}
-
-void ProcessedStack::AddModule(const Module &aModule)
-{
-  mModules.push_back(aModule);
-}
-
-void ProcessedStack::Clear() {
-  mModules.clear();
-  mStack.clear();
-}
-
-ProcessedStack
-GetStackAndModules(const std::vector<uintptr_t>& aPCs)
-{
-  std::vector<StackFrame> rawStack;
-  auto stackEnd = aPCs.begin() + std::min(aPCs.size(), kMaxChromeStackDepth);
-  for (auto i = aPCs.begin(); i != stackEnd; ++i) {
-    uintptr_t aPC = *i;
-    StackFrame Frame = {aPC, static_cast<uint16_t>(rawStack.size()),
-                        std::numeric_limits<uint16_t>::max()};
-    rawStack.push_back(Frame);
-  }
-
-#ifdef MOZ_GECKO_PROFILER
-  // Remove all modules not referenced by a PC on the stack
-  std::sort(rawStack.begin(), rawStack.end(), CompareByPC);
-
-  size_t moduleIndex = 0;
-  size_t stackIndex = 0;
-  size_t stackSize = rawStack.size();
-
-  SharedLibraryInfo rawModules = SharedLibraryInfo::GetInfoForSelf();
-  rawModules.SortByAddress();
-
-  while (moduleIndex < rawModules.GetSize()) {
-    const SharedLibrary& module = rawModules.GetEntry(moduleIndex);
-    uintptr_t moduleStart = module.GetStart();
-    uintptr_t moduleEnd = module.GetEnd() - 1;
-    // the interval is [moduleStart, moduleEnd)
-
-    bool moduleReferenced = false;
-    for (;stackIndex < stackSize; ++stackIndex) {
-      uintptr_t pc = rawStack[stackIndex].mPC;
-      if (pc >= moduleEnd)
-        break;
-
-      if (pc >= moduleStart) {
-        // If the current PC is within the current module, mark
-        // module as used
-        moduleReferenced = true;
-        rawStack[stackIndex].mPC -= moduleStart;
-        rawStack[stackIndex].mModIndex = moduleIndex;
-      } else {
-        // PC does not belong to any module. It is probably from
-        // the JIT. Use a fixed mPC so that we don't get different
-        // stacks on different runs.
-        rawStack[stackIndex].mPC =
-          std::numeric_limits<uintptr_t>::max();
-      }
-    }
-
-    if (moduleReferenced) {
-      ++moduleIndex;
-    } else {
-      // Remove module if no PCs within its address range
-      rawModules.RemoveEntries(moduleIndex, moduleIndex + 1);
-    }
-  }
-
-  for (;stackIndex < stackSize; ++stackIndex) {
-    // These PCs are past the last module.
-    rawStack[stackIndex].mPC = std::numeric_limits<uintptr_t>::max();
-  }
-
-  std::sort(rawStack.begin(), rawStack.end(), CompareByIndex);
-#endif
-
-  // Copy the information to the return value.
-  ProcessedStack Ret;
-  for (auto & rawFrame : rawStack) {
-    mozilla::Telemetry::ProcessedStack::Frame frame = { rawFrame.mPC, rawFrame.mModIndex };
-    Ret.AddFrame(frame);
-  }
-
-#ifdef MOZ_GECKO_PROFILER
-  for (unsigned i = 0, n = rawModules.GetSize(); i != n; ++i) {
-    const SharedLibrary &info = rawModules.GetEntry(i);
-    mozilla::Telemetry::ProcessedStack::Module module = {
-      info.GetDebugName(),
-      info.GetBreakpadId()
-    };
-    Ret.AddModule(module);
-  }
-#endif
-
-  return Ret;
-}
-
-void
-TimeHistogram::Add(PRIntervalTime aTime)
-{
-  uint32_t timeMs = PR_IntervalToMilliseconds(aTime);
-  size_t index = mozilla::FloorLog2(timeMs);
-  operator[](index)++;
-}
-
-const char*
-HangStack::InfallibleAppendViaBuffer(const char* aText, size_t aLength)
-{
-  MOZ_ASSERT(this->canAppendWithoutRealloc(1));
-  // Include null-terminator in length count.
-  MOZ_ASSERT(mBuffer.canAppendWithoutRealloc(aLength + 1));
-
-  const char* const entry = mBuffer.end();
-  mBuffer.infallibleAppend(aText, aLength);
-  mBuffer.infallibleAppend('\0'); // Explicitly append null-terminator
-  this->infallibleAppend(entry);
-  return entry;
-}
-
-const char*
-HangStack::AppendViaBuffer(const char* aText, size_t aLength)
-{
-  if (!this->reserve(this->length() + 1)) {
-    return nullptr;
-  }
-
-  // Keep track of the previous buffer in case we need to adjust pointers later.
-  const char* const prevStart = mBuffer.begin();
-  const char* const prevEnd = mBuffer.end();
-
-  // Include null-terminator in length count.
-  if (!mBuffer.reserve(mBuffer.length() + aLength + 1)) {
-    return nullptr;
-  }
-
-  if (prevStart != mBuffer.begin()) {
-    // The buffer has moved; we have to adjust pointers in the stack.
-    for (auto & entry : *this) {
-      if (entry >= prevStart && entry < prevEnd) {
-        // Move from old buffer to new buffer.
-        entry += mBuffer.begin() - prevStart;
-      }
-    }
-  }
-
-  return InfallibleAppendViaBuffer(aText, aLength);
-}
-
-uint32_t
-HangHistogram::GetHash(const HangStack& aStack)
-{
-  uint32_t hash = 0;
-  for (const char* const* label = aStack.begin();
-       label != aStack.end(); label++) {
-    /* If the string is within our buffer, we need to hash its content.
-       Otherwise, the string is statically allocated, and we only need
-       to hash the pointer instead of the content. */
-    if (aStack.IsInBuffer(*label)) {
-      hash = AddToHash(hash, HashString(*label));
-    } else {
-      hash = AddToHash(hash, *label);
-    }
-  }
-  return hash;
-}
-
-bool
-HangHistogram::operator==(const HangHistogram& aOther) const
-{
-  if (mHash != aOther.mHash) {
-    return false;
-  }
-  if (mStack.length() != aOther.mStack.length()) {
-    return false;
-  }
-  return mStack == aOther.mStack;
-}
-
-} // namespace Telemetry
 } // namespace mozilla
 
 
@@ -3381,15 +2327,15 @@ void RecordChromeHang(uint32_t duration,
 
 void CaptureStack(const nsACString& aKey)
 {
-#if defined(ENABLE_STACK_CAPTURE)
+#if defined(MOZ_GECKO_PROFILER)
   TelemetryImpl::DoStackCapture(aKey);
 #endif
 }
 #endif
 
-void RecordThreadHangStats(ThreadHangStats& aStats)
+void RecordThreadHangStats(ThreadHangStats&& aStats)
 {
-  TelemetryImpl::RecordThreadHangStats(aStats);
+  TelemetryImpl::RecordThreadHangStats(Move(aStats));
 }
 
 

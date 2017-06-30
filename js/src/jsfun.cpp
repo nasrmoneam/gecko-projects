@@ -77,16 +77,16 @@ fun_enumerate(JSContext* cx, HandleObject obj)
 
     if (!obj->isBoundFunction() && !obj->as<JSFunction>().isArrow()) {
         id = NameToId(cx->names().prototype);
-        if (!HasProperty(cx, obj, id, &found))
+        if (!HasOwnProperty(cx, obj, id, &found))
             return false;
     }
 
     id = NameToId(cx->names().length);
-    if (!HasProperty(cx, obj, id, &found))
+    if (!HasOwnProperty(cx, obj, id, &found))
         return false;
 
     id = NameToId(cx->names().name);
-    if (!HasProperty(cx, obj, id, &found))
+    if (!HasOwnProperty(cx, obj, id, &found))
         return false;
 
     return true;
@@ -962,6 +962,7 @@ static const ClassOps JSFunctionClassOps = {
     nullptr,                 /* getProperty */
     nullptr,                 /* setProperty */
     fun_enumerate,
+    nullptr,                 /* newEnumerate */
     fun_resolve,
     fun_mayResolve,
     nullptr,                 /* finalize    */
@@ -1066,7 +1067,7 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
         if (fun->explicitName()) {
             if (!out.append(' '))
                 return false;
-            if (fun->isBoundFunction()) {
+            if (fun->isBoundFunction() && !fun->hasBoundFunctionNamePrefix()) {
                 if (!out.append(cx->names().boundWithSpace))
                     return false;
             }
@@ -1088,7 +1089,21 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
             if (!out.append(")"))
                 return nullptr;
         }
-    } else if (fun->isInterpreted() && !fun->isSelfHostedBuiltin()) {
+    } else if (fun->isInterpreted() &&
+               (!fun->isSelfHostedBuiltin() ||
+                fun->infallibleIsDefaultClassConstructor(cx)))
+    {
+        // Default class constructors should always haveSource except;
+        //
+        // 1. Source has been discarded for the whole compartment.
+        //
+        // 2. The source is marked as "lazy", i.e., retrieved on demand, and
+        // the embedding has not provided a hook to retrieve sources.
+        MOZ_ASSERT_IF(fun->infallibleIsDefaultClassConstructor(cx),
+                      !cx->runtime()->sourceHook.ref() ||
+                      !script->scriptSource()->sourceRetrievable() ||
+                      fun->compartment()->behaviors().discardSource());
+
         if (!AppendPrelude() ||
             !out.append("() {\n    ") ||
             !out.append("[sourceless code]") ||
@@ -1097,11 +1112,6 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool prettyPrint)
             return nullptr;
         }
     } else {
-        // Default class constructors should always haveSource unless source
-        // has been discarded for the whole compartment.
-        MOZ_ASSERT(!fun->infallibleIsDefaultClassConstructor(cx) ||
-                   fun->compartment()->behaviors().discardSource());
-
         if (!AppendPrelude() ||
             !out.append("() {\n    "))
             return nullptr;
@@ -1390,20 +1400,23 @@ JSFunction::getUnresolvedName(JSContext* cx, HandleFunction fun, MutableHandleAt
         return true;
     }
 
-    if (fun->isBoundFunction()) {
+    if (fun->isBoundFunction() && !fun->hasBoundFunctionNamePrefix()) {
         // Bound functions are never unnamed.
         MOZ_ASSERT(name);
 
-        StringBuffer sb(cx);
-        if (!sb.append(cx->names().boundWithSpace) || !sb.append(name))
-            return false;
+        if (name->length() > 0) {
+            StringBuffer sb(cx);
+            if (!sb.append(cx->names().boundWithSpace) || !sb.append(name))
+                return false;
 
-        JSAtom* boundName = sb.finishAtom();
-        if (!boundName)
-            return false;
+            name = sb.finishAtom();
+            if (!name)
+                return false;
+        } else {
+            name = cx->names().boundWithSpace;
+        }
 
-        v.set(boundName);
-        return true;
+        fun->setPrefixedBoundFunctionName(name);
     }
 
     v.set(name != nullptr ? name : cx->names().empty);
@@ -1451,6 +1464,92 @@ size_t
 JSFunction::getBoundFunctionArgumentCount() const
 {
     return GetBoundFunctionArguments(this)->length();
+}
+
+/* static */ bool
+JSFunction::finishBoundFunctionInit(JSContext* cx, HandleFunction bound, HandleObject targetObj,
+                                    int32_t argCount)
+{
+    bound->setIsBoundFunction();
+    MOZ_ASSERT(bound->getBoundFunctionTarget() == targetObj);
+
+    // 9.4.1.3 BoundFunctionCreate, steps 1, 3-5, 8-12 (Already performed).
+
+    // 9.4.1.3 BoundFunctionCreate, step 6.
+    if (targetObj->isConstructor())
+        bound->setIsConstructor();
+
+    // 9.4.1.3 BoundFunctionCreate, step 2.
+    RootedObject proto(cx);
+    if (!GetPrototype(cx, targetObj, &proto))
+        return false;
+
+    // 9.4.1.3 BoundFunctionCreate, step 7.
+    if (bound->staticPrototype() != proto) {
+        if (!SetPrototype(cx, bound, proto))
+            return false;
+    }
+
+    double length = 0.0;
+
+    // Try to avoid invoking the resolve hook.
+    if (targetObj->is<JSFunction>() && !targetObj->as<JSFunction>().hasResolvedLength()) {
+        RootedValue targetLength(cx);
+        if (!JSFunction::getUnresolvedLength(cx, targetObj.as<JSFunction>(), &targetLength))
+            return false;
+
+        length = Max(0.0, targetLength.toNumber() - argCount);
+    } else {
+        // 19.2.3.2 Function.prototype.bind, step 5.
+        bool hasLength;
+        RootedId idRoot(cx, NameToId(cx->names().length));
+        if (!HasOwnProperty(cx, targetObj, idRoot, &hasLength))
+            return false;
+
+        // 19.2.3.2 Function.prototype.bind, step 6.
+        if (hasLength) {
+            RootedValue targetLength(cx);
+            if (!GetProperty(cx, targetObj, targetObj, idRoot, &targetLength))
+                return false;
+
+            if (targetLength.isNumber())
+                length = Max(0.0, JS::ToInteger(targetLength.toNumber()) - argCount);
+        }
+
+        // 19.2.3.2 Function.prototype.bind, step 7 (implicit).
+    }
+
+    // 19.2.3.2 Function.prototype.bind, step 8.
+    bound->setExtendedSlot(BOUND_FUN_LENGTH_SLOT, NumberValue(length));
+
+    // Try to avoid invoking the resolve hook.
+    RootedAtom name(cx);
+    if (targetObj->is<JSFunction>() && !targetObj->as<JSFunction>().hasResolvedName()) {
+        if (!JSFunction::getUnresolvedName(cx, targetObj.as<JSFunction>(), &name))
+            return false;
+    }
+
+    // 19.2.3.2 Function.prototype.bind, steps 9-11.
+    if (!name) {
+        // 19.2.3.2 Function.prototype.bind, step 9.
+        RootedValue targetName(cx);
+        if (!GetProperty(cx, targetObj, targetObj, cx->names().name, &targetName))
+            return false;
+
+        // 19.2.3.2 Function.prototype.bind, step 10.
+        if (targetName.isString() && !targetName.toString()->empty()) {
+            name = AtomizeString(cx, targetName.toString());
+            if (!name)
+                return false;
+        } else {
+            name = cx->names().empty;
+        }
+    }
+
+    MOZ_ASSERT(!bound->hasGuessedAtom());
+    bound->setAtom(name);
+
+    return true;
 }
 
 /* static */ bool
@@ -1561,6 +1660,14 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             // Only functions without inner functions are re-lazified.
             script->setLazyScript(lazy);
         }
+
+        // XDR the newly delazified function.
+        if (script->scriptSource()->hasEncoder()) {
+            RootedScriptSource sourceObject(cx, lazy->sourceObject());
+            if (!script->scriptSource()->xdrEncodeFunction(cx, fun, sourceObject))
+                return false;
+        }
+
         return true;
     }
 

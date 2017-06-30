@@ -451,8 +451,10 @@ GROUP_NAMES = {
     'tc-L10n': 'Localised Repacks executed by Taskcluster',
     'tc-L10n-Rpk': 'Localized Repackaged Repacks executed by Taskcluster',
     'tc-BM-L10n': 'Beetmover for locales executed by Taskcluster',
+    'tc-BMR-L10n': 'Beetmover repackages for locales executed by Taskcluster',
     'tc-Up': 'Balrog submission of updates, executed by Taskcluster',
     'tc-cs': 'Checksum signing executed by Taskcluster',
+    'tc-rs': 'Repackage signing executed by Taskcluster',
     'tc-BMcs': 'Beetmover checksums, executed by Taskcluster',
     'Aries': 'Aries Device Image',
     'Nexus 5-L': 'Nexus 5-L Device Image',
@@ -504,7 +506,6 @@ BRANCH_PRIORITIES = {
     'comm-beta': 'high',
     'mozilla-central': 'medium',
     'comm-central': 'medium',
-    'mozilla-aurora': 'medium',
     'comm-aurora': 'medium',
     'autoland': 'low',
     'mozilla-inbound': 'low',
@@ -538,6 +539,7 @@ def payload_builder(name):
         payload_builders[name] = func
         return func
     return wrap
+
 
 # define a collection of index builders, depending on the type implementation
 index_builders = {}

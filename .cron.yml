@@ -28,8 +28,14 @@ jobs:
           treeherder-symbol: Nd-OSX
           target-tasks-method: nightly_macosx
       run-on-projects:
+          - mozilla-central
           - date
-      when: [] # never (hook only)
+      when:
+          by-project:
+            # Match buildbot starts for now
+            date: [{hour: 15, minute: 0}]
+            mozilla-central: [{hour: 10, minute: 0}]
+            # No default
 
     - name: nightly-desktop-win64
       job:
@@ -67,13 +73,3 @@ jobs:
       when:
           - {hour: 16, minute: 0}
           - {hour: 4, minute: 0}
-
-    - name: nightly-code-coverage
-      job:
-          type: decision-task
-          treeherder-symbol: Nc
-          target-tasks-method: nightly_code_coverage
-      run-on-projects:
-          - mozilla-central
-      when:
-          - {hour: 18, minute: 0}

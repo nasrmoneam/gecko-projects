@@ -575,22 +575,23 @@ class TypedArrayObjectTemplate : public TypedArrayObject
         RootedScript script(cx, cx->currentScript(&pc));
         if (script && ObjectGroup::useSingletonForAllocationSite(script, pc, clasp))
             newKind = SingletonObject;
-        RootedObject tmp(cx, NewBuiltinClassInstance(cx, clasp, allocKind, newKind));
+        JSObject* tmp = NewBuiltinClassInstance(cx, clasp, allocKind, newKind);
         if (!tmp)
             return nullptr;
-        if (script && !ObjectGroup::setAllocationSiteObjectGroup(cx, script, pc, tmp,
-                                                                 newKind == SingletonObject))
-        {
-            return nullptr;
-        }
 
-        TypedArrayObject* tarray = &tmp->as<TypedArrayObject>();
+        Rooted<TypedArrayObject*> tarray(cx, &tmp->as<TypedArrayObject>());
         initTypedArraySlots(cx, tarray, len);
 
         // Template objects do not need memory for its elements, since there
         // won't be any elements to store. Therefore, we set the pointer to
         // nullptr and avoid allocating memory that will never be used.
         tarray->initPrivate(nullptr);
+
+        if (script && !ObjectGroup::setAllocationSiteObjectGroup(cx, script, pc, tarray,
+                                                                 newKind == SingletonObject))
+        {
+            return nullptr;
+        }
 
         return tarray;
     }
@@ -2044,6 +2045,7 @@ static const ClassOps TypedArrayClassOps = {
     nullptr,                 /* getProperty */
     nullptr,                 /* setProperty */
     nullptr,                 /* enumerate   */
+    nullptr,                 /* newEnumerate */
     nullptr,                 /* resolve     */
     nullptr,                 /* mayResolve  */
     TypedArrayObject::finalize, /* finalize    */

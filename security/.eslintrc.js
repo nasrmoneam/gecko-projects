@@ -8,9 +8,6 @@ module.exports = {
     // Braces only needed for multi-line arrow function blocks
     "arrow-body-style": ["error", "as-needed"],
 
-    // Commas at the end of the line not the start
-    "comma-style": "error",
-
     // Verify calls of super() in constructors.
     "constructor-super": "error",
 
@@ -39,23 +36,11 @@ module.exports = {
     // case/default clauses.
     "no-case-declarations": "error",
 
-    // Disallow modifying variables of class declarations.
-    "no-class-assign": "error",
-
     // Disallow use of the console API.
     "no-console": "error",
 
-    // Disallow modifying variables that are declared using const.
-    "no-const-assign": "error",
-
     // Disallow constant expressions in conditions (except for loops).
     "no-constant-condition": ["error", { "checkLoops": false }],
-
-    // Disallow control characters in regular expressions.
-    "no-control-regex": "error",
-
-    // Disallow duplicate class members.
-    "no-dupe-class-members": "error",
 
     // Disallow extending of native objects.
     "no-extend-native": "error",
@@ -92,9 +77,6 @@ module.exports = {
 
     // Disallow unmodified loop conditions.
     "no-unmodified-loop-condition": "error",
-
-    // Disallow ternary operators when simpler alternatives exist.
-    "no-unneeded-ternary": "error",
 
     // No expressions where a statement is expected
     "no-unused-expressions": "error",

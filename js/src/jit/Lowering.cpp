@@ -1967,7 +1967,6 @@ LIRGenerator::visitConcat(MConcat* ins)
                                         tempFixed(CallTempReg2),
                                         tempFixed(CallTempReg3),
                                         tempFixed(CallTempReg4));
-    assignSnapshot(lir, Bailout_NotPure);
     defineFixed(lir, ins, LAllocation(AnyRegister(CallTempReg5)));
     assignSafepoint(lir, ins);
 }
@@ -4253,6 +4252,23 @@ LIRGenerator::visitCallInstanceOf(MCallInstanceOf* ins)
 }
 
 void
+LIRGenerator::visitIsArray(MIsArray* ins)
+{
+    MOZ_ASSERT(ins->type() == MIRType::Boolean);
+
+    if (ins->value()->type() == MIRType::Object) {
+        LIsArrayO* lir = new(alloc()) LIsArrayO(useRegister(ins->value()));
+        define(lir, ins);
+        assignSafepoint(lir, ins);
+    } else {
+        MOZ_ASSERT(ins->value()->type() == MIRType::Value);
+        LIsArrayV* lir = new(alloc()) LIsArrayV(useBox(ins->value()), temp());
+        define(lir, ins);
+        assignSafepoint(lir, ins);
+    }
+}
+
+void
 LIRGenerator::visitIsCallable(MIsCallable* ins)
 {
     MOZ_ASSERT(ins->object()->type() == MIRType::Object);
@@ -4887,6 +4903,17 @@ LIRGenerator::visitDebugCheckSelfHosted(MDebugCheckSelfHosted* ins)
 
     LDebugCheckSelfHosted* lir = new (alloc()) LDebugCheckSelfHosted(useBoxAtStart(checkVal));
     redefine(ins, checkVal);
+    add(lir, ins);
+    assignSafepoint(lir, ins);
+}
+
+void
+LIRGenerator::visitFinishBoundFunctionInit(MFinishBoundFunctionInit* ins)
+{
+    auto lir = new(alloc()) LFinishBoundFunctionInit(useRegister(ins->bound()),
+                                                     useRegister(ins->target()),
+                                                     useRegister(ins->argCount()),
+                                                     temp(), temp());
     add(lir, ins);
     assignSafepoint(lir, ins);
 }

@@ -285,7 +285,7 @@ nsresult nsZipHandle::Init(const uint8_t* aData, uint32_t aLen,
 //    pubKeyLength  : publicKey     - Contents of the author's public key.
 //    sigLength     : signature     - Signature of the ZIP content.
 //                                    Signature is created using the RSA
-//                                    algorighm with the SHA-1 hash function.
+//                                    algorithm with the SHA-1 hash function.
 nsresult nsZipHandle::findDataStart()
 {
   // In the CRX header, integers are 32 bits. Our pointer to the file is of
@@ -683,7 +683,9 @@ MOZ_WIN_MEM_TRY_BEGIN
     // Success means optimized jar layout from bug 559961 is in effect
     uint32_t readaheadLength = xtolong(startp);
     if (readaheadLength) {
-#if defined(XP_UNIX)
+#if defined(XP_SOLARIS)
+      posix_madvise(const_cast<uint8_t*>(startp), readaheadLength, POSIX_MADV_WILLNEED);
+#elif defined(XP_UNIX)
       madvise(const_cast<uint8_t*>(startp), readaheadLength, MADV_WILLNEED);
 #elif defined(XP_WIN)
       if (aFd) {

@@ -26,15 +26,22 @@
 class nsIAtom;
 class nsINode;
 
+namespace mozilla {
+class Encoding;
+}
+
 class nsXMLContentSerializer : public nsIContentSerializer {
  public:
   nsXMLContentSerializer();
 
   NS_DECL_ISUPPORTS
 
-  NS_IMETHOD Init(uint32_t flags, uint32_t aWrapColumn,
-                  const char* aCharSet, bool aIsCopying,
-                  bool aRewriteEncodingDeclaration) override;
+  NS_IMETHOD Init(uint32_t flags,
+                  uint32_t aWrapColumn,
+                  const mozilla::Encoding* aEncoding,
+                  bool aIsCopying,
+                  bool aRewriteEncodingDeclaration,
+                  bool* aNeedsPreformatScanning) override;
 
   NS_IMETHOD AppendText(nsIContent* aText, int32_t aStartOffset,
                         int32_t aEndOffset, nsAString& aStr) override;
@@ -65,6 +72,15 @@ class nsXMLContentSerializer : public nsIContentSerializer {
 
   NS_IMETHOD AppendDocumentStart(nsIDocument *aDocument,
                                  nsAString& aStr) override;
+
+  NS_IMETHOD ScanElementForPreformat(mozilla::dom::Element* aElement) override
+  {
+    return NS_OK;
+  }
+  NS_IMETHOD ForgetElementForPreformat(mozilla::dom::Element* aElement) override
+  {
+    return NS_OK;
+  }
 
  protected:
   virtual ~nsXMLContentSerializer();
@@ -97,7 +113,7 @@ class nsXMLContentSerializer : public nsIContentSerializer {
    * It updates the column position.
    */
   MOZ_MUST_USE
-  bool AppendToStringWrapped(const nsASingleFragmentString& aStr,
+  bool AppendToStringWrapped(const nsAString& aStr,
                              nsAString& aOutputStr);
 
   /**
@@ -105,32 +121,32 @@ class nsXMLContentSerializer : public nsIContentSerializer {
    * It updates the column position.
    */
   MOZ_MUST_USE
-  bool AppendToStringFormatedWrapped(const nsASingleFragmentString& aStr,
+  bool AppendToStringFormatedWrapped(const nsAString& aStr,
                                      nsAString& aOutputStr);
 
   // used by AppendToStringWrapped
   MOZ_MUST_USE
   bool AppendWrapped_WhitespaceSequence(
-          nsASingleFragmentString::const_char_iterator &aPos,
-          const nsASingleFragmentString::const_char_iterator aEnd,
-          const nsASingleFragmentString::const_char_iterator aSequenceStart,
+          nsAString::const_char_iterator &aPos,
+          const nsAString::const_char_iterator aEnd,
+          const nsAString::const_char_iterator aSequenceStart,
           nsAString &aOutputStr);
 
   // used by AppendToStringFormatedWrapped
   MOZ_MUST_USE
   bool AppendFormatedWrapped_WhitespaceSequence(
-          nsASingleFragmentString::const_char_iterator &aPos,
-          const nsASingleFragmentString::const_char_iterator aEnd,
-          const nsASingleFragmentString::const_char_iterator aSequenceStart,
+          nsAString::const_char_iterator &aPos,
+          const nsAString::const_char_iterator aEnd,
+          const nsAString::const_char_iterator aSequenceStart,
           bool &aMayIgnoreStartOfLineWhitespaceSequence,
           nsAString &aOutputStr);
 
   // used by AppendToStringWrapped and AppendToStringFormatedWrapped
   MOZ_MUST_USE
   bool AppendWrapped_NonWhitespaceSequence(
-          nsASingleFragmentString::const_char_iterator &aPos,
-          const nsASingleFragmentString::const_char_iterator aEnd,
-          const nsASingleFragmentString::const_char_iterator aSequenceStart,
+          nsAString::const_char_iterator &aPos,
+          const nsAString::const_char_iterator aEnd,
+          const nsAString::const_char_iterator aSequenceStart,
           bool &aMayIgnoreStartOfLineWhitespaceSequence,
           bool &aSequenceStartAfterAWhiteSpace,
           nsAString &aOutputStr);

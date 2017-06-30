@@ -9,7 +9,6 @@
 #include "mozilla/Logging.h"
 #include "mozilla/WindowsVersion.h"
 #include "nsDeviceContext.h"
-#include "nsRenderingContext.h"
 #include "nsRect.h"
 #include "nsSize.h"
 #include "nsTransform2D.h"
@@ -68,6 +67,10 @@ GetTopLevelWindowActiveState(nsIFrame *aFrame)
   // page. Bail in this case, there is no applicable window focus state.
   if (!XRE_IsParentProcess()) {
     return mozilla::widget::themeconst::FS_INACTIVE;
+  }
+  // All headless windows are considered active so they are painted.
+  if (gfxPlatform::IsHeadless()) {
+    return mozilla::widget::themeconst::FS_ACTIVE;
   }
   // Get the widget. nsIFrame's GetNearestWidget walks up the view chain
   // until it finds a real window.
@@ -1385,7 +1388,7 @@ GetThemeDpiScaleFactor(nsIFrame* aFrame)
 }
 
 NS_IMETHODIMP
-nsNativeThemeWin::DrawWidgetBackground(nsRenderingContext* aContext,
+nsNativeThemeWin::DrawWidgetBackground(gfxContext* aContext,
                                        nsIFrame* aFrame,
                                        uint8_t aWidgetType,
                                        const nsRect& aRect,
@@ -1437,7 +1440,7 @@ nsNativeThemeWin::DrawWidgetBackground(nsRenderingContext* aContext,
     return NS_OK;
   }
 
-  RefPtr<gfxContext> ctx = aContext->ThebesContext();
+  RefPtr<gfxContext> ctx = aContext;
   gfxContextMatrixAutoSaveRestore save(ctx);
 
   double themeScale = GetThemeDpiScaleFactor(aFrame);
@@ -2248,22 +2251,22 @@ nsNativeThemeWin::GetMinimumWidgetSize(nsPresContext* aPresContext, nsIFrame* aF
       // The only way to get accurate titlebar button info is to query a
       // window w/buttons when it's visible. nsWindow takes care of this and
       // stores that info in nsUXThemeData.
-      aResult->width = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_RESTORE].cx;
-      aResult->height = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_RESTORE].cy;
+      aResult->width = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_RESTORE).cx;
+      aResult->height = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_RESTORE).cy;
       AddPaddingRect(aResult, CAPTIONBUTTON_RESTORE);
       *aIsOverridable = false;
       return rv;
 
     case NS_THEME_WINDOW_BUTTON_MINIMIZE:
-      aResult->width = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_MINIMIZE].cx;
-      aResult->height = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_MINIMIZE].cy;
+      aResult->width = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_MINIMIZE).cx;
+      aResult->height = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_MINIMIZE).cy;
       AddPaddingRect(aResult, CAPTIONBUTTON_MINIMIZE);
       *aIsOverridable = false;
       return rv;
 
     case NS_THEME_WINDOW_BUTTON_CLOSE:
-      aResult->width = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_CLOSE].cx;
-      aResult->height = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_CLOSE].cy;
+      aResult->width = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_CLOSE).cx;
+      aResult->height = nsUXThemeData::GetCommandButtonMetrics(CMDBUTTONIDX_CLOSE).cy;
       AddPaddingRect(aResult, CAPTIONBUTTON_CLOSE);
       *aIsOverridable = false;
       return rv;
@@ -2288,8 +2291,8 @@ nsNativeThemeWin::GetMinimumWidgetSize(nsPresContext* aPresContext, nsIFrame* aF
     case NS_THEME_WINDOW_BUTTON_BOX:
     case NS_THEME_WINDOW_BUTTON_BOX_MAXIMIZED:
       if (nsUXThemeData::CheckForCompositor()) {
-        aResult->width = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_BUTTONBOX].cx;
-        aResult->height = nsUXThemeData::sCommandButtons[CMDBUTTONIDX_BUTTONBOX].cy
+        aResult->width = nsUXThemeData::GetCommandButtonBoxMetrics().cx;
+        aResult->height = nsUXThemeData::GetCommandButtonBoxMetrics().cy
                           - GetSystemMetrics(SM_CYFRAME)
                           - GetSystemMetrics(SM_CXPADDEDBORDER);
         if (aWidgetType == NS_THEME_WINDOW_BUTTON_BOX_MAXIMIZED) {
@@ -2441,9 +2444,6 @@ nsNativeThemeWin::ThemeSupportsWidget(nsPresContext* aPresContext,
 {
   // XXXdwh We can go even further and call the API to ask if support exists for
   // specific widgets.
-
-  if (aPresContext && !aPresContext->PresShell()->IsThemeSupportEnabled())
-    return false;
 
   if (aWidgetType == NS_THEME_FOCUS_OUTLINE) {
     return true;
@@ -3428,7 +3428,7 @@ void nsNativeThemeWin::DrawCheckedRect(HDC hdc, const RECT& rc, int32_t fore, in
   }
 }
 
-nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsRenderingContext* aContext,
+nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(gfxContext* aContext,
                                   nsIFrame* aFrame,
                                   uint8_t aWidgetType,
                                   const nsRect& aRect,
@@ -3453,7 +3453,7 @@ nsresult nsNativeThemeWin::ClassicDrawWidgetBackground(nsRenderingContext* aCont
   tr.ScaleInverse(p2a);
   dr.ScaleInverse(p2a);
 
-  RefPtr<gfxContext> ctx = aContext->ThebesContext();
+  RefPtr<gfxContext> ctx = aContext;
 
   gfxWindowsNativeDrawing nativeDrawing(ctx, dr, GetWidgetNativeDrawingFlags(aWidgetType));
 

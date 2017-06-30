@@ -6,6 +6,7 @@
 
 #include "mozilla/dom/Notification.h"
 
+#include "mozilla/Encoding.h"
 #include "mozilla/JSONWriter.h"
 #include "mozilla/Move.h"
 #include "mozilla/OwningNonNull.h"
@@ -1479,7 +1480,8 @@ WorkerNotificationObserver::Observe(nsISupports* aSubject, const char* aTopic,
     // Instead of bothering with adding features and other worker lifecycle
     // management, we simply hold strongrefs to the window and document.
     nsMainThreadPtrHandle<nsPIDOMWindowInner> windowHandle(
-      new nsMainThreadPtrHolder<nsPIDOMWindowInner>(window));
+      new nsMainThreadPtrHolder<nsPIDOMWindowInner>(
+        "WorkerNotificationObserver::Observe::nsPIDOMWindowInner", window));
 
     r = new NotificationClickWorkerRunnable(notification, windowHandle);
   } else if (!strcmp("alertfinished", aTopic)) {
@@ -1921,7 +1923,7 @@ Notification::ResolveIconAndSoundURL(nsString& iconUrl, nsString& soundUrl)
   // the API base URL and no override encoding. So we've to use UTF-8 on
   // workers, but for backwards compat keeping it document charset on main
   // thread.
-  const char* charset = "UTF-8";
+  auto encoding = UTF_8_ENCODING;
 
   if (mWorkerPrivate) {
     baseUri = mWorkerPrivate->GetBaseURI();
@@ -1929,7 +1931,7 @@ Notification::ResolveIconAndSoundURL(nsString& iconUrl, nsString& soundUrl)
     nsIDocument* doc = GetOwner() ? GetOwner()->GetExtantDoc() : nullptr;
     if (doc) {
       baseUri = doc->GetBaseURI();
-      charset = doc->GetDocumentCharacterSet().get();
+      encoding = doc->GetDocumentCharacterSet();
     } else {
       NS_WARNING("No document found for main thread notification!");
       return NS_ERROR_FAILURE;
@@ -1939,7 +1941,7 @@ Notification::ResolveIconAndSoundURL(nsString& iconUrl, nsString& soundUrl)
   if (baseUri) {
     if (mIconUrl.Length() > 0) {
       nsCOMPtr<nsIURI> srcUri;
-      rv = NS_NewURI(getter_AddRefs(srcUri), mIconUrl, charset, baseUri);
+      rv = NS_NewURI(getter_AddRefs(srcUri), mIconUrl, encoding, baseUri);
       if (NS_SUCCEEDED(rv)) {
         nsAutoCString src;
         srcUri->GetSpec(src);
@@ -1948,7 +1950,7 @@ Notification::ResolveIconAndSoundURL(nsString& iconUrl, nsString& soundUrl)
     }
     if (mBehavior.mSoundFile.Length() > 0) {
       nsCOMPtr<nsIURI> srcUri;
-      rv = NS_NewURI(getter_AddRefs(srcUri), mBehavior.mSoundFile, charset, baseUri);
+      rv = NS_NewURI(getter_AddRefs(srcUri), mBehavior.mSoundFile, encoding, baseUri);
       if (NS_SUCCEEDED(rv)) {
         nsAutoCString src;
         srcUri->GetSpec(src);
@@ -2724,9 +2726,9 @@ Notification::DispatchToMainThread(already_AddRefed<nsIRunnable>&& aRunnable)
       return target->Dispatch(Move(aRunnable), nsIEventTarget::DISPATCH_NORMAL);
     }
   }
-  nsCOMPtr<nsIThread> mainThread = do_GetMainThread();
-  MOZ_ASSERT(mainThread);
-  return mainThread->Dispatch(Move(aRunnable), nsIEventTarget::DISPATCH_NORMAL);
+  nsCOMPtr<nsIEventTarget> mainTarget = GetMainThreadEventTarget();
+  MOZ_ASSERT(mainTarget);
+  return mainTarget->Dispatch(Move(aRunnable), nsIEventTarget::DISPATCH_NORMAL);
 }
 
 } // namespace dom

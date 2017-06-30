@@ -1301,6 +1301,9 @@ struct TlsData
     // Shortcut to instance->zone->group->addressOfOwnerContext
     JSContext** addressOfContext;
 
+    // Pointer that should be freed (due to padding before the TlsData).
+    void* allocatedBase;
+
     // The globalArea must be the last field.  Globals for the module start here
     // and are inline in this structure.  16-byte alignment is required for SIMD
     // data.
@@ -1627,6 +1630,10 @@ struct Frame
     // the first field of wasm::Frame (in a downward-growing stack).
     Frame* callerFP;
 
+    // The raw payload of an ExitReason describing why we've left wasm. It is
+    // non null if and only if a call exited wasm code.
+    uint32_t encodedExitReason;
+
     // The saved value of WasmTlsReg on entry to the function. This is
     // effectively the callee's instance.
     TlsData* tls;
@@ -1679,13 +1686,6 @@ class DebugFrame
         };
         void* flagsWord_;
     };
-
-    // Padding so that DebugFrame has Alignment.
-#if JS_BITS_PER_WORD == 32
-  protected: // suppress clang's -Wunused-private-field warning-as-error
-    void* padding_;
-  private:
-#endif
 
     // The Frame goes at the end since the stack grows down.
     Frame frame_;

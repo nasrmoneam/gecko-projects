@@ -197,12 +197,9 @@ static google_breakpad::ExceptionHandler* gExceptionHandler = nullptr;
 static XP_CHAR* pendingDirectory;
 static XP_CHAR* crashReporterPath;
 static XP_CHAR* memoryReportPath;
-#if !defined(MOZ_WIDGET_ANDROID)
-static XP_CHAR* minidumpAnalyzerPath;
 #ifdef XP_MACOSX
 static XP_CHAR* libraryPath; // Path where the NSS library is
 #endif // XP_MACOSX
-#endif // !defined(MOZ_WIDGET_ANDROID)
 
 // Where crash events should go.
 static XP_CHAR* eventsDirectory;
@@ -260,6 +257,9 @@ static uint32_t eventloopNestingLevel = 0;
 static Mutex* dumpSafetyLock;
 static bool isSafeToDump = false;
 
+// Whether to include heap regions of the crash context.
+static bool sIncludeContextHeap = false;
+
 // OOP crash reporting
 static CrashGenerationServer* crashServer; // chrome process has this
 
@@ -315,13 +315,15 @@ static ChildMinidumpMap* pidToMinidump;
 static uint32_t crashSequence;
 static bool OOPInitialized();
 
+static nsIThread* sMinidumpWriterThread;
+
 #ifdef MOZ_CRASHREPORTER_INJECTOR
 static nsIThread* sInjectorThread;
 
 class ReportInjectedCrash : public Runnable
 {
 public:
-  explicit ReportInjectedCrash(uint32_t pid) : mPID(pid) { }
+  explicit ReportInjectedCrash(uint32_t pid) : Runnable("ReportInjectedCrash"), mPID(pid) { }
 
   NS_IMETHOD Run();
 
@@ -819,11 +821,9 @@ WriteGlobalMemoryStatus(PlatformWriter* apiData, PlatformWriter* eventFile)
  * @param aProgramPath The path of the program to be launched
  * @param aMinidumpPath The path of the minidump file, passed as an argument
  *        to the launched program
- * @param aWait If true wait for the program termination
  */
 static bool
-LaunchProgram(const XP_CHAR* aProgramPath, const XP_CHAR* aMinidumpPath,
-              bool aWait = false)
+LaunchProgram(const XP_CHAR* aProgramPath, const XP_CHAR* aMinidumpPath)
 {
 #ifdef XP_WIN
   XP_CHAR cmdLine[CMDLINE_SIZE];
@@ -844,10 +844,6 @@ LaunchProgram(const XP_CHAR* aProgramPath, const XP_CHAR* aMinidumpPath,
   if (CreateProcess(nullptr, (LPWSTR)cmdLine, nullptr, nullptr, FALSE,
                     NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW,
                     nullptr, nullptr, &si, &pi)) {
-    if (aWait) {
-      WaitForSingleObject(pi.hProcess, INFINITE);
-    }
-
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
   }
@@ -868,10 +864,6 @@ LaunchProgram(const XP_CHAR* aProgramPath, const XP_CHAR* aMinidumpPath,
     Unused << execl(aProgramPath,
                     aProgramPath, aMinidumpPath, (char*)0);
     _exit(1);
-  } else {
-    if (aWait) {
-      waitpid(pid, nullptr, 0);
-    }
   }
 #endif // XP_UNIX
 
@@ -1512,39 +1504,15 @@ ChildFPEFilter(void* context, EXCEPTION_POINTERS* exinfo,
 
 MINIDUMP_TYPE GetMinidumpType()
 {
-  MINIDUMP_TYPE minidump_type = MiniDumpNormal;
+  MINIDUMP_TYPE minidump_type = MiniDumpWithFullMemoryInfo;
 
-  // Try to determine what version of dbghelp.dll we're using.
-  // MinidumpWithFullMemoryInfo is only available in 6.1.x or newer.
-
-  DWORD version_size = GetFileVersionInfoSizeW(L"dbghelp.dll", nullptr);
-  if (version_size > 0) {
-    std::vector<BYTE> buffer(version_size);
-    if (GetFileVersionInfoW(L"dbghelp.dll",
-                            0,
-                            version_size,
-                            &buffer[0])) {
-      UINT len;
-      VS_FIXEDFILEINFO* file_info;
-      VerQueryValue(&buffer[0], L"\\", (void**)&file_info, &len);
-      WORD major = HIWORD(file_info->dwFileVersionMS),
-        minor = LOWORD(file_info->dwFileVersionMS),
-        revision = HIWORD(file_info->dwFileVersionLS);
-      if (major > 6 || (major == 6 && minor > 1) ||
-          (major == 6 && minor == 1 && revision >= 7600)) {
-        minidump_type = MiniDumpWithFullMemoryInfo;
-      }
 #ifdef NIGHTLY_BUILD
-      // This is Nightly only because this doubles the size of minidumps based
-      // on the experimental data.
-      if (major > 5 || (major == 5 && minor > 1)) {
-        minidump_type = static_cast<MINIDUMP_TYPE>(minidump_type |
-            MiniDumpWithUnloadedModules |
-            MiniDumpWithProcessThreadData);
-      }
+  // This is Nightly only because this doubles the size of minidumps based
+  // on the experimental data.
+  minidump_type = static_cast<MINIDUMP_TYPE>(minidump_type |
+      MiniDumpWithUnloadedModules |
+      MiniDumpWithProcessThreadData);
 #endif
-    }
-  }
 
   const char* e = PR_GetEnv("MOZ_CRASHREPORTER_FULLDUMP");
   if (e && *e) {
@@ -1697,22 +1665,11 @@ nsresult SetExceptionHandler(nsIFile* aXREDirectory,
     }
 #endif // XP_MACOSX
 
-    nsAutoString minidumpAnalyzerPath_temp;
-    rv = LocateExecutable(aXREDirectory,
-                          NS_LITERAL_CSTRING(MINIDUMP_ANALYZER_FILENAME),
-                          minidumpAnalyzerPath_temp);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-
 #ifdef XP_WIN32
   crashReporterPath =
     reinterpret_cast<wchar_t*>(ToNewUnicode(crashReporterPath_temp));
-  minidumpAnalyzerPath =
-    reinterpret_cast<wchar_t*>(ToNewUnicode(minidumpAnalyzerPath_temp));
 #else
   crashReporterPath = ToNewCString(crashReporterPath_temp);
-  minidumpAnalyzerPath = ToNewCString(minidumpAnalyzerPath_temp);
 #ifdef XP_MACOSX
   libraryPath = ToNewCString(libraryPath_temp);
 #endif
@@ -1808,6 +1765,9 @@ nsresult SetExceptionHandler(nsIFile* aXREDirectory,
 #ifdef XP_WIN
   gExceptionHandler->set_handle_debug_exceptions(true);
 
+  // Initially set sIncludeContextHeap to true for debugging startup crashes
+  // even if the controlling pref value is false.
+  SetIncludeContextHeap(true);
 #ifdef _WIN64
   // Tell JS about the new filter before we disable SetUnhandledExceptionFilter
   SetJitExceptionHandler();
@@ -2207,18 +2167,12 @@ nsresult UnsetExceptionHandler()
     crashReporterPath = nullptr;
   }
 
-#if !defined(MOZ_WIDGET_ANDROID)
-  if (minidumpAnalyzerPath) {
-    free(minidumpAnalyzerPath);
-    minidumpAnalyzerPath = nullptr;
-  }
 #ifdef XP_MACOSX
   if (libraryPath) {
     free(libraryPath);
     libraryPath = nullptr;
   }
 #endif // XP_MACOSX
-#endif // !defined(MOZ_WIDGET_ANDROID)
 
   if (eventsDirectory) {
     free(eventsDirectory);
@@ -2484,6 +2438,17 @@ nsresult UnregisterAppMemory(void* ptr)
   return NS_OK;
 #else
   return NS_ERROR_NOT_IMPLEMENTED;
+#endif
+}
+
+void SetIncludeContextHeap(bool aValue)
+{
+  sIncludeContextHeap = aValue;
+
+#ifdef XP_WIN
+  if (gExceptionHandler) {
+    gExceptionHandler->set_include_context_heap(sIncludeContextHeap);
+  }
 #endif
 }
 
@@ -3131,34 +3096,6 @@ AppendExtraData(const nsAString& id, const AnnotationTable& data)
   return AppendExtraData(extraFile, data);
 }
 
-/**
- * Runs the minidump analyzer program on the specified crash dump. The analyzer
- * will extract the stack traces from the dump and store them in JSON format as
- * an annotation in the extra file associated with the crash.
- *
- * This method waits synchronously for the program to have finished executing,
- * do not call it from the main thread!
- */
-void
-RunMinidumpAnalyzer(const nsAString& id)
-{
-#if !defined(MOZ_WIDGET_ANDROID)
-  nsCOMPtr<nsIFile> file;
-
-  if (CrashReporter::GetMinidumpForID(id, getter_AddRefs(file))) {
-#ifdef XP_WIN
-    nsAutoString path;
-    file->GetPath(path);
-#else
-    nsAutoCString path;
-    file->GetNativePath(path);
-#endif
-
-    LaunchProgram(minidumpAnalyzerPath, path.get(), /* aWait */ true);
-  }
-#endif // !defined(MOZ_WIDGET_ANDROID)
-}
-
 //-----------------------------------------------------------------------------
 // Helpers for AppendExtraData()
 //
@@ -3509,6 +3446,7 @@ OOPInit()
   class ProxyToMainThread : public Runnable
   {
   public:
+    ProxyToMainThread() : Runnable("nsExceptionHandler::ProxyToMainThread") {}
     NS_IMETHOD Run() override {
       OOPInit();
       return NS_OK;
@@ -3565,6 +3503,10 @@ OOPInit()
     true,                       // automatically generate dumps
     &dumpPath);
 
+  if (sIncludeContextHeap) {
+    crashServer->set_include_context_heap(sIncludeContextHeap);
+  }
+
 #elif defined(XP_LINUX)
   if (!CrashGenerationServer::CreateReportChannel(&serverSocketFd,
                                                   &clientSocketFd))
@@ -3620,6 +3562,11 @@ OOPDeinit()
     NS_RELEASE(sInjectorThread);
   }
 #endif
+
+  if (sMinidumpWriterThread) {
+    sMinidumpWriterThread->Shutdown();
+    NS_RELEASE(sMinidumpWriterThread);
+  }
 
   delete crashServer;
   crashServer = nullptr;
@@ -4103,17 +4050,31 @@ bool TakeMinidump(nsIFile** aResult, bool aMoveToPending)
   return true;
 }
 
-bool
-CreateMinidumpsAndPair(ProcessHandle aTargetPid,
-                       ThreadId aTargetBlamedThread,
-                       const nsACString& aIncomingPairName,
-                       nsIFile* aIncomingDumpToPair,
-                       nsIFile** aMainDumpOut)
+inline void
+InvokeCallback(bool aAsync,
+               std::function<void()>&& aCallback,
+               RefPtr<nsIThread>&& aCallbackThread)
 {
-  if (!GetEnabled()) {
-    return false;
+  if (aAsync) {
+    MOZ_ASSERT(!!aCallbackThread);
+    Unused << aCallbackThread->Dispatch(NS_NewRunnableFunction("CrashReporter::InvokeCallback",
+                                                               Move(aCallback)),
+                                        NS_DISPATCH_SYNC);
+  } else {
+    aCallback();
   }
+}
 
+void
+CreateMinidumpsAndPairInternal(ProcessHandle aTargetPid,
+                               ThreadId aTargetBlamedThread,
+                               nsCString aIncomingPairName,
+                               nsCOMPtr<nsIFile> aIncomingDumpToPair,
+                               nsIFile** aMainDumpOut,
+                               std::function<void(bool)>&& aCallback,
+                               RefPtr<nsIThread>&& aCallbackThread,
+                               bool aAsync)
+{
   AutoIOInterposerDisable disableIOInterposition;
 
 #ifdef XP_MACOSX
@@ -4129,6 +4090,7 @@ CreateMinidumpsAndPair(ProcessHandle aTargetPid,
   dump_path = gExceptionHandler->minidump_descriptor().directory();
 #endif
 
+  std::function<void()> runnable;
   // dump the target
   nsCOMPtr<nsIFile> targetMinidump;
   if (!google_breakpad::ExceptionHandler::WriteMinidumpForChild(
@@ -4140,8 +4102,13 @@ CreateMinidumpsAndPair(ProcessHandle aTargetPid,
 #ifdef XP_WIN32
          , GetMinidumpType()
 #endif
-      ))
-    return false;
+      )) {
+    runnable = [&](){
+      aCallback(false);
+    };
+    InvokeCallback(aAsync, Move(runnable), Move(aCallbackThread));
+    return;
+  }
 
   nsCOMPtr<nsIFile> targetExtra;
   GetExtraFileForMinidump(targetMinidump, getter_AddRefs(targetExtra));
@@ -4160,24 +4127,81 @@ CreateMinidumpsAndPair(ProcessHandle aTargetPid,
         , GetMinidumpType()
 #endif
         )) {
-      targetMinidump->Remove(false);
-      targetExtra->Remove(false);
-      return false;
+      runnable = [&](){
+        targetMinidump->Remove(false);
+        targetExtra->Remove(false);
+        aCallback(false);
+      };
+      InvokeCallback(aAsync, Move(runnable), Move(aCallbackThread));
+      return;
     }
   } else {
     incomingDump = aIncomingDumpToPair;
   }
 
-  RenameAdditionalHangMinidump(incomingDump, targetMinidump, aIncomingPairName);
+  runnable = [&](){
+    RenameAdditionalHangMinidump(incomingDump, targetMinidump, aIncomingPairName);
 
-  if (ShouldReport()) {
-    MoveToPending(targetMinidump, targetExtra, nullptr);
-    MoveToPending(incomingDump, nullptr, nullptr);
+    if (ShouldReport()) {
+      MoveToPending(targetMinidump, targetExtra, nullptr);
+      MoveToPending(incomingDump, nullptr, nullptr);
+    }
+
+    targetMinidump.forget(aMainDumpOut);
+    aIncomingPairName = nullptr; // Release the ptr on the main thread.
+
+    aCallback(true);
+  };
+  InvokeCallback(aAsync, Move(runnable), Move(aCallbackThread));
+}
+
+void
+CreateMinidumpsAndPair(ProcessHandle aTargetPid,
+                       ThreadId aTargetBlamedThread,
+                       const nsACString& aIncomingPairName,
+                       nsIFile* aIncomingDumpToPair,
+                       nsIFile** aMainDumpOut,
+                       std::function<void(bool)>&& aCallback,
+                       bool aAsync)
+{
+  if (!GetEnabled()) {
+    aCallback(false);
+    return;
   }
 
-  targetMinidump.forget(aMainDumpOut);
+  if (aAsync &&
+      !sMinidumpWriterThread &&
+      NS_FAILED(NS_NewNamedThread("Minidump Writer", &sMinidumpWriterThread))) {
+    aCallback(false);
+    return;
+  }
 
-  return true;
+  nsCOMPtr<nsIFile> incomingDumpToPair = aIncomingDumpToPair;
+  nsCString incomingPairName(aIncomingPairName);
+  std::function<void(bool)> callback = Move(aCallback);
+  // Don't call do_GetCurrentThread() is this is called synchronously because
+  // 1. it's unnecessary, and 2. more importantly, it might create one if called
+  // from a native thread, and the thread will be leakded.
+  RefPtr<nsIThread> callbackThread = aAsync ? do_GetCurrentThread() : nullptr;
+
+  std::function<void()> doDump = [=]() mutable {
+    CreateMinidumpsAndPairInternal(aTargetPid,
+                                   aTargetBlamedThread,
+                                   incomingPairName,
+                                   incomingDumpToPair,
+                                   aMainDumpOut,
+                                   Move(callback),
+                                   Move(callbackThread),
+                                   aAsync);
+  };
+
+  if (aAsync) {
+    sMinidumpWriterThread->Dispatch(NS_NewRunnableFunction("CrashReporter::CreateMinidumpsAndPair",
+                                                           Move(doDump)),
+                                    nsIEventTarget::DISPATCH_NORMAL);
+  } else {
+    doDump();
+  }
 }
 
 bool

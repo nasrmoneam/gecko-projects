@@ -4,8 +4,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/layers/WebRenderScrollData.h"
+
+#include "Layers.h"
 #include "mozilla/Unused.h"
+#include "Layers.h"
 #include "nsTArray.h"
+#include "UnitTransforms.h"
 
 namespace mozilla {
 namespace layers {
@@ -80,6 +84,7 @@ WebRenderLayerScrollData::GetTransformTyped() const
 
 WebRenderScrollData::WebRenderScrollData()
   : mIsFirstPaint(false)
+  , mPaintSequenceNumber(0)
 {
 }
 
@@ -140,6 +145,12 @@ WebRenderScrollData::GetScrollMetadata(size_t aIndex) const
 }
 
 void
+WebRenderScrollData::SetFocusTarget(const FocusTarget& aFocusTarget)
+{
+  mFocusTarget = aFocusTarget;
+}
+
+void
 WebRenderScrollData::SetIsFirstPaint()
 {
   mIsFirstPaint = true;
@@ -149,6 +160,18 @@ bool
 WebRenderScrollData::IsFirstPaint() const
 {
   return mIsFirstPaint;
+}
+
+void
+WebRenderScrollData::SetPaintSequenceNumber(uint32_t aPaintSequenceNumber)
+{
+  mPaintSequenceNumber = aPaintSequenceNumber;
+}
+
+uint32_t
+WebRenderScrollData::GetPaintSequenceNumber() const
+{
+  return mPaintSequenceNumber;
 }
 
 } // namespace layers

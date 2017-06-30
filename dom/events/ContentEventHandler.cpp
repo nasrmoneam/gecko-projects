@@ -424,7 +424,7 @@ static bool IsMozBR(nsIContent* aContent)
   return aContent->IsHTMLElement(nsGkAtoms::br) && !IsContentBR(aContent);
 }
 
-static void ConvertToNativeNewlines(nsAFlatString& aString)
+static void ConvertToNativeNewlines(nsString& aString)
 {
 #if defined(XP_WIN)
   aString.ReplaceSubstring(NS_LITERAL_STRING("\n"), NS_LITERAL_STRING("\r\n"));
@@ -664,7 +664,7 @@ ContentEventHandler::ShouldBreakLineBefore(nsIContent* aContent,
 
 nsresult
 ContentEventHandler::GenerateFlatTextContent(nsIContent* aContent,
-                                             nsAFlatString& aString,
+                                             nsString& aString,
                                              LineBreakType aLineBreakType)
 {
   MOZ_ASSERT(aString.IsEmpty());
@@ -680,7 +680,7 @@ ContentEventHandler::GenerateFlatTextContent(nsIContent* aContent,
 
 nsresult
 ContentEventHandler::GenerateFlatTextContent(nsRange* aRange,
-                                             nsAFlatString& aString,
+                                             nsString& aString,
                                              LineBreakType aLineBreakType)
 {
   MOZ_ASSERT(aString.IsEmpty());
@@ -939,31 +939,41 @@ ContentEventHandler::ExpandToClusterBoundary(nsIContent* aContent,
     aForward ? CARET_ASSOCIATE_BEFORE : CARET_ASSOCIATE_AFTER;
   nsIFrame* frame = fs->GetFrameForNodeOffset(aContent, int32_t(*aXPOffset),
                                               hint, &offsetInFrame);
-  if (!frame) {
-    // This content doesn't have any frames, we only can check surrogate pair...
-    const nsTextFragment* text = aContent->GetText();
-    NS_ENSURE_TRUE(text, NS_ERROR_FAILURE);
-    if (NS_IS_LOW_SURROGATE(text->CharAt(*aXPOffset)) &&
-        NS_IS_HIGH_SURROGATE(text->CharAt(*aXPOffset - 1))) {
-      *aXPOffset += aForward ? 1 : -1;
+  if (frame) {
+    int32_t startOffset, endOffset;
+    nsresult rv = frame->GetOffsets(startOffset, endOffset);
+    NS_ENSURE_SUCCESS(rv, rv);
+    if (*aXPOffset == static_cast<uint32_t>(startOffset) ||
+        *aXPOffset == static_cast<uint32_t>(endOffset)) {
+      return NS_OK;
     }
-    return NS_OK;
+    if (!frame->IsTextFrame()) {
+      return NS_ERROR_FAILURE;
+    }
+    nsTextFrame* textFrame = static_cast<nsTextFrame*>(frame);
+    int32_t newOffsetInFrame = *aXPOffset - startOffset;
+    newOffsetInFrame += aForward ? -1 : 1;
+    // PeekOffsetCharacter() should respect cluster but ignore user-select
+    // style.  If it returns "FOUND", we should use the result.  Otherwise,
+    // we shouldn't use the result because the offset was moved to reversed
+    // direction.
+    nsTextFrame::PeekOffsetCharacterOptions options;
+    options.mRespectClusters = true;
+    options.mIgnoreUserStyleAll = true;
+    if (textFrame->PeekOffsetCharacter(aForward, &newOffsetInFrame,
+                                       options) == nsIFrame::FOUND) {
+      *aXPOffset = startOffset + newOffsetInFrame;
+      return NS_OK;
+    }
   }
-  int32_t startOffset, endOffset;
-  nsresult rv = frame->GetOffsets(startOffset, endOffset);
-  NS_ENSURE_SUCCESS(rv, rv);
-  if (*aXPOffset == static_cast<uint32_t>(startOffset) ||
-      *aXPOffset == static_cast<uint32_t>(endOffset)) {
-    return NS_OK;
+
+  // If the frame isn't available, we only can check surrogate pair...
+  const nsTextFragment* text = aContent->GetText();
+  NS_ENSURE_TRUE(text, NS_ERROR_FAILURE);
+  if (NS_IS_LOW_SURROGATE(text->CharAt(*aXPOffset)) &&
+      NS_IS_HIGH_SURROGATE(text->CharAt(*aXPOffset - 1))) {
+    *aXPOffset += aForward ? 1 : -1;
   }
-  if (!frame->IsTextFrame()) {
-    return NS_ERROR_FAILURE;
-  }
-  nsTextFrame* textFrame = static_cast<nsTextFrame*>(frame);
-  int32_t newOffsetInFrame = *aXPOffset - startOffset;
-  newOffsetInFrame += aForward ? -1 : 1;
-  textFrame->PeekOffsetCharacter(aForward, &newOffsetInFrame);
-  *aXPOffset = startOffset + newOffsetInFrame;
   return NS_OK;
 }
 

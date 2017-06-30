@@ -32,7 +32,7 @@ WebRenderBridgeChild::WebRenderBridgeChild(const wr::PipelineId& aPipelineId)
 }
 
 void
-WebRenderBridgeChild::Destroy()
+WebRenderBridgeChild::Destroy(bool aIsSync)
 {
   if (!IPCOpen()) {
     return;
@@ -41,7 +41,11 @@ WebRenderBridgeChild::Destroy()
   // When this function is called from CompositorBridgeChild::Destroy().
   mDestroyed = true;
 
-  SendShutdown();
+  if (aIsSync) {
+    SendShutdownSync();
+  } else {
+    SendShutdown();
+  }
 }
 
 void
@@ -109,15 +113,38 @@ WebRenderBridgeChild::DPEnd(wr::DisplayListBuilder &aBuilder,
 
   if (aIsSync) {
     this->SendDPSyncEnd(aSize, mParentCommands, mDestroyedActors, GetFwdTransactionId(), aTransactionId,
-                        contentSize, dlData, dl.dl_desc, aScrollData);
+                        contentSize, dlData, dl.dl_desc, aScrollData, mIdNamespace);
   } else {
     this->SendDPEnd(aSize, mParentCommands, mDestroyedActors, GetFwdTransactionId(), aTransactionId,
-                    contentSize, dlData, dl.dl_desc, aScrollData);
+                    contentSize, dlData, dl.dl_desc, aScrollData, mIdNamespace);
   }
 
   mParentCommands.Clear();
   mDestroyedActors.Clear();
   mIsInTransaction = false;
+}
+
+void
+WebRenderBridgeChild::ProcessWebRenderParentCommands()
+{
+  if (mParentCommands.IsEmpty()) {
+    return;
+  }
+  this->SendParentCommands(mParentCommands);
+  mParentCommands.Clear();
+}
+
+void
+WebRenderBridgeChild::AddPipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId,
+                                                        const CompositableHandle& aHandle)
+{
+  SendAddPipelineIdForAsyncCompositable(aPipelineId, aHandle);
+}
+
+void
+WebRenderBridgeChild::RemovePipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId)
+{
+  SendRemovePipelineIdForAsyncCompositable(aPipelineId);
 }
 
 wr::ExternalImageId
@@ -126,16 +153,6 @@ WebRenderBridgeChild::GetNextExternalImageId()
   wr::MaybeExternalImageId id = GetCompositorBridgeChild()->GetNextExternalImageId();
   MOZ_RELEASE_ASSERT(id.isSome());
   return id.value();
-}
-
-wr::ExternalImageId
-WebRenderBridgeChild::AllocExternalImageId(const CompositableHandle& aHandle)
-{
-  MOZ_ASSERT(!mDestroyed);
-
-  wr::ExternalImageId imageId = GetNextExternalImageId();
-  SendAddExternalImageId(imageId, aHandle);
-  return imageId;
 }
 
 wr::ExternalImageId
@@ -204,9 +221,8 @@ WebRenderBridgeChild::PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArra
               LayerPoint::FromUnknownPoint(glyphs[j].mPosition));
     }
 
-    WrClipRegionToken clipRegion = aBuilder.PushClipRegion(aSc.ToRelativeWrRect(aClip));
     aBuilder.PushText(aSc.ToRelativeWrRect(aBounds),
-                      clipRegion,
+                      aSc.ToRelativeWrRect(aClip),
                       glyph_array.color().value(),
                       key,
                       Range<const WrGlyphInstance>(wr_glyph_instances.Elements(), wr_glyph_instances.Length()),
@@ -224,7 +240,7 @@ WebRenderBridgeChild::GetFontKeyForScaledFont(gfx::ScaledFont* aScaledFont)
              (aScaledFont->GetType() == gfx::FontType::MAC) ||
              (aScaledFont->GetType() == gfx::FontType::FONTCONFIG));
 
-  RefPtr<UnscaledFont> unscaled = aScaledFont->GetUnscaledFont();
+  RefPtr<gfx::UnscaledFont> unscaled = aScaledFont->GetUnscaledFont();
   MOZ_ASSERT(unscaled);
 
   wr::FontKey key = {0, 0};
@@ -251,7 +267,7 @@ WebRenderBridgeChild::GetFontKeyForScaledFont(gfx::ScaledFont* aScaledFont)
 void
 WebRenderBridgeChild::RemoveExpiredFontKeys()
 {
-  uint32_t counter = UnscaledFont::DeletionCounter();
+  uint32_t counter = gfx::UnscaledFont::DeletionCounter();
   if (mFontKeysDeleted != counter) {
     mFontKeysDeleted = counter;
     for (auto iter = mFontKeys.Iter(); !iter.Done(); iter.Next()) {
@@ -427,6 +443,21 @@ bool
 WebRenderBridgeChild::InForwarderThread()
 {
   return NS_IsMainThread();
+}
+
+mozilla::ipc::IPCResult
+WebRenderBridgeChild::RecvWrUpdated(const uint32_t& aNewIdNameSpace)
+{
+  // Update mIdNamespace to identify obsolete keys and messages by WebRenderBridgeParent.
+  // Since usage of invalid keys could cause crash in webrender.
+  mIdNamespace = aNewIdNameSpace;
+  // Remove all FontKeys since they are removed by WebRenderBridgeParent
+  for (auto iter = mFontKeys.Iter(); !iter.Done(); iter.Next()) {
+    SendDeleteFont(iter.Data());
+  }
+  mFontKeys.Clear();
+  GetCompositorBridgeChild()->RecvInvalidateLayers(wr::AsUint64(mPipelineId));
+  return IPC_OK();
 }
 
 } // namespace layers

@@ -10,9 +10,9 @@
 // See documentation in associated header file
 //
 
+#include "gfxContext.h"
 #include "nsImageBoxFrame.h"
 #include "nsGkAtoms.h"
-#include "nsRenderingContext.h"
 #include "nsStyleContext.h"
 #include "nsStyleConsts.h"
 #include "nsStyleUtil.h"
@@ -64,8 +64,12 @@ using namespace mozilla::layers;
 class nsImageBoxFrameEvent : public Runnable
 {
 public:
-  nsImageBoxFrameEvent(nsIContent *content, EventMessage message)
-    : mContent(content), mMessage(message) {}
+  nsImageBoxFrameEvent(nsIContent* content, EventMessage message)
+    : mozilla::Runnable("nsImageBoxFrameEvent")
+    , mContent(content)
+    , mMessage(message)
+  {
+  }
 
   NS_IMETHOD Run() override;
 
@@ -339,7 +343,7 @@ nsImageBoxFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
 }
 
 DrawResult
-nsImageBoxFrame::PaintImage(nsRenderingContext& aRenderingContext,
+nsImageBoxFrame::PaintImage(gfxContext& aRenderingContext,
                             const nsRect& aDirtyRect, nsPoint aPt,
                             uint32_t aFlags)
 {
@@ -377,7 +381,7 @@ nsImageBoxFrame::PaintImage(nsRenderingContext& aRenderingContext,
   Maybe<SVGImageContext> svgContext;
   SVGImageContext::MaybeStoreContextPaint(svgContext, this, imgCon);
   return nsLayoutUtils::DrawSingleImage(
-           *aRenderingContext.ThebesContext(),
+           aRenderingContext,
            PresContext(), imgCon,
            nsLayoutUtils::GetSamplingFilterForFrame(this),
            dest, dirty,
@@ -432,7 +436,7 @@ nsImageBoxFrame::GetDestRect(const nsPoint& aOffset, Maybe<nsPoint>& aAnchorPoin
 }
 
 void nsDisplayXULImage::Paint(nsDisplayListBuilder* aBuilder,
-                              nsRenderingContext* aCtx)
+                              gfxContext* aCtx)
 {
   // Even though we call StartDecoding when we get a new image we pass
   // FLAG_SYNC_DECODE_IF_FAST here for the case where the size we draw at is not

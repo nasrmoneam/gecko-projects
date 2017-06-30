@@ -32,7 +32,6 @@
 #include "nsError.h"
 #include "nsIScriptObjectPrincipal.h"
 #include "nsIURL.h"
-#include "nsIUnicodeEncoder.h"
 #include "nsThreadUtils.h"
 #include "nsIPromptFactory.h"
 #include "nsIWindowWatcher.h"
@@ -268,7 +267,8 @@ class CallDispatchConnectionCloseEvents final : public CancelableRunnable
 {
 public:
   explicit CallDispatchConnectionCloseEvents(WebSocketImpl* aWebSocketImpl)
-    : mWebSocketImpl(aWebSocketImpl)
+    : CancelableRunnable("dom::CallDispatchConnectionCloseEvents")
+    , mWebSocketImpl(aWebSocketImpl)
   {
     aWebSocketImpl->AssertIsOnTargetThread();
   }
@@ -404,9 +404,11 @@ namespace {
 class CancelWebSocketRunnable final : public Runnable
 {
 public:
-  CancelWebSocketRunnable(nsIWebSocketChannel* aChannel, uint16_t aReasonCode,
+  CancelWebSocketRunnable(nsIWebSocketChannel* aChannel,
+                          uint16_t aReasonCode,
                           const nsACString& aReasonString)
-    : mChannel(aChannel)
+    : Runnable("dom::CancelWebSocketRunnable")
+    , mChannel(aChannel)
     , mReasonCode(aReasonCode)
     , mReasonString(aReasonString)
   {}
@@ -458,7 +460,8 @@ public:
   CloseConnectionRunnable(WebSocketImpl* aImpl,
                           uint16_t aReasonCode,
                           const nsACString& aReasonString)
-    : mImpl(aImpl)
+    : Runnable("dom::CloseConnectionRunnable")
+    , mImpl(aImpl)
     , mReasonCode(aReasonCode)
     , mReasonString(aReasonString)
   {}
@@ -639,8 +642,8 @@ WebSocketImpl::Disconnect()
   // until the end of the method.
   RefPtr<WebSocketImpl> kungfuDeathGrip = this;
 
-  NS_ReleaseOnMainThread(mChannel.forget());
-  NS_ReleaseOnMainThread(mService.forget());
+  NS_ReleaseOnMainThread("WebSocketImpl::mChannel", mChannel.forget());
+  NS_ReleaseOnMainThread("WebSocketImpl::mService", mService.forget());
 
   mWebSocket->DontKeepAliveAnyMore();
   mWebSocket->mImpl = nullptr;
@@ -849,11 +852,16 @@ WebSocketImpl::OnAcknowledge(nsISupports *aContext, uint32_t aSize)
     return NS_OK;
   }
 
-  if (aSize > mWebSocket->mOutgoingBufferedAmount) {
+  MOZ_RELEASE_ASSERT(mWebSocket->mOutgoingBufferedAmount.isValid());
+  if (aSize > mWebSocket->mOutgoingBufferedAmount.value()) {
     return NS_ERROR_UNEXPECTED;
   }
 
   mWebSocket->mOutgoingBufferedAmount -= aSize;
+  if (!mWebSocket->mOutgoingBufferedAmount.isValid()) {
+    return NS_ERROR_UNEXPECTED;
+  }
+
   return NS_OK;
 }
 
@@ -2169,7 +2177,7 @@ WebSocket::UpdateMustKeepAlive()
         if (mListenerManager->HasListenersFor(MESSAGE_EVENT_STRING) ||
             mListenerManager->HasListenersFor(ERROR_EVENT_STRING) ||
             mListenerManager->HasListenersFor(CLOSE_EVENT_STRING) ||
-            mOutgoingBufferedAmount != 0) {
+            mOutgoingBufferedAmount.value() != 0) {
           shouldKeepAlive = true;
         }
       }
@@ -2351,7 +2359,8 @@ uint32_t
 WebSocket::BufferedAmount() const
 {
   AssertIsOnTargetThread();
-  return mOutgoingBufferedAmount;
+  MOZ_RELEASE_ASSERT(mOutgoingBufferedAmount.isValid());
+  return mOutgoingBufferedAmount.value();
 }
 
 // webIDL: attribute BinaryType binaryType;
@@ -2485,6 +2494,10 @@ WebSocket::Send(nsIInputStream* aMsgStream,
 
   // Always increment outgoing buffer len, even if closed
   mOutgoingBufferedAmount += aMsgLength;
+  if (!mOutgoingBufferedAmount.isValid()) {
+    aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
+    return;
+  }
 
   if (readyState == CLOSING ||
       readyState == CLOSED) {
@@ -2870,6 +2883,12 @@ WebSocketImpl::IsOnCurrentThread(bool* aResult)
 {
   *aResult = IsTargetThread();
   return NS_OK;
+}
+
+NS_IMETHODIMP_(bool)
+WebSocketImpl::IsOnCurrentThreadInfallible()
+{
+  return IsTargetThread();
 }
 
 bool

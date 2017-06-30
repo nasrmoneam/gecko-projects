@@ -65,7 +65,7 @@ const ADDRESS_COMPUTE_TESTCASES = [
     expectedResult: {
       "street-address": "line1\n\nline3",
       "address-line1": "line1",
-      "address-line2": "",
+      "address-line2": undefined,
       "address-line3": "line3",
     },
   },
@@ -78,7 +78,31 @@ const ADDRESS_COMPUTE_TESTCASES = [
       "street-address": "line1\nline2\nline3\nline4",
       "address-line1": "line1",
       "address-line2": "line2",
-      "address-line3": "line3",
+      "address-line3": "line3 line4",
+    },
+  },
+  {
+    description: "\"street-address\" with blank lines",
+    address: {
+      "street-address": "line1\n \nline3\n \nline5",
+    },
+    expectedResult: {
+      "street-address": "line1\n \nline3\n \nline5",
+      "address-line1": "line1",
+      "address-line2": null,
+      "address-line3": "line3 line5",
+    },
+  },
+
+  // Country
+  {
+    description: "Has \"country\"",
+    address: {
+      "country": "US",
+    },
+    expectedResult: {
+      "country": "US",
+      "country-name": "United States",
     },
   },
 ];
@@ -178,6 +202,68 @@ const ADDRESS_NORMALIZE_TESTCASES = [
       "street-address": "street address\nstreet address line 2",
     },
   },
+
+  // Country
+  {
+    description: "Has \"country\" in lowercase",
+    address: {
+      "country": "us",
+    },
+    expectedResult: {
+      "country": "US",
+    },
+  },
+  {
+    description: "Has unknown \"country\"",
+    address: {
+      "country": "AA",
+    },
+    expectedResult: {
+      "country": undefined,
+    },
+  },
+  {
+    description: "Has \"country-name\"",
+    address: {
+      "country-name": "united states",
+    },
+    expectedResult: {
+      "country": "US",
+      "country-name": undefined,
+    },
+  },
+  {
+    description: "Has unknown \"country-name\"",
+    address: {
+      "country-name": "unknown country name",
+    },
+    expectedResult: {
+      "country": undefined,
+      "country-name": undefined,
+    },
+  },
+  {
+    description: "Has \"country\" and unknown \"country-name\"",
+    address: {
+      "country": "us",
+      "country-name": "unknown country name",
+    },
+    expectedResult: {
+      "country": "US",
+      "country-name": undefined,
+    },
+  },
+  {
+    description: "Has \"country-name\" and unknown \"country\"",
+    address: {
+      "country": "AA",
+      "country-name": "united states",
+    },
+    expectedResult: {
+      "country": undefined,
+      "country-name": undefined,
+    },
+  },
 ];
 
 const CREDIT_CARD_COMPUTE_TESTCASES = [
@@ -241,7 +327,7 @@ const CREDIT_CARD_NORMALIZE_TESTCASES = [
 
 let do_check_record_matches = (expectedRecord, record) => {
   for (let key in expectedRecord) {
-    do_check_eq(expectedRecord[key], record[key] || "");
+    do_check_eq(expectedRecord[key], record[key]);
   }
 };
 
@@ -277,7 +363,7 @@ add_task(async function test_normalizeAddressFields() {
   profileStorage = new ProfileStorage(path);
   await profileStorage.initialize();
 
-  let addresses = profileStorage.addresses.getAll();
+  let addresses = profileStorage.addresses.getAll({noComputedFields: true});
 
   for (let i in addresses) {
     do_print("Verify testcase: " + ADDRESS_NORMALIZE_TESTCASES[i].description);

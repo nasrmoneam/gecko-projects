@@ -1,20 +1,18 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
- /* globals ContentSearch, XPCOMUtils, PlacesUtils, NewTabUtils, Services */
 "use strict";
 
-const {utils: Cu, interfaces: Ci} = Components;
-const {actionTypes: at, actionCreators: ac} = Cu.import("resource://activity-stream/common/Actions.jsm", {});
-
+const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
+Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+
+const {actionCreators: ac, actionTypes: at} = Cu.import("resource://activity-stream/common/Actions.jsm", {});
 
 XPCOMUtils.defineLazyModuleGetter(this, "NewTabUtils",
   "resource://gre/modules/NewTabUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PlacesUtils",
   "resource://gre/modules/PlacesUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Services",
-  "resource://gre/modules/Services.jsm");
 
 const LINK_BLOCKED_EVENT = "newtab-linkBlocked";
 
@@ -152,8 +150,14 @@ class PlacesFeed {
   }
 
   addObservers() {
-    PlacesUtils.history.addObserver(this.historyObserver, true);
-    PlacesUtils.bookmarks.addObserver(this.bookmarksObserver, true);
+    // NB: Directly get services without importing the *BIG* PlacesUtils module
+    Cc["@mozilla.org/browser/nav-history-service;1"]
+      .getService(Ci.nsINavHistoryService)
+      .addObserver(this.historyObserver, true);
+    Cc["@mozilla.org/browser/nav-bookmarks-service;1"]
+      .getService(Ci.nsINavBookmarksService)
+      .addObserver(this.bookmarksObserver, true);
+
     Services.obs.addObserver(this, LINK_BLOCKED_EVENT);
   }
 

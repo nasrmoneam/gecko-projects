@@ -725,16 +725,16 @@ FontFaceSet::UpdateRules(const nsTArray<nsFontFaceRuleContainer>& aRules)
     // font entries if possible rather than creating new ones; set  modified  to
     // true if we detect that rule ordering has changed, or if a new entry is
     // created.
-    if (handledRules.Contains(aRules[i].mRule)) {
+    nsCSSFontFaceRule* rule = aRules[i].mRule;
+    if (!handledRules.EnsureInserted(rule)) {
+      // rule was already present in the hashtable
       continue;
     }
-    nsCSSFontFaceRule* rule = aRules[i].mRule;
     RefPtr<FontFace> f = ruleFaceMap.Get(rule);
     if (!f.get()) {
       f = FontFace::CreateForRule(GetParentObject(), this, rule);
     }
     InsertRuleFontFace(f, aRules[i].mSheetType, oldRecords, modified);
-    handledRules.PutEntry(aRules[i].mRule);
   }
 
   for (size_t i = 0, i_end = mNonRuleFaces.Length(); i < i_end; ++i) {
@@ -1215,7 +1215,7 @@ FontFaceSet::LogMessage(gfxUserFontEntry* aUserFontEntry,
 
   char weightKeywordBuf[8]; // plenty to sprintf() a uint16_t
   const char* weightKeyword;
-  const nsAFlatCString& weightKeywordString =
+  const nsCString& weightKeywordString =
     nsCSSProps::ValueToKeyword(aUserFontEntry->Weight(),
                                nsCSSProps::kFontWeightKTable);
   if (weightKeywordString.Length() > 0) {
@@ -1498,7 +1498,9 @@ FontFaceSet::DispatchCheckLoadingFinishedAfterDelay()
   }
 
   nsCOMPtr<nsIRunnable> checkTask =
-    NewRunnableMethod(this, &FontFaceSet::CheckLoadingFinishedAfterDelay);
+    NewRunnableMethod("dom::FontFaceSet::CheckLoadingFinishedAfterDelay",
+                      this,
+                      &FontFaceSet::CheckLoadingFinishedAfterDelay);
   mDocument->Dispatch("FontFaceSet::CheckLoadingFinishedAfterDelay",
                       TaskCategory::Other, checkTask.forget());
 }

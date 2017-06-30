@@ -26,12 +26,26 @@ class DrawEventRecorderPrivate : public DrawEventRecorder
 {
 public:
   MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(DrawEventRecorderPrivate)
-  explicit DrawEventRecorderPrivate(std::ostream *aStream);
+  DrawEventRecorderPrivate();
   virtual ~DrawEventRecorderPrivate() { }
+  virtual void Finish() {
+    // The iteration is a bit awkward here because our iterator will
+    // be invalidated by the removal
+    for (auto font = mStoredFonts.begin(); font != mStoredFonts.end(); ) {
+      auto oldFont = font++;
+      (*oldFont)->RemoveUserData(reinterpret_cast<UserDataKey*>(this));
+    }
+    for (auto surface = mStoredSurfaces.begin(); surface != mStoredSurfaces.end(); ) {
+      auto oldSurface = surface++;
+      (*oldSurface)->RemoveUserData(reinterpret_cast<UserDataKey*>(this));
+    }
 
-  void WriteHeader();
+  }
 
-  void RecordEvent(const RecordedEvent &aEvent);
+  template<class S>
+  void WriteHeader(S &aStream);
+
+  virtual void RecordEvent(const RecordedEvent &aEvent) = 0;
   void WritePath(const PathRecording *aPath);
 
   void AddStoredObject(const ReferencePtr aObject) {
@@ -40,6 +54,22 @@ public:
 
   void RemoveStoredObject(const ReferencePtr aObject) {
     mStoredObjects.erase(aObject);
+  }
+
+  void AddScaledFont(ScaledFont* aFont) {
+    mStoredFonts.insert(aFont);
+  }
+
+  void RemoveScaledFont(ScaledFont* aFont) {
+    mStoredFonts.erase(aFont);
+  }
+
+  void AddSourceSurface(SourceSurface* aSurface) {
+    mStoredSurfaces.insert(aSurface);
+  }
+
+  void RemoveSourceSurface(SourceSurface* aSurface) {
+    mStoredSurfaces.erase(aSurface);
   }
 
   bool HasStoredObject(const ReferencePtr aObject) {
@@ -55,28 +85,34 @@ public:
   }
 
 protected:
-  std::ostream *mOutputStream;
-
   virtual void Flush() = 0;
 
 #if defined(_MSC_VER)
   typedef std::unordered_set<const void*> ObjectSet;
   typedef std::unordered_set<uint64_t> Uint64Set;
+  typedef std::unordered_set<ScaledFont*> FontSet;
+  typedef std::unordered_set<SourceSurface*> SurfaceSet;
 #else
   typedef std::set<const void*> ObjectSet;
   typedef std::set<uint64_t> Uint64Set;
+  typedef std::set<ScaledFont*> FontSet;
+  typedef std::set<SourceSurface*> SurfaceSet;
 #endif
 
   ObjectSet mStoredObjects;
   Uint64Set mStoredFontData;
+  FontSet mStoredFonts;
+  SurfaceSet mStoredSurfaces;
 };
 
 class DrawEventRecorderFile : public DrawEventRecorderPrivate
 {
 public:
-  MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(DrawEventRecorderFile)
+  MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(DrawEventRecorderFile, override)
   explicit DrawEventRecorderFile(const char *aFilename);
   ~DrawEventRecorderFile();
+
+  void RecordEvent(const RecordedEvent &aEvent) override;
 
   /**
    * Returns whether a recording file is currently open.
@@ -98,9 +134,9 @@ public:
   void Close();
 
 private:
-  virtual void Flush();
+  void Flush() override;
 
-  std::ofstream mOutputFile;
+  std::ofstream mOutputStream;
 };
 
 // WARNING: This should not be used in its existing state because
@@ -108,26 +144,19 @@ private:
 class DrawEventRecorderMemory final : public DrawEventRecorderPrivate
 {
 public:
-  MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(DrawEventRecorderMemory)
+  MOZ_DECLARE_REFCOUNTED_VIRTUAL_TYPENAME(DrawEventRecorderMemory, override)
 
   /**
    * Constructs a DrawEventRecorder that stores the recording in memory.
    */
   DrawEventRecorderMemory();
 
+  void RecordEvent(const RecordedEvent &aEvent) override;
+
   /**
    * @return the current size of the recording (in chars).
    */
   size_t RecordingSize();
-
-  /**
-   * Copies at most aBufferLen chars of the recording into aBuffer.
-   *
-   * @param aBuffer buffer to receive the recording chars
-   * @param aBufferLen length of aBuffer
-   * @return true if copied successfully
-   */
-  bool CopyRecording(char* aBuffer, size_t aBufferLen);
 
   /**
    * Wipes the internal recording buffer, but the recorder does NOT forget which
@@ -136,20 +165,11 @@ public:
    */
   void WipeRecording();
 
-  /**
-   * Gets a readable reference of the underlying stream, reset to the beginning.
-   */
-  std::istream& GetInputStream() {
-    mMemoryStream.seekg(0);
-    return mMemoryStream;
-  }
-
+  MemStream mOutputStream;
 private:
   ~DrawEventRecorderMemory() {};
 
-  void Flush() final;
-
-  std::stringstream mMemoryStream;
+  void Flush() override;
 };
 
 } // namespace gfx

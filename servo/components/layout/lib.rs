@@ -16,7 +16,6 @@ extern crate atomic_refcell;
 extern crate bitflags;
 extern crate canvas_traits;
 extern crate core;
-extern crate cssparser;
 extern crate euclid;
 extern crate fnv;
 extern crate gfx;
@@ -37,9 +36,7 @@ extern crate range;
 extern crate rayon;
 extern crate script_layout_interface;
 extern crate script_traits;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
+#[macro_use] extern crate serde;
 extern crate serde_json;
 extern crate servo_config;
 extern crate servo_geometry;
@@ -94,14 +91,6 @@ pub mod wrapper;
 pub use fragment::Fragment;
 pub use fragment::SpecificFragmentInfo;
 pub use self::data::LayoutData;
-
-/// Returns whether the two arguments point to the same value.
-///
-/// FIXME: Remove this and use Arc::ptr_eq once we require Rust 1.17
-#[inline]
-pub fn arc_ptr_eq<T: 'static>(a: &::std::sync::Arc<T>, b: &::std::sync::Arc<T>) -> bool {
-    ::style::ptr_eq::<T>(&**a, &**b)
-}
 
 // We can't use stylearc for everything in layout, because the Flow stuff uses
 // weak references.

@@ -330,26 +330,26 @@ class GetNextTokenRunnable final : public mozilla::Runnable
 {
     ~GetNextTokenRunnable() override = default;
     public:
-        GetNextTokenRunnable(nsIHttpAuthenticableChannel *authChannel,
-                             const char *challenge,
-                             bool isProxyAuth,
-                             const char16_t *domain,
-                             const char16_t *username,
-                             const char16_t *password,
-                             nsISupports *sessionState,
-                             nsISupports *continuationState,
-                             GetNextTokenCompleteEvent *aCompleteEvent
-                             )
-            : mAuthChannel(authChannel)
-            , mChallenge(challenge)
-            , mIsProxyAuth(isProxyAuth)
-            , mDomain(domain)
-            , mUsername(username)
-            , mPassword(password)
-            , mSessionState(sessionState)
-            , mContinuationState(continuationState)
-            , mCompleteEvent(aCompleteEvent)
-        {
+      GetNextTokenRunnable(nsIHttpAuthenticableChannel* authChannel,
+                           const char* challenge,
+                           bool isProxyAuth,
+                           const char16_t* domain,
+                           const char16_t* username,
+                           const char16_t* password,
+                           nsISupports* sessionState,
+                           nsISupports* continuationState,
+                           GetNextTokenCompleteEvent* aCompleteEvent)
+        : mozilla::Runnable("GetNextTokenRunnable")
+        , mAuthChannel(authChannel)
+        , mChallenge(challenge)
+        , mIsProxyAuth(isProxyAuth)
+        , mDomain(domain)
+        , mUsername(username)
+        , mPassword(password)
+        , mSessionState(sessionState)
+        , mContinuationState(continuationState)
+        , mCompleteEvent(aCompleteEvent)
+      {
         }
 
         NS_IMETHODIMP Run() override
@@ -525,7 +525,7 @@ nsHttpNegotiateAuth::GenerateCredentials(nsIHttpAuthenticableChannel *authChanne
     //
     unsigned int len = strlen(challenge);
 
-    void *inToken, *outToken;
+    void *inToken = nullptr, *outToken;
     uint32_t inTokenLen, outTokenLen;
 
     if (len > kNegotiateLen) {
@@ -545,6 +545,7 @@ nsHttpNegotiateAuth::GenerateCredentials(nsIHttpAuthenticableChannel *authChanne
             Base64Decode(challenge, len, (char**)&inToken, &inTokenLen);
 
         if (NS_FAILED(rv)) {
+            free(inToken);
             return rv;
         }
     }
@@ -552,7 +553,6 @@ nsHttpNegotiateAuth::GenerateCredentials(nsIHttpAuthenticableChannel *authChanne
         //
         // Initializing, don't use an input token.
         //
-        inToken = nullptr;
         inTokenLen = 0;
     }
 

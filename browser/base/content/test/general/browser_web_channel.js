@@ -2,7 +2,6 @@
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
-Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "WebChannel",
   "resource://gre/modules/WebChannel.jsm");
@@ -254,7 +253,7 @@ var gTests = [
 
         channel.send({ command: "unsolicited" }, {
           browser: targetBrowser,
-          principal: Services.scriptSecurityManager.getNoAppCodebasePrincipal(targetURI)
+          principal: Services.scriptSecurityManager.createCodebasePrincipal(targetURI, {}),
         });
 
         await messagePromise;
@@ -290,7 +289,7 @@ var gTests = [
       }, async function(targetBrowser) {
 
         let mismatchURI = Services.io.newURI(HTTP_MISMATCH_PATH);
-        let mismatchPrincipal = Services.scriptSecurityManager.getNoAppCodebasePrincipal(mismatchURI);
+        let mismatchPrincipal = Services.scriptSecurityManager.createCodebasePrincipal(mismatchURI, {});
 
         // send a message to the wrong principal. It should not be delivered
         // to content, and should not be echoed back.
@@ -299,7 +298,7 @@ var gTests = [
           principal: mismatchPrincipal
         });
 
-        let targetPrincipal = Services.scriptSecurityManager.getNoAppCodebasePrincipal(targetURI);
+        let targetPrincipal = Services.scriptSecurityManager.createCodebasePrincipal(targetURI, {});
 
         // send the `done` message to the correct principal. It
         // should be echoed back.

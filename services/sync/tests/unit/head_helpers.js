@@ -18,6 +18,26 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/PlacesUtils.jsm");
 Cu.import("resource://gre/modules/ObjectUtils.jsm");
 
+// ================================================
+// Load mocking/stubbing library, sinon
+// docs: http://sinonjs.org/releases/v2.3.2/
+Cu.import("resource://gre/modules/Timer.jsm");
+const {Loader} = Cu.import("resource://gre/modules/commonjs/toolkit/loader.js", {});
+const loader = new Loader.Loader({
+  paths: {
+    "": "resource://testing-common/",
+  },
+  globals: {
+    setTimeout,
+    setInterval,
+    clearTimeout,
+    clearInterval,
+  },
+});
+const require = Loader.Require(loader, {id: ""});
+const sinon = require("sinon-2.3.2");
+// ================================================
+
 XPCOMUtils.defineLazyGetter(this, "SyncPingSchema", function() {
   let ns = {};
   Cu.import("resource://gre/modules/FileUtils.jsm", ns);
@@ -452,16 +472,25 @@ function sync_engine_and_validate_telem(engine, allowErrorPings, onError) {
         resolve(ping.syncs[0]);
       }
     }
-    Svc.Obs.notify("weave:service:sync:start");
+    // neuter the scheduler as it interacts badly with some of the tests - the
+    // engine being synced usually isn't the registered engine, so we see
+    // scored incremented and not removed, which schedules unexpected syncs.
+    let oldObserve = Service.scheduler.observe;
+    Service.scheduler.observe = () => {};
     try {
-      engine.sync();
-    } catch (e) {
-      caughtError = e;
-    }
-    if (caughtError) {
-      Svc.Obs.notify("weave:service:sync:error", caughtError);
-    } else {
-      Svc.Obs.notify("weave:service:sync:finish");
+      Svc.Obs.notify("weave:service:sync:start");
+      try {
+        engine.sync();
+      } catch (e) {
+        caughtError = e;
+      }
+      if (caughtError) {
+        Svc.Obs.notify("weave:service:sync:error", caughtError);
+      } else {
+        Svc.Obs.notify("weave:service:sync:finish");
+      }
+    } finally {
+      Service.scheduler.observe = oldObserve;
     }
   });
 }
@@ -490,6 +519,8 @@ function promiseNextTick() {
 // Avoid an issue where `client.name2` containing unicode characters causes
 // a number of tests to fail, due to them assuming that we do not need to utf-8
 // encode or decode data sent through the mocked server (see bug 1268912).
+// We stash away the original implementation so test_utils_misc.js can test it.
+Utils._orig_getDefaultDeviceName = Utils.getDefaultDeviceName;
 Utils.getDefaultDeviceName = function() {
   return "Test device name";
 };

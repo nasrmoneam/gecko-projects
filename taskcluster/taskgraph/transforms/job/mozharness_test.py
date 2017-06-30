@@ -10,7 +10,6 @@ from taskgraph.transforms.job import run_job_using
 from taskgraph.util.schema import Schema
 from taskgraph.transforms.tests import (
     test_description_schema,
-    get_firefox_version,
     normpath
 )
 from taskgraph.transforms.job.common import (
@@ -27,7 +26,9 @@ BUILDER_NAME_PREFIX = {
     'linux64-ccov': 'Ubuntu Code Coverage VM 12.04 x64',
     'linux64-jsdcov': 'Ubuntu Code Coverage VM 12.04 x64',
     'linux64-stylo': 'Ubuntu VM 12.04 x64',
+    'linux64-devedition-nightly': 'Ubuntu VM 12.04 x64 DevEdition',
     'macosx64': 'Rev7 MacOSX Yosemite 10.10.5',
+    'macosx64-devedition': 'Rev7 MacOSX Yosemite 10.10.5 DevEdition',
     'android-4.3-arm7-api-15': 'Android 4.3 armv7 API 15+',
     'android-4.2-x86': 'Android 4.2 x86 Emulator',
     'android-4.3-arm7-api-15-gradle': 'Android 4.3 armv7 API 15+',
@@ -43,16 +44,7 @@ mozharness_test_run_schema = Schema({
 
 def test_packages_url(taskdesc):
     """Account for different platforms that name their test packages differently"""
-    build_platform = taskdesc['attributes']['build_platform']
-    build_type = taskdesc['attributes']['build_type']
-
-    if build_platform == 'macosx64' and build_type == 'opt':
-        target = 'firefox-{}.en-US.{}'.format(get_firefox_version(), 'mac')
-    else:
-        target = 'target'
-
-    return get_artifact_url(
-        '<build>', 'public/build/{}.test_packages.json'.format(target))
+    return get_artifact_url('<build>', 'public/build/target.test_packages.json')
 
 
 @run_job_using('docker-engine', 'mozharness-test', schema=mozharness_test_run_schema)
@@ -319,8 +311,7 @@ def mozharness_test_on_native_engine(config, job, taskdesc):
     mozharness = test['mozharness']
     worker = taskdesc['worker']
     is_talos = test['suite'] == 'talos'
-
-    assert worker['os'] == 'macosx'
+    is_macosx = worker['os'] == 'macosx'
 
     installer_url = get_artifact_url('<build>', mozharness['build-artifact-name'])
     mozharness_url = get_artifact_url('<build>',
@@ -359,7 +350,7 @@ def mozharness_test_on_native_engine(config, job, taskdesc):
     if is_talos:
         env['NEED_XVFB'] = 'false'
 
-    script = 'test-macosx.sh' if test['test-platform'].startswith('macosx') else 'test-linux.sh'
+    script = 'test-macosx.sh' if is_macosx else 'test-linux.sh'
     worker['context'] = '{}/raw-file/{}/taskcluster/scripts/tester/{}'.format(
         config.params['head_repository'], config.params['head_rev'], script
     )
@@ -440,28 +431,28 @@ def mozharness_test_buildbot_bridge(config, job, taskdesc):
     if test.get('suite', '') == 'talos':
         # on linux64-<variant>/<build>, we add the variant to the buildername
         m = re.match(r'\w+-([^/]+)/.*', test['test-platform'])
-        variant = ''
-        if m and m.group(1):
-            variant = m.group(1) + ' '
+        variant = m.group(1) if m and m.group(1) else ''
+
         # On beta and release, we run nightly builds on-push; the talos
         # builders need to run against non-nightly buildernames
-        if variant == 'nightly ':
+        if variant == 'nightly':
             variant = ''
+
         # this variant name has branch after the variant type in BBB bug 1338871
-        if variant == 'stylo ' or 'stylo-sequential':
-            buildername = '{} {}{} talos {}'.format(
-                BUILDER_NAME_PREFIX[platform],
-                variant,
-                branch,
-                test_name
-            )
+        if variant in ('stylo', 'stylo-sequential'):
+            name = '{prefix} {variant} {branch} talos {test_name}'
+        elif variant:
+            name = '{prefix} {branch} {variant} talos {test_name}'
         else:
-            buildername = '{} {} {}talos {}'.format(
-                BUILDER_NAME_PREFIX[platform],
-                branch,
-                variant,
-                test_name
-            )
+            name = '{prefix} {branch} talos {test_name}'
+
+        buildername = name.format(
+            prefix=BUILDER_NAME_PREFIX[platform],
+            variant=variant,
+            branch=branch,
+            test_name=test_name
+        )
+
         if buildername.startswith('Ubuntu'):
             buildername = buildername.replace('VM', 'HW')
     else:

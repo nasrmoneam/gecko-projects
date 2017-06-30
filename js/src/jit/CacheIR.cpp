@@ -13,6 +13,7 @@
 #include "jit/CacheIRSpewer.h"
 #include "jit/IonCaches.h"
 
+#include "vm/SelfHosting.h"
 #include "jsobjinlines.h"
 
 #include "vm/EnvironmentObject-inl.h"
@@ -44,10 +45,12 @@ IRGenerator::IRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc, Cac
 GetPropIRGenerator::GetPropIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
                                        CacheKind cacheKind, ICState::Mode mode,
                                        bool* isTemporarilyUnoptimizable, HandleValue val,
-                                       HandleValue idVal, CanAttachGetter canAttachGetter)
+                                       HandleValue idVal, HandleValue receiver,
+                                       CanAttachGetter canAttachGetter)
   : IRGenerator(cx, script, pc, cacheKind, mode),
     val_(val),
     idVal_(idVal),
+    receiver_(receiver),
     isTemporarilyUnoptimizable_(isTemporarilyUnoptimizable),
     canAttachGetter_(canAttachGetter),
     preliminaryObjectAction_(PreliminaryObjectAction::None)
@@ -130,10 +133,21 @@ GetPropIRGenerator::tryAttachStub()
 
     AutoAssertNoPendingException aanpe(cx_);
 
+    // Non-object receivers are a degenerate case, so don't try to attach
+    // stubs. The stubs we do emit will still perform runtime checks and
+    // fallback as needed.
+    if (isSuper() && !receiver_.isObject())
+        return false;
+
     ValOperandId valId(writer.setInputOperandId(0));
-    if (cacheKind_ == CacheKind::GetElem) {
-        MOZ_ASSERT(getElemKeyValueId().id() == 1);
+    if (cacheKind_ != CacheKind::GetProp) {
+        MOZ_ASSERT_IF(cacheKind_ == CacheKind::GetPropSuper, getSuperReceiverValueId().id() == 1);
+        MOZ_ASSERT_IF(cacheKind_ != CacheKind::GetPropSuper, getElemKeyValueId().id() == 1);
         writer.setInputOperandId(1);
+    }
+    if (cacheKind_ == CacheKind::GetElemSuper) {
+        MOZ_ASSERT(getSuperReceiverValueId().id() == 2);
+        writer.setInputOperandId(2);
     }
 
     RootedId id(cx_);
@@ -172,7 +186,7 @@ GetPropIRGenerator::tryAttachStub()
             return false;
         }
 
-        MOZ_ASSERT(cacheKind_ == CacheKind::GetElem);
+        MOZ_ASSERT(cacheKind_ == CacheKind::GetElem || cacheKind_ == CacheKind::GetElemSuper);
 
         if (tryAttachProxyElement(obj, objId))
             return true;
@@ -487,12 +501,12 @@ EmitReadSlotReturn(CacheIRWriter& writer, JSObject*, JSObject* holder, Shape* sh
 
 static void
 EmitCallGetterResultNoGuards(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
-                             Shape* shape, ObjOperandId objId)
+                             Shape* shape, ObjOperandId receiverId)
 {
     if (IsCacheableGetPropCallNative(obj, holder, shape)) {
         JSFunction* target = &shape->getterValue().toObject().as<JSFunction>();
         MOZ_ASSERT(target->isNative());
-        writer.callNativeGetterResult(objId, target);
+        writer.callNativeGetterResult(receiverId, target);
         writer.typeMonitorResult();
         return;
     }
@@ -501,13 +515,13 @@ EmitCallGetterResultNoGuards(CacheIRWriter& writer, JSObject* obj, JSObject* hol
 
     JSFunction* target = &shape->getterValue().toObject().as<JSFunction>();
     MOZ_ASSERT(target->hasJITCode());
-    writer.callScriptedGetterResult(objId, target);
+    writer.callScriptedGetterResult(receiverId, target);
     writer.typeMonitorResult();
 }
 
 static void
-EmitCallGetterResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
-                     Shape* shape, ObjOperandId objId, ICState::Mode mode)
+EmitCallGetterResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder, Shape* shape,
+                     ObjOperandId objId, ObjOperandId receiverId, ICState::Mode mode)
 {
     // Use the megamorphic guard if we're in megamorphic mode, except if |obj|
     // is a Window as GuardHasGetterSetter doesn't support this yet (Window may
@@ -527,7 +541,14 @@ EmitCallGetterResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
         writer.guardHasGetterSetter(objId, shape);
     }
 
-    EmitCallGetterResultNoGuards(writer, obj, holder, shape, objId);
+    EmitCallGetterResultNoGuards(writer, obj, holder, shape, receiverId);
+}
+
+static void
+EmitCallGetterResult(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
+                     Shape* shape, ObjOperandId objId, ICState::Mode mode)
+{
+    EmitCallGetterResult(writer, obj, holder, shape, objId, objId, mode);
 }
 
 void
@@ -538,11 +559,11 @@ GetPropIRGenerator::attachMegamorphicNativeSlot(ObjOperandId objId, jsid id, boo
     // The stub handles the missing-properties case only if we're seeing one
     // now, to make sure Ion ICs correctly monitor the undefined type.
 
-    if (cacheKind_ == CacheKind::GetProp) {
+    if (cacheKind_ == CacheKind::GetProp || cacheKind_ == CacheKind::GetPropSuper) {
         writer.megamorphicLoadSlotResult(objId, JSID_TO_ATOM(id)->asPropertyName(),
                                          handleMissing);
     } else {
-        MOZ_ASSERT(cacheKind_ == CacheKind::GetElem);
+        MOZ_ASSERT(cacheKind_ == CacheKind::GetElem || cacheKind_ == CacheKind::GetElemSuper);
         writer.megamorphicLoadSlotByValueResult(objId, getElemKeyValueId(), handleMissing);
     }
     writer.typeMonitorResult();
@@ -586,12 +607,16 @@ GetPropIRGenerator::tryAttachNative(HandleObject obj, ObjOperandId objId, Handle
 
         trackAttached("NativeSlot");
         return true;
-      case CanAttachCallGetter:
+      case CanAttachCallGetter: {
+        // |super.prop| accesses use a |this| value that differs from lookup object
+        ObjOperandId receiverId = isSuper() ? writer.guardIsObject(getSuperReceiverValueId())
+                                            : objId;
         maybeEmitIdGuard(id);
-        EmitCallGetterResult(writer, obj, holder, shape, objId, mode_);
+        EmitCallGetterResult(writer, obj, holder, shape, objId, receiverId, mode_);
 
         trackAttached("NativeGetter");
         return true;
+      }
     }
 
     MOZ_CRASH("Bad NativeGetPropCacheability");
@@ -649,6 +674,10 @@ GetPropIRGenerator::tryAttachWindowProxy(HandleObject obj, ObjOperandId objId, H
         JSFunction* callee = &shape->getterObject()->as<JSFunction>();
         MOZ_ASSERT(callee->isNative());
         if (!callee->jitInfo() || callee->jitInfo()->needsOuterizedThisObject())
+            return false;
+
+        // If a |super| access, it is not worth the complexity to attach an IC.
+        if (isSuper())
             return false;
 
         // Guard the incoming object is a WindowProxy and inline a getter call based
@@ -762,12 +791,14 @@ GetPropIRGenerator::tryAttachGenericProxy(HandleObject obj, ObjOperandId objId, 
     }
 
     if (cacheKind_ == CacheKind::GetProp || mode_ == ICState::Mode::Specialized) {
+        MOZ_ASSERT(!isSuper());
         maybeEmitIdGuard(id);
         writer.callProxyGetResult(objId, id);
     } else {
         // Attach a stub that handles every id.
         MOZ_ASSERT(cacheKind_ == CacheKind::GetElem);
         MOZ_ASSERT(mode_ == ICState::Mode::Megamorphic);
+        MOZ_ASSERT(!isSuper());
         writer.callProxyGetByValueResult(objId, getElemKeyValueId());
     }
 
@@ -858,6 +889,7 @@ GetPropIRGenerator::tryAttachDOMProxyShadowed(HandleObject obj, ObjOperandId obj
     // No need for more guards: we know this is a DOM proxy, since the shape
     // guard enforces a given JSClass, so just go ahead and emit the call to
     // ProxyGet.
+    MOZ_ASSERT(!isSuper());
     writer.callProxyGetResult(objId, id);
     writer.typeMonitorResult();
 
@@ -941,11 +973,13 @@ GetPropIRGenerator::tryAttachDOMProxyUnshadowed(HandleObject obj, ObjOperandId o
             // checkObj, and no extra guards will be generated, we can just
             // pass that instead.
             MOZ_ASSERT(canCache == CanAttachCallGetter);
+            MOZ_ASSERT(!isSuper());
             EmitCallGetterResultNoGuards(writer, checkObj, holder, shape, objId);
         }
     } else {
         // Property was not found on the prototype chain. Deoptimize down to
         // proxy get call.
+        MOZ_ASSERT(!isSuper());
         writer.callProxyGetResult(objId, id);
         writer.typeMonitorResult();
     }
@@ -959,6 +993,10 @@ GetPropIRGenerator::tryAttachProxy(HandleObject obj, ObjOperandId objId, HandleI
 {
     ProxyStubType type = GetProxyStubType(cx_, obj, id);
     if (type == ProxyStubType::None)
+        return false;
+
+    // The proxy stubs don't currently support |super| access.
+    if (isSuper())
         return false;
 
     if (mode_ == ICState::Mode::Megamorphic)
@@ -1536,6 +1574,10 @@ GetPropIRGenerator::tryAttachProxyElement(HandleObject obj, ObjOperandId objId)
     if (!obj->is<ProxyObject>())
         return false;
 
+    // The proxy stubs don't currently support |super| access.
+    if (isSuper())
+        return false;
+
     writer.guardIsProxy(objId);
 
     // We are not guarding against DOM proxies here, because there is no other
@@ -1544,6 +1586,7 @@ GetPropIRGenerator::tryAttachProxyElement(HandleObject obj, ObjOperandId objId)
     // but for GetElem we prefer to attach a stub that can handle any Value
     // so we don't attach a new stub for every id.
     MOZ_ASSERT(cacheKind_ == CacheKind::GetElem);
+    MOZ_ASSERT(!isSuper());
     writer.callProxyGetByValueResult(objId, getElemKeyValueId());
     writer.typeMonitorResult();
 
@@ -1598,13 +1641,13 @@ IRGenerator::emitIdGuard(ValOperandId valId, jsid id)
 void
 GetPropIRGenerator::maybeEmitIdGuard(jsid id)
 {
-    if (cacheKind_ == CacheKind::GetProp) {
+    if (cacheKind_ == CacheKind::GetProp || cacheKind_ == CacheKind::GetPropSuper) {
         // Constant PropertyName, no guards necessary.
         MOZ_ASSERT(&idVal_.toString()->asAtom() == JSID_TO_ATOM(id));
         return;
     }
 
-    MOZ_ASSERT(cacheKind_ == CacheKind::GetElem);
+    MOZ_ASSERT(cacheKind_ == CacheKind::GetElem || cacheKind_ == CacheKind::GetElemSuper);
     emitIdGuard(getElemKeyValueId(), id);
 }
 
@@ -3528,3 +3571,128 @@ TypeOfIRGenerator::tryAttachObject(ValOperandId valId)
     return true;
 }
 
+
+CallIRGenerator::CallIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                 ICState::Mode mode, uint32_t argc,
+                                 HandleValue callee, HandleValue thisval, HandleValueArray args)
+  : IRGenerator(cx, script, pc, CacheKind::Call, mode),
+    argc_(argc),
+    callee_(callee),
+    thisval_(thisval),
+    args_(args),
+    cachedStrategy_()
+{ }
+
+CallIRGenerator::OptStrategy
+CallIRGenerator::canOptimize()
+{
+    // Ensure callee is a function.
+    if (!callee_.isObject() || !callee_.toObject().is<JSFunction>())
+        return OptStrategy::None;
+
+    RootedFunction calleeFunc(cx_, &callee_.toObject().as<JSFunction>());
+
+    OptStrategy strategy;
+    if ((strategy = canOptimizeStringSplit(calleeFunc)) != OptStrategy::None) {
+        return strategy;
+    }
+
+    return OptStrategy::None;
+}
+
+CallIRGenerator::OptStrategy
+CallIRGenerator::canOptimizeStringSplit(HandleFunction calleeFunc)
+{
+    if (argc_ != 2 || !args_[0].isString() || !args_[1].isString())
+        return OptStrategy::None;
+
+    // Just for now: if they're both atoms, then do not optimize using
+    // CacheIR and allow the legacy "ConstStringSplit" BaselineIC optimization
+    // to proceed.
+    if (args_[0].toString()->isAtom() && args_[1].toString()->isAtom())
+        return OptStrategy::None;
+
+    if (!calleeFunc->isNative())
+        return OptStrategy::None;
+
+    if (calleeFunc->native() != js::intrinsic_StringSplitString)
+        return OptStrategy::None;
+
+    return OptStrategy::StringSplit;
+}
+
+bool
+CallIRGenerator::tryAttachStringSplit()
+{
+    // Get the object group to use for this location.
+    RootedObjectGroup group(cx_, ObjectGroupCompartment::getStringSplitStringGroup(cx_));
+    if (!group) {
+        return false;
+    }
+
+    AutoAssertNoPendingException aanpe(cx_);
+    Int32OperandId argcId(writer.setInputOperandId(0));
+
+    // Ensure argc == 1.
+    writer.guardSpecificInt32Immediate(argcId, 2);
+
+    // 1 argument only.  Stack-layout here is (bottom to top):
+    //
+    //  3: Callee
+    //  2: ThisValue
+    //  1: Arg0
+    //  0: Arg1 <-- Top of stack
+
+    // Ensure callee is an object and is the function that matches the callee optimized
+    // against during stub generation (i.e. the String_split function object).
+    ValOperandId calleeValId = writer.loadStackValue(3);
+    ObjOperandId calleeObjId = writer.guardIsObject(calleeValId);
+    writer.guardIsNativeFunction(calleeObjId, js::intrinsic_StringSplitString);
+
+    // Ensure arg0 is a string.
+    ValOperandId arg0ValId = writer.loadStackValue(1);
+    StringOperandId arg0StrId = writer.guardIsString(arg0ValId);
+
+    // Ensure arg1 is a string.
+    ValOperandId arg1ValId = writer.loadStackValue(0);
+    StringOperandId arg1StrId = writer.guardIsString(arg1ValId);
+
+    // Call custom string splitter VM-function.
+    writer.callStringSplitResult(arg0StrId, arg1StrId, group);
+    writer.typeMonitorResult();
+
+    return true;
+}
+
+CallIRGenerator::OptStrategy
+CallIRGenerator::getOptStrategy(bool* optimizeAfterCall)
+{
+    if (!cachedStrategy_) {
+        cachedStrategy_ = mozilla::Some(canOptimize());
+    }
+    if (optimizeAfterCall != nullptr) {
+        MOZ_ASSERT(cachedStrategy_.isSome());
+        switch (cachedStrategy_.value()) {
+          case OptStrategy::StringSplit:
+            *optimizeAfterCall = true;
+            break;
+
+          default:
+            *optimizeAfterCall = false;
+        }
+    }
+    return cachedStrategy_.value();
+}
+
+bool
+CallIRGenerator::tryAttachStub()
+{
+    OptStrategy strategy = getOptStrategy();
+
+    if (strategy == OptStrategy::StringSplit) {
+        return tryAttachStringSplit();
+    }
+
+    MOZ_ASSERT(strategy == OptStrategy::None);
+    return false;
+}

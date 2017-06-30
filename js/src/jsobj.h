@@ -144,7 +144,6 @@ class JSObject : public js::gc::Cell
     js::WatchOp          getOpsWatch()          const { return getClass()->getOpsWatch(); }
     js::UnwatchOp        getOpsUnwatch()        const { return getClass()->getOpsUnwatch(); }
     js::GetElementsOp    getOpsGetElements()    const { return getClass()->getOpsGetElements(); }
-    JSNewEnumerateOp     getOpsEnumerate()      const { return getClass()->getOpsEnumerate(); }
     JSFunToStringOp      getOpsFunToString()    const { return getClass()->getOpsFunToString(); }
 
     js::ObjectGroup* group() const {
@@ -273,6 +272,13 @@ class JSObject : public js::gc::Cell
      * the object's elements.
      */
     inline bool isIndexed() const;
+
+    /*
+     * Whether there may be "interesting symbol" properties on this object. An
+     * interesting symbol is a symbol for which symbol->isInterestingSymbol()
+     * returns true.
+     */
+    MOZ_ALWAYS_INLINE bool maybeHasInterestingSymbolProperty() const;
 
     /*
      * If this object was instantiated with `new Ctor`, return the constructor's
@@ -498,6 +504,7 @@ class JSObject : public js::gc::Cell
     // places that want it (JITs and the like), and it'd be a pain to mark them
     // all as friends.
     inline bool nonProxyIsExtensible() const;
+    bool uninlinedNonProxyIsExtensible() const;
 
   public:
     /*
@@ -509,10 +516,10 @@ class JSObject : public js::gc::Cell
     /*
      * Back to generic stuff.
      */
-    bool isCallable() const;
-    bool isConstructor() const;
-    JSNative callHook() const;
-    JSNative constructHook() const;
+    MOZ_ALWAYS_INLINE bool isCallable() const;
+    MOZ_ALWAYS_INLINE bool isConstructor() const;
+    MOZ_ALWAYS_INLINE JSNative callHook() const;
+    MOZ_ALWAYS_INLINE JSNative constructHook() const;
 
     MOZ_ALWAYS_INLINE void finalize(js::FreeOp* fop);
 
@@ -675,23 +682,6 @@ JSObject::writeBarrierPost(void* cellp, JSObject* prev, JSObject* next)
     if (prev && (buffer = prev->storeBuffer()))
         buffer->unputCell(static_cast<js::gc::Cell**>(cellp));
 }
-
-namespace js {
-
-inline bool
-IsCallable(const Value& v)
-{
-    return v.isObject() && v.toObject().isCallable();
-}
-
-// ES6 rev 24 (2014 April 27) 7.2.5 IsConstructor
-inline bool
-IsConstructor(const Value& v)
-{
-    return v.isObject() && v.toObject().isConstructor();
-}
-
-} /* namespace js */
 
 class JSValueArray {
   public:
@@ -897,6 +887,18 @@ GetElementNoGC(JSContext* cx, JSObject* obj, const Value& receiver, uint32_t ind
 inline bool
 GetElementNoGC(JSContext* cx, JSObject* obj, JSObject* receiver, uint32_t index, Value* vp);
 
+// Returns whether |obj| or an object on its proto chain may have an interesting
+// symbol property (see JSObject::hasInterestingSymbolProperty). If it returns
+// true, *holder is set to the object that may have this property.
+MOZ_ALWAYS_INLINE bool
+MaybeHasInterestingSymbolProperty(JSContext* cx, JSObject* obj, Symbol* symbol,
+                                  JSObject** holder = nullptr);
+
+// Like GetProperty but optimized for interesting symbol properties like
+// @@toStringTag.
+MOZ_ALWAYS_INLINE bool
+GetInterestingSymbolProperty(JSContext* cx, HandleObject obj, Symbol* sym, MutableHandleValue vp);
+
 /*
  * ES6 [[Set]]. Carry out the assignment `obj[id] = v`.
  *
@@ -1068,7 +1070,7 @@ ToPrimitive(JSContext* cx, JSType preferredType, MutableHandleValue vp)
  * toString support. (This isn't called GetClassName because there's a macro in
  * <windows.h> with that name.)
  */
-extern const char*
+MOZ_ALWAYS_INLINE const char*
 GetObjectClassName(JSContext* cx, HandleObject obj);
 
 /*

@@ -138,6 +138,15 @@ const SNAPSHOT_SCHEMA = {
         numRemoteWindows: {
           type: "number",
         },
+        styloBuild: {
+          type: "boolean",
+        },
+        styloDefault: {
+          type: "boolean",
+        },
+        styloResult: {
+          type: "boolean",
+        },
         keyGoogleFound: {
           type: "boolean",
         },
@@ -250,6 +259,9 @@ const SNAPSHOT_SCHEMA = {
           type: "string",
         },
         windowLayerManagerRemote: {
+          type: "boolean",
+        },
+        windowUsingAdvancedLayers: {
           type: "boolean",
         },
         currentAudioBackend: {
@@ -397,6 +409,9 @@ const SNAPSHOT_SCHEMA = {
         forceDisabled: {
           type: "number",
         },
+        handlerUsed: {
+          type: "boolean",
+        },
       },
     },
     libraryVersions: {
@@ -517,6 +532,10 @@ const SNAPSHOT_SCHEMA = {
           type: "boolean"
         },
         contentSandboxLevel: {
+          required: AppConstants.MOZ_CONTENT_SANDBOX,
+          type: "number"
+        },
+        effectiveContentSandboxLevel: {
           required: AppConstants.MOZ_CONTENT_SANDBOX,
           type: "number"
         },

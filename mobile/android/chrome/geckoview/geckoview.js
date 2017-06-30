@@ -34,7 +34,7 @@ var ModuleManager = {
     let scope = {};
     Cu.import(aResource, scope);
     this.modules[aType] = new scope[aType](
-      window, this.browser, WindowEventDispatcher, ...aArgs
+      aType, window, this.browser, WindowEventDispatcher, ...aArgs
     );
   },
 
@@ -48,12 +48,17 @@ var ModuleManager = {
 
 function startup() {
   ModuleManager.init();
+
+  // GeckoViewNavigation needs to go first because nsIDOMBrowserWindow must set up
+  // before the first remote browser. Bug 1365364.
+  ModuleManager.add("resource://gre/modules/GeckoViewNavigation.jsm",
+                    "GeckoViewNavigation");
   ModuleManager.add("resource://gre/modules/GeckoViewSettings.jsm",
                     "GeckoViewSettings");
   ModuleManager.add("resource://gre/modules/GeckoViewContent.jsm",
                     "GeckoViewContent");
-  ModuleManager.add("resource://gre/modules/GeckoViewNavigation.jsm",
-                    "GeckoViewNavigation");
   ModuleManager.add("resource://gre/modules/GeckoViewProgress.jsm",
                     "GeckoViewProgress");
+  ModuleManager.add("resource://gre/modules/GeckoViewScroll.jsm",
+                    "GeckoViewScroll");
 }

@@ -13,6 +13,8 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/AppConstants.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PanelWideWidgetTracker",
   "resource:///modules/PanelWideWidgetTracker.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "SearchWidgetTracker",
+  "resource:///modules/SearchWidgetTracker.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "CustomizableWidgets",
   "resource:///modules/CustomizableWidgets.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "DeferredTask",
@@ -227,7 +229,7 @@ var CustomizableUIInternal = {
       panelPlacements.push("characterencoding-button");
     }
 
-    if (!AppConstants.RELEASE_OR_BETA) {
+    if (AppConstants.MOZ_DEV_EDITION || AppConstants.NIGHTLY_BUILD) {
       if (Services.prefs.getBoolPref("extensions.webcompat-reporter.enabled")) {
         panelPlacements.push("webcompat-reporter-button");
       }
@@ -244,6 +246,9 @@ var CustomizableUIInternal = {
       "home-button",
     ];
 
+    if (AppConstants.MOZ_PHOTON_THEME) {
+      navbarPlacements.push("sidebar-button");
+    }
     if (AppConstants.MOZ_DEV_EDITION) {
       navbarPlacements.splice(2, 0, "developer-button");
     }
@@ -299,6 +304,8 @@ var CustomizableUIInternal = {
       defaultPlacements: ["addonbar-closebutton", "status-bar"],
       defaultCollapsed: false,
     }, true);
+
+    SearchWidgetTracker.init();
   },
 
   _updateAreasForPhoton() {
@@ -1519,7 +1526,8 @@ var CustomizableUIInternal = {
       if (areaType != CustomizableUI.TYPE_MENU_PANEL) {
         let wrapper = this.wrapWidget(aWidget.id).forWindow(ownerWindow);
 
-        if (wrapper && !wrapper.overflowed && wrapper.anchor) {
+        let hasMultiView = !!aNode.closest("photonpanelmultiview,panelmultiview");
+        if (wrapper && !hasMultiView && wrapper.anchor) {
           this.hidePanelForNode(aNode);
           anchor = wrapper.anchor;
         }
@@ -1722,9 +1730,13 @@ var CustomizableUIInternal = {
 
     if (closemenu == "single") {
       let panel = this._getPanelForNode(target);
-      let multiview = panel.querySelector("panelmultiview");
+      let multiview = panel.querySelector("photonpanelmultiview,panelmultiview");
       if (multiview.showingSubView) {
-        multiview.showMainView();
+        if (multiview.instance.panelViews) {
+          multiview.goBack();
+        } else {
+          multiview.showMainView();
+        }
         return;
       }
     }
@@ -4132,7 +4144,9 @@ OverflowableToolbar.prototype = {
         this._disable();
         break;
       case "dragover":
-        this._showWithTimeout();
+        if (this._enabled) {
+          this._showWithTimeout();
+        }
         break;
       case "dragend":
         this._panel.hidePopup();
@@ -4152,18 +4166,26 @@ OverflowableToolbar.prototype = {
     return new Promise(resolve => {
       let doc = this._panel.ownerDocument;
       this._panel.hidden = false;
-      let mainViewId = this._panel.querySelector("panelmultiview").getAttribute("mainViewId");
-      let mainView = doc.getElementById(mainViewId);
-      let contextMenu = doc.getElementById(mainView.getAttribute("context"));
+      let photonView = this._panel.querySelector("panelmultiview");
+      let contextMenu;
+      if (photonView) {
+        let mainViewId = photonView.getAttribute("mainViewId");
+        let mainView = doc.getElementById(mainViewId);
+        contextMenu = doc.getElementById(mainView.getAttribute("context"));
+      } else {
+        contextMenu = doc.getElementById(this._panel.getAttribute("context"));
+      }
       gELS.addSystemEventListener(contextMenu, "command", this, true);
       let anchor = doc.getAnonymousElementByAttribute(this._chevron, "class", "toolbarbutton-icon");
+      // Ensure we update the gEditUIVisible flag when opening the popup, in
+      // case the edit controls are in it.
+      this._panel.addEventListener("popupshowing", () => doc.defaultView.updateEditUIVisibility(), {once: true});
       this._panel.openPopup(anchor || this._chevron);
       this._chevron.open = true;
 
-      let overflowableToolbarInstance = this;
-      this._panel.addEventListener("popupshown", function(aEvent) {
-        this.addEventListener("dragover", overflowableToolbarInstance);
-        this.addEventListener("dragend", overflowableToolbarInstance);
+      this._panel.addEventListener("popupshown", aEvent => {
+        this._panel.addEventListener("dragover", this);
+        this._panel.addEventListener("dragend", this);
         resolve();
       }, {once: true});
     });
@@ -4183,6 +4205,7 @@ OverflowableToolbar.prototype = {
     this._panel.removeEventListener("dragover", this);
     this._panel.removeEventListener("dragend", this);
     let doc = aEvent.target.ownerDocument;
+    doc.defaultView.updateEditUIVisibility();
     let contextMenuId = this._panel.getAttribute("context");
     if (contextMenuId) {
       let contextMenu = doc.getElementById(contextMenuId);

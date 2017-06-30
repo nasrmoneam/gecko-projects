@@ -61,6 +61,7 @@ class CompositorBridgeChild;
 class LayerManager;
 class LayerManagerComposite;
 class PLayerTransactionChild;
+class WebRenderBridgeChild;
 struct ScrollableLayerGuid;
 } // namespace layers
 namespace gfx {
@@ -73,6 +74,9 @@ class TextEventDispatcherListener;
 class CompositorWidget;
 class CompositorWidgetInitData;
 } // namespace widget
+namespace wr {
+class DisplayListBuilder;
+} // namespace wr
 } // namespace mozilla
 
 /**
@@ -837,6 +841,11 @@ class nsIWidget : public nsISupports
     virtual nsSizeMode SizeMode() = 0;
 
     /**
+     * Ask wether the widget is fully occluded
+     */
+    virtual bool IsFullyOccluded() const = 0;
+
+    /**
      * Enable or disable this Widget
      *
      * @param aState true to enable the Widget, false to disable it.
@@ -1105,6 +1114,22 @@ class nsIWidget : public nsISupports
      */
     virtual void SetWindowShadowStyle(int32_t aStyle) = 0;
 
+    /**
+     * Set the opacity of the window.
+     * Values need to be between 0.0f (invisible) and 1.0f (fully opaque).
+     *
+     * Ignored on child widgets and on non-Mac platforms.
+     */
+    virtual void SetWindowOpacity(float aOpacity) {}
+
+    /**
+     * Set the transform of the window. Values are in device pixels,
+     * the origin is the top left corner of the window.
+     *
+     * Ignored on child widgets and on non-Mac platforms.
+     */
+    virtual void SetWindowTransform(const mozilla::gfx::Matrix& aTransform) {}
+
     /*
      * On Mac OS X, this method shows or hides the pill button in the titlebar
      * that's used to collapse the toolbar.
@@ -1257,6 +1282,18 @@ class nsIWidget : public nsISupports
      * Always called on the main thread.
      */
     virtual void PrepareWindowEffects() = 0;
+
+    /**
+     * Called on the main thread at the end of WebRender display list building.
+     */
+    virtual void AddWindowOverlayWebRenderCommands(mozilla::layers::WebRenderBridgeChild* aWrBridge,
+                                                   mozilla::wr::DisplayListBuilder& aBuilder) {}
+
+    /**
+     * Called on the main thread when WebRender resources used for
+     * AddWindowOverlayWebRenderCommands need to be destroyed.
+     */
+    virtual void CleanupWebRenderWindowOverlay(mozilla::layers::WebRenderBridgeChild* aWrBridge) {}
 
     /**
      * Called when Gecko knows which themed widgets exist in this window.

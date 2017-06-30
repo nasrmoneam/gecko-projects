@@ -87,8 +87,11 @@
 #include "mozilla/sandboxing/loggingCallbacks.h"
 #endif
 
-#if defined(MOZ_CONTENT_SANDBOX) && !defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_CONTENT_SANDBOX)
+#include "mozilla/SandboxSettings.h"
+#if !defined(MOZ_WIDGET_GONK)
 #include "mozilla/Preferences.h"
+#endif
 #endif
 
 #if defined(XP_LINUX) && defined(MOZ_GMP_SANDBOX)
@@ -311,7 +314,7 @@ void
 AddContentSandboxLevelAnnotation()
 {
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
-    int level = Preferences::GetInt("security.sandbox.content.level");
+    int level = GetEffectiveContentSandboxLevel();
     nsAutoCString levelString;
     levelString.AppendInt(level);
     CrashReporter::AnnotateCrashReport(
@@ -417,10 +420,9 @@ XRE_InitChildProcess(int aArgc,
   mozilla::LogModule::Init();
 
   char aLocal;
-  GeckoProfilerInitRAII profiler(&aLocal);
+  AutoProfilerInit profilerInit(&aLocal);
 
-  PROFILER_LABEL("Startup", "XRE_InitChildProcess",
-    js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("XRE_InitChildProcess", OTHER);
 
   // Ensure AbstractThread is minimally setup, so async IPC messages
   // work properly.
@@ -748,10 +750,10 @@ class MainFunctionRunnable : public Runnable
 public:
   NS_DECL_NSIRUNNABLE
 
-  MainFunctionRunnable(MainFunction aFunction,
-                       void* aData)
-  : mFunction(aFunction),
-    mData(aData)
+  MainFunctionRunnable(MainFunction aFunction, void* aData)
+    : mozilla::Runnable("MainFunctionRunnable")
+    , mFunction(aFunction)
+    , mData(aData)
   {
     NS_ASSERTION(aFunction, "Don't give me a null pointer!");
   }
@@ -786,7 +788,7 @@ XRE_InitParentProcess(int aArgc,
   mozilla::LogModule::Init();
 
   char aLocal;
-  GeckoProfilerInitRAII profiler(&aLocal);
+  AutoProfilerInit profilerInit(&aLocal);
 
   ScopedXREEmbed embed;
 

@@ -1617,7 +1617,7 @@ void nsPluginInstanceOwner::Recomposite() {
 
   clm->SendInvalidRegion(
       clm->GetRoot()->GetLocalVisibleRegion().ToUnknownRegion().GetBounds());
-  clm->Composite();
+  clm->ScheduleComposite();
 }
 
 void nsPluginInstanceOwner::RequestFullScreen() {
@@ -3662,7 +3662,8 @@ nsPluginInstanceOwner::ResolutionMayHaveChanged()
 void
 nsPluginInstanceOwner::UpdateDocumentActiveState(bool aIsActive)
 {
-  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("nsPluginInstanceOwner::UpdateDocumentActiveState",
+                      OTHER);
 
   mPluginDocumentActiveState = aIsActive;
 #ifndef XP_MACOSX

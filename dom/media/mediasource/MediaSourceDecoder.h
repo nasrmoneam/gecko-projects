@@ -35,17 +35,14 @@ class MediaSource;
 class MediaSourceDecoder : public MediaDecoder
 {
 public:
-  explicit MediaSourceDecoder(dom::HTMLMediaElement* aElement);
+  explicit MediaSourceDecoder(MediaDecoderInit& aInit);
 
-  MediaDecoder* Clone(MediaDecoderOwner* aOwner) override;
   MediaDecoderStateMachine* CreateStateMachine() override;
-  nsresult Load(nsIStreamListener**) override;
+  nsresult Load(nsIPrincipal* aPrincipal);
   media::TimeIntervals GetSeekable() override;
   media::TimeIntervals GetBuffered() override;
 
   void Shutdown() override;
-
-  static already_AddRefed<MediaResource> CreateResource(nsIPrincipal* aPrincipal = nullptr);
 
   void AttachMediaSource(dom::MediaSource* aMediaSource);
   void DetachMediaSource();

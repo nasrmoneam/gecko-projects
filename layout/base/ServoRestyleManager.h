@@ -9,6 +9,7 @@
 
 #include "mozilla/EventStates.h"
 #include "mozilla/RestyleManager.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/ServoElementSnapshot.h"
 #include "mozilla/ServoElementSnapshotTable.h"
 #include "nsChangeHint.h"
@@ -26,6 +27,78 @@ class nsIFrame;
 class nsStyleChangeList;
 
 namespace mozilla {
+
+/**
+ * A stack class used to pass some common restyle state in a slightly more
+ * comfortable way than a bunch of individual arguments, and that also checks
+ * that the change hint used for optimization is correctly used in debug mode.
+ */
+class ServoRestyleState
+{
+public:
+  ServoRestyleState(ServoStyleSet& aStyleSet, nsStyleChangeList& aChangeList)
+    : mStyleSet(aStyleSet)
+    , mChangeList(aChangeList)
+    , mChangesHandled(nsChangeHint(0))
+  {}
+
+  // We shouldn't assume that changes handled from our parent are handled for
+  // our children too if we're out of flow since they aren't necessarily
+  // parented in DOM order, and thus a change handled by a DOM ancestor doesn't
+  // necessarily mean that it's handled for an ancestor frame.
+  enum class Type
+  {
+    InFlow,
+    OutOfFlow,
+  };
+
+  ServoRestyleState(const nsIFrame& aOwner,
+                    ServoRestyleState& aParentState,
+                    nsChangeHint aHintForThisFrame,
+                    Type aType)
+    : mStyleSet(aParentState.mStyleSet)
+    , mChangeList(aParentState.mChangeList)
+    , mChangesHandled(
+        aType == Type::InFlow
+          ? aParentState.mChangesHandled | aHintForThisFrame
+          : aHintForThisFrame)
+#ifdef DEBUG
+    , mOwner(&aOwner)
+#endif
+  {
+    if (aType == Type::InFlow) {
+      AssertOwner(aParentState);
+    }
+  }
+
+  nsStyleChangeList& ChangeList() { return mChangeList; }
+  ServoStyleSet& StyleSet() { return mStyleSet; }
+
+#ifdef DEBUG
+  void AssertOwner(const ServoRestyleState& aParentState) const;
+  nsChangeHint ChangesHandledFor(const nsIFrame&) const;
+#else
+  void AssertOwner(const ServoRestyleState&) const {}
+  nsChangeHint ChangesHandledFor(const nsIFrame&) const
+  {
+    return mChangesHandled;
+  }
+#endif
+
+private:
+  ServoStyleSet& mStyleSet;
+  nsStyleChangeList& mChangeList;
+  const nsChangeHint mChangesHandled;
+
+  // We track the "owner" frame of this restyle state, that is, the frame that
+  // generated the last change that is stored in mChangesHandled, in order to
+  // verify that we only use mChangesHandled for actual descendants of that
+  // frame (given DOM order isn't always frame order, and that there are a few
+  // special cases for stuff like wrapper frames, ::backdrop, and so on).
+#ifdef DEBUG
+  const nsIFrame* mOwner { nullptr };
+#endif
+};
 
 /**
  * Restyle manager for a Servo-backed style system.
@@ -82,7 +155,7 @@ public:
    * Right now only supports a null tag, before or after. If the pseudo-element
    * is not null, the content needs to be an element.
    */
-  static nsIFrame* FrameForPseudoElement(const nsIContent* aContent,
+  static nsIFrame* FrameForPseudoElement(const Element* aElement,
                                          nsIAtom* aPseudoTagOrNull);
 
   /**
@@ -107,6 +180,7 @@ public:
    * traversal of the same restyling process.
    */
   static void PostRestyleEventForAnimations(dom::Element* aElement,
+                                            CSSPseudoElementType aPseudoType,
                                             nsRestyleHint aRestyleHint);
 protected:
   ~ServoRestyleManager() override
@@ -116,16 +190,20 @@ protected:
 
 private:
   /**
-   * Performs post-Servo-traversal processing on this element and its descendants.
+   * Performs post-Servo-traversal processing on this element and its
+   * descendants.
+   *
+   * Returns whether any style did actually change. There may be cases where we
+   * didn't need to change any style after all, for example, when a content
+   * attribute changes that happens not to have any effect on the style of that
+   * element or any descendant or sibling.
    */
-  void ProcessPostTraversal(Element* aElement,
+  bool ProcessPostTraversal(Element* aElement,
                             nsStyleContext* aParentContext,
-                            ServoStyleSet* aStyleSet,
-                            nsStyleChangeList& aChangeList);
+                            ServoRestyleState& aRestyleState);
 
   struct TextPostTraversalState;
-  void ProcessPostTraversalForText(nsIContent* aTextNode,
-                                   nsStyleChangeList& aChangeList,
+  bool ProcessPostTraversalForText(nsIContent* aTextNode,
                                    TextPostTraversalState& aState);
 
   inline ServoStyleSet* StyleSet() const

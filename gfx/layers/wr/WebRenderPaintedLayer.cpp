@@ -7,6 +7,7 @@
 
 #include "LayersLogging.h"
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/layers/ImageClient.h"
 #include "mozilla/layers/ScrollingLayersHelper.h"
 #include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/layers/WebRenderBridgeChild.h"
@@ -99,17 +100,12 @@ WebRenderPaintedLayer::CreateWebRenderDisplayList(wr::DisplayListBuilder& aBuild
   LayerRect rect = Bounds();
   DumpLayerInfo("PaintedLayer", rect);
 
-  LayerRect clipRect = ClipRect().valueOr(rect);
-  Maybe<WrImageMask> mask = BuildWrMaskLayer(&sc);
-  WrClipRegionToken clip = aBuilder.PushClipRegion(
-      sc.ToRelativeWrRect(clipRect),
-      mask.ptrOr(nullptr));
-
   WrImageKey key = GetImageKey();
   WrBridge()->AddWebRenderParentCommand(OpAddExternalImage(mExternalImageId.value(), key));
   WrManager()->AddImageKeyForDiscard(key);
 
-  aBuilder.PushImage(sc.ToRelativeWrRect(rect), clip, wr::ImageRendering::Auto, key);
+  WrRect r = sc.ToRelativeWrRect(rect);
+  aBuilder.PushImage(r, r, wr::ImageRendering::Auto, key);
 }
 
 void
@@ -128,7 +124,7 @@ WebRenderPaintedLayer::RenderLayer(wr::DisplayListBuilder& aBuilder,
   }
 
   nsIntRegion regionToPaint;
-  regionToPaint.Sub(mVisibleRegion.ToUnknownRegion(), mValidRegion);
+  regionToPaint.Sub(mVisibleRegion.ToUnknownRegion(), GetValidRegion());
 
   // We have something to paint but can't. This usually happens only in
   // empty transactions

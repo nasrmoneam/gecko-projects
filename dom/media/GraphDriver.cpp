@@ -141,8 +141,10 @@ ThreadedDriver::ThreadedDriver(MediaStreamGraphImpl* aGraphImpl)
 
 class MediaStreamGraphShutdownThreadRunnable : public Runnable {
 public:
-  explicit MediaStreamGraphShutdownThreadRunnable(already_AddRefed<nsIThread> aThread)
-    : mThread(aThread)
+  explicit MediaStreamGraphShutdownThreadRunnable(
+    already_AddRefed<nsIThread> aThread)
+    : Runnable("MediaStreamGraphShutdownThreadRunnable")
+    , mThread(aThread)
   {
   }
   NS_IMETHOD Run() override
@@ -173,7 +175,8 @@ ThreadedDriver::~ThreadedDriver()
 class MediaStreamGraphInitThreadRunnable : public Runnable {
 public:
   explicit MediaStreamGraphInitThreadRunnable(ThreadedDriver* aDriver)
-    : mDriver(aDriver)
+    : Runnable("MediaStreamGraphInitThreadRunnable")
+    , mDriver(aDriver)
   {
   }
   NS_IMETHOD Run() override
@@ -224,7 +227,7 @@ ThreadedDriver::Start()
     // Note: mThread may be null during event->Run() if we pass to NewNamedThread!  See AudioInitTask
     nsresult rv = NS_NewNamedThread("MediaStreamGrph", getter_AddRefs(mThread));
     if (NS_SUCCEEDED(rv)) {
-      mThread->Dispatch(event, NS_DISPATCH_NORMAL);
+      mThread->EventTarget()->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
     }
   }
 }
@@ -250,7 +253,7 @@ ThreadedDriver::Revive()
     NextDriver()->Start();
   } else {
     nsCOMPtr<nsIRunnable> event = new MediaStreamGraphInitThreadRunnable(this);
-    mThread->Dispatch(event, NS_DISPATCH_NORMAL);
+    mThread->EventTarget()->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
   }
 }
 
@@ -467,10 +470,12 @@ OfflineClockDriver::WakeUp()
   MOZ_ASSERT(false, "An offline graph should not have to wake up.");
 }
 
-AsyncCubebTask::AsyncCubebTask(AudioCallbackDriver* aDriver, AsyncCubebOperation aOperation)
-  : mDriver(aDriver),
-    mOperation(aOperation),
-    mShutdownGrip(aDriver->GraphImpl())
+AsyncCubebTask::AsyncCubebTask(AudioCallbackDriver* aDriver,
+                               AsyncCubebOperation aOperation)
+  : Runnable("AsyncCubebTask")
+  , mDriver(aDriver)
+  , mOperation(aOperation)
+  , mShutdownGrip(aDriver->GraphImpl())
 {
   NS_WARNING_ASSERTION(mDriver->mAudioStream || aOperation == INIT,
                        "No audio stream!");
@@ -492,9 +497,10 @@ AsyncCubebTask::EnsureThread()
     // since we don't know the order that the shutdown-threads observers
     // will run.  ClearOnShutdown guarantees it runs first.
     if (!NS_IsMainThread()) {
-      NS_DispatchToMainThread(NS_NewRunnableFunction([]() -> void {
-            ClearOnShutdown(&sThreadPool, ShutdownPhase::ShutdownThreads);
-      }));
+      NS_DispatchToMainThread(
+        NS_NewRunnableFunction("AsyncCubebTask::EnsureThread", []() -> void {
+          ClearOnShutdown(&sThreadPool, ShutdownPhase::ShutdownThreads);
+        }));
     } else {
       ClearOnShutdown(&sThreadPool, ShutdownPhase::ShutdownThreads);
     }
@@ -662,10 +668,18 @@ AudioCallbackDriver::Init()
     latency_frames = std::max((uint32_t) 512, latency_frames);
   }
 
-
   input = output;
-  input.channels = mInputChannels; // change to support optional stereo capture
-  input.layout = CUBEB_LAYOUT_MONO;
+  input.channels = mInputChannels;
+  input.layout = CUBEB_LAYOUT_UNDEFINED;
+
+#ifdef MOZ_WEBRTC
+  if (mGraphImpl->mInputWanted) {
+    StaticMutexAutoLock lock(AudioInputCubeb::Mutex());
+    uint32_t userChannels = 0;
+    AudioInputCubeb::GetUserChannelCount(mGraphImpl->mInputDeviceID, userChannels);
+    input.channels = mInputChannels = userChannels;
+  }
+#endif
 
   cubeb_stream* stream = nullptr;
   CubebUtils::AudioDeviceID input_id = nullptr, output_id = nullptr;
@@ -729,9 +743,7 @@ AudioCallbackDriver::Init()
       return true;
     }
   }
-  bool aec;
-  Unused << mGraphImpl->AudioTrackPresent(aec);
-  SetMicrophoneActive(aec);
+  SetMicrophoneActive(mGraphImpl->mInputWanted);
 
   cubeb_stream_register_device_changed_callback(mAudioStream,
                                                 AudioCallbackDriver::DeviceChangedCallback_s);
@@ -1145,8 +1157,6 @@ AudioCallbackDriver::DeviceChangedCallback() {
 void
 AudioCallbackDriver::SetMicrophoneActive(bool aActive)
 {
-  MonitorAutoLock mon(mGraphImpl->GetMonitor());
-
   mMicrophoneActive = aActive;
 
 #ifdef XP_MACOSX

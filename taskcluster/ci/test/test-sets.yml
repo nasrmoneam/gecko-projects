@@ -43,14 +43,6 @@ web-platform-tests:
     - web-platform-tests-reftests
     - web-platform-tests-wdspec
 
-external-media-tests:
-    - external-media-tests-base
-    - external-media-tests-youtube
-
-external-media-tests-slow:
-    # twitch tests are too slow and stall under debug, give them their own special set
-    - external-media-tests-twitch
-
 opt-only-tests:
     - mochitest-valgrind
 
@@ -83,6 +75,8 @@ stylo-tests:
     - reftest-stylo
     - mochitest-style
     - mochitest-chrome-style
+    - web-platform-tests
+    - web-platform-tests-reftests
 
 stylo-sequential-tests:
     - crashtest
@@ -103,30 +97,6 @@ qr-tests:
     - reftest-no-accel
     - xpcshell
 
-ccov-code-coverage-tests:
-    - cppunit
-    - crashtest
-    - firefox-ui-functional-local
-    - firefox-ui-functional-remote
-    - gtest
-    - jittest
-    - jsreftest
-    - marionette
-    - mochitest
-    - mochitest-a11y
-    - mochitest-browser-chrome
-    - mochitest-chrome
-    - mochitest-clipboard
-    - mochitest-devtools-chrome
-    - mochitest-gpu
-    - mochitest-jetpack
-    - mochitest-media
-    - mochitest-webgl
-    - reftest
-    - reftest-no-accel
-    - web-platform-tests
-    - xpcshell
-
 jsdcov-code-coverage-tests:
     - mochitest
     - mochitest-browser-chrome
@@ -139,6 +109,8 @@ jsdcov-code-coverage-tests:
 windows-vm-tests:
     - cppunit
     - crashtest
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
     - gtest
     - jittest
     - jsreftest
@@ -164,11 +136,11 @@ windows-gpu-tests:
 #    - mochitest-chrome
 #    - mochitest-clipboard
 
-macosx64-tests-debug:
+macosx64-tests:
     - cppunit
     - crashtest
-    - external-media-tests-base
-    - external-media-tests-youtube
+    - firefox-ui-functional-local
+    - firefox-ui-functional-remote
     - gtest
     - jittest
     - jsreftest

@@ -45,6 +45,7 @@
 
 #include "mozAutoDocUpdate.h"
 #include "mozilla/AsyncEventDispatcher.h"
+#include "mozilla/AutoRestore.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/dom/Element.h"
@@ -97,7 +98,8 @@ nsImageLoadingContent::nsImageLoadingContent()
     mUseUrgentStartForChannel(false),
     mStateChangerDepth(0),
     mCurrentRequestRegistered(false),
-    mPendingRequestRegistered(false)
+    mPendingRequestRegistered(false),
+    mIsStartingImageLoad(false)
 {
   if (!nsContentUtils::GetImgLoaderForChannel(nullptr, nullptr)) {
     mLoadingEnabled = false;
@@ -149,14 +151,21 @@ nsImageLoadingContent::Notify(imgIRequest* aRequest,
   }
 
   {
-    nsAutoScriptBlocker scriptBlocker;
-
+    // Calling Notify on observers can modify the list of observers so make
+    // a local copy.
+    AutoTArray<nsCOMPtr<imgINotificationObserver>, 2> observers;
     for (ImageObserver* observer = &mObserverList, *next; observer;
          observer = next) {
       next = observer->mNext;
       if (observer->mObserver) {
-        observer->mObserver->Notify(aRequest, aType, aData);
+        observers.AppendElement(observer->mObserver);
       }
+    }
+
+    nsAutoScriptBlocker scriptBlocker;
+
+    for (auto& observer : observers) {
+        observer->Notify(aRequest, aType, aData);
     }
   }
 
@@ -780,6 +789,11 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
                                  nsIDocument* aDocument,
                                  nsLoadFlags aLoadFlags)
 {
+  MOZ_ASSERT(!mIsStartingImageLoad, "some evil code is reentering LoadImage.");
+  if (mIsStartingImageLoad) {
+    return NS_OK;
+  }
+
   // Pending load/error events need to be canceled in some situations. This
   // is not documented in the spec, but can cause site compat problems if not
   // done. See bug 1309461 and https://github.com/whatwg/html/issues/1872.
@@ -807,6 +821,18 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
       // No reason to bother, I think...
       return NS_OK;
     }
+  }
+
+  AutoRestore<bool> guard(mIsStartingImageLoad);
+  mIsStartingImageLoad = true;
+
+  // Data documents, or documents from DOMParser shouldn't perform image loading.
+  if (aDocument->IsLoadedAsData()) {
+    SetBlockedRequest(nsIContentPolicy::REJECT_REQUEST);
+
+    FireEvent(NS_LITERAL_STRING("error"));
+    FireEvent(NS_LITERAL_STRING("loadend"));
+    return NS_OK;
   }
 
   // URI equality check.
@@ -838,22 +864,7 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
              "Principal mismatch?");
 #endif
 
-  // Are we blocked?
-  int16_t cpDecision = nsIContentPolicy::REJECT_REQUEST;
   nsContentPolicyType policyType = PolicyTypeForLoad(aImageLoadType);
-
-  nsContentUtils::CanLoadImage(aNewURI,
-                               static_cast<nsIImageLoadingContent*>(this),
-                               aDocument,
-                               aDocument->NodePrincipal(),
-                               &cpDecision,
-                               policyType);
-  if (!NS_CP_ACCEPTED(cpDecision)) {
-    FireEvent(NS_LITERAL_STRING("error"));
-    FireEvent(NS_LITERAL_STRING("loadend"));
-    SetBlockedRequest(aNewURI, cpDecision);
-    return NS_OK;
-  }
 
   nsLoadFlags loadFlags = aLoadFlags;
   int32_t corsmode = GetCORSMode();
@@ -872,7 +883,6 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
     referrerPolicy = imgReferrerPolicy;
   }
 
-  // Not blocked. Do the load.
   RefPtr<imgRequestProxy>& req = PrepareNextRequest(aImageLoadType);
   nsCOMPtr<nsIContent> content =
       do_QueryInterface(static_cast<nsIImageLoadingContent*>(this));
@@ -931,7 +941,6 @@ nsImageLoadingContent::LoadImage(nsIURI* aNewURI,
 
     FireEvent(NS_LITERAL_STRING("error"));
     FireEvent(NS_LITERAL_STRING("loadend"));
-    return NS_OK;
   }
 
   return NS_OK;
@@ -1126,12 +1135,12 @@ nsImageLoadingContent::StringToURI(const nsAString& aSpec,
   nsCOMPtr<nsIURI> baseURL = thisContent->GetBaseURI();
 
   // (2) Get the charset
-  const nsAFlatCString &charset = aDocument->GetDocumentCharacterSet();
+  auto encoding = aDocument->GetDocumentCharacterSet();
 
   // (3) Construct the silly thing
   return NS_NewURI(aURI,
                    aSpec,
-                   charset.IsEmpty() ? nullptr : charset.get(),
+                   encoding,
                    baseURL,
                    nsContentUtils::GetIOService());
 }
@@ -1203,46 +1212,41 @@ nsImageLoadingContent::PrepareNextRequest(ImageLoadType aImageLoadType)
     mMostRecentRequestChange = now;
   }
 
-  // If we don't have a usable current request, get rid of any half-baked
-  // request that might be sitting there and make this one current.
-  if (!HaveSize(mCurrentRequest))
-    return PrepareCurrentRequest(aImageLoadType);
-
-  // Otherwise, make it pending.
-  return PreparePendingRequest(aImageLoadType);
+  // We only want to cancel the existing current request if size is not
+  // available. bz says the web depends on this behavior.
+  // Otherwise, we get rid of any half-baked request that might be sitting there
+  // and make this one current.
+  // TODO: Bug 583491
+  // Investigate/Cleanup NS_ERROR_IMAGE_SRC_CHANGED use in nsImageFrame.cpp
+  return HaveSize(mCurrentRequest) ?
+           PreparePendingRequest(aImageLoadType) :
+           PrepareCurrentRequest(aImageLoadType);
 }
 
-void
-nsImageLoadingContent::SetBlockedRequest(nsIURI* aURI, int16_t aContentDecision)
+nsresult
+nsImageLoadingContent::SetBlockedRequest(int16_t aContentDecision)
 {
+  // If this is not calling from LoadImage, for example, from ServiceWorker,
+  // bail out.
+  if (!mIsStartingImageLoad) {
+    return NS_OK;
+  }
+
   // Sanity
   MOZ_ASSERT(!NS_CP_ACCEPTED(aContentDecision), "Blocked but not?");
 
-  // We do some slightly illogical stuff here to maintain consistency with
-  // old behavior that people probably depend on. Even in the case where the
-  // new image is blocked, the old one should really be canceled with the
-  // reason "image source changed". However, apparently there's some abuse
-  // over in nsImageFrame where the displaying of the "broken" icon for the
-  // next image depends on the cancel reason of the previous image. ugh.
-  // XXX(seth): So shouldn't we fix nsImageFrame?!
-  ClearPendingRequest(NS_ERROR_IMAGE_BLOCKED,
-                      Some(OnNonvisible::DISCARD_IMAGES));
+  // We should never have a pending request after we got blocked.
+  MOZ_ASSERT(!mPendingRequest, "mPendingRequest should be null.");
 
-  // For the blocked case, we only want to cancel the existing current request
-  // if size is not available. bz says the web depends on this behavior.
-  if (!HaveSize(mCurrentRequest)) {
-
+  if (HaveSize(mCurrentRequest)) {
+    // PreparePendingRequest set mPendingRequestFlags, now since we've decided
+    // to block it, we reset it back to 0.
+    mPendingRequestFlags = 0;
+  } else {
     mImageBlockingStatus = aContentDecision;
-    uint32_t keepFlags = mCurrentRequestFlags & REQUEST_IS_IMAGESET;
-    ClearCurrentRequest(NS_ERROR_IMAGE_BLOCKED,
-                        Some(OnNonvisible::DISCARD_IMAGES));
-
-    // We still want to remember what URI we were and if it was an imageset,
-    // despite not having an actual request. These are both cleared as part of
-    // ClearCurrentRequest() before a new request is started.
-    mCurrentURI = aURI;
-    mCurrentRequestFlags = keepFlags;
   }
+
+  return NS_OK;
 }
 
 RefPtr<imgRequestProxy>&
@@ -1253,7 +1257,7 @@ nsImageLoadingContent::PrepareCurrentRequest(ImageLoadType aImageLoadType)
   mImageBlockingStatus = nsIContentPolicy::ACCEPT;
 
   // Get rid of anything that was there previously.
-  ClearCurrentRequest(NS_ERROR_IMAGE_SRC_CHANGED,
+  ClearCurrentRequest(NS_BINDING_ABORTED,
                       Some(OnNonvisible::DISCARD_IMAGES));
 
   if (mNewRequestsWillNeedAnimationReset) {
@@ -1272,7 +1276,7 @@ RefPtr<imgRequestProxy>&
 nsImageLoadingContent::PreparePendingRequest(ImageLoadType aImageLoadType)
 {
   // Get rid of anything that was there previously.
-  ClearPendingRequest(NS_ERROR_IMAGE_SRC_CHANGED,
+  ClearPendingRequest(NS_BINDING_ABORTED,
                       Some(OnNonvisible::DISCARD_IMAGES));
 
   if (mNewRequestsWillNeedAnimationReset) {

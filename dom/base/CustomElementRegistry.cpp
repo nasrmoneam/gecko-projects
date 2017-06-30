@@ -454,8 +454,9 @@ CustomElementRegistry::EnqueueLifecycleCallback(nsIDocument::ElementCallbackType
       // should be invoked prior to returning control back to script.
       // Create a script runner to process the top of the processing
       // stack as soon as it is safe to run script.
-      nsCOMPtr<nsIRunnable> runnable =
-        NS_NewRunnableFunction(&CustomElementRegistry::ProcessTopElementQueue);
+      nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
+        "dom::CustomElementRegistry::EnqueueLifecycleCallback",
+        &CustomElementRegistry::ProcessTopElementQueue);
       nsContentUtils::AddScriptRunner(runnable);
     }
   }
@@ -843,10 +844,11 @@ CustomElementRegistry::WhenDefined(const nsAString& aName, ErrorResult& aRv)
     return promise.forget();
   }
 
-  if (mWhenDefinedPromiseMap.Contains(nameAtom)) {
-    mWhenDefinedPromiseMap.Get(nameAtom, getter_AddRefs(promise));
+  auto entry = mWhenDefinedPromiseMap.LookupForAdd(nameAtom);
+  if (entry) {
+    promise = entry.Data();
   } else {
-    mWhenDefinedPromiseMap.Put(nameAtom, promise);
+    entry.OrInsert([&promise](){ return promise; });
   }
 
   return promise.forget();

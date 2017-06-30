@@ -225,7 +225,7 @@ LogMessageWithContext(FileLocation& aFile,
  * @return Whether the flag was handled.
  */
 static bool
-CheckFlag(const nsSubstring& aFlag, const nsSubstring& aData, bool& aResult)
+CheckFlag(const nsAString& aFlag, const nsAString& aData, bool& aResult)
 {
   if (!StringBeginsWith(aData, aFlag)) {
     return false;
@@ -284,8 +284,8 @@ enum TriState
  * @return Whether the flag was handled.
  */
 static bool
-CheckStringFlag(const nsSubstring& aFlag, const nsSubstring& aData,
-                const nsSubstring& aValue, TriState& aResult)
+CheckStringFlag(const nsAString& aFlag, const nsAString& aData,
+                const nsAString& aValue, TriState& aResult)
 {
   if (aData.Length() < aFlag.Length() + 1) {
     return false;
@@ -317,6 +317,19 @@ CheckStringFlag(const nsSubstring& aFlag, const nsSubstring& aData,
   }
 
   return true;
+}
+
+static bool
+CheckOsFlag(const nsAString& aFlag, const nsAString& aData,
+            const nsAString& aValue, TriState& aResult)
+{
+  bool result = CheckStringFlag(aFlag, aData, aValue, aResult);
+#if defined(XP_UNIX) && !defined(XP_DARWIN) && !defined(ANDROID)
+  if (result && aResult == eBad) {
+    result = CheckStringFlag(aFlag, aData, NS_LITERAL_STRING("likeunix"), aResult);
+  }
+#endif
+  return result;
 }
 
 /**
@@ -665,7 +678,7 @@ ParseManifest(NSLocationType aType, FileLocation& aFile, char* aBuf,
       NS_ConvertASCIItoUTF16 wtoken(token);
 
       if (CheckStringFlag(kApplication, wtoken, appID, stApp) ||
-          CheckStringFlag(kOs, wtoken, osTarget, stOs) ||
+          CheckOsFlag(kOs, wtoken, osTarget, stOs) ||
           CheckStringFlag(kABI, wtoken, abi, stABI) ||
           CheckStringFlag(kProcess, wtoken, process, stProcess) ||
           CheckVersionFlag(kOsVersion, wtoken, osVersion, stOsVersion) ||

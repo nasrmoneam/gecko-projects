@@ -178,12 +178,12 @@ public:
       MOZ_ASSERT(NS_IsMainThread());
     }
   }
-  operator JSErrorResult &() { return *mRv; }
   operator ErrorResult &() { return *mRv; }
 private:
   mozilla::UniquePtr<JSErrorResult> mRv;
   bool isCopy;
 };
+
 }
 
 static nsresult InitNSSInContent()
@@ -309,8 +309,6 @@ PeerConnectionImpl::PeerConnectionImpl(const GlobalObject* aGlobal)
   , mForceIceTcp(false)
   , mMedia(nullptr)
   , mUuidGen(MakeUnique<PCUuidGenerator>())
-  , mNumAudioStreams(0)
-  , mNumVideoStreams(0)
   , mHaveConfiguredCodecs(false)
   , mHaveDataStream(false)
   , mAddCandidateErrorCount(0)
@@ -382,7 +380,7 @@ PeerConnectionImpl::MakeMediaStream()
 {
   MediaStreamGraph* graph =
     MediaStreamGraph::GetInstance(MediaStreamGraph::AUDIO_THREAD_DRIVER,
-                                  AudioChannel::Normal);
+                                  AudioChannel::Normal, GetWindow());
 
   RefPtr<DOMMediaStream> stream =
     DOMMediaStream::CreateSourceStreamAsInput(GetWindow(), graph);
@@ -1084,7 +1082,10 @@ PeerConnectionImpl::ConfigureJsepSessionCodecs() {
 // tests to work (it doesn't have a window available) we ifdef the following
 // two implementations.
 NS_IMETHODIMP
-PeerConnectionImpl::EnsureDataConnection(uint16_t aNumstreams)
+PeerConnectionImpl::EnsureDataConnection(uint16_t aLocalPort,
+                                         uint16_t aNumstreams,
+                                         uint32_t aMaxMessageSize,
+                                         bool aMMSSet)
 {
   PC_AUTO_ENTER_API_CALL(false);
 
@@ -1095,8 +1096,12 @@ PeerConnectionImpl::EnsureDataConnection(uint16_t aNumstreams)
     // and we increase the number of streams dynamically as needed.
     return NS_OK;
   }
-  mDataConnection = new DataChannelConnection(this);
-  if (!mDataConnection->Init(5000, aNumstreams, true)) {
+
+  nsCOMPtr<nsIEventTarget> target = mWindow
+      ? mWindow->EventTargetFor(TaskCategory::Other)
+      : nullptr;
+  mDataConnection = new DataChannelConnection(this, target);
+  if (!mDataConnection->Init(aLocalPort, aNumstreams, true)) {
     CSFLogError(logTag,"%s DataConnection Init Failed",__FUNCTION__);
     return NS_ERROR_FAILURE;
   }
@@ -1110,6 +1115,8 @@ PeerConnectionImpl::GetDatachannelParameters(
     uint32_t* channels,
     uint16_t* localport,
     uint16_t* remoteport,
+    uint32_t* remotemaxmessagesize,
+    bool*     mmsset,
     uint16_t* level) const {
 
   auto trackPairs = mJsepSession->GetNegotiatedTrackPairs();
@@ -1162,6 +1169,10 @@ PeerConnectionImpl::GetDatachannelParameters(
           static_cast<const JsepApplicationCodecDescription*>(codec)->mLocalPort;
         *remoteport =
           static_cast<const JsepApplicationCodecDescription*>(codec)->mRemotePort;
+        *remotemaxmessagesize = static_cast<const JsepApplicationCodecDescription*>
+          (codec)->mRemoteMaxMessageSize;
+        *mmsset = static_cast<const JsepApplicationCodecDescription*>
+          (codec)->mRemoteMMSSet;
         if (trackPair.HasBundleLevel()) {
           *level = static_cast<uint16_t>(trackPair.BundleLevel());
         } else {
@@ -1175,6 +1186,8 @@ PeerConnectionImpl::GetDatachannelParameters(
   *channels = 0;
   *localport = 0;
   *remoteport = 0;
+  *remotemaxmessagesize = 0;
+  *mmsset = false;
   *level = 0;
   return NS_ERROR_FAILURE;
 }
@@ -1234,8 +1247,11 @@ PeerConnectionImpl::InitializeDataChannel()
   uint32_t channels = 0;
   uint16_t localport = 0;
   uint16_t remoteport = 0;
+  uint32_t remotemaxmessagesize = 0;
+  bool mmsset = false;
   uint16_t level = 0;
-  nsresult rv = GetDatachannelParameters(&channels, &localport, &remoteport, &level);
+  nsresult rv = GetDatachannelParameters(&channels, &localport, &remoteport,
+                                         &remotemaxmessagesize, &mmsset, &level);
 
   if (NS_FAILED(rv)) {
     CSFLogDebug(logTag, "%s: We did not negotiate datachannel", __FUNCTION__);
@@ -1246,7 +1262,7 @@ PeerConnectionImpl::InitializeDataChannel()
     channels = MAX_NUM_STREAMS;
   }
 
-  rv = EnsureDataConnection(channels);
+  rv = EnsureDataConnection(localport, channels, remotemaxmessagesize, mmsset);
   if (NS_SUCCEEDED(rv)) {
     // use the specified TransportFlow
     RefPtr<TransportFlow> flow = mMedia->GetTransportFlow(level, false).get();
@@ -1302,7 +1318,10 @@ PeerConnectionImpl::CreateDataChannel(const nsAString& aLabel,
   DataChannelConnection::Type theType =
     static_cast<DataChannelConnection::Type>(aType);
 
-  nsresult rv = EnsureDataConnection(WEBRTC_DATACHANNEL_STREAMS_DEFAULT);
+  nsresult rv = EnsureDataConnection(WEBRTC_DATACHANNEL_PORT_DEFAULT,
+                                     WEBRTC_DATACHANNEL_STREAMS_DEFAULT,
+                                     WEBRTC_DATACHANELL_MAX_MESSAGE_SIZE_DEFAULT,
+                                     false);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -2330,7 +2349,6 @@ PeerConnectionImpl::AddTrack(MediaStreamTrack& aTrack,
     if (NS_FAILED(res)) {
       return res;
     }
-    mNumAudioStreams++;
   }
 
   if (aTrack.AsVideoStreamTrack()) {
@@ -2344,7 +2362,6 @@ PeerConnectionImpl::AddTrack(MediaStreamTrack& aTrack,
     if (NS_FAILED(res)) {
       return res;
     }
-    mNumVideoStreams++;
   }
   OnNegotiationNeeded();
   return NS_OK;
@@ -2903,6 +2920,12 @@ void
 PeerConnectionImpl::RecordEndOfCallTelemetry() const
 {
   if (!mJsepSession) {
+    return;
+  }
+
+  // Exit early if no connection information was ever exchanged,
+  // This prevents distortion of telemetry data.
+  if (mLocalRequestedSDP.empty() && mRemoteRequestedSDP.empty()) {
     return;
   }
 
@@ -3557,7 +3580,7 @@ static void RecordIceStats_s(
     DOMHighResTimeStamp now,
     RTCStatsReportInternal* report) {
 
-  NS_ConvertASCIItoUTF16 componentId(mediaStream.name().c_str());
+  NS_ConvertASCIItoUTF16 transportId(mediaStream.name().c_str());
 
   std::vector<NrIceCandidatePair> candPairs;
   nsresult res = mediaStream.GetCandidatePairs(&candPairs);
@@ -3575,14 +3598,20 @@ static void RecordIceStats_s(
 
     RTCIceCandidatePairStats s;
     s.mId.Construct(codeword);
-    s.mComponentId.Construct(componentId);
+    s.mTransportId.Construct(transportId);
     s.mTimestamp.Construct(now);
     s.mType.Construct(RTCStatsType::Candidate_pair);
     s.mLocalCandidateId.Construct(localCodeword);
     s.mRemoteCandidateId.Construct(remoteCodeword);
     s.mNominated.Construct(candPair.nominated);
+    s.mWritable.Construct(candPair.writable);
+    s.mReadable.Construct(candPair.readable);
     s.mPriority.Construct(candPair.priority);
     s.mSelected.Construct(candPair.selected);
+    s.mBytesSent.Construct(candPair.bytes_sent);
+    s.mBytesReceived.Construct(candPair.bytes_recvd);
+    s.mLastPacketSentTimestamp.Construct(candPair.ms_since_last_send);
+    s.mLastPacketReceivedTimestamp.Construct(candPair.ms_since_last_recv);
     s.mState.Construct(RTCStatsIceCandidatePairState(candPair.state));
     report->mIceCandidatePairStats.Value().AppendElement(s, fallible);
   }
@@ -3591,7 +3620,7 @@ static void RecordIceStats_s(
   if (NS_SUCCEEDED(mediaStream.GetLocalCandidates(&candidates))) {
     ToRTCIceCandidateStats(candidates,
                            RTCStatsType::Local_candidate,
-                           componentId,
+                           transportId,
                            now,
                            report);
   }
@@ -3600,7 +3629,7 @@ static void RecordIceStats_s(
   if (NS_SUCCEEDED(mediaStream.GetRemoteCandidates(&candidates))) {
     ToRTCIceCandidateStats(candidates,
                            RTCStatsType::Remote_candidate,
-                           componentId,
+                           transportId,
                            now,
                            report);
   }

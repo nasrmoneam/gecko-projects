@@ -554,10 +554,10 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
   private:
     // List of non-ephemeron weak containers to sweep during beginSweepingSweepGroup.
-    js::ActiveThreadData<mozilla::LinkedList<JS::WeakCache<void*>>> weakCaches_;
+    js::ActiveThreadData<mozilla::LinkedList<JS::detail::WeakCacheBase>> weakCaches_;
   public:
-    mozilla::LinkedList<JS::WeakCache<void*>>& weakCaches() { return weakCaches_.ref(); }
-    void registerWeakCache(JS::WeakCache<void*>* cachep) {
+    mozilla::LinkedList<JS::detail::WeakCacheBase>& weakCaches() { return weakCaches_.ref(); }
+    void registerWeakCache(JS::detail::WeakCacheBase* cachep) {
         weakCaches().insertBack(cachep);
     }
 
@@ -815,6 +815,9 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     // AutoLockForExclusiveAccess.
     js::ExclusiveAccessLockOrGCTaskData<js::AtomSet*> atoms_;
 
+    // Set of all atoms added while the main atoms table is being swept.
+    js::ExclusiveAccessLockData<js::AtomSet*> atomsAddedWhileSweeping_;
+
     // Compartment and associated zone containing all atoms in the runtime, as
     // well as runtime wide IonCode stubs. Modifying the contents of this
     // compartment requires the calling thread to use AutoLockForExclusiveAccess.
@@ -830,14 +833,26 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     void finishAtoms();
     bool atomsAreFinished() const { return !atoms_; }
 
-    void sweepAtoms();
+    js::AtomSet* atomsForSweeping() {
+        MOZ_ASSERT(JS::CurrentThreadIsHeapCollecting());
+        return atoms_;
+    }
 
     js::AtomSet& atoms(js::AutoLockForExclusiveAccess& lock) {
+        MOZ_ASSERT(atoms_);
         return *atoms_;
     }
     js::AtomSet& unsafeAtoms() {
+        MOZ_ASSERT(atoms_);
         return *atoms_;
     }
+
+    bool createAtomsAddedWhileSweepingTable();
+    void destroyAtomsAddedWhileSweepingTable();
+    js::AtomSet* atomsAddedWhileSweeping() {
+        return atomsAddedWhileSweeping_;
+    }
+
     JSCompartment* atomsCompartment(js::AutoLockForExclusiveAccess& lock) {
         return atomsCompartment_;
     }
@@ -847,6 +862,10 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
 
     bool isAtomsCompartment(JSCompartment* comp) {
         return comp == atomsCompartment_;
+    }
+
+    const JS::Zone* atomsZone(js::AutoLockForExclusiveAccess& lock) const {
+        return gc.atomsZone;
     }
 
     // The atoms compartment is the only one in its zone.
@@ -1070,13 +1089,26 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     // resume PC at a time.
     js::ActiveThreadData<void*> wasmResumePC_;
 
+    // To ensure a consistent state of fp/pc, the unwound pc might be
+    // different from the resumePC, especially at call boundaries.
+    js::ActiveThreadData<void*> wasmUnwindPC_;
+
   public:
+    void startWasmInterrupt(void* resumePC, void* unwindPC) {
+        MOZ_ASSERT(resumePC && unwindPC);
+        wasmResumePC_ = resumePC;
+        wasmUnwindPC_ = unwindPC;
+    }
+    void finishWasmInterrupt() {
+        MOZ_ASSERT(wasmResumePC_ && wasmUnwindPC_);
+        wasmResumePC_ = nullptr;
+        wasmUnwindPC_ = nullptr;
+    }
     void* wasmResumePC() const {
         return wasmResumePC_;
     }
-    void setWasmResumePC(void* resumePC) {
-        MOZ_ASSERT(!!resumePC == !wasmResumePC_);
-        wasmResumePC_ = resumePC;
+    void* wasmUnwindPC() const {
+        return wasmUnwindPC_;
     }
 };
 
@@ -1352,12 +1384,6 @@ inline gc::StoreBuffer&
 ZoneGroup::storeBuffer()
 {
     return runtime->gc.storeBuffer();
-}
-
-inline void
-ZoneGroup::callAfterMinorGC(void (*thunk)(void* data), void* data)
-{
-    nursery().queueSweepAction(thunk, data);
 }
 
 // This callback is set by JS::SetProcessLargeAllocationFailureCallback

@@ -19,10 +19,9 @@
 #include "mozilla/TextRange.h"
 #include "mozilla/dom/TabParent.h"
 
-class nsIEditor;
-
 namespace mozilla {
 
+class EditorBase;
 class EventDispatchingCallback;
 class IMEStateManager;
 
@@ -137,8 +136,8 @@ public:
    * StartHandlingComposition() and EndHandlingComposition() are called by
    * editor when it holds a TextComposition instance and release it.
    */
-  void StartHandlingComposition(nsIEditor* aEditor);
-  void EndHandlingComposition(nsIEditor* aEditor);
+  void StartHandlingComposition(EditorBase* aEditorBase);
+  void EndHandlingComposition(EditorBase* aEditorBase);
 
   /**
    * OnEditorDestroyed() is called when the editor is destroyed but there is
@@ -206,8 +205,9 @@ private:
   // composition.  Don't access the instance, it may not be available.
   widget::NativeIMEContext mNativeContext;
 
-  // mEditorWeak is a weak reference to the focused editor handling composition.
-  nsWeakPtr mEditorWeak;
+  // mEditorBaseWeak is a weak reference to the focused editor handling
+  // composition.
+  nsWeakPtr mEditorBaseWeak;
 
   // mLastData stores the data attribute of the latest composition event (except
   // the compositionstart event).
@@ -281,13 +281,13 @@ private:
   TextComposition(const TextComposition& aOther);
 
   /**
-   * GetEditor() returns nsIEditor pointer of mEditorWeak.
+   * GetEditorBase() returns EditorBase pointer of mEditorBaseWeak.
    */
-  already_AddRefed<nsIEditor> GetEditor() const;
+  already_AddRefed<EditorBase> GetEditorBase() const;
 
   /**
-   * HasEditor() returns true if mEditorWeak holds nsIEditor instance which is
-   * alive.  Otherwise, false.
+   * HasEditor() returns true if mEditorBaseWeak holds EditorBase instance
+   * which is alive.  Otherwise, false.
    */
   bool HasEditor() const;
 
@@ -431,7 +431,9 @@ private:
     EventMessage mEventMessage;
     bool mIsSynthesizedEvent;
 
-    CompositionEventDispatcher() : mIsSynthesizedEvent(false) {};
+    CompositionEventDispatcher()
+      : Runnable("TextComposition::CompositionEventDispatcher")
+      , mIsSynthesizedEvent(false){};
   };
 
   /**

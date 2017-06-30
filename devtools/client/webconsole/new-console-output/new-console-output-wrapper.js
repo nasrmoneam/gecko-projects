@@ -9,6 +9,7 @@ const ReactDOM = require("devtools/client/shared/vendor/react-dom");
 const { Provider } = require("devtools/client/shared/vendor/react-redux");
 
 const actions = require("devtools/client/webconsole/new-console-output/actions/index");
+const { batchActions } = require("devtools/client/shared/redux/middleware/debounce");
 const { createContextMenu } = require("devtools/client/webconsole/new-console-output/utils/context-menu");
 const { configureStore } = require("devtools/client/webconsole/new-console-output/store");
 
@@ -152,7 +153,7 @@ NewConsoleOutputWrapper.prototype = {
     // be removed once it's not needed anymore.
     // Can only wait for response if the action contains a valid message.
     if (waitForResponse && action.message) {
-      let messageId = action.message.get("id");
+      let messageId = action.message.id;
       return new Promise(resolve => {
         let jsterm = this.jsterm;
         jsterm.hud.on("new-messages", function onThisMessage(e, messages) {
@@ -172,7 +173,7 @@ NewConsoleOutputWrapper.prototype = {
 
   dispatchMessagesAdd: function (messages) {
     const batchedActions = messages.map(message => actions.messageAdd(message));
-    store.dispatch(actions.batchActions(batchedActions));
+    store.dispatch(batchActions(batchedActions));
   },
 
   dispatchMessagesClear: function () {
@@ -184,11 +185,12 @@ NewConsoleOutputWrapper.prototype = {
   },
 
   dispatchMessageUpdate: function (message, res) {
-    batchedMessageAdd(actions.networkMessageUpdate(message));
-
-    // network-message-updated will emit when eventTimings message arrives
-    // which is the last one of 8 updates happening on network message update.
-    if (res.packet.updateType === "eventTimings") {
+    // network-message-updated will emit when all the update message arrives.
+    // Since we can't ensure the order of the network update, we check
+    // that networkInfo.updates has all we need.
+    const NUMBER_OF_NETWORK_UPDATE = 8;
+    if (res.networkInfo.updates.length === NUMBER_OF_NETWORK_UPDATE) {
+      batchedMessageAdd(actions.networkMessageUpdate(message));
       this.jsterm.hud.emit("network-message-updated", res);
     }
   },
@@ -203,7 +205,7 @@ function batchedMessageAdd(action) {
   queuedActions.push(action);
   if (!throttledDispatchTimeout) {
     throttledDispatchTimeout = setTimeout(() => {
-      store.dispatch(actions.batchActions(queuedActions));
+      store.dispatch(batchActions(queuedActions));
       queuedActions = [];
       throttledDispatchTimeout = null;
     }, 50);

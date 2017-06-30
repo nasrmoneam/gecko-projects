@@ -126,12 +126,11 @@ EventListenerManagerBase::EventListenerManagerBase()
   , mMayHaveCapturingListeners(false)
   , mMayHaveSystemGroupListeners(false)
   , mMayHaveTouchEventListener(false)
-  , mMayHaveMouseMoveEventListener(false)
   , mMayHaveMouseEnterLeaveEventListener(false)
   , mMayHavePointerEnterLeaveEventListener(false)
-  , mMayHaveAPZAwareKeyEventListener(false)
   , mMayHaveKeyEventListener(false)
   , mMayHaveInputOrCompositionEventListener(false)
+  , mMayHaveSelectionChangeEventListener(false)
   , mClearingListeners(false)
   , mIsMainThreadELM(NS_IsMainThread())
 {
@@ -412,9 +411,6 @@ EventListenerManager::AddEventListenerInternal(
     if (!aFlags.mInSystemGroup) {
       mMayHaveKeyEventListener = true;
     }
-    if (!aFlags.mPassive && aTypeAtom != nsGkAtoms::onkeyup) {
-      mMayHaveAPZAwareKeyEventListener = true;
-    }
   } else if (aTypeAtom == nsGkAtoms::oncompositionend ||
              aTypeAtom == nsGkAtoms::oncompositionstart ||
              aTypeAtom == nsGkAtoms::oncompositionupdate ||
@@ -422,10 +418,10 @@ EventListenerManager::AddEventListenerInternal(
     if (!aFlags.mInSystemGroup) {
       mMayHaveInputOrCompositionEventListener = true;
     }
-  } else if (aTypeAtom == nsGkAtoms::onmousemove) {
-    mMayHaveMouseMoveEventListener = true;
-    if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
-      window->SetHasMouseMoveEventListeners();
+  } else if (aEventMessage == eSelectionChange) {
+    mMayHaveSelectionChangeEventListener = true;
+     if (nsPIDOMWindowInner* window = GetInnerWindowForTarget()) {
+      window->SetHasSelectionChangeEventListeners();
     }
   }
 
@@ -700,7 +696,7 @@ EventListenerManager::ListenerCanHandle(const Listener* aListener,
   // true even when aEvent->mMessage == eUnidentifiedEvent and
   // aListener=>mEventMessage != eUnidentifiedEvent as long as the atoms are
   // the same
-  if (aListener->mAllEvents) {
+  if (MOZ_UNLIKELY(aListener->mAllEvents)) {
     return true;
   }
   if (aEvent->mMessage == eUnidentifiedEvent) {
@@ -709,9 +705,9 @@ EventListenerManager::ListenerCanHandle(const Listener* aListener,
     }
     return aListener->mTypeString.Equals(aEvent->mSpecifiedEventTypeString);
   }
-  if (!nsContentUtils::IsUnprefixedFullscreenApiEnabled() &&
-      aEvent->IsTrusted() && (aEventMessage == eFullscreenChange ||
-                              aEventMessage == eFullscreenError)) {
+  if (MOZ_UNLIKELY(!nsContentUtils::IsUnprefixedFullscreenApiEnabled() &&
+                    aEvent->IsTrusted() && (aEventMessage == eFullscreenChange ||
+                                            aEventMessage == eFullscreenError))) {
     // If unprefixed Fullscreen API is not enabled, don't dispatch it
     // to the content.
     if (!aEvent->mFlags.mInSystemGroup && !aListener->mIsChrome) {
@@ -1299,9 +1295,9 @@ EventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
               nsAutoString typeStr;
               (*aDOMEvent)->GetType(typeStr);
               NS_LossyConvertUTF16toASCII typeCStr(typeStr);
-              PROFILER_LABEL_DYNAMIC("EventListenerManager", "HandleEventInternal",
-                                     js::ProfileEntry::Category::EVENTS,
-                                     typeCStr.get());
+              AUTO_PROFILER_LABEL_DYNAMIC(
+                "EventListenerManager::HandleEventInternal", EVENTS,
+                typeCStr.get());
               TimeStamp startTime = TimeStamp::Now();
 
               rv = HandleEventSubType(listener, *aDOMEvent, aCurrentTarget);
@@ -1309,12 +1305,10 @@ EventListenerManager::HandleEventInternal(nsPresContext* aPresContext,
               TimeStamp endTime = TimeStamp::Now();
               uint16_t phase;
               (*aDOMEvent)->GetEventPhase(&phase);
-              PROFILER_MARKER_PAYLOAD("DOMEvent",
-                                      new DOMEventMarkerPayload(typeStr, phase,
-                                                                startTime,
-                                                                endTime));
-#else
-              MOZ_CRASH("Gecko Profiler is N/A but profiler_is_active() returned true");
+              profiler_add_marker(
+                "DOMEvent",
+                MakeUnique<DOMEventMarkerPayload>(typeStr, phase,
+                                                  startTime, endTime));
 #endif
             } else {
               rv = HandleEventSubType(listener, *aDOMEvent, aCurrentTarget);
@@ -1593,6 +1587,8 @@ EventListenerManager::GetListenerInfo(nsCOMArray<nsIEventListenerInfo>* aList)
     nsAutoString eventType;
     if (listener.mAllEvents) {
       eventType.SetIsVoid(true);
+    } else if (listener.mListenerType == Listener::eNoListener) {
+      continue;
     } else {
       eventType.Assign(Substring(nsDependentAtomString(listener.mTypeAtom), 2));
     }
@@ -1769,6 +1765,23 @@ EventListenerManager::TraceListeners(JSTracer* aTrc)
     // We might have eWrappedJSListener, but that is the legacy type for
     // JS implemented event listeners, and trickier to handle here.
   }
+}
+
+bool
+EventListenerManager::HasUntrustedOrNonSystemGroupKeyEventListeners()
+{
+  uint32_t count = mListeners.Length();
+  for (uint32_t i = 0; i < count; ++i) {
+    Listener* listener = &mListeners.ElementAt(i);
+    if (!listener->mFlags.mInSystemGroup &&
+        listener->mFlags.mAllowUntrustedEvents &&
+        (listener->mTypeAtom == nsGkAtoms::onkeydown ||
+         listener->mTypeAtom == nsGkAtoms::onkeypress ||
+         listener->mTypeAtom == nsGkAtoms::onkeyup)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool

@@ -100,6 +100,8 @@
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/PromiseNativeHandler.h"
 
+#include "mozilla/dom/HTMLBodyElement.h"
+
 #include "ContentPrincipal.h"
 
 #ifdef XP_WIN
@@ -156,12 +158,14 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsFrameLoader)
   NS_INTERFACE_MAP_ENTRY(nsIWebBrowserPersistable)
 NS_INTERFACE_MAP_END
 
-nsFrameLoader::nsFrameLoader(Element* aOwner, nsPIDOMWindowOuter* aOpener, bool aNetworkCreated)
+nsFrameLoader::nsFrameLoader(Element* aOwner, nsPIDOMWindowOuter* aOpener,
+                             bool aNetworkCreated, int32_t aJSPluginID)
   : mOwnerContent(aOwner)
   , mDetachedSubdocFrame(nullptr)
   , mOpener(aOpener)
   , mRemoteBrowser(nullptr)
   , mChildID(0)
+  , mJSPluginID(aJSPluginID)
   , mEventMode(EVENT_MODE_NORMAL_DISPATCH)
   , mBrowserChangingProcessBlockers(nullptr)
   , mIsPrerendered(false)
@@ -178,7 +182,6 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, nsPIDOMWindowOuter* aOpener, bool 
   , mClipSubdocument(true)
   , mClampScrollPosition(true)
   , mObservingOwnerContent(false)
-  , mVisible(true)
 {
   mRemoteFrame = ShouldUseRemoteProcess();
   MOZ_ASSERT(!mRemoteFrame || !aOpener,
@@ -194,7 +197,8 @@ nsFrameLoader::~nsFrameLoader()
 }
 
 nsFrameLoader*
-nsFrameLoader::Create(Element* aOwner, nsPIDOMWindowOuter* aOpener, bool aNetworkCreated)
+nsFrameLoader::Create(Element* aOwner, nsPIDOMWindowOuter* aOpener, bool aNetworkCreated,
+                      int32_t aJSPluginId)
 {
   NS_ENSURE_TRUE(aOwner, nullptr);
   nsIDocument* doc = aOwner->OwnerDoc();
@@ -224,7 +228,7 @@ nsFrameLoader::Create(Element* aOwner, nsPIDOMWindowOuter* aOpener, bool aNetwor
                   doc->IsStaticDocument()),
                  nullptr);
 
-  return new nsFrameLoader(aOwner, aOpener, aNetworkCreated);
+  return new nsFrameLoader(aOwner, aOpener, aNetworkCreated, aJSPluginId);
 }
 
 NS_IMETHODIMP
@@ -268,16 +272,15 @@ nsFrameLoader::LoadFrame()
   }
 
   nsCOMPtr<nsIURI> base_uri = mOwnerContent->GetBaseURI();
-  const nsAFlatCString &doc_charset = doc->GetDocumentCharacterSet();
-  const char *charset = doc_charset.IsEmpty() ? nullptr : doc_charset.get();
+  auto encoding = doc->GetDocumentCharacterSet();
 
   nsCOMPtr<nsIURI> uri;
-  nsresult rv = NS_NewURI(getter_AddRefs(uri), src, charset, base_uri);
+  nsresult rv = NS_NewURI(getter_AddRefs(uri), src, encoding, base_uri);
 
   // If the URI was malformed, try to recover by loading about:blank.
   if (rv == NS_ERROR_MALFORMED_URI) {
     rv = NS_NewURI(getter_AddRefs(uri), NS_LITERAL_STRING("about:blank"),
-                   charset, base_uri);
+                   encoding, base_uri);
   }
 
   if (NS_SUCCEEDED(rv)) {
@@ -315,8 +318,15 @@ nsFrameLoader::LoadURI(nsIURI* aURI)
 
   nsCOMPtr<nsIDocument> doc = mOwnerContent->OwnerDoc();
 
-  nsresult rv = CheckURILoad(aURI);
-  NS_ENSURE_SUCCESS(rv, rv);
+  nsresult rv;
+  // If IsForJSPlugin() returns true then we want to allow the load. We're just
+  // loading the source for the implementation of the JS plugin from a URI
+  // that's under our control. We will already have done the security checks for
+  // loading the plugin content itself in the object/embed loading code.
+  if (!IsForJSPlugin()) {
+    rv = CheckURILoad(aURI);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
 
   mURIToLoad = aURI;
   rv = doc->InitializeFrameLoader(this);
@@ -769,8 +779,7 @@ nsFrameLoader::ReallyStartLoadingInternal()
 {
   NS_ENSURE_STATE(mURIToLoad && mOwnerContent && mOwnerContent->IsInComposedDoc());
 
-  PROFILER_LABEL("nsFrameLoader", "ReallyStartLoading",
-    js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("nsFrameLoader::ReallyStartLoadingInternal", OTHER);
 
   if (IsRemoteFrame()) {
     if (!mRemoteBrowser && !TryRemoteBrowser()) {
@@ -1243,7 +1252,7 @@ bool
 nsFrameLoader::ShowRemoteFrame(const ScreenIntSize& size,
                                nsSubDocumentFrame *aFrame)
 {
-  PROFILER_LABEL_FUNC(js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("nsFrameLoader::ShowRemoteFrame", GRAPHICS);
   NS_ASSERTION(IsRemoteFrame(), "ShowRemote only makes sense on remote frames.");
 
   if (!mRemoteBrowser && !TryRemoteBrowser()) {
@@ -1976,7 +1985,11 @@ class nsFrameLoaderDestroyRunnable : public Runnable
 
 public:
   explicit nsFrameLoaderDestroyRunnable(nsFrameLoader* aFrameLoader)
-   : mFrameLoader(aFrameLoader), mPhase(eDestroyDocShell) {}
+    : mozilla::Runnable("nsFrameLoaderDestroyRunnable")
+    , mFrameLoader(aFrameLoader)
+    , mPhase(eDestroyDocShell)
+  {
+  }
 
   NS_IMETHOD Run() override;
 };
@@ -2061,9 +2074,10 @@ nsFrameLoader::StartDestroy()
     nsCOMPtr<nsIGroupedSHistory> groupedSHistory;
     GetGroupedSHistory(getter_AddRefs(groupedSHistory));
     if (groupedSHistory) {
-      NS_DispatchToCurrentThread(NS_NewRunnableFunction([groupedSHistory] () {
-        groupedSHistory->CloseInactiveFrameLoaderOwners();
-      }));
+      NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+        "nsFrameLoader::StartDestroy", [groupedSHistory]() {
+          groupedSHistory->CloseInactiveFrameLoaderOwners();
+        }));
     }
   }
 
@@ -2247,6 +2261,10 @@ nsFrameLoader::OwnerIsIsolatedMozBrowserFrame()
 bool
 nsFrameLoader::ShouldUseRemoteProcess()
 {
+  if (IsForJSPlugin()) {
+    return true;
+  }
+
   if (PR_GetEnv("MOZ_DISABLE_OOP_TABS") ||
       Preferences::GetBool("dom.ipc.tabs.disabled", false)) {
     return false;
@@ -2911,7 +2929,9 @@ nsFrameLoader::TryRemoteBrowser()
   }
 
   // <iframe mozbrowser> gets to skip these checks.
-  if (!OwnerIsMozBrowserFrame()) {
+  // iframes for JS plugins also get to skip these checks. We control the URL that gets
+  // loaded, but the load is triggered from the document containing the plugin.
+  if (!OwnerIsMozBrowserFrame() && !IsForJSPlugin()) {
     if (parentDocShell->ItemType() != nsIDocShellTreeItem::typeChrome) {
       // Allow about:addon an exception to this rule so it can load remote
       // extension options pages.
@@ -2960,8 +2980,7 @@ nsFrameLoader::TryRemoteBrowser()
     return false;
   }
 
-  PROFILER_LABEL("nsFrameLoader", "CreateRemoteBrowser",
-    js::ProfileEntry::Category::OTHER);
+  AUTO_PROFILER_LABEL("nsFrameLoader::TryRemoteBrowser:Create", OTHER);
 
   MutableTabContext context;
   nsresult rv = GetNewTabContext(&context);
@@ -3006,6 +3025,16 @@ nsFrameLoader::TryRemoteBrowser()
     nsCOMPtr<nsIBrowserDOMWindow> browserDOMWin;
     rootChromeWin->GetBrowserDOMWindow(getter_AddRefs(browserDOMWin));
     mRemoteBrowser->SetBrowserDOMWindow(browserDOMWin);
+  }
+
+  // Send down the name of the browser through mRemoteBrowser if it is set.
+  // Only do this on xul:browsers for now.
+  if (mOwnerContent->IsXULElement()) {
+    nsAutoString frameName;
+    mOwnerContent->GetAttr(kNameSpaceID_None, nsGkAtoms::name, frameName);
+    if (nsContentUtils::IsOverridingWindowName(frameName)) {
+      Unused << mRemoteBrowser->SendSetWindowName(frameName);
+    }
   }
 
   ReallyLoadFrameScripts();
@@ -3142,6 +3171,7 @@ public:
                         JS::Handle<JSObject*> aCpows,
                         nsFrameLoader* aFrameLoader)
     : nsSameProcessAsyncMessageBase(aRootingCx, aCpows)
+    , mozilla::Runnable("nsAsyncMessageToChild")
     , mFrameLoader(aFrameLoader)
   {
   }
@@ -3495,29 +3525,6 @@ nsFrameLoader::Print(uint64_t aOuterWindowID,
   return NS_OK;
 }
 
-/* [infallible] */ NS_IMETHODIMP
-nsFrameLoader::SetVisible(bool aVisible)
-{
-  if (mVisible == aVisible) {
-    return NS_OK;
-  }
-
-  mVisible = aVisible;
-  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
-  if (os) {
-    os->NotifyObservers(NS_ISUPPORTS_CAST(nsIFrameLoader*, this),
-                        "frameloader-visible-changed", nullptr);
-  }
-  return NS_OK;
-}
-
-/* [infallible] */ NS_IMETHODIMP
-nsFrameLoader::GetVisible(bool* aVisible)
-{
-  *aVisible = mVisible;
-  return NS_OK;
-}
-
 NS_IMETHODIMP
 nsFrameLoader::GetTabParent(nsITabParent** aTabParent)
 {
@@ -3648,6 +3655,11 @@ nsresult
 nsFrameLoader::GetNewTabContext(MutableTabContext* aTabContext,
                                 nsIURI* aURI)
 {
+  if (IsForJSPlugin()) {
+    return aTabContext->SetTabContextForJSPluginFrame(mJSPluginID) ? NS_OK :
+           NS_ERROR_FAILURE;
+  }
+
   OriginAttributes attrs;
   attrs.mInIsolatedMozBrowser = OwnerIsIsolatedMozBrowserFrame();
   nsresult rv;

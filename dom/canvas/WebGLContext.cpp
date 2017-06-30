@@ -1737,9 +1737,10 @@ class UpdateContextLossStatusTask : public CancelableRunnable
     RefPtr<WebGLContext> mWebGL;
 
 public:
-    explicit UpdateContextLossStatusTask(WebGLContext* webgl)
-        : mWebGL(webgl)
-    {
+  explicit UpdateContextLossStatusTask(WebGLContext* webgl)
+    : CancelableRunnable("UpdateContextLossStatusTask")
+    , mWebGL(webgl)
+  {
     }
 
     NS_IMETHOD Run() override {
@@ -2352,7 +2353,7 @@ WebGLContext::GetVRFrame()
 
     if (sharedSurface && sharedSurface->GetAllocator() != vrmc) {
         RefPtr<SharedSurfaceTextureClient> dest =
-        screen->Factory()->NewTexClient(sharedSurface->GetSize());
+        screen->Factory()->NewTexClient(sharedSurface->GetSize(), vrmc);
         if (!dest) {
             return nullptr;
         }

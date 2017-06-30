@@ -37,11 +37,10 @@
 #include "nsError.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/Element.h"
-#include "mozilla/dom/EncodingUtils.h"
+#include "mozilla/Encoding.h"
 #include "mozilla/UniquePtr.h"
 
 using namespace mozilla;
-using mozilla::dom::EncodingUtils;
 using mozilla::net::ReferrerPolicy;
 
 static NS_DEFINE_CID(kCParserCID, NS_PARSER_CID);
@@ -85,7 +84,8 @@ public:
     NS_IMETHOD WillResume(void) override { return NS_OK; }
     NS_IMETHOD SetParser(nsParserBase* aParser) override { return NS_OK; }
     virtual void FlushPendingNotifications(mozilla::FlushType aType) override { }
-    NS_IMETHOD SetDocumentCharset(nsACString& aCharset) override { return NS_OK; }
+    virtual void SetDocumentCharset(NotNull<const Encoding*> aEncoding)
+      override { }
     virtual nsISupports *GetTarget() override { return nullptr; }
 
 private:
@@ -257,19 +257,20 @@ txStylesheetSink::OnStartRequest(nsIRequest *aRequest, nsISupports *aContext)
     nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
 
     // check channel's charset...
+    const Encoding* encoding = nullptr;
     nsAutoCString charsetVal;
-    nsAutoCString charset;
     if (NS_SUCCEEDED(channel->GetContentCharset(charsetVal))) {
-        if (EncodingUtils::FindEncodingForLabel(charsetVal, charset)) {
+        encoding = Encoding::ForLabel(charsetVal);
+        if (encoding) {
             charsetSource = kCharsetFromChannel;
         }
     }
 
-    if (charset.IsEmpty()) {
-      charset.AssignLiteral("UTF-8");
+    if (!encoding) {
+        encoding = UTF_8_ENCODING;
     }
 
-    mParser->SetDocumentCharset(charset, charsetSource);
+    mParser->SetDocumentCharset(WrapNotNull(encoding), charsetSource);
 
     nsAutoCString contentType;
     channel->GetContentType(contentType);

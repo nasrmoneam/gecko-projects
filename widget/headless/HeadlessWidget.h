@@ -47,9 +47,11 @@ public:
                       double aHeight,
                       bool   aRepaint) override;
   virtual void SetSizeMode(nsSizeMode aMode) override;
+  virtual nsresult MakeFullScreen(bool aFullScreen,
+                                  nsIScreen* aTargetScreen = nullptr) override;
   virtual void Enable(bool aState) override;
   virtual bool IsEnabled() const override;
-  virtual nsresult SetFocus(bool aRaise) override { return NS_OK; }
+  virtual nsresult SetFocus(bool aRaise) override;
   virtual nsresult ConfigureChildren(const nsTArray<Configuration>& aConfigurations) override
   {
     MOZ_ASSERT_UNREACHABLE("Headless widgets do not support configuring children.");
@@ -86,10 +88,13 @@ private:
   ~HeadlessWidget() {}
   bool mEnabled;
   bool mVisible;
+  // The size mode before entering fullscreen mode.
+  nsSizeMode mLastSizeMode;
   InputContext mInputContext;
   // In headless there is no window manager to track window bounds
   // across size mode changes, so we must track it to emulate.
   LayoutDeviceIntRect mRestoreBounds;
+  void SendSetZLevelEvent();
 };
 
 } // namespace widget

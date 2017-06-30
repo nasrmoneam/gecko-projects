@@ -104,6 +104,9 @@ class TsBase(Test):
         'xperf_user_providers',
         'xperf_stackwalk',
         'tpmozafterpaint',
+        'firstpaint',
+        'userready',
+        'testeventmap',
         'extensions',
         'filters',
         'setup',
@@ -144,7 +147,7 @@ class ts_paint(TsBase):
 
 @register_test()
 class ts_paint_webext(ts_paint):
-    webextensions = '${talos}/webextensions/dummy/dummy.xpi'
+    webextensions = '${talos}/webextensions/dummy/dummy-signed.xpi'
     preferences = {'xpinstall.signatures.required': False}
 
 
@@ -164,10 +167,11 @@ class sessionrestore(TsBase):
     gecko_profile_startup = True
     gecko_profile_entries = 10000000
     profile_path = '${talos}/startup_test/sessionrestore/profile'
-    url = 'startup_test/sessionrestore/index.html'
     shutdown = False
     reinstall = ['sessionstore.js', 'sessionCheckpoints.json']
-    # Restore the session
+    # Restore the session. We have to provide a URL, otherwise Talos
+    # asks for a manifest URL.
+    url = 'about:home'
     preferences = {'browser.startup.page': 3}
     unit = 'ms'
 
@@ -181,7 +185,6 @@ class sessionrestore_no_auto_restore(sessionrestore):
     2. Launch Firefox.
     3. Measure the delta between firstPaint and sessionRestored.
     """
-    # Restore about:home
     preferences = {'browser.startup.page': 1}
 
 
@@ -235,14 +238,27 @@ class PageloaderTest(Test):
     cycles = None
     timeout = None
     keys = ['tpmanifest', 'tpcycles', 'tppagecycles', 'tprender', 'tpchrome',
-            'tpmozafterpaint', 'tploadnocache', 'rss', 'mainthread',
-            'resolution', 'cycles', 'gecko_profile', 'gecko_profile_interval',
-            'gecko_profile_entries', 'tptimeout', 'win_counters', 'w7_counters',
-            'linux_counters', 'mac_counters', 'tpscrolltest', 'xperf_counters',
-            'timeout', 'shutdown', 'responsiveness', 'profile_path',
-            'xperf_providers', 'xperf_user_providers', 'xperf_stackwalk',
+            'tpmozafterpaint', 'tploadnocache', 'firstpaint', 'userready',
+            'testeventmap', 'rss', 'mainthread', 'resolution', 'cycles',
+            'gecko_profile', 'gecko_profile_interval', 'gecko_profile_entries',
+            'tptimeout', 'win_counters', 'w7_counters', 'linux_counters', 'mac_counters',
+            'tpscrolltest', 'xperf_counters', 'timeout', 'shutdown', 'responsiveness',
+            'profile_path', 'xperf_providers', 'xperf_user_providers', 'xperf_stackwalk',
             'filters', 'preferences', 'extensions', 'setup', 'cleanup',
             'lower_is_better', 'alert_threshold', 'unit', 'webextensions']
+
+
+class QuantumPageloadTest(PageloaderTest):
+    """
+    Base class for a Quantum Pageload test
+    """
+    tpcycles = 1
+    tppagecycles = 25
+    gecko_profile_interval = 1
+    gecko_profile_entries = 2000000
+    filters = filter.ignore_first.prepare(5) + filter.median.prepare()
+    unit = 'ms'
+    lower_is_better = True
 
 
 @register_test()
@@ -407,6 +423,7 @@ class glterrain(PageloaderTest):
     tppagecycles = 25
     tploadnocache = True
     tpmozafterpaint = False
+    tpchrome = False
     gecko_profile_interval = 10
     gecko_profile_entries = 2000000
     win_counters = w7_counters = linux_counters = mac_counters = None
@@ -430,6 +447,7 @@ class glvideo(PageloaderTest):
     tppagecycles = 5
     tploadnocache = True
     tpmozafterpaint = False
+    tpchrome = False
     gecko_profile_interval = 2
     gecko_profile_entries = 2000000
     win_counters = w7_counters = linux_counters = mac_counters = None
@@ -510,7 +528,7 @@ class tp5o(PageloaderTest):
 
 @register_test()
 class tp5o_webext(tp5o):
-    webextensions = '${talos}/webextensions/dummy/dummy.xpi'
+    webextensions = '${talos}/webextensions/dummy/dummy-signed.xpi'
     preferences = {'xpinstall.signatures.required': False}
 
 
@@ -570,6 +588,7 @@ class kraken(PageloaderTest):
     gecko_profile_interval = 0.1
     gecko_profile_entries = 1000000
     tpmozafterpaint = False
+    tpchrome = False
     preferences = {'dom.send_after_paint_to_content': False}
     filters = filter.mean.prepare()
     unit = 'score'
@@ -583,6 +602,7 @@ class basic_compositor_video(PageloaderTest):
     tpmanifest = '${talos}/tests/video/video.manifest'
     tpcycles = 1
     tppagecycles = 12
+    tpchrome = False
     timeout = 10000
     gecko_profile_interval = 1
     gecko_profile_entries = 2000000
@@ -622,6 +642,7 @@ class dromaeo(PageloaderTest):
     filters = filter.dromaeo.prepare()
     lower_is_better = False
     alert_threshold = 5.0
+    tpchrome = False
 
 
 @register_test()
@@ -665,6 +686,7 @@ class tsvgm(PageloaderTest):
     tpcycles = 1
     tppagecycles = 7
     tpmozafterpaint = False
+    tpchrome = False
     gecko_profile_interval = 10
     gecko_profile_entries = 1000000
     """ASAP mode"""
@@ -685,6 +707,7 @@ class tsvgx(PageloaderTest):
     tpcycles = 1
     tppagecycles = 25
     tpmozafterpaint = False
+    tpchrome = False
     gecko_profile_interval = 10
     gecko_profile_entries = 1000000
     """ASAP mode"""
@@ -705,6 +728,7 @@ class tsvg_static(PageloaderTest):
     tpcycles = 1
     tppagecycles = 25
     tpmozafterpaint = True
+    tpchrome = False
     gecko_profile_interval = 1
     gecko_profile_entries = 10000000
     filters = filter.ignore_first.prepare(5) + filter.median.prepare()
@@ -720,6 +744,7 @@ class tsvgr_opacity(PageloaderTest):
     tpcycles = 1
     tppagecycles = 25
     tpmozafterpaint = True
+    tpchrome = False
     gecko_profile_interval = 1
     gecko_profile_entries = 10000000
     filters = filter.ignore_first.prepare(5) + filter.median.prepare()
@@ -735,6 +760,7 @@ class tscrollx(PageloaderTest):
     tpcycles = 1
     tppagecycles = 25
     tpmozafterpaint = False
+    tpchrome = False
     gecko_profile_interval = 1
     gecko_profile_entries = 1000000
     """ ASAP mode """
@@ -757,6 +783,7 @@ class a11yr(PageloaderTest):
     tpcycles = 1
     tppagecycles = 25
     tpmozafterpaint = True
+    tpchrome = False
     preferences = {'dom.send_after_paint_to_content': False}
     unit = 'ms'
     alert_threshold = 5.0
@@ -795,15 +822,32 @@ class bloom_basic_ref(PageloaderTest):
 
 
 @register_test()
-class Quantum_1(PageloaderTest):
+class quantum_pageload_google(QuantumPageloadTest):
     """
-    Quantum Pageload Test 1
+    Quantum Pageload Test - Google
     """
-    tpmanifest = '${talos}/tests/quantum_pageload/quantum_1.manifest'
-    tpcycles = 1
-    tppagecycles = 25
-    gecko_profile_interval = 1
-    gecko_profile_entries = 2000000
-    filters = filter.ignore_first.prepare(5) + filter.median.prepare()
-    unit = 'ms'
-    lower_is_better = True
+    tpmanifest = '${talos}/tests/quantum_pageload/quantum_pageload_google.manifest'
+
+
+@register_test()
+class quantum_pageload_youtube(QuantumPageloadTest):
+    """
+    Quantum Pageload Test - YouTube
+    """
+    tpmanifest = '${talos}/tests/quantum_pageload/quantum_pageload_youtube.manifest'
+
+
+@register_test()
+class quantum_pageload_amazon(QuantumPageloadTest):
+    """
+    Quantum Pageload Test - Amazon
+    """
+    tpmanifest = '${talos}/tests/quantum_pageload/quantum_pageload_amazon.manifest'
+
+
+@register_test()
+class quantum_pageload_facebook(QuantumPageloadTest):
+    """
+    Quantum Pageload Test - Facebook
+    """
+    tpmanifest = '${talos}/tests/quantum_pageload/quantum_pageload_facebook.manifest'

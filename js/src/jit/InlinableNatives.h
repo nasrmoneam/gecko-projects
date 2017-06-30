@@ -27,6 +27,8 @@
     _(AtomicsXor)                   \
     _(AtomicsIsLockFree)            \
                                     \
+    _(Boolean)                      \
+                                    \
     _(IntlIsCollator)               \
     _(IntlIsDateTimeFormat)         \
     _(IntlIsNumberFormat)           \
@@ -119,6 +121,7 @@
     _(IntrinsicIsConstructing)      \
     _(IntrinsicSubstringKernel)     \
     _(IntrinsicObjectHasPrototype)  \
+    _(IntrinsicFinishBoundFunctionInit) \
                                     \
     _(IntrinsicIsArrayIterator)     \
     _(IntrinsicIsMapIterator)       \

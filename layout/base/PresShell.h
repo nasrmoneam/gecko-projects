@@ -122,7 +122,6 @@ public:
   virtual nsIPageSequenceFrame* GetPageSequenceFrame() const override;
   virtual nsCanvasFrame* GetCanvasFrame() const override;
 
-  virtual nsPlaceholderFrame* GetPlaceholderFrameFor(nsIFrame* aFrame) const override;
   virtual void FrameNeedsReflow(nsIFrame *aFrame, IntrinsicDirty aIntrinsicDirty,
                                 nsFrameState aBitToAdd,
                                 ReflowRootHandling aRootHandling =
@@ -210,6 +209,8 @@ public:
                   uint32_t aFlags) override;
 
   virtual already_AddRefed<nsPIDOMWindowOuter> GetRootWindow() override;
+
+  virtual already_AddRefed<nsPIDOMWindowOuter> GetFocusedDOMWindowInOurWindow() override;
 
   virtual LayerManager* GetLayerManager() override;
 
@@ -319,7 +320,7 @@ public:
   virtual void DumpReflows() override;
   virtual void CountReflows(const char * aName, nsIFrame * aFrame) override;
   virtual void PaintCount(const char * aName,
-                                      nsRenderingContext* aRenderingContext,
+                                      gfxContext* aRenderingContext,
                                       nsPresContext* aPresContext,
                                       nsIFrame * aFrame,
                                       const nsPoint& aOffset,
@@ -370,11 +371,12 @@ public:
   virtual void LoadComplete() override;
 
   void AddSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
-                              nsArenaMemoryStats *aArenaObjectsSize,
-                              size_t *aPresShellSize,
-                              size_t *aStyleSetsSize,
-                              size_t *aTextRunsSize,
-                              size_t *aPresContextSize) override;
+                              nsArenaMemoryStats* aArenaObjectsSize,
+                              size_t* aPresShellSize,
+                              size_t* aStyleSetsSize,
+                              size_t* aTextRunsSize,
+                              size_t* aPresContextSize,
+                              size_t* aFramePropertiesSize) override;
   size_t SizeOfTextRuns(mozilla::MallocSizeOf aMallocSizeOf) const;
 
   // This data is stored as a content property (nsGkAtoms::scrolling) on
@@ -688,9 +690,6 @@ protected:
   nsresult HandlePositionedEvent(nsIFrame* aTargetFrame,
                                  mozilla::WidgetGUIEvent* aEvent,
                                  nsEventStatus* aEventStatus);
-  // This returns the focused DOM window under our top level window.
-  //  I.e., when we are deactive, this returns the *last* focused DOM window.
-  already_AddRefed<nsPIDOMWindowOuter> GetFocusedDOMWindowInOurWindow();
 
   /*
    * This and the next two helper methods are used to target and position the
@@ -862,6 +861,11 @@ protected:
   // Used in case we need re-dispatch event after sending pointer event,
   // when target of pointer event was deleted during executing user handlers.
   nsCOMPtr<nsIContent>      mPointerEventTarget;
+
+  // The focus sequence number of the last processed input event
+  uint64_t                  mAPZFocusSequenceNumber;
+  // The focus information needed for async keyboard scrolling
+  FocusTarget               mAPZFocusTarget;
 
   // This is used to protect ourselves from triggering reflow while in the
   // middle of frame construction and the like... it really shouldn't be

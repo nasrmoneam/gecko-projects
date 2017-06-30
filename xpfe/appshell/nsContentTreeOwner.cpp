@@ -429,7 +429,8 @@ NS_IMETHODIMP nsContentTreeOwner::ReloadInFreshProcess(nsIDocShell* aDocShell,
 }
 
 NS_IMETHODIMP nsContentTreeOwner::StartPrerenderingDocument(nsIURI* aHref,
-                                                            nsIURI* aReferrer)
+                                                            nsIURI* aReferrer,
+                                                            nsIPrincipal* aTriggeringPrincipal)
 {
   NS_WARNING("Cannot prerender a document in the parent process");
   return NS_ERROR_FAILURE;
@@ -941,7 +942,8 @@ class nsContentTitleSettingEvent : public Runnable
 {
 public:
   nsContentTitleSettingEvent(dom::Element* dse, const nsAString& wtm)
-    : mElement(dse),
+    : Runnable("nsContentTitleSettingEvent"),
+      mElement(dse),
       mTitleDefault(wtm) {}
 
   NS_IMETHOD Run() override

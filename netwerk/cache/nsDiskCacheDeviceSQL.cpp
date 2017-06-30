@@ -299,10 +299,11 @@ nsOfflineCacheEvictionFunction::Apply()
 class nsOfflineCacheDiscardCache : public Runnable
 {
 public:
-  nsOfflineCacheDiscardCache(nsOfflineCacheDevice *device,
-			     nsCString &group,
-			     nsCString &clientID)
-    : mDevice(device)
+  nsOfflineCacheDiscardCache(nsOfflineCacheDevice* device,
+                             nsCString& group,
+                             nsCString& clientID)
+    : mozilla::Runnable("nsOfflineCacheDiscardCache")
+    , mDevice(device)
     , mGroup(group)
     , mClientID(clientID)
   {
@@ -920,7 +921,8 @@ nsApplicationCache::GetUsage(uint32_t *usage)
 
 class nsCloseDBEvent : public Runnable {
 public:
-  explicit nsCloseDBEvent(mozIStorageConnection *aDB)
+  explicit nsCloseDBEvent(mozIStorageConnection* aDB)
+    : mozilla::Runnable("nsCloseDBEvent")
   {
     mDB = aDB;
   }
@@ -1207,7 +1209,7 @@ nsOfflineCacheDevice::InitWithSqlite(mozIStorageService * ss)
   rv = ss->OpenDatabase(indexFile, getter_AddRefs(mDB));
   NS_ENSURE_SUCCESS(rv, rv);
 
-  mInitThread = do_GetCurrentThread();
+  mInitEventTarget = GetCurrentThreadEventTarget();
 
   mDB->ExecuteSimpleSQL(NS_LITERAL_CSTRING("PRAGMA synchronous = OFF;"));
 
@@ -1358,7 +1360,7 @@ nsOfflineCacheDevice::InitWithSqlite(mozIStorageService * ss)
 namespace {
 
 nsresult
-GetGroupForCache(const nsCSubstring &clientID, nsCString &group)
+GetGroupForCache(const nsACString& clientID, nsCString& group)
 {
   group.Assign(clientID);
   group.Truncate(group.FindChar('|'));
@@ -1492,14 +1494,14 @@ nsOfflineCacheDevice::Shutdown()
 
   // Close Database on the correct thread
   bool isOnCurrentThread = true;
-  if (mInitThread)
-    mInitThread->IsOnCurrentThread(&isOnCurrentThread);
+  if (mInitEventTarget)
+    isOnCurrentThread = mInitEventTarget->IsOnCurrentThread();
 
   if (!isOnCurrentThread) {
     nsCOMPtr<nsIRunnable> ev = new nsCloseDBEvent(mDB);
 
     if (ev) {
-      mInitThread->Dispatch(ev, NS_DISPATCH_NORMAL);
+      mInitEventTarget->Dispatch(ev, NS_DISPATCH_NORMAL);
     }
   }
   else {
@@ -1507,7 +1509,7 @@ nsOfflineCacheDevice::Shutdown()
   }
 
   mDB = nullptr;
-  mInitThread = nullptr;
+  mInitEventTarget = nullptr;
 
   return NS_OK;
 }
@@ -2791,8 +2793,8 @@ nsOfflineCacheDevice::CacheOpportunistically(nsIApplicationCache* cache,
 }
 
 nsresult
-nsOfflineCacheDevice::ActivateCache(const nsCSubstring &group,
-                                    const nsCSubstring &clientID)
+nsOfflineCacheDevice::ActivateCache(const nsACString& group,
+                                    const nsACString& clientID)
 {
   NS_ENSURE_TRUE(Initialized(), NS_ERROR_NOT_INITIALIZED);
 
@@ -2827,8 +2829,8 @@ nsOfflineCacheDevice::ActivateCache(const nsCSubstring &group,
 }
 
 bool
-nsOfflineCacheDevice::IsActiveCache(const nsCSubstring &group,
-                                    const nsCSubstring &clientID)
+nsOfflineCacheDevice::IsActiveCache(const nsACString& group,
+                                    const nsACString& clientID)
 {
   nsCString *active = nullptr;
   MutexAutoLock lock(mLock);

@@ -138,8 +138,10 @@ class nsXULPopupShownEvent : public mozilla::Runnable,
                              public nsIDOMEventListener
 {
 public:
-  nsXULPopupShownEvent(nsIContent *aPopup, nsPresContext* aPresContext)
-    : mPopup(aPopup), mPresContext(aPresContext)
+  nsXULPopupShownEvent(nsIContent* aPopup, nsPresContext* aPresContext)
+    : mozilla::Runnable("nsXULPopupShownEvent")
+    , mPopup(aPopup)
+    , mPresContext(aPresContext)
   {
   }
 
@@ -247,6 +249,8 @@ public:
                                    nsFrameList& aChildList) override;
 
   virtual bool IsLeafDynamic() const override;
+
+  virtual void UpdateWidgetProperties() override;
 
   // layout, position and display the popup as needed
   void LayoutPopup(nsBoxLayoutState& aState, nsIFrame* aParentMenu,
@@ -635,6 +639,11 @@ protected:
   bool mInContentShell; // True if the popup is in a content shell
   bool mIsMenuLocked; // Should events inside this menu be ignored?
   bool mMouseTransparent; // True if this is a popup is transparent to mouse events
+
+  // True if this popup has been offset due to moving off / near the edge of the screen.
+  // (This is useful for ensuring that a move, which can't offset the popup, doesn't undo
+  // a previously set offset.)
+  bool mIsOffset;
 
   // the flip modes that were used when the popup was opened
   bool mHFlip;

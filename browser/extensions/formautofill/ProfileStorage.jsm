@@ -35,6 +35,7 @@
  *       address-line1,
  *       address-line2,
  *       address-line3,
+ *       country-name,
  *
  *       // metadata
  *       timeCreated,          // in ms
@@ -94,6 +95,16 @@ XPCOMUtils.defineLazyModuleGetter(this, "FormAutofillNameUtils",
 XPCOMUtils.defineLazyServiceGetter(this, "gUUIDGenerator",
                                    "@mozilla.org/uuid-generator;1",
                                    "nsIUUIDGenerator");
+
+XPCOMUtils.defineLazyGetter(this, "REGION_NAMES", function() {
+  let regionNames = {};
+  let countries = Services.strings.createBundle("chrome://global/locale/regionNames.properties").getSimpleEnumeration();
+  while (countries.hasMoreElements()) {
+    let country = countries.getNext().QueryInterface(Components.interfaces.nsIPropertyElement);
+    regionNames[country.key.toUpperCase()] = country.value;
+  }
+  return regionNames;
+});
 
 const PROFILE_JSON_FILE_NAME = "autofill-profiles.json";
 
@@ -182,24 +193,38 @@ class AutofillRecords {
    */
   add(record) {
     this.log.debug("add:", record);
+    let recordToSave;
+    if (record.deleted) {
+      if (!record.guid) {
+        throw new Error("you must specify the GUID when creating a tombstone");
+      }
+      if (this._findByGUID(record.guid, {includeDeleted: true})) {
+        throw new Error("a record with this GUID already exists");
+      }
+      recordToSave = {
+        guid: record.guid,
+        timeLastModified: record.timeLastModified || Date.now(),
+        deleted: true,
+      };
+    } else {
+      recordToSave = this._clone(record);
+      this._normalizeRecord(recordToSave);
 
-    let recordToSave = this._clone(record);
-    this._normalizeRecord(recordToSave);
+      let guid;
+      while (!guid || this._findByGUID(guid)) {
+        guid = gUUIDGenerator.generateUUID().toString()
+                             .replace(/[{}-]/g, "").substring(0, 12);
+      }
+      recordToSave.guid = guid;
+      recordToSave.version = this.version;
 
-    let guid;
-    while (!guid || this._findByGUID(guid)) {
-      guid = gUUIDGenerator.generateUUID().toString()
-                           .replace(/[{}-]/g, "").substring(0, 12);
+      // Metadata
+      let now = Date.now();
+      recordToSave.timeCreated = now;
+      recordToSave.timeLastModified = now;
+      recordToSave.timeLastUsed = 0;
+      recordToSave.timesUsed = 0;
     }
-    recordToSave.guid = guid;
-    recordToSave.version = this.version;
-
-    // Metadata
-    let now = Date.now();
-    recordToSave.timeCreated = now;
-    recordToSave.timeLastModified = now;
-    recordToSave.timeLastUsed = 0;
-    recordToSave.timesUsed = 0;
 
     this._store.data[this._collectionName].push(recordToSave);
     this._store.saveSoon();
@@ -272,8 +297,17 @@ class AutofillRecords {
   remove(guid) {
     this.log.debug("remove:", guid);
 
-    this._store.data[this._collectionName] =
-      this._store.data[this._collectionName].filter(record => record.guid != guid);
+    let index = this._findIndexByGUID(guid);
+    if (index == -1) {
+      this.log.warn("attempting to remove non-existing entry", guid);
+      return;
+    }
+    // replace the record with a tombstone.
+    this._store.data[this._collectionName][index] = {
+      guid,
+      timeLastModified: Date.now(),
+      deleted: true,
+    };
     this._store.saveSoon();
 
     Services.obs.notifyObservers(null, "formautofill-storage-changed", "remove");
@@ -304,19 +338,20 @@ class AutofillRecords {
   /**
    * Returns all records.
    *
-   * @param   {Object} config
-   *          Specifies how data will be retrieved.
-   * @param   {boolean} config.noComputedFields
+   * @param   {boolean} [options.noComputedFields = false]
    *          Returns raw record without those computed fields.
+   * @param   {boolean} [options.includeDeleted = false]
+   *          Also return any tombstone records.
    * @returns {Array.<Object>}
    *          An array containing clones of all records.
    */
-  getAll(config = {}) {
-    this.log.debug("getAll", config);
+  getAll({noComputedFields = false, includeDeleted = false} = {}) {
+    this.log.debug("getAll", noComputedFields, includeDeleted);
 
+    let records = this._store.data[this._collectionName].filter(r => !r.deleted || includeDeleted);
     // Records are cloned to avoid accidental modifications from outside.
-    let clonedRecords = this._store.data[this._collectionName].map(this._clone);
-    clonedRecords.forEach(record => this._recordReadProcessor(record, config));
+    let clonedRecords = records.map(this._clone);
+    clonedRecords.forEach(record => this._recordReadProcessor(record, {noComputedFields}));
     return clonedRecords;
   }
 
@@ -351,13 +386,15 @@ class AutofillRecords {
     return Object.assign({}, record);
   }
 
-  _findByGUID(guid) {
-    let found = this._findIndexByGUID(guid);
+  _findByGUID(guid, {includeDeleted = false} = {}) {
+    let found = this._findIndexByGUID(guid, {includeDeleted});
     return found < 0 ? undefined : this._store.data[this._collectionName][found];
   }
 
-  _findIndexByGUID(guid) {
-    return this._store.data[this._collectionName].findIndex(record => record.guid == guid);
+  _findIndexByGUID(guid, {includeDeleted = false} = {}) {
+    return this._store.data[this._collectionName].findIndex(record => {
+      return record.guid == guid && (!record.deleted || includeDeleted);
+    });
   }
 
   _normalizeRecord(record) {
@@ -375,10 +412,16 @@ class AutofillRecords {
   }
 
   // An interface to be inherited.
-  _recordReadProcessor(record, config) {}
+  _recordReadProcessor(record, {noComputedFields = false} = {}) {}
 
   // An interface to be inherited.
   _recordWriteProcessor(record) {}
+
+  // An interface to be inherited.
+  mergeIfPossible(guid, record) {}
+
+  // An interface to be inherited.
+  mergeToStorage(targetRecord) {}
 }
 
 class Addresses extends AutofillRecords {
@@ -403,13 +446,30 @@ class Addresses extends AutofillRecords {
 
     // Compute address
     if (profile["street-address"]) {
-      let streetAddress = profile["street-address"].split("\n");
-      // TODO: we should prevent the dataloss by concatenating the rest of lines
-      //       with a locale-specific character in the future (bug 1360114).
-      for (let i = 0; i < 3; i++) {
+      let streetAddress = profile["street-address"].split("\n").map(s => s.trim());
+      for (let i = 0; i < 2; i++) {
         if (streetAddress[i]) {
           profile["address-line" + (i + 1)] = streetAddress[i];
         }
+      }
+      if (streetAddress.length > 2) {
+        profile["address-line3"] = FormAutofillUtils.toOneLineAddress(
+          streetAddress.splice(2)
+        );
+      }
+    }
+
+    // Compute country name
+    if (profile.country) {
+      if (profile.country == "US") {
+        let countryName = REGION_NAMES[profile.country];
+        if (countryName) {
+          profile["country-name"] = countryName;
+        }
+      } else {
+        // TODO: We only support US in MVP so hide the field if it's not. We
+        //       are going to support more countries in bug 1370193.
+        delete profile.country;
       }
     }
   }
@@ -453,6 +513,104 @@ class Addresses extends AutofillRecords {
         profile["street-address"] = addressLines.join("\n");
       }
     }
+
+    // Normalize country
+    if (profile.country) {
+      let country = profile.country.toUpperCase();
+      // Only values included in the region list will be saved.
+      if (REGION_NAMES[country]) {
+        profile.country = country;
+      } else {
+        delete profile.country;
+      }
+    } else if (profile["country-name"]) {
+      for (let region in REGION_NAMES) {
+        if (REGION_NAMES[region].toLowerCase() == profile["country-name"].toLowerCase()) {
+          profile.country = region;
+          break;
+        }
+      }
+    }
+    delete profile["country-name"];
+  }
+
+  /**
+   * Merge new address into the specified address if mergeable.
+   *
+   * @param  {string} guid
+   *         Indicates which address to merge.
+   * @param  {Object} address
+   *         The new address used to merge into the old one.
+   * @returns {boolean}
+   *          Return true if address is merged into target with specific guid or false if not.
+   */
+  mergeIfPossible(guid, address) {
+    this.log.debug("mergeIfPossible:", guid, address);
+
+    let addressFound = this._findByGUID(guid);
+    if (!addressFound) {
+      throw new Error("No matching address.");
+    }
+
+    let addressToMerge = this._clone(address);
+    this._normalizeRecord(addressToMerge);
+    let hasMatchingField = false;
+
+    for (let field of this.VALID_FIELDS) {
+      if (addressToMerge[field] !== undefined && addressFound[field] !== undefined) {
+        if (addressToMerge[field] != addressFound[field]) {
+          this.log.debug("Conflicts: field", field, "has different value.");
+          return false;
+        }
+        hasMatchingField = true;
+      }
+    }
+
+    // We merge the address only when at least one field has the same value.
+    if (!hasMatchingField) {
+      this.log.debug("Unable to merge because no field has the same value");
+      return false;
+    }
+
+    // Early return if the data is the same.
+    let exactlyMatch = this.VALID_FIELDS.every((field) =>
+      addressFound[field] === addressToMerge[field]
+    );
+    if (exactlyMatch) {
+      return true;
+    }
+
+    for (let field in addressToMerge) {
+      if (this.VALID_FIELDS.includes(field)) {
+        addressFound[field] = addressToMerge[field];
+      }
+    }
+
+    addressFound.timeLastModified = Date.now();
+    this._store.saveSoon();
+    let str = Cc["@mozilla.org/supports-string;1"]
+                 .createInstance(Ci.nsISupportsString);
+    str.data = guid;
+    Services.obs.notifyObservers(str, "formautofill-storage-changed", "merge");
+    return true;
+  }
+
+  /**
+   * Merge the address if storage has multiple mergeable records.
+   * @param {Object} targetAddress
+   *        The address for merge.
+   * @returns {Array.<string>}
+   *          Return an array of the merged GUID string.
+   */
+  mergeToStorage(targetAddress) {
+    let mergedGUIDs = [];
+    for (let address of this._store.data[this._collectionName]) {
+      if (!address.deleted && this.mergeIfPossible(address.guid, targetAddress)) {
+        mergedGUIDs.push(address.guid);
+      }
+    }
+    this.log.debug("Existing records matching and merging count is", mergedGUIDs.length);
+    return mergedGUIDs;
   }
 }
 

@@ -112,6 +112,8 @@
   /* 16px of the icon + 6px of margin-inline-end of .tab-icon-image */
   margin-inline-start: -22px;
   position: relative;
+  -moz-context-properties: fill;
+  fill: rgb(224, 41, 29);
 }
 
 .tab-sharing-icon-overlay[sharing="camera"] {
@@ -141,13 +143,13 @@
 
 .tab-icon-overlay[soundplaying],
 .tab-icon-overlay[muted]:not([crashed]),
-.tab-icon-overlay[blocked]:not([crashed]) {
+.tab-icon-overlay[activemedia-blocked]:not([crashed]) {
   border-radius: 10px;
 }
 
 .tab-icon-overlay[soundplaying]:hover,
 .tab-icon-overlay[muted]:not([crashed]):hover,
-.tab-icon-overlay[blocked]:not([crashed]):hover {
+.tab-icon-overlay[activemedia-blocked]:not([crashed]):hover {
   background-color: white;
 }
 
@@ -159,7 +161,7 @@
   list-style-image: url("chrome://browser/skin/tabbrowser/tab-audio-small.svg#tab-audio-muted");
 }
 
-.tab-icon-overlay[blocked]:not([crashed]) {
+.tab-icon-overlay[activemedia-blocked]:not([crashed]) {
   list-style-image: url("chrome://browser/skin/tabbrowser/tab-audio-small.svg#tab-audio-blocked");
 }
 
@@ -173,8 +175,8 @@
   list-style-image: url("chrome://browser/skin/tabbrowser/tab-audio-small.svg#tab-audio-white-muted");
 }
 
-#TabsToolbar[brighttext] .tab-icon-overlay[blocked]:not([crashed]):not([selected]):not(:hover),
-.tab-icon-overlay[blocked][selected]:-moz-lwtheme-brighttext:not(:hover) {
+#TabsToolbar[brighttext] .tab-icon-overlay[activemedia-blocked]:not([crashed]):not([selected]):not(:hover),
+.tab-icon-overlay[activemedia-blocked][selected]:-moz-lwtheme-brighttext:not(:hover) {
   list-style-image: url("chrome://browser/skin/tabbrowser/tab-audio-small.svg#tab-audio-white-blocked");
 }
 
@@ -206,35 +208,35 @@
 
 .tab-icon-sound[soundplaying],
 .tab-icon-sound[muted],
-.tab-icon-sound[blocked] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio);
-  filter: url(chrome://global/skin/filters.svg#fill);
+.tab-icon-sound[activemedia-blocked] {
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-playing.svg);
+  -moz-context-properties: fill;
   fill: currentColor;
 }
 
 .tab-icon-sound[muted] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio-muted);
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-muted.svg);
 }
 
-.tab-icon-sound[blocked] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio-blocked);
+.tab-icon-sound[activemedia-blocked] {
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-blocked.svg);
 }
 
 .tab-icon-sound:-moz-lwtheme-darktext[soundplaying],
 .tab-icon-sound:-moz-lwtheme-darktext[muted],
-.tab-icon-sound:-moz-lwtheme-darktext[blocked] {
-  filter: url(chrome://global/skin/filters.svg#fill) drop-shadow(1px 1px 1px white);
+.tab-icon-sound:-moz-lwtheme-darktext[activemedia-blocked] {
+  filter: drop-shadow(1px 1px 1px white);
 }
 
 .tab-icon-sound:-moz-lwtheme-brighttext[soundplaying],
 .tab-icon-sound:-moz-lwtheme-brighttext[muted],
-.tab-icon-sound:-moz-lwtheme-brighttext[blocked] {
-  filter: url(chrome://global/skin/filters.svg#fill) drop-shadow(1px 1px 1px black);
+.tab-icon-sound:-moz-lwtheme-brighttext[activemedia-blocked] {
+  filter: drop-shadow(1px 1px 1px black);
 }
 
 .tab-icon-sound[soundplaying]:not(:hover),
 .tab-icon-sound[muted]:not(:hover),
-.tab-icon-sound[blocked]:not(:hover) {
+.tab-icon-sound[activemedia-blocked]:not(:hover) {
   opacity: .8;
 }
 
@@ -453,7 +455,7 @@
 .tabs-newtab-button,
 .tab-icon-overlay[soundplaying],
 .tab-icon-overlay[muted]:not([crashed]),
-.tab-icon-overlay[blocked]:not([crashed]),
+.tab-icon-overlay[activemedia-blocked]:not([crashed]),
 .tab-icon-sound,
 .tab-close-button {
   pointer-events: auto;
@@ -469,10 +471,15 @@
 
 .tabbrowser-tab:-moz-any([image], [pinned]) > .tab-stack > .tab-content[attention]:not([selected="true"]),
 .tabbrowser-tab > .tab-stack > .tab-content[pinned][titlechanged]:not([selected="true"]) {
+%ifdef MOZ_PHOTON_THEME
+  background-image: url(chrome://browser/skin/tabbrowser/indicator-tab-attention.svg);
+  background-position: center bottom -3px;
+%else
   background-image: radial-gradient(farthest-corner at center bottom, rgb(255,255,255) 3%, rgba(186,221,251,0.75) 20%, rgba(127,179,255,0.25) 40%, transparent 70%);
   background-position: center bottom var(--tab-toolbar-navbar-overlap);
-  background-repeat: no-repeat;
   background-size: 85% 100%;
+%endif
+  background-repeat: no-repeat;
 }
 
 .tabbrowser-tab[image] > .tab-stack > .tab-content[attention]:not([pinned]):not([selected="true"]) {
@@ -522,6 +529,15 @@
 
 .tabs-newtab-button {
   width: calc(36px + var(--tab-curve-width));
+}
+
+.tabs-newtab-button > .toolbarbutton-menu-dropmarker {
+  display: none;
+}
+
+.tabs-newtab-button > .toolbarbutton-icon {
+  /* override drop marker image padding */
+  margin-inline-end: 0;
 }
 
 @media (min-resolution: 1.1dppx) {
@@ -580,16 +596,69 @@
 
 .alltabs-endimage[soundplaying],
 .alltabs-endimage[muted],
-.alltabs-endimage[blocked] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio);
-  filter: url(chrome://global/skin/filters.svg#fill);
+.alltabs-endimage[activemedia-blocked] {
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-playing.svg);
+  -moz-context-properties: fill;
   fill: currentColor;
 }
 
 .alltabs-endimage[muted] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio-muted);
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-muted.svg);
 }
 
-.alltabs-endimage[blocked] {
-  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio.svg#tab-audio-blocked);
+.alltabs-endimage[activemedia-blocked] {
+  list-style-image: url(chrome://browser/skin/tabbrowser/tab-audio-blocked.svg);
+}
+
+.restore-tabs-button-wrapper {
+  visibility: hidden;
+  position: fixed; /* so the button does not take up actual space and cause overflow buttons in the tabbar when hidden */
+}
+
+.restore-tabs-button-wrapper[shown] {
+  visibility: visible;
+  position: initial;
+}
+
+.restore-tabs-button {
+  box-sizing: border-box;
+  -moz-appearance: none;
+  background-color: hsl(0,0%,0%,.04);
+  border: 1px solid hsla(0,0%,16%,.2);
+  border-radius: 3px;
+  margin: 3px;
+  margin-inline-start: 9px;
+  transition: max-width 300ms;
+}
+
+.restore-tabs-button:hover {
+  background-color: hsl(0,0%,0%,.08);
+}
+
+.restore-tabs-button:active {
+  background-color: hsl(0,0%,0%,.11);
+}
+
+#TabsToolbar[brighttext] .restore-tabs-button {
+  background-color: hsl(0,0%,100%,.07);
+  border-color:currentColor;
+  color: currentColor;
+  opacity: .7;
+}
+
+#TabsToolbar[brighttext] .restore-tabs-button:hover {
+  background-color: hsl(0,0%,100%,.17);
+}
+
+#TabsToolbar[brighttext] .restore-tabs-button:active {
+  background-color: hsl(0,0%,100%,.27);
+}
+
+.restore-tabs-button > .toolbarbutton-icon {
+  display: none;
+}
+
+.restore-tabs-button > .toolbarbutton-text {
+  display: -moz-box;
+  padding: 0 5px;
 }

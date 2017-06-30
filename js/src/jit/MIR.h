@@ -7343,11 +7343,6 @@ class MConcat
 
         setMovable();
         setResultType(MIRType::String);
-
-        // StringConcat throws a catchable exception. Even though we bail to
-        // baseline in that case, we must set Guard to ensure the bailout
-        // happens.
-        setGuard();
     }
 
   public:
@@ -7496,15 +7491,19 @@ class MSinCos
 };
 
 class MStringSplit
-  : public MTernaryInstruction,
+  : public MBinaryInstruction,
     public MixPolicy<StringPolicy<0>, StringPolicy<1> >::Data
 {
+    CompilerObjectGroup group_;
+
     MStringSplit(CompilerConstraintList* constraints, MDefinition* string, MDefinition* sep,
-                 MConstant* templateObject)
-      : MTernaryInstruction(string, sep, templateObject)
+                 ObjectGroup* group)
+      : MBinaryInstruction(string, sep),
+        group_(group)
     {
         setResultType(MIRType::Object);
-        setResultTypeSet(templateObject->resultTypeSet());
+        TemporaryTypeSet* types = MakeSingletonTypeSet(constraints, group);
+        setResultTypeSet(types);
     }
 
   public:
@@ -7512,11 +7511,8 @@ class MStringSplit
     TRIVIAL_NEW_WRAPPERS
     NAMED_OPERANDS((0, string), (1, separator))
 
-    JSObject* templateObject() const {
-        return &getOperand(2)->toConstant()->toObject();
-    }
     ObjectGroup* group() const {
-        return templateObject()->group();
+        return group_;
     }
     bool possiblyCalls() const override {
         return true;
@@ -7529,6 +7525,9 @@ class MStringSplit
     MOZ_MUST_USE bool writeRecoverData(CompactBufferWriter& writer) const override;
     bool canRecoverOnBailout() const override {
         return true;
+    }
+    bool appendRoots(MRootList& roots) const override {
+        return roots.append(group_);
     }
 };
 
@@ -10783,6 +10782,7 @@ class InlinePropertyTable : public TempObject
         MOZ_ASSERT(priorResumePoint_ == nullptr);
         priorResumePoint_ = resumePoint;
     }
+    bool hasPriorResumePoint() { return bool(priorResumePoint_); }
     MResumePoint* takePriorResumePoint() {
         MResumePoint* rp = priorResumePoint_;
         priorResumePoint_ = nullptr;
@@ -13420,6 +13420,23 @@ class MHasClass
     }
 };
 
+// Note: we might call a proxy trap, so this instruction is effectful.
+class MIsArray
+  : public MUnaryInstruction,
+    public BoxExceptPolicy<0, MIRType::Object>::Data
+{
+    explicit MIsArray(MDefinition* value)
+      : MUnaryInstruction(value)
+    {
+        setResultType(MIRType::Boolean);
+    }
+
+  public:
+    INSTRUCTION_HEADER(IsArray)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, value))
+};
+
 class MCheckReturn
   : public MBinaryInstruction,
     public BoxInputsPolicy::Data
@@ -13768,11 +13785,28 @@ class MDebugCheckSelfHosted
 
 };
 
-class MAsmJSNeg
+class MFinishBoundFunctionInit
+  : public MTernaryInstruction,
+    public Mix3Policy<ObjectPolicy<0>, ObjectPolicy<1>, IntPolicy<2>>::Data
+{
+    MFinishBoundFunctionInit(MDefinition* bound, MDefinition* target, MDefinition* argCount)
+      : MTernaryInstruction(bound, target, argCount)
+    { }
+
+  public:
+    INSTRUCTION_HEADER(FinishBoundFunctionInit)
+    TRIVIAL_NEW_WRAPPERS
+    NAMED_OPERANDS((0, bound), (1, target), (2, argCount))
+};
+
+// Flips the input's sign bit, independently of the rest of the number's
+// payload. Note this is different from multiplying by minus-one, which has
+// side-effects for e.g. NaNs.
+class MWasmNeg
   : public MUnaryInstruction,
     public NoTypePolicy::Data
 {
-    MAsmJSNeg(MDefinition* op, MIRType type)
+    MWasmNeg(MDefinition* op, MIRType type)
       : MUnaryInstruction(op)
     {
         setResultType(type);
@@ -13780,7 +13814,7 @@ class MAsmJSNeg
     }
 
   public:
-    INSTRUCTION_HEADER(AsmJSNeg)
+    INSTRUCTION_HEADER(WasmNeg)
     TRIVIAL_NEW_WRAPPERS
 };
 

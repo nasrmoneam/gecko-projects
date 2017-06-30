@@ -17,14 +17,14 @@ interface HTMLOutputElement : HTMLElement {
   [PutForwards=value, Constant]
   readonly attribute DOMTokenList htmlFor;
   readonly attribute HTMLFormElement? form;
-  [SetterThrows, Pure]
+  [CEReactions, SetterThrows, Pure]
            attribute DOMString name;
 
   [Constant]
   readonly attribute DOMString type;
-  [SetterThrows, Pure]
+  [CEReactions, SetterThrows, Pure]
            attribute DOMString defaultValue;
-  [SetterThrows, Pure]
+  [CEReactions, SetterThrows, Pure]
            attribute DOMString value;
 
   readonly attribute boolean willValidate;
@@ -34,6 +34,5 @@ interface HTMLOutputElement : HTMLElement {
   boolean reportValidity();
   void setCustomValidity(DOMString error);
 
-// Not yet implemented (bug 556743).
-//  readonly attribute NodeList labels;
+  readonly attribute NodeList labels;
 };

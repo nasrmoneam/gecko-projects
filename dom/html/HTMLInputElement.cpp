@@ -70,6 +70,7 @@
 #include "mozilla/EventStates.h"
 #include "mozilla/GenericSpecifiedValuesInlines.h"
 #include "mozilla/InternalMutationEvent.h"
+#include "mozilla/TextEditor.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
 
@@ -1105,7 +1106,7 @@ UploadLastDir::Observe(nsISupports* aSubject, char const* aTopic, char16_t const
 //Helper method
 static nsresult FireEventForAccessibility(nsIDOMHTMLInputElement* aTarget,
                                           nsPresContext* aPresContext,
-                                          const nsAString& aEventType);
+                                          EventMessage aEventMessage);
 #endif
 
 nsTextEditorState* HTMLInputElement::sCachedTextEditorState = nullptr;
@@ -1371,10 +1372,6 @@ HTMLInputElement::BeforeSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       }
     } else if (aNotify && aName == nsGkAtoms::disabled) {
       mDisabledChanged = true;
-    } else if (aName == nsGkAtoms::dir &&
-               AttrValueIs(kNameSpaceID_None, nsGkAtoms::dir,
-                           nsGkAtoms::_auto, eIgnoreCase)) {
-      SetDirectionIfAuto(false, aNotify);
     } else if (mType == NS_FORM_INPUT_RADIO && aName == nsGkAtoms::required) {
       nsCOMPtr<nsIRadioGroupContainer> container = GetRadioGroupContainer();
 
@@ -1433,8 +1430,7 @@ HTMLInputElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
       if (!mDoneCreating) {
         mShouldInitChecked = true;
       } else {
-        DoSetChecked(DefaultChecked(), true, true);
-        SetCheckedChanged(false);
+        DoSetChecked(DefaultChecked(), true, false);
       }
     }
 
@@ -1502,7 +1498,7 @@ HTMLInputElement::AfterSetAttr(int32_t aNameSpaceID, nsIAtom* aName,
                  "HTML5 spec does not allow underflow for type=range");
     } else if (aName == nsGkAtoms::dir &&
                aValue && aValue->Equals(nsGkAtoms::_auto, eIgnoreCase)) {
-      SetDirectionIfAuto(true, aNotify);
+      SetDirectionFromValue(aNotify);
     } else if (aName == nsGkAtoms::lang) {
       if (mType == NS_FORM_INPUT_NUMBER) {
         // Update the value that is displayed to the user to the new locale:
@@ -1873,8 +1869,12 @@ HTMLInputElement::SetValue(const nsAString& aValue, CallerType aCallerType,
       nsAutoString currentValue;
       GetValue(currentValue, aCallerType);
 
+      // Some types sanitize value, so GetValue doesn't return pure
+      // previous value correctly.
       nsresult rv =
         SetValueInternal(aValue,
+          (IsExperimentalMobileType(mType) || IsDateTimeInputType(mType)) ?
+            nullptr : &currentValue,
           nsTextEditorState::eSetValue_ByContent |
           nsTextEditorState::eSetValue_Notify |
           nsTextEditorState::eSetValue_MoveCursorToEndIfValueChanged);
@@ -2521,6 +2521,20 @@ HTMLInputElement::SetFocusState(bool aIsFocused)
   }
 }
 
+void
+HTMLInputElement::UpdateValidityState()
+{
+  if (NS_WARN_IF(!IsDateTimeInputType(mType))) {
+    return;
+  }
+
+  // For now, datetime input box call this function only when the value may
+  // become valid/invalid. For other validity states, they will be updated when
+  // .value is actually changed.
+  UpdateBadInputValidityState();
+  UpdateState(true);
+}
+
 bool
 HTMLInputElement::MozIsTextField(bool aExcludePassword)
 {
@@ -2604,17 +2618,23 @@ HTMLInputElement::SetUserInput(const nsAString& aValue)
 nsIEditor*
 HTMLInputElement::GetEditor()
 {
+  return GetTextEditorFromState();
+}
+
+TextEditor*
+HTMLInputElement::GetTextEditorFromState()
+{
   nsTextEditorState* state = GetEditorState();
   if (state) {
-    return state->GetEditor();
+    return state->GetTextEditor();
   }
   return nullptr;
 }
 
-NS_IMETHODIMP_(nsIEditor*)
+NS_IMETHODIMP_(TextEditor*)
 HTMLInputElement::GetTextEditor()
 {
-  return GetEditor();
+  return GetTextEditorFromState();
 }
 
 NS_IMETHODIMP_(nsISelectionController*)
@@ -3032,7 +3052,9 @@ HTMLInputElement::UpdateFileList()
 }
 
 nsresult
-HTMLInputElement::SetValueInternal(const nsAString& aValue, uint32_t aFlags)
+HTMLInputElement::SetValueInternal(const nsAString& aValue,
+                                   const nsAString* aOldValue,
+                                   uint32_t aFlags)
 {
   NS_PRECONDITION(GetValueMode() != VALUE_MODE_FILENAME,
                   "Don't call SetValueInternal for file inputs");
@@ -3056,7 +3078,7 @@ HTMLInputElement::SetValueInternal(const nsAString& aValue, uint32_t aFlags)
       }
 
       if (IsSingleLineTextControl(false)) {
-        if (!mInputData.mState->SetValue(value, aFlags)) {
+        if (!mInputData.mState->SetValue(value, aOldValue, aFlags)) {
           return NS_ERROR_OUT_OF_MEMORY;
         }
         if (mType == NS_FORM_INPUT_EMAIL) {
@@ -3083,10 +3105,11 @@ HTMLInputElement::SetValueInternal(const nsAString& aValue, uint32_t aFlags)
           }
         } else if ((mType == NS_FORM_INPUT_TIME ||
                     mType == NS_FORM_INPUT_DATE) &&
-                   !IsExperimentalMobileType(mType)) {
+                   !IsExperimentalMobileType(mType) &&
+                   !(aFlags & nsTextEditorState::eSetValue_BySetUserInput)) {
           nsDateTimeControlFrame* frame = do_QueryFrame(GetPrimaryFrame());
           if (frame) {
-            frame->UpdateInputBoxValue();
+            frame->OnValueChanged();
           }
         }
         if (mDoneCreating) {
@@ -4331,29 +4354,27 @@ HTMLInputElement::PostHandleEvent(EventChainPostVisitor& aVisitor)
       }
     } else {
       // Fire input event and then change event.
-      nsContentUtils::DispatchTrustedEvent(OwnerDoc(),
-                                           static_cast<nsIDOMHTMLInputElement*>(this),
-                                           NS_LITERAL_STRING("input"), true,
-                                           false);
+      nsContentUtils::DispatchTrustedEvent<InternalEditorInputEvent>
+        (OwnerDoc(), static_cast<nsIDOMHTMLInputElement*>(this),
+         eEditorInput, true, false);
 
-      nsContentUtils::DispatchTrustedEvent(OwnerDoc(),
-                                           static_cast<nsIDOMHTMLInputElement*>(this),
-                                           NS_LITERAL_STRING("change"), true,
-                                           false);
+      nsContentUtils::DispatchTrustedEvent<WidgetEvent>
+        (OwnerDoc(), static_cast<nsIDOMHTMLInputElement*>(this),
+         eFormChange, true, false);
 #ifdef ACCESSIBILITY
       // Fire an event to notify accessibility
       if (mType == NS_FORM_INPUT_CHECKBOX) {
         FireEventForAccessibility(this, aVisitor.mPresContext,
-                                  NS_LITERAL_STRING("CheckboxStateChange"));
+                                  eFormCheckboxStateChange);
       } else {
         FireEventForAccessibility(this, aVisitor.mPresContext,
-                                  NS_LITERAL_STRING("RadioStateChange"));
+                                  eFormRadioStateChange);
         // Fire event for the previous selected radio.
         nsCOMPtr<nsIDOMHTMLInputElement> previous =
           do_QueryInterface(aVisitor.mItemData);
         if (previous) {
           FireEventForAccessibility(previous, aVisitor.mPresContext,
-                                    NS_LITERAL_STRING("RadioStateChange"));
+                                    eFormRadioStateChange);
         }
       }
 #endif
@@ -4855,7 +4876,9 @@ HTMLInputElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
       ClearBrokenState();
       RemoveStatesSilently(NS_EVENT_STATE_BROKEN);
       nsContentUtils::AddScriptRunner(
-        NewRunnableMethod(this, &HTMLInputElement::MaybeLoadImage));
+        NewRunnableMethod("dom::HTMLInputElement::MaybeLoadImage",
+                          this,
+                          &HTMLInputElement::MaybeLoadImage));
     }
   }
 
@@ -4866,7 +4889,9 @@ HTMLInputElement::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
   }
 
   // Set direction based on value if dir=auto
-  SetDirectionIfAuto(HasDirAuto(), false);
+  if (HasDirAuto()) {
+    SetDirectionFromValue(false);
+  }
 
   // An element can't suffer from value missing if it is not in a document.
   // We have to check if we suffer from that as we are now in a document.
@@ -6264,17 +6289,11 @@ HTMLInputElement::SetSelectionDirection(const nsAString& aDirection, ErrorResult
 /*static*/ nsresult
 FireEventForAccessibility(nsIDOMHTMLInputElement* aTarget,
                           nsPresContext* aPresContext,
-                          const nsAString& aEventType)
+                          EventMessage aEventMessage)
 {
   nsCOMPtr<mozilla::dom::Element> element = do_QueryInterface(aTarget);
-  RefPtr<Event> event = NS_NewDOMEvent(element, aPresContext, nullptr);
-  event->InitEvent(aEventType, true, true);
-  event->SetTrusted(true);
-
-  EventDispatcher::DispatchDOMEvent(aTarget, nullptr, event, aPresContext,
-                                    nullptr);
-
-  return NS_OK;
+  return nsContentUtils::DispatchTrustedEvent<WidgetEvent>
+    (element->OwnerDoc(), aTarget, aEventMessage, true, true);
 }
 #endif
 
@@ -6304,17 +6323,12 @@ HTMLInputElement::SetDefaultValueAsValue()
 }
 
 void
-HTMLInputElement::SetDirectionIfAuto(bool aAuto, bool aNotify)
+HTMLInputElement::SetDirectionFromValue(bool aNotify)
 {
-  if (aAuto) {
-    SetHasDirAuto();
-    if (IsSingleLineTextControl(true)) {
-      nsAutoString value;
-      GetValue(value, CallerType::System);
-      SetDirectionalityFromValue(this, value, aNotify);
-    }
-  } else {
-    ClearHasDirAuto();
+  if (IsSingleLineTextControl(true)) {
+    nsAutoString value;
+    GetValue(value, CallerType::System);
+    SetDirectionalityFromValue(this, value, aNotify);
   }
 }
 
@@ -6540,8 +6554,7 @@ HTMLInputElement::DoneCreatingElement()
   // property.
   //
   if (!restoredCheckedState && mShouldInitChecked) {
-    DoSetChecked(DefaultChecked(), false, true);
-    DoSetCheckedChanged(false, false);
+    DoSetChecked(DefaultChecked(), false, false);
   }
 
   // Sanitize the value.
@@ -7633,6 +7646,13 @@ HTMLInputElement::GetValidationMessage(nsAString& aValidationMessage,
         key.AssignLiteral("FormValidationBadInputNumber");
       } else if (mType == NS_FORM_INPUT_EMAIL) {
         key.AssignLiteral("FormValidationInvalidEmail");
+      } else if (mType == NS_FORM_INPUT_DATE && IsInputDateTimeEnabled()) {
+        // For input date and time, only date may have an invalid value, as
+        // we forbid or autocorrect values that are not in the valid range for
+        // time. For example, in 12hr format, if user enters '2' in the hour
+        // field, it will be treated as '02' and automatically advance to the
+        // next field.
+        key.AssignLiteral("FormValidationInvalidDate");
       } else {
         return NS_ERROR_UNEXPECTED;
       }
@@ -7747,7 +7767,7 @@ HTMLInputElement::OnValueChanged(bool aNotify, bool aWasInteractiveUserChange)
   UpdateAllValidityStates(aNotify);
 
   if (HasDirAuto()) {
-    SetDirectionIfAuto(true, aNotify);
+    SetDirectionFromValue(aNotify);
   }
 
   // :placeholder-shown pseudo-class may change when the value changes.
@@ -8155,6 +8175,16 @@ HTMLInputElement::GetWebkitEntries(nsTArray<RefPtr<FileSystemEntry>>& aSequence)
 
   Telemetry::Accumulate(Telemetry::BLINK_FILESYSTEM_USED, true);
   aSequence.AppendElements(mFileData->mEntries);
+}
+
+already_AddRefed<nsINodeList>
+HTMLInputElement::GetLabels()
+{
+  if (!IsLabelable()) {
+    return nullptr;
+  }
+
+  return nsGenericHTMLElement::Labels();
 }
 
 } // namespace dom

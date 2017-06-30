@@ -6,6 +6,7 @@
 
 /* container for a document and its presentation */
 
+#include "gfxContext.h"
 #include "mozilla/ServoRestyleManager.h"
 #include "mozilla/ServoStyleSet.h"
 #include "nsAutoPtr.h"
@@ -40,8 +41,8 @@
 #include "mozilla/a11y/DocAccessible.h"
 #endif
 #include "mozilla/BasicEvents.h"
+#include "mozilla/Encoding.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/dom/EncodingUtils.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/StyleSheetInlines.h"
@@ -82,7 +83,6 @@
 
 #include "nsIScrollableFrame.h"
 #include "nsStyleSheetService.h"
-#include "nsRenderingContext.h"
 #include "nsILoadContext.h"
 
 #include "nsIPrompt.h"
@@ -402,13 +402,15 @@ protected:
 
   /* character set member data */
   int32_t mHintCharsetSource;
-  nsCString mHintCharset;
-  nsCString mForceCharacterSet;
-  
+  const Encoding* mHintCharset;
+  const Encoding* mForceCharacterSet;
+
   bool mIsPageMode;
   bool mInitializedForPrintPreview;
   bool mHidden;
   bool mPrintRelated; // Only use for asserts.
+  bool mPresShellDestroyed; // Only use for asserts.
+  bool mDestroyWasFull; // Only use for asserts.
 };
 
 namespace mozilla {
@@ -540,10 +542,14 @@ nsDocumentViewer::nsDocumentViewer()
 #endif // DEBUG
 #endif // NS_PRINTING
     mHintCharsetSource(kCharsetUninitialized),
+    mHintCharset(nullptr),
+    mForceCharacterSet(nullptr),
     mIsPageMode(false),
     mInitializedForPrintPreview(false),
     mHidden(false),
-    mPrintRelated(false)
+    mPrintRelated(false),
+    mPresShellDestroyed(true),
+    mDestroyWasFull(false)
 {
   PrepareToStartLoad();
 }
@@ -580,15 +586,30 @@ nsDocumentViewer::~nsDocumentViewer()
     mDocument->Destroy();
   }
 
+  nsIFrame* vmRootFrame =
+    mViewManager && mViewManager->GetRootView()
+      ? mViewManager->GetRootView()->GetFrame()
+      : nullptr;
+  nsIFrame* psRootFrame = mPresShell ? mPresShell->GetRootFrame() : nullptr;
+  MOZ_RELEASE_ASSERT(vmRootFrame == psRootFrame);
+
   NS_ASSERTION(!mPresShell && !mPresContext,
                "User did not call nsIContentViewer::Destroy");
   if (mPresShell || mPresContext) {
     // Make sure we don't hand out a reference to the content viewer to
     // the SHEntry!
     mSHEntry = nullptr;
-
+    mDestroyWasFull = false;
     Destroy();
+    MOZ_RELEASE_ASSERT(mDestroyWasFull);
   }
+
+  MOZ_RELEASE_ASSERT(mPresShellDestroyed);
+
+  MOZ_RELEASE_ASSERT(!mPresShell || !mPresShell->GetRootFrame());
+  MOZ_RELEASE_ASSERT(!mViewManager || !mViewManager->GetRootView() ||
+    (!mViewManager->GetRootView()->GetFrame() &&
+     !mViewManager->GetRootView()->GetFirstChild()));
 
   if (mSelectionListener) {
     mSelectionListener->Disconnect();
@@ -693,6 +714,15 @@ nsDocumentViewer::Init(nsIWidget* aParentWidget,
 nsresult
 nsDocumentViewer::InitPresentationStuff(bool aDoInitialReflow)
 {
+  // We assert this because initializing the pres shell could otherwise cause
+  // re-entrancy into nsDocumentViewer methods, which might cause a different
+  // pres shell to be created.  Callers of InitPresentationStuff should ensure
+  // the call is appropriately bounded by an nsAutoScriptBlocker to decide
+  // when it is safe for these re-entrant calls to be made.
+  MOZ_ASSERT(!nsContentUtils::IsSafeToRunScript(),
+             "InitPresentationStuff must only be called when scripts are "
+             "blocked");
+
   if (GetIsPrintPreview())
     return NS_OK;
 
@@ -708,6 +738,7 @@ nsDocumentViewer::InitPresentationStuff(bool aDoInitialReflow)
     styleSet->Delete();
     return NS_ERROR_FAILURE;
   }
+  mPresShellDestroyed = false;
 
   // We're done creating the style set
   styleSet->EndUpdate();
@@ -1751,6 +1782,10 @@ nsDocumentViewer::Destroy()
 
   // The document was not put in the bfcache
 
+  // Protect against pres shell destruction running scripts and re-entrantly
+  // creating a new presentation.
+  nsAutoScriptBlocker scriptBlocker;
+
   if (mPresShell) {
     DestroyPresShell();
   }
@@ -1795,6 +1830,8 @@ nsDocumentViewer::Destroy()
   mWindow = nullptr;
   mViewManager = nullptr;
   mContainer = WeakPtr<nsDocShell>();
+
+  mDestroyWasFull = true;
 
   return NS_OK;
 }
@@ -1915,6 +1952,10 @@ nsDocumentViewer::SetDocumentInternal(nsIDocument* aDocument,
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Replace the current pres shell with a new shell for the new document
+
+  // Protect against pres shell destruction running scripts and re-entrantly
+  // creating a new presentation.
+  nsAutoScriptBlocker scriptBlocker;
 
   if (mPresShell) {
     DestroyPresShell();
@@ -2121,7 +2162,17 @@ nsDocumentViewer::Show(void)
     }
   }
 
+  // Hold on to the document so we can use it after the script blocker below
+  // has been released (which might re-entrantly call into other
+  // nsDocumentViewer methods).
+  nsCOMPtr<nsIDocument> document = mDocument;
+
   if (mDocument && !mPresShell) {
+    // The InitPresentationStuff call below requires a script blocker, because
+    // its PresShell::Initialize call can cause scripts to run and therefore
+    // re-entrant calls to nsDocumentViewer methods to be made.
+    nsAutoScriptBlocker scriptBlocker;
+
     NS_ASSERTION(!mWindow, "Window already created but no presshell?");
 
     nsCOMPtr<nsIBaseWindow> base_win(mContainer);
@@ -2184,8 +2235,8 @@ nsDocumentViewer::Show(void)
   // Notify observers that a new page has been shown. This will get run
   // from the event loop after we actually draw the page.
   RefPtr<nsDocumentShownDispatcher> event =
-    new nsDocumentShownDispatcher(mDocument);
-  mDocument->Dispatch("nsDocumentShownDispatcher",
+    new nsDocumentShownDispatcher(document);
+  document->Dispatch("nsDocumentShownDispatcher",
                       TaskCategory::Other,
                       event.forget());
 
@@ -2229,24 +2280,23 @@ nsDocumentViewer::Hide(void)
     mPresShell->CaptureHistoryState(getter_AddRefs(layoutState));
   }
 
-  {
-    // Do not run ScriptRunners queued by DestroyPresShell() in the intermediate
-    // state before we're done destroying PresShell, PresContext, ViewManager, etc.
-    nsAutoScriptBlocker scriptBlocker;
-    DestroyPresShell();
+  // Do not run ScriptRunners queued by DestroyPresShell() in the intermediate
+  // state before we're done destroying PresShell, PresContext, ViewManager, etc.
+  nsAutoScriptBlocker scriptBlocker;
 
-    DestroyPresContext();
+  DestroyPresShell();
 
-    mViewManager   = nullptr;
-    mWindow        = nullptr;
-    mDeviceContext = nullptr;
-    mParentWidget  = nullptr;
+  DestroyPresContext();
 
-    nsCOMPtr<nsIBaseWindow> base_win(mContainer);
+  mViewManager   = nullptr;
+  mWindow        = nullptr;
+  mDeviceContext = nullptr;
+  mParentWidget  = nullptr;
 
-    if (base_win && !mAttachedToParent) {
-      base_win->SetParentWidget(nullptr);
-    }
+  nsCOMPtr<nsIBaseWindow> base_win(mContainer);
+
+  if (base_win && !mAttachedToParent) {
+    base_win->SetParentWidget(nullptr);
   }
 
   return NS_OK;
@@ -3342,15 +3392,27 @@ nsDocumentViewer::StopEmulatingMedium()
 
 NS_IMETHODIMP nsDocumentViewer::GetForceCharacterSet(nsACString& aForceCharacterSet)
 {
-  aForceCharacterSet = mForceCharacterSet;
+  auto encoding = nsDocumentViewer::GetForceCharset();
+  if (encoding) {
+    encoding->Name(aForceCharacterSet);
+  } else {
+    aForceCharacterSet.Truncate();
+  }
   return NS_OK;
+}
+
+/* [noscript,notxpcom] Encoding getForceCharset (); */
+NS_IMETHODIMP_(const Encoding *)
+nsDocumentViewer::GetForceCharset()
+{
+  return mForceCharacterSet;
 }
 
 static void
 SetChildForceCharacterSet(nsIContentViewer* aChild, void* aClosure)
 {
-  const nsACString* charset = static_cast<nsACString*>(aClosure);
-  aChild->SetForceCharacterSet(*charset);
+  auto encoding = static_cast<const Encoding*>(aClosure);
+  aChild->SetForceCharset(encoding);
 }
 
 NS_IMETHODIMP
@@ -3360,33 +3422,49 @@ nsDocumentViewer::SetForceCharacterSet(const nsACString& aForceCharacterSet)
   // than a canonical name. However, in case where the input is a canonical
   // name, "replacement" doesn't survive label resolution. Additionally, the
   // empty string means no hint.
-  nsAutoCString encoding;
+  const Encoding* encoding = nullptr;
   if (!aForceCharacterSet.IsEmpty()) {
     if (aForceCharacterSet.EqualsLiteral("replacement")) {
-      encoding.AssignLiteral("replacement");
-    } else if (!EncodingUtils::FindEncodingForLabel(aForceCharacterSet,
-                                                    encoding)) {
+      encoding = REPLACEMENT_ENCODING;
+    } else if (!(encoding = Encoding::ForLabel(aForceCharacterSet))) {
       // Reject unknown labels
       return NS_ERROR_INVALID_ARG;
     }
   }
-  mForceCharacterSet = encoding;
-  // now set the force char set on all children of mContainer
-  CallChildren(SetChildForceCharacterSet, (void*) &aForceCharacterSet);
+  nsDocumentViewer::SetForceCharset(encoding);
   return NS_OK;
+}
+
+/* [noscript,notxpcom] void setForceCharset (in Encoding aEncoding); */
+NS_IMETHODIMP_(void)
+nsDocumentViewer::SetForceCharset(const Encoding *aEncoding)
+{
+  mForceCharacterSet = aEncoding;
+  // now set the force char set on all children of mContainer
+  CallChildren(SetChildForceCharacterSet, (void*) aEncoding);
 }
 
 NS_IMETHODIMP nsDocumentViewer::GetHintCharacterSet(nsACString& aHintCharacterSet)
 {
-
-  if(kCharsetUninitialized == mHintCharsetSource) {
-    aHintCharacterSet.Truncate();
+  auto encoding = nsDocumentViewer::GetHintCharset();
+  if (encoding) {
+    encoding->Name(aHintCharacterSet);
   } else {
-    aHintCharacterSet = mHintCharset;
-    // this can't possibly be right.  we can't set a value just because somebody got a related value!
-    //mHintCharsetSource = kCharsetUninitialized;
+    aHintCharacterSet.Truncate();
   }
   return NS_OK;
+}
+
+/* [noscript,notxpcom] Encoding getHintCharset (); */
+NS_IMETHODIMP_(const Encoding *)
+nsDocumentViewer::GetHintCharset()
+{
+  if(kCharsetUninitialized == mHintCharsetSource) {
+    return nullptr;
+  }
+  // this can't possibly be right.  we can't set a value just because somebody got a related value!
+  //mHintCharsetSource = kCharsetUninitialized;
+  return mHintCharset;
 }
 
 NS_IMETHODIMP nsDocumentViewer::GetHintCharacterSetSource(int32_t *aHintCharacterSetSource)
@@ -3416,8 +3494,8 @@ nsDocumentViewer::SetHintCharacterSetSource(int32_t aHintCharacterSetSource)
 static void
 SetChildHintCharacterSet(nsIContentViewer* aChild, void* aClosure)
 {
-  const nsACString* charset = static_cast<nsACString*>(aClosure);
-  aChild->SetHintCharacterSet(*charset);
+  auto encoding = static_cast<const Encoding*>(aClosure);
+  aChild->SetHintCharset(encoding);
 }
 
 NS_IMETHODIMP
@@ -3427,20 +3505,26 @@ nsDocumentViewer::SetHintCharacterSet(const nsACString& aHintCharacterSet)
   // than a canonical name. However, in case where the input is a canonical
   // name, "replacement" doesn't survive label resolution. Additionally, the
   // empty string means no hint.
-  nsAutoCString encoding;
+  const Encoding* encoding = nullptr;
   if (!aHintCharacterSet.IsEmpty()) {
     if (aHintCharacterSet.EqualsLiteral("replacement")) {
-      encoding.AssignLiteral("replacement");
-    } else if (!EncodingUtils::FindEncodingForLabel(aHintCharacterSet,
-                                                    encoding)) {
+      encoding = REPLACEMENT_ENCODING;
+    } else if (!(encoding = Encoding::ForLabel(aHintCharacterSet))) {
       // Reject unknown labels
       return NS_ERROR_INVALID_ARG;
     }
   }
-  mHintCharset = encoding;
-  // now set the hint char set on all children of mContainer
-  CallChildren(SetChildHintCharacterSet, (void*) &aHintCharacterSet);
+  nsDocumentViewer::SetHintCharset(encoding);
   return NS_OK;
+}
+
+/* [noscript,notxpcom] void setHintCharset (in Encoding aEncoding); */
+NS_IMETHODIMP_(void)
+nsDocumentViewer::SetHintCharset(const Encoding *aEncoding)
+{
+  mHintCharset = aEncoding;
+  // now set the hint char set on all children of mContainer
+  CallChildren(SetChildHintCharacterSet, (void*) aEncoding);
 }
 
 static void
@@ -3505,8 +3589,8 @@ nsDocumentViewer::GetContentSizeInternal(int32_t* aWidth, int32_t* aHeight,
 
   nscoord prefWidth;
   {
-    nsRenderingContext rcx(presShell->CreateReferenceRenderingContext());
-    prefWidth = root->GetPrefISize(&rcx);
+    RefPtr<gfxContext> rcx(presShell->CreateReferenceRenderingContext());
+    prefWidth = root->GetPrefISize(rcx);
   }
   if (prefWidth > aMaxWidth) {
     prefWidth = aMaxWidth;
@@ -4452,6 +4536,10 @@ nsDocumentViewer::SetIsPrintPreview(bool aIsPrintPreview)
     mAutoBeforeAndAfterPrint = nullptr;
   }
 #endif
+
+  // Protect against pres shell destruction running scripts.
+  nsAutoScriptBlocker scriptBlocker;
+
   if (!aIsPrintPreview) {
     if (mPresShell) {
       DestroyPresShell();
@@ -4588,6 +4676,11 @@ NS_IMETHODIMP nsDocumentViewer::SetPageMode(bool aPageMode, nsIPrintSettings* aP
   // reftests that require a paginated context
   mIsPageMode = aPageMode;
 
+  // The DestroyPresShell call requires a script blocker, since the
+  // PresShell::Destroy call it does can cause scripts to run, which could
+  // re-entrantly call methods on the nsDocumentViewer.
+  nsAutoScriptBlocker scriptBlocker;
+
   if (mPresShell) {
     DestroyPresShell();
   }
@@ -4598,15 +4691,6 @@ NS_IMETHODIMP nsDocumentViewer::SetPageMode(bool aPageMode, nsIPrintSettings* aP
 
   mViewManager  = nullptr;
   mWindow       = nullptr;
-
-  // We're creating a new presentation context for an existing document.
-  // Drop any associated Servo data.
-#ifdef MOZ_STYLO
-  Element* root = mDocument->GetRootElement();
-  if (root && root->IsStyledByServo()) {
-    ServoRestyleManager::ClearServoDataFromSubtree(root);
-  }
-#endif
 
   NS_ENSURE_STATE(mDocument);
   if (aPageMode)
@@ -4657,6 +4741,20 @@ nsDocumentViewer::SetIsHidden(bool aHidden)
 void
 nsDocumentViewer::DestroyPresShell()
 {
+  // We assert this because destroying the pres shell could otherwise cause
+  // re-entrancy into nsDocumentViewer methods, and all callers of
+  // DestroyPresShell need to do other cleanup work afterwards before it
+  // is safe for those re-entrant method calls to be made.
+  MOZ_ASSERT(!nsContentUtils::IsSafeToRunScript(),
+             "DestroyPresShell must only be called when scripts are blocked");
+
+  nsIFrame* vmRootFrame =
+    mViewManager && mViewManager->GetRootView()
+      ? mViewManager->GetRootView()->GetFrame()
+      : nullptr;
+  nsIFrame* psRootFrame = mPresShell ? mPresShell->GetRootFrame() : nullptr;
+  MOZ_RELEASE_ASSERT(vmRootFrame == psRootFrame);
+
   // Break circular reference (or something)
   mPresShell->EndObservingDocument();
 
@@ -4664,8 +4762,18 @@ nsDocumentViewer::DestroyPresShell()
   if (selection && mSelectionListener)
     selection->RemoveSelectionListener(mSelectionListener);
 
-  nsAutoScriptBlocker scriptBlocker;
+  bool hadRootFrame = !!mPresShell->GetRootFrame();
   mPresShell->Destroy();
+  mPresShellDestroyed = true;
+  MOZ_RELEASE_ASSERT(!mPresShell->GetRootFrame());
+  // destroying the frame tree via presshell destroy should have done this
+  if (hadRootFrame) {
+    MOZ_RELEASE_ASSERT(!mViewManager || !mViewManager->GetRootView());
+  }
+  MOZ_RELEASE_ASSERT(!mViewManager || !mViewManager->GetRootView() ||
+    (!mViewManager->GetRootView()->GetFrame() &&
+     !mViewManager->GetRootView()->GetFirstChild()));
+
   mPresShell = nullptr;
 }
 
@@ -4694,6 +4802,10 @@ nsDocumentViewer::SetPrintPreviewPresentation(nsViewManager* aViewManager,
                                               nsPresContext* aPresContext,
                                               nsIPresShell* aPresShell)
 {
+  // Protect against pres shell destruction running scripts and re-entrantly
+  // creating a new presentation.
+  nsAutoScriptBlocker scriptBlocker;
+
   if (mPresShell) {
     DestroyPresShell();
   }

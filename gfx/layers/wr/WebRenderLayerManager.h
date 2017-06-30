@@ -8,6 +8,8 @@
 
 #include "Layers.h"
 #include "mozilla/MozPromise.h"
+#include "mozilla/layers/APZTestData.h"
+#include "mozilla/layers/FocusTarget.h"
 #include "mozilla/layers/TransactionIdAllocator.h"
 #include "mozilla/webrender/WebRenderTypes.h"
 
@@ -30,6 +32,8 @@ public:
   void Initialize(PCompositorBridgeChild* aCBChild, wr::PipelineId aLayersId, TextureFactoryIdentifier* aTextureFactoryIdentifier);
 
   virtual void Destroy() override;
+
+  void DoDestroy(bool aIsSync);
 
 protected:
   virtual ~WebRenderLayerManager();
@@ -89,7 +93,7 @@ public:
 
   virtual void SendInvalidRegion(const nsIntRegion& aRegion) override;
 
-  virtual void Composite() override;
+  virtual void ScheduleComposite() override;
 
   virtual void SetNeedsComposite(bool aNeedsComposite) override
   {
@@ -97,6 +101,7 @@ public:
   }
   virtual bool NeedsComposite() const override { return mNeedsComposite; }
   virtual void SetIsFirstPaint() override { mIsFirstPaint = true; }
+  virtual void SetFocusTarget(const FocusTarget& aFocusTarget) override;
 
   bool AsyncPanZoomEnabled() const override;
 
@@ -125,6 +130,16 @@ public:
   void Hold(Layer* aLayer);
   void SetTransactionIncomplete() { mTransactionIncomplete = true; }
   bool IsMutatedLayer(Layer* aLayer);
+
+  // See equivalent function in ClientLayerManager
+  void LogTestDataForCurrentPaint(FrameMetrics::ViewID aScrollId,
+                                  const std::string& aKey,
+                                  const std::string& aValue) {
+    mApzTestData.LogTestDataForPaint(mPaintSequenceNumber, aScrollId, aKey, aValue);
+  }
+  // See equivalent function in ClientLayerManager
+  const APZTestData& GetAPZTestData() const
+  { return mApzTestData; }
 
 private:
   /**
@@ -169,6 +184,7 @@ private:
 
   bool mNeedsComposite;
   bool mIsFirstPaint;
+  FocusTarget mFocusTarget;
 
  // When we're doing a transaction in order to draw to a non-default
  // target, the layers transaction is only performed in order to send
@@ -178,6 +194,11 @@ private:
  // being drawn to the default target, and then copy those pixels
  // back to mTarget.
  RefPtr<gfxContext> mTarget;
+
+  // See equivalent field in ClientLayerManager
+  uint32_t mPaintSequenceNumber;
+  // See equivalent field in ClientLayerManager
+  APZTestData mApzTestData;
 };
 
 } // namespace layers

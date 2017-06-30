@@ -95,6 +95,7 @@ var gSyncPane = {
                   "weave:service:logout:finish",
                   FxAccountsCommon.ONVERIFIED_NOTIFICATION,
                   FxAccountsCommon.ONLOGIN_NOTIFICATION,
+                  FxAccountsCommon.ON_ACCOUNT_STATE_CHANGE_NOTIFICATION,
                   FxAccountsCommon.ON_PROFILE_CHANGE_NOTIFICATION,
                   ];
     // Add the observers now and remove them on unload
@@ -384,7 +385,8 @@ var gSyncPane = {
       fxAccounts.promiseAccountsChangeProfileURI(this._getEntryPoint(), "avatar")
           .then(url => {
         this.openContentInBrowser(url, {
-          replaceQueryString: true
+          replaceQueryString: true,
+          triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
         });
       });
       // Prevent page from scrolling on the space key.
@@ -404,7 +406,8 @@ var gSyncPane = {
     fxAccounts.promiseAccountsManageURI(this._getEntryPoint())
       .then(url => {
         this.openContentInBrowser(url, {
-          replaceQueryString: true
+          replaceQueryString: true,
+          triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
         });
       });
   },

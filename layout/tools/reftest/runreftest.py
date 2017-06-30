@@ -7,6 +7,7 @@ Runs the reftest test harness.
 """
 
 import collections
+import itertools
 import json
 import multiprocessing
 import os
@@ -57,6 +58,8 @@ except ImportError:
 
 def categoriesToRegex(categoryList):
     return "\\(" + ', '.join(["(?P<%s>\\d+) %s" % c for c in categoryList]) + "\\)"
+
+
 summaryLines = [('Successful', [('pass', 'pass'), ('loadOnly', 'load only')]),
                 ('Unexpected', [('fail', 'unexpected fail'),
                                 ('pass', 'unexpected pass'),
@@ -325,10 +328,6 @@ class RefTest(object):
         if options.specialPowersExtensionPath is not None:
             if not self.use_marionette:
                 addons.append(options.specialPowersExtensionPath)
-            # SpecialPowers requires insecure automation-only features that we
-            # put behind a pref.
-            prefs['security.turn_off_all_security_so_that_viruses'
-                  '_can_take_over_this_computer'] = True
 
         for pref in prefs:
             prefs[pref] = mozprofile.Preferences.cast(prefs[pref])
@@ -674,8 +673,7 @@ class RefTest(object):
         profileDir = None
         startAfter = None  # When the previous run crashed, we skip the tests we ran before
         prevStartAfter = None
-        status = 1  # Just to start the loop
-        while status != 0:
+        for i in itertools.count():
             try:
                 if cmdargs is None:
                     cmdargs = []
@@ -707,10 +705,16 @@ class RefTest(object):
                                          leak_thresholds=options.leakThresholds,
                                          stack_fixer=get_stack_fixer_function(options.utilityPath,
                                                                               options.symbolsPath))
-                self.cleanup(profileDir)
+                if status == 0:
+                    break
+
                 if startAfter is not None and options.shuffle:
                     self.log.error("Can not resume from a crash with --shuffle "
                                    "enabled. Please consider disabling --shuffle")
+                    break
+                if startAfter is not None and options.maxRetries <= i:
+                    self.log.error("Hit maximum number of allowed retries ({}) "
+                                   "in the test run".format(options.maxRetries))
                     break
                 if startAfter == prevStartAfter:
                     # If the test stuck on the same test, or there the crashed

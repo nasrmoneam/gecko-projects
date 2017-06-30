@@ -25,6 +25,7 @@
 #include "mozilla/dom/XMLDocument.h"
 #include "mozilla/dom/URLSearchParams.h"
 #include "mozilla/dom/PromiseNativeHandler.h"
+#include "mozilla/Encoding.h"
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/EventStateManager.h"
@@ -76,8 +77,6 @@
 #include "mozilla/Telemetry.h"
 #include "jsfriendapi.h"
 #include "GeckoProfiler.h"
-#include "mozilla/dom/EncodingUtils.h"
-#include "nsIUnicodeDecoder.h"
 #include "mozilla/dom/XMLHttpRequestBinding.h"
 #include "mozilla/Attributes.h"
 #include "MultipartBlobImpl.h"
@@ -146,7 +145,11 @@ NS_IMPL_ISUPPORTS(nsXHRParseEndListener, nsIDOMEventListener)
 class nsResumeTimeoutsEvent : public Runnable
 {
 public:
-  explicit nsResumeTimeoutsEvent(nsPIDOMWindowInner* aWindow) : mWindow(aWindow) {}
+  explicit nsResumeTimeoutsEvent(nsPIDOMWindowInner* aWindow)
+    : Runnable("dom::nsResumeTimeoutsEvent")
+    , mWindow(aWindow)
+  {
+  }
 
   NS_IMETHOD Run() override
   {
@@ -179,6 +182,7 @@ XMLHttpRequestMainThread::sDontWarnAboutSyncXHR = false;
 
 XMLHttpRequestMainThread::XMLHttpRequestMainThread()
   : mResponseBodyDecodedPos(0),
+    mResponseCharset(nullptr),
     mResponseType(XMLHttpRequestResponseType::_empty),
     mRequestObserver(nullptr),
     mState(State::unsent),
@@ -189,7 +193,7 @@ XMLHttpRequestMainThread::XMLHttpRequestMainThread()
     mUploadTransferred(0), mUploadTotal(0), mUploadComplete(true),
     mProgressSinceLastProgressEvent(false),
     mRequestSentTime(0), mTimeoutMilliseconds(0),
-    mErrorLoad(false), mErrorParsingXML(false),
+    mErrorLoad(ErrorType::eOK), mErrorParsingXML(false),
     mWaitingForOnStopRequest(false),
     mProgressTimerIsActive(false),
     mIsHtml(false),
@@ -202,7 +206,8 @@ XMLHttpRequestMainThread::XMLHttpRequestMainThread()
     mResultJSON(JS::UndefinedValue()),
     mResultArrayBuffer(nullptr),
     mIsMappedArrayBuffer(false),
-    mXPCOMifier(nullptr)
+    mXPCOMifier(nullptr),
+    mEventDispatchingSuspended(false)
 {
   mozilla::HoldJSObjects(this);
 }
@@ -312,7 +317,6 @@ XMLHttpRequestMainThread::ResetResponse()
   mResultArrayBuffer = nullptr;
   mArrayBufferBuilder.reset();
   mResultJSON.setUndefined();
-  mDataAvailable = 0;
   mLoadTransferred = 0;
   mResponseBodyDecodedPos = 0;
 }
@@ -492,7 +496,7 @@ XMLHttpRequestMainThread::GetResponseXML(ErrorResult& aRv)
 nsresult
 XMLHttpRequestMainThread::DetectCharset()
 {
-  mResponseCharset.Truncate();
+  mResponseCharset = nullptr;
   mDecoder = nullptr;
 
   if (mResponseType != XMLHttpRequestResponseType::_empty &&
@@ -503,22 +507,24 @@ XMLHttpRequestMainThread::DetectCharset()
   }
 
   nsAutoCString charsetVal;
+  const Encoding* encoding;
   bool ok = mChannel &&
             NS_SUCCEEDED(mChannel->GetContentCharset(charsetVal)) &&
-            EncodingUtils::FindEncodingForLabel(charsetVal, mResponseCharset);
-  if (!ok || mResponseCharset.IsEmpty()) {
+            (encoding = Encoding::ForLabel(charsetVal));
+  if (!ok) {
     // MS documentation states UTF-8 is default for responseText
-    mResponseCharset.AssignLiteral("UTF-8");
+    encoding = UTF_8_ENCODING;
   }
 
   if (mResponseType == XMLHttpRequestResponseType::Json &&
-      !mResponseCharset.EqualsLiteral("UTF-8")) {
+      encoding != UTF_8_ENCODING) {
     // The XHR spec says only UTF-8 is supported for responseType == "json"
     LogMessage("JSONCharsetWarning", GetOwner());
-    mResponseCharset.AssignLiteral("UTF-8");
+    encoding = UTF_8_ENCODING;
   }
 
-  mDecoder = EncodingUtils::DecoderForEncoding(mResponseCharset);
+  mResponseCharset = encoding;
+  mDecoder = encoding->NewDecoderWithBOMRemoval();
 
   return NS_OK;
 }
@@ -529,35 +535,38 @@ XMLHttpRequestMainThread::AppendToResponseText(const char * aSrcBuffer,
 {
   NS_ENSURE_STATE(mDecoder);
 
-  int32_t destBufferLen;
-  nsresult rv = mDecoder->GetMaxLength(aSrcBuffer, aSrcBufferLen,
-                                       &destBufferLen);
-  NS_ENSURE_SUCCESS(rv, rv);
+  CheckedInt<size_t> destBufferLen =
+    mDecoder->MaxUTF16BufferLength(aSrcBufferLen);
+  if (!destBufferLen.isValid()) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
 
   CheckedInt32 size = mResponseText.Length();
-  size += destBufferLen;
+  size += destBufferLen.value();
   if (!size.isValid()) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
   XMLHttpRequestStringWriterHelper helper(mResponseText);
 
-  if (!helper.AddCapacity(destBufferLen)) {
+  if (!helper.AddCapacity(destBufferLen.value())) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  // This code here is basically a copy of a similar thing in
-  // nsScanner::Append(const char* aBuffer, uint32_t aLen).
-  int32_t srclen = (int32_t)aSrcBufferLen;
-  int32_t destlen = (int32_t)destBufferLen;
-  rv = mDecoder->Convert(aSrcBuffer,
-                         &srclen,
-                         helper.EndOfExistingData(),
-                         &destlen);
-  MOZ_ASSERT(NS_SUCCEEDED(rv));
-  MOZ_ASSERT(destlen <= destBufferLen);
-
-  helper.AddLength(destlen);
+  // XXX there's no handling for incomplete byte sequences on EOF!
+  uint32_t result;
+  size_t read;
+  size_t written;
+  bool hadErrors;
+  Tie(result, read, written, hadErrors) = mDecoder->DecodeToUTF16(
+    AsBytes(MakeSpan(aSrcBuffer, aSrcBufferLen)),
+    MakeSpan(helper.EndOfExistingData(), destBufferLen.value()),
+    false);
+  MOZ_ASSERT(result == kInputEmpty);
+  MOZ_ASSERT(read == aSrcBufferLen);
+  MOZ_ASSERT(written <= destBufferLen.value());
+  Unused << hadErrors;
+  helper.AddLength(written);
   return NS_OK;
 }
 
@@ -942,7 +951,7 @@ XMLHttpRequestMainThread::GetStatus(ErrorResult& aRv)
     return 0;
   }
 
-  if (mErrorLoad) {
+  if (mErrorLoad != ErrorType::eOK) {
     // Let's simulate the http protocol for jar/app requests:
     nsCOMPtr<nsIJARChannel> jarChannel = GetCurrentJARChannel();
     if (jarChannel) {
@@ -1004,7 +1013,7 @@ XMLHttpRequestMainThread::GetStatusText(nsACString& aStatusText,
     return;
   }
 
-  if (mErrorLoad) {
+  if (mErrorLoad != ErrorType::eOK) {
     return;
   }
 
@@ -1221,7 +1230,7 @@ XMLHttpRequestMainThread::GetAllResponseHeaders(nsACString& aResponseHeaders,
     return;
   }
 
-  if (mErrorLoad) {
+  if (mErrorLoad != ErrorType::eOK) {
     return;
   }
 
@@ -1366,7 +1375,7 @@ XMLHttpRequestMainThread::FireReadystatechangeEvent()
   event->InitEvent(kLiteralString_readystatechange, false, false);
   // We assume anyone who managed to call CreateReadystatechangeEvent is trusted
   event->SetTrusted(true);
-  DispatchDOMEvent(nullptr, event, nullptr, nullptr);
+  DispatchOrStoreEvent(this, event);
   return NS_OK;
 }
 
@@ -1409,7 +1418,7 @@ XMLHttpRequestMainThread::DispatchProgressEvent(DOMEventTargetHelper* aTarget,
     ProgressEvent::Constructor(aTarget, typeString, init);
   event->SetTrusted(true);
 
-  aTarget->DispatchDOMEvent(nullptr, event, nullptr, nullptr);
+  DispatchOrStoreEvent(aTarget, event);
 
   if (aType == ProgressEventType::progress) {
     mInLoadProgressEvent = false;
@@ -1429,6 +1438,45 @@ XMLHttpRequestMainThread::DispatchProgressEvent(DOMEventTargetHelper* aTarget,
   if (aType == ProgressEventType::load || aType == ProgressEventType::error ||
       aType == ProgressEventType::timeout || aType == ProgressEventType::abort) {
     DispatchProgressEvent(aTarget, ProgressEventType::loadend, aLoaded, aTotal);
+  }
+}
+
+void
+XMLHttpRequestMainThread::DispatchOrStoreEvent(DOMEventTargetHelper* aTarget,
+                                               Event* aEvent)
+{
+  MOZ_ASSERT(aTarget);
+  MOZ_ASSERT(aEvent);
+
+  if (mEventDispatchingSuspended) {
+    PendingEvent* event = mPendingEvents.AppendElement();
+    event->mTarget = aTarget;
+    event->mEvent = aEvent;
+    return;
+  }
+
+  aTarget->DispatchDOMEvent(nullptr, aEvent, nullptr, nullptr);
+}
+
+void
+XMLHttpRequestMainThread::SuspendEventDispatching()
+{
+  MOZ_ASSERT(!mEventDispatchingSuspended);
+  mEventDispatchingSuspended = true;
+}
+
+void
+XMLHttpRequestMainThread::ResumeEventDispatching()
+{
+  MOZ_ASSERT(mEventDispatchingSuspended);
+  mEventDispatchingSuspended = false;
+
+  nsTArray<PendingEvent> pendingEvents;
+  pendingEvents.SwapElements(mPendingEvents);
+
+  for (uint32_t i = 0; i < pendingEvents.Length(); ++i) {
+    pendingEvents[i].mTarget->
+      DispatchDOMEvent(nullptr, pendingEvents[i].mEvent, nullptr, nullptr);
   }
 }
 
@@ -1674,8 +1722,13 @@ XMLHttpRequestMainThread::StreamReaderFunc(nsIInputStream* in,
     if (xmlHttpRequest->mArrayBufferBuilder.capacity() == 0)
       xmlHttpRequest->mArrayBufferBuilder.setCapacity(std::max(count, XML_HTTP_REQUEST_ARRAYBUFFER_MIN_SIZE));
 
-    xmlHttpRequest->mArrayBufferBuilder.append(reinterpret_cast<const uint8_t*>(fromRawSegment), count,
-                                               XML_HTTP_REQUEST_ARRAYBUFFER_MAX_GROWTH);
+    if (NS_WARN_IF(!xmlHttpRequest->mArrayBufferBuilder.append(
+                      reinterpret_cast<const uint8_t*>(fromRawSegment),
+                      count,
+                      XML_HTTP_REQUEST_ARRAYBUFFER_MAX_GROWTH))) {
+      return NS_ERROR_OUT_OF_MEMORY;
+    }
+
   } else if (xmlHttpRequest->mResponseType == XMLHttpRequestResponseType::_empty &&
              xmlHttpRequest->mResponseXML) {
     // Copy for our own use
@@ -1688,7 +1741,10 @@ XMLHttpRequestMainThread::StreamReaderFunc(nsIInputStream* in,
              xmlHttpRequest->mResponseType == XMLHttpRequestResponseType::Moz_chunked_text) {
     NS_ASSERTION(!xmlHttpRequest->mResponseXML,
                  "We shouldn't be parsing a doc here");
-    xmlHttpRequest->AppendToResponseText(fromRawSegment, count);
+    rv = xmlHttpRequest->AppendToResponseText(fromRawSegment, count);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return rv;
+    }
   }
 
   if (xmlHttpRequest->mFlagParseBody) {
@@ -1856,13 +1912,6 @@ XMLHttpRequestMainThread::OnDataAvailable(nsIRequest *request,
       mBlobSet = nullptr;
       NS_ASSERTION(mResponseBody.IsEmpty(), "mResponseBody should be empty");
 
-      // We don't have to read from the local file for the blob response
-      int64_t fileSize;
-      rv = localFile->GetFileSize(&fileSize);
-      NS_ENSURE_SUCCESS(rv, rv);
-
-      mDataAvailable = fileSize;
-
       // The nsIStreamListener contract mandates us to read from the stream
       // before returning.
       uint32_t totalRead;
@@ -1884,8 +1933,6 @@ XMLHttpRequestMainThread::OnDataAvailable(nsIRequest *request,
                            (void*)this, count, &totalRead);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  mDataAvailable += totalRead;
-
   // Fire the first progress event/loading state change
   if (mState != State::loading) {
     ChangeState(State::loading);
@@ -1906,8 +1953,7 @@ XMLHttpRequestMainThread::OnDataAvailable(nsIRequest *request,
 NS_IMETHODIMP
 XMLHttpRequestMainThread::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
 {
-  PROFILER_LABEL("XMLHttpRequestMainThread", "OnStartRequest",
-    js::ProfileEntry::Category::NETWORK);
+  AUTO_PROFILER_LABEL("XMLHttpRequestMainThread::OnStartRequest", NETWORK);
 
   nsresult rv = NS_OK;
   if (!mFirstStartRequestSeen && mRequestObserver) {
@@ -1943,11 +1989,13 @@ XMLHttpRequestMainThread::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
 
   nsresult status;
   request->GetStatus(&status);
-  mErrorLoad = mErrorLoad || NS_FAILED(status);
+  if (mErrorLoad == ErrorType::eOK && NS_FAILED(status)) {
+    mErrorLoad = ErrorType::eRequest;
+  }
 
   // Upload phase is now over. If we were uploading anything,
   // stop the timer and fire any final progress events.
-  if (mUpload && !mUploadComplete && !mErrorLoad && !mFlagSynchronous) {
+  if (mUpload && !mUploadComplete && mErrorLoad == ErrorType::eOK && !mFlagSynchronous) {
     StopProgressEventTimer();
 
     mUploadTransferred = mUploadTotal;
@@ -2180,8 +2228,7 @@ XMLHttpRequestMainThread::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
 NS_IMETHODIMP
 XMLHttpRequestMainThread::OnStopRequest(nsIRequest *request, nsISupports *ctxt, nsresult status)
 {
-  PROFILER_LABEL("XMLHttpRequestMainThread", "OnStopRequest",
-    js::ProfileEntry::Category::NETWORK);
+  AUTO_PROFILER_LABEL("XMLHttpRequestMainThread::OnStopRequest", NETWORK);
 
   if (request != mChannel) {
     // Can this still happen?
@@ -2325,7 +2372,7 @@ XMLHttpRequestMainThread::OnStopRequest(nsIRequest *request, nsISupports *ctxt, 
     // This can happen if the server is unreachable. Other possible
     // reasons are that the user leaves the page or hits the ESC key.
 
-    mErrorLoad = true;
+    mErrorLoad = ErrorType::eUnreachable;
     mResponseXML = nullptr;
   }
 
@@ -2387,7 +2434,7 @@ XMLHttpRequestMainThread::MatchCharsetAndDecoderToResponseDocument()
     mResponseCharset = mResponseXML->GetDocumentCharacterSet();
     TruncateResponseText();
     mResponseBodyDecodedPos = 0;
-    mDecoder = EncodingUtils::DecoderForEncoding(mResponseCharset);
+    mDecoder = mResponseCharset->NewDecoderWithBOMRemoval();
   }
 }
 
@@ -2403,10 +2450,6 @@ XMLHttpRequestMainThread::ChangeStateToDone()
 
   if (mTimeoutTimer) {
     mTimeoutTimer->Cancel();
-  }
-
-  if (mFlagSynchronous) {
-    UnsuppressEventHandlingAndResume();
   }
 
   // Per spec, fire the last download progress event, if any,
@@ -2430,13 +2473,14 @@ XMLHttpRequestMainThread::ChangeStateToDone()
 
   // Per spec, fire download's load/error and loadend events after
   // readystatechange=4/done (and of course all upload events).
-  DispatchProgressEvent(this,
-                        mErrorLoad ? ProgressEventType::error :
-                                     ProgressEventType::load,
-                        mErrorLoad ? 0 : mLoadTransferred,
-                        mErrorLoad ? -1 : mLoadTotal);
+  if (mErrorLoad != ErrorType::eOK) {
+    DispatchProgressEvent(this, ProgressEventType::error, 0, -1);
+  } else {
+    DispatchProgressEvent(this, ProgressEventType::load,
+                          mLoadTransferred, mLoadTotal);
+  }
 
-  if (mErrorLoad) {
+  if (mErrorLoad != ErrorType::eOK) {
     // By nulling out channel here we make it so that Send() can test
     // for that and throw. Also calling the various status
     // methods/members will not throw.
@@ -2785,7 +2829,7 @@ XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
     mChannel->SetNotificationCallbacks(mNotificationCallbacks);
     mChannel = nullptr;
 
-    mErrorLoad = true;
+    mErrorLoad = ErrorType::eChannelOpen;
 
     // Per spec, we throw on sync errors, but not async.
     if (mFlagSynchronous) {
@@ -2933,7 +2977,7 @@ XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody)
   mUploadTotal = 0;
   // By default we don't have any upload, so mark upload complete.
   mUploadComplete = true;
-  mErrorLoad = false;
+  mErrorLoad = ErrorType::eOK;
   mLoadTotal = -1;
   nsCOMPtr<nsIInputStream> uploadStream;
   nsAutoCString uploadContentType;
@@ -3028,6 +3072,7 @@ XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody)
       }
     }
 
+    SuspendEventDispatching();
     StopProgressEventTimer();
 
     SyncTimeoutType syncTimeoutType = MaybeStartSyncTimeoutTimer();
@@ -3051,6 +3096,7 @@ XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody)
     }
 
     UnsuppressEventHandlingAndResume();
+    ResumeEventDispatching();
   } else {
     // Now that we've successfully opened the channel, we can change state.  Note
     // that this needs to come after the AsyncOpen() and rv check, because this
@@ -3078,9 +3124,11 @@ XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody)
     } else {
       // Defer the actual sending of async events just in case listeners
       // are attached after the send() method is called.
-      return DispatchToMainThread(NewRunnableMethod<ProgressEventType>(this,
-                 &XMLHttpRequestMainThread::CloseRequestWithError,
-                 ProgressEventType::error));
+      return DispatchToMainThread(NewRunnableMethod<ProgressEventType>(
+        "dom::XMLHttpRequestMainThread::CloseRequestWithError",
+        this,
+        &XMLHttpRequestMainThread::CloseRequestWithError,
+        ProgressEventType::error));
     }
   }
 
@@ -3445,7 +3493,7 @@ XMLHttpRequestMainThread::OnRedirectVerifyCallback(nsresult result)
       mAuthorRequestHeaders.ApplyToChannel(httpChannel);
     }
   } else {
-    mErrorLoad = true;
+    mErrorLoad = ErrorType::eRedirect;
   }
 
   mNewRedirectChannel = nullptr;
@@ -3690,7 +3738,7 @@ XMLHttpRequestMainThread::HandleProgressTimerCallback()
 
   mProgressTimerIsActive = false;
 
-  if (!mProgressSinceLastProgressEvent || mErrorLoad) {
+  if (!mProgressSinceLastProgressEvent || mErrorLoad != ErrorType::eOK) {
     return;
   }
 

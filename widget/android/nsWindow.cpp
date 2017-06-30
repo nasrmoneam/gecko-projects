@@ -81,7 +81,7 @@ using mozilla::Unused;
 #include "imgIEncoder.h"
 
 #include "nsString.h"
-#include "GeckoProfiler.h" // For PROFILER_LABEL
+#include "GeckoProfiler.h" // For AUTO_PROFILER_LABEL
 #include "nsIXULRuntime.h"
 #include "nsPrintfCString.h"
 
@@ -430,8 +430,6 @@ public:
 public:
     void SetIsLongpressEnabled(bool aIsLongpressEnabled)
     {
-        MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
-
         RefPtr<IAPZCTreeManager> controller;
 
         if (LockedWindowPtr window{mWindow}) {
@@ -983,11 +981,14 @@ public:
                 MOZ_ASSERT(NS_IsMainThread());
 
                 JNIEnv* const env = jni::GetGeckoThreadEnv();
-                LayerViewSupport* const lvs = GetNative(
-                        LayerView::Compositor::LocalRef(env, mCompositor));
-                MOZ_CATCH_JNI_EXCEPTION(env);
+                // Make sure LayerViewSupport hasn't been detached from the
+                // Java object since this event was dispatched.
+                if (LayerViewSupport* const lvs = GetNative(
+                        LayerView::Compositor::LocalRef(env, mCompositor))) {
+                    MOZ_CATCH_JNI_EXCEPTION(env);
 
-                lvs->OnResumedCompositor();
+                    lvs->OnResumedCompositor();
+                }
             }
         };
 
@@ -1005,7 +1006,8 @@ public:
         if (!AndroidBridge::IsJavaUiThread()) {
             RefPtr<nsThread> uiThread = GetAndroidUiThread();
             if (uiThread) {
-                uiThread->Dispatch(NewRunnableMethod(child,
+                uiThread->Dispatch(NewRunnableMethod("layers::UiCompositorControllerChild::InvalidateAndRender",
+                                                     child,
                                                      &UiCompositorControllerChild::InvalidateAndRender),
                                    nsIThread::DISPATCH_NORMAL);
             }
@@ -1035,6 +1037,7 @@ public:
             RefPtr<nsThread> uiThread = GetAndroidUiThread();
             if (uiThread) {
                 uiThread->Dispatch(NewRunnableMethod<bool, int32_t>(
+                                       "layers::UiCompositorControllerChild::SetPinned",
                                        child, &UiCompositorControllerChild::SetPinned, aPinned, aReason),
                                    nsIThread::DISPATCH_NORMAL);
             }
@@ -1057,6 +1060,7 @@ public:
             RefPtr<nsThread> uiThread = GetAndroidUiThread();
             if (uiThread) {
                 uiThread->Dispatch(NewRunnableMethod<int32_t>(
+                                       "layers::UiCompositorControllerChild::ToolbarAnimatorMessageFromUI",
                                        child, &UiCompositorControllerChild::ToolbarAnimatorMessageFromUI, aMessage),
                                    nsIThread::DISPATCH_NORMAL);
             }
@@ -1252,8 +1256,7 @@ nsWindow::GeckoViewSupport::Open(const jni::Class::LocalRef& aCls,
 {
     MOZ_ASSERT(NS_IsMainThread());
 
-    PROFILER_LABEL("nsWindow", "GeckoViewSupport::Open",
-                   js::ProfileEntry::Category::OTHER);
+    AUTO_PROFILER_LABEL("nsWindow::GeckoViewSupport::Open", OTHER);
 
     nsCOMPtr<nsIWindowWatcher> ww = do_GetService(NS_WINDOWWATCHER_CONTRACTID);
     MOZ_RELEASE_ASSERT(ww);
@@ -1460,7 +1463,6 @@ nsWindow::nsWindow() :
     mScreenId(0), // Use 0 (primary screen) as the default value.
     mIsVisible(false),
     mParent(nullptr),
-    mAwaitingFullScreen(false),
     mIsFullScreen(false)
 {
 }
@@ -1764,12 +1766,6 @@ nsWindow::Resize(double aX,
     // Should we skip honoring aRepaint here?
     if (aRepaint && FindTopLevel() == nsWindow::TopWindow())
         RedrawAll();
-
-    nsIWidgetListener* listener = GetWidgetListener();
-    if (mAwaitingFullScreen && listener) {
-        listener->FullscreenChanged(mIsFullScreen);
-        mAwaitingFullScreen = false;
-    }
 }
 
 void
@@ -1925,9 +1921,13 @@ nsWindow::MakeFullScreen(bool aFullScreen, nsIScreen*)
     }
 
     mIsFullScreen = aFullScreen;
-    mAwaitingFullScreen = true;
     mAndroidView->mEventDispatcher->Dispatch(aFullScreen ?
             u"GeckoView:FullScreenEnter" : u"GeckoView:FullScreenExit");
+
+    nsIWidgetListener* listener = GetWidgetListener();
+    if (listener) {
+        listener->FullscreenChanged(mIsFullScreen);
+    }
     return NS_OK;
 }
 

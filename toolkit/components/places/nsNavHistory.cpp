@@ -564,7 +564,8 @@ public:
                        const nsACString& aGUID,
                        bool aHidden,
                        PRTime aLastVisitDate)
-    : mSpec(aSpec)
+    : mozilla::Runnable("FrecencyNotification")
+    , mSpec(aSpec)
     , mNewFrecency(aNewFrecency)
     , mGUID(aGUID)
     , mHidden(aHidden)
@@ -675,9 +676,11 @@ nsNavHistory::GetNow()
     if (!mExpireNowTimer)
       mExpireNowTimer = do_CreateInstance("@mozilla.org/timer;1");
     if (mExpireNowTimer)
-      mExpireNowTimer->InitWithFuncCallback(expireNowTimerCallback, this,
-                                            RENEW_CACHED_NOW_TIMEOUT,
-                                            nsITimer::TYPE_ONE_SHOT);
+      mExpireNowTimer->InitWithNamedFuncCallback(expireNowTimerCallback,
+                                                 this,
+                                                 RENEW_CACHED_NOW_TIMEOUT,
+                                                 nsITimer::TYPE_ONE_SHOT,
+                                                 "nsNavHistory::GetNow");
   }
   return mCachedNow;
 }
@@ -1099,15 +1102,11 @@ nsNavHistory::MarkPageAsFollowedBookmark(nsIURI* aURI)
   nsresult rv = aURI->GetSpec(uriString);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // if URL is already in the bookmark queue, then we need to remove the old one
-  int64_t unusedEventTime;
-  if (mRecentBookmark.Get(uriString, &unusedEventTime))
-    mRecentBookmark.Remove(uriString);
+  mRecentBookmark.Put(uriString, GetNow());
 
   if (mRecentBookmark.Count() > RECENT_EVENT_QUEUE_MAX_LENGTH)
     ExpireNonrecentEvents(&mRecentBookmark);
 
-  mRecentBookmark.Put(uriString, GetNow());
   return NS_OK;
 }
 
@@ -2767,15 +2766,11 @@ nsNavHistory::MarkPageAsTyped(nsIURI *aURI)
   nsresult rv = aURI->GetSpec(uriString);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // if URL is already in the typed queue, then we need to remove the old one
-  int64_t unusedEventTime;
-  if (mRecentTyped.Get(uriString, &unusedEventTime))
-    mRecentTyped.Remove(uriString);
+  mRecentTyped.Put(uriString, GetNow());
 
   if (mRecentTyped.Count() > RECENT_EVENT_QUEUE_MAX_LENGTH)
     ExpireNonrecentEvents(&mRecentTyped);
 
-  mRecentTyped.Put(uriString, GetNow());
   return NS_OK;
 }
 
@@ -2799,15 +2794,11 @@ nsNavHistory::MarkPageAsFollowedLink(nsIURI *aURI)
   nsresult rv = aURI->GetSpec(uriString);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // if URL is already in the links queue, then we need to remove the old one
-  int64_t unusedEventTime;
-  if (mRecentLink.Get(uriString, &unusedEventTime))
-    mRecentLink.Remove(uriString);
+  mRecentLink.Put(uriString, GetNow());
 
   if (mRecentLink.Count() > RECENT_EVENT_QUEUE_MAX_LENGTH)
     ExpireNonrecentEvents(&mRecentLink);
 
-  mRecentLink.Put(uriString, GetNow());
   return NS_OK;
 }
 
@@ -3985,6 +3976,7 @@ nsNavHistory::QueryRowToResult(int64_t itemId,
       // This is a regular query.
       resultNode = new nsNavHistoryQueryResultNode(aTitle, aTime, queries, options);
       resultNode->mItemId = itemId;
+      resultNode->mBookmarkGuid = aBookmarkGuid;
     }
   }
 
@@ -3995,6 +3987,7 @@ nsNavHistory::QueryRowToResult(int64_t itemId,
     // whole result.  Instead make a generic empty query node.
     resultNode = new nsNavHistoryQueryResultNode(aTitle, aURI);
     resultNode->mItemId = itemId;
+    resultNode->mBookmarkGuid = aBookmarkGuid;
     // This is a perf hack to generate an empty query that skips filtering.
     resultNode->GetAsQuery()->Options()->SetExcludeItems(true);
   }

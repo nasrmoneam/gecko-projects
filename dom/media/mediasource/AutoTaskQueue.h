@@ -9,6 +9,7 @@
 
 #include "mozilla/RefPtr.h"
 #include "mozilla/SharedThreadPool.h"
+#include "mozilla/SystemGroup.h"
 #include "mozilla/TaskQueue.h"
 
 namespace mozilla {
@@ -42,6 +43,9 @@ public:
     mTaskQueue->Dispatch(Move(aRunnable), aFailureHandling, aReason);
   }
 
+  // Prevent a GCC warning about the other overload of Dispatch being hidden.
+  using AbstractThread::Dispatch;
+
   // Blocks until all tasks finish executing.
   void AwaitIdle() { mTaskQueue->AwaitIdle(); }
 
@@ -56,7 +60,8 @@ private:
   {
     RefPtr<TaskQueue> taskqueue = mTaskQueue;
     nsCOMPtr<nsIRunnable> task =
-      NS_NewRunnableFunction([taskqueue]() { taskqueue->BeginShutdown(); });
+      NS_NewRunnableFunction("AutoTaskQueue::~AutoTaskQueue",
+                             [taskqueue]() { taskqueue->BeginShutdown(); });
     SystemGroup::Dispatch("~AutoTaskQueue", TaskCategory::Other, task.forget());
   }
   RefPtr<TaskQueue> mTaskQueue;

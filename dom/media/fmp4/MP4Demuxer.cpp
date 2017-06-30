@@ -57,6 +57,8 @@ public:
 
   void BreakCycles() override;
 
+  void NotifyDataRemoved();
+
 private:
   friend class MP4Demuxer;
   void NotifyDataArrived();
@@ -328,10 +330,10 @@ void
 MP4Demuxer::NotifyDataRemoved()
 {
   for (auto& dmx : mAudioDemuxers) {
-    dmx->NotifyDataArrived();
+    dmx->NotifyDataRemoved();
   }
   for (auto& dmx : mVideoDemuxers) {
-    dmx->NotifyDataArrived();
+    dmx->NotifyDataRemoved();
   }
 }
 
@@ -497,8 +499,8 @@ MP4TrackDemuxer::GetSamples(int32_t aNumSamples)
   }
 
   if (mQueuedSample) {
-    MOZ_ASSERT(mQueuedSample->mKeyframe,
-               "mQueuedSample must be a keyframe");
+    NS_ASSERTION(mQueuedSample->mKeyframe,
+                 "mQueuedSample must be a keyframe");
     samples->mSamples.AppendElement(mQueuedSample);
     mQueuedSample = nullptr;
     aNumSamples--;
@@ -518,10 +520,14 @@ MP4TrackDemuxer::GetSamples(int32_t aNumSamples)
   }
   for (const auto& sample : samples->mSamples) {
     // Collect telemetry from h264 Annex B SPS.
-    if (mNeedSPSForTelemetry && mp4_demuxer::AnnexB::HasSPS(sample)) {
+    if (mNeedSPSForTelemetry) {
       RefPtr<MediaByteBuffer> extradata =
-        mp4_demuxer::AnnexB::ExtractExtraData(sample);
-      mNeedSPSForTelemetry = AccumulateSPSTelemetry(extradata);
+        mp4_demuxer::H264::ExtractExtraData(sample);
+      if (mp4_demuxer::H264::HasSPS(extradata)) {
+        RefPtr<MediaByteBuffer> extradata =
+          mp4_demuxer::H264::ExtractExtraData(sample);
+        mNeedSPSForTelemetry = AccumulateSPSTelemetry(extradata);
+      }
     }
   }
 
@@ -608,6 +614,19 @@ void
 MP4TrackDemuxer::NotifyDataArrived()
 {
   mNeedReIndex = true;
+}
+
+void
+MP4TrackDemuxer::NotifyDataRemoved()
+{
+  AutoPinned<MediaResource> resource(mParent->mResource);
+  MediaByteRangeSet byteRanges;
+  nsresult rv = resource->GetCachedRanges(byteRanges);
+  if (NS_FAILED(rv)) {
+    return;
+  }
+  mIndex->UpdateMoofIndex(byteRanges, true /* can evict */);
+  mNeedReIndex = false;
 }
 
 void

@@ -6,7 +6,7 @@
 
 use Atom;
 use context::QuirksMode;
-use euclid::size::Size2D;
+use euclid::Size2D;
 use font_metrics::FontMetricsProvider;
 use media_queries::Device;
 #[cfg(feature = "gecko")]
@@ -22,11 +22,16 @@ use super::generics::grid::TrackList as GenericTrackList;
 use super::specified;
 
 pub use app_units::Au;
-pub use cssparser::Color as CSSColor;
+pub use properties::animated_properties::TransitionProperty;
 pub use self::background::BackgroundSize;
-pub use self::border::{BorderImageSlice, BorderImageWidth, BorderImageWidthSide};
+pub use self::border::{BorderImageSlice, BorderImageWidth, BorderImageSideWidth};
 pub use self::border::{BorderRadius, BorderCornerRadius};
+pub use self::color::{Color, RGBAColor};
+pub use self::effects::{BoxShadow, Filter, SimpleShadow};
+pub use self::flex::FlexBasis;
 pub use self::image::{Gradient, GradientItem, ImageLayer, LineDirection, Image, ImageRect};
+#[cfg(feature = "gecko")]
+pub use self::gecko::ScrollSnapPoint;
 pub use self::rect::LengthOrNumberRect;
 pub use super::{Auto, Either, None_};
 #[cfg(feature = "gecko")]
@@ -34,18 +39,26 @@ pub use super::specified::{AlignItems, AlignJustifyContent, AlignJustifySelf, Ju
 pub use super::specified::{BorderStyle, Percentage, UrlOrNone};
 pub use super::generics::grid::GridLine;
 pub use super::specified::url::SpecifiedUrl;
-pub use self::length::{CalcLengthOrPercentage, Length, LengthOrNumber, LengthOrPercentage, LengthOrPercentageOrAuto};
-pub use self::length::{LengthOrPercentageOrAutoOrContent, LengthOrPercentageOrNone, LengthOrNone};
-pub use self::length::{MaxLength, MozLength};
+pub use self::length::{CalcLengthOrPercentage, Length, LengthOrNone, LengthOrNumber, LengthOrPercentage};
+pub use self::length::{LengthOrPercentageOrAuto, LengthOrPercentageOrNone, MaxLength, MozLength};
 pub use self::position::Position;
+pub use self::text::{InitialLetter, LetterSpacing, LineHeight, WordSpacing};
+pub use self::transform::{TimingFunction, TransformOrigin};
 
 pub mod background;
 pub mod basic_shape;
 pub mod border;
+pub mod color;
+pub mod effects;
+pub mod flex;
 pub mod image;
+#[cfg(feature = "gecko")]
+pub mod gecko;
 pub mod length;
 pub mod position;
 pub mod rect;
+pub mod text;
+pub mod transform;
 
 /// A `Context` is all the data a specified value could ever need to compute
 /// itself and be transformed to a computed value.
@@ -237,6 +250,22 @@ impl<T> ToComputedValue for Vec<T>
     }
 }
 
+impl<T> ToComputedValue for Box<[T]>
+    where T: ToComputedValue
+{
+    type ComputedValue = Box<[<T as ToComputedValue>::ComputedValue]>;
+
+    #[inline]
+    fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
+        self.iter().map(|item| item.to_computed_value(context)).collect::<Vec<_>>().into_boxed_slice()
+    }
+
+    #[inline]
+    fn from_computed_value(computed: &Self::ComputedValue) -> Self {
+        computed.iter().map(T::from_computed_value).collect::<Vec<_>>().into_boxed_slice()
+    }
+}
+
 /// A marker trait to represent that the specified value is also the computed
 /// value.
 pub trait ComputedValueAsSpecified {}
@@ -350,86 +379,6 @@ impl ToCss for Time {
     }
 }
 
-impl ToComputedValue for specified::Color {
-    type ComputedValue = RGBA;
-
-    #[cfg(not(feature = "gecko"))]
-    fn to_computed_value(&self, context: &Context) -> RGBA {
-        match *self {
-            specified::Color::RGBA(rgba) => rgba,
-            specified::Color::CurrentColor => context.inherited_style.get_color().clone_color(),
-        }
-    }
-
-    #[cfg(feature = "gecko")]
-    fn to_computed_value(&self, context: &Context) -> RGBA {
-        use gecko::values::convert_nscolor_to_rgba as to_rgba;
-        // It's safe to access the nsPresContext immutably during style computation.
-        let pres_context = unsafe { &*context.device.pres_context };
-        match *self {
-            specified::Color::RGBA(rgba) => rgba,
-            specified::Color::System(system) => to_rgba(system.to_computed_value(context)),
-            specified::Color::CurrentColor => context.inherited_style.get_color().clone_color(),
-            specified::Color::MozDefaultColor => to_rgba(pres_context.mDefaultColor),
-            specified::Color::MozDefaultBackgroundColor => to_rgba(pres_context.mBackgroundColor),
-            specified::Color::MozHyperlinktext => to_rgba(pres_context.mLinkColor),
-            specified::Color::MozActiveHyperlinktext => to_rgba(pres_context.mActiveLinkColor),
-            specified::Color::MozVisitedHyperlinktext => to_rgba(pres_context.mVisitedLinkColor),
-            specified::Color::InheritFromBodyQuirk => {
-                use dom::TElement;
-                use gecko::wrapper::GeckoElement;
-                use gecko_bindings::bindings::Gecko_GetBody;
-                let body = unsafe {
-                    Gecko_GetBody(pres_context)
-                };
-                if let Some(body) = body {
-                    let wrap = GeckoElement(body);
-                    let borrow = wrap.borrow_data();
-                    borrow.as_ref().unwrap()
-                          .styles().primary.values()
-                          .get_color()
-                          .clone_color()
-                } else {
-                    to_rgba(pres_context.mDefaultColor)
-                }
-            },
-        }
-    }
-
-    fn from_computed_value(computed: &RGBA) -> Self {
-        specified::Color::RGBA(*computed)
-    }
-}
-
-impl ToComputedValue for specified::CSSColor {
-    type ComputedValue = CSSColor;
-
-    #[cfg(not(feature = "gecko"))]
-    #[inline]
-    fn to_computed_value(&self, _context: &Context) -> CSSColor {
-        self.parsed
-    }
-
-    #[cfg(feature = "gecko")]
-    #[inline]
-    fn to_computed_value(&self, context: &Context) -> CSSColor {
-        match self.parsed {
-            specified::Color::RGBA(rgba) => CSSColor::RGBA(rgba),
-            specified::Color::CurrentColor => CSSColor::CurrentColor,
-            // Resolve non-standard -moz keywords to RGBA:
-            non_standard => CSSColor::RGBA(non_standard.to_computed_value(context)),
-        }
-    }
-
-    #[inline]
-    fn from_computed_value(computed: &CSSColor) -> Self {
-        (match *computed {
-            CSSColor::RGBA(rgba) => specified::Color::RGBA(rgba),
-            CSSColor::CurrentColor => specified::Color::CurrentColor,
-        }).into()
-    }
-}
-
 #[cfg(feature = "gecko")]
 impl ToComputedValue for specified::JustifyItems {
     type ComputedValue = JustifyItems;
@@ -462,24 +411,12 @@ impl ComputedValueAsSpecified for specified::AlignJustifyContent {}
 impl ComputedValueAsSpecified for specified::AlignJustifySelf {}
 impl ComputedValueAsSpecified for specified::BorderStyle {}
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[allow(missing_docs)]
-pub struct Shadow {
-    pub offset_x: Au,
-    pub offset_y: Au,
-    pub blur_radius: Au,
-    pub spread_radius: Au,
-    pub color: CSSColor,
-    pub inset: bool,
-}
-
 /// A `<number>` value.
 pub type Number = CSSFloat;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 #[allow(missing_docs)]
+#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[derive(Clone, Copy, Debug, PartialEq, ToCss)]
 pub enum NumberOrPercentage {
     Percentage(Percentage),
     Number(Number),
@@ -508,15 +445,6 @@ impl ToComputedValue for specified::NumberOrPercentage {
     }
 }
 
-impl ToCss for NumberOrPercentage {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        match *self {
-            NumberOrPercentage::Percentage(percentage) => percentage.to_css(dest),
-            NumberOrPercentage::Number(number) => number.to_css(dest),
-        }
-    }
-}
-
 /// A type used for opacity.
 pub type Opacity = CSSFloat;
 
@@ -537,23 +465,15 @@ impl IntegerOrAuto {
     }
 }
 
-
-/// An SVG paint value
-///
-/// https://www.w3.org/TR/SVG2/painting.html#SpecifyingPaint
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-pub struct SVGPaint {
-    /// The paint source
-    pub kind: SVGPaintKind,
-    /// The fallback color
-    pub fallback: Option<CSSColor>,
-}
+/// Computed SVG Paint value
+pub type SVGPaint = ::values::generics::SVGPaint<RGBA>;
+/// Computed SVG Paint Kind value
+pub type SVGPaintKind = ::values::generics::SVGPaintKind<RGBA>;
 
 impl Default for SVGPaint {
     fn default() -> Self {
         SVGPaint {
-            kind: SVGPaintKind::None,
+            kind: ::values::generics::SVGPaintKind::None,
             fallback: None,
         }
     }
@@ -564,51 +484,9 @@ impl SVGPaint {
     pub fn black() -> Self {
         let rgba = RGBA::from_floats(0., 0., 0., 1.);
         SVGPaint {
-            kind: SVGPaintKind::Color(CSSColor::RGBA(rgba)),
+            kind: ::values::generics::SVGPaintKind::Color(rgba),
             fallback: None,
         }
-    }
-}
-
-/// An SVG paint value without the fallback
-///
-/// Whereas the spec only allows PaintServer
-/// to have a fallback, Gecko lets the context
-/// properties have a fallback as well.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-pub enum SVGPaintKind {
-    /// `none`
-    None,
-    /// `<color>`
-    Color(CSSColor),
-    /// `url(...)`
-    PaintServer(SpecifiedUrl),
-    /// `context-fill`
-    ContextFill,
-    /// `context-stroke`
-    ContextStroke,
-}
-
-impl ToCss for SVGPaintKind {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        match *self {
-            SVGPaintKind::None => dest.write_str("none"),
-            SVGPaintKind::ContextStroke => dest.write_str("context-stroke"),
-            SVGPaintKind::ContextFill => dest.write_str("context-fill"),
-            SVGPaintKind::Color(ref color) => color.to_css(dest),
-            SVGPaintKind::PaintServer(ref server) => server.to_css(dest),
-        }
-    }
-}
-
-impl ToCss for SVGPaint {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        self.kind.to_css(dest)?;
-        if let Some(ref fallback) = self.fallback {
-            fallback.to_css(dest)?;
-        }
-        Ok(())
     }
 }
 
@@ -628,32 +506,32 @@ pub struct ClipRect {
 
 impl ToCss for ClipRect {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        try!(dest.write_str("rect("));
+        dest.write_str("rect(")?;
         if let Some(top) = self.top {
-            try!(top.to_css(dest));
-            try!(dest.write_str(", "));
+            top.to_css(dest)?;
+            dest.write_str(", ")?;
         } else {
-            try!(dest.write_str("auto, "));
+            dest.write_str("auto, ")?;
         }
 
         if let Some(right) = self.right {
-            try!(right.to_css(dest));
-            try!(dest.write_str(", "));
+            right.to_css(dest)?;
+            dest.write_str(", ")?;
         } else {
-            try!(dest.write_str("auto, "));
+            dest.write_str("auto, ")?;
         }
 
         if let Some(bottom) = self.bottom {
-            try!(bottom.to_css(dest));
-            try!(dest.write_str(", "));
+            bottom.to_css(dest)?;
+            dest.write_str(", ")?;
         } else {
-            try!(dest.write_str("auto, "));
+            dest.write_str("auto, ")?;
         }
 
         if let Some(left) = self.left {
-            try!(left.to_css(dest));
+            left.to_css(dest)?;
         } else {
-            try!(dest.write_str("auto"));
+            dest.write_str("auto")?;
         }
         dest.write_str(")")
     }
@@ -691,4 +569,4 @@ impl ClipRectOrAuto {
 }
 
 /// <color> | auto
-pub type ColorOrAuto = Either<CSSColor, Auto>;
+pub type ColorOrAuto = Either<Color, Auto>;

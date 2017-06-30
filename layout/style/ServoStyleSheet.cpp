@@ -9,11 +9,14 @@
 #include "mozilla/css/Rule.h"
 #include "mozilla/StyleBackendType.h"
 #include "mozilla/ServoBindings.h"
+#include "mozilla/ServoImportRule.h"
 #include "mozilla/ServoMediaList.h"
 #include "mozilla/ServoCSSRuleList.h"
 #include "mozilla/css/GroupRule.h"
 #include "mozilla/dom/CSSRuleList.h"
 #include "mozilla/dom/MediaList.h"
+#include "nsIStyleSheetLinkingElement.h"
+#include "Loader.h"
 
 
 #include "mozAutoDocUpdate.h"
@@ -65,7 +68,11 @@ size_t
 ServoStyleSheetInner::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
-  n += Servo_StyleSheet_SizeOfIncludingThis(ServoStyleSheetMallocSizeOf, mSheet);
+  // mSheet will be null if the parsing has not completed.
+  if (mSheet) {
+    n += Servo_StyleSheet_SizeOfIncludingThis(ServoStyleSheetMallocSizeOf,
+                                              mSheet);
+  }
   return n;
 }
 
@@ -84,12 +91,15 @@ ServoStyleSheet::ServoStyleSheet(const ServoStyleSheet& aCopy,
                                  dom::CSSImportRule* aOwnerRuleToUse,
                                  nsIDocument* aDocumentToUse,
                                  nsINode* aOwningNodeToUse)
-  : StyleSheet(aCopy, aOwnerRuleToUse, aDocumentToUse, aOwningNodeToUse)
+  : StyleSheet(aCopy,
+               aParentToUse,
+               aOwnerRuleToUse,
+               aDocumentToUse,
+               aOwningNodeToUse)
 {
-  mParent = aParentToUse;
-
   if (mDirty) { // CSSOM's been there, force full copy now
-    NS_ASSERTION(mInner->mComplete, "Why have rules been accessed on an incomplete sheet?");
+    NS_ASSERTION(mInner->mComplete,
+                 "Why have rules been accessed on an incomplete sheet?");
     // FIXME: handle failure?
     //
     // NOTE: It's important to call this from the subclass, since this could
@@ -100,8 +110,11 @@ ServoStyleSheet::ServoStyleSheet(const ServoStyleSheet& aCopy,
 
 ServoStyleSheet::~ServoStyleSheet()
 {
-  UnparentChildren();
+}
 
+void
+ServoStyleSheet::LastRelease()
+{
   DropRuleList();
 }
 
@@ -138,9 +151,10 @@ ServoStyleSheet::ParseSheet(css::Loader* aLoader,
                             nsIURI* aBaseURI,
                             nsIPrincipal* aSheetPrincipal,
                             uint32_t aLineNumber,
-                            nsCompatibility aCompatMode)
+                            nsCompatibility aCompatMode,
+                            css::LoaderReusableStyleSheets* aReusableSheets)
 {
-  MOZ_ASSERT_IF(mMedia, mMedia->IsServo());
+  MOZ_ASSERT(!mMedia || mMedia->IsServo());
   RefPtr<URLExtraData> extraData =
     new URLExtraData(aBaseURI, aSheetURI, aSheetPrincipal);
 
@@ -159,7 +173,8 @@ ServoStyleSheet::ParseSheet(css::Loader* aLoader,
     // now) we should update the mediaList here too, though it's slightly
     // tricky.
     Servo_StyleSheet_ClearAndUpdate(Inner()->mSheet, aLoader,
-                                    this, &input, extraData, aLineNumber);
+                                    this, &input, extraData, aLineNumber,
+                                    aReusableSheets);
   }
 
   Inner()->mURLData = extraData.forget();
@@ -169,8 +184,120 @@ ServoStyleSheet::ParseSheet(css::Loader* aLoader,
 void
 ServoStyleSheet::LoadFailed()
 {
-  Inner()->mSheet = Servo_StyleSheet_Empty(mParsingMode).Consume();
+  if (!Inner()->mSheet) {
+    // Only create empty stylesheet if this is a top level stylesheet.
+    // The raw sheet for stylesheet of @import rule is already set in
+    // loader, and we should not touch it.
+    Inner()->mSheet = Servo_StyleSheet_Empty(mParsingMode).Consume();
+  }
   Inner()->mURLData = URLExtraData::Dummy();
+}
+
+nsresult
+ServoStyleSheet::ReparseSheet(const nsAString& aInput)
+{
+  if (!mInner->mComplete) {
+    return NS_ERROR_DOM_INVALID_ACCESS_ERR;
+  }
+
+  // Hold strong ref to the CSSLoader in case the document update
+  // kills the document
+  RefPtr<css::Loader> loader;
+  if (mDocument) {
+    loader = mDocument->CSSLoader();
+    NS_ASSERTION(loader, "Document with no CSS loader!");
+  } else {
+    loader = new css::Loader(StyleBackendType::Servo, nullptr);
+  }
+
+  mozAutoDocUpdate updateBatch(mDocument, UPDATE_STYLE, true);
+
+  WillDirty();
+
+  // cache child sheets to reuse
+  css::LoaderReusableStyleSheets reusableSheets;
+  for (StyleSheet* child = GetFirstChild(); child; child = child->mNext) {
+    if (child->GetOriginalURI()) {
+      reusableSheets.AddReusableSheet(child);
+    }
+  }
+
+  // clean up child sheets list
+  for (StyleSheet* child = GetFirstChild(); child; ) {
+    StyleSheet* next = child->mNext;
+    child->mParent = nullptr;
+    child->SetAssociatedDocument(nullptr, NotOwnedByDocument);
+    child->mNext = nullptr;
+    child = next;
+  }
+  Inner()->mFirstChild = nullptr;
+
+  uint32_t lineNumber = 1;
+  if (mOwningNode) {
+    nsCOMPtr<nsIStyleSheetLinkingElement> link = do_QueryInterface(mOwningNode);
+    if (link) {
+      lineNumber = link->GetLineNumber();
+    }
+  }
+
+  // Notify mDocument that all our rules are removed.
+  if (mDocument) {
+    // Get the rule list.
+    ServoCSSRuleList* ruleList = GetCssRulesInternal();
+    MOZ_ASSERT(ruleList);
+
+    uint32_t ruleCount = ruleList->Length();
+    for (uint32_t i = 0; i < ruleCount; ++i) {
+      css::Rule* rule = ruleList->GetRule(i);
+      MOZ_ASSERT(rule);
+      if (rule->GetType() == css::Rule::IMPORT_RULE &&
+          RuleHasPendingChildSheet(rule)) {
+        continue; // notify when loaded (see StyleSheetLoaded)
+      }
+      mDocument->StyleRuleRemoved(this, rule);
+
+      // Document observers could possibly detach document from this sheet.
+      if (!mDocument) {
+        // If detached, don't process any more rules.
+        break;
+      }
+    }
+  }
+
+  DropRuleList();
+
+  nsresult rv = ParseSheet(loader, aInput, mInner->mSheetURI, mInner->mBaseURI,
+                           mInner->mPrincipal, lineNumber,
+                           eCompatibility_FullStandards, &reusableSheets);
+  DidDirty();
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // Notify mDocument that all our new rules are added.
+  if (mDocument) {
+    // Get the rule list (which will need to be regenerated after ParseSheet).
+    ServoCSSRuleList* ruleList = GetCssRulesInternal();
+    MOZ_ASSERT(ruleList);
+
+    uint32_t ruleCount = ruleList->Length();
+    for (uint32_t i = 0; i < ruleCount; ++i) {
+      css::Rule* rule = ruleList->GetRule(i);
+      MOZ_ASSERT(rule);
+      if (rule->GetType() == css::Rule::IMPORT_RULE &&
+          RuleHasPendingChildSheet(rule)) {
+        continue; // notify when loaded (see StyleSheetLoaded)
+      }
+
+      mDocument->StyleRuleAdded(this, rule);
+
+      // Document observers could possibly detach document from this sheet.
+      if (!mDocument) {
+        // If detached, don't process any more rules.
+        break;
+      }
+    }
+  }
+
+  return NS_OK;
 }
 
 // nsICSSLoaderObserver implementation
@@ -191,8 +318,7 @@ ServoStyleSheet::StyleSheetLoaded(StyleSheet* aSheet,
 
   if (mDocument && NS_SUCCEEDED(aStatus)) {
     mozAutoDocUpdate updateBatch(mDocument, UPDATE_STYLE, true);
-    NS_WARNING("stylo: Import rule object not implemented");
-    mDocument->StyleRuleAdded(this, nullptr);
+    mDocument->StyleRuleAdded(this, sheet->GetOwnerRule());
   }
 
   return NS_OK;
@@ -221,8 +347,8 @@ ServoStyleSheet::Clone(StyleSheet* aCloneParent,
   return clone.forget();
 }
 
-CSSRuleList*
-ServoStyleSheet::GetCssRulesInternal(ErrorResult& aRv)
+ServoCSSRuleList*
+ServoStyleSheet::GetCssRulesInternal()
 {
   if (!mRuleList) {
     EnsureUniqueInner();
@@ -240,7 +366,7 @@ ServoStyleSheet::InsertRuleInternal(const nsAString& aRule,
                                     uint32_t aIndex, ErrorResult& aRv)
 {
   // Ensure mRuleList is constructed.
-  GetCssRulesInternal(aRv);
+  GetCssRulesInternal();
 
   mozAutoDocUpdate updateBatch(mDocument, UPDATE_STYLE, true);
   aRv = mRuleList->InsertRule(aRule, aIndex);
@@ -262,7 +388,7 @@ void
 ServoStyleSheet::DeleteRuleInternal(uint32_t aIndex, ErrorResult& aRv)
 {
   // Ensure mRuleList is constructed.
-  GetCssRulesInternal(aRv);
+  GetCssRulesInternal();
   if (aIndex > mRuleList->Length()) {
     aRv.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
     return;

@@ -112,8 +112,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -122,13 +120,12 @@ import java.util.concurrent.TimeUnit;
 import static org.mozilla.gecko.Tabs.INTENT_EXTRA_SESSION_UUID;
 import static org.mozilla.gecko.Tabs.INTENT_EXTRA_TAB_ID;
 import static org.mozilla.gecko.Tabs.INVALID_TAB_ID;
-import static org.mozilla.gecko.mma.MmaDelegate.DOWNLOAD_VIDEOS_OR_ANY_OTHER_MEDIA;
-import static org.mozilla.gecko.mma.MmaDelegate.LOADS_ARTICLES;
+import static org.mozilla.gecko.mma.MmaDelegate.DOWNLOAD_MEDIA_SAVED_IMAGE;
+import static org.mozilla.gecko.mma.MmaDelegate.READER_AVAILABLE;
 
 public abstract class GeckoApp extends GeckoActivity
                                implements AnchoredPopup.OnVisibilityChangeListener,
                                           BundleEventListener,
-                                          ContextGetter,
                                           GeckoMenu.Callback,
                                           GeckoMenu.MenuPresenter,
                                           GeckoView.ContentListener,
@@ -393,12 +390,6 @@ public abstract class GeckoApp extends GeckoActivity
 
     void focusChrome() { }
 
-    @Override
-    public Context getContext() {
-        return this;
-    }
-
-    @Override
     public SharedPreferences getSharedPreferences() {
         return GeckoSharedPrefs.forApp(this);
     }
@@ -875,10 +866,10 @@ public abstract class GeckoApp extends GeckoActivity
             prefs.edit().putInt(PREFS_FLASH_USAGE, ++count).apply();
 
         } else if ("Mma:reader_available".equals(event)) {
-            MmaDelegate.track(LOADS_ARTICLES);
+            MmaDelegate.track(READER_AVAILABLE);
 
         } else if ("Mma:web_save_media".equals(event) || "Mma:web_save_image".equals(event)) {
-            MmaDelegate.track(DOWNLOAD_VIDEOS_OR_ANY_OTHER_MEDIA);
+            MmaDelegate.track(DOWNLOAD_MEDIA_SAVED_IMAGE);
 
         }
 
@@ -1078,6 +1069,11 @@ public abstract class GeckoApp extends GeckoActivity
 
     @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
     private static native void onFullScreenPluginHidden(View view);
+
+    @WrapForJNI(calledFrom = "gecko")
+    private static Context getPluginContext() {
+        return GeckoActivityMonitor.getInstance().getCurrentActivity();
+    }
 
     private void showSetImageResult(final boolean success, final int message, final String path) {
         ThreadUtils.postToUiThread(new Runnable() {
@@ -1279,13 +1275,6 @@ public abstract class GeckoApp extends GeckoActivity
             Class.forName("android.os.AsyncTask");
         } catch (ClassNotFoundException e) { }
 
-        // GeckoAppShell is tightly coupled to us, rather than
-        // the app context, because various parts of Fennec (e.g.,
-        // GeckoScreenOrientation) use GAS to access the Activity in
-        // the guise of fetching a Context.
-        // When that's fixed, `this` can change to
-        // `(GeckoApplication) getApplication()` here.
-        GeckoAppShell.setContextGetter(this);
         GeckoAppShell.setScreenOrientationDelegate(this);
 
         // Tell Stumbler to register a local broadcast listener to listen for preference intents.
@@ -1418,7 +1407,7 @@ public abstract class GeckoApp extends GeckoActivity
             "ToggleChrome:Show",
             null);
 
-        Tabs.getInstance().attachToContext(this, mLayerView);
+        Tabs.getInstance().attachToContext(this, mLayerView, getAppEventDispatcher());
         Tabs.registerOnTabsChangedListener(this);
 
         // Use global layout state change to kick off additional initialization
@@ -1512,7 +1501,7 @@ public abstract class GeckoApp extends GeckoActivity
 
                 // If we are doing a restore, send the parsed session data to Gecko.
                 if (!mIsRestoringActivity) {
-                    EventDispatcher.getInstance().dispatch("Session:Restore", restoreMessage);
+                    getAppEventDispatcher().dispatch("Session:Restore", restoreMessage);
                 }
 
                 // Make sure sessionstore.old is either updated or deleted as necessary.
@@ -1555,7 +1544,7 @@ public abstract class GeckoApp extends GeckoActivity
                 final Locale osLocale = Locale.getDefault();
 
                 // Both of these are Java-format locale strings: "en_US", not "en-US".
-                final String osLocaleString = osLocale.toString();
+                final String osLocaleString = osLocale.getLanguage() + "_" + osLocale.getCountry();
                 String appLocaleString = localeManager.getAndApplyPersistedLocale(GeckoApp.this);
                 Log.d(LOGTAG, "OS locale is " + osLocaleString + ", app locale is " + appLocaleString);
 
@@ -1841,7 +1830,7 @@ public abstract class GeckoApp extends GeckoActivity
             startActivity(settingsIntent);
         }
 
-        mPromptService = new PromptService(this);
+        mPromptService = new PromptService(this, getAppEventDispatcher());
 
         // Trigger the completion of the telemetry timer that wraps activity startup,
         // then grab the duration to give to FHR.
@@ -2489,6 +2478,7 @@ public abstract class GeckoApp extends GeckoActivity
         super.onDestroy();
 
         Tabs.unregisterOnTabsChangedListener(this);
+        Tabs.getInstance().detachFromContext();
 
         if (mShutdownOnDestroy) {
             GeckoApplication.shutdown(!mRestartOnShutdown ? null : new Intent(

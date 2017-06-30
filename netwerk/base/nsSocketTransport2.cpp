@@ -73,18 +73,22 @@ namespace net {
 class nsSocketEvent : public Runnable
 {
 public:
-    nsSocketEvent(nsSocketTransport *transport, uint32_t type,
-                  nsresult status = NS_OK, nsISupports *param = nullptr)
-        : mTransport(transport)
-        , mType(type)
-        , mStatus(status)
-        , mParam(param)
-    {}
+  nsSocketEvent(nsSocketTransport* transport,
+                uint32_t type,
+                nsresult status = NS_OK,
+                nsISupports* param = nullptr)
+    : Runnable("net::nsSocketEvent")
+    , mTransport(transport)
+    , mType(type)
+    , mStatus(status)
+    , mParam(param)
+  {
+  }
 
-    NS_IMETHOD Run() override
-    {
-        mTransport->OnSocketEvent(mType, mStatus, mParam);
-        return NS_OK;
+  NS_IMETHOD Run() override
+  {
+    mTransport->OnSocketEvent(mType, mStatus, mParam);
+    return NS_OK;
     }
 
 private:
@@ -486,7 +490,8 @@ nsSocketInputStream::AsyncWait(nsIInputStreamCallback *callback,
             //
             // build event proxy
             //
-            mCallback = NS_NewInputStreamReadyEvent(callback, target);
+            mCallback = NS_NewInputStreamReadyEvent("nsSocketInputStream::AsyncWait",
+                                                    callback, target);
         }
         else
             mCallback = callback;
@@ -1968,7 +1973,11 @@ nsSocketTransport::FastOpenInProgress()
 class ThunkPRClose : public Runnable
 {
 public:
-  explicit ThunkPRClose(PRFileDesc *fd) : mFD(fd) {}
+  explicit ThunkPRClose(PRFileDesc* fd)
+    : Runnable("net::ThunkPRClose")
+    , mFD(fd)
+  {
+  }
 
   NS_IMETHOD Run() override
   {
@@ -2544,7 +2553,7 @@ nsSocketTransport::SetSecurityCallbacks(nsIInterfaceRequestor *callbacks)
 {
     nsCOMPtr<nsIInterfaceRequestor> threadsafeCallbacks;
     NS_NewNotificationCallbacksAggregation(callbacks, nullptr,
-                                           NS_GetCurrentThread(),
+                                           GetCurrentThreadEventTarget(),
                                            getter_AddRefs(threadsafeCallbacks));
 
     nsCOMPtr<nsISupports> secinfo;

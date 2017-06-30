@@ -60,7 +60,7 @@ pub enum Origin {
 }
 
 /// A [referer](https://fetch.spec.whatwg.org/#concept-request-referrer)
-#[derive(Clone, PartialEq, HeapSizeOf)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, HeapSizeOf)]
 pub enum Referrer {
     NoReferrer,
     /// Default referrer if nothing is specified
@@ -95,6 +95,14 @@ pub enum CacheMode {
     NoCache,
     ForceCache,
     OnlyIfCached,
+}
+
+/// [Service-workers mode](https://fetch.spec.whatwg.org/#request-service-workers-mode)
+#[derive(Copy, Clone, PartialEq, Serialize, Deserialize, HeapSizeOf)]
+pub enum ServiceWorkersMode {
+    All,
+    Foreign,
+    None,
 }
 
 /// [Redirect mode](https://fetch.spec.whatwg.org/#concept-request-redirect-mode)
@@ -140,6 +148,7 @@ pub struct RequestInit {
     pub headers: Headers,
     pub unsafe_request: bool,
     pub body: Option<Vec<u8>>,
+    pub service_workers_mode: ServiceWorkersMode,
     // TODO: client object
     pub type_: Type,
     pub destination: Destination,
@@ -158,6 +167,8 @@ pub struct RequestInit {
     pub pipeline_id: Option<PipelineId>,
     pub redirect_mode: RedirectMode,
     pub integrity_metadata: String,
+    // to keep track of redirects
+    pub url_list: Vec<ServoUrl>,
 }
 
 impl Default for RequestInit {
@@ -168,6 +179,7 @@ impl Default for RequestInit {
             headers: Headers::new(),
             unsafe_request: false,
             body: None,
+            service_workers_mode: ServiceWorkersMode::All,
             type_: Type::None,
             destination: Destination::None,
             synchronous: false,
@@ -182,6 +194,7 @@ impl Default for RequestInit {
             pipeline_id: None,
             redirect_mode: RedirectMode::Follow,
             integrity_metadata: "".to_owned(),
+            url_list: vec![],
         }
     }
 }
@@ -205,12 +218,12 @@ pub struct Request {
     /// https://fetch.spec.whatwg.org/#concept-request-body
     pub body: Option<Vec<u8>>,
     // TODO: client object
-    pub is_service_worker_global_scope: bool,
     pub window: Window,
     // TODO: target browsing context
     /// https://fetch.spec.whatwg.org/#request-keepalive-flag
     pub keep_alive: bool,
-    pub skip_service_worker: bool,
+    // https://fetch.spec.whatwg.org/#request-service-workers-mode
+    pub service_workers_mode: ServiceWorkersMode,
     /// https://fetch.spec.whatwg.org/#concept-request-initiator
     pub initiator: Initiator,
     /// https://fetch.spec.whatwg.org/#concept-request-type
@@ -254,7 +267,6 @@ pub struct Request {
 impl Request {
     pub fn new(url: ServoUrl,
                origin: Option<Origin>,
-               is_service_worker_global_scope: bool,
                pipeline_id: Option<PipelineId>)
                -> Request {
         Request {
@@ -264,10 +276,9 @@ impl Request {
             headers: Headers::new(),
             unsafe_request: false,
             body: None,
-            is_service_worker_global_scope: is_service_worker_global_scope,
             window: Window::Client,
             keep_alive: false,
-            skip_service_worker: false,
+            service_workers_mode: ServiceWorkersMode::All,
             initiator: Initiator::None,
             type_: Type::None,
             destination: Destination::None,
@@ -290,14 +301,14 @@ impl Request {
     }
 
     pub fn from_init(init: RequestInit) -> Request {
-        let mut req = Request::new(init.url,
+        let mut req = Request::new(init.url.clone(),
                                    Some(Origin::Origin(init.origin.origin())),
-                                   false,
                                    init.pipeline_id);
         req.method = init.method;
         req.headers = init.headers;
         req.unsafe_request = init.unsafe_request;
         req.body = init.body;
+        req.service_workers_mode = init.service_workers_mode;
         req.type_ = init.type_;
         req.destination = init.destination;
         req.synchronous = init.synchronous;
@@ -314,6 +325,12 @@ impl Request {
         req.referrer_policy = init.referrer_policy;
         req.pipeline_id = init.pipeline_id;
         req.redirect_mode = init.redirect_mode;
+        let mut url_list = init.url_list;
+        if url_list.is_empty() {
+            url_list.push(init.url);
+        }
+        req.redirect_count = url_list.len() as u32 - 1;
+        req.url_list = url_list;
         req.integrity_metadata = init.integrity_metadata;
         req
     }

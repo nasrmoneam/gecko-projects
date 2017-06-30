@@ -127,7 +127,7 @@ private:
     bool expandoObjectMatchesConsumer(JSContext* cx, JS::HandleObject expandoObject,
                                       nsIPrincipal* consumerOrigin,
                                       JS::HandleObject exclusiveGlobal);
-    bool getExpandoObjectInternal(JSContext* cx, JS::HandleObject target,
+    bool getExpandoObjectInternal(JSContext* cx, JSObject* expandoChain,
                                   nsIPrincipal* origin, JSObject* exclusiveGlobal,
                                   JS::MutableHandleObject expandoObject);
     JSObject* attachExpandoObject(JSContext* cx, JS::HandleObject target,
@@ -459,8 +459,7 @@ class XrayWrapper : public Base {
                                  JS::AutoIdVector& props) const override;
     virtual bool delete_(JSContext* cx, JS::Handle<JSObject*> wrapper,
                          JS::Handle<jsid> id, JS::ObjectOpResult& result) const override;
-    virtual bool enumerate(JSContext* cx, JS::Handle<JSObject*> wrapper,
-                           JS::MutableHandle<JSObject*> objp) const override;
+    virtual JSObject* enumerate(JSContext* cx, JS::Handle<JSObject*> wrapper) const override;
     virtual bool getPrototype(JSContext* cx, JS::HandleObject wrapper,
                               JS::MutableHandleObject protop) const override;
     virtual bool setPrototype(JSContext* cx, JS::HandleObject wrapper,
@@ -566,8 +565,7 @@ public:
                         bool* bp) const override;
     virtual bool getOwnEnumerablePropertyKeys(JSContext* cx, JS::Handle<JSObject*> proxy,
                                               JS::AutoIdVector& props) const override;
-    virtual bool enumerate(JSContext* cx, JS::Handle<JSObject*> proxy,
-                           JS::MutableHandle<JSObject*> objp) const override;
+    virtual JSObject* enumerate(JSContext* cx, JS::Handle<JSObject*> proxy) const override;
 };
 
 extern const SandboxProxyHandler sandboxProxyHandler;

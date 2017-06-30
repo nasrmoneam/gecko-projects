@@ -62,6 +62,7 @@
 #include "nsIDeprecationWarner.h"
 
 namespace mozilla {
+class Encoding;
 enum class TaskCategory;
 namespace dom {
 class EventTarget;
@@ -95,6 +96,7 @@ class nsIURIFixup;
 class nsIURILoader;
 class nsIWebBrowserFind;
 class nsIWidget;
+class FramingChecker;
 
 /* internally used ViewMode types */
 enum ViewMode
@@ -153,6 +155,8 @@ class nsDocShell final
   , public mozilla::SupportsWeakPtr<nsDocShell>
 {
   friend class nsDSURIContentListener;
+  friend class FramingChecker;
+  using Encoding = mozilla::Encoding;
 
 public:
   MOZ_DECLARE_WEAKREFERENCE_TYPENAME(nsDocShell)
@@ -272,6 +276,8 @@ public:
   }
   bool InFrameSwap();
 
+  const Encoding* GetForcedCharset() { return mForcedCharset; }
+
 private:
   bool CanSetOriginAttributes();
 
@@ -369,6 +375,7 @@ protected:
   // If aLoadReplace is true, LOAD_REPLACE flag will be set to the nsIChannel.
   nsresult DoURILoad(nsIURI* aURI,
                      nsIURI* aOriginalURI,
+                     mozilla::Maybe<nsCOMPtr<nsIURI>> const& aResultPrincipalURI,
                      bool aLoadReplace,
                      nsIURI* aReferrer,
                      bool aSendReferrer,
@@ -774,7 +781,11 @@ public:
   {
   public:
     NS_DECL_NSIRUNNABLE
-    explicit RestorePresentationEvent(nsDocShell* aDs) : mDocShell(aDs) {}
+    explicit RestorePresentationEvent(nsDocShell* aDs)
+      : mozilla::Runnable("nsDocShell::RestorePresentationEvent")
+      , mDocShell(aDs)
+    {
+    }
     void Revoke() { mDocShell = nullptr; }
   private:
     RefPtr<nsDocShell> mDocShell;
@@ -1033,8 +1044,8 @@ protected:
   nsString mInterceptedDocumentId;
 
 private:
-  nsCString mForcedCharset;
-  nsCString mParentCharset;
+  const Encoding* mForcedCharset;
+  const Encoding* mParentCharset;
   int32_t mParentCharsetSource;
   nsCOMPtr<nsIPrincipal> mParentCharsetPrincipal;
   nsTObserverArray<nsWeakPtr> mPrivacyObservers;

@@ -176,8 +176,6 @@ this.EXPORTED_SYMBOLS = ["PlacesTransactions"];
 
 Components.utils.import("resource://gre/modules/XPCOMUtils.jsm");
 Components.utils.import("resource://gre/modules/Services.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Promise",
-                                  "resource://gre/modules/Promise.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
                                   "resource://gre/modules/NetUtil.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PlacesUtils",
@@ -1014,12 +1012,12 @@ async function createItemsFromBookmarksTree(aBookmarksTree, aRestoring = false,
           }
         } else {
           let livemark =
-            await PlacesUtils.livemarks.addLivemark({ title: aItem.title
-                                                    , feedURI
-                                                    , siteURI
-                                                    , parentId
-                                                    , index: aIndex
-                                                    , guid});
+            await PlacesUtils.livemarks.addLivemark({ title: aItem.title,
+                                                      feedURI,
+                                                      siteURI,
+                                                      parentId,
+                                                      index: aIndex,
+                                                      guid});
           itemId = livemark.id;
         }
         break;
@@ -1163,10 +1161,10 @@ PT.NewLivemark = DefineTransaction(["feedUrl", "title", "parentGuid"],
                                    ["siteUrl", "index", "annotations"]);
 PT.NewLivemark.prototype = Object.seal({
   async execute(aFeedURI, aTitle, aParentGuid, aSiteURI, aIndex, aAnnos) {
-    let livemarkInfo = { title: aTitle
-                       , feedURI: aFeedURI
-                       , siteURI: aSiteURI
-                       , index: aIndex };
+    let livemarkInfo = { title: aTitle,
+                         feedURI: aFeedURI,
+                         siteURI: aSiteURI,
+                         index: aIndex };
     let createItem = async function() {
       livemarkInfo.parentId = await PlacesUtils.promiseItemId(aParentGuid);
       let livemark = await PlacesUtils.livemarks.addLivemark(livemarkInfo);
@@ -1225,6 +1223,7 @@ PT.Move.prototype = Object.seal({
       else
         PlacesUtils.bookmarks.moveItem(itemId, oldParentId, oldIndex);
     };
+    return aGuid;
   }
 });
 
@@ -1505,9 +1504,9 @@ PT.Tag.prototype = {
       if (!(await PlacesUtils.bookmarks.fetch({ url: uri }))) {
         // Tagging is only allowed for bookmarked URIs (but see 424160).
         let createTxn = TransactionsHistory.getRawTransaction(
-          PT.NewBookmark({ url: uri
-                         , tags: aTags
-                         , parentGuid: PlacesUtils.bookmarks.unfiledGuid }));
+          PT.NewBookmark({ url: uri,
+                           tags: aTags,
+                           parentGuid: PlacesUtils.bookmarks.unfiledGuid }));
         await createTxn.execute();
         onUndo.unshift(createTxn.undo.bind(createTxn));
         onRedo.push(createTxn.redo.bind(createTxn));

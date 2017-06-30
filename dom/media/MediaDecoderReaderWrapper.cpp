@@ -62,21 +62,19 @@ MediaDecoderReaderWrapper::RequestAudioData()
 }
 
 RefPtr<MediaDecoderReaderWrapper::VideoDataPromise>
-MediaDecoderReaderWrapper::RequestVideoData(bool aSkipToNextKeyframe,
-                                            media::TimeUnit aTimeThreshold)
+MediaDecoderReaderWrapper::RequestVideoData(const media::TimeUnit& aTimeThreshold)
 {
   MOZ_ASSERT(mOwnerThread->IsCurrentThreadIn());
   MOZ_ASSERT(!mShutdown);
 
-  if (aTimeThreshold > media::TimeUnit::Zero()) {
-    aTimeThreshold += StartTime();
-  }
+  const auto threshold = aTimeThreshold > media::TimeUnit::Zero()
+                         ? aTimeThreshold + StartTime()
+                         : aTimeThreshold;
 
   int64_t startTime = StartTime().ToMicroseconds();
   return InvokeAsync(
     mReader->OwnerThread(), mReader.get(), __func__,
-    &MediaDecoderReader::RequestVideoData,
-    aSkipToNextKeyframe, aTimeThreshold)
+    &MediaDecoderReader::RequestVideoData, threshold)
   ->Then(mOwnerThread, __func__,
          [startTime] (RefPtr<VideoData> aVideo) {
            aVideo->AdjustForStartTime(startTime);
@@ -113,7 +111,9 @@ MediaDecoderReaderWrapper::ReleaseResources()
 {
   MOZ_ASSERT(mOwnerThread->IsCurrentThreadIn());
   nsCOMPtr<nsIRunnable> r =
-    NewRunnableMethod(mReader, &MediaDecoderReader::ReleaseResources);
+    NewRunnableMethod("MediaDecoderReader::ReleaseResources",
+                      mReader,
+                      &MediaDecoderReader::ReleaseResources);
   mReader->OwnerThread()->Dispatch(r.forget());
 }
 
@@ -122,7 +122,8 @@ MediaDecoderReaderWrapper::ResetDecode(TrackSet aTracks)
 {
   MOZ_ASSERT(mOwnerThread->IsCurrentThreadIn());
   nsCOMPtr<nsIRunnable> r =
-    NewRunnableMethod<TrackSet>(mReader,
+    NewRunnableMethod<TrackSet>("MediaDecoderReader::ResetDecode",
+                                mReader,
                                 &MediaDecoderReader::ResetDecode,
                                 aTracks);
   mReader->OwnerThread()->Dispatch(r.forget());
@@ -163,7 +164,9 @@ MediaDecoderReaderWrapper::SetVideoBlankDecode(bool aIsBlankDecode)
 {
   MOZ_ASSERT(mOwnerThread->IsCurrentThreadIn());
   nsCOMPtr<nsIRunnable> r =
-    NewRunnableMethod<bool>(mReader, &MediaDecoderReader::SetVideoNullDecode,
+    NewRunnableMethod<bool>("MediaDecoderReader::SetVideoNullDecode",
+                            mReader,
+                            &MediaDecoderReader::SetVideoNullDecode,
                             aIsBlankDecode);
   mReader->OwnerThread()->Dispatch(r.forget());
 }

@@ -302,7 +302,8 @@ Classifier::Reset()
     return;
   }
 
-  nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(resetFunc);
+  nsCOMPtr<nsIRunnable> r =
+    NS_NewRunnableFunction("safebrowsing::Classifier::Reset", resetFunc);
   SyncRunnable::DispatchToThread(mUpdateThread, r);
 }
 
@@ -467,18 +468,6 @@ Classifier::Check(const nsACString& aSpec,
     }
   }
 
-  // Only record telemetry when both v2 and v4 have data.
-  bool isV2Empty = true, isV4Empty = true;
-  bool shouldDoTelemetry = false;
-  for (auto&& cache : cacheArray) {
-    bool& ref = LookupCache::Cast<LookupCacheV2>(cache) ? isV2Empty : isV4Empty;
-    ref = ref ? cache->IsEmpty() : false;
-    if (!isV2Empty && !isV4Empty) {
-      shouldDoTelemetry = true;
-      break;
-    }
-  }
-
   // Now check each lookup fragment against the entries in the DB.
   for (uint32_t i = 0; i < fragments.Length(); i++) {
     Completion lookupHash;
@@ -513,26 +502,8 @@ Classifier::Check(const nsACString& aSpec,
         result->mTableName.Assign(cache->TableName());
         result->mPartialHashLength = confirmed ? COMPLETE_SIZE : matchLength;
         result->mProtocolV2 = LookupCache::Cast<LookupCacheV2>(cache);
-
-        // There are two cases we are going to ignore the result for telemetry:
-        // 1. shouldDoTelemetry == false(when either v2 or v4 table is empty)
-        // 2. When match was found in the table which is not provided by google.
-        if (!shouldDoTelemetry ||
-            !StringBeginsWith(result->mTableName, NS_LITERAL_CSTRING("goog"))) {
-          continue;
-        }
-
-        result->mMatchResult = result->mProtocolV2 ?
-                               MatchResult::eV2Prefix : MatchResult::eV4Prefix;
       }
     }
-  }
-
-  // If we cannot find the prefix in neither the v2 nor the v4 database, record the
-  // telemetry here because we won't reach nsUrlClassifierLookupCallback:::HandleResult.
-  if (shouldDoTelemetry && aResults.Length() == 0) {
-    Telemetry::Accumulate(Telemetry::URLCLASSIFIER_MATCH_RESULT,
-                          static_cast<uint8_t>(MatchResult::eNoMatch));
   }
 
   return NS_OK;
@@ -624,6 +595,34 @@ Classifier::RemoveUpdateIntermediaries()
     // update. (the next udpate will fail due to the removable
     // "safebrowsing-udpating" directory.)
     LOG(("Failed to remove updating directory."));
+  }
+}
+
+void
+Classifier::CopyAndInvalidateFullHashCache()
+{
+  MOZ_ASSERT(NS_GetCurrentThread() != mUpdateThread,
+             "CopyAndInvalidateFullHashCache cannot be called on update thread "
+             "since it mutates mLookupCaches which is only safe on "
+             "worker thread.");
+
+  // New lookup caches are built from disk, data likes cache which is
+  // generated online won't exist. We have to manually copy cache from
+  // old LookupCache to new LookupCache.
+  for (auto& newCache: mNewLookupCaches) {
+    for (auto& oldCache: mLookupCaches) {
+      if (oldCache->TableName() == newCache->TableName()) {
+        newCache->CopyFullHashCache(oldCache);
+        break;
+      }
+    }
+  }
+
+  // Clear cache when update.
+  // Invalidate cache entries in CopyAndInvalidateFullHashCache because only
+  // at this point we will have cache data in LookupCache.
+  for (auto& newCache: mNewLookupCaches) {
+    newCache->InvalidateExpiredCacheEntries();
   }
 }
 
@@ -740,25 +739,30 @@ Classifier::AsyncApplyUpdates(nsTArray<TableUpdate*>* aUpdates,
   nsCOMPtr<nsIThread> callerThread = NS_GetCurrentThread();
   MOZ_ASSERT(callerThread != mUpdateThread);
 
-  nsCOMPtr<nsIRunnable> bgRunnable = NS_NewRunnableFunction([=] {
-    MOZ_ASSERT(NS_GetCurrentThread() == mUpdateThread, "MUST be on update thread");
+  nsCOMPtr<nsIRunnable> bgRunnable =
+    NS_NewRunnableFunction("safebrowsing::Classifier::AsyncApplyUpdates", [=] {
+      MOZ_ASSERT(NS_GetCurrentThread() == mUpdateThread,
+                 "MUST be on update thread");
 
-    LOG(("Step 1. ApplyUpdatesBackground on update thread."));
-    nsCString failedTableName;
-    nsresult bgRv = ApplyUpdatesBackground(aUpdates, failedTableName);
+      LOG(("Step 1. ApplyUpdatesBackground on update thread."));
+      nsCString failedTableName;
+      nsresult bgRv = ApplyUpdatesBackground(aUpdates, failedTableName);
 
-    nsCOMPtr<nsIRunnable> fgRunnable = NS_NewRunnableFunction([=] {
-      MOZ_ASSERT(NS_GetCurrentThread() == callerThread, "MUST be on caller thread");
+      nsCOMPtr<nsIRunnable> fgRunnable = NS_NewRunnableFunction(
+        "safebrowsing::Classifier::AsyncApplyUpdates", [=] {
+          MOZ_ASSERT(NS_GetCurrentThread() == callerThread,
+                     "MUST be on caller thread");
 
-      LOG(("Step 2. ApplyUpdatesForeground on caller thread"));
-      nsresult rv = ApplyUpdatesForeground(bgRv, failedTableName);;
+          LOG(("Step 2. ApplyUpdatesForeground on caller thread"));
+          nsresult rv = ApplyUpdatesForeground(bgRv, failedTableName);
+          ;
 
-      LOG(("Step 3. Updates applied! Fire callback."));
+          LOG(("Step 3. Updates applied! Fire callback."));
 
-      aCallback(rv);
+          aCallback(rv);
+        });
+      callerThread->Dispatch(fgRunnable, NS_DISPATCH_NORMAL);
     });
-    callerThread->Dispatch(fgRunnable, NS_DISPATCH_NORMAL);
-  });
 
   return mUpdateThread->Dispatch(bgRunnable, NS_DISPATCH_NORMAL);
 }
@@ -860,6 +864,10 @@ Classifier::ApplyUpdatesForeground(nsresult aBackgroundRv,
     return NS_OK;
   }
   if (NS_SUCCEEDED(aBackgroundRv)) {
+    // Copy and Invalidate fullhash cache here because this call requires
+    // mLookupCaches which is only available on work-thread
+    CopyAndInvalidateFullHashCache();
+
     return SwapInNewTablesAndCleanup();
   }
   if (NS_ERROR_OUT_OF_MEMORY != aBackgroundRv) {
@@ -1223,9 +1231,6 @@ Classifier::UpdateHashStore(nsTArray<TableUpdate*>* aUpdates,
     return NS_ERROR_UC_UPDATE_TABLE_NOT_FOUND;
   }
 
-  // Clear cache when update
-  lookupCache->InvalidateExpiredCacheEntries();
-
   FallibleTArray<uint32_t> AddPrefixHashes;
   rv = lookupCache->GetPrefixes(AddPrefixHashes);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1314,11 +1319,6 @@ Classifier::UpdateTableV4(nsTArray<TableUpdate*>* aUpdates,
   if (!lookupCache) {
     return NS_ERROR_UC_UPDATE_TABLE_NOT_FOUND;
   }
-
-  // Remove cache entries whose negative cache time is expired when update.
-  // We don't check if positive cache time is expired here because we want to
-  // keep the eviction rule simple when doing an update.
-  lookupCache->InvalidateExpiredCacheEntries();
 
   nsresult rv = NS_OK;
 

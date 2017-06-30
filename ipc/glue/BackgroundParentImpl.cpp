@@ -37,6 +37,7 @@
 #include "mozilla/ipc/PChildToParentStreamParent.h"
 #include "mozilla/ipc/PParentToChildStreamParent.h"
 #include "mozilla/layout/VsyncParent.h"
+#include "mozilla/net/HttpBackgroundChannelParent.h"
 #include "mozilla/dom/network/UDPSocketParent.h"
 #include "mozilla/dom/WebAuthnTransactionParent.h"
 #include "mozilla/Preferences.h"
@@ -396,41 +397,6 @@ BackgroundParentImpl::DeallocPCamerasParent(camera::PCamerasParent *aActor)
   return true;
 }
 
-namespace {
-
-class InitUDPSocketParentCallback final : public Runnable
-{
-public:
-  InitUDPSocketParentCallback(UDPSocketParent* aActor,
-                              const nsACString& aFilter)
-    : mActor(aActor)
-    , mFilter(aFilter)
-  {
-    AssertIsInMainProcess();
-    AssertIsOnBackgroundThread();
-  }
-
-  NS_IMETHOD
-  Run() override
-  {
-    AssertIsInMainProcess();
-
-    IPC::Principal principal;
-    if (!mActor->Init(principal, mFilter)) {
-      MOZ_CRASH("UDPSocketCallback - failed init");
-    }
-    return NS_OK;
-  }
-
-private:
-  ~InitUDPSocketParentCallback() override = default;
-
-  RefPtr<UDPSocketParent> mActor;
-  nsCString mFilter;
-};
-
-} // namespace
-
 auto
 BackgroundParentImpl::AllocPUDPSocketParent(const OptionalPrincipalInfo& /* unused */,
                                             const nsCString& /* unused */)
@@ -527,7 +493,8 @@ public:
   CheckPrincipalRunnable(already_AddRefed<ContentParent> aParent,
                          const PrincipalInfo& aPrincipalInfo,
                          const nsCString& aOrigin)
-    : mContentParent(aParent)
+    : Runnable("ipc::CheckPrincipalRunnable")
+    , mContentParent(aParent)
     , mPrincipalInfo(aPrincipalInfo)
     , mOrigin(aOrigin)
   {
@@ -869,6 +836,53 @@ BackgroundParentImpl::DeallocPWebAuthnTransactionParent(dom::PWebAuthnTransactio
 {
   MOZ_ASSERT(aActor);
   delete aActor;
+  return true;
+}
+
+net::PHttpBackgroundChannelParent*
+BackgroundParentImpl::AllocPHttpBackgroundChannelParent(const uint64_t& aChannelId)
+{
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+
+  RefPtr<net::HttpBackgroundChannelParent> actor =
+    new net::HttpBackgroundChannelParent();
+
+  // hold extra refcount for IPDL
+  return actor.forget().take();
+}
+
+mozilla::ipc::IPCResult
+BackgroundParentImpl::RecvPHttpBackgroundChannelConstructor(
+                                      net::PHttpBackgroundChannelParent *aActor,
+                                      const uint64_t& aChannelId)
+{
+  MOZ_ASSERT(aActor);
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+
+  net::HttpBackgroundChannelParent* aParent =
+    static_cast<net::HttpBackgroundChannelParent*>(aActor);
+
+  if (NS_WARN_IF(NS_FAILED(aParent->Init(aChannelId)))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+
+  return IPC_OK();
+}
+
+bool
+BackgroundParentImpl::DeallocPHttpBackgroundChannelParent(
+                                      net::PHttpBackgroundChannelParent *aActor)
+{
+  MOZ_ASSERT(aActor);
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+
+  // release extra refcount hold by AllocPHttpBackgroundChannelParent
+  RefPtr<net::HttpBackgroundChannelParent> actor =
+    dont_AddRef(static_cast<net::HttpBackgroundChannelParent*>(aActor));
+
   return true;
 }
 

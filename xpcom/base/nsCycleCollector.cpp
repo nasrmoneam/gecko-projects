@@ -176,6 +176,7 @@
 #include "nsIConsoleService.h"
 #include "mozilla/Attributes.h"
 #include "nsICycleCollectorListener.h"
+#include "nsISerialEventTarget.h"
 #include "nsIMemoryReporter.h"
 #include "nsIFile.h"
 #include "nsDumpUtils.h"
@@ -1263,7 +1264,7 @@ private:
   RefPtr<nsCycleCollectorLogger> mLogger;
 
 #ifdef DEBUG
-  void* mThread;
+  nsISerialEventTarget* mEventTarget;
 #endif
 
   nsCycleCollectorParams mParams;
@@ -1487,7 +1488,9 @@ struct CCGraphDescriber : public LinkedListElement<CCGraphDescriber>
 class LogStringMessageAsync : public CancelableRunnable
 {
 public:
-  explicit LogStringMessageAsync(const nsAString& aMsg) : mMsg(aMsg)
+  explicit LogStringMessageAsync(const nsAString& aMsg)
+    : mozilla::CancelableRunnable("LogStringMessageAsync")
+    , mMsg(aMsg)
   {}
 
   NS_IMETHOD Run() override
@@ -3394,7 +3397,7 @@ nsCycleCollector::nsCycleCollector() :
   mCCJSRuntime(nullptr),
   mIncrementalPhase(IdlePhase),
 #ifdef DEBUG
-  mThread(NS_GetCurrentThread()),
+  mEventTarget(GetCurrentThreadSerialEventTarget()),
 #endif
   mWhiteNodeCount(0),
   mBeforeUnlinkCB(nullptr),
@@ -3471,10 +3474,7 @@ void
 nsCycleCollector::CheckThreadSafety()
 {
 #ifdef DEBUG
-  nsIThread* currentThread = NS_GetCurrentThread();
-  // XXXkhuey we can be called so late in shutdown that NS_GetCurrentThread
-  // returns null (after the thread manager has shut down)
-  MOZ_ASSERT(mThread == currentThread || !currentThread);
+  MOZ_ASSERT(mEventTarget->IsOnCurrentThread());
 #endif
 }
 
@@ -4133,8 +4133,7 @@ nsCycleCollector_forgetSkippable(bool aRemoveChildlessNodes,
   MOZ_ASSERT(data);
   MOZ_ASSERT(data->mCollector);
 
-  PROFILER_LABEL("nsCycleCollector", "forgetSkippable",
-                 js::ProfileEntry::Category::CC);
+  AUTO_PROFILER_LABEL("nsCycleCollector_forgetSkippable", CC);
 
   TimeLog timeLog;
   data->mCollector->ForgetSkippable(aRemoveChildlessNodes,
@@ -4180,8 +4179,7 @@ nsCycleCollector_collect(nsICycleCollectorListener* aManualListener)
   MOZ_ASSERT(data);
   MOZ_ASSERT(data->mCollector);
 
-  PROFILER_LABEL("nsCycleCollector", "collect",
-                 js::ProfileEntry::Category::CC);
+  AUTO_PROFILER_LABEL("nsCycleCollector_collect", CC);
 
   SliceBudget unlimitedBudget = SliceBudget::unlimited();
   data->mCollector->Collect(ManualCC, unlimitedBudget, aManualListener);
@@ -4197,8 +4195,7 @@ nsCycleCollector_collectSlice(SliceBudget& budget,
   MOZ_ASSERT(data);
   MOZ_ASSERT(data->mCollector);
 
-  PROFILER_LABEL("nsCycleCollector", "collectSlice",
-                 js::ProfileEntry::Category::CC);
+  AUTO_PROFILER_LABEL("nsCycleCollector_collectSlice", CC);
 
   data->mCollector->Collect(SliceCC, budget, nullptr, aPreferShorterSlices);
 }
@@ -4238,8 +4235,7 @@ nsCycleCollector_shutdown(bool aDoCollect)
 
   if (data) {
     MOZ_ASSERT(data->mCollector);
-    PROFILER_LABEL("nsCycleCollector", "shutdown",
-                   js::ProfileEntry::Category::CC);
+    AUTO_PROFILER_LABEL("nsCycleCollector_shutdown", CC);
 
     if (gMainThreadCollector == data->mCollector) {
       gMainThreadCollector = nullptr;

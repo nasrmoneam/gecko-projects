@@ -11,8 +11,10 @@
 #include "mozilla/gfx/Matrix.h"
 #include "mozilla/gfx/Types.h"
 #include "mozilla/gfx/Tools.h"
+#include "mozilla/layers/LayersTypes.h"
 #include "mozilla/Range.h"
 #include "Units.h"
+#include "RoundedRect.h"
 #include "nsStyleConsts.h"
 
 typedef mozilla::Maybe<WrImageMask> MaybeImageMask;
@@ -50,12 +52,12 @@ SurfaceFormatToWrImageFormat(gfx::SurfaceFormat aFormat) {
   switch (aFormat) {
     case gfx::SurfaceFormat::R8G8B8X8:
       // TODO: use RGBA + opaque flag
-      return Some(WrImageFormat::RGBA8);
+      return Some(WrImageFormat::BGRA8);
     case gfx::SurfaceFormat::B8G8R8X8:
       // TODO: WebRender will have a BGRA + opaque flag for this but does not
       // have it yet (cf. issue #732).
     case gfx::SurfaceFormat::B8G8R8A8:
-      return Some(WrImageFormat::RGBA8);
+      return Some(WrImageFormat::BGRA8);
     case gfx::SurfaceFormat::B8G8R8:
       return Some(WrImageFormat::RGB8);
     case gfx::SurfaceFormat::A8:
@@ -72,7 +74,7 @@ SurfaceFormatToWrImageFormat(gfx::SurfaceFormat aFormat) {
 inline gfx::SurfaceFormat
 WrImageFormatToSurfaceFormat(ImageFormat aFormat) {
   switch (aFormat) {
-    case ImageFormat::RGBA8:
+    case ImageFormat::BGRA8:
       return gfx::SurfaceFormat::B8G8R8A8;
     case ImageFormat::A8:
       return gfx::SurfaceFormat::A8;
@@ -112,6 +114,26 @@ inline uint64_t AsUint64(const WindowId& aId) {
 inline uint64_t AsUint64(const ImageKey& aId) {
   return (static_cast<uint64_t>(aId.mNamespace) << 32)
         + static_cast<uint64_t>(aId.mHandle);
+}
+
+inline ImageKey AsImageKey(const uint64_t& aId) {
+  ImageKey imageKey;
+  imageKey.mNamespace = aId >> 32;
+  imageKey.mHandle = aId;
+  return imageKey;
+}
+
+// Whenever possible, use wr::FontKey instead of manipulating uint64_t.
+inline uint64_t AsUint64(const FontKey& aId) {
+  return (static_cast<uint64_t>(aId.mNamespace) << 32)
+        + static_cast<uint64_t>(aId.mHandle);
+}
+
+inline FontKey AsFontKey(const uint64_t& aId) {
+  FontKey fontKey;
+  fontKey.mNamespace = aId >> 32;
+  fontKey.mHandle = aId;
+  return fontKey;
 }
 
 // Whenever possible, use wr::PipelineId instead of manipulating uint64_t.
@@ -216,6 +238,16 @@ static inline WrRect ToWrRect(const gfx::RectTyped<T>& rect)
   return r;
 }
 
+static inline WrRect ToWrRect(const gfxRect rect)
+{
+  WrRect r;
+  r.x = rect.x;
+  r.y = rect.y;
+  r.width = rect.width;
+  r.height = rect.height;
+  return r;
+}
+
 template<class T>
 static inline WrRect ToWrRect(const gfx::IntRectTyped<T>& rect)
 {
@@ -229,6 +261,17 @@ static inline WrSize ToWrSize(const gfx::SizeTyped<T>& size)
   ls.width = size.width;
   ls.height = size.height;
   return ls;
+}
+
+static inline WrComplexClipRegion ToWrComplexClipRegion(const RoundedRect& rect)
+{
+  WrComplexClipRegion ret;
+  ret.rect               = ToWrRect(rect.rect);
+  ret.radii.top_left     = ToWrSize(rect.corners.radii[mozilla::eCornerTopLeft]);
+  ret.radii.top_right    = ToWrSize(rect.corners.radii[mozilla::eCornerTopRight]);
+  ret.radii.bottom_left  = ToWrSize(rect.corners.radii[mozilla::eCornerBottomLeft]);
+  ret.radii.bottom_right = ToWrSize(rect.corners.radii[mozilla::eCornerBottomRight]);
+  return ret;
 }
 
 template<class T>
@@ -549,6 +592,46 @@ inline mozilla::Range<uint8_t> MutByteSliceToRange(MutByteSlice aWrSlice) {
 struct BuiltDisplayList {
   VecU8 dl;
   WrBuiltDisplayListDescriptor dl_desc;
+};
+
+static inline WrFilterOpType ToWrFilterOpType(const layers::CSSFilterType type) {
+  switch (type) {
+    case layers::CSSFilterType::BLUR:
+      return WrFilterOpType::Blur;
+    case layers::CSSFilterType::BRIGHTNESS:
+      return WrFilterOpType::Brightness;
+    case layers::CSSFilterType::CONTRAST:
+      return WrFilterOpType::Contrast;
+    case layers::CSSFilterType::GRAYSCALE:
+      return WrFilterOpType::Grayscale;
+    case layers::CSSFilterType::HUE_ROTATE:
+      return WrFilterOpType::HueRotate;
+    case layers::CSSFilterType::INVERT:
+      return WrFilterOpType::Invert;
+    case layers::CSSFilterType::OPACITY:
+      return WrFilterOpType::Opacity;
+    case layers::CSSFilterType::SATURATE:
+      return WrFilterOpType::Saturate;
+    case layers::CSSFilterType::SEPIA:
+      return WrFilterOpType::Sepia;
+  }
+  MOZ_ASSERT_UNREACHABLE("Tried to convert unknown filter type.");
+  return WrFilterOpType::Grayscale;
+}
+
+static inline WrFilterOp ToWrFilterOp(const layers::CSSFilter& filter) {
+  return {
+    ToWrFilterOpType(filter.type),
+    filter.argument,
+  };
+}
+
+// Corresponds to an "internal" webrender clip id. That is, a
+// ClipId::Clip(x,pipeline_id) maps to a WrClipId{x}. We use a struct wrapper
+// instead of a typedef so that this is a distinct type from FrameMetrics::ViewID
+// and the compiler will catch accidental conversions between the two.
+struct WrClipId {
+  uint64_t id;
 };
 
 } // namespace wr

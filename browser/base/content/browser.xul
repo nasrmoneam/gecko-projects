@@ -102,9 +102,9 @@
                 hidden="true"
                 oncommand="gBrowser.openNonRemoteWindow(TabContextMenu.contextTab);"/>
 #endif
-      <menuseparator id="context_sendTabToDevice_separator" hidden="true"/>
+      <menuseparator id="context_sendTabToDevice_separator"/>
       <menu id="context_sendTabToDevice" label="&sendTabToDevice.label;"
-            accesskey="&sendTabToDevice.accesskey;" hidden="true">
+            accesskey="&sendTabToDevice.accesskey;">
         <menupopup id="context_sendTabToDevicePopupMenu"
                    onpopupshowing="gSync.populateSendTabToDevicesMenu(event.target, TabContextMenu.contextTab.linkedBrowser.currentURI.spec, TabContextMenu.contextTab.linkedBrowser.contentTitle);"/>
       </menu>
@@ -169,7 +169,6 @@
            consumeoutsideclicks="false"
            level="parent"
            tabspecific="true">
-      <iframe id="dateTimePopupFrame"/>
     </panel>
 
     <!-- for select dropdowns. The menupopup is what shows the list of options,
@@ -495,6 +494,10 @@
                            class="subviewbutton"
                            label="&sendToDevice.noDevices.label;"
                            disabled="true"/>
+            <toolbarbutton id="page-action-sync-not-ready-button"
+                           class="subviewbutton"
+                           label="&sendToDevice.syncNotReady.label;"
+                           disabled="true"/>
           </vbox>
         </panelview>
       </photonpanelmultiview>
@@ -611,6 +614,7 @@
                 id="syncedTabsRefreshFilter"/>
     </menupopup>
   </popupset>
+  <box id="appMenu-viewCache" hidden="true"/>
 
 #ifdef CAN_DRAW_IN_TITLEBAR
 <vbox id="titlebar">
@@ -903,6 +907,14 @@
                        class="urlbar-icon"
                        hidden="true"
                        onclick="ReaderParent.buttonClick(event);"/>
+#ifdef MOZ_PHOTON_THEME
+                <image id="star-button"
+                       class="urlbar-icon"
+                       onclick="BookmarkingUI.onStarCommand(event);">
+                  <observes element="bookmarkThisPageBroadcaster" attribute="starred"/>
+                  <observes element="bookmarkThisPageBroadcaster" attribute="tooltiptext"/>
+                </image>
+#endif
                 <toolbarbutton id="urlbar-zoom-button"
                        onclick="FullZoom.reset();"
                        tooltip="dynamic-shortcut-tooltip"
@@ -946,7 +958,11 @@
         <toolbarbutton id="bookmarks-menu-button"
                        class="toolbarbutton-1 chromeclass-toolbar-additional"
                        removable="true"
+#ifdef MOZ_PHOTON_THEME
+                       type="menu"
+#else
                        type="menu-button"
+#endif
                        label="&bookmarksMenuButton.label;"
                        tooltip="dynamic-shortcut-tooltip"
                        anchor="dropmarker"
@@ -963,7 +979,7 @@
                      placespopup="true"
                      context="placesContext"
                      openInTabs="children"
-                     oncommand="BookmarksEventHandler.onCommand(event, this.parentNode._placesView);"
+                     oncommand="BookmarksEventHandler.onCommand(event);"
                      onclick="BookmarksEventHandler.onClick(event, this.parentNode._placesView);"
                      onpopupshowing="BookmarkingUI.onPopupShowing(event);
                                      BookmarkingUI.attachPlacesView(event, this);"
@@ -1127,7 +1143,7 @@
               id="PlacesToolbar"
               context="placesContext"
               onclick="BookmarksEventHandler.onClick(event, this._placesView);"
-              oncommand="BookmarksEventHandler.onCommand(event, this._placesView);"
+              oncommand="BookmarksEventHandler.onCommand(event);"
               tooltip="bhTooltip"
               popupsinherittooltip="true">
           <hbox flex="1">
@@ -1194,6 +1210,11 @@
                      type="checkbox"
                      label="&fullScreenCmd.label;"
                      tooltip="dynamic-shortcut-tooltip"/>
+#ifdef MOZ_PHOTON_THEME
+      <toolbarbutton id="library-button" class="toolbarbutton-1 chromeclass-toolbar-additional"
+                     oncommand="PanelUI.showSubView('appMenu-libraryView', this, null, true);"
+                     label="&places.library.title;"/>
+#endif
     </toolbarpalette>
   </toolbox>
 
@@ -1206,11 +1227,15 @@
         <sidebarheader id="sidebar-header" align="center">
           <toolbarbutton id="sidebar-switcher-target" flex="1" class="tabbable">
             <image id="sidebar-icon" consumeanchor="sidebar-switcher-target"/>
-            <label id="sidebar-title" persist="value" crop="end" control="sidebar"/>
+            <label id="sidebar-title" persist="value" crop="end" flex="1" control="sidebar"/>
             <image id="sidebar-switcher-arrow"/>
-            <spacer flex="1"/>
           </toolbarbutton>
           <image id="sidebar-throbber"/>
+# To ensure the button label's intrinsic width doesn't expand the sidebar
+# if the label is long, the button needs flex=1.
+# To ensure the button doesn't expand unnecessarily for short labels, the
+# spacer should significantly out-flex the button.
+          <spacer flex="1000"/>
           <toolbarbutton id="sidebar-close" class="tabbable" tooltiptext="&sidebarCloseButton.tooltip;" oncommand="SidebarUI.hide();"/>
         </sidebarheader>
         <browser id="sidebar" flex="1" autoscroll="false" disablehistory="true" disablefullscreen="true"

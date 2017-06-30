@@ -335,6 +335,10 @@ Accessible::VisibilityState()
   if (!frame->StyleVisibility()->IsVisible())
     return states::INVISIBLE;
 
+  // Offscreen state if the document's visibility state is not visible.
+  if (Document()->IsHidden())
+    return states::OFFSCREEN;
+
   nsIFrame* curFrame = frame;
   do {
     nsView* view = curFrame->GetView();
@@ -940,6 +944,10 @@ Accessible::Attributes()
     nsAccUtils::SetAccAttr(attributes, nsGkAtoms::hidden,
                            NS_LITERAL_STRING("true"));
   }
+
+  // XXX: In ARIA 1.1, the value of aria-haspopup became a token (bug 1355449).
+  if (aria::UniversalStatesFor(mContent->AsElement()) & states::HASPOPUP)
+    nsAccUtils::SetAccAttr(attributes, nsGkAtoms::haspopup, NS_LITERAL_STRING("true"));
 
   // If there is no aria-live attribute then expose default value of 'live'
   // object attribute used for ARIA role of this accessible.
@@ -1795,8 +1803,13 @@ Accessible::DoCommand(nsIContent *aContent, uint32_t aActionIndex)
   class Runnable final : public mozilla::Runnable
   {
   public:
-    Runnable(Accessible* aAcc, nsIContent* aContent, uint32_t aIdx) :
-      mAcc(aAcc), mContent(aContent), mIdx(aIdx) { }
+    Runnable(Accessible* aAcc, nsIContent* aContent, uint32_t aIdx)
+      : mozilla::Runnable("Runnable")
+      , mAcc(aAcc)
+      , mContent(aContent)
+      , mIdx(aIdx)
+    {
+    }
 
     NS_IMETHOD Run() override
     {

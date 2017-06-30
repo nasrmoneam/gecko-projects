@@ -252,6 +252,8 @@ struct Cell
     MOZ_ALWAYS_INLINE const TenuredCell& asTenured() const;
     MOZ_ALWAYS_INLINE TenuredCell& asTenured();
 
+    MOZ_ALWAYS_INLINE bool isMarked(uint32_t color = BLACK) const;
+
     inline JSRuntime* runtimeFromActiveCooperatingThread() const;
 
     // Note: Unrestricted access to the runtime of a GC thing from an arbitrary
@@ -1169,6 +1171,17 @@ Cell::asTenured()
     return *static_cast<TenuredCell*>(this);
 }
 
+MOZ_ALWAYS_INLINE bool
+Cell::isMarked(uint32_t color) const
+{
+    if (color == BLACK) {
+        return !isTenured() || asTenured().isMarked(BLACK);
+    } else {
+        MOZ_ASSERT(color == GRAY);
+        return isTenured() && asTenured().isMarked(GRAY);
+    }
+}
+
 inline JSRuntime*
 Cell::runtimeFromActiveCooperatingThread() const
 {
@@ -1315,6 +1328,7 @@ TenuredCell::readBarrier(TenuredCell* thing)
 {
     MOZ_ASSERT(!CurrentThreadIsIonCompiling());
     MOZ_ASSERT(thing);
+    MOZ_ASSERT(CurrentThreadCanAccessZone(thing->zoneFromAnyThread()));
 
     // It would be good if barriers were never triggered during collection, but
     // at the moment this can happen e.g. when rekeying tables containing

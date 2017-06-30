@@ -11,6 +11,8 @@
 
 #include "nsBlockFrame.h"
 
+#include "gfxContext.h"
+
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/UniquePtr.h"
@@ -47,13 +49,14 @@
 #include "nsDisplayList.h"
 #include "nsCSSAnonBoxes.h"
 #include "nsCSSFrameConstructor.h"
-#include "nsRenderingContext.h"
 #include "TextOverflow.h"
 #include "nsIFrameInlines.h"
 #include "CounterStyleManager.h"
 #include "nsISelection.h"
 #include "mozilla/dom/HTMLDetailsElement.h"
 #include "mozilla/dom/HTMLSummaryElement.h"
+#include "mozilla/ServoRestyleManager.h"
+#include "mozilla/ServoStyleSet.h"
 #include "mozilla/StyleSetHandle.h"
 #include "mozilla/StyleSetHandleInlines.h"
 #include "mozilla/Telemetry.h"
@@ -695,7 +698,7 @@ nsBlockFrame::CheckIntrinsicCacheAgainstShrinkWrapState()
 }
 
 /* virtual */ nscoord
-nsBlockFrame::GetMinISize(nsRenderingContext *aRenderingContext)
+nsBlockFrame::GetMinISize(gfxContext *aRenderingContext)
 {
   nsIFrame* firstInFlow = FirstContinuation();
   if (firstInFlow != this)
@@ -783,7 +786,7 @@ nsBlockFrame::GetMinISize(nsRenderingContext *aRenderingContext)
 }
 
 /* virtual */ nscoord
-nsBlockFrame::GetPrefISize(nsRenderingContext *aRenderingContext)
+nsBlockFrame::GetPrefISize(gfxContext *aRenderingContext)
 {
   nsIFrame* firstInFlow = FirstContinuation();
   if (firstInFlow != this)
@@ -893,7 +896,7 @@ nsBlockFrame::ComputeTightBounds(DrawTarget* aDrawTarget) const
 }
 
 /* virtual */ nsresult
-nsBlockFrame::GetPrefWidthTightBounds(nsRenderingContext* aRenderingContext,
+nsBlockFrame::GetPrefWidthTightBounds(gfxContext* aRenderingContext,
                                       nscoord* aX,
                                       nscoord* aXMost)
 {
@@ -4413,8 +4416,7 @@ CheckPlaceholderInLine(nsIFrame* aBlock, nsLineBox* aLine, nsFloatCache* aFC)
                "float in a line should never be a continuation");
   NS_ASSERTION(!(aFC->mFloat->GetStateBits() & NS_FRAME_IS_PUSHED_FLOAT),
                "float in a line should never be a pushed float");
-  nsIFrame* ph = aBlock->PresContext()->FrameManager()->
-                   GetPlaceholderFrameFor(aFC->mFloat->FirstInFlow());
+  nsIFrame* ph = aFC->mFloat->FirstInFlow()->GetPlaceholderFrame();
   for (nsIFrame* f = ph; f; f = f->GetParent()) {
     if (f->GetParent() == aBlock)
       return aLine->Contains(f);
@@ -5016,9 +5018,8 @@ nsBlockFrame::DrainSelfPushedFloats()
       if (f->GetPrevContinuation()) {
         // FIXME
       } else {
-        nsPlaceholderFrame *placeholder =
-          presContext->FrameManager()->GetPlaceholderFrameFor(f);
-        nsIFrame *floatOriginalParent = presContext->PresShell()->
+        nsPlaceholderFrame* placeholder = f->GetPlaceholderFrame();
+        nsIFrame* floatOriginalParent = presContext->PresShell()->
           FrameConstructor()->GetFloatContainingBlock(placeholder);
         if (floatOriginalParent != this) {
           // This is a first continuation that was pushed from one of our
@@ -5624,6 +5625,50 @@ nsBlockInFlowLineIterator::nsBlockInFlowLineIterator(nsBlockFrame* aFrame,
   *aFoundValidLine = FindValidLine();
 }
 
+void
+nsBlockFrame::UpdateFirstLetterStyle(ServoRestyleState& aRestyleState)
+{
+  nsIFrame* letterFrame = GetFirstLetter();
+  if (!letterFrame) {
+    return;
+  }
+
+  // Figure out what the right style parent is.  This needs to match
+  // nsCSSFrameConstructor::CreateLetterFrame.
+  nsIFrame* inFlowFrame = letterFrame;
+  if (inFlowFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW) {
+    inFlowFrame = inFlowFrame->GetPlaceholderFrame();
+  }
+  nsIFrame* styleParent =
+    CorrectStyleParentFrame(inFlowFrame->GetParent(),
+                            nsCSSPseudoElements::firstLetter);
+  nsStyleContext* parentStyle = styleParent->StyleContext();
+  RefPtr<nsStyleContext> firstLetterStyle =
+    aRestyleState.StyleSet()
+                 .ResolvePseudoElementStyle(mContent->AsElement(),
+                                            CSSPseudoElementType::firstLetter,
+                                            parentStyle,
+                                            nullptr);
+  // Note that we don't need to worry about changehints for the continuation
+  // styles: those will be handled by the styleParent already.
+  RefPtr<nsStyleContext> continuationStyle =
+    aRestyleState.StyleSet().ResolveStyleForFirstLetterContinuation(parentStyle);
+  UpdateStyleOfOwnedChildFrame(letterFrame, firstLetterStyle, aRestyleState,
+                               Some(continuationStyle.get()));
+
+  // We also want to update the style on the textframe inside the first-letter.
+  // We don't need to compute a changehint for this, though, since any changes
+  // to it are handled by the first-letter anyway.
+  nsIFrame* textFrame = letterFrame->PrincipalChildList().FirstChild();
+  RefPtr<nsStyleContext> firstTextStyle =
+    aRestyleState.StyleSet().ResolveStyleForText(textFrame->GetContent(),
+                                                 firstLetterStyle);
+  textFrame->SetStyleContext(firstTextStyle);
+
+  // We don't need to update style for textFrame's continuations: it's already
+  // set up to inherit from parentStyle, which is what we want.
+}
+
 static nsIFrame*
 FindChildContaining(nsBlockFrame* aFrame, nsIFrame* aFindFrame)
 {
@@ -5641,7 +5686,7 @@ FindChildContaining(nsBlockFrame* aFrame, nsIFrame* aFindFrame)
       return nullptr;
     if (!(child->GetStateBits() & NS_FRAME_OUT_OF_FLOW))
       break;
-    aFindFrame = aFrame->PresContext()->FrameManager()->GetPlaceholderFrameFor(child);
+    aFindFrame = child->GetPlaceholderFrame();
   }
 
   return child;
@@ -6931,9 +6976,8 @@ nsBlockFrame::ChildIsDirty(nsIFrame* aChild)
       AddStateBits(NS_BLOCK_LOOK_FOR_DIRTY_FRAMES);
     } else {
       NS_ASSERTION(aChild->IsFloating(), "should be a float");
-      nsIFrame *thisFC = FirstContinuation();
-      nsIFrame *placeholderPath =
-        PresContext()->FrameManager()->GetPlaceholderFrameFor(aChild);
+      nsIFrame* thisFC = FirstContinuation();
+      nsIFrame* placeholderPath = aChild->GetPlaceholderFrame();
       // SVG code sometimes sends FrameNeedsReflow notifications during
       // frame destruction, leading to null placeholders, but we're safe
       // ignoring those.
@@ -7081,14 +7125,8 @@ nsBlockFrame::CreateBulletFrameForListItem(bool aCreateBulletList,
     CSSPseudoElementType::mozListBullet :
     CSSPseudoElementType::mozListNumber;
 
-  nsStyleContext* parentStyle =
-    CorrectStyleParentFrame(this,
-                            nsCSSPseudoElements::GetPseudoAtom(pseudoType))->
-    StyleContext();
-
-  RefPtr<nsStyleContext> kidSC = shell->StyleSet()->
-    ResolvePseudoElementStyle(mContent->AsElement(), pseudoType,
-                              parentStyle, nullptr);
+  RefPtr<nsStyleContext> kidSC = ResolveBulletStyle(pseudoType,
+                                                    shell->StyleSet());
 
   // Create bullet frame
   nsBulletFrame* bullet = new (shell) nsBulletFrame(kidSC);
@@ -7519,6 +7557,41 @@ nsBlockFrame::ResolveBidi()
   }
 
   return nsBidiPresUtils::Resolve(this);
+}
+
+void
+nsBlockFrame::UpdatePseudoElementStyles(ServoRestyleState& aRestyleState)
+{
+  if (nsBulletFrame* bullet = GetBullet()) {
+    CSSPseudoElementType type = bullet->StyleContext()->GetPseudoType();
+    RefPtr<nsStyleContext> newBulletStyle =
+      ResolveBulletStyle(type, &aRestyleState.StyleSet());
+    UpdateStyleOfOwnedChildFrame(bullet, newBulletStyle, aRestyleState);
+  }
+}
+
+already_AddRefed<nsStyleContext>
+nsBlockFrame::ResolveBulletStyle(CSSPseudoElementType aType,
+                                 StyleSetHandle aStyleSet)
+{
+  nsStyleContext* parentStyle =
+    CorrectStyleParentFrame(this,
+                            nsCSSPseudoElements::GetPseudoAtom(aType))->
+    StyleContext();
+
+  return aStyleSet->ResolvePseudoElementStyle(mContent->AsElement(), aType,
+                                              parentStyle, nullptr);
+}
+
+nsIFrame*
+nsBlockFrame::GetFirstLetter() const
+{
+  if (!(GetStateBits() & NS_BLOCK_HAS_FIRST_LETTER_STYLE)) {
+    // Certainly no first-letter frame.
+    return nullptr;
+  }
+
+  return GetProperty(FirstLetterProperty());
 }
 
 #ifdef DEBUG

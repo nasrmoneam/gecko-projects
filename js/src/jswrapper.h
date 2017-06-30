@@ -78,8 +78,7 @@ class JS_FRIEND_API(Wrapper) : public BaseProxyHandler
                                  AutoIdVector& props) const override;
     virtual bool delete_(JSContext* cx, HandleObject proxy, HandleId id,
                          ObjectOpResult& result) const override;
-    virtual bool enumerate(JSContext* cx, HandleObject proxy,
-                           MutableHandleObject objp) const override;
+    virtual JSObject* enumerate(JSContext* cx, HandleObject proxy) const override;
     virtual bool getPrototype(JSContext* cx, HandleObject proxy,
                               MutableHandleObject protop) const override;
     virtual bool setPrototype(JSContext* cx, HandleObject proxy, HandleObject proto,
@@ -178,7 +177,7 @@ class JS_FRIEND_API(CrossCompartmentWrapper) : public Wrapper
                                  AutoIdVector& props) const override;
     virtual bool delete_(JSContext* cx, HandleObject wrapper, HandleId id,
                          ObjectOpResult& result) const override;
-    virtual bool enumerate(JSContext* cx, HandleObject wrapper, MutableHandleObject objp) const override;
+    virtual JSObject* enumerate(JSContext* cx, HandleObject wrapper) const override;
     virtual bool getPrototype(JSContext* cx, HandleObject proxy,
                               MutableHandleObject protop) const override;
     virtual bool setPrototype(JSContext* cx, HandleObject proxy, HandleObject proto,
@@ -239,8 +238,7 @@ class JS_FRIEND_API(OpaqueCrossCompartmentWrapper) : public CrossCompartmentWrap
                                  AutoIdVector& props) const override;
     virtual bool delete_(JSContext* cx, HandleObject wrapper, HandleId id,
                          ObjectOpResult& result) const override;
-    virtual bool enumerate(JSContext* cx, HandleObject wrapper,
-                           MutableHandleObject objp) const override;
+    virtual JSObject* enumerate(JSContext* cx, HandleObject wrapper) const override;
     virtual bool getPrototype(JSContext* cx, HandleObject wrapper,
                               MutableHandleObject protop) const override;
     virtual bool setPrototype(JSContext* cx, HandleObject wrapper, HandleObject proto,
@@ -343,8 +341,12 @@ IsWrapper(JSObject* obj)
 
 // Given a JSObject, returns that object stripped of wrappers. If
 // stopAtWindowProxy is true, then this returns the WindowProxy if it was
-// previously wrapped. Otherwise, this returns the first object for
-// which JSObject::isWrapper returns false.
+// previously wrapped. Otherwise, this returns the first object for which
+// JSObject::isWrapper returns false.
+//
+// ExposeToActiveJS is called on wrapper targets to allow gray marking
+// assertions to work while an incremental GC is in progress, but this means
+// that this cannot be called from the GC or off the main thread.
 JS_FRIEND_API(JSObject*)
 UncheckedUnwrap(JSObject* obj, bool stopAtWindowProxy = true, unsigned* flagsp = nullptr);
 
@@ -352,6 +354,10 @@ UncheckedUnwrap(JSObject* obj, bool stopAtWindowProxy = true, unsigned* flagsp =
 // the security wrapper has the opportunity to veto the unwrap. If
 // stopAtWindowProxy is true, then this returns the WindowProxy if it was
 // previously wrapped.
+//
+// ExposeToActiveJS is called on wrapper targets to allow gray marking
+// assertions to work while an incremental GC is in progress, but this means
+// that this cannot be called from the GC or off the main thread.
 JS_FRIEND_API(JSObject*)
 CheckedUnwrap(JSObject* obj, bool stopAtWindowProxy = true);
 
@@ -359,6 +365,14 @@ CheckedUnwrap(JSObject* obj, bool stopAtWindowProxy = true);
 // above. This is the checked version of Wrapper::wrappedObject.
 JS_FRIEND_API(JSObject*)
 UnwrapOneChecked(JSObject* obj, bool stopAtWindowProxy = true);
+
+// Given a JSObject, returns that object stripped of wrappers. This returns the
+// WindowProxy if it was previously wrapped.
+//
+// ExposeToActiveJS is not called on wrapper targets so this can be called from
+// the GC or off the main thread.
+JS_FRIEND_API(JSObject*)
+UncheckedUnwrapWithoutExpose(JSObject* obj);
 
 void
 ReportAccessDenied(JSContext* cx);

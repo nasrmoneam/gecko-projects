@@ -173,35 +173,34 @@ VRDisplayOpenVR::ZeroSensor()
   UpdateStageParameters();
 }
 
-VRHMDSensorState
-VRDisplayOpenVR::GetSensorState()
-{
-  return GetSensorState(0.0f);
-}
-
 void
 VRDisplayOpenVR::PollEvents()
 {
   ::vr::VREvent_t event;
   while (mVRSystem->PollNextEvent(&event, sizeof(event))) {
-    if (event.trackedDeviceIndex == ::vr::k_unTrackedDeviceIndex_Hmd) {
-      switch (event.eventType) {
+    switch (event.eventType) {
       case ::vr::VREvent_TrackedDeviceUserInteractionStarted:
         mDisplayInfo.mIsMounted = true;
         break;
       case ::vr::VREvent_TrackedDeviceUserInteractionEnded:
         mDisplayInfo.mIsMounted = false;
         break;
+      case ::vr::EVREventType::VREvent_DriverRequestedQuit:
+      case ::vr::EVREventType::VREvent_Quit:
+      case ::vr::EVREventType::VREvent_ProcessQuit:
+      case ::vr::EVREventType::VREvent_QuitAcknowledged:
+      case ::vr::EVREventType::VREvent_QuitAborted_UserPrompt:
+        mDisplayInfo.mIsConnected = false;
+        break;
       default:
         // ignore
         break;
-      }
     }
   }
 }
 
 VRHMDSensorState
-VRDisplayOpenVR::GetSensorState(double timeOffset)
+VRDisplayOpenVR::GetSensorState()
 {
   PollEvents();
 
@@ -256,6 +255,7 @@ VRDisplayOpenVR::GetSensorState(double timeOffset)
     result.linearVelocity[2] = pose.vVelocity.v[2];
   }
 
+  result.inputFrameID = mDisplayInfo.mFrameId;
   return result;
 }
 
@@ -283,15 +283,14 @@ VRDisplayOpenVR::StopPresentation()
 
 #if defined(XP_WIN)
 
-void
+bool
 VRDisplayOpenVR::SubmitFrame(TextureSourceD3D11* aSource,
   const IntSize& aSize,
-  const VRHMDSensorState& aSensorState,
   const gfx::Rect& aLeftEyeRect,
   const gfx::Rect& aRightEyeRect)
 {
   if (!mIsPresenting) {
-    return;
+    return false;
   }
 
   ::vr::Texture_t tex;
@@ -323,10 +322,7 @@ VRDisplayOpenVR::SubmitFrame(TextureSourceD3D11* aSource,
 
   mVRCompositor->PostPresentHandoff();
 
-  // Trigger the next VSync immediately
-  VRManager *vm = VRManager::Get();
-  MOZ_ASSERT(vm);
-  vm->NotifyVRVsync(mDisplayInfo.mDisplayID);
+  return true;
 }
 
 #endif
@@ -339,6 +335,8 @@ VRDisplayOpenVR::NotifyVSync()
 
   // Make sure we respond to OpenVR events even when not presenting
   PollEvents();
+
+  VRDisplayHost::NotifyVSync();
 }
 
 VRControllerOpenVR::VRControllerOpenVR(dom::GamepadHand aHand, uint32_t aNumButtons,
@@ -461,7 +459,8 @@ VRControllerOpenVR::UpdateVibrateHaptic(::vr::IVRSystem* aVRSystem,
 
     RefPtr<Runnable> runnable =
       NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t, uint32_t>
-        (this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
+        ("VRControllerOpenVR::UpdateVibrateHaptic",
+         this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
          aHapticIndex, aIntensity, duration - kVibrateRate, aVibrateIndex, aPromiseID);
     NS_DelayedDispatchToCurrentThread(runnable.forget(), kVibrateRate);
   } else {
@@ -474,10 +473,10 @@ void
 VRControllerOpenVR::VibrateHapticComplete(uint32_t aPromiseID)
 {
   VRManager *vm = VRManager::Get();
-  MOZ_ASSERT(vm);
 
   CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>
-    (vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
+    ("VRManager::NotifyVibrateHapticCompleted",
+     vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
 }
 
 void
@@ -501,7 +500,8 @@ VRControllerOpenVR::VibrateHaptic(::vr::IVRSystem* aVRSystem,
 
   RefPtr<Runnable> runnable =
       NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t, uint32_t>
-        (this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
+        ("VRControllerOpenVR::UpdateVibrateHaptic",
+         this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
          aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromiseID);
   mVibrateThread->Dispatch(runnable.forget(), NS_DISPATCH_NORMAL);
 }
@@ -553,10 +553,12 @@ VRSystemManagerOpenVR::Shutdown()
 void
 VRSystemManagerOpenVR::GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult)
 {
-  if (!::vr::VR_IsHmdPresent()) {
-    if (mOpenVRHMD) {
-      mOpenVRHMD = nullptr;
-    }
+  if (!::vr::VR_IsHmdPresent() ||
+      (mOpenVRHMD && !mOpenVRHMD->GetIsConnected())) {
+    // OpenVR runtime could be quit accidentally,
+    // and we make it re-initialize.
+    mOpenVRHMD = nullptr;
+    mVRSystem = nullptr;
   } else if (mOpenVRHMD == nullptr) {
     ::vr::HmdError err;
 
@@ -595,7 +597,7 @@ VRSystemManagerOpenVR::GetIsPresenting()
 {
   if (mOpenVRHMD) {
     VRDisplayInfo displayInfo(mOpenVRHMD->GetDisplayInfo());
-    return displayInfo.GetIsPresenting();
+    return displayInfo.GetPresentingGroups() != kVRGroupNone;
   }
 
   return false;

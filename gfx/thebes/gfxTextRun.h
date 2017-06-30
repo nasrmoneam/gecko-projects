@@ -7,20 +7,25 @@
 #ifndef GFX_TEXTRUN_H
 #define GFX_TEXTRUN_H
 
+#include <stdint.h>
+
 #include "gfxTypes.h"
-#include "nsString.h"
 #include "gfxPoint.h"
 #include "gfxFont.h"
 #include "gfxFontConstants.h"
-#include "nsTArray.h"
 #include "gfxSkipChars.h"
 #include "gfxPlatform.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/RefPtr.h"
+#include "nsPoint.h"
+#include "nsString.h"
+#include "nsTArray.h"
+#include "nsTextFrameUtils.h"
 #include "DrawMode.h"
 #include "harfbuzz/hb.h"
 #include "nsUnicodeScriptCodes.h"
 #include "nsColor.h"
-#include "nsTextFrameUtils.h"
+#include "X11UndefineNone.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -827,7 +832,7 @@ private:
     ShapingState      mShapingState;
 };
 
-class gfxFontGroup : public gfxTextRunFactory {
+class gfxFontGroup final : public gfxTextRunFactory {
 public:
     typedef mozilla::unicode::Script Script;
 
@@ -843,7 +848,7 @@ public:
 
     // Returns first valid font in the fontlist or default font.
     // Initiates userfont loads if userfont not loaded
-    virtual gfxFont* GetFirstValidFont(uint32_t aCh = 0x20);
+    gfxFont* GetFirstValidFont(uint32_t aCh = 0x20);
 
     // Returns the first font in the font-group that has an OpenType MATH table,
     // or null if no such font is available. The GetMathConstant methods may be
@@ -852,7 +857,7 @@ public:
 
     const gfxFontStyle *GetStyle() const { return &mStyle; }
 
-    virtual gfxFontGroup *Copy(const gfxFontStyle *aStyle);
+    gfxFontGroup *Copy(const gfxFontStyle *aStyle);
 
     /**
      * The listed characters should be treated as invisible and zero-width
@@ -867,7 +872,7 @@ public:
      * textrun will copy it.
      * This calls FetchGlyphExtents on the textrun.
      */
-    virtual already_AddRefed<gfxTextRun>
+    already_AddRefed<gfxTextRun>
     MakeTextRun(const char16_t *aString, uint32_t aLength,
                 const Parameters *aParams,
                 mozilla::gfx::ShapedTextFlags aFlags,
@@ -879,7 +884,7 @@ public:
      * textrun will copy it.
      * This calls FetchGlyphExtents on the textrun.
      */
-    virtual already_AddRefed<gfxTextRun>
+    already_AddRefed<gfxTextRun>
     MakeTextRun(const uint8_t *aString, uint32_t aLength,
                 const Parameters *aParams,
                 mozilla::gfx::ShapedTextFlags aFlags,
@@ -931,12 +936,11 @@ public:
     // first font's metrics and the bad font's metrics. Otherwise, this
     // returns from first font's metrics.
     enum { UNDERLINE_OFFSET_NOT_SET = INT16_MAX };
-    virtual gfxFloat GetUnderlineOffset();
+    gfxFloat GetUnderlineOffset();
 
-    virtual already_AddRefed<gfxFont>
-        FindFontForChar(uint32_t ch, uint32_t prevCh, uint32_t aNextCh,
-                        Script aRunScript, gfxFont *aPrevMatchedFont,
-                        uint8_t *aMatchType);
+    gfxFont* FindFontForChar(uint32_t ch, uint32_t prevCh, uint32_t aNextCh,
+                             Script aRunScript, gfxFont *aPrevMatchedFont,
+                             uint8_t *aMatchType);
 
     gfxUserFontSet* GetUserFontSet();
 
@@ -965,7 +969,7 @@ public:
 
     // If there is a user font set, check to see whether the font list or any
     // caches need updating.
-    virtual void UpdateUserFonts();
+    void UpdateUserFonts();
 
     // search for a specific userfont in the list of fonts
     bool ContainsUserFont(const gfxUserFontEntry* aUserFont);
@@ -989,11 +993,10 @@ public:
 
 protected:
     // search through pref fonts for a character, return nullptr if no matching pref font
-    already_AddRefed<gfxFont> WhichPrefFontSupportsChar(uint32_t aCh);
+    gfxFont* WhichPrefFontSupportsChar(uint32_t aCh);
 
-    already_AddRefed<gfxFont>
-        WhichSystemFontSupportsChar(uint32_t aCh, uint32_t aNextCh,
-                                    Script aRunScript);
+    gfxFont* WhichSystemFontSupportsChar(uint32_t aCh, uint32_t aNextCh,
+                                         Script aRunScript);
 
     template<typename T>
     void ComputeRanges(nsTArray<gfxTextRange>& mRanges,
@@ -1197,7 +1200,7 @@ protected:
     // Get the font at index i within the fontlist.
     // Will initiate userfont load if not already loaded.
     // May return null if userfont not loaded or if font invalid
-    virtual gfxFont* GetFontAt(int32_t i, uint32_t aCh = 0x20);
+    gfxFont* GetFontAt(int32_t i, uint32_t aCh = 0x20);
 
     // Whether there's a font loading for a given family in the fontlist
     // for a given character
@@ -1234,7 +1237,7 @@ protected:
     // Helper for font-matching:
     // search all faces in a family for a fallback in cases where it's unclear
     // whether the family might have a font for a given character
-    already_AddRefed<gfxFont>
+    gfxFont*
     FindFallbackFaceForChar(gfxFontFamily* aFamily, uint32_t aCh,
                             Script aRunScript);
 

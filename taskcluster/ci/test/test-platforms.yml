@@ -58,8 +58,6 @@ linux64-nightly/opt:
         - web-platform-tests
         - opt-only-tests
         - desktop-screenshot-capture
-        - talos
-        - awsy
         - headless
 linux64-devedition/opt:
     build-platform: linux64-devedition-nightly/opt
@@ -68,8 +66,8 @@ linux64-devedition/opt:
         - web-platform-tests
         - opt-only-tests
         - desktop-screenshot-capture
-        - awsy
         - headless
+        - talos
 
 # TODO: use 'pgo' and 'asan' labels here, instead of -pgo/opt
 linux64-pgo/opt:
@@ -122,7 +120,11 @@ linux64-qr/debug:
 linux64-ccov/opt:
     build-platform: linux64-ccov/opt
     test-sets:
-        - ccov-code-coverage-tests
+        - common-tests
+        - web-platform-tests
+        - awsy
+        - talos
+        - headless
 linux64-jsdcov/opt:
     build-platform: linux64-jsdcov/opt
     test-sets:
@@ -136,15 +138,14 @@ windows7-32-vm/debug:
     build-platform: win32/debug
     test-sets:
         - windows-vm-tests
-        - external-media-tests
+        - headless
 windows7-32-vm/opt:
     build-platform: win32/opt
     test-sets:
         - windows-vm-tests
-        - external-media-tests
-        - external-media-tests-slow
         - awsy
         - desktop-screenshot-capture
+        - headless
 
 # win32 gpu
 windows7-32/debug:
@@ -162,15 +163,14 @@ windows10-64-vm/debug:
     build-platform: win64/debug
     test-sets:
         - windows-vm-tests
-        - external-media-tests
+        - headless
 windows10-64-vm/opt:
     build-platform: win64/opt
     test-sets:
         - windows-vm-tests
-        - external-media-tests
-        - external-media-tests-slow
         - awsy
         - desktop-screenshot-capture
+        - headless
 
 # win64 gpu
 windows10-64/debug:
@@ -186,7 +186,7 @@ windows10-64/opt:
 windows10-64-asan/opt:
     build-platform: win64-asan/opt
     test-sets:
-        - common-tests
+        - common-tests     
 
 ##
 # MacOS X platforms (matching /macosx.*/)
@@ -194,13 +194,25 @@ windows10-64-asan/opt:
 macosx64/debug:
     build-platform: macosx64/debug
     test-sets:
-        - macosx64-tests-debug
+        - macosx64-tests
 
 macosx64/opt:
     build-platform: macosx64/opt
     test-sets:
         - macosx64-tests-talos
-        - macosx64-tests-debug
+        - macosx64-tests
+        - desktop-screenshot-capture
+
+macosx64-nightly/opt:
+      build-platform: macosx64-nightly/opt
+      test-sets:
+        - macosx64-tests
+
+macosx64-devedition/opt:
+    build-platform: macosx64-devedition/opt
+    test-sets:
+        - macosx64-tests-talos
+        - macosx64-tests
 
 ##
 # Android platforms (matching /android.*/)

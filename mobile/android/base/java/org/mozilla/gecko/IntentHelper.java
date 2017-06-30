@@ -138,7 +138,7 @@ public final class IntentHelper implements BundleEventListener {
             }
         }
 
-        if (!showPromptInPrivateBrowsing || activityContext == null) {
+        if (!showPromptInPrivateBrowsing || !(activityContext instanceof FragmentActivity)) {
             if (activityContext == null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             }
@@ -337,7 +337,7 @@ public final class IntentHelper implements BundleEventListener {
             }
 
             final Uri data = intent.getData();
-            if (data != null && "file".equals(data.normalizeScheme().getScheme())) {
+            if (data != null && "file".equals(normalizeUriScheme(data).getScheme())) {
                 Log.w(LOGTAG, "Blocked intent with \"file://\" data scheme.");
                 return null;
             }

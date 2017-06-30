@@ -8,7 +8,14 @@ const {utils: Cu} = Components;
 
 Cu.import("chrome://marionette/content/accessibility.js");
 Cu.import("chrome://marionette/content/atom.js");
-Cu.import("chrome://marionette/content/error.js");
+const {
+  error,
+  InvalidArgument,
+  ElementNotInteractableError,
+  ElementClickInterceptedError,
+  InvalidElementStateError,
+  InvalidArgumentError,
+} = Cu.import("chrome://marionette/content/error.js", {});
 Cu.import("chrome://marionette/content/element.js");
 Cu.import("chrome://marionette/content/event.js");
 
@@ -76,6 +83,30 @@ const SELECTED_PROPERTY_SUPPORTED_XUL = new Set([
   "TAB",
 ]);
 
+/**
+ * Common form controls that user can change the value property interactively.
+ */
+const COMMON_FORM_CONTROLS = new Set([
+  "input",
+  "textarea",
+  "select",
+]);
+
+/**
+ * Input elements that do not fire "input" and "change" events when value
+ * property changes.
+ */
+const INPUT_TYPES_NO_EVENT = new Set([
+  "checkbox",
+  "radio",
+  "file",
+  "hidden",
+  "image",
+  "reset",
+  "button",
+  "submit",
+]);
+
 this.interaction = {};
 
 /**
@@ -114,7 +145,8 @@ this.interaction = {};
  * @throws {InvalidElementStateError}
  *     If |el| is not enabled.
  */
-interaction.clickElement = function* (el, strict = false, specCompat = false) {
+interaction.clickElement = function* (
+    el, strict = false, specCompat = false) {
   const a11y = accessibility.get(strict);
   if (element.isXULElement(el)) {
     yield chromeClick(el, a11y);
@@ -125,9 +157,8 @@ interaction.clickElement = function* (el, strict = false, specCompat = false) {
   }
 };
 
-function* webdriverClickElement (el, a11y) {
+function* webdriverClickElement(el, a11y) {
   const win = getWindow(el);
-  const doc = win.document;
 
   // step 3
   if (el.localName == "input" && el.type == "file") {
@@ -182,7 +213,7 @@ function* webdriverClickElement (el, a11y) {
   // handled by the load listener in listener.js
 }
 
-function* chromeClick (el, a11y) {
+function* chromeClick(el, a11y) {
   if (!atom.isElementEnabled(el)) {
     throw new InvalidElementStateError("Element is not enabled");
   }
@@ -200,7 +231,7 @@ function* chromeClick (el, a11y) {
   }
 }
 
-function* seleniumClickElement (el, a11y) {
+function* seleniumClickElement(el, a11y) {
   let win = getWindow(el);
 
   let visibilityCheckEl  = el;
@@ -230,7 +261,7 @@ function* seleniumClickElement (el, a11y) {
     let opts = {};
     event.synthesizeMouseAtPoint(centre.x, centre.y, opts, win);
   }
-};
+}
 
 /**
  * Select <option> element in a <select> list.
@@ -249,7 +280,7 @@ function* seleniumClickElement (el, a11y) {
  * @throws Error
  *     If unable to find |el|'s parent <select> element.
  */
-interaction.selectOption = function (el) {
+interaction.selectOption = function(el) {
   if (element.isXULElement(el)) {
     throw new Error("XUL dropdowns not supported");
   }
@@ -257,7 +288,6 @@ interaction.selectOption = function (el) {
     throw new TypeError("Invalid elements");
   }
 
-  let win = getWindow(el);
   let containerEl = element.getContainer(el);
 
   event.mouseover(containerEl);
@@ -302,7 +332,7 @@ interaction.flushEventLoop = function* (win) {
       return;
     }
 
-    win.addEventListener("beforeunload", handleEvent, false);
+    win.addEventListener("beforeunload", handleEvent);
     win.requestAnimationFrame(handleEvent);
   });
 };
@@ -345,6 +375,32 @@ interaction.uploadFile = function* (el, path) {
 };
 
 /**
+ * Sets a form element's value.
+ *
+ * @param {DOMElement} el
+ *     An form element, e.g. input, textarea, etc.
+ * @param {string} value
+ *     The value to be set.
+ *
+ * @throws TypeError
+ *     If |el| is not an supported form element.
+ */
+interaction.setFormControlValue = function* (el, value) {
+  if (!COMMON_FORM_CONTROLS.has(el.localName)) {
+    throw new TypeError("This function is for form elements only");
+  }
+
+  el.value = value;
+
+  if (INPUT_TYPES_NO_EVENT.has(el.type)) {
+    return;
+  }
+
+  event.input(el);
+  event.change(el);
+};
+
+/**
  * Send keys to element.
  *
  * @param {DOMElement|XULElement} el
@@ -356,7 +412,8 @@ interaction.uploadFile = function* (el, path) {
  * @param {boolean=} strict
  *     Enforce strict accessibility tests.
  */
-interaction.sendKeysToElement = function (el, value, ignoreVisibility, strict = false) {
+interaction.sendKeysToElement = function(
+    el, value, ignoreVisibility, strict = false) {
   let win = getWindow(el);
   let a11y = accessibility.get(strict);
   return a11y.getAccessible(el, true).then(acc => {
@@ -376,7 +433,7 @@ interaction.sendKeysToElement = function (el, value, ignoreVisibility, strict = 
  * @return {boolean}
  *     True if element is displayed, false otherwise.
  */
-interaction.isElementDisplayed = function (el, strict = false) {
+interaction.isElementDisplayed = function(el, strict = false) {
   let win = getWindow(el);
   let displayed = atom.isElementDisplayed(el, win);
 
@@ -396,7 +453,7 @@ interaction.isElementDisplayed = function (el, strict = false) {
  * @return {boolean}
  *     True if enabled, false otherwise.
  */
-interaction.isElementEnabled = function (el, strict = false) {
+interaction.isElementEnabled = function(el, strict = false) {
   let enabled = true;
   let win = getWindow(el);
 
@@ -433,7 +490,7 @@ interaction.isElementEnabled = function (el, strict = false) {
  * @return {boolean}
  *     True if element is selected, false otherwise.
  */
-interaction.isElementSelected = function (el, strict = false) {
+interaction.isElementSelected = function(el, strict = false) {
   let selected = true;
   let win = getWindow(el);
 

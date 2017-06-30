@@ -8,9 +8,40 @@
 #include "PaymentRequestUtils.h"
 #include "nsIMutableArray.h"
 #include "nsISupportsPrimitives.h"
+#include "nsIJSON.h"
 
 namespace mozilla {
 namespace dom {
+
+nsresult
+SerializeFromJSObject(JSContext* aCx, JS::HandleObject aObject, nsAString& aSerializedObject) {
+  nsCOMPtr<nsIJSON> serializer = do_CreateInstance("@mozilla.org/dom/json;1");
+  if (NS_WARN_IF(!serializer)) {
+    return NS_ERROR_FAILURE;
+  }
+  JS::RootedValue value(aCx, JS::ObjectValue(*aObject));
+  return serializer->EncodeFromJSVal(value.address(), aCx, aSerializedObject);
+}
+
+nsresult
+DeserializeToJSObject(const nsAString& aSerializedObject, JSContext* aCx, JS::MutableHandleObject aObject) {
+  nsCOMPtr<nsIJSON> deserializer = do_CreateInstance("@mozilla.org/dom/json;1");
+  if (NS_WARN_IF(!deserializer)) {
+    return NS_ERROR_FAILURE;
+  }
+  JS::RootedValue value(aCx);
+  JS::MutableHandleValue handleVal(&value);
+  nsresult rv = deserializer->DecodeToJSVal(aSerializedObject, aCx, handleVal);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+  if (value.isObject()) {
+    aObject.set(&value.toObject());
+  } else {
+    aObject.set(nullptr);
+  }
+  return NS_OK;
+}
 
 nsresult
 ConvertStringstoISupportsStrings(const nsTArray<nsString>& aStrings,
@@ -35,54 +66,6 @@ ConvertStringstoISupportsStrings(const nsTArray<nsString>& aStrings,
     }
   }
   iStrings.forget(aIStrings);
-  return NS_OK;
-}
-
-nsresult
-ConvertISupportsStringstoStrings(nsIArray* aIStrings,
-                                 nsTArray<nsString>& aStrings)
-{
-  NS_ENSURE_ARG_POINTER(aIStrings);
-  uint32_t length;
-  aStrings.Clear();
-  nsresult rv = aIStrings->GetLength(&length);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-  for (uint32_t index = 0; index < length; ++index) {
-    nsCOMPtr<nsISupportsString> iString = do_QueryElementAt(aIStrings, index);
-    if (NS_WARN_IF(!iString)) {
-      return NS_ERROR_FAILURE;
-    }
-    nsString string;
-    rv = iString->GetData(string);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return rv;
-    }
-    aStrings.AppendElement(string);
-  }
-  return NS_OK;
-}
-
-nsresult
-CopyISupportsStrings(nsIArray* aSourceStrings, nsIArray** aTargetStrings)
-{
-  NS_ENSURE_ARG_POINTER(aTargetStrings);
-  *aTargetStrings = nullptr;
-  nsCOMPtr<nsIMutableArray> strings = do_CreateInstance(NS_ARRAY_CONTRACTID);
-  uint32_t length;
-  nsresult rv = aSourceStrings->GetLength(&length);
-  if (NS_WARN_IF(NS_FAILED(rv))) {
-    return rv;
-  }
-  for (uint32_t index = 0; index < length; ++index) {
-    nsCOMPtr<nsISupportsString> string = do_QueryElementAt(aSourceStrings, index);
-    if (NS_WARN_IF(!string)) {
-      return NS_ERROR_FAILURE;
-    }
-    strings->AppendElement(string, false);
-  }
-  strings.forget(aTargetStrings);
   return NS_OK;
 }
 

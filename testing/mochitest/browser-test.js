@@ -269,7 +269,6 @@ Tester.prototype = {
     // Remove stale windows
     this.structuredLogger.info("checking window state");
     let windowsEnum = Services.wm.getEnumerator(null);
-    let createdFakeTestForLogging = false;
     while (windowsEnum.hasMoreElements()) {
       let win = windowsEnum.getNext();
       if (win != window && !win.closed &&
@@ -291,24 +290,12 @@ Tester.prototype = {
             allowFailure: this.currentTest.allowFailure,
           }));
         } else {
-          if (!createdFakeTestForLogging) {
-            createdFakeTestForLogging = true;
-            this.structuredLogger.testStart("browser-test.js");
-          }
           this.failuresFromInitialWindowState++;
-          this.structuredLogger.testStatus("browser-test.js",
-                                           msg, "FAIL", false, "");
+          this.structuredLogger.error("browser-test.js | " + msg);
         }
 
         win.close();
       }
-    }
-    if (createdFakeTestForLogging) {
-      let time = Date.now() - startTime;
-      this.structuredLogger.testEnd("browser-test.js",
-                                    "OK",
-                                    undefined,
-                                    "finished window state check in " + time + "ms");
     }
 
     // Make sure the window is raised before each test.
@@ -348,10 +335,7 @@ Tester.prototype = {
         this.structuredLogger.info("Todo:    " + todoCount);
         this.structuredLogger.info("Mode:    " + e10sMode);
       } else {
-        this.structuredLogger.testEnd("browser-test.js",
-                                      "FAIL",
-                                      "PASS",
-                                      "No tests to run. Did you pass invalid test_paths?");
+        this.structuredLogger.error("browser-test.js | No tests to run. Did you pass invalid test_paths?");
       }
       this.structuredLogger.info("*** End BrowserChrome Test Results ***");
 
@@ -778,13 +762,25 @@ Tester.prototype = {
             try {
               yield task();
             } catch (ex) {
-              currentTest.addResult(new testResult({
-                name: "Uncaught exception",
-                pass: this.SimpleTest.isExpectingUncaughtException(),
-                ex,
-                stack: (typeof ex == "object" && "stack" in ex) ? ex.stack : null,
-                allowFailure: currentTest.allowFailure,
-              }));
+              if (currentTest.timedOut) {
+                currentTest.addResult(new testResult({
+                  name: "Uncaught exception received from previously timed out test",
+                  pass: false,
+                  ex,
+                  stack: (typeof ex == "object" && "stack" in ex) ? ex.stack : null,
+                  allowFailure: currentTest.allowFailure,
+                }));
+                // We timed out, so we've already cleaned up for this test, just get outta here.
+                return;
+              } else {
+                currentTest.addResult(new testResult({
+                  name: "Uncaught exception",
+                  pass: this.SimpleTest.isExpectingUncaughtException(),
+                  ex,
+                  stack: (typeof ex == "object" && "stack" in ex) ? ex.stack : null,
+                  allowFailure: currentTest.allowFailure,
+                }));
+              }
             }
             PromiseTestUtils.assertNoUncaughtRejections();
             this.SimpleTest.info("Leaving test " + task.name);

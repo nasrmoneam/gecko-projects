@@ -41,6 +41,7 @@
 #include "nsStyleStruct.h"
 #include "Visibility.h"
 #include "nsChangeHint.h"
+#include "nsStyleContextInlines.h"
 
 #ifdef ACCESSIBILITY
 #include "mozilla/a11y/AccTypes.h"
@@ -66,7 +67,6 @@
 class nsIAtom;
 class nsPresContext;
 class nsIPresShell;
-class nsRenderingContext;
 class nsView;
 class nsIWidget;
 class nsISelectionController;
@@ -83,6 +83,7 @@ class nsLineList_iterator;
 class nsAbsoluteContainingBlock;
 class nsIContent;
 class nsContainerFrame;
+class nsPlaceholderFrame;
 class nsStyleChangeList;
 
 struct nsPeekOffsetStruct;
@@ -98,7 +99,7 @@ enum class CSSPseudoElementType : uint8_t;
 class EventStates;
 struct ReflowInput;
 class ReflowOutput;
-class ServoStyleSet;
+class ServoRestyleState;
 class DisplayItemData;
 class EffectSet;
 
@@ -616,6 +617,8 @@ public:
     , mState(NS_FRAME_FIRST_REFLOW | NS_FRAME_IS_DIRTY)
     , mClass(aID)
     , mMayHaveRoundedCorners(false)
+    , mHasImageRequest(false)
+    , mHasFirstLetterChild(false)
   {
     mozilla::PodZero(&mOverflow);
   }
@@ -663,6 +666,26 @@ public:
     CONTINUE_EMPTY = 0x2 | CONTINUE,
     // offset not found because the frame didn't contain any text that could be selected.
     CONTINUE_UNSELECTABLE = 0x4 | CONTINUE,
+  };
+
+  /**
+   * Options for PeekOffsetCharacter().
+   */
+  struct MOZ_STACK_CLASS PeekOffsetCharacterOptions
+  {
+    // Whether to restrict result to valid cursor locations (between grapheme
+    // clusters) - if this is included, maintains "normal" behavior, otherwise,
+    // used for selection by "code unit" (instead of "character")
+    bool mRespectClusters;
+    // Whether to check user-select style value - if this is included, checks
+    // if user-select is all, then, it may return CONTINUE_UNSELECTABLE.
+    bool mIgnoreUserStyleAll;
+
+    PeekOffsetCharacterOptions()
+      : mRespectClusters(true)
+      , mIgnoreUserStyleAll(false)
+    {
+    }
   };
 
 protected:
@@ -834,6 +857,22 @@ public:
    * out-of-flow frames.
    */
   inline nsContainerFrame* GetInFlowParent();
+
+  /**
+   * Gets the primary frame of the Content's flattened tree
+   * parent, if one exists.
+   */
+  inline nsIFrame* GetFlattenedTreeParentPrimaryFrame() const;
+
+  /**
+   * Return the placeholder for this frame (which must be out-of-flow).
+   * @note this will only return non-null if |this| is the first-in-flow
+   * although we don't assert that here for legacy reasons.
+   */
+  inline nsPlaceholderFrame* GetPlaceholderFrame() const {
+    MOZ_ASSERT(HasAnyStateBits(NS_FRAME_OUT_OF_FLOW));
+    return GetProperty(PlaceholderFrameProperty());
+  }
 
   /**
    * Set this frame's parent to aParent.
@@ -1126,7 +1165,7 @@ public:
 #define NS_DECLARE_FRAME_PROPERTY_WITH_DTOR_NEVER_CALLED(prop, type)  \
   static void AssertOnDestroyingProperty##prop(type*) {               \
     MOZ_ASSERT_UNREACHABLE("Frame property " #prop " should never "   \
-                           "be destroyed by the FramePropertyTable"); \
+                           "be destroyed by the FrameProperties class");  \
   }                                                                   \
   NS_DECLARE_FRAME_PROPERTY_WITH_DTOR(prop, type,                     \
                                       AssertOnDestroyingProperty##prop)
@@ -1144,6 +1183,8 @@ public:
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(PreEffectsBBoxProperty, nsRect)
   NS_DECLARE_FRAME_PROPERTY_DELETABLE(PreTransformOverflowAreasProperty,
                                       nsOverflowAreas)
+
+  NS_DECLARE_FRAME_PROPERTY_DELETABLE(OverflowAreasProperty, nsOverflowAreas)
 
   // The initial overflow area passed to FinishAndStoreOverflow. This is only set
   // on frames that Preserve3D() or HasPerspective() or IsTransformed(), and
@@ -1185,6 +1226,8 @@ public:
                                       DestroyContentArray)
 
   NS_DECLARE_FRAME_PROPERTY_SMALL_VALUE(BidiDataProperty, mozilla::FrameBidiData)
+
+  NS_DECLARE_FRAME_PROPERTY_WITHOUT_DTOR(PlaceholderFrameProperty, nsPlaceholderFrame)
 
   mozilla::FrameBidiData GetBidiData() const
   {
@@ -2088,7 +2131,7 @@ public:
    *
    * This method must not return a negative value.
    */
-  virtual nscoord GetMinISize(nsRenderingContext *aRenderingContext) = 0;
+  virtual nscoord GetMinISize(gfxContext *aRenderingContext) = 0;
 
   /**
    * Get the max-content intrinsic inline size of the frame.  This must be
@@ -2096,7 +2139,7 @@ public:
    *
    * Otherwise, all the comments for |GetMinISize| above apply.
    */
-  virtual nscoord GetPrefISize(nsRenderingContext *aRenderingContext) = 0;
+  virtual nscoord GetPrefISize(gfxContext *aRenderingContext) = 0;
 
   /**
    * |InlineIntrinsicISize| represents the intrinsic width information
@@ -2255,7 +2298,7 @@ public:
    * which calls |GetMinISize|.
    */
   virtual void
-  AddInlineMinISize(nsRenderingContext *aRenderingContext,
+  AddInlineMinISize(gfxContext *aRenderingContext,
                     InlineMinISizeData *aData) = 0;
 
   /**
@@ -2269,7 +2312,7 @@ public:
    * based on using all *mandatory* breakpoints within the frame.
    */
   virtual void
-  AddInlinePrefISize(nsRenderingContext *aRenderingContext,
+  AddInlinePrefISize(gfxContext *aRenderingContext,
                      InlinePrefISizeData *aData) = 0;
 
   /**
@@ -2381,7 +2424,7 @@ public:
    * @param aFlags   Flags to further customize behavior (definitions above).
    */
   virtual mozilla::LogicalSize
-  ComputeSize(nsRenderingContext *aRenderingContext,
+  ComputeSize(gfxContext *aRenderingContext,
               mozilla::WritingMode aWritingMode,
               const mozilla::LogicalSize& aCBSize,
               nscoord aAvailableISize,
@@ -2421,7 +2464,7 @@ public:
    * @param aXMost  computed intrinsic width of the tight bounding rectangle
    *
    */
-  virtual nsresult GetPrefWidthTightBounds(nsRenderingContext* aContext,
+  virtual nsresult GetPrefWidthTightBounds(gfxContext* aContext,
                                            nscoord* aX,
                                            nscoord* aXMost);
 
@@ -2571,6 +2614,13 @@ public:
    * for all other frame types.
    */
   virtual bool HasAnyNoncollapsedCharacters()
+  { return false; }
+
+  /**
+   * Returns true if events of the given type targeted at this frame
+   * should only be dispatched to the system group.
+   */
+  virtual bool OnlySystemGroupDispatch(mozilla::EventMessage aMessage) const
   { return false; }
 
   //
@@ -2736,7 +2786,8 @@ public:
    *   into points in aOutAncestor's coordinate space.
    */
   Matrix4x4 GetTransformMatrix(const nsIFrame* aStopAtAncestor,
-                               nsIFrame **aOutAncestor);
+                               nsIFrame **aOutAncestor,
+                               bool aInCSSUnits = false);
 
   /**
    * Bit-flags to pass to IsFrameOfType()
@@ -3261,25 +3312,37 @@ public:
 
   /**
    * Called by ServoRestyleManager to update the style contexts of anonymous
-   * boxes directly associtated with this frame.  The passed-in ServoStyleSet
-   * can be used to create new style contexts as needed.
+   * boxes directly associtated with this frame.
+   *
+   * The passed-in ServoRestyleState can be used to create new style contexts
+   * as needed, as well as posting changes to the change list.
+   *
+   * It's guaranteed to already have a change in it for this frame and this
+   * frame's content.
    *
    * This function will be called after this frame's style context has already
    * been updated.  This function will only be called on frames which have the
    * NS_FRAME_OWNS_ANON_BOXES bit set.
-   *
-   * The nsStyleChangeList can be used to append additional changes.  It's
-   * guaranteed to already have a change in it for this frame and this frame's
-   * content and a change hint of aHintForThisFrame.
    */
-  void UpdateStyleOfOwnedAnonBoxes(mozilla::ServoStyleSet& aStyleSet,
-                                   nsStyleChangeList& aChangeList,
-                                   nsChangeHint aHintForThisFrame) {
+  void UpdateStyleOfOwnedAnonBoxes(mozilla::ServoRestyleState& aRestyleState)
+  {
     if (GetStateBits() & NS_FRAME_OWNS_ANON_BOXES) {
-      DoUpdateStyleOfOwnedAnonBoxes(aStyleSet, aChangeList, aHintForThisFrame);
+      DoUpdateStyleOfOwnedAnonBoxes(aRestyleState);
     }
   }
 
+protected:
+  // This does the actual work of UpdateStyleOfOwnedAnonBoxes.  It calls
+  // AppendDirectlyOwnedAnonBoxes to find all of the anonymous boxes
+  // owned by this frame, and then updates styles on each of them.
+  void DoUpdateStyleOfOwnedAnonBoxes(mozilla::ServoRestyleState& aRestyleState);
+
+  // A helper for DoUpdateStyleOfOwnedAnonBoxes for the specific case
+  // of the owned anon box being a child of this frame.
+  void UpdateStyleOfChildAnonBox(nsIFrame* aChildFrame,
+                                 mozilla::ServoRestyleState& aRestyleState);
+
+public:
   // A helper both for UpdateStyleOfChildAnonBox, and to update frame-backed
   // pseudo-elements in ServoRestyleManager.
   //
@@ -3287,18 +3350,63 @@ public:
   // `aChildFrame`, and takes care of updating it, calling CalcStyleDifference,
   // and adding to the change list as appropriate.
   //
+  // If aContinuationStyleContext is not Nothing, it should be used for
+  // continuations instead of aNewStyleContext.  In either case, changehints are
+  // only computed based on aNewStyleContext.
+  //
   // Returns the generated change hint for the frame.
-  nsChangeHint UpdateStyleOfOwnedChildFrame(nsIFrame* aChildFrame,
-                                            nsStyleContext* aNewStyleContext,
-                                            nsStyleChangeList& aChangeList);
+  static nsChangeHint UpdateStyleOfOwnedChildFrame(
+    nsIFrame* aChildFrame,
+    nsStyleContext* aNewStyleContext,
+    mozilla::ServoRestyleState& aRestyleState,
+    const Maybe<nsStyleContext*>& aContinuationStyleContext = Nothing());
+
+  struct OwnedAnonBox
+  {
+    typedef void (*UpdateStyleFn)(nsIFrame* aOwningFrame,
+                                  nsIFrame* aAnonBox,
+                                  mozilla::ServoRestyleState& aRestyleState);
+
+    explicit OwnedAnonBox(nsIFrame* aAnonBoxFrame,
+                          UpdateStyleFn aUpdateStyleFn = nullptr)
+      : mAnonBoxFrame(aAnonBoxFrame)
+      , mUpdateStyleFn(aUpdateStyleFn)
+    {}
+
+    nsIFrame* mAnonBoxFrame;
+    UpdateStyleFn mUpdateStyleFn;
+  };
 
   /**
-   * Hook subclasses can override to actually implement updating of style of
-   * owned anon boxes.
+   * Appends information about all of the anonymous boxes owned by this frame,
+   * including other anonymous boxes owned by those which this frame owns
+   * directly.
    */
-  virtual void DoUpdateStyleOfOwnedAnonBoxes(mozilla::ServoStyleSet& aStyleSet,
-                                             nsStyleChangeList& aChangeList,
-                                             nsChangeHint aHintForThisFrame);
+  void AppendOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) {
+    if (GetStateBits() & NS_FRAME_OWNS_ANON_BOXES) {
+      if (IsInlineFrame()) {
+        // See comment in nsIFrame::DoUpdateStyleOfOwnedAnonBoxes for why
+        // we skip nsInlineFrames.
+        return;
+      }
+      DoAppendOwnedAnonBoxes(aResult);
+    }
+  }
+
+protected:
+  // This does the actual work of AppendOwnedAnonBoxes.
+  void DoAppendOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult);
+
+public:
+  /**
+   * Hook subclasses can override to return their owned anonymous boxes.
+   *
+   * This function only appends anonymous boxes that are directly owned by
+   * this frame, i.e. direct children or (for certain frames) a wrapper
+   * parent, unlike AppendOwnedAnonBoxes, which will append all anonymous
+   * boxes transitively owned by this frame.
+   */
+  virtual void AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult);
 
   /**
    * Determines whether a frame is visible for painting;
@@ -3390,22 +3498,13 @@ public:
   GetProperty(FrameProperties::Descriptor<T> aProperty,
               bool* aFoundResult = nullptr) const
   {
-    if (mProperties) {
-      return mProperties->Get(aProperty, aFoundResult);
-    }
-    if (aFoundResult) {
-      *aFoundResult = false;
-    }
-    return FrameProperties::ReinterpretHelper<T>::FromPointer(nullptr);
+    return mProperties.Get(aProperty, aFoundResult);
   }
 
   template<typename T>
   bool HasProperty(FrameProperties::Descriptor<T> aProperty) const
   {
-    if (mProperties) {
-      return mProperties->Has(aProperty);
-    }
-    return false;
+    return mProperties.Has(aProperty);
   }
 
   // Add a property, or update an existing property for the given descriptor.
@@ -3413,10 +3512,7 @@ public:
   void SetProperty(FrameProperties::Descriptor<T> aProperty,
                    FrameProperties::PropertyType<T> aValue)
   {
-    if (!mProperties) {
-      mProperties = mozilla::MakeUnique<FrameProperties>();
-    }
-    mProperties->Set(aProperty, aValue, this);
+    mProperties.Set(aProperty, aValue, this);
   }
 
   // Unconditionally add a property; use ONLY if the descriptor is known
@@ -3425,10 +3521,7 @@ public:
   void AddProperty(FrameProperties::Descriptor<T> aProperty,
                    FrameProperties::PropertyType<T> aValue)
   {
-    if (!mProperties) {
-      mProperties = mozilla::MakeUnique<FrameProperties>();
-    }
-    mProperties->Add(aProperty, aValue);
+    mProperties.Add(aProperty, aValue);
   }
 
   template<typename T>
@@ -3436,29 +3529,22 @@ public:
   RemoveProperty(FrameProperties::Descriptor<T> aProperty,
                  bool* aFoundResult = nullptr)
   {
-    if (mProperties) {
-      return mProperties->Remove(aProperty, aFoundResult);
-    }
-    if (aFoundResult) {
-      *aFoundResult = false;
-    }
-    return FrameProperties::ReinterpretHelper<T>::FromPointer(nullptr);
+    return mProperties.Remove(aProperty, aFoundResult);
   }
 
   template<typename T>
   void DeleteProperty(FrameProperties::Descriptor<T> aProperty)
   {
-    if (mProperties) {
-      mProperties->Delete(aProperty, this);
-    }
+    mProperties.Delete(aProperty, this);
   }
 
   void DeleteAllProperties()
   {
-    if (mProperties) {
-      mProperties->DeleteAll(this);
-    }
+    mProperties.DeleteAll(this);
   }
+
+  // Reports size of the FrameProperties for this frame and its descendants
+  size_t SizeOfFramePropertiesForTree(mozilla::MallocSizeOf aMallocSizeOf) const;
 
   /**
    * Return true if and only if this frame obeys visibility:hidden.
@@ -3871,6 +3957,39 @@ public:
   bool IsScrolledOutOfView();
 
   /**
+   * Computes a 2D matrix from the -moz-window-transform and
+   * -moz-window-transform-origin properties on aFrame.
+   * Values that don't result in a 2D matrix will be ignored and an identity
+   * matrix will be returned instead.
+   */
+  Matrix ComputeWidgetTransform();
+
+  /**
+   * Applies the values from the -moz-window-* properties to the widget.
+   */
+  virtual void UpdateWidgetProperties();
+
+  /**
+   * @return true iff this frame has one or more associated image requests.
+   * @see mozilla::css::ImageLoader.
+   */
+  bool HasImageRequest() const { return mHasImageRequest; }
+
+  /**
+   * Update this frame's image request state.
+   */
+  void SetHasImageRequest(bool aHasRequest) { mHasImageRequest = aHasRequest; }
+
+  /**
+   * Whether this frame has a first-letter child.  If it does, the frame is
+   * actually an nsContainerFrame and the first-letter frame can be gotten by
+   * walking up to the nearest ancestor blockframe and getting its first
+   * continuation's nsContainerFrame::FirstLetterProperty() property.  This will
+   * only return true for the first continuation of the first-letter's parent.
+   */
+  bool HasFirstLetterChild() const { return mHasFirstLetterChild; }
+
+  /**
    * If this returns true, the frame it's called on should get the
    * NS_FRAME_HAS_DIRTY_CHILDREN bit set on it by the caller; either directly
    * if it's already in reflow, or via calling FrameNeedsReflow() to schedule a
@@ -3884,7 +4003,7 @@ public:
   /**
    * Helper function - computes the content-box inline size for aCoord.
    */
-  nscoord ComputeISizeValue(nsRenderingContext* aRenderingContext,
+  nscoord ComputeISizeValue(gfxContext*         aRenderingContext,
                             nscoord             aContainingBlockISize,
                             nscoord             aContentEdgeToBoxSizing,
                             nscoord             aBoxSizingToMarginEdge,
@@ -3961,10 +4080,9 @@ protected:
   nsFrameState     mState;
 
   /**
-   * List of properties attached to the frame, or null if no properties have
-   * been set.
+   * List of properties attached to the frame.
    */
-  mozilla::UniquePtr<FrameProperties> mProperties;
+  FrameProperties  mProperties;
 
   // When there is an overflow area only slightly larger than mRect,
   // we store a set of four 1-byte deltas from the edges of mRect
@@ -4002,7 +4120,22 @@ protected:
   ClassID mClass; // 1 byte
 
   bool mMayHaveRoundedCorners : 1;
-  // There should be a 15-bit gap left here.
+
+  /**
+   * True iff this frame has one or more associated image requests.
+   * @see mozilla::css::ImageLoader.
+   */
+  bool mHasImageRequest : 1;
+
+  /**
+   * True if this frame has a continuation that has a first-letter frame, or its
+   * placeholder, as a child.  In that case this frame has a blockframe ancestor
+   * that has the first-letter frame hanging off it in the
+   * nsContainerFrame::FirstLetterProperty() property.
+   */
+  bool mHasFirstLetterChild : 1;
+
+  // There is a 13-bit gap left here.
 
   // Helpers
   /**
@@ -4022,16 +4155,19 @@ protected:
    * @param  aForward [in] Are we moving forward (or backward) in content order.
    * @param  aOffset [in/out] At what offset into the frame to start looking.
    *         on output - what offset was reached (whether or not we found a place to stop).
-   * @param  aRespectClusters [in] Whether to restrict result to valid cursor locations
-   *         (between grapheme clusters) - default TRUE maintains "normal" behavior,
-   *         FALSE is used for selection by "code unit" (instead of "character")
+   * @param  aOptions [in] Options, see the comment in
+   *         PeekOffsetCharacterOptions for the detail.
    * @return STOP: An appropriate offset was found within this frame,
    *         and is given by aOffset.
    *         CONTINUE: Not found within this frame, need to try the next frame.
    *         see enum FrameSearchResult for more details.
    */
-  virtual FrameSearchResult PeekOffsetCharacter(bool aForward, int32_t* aOffset,
-                                     bool aRespectClusters = true) = 0;
+  virtual FrameSearchResult
+  PeekOffsetCharacter(bool aForward, int32_t* aOffset,
+                      PeekOffsetCharacterOptions aOptions =
+                        PeekOffsetCharacterOptions()) = 0;
+  static_assert(sizeof(PeekOffsetCharacterOptions) <= sizeof(intptr_t),
+                "aOptions should be changed to const reference");
 
   /**
    * Search the frame for the next word boundary
@@ -4097,7 +4233,14 @@ protected:
   nsresult PeekOffsetParagraph(nsPeekOffsetStruct *aPos);
 
 private:
-  nsOverflowAreas* GetOverflowAreasProperty();
+  // Get a pointer to the overflow areas property attached to the frame.
+  nsOverflowAreas* GetOverflowAreasProperty() const {
+    MOZ_ASSERT(mOverflow.mType == NS_FRAME_OVERFLOW_LARGE);
+    nsOverflowAreas* overflow = GetProperty(OverflowAreasProperty());
+    MOZ_ASSERT(overflow);
+    return overflow;
+  }
+
   nsRect GetVisualOverflowFromDeltas() const {
     MOZ_ASSERT(mOverflow.mType != NS_FRAME_OVERFLOW_LARGE,
                "should not be called when overflow is in a property");

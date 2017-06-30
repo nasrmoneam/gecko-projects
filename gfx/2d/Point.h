@@ -14,6 +14,7 @@
 #include "BasePoint3D.h"
 #include "BasePoint4D.h"
 #include "BaseSize.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/TypeTraits.h"
 
 #include <cmath>
@@ -129,6 +130,10 @@ struct PointTyped :
   constexpr PointTyped(Coord aX, F aY) : Super(aX, Coord(aY)) {}
   constexpr PointTyped(Coord aX, Coord aY) : Super(aX.value, aY.value) {}
   constexpr MOZ_IMPLICIT PointTyped(const IntPointTyped<units>& point) : Super(F(point.x), F(point.y)) {}
+
+  bool WithinEpsilonOf(const PointTyped<units, F>& aPoint, F aEpsilon) {
+    return fabs(aPoint.x - this->x) < aEpsilon && fabs(aPoint.y - this->y) < aEpsilon;
+  }
 
   // XXX When all of the code is ported, the following functions to convert to and from
   // unknown types should be removed.
@@ -292,6 +297,7 @@ struct IntSizeTyped :
   }
 };
 typedef IntSizeTyped<UnknownUnits> IntSize;
+typedef Maybe<IntSize> MaybeIntSize;
 
 template<class units, class F = Float>
 struct SizeTyped :

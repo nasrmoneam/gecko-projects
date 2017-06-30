@@ -50,7 +50,7 @@
 #include "ImageRegion.h"
 #include "gfxRect.h"
 #include "gfxContext.h"
-#include "nsRenderingContext.h"
+#include "gfxContext.h"
 #include "nsIInterfaceRequestorUtils.h"
 #include "nsCSSRendering.h"
 #include "nsTextFragment.h"
@@ -122,6 +122,7 @@
 #include "RegionBuilder.h"
 #include "SVGSVGElement.h"
 #include "DisplayItemClip.h"
+#include "mozilla/layers/WebRenderLayerManager.h"
 
 #ifdef MOZ_XUL
 #include "nsXULPopupManager.h"
@@ -152,7 +153,6 @@ using namespace mozilla::gfx;
 #define GRID_ENABLED_PREF_NAME "layout.css.grid.enabled"
 #define GRID_TEMPLATE_SUBGRID_ENABLED_PREF_NAME "layout.css.grid-template-subgrid-value.enabled"
 #define WEBKIT_PREFIXES_ENABLED_PREF_NAME "layout.css.prefixes.webkit"
-#define DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME "layout.css.display-flow-root.enabled"
 #define TEXT_ALIGN_UNSAFE_ENABLED_PREF_NAME "layout.css.text-align-unsafe-value.enabled"
 #define FLOAT_LOGICAL_VALUES_ENABLED_PREF_NAME "layout.css.float-logical-values.enabled"
 
@@ -316,36 +316,6 @@ WebkitPrefixEnabledPrefChangeCallback(const char* aPrefName, void* aClosure)
     nsCSSProps::kDisplayKTable[sIndexOfWebkitInlineFlexInDisplayTable].mKeyword =
       isWebkitPrefixSupportEnabled ?
       eCSSKeyword__webkit_inline_flex : eCSSKeyword_UNKNOWN;
-  }
-}
-
-// When the pref "layout.css.display-flow-root.enabled" changes, this function is
-// invoked to let us update kDisplayKTable, to selectively disable or restore
-// the entries for "flow-root" in that table.
-static void
-DisplayFlowRootEnabledPrefChangeCallback(const char* aPrefName, void* aClosure)
-{
-  NS_ASSERTION(strcmp(aPrefName, DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME) == 0,
-               "Did you misspell " DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME " ?");
-
-  static bool sIsDisplayFlowRootKeywordIndexInitialized;
-  static int32_t sIndexOfFlowRootInDisplayTable;
-  bool isDisplayFlowRootEnabled =
-    Preferences::GetBool(DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME, false);
-
-  if (!sIsDisplayFlowRootKeywordIndexInitialized) {
-    // First run: find the position of "flow-root" in kDisplayKTable.
-    sIndexOfFlowRootInDisplayTable =
-      nsCSSProps::FindIndexOfKeyword(eCSSKeyword_flow_root,
-                                     nsCSSProps::kDisplayKTable);
-    sIsDisplayFlowRootKeywordIndexInitialized = true;
-  }
-
-  // OK -- now, stomp on or restore the "flow-root" entry in kDisplayKTable,
-  // depending on whether the pref is enabled vs. disabled.
-  if (sIndexOfFlowRootInDisplayTable >= 0) {
-    nsCSSProps::kDisplayKTable[sIndexOfFlowRootInDisplayTable].mKeyword =
-      isDisplayFlowRootEnabled ? eCSSKeyword_flow_root : eCSSKeyword_UNKNOWN;
   }
 }
 
@@ -893,6 +863,25 @@ nsLayoutUtils::FindScrollableFrameFor(ViewID aId)
 
   nsIFrame* scrollFrame = GetScrollFrameFromContent(content);
   return scrollFrame ? scrollFrame->GetScrollTargetFrame() : nullptr;
+}
+
+ViewID
+nsLayoutUtils::FindIDForScrollableFrame(nsIScrollableFrame* aScrollable)
+{
+  if (!aScrollable) {
+    return FrameMetrics::NULL_SCROLL_ID;
+  }
+
+  nsIFrame* scrollFrame = do_QueryFrame(aScrollable);
+  nsIContent* scrollContent = scrollFrame->GetContent();
+
+  FrameMetrics::ViewID scrollId;
+  if (scrollContent &&
+      nsLayoutUtils::FindIDFor(scrollContent, &scrollId)) {
+    return scrollId;
+  }
+
+  return FrameMetrics::NULL_SCROLL_ID;
 }
 
 static nsRect
@@ -1594,6 +1583,9 @@ GetPseudo(const nsIContent* aContent, nsIAtom* aPseudoProperty)
 {
   MOZ_ASSERT(aPseudoProperty == nsGkAtoms::beforePseudoProperty ||
              aPseudoProperty == nsGkAtoms::afterPseudoProperty);
+  if (!aContent->MayHaveAnonymousChildren()) {
+    return nullptr;
+  }
   return static_cast<Element*>(aContent->GetProperty(aPseudoProperty));
 }
 
@@ -2652,7 +2644,7 @@ nsLayoutUtils::MatrixTransformPoint(const nsPoint &aPoint,
 {
   gfxPoint image = gfxPoint(NSAppUnitsToFloatPixels(aPoint.x, aFactor),
                             NSAppUnitsToFloatPixels(aPoint.y, aFactor));
-  image.Transform(aMatrix);
+  image = aMatrix.TransformPoint(image);
   return nsPoint(NSFloatPixelsToAppUnits(float(image.x), aFactor),
                  NSFloatPixelsToAppUnits(float(image.y), aFactor));
 }
@@ -2672,19 +2664,21 @@ nsLayoutUtils::PostTranslate(Matrix4x4& aTransform, const nsPoint& aOrigin, floa
 }
 
 Matrix4x4
-nsLayoutUtils::GetTransformToAncestor(nsIFrame *aFrame, const nsIFrame *aAncestor)
+nsLayoutUtils::GetTransformToAncestor(nsIFrame *aFrame,
+                                      const nsIFrame *aAncestor,
+                                      bool aInCSSUnits)
 {
   nsIFrame* parent;
   Matrix4x4 ctm;
   if (aFrame == aAncestor) {
     return ctm;
   }
-  ctm = aFrame->GetTransformMatrix(aAncestor, &parent);
+  ctm = aFrame->GetTransformMatrix(aAncestor, &parent, aInCSSUnits);
   while (parent && parent != aAncestor) {
     if (!parent->Extend3DContext()) {
       ctm.ProjectTo2D();
     }
-    ctm = ctm * parent->GetTransformMatrix(aAncestor, &parent);
+    ctm = ctm * parent->GetTransformMatrix(aAncestor, &parent, aInCSSUnits);
   }
   return ctm;
 }
@@ -2863,10 +2857,10 @@ nsLayoutUtils::TransformRect(nsIFrame* aFromFrame, nsIFrame* aToFrame,
          -std::numeric_limits<Float>::max() * devPixelsPerAppUnitFromFrame * 0.5f,
          std::numeric_limits<Float>::max() * devPixelsPerAppUnitFromFrame,
          std::numeric_limits<Float>::max() * devPixelsPerAppUnitFromFrame));
-  aRect.x = toDevPixels.x / devPixelsPerAppUnitToFrame;
-  aRect.y = toDevPixels.y / devPixelsPerAppUnitToFrame;
-  aRect.width = toDevPixels.width / devPixelsPerAppUnitToFrame;
-  aRect.height = toDevPixels.height / devPixelsPerAppUnitToFrame;
+  aRect.x = NSToCoordRound(toDevPixels.x / devPixelsPerAppUnitToFrame);
+  aRect.y = NSToCoordRound(toDevPixels.y / devPixelsPerAppUnitToFrame);
+  aRect.width = NSToCoordRound(toDevPixels.width / devPixelsPerAppUnitToFrame);
+  aRect.height = NSToCoordRound(toDevPixels.height / devPixelsPerAppUnitToFrame);
   return TRANSFORM_SUCCEEDED;
 }
 
@@ -3204,8 +3198,7 @@ struct AutoNestedPaintCount {
 nsIFrame*
 nsLayoutUtils::GetFrameForPoint(nsIFrame* aFrame, nsPoint aPt, uint32_t aFlags)
 {
-  PROFILER_LABEL("nsLayoutUtils", "GetFrameForPoint",
-    js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("nsLayoutUtils::GetFrameForPoint", GRAPHICS);
 
   nsresult rv;
   AutoTArray<nsIFrame*,8> outFrames;
@@ -3219,8 +3212,7 @@ nsLayoutUtils::GetFramesForArea(nsIFrame* aFrame, const nsRect& aRect,
                                 nsTArray<nsIFrame*> &aOutFrames,
                                 uint32_t aFlags)
 {
-  PROFILER_LABEL("nsLayoutUtils", "GetFramesForArea",
-    js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("nsLayoutUtils::GetFramesForArea", GRAPHICS);
 
   nsDisplayListBuilder builder(aFrame,
                                nsDisplayListBuilderMode::EVENT_DELIVERY,
@@ -3448,13 +3440,12 @@ nsLayoutUtils::ExpireDisplayPortOnAsyncScrollableAncestor(nsIFrame* aFrame)
 }
 
 nsresult
-nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFrame,
+nsLayoutUtils::PaintFrame(gfxContext* aRenderingContext, nsIFrame* aFrame,
                           const nsRegion& aDirtyRegion, nscolor aBackstop,
                           nsDisplayListBuilderMode aBuilderMode,
                           PaintFrameFlags aFlags)
 {
-  PROFILER_LABEL("nsLayoutUtils", "PaintFrame",
-    js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("nsLayoutUtils::PaintFrame", GRAPHICS);
 
 #ifdef MOZ_DUMP_PAINTING
   if (!gPaintCountStack) {
@@ -3546,8 +3537,8 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
         gfxPoint devPixelOffset =
           nsLayoutUtils::PointToGfxPoint(pos,
                                          presContext->AppUnitsPerDevPixel());
-        aRenderingContext->ThebesContext()->SetMatrix(
-          aRenderingContext->ThebesContext()->CurrentMatrix().Translate(devPixelOffset));
+        aRenderingContext->SetMatrix(
+          aRenderingContext->CurrentMatrix().Translate(devPixelOffset));
       }
     }
     builder.SetIgnoreScrollFrame(rootScrollFrame);
@@ -3565,9 +3556,9 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
   nsRect dirtyRect = visibleRegion.GetBounds();
 
   {
-    PROFILER_LABEL("nsLayoutUtils", "PaintFrame::BuildDisplayList",
-      js::ProfileEntry::Category::GRAPHICS);
-    GeckoProfilerTracingRAII tracer("Paint", "DisplayList");
+    AUTO_PROFILER_LABEL("nsLayoutUtils::PaintFrame:BuildDisplayList",
+                        GRAPHICS);
+    AutoProfilerTracing tracing("Paint", "DisplayList");
 
     PaintTelemetry::AutoRecord record(PaintTelemetry::Metric::DisplayList);
 
@@ -3690,7 +3681,7 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
       // Flush stream now to avoid reordering dump output relative to
       // messages dumped by PaintRoot below.
       if (profilerNeedsDisplayList && !consoleNeedsDisplayList) {
-        profiler_log(ss->str().c_str());
+        profiler_tracing("log", ss->str().c_str());
       } else {
         fprint_stderr(gfxUtils::sDumpPaintFile, *ss);
       }
@@ -3763,7 +3754,7 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
     }
 
     if (profilerNeedsDisplayList && !consoleNeedsDisplayList) {
-      profiler_log(ss->str().c_str());
+      profiler_tracing("log", ss->str().c_str());
     } else {
       fprint_stderr(gfxUtils::sDumpPaintFile, *ss);
     }
@@ -3829,7 +3820,7 @@ nsLayoutUtils::PaintFrame(nsRenderingContext* aRenderingContext, nsIFrame* aFram
     // transaction because we wanted to update plugins first. Schedule the
     // composite now.
     if (layerManager) {
-      layerManager->Composite();
+      layerManager->ScheduleComposite();
     }
   }
 
@@ -4495,8 +4486,7 @@ nsLayoutUtils::GetParentOrPlaceholderFor(nsIFrame* aFrame)
 {
   if ((aFrame->GetStateBits() & NS_FRAME_OUT_OF_FLOW)
       && !aFrame->GetPrevInFlow()) {
-    return aFrame->PresContext()->PresShell()->FrameManager()->
-      GetPlaceholderFrameFor(aFrame);
+    return aFrame->GetProperty(nsIFrame::PlaceholderFrameProperty());
   }
   return aFrame->GetParent();
 }
@@ -4529,15 +4519,12 @@ nsLayoutUtils::GetNextContinuationOrIBSplitSibling(nsIFrame *aFrame)
 }
 
 nsIFrame*
-nsLayoutUtils::FirstContinuationOrIBSplitSibling(nsIFrame *aFrame)
+nsLayoutUtils::FirstContinuationOrIBSplitSibling(const nsIFrame* aFrame)
 {
-  nsIFrame *result = aFrame->FirstContinuation();
+  nsIFrame* result = aFrame->FirstContinuation();
+
   if (result->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT) {
-    while (true) {
-      nsIFrame* f =
-        result->GetProperty(nsIFrame::IBSplitPrevSibling());
-      if (!f)
-        break;
+    while (auto* f = result->GetProperty(nsIFrame::IBSplitPrevSibling())) {
       result = f;
     }
   }
@@ -4546,22 +4533,17 @@ nsLayoutUtils::FirstContinuationOrIBSplitSibling(nsIFrame *aFrame)
 }
 
 nsIFrame*
-nsLayoutUtils::LastContinuationOrIBSplitSibling(nsIFrame *aFrame)
+nsLayoutUtils::LastContinuationOrIBSplitSibling(const nsIFrame* aFrame)
 {
-  nsIFrame *result = aFrame->FirstContinuation();
+  nsIFrame* result = aFrame->FirstContinuation();
+
   if (result->GetStateBits() & NS_FRAME_PART_OF_IBSPLIT) {
-    while (true) {
-      nsIFrame* f = result->GetProperty(nsIFrame::IBSplitSibling());
-      if (!f) {
-        break;
-      }
+    while (auto* f = result->GetProperty(nsIFrame::IBSplitSibling())) {
       result = f;
     }
   }
 
-  result = result->LastContinuation();
-
-  return result;
+  return result->LastContinuation();
 }
 
 bool
@@ -4886,7 +4868,7 @@ GetDefiniteSizeTakenByBoxSizing(StyleBoxSizing aBoxSizing,
 enum eWidthProperty { PROP_WIDTH, PROP_MAX_WIDTH, PROP_MIN_WIDTH };
 static bool
 GetIntrinsicCoord(const nsStyleCoord& aStyle,
-                  nsRenderingContext* aRenderingContext,
+                  gfxContext* aRenderingContext,
                   nsIFrame* aFrame,
                   eWidthProperty aProperty,
                   nscoord& aResult)
@@ -4994,7 +4976,7 @@ FormControlShrinksForPercentISize(nsIFrame* aFrame)
  * @param aContainerWM the container's WM
  */
 static nscoord
-AddIntrinsicSizeOffset(nsRenderingContext* aRenderingContext,
+AddIntrinsicSizeOffset(gfxContext* aRenderingContext,
                        nsIFrame* aFrame,
                        const nsIFrame::IntrinsicISizeOffsetData& aOffsets,
                        nsLayoutUtils::IntrinsicISizeType aType,
@@ -5139,7 +5121,7 @@ AddStateBitToAncestors(nsIFrame* aFrame, nsFrameState aBit)
 
 /* static */ nscoord
 nsLayoutUtils::IntrinsicForAxis(PhysicalAxis              aAxis,
-                                nsRenderingContext*       aRenderingContext,
+                                gfxContext*               aRenderingContext,
                                 nsIFrame*                 aFrame,
                                 IntrinsicISizeType        aType,
                                 const Maybe<LogicalSize>& aPercentageBasis,
@@ -5393,7 +5375,7 @@ nsLayoutUtils::IntrinsicForAxis(PhysicalAxis              aAxis,
 }
 
 /* static */ nscoord
-nsLayoutUtils::IntrinsicForContainer(nsRenderingContext* aRenderingContext,
+nsLayoutUtils::IntrinsicForContainer(gfxContext* aRenderingContext,
                                      nsIFrame* aFrame,
                                      IntrinsicISizeType aType,
                                      uint32_t aFlags)
@@ -5407,7 +5389,7 @@ nsLayoutUtils::IntrinsicForContainer(nsRenderingContext* aRenderingContext,
 
 /* static */ nscoord
 nsLayoutUtils::MinSizeContributionForAxis(PhysicalAxis        aAxis,
-                                          nsRenderingContext* aRC,
+                                          gfxContext*         aRC,
                                           nsIFrame*           aFrame,
                                           IntrinsicISizeType  aType,
                                           uint32_t            aFlags)
@@ -5703,7 +5685,7 @@ nsLayoutUtils::ComputeAutoSizeWithIntrinsicDimensions(nscoord minWidth, nscoord 
 
 /* static */ nscoord
 nsLayoutUtils::MinISizeFromInline(nsIFrame* aFrame,
-                                  nsRenderingContext* aRenderingContext)
+                                  gfxContext* aRenderingContext)
 {
   NS_ASSERTION(!aFrame->IsContainerForFontSizeInflation(),
                "should not be container for font size inflation");
@@ -5717,7 +5699,7 @@ nsLayoutUtils::MinISizeFromInline(nsIFrame* aFrame,
 
 /* static */ nscoord
 nsLayoutUtils::PrefISizeFromInline(nsIFrame* aFrame,
-                                   nsRenderingContext* aRenderingContext)
+                                   gfxContext* aRenderingContext)
 {
   NS_ASSERTION(!aFrame->IsContainerForFontSizeInflation(),
                "should not be container for font size inflation");
@@ -5850,7 +5832,7 @@ nsLayoutUtils::AppUnitWidthOfStringBidi(const char16_t* aString,
                                         uint32_t aLength,
                                         const nsIFrame* aFrame,
                                         nsFontMetrics& aFontMetrics,
-                                        nsRenderingContext& aContext)
+                                        gfxContext& aContext)
 {
   nsPresContext* presContext = aFrame->PresContext();
   if (presContext->BidiEnabled()) {
@@ -5919,7 +5901,7 @@ nsLayoutUtils::AppUnitBoundsOfString(const char16_t* aString,
 void
 nsLayoutUtils::DrawString(const nsIFrame*     aFrame,
                           nsFontMetrics&      aFontMetrics,
-                          nsRenderingContext* aContext,
+                          gfxContext* aContext,
                           const char16_t*     aString,
                           int32_t             aLength,
                           nsPoint             aPoint,
@@ -5963,7 +5945,7 @@ nsLayoutUtils::DrawUniDirString(const char16_t* aString,
                                 uint32_t aLength,
                                 nsPoint aPoint,
                                 nsFontMetrics& aFontMetrics,
-                                nsRenderingContext& aContext)
+                                gfxContext& aContext)
 {
   nscoord x = aPoint.x;
   nscoord y = aPoint.y;
@@ -6001,7 +5983,7 @@ nsLayoutUtils::DrawUniDirString(const char16_t* aString,
 
 /* static */ void
 nsLayoutUtils::PaintTextShadow(const nsIFrame* aFrame,
-                               nsRenderingContext* aContext,
+                               gfxContext* aContext,
                                const nsRect& aTextRect,
                                const nsRect& aDirtyRect,
                                const nscolor& aForegroundColor,
@@ -6014,7 +5996,7 @@ nsLayoutUtils::PaintTextShadow(const nsIFrame* aFrame,
 
   // Text shadow happens with the last value being painted at the back,
   // ie. it is painted first.
-  gfxContext* aDestCtx = aContext->ThebesContext();
+  gfxContext* aDestCtx = aContext;
   for (uint32_t i = textStyle->mTextShadow->Length(); i > 0; --i) {
     nsCSSShadowItem* shadowDetails = textStyle->mTextShadow->ShadowAt(i - 1);
     nsPoint shadowOffset(shadowDetails->mXOffset,
@@ -6038,16 +6020,12 @@ nsLayoutUtils::PaintTextShadow(const nsIFrame* aFrame,
     else
       shadowColor = aForegroundColor;
 
-    // Conjure an nsRenderingContext from a gfxContext for drawing the text
-    // to blur.
-    nsRenderingContext renderingContext(shadowContext);
-
     aDestCtx->Save();
     aDestCtx->NewPath();
     aDestCtx->SetColor(Color::FromABGR(shadowColor));
 
     // The callback will draw whatever we want to blur as a shadow.
-    aCallback(&renderingContext, shadowOffset, shadowColor, aCallbackData);
+    aCallback(shadowContext, shadowOffset, shadowColor, aCallbackData);
 
     contextBoxBlur.DoPaint();
     aDestCtx->Restore();
@@ -6883,8 +6861,7 @@ nsLayoutUtils::DrawBackgroundImage(gfxContext&         aContext,
                                    ExtendMode          aExtendMode,
                                    float               aOpacity)
 {
-  PROFILER_LABEL("layout", "nsLayoutUtils::DrawBackgroundImage",
-                 js::ProfileEntry::Category::GRAPHICS);
+  AUTO_PROFILER_LABEL("nsLayoutUtils::DrawBackgroundImage", GRAPHICS);
 
   Maybe<SVGImageContext> svgContext(Some(SVGImageContext(Some(aImageSize))));
   SVGImageContext::MaybeStoreContextPaint(svgContext, aForFrame, aImage);
@@ -6916,6 +6893,7 @@ nsLayoutUtils::DrawBackgroundImage(gfxContext&         aContext,
 
 /* static */ DrawResult
 nsLayoutUtils::DrawImage(gfxContext&         aContext,
+                         nsStyleContext*     aStyleContext,
                          nsPresContext*      aPresContext,
                          imgIContainer*      aImage,
                          const SamplingFilter aSamplingFilter,
@@ -6926,10 +6904,13 @@ nsLayoutUtils::DrawImage(gfxContext&         aContext,
                          uint32_t            aImageFlags,
                          float               aOpacity)
 {
+  Maybe<SVGImageContext> svgContext;
+  SVGImageContext::MaybeStoreContextPaint(svgContext, aStyleContext, aImage);
+
   return DrawImageInternal(aContext, aPresContext, aImage,
                            aSamplingFilter, aDest, aFill, aAnchor,
                            aDirty,
-                           /* no SVGImageContext */ Nothing(),
+                           svgContext,
                            aImageFlags, ExtendMode::CLAMP,
                            aOpacity);
 }
@@ -7778,8 +7759,6 @@ static const PrefCallbacks kPrefCallbacks[] = {
     WebkitPrefixEnabledPrefChangeCallback },
   { TEXT_ALIGN_UNSAFE_ENABLED_PREF_NAME,
     TextAlignUnsafeEnabledPrefChangeCallback },
-  { DISPLAY_FLOW_ROOT_ENABLED_PREF_NAME,
-    DisplayFlowRootEnabledPrefChangeCallback },
   { FLOAT_LOGICAL_VALUES_ENABLED_PREF_NAME,
     FloatLogicalValuesEnabledPrefChangeCallback },
 };
@@ -7962,19 +7941,23 @@ nsLayoutUtils::PostRestyleEvent(Element* aElement,
   }
 }
 
-nsSetAttrRunnable::nsSetAttrRunnable(nsIContent* aContent, nsIAtom* aAttrName,
+nsSetAttrRunnable::nsSetAttrRunnable(nsIContent* aContent,
+                                     nsIAtom* aAttrName,
                                      const nsAString& aValue)
-  : mContent(aContent),
-    mAttrName(aAttrName),
-    mValue(aValue)
+  : mozilla::Runnable("nsSetAttrRunnable")
+  , mContent(aContent)
+  , mAttrName(aAttrName)
+  , mValue(aValue)
 {
   NS_ASSERTION(aContent && aAttrName, "Missing stuff, prepare to crash");
 }
 
-nsSetAttrRunnable::nsSetAttrRunnable(nsIContent* aContent, nsIAtom* aAttrName,
+nsSetAttrRunnable::nsSetAttrRunnable(nsIContent* aContent,
+                                     nsIAtom* aAttrName,
                                      int32_t aValue)
-  : mContent(aContent),
-    mAttrName(aAttrName)
+  : mozilla::Runnable("nsSetAttrRunnable")
+  , mContent(aContent)
+  , mAttrName(aAttrName)
 {
   NS_ASSERTION(aContent && aAttrName, "Missing stuff, prepare to crash");
   mValue.AppendInt(aValue);
@@ -7988,8 +7971,9 @@ nsSetAttrRunnable::Run()
 
 nsUnsetAttrRunnable::nsUnsetAttrRunnable(nsIContent* aContent,
                                          nsIAtom* aAttrName)
-  : mContent(aContent),
-    mAttrName(aAttrName)
+  : mozilla::Runnable("nsUnsetAttrRunnable")
+  , mContent(aContent)
+  , mAttrName(aAttrName)
 {
   NS_ASSERTION(aContent && aAttrName, "Missing stuff, prepare to crash");
 }
@@ -8507,6 +8491,8 @@ nsLayoutUtils::DoLogTestDataForPaint(LayerManager* aManager,
 {
   if (ClientLayerManager* mgr = aManager->AsClientLayerManager()) {
     mgr->LogTestDataForCurrentPaint(aScrollId, aKey, aValue);
+  } else if (WebRenderLayerManager* wrlm = aManager->AsWebRenderLayerManager()) {
+    wrlm->LogTestDataForCurrentPaint(aScrollId, aKey, aValue);
   }
 }
 
@@ -8635,14 +8621,14 @@ void StrokeLineWithSnapping(const nsPoint& aP1, const nsPoint& aP2,
 
 namespace layout {
 
-
 void
-MaybeSetupTransactionIdAllocator(layers::LayerManager* aManager, nsView* aView)
+MaybeSetupTransactionIdAllocator(layers::LayerManager* aManager,
+                                 nsPresContext* aPresContext)
 {
-  if (aManager->GetBackendType() == LayersBackend::LAYERS_CLIENT ||
-      aManager->GetBackendType() == LayersBackend::LAYERS_WR) {
-    nsRefreshDriver *refresh = aView->GetViewManager()->GetPresShell()->GetPresContext()->RefreshDriver();
-    aManager->SetTransactionIdAllocator(refresh);
+  auto backendType = aManager->GetBackendType();
+  if (backendType == LayersBackend::LAYERS_CLIENT ||
+      backendType == LayersBackend::LAYERS_WR) {
+    aManager->SetTransactionIdAllocator(aPresContext->RefreshDriver());
   }
 }
 

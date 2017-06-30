@@ -828,7 +828,7 @@ nsOfflineManifestItem::HandleManifestLine(const nsCString::const_iterator &aBegi
             ++begin;
         }
 
-        const nsCSubstring &magic = Substring(begin, end);
+        const nsACString& magic = Substring(begin, end);
 
         if (!magic.EqualsLiteral("CACHE MANIFEST")) {
             mParserState = PARSE_ERROR;
@@ -848,7 +848,7 @@ nsOfflineManifestItem::HandleManifestLine(const nsCString::const_iterator &aBegi
     if (begin == end || *begin == '#')
         return NS_OK;
 
-    const nsCSubstring &line = Substring(begin, end);
+    const nsACString& line = Substring(begin, end);
 
     if (line.EqualsLiteral("CACHE:")) {
         mParserState = PARSE_CACHE_ENTRIES;
@@ -1654,7 +1654,7 @@ nsOfflineCacheUpdate::LoadCompleted(nsOfflineCacheUpdateItem *aItem)
     }
 
     // According to parallelism this may imply more pinned retries count,
-    // but that is not critical, since at one moment the algoritm will
+    // but that is not critical, since at one moment the algorithm will
     // stop anyway.  Also, this code may soon be completely removed
     // after we have a separate storage for pinned apps.
     mPinnedEntryRetriesCount = 0;
@@ -1751,8 +1751,10 @@ nsOfflineCacheUpdate::Begin()
     mItemsInProgress = 0;
 
     if (mState == STATE_CANCELLED) {
-      nsresult rv = NS_DispatchToMainThread(NewRunnableMethod(this,
-                                                              &nsOfflineCacheUpdate::AsyncFinishWithError));
+      nsresult rv = NS_DispatchToMainThread(
+        NewRunnableMethod("nsOfflineCacheUpdate::AsyncFinishWithError",
+                          this,
+                          &nsOfflineCacheUpdate::AsyncFinishWithError));
       NS_ENSURE_SUCCESS(rv, rv);
 
       return NS_OK;
@@ -2002,7 +2004,7 @@ nsOfflineCacheUpdate::SetOwner(nsOfflineCacheUpdateOwner *aOwner)
 }
 
 bool
-nsOfflineCacheUpdate::IsForGroupID(const nsCSubstring &groupID)
+nsOfflineCacheUpdate::IsForGroupID(const nsACString& groupID)
 {
     return mGroupID == groupID;
 }

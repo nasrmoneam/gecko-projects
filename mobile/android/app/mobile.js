@@ -631,6 +631,10 @@ pref("media.mediadrm-widevinecdm.visible", true);
 pref("media.eme.enabled", true);
 #endif
 
+#ifdef NIGHTLY_BUILD
+pref("media.hls.enabled", true);
+#endif
+
 // optimize images memory usage
 pref("image.downscale-during-decode.enabled", true);
 
@@ -912,6 +916,7 @@ pref("dom.presentation.receiver.enabled", true); // enable 1-UA mode
 
 pref("dom.audiochannel.audioCompeting", true);
 pref("dom.audiochannel.mediaControl", true);
+pref("media.block-autoplay-until-in-foreground", false);
 
 // Space separated list of URLS that are allowed to send objects (instead of
 // only strings) through webchannels. This list is duplicated in browser/app/profile/firefox.js
@@ -924,3 +929,6 @@ pref("dom.keyboardevent.dispatch_during_composition", true);
 #if CPU_ARCH == aarch64
 pref("javascript.options.native_regexp", false);
 #endif
+
+// Ask for permission when enumerating WebRTC devices.
+pref("media.navigator.permission.device", true);

@@ -66,6 +66,7 @@ const PREFS_WHITELIST = [
   "keyword.",
   "layers.",
   "layout.css.dpi",
+  "layout.css.servo.enabled",
   "media.",
   "mousewheel.",
   "network.",
@@ -222,6 +223,11 @@ var dataProviders = {
       data.autoStartStatus = -1;
     }
 
+    data.styloBuild = AppConstants.MOZ_STYLO;
+    data.styloDefault = Services.prefs.getDefaultBranch(null)
+                                .getBoolPref("layout.css.servo.enabled", false);
+    data.styloResult = Services.prefs.getBoolPref("layout.css.servo.enabled", false);
+
     const keyGoogle = Services.urlFormatter.formatURL("%GOOGLE_API_KEY%").trim();
     data.keyGoogleFound = keyGoogle != "no-google-api-key" && keyGoogle.length > 0;
 
@@ -365,6 +371,7 @@ var dataProviders = {
         data.numTotalWindows++;
         data.windowLayerManagerType = winUtils.layerManagerType;
         data.windowLayerManagerRemote = winUtils.layerManagerRemote;
+        data.windowUsingAdvancedLayers = winUtils.usingAdvancedLayers;
       } catch (e) {
         continue;
       }
@@ -541,14 +548,13 @@ var dataProviders = {
 
   accessibility: function accessibility(done) {
     let data = {};
-    data.isActive = Cc["@mozilla.org/xre/app-info;1"].
-                    getService(Ci.nsIXULRuntime).
-                    accessibilityEnabled;
+    data.isActive = Services.appinfo.accessibilityEnabled;
     // eslint-disable-next-line mozilla/use-default-preference-values
     try {
       data.forceDisabled =
         Services.prefs.getIntPref("accessibility.force_disabled");
     } catch (e) {}
+    data.handlerUsed = Services.appinfo.accessibleHandlerUsed;
     done(data);
   },
 
@@ -622,8 +628,12 @@ if (AppConstants.MOZ_SANDBOX) {
     }
 
     if (AppConstants.MOZ_CONTENT_SANDBOX) {
+      let sandboxSettings = Cc["@mozilla.org/sandbox/sandbox-settings;1"].
+                            getService(Ci.mozISandboxSettings);
       data.contentSandboxLevel =
         Services.prefs.getIntPref("security.sandbox.content.level");
+      data.effectiveContentSandboxLevel =
+        sandboxSettings.effectiveContentSandboxLevel;
     }
 
     done(data);

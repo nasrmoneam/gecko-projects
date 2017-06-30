@@ -163,6 +163,7 @@
 #include <winuser.h>
 #include "nsAccessibilityService.h"
 #include "mozilla/a11y/DocAccessible.h"
+#include "mozilla/a11y/LazyInstantiator.h"
 #include "mozilla/a11y/Platform.h"
 #if !defined(WINABLEAPI)
 #include <winable.h>
@@ -662,8 +663,6 @@ nsWindow::nsWindow()
     }
     NS_ASSERTION(sIsOleInitialized, "***** OLE is not initialized!\n");
     MouseScrollHandler::Initialize();
-    // Init titlebar button info for custom frames.
-    nsUXThemeData::InitTitlebarInfo();
     // Init theme data
     nsUXThemeData::UpdateNativeThemeInfo();
     RedirectedKeyDownMessageManager::Forget();
@@ -3101,7 +3100,7 @@ void nsWindow::UpdateOpaqueRegion(const LayoutDeviceIntRegion& aOpaqueRegion)
       // The minimum glass height must be the caption buttons height,
       // otherwise the buttons are drawn incorrectly.
       largest.y = std::max<uint32_t>(largest.y,
-                         nsUXThemeData::sCommandButtons[CMDBUTTONIDX_BUTTONBOX].cy);
+                         nsUXThemeData::GetCommandButtonBoxMetrics().cy);
     }
     margins.cyTopHeight = largest.y;
   }
@@ -5147,7 +5146,6 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
     {
       // Update non-client margin offsets 
       UpdateNonClientMargins();
-      nsUXThemeData::InitTitlebarInfo();
       nsUXThemeData::UpdateNativeThemeInfo();
 
       NotifyThemeChanged();
@@ -5196,12 +5194,19 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
 
     case WM_SETTINGCHANGE:
     {
-      if (IsWin10OrLater() && mWindowType == eWindowType_invisible && lParam) {
+      if (lParam) {
         auto lParamString = reinterpret_cast<const wchar_t*>(lParam);
-        if (!wcscmp(lParamString, L"UserInteractionMode")) {
-          nsCOMPtr<nsIWindowsUIUtils> uiUtils(do_GetService("@mozilla.org/windows-ui-utils;1"));
-          if (uiUtils) {
-            uiUtils->UpdateTabletModeState();
+        if (!wcscmp(lParamString, L"ImmersiveColorSet")) {
+          // WM_SYSCOLORCHANGE is not dispatched for accent color changes
+          OnSysColorChanged();
+          break;
+        }
+        if (IsWin10OrLater() && mWindowType == eWindowType_invisible) {
+          if (!wcscmp(lParamString, L"UserInteractionMode")) {
+            nsCOMPtr<nsIWindowsUIUtils> uiUtils(do_GetService("@mozilla.org/windows-ui-utils;1"));
+            if (uiUtils) {
+              uiUtils->UpdateTabletModeState();
+            }
           }
         }
       }
@@ -5242,6 +5247,10 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
           NSToIntRound((mHorResizeMargin - mNonClientOffset.right) * scale);
         clientRect->bottom -=
           NSToIntRound((mVertResizeMargin - mNonClientOffset.bottom) * scale);
+        // Make client rect's width and height more than 0 to
+        // avoid problems of webrender and angle.
+        clientRect->right = std::max(clientRect->right, clientRect->left + 1);
+        clientRect->bottom = std::max(clientRect->bottom, clientRect->top + 1);
 
         result = true;
         *aRetValue = 0;
@@ -5324,7 +5333,8 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
       if (wParam == TRUE &&
           !gfxEnv::DisableForcePresent() &&
           gfxWindowsPlatform::GetPlatform()->DwmCompositionEnabled()) {
-        NS_DispatchToMainThread(NewRunnableMethod(this, &nsWindow::ForcePresent));
+        NS_DispatchToMainThread(NewRunnableMethod("nsWindow::ForcePresent",
+                                                  this, &nsWindow::ForcePresent));
       }
 
       // let the dwm handle nc painting on glass
@@ -5397,6 +5407,7 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
 
     case WM_DESTROY:
       // clean up.
+      DestroyLayerManager();
       OnDestroy();
       result = true;
       break;
@@ -5935,15 +5946,11 @@ nsWindow::ProcessMessage(UINT msg, WPARAM& wParam, LPARAM& lParam,
       // for details).
       int32_t objId = static_cast<DWORD>(lParam);
       if (objId == OBJID_CLIENT) { // oleacc.dll will be loaded dynamically
-        a11y::Accessible* rootAccessible = GetAccessible(); // Held by a11y cache
-        if (rootAccessible) {
-          IAccessible *msaaAccessible = nullptr;
-          rootAccessible->GetNativeInterface((void**)&msaaAccessible); // does an addref
-          if (msaaAccessible) {
-            *aRetValue = LresultFromObject(IID_IAccessible, wParam, msaaAccessible); // does an addref
-            msaaAccessible->Release(); // release extra addref
-            result = true;  // We handled the WM_GETOBJECT message
-          }
+        RefPtr<IAccessible> root(a11y::LazyInstantiator::GetRootAccessible(mWnd));
+        if (root) {
+          *aRetValue = LresultFromObject(IID_IAccessible, wParam, root);
+          a11y::LazyInstantiator::EnableBlindAggregation(mWnd);
+          result = true;
         }
       }
     }

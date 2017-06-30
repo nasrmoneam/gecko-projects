@@ -47,7 +47,8 @@ nsWyciwygChannel::nsWyciwygChannel()
 nsWyciwygChannel::~nsWyciwygChannel() 
 {
   if (mLoadInfo) {
-    NS_ReleaseOnMainThread(mLoadInfo.forget(), false);
+    NS_ReleaseOnMainThread(
+      "nsWyciwygChannel::mLoadInfo", mLoadInfo.forget(), false);
   }
 }
 
@@ -279,7 +280,7 @@ nsWyciwygChannel::SetContentType(const nsACString &aContentType)
 NS_IMETHODIMP
 nsWyciwygChannel::GetContentCharset(nsACString &aContentCharset)
 {
-  aContentCharset.AssignLiteral("UTF-16");
+  aContentCharset.AssignLiteral("UTF-16LE");
   return NS_OK;
 }
 
@@ -600,8 +601,10 @@ nsWyciwygChannel::OnCacheEntryAvailable(nsICacheEntry *aCacheEntry,
     LOG(("channel was canceled [this=%p status=%" PRIx32 "]\n", this, static_cast<uint32_t>(mStatus)));
     // Since OnCacheEntryAvailable can be called directly from AsyncOpen
     // we must dispatch.
-    NS_DispatchToCurrentThread(mozilla::NewRunnableMethod(
-      this, &nsWyciwygChannel::NotifyListener));
+    NS_DispatchToCurrentThread(
+      mozilla::NewRunnableMethod("nsWyciwygChannel::NotifyListener",
+                                 this,
+                                 &nsWyciwygChannel::NotifyListener));
   }
 
   return NS_OK;

@@ -29,8 +29,8 @@
 #include "mozilla/StyleSheetInlines.h"
 #include "mozilla/css/Loader.h"
 #include "mozilla/dom/Element.h"
-#include "mozilla/dom/EncodingUtils.h"
 #include "mozilla/dom/ScriptLoader.h"
+#include "mozilla/Encoding.h"
 #include "nsContentUtils.h"
 #include "txXMLUtils.h"
 #include "nsContentSink.h"
@@ -123,7 +123,7 @@ txMozillaXMLOutput::attribute(nsIAtom* aPrefix,
 
 nsresult
 txMozillaXMLOutput::attribute(nsIAtom* aPrefix,
-                              const nsSubstring& aLocalName,
+                              const nsAString& aLocalName,
                               const int32_t aNsID,
                               const nsString& aValue)
 {
@@ -171,7 +171,7 @@ txMozillaXMLOutput::attributeInternal(nsIAtom* aPrefix,
 }
 
 nsresult
-txMozillaXMLOutput::characters(const nsSubstring& aData, bool aDOE)
+txMozillaXMLOutput::characters(const nsAString& aData, bool aDOE)
 {
     nsresult rv = closePrevious(false);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -454,7 +454,7 @@ txMozillaXMLOutput::startElement(nsIAtom* aPrefix, nsIAtom* aLocalName,
 
 nsresult
 txMozillaXMLOutput::startElement(nsIAtom* aPrefix,
-                                 const nsSubstring& aLocalName,
+                                 const nsAString& aLocalName,
                                  const int32_t aNsID)
 {
     int32_t nsId = aNsID;
@@ -777,7 +777,7 @@ void txMozillaXMLOutput::processHTTPEquiv(nsIAtom* aHeader, const nsString& aVal
 }
 
 nsresult
-txMozillaXMLOutput::createResultDocument(const nsSubstring& aName, int32_t aNsID,
+txMozillaXMLOutput::createResultDocument(const nsAString& aName, int32_t aNsID,
                                          nsIDOMDocument* aSourceDocument,
                                          bool aLoadedAsData)
 {
@@ -820,11 +820,10 @@ txMozillaXMLOutput::createResultDocument(const nsSubstring& aName, int32_t aNsID
 
     // Set the charset
     if (!mOutputFormat.mEncoding.IsEmpty()) {
-        nsAutoCString canonicalCharset;
-        if (EncodingUtils::FindEncodingForLabel(mOutputFormat.mEncoding,
-                                                canonicalCharset)) {
+        const Encoding* encoding = Encoding::ForLabel(mOutputFormat.mEncoding);
+        if (encoding) {
             mDocument->SetDocumentCharacterSetSource(kCharsetFromOtherComponent);
-            mDocument->SetDocumentCharacterSet(canonicalCharset);
+            mDocument->SetDocumentCharacterSet(WrapNotNull(encoding));
         }
     }
 

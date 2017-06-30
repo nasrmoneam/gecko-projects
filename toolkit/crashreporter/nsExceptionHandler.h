@@ -8,6 +8,7 @@
 
 #include "mozilla/Assertions.h"
 
+#include <functional>
 #include <stddef.h>
 #include <stdint.h>
 #include "nsError.h"
@@ -93,6 +94,9 @@ bool GetLastRunCrashID(nsAString& id);
 nsresult RegisterAppMemory(void* ptr, size_t length);
 nsresult UnregisterAppMemory(void* ptr);
 
+// Include heap regions of the crash context.
+void SetIncludeContextHeap(bool aValue);
+
 // Functions for working with minidumps and .extras
 typedef nsDataHashtable<nsCStringHashKey, nsCString> AnnotationTable;
 
@@ -103,7 +107,6 @@ bool GetExtraFileForID(const nsAString& id, nsIFile** extraFile);
 bool GetExtraFileForMinidump(nsIFile* minidump, nsIFile** extraFile);
 bool AppendExtraData(const nsAString& id, const AnnotationTable& data);
 bool AppendExtraData(nsIFile* extraFile, const AnnotationTable& data);
-void RunMinidumpAnalyzer(const nsAString& id);
 
 /*
  * Renames the stand alone dump file aDumpFile to:
@@ -196,11 +199,14 @@ ThreadId CurrentThreadId();
  *   aIncomingDumpToPair.
  * @return bool indicating success or failure
  */
-bool CreateMinidumpsAndPair(ProcessHandle aTargetPid,
-                            ThreadId aTargetBlamedThread,
-                            const nsACString& aIncomingPairName,
-                            nsIFile* aIncomingDumpToPair,
-                            nsIFile** aTargetDumpOut);
+void
+CreateMinidumpsAndPair(ProcessHandle aTargetPid,
+                       ThreadId aTargetBlamedThread,
+                       const nsACString& aIncomingPairName,
+                       nsIFile* aIncomingDumpToPair,
+                       nsIFile** aTargetDumpOut,
+                       std::function<void(bool)>&& aCallback,
+                       bool aAsync);
 
 // Create an additional minidump for a child of a process which already has
 // a minidump (|parentMinidump|).

@@ -61,8 +61,9 @@ var gPrivacyPane = {
 
     this.trackingProtectionReadPrefs();
 
-    document.getElementById("trackingprotectionbox").hidden = false;
-    document.getElementById("trackingprotectionpbmbox").hidden = true;
+    document.getElementById("trackingProtectionExceptions").hidden = false;
+    document.getElementById("trackingProtectionBox").hidden = false;
+    document.getElementById("trackingProtectionPBMBox").hidden = true;
   },
 
   /**
@@ -189,10 +190,6 @@ var gPrivacyPane = {
       gPrivacyPane.clearPrivateDataNow(true);
       return false;
     });
-    setEventListener("doNotTrackSettings", "click", function() {
-      gPrivacyPane.showDoNotTrackSettings();
-      return false;
-    });
     setEventListener("privateBrowsingAutoStart", "command",
                      gPrivacyPane.updateAutostart);
     setEventListener("cookieExceptions", "command",
@@ -206,8 +203,6 @@ var gPrivacyPane = {
     setEventListener("trackingProtectionExceptions", "command",
                      gPrivacyPane.showTrackingProtectionExceptions);
     setEventListener("changeBlockList", "command",
-                     gPrivacyPane.showBlockLists);
-    setEventListener("changeBlockListPBM", "command",
                      gPrivacyPane.showBlockLists);
     setEventListener("browserContainersCheckbox", "command",
                      gPrivacyPane._checkBrowserContainers);
@@ -274,7 +269,6 @@ var gPrivacyPane = {
       document.getElementById("offlineAppsList")
               .style.height = bundlePrefs.getString("offlineAppsList.height");
       let offlineGroup = document.getElementById("offlineGroup");
-      offlineGroup.hidden = false;
       offlineGroup.removeAttribute("data-hidden-from-search");
     }
 
@@ -295,7 +289,6 @@ var gPrivacyPane = {
       let url = Services.urlFormatter.formatURLPref("app.support.baseURL") + "storage-permissions";
       document.getElementById("siteDataLearnMoreLink").setAttribute("href", url);
       let siteDataGroup = document.getElementById("siteDataGroup");
-      siteDataGroup.hidden = false;
       siteDataGroup.removeAttribute("data-hidden-from-search");
     }
 
@@ -321,11 +314,9 @@ var gPrivacyPane = {
       this.initSubmitCrashes();
     }
     this.initTelemetry();
-    if (AppConstants.MOZ_TELEMETRY_REPORTING) {
-      this.initSubmitHealthReport();
-      setEventListener("submitHealthReportBox", "command",
-                       gPrivacyPane.updateSubmitHealthReport);
-    }
+    this.initSubmitHealthReport();
+    setEventListener("submitHealthReportBox", "command",
+                     gPrivacyPane.updateSubmitHealthReport);
 
     // Append search keywords into the elements could open subdialogs.
     let bundlePrefs = document.getElementById("bundlePreferences");
@@ -1414,8 +1405,10 @@ var gPrivacyPane = {
    * In all cases, set up the Learn More link sanely.
    */
   initTelemetry() {
-    if (AppConstants.MOZ_TELEMETRY_REPORTING) {
-      this._setupLearnMoreLink("toolkit.telemetry.infoURL", "telemetryLearnMore");
+    this._setupLearnMoreLink("toolkit.telemetry.infoURL", "telemetryLearnMore");
+    // If we're not sending any Telemetry, disable the telemetry upload checkbox as well.
+    if (!AppConstants.MOZ_TELEMETRY_REPORTING) {
+      document.getElementById("submitTelemetryBox").setAttribute("disabled", "true");
     }
   },
 
@@ -1439,9 +1432,6 @@ var gPrivacyPane = {
    * @param {Boolean} aEnabled False disables the controls, true enables them.
    */
   setTelemetrySectionEnabled(aEnabled) {
-    if (!AppConstants.MOZ_TELEMETRY_REPORTING) {
-      return;
-    }
     // If FHR is disabled, additional data sharing should be disabled as well.
     let disabled = !aEnabled;
     document.getElementById("submitTelemetryBox").disabled = disabled;
@@ -1456,19 +1446,21 @@ var gPrivacyPane = {
    * Initialize the health report service reference and checkbox.
    */
   initSubmitHealthReport() {
-    if (!AppConstants.MOZ_TELEMETRY_REPORTING) {
-      return;
-    }
     this._setupLearnMoreLink("datareporting.healthreport.infoURL", "FHRLearnMore");
 
     let checkbox = document.getElementById("submitHealthReportBox");
 
-    if (Services.prefs.prefIsLocked(PREF_UPLOAD_ENABLED)) {
+    // Telemetry is only sending data if MOZ_TELEMETRY_REPORTING is defined.
+    // We still want to display the preferences panel if that's not the case, but
+    // we want it to be disabled and unchecked.
+    if (Services.prefs.prefIsLocked(PREF_UPLOAD_ENABLED) ||
+        !AppConstants.MOZ_TELEMETRY_REPORTING) {
       checkbox.setAttribute("disabled", "true");
       return;
     }
 
-    checkbox.checked = Services.prefs.getBoolPref(PREF_UPLOAD_ENABLED);
+    checkbox.checked = Services.prefs.getBoolPref(PREF_UPLOAD_ENABLED) &&
+                       AppConstants.MOZ_TELEMETRY_REPORTING;
     this.setTelemetrySectionEnabled(checkbox.checked);
   },
 
@@ -1476,9 +1468,6 @@ var gPrivacyPane = {
    * Update the health report preference with state from checkbox.
    */
   updateSubmitHealthReport() {
-    if (!AppConstants.MOZ_TELEMETRY_REPORTING) {
-      return;
-    }
     let checkbox = document.getElementById("submitHealthReportBox");
     Services.prefs.setBoolPref(PREF_UPLOAD_ENABLED, checkbox.checked);
     this.setTelemetrySectionEnabled(checkbox.checked);

@@ -19,6 +19,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "MessageChannel",
                                   "resource://gre/modules/MessageChannel.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Schemas",
                                   "resource://gre/modules/Schemas.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "TelemetryStopwatch",
+                                  "resource://gre/modules/TelemetryStopwatch.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "WebNavigationFrames",
                                   "resource://gre/modules/WebNavigationFrames.jsm");
 
@@ -69,6 +71,7 @@ XPCOMUtils.defineLazyGetter(this, "console", ExtensionUtils.getConsole);
 var DocumentManager;
 
 const CATEGORY_EXTENSION_SCRIPTS_CONTENT = "webextension-scripts-content";
+const CONTENT_SCRIPT_INJECTION_HISTOGRAM = "WEBEXT_CONTENT_SCRIPT_INJECTION_MS";
 
 var apiManager = new class extends SchemaAPIManager {
   constructor() {
@@ -196,27 +199,27 @@ defineLazyGetter(BrowserExtensionContent.prototype, "authorCSS", () => {
 
 // Represents a content script.
 class Script {
-  constructor(extension, options) {
+  constructor(extension, matcher) {
     this.extension = extension;
-    this.options = options;
+    this.matcher = matcher;
 
-    this.runAt = this.options.run_at;
-    this.js = this.options.js || [];
-    this.css = this.options.css || [];
-    this.remove_css = this.options.remove_css;
-    this.css_origin = this.options.css_origin;
+    this.runAt = this.matcher.runAt;
+    this.js = this.matcher.jsPaths;
+    this.css = this.matcher.cssPaths;
+    this.removeCSS = this.matcher.removeCSS;
+    this.cssOrigin = this.matcher.cssOrigin;
 
-    this.cssCache = extension[this.css_origin === "user" ? "userCSS"
-                                                         : "authorCSS"];
-    this.scriptCache = extension[options.wantReturnValue ? "dynamicScripts"
+    this.cssCache = extension[this.cssOrigin === "user" ? "userCSS"
+                                                        : "authorCSS"];
+    this.scriptCache = extension[matcher.wantReturnValue ? "dynamicScripts"
                                                          : "staticScripts"];
 
-    if (options.wantReturnValue) {
+    if (matcher.wantReturnValue) {
       this.compileScripts();
       this.loadCSS();
     }
 
-    this.requiresCleanup = !this.remove_css && (this.css.length > 0 || options.cssCode);
+    this.requiresCleanup = !this.removeCss && (this.css.length > 0 || matcher.cssCode);
   }
 
   compileScripts() {
@@ -227,11 +230,16 @@ class Script {
     return this.cssURLs.map(url => this.cssCache.get(url));
   }
 
+  preload() {
+    this.loadCSS();
+    this.compileScripts();
+  }
+
   cleanup(window) {
-    if (!this.remove_css && this.cssURLs.length) {
+    if (!this.removeCss && this.cssURLs.length) {
       let winUtils = getWinUtils(window);
 
-      let type = this.css_origin === "user" ? winUtils.USER_SHEET : winUtils.AUTHOR_SHEET;
+      let type = this.cssOrigin === "user" ? winUtils.USER_SHEET : winUtils.AUTHOR_SHEET;
       for (let url of this.cssURLs) {
         this.cssCache.deleteDocument(url, window.document);
         runSafeSyncWithoutClone(winUtils.removeSheetUsingURIString, url, type);
@@ -241,6 +249,10 @@ class Script {
       // a result of living in this document.
       this.cssCache.clear(CSS_EXPIRY_TIMEOUT_MS);
     }
+  }
+
+  matchesWindow(window) {
+    return this.matcher.matchesWindow(window);
   }
 
   async injectInto(window) {
@@ -276,9 +288,9 @@ class Script {
       let window = context.contentWindow;
       let winUtils = getWinUtils(window);
 
-      let type = this.css_origin === "user" ? winUtils.USER_SHEET : winUtils.AUTHOR_SHEET;
+      let type = this.cssOrigin === "user" ? winUtils.USER_SHEET : winUtils.AUTHOR_SHEET;
 
-      if (this.remove_css) {
+      if (this.removeCSS) {
         for (let url of this.cssURLs) {
           this.cssCache.deleteDocument(url, window.document);
 
@@ -321,12 +333,17 @@ class Script {
 
     // The evaluations below may throw, in which case the promise will be
     // automatically rejected.
-    for (let script of scripts) {
-      result = script.executeInGlobal(context.cloneScope);
-    }
+    TelemetryStopwatch.start(CONTENT_SCRIPT_INJECTION_HISTOGRAM, context);
+    try {
+      for (let script of scripts) {
+        result = script.executeInGlobal(context.cloneScope);
+      }
 
-    if (this.options.jsCode) {
-      result = Cu.evalInSandbox(this.options.jsCode, context.cloneScope, "latest");
+      if (this.matcher.jsCode) {
+        result = Cu.evalInSandbox(this.matcher.jsCode, context.cloneScope, "latest");
+      }
+    } finally {
+      TelemetryStopwatch.finish(CONTENT_SCRIPT_INJECTION_HISTOGRAM, context);
     }
 
     await cssPromise;
@@ -338,8 +355,8 @@ defineLazyGetter(Script.prototype, "cssURLs", function() {
   // We can handle CSS urls (css) and CSS code (cssCode).
   let urls = this.css.slice();
 
-  if (this.options.cssCode) {
-    urls.push("data:text/css;charset=utf-8," + encodeURIComponent(this.options.cssCode));
+  if (this.matcher.cssCode) {
+    urls.push("data:text/css;charset=utf-8," + encodeURIComponent(this.matcher.cssCode));
   }
 
   return urls;

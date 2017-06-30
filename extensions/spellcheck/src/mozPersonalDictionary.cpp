@@ -40,23 +40,22 @@
  * Implement the suggestion record.
  */
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(mozPersonalDictionary)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(mozPersonalDictionary)
+NS_IMPL_ADDREF(mozPersonalDictionary)
+NS_IMPL_RELEASE(mozPersonalDictionary)
 
 NS_INTERFACE_MAP_BEGIN(mozPersonalDictionary)
   NS_INTERFACE_MAP_ENTRY(mozIPersonalDictionary)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, mozIPersonalDictionary)
-  NS_INTERFACE_MAP_ENTRIES_CYCLE_COLLECTION(mozPersonalDictionary)
 NS_INTERFACE_MAP_END
-
-NS_IMPL_CYCLE_COLLECTION(mozPersonalDictionary, mEncoder)
 
 class mozPersonalDictionaryLoader final : public mozilla::Runnable
 {
 public:
-  explicit mozPersonalDictionaryLoader(mozPersonalDictionary *dict) : mDict(dict)
+  explicit mozPersonalDictionaryLoader(mozPersonalDictionary* dict)
+    : mozilla::Runnable("mozPersonalDictionaryLoader")
+    , mDict(dict)
   {
   }
 
@@ -65,7 +64,9 @@ public:
     mDict->SyncLoad();
 
     // Release the dictionary on the main thread
-    NS_ReleaseOnMainThread(mDict.forget());
+    NS_ReleaseOnMainThread(
+      "mozPersonalDictionaryLoader::mDict",
+      mDict.forget().downcast<mozIPersonalDictionary>());
 
     return NS_OK;
   }
@@ -77,12 +78,13 @@ private:
 class mozPersonalDictionarySave final : public mozilla::Runnable
 {
 public:
-  explicit mozPersonalDictionarySave(mozPersonalDictionary *aDict,
+  explicit mozPersonalDictionarySave(mozPersonalDictionary* aDict,
                                      nsCOMPtr<nsIFile> aFile,
-                                     nsTArray<nsString> &&aDictWords)
-    : mDictWords(aDictWords),
-      mFile(aFile),
-      mDict(aDict)
+                                     nsTArray<nsString>&& aDictWords)
+    : mozilla::Runnable("mozPersonalDictionarySave")
+    , mDictWords(aDictWords)
+    , mFile(aFile)
+    , mDict(aDict)
   {
   }
 
@@ -136,7 +138,9 @@ public:
     }
 
     // Release the dictionary on the main thread.
-    NS_ReleaseOnMainThread(mDict.forget());
+    NS_ReleaseOnMainThread(
+      "mozPersonalDictionarySave::mDict",
+      mDict.forget().downcast<mozIPersonalDictionary>());
 
     return NS_OK;
   }

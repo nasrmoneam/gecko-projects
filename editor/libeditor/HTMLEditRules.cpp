@@ -710,6 +710,12 @@ HTMLEditRules::DidDoAction(Selection* aSelection,
   }
 }
 
+NS_IMETHODIMP_(bool)
+HTMLEditRules::DocumentIsEmpty()
+{
+  return !!mBogusNode;
+}
+
 nsresult
 HTMLEditRules::GetListState(bool* aMixed,
                             bool* aOL,
@@ -2452,10 +2458,8 @@ HTMLEditRules::WillDeleteSelection(Selection* aSelection,
         // except table elements.
         join = true;
 
-        uint32_t rangeCount = aSelection->RangeCount();
-        for (uint32_t rangeIdx = 0; rangeIdx < rangeCount; ++rangeIdx) {
-          OwningNonNull<nsRange> range = *aSelection->GetRangeAt(rangeIdx);
-
+        AutoRangeArray arrayOfRanges(aSelection);
+        for (auto& range : arrayOfRanges.mRanges) {
           // Build a list of nodes in the range
           nsTArray<OwningNonNull<nsINode>> arrayOfNodes;
           TrivialFunctor functor;
@@ -5856,6 +5860,18 @@ HTMLEditRules::GetNodesForOperation(
         GetInnerContent(*node, aOutArrayOfNodes, &j);
       }
     }
+    // Empty text node shouldn't be selected if unnecessary
+    for (int32_t i = aOutArrayOfNodes.Length() - 1; i >= 0; i--) {
+      OwningNonNull<nsINode> node = aOutArrayOfNodes[i];
+      if (EditorBase::IsTextNode(node)) {
+        // Don't select empty text except to empty block
+        bool isEmpty = false;
+        htmlEditor->IsVisTextNode(node->AsContent(), &isEmpty, false);
+        if (isEmpty) {
+          aOutArrayOfNodes.RemoveElementAt(i);
+        }
+      }
+    }
   }
   // Indent/outdent already do something special for list items, but we still
   // need to make sure we don't act on table elements
@@ -8943,7 +8959,9 @@ NS_IMETHODIMP
 HTMLEditRules::DocumentModified()
 {
   nsContentUtils::AddScriptRunner(
-    NewRunnableMethod(this, &HTMLEditRules::DocumentModifiedWorker));
+    NewRunnableMethod("HTMLEditRules::DocumentModifiedWorker",
+                      this,
+                      &HTMLEditRules::DocumentModifiedWorker));
   return NS_OK;
 }
 

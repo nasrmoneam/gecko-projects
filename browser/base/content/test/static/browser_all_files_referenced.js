@@ -1,6 +1,10 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+// Note to run this test similar to try server, you need to run:
+// ./mach package
+// ./mach mochitest --appname dist <path to test>
+
 // Slow on asan builds.
 requestLongerTimeout(5);
 
@@ -28,7 +32,7 @@ var gExceptionPaths = [
 if (AppConstants.platform == "macosx")
   gExceptionPaths.push("resource://gre/res/cursors/");
 
-var whitelist = new Set([
+var whitelist = [
   // browser/extensions/pdfjs/content/PdfStreamConverter.jsm
   {file: "chrome://pdf.js/locale/chrome.properties"},
   {file: "chrome://pdf.js/locale/viewer.properties"},
@@ -98,11 +102,11 @@ var whitelist = new Set([
    platforms: ["linux", "win"]},
   {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/mac/platformKeys.properties",
    platforms: ["linux", "win"]},
-  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/gtk/accessible.properties",
+  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/unix/accessible.properties",
    platforms: ["macosx", "win"]},
-  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/gtk/intl.properties",
+  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/unix/intl.properties",
    platforms: ["macosx", "win"]},
-  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/gtk/platformKeys.properties",
+  {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/unix/platformKeys.properties",
    platforms: ["macosx", "win"]},
   {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/win/accessible.properties",
    platforms: ["linux", "macosx"]},
@@ -120,17 +124,6 @@ var whitelist = new Set([
   // Bug 1339424 (wontfix?)
   {file: "chrome://browser/locale/taskbar.properties",
    platforms: ["linux", "macosx"]},
-  // Bug 1343824
-  {file: "chrome://browser/skin/customizableui/customize-illustration-rtl@2x.png",
-   platforms: ["linux", "win"]},
-  {file: "chrome://browser/skin/customizableui/customize-illustration@2x.png",
-   platforms: ["linux", "win"]},
-  {file: "chrome://browser/skin/customizableui/info-icon-customizeTip@2x.png",
-   platforms: ["linux", "win"]},
-  {file: "chrome://browser/skin/customizableui/panelarrow-customizeTip@2x.png",
-   platforms: ["linux", "win"]},
-  // Bug 1320058
-  {file: "chrome://browser/skin/preferences/saveFile.png", platforms: ["win"]},
   // Bug 1316187
   {file: "chrome://global/content/customizeToolbar.xul"},
   // Bug 1343837
@@ -139,24 +132,6 @@ var whitelist = new Set([
   {file: "chrome://global/content/url-classifier/unittests.xul"},
   // Bug 1343839
   {file: "chrome://global/locale/headsUpDisplay.properties"},
-  // Bug 1348358
-  {file: "chrome://global/skin/arrow.css"},
-  {file: "chrome://global/skin/arrow/arrow-dn-sharp.gif",
-   platforms: ["linux", "win"]},
-  {file: "chrome://global/skin/arrow/arrow-down.png",
-   platforms: ["linux", "win"]},
-  {file: "chrome://global/skin/arrow/arrow-lft-sharp-end.gif"},
-  {file: "chrome://global/skin/arrow/arrow-lft-sharp.gif",
-   platforms: ["linux", "win"]},
-  {file: "chrome://global/skin/arrow/arrow-rit-sharp-end.gif"},
-  {file: "chrome://global/skin/arrow/arrow-rit-sharp.gif",
-   platforms: ["linux", "win"]},
-  {file: "chrome://global/skin/arrow/arrow-up-sharp.gif",
-   platforms: ["linux", "win"]},
-  {file: "chrome://global/skin/arrow/panelarrow-horizontal.svg",
-   platforms: ["linux"]},
-  {file: "chrome://global/skin/arrow/panelarrow-vertical.svg",
-   platforms: ["linux"]},
   // Bug 1348362
   {file: "chrome://global/skin/icons/warning-64.png", platforms: ["linux", "win"]},
   // Bug 1348525
@@ -198,7 +173,22 @@ var whitelist = new Set([
   // Bug 1351637
   {file: "resource://gre/modules/sdk/bootstrap.js"},
 
-].filter(item =>
+];
+
+if (!AppConstants.MOZ_PHOTON_THEME) {
+  whitelist.push(
+    // Bug 1343824
+    {file: "chrome://browser/skin/customizableui/customize-illustration-rtl@2x.png",
+     platforms: ["linux", "win"]},
+    {file: "chrome://browser/skin/customizableui/customize-illustration@2x.png",
+     platforms: ["linux", "win"]},
+    {file: "chrome://browser/skin/customizableui/info-icon-customizeTip@2x.png",
+     platforms: ["linux", "win"]},
+    {file: "chrome://browser/skin/customizableui/panelarrow-customizeTip@2x.png",
+     platforms: ["linux", "win"]});
+}
+
+whitelist = new Set(whitelist.filter(item =>
   ("isFromDevTools" in item) == isDevtools &&
   (!item.skipNightly || !AppConstants.NIGHTLY_BUILD) &&
   (!item.platforms || item.platforms.includes(AppConstants.platform))
@@ -344,7 +334,7 @@ function parseCodeFile(fileUri) {
     let baseUri;
     for (let line of data.split("\n")) {
       let urls =
-        line.match(/["']chrome:\/\/[a-zA-Z0-9 -]+\/(content|skin|locale)\/[^"' ]*["']/g);
+        line.match(/["'`]chrome:\/\/[a-zA-Z0-9 -]+\/(content|skin|locale)\/[^"'` ]*["'`]/g);
       if (!urls) {
         urls = line.match(/["']resource:\/\/[^"']+["']/g);
         if (urls && isDevtools &&
@@ -408,8 +398,14 @@ function parseCodeFile(fileUri) {
         // Remove quotes.
         url = url.slice(1, -1);
         // Remove ? or \ trailing characters.
-        if (url.endsWith("?") || url.endsWith("\\"))
+        if (url.endsWith("\\")) {
           url = url.slice(0, -1);
+        }
+
+        let pos = url.indexOf("?");
+        if (pos != -1) {
+          url = url.slice(0, pos);
+        }
 
         // Make urls like chrome://browser/skin/ point to an actual file,
         // and remove the ref if any.
