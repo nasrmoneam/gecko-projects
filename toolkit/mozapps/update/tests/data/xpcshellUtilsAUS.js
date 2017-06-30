@@ -151,6 +151,7 @@ var gUpdates;
 var gStatusCode;
 var gStatusText;
 var gStatusResult;
+var gSlowDownloadContinue = false;
 
 var gProcess;
 var gAppTimer;
@@ -3566,8 +3567,11 @@ const downloadListener = {
 
 /**
  * Helper for starting the http server used by the tests
+ *
+ * @param options.slowDownload
+ *        When serving FILE_SIMPLE_MAR, hang until gSlowDownloadContinue is true
  */
-function start_httpserver() {
+function start_httpserver(options) {
   let dir = getTestDirFile();
   debugDump("http server directory path: " + dir.path);
 
@@ -3580,6 +3584,9 @@ function start_httpserver() {
   gTestserver = new HttpServer();
   gTestserver.registerDirectory("/", dir);
   gTestserver.registerPathHandler("/" + gHTTPHandlerPath, pathHandler);
+  if (options && options.slowDownload) {
+    gTestserver.registerPathHandler("/" + FILE_SIMPLE_MAR, marPathHandler);
+  }
   gTestserver.start(-1);
   let testserverPort = gTestserver.identity.primaryPort;
   gURLData = URL_HOST + ":" + testserverPort + "/";
@@ -3598,6 +3605,31 @@ function pathHandler(aMetadata, aResponse) {
   aResponse.setHeader("Content-Type", "text/xml", false);
   aResponse.setStatusLine(aMetadata.httpVersion, gResponseStatusCode, "OK");
   aResponse.bodyOutputStream.write(gResponseBody, gResponseBody.length);
+}
+
+/**
+ * Custom path handler for MAR files served by the HTTP server.
+ * Only used if start_httpserver was called with options.slowDownload set.
+ *
+ * @param   aRequest
+ *          The http metadata for the request.
+ * @param   aResponse
+ *          The http response for the request.
+ */
+function marPathHandler(aRequest, aResponse) {
+  aResponse.processAsync();
+  aResponse.setHeader("Content-Type", "binary/octet-stream");
+  aResponse.setHeader("Content-Length", SIZE_SIMPLE_MAR);
+
+  (function marPathHandlerTimeout() {
+    if (gSlowDownloadContinue) {
+      let content = readFileBytes(getTestDirFile(FILE_SIMPLE_MAR));
+      aResponse.bodyOutputStream.write(content, SIZE_SIMPLE_MAR);
+      aResponse.finish();
+    } else {
+      do_timeout(100, marPathHandlerTimeout);
+    }
+  })();
 }
 
 /**
