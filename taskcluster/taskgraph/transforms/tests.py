@@ -398,8 +398,8 @@ def set_treeherder_machine_platform(config, tests):
         # treeherder.
         'linux64-asan/opt': 'linux64/asan',
         'linux64-pgo/opt': 'linux64/pgo',
-        'macosx64/debug': 'osx-10-10/debug',
-        'macosx64/opt': 'osx-10-10/opt',
+        'macosx64/debug': 'osx-cross/debug',
+        'macosx64/opt': 'osx-cross/opt',
         'win64-asan/opt': 'windows10-64/asan',
         # The build names for Android platforms have partially evolved over the
         # years and need to be translated.
@@ -509,6 +509,9 @@ def enable_code_coverage(config, tests):
             test['when'] = {}
             test['instance-size'] = 'xlarge'
             test['run-on-projects'] = ['mozilla-central']
+                test['docker-image'] = {"in-tree": "desktop1604-test"}
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--tptimeout,15000')
         elif test['build-platform'] == 'linux64-jsdcov/opt':
             test['run-on-projects'] = ['mozilla-central']
         yield test

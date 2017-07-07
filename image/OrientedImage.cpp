@@ -184,7 +184,7 @@ struct MatrixBuilder
     if (mInvert) {
       mMatrix *= gfxMatrix::Scaling(1.0 / aX, 1.0 / aY);
     } else {
-      mMatrix.Scale(aX, aY);
+      mMatrix.PreScale(aX, aY);
     }
   }
 
@@ -193,7 +193,7 @@ struct MatrixBuilder
     if (mInvert) {
       mMatrix *= gfxMatrix::Rotation(-aPhi);
     } else {
-      mMatrix.Rotate(aPhi);
+      mMatrix.PreRotate(aPhi);
     }
   }
 
@@ -202,7 +202,7 @@ struct MatrixBuilder
     if (mInvert) {
       mMatrix *= gfxMatrix::Translation(-aDelta);
     } else {
-      mMatrix.Translate(aDelta);
+      mMatrix.PreTranslate(aDelta);
     }
   }
 

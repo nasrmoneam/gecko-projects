@@ -971,14 +971,7 @@ PresShell::Init(nsIDocument* aDocument,
   // calling Init, since various subroutines need to find the style set off
   // the PresContext during initialization.
   mStyleSet = aStyleSet;
-  mStyleSet->Init(aPresContext);
-
-  // Set up our style rule observer. We don't need to inform a ServoStyleSet
-  // of the binding manager because it gets XBL style sheets from bindings
-  // in a different way.
-  if (mStyleSet->IsGecko()) {
-    mStyleSet->AsGecko()->SetBindingManager(mDocument->BindingManager());
-  }
+  mStyleSet->Init(aPresContext, mDocument->BindingManager());
 
   // Notify our prescontext that it now has a compatibility mode.  Note that
   // this MUST happen after we set up our style set but before we create any
@@ -4097,6 +4090,9 @@ PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush)
     "",
     "Content",
     "ContentAndNotify",
+    // As far as the profiler is concerned, EnsurePresShellInitAndFrames and
+    // Frames are the same
+    "Style",
     "Style",
     "InterruptibleLayout",
     "Layout",
@@ -4699,8 +4695,8 @@ PresShell::RenderDocument(const nsRect& aRect, uint32_t aFlags,
   // slight rounding errors here.  We use NudgeToIntegers() here to adjust
   // matrix components that are integers up to the accuracy of floats to be
   // those integers.
-  gfxMatrix newTM = aThebesContext->CurrentMatrix().Translate(offset).
-                                                    Scale(scale, scale).
+  gfxMatrix newTM = aThebesContext->CurrentMatrix().PreTranslate(offset).
+                                                    PreScale(scale, scale).
                                                     NudgeToIntegers();
   aThebesContext->SetMatrix(newTM);
 
@@ -5097,12 +5093,12 @@ PresShell::PaintRangePaintInfo(const nsTArray<UniquePtr<RangePaintInfo>>& aItems
   gfxMatrix initialTM = ctx->CurrentMatrix();
 
   if (resize)
-    initialTM.Scale(scale, scale);
+    initialTM.PreScale(scale, scale);
 
   // translate so that points are relative to the surface area
   gfxPoint surfaceOffset =
     nsLayoutUtils::PointToGfxPoint(-aArea.TopLeft(), pc->AppUnitsPerDevPixel());
-  initialTM.Translate(surfaceOffset);
+  initialTM.PreTranslate(surfaceOffset);
 
   // temporarily hide the selection so that text is drawn normally. If a
   // selection is being rendered, use that, otherwise use the presshell's
@@ -5124,7 +5120,7 @@ PresShell::PaintRangePaintInfo(const nsTArray<UniquePtr<RangePaintInfo>>& aItems
     gfxPoint rootOffset =
       nsLayoutUtils::PointToGfxPoint(rangeInfo->mRootOffset,
                                      pc->AppUnitsPerDevPixel());
-    ctx->SetMatrix(gfxMatrix(initialTM).Translate(rootOffset));
+    ctx->SetMatrix(gfxMatrix(initialTM).PreTranslate(rootOffset));
     aArea.MoveBy(-rangeInfo->mRootOffset.x, -rangeInfo->mRootOffset.y);
     nsRegion visible(aArea);
     RefPtr<LayerManager> layerManager =
@@ -7173,9 +7169,6 @@ PresShell::HandleEvent(nsIFrame* aFrame,
   // Update the latest focus sequence number with this new sequence number
   if (mAPZFocusSequenceNumber < aEvent->mFocusSequenceNumber) {
     mAPZFocusSequenceNumber = aEvent->mFocusSequenceNumber;
-
-    // Schedule an empty transaction to transmit this focus update
-    aFrame->SchedulePaint(nsIFrame::PAINT_COMPOSITE_ONLY);
   }
 
   if (sPointerEventEnabled) {
@@ -10504,7 +10497,7 @@ void ReflowCountMgr::PaintCount(const char*     aName,
       gfxPoint devPixelOffset =
         nsLayoutUtils::PointToGfxPoint(aOffset, appUnitsPerDevPixel);
       aRenderingContext->SetMatrix(
-        aRenderingContext->CurrentMatrix().Translate(devPixelOffset));
+        aRenderingContext->CurrentMatrix().PreTranslate(devPixelOffset));
 
       // We don't care about the document language or user fonts here;
       // just get a default Latin font.

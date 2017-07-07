@@ -1598,15 +1598,17 @@ HttpChannelChild::SetupRedirect(nsIURI* uri,
 
 void
 HttpChannelChild::Redirect1Begin(const uint32_t& registrarId,
-                                 const URIParams& newUri,
+                                 const URIParams& newOriginalURI,
                                  const uint32_t& redirectFlags,
                                  const nsHttpResponseHead& responseHead,
                                  const nsACString& securityInfoSerialization,
                                  const uint64_t& channelId)
 {
+  nsresult rv;
+
   LOG(("HttpChannelChild::Redirect1Begin [this=%p]\n", this));
 
-  nsCOMPtr<nsIURI> uri = DeserializeURI(newUri);
+  nsCOMPtr<nsIURI> uri = DeserializeURI(newOriginalURI);
 
   if (!securityInfoSerialization.IsEmpty()) {
     NS_DeserializeObject(securityInfoSerialization,
@@ -1614,10 +1616,10 @@ HttpChannelChild::Redirect1Begin(const uint32_t& registrarId,
   }
 
   nsCOMPtr<nsIChannel> newChannel;
-  nsresult rv = SetupRedirect(uri,
-                              &responseHead,
-                              redirectFlags,
-                              getter_AddRefs(newChannel));
+  rv = SetupRedirect(uri,
+                      &responseHead,
+                      redirectFlags,
+                      getter_AddRefs(newChannel));
 
   if (NS_SUCCEEDED(rv)) {
     if (mRedirectChannelChild) {
@@ -1629,7 +1631,14 @@ HttpChannelChild::Redirect1Begin(const uint32_t& registrarId,
       }
       mRedirectChannelChild->ConnectParent(registrarId);
     }
-    rv = gHttpHandler->AsyncOnChannelRedirect(this, newChannel, redirectFlags);
+
+    nsCOMPtr<nsIEventTarget> target = GetNeckoTarget();
+    MOZ_ASSERT(target);
+
+    rv = gHttpHandler->AsyncOnChannelRedirect(this,
+                                              newChannel,
+                                              redirectFlags,
+                                              target);
   }
 
   if (NS_FAILED(rv))
@@ -1659,9 +1668,13 @@ HttpChannelChild::BeginNonIPCRedirect(nsIURI* responseURI,
       httpChannelChild->OverrideSecurityInfoForNonIPCRedirect(mSecurityInfo);
     }
 
+    nsCOMPtr<nsIEventTarget> target = GetNeckoTarget();
+    MOZ_ASSERT(target);
+
     rv = gHttpHandler->AsyncOnChannelRedirect(this,
                                               newChannel,
-                                              nsIChannelEventSink::REDIRECT_INTERNAL);
+                                              nsIChannelEventSink::REDIRECT_INTERNAL,
+                                              target);
   }
 
   if (NS_FAILED(rv))

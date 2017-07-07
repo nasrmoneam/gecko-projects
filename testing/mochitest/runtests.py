@@ -788,6 +788,21 @@ def create_zip(path):
         return shutil.make_archive(f.name, "zip", path)
 
 
+def update_mozinfo():
+    """walk up directories to find mozinfo.json update the info"""
+    # TODO: This should go in a more generic place, e.g. mozinfo
+
+    path = SCRIPT_DIR
+    dirs = set()
+    while path != os.path.expanduser('~'):
+        if path in dirs:
+            break
+        dirs.add(path)
+        path = os.path.split(path)[0]
+
+    mozinfo.find_and_update_from_json(*dirs)
+
+
 class MochitestDesktop(object):
     """
     Mochitest class for desktop firefox.
@@ -812,7 +827,7 @@ class MochitestDesktop(object):
     test_name = 'automation.py'
 
     def __init__(self, flavor, logger_options, quiet=False):
-        self.update_mozinfo()
+        update_mozinfo()
         self.flavor = flavor
         self.server = None
         self.wsserver = None
@@ -857,20 +872,6 @@ class MochitestDesktop(object):
         self.result = {}
 
         self.start_script = os.path.join(here, 'start_desktop.js')
-
-    def update_mozinfo(self):
-        """walk up directories to find mozinfo.json update the info"""
-        # TODO: This should go in a more generic place, e.g. mozinfo
-
-        path = SCRIPT_DIR
-        dirs = set()
-        while path != os.path.expanduser('~'):
-            if path in dirs:
-                break
-            dirs.add(path)
-            path = os.path.split(path)[0]
-
-        mozinfo.find_and_update_from_json(*dirs)
 
     def environment(self, **kwargs):
         kwargs['log'] = self.log
@@ -1776,6 +1777,23 @@ toolbar#nav-bar {
            '5.1' in platform.version() and options.e10s:
             prefs['layers.acceleration.disabled'] = True
 
+        sandbox_whitelist_paths = [SCRIPT_DIR]
+        try:
+            if options.workPath:
+                sandbox_whitelist_paths.append(options.workPath)
+        except AttributeError:
+            pass
+        try:
+            if options.topsrcdir:
+                sandbox_whitelist_paths.append(options.topsrcdir)
+        except AttributeError:
+            pass
+        if platform.system() == "Linux":
+            # Trailing slashes are needed to indicate directories on Linux
+            for idx, path in enumerate(sandbox_whitelist_paths):
+                if not path.endswith("/"):
+                    sandbox_whitelist_paths[idx] = path + "/"
+
         # interpolate preferences
         interpolation = {
             "server": "%s:%s" %
@@ -1809,7 +1827,8 @@ toolbar#nav-bar {
                                addons=extensions,
                                locations=self.locations,
                                preferences=prefs,
-                               proxy=proxy
+                               proxy=proxy,
+                               whitelistpaths=sandbox_whitelist_paths
                                )
 
         # Fix options.profilePath for legacy consumers.
@@ -2302,10 +2321,6 @@ toolbar#nav-bar {
         if options.flavor in ('a11y', 'chrome'):
             options.e10s = False
         mozinfo.update({"e10s": options.e10s})  # for test manifest parsing.
-
-        # Add flag to mozinfo to indicate that code coverage is enabled.
-        if os.getenv('GCOV_PREFIX') is not None:
-            mozinfo.update({"coverage": True})
 
         self.setTestRoot(options)
 

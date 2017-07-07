@@ -1312,8 +1312,7 @@ var gBrowserInit = {
     // have been initialized.
     Services.obs.notifyObservers(window, "browser-window-before-show");
 
-    gUIDensity.update();
-    gPrefService.addObserver(gUIDensity.prefDomain, gUIDensity);
+    gUIDensity.init();
 
     let isResistFingerprintingEnabled = gPrefService.getBoolPref("privacy.resistFingerprinting");
 
@@ -1775,7 +1774,7 @@ var gBrowserInit = {
 
     Services.obs.removeObserver(gPluginHandler.NPAPIPluginCrashed, "plugin-crashed");
 
-    gPrefService.removeObserver(gUIDensity.prefDomain, gUIDensity);
+    gUIDensity.uninit();
 
     try {
       gBrowser.removeProgressListener(window.XULBrowserWindow);
@@ -5123,7 +5122,7 @@ nsBrowserAccess.prototype = {
     return browser;
   },
 
-  openURI(aURI, aOpener, aWhere, aFlags) {
+  openURI(aURI, aOpener, aWhere, aFlags, aTriggeringPrincipal) {
     // This function should only ever be called if we're opening a URI
     // from a non-remote browser window (via nsContentTreeOwner).
     if (aOpener && Cu.isCrossProcessWrapper(aOpener)) {
@@ -5155,11 +5154,9 @@ nsBrowserAccess.prototype = {
     }
 
     let referrer = aOpener ? makeURI(aOpener.location.href) : null;
-    let triggeringPrincipal = null;
     let referrerPolicy = Ci.nsIHttpChannel.REFERRER_POLICY_UNSET;
     if (aOpener && aOpener.document) {
       referrerPolicy = aOpener.document.referrerPolicy;
-      triggeringPrincipal = aOpener.document.nodePrincipal;
     }
     let isPrivate = aOpener
                   ? PrivateBrowsingUtils.isContentWindowPrivate(aOpener)
@@ -5193,7 +5190,7 @@ nsBrowserAccess.prototype = {
         let browser = this._openURIInNewTab(aURI, referrer, referrerPolicy,
                                             isPrivate, isExternal,
                                             forceNotRemote, userContextId,
-                                            openerWindow, triggeringPrincipal);
+                                            openerWindow, aTriggeringPrincipal);
         if (browser)
           newWindow = browser.contentWindow;
         break;
@@ -5204,7 +5201,7 @@ nsBrowserAccess.prototype = {
                             Ci.nsIWebNavigation.LOAD_FLAGS_FROM_EXTERNAL :
                             Ci.nsIWebNavigation.LOAD_FLAGS_NONE;
           gBrowser.loadURIWithFlags(aURI.spec, {
-                                    triggeringPrincipal,
+                                    aTriggeringPrincipal,
                                     flags: loadflags,
                                     referrerURI: referrer,
                                     referrerPolicy,
@@ -5456,26 +5453,50 @@ function displaySecurityInfo() {
 
 // Updates the UI density (for touch and compact mode) based on the uidensity pref.
 var gUIDensity = {
+  MODE_NORMAL: 0,
   MODE_COMPACT: 1,
   MODE_TOUCH: 2,
-  prefDomain: "browser.uidensity",
+  uiDensityPref: "browser.uidensity",
+  autoTouchModePref: "browser.touchmode.auto",
+
+  init() {
+    this.update();
+    gPrefService.addObserver(this.uiDensityPref, this);
+    gPrefService.addObserver(this.autoTouchModePref, this);
+  },
+
+  uninit() {
+    gPrefService.removeObserver(this.uiDensityPref, this);
+    gPrefService.removeObserver(this.autoTouchModePref, this);
+  },
 
   observe(aSubject, aTopic, aPrefName) {
-    if (aTopic != "nsPref:changed" || aPrefName != this.prefDomain)
+    if (aTopic != "nsPref:changed" ||
+        (aPrefName != this.uiDensityPref &&
+         aPrefName != this.autoTouchModePref)) {
       return;
+    }
 
     this.update();
   },
 
-  update() {
-    let mode;
+  getCurrentDensity() {
     // Automatically override the uidensity to touch in Windows tablet mode.
     if (AppConstants.isPlatformAndVersionAtLeast("win", "10") &&
         WindowsUIUtils.inTabletMode &&
-        gPrefService.getBoolPref("browser.touchmode.auto")) {
-      mode = this.MODE_TOUCH;
-    } else {
-      mode = gPrefService.getIntPref(this.prefDomain);
+        gPrefService.getBoolPref(this.autoTouchModePref)) {
+      return { mode: this.MODE_TOUCH, overridden: true };
+    }
+    return { mode: gPrefService.getIntPref(this.uiDensityPref), overridden: false };
+  },
+
+  setCurrentMode(mode) {
+    gPrefService.setIntPref(this.uiDensityPref, mode);
+  },
+
+  update(mode) {
+    if (mode == null) {
+      mode = this.getCurrentDensity().mode;
     }
 
     let doc = document.documentElement;
@@ -8176,10 +8197,11 @@ var RestoreLastSessionObserver = {
     if (SessionStore.canRestoreLastSession &&
         !PrivateBrowsingUtils.isWindowPrivate(window)) {
       if (Services.prefs.getBoolPref("browser.tabs.restorebutton")) {
-        let {restoreTabsButton} = gBrowser.tabContainer;
+        let {restoreTabsButton, restoreTabsButtonWrapperWidth} = gBrowser.tabContainer;
         let restoreTabsButtonWrapper = restoreTabsButton.parentNode;
         restoreTabsButtonWrapper.setAttribute("session-exists", "true");
         gBrowser.tabContainer.updateSessionRestoreVisibility();
+        restoreTabsButton.style.maxWidth = `${restoreTabsButtonWrapperWidth}px`;
         gBrowser.tabContainer.addEventListener("TabOpen", this);
       }
       Services.obs.addObserver(this, "sessionstore-last-session-cleared", true);
@@ -8196,17 +8218,16 @@ var RestoreLastSessionObserver = {
   },
 
   removeRestoreButton() {
-    let {restoreTabsButton, restoreTabsButtonWrapperWidth} = gBrowser.tabContainer;
+    let {restoreTabsButton} = gBrowser.tabContainer;
     let restoreTabsButtonWrapper = restoreTabsButton.parentNode;
-    restoreTabsButtonWrapper.removeAttribute("session-exists");
     gBrowser.tabContainer.addEventListener("transitionend", function maxWidthTransitionHandler(e) {
-      if (e.propertyName == "max-width") {
+      if (e.target == gBrowser.tabContainer && e.propertyName == "max-width") {
         gBrowser.tabContainer.updateSessionRestoreVisibility();
         gBrowser.tabContainer.removeEventListener("transitionend", maxWidthTransitionHandler);
       }
     });
-    restoreTabsButton.style.maxWidth = `${restoreTabsButtonWrapperWidth}px`;
-    requestAnimationFrame(() => restoreTabsButton.style.maxWidth = 0);
+    restoreTabsButtonWrapper.removeAttribute("session-exists");
+    restoreTabsButton.style.maxWidth = 0;
     gBrowser.tabContainer.removeEventListener("TabOpen", this);
   },
 

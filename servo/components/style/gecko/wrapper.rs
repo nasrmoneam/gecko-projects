@@ -22,7 +22,7 @@ use context::{QuirksMode, SharedStyleContext, UpdateAnimationsTasks};
 use data::ElementData;
 use dom::{self, DescendantsBit, LayoutIterator, NodeInfo, TElement, TNode, UnsafeNode};
 use dom::{OpaqueNode, PresentationalHintsSynthesizer};
-use element_state::ElementState;
+use element_state::{ElementState, DocumentState, NS_DOCUMENT_STATE_WINDOW_INACTIVE};
 use error_reporting::create_error_reporter;
 use font_metrics::{FontMetrics, FontMetricsProvider, FontMetricsQueryResult};
 use gecko::data::PerDocumentStyleData;
@@ -31,7 +31,7 @@ use gecko::selector_parser::{SelectorImpl, NonTSPseudoClass, PseudoElement};
 use gecko::snapshot_helpers;
 use gecko_bindings::bindings;
 use gecko_bindings::bindings::{Gecko_ConstructStyleChildrenIterator, Gecko_DestroyStyleChildrenIterator};
-use gecko_bindings::bindings::{Gecko_ElementState, Gecko_GetDocumentLWTheme};
+use gecko_bindings::bindings::{Gecko_DocumentState, Gecko_ElementState, Gecko_GetDocumentLWTheme};
 use gecko_bindings::bindings::{Gecko_GetLastChild, Gecko_GetNextStyleChild};
 use gecko_bindings::bindings::{Gecko_IsRootElement, Gecko_MatchesElement, Gecko_Namespace};
 use gecko_bindings::bindings::{Gecko_SetNodeFlags, Gecko_UnsetNodeFlags};
@@ -652,6 +652,14 @@ impl<'le> GeckoElement<'le> {
         unsafe { Gecko_ElementState(self.0) }
     }
 
+    fn document_state(&self) -> DocumentState {
+        let node = self.as_node();
+        unsafe {
+            let states = Gecko_DocumentState(node.owner_doc());
+            DocumentState::from_bits_truncate(states)
+        }
+    }
+
     #[inline]
     fn may_have_class(&self) -> bool {
         self.as_node().get_bool_flag(nsINode_BooleanFlag::ElementMayHaveClass)
@@ -685,6 +693,11 @@ impl<'le> GeckoElement<'le> {
     fn get_document_theme(&self) -> DocumentTheme {
         let node = self.as_node();
         unsafe { Gecko_GetDocumentLWTheme(node.owner_doc()) }
+    }
+
+    /// Owner document quirks mode getter.
+    pub fn owner_document_quirks_mode(&self) -> QuirksMode {
+        self.as_node().owner_doc().mCompatMode.into()
     }
 }
 
@@ -1301,8 +1314,6 @@ impl<'le> TElement for GeckoElement<'le> {
                                              existing_transitions: &HashMap<TransitionProperty,
                                                                             Arc<AnimationValue>>)
                                              -> bool {
-        use properties::animated_properties::AnimatedProperty;
-
         // |property| should be an animatable longhand
         let animatable_longhand = AnimatableLonghand::from_transition_property(property).unwrap();
 
@@ -1316,10 +1327,12 @@ impl<'le> TElement for GeckoElement<'le> {
             return existing_transitions.get(property).unwrap() != &after_value;
         }
 
-        combined_duration > 0.0f32 &&
-        AnimatedProperty::from_animatable_longhand(&animatable_longhand,
-                                                   before_change_style,
-                                                   after_change_style).does_animate()
+        let from = AnimationValue::from_computed_values(&animatable_longhand,
+                                                        before_change_style);
+        let to = AnimationValue::from_computed_values(&animatable_longhand,
+                                                      after_change_style);
+
+        combined_duration > 0.0f32 && from != to
     }
 
     #[inline]
@@ -1657,6 +1670,7 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
             NonTSPseudoClass::Disabled |
             NonTSPseudoClass::Checked |
             NonTSPseudoClass::Fullscreen |
+            NonTSPseudoClass::MozFullScreen |
             NonTSPseudoClass::Indeterminate |
             NonTSPseudoClass::PlaceholderShown |
             NonTSPseudoClass::Target |
@@ -1757,6 +1771,9 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
             }
             NonTSPseudoClass::MozLWThemeDarkText => {
                 self.get_document_theme() == DocumentTheme::Doc_Theme_Dark
+            }
+            NonTSPseudoClass::MozWindowInactive => {
+                self.document_state().contains(NS_DOCUMENT_STATE_WINDOW_INACTIVE)
             }
             NonTSPseudoClass::MozPlaceholder => false,
             NonTSPseudoClass::MozAny(ref sels) => {

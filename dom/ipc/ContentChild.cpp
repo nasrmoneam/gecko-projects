@@ -53,6 +53,7 @@
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/TestShellChild.h"
 #include "mozilla/jsipc/CrossProcessObjectWrappers.h"
+#include "mozilla/jsipc/PJavaScript.h"
 #include "mozilla/layers/APZChild.h"
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "mozilla/layers/ContentProcessController.h"
@@ -61,7 +62,6 @@
 #include "mozilla/loader/ScriptCacheActors.h"
 #include "mozilla/net/NeckoChild.h"
 #include "mozilla/net/CaptivePortalService.h"
-#include "mozilla/Omnijar.h"
 #include "mozilla/plugins/PluginInstanceParent.h"
 #include "mozilla/plugins/PluginModuleParent.h"
 #include "mozilla/widget/ScreenManager.h"
@@ -72,6 +72,7 @@
 #include "mozilla/WebBrowserPersistDocumentChild.h"
 #include "imgLoader.h"
 #include "GMPServiceChild.h"
+#include "NullPrincipal.h"
 
 #ifdef MOZ_GECKO_PROFILER
 #include "ChildProfilerController.h"
@@ -690,15 +691,19 @@ ContentChild::ProvideWindow(mozIDOMWindowProxy* aParent,
 
 static nsresult
 GetWindowParamsFromParent(mozIDOMWindowProxy* aParent,
-                          nsACString& aBaseURIString, float* aFullZoom)
+                          nsACString& aBaseURIString, float* aFullZoom,
+                          nsIPrincipal** aTriggeringPrincipal)
 {
   *aFullZoom = 1.0f;
   auto* opener = nsPIDOMWindowOuter::From(aParent);
   if (!opener) {
+    nsCOMPtr<nsIPrincipal> nullPrincipal = NullPrincipal::Create();
+    NS_ADDREF(*aTriggeringPrincipal = nullPrincipal);
     return NS_OK;
   }
 
   nsCOMPtr<nsIDocument> doc = opener->GetDoc();
+  NS_ADDREF(*aTriggeringPrincipal = doc->NodePrincipal());
   nsCOMPtr<nsIURI> baseURI = doc->GetDocBaseURI();
   if (!baseURI) {
     NS_ERROR("nsIDocument didn't return a base URI");
@@ -763,7 +768,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   // different process if we have noopener set, but we also might if we can't
   // load in the current process.
   bool loadInDifferentProcess = aForceNoOpener && sNoopenerNewProcess;
-  if (aTabOpener && !loadInDifferentProcess) {
+  if (aTabOpener && !loadInDifferentProcess && aURI) {
     nsCOMPtr<nsIWebBrowserChrome3> browserChrome3;
     rv = aTabOpener->GetWebBrowserChrome(getter_AddRefs(browserChrome3));
     if (NS_SUCCEEDED(rv) && browserChrome3) {
@@ -778,7 +783,9 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   if (loadInDifferentProcess) {
     nsAutoCString baseURIString;
     float fullZoom;
-    rv = GetWindowParamsFromParent(aParent, baseURIString, &fullZoom);
+    nsCOMPtr<nsIPrincipal> triggeringPrincipal;
+    rv = GetWindowParamsFromParent(aParent, baseURIString, &fullZoom,
+                                   getter_AddRefs(triggeringPrincipal));
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
@@ -794,7 +801,8 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
                                                  features,
                                                  baseURIString,
                                                  fullZoom,
-                                                 name);
+                                                 name,
+                                                 Principal(triggeringPrincipal));
 
     // We return NS_ERROR_ABORT, so that the caller knows that we've abandoned
     // the window open as far as it is concerned.
@@ -890,7 +898,9 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   } else {
     nsAutoCString baseURIString;
     float fullZoom;
-    rv = GetWindowParamsFromParent(aParent, baseURIString, &fullZoom);
+    nsCOMPtr<nsIPrincipal> triggeringPrincipal;
+    rv = GetWindowParamsFromParent(aParent, baseURIString, &fullZoom,
+                                   getter_AddRefs(triggeringPrincipal));
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
@@ -901,7 +911,8 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
                        aSizeSpecified,
                        features,
                        baseURIString,
-                       fullZoom);
+                       fullZoom,
+                       Principal(triggeringPrincipal));
   }
 
   // Await the promise being resolved. When the promise is resolved, we'll set
@@ -1424,18 +1435,6 @@ GetAppPaths(nsCString &aAppPath, nsCString &aAppBinaryPath, nsCString &aAppDir)
   return true;
 }
 
-// Returns whether or not the currently running build is a development build -
-// where development build means "the files in the .app are symlinks to the src
-// directory". This check is implemented by looking for omni.ja in
-// .app/Contents/Resources/.
-static bool
-IsDevelopmentBuild()
-{
-  nsCOMPtr<nsIFile> path = mozilla::Omnijar::GetPath(mozilla::Omnijar::GRE);
-  // If the path doesn't exist, we're a dev build.
-  return path == nullptr;
-}
-
 // This function is only used in an |#ifdef DEBUG| path.
 #ifdef DEBUG
 // Given a path to a file, return the directory which contains it.
@@ -1505,7 +1504,7 @@ StartMacOSContentSandbox()
 
   bool isFileProcess = cc->GetRemoteType().EqualsLiteral(FILE_REMOTE_TYPE);
   char *developer_repo_dir = nullptr;
-  if (IsDevelopmentBuild()) {
+  if (mozilla::IsDevelopmentBuild()) {
     // If this is a developer build the resources in the .app are symlinks to
     // outside of the .app. Therefore in non-release builds we allow reads from
     // the whole repository. MOZ_DEVELOPER_REPO_DIR is set by mach run.
@@ -1520,12 +1519,25 @@ StartMacOSContentSandbox()
                    PR_GetEnv("MOZ_SANDBOX_LOGGING");
   info.appPath.assign(appPath.get());
   info.appBinaryPath.assign(appBinaryPath.get());
-  if (developer_repo_dir != nullptr) {
-    info.appDir.assign(developer_repo_dir);
-  } else {
-    info.appDir.assign(appDir.get());
-  }
+  info.appDir.assign(appDir.get());
   info.appTempDir.assign(tempDirPath.get());
+
+  // These paths are used to whitelist certain directories used by the testing
+  // system. They should not be considered a public API, and are only intended
+  // for use in automation.
+  nsAdoptingCString testingReadPath1 =
+    Preferences::GetCString("security.sandbox.content.mac.testing_read_path1");
+  if (!testingReadPath1.IsEmpty()) {
+    info.testingReadPath1.assign(testingReadPath1.get());
+  }
+  nsAdoptingCString testingReadPath2 =
+    Preferences::GetCString("security.sandbox.content.mac.testing_read_path2");
+  if (!testingReadPath2.IsEmpty()) {
+    info.testingReadPath2.assign(testingReadPath2.get());
+  }
+  if (developer_repo_dir) {
+    info.testingReadPath3.assign(developer_repo_dir);
+  }
 
   if (profileDir) {
     info.hasSandboxedProfile = true;
@@ -2748,29 +2760,6 @@ ContentChild::DeallocPOfflineCacheUpdateChild(POfflineCacheUpdateChild* actor)
 }
 
 mozilla::ipc::IPCResult
-ContentChild::RecvLoadPluginResult(const uint32_t& aPluginId,
-                                   const bool& aResult)
-{
-  nsresult rv;
-  Endpoint<PPluginModuleParent> endpoint;
-  bool finalResult = aResult &&
-                     SendConnectPluginBridge(aPluginId, &rv, &endpoint) &&
-                     NS_SUCCEEDED(rv);
-  plugins::PluginModuleContentParent::OnLoadPluginResult(aPluginId,
-                                                         finalResult,
-                                                         Move(endpoint));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-ContentChild::RecvAssociatePluginId(const uint32_t& aPluginId,
-                                    const base::ProcessId& aProcessId)
-{
-  plugins::PluginModuleContentParent::AssociatePluginId(aPluginId, aProcessId);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
 ContentChild::RecvDomainSetChanged(const uint32_t& aSetType,
                                    const uint32_t& aChangeType,
                                    const OptionalURIParams& aDomain)
@@ -3448,7 +3437,7 @@ ContentChild::RecvProvideAnonymousTemporaryFile(const uint64_t& aID,
                                                 const FileDescOrError& aFDOrError)
 {
   nsAutoPtr<AnonymousTemporaryFileCallback> callback;
-  mPendingAnonymousTemporaryFiles.RemoveAndForget(aID, callback);
+  mPendingAnonymousTemporaryFiles.Remove(aID, &callback);
   MOZ_ASSERT(callback);
 
   PRFileDesc* prfile = nullptr;
@@ -3524,6 +3513,17 @@ ContentChild::RecvShareCodeCoverageMutex(const CrossProcessMutexHandle& aHandle)
   NS_RUNTIMEABORT("Shouldn't receive this message in non-code coverage builds!");
   return IPC_FAIL_NO_REASON(this);
 #endif
+}
+
+already_AddRefed<nsIEventTarget>
+ContentChild::GetSpecificMessageEventTarget(const Message& aMsg)
+{
+  if (aMsg.type() == PJavaScript::Msg_DropTemporaryStrongReferences__ID
+      || aMsg.type() == PJavaScript::Msg_DropObject__ID) {
+    return do_AddRef(SystemGroup::EventTargetFor(TaskCategory::Other));
+  }
+
+  return nullptr;
 }
 
 } // namespace dom

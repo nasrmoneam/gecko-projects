@@ -33,10 +33,6 @@
 #include "nsProxyRelease.h"
 #include "nsIContentPolicy.h"
 
-#ifdef MOZ_ANDROID_HLS_SUPPORT
-#include "HLSResource.h"
-#endif
-
 using mozilla::media::TimeUnit;
 
 #undef LOG
@@ -183,6 +179,14 @@ ChannelMediaResource::Listener::GetInterface(const nsIID & aIID, void **aResult)
   return QueryInterface(aIID, aResult);
 }
 
+static bool
+IsPayloadCompressed(nsIHttpChannel* aChannel)
+{
+  nsAutoCString encoding;
+  Unused << aChannel->GetResponseHeader(NS_LITERAL_CSTRING("Content-Encoding"), encoding);
+  return encoding.Length() > 0;
+}
+
 nsresult
 ChannelMediaResource::OnStartRequest(nsIRequest* aRequest)
 {
@@ -255,7 +259,10 @@ ChannelMediaResource::OnStartRequest(nsIRequest* aRequest)
     bool dataIsBounded = false;
 
     int64_t contentLength = -1;
-    hc->GetContentLength(&contentLength);
+    const bool isCompressed = IsPayloadCompressed(hc);
+    if (!isCompressed) {
+      hc->GetContentLength(&contentLength);
+    }
     if (contentLength >= 0 &&
         (responseStatus == HTTP_OK_CODE ||
          responseStatus == HTTP_PARTIAL_RESPONSE_CODE)) {
@@ -268,7 +275,9 @@ ChannelMediaResource::OnStartRequest(nsIRequest* aRequest)
     // Content-Range header tells us otherwise.
     bool boundedSeekLimit = true;
     // Check response code for byte-range requests (seeking, chunk requests).
-    if (responseStatus == HTTP_PARTIAL_RESPONSE_CODE) {
+    // We don't expect to get a 206 response for a compressed stream, but
+    // double check just to be sure.
+    if (!isCompressed && responseStatus == HTTP_PARTIAL_RESPONSE_CODE) {
       // Parse Content-Range header.
       int64_t rangeStart = 0;
       int64_t rangeEnd = 0;
@@ -317,8 +326,8 @@ ChannelMediaResource::OnStartRequest(nsIRequest* aRequest)
 
     // If we get an HTTP_OK_CODE response to our byte range request,
     // and the server isn't sending Accept-Ranges:bytes then we don't
-    // support seeking.
-    seekable = acceptsRanges;
+    // support seeking. We also can't seek in compressed streams.
+    seekable = !isCompressed && acceptsRanges;
     if (seekable && boundedSeekLimit) {
       // If range requests are supported, and we did not see an unbounded
       // upper range limit, we assume the resource is bounded.
@@ -416,15 +425,19 @@ ChannelMediaResource::OnStopRequest(nsIRequest* aRequest, nsresult aStatus)
   // cases where we don't need to reopen are when *we* closed the stream.
   // But don't reopen if we need to seek and we don't think we can... that would
   // cause us to just re-read the stream, which would be really bad.
-  if (mReopenOnError &&
-      aStatus != NS_ERROR_PARSED_DATA_CACHED && aStatus != NS_BINDING_ABORTED &&
-      (mOffset == 0 || mCacheStream.IsTransportSeekable())) {
-    // If the stream did close normally, then if the server is seekable we'll
-    // just seek to the end of the resource and get an HTTP 416 error because
-    // there's nothing there, so this isn't bad.
+  if (mReopenOnError && aStatus != NS_ERROR_PARSED_DATA_CACHED &&
+      aStatus != NS_BINDING_ABORTED &&
+      (mOffset == 0 || (GetLength() > 0 && mOffset != GetLength() &&
+                        mCacheStream.IsTransportSeekable()))) {
+    // If the stream did close normally, restart the channel if we're either
+    // at the start of the resource, or if the server is seekable and we're
+    // not at the end of stream. We don't restart the stream if we're at the
+    // end because not all web servers handle this case consistently; see:
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1373618#c36
     nsresult rv = CacheClientSeek(mOffset, false);
-    if (NS_SUCCEEDED(rv))
+    if (NS_SUCCEEDED(rv)) {
       return rv;
+    }
     // If the reopen/reseek fails, just fall through and treat this
     // error as fatal.
   }
@@ -531,7 +544,7 @@ nsresult ChannelMediaResource::Open(nsIStreamListener **aStreamListener)
   int64_t cl = -1;
   if (mChannel) {
     nsCOMPtr<nsIHttpChannel> hc = do_QueryInterface(mChannel);
-    if (hc) {
+    if (hc && !IsPayloadCompressed(hc)) {
       if (NS_FAILED(hc->GetContentLength(&cl))) {
         cl = -1;
       }
@@ -569,7 +582,7 @@ nsresult ChannelMediaResource::OpenChannel(nsIStreamListener** aStreamListener)
   // that expect to know the length of a resource can get it before
   // OnStartRequest() fires.
   nsCOMPtr<nsIHttpChannel> hc = do_QueryInterface(mChannel);
-  if (hc) {
+  if (hc && !IsPayloadCompressed(hc)) {
     int64_t cl = -1;
     if (NS_SUCCEEDED(hc->GetContentLength(&cl)) && cl != -1) {
       mCacheStream.NotifyDataLength(cl);
@@ -1444,13 +1457,6 @@ MediaResource::Create(MediaResourceCallback* aCallback,
   }
 
   RefPtr<MediaResource> resource;
-
-#ifdef MOZ_ANDROID_HLS_SUPPORT
-  if (DecoderTraits::IsHttpLiveStreamingType(containerType.value())) {
-    resource = new HLSResource(aCallback, aChannel, uri);
-    return resource.forget();
-  }
-#endif
 
   // Let's try to create a FileMediaResource in case the channel is a nsIFile
   nsCOMPtr<nsIFileChannel> fc = do_QueryInterface(aChannel);

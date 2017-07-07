@@ -32,6 +32,7 @@
 #include "nsDirection.h"
 #include "nsFrameList.h"
 #include "nsFrameState.h"
+#include "mozilla/layers/WebRenderUserData.h"
 #include "mozilla/ReflowOutput.h"
 #include "nsITheme.h"
 #include "nsLayoutUtils.h"
@@ -42,6 +43,7 @@
 #include "Visibility.h"
 #include "nsChangeHint.h"
 #include "nsStyleContextInlines.h"
+#include "mozilla/gfx/MatrixFwd.h"
 
 #ifdef ACCESSIBILITY
 #include "mozilla/a11y/AccTypes.h"
@@ -107,9 +109,6 @@ namespace layers {
 class Layer;
 } // namespace layers
 
-namespace gfx {
-class Matrix;
-} // namespace gfx
 } // namespace mozilla
 
 /**
@@ -1131,6 +1130,9 @@ public:
   typedef AutoTArray<nsIContent*, 2> ContentArray;
   static void DestroyContentArray(ContentArray* aArray);
 
+  typedef mozilla::layers::WebRenderUserData WebRenderUserData;
+  typedef nsRefPtrHashtable<nsUint32HashKey, WebRenderUserData> WebRenderUserDataTable;
+
 #define NS_DECLARE_FRAME_PROPERTY_WITH_DTOR(prop, type, dtor)             \
   static const mozilla::FramePropertyDescriptor<type>* prop() {           \
     /* Use of constexpr caused startup crashes with MSVC2015u1 PGO. */    \
@@ -1228,6 +1230,7 @@ public:
   NS_DECLARE_FRAME_PROPERTY_SMALL_VALUE(BidiDataProperty, mozilla::FrameBidiData)
 
   NS_DECLARE_FRAME_PROPERTY_WITHOUT_DTOR(PlaceholderFrameProperty, nsPlaceholderFrame)
+  NS_DECLARE_FRAME_PROPERTY_DELETABLE(WebRenderUserDataProperty, WebRenderUserDataTable)
 
   mozilla::FrameBidiData GetBidiData() const
   {

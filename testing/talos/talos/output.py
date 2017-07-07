@@ -17,20 +17,6 @@ import results as TalosResults
 LOG = get_proxy_logger()
 
 
-def filesizeformat(bytes):
-    """
-    Format the value like a 'human-readable' file size (i.e. 13 KB, 4.1 MB, 102
-    bytes, etc).
-    """
-    bytes = float(bytes)
-    formats = ('B', 'KB', 'MB')
-    for f in formats:
-        if bytes < 1024:
-            return "%.1f%s" % (bytes, f)
-        bytes /= 1024
-    return "%.1fGB" % bytes  # has to be GB
-
-
 class Output(object):
     """abstract base class for Talos output"""
 
@@ -68,8 +54,7 @@ class Output(object):
                 vals = []
                 replicates = {}
 
-                # TODO: counters!!!! we don't have any, but they suffer the
-                # same
+                # TODO: counters!!!! we don't have any, but they suffer the same
                 for result in test.results:
                     # XXX this will not work for manifests which list
                     # the same page name twice. It also ignores cycles
@@ -102,6 +87,14 @@ class Output(object):
                             'value': val['filtered'],
                             'replicates': replicates[page],
                         }
+                        # if results are from a comparison test i.e. perf-reftest, it will also
+                        # contain replicates for 'base' and 'reference'; we wish to keep those
+                        # to reference; actual results were calculated as the difference of those
+                        base_runs = result.results[0].get('base_runs', None)
+                        ref_runs = result.results[0].get('ref_runs', None)
+                        if base_runs and ref_runs:
+                            subtest['base_replicates'] = base_runs
+                            subtest['ref_replicates'] = ref_runs
                         subtests.append(subtest)
                         if test.test_config.get('lower_is_better') is not None:
                             subtest['lowerIsBetter'] = \
@@ -168,7 +161,7 @@ class Output(object):
                                'subtests': counter_subtests})
         return test_results
 
-    def output(self, results, results_url, tbpl_output):
+    def output(self, results, results_url):
         """output to the a file if results_url starts with file://
         - results : json instance
         - results_url : file:// URL
@@ -179,8 +172,7 @@ class Output(object):
         results_scheme, results_server, results_path, _, _ = results_url_split
 
         if results_scheme in ('http', 'https'):
-            self.post(results, results_server, results_path, results_scheme,
-                      tbpl_output)
+            self.post(results, results_server, results_path, results_scheme)
         elif results_scheme == 'file':
             with open(results_path, 'w') as f:
                 for result in results:
@@ -200,7 +192,7 @@ class Output(object):
             json.dump(results, open(results_path, 'w'), indent=2,
                       sort_keys=True, ignore_nan=True)
 
-    def post(self, results, server, path, scheme, tbpl_output):
+    def post(self, results, server, path, scheme):
         raise NotImplementedError("Abstract base class")
 
     @classmethod

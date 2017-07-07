@@ -122,7 +122,7 @@ public:
   ServoStyleSet();
   ~ServoStyleSet();
 
-  void Init(nsPresContext* aPresContext);
+  void Init(nsPresContext* aPresContext, nsBindingManager* aBindingManager);
   void BeginShutdown();
   void Shutdown();
 
@@ -254,6 +254,8 @@ public:
 
   int32_t SheetCount(SheetType aType) const;
   ServoStyleSheet* StyleSheetAt(SheetType aType, int32_t aIndex) const;
+
+  void AppendAllXBLStyleSheets(nsTArray<StyleSheet*>& aArray) const;
 
   template<typename Func>
   void EnumerateStyleSheetArrays(Func aCallback) const {
@@ -457,7 +459,7 @@ public:
    * a style sheet.
    */
   bool MightHaveAttributeDependency(const dom::Element& aElement,
-                                    nsIAtom* aAttribute);
+                                    nsIAtom* aAttribute) const;
 
   /**
    * Returns true if a change in event state on an element might require
@@ -467,7 +469,8 @@ public:
    * the changed state isn't depended upon by any pseudo-class selectors
    * in a style sheet.
    */
-  bool HasStateDependency(const dom::Element& aElement, EventStates aState);
+  bool HasStateDependency(const dom::Element& aElement,
+                          EventStates aState) const;
 
 private:
   // On construction, sets sInServoTraversal to the given ServoStyleSet.
@@ -623,6 +626,9 @@ private:
   // Map from raw Servo style rule to Gecko's wrapper object.
   // Constructed lazily when requested by devtools.
   RefPtr<ServoStyleRuleMap> mStyleRuleMap;
+
+  // This can be null if we are used to hold XBL style sheets.
+  RefPtr<nsBindingManager> mBindingManager;
 
   static ServoStyleSet* sInServoTraversal;
 };

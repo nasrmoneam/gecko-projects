@@ -42,6 +42,7 @@ DEFAULTS = dict(
         firstpaint=False,
         userready=False,
         testeventmap=[],
+        base_vs_ref=False,
         tpdisable_e10s=False,
         tpnoisy=True,
         tppagecycles=1,
@@ -310,9 +311,6 @@ def get_active_tests(config):
         raise ConfigurationError("No definition found for test(s): %s"
                                  % missing)
 
-    # disabled DAMP on winXP: frequent hangs, <3% of devtools users on winXP
-    if utils.PLATFORM_TYPE == 'win_':
-        activeTests = [i for i in activeTests if i != 'damp']
     return activeTests
 
 

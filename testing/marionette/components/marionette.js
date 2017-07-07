@@ -116,7 +116,6 @@ const prefs = {
 };
 
 function MarionetteComponent() {
-  this.enabled = env.exists(ENV_ENABLED);
   this.running = false;
   this.server = null;
 
@@ -129,6 +128,11 @@ function MarionetteComponent() {
   this.finalUIStartup = false;
 
   this.logger = this.setupLogger(prefs.logLevel);
+
+  this.enabled = env.exists(ENV_ENABLED);
+  if (this.enabled) {
+    this.logger.info(`Enabled via ${ENV_ENABLED}`);
+  }
 }
 
 MarionetteComponent.prototype = {
@@ -148,17 +152,30 @@ MarionetteComponent.prototype = {
 
 // Handle -marionette flag
 MarionetteComponent.prototype.handle = function(cmdLine) {
-  if (cmdLine.handleFlag("marionette", false)) {
+  if (!this.enabled && cmdLine.handleFlag("marionette", false)) {
     this.enabled = true;
+    this.logger.info("Enabled via --marionette");
   }
 };
 
 MarionetteComponent.prototype.observe = function(subject, topic, data) {
+  this.logger.debug(`Received observer notification "${topic}"`);
+
   switch (topic) {
+    case "command-line-startup":
+      Services.obs.removeObserver(this, topic);
+      this.handle(subject);
+
     case "profile-after-change":
       // Using sessionstore-windows-restored as the xpcom category doesn't
       // seem to work, so we wait for that by adding an observer here.
       Services.obs.addObserver(this, "sessionstore-windows-restored");
+
+      // In safe mode the command line handlers are getting parsed after the
+      // safe mode dialog has been closed. To allow Marionette to start
+      // earlier, register the CLI startup observer notification for
+      // special-cased handlers, which gets fired before the dialog appears.
+      Services.obs.addObserver(this, "command-line-startup");
 
       prefs.readFromEnvironment(ENV_PRESERVE_PREFS);
 
@@ -229,6 +246,7 @@ MarionetteComponent.prototype.suppressSafeModeDialog = function(win) {
   win.addEventListener("load", () => {
     if (win.document.getElementById("safeModeDialog")) {
       // accept the dialog to start in safe-mode
+      this.logger.debug("Safe Mode detected. Going to suspress the dialog now.");
       win.setTimeout(() => {
         win.document.documentElement.getButton("accept").click();
       });

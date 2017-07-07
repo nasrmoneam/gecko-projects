@@ -299,6 +299,7 @@ pref("browser.urlbar.doubleClickSelectsAll", false);
 // Control autoFill behavior
 pref("browser.urlbar.autoFill", true);
 pref("browser.urlbar.autoFill.typed", true);
+pref("browser.urlbar.speculativeConnect.enabled", true);
 
 // 0: Match anywhere (e.g., middle of words)
 // 1: Match on word boundaries and then try matching anywhere
@@ -1066,12 +1067,14 @@ pref("security.sandbox.gpu.level", 0);
 // 2 -> "preliminary content sandboxing enabled with profile protection:
 //       write access to home directory is prevented, read and write access
 //       to ~/Library and profile directories are prevented (excluding
-//       $PROFILE/{extensions,weave})"
+//       $PROFILE/{extensions,chrome})"
+// 3 -> "no global read/write access, read access permitted to
+//       $PROFILE/{extensions,chrome}"
 // This setting is read when the content process is started. On Mac the content
 // process is killed when all windows are closed, so a change will take effect
 // when the 1st window is opened.
 #if defined(NIGHTLY_BUILD)
-pref("security.sandbox.content.level", 2);
+pref("security.sandbox.content.level", 3);
 #else
 pref("security.sandbox.content.level", 1);
 #endif
@@ -1141,8 +1144,6 @@ pref("browser.taskbar.lists.tasks.enabled", true);
 pref("browser.taskbar.lists.refreshInSeconds", 120);
 #endif
 
-// The sync engines to use.
-pref("services.sync.registerEngines", "Bookmarks,Form,History,Password,Prefs,Tab,Addons,ExtensionStorage");
 // Preferences to be synced by default
 pref("services.sync.prefs.sync.accessibility.blockautorefresh", true);
 pref("services.sync.prefs.sync.accessibility.browsewithcaret", true);

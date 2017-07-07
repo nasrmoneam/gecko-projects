@@ -80,7 +80,6 @@
 
 #include "mozilla/Logging.h"
 #include "prtime.h"
-#include "prmem.h"
 #include "prenv.h"
 
 #include "mozilla/WidgetTraceEvent.h"
@@ -595,9 +594,10 @@ StaticAutoPtr<TIPMessageHandler> TIPMessageHandler::sInstance;
  *
  **************************************************************/
 
-nsWindow::nsWindow()
+nsWindow::nsWindow(bool aIsChildWindow)
   : nsWindowBase()
   , mResizeState(NOT_RESIZING)
+  , mIsChildWindow(aIsChildWindow)
 {
   mIconSmall            = nullptr;
   mIconBig              = nullptr;
@@ -1147,6 +1147,13 @@ DWORD nsWindow::WindowStyle()
       if (mBorderStyle & eBorderStyle_close) {
         style |= WS_SYSMENU;
       }
+    }
+  }
+
+  if (mIsChildWindow) {
+    style |= WS_CLIPCHILDREN;
+    if (!(style & WS_POPUP)) {
+      style |= WS_CHILD; // WS_POPUP and WS_CHILD are mutually exclusive.
     }
   }
 
@@ -7177,19 +7184,6 @@ nsWindow::IsPopup()
   return mWindowType == eWindowType_popup;
 }
 
-bool
-nsWindow::ShouldUseOffMainThreadCompositing()
-{
-  // We don't currently support using an accelerated layer manager with
-  // transparent windows so don't even try. I'm also not sure if we even
-  // want to support this case. See bug 593471
-  if (!(HasRemoteContent() && gIsPopupCompositingEnabled) && mTransparencyMode == eTransparencyTransparent) {
-    return false;
-  }
-
-  return nsBaseWidget::ShouldUseOffMainThreadCompositing();
-}
-
 void
 nsWindow::WindowUsesOMTC()
 {
@@ -8356,26 +8350,6 @@ bool nsWindow::OnPointerEvents(UINT msg, WPARAM aWParam, LPARAM aLParam)
   // Consume WM_POINTER* to stop Windows fires WM_*BUTTONDOWN / WM_*BUTTONUP
   // WM_MOUSEMOVE.
   return true;
-}
-
-/**************************************************************
- **************************************************************
- **
- ** BLOCK: ChildWindow impl.
- **
- ** Child window overrides.
- **
- **************************************************************
- **************************************************************/
-
-// return the style for a child nsWindow
-DWORD ChildWindow::WindowStyle()
-{
-  DWORD style = WS_CLIPCHILDREN | nsWindow::WindowStyle();
-  if (!(style & WS_POPUP))
-    style |= WS_CHILD; // WS_POPUP and WS_CHILD are mutually exclusive.
-  VERIFY_WINDOW_STYLE(style);
-  return style;
 }
 
 void

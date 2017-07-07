@@ -44,6 +44,7 @@ using mozilla::Unused;
 #include "nsLayoutUtils.h"
 #include "nsViewManager.h"
 
+#include "nsContentUtils.h"
 #include "WidgetUtils.h"
 
 #include "nsIDOMSimpleGestureEvent.h"
@@ -422,9 +423,13 @@ public:
         };
 
         NativePanZoomController::GlobalRef npzc = mNPZC;
-        AndroidBridge::Bridge()->PostTaskToUiThread(NewRunnableFunction(
+        RefPtr<nsThread> uiThread = GetAndroidUiThread();
+        if (!uiThread) {
+            return;
+        }
+        uiThread->Dispatch(NewRunnableFunction(
                 static_cast<void(*)(const NPZCRef&)>(callDestroy),
-                mozilla::Move(npzc)), 0);
+                mozilla::Move(npzc)), nsIThread::DISPATCH_NORMAL);
     }
 
 public:
@@ -1405,6 +1410,7 @@ nsWindow::GeckoViewSupport::LoadUri(jni::String::Param aUri, int32_t aFlags)
 
     if (NS_FAILED(browserWin->OpenURI(
             uri, nullptr, flags, nsIBrowserDOMWindow::OPEN_EXTERNAL,
+            nsContentUtils::GetSystemPrincipal(),
             getter_AddRefs(newWin)))) {
         NS_WARNING("Failed to open URI");
     }

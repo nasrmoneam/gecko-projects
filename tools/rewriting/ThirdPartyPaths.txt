@@ -54,6 +54,7 @@ modules/fdlibm/
 modules/freetype2/
 modules/libbz2/
 modules/libmar/
+modules/pdfium/
 modules/woff2/
 modules/zlib/
 netwerk/sctp/src/
@@ -87,6 +88,7 @@ third_party/python/redo/
 third_party/python/requests/
 third_party/python/rsa/
 third_party/python/which/
+third_party/rust/
 toolkit/components/jsoncpp/
 toolkit/components/protobuf/
 toolkit/crashreporter/google-breakpad/
