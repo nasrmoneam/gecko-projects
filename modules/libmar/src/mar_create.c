@@ -12,6 +12,7 @@
 #include "mar_private.h"
 #include "mar_cmdline.h"
 #include "mar.h"
+#include "updatedefines.h"
 
 #ifdef XP_WIN
 #include <winsock2.h>
@@ -299,7 +300,7 @@ int mar_create(const char *dest, int
     numSignatures, numAdditionalSections;
   uint64_t sizeOfEntireMAR = 0;
   struct stat st;
-  FILE *fp;
+  FILE *fp, *contentFile = NULL;
   int i, rv = -1;
 
   memset(&stack, 0, sizeof(stack));
@@ -345,6 +346,14 @@ int mar_create(const char *dest, int
     goto failure;
   }
 
+  // Create a separate file for the content, so we can get it compressed.
+  char contentPath[MAXPATHLEN] = "";
+  snprintf(contentPath, MAXPATHLEN, "%s.content", dest);
+  contentFile = fopen(contentPath, "wb+");
+  if (!contentFile) {
+    goto failure;
+  }
+
   for (i = 0; i < num_files; ++i) {
     if (stat(files[i], &st)) {
       fprintf(stderr, "ERROR: file not found: %s\n", files[i]);
@@ -355,34 +364,65 @@ int mar_create(const char *dest, int
       goto failure;
 
     /* concatenate input file to archive */
-    if (mar_concat_file(fp, files[i]))
+    if (mar_concat_file(contentFile, files[i]))
       goto failure;
   }
 
+  // Compress the content.
+  fclose(contentFile);
+  char defaultCommand[] =
+    "xz --compress --x86 --lzma2 --format=xz --check=crc64 --force";
+  char * envCommand = getenv("MAR_COMPRESS_COMMAND");
+  char * command = envCommand != NULL ? envCommand : defaultCommand;
+  char * fullCommand = malloc(MAXPATHLEN + strlen(command) + 1);
+  snprintf(fullCommand, MAXPATHLEN + strlen(command), "%s %s", command, contentPath);
+  int compressResult = system(fullCommand);
+  free(fullCommand);
+  if (compressResult) {
+    goto failure;
+  }
+
+  // Copy the compressed content into the destination MAR.
+  strncat(contentPath, ".xz", MAXPATHLEN);
+  contentFile = fopen(contentPath, "rb");
+  if (!contentFile) {
+    goto failure;
+  }
+  while (true) {
+    static uint8_t buffer[BLOCKSIZE];
+    size_t bytesRead = fread(buffer, 1, BLOCKSIZE, contentFile);
+    if (bytesRead > 0) {
+      if (fwrite(buffer, 1, bytesRead, fp) != bytesRead) {
+        goto failure;
+      }
+    } else if (feof(contentFile)) {
+      break;
+    } else {
+      goto failure;
+    }
+  }
+
   /* write out the index (prefixed with length of index) */
+  offset_to_index = htonl(ftell(fp));
   size_of_index = htonl(stack.size_used);
   if (fwrite(&size_of_index, sizeof(size_of_index), 1, fp) != 1)
     goto failure;
   if (fwrite(stack.head, stack.size_used, 1, fp) != 1)
     goto failure;
 
-  /* To protect against invalid MAR files, we assumes that the MAR file 
+  /* To protect against invalid MAR files, we assume that the MAR file
      size is less than or equal to MAX_SIZE_OF_MAR_FILE. */
-  if (ftell(fp) > MAX_SIZE_OF_MAR_FILE) {
+  sizeOfEntireMAR = ftell(fp);
+  if (sizeOfEntireMAR > MAX_SIZE_OF_MAR_FILE) {
     goto failure;
   }
 
   /* write out offset to index file in network byte order */
-  offset_to_index = htonl(stack.last_offset);
   if (fseek(fp, MAR_ID_SIZE, SEEK_SET))
     goto failure;
   if (fwrite(&offset_to_index, sizeof(offset_to_index), 1, fp) != 1)
     goto failure;
-  offset_to_index = ntohl(stack.last_offset);
-  
-  sizeOfEntireMAR = ((uint64_t)stack.last_offset) +
-                    stack.size_used +
-                    sizeof(size_of_index);
+
   sizeOfEntireMAR = HOST_TO_NETWORK64(sizeOfEntireMAR);
   if (fwrite(&sizeOfEntireMAR, sizeof(sizeOfEntireMAR), 1, fp) != 1)
     goto failure;
@@ -390,10 +430,16 @@ int mar_create(const char *dest, int
 
   rv = 0;
 failure: 
-  if (stack.head)
+  if (stack.head) {
     free(stack.head);
+  }
+  if (contentFile) {
+    fclose(contentFile);
+    remove(contentPath);
+  }
   fclose(fp);
-  if (rv)
+  if (rv) {
     remove(dest);
+  }
   return rv;
 }
