@@ -11,7 +11,6 @@ EXPORTS += [
 
 HOST_SOURCES += [
     'mar_create.c',
-    'mar_decompress.c',
     'mar_extract.c',
     'mar_read.c',
 ]
@@ -21,13 +20,8 @@ Library('mar')
 
 UNIFIED_SOURCES += [
     'mar_create.c',
-    'mar_decompress.c',
     'mar_extract.c',
     'mar_read.c',
-]
-
-LOCAL_INCLUDES += [
-    '/toolkit/mozapps/update/common',
 ]
 
 FORCE_STATIC_LIB = True
