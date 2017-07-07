@@ -66,13 +66,8 @@ function run_test_pt1() {
   let patches = getRemotePatchString(patchProps);
   let updates = getRemoteUpdateString({}, patches);
   gResponseBody = getRemoteUpdatesXMLString(updates);
-  // The update agent returns a more specific code for this failure.
-  let expectedError = Cr.NS_ERROR_UNEXPECTED;
-  if (IS_WIN) {
-    expectedError = Cr.NS_ERROR_FILE_NOT_FOUND;
-  }
   run_test_helper_pt1("mar download with the mar not found",
-                      expectedError, run_test_pt2);
+                      Cr.NS_ERROR_UNEXPECTED, run_test_pt2);
 }
 
 // mar download with an invalid file size
@@ -81,11 +76,6 @@ function run_test_pt2() {
   let patches = getRemotePatchString(patchProps);
   let updates = getRemoteUpdateString({}, patches);
   gResponseBody = getRemoteUpdatesXMLString(updates);
-  // The update agent Downloader returns a more specific code for this failure.
-  let expectedError = Cr.NS_ERROR_UNEXPECTED;
-  if (IS_WIN) {
-    expectedError = Cr.NS_ERROR_CORRUPTED_CONTENT;
-  }
   run_test_helper_pt1("mar download with an invalid file size",
-                      expectedError, finish_test);
+                      Cr.NS_ERROR_UNEXPECTED, finish_test);
 }

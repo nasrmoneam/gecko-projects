@@ -16,11 +16,6 @@ Cu.import("resource://gre/modules/UpdateTelemetry.jsm", this);
 Cu.import("resource://gre/modules/AppConstants.jsm", this);
 Cu.importGlobalProperties(["XMLHttpRequest"]);
 
-XPCOMUtils.defineLazyModuleGetter(this, "Subprocess",
-                                  "resource://gre/modules/Subprocess.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
-                                  "resource://gre/modules/NetUtil.jsm");
-
 const UPDATESERVICE_CID = Components.ID("{B3C290A6-3943-4B89-8BBE-C01EB7B3B311}");
 const UPDATESERVICE_CONTRACTID = "@mozilla.org/updates/update-service;1";
 
@@ -3054,37 +3049,48 @@ Checker.prototype = {
  *          update mode.
  * @param   updateService
  *          The update service that created this downloader.
+ * @constructor
  */
-class CommonDownloader {
-  constructor(background, updateService) {
-    LOG("Creating Downloader");
+function Downloader(background, updateService) {
+  LOG("Creating Downloader");
+  this.background = background;
+  this.updateService = updateService;
+}
+Downloader.prototype = {
+  /**
+   * The nsIUpdatePatch that we are downloading
+   */
+  _patch: null,
 
-    this.background = background;
-    this.updateService = updateService;
+  /**
+   * The nsIUpdate that we are downloading
+   */
+  _update: null,
 
-    /**
-     * The nsIUpdatePatch that we are downloading
-     */
-    this._patch = null;
+  /**
+   * The nsIIncrementalDownload object handling the download
+   */
+  _request: null,
 
-    /**
-     * The nsIUpdate that we are downloading
-     */
-    this._update = null;
+  /**
+   * Whether or not the update being downloaded is a complete replacement of
+   * the user's existing installation or a patch representing the difference
+   * between the new version and the previous version.
+   */
+  isCompleteUpdate: null,
 
-    /**
-     * Whether or not the update being downloaded is a complete replacement of
-     * the user's existing installation or a patch representing the difference
-     * between the new version and the previous version.
-     */
-    this.isCompleteUpdate = null;
-
-    /**
-     * An array of download listeners to notify when we receive
-     * nsIRequestObserver or nsIProgressEventSink method calls.
-     */
-    this._listeners = [];
-  }
+  /**
+   * Cancels the active download.
+   */
+  cancel: function Downloader_cancel(cancelError) {
+    LOG("Downloader: cancel");
+    if (cancelError === undefined) {
+      cancelError = Cr.NS_BINDING_ABORTED;
+    }
+    if (this._request && this._request instanceof Ci.nsIRequest) {
+      this._request.cancel(cancelError);
+    }
+  },
 
   /**
    * Whether or not a patch has been downloaded and staged for installation.
@@ -3097,17 +3103,21 @@ class CommonDownloader {
     return readState == STATE_PENDING || readState == STATE_PENDING_SERVICE ||
            readState == STATE_PENDING_ELEVATE ||
            readState == STATE_APPLIED || readState == STATE_APPLIED_SERVICE;
-  }
+  },
 
   /**
    * Verify the downloaded file.  We assume that the download is complete at
    * this point.
-   *
-   * @param destination
-   *        nsIFile representing the fully downloaded file
    */
-  _verifyDownload(destination) {
+  _verifyDownload: function Downloader__verifyDownload() {
     LOG("Downloader:_verifyDownload called");
+    if (!this._request) {
+      AUSTLMY.pingDownloadCode(this.isCompleteUpdate,
+                               AUSTLMY.DWNLD_ERR_VERIFY_NO_REQUEST);
+      return false;
+    }
+
+    let destination = this._request.destination;
 
     // Ensure that the file size matches the expected file size.
     if (destination.fileSize != this._patch.size) {
@@ -3119,7 +3129,7 @@ class CommonDownloader {
 
     LOG("Downloader:_verifyDownload downloaded size == expected size.");
     return true;
-  }
+  },
 
   /**
    * Select the patch to use given the current state of updateDir and the given
@@ -3130,7 +3140,7 @@ class CommonDownloader {
    *          A nsIFile representing the update directory
    * @return  A nsIUpdatePatch object to download
    */
-  _selectPatch(update, updateDir) {
+  _selectPatch: function Downloader__selectPatch(update, updateDir) {
     // Given an update to download, we will always try to download the patch
     // for a partial update over the patch for a full update.
 
@@ -3216,7 +3226,70 @@ class CommonDownloader {
     um.activeUpdate = update;
 
     return selectedPatch;
-  }
+  },
+
+  /**
+   * Whether or not we are currently downloading something.
+   */
+  get isBusy() {
+    return this._request != null;
+  },
+
+  /**
+   * Download and stage the given update.
+   * @param   update
+   *          A nsIUpdate object to download a patch for. Cannot be null.
+   */
+  downloadUpdate: function Downloader_downloadUpdate(update) {
+    LOG("UpdateService:_downloadUpdate");
+    if (!update) {
+      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE);
+      throw Cr.NS_ERROR_NULL_POINTER;
+    }
+
+    var updateDir = getUpdatesDir();
+
+    this._update = update;
+
+    // This function may return null, which indicates that there are no patches
+    // to download.
+    this._patch = this._selectPatch(update, updateDir);
+    if (!this._patch) {
+      LOG("Downloader:downloadUpdate - no patch to download");
+      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE_PATCH);
+      return readStatusFile(updateDir);
+    }
+    this.isCompleteUpdate = this._patch.type == "complete";
+
+    let patchFile = getUpdatesDir().clone();
+    patchFile.append(FILE_UPDATE_MAR);
+    update.QueryInterface(Ci.nsIPropertyBag);
+    let interval = this.background ? update.getProperty("backgroundInterval")
+                                   : DOWNLOAD_FOREGROUND_INTERVAL;
+
+    LOG("Downloader:downloadUpdate - url: " + this._patch.URL + ", path: " +
+        patchFile.path + ", interval: " + interval);
+    var uri = Services.io.newURI(this._patch.URL);
+
+    this._request = Cc["@mozilla.org/network/incremental-download;1"].
+                    createInstance(Ci.nsIIncrementalDownload);
+    this._request.init(uri, patchFile, DOWNLOAD_CHUNK_SIZE, interval);
+    this._request.start(this, null);
+
+    writeStatusFile(updateDir, STATE_DOWNLOADING);
+    this._patch.QueryInterface(Ci.nsIWritablePropertyBag);
+    this._patch.state = STATE_DOWNLOADING;
+    var um = Cc["@mozilla.org/updates/update-manager;1"].
+             getService(Ci.nsIUpdateManager);
+    um.saveUpdates();
+    return STATE_DOWNLOADING;
+  },
+
+  /**
+   * An array of download listeners to notify when we receive
+   * nsIRequestObserver or nsIProgressEventSink method calls.
+   */
+  _listeners: [],
 
   /**
    * Adds a listener to the download process
@@ -3224,150 +3297,27 @@ class CommonDownloader {
    *          A download listener, implementing nsIRequestObserver and
    *          nsIProgressEventSink
    */
-  addDownloadListener(listener) {
+  addDownloadListener: function Downloader_addDownloadListener(listener) {
     for (var i = 0; i < this._listeners.length; ++i) {
       if (this._listeners[i] == listener)
         return;
     }
     this._listeners.push(listener);
-  }
+  },
 
   /**
    * Removes a download listener
    * @param   listener
    *          The listener to remove.
    */
-  removeDownloadListener(listener) {
+  removeDownloadListener: function Downloader_removeDownloadListener(listener) {
     for (var i = 0; i < this._listeners.length; ++i) {
       if (this._listeners[i] == listener) {
         this._listeners.splice(i, 1);
         return;
       }
     }
-  }
-}
-
-/**
- * Update downloader which uses the update agent
- */
-class AgentDownloader extends CommonDownloader {
-  constructor(background, updateService) {
-    super(background, updateService);
-
-    /**
-     * True while the agent is executing a download
-     */
-    this._agentIsDownloading = false;
-
-    /**
-     * Object representing the update agent process
-     */
-    this._agentProcess = null;
-
-    this.QueryInterface = XPCOMUtils.generateQI([Ci.nsIRequestObserver]);
-  }
-
-  /**
-   * Verify the downloaded file.  We assume that the download is complete at
-   * this point.
-   */
-  _verifyDownload() {
-    let path = getUpdatesDir().clone();
-    path.append(FILE_UPDATE_MAR);
-    return super._verifyDownload(path);
-  }
-
-  /**
-   * Kills the agent process. This doesn't actually cancel the download on
-   * platforms other than Linux because the OS will keep it alive.
-   */
-  cancel() {
-    function onAgentKilled() {
-      this._agentIsDownloading = false;
-      this._agentProcess = null;
-    }
-
-    LOG("Downloader: cancel");
-    if (this._agentProcess) {
-      this._agentProcess.kill(0).then(onAgentKilled.bind(this));
-    }
-  }
-
-  /**
-   * Whether or not we are currently downloading something.
-   */
-  get isBusy() {
-    return this._agentIsDownloading;
-  }
-
-  /**
-   * Download and stage the given update.
-   * @param   update
-   *          A nsIUpdate object to download a patch for. Cannot be null.
-   */
-  downloadUpdate(update) {
-    function onErrorLaunchingAgent(err) {
-      LOG("Downloader:downloadUpdate - error running update agent: " + err);
-      this.onStopRequest(null, null, Cr.NS_ERROR_LAUNCHED_CHILD_PROCESS);
-    }
-
-    function onAgentFinished(proc) {
-      LOG("Downloader - update agent exited with code " + proc.exitCode);
-      if (proc.exitCode == -9) {
-        // this code means the agent was killed/cancelled.
-        this.onStopRequest(null, null, Cr.NS_ERROR_ABORT);
-      } else {
-        this.onStopRequest(null, null, proc.exitCode);
-      }
-    }
-
-    function onAgentLaunched(proc) {
-      this._agentProcess = proc;
-      this._agentProcess.wait().then(onAgentFinished.bind(this));
-
-      this.onStartRequest(null, null);
-    }
-
-    LOG("UpdateService:_downloadUpdate");
-    if (!update) {
-      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE);
-      throw Cr.NS_ERROR_NULL_POINTER;
-    }
-
-    var updateDir = getUpdatesDir();
-
-    this._update = update;
-
-    // This function may return null, which indicates that there are no patches
-    // to download.
-    this._patch = this._selectPatch(update, updateDir);
-    if (!this._patch) {
-      LOG("Downloader:downloadUpdate - no patch to download");
-      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE_PATCH);
-      return readStatusFile(updateDir);
-    }
-    this.isCompleteUpdate = this._patch.type == "complete";
-
-    this._agentIsDownloading = true;
-
-    // Normally we would use getAppBaseDir() here, but under xpcshell it can
-    // return the simulated app directory instead of the one we're running from.
-    let agentPath = Services.dirsvc.get("XCurProcD", Ci.nsIFile);
-    agentPath.append("updateagent.exe");
-    let agentArgs = ["-u", this._patch.URL,
-                     "-d", getUpdatesDir().path];
-    Subprocess.call({command: agentPath.path, arguments: agentArgs})
-      .then(onAgentLaunched.bind(this))
-      .catch(onErrorLaunchingAgent.bind(this));
-
-    writeStatusFile(updateDir, STATE_DOWNLOADING);
-    this._patch.QueryInterface(Ci.nsIWritablePropertyBag);
-    this._patch.state = STATE_DOWNLOADING;
-    var um = Cc["@mozilla.org/updates/update-manager;1"].
-             getService(Ci.nsIUpdateManager);
-    um.saveUpdates();
-    return STATE_DOWNLOADING;
-  }
+  },
 
   /**
    * When the async request begins
@@ -3376,7 +3326,12 @@ class AgentDownloader extends CommonDownloader {
    * @param   context
    *          Additional data
    */
-  onStartRequest(request, context) {
+  onStartRequest: function Downloader_onStartRequest(request, context) {
+    if (request instanceof Ci.nsIIncrementalDownload)
+      LOG("Downloader:onStartRequest - original URI spec: " + request.URI.spec +
+          ", final URI spec: " + request.finalURI.spec);
+    // Always set finalURL in onStartRequest since it can change.
+    this._patch.finalURL = request.finalURI.spec;
     var um = Cc["@mozilla.org/updates/update-manager;1"].
              getService(Ci.nsIUpdateManager);
     um.saveUpdates();
@@ -3385,397 +3340,7 @@ class AgentDownloader extends CommonDownloader {
     var listenerCount = listeners.length;
     for (var i = 0; i < listenerCount; ++i)
       listeners[i].onStartRequest(request, context);
-  }
-
-  /**
-   * When data transfer ceases
-   * @param   request
-   *          The nsIRequest object for the transfer
-   * @param   context
-   *          Additional data
-   * @param   status
-   *          Status code containing the reason for the cessation.
-   */
-  onStopRequest(request, context, status) {
-    // XXX ehsan shouldShowPrompt should always be false here.
-    // But what happens when there is already a UI showing?
-    var state = this._patch.state;
-    var shouldShowPrompt = false;
-    var shouldRetrySoon = false;
-    var deleteActiveUpdate = false;
-    var retryTimeout = getPref("getIntPref", PREF_APP_UPDATE_SOCKET_RETRYTIMEOUT,
-                               DEFAULT_SOCKET_RETRYTIMEOUT);
-    // Prevent the preference from setting a value greater than 10000.
-    retryTimeout = Math.min(retryTimeout, 10000);
-    var maxFail = getPref("getIntPref", PREF_APP_UPDATE_SOCKET_MAXERRORS,
-                          DEFAULT_SOCKET_MAX_ERRORS);
-    // Prevent the preference from setting a value greater than 20.
-    maxFail = Math.min(maxFail, 20);
-    LOG("Downloader:onStopRequest - status: " + status + ", " +
-        "current fail: " + this.updateService._consecutiveSocketErrors + ", " +
-        "max fail: " + maxFail + ", " +
-        "retryTimeout: " + retryTimeout);
-    if (Components.isSuccessCode(status)) {
-      if (this._verifyDownload()) {
-        if (shouldUseService()) {
-          state = STATE_PENDING_SERVICE;
-        } else if (getElevationRequired()) {
-          state = STATE_PENDING_ELEVATE;
-        } else {
-          state = STATE_PENDING;
-        }
-        if (this.background) {
-          shouldShowPrompt = !getCanStageUpdates();
-        }
-        AUSTLMY.pingDownloadCode(this.isCompleteUpdate, AUSTLMY.DWNLD_SUCCESS);
-
-        // Tell the updater.exe we're ready to apply.
-        writeStatusFile(getUpdatesDir(), state);
-        writeVersionFile(getUpdatesDir(), this._update.appVersion);
-        this._update.installDate = (new Date()).getTime();
-        this._update.statusText = gUpdateBundle.GetStringFromName("installPending");
-        Services.prefs.setIntPref(PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS, 0);
-      } else {
-        LOG("Downloader:onStopRequest - download verification failed");
-        state = STATE_DOWNLOAD_FAILED;
-        status = Cr.NS_ERROR_CORRUPTED_CONTENT;
-
-        // Yes, this code is a string.
-        const vfCode = "verification_failed";
-        var message = getStatusTextFromCode(vfCode, vfCode);
-        this._update.statusText = message;
-
-        if (this._update.isCompleteUpdate || this._update.patchCount != 2)
-          deleteActiveUpdate = true;
-
-        // Destroy the updates directory, since we're done with it.
-        cleanUpUpdatesDir();
-      }
-    // Each of these codes can be returned when disconnecting the internet while
-    // a download of a MAR is in progress.
-    } else if ((status == Cr.NS_ERROR_NET_TIMEOUT ||
-                status == Cr.NS_ERROR_CONNECTION_REFUSED ||
-                status == Cr.NS_ERROR_NET_RESET ||
-                status == Cr.NS_ERROR_OFFLINE ||
-                status == Cr.NS_ERROR_ABORT) &&
-               this.updateService._consecutiveSocketErrors < maxFail) {
-      LOG("Downloader:onStopRequest - network error, shouldRetrySoon: true");
-      let dwnldCode = AUSTLMY.DWNLD_RETRY_CONNECTION_REFUSED;
-      if (status == Cr.NS_ERROR_NET_TIMEOUT) {
-        dwnldCode = AUSTLMY.DWNLD_RETRY_NET_TIMEOUT;
-      } else if (status == Cr.NS_ERROR_NET_RESET) {
-        dwnldCode = AUSTLMY.DWNLD_RETRY_NET_RESET;
-      } else if (status == Cr.NS_ERROR_OFFLINE) {
-        dwnldCode = AUSTLMY.DWNLD_RETRY_OFFLINE;
-      } else if (status == Cr.NS_ERROR_ABORT) {
-        dwnldCode = AUSTLMY.DWNLD_ERR_AGENT_LAUNCH;
-      }
-      AUSTLMY.pingDownloadCode(this.isCompleteUpdate, dwnldCode);
-      shouldRetrySoon = true;
-      deleteActiveUpdate = false;
-    } else {
-      LOG("Downloader:onStopRequest - non-verification failure");
-      AUSTLMY.pingDownloadCode(this.isCompleteUpdate, AUSTLMY.DWNLD_ERR_ABORT);
-
-      // Some sort of other failure, log this in the |statusText| property
-      state = STATE_DOWNLOAD_FAILED;
-      this._update.statusText = getStatusTextFromCode(status,
-                                                      Cr.NS_BINDING_FAILED);
-
-      // Destroy the updates directory, since we're done with it.
-      cleanUpUpdatesDir();
-
-      deleteActiveUpdate = true;
-    }
-    LOG("Downloader:onStopRequest - setting state to: " + state);
-    this._patch.state = state;
-    var um = Cc["@mozilla.org/updates/update-manager;1"].
-             getService(Ci.nsIUpdateManager);
-    if (deleteActiveUpdate) {
-      this._update.installDate = (new Date()).getTime();
-      um.activeUpdate = null;
-    } else if (um.activeUpdate) {
-      um.activeUpdate.state = state;
-    }
-    um.saveUpdates();
-
-    if (!shouldRetrySoon) {
-      // If we're not retrying, then we're done downloading.
-      this._agentIsDownloading = false;
-
-      // Only notify listeners about the stopped state if we
-      // aren't handling an internal retry.
-      var listeners = this._listeners.concat();
-      var listenerCount = listeners.length;
-      for (var i = 0; i < listenerCount; ++i) {
-        listeners[i].onStopRequest(request, context, status);
-      }
-    }
-
-    this._request = null;
-
-    if (state == STATE_DOWNLOAD_FAILED) {
-      var allFailed = true;
-      // Check if there is a complete update patch that can be downloaded.
-      if (!this._update.isCompleteUpdate && this._update.patchCount == 2) {
-        LOG("Downloader:onStopRequest - verification of patch failed, " +
-            "downloading complete update patch");
-        this._update.isCompleteUpdate = true;
-        let updateStatus = this.downloadUpdate(this._update);
-
-        if (updateStatus == STATE_NONE) {
-          cleanupActiveUpdate();
-        } else {
-          allFailed = false;
-        }
-      }
-
-      if (allFailed) {
-        if (getPref("getBoolPref", PREF_APP_UPDATE_DOORHANGER, false)) {
-          let downloadAttempts = getPref("getIntPref", PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS, 0);
-          downloadAttempts++;
-          Services.prefs.setIntPref(PREF_APP_UPDATE_DOWNLOAD_ATTEMPTS, downloadAttempts);
-          let maxAttempts = Math.min(getPref("getIntPref", PREF_APP_UPDATE_DOWNLOAD_MAXATTEMPTS, 2), 10);
-
-          if (downloadAttempts > maxAttempts) {
-            LOG("Downloader:onStopRequest - notifying observers of error. " +
-                "topic: update-error, status: download-attempts-exceeded, " +
-                "downloadAttempts: " + downloadAttempts + " " +
-                "maxAttempts: " + maxAttempts);
-            Services.obs.notifyObservers(this._update, "update-error", "download-attempts-exceeded");
-          } else {
-            this._update.selectedPatch.selected = false;
-            LOG("Downloader:onStopRequest - notifying observers of error. " +
-                "topic: update-error, status: download-attempt-failed");
-            Services.obs.notifyObservers(this._update, "update-error", "download-attempt-failed");
-          }
-        }
-
-        // If the update UI is not open (e.g. the user closed the window while
-        // downloading) and if at any point this was a foreground download
-        // notify the user about the error. If the update was a background
-        // update there is no notification since the user won't be expecting it.
-        if (!Services.wm.getMostRecentWindow(UPDATE_WINDOW_NAME)) {
-          this._update.QueryInterface(Ci.nsIWritablePropertyBag);
-          if (this._update.getProperty("foregroundDownload") == "true") {
-            let prompter = Cc["@mozilla.org/updates/update-prompt;1"].
-                           createInstance(Ci.nsIUpdatePrompt);
-            prompter.showUpdateError(this._update);
-          }
-        }
-
-        // Prevent leaking the update object (bug 454964).
-        this._update = null;
-      }
-      // A complete download has been initiated or the failure was handled.
-      return;
-    }
-
-    if (state == STATE_PENDING || state == STATE_PENDING_SERVICE ||
-        state == STATE_PENDING_ELEVATE) {
-      if (getCanStageUpdates()) {
-        LOG("Downloader:onStopRequest - attempting to stage update: " +
-            this._update.name);
-
-        // Initiate the update in the background
-        try {
-          Cc["@mozilla.org/updates/update-processor;1"].
-            createInstance(Ci.nsIUpdateProcessor).
-            processUpdate(this._update);
-        } catch (e) {
-          // Fail gracefully in case the application does not support the update
-          // processor service.
-          LOG("Downloader:onStopRequest - failed to stage update. Exception: " +
-              e);
-          if (this.background) {
-            shouldShowPrompt = true;
-          }
-        }
-      }
-    }
-
-    // Do this after *everything* else, since it will likely cause the app
-    // to shut down.
-    if (shouldShowPrompt) {
-      // Notify the user that an update has been downloaded and is ready for
-      // installation (i.e. that they should restart the application). We do
-      // not notify on failed update attempts.
-      let prompter = Cc["@mozilla.org/updates/update-prompt;1"].
-                     createInstance(Ci.nsIUpdatePrompt);
-      prompter.showUpdateDownloaded(this._update, true);
-    }
-
-    if (shouldRetrySoon) {
-      LOG("Downloader:onStopRequest - Retrying soon");
-      this.updateService._consecutiveSocketErrors++;
-      if (this.updateService._retryTimer) {
-        this.updateService._retryTimer.cancel();
-      }
-      this.updateService._retryTimer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
-      this.updateService._retryTimer.initWithCallback(function() {
-        this._attemptResume();
-      }.bind(this.updateService), retryTimeout, Ci.nsITimer.TYPE_ONE_SHOT);
-    } else {
-      // Prevent leaking the update object (bug 454964)
-      this._update = null;
-    }
-  }
-}
-
-/**
- * Update downloader which uses an nsHttpChannel
- */
-class ChannelDownloader extends CommonDownloader {
-  constructor(background, updateService) {
-    super(background, updateService);
-
-    /**
-     * The channel object handling the download
-     */
-    this._channel = null;
-
-    /**
-     * Destination file output stream
-     */
-    this._outStream = null;
-
-    this.QueryInterface = XPCOMUtils.generateQI([Ci.nsIStreamListener,
-                                                 Ci.nsIChannelEventSink,
-                                                 Ci.nsIProgressEventSink,
-                                                 Ci.nsIRequestObserver,
-                                                 Ci.nsIInterfaceRequestor]);
-  }
-
-  /**
-   * Verify the downloaded file.  We assume that the download is complete at
-   * this point.
-   */
-  _verifyDownload() {
-    if (!this._channel) {
-      AUSTLMY.pingDownloadCode(this.isCompleteUpdate,
-                               AUSTLMY.DWNLD_ERR_VERIFY_NO_REQUEST);
-      return false;
-    }
-    let patchFile = getUpdatesDir().clone();
-    patchFile.append(FILE_UPDATE_MAR);
-    return super._verifyDownload(patchFile);
-  }
-
-  /**
-   * Cancels the active download.
-   */
-  cancel(cancelError) {
-    LOG("Downloader: cancel");
-    if (cancelError === undefined) {
-      cancelError = Cr.NS_BINDING_ABORTED;
-    }
-    if (this._channel) {
-      this._channel.cancel(cancelError);
-    }
-  }
-
-  /**
-   * Whether or not we are currently downloading something.
-   */
-  get isBusy() {
-    return this._channel != null;
-  }
-
-  /**
-   * Download and stage the given update.
-   * @param   update
-   *          A nsIUpdate object to download a patch for. Cannot be null.
-   */
-  downloadUpdate(update) {
-    LOG("UpdateService:_downloadUpdate");
-    if (!update) {
-      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE);
-      throw Cr.NS_ERROR_NULL_POINTER;
-    }
-
-    var updateDir = getUpdatesDir();
-
-    this._update = update;
-
-    // This function may return null, which indicates that there are no patches
-    // to download.
-    this._patch = this._selectPatch(update, updateDir);
-    if (!this._patch) {
-      LOG("Downloader:downloadUpdate - no patch to download");
-      AUSTLMY.pingDownloadCode(undefined, AUSTLMY.DWNLD_ERR_NO_UPDATE_PATCH);
-      return readStatusFile(updateDir);
-    }
-    this.isCompleteUpdate = this._patch.type == "complete";
-
-    let patchFile = getUpdatesDir().clone();
-    patchFile.append(FILE_UPDATE_MAR);
-
-    LOG("Downloader:downloadUpdate - url: " + this._patch.URL + ", path: " +
-        patchFile.path);
-    var uri = Services.io.newURI(this._patch.URL);
-
-    this._outStream = FileUtils.openFileOutputStream(patchFile);
-
-    this._channel = NetUtil.newChannel({uri, loadUsingSystemPrincipal: true});
-    this._channel.notificationCallbacks = this;
-    this._channel.asyncOpen2(this.QueryInterface(Ci.nsIStreamListener));
-
-    writeStatusFile(updateDir, STATE_DOWNLOADING);
-    this._patch.QueryInterface(Ci.nsIWritablePropertyBag);
-    this._patch.state = STATE_DOWNLOADING;
-    var um = Cc["@mozilla.org/updates/update-manager;1"].
-             getService(Ci.nsIUpdateManager);
-    um.saveUpdates();
-    return STATE_DOWNLOADING;
-  }
-
-  asyncOnChannelRedirect(oldChannel, newChannel, flags, callback) {
-    LOG("Downloader: redirected from " + oldChannel.URI + " to " + newChannel.URI);
-    this._patch.finalURL = newChannel.URI;
-    callback.onRedirectVerifyCallback(Cr.NS_OK);
-    this._channel = newChannel;
-  }
-
-  /**
-   * When we have new status text
-   * @param   request
-   *          The nsIRequest object for the transfer
-   * @param   context
-   *          Additional data
-   * @param   status
-   *          A status code
-   * @param   statusText
-   *          Human readable version of |status|
-   */
-  onStatus(request, context, status, statusText) {
-    LOG("Downloader:onStatus - status: " + status + ", statusText: " +
-        statusText);
-
-    for (let listener of this._listeners) {
-      if (listener instanceof Ci.nsIProgressEventSink) {
-        listener.onStatus(request, context, status, statusText);
-      }
-    }
-  }
-
-  /**
-   * When the async request begins
-   * @param   request
-   *          The nsIRequest object for the transfer
-   * @param   context
-   *          Additional data
-   */
-  onStartRequest(request, context) {
-    LOG("Downloader:onStartRequest");
-    var um = Cc["@mozilla.org/updates/update-manager;1"].
-             getService(Ci.nsIUpdateManager);
-    um.saveUpdates();
-
-    var listeners = this._listeners.concat();
-    var listenerCount = listeners.length;
-    for (var i = 0; i < listenerCount; ++i)
-      listeners[i].onStartRequest(request, context);
-  }
+  },
 
   /**
    * When new data has been downloaded
@@ -3788,7 +3353,8 @@ class ChannelDownloader extends CommonDownloader {
    * @param   maxProgress
    *          The total number of bytes that must be transferred
    */
-  onProgress(request, context, progress, maxProgress) {
+  onProgress: function Downloader_onProgress(request, context, progress,
+                                             maxProgress) {
     LOG("Downloader:onProgress - progress: " + progress + "/" + maxProgress);
 
     if (progress > this._patch.size) {
@@ -3817,27 +3383,31 @@ class ChannelDownloader extends CommonDownloader {
         listener.onProgress(request, context, progress, maxProgress);
     }
     this.updateService._consecutiveSocketErrors = 0;
-  }
+  },
 
   /**
-   * When the HTTP stream has new data
+   * When we have new status text
    * @param   request
    *          The nsIRequest object for the transfer
    * @param   context
    *          Additional data
-   * @param   stream
-   *          Input stream containing the new data
-   * @param   offset
-   *          Number of bytes downloaded prior to this chunk of data
-   * @param   count
-   *          Size of this chunk of data
+   * @param   status
+   *          A status code
+   * @param   statusText
+   *          Human readable version of |status|
    */
-  onDataAvailable(request, context, stream, offset, count) {
-    let sis = Cc["@mozilla.org/scriptableinputstream;1"].
-              createInstance(Ci.nsIScriptableInputStream);
-    sis.init(stream);
-    return this._outStream.write(sis.readBytes(count), count);
-  }
+  onStatus: function Downloader_onStatus(request, context, status, statusText) {
+    LOG("Downloader:onStatus - status: " + status + ", statusText: " +
+        statusText);
+
+    var listeners = this._listeners.concat();
+    var listenerCount = listeners.length;
+    for (var i = 0; i < listenerCount; ++i) {
+      var listener = listeners[i];
+      if (listener instanceof Ci.nsIProgressEventSink)
+        listener.onStatus(request, context, status, statusText);
+    }
+  },
 
   /**
    * When data transfer ceases
@@ -3848,7 +3418,11 @@ class ChannelDownloader extends CommonDownloader {
    * @param   status
    *          Status code containing the reason for the cessation.
    */
-  onStopRequest(request, context, status) {
+  onStopRequest: function Downloader_onStopRequest(request, context, status) {
+    if (request instanceof Ci.nsIIncrementalDownload)
+      LOG("Downloader:onStopRequest - original URI spec: " + request.URI.spec +
+          ", final URI spec: " + request.finalURI.spec + ", status: " + status);
+
     // XXX ehsan shouldShowPrompt should always be false here.
     // But what happens when there is already a UI showing?
     var state = this._patch.state;
@@ -3981,9 +3555,7 @@ class ChannelDownloader extends CommonDownloader {
       }
     }
 
-    this._channel = null;
-    this._outStream.close();
-    this._outStream = null;
+    this._request = null;
 
     if (state == STATE_DOWNLOAD_FAILED) {
       var allFailed = true;
@@ -4093,29 +3665,26 @@ class ChannelDownloader extends CommonDownloader {
       // Prevent leaking the update object (bug 454964)
       this._update = null;
     }
-  }
+  },
 
   /**
    * See nsIInterfaceRequestor.idl
    */
-  getInterface(iid) {
+  getInterface: function Downloader_getInterface(iid) {
     // The network request may require proxy authentication, so provide the
     // default nsIAuthPrompt if requested.
     if (iid.equals(Ci.nsIAuthPrompt)) {
       var prompt = Cc["@mozilla.org/network/default-auth-prompt;1"].
                    createInstance();
       return prompt.QueryInterface(iid);
-    } else if (iid.equals(Ci.nsIProgressEventSink)) {
-      return this.QueryInterface(iid);
     }
     throw Cr.NS_NOINTERFACE;
-  }
-}
+  },
 
-// The update agent is only supported on Windows.
-let Downloader = AppConstants.platform == "win" ?
-                 AgentDownloader :
-                 ChannelDownloader;
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIRequestObserver,
+                                         Ci.nsIProgressEventSink,
+                                         Ci.nsIInterfaceRequestor])
+};
 
 /**
  * UpdatePrompt
