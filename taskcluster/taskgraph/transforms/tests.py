@@ -509,7 +509,17 @@ def enable_code_coverage(config, tests):
             test['when'] = {}
             test['instance-size'] = 'xlarge'
             test['run-on-projects'] = ['mozilla-central']
+
+            if test['test-name'].startswith('talos'):
+                test['max-run-time'] = 7200
                 test['docker-image'] = {"in-tree": "desktop1604-test"}
+                test['mozharness']['config'] = ['talos/linux64_config_taskcluster.py']
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--cycles,1')
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--tppagecycles,1')
+                test['mozharness']['extra-options'].append('--add-option')
+                test['mozharness']['extra-options'].append('--no-upload-results')
                 test['mozharness']['extra-options'].append('--add-option')
                 test['mozharness']['extra-options'].append('--tptimeout,15000')
         elif test['build-platform'] == 'linux64-jsdcov/opt':
@@ -707,7 +717,7 @@ def set_worker_type(config, tests):
             else:
                 test['worker-type'] = WINDOWS_WORKER_TYPES[test_platform.split('/')[0]]
         elif test_platform.startswith('linux') or test_platform.startswith('android'):
-            if test.get('suite', '') == 'talos':
+            if test.get('suite', '') == 'talos' and test['build-platform'] != 'linux64-ccov/opt':
                 if config.config['args'].taskcluster_worker:
                     test['worker-type'] = 'releng-hardware/gecko-t-linux-talos'
                 else:
