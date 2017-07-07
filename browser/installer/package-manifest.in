@@ -769,6 +769,9 @@ bin/libfreebl_32int64_3.so
 #else
 @BINPATH@/updater@BIN_SUFFIX@
 #endif
+#ifdef XP_WIN
+@BINPATH@/updateagent@BIN_SUFFIX@
+#endif
 #endif
 
 ; [MaintenanceService]

@@ -4,6 +4,9 @@
 
 #if defined(XP_WIN)
 #include <windows.h>
+#else
+#include <sys/stat.h>
+#include <errno.h>
 #endif
 
 
@@ -12,6 +15,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+#include "errors.h"
 #include "updatecommon.h"
 
 UpdateLog::UpdateLog() : logFP(nullptr)
@@ -210,4 +214,37 @@ IsValidFullPath(NS_tchar* origFullPath)
   }
 #endif
   return true;
+}
+
+/**
+ * Ensure that the directory containing a file path exists.
+ *
+ * @param  path
+ *         The full path to check.
+ * @return OK if path already existed or was created, error code otherwise
+ */
+int
+ensure_parent_dir(const NS_tchar *path)
+{
+  int rv = OK;
+
+  NS_tchar *slash = (NS_tchar *) NS_tstrrchr(path, NS_T('/'));
+  if (slash) {
+    *slash = NS_T('\0');
+    rv = ensure_parent_dir(path);
+    // Only attempt to create the directory if we're not at the root
+    if (rv == OK && *path) {
+      rv = NS_tmkdir(path, 0755);
+      // If the directory already exists, then ignore the error.
+      if (rv < 0 && errno != EEXIST) {
+        LOG(("ensure_parent_dir: failed to create directory: " LOG_S ", " \
+             "err: %d", path, errno));
+        rv = WRITE_ERROR;
+      } else {
+        rv = OK;
+      }
+    }
+    *slash = NS_T('/');
+  }
+  return rv;
 }
