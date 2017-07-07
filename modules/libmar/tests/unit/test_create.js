@@ -39,29 +39,29 @@ function run_test() {
       // all platforms.
       switch (refMARFileName) {
         case "0_sized.mar":
-          if (outMARData[143] == 180) {
-            outMARData[143] = 182;
+          if (outMARData[175] == 180) {
+            outMARData[175] = 182;
           }
           break;
         case "1_byte.mar":
-          if (outMARData[144] == 180) {
-            outMARData[144] = 182;
+          if (outMARData[203] == 180) {
+            outMARData[203] = 182;
           }
           break;
         case "binary_data.mar":
-          if (outMARData[655] == 180) {
-            outMARData[655] = 182;
+          if (outMARData[595] == 180) {
+            outMARData[595] = 182;
           }
           break;
         case "multiple_file.mar":
-          if (outMARData[656] == 180) {
-            outMARData[656] = 182;
+          if (outMARData[595] == 180) {
+            outMARData[595] = 182;
           }
-          if (outMARData[681] == 180) {
-            outMARData[681] = 182;
+          if (outMARData[620] == 180) {
+            outMARData[620] = 182;
           }
-          if (outMARData[705] == 180) {
-            outMARData[705] = 182;
+          if (outMARData[644] == 180) {
+            outMARData[644] = 182;
           }
       }
     }
