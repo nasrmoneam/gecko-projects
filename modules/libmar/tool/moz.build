@@ -12,6 +12,7 @@ HostProgram('mar')
 
 HOST_USE_LIBS += [
     'hostmar',
+    'hostxz-embedded',
 ]
 
 if CONFIG['MOZ_ENABLE_SIGNMAR']:
@@ -23,6 +24,7 @@ if CONFIG['MOZ_ENABLE_SIGNMAR']:
         'mar',
         'signmar',
         'verifymar',
+        'xz-embedded',
     ]
 
 for var in ('MAR_CHANNEL_ID', 'MOZ_APP_VERSION'):

@@ -73,10 +73,14 @@ int mar_extract(const char *path) {
   int rv;
 
   mar = mar_open(path);
-  if (!mar)
+  if (!mar) {
     return -1;
+  }
 
-  rv = mar_enum_items(mar, mar_test_callback, NULL);
+  rv = mar_decompress(mar);
+  if (!rv) {
+    rv = mar_enum_items(mar, mar_test_callback, NULL);
+  }
 
   mar_close(mar);
   return rv;
