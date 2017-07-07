@@ -9,41 +9,6 @@
 #include <stdio.h>
 #include "mozilla/Attributes.h"
 
-// A simple stack based container for a FILE struct that closes the
-// file descriptor from its destructor.
-class AutoFile
-{
-public:
-  explicit AutoFile(FILE* file = nullptr)
-    : mFile(file) {
-  }
-
-  ~AutoFile() {
-    if (mFile != nullptr) {
-      fclose(mFile);
-    }
-  }
-
-  AutoFile &operator=(FILE* file) {
-    if (mFile != 0) {
-      fclose(mFile);
-    }
-    mFile = file;
-    return *this;
-  }
-
-  operator FILE*() {
-    return mFile;
-  }
-
-  FILE* get() {
-    return mFile;
-  }
-
-private:
-  FILE* mFile;
-};
-
 class UpdateLog
 {
 public:
@@ -72,8 +37,6 @@ protected:
 };
 
 bool IsValidFullPath(NS_tchar* fullPath);
-
-int ensure_parent_dir(const NS_tchar *path);
 
 #define LOG_WARN(args) UpdateLog::GetPrimaryLog().WarnPrintf args
 #define LOG(args) UpdateLog::GetPrimaryLog().Printf args
