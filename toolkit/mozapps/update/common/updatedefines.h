@@ -5,6 +5,8 @@
 #ifndef UPDATEDEFINES_H
 #define UPDATEDEFINES_H
 
+#include "readstrings.h"
+
 #ifndef MAXPATHLEN
 # ifdef PATH_MAX
 #  define MAXPATHLEN PATH_MAX
@@ -26,8 +28,6 @@
 # include <io.h>
 # include <stdio.h>
 # include <stdarg.h>
-
-typedef WCHAR NS_tchar;
 
 # ifndef F_OK
 #   define F_OK 00
@@ -88,16 +88,12 @@ static inline int mywcsprintf(WCHAR* dest, size_t count, const WCHAR* fmt, ...)
 # define NS_tstrchr wcschr
 # define NS_tstrrchr wcsrchr
 # define NS_tstrstr wcsstr
-
-#ifdef __cplusplus
 # include "win_dirent.h"
 # define NS_tDIR DIR
 # define NS_tdirent dirent
 # define NS_topendir opendir
 # define NS_tclosedir closedir
 # define NS_treaddir readdir
-#endif
-
 #else
 # include <sys/wait.h>
 # include <unistd.h>
@@ -112,8 +108,6 @@ static inline int mywcsprintf(WCHAR* dest, size_t count, const WCHAR* fmt, ...)
 #ifdef XP_MACOSX
 # include <sys/time.h>
 #endif
-
-typedef char NS_tchar;
 
 # define LOG_S "%s"
 # define NS_T(str) str
