@@ -30,7 +30,11 @@ var gProxyPrefValue;
 function runTest() {
   debugDump("entering");
 
-  let url = URL_HTTP_UPDATE_XML + "?showDetails=1" + getVersionParams();
+  // This test can't use the normal localhost URL, because localhost doesn't
+  // stop working while offline, so replace it with one of the alternate
+  // mochitest server hosts.
+  let url = "https://example.com" + URL_PATH_UPDATE_XML +
+            "?showDetails=1" + getVersionParams();
   setUpdateURL(url);
 
   Services.prefs.setBoolPref(PREF_APP_UPDATE_ENABLED, true);
