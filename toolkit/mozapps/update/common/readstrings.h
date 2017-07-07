@@ -7,14 +7,9 @@
 #ifndef READSTRINGS_H__
 #define READSTRINGS_H__
 
-#define MAX_TEXT_LEN 600
+#include "updatedefines.h"
 
-#ifdef XP_WIN
-# include <windows.h>
-  typedef WCHAR NS_tchar;
-#else
-  typedef char NS_tchar;
-#endif
+#define MAX_TEXT_LEN 600
 
 #ifndef NULL
 #define NULL 0
