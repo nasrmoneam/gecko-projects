@@ -118,13 +118,13 @@ if '86' in CONFIG['TARGET_CPU']:
 # pretty much every other file ends up including anyway.
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
     USE_STATIC_LIBS = True
+    CFLAGS += ['-FIcommon.h']
+    HOST_CFLAGS += ['-FIcommon.h']
     # Some of the liblzma files assume that DWORD is defined whenever MSC_VER
     # is set, and also that memmove and memcpy can be used without declarations.
     # Force include windows.h to get all those things declared properly.
     CFLAGS += ['-FIwindows.h']
     HOST_CFLAGS += ['-FIwindows.h']
-    CFLAGS += ['-FIcommon.h']
-    HOST_CFLAGS += ['-FIcommon.h']
 else:
     CFLAGS += ['-include', 'common.h']
     HOST_CFLAGS += ['-include', 'common.h']
