@@ -23,6 +23,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include "lzma.h"
 #ifdef XP_WIN
 #include <io.h>
 #include <winsock2.h>
@@ -34,26 +35,6 @@
 
 #undef MIN
 #define MIN(x,y) (((x)<(y)) ? (x) : (y))
-
-/*---------------------------------------------------------------------------*/
-
-/* This variable lives in libbz2.  It's declared in bzlib_private.h, so we just
- * declare it here to avoid including that entire header file.
- */
-extern unsigned int BZ2_crc32Table[256];
-
-static unsigned int
-crc32(const unsigned char *buf, unsigned int len)
-{
-	unsigned int crc = 0xffffffffL;
-
-	const unsigned char *end = buf + len;
-	for (; buf != end; ++buf)
-		crc = (crc << 8) ^ BZ2_crc32Table[(crc >> 24) ^ *buf];
-
-	crc = ~crc;
-	return crc;
-}
 
 /*---------------------------------------------------------------------------*/
 
@@ -249,7 +230,7 @@ int main(int argc,char *argv[])
 		(close(fd)==-1))
 		reporterr(1,"%s\n",argv[1]);
 
-	scrc = crc32(old, oldsize);
+	scrc = lzma_crc32(old, oldsize, 0);
 
 	if(((I=(int32_t*) malloc((oldsize+1)*sizeof(int32_t)))==NULL) ||
 		((V=(int32_t*) malloc((oldsize+1)*sizeof(int32_t)))==NULL))

@@ -35,7 +35,7 @@ DIRS += [
 if CONFIG['MOZ_AUTH_EXTENSION']:
     DIRS += ['/extensions/auth']
 
-if CONFIG['MOZ_UPDATER']:
+if CONFIG['MOZ_UPDATER'] and CONFIG['MOZ_WIDGET_TOOLKIT'] != 'android':
     DIRS += ['/other-licenses/bsdiff']
 
 # Gecko/Core components.
