@@ -7,6 +7,7 @@
 #ifndef MAR_PRIVATE_H__
 #define MAR_PRIVATE_H__
 
+#include "mar.h"
 #include "limits.h"
 #include "mozilla/Assertions.h"
 #include <stdint.h>
@@ -75,5 +76,12 @@ MOZ_STATIC_ASSERT(sizeof(BLOCKSIZE) < \
   (((((uint64_t) x) >> 48) & 0xFF) << 8) | \
   (((uint64_t) x) >> 56)
 #define NETWORK_TO_HOST64 HOST_TO_NETWORK64
+
+/**
+ * Clean up after mar_decompress().
+ * Should be called after the MarFile fp has been closed.
+ */
+void
+mar_decompress_cleanup(MarFile* file);
 
 #endif  /* MAR_PRIVATE_H__ */
