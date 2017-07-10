@@ -10,9 +10,10 @@ HOST_SOURCES += [
 
 HostProgram('mar')
 
-HOST_USE_LIBS += [
-    'hostmar',
-]
+# These libraries must be added in this order, to prevent linkers which are
+# dependent on the order of command-line parameters from falling over.
+HOST_USE_LIBS += [ 'hostmar' ]
+HOST_USE_LIBS += [ 'hostlzma' ]
 
 if CONFIG['MOZ_ENABLE_SIGNMAR']:
     Program('signmar')
@@ -20,6 +21,7 @@ if CONFIG['MOZ_ENABLE_SIGNMAR']:
     SOURCES += HOST_SOURCES
 
     USE_LIBS += [
+        'lzma',
         'mar',
         'signmar',
         'verifymar',
