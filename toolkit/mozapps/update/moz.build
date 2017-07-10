@@ -11,9 +11,6 @@ DIRS += [
     'updater',
 ]
 
-if CONFIG['OS_ARCH'] == 'WINNT':
-    DIRS += ['agent']
-
 XPIDL_SOURCES += [
     'nsIUpdateService.idl',
 ]
