@@ -12,6 +12,7 @@
 #include "mar_private.h"
 #include "mar_cmdline.h"
 #include "mar.h"
+#include "lzma.h"
 
 #ifdef XP_WIN
 #include <winsock2.h>
@@ -26,6 +27,8 @@ struct MarItemStack {
   uint32_t size_allocated;
   uint32_t last_offset;
 };
+
+uint8_t gInBuf[BLOCKSIZE], gOutBuf[BLOCKSIZE];
 
 /**
  * Push a new item onto the stack of items.  The stack is a single block
@@ -72,10 +75,8 @@ static int mar_push(struct MarItemStack *stack, uint32_t length, uint32_t flags,
   return 0;
 }
 
-static int mar_concat_file(FILE *fp, const char *path) {
+static int mar_concat_file(FILE *fp, const char *path, lzma_stream* strm) {
   FILE *in;
-  char buf[BLOCKSIZE];
-  size_t len;
   int rv = 0;
 
   in = fopen(path, "rb");
@@ -85,10 +86,34 @@ static int mar_concat_file(FILE *fp, const char *path) {
     return -1;
   }
 
-  while ((len = fread(buf, 1, BLOCKSIZE, in)) > 0) {
-    if (fwrite(buf, len, 1, fp) != 1) {
+  strm->next_in = gInBuf;
+  strm->avail_in = 0;
+  strm->next_out = gOutBuf;
+  strm->avail_out = sizeof(gOutBuf);
+
+  while (!feof(in)) {
+    if (strm->avail_in == 0) {
+      strm->next_in = gInBuf;
+      strm->avail_in = fread(gInBuf, 1, sizeof(gInBuf), in);
+      if (ferror(in)) {
+        rv = -1;
+        break;
+      }
+    }
+
+    if (lzma_code(strm, LZMA_RUN) != LZMA_OK) {
       rv = -1;
       break;
+    }
+    if (strm->avail_out < sizeof(gOutBuf)) {
+      size_t writeBytes = sizeof(gOutBuf) - strm->avail_out;
+      if (fwrite(gOutBuf, 1, writeBytes, fp) != writeBytes) {
+        rv = -1;
+        break;
+      }
+
+      strm->next_out = gOutBuf;
+      strm->avail_out = sizeof(gOutBuf);
     }
   }
 
@@ -291,11 +316,10 @@ refresh_product_info_block(const char *path,
  * @param infoBlock The information to store in the product information block.
  * @return A non-zero value if an error occurs.
  */
-int mar_create(const char *dest, int 
-               num_files, char **files, 
+int mar_create(const char *dest, int num_files, char **files,
                struct ProductInformationBlock *infoBlock) {
   struct MarItemStack stack;
-  uint32_t offset_to_index = 0, size_of_index, 
+  uint32_t offset_to_index = 0, size_of_index,
     numSignatures, numAdditionalSections;
   uint64_t sizeOfEntireMAR = 0;
   struct stat st;
@@ -310,14 +334,16 @@ int mar_create(const char *dest, int
     return -1;
   }
 
-  if (fwrite(MAR_ID, MAR_ID_SIZE, 1, fp) != 1)
+  if (fwrite(MAR_ID, MAR_ID_SIZE, 1, fp) != 1) {
     goto failure;
-  if (fwrite(&offset_to_index, sizeof(uint32_t), 1, fp) != 1)
+  }
+  if (fwrite(&offset_to_index, sizeof(uint32_t), 1, fp) != 1) {
     goto failure;
+  }
 
-  stack.last_offset = MAR_ID_SIZE + 
+  stack.last_offset = MAR_ID_SIZE +
                       sizeof(offset_to_index) +
-                      sizeof(numSignatures) + 
+                      sizeof(numSignatures) +
                       sizeof(numAdditionalSections) +
                       sizeof(sizeOfEntireMAR);
 
@@ -332,10 +358,10 @@ int mar_create(const char *dest, int
     goto failure;
   }
 
-  /* Write out the number of additional sections, for now just 1 
+  /* Write out the number of additional sections, for now just 1
      for the product info block */
   numAdditionalSections = htonl(1);
-  if (fwrite(&numAdditionalSections, 
+  if (fwrite(&numAdditionalSections,
              sizeof(numAdditionalSections), 1, fp) != 1) {
     goto failure;
   }
@@ -345,55 +371,81 @@ int mar_create(const char *dest, int
     goto failure;
   }
 
+  // Set up an LZMA stream so we can compress the file data.
+  lzma_stream strm = LZMA_STREAM_INIT;
+  lzma_options_lzma lzma_options;
+  lzma_filter filters[3] = {{LZMA_FILTER_X86, NULL},
+                            {LZMA_FILTER_LZMA2, &lzma_options},
+                            {LZMA_VLI_UNKNOWN, NULL}};
+  lzma_lzma_preset(filters[1].options, LZMA_PRESET_DEFAULT);
+  if (lzma_stream_encoder(&strm, filters, LZMA_CHECK_CRC64) != LZMA_OK) {
+    goto failure;
+  }
+
   for (i = 0; i < num_files; ++i) {
     if (stat(files[i], &st)) {
       fprintf(stderr, "ERROR: file not found: %s\n", files[i]);
       goto failure;
     }
 
-    if (mar_push(&stack, st.st_size, st.st_mode & 0777, files[i]))
+    if (mar_push(&stack, st.st_size, st.st_mode & 0777, files[i])) {
       goto failure;
+    }
 
     /* concatenate input file to archive */
-    if (mar_concat_file(fp, files[i]))
+    if (mar_concat_file(fp, files[i], &strm)) {
       goto failure;
+    }
   }
 
-  /* write out the index (prefixed with length of index) */
-  size_of_index = htonl(stack.size_used);
-  if (fwrite(&size_of_index, sizeof(size_of_index), 1, fp) != 1)
+  // Finish the LZMA stream and write out any remaining data.
+  if (lzma_code(&strm, LZMA_FINISH) != LZMA_STREAM_END) {
     goto failure;
-  if (fwrite(stack.head, stack.size_used, 1, fp) != 1)
+  }
+  size_t writeBytes = sizeof(gOutBuf) - strm.avail_out;
+  if (fwrite(gOutBuf, 1, writeBytes, fp) != writeBytes) {
     goto failure;
+  }
+  lzma_end(&strm);
 
-  /* To protect against invalid MAR files, we assumes that the MAR file 
+  /* write out the index (prefixed with length of index) */
+  offset_to_index = htonl(ftell(fp));
+  size_of_index = htonl(stack.size_used);
+  if (fwrite(&size_of_index, sizeof(size_of_index), 1, fp) != 1) {
+    goto failure;
+  }
+  if (fwrite(stack.head, stack.size_used, 1, fp) != 1) {
+    goto failure;
+  }
+
+  /* To protect against invalid MAR files, we assumes that the MAR file
      size is less than or equal to MAX_SIZE_OF_MAR_FILE. */
-  if (ftell(fp) > MAX_SIZE_OF_MAR_FILE) {
+  sizeOfEntireMAR = ftell(fp);
+  if (sizeOfEntireMAR > MAX_SIZE_OF_MAR_FILE) {
     goto failure;
   }
 
   /* write out offset to index file in network byte order */
-  offset_to_index = htonl(stack.last_offset);
-  if (fseek(fp, MAR_ID_SIZE, SEEK_SET))
+  if (fseek(fp, MAR_ID_SIZE, SEEK_SET)) {
     goto failure;
-  if (fwrite(&offset_to_index, sizeof(offset_to_index), 1, fp) != 1)
+  }
+  if (fwrite(&offset_to_index, sizeof(offset_to_index), 1, fp) != 1) {
     goto failure;
-  offset_to_index = ntohl(stack.last_offset);
-  
-  sizeOfEntireMAR = ((uint64_t)stack.last_offset) +
-                    stack.size_used +
-                    sizeof(size_of_index);
+  }
   sizeOfEntireMAR = HOST_TO_NETWORK64(sizeOfEntireMAR);
-  if (fwrite(&sizeOfEntireMAR, sizeof(sizeOfEntireMAR), 1, fp) != 1)
+  if (fwrite(&sizeOfEntireMAR, sizeof(sizeOfEntireMAR), 1, fp) != 1) {
     goto failure;
+  }
   sizeOfEntireMAR = NETWORK_TO_HOST64(sizeOfEntireMAR);
 
   rv = 0;
-failure: 
-  if (stack.head)
+failure:
+  if (stack.head) {
     free(stack.head);
+  }
   fclose(fp);
-  if (rv)
+  if (rv) {
     remove(dest);
+  }
   return rv;
 }
