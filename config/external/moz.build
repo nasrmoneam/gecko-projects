@@ -21,6 +21,9 @@ if CONFIG['MOZ_UPDATER']:
 external_dirs += ['modules/brotli']
 external_dirs += ['modules/woff2']
 
+if CONFIG['MOZ_WIDGET_TOOLKIT'] != 'android':
+    external_dirs += ['modules/xz']
+
 if CONFIG['MOZ_VORBIS']:
     external_dirs += ['media/libvorbis']
 

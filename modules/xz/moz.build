@@ -1,0 +1,132 @@
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+Library('lzma')
+HostLibrary('hostlzma')
+
+with Files('**'):
+    BUG_COMPONENT = ('Toolkit', 'Application Update')
+
+EXPORTS += [
+    'liblzma/api/lzma.h',
+]
+
+EXPORTS.lzma += [
+    'liblzma/api/lzma/base.h',
+    'liblzma/api/lzma/bcj.h',
+    'liblzma/api/lzma/block.h',
+    'liblzma/api/lzma/check.h',
+    'liblzma/api/lzma/container.h',
+    'liblzma/api/lzma/delta.h',
+    'liblzma/api/lzma/filter.h',
+    'liblzma/api/lzma/hardware.h',
+    'liblzma/api/lzma/index.h',
+    'liblzma/api/lzma/index_hash.h',
+    'liblzma/api/lzma/lzma12.h',
+    'liblzma/api/lzma/stream_flags.h',
+    'liblzma/api/lzma/version.h',
+    'liblzma/api/lzma/vli.h',
+]
+
+LOCAL_INCLUDES += [
+    'common',
+    'liblzma/check',
+    'liblzma/common',
+    'liblzma/delta',
+    'liblzma/lz',
+    'liblzma/lzma',
+    'liblzma/rangecoder',
+    'liblzma/simple',
+]
+
+common_sources = [
+    'liblzma/check/check.c',
+    'liblzma/check/crc32_fast.c',
+    'liblzma/check/crc32_table.c',
+    'liblzma/check/crc64_fast.c',
+    'liblzma/check/crc64_table.c',
+    'liblzma/common/block_decoder.c',
+    'liblzma/common/block_encoder.c',
+    'liblzma/common/block_header_decoder.c',
+    'liblzma/common/block_header_encoder.c',
+    'liblzma/common/block_util.c',
+    'liblzma/common/common.c',
+    'liblzma/common/filter_common.c',
+    'liblzma/common/filter_decoder.c',
+    'liblzma/common/filter_encoder.c',
+    'liblzma/common/filter_flags_decoder.c',
+    'liblzma/common/filter_flags_encoder.c',
+    'liblzma/common/index.c',
+    'liblzma/common/index_encoder.c',
+    'liblzma/common/index_hash.c',
+    'liblzma/common/stream_decoder.c',
+    'liblzma/common/stream_encoder.c',
+    'liblzma/common/stream_flags_common.c',
+    'liblzma/common/stream_flags_decoder.c',
+    'liblzma/common/stream_flags_encoder.c',
+    'liblzma/common/vli_decoder.c',
+    'liblzma/common/vli_encoder.c',
+    'liblzma/common/vli_size.c',
+    'liblzma/lz/lz_decoder.c',
+    'liblzma/lz/lz_encoder.c',
+    'liblzma/lz/lz_encoder_mf.c',
+    'liblzma/lzma/fastpos_table.c',
+    'liblzma/lzma/lzma2_decoder.c',
+    'liblzma/lzma/lzma2_encoder.c',
+    'liblzma/lzma/lzma_decoder.c',
+    'liblzma/lzma/lzma_encoder.c',
+    'liblzma/lzma/lzma_encoder_optimum_fast.c',
+    'liblzma/lzma/lzma_encoder_optimum_normal.c',
+    'liblzma/lzma/lzma_encoder_presets.c',
+    'liblzma/rangecoder/price_table.c',
+    'liblzma/simple/simple_coder.c',
+    'liblzma/simple/simple_decoder.c',
+    'liblzma/simple/simple_encoder.c',
+    'liblzma/simple/x86.c',
+]
+
+SOURCES += common_sources
+HOST_SOURCES += common_sources
+
+# There are a handful of warnings caused by function prototypes having 'restrict'
+# tags on their parameters, but the function definitions not having such tags.
+ALLOW_COMPILER_WARNINGS = True
+
+DEFINES['LZMA_API_STATIC'] = HOST_DEFINES['LZMA_API_STATIC'] = 1
+DEFINES['HAVE_INTTYPES_H'] = HOST_DEFINES['HAVE_INTTYPES_H'] = 1
+DEFINES['HAVE_STDBOOL_H'] = HOST_DEFINES['HAVE_STDBOOL_H'] = 1
+DEFINES['HAVE_STRING_H'] = HOST_DEFINES['HAVE_STRING_H'] = 1
+DEFINES['HAVE_CHECK_CRC32'] = HOST_DEFINES['HAVE_CHECK_CRC32'] = 1
+DEFINES['HAVE_CHECK_CRC64'] = HOST_DEFINES['HAVE_CHECK_CRC64'] = 1
+DEFINES['HAVE_DECODER_LZMA2'] = HOST_DEFINES['HAVE_DECODER_LZMA2'] = 1
+DEFINES['HAVE_ENCODER_LZMA2'] = HOST_DEFINES['HAVE_ENCODER_LZMA2'] = 1
+DEFINES['HAVE_MF_BT4'] = HOST_DEFINES['HAVE_MF_BT4'] = 1
+
+FORCE_STATIC_LIB = True
+
+if '86' in CONFIG['TARGET_CPU']:
+    # Accept x86, x86_64, i386, i686, etc.
+    DEFINES['HAVE_DECODER_X86'] = HOST_DEFINES['HAVE_DECODER_X86'] = 1
+    DEFINES['HAVE_ENCODER_X86'] = HOST_DEFINES['HAVE_ENCODER_X86'] = 1
+
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
+    USE_STATIC_LIBS = True
+    # Some of the liblzma files assume that DWORD is defined whenever MSC_VER
+    # is set, and also that memmove and memcpy can be used without declarations.
+    # Force include windows.h to get all those things declared properly.
+    CFLAGS += ['-FIwindows.h']
+    HOST_CFLAGS += ['-FIwindows.h']
+
+# The headers in the rangecoder directory for some reason decide to
+# include common.h based on HAVE_CONFIG_H, which makes no sense at all.
+# The least hacky way to resolve that is to force include common.h, which
+# pretty much every other file ends up including anyway.
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
+    CFLAGS += ['-FIcommon.h']
+    HOST_CFLAGS += ['-FIcommon.h']
+else:
+    CFLAGS += ['-include', 'common.h']
+    HOST_CFLAGS += ['-include', 'common.h']
