@@ -28,7 +28,7 @@ def get_changed_files(repository, revision):
         logger.debug("Querying version control for metadata: %s", url)
 
         def get_automationrelevance():
-            response = requests.get(url, timeout=5)
+            response = requests.get(url, timeout=60)
             return response.json()
         contents = retry(get_automationrelevance, attempts=2, sleeptime=10)
 
