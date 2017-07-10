@@ -93,7 +93,7 @@ for ((i=0; $i<$num_files; i=$i+1)); do
 
   dir=$(dirname "$f")
   mkdir -p "$workdir/$dir"
-  $BZIP2 -cz9 "$targetdir/$f" > "$workdir/$f"
+  cp "$targetdir/$f" "$workdir/$f"
   copy_perm "$targetdir/$f" "$workdir/$f"
 
   targetfiles="$targetfiles \"$f\""
@@ -103,9 +103,6 @@ done
 notice ""
 notice "Adding file and directory remove instructions from file 'removed-files'"
 append_remove_instructions "$targetdir" "$updatemanifestv2" "$updatemanifestv3"
-
-$BZIP2 -z9 "$updatemanifestv2" && mv -f "$updatemanifestv2.bz2" "$updatemanifestv2"
-$BZIP2 -z9 "$updatemanifestv3" && mv -f "$updatemanifestv3.bz2" "$updatemanifestv3"
 
 mar_command="$MAR"
 if [[ -n $MOZ_PRODUCT_VERSION ]]
