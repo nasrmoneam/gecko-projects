@@ -160,6 +160,8 @@ static MarFile *mar_fpopen(FILE *fp)
   }
 
   mar->fp = fp;
+  mar->decompressed = false;
+  mar->name = NULL;
   memset(mar->item_table, 0, sizeof(mar->item_table));
   if (mar_read_index(mar)) {
     mar_close(mar);
@@ -179,7 +181,22 @@ MarFile *mar_open(const char *path) {
     return NULL;
   }
 
-  return mar_fpopen(fp);
+  MarFile *rv = mar_fpopen(fp);
+  if (rv) {
+#ifdef XP_WIN
+    int pathLen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+    rv->name = malloc(pathLen * sizeof(wchar_t));
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, rv->name, pathLen);
+#else
+    rv->name = malloc(strlen(path) + 1);
+    strcpy(rv->name, path);
+#endif
+    if (!rv->name) {
+      mar_close(rv);
+      rv = NULL;
+    }
+  }
+  return rv;
 }
 
 #ifdef XP_WIN
@@ -193,7 +210,12 @@ MarFile *mar_wopen(const wchar_t *path) {
     return NULL;
   }
 
-  return mar_fpopen(fp);
+  MarFile *rv = mar_fpopen(fp);
+  if (rv) {
+    rv->name = malloc((wcslen(path) + 1) * sizeof(wchar_t));
+    wcscpy(rv->name, path);
+  }
+  return rv;
 }
 #endif
 
@@ -212,6 +234,11 @@ void mar_close(MarFile *mar) {
     }
   }
 
+  if (mar->decompressed) {
+    mar_decompress_cleanup(mar);
+  }
+
+  free(mar->name);
   free(mar);
 }
 
@@ -574,4 +601,32 @@ int get_mar_file_info(const char *path,
 
   fclose(fp);
   return rv;
+}
+
+
+void
+mar_get_content_extent(MarFile* mar,
+                       int* offset,
+                       int* length)
+{
+  // The offset to the end of the content area is just the offset to the
+  // index listed in the file header, because the index begins immediately
+  // following the content.
+  fseek(mar->fp, MAR_ID_SIZE, SEEK_SET);
+  int endOfContent = 0;
+  if (fread(&endOfContent, sizeof(endOfContent), 1, mar->fp) != 1) {
+    return;
+  }
+  endOfContent = ntohl(endOfContent);
+
+  // The start of the content is always the start of the first file listed in
+  // the index, because the index is always written in order.
+  fseek(mar->fp, endOfContent + 4, SEEK_SET);
+  int startOfContent = 0;
+  if (fread(&startOfContent, sizeof(startOfContent), 1, mar->fp) != 1) {
+    return;
+  }
+
+  *offset = ntohl(startOfContent);
+  *length = endOfContent - startOfContent;
 }
