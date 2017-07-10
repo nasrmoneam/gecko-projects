@@ -116,9 +116,6 @@ pref("app.update.timerFirstInterval", 30000);
 // The interval to check for updates (app.update.interval) is defined in
 // firefox-branding.js
 
-// Whether to enable the update agent process. Ignored on unsupported platforms.
-pref("app.update.agent.enable", true);
-
 // Alternative windowtype for an application update user interface window. When
 // a window with this windowtype is open the application update service won't
 // open the normal application update user interface window.
