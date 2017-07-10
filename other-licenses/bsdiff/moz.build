@@ -4,24 +4,25 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-HOST_SOURCES += [
-    'bsdiff.c',
-]
-
-HostProgram('mbsdiff')
-
-HOST_USE_LIBS += [
-    'hostlzma',
-]
-
-HOST_DEFINES['LZMA_API_STATIC'] = 1
-
-if CONFIG['HOST_OS_ARCH'] == 'WINNT':
-    HOST_OS_LIBS += [
-        'ws2_32',
+if CONFIG['MOZ_WIDGET_TOOLKIT'] != 'android':
+    HOST_SOURCES += [
+        'bsdiff.c',
     ]
-    USE_STATIC_LIBS = True
 
-LOCAL_INCLUDES += [
-    '/toolkit/mozapps/update/updater',
-]
+    HostProgram('mbsdiff')
+
+    HOST_USE_LIBS += [
+        'hostlzma',
+    ]
+
+    HOST_DEFINES['LZMA_API_STATIC'] = 1
+
+    if CONFIG['HOST_OS_ARCH'] == 'WINNT':
+        HOST_OS_LIBS += [
+            'ws2_32',
+        ]
+        USE_STATIC_LIBS = True
+
+    LOCAL_INCLUDES += [
+        '/toolkit/mozapps/update/updater',
+    ]

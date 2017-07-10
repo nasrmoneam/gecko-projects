@@ -113,20 +113,20 @@ if '86' in CONFIG['TARGET_CPU']:
     DEFINES['HAVE_ENCODER_X86'] = HOST_DEFINES['HAVE_ENCODER_X86'] = 1
 
 if CONFIG['CC_TYPE'] == 'msvc':
-    USE_STATIC_LIBS = True
-    # Some of the liblzma files assume that DWORD is defined whenever MSC_VER
-    # is set, and also that memmove and memcpy can be used without declarations.
-    # Force include windows.h to get all those things declared properly.
-    CFLAGS += ['-FIwindows.h']
-    HOST_CFLAGS += ['-FIwindows.h']
 
 # The headers in the rangecoder directory for some reason decide to
 # include common.h based on HAVE_CONFIG_H, which makes no sense at all.
 # The least hacky way to resolve that is to force include common.h, which
 # pretty much every other file ends up including anyway.
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
+    USE_STATIC_LIBS = True
     CFLAGS += ['-FIcommon.h']
     HOST_CFLAGS += ['-FIcommon.h']
+    # Some of the liblzma files assume that DWORD is defined whenever MSC_VER
+    # is set, and also that memmove and memcpy can be used without declarations.
+    # Force include windows.h to get all those things declared properly.
+    CFLAGS += ['-FIwindows.h']
+    HOST_CFLAGS += ['-FIwindows.h']
 else:
     CFLAGS += ['-include', 'common.h']
     HOST_CFLAGS += ['-include', 'common.h']
