@@ -124,7 +124,7 @@ if CONFIG['CC_TYPE'] == 'msvc':
 # include common.h based on HAVE_CONFIG_H, which makes no sense at all.
 # The least hacky way to resolve that is to force include common.h, which
 # pretty much every other file ends up including anyway.
-if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
+if CONFIG['CC_TYPE'] == 'msvc':
     CFLAGS += ['-FIcommon.h']
     HOST_CFLAGS += ['-FIcommon.h']
 else:
