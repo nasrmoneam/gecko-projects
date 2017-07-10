@@ -7,7 +7,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
-#include "bzlib.h"
 #include "archivereader.h"
 #include "errors.h"
 #ifdef XP_WIN
@@ -271,54 +270,29 @@ ArchiveReader::ExtractFileToStream(const char *name, FILE *fp)
 int
 ArchiveReader::ExtractItemToStream(const MarItem *item, FILE *fp)
 {
-  /* decompress the data chunk by chunk */
+  // We shouldn't extract from the archive until after we know the signature is
+  // good, so that we don't run a bunch of complicated decompression code on
+  // a file of unknown validity. That means that, if signatures are being
+  // checked, the check should be done before this function is ever called.
+  if (mar_decompress(mArchive) == -1) {
+    return UNEXPECTED_XZ_ERROR;
+  }
 
-  bz_stream strm;
-  int offset, inlen, outlen, ret = OK;
+  if (item->length == 0) {
+    return UNEXPECTED_MAR_ERROR;
+  }
 
-  memset(&strm, 0, sizeof(strm));
-  if (BZ2_bzDecompressInit(&strm, 0, 0) != BZ_OK)
-    return UNEXPECTED_BZIP_ERROR;
-
-  offset = 0;
-  for (;;) {
-    if (!item->length) {
-      ret = UNEXPECTED_MAR_ERROR;
-      break;
+  int offset = 0;
+  while (offset < (int)(item->length)) {
+    int inlen = mar_read(mArchive, item, offset, inbuf, inbuf_size);
+    if (inlen <= 0) {
+      return READ_ERROR;
     }
-
-    if (offset < (int) item->length && strm.avail_in == 0) {
-      inlen = mar_read(mArchive, item, offset, inbuf, inbuf_size);
-      if (inlen <= 0)
-        return READ_ERROR;
-      offset += inlen;
-      strm.next_in = inbuf;
-      strm.avail_in = inlen;
-    }
-
-    strm.next_out = outbuf;
-    strm.avail_out = outbuf_size;
-
-    ret = BZ2_bzDecompress(&strm);
-    if (ret != BZ_OK && ret != BZ_STREAM_END) {
-      ret = UNEXPECTED_BZIP_ERROR;
-      break;
-    }
-
-    outlen = outbuf_size - strm.avail_out;
-    if (outlen) {
-      if (fwrite(outbuf, outlen, 1, fp) != 1) {
-        ret = WRITE_ERROR_EXTRACT;
-        break;
-      }
-    }
-
-    if (ret == BZ_STREAM_END) {
-      ret = OK;
-      break;
+    offset += inlen;
+    if (fwrite(inbuf, inlen, 1, fp) != 1) {
+      return WRITE_ERROR_EXTRACT;
     }
   }
 
-  BZ2_bzDecompressEnd(&strm);
-  return ret;
+  return OK;
 }
