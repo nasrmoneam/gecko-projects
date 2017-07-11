@@ -241,7 +241,8 @@ def target_tasks_mozilla_beta(full_task_graph, parameters):
         if task.kind in [
             'balrog', 'beetmover', 'beetmover-checksums', 'beetmover-l10n',
             'checksums-signing', 'nightly-l10n', 'nightly-l10n-signing',
-            'push-apk', 'push-apk-breakpoint',
+            'push-apk', 'push-apk-breakpoint', 'beetmover-repackage',
+            'beetmover-repackage-signing',
         ]:
             return False
         return True
