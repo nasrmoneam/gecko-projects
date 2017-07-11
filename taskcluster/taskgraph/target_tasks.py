@@ -38,7 +38,7 @@ def filter_upload_symbols(task, parameters):
     # TODO Remove this too specific filter (bug 1353296)
     return '-upload-symbols' not in task.label or \
         task.attributes.get('nightly') or \
-        parameters.get('project') in ('mozilla-beta', 'mozilla-release', 'jamun')
+        parameters.get('project') in ('mozilla-beta', 'mozilla-release')
 
 
 def standard_filter(task, parameters):
