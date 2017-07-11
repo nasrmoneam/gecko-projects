@@ -331,3 +331,25 @@ def target_tasks_nightly_win64(full_task_graph, parameters):
         if platform in ('win64-nightly', ):
             return task.attributes.get('nightly', False)
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
+
+
+@_target_task('nightly_desktop')
+def target_tasks_nightly_desktop(full_task_graph, parameters):
+    """Select the set of tasks required for a desktop nightly build. The
+    nightly build process involves a pipeline of builds, signing, repackaging,
+    and, eventually, uploading the tasks to balrog."""
+
+    supported_platforms = (
+        'linux64-nightly',
+        'linux-nightly',
+        'macosx64-nightly',
+        'win64-nightly',
+        # 'win32-nightly',
+    )
+
+    def filter(task):
+        platform = task.attributes.get('build_platform')
+        if platform in supported_platforms:
+            return task.attributes.get('nightly', False)
+
+    return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
