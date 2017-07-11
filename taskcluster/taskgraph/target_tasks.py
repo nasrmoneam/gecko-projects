@@ -38,7 +38,7 @@ def filter_upload_symbols(task, parameters):
     # TODO Remove this too specific filter (bug 1353296)
     return '-upload-symbols' not in task.label or \
         task.attributes.get('nightly') or \
-        parameters.get('project') in ('mozilla-beta', 'mozilla-release')
+        parameters.get('project') in ('mozilla-beta', 'mozilla-release', 'jamun')
 
 
 def standard_filter(task, parameters):
@@ -232,9 +232,6 @@ def target_tasks_mozilla_beta(full_task_graph, parameters):
         platform = task.attributes.get('build_platform')
         if platform in ('linux64-pgo', 'linux-pgo', 'android-api-15-nightly',
                         'android-x86-nightly'):
-            return False
-        if platform in ('macosx64-nightly', 'win64-nightly'):
-            # Don't do some nightlies on-push until it's ready.
             return False
         if platform in ('linux64', 'linux'):
             if task.attributes['build_type'] == 'opt' and \
