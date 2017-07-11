@@ -26,7 +26,7 @@ BUILDER_NAME_PREFIX = {
     'linux64-ccov': 'Ubuntu Code Coverage VM 12.04 x64',
     'linux64-jsdcov': 'Ubuntu Code Coverage VM 12.04 x64',
     'linux64-stylo': 'Ubuntu VM 12.04 x64',
-    'linux64-devedition-nightly': 'Ubuntu VM 12.04 x64',
+    'linux64-devedition-nightly': 'Ubuntu VM 12.04 x64 DevEdition',
     'macosx64': 'Rev7 MacOSX Yosemite 10.10.5',
     'macosx64-devedition': 'Rev7 MacOSX Yosemite 10.10.5 DevEdition',
     'android-4.3-arm7-api-15': 'Android 4.3 armv7 API 15+',
@@ -203,8 +203,7 @@ def mozharness_test_on_generic_worker(config, job, taskdesc):
             'type': 'directory'
         })
 
-    upstream_task = '<build-signing>' if mozharness['requires-signed-builds'] else '<build>'
-    installer_url = get_artifact_url(upstream_task, mozharness['build-artifact-name'])
+    installer_url = get_artifact_url('<build>', mozharness['build-artifact-name'])
 
     taskdesc['scopes'].extend(
         ['generic-worker:os-group:{}'.format(group) for group in test['os-groups']])
@@ -440,7 +439,7 @@ def mozharness_test_buildbot_bridge(config, job, taskdesc):
             variant = ''
 
         # this variant name has branch after the variant type in BBB bug 1338871
-        if variant in ('stylo', 'stylo-sequential', 'devedition'):
+        if variant in ('stylo', 'stylo-sequential'):
             name = '{prefix} {variant} {branch} talos {test_name}'
         elif variant:
             name = '{prefix} {branch} {variant} talos {test_name}'
