@@ -159,7 +159,7 @@ macosx64-devedition-nightly/opt:
         nightly: true
     index:
         product: devedition
-        job-name: macosx64-devedition-opt
+        job-name: macosx64-opt
         type: nightly
     treeherder:
         platform: osx-cross-devedition/opt
