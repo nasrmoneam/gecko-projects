@@ -10,7 +10,6 @@ jobs:
           target-tasks-method: nightly_linux
       run-on-projects:
           - mozilla-central
-          - mozilla-aurora
           - date
           - oak
       when:
@@ -19,7 +18,6 @@ jobs:
             date: [{hour: 15, minute: 0}]
             oak: [{hour: 11, minute: 0}]
             mozilla-central: [{hour: 10, minute: 0}]
-            mozilla-aurora: [] # bug 1358976
             # No default
 
     - name: nightly-desktop-osx
@@ -55,14 +53,12 @@ jobs:
           target-tasks-method: nightly_fennec
       run-on-projects:
           - mozilla-central
-          - mozilla-aurora
           - date
       when:
         by-project:
             # Match buildbot starts for now
             date: [{hour: 15, minute: 0}]
             mozilla-central: [{hour: 10, minute: 0}]
-            mozilla-aurora: [] # bug 1358976
             # No default
 
     - name: nightly-mochitest-valgrind
@@ -75,3 +71,15 @@ jobs:
       when:
           - {hour: 16, minute: 0}
           - {hour: 4, minute: 0}
+
+    - name: nightly-dmd
+      job:
+          type: decision-task
+          treeherder-symbol: Ndmd
+          target-tasks-method: nightly_dmd
+      run-on-projects:
+          - mozilla-central
+      when:
+          by-project:
+            mozilla-central: [{hour: 10, minute: 0}]
+            # No default
