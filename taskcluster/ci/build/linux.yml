@@ -100,7 +100,7 @@ linux64/debug:
         need-xvfb: true
 
 linux64-devedition-nightly/opt:
-    description: "Linux64 devedition Nightly"
+    description: "Linux64 Dev Edition Nightly"
     attributes:
         nightly: true
     index:
@@ -127,7 +127,7 @@ linux64-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', ]
+    run-on-projects: [ 'mozilla-beta', 'jamun']
 
 linux64-base-toolchains/opt:
     description: "Linux64 base toolchains Opt"
@@ -258,7 +258,7 @@ linux/pgo:
         need-xvfb: true
 
 linux-devedition-nightly/opt:
-    description: "Linux32 devedition Nightly"
+    description: "Linux32 Dev Edition Nightly"
     attributes:
         nightly: true
     index:
@@ -285,7 +285,7 @@ linux-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', ]
+    run-on-projects: [ 'mozilla-beta', 'jamun']
 
 linux-nightly/opt:
     description: "Linux32 Nightly"

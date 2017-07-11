@@ -143,8 +143,11 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
     'android-x86-old-id-nightly': _MOBILE_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
     'android-api-15-old-id-nightly': _MOBILE_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
     'macosx64-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
+    'macosx64-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
     'win32-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
+    'win32-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
     'win64-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
+    'win64-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US,
 
     'linux64-nightly-l10n': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_L10N,
     'linux-nightly-l10n': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_L10N,
@@ -188,13 +191,23 @@ UPSTREAM_ARTIFACT_SIGNED_PATHS = {
         "target.dmg",
         "target.dmg.asc",
     ],
+    'macosx64-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
+        "target.dmg",
+        "target.dmg.asc",
+    ],
     'win64-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
         "target.zip",
     ],
     'win32-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
         "target.zip",
     ],
+    'win32-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
+        "target.zip",
+    ],
     'win64-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
+        "target.zip",
+    ],
+    'win64-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
         "target.zip",
     ],
 
