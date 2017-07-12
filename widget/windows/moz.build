@@ -23,8 +23,6 @@ EXPORTS.mozilla.widget += [
     'CompositorWidgetChild.h',
     'CompositorWidgetParent.h',
     'InProcessWinCompositorWidget.h',
-    'PDFiumEngineShim.h',
-    'PDFViaEMFPrintHelper.h',
     'WinCompositorWidget.h',
     'WinMessages.h',
     'WinModifierKeyState.h',
@@ -102,7 +100,6 @@ if CONFIG['NS_PRINTING']:
         DIRS += ['/modules/pdfium']
         UNIFIED_SOURCES += [
             'PDFiumEngineShim.cpp',
-            'PDFViaEMFPrintHelper.cpp',
             'WindowsEMF.cpp',
         ]
 
