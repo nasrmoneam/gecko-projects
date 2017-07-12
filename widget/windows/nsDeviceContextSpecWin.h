@@ -65,10 +65,6 @@ protected:
 
   nsCOMPtr<nsIPrintSettings> mPrintSettings;
   int16_t mOutputFormat = nsIPrintSettings::kOutputFormatNative;
-
-#ifdef MOZ_ENABLE_SKIA_PDF
-  bool mPrintViaSkPDF;
-#endif
 };
 
 
