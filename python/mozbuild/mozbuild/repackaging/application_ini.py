@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import logging
 import os
 import ConfigParser
 import mozpack.path as mozpath
@@ -20,6 +21,7 @@ def get_application_ini_value(application_directory, section, value,
                 if not fallback:
                     raise
                 else:
+                    logging.warning("Using fallback value %s", fallback)
                     rc = parser.get(section, fallback)
             break
 
