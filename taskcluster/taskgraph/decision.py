@@ -72,6 +72,12 @@ PER_PROJECT_PARAMETERS = {
         'optimize_target_tasks': False,
         'include_nightly': True,
     },
+    # TEMP, do not uplift
+    'jamun': {
+        'target_tasks_method': 'mozilla_beta_tasks',
+        'optimize_target_tasks': False,
+        'include_nightly': True,
+    },
 
     'mozilla-release': {
         'target_tasks_method': 'mozilla_release_tasks',

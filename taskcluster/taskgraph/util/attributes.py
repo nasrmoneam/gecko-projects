@@ -16,6 +16,7 @@ RELEASE_PROJECTS = {
     'mozilla-central',
     'mozilla-aurora',
     'mozilla-beta',
+    'jamun',
     'mozilla-release',
 }
 

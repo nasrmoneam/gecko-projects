@@ -60,6 +60,8 @@ class MatchRunOnProjects(unittest.TestCase):
         self.assertTrue(match_run_on_projects('mozilla-inbound', ['all']))
         self.assertTrue(match_run_on_projects('mozilla-central', ['all']))
         self.assertTrue(match_run_on_projects('mozilla-beta', ['all']))
+        # TEMP, do not uplift
+        self.assertTrue(match_run_on_projects('jamun', ['all']))
         self.assertTrue(match_run_on_projects('mozilla-release', ['all']))
 
     def test_release(self):
@@ -69,6 +71,8 @@ class MatchRunOnProjects(unittest.TestCase):
         self.assertFalse(match_run_on_projects('mozilla-inbound', ['release']))
         self.assertTrue(match_run_on_projects('mozilla-central', ['release']))
         self.assertTrue(match_run_on_projects('mozilla-beta', ['release']))
+        # TEMP, do not uplift
+        self.assertTrue(match_run_on_projects('jamun', ['release']))
         self.assertTrue(match_run_on_projects('mozilla-release', ['release']))
 
     def test_integration(self):
