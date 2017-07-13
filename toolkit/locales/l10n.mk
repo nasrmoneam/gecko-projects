@@ -198,10 +198,12 @@ wget-en-US:
 ifndef WGET
 	$(error Wget not installed)
 endif
+ifneq ($(OS_ARCH), WINNT)
 	$(NSINSTALL) -D $(ABS_DIST)/$(PKG_PATH)
 	(cd $(ABS_DIST)/$(PKG_PATH) && \
         $(WGET) --no-cache -nv --no-iri -N -O $(PACKAGE) '$(EN_US_BINARY_URL)/$(EN_US_PACKAGE_NAME)')
 	@echo 'Downloaded $(EN_US_BINARY_URL)/$(EN_US_PACKAGE_NAME) to $(ABS_DIST)/$(PKG_PATH)/$(PACKAGE)'
+endif
 ifdef RETRIEVE_WINDOWS_INSTALLER
 ifeq ($(OS_ARCH), WINNT)
 	$(NSINSTALL) -D $(ABS_DIST)/$(PKG_INST_PATH)
