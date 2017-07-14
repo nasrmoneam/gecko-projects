@@ -66,7 +66,8 @@ configuration_tokens = ('branch',
 # phase
 runtime_config_tokens = ('buildid', 'version', 'locale', 'from_buildid',
                          'abs_objdir', 'abs_merge_dir', 'revision',
-                         'to_buildid', 'en_us_binary_url', 'mar_tools_url',
+                         'to_buildid', 'en_us_binary_url',
+                         'en_us_installer_binary_url', 'mar_tools_url',
                          'post_upload_extra', 'who')
 
 # DesktopSingleLocale {{{1
@@ -370,6 +371,9 @@ class DesktopSingleLocale(LocalesMixin, ReleaseMixin, MockMixin, BuildbotMixin,
                 str(self.buildbot_config["properties"]["en_us_binary_url"])
         bootstrap_env = self.query_env(partial_env=config.get("bootstrap_env"),
                                        replace_dict=replace_dict)
+        # Override en_us_installer_binary_url if passed as a buildbot property
+        if self.buildbot_config["properties"].get("en_us_installer_binary_url"):
+            bootstrap_env['EN_US_INSTALLER_BINARY_URL'] = self.buildbot_config["properties"]["en_us_installer_binary_url"]
         if 'MOZ_SIGNING_SERVERS' in os.environ:
             sign_cmd = self.query_moz_sign_cmd(formats=None)
             sign_cmd = subprocess.list2cmdline(sign_cmd)
