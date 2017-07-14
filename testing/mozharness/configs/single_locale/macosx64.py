@@ -20,6 +20,7 @@ config = {
         "LOCALE_MERGEDIR": "%(abs_merge_dir)s/",
         'TOOLTOOL_CACHE': '/builds/tooltool_cache',
         'TOOLTOOL_HOME': '/builds',
+        'EN_US_PACKAGE_NAME': 'target.dmg',
     },
     "ssh_key_dir": "~/.ssh",
     "log_name": "single_locale",
