@@ -82,12 +82,6 @@ mapping:
     buildid_info:
       artifact: {{ artifact_base_url }}/target_info.txt
       s3_key: {{ s3_prefix }}macosx64_info.txt
-    mar_tools_mar:
-      artifact: {{ artifact_base_url }}/host/bin/mar
-      s3_key: {{ s3_prefix }}mar-tools/macosx64/mar
-    mar_tools_mbdiff:
-      artifact: {{ artifact_base_url }}/host/bin/mbsdiff
-      s3_key: {{ s3_prefix }}mar-tools/macosx64/mbsdiff
   {% endif %}
 
 {% endfor %}
