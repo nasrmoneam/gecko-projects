@@ -7,18 +7,6 @@ metadata:
 mapping:
 {% for locale in locales %}
   {{ locale }}:
-  {% if platform == "win32" %}
-    package:
-      artifact: {{ artifact_base_url }}/target.zip
-      s3_key: {{ s3_prefix }}{{ platform }}/{{ locale }}/firefox-{{ version }}.zip
-  {% endif %}
-
-  {% if platform == "win64" %}
-    package:
-      artifact: {{ artifact_base_url }}/target.zip
-      s3_key: {{ s3_prefix }}{{ platform }}/{{ locale }}/firefox-{{ version }}.zip
-  {% endif %}
-
   {% if platform == "mac" %}
     package:
       artifact: {{ artifact_base_url }}/target.dmg
