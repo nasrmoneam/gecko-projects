@@ -27,7 +27,7 @@ config = {
             "version_regex": r"^(\d+\.\d+(b\d+)?)$",
             "requires_mirrors": True,
             # TODO - when we use a real repo, rename this file # s/MozDate/MozBeta-dev/
-            "patcher_config": "mozDate-branch-patcher2.cfg",
+            "patcher_config": "mozBeta-branch-patcher2.cfg",
             "update_verify_channel": "beta-dev-localtest",
             "mar_channel_ids": [],
             "channel_names": ["beta-dev", "beta-dev-localtest", "beta-dev-cdntest"],
