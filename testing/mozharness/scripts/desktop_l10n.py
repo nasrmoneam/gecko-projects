@@ -60,7 +60,7 @@ configuration_tokens = ('branch',
                         'ssh_key_dir',
                         'stage_product',
                         'upload_environment',
-                       )
+                        )
 # some other values such as "%(version)s", "%(buildid)s", ...
 # are defined at run time and they cannot be enforced in the _pre_config_lock
 # phase
@@ -69,6 +69,7 @@ runtime_config_tokens = ('buildid', 'version', 'locale', 'from_buildid',
                          'to_buildid', 'en_us_binary_url',
                          'en_us_installer_binary_url', 'mar_tools_url',
                          'post_upload_extra', 'who')
+
 
 # DesktopSingleLocale {{{1
 class DesktopSingleLocale(LocalesMixin, ReleaseMixin, MockMixin, BuildbotMixin,
@@ -373,7 +374,10 @@ class DesktopSingleLocale(LocalesMixin, ReleaseMixin, MockMixin, BuildbotMixin,
                                        replace_dict=replace_dict)
         # Override en_us_installer_binary_url if passed as a buildbot property
         if self.buildbot_config["properties"].get("en_us_installer_binary_url"):
-            bootstrap_env['EN_US_INSTALLER_BINARY_URL'] = str(self.buildbot_config["properties"]["en_us_installer_binary_url"])
+            self.info("Overriding en_us_binary_url with %s" %
+                      self.buildbot_config["properties"]["en_us_installer_binary_url"])
+            bootstrap_env['EN_US_INSTALLER_BINARY_URL'] = str(
+                self.buildbot_config["properties"]["en_us_installer_binary_url"])
         if 'MOZ_SIGNING_SERVERS' in os.environ:
             sign_cmd = self.query_moz_sign_cmd(formats=None)
             sign_cmd = subprocess.list2cmdline(sign_cmd)
