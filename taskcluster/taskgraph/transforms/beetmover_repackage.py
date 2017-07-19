@@ -85,14 +85,11 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
 # with a beetmover patch in https://github.com/mozilla-releng/beetmoverscript/.
 # See example in bug 1348286
 UPSTREAM_ARTIFACT_SIGNED_PATHS = {
-    'macosx64-nightly': [],
-    'macosx64-nightly-l10n': [],
     'win64-nightly': ['target.zip'],
     'win64-nightly-l10n': ['target.zip'],
     'win32-nightly': ['target.zip'],
     'win32-nightly-l10n': ['target.zip'],
 }
-
 
 # Until bug 1331141 is fixed, if you are adding any new artifacts here that
 # need to be transfered to S3, please be aware you also need to follow-up
@@ -101,10 +98,6 @@ UPSTREAM_ARTIFACT_SIGNED_PATHS = {
 UPSTREAM_ARTIFACT_REPACKAGE_PATHS = {
     'macosx64-nightly': ['target.dmg'],
     'macosx64-nightly-l10n': ['target.dmg'],
-    'win64-nightly': [],
-    'win64-nightly-l10n': [],
-    'win32-nightly': [],
-    'win32-nightly-l10n': [],
 }
 # Until bug 1331141 is fixed, if you are adding any new artifacts here that
 # need to be transfered to S3, please be aware you also need to follow-up
@@ -118,12 +111,12 @@ UPSTREAM_ARTIFACT_SIGNED_REPACKAGE_PATHS = {
     'win32-nightly': [
         'target.complete.mar',
         'target.installer.exe',
-        'target.installer-stub.exe'
+        'target.stub-installer.exe'
     ],
     'win32-nightly-l10n': [
         'target.complete.mar',
         'target.installer.exe',
-        'target.installer-stub.exe'
+        'target.stub-installer.exe'
     ],
 }
 
@@ -253,31 +246,31 @@ def generate_upstream_artifacts(build_task_ref, build_signing_task_ref,
         artifact_prefix = 'public/build/{}'.format(locale)
         platform = "{}-l10n".format(platform)
 
-    upstream_artifacts = [{
-        "taskId": {"task-reference": build_task_ref},
-        "taskType": "build",
-        "paths": ["{}/{}".format(artifact_prefix, p)
-                  for p in build_mapping[platform]],
-        "locale": locale or "en-US",
-    }, {
-        "taskId": {"task-reference": build_signing_task_ref},
-        "taskType": "signing",
-        "paths": ["{}/{}".format(artifact_prefix, p)
-                  for p in build_signing_mapping[platform]],
-        "locale": locale or "en-US",
-    }, {
-        "taskId": {"task-reference": repackage_task_ref},
-        "taskType": "repackage",
-        "paths": ["{}/{}".format(artifact_prefix, p)
-                  for p in repackage_mapping[platform]],
-        "locale": locale or "en-US",
-    }, {
-        "taskId": {"task-reference": repackage_signing_task_ref},
-        "taskType": "repackage",
-        "paths": ["{}/{}".format(artifact_prefix, p)
-                  for p in repackage_signing_mapping[platform]],
-        "locale": locale or "en-US",
-    }]
+    upstream_artifacts = []
+
+    task_refs = [
+        build_task_ref,
+        build_signing_task_ref,
+        repackage_task_ref,
+        repackage_signing_task_ref
+    ]
+    tasktypes = ['build', 'signing', 'repackage', 'repackage']
+    mapping = [
+        build_mapping,
+        build_signing_mapping,
+        repackage_mapping,
+        repackage_signing_mapping
+    ]
+
+    for ref, tasktype, mapping in zip(task_refs, tasktypes, mapping):
+        if platform in mapping:
+            upstream_artifacts.append({
+                "taskId": {"task-reference": ref},
+                "taskType": tasktype,
+                "paths": ["{}/{}".format(artifact_prefix, p)
+                          for p in mapping[platform]],
+                "locale": locale or "en-US",
+            })
 
     return upstream_artifacts
 

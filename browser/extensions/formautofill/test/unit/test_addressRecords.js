@@ -16,7 +16,7 @@ const TEST_ADDRESS_1 = {
   "address-level1": "MA",
   "postal-code": "02139",
   country: "US",
-  tel: "+1 617 253 5702",
+  tel: "+16172535702",
   email: "timbl@w3.org",
 };
 
@@ -48,18 +48,18 @@ const MERGE_TESTCASES = [
     addressInStorage: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
     },
     addressToMerge: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
     expectedAddress: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
   },
@@ -68,18 +68,18 @@ const MERGE_TESTCASES = [
     addressInStorage: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
     addressToMerge: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
     },
     expectedAddress: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
   },
@@ -88,17 +88,17 @@ const MERGE_TESTCASES = [
     addressInStorage: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
     },
     addressToMerge: {
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
     expectedAddress: {
       "given-name": "Timothy",
       "street-address": "331 E. Evelyn Avenue",
-      "tel": "1-650-903-0800",
+      "tel": "+16509030800",
       country: "US",
     },
   },
@@ -141,8 +141,8 @@ add_task(async function test_getAll() {
   do_check_eq(addresses[0]["address-line1"], "32 Vassar Street");
   do_check_eq(addresses[0]["address-line2"], "MIT Room 32-G524");
 
-  // Test with noComputedFields set.
-  addresses = profileStorage.addresses.getAll({noComputedFields: true});
+  // Test with rawData set.
+  addresses = profileStorage.addresses.getAll({rawData: true});
   do_check_eq(addresses[0].name, undefined);
   do_check_eq(addresses[0]["address-line1"], undefined);
   do_check_eq(addresses[0]["address-line2"], undefined);
@@ -161,6 +161,12 @@ add_task(async function test_get() {
 
   let address = profileStorage.addresses.get(guid);
   do_check_record_matches(address, TEST_ADDRESS_1);
+
+  // Test with rawData set.
+  address = profileStorage.addresses.get(guid, {rawData: true});
+  do_check_eq(address.name, undefined);
+  do_check_eq(address["address-line1"], undefined);
+  do_check_eq(address["address-line2"], undefined);
 
   // Modifying output shouldn't affect the storage.
   address.organization = "test";

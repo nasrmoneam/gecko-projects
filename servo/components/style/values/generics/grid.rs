@@ -10,7 +10,7 @@ use parser::{Parse, ParserContext};
 use std::{fmt, mem, usize};
 use style_traits::{ToCss, ParseError, StyleParseError};
 use values::{CSSFloat, CustomIdent};
-use values::computed::{self, ComputedValueAsSpecified, Context, ToComputedValue};
+use values::computed::{ComputedValueAsSpecified, Context, ToComputedValue};
 use values::specified::Integer;
 use values::specified::grid::parse_line_names;
 
@@ -200,12 +200,12 @@ impl<L: ToComputedValue> ToComputedValue for TrackBreadth<L> {
     }
 }
 
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 /// A `<track-size>` type for explicit grid track sizing. Like `<track-breadth>`, this is
 /// generic only to avoid code bloat. It only takes `<length-percentage>`
 ///
 /// https://drafts.csswg.org/css-grid/#typedef-track-size
+#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
 pub enum TrackSize<L> {
     /// A flexible `<track-breadth>`
     Breadth(TrackBreadth<L>),
@@ -213,10 +213,12 @@ pub enum TrackSize<L> {
     /// and a flexible `<track-breadth>`
     ///
     /// https://drafts.csswg.org/css-grid/#valdef-grid-template-columns-minmax
-    MinMax(TrackBreadth<L>, TrackBreadth<L>),
+    #[css(comma, function)]
+    Minmax(TrackBreadth<L>, TrackBreadth<L>),
     /// A `fit-content` function.
     ///
     /// https://drafts.csswg.org/css-grid/#valdef-grid-template-columns-fit-content
+    #[css(function)]
     FitContent(L),
 }
 
@@ -231,7 +233,7 @@ impl<L> TrackSize<L> {
             // minmax(<fixed-breadth>, <track-breadth>) or minmax(<inflexible-breadth>, <fixed-breadth>),
             // and since both variants are a subset of minmax(<inflexible-breadth>, <track-breadth>), we only
             // need to make sure that they're fixed. So, we don't have to modify the parsing function.
-            TrackSize::MinMax(ref breadth_1, ref breadth_2) => {
+            TrackSize::Minmax(ref breadth_1, ref breadth_2) => {
                 if breadth_1.is_fixed() {
                     return true     // the second value is always a <track-breadth>
                 }
@@ -259,26 +261,6 @@ impl<L: PartialEq> TrackSize<L> {
     }
 }
 
-impl<L: ToCss> ToCss for TrackSize<L> {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        match *self {
-            TrackSize::Breadth(ref b) => b.to_css(dest),
-            TrackSize::MinMax(ref infexible, ref flexible) => {
-                dest.write_str("minmax(")?;
-                infexible.to_css(dest)?;
-                dest.write_str(", ")?;
-                flexible.to_css(dest)?;
-                dest.write_str(")")
-            },
-            TrackSize::FitContent(ref lop) => {
-                dest.write_str("fit-content(")?;
-                lop.to_css(dest)?;
-                dest.write_str(")")
-            },
-        }
-    }
-}
-
 impl<L: ToComputedValue> ToComputedValue for TrackSize<L> {
     type ComputedValue = TrackSize<L::ComputedValue>;
 
@@ -289,11 +271,11 @@ impl<L: ToComputedValue> ToComputedValue for TrackSize<L> {
                 // <flex> outside `minmax()` expands to `mimmax(auto, <flex>)`
                 // https://drafts.csswg.org/css-grid/#valdef-grid-template-columns-flex
                 TrackBreadth::Flex(f) =>
-                    TrackSize::MinMax(TrackBreadth::Keyword(TrackKeyword::Auto), TrackBreadth::Flex(f)),
+                    TrackSize::Minmax(TrackBreadth::Keyword(TrackKeyword::Auto), TrackBreadth::Flex(f)),
                 _ => TrackSize::Breadth(b.to_computed_value(context)),
             },
-            TrackSize::MinMax(ref b_1, ref b_2) =>
-                TrackSize::MinMax(b_1.to_computed_value(context), b_2.to_computed_value(context)),
+            TrackSize::Minmax(ref b_1, ref b_2) =>
+                TrackSize::Minmax(b_1.to_computed_value(context), b_2.to_computed_value(context)),
             TrackSize::FitContent(ref lop) => TrackSize::FitContent(lop.to_computed_value(context)),
         }
     }
@@ -303,8 +285,8 @@ impl<L: ToComputedValue> ToComputedValue for TrackSize<L> {
         match *computed {
             TrackSize::Breadth(ref b) =>
                 TrackSize::Breadth(ToComputedValue::from_computed_value(b)),
-            TrackSize::MinMax(ref b_1, ref b_2) =>
-                TrackSize::MinMax(ToComputedValue::from_computed_value(b_1),
+            TrackSize::Minmax(ref b_1, ref b_2) =>
+                TrackSize::Minmax(ToComputedValue::from_computed_value(b_1),
                                   ToComputedValue::from_computed_value(b_2)),
             TrackSize::FitContent(ref lop) =>
                 TrackSize::FitContent(ToComputedValue::from_computed_value(lop)),
@@ -429,13 +411,9 @@ impl<L: ToCss> ToCss for TrackRepeat<L> {
         Ok(())
     }
 }
-
-impl<L: ToComputedValue> ToComputedValue for TrackRepeat<L> {
-    type ComputedValue = TrackRepeat<L::ComputedValue>;
-
-    #[inline]
-    fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
-        // If the repeat count is numeric, then expand the values and merge accordingly.
+impl<L: Clone> TrackRepeat<L> {
+    /// If the repeat count is numeric, then expand the values and merge accordingly.
+    pub fn expand(&self) -> Self {
         if let RepeatCount::Number(num) = self.count {
             let mut line_names = vec![];
             let mut track_sizes = vec![];
@@ -446,7 +424,7 @@ impl<L: ToComputedValue> ToComputedValue for TrackRepeat<L> {
                 for (size, names) in self.track_sizes.iter().zip(&mut names_iter) {
                     prev_names.extend_from_slice(&names);
                     line_names.push(mem::replace(&mut prev_names, vec![]));
-                    track_sizes.push(size.to_computed_value(context));
+                    track_sizes.push(size.clone());
                 }
 
                 if let Some(names) = names_iter.next() {
@@ -464,11 +442,23 @@ impl<L: ToComputedValue> ToComputedValue for TrackRepeat<L> {
         } else {    // if it's auto-fit/auto-fill, then it's left to the layout.
             TrackRepeat {
                 count: self.count,
-                track_sizes: self.track_sizes.iter()
-                                             .map(|l| l.to_computed_value(context))
-                                             .collect(),
+                track_sizes: self.track_sizes.clone(),
                 line_names: self.line_names.clone(),
             }
+        }
+    }
+}
+impl<L: ToComputedValue> ToComputedValue for TrackRepeat<L> {
+    type ComputedValue = TrackRepeat<L::ComputedValue>;
+
+    #[inline]
+    fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
+        TrackRepeat {
+            count: self.count,
+            track_sizes: self.track_sizes.iter()
+                                         .map(|val| val.to_computed_value(context))
+                                         .collect(),
+            line_names: self.line_names.clone(),
         }
     }
 
@@ -507,6 +497,8 @@ pub enum TrackListType {
     Explicit,
 }
 
+impl ComputedValueAsSpecified for TrackListType {}
+
 /// A grid `<track-list>` type.
 ///
 /// https://drafts.csswg.org/css-grid/#typedef-track-list
@@ -518,22 +510,16 @@ pub struct TrackList<T> {
     /// In order to avoid parsing the same value multiple times, this does a single traversal
     /// and arrives at the type of value it has parsed (or bails out gracefully with an error).
     pub list_type: TrackListType,
-    /// A vector of `<track-size> | <track-repeat>` values. In its specified form, it may contain
-    /// any value, but once it's computed, it contains only `<track_size>` values.
-    ///
-    /// Note that this may also contain `<auto-repeat>` at an index. If it exists, it's
-    /// given by the index in `TrackListType::Auto`
-    pub values: Vec<T>,
+    /// A vector of `<track-size>` values.
+    pub values: Vec<TrackSize<T>>,
     /// `<line-names>` accompanying `<track-size> | <track-repeat>` values.
     ///
     /// If there's no `<line-names>`, then it's represented by an empty vector.
     /// For N values, there will be N+1 `<line-names>`, and so this vector's
     /// length is always one value more than that of the `<track-size>`.
     pub line_names: Vec<Vec<CustomIdent>>,
-    /// `<auto-repeat>` value after computation. This field is necessary, because
-    /// the `values` field (after computation) will only contain `<track-size>` values, and
-    /// we need something to represent this function.
-    pub auto_repeat: Option<TrackRepeat<computed::LengthOrPercentage>>,
+    /// `<auto-repeat>` value. There can only be one `<auto-repeat>` in a TrackList.
+    pub auto_repeat: Option<TrackRepeat<T>>,
 }
 
 impl<T: ToCss> ToCss for TrackList<T> {
@@ -570,7 +556,8 @@ impl<T: ToCss> ToCss for TrackList<T> {
                 },
             }
 
-            if values_iter.peek().is_some() || line_names_iter.peek().map_or(false, |v| !v.is_empty()) {
+            if values_iter.peek().is_some() || line_names_iter.peek().map_or(false, |v| !v.is_empty()) ||
+               (idx + 1 == auto_idx) {
                 dest.write_str(" ")?;
             }
         }

@@ -10,7 +10,6 @@ use Namespace;
 use context::QuirksMode;
 use cssparser::{Parser, Token, serialize_identifier, BasicParseError};
 use parser::{ParserContext, Parse};
-use self::grid::TrackSizeOrRepeat;
 use self::url::SpecifiedUrl;
 use std::ascii::AsciiExt;
 use std::borrow::Cow;
@@ -37,7 +36,7 @@ pub use self::flex::FlexBasis;
 #[cfg(feature = "gecko")]
 pub use self::gecko::ScrollSnapPoint;
 pub use self::image::{ColorStop, EndingShape as GradientEndingShape, Gradient};
-pub use self::image::{GradientItem, GradientKind, Image, ImageRect, ImageLayer};
+pub use self::image::{GradientItem, GradientKind, Image, ImageLayer, MozImageRect};
 pub use self::length::{AbsoluteLength, CalcLengthOrPercentage, CharacterWidth};
 pub use self::length::{FontRelativeLength, Length, LengthOrNone, LengthOrNumber};
 pub use self::length::{LengthOrPercentage, LengthOrPercentageOrAuto};
@@ -505,8 +504,11 @@ impl ToCss for Number {
     }
 }
 
-/// <number-percentage>
+/// <number> | <percentage>
+///
 /// Accepts only non-negative numbers.
+///
+/// FIXME(emilio): Should probably use Either.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 #[derive(Clone, Copy, Debug, PartialEq, ToCss)]
@@ -518,10 +520,11 @@ pub enum NumberOrPercentage {
 no_viewport_percentage!(NumberOrPercentage);
 
 impl NumberOrPercentage {
-    fn parse_with_clamping_mode<'i, 't>(context: &ParserContext,
-                                        input: &mut Parser<'i, 't>,
-                                        type_: AllowedNumericType)
-                                        -> Result<Self, ParseError<'i>> {
+    fn parse_with_clamping_mode<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        type_: AllowedNumericType
+    ) -> Result<Self, ParseError<'i>> {
         if let Ok(per) = input.try(|i| Percentage::parse_with_clamping_mode(context, i, type_)) {
             return Ok(NumberOrPercentage::Percentage(per));
         }
@@ -685,10 +688,10 @@ pub type TrackSize = GenericTrackSize<LengthOrPercentage>;
 
 /// The specified value of a grid `<track-list>`
 /// (could also be `<auto-track-list>` or `<explicit-track-list>`)
-pub type TrackList = GenericTrackList<TrackSizeOrRepeat>;
+pub type TrackList = GenericTrackList<LengthOrPercentage>;
 
 /// `<grid-template-rows> | <grid-template-columns>`
-pub type GridTemplateComponent = GenericGridTemplateComponent<TrackSizeOrRepeat>;
+pub type GridTemplateComponent = GenericGridTemplateComponent<LengthOrPercentage>;
 
 no_viewport_percentage!(SVGPaint);
 

@@ -189,8 +189,9 @@ private:
    * element or any descendant or sibling.
    */
   bool ProcessPostTraversal(Element* aElement,
-                            nsStyleContext* aParentContext,
-                            ServoRestyleState& aRestyleState);
+                            ServoStyleContext* aParentContext,
+                            ServoRestyleState& aRestyleState,
+                            TraversalRestyleBehavior aRestyleBehavior);
 
   struct TextPostTraversalState;
   bool ProcessPostTraversalForText(nsIContent* aTextNode,

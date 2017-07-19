@@ -35,10 +35,6 @@ class nsIPrincipal;
 
 namespace mozilla {
 
-namespace dom {
-class HTMLMediaElement;
-}
-
 class AbstractThread;
 class VideoFrameContainer;
 class MediaDecoderReader;
@@ -214,8 +210,6 @@ public:
   // Return true if the MediaDecoderOwner's error attribute is not null.
   // Must be called before Shutdown().
   bool OwnerHasError() const;
-
-  already_AddRefed<GMPCrashHelper> GetCrashHelper() override;
 
 public:
   // Returns true if this media supports random seeking. False for example with
@@ -415,10 +409,6 @@ private:
   static bool IsWaveEnabled();
   static bool IsWebMEnabled();
 
-#ifdef MOZ_ANDROID_OMX
-  static bool IsAndroidMediaPluginEnabled();
-#endif
-
 #ifdef MOZ_WMF
   static bool IsWMFEnabled();
 #endif
@@ -512,6 +502,8 @@ protected:
     return mCurrentPosition.Ref();
   }
 
+  already_AddRefed<layers::KnowsCompositor> GetCompositor();
+
   // Official duration of the media resource as observed by script.
   double mDuration;
 
@@ -542,9 +534,6 @@ private:
   // Called when the owner's activity changed.
   void NotifyCompositor();
 
-  MediaEventSource<RefPtr<layers::KnowsCompositor>>*
-  CompositorUpdatedEvent() override { return &mCompositorUpdatedEvent; }
-
   void OnPlaybackEvent(MediaEventType aEvent);
   void OnPlaybackErrorEvent(const MediaResult& aError);
 
@@ -559,8 +548,6 @@ private:
 
   void ConnectMirrors(MediaDecoderStateMachine* aObject);
   void DisconnectMirrors();
-
-  MediaEventProducer<RefPtr<layers::KnowsCompositor>> mCompositorUpdatedEvent;
 
   // The state machine object for handling the decoding. It is safe to
   // call methods of this object from other threads. Its internal data
@@ -708,6 +695,9 @@ protected:
   MediaEventListener mOnPlaybackErrorEvent;
   MediaEventListener mOnDecoderDoctorEvent;
   MediaEventListener mOnMediaNotSeekable;
+  MediaEventListener mOnEncrypted;
+  MediaEventListener mOnWaitingForKey;
+  MediaEventListener mOnDecodeWarning;
 
 protected:
   // PlaybackRate and pitch preservation status we should start at.
@@ -825,10 +815,6 @@ private:
   void NotifyAudibleStateChanged();
 
   bool mTelemetryReported;
-
-  // Used to debug how mOwner becomes a dangling pointer in bug 1326294.
-  bool mIsMediaElement;
-  WeakPtr<dom::HTMLMediaElement> mElement;
   const MediaContainerType mContainerType;
 };
 

@@ -49,6 +49,7 @@ JS::Zone::Zone(JSRuntime* rt, ZoneGroup* group)
     propertyTree_(group, this),
     baseShapes_(group, this),
     initialShapes_(group, this),
+    nurseryShapes_(group),
     data(group, nullptr),
     isSystem(group, false),
 #ifdef DEBUG
@@ -162,7 +163,7 @@ Zone::sweepBreakpoints(FreeOp* fop)
                 // live.
                 MOZ_ASSERT_IF(isGCSweeping() && dbgobj->zone()->isCollecting(),
                               dbgobj->zone()->isGCSweeping() ||
-                              (!scriptGone && dbgobj->asTenured().isMarked()));
+                              (!scriptGone && dbgobj->asTenured().isMarkedAny()));
 
                 bool dying = scriptGone || IsAboutToBeFinalized(&dbgobj);
                 MOZ_ASSERT_IF(!dying, !IsAboutToBeFinalized(&bp->getHandlerRef()));

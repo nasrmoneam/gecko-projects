@@ -151,7 +151,6 @@ macosx64-nightly/opt:
         script: "mozharness/scripts/fx_desktop_build.py"
         secrets: true
         tooltool-downloads: internal
-    run-on-projects: [ 'jamun' ]
 
 macosx64-devedition-nightly/opt:
     description: "MacOS X Dev Edition x64 Nightly"

@@ -11,9 +11,10 @@ use font_metrics::FontMetricsProvider;
 use media_queries::Device;
 #[cfg(feature = "gecko")]
 use properties;
-use properties::{ComputedValues, StyleBuilder};
+use properties::{ComputedValuesInner, StyleBuilder};
 use std::f32;
-use std::f32::consts::PI;
+use std::f64;
+use std::f64::consts::PI;
 use std::fmt;
 use style_traits::ToCss;
 use super::{CSSFloat, CSSInteger, RGBA};
@@ -30,18 +31,18 @@ pub use self::border::{BorderRadius, BorderCornerRadius};
 pub use self::color::{Color, RGBAColor};
 pub use self::effects::{BoxShadow, Filter, SimpleShadow};
 pub use self::flex::FlexBasis;
-pub use self::image::{Gradient, GradientItem, ImageLayer, LineDirection, Image, ImageRect};
+pub use self::image::{Gradient, GradientItem, Image, ImageLayer, LineDirection, MozImageRect};
 #[cfg(feature = "gecko")]
 pub use self::gecko::ScrollSnapPoint;
 pub use self::rect::LengthOrNumberRect;
 pub use super::{Auto, Either, None_};
 #[cfg(feature = "gecko")]
 pub use super::specified::{AlignItems, AlignJustifyContent, AlignJustifySelf, JustifyItems};
-pub use super::specified::{BorderStyle, Percentage, UrlOrNone};
+pub use super::specified::{BorderStyle, UrlOrNone};
 pub use super::generics::grid::GridLine;
 pub use super::specified::url::SpecifiedUrl;
 pub use self::length::{CalcLengthOrPercentage, Length, LengthOrNone, LengthOrNumber, LengthOrPercentage};
-pub use self::length::{LengthOrPercentageOrAuto, LengthOrPercentageOrNone, MaxLength, MozLength};
+pub use self::length::{LengthOrPercentageOrAuto, LengthOrPercentageOrNone, MaxLength, MozLength, Percentage};
 pub use self::position::Position;
 pub use self::text::{InitialLetter, LetterSpacing, LineHeight, WordSpacing};
 pub use self::transform::{TimingFunction, TransformOrigin};
@@ -71,13 +72,13 @@ pub struct Context<'a> {
     pub device: &'a Device,
 
     /// The style we're inheriting from.
-    pub inherited_style: &'a ComputedValues,
+    pub inherited_style: &'a ComputedValuesInner,
 
     /// The style of the layout parent node. This will almost always be
     /// `inherited_style`, except when `display: contents` is at play, in which
     /// case it's the style of the last ancestor with a `display` value that
     /// isn't `contents`.
-    pub layout_parent_style: &'a ComputedValues,
+    pub layout_parent_style: &'a ComputedValuesInner,
 
     /// Values accessed through this need to be in the properties "computed
     /// early": color, text-decoration, font-size, display, position, float,
@@ -114,7 +115,7 @@ impl<'a> Context<'a> {
     /// The current viewport size.
     pub fn viewport_size(&self) -> Size2D<Au> { self.device.au_viewport_size() }
     /// The style we're inheriting from.
-    pub fn inherited_style(&self) -> &ComputedValues { &self.inherited_style }
+    pub fn inherited_style(&self) -> &ComputedValuesInner { &self.inherited_style }
     /// The current style. Note that only "eager" properties should be accessed
     /// from here, see the comment in the member.
     pub fn style(&self) -> &StyleBuilder { &self.style }
@@ -313,17 +314,27 @@ impl Angle {
     /// Return the amount of radians this angle represents.
     #[inline]
     pub fn radians(&self) -> CSSFloat {
-        const RAD_PER_DEG: CSSFloat = PI / 180.0;
-        const RAD_PER_GRAD: CSSFloat = PI / 200.0;
-        const RAD_PER_TURN: CSSFloat = PI * 2.0;
+        self.radians64().min(f32::MAX as f64).max(f32::MIN as f64) as f32
+    }
+
+    /// Return the amount of radians this angle represents as a 64-bit float.
+    /// Gecko stores angles as singles, but does this computation using doubles.
+    /// See nsCSSValue::GetAngleValueInRadians.
+    /// This is significant enough to mess up rounding to the nearest
+    /// quarter-turn for 225 degrees, for example.
+    #[inline]
+    pub fn radians64(&self) -> f64 {
+        const RAD_PER_DEG: f64 = PI / 180.0;
+        const RAD_PER_GRAD: f64 = PI / 200.0;
+        const RAD_PER_TURN: f64 = PI * 2.0;
 
         let radians = match *self {
-            Angle::Degree(val) => val * RAD_PER_DEG,
-            Angle::Gradian(val) => val * RAD_PER_GRAD,
-            Angle::Turn(val) => val * RAD_PER_TURN,
-            Angle::Radian(val) => val,
+            Angle::Degree(val) => val as f64 * RAD_PER_DEG,
+            Angle::Gradian(val) => val as f64 * RAD_PER_GRAD,
+            Angle::Turn(val) => val as f64 * RAD_PER_TURN,
+            Angle::Radian(val) => val as f64,
         };
-        radians.min(f32::MAX).max(f32::MIN)
+        radians.min(f64::MAX).max(f64::MIN)
     }
 
     /// Returns an angle that represents a rotation of zero radians.
@@ -549,10 +560,10 @@ pub type TrackSize = GenericTrackSize<LengthOrPercentage>;
 
 /// The computed value of a grid `<track-list>`
 /// (could also be `<auto-track-list>` or `<explicit-track-list>`)
-pub type TrackList = GenericTrackList<TrackSize>;
+pub type TrackList = GenericTrackList<LengthOrPercentage>;
 
 /// `<grid-template-rows> | <grid-template-columns>`
-pub type GridTemplateComponent = GenericGridTemplateComponent<TrackSize>;
+pub type GridTemplateComponent = GenericGridTemplateComponent<LengthOrPercentage>;
 
 impl ClipRectOrAuto {
     /// Return an auto (default for clip-rect and image-region) value

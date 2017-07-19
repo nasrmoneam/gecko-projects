@@ -940,7 +940,7 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
                            aVisitedRuleNode,
                            aFlags & eSkipParentDisplayBasedStyleFixup);
       resultIfVisited->SetIsStyleIfVisited();
-      result->SetStyleIfVisited(resultIfVisited.forget());
+      result->AsGecko()->SetStyleIfVisited(resultIfVisited.forget());
 
       if (relevantLinkVisited) {
         result->AddStyleBit(NS_STYLE_RELEVANT_LINK_VISITED);
@@ -962,10 +962,10 @@ nsStyleSet::GetContext(nsStyleContext* aParentContext,
     if (PresContext()->IsDynamic() &&
         aElementForAnimation->IsInComposedDoc()) {
       // Update CSS animations in case the animation-name has just changed.
-      PresContext()->AnimationManager()->UpdateAnimations(result,
+      PresContext()->AnimationManager()->UpdateAnimations(result->AsGecko(),
                                                           aElementForAnimation);
       PresContext()->EffectCompositor()->UpdateEffectProperties(
-        result.get(), aElementForAnimation, result->GetPseudoType());
+        result->AsGecko(), aElementForAnimation, result->GetPseudoType());
 
       animRule = PresContext()->EffectCompositor()->
                    GetAnimationRule(aElementForAnimation,
@@ -1705,8 +1705,6 @@ SkipsParentDisplayBasedStyleFixup(nsStyleContext* aStyleContext)
   CSSPseudoElementType type = aStyleContext->GetPseudoType();
   switch (type) {
     case CSSPseudoElementType::InheritingAnonBox:
-       return nsCSSAnonBoxes::AnonBoxSkipsParentDisplayBasedStyleFixup(
-                aStyleContext->GetPseudo());
     case CSSPseudoElementType::NonInheritingAnonBox:
        return true;
     case CSSPseudoElementType::NotPseudo:
@@ -2134,14 +2132,9 @@ nsStyleSet::ResolveInheritingAnonymousBoxStyle(nsIAtom* aPseudoTag,
     }
   }
 
-  uint32_t flags = eNoFlags;
-  if (nsCSSAnonBoxes::AnonBoxSkipsParentDisplayBasedStyleFixup(aPseudoTag)) {
-    flags |= eSkipParentDisplayBasedStyleFixup;
-  }
-
   return GetContext(aParentContext, ruleWalker.CurrentNode(), nullptr,
                     aPseudoTag, CSSPseudoElementType::InheritingAnonBox,
-                    nullptr, flags);
+                    nullptr, eSkipParentDisplayBasedStyleFixup);
 }
 
 already_AddRefed<nsStyleContext>

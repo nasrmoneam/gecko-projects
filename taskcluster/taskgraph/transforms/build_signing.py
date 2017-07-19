@@ -19,8 +19,8 @@ def add_signed_routes(config, jobs):
 
     for job in jobs:
         dep_job = job['dependent-task']
-        job['routes'] = []
 
+        job['routes'] = []
         if dep_job.attributes.get('nightly'):
             for dep_route in dep_job.task.get('routes', []):
                 if not dep_route.startswith('index.gecko.v2'):
@@ -64,15 +64,25 @@ def _generate_upstream_artifacts(build_platform, is_nightly=False):
             'artifacts': ['public/build/target.dmg'],
             'format': 'macapp',
         }]
-    elif 'win' in build_platform:
+    elif 'win64' in build_platform:
         artifacts_specificities = [{
             'artifacts': [
                 'public/build/target.zip',
                 'public/build/setup.exe'
+            ],
+            'format': 'sha2signcode',
+        }]
+    elif 'win32' in build_platform:
+        artifacts_specificities = [{
+            'artifacts': [
+                'public/build/target.zip',
+                'public/build/setup.exe',
                 ],
             'format': 'sha2signcode',
         }]
-    else:
+        if is_nightly:
+            artifacts_specificities[0]['artifacts'] += ['public/build/setup-stub.exe']
+    elif 'linux' in build_platform:
         artifacts_specificities = [{
             'artifacts': ['public/build/target.tar.bz2'],
             'format': 'gpg',
@@ -80,6 +90,8 @@ def _generate_upstream_artifacts(build_platform, is_nightly=False):
             'artifacts': ['public/build/update/target.complete.mar'],
             'format': 'mar',
         }]
+    else:
+        raise Exception("Platform not implemented for signing")
 
     return [{
         'taskId': {'task-reference': '<build>'},

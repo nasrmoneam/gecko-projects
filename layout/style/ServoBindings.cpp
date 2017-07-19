@@ -53,6 +53,7 @@
 #include "mozilla/GeckoStyleContext.h"
 #include "mozilla/Keyframe.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/Preferences.h"
 #include "mozilla/ServoElementSnapshot.h"
 #include "mozilla/ServoRestyleManager.h"
 #include "mozilla/StyleAnimationValue.h"
@@ -82,12 +83,13 @@ using namespace mozilla::dom;
     return result.forget();          \
   }
 #include "mozilla/ServoArcTypeList.h"
+SERVO_ARC_TYPE(StyleContext, ServoStyleContext)
 #undef SERVO_ARC_TYPE
-
 
 static Mutex* sServoFontMetricsLock = nullptr;
 static RWLock* sServoLangFontPrefsLock = nullptr;
 
+static bool sFramesTimingFunctionEnabled;
 
 static
 const nsFont*
@@ -204,6 +206,36 @@ Gecko_DestroyAnonymousContentList(nsTArray<nsIContent*>* aAnonContent)
 {
   MOZ_ASSERT(aAnonContent);
   delete aAnonContent;
+}
+
+void
+Gecko_ServoStyleContext_Init(ServoStyleContext* aContext,
+                             const ServoStyleContext* aParentContext,
+                             RawGeckoPresContextBorrowed aPresContext, const ServoComputedValues* aValues,
+                             mozilla::CSSPseudoElementType aPseudoType, nsIAtom* aPseudoTag)
+{
+  // because it is within an Arc it is unsafe for the Rust side to ever
+  // carry around a mutable non opaque reference to the context, so we
+  // cast it here.
+  ServoStyleContext* parent = const_cast<ServoStyleContext*>(aParentContext);
+  nsPresContext* pres = const_cast<nsPresContext*>(aPresContext);
+  new (KnownNotNull, aContext) ServoStyleContext(parent, pres, aPseudoTag,
+                                                 aPseudoType, ServoComputedValuesForgotten(aValues));
+}
+
+ServoComputedValues::ServoComputedValues(const ServoComputedValuesForgotten aValue) {
+  PodAssign(this, aValue.mPtr);
+}
+
+const nsStyleVariables* ServoComputedValues::GetStyleVariables() const
+{
+  return Servo_GetEmptyVariables();
+}
+
+void
+Gecko_ServoStyleContext_Destroy(ServoStyleContext* aContext)
+{
+  aContext->~ServoStyleContext();
 }
 
 void
@@ -344,8 +376,9 @@ Gecko_GetStyleContext(RawGeckoElementBorrowed aElement,
   }
 
   // FIXME(emilio): Is there a shorter path?
-  nsCSSFrameConstructor* fc =
-    aElement->OwnerDoc()->GetShell()->GetPresContext()->FrameConstructor();
+  nsIPresShell* shell = aElement->OwnerDoc()->GetShell();
+  NS_ENSURE_TRUE(shell, nullptr);
+  nsCSSFrameConstructor* fc = shell->GetPresContext()->FrameConstructor();
 
   // NB: This is only called for CalcStyleDifference, and we handle correctly
   // the display: none case since Servo still has the older style.
@@ -602,8 +635,8 @@ Gecko_StyleAnimationsEquals(RawGeckoStyleAnimationListBorrowed aA,
 
 void
 Gecko_UpdateAnimations(RawGeckoElementBorrowed aElement,
-                       ServoComputedValuesBorrowedOrNull aOldComputedValues,
-                       ServoComputedValuesBorrowedOrNull aComputedValues,
+                       ServoStyleContextBorrowedOrNull aOldComputedValues,
+                       ServoStyleContextBorrowedOrNull aComputedValues,
                        UpdateAnimationsTasks aTasks)
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -641,7 +674,8 @@ Gecko_UpdateAnimations(RawGeckoElementBorrowed aElement,
     MOZ_ASSERT(aOldComputedValues);
     presContext->TransitionManager()->
       UpdateTransitions(const_cast<dom::Element*>(aElement), pseudoType,
-                        aOldComputedValues, aComputedValues);
+                        aOldComputedValues,
+                        aComputedValues);
   }
 
   if (aTasks & UpdateAnimationsTasks::EffectProperties) {
@@ -761,6 +795,11 @@ Gecko_GetPositionInSegment(RawGeckoAnimationPropertySegmentBorrowed aSegment,
   return ComputedTimingFunction::GetPortion(aSegment->mTimingFunction,
                                             positionInSegment,
                                             aBeforeFlag);
+}
+
+bool
+Gecko_IsFramesTimingEnabled() {
+  return sFramesTimingFunctionEnabled;
 }
 
 RawServoAnimationValueBorrowedOrNull
@@ -1312,10 +1351,10 @@ Gecko_CopyAlternateValuesFrom(nsFont* aDest, const nsFont* aSrc)
 
 void
 Gecko_SetImageOrientation(nsStyleVisibility* aVisibility,
-                          double aRadians, bool aFlip)
+                          uint8_t aOrientation, bool aFlip)
 {
   aVisibility->mImageOrientation =
-    nsStyleImageOrientation::CreateAsAngleAndFlip(aRadians, aFlip);
+    nsStyleImageOrientation::CreateAsOrientationAndFlip(aOrientation, aFlip);
 }
 
 void
@@ -2338,6 +2377,9 @@ InitializeServo()
 
   sServoFontMetricsLock = new Mutex("Gecko_GetFontMetrics");
   sServoLangFontPrefsLock = new RWLock("nsPresContext::GetDefaultFont");
+
+  Preferences::AddBoolVarCache(&sFramesTimingFunctionEnabled,
+                               "layout.css.frames-timing.enabled");
 }
 
 void

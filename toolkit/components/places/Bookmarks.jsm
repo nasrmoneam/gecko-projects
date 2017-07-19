@@ -184,7 +184,7 @@ var Bookmarks = Object.freeze({
     if (addedTime > now) {
       modTime = now;
     }
-    let insertInfo = validateBookmarkObject(info,
+    let insertInfo = validateBookmarkObject("Bookmarks.jsm: insert", info,
       { type: { defaultValue: this.TYPE_BOOKMARK },
         index: { defaultValue: this.DEFAULT_INDEX },
         url: { requiredIf: b => b.type == this.TYPE_BOOKMARK,
@@ -347,7 +347,8 @@ var Bookmarks = Object.freeze({
         // Ensure to use the same date for dateAdded and lastModified, even if
         // dateAdded may be imposed by the caller.
         let time = (info && info.dateAdded) || fallbackLastAdded;
-        let insertInfo = validateBookmarkObject(info, {
+        let insertInfo = validateBookmarkObject("Bookmarks.jsm: insertTree",
+                                                info, {
           type: { defaultValue: TYPE_BOOKMARK },
           url: { requiredIf: b => b.type == TYPE_BOOKMARK,
                  validIf: b => b.type == TYPE_BOOKMARK },
@@ -425,16 +426,16 @@ var Bookmarks = Object.freeze({
     let lastAddedForParent = appendInsertionInfoForInfoArray(tree.children, null, tree.guid);
 
     return (async function() {
-      let parent = await fetchBookmark({ guid: tree.guid });
-      if (!parent) {
+      let treeParent = await fetchBookmark({ guid: tree.guid });
+      if (!treeParent) {
         throw new Error("The parent you specified doesn't exist.");
       }
 
-      if (parent._parentId == PlacesUtils.tagsFolderId) {
+      if (treeParent._parentId == PlacesUtils.tagsFolderId) {
         throw new Error("Can't use insertTree to insert tags.");
       }
 
-      await insertBookmarkTree(insertInfos, source, parent,
+      await insertBookmarkTree(insertInfos, source, treeParent,
                                urlsThatMightNeedPlaces, lastAddedForParent);
 
       await insertLivemarkData(insertLivemarkInfos);
@@ -444,7 +445,7 @@ var Bookmarks = Object.freeze({
       // when we fetched the parent and inserted our items, but the actual
       // inserts will have been correct, and we don't want to query the DB
       // again if we don't have to. bug 1347230 covers improving this.
-      let rootIndex = parent._childCount;
+      let rootIndex = treeParent._childCount;
       for (let insertInfo of insertInfos) {
         if (insertInfo.parentGuid == tree.guid) {
           insertInfo.index += rootIndex++;
@@ -461,11 +462,10 @@ var Bookmarks = Object.freeze({
         let uri = item.hasOwnProperty("url") ? PlacesUtils.toURI(item.url) : null;
         // For sub-folders, we need to make sure their children have the correct parent ids.
         let parentId;
-        if (item.guid === parent.guid ||
-            Bookmarks.userContentRoots.includes(item.parentGuid)) {
-          // We're the item being inserted at the top-level, or we're a top-level
-          // folder, so the parent id won't have changed.
-          parentId = parent._id;
+        if (item.parentGuid === treeParent.guid) {
+          // This is a direct child of the tree parent, so we can use the
+          // existing parent's id.
+          parentId = treeParent._id;
         } else {
           // This is a parent folder that's been updated, so we need to
           // use the new item id.
@@ -514,7 +514,7 @@ var Bookmarks = Object.freeze({
     // The info object is first validated here to ensure it's consistent, then
     // it's compared to the existing item to remove any properties that don't
     // need to be updated.
-    let updateInfo = validateBookmarkObject(info,
+    let updateInfo = validateBookmarkObject("Bookmarks.jsm: update", info,
       { guid: { required: true },
         index: { requiredIf: b => b.hasOwnProperty("parentGuid"),
                  validIf: b => b.index >= 0 || b.index == this.DEFAULT_INDEX },
@@ -548,7 +548,7 @@ var Bookmarks = Object.freeze({
           "dateAdded" in updateInfo) {
         lastModifiedDefault = new Date(Math.max(item.lastModified, updateInfo.dateAdded));
       }
-      updateInfo = validateBookmarkObject(updateInfo,
+      updateInfo = validateBookmarkObject("Bookmarks.jsm: update", updateInfo,
         { url: { validIf: () => item.type == this.TYPE_BOOKMARK },
           title: { validIf: () => [ this.TYPE_BOOKMARK,
                                     this.TYPE_FOLDER ].includes(item.type) },
@@ -734,7 +734,7 @@ var Bookmarks = Object.freeze({
 
     // Even if we ignore any other unneeded property, we still validate any
     // known property to reduce likelihood of hidden bugs.
-    let removeInfo = validateBookmarkObject(info);
+    let removeInfo = validateBookmarkObject("Bookmarks.jsm: remove", info);
 
     return (async function() {
       let item = await fetchBookmark(removeInfo);
@@ -834,9 +834,7 @@ var Bookmarks = Object.freeze({
       throw new Error("numberOfItems argument must be greater than zero");
     }
 
-    return (async function() {
-      return await fetchRecentBookmarks(numberOfItems);
-    })();
+    return fetchRecentBookmarks(numberOfItems);
   },
 
   /**
@@ -917,7 +915,8 @@ var Bookmarks = Object.freeze({
 
     // Even if we ignore any other unneeded property, we still validate any
     // known property to reduce likelihood of hidden bugs.
-    let fetchInfo = validateBookmarkObject(info, behavior);
+    let fetchInfo = validateBookmarkObject("Bookmarks.jsm: fetch", info,
+                                           behavior);
 
     return (async function() {
       let results;
@@ -1042,7 +1041,8 @@ var Bookmarks = Object.freeze({
    */
   reorder(parentGuid, orderedChildrenGuids, options = {}) {
     let info = { guid: parentGuid };
-    info = validateBookmarkObject(info, { guid: { required: true } });
+    info = validateBookmarkObject("Bookmarks.jsm: reorder", info,
+                                  { guid: { required: true } });
 
     if (!Array.isArray(orderedChildrenGuids) || !orderedChildrenGuids.length)
       throw new Error("Must provide a sorted array of children GUIDs.");
@@ -2035,8 +2035,8 @@ function rowsToItemsArray(rows) {
   });
 }
 
-function validateBookmarkObject(input, behavior) {
-  return PlacesUtils.validateItemProperties(
+function validateBookmarkObject(name, input, behavior) {
+  return PlacesUtils.validateItemProperties(name,
     PlacesUtils.BOOKMARK_VALIDATORS, input, behavior);
 }
 
@@ -2189,7 +2189,9 @@ async function(db, folderGuids, options) {
               p.parent AS _grandParentId, NULL AS _childCount,
               b.syncStatus AS _syncStatus
        FROM descendants
-       JOIN moz_bookmarks b ON did = b.id
+       /* The usage of CROSS JOIN is not random, it tells the optimizer
+          to retain the original rows order, so the hierarchy is respected */
+       CROSS JOIN moz_bookmarks b ON did = b.id
        JOIN moz_bookmarks p ON p.id = b.parent
        LEFT JOIN moz_places h ON b.fk = h.id`, { folderGuid });
 

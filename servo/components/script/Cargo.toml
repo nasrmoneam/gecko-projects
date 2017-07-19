@@ -27,7 +27,6 @@ tinyfiledialogs = "2.5.9"
 angle = {git = "https://github.com/servo/angle", branch = "servo"}
 app_units = "0.5"
 audio-video-metadata = "0.1.2"
-atomic_refcell = "0.1"
 base64 = "0.5.2"
 bitflags = "0.7"
 bluetooth_traits = {path = "../bluetooth_traits"}
@@ -44,7 +43,6 @@ encoding = "0.2"
 euclid = "0.15"
 fnv = "1.0"
 gleam = "0.4"
-gfx_traits = {path = "../gfx_traits"}
 half = "1.0"
 heapsize = "0.4"
 heapsize_derive = "0.1"
@@ -65,10 +63,9 @@ net_traits = {path = "../net_traits"}
 num-traits = "0.1.32"
 offscreen_gl_context = { version = "0.11", features = ["serde"] }
 open = "1.1.1"
-parking_lot = "0.3"
+parking_lot = "0.4"
 phf = "0.7.18"
 profile_traits = {path = "../profile_traits"}
-range = {path = "../range"}
 ref_filter_map = "1.0.1"
 ref_slice = "1.0"
 regex = "0.2"
@@ -92,6 +89,6 @@ url = {version = "1.2", features = ["heap_size", "query_encoding"]}
 utf-8 = "0.7"
 uuid = {version = "0.5", features = ["v4"]}
 xml5ever = {version = "0.8", features = ["unstable"]}
-webrender_traits = {git = "https://github.com/servo/webrender", features = ["ipc"]}
+webrender_api = {git = "https://github.com/servo/webrender", features = ["ipc"]}
 webvr = {path = "../webvr"}
 webvr_traits = {path = "../webvr_traits"}

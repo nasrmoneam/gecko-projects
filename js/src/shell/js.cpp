@@ -1305,7 +1305,7 @@ ParseCompileOptions(JSContext* cx, CompileOptions& options, HandleObject opts,
         int32_t c;
         if (!ToInt32(cx, v, &c))
             return false;
-        options.setColumn(c, c);
+        options.setColumn(c);
     }
 
     if (!JS_GetProperty(cx, opts, "sourceIsLazy", &v))
@@ -5822,9 +5822,9 @@ GetMarks(JSContext* cx, unsigned argc, Value* vp)
             color = "dead";
         } else {
             gc::TenuredCell* cell = &obj->asTenured();
-            if (cell->isMarked(gc::GRAY))
+            if (cell->isMarkedGray())
                 color = "gray";
-            else if (cell->isMarked(gc::BLACK))
+            else if (cell->isMarkedBlack())
                 color = "black";
             else
                 color = "unmarked";

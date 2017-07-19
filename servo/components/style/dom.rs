@@ -15,7 +15,7 @@ use data::ElementData;
 use element_state::ElementState;
 use font_metrics::FontMetricsProvider;
 use media_queries::Device;
-use properties::{ComputedValues, PropertyDeclarationBlock};
+use properties::{AnimationRules, ComputedValues, ComputedValuesInner, PropertyDeclarationBlock};
 #[cfg(feature = "gecko")] use properties::animated_properties::AnimationValue;
 #[cfg(feature = "gecko")] use properties::animated_properties::TransitionProperty;
 use rule_tree::CascadeLevel;
@@ -30,7 +30,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
-use stylearc::Arc;
+use stylearc::{Arc, ArcBorrow};
 use stylist::Stylist;
 use thread_state;
 
@@ -360,7 +360,7 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     }
 
     /// Get this element's style attribute.
-    fn style_attribute(&self) -> Option<&Arc<Locked<PropertyDeclarationBlock>>>;
+    fn style_attribute(&self) -> Option<ArcBorrow<Locked<PropertyDeclarationBlock>>>;
 
     /// Unset the style attribute's dirty bit.
     /// Servo doesn't need to manage ditry bit for style attribute.
@@ -368,7 +368,7 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     }
 
     /// Get this element's SMIL override declarations.
-    fn get_smil_override(&self) -> Option<&Arc<Locked<PropertyDeclarationBlock>>> {
+    fn get_smil_override(&self) -> Option<ArcBorrow<Locked<PropertyDeclarationBlock>>> {
         None
     }
 
@@ -377,6 +377,18 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
                                      _cascade_level: CascadeLevel)
                                      -> Option<Arc<Locked<PropertyDeclarationBlock>>> {
         None
+    }
+
+    /// Get the combined animation and transition rules.
+    fn get_animation_rules(&self) -> AnimationRules {
+        if !self.may_have_animations() {
+            return AnimationRules(None, None)
+        }
+
+        AnimationRules(
+            self.get_animation_rule(),
+            self.get_transition_rule(),
+        )
     }
 
     /// Get this element's animation rule.
@@ -424,7 +436,7 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     fn may_generate_pseudo(
         &self,
         pseudo: &PseudoElement,
-        _primary_style: &ComputedValues,
+        _primary_style: &ComputedValuesInner,
     ) -> bool {
         // ::before/::after are always supported for now, though we could try to
         // optimize out leaf elements.
@@ -537,6 +549,17 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     /// Atomically notes that a child has been processed during bottom-up
     /// traversal. Returns the number of children left to process.
     fn did_process_child(&self) -> isize;
+
+    /// Gets a reference to the ElementData container, or creates one.
+    ///
+    /// Unsafe because it can race to allocate and leak if not used with
+    /// exclusive access to the element.
+    unsafe fn ensure_data(&self) -> AtomicRefMut<ElementData>;
+
+    /// Clears the element data reference, if any.
+    ///
+    /// Unsafe following the same reasoning as ensure_data.
+    unsafe fn clear_data(&self);
 
     /// Gets a reference to the ElementData container.
     fn get_data(&self) -> Option<&AtomicRefCell<ElementData>>;

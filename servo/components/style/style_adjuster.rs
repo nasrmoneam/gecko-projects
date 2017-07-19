@@ -2,16 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-//! A struct to encapsulate all the style fixups a computed style needs in order
-//! for it to adhere to the CSS spec.
+//! A struct to encapsulate all the style fixups and flags propagations
+//! a computed style needs in order for it to adhere to the CSS spec.
 
 use app_units::Au;
-use properties::{self, CascadeFlags, ComputedValues};
+use properties::{self, CascadeFlags, ComputedValuesInner};
 use properties::{IS_ROOT_ELEMENT, SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP, StyleBuilder};
 use properties::longhands::display::computed_value::T as display;
 use properties::longhands::float::computed_value::T as float;
 use properties::longhands::overflow_x::computed_value::T as overflow;
 use properties::longhands::position::computed_value::T as position;
+#[cfg(feature = "gecko")]
+use properties::longhands::unicode_bidi::computed_value::T as unicode_bidi;
 
 
 /// An unsized struct that implements all the adjustment methods.
@@ -52,7 +54,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     /// Apply the blockification rules based on the table in CSS 2.2 section 9.7.
     /// https://drafts.csswg.org/css2/visuren.html#dis-pos-flo
     fn blockify_if_necessary(&mut self,
-                             layout_parent_style: &ComputedValues,
+                             layout_parent_style: &ComputedValuesInner,
                              flags: CascadeFlags) {
         let mut blockify = false;
         macro_rules! blockify_if {
@@ -134,7 +136,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     /// https://lists.w3.org/Archives/Public/www-style/2017Mar/0045.html
     /// https://github.com/servo/servo/issues/15754
     fn adjust_for_writing_mode(&mut self,
-                               layout_parent_style: &ComputedValues) {
+                               layout_parent_style: &ComputedValuesInner) {
         let our_writing_mode = self.style.get_inheritedbox().clone_writing_mode();
         let parent_writing_mode = layout_parent_style.get_inheritedbox().clone_writing_mode();
 
@@ -194,7 +196,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     ///
     /// See https://github.com/servo/servo/issues/15229
     #[cfg(feature = "servo")]
-    fn adjust_for_alignment(&mut self, layout_parent_style: &ComputedValues) {
+    fn adjust_for_alignment(&mut self, layout_parent_style: &ComputedValuesInner) {
         use computed_values::align_items::T as align_items;
         use computed_values::align_self::T as align_self;
 
@@ -289,6 +291,31 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         self.style.mutate_box().set_display(display::inline);
     }
 
+    /// If a <fieldset> has grid/flex display type, we need to inherit
+    /// this type into its ::-moz-fieldset-content anonymous box.
+    #[cfg(feature = "gecko")]
+    fn adjust_for_fieldset_content(&mut self,
+                                   layout_parent_style: &ComputedValuesInner,
+                                   flags: CascadeFlags) {
+        use properties::IS_FIELDSET_CONTENT;
+        if !flags.contains(IS_FIELDSET_CONTENT) {
+            return;
+        }
+        debug_assert_eq!(self.style.get_box().clone_display(), display::block);
+        // TODO We actually want style from parent rather than layout
+        // parent, so that this fixup doesn't happen incorrectly when
+        // when <fieldset> has "display: contents".
+        let parent_display = layout_parent_style.get_box().clone_display();
+        let new_display = match parent_display {
+            display::flex | display::inline_flex => Some(display::flex),
+            display::grid | display::inline_grid => Some(display::grid),
+            _ => None,
+        };
+        if let Some(new_display) = new_display {
+            self.style.mutate_box().set_display(new_display);
+        }
+    }
+
     /// -moz-center, -moz-left and -moz-right are used for HTML's alignment.
     ///
     /// This is covering the <div align="right"><table>...</table></div> case.
@@ -312,17 +339,105 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
        self.style.mutate_inheritedtext().set_text_align(text_align::start);
     }
 
+    /// Set the HAS_TEXT_DECORATION_LINES flag based on parent style.
+    fn adjust_for_text_decoration_lines(&mut self, layout_parent_style: &ComputedValuesInner) {
+        use properties::computed_value_flags::HAS_TEXT_DECORATION_LINES;
+        if layout_parent_style.flags.contains(HAS_TEXT_DECORATION_LINES) ||
+           !self.style.get_text().clone_text_decoration_line().is_empty() {
+            self.style.flags.insert(HAS_TEXT_DECORATION_LINES);
+        }
+    }
+
+    #[cfg(feature = "gecko")]
+    fn should_suppress_linebreak(&self, layout_parent_style: &ComputedValuesInner) -> bool {
+        use properties::computed_value_flags::SHOULD_SUPPRESS_LINEBREAK;
+        // Line break suppression should only be propagated to in-flow children.
+        if self.style.floated() || self.style.out_of_flow_positioned() {
+            return false;
+        }
+        let parent_display = layout_parent_style.get_box().clone_display();
+        if layout_parent_style.flags.contains(SHOULD_SUPPRESS_LINEBREAK) {
+            // Line break suppression is propagated to any children of
+            // line participants.
+            if parent_display.is_line_participant() {
+                return true;
+            }
+        }
+        match self.style.get_box().clone_display() {
+            // Ruby base and text are always non-breakable.
+            display::ruby_base | display::ruby_text => true,
+            // Ruby base container and text container are breakable.
+            // Note that, when certain HTML tags, e.g. form controls, have ruby
+            // level container display type, they could also escape from the
+            // line break suppression flag while they shouldn't. However, it is
+            // generally fine since they themselves are non-breakable.
+            display::ruby_base_container | display::ruby_text_container => false,
+            // Anything else is non-breakable if and only if its layout parent
+            // has a ruby display type, because any of the ruby boxes can be
+            // anonymous.
+            _ => parent_display.is_ruby_type(),
+        }
+    }
+
+    /// Do ruby-related style adjustments, which include:
+    /// * propagate the line break suppression flag,
+    /// * inlinify block descendants,
+    /// * suppress border and padding for ruby level containers,
+    /// * correct unicode-bidi.
+    #[cfg(feature = "gecko")]
+    fn adjust_for_ruby(&mut self,
+                       layout_parent_style: &ComputedValuesInner,
+                       default_computed_values: &'b ComputedValuesInner,
+                       flags: CascadeFlags) {
+        use properties::SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP;
+        use properties::computed_value_flags::SHOULD_SUPPRESS_LINEBREAK;
+        let self_display = self.style.get_box().clone_display();
+        // Check whether line break should be suppressed for this element.
+        if self.should_suppress_linebreak(layout_parent_style) {
+            self.style.flags.insert(SHOULD_SUPPRESS_LINEBREAK);
+            // Inlinify the display type if allowed.
+            if !flags.contains(SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP) {
+                let inline_display = self_display.inlinify();
+                if self_display != inline_display {
+                    self.style.mutate_box().set_display(inline_display);
+                }
+            }
+        }
+        // Suppress border and padding for ruby level containers.
+        // This is actually not part of the spec. It is currently unspecified
+        // how border and padding should be handled for ruby level container,
+        // and suppressing them here make it easier for layout to handle.
+        if self_display.is_ruby_level_container() {
+            self.style.reset_border(default_computed_values);
+            self.style.reset_padding(default_computed_values);
+        }
+        // Force bidi isolation on all internal ruby boxes and ruby container
+        // per spec https://drafts.csswg.org/css-ruby-1/#bidi
+        if self_display.is_ruby_type() {
+            let new_value = match self.style.get_text().clone_unicode_bidi() {
+                unicode_bidi::normal | unicode_bidi::embed => Some(unicode_bidi::isolate),
+                unicode_bidi::bidi_override => Some(unicode_bidi::isolate_override),
+                _ => None,
+            };
+            if let Some(new_value) = new_value {
+                self.style.mutate_text().set_unicode_bidi(new_value);
+            }
+        }
+    }
+
     /// Adjusts the style to account for various fixups that don't fit naturally
     /// into the cascade.
     ///
     /// When comparing to Gecko, this is similar to the work done by
     /// `nsStyleContext::ApplyStyleFixups`.
     pub fn adjust(&mut self,
-                  layout_parent_style: &ComputedValues,
+                  layout_parent_style: &ComputedValuesInner,
+                  _default_computed_values: &'b ComputedValuesInner,
                   flags: CascadeFlags) {
         #[cfg(feature = "gecko")]
         {
             self.adjust_for_prohibited_display_contents(flags);
+            self.adjust_for_fieldset_content(layout_parent_style, flags);
         }
         self.adjust_for_top_layer();
         self.blockify_if_necessary(layout_parent_style, flags);
@@ -341,5 +456,11 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         self.adjust_for_border_width();
         self.adjust_for_outline();
         self.adjust_for_writing_mode(layout_parent_style);
+        self.adjust_for_text_decoration_lines(layout_parent_style);
+        #[cfg(feature = "gecko")]
+        {
+            self.adjust_for_ruby(layout_parent_style,
+                                 _default_computed_values, flags);
+        }
     }
 }

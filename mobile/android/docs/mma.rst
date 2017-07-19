@@ -60,8 +60,11 @@ following parameters::
   // Sent when the app starts
   "action" -> "start"                   // start: Leanplum SDK starts. heartbeat
   "userAttributes" -> "{                // A set of key-value pairs used to describe the user.
-    "focus" -> true                     // If Focus for Android is installed.
-  }"
+    "Focus Installed" -> true           // If Focus for Android is installed.
+    "Klar Installed" -> true            // If Klar for Android is installed.
+    "Signed In Sync" -> true            // If the user has signed in to Mozilla account.
+    "Default Browser" -> true           // If the user has set Fennec as default browser.
+  }
   "appId" -> "app_6Ao...."              // Leanplum App ID.
   "clientKey" -> "dev_srwDUNZR...."     // Leanplum client access key.
   "systemName" -> "Android OS"          // Fixed String in SDK.
@@ -164,34 +167,7 @@ when Leanplum SDK is initialized. When the criteria is met (set in Leanplum back
 and/or targeting certain user attribute ), a prompt message will show up. And there may be buttons for users to click. Those clicks
 may trigger deep links.
 
-List of current messages are:
-* Load Bookmark - Default Browser Promotion
-  LoadBookmark Promote Default Browser : A user click an item in bookmark list, a dialog will be shown to ask you make Fennec default.
-  Event             : E_Opened_Bookmark
-  Deep Link         : firefox://default_browser
-  User Attribute    : defaultBrowser : false
-
-* Open Firefox X times - Default Browser Promotion
-  Open Firefox and show dialog to link to default browser settings
-  Event             : Launch(default Leanplum event, no need to add code)
-  Deep Link         : firefox://default_browser
-  User Attribute    : defaultBrowser : false
-
-* Add Bookmark X times - Default Browser Promotion
-  Add a bookmark and show dialog to link to default browser settings
-  Event             : E_Saved_Bookmark
-  Deep Link         : firefox://default_browser
-  User Attribute    : defaultBrowser : false
-
-* Search URL Area - Default Search Engine Promotion
-  Interact with search Promote Engine : A user enter the url bar, we'll show the search settings
-  Event             : E_Interact_With_Search_URL_Area
-  Deep Link         : firefox://preferences_search
-
-* Save Bookmark - Bookmark List Promotion
-  Save Bookmark Promote Bookmark : When a user save a page as bookmark, we prompt the user to go to bookmark list.
-  Event             : E_Saved_Bookmark
-  Deep Link         : firefox://bookmark_list
+The list of current messages for Android can be found here: https://wiki.mozilla.org/Leanplum_Contextual_Hints#Android
 
 Technical notes
 ~~~~~~~~~~~~~~~

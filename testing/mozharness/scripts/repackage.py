@@ -59,7 +59,10 @@ class Repackage(BaseScript):
         dirs = {}
         dirs['abs_tools_dir'] = os.path.join(abs_dirs['abs_work_dir'], 'tools')
         dirs['abs_mozilla_dir'] = os.path.join(abs_dirs['abs_work_dir'], 'src')
-        dirs['output_home'] = config['output_home'].format(**abs_dirs)
+        locale_dir = ''
+        if config.get('locale'):
+            locale_dir = "{}{}".format(os.path.sep, config['locale'])
+        dirs['output_home'] = config['output_home'].format(locale=locale_dir, **abs_dirs)
         for key in dirs.keys():
             if key not in abs_dirs:
                 abs_dirs[key] = dirs[key]

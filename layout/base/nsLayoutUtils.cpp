@@ -3102,8 +3102,8 @@ static LayoutDeviceIntPoint GetWidgetOffset(nsIWidget* aWidget, nsIWidget*& aRoo
   return offset;
 }
 
-static LayoutDeviceIntPoint
-WidgetToWidgetOffset(nsIWidget* aFrom, nsIWidget* aTo) {
+LayoutDeviceIntPoint
+nsLayoutUtils::WidgetToWidgetOffset(nsIWidget* aFrom, nsIWidget* aTo) {
   nsIWidget* fromRoot;
   LayoutDeviceIntPoint fromOffset = GetWidgetOffset(aFrom, fromRoot);
   nsIWidget* toRoot;
@@ -9159,9 +9159,11 @@ nsLayoutUtils::GetSelectionBoundingRect(Selection* aSel)
     for (int32_t idx = 0; idx < rangeCount; ++idx) {
       nsRange* range = aSel->GetRangeAt(idx);
       nsRange::CollectClientRectsAndText(&accumulator, nullptr, range,
-                                  range->GetStartParent(), range->StartOffset(),
-                                  range->GetEndParent(), range->EndOffset(),
-                                  true, false);
+                                         range->GetStartContainer(),
+                                         range->StartOffset(),
+                                         range->GetEndContainer(),
+                                         range->EndOffset(),
+                                         true, false);
     }
     res = accumulator.mResultRect.IsEmpty() ? accumulator.mFirstRect :
       accumulator.mResultRect;

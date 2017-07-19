@@ -141,7 +141,7 @@ ManageProfileDialog.prototype = {
     //       ProfileAutoCompleteResult.jsm and reuse it here.
     const fieldOrder = [
       "name",
-      "street-address",  // Street address
+      "-moz-street-address-one-line",  // Street address
       "address-level2",  // City/Town
       "organization",    // Company or organization name
       "address-level1",  // Province/State (Standardized code if possible)
@@ -153,7 +153,7 @@ ManageProfileDialog.prototype = {
 
     let parts = [];
     if (address["street-address"]) {
-      address["street-address"] = FormAutofillUtils.toOneLineAddress(
+      address["-moz-street-address-one-line"] = FormAutofillUtils.toOneLineAddress(
         address["street-address"]
       );
     }
@@ -239,7 +239,8 @@ ManageProfileDialog.prototype = {
       this.removeAddresses(this._selectedOptions.map(option => option.value));
     } else if (event.target == this._elements.add) {
       this.openEditDialog();
-    } else if (event.target == this._elements.edit) {
+    } else if (event.target == this._elements.edit ||
+               event.target.parentNode == this._elements.addresses && event.detail > 1) {
       this.openEditDialog(this._selectedOptions[0].address);
     }
   },
@@ -274,6 +275,7 @@ ManageProfileDialog.prototype = {
     window.addEventListener("unload", this, {once: true});
     window.addEventListener("keypress", this);
     this._elements.addresses.addEventListener("change", this);
+    this._elements.addresses.addEventListener("click", this);
     this._elements.controlsContainer.addEventListener("click", this);
     Services.obs.addObserver(this, "formautofill-storage-changed");
   },
@@ -284,6 +286,7 @@ ManageProfileDialog.prototype = {
   detachEventListeners() {
     window.removeEventListener("keypress", this);
     this._elements.addresses.removeEventListener("change", this);
+    this._elements.addresses.removeEventListener("click", this);
     this._elements.controlsContainer.removeEventListener("click", this);
     Services.obs.removeObserver(this, "formautofill-storage-changed");
   },

@@ -41,6 +41,8 @@ MediaSourceDecoder::CreateStateMachine()
   mDemuxer = new MediaSourceDemuxer(AbstractMainThread());
   MediaDecoderReaderInit init(this);
   init.mVideoFrameContainer = GetVideoFrameContainer();
+  init.mKnowsCompositor = GetCompositor();
+  init.mCrashHelper = GetOwner()->CreateGMPCrashHelper();
   mReader = new MediaFormatReader(init, mDemuxer);
   return new MediaDecoderStateMachine(this, mReader);
 }
@@ -314,18 +316,6 @@ MediaSourceDecoder::CanPlayThrough()
     std::min(duration, currentPosition + TimeUnit::FromSeconds(30));
   TimeInterval interval(currentPosition, timeAhead);
   return buffered.ContainsStrict(ClampIntervalToEnd(interval));
-}
-
-void
-MediaSourceDecoder::NotifyWaitingForKey()
-{
-  mWaitingForKeyEvent.Notify();
-}
-
-MediaEventSource<void>*
-MediaSourceDecoder::WaitingForKeyEvent()
-{
-  return &mWaitingForKeyEvent;
 }
 
 TimeInterval

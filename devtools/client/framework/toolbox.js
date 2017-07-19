@@ -10,8 +10,6 @@ const MAX_ORDINAL = 99;
 const SPLITCONSOLE_ENABLED_PREF = "devtools.toolbox.splitconsoleEnabled";
 const SPLITCONSOLE_HEIGHT_PREF = "devtools.toolbox.splitconsoleHeight";
 const DISABLE_AUTOHIDE_PREF = "ui.popup.disable_autohide";
-const OS_HISTOGRAM = "DEVTOOLS_OS_ENUMERATED_PER_USER";
-const OS_IS_64_BITS = "DEVTOOLS_OS_IS_64_BITS_PER_USER";
 const HOST_HISTOGRAM = "DEVTOOLS_TOOLBOX_HOST";
 const SCREENSIZE_HISTOGRAM = "DEVTOOLS_SCREEN_RESOLUTION_ENUMERATED_PER_USER";
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -536,14 +534,9 @@ Toolbox.prototype = {
   },
 
   /**
-   * A common access point for the client-side mapping service for source maps that
-   * any panel can use.  This is a "low-level" API that connects to
-   * the source map worker.
+   * Unconditionally create and get the source map service.
    */
-  get sourceMapService() {
-    if (!Services.prefs.getBoolPref("devtools.source-map.client-service.enabled")) {
-      return null;
-    }
+  _createSourceMapService: function () {
     if (this._sourceMapService) {
       return this._sourceMapService;
     }
@@ -552,6 +545,18 @@ Toolbox.prototype = {
       this.browserRequire("devtools/client/shared/source-map/index");
     this._sourceMapService.startSourceMapWorker(SOURCE_MAP_WORKER);
     return this._sourceMapService;
+  },
+
+  /**
+   * A common access point for the client-side mapping service for source maps that
+   * any panel can use.  This is a "low-level" API that connects to
+   * the source map worker.
+   */
+  get sourceMapService() {
+    if (!Services.prefs.getBoolPref("devtools.source-map.client-service.enabled")) {
+      return null;
+    }
+    return this._createSourceMapService();
   },
 
   /**
@@ -565,10 +570,7 @@ Toolbox.prototype = {
     if (this._sourceMapURLService) {
       return this._sourceMapURLService;
     }
-    let sourceMaps = this.sourceMapService;
-    if (!sourceMaps) {
-      return null;
-    }
+    let sourceMaps = this._createSourceMapService();
     this._sourceMapURLService = new SourceMapURLService(this._target, this.threadClient,
                                                         sourceMaps);
     return this._sourceMapURLService;
@@ -588,9 +590,6 @@ Toolbox.prototype = {
   _pingTelemetry: function () {
     this._telemetry.toolOpened("toolbox");
 
-    this._telemetry.logOncePerBrowserVersion(OS_HISTOGRAM, system.getOSCPU());
-    this._telemetry.logOncePerBrowserVersion(OS_IS_64_BITS,
-                                             Services.appinfo.is64Bit ? 1 : 0);
     this._telemetry.logOncePerBrowserVersion(SCREENSIZE_HISTOGRAM,
                                              system.getScreenDimensions());
     this._telemetry.log(HOST_HISTOGRAM, this._getTelemetryHostId());

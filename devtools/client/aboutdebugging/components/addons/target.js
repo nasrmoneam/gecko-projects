@@ -8,7 +8,8 @@
 
 const { createClass, DOM: dom, PropTypes } =
   require("devtools/client/shared/vendor/react");
-const { debugAddon, uninstallAddon, isTemporaryID } = require("../../modules/addon");
+const { debugAddon, isTemporaryID, parseFileUri, uninstallAddon } =
+  require("../../modules/addon");
 const Services = require("Services");
 
 loader.lazyImporter(this, "BrowserToolboxProcess",
@@ -28,7 +29,7 @@ function filePathForTarget(target) {
   if (!target.temporarilyInstalled || !target.url || !target.url.startsWith("file://")) {
     return [];
   }
-  let path = target.url.slice("file://".length);
+  let path = parseFileUri(target.url);
   return [
     dom.dt(
       { className: "addon-target-info-label" },
@@ -38,6 +39,22 @@ function filePathForTarget(target) {
     dom.dd(
       { className: "addon-target-info-content file-path" },
       dom.span({ className: "file-path-inner", title: path }, path),
+    ),
+  ];
+}
+
+function addonIDforTarget(target) {
+  return [
+    dom.dt(
+      { className: "addon-target-info-label" },
+      Strings.GetStringFromName("extensionID"),
+    ),
+    dom.dd(
+      { className: "addon-target-info-content extension-id" },
+      dom.span(
+        { title: target.addonID },
+        target.addonID
+      )
     ),
   ];
 }
@@ -143,6 +160,7 @@ module.exports = createClass({
       dom.dl(
         { className: "addon-target-info" },
         ...filePathForTarget(target),
+        ...addonIDforTarget(target),
         ...internalIDForTarget(target),
       ),
       dom.div({className: "addon-target-actions"},

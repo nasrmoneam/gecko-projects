@@ -46,32 +46,8 @@ public:
   // Can be called on any thread.
   virtual void NotifyDecodedFrames(const FrameStatisticsData& aStats) = 0;
 
-  // Returns an event that will be notified when the owning document changes state
-  // and we might have a new compositor. If this new compositor requires us to
-  // recreate our decoders, then we expect the existing decoderis to return an
-  // error independently of this.
-  virtual MediaEventSource<RefPtr<layers::KnowsCompositor>>*
-  CompositorUpdatedEvent()
-  {
-    return nullptr;
-  }
-
-  // Notify the media decoder that a decryption key is required before emitting
-  // further output. This only needs to be overridden for decoders that expect
-  // encryption, such as the MediaSource decoder.
-  virtual void NotifyWaitingForKey() { }
-
-  // Return an event that will be notified when a decoder is waiting for a
-  // decryption key before it can return more output.
-  virtual MediaEventSource<void>* WaitingForKeyEvent()
-  {
-    return nullptr;
-  }
-
   // Return an abstract thread on which to run main thread runnables.
   virtual AbstractThread* AbstractMainThread() const = 0;
-
-public:
   virtual VideoFrameContainer* GetVideoFrameContainer() = 0;
   virtual mozilla::layers::ImageContainer* GetImageContainer() = 0;
 
@@ -81,8 +57,6 @@ public:
 
   // Set by Reader if the current audio track can be offloaded
   virtual void SetPlatformCanOffloadAudio(bool aCanOffloadAudio) { }
-
-  virtual already_AddRefed<GMPCrashHelper> GetCrashHelper() { return nullptr; }
 
   // Stack based class to assist in notifying the frame statistics of
   // parsed and decoded frames. Use inside video demux & decode functions

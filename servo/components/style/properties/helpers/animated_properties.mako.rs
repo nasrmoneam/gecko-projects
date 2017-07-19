@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 use std::cmp;
 #[cfg(feature = "gecko")] use fnv::FnvHashMap;
 use style_traits::ParseError;
-use super::ComputedValues;
+use super::ComputedValuesInner;
 #[cfg(any(feature = "gecko", feature = "testing"))]
 use values::Auto;
 use values::{CSSFloat, CustomIdent, Either};
@@ -41,12 +41,11 @@ use values::animated::effects::TextShadowList as AnimatedTextShadowList;
 use values::computed::{Angle, LengthOrPercentageOrAuto, LengthOrPercentageOrNone};
 use values::computed::{BorderCornerRadius, ClipRect};
 use values::computed::{CalcLengthOrPercentage, Color, Context, ComputedValueAsSpecified};
-use values::computed::{LengthOrPercentage, MaxLength, MozLength, ToComputedValue};
+use values::computed::{LengthOrPercentage, MaxLength, MozLength, Percentage, ToComputedValue};
 use values::generics::{SVGPaint, SVGPaintKind};
 use values::generics::border::BorderCornerRadius as GenericBorderCornerRadius;
 use values::generics::effects::Filter;
 use values::generics::position as generic_position;
-use values::specified::length::Percentage;
 
 
 /// A longhand property whose animation type is not "none".
@@ -395,7 +394,7 @@ impl AnimatedProperty {
 
     /// Update `style` with the proper computed style corresponding to this
     /// animation at `progress`.
-    pub fn update(&self, style: &mut ComputedValues, progress: f64) {
+    pub fn update(&self, style: &mut ComputedValuesInner, progress: f64) {
         match *self {
             % for prop in data.longhands:
                 % if prop.animatable:
@@ -428,8 +427,8 @@ impl AnimatedProperty {
     /// Get an animatable value from a transition-property, an old style, and a
     /// new style.
     pub fn from_animatable_longhand(property: &AnimatableLonghand,
-                                    old_style: &ComputedValues,
-                                    new_style: &ComputedValues)
+                                    old_style: &ComputedValuesInner,
+                                    new_style: &ComputedValuesInner)
                                     -> AnimatedProperty {
         match *property {
             % for prop in data.longhands:
@@ -522,9 +521,8 @@ impl AnimationValue {
 
     /// Construct an AnimationValue from a property declaration
     pub fn from_declaration(decl: &PropertyDeclaration, context: &mut Context,
-                            initial: &ComputedValues) -> Option<Self> {
+                            initial: &ComputedValuesInner) -> Option<Self> {
         use properties::LonghandId;
-        use properties::DeclaredValue;
 
         match *decl {
             % for prop in data.longhands:
@@ -584,40 +582,10 @@ impl AnimationValue {
                     % endfor
                 }
             },
-            PropertyDeclaration::WithVariables(id, ref variables) => {
+            PropertyDeclaration::WithVariables(id, ref unparsed) => {
                 let custom_props = context.style().custom_properties();
-                match id {
-                    % for prop in data.longhands:
-                    % if prop.animatable:
-                    LonghandId::${prop.camel_case} => {
-                        let mut result = None;
-                        let quirks_mode = context.quirks_mode;
-                        ::properties::substitute_variables_${prop.ident}_slow(
-                            &variables.css,
-                            variables.first_token_type,
-                            &variables.url_data,
-                            variables.from_shorthand,
-                            &custom_props,
-                            &mut |v| {
-                                let declaration = match *v {
-                                    DeclaredValue::Value(value) => {
-                                        PropertyDeclaration::${prop.camel_case}(value.clone())
-                                    },
-                                    DeclaredValue::CSSWideKeyword(keyword) => {
-                                        PropertyDeclaration::CSSWideKeyword(id, keyword)
-                                    },
-                                    DeclaredValue::WithVariables(_) => unreachable!(),
-                                };
-                                result = AnimationValue::from_declaration(&declaration, context, initial);
-                            },
-                            quirks_mode);
-                        result
-                    },
-                    % else:
-                    LonghandId::${prop.camel_case} => None,
-                    % endif
-                    % endfor
-                }
+                let substituted = unparsed.substitute_variables(id, &custom_props, context.quirks_mode);
+                AnimationValue::from_declaration(&substituted, context, initial)
             },
             _ => None // non animatable properties will get included because of shorthands. ignore.
         }
@@ -625,7 +593,7 @@ impl AnimationValue {
 
     /// Get an AnimationValue for an AnimatableLonghand from a given computed values.
     pub fn from_computed_values(property: &AnimatableLonghand,
-                                computed_values: &ComputedValues)
+                                computed_values: &ComputedValuesInner)
                                 -> Self {
         match *property {
             % for prop in data.longhands:
@@ -826,7 +794,7 @@ macro_rules! repeated_vec_impl {
             fn add_weighted(&self, other: &Self, self_portion: f64, other_portion: f64)
                 -> Result<Self, ()> {
                 // If the length of either list is zero, the least common multiple is undefined.
-                if cmp::min(self.len(), other.len()) < 1 {
+                if self.is_empty() || other.is_empty() {
                     return Err(());
                 }
                 use num_integer::lcm;
@@ -1717,7 +1685,6 @@ fn add_weighted_transform_lists(from_list: &[TransformOperation],
             }
         }
     } else {
-        use values::specified::Percentage;
         let from_transform_list = TransformList(Some(from_list.to_vec()));
         let to_transform_list = TransformList(Some(to_list.to_vec()));
         result.push(
