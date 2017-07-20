@@ -20,13 +20,13 @@ config = {
     "archive_prefix": "https://ftp.stage.mozaws.net/pub",
     "previous_archive_prefix": "https://archive.mozilla.org/pub",
     "download_domain": "download.mozilla.org",
-    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:8080",
+    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:9090",
     "balrog_username": "balrog-stage-ffxbld",
     "update_channels": {
         "beta-dev": {
             "version_regex": r"^(\d+\.\d+(b\d+)?)$",
             "requires_mirrors": False,
-            "patcher_config": "mozDate-branch-patcher2.cfg",
+            "patcher_config": "mozRelease-branch-patcher2.cfg",
             "update_verify_channel": "beta-dev-localtest",
             "mar_channel_ids": [
                 "firefox-mozilla-beta-dev", "firefox-mozilla-release-dev",
@@ -39,7 +39,7 @@ config = {
         "release-dev": {
             "version_regex": r"^\d+\.\d+(\.\d+)?$",
             "requires_mirrors": True,
-            "patcher_config": "mozJamun-branch-patcher2.cfg",
+            "patcher_config": "mozRelease-branch-patcher2.cfg",
             "update_verify_channel": "release-dev-localtest",
             "mar_channel_ids": [],
             "channel_names": ["release-dev", "release-dev-localtest", "release-dev-cdntest"],

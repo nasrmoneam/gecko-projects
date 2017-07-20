@@ -17,7 +17,7 @@ config = {
     "archive_prefix": "https://ftp.stage.mozaws.net/pub",
     "previous_archive_prefix": "https://archive.mozilla.org/pub",
     "download_domain": "download.mozilla.org",
-    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:8080",
+    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:9090",
     "balrog_username": "balrog-stage-ffxbld",
     "update_channels": {
         "aurora-dev": {
@@ -28,8 +28,8 @@ config = {
             "update_verify_channel": "aurora-localtest",
             "mar_channel_ids": [],
             "channel_names": ["aurora", "aurora-localtest", "aurora-cdntest"],
-            "rules_to_update": ["devedition-cdntest", "devedition-localtest"],
-            "publish_rules": ["devedition"],
+            "rules_to_update": ["devedition-dev-cdntest", "devedition-dev-localtest"],
+            "publish_rules": [588],
         }
     },
     "balrog_use_dummy_suffix": False,

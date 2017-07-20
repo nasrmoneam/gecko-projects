@@ -20,19 +20,18 @@ config = {
     "archive_prefix": "https://ftp.stage.mozaws.net/pub",
     "previous_archive_prefix": "https://archive.mozilla.org/pub",
     "download_domain": "download.mozilla.org",
-    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:8080",
+    "balrog_url": "http://ec2-54-241-39-23.us-west-1.compute.amazonaws.com:9090",
     "balrog_username": "balrog-stage-ffxbld",
     "update_channels": {
         "beta-dev": {
             "version_regex": r"^(\d+\.\d+(b\d+)?)$",
             "requires_mirrors": True,
-            # TODO - when we use a real repo, rename this file # s/MozDate/MozBeta-dev/
             "patcher_config": "mozBeta-branch-patcher2.cfg",
             "update_verify_channel": "beta-dev-localtest",
             "mar_channel_ids": [],
             "channel_names": ["beta-dev", "beta-dev-localtest", "beta-dev-cdntest"],
             "rules_to_update": ["firefox-beta-dev-cdntest", "firefox-beta-dev-localtest"],
-            "publish_rules": ["firefox-beta"],
+            "publish_rules": [592],
         }
     },
     "balrog_use_dummy_suffix": False,
