@@ -718,9 +718,6 @@ add_task(async function test_subprocess_environmentAppend() {
     command: PYTHON,
     arguments: ["-u", TEST_SCRIPT, "env", "VALUE_FROM_BASE_ENV", "VALUE_APPENDED_ONCE"],
     environmentAppend: true,
-    environment: {
-      UNTOUCHED_VALUE: "untouched",
-    },
   });
 
   valueFromBaseEnv = await read(proc.stdout);
