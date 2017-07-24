@@ -12,7 +12,8 @@ use dom::TElement;
 use log::LogLevel::Trace;
 use matching::{CascadeVisitedMode, MatchMethods};
 use properties::{AnimationRules, CascadeFlags, ComputedValues};
-use properties::{IS_ROOT_ELEMENT, PROHIBIT_DISPLAY_CONTENTS, SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP};
+use properties::{IS_LINK, IS_ROOT_ELEMENT, IS_VISITED_LINK};
+use properties::{PROHIBIT_DISPLAY_CONTENTS, SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP};
 use properties::{VISITED_DEPENDENT_ONLY, cascade};
 use rule_tree::StrongRuleNode;
 use selector_parser::{PseudoElement, SelectorImpl};
@@ -473,7 +474,19 @@ where
         if self.element.skip_root_and_item_based_display_fixup() {
             cascade_flags.insert(SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP);
         }
+
+        if pseudo.is_none() && self.element.is_link() {
+            cascade_flags.insert(IS_LINK);
+            if self.element.is_visited_link() &&
+                self.context.shared.visited_styles_enabled {
+                cascade_flags.insert(IS_VISITED_LINK);
+            }
+        }
+
         if cascade_visited.visited_dependent_only() {
+            // If this element is a link, we want its visited style to inherit
+            // from the regular style of its parent, because only the
+            // visitedness of the relevant link should influence style.
             if pseudo.is_some() || !self.element.is_link() {
                 parent_style = parent_style.map(|s| {
                     s.get_visited_style().unwrap_or(s)

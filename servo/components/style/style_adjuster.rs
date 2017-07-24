@@ -12,9 +12,6 @@ use properties::longhands::display::computed_value::T as display;
 use properties::longhands::float::computed_value::T as float;
 use properties::longhands::overflow_x::computed_value::T as overflow;
 use properties::longhands::position::computed_value::T as position;
-#[cfg(feature = "gecko")]
-use properties::longhands::unicode_bidi::computed_value::T as unicode_bidi;
-
 
 /// An unsized struct that implements all the adjustment methods.
 pub struct StyleAdjuster<'a, 'b: 'a> {
@@ -110,6 +107,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     fn adjust_for_text_combine_upright(&mut self) {
         use computed_values::text_combine_upright::T as text_combine_upright;
         use computed_values::writing_mode::T as writing_mode;
+        use properties::computed_value_flags::IS_TEXT_COMBINED;
 
         let writing_mode =
             self.style.get_inheritedbox().clone_writing_mode();
@@ -118,6 +116,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
 
         if writing_mode != writing_mode::horizontal_tb &&
            text_combine_upright == text_combine_upright::all {
+            self.style.flags.insert(IS_TEXT_COMBINED);
             self.style.mutate_inheritedbox().set_writing_mode(writing_mode::horizontal_tb);
         }
     }
@@ -390,6 +389,8 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
                        flags: CascadeFlags) {
         use properties::SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP;
         use properties::computed_value_flags::SHOULD_SUPPRESS_LINEBREAK;
+        use properties::longhands::unicode_bidi::computed_value::T as unicode_bidi;
+
         let self_display = self.style.get_box().clone_display();
         // Check whether line break should be suppressed for this element.
         if self.should_suppress_linebreak(layout_parent_style) {
@@ -410,6 +411,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             self.style.reset_border_struct();
             self.style.reset_padding_struct();
         }
+
         // Force bidi isolation on all internal ruby boxes and ruby container
         // per spec https://drafts.csswg.org/css-ruby-1/#bidi
         if self_display.is_ruby_type() {
@@ -424,14 +426,44 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
         }
     }
 
+    /// Computes the RELEVANT_LINK_VISITED flag based on the parent style and on
+    /// whether we're a relevant link.
+    ///
+    /// NOTE(emilio): We don't do this for text styles, which is... dubious, but
+    /// Gecko doesn't seem to do it either. It's extremely easy to do if needed
+    /// though.
+    ///
+    /// FIXME(emilio): This isn't technically a style adjustment thingie, could
+    /// it move somewhere else?
+    fn adjust_for_visited(&mut self, flags: CascadeFlags) {
+        use properties::{IS_LINK, IS_VISITED_LINK};
+        use properties::computed_value_flags::IS_RELEVANT_LINK_VISITED;
+
+        if !self.style.has_visited_style() {
+            return;
+        }
+
+        let relevant_link_visited = if flags.contains(IS_LINK) {
+            flags.contains(IS_VISITED_LINK)
+        } else {
+            self.style.inherited_style().flags.contains(IS_RELEVANT_LINK_VISITED)
+        };
+
+        if relevant_link_visited {
+            self.style.flags.insert(IS_RELEVANT_LINK_VISITED);
+        }
+    }
+
     /// Adjusts the style to account for various fixups that don't fit naturally
     /// into the cascade.
     ///
     /// When comparing to Gecko, this is similar to the work done by
-    /// `nsStyleContext::ApplyStyleFixups`.
+    /// `nsStyleContext::ApplyStyleFixups`, plus some parts of
+    /// `nsStyleSet::GetContext`.
     pub fn adjust(&mut self,
                   layout_parent_style: &ComputedValues,
                   flags: CascadeFlags) {
+        self.adjust_for_visited(flags);
         #[cfg(feature = "gecko")]
         {
             self.adjust_for_prohibited_display_contents(flags);

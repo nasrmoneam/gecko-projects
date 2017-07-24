@@ -342,8 +342,6 @@ test_description_schema = Schema({
         Optional('files-changed'): [basestring],
     }),
 
-    Optional('build-signing-label'): basestring,
-
     Optional('worker-type'): optionally_keyed_by(
         'test-platform',
         Any(basestring, None),
@@ -743,6 +741,23 @@ def set_test_type(config, tests):
         for test_type in ['mochitest', 'reftest']:
             if test_type in test['suite'] and 'web-platform' not in test['suite']:
                 test.setdefault('tags', {})['test-type'] = test_type
+        yield test
+
+
+@transforms.add
+def enable_stylo(config, tests):
+    """
+    Force Stylo on for all its tests, except Stylo vs. Gecko reftests where the
+    test harness will handle this.
+    """
+    for test in tests:
+        if '-stylo' not in test['test-platform']:
+            yield test
+            continue
+
+        if 'reftest-stylo' not in test['suite']:
+            test['mozharness'].setdefault('extra-options', []).append('--enable-stylo')
+
         yield test
 
 

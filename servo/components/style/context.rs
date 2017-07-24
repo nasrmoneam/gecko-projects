@@ -11,6 +11,7 @@ use bloom::StyleBloom;
 use cache::LRUCache;
 use data::{EagerPseudoStyles, ElementData};
 use dom::{OpaqueNode, TNode, TElement, SendElement};
+use euclid::ScaleFactor;
 use euclid::Size2D;
 use fnv::FnvHashMap;
 use font_metrics::FontMetricsProvider;
@@ -27,6 +28,8 @@ use std::fmt;
 use std::ops;
 #[cfg(feature = "servo")] use std::sync::Mutex;
 #[cfg(feature = "servo")] use std::sync::mpsc::Sender;
+use style_traits::CSSPixel;
+use style_traits::DevicePixel;
 use stylist::Stylist;
 use thread_state;
 use time;
@@ -114,6 +117,12 @@ pub struct SharedStyleContext<'a> {
     /// The CSS selector stylist.
     pub stylist: &'a Stylist,
 
+    /// Whether visited styles are enabled.
+    ///
+    /// They may be disabled when Gecko's pref layout.css.visited_links_enabled
+    /// is false, or when in private browsing mode.
+    pub visited_styles_enabled: bool,
+
     /// Configuration options.
     pub options: StyleSystemOptions,
 
@@ -151,6 +160,11 @@ impl<'a> SharedStyleContext<'a> {
     /// Return a suitable viewport size in order to be used for viewport units.
     pub fn viewport_size(&self) -> Size2D<Au> {
         self.stylist.device().au_viewport_size()
+    }
+
+    /// The device pixel ratio
+    pub fn device_pixel_ratio(&self) -> ScaleFactor<f32, CSSPixel, DevicePixel> {
+        self.stylist.device().device_pixel_ratio()
     }
 }
 

@@ -391,6 +391,8 @@ def make_job_description(config, jobs):
                 'max-run-time': 7200,
                 'chain-of-trust': True,
             }
+            job_description['run']['use-simple-package'] = False
+            job_description['run']['use-magic-mh-args'] = False
         else:
             job_description['worker'] = {
                 'docker-image': {'in-tree': 'desktop-build'},

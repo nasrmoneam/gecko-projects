@@ -172,6 +172,7 @@ TabParent::TabParent(nsIContentParent* aManager,
   , mPreserveLayers(false)
   , mHasPresented(false)
   , mHasBeforeUnload(false)
+  , mIsReadyToHandleInputEvents(false)
 {
   MOZ_ASSERT(aManager);
 }
@@ -816,15 +817,14 @@ TabParent::ThemeChanged()
 
 void
 TabParent::HandleAccessKey(const WidgetKeyboardEvent& aEvent,
-                           nsTArray<uint32_t>& aCharCodes,
-                           const int32_t& aModifierMask)
+                           nsTArray<uint32_t>& aCharCodes)
 {
   if (!mIsDestroyed) {
     // Note that we don't need to mark aEvent is posted to a remote process
     // because the event may be dispatched to it as normal keyboard event.
     // Therefore, we should use local copy to send it.
     WidgetKeyboardEvent localEvent(aEvent);
-    Unused << SendHandleAccessKey(localEvent, aCharCodes, aModifierMask);
+    Unused << SendHandleAccessKey(localEvent, aCharCodes);
   }
 }
 
@@ -1082,7 +1082,7 @@ TabParent::SendKeyEvent(const nsAString& aType,
                         int32_t aModifiers,
                         bool aPreventDefault)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
   Unused << PBrowserParent::SendKeyEvent(nsString(aType), aKeyCode, aCharCode,
@@ -1092,7 +1092,7 @@ TabParent::SendKeyEvent(const nsAString& aType,
 void
 TabParent::SendRealMouseEvent(WidgetMouseEvent& aEvent)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
   aEvent.mRefPoint += GetChildProcessOffset();
@@ -1152,7 +1152,7 @@ void
 TabParent::SendRealDragEvent(WidgetDragEvent& aEvent, uint32_t aDragAction,
                              uint32_t aDropEffect)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
   aEvent.mRefPoint += GetChildProcessOffset();
@@ -1171,7 +1171,7 @@ TabParent::AdjustTapToChildWidget(const LayoutDevicePoint& aPoint)
 void
 TabParent::SendMouseWheelEvent(WidgetWheelEvent& aEvent)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
 
@@ -1450,7 +1450,7 @@ TabParent::RecvClearNativeTouchSequence(const uint64_t& aObserverId)
 void
 TabParent::SendRealKeyEvent(WidgetKeyboardEvent& aEvent)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
   aEvent.mRefPoint += GetChildProcessOffset();
@@ -1471,7 +1471,7 @@ TabParent::SendRealKeyEvent(WidgetKeyboardEvent& aEvent)
 void
 TabParent::SendRealTouchEvent(WidgetTouchEvent& aEvent)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return;
   }
 
@@ -1532,7 +1532,7 @@ TabParent::SendHandleTap(TapType aType,
                          const ScrollableLayerGuid& aGuid,
                          uint64_t aInputBlockId)
 {
-  if (mIsDestroyed) {
+  if (mIsDestroyed || !mIsReadyToHandleInputEvents) {
     return false;
   }
   if ((aType == TapType::eSingleTap || aType == TapType::eSecondTap) &&
@@ -2046,7 +2046,23 @@ TabParent::RecvReplyKeyEvent(const WidgetKeyboardEvent& aEvent)
   AutoHandlingUserInputStatePusher userInpStatePusher(localEvent.IsTrusted(),
                                                       &localEvent, doc);
 
-  EventDispatcher::Dispatch(mFrameElement, presContext, &localEvent);
+  nsEventStatus status = nsEventStatus_eIgnore;
+
+  // Handle access key in this process before dispatching reply event because
+  // ESM handles it before dispatching the event to the DOM tree.
+  if (localEvent.mMessage == eKeyPress &&
+      (localEvent.ModifiersMatchWithAccessKey(AccessKeyType::eChrome) ||
+       localEvent.ModifiersMatchWithAccessKey(AccessKeyType::eContent))) {
+    RefPtr<EventStateManager> esm = presContext->EventStateManager();
+    AutoTArray<uint32_t, 10> accessCharCodes;
+    localEvent.GetAccessKeyCandidates(accessCharCodes);
+    if (esm->HandleAccessKey(&localEvent, presContext, accessCharCodes)) {
+      status = nsEventStatus_eConsumeNoDefault;
+    }
+  }
+
+  EventDispatcher::Dispatch(mFrameElement, presContext, &localEvent, nullptr,
+                            &status);
 
   if (!localEvent.DefaultPrevented() &&
       !localEvent.mFlags.mIsSynthesizedForTests) {
@@ -2065,10 +2081,16 @@ TabParent::RecvAccessKeyNotHandled(const WidgetKeyboardEvent& aEvent)
 {
   NS_ENSURE_TRUE(mFrameElement, IPC_OK());
 
+  // This is called only when this process had focus and HandleAccessKey
+  // message was posted to all remote process and each remote process didn't
+  // execute any content access keys.
+  // XXX If there were two or more remote processes, this may be called
+  //     twice or more for a keyboard event, that must be a bug.  But how to
+  //     detect if received event has already been handled?
+
   WidgetKeyboardEvent localEvent(aEvent);
   localEvent.MarkAsHandledInRemoteProcess();
   localEvent.mMessage = eAccessKeyNotFound;
-  localEvent.mAccessKeyForwardedToChild = false;
 
   // Here we convert the WidgetEvent that we received to an nsIDOMEvent
   // to be able to dispatch it to the <browser> element as the target element.
@@ -2912,6 +2934,18 @@ TabParent::RecvRemotePaintIsReady()
   event->WidgetEventPtr()->mFlags.mOnlyChromeDispatch = true;
   bool dummy;
   mFrameElement->DispatchEvent(event, &dummy);
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+TabParent::RecvRemoteIsReadyToHandleInputEvents()
+{
+  // When enabling input event prioritization, input events may preempt other
+  // normal priority IPC messages. To prevent the input events preempt
+  // PBrowserConstructor, we use an IPC 'RemoteIsReadyToHandleInputEvents' to
+  // notify the parent that TabChild is created and ready to handle input
+  // events.
+  SetReadyToHandleInputEvents();
   return IPC_OK();
 }
 

@@ -1011,6 +1011,11 @@ impl<'le> TElement for GeckoElement<'le> {
         self.unset_flags(ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO as u32)
     }
 
+    fn is_visited_link(&self) -> bool {
+        use element_state::IN_VISITED_STATE;
+        self.get_state().intersects(IN_VISITED_STATE)
+    }
+
     fn is_native_anonymous(&self) -> bool {
         self.flags() & (NODE_IS_NATIVE_ANONYMOUS as u32) != 0
     }
@@ -1089,6 +1094,16 @@ impl<'le> TElement for GeckoElement<'le> {
 
     #[inline]
     fn may_have_animations(&self) -> bool {
+        if let Some(pseudo) = self.implemented_pseudo_element() {
+            if !pseudo.is_before_or_after() {
+                return false;
+            }
+            return self.parent_element()
+                       .map_or(false, |p| {
+                           p.as_node()
+                            .get_bool_flag(nsINode_BooleanFlag::ElementHasAnimations)
+            });
+        }
         self.as_node().get_bool_flag(nsINode_BooleanFlag::ElementHasAnimations)
     }
 

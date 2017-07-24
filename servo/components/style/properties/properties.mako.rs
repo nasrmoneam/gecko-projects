@@ -442,6 +442,12 @@ bitflags! {
         const ABSPOS_CB = 1 << 2,
         /// This shorthand property is an alias of another property.
         const SHORTHAND_ALIAS_PROPERTY = 1 << 3,
+        /// This longhand property applies to ::first-letter.
+        const APPLIES_TO_FIRST_LETTER = 1 << 4,
+        /// This longhand property applies to ::first-line.
+        const APPLIES_TO_FIRST_LINE = 1 << 5,
+        /// This longhand property applies to ::placeholder.
+        const APPLIES_TO_PLACEHOLDER = 1 << 6,
     }
 }
 
@@ -2644,6 +2650,11 @@ impl<'a> StyleBuilder<'a> {
         )
     }
 
+    /// Returns whether we have a visited style.
+    pub fn has_visited_style(&self) -> bool {
+        self.visited_style.is_some()
+    }
+
     /// Returns the style we're inheriting from.
     pub fn inherited_style(&self) -> &'a ComputedValues {
         self.inherited_style
@@ -2799,14 +2810,14 @@ bitflags! {
     pub flags CascadeFlags: u8 {
         /// Whether to inherit all styles from the parent. If this flag is not
         /// present, non-inherited styles are reset to their initial values.
-        const INHERIT_ALL = 0x01,
+        const INHERIT_ALL = 1,
 
         /// Whether to skip any display style fixup for root element, flex/grid
         /// item, and ruby descendants.
-        const SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP = 0x02,
+        const SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP = 1 << 1,
 
         /// Whether to only cascade properties that are visited dependent.
-        const VISITED_DEPENDENT_ONLY = 0x04,
+        const VISITED_DEPENDENT_ONLY = 1 << 2,
 
         /// Whether the given element we're styling is the document element,
         /// that is, matches :root.
@@ -2816,15 +2827,23 @@ bitflags! {
         ///
         /// This affects some style adjustments, like blockification, and means
         /// that it may affect global state, like the Device's root font-size.
-        const IS_ROOT_ELEMENT = 0x08,
+        const IS_ROOT_ELEMENT = 1 << 3,
 
         /// Whether to convert display:contents into display:inline.  This
         /// is used by Gecko to prevent display:contents on generated
         /// content.
-        const PROHIBIT_DISPLAY_CONTENTS = 0x10,
+        const PROHIBIT_DISPLAY_CONTENTS = 1 << 4,
 
         /// Whether we're styling the ::-moz-fieldset-content anonymous box.
-        const IS_FIELDSET_CONTENT = 0x20,
+        const IS_FIELDSET_CONTENT = 1 << 5,
+
+        /// Whether we're computing the style of a link, either visited or
+        /// unvisited.
+        const IS_LINK = 1 << 6,
+
+        /// Whether we're computing the style of a link element that happens to
+        /// be visited.
+        const IS_VISITED_LINK = 1 << 7,
     }
 }
 
@@ -2866,11 +2885,26 @@ pub fn cascade(
                 &[]
             };
             let node_importance = node.importance();
+
+            let property_restriction = pseudo.and_then(|p| p.property_restriction());
+
             declarations
                 .iter()
                 // Yield declarations later in source order (with more precedence) first.
                 .rev()
                 .filter_map(move |&(ref declaration, declaration_importance)| {
+                    if let Some(property_restriction) = property_restriction {
+                        // declaration.id() is either a longhand or a custom
+                        // property.  Custom properties are always allowed, but
+                        // longhands are only allowed if they have our
+                        // property_restriction flag set.
+                        if let PropertyDeclarationId::Longhand(id) = declaration.id() {
+                            if !id.flags().contains(property_restriction) {
+                                return None
+                            }
+                        }
+                    }
+
                     if declaration_importance == node_importance {
                         Some((declaration, cascade_level))
                     } else {

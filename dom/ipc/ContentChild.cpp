@@ -1176,6 +1176,9 @@ ContentChild::InitXPCOM(const XPCOMInitData& aXPCOMInit,
   GfxInfoBase::SetFeatureStatus(aXPCOMInit.gfxFeatureStatus());
 
   DataStorage::SetCachedStorageEntries(aXPCOMInit.dataStorage());
+
+  // Enable input event prioritization.
+  nsThreadManager::get().EnableMainThreadEventPrioritization();
 }
 
 mozilla::ipc::IPCResult
@@ -3532,6 +3535,30 @@ ContentChild::RecvShareCodeCoverageMutex(const CrossProcessMutexHandle& aHandle)
 {
 #ifdef MOZ_CODE_COVERAGE
   CodeCoverageHandler::Init(aHandle);
+  return IPC_OK();
+#else
+  NS_RUNTIMEABORT("Shouldn't receive this message in non-code coverage builds!");
+  return IPC_FAIL_NO_REASON(this);
+#endif
+}
+
+mozilla::ipc::IPCResult
+ContentChild::RecvDumpCodeCoverageCounters()
+{
+#ifdef MOZ_CODE_COVERAGE
+  CodeCoverageHandler::DumpCounters(0);
+  return IPC_OK();
+#else
+  NS_RUNTIMEABORT("Shouldn't receive this message in non-code coverage builds!");
+  return IPC_FAIL_NO_REASON(this);
+#endif
+}
+
+mozilla::ipc::IPCResult
+ContentChild::RecvResetCodeCoverageCounters()
+{
+#ifdef MOZ_CODE_COVERAGE
+  CodeCoverageHandler::ResetCounters(0);
   return IPC_OK();
 #else
   NS_RUNTIMEABORT("Shouldn't receive this message in non-code coverage builds!");

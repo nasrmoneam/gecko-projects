@@ -90,6 +90,7 @@
 #include "nsPIWindowRoot.h"
 #include "nsLayoutUtils.h"
 #include "nsPrintfCString.h"
+#include "nsThreadManager.h"
 #include "nsThreadUtils.h"
 #include "nsViewManager.h"
 #include "nsWeakReference.h"
@@ -321,7 +322,19 @@ private:
     {
         MOZ_ASSERT(NS_IsMainThread());
         MOZ_ASSERT(mTabChild);
-
+        // When enabling input event prioritization, we reserve limited time
+        // to process input events. We may handle the rest in the next frame
+        // when running out of time of the current frame. In that case, input
+        // events may be dispatched after ActorDestroy. Delay
+        // DelayedDeleteRunnable to avoid it to happen.
+        nsThread* thread = nsThreadManager::get().GetCurrentThread();
+        MOZ_ASSERT(thread);
+        bool eventPrioritizationEnabled = false;
+        thread->IsEventPrioritizationEnabled(&eventPrioritizationEnabled);
+        if (eventPrioritizationEnabled && thread->HasPendingInputEvents()) {
+          MOZ_ALWAYS_SUCCEEDS(NS_DispatchToCurrentThread(this));
+          return NS_OK;
+        }
         // Check in case ActorDestroy was called after RecvDestroy message.
         if (mTabChild->IPCOpen()) {
             Unused << PBrowserChild::Send__delete__(mTabChild);
@@ -1586,7 +1599,7 @@ TabChild::RecvRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
   localEvent.mWidget = mPuppetWidget;
   APZCCallbackHelper::ApplyCallbackTransform(localEvent, aGuid,
       mPuppetWidget->GetDefaultScale());
-  APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  DispatchWidgetEventViaAPZ(localEvent);
 
   if (aInputBlockId && aEvent.mFlags.mHandledByAPZ) {
     mAPZEventState->ProcessMouseEvent(aEvent, aGuid, aInputBlockId);
@@ -1635,6 +1648,13 @@ TabChild::MaybeCoalesceWheelEvent(const WidgetWheelEvent& aEvent,
   return false;
 }
 
+nsEventStatus
+TabChild::DispatchWidgetEventViaAPZ(WidgetGUIEvent& aEvent)
+{
+  aEvent.ResetWaitingReplyFromRemoteProcessState();
+  return APZCCallbackHelper::DispatchWidgetEvent(aEvent);
+}
+
 void
 TabChild::MaybeDispatchCoalescedWheelEvent()
 {
@@ -1665,7 +1685,7 @@ TabChild::DispatchWheelEvent(const WidgetWheelEvent& aEvent,
   localEvent.mWidget = mPuppetWidget;
   APZCCallbackHelper::ApplyCallbackTransform(localEvent, aGuid,
                                              mPuppetWidget->GetDefaultScale());
-  APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  DispatchWidgetEventViaAPZ(localEvent);
 
   if (localEvent.mCanTriggerSwipe) {
     SendRespondStartSwipeEvent(aInputBlockId, localEvent.TriggersSwipe());
@@ -1732,7 +1752,7 @@ TabChild::RecvRealTouchEvent(const WidgetTouchEvent& aEvent,
   }
 
   // Dispatch event to content (potentially a long-running operation)
-  nsEventStatus status = APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  nsEventStatus status = DispatchWidgetEventViaAPZ(localEvent);
 
   if (!AsyncPanZoomEnabled()) {
     // We shouldn't have any e10s platforms that have touch events enabled
@@ -1792,7 +1812,7 @@ TabChild::RecvRealDragEvent(const WidgetDragEvent& aEvent,
     }
   }
 
-  APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  DispatchWidgetEventViaAPZ(localEvent);
   return IPC_OK();
 }
 
@@ -1801,7 +1821,7 @@ TabChild::RecvPluginEvent(const WidgetPluginEvent& aEvent)
 {
   WidgetPluginEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
-  nsEventStatus status = APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  nsEventStatus status = DispatchWidgetEventViaAPZ(localEvent);
   if (status != nsEventStatus_eConsumeNoDefault) {
     // If not consumed, we should call default action
     SendDefaultProcOfPluginEvent(aEvent);
@@ -1903,7 +1923,7 @@ TabChild::RecvRealKeyEvent(const WidgetKeyboardEvent& aEvent)
   WidgetKeyboardEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
   localEvent.mUniqueId = aEvent.mUniqueId;
-  nsEventStatus status = APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  nsEventStatus status = DispatchWidgetEventViaAPZ(localEvent);
 
   // Update the end time of the possible repeated event so that we can skip
   // some incoming events in case event handling took long time.
@@ -1918,14 +1938,19 @@ TabChild::RecvRealKeyEvent(const WidgetKeyboardEvent& aEvent)
   }
 
   // If a response is desired from the content process, resend the key event.
-  // If mAccessKeyForwardedToChild is set, then don't resend the key event yet
-  // as RecvHandleAccessKey will do this.
-  if (localEvent.WantReplyFromContentProcess()) {
+  if (aEvent.WantReplyFromContentProcess()) {
+    // If the event's default isn't prevented but the status is no default,
+    // That means that the event was consumed by EventStateManager or something
+    // which is not a usual event handler.  In such case, prevent its default
+    // as a default handler.  For example, when an eKeyPress event matches
+    // with a content accesskey, and it's executed, peventDefault() of the
+    // event won't be called but the status is set to "no default".  Then,
+    // the event shouldn't be handled by nsMenuBarListener in the main process.
+    if (!localEvent.DefaultPrevented() &&
+        status == nsEventStatus_eConsumeNoDefault) {
+      localEvent.PreventDefault();
+    }
     SendReplyKeyEvent(localEvent);
-  }
-
-  if (localEvent.mAccessKeyForwardedToChild) {
-    SendAccessKeyNotHandled(localEvent);
   }
 
   return IPC_OK();
@@ -1949,7 +1974,7 @@ TabChild::RecvCompositionEvent(const WidgetCompositionEvent& aEvent)
 {
   WidgetCompositionEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
-  APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  DispatchWidgetEventViaAPZ(localEvent);
   Unused << SendOnEventNeedingAckHandled(aEvent.mMessage);
   return IPC_OK();
 }
@@ -1959,7 +1984,7 @@ TabChild::RecvSelectionEvent(const WidgetSelectionEvent& aEvent)
 {
   WidgetSelectionEvent localEvent(aEvent);
   localEvent.mWidget = mPuppetWidget;
-  APZCCallbackHelper::DispatchWidgetEvent(localEvent);
+  DispatchWidgetEventViaAPZ(localEvent);
   Unused << SendOnEventNeedingAckHandled(aEvent.mMessage);
   return IPC_OK();
 }
@@ -2231,8 +2256,7 @@ TabChild::RecvSwappedWithOtherRemoteLoader(const IPCTabContext& aContext)
 
 mozilla::ipc::IPCResult
 TabChild::RecvHandleAccessKey(const WidgetKeyboardEvent& aEvent,
-                              nsTArray<uint32_t>&& aCharCodes,
-                              const int32_t& aModifierMask)
+                              nsTArray<uint32_t>&& aCharCodes)
 {
   nsCOMPtr<nsIDocument> document(GetDocument());
   nsCOMPtr<nsIPresShell> presShell = document->GetShell();
@@ -2241,8 +2265,7 @@ TabChild::RecvHandleAccessKey(const WidgetKeyboardEvent& aEvent,
     if (pc) {
       if (!pc->EventStateManager()->
                  HandleAccessKey(&(const_cast<WidgetKeyboardEvent&>(aEvent)),
-                                 pc, aCharCodes,
-                                 aModifierMask, true)) {
+                                 pc, aCharCodes)) {
         // If no accesskey was found, inform the parent so that accesskeys on
         // menus can be handled.
         WidgetKeyboardEvent localEvent(aEvent);
