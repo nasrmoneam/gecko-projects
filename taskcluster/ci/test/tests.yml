@@ -610,7 +610,7 @@ mochitest-chrome:
     e10s: false
     run-on-projects:
         by-test-platform:
-            windows7-32.*: ['try', 'date']
+            windows.*: ['try']
             default: built-projects
     worker-type:
         by-test-platform:
@@ -688,7 +688,7 @@ mochitest-clipboard:
         default: both
     run-on-projects:
         by-test-platform:
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: built-projects
     worker-type:
         by-test-platform:
@@ -1273,7 +1273,7 @@ talos-chrome:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1303,7 +1303,7 @@ talos-dromaeojs:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1333,7 +1333,7 @@ talos-g1:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 7200
     e10s: true
@@ -1364,7 +1364,7 @@ talos-g2:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     e10s: true
     mozharness:
@@ -1393,7 +1393,6 @@ talos-g3:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['mozilla-beta','mozilla-central', 'mozilla-inbound', 'autoland', 'try', 'date']
             default: ['mozilla-beta','mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1423,7 +1422,7 @@ talos-g4:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta','mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1453,7 +1452,7 @@ talos-g5:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1484,7 +1483,7 @@ talos-other:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta','mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1514,7 +1513,7 @@ talos-perf-reftest:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central', 'try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1548,7 +1547,6 @@ talos-perf-reftest-singletons:
                     - talos/mac_config.py
                 windows.*:
                     - talos/windows_taskcluster_config.py
->>>>>>> merge rev
                 default:
                     - talos/linux_config.py
         extra-options:
@@ -1607,33 +1605,6 @@ talos-quantum-pageload-stylo:
         extra-options:
             - --suite=quantum-pageload-stylo
 
-talos-quantum-pageload:
-    description: "Talos quantum-pageload"
-    suite: talos
-    try-name: quantum-pageload
-    treeherder-symbol: tc-T(q)
-    run-on-projects:
-        by-test-platform:
-            windows.*: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try', 'date']
-            default: []
-    max-run-time: 3600
-    e10s: true
-    mozharness:
-        script: talos_script.py
-        no-read-buildbot-config: true
-        config:
-            by-test-platform:
-                macosx.*:
-                    - talos/mac_config.py
-                windows.*:
-                    - talos/windows_config.py
-                default:
-                    - talos/linux_config.py
-        extra-options:
-            - --suite=quantum-pageload
-            - --add-option
-            - --webServer,localhost
-
 talos-svgr:
     description: "Talos svgr"
     suite: talos
@@ -1644,7 +1615,7 @@ talos-svgr:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1674,7 +1645,7 @@ talos-tp5o:
         by-test-platform:
             linux64-stylo-sequential/.*: ['mozilla-central','try']
             linux64-stylo/.*: ['mozilla-central', 'try']
-            windows.*: ['try', 'date']
+            windows.*: ['try']
             default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
     max-run-time: 3600
     e10s: true
@@ -1737,6 +1708,7 @@ telemetry-tests-client:
                 linux.*:
                     - remove_executables.py
                 windows.*: []
+
 
 web-platform-tests:
     description: "Web platform test run"
@@ -1848,6 +1820,10 @@ xpcshell:
             android.*: xlarge
             default: legacy # Bug 1281241: migrating to m3.large instances
     max-run-time: 5400
+    tier:
+        by-test-platform:
+            windows.*: 3
+            default: default
     e10s: false
     allow-software-gl-layers: false
     mozharness:
