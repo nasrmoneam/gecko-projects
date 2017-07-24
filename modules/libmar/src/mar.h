@@ -114,7 +114,7 @@ int mar_enum_items(MarFile *mar, MarItemCallback callback, void *data);
  * @return          The number of bytes written or a negative value if an
  *                  error occurs.
  */
-int mar_read(MarFile *mar, const MarItem *item, int offset, char *buf,
+int mar_read(MarFile *mar, const MarItem *item, int offset, uint8_t *buf,
              int bufsize);
 
 /**
@@ -196,27 +196,6 @@ int mar_verify_signatures(MarFile *mar,
 int
 mar_read_product_info_block(MarFile *mar, 
                             struct ProductInformationBlock *infoBlock);
-
-/**
- * Finds the start and length of the content area of the MAR file.
- *
- * @param      mar     The already opened MAR file
- * @param[out] offset  File offset in bytes of the start of the content,
- *                     or -1 if there is no content
- * @param[out] length  Total length of all content files
-*/
-void
-mar_get_content_extent(MarFile* mar, int* offset, int* length);
-
-/**
-* Decompress the content area of a MAR file in place.
-*
-* @param      mar     The already opened MAR file
-*
-* @return 0 if successful, 1 if the MAR is not compressed, -1 on error
-*/
-int
-mar_decompress(MarFile* mar);
 
 #ifdef __cplusplus
 }

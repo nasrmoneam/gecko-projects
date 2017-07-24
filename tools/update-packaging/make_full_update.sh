@@ -104,6 +104,8 @@ notice ""
 notice "Adding file and directory remove instructions from file 'removed-files'"
 append_remove_instructions "$targetdir" "$updatemanifestv2" "$updatemanifestv3"
 
+notice ""
+notice "Adding files to the mar file"
 mar_command="$MAR"
 if [[ -n $MOZ_PRODUCT_VERSION ]]
 then

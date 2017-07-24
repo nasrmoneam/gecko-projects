@@ -75,9 +75,11 @@ static int mar_push(struct MarItemStack *stack, uint32_t length, uint32_t flags,
   return 0;
 }
 
-static int mar_concat_file(FILE *fp, const char *path, lzma_stream* strm) {
+static size_t mar_concat_file(FILE *fp, const char *path, lzma_stream *strm,
+                              uint32_t *sizeWritten) {
   FILE *in;
   int rv = 0;
+  *sizeWritten = 0;
 
   in = fopen(path, "rb");
   if (!in) {
@@ -86,27 +88,33 @@ static int mar_concat_file(FILE *fp, const char *path, lzma_stream* strm) {
     return -1;
   }
 
-  strm->next_in = gInBuf;
+  strm->next_in = NULL;
   strm->avail_in = 0;
   strm->next_out = gOutBuf;
   strm->avail_out = sizeof(gOutBuf);
 
-  while (!feof(in)) {
-    if (strm->avail_in == 0) {
+  lzma_action action = feof(in) ? LZMA_FINISH : LZMA_RUN;
+  lzma_ret lzma_rv;
+  while (true) {
+    if (strm->avail_in == 0 && action == LZMA_RUN) {
       strm->next_in = gInBuf;
       strm->avail_in = fread(gInBuf, 1, sizeof(gInBuf), in);
       if (ferror(in)) {
         rv = -1;
         break;
       }
+
+      if (feof(in)) {
+        action = LZMA_FINISH;
+      }
+
     }
 
-    if (lzma_code(strm, LZMA_RUN) != LZMA_OK) {
-      rv = -1;
-      break;
-    }
-    if (strm->avail_out < sizeof(gOutBuf)) {
+    lzma_rv = lzma_code(strm, action);
+
+    if (strm->avail_out == 0 || lzma_rv == LZMA_STREAM_END) {
       size_t writeBytes = sizeof(gOutBuf) - strm->avail_out;
+      *sizeWritten += writeBytes;
       if (fwrite(gOutBuf, 1, writeBytes, fp) != writeBytes) {
         rv = -1;
         break;
@@ -114,6 +122,18 @@ static int mar_concat_file(FILE *fp, const char *path, lzma_stream* strm) {
 
       strm->next_out = gOutBuf;
       strm->avail_out = sizeof(gOutBuf);
+    }
+
+    if (lzma_rv != LZMA_OK) {
+      if (lzma_rv == LZMA_STREAM_END) {
+        if (strm->avail_in == 0) {
+          break;
+        }
+
+        fprintf(stderr, "End Error\n");
+        rv = -1;
+        break;
+      }
     }
   }
 
@@ -371,29 +391,32 @@ int mar_create(const char *dest, int num_files, char **files,
     goto failure;
   }
 
-  // Set up an LZMA stream so we can compress the file data.
-  lzma_stream strm = LZMA_STREAM_INIT;
+  static lzma_stream strm_compresss = LZMA_STREAM_INIT;
   lzma_options_lzma lzma_options;
   lzma_filter filters[3] = {{LZMA_FILTER_X86, NULL},
                             {LZMA_FILTER_LZMA2, &lzma_options},
                             {LZMA_VLI_UNKNOWN, NULL}};
   lzma_lzma_preset(filters[1].options, LZMA_PRESET_DEFAULT);
-  if (lzma_stream_encoder(&strm, filters, LZMA_CHECK_CRC64) != LZMA_OK) {
-    goto failure;
-  }
 
   for (i = 0; i < num_files; ++i) {
+    if (lzma_stream_encoder(&strm_compresss, filters, LZMA_CHECK_CRC64) != LZMA_OK) {
+      fprintf(stderr, "ERROR: unable to acquire lzma stream encoder in " \
+                      "mar_create()\n");
+      goto failure;
+    }
+
+    fprintf(stdout, "Adding file: %s\n", files[i]);
     if (stat(files[i], &st)) {
-      fprintf(stderr, "ERROR: file not found: %s\n", files[i]);
+      fprintf(stderr, "ERROR: file not found\n");
       goto failure;
     }
-
-    if (mar_push(&stack, st.st_size, st.st_mode & 0777, files[i])) {
-      goto failure;
-    }
-
+    uint32_t size;
     /* concatenate input file to archive */
-    if (mar_concat_file(fp, files[i], &strm)) {
+    if (mar_concat_file(fp, files[i], &strm_compresss, &size)) {
+      goto failure;
+    }
+
+    if (mar_push(&stack, size, st.st_mode & 0777, files[i])) {
       goto failure;
     }
   }
@@ -401,21 +424,6 @@ int mar_create(const char *dest, int num_files, char **files,
   // Finish the LZMA stream and write out any remaining data.
   // This might take multiple calls to lzma_code if there's more data still
   // to write than will fit in our output buffer.
-  lzma_ret lzma_rv;
-  do {
-    lzma_rv = lzma_code(&strm, LZMA_FINISH);
-    size_t writeBytes = sizeof(gOutBuf) - strm.avail_out;
-    if (writeBytes > 0) {
-      if (fwrite(gOutBuf, 1, writeBytes, fp) != writeBytes) {
-        goto failure;
-      }
-      strm.next_out = gOutBuf;
-      strm.avail_out = sizeof(gOutBuf);
-    }
-  } while (lzma_rv == LZMA_OK);
-  if (lzma_rv != LZMA_STREAM_END) {
-    goto failure;
-  }
 
   /* write out the index (prefixed with length of index) */
   offset_to_index = htonl(ftell(fp));
@@ -449,7 +457,7 @@ int mar_create(const char *dest, int num_files, char **files,
 
   rv = 0;
 failure:
-  lzma_end(&strm);
+  lzma_end(&strm_compresss);
   if (stack.head) {
     free(stack.head);
   }

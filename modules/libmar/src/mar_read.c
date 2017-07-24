@@ -234,10 +234,6 @@ void mar_close(MarFile *mar) {
     }
   }
 
-  if (mar->decompressed) {
-    mar_decompress_cleanup(mar);
-  }
-
   free(mar->name);
   free(mar);
 }
@@ -543,7 +539,7 @@ int mar_enum_items(MarFile *mar, MarItemCallback callback, void *closure) {
   return 0;
 }
 
-int mar_read(MarFile *mar, const MarItem *item, int offset, char *buf,
+int mar_read(MarFile *mar, const MarItem *item, int offset, uint8_t *buf,
              int bufsize) {
   int nr;
 
@@ -601,32 +597,4 @@ int get_mar_file_info(const char *path,
 
   fclose(fp);
   return rv;
-}
-
-
-void
-mar_get_content_extent(MarFile* mar,
-                       int* offset,
-                       int* length)
-{
-  // The offset to the end of the content area is just the offset to the
-  // index listed in the file header, because the index begins immediately
-  // following the content.
-  fseek(mar->fp, MAR_ID_SIZE, SEEK_SET);
-  int endOfContent = 0;
-  if (fread(&endOfContent, sizeof(endOfContent), 1, mar->fp) != 1) {
-    return;
-  }
-  endOfContent = ntohl(endOfContent);
-
-  // The start of the content is always the start of the first file listed in
-  // the index, because the index is always written in order.
-  fseek(mar->fp, endOfContent + 4, SEEK_SET);
-  int startOfContent = 0;
-  if (fread(&startOfContent, sizeof(startOfContent), 1, mar->fp) != 1) {
-    return;
-  }
-
-  *offset = ntohl(startOfContent);
-  *length = endOfContent - startOfContent;
 }

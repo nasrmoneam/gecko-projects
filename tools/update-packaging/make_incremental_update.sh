@@ -301,6 +301,8 @@ for ((i=0; $i<$num_olddirs; i=$i+1)); do
   fi
 done
 
+notice ""
+notice "Adding files to the mar file"
 mar_command="$MAR"
 if [[ -n $MOZ_PRODUCT_VERSION ]]
 then

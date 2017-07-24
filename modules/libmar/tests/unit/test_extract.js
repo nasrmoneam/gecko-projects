@@ -57,16 +57,6 @@ function run_test() {
     test_binary_data: function _test_binary_data() {
       return run_one_test("binary_data.mar", ["binary_data_file"]);
     },
-    // Test extracting a MAR without a product information block (PIB) which
-    // contains binary data.
-    test_no_pib: function _test_no_pib() {
-      return run_one_test("no_pib.mar", ["binary_data_file"]);
-    },
-    // Test extracting a MAR without a product information block (PIB) that is
-    // signed and which contains binary data.
-    test_no_pib_signed: function _test_no_pib_signed() {
-      return run_one_test("signed_no_pib.mar", ["binary_data_file"]);
-    },
     // Test extracting a MAR with a product information block (PIB) that is
     // signed and which contains binary data.
     test_pib_signed: function _test_pib_signed() {

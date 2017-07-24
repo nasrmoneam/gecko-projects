@@ -11,6 +11,7 @@ with Files('**'):
     BUG_COMPONENT = ('Toolkit', 'Application Update')
 
 EXPORTS += [
+    'config.h',
     'liblzma/api/lzma.h',
 ]
 
@@ -95,38 +96,13 @@ HOST_SOURCES += common_sources
 # tags on their parameters, but the function definitions not having such tags.
 ALLOW_COMPILER_WARNINGS = True
 
-DEFINES['LZMA_API_STATIC'] = HOST_DEFINES['LZMA_API_STATIC'] = 1
-DEFINES['HAVE_INTTYPES_H'] = HOST_DEFINES['HAVE_INTTYPES_H'] = 1
-DEFINES['HAVE_STDBOOL_H'] = HOST_DEFINES['HAVE_STDBOOL_H'] = 1
-DEFINES['HAVE_STRING_H'] = HOST_DEFINES['HAVE_STRING_H'] = 1
-DEFINES['HAVE_CHECK_CRC32'] = HOST_DEFINES['HAVE_CHECK_CRC32'] = 1
-DEFINES['HAVE_CHECK_CRC64'] = HOST_DEFINES['HAVE_CHECK_CRC64'] = 1
-DEFINES['HAVE_DECODER_LZMA2'] = HOST_DEFINES['HAVE_DECODER_LZMA2'] = 1
-DEFINES['HAVE_ENCODER_LZMA2'] = HOST_DEFINES['HAVE_ENCODER_LZMA2'] = 1
-DEFINES['HAVE_MF_BT4'] = HOST_DEFINES['HAVE_MF_BT4'] = 1
+# The headers in the rangecoder directory for some reason decide to
+# include common.h based on HAVE_CONFIG_H, which makes no sense at all.
+# By defining HAVE_CONFIG_H and using a config.h with the appropriate defines it
+# is possible to workaround this issue.
+DEFINES['HAVE_CONFIG_H'] = HOST_DEFINES['HAVE_CONFIG_H'] = 1
 
 FORCE_STATIC_LIB = True
 
-if '86' in CONFIG['TARGET_CPU']:
-    # Accept x86, x86_64, i386, i686, etc.
-    DEFINES['HAVE_DECODER_X86'] = HOST_DEFINES['HAVE_DECODER_X86'] = 1
-    DEFINES['HAVE_ENCODER_X86'] = HOST_DEFINES['HAVE_ENCODER_X86'] = 1
-
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
     USE_STATIC_LIBS = True
-    # Some of the liblzma files assume that DWORD is defined whenever MSC_VER
-    # is set, and also that memmove and memcpy can be used without declarations.
-    # Force include windows.h to get all those things declared properly.
-    CFLAGS += ['-FIwindows.h']
-    HOST_CFLAGS += ['-FIwindows.h']
-
-# The headers in the rangecoder directory for some reason decide to
-# include common.h based on HAVE_CONFIG_H, which makes no sense at all.
-# The least hacky way to resolve that is to force include common.h, which
-# pretty much every other file ends up including anyway.
-if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
-    CFLAGS += ['-FIcommon.h']
-    HOST_CFLAGS += ['-FIcommon.h']
-else:
-    CFLAGS += ['-include', 'common.h']
-    HOST_CFLAGS += ['-include', 'common.h']

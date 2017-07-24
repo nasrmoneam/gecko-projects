@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include "lzma.h"
 #include "archivereader.h"
 #include "errors.h"
 #ifdef XP_WIN
@@ -37,8 +38,10 @@
 
 static int inbuf_size  = 262144;
 static int outbuf_size = 262144;
-static char *inbuf  = nullptr;
-static char *outbuf = nullptr;
+static uint8_t *inbuf  = nullptr;
+static uint8_t *outbuf = nullptr;
+
+static lzma_stream strm = LZMA_STREAM_INIT;
 
 /**
  * Performs a verification on the opened MAR file with the passed in
@@ -181,22 +184,22 @@ ArchiveReader::Open(const NS_tchar *path)
     Close();
 
   if (!inbuf) {
-    inbuf = (char *)malloc(inbuf_size);
+    inbuf = (uint8_t *)malloc(inbuf_size);
     if (!inbuf) {
       // Try again with a smaller buffer.
       inbuf_size = 1024;
-      inbuf = (char *)malloc(inbuf_size);
+      inbuf = (uint8_t *)malloc(inbuf_size);
       if (!inbuf)
         return ARCHIVE_READER_MEM_ERROR;
     }
   }
 
   if (!outbuf) {
-    outbuf = (char *)malloc(outbuf_size);
+    outbuf = (uint8_t *)malloc(outbuf_size);
     if (!outbuf) {
       // Try again with a smaller buffer.
       outbuf_size = 1024;
-      outbuf = (char *)malloc(outbuf_size);
+      outbuf = (uint8_t *)malloc(outbuf_size);
       if (!outbuf)
         return ARCHIVE_READER_MEM_ERROR;
     }
@@ -230,6 +233,8 @@ ArchiveReader::Close()
     free(outbuf);
     outbuf = nullptr;
   }
+
+  lzma_end(&strm);
 }
 
 int
@@ -270,25 +275,76 @@ ArchiveReader::ExtractFileToStream(const char *name, FILE *fp)
 int
 ArchiveReader::ExtractItemToStream(const MarItem *item, FILE *fp)
 {
-  // We shouldn't extract from the archive until after we know the signature is
-  // good, so that we don't run a bunch of complicated decompression code on
-  // a file of unknown validity. That means that, if signatures are being
-  // checked, the check should be done before this function is ever called.
-  if (mar_decompress(mArchive) == -1) {
-    return UNEXPECTED_XZ_ERROR;
+  /* decompress the data chunk by chunk */
+
+  // Set up an LZMA stream to decompress the file data.
+
+  if (lzma_stream_decoder(&strm, UINT64_MAX, 0) != LZMA_OK) {
+    fprintf(stdout, "ERROR: unable to acquire lzma stream decoder\n");
+    return -1;
   }
 
-  int offset = 0;
-  while (offset < (int)(item->length)) {
-    int inlen = mar_read(mArchive, item, offset, inbuf, inbuf_size);
-    if (inlen <= 0) {
-      return READ_ERROR;
+  strm.next_in = NULL;
+  strm.avail_in = 0;
+  strm.next_out = outbuf;
+  strm.avail_out = sizeof(outbuf);
+
+  lzma_action action = LZMA_RUN;
+
+  int offset, inlen;
+  int ret = OK;
+
+  offset = 0;
+  for (;;) {
+    if (!item->length) {
+      ret = UNEXPECTED_MAR_ERROR;
     }
-    offset += inlen;
-    if (fwrite(inbuf, inlen, 1, fp) != 1) {
-      return WRITE_ERROR_EXTRACT;
+
+    if (strm.avail_in == 0) {
+      inlen = mar_read(mArchive, item, offset, inbuf, sizeof(inbuf));
+      if (inlen > 0) {
+        strm.next_in = inbuf;
+        strm.avail_in = inlen;
+        offset += inlen;
+      } else {
+
+        // Once the end of the input file has been reached,
+        // we need to tell lzma_code() that no more input
+        // will be coming. As said before, this isn't required
+        // if the LZMA_CONATENATED flag isn't used when
+        // initializing the decoder.
+        action = LZMA_FINISH;
+      }
+    }
+
+    lzma_ret retlzma = lzma_code(&strm, action);
+
+    if (strm.avail_out == 0 || retlzma == LZMA_STREAM_END) {
+      size_t write_size = sizeof(outbuf) - strm.avail_out;
+
+      if (fwrite(outbuf, 1, write_size, fp) != write_size) {
+//        fprintf(stderr, "Write error: %s\n", strerror(errno));
+        break;
+      }
+
+      strm.next_out = outbuf;
+      strm.avail_out = sizeof(outbuf);
+    }
+
+    if (retlzma != LZMA_OK) {
+      // Once everything has been decoded successfully, the
+      // return value of lzma_code() will be LZMA_STREAM_END.
+      //
+      // It is important to check for LZMA_STREAM_END. Do not
+      // assume that getting ret != LZMA_OK would mean that
+      // everything has gone well or that when you aren't
+      // getting more output it must have successfully
+      // decoded everything.
+      if (retlzma == LZMA_STREAM_END) {
+        break;
+      }
     }
   }
 
-  return OK;
+  return ret;
 }

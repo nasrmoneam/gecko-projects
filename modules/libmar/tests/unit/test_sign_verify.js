@@ -339,17 +339,6 @@ function run_test() {
       verifyMAR(signedMAR, wantFailure, ["mycert3", "mycert", "mycert2"]);
       verifyMAR(signedMAR, wantFailure, ["mycert3", "mycert2", "mycert"]);
     },
-    // Test verifying a signed MAR file without a PIB
-    test_verify_no_pib: function _test_verify_no_pib() {
-      let signedMAR = do_get_file("data/signed_no_pib.mar");
-      verifyMAR(signedMAR, wantSuccess, ["mycert"], true);
-      verifyMAR(signedMAR, wantSuccess, ["mycert"], false);
-    },
-    // Test verifying a signed MAR file with multiple signatures without a PIB
-    test_verify_no_pib_multiple: function _test_verify_no_pib_multiple() {
-      let signedMAR = do_get_file("data/multiple_signed_no_pib.mar");
-      verifyMAR(signedMAR, wantSuccess, ["mycert", "mycert2", "mycert3"]);
-    },
     // Test verifying a crafted MAR file where the attacker tried to adjust
     // the version number manually.
     test_crafted_mar: function _test_crafted_mar() {

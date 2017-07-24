@@ -54,14 +54,14 @@ function run_test() {
           }
           break;
         case "multiple_file.mar":
-          if (outMARData[595] == 180) {
-            outMARData[595] = 182;
+          if (outMARData[687] == 180) {
+            outMARData[687] = 182;
           }
-          if (outMARData[620] == 180) {
-            outMARData[620] = 182;
+          if (outMARData[712] == 180) {
+            outMARData[712] = 182;
           }
-          if (outMARData[644] == 180) {
-            outMARData[644] = 182;
+          if (outMARData[736] == 180) {
+            outMARData[736] = 182;
           }
       }
     }
