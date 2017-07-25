@@ -277,8 +277,11 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    * Sync uses this method to reorder all synced children after applying all
    * incoming records.
    *
+   * @return {Promise} resolved when reordering is complete.
+   * @rejects if an error happens while reordering.
+   * @throws if the arguments are invalid.
    */
-  async order(parentSyncId, childSyncIds) {
+  order(parentSyncId, childSyncIds) {
     PlacesUtils.SYNC_BOOKMARK_VALIDATORS.syncId(parentSyncId);
     if (!childSyncIds.length) {
       return undefined;
@@ -363,18 +366,21 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    */
   pushChanges(changeRecords) {
     return PlacesUtils.withConnectionWrapper(
-      "BookmarkSyncUtils.pushChanges", async function(db) {
+      "BookmarkSyncUtils: pushChanges", async function(db) {
         let skippedCount = 0;
         let syncedTombstoneGuids = [];
         let syncedChanges = [];
 
         for (let syncId in changeRecords) {
           // Validate change records to catch coding errors.
-          let changeRecord = validateChangeRecord(changeRecords[syncId], {
-            tombstone: { required: true },
-            counter: { required: true },
-            synced: { required: true },
-          });
+          let changeRecord = validateChangeRecord(
+            "BookmarkSyncUtils: pushChanges",
+            changeRecords[syncId], {
+              tombstone: { required: true },
+              counter: { required: true },
+              synced: { required: true },
+            }
+          );
 
           // Sync sets the `synced` flag for reconciled or successfully
           // uploaded items. If upload failed, ignore the change; we'll
@@ -553,7 +559,7 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    *
    * @return {Promise} resolved once all items have been updated.
    */
-  async reset() {
+  reset() {
     return PlacesUtils.withConnectionWrapper(
       "BookmarkSyncUtils: reset", function(db) {
         return db.executeTransaction(async function() {
@@ -599,7 +605,7 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    *           local parent. The bookmarks engine merges these records into the
    *           changeset for the current sync.
    */
-  async dedupe(localSyncId, remoteSyncId, remoteParentSyncId) {
+  dedupe(localSyncId, remoteSyncId, remoteParentSyncId) {
     PlacesUtils.SYNC_BOOKMARK_VALIDATORS.syncId(localSyncId);
     PlacesUtils.SYNC_BOOKMARK_VALIDATORS.syncId(remoteSyncId);
     PlacesUtils.SYNC_BOOKMARK_VALIDATORS.syncId(remoteParentSyncId);
@@ -635,10 +641,9 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    * @rejects if it's not possible to update the given bookmark.
    * @throws if the arguments are invalid.
    */
-  async update(info) {
-    let updateInfo = validateSyncBookmarkObject(info,
-      { syncId: { required: true }
-      });
+  update(info) {
+    let updateInfo = validateSyncBookmarkObject("BookmarkSyncUtils: update",
+      info, { syncId: { required: true } });
 
     return updateSyncBookmark(updateInfo);
   },
@@ -669,8 +674,8 @@ const BookmarkSyncUtils = PlacesSyncUtils.bookmarks = Object.freeze({
    * @rejects if it's not possible to create the requested bookmark.
    * @throws if the arguments are invalid.
    */
-  async insert(info) {
-    let insertInfo = validateNewBookmark(info);
+  insert(info) {
+    let insertInfo = validateNewBookmark("BookmarkSyncUtils: insert", info);
     return insertSyncBookmark(insertInfo);
   },
 
@@ -850,15 +855,15 @@ XPCOMUtils.defineLazyGetter(this, "BookmarkSyncLog", () => {
   return Log.repository.getLogger("BookmarkSyncUtils");
 });
 
-function validateSyncBookmarkObject(input, behavior) {
-  return PlacesUtils.validateItemProperties(
+function validateSyncBookmarkObject(name, input, behavior) {
+  return PlacesUtils.validateItemProperties(name,
     PlacesUtils.SYNC_BOOKMARK_VALIDATORS, input, behavior);
 }
 
 // Validates a sync change record as returned by `pullChanges` and passed to
 // `pushChanges`.
-function validateChangeRecord(changeRecord, behavior) {
-  return PlacesUtils.validateItemProperties(
+function validateChangeRecord(name, changeRecord, behavior) {
+  return PlacesUtils.validateItemProperties(name,
     PlacesUtils.SYNC_CHANGE_RECORD_VALIDATORS, changeRecord, behavior);
 }
 
@@ -1232,7 +1237,8 @@ var updateSyncBookmark = async function(updateInfo) {
     if (!updateInfo.hasOwnProperty("dateAdded")) {
       updateInfo.dateAdded = oldBookmarkItem.dateAdded.getTime();
     }
-    let newInfo = validateNewBookmark(updateInfo);
+    let newInfo = validateNewBookmark("BookmarkSyncUtils: reinsert",
+                                      updateInfo);
     await PlacesUtils.bookmarks.remove({
       guid,
       source: SOURCE_SYNC,
@@ -1363,8 +1369,8 @@ var updateBookmarkMetadata = async function(oldBookmarkItem,
   return newItem;
 };
 
-function validateNewBookmark(info) {
-  let insertInfo = validateSyncBookmarkObject(info,
+function validateNewBookmark(name, info) {
+  let insertInfo = validateSyncBookmarkObject(name, info,
     { kind: { required: true },
       syncId: { required: true },
       url: { requiredIf: b => [ BookmarkSyncUtils.KINDS.BOOKMARK,
@@ -1998,8 +2004,12 @@ function markChangesAsSyncing(db, changeRecords) {
     { syncStatus: PlacesUtils.bookmarks.SYNC_STATUS.NORMAL });
 }
 
-// Removes tombstones for successfully synced items.
-var removeTombstones = async function(db, guids) {
+/**
+ * Removes tombstones for successfully synced items.
+ *
+ * @return {Promise}
+ */
+var removeTombstones = function(db, guids) {
   if (!guids.length) {
     return Promise.resolve();
   }

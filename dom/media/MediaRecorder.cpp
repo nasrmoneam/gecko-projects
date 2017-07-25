@@ -459,6 +459,14 @@ public:
 
   void NotifyTrackRemoved(const RefPtr<MediaStreamTrack>& aTrack) override
   {
+    // Handle possible early removal of direct video listener
+    if (mEncoder) {
+      RefPtr<VideoStreamTrack> videoTrack = aTrack->AsVideoStreamTrack();
+      if (videoTrack) {
+        videoTrack->RemoveDirectListener(mEncoder->GetVideoSink());
+      }
+    }
+
     RefPtr<MediaInputPort> foundInputPort;
     for (RefPtr<MediaInputPort> inputPort : mInputPorts) {
       if (aTrack->IsForwardedThrough(inputPort)) {
@@ -1410,9 +1418,7 @@ MediaRecorder::NotifyError(nsresult aRv)
   rv = DispatchDOMEvent(nullptr, event, nullptr, nullptr);
   if (NS_FAILED(rv)) {
     NS_ERROR("Failed to dispatch the error event!!!");
-    return;
   }
-  return;
 }
 
 void

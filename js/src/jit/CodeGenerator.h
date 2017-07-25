@@ -33,6 +33,12 @@
 namespace js {
 namespace jit {
 
+enum class SwitchTableType {
+    Inline,
+    OutOfLine
+};
+
+template <SwitchTableType tableType> class OutOfLineSwitch;
 class OutOfLineTestObject;
 class OutOfLineNewArray;
 class OutOfLineNewObject;
@@ -131,6 +137,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitBinarySharedStub(LBinarySharedStub* lir);
     void visitUnarySharedStub(LUnarySharedStub* lir);
     void visitNullarySharedStub(LNullarySharedStub* lir);
+    void visitClassConstructor(LClassConstructor* lir);
     void visitLambda(LLambda* lir);
     void visitOutOfLineLambdaArrow(OutOfLineLambdaArrow* ool);
     void visitLambdaArrow(LLambdaArrow* lir);
@@ -215,7 +222,6 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitInitElem(LInitElem* lir);
     void visitInitElemGetterSetter(LInitElemGetterSetter* lir);
     void visitMutateProto(LMutateProto* lir);
-    void visitInitProp(LInitProp* lir);
     void visitInitPropGetterSetter(LInitPropGetterSetter* lir);
     void visitCreateThis(LCreateThis* lir);
     void visitCreateThisWithProto(LCreateThisWithProto* lir);
@@ -307,6 +313,9 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitLoadUnboxedPointerV(LLoadUnboxedPointerV* lir);
     void visitLoadUnboxedPointerT(LLoadUnboxedPointerT* lir);
     void visitUnboxObjectOrNull(LUnboxObjectOrNull* lir);
+    template <SwitchTableType tableType>
+    void visitOutOfLineSwitch(OutOfLineSwitch<tableType>* ool);
+    void visitLoadElementFromStateV(LLoadElementFromStateV* lir);
     void visitStoreElementT(LStoreElementT* lir);
     void visitStoreElementV(LStoreElementV* lir);
     template <typename T> void emitStoreElementHoleT(T* lir);
@@ -336,9 +345,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitClampIToUint8(LClampIToUint8* lir);
     void visitClampDToUint8(LClampDToUint8* lir);
     void visitClampVToUint8(LClampVToUint8* lir);
-    void visitCallIteratorStartV(LCallIteratorStartV* lir);
-    void visitCallIteratorStartO(LCallIteratorStartO* lir);
-    void visitIteratorStartO(LIteratorStartO* lir);
+    void visitGetIteratorCache(LGetIteratorCache* lir);
     void visitIteratorMore(LIteratorMore* lir);
     void visitIsNoIterAndBranch(LIsNoIterAndBranch* lir);
     void visitIteratorEnd(LIteratorEnd* lir);
@@ -382,6 +389,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitOutOfLineIsConstructor(OutOfLineIsConstructor* ool);
     void visitIsArrayO(LIsArrayO* lir);
     void visitIsArrayV(LIsArrayV* lir);
+    void visitIsTypedArray(LIsTypedArray* lir);
     void visitIsObject(LIsObject* lir);
     void visitIsObjectAndBranch(LIsObjectAndBranch* lir);
     void visitHasClass(LHasClass* lir);
@@ -404,6 +412,7 @@ class CodeGenerator final : public CodeGeneratorSpecific
     void visitNaNToZero(LNaNToZero* ins);
     void visitOutOfLineNaNToZero(OutOfLineNaNToZero* ool);
     void visitFinishBoundFunctionInit(LFinishBoundFunctionInit* lir);
+    void visitIsPackedArray(LIsPackedArray* lir);
 
     void visitCheckOverRecursed(LCheckOverRecursed* lir);
     void visitCheckOverRecursedFailure(CheckOverRecursedFailure* ool);
@@ -536,10 +545,6 @@ class CodeGenerator final : public CodeGeneratorSpecific
                                      Label* ifEmulatesUndefined,
                                      Label* ifDoesntEmulateUndefined,
                                      Register scratch, OutOfLineTestObject* ool);
-
-    // Branch to target unless obj has an emptyObjectElements or emptyObjectElementsShared
-    // elements pointer.
-    void branchIfNotEmptyObjectElements(Register obj, Label* target);
 
     void emitStoreElementTyped(const LAllocation* value, MIRType valueType, MIRType elementType,
                                Register elements, const LAllocation* index,

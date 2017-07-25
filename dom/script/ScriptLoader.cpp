@@ -300,8 +300,7 @@ ScriptLoader::CheckContentPolicy(nsIDocument* aDocument,
                                           NS_LossyConvertUTF16toASCII(aType),
                                           nullptr,    //extra
                                           &shouldLoad,
-                                          nsContentUtils::GetContentPolicy(),
-                                          nsContentUtils::GetSecurityManager());
+                                          nsContentUtils::GetContentPolicy());
   if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
     if (NS_FAILED(rv) || shouldLoad != nsIContentPolicy::REJECT_TYPE) {
       return NS_ERROR_CONTENT_BLOCKED;
@@ -1557,10 +1556,10 @@ ScriptLoader::ProcessOffThreadRequest(ScriptLoadRequest* aRequest)
 NotifyOffThreadScriptLoadCompletedRunnable::~NotifyOffThreadScriptLoadCompletedRunnable()
 {
   if (MOZ_UNLIKELY(mRequest || mLoader) && !NS_IsMainThread()) {
-    NS_ReleaseOnMainThread(
-      "NotifyOffThreadScriptLoadCompletedRunnable::mRequest", mRequest.forget());
-    NS_ReleaseOnMainThread(
-      "NotifyOffThreadScriptLoadCompletedRunnable::mLoader", mLoader.forget());
+    NS_ReleaseOnMainThreadSystemGroup("NotifyOffThreadScriptLoadCompletedRunnable::mRequest",
+                                      mRequest.forget());
+    NS_ReleaseOnMainThreadSystemGroup("NotifyOffThreadScriptLoadCompletedRunnable::mLoader",
+                                      mLoader.forget());
   }
 }
 
@@ -1619,11 +1618,14 @@ ScriptLoader::AttemptAsyncScriptCompile(ScriptLoadRequest* aRequest)
     return rv;
   }
 
-  size_t len = aRequest->IsSource()
-    ? aRequest->mScriptText.length()
-    : aRequest->mScriptBytecode.length();
-  if (!JS::CanCompileOffThread(cx, options, len)) {
-    return NS_ERROR_FAILURE;
+  if (aRequest->IsSource()) {
+    if (!JS::CanCompileOffThread(cx, options, aRequest->mScriptText.length())) {
+      return NS_ERROR_FAILURE;
+    }
+  } else {
+    if (!JS::CanDecodeOffThread(cx, options, aRequest->mScriptBytecode.length())) {
+      return NS_ERROR_FAILURE;
+    }
   }
 
   RefPtr<NotifyOffThreadScriptLoadCompletedRunnable> runnable =

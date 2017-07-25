@@ -2326,7 +2326,6 @@ ScriptSource::initFromOptions(JSContext* cx, const ReadOnlyCompileOptions& optio
 
     introductionType_ = options.introductionType;
     setIntroductionOffset(options.introductionOffset);
-    startColumn_ = options.sourceStartColumn;
     parameterListEnd_ = parameterListEnd.isSome() ? parameterListEnd.value() : 0;
 
     if (options.hasIntroductionInfo) {
@@ -3287,7 +3286,7 @@ js::PCToLineNumber(unsigned startLine, jssrcnote* notes, jsbytecode* code, jsbyt
         if (offset > target)
             break;
 
-        SrcNoteType type = (SrcNoteType) SN_TYPE(sn);
+        SrcNoteType type = SN_TYPE(sn);
         if (type == SRC_SETLINE) {
             lineno = unsigned(GetSrcNoteOffset(sn, 0));
             column = 0;
@@ -3339,7 +3338,7 @@ js::LineNumberToPC(JSScript* script, unsigned target)
             }
         }
         offset += SN_DELTA(sn);
-        SrcNoteType type = (SrcNoteType) SN_TYPE(sn);
+        SrcNoteType type = SN_TYPE(sn);
         if (type == SRC_SETLINE) {
             lineno = unsigned(GetSrcNoteOffset(sn, 0));
         } else if (type == SRC_NEWLINE) {
@@ -3358,7 +3357,7 @@ js::GetScriptLineExtent(JSScript* script)
     unsigned lineno = script->lineno();
     unsigned maxLineNo = lineno;
     for (jssrcnote* sn = script->notes(); !SN_IS_TERMINATOR(sn); sn = SN_NEXT(sn)) {
-        SrcNoteType type = (SrcNoteType) SN_TYPE(sn);
+        SrcNoteType type = SN_TYPE(sn);
         if (type == SRC_SETLINE)
             lineno = unsigned(GetSrcNoteOffset(sn, 0));
         else if (type == SRC_NEWLINE)
@@ -3486,7 +3485,7 @@ js::detail::CopyScript(JSContext* cx, HandleScript src, HandleScript dst,
     /* NB: Keep this in sync with XDRScript. */
 
     /* Some embeddings are not careful to use ExposeObjectToActiveJS as needed. */
-    MOZ_ASSERT(!src->sourceObject()->asTenured().isMarked(gc::GRAY));
+    MOZ_ASSERT(!src->sourceObject()->isMarkedGray());
 
     uint32_t nconsts   = src->hasConsts()   ? src->consts()->length   : 0;
     uint32_t nobjects  = src->hasObjects()  ? src->objects()->length  : 0;

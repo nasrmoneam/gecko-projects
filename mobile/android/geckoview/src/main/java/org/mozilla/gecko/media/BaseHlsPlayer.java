@@ -61,9 +61,7 @@ public interface BaseHlsPlayer {
     // =======================================================================
     // API for GeckoHLSResourceWrapper
     // =======================================================================
-    public void addResourceWrapperCallbackListener(ResourceCallbacks callback);
-
-    public void init(String url);
+    public void init(String url, ResourceCallbacks callback);
 
     public boolean isLiveStream();
 
@@ -85,6 +83,10 @@ public interface BaseHlsPlayer {
     public boolean seek(long positionUs);
 
     public long getNextKeyFrameTime();
+
+    public void suspend();
+
+    public void resume();
 
     public void release();
 }

@@ -752,7 +752,7 @@ TextEditRules::WillInsertText(EditAction aAction,
 
   // get the (collapsed) selection location
   NS_ENSURE_STATE(aSelection->GetRangeAt(0));
-  nsCOMPtr<nsINode> selNode = aSelection->GetRangeAt(0)->GetStartParent();
+  nsCOMPtr<nsINode> selNode = aSelection->GetRangeAt(0)->GetStartContainer();
   int32_t selOffset = aSelection->GetRangeAt(0)->StartOffset();
   NS_ENSURE_STATE(selNode);
 
@@ -1258,7 +1258,7 @@ TextEditRules::WillOutputText(Selection* aSelection,
     return NS_OK;
   }
 
-  RefPtr<Element> root = mTextEditor->GetRoot();
+  Element* root = mTextEditor->GetRoot();
   if (!root) { // Don't warn it, this is possible, e.g., 997805.html
     aOutString->Truncate();
     *aHandled = true;

@@ -268,10 +268,10 @@ pref("browser.defaultbrowser.notificationbar", false);
 pref("browser.startup.page",                1);
 pref("browser.startup.homepage",            "chrome://branding/locale/browserconfig.properties");
 // Whether we should skip the homepage when opening the first-run page
-pref("browser.startup.firstrunSkipsHomepage", false);
+pref("browser.startup.firstrunSkipsHomepage", true);
 
 pref("browser.slowStartup.notificationDisabled", false);
-pref("browser.slowStartup.timeThreshold", 40000);
+pref("browser.slowStartup.timeThreshold", 30000);
 pref("browser.slowStartup.maxSamples", 5);
 
 // This url, if changed, MUST continue to point to an https url. Pulling arbitrary content to inject into
@@ -914,6 +914,14 @@ pref("browser.sessionstore.dom_storage_limit", 2048);
 // allow META refresh by default
 pref("accessibility.blockautorefresh", false);
 
+// Whether useAsyncTransactions is enabled or not.
+// Currently we only enable them for nightly.
+#ifdef NIGHTLY_BUILD
+pref("browser.places.useAsyncTransactions", true);
+#else
+pref("browser.places.useAsyncTransactions", false);
+#endif
+
 // Whether history is enabled or not.
 pref("places.history.enabled", true);
 
@@ -980,6 +988,10 @@ pref("browser.zoom.updateBackgroundTabs", true);
 // The breakpad report server to link to in about:crashes
 pref("breakpad.reportURL", "https://crash-stats.mozilla.com/report/index/");
 
+// URL for "Learn More" for DataCollection
+pref("toolkit.datacollection.infoURL",
+     "https://www.mozilla.org/legal/privacy/firefox.html");
+
 // URL for "Learn More" for Crash Reporter
 pref("toolkit.crashreporter.infoURL",
      "https://www.mozilla.org/legal/privacy/firefox.html#crash-reporter");
@@ -997,6 +1009,8 @@ pref("app.feedback.baseURL", "https://input.mozilla.org/%LOCALE%/feedback/firefo
 pref("app.feedback.baseURL", "https://input.mozilla.org/%LOCALE%/feedback/%APP%/%VERSION%/");
 #endif
 
+// base URL for web-based marketing pages
+pref("app.productInfo.baseURL", "https://www.mozilla.org/firefox/features/");
 
 // Name of alternate about: page for certificate errors (when undefined, defaults to about:neterror)
 pref("security.alternate_certificate_error_page", "certerror");
@@ -1044,7 +1058,7 @@ pref("dom.ipc.plugins.sandbox-level.flash", 0);
 // See - security/sandbox/win/src/sandboxbroker/sandboxBroker.cpp
 // SetSecurityLevelForContentProcess() for what the different settings mean.
 #if defined(NIGHTLY_BUILD)
-pref("security.sandbox.content.level", 2);
+pref("security.sandbox.content.level", 3);
 #else
 pref("security.sandbox.content.level", 1);
 #endif
@@ -1261,22 +1275,26 @@ pref("browser.newtabpage.enabled", true);
 sticky_pref("browser.newtabpage.enhanced", true);
 
 // enables Activity Stream inspired layout
-pref("browser.newtabpage.compact", true);
+pref("browser.newtabpage.compact", false);
 
 // enables showing basic placeholders for missing thumbnails
 pref("browser.newtabpage.thumbnailPlaceholder", false);
 
 // number of rows of newtab grid
-pref("browser.newtabpage.rows", 2);
+pref("browser.newtabpage.rows", 3);
 
 // number of columns of newtab grid
-pref("browser.newtabpage.columns", 6);
+pref("browser.newtabpage.columns", 5);
 
 // directory tiles download URL
 pref("browser.newtabpage.directory.source", "https://tiles.services.mozilla.com/v3/links/fetch/%LOCALE%/%CHANNEL%");
 
 // activates Activity Stream
+#ifdef NIGHTLY_BUILD
+pref("browser.newtabpage.activity-stream.enabled", true);
+#else
 pref("browser.newtabpage.activity-stream.enabled", false);
+#endif
 
 // Enable the DOM fullscreen API.
 pref("full-screen-api.enabled", true);
@@ -1619,13 +1637,12 @@ pref("browser.esedbreader.loglevel", "Error");
 
 pref("browser.laterrun.enabled", false);
 
-pref("dom.ipc.processPrelaunch.enabled", true);
+// Disable prelaunch in the same way activity-stream is enabled addressing
+// bug 1381804 memory usage until bug 1376895 is fixed.
+// Because of frequent crashes on Beta, it is turned off on all channels, see: bug 1363601.
+pref("dom.ipc.processPrelaunch.enabled", false);
 
-#ifdef EARLY_BETA_OR_EARLIER
-pref("browser.migrate.automigrate.enabled", true);
-#else
 pref("browser.migrate.automigrate.enabled", false);
-#endif
 // 4 here means the suggestion notification will be automatically
 // hidden the 4th day, so it will actually be shown on 3 different days.
 pref("browser.migrate.automigrate.daysToOfferUndo", 4);
@@ -1704,6 +1721,9 @@ pref("browser.onboarding.hidden", false);
 // So use `browser.onboarding.notification.finished` to let the AS page know
 // if our notification is finished and safe to show their snippet.
 pref("browser.onboarding.notification.finished", false);
+pref("browser.onboarding.notification.mute-duration-on-first-session-ms", 300000); // 5 mins
+pref("browser.onboarding.notification.max-life-time-per-tour-ms", 432000000); // 5 days
+pref("browser.onboarding.notification.max-prompt-count-per-tour", 8);
 pref("browser.onboarding.newtour", "private,addons,customize,search,default,sync");
 pref("browser.onboarding.updatetour", "");
 

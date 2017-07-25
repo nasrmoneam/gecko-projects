@@ -13,6 +13,7 @@
                                              Method("has_line_through", "bool")]) %>
 
 <%helpers:longhand name="text-overflow" animation_value_type="discrete" boxed="True"
+                   flags="APPLIES_TO_PLACEHOLDER"
                    spec="https://drafts.csswg.org/css-ui/#propdef-text-overflow">
     use std::fmt;
     use style_traits::ToCss;
@@ -27,8 +28,8 @@
         String(Box<str>),
     }
 
-    #[derive(PartialEq, Eq, Clone, Debug)]
     #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+    #[derive(Clone, Debug, Eq, PartialEq, ToCss)]
     pub struct SpecifiedValue {
         pub first: Side,
         pub second: Option<Side>
@@ -130,28 +131,19 @@
             }
         }
     }
-
-    impl ToCss for SpecifiedValue {
-        fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-            self.first.to_css(dest)?;
-            if let Some(ref second) = self.second {
-                dest.write_str(" ")?;
-                second.to_css(dest)?;
-            }
-            Ok(())
-        }
-    }
 </%helpers:longhand>
 
 ${helpers.single_keyword("unicode-bidi",
                          "normal embed isolate bidi-override isolate-override plaintext",
                          animation_value_type="discrete",
+                         need_clone="True",
                          spec="https://drafts.csswg.org/css-writing-modes/#propdef-unicode-bidi")}
 
 <%helpers:longhand name="text-decoration-line"
                    custom_cascade="${product == 'servo'}"
                    need_clone=True
                    animation_value_type="discrete"
+                   flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                    spec="https://drafts.csswg.org/css-text-decor/#propdef-text-decoration-line">
     use std::fmt;
     use style_traits::ToCss;
@@ -259,9 +251,7 @@ ${helpers.single_keyword("unicode-bidi",
 
     % if product == "servo":
         fn cascade_property_custom(_declaration: &PropertyDeclaration,
-                                   _inherited_style: &ComputedValues,
-                                   context: &mut computed::Context,
-                                   _cacheable: &mut bool) {
+                                   context: &mut computed::Context) {
             longhands::_servo_text_decorations_in_effect::derive_from_text_decoration(context);
         }
     % endif
@@ -274,6 +264,7 @@ ${helpers.single_keyword("text-decoration-style",
                          "solid double dotted dashed wavy -moz-none",
                          products="gecko",
                          animation_value_type="discrete",
+                         flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                          spec="https://drafts.csswg.org/css-text-decor/#propdef-text-decoration-style")}
 
 ${helpers.predefined_type(
@@ -283,6 +274,7 @@ ${helpers.predefined_type(
     products="gecko",
     animation_value_type="IntermediateColor",
     ignored_when_colors_disabled=True,
+    flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
     spec="https://drafts.csswg.org/css-text-decor/#propdef-text-decoration-color")}
 
 ${helpers.predefined_type(
@@ -292,4 +284,5 @@ ${helpers.predefined_type(
     initial_specified_value="specified::InitialLetter::normal()",
     animation_value_type="discrete",
     products="gecko",
+    flags="APPLIES_TO_FIRST_LETTER",
     spec="https://drafts.csswg.org/css-inline/#sizing-drop-initials")}

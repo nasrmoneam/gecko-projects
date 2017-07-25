@@ -67,6 +67,7 @@ pub extern crate nsstring_vendor as nsstring;
 extern crate num_integer;
 extern crate num_traits;
 extern crate ordered_float;
+extern crate owning_ref;
 extern crate parking_lot;
 extern crate pdqsort;
 #[cfg(feature = "gecko")] extern crate precomputed_hash;
@@ -123,6 +124,7 @@ pub mod selector_map;
 pub mod selector_parser;
 pub mod shared_lock;
 pub mod sharing;
+pub mod style_resolver;
 pub mod stylist;
 #[cfg(feature = "servo")] #[allow(unsafe_code)] pub mod servo;
 pub mod sequential;
@@ -136,10 +138,6 @@ pub mod traversal;
 #[macro_use]
 #[allow(non_camel_case_types)]
 pub mod values;
-
-// Compat shim for the old name when it lived in the style crate.
-// FIXME(bholley) Remove this.
-pub use servo_arc as stylearc;
 
 use std::fmt;
 use style_traits::ToCss;

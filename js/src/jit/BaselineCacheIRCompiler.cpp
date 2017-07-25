@@ -293,6 +293,42 @@ BaselineCacheIRCompiler::emitGuardCompartment()
 }
 
 bool
+BaselineCacheIRCompiler::emitGuardAnyClass()
+{
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    AutoScratchRegister scratch(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    Address testAddr(stubAddress(reader.stubOffset()));
+
+    masm.loadObjGroup(obj, scratch);
+    masm.loadPtr(Address(scratch, ObjectGroup::offsetOfClasp()), scratch);
+    masm.branchPtr(Assembler::NotEqual, testAddr, scratch, failure->label());
+    return true;
+}
+
+bool
+BaselineCacheIRCompiler::emitGuardHasProxyHandler()
+{
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    AutoScratchRegister scratch(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    Address testAddr(stubAddress(reader.stubOffset()));
+    masm.loadPtr(testAddr, scratch);
+
+    Address handlerAddr(obj, ProxyObject::offsetOfHandler());
+    masm.branchPtr(Assembler::NotEqual, handlerAddr, scratch, failure->label());
+    return true;
+}
+
+bool
 BaselineCacheIRCompiler::emitGuardSpecificObject()
 {
     Register obj = allocator.useRegister(masm, reader.objOperandId());
@@ -364,6 +400,54 @@ BaselineCacheIRCompiler::emitGuardSpecificSymbol()
 
     Address addr(stubAddress(reader.stubOffset()));
     masm.branchPtr(Assembler::NotEqual, addr, sym, failure->label());
+    return true;
+}
+
+bool
+BaselineCacheIRCompiler::emitGuardXrayExpandoShapeAndDefaultProto()
+{
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+    bool hasExpando = reader.readBool();
+    Address shapeWrapperAddress(stubAddress(reader.stubOffset()));
+
+    AutoScratchRegister scratch(allocator, masm);
+    Maybe<AutoScratchRegister> scratch2;
+    if (hasExpando)
+        scratch2.emplace(allocator, masm);
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), scratch);
+    Address holderAddress(scratch, sizeof(Value) * GetXrayJitInfo()->xrayHolderSlot);
+    Address expandoAddress(scratch, NativeObject::getFixedSlotOffset(GetXrayJitInfo()->holderExpandoSlot));
+
+    if (hasExpando) {
+        masm.branchTestObject(Assembler::NotEqual, holderAddress, failure->label());
+        masm.unboxObject(holderAddress, scratch);
+        masm.branchTestObject(Assembler::NotEqual, expandoAddress, failure->label());
+        masm.unboxObject(expandoAddress, scratch);
+
+        // Unwrap the expando before checking its shape.
+        masm.loadPtr(Address(scratch, ProxyObject::offsetOfReservedSlots()), scratch);
+        masm.unboxObject(Address(scratch, detail::ProxyReservedSlots::offsetOfPrivateSlot()), scratch);
+
+        masm.loadPtr(shapeWrapperAddress, scratch2.ref());
+        LoadShapeWrapperContents(masm, scratch2.ref(), scratch2.ref(), failure->label());
+        masm.branchTestObjShape(Assembler::NotEqual, scratch, scratch2.ref(), failure->label());
+
+        // The reserved slots on the expando should all be in fixed slots.
+        Address protoAddress(scratch, NativeObject::getFixedSlotOffset(GetXrayJitInfo()->expandoProtoSlot));
+        masm.branchTestUndefined(Assembler::NotEqual, protoAddress, failure->label());
+    } else {
+        Label done;
+        masm.branchTestObject(Assembler::NotEqual, holderAddress, &done);
+        masm.unboxObject(holderAddress, scratch);
+        masm.branchTestObject(Assembler::Equal, expandoAddress, failure->label());
+        masm.bind(&done);
+    }
+
     return true;
 }
 
@@ -1838,6 +1922,54 @@ BaselineCacheIRCompiler::emitLoadStackValue()
 }
 
 bool
+BaselineCacheIRCompiler::emitGuardAndGetIterator()
+{
+    Register obj = allocator.useRegister(masm, reader.objOperandId());
+
+    AutoScratchRegister scratch1(allocator, masm);
+    AutoScratchRegister scratch2(allocator, masm);
+    AutoScratchRegister niScratch(allocator, masm);
+
+    Address iterAddr(stubAddress(reader.stubOffset()));
+    Address enumeratorsAddr(stubAddress(reader.stubOffset()));
+
+    Register output = allocator.defineRegister(masm, reader.objOperandId());
+
+    FailurePath* failure;
+    if (!addFailurePath(&failure))
+        return false;
+
+    // Load our PropertyIteratorObject* and its NativeIterator.
+    masm.loadPtr(iterAddr, output);
+    masm.loadObjPrivate(output, JSObject::ITER_CLASS_NFIXED_SLOTS, niScratch);
+
+    // Ensure the |active| and |unreusable| bits are not set.
+    masm.branchTest32(Assembler::NonZero, Address(niScratch, offsetof(NativeIterator, flags)),
+                      Imm32(JSITER_ACTIVE|JSITER_UNREUSABLE), failure->label());
+
+    // Pre-write barrier for store to 'obj'.
+    Address iterObjAddr(niScratch, offsetof(NativeIterator, obj));
+    EmitPreBarrier(masm, iterObjAddr, MIRType::Object);
+
+    // Mark iterator as active.
+    Address iterFlagsAddr(niScratch, offsetof(NativeIterator, flags));
+    masm.storePtr(obj, iterObjAddr);
+    masm.or32(Imm32(JSITER_ACTIVE), iterFlagsAddr);
+
+    // Post-write barrier for stores to 'obj'.
+    emitPostBarrierSlot(output, TypedOrValueRegister(MIRType::Object, AnyRegister(obj)), scratch1);
+
+    // Chain onto the active iterator stack. Note that Baseline CacheIR stub
+    // code is shared across compartments within a Zone, so we can't bake in
+    // compartment->enumerators here.
+    masm.loadPtr(enumeratorsAddr, scratch1);
+    masm.loadPtr(Address(scratch1, 0), scratch1);
+    emitRegisterEnumerator(scratch1, niScratch, scratch2);
+
+    return true;
+}
+
+bool
 BaselineCacheIRCompiler::emitGuardDOMExpandoMissingOrGuardShape()
 {
     ValueOperand val = allocator.useValueRegister(masm, reader.valOperandId());
@@ -1913,9 +2045,11 @@ BaselineCacheIRCompiler::init(CacheKind kind)
     switch (kind) {
       case CacheKind::GetProp:
       case CacheKind::TypeOf:
+      case CacheKind::GetIterator:
         MOZ_ASSERT(numInputs == 1);
         allocator.initInputLocation(0, R0);
         break;
+      case CacheKind::Compare:
       case CacheKind::GetElem:
       case CacheKind::GetPropSuper:
       case CacheKind::SetProp:
@@ -1986,10 +2120,12 @@ jit::AttachBaselineCacheIRStub(JSContext* cx, const CacheIRWriter& writer,
     uint32_t stubDataOffset;
     CacheIRStubKind stubKind;
     switch (kind) {
+      case CacheKind::Compare:
       case CacheKind::In:
       case CacheKind::HasOwn:
       case CacheKind::BindName:
       case CacheKind::TypeOf:
+      case CacheKind::GetIterator:
         stubDataOffset = sizeof(ICCacheIR_Regular);
         stubKind = CacheIRStubKind::Regular;
         break;

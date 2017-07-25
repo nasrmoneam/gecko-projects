@@ -871,12 +871,12 @@ nsContentUtils::InitializeModifierStrings()
   nsXPIDLString modifierSeparator;
   if (bundle) {
     //macs use symbols for each modifier key, so fetch each from the bundle, which also covers i18n
-    bundle->GetStringFromName(u"VK_SHIFT", getter_Copies(shiftModifier));
-    bundle->GetStringFromName(u"VK_META", getter_Copies(metaModifier));
-    bundle->GetStringFromName(u"VK_WIN", getter_Copies(osModifier));
-    bundle->GetStringFromName(u"VK_ALT", getter_Copies(altModifier));
-    bundle->GetStringFromName(u"VK_CONTROL", getter_Copies(controlModifier));
-    bundle->GetStringFromName(u"MODIFIER_SEPARATOR", getter_Copies(modifierSeparator));
+    bundle->GetStringFromName("VK_SHIFT", getter_Copies(shiftModifier));
+    bundle->GetStringFromName("VK_META", getter_Copies(metaModifier));
+    bundle->GetStringFromName("VK_WIN", getter_Copies(osModifier));
+    bundle->GetStringFromName("VK_ALT", getter_Copies(altModifier));
+    bundle->GetStringFromName("VK_CONTROL", getter_Copies(controlModifier));
+    bundle->GetStringFromName("MODIFIER_SEPARATOR", getter_Copies(modifierSeparator));
   }
   //if any of these don't exist, we get  an empty string
   sShiftText = new nsString(shiftModifier);
@@ -949,6 +949,8 @@ nsContentUtils::InitializeEventTable() {
 
   // Subtract one from the length because of the trailing null
   for (uint32_t i = 0; i < ArrayLength(eventArray) - 1; ++i) {
+    MOZ_ASSERT(!sAtomEventTable->Lookup(eventArray[i].mAtom),
+               "Double-defining event name; fix your EventNameList.h");
     sAtomEventTable->Put(eventArray[i].mAtom, eventArray[i]);
     if (ShouldAddEventToStringEventTable(eventArray[i])) {
       sStringEventTable->Put(
@@ -2772,6 +2774,9 @@ nsContentUtils::ComparePoints(nsINode* aParent1, int32_t aOffset1,
                               bool* aDisconnected)
 {
   if (aParent1 == aParent2) {
+    // XXX This is odd.  aOffset1 and/or aOffset2 may be -1, e.g., it's result
+    //     of nsINode::IndexOf(), but this compares such invalid offset with
+    //     valid offset.
     return aOffset1 < aOffset2 ? -1 :
            aOffset1 > aOffset2 ? 1 :
            0;
@@ -2822,10 +2827,14 @@ nsContentUtils::ComparePoints(nsINode* aParent1, int32_t aOffset1,
 
   if (!pos1) {
     nsINode* child2 = parents2.ElementAt(--pos2);
+    // XXX aOffset1 may be -1 as mentioned above.  So, why does this return
+    //     it's *before* of the valid DOM point?
     return aOffset1 <= parent->IndexOf(child2) ? -1 : 1;
   }
 
   nsINode* child1 = parents1.ElementAt(--pos1);
+  // XXX aOffset2 may be -1 as mentioned above.  So, why does this return it's
+  //     *after* of the valid DOM point?
   return parent->IndexOf(child1) < aOffset2 ? -1 : 1;
 }
 
@@ -3527,8 +3536,7 @@ nsContentUtils::CanLoadImage(nsIURI* aURI, nsISupports* aContext,
                                  EmptyCString(), //mime guess
                                  nullptr,         //extra
                                  &decision,
-                                 GetContentPolicy(),
-                                 sSecurityManager);
+                                 GetContentPolicy());
 
   if (aImageBlockingStatus) {
     *aImageBlockingStatus =
@@ -3587,7 +3595,14 @@ nsContentUtils::IsInPrivateBrowsing(nsIDocument* aDoc)
 
   nsCOMPtr<nsILoadGroup> loadGroup = aDoc->GetDocumentLoadGroup();
   if (loadGroup) {
-    return IsInPrivateBrowsing(loadGroup);
+    nsCOMPtr<nsIInterfaceRequestor> callbacks;
+    loadGroup->GetNotificationCallbacks(getter_AddRefs(callbacks));
+    if (callbacks) {
+      nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(callbacks);
+      if (loadContext) {
+        return loadContext->UsePrivateBrowsing();
+      }
+    }
   }
 
   nsCOMPtr<nsIChannel> channel = aDoc->GetChannel();
@@ -3754,11 +3769,12 @@ nsContentUtils::GetImageFromContent(nsIImageLoadingContent* aContent,
 
 //static
 already_AddRefed<imgRequestProxy>
-nsContentUtils::GetStaticRequest(imgRequestProxy* aRequest)
+nsContentUtils::GetStaticRequest(nsIDocument* aLoadingDocument,
+                                 imgRequestProxy* aRequest)
 {
   NS_ENSURE_TRUE(aRequest, nullptr);
   RefPtr<imgRequestProxy> retval;
-  aRequest->GetStaticRequest(getter_AddRefs(retval));
+  aRequest->GetStaticRequest(aLoadingDocument, getter_AddRefs(retval));
   return retval.forget();
 }
 
@@ -3948,8 +3964,7 @@ nsresult nsContentUtils::GetLocalizedString(PropertiesFile aFile,
   NS_ENSURE_SUCCESS(rv, rv);
   nsIStringBundle *bundle = sStringBundles[aFile];
 
-  return bundle->GetStringFromName(NS_ConvertASCIItoUTF16(aKey).get(),
-                                   getter_Copies(aResult));
+  return bundle->GetStringFromName(aKey, getter_Copies(aResult));
 }
 
 /* static */
@@ -3964,11 +3979,10 @@ nsresult nsContentUtils::FormatLocalizedString(PropertiesFile aFile,
   nsIStringBundle *bundle = sStringBundles[aFile];
 
   if (!aParams || !aParamsLength) {
-    return bundle->GetStringFromName(NS_ConvertASCIItoUTF16(aKey).get(),
-                                     getter_Copies(aResult));
+    return bundle->GetStringFromName(aKey, getter_Copies(aResult));
   }
 
-  return bundle->FormatStringFromName(NS_ConvertASCIItoUTF16(aKey).get(),
+  return bundle->FormatStringFromName(aKey,
                                       aParams, aParamsLength,
                                       getter_Copies(aResult));
 }
@@ -6603,7 +6617,8 @@ nsContentUtils::DispatchXULCommand(nsIContent* aTarget,
                                    bool aCtrl,
                                    bool aAlt,
                                    bool aShift,
-                                   bool aMeta)
+                                   bool aMeta,
+                                   uint16_t aInputSource)
 {
   NS_ENSURE_STATE(aTarget);
   nsIDocument* doc = aTarget->OwnerDoc();
@@ -6616,7 +6631,7 @@ nsContentUtils::DispatchXULCommand(nsIContent* aTarget,
                                                            nullptr);
   xulCommand->InitCommandEvent(NS_LITERAL_STRING("command"), true, true,
                                doc->GetInnerWindow(), 0, aCtrl, aAlt, aShift,
-                               aMeta, aSourceEvent);
+                               aMeta, aSourceEvent, aInputSource);
 
   if (aShell) {
     nsEventStatus status = nsEventStatus_eIgnore;
@@ -6849,8 +6864,10 @@ nsContentUtils::IsUserFocusIgnored(nsINode* aNode)
 bool
 nsContentUtils::HasScrollgrab(nsIContent* aContent)
 {
-  nsGenericHTMLElement* element = nsGenericHTMLElement::FromContentOrNull(aContent);
-  return element && element->Scrollgrab();
+  // If we ever standardize this feature we'll want to hook this up properly
+  // again. For now we're removing all the DOM-side code related to it but
+  // leaving the layout and APZ handling for it in place.
+  return false;
 }
 
 void
@@ -7160,9 +7177,8 @@ nsContentUtils::IsPatternMatching(nsAString& aValue, nsAString& aPattern,
 {
   NS_ASSERTION(aDocument, "aDocument should be a valid pointer (not null)");
 
-  AutoJSAPI jsapi;
-  jsapi.Init();
-  JSContext* cx = jsapi.cx();
+  AutoJSContext cx;
+  AutoDisableJSInterruptCallback disabler(cx);
 
   // We can use the junk scope here, because we're just using it for
   // regexp evaluation, not actual script execution.
@@ -7458,9 +7474,9 @@ nsContentUtils::GetSelectionInTextControl(Selection* aSelection,
 
   // All the node pointers here are raw pointers for performance.  We shouldn't
   // be doing anything in this function that invalidates the node tree.
-  nsINode* startParent = range->GetStartParent();
+  nsINode* startContainer = range->GetStartContainer();
   uint32_t startOffset = range->StartOffset();
-  nsINode* endParent = range->GetEndParent();
+  nsINode* endContainer = range->GetEndContainer();
   uint32_t endOffset = range->EndOffset();
 
   // We have at most two children, consisting of an optional text node followed
@@ -7469,10 +7485,10 @@ nsContentUtils::GetSelectionInTextControl(Selection* aSelection,
   nsIContent* firstChild = aRoot->GetFirstChild();
 #ifdef DEBUG
   nsCOMPtr<nsIContent> lastChild = aRoot->GetLastChild();
-  NS_ASSERTION(startParent == aRoot || startParent == firstChild ||
-               startParent == lastChild, "Unexpected startParent");
-  NS_ASSERTION(endParent == aRoot || endParent == firstChild ||
-               endParent == lastChild, "Unexpected endParent");
+  NS_ASSERTION(startContainer == aRoot || startContainer == firstChild ||
+               startContainer == lastChild, "Unexpected startContainer");
+  NS_ASSERTION(endContainer == aRoot || endContainer == firstChild ||
+               endContainer == lastChild, "Unexpected endContainer");
   // firstChild is either text or a <br> (hence an element).
   MOZ_ASSERT_IF(firstChild,
                 firstChild->IsNodeOfType(nsINode::eTEXT) || firstChild->IsElement());
@@ -7487,12 +7503,12 @@ nsContentUtils::GetSelectionInTextControl(Selection* aSelection,
     // or the start of the root node, no change needed.  If it's in the root
     // node but not the start, or in the trailing <br>, we need to set the
     // offset to the end.
-    if ((startParent == aRoot && startOffset != 0) ||
-        (startParent != aRoot && startParent != firstChild)) {
+    if ((startContainer == aRoot && startOffset != 0) ||
+        (startContainer != aRoot && startContainer != firstChild)) {
       startOffset = firstChild->Length();
     }
-    if ((endParent == aRoot && endOffset != 0) ||
-        (endParent != aRoot && endParent != firstChild)) {
+    if ((endContainer == aRoot && endOffset != 0) ||
+        (endContainer != aRoot && endContainer != firstChild)) {
       endOffset = firstChild->Length();
     }
   }

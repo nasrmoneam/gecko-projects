@@ -2840,24 +2840,26 @@ PresShell::FrameNeedsToContinueReflow(nsIFrame *aFrame)
 already_AddRefed<nsIContent>
 nsIPresShell::GetContentForScrolling() const
 {
-  nsCOMPtr<nsIContent> focusedContent;
-  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
-  if (fm && mDocument) {
-    nsCOMPtr<nsIDOMElement> focusedElement;
-    fm->GetFocusedElementForWindow(mDocument->GetWindow(), false, nullptr,
-                                   getter_AddRefs(focusedElement));
-    focusedContent = do_QueryInterface(focusedElement);
+  if (nsCOMPtr<nsIContent> focused = GetFocusedContentInOurWindow()) {
+    return focused.forget();
   }
-  if (!focusedContent && mSelection) {
+  return GetSelectedContentForScrolling();
+}
+
+already_AddRefed<nsIContent>
+nsIPresShell::GetSelectedContentForScrolling() const
+{
+  nsCOMPtr<nsIContent> selectedContent;
+  if (mSelection) {
     nsISelection* domSelection =
       mSelection->GetSelection(SelectionType::eNormal);
     if (domSelection) {
       nsCOMPtr<nsIDOMNode> focusedNode;
       domSelection->GetFocusNode(getter_AddRefs(focusedNode));
-      focusedContent = do_QueryInterface(focusedNode);
+      selectedContent = do_QueryInterface(focusedNode);
     }
   }
-  return focusedContent.forget();
+  return selectedContent.forget();
 }
 
 nsIScrollableFrame*
@@ -4786,16 +4788,18 @@ PresShell::ClipListToRange(nsDisplayListBuilder *aBuilder,
     nsIFrame* frame = i->Frame();
     nsIContent* content = frame->GetContent();
     if (content) {
-      bool atStart = (content == aRange->GetStartParent());
-      bool atEnd = (content == aRange->GetEndParent());
+      bool atStart = (content == aRange->GetStartContainer());
+      bool atEnd = (content == aRange->GetEndContainer());
       if ((atStart || atEnd) && frame->IsTextFrame()) {
         int32_t frameStartOffset, frameEndOffset;
         frame->GetOffsets(frameStartOffset, frameEndOffset);
 
         int32_t hilightStart =
-          atStart ? std::max(aRange->StartOffset(), frameStartOffset) : frameStartOffset;
+          atStart ? std::max(static_cast<int32_t>(aRange->StartOffset()),
+                             frameStartOffset) : frameStartOffset;
         int32_t hilightEnd =
-          atEnd ? std::min(aRange->EndOffset(), frameEndOffset) : frameEndOffset;
+          atEnd ? std::min(static_cast<int32_t>(aRange->EndOffset()),
+                           frameEndOffset) : frameEndOffset;
         if (hilightStart < hilightEnd) {
           // determine the location of the start and end edges of the range.
           nsPoint startPoint, endPoint;
@@ -4830,7 +4834,7 @@ PresShell::ClipListToRange(nsDisplayListBuilder *aBuilder,
       // If this ever changes we'd need to add handling for subdocuments with
       // different zoom levels.
       else if (content->GetUncomposedDoc() ==
-                 aRange->GetStartParent()->GetUncomposedDoc()) {
+                 aRange->GetStartContainer()->GetUncomposedDoc()) {
         // if the node is within the range, append it to the temporary list
         bool before, after;
         nsresult rv =
@@ -4883,13 +4887,14 @@ PresShell::CreateRangePaintInfo(nsIDOMRange* aRange,
   // If the start or end of the range is the document, just use the root
   // frame, otherwise get the common ancestor of the two endpoints of the
   // range.
-  nsINode* startParent = range->GetStartParent();
-  nsINode* endParent = range->GetEndParent();
-  nsIDocument* doc = startParent->GetComposedDoc();
-  if (startParent == doc || endParent == doc) {
+  nsINode* startContainer = range->GetStartContainer();
+  nsINode* endContainer = range->GetEndContainer();
+  nsIDocument* doc = startContainer->GetComposedDoc();
+  if (startContainer == doc || endContainer == doc) {
     ancestorFrame = rootFrame;
   } else {
-    nsINode* ancestor = nsContentUtils::GetCommonAncestor(startParent, endParent);
+    nsINode* ancestor =
+      nsContentUtils::GetCommonAncestor(startContainer, endContainer);
     NS_ASSERTION(!ancestor || ancestor->IsNodeOfType(nsINode::eCONTENT),
                  "common ancestor is not content");
     if (!ancestor || !ancestor->IsNodeOfType(nsINode::eCONTENT))
@@ -4936,16 +4941,16 @@ PresShell::CreateRangePaintInfo(nsIDOMRange* aRange,
                frame->GetVisualOverflowRect(), &info->mList);
     }
   };
-  if (startParent->NodeType() == nsIDOMNode::TEXT_NODE) {
-    BuildDisplayListForNode(startParent);
+  if (startContainer->NodeType() == nsIDOMNode::TEXT_NODE) {
+    BuildDisplayListForNode(startContainer);
   }
   for (; !iter->IsDone(); iter->Next()) {
     nsCOMPtr<nsINode> node = iter->GetCurrentNode();
     BuildDisplayListForNode(node);
   }
-  if (endParent != startParent &&
-      endParent->NodeType() == nsIDOMNode::TEXT_NODE) {
-    BuildDisplayListForNode(endParent);
+  if (endContainer != startContainer &&
+      endContainer->NodeType() == nsIDOMNode::TEXT_NODE) {
+    BuildDisplayListForNode(endContainer);
   }
 
 #ifdef DEBUG
@@ -6784,6 +6789,20 @@ PresShell::GetFocusedDOMWindowInOurWindow()
   return focusedWindow.forget();
 }
 
+already_AddRefed<nsIContent>
+nsIPresShell::GetFocusedContentInOurWindow() const
+{
+  nsCOMPtr<nsIContent> focusedContent;
+  nsIFocusManager* fm = nsFocusManager::GetFocusManager();
+  if (fm && mDocument) {
+    nsCOMPtr<nsIDOMElement> focusedElement;
+    fm->GetFocusedElementForWindow(mDocument->GetWindow(), false, nullptr,
+                                   getter_AddRefs(focusedElement));
+    focusedContent = do_QueryInterface(focusedElement);
+  }
+  return focusedContent.forget();
+}
+
 already_AddRefed<nsIPresShell>
 PresShell::GetParentPresShellForEventHandling()
 {
@@ -7169,6 +7188,9 @@ PresShell::HandleEvent(nsIFrame* aFrame,
   // Update the latest focus sequence number with this new sequence number
   if (mAPZFocusSequenceNumber < aEvent->mFocusSequenceNumber) {
     mAPZFocusSequenceNumber = aEvent->mFocusSequenceNumber;
+
+    // Schedule an empty transaction to transmit this focus update
+    aFrame->SchedulePaint(nsIFrame::PAINT_COMPOSITE_ONLY);
   }
 
   if (sPointerEventEnabled) {
@@ -7760,17 +7782,7 @@ PresShell::HandleEvent(nsIFrame* aFrame,
       // still get sent to the window properly if nothing is focused or if a
       // frame goes away while it is focused.
       if (!eventTarget || !eventTarget->GetPrimaryFrame()) {
-        nsCOMPtr<nsIDOMHTMLDocument> htmlDoc = do_QueryInterface(mDocument);
-        if (htmlDoc) {
-          nsCOMPtr<nsIDOMHTMLElement> body;
-          htmlDoc->GetBody(getter_AddRefs(body));
-          eventTarget = do_QueryInterface(body);
-          if (!eventTarget) {
-            eventTarget = mDocument->GetRootElement();
-          }
-        } else {
-          eventTarget = mDocument->GetRootElement();
-        }
+        eventTarget = mDocument->GetUnfocusedKeyEventTarget();
       }
 
       if (aEvent->mMessage == eKeyDown) {
@@ -8149,7 +8161,19 @@ PresShell::HandleEventInternal(WidgetEvent* aEvent,
       if (aEvent->mClass == eKeyboardEventClass) {
         nsContentUtils::SetIsHandlingKeyBoardEvent(true);
       }
-      if (aEvent->IsAllowedToDispatchDOMEvent()) {
+      // If EventStateManager or something wants reply from remote process and
+      // needs to win any other event listeners in chrome, the event is both
+      // stopped its propagation and marked as "waiting reply from remote
+      // process".  In this case, PresShell shouldn't dispatch the event into
+      // the DOM tree because they don't have a chance to stop propagation in
+      // the system event group.  On the other hand, if its propagation is not
+      // stopped, that means that the event may be reserved by chrome.  If it's
+      // reserved by chrome, the event shouldn't be sent to any remote
+      // processes.  In this case, PresShell needs to dispatch the event to
+      // the DOM tree for checking if it's reserved.
+      if (aEvent->IsAllowedToDispatchDOMEvent() &&
+          !(aEvent->PropagationStopped() &&
+            aEvent->IsWaitingReplyFromRemoteProcess())) {
         MOZ_ASSERT(nsContentUtils::IsSafeToRunScript(),
           "Somebody changed aEvent to cause a DOM event!");
         nsPresShellEventCB eventCB(this);

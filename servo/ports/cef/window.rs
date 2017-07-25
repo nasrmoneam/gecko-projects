@@ -23,7 +23,8 @@ use euclid::{Point2D, TypedPoint2D, TypedRect, Size2D, TypedSize2D, ScaleFactor}
 use gleam::gl;
 use msg::constellation_msg::{Key, KeyModifiers};
 use net_traits::net_error_list::NetError;
-use script_traits::{DevicePixel, LoadData};
+use script_traits::LoadData;
+use servo::ipc_channel::ipc::IpcSender;
 use servo_geometry::DeviceIndependentPixel;
 use std::cell::RefCell;
 use std::ffi::CString;
@@ -33,6 +34,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{Sender, channel};
 use servo_url::ServoUrl;
 use style_traits::cursor::Cursor;
+use style_traits::DevicePixel;
 #[cfg(target_os="linux")]
 extern crate x11;
 #[cfg(target_os="linux")]
@@ -433,7 +435,6 @@ impl WindowMethods for Window {
         };
         let frame = browser.get_main_frame();
         let frame = frame.downcast();
-        let mut title_visitor = frame.title_visitor.borrow_mut();
         let str = match string {
             Some(s) => s.encode_utf16().collect(),
             None => vec![]
@@ -444,9 +445,7 @@ impl WindowMethods for Window {
             browser.get_host().get_client().get_display_handler().on_title_change((*browser).clone(), str.as_slice());
         }
 
-        if let Some(ref mut visitor) = *title_visitor {
-            visitor.visit(&str);
-        }
+        *frame.title.borrow_mut() = str;
     }
 
     fn history_changed(&self, history: Vec<LoadData>, current: usize) {
@@ -492,8 +491,10 @@ impl WindowMethods for Window {
         }
     }
 
-    fn allow_navigation(&self, _: ServoUrl) -> bool {
-        true
+    fn allow_navigation(&self, _: ServoUrl, response_chan: IpcSender<bool>) {
+        if let Err(e) = response_chan.send(true) {
+            warn!("Failed to send allow_navigation() response: {}", e);
+        };
     }
 
     fn supports_clipboard(&self) -> bool {

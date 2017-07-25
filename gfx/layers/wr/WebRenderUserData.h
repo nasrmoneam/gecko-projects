@@ -8,6 +8,9 @@
 
 #include "mozilla/layers/StackingContextHelper.h"
 #include "mozilla/webrender/WebRenderAPI.h"
+#include "mozilla/layers/AnimationInfo.h"
+
+class nsDisplayItemGeometry;
 
 namespace mozilla {
 namespace layers {
@@ -30,6 +33,8 @@ public:
 
   enum class UserDataType {
     eImage,
+    eFallback,
+    eAnimation,
   };
 
   virtual UserDataType GetType() = 0;
@@ -51,8 +56,11 @@ public:
   virtual WebRenderImageData* AsImageData() override { return this; }
   virtual UserDataType GetType() override { return UserDataType::eImage; }
   static UserDataType Type() { return UserDataType::eImage; }
+  Maybe<wr::ImageKey> GetKey() { return mKey; }
+  void SetKey(const wr::ImageKey& aKey) { mKey = Some(aKey); }
+  already_AddRefed<ImageClient> GetImageClient();
 
-  Maybe<wr::ImageKey> UpdateImageKey(ImageContainer* aContainer);
+  Maybe<wr::ImageKey> UpdateImageKey(ImageContainer* aContainer, bool aForceUpdate = false);
 
   void CreateAsyncImageWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
                                          ImageContainer* aContainer,
@@ -61,11 +69,12 @@ public:
                                          const LayerRect& aSCBounds,
                                          const gfx::Matrix4x4& aSCTransform,
                                          const gfx::MaybeIntSize& aScaleToSize,
-                                         const WrImageRendering& aFilter,
-                                         const WrMixBlendMode& aMixBlendMode);
+                                         const wr::ImageRendering& aFilter,
+                                         const wr::MixBlendMode& aMixBlendMode);
+
+  void CreateImageClientIfNeeded();
 
 protected:
-  void CreateImageClientIfNeeded();
   void CreateExternalImageIfNeeded();
 
   wr::MaybeExternalImageId mExternalImageId;
@@ -73,6 +82,38 @@ protected:
   RefPtr<ImageClient> mImageClient;
   Maybe<wr::PipelineId> mPipelineId;
   RefPtr<ImageContainer> mContainer;
+};
+
+class WebRenderFallbackData : public WebRenderImageData
+{
+public:
+  explicit WebRenderFallbackData(WebRenderLayerManager* aWRManager);
+  virtual ~WebRenderFallbackData();
+
+  virtual UserDataType GetType() override { return UserDataType::eFallback; }
+  static UserDataType Type() { return UserDataType::eFallback; }
+  nsAutoPtr<nsDisplayItemGeometry> GetGeometry();
+  void SetGeometry(nsAutoPtr<nsDisplayItemGeometry> aGeometry);
+  nsRect GetBounds() { return mBounds; }
+  void SetBounds(const nsRect& aRect) { mBounds = aRect; }
+
+protected:
+  nsAutoPtr<nsDisplayItemGeometry> mGeometry;
+  nsRect mBounds;
+};
+
+class WebRenderAnimationData : public WebRenderUserData
+{
+public:
+  explicit WebRenderAnimationData(WebRenderLayerManager* aWRManager);
+  virtual ~WebRenderAnimationData() {}
+
+  virtual UserDataType GetType() override { return UserDataType::eAnimation; }
+  static UserDataType Type() { return UserDataType::eAnimation; }
+  AnimationInfo& GetAnimationInfo() { return mAnimationInfo; }
+
+protected:
+  AnimationInfo mAnimationInfo;
 };
 
 } // namespace layers

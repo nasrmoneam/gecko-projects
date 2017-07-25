@@ -76,6 +76,7 @@ static bool sWebkitPrefixedAliasesEnabled;
 static bool sWebkitDevicePixelRatioEnabled;
 static bool sMozGradientsEnabled;
 static bool sControlCharVisibility;
+static bool sFramesTimingFunctionEnabled;
 
 const uint32_t
 nsCSSProps::kParserVariantTable[eCSSProperty_COUNT_no_shorthands] = {
@@ -4479,7 +4480,7 @@ CSSParserImpl::ParseSupportsCondition(bool& aConditionMet)
 }
 
 // supports_condition_negation
-//   : 'not' S+ supports_condition_in_parens
+//   : 'not' supports_condition_in_parens
 //   ;
 bool
 CSSParserImpl::ParseSupportsConditionNegation(bool& aConditionMet)
@@ -4492,11 +4493,6 @@ CSSParserImpl::ParseSupportsConditionNegation(bool& aConditionMet)
   if (mToken.mType != eCSSToken_Ident ||
       !mToken.mIdent.LowerCaseEqualsLiteral("not")) {
     REPORT_UNEXPECTED_TOKEN(PESupportsConditionExpectedNot);
-    return false;
-  }
-
-  if (!RequireWhitespace()) {
-    REPORT_UNEXPECTED(PESupportsWhitespaceRequired);
     return false;
   }
 
@@ -4661,14 +4657,14 @@ CSSParserImpl::ParseSupportsConditionInParensInsideParens(bool& aConditionMet)
 }
 
 // supports_condition_terms
-//   : S+ 'and' supports_condition_terms_after_operator('and')
-//   | S+ 'or' supports_condition_terms_after_operator('or')
+//   : 'and' supports_condition_terms_after_operator('and')
+//   | 'or' supports_condition_terms_after_operator('or')
 //   |
 //   ;
 bool
 CSSParserImpl::ParseSupportsConditionTerms(bool& aConditionMet)
 {
-  if (!RequireWhitespace() || !GetToken(false)) {
+  if (!GetToken(true)) {
     return true;
   }
 
@@ -4690,18 +4686,13 @@ CSSParserImpl::ParseSupportsConditionTerms(bool& aConditionMet)
 }
 
 // supports_condition_terms_after_operator(operator)
-//   : S+ supports_condition_in_parens ( <operator> supports_condition_in_parens )*
+//   : supports_condition_in_parens ( <operator> supports_condition_in_parens )*
 //   ;
 bool
 CSSParserImpl::ParseSupportsConditionTermsAfterOperator(
                          bool& aConditionMet,
                          CSSParserImpl::SupportsConditionTermOperator aOperator)
 {
-  if (!RequireWhitespace()) {
-    REPORT_UNEXPECTED(PESupportsWhitespaceRequired);
-    return false;
-  }
-
   const char* token = aOperator == eAnd ? "and" : "or";
   for (;;) {
     bool termConditionMet = false;
@@ -7857,7 +7848,8 @@ CSSParserImpl::ParseVariant(nsCSSValue& aValue,
       }
       return CSSParseResult::Ok;
     }
-    if (tk->mIdent.LowerCaseEqualsLiteral("frames")) {
+    if (sFramesTimingFunctionEnabled &&
+        tk->mIdent.LowerCaseEqualsLiteral("frames")) {
       if (!ParseTransitionFramesTimingFunctionValues(aValue)) {
         SkipUntil(')');
         return CSSParseResult::Error;
@@ -10508,6 +10500,43 @@ bool
 CSSParserImpl::ParseWebkitGradientPointComponent(nsCSSValue& aComponent,
                                                  bool aIsHorizontal)
 {
+  // Attempts to use ParseVariant to process the token as a number (representing
+  // pixels), or a percent, or a calc expression of purely one or the other of
+  // those (we enforce this pureness via ComputeCalc below). If ParseVariant
+  // fails, the token may instead be a keyword or unknown token, in which case
+  // case we execute the rest of the function.
+  CSSParseResult status = ParseVariant(aComponent, VARIANT_PN | VARIANT_CALC,
+                                       nullptr);
+  if (status == CSSParseResult::Error) {
+    return false;
+  }
+  if (status == CSSParseResult::Ok) {
+    switch (aComponent.GetUnit()) {
+      case eCSSUnit_Number:
+        aComponent.SetFloatValue(aComponent.GetFloatValue(), eCSSUnit_Pixel);
+        return true;
+      case eCSSUnit_Calc: {
+        float result;
+        ReduceCalcOps<float, eCSSUnit_Number> opsNumber;
+        if (ComputeCalc(result, aComponent, opsNumber)) {
+          aComponent.SetFloatValue(result, eCSSUnit_Pixel);
+          return true;
+        }
+        ReduceCalcOps<float, eCSSUnit_Percent> opsPercent;
+        if (ComputeCalc(result, aComponent, opsPercent)) {
+          aComponent.SetPercentValue(result);
+          return true;
+        }
+        return false;
+      }
+      case eCSSUnit_Percent:
+        return true;
+      default:
+        MOZ_ASSERT(false, "ParseVariant returned value with unexpected unit");
+        return false;
+    }
+  }
+
   if (!GetToken(true)) {
     return false;
   }
@@ -10597,17 +10626,27 @@ CSSParserImpl::ParseWebkitGradientPoint(nsCSSValuePair& aPoint)
 bool
 CSSParserImpl::ParseWebkitGradientRadius(float& aRadius)
 {
-  if (!GetToken(true)) {
+  nsCSSValue parseResult;
+  CSSParseResult status = ParseVariant(parseResult,
+                                       VARIANT_NUMBER | VARIANT_CALC, nullptr);
+  if (status != CSSParseResult::Ok) {
     return false;
   }
-
-  if (mToken.mType != eCSSToken_Number) {
-    UngetToken();
-    return false;
+  switch (parseResult.GetUnit()) {
+    case eCSSUnit_Number:
+      aRadius = parseResult.GetFloatValue();
+      return true;
+    case eCSSUnit_Calc: {
+      ReduceCalcOps<float, eCSSUnit_Number> ops;
+      if (!ComputeCalc(aRadius, parseResult, ops)) {
+        MOZ_ASSERT_UNREACHABLE("unexpected unit");
+      }
+      return true;
+    }
+    default:
+      MOZ_ASSERT(false, "ParseVariant returned value with unexpected unit");
+      return false;
   }
-
-  aRadius = mToken.mNumber;
-  return true;
 }
 
 // Parse one of:
@@ -13622,8 +13661,11 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
     if (variantMask & VARIANT_NUMBER) {
       // Simplify the value immediately so we can check for division by
       // zero.
-      mozilla::css::ReduceNumberCalcOps ops;
-      float number = mozilla::css::ComputeCalc(*storage, ops);
+      float number;
+      mozilla::css::ReduceCalcOps<float, eCSSUnit_Number> ops;
+      if (!mozilla::css::ComputeCalc(number, *storage, ops)) {
+        MOZ_ASSERT_UNREACHABLE("unexpected unit");
+      }
       if (number == 0.0 && afterDivision)
         return false;
       storage->SetFloatValue(number, eCSSUnit_Number);
@@ -13637,12 +13679,18 @@ CSSParserImpl::ParseCalcMultiplicativeExpression(nsCSSValue& aValue,
                    "unexpected relationship to current storage");
         nsCSSValue &leftValue = aValue.GetArrayValue()->Item(0);
         if (variantMask & VARIANT_INTEGER) {
-          mozilla::css::ReduceIntegerCalcOps ops;
-          int integer = mozilla::css::ComputeCalc(leftValue, ops);
+          int integer;
+          mozilla::css::ReduceCalcOps<int, eCSSUnit_Integer> ops;
+          if (!mozilla::css::ComputeCalc(integer, leftValue, ops)) {
+            MOZ_ASSERT_UNREACHABLE("unexpected unit");
+          }
           leftValue.SetIntValue(integer, eCSSUnit_Integer);
         } else {
-          mozilla::css::ReduceNumberCalcOps ops;
-          float number = mozilla::css::ComputeCalc(leftValue, ops);
+          float number;
+          mozilla::css::ReduceCalcOps<float, eCSSUnit_Number> ops;
+          if (!mozilla::css::ComputeCalc(number, leftValue, ops)) {
+            MOZ_ASSERT_UNREACHABLE("unexpected unit");
+          }
           leftValue.SetFloatValue(number, eCSSUnit_Number);
         }
       }
@@ -17838,6 +17886,8 @@ nsCSSParser::Startup()
                                "layout.css.prefixes.gradients");
   Preferences::AddBoolVarCache(&sControlCharVisibility,
                                "layout.css.control-characters.visible");
+  Preferences::AddBoolVarCache(&sFramesTimingFunctionEnabled,
+                               "layout.css.frames-timing.enabled");
 }
 
 nsCSSParser::nsCSSParser(mozilla::css::Loader* aLoader,

@@ -16,11 +16,6 @@
 # include <sys/resource.h>
 #endif
 
-#ifdef MOZ_WIDGET_GONK
-#include <sys/types.h>
-#include <sys/wait.h>
-#endif
-
 #include "chrome/common/process_watcher.h"
 
 #include "mozilla/a11y/PDocAccessible.h"
@@ -603,6 +598,8 @@ ContentParent::PreallocateProcess()
     new ContentParent(/* aOpener = */ nullptr,
                       NS_LITERAL_STRING(DEFAULT_REMOTE_TYPE));
 
+  PreallocatedProcessManager::AddBlocker(process);
+
   if (!process->LaunchSubprocess(PROCESS_PRIORITY_PREALLOC)) {
     return nullptr;
   }
@@ -622,18 +619,6 @@ ContentParent::StartUp()
   if (!XRE_IsParentProcess()) {
     return;
   }
-
-#if defined(MOZ_CONTENT_SANDBOX) && defined(MOZ_WIDGET_GONK) && ANDROID_VERSION >= 19
-  // Require sandboxing on B2G >= KitKat.  This condition must stay
-  // in sync with ContentChild::RecvSetProcessSandbox.
-  if (!SandboxInfo::Get().CanSandboxContent()) {
-    // MOZ_CRASH strings are only for debug builds; make sure the
-    // message is clear on non-debug builds as well:
-    printf_stderr("Sandboxing support is required on this platform.  "
-                  "Recompile kernel with CONFIG_SECCOMP_FILTER=y\n");
-    MOZ_CRASH("Sandboxing support is required on this platform.");
-  }
-#endif
 
   // Note: This reporter measures all ContentParents.
   RegisterStrongMemoryReporter(new ContentParentsMemoryReporter());
@@ -879,6 +864,9 @@ ContentParent::GetNewOrUsedBrowserProcess(const nsAString& aRemoteType,
 
   // Create a new process from scratch.
   RefPtr<ContentParent> p = new ContentParent(aOpener, aRemoteType);
+
+  // Until the new process is ready let's not allow to start up any preallocated processes.
+  PreallocatedProcessManager::AddBlocker(p);
 
   if (!p->LaunchSubprocess(aPriority)) {
     return nullptr;
@@ -2726,10 +2714,9 @@ mozilla::ipc::IPCResult
 ContentParent::RecvFirstIdle()
 {
   // When the ContentChild goes idle, it sends us a FirstIdle message
-  // which we use as a good time to prelaunch another process. If we
-  // prelaunch any sooner than this, then we'll be competing with the
-  // child process and slowing it down.
-  PreallocatedProcessManager::AllocateAfterDelay();
+  // which we use as a good time to signal the PreallocatedProcessManager
+  // that it can start allocating processes from now on.
+  PreallocatedProcessManager::RemoveBlocker(this);
   return IPC_OK();
 }
 
@@ -2912,6 +2899,24 @@ bool
 ContentParent::DeallocPBrowserParent(PBrowserParent* frame)
 {
   return nsIContentParent::DeallocPBrowserParent(frame);
+}
+
+mozilla::ipc::IPCResult
+ContentParent::RecvPBrowserConstructor(PBrowserParent* actor,
+                                       const TabId& tabId,
+                                       const TabId& sameTabGroupAs,
+                                       const IPCTabContext& context,
+                                       const uint32_t& chromeFlags,
+                                       const ContentParentId& cpId,
+                                       const bool& isForBrowser)
+{
+  return nsIContentParent::RecvPBrowserConstructor(actor,
+                                                   tabId,
+                                                   sameTabGroupAs,
+                                                   context,
+                                                   chromeFlags,
+                                                   cpId,
+                                                   isForBrowser);
 }
 
 PIPCBlobInputStreamParent*

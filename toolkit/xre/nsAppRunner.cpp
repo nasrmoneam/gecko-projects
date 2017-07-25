@@ -918,9 +918,7 @@ nsXULAppInfo::GetRemoteType(nsAString& aRemoteType)
 static bool gBrowserTabsRemoteAutostart = false;
 static uint64_t gBrowserTabsRemoteStatus = 0;
 static bool gBrowserTabsRemoteAutostartInitialized = false;
-
-static bool gMultiprocessBlockPolicyInitialized = false;
-static uint32_t gMultiprocessBlockPolicy = 0;
+static bool gListeningForCohortChange = false;
 
 NS_IMETHODIMP
 nsXULAppInfo::Observe(nsISupports *aSubject, const char *aTopic, const char16_t *aData) {
@@ -1961,17 +1959,17 @@ ProfileLockedDialog(nsIFile* aProfileDir, nsIFile* aProfileLocalDir,
 
     nsXPIDLString killMessage;
 #ifndef XP_MACOSX
-    sb->FormatStringFromName(aUnlocker ? u"restartMessageUnlocker"
-                                       : u"restartMessageNoUnlocker",
+    sb->FormatStringFromName(aUnlocker ? "restartMessageUnlocker"
+                                       : "restartMessageNoUnlocker",
                              params, 2, getter_Copies(killMessage));
 #else
-    sb->FormatStringFromName(aUnlocker ? u"restartMessageUnlockerMac"
-                                       : u"restartMessageNoUnlockerMac",
+    sb->FormatStringFromName(aUnlocker ? "restartMessageUnlockerMac"
+                                       : "restartMessageNoUnlockerMac",
                              params, 2, getter_Copies(killMessage));
 #endif
 
     nsXPIDLString killTitle;
-    sb->FormatStringFromName(u"restartTitle",
+    sb->FormatStringFromName("restartTitle",
                              params, 1, getter_Copies(killTitle));
 
     if (!killMessage || !killTitle)
@@ -2060,10 +2058,11 @@ ProfileMissingDialog(nsINativeAppSupport* aNative)
     nsXPIDLString missingMessage;
 
     // profileMissing
-    sb->FormatStringFromName(u"profileMissing", params, 2, getter_Copies(missingMessage));
+    sb->FormatStringFromName("profileMissing",
+                             params, 2, getter_Copies(missingMessage));
 
     nsXPIDLString missingTitle;
-    sb->FormatStringFromName(u"profileMissingTitle",
+    sb->FormatStringFromName("profileMissingTitle",
                              params, 1, getter_Copies(missingTitle));
 
     if (missingMessage && missingTitle) {
@@ -4019,7 +4018,7 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
     return 0;
   }
 
-#if defined(MOZ_UPDATER) && !defined(MOZ_WIDGET_ANDROID) && !defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_UPDATER) && !defined(MOZ_WIDGET_ANDROID)
   // Check for and process any available updates
   nsCOMPtr<nsIFile> updRoot;
   bool persistent;
@@ -4212,7 +4211,7 @@ XREMain::XRE_mainStartup(bool* aExitFlag)
 }
 
 #if defined(MOZ_CRASHREPORTER)
-#if defined(MOZ_CONTENT_SANDBOX) && !defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_CONTENT_SANDBOX)
 void AddSandboxAnnotations()
 {
   // Include the sandbox content level, regardless of platform
@@ -4241,7 +4240,7 @@ void AddSandboxAnnotations()
     NS_LITERAL_CSTRING("ContentSandboxCapable"),
     sandboxCapable ? NS_LITERAL_CSTRING("1") : NS_LITERAL_CSTRING("0"));
 }
-#endif /* MOZ_CONTENT_SANDBOX && !MOZ_WIDGET_GONK */
+#endif /* MOZ_CONTENT_SANDBOX */
 #endif /* MOZ_CRASHREPORTER */
 
 /*
@@ -4469,9 +4468,11 @@ XREMain::XRE_mainRun()
     PR_SetEnv(saved.release());
   }
 
+#if defined(MOZ_SANDBOX)
   // Call SandboxBroker to cache directories needed for policy rules, this must
   // be called after mDirProvider.DoStartup as it needs the profile dir.
   SandboxBroker::CacheRulesDirectories();
+#endif
 #endif
 
   SaveStateForAppInitiatedRestart();
@@ -4560,7 +4561,7 @@ XREMain::XRE_mainRun()
   }
 #endif /* MOZ_INSTRUMENT_EVENT_LOOP */
 
-#if defined(MOZ_SANDBOX) && defined(XP_LINUX) && !defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_SANDBOX) && defined(XP_LINUX)
   // If we're on Linux, we now have information about the OS capabilities
   // available to us.
   SandboxInfo sandboxInfo = SandboxInfo::Get();
@@ -4583,12 +4584,12 @@ XREMain::XRE_mainRun()
   CrashReporter::AnnotateCrashReport(
     NS_LITERAL_CSTRING("ContentSandboxCapabilities"), flagsString);
 #endif /* MOZ_CRASHREPORTER */
-#endif /* MOZ_SANDBOX && XP_LINUX && !MOZ_WIDGET_GONK */
+#endif /* MOZ_SANDBOX && XP_LINUX */
 
 #if defined(MOZ_CRASHREPORTER)
-#if defined(MOZ_CONTENT_SANDBOX) && !defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_CONTENT_SANDBOX)
   AddSandboxAnnotations();
-#endif /* MOZ_CONTENT_SANDBOX && !MOZ_WIDGET_GONK */
+#endif /* MOZ_CONTENT_SANDBOX */
 #endif /* MOZ_CRASHREPORTER */
 
   {
@@ -4621,15 +4622,6 @@ void XRE_GlibInit()
 }
 #endif
 
-// Separate stub function to let us specifically suppress it in Valgrind
-void
-XRE_CreateStatsObject()
-{
-  // Initialize global variables used by histogram collection
-  // machinery that is used by by Telemetry.  Note: is never de-initialised.
-  Telemetry::CreateStatisticsRecorder();
-}
-
 /*
  * XRE_main - A class based main entry point used by most platforms.
  *            Note that on OSX, aAppData->xreDirectory will point to
@@ -4641,16 +4633,6 @@ XREMain::XRE_main(int argc, char* argv[], const BootstrapConfig& aConfig)
   ScopedLogging log;
 
   mozilla::LogModule::Init();
-
-  // NB: this must happen after the creation of |ScopedLogging log| since
-  // ScopedLogging::ScopedLogging calls NS_LogInit, and
-  // XRE_CreateStatsObject calls Telemetry::CreateStatisticsRecorder,
-  // and NS_LogInit must be called before Telemetry::CreateStatisticsRecorder.
-  // NS_LogInit must be called before Telemetry::CreateStatisticsRecorder
-  // so as to avoid many log messages of the form
-  //   WARNING: XPCOM objects created/destroyed from static ctor/dtor: [..]
-  // See bug 1279614.
-  XRE_CreateStatsObject();
 
 #if defined(MOZ_SANDBOX) && defined(XP_LINUX) && !defined(ANDROID)
   SandboxInfo::ThreadingCheck();
@@ -5025,11 +5007,12 @@ const char* kForceEnableE10sPref = "browser.tabs.remote.force-enable";
 const char* kForceDisableE10sPref = "browser.tabs.remote.force-disable";
 
 uint32_t
-MultiprocessBlockPolicy() {
-  if (gMultiprocessBlockPolicyInitialized) {
-    return gMultiprocessBlockPolicy;
+MultiprocessBlockPolicy()
+{
+  if (XRE_IsContentProcess()) {
+    // If we're in a content process, we're not blocked.
+    return 0;
   }
-  gMultiprocessBlockPolicyInitialized = true;
 
   /**
    * Avoids enabling e10s if there are add-ons installed.
@@ -5044,8 +5027,7 @@ MultiprocessBlockPolicy() {
 #endif
 
   if (addonsCanDisable && disabledByAddons) {
-    gMultiprocessBlockPolicy = kE10sDisabledForAddons;
-    return gMultiprocessBlockPolicy;
+    return kE10sDisabledForAddons;
   }
 
 #if defined(XP_WIN) && defined(RELEASE_OR_BETA)
@@ -5064,13 +5046,13 @@ MultiprocessBlockPolicy() {
   disabledForA11y = Preferences::GetBool(kAccessibilityLoadedLastSessionPref, false);
   if (!disabledForA11y  &&
       Preferences::HasUserValue(kAccessibilityLastRunDatePref)) {
-    #define ONE_WEEK_IN_SECONDS (60*60*24*7)
+    const uint32_t oneWeekInSeconds = 60 * 60 * 24 * 7;
     uint32_t a11yRunDate = Preferences::GetInt(kAccessibilityLastRunDatePref, 0);
     MOZ_ASSERT(0 != a11yRunDate);
     // If a11y hasn't run for a period of time, clear the pref and load e10s
     uint32_t now = PRTimeToSeconds(PR_Now());
     uint32_t difference = now - a11yRunDate;
-    if (difference > ONE_WEEK_IN_SECONDS || !a11yRunDate) {
+    if (difference > oneWeekInSeconds || !a11yRunDate) {
       Preferences::ClearUser(kAccessibilityLastRunDatePref);
     } else {
       disabledForA11y = true;
@@ -5078,20 +5060,27 @@ MultiprocessBlockPolicy() {
   }
 
   if (disabledForA11y) {
-    gMultiprocessBlockPolicy = kE10sDisabledForAccessibility;
-    return gMultiprocessBlockPolicy;
+    return kE10sDisabledForAccessibility;
   }
 #endif
 
   /*
-   * None of the blocking policies matched, so e10s is allowed to run.
-   * Cache the information and return 0, indicating success.
+   * None of the blocking policies matched, so e10s is allowed to run. Return
+   * 0, indicating success.
    */
-  gMultiprocessBlockPolicy = 0;
   return 0;
 }
 
 namespace mozilla {
+
+static void
+CohortChanged(const char* aPref, void* aClosure)
+{
+  // Reset to the default state and recompute on the next call.
+  gBrowserTabsRemoteAutostartInitialized = false;
+  gBrowserTabsRemoteAutostart = false;
+  Preferences::UnregisterCallback(CohortChanged, "e10s.rollout.cohort");
+}
 
 bool
 BrowserTabsRemoteAutostart()
@@ -5105,6 +5094,15 @@ BrowserTabsRemoteAutostart()
   if (XRE_IsContentProcess()) {
     gBrowserTabsRemoteAutostart = true;
     return gBrowserTabsRemoteAutostart;
+  }
+
+  // This is a pretty heinous hack. On the first launch, we end up retrieving
+  // whether e10s is enabled setting up a document very early in startup. This
+  // caches that e10s is off before the e10srollout extension can run. See
+  // bug 1372824 comment 3 for a more thorough explanation.
+  if (!gListeningForCohortChange) {
+    gListeningForCohortChange = true;
+    Preferences::RegisterCallback(CohortChanged, "e10s.rollout.cohort");
   }
 
   bool optInPref = Preferences::GetBool("browser.tabs.remote.autostart", false);
@@ -5173,10 +5171,16 @@ GetMaxWebProcessCount()
     return std::max(1u, optInPrefValue);
   }
 
+#ifdef RELEASE_OR_BETA
+  // For our rollout on Release and Beta, we set this pref from the
+  // e10srollout extension. On Nightly, we don't touch the pref at all,
+  // allowing stale values to disable e10s-multi for certain users.
   if (Preferences::HasUserValue("dom.ipc.processCount.web")) {
     // The user didn't opt in or out so read the .web version of the pref.
     return std::max(1, Preferences::GetInt("dom.ipc.processCount.web", 1));
   }
+#endif
+
   return optInPrefValue;
 }
 

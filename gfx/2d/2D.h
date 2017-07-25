@@ -27,6 +27,8 @@
 // solution.
 #include "mozilla/RefPtr.h"
 #include "mozilla/ServoUtils.h"
+#include "mozilla/StaticMutex.h"
+#include "mozilla/StaticPtr.h"
 #include "mozilla/WeakPtr.h"
 
 #include "mozilla/DebugOnly.h"
@@ -1520,12 +1522,13 @@ public:
    *
    * @param aData Pointer to the data
    * @param aSize Size of the TrueType data
-   * @param aType Type of NativeFontResource that should be created.
+   * @param aBackendType Type of the reference DrawTarget the font should be created for.
+   * @param aFontType Type of NativeFontResource that should be created.
    * @param aFontContext Optional native font context to be used to create the NativeFontResource.
    * @return a NativeFontResource of nullptr if failed.
    */
   static already_AddRefed<NativeFontResource>
-    CreateNativeFontResource(uint8_t *aData, uint32_t aSize, FontType aType, void* aFontContext = nullptr);
+    CreateNativeFontResource(uint8_t *aData, uint32_t aSize, BackendType aBackendType, FontType aFontType, void* aFontContext = nullptr);
 
   /**
    * This creates an unscaled font of the given type based on font descriptor
@@ -1661,15 +1664,13 @@ public:
    * Returns true on success, or false on failure and leaves the D2D1/Direct3D11 devices unset.
    */
   static bool SetDirect3D11Device(ID3D11Device *aDevice);
+  static RefPtr<ID3D11Device> GetDirect3D11Device();
+  static RefPtr<ID2D1Device> GetD2D1Device(uint32_t* aOutSeqNo = nullptr);
+  static bool HasD2D1Device();
+  static RefPtr<IDWriteFactory> GetDWriteFactory();
   static bool SetDWriteFactory(IDWriteFactory *aFactory);
-  static ID3D11Device *GetDirect3D11Device();
-  static ID2D1Device *GetD2D1Device();
-  static uint32_t GetD2D1DeviceSeq();
-  static IDWriteFactory *GetDWriteFactory();
+  static RefPtr<IDWriteFactory> EnsureDWriteFactory();
   static bool SupportsD2D1();
-
-  static already_AddRefed<GlyphRenderingOptions>
-    CreateDWriteGlyphRenderingOptions(IDWriteRenderingParams *aParams);
 
   static uint64_t GetD2DVRAMUsageDrawTarget();
   static uint64_t GetD2DVRAMUsageSourceSurface();
@@ -1681,16 +1682,28 @@ public:
                                   const RefPtr<UnscaledFont>& aUnscaledFont,
                                   Float aSize,
                                   bool aUseEmbeddedBitmap,
-                                  bool aForceGDIMode);
+                                  bool aForceGDIMode,
+                                  IDWriteRenderingParams *aParams,
+                                  Float aGamma,
+                                  Float aContrast);
 
   static void UpdateSystemTextQuality();
 
 private:
-  static ID2D1Device *mD2D1Device;
-  static ID3D11Device *mD3D11Device;
-  static IDWriteFactory *mDWriteFactory;
+  static StaticRefPtr<ID2D1Device> mD2D1Device;
+  static StaticRefPtr<ID3D11Device> mD3D11Device;
+  static StaticRefPtr<IDWriteFactory> mDWriteFactory;
+  static bool mDWriteFactoryInitialized;
+
+protected:
+  // This guards access to the singleton devices above, as well as the
+  // singleton devices in DrawTargetD2D1.
+  static StaticMutex mDeviceLock;
+
+  friend class DrawTargetD2D1;
 #endif
 
+private:
   static DrawEventRecorder *mRecorder;
 };
 

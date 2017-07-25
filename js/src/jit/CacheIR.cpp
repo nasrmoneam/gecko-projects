@@ -16,6 +16,7 @@
 #include "vm/SelfHosting.h"
 #include "jsobjinlines.h"
 
+#include "jit/MacroAssembler-inl.h"
 #include "vm/EnvironmentObject-inl.h"
 #include "vm/UnboxedObject-inl.h"
 
@@ -176,6 +177,8 @@ GetPropIRGenerator::tryAttachStub()
             if (tryAttachWindowProxy(obj, objId, id))
                 return true;
             if (tryAttachCrossCompartmentWrapper(obj, objId, id))
+                return true;
+            if (tryAttachXrayCrossCompartmentWrapper(obj, objId, id))
                 return true;
             if (tryAttachFunction(obj, objId, id))
                 return true;
@@ -752,7 +755,7 @@ GetPropIRGenerator::tryAttachCrossCompartmentWrapper(HandleObject obj, ObjOperan
 
     maybeEmitIdGuard(id);
     writer.guardIsProxy(objId);
-    writer.guardIsCrossCompartmentWrapper(objId);
+    writer.guardHasProxyHandler(objId, Wrapper::wrapperHandler(obj));
 
     // Load the object wrapped by the CCW
     ObjOperandId wrapperTargetId = writer.loadWrapperTarget(objId);
@@ -773,6 +776,114 @@ GetPropIRGenerator::tryAttachCrossCompartmentWrapper(HandleObject obj, ObjOperan
     EmitReadSlotReturn(writer, unwrapped, holder, shape, /* wrapResult = */ true);
 
     trackAttached("CCWSlot");
+    return true;
+}
+
+static bool
+GetXrayExpandoShapeWrapper(JSContext* cx, HandleObject xray, MutableHandleObject wrapper)
+{
+    Value v = GetProxyReservedSlot(xray, GetXrayJitInfo()->xrayHolderSlot);
+    if (v.isObject()) {
+        NativeObject* holder = &v.toObject().as<NativeObject>();
+        v = holder->getFixedSlot(GetXrayJitInfo()->holderExpandoSlot);
+        if (v.isObject()) {
+            RootedNativeObject expando(cx, &UncheckedUnwrap(&v.toObject())->as<NativeObject>());
+            wrapper.set(NewWrapperWithObjectShape(cx, expando));
+            return wrapper != nullptr;
+        }
+    }
+    wrapper.set(nullptr);
+    return true;
+}
+
+bool
+GetPropIRGenerator::tryAttachXrayCrossCompartmentWrapper(HandleObject obj, ObjOperandId objId,
+                                                         HandleId id)
+{
+    if (!IsProxy(obj))
+        return false;
+
+    XrayJitInfo* info = GetXrayJitInfo();
+    if (!info || !info->isCrossCompartmentXray(GetProxyHandler(obj)))
+        return false;
+
+    if (!info->globalHasExclusiveExpandos(cx_->global()))
+        return false;
+
+    RootedObject target(cx_, UncheckedUnwrap(obj));
+
+    RootedObject expandoShapeWrapper(cx_);
+    if (!GetXrayExpandoShapeWrapper(cx_, obj, &expandoShapeWrapper)) {
+        cx_->recoverFromOutOfMemory();
+        return false;
+    }
+
+    // Look for a getter we can call on the xray or its prototype chain.
+    Rooted<PropertyDescriptor> desc(cx_);
+    RootedObject holder(cx_, obj);
+    AutoObjectVector prototypes(cx_);
+    AutoObjectVector prototypeExpandoShapeWrappers(cx_);
+    while (true) {
+        if (!GetOwnPropertyDescriptor(cx_, holder, id, &desc)) {
+            cx_->clearPendingException();
+            return false;
+        }
+        if (desc.object())
+            break;
+        if (!GetPrototype(cx_, holder, &holder)) {
+            cx_->clearPendingException();
+            return false;
+        }
+        if (!holder || !IsProxy(holder) || !info->isCrossCompartmentXray(GetProxyHandler(holder)))
+            return false;
+        RootedObject prototypeExpandoShapeWrapper(cx_);
+        if (!GetXrayExpandoShapeWrapper(cx_, holder, &prototypeExpandoShapeWrapper) ||
+            !prototypes.append(holder) ||
+            !prototypeExpandoShapeWrappers.append(prototypeExpandoShapeWrapper))
+        {
+            cx_->recoverFromOutOfMemory();
+            return false;
+        }
+    }
+    if (!desc.isAccessorDescriptor())
+        return false;
+
+    RootedObject getter(cx_, desc.getterObject());
+    if (!getter || !getter->is<JSFunction>() || !getter->as<JSFunction>().isNative())
+        return false;
+
+    maybeEmitIdGuard(id);
+    writer.guardIsProxy(objId);
+    writer.guardHasProxyHandler(objId, GetProxyHandler(obj));
+
+    // Load the object wrapped by the CCW
+    ObjOperandId wrapperTargetId = writer.loadWrapperTarget(objId);
+
+    // Test the wrapped object's class. The properties held by xrays or their
+    // prototypes will be invariant for objects of a given class, except for
+    // changes due to xray expandos or xray prototype mutations.
+    writer.guardAnyClass(wrapperTargetId, target->getClass());
+
+    // Make sure the expandos on the xray and its prototype chain match up with
+    // what we expect. The expando shape needs to be consistent, to ensure it
+    // has not had any shadowing properties added, and the expando cannot have
+    // any custom prototype (xray prototypes are stable otherwise).
+    //
+    // We can only do this for xrays with exclusive access to their expandos
+    // (as we checked earlier), which store a pointer to their expando
+    // directly. Xrays in other compartments may share their expandos with each
+    // other and a VM call is needed just to find the expando.
+    writer.guardXrayExpandoShapeAndDefaultProto(objId, expandoShapeWrapper);
+    for (size_t i = 0; i < prototypes.length(); i++) {
+        JSObject* proto = prototypes[i];
+        ObjOperandId protoId = writer.loadObject(proto);
+        writer.guardXrayExpandoShapeAndDefaultProto(protoId, prototypeExpandoShapeWrappers[i]);
+    }
+
+    writer.callNativeGetterResult(objId, &getter->as<JSFunction>());
+    writer.typeMonitorResult();
+
+    trackAttached("XrayGetter");
     return true;
 }
 
@@ -3571,6 +3682,69 @@ TypeOfIRGenerator::tryAttachObject(ValOperandId valId)
     return true;
 }
 
+GetIteratorIRGenerator::GetIteratorIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                               ICState::Mode mode, HandleValue value)
+  : IRGenerator(cx, script, pc, CacheKind::GetIterator, mode),
+    val_(value)
+{ }
+
+bool
+GetIteratorIRGenerator::tryAttachStub()
+{
+    MOZ_ASSERT(cacheKind_ == CacheKind::GetIterator);
+
+    AutoAssertNoPendingException aanpe(cx_);
+
+    if (mode_ == ICState::Mode::Megamorphic)
+        return false;
+
+    ValOperandId valId(writer.setInputOperandId(0));
+    if (!val_.isObject())
+        return false;
+
+    RootedObject obj(cx_, &val_.toObject());
+
+    ObjOperandId objId = writer.guardIsObject(valId);
+    if (tryAttachNativeIterator(objId, obj))
+        return true;
+
+    return false;
+}
+
+bool
+GetIteratorIRGenerator::tryAttachNativeIterator(ObjOperandId objId, HandleObject obj)
+{
+    MOZ_ASSERT(JSOp(*pc_) == JSOP_ITER);
+
+    if (GET_UINT8(pc_) != JSITER_ENUMERATE)
+        return false;
+
+    PropertyIteratorObject* iterobj = LookupInIteratorCache(cx_, obj);
+    if (!iterobj)
+        return false;
+
+    MOZ_ASSERT(obj->isNative() || obj->is<UnboxedPlainObject>());
+
+    // Guard on the receiver's shape/group.
+    Maybe<ObjOperandId> expandoId;
+    TestMatchingReceiver(writer, obj, objId, &expandoId);
+
+    // Ensure the receiver or its expando object has no dense elements.
+    if (obj->isNative())
+        writer.guardNoDenseElements(objId);
+    else if (expandoId)
+        writer.guardNoDenseElements(*expandoId);
+
+    // Do the same for the objects on the proto chain.
+    GeneratePrototypeHoleGuards(writer, obj, objId);
+
+    ObjOperandId iterId =
+        writer.guardAndGetIterator(objId, iterobj, &cx_->compartment()->enumerators);
+    writer.loadObjectResult(iterId);
+    writer.returnFromIC();
+
+    return true;
+}
 
 CallIRGenerator::CallIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
                                  ICState::Mode mode, uint32_t argc,
@@ -3695,4 +3869,159 @@ CallIRGenerator::tryAttachStub()
 
     MOZ_ASSERT(strategy == OptStrategy::None);
     return false;
+}
+
+CompareIRGenerator::CompareIRGenerator(JSContext* cx, HandleScript script, jsbytecode* pc,
+                                       ICState::Mode mode, JSOp op,
+                                       HandleValue lhsVal, HandleValue rhsVal)
+  : IRGenerator(cx, script, pc, CacheKind::Compare, mode),
+    op_(op), lhsVal_(lhsVal), rhsVal_(rhsVal)
+{ }
+
+bool
+CompareIRGenerator::tryAttachString(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isString() || !rhsVal_.isString())
+        return false;
+
+    StringOperandId lhsStrId = writer.guardIsString(lhsId);
+    StringOperandId rhsStrId = writer.guardIsString(rhsId);
+    writer.compareStringResult(op_, lhsStrId, rhsStrId);
+    writer.returnFromIC();
+
+    trackAttached("String");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachObject(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isObject() || !rhsVal_.isObject())
+        return false;
+
+    ObjOperandId lhsObjId = writer.guardIsObject(lhsId);
+    ObjOperandId rhsObjId = writer.guardIsObject(rhsId);
+    writer.compareObjectResult(op_, lhsObjId, rhsObjId);
+    writer.returnFromIC();
+
+    trackAttached("Object");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachSymbol(ValOperandId lhsId, ValOperandId rhsId)
+{
+    MOZ_ASSERT(IsEqualityOp(op_));
+
+    if (!lhsVal_.isSymbol() || !rhsVal_.isSymbol())
+        return false;
+
+    SymbolOperandId lhsSymId = writer.guardIsSymbol(lhsId);
+    SymbolOperandId rhsSymId = writer.guardIsSymbol(rhsId);
+    writer.compareSymbolResult(op_, lhsSymId, rhsSymId);
+    writer.returnFromIC();
+
+    trackAttached("Symbol");
+    return true;
+}
+
+bool
+CompareIRGenerator::tryAttachStub()
+{
+    MOZ_ASSERT(cacheKind_ == CacheKind::Compare);
+    MOZ_ASSERT(IsEqualityOp(op_) ||
+               op_ == JSOP_LE || op_ == JSOP_LT ||
+               op_ == JSOP_GE || op_ == JSOP_GT);
+
+    AutoAssertNoPendingException aanpe(cx_);
+
+    ValOperandId lhsId(writer.setInputOperandId(0));
+    ValOperandId rhsId(writer.setInputOperandId(1));
+
+    if (IsEqualityOp(op_)) {
+        if (tryAttachString(lhsId, rhsId))
+            return true;
+        if (tryAttachObject(lhsId, rhsId))
+            return true;
+        if (tryAttachSymbol(lhsId, rhsId))
+            return true;
+
+        trackNotAttached();
+        return false;
+    }
+
+    trackNotAttached();
+    return false;
+}
+
+void
+CompareIRGenerator::trackAttached(const char* name)
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "lhs", lhsVal_);
+        sp.valueProperty(guard, "rhs", rhsVal_);
+        sp.attached(guard, name);
+        sp.endCache(guard);
+    }
+#endif
+}
+
+void
+CompareIRGenerator::trackNotAttached()
+{
+#ifdef JS_CACHEIR_SPEW
+    CacheIRSpewer& sp = CacheIRSpewer::singleton();
+    if (sp.enabled()) {
+        LockGuard<Mutex> guard(sp.lock());
+        sp.beginCache(guard, *this);
+        sp.valueProperty(guard, "lhs", lhsVal_);
+        sp.valueProperty(guard, "rhs", rhsVal_);
+        sp.endCache(guard);
+    }
+#endif
+}
+
+// Class which holds a shape pointer for use when caches might reference data in other zones.
+static const Class shapeContainerClass = {
+    "ShapeContainer",
+    JSCLASS_HAS_RESERVED_SLOTS(1)
+};
+
+static const size_t SHAPE_CONTAINER_SLOT = 0;
+
+JSObject*
+jit::NewWrapperWithObjectShape(JSContext* cx, HandleNativeObject obj)
+{
+    MOZ_ASSERT(cx->compartment() != obj->compartment());
+
+    RootedObject wrapper(cx);
+    {
+        AutoCompartment ac(cx, obj);
+        wrapper = NewObjectWithClassProto(cx, &shapeContainerClass, nullptr);
+        if (!obj)
+            return nullptr;
+        wrapper->as<NativeObject>().setSlot(SHAPE_CONTAINER_SLOT, PrivateGCThingValue(obj->lastProperty()));
+    }
+    if (!JS_WrapObject(cx, &wrapper))
+        return nullptr;
+    MOZ_ASSERT(IsWrapper(wrapper));
+    return wrapper;
+}
+
+void
+jit::LoadShapeWrapperContents(MacroAssembler& masm, Register obj, Register dst, Label* failure)
+{
+    masm.loadPtr(Address(obj, ProxyObject::offsetOfReservedSlots()), dst);
+    Address privateAddr(dst, detail::ProxyReservedSlots::offsetOfPrivateSlot());
+    masm.branchTestObject(Assembler::NotEqual, privateAddr, failure);
+    masm.unboxObject(privateAddr, dst);
+    masm.unboxNonDouble(Address(dst, NativeObject::getFixedSlotOffset(SHAPE_CONTAINER_SLOT)), dst);
 }

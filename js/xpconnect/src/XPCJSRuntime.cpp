@@ -629,12 +629,6 @@ void XPCJSRuntime::TraceNativeBlackRoots(JSTracer* trc)
             roots->TraceJSAll(trc);
     }
 
-    // XPCJSObjectHolders don't participate in cycle collection, so always
-    // trace them here.
-    XPCRootSetElem* e;
-    for (e = mObjectHolderRoots; e; e = e->GetNextRoot())
-        static_cast<XPCJSObjectHolder*>(e)->TraceJS(trc);
-
     JSContext* cx = XPCJSContext::Get()->Context();
     dom::TraceBlackJS(trc, JS_GetGCParameter(cx, JSGC_NUMBER),
                       nsXPConnect::XPConnect()->IsShuttingDown());
@@ -2560,6 +2554,9 @@ AccumulateTelemetryCallback(int id, uint32_t sample, const char* key)
       case JS_TELEMETRY_GC_BUDGET_MS:
         Telemetry::Accumulate(Telemetry::GC_BUDGET_MS, sample);
         break;
+      case JS_TELEMETRY_GC_BUDGET_OVERRUN:
+        Telemetry::Accumulate(Telemetry::GC_BUDGET_OVERRUN, sample);
+        break;
       case JS_TELEMETRY_GC_ANIMATION_MS:
         Telemetry::Accumulate(Telemetry::GC_ANIMATION_MS, sample);
         break;
@@ -2807,7 +2804,6 @@ XPCJSRuntime::XPCJSRuntime(JSContext* aCx)
    mDoingFinalization(false),
    mVariantRoots(nullptr),
    mWrappedJSRoots(nullptr),
-   mObjectHolderRoots(nullptr),
    mAsyncSnowWhiteFreer(new AsyncFreeSnowWhite())
 {
     MOZ_COUNT_CTOR_INHERITED(XPCJSRuntime, CycleCollectedJSRuntime);
@@ -2851,6 +2847,7 @@ XPCJSRuntime::Initialize(JSContext* cx)
     js::SetPreserveWrapperCallback(cx, PreserveWrapper);
     JS_SetAccumulateTelemetryCallback(cx, AccumulateTelemetryCallback);
     js::SetWindowProxyClass(cx, &OuterWindowProxyClass);
+    js::SetXrayJitInfo(&gXrayJitInfo);
     JS::SetProcessLargeAllocationFailureCallback(OnLargeAllocationFailureCallback);
 
     // The JS engine needs to keep the source code around in order to implement
@@ -3025,7 +3022,7 @@ XPCRootSetElem::AddToRootSet(XPCRootSetElem** listHead)
 void
 XPCRootSetElem::RemoveFromRootSet()
 {
-    JS::PokeGC(XPCJSContext::Get()->Context());
+    JS::NotifyGCRootsRemoved(XPCJSContext::Get()->Context());
 
     MOZ_ASSERT(mSelfp, "Must be linked");
 

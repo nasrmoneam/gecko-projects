@@ -10,7 +10,7 @@
 use computed_values::display;
 use heapsize::HeapSizeOf;
 use matching::{StyleChange, StyleDifference};
-use properties::ServoComputedValues;
+use properties::ComputedValues;
 use std::fmt;
 
 bitflags! {
@@ -60,20 +60,12 @@ impl HeapSizeOf for ServoRestyleDamage {
 impl ServoRestyleDamage {
     /// Compute the `StyleDifference` (including the appropriate restyle damage)
     /// for a given style change between `old` and `new`.
-    pub fn compute_style_difference(old: &ServoComputedValues,
-                                    new: &ServoComputedValues)
+    pub fn compute_style_difference(_source: &ComputedValues,
+                                    old: &ComputedValues,
+                                    new: &ComputedValues)
                                     -> StyleDifference {
         let damage = compute_damage(old, new);
-        // If computed values for custom properties changed, we should cascade these changes to
-        // children (custom properties are all inherited).
-        // https://www.w3.org/TR/css-variables/#defining-variables
-        // (With Properties & Values, not all custom properties will be inherited!)
-        let variable_values_changed = old.get_custom_properties() != new.get_custom_properties();
-        let change = if damage.is_empty() && !variable_values_changed {
-            StyleChange::Unchanged
-        } else {
-            StyleChange::Changed
-        };
+        let change = if damage.is_empty() { StyleChange::Unchanged } else { StyleChange::Changed };
         StyleDifference::new(damage, change)
     }
 
@@ -191,11 +183,11 @@ macro_rules! add_if_not_equal(
     })
 );
 
-fn compute_damage(old: &ServoComputedValues, new: &ServoComputedValues) -> ServoRestyleDamage {
+fn compute_damage(old: &ComputedValues, new: &ComputedValues) -> ServoRestyleDamage {
     let mut damage = ServoRestyleDamage::empty();
 
     // This should check every CSS property, as enumerated in the fields of
-    // http://doc.servo.org/style/properties/struct.ServoComputedValues.html
+    // http://doc.servo.org/style/properties/struct.ComputedValues.html
 
     // FIXME: Test somehow that every property is included.
 
@@ -284,6 +276,13 @@ fn compute_damage(old: &ServoComputedValues, new: &ServoComputedValues) -> Servo
         // Note: May require REFLOW et al. if `visibility: collapse` is implemented.
         get_inheritedbox.visibility
     ]);
+
+
+    // Paint worklets may depend on custom properties,
+    // so if they have changed we should repaint.
+    if old.get_custom_properties() != new.get_custom_properties() {
+        damage.insert(REPAINT);
+    }
 
     // If the layer requirements of this flow have changed due to the value
     // of the transform, then reflow is required to rebuild the layers.

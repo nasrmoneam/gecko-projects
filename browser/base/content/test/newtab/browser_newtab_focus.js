@@ -8,7 +8,7 @@ add_task(async function() {
   await pushPrefs(["accessibility.tabfocus", 7]);
 
   // When the onboarding component is enabled, it would inject extra tour notification into
-  // the newtab page so there would be 2 more notification close button and action button
+  // the newtab page so there would be 3 more overlay button, notification close button and action button
   let onbardingEnabled = AppConstants.NIGHTLY_BUILD && Services.prefs.getBoolPref("browser.onboarding.enabled");
 
   // Focus count in new tab page.
@@ -21,9 +21,12 @@ add_task(async function() {
   await setLinks("0,1,2,3,4,5,6,7,8");
   setPinnedLinks("");
 
+  if (onbardingEnabled) {
+    await promiseNoMuteNotificationOnFirstSession();
+  }
   let tab = await addNewTabPageTab();
   if (onbardingEnabled) {
-    FOCUS_COUNT += 2;
+    FOCUS_COUNT += 3;
     await promiseTourNotificationOpened(tab.linkedBrowser);
   }
   gURLBar.focus();
@@ -34,7 +37,7 @@ add_task(async function() {
 
   let expectedCount = 4;
   if (onbardingEnabled) {
-    expectedCount += 2;
+    expectedCount += 3;
   }
   countFocus(expectedCount);
 
@@ -54,6 +57,10 @@ function countFocus(aExpectedCount) {
   } while (document.activeElement != gURLBar.inputField);
   ok(focusCount == aExpectedCount || focusCount == (aExpectedCount + 1),
      "Validate focus count in the new tab page.");
+}
+
+function promiseNoMuteNotificationOnFirstSession() {
+  return SpecialPowers.pushPrefEnv({set: [["browser.onboarding.notification.mute-duration-on-first-session-ms", 0]]});
 }
 
 /**

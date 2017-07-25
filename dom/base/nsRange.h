@@ -47,14 +47,20 @@ class nsRange final : public nsIDOMRange,
 public:
   explicit nsRange(nsINode* aNode);
 
-  static nsresult CreateRange(nsIDOMNode* aStartParent, int32_t aStartOffset,
-                              nsIDOMNode* aEndParent, int32_t aEndOffset,
+  static nsresult CreateRange(nsIDOMNode* aStartContainer,
+                              uint32_t aStartOffset,
+                              nsIDOMNode* aEndContainer,
+                              uint32_t aEndOffset,
                               nsRange** aRange);
-  static nsresult CreateRange(nsIDOMNode* aStartParent, int32_t aStartOffset,
-                              nsIDOMNode* aEndParent, int32_t aEndOffset,
+  static nsresult CreateRange(nsIDOMNode* aStartContainer,
+                              uint32_t aStartOffset,
+                              nsIDOMNode* aEndContainer,
+                              uint32_t aEndOffset,
                               nsIDOMRange** aRange);
-  static nsresult CreateRange(nsINode* aStartParent, int32_t aStartOffset,
-                              nsINode* aEndParent, int32_t aEndOffset,
+  static nsresult CreateRange(nsINode* aStartContainer,
+                              uint32_t aStartOffset,
+                              nsINode* aEndContainer,
+                              uint32_t aEndOffset,
                               nsRange** aRange);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -73,22 +79,22 @@ public:
     return mRoot;
   }
 
-  nsINode* GetStartParent() const
+  nsINode* GetStartContainer() const
   {
-    return mStartParent;
+    return mStartContainer;
   }
 
-  nsINode* GetEndParent() const
+  nsINode* GetEndContainer() const
   {
-    return mEndParent;
+    return mEndContainer;
   }
 
-  int32_t StartOffset() const
+  uint32_t StartOffset() const
   {
     return mStartOffset;
   }
 
-  int32_t EndOffset() const
+  uint32_t EndOffset() const
   {
     return mEndOffset;
   }
@@ -147,8 +153,8 @@ public:
    * When you set both start and end of a range, you should use
    * SetStartAndEnd() instead.
    */
-  nsresult SetStart(nsINode* aParent, int32_t aOffset);
-  nsresult SetEnd(nsINode* aParent, int32_t aOffset);
+  nsresult SetStart(nsINode* aContainer, uint32_t aOffset);
+  nsresult SetEnd(nsINode* aContainer, uint32_t aOffset);
 
   already_AddRefed<nsRange> CloneRange() const;
 
@@ -160,40 +166,53 @@ public:
    * collapsed at the end point.  Similarly, if they are in different root,
    * the range will be collapsed at the end point.
    */
-  nsresult SetStartAndEnd(nsINode* aStartParent, int32_t aStartOffset,
-                          nsINode* aEndParent, int32_t aEndOffset);
+  nsresult SetStartAndEnd(nsINode* aStartContainer, uint32_t aStartOffset,
+                          nsINode* aEndContainer, uint32_t aEndOffset);
 
   /**
    * CollapseTo() works similar to call both SetStart() and SetEnd() with
    * same node and offset.  This just calls SetStartAndParent() to set
-   * collapsed range at aParent and aOffset.
+   * collapsed range at aContainer and aOffset.
    */
-  nsresult CollapseTo(nsINode* aParent, int32_t aOffset)
+  nsresult CollapseTo(nsINode* aContainer, uint32_t aOffset)
   {
-    return SetStartAndEnd(aParent, aOffset, aParent, aOffset);
+    return SetStartAndEnd(aContainer, aOffset, aContainer, aOffset);
   }
 
   /**
    * Retrieves node and offset for setting start or end of a range to
    * before or after aNode.
    */
-  static nsINode* GetParentAndOffsetAfter(nsINode* aNode, int32_t* aOffset)
+  static nsINode* GetContainerAndOffsetAfter(nsINode* aNode, uint32_t* aOffset)
   {
     MOZ_ASSERT(aNode);
     MOZ_ASSERT(aOffset);
+    *aOffset = 0;
     nsINode* parentNode = aNode->GetParentNode();
-    *aOffset = parentNode ? parentNode->IndexOf(aNode) : -1;
-    if (*aOffset >= 0) {
-      (*aOffset)++;
+    if (!parentNode) {
+      return nullptr;
     }
+    int32_t indexInParent = parentNode->IndexOf(aNode);
+    if (NS_WARN_IF(indexInParent < 0)) {
+      return nullptr;
+    }
+    *aOffset = static_cast<uint32_t>(indexInParent) + 1;
     return parentNode;
   }
-  static nsINode* GetParentAndOffsetBefore(nsINode* aNode, int32_t* aOffset)
+  static nsINode* GetContainerAndOffsetBefore(nsINode* aNode, uint32_t* aOffset)
   {
     MOZ_ASSERT(aNode);
     MOZ_ASSERT(aOffset);
+    *aOffset = 0;
     nsINode* parentNode = aNode->GetParentNode();
-    *aOffset = parentNode ? parentNode->IndexOf(aNode) : -1;
+    if (!parentNode) {
+      return nullptr;
+    }
+    int32_t indexInParent = parentNode->IndexOf(aNode);
+    if (NS_WARN_IF(indexInParent < 0)) {
+      return nullptr;
+    }
+    *aOffset = static_cast<uint32_t>(indexInParent);
     return parentNode;
   }
 
@@ -213,7 +232,7 @@ public:
 
   bool Collapsed() const
   {
-    return mIsPositioned && mStartParent == mEndParent &&
+    return mIsPositioned && mStartContainer == mEndContainer &&
            mStartOffset == mEndOffset;
   }
   already_AddRefed<mozilla::dom::DocumentFragment>
@@ -222,7 +241,8 @@ public:
   CloneContents(ErrorResult& aErr);
   int16_t CompareBoundaryPoints(uint16_t aHow, nsRange& aOther,
                                 ErrorResult& aErr);
-  int16_t ComparePoint(nsINode& aParent, uint32_t aOffset, ErrorResult& aErr);
+  int16_t ComparePoint(nsINode& aContainer, uint32_t aOffset,
+                       ErrorResult& aErr);
   void DeleteContents(ErrorResult& aRv);
   already_AddRefed<mozilla::dom::DocumentFragment>
     ExtractContents(ErrorResult& aErr);
@@ -233,7 +253,7 @@ public:
   uint32_t GetEndOffset(ErrorResult& aRv) const;
   void InsertNode(nsINode& aNode, ErrorResult& aErr);
   bool IntersectsNode(nsINode& aNode, ErrorResult& aRv);
-  bool IsPointInRange(nsINode& aParent, uint32_t aOffset, ErrorResult& aErr);
+  bool IsPointInRange(nsINode& aContainer, uint32_t aOffset, ErrorResult& aErr);
 
   // *JS() methods are mapped to Range.*() of DOM.
   // They may move focus only when the range represents normal selection.
@@ -269,9 +289,9 @@ public:
 
   static void GetInnerTextNoFlush(mozilla::dom::DOMString& aValue,
                                   mozilla::ErrorResult& aError,
-                                  nsIContent* aStartParent,
+                                  nsIContent* aStartContainer,
                                   uint32_t aStartOffset,
-                                  nsIContent* aEndParent,
+                                  nsIContent* aEndContainer,
                                   uint32_t aEndOffset);
 
   nsINode* GetParentObject() const { return mOwner; }
@@ -325,8 +345,10 @@ public:
   static void CollectClientRectsAndText(nsLayoutUtils::RectCallback* aCollector,
                                         mozilla::dom::Sequence<nsString>* aTextList,
                                         nsRange* aRange,
-                                        nsINode* aStartParent, int32_t aStartOffset,
-                                        nsINode* aEndParent, int32_t aEndOffset,
+                                        nsINode* aStartContainer,
+                                        uint32_t aStartOffset,
+                                        nsINode* aEndContainer,
+                                        uint32_t aEndOffset,
                                         bool aClampToEdge, bool aFlushLayout);
 
   /**
@@ -347,14 +369,25 @@ protected:
   void RegisterCommonAncestor(nsINode* aNode);
   void UnregisterCommonAncestor(nsINode* aNode);
   nsINode* IsValidBoundary(nsINode* aNode);
-  static bool IsValidOffset(nsINode* aNode, int32_t aOffset);
+
+  /**
+   * XXX nsRange should accept 0 - UINT32_MAX as offset.  However, users of
+   *     nsRange treat offset as int32_t.  Additionally, some other internal
+   *     APIs like nsINode::IndexOf() use int32_t.  Therefore, nsRange should
+   *     accept only 0 - INT32_MAX as valid offset for now.
+   */
+  static bool IsValidOffset(uint32_t aOffset)
+  {
+    return aOffset <= INT32_MAX;
+  }
+  static bool IsValidOffset(nsINode* aNode, uint32_t aOffset);
 
   // CharacterDataChanged set aNotInsertedYet to true to disable an assertion
   // and suppress re-registering a range common ancestor node since
   // the new text node of a splitText hasn't been inserted yet.
   // CharacterDataChanged does the re-registering when needed.
-  void DoSetRange(nsINode* aStartN, int32_t aStartOffset,
-                  nsINode* aEndN, int32_t aEndOffset,
+  void DoSetRange(nsINode* aStartN, uint32_t aStartOffset,
+                  nsINode* aEndN, uint32_t aEndOffset,
                   nsINode* aRoot, bool aNotInsertedYet = false);
 
   /**
@@ -424,11 +457,11 @@ protected:
 
   nsCOMPtr<nsIDocument> mOwner;
   nsCOMPtr<nsINode> mRoot;
-  nsCOMPtr<nsINode> mStartParent;
-  nsCOMPtr<nsINode> mEndParent;
+  nsCOMPtr<nsINode> mStartContainer;
+  nsCOMPtr<nsINode> mEndContainer;
   RefPtr<mozilla::dom::Selection> mSelection;
-  int32_t mStartOffset;
-  int32_t mEndOffset;
+  uint32_t mStartOffset;
+  uint32_t mEndOffset;
 
   bool mIsPositioned : 1;
   bool mMaySpanAnonymousSubtrees : 1;

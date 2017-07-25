@@ -141,14 +141,13 @@ HTMLEditor::LoadHTML(const nsAString& aInputString)
     rv = range->GetStartContainer(getter_AddRefs(parent));
     NS_ENSURE_SUCCESS(rv, rv);
     NS_ENSURE_TRUE(parent, NS_ERROR_NULL_POINTER);
-    int32_t childOffset;
-    rv = range->GetStartOffset(&childOffset);
-    NS_ENSURE_SUCCESS(rv, rv);
+    uint32_t childOffset = range->StartOffset();
 
     nsCOMPtr<nsIDOMNode> nodeToInsert;
     docfrag->GetFirstChild(getter_AddRefs(nodeToInsert));
     while (nodeToInsert) {
-      rv = InsertNode(nodeToInsert, parent, childOffset++);
+      rv = InsertNode(nodeToInsert, parent,
+                      static_cast<int32_t>(childOffset++));
       NS_ENSURE_SUCCESS(rv, rv);
       docfrag->GetFirstChild(getter_AddRefs(nodeToInsert));
     }
@@ -371,7 +370,7 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
     WSRunObject wsObj(this, parentNode, offsetOfNewNode);
     if (wsObj.mEndReasonNode &&
         TextEditUtils::IsBreak(wsObj.mEndReasonNode) &&
-        !IsVisBreak(wsObj.mEndReasonNode)) {
+        !IsVisibleBRElement(wsObj.mEndReasonNode)) {
       rv = DeleteNode(wsObj.mEndReasonNode);
       NS_ENSURE_SUCCESS(rv, rv);
     }
@@ -622,7 +621,7 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
         // PriorVisibleNode does not make that determination for breaks.
         // It also may not return the break in visNode.  We have to pull it
         // out of the WSRunObject's state.
-        if (!IsVisBreak(wsRunObj.mStartReasonNode)) {
+        if (!IsVisibleBRElement(wsRunObj.mStartReasonNode)) {
           // don't leave selection past an invisible break;
           // reset {selNode,selOffset} to point before break
           selNode = GetNodeLocation(GetAsDOMNode(wsRunObj.mStartReasonNode), &selOffset);
@@ -2227,23 +2226,23 @@ void
 HTMLEditor::CreateListOfNodesToPaste(
               DocumentFragment& aFragment,
               nsTArray<OwningNonNull<nsINode>>& outNodeList,
-              nsINode* aStartNode,
+              nsINode* aStartContainer,
               int32_t aStartOffset,
-              nsINode* aEndNode,
+              nsINode* aEndContainer,
               int32_t aEndOffset)
 {
   // If no info was provided about the boundary between context and stream,
   // then assume all is stream.
-  if (!aStartNode) {
-    aStartNode = &aFragment;
+  if (!aStartContainer) {
+    aStartContainer = &aFragment;
     aStartOffset = 0;
-    aEndNode = &aFragment;
+    aEndContainer = &aFragment;
     aEndOffset = aFragment.Length();
   }
 
   RefPtr<nsRange> docFragRange;
-  nsresult rv = nsRange::CreateRange(aStartNode, aStartOffset,
-                                     aEndNode, aEndOffset,
+  nsresult rv = nsRange::CreateRange(aStartContainer, aStartOffset,
+                                     aEndContainer, aEndOffset,
                                      getter_AddRefs(docFragRange));
   MOZ_ASSERT(NS_SUCCEEDED(rv));
   NS_ENSURE_SUCCESS(rv, );

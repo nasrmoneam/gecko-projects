@@ -53,9 +53,6 @@ DIRS += [
     'webvtt',
 ]
 
-if CONFIG['MOZ_ANDROID_OMX']:
-    DIRS += ['android']
-
 if CONFIG['MOZ_ANDROID_HLS_SUPPORT']:
     DIRS += ['hls']
 
@@ -87,7 +84,6 @@ XPIDL_SOURCES += [
 XPIDL_MODULE = 'dom_media'
 
 EXPORTS += [
-    'AbstractMediaDecoder.h',
     'ADTSDecoder.h',
     'ADTSDemuxer.h',
     'AudioBufferUtils.h',
@@ -117,7 +113,6 @@ EXPORTS += [
     'MediaDataDemuxer.h',
     'MediaDecoder.h',
     'MediaDecoderOwner.h',
-    'MediaDecoderReader.h',
     'MediaDecoderStateMachine.h',
     'MediaEventSource.h',
     'MediaFormatReader.h',
@@ -225,7 +220,6 @@ UNIFIED_SOURCES += [
     'MediaContainerType.cpp',
     'MediaData.cpp',
     'MediaDecoder.cpp',
-    'MediaDecoderReader.cpp',
     'MediaDecoderReaderWrapper.cpp',
     'MediaDecoderStateMachine.cpp',
     'MediaDeviceInfo.cpp',

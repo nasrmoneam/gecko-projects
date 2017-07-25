@@ -750,28 +750,56 @@ var invalidateFrecencies = async function(db, idList) {
 
 // Inner implementation of History.clear().
 var clear = async function(db) {
-  // Remove all history.
-  await db.execute("DELETE FROM moz_historyvisits");
+  await db.executeTransaction(async function() {
+    // Remove all non-bookmarked places entries first, this will speed up the
+    // triggers work.
+    await db.execute(`DELETE FROM moz_places WHERE foreign_count = 0`);
+    await db.execute(`DELETE FROM moz_updatehosts_temp`);
+
+    // Expire orphan icons.
+    await db.executeCached(`DELETE FROM moz_pages_w_icons
+                            WHERE page_url_hash NOT IN (SELECT url_hash FROM moz_places)`);
+    await db.executeCached(`DELETE FROM moz_icons
+                            WHERE root = 0 AND id NOT IN (SELECT icon_id FROM moz_icons_to_pages)`);
+
+    // Expire annotations.
+    await db.execute(`DELETE FROM moz_items_annos WHERE expiration = :expire_session`,
+                     { expire_session: Ci.nsIAnnotationService.EXPIRE_SESSION });
+    await db.execute(`DELETE FROM moz_annos WHERE id in (
+                        SELECT a.id FROM moz_annos a
+                        LEFT JOIN moz_places h ON a.place_id = h.id
+                        WHERE h.id IS NULL
+                           OR expiration = :expire_session
+                           OR (expiration = :expire_with_history
+                               AND h.last_visit_date ISNULL)
+                      )`, { expire_session: Ci.nsIAnnotationService.EXPIRE_SESSION,
+                            expire_with_history: Ci.nsIAnnotationService.EXPIRE_WITH_HISTORY });
+
+    // Expire inputhistory.
+    await db.execute(`DELETE FROM moz_inputhistory WHERE place_id IN (
+                        SELECT i.place_id FROM moz_inputhistory i
+                        LEFT JOIN moz_places h ON h.id = i.place_id
+                        WHERE h.id IS NULL)`);
+
+    // Remove all history.
+    await db.execute("DELETE FROM moz_historyvisits");
+
+    // Invalidate frecencies for the remaining places.
+    await db.execute(`UPDATE moz_places SET frecency =
+                        (CASE
+                          WHEN url_hash BETWEEN hash("place", "prefix_lo") AND
+                                                hash("place", "prefix_hi")
+                          THEN 0
+                          ELSE -1
+                          END)
+                        WHERE frecency > 0`);
+  });
 
   // Clear the registered embed visits.
   PlacesUtils.history.clearEmbedVisits();
 
-  // Expiration will take care of orphans.
   let observers = PlacesUtils.history.getObservers();
   notify(observers, "onClearHistory");
-
-  // Invalidate frecencies for the remaining places. This must happen
-  // after the notification to ensure it runs enqueued to expiration.
-  await db.execute(
-    `UPDATE moz_places SET frecency =
-     (CASE
-      WHEN url_hash BETWEEN hash("place", "prefix_lo") AND
-                            hash("place", "prefix_hi")
-      THEN 0
-      ELSE -1
-      END)
-     WHERE frecency > 0`);
-
   // Notify frecency change observers.
   notify(observers, "onManyFrecenciesChanged");
 };
@@ -1191,7 +1219,7 @@ var remove = async function(db, {guids, urls}, onResult = null) {
   let onResultData = onResult ? [] : null;
   let pages = [];
   let hasPagesToRemove = false;
-  await db.execute(query, null, async function(row) {
+  await db.execute(query, null, function(row) {
     let hasForeign = row.getResultByName("foreign_count") != 0;
     if (!hasForeign) {
       hasPagesToRemove = true;
@@ -1275,7 +1303,7 @@ function mergeUpdateInfoIntoPageInfo(updateInfo, pageInfo = {}) {
 }
 
 // Inner implementation of History.insert.
-var insert = async function(db, pageInfo) {
+var insert = function(db, pageInfo) {
   let info = convertForUpdatePlaces(pageInfo);
 
   return new Promise((resolve, reject) => {
@@ -1294,7 +1322,7 @@ var insert = async function(db, pageInfo) {
 };
 
 // Inner implementation of History.insertMany.
-var insertMany = async function(db, pageInfos, onResult, onError) {
+var insertMany = function(db, pageInfos, onResult, onError) {
   let infos = [];
   let onResultData = [];
   let onErrorData = [];

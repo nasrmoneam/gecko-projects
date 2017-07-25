@@ -47,7 +47,7 @@ this.ExtensionsUI = {
     Services.obs.addObserver(this, "webextension-install-notify");
     Services.obs.addObserver(this, "webextension-optional-permission-prompt");
 
-    await RecentWindow.getMostRecentBrowserWindow().delayedStartupPromise;
+    await Services.wm.getMostRecentWindow("navigator:browser").delayedStartupPromise;
 
     this._checkForSideloaded();
   },
@@ -369,6 +369,7 @@ this.ExtensionsUI = {
       result.acceptText = bundle.GetStringFromName("webextPerms.optionalPermsAllow.label");
       result.acceptKey = bundle.GetStringFromName("webextPerms.optionalPermsAllow.accessKey");
       result.cancelText = bundle.GetStringFromName("webextPerms.optionalPermsDeny.label");
+      result.cancelKey = bundle.GetStringFromName("webextPerms.optionalPermsDeny.accessKey");
     }
 
     return result;

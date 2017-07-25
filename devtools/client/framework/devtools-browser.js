@@ -15,7 +15,6 @@
 const {Cc, Ci, Cu} = require("chrome");
 const Services = require("Services");
 const defer = require("devtools/shared/defer");
-const Telemetry = require("devtools/client/shared/telemetry");
 const {gDevTools} = require("./devtools");
 
 // Load target and toolbox lazily as they need gDevTools to be fully initialized
@@ -25,6 +24,7 @@ loader.lazyRequireGetter(this, "DebuggerServer", "devtools/server/main", true);
 loader.lazyRequireGetter(this, "DebuggerClient", "devtools/shared/client/main", true);
 loader.lazyRequireGetter(this, "BrowserMenus", "devtools/client/framework/browser-menus");
 loader.lazyRequireGetter(this, "appendStyleSheet", "devtools/client/shared/stylesheet-utils", true);
+loader.lazyRequireGetter(this, "DeveloperToolbar", "devtools/client/shared/developer-toolbar", true);
 
 loader.lazyImporter(this, "CustomizableUI", "resource:///modules/CustomizableUI.jsm");
 loader.lazyImporter(this, "CustomizableWidgets", "resource:///modules/CustomizableWidgets.jsm");
@@ -33,11 +33,6 @@ loader.lazyImporter(this, "LightweightThemeManager", "resource://gre/modules/Lig
 
 const {LocalizationHelper} = require("devtools/shared/l10n");
 const L10N = new LocalizationHelper("devtools/client/locales/toolbox.properties");
-
-const TABS_OPEN_PEAK_HISTOGRAM = "DEVTOOLS_TABS_OPEN_PEAK_LINEAR";
-const TABS_OPEN_AVG_HISTOGRAM = "DEVTOOLS_TABS_OPEN_AVERAGE_LINEAR";
-const TABS_PINNED_PEAK_HISTOGRAM = "DEVTOOLS_TABS_PINNED_PEAK_LINEAR";
-const TABS_PINNED_AVG_HISTOGRAM = "DEVTOOLS_TABS_PINNED_AVERAGE_LINEAR";
 
 const COMPACT_LIGHT_ID = "firefox-compact-light@mozilla.org";
 const COMPACT_DARK_ID = "firefox-compact-dark@mozilla.org";
@@ -61,7 +56,10 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
    */
   _browserStyleSheets: new WeakMap(),
 
-  _telemetry: new Telemetry(),
+  /**
+   * WeakMap keeping track of DeveloperToolbar instances for each firefox window.
+   */
+  _toolbars: new WeakMap(),
 
   _tabStats: {
     peakOpen: 0,
@@ -116,7 +114,7 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
       focusEl.setAttribute("disabled", "true");
     }
     if (devToolbarEnabled && Services.prefs.getBoolPref("devtools.toolbar.visible")) {
-      win.DeveloperToolbar.show(false).catch(console.error);
+      this.getDeveloperToolbar(win).show(false).catch(console.error);
     }
 
     // Enable WebIDE?
@@ -507,12 +505,6 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
     // only once menus are registered as it depends on it.
     gDevToolsBrowser.installDeveloperWidget();
 
-    // Inject lazily DeveloperToolbar on the chrome window
-    loader.lazyGetter(win, "DeveloperToolbar", function () {
-      let { DeveloperToolbar } = require("devtools/client/shared/developer-toolbar");
-      return new DeveloperToolbar(win);
-    });
-
     this.updateCommandAvailability(win);
     this.updateDevtoolsThemeAttribute(win);
     this.ensurePrefObserver();
@@ -524,6 +516,22 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
     tabContainer.addEventListener("TabClose", this);
     tabContainer.addEventListener("TabPinned", this);
     tabContainer.addEventListener("TabUnpinned", this);
+  },
+
+  /**
+   * Create singleton instance of the developer toolbar for a given top level window.
+   *
+   * @param {Window} win
+   *        The window to which the toolbar should be created.
+   */
+  getDeveloperToolbar(win) {
+    let toolbar = this._toolbars.get(win);
+    if (toolbar) {
+      return toolbar;
+    }
+    toolbar = new DeveloperToolbar(win);
+    this._toolbars.set(win, toolbar);
+    return toolbar;
   },
 
   /**
@@ -735,11 +743,7 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
       this._browserStyleSheets.delete(win);
     }
 
-    // Destroy the Developer toolbar if it has been accessed
-    let desc = Object.getOwnPropertyDescriptor(win, "DeveloperToolbar");
-    if (desc && !desc.get) {
-      win.DeveloperToolbar.destroy();
-    }
+    this._toolbars.delete(win);
 
     let tabContainer = win.gBrowser.tabContainer;
     tabContainer.removeEventListener("TabSelect", this);
@@ -782,23 +786,6 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
     }
   },
 
-  _pingTelemetry() {
-    let mean = function (arr) {
-      if (arr.length === 0) {
-        return 0;
-      }
-
-      let total = arr.reduce((a, b) => a + b);
-      return Math.ceil(total / arr.length);
-    };
-
-    let tabStats = gDevToolsBrowser._tabStats;
-    this._telemetry.log(TABS_OPEN_PEAK_HISTOGRAM, tabStats.peakOpen);
-    this._telemetry.log(TABS_OPEN_AVG_HISTOGRAM, mean(tabStats.histOpen));
-    this._telemetry.log(TABS_PINNED_PEAK_HISTOGRAM, tabStats.peakPinned);
-    this._telemetry.log(TABS_PINNED_AVG_HISTOGRAM, mean(tabStats.histPinned));
-  },
-
   /**
    * Either the SDK Loader has been destroyed by the add-on contribution
    * workflow, or firefox is shutting down.
@@ -814,9 +801,6 @@ var gDevToolsBrowser = exports.gDevToolsBrowser = {
     Services.obs.removeObserver(gDevToolsBrowser, "browser-delayed-startup-finished");
     Services.obs.removeObserver(gDevToolsBrowser, "quit-application");
     Services.obs.removeObserver(gDevToolsBrowser, "sdk:loader:destroy");
-
-    gDevToolsBrowser._pingTelemetry();
-    gDevToolsBrowser._telemetry = null;
 
     for (let win of gDevToolsBrowser._trackedBrowserWindows) {
       gDevToolsBrowser._forgetBrowserWindow(win);

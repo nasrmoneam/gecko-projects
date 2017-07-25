@@ -839,7 +839,7 @@ nsDocumentEncoder::SerializeRangeNodes(nsRange* aRange,
         // intermediate points on the list use the endOffset of the
         // location of the ancestor, rather than just past it.  So we need
         // to add one here in order to include it in the children we serialize.
-        if (aNode != aRange->GetEndParent())
+        if (aNode != aRange->GetEndContainer())
         {
           endOffset++;
         }
@@ -943,12 +943,12 @@ nsDocumentEncoder::SerializeRangeToString(nsRange *aRange,
   if (!mCommonParent)
     return NS_OK;
 
-  nsINode* startParent = aRange->GetStartParent();
-  NS_ENSURE_TRUE(startParent, NS_ERROR_FAILURE);
+  nsINode* startContainer = aRange->GetStartContainer();
+  NS_ENSURE_TRUE(startContainer, NS_ERROR_FAILURE);
   int32_t startOffset = aRange->StartOffset();
 
-  nsINode* endParent = aRange->GetEndParent();
-  NS_ENSURE_TRUE(endParent, NS_ERROR_FAILURE);
+  nsINode* endContainer = aRange->GetEndContainer();
+  NS_ENSURE_TRUE(endContainer, NS_ERROR_FAILURE);
   int32_t endOffset = aRange->EndOffset();
 
   mStartDepth = mEndDepth = 0;
@@ -959,10 +959,10 @@ nsDocumentEncoder::SerializeRangeToString(nsRange *aRange,
   mEndOffsets.Clear();
 
   nsContentUtils::GetAncestors(mCommonParent, mCommonAncestors);
-  nsCOMPtr<nsIDOMNode> sp = do_QueryInterface(startParent);
+  nsCOMPtr<nsIDOMNode> sp = do_QueryInterface(startContainer);
   nsContentUtils::GetAncestorsAndOffsets(sp, startOffset,
                                          &mStartNodes, &mStartOffsets);
-  nsCOMPtr<nsIDOMNode> ep = do_QueryInterface(endParent);
+  nsCOMPtr<nsIDOMNode> ep = do_QueryInterface(endContainer);
   nsContentUtils::GetAncestorsAndOffsets(ep, endOffset,
                                          &mEndNodes, &mEndOffsets);
 
@@ -975,23 +975,21 @@ nsDocumentEncoder::SerializeRangeToString(nsRange *aRange,
   rv = SerializeRangeContextStart(mCommonAncestors, aOutputString);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if ((startParent == endParent) && IsTextNode(startParent))
-  {
+  if (startContainer == endContainer && IsTextNode(startContainer)) {
     if (mFlags & SkipInvisibleContent) {
       // Check that the parent is visible if we don't a frame.
       // IsVisibleNode() will do it when there's a frame.
-      nsCOMPtr<nsIContent> content = do_QueryInterface(startParent);
+      nsCOMPtr<nsIContent> content = do_QueryInterface(startContainer);
       if (content && !content->GetPrimaryFrame()) {
         nsIContent* parent = content->GetParent();
         if (!parent || !IsVisibleNode(parent))
           return NS_OK;
       }
     }
-    rv = SerializeNodeStart(startParent, startOffset, endOffset, aOutputString);
+    rv = SerializeNodeStart(startContainer, startOffset, endOffset,
+                            aOutputString);
     NS_ENSURE_SUCCESS(rv, rv);
-  }
-  else
-  {
+  } else {
     rv = SerializeRangeNodes(aRange, mCommonParent, aOutputString, 0);
     NS_ENSURE_SUCCESS(rv, rv);
   }
@@ -1571,10 +1569,13 @@ nsHTMLCopyEncoder::IncludeInContext(nsINode *aNode)
 nsresult
 nsHTMLCopyEncoder::PromoteRange(nsIDOMRange *inRange)
 {
-  if (!inRange) return NS_ERROR_NULL_POINTER;
+  RefPtr<nsRange> range = static_cast<nsRange*>(inRange);
+  if (!range) {
+    return NS_ERROR_NULL_POINTER;
+  }
   nsresult rv;
   nsCOMPtr<nsIDOMNode> startNode, endNode, common;
-  int32_t startOffset, endOffset;
+  uint32_t startOffset, endOffset;
 
   rv = inRange->GetCommonAncestorContainer(getter_AddRefs(common));
   NS_ENSURE_SUCCESS(rv, rv);
@@ -1592,9 +1593,11 @@ nsHTMLCopyEncoder::PromoteRange(nsIDOMRange *inRange)
   int32_t opStartOffset, opEndOffset;
 
   // examine range endpoints.
-  rv = GetPromotedPoint( kStart, startNode, startOffset, address_of(opStartNode), &opStartOffset, common);
+  rv = GetPromotedPoint(kStart, startNode, static_cast<int32_t>(startOffset),
+                        address_of(opStartNode), &opStartOffset, common);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = GetPromotedPoint( kEnd, endNode, endOffset, address_of(opEndNode), &opEndOffset, common);
+  rv = GetPromotedPoint(kEnd, endNode, static_cast<int32_t>(endOffset),
+                        address_of(opEndNode), &opEndOffset, common);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // if both range endpoints are at the common ancestor, check for possible inclusion of ancestors
@@ -1606,9 +1609,9 @@ nsHTMLCopyEncoder::PromoteRange(nsIDOMRange *inRange)
   }
 
   // set the range to the new values
-  rv = inRange->SetStart(opStartNode, opStartOffset);
+  rv = inRange->SetStart(opStartNode, static_cast<uint32_t>(opStartOffset));
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = inRange->SetEnd(opEndNode, opEndOffset);
+  rv = inRange->SetEnd(opEndNode, static_cast<uint32_t>(opEndOffset));
   return rv;
 }
 

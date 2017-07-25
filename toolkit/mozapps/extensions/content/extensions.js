@@ -271,6 +271,10 @@ function isLegacyExtension(addon) {
   return legacy;
 }
 
+function isDisabledLegacy(addon) {
+  return !legacyExtensionsEnabled && isLegacyExtension(addon);
+}
+
 function isDiscoverEnabled() {
   if (Services.prefs.getPrefType(PREF_DISCOVERURL) == Services.prefs.PREF_INVALID)
     return false;
@@ -1509,7 +1513,7 @@ var gViewController = {
         if (Preferences.get("browser.preferences.useOldOrganization")) {
           mainWindow.openAdvancedPreferences("dataChoicesTab", {origin: "experimentsOpenPref"});
         } else {
-          mainWindow.openPreferences("paneAdvanced", {origin: "experimentsOpenPref"});
+          mainWindow.openPreferences("privacy-reports", {origin: "experimentsOpenPref"});
         }
       },
     },
@@ -2783,12 +2787,17 @@ var gLegacyView = {
   async show(type, request) {
     let addons = await AddonManager.getAddonsByTypes(["extension"]);
     addons = addons.filter(a => !a.hidden &&
-                              (isLegacyExtension(a) || isDisabledUnsigned(a)));
+                              (isDisabledLegacy(a) || isDisabledUnsigned(a)));
 
     while (this._listBox.itemCount > 0)
       this._listBox.removeItemAt(0);
 
     let elements = addons.map(a => createItem(a));
+    if (elements.length == 0) {
+      gViewController.loadView("addons://list/extension");
+      return;
+    }
+
     sortElements(elements, ["uiState", "name"], true);
     for (let element of elements) {
       this._listBox.appendChild(element);
@@ -3714,6 +3723,7 @@ var gDetailView = {
     browser.setAttribute("id", "addon-options");
     browser.setAttribute("class", "inline-options-browser");
     browser.setAttribute("forcemessagemanager", "true");
+    browser.setAttribute("selectmenulist", "ContentSelectDropdown");
 
     let {optionsURL} = this._addon;
     let remote = !E10SUtils.canLoadURIInProcess(optionsURL, Services.appinfo.PROCESS_TYPE_DEFAULT);

@@ -81,8 +81,6 @@ WebRenderPaintedLayerBlob::RenderLayer(wr::DisplayListBuilder& aBuilder,
     mImageKey = Some(GetImageKey());
     WrBridge()->SendAddBlobImage(mImageKey.value(), imageSize, size.width * 4, dt->GetFormat(), bytes);
     mImageBounds = visibleRegion.GetBounds();
-  } else {
-    MOZ_ASSERT(GetInvalidRegion().IsEmpty());
   }
 
   ScrollingLayersHelper scroller(this, aBuilder, aSc);
@@ -90,8 +88,8 @@ WebRenderPaintedLayerBlob::RenderLayer(wr::DisplayListBuilder& aBuilder,
   LayerRect rect = Bounds();
   DumpLayerInfo("PaintedLayer", rect);
 
-  aBuilder.PushImage(sc.ToRelativeWrRect(LayerRect(mImageBounds)),
-                     sc.ToRelativeWrRect(rect),
+  aBuilder.PushImage(sc.ToRelativeLayoutRect(LayerRect(mImageBounds)),
+                     sc.ToRelativeLayoutRect(rect),
                      wr::ImageRendering::Auto, mImageKey.value());
 }
 

@@ -9,14 +9,14 @@
 use applicable_declarations::ApplicableDeclarationList;
 #[cfg(feature = "servo")]
 use heapsize::HeapSizeOf;
-use properties::{AnimationRules, Importance, LonghandIdSet, PropertyDeclarationBlock};
+use properties::{Importance, LonghandIdSet, PropertyDeclarationBlock};
+use servo_arc::{Arc, ArcBorrow, NonZeroPtrMut};
 use shared_lock::{Locked, StylesheetGuards, SharedRwLockReadGuard};
 use smallvec::SmallVec;
 use std::io::{self, Write};
 use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
-use stylearc::{Arc, NonZeroPtrMut};
 use stylesheets::StyleRule;
 use thread_state;
 
@@ -150,8 +150,8 @@ impl RuleTree {
     }
 
     /// Get the root rule node.
-    pub fn root(&self) -> StrongRuleNode {
-        self.root.clone()
+    pub fn root(&self) -> &StrongRuleNode {
+        &self.root
     }
 
     fn dump<W: Write>(&self, guards: &StylesheetGuards, writer: &mut W) {
@@ -171,11 +171,13 @@ impl RuleTree {
     /// !important rules are detected and inserted into the appropriate position
     /// in the rule tree. This allows selector matching to ignore importance,
     /// while still maintaining the appropriate cascade order in the rule tree.
-    pub fn insert_ordered_rules_with_important<'a, I>(&self,
-                                                      iter: I,
-                                                      guards: &StylesheetGuards)
-                                                      -> StrongRuleNode
-        where I: Iterator<Item=(StyleSource, CascadeLevel)>,
+    pub fn insert_ordered_rules_with_important<'a, I>(
+        &self,
+        iter: I,
+        guards: &StylesheetGuards
+    ) -> StrongRuleNode
+    where
+        I: Iterator<Item=(StyleSource, CascadeLevel)>,
     {
         use self::CascadeLevel::*;
         let mut current = self.root.clone();
@@ -257,11 +259,11 @@ impl RuleTree {
 
     /// Given a list of applicable declarations, insert the rules and return the
     /// corresponding rule node.
-    pub fn compute_rule_node(&self,
-                             applicable_declarations: &mut ApplicableDeclarationList,
-                             guards: &StylesheetGuards)
-                             -> StrongRuleNode
-    {
+    pub fn compute_rule_node(
+        &self,
+        applicable_declarations: &mut ApplicableDeclarationList,
+        guards: &StylesheetGuards
+    ) -> StrongRuleNode {
         let rules = applicable_declarations.drain().map(|d| d.order_and_level());
         let rule_node = self.insert_ordered_rules_with_important(rules, guards);
         rule_node
@@ -306,7 +308,7 @@ impl RuleTree {
     /// the old path is still valid.
     pub fn update_rule_at_level(&self,
                                 level: CascadeLevel,
-                                pdb: Option<&Arc<Locked<PropertyDeclarationBlock>>>,
+                                pdb: Option<ArcBorrow<Locked<PropertyDeclarationBlock>>>,
                                 path: &StrongRuleNode,
                                 guards: &StylesheetGuards)
                                 -> Option<StrongRuleNode> {
@@ -345,7 +347,7 @@ impl RuleTree {
                 // so let's skip it for now.
                 let is_here_already = match &current.get().source {
                     &StyleSource::Declarations(ref already_here) => {
-                        Arc::ptr_eq(pdb, already_here)
+                        pdb.with_arc(|arc| Arc::ptr_eq(arc, already_here))
                     },
                     _ => unreachable!("Replacing non-declarations style?"),
                 };
@@ -369,13 +371,13 @@ impl RuleTree {
             if level.is_important() {
                 if pdb.read_with(level.guard(guards)).any_important() {
                     current = current.ensure_child(self.root.downgrade(),
-                                                   StyleSource::Declarations(pdb.clone()),
+                                                   StyleSource::Declarations(pdb.clone_arc()),
                                                    level);
                 }
             } else {
                 if pdb.read_with(level.guard(guards)).any_normal() {
                     current = current.ensure_child(self.root.downgrade(),
-                                                   StyleSource::Declarations(pdb.clone()),
+                                                   StyleSource::Declarations(pdb.clone_arc()),
                                                    level);
                 }
             }
@@ -1320,32 +1322,6 @@ impl StrongRuleNode {
             .take_while(|node| node.cascade_level() >= CascadeLevel::SMILOverride)
             .find(|node| node.cascade_level() == CascadeLevel::SMILOverride)
             .map(|node| node.get_animation_style())
-    }
-
-    /// Returns AnimationRules that has processed during animation-only restyles.
-    pub fn get_animation_rules(&self) -> AnimationRules {
-        if cfg!(feature = "servo") {
-            return AnimationRules(None, None);
-        }
-
-        let mut animation = None;
-        let mut transition = None;
-
-        for node in self.self_and_ancestors()
-                        .take_while(|node| node.cascade_level() >= CascadeLevel::Animations) {
-            match node.cascade_level() {
-                CascadeLevel::Animations => {
-                    debug_assert!(animation.is_none());
-                    animation = Some(node.get_animation_style())
-                },
-                CascadeLevel::Transitions => {
-                    debug_assert!(transition.is_none());
-                    transition = Some(node.get_animation_style())
-                },
-                _ => {},
-            }
-        }
-        AnimationRules(animation, transition)
     }
 }
 

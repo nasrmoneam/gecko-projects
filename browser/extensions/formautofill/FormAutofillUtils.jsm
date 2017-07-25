@@ -13,6 +13,8 @@ const ADDRESS_REFERENCES = "chrome://formautofill/content/addressReferences.js";
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 this.FormAutofillUtils = {
+  get AUTOFILL_FIELDS_THRESHOLD() { return 3; },
+
   _fieldNameInfo: {
     "name": "name",
     "given-name": "name",
@@ -29,6 +31,12 @@ this.FormAutofillUtils = {
     "country": "address",
     "country-name": "address",
     "tel": "tel",
+    "tel-country-code": "tel",
+    "tel-national": "tel",
+    "tel-area-code": "tel",
+    "tel-local": "tel",
+    "tel-local-prefix": "tel",
+    "tel-local-suffix": "tel",
     "email": "email",
     "cc-name": "creditCard",
     "cc-number": "creditCard",
@@ -70,10 +78,10 @@ this.FormAutofillUtils = {
     let array = typeof address == "string" ? address.split(delimiter) : address;
 
     if (!Array.isArray(array)) {
-      return null;
+      return "";
     }
     return array
-      .map(s => s.trim())
+      .map(s => s ? s.trim() : "")
       .filter(s => s)
       .join(this.getAddressSeparator());
   },

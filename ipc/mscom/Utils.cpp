@@ -89,10 +89,10 @@ GetContainingModuleHandle()
   thisModule = reinterpret_cast<HMODULE>(&__ImageBase);
 #else
   if (!GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                         GET_MODULE_HANDLE_EX_UNCHANGED_REFCOUNT,
+                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                          reinterpret_cast<LPCTSTR>(&GetContainingModuleHandle),
                          &thisModule)) {
-    return nullptr;
+    return 0;
   }
 #endif
   return reinterpret_cast<uintptr_t>(thisModule);

@@ -1570,7 +1570,7 @@ toolbarbutton.chevron > .toolbarbutton-menu-dropmarker {
 }
 
 %ifdef MOZ_PHOTON_THEME
-:root:-moz-any([inFullscreen], [tabsintitlebar]):not([customizing]) #TabsToolbar:not(:-moz-lwtheme) {
+:root:-moz-any([inFullscreen], [tabsintitlebar]) #TabsToolbar:not(:-moz-lwtheme) {
   -moz-appearance: none;
   background-color: #232323;
   color: hsl(240, 9%, 98%);
@@ -2064,10 +2064,10 @@ html|*.addon-webext-perm-list {
 .statuspanel-label {
   margin: 0;
   padding: 2px 4px;
-  background: linear-gradient(#fff, #ddd);
-  border: 1px none #ccc;
+  background-color: #f9f9fa;
+  border: 1px none #ddd;
   border-top-style: solid;
-  color: #333;
+  color: #444;
   text-shadow: none;
 }
 

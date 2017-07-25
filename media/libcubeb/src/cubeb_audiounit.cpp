@@ -525,8 +525,10 @@ audiounit_output_callback(void * user_ptr,
   }
 
   /* Mixing */
-  unsigned long output_buffer_length = outBufferList->mBuffers[0].mDataByteSize;
-  audiounit_mix_output_buffer(stm, output_frames, output_buffer, output_buffer_length);
+  if (stm->output_stream_params.layout != CUBEB_LAYOUT_UNDEFINED) {
+    unsigned long output_buffer_length = outBufferList->mBuffers[0].mDataByteSize;
+    audiounit_mix_output_buffer(stm, output_frames, output_buffer, output_buffer_length);
+  }
 
   return noErr;
 }
@@ -1464,10 +1466,15 @@ audiounit_create_blank_aggregate_device(AudioObjectID * plugin_id, AudioDeviceID
   CFDictionaryAddValue(aggregate_device_dict, CFSTR(kAudioAggregateDeviceUIDKey), aggregate_device_UID);
   CFRelease(aggregate_device_UID);
 
-  int private_key = 1;
-  CFNumberRef aggregate_device_private_key = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &private_key);
+  int private_value = 1;
+  CFNumberRef aggregate_device_private_key = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &private_value);
   CFDictionaryAddValue(aggregate_device_dict, CFSTR(kAudioAggregateDeviceIsPrivateKey), aggregate_device_private_key);
   CFRelease(aggregate_device_private_key);
+
+  int stacked_value = 0;
+  CFNumberRef aggregate_device_stacked_key = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &stacked_value);
+  CFDictionaryAddValue(aggregate_device_dict, CFSTR(kAudioAggregateDeviceIsStackedKey), aggregate_device_stacked_key);
+  CFRelease(aggregate_device_stacked_key);
 
   r = AudioObjectGetPropertyData(*plugin_id,
                                  &create_aggregate_device_address,
@@ -1504,20 +1511,22 @@ audiounit_set_aggregate_sub_device_list(AudioDeviceID aggregate_device_id,
 {
   LOG("Add devices input %u and output %u into aggregate device %u",
       input_device_id, output_device_id, aggregate_device_id);
-  const std::vector<AudioDeviceID> input_sub_devices = audiounit_get_sub_devices(input_device_id);
   const std::vector<AudioDeviceID> output_sub_devices = audiounit_get_sub_devices(output_device_id);
+  const std::vector<AudioDeviceID> input_sub_devices = audiounit_get_sub_devices(input_device_id);
 
   CFMutableArrayRef aggregate_sub_devices_array = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
-  for (UInt32 i = 0; i < input_sub_devices.size(); i++) {
-    CFStringRef ref = get_device_name(input_sub_devices[i]);
+  /* The order of the items in the array is significant and is used to determine the order of the streams
+     of the AudioAggregateDevice. */
+  for (UInt32 i = 0; i < output_sub_devices.size(); i++) {
+    CFStringRef ref = get_device_name(output_sub_devices[i]);
     if (ref == NULL) {
       CFRelease(aggregate_sub_devices_array);
       return CUBEB_ERROR;
     }
     CFArrayAppendValue(aggregate_sub_devices_array, ref);
   }
-  for (UInt32 i = 0; i < output_sub_devices.size(); i++) {
-    CFStringRef ref = get_device_name(output_sub_devices[i]);
+  for (UInt32 i = 0; i < input_sub_devices.size(); i++) {
+    CFStringRef ref = get_device_name(input_sub_devices[i]);
     if (ref == NULL) {
       CFRelease(aggregate_sub_devices_array);
       return CUBEB_ERROR;
@@ -2254,9 +2263,10 @@ audiounit_configure_output(cubeb_stream * stm)
     return CUBEB_ERROR;
   }
 
-  audiounit_layout_init(stm, OUTPUT);
-  audiounit_init_mixer(stm);
-
+  if (stm->output_stream_params.layout != CUBEB_LAYOUT_UNDEFINED) {
+    audiounit_layout_init(stm, OUTPUT);
+    audiounit_init_mixer(stm);
+  }
   LOG("(%p) Output audiounit init successfully.", stm);
   return CUBEB_OK;
 }
@@ -3337,6 +3347,7 @@ cubeb_ops const audiounit_ops = {
   /*.stream_destroy =*/ audiounit_stream_destroy,
   /*.stream_start =*/ audiounit_stream_start,
   /*.stream_stop =*/ audiounit_stream_stop,
+  /*.stream_reset_default_device =*/ nullptr,
   /*.stream_get_position =*/ audiounit_stream_get_position,
   /*.stream_get_latency =*/ audiounit_stream_get_latency,
   /*.stream_set_volume =*/ audiounit_stream_set_volume,

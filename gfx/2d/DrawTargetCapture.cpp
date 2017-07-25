@@ -32,6 +32,7 @@ DrawTargetCaptureImpl::Init(const IntSize& aSize, DrawTarget* aRefDT)
   mRefDT = aRefDT;
 
   mSize = aSize;
+  mFormat = aRefDT->GetFormat();
   return true;
 }
 
@@ -150,6 +151,16 @@ DrawTargetCaptureImpl::FillGlyphs(ScaledFont* aFont,
                                   const GlyphRenderingOptions* aRenderingOptions)
 {
   AppendCommand(FillGlyphsCommand)(aFont, aBuffer, aPattern, aOptions, aRenderingOptions);
+}
+
+void DrawTargetCaptureImpl::StrokeGlyphs(ScaledFont* aFont,
+                                         const GlyphBuffer& aBuffer,
+                                         const Pattern& aPattern,
+                                         const StrokeOptions& aStrokeOptions,
+                                         const DrawOptions& aOptions,
+                                         const GlyphRenderingOptions* aRenderingOptions)
+{
+  AppendCommand(StrokeGlyphsCommand)(aFont, aBuffer, aPattern, aStrokeOptions, aOptions, aRenderingOptions);
 }
 
 void

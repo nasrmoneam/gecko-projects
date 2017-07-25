@@ -194,7 +194,6 @@ js::Nursery::enable()
 #endif
 
     MOZ_ALWAYS_TRUE(runtime()->gc.storeBuffer().enable());
-    return;
 }
 
 void
@@ -477,7 +476,28 @@ js::Nursery::renderProfileJSON(JSONPrinter& json) const
         return;
     }
 
+    if (previousGC.reason == JS::gcreason::NO_REASON) {
+        // If the nursery was empty when the last minorGC was requested, then
+        // no nursery collection will have been performed but JSON may still be
+        // requested. (And as a public API, this function should not crash in
+        // such a case.)
+        json.beginObject();
+        json.property("status", "no collection");
+        json.endObject();
+        return;
+    }
+
     json.beginObject();
+
+    json.property("reason", JS::gcreason::ExplainReason(previousGC.reason));
+    json.property("bytes_tenured", previousGC.tenuredBytes);
+    json.floatProperty("promotion_rate",
+                       100.0 * previousGC.tenuredBytes / double(previousGC.nurseryUsedBytes), 2);
+    json.property("nursery_bytes", previousGC.nurseryUsedBytes);
+    json.property("new_nursery_bytes", numChunks() * ChunkSize);
+
+    json.beginObjectProperty("timings");
+
 #define EXTRACT_NAME(name, text) #name,
     static const char* names[] = {
 FOR_EACH_NURSERY_PROFILE_TIME(EXTRACT_NAME)
@@ -487,6 +507,8 @@ FOR_EACH_NURSERY_PROFILE_TIME(EXTRACT_NAME)
     size_t i = 0;
     for (auto time : profileDurations_)
         json.property(names[i++], time, json.MICROSECONDS);
+
+    json.endObject(); // timings value
 
     json.endObject();
 }
@@ -539,6 +561,17 @@ js::Nursery::endProfile(ProfileKey key)
     totalDurations_[key] += profileDurations_[key];
 }
 
+static inline bool
+IsFullStoreBufferReason(JS::gcreason::Reason reason)
+{
+    return reason == JS::gcreason::FULL_WHOLE_CELL_BUFFER ||
+           reason == JS::gcreason::FULL_GENERIC_BUFFER ||
+           reason == JS::gcreason::FULL_VALUE_BUFFER ||
+           reason == JS::gcreason::FULL_CELL_PTR_BUFFER ||
+           reason == JS::gcreason::FULL_SLOT_BUFFER ||
+           reason == JS::gcreason::FULL_SHAPE_BUFFER;
+}
+
 void
 js::Nursery::collect(JS::gcreason::Reason reason)
 {
@@ -578,6 +611,7 @@ js::Nursery::collect(JS::gcreason::Reason reason)
 
     TenureCountCache tenureCounts;
     double promotionRate = 0;
+    previousGC.reason = JS::gcreason::NO_REASON;
     if (!isEmpty())
         promotionRate = doCollection(reason, tenureCounts);
 
@@ -592,7 +626,7 @@ js::Nursery::collect(JS::gcreason::Reason reason)
     // excessively and try to pretenure them.
     startProfile(ProfileKey::Pretenure);
     uint32_t pretenureCount = 0;
-    if (promotionRate > 0.8 || reason == JS::gcreason::FULL_STORE_BUFFER) {
+    if (promotionRate > 0.8 || IsFullStoreBufferReason(reason)) {
         JSContext* cx = TlsContext.get();
         for (auto& entry : tenureCounts.entries) {
             if (entry.count >= 3000) {
@@ -752,6 +786,10 @@ js::Nursery::doCollection(JS::gcreason::Reason reason,
         CheckHashTablesAfterMovingGC(rt);
 #endif
     endProfile(ProfileKey::CheckHashTables);
+
+    previousGC.reason = reason;
+    previousGC.nurseryUsedBytes = initialNurserySize;
+    previousGC.tenuredBytes = mover.tenuredSize;
 
     // Calculate and return the promotion rate.
     return mover.tenuredSize / double(initialNurserySize);

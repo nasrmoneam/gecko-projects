@@ -299,11 +299,6 @@ public:
 
   virtual mozilla::ipc::IPCResult RecvHideTooltip() override;
 
-  virtual mozilla::ipc::IPCResult RecvGetDPI(float* aValue) override;
-
-  virtual mozilla::ipc::IPCResult RecvGetDefaultScale(double* aValue) override;
-
-  virtual mozilla::ipc::IPCResult RecvGetWidgetRounding(int32_t* aValue) override;
 
   virtual mozilla::ipc::IPCResult RecvSetNativeChildOfShareableWindow(const uintptr_t& childWindow) override;
 
@@ -366,8 +361,7 @@ public:
   void ThemeChanged();
 
   void HandleAccessKey(const WidgetKeyboardEvent& aEvent,
-                       nsTArray<uint32_t>& aCharCodes,
-                       const int32_t& aModifierMask);
+                       nsTArray<uint32_t>& aCharCodes);
 
   void Activate();
 
@@ -538,14 +532,28 @@ public:
    */
   bool IsDestroyed() const { return mIsDestroyed; }
 
+  // Returns the closest widget for our frameloader's content.
   already_AddRefed<nsIWidget> GetWidget() const;
+
+  // Returns the top-level widget for our frameloader's document.
+  already_AddRefed<nsIWidget> GetDocWidget() const;
 
   const TabId GetTabId() const
   {
     return mTabId;
   }
 
+  // Returns the offset from the origin of our frameloader's nearest widget to
+  // the origin of its layout frame. This offset is used to translate event
+  // coordinates relative to the PuppetWidget origin in the child process.
   LayoutDeviceIntPoint GetChildProcessOffset();
+
+  // Returns the offset from the on-screen origin of our top-level window's
+  // widget (including window decorations) to the origin of our frameloader's
+  // nearest widget. This offset is used to translate coordinates from the
+  // PuppetWidget's origin to absolute screen coordinates in the child.
+  LayoutDeviceIntPoint GetClientOffset();
+
   LayoutDevicePoint AdjustTapToChildWidget(const LayoutDevicePoint& aPoint);
 
   /**
@@ -595,6 +603,9 @@ public:
   void LiveResizeStarted() override;
   void LiveResizeStopped() override;
 
+  void SetReadyToHandleInputEvents() { mIsReadyToHandleInputEvents = true; }
+  bool IsReadyToHandleInputEvents() { return mIsReadyToHandleInputEvents; }
+
 protected:
   bool ReceiveMessage(const nsString& aMessage,
                       bool aSync,
@@ -619,6 +630,8 @@ protected:
   virtual bool DeallocPRenderFrameParent(PRenderFrameParent* aFrame) override;
 
   virtual mozilla::ipc::IPCResult RecvRemotePaintIsReady() override;
+
+  virtual mozilla::ipc::IPCResult RecvRemoteIsReadyToHandleInputEvents() override;
 
   virtual mozilla::ipc::IPCResult RecvForcePaintNoOp(const uint64_t& aLayerObserverEpoch) override;
 
@@ -769,6 +782,9 @@ private:
   // True if at least one window hosted in the TabChild has added a
   // beforeunload event listener.
   bool mHasBeforeUnload;
+
+  // True when the remote browser is created and ready to handle input events.
+  bool mIsReadyToHandleInputEvents;
 
 public:
   static TabParent* GetTabParentFromLayersId(uint64_t aLayersId);

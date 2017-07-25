@@ -63,7 +63,7 @@ ManageProfileDialog.prototype = {
    * @returns {promise}
    */
   loadAddresses() {
-    return this.getAddresses().then(addresses => {
+    return this.getRecords({collectionName: "addresses"}).then(addresses => {
       log.debug("addresses:", addresses);
       // Sort by last modified time starting with most recent
       addresses.sort((a, b) => b.timeLastModified - a.timeLastModified);
@@ -73,17 +73,27 @@ ManageProfileDialog.prototype = {
   },
 
   /**
-   * Get addresses from storage.
+   * Get records from storage.
    *
-   * @returns {promise}
+   * @private
+   * @param  {Object} data
+   *         Parameters for querying the corresponding result.
+   * @param  {string} data.collectionName
+   *         The name used to specify which collection to retrieve records.
+   * @param  {string} data.searchString
+   *         The typed string for filtering out the matched records.
+   * @param  {string} data.info
+   *         The input autocomplete property's information.
+   * @returns {Promise}
+   *          Promise that resolves when addresses returned from parent process.
    */
-  getAddresses() {
+  getRecords(data) {
     return new Promise(resolve => {
-      Services.cpmm.addMessageListener("FormAutofill:Addresses", function getResult(result) {
-        Services.cpmm.removeMessageListener("FormAutofill:Addresses", getResult);
+      Services.cpmm.addMessageListener("FormAutofill:Records", function getResult(result) {
+        Services.cpmm.removeMessageListener("FormAutofill:Records", getResult);
         resolve(result.data);
       });
-      Services.cpmm.sendAsyncMessage("FormAutofill:GetAddresses", {});
+      Services.cpmm.sendAsyncMessage("FormAutofill:GetRecords", data);
     });
   },
 
@@ -141,7 +151,7 @@ ManageProfileDialog.prototype = {
     //       ProfileAutoCompleteResult.jsm and reuse it here.
     const fieldOrder = [
       "name",
-      "street-address",  // Street address
+      "-moz-street-address-one-line",  // Street address
       "address-level2",  // City/Town
       "organization",    // Company or organization name
       "address-level1",  // Province/State (Standardized code if possible)
@@ -153,7 +163,7 @@ ManageProfileDialog.prototype = {
 
     let parts = [];
     if (address["street-address"]) {
-      address["street-address"] = FormAutofillUtils.toOneLineAddress(
+      address["-moz-street-address-one-line"] = FormAutofillUtils.toOneLineAddress(
         address["street-address"]
       );
     }
@@ -239,7 +249,8 @@ ManageProfileDialog.prototype = {
       this.removeAddresses(this._selectedOptions.map(option => option.value));
     } else if (event.target == this._elements.add) {
       this.openEditDialog();
-    } else if (event.target == this._elements.edit) {
+    } else if (event.target == this._elements.edit ||
+               event.target.parentNode == this._elements.addresses && event.detail > 1) {
       this.openEditDialog(this._selectedOptions[0].address);
     }
   },
@@ -274,6 +285,7 @@ ManageProfileDialog.prototype = {
     window.addEventListener("unload", this, {once: true});
     window.addEventListener("keypress", this);
     this._elements.addresses.addEventListener("change", this);
+    this._elements.addresses.addEventListener("click", this);
     this._elements.controlsContainer.addEventListener("click", this);
     Services.obs.addObserver(this, "formautofill-storage-changed");
   },
@@ -284,6 +296,7 @@ ManageProfileDialog.prototype = {
   detachEventListeners() {
     window.removeEventListener("keypress", this);
     this._elements.addresses.removeEventListener("change", this);
+    this._elements.addresses.removeEventListener("click", this);
     this._elements.controlsContainer.removeEventListener("click", this);
     Services.obs.removeObserver(this, "formautofill-storage-changed");
   },

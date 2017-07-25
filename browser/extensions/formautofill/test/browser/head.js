@@ -1,6 +1,6 @@
 /* exported MANAGE_PROFILES_DIALOG_URL, EDIT_PROFILE_DIALOG_URL, BASE_URL,
             TEST_ADDRESS_1, TEST_ADDRESS_2, TEST_ADDRESS_3,
-            sleep, expectPopupOpen, openPopupOn,
+            sleep, expectPopupOpen, openPopupOn, clickDoorhangerButton,
             getAddresses, saveAddress, removeAddresses */
 
 "use strict";
@@ -19,7 +19,7 @@ const TEST_ADDRESS_1 = {
   "address-level1": "MA",
   "postal-code": "02139",
   country: "US",
-  tel: "+1 617 253 5702",
+  tel: "+16172535702",
   email: "timbl@w3.org",
 };
 
@@ -32,6 +32,9 @@ const TEST_ADDRESS_3 = {
   "street-address": "Other Address",
   "postal-code": "12345",
 };
+
+const MAIN_BUTTON_INDEX = 0;
+const SECONDARY_BUTTON_INDEX = 1;
 
 async function sleep(ms = 500) {
   await new Promise(resolve => setTimeout(resolve, ms));
@@ -61,14 +64,18 @@ async function openPopupOn(browser, selector) {
   await expectPopupOpen(browser);
 }
 
-function getAddresses() {
+function getRecords(data) {
   return new Promise(resolve => {
-    Services.cpmm.addMessageListener("FormAutofill:Addresses", function getResult(result) {
-      Services.cpmm.removeMessageListener("FormAutofill:Addresses", getResult);
+    Services.cpmm.addMessageListener("FormAutofill:Records", function getResult(result) {
+      Services.cpmm.removeMessageListener("FormAutofill:Records", getResult);
       resolve(result.data);
     });
-    Services.cpmm.sendAsyncMessage("FormAutofill:GetAddresses", {});
+    Services.cpmm.sendAsyncMessage("FormAutofill:GetRecords", data);
   });
+}
+
+function getAddresses() {
+  return getRecords({collectionName: "addresses"});
 }
 
 function saveAddress(address) {
@@ -79,6 +86,32 @@ function saveAddress(address) {
 function removeAddresses(guids) {
   Services.cpmm.sendAsyncMessage("FormAutofill:RemoveAddresses", {guids});
   return TestUtils.topicObserved("formautofill-storage-changed");
+}
+
+/**
+ * Clicks the popup notification button and wait for popup hidden.
+ *
+ * @param {number} buttonIndex Number indicating which button to click.
+ *                             See the constants in this file.
+ */
+async function clickDoorhangerButton(buttonIndex) {
+  let popuphidden = BrowserTestUtils.waitForEvent(PopupNotifications.panel, "popuphidden");
+  let notifications = PopupNotifications.panel.childNodes;
+  ok(notifications.length > 0, "at least one notification displayed");
+  ok(true, notifications.length + " notification(s)");
+  let notification = notifications[0];
+
+  if (buttonIndex == MAIN_BUTTON_INDEX) {
+    ok(true, "Triggering main action");
+    EventUtils.synthesizeMouseAtCenter(notification.button, {});
+  } else if (buttonIndex == SECONDARY_BUTTON_INDEX) {
+    ok(true, "Triggering secondary action");
+    EventUtils.synthesizeMouseAtCenter(notification.secondaryButton, {});
+  } else if (notification.childNodes[buttonIndex - 1]) {
+    ok(true, "Triggering secondary action with index " + buttonIndex);
+    EventUtils.synthesizeMouseAtCenter(notification.childNodes[buttonIndex - 1], {});
+  }
+  await popuphidden;
 }
 
 registerCleanupFunction(async function() {

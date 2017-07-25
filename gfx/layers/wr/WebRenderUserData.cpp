@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "WebRenderUserData.h"
+#include "nsDisplayListInvalidation.h"
 
 namespace mozilla {
 namespace layers {
@@ -35,7 +36,7 @@ WebRenderImageData::~WebRenderImageData()
 }
 
 Maybe<wr::ImageKey>
-WebRenderImageData::UpdateImageKey(ImageContainer* aContainer)
+WebRenderImageData::UpdateImageKey(ImageContainer* aContainer, bool aForceUpdate)
 {
   CreateImageClientIfNeeded();
   CreateExternalImageIfNeeded();
@@ -61,7 +62,7 @@ WebRenderImageData::UpdateImageKey(ImageContainer* aContainer)
   }
 
   // Reuse old key if generation is not updated.
-  if (oldCounter == imageClient->GetLastUpdateGenerationCounter() && mKey) {
+  if (!aForceUpdate && oldCounter == imageClient->GetLastUpdateGenerationCounter() && mKey) {
     return mKey;
   }
 
@@ -70,11 +71,18 @@ WebRenderImageData::UpdateImageKey(ImageContainer* aContainer)
     mWRManager->AddImageKeyForDiscard(mKey.value());
   }
 
-  WrImageKey key = WrBridge()->GetNextImageKey();
+  wr::WrImageKey key = WrBridge()->GetNextImageKey();
   mWRManager->WrBridge()->AddWebRenderParentCommand(OpAddExternalImage(mExternalImageId.value(), key));
   mKey = Some(key);
 
   return mKey;
+}
+
+already_AddRefed<ImageClient>
+WebRenderImageData::GetImageClient()
+{
+  RefPtr<ImageClient> imageClient = mImageClient;
+  return imageClient.forget();
 }
 
 void
@@ -85,8 +93,8 @@ WebRenderImageData::CreateAsyncImageWebRenderCommands(mozilla::wr::DisplayListBu
                                                       const LayerRect& aSCBounds,
                                                       const Matrix4x4& aSCTransform,
                                                       const MaybeIntSize& aScaleToSize,
-                                                      const WrImageRendering& aFilter,
-                                                      const WrMixBlendMode& aMixBlendMode)
+                                                      const wr::ImageRendering& aFilter,
+                                                      const wr::MixBlendMode& aMixBlendMode)
 {
   MOZ_ASSERT(aContainer->IsAsync());
   if (!mPipelineId) {
@@ -106,7 +114,7 @@ WebRenderImageData::CreateAsyncImageWebRenderCommands(mozilla::wr::DisplayListBu
   // context need to be done manually and pushed over to the parent side,
   // where it will be done when we build the display list for the iframe.
   // That happens in WebRenderCompositableHolder.
-  WrRect r = aSc.ToRelativeWrRect(aBounds);
+  wr::LayoutRect r = aSc.ToRelativeLayoutRect(aBounds);
   aBuilder.PushIFrame(r, mPipelineId.ref());
 
   WrBridge()->AddWebRenderParentCommand(OpUpdateAsyncImagePipeline(mPipelineId.value(),
@@ -138,6 +146,33 @@ WebRenderImageData::CreateExternalImageIfNeeded()
   if (!mExternalImageId)  {
     mExternalImageId = Some(WrBridge()->AllocExternalImageIdForCompositable(mImageClient));
   }
+}
+
+WebRenderFallbackData::~WebRenderFallbackData()
+{
+}
+
+WebRenderFallbackData::WebRenderFallbackData(WebRenderLayerManager* aWRManager)
+  : WebRenderImageData(aWRManager)
+{
+}
+
+nsAutoPtr<nsDisplayItemGeometry>
+WebRenderFallbackData::GetGeometry()
+{
+  return mGeometry;
+}
+
+void
+WebRenderFallbackData::SetGeometry(nsAutoPtr<nsDisplayItemGeometry> aGeometry)
+{
+  mGeometry = aGeometry;
+}
+
+WebRenderAnimationData::WebRenderAnimationData(WebRenderLayerManager* aWRManager)
+  : WebRenderUserData(aWRManager),
+    mAnimationInfo(aWRManager)
+{
 }
 
 } // namespace layers

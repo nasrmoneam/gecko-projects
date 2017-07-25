@@ -216,6 +216,13 @@ var dataProviders = {
 
     data.remoteAutoStart = Services.appinfo.browserTabsRemoteAutostart;
 
+    // Services.ppmm.childCount is a count of how many processes currently
+    // exist that might respond to messages sent through the ppmm, including
+    // the parent process. So we subtract the parent process with the "- 1",
+    // and that’s how many content processes we’re waiting for.
+    data.currentContentProcesses = Services.ppmm.childCount - 1;
+    data.maxContentProcesses = Services.appinfo.maxWebProcessCount;
+
     try {
       let e10sStatus = Cc["@mozilla.org/supports-PRUint64;1"]
                          .createInstance(Ci.nsISupportsPRUint64);
@@ -230,8 +237,9 @@ var dataProviders = {
     data.styloDefault = Services.prefs.getDefaultBranch(null)
                                 .getBoolPref("layout.css.servo.enabled", false);
     data.styloResult =
-      !!env.get("STYLO_FORCE_ENABLED") ||
-      Services.prefs.getBoolPref("layout.css.servo.enabled", false);
+      AppConstants.MOZ_STYLO &&
+      (!!env.get("STYLO_FORCE_ENABLED") ||
+       Services.prefs.getBoolPref("layout.css.servo.enabled", false));
 
     const keyGoogle = Services.urlFormatter.formatURL("%GOOGLE_API_KEY%").trim();
     data.keyGoogleFound = keyGoogle != "no-google-api-key" && keyGoogle.length > 0;

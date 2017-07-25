@@ -583,8 +583,7 @@ ShouldLoadCachedImage(imgRequest* aImgRequest,
                                  EmptyCString(), //mime guess
                                  nullptr, //aExtra
                                  &decision,
-                                 nsContentUtils::GetContentPolicy(),
-                                 nsContentUtils::GetSecurityManager());
+                                 nsContentUtils::GetContentPolicy());
   if (NS_FAILED(rv) || !NS_CP_ACCEPTED(decision)) {
     return false;
   }
@@ -1056,6 +1055,7 @@ imgCacheQueue::end() const
 nsresult
 imgLoader::CreateNewProxyForRequest(imgRequest* aRequest,
                                     nsILoadGroup* aLoadGroup,
+                                    nsIDocument* aLoadingDocument,
                                     imgINotificationObserver* aObserver,
                                     nsLoadFlags aLoadFlags,
                                     imgRequestProxy** _retval)
@@ -1079,7 +1079,8 @@ imgLoader::CreateNewProxyForRequest(imgRequest* aRequest,
   aRequest->GetURI(getter_AddRefs(uri));
 
   // init adds itself to imgRequest's list of observers
-  nsresult rv = proxyRequest->Init(aRequest, aLoadGroup, uri, aObserver);
+  nsresult rv = proxyRequest->Init(aRequest, aLoadGroup, aLoadingDocument,
+                                   uri, aObserver);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -1646,6 +1647,7 @@ imgLoader::ValidateRequestWithNewChannel(imgRequest* request,
                                          nsILoadGroup* aLoadGroup,
                                          imgINotificationObserver* aObserver,
                                          nsISupports* aCX,
+                                         nsIDocument* aLoadingDocument,
                                          nsLoadFlags aLoadFlags,
                                          nsContentPolicyType aLoadPolicyType,
                                          imgRequestProxy** aProxyRequest,
@@ -1661,8 +1663,8 @@ imgLoader::ValidateRequestWithNewChannel(imgRequest* request,
   // If we're currently in the middle of validating this request, just hand
   // back a proxy to it; the required work will be done for us.
   if (request->GetValidator()) {
-    rv = CreateNewProxyForRequest(request, aLoadGroup, aObserver,
-                                  aLoadFlags, aProxyRequest);
+    rv = CreateNewProxyForRequest(request, aLoadGroup, aLoadingDocument,
+                                  aObserver, aLoadFlags, aProxyRequest);
     if (NS_FAILED(rv)) {
       return false;
     }
@@ -1707,8 +1709,8 @@ imgLoader::ValidateRequestWithNewChannel(imgRequest* request,
   }
 
   RefPtr<imgRequestProxy> req;
-  rv = CreateNewProxyForRequest(request, aLoadGroup, aObserver,
-                                aLoadFlags, getter_AddRefs(req));
+  rv = CreateNewProxyForRequest(request, aLoadGroup, aLoadingDocument,
+                                aObserver, aLoadFlags, getter_AddRefs(req));
   if (NS_FAILED(rv)) {
     return false;
   }
@@ -1766,6 +1768,7 @@ imgLoader::ValidateEntry(imgCacheEntry* aEntry,
                          nsILoadGroup* aLoadGroup,
                          imgINotificationObserver* aObserver,
                          nsISupports* aCX,
+                         nsIDocument* aLoadingDocument,
                          nsLoadFlags aLoadFlags,
                          nsContentPolicyType aLoadPolicyType,
                          bool aCanMakeNewChannel,
@@ -1886,7 +1889,8 @@ imgLoader::ValidateEntry(imgCacheEntry* aEntry,
     return ValidateRequestWithNewChannel(request, aURI, aInitialDocumentURI,
                                          aReferrerURI, aReferrerPolicy,
                                          aLoadGroup, aObserver,
-                                         aCX, aLoadFlags, aLoadPolicyType,
+                                         aCX, aLoadingDocument,
+                                         aLoadFlags, aLoadPolicyType,
                                          aProxyRequest, aLoadingPrincipal,
                                          aCORSMode);
   }
@@ -2112,13 +2116,10 @@ imgLoader::LoadImage(nsIURI* aURI,
 #ifdef DEBUG
   bool isPrivate = false;
 
-  if (aLoadGroup) {
-    nsCOMPtr<nsIInterfaceRequestor> callbacks;
-    aLoadGroup->GetNotificationCallbacks(getter_AddRefs(callbacks));
-    if (callbacks) {
-      nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(callbacks);
-      isPrivate = loadContext && loadContext->UsePrivateBrowsing();
-    }
+  if (aLoadingDocument) {
+    isPrivate = nsContentUtils::IsInPrivateBrowsing(aLoadingDocument);
+  } else if (aLoadGroup) {
+    isPrivate = nsContentUtils::IsInPrivateBrowsing(aLoadGroup);
   }
   MOZ_ASSERT(isPrivate == mRespectPrivacy);
 #endif
@@ -2173,8 +2174,8 @@ imgLoader::LoadImage(nsIURI* aURI,
   if (cache.Get(key, getter_AddRefs(entry)) && entry) {
     if (ValidateEntry(entry, aURI, aInitialDocumentURI, aReferrerURI,
                       aReferrerPolicy, aLoadGroup, aObserver, aLoadingDocument,
-                      requestFlags, aContentPolicyType, true, _retval,
-                      aLoadingPrincipal, corsmode)) {
+                      aLoadingDocument, requestFlags, aContentPolicyType, true,
+                      _retval, aLoadingPrincipal, corsmode)) {
       request = entry->GetRequest();
 
       // If this entry has no proxies, its request has no reference to the
@@ -2299,8 +2300,8 @@ imgLoader::LoadImage(nsIURI* aURI,
     request->SetLoadId(aLoadingDocument);
 
     LOG_MSG(gImgLog, "imgLoader::LoadImage", "creating proxy request.");
-    rv = CreateNewProxyForRequest(request, aLoadGroup, aObserver,
-                                  requestFlags, _retval);
+    rv = CreateNewProxyForRequest(request, aLoadGroup, aLoadingDocument,
+                                  aObserver, requestFlags, _retval);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -2421,7 +2422,7 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
         : nsIContentPolicy::TYPE_INTERNAL_IMAGE;
 
       if (ValidateEntry(entry, uri, nullptr, nullptr, RP_Unset,
-                        nullptr, aObserver, aCX, requestFlags,
+                        nullptr, aObserver, aCX, doc, requestFlags,
                         policyType, false, nullptr,
                         nullptr, imgIRequest::CORS_NONE)) {
         request = entry->GetRequest();
@@ -2476,7 +2477,7 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
 
     *listener = nullptr; // give them back a null nsIStreamListener
 
-    rv = CreateNewProxyForRequest(request, loadGroup, aObserver,
+    rv = CreateNewProxyForRequest(request, loadGroup, doc, aObserver,
                                   requestFlags, _retval);
     static_cast<imgRequestProxy*>(*_retval)->NotifyListener();
   } else {
@@ -2519,7 +2520,7 @@ imgLoader::LoadImageWithChannel(nsIChannel* channel,
     // Try to add the new request into the cache.
     PutIntoCache(originalURIKey, entry);
 
-    rv = CreateNewProxyForRequest(request, loadGroup, aObserver,
+    rv = CreateNewProxyForRequest(request, loadGroup, doc, aObserver,
                                   requestFlags, _retval);
 
     // Explicitly don't notify our proxy, because we're loading off the

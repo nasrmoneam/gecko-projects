@@ -6,6 +6,7 @@ from types import FunctionType
 from collections import namedtuple
 from taskgraph.util.docker import docker_image
 from taskgraph.parameters import Parameters
+from actions import util
 
 
 GECKO = os.path.realpath(os.path.join(__file__, '..', '..', '..'))
@@ -14,7 +15,7 @@ actions = []
 callbacks = {}
 
 Action = namedtuple('Action', [
-    'title', 'description', 'order', 'context', 'schema', 'task_template_builder',
+    'name', 'title', 'description', 'order', 'context', 'schema', 'task_template_builder',
 ])
 
 
@@ -27,7 +28,7 @@ def is_json(data):
     return True
 
 
-def register_task_action(title, description, order, context, schema):
+def register_task_action(name, title, description, order, context, schema=None):
     """
     Register an action task that can be triggered from supporting
     user interfaces, such as Treeherder.
@@ -43,6 +44,8 @@ def register_task_action(title, description, order, context, schema):
 
     Parameters
     ----------
+    name : str
+        An identifier for this action, used by UIs to find the action.
     title : str
         A human readable title for the action to be used as label on a button
         or text on a link for triggering the action.
@@ -73,6 +76,7 @@ def register_task_action(title, description, order, context, schema):
         The decorated function will be given decision parameters and may return
         ``None`` instead of a task template, if the action is disabled.
     """
+    assert isinstance(name, basestring), 'name must be a string'
     assert isinstance(title, basestring), 'title must be a string'
     assert isinstance(description, basestring), 'description must be a string'
     assert isinstance(order, int), 'order must be an integer'
@@ -82,14 +86,15 @@ def register_task_action(title, description, order, context, schema):
     def register_task_template_builder(task_template_builder):
         assert not mem['registered'], 'register_task_action must be used as decorator'
         actions.append(Action(
-            title.strip(), description.strip(), order, context, schema, task_template_builder,
+            name.strip(), title.strip(), description.strip(), order, context,
+            schema, task_template_builder,
         ))
         mem['registered'] = True
     return register_task_template_builder
 
 
-def register_callback_action(title, symbol, description, order=10000, context=[],
-                             available=lambda parameters: True, schema=None):
+def register_callback_action(name, title, symbol, description, order=10000,
+                             context=[], available=lambda parameters: True, schema=None):
     """
     Register an action callback that can be triggered from supporting
     user interfaces, such as Treeherder.
@@ -111,6 +116,8 @@ def register_callback_action(title, symbol, description, order=10000, context=[]
 
     Parameters
     ----------
+    name : str
+        An identifier for this action, used by UIs to find the action.
     title : str
         A human readable title for the action to be used as label on a button
         or text on a link for triggering the action.
@@ -156,7 +163,7 @@ def register_callback_action(title, symbol, description, order=10000, context=[]
         assert cb.__name__ not in callbacks, 'callback name {} is not unique'.format(cb.__name__)
         source_path = os.path.relpath(inspect.stack()[1][1], GECKO)
 
-        @register_task_action(title, description, order, context, schema)
+        @register_task_action(name, title, description, order, context, schema)
         def build_callback_action_task(parameters):
             if not available(parameters):
                 return None
@@ -202,11 +209,11 @@ def register_callback_action(title, symbol, description, order=10000, context=[]
                         'GECKO_HEAD_REV': parameters['head_rev'],
                         'HG_STORE_PATH': '/home/worker/checkouts/hg-store',
                         'ACTION_TASK_GROUP_ID': {'$eval': 'taskGroupId'},
-                        'ACTION_TASK_ID': {'$dumps': {'$eval': 'taskId'}},
-                        'ACTION_TASK': {'$dumps': {'$eval': 'task'}},
-                        'ACTION_INPUT': {'$dumps': {'$eval': 'input'}},
+                        'ACTION_TASK_ID': {'$json': {'$eval': 'taskId'}},
+                        'ACTION_TASK': {'$json': {'$eval': 'task'}},
+                        'ACTION_INPUT': {'$json': {'$eval': 'input'}},
                         'ACTION_CALLBACK': cb.__name__,
-                        'ACTION_PARAMETERS': {'$dumps': {'$eval': 'parameters'}},
+                        'ACTION_PARAMETERS': {'$json': {'$eval': 'parameters'}},
                     },
                     'cache': {
                         'level-{}-checkouts'.format(parameters['level']):
@@ -261,14 +268,18 @@ def render_actions_json(parameters):
         task = action.task_template_builder(parameters)
         if task:
             assert is_json(task), 'task must be a JSON compatible object'
-            result.append({
+            res = {
                 'kind': 'task',
+                'name': action.name,
                 'title': action.title,
                 'description': action.description,
                 'context': action.context,
                 'schema': action.schema,
                 'task': task,
-            })
+            }
+            if res['schema'] is None:
+                res.pop('schema')
+            result.append(res)
     return {
         'version': 1,
         'variables': {
@@ -278,20 +289,19 @@ def render_actions_json(parameters):
     }
 
 
-def trigger_action_callback():
+def trigger_action_callback(task_group_id, task_id, task, input, callback, parameters,
+                            test=False):
     """
-    Trigger action callback using arguments from environment variables.
+    Trigger action callback with the given inputs. If `test` is true, then run
+    the action callback in testing mode, without actually creating tasks.
     """
-    global callbacks
-    task_group_id = os.environ.get('ACTION_TASK_GROUP_ID', None)
-    task_id = json.loads(os.environ.get('ACTION_TASK_ID', 'null'))
-    task = json.loads(os.environ.get('ACTION_TASK', 'null'))
-    input = json.loads(os.environ.get('ACTION_INPUT', 'null'))
-    callback = os.environ.get('ACTION_CALLBACK', None)
-    parameters = json.loads(os.environ.get('ACTION_PARAMETERS', 'null'))
     cb = callbacks.get(callback, None)
     if not cb:
         raise Exception('Unknown callback: {}'.format(callback))
+
+    if test:
+        util.testing = True
+
     cb(Parameters(**parameters), input, task_group_id, task_id, task)
 
 

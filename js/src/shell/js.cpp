@@ -1305,7 +1305,7 @@ ParseCompileOptions(JSContext* cx, CompileOptions& options, HandleObject opts,
         int32_t c;
         if (!ToInt32(cx, v, &c))
             return false;
-        options.setColumn(c, c);
+        options.setColumn(c);
     }
 
     if (!JS_GetProperty(cx, opts, "sourceIsLazy", &v))
@@ -2379,7 +2379,7 @@ SrcNotes(JSContext* cx, HandleScript script, Sprinter* sp)
     for (jssrcnote* sn = notes; !SN_IS_TERMINATOR(sn); sn = SN_NEXT(sn)) {
         unsigned delta = SN_DELTA(sn);
         offset += delta;
-        SrcNoteType type = (SrcNoteType) SN_TYPE(sn);
+        SrcNoteType type = SN_TYPE(sn);
         const char* name = js_SrcNoteSpec[type].name;
         if (!sp->jsprintf("%3u: %4u %5u [%4u] %-8s",
                           unsigned(sn - notes), lineno, offset, delta, name))
@@ -4540,7 +4540,7 @@ OffThreadDecodeScript(JSContext* cx, unsigned argc, Value* vp)
         return false;
     }
 
-    if (!JS::CanCompileOffThread(cx, options, loadLength)) {
+    if (!JS::CanDecodeOffThread(cx, options, loadLength)) {
         JS_ReportErrorASCII(cx, "cannot compile code on worker thread");
         return false;
     }
@@ -5822,9 +5822,9 @@ GetMarks(JSContext* cx, unsigned argc, Value* vp)
             color = "dead";
         } else {
             gc::TenuredCell* cell = &obj->asTenured();
-            if (cell->isMarked(gc::GRAY))
+            if (cell->isMarkedGray())
                 color = "gray";
-            else if (cell->isMarked(gc::BLACK))
+            else if (cell->isMarkedBlack())
                 color = "black";
             else
                 color = "unmarked";

@@ -502,13 +502,6 @@ public:
 
   virtual PuppetWidget* WebWidget() override { return mPuppetWidget; }
 
-  /** Return the DPI of the widget this TabChild draws to. */
-  void GetDPI(float* aDPI);
-
-  void GetDefaultScale(double *aScale);
-
-  void GetWidgetRounding(int32_t* aRounding);
-
   bool IsTransparent() const { return mIsTransparent; }
 
   void GetMaxTouchPoints(uint32_t* aTouchPoints)
@@ -602,9 +595,9 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvThemeChanged(nsTArray<LookAndFeelInt>&& aLookAndFeelIntCache) override;
 
-  virtual mozilla::ipc::IPCResult RecvHandleAccessKey(const WidgetKeyboardEvent& aEvent,
-                                                      nsTArray<uint32_t>&& aCharCodes,
-                                                      const int32_t& aModifierMask) override;
+  virtual mozilla::ipc::IPCResult
+  RecvHandleAccessKey(const WidgetKeyboardEvent& aEvent,
+                      nsTArray<uint32_t>&& aCharCodes) override;
 
   virtual mozilla::ipc::IPCResult RecvSetUseGlobalHistory(const bool& aUse) override;
 
@@ -809,6 +802,11 @@ private:
 
   void MaybeDispatchCoalescedWheelEvent();
 
+  /**
+   * Dispatch aEvent on aEvent.mWidget.
+   */
+  nsEventStatus DispatchWidgetEventViaAPZ(WidgetGUIEvent& aEvent);
+
   void DispatchWheelEvent(const WidgetWheelEvent& aEvent,
                           const ScrollableLayerGuid& aGuid,
                           const uint64_t& aInputBlockId);
@@ -855,9 +853,6 @@ private:
   Maybe<mozilla::layers::CompositorOptions> mCompositorOptions;
 
   friend class ContentChild;
-  float mDPI;
-  int32_t mRounding;
-  double mDefaultScale;
 
   bool mIsTransparent;
 

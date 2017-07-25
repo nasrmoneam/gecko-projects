@@ -2,6 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+// This file is loaded into the browser window scope.
+/* eslint-env mozilla/browser-window */
+
+XPCOMUtils.defineLazyScriptGetter(this, ["PlacesToolbar", "PlacesMenu",
+                                         "PlacesPanelview", "PlacesPanelMenuView"],
+                                  "chrome://browser/content/places/browserPlacesViews.js");
+
 var StarUI = {
   _itemId: -1,
   uri: null,
@@ -91,11 +98,11 @@ var StarUI = {
 
           if (this._uriForRemoval) {
             if (this._isNewBookmark) {
-              if (!PlacesUtils.useAsyncTransactions) {
+              if (!PlacesUIUtils.useAsyncTransactions) {
                 PlacesUtils.transactionManager.undoTransaction();
                 break;
               }
-              PlacesTransactions().undo().catch(Cu.reportError);
+              PlacesTransactions.undo().catch(Cu.reportError);
               break;
             }
             // Remove all bookmarks for the bookmark's url, this also removes
@@ -211,19 +218,12 @@ var StarUI = {
 
     this._isNewBookmark = aIsNewBookmark;
     this._uriForRemoval = "";
-    // TODO: Deprecate this once async transactions are enabled and the legacy
-    // transactions code is gone (bug 1131491) - we don't want addons to to use
-    // the  completeNodeLikeObjectForItemId, so it's better if they keep passing
-    // the item-id for now).
+    // TODO (bug 1131491): Deprecate this once async transactions are enabled
+    // and the legacy transactions code is gone.
     if (typeof(aNode) == "number") {
       let itemId = aNode;
-      if (PlacesUIUtils.useAsyncTransactions) {
-        let guid = await PlacesUtils.promiseItemGuid(itemId);
-        aNode = await PlacesUIUtils.promiseNodeLike(guid);
-      } else {
-        aNode = { itemId };
-        await PlacesUIUtils.completeNodeLikeObjectForItemId(aNode);
-      }
+      let guid = await PlacesUtils.promiseItemGuid(itemId);
+      aNode = await PlacesUIUtils.fetchNodeLike(guid);
     }
 
     // Performance: load the overlay the first time the panel is opened
@@ -254,7 +254,7 @@ var StarUI = {
     );
   },
 
-  async _doShowEditBookmarkPanel(aNode, aAnchorElement, aPosition) {
+  _doShowEditBookmarkPanel(aNode, aAnchorElement, aPosition) {
     if (this.panel.state != "closed")
       return;
 
@@ -380,6 +380,14 @@ var StarUI = {
   }
 };
 
+// Checks if an element is visible without flushing layout changes.
+function isVisible(element) {
+  let windowUtils = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                          .getInterface(Ci.nsIDOMWindowUtils);
+  let bounds = windowUtils.getBoundsWithoutFlushing(element);
+  return bounds.height > 0 && bounds.width > 0;
+}
+
 var PlacesCommandHook = {
   /**
    * Adds a bookmark to the page loaded in the given browser.
@@ -417,7 +425,7 @@ var PlacesCommandHook = {
         charset = aBrowser.characterSet;
       } catch (e) { }
 
-      if (aShowEditUI && isNewBookmark) {
+      if (aShowEditUI) {
         // If we bookmark the page here but open right into a cancelable
         // state (i.e. new bookmark in Library), start batching here so
         // all of the actions can be undone in a single undo step.
@@ -448,18 +456,18 @@ var PlacesCommandHook = {
     // 1. the bookmarks menu button
     // 2. the identity icon
     // 3. the content area
-    if (BookmarkingUI.anchor) {
-      StarUI.showEditBookmarkPopup(itemId, BookmarkingUI.anchor,
-                                   "bottomcenter topright", isNewBookmark);
+    if (BookmarkingUI.anchor && isVisible(BookmarkingUI.anchor)) {
+      await StarUI.showEditBookmarkPopup(itemId, BookmarkingUI.anchor,
+                                        "bottomcenter topright", isNewBookmark);
       return;
     }
 
     let identityIcon = document.getElementById("identity-icon");
-    if (isElementVisible(identityIcon)) {
-      StarUI.showEditBookmarkPopup(itemId, identityIcon,
-                                   "bottomcenter topright", isNewBookmark);
+    if (isVisible(identityIcon)) {
+      await StarUI.showEditBookmarkPopup(itemId, identityIcon,
+                                        "bottomcenter topright", isNewBookmark);
     } else {
-      StarUI.showEditBookmarkPopup(itemId, aBrowser, "overlap", isNewBookmark);
+      await StarUI.showEditBookmarkPopup(itemId, aBrowser, "overlap", isNewBookmark);
     }
   },
 
@@ -481,9 +489,14 @@ var PlacesCommandHook = {
       let docInfo = await this._getPageDetails(aBrowser);
 
       try {
-        info.title = docInfo.isErrorPage ?
-          (await PlacesUtils.history.fetch(aBrowser.currentURI)).title :
-          aBrowser.contentTitle;
+        if (docInfo.isErrorPage) {
+          let entry = await PlacesUtils.history.fetch(aBrowser.currentURI);
+          if (entry) {
+            info.title = entry.title;
+          }
+        } else {
+          info.title = aBrowser.contentTitle;
+        }
         info.title = info.title || url.href;
         description = docInfo.description;
         charset = aBrowser.characterSet;
@@ -523,18 +536,18 @@ var PlacesCommandHook = {
     // 1. the bookmarks menu button
     // 2. the identity icon
     // 3. the content area
-    if (BookmarkingUI.anchor) {
-      StarUI.showEditBookmarkPopup(node, BookmarkingUI.anchor,
+    if (BookmarkingUI.anchor && isVisible(BookmarkingUI.anchor)) {
+      await StarUI.showEditBookmarkPopup(node, BookmarkingUI.anchor,
                                    "bottomcenter topright", isNewBookmark);
       return;
     }
 
     let identityIcon = document.getElementById("identity-icon");
-    if (isElementVisible(identityIcon)) {
-      StarUI.showEditBookmarkPopup(node, identityIcon,
+    if (isVisible(identityIcon)) {
+      await StarUI.showEditBookmarkPopup(node, identityIcon,
                                    "bottomcenter topright", isNewBookmark);
     } else {
-      StarUI.showEditBookmarkPopup(node, aBrowser, "overlap", isNewBookmark);
+      await StarUI.showEditBookmarkPopup(node, aBrowser, "overlap", isNewBookmark);
     }
   },
 
@@ -554,7 +567,8 @@ var PlacesCommandHook = {
    * Adds a bookmark to the page loaded in the current tab.
    */
   bookmarkCurrentPage: function PCH_bookmarkCurrentPage(aShowEditUI, aParent) {
-    this.bookmarkPage(gBrowser.selectedBrowser, aParent, aShowEditUI);
+    this.bookmarkPage(gBrowser.selectedBrowser, aParent, aShowEditUI)
+        .catch(Components.utils.reportError);
   },
 
   /**
@@ -1683,7 +1697,7 @@ var BookmarkingUI = {
     this._uninitView();
 
     if (this._hasBookmarksObserver) {
-      PlacesUtils.removeLazyBookmarkObserver(this);
+      PlacesUtils.bookmarks.removeObserver(this);
     }
 
     if (this._pendingUpdate) {
@@ -1728,7 +1742,7 @@ var BookmarkingUI = {
          // Start observing bookmarks if needed.
          if (!this._hasBookmarksObserver) {
            try {
-             PlacesUtils.addLazyBookmarkObserver(this);
+             PlacesUtils.bookmarks.addObserver(this);
              this._hasBookmarksObserver = true;
            } catch (ex) {
              Components.utils.reportError("BookmarkingUI failed adding a bookmarks observer: " + ex);
@@ -1853,16 +1867,16 @@ var BookmarkingUI = {
   },
 
   showSubView(anchor) {
-    this._showSubView(anchor);
+    this._showSubView(null, anchor);
   },
 
-  _showSubView(anchor = document.getElementById(this.BOOKMARK_BUTTON_ID)) {
+  _showSubView(event, anchor = document.getElementById(this.BOOKMARK_BUTTON_ID)) {
     let view = document.getElementById("PanelUI-bookmarks");
     view.addEventListener("ViewShowing", this);
     view.addEventListener("ViewHiding", this);
     anchor.setAttribute("closemenu", "none");
     PanelUI.showSubView("PanelUI-bookmarks", anchor,
-                        CustomizableUI.AREA_PANEL);
+                        CustomizableUI.AREA_PANEL, event);
   },
 
   onCommand: function BUI_onCommand(aEvent) {
@@ -1872,7 +1886,7 @@ var BookmarkingUI = {
 
     // Handle special case when the button is in the panel.
     if (this.button.getAttribute("cui-areatype") == CustomizableUI.TYPE_MENU_PANEL) {
-      this._showSubView();
+      this._showSubView(aEvent);
       return;
     }
     let widget = CustomizableUI.getWidget(this.BOOKMARK_BUTTON_ID)
@@ -1932,6 +1946,11 @@ var BookmarkingUI = {
       let query = "place:queryType=" + Ci.nsINavHistoryQueryOptions.QUERY_TYPE_BOOKMARKS +
         "&sort=" + Ci.nsINavHistoryQueryOptions.SORT_BY_DATEADDED_DESCENDING +
         "&maxResults=42&excludeQueries=1";
+
+      // XPCOMUtils.defineLazyScriptGetter can't return class constructors, so
+      // trigger the getter once without using the result before calling
+      // PlacesPanelview as a constructor.
+      PlacesPanelview;
       this._panelMenuView = new PlacesPanelview(document.getElementById("panelMenu_bookmarksMenu"),
         panelview, query);
     } else {

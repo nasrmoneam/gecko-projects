@@ -28,7 +28,7 @@
 #include "mozilla/dom/TimeoutHandler.h"
 #include "mozilla/dom/TimeoutManager.h"
 #include "mozilla/IntegerPrintfMacros.h"
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 #include "mozilla/dom/WindowOrientationObserver.h"
 #endif
 #include "nsDOMOfflineResourceList.h"
@@ -1033,7 +1033,7 @@ nsPIDOMWindow<T>::nsPIDOMWindow(nsPIDOMWindowOuter *aOuterWindow)
   mMarkedCCGeneration(0), mServiceWorkersTestingEnabled(false),
   mLargeAllocStatus(LargeAllocStatus::NONE),
   mHasTriedToCacheTopInnerWindow(false),
-  mNumOfIndexedDBDatabases(0)
+  mNumOfIndexedDBDatabases(0), mCleanedUp(false)
 {
   if (aOuterWindow) {
     mTimeoutManager =
@@ -1620,7 +1620,6 @@ nsGlobalWindow::nsGlobalWindow(nsGlobalWindow *aOuterWindow)
     mNetworkUploadObserverEnabled(false),
     mNetworkDownloadObserverEnabled(false),
 #endif
-    mCleanedUp(false),
     mDialogAbuseCount(0),
     mAreDialogsEnabled(true),
 #ifdef DEBUG
@@ -2006,13 +2005,16 @@ nsGlobalWindow::CleanUp()
 
   mMozSelfSupport = nullptr;
 
-  mPerformance = nullptr;
+  if (mPerformance) {
+    mPerformance->Shutdown();
+    mPerformance = nullptr;
+  }
 
 #ifdef MOZ_WEBSPEECH
   mSpeechSynthesis = nullptr;
 #endif
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
   mOrientationChangeObserver = nullptr;
 #endif
 
@@ -2150,7 +2152,7 @@ nsGlobalWindow::FreeInnerObjects()
     mScreen = nullptr;
   }
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
   mOrientationChangeObserver = nullptr;
 #endif
 
@@ -4361,9 +4363,10 @@ nsPIDOMWindowInner::CreatePerformanceObjectIfNeeded()
 {
   MOZ_ASSERT(IsInnerWindow());
 
-  if (mPerformance || !mDoc) {
+  if (mPerformance || !mDoc || mCleanedUp) {
     return;
   }
+
   RefPtr<nsDOMNavigationTiming> timing = mDoc->GetNavigationTiming();
   nsCOMPtr<nsITimedChannel> timedChannel(do_QueryInterface(mDoc->GetChannel()));
   bool timingEnabled = false;
@@ -4892,7 +4895,6 @@ nsGlobalWindow::GetContentOuter(JSContext* aCx,
   }
 
   aRetval.set(nullptr);
-  return;
 }
 
 void
@@ -12057,15 +12059,14 @@ nsGlobalWindow::ShowSlowScriptDialog()
   if (showDebugButton)
     buttonFlags += nsIPrompt::BUTTON_TITLE_IS_STRING * nsIPrompt::BUTTON_POS_2;
 
-  // Null out the operation callback while we're re-entering JS here.
-  bool old = JS_DisableInterruptCallback(cx);
-
-  // Open the dialog.
-  rv = prompt->ConfirmEx(title, msg, buttonFlags, waitButton, stopButton,
-                         debugButton, neverShowDlg, &neverShowDlgChk,
-                         &buttonPressed);
-
-  JS_ResetInterruptCallback(cx, old);
+  {
+    // Null out the operation callback while we're re-entering JS here.
+    AutoDisableJSInterruptCallback disabler(cx);
+    // Open the dialog.
+    rv = prompt->ConfirmEx(title, msg, buttonFlags, waitButton, stopButton,
+                          debugButton, neverShowDlg, &neverShowDlgChk,
+                          &buttonPressed);
+  }
 
   if (NS_SUCCEEDED(rv) && (buttonPressed == 0)) {
     return neverShowDlgChk ? AlwaysContinueSlowScript : ContinueSlowScript;
@@ -13641,7 +13642,7 @@ nsGlobalWindow::DisableDeviceSensor(uint32_t aType)
   }
 }
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 void
 nsGlobalWindow::EnableOrientationChangeListener()
 {
@@ -14794,7 +14795,7 @@ nsGlobalWindow::IsModalContentWindow(JSContext* aCx, JSObject* aGlobal)
   return xpc::WindowOrNull(aGlobal)->IsModalContentWindow();
 }
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 int16_t
 nsGlobalWindow::Orientation(CallerType aCallerType) const
 {

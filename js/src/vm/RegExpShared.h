@@ -248,7 +248,8 @@ class RegExpZone
 
         typedef Key Lookup;
         static HashNumber hash(const Lookup& l) {
-            return DefaultHasher<JSAtom*>::hash(l.atom) ^ (l.flag << 1);
+            HashNumber hash = DefaultHasher<JSAtom*>::hash(l.atom);
+            return mozilla::AddToHash(hash, l.flag);
         }
         static bool match(Key l, Key r) {
             return l.atom == r.atom && l.flag == r.flag;
@@ -273,11 +274,10 @@ class RegExpZone
 
     bool empty() const { return set_.empty(); }
 
-    bool get(JSContext* cx, HandleAtom source, RegExpFlag flags, MutableHandleRegExpShared shared);
+    RegExpShared* get(JSContext* cx, HandleAtom source, RegExpFlag flags);
 
     /* Like 'get', but compile 'maybeOpt' (if non-null). */
-    bool get(JSContext* cx, HandleAtom source, JSString* maybeOpt,
-             MutableHandleRegExpShared shared);
+    RegExpShared* get(JSContext* cx, HandleAtom source, JSString* maybeOpt);
 
     size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf);
 };

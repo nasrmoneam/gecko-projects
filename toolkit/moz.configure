@@ -514,6 +514,18 @@ def photon_animations(value):
 set_config('MOZ_PHOTON_ANIMATIONS', photon_animations)
 set_define('MOZ_PHOTON_ANIMATIONS', photon_animations)
 
+option(env='MOZ_PHOTON_PREFERENCES',
+       help='Enable Photon preferences',
+       default=milestone.is_nightly)
+
+@depends('MOZ_PHOTON_PREFERENCES')
+def photon_preferences(value):
+    if value:
+        return bool(value)
+
+set_config('MOZ_PHOTON_PREFERENCES', photon_preferences)
+set_define('MOZ_PHOTON_PREFERENCES', photon_preferences)
+
 option(env='MOZ_PHOTON_THEME',
        help='Enable Photon theme',
        default=milestone.is_nightly)
@@ -1224,3 +1236,17 @@ def geckodriver(enable, automation, compile_env, cross_compile, hazard, target):
             return True
 
 set_config('ENABLE_GECKODRIVER', geckodriver)
+
+# Code Coverage
+# ==============================================================
+
+option('--enable-coverage', env='MOZ_CODE_COVERAGE',
+       help='Enable code coverage')
+
+@depends('--enable-coverage')
+def code_coverage(value):
+    if value:
+        return True
+
+set_config('MOZ_CODE_COVERAGE', code_coverage)
+set_define('MOZ_CODE_COVERAGE', code_coverage)

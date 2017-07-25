@@ -15,30 +15,29 @@ use font_metrics::FontMetricsProvider;
 use gecko_bindings::structs::{nsIAtom, StyleRuleInclusion};
 use invalidation::element::invalidation_map::InvalidationMap;
 use invalidation::media_queries::{EffectiveMediaQueryResults, ToMediaListKey};
-use matching::CascadeVisitedMode;
 use media_queries::Device;
 use properties::{self, CascadeFlags, ComputedValues};
 use properties::{AnimationRules, PropertyDeclarationBlock};
 #[cfg(feature = "servo")]
 use properties::INHERIT_ALL;
-use rule_tree::{CascadeLevel, RuleTree, StrongRuleNode, StyleSource};
+use rule_tree::{CascadeLevel, RuleTree, StyleSource};
 use selector_map::{SelectorMap, SelectorMapEntry};
 use selector_parser::{SelectorImpl, PseudoElement};
 use selectors::attr::NamespaceConstraint;
 use selectors::bloom::BloomFilter;
 use selectors::matching::{ElementSelectorFlags, matches_selector, MatchingContext, MatchingMode};
-use selectors::matching::{VisitedHandlingMode, AFFECTED_BY_PRESENTATIONAL_HINTS};
-use selectors::parser::{AncestorHashes, Combinator, Component, Selector, SelectorAndHashes};
+use selectors::matching::VisitedHandlingMode;
+use selectors::parser::{AncestorHashes, Combinator, Component, Selector};
 use selectors::parser::{SelectorIter, SelectorMethods};
 use selectors::sink::Push;
 use selectors::visitor::SelectorVisitor;
+use servo_arc::{Arc, ArcBorrow};
 use shared_lock::{Locked, SharedRwLockReadGuard, StylesheetGuards};
 use smallvec::VecLike;
 use std::fmt::Debug;
 #[cfg(feature = "servo")]
 use std::marker::PhantomData;
 use style_traits::viewport::ViewportConstraints;
-use stylearc::Arc;
 #[cfg(feature = "gecko")]
 use stylesheets::{CounterStyleRule, FontFaceRule};
 use stylesheets::{CssRule, StyleRule};
@@ -479,10 +478,10 @@ impl Stylist {
                 CssRule::Style(ref locked) => {
                     let style_rule = locked.read_with(&guard);
                     self.num_declarations += style_rule.block.read_with(&guard).len();
-                    for selector_and_hashes in &style_rule.selectors.0 {
+                    for selector in &style_rule.selectors.0 {
                         self.num_selectors += 1;
 
-                        let map = if let Some(pseudo) = selector_and_hashes.selector.pseudo_element() {
+                        let map = if let Some(pseudo) = selector.pseudo_element() {
                             self.pseudos_map
                                 .entry(pseudo.canonical())
                                 .or_insert_with(PerPseudoElementSelectorMap::new)
@@ -491,25 +490,28 @@ impl Stylist {
                             self.element_map.borrow_for_origin(&origin)
                         };
 
+                        let hashes =
+                            AncestorHashes::new(&selector, self.quirks_mode);
+
                         map.insert(
-                            Rule::new(selector_and_hashes.selector.clone(),
-                                      selector_and_hashes.hashes.clone(),
+                            Rule::new(selector.clone(),
+                                      hashes.clone(),
                                       locked.clone(),
                                       self.rules_source_order),
                             self.quirks_mode);
 
-                        self.invalidation_map.note_selector(selector_and_hashes, self.quirks_mode);
-                        if needs_revalidation(&selector_and_hashes.selector) {
+                        self.invalidation_map.note_selector(selector, self.quirks_mode);
+                        if needs_revalidation(&selector) {
                             self.selectors_for_cache_revalidation.insert(
-                                RevalidationSelectorAndHashes::new(&selector_and_hashes),
+                                RevalidationSelectorAndHashes::new(&selector, &hashes),
                                 self.quirks_mode);
                         }
-                        selector_and_hashes.selector.visit(&mut AttributeAndStateDependencyVisitor {
+                        selector.visit(&mut AttributeAndStateDependencyVisitor {
                             attribute_dependencies: &mut self.attribute_dependencies,
                             style_attribute_dependency: &mut self.style_attribute_dependency,
                             state_dependencies: &mut self.state_dependencies,
                         });
-                        selector_and_hashes.selector.visit(&mut MappedIdVisitor {
+                        selector.visit(&mut MappedIdVisitor {
                             mapped_ids: &mut self.mapped_ids,
                         });
                     }
@@ -599,7 +601,7 @@ impl Stylist {
     pub fn precomputed_values_for_pseudo(&self,
                                          guards: &StylesheetGuards,
                                          pseudo: &PseudoElement,
-                                         parent: Option<&Arc<ComputedValues>>,
+                                         parent: Option<&ComputedValues>,
                                          cascade_flags: CascadeFlags,
                                          font_metrics: &FontMetricsProvider)
                                          -> Arc<ComputedValues> {
@@ -607,13 +609,12 @@ impl Stylist {
 
         let rule_node = match self.precomputed_pseudo_element_decls.get(pseudo) {
             Some(declarations) => {
-                // FIXME(emilio): When we've taken rid of the cascade we can just
-                // use into_iter.
                 self.rule_tree.insert_ordered_rules_with_important(
                     declarations.into_iter().map(|a| (a.source.clone(), a.level())),
-                    guards)
+                    guards
+                )
             }
-            None => self.rule_tree.root(),
+            None => self.rule_tree.root().clone(),
         };
 
         // NOTE(emilio): We skip calculating the proper layout parent style
@@ -630,18 +631,17 @@ impl Stylist {
         // descendant of a display: contents element where display: contents is
         // the actual used value, and the computed value of it would need
         // blockification.
-        let computed =
-            properties::cascade(&self.device,
-                                &rule_node,
-                                guards,
-                                parent.map(|p| &**p),
-                                parent.map(|p| &**p),
-                                None,
-                                None,
-                                font_metrics,
-                                cascade_flags,
-                                self.quirks_mode);
-        Arc::new(computed)
+        properties::cascade(&self.device,
+                            Some(pseudo),
+                            &rule_node,
+                            guards,
+                            parent,
+                            parent,
+                            None,
+                            None,
+                            font_metrics,
+                            cascade_flags,
+                            self.quirks_mode)
     }
 
     /// Returns the style for an anonymous box of the given type.
@@ -649,7 +649,7 @@ impl Stylist {
     pub fn style_for_anonymous(&self,
                                guards: &StylesheetGuards,
                                pseudo: &PseudoElement,
-                               parent_style: &Arc<ComputedValues>)
+                               parent_style: &ComputedValues)
                                -> Arc<ComputedValues> {
         use font_metrics::ServoMetricsProvider;
 
@@ -693,7 +693,7 @@ impl Stylist {
                                                   element: &E,
                                                   pseudo: &PseudoElement,
                                                   rule_inclusion: RuleInclusion,
-                                                  parent_style: &Arc<ComputedValues>,
+                                                  parent_style: &ComputedValues,
                                                   is_probe: bool,
                                                   font_metrics: &FontMetricsProvider)
                                                   -> Option<Arc<ComputedValues>>
@@ -702,6 +702,7 @@ impl Stylist {
         let cascade_inputs =
             self.lazy_pseudo_rules(guards, element, pseudo, is_probe, rule_inclusion);
         self.compute_pseudo_element_style_with_inputs(&cascade_inputs,
+                                                      pseudo,
                                                       guards,
                                                       parent_style,
                                                       font_metrics)
@@ -713,33 +714,41 @@ impl Stylist {
     /// their style with a new parent style.
     pub fn compute_pseudo_element_style_with_inputs(&self,
                                                     inputs: &CascadeInputs,
+                                                    pseudo: &PseudoElement,
                                                     guards: &StylesheetGuards,
-                                                    parent_style: &Arc<ComputedValues>,
+                                                    parent_style: &ComputedValues,
                                                     font_metrics: &FontMetricsProvider)
                                                     -> Option<Arc<ComputedValues>>
     {
         // We may have only visited rules in cases when we are actually
         // resolving, not probing, pseudo-element style.
-        if !inputs.has_rules() && !inputs.has_visited_rules() {
+        if inputs.rules.is_none() && inputs.visited_rules.is_none() {
             return None
         }
 
         // We need to compute visited values if we have visited rules or if our
         // parent has visited values.
-        let visited_values = if inputs.has_visited_rules() || parent_style.get_visited_style().is_some() {
+        let visited_values = if inputs.visited_rules.is_some() || parent_style.get_visited_style().is_some() {
             // Slightly annoying: we know that inputs has either rules or
             // visited rules, but we can't do inputs.rules() up front because
             // maybe it just has visited rules, so can't unwrap_or.
-            let rule_node = match inputs.get_visited_rules() {
+            let rule_node = match inputs.visited_rules.as_ref() {
                 Some(rules) => rules,
-                None => inputs.rules()
+                None => inputs.rules.as_ref().unwrap(),
             };
             // We want to use the visited bits (if any) from our parent style as
             // our parent.
-            let mode = CascadeVisitedMode::Visited;
-            let inherited_style = mode.values(parent_style);
+            let inherited_style =
+                parent_style.get_visited_style().unwrap_or(parent_style);
+
+            // FIXME(emilio): The lack of layout_parent_style here could be
+            // worrying, but we're probably dropping the display fixup for
+            // pseudos other than before and after, so it's probably ok.
+            //
+            // (Though the flags don't indicate so!)
             let computed =
                 properties::cascade(&self.device,
+                                    Some(pseudo),
                                     rule_node,
                                     guards,
                                     Some(inherited_style),
@@ -750,38 +759,30 @@ impl Stylist {
                                     CascadeFlags::empty(),
                                     self.quirks_mode);
 
-            Some(Arc::new(computed))
+            Some(computed)
         } else {
             None
         };
 
         // We may not have non-visited rules, if we only had visited ones.  In
         // that case we want to use the root rulenode for our non-visited rules.
-        let root;
-        let rules = if let Some(rules) = inputs.get_rules() {
-            rules
-        } else {
-            root = self.rule_tree.root();
-            &root
-        };
+        let rules = inputs.rules.as_ref().unwrap_or(self.rule_tree.root());
 
         // Read the comment on `precomputed_values_for_pseudo` to see why it's
         // difficult to assert that display: contents nodes never arrive here
         // (tl;dr: It doesn't apply for replaced elements and such, but the
         // computed value is still "contents").
-        let computed =
-            properties::cascade(&self.device,
-                                rules,
-                                guards,
-                                Some(parent_style),
-                                Some(parent_style),
-                                visited_values,
-                                None,
-                                font_metrics,
-                                CascadeFlags::empty(),
-                                self.quirks_mode);
-
-        Some(Arc::new(computed))
+        Some(properties::cascade(&self.device,
+                                 Some(pseudo),
+                                 rules,
+                                 guards,
+                                 Some(parent_style),
+                                 Some(parent_style),
+                                 visited_values,
+                                 None,
+                                 font_metrics,
+                                 CascadeFlags::empty(),
+                                 self.quirks_mode))
     }
 
     /// Computes the cascade inputs for a lazily-cascaded pseudo-element.
@@ -839,27 +840,27 @@ impl Stylist {
             MatchingContext::new(MatchingMode::ForStatelessPseudoElement,
                                  None,
                                  self.quirks_mode);
-        self.push_applicable_declarations(element,
-                                          Some(&pseudo),
-                                          None,
-                                          None,
-                                          AnimationRules(None, None),
-                                          rule_inclusion,
-                                          &mut declarations,
-                                          &mut matching_context,
-                                          &mut set_selector_flags);
+
+        self.push_applicable_declarations(
+            element,
+            Some(&pseudo),
+            None,
+            None,
+            AnimationRules(None, None),
+            rule_inclusion,
+            &mut declarations,
+            &mut matching_context,
+            &mut set_selector_flags
+        );
 
         if !declarations.is_empty() {
-            let rule_node = self.rule_tree.insert_ordered_rules_with_important(
-                declarations.into_iter().map(|a| a.order_and_level()),
-                guards);
-            if rule_node != self.rule_tree.root() {
-                inputs.set_rules(VisitedHandlingMode::AllLinksUnvisited,
-                                 rule_node);
-            }
-        };
+            let rule_node =
+                self.rule_tree.compute_rule_node(&mut declarations, guards);
+            debug_assert!(rule_node != *self.rule_tree.root());
+            inputs.rules = Some(rule_node);
+        }
 
-        if is_probe && !inputs.has_rules() {
+        if is_probe && inputs.rules.is_none() {
             // When probing, don't compute visited styles if we have no
             // unvisited styles.
             return inputs;
@@ -886,9 +887,8 @@ impl Stylist {
                     self.rule_tree.insert_ordered_rules_with_important(
                         declarations.into_iter().map(|a| a.order_and_level()),
                         guards);
-                if rule_node != self.rule_tree.root() {
-                    inputs.set_rules(VisitedHandlingMode::RelevantLinkVisited,
-                                     rule_node);
+                if rule_node != *self.rule_tree.root() {
+                    inputs.visited_rules = Some(rule_node);
                 }
             }
         }
@@ -1110,8 +1110,8 @@ impl Stylist {
                                         &self,
                                         element: &E,
                                         pseudo_element: Option<&PseudoElement>,
-                                        style_attribute: Option<&Arc<Locked<PropertyDeclarationBlock>>>,
-                                        smil_override: Option<&Arc<Locked<PropertyDeclarationBlock>>>,
+                                        style_attribute: Option<ArcBorrow<Locked<PropertyDeclarationBlock>>>,
+                                        smil_override: Option<ArcBorrow<Locked<PropertyDeclarationBlock>>>,
                                         animation_rules: AnimationRules,
                                         rule_inclusion: RuleInclusion,
                                         applicable_declarations: &mut V,
@@ -1148,7 +1148,6 @@ impl Stylist {
                                               self.quirks_mode,
                                               flags_setter,
                                               CascadeLevel::UANormal);
-        debug!("UA normal: {:?}", context.relations);
 
         if pseudo_element.is_none() && !only_default_rules {
             // Step 2: Presentational hints.
@@ -1163,12 +1162,7 @@ impl Stylist {
                         assert_eq!(declaration.level(), CascadeLevel::PresHints);
                     }
                 }
-                // Note the existence of presentational attributes so that the
-                // style sharing cache can avoid re-querying them if they don't
-                // exist.
-                context.relations |= AFFECTED_BY_PRESENTATIONAL_HINTS;
             }
-            debug!("preshints: {:?}", context.relations);
         }
 
         // NB: the following condition, although it may look somewhat
@@ -1188,7 +1182,6 @@ impl Stylist {
                                             self.quirks_mode,
                                             flags_setter,
                                             CascadeLevel::UserNormal);
-            debug!("user normal: {:?}", context.relations);
         } else {
             debug!("skipping user rules");
         }
@@ -1197,7 +1190,6 @@ impl Stylist {
         let cut_off_inheritance =
             element.get_declarations_from_xbl_bindings(pseudo_element,
                                                        applicable_declarations);
-        debug!("XBL: {:?}", context.relations);
 
         if rule_hash_target.matches_user_and_author_rules() && !only_default_rules {
             // Gecko skips author normal rules if cutting off inheritance.
@@ -1211,7 +1203,6 @@ impl Stylist {
                                               self.quirks_mode,
                                                   flags_setter,
                                                   CascadeLevel::AuthorNormal);
-                debug!("author normal: {:?}", context.relations);
             } else {
                 debug!("skipping author normal rules due to cut off inheritance");
             }
@@ -1224,20 +1215,18 @@ impl Stylist {
             if let Some(sa) = style_attribute {
                 Push::push(
                     applicable_declarations,
-                    ApplicableDeclarationBlock::from_declarations(sa.clone(),
+                    ApplicableDeclarationBlock::from_declarations(sa.clone_arc(),
                                                                   CascadeLevel::StyleAttributeNormal));
             }
-            debug!("style attr: {:?}", context.relations);
 
             // Step 5: SMIL override.
             // Declarations from SVG SMIL animation elements.
             if let Some(so) = smil_override {
                 Push::push(
                     applicable_declarations,
-                    ApplicableDeclarationBlock::from_declarations(so.clone(),
+                    ApplicableDeclarationBlock::from_declarations(so.clone_arc(),
                                                                   CascadeLevel::SMILOverride));
             }
-            debug!("SMIL: {:?}", context.relations);
 
             // Step 6: Animations.
             // The animations sheet (CSS animations, script-generated animations,
@@ -1248,7 +1237,6 @@ impl Stylist {
                     ApplicableDeclarationBlock::from_declarations(anim.clone(),
                                                                   CascadeLevel::Animations));
             }
-            debug!("animation: {:?}", context.relations);
         } else {
             debug!("skipping style attr and SMIL & animation rules");
         }
@@ -1267,12 +1255,9 @@ impl Stylist {
                     ApplicableDeclarationBlock::from_declarations(anim.clone(),
                                                                   CascadeLevel::Transitions));
             }
-            debug!("transition: {:?}", context.relations);
         } else {
             debug!("skipping transition rules");
         }
-
-        debug!("push_applicable_declarations: shareable: {:?}", context.relations);
     }
 
     /// Given an id, returns whether there might be any rules for that id in any
@@ -1293,12 +1278,6 @@ impl Stylist {
     #[inline]
     pub fn animations(&self) -> &FnvHashMap<Atom, KeyframesAnimation> {
         &self.animations
-    }
-
-    /// Returns the rule root node.
-    #[inline]
-    pub fn rule_tree_root(&self) -> StrongRuleNode {
-        self.rule_tree.root()
     }
 
     /// Computes the match results of a given element against the set of
@@ -1326,7 +1305,7 @@ impl Stylist {
             *element, self.quirks_mode, &mut |selector_and_hashes| {
                 results.push(matches_selector(&selector_and_hashes.selector,
                                               selector_and_hashes.selector_offset,
-                                              &selector_and_hashes.hashes,
+                                              Some(&selector_and_hashes.hashes),
                                               element,
                                               &mut matching_context,
                                               flags_setter));
@@ -1340,7 +1319,7 @@ impl Stylist {
     /// Computes styles for a given declaration with parent_style.
     pub fn compute_for_declarations(&self,
                                     guards: &StylesheetGuards,
-                                    parent_style: &Arc<ComputedValues>,
+                                    parent_style: &ComputedValues,
                                     declarations: Arc<Locked<PropertyDeclarationBlock>>)
                                     -> Arc<ComputedValues> {
         use font_metrics::get_metrics_provider_for_product;
@@ -1356,16 +1335,18 @@ impl Stylist {
         // font styles in <canvas> via Servo_StyleSet_ResolveForDeclarations.
         // It is unclear if visited styles are meaningful for this case.
         let metrics = get_metrics_provider_for_product();
-        Arc::new(properties::cascade(&self.device,
-                                     &rule_node,
-                                     guards,
-                                     Some(parent_style),
-                                     Some(parent_style),
-                                     None,
-                                     None,
-                                     &metrics,
-                                     CascadeFlags::empty(),
-                                     self.quirks_mode))
+        // FIXME(emilio): the pseudo bit looks quite dubious!
+        properties::cascade(&self.device,
+                            /* pseudo = */ None,
+                            &rule_node,
+                            guards,
+                            Some(parent_style),
+                            Some(parent_style),
+                            None,
+                            None,
+                            &metrics,
+                            CascadeFlags::empty(),
+                            self.quirks_mode)
     }
 
     /// Accessor for a shared reference to the device.
@@ -1455,12 +1436,12 @@ struct RevalidationSelectorAndHashes {
 }
 
 impl RevalidationSelectorAndHashes {
-    fn new(selector_and_hashes: &SelectorAndHashes<SelectorImpl>) -> Self {
+    fn new(selector: &Selector<SelectorImpl>, hashes: &AncestorHashes) -> Self {
         // We basically want to check whether the first combinator is a
         // pseudo-element combinator.  If it is, we want to use the offset one
         // past it.  Otherwise, our offset is 0.
         let mut index = 0;
-        let mut iter = selector_and_hashes.selector.iter();
+        let mut iter = selector.iter();
 
         // First skip over the first ComplexSelector.  We can't check what sort
         // of combinator we have until we do that.
@@ -1474,9 +1455,9 @@ impl RevalidationSelectorAndHashes {
         };
 
         RevalidationSelectorAndHashes {
-            selector: selector_and_hashes.selector.clone(),
+            selector: selector.clone(),
             selector_offset: offset,
-            hashes: selector_and_hashes.hashes.clone(),
+            hashes: hashes.clone(),
         }
     }
 }
@@ -1484,10 +1465,6 @@ impl RevalidationSelectorAndHashes {
 impl SelectorMapEntry for RevalidationSelectorAndHashes {
     fn selector(&self) -> SelectorIter<SelectorImpl> {
         self.selector.iter_from(self.selector_offset)
-    }
-
-    fn hashes(&self) -> &AncestorHashes {
-        &self.hashes
     }
 }
 
@@ -1632,10 +1609,6 @@ pub struct Rule {
 impl SelectorMapEntry for Rule {
     fn selector(&self) -> SelectorIter<SelectorImpl> {
         self.selector.iter()
-    }
-
-    fn hashes(&self) -> &AncestorHashes {
-        &self.hashes
     }
 }
 

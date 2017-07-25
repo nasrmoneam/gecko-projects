@@ -12,12 +12,19 @@
   font-size: 1.25rem;
 }
 
+description.indent,
+.indent > description {
+  font-size: 1.18rem;
+  color: #737373;
+}
+
 * {
   -moz-user-select: text;
 }
 
 button,
-treecol {
+treecol,
+html|option {
   /* override the * rule */
   -moz-user-select: none;
 }
@@ -57,6 +64,26 @@ treecol {
   min-width: 145px;
 }
 
+/* Subcategory title */
+
+/**
+ * The first subcategory title for each category should not have margin-top.
+ */
+#generalCategory,
+#searchCategory,
+#browserPrivacyCategory,
+#firefoxAccountCategory {
+  margin-top: 0;
+}
+
+.header-name {
+  font-size: 2rem;
+}
+
+.subcategory {
+  margin-top: 48px;
+}
+
 /* Category List */
 
 #categories {
@@ -79,6 +106,10 @@ treecol {
 
 #category-general > .category-icon {
   list-style-image: url("chrome://browser/skin/preferences/in-content-new/icons.svg#general");
+}
+
+#category-search > .category-icon {
+  list-style-image: url("chrome://browser/skin/preferences/in-content-new/icons.svg#searchResults");
 }
 
 #category-application > .category-icon {
@@ -244,10 +275,6 @@ treecol {
   margin-inline-start: 15px;
 }
 
-#crashReporterGroup {
-  margin-top: 0;
-}
-
 /* Collapse the non-active vboxes in decks to use only the height the
    active vbox needs */
 #historyPane:not([selectedIndex="1"]) > #historyDontRememberPane,
@@ -392,6 +419,7 @@ groupbox {
   list-style-image: url(chrome://browser/skin/fxa/default-avatar.svg);
   margin-inline-end: 15px;
   image-rendering: -moz-crisp-edges;
+  border: 1px solid transparent;
 }
 
 #fxaLoginStatus[hasName] #fxaProfileImage {
@@ -403,11 +431,11 @@ groupbox {
 }
 
 #fxaProfileImage.actionable:hover {
-  box-shadow: 0px 0px 0px 1px #0095DD;
+  border-color: #0095DD;
 }
 
 #fxaProfileImage.actionable:hover:active {
-  box-shadow: 0px 0px 0px 1px #ff9500;
+  border-color: #ff9500;
 }
 
 #noFxaAccount {
@@ -672,4 +700,8 @@ menulist[indicator=true] > menupopup menuitem[indicator=true]:not([image]) > .me
 
 menulist[indicator=true] > menupopup menuitem[indicator=true]:not([image]) > .menu-iconic-left > .menu-iconic-icon:-moz-locale-dir(rtl) {
   transform: scaleX(-1);
+}
+
+.menu-iconic-highlightable-text {
+  margin: 0; /* Align with the margin of xul:label.menu-iconic-text */
 }

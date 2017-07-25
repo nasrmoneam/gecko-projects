@@ -67,13 +67,21 @@ public:
     return !sRunningDispatcher || mAccessValid;
   }
 
+  // This function returns true if it's currently safe to run unlabeled code
+  // with no known SchedulerGroup. It will only return true if we're inside an
+  // unlabeled runnable.
+  static bool IsSafeToRunUnlabeled()
+  {
+    return !sRunningDispatcher;
+  }
+
   // Ensure that it's valid to access the TabGroup at this time.
   void ValidateAccess() const
   {
     MOZ_ASSERT(IsSafeToRun());
   }
 
-  class Runnable final : public mozilla::Runnable
+  class Runnable final : public mozilla::Runnable, public nsIRunnablePriority
   {
   public:
     Runnable(already_AddRefed<nsIRunnable>&& aRunnable,
@@ -87,6 +95,7 @@ public:
 
     NS_DECL_ISUPPORTS_INHERITED
     NS_DECL_NSIRUNNABLE
+    NS_DECL_NSIRUNNABLEPRIORITY
 
     NS_DECLARE_STATIC_IID_ACCESSOR(NS_SCHEDULERGROUPRUNNABLE_IID);
 

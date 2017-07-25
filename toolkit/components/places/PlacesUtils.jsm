@@ -522,6 +522,9 @@ this.PlacesUtils = {
    * Checks validity of an object, filling up default values for optional
    * properties.
    *
+   * @param {string} name
+   *        The operation name. This is included in the error message if
+   *        validation fails.
    * @param validators (object)
    *        An object containing input validators. Keys should be field names;
    *        values should be validation functions.
@@ -543,9 +546,9 @@ this.PlacesUtils = {
    * @throws if the object contains invalid data.
    * @note any unknown properties are pass-through.
    */
-  validateItemProperties(validators, props, behavior = {}) {
+  validateItemProperties(name, validators, props, behavior = {}) {
     if (!props)
-      throw new Error("Input should be a valid object");
+      throw new Error(`${name}: Input should be a valid object`);
     // Make a shallow copy of `props` to avoid mutating the original object
     // when filling in defaults.
     let input = Object.assign({}, props);
@@ -560,7 +563,7 @@ this.PlacesUtils = {
       }
       if (behavior[prop].hasOwnProperty("validIf") && input[prop] !== undefined &&
           !behavior[prop].validIf(input)) {
-        throw new Error(`Invalid value for property '${prop}': ${JSON.stringify(input[prop])}`);
+        throw new Error(`${name}: Invalid value for property '${prop}': ${JSON.stringify(input[prop])}`);
       }
       if (behavior[prop].hasOwnProperty("defaultValue") && input[prop] === undefined) {
         input[prop] = behavior[prop].defaultValue;
@@ -581,12 +584,12 @@ this.PlacesUtils = {
         try {
           normalizedInput[prop] = validators[prop](input[prop], input);
         } catch (ex) {
-          throw new Error(`Invalid value for property '${prop}': ${input[prop]}`);
+          throw new Error(`${name}: Invalid value for property '${prop}': ${JSON.stringify(input[prop])}`);
         }
       }
     }
     if (required.size > 0)
-      throw new Error(`The following properties were expected: ${[...required].join(", ")}`);
+      throw new Error(`${name}: The following properties were expected: ${[...required].join(", ")}`);
     return normalizedInput;
   },
 
@@ -616,22 +619,6 @@ this.PlacesUtils = {
         while (this._shutdownFunctions.length > 0) {
           this._shutdownFunctions.shift().apply(this);
         }
-        if (this._bookmarksServiceObserversQueue.length > 0) {
-          // Since we are shutting down, there's no reason to add the observers.
-          this._bookmarksServiceObserversQueue.length = 0;
-        }
-        break;
-      case "bookmarks-service-ready":
-        this._bookmarksServiceReady = true;
-        while (this._bookmarksServiceObserversQueue.length > 0) {
-          let observerInfo = this._bookmarksServiceObserversQueue.shift();
-          this.bookmarks.addObserver(observerInfo.observer, observerInfo.weak);
-        }
-
-        // Initialize the keywords cache to start observing bookmarks
-        // notifications.  This is needed as far as we support both the old and
-        // the new bookmarking APIs at the same time.
-        gKeywordsCachePromise.catch(Cu.reportError);
         break;
     }
   },
@@ -1558,14 +1545,12 @@ this.PlacesUtils = {
    *   connection and returns a Promise. Shutdown is guaranteed to not interrupt
    *   execution of `task`.
    */
-  withConnectionWrapper: (name, task) => {
+  async withConnectionWrapper(name, task) {
     if (!name) {
       throw new TypeError("Expecting a user-readable name");
     }
-    return (async function() {
-      let db = await gAsyncDBWrapperPromised;
-      return db.executeBeforeShutdown(name, task);
-    })();
+    let db = await gAsyncDBWrapperPromised;
+    return db.executeBeforeShutdown(name, task);
   },
 
   /**
@@ -1582,16 +1567,11 @@ this.PlacesUtils = {
    *       notifies categories before real observers, and uses
    *       PlacesCategoriesStarter component to kick-off the registration.
    */
-  _bookmarksServiceReady: false,
-  _bookmarksServiceObserversQueue: [],
-  addLazyBookmarkObserver:
-  function PU_addLazyBookmarkObserver(aObserver, aWeakOwner) {
-    if (this._bookmarksServiceReady) {
-      this.bookmarks.addObserver(aObserver, aWeakOwner === true);
-      return;
-    }
-    this._bookmarksServiceObserversQueue.push({ observer: aObserver,
-                                                weak: aWeakOwner === true });
+  addLazyBookmarkObserver(aObserver, aWeakOwner) {
+    Deprecated.warning(`PlacesUtils.addLazyBookmarkObserver() is deprecated.
+                        Please use PlacesUtils.bookmarks.addObserver()`,
+                       "https://bugzilla.mozilla.org/show_bug.cgi?id=1371677");
+    this.bookmarks.addObserver(aObserver, aWeakOwner === true);
   },
 
   /**
@@ -1600,21 +1580,11 @@ this.PlacesUtils = {
    * @param aObserver
    *        Object implementing nsINavBookmarkObserver
    */
-  removeLazyBookmarkObserver:
-  function PU_removeLazyBookmarkObserver(aObserver) {
-    if (this._bookmarksServiceReady) {
-      this.bookmarks.removeObserver(aObserver);
-      return;
-    }
-    let index = -1;
-    for (let i = 0;
-         i < this._bookmarksServiceObserversQueue.length && index == -1; i++) {
-      if (this._bookmarksServiceObserversQueue[i].observer === aObserver)
-        index = i;
-    }
-    if (index != -1) {
-      this._bookmarksServiceObserversQueue.splice(index, 1);
-    }
+  removeLazyBookmarkObserver(aObserver) {
+    Deprecated.warning(`PlacesUtils.removeLazyBookmarkObserver() is deprecated.
+                        Please use PlacesUtils.bookmarks.removeObserver()`,
+                       "https://bugzilla.mozilla.org/show_bug.cgi?id=1371677");
+    this.bookmarks.removeObserver(aObserver);
   },
 
   /**
@@ -2110,7 +2080,10 @@ XPCOMUtils.defineLazyServiceGetter(PlacesUtils, "livemarks",
                                    "@mozilla.org/browser/livemark-service;2",
                                    "mozIAsyncLivemarks");
 
-XPCOMUtils.defineLazyGetter(PlacesUtils, "keywords", () => Keywords);
+XPCOMUtils.defineLazyGetter(PlacesUtils, "keywords", () => {
+  gKeywordsCachePromise.catch(Cu.reportError);
+  return Keywords;
+});
 
 XPCOMUtils.defineLazyGetter(PlacesUtils, "transactionManager", function() {
   let tm = Cc["@mozilla.org/transactionmanager;1"].
@@ -2169,7 +2142,8 @@ function setupDbForShutdown(conn, name) {
       // Before it can safely close its connection, we need to make sure
       // that we have closed the high-level connection.
       try {
-        AsyncShutdown.placesClosingInternalConnection.addBlocker(`${name} closing as part of Places shutdown`,
+        PlacesUtils.history.connectionShutdownClient.jsclient.addBlocker(
+          `${name} closing as part of Places shutdown`,
           async function() {
             state = "1. Service has initiated shutdown";
 
@@ -2434,41 +2408,6 @@ XPCOMUtils.defineLazyGetter(this, "gKeywordsCachePromise", () =>
   PlacesUtils.withConnectionWrapper("PlacesUtils: gKeywordsCachePromise",
     async function(db) {
       let cache = new Map();
-      let rows = await db.execute(
-        `SELECT keyword, url, post_data
-         FROM moz_keywords k
-         JOIN moz_places h ON h.id = k.place_id
-        `);
-      let brokenKeywords = [];
-      for (let row of rows) {
-        let keyword = row.getResultByName("keyword");
-        try {
-          let entry = { keyword,
-                        url: new URL(row.getResultByName("url")),
-                        postData: row.getResultByName("post_data") };
-          cache.set(keyword, entry);
-        } catch (ex) {
-          // The url is invalid, don't load the keyword and remove it, or it
-          // would break the whole keywords API.
-          brokenKeywords.push(keyword);
-        }
-      }
-      if (brokenKeywords.length) {
-        await db.execute(
-          `DELETE FROM moz_keywords
-           WHERE keyword IN (${brokenKeywords.map(JSON.stringify).join(",")})
-          `);
-      }
-
-      // Helper to get a keyword from an href.
-      function keywordsForHref(href) {
-        let keywords = [];
-        for (let [ key, val ] of cache) {
-          if (val.url.href == href)
-            keywords.push(key);
-        }
-        return keywords;
-      }
 
       // Start observing changes to bookmarks. For now we are going to keep that
       // relation for backwards compatibility reasons, but mostly because we are
@@ -2508,29 +2447,22 @@ XPCOMUtils.defineLazyGetter(this, "gKeywordsCachePromise", () =>
           }
 
           if (prop == "keyword") {
-            this._onKeywordChanged(guid, val).catch(Cu.reportError);
+            this._onKeywordChanged(guid, val, oldVal);
           } else if (prop == "uri") {
             this._onUrlChanged(guid, val, oldVal).catch(Cu.reportError);
           }
         },
 
-        async _onKeywordChanged(guid, keyword) {
-          let bookmark = await PlacesUtils.bookmarks.fetch(guid);
-          // Due to mixed sync/async operations, by this time the bookmark could
-          // have disappeared and we already handle removals in onItemRemoved.
-          if (!bookmark) {
-            return;
-          }
-
+        _onKeywordChanged(guid, keyword, href) {
           if (keyword.length == 0) {
             // We are removing a keyword.
-            let keywords = keywordsForHref(bookmark.url.href)
+            let keywords = keywordsForHref(href)
             for (let kw of keywords) {
               cache.delete(kw);
             }
           } else {
             // We are adding a new keyword.
-            cache.set(keyword, { keyword, url: bookmark.url });
+            cache.set(keyword, { keyword, url: new URL(href) });
           }
         },
 
@@ -2555,6 +2487,44 @@ XPCOMUtils.defineLazyGetter(this, "gKeywordsCachePromise", () =>
       PlacesUtils.registerShutdownFunction(() => {
         PlacesUtils.bookmarks.removeObserver(observer);
       });
+
+      let rows = await db.execute(
+        `SELECT keyword, url, post_data
+         FROM moz_keywords k
+         JOIN moz_places h ON h.id = k.place_id
+        `);
+      let brokenKeywords = [];
+      for (let row of rows) {
+        let keyword = row.getResultByName("keyword");
+        try {
+          let entry = { keyword,
+                        url: new URL(row.getResultByName("url")),
+                        postData: row.getResultByName("post_data") };
+          cache.set(keyword, entry);
+        } catch (ex) {
+          // The url is invalid, don't load the keyword and remove it, or it
+          // would break the whole keywords API.
+          brokenKeywords.push(keyword);
+        }
+      }
+
+      if (brokenKeywords.length) {
+        await db.execute(
+          `DELETE FROM moz_keywords
+           WHERE keyword IN (${brokenKeywords.map(JSON.stringify).join(",")})
+          `);
+      }
+
+      // Helper to get a keyword from an href.
+      function keywordsForHref(href) {
+        let keywords = [];
+        for (let [ key, val ] of cache) {
+          if (val.url.href == href)
+            keywords.push(key);
+        }
+        return keywords;
+      }
+
       return cache;
     }
 ));

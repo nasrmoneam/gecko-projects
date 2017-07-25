@@ -71,7 +71,7 @@ private:
 class VRControllerPuppet : public VRControllerHost
 {
 public:
-  explicit VRControllerPuppet(dom::GamepadHand aHand);
+  explicit VRControllerPuppet(dom::GamepadHand aHand, uint32_t aDisplayID);
   void SetButtonPressState(uint32_t aButton, bool aPressed);
   uint64_t GetButtonPressState();
   void SetButtonTouchState(uint32_t aButton, bool aTouched);
@@ -103,7 +103,7 @@ public:
 
   virtual void Destroy() override;
   virtual void Shutdown() override;
-  virtual void GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult) override;
+  virtual bool GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult) override;
   virtual bool GetIsPresenting() override;
   virtual void HandleInput() override;
   virtual void GetControllers(nsTArray<RefPtr<VRControllerHost>>&

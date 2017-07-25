@@ -8,8 +8,10 @@
 //! `pseudo_element_definition.mako.rs`. If you touch that file, you probably
 //! need to update the checked-in files for Servo.
 
-use cssparser::ToCss;
+use cssparser::{ToCss, serialize_identifier};
 use gecko_bindings::structs::{self, CSSPseudoElementType};
+use properties::{PropertyFlags, APPLIES_TO_FIRST_LETTER, APPLIES_TO_FIRST_LINE};
+use properties::APPLIES_TO_PLACEHOLDER;
 use selector_parser::{NonTSPseudoClass, PseudoElementCascadeType, SelectorImpl};
 use std::fmt;
 use string_cache::Atom;
@@ -83,6 +85,12 @@ impl PseudoElement {
         *self == PseudoElement::FirstLetter
     }
 
+    /// Whether this pseudo-element is ::-moz-fieldset-content.
+    #[inline]
+    pub fn is_fieldset_content(&self) -> bool {
+        *self == PseudoElement::FieldsetContent
+    }
+
     /// Whether this pseudo-element is lazily-cascaded.
     #[inline]
     pub fn is_lazy(&self) -> bool {
@@ -91,10 +99,6 @@ impl PseudoElement {
 
     /// Whether this pseudo-element is web-exposed.
     pub fn exposed_in_non_ua_sheets(&self) -> bool {
-        if self.is_anon_box() {
-            return false;
-        }
-
         (self.flags() & structs::CSS_PSEUDO_ELEMENT_UA_SHEET_ONLY) == 0
     }
 
@@ -117,11 +121,15 @@ impl PseudoElement {
             _ => self.clone(),
         }
     }
-}
 
-impl ToCss for PseudoElement {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        dest.write_char(':')?;
-        dest.write_str(self.as_str())
+    /// Property flag that properties must have to apply to this pseudo-element.
+    #[inline]
+    pub fn property_restriction(&self) -> Option<PropertyFlags> {
+        match *self {
+            PseudoElement::FirstLetter => Some(APPLIES_TO_FIRST_LETTER),
+            PseudoElement::FirstLine => Some(APPLIES_TO_FIRST_LINE),
+            PseudoElement::Placeholder => Some(APPLIES_TO_PLACEHOLDER),
+            _ => None,
+        }
     }
 }

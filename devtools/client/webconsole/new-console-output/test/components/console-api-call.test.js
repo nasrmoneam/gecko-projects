@@ -86,7 +86,10 @@ describe("ConsoleAPICall component:", () => {
       const message = stubPreparedMessages.get("console.log('foobar', 'test')");
 
       const indent = 10;
-      let wrapper = render(ConsoleApiCall({ message, serviceContainer, indent }));
+      let wrapper = render(ConsoleApiCall({
+        message: Object.assign({}, message, {indent}),
+        serviceContainer
+      }));
       expect(wrapper.find(".indent").prop("style").width)
         .toBe(`${indent * INDENT_WIDTH}px`);
 
@@ -322,6 +325,16 @@ describe("ConsoleAPICall component:", () => {
 
       expect(wrapper.find(".message-body").text())
         .toBe("Window http://example.com/browser/devtools/client/webconsole/new-console-output/test/fixtures/stub-generators/test-console-api.html");
+    });
+  });
+
+  describe("console.dir", () => {
+    it("renders", () => {
+      const message = stubPreparedMessages.get("console.dir({C, M, Y, K})");
+      const wrapper = render(ConsoleApiCall({ message, serviceContainer }));
+
+      expect(wrapper.find(".message-body").text())
+        .toBe(`Object { cyan: "C", magenta: "M", yellow: "Y", black: "K" }`);
     });
   });
 });

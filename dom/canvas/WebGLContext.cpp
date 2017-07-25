@@ -52,10 +52,6 @@
 #include "VRManagerChild.h"
 #include "mozilla/layers/TextureClientSharedSurface.h"
 
-#ifdef MOZ_WIDGET_GONK
-#include "mozilla/layers/ShadowLayers.h"
-#endif
-
 // Local
 #include "CanvasUtils.h"
 #include "WebGL1Context.h"
@@ -118,6 +114,7 @@ WebGLContext::WebGLContext()
     , mMaxPerfWarnings(gfxPrefs::WebGLMaxPerfWarnings())
     , mNumPerfWarnings(0)
     , mMaxAcceptableFBStatusInvals(gfxPrefs::WebGLMaxAcceptableFBStatusInvals())
+    , mDataAllocGLCallCount(0)
     , mBufferFetchingIsVerified(false)
     , mBufferFetchingHasPerVertex(false)
     , mMaxFetchedVertices(0)
@@ -548,30 +545,6 @@ BaseCaps(const WebGLContextOptions& options, WebGLContext* webgl)
     // for now it's just behind a pref for testing/evaluation.
     baseCaps.bpp16 = gfxPrefs::WebGLPrefer16bpp();
 
-#ifdef MOZ_WIDGET_GONK
-    do {
-        auto canvasElement = webgl->GetCanvas();
-        if (!canvasElement)
-            break;
-
-        auto ownerDoc = canvasElement->OwnerDoc();
-        nsIWidget* docWidget = nsContentUtils::WidgetForDocument(ownerDoc);
-        if (!docWidget)
-            break;
-
-        layers::LayerManager* layerManager = docWidget->GetLayerManager();
-        if (!layerManager)
-            break;
-
-        // XXX we really want "AsSurfaceAllocator" here for generality
-        layers::ShadowLayerForwarder* forwarder = layerManager->AsShadowForwarder();
-        if (!forwarder)
-            break;
-
-        baseCaps.surfaceAllocator = forwarder->GetTextureForwarder();
-    } while (false);
-#endif
-
     // Done with baseCaps construction.
 
     if (!gfxPrefs::WebGLForceMSAA()) {
@@ -930,6 +903,8 @@ WebGLContext::SetDimensions(int32_t signedWidth, int32_t signedHeight)
         mResetLayer = true;
         mBackbufferNeedsClear = true;
 
+        gl->ResetSyncCallCount("Existing WebGLContext resized.");
+
         return NS_OK;
     }
 
@@ -1144,6 +1119,8 @@ WebGLContext::SetDimensions(int32_t signedWidth, int32_t signedHeight)
     reporter.SetSuccessful();
 
     failureId = NS_LITERAL_CSTRING("SUCCESS");
+
+    gl->ResetSyncCallCount("WebGLContext Initialization");
     return NS_OK;
 }
 
@@ -1588,6 +1565,17 @@ WebGLContext::ForceClearFramebufferWithDefaultValues(GLbitfield clearBits,
     }
 }
 
+void
+WebGLContext::OnEndOfFrame() const
+{
+   if (gfxPrefs::WebGLSpewFrameAllocs()) {
+      GeneratePerfWarning("[webgl.perf.spew-frame-allocs] %" PRIu64 " data allocations this frame.",
+                           mDataAllocGLCallCount);
+   }
+   mDataAllocGLCallCount = 0;
+   gl->ResetSyncCallCount("WebGLContext PresentScreenBuffer");
+}
+
 // For an overview of how WebGL compositing works, see:
 // https://wiki.mozilla.org/Platform/GFX/WebGL/Compositing
 bool
@@ -1617,6 +1605,7 @@ WebGLContext::PresentScreenBuffer()
     }
 
     mShouldPresent = false;
+    OnEndOfFrame();
 
     return true;
 }

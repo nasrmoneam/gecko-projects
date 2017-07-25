@@ -13,6 +13,7 @@ use dom::{OpaqueNode, TElement, TNode};
 use element_state::ElementState;
 use fnv::FnvHashMap;
 use invalidation::element::element_wrapper::ElementSnapshot;
+use properties::PropertyFlags;
 use selector_parser::{AttrValue as SelectorAttrValue, ElementExt, PseudoElementCascadeType, SelectorParser};
 use selectors::Element;
 use selectors::attr::{AttrSelectorOperation, NamespaceConstraint, CaseSensitivity};
@@ -28,7 +29,7 @@ use style_traits::{ParseError, StyleParseError};
 
 /// A pseudo-element, both public and private.
 ///
-/// NB: If you add to this list, be sure to update `each_pseudo_element` too.
+/// NB: If you add to this list, be sure to update `each_simple_pseudo_element` too.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 #[allow(missing_docs)]
@@ -39,6 +40,12 @@ pub enum PseudoElement {
     Before,
     Selection,
     // If/when :first-letter is added, update is_first_letter accordingly.
+
+    // If/when ::first-letter, ::first-line, or ::placeholder are added, adjust
+    // our property_restriction implementation to do property filtering for
+    // them.  Also, make sure the UA sheet has the !important rules some of the
+    // APPLIES_TO_PLACEHOLDER properties expect!
+
     // Non-eager pseudos.
     DetailsSummary,
     DetailsContent,
@@ -165,6 +172,15 @@ impl PseudoElement {
     /// canonical one as it is.
     pub fn canonical(&self) -> PseudoElement {
         self.clone()
+    }
+
+    /// Stub, only Gecko needs this
+    pub fn pseudo_info(&self) { () }
+
+    /// Property flag that properties must have to apply to this pseudo-element.
+    #[inline]
+    pub fn property_restriction(&self) -> Option<PropertyFlags> {
+        None
     }
 }
 
@@ -485,7 +501,7 @@ impl SelectorImpl {
 
     /// Executes `fun` for each pseudo-element.
     #[inline]
-    pub fn each_pseudo_element<F>(mut fun: F)
+    pub fn each_simple_pseudo_element<F>(mut fun: F)
         where F: FnMut(PseudoElement),
     {
         fun(PseudoElement::Before);

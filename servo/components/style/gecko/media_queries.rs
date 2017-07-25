@@ -4,9 +4,11 @@
 
 //! Gecko's media-query device and expression representation.
 
+use app_units::AU_PER_PX;
 use app_units::Au;
 use context::QuirksMode;
 use cssparser::{CssStringWriter, Parser, RGBA, Token, BasicParseError};
+use euclid::ScaleFactor;
 use euclid::Size2D;
 use font_metrics::get_metrics_provider_for_product;
 use gecko::values::convert_nscolor_to_rgba;
@@ -20,13 +22,14 @@ use parser::ParserContext;
 use properties::{ComputedValues, StyleBuilder};
 use properties::longhands::font_size;
 use selectors::parser::SelectorParseError;
+use servo_arc::Arc;
 use std::fmt::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use str::starts_with_ignore_ascii_case;
 use string_cache::Atom;
+use style_traits::{CSSPixel, DevicePixel};
 use style_traits::{ToCss, ParseError, StyleParseError};
 use style_traits::viewport::ViewportConstraints;
-use stylearc::Arc;
 use values::{CSSFloat, specified};
 use values::computed::{self, ToComputedValue};
 
@@ -79,18 +82,11 @@ impl Device {
     /// Returns the default computed values as a reference, in order to match
     /// Servo.
     pub fn default_computed_values(&self) -> &ComputedValues {
-        &*self.default_values
-    }
-
-    /// Returns the default computed values, but wrapped in an arc for cheap
-    /// cloning.
-    pub fn default_computed_values_arc(&self) -> &Arc<ComputedValues> {
         &self.default_values
     }
 
-    /// Returns the default computed values as an `Arc`, in order to avoid
-    /// clones.
-    pub fn default_values_arc(&self) -> &Arc<ComputedValues> {
+    /// Returns the default computed values as an `Arc`.
+    pub fn default_computed_values_arc(&self) -> &Arc<ComputedValues> {
         &self.default_values
     }
 
@@ -158,6 +154,15 @@ impl Device {
             let area = &self.pres_context().mVisibleArea;
             Size2D::new(Au(area.width), Au(area.height))
         })
+    }
+
+    /// Returns the device pixel ratio.
+    pub fn device_pixel_ratio(&self) -> ScaleFactor<f32, CSSPixel, DevicePixel> {
+        let override_dppx = self.pres_context().mOverrideDPPX;
+        if override_dppx > 0.0 { return ScaleFactor::new(override_dppx); }
+        let au_per_dpx = self.pres_context().mCurAppUnitsPerDevPixel as f32;
+        let au_per_px = AU_PER_PX as f32;
+        ScaleFactor::new(au_per_px / au_per_dpx)
     }
 
     /// Returns whether document colors are enabled.
@@ -631,10 +636,7 @@ impl Expression {
         // em units are relative to the initial font-size.
         let context = computed::Context {
             is_root_element: false,
-            device: device,
-            inherited_style: default_values,
-            layout_parent_style: default_values,
-            style: StyleBuilder::for_derived_style(default_values),
+            builder: StyleBuilder::for_derived_style(device, default_values, None, None),
             font_metrics_provider: &provider,
             cached_system_font: None,
             in_media_query: true,

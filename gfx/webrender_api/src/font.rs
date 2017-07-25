@@ -71,9 +71,10 @@ pub enum FontTemplate {
     Native(NativeFontHandle),
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum FontRenderMode {
-    Mono,
+    Mono = 0,
     Alpha,
     Subpixel,
 }
@@ -148,11 +149,6 @@ impl SubpixelPoint {
 
     pub fn to_f64(&self) -> (f64, f64) {
         (self.x.into(), self.y.into())
-    }
-
-    pub fn set_offset(&mut self, point: LayoutPoint, render_mode: FontRenderMode) {
-        self.x = render_mode.subpixel_quantize_offset(point.x);
-        self.y = render_mode.subpixel_quantize_offset(point.y);
     }
 }
 

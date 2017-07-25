@@ -13,6 +13,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "NewTabUtils",
   "resource://gre/modules/NewTabUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "PlacesUtils",
   "resource://gre/modules/PlacesUtils.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "Pocket",
+  "chrome://pocket/content/Pocket.jsm");
 
 const LINK_BLOCKED_EVENT = "newtab-linkBlocked";
 
@@ -187,7 +189,8 @@ class PlacesFeed {
   onAction(action) {
     switch (action.type) {
       case at.INIT:
-        this.addObservers();
+        // Briefly avoid loading services for observing for better startup timing
+        Services.tm.dispatchToMainThread(() => this.addObservers());
         break;
       case at.UNINIT:
         this.removeObservers();
@@ -203,6 +206,9 @@ class PlacesFeed {
         break;
       case at.DELETE_HISTORY_URL:
         NewTabUtils.activityStreamLinks.deleteHistoryEntry(action.data);
+        break;
+      case at.SAVE_TO_POCKET:
+        Pocket.savePage(action._target.browser, action.data.site.url, action.data.site.title);
         break;
     }
   }

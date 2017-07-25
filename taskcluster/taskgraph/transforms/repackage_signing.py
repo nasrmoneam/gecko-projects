@@ -8,6 +8,7 @@ Transform the repackage signing task into an actual task description.
 from __future__ import absolute_import, print_function, unicode_literals
 
 from taskgraph.transforms.base import TransformSequence
+from taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.util.schema import validate_schema, Schema
 from taskgraph.util.scriptworker import get_signing_cert_scope
 from taskgraph.transforms.task import task_description_schema
@@ -57,11 +58,9 @@ def make_repackage_signing_description(config, jobs):
         # This is so we get the build task etc in our dependencies to
         # have better beetmover support.
         dependencies.update(signing_dependencies)
-        attributes = {
-            'nightly': dep_job.attributes.get('nightly', False),
-            'build_platform': dep_job.attributes.get('build_platform'),
-            'build_type': dep_job.attributes.get('build_type'),
-        }
+        attributes = copy_attributes_from_dependent_job(dep_job)
+        attributes['repackage_type'] = 'repackage-signing'
+
         locale_str = ""
         if dep_job.attributes.get('locale'):
             treeherder['symbol'] = 'tc-rs({})'.format(dep_job.attributes.get('locale'))
@@ -79,6 +78,28 @@ def make_repackage_signing_description(config, jobs):
             ],
             "formats": ["mar"]
         }]
+        if 'win' in dep_job.attributes.get('build_platform'):
+            upstream_artifacts.append({
+                "taskId": {"task-reference": "<repackage>"},
+                "taskType": "repackage",
+                "paths": [
+                    "public/build/{}target.installer.exe".format(locale_str),
+                ],
+                "formats": ["sha2signcode"]
+            })
+            scopes.append("project:releng:signing:format:sha2signcode")
+
+            # Stub installer is only generated on win32
+            if '32' in dep_job.attributes.get('build_platform'):
+                upstream_artifacts.append({
+                    "taskId": {"task-reference": "<repackage>"},
+                    "taskType": "repackage",
+                    "paths": [
+                        "public/build/{}target.stub-installer.exe".format(locale_str),
+                    ],
+                    "formats": ["sha2signcodestub"]
+                })
+                scopes.append("project:releng:signing:format:sha2signcodestub")
 
         task = {
             'label': label,
@@ -94,7 +115,14 @@ def make_repackage_signing_description(config, jobs):
             'run-on-projects': dep_job.attributes.get('run_on_projects'),
             'treeherder': treeherder,
         }
-        if 'macosx' in dep_job.attributes.get('build_platform'):
+
+        funsize_platforms = [
+            'macosx64-nightly',
+            'win32-nightly',
+            'win64-nightly'
+        ]
+        if dep_job.attributes.get('build_platform') in funsize_platforms and \
+                dep_job.attributes.get('nightly'):
             route_template = "project.releng.funsize.level-{level}.{project}"
             task['routes'] = [
                 route_template.format(project=config.params['project'],

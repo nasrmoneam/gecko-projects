@@ -79,6 +79,7 @@ protected:
 private:
   VRDisplayInfo mLastUpdateDisplayInfo;
   TimeStamp mLastFrameStart;
+  bool mFrameStarted;
 };
 
 class VRControllerHost {
@@ -97,7 +98,8 @@ public:
   uint64_t GetVibrateIndex();
 
 protected:
-  explicit VRControllerHost(VRDeviceType aType);
+  explicit VRControllerHost(VRDeviceType aType, dom::GamepadHand aHand,
+                            uint32_t aDisplayID);
   virtual ~VRControllerHost();
 
   VRControllerInfo mControllerInfo;

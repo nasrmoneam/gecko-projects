@@ -33,6 +33,9 @@ user_pref("javascript.options.showInConsole", true);
 user_pref("devtools.browsertoolbox.panel", "jsdebugger");
 user_pref("devtools.debugger.remote-port", 6023);
 user_pref("devtools.devedition.promo.enabled", false);
+user_pref("devtools.chrome.enabled", false);
+user_pref("devtools.debugger.remote-enabled", false);
+user_pref("devtools.debugger.prompt-connection", true);
 user_pref("browser.EULA.override", true);
 user_pref("gfx.color_management.force_srgb", true);
 user_pref("gfx.logging.level", 1);
@@ -294,6 +297,7 @@ user_pref("browser.aboutHomeSnippets.updateUrl", "nonexistent://test");
 
 // Use an empty list of sites to avoid fetching
 user_pref("browser.newtabpage.activity-stream.default.sites", "");
+user_pref("browser.newtabpage.activity-stream.telemetry", false);
 
 // Don't fetch directory tiles data from real servers
 user_pref("browser.newtabpage.directory.source", 'data:application/json,{"testing":1}');
@@ -377,3 +381,8 @@ user_pref("marionette.prefs.recommended", false);
 
 // Disable Screenshots by default for now
 user_pref("extensions.screenshots.system-disabled", true);
+
+// Set places maintenance far in the future to avoid it kicking in during tests.
+// The maintenance can take a relatively long time which may cause unnecessary
+// intermittents and slow down tests.
+user_pref("places.database.lastMaintenance", 7258114800);

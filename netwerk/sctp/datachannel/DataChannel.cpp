@@ -605,7 +605,6 @@ DataChannelConnection::CompleteConnect(TransportFlow *flow, TransportLayer::Stat
   Dispatch(do_AddRef(new DataChannelOnMessageAvailable(
              DataChannelOnMessageAvailable::ON_CONNECTION,
              this)));
-  return;
 }
 
 // Process any pending Opens
@@ -2419,7 +2418,7 @@ DataChannelConnection::ReadBlob(already_AddRefed<DataChannelConnection> aThis,
     // Bug 966602:  Doesn't return an error to the caller via onerror.
     // We must release DataChannelConnection on MainThread to avoid issues (bug 876167)
     // aThis is now owned by the runnable; release it there
-    NS_ReleaseOnMainThread(
+    NS_ReleaseOnMainThreadSystemGroup(
       "DataChannelBlobSendRunnable", runnable.forget());
     return;
   }

@@ -35,7 +35,7 @@ class WebRenderLayerManager final : public LayerManager
 
 public:
   explicit WebRenderLayerManager(nsIWidget* aWidget);
-  void Initialize(PCompositorBridgeChild* aCBChild, wr::PipelineId aLayersId, TextureFactoryIdentifier* aTextureFactoryIdentifier);
+  bool Initialize(PCompositorBridgeChild* aCBChild, wr::PipelineId aLayersId, TextureFactoryIdentifier* aTextureFactoryIdentifier);
 
   virtual void Destroy() override;
 
@@ -64,13 +64,13 @@ public:
                  mozilla::wr::DisplayListBuilder& aBuilder,
                  const StackingContextHelper& aSc,
                  const LayerRect& aRect);
-  bool PushItemAsBlobImage(nsDisplayItem* aItem,
-                           wr::DisplayListBuilder& aBuilder,
-                           const StackingContextHelper& aSc,
-                           nsDisplayListBuilder* aDisplayListBuilder);
+  bool PushItemAsImage(nsDisplayItem* aItem,
+                       wr::DisplayListBuilder& aBuilder,
+                       const StackingContextHelper& aSc,
+                       nsDisplayListBuilder* aDisplayListBuilder);
   void CreateWebRenderCommandsFromDisplayList(nsDisplayList* aDisplayList,
                                               nsDisplayListBuilder* aDisplayListBuilder,
-                                              StackingContextHelper& aSc,
+                                              const StackingContextHelper& aSc,
                                               wr::DisplayListBuilder& aBuilder);
   void EndTransactionWithoutLayer(nsDisplayList* aDisplayList,
                                   nsDisplayListBuilder* aDisplayListBuilder);
@@ -214,7 +214,7 @@ private:
 
 private:
   nsIWidget* MOZ_NON_OWNING_REF mWidget;
-  std::vector<wr::ImageKey> mImageKeys;
+  std::vector<wr::ImageKey> mImageKeysToDelete;
   nsTArray<uint64_t> mDiscardedCompositorAnimationsIds;
 
   /* PaintedLayer callbacks; valid at the end of a transaciton,
@@ -235,6 +235,10 @@ private:
   // empty transactions in layers-free mode.
   wr::BuiltDisplayList mBuiltDisplayList;
   nsTArray<WebRenderParentCommand> mParentCommands;
+
+  // We need this for building scroll data for the compositor in
+  // layers-free mode
+  std::unordered_map<FrameMetrics::ViewID, ScrollMetadata> mScrollMetadata;
 
   // Layers that have been mutated. If we have an empty transaction
   // then a display item layer will no longer be valid

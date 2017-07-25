@@ -4625,7 +4625,6 @@ nsContinuingTextFrame::AddInlineMinISize(gfxContext *aRenderingContext,
                                          InlineMinISizeData *aData)
 {
   // Do nothing, since the first-in-flow accounts for everything.
-  return;
 }
 
 /* virtual */ void
@@ -4633,7 +4632,6 @@ nsContinuingTextFrame::AddInlinePrefISize(gfxContext *aRenderingContext,
                                           InlinePrefISizeData *aData)
 {
   // Do nothing, since the first-in-flow accounts for everything.
-  return;
 }
 
 //----------------------------------------------------------------------
@@ -5115,12 +5113,12 @@ nsDisplayText::nsDisplayText(nsDisplayListBuilder* aBuilder, nsTextFrame* aFrame
 {
   MOZ_COUNT_CTOR(nsDisplayText);
   mIsFrameSelected = aIsSelected;
-
   mBounds = mFrame->GetVisualOverflowRectRelativeToSelf() + ToReferenceFrame();
     // Bug 748228
   mBounds.Inflate(mFrame->PresContext()->AppUnitsPerDevPixel());
 
-  if (ShouldUseAdvancedLayer(aBuilder->GetWidgetLayerManager(), gfxPrefs::LayersAllowTextLayers)) {
+  if (gfxPrefs::LayersAllowTextLayers() &&
+      CanUseAdvancedLayer(aBuilder->GetWidgetLayerManager())) {
     RefPtr<DrawTargetCapture> capture =
       gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget()->CreateCaptureDT(IntSize());
     RefPtr<gfxContext> captureCtx = gfxContext::CreateOrNull(capture);

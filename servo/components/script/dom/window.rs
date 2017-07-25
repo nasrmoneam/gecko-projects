@@ -124,7 +124,7 @@ use timers::{IsInterval, TimerCallback};
 use tinyfiledialogs::{self, MessageBoxIcon};
 use url::Position;
 use webdriver_handlers::jsval_to_webdriver;
-use webrender_traits::ClipId;
+use webrender_api::ClipId;
 use webvr_traits::WebVRMsg;
 
 /// Current state of the window object
@@ -184,8 +184,8 @@ pub struct Window {
     history: MutNullableJS<History>,
     custom_element_registry: MutNullableJS<CustomElementRegistry>,
     performance: MutNullableJS<Performance>,
-    navigation_start: u64,
-    navigation_start_precise: f64,
+    navigation_start: Cell<u64>,
+    navigation_start_precise: Cell<f64>,
     screen: MutNullableJS<Screen>,
     session_storage: MutNullableJS<Storage>,
     local_storage: MutNullableJS<Storage>,
@@ -386,10 +386,7 @@ impl Window {
 
     fn new_paint_worklet(&self) -> Root<Worklet> {
         debug!("Creating new paint worklet.");
-        let worklet = Worklet::new(self, WorkletGlobalScopeType::Paint);
-        let executor = Arc::new(worklet.executor());
-        let _ = self.layout_chan.send(Msg::SetPaintWorkletExecutor(executor));
-        worklet
+        Worklet::new(self, WorkletGlobalScopeType::Paint)
     }
 
     pub fn permission_state_invocation_results(&self) -> &DOMRefCell<HashMap<String, PermissionState>> {
@@ -705,8 +702,8 @@ impl WindowMethods for Window {
     // NavigationTiming/Overview.html#sec-window.performance-attribute
     fn Performance(&self) -> Root<Performance> {
         self.performance.or_init(|| {
-            Performance::new(self, self.navigation_start,
-                             self.navigation_start_precise)
+            Performance::new(self, self.navigation_start.get(),
+                             self.navigation_start_precise.get())
         })
     }
 
@@ -1775,6 +1772,13 @@ impl Window {
     pub fn unminified_js_dir(&self) -> Option<String> {
         self.unminified_js_dir.borrow().clone()
     }
+
+    pub fn set_navigation_start(&self) {
+        let current_time = time::get_time();
+        let now = (current_time.sec * 1000 + current_time.nsec as i64 / 1000000) as u64;
+        self.navigation_start.set(now);
+        self.navigation_start_precise.set(time::precise_time_ns() as f64);
+    }
 }
 
 impl Window {
@@ -1802,6 +1806,8 @@ impl Window {
                parent_info: Option<(PipelineId, FrameType)>,
                window_size: Option<WindowSizeData>,
                origin: MutableOrigin,
+               navigation_start: u64,
+               navigation_start_precise: f64,
                webvr_thread: Option<IpcSender<WebVRMsg>>)
                -> Root<Window> {
         let layout_rpc: Box<LayoutRPC + Send> = {
@@ -1813,7 +1819,6 @@ impl Window {
             pipelineid: id,
             script_chan: Arc::new(Mutex::new(control_chan)),
         };
-        let current_time = time::get_time();
         let win = box Window {
             globalscope:
                 GlobalScope::new_inherited(
@@ -1840,8 +1845,8 @@ impl Window {
             window_proxy: Default::default(),
             document: Default::default(),
             performance: Default::default(),
-            navigation_start: (current_time.sec * 1000 + current_time.nsec as i64 / 1000000) as u64,
-            navigation_start_precise: time::precise_time_ns() as f64,
+            navigation_start: Cell::new(navigation_start),
+            navigation_start_precise: Cell::new(navigation_start_precise),
             screen: Default::default(),
             session_storage: Default::default(),
             local_storage: Default::default(),
@@ -2000,7 +2005,8 @@ impl Runnable for PostMessageHandler {
 impl Window {
     pub fn post_message(&self, origin: Option<ImmutableOrigin>, data: StructuredCloneData) {
         let runnable = PostMessageHandler::new(self, origin, data);
-        let msg = CommonScriptMsg::RunnableMsg(ScriptThreadEventCategory::DomEvent, box runnable);
+        let runnable = self.get_runnable_wrapper().wrap_runnable(box runnable);
+        let msg = CommonScriptMsg::RunnableMsg(ScriptThreadEventCategory::DomEvent, runnable);
         // TODO(#12718): Use the "posted message task source".
         let _ = self.script_chan.send(msg);
     }

@@ -68,6 +68,12 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
             "default": False,
             "help": "Forcibly enable parallel traversal in Stylo with STYLO_THREADS=4"}
          ],
+        [["--enable-stylo"], {
+            "action": "store_true",
+            "dest": "enable_stylo",
+            "default": False,
+            "help": "Run tests with Stylo enabled"}
+         ],
     ] + copy.deepcopy(testing_config_options) + \
         copy.deepcopy(blobupload_config_options) + \
         copy.deepcopy(code_coverage_config_options)
@@ -164,6 +170,9 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
                 "--stackfix-dir=%s" % os.path.join(dirs["abs_test_install_dir"], "bin"),
                 "--run-by-dir=3"]
 
+        if not sys.platform.startswith("linux"):
+            cmd += ["--exclude=css"]
+
         # Let wptrunner determine the test type when --try-test-paths is used
         wpt_test_paths = self.try_test_paths.get("web-platform-tests")
         if not wpt_test_paths:
@@ -254,6 +263,8 @@ class WebPlatformTest(TestingMixin, MercurialScript, BlobUploadMixin, CodeCovera
             env['MOZ_WEBRENDER'] = '1'
 
         env['STYLO_THREADS'] = '4' if self.config['parallel_stylo_traversal'] else '1'
+        if self.config['enable_stylo']:
+            env['STYLO_FORCE_ENABLED'] = '1'
 
         env = self.query_env(partial_env=env, log_level=INFO)
 

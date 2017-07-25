@@ -44,15 +44,62 @@ LINUX_WORKER_TYPES = {
     'default': 'aws-provisioner-v1/gecko-t-linux-large',
 }
 
-# windows / os x worker types keyed by test-platform
+# windows worker types keyed by test-platform and virtualization
 WINDOWS_WORKER_TYPES = {
-    'windows7-32-vm': 'aws-provisioner-v1/gecko-t-win7-32',
-    'windows7-32': 'aws-provisioner-v1/gecko-t-win7-32-gpu',
-    'windows10-64-vm': 'aws-provisioner-v1/gecko-t-win10-64',
-    'windows10-64': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
-    'windows10-64-asan': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+    'windows7-32': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win7-32',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win7-32-gpu',
+      'hardware': 'releng-hardware/gecko-t-win7-32-hw',
+    },
+    'windows7-32-pgo': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win7-32',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win7-32-gpu',
+      'hardware': 'releng-hardware/gecko-t-win7-32-hw',
+    },
+    'windows7-32-nightly': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win7-32',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win7-32-gpu',
+      'hardware': 'releng-hardware/gecko-t-win7-32-hw',
+    },
+    'windows10-64': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows10-64-pgo': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows10-64-nightly': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows10-64-asan': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    # These values don't really matter since BBB will be executing them
+    'windows8-64': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows8-64-pgo': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
+    'windows8-64-nightly': {
+      'virtual': 'aws-provisioner-v1/gecko-t-win10-64',
+      'virtual-with-gpu': 'aws-provisioner-v1/gecko-t-win10-64-gpu',
+      'hardware': 'releng-hardware/gecko-t-win10-64-hw',
+    },
 }
 
+# os x worker types keyed by test-platform
 MACOSX_WORKER_TYPES = {
     'macosx64': 'releng-hardware/gecko-t-osx-1010',
 }
@@ -142,6 +189,11 @@ test_description_schema = Schema({
     Required('instance-size', default='default'): optionally_keyed_by(
         'test-platform',
         Any('default', 'large', 'xlarge', 'legacy')),
+
+    # type of virtualization or hardware required by test.
+    Required('virtualization', default='virtual'): optionally_keyed_by(
+        'test-platform',
+        Any('virtual', 'virtual-with-gpu', 'hardware')),
 
     # Whether the task requires loopback audio or video (whatever that may mean
     # on the platform)
@@ -249,6 +301,10 @@ test_description_schema = Schema({
             # chunking-args = test-suite-suffix; "<CHUNK>" in this string will
             # be replaced with the chunk number.
             Optional('chunk-suffix'): basestring,
+
+            Required('requires-signed-builds', default=False): optionally_keyed_by(
+                'test-platform',
+                bool),
         }
     ),
 
@@ -269,6 +325,10 @@ test_description_schema = Schema({
     # the label of the build task generating the materials to test
     'build-label': basestring,
 
+    # the label of the signing task generating the materials to test.
+    # Signed builds are used in xpcshell tests on Windows, for instance.
+    Optional('build-signing-label'): basestring,
+
     # the build's attributes
     'build-attributes': {basestring: object},
 
@@ -285,6 +345,11 @@ test_description_schema = Schema({
     Optional('when'): Any({
         Optional('files-changed'): [basestring],
     }),
+
+    Optional('worker-type'): optionally_keyed_by(
+        'test-platform',
+        Any(basestring, None),
+    ),
 
 }, required=True)
 
@@ -387,6 +452,7 @@ def set_target(config, tests):
         else:
             target = 'target.tar.bz2'
         test['mozharness']['build-artifact-name'] = 'public/build/' + target
+
         yield test
 
 
@@ -398,9 +464,11 @@ def set_treeherder_machine_platform(config, tests):
         # treeherder.
         'linux64-asan/opt': 'linux64/asan',
         'linux64-pgo/opt': 'linux64/pgo',
-        'macosx64/debug': 'osx-cross/debug',
-        'macosx64/opt': 'osx-cross/opt',
+        'macosx64/debug': 'osx-10-10/debug',
+        'macosx64/opt': 'osx-10-10/opt',
         'win64-asan/opt': 'windows10-64/asan',
+        'win32-pgo/opt': 'windows7-32/pgo',
+        'win64-pgo/opt': 'windows10-64/pgo',
         # The build names for Android platforms have partially evolved over the
         # years and need to be translated.
         'android-api-15/debug': 'android-4-3-armv7-api15/debug',
@@ -492,6 +560,8 @@ def handle_keyed_by(config, tests):
         'mozharness.chunked',
         'mozharness.config',
         'mozharness.extra-options',
+        'mozharness.requires-signed-builds',
+        'worker-type',
     ]
     for test in tests:
         for field in fields:
@@ -673,6 +743,23 @@ def set_test_type(config, tests):
 
 
 @transforms.add
+def enable_stylo(config, tests):
+    """
+    Force Stylo on for all its tests, except Stylo vs. Gecko reftests where the
+    test harness will handle this.
+    """
+    for test in tests:
+        if '-stylo' not in test['test-platform']:
+            yield test
+            continue
+
+        if 'reftest-stylo' not in test['suite']:
+            test['mozharness'].setdefault('extra-options', []).append('--enable-stylo')
+
+        yield test
+
+
+@transforms.add
 def parallel_stylo_tests(config, tests):
     """Ensure that any stylo tests running with e10s enabled also test
     parallel traversal in the style system."""
@@ -705,17 +792,21 @@ def parallel_stylo_tests(config, tests):
 def set_worker_type(config, tests):
     """Set the worker type based on the test platform."""
     for test in tests:
-        # during the taskcluuster migration, this is a bit tortured, but it
+        # during the taskcluster migration, this is a bit tortured, but it
         # will get simpler eventually!
         test_platform = test['test-platform']
-        if test_platform.startswith('macosx'):
-            # note that some portion of these will be allocated to BBB below
+        if test.get('worker-type'):
+            # This test already has its worker type defined, so just use that (yields below)
+            pass
+        elif test_platform.startswith('macosx'):
             test['worker-type'] = MACOSX_WORKER_TYPES['macosx64']
         elif test_platform.startswith('win'):
-            if test.get('suite', '') == 'talos':
+            if test.get('suite', '') == 'talos' and \
+                    not any('taskcluster' in cfg for cfg in test['mozharness']['config']):
                 test['worker-type'] = 'buildbot-bridge/buildbot-bridge'
             else:
-                test['worker-type'] = WINDOWS_WORKER_TYPES[test_platform.split('/')[0]]
+                test['worker-type'] = \
+                    WINDOWS_WORKER_TYPES[test_platform.split('/')[0]][test['virtualization']]
         elif test_platform.startswith('linux') or test_platform.startswith('android'):
             if test.get('suite', '') == 'talos' and test['build-platform'] != 'linux64-ccov/opt':
                 if config.config['args'].taskcluster_worker:
@@ -775,6 +866,10 @@ def make_job_description(config, tests):
         jobdesc['when'] = test.get('when', {})
         jobdesc['attributes'] = attributes
         jobdesc['dependencies'] = {'build': build_label}
+
+        if test['mozharness']['requires-signed-builds'] is True:
+            jobdesc['dependencies']['build-signing'] = test['build-signing-label']
+
         jobdesc['expires-after'] = test['expires-after']
         jobdesc['routes'] = []
         jobdesc['run-on-projects'] = test['run-on-projects']
