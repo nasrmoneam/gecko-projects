@@ -7,14 +7,14 @@
 with Files('**'):
     BUG_COMPONENT = ('Toolkit', 'Application Update')
 
-if CONFIG['MOZ_WIDGET_TOOLKIT'] != 'android':
-    DIRS += ['src']
+DIRS += ['src']
 
-    if CONFIG['MOZ_ENABLE_SIGNMAR']:
-        DIRS += ['sign', 'verify']
-        TEST_DIRS += ['tests']
-    elif CONFIG['MOZ_VERIFY_MAR_SIGNATURE']:
-        DIRS += ['verify']
+if CONFIG['MOZ_ENABLE_SIGNMAR']:
+    DIRS += ['sign', 'verify']
+    TEST_DIRS += ['tests']
+elif CONFIG['MOZ_VERIFY_MAR_SIGNATURE']:
+    DIRS += ['verify']
 
-    # If we are building ./sign and ./verify then ./tool must come after it
-    DIRS += ['tool']
+# If we are building ./sign and ./verify then ./tool must come after it
+DIRS += ['tool']
+

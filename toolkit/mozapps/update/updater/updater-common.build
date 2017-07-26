@@ -57,12 +57,15 @@ else:
     ]
 
 USE_LIBS += [
-    'lzma',
     'mar',
 ]
 
-DEFINES['LZMA_API_STATIC'] = 1
-HOST_DEFINES['LZMA_API_STATIC'] = 1
+if CONFIG['MOZ_SYSTEM_BZ2']:
+    OS_LIBS += CONFIG['MOZ_BZ2_LIBS']
+else:
+    USE_LIBS += [
+        'bz2',
+    ]
 
 if 'gtk' in CONFIG['MOZ_WIDGET_TOOLKIT']:
     have_progressui = 1
