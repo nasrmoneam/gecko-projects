@@ -12,6 +12,7 @@
 # -----------------------------------------------------------------------------
 # By default just assume that these tools exist on our path
 MAR=${MAR:-mar}
+BZIP2=${BZIP2:-bzip2}
 MBSDIFF=${MBSDIFF:-mbsdiff}
 
 # -----------------------------------------------------------------------------

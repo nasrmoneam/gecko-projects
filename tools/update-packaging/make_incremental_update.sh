@@ -169,7 +169,7 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
     if check_for_add_if_not_update "$f"; then
       # The full workdir may not exist yet, so create it if necessary.
       mkdir -p `dirname "$workdir/$f"`
-      cp "$newdir/$f" "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
       make_add_if_not_instruction "$f" "$updatemanifestv3"
       archivefiles="$archivefiles \"$f\""
@@ -179,7 +179,7 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
     if check_for_forced_update "$requested_forced_updates" "$f"; then
       # The full workdir may not exist yet, so create it if necessary.
       mkdir -p `dirname "$workdir/$f"`
-      cp "$newdir/$f" "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
       make_add_instruction "$f" "$updatemanifestv2" "$updatemanifestv3" 1
       archivefiles="$archivefiles \"$f\""
@@ -207,19 +207,21 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
       # if service is not enabled then default to old behavior
       if [ -z "$MBSDIFF_HOOK" ]; then
         $MBSDIFF "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"
+        $BZIP2 -z9 "$workdir/$f.patch"
       else
         # if service enabled then check patch existence for retrieval
-        if $MBSDIFF_HOOK -g "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"; then
+        if $MBSDIFF_HOOK -g "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.bz2"; then
           notice "file \"$f\" found in funsize, diffing skipped"
         else
           # if not found already - compute it and cache it for future use
           $MBSDIFF "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"
-          $MBSDIFF_HOOK -u "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"
+          $BZIP2 -z9 "$workdir/$f.patch"
+          $MBSDIFF_HOOK -u "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.bz2"
         fi
       fi
-      cp "$newdir/$f" "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
-      patchfile="$workdir/$f.patch"
+      patchfile="$workdir/$f.patch.bz2"
       patchsize=$(get_file_size "$patchfile")
       fullsize=$(get_file_size "$workdir/$f")
 
@@ -260,7 +262,7 @@ for ((i=0; $i<$num_newfiles; i=$i+1)); do
   dir=$(dirname "$workdir/$f")
   mkdir -p "$dir"
 
-  cp "$newdir/$f" "$workdir/$f"
+  $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
   copy_perm "$newdir/$f" "$workdir/$f"
 
   if check_for_add_if_not_update "$f"; then
@@ -300,6 +302,9 @@ for ((i=0; $i<$num_olddirs; i=$i+1)); do
     echo "rmdir \"$f/\"" >> $updatemanifestv3
   fi
 done
+
+$BZIP2 -z9 "$updatemanifestv2" && mv -f "$updatemanifestv2.bz2" "$updatemanifestv2"
+$BZIP2 -z9 "$updatemanifestv3" && mv -f "$updatemanifestv3.bz2" "$updatemanifestv3"
 
 mar_command="$MAR"
 if [[ -n $MOZ_PRODUCT_VERSION ]]

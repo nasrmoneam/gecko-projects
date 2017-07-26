@@ -12,6 +12,7 @@ import sys
 import getopt
 import time
 import datetime
+import bz2
 import string
 import tempfile
 
@@ -111,6 +112,7 @@ class PatchInfo:
         manifest_file.writelines("\n")
         manifest_file.close()
 
+        bzip_file(manifest_file_path)
         self.archive_files.append('"updatev2.manifest"')
 
         """ Create the v3 manifest file in the root of the work_dir """
@@ -121,6 +123,7 @@ class PatchInfo:
         manifest_file.writelines("\n")
         manifest_file.close()
 
+        bzip_file(manifest_file_path)
         self.archive_files.append('"updatev3.manifest"')
 
     def build_marfile_entry_hash(self, root_path):
@@ -196,6 +199,21 @@ def copy_file(src_file_abs_path, dst_file_abs_path):
     # Copy the file over
     shutil.copy2(src_file_abs_path, dst_file_abs_path)
 
+def bzip_file(filename):
+    """ Bzip's the file in place.  The original file is replaced with a bzip'd version of itself
+        assumes the path is absolute"""
+    exec_shell_cmd('bzip2 -z9 "' + filename+'"')
+    os.rename(filename+".bz2",filename)
+
+def bunzip_file(filename):
+    """ Bzip's the file in palce.   The original file is replaced with a bunzip'd version of itself.
+        doesn't matter if the filename ends in .bz2 or not"""
+    if not filename.endswith(".bz2"):
+        os.rename(filename, filename+".bz2")
+        filename=filename+".bz2"
+    exec_shell_cmd('bzip2 -d "' + filename+'"')
+
+
 def extract_mar(filename, work_dir):
     """ Extracts the marfile intot he work_dir
         assumes work_dir already exists otherwise will throw osError"""
@@ -212,6 +230,10 @@ def create_partial_patch_for_file(from_marfile_entry, to_marfile_entry, shas, pa
     """
     if not (from_marfile_entry.sha(),to_marfile_entry.sha()) in shas:
         print 'diffing "'+from_marfile_entry.name+'\"'
+        #bunzip to/from
+        bunzip_file(from_marfile_entry.abs_path)
+        bunzip_file(to_marfile_entry.abs_path)
+
         # The patch file will be created in the working directory with the
         # name of the file in the mar + .patch
         patch_file_abs_path = os.path.join(patch_info.work_dir,from_marfile_entry.name+".patch")
@@ -219,12 +241,14 @@ def create_partial_patch_for_file(from_marfile_entry, to_marfile_entry, shas, pa
         if not os.path.exists(patch_file_dir):
             os.makedirs(patch_file_dir)
 
-        # Create patch file
+        # Create bzip'd patch file
         exec_shell_cmd("mbsdiff "+from_marfile_entry.abs_path+" "+to_marfile_entry.abs_path+" "+patch_file_abs_path)
+        bzip_file(patch_file_abs_path)
 
-        # Create full file
+        # Create bzip's full file
         full_file_abs_path =  os.path.join(patch_info.work_dir, to_marfile_entry.name)
         shutil.copy2(to_marfile_entry.abs_path, full_file_abs_path)
+        bzip_file(full_file_abs_path)
 
         if os.path.getsize(patch_file_abs_path) < os.path.getsize(full_file_abs_path):
             # Patch is smaller than file.  Remove the file and add patch to manifest
@@ -280,7 +304,7 @@ def process_explicit_remove_files(dir_path, patch_info):
         list_file_path = os.path.join(dir_path, "Contents/Resources/removed-files")
 
     if (os.path.exists(list_file_path)):
-        list_file = open(list_file_path, 'r')
+        list_file = bz2.BZ2File(list_file_path,"r") # throws if doesn't exist
 
         lines = []
         for line in list_file:
@@ -407,7 +431,7 @@ def get_buildid(work_dir):
             print 'WARNING: application.ini not found, cannot find build ID'
             return ''
 
-    file = open(ini, 'r')
+    file = bz2.BZ2File(ini)
     for line in file:
         if line.find('BuildID') == 0:
             return line.strip().split('=')[1]
