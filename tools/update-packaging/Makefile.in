@@ -21,6 +21,7 @@ endif
 
 MAR_BIN	= $(DIST)/host/bin/mar$(HOST_BIN_SUFFIX)
 MBSDIFF_BIN	= $(DIST)/host/bin/mbsdiff$(HOST_BIN_SUFFIX)
+XZ_BIN_WIN = $(topsrcdir)/xz/xz.exe
 
 OVERRIDE_DEFAULT_GOAL := full-update
 full-update:: complete-patch
@@ -50,6 +51,7 @@ ifeq ($(OS_TARGET), WINNT)
 	test -f $(UNPACKAGE)
 	$(RM) -rf '$(PACKAGE_DIR)'
 	cd $(PACKAGE_BASE_DIR) && $(INNER_UNMAKE_PACKAGE)
+	XZ=$(XZ_BIN_WIN) \
 endif
 	MAR=$(MAR_BIN) \
 	MOZ_PRODUCT_VERSION=$(MOZ_APP_VERSION) \
@@ -61,6 +63,9 @@ ifdef MOZ_SIGN_CMD
 endif
 
 partial-patch:: $(dir-stage)
+ifeq ($(OS_TARGET), WINNT)
+	XZ=$(XZ_BIN_WIN) \
+endif
 	MAR=$(MAR_BIN) \
 	MBSDIFF=$(MBSDIFF_BIN) \
 	MOZ_PRODUCT_VERSION=$(MOZ_APP_VERSION) \
