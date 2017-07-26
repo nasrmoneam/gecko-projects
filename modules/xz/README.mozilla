@@ -1,9 +1,0 @@
-This is a copy of liblzma taken from XZ Utils:
-https://tukaani.org/xz/
-
-The original code can be found at
-https://git.tukaani.org/?p=xz.git;a=summary
-
-This is an unmodified copy taken from the release tagged v5.2.3
-in that repository, which is commit
-3d566cd519017eee1a400e7961ff14058dfaf33c
