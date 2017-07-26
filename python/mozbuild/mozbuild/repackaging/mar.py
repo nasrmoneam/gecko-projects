@@ -47,9 +47,9 @@ def repackage_mar(topsrcdir, package, mar, output):
         env = os.environ.copy()
         env['MOZ_FULL_PRODUCT_VERSION'] = get_application_ini_value(tmpdir, 'App', 'Version')
         env['MAR'] = mozpath.normpath(mar)
-        xz_dir_path = mozpath.join(topsrcdir, 'xz')
-        if os.path.exists(xz_dir_path):
-            env['XZ'] = mozpath.normpath(xz_dir_path)
+        xz_path = mozpath.join(topsrcdir, 'xz/xz.exe')
+        if os.path.exists(xz_path):
+            env['XZ'] = mozpath.normpath(xz_path)
 
         cmd = [make_full_update, output, ffxdir]
         if sys.platform == 'win32':
