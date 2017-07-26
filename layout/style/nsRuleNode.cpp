@@ -471,10 +471,14 @@ nsRuleNode::ApplyMinFontSize(nsStyleFont* aFont,
 
 static nsSize CalcViewportUnitsScale(nsPresContext* aPresContext)
 {
-  // The caller is making use of viewport units, so notify the pres context
+  // The caller is making use of viewport units, so notify the style set
   // that it will need to rebuild the rule tree if the size of the viewport
   // changes.
-  aPresContext->SetUsesViewportUnits(true);
+  // It is possible for this to be called on a Servo-styled document,from
+  // media query evaluation outside stylesheets.
+  if (nsStyleSet* styleSet = aPresContext->StyleSet()->GetAsGecko()) {
+    styleSet->SetUsesViewportUnits(true);
+  }
 
   // The default (when we have 'overflow: auto' on the root element, or
   // trivially for 'overflow: hidden' since we never have scrollbars in that
@@ -8654,7 +8658,7 @@ nsRuleNode::ComputePositionData(void* aStartStruct,
   if (MOZ_UNLIKELY(justifyItemsValue.GetUnit() == eCSSUnit_Inherit)) {
     if (MOZ_LIKELY(parentContext)) {
       pos->mJustifyItems =
-        parentPos->ComputedJustifyItems(parentContext->GetParentAllowServo());
+        parentPos->ComputedJustifyItems(parentContext->GetParent());
     } else {
       pos->mJustifyItems = NS_STYLE_JUSTIFY_NORMAL;
     }
