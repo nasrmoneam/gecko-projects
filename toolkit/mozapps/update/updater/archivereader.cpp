@@ -38,8 +38,8 @@
 # include <io.h>
 #endif
 
-static int inbuf_size  = 262144;
-static int outbuf_size = 262144;
+static size_t inbuf_size  = 262144;
+static size_t outbuf_size = 262144;
 static uint8_t *inbuf  = nullptr;
 static uint8_t *outbuf = nullptr;
 
