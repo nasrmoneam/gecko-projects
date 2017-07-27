@@ -169,7 +169,7 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
     if check_for_add_if_not_update "$f"; then
       # The full workdir may not exist yet, so create it if necessary.
       mkdir -p `dirname "$workdir/$f"`
-      $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force --stdout "$newdir/$f" > "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
       make_add_if_not_instruction "$f" "$updatemanifestv3"
       archivefiles="$archivefiles \"$f\""
@@ -179,7 +179,7 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
     if check_for_forced_update "$requested_forced_updates" "$f"; then
       # The full workdir may not exist yet, so create it if necessary.
       mkdir -p `dirname "$workdir/$f"`
-      $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force --stdout "$newdir/$f" > "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
       make_add_instruction "$f" "$updatemanifestv2" "$updatemanifestv3" 1
       archivefiles="$archivefiles \"$f\""
@@ -202,26 +202,26 @@ for ((i=0; $i<$num_oldfiles; i=$i+1)); do
       # myscript.sh -A SERVER-URL [-c LOCAL-CACHE-DIR-PATH] [-g] [-u] \
       #   PATH-FROM-URL PATH-TO-URL PATH-PATCH SERVER-URL
       #
-      # Note: patches are xz stashed in funsize to gain more speed
+      # Note: patches are bzipped stashed in funsize to gain more speed
 
       # if service is not enabled then default to old behavior
       if [ -z "$MBSDIFF_HOOK" ]; then
         $MBSDIFF "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"
-        $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force "$workdir/$f.patch"
+        $BZIP2 -z9 "$workdir/$f.patch"
       else
         # if service enabled then check patch existence for retrieval
-        if $MBSDIFF_HOOK -g "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.xz"; then
+        if $MBSDIFF_HOOK -g "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.bz2"; then
           notice "file \"$f\" found in funsize, diffing skipped"
         else
           # if not found already - compute it and cache it for future use
           $MBSDIFF "$olddir/$f" "$newdir/$f" "$workdir/$f.patch"
-          $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force "$workdir/$f.patch"
-          $MBSDIFF_HOOK -u "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.xz"
+          $BZIP2 -z9 "$workdir/$f.patch"
+          $MBSDIFF_HOOK -u "$olddir/$f" "$newdir/$f" "$workdir/$f.patch.bz2"
         fi
       fi
-      $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force --stdout "$newdir/$f" > "$workdir/$f"
+      $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
       copy_perm "$newdir/$f" "$workdir/$f"
-      patchfile="$workdir/$f.patch.xz"
+      patchfile="$workdir/$f.patch.bz2"
       patchsize=$(get_file_size "$patchfile")
       fullsize=$(get_file_size "$workdir/$f")
 
@@ -262,7 +262,7 @@ for ((i=0; $i<$num_newfiles; i=$i+1)); do
   dir=$(dirname "$workdir/$f")
   mkdir -p "$dir"
 
-  $XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force --stdout "$newdir/$f" > "$workdir/$f"
+  $BZIP2 -cz9 "$newdir/$f" > "$workdir/$f"
   copy_perm "$newdir/$f" "$workdir/$f"
 
   if check_for_add_if_not_update "$f"; then
@@ -303,8 +303,8 @@ for ((i=0; $i<$num_olddirs; i=$i+1)); do
   fi
 done
 
-$XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force "$updatemanifestv2" && mv -f "$updatemanifestv2.xz" "$updatemanifestv2"
-$XZ --compress --x86 --lzma2 --format=xz --check=crc64 --force "$updatemanifestv3" && mv -f "$updatemanifestv3.xz" "$updatemanifestv3"
+$BZIP2 -z9 "$updatemanifestv2" && mv -f "$updatemanifestv2.bz2" "$updatemanifestv2"
+$BZIP2 -z9 "$updatemanifestv3" && mv -f "$updatemanifestv3.bz2" "$updatemanifestv3"
 
 mar_command="$MAR"
 if [[ -n $MOZ_PRODUCT_VERSION ]]
