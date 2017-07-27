@@ -12,8 +12,10 @@
 # By default just assume that these tools exist on our path
 
 use Getopt::Std;
+use Cwd 'abs_path';
+use File::Basename;
 
-my ($MAR, $BZIP2, $archive, @marentries, @marfiles);
+my ($MAR, $XZ, $BZIP2, $MAR_OLD_FORMAT, $archive, @marentries, @marfiles);
 
 if (defined($ENV{"MAR"})) {
     $MAR = $ENV{"MAR"};
@@ -22,11 +24,23 @@ else {
     $MAR = "mar";
 }
 
-if (defined($ENV{"BZIP2"})) {
-    $BZIP2 = $ENV{"BZIP2"};
+if (defined($ENV{"MAR_OLD_FORMAT"})) {
+    $MAR_OLD_FORMAT = 1;
+    if (defined($ENV{"BZIP2"})) {
+        $BZIP2 = $ENV{"BZIP2"};
+    }
+    else {
+        $BZIP2 = "bzip2";
+    }
 }
 else {
-    $BZIP2 = "bzip2";
+    $MAR_OLD_FORMAT = 0;
+    if (defined($ENV{"XZ"})) {
+        $XZ = $ENV{"XZ"};
+    }
+    else {
+        $XZ = "xz";
+    }
 }
 
 sub print_usage
@@ -59,9 +73,16 @@ foreach (@marentries) {
     my @splits = split(/\t/,$_);
     my $file = $splits[2];
 
-    system("mv \"$file\" \"$file.bz2\"") == 0 ||
-      die "Couldn't mv \"$file\"";
-    system("\"$BZIP2\" -d \"$file.bz2\"") == 0 ||
-      die "Couldn't decompress \"$file\"";
+    if ($MAR_OLD_FORMAT == 1) {
+      system("mv \"$file\" \"$file.bz2\"") == 0 ||
+        die "Couldn't mv \"$file\"";
+      system("\"$BZIP2\" -d \"$file.bz2\"") == 0 ||
+        die "Couldn't decompress \"$file\"";
+    }
+    else {
+      system("mv \"$file\" \"$file.xz\"") == 0 ||
+        die "Couldn't mv \"$file\"";
+      system("\"$XZ\" -d \"$file.xz\"") == 0 ||
+        die "Couldn't decompress \"$file\"";
+    }
 }
-
