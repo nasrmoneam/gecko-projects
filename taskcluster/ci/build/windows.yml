@@ -183,7 +183,7 @@ win32-devedition/opt:
         script: mozharness/scripts/fx_desktop_build.py
         config:
             - builds/taskcluster_firefox_windows_32_opt.py
-    run-on-projects: ['mozilla-beta', ]
+    run-on-projects: ['mozilla-beta', 'jamun']
 
 win64-devedition/opt:
     description: "Win64 Dev Edition Opt"
@@ -204,7 +204,7 @@ win64-devedition/opt:
         script: mozharness/scripts/fx_desktop_build.py
         config:
             - builds/taskcluster_firefox_windows_64_opt.py
-    run-on-projects: ['mozilla-beta', ]
+    run-on-projects: ['mozilla-beta', 'jamun']
 
 win32-nightly/opt:
     description: "Win32 Nightly"
