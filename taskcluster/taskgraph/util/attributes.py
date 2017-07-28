@@ -17,6 +17,7 @@ RELEASE_PROJECTS = {
     'mozilla-aurora',
     'mozilla-beta',
     'mozilla-release',
+    'jamun',
 }
 
 _OPTIONAL_ATTRIBUTES = ('nightly', 'signed')

@@ -116,7 +116,7 @@ macosx64-devedition-nightly/opt:
         secrets: true
         tooltool-downloads: internal
         custom-build-variant-cfg: devedition
-    run-on-projects: ['mozilla-beta',]
+    run-on-projects: ['mozilla-beta', 'jamun']
     toolchains:
         - linux64-cctools-port
         - linux64-clang
