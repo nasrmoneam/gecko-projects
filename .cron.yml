@@ -7,7 +7,7 @@ jobs:
       job:
           type: decision-task
           treeherder-symbol: Nd
-          target-tasks-method: nightly_linux
+          target-tasks-method: nightly_desktop
       run-on-projects:
           - mozilla-central
           - date
@@ -20,6 +20,17 @@ jobs:
             mozilla-central: [{hour: 10, minute: 0}]
             # No default
 
+    - name: nightly-desktop-linux
+      job:
+          type: decision-task
+          treeherder-symbol: Nd-Ln
+          target-tasks-method: nightly_linux
+      run-on-projects:
+          - mozilla-central
+          - date
+          - oak
+      when: [] # never (hook only)
+
     - name: nightly-desktop-osx
       job:
           type: decision-task
@@ -29,13 +40,7 @@ jobs:
           - mozilla-central
           - date
           - oak
-      when:
-          by-project:
-            # Match buildbot starts for now
-            date: [{hour: 15, minute: 0}]
-            oak: [{hour: 11, minute: 0}]
-            mozilla-central: [{hour: 10, minute: 0}]
-            # No default
+      when: [] # never (hook only)
 
     - name: nightly-desktop-win
       job:

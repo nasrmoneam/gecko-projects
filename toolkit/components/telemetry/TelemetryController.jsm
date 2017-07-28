@@ -76,6 +76,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "TelemetryReportingPolicy",
                                   "resource://gre/modules/TelemetryReportingPolicy.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "TelemetryModules",
                                   "resource://gre/modules/TelemetryModules.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "UpdatePing",
+                                  "resource://gre/modules/UpdatePing.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "TelemetryHealthPing",
+                                  "resource://gre/modules/TelemetryHealthPing.jsm");
 
 /**
  * Setup Telemetry logging. This function also gets called when loggin related
@@ -695,6 +699,10 @@ var Impl = {
     // lead to some stale client ids.
     this._clientID = ClientID.getCachedClientID();
 
+    // Init the update ping telemetry as early as possible. This won't have
+    // an impact on startup.
+    UpdatePing.earlyInit();
+
     // Delay full telemetry initialization to give the browser time to
     // run various late initializers. Otherwise our gathered memory
     // footprint and other numbers would be too optimistic.
@@ -781,12 +789,17 @@ var Impl = {
         await this._delayedNewPingTask.finalize();
       }
 
+      UpdatePing.shutdown();
+
       // Stop the datachoices infobar display.
       TelemetryReportingPolicy.shutdown();
       TelemetryEnvironment.shutdown();
 
       // Stop any ping sending.
       await TelemetrySend.shutdown();
+
+      // Send latest data.
+      await TelemetryHealthPing.shutdown();
 
       await TelemetrySession.shutdown();
 

@@ -1047,7 +1047,7 @@ fuzzy-if(skiaContent,1,160000) == 424766-1.html 424766-1-ref.html
 == 425972-2.html 425972-2-ref.html
 != 425972-1.html 425972-2.html
 == 426629-1.html 426629-1-ref.html
-asserts(3) asserts-if(styloVsGecko,6) != 427017-1.xhtml about:blank # crash test (needs reftest-print). existing assertions are bug 457400.
+asserts(3) asserts-if(styloVsGecko,6) != 427017-1.xhtml about:blank # crash test (needs reftest-paged). existing assertions are bug 457400.
 == 427129-scrollframe.html 427129-ref.html
 == 427129-table.html 427129-ref.html
 == 427129-image.html 427129-ref.html
@@ -1721,7 +1721,7 @@ fuzzy(2,40000) == 722923-1.html 722923-1-ref.html
 == 723484-1.html 723484-1-ref.html
 random-if(Android) == 728983-1.html 728983-1-ref.html
 == 729143-1.html 729143-1-ref.html
-fails-if(styloVsGecko||stylo) == 731521-1.html 731521-1-ref.html
+== 731521-1.html 731521-1-ref.html
 needs-focus == 731726-1.html 731726-1-ref.html
 == 735481-1.html 735481-1-ref.html
 fuzzy-if(cocoaWidget,1,300000) fuzzy-if(skiaContent,2,300000) == 745934-1.html 745934-1-ref.html
@@ -2035,3 +2035,4 @@ needs-focus != 1377447-1.html 1377447-2.html
 == 1379041.html 1379041-ref.html
 == 1379696.html 1379696-ref.html
 == 1380224-1.html 1380224-1-ref.html
+== 1384065.html 1384065-ref.html

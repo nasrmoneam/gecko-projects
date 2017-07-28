@@ -2107,6 +2107,17 @@ already_AddRefed<LayerManager> nsDisplayList::PaintRoot(nsDisplayListBuilder* aB
     MaybeSetupTransactionIdAllocator(layerManager, presContext);
     bool temp = aBuilder->SetIsCompositingCheap(layerManager->IsCompositingCheap());
     static_cast<WebRenderLayerManager*>(layerManager.get())->EndTransactionWithoutLayer(this, aBuilder);
+
+    // For layers-free mode, we check the invalidation state bits in the EndTransaction.
+    // So we clear the invalidation state bits after EndTransaction.
+    if (widgetTransaction ||
+        // SVG-as-an-image docs don't paint as part of the retained layer tree,
+        // but they still need the invalidation state bits cleared in order for
+        // invalidation for CSS/SMIL animation to work properly.
+        (document && document->IsBeingUsedAsImage())) {
+      frame->ClearInvalidationStateBits();
+    }
+
     aBuilder->SetIsCompositingCheap(temp);
     return layerManager.forget();
   }
@@ -2879,6 +2890,31 @@ nsDisplaySolidColor::WriteDebugInfo(std::stringstream& aStream)
           << (int)NS_GET_G(mColor) << ","
           << (int)NS_GET_B(mColor) << ","
           << (int)NS_GET_A(mColor) << ")";
+}
+
+bool
+nsDisplaySolidColor::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                             const StackingContextHelper& aSc,
+                                             nsTArray<WebRenderParentCommand>& aParentCommands,
+                                             mozilla::layers::WebRenderLayerManager* aManager,
+                                             nsDisplayListBuilder* aDisplayListBuilder)
+{
+  if (aManager->IsLayersFreeTransaction()) {
+    ContainerLayerParameters parameter;
+    if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+      return false;
+    }
+  }
+
+  LayoutDeviceRect bounds = LayoutDeviceRect::FromAppUnits(
+        mVisibleRect, mFrame->PresContext()->AppUnitsPerDevPixel());
+  wr::LayoutRect transformedRect = aSc.ToRelativeLayoutRect(bounds);
+
+  aBuilder.PushRect(transformedRect,
+                    transformedRect,
+                    wr::ToColorF(ToDeviceColor(mColor)));
+
+  return true;
 }
 
 nsRect
@@ -8555,6 +8591,9 @@ nsDisplayMask::nsDisplayMask(nsDisplayListBuilder* aBuilder,
                    nsCSSRendering::PAINTBG_MASK_IMAGE;
   const nsStyleSVGReset *svgReset = aFrame->StyleSVGReset();
   NS_FOR_VISIBLE_IMAGE_LAYERS_BACK_TO_FRONT(i, svgReset->mMask) {
+    if (!svgReset->mMask.mLayers[i].mImage.IsResolved()) {
+      continue;
+    }
     bool isTransformedFixed;
     nsBackgroundLayerState state =
       nsCSSRendering::PrepareImageLayer(presContext, aFrame, flags,
