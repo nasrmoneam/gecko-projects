@@ -12,7 +12,7 @@ config = {
     # TODO: use real repo
     "push_dest": "ssh://hg.mozilla.org/users/jlorenzo_mozilla.com/tools-fake",
     # date repo used for staging beta
-    "shipped-locales-url": "https://hg.mozilla.org/projects/date/raw-file/{revision}/browser/locales/shipped-locales",
+    "shipped-locales-url": "https://hg.mozilla.org/projects/jamun/raw-file/{revision}/browser/locales/shipped-locales",
     "ignore_no_changes": True,
     "ssh_user": "ffxbld",
     "ssh_key": "~/.ssh/ffxbld_rsa",
