@@ -78,7 +78,6 @@ use gecko_bindings::structs::nsFont;
 use gecko_bindings::structs::nsIAtom;
 use gecko_bindings::structs::nsIURI;
 use gecko_bindings::structs::nsCompatibility;
-use gecko_bindings::structs::nsMediaFeature;
 use gecko_bindings::structs::nsRestyleHint;
 use gecko_bindings::structs::nsStyleBackground;
 unsafe impl Send for nsStyleBackground {}
@@ -836,9 +835,6 @@ extern "C" {
      -> f64;
 }
 extern "C" {
-    pub fn Gecko_IsFramesTimingEnabled() -> bool;
-}
-extern "C" {
     pub fn Gecko_AnimationGetBaseStyle(aBaseStyles:
                                            *mut ::std::os::raw::c_void,
                                        aProperty: nsCSSPropertyID)
@@ -1419,9 +1415,6 @@ extern "C" {
                                                               *mut nsCSSValueSharedList);
 }
 extern "C" {
-    pub fn Gecko_PropertyId_IsPrefEnabled(id: nsCSSPropertyID) -> bool;
-}
-extern "C" {
     pub fn Gecko_nsStyleFont_SetLang(font: *mut nsStyleFont,
                                      atom: *mut nsIAtom);
 }
@@ -1487,9 +1480,6 @@ extern "C" {
 }
 extern "C" {
     pub fn Gecko_StyleSheet_Release(aSheet: *const ServoStyleSheet);
-}
-extern "C" {
-    pub fn Gecko_GetMediaFeatures() -> *const nsMediaFeature;
 }
 extern "C" {
     pub fn Gecko_LookupCSSKeyword(string: *const u8, len: u32)
@@ -2818,6 +2808,16 @@ extern "C" {
                                     snapshots:
                                         *const ServoElementSnapshotTable,
                                     set: RawServoStyleSetBorrowed)
+     -> ServoStyleContextStrong;
+}
+extern "C" {
+    pub fn Servo_ReparentStyle(style_to_reparent: ServoStyleContextBorrowed,
+                               parent_style: ServoStyleContextBorrowed,
+                               parent_style_ignoring_first_line:
+                                   ServoStyleContextBorrowed,
+                               layout_parent_style: ServoStyleContextBorrowed,
+                               element: RawGeckoElementBorrowedOrNull,
+                               set: RawServoStyleSetBorrowed)
      -> ServoStyleContextStrong;
 }
 extern "C" {
