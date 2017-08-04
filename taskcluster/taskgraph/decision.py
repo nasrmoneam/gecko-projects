@@ -85,6 +85,12 @@ PER_PROJECT_PARAMETERS = {
         'include_nightly': False,
     },
 
+    'jamun': {
+        'target_tasks_method': 'mozilla_beta_tasks',
+        'optimize_target_tasks': False,
+        'include_nightly': True,
+    },
+
     # the default parameters are used for projects that do not match above.
     'default': {
         'target_tasks_method': 'default',
