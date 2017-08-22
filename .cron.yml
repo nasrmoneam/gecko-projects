@@ -16,11 +16,11 @@ jobs:
           - oak
       when:
           by-project:
-            # Match buildbot starts for now
-            date: [{hour: 15, minute: 0}]
-            oak: [{hour: 11, minute: 0}]
-            mozilla-central: [{hour: 10, minute: 0}]
-            # No default
+              # Match buildbot starts for now
+              date: [{hour: 15, minute: 0}]
+              oak: [{hour: 11, minute: 0}]
+              mozilla-central: [{hour: 10, minute: 0}]
+              # No default
 
     - name: nightly-desktop-linux
       job:
@@ -31,7 +31,7 @@ jobs:
           - mozilla-central
           - date
           - oak
-      when: [] # never (hook only)
+      when: []  # never (hook only)
 
     - name: nightly-desktop-osx
       job:
@@ -42,7 +42,7 @@ jobs:
           - mozilla-central
           - date
           - oak
-      when: [] # never (hook only)
+      when: []  # never (hook only)
 
     - name: nightly-desktop-win32
       job:
