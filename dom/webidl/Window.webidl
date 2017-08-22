@@ -80,9 +80,6 @@ interface XULControllers;
   [Throws, UnsafeInPrerendering, NeedsSubjectPrincipal] boolean confirm(optional DOMString message = "");
   [Throws, UnsafeInPrerendering, NeedsSubjectPrincipal] DOMString? prompt(optional DOMString message = "", optional DOMString default = "");
   [Throws, UnsafeInPrerendering] void print();
-  //[Throws] any showModalDialog(DOMString url, optional any argument);
-  [Throws, Func="nsGlobalWindow::IsShowModalDialogEnabled", UnsafeInPrerendering, NeedsSubjectPrincipal]
-  any showModalDialog(DOMString url, optional any argument, optional DOMString options = "");
 
   [Throws, CrossOriginCallable, NeedsSubjectPrincipal]
   void postMessage(any message, DOMString targetOrigin, optional sequence<object> transfer = []);
@@ -231,17 +228,6 @@ interface SpeechSynthesisGetter {
 Window implements SpeechSynthesisGetter;
 #endif
 
-// http://www.whatwg.org/specs/web-apps/current-work/
-[NoInterfaceObject]
-interface WindowModal {
-  [Throws, Func="nsGlobalWindow::IsModalContentWindow", NeedsSubjectPrincipal]
-  readonly attribute any dialogArguments;
-
-  [Throws, Func="nsGlobalWindow::IsModalContentWindow", NeedsSubjectPrincipal]
-  attribute any returnValue;
-};
-Window implements WindowModal;
-
 // Mozilla-specific stuff
 partial interface Window {
   //[NewObject, Throws] CSSStyleDeclaration getDefaultComputedStyle(Element elt, optional DOMString pseudoElt = "");
@@ -331,12 +317,6 @@ partial interface Window {
            attribute EventHandler onuserproximity;
            attribute EventHandler ondevicelight;
 
-#ifdef MOZ_B2G
-           attribute EventHandler onmoztimechange;
-           attribute EventHandler onmoznetworkupload;
-           attribute EventHandler onmoznetworkdownload;
-#endif
-
   void                      dump(DOMString str);
 
   /**
@@ -373,7 +353,7 @@ Window implements TouchEventHandlers;
 
 Window implements OnErrorEventHandlerForWindow;
 
-#if defined(MOZ_WIDGET_ANDROID) || defined(MOZ_WIDGET_GONK)
+#if defined(MOZ_WIDGET_ANDROID)
 // https://compat.spec.whatwg.org/#windoworientation-interface
 partial interface Window {
   [NeedsCallerType]

@@ -17,13 +17,15 @@ use std::fmt;
 use style_traits::{ToCss, ParseError, StyleParseError};
 use style_traits::values::specified::AllowedNumericType;
 use super::{Auto, CSSFloat, CSSInteger, Either, None_};
-use super::computed::{self, Context, ToComputedValue};
+use super::computed::{Context, ToComputedValue};
+use super::generics::{GreaterThanOrEqualToOne, NonNegative};
 use super::generics::grid::{TrackBreadth as GenericTrackBreadth, TrackSize as GenericTrackSize};
 use super::generics::grid::TrackList as GenericTrackList;
 use values::computed::ComputedValueAsSpecified;
 use values::specified::calc::CalcNode;
 
 pub use properties::animated_properties::TransitionProperty;
+pub use self::angle::Angle;
 #[cfg(feature = "gecko")]
 pub use self::align::{AlignItems, AlignJustifyContent, AlignJustifySelf, JustifyItems};
 pub use self::background::BackgroundSize;
@@ -40,16 +42,21 @@ pub use self::length::{AbsoluteLength, CalcLengthOrPercentage, CharacterWidth};
 pub use self::length::{FontRelativeLength, Length, LengthOrNone, LengthOrNumber};
 pub use self::length::{LengthOrPercentage, LengthOrPercentageOrAuto};
 pub use self::length::{LengthOrPercentageOrNone, MaxLength, MozLength};
-pub use self::length::{NoCalcLength, Percentage, ViewportPercentageLength};
+pub use self::length::{NoCalcLength, ViewportPercentageLength};
+pub use self::length::NonNegativeLengthOrPercentage;
 pub use self::rect::LengthOrNumberRect;
+pub use self::percentage::Percentage;
 pub use self::position::{Position, PositionComponent};
+pub use self::svg::{SVGLength, SVGOpacity, SVGPaint, SVGPaintKind, SVGStrokeDashArray, SVGWidth};
 pub use self::text::{InitialLetter, LetterSpacing, LineHeight, WordSpacing};
+pub use self::time::Time;
 pub use self::transform::{TimingFunction, TransformOrigin};
 pub use super::generics::grid::GridLine;
 pub use super::generics::grid::GridTemplateComponent as GenericGridTemplateComponent;
 
 #[cfg(feature = "gecko")]
 pub mod align;
+pub mod angle;
 pub mod background;
 pub mod basic_shape;
 pub mod border;
@@ -62,9 +69,12 @@ pub mod gecko;
 pub mod grid;
 pub mod image;
 pub mod length;
+pub mod percentage;
 pub mod position;
 pub mod rect;
+pub mod svg;
 pub mod text;
+pub mod time;
 pub mod transform;
 
 /// Common handling for the specified value CSS url() values.
@@ -72,6 +82,7 @@ pub mod url {
 use cssparser::Parser;
 use parser::{Parse, ParserContext};
 use style_traits::ParseError;
+#[cfg(feature = "gecko")]
 use values::computed::ComputedValueAsSpecified;
 
 #[cfg(feature = "servo")]
@@ -88,7 +99,7 @@ impl Parse for SpecifiedUrl {
 
 impl Eq for SpecifiedUrl {}
 
-// TODO(emilio): Maybe consider ComputedUrl to save a word in style structs?
+#[cfg(feature = "gecko")]
 impl ComputedValueAsSpecified for SpecifiedUrl {}
 
 no_viewport_percentage!(SpecifiedUrl);
@@ -145,146 +156,6 @@ pub fn parse_number_with_clamping_mode<'i, 't>(context: &ParserContext,
     })
 }
 
-#[derive(Clone, Copy, Debug, HasViewportPercentage, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf, Deserialize, Serialize))]
-/// An angle consisting of a value and a unit.
-///
-/// Computed Angle is essentially same as specified angle except calc
-/// value serialization. Therefore we are using computed Angle enum
-/// to hold the value and unit type.
-pub struct Angle {
-    value: computed::Angle,
-    was_calc: bool,
-}
-
-impl ToCss for Angle {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        if self.was_calc {
-            dest.write_str("calc(")?;
-        }
-        self.value.to_css(dest)?;
-        if self.was_calc {
-            dest.write_str(")")?;
-        }
-        Ok(())
-    }
-}
-
-impl ToComputedValue for Angle {
-    type ComputedValue = computed::Angle;
-
-    fn to_computed_value(&self, _context: &Context) -> Self::ComputedValue {
-        self.value
-    }
-
-    fn from_computed_value(computed: &Self::ComputedValue) -> Self {
-        Angle {
-            value: *computed,
-            was_calc: false,
-        }
-    }
-}
-
-impl Angle {
-    /// Returns an angle with the given value in degrees.
-    pub fn from_degrees(value: CSSFloat, was_calc: bool) -> Self {
-        Angle { value: computed::Angle::Degree(value), was_calc: was_calc }
-    }
-
-    /// Returns an angle with the given value in gradians.
-    pub fn from_gradians(value: CSSFloat, was_calc: bool) -> Self {
-        Angle { value: computed::Angle::Gradian(value), was_calc: was_calc }
-    }
-
-    /// Returns an angle with the given value in turns.
-    pub fn from_turns(value: CSSFloat, was_calc: bool) -> Self {
-        Angle { value: computed::Angle::Turn(value), was_calc: was_calc }
-    }
-
-    /// Returns an angle with the given value in radians.
-    pub fn from_radians(value: CSSFloat, was_calc: bool) -> Self {
-        Angle { value: computed::Angle::Radian(value), was_calc: was_calc }
-    }
-
-    #[inline]
-    #[allow(missing_docs)]
-    pub fn radians(self) -> f32 {
-        self.value.radians()
-    }
-
-    /// Returns an angle value that represents zero.
-    pub fn zero() -> Self {
-        Self::from_degrees(0.0, false)
-    }
-
-    /// Returns an `Angle` parsed from a `calc()` expression.
-    pub fn from_calc(radians: CSSFloat) -> Self {
-        Angle {
-            value: computed::Angle::Radian(radians),
-            was_calc: true,
-        }
-    }
-}
-
-impl Parse for Angle {
-    /// Parses an angle according to CSS-VALUES § 6.1.
-    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
-        // FIXME: remove clone() when lifetimes are non-lexical
-        let token = input.next()?.clone();
-        match token {
-            Token::Dimension { value, ref unit, .. } => {
-                Angle::parse_dimension(value, unit, /* from_calc = */ false)
-            }
-            Token::Function(ref name) if name.eq_ignore_ascii_case("calc") => {
-                return input.parse_nested_block(|i| CalcNode::parse_angle(context, i))
-            }
-            _ => Err(())
-        }.map_err(|()| BasicParseError::UnexpectedToken(token.clone()).into())
-    }
-}
-
-impl Angle {
-    /// Parse an `<angle>` value given a value and an unit.
-    pub fn parse_dimension(
-        value: CSSFloat,
-        unit: &str,
-        from_calc: bool)
-        -> Result<Angle, ()>
-    {
-        let angle = match_ignore_ascii_case! { unit,
-            "deg" => Angle::from_degrees(value, from_calc),
-            "grad" => Angle::from_gradians(value, from_calc),
-            "turn" => Angle::from_turns(value, from_calc),
-            "rad" => Angle::from_radians(value, from_calc),
-             _ => return Err(())
-        };
-        Ok(angle)
-    }
-    /// Parse an angle, including unitless 0 degree.
-    ///
-    /// Note that numbers without any AngleUnit, including unitless 0 angle,
-    /// should be invalid. However, some properties still accept unitless 0
-    /// angle and stores it as '0deg'.
-    ///
-    /// We can remove this and get back to the unified version Angle::parse once
-    /// https://github.com/w3c/csswg-drafts/issues/1162 is resolved.
-    pub fn parse_with_unitless<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                                       -> Result<Self, ParseError<'i>> {
-        // FIXME: remove clone() when lifetimes are non-lexical
-        let token = input.next()?.clone();
-        match token {
-            Token::Dimension { value, ref unit, .. } => {
-                Angle::parse_dimension(value, unit, /* from_calc = */ false)
-            }
-            Token::Number { value, .. } if value == 0. => Ok(Angle::zero()),
-            Token::Function(ref name) if name.eq_ignore_ascii_case("calc") => {
-                return input.parse_nested_block(|i| CalcNode::parse_angle(context, i))
-            }
-            _ => Err(())
-        }.map_err(|()| BasicParseError::UnexpectedToken(token.clone()).into())
-    }
-}
-
 // The integer values here correspond to the border conflict resolution rules in CSS 2.1 §
 // 17.6.2.1. Higher values override lower values.
 define_numbered_css_keyword_enum! { BorderStyle:
@@ -306,128 +177,6 @@ impl BorderStyle {
     /// Whether this border style is either none or hidden.
     pub fn none_or_hidden(&self) -> bool {
         matches!(*self, BorderStyle::none | BorderStyle::hidden)
-    }
-}
-
-/// A time in seconds according to CSS-VALUES § 6.2.
-#[derive(Clone, Copy, Debug, HasViewportPercentage, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-pub struct Time {
-    seconds: CSSFloat,
-    was_calc: bool,
-}
-
-impl Time {
-    /// Return a `<time>` value that represents `seconds` seconds.
-    pub fn from_seconds(seconds: CSSFloat) -> Self {
-        Time {
-            seconds: seconds,
-            was_calc: false,
-        }
-    }
-
-    /// Returns a time that represents a duration of zero.
-    pub fn zero() -> Self {
-        Self::from_seconds(0.0)
-    }
-
-    /// Returns the time in fractional seconds.
-    pub fn seconds(self) -> CSSFloat {
-        self.seconds
-    }
-
-    /// Parses a time according to CSS-VALUES § 6.2.
-    pub fn parse_dimension(
-        value: CSSFloat,
-        unit: &str,
-        from_calc: bool)
-        -> Result<Time, ()>
-    {
-        let seconds = match_ignore_ascii_case! { unit,
-            "s" => value,
-            "ms" => value / 1000.0,
-            _ => return Err(())
-        };
-
-        Ok(Time {
-            seconds: seconds,
-            was_calc: from_calc,
-        })
-    }
-
-    /// Returns a `Time` value from a CSS `calc()` expression.
-    pub fn from_calc(seconds: CSSFloat) -> Self {
-        Time {
-            seconds: seconds,
-            was_calc: true,
-        }
-    }
-
-    fn parse_with_clamping_mode<'i, 't>(context: &ParserContext,
-                                        input: &mut Parser<'i, 't>,
-                                        clamping_mode: AllowedNumericType)
-                                        -> Result<Self, ParseError<'i>> {
-        use style_traits::PARSING_MODE_DEFAULT;
-
-        // FIXME: remove early returns when lifetimes are non-lexical
-        match input.next() {
-            // Note that we generally pass ParserContext to is_ok() to check
-            // that the ParserMode of the ParserContext allows all numeric
-            // values for SMIL regardless of clamping_mode, but in this Time
-            // value case, the value does not animate for SMIL at all, so we use
-            // PARSING_MODE_DEFAULT directly.
-            Ok(&Token::Dimension { value, ref unit, .. }) if clamping_mode.is_ok(PARSING_MODE_DEFAULT, value) => {
-                return Time::parse_dimension(value, unit, /* from_calc = */ false)
-                    .map_err(|()| StyleParseError::UnspecifiedError.into())
-            }
-            Ok(&Token::Function(ref name)) if name.eq_ignore_ascii_case("calc") => {}
-            Ok(t) => return Err(BasicParseError::UnexpectedToken(t.clone()).into()),
-            Err(e) => return Err(e.into())
-        }
-        match input.parse_nested_block(|i| CalcNode::parse_time(context, i)) {
-            Ok(time) if clamping_mode.is_ok(PARSING_MODE_DEFAULT, time.seconds) => Ok(time),
-            _ => Err(StyleParseError::UnspecifiedError.into()),
-        }
-    }
-
-    /// Parse <time> that values are non-negative.
-    pub fn parse_non_negative<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                                      -> Result<Self, ParseError<'i>> {
-        Self::parse_with_clamping_mode(context, input, AllowedNumericType::NonNegative)
-    }
-}
-
-impl ToComputedValue for Time {
-    type ComputedValue = computed::Time;
-
-    fn to_computed_value(&self, _context: &Context) -> Self::ComputedValue {
-        computed::Time::from_seconds(self.seconds())
-    }
-
-    fn from_computed_value(computed: &Self::ComputedValue) -> Self {
-        Time {
-            seconds: computed.seconds(),
-            was_calc: false,
-        }
-    }
-}
-
-impl Parse for Time {
-    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
-        Self::parse_with_clamping_mode(context, input, AllowedNumericType::All)
-    }
-}
-
-impl ToCss for Time {
-    fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-        if self.was_calc {
-            dest.write_str("calc(")?;
-        }
-        write!(dest, "{}s", self.seconds)?;
-        if self.was_calc {
-            dest.write_str(")")?;
-        }
-        Ok(())
     }
 }
 
@@ -504,6 +253,33 @@ impl ToCss for Number {
             dest.write_str(")")?;
         }
         Ok(())
+    }
+}
+
+/// A Number which is >= 0.0.
+pub type NonNegativeNumber = NonNegative<Number>;
+
+impl Parse for NonNegativeNumber {
+    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
+        parse_number_with_clamping_mode(context, input, AllowedNumericType::NonNegative)
+            .map(NonNegative::<Number>)
+    }
+}
+
+impl NonNegativeNumber {
+    /// Returns a new non-negative number with the value `val`.
+    pub fn new(val: CSSFloat) -> Self {
+        NonNegative::<Number>(Number::new(val.max(0.)))
+    }
+}
+
+/// A Number which is >= 1.0.
+pub type GreaterThanOrEqualToOneNumber = GreaterThanOrEqualToOne<Number>;
+
+impl Parse for GreaterThanOrEqualToOneNumber {
+    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
+        parse_number_with_clamping_mode(context, input, AllowedNumericType::AtLeastOne)
+            .map(GreaterThanOrEqualToOne::<Number>)
     }
 }
 
@@ -664,7 +440,7 @@ impl ToCss for Integer {
         if self.was_calc {
             dest.write_str("calc(")?;
         }
-        write!(dest, "{}", self.value)?;
+        self.value.to_css(dest)?;
         if self.was_calc {
             dest.write_str(")")?;
         }
@@ -687,6 +463,19 @@ impl IntegerOrAuto {
     }
 }
 
+/// A wrapper of Integer, with value >= 1.
+pub type PositiveInteger = GreaterThanOrEqualToOne<Integer>;
+
+impl Parse for PositiveInteger {
+    #[inline]
+    fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
+        Integer::parse_positive(context, input).map(GreaterThanOrEqualToOne::<Integer>)
+    }
+}
+
+/// PositiveInteger | auto
+pub type PositiveIntegerOrAuto = Either<PositiveInteger, Auto>;
+
 #[allow(missing_docs)]
 pub type UrlOrNone = Either<SpecifiedUrl, None_>;
 
@@ -703,30 +492,11 @@ pub type TrackList = GenericTrackList<LengthOrPercentage>;
 /// `<grid-template-rows> | <grid-template-columns>`
 pub type GridTemplateComponent = GenericGridTemplateComponent<LengthOrPercentage>;
 
-no_viewport_percentage!(SVGPaint);
-
-/// Specified SVG Paint value
-pub type SVGPaint = ::values::generics::SVGPaint<RGBAColor>;
-
-/// Specified SVG Paint Kind value
-pub type SVGPaintKind = ::values::generics::SVGPaintKind<RGBAColor>;
-
 /// <length> | <percentage> | <number>
 pub type LengthOrPercentageOrNumber = Either<Number, LengthOrPercentage>;
 
-impl LengthOrPercentageOrNumber {
-    /// parse a <length-percentage> | <number> enforcing that the contents aren't negative
-    pub fn parse_non_negative<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                                      -> Result<Self, ParseError<'i>> {
-        // NB: Parse numbers before Lengths so we are consistent about how to
-        // recognize and serialize "0".
-        if let Ok(num) = input.try(|i| Number::parse_non_negative(context, i)) {
-            return Ok(Either::First(num))
-        }
-
-        LengthOrPercentage::parse_non_negative(context, input).map(Either::Second)
-    }
-}
+/// NonNegativeLengthOrPercentage | NonNegativeNumber
+pub type NonNegativeLengthOrPercentageOrNumber = Either<NonNegativeNumber, NonNegativeLengthOrPercentage>;
 
 #[derive(Clone, Debug, HasViewportPercentage, PartialEq)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]

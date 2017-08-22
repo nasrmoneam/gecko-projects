@@ -23,6 +23,7 @@
 #include "mozilla/EventDispatcher.h"
 #include "mozilla/EventListenerManager.h"
 #include "mozilla/EventStates.h"
+#include "mozilla/HTMLEditor.h"
 #include "mozilla/ServoRestyleManager.h"
 #include "mozilla/TextEditor.h"
 #include "mozilla/URLExtraData.h"
@@ -271,12 +272,12 @@ nsIContent::GetDesiredIMEState()
   if (!pc) {
     return IMEState(IMEState::DISABLED);
   }
-  nsIEditor* editor = nsContentUtils::GetHTMLEditor(pc);
-  if (!editor) {
+  HTMLEditor* htmlEditor = nsContentUtils::GetHTMLEditor(pc);
+  if (!htmlEditor) {
     return IMEState(IMEState::DISABLED);
   }
   IMEState state;
-  editor->GetPreferredIMEState(&state);
+  htmlEditor->GetPreferredIMEState(&state);
   return state;
 }
 
@@ -383,7 +384,9 @@ nsIContent::GetBaseURI(bool aTryUseXHRDocBaseURI) const
     MOZ_ASSERT(bindingParent);
     SVGUseElement* useElement = static_cast<SVGUseElement*>(bindingParent);
     // XXX Ignore xml:base as we are removing it.
-    return do_AddRef(useElement->GetContentURLData()->BaseURI());
+    if (URLExtraData* data = useElement->GetContentURLData()) {
+      return do_AddRef(data->BaseURI());
+    }
   }
 
   nsIDocument* doc = OwnerDoc();
@@ -453,7 +456,9 @@ nsIContent::GetBaseURIWithoutXMLBase() const
     nsIContent* bindingParent = GetBindingParent();
     MOZ_ASSERT(bindingParent);
     SVGUseElement* useElement = static_cast<SVGUseElement*>(bindingParent);
-    return useElement->GetContentURLData()->BaseURI();
+    if (URLExtraData* data = useElement->GetContentURLData()) {
+      return data->BaseURI();
+    }
   }
   // This also ignores the case that SVG inside XBL binding.
   // But it is probably fine.
@@ -487,7 +492,9 @@ nsIContent::GetURLDataForStyleAttr() const
     nsIContent* bindingParent = GetBindingParent();
     MOZ_ASSERT(bindingParent);
     SVGUseElement* useElement = static_cast<SVGUseElement*>(bindingParent);
-    return useElement->GetContentURLData();
+    if (URLExtraData* data = useElement->GetContentURLData()) {
+      return data;
+    }
   }
   // We are not going to support xml:base for stylo, but we want to
   // ensure we unship that support before we enabling stylo.
@@ -2137,9 +2144,9 @@ NS_INTERFACE_MAP_BEGIN(FragmentOrElement)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(FragmentOrElement)
-NS_IMPL_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(FragmentOrElement,
-                                                   nsNodeUtils::LastRelease(this))
+NS_IMPL_MAIN_THREAD_ONLY_CYCLE_COLLECTING_ADDREF(FragmentOrElement)
+NS_IMPL_MAIN_THREAD_ONLY_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(FragmentOrElement,
+                                                                    nsNodeUtils::LastRelease(this))
 
 //----------------------------------------------------------------------
 
@@ -2496,19 +2503,18 @@ FragmentOrElement::FireNodeRemovedForChildren()
   }
 }
 
-size_t
-FragmentOrElement::SizeOfExcludingThis(SizeOfState& aState) const
+void
+FragmentOrElement::AddSizeOfExcludingThis(SizeOfState& aState,
+                                          nsStyleSizes& aSizes,
+                                          size_t* aNodeSize) const
 {
-  size_t n = 0;
-  n += nsIContent::SizeOfExcludingThis(aState);
-  n += mAttrsAndChildren.SizeOfExcludingThis(aState.mMallocSizeOf);
+  nsIContent::AddSizeOfExcludingThis(aState, aSizes, aNodeSize);
+  *aNodeSize += mAttrsAndChildren.SizeOfExcludingThis(aState.mMallocSizeOf);
 
   nsDOMSlots* slots = GetExistingDOMSlots();
   if (slots) {
-    n += slots->SizeOfIncludingThis(aState.mMallocSizeOf);
+    *aNodeSize += slots->SizeOfIncludingThis(aState.mMallocSizeOf);
   }
-
-  return n;
 }
 
 void

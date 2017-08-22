@@ -243,6 +243,17 @@ public class StringUtils {
         return uri.getQueryParameterNames();
     }
 
+    /**
+     * @return  the index of the path segment of URLs
+     */
+    public static int pathStartIndex(String text) {
+        if (text.contains("://")) {
+            return text.indexOf('/', text.indexOf("://") + 3);
+        } else {
+            return text.indexOf('/');
+        }
+    }
+
     public static String safeSubstring(@NonNull final String str, final int start, final int end) {
         return str.substring(
                 Math.max(0, start),
@@ -275,5 +286,19 @@ public class StringUtils {
         }
 
         return "\u200E" + text;
+    }
+
+    /**
+     * Case-insensitive version of {@link String#startsWith(String)}.
+     */
+    public static boolean caseInsensitiveStartsWith(String text, String prefix) {
+        return caseInsensitiveStartsWith(text, prefix, 0);
+    }
+
+    /**
+     * Case-insensitive version of {@link String#startsWith(String, int)}.
+     */
+    public static boolean caseInsensitiveStartsWith(String text, String prefix, int start) {
+        return text.regionMatches(true, start, prefix, 0, prefix.length());
     }
 }

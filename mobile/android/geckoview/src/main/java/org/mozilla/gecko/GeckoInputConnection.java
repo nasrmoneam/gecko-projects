@@ -31,6 +31,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
 import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.method.KeyListener;
 import android.text.method.TextKeyListener;
 import android.util.DisplayMetrics;
@@ -65,6 +66,7 @@ class GeckoInputConnection
     private String mIMETypeHint = "";
     private String mIMEModeHint = "";
     private String mIMEActionHint = "";
+    private boolean mInPrivateBrowsing;
     private boolean mFocused;
 
     private String mCurrentInputMethod = "";
@@ -343,6 +345,7 @@ class GeckoInputConnection
                             getComposingSpanEnd(editable));
     }
 
+    @TargetApi(21)
     @Override
     public void updateCompositionRects(final RectF[] aRects) {
         if (!(Build.VERSION.SDK_INT >= 21)) {
@@ -606,6 +609,10 @@ class GeckoInputConnection
             if (DEBUG)
                 Log.w(LOGTAG, "Unexpected mIMEActionHint=\"" + mIMEActionHint + "\"");
             outAttrs.actionLabel = mIMEActionHint;
+        }
+
+        if (mInPrivateBrowsing) {
+            outAttrs.imeOptions |= InputMethods.IME_FLAG_NO_PERSONALIZED_LEARNING;
         }
 
         Context context = getView().getContext();
@@ -928,6 +935,27 @@ class GeckoInputConnection
                 showSoftInput();
                 break;
 
+            case GeckoEditableListener.NOTIFY_IME_TO_COMMIT_COMPOSITION: {
+                // Gecko already committed its composition. However, Android keyboards
+                // have trouble dealing with us removing the composition manually on the
+                // Java side. Therefore, we keep the composition intact on the Java side.
+                // The text content should still be in-sync on both sides.
+                //
+                // Nevertheless, if we somehow lost the composition, we must force the
+                // keyboard to reset.
+                final Editable editable = getEditable();
+                final Object[] spans = editable.getSpans(0, editable.length(), Object.class);
+                for (final Object span : spans) {
+                    if ((editable.getSpanFlags(span) & Spanned.SPAN_COMPOSING) != 0) {
+                        // Still have composition; no need to reset.
+                        return;
+                    }
+                }
+                // No longer have composition; perform reset.
+                restartInput();
+                break;
+            }
+
             default:
                 if (DEBUG) {
                     throw new IllegalArgumentException("Unexpected NOTIFY_IME=" + type);
@@ -937,7 +965,8 @@ class GeckoInputConnection
     }
 
     @Override
-    public void notifyIMEContext(int state, String typeHint, String modeHint, String actionHint) {
+    public void notifyIMEContext(int state, String typeHint, String modeHint, String actionHint,
+                                 boolean inPrivateBrowsing) {
         // For some input type we will use a widget to display the ui, for those we must not
         // display the ime. We can display a widget for date and time types and, if the sdk version
         // is 11 or greater, for datetime/month/week as well.
@@ -964,6 +993,7 @@ class GeckoInputConnection
         mIMETypeHint = (typeHint == null) ? "" : typeHint;
         mIMEModeHint = (modeHint == null) ? "" : modeHint;
         mIMEActionHint = (actionHint == null) ? "" : actionHint;
+        mInPrivateBrowsing = inPrivateBrowsing;
 
         // These fields are reset here and will be updated when restartInput is called below
         mUpdateRequest = null;

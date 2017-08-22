@@ -395,15 +395,6 @@ nsComputedDOMStyle::GetPropertyValue(const nsAString& aPropertyName,
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsComputedDOMStyle::GetAuthoredPropertyValue(const nsAString& aPropertyName,
-                                             nsAString& aReturn)
-{
-  // Authored style doesn't make sense to return from computed DOM style,
-  // so just return whatever GetPropertyValue() returns.
-  return GetPropertyValue(aPropertyName, aReturn);
-}
-
 /* static */
 already_AddRefed<nsStyleContext>
 nsComputedDOMStyle::GetStyleContext(Element* aElement,
@@ -595,7 +586,26 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
     presShell = aPresShell;
     if (!presShell)
       return nullptr;
+
+    // In some edge cases, the caller document might be using a different style
+    // backend than the callee. This causes problems because the cached parsed
+    // style attributes in the callee document will be a different format than
+    // the caller expects. Supporting this would be a pain, and we're already
+    // in edge-case-squared, so we just return.
+    if (presShell->GetDocument()->GetStyleBackendType() !=
+        aElement->OwnerDoc()->GetStyleBackendType()) {
+      return nullptr;
+    }
   }
+
+  // We do this check to avoid having to add too much special casing of
+  // Servo functions we call to explicitly ignore any element data in
+  // the tree. (See comment in ServoStyleSet::ResolveStyleLazily.)
+  MOZ_RELEASE_ASSERT((aStyleType == eAll && aAnimationFlag == eWithAnimation) ||
+                     !aElement->OwnerDoc()->GetBFCacheEntry(),
+                     "nsComputedDOMStyle doesn't support getting styles without "
+                     "document rules or without animation for documents in the "
+                     "bfcache");
 
   auto pseudoType = CSSPseudoElementType::NotPseudo;
   if (aPseudo) {
@@ -666,7 +676,7 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
                                ? StyleRuleInclusion::DefaultOnly
                                : StyleRuleInclusion::All;
     RefPtr<ServoStyleContext> result =
-       servoSet->ResolveTransientStyle(aElement, pseudoType, aPseudo, rules);
+       servoSet->ResolveStyleLazily(aElement, pseudoType, aPseudo, rules);
     if (aAnimationFlag == eWithAnimation) {
       return result.forget();
     }
@@ -1256,7 +1266,7 @@ nsComputedDOMStyle::DoGetColumnGap()
 
   const nsStyleColumn* column = StyleColumn();
   if (column->mColumnGap.GetUnit() == eStyleUnit_Normal) {
-    val->SetAppUnits(StyleFont()->mFont.size);
+    val->SetIdent(eCSSKeyword_normal);
   } else {
     SetValueToCoord(val, StyleColumn()->mColumnGap, true);
   }
@@ -3108,7 +3118,8 @@ nsComputedDOMStyle::DoGetGridTemplateColumns()
     info = gridFrame->GetComputedTemplateColumns();
   }
 
-  return GetGridTemplateColumnsRows(StylePosition()->mGridTemplateColumns, info);
+  return GetGridTemplateColumnsRows(
+    StylePosition()->GridTemplateColumns(), info);
 }
 
 already_AddRefed<CSSValue>
@@ -3124,7 +3135,7 @@ nsComputedDOMStyle::DoGetGridTemplateRows()
     info = gridFrame->GetComputedTemplateRows();
   }
 
-  return GetGridTemplateColumnsRows(StylePosition()->mGridTemplateRows, info);
+  return GetGridTemplateColumnsRows(StylePosition()->GridTemplateRows(), info);
 }
 
 already_AddRefed<CSSValue>

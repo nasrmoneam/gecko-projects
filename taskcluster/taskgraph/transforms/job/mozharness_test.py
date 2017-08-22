@@ -13,6 +13,7 @@ from taskgraph.transforms.tests import (
     normpath
 )
 from taskgraph.transforms.job.common import (
+    docker_worker_add_tooltool,
     support_vcs_checkout,
 )
 import os
@@ -24,6 +25,7 @@ BUILDER_NAME_PREFIX = {
     'linux64-asan': 'Ubuntu ASAN VM 12.04 x64',
     'linux64-ccov': 'Ubuntu Code Coverage VM 12.04 x64',
     'linux64-jsdcov': 'Ubuntu Code Coverage VM 12.04 x64',
+    'linux64-qr': 'Ubuntu VM 12.04 x64',
     'linux64-stylo': 'Ubuntu VM 12.04 x64',
     'linux64-stylo-sequential': 'Ubuntu VM 12.04 x64',
     'linux64-devedition': 'Ubuntu VM 12.04 x64',
@@ -147,16 +149,7 @@ def mozharness_test_on_docker(config, job, taskdesc):
     # handle some of the mozharness-specific options
 
     if mozharness['tooltool-downloads']:
-        worker['relengapi-proxy'] = True
-        worker['caches'].append({
-            'type': 'persistent',
-            'name': 'tooltool-cache',
-            'mount-point': '/home/worker/tooltool-cache',
-        })
-        taskdesc['scopes'].extend([
-            'docker-worker:relengapi-proxy:tooltool.download.internal',
-            'docker-worker:relengapi-proxy:tooltool.download.public',
-        ])
+        docker_worker_add_tooltool(config, job, taskdesc, internal=True)
 
     if test['reboot']:
         raise Exception('reboot: {} not supported on generic-worker'.format(test['reboot']))
@@ -468,6 +461,9 @@ def mozharness_test_buildbot_bridge(config, job, taskdesc):
     if mozharness.get('chunked', False):
         this_chunk = test.get('this-chunk')
         test_name = '{}-{}'.format(test_name, this_chunk)
+    elif test.get('this-chunk', 1) != 1:
+        raise Exception("Unexpected chunking when 'chunked' attribute is 'false'"
+                        " for {}".format(test_name))
 
     if test.get('suite', '') == 'talos':
         variant = get_variant(test['test-platform'])
@@ -478,7 +474,7 @@ def mozharness_test_buildbot_bridge(config, job, taskdesc):
             variant = ''
 
         # this variant name has branch after the variant type in BBB bug 1338871
-        if variant in ('stylo', 'stylo-sequential', 'devedition'):
+        if variant in ('qr', 'stylo', 'stylo-sequential', 'devedition'):
             name = '{prefix} {variant} {branch} talos {test_name}'
         elif variant:
             name = '{prefix} {branch} {variant} talos {test_name}'

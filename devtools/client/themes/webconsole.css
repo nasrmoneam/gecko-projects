@@ -148,7 +148,7 @@ a {
   display: flex;
 }
 
-.message-body > * {
+.message-body {
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -215,10 +215,6 @@ a {
 .webconsole-filter-button[category="net"] > .toolbarbutton-menubutton-button:before {
   background-image: linear-gradient(#444444, #000000);
   border-color: #777;
-}
-
-.message:hover {
-  background-color: var(--theme-selection-background-semitransparent) !important;
 }
 
 .theme-light .message[severity=error],
@@ -756,6 +752,15 @@ a.learn-more-link.webconsole-learn-more-link {
 
 .webconsole-filterbar-primary .devtools-plaininput {
   flex: 1 1 100%;
+}
+
+.webconsole-output-wrapper .message {
+  --border-size: 3px;
+  border-inline-start: var(--border-size) solid transparent;
+}
+
+.webconsole-output-wrapper .message:hover {
+  border-inline-start-color: #0a84ff; /* Photon Design System Blue 50 */
 }
 
 .webconsole-output-wrapper .message-flex-body > .message-body {

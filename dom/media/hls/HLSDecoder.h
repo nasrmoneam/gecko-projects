@@ -7,23 +7,21 @@
 #ifndef HLSDecoder_h_
 #define HLSDecoder_h_
 
-#include "ChannelMediaDecoder.h"
+#include "HLSResource.h"
+#include "MediaDecoder.h"
 
 namespace mozilla {
-class MediaFormatReader;
 
-class HLSDecoder final : public ChannelMediaDecoder
+class HLSDecoder final : public MediaDecoder
 {
 public:
   // MediaDecoder interface.
   explicit HLSDecoder(MediaDecoderInit& aInit)
-    : ChannelMediaDecoder(aInit)
+    : MediaDecoder(aInit)
   {
   }
 
-  ChannelMediaDecoder* Clone(MediaDecoderInit& aInit) override;
-
-  MediaDecoderStateMachine* CreateStateMachine() override;
+  void Shutdown() override;
 
   // Returns true if the HLS backend is pref'ed on.
   static bool IsEnabled();
@@ -33,14 +31,30 @@ public:
   // If provided, codecs are checked for support.
   static bool IsSupportedType(const MediaContainerType& aContainerType);
 
-  nsresult Load(nsIChannel* aChannel,
-                bool aIsPrivateBrowsing,
-                nsIStreamListener**) override;
-  nsresult Load(MediaResource*) override;
+  nsresult Load(nsIChannel* aChannel);
 
   nsresult Play() override;
 
   void Pause() override;
+
+  void Suspend() override;
+  void Resume() override;
+
+private:
+  MediaResource* GetResource() const override final;
+
+  MediaDecoderStateMachine* CreateStateMachine();
+
+  bool CanPlayThroughImpl() override final
+  {
+    // TODO: We don't know how to estimate 'canplaythrough' for this decoder.
+    // For now we just return true for 'autoplay' can work.
+    return true;
+  }
+
+  bool IsLiveStream() override final { return false; }
+
+  RefPtr<HLSResource> mResource;
 };
 
 } // namespace mozilla

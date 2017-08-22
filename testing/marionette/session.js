@@ -130,6 +130,14 @@ session.Proxy = class {
    */
   init() {
     switch (this.proxyType) {
+      case "autodetect":
+        Preferences.set("network.proxy.type", 4);
+        return true;
+
+      case "direct":
+        Preferences.set("network.proxy.type", 0);
+        return true;
+
       case "manual":
         Preferences.set("network.proxy.type", 1);
         if (this.httpProxy && this.httpProxyPort) {
@@ -159,16 +167,8 @@ session.Proxy = class {
             "network.proxy.autoconfig_url", this.proxyAutoconfigUrl);
         return true;
 
-      case "autodetect":
-        Preferences.set("network.proxy.type", 4);
-        return true;
-
       case "system":
         Preferences.set("network.proxy.type", 5);
-        return true;
-
-      case "noproxy":
-        Preferences.set("network.proxy.type", 0);
         return true;
 
       default:
@@ -211,33 +211,37 @@ session.Proxy = class {
     assert.object(json);
 
     assert.in("proxyType", json);
-    p.proxyType = json.proxyType;
+    p.proxyType = assert.string(json.proxyType);
 
-    if (json.proxyType == "manual") {
-      if (typeof json.httpProxy != "undefined") {
-        p.httpProxy = assert.string(json.httpProxy);
-        p.httpProxyPort = assert.positiveInteger(json.httpProxyPort);
-      }
+    switch (p.proxyType) {
+      case "manual":
+        if (typeof json.httpProxy != "undefined") {
+          p.httpProxy = assert.string(json.httpProxy);
+          p.httpProxyPort = assert.positiveInteger(json.httpProxyPort);
+        }
 
-      if (typeof json.sslProxy != "undefined") {
-        p.sslProxy = assert.string(json.sslProxy);
-        p.sslProxyPort = assert.positiveInteger(json.sslProxyPort);
-      }
+        if (typeof json.sslProxy != "undefined") {
+          p.sslProxy = assert.string(json.sslProxy);
+          p.sslProxyPort = assert.positiveInteger(json.sslProxyPort);
+        }
 
-      if (typeof json.ftpProxy != "undefined") {
-        p.ftpProxy = assert.string(json.ftpProxy);
-        p.ftpProxyPort = assert.positiveInteger(json.ftpProxyPort);
-      }
+        if (typeof json.ftpProxy != "undefined") {
+          p.ftpProxy = assert.string(json.ftpProxy);
+          p.ftpProxyPort = assert.positiveInteger(json.ftpProxyPort);
+        }
 
-      if (typeof json.socksProxy != "undefined") {
-        p.socksProxy = assert.string(json.socksProxy);
-        p.socksProxyPort = assert.positiveInteger(json.socksProxyPort);
-        p.socksProxyVersion = assert.positiveInteger(json.socksProxyVersion);
-      }
-    }
+        if (typeof json.socksProxy != "undefined") {
+          p.socksProxy = assert.string(json.socksProxy);
+          p.socksProxyPort = assert.positiveInteger(json.socksProxyPort);
+          p.socksProxyVersion = assert.positiveInteger(
+              json.socksProxyVersion);
+        }
 
-    if (typeof json.proxyAutoconfigUrl != "undefined") {
-      p.proxyAutoconfigUrl = assert.string(json.proxyAutoconfigUrl);
+        break;
+
+      case "pac":
+        p.proxyAutoconfigUrl = assert.string(json.proxyAutoconfigUrl);
+        break;
     }
 
     return p;
@@ -273,7 +277,7 @@ session.Capabilities = class extends Map {
 
   /**
    * @param {string} key
-   *     Capability name.
+   *     Capability key.
    * @param {(string|number|boolean)} value
    *     JSON-safe capability value.
    */
@@ -302,101 +306,27 @@ session.Capabilities = class extends Map {
   /**
    * Unmarshal a JSON object representation of WebDriver capabilities.
    *
-   * @param {Object.<string, ?>=} json
+   * @param {Object.<string, *>=} json
    *     WebDriver capabilities.
-   * @param {boolean=} merge
-   *     If providing <var>json</var> with <tt>desiredCapabilities</tt> or
-   *     <tt>requiredCapabilities</tt> fields, or both, it should be
-   *     set to true to merge these before parsing.  This indicates that
-   *     the input provided is from a client and not from
-   *     {@link session.Capabilities#toJSON}.
    *
    * @return {session.Capabilities}
    *     Internal representation of WebDriver capabilities.
    */
-  static fromJSON(json, {merge = false} = {}) {
+  static fromJSON(json) {
     if (typeof json == "undefined" || json === null) {
       json = {};
     }
     assert.object(json);
 
-    if (merge) {
-      json = session.Capabilities.merge_(json);
-    }
     return session.Capabilities.match_(json);
   }
 
-  // Processes capabilities as described by WebDriver.
-  static merge_(json) {
-    for (let entry of [json.desiredCapabilities, json.requiredCapabilities]) {
-      if (typeof entry == "undefined" || entry === null) {
-        continue;
-      }
-      assert.object(entry,
-          error.pprint`Expected ${entry} to be a capabilities object`);
-    }
-
-    let desired = json.desiredCapabilities || {};
-    let required = json.requiredCapabilities || {};
-
-    // One level deep union merge of desired- and required capabilities
-    // with preference on required
-    return Object.assign({}, desired, required);
-  }
-
   // Matches capabilities as described by WebDriver.
-  static match_(caps = {}) {
+  static match_(json = {}) {
     let matched = new session.Capabilities();
 
-    const defined = v => typeof v != "undefined" && v !== null;
-    const wildcard = v => v === "*";
-
-    // Iff |actual| provides some value, or is a wildcard or an exact
-    // match of |expected|.  This means it can be null or undefined,
-    // or "*", or "firefox".
-    function stringMatch(actual, expected) {
-      return !defined(actual) || (wildcard(actual) || actual === expected);
-    }
-
-    for (let [k, v] of Object.entries(caps)) {
+    for (let [k, v] of Object.entries(json)) {
       switch (k) {
-        case "browserName":
-          let bname = matched.get("browserName");
-          if (!stringMatch(v, bname)) {
-            throw new TypeError(
-                pprint`Given browserName ${v}, but my name is ${bname}`);
-          }
-          break;
-
-        // TODO(ato): bug 1326397
-        case "browserVersion":
-          let bversion = matched.get("browserVersion");
-          if (!stringMatch(v, bversion)) {
-            throw new TypeError(
-                pprint`Given browserVersion ${v}, ` +
-                pprint`but current version is ${bversion}`);
-          }
-          break;
-
-        case "platformName":
-          let pname = matched.get("platformName");
-          if (!stringMatch(v, pname)) {
-            throw new TypeError(
-                pprint`Given platformName ${v}, ` +
-                pprint`but current platform is ${pname}`);
-          }
-          break;
-
-        // TODO(ato): bug 1326397
-        case "platformVersion":
-          let pversion = matched.get("platformVersion");
-          if (!stringMatch(v, pversion)) {
-            throw new TypeError(
-                pprint`Given platformVersion ${v}, ` +
-                pprint`but current platform version is ${pversion}`);
-          }
-          break;
-
         case "acceptInsecureCerts":
           assert.boolean(v);
           matched.set("acceptInsecureCerts", v);

@@ -72,7 +72,7 @@ LogBlockedRequest(nsIRequest* aRequest,
   }
 
   // Generate the error message
-  nsXPIDLString blockedMessage;
+  nsAutoString blockedMessage;
   NS_ConvertUTF8toUTF16 specUTF16(spec);
   const char16_t* params[] = { specUTF16.get(), aParam };
   rv = nsContentUtils::FormatLocalizedString(nsContentUtils::eSECURITY_PROPERTIES,
@@ -405,7 +405,8 @@ nsCORSListenerProxy::nsCORSListenerProxy(nsIStreamListener* aOuter,
     mOriginHeaderPrincipal(aRequestingPrincipal),
     mWithCredentials(aWithCredentials && !gDisableCORSPrivateData),
     mRequestApproved(false),
-    mHasBeenCrossSite(false)
+    mHasBeenCrossSite(false),
+    mMutex("nsCORSListenerProxy")
 {
 }
 
@@ -421,7 +422,10 @@ nsCORSListenerProxy::Init(nsIChannel* aChannel, DataURIHandling aAllowDataURI)
 
   nsresult rv = UpdateChannel(aChannel, aAllowDataURI, UpdateType::Default);
   if (NS_FAILED(rv)) {
-    mOuterListener = nullptr;
+    {
+      MutexAutoLock lock(mMutex);
+      mOuterListener = nullptr;
+    }
     mRequestingPrincipal = nullptr;
     mOriginHeaderPrincipal = nullptr;
     mOuterNotificationCallbacks = nullptr;
@@ -466,12 +470,22 @@ nsCORSListenerProxy::OnStartRequest(nsIRequest* aRequest,
     }
 
     aRequest->Cancel(NS_ERROR_DOM_BAD_URI);
-    mOuterListener->OnStartRequest(aRequest, aContext);
+    nsCOMPtr<nsIStreamListener> listener;
+    {
+      MutexAutoLock lock(mMutex);
+      listener = mOuterListener;
+    }
+    listener->OnStartRequest(aRequest, aContext);
 
     return NS_ERROR_DOM_BAD_URI;
   }
 
-  return mOuterListener->OnStartRequest(aRequest, aContext);
+  nsCOMPtr<nsIStreamListener> listener;
+  {
+    MutexAutoLock lock(mMutex);
+    listener = mOuterListener;
+  }
+  return listener->OnStartRequest(aRequest, aContext);
 }
 
 namespace {
@@ -616,8 +630,12 @@ nsCORSListenerProxy::OnStopRequest(nsIRequest* aRequest,
                                    nsresult aStatusCode)
 {
   MOZ_ASSERT(mInited, "nsCORSListenerProxy has not been initialized properly");
-  nsresult rv = mOuterListener->OnStopRequest(aRequest, aContext, aStatusCode);
-  mOuterListener = nullptr;
+  nsCOMPtr<nsIStreamListener> listener;
+  {
+    MutexAutoLock lock(mMutex);
+    listener = mOuterListener.forget();
+  }
+  nsresult rv = listener->OnStopRequest(aRequest, aContext, aStatusCode);
   mOuterNotificationCallbacks = nullptr;
   mHttpChannel = nullptr;
   return rv;
@@ -638,8 +656,13 @@ nsCORSListenerProxy::OnDataAvailable(nsIRequest* aRequest,
   if (!mRequestApproved) {
     return NS_ERROR_DOM_BAD_URI;
   }
-  return mOuterListener->OnDataAvailable(aRequest, aContext, aInputStream,
-                                         aOffset, aCount);
+  nsCOMPtr<nsIStreamListener> listener;
+  {
+    MutexAutoLock lock(mMutex);
+    listener = mOuterListener;
+  }
+  return listener->OnDataAvailable(aRequest, aContext, aInputStream,
+                                   aOffset, aCount);
 }
 
 void
@@ -776,12 +799,16 @@ nsCORSListenerProxy::CheckListenerChain()
 {
   MOZ_ASSERT(NS_IsMainThread());
 
-  if (nsCOMPtr<nsIThreadRetargetableStreamListener> retargetableListener =
-        do_QueryInterface(mOuterListener)) {
-    return retargetableListener->CheckListenerChain();
+  nsCOMPtr<nsIThreadRetargetableStreamListener> retargetableListener;
+  {
+    MutexAutoLock lock(mMutex);
+    retargetableListener = do_QueryInterface(mOuterListener);
+  }
+  if (!retargetableListener) {
+    return NS_ERROR_NO_INTERFACE;
   }
 
-  return NS_ERROR_NO_INTERFACE;
+  return retargetableListener->CheckListenerChain();
 }
 
 // Please note that the CSP directive 'upgrade-insecure-requests' relies
@@ -1553,14 +1580,14 @@ nsCORSListenerProxy::LogBlockedCORSRequest(uint64_t aInnerWindowID,
   // query innerWindowID and log to web console, otherwise log to
   // the error to the browser console.
   if (aInnerWindowID > 0) {
-    rv = scriptError->InitWithWindowID(aMessage,
-                                       EmptyString(), // sourceName
-                                       EmptyString(), // sourceLine
-                                       0,             // lineNumber
-                                       0,             // columnNumber
-                                       nsIScriptError::warningFlag,
-                                       "CORS",
-                                       aInnerWindowID);
+    rv = scriptError->InitWithSanitizedSource(aMessage,
+                                              EmptyString(), // sourceName
+                                              EmptyString(), // sourceLine
+                                              0,             // lineNumber
+                                              0,             // columnNumber
+                                              nsIScriptError::warningFlag,
+                                              "CORS",
+                                              aInnerWindowID);
   }
   else {
     rv = scriptError->Init(aMessage,

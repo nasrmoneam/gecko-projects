@@ -738,7 +738,7 @@ nsPlacesExpiration.prototype = {
       try {
         // Protect against a full disk or tiny quota.
         let dbFile = this._db.databaseFile;
-        dbFile.QueryInterface(Ci.nsILocalFile);
+        dbFile.QueryInterface(Ci.nsIFile);
         diskAvailableBytes = dbFile.diskSpaceAvailable;
       } catch (ex) {}
       if (diskAvailableBytes <= 0) {
@@ -802,12 +802,12 @@ nsPlacesExpiration.prototype = {
    *        invoked on success, function (aPagesCount).
    */
   _getPagesStats: function PEX__getPagesStats(aCallback) {
-    if (!this._cachedStatements["LIMIT_COUNT"]) {
-      this._cachedStatements["LIMIT_COUNT"] = this._db.createAsyncStatement(
+    if (!this._cachedStatements.LIMIT_COUNT) {
+      this._cachedStatements.LIMIT_COUNT = this._db.createAsyncStatement(
         `SELECT COUNT(*) FROM moz_places`
       );
     }
-    this._cachedStatements["LIMIT_COUNT"].executeAsync({
+    this._cachedStatements.LIMIT_COUNT.executeAsync({
       _pagesCount: 0,
       handleResult(aResults) {
         let row = aResults.getNextRow();
@@ -978,7 +978,7 @@ nsPlacesExpiration.prototype = {
 
     let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
     timer.initWithCallback(this, interval * 1000,
-                           Ci.nsITimer.TYPE_REPEATING_SLACK);
+                           Ci.nsITimer.TYPE_REPEATING_SLACK_LOW_PRIORITY);
     if (this._testingMode) {
       Services.obs.notifyObservers(null, TOPIC_TEST_INTERVAL_CHANGED,
                                    interval);

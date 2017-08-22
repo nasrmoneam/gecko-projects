@@ -532,6 +532,7 @@ class AuthRequestor {
 }
 
 HttpObserverManager = {
+  openingInitialized: false,
   modifyInitialized: false,
   examineInitialized: false,
   redirectInitialized: false,
@@ -555,13 +556,21 @@ HttpObserverManager = {
   },
 
   addOrRemove() {
-    let needModify = this.listeners.opening.size || this.listeners.modify.size || this.listeners.afterModify.size;
+    let needOpening = this.listeners.opening.size;
+    let needModify = this.listeners.modify.size || this.listeners.afterModify.size;
+    if (needOpening && !this.openingInitialized) {
+      this.openingInitialized = true;
+      Services.obs.addObserver(this, "http-on-modify-request");
+    } else if (!needOpening && this.openingInitialized) {
+      this.openingInitialized = false;
+      Services.obs.removeObserver(this, "http-on-modify-request");
+    }
     if (needModify && !this.modifyInitialized) {
       this.modifyInitialized = true;
-      Services.obs.addObserver(this, "http-on-modify-request");
+      Services.obs.addObserver(this, "http-on-before-connect");
     } else if (!needModify && this.modifyInitialized) {
       this.modifyInitialized = false;
-      Services.obs.removeObserver(this, "http-on-modify-request");
+      Services.obs.removeObserver(this, "http-on-before-connect");
     }
     this.needTracing = this.listeners.onStart.size ||
                        this.listeners.onError.size ||
@@ -632,9 +641,10 @@ HttpObserverManager = {
     let channel = subject.QueryInterface(Ci.nsIHttpChannel);
     switch (topic) {
       case "http-on-modify-request":
-        let loadContext = this.getLoadContext(channel);
-
-        this.runChannelListener(channel, loadContext, "opening");
+        this.runChannelListener(channel, this.getLoadContext(channel), "opening");
+        break;
+      case "http-on-before-connect":
+        this.runChannelListener(channel, this.getLoadContext(channel), "modify");
         break;
       case "http-on-examine-cached-response":
       case "http-on-examine-merged-response":
@@ -848,8 +858,12 @@ HttpObserverManager = {
     let {loadInfo} = channel;
     if (loadInfo && loadInfo.loadingPrincipal) {
       let {loadingPrincipal} = loadInfo;
-
-      return loadingPrincipal.URI && !isHostPermitted(loadingPrincipal.URI.host);
+      try {
+        return loadingPrincipal.URI && !isHostPermitted(loadingPrincipal.URI.host);
+      } catch (e) {
+        // about:newtab and other non-host URIs will throw.  Those wont be in
+        // the host permitted list, so we pass on the error.
+      }
     }
 
     return true;
@@ -998,9 +1012,7 @@ HttpObserverManager = {
         }
       }
 
-      if (kind === "opening") {
-        await this.runChannelListener(channel, loadContext, "modify");
-      } else if (kind === "modify") {
+      if (kind === "modify") {
         await this.runChannelListener(channel, loadContext, "afterModify");
       }
     } catch (e) {

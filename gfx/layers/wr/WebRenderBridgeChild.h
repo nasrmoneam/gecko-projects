@@ -63,7 +63,8 @@ public:
   bool DPBegin(const  gfx::IntSize& aSize);
   void DPEnd(wr::DisplayListBuilder &aBuilder, const gfx::IntSize& aSize,
              bool aIsSync, uint64_t aTransactionId,
-             const WebRenderScrollData& aScrollData);
+             const WebRenderScrollData& aScrollData,
+             const mozilla::TimeStamp& aTxnStartTime);
   void ProcessWebRenderParentCommands();
 
   CompositorBridgeChild* GetCompositorBridgeChild();
@@ -76,7 +77,9 @@ public:
 
   void AddPipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId,
                                          const CompositableHandle& aHandlee);
-  void RemovePipelineIdForAsyncCompositable(const wr::PipelineId& aPipelineId);
+  void AddPipelineIdForCompositable(const wr::PipelineId& aPipelineId,
+                                    const CompositableHandle& aHandlee);
+  void RemovePipelineIdForCompositable(const wr::PipelineId& aPipelineId);
 
   wr::ExternalImageId AllocExternalImageIdForCompositable(CompositableClient* aCompositable);
   void DeallocExternalImageId(wr::ExternalImageId& aImageId);
@@ -101,8 +104,9 @@ public:
     return wr::WrImageKey{ GetNamespace(), GetNextResourceId() };
   }
 
-  void PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArray<GlyphArray>& aGlyphs,
-                  gfx::ScaledFont* aFont, const StackingContextHelper& aSc,
+  void PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArray<gfx::Glyph>& aGlyphs,
+                  gfx::ScaledFont* aFont, const gfx::Color& aColor,
+                  const StackingContextHelper& aSc,
                   const LayerRect& aBounds, const LayerRect& aClip);
 
   wr::FontKey GetFontKeyForScaledFont(gfx::ScaledFont* aScaledFont);

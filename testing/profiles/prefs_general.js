@@ -254,6 +254,9 @@ user_pref("toolkit.telemetry.server", "https://%(server)s/telemetry-dummy/");
 // Don't send 'new-profile' ping on new profiles during tests, otherwise the testing framework
 // might wait on the pingsender to finish and slow down tests.
 user_pref("toolkit.telemetry.newProfilePing.enabled", false);
+// Don't send 'bhr' ping during tests, otherwise the testing framework might
+// wait on the pingsender to finish and slow down tests.
+user_pref("toolkit.telemetry.bhrPing.enabled", false);
 // Don't send the 'shutdown' ping using the pingsender on the first session using
 // the 'pingsender' process. Valgrind marks the process as leaky (e.g. see bug 1364068
 // for the 'new-profile' ping) but does not provide enough information
@@ -305,6 +308,7 @@ user_pref("browser.aboutHomeSnippets.updateUrl", "nonexistent://test");
 user_pref("browser.newtabpage.activity-stream.default.sites", "");
 user_pref("browser.newtabpage.activity-stream.telemetry", false);
 user_pref("browser.newtabpage.activity-stream.feeds.section.topstories", false);
+user_pref("browser.newtabpage.activity-stream.feeds.snippets", false);
 
 // Don't fetch directory tiles data from real servers
 user_pref("browser.newtabpage.directory.source", 'data:application/json,{"testing":1}');

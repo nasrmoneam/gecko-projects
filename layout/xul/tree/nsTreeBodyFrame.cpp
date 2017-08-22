@@ -361,11 +361,10 @@ nsTreeBodyFrame::EnsureView()
       nsCOMPtr<nsITreeView> treeView;
       mTreeBoxObject->GetView(getter_AddRefs(treeView));
       if (treeView && weakFrame.IsAlive()) {
-        nsXPIDLString rowStr;
+        nsString rowStr;
         box->GetProperty(u"topRow", getter_Copies(rowStr));
-        nsAutoString rowStr2(rowStr);
         nsresult error;
-        int32_t rowIndex = rowStr2.ToInteger(&error);
+        int32_t rowIndex = rowStr.ToInteger(&error);
 
         // Set our view.
         SetView(treeView);
@@ -2837,7 +2836,6 @@ public:
 // Painting routines
 void
 nsTreeBodyFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                                  const nsRect&           aDirtyRect,
                                   const nsDisplayListSet& aLists)
 {
   // REVIEW: why did we paint if we were collapsed? that makes no sense!
@@ -2845,7 +2843,7 @@ nsTreeBodyFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     return; // We're invisible.  Don't paint.
 
   // Handles painting our background, border, and outline.
-  nsLeafBoxFrame::BuildDisplayList(aBuilder, aDirtyRect, aLists);
+  nsLeafBoxFrame::BuildDisplayList(aBuilder, aLists);
 
   // Bail out now if there's no view or we can't run script because the
   // document is a zombie

@@ -47,7 +47,7 @@ add_task(async function test_abouthome_simpleQuery() {
   // Let's reset the counts.
   Services.telemetry.clearScalars();
   Services.telemetry.clearEvents();
-  let search_hist = getSearchCountsHistogram();
+  let search_hist = getAndClearKeyedHistogram("SEARCH_COUNTS");
 
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser);
 
@@ -80,7 +80,7 @@ add_task(async function test_abouthome_simpleQuery() {
   checkKeyedHistogram(search_hist, "other-MozSearch.abouthome", 1);
 
   // Also check events.
-  let events = Services.telemetry.snapshotBuiltinEvents(Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN, false);
+  let events = Services.telemetry.snapshotEvents(Ci.nsITelemetry.DATASET_RELEASE_CHANNEL_OPTIN, false);
   events = (events.parent || []).filter(e => e[1] == "navigation" && e[2] == "search");
   checkEvents(events, [["navigation", "search", "about_home", "enter", {engine: "other-MozSearch"}]]);
 

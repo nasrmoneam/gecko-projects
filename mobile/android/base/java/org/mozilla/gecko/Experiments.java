@@ -56,20 +56,8 @@ public class Experiments {
     // Play HLS videos in a VideoView (Bug 1313391)
     public static final String HLS_VIDEO_PLAYBACK = "hls-video-playback";
 
-    // Make new activity stream panel available (to replace top sites) (Bug 1313316)
-    public static final String ACTIVITY_STREAM = "activity-stream";
-
-    // Show a setting in "experimental features" for enabling/disabling activity stream.
-    public static final String ACTIVITY_STREAM_SETTING = "activity-stream-setting";
-
-    // Enable Activity stream by default for users in the "opt out" group.
-    public static final String ACTIVITY_STREAM_OPT_OUT = "activity-stream-opt-out";
-
     // Show AddOns menu-item in top level menu
     public static final String TOP_ADDONS_MENU = "top-addons-menu";
-
-    // Tabs tray: Arrange tabs in two columns in portrait mode
-    public static final String COMPACT_TABS = "compact-tabs";
 
     // Enable full bookmark management(full-page dialog, bookmark/folder modification, etc.)
     public static final String FULL_BOOKMARK_MANAGEMENT = "full-bookmark-management";
@@ -79,23 +67,6 @@ public class Experiments {
 
     // Enable processing of background telemetry.
     public static final String ENABLE_PROCESSING_BACKGROUND_TELEMETRY = "process-background-telemetry";
-
-    /**
-     * Returns if a user is in certain local experiment.
-     * @param experiment Name of experiment to look up
-     * @return returns value for experiment or false if experiment does not exist.
-     */
-    public static boolean isInExperimentLocal(Context context, String experiment) {
-        if (SwitchBoard.isInBucket(context, 0, 20)) {
-            return Experiments.ONBOARDING3_A.equals(experiment);
-        } else if (SwitchBoard.isInBucket(context, 20, 60)) {
-            return Experiments.ONBOARDING3_B.equals(experiment);
-        } else if (SwitchBoard.isInBucket(context, 60, 100)) {
-            return Experiments.ONBOARDING3_C.equals(experiment);
-        } else {
-            return false;
-        }
-    }
 
     /**
      * Returns list of all active experiments, remote and local.

@@ -393,7 +393,7 @@ void
 nsSimplePageSequenceFrame::SetPageNumberFormat(const char* aPropName, const char* aDefPropVal, bool aPageNumOnly)
 {
   // Doing this here so we only have to go get these formats once
-  nsXPIDLString pageNumberFormat;
+  nsAutoString pageNumberFormat;
   // Now go get the Localized Page Formating String
   nsresult rv =
     nsContentUtils::GetLocalizedString(nsContentUtils::ePRINTING_PROPERTIES,
@@ -827,7 +827,6 @@ ComputePageSequenceTransform(nsIFrame* aFrame, float aAppUnitsPerPixel)
 
 void
 nsSimplePageSequenceFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
-                                            const nsRect&           aDirtyRect,
                                             const nsDisplayListSet& aLists)
 {
   DisplayBorderBackgroundOutline(aBuilder, aLists);
@@ -841,13 +840,16 @@ nsSimplePageSequenceFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     clipState.Clear();
 
     nsIFrame* child = PrincipalChildList().FirstChild();
-    nsRect dirty = aDirtyRect;
+    nsRect dirty = aBuilder->GetDirtyRect();
     dirty.ScaleInverseRoundOut(PresContext()->GetPrintPreviewScale());
 
     while (child) {
       if (child->GetVisualOverflowRectRelativeToParent().Intersects(dirty)) {
-        child->BuildDisplayListForStackingContext(aBuilder,
-            dirty - child->GetPosition(), &content);
+        nsDisplayListBuilder::AutoBuildingDisplayList
+          buildingForChild(aBuilder, child,
+                           dirty - child->GetPosition(),
+                           aBuilder->IsAtRootOfPseudoStackingContext());
+        child->BuildDisplayListForStackingContext(aBuilder, &content);
         aBuilder->ResetMarkedFramesForDisplayList();
       }
       child = child->GetNextSibling();

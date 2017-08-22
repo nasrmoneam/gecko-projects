@@ -309,6 +309,7 @@
               label="&alwaysCheckDefault2.label;" accesskey="&alwaysCheckDefault2.accesskey;"/>
     <deck id="setDefaultPane">
       <hbox align="center" class="indent">
+        <image class="face-sad"/>
         <label id="isNotDefaultLabel" flex="1">&isNotDefault.label;</label>
         <button id="setDefaultButton"
                 class="accessory-button"
@@ -316,6 +317,7 @@
                 preference="pref.general.disable_button.default_browser"/>
       </hbox>
       <hbox align="center" class="indent">
+        <image class="face-smile"/>
         <label id="isDefaultLabel" flex="1">&isDefault.label;</label>
       </hbox>
     </deck>
@@ -347,7 +349,7 @@
         </menulist>
       </html:td>
     </html:tr>
-    <html:tr>
+    <html:tr class="tableGroup">
       <html:td class="label-cell">
         <label accesskey="&homepage2.accesskey;"
                control="browserHomePage">&homepage2.label;</label>
@@ -363,7 +365,7 @@
                  preference="browser.startup.homepage"/>
       </html:td>
     </html:tr>
-    <html:tr>
+    <html:tr class="tableSubGroup">
       <html:td class="label-cell" />
       <html:td class="content-cell homepage-buttons">
         <button id="useCurrent"
@@ -507,12 +509,12 @@
                 label="&advancedFonts.label;"
                 accesskey="&advancedFonts.accesskey;"
                 searchkeywords="&fontsDialog.title;
-                                &language.label;
-                                &size.label;
-                                &proportional.label;
-                                &serif.label;
-                                &sans-serif.label;
-                                &monospace.label;
+                                &fonts.label;
+                                &size2.label;
+                                &proportional2.label;
+                                &serif2.label;
+                                &sans-serif2.label;
+                                &monospace2.label;
                                 &font.langGroup.latin;
                                 &font.langGroup.japanese;
                                 &font.langGroup.trad-chinese;
@@ -542,13 +544,13 @@
                                 &font.langGroup.kannada;
                                 &font.langGroup.sinhala;
                                 &font.langGroup.tibetan;
-                                &minSize.label;
+                                &minSize2.label;
                                 &minSize.none;
                                 &useDefaultFontSerif.label;
                                 &useDefaultFontSansSerif.label;
                                 &allowPagesToUseOwn.label;
                                 &languages.customize.Fallback2.grouplabel;
-                                &languages.customize.Fallback2.label;
+                                &languages.customize.Fallback3.label;
                                 &languages.customize.Fallback2.desc;
                                 &languages.customize.Fallback.auto;
                                 &languages.customize.Fallback.arabic;
@@ -581,10 +583,13 @@
                                 &overrideDefaultPageColors.always.label;
                                 &overrideDefaultPageColors.auto.label;
                                 &overrideDefaultPageColors.never.label;
+                                &color;
+                                &textColor2.label;
+                                &backgroundColor2.label;
                                 &useSystemColors.label;
                                 &underlineLinks.label;
-                                &linkColor.label;
-                                &visitedLinkColor.label;"/>
+                                &linkColor2.label;
+                                &visitedLinkColor2.label;"/>
       </hbox>
     </hbox>
   </vbox>
@@ -603,7 +608,7 @@
               label="&chooseButton.label;"
               accesskey="&chooseButton.accesskey;"
               searchkeywords="&languages.customize.Header;
-                              &languages.customize.description;
+                              &languages.customize2.description;
                               &languages.customize.moveUp.label;
                               &languages.customize.moveDown.label;
                               &languages.customize.deleteButton.label;
@@ -641,13 +646,6 @@
 </groupbox>
 
 <!-- Files and Applications -->
-<keyset data-category="paneGeneral">
-  <!-- Ctrl+f/k focus the search box in the Applications pane.
-       These <key>s have oncommand attributes because of bug 371900. -->
-  <key key="&focusSearch1.key;" modifiers="accel" id="focusSearch1" oncommand=";"/>
-  <key key="&focusSearch2.key;" modifiers="accel" id="focusSearch2" oncommand=";"/>
-</keyset>
-
 <hbox id="filesAndApplicationsCategory"
       class="subcategory"
       hidden="true"
@@ -684,6 +682,10 @@
 #endif
       />
     </hbox>
+    <!-- Additional radio button added to support CloudStorage - Bug 1357171 -->
+    <radio id="saveToCloud"
+          value="true"
+          hidden="true"/>
     <radio id="alwaysAsk"
           value="false"
           label="&alwaysAskWhere.label;"
@@ -750,8 +752,9 @@
 
 <!-- Update -->
 <groupbox id="updateApp" data-category="paneGeneral" hidden="true">
+  <caption class="search-header" hidden="true"><label>&updateApplication.label;</label></caption>
+
   <label>&updateApplicationDescription.label;</label>
-  <separator/>
   <hbox align="start">
     <vbox flex="1">
       <description>
@@ -770,7 +773,7 @@
               label="&updateHistory2.label;"
               accesskey="&updateHistory2.accesskey;"
               preference="app.update.disable_button.showUpdateHistory"
-              searchkeywords="&history.title; &history.intro;"/>
+              searchkeywords="&history.title; &history2.intro;"/>
     </vbox>
 #endif
   </hbox>
@@ -825,6 +828,7 @@
                 disabled="true"/>
       </hbox>
       <hbox id="noUpdatesFound" align="center">
+        <image class="face-smile"/>
         <label>&update.noUpdatesFound;</label>
         <spacer flex="1"/>
         <button label="&update.checkForUpdatesButton.label;"
@@ -839,6 +843,7 @@
                 disabled="true"/>
       </hbox>
       <hbox id="manualUpdate" align="center">
+        <image class="face-sad"/>
         <label>&update.manual.start;</label><label id="manualLink" class="text-link"/><label>&update.manual.end;</label>
         <spacer flex="1"/>
         <button label="&update.checkForUpdatesButton.label;"
@@ -865,7 +870,6 @@
   </vbox>
 #endif
 
-  <separator/>
 #ifdef MOZ_UPDATER
   <description>&updateApplication.description;</description>
   <radiogroup id="updateRadioGroup">
@@ -902,6 +906,8 @@
 
 <!-- Performance -->
 <groupbox id="performanceGroup" data-category="paneGeneral" hidden="true">
+  <caption class="search-header" hidden="true"><label>&performance.label;</label></caption>
+
   <hbox align="center">
     <checkbox id="useRecommendedPerformanceSettings"
               label="&useRecommendedPerformanceSettings2.label;"
@@ -944,6 +950,8 @@
 
 <!-- Browsing -->
 <groupbox id="browsingGroup" data-category="paneGeneral" hidden="true">
+  <caption class="search-header" hidden="true"><label>&browsing.label;</label></caption>
+
   <checkbox id="useAutoScroll"
             label="&useAutoScroll.label;"
             accesskey="&useAutoScroll.accesskey;"
@@ -979,6 +987,8 @@
 
 <!-- Network Proxy-->
 <groupbox id="connectionGroup" data-category="paneGeneral" hidden="true">
+  <caption class="search-header" hidden="true"><label>&networkProxy.label;</label></caption>
+
   <hbox align="center">
     <description flex="1" control="connectionSettings">&connectionDesc.label;</description>
     <!-- Please don't remove the wrapping hbox/vbox/box for these elements. It's used to properly compute the search tooltip position. -->
@@ -992,17 +1002,18 @@
                               &noProxyTypeRadio.label;
                               &WPADTypeRadio.label;
                               &systemTypeRadio.label;
-                              &manualTypeRadio.label;
-                              &http.label;
-                              &ssl.label;
-                              &ftp.label;
-                              &socks.label;
+                              &manualTypeRadio2.label;
+                              &http2.label;
+                              &ssl2.label;
+                              &ftp2.label;
+                              &port2.label;
+                              &socks2.label;
                               &socks4.label;
                               &socks5.label;
-                              &noproxy.label;
+                              &noproxy2.label;
                               &noproxyExplain.label;
                               &shareproxy.label;
-                              &autoTypeRadio.label;
+                              &autoTypeRadio2.label;
                               &reload.label;
                               &autologinproxy.label;
                               &socksRemoteDNS.label2;"/>

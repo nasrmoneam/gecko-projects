@@ -117,6 +117,7 @@ using namespace mozilla::widget;
 #include "GLContextProvider.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/HelpersCairo.h"
+#include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/layers/CompositorBridgeParent.h"
 #include "mozilla/layers/CompositorThread.h"
 
@@ -175,7 +176,7 @@ static GdkWindow *get_inner_gdk_window (GdkWindow *aWindow,
 static int    is_parent_ungrab_enter(GdkEventCrossing *aEvent);
 static int    is_parent_grab_leave(GdkEventCrossing *aEvent);
 
-static void GetBrandName(nsXPIDLString& brandName);
+static void GetBrandName(nsAString& brandName);
 
 /* callbacks from widgets */
 #if (MOZ_WIDGET_GTK == 2)
@@ -225,8 +226,10 @@ static void     theme_changed_cb          (GtkSettings *settings,
                                            nsWindow *data);
 static void     check_resize_cb           (GtkContainer* container,
                                            gpointer user_data);
-static void     composited_changed_cb     (GtkWidget* widget,
-                                           gpointer user_data);
+static void     screen_composited_changed_cb     (GdkScreen* screen,
+                                                  gpointer user_data);
+static void     widget_composited_changed_cb     (GtkWidget* widget,
+                                                  gpointer user_data);
 
 #if (MOZ_WIDGET_GTK == 3)
 static void     scale_changed_cb          (GtkWidget* widget,
@@ -437,6 +440,7 @@ nsWindow::nsWindow()
     mContainer           = nullptr;
     mGdkWindow           = nullptr;
     mShell               = nullptr;
+    mCompositorWidgetDelegate = nullptr;
     mHasMappedToplevel   = false;
     mIsFullyObscured     = false;
     mRetryPointerGrab    = false;
@@ -1763,7 +1767,7 @@ nsWindow::SetIcon(const nsAString& aIconSpec)
     nsAutoCString iconName;
 
     if (aIconSpec.EqualsLiteral("default")) {
-        nsXPIDLString brandName;
+        nsAutoString brandName;
         GetBrandName(brandName);
         AppendUTF16toUTF8(brandName, iconName);
         ToLowerCase(iconName);
@@ -3400,7 +3404,6 @@ nsWindow::OnCompositedChanged()
       presShell->ThemeChanged();
     }
   }
-  CleanLayerManagerRecursive();
 }
 
 void
@@ -3495,7 +3498,7 @@ nsWindow::OnTouchEvent(GdkEventTouch* aEvent)
 #endif
 
 static void
-GetBrandName(nsXPIDLString& brandName)
+GetBrandName(nsAString& aBrandName)
 {
     nsCOMPtr<nsIStringBundleService> bundleService =
         do_GetService(NS_STRINGBUNDLE_CONTRACTID);
@@ -3507,12 +3510,10 @@ GetBrandName(nsXPIDLString& brandName)
             getter_AddRefs(bundle));
 
     if (bundle)
-        bundle->GetStringFromName(
-            "brandShortName",
-            getter_Copies(brandName));
+        bundle->GetStringFromName("brandShortName", aBrandName);
 
-    if (brandName.IsEmpty())
-        brandName.AssignLiteral(u"Mozilla");
+    if (aBrandName.IsEmpty())
+        aBrandName.AssignLiteral(u"Mozilla");
 }
 
 static GdkWindow *
@@ -3871,8 +3872,18 @@ nsWindow::Create(nsIWidget* aParent,
                          G_CALLBACK(window_state_event_cb), nullptr);
         g_signal_connect(mShell, "check-resize",
                          G_CALLBACK(check_resize_cb), nullptr);
+
+        GdkScreen *screen = gtk_widget_get_screen(mShell);
+
         g_signal_connect(mShell, "composited-changed",
-                         G_CALLBACK(composited_changed_cb), nullptr);
+                         G_CALLBACK(widget_composited_changed_cb), nullptr);
+
+        if (!g_signal_handler_find(screen, G_SIGNAL_MATCH_FUNC,
+                                   0, 0, nullptr,
+                                   FuncToGpointer(screen_composited_changed_cb), 0)) {
+            g_signal_connect(screen, "composited-changed",
+                             G_CALLBACK(screen_composited_changed_cb), nullptr);
+        }
 
         GtkSettings* default_settings = gtk_settings_get_default();
         g_signal_connect_after(default_settings,
@@ -5910,7 +5921,13 @@ check_resize_cb (GtkContainer* container, gpointer user_data)
 }
 
 static void
-composited_changed_cb (GtkWidget* widget, gpointer user_data)
+screen_composited_changed_cb (GdkScreen* screen, gpointer user_data)
+{
+    GPUProcessManager::Get()->ResetCompositors();
+}
+
+static void
+widget_composited_changed_cb (GtkWidget* widget, gpointer user_data)
 {
     RefPtr<nsWindow> window = get_window_for_gtk_widget(widget);
     if (!window) {
@@ -6530,6 +6547,18 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
 }
 
 void
+nsWindow::SetCompositorWidgetDelegate(CompositorWidgetDelegate* delegate)
+{
+    if (delegate) {
+        mCompositorWidgetDelegate = delegate->AsPlatformSpecificDelegate();
+        MOZ_ASSERT(mCompositorWidgetDelegate,
+                   "nsWindow::SetCompositorWidgetDelegate called with a non-PlatformCompositorWidgetDelegate");
+    } else {
+        mCompositorWidgetDelegate = nullptr;
+    }
+}
+
+void
 nsWindow::ClearCachedResources()
 {
     if (mLayerManager &&
@@ -6825,7 +6854,7 @@ nsWindow::RoundsWidgetCoordinatesTo()
 void nsWindow::GetCompositorWidgetInitData(mozilla::widget::CompositorWidgetInitData* aInitData)
 {
   #ifdef MOZ_X11
-  *aInitData = mozilla::widget::CompositorWidgetInitData(
+  *aInitData = mozilla::widget::X11CompositorWidgetInitData(
                                   mXWindow,
                                   nsCString(XDisplayString(mXDisplay)),
                                   GetClientSize());

@@ -60,6 +60,7 @@ def _defines():
             DEFINES[var] = 1
 
     for var in ('MOZ_ANDROID_GCM_SENDERID',
+                'MOZ_MMA_GCM_SENDERID',
                 'MOZ_ANDROID_MAX_SDK_VERSION',
                 'MOZ_ANDROID_MIN_SDK_VERSION',
                 'MOZ_PKG_SPECIAL',
@@ -111,6 +112,9 @@ def _defines():
     if CONFIG['MOZ_ANDROID_MMA']:
         DEFINES['MOZ_LEANPLUM_SDK_KEY'] = CONFIG['MOZ_LEANPLUM_SDK_KEY']
         DEFINES['MOZ_LEANPLUM_SDK_CLIENTID'] = CONFIG['MOZ_LEANPLUM_SDK_CLIENTID']
+
+    if CONFIG['MOZ_ANDROID_POCKET']:
+        DEFINES['MOZ_POCKET_API_KEY'] = CONFIG['MOZ_POCKET_API_KEY']
 
     DEFINES['MOZ_BUILDID'] = open(os.path.join(buildconfig.topobjdir, 'buildid.h')).readline().split()[2]
 

@@ -142,6 +142,7 @@ add_task(async function test_bad_hmac() {
     deletedCollections = [];
     deletedItems       = [];
     check_clients_count(1);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     _("Old record was not deleted, new one uploaded.");
@@ -162,6 +163,7 @@ add_task(async function test_bad_hmac() {
     await uploadNewKeys();
 
     // Sync once to upload a record.
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     check_clients_count(1);
 
@@ -241,6 +243,7 @@ add_task(async function test_full_sync() {
 
     _("First sync. 2 records downloaded; our record uploaded.");
     strictEqual(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     ok(engine.lastRecordUpload > 0);
     deepEqual(user.collection("clients").keys().sort(),
@@ -292,6 +295,7 @@ add_task(async function test_sync() {
     _("First sync. Client record is uploaded.");
     equal(clientWBO(), undefined);
     equal(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     ok(!!clientWBO().payload);
     ok(engine.lastRecordUpload > 0);
@@ -300,6 +304,7 @@ add_task(async function test_sync() {
     engine.lastRecordUpload -= MORE_THAN_CLIENTS_TTL_REFRESH;
     let lastweek = engine.lastRecordUpload;
     clientWBO().payload = undefined;
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     ok(!!clientWBO().payload);
     ok(engine.lastRecordUpload > lastweek);
@@ -377,6 +382,7 @@ add_task(async function test_last_modified() {
     let collection = user.collection("clients");
 
     _("Sync to download the record");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     equal(engine._store._remoteClients[activeID].serverLastModified, now - 10,
@@ -386,6 +392,8 @@ add_task(async function test_last_modified() {
     // set a new name to make sure we really did upload.
     engine._store._remoteClients[activeID].name = "New name";
     engine._modified.set(activeID, 0);
+    // The sync above also did a POST, so adjust our lastModified.
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._uploadOutgoing();
 
     _("Local record should have updated timestamp");
@@ -434,6 +442,21 @@ add_task(async function test_send_command() {
   notEqual(tracker.changedIDs[remoteId], undefined);
 
   await cleanup();
+});
+
+// The browser UI might call _addClientCommand indirectly without awaiting on the returned promise.
+// We need to make sure this doesn't result on commands not being saved.
+add_task(async function test_add_client_command_race() {
+  let promises = [];
+  for (let i = 0; i < 100; i++) {
+    promises.push(engine._addClientCommand(`client-${i}`, { command: "cmd", args: []}));
+  }
+  await Promise.all(promises);
+
+  let localCommands = await engine._readCommands();
+  for (let i = 0; i < 100; i++) {
+    equal(localCommands[`client-${i}`].length, 1);
+  }
 });
 
 add_task(async function test_command_validation() {
@@ -616,6 +639,7 @@ add_task(async function test_filter_duplicate_names() {
 
     _("First sync");
     strictEqual(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     ok(engine.lastRecordUpload > 0);
     deepEqual(user.collection("clients").keys().sort(),
@@ -1008,6 +1032,7 @@ add_task(async function test_merge_commands() {
   try {
     _("First sync. 2 records downloaded.");
     strictEqual(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     _("Broadcast logout to all clients");
@@ -1060,6 +1085,7 @@ add_task(async function test_duplicate_remote_commands() {
   try {
     _("First sync. 1 record downloaded.");
     strictEqual(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     _("Send tab to client");
@@ -1078,6 +1104,7 @@ add_task(async function test_duplicate_remote_commands() {
 
     _("Send another tab to the desktop client");
     await engine.sendCommand("displayURI", ["https://foobar.com", engine.localID, "Foo bar!"], desktopID);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     let collection = server.getCollection("foo", "clients");
@@ -1132,6 +1159,7 @@ add_task(async function test_upload_after_reboot() {
   try {
     _("First sync. 2 records downloaded.");
     strictEqual(engine.lastRecordUpload, 0);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     _("Send tab to client");
@@ -1278,6 +1306,7 @@ add_task(async function test_keep_cleared_commands_after_reboot() {
 
     commandsProcessed = 0;
     engine._handleDisplayURIs = (uris) => { commandsProcessed = uris.length };
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     await engine.processIncomingCommands();
     equal(commandsProcessed, 1, "We processed one command (the other were cleared)");
@@ -1331,6 +1360,7 @@ add_task(async function test_deleted_commands() {
 
   try {
     _("First sync. 2 records downloaded.");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     _("Delete a record on the server.");
@@ -1339,6 +1369,7 @@ add_task(async function test_deleted_commands() {
 
     _("Broadcast a command to all clients");
     await engine.sendCommand("logout", []);
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
 
     deepEqual(collection.keys().sort(), [activeID, engine.localID].sort(),
@@ -1371,6 +1402,7 @@ add_task(async function test_send_uri_ack() {
     let fakeSenderID = Utils.makeGUID();
 
     _("Initial sync for empty clients collection");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     let collection = server.getCollection("foo", "clients");
     let ourPayload = JSON.parse(JSON.parse(collection.payload(engine.localID)).ciphertext);
@@ -1385,6 +1417,7 @@ add_task(async function test_send_uri_ack() {
     server.insertWBO("foo", "clients", new ServerWBO(engine.localID, encryptPayload(ourPayload), now));
 
     _("Sync again");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     compareCommands(engine.localCommands, [{
       command: "displayURI",
@@ -1448,6 +1481,7 @@ add_task(async function test_command_sync() {
 
   try {
     equal(collection.count(), 2, "2 remote records written");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     equal(collection.count(), 3, "3 remote records written (+1 for the synced local record)");
 
@@ -1511,6 +1545,7 @@ add_task(async function ensureSameFlowIDs() {
       protocols: ["1.5"]
     }), Date.now() / 1000));
 
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     await engine.sendCommand("wipeAll", []);
     await engine._sync();
@@ -1645,6 +1680,7 @@ add_task(async function test_other_clients_notified_on_first_sync() {
   try {
     engine.lastRecordUpload = 0;
     _("First sync, should notify other clients");
+    engine.lastModified = server.getCollection("foo", "clients").timestamp;
     await engine._sync();
     equal(calls, 1);
 

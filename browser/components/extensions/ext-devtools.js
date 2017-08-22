@@ -6,7 +6,7 @@
 /* global getTargetTabIdForToolbox, getDevToolsTargetForContext */
 
 // The ext-* files are imported into the same scopes.
-/* import-globals-from ext-utils.js */
+/* import-globals-from ext-browser.js */
 
 /**
  * This module provides helpers used by the other specialized `ext-devtools-*.js` modules
@@ -53,9 +53,8 @@ global.getDevToolsTargetForContext = async (context) => {
     throw new Error("Unexpected target type: only local tabs are currently supported.");
   }
 
-  const {TabTarget} = require("devtools/client/framework/target");
-
-  context.devToolsTarget = new TabTarget(context.devToolsToolbox.target.tab);
+  const tab = context.devToolsToolbox.target.tab;
+  context.devToolsTarget = DevToolsShim.getTargetForTab(tab);
   await context.devToolsTarget.makeRemote();
 
   return context.devToolsTarget;

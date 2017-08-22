@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#![feature(ascii_ctype)]
 #![feature(box_syntax)]
 #![feature(conservative_impl_trait)]
 #![feature(const_fn)]
@@ -9,7 +10,6 @@
 #![feature(mpsc_select)]
 #![feature(nonzero)]
 #![feature(on_unimplemented)]
-#![feature(option_entry)]
 #![feature(plugin)]
 #![feature(proc_macro)]
 #![feature(stmt_expr_attributes)]

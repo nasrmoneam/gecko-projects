@@ -86,6 +86,10 @@ static LazyLogModule gJSCLLog("JSComponentLoader");
 static bool
 Dump(JSContext* cx, unsigned argc, Value* vp)
 {
+    if (!nsContentUtils::DOMWindowDumpEnabled()) {
+        return true;
+    }
+
     CallArgs args = CallArgsFromVp(argc, vp);
 
     if (args.length() == 0)
@@ -468,7 +472,7 @@ mozJSComponentLoader::CreateLoaderGlobal(JSContext* aCx,
            .setSystemZone()
            .setAddonId(aAddonID);
 
-    options.behaviors().setVersion(JSVERSION_LATEST);
+    options.behaviors().setVersion(JSVERSION_DEFAULT);
 
     if (xpc::SharedMemoryEnabled())
         options.creationOptions().setSharedMemoryAndAtomicsEnabled(true);
@@ -646,7 +650,7 @@ mozJSComponentLoader::ObjectForLocation(ComponentLoaderInfo& aInfo,
         // See bug 1303754.
         CompileOptions options(cx);
         options.setNoScriptRval(true)
-               .setVersion(JSVERSION_LATEST)
+               .setVersion(JSVERSION_DEFAULT)
                .setFileAndLine(nativePath.get(), 1)
                .setSourceIsLazy(cache || ScriptPreloader::GetSingleton().Active());
 

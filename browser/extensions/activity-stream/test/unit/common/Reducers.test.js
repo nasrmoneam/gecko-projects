@@ -1,4 +1,4 @@
-const {reducers, INITIAL_STATE, insertPinned} = require("common/Reducers.jsm");
+const {reducers, INITIAL_STATE, insertPinned, TOP_SITES_SHOWMORE_LENGTH} = require("common/Reducers.jsm");
 const {TopSites, App, Snippets, Prefs, Dialog, Sections} = reducers;
 
 const {actionTypes: at} = require("common/Actions.jsm");
@@ -9,14 +9,18 @@ describe("Reducers", () => {
       const nextState = App(undefined, {type: "FOO"});
       assert.equal(nextState, INITIAL_STATE.App);
     });
-    it("should not set initialized to true on INIT", () => {
+    it("should set initialized to true on INIT", () => {
       const nextState = App(undefined, {type: "INIT"});
+
       assert.propertyVal(nextState, "initialized", true);
     });
     it("should set initialized, version, and locale on INIT", () => {
       const action = {type: "INIT", data: {version: "1.2.3"}};
+
       const nextState = App(undefined, action);
+
       assert.propertyVal(nextState, "version", "1.2.3");
+      assert.propertyVal(nextState, "locale", INITIAL_STATE.App.locale);
     });
     it("should not update state for empty action.data on LOCALE_UPDATED", () => {
       const nextState = App(undefined, {type: at.LOCALE_UPDATED});
@@ -120,7 +124,17 @@ describe("Reducers", () => {
       const oldState = {rows: [{url: "foo.com"}, {url: "bar.com"}]};
       const action = {type: at.PINNED_SITES_UPDATED, data: [{url: "baz.com", title: "baz"}]};
       const nextState = TopSites(oldState, action);
-      assert.deepEqual(nextState.rows, [{url: "baz.com", title: "baz", isPinned: true, pinIndex: 0, pinTitle: "baz"}, {url: "foo.com"}, {url: "bar.com"}]);
+      assert.deepEqual(nextState.rows, [{url: "baz.com", title: "baz", isPinned: true, pinIndex: 0}, {url: "foo.com"}, {url: "bar.com"}]);
+    });
+    it("should return at most TOP_SITES_SHOWMORE_LENGTH sites on PINNED_SITES_UPDATED", () => {
+      const oldState = {rows: [{url: "foo.com"}, {url: "bar.com"}]};
+      const data = new Array(20).fill(null).map((s, i) => ({
+        url: "foo.com",
+        pinIndex: i
+      }));
+      const action = {type: at.PINNED_SITES_UPDATED, data};
+      const nextState = TopSites(oldState, action);
+      assert.lengthOf(nextState.rows, TOP_SITES_SHOWMORE_LENGTH);
     });
   });
   describe("Prefs", () => {
@@ -328,7 +342,6 @@ describe("Reducers", () => {
       for (let index of [0, 1]) {
         assert.equal(result[index].url, pinned[index].url);
         assert.ok(result[index].isPinned);
-        assert.equal(result[index].pinTitle, pinned[index].title);
         assert.equal(result[index].pinIndex, index);
       }
       assert.deepEqual(result.slice(2), links);
@@ -345,7 +358,6 @@ describe("Reducers", () => {
       for (let index of [1, 4]) {
         assert.equal(result[index].url, pinned[index].url);
         assert.ok(result[index].isPinned);
-        assert.equal(result[index].pinTitle, pinned[index].title);
         assert.equal(result[index].pinIndex, index);
       }
       result.splice(4, 1);
@@ -358,17 +370,14 @@ describe("Reducers", () => {
       const result = insertPinned([], pinned);
       assert.equal(result[11].url, pinned[11].url);
       assert.isTrue(result[11].isPinned);
-      assert.equal(result[11].pinTitle, pinned[11].title);
       assert.equal(result[11].pinIndex, 11);
     });
     it("should unpin previously pinned links no longer in the pinned list", () => {
       const pinned = [];
       links[2].isPinned = true;
-      links[2].pinTitle = "pinned site";
       links[2].pinIndex = 2;
       const result = insertPinned(links, pinned);
       assert.notProperty(result[2], "isPinned");
-      assert.notProperty(result[2], "pinTitle");
       assert.notProperty(result[2], "pinIndex");
     });
     it("should handle a link present in both the links and pinned list", () => {

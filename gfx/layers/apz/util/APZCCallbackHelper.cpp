@@ -210,8 +210,8 @@ SetDisplayPortMargins(nsIPresShell* aPresShell,
 
   CSSRect baseCSS = aMetrics.CalculateCompositedRectInCssPixels();
   nsRect base(0, 0,
-              baseCSS.width * nsPresContext::AppUnitsPerCSSPixel(),
-              baseCSS.height * nsPresContext::AppUnitsPerCSSPixel());
+              baseCSS.Width() * nsPresContext::AppUnitsPerCSSPixel(),
+              baseCSS.Height() * nsPresContext::AppUnitsPerCSSPixel());
   nsLayoutUtils::SetDisplayPortBaseIfNotSet(aContent, base);
 }
 
@@ -968,6 +968,18 @@ APZCCallbackHelper::NotifyAutoscrollHandledByAPZ(const FrameMetrics::ViewID& aSc
   nsAutoString data;
   data.AppendInt(aScrollId);
   observerService->NotifyObservers(nullptr, "autoscroll-handled-by-apz", data.get());
+}
+
+/* static */ void
+APZCCallbackHelper::CancelAutoscroll(const FrameMetrics::ViewID& aScrollId)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  nsCOMPtr<nsIObserverService> observerService = mozilla::services::GetObserverService();
+  MOZ_ASSERT(observerService);
+
+  nsAutoString data;
+  data.AppendInt(aScrollId);
+  observerService->NotifyObservers(nullptr, "apz:cancel-autoscroll", data.get());
 }
 
 /* static */ void

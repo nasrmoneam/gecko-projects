@@ -13,6 +13,7 @@
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/APZCTreeManager.h"
 #include "mozilla/layers/APZCTreeManagerChild.h"
 #include "mozilla/layers/CompositorBridgeParent.h"
@@ -407,10 +408,40 @@ ShouldLimitDeviceResets(uint32_t count, int32_t deltaMilliseconds)
 }
 
 void
+GPUProcessManager::ResetCompositors()
+{
+  // Note: this will recreate devices in addition to recreating compositors.
+  // This isn't optimal, but this is only used on linux where acceleration
+  // isn't enabled by default, and this way we don't need a new code path.
+  SimulateDeviceReset();
+}
+
+void
 GPUProcessManager::SimulateDeviceReset()
 {
   // Make sure we rebuild environment and configuration for accelerated features.
   gfxPlatform::GetPlatform()->CompositorUpdated();
+
+  if (mProcess) {
+    OnRemoteProcessDeviceReset(mProcess);
+  } else {
+    OnInProcessDeviceReset();
+  }
+}
+
+void
+GPUProcessManager::DisableWebRender()
+{
+  MOZ_ASSERT(gfx::gfxVars::UseWebRender());
+  if (!gfx::gfxVars::UseWebRender()) {
+    return;
+  }
+  // Disable WebRender
+  gfx::gfxConfig::GetFeature(gfx::Feature::WEBRENDER).ForceDisable(
+    gfx::FeatureStatus::Unavailable,
+    "WebRender initialization failed",
+    NS_LITERAL_CSTRING("FEATURE_FAILURE_WEBRENDER_INITIALIZE"));
+  gfx::gfxVars::SetUseWebRender(false);
 
   if (mProcess) {
     OnRemoteProcessDeviceReset(mProcess);

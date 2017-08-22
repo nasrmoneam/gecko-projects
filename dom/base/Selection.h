@@ -24,9 +24,7 @@ struct CachedOffsetForFrame;
 class nsAutoScrollTimer;
 class nsIContentIterator;
 class nsIDocument;
-class nsIEditor;
 class nsIFrame;
-class nsIHTMLEditor;
 class nsFrameSelection;
 class nsPIDOMWindowOuter;
 struct SelectionDetails;
@@ -36,6 +34,7 @@ class nsHTMLCopyEncoder;
 
 namespace mozilla {
 class ErrorResult;
+class HTMLEditor;
 struct AutoPrepareFocusRange;
 } // namespace mozilla
 
@@ -72,8 +71,6 @@ public:
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_AMBIGUOUS(Selection, nsISelectionPrivate)
   NS_DECL_NSISELECTION
   NS_DECL_NSISELECTIONPRIVATE
-
-  virtual Selection* AsSelection() override { return this; }
 
   nsresult EndBatchChangesInternal(int16_t aReason = nsISelectionListener::NO_REASON);
 
@@ -177,7 +174,22 @@ public:
   nsINode*     GetFocusNode();
   uint32_t     FocusOffset();
 
-  bool IsCollapsed() const;
+  /*
+   * IsCollapsed -- is the whole selection just one point, or unset?
+   */
+  bool IsCollapsed() const
+  {
+    uint32_t cnt = mRanges.Length();
+    if (cnt == 0) {
+      return true;
+    }
+
+    if (cnt != 1) {
+      return false;
+    }
+
+    return mRanges[0].mRange->Collapsed();
+  }
 
   // *JS() methods are mapped to Selection.*().
   // They may move focus only when the range represents normal selection.
@@ -198,6 +210,9 @@ public:
   {
     return mRanges.Length();
   }
+
+  void GetType(nsAString& aOutType) const;
+
   nsRange* GetRangeAt(uint32_t aIndex, mozilla::ErrorResult& aRv);
   void AddRangeJS(nsRange& aRange, mozilla::ErrorResult& aRv);
   void RemoveRange(nsRange& aRange, mozilla::ErrorResult& aRv);
@@ -280,6 +295,9 @@ private:
 
   // Note: DoAutoScroll might destroy arbitrary frames etc.
   nsresult DoAutoScroll(nsIFrame *aFrame, nsPoint& aPoint);
+
+  // We are not allowed to be in nodes whose root is not our document
+  bool HasSameRoot(nsINode& aNode);
 
   // XXX Please don't add additional uses of this method, it's only for
   // XXX supporting broken code (bug 1245883) in the following classes:
@@ -389,7 +407,7 @@ private:
 
   nsIDocument* GetDocument() const;
   nsPIDOMWindowOuter* GetWindow() const;
-  nsIEditor* GetEditor() const;
+  HTMLEditor* GetHTMLEditor() const;
 
   /**
    * GetCommonEditingHostForAllRanges() returns common editing host of all
@@ -517,6 +535,60 @@ public:
 };
 
 } // namespace dom
+
+inline bool
+IsValidSelectionType(RawSelectionType aRawSelectionType)
+{
+  switch (static_cast<SelectionType>(aRawSelectionType)) {
+    case SelectionType::eNone:
+    case SelectionType::eNormal:
+    case SelectionType::eSpellCheck:
+    case SelectionType::eIMERawClause:
+    case SelectionType::eIMESelectedRawClause:
+    case SelectionType::eIMEConvertedClause:
+    case SelectionType::eIMESelectedClause:
+    case SelectionType::eAccessibility:
+    case SelectionType::eFind:
+    case SelectionType::eURLSecondary:
+    case SelectionType::eURLStrikeout:
+      return true;
+    default:
+      return false;
+  }
+}
+
+inline SelectionType
+ToSelectionType(RawSelectionType aRawSelectionType)
+{
+  if (!IsValidSelectionType(aRawSelectionType)) {
+    return SelectionType::eInvalid;
+  }
+  return static_cast<SelectionType>(aRawSelectionType);
+}
+
+inline RawSelectionType
+ToRawSelectionType(SelectionType aSelectionType)
+{
+  return static_cast<RawSelectionType>(aSelectionType);
+}
+
+inline RawSelectionType ToRawSelectionType(TextRangeType aTextRangeType)
+{
+  return ToRawSelectionType(ToSelectionType(aTextRangeType));
+}
+
+inline bool operator &(SelectionType aSelectionType,
+                       RawSelectionType aRawSelectionTypes)
+{
+  return (ToRawSelectionType(aSelectionType) & aRawSelectionTypes) != 0;
+}
+
 } // namespace mozilla
+
+inline mozilla::dom::Selection*
+nsISelection::AsSelection()
+{
+  return static_cast<mozilla::dom::Selection*>(this);
+}
 
 #endif // mozilla_Selection_h__

@@ -65,7 +65,7 @@ gfxTextRun::GlyphRunIterator::NextRun()
         }
         mGlyphRun = &mTextRun->mGlyphRunArray[mNextIndex];
     } else {
-        if (mNextIndex > 0) {
+        if (mNextIndex > 0 || !mTextRun->mSingleGlyphRun.mFont) {
             return false;
         }
         glyphRunCount = 1;
@@ -561,7 +561,7 @@ HasNonOpaqueNonTransparentColor(gfxContext *aContext, Color& aCurrentColorOut)
 }
 
 // helper class for double-buffering drawing with non-opaque color
-struct BufferAlphaColor {
+struct MOZ_STACK_CLASS BufferAlphaColor {
     explicit BufferAlphaColor(gfxContext *aContext)
         : mContext(aContext)
     {
@@ -1873,7 +1873,7 @@ gfxFontGroup::AddPlatformFont(const nsAString& aName,
 
     // Not known in the user font set ==> check system fonts
     gfxPlatformFontList::PlatformFontList()
-        ->FindAndAddFamilies(aName, &aFamilyList, &mStyle, mDevToCssSize);
+        ->FindAndAddFamilies(aName, &aFamilyList, true, &mStyle, mDevToCssSize);
 }
 
 void

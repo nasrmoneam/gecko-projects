@@ -2,19 +2,7 @@
  * vim: set ts=2 sw=2 et tw=78:
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- *
- * This Original Code has been modified by IBM Corporation.
- * Modifications made by IBM described herein are
- * Copyright (c) International Business Machines
- * Corporation, 2000
- *
- * Modifications to Mozilla code or documentation
- * identified per MPL Section 3.3
- *
- * Date         Modified by     Description of modification
- * 05/03/2000   IBM Corp.       Observer events for reflow states
- */
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 /* a presentation of a document, part 2 */
 
@@ -59,6 +47,7 @@ namespace mozilla {
 
 namespace dom {
 class Element;
+class Selection;
 }  // namespace dom
 
 class EventDispatchingCallback;
@@ -105,6 +94,7 @@ public:
 
   NS_IMETHOD GetSelection(RawSelectionType aRawSelectionType,
                           nsISelection** aSelection) override;
+  dom::Selection* GetDOMSelection(RawSelectionType aRawSelectionType) override;
   virtual mozilla::dom::Selection*
     GetCurrentSelection(SelectionType aSelectionType) override;
   virtual already_AddRefed<nsISelectionController>
@@ -374,13 +364,8 @@ public:
 
   virtual void LoadComplete() override;
 
-  void AddSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf,
-                              nsArenaMemoryStats* aArenaObjectsSize,
-                              size_t* aPresShellSize,
-                              size_t* aStyleSetsSize,
-                              size_t* aTextRunsSize,
-                              size_t* aPresContextSize,
-                              size_t* aFramePropertiesSize) override;
+  virtual void AddSizeOfIncludingThis(nsWindowSizes& aWindowSizes)
+    const override;
   size_t SizeOfTextRuns(mozilla::MallocSizeOf aMallocSizeOf) const;
 
   // This data is stored as a content property (nsGkAtoms::scrolling) on

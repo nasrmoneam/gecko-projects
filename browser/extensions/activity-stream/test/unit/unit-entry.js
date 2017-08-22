@@ -1,4 +1,4 @@
-const {GlobalOverrider, FakePrefs, FakePerformance} = require("test/unit/utils");
+const {GlobalOverrider, FakePrefs, FakePerformance, EventEmitter} = require("test/unit/utils");
 const {chaiAssertions} = require("test/schemas/pings");
 
 const req = require.context(".", true, /\.test\.jsx?$/);
@@ -20,7 +20,8 @@ overrider.set({
       importGlobalProperties() {},
       reportError() {},
       now: () => window.performance.now()
-    }
+    },
+    isSuccessCode: () => true
   },
   // eslint-disable-next-line object-shorthand
   ContentSearchUIController: function() {}, // NB: This is a function/constructor
@@ -28,7 +29,11 @@ overrider.set({
   fetch() {},
   Preferences: FakePrefs,
   Services: {
-    locale: {getRequestedLocale() {}},
+    locale: {
+      getAppLocalesAsLangTags() {},
+      getRequestedLocale() {},
+      negotiateLanguages() {}
+    },
     urlFormatter: {formatURL: str => str},
     mm: {
       addMessageListener: (msg, cb) => cb(),
@@ -41,6 +46,7 @@ overrider.set({
     },
     prefs: {
       addObserver() {},
+      prefHasUserValue() {},
       removeObserver() {},
       getStringPref() {},
       getBoolPref() {},
@@ -53,13 +59,22 @@ overrider.set({
         };
       }
     },
-    tm: {dispatchToMainThread: cb => cb()}
+    tm: {dispatchToMainThread: cb => cb()},
+    eTLD: {getPublicSuffix() {}},
+    io: {NewURI() {}},
+    search: {
+      init(cb) { cb(); },
+      getVisibleEngines: () => [{identifier: "google"}, {identifier: "bing"}],
+      defaultEngine: {identifier: "google"}
+    }
   },
   XPCOMUtils: {
     defineLazyModuleGetter() {},
     defineLazyServiceGetter() {},
     generateQI() { return {}; }
-  }
+  },
+  EventEmitter,
+  ShellService: {isDefaultBrowser: () => true}
 });
 
 describe("activity-stream", () => {

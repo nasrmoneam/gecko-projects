@@ -13,6 +13,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/AutoRestore.h"
 #include "mozilla/EventStates.h"
+#include "mozilla/HTMLEditor.h"
 
 #include "nsCOMPtr.h"
 #include "nsString.h"
@@ -73,8 +74,6 @@
 #include "mozilla/layers/ScrollInputMethods.h"
 #include "nsViewManager.h"
 
-#include "nsIEditor.h"
-#include "nsIHTMLEditor.h"
 #include "nsFocusManager.h"
 #include "nsPIDOMWindow.h"
 
@@ -130,48 +129,6 @@ ToChar(SelectionType aSelectionType)
     default:
       return "Invalid SelectionType";
   }
-}
-
-static bool
-IsValidSelectionType(RawSelectionType aRawSelectionType)
-{
-  switch (static_cast<SelectionType>(aRawSelectionType)) {
-    case SelectionType::eNone:
-    case SelectionType::eNormal:
-    case SelectionType::eSpellCheck:
-    case SelectionType::eIMERawClause:
-    case SelectionType::eIMESelectedRawClause:
-    case SelectionType::eIMEConvertedClause:
-    case SelectionType::eIMESelectedClause:
-    case SelectionType::eAccessibility:
-    case SelectionType::eFind:
-    case SelectionType::eURLSecondary:
-    case SelectionType::eURLStrikeout:
-      return true;
-    default:
-      return false;
-  }
-}
-
-SelectionType
-ToSelectionType(RawSelectionType aRawSelectionType)
-{
-  if (!IsValidSelectionType(aRawSelectionType)) {
-    return SelectionType::eInvalid;
-  }
-  return static_cast<SelectionType>(aRawSelectionType);
-}
-
-RawSelectionType
-ToRawSelectionType(SelectionType aSelectionType)
-{
-  return static_cast<RawSelectionType>(aSelectionType);
-}
-
-bool operator &(SelectionType aSelectionType,
-                RawSelectionType aRawSelectionTypes)
-{
-  return (ToRawSelectionType(aSelectionType) & aRawSelectionTypes) != 0;
 }
 
 } // namespace mozilla
@@ -647,14 +604,24 @@ Selection::GetTableCellLocationFromRange(nsRange* aRange,
   if (!content)
     return NS_ERROR_FAILURE;
 
-  nsIContent *child = content->GetChildAt(aRange->StartOffset());
+  nsCOMPtr<nsIContent> child = content->GetChildAt(aRange->StartOffset());
   if (!child)
     return NS_ERROR_FAILURE;
 
+  // GetCellLayout depends on current frame, we need flush frame to get
+  // nsITableCellLayout
+  nsCOMPtr<nsIPresShell> presShell = mFrameSelection->GetShell();
+  if (presShell) {
+    presShell->FlushPendingNotifications(FlushType::Frames);
+
+    // Since calling FlushPendingNotifications, so check whether disconnected.
+    if (!mFrameSelection || !mFrameSelection->GetShell()) {
+      return NS_ERROR_FAILURE;
+    }
+  }
+
   //Note: This is a non-ref-counted pointer to the frame
   nsITableCellLayout *cellLayout = mFrameSelection->GetCellLayout(child);
-  if (NS_FAILED(result))
-    return result;
   if (!cellLayout)
     return NS_ERROR_FAILURE;
 
@@ -2318,6 +2285,9 @@ Selection::AddRangeInternal(nsRange& aRange, nsIDocument* aDocument,
     return;
   }
 
+  // AddTableCellRange might flush frame.
+  RefPtr<Selection> kungFuDeathGrip(this);
+
   // This inserts a table cell range in proper document order
   // and returns NS_OK if range doesn't contain just one table cell
   bool didAddRange;
@@ -2510,6 +2480,21 @@ Selection::Collapse(nsINode& aContainer, uint32_t aOffset, ErrorResult& aRv)
     return;
   }
 
+  if (aContainer.NodeType() == nsIDOMNode::DOCUMENT_TYPE_NODE) {
+    aRv.Throw(NS_ERROR_DOM_INVALID_NODE_TYPE_ERR);
+    return;
+  }
+
+  if (aOffset > aContainer.Length()) {
+    aRv.Throw(NS_ERROR_DOM_INDEX_SIZE_ERR);
+    return;
+  }
+
+  if (!HasSameRoot(aContainer)) {
+    // Return with no error
+    return;
+  }
+
   nsCOMPtr<nsINode> container = &aContainer;
 
   RefPtr<nsFrameSelection> frameSelection = mFrameSelection;
@@ -2690,24 +2675,6 @@ Selection::CollapseToEnd(ErrorResult& aRv)
   Collapse(*container, lastRange->EndOffset(), aRv);
 }
 
-/*
- * IsCollapsed -- is the whole selection just one point, or unset?
- */
-bool
-Selection::IsCollapsed() const
-{
-  uint32_t cnt = mRanges.Length();
-  if (cnt == 0) {
-    return true;
-  }
-
-  if (cnt != 1) {
-    return false;
-  }
-
-  return mRanges[0].mRange->Collapsed();
-}
-
 /* virtual */
 bool
 Selection::Collapsed()
@@ -2730,6 +2697,18 @@ Selection::GetRangeCount(int32_t* aRangeCount)
   *aRangeCount = (int32_t)RangeCount();
 
   return NS_OK;
+}
+
+void
+Selection::GetType(nsAString& aOutType) const
+{
+  if (!RangeCount()) {
+    aOutType.AssignLiteral("None");
+  } else if (IsCollapsed()) {
+    aOutType.AssignLiteral("Caret");
+  } else {
+    aOutType.AssignLiteral("Range");
+  }
 }
 
 NS_IMETHODIMP
@@ -2894,6 +2873,11 @@ Selection::Extend(nsINode& aContainer, uint32_t aOffset, ErrorResult& aRv)
 
   if (!mFrameSelection) {
     aRv.Throw(NS_ERROR_NOT_INITIALIZED); // Can't do selection
+    return;
+  }
+
+  if (!HasSameRoot(aContainer)) {
+    // Return with no error
     return;
   }
 
@@ -3186,6 +3170,16 @@ Selection::SelectAllChildrenJS(nsINode& aNode, ErrorResult& aRv)
 void
 Selection::SelectAllChildren(nsINode& aNode, ErrorResult& aRv)
 {
+  if (aNode.NodeType() == nsIDOMNode::DOCUMENT_TYPE_NODE) {
+    aRv.Throw(NS_ERROR_DOM_INVALID_NODE_TYPE_ERR);
+    return;
+  }
+
+  if (!HasSameRoot(aNode)) {
+    // Return with no error
+    return;
+  }
+
   if (mFrameSelection) {
     mFrameSelection->PostReason(nsISelectionListener::SELECTALL_REASON);
   }
@@ -3347,8 +3341,8 @@ Selection::GetWindow() const
   return document ? document->GetWindow() : nullptr;
 }
 
-nsIEditor*
-Selection::GetEditor() const
+HTMLEditor*
+Selection::GetHTMLEditor() const
 {
   nsPresContext* presContext = GetPresContext();
   if (!presContext) {
@@ -3470,9 +3464,9 @@ Selection::GetSelectionEndPointGeometry(SelectionRegion aRegion, nsRect* aRect)
     aRect->x = pt.x;
   } else if (mFrameSelection->GetHint() == CARET_ASSOCIATE_BEFORE) {
     // It's the frame's right edge we're interested in.
-    aRect->x = frame->GetRect().width;
+    aRect->x = frame->GetRect().Width();
   }
-  aRect->height = frame->GetRect().height;
+  aRect->SetHeight(frame->GetRect().Height());
 
   return frame;
 }
@@ -3734,7 +3728,7 @@ Selection::NotifySelectionListeners()
     // If the document is in design mode or doesn't have contenteditable
     // element, we don't need to move focus.
     if (window && document && !document->HasFlag(NODE_IS_EDITABLE) &&
-        GetEditor()) {
+        GetHTMLEditor()) {
       RefPtr<Element> newEditingHost = GetCommonEditingHostForAllRanges();
       nsFocusManager* fm = nsFocusManager::GetFocusManager();
       nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
@@ -3765,13 +3759,18 @@ Selection::NotifySelectionListeners()
     frameSelection->SetDirty();
     return NS_OK;
   }
+  if (mSelectionListeners.IsEmpty()) {
+    // If there are no selection listeners, we're done!
+    return NS_OK;
+  }
   AutoTArray<nsCOMPtr<nsISelectionListener>, 8>
     selectionListeners(mSelectionListeners);
 
   nsCOMPtr<nsIDOMDocument> domdoc;
   nsIPresShell* ps = GetPresShell();
   if (ps) {
-    domdoc = do_QueryInterface(ps->GetDocument());
+    // Avoid using QueryInterface() here because it can be expensive.
+    domdoc = static_cast<nsIDOMDocument*>(ps->GetDocument()->AsDOMNode());
   }
 
   short reason = frameSelection->PopReason();
@@ -3985,6 +3984,12 @@ Selection::SetBaseAndExtent(nsINode& aAnchorNode, uint32_t aAnchorOffset,
                             ErrorResult& aRv)
 {
   if (!mFrameSelection) {
+    return;
+  }
+
+  if (!HasSameRoot(aAnchorNode) ||
+      !HasSameRoot(aFocusNode)) {
+    // Return with no error
     return;
   }
 
@@ -4228,3 +4233,11 @@ AutoHideSelectionChanges::AutoHideSelectionChanges(const nsFrameSelection* aFram
   : AutoHideSelectionChanges(
       aFrame ? aFrame->GetSelection(SelectionType::eNormal) : nullptr)
 {}
+
+bool
+Selection::HasSameRoot(nsINode& aNode)
+{
+  nsINode* root = aNode.SubtreeRoot();
+  nsIDocument* doc = GetParentObject();
+  return doc == root || (root && doc == root->GetComposedDoc());
+}

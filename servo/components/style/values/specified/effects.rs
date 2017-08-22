@@ -9,28 +9,30 @@ use parser::{Parse, ParserContext};
 use style_traits::{ParseError, StyleParseError};
 #[cfg(not(feature = "gecko"))]
 use values::Impossible;
-use values::computed::{Context, Number as ComputedNumber, ToComputedValue};
+use values::computed::{Context, NonNegativeNumber as ComputedNonNegativeNumber, ToComputedValue};
 use values::computed::effects::BoxShadow as ComputedBoxShadow;
 use values::computed::effects::SimpleShadow as ComputedSimpleShadow;
+use values::generics::NonNegative;
 use values::generics::effects::BoxShadow as GenericBoxShadow;
 use values::generics::effects::Filter as GenericFilter;
 use values::generics::effects::SimpleShadow as GenericSimpleShadow;
 use values::specified::{Angle, NumberOrPercentage};
-use values::specified::color::Color;
-use values::specified::length::Length;
+use values::specified::color::RGBAColor;
+use values::specified::length::{Length, NonNegativeLength};
 #[cfg(feature = "gecko")]
 use values::specified::url::SpecifiedUrl;
 
 /// A specified value for a single shadow of the `box-shadow` property.
-pub type BoxShadow = GenericBoxShadow<Option<Color>, Length, Option<Length>>;
+pub type BoxShadow = GenericBoxShadow<Option<RGBAColor>, Length,
+                                      Option<NonNegativeLength>, Option<Length>>;
 
 /// A specified value for a single `filter`.
 #[cfg(feature = "gecko")]
-pub type Filter = GenericFilter<Angle, Factor, Length, SimpleShadow>;
+pub type Filter = GenericFilter<Angle, Factor, NonNegativeLength, SimpleShadow>;
 
 /// A specified value for a single `filter`.
 #[cfg(not(feature = "gecko"))]
-pub type Filter = GenericFilter<Angle, Factor, Length, Impossible>;
+pub type Filter = GenericFilter<Angle, Factor, NonNegativeLength, Impossible>;
 
 /// A value for the `<factor>` parts in `Filter`.
 #[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
@@ -48,25 +50,25 @@ impl Parse for Factor {
 }
 
 impl ToComputedValue for Factor {
-    type ComputedValue = ComputedNumber;
+    type ComputedValue = ComputedNonNegativeNumber;
 
     #[inline]
     fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
         use values::computed::NumberOrPercentage;
         match self.0.to_computed_value(context) {
-            NumberOrPercentage::Number(n) => n,
-            NumberOrPercentage::Percentage(p) => p.0,
+            NumberOrPercentage::Number(n) => n.into(),
+            NumberOrPercentage::Percentage(p) => p.0.into(),
         }
     }
 
     #[inline]
     fn from_computed_value(computed: &Self::ComputedValue) -> Self {
-        Factor(NumberOrPercentage::Number(ToComputedValue::from_computed_value(computed)))
+        Factor(NumberOrPercentage::Number(ToComputedValue::from_computed_value(&computed.0)))
     }
 }
 
 /// A specified value for the `drop-shadow()` filter.
-pub type SimpleShadow = GenericSimpleShadow<Option<Color>, Length, Option<Length>>;
+pub type SimpleShadow = GenericSimpleShadow<Option<RGBAColor>, Length, Option<NonNegativeLength>>;
 
 impl Parse for BoxShadow {
     fn parse<'i, 't>(
@@ -91,7 +93,7 @@ impl Parse for BoxShadow {
                     let (blur, spread) = match i.try::<_, _, ParseError>(|i| Length::parse_non_negative(context, i)) {
                         Ok(blur) => {
                             let spread = i.try(|i| Length::parse(context, i)).ok();
-                            (Some(blur), spread)
+                            (Some(blur.into()), spread)
                         },
                         Err(_) => (None, None),
                     };
@@ -103,7 +105,7 @@ impl Parse for BoxShadow {
                 }
             }
             if color.is_none() {
-                if let Ok(value) = input.try(|i| Color::parse(context, i)) {
+                if let Ok(value) = input.try(|i| RGBAColor::parse(context, i)) {
                     color = Some(value);
                     continue;
                 }
@@ -162,7 +164,7 @@ impl Parse for Filter {
         let function = input.expect_function()?.clone();
         input.parse_nested_block(|i| {
             try_match_ident_ignore_ascii_case! { function,
-                "blur" => Ok(GenericFilter::Blur(Length::parse_non_negative(context, i)?)),
+                "blur" => Ok(GenericFilter::Blur((Length::parse_non_negative(context, i)?).into())),
                 "brightness" => Ok(GenericFilter::Brightness(Factor::parse(context, i)?)),
                 "contrast" => Ok(GenericFilter::Contrast(Factor::parse(context, i)?)),
                 "grayscale" => Ok(GenericFilter::Grayscale(Factor::parse(context, i)?)),
@@ -183,16 +185,16 @@ impl Parse for SimpleShadow {
         context: &ParserContext,
         input: &mut Parser<'i, 't>
     ) -> Result<Self, ParseError<'i>> {
-        let color = input.try(|i| Color::parse(context, i)).ok();
+        let color = input.try(|i| RGBAColor::parse(context, i)).ok();
         let horizontal = Length::parse(context, input)?;
         let vertical = Length::parse(context, input)?;
         let blur = input.try(|i| Length::parse_non_negative(context, i)).ok();
-        let color = color.or_else(|| input.try(|i| Color::parse(context, i)).ok());
+        let color = color.or_else(|| input.try(|i| RGBAColor::parse(context, i)).ok());
         Ok(SimpleShadow {
             color: color,
             horizontal: horizontal,
             vertical: vertical,
-            blur: blur,
+            blur: blur.map(NonNegative::<Length>),
         })
     }
 }
@@ -203,19 +205,18 @@ impl ToComputedValue for SimpleShadow {
     #[inline]
     fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
         ComputedSimpleShadow {
-            color:
-                self.color.as_ref().unwrap_or(&Color::CurrentColor).to_computed_value(context),
+            color: self.color.to_computed_value(context),
             horizontal: self.horizontal.to_computed_value(context),
             vertical: self.vertical.to_computed_value(context),
             blur:
-                self.blur.as_ref().unwrap_or(&Length::zero()).to_computed_value(context),
+                self.blur.as_ref().unwrap_or(&NonNegativeLength::zero()).to_computed_value(context),
         }
     }
 
     #[inline]
     fn from_computed_value(computed: &Self::ComputedValue) -> Self {
         SimpleShadow {
-            color: Some(ToComputedValue::from_computed_value(&computed.color)),
+            color: ToComputedValue::from_computed_value(&computed.color),
             horizontal: ToComputedValue::from_computed_value(&computed.horizontal),
             vertical: ToComputedValue::from_computed_value(&computed.vertical),
             blur: Some(ToComputedValue::from_computed_value(&computed.blur)),

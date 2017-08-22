@@ -8,6 +8,7 @@ gfx/graphite2/
 gfx/harfbuzz/
 gfx/ots/
 gfx/qcms/
+gfx/sfntly/
 gfx/skia/
 gfx/vr/openvr/
 gfx/webrender
@@ -87,6 +88,7 @@ third_party/python/pyyaml/
 third_party/python/redo/
 third_party/python/requests/
 third_party/python/rsa/
+third_party/python/six/
 third_party/python/which/
 third_party/rust/
 toolkit/components/jsoncpp/

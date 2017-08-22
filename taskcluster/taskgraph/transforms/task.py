@@ -12,10 +12,13 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import json
 import os
+import re
 import time
 from copy import deepcopy
 
+from mozbuild.util import memoize
 from taskgraph.util.attributes import TRUNK_PROJECTS
+from taskgraph.util.hash import hash_path
 from taskgraph.util.treeherder import split_symbol
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.schema import validate_schema, Schema
@@ -24,6 +27,15 @@ from voluptuous import Any, Required, Optional, Extra
 from taskgraph import GECKO
 
 from .gecko_v2_whitelist import JOB_NAME_WHITELIST, JOB_NAME_WHITELIST_ERROR
+
+
+RUN_TASK = os.path.join(GECKO, 'taskcluster', 'docker', 'recipes', 'run-task')
+
+
+@memoize
+def _run_task_suffix():
+    """String to append to cache names under control of run-task."""
+    return hash_path(RUN_TASK)[0:20]
 
 
 # shortcut for a string where task references are allowed
@@ -57,7 +69,9 @@ task_description_schema = Schema({
     Optional('routes'): [basestring],
 
     # custom scopes for this task; any scopes required for the worker will be
-    # added automatically
+    # added automatically. The following parameters will be substituted in each
+    # scope:
+    #  {level} -- the scm level of this push
     Optional('scopes'): [basestring],
 
     # Tags
@@ -165,7 +179,9 @@ task_description_schema = Schema({
             # a raw Docker image path (repo/image:tag)
             basestring,
             # an in-tree generated docker image (from `taskcluster/docker/<name>`)
-            {'in-tree': basestring}
+            {'in-tree': basestring},
+            # an indexed docker image
+            {'indexed': basestring},
         ),
 
         # worker features that should be enabled
@@ -442,10 +458,14 @@ GROUP_NAMES = {
     'tc-R': 'Reftests executed by TaskCluster',
     'tc-R-e10s': 'Reftests executed by TaskCluster with e10s',
     'tc-T': 'Talos performance tests executed by TaskCluster',
+    'tc-Ts': 'Talos Stylo performance tests executed by TaskCluster',
     'tc-T-e10s': 'Talos performance tests executed by TaskCluster with e10s',
+    'tc-Ts-e10s': 'Talos Stylo performance tests executed by TaskCluster with e10s',
     'tc-tt-c': 'Telemetry client marionette tests',
     'tc-tt-c-e10s': 'Telemetry client marionette tests with e10s',
     'tc-SY-e10s': 'Are we slim yet tests by TaskCluster with e10s',
+    'tc-SY-stylo-e10s': 'Are we slim yet tests by TaskCluster with e10s, stylo',
+    'tc-SY-stylo-seq-e10s': 'Are we slim yet tests by TaskCluster with e10s, stylo sequential',
     'tc-VP': 'VideoPuppeteer tests executed by TaskCluster',
     'tc-W': 'Web platform tests executed by TaskCluster',
     'tc-W-e10s': 'Web platform tests executed by TaskCluster with e10s',
@@ -568,13 +588,23 @@ def build_docker_worker_payload(config, task, task_def):
 
     image = worker['docker-image']
     if isinstance(image, dict):
-        docker_image_task = 'build-docker-image-' + image['in-tree']
-        task.setdefault('dependencies', {})['docker-image'] = docker_image_task
-        image = {
-            "path": "public/image.tar.zst",
-            "taskId": {"task-reference": "<docker-image>"},
-            "type": "task-image",
-        }
+        if 'in-tree' in image:
+            docker_image_task = 'build-docker-image-' + image['in-tree']
+            task.setdefault('dependencies', {})['docker-image'] = docker_image_task
+
+            image = {
+                "path": "public/image.tar.zst",
+                "taskId": {"task-reference": "<docker-image>"},
+                "type": "task-image",
+            }
+        elif 'indexed' in image:
+            image = {
+                "path": "public/image.tar.zst",
+                "namespace": image['indexed'],
+                "type": "indexed-image",
+            }
+        else:
+            raise Exception("unknown docker image type")
 
     features = {}
 
@@ -638,9 +668,32 @@ def build_docker_worker_payload(config, task, task_def):
 
     if 'caches' in worker:
         caches = {}
+
+        # run-task knows how to validate caches.
+        #
+        # To help ensure new run-task features and bug fixes don't interfere
+        # with existing caches, we seed the hash of run-task into cache names.
+        # So, any time run-task changes, we should get a fresh set of caches.
+        # This means run-task can make changes to cache interaction at any time
+        # without regards for backwards or future compatibility.
+
+        run_task = payload.get('command', [''])[0].endswith('run-task')
+
+        if run_task:
+            suffix = '-%s' % _run_task_suffix()
+        else:
+            suffix = ''
+
         for cache in worker['caches']:
-            caches[cache['name']] = cache['mount-point']
-            task_def['scopes'].append('docker-worker:cache:' + cache['name'])
+            name = '%s%s' % (cache['name'], suffix)
+            caches[name] = cache['mount-point']
+            task_def['scopes'].append('docker-worker:cache:%s' % name)
+
+        # Assertion: only run-task is interested in this.
+        if run_task:
+            payload['env']['TASKCLUSTER_CACHES'] = ';'.join(sorted(
+                caches.values()))
+
         payload['cache'] = caches
 
     if features:
@@ -948,11 +1001,12 @@ def add_index_routes(config, tasks):
 @transforms.add
 def build_task(config, tasks):
     for task in tasks:
-        worker_type = task['worker-type'].format(level=str(config.params['level']))
+        level = str(config.params['level'])
+        worker_type = task['worker-type'].format(level=level)
         provisioner_id, worker_type = worker_type.split('/', 1)
 
         routes = task.get('routes', [])
-        scopes = task.get('scopes', [])
+        scopes = [s.format(level=level) for s in task.get('scopes', [])]
 
         # set up extra
         extra = task.get('extra', {})
@@ -1002,7 +1056,10 @@ def build_task(config, tasks):
                 DEFAULT_BRANCH_PRIORITY)
 
         tags = task.get('tags', {})
-        tags.update({'createdForUser': config.params['owner']})
+        tags.update({
+            'createdForUser': config.params['owner'],
+            'kind': config.kind,
+        })
 
         task_def = {
             'provisionerId': provisioner_id,
@@ -1058,6 +1115,50 @@ def build_task(config, tasks):
             'attributes': attributes,
             'optimizations': task.get('optimizations', []),
         }
+
+
+@transforms.add
+def check_run_task_caches(config, tasks):
+    """Audit for caches requiring run-task.
+
+    run-task manages caches in certain ways. If a cache managed by run-task
+    is used by a non run-task task, it could cause problems. So we audit for
+    that and make sure certain cache names are exclusive to run-task.
+
+    IF YOU ARE TEMPTED TO MAKE EXCLUSIONS TO THIS POLICY, YOU ARE LIKELY
+    CONTRIBUTING TECHNICAL DEBT AND WILL HAVE TO SOLVE MANY OF THE PROBLEMS
+    THAT RUN-TASK ALREADY SOLVES. THINK LONG AND HARD BEFORE DOING THAT.
+    """
+    re_reserved_caches = re.compile('''^
+        (level-\d+-checkouts|level-\d+-tooltool-cache)
+    ''', re.VERBOSE)
+
+    suffix = _run_task_suffix()
+
+    for task in tasks:
+        payload = task['task'].get('payload', {})
+        command = payload.get('command') or ['']
+        command = command[0] if isinstance(command[0], basestring) else ''
+        run_task = command.endswith('run-task')
+
+        for cache in payload.get('cache', {}):
+            if not re_reserved_caches.match(cache):
+                continue
+
+            if not run_task:
+                raise Exception(
+                    '%s is using a cache (%s) reserved for run-task '
+                    'change the task to use run-task or use a different '
+                    'cache name' % (task['label'], cache))
+
+            if not cache.endswith(suffix):
+                raise Exception(
+                    '%s is using a cache (%s) reserved for run-task '
+                    'but the cache name is not dependent on the contents '
+                    'of run-task; change the cache name to conform to the '
+                    'naming requirements' % (task['label'], cache))
+
+        yield task
 
 
 # Check that the v2 route templates match those used by Mozharness.  This can

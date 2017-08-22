@@ -14,10 +14,11 @@ use font_metrics::get_metrics_provider_for_product;
 use gecko::values::convert_nscolor_to_rgba;
 use gecko_bindings::bindings;
 use gecko_bindings::structs;
-use gecko_bindings::structs::{nsCSSKeyword, nsCSSProps_KTableEntry, nsCSSValue, nsCSSUnit, nsStringBuffer};
+use gecko_bindings::structs::{nsCSSKeyword, nsCSSProps_KTableEntry, nsCSSValue, nsCSSUnit};
 use gecko_bindings::structs::{nsMediaExpression_Range, nsMediaFeature};
 use gecko_bindings::structs::{nsMediaFeature_ValueType, nsMediaFeature_RangeType, nsMediaFeature_RequirementFlags};
 use gecko_bindings::structs::{nsPresContext, RawGeckoPresContextOwned};
+use gecko_bindings::structs::nsIAtom;
 use media_queries::MediaType;
 use parser::ParserContext;
 use properties::{ComputedValues, StyleBuilder};
@@ -31,7 +32,7 @@ use string_cache::Atom;
 use style_traits::{CSSPixel, DevicePixel};
 use style_traits::{ToCss, ParseError, StyleParseError};
 use style_traits::viewport::ViewportConstraints;
-use values::{CSSFloat, specified};
+use values::{CSSFloat, specified, CustomIdent, serialize_dimension};
 use values::computed::{self, ToComputedValue};
 
 /// The `Device` in Gecko wraps a pres context, has a default values computed,
@@ -42,7 +43,6 @@ pub struct Device {
     /// here is fine.
     pres_context: RawGeckoPresContextOwned,
     default_values: Arc<ComputedValues>,
-    viewport_override: Option<ViewportConstraints>,
     /// The font size of the root element
     /// This is set when computing the style of the root
     /// element, and used for rem units in other elements.
@@ -70,8 +70,8 @@ impl Device {
         Device {
             pres_context: pres_context,
             default_values: ComputedValues::default_values(unsafe { &*pres_context }),
-            viewport_override: None,
-            root_font_size: AtomicIsize::new(font_size::get_initial_value().0 as isize), // FIXME(bz): Seems dubious?
+            // FIXME(bz): Seems dubious?
+            root_font_size: AtomicIsize::new(font_size::get_initial_value().value() as isize),
             used_root_font_size: AtomicBool::new(false),
             used_viewport_size: AtomicBool::new(false),
         }
@@ -79,9 +79,11 @@ impl Device {
 
     /// Tells the device that a new viewport rule has been found, and stores the
     /// relevant viewport constraints.
-    pub fn account_for_viewport_rule(&mut self,
-                                     constraints: &ViewportConstraints) {
-        self.viewport_override = Some(constraints.clone());
+    pub fn account_for_viewport_rule(
+        &mut self,
+        _constraints: &ViewportConstraints
+    ) {
+        unreachable!("Gecko doesn't support @viewport");
     }
 
     /// Returns the default computed values as a reference, in order to match
@@ -113,9 +115,12 @@ impl Device {
 
     /// Recreates the default computed values.
     pub fn reset_computed_values(&mut self) {
-        // NB: A following stylesheet flush will populate this if appropriate.
-        self.viewport_override = None;
         self.default_values = ComputedValues::default_values(self.pres_context());
+    }
+
+    /// Rebuild all the cached data.
+    pub fn rebuild_cached_data(&mut self) {
+        self.reset_computed_values();
         self.used_root_font_size.store(false, Ordering::Relaxed);
         self.used_viewport_size.store(false, Ordering::Relaxed);
     }
@@ -130,37 +135,33 @@ impl Device {
     /// This includes the viewport override from `@viewport` rules, and also the
     /// default computed values.
     pub fn reset(&mut self) {
-        // NB: A following stylesheet flush will populate this if appropriate.
-        self.viewport_override = None;
         self.reset_computed_values();
     }
 
     /// Returns the current media type of the device.
     pub fn media_type(&self) -> MediaType {
         unsafe {
-            // FIXME(emilio): Gecko allows emulating random media with
-            // mIsEmulatingMedia / mMediaEmulated . Refactor both sides so that
-            // is supported (probably just making MediaType an Atom).
-            if self.pres_context().mMedium == atom!("screen").as_ptr() {
-                MediaType::Screen
+            // Gecko allows emulating random media with mIsEmulatingMedia and
+            // mMediaEmulated.
+            let context = self.pres_context();
+            let medium_to_use = if context.mIsEmulatingMedia() != 0 {
+                context.mMediaEmulated.raw::<nsIAtom>()
             } else {
-                debug_assert!(self.pres_context().mMedium == atom!("print").as_ptr());
-                MediaType::Print
-            }
+                context.mMedium
+            };
+
+            MediaType(CustomIdent(Atom::from(medium_to_use)))
         }
     }
 
     /// Returns the current viewport size in app units.
     pub fn au_viewport_size(&self) -> Size2D<Au> {
         self.used_viewport_size.store(true, Ordering::Relaxed);
-        self.viewport_override.as_ref().map(|v| {
-            Size2D::new(Au::from_f32_px(v.size.width),
-                        Au::from_f32_px(v.size.height))
-        }).unwrap_or_else(|| unsafe {
+        unsafe {
             // TODO(emilio): Need to take into account scrollbars.
             let area = &self.pres_context().mVisibleArea;
             Size2D::new(Au(area.width), Au(area.height))
-        })
+        }
     }
 
     /// Returns whether we ever looked up the viewport size of the Device.
@@ -185,6 +186,15 @@ impl Device {
     /// Returns the default background color.
     pub fn default_background_color(&self) -> RGBA {
         convert_nscolor_to_rgba(self.pres_context().mBackgroundColor)
+    }
+
+    /// Applies text zoom to a font-size or line-height value (see nsStyleFont::ZoomText).
+    pub fn zoom_text(&self, size: Au) -> Au {
+        size.scale_by(self.pres_context().mEffectiveTextZoom)
+    }
+    /// Un-apply text zoom (see nsStyleFont::UnzoomText).
+    pub fn unzoom_text(&self, size: Au) -> Au {
+        size.scale_by(1. / self.pres_context().mEffectiveTextZoom)
     }
 }
 
@@ -277,24 +287,11 @@ impl ToCss for Resolution {
         where W: fmt::Write,
     {
         match *self {
-            Resolution::Dpi(v) => write!(dest, "{}dpi", v),
-            Resolution::Dppx(v) => write!(dest, "{}dppx", v),
-            Resolution::Dpcm(v) => write!(dest, "{}dpcm", v),
+            Resolution::Dpi(v) => serialize_dimension(v, "dpi", dest),
+            Resolution::Dppx(v) => serialize_dimension(v, "dppx", dest),
+            Resolution::Dpcm(v) => serialize_dimension(v, "dpcm", dest),
         }
     }
-}
-
-unsafe fn string_from_ns_string_buffer(buffer: *const nsStringBuffer) -> String {
-    use std::slice;
-    debug_assert!(!buffer.is_null());
-    let data = buffer.offset(1) as *const u16;
-    let mut length = 0;
-    let mut iter = data;
-    while *iter != 0 {
-        length += 1;
-        iter = iter.offset(1);
-    }
-    String::from_utf16_lossy(slice::from_raw_parts(data, length))
 }
 
 /// A value found or expected in a media expression.
@@ -324,6 +321,8 @@ pub enum MediaExpressionValue {
 
 impl MediaExpressionValue {
     fn from_css_value(for_expr: &Expression, css_value: &nsCSSValue) -> Option<Self> {
+        use gecko::conversions::string_from_chars_pointer;
+
         // NB: If there's a null value, that means that we don't support the
         // feature.
         if css_value.mUnit == nsCSSUnit::eCSSUnit_Null {
@@ -362,7 +361,9 @@ impl MediaExpressionValue {
             nsMediaFeature_ValueType::eIdent => {
                 debug_assert!(css_value.mUnit == nsCSSUnit::eCSSUnit_Ident);
                 let string = unsafe {
-                    string_from_ns_string_buffer(*css_value.mValue.mString.as_ref())
+                    let buffer = *css_value.mValue.mString.as_ref();
+                    debug_assert!(!buffer.is_null());
+                    string_from_chars_pointer(buffer.offset(1) as *const u16)
                 };
                 Some(MediaExpressionValue::Ident(string))
             }
@@ -385,8 +386,8 @@ impl MediaExpressionValue {
     {
         match *self {
             MediaExpressionValue::Length(ref l) => l.to_css(dest),
-            MediaExpressionValue::Integer(v) => write!(dest, "{}", v),
-            MediaExpressionValue::Float(v) => write!(dest, "{}", v),
+            MediaExpressionValue::Integer(v) => v.to_css(dest),
+            MediaExpressionValue::Float(v) => v.to_css(dest),
             MediaExpressionValue::BoolInteger(v) => {
                 dest.write_str(if v { "1" } else { "0" })
             },

@@ -133,22 +133,15 @@ async function runTestWithIcons(icons) {
     ["synced_tabs", "#sync-button", "sync-button"],
     ["open_file", "#open-file-button", "open-file-button"],
     ["sidebars", "#sidebar-button", "sidebar-button"],
-    ["share_page", "#social-share-button", "social-share-button"],
     ["subscribe", "#feed-button", "feed-button"],
     ["text_encoding", "#characterencoding-button", "characterencoding-button"],
     ["email_link", "#email-link-button", "email-link-button"],
     ["forget", "#panic-button", "panic-button"],
-    ["pocket", "#pocket-button", "pocket-button"],
   ];
   // We add these at the beginning because adding them at the end can end up
   // putting them in the overflow panel, where they aren't displayed the same way.
-  if (AppConstants.MOZ_PHOTON_THEME) {
-    ICON_INFO.unshift(["bookmark_star", "#star-button"]);
-    ICON_INFO.unshift(["bookmark_menu", "#bookmarks-menu-button", "bookmarks-menu-button"]);
-  } else {
-    ICON_INFO.unshift(["bookmark_star", "#bookmarks-menu-button", "bookmarks-menu-button"]);
-    ICON_INFO.unshift(["bookmark_menu", "#bookmarks-menu-button > .toolbarbutton-menubutton-dropmarker > .dropmarker-icon"]);
-  }
+  ICON_INFO.unshift(["bookmark_star", "#star-button"]);
+  ICON_INFO.unshift(["bookmark_menu", "#bookmarks-menu-button", "bookmarks-menu-button"]);
 
   window.maximize();
 
@@ -169,20 +162,6 @@ async function runTestWithIcons(icons) {
   await extension.startup();
 
   checkButtons(icons, ICON_INFO, "toolbar");
-
-  if (!gPhotonStructure) {
-    for (let button of ICON_INFO) {
-      if (button[2]) {
-        CustomizableUI.addWidgetToArea(button[2], CustomizableUI.AREA_PANEL);
-      }
-    }
-
-    await PanelUI.show();
-
-    checkButtons(icons, ICON_INFO, "panel");
-
-    await PanelUI.hide();
-  }
 
   await extension.unload();
 
@@ -226,12 +205,10 @@ add_task(async function test_all_icons() {
     ["synced_tabs", "fox.svg"],
     ["open_file", "fox.svg"],
     ["sidebars", "fox.svg"],
-    ["share_page", "fox.svg"],
     ["subscribe", "fox.svg"],
     ["text_encoding", "fox.svg"],
     ["email_link", "fox.svg"],
     ["forget", "fox.svg"],
-    ["pocket", "fox.svg"],
   ];
   await runTestWithIcons(icons);
 });
@@ -268,12 +245,10 @@ add_task(async function test_some_icons() {
     ["synced_tabs", ""],
     ["open_file", ""],
     ["sidebars", ""],
-    ["share_page", ""],
     ["subscribe", ""],
     ["text_encoding", ""],
     ["email_link", ""],
     ["forget", ""],
-    ["pocket", "fox.svg"],
   ];
   await runTestWithIcons(icons);
 });

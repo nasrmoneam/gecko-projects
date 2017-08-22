@@ -27,6 +27,8 @@
 
 "use strict";
 
+Components.utils.import("resource://gre/modules/AppConstants.jsm");
+
 // DownloadsButton
 
 /**
@@ -276,9 +278,15 @@ const DownloadsIndicatorView = {
   // Direct control functions
 
   /**
-   * Set while we are waiting for a notification to fade out.
+   * Set to the type ("start" or "finish") when display of a notification is in-progress
    */
-  _notificationTimeout: null,
+  _currentNotificationType: null,
+
+  /**
+   * Set to the type ("start" or "finish") when a notification arrives while we
+   * are waiting for the timeout of the previous notification
+   */
+  _nextNotificationType: null,
 
   /**
    * Check if the panel containing aNode is open.
@@ -293,8 +301,7 @@ const DownloadsIndicatorView = {
   },
 
   /**
-   * If the status indicator is visible in its assigned position, shows for a
-   * brief time a visual notification of a relevant event, like a new download.
+   * Display or enqueue a visual notification of a relevant event, like a new download.
    *
    * @param aType
    *        Set to "start" for new downloads, "finish" for completed downloads.
@@ -308,6 +315,25 @@ const DownloadsIndicatorView = {
       return;
     }
 
+    // enqueue this notification while the current one is being displayed
+    if (this._currentNotificationType) {
+      // only queue up the notification if it is different to the current one
+      if (this._currentNotificationType != aType) {
+        this._nextNotificationType = aType;
+      }
+    } else {
+      this._showNotification(aType);
+    }
+  },
+
+  /**
+   * If the status indicator is visible in its assigned position, shows for a
+   * brief time a visual notification of a relevant event, like a new download.
+   *
+   * @param aType
+   *        Set to "start" for new downloads, "finish" for completed downloads.
+   */
+  _showNotification(aType) {
     // No need to show visual notification if the panel is visible.
     if (DownloadsPanel.isPanelShowing) {
       return;
@@ -332,17 +358,22 @@ const DownloadsIndicatorView = {
       return;
     }
 
-    if (this._notificationTimeout) {
-      clearTimeout(this._notificationTimeout);
-    }
-
     // The notification element is positioned to show in the same location as
     // the downloads button. It's not in the downloads button itself in order to
     // be able to anchor the notification elsewhere if required, and to ensure
     // the notification isn't clipped by overflow properties of the anchor's
     // container.
+    // Note: no notifier animation for download finished in Photon
     let notifier = this.notifier;
-    if (notifier.style.transform == "") {
+
+    if (aType == "start") {
+      // Show the notifier before measuring for size/placement. Being hidden by default
+      // avoids the interference with scrolling/APZ when the notifier element is
+      // tall enough to overlap the tabbrowser element
+      notifier.removeAttribute("hidden");
+
+      // the anchor height may vary if font-size is changed or
+      // compact/tablet mode is selected so recalculate this each time
       let anchorRect = anchor.getBoundingClientRect();
       let notifierRect = notifier.getBoundingClientRect();
       let topDiff = anchorRect.top - notifierRect.top;
@@ -352,15 +383,33 @@ const DownloadsIndicatorView = {
       let translateX = (leftDiff + .5 * widthDiff) + "px";
       let translateY = (topDiff + .5 * heightDiff) + "px";
       notifier.style.transform = "translate(" + translateX + ", " + translateY + ")";
+      notifier.setAttribute("notification", aType);
     }
-    notifier.setAttribute("notification", aType);
     anchor.setAttribute("notification", aType);
-    this._notificationTimeout = setTimeout(() => {
-      anchor.removeAttribute("notification");
-      notifier.removeAttribute("notification");
-      notifier.style.transform = "";
-      // This value is determined by the overall duration of animation in CSS.
-    }, 2000);
+
+    let animationDuration;
+    // This value is determined by the overall duration of animation in CSS.
+    animationDuration = aType == "start" ? 760 : 850;
+
+    this._currentNotificationType = aType;
+
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        notifier.setAttribute("hidden", "true");
+        notifier.removeAttribute("notification");
+        notifier.style.transform = "";
+        anchor.removeAttribute("notification");
+
+        requestAnimationFrame(() => {
+          let nextType = this._nextNotificationType;
+          this._currentNotificationType = null;
+          this._nextNotificationType = null;
+          if (nextType) {
+            this._showNotification(nextType);
+          }
+        });
+      });
+    }, animationDuration);
   },
 
   // Callback functions from DownloadsIndicatorData

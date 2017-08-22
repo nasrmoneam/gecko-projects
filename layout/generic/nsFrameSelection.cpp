@@ -13,6 +13,8 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/AutoRestore.h"
 #include "mozilla/EventStates.h"
+#include "mozilla/HTMLEditor.h"
+#include "mozilla/PresShell.h"
 
 #include "nsCOMPtr.h"
 #include "nsString.h"
@@ -81,8 +83,6 @@ static NS_DEFINE_CID(kFrameTraversalCID, NS_FRAMETRAVERSAL_CID);
 #include "mozilla/Telemetry.h"
 #include "mozilla/layers/ScrollInputMethods.h"
 
-#include "nsIEditor.h"
-#include "nsIHTMLEditor.h"
 #include "nsFocusManager.h"
 #include "nsPIDOMWindow.h"
 
@@ -335,6 +335,8 @@ nsFrameSelection::nsFrameSelection()
   mNotifyFrames = true;
 
   mMouseDoubleDownState = false;
+  mDesiredPosSet = false;
+  mAccessibleCaretEnabled = false;
 
   mHint = CARET_ASSOCIATE_BEFORE;
   mCaretBidiLevel = BIDI_LEVEL_UNDEFINED;
@@ -700,7 +702,8 @@ GetCellParent(nsINode *aDomNode)
 }
 
 void
-nsFrameSelection::Init(nsIPresShell *aShell, nsIContent *aLimiter)
+nsFrameSelection::Init(nsIPresShell *aShell, nsIContent *aLimiter,
+                       bool aAccessibleCaretEnabled)
 {
   mShell = aShell;
   mDragState = false;
@@ -720,16 +723,24 @@ nsFrameSelection::Init(nsIPresShell *aShell, nsIContent *aLimiter)
                                  "dom.select_events.textcontrols.enabled", false);
   }
 
-  RefPtr<AccessibleCaretEventHub> eventHub = mShell->GetAccessibleCaretEventHub();
-  if (eventHub) {
-    int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
-    if (mDomSelections[index]) {
-      mDomSelections[index]->AddSelectionListener(eventHub);
+  mAccessibleCaretEnabled = aAccessibleCaretEnabled;
+  if (mAccessibleCaretEnabled) {
+    RefPtr<AccessibleCaretEventHub> eventHub = mShell->GetAccessibleCaretEventHub();
+    if (eventHub) {
+      int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
+      if (mDomSelections[index]) {
+        mDomSelections[index]->AddSelectionListener(eventHub);
+      }
     }
   }
 
+  bool plaintextControl = (aLimiter != nullptr);
+  bool initSelectEvents = plaintextControl ?
+                            sSelectionEventsOnTextControlsEnabled :
+                            sSelectionEventsEnabled;
+
   nsIDocument* doc = aShell->GetDocument();
-  if (sSelectionEventsEnabled ||
+  if (initSelectEvents ||
       (doc && nsContentUtils::IsSystemPrincipal(doc->NodePrincipal()))) {
     int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
     if (mDomSelections[index]) {
@@ -1446,10 +1457,10 @@ nsFrameSelection::TakeFocus(nsIContent*        aNewFocus,
     bool editableCell = false;
     RefPtr<nsPresContext> context = mShell->GetPresContext();
     if (context) {
-      nsCOMPtr<nsIHTMLEditor> editor = do_QueryInterface(nsContentUtils::GetHTMLEditor(context));
-      if (editor) {
+      RefPtr<HTMLEditor> htmlEditor = nsContentUtils::GetHTMLEditor(context);
+      if (htmlEditor) {
         nsINode* cellparent = GetCellParent(aNewFocus);
-        nsCOMPtr<nsINode> editorHostNode = editor->GetActiveEditingHost();
+        nsCOMPtr<nsINode> editorHostNode = htmlEditor->GetActiveEditingHost();
         editableCell = cellparent && editorHostNode &&
                    nsContentUtils::ContentIsDescendantOf(cellparent, editorHostNode);
         if (editableCell) {
@@ -2949,10 +2960,12 @@ nsFrameSelection::SetDelayedCaretData(WidgetMouseEvent* aMouseEvent)
 void
 nsFrameSelection::DisconnectFromPresShell()
 {
-  RefPtr<AccessibleCaretEventHub> eventHub = mShell->GetAccessibleCaretEventHub();
-  if (eventHub) {
-    int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
-    mDomSelections[index]->RemoveSelectionListener(eventHub);
+  if (mAccessibleCaretEnabled) {
+    RefPtr<AccessibleCaretEventHub> eventHub = mShell->GetAccessibleCaretEventHub();
+    if (eventHub) {
+      int8_t index = GetIndexFromSelectionType(SelectionType::eNormal);
+      mDomSelections[index]->RemoveSelectionListener(eventHub);
+    }
   }
 
   StopAutoScrollTimer();

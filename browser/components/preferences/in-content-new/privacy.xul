@@ -196,7 +196,7 @@
                 label="&passwordExceptions.label;"
                 accesskey="&passwordExceptions.accesskey;"
                 preference="pref.privacy.disable_button.view_passwords_exceptions"
-                searchkeywords="&address.label;"/>
+                searchkeywords="&address2.label;"/>
       </hbox>
     </hbox>
     <hbox id="showPasswordBox" pack="end">
@@ -252,11 +252,11 @@
                                                                                         &rememberSearchForm.label;
                                                                                         &acceptCookies2.label;
                                                                                         &cookieExceptions.label;
-                                                                                        &acceptThirdParty.pre.label;
+                                                                                        &acceptThirdParty2.pre.label;
                                                                                         &acceptThirdParty.always.label;
                                                                                         &acceptThirdParty.visited.label;
                                                                                         &acceptThirdParty.never.label;
-                                                                                        &keepUntil.label;
+                                                                                        &keepUntil2.label;
                                                                                         &expire.label;
                                                                                         &close.label;
                                                                                         &showCookies.label;
@@ -324,7 +324,7 @@
                 class="indent"
                 align="center">
             <label id="acceptThirdPartyLabel" control="acceptThirdPartyMenu"
-                   accesskey="&acceptThirdParty.pre.accesskey;">&acceptThirdParty.pre.label;</label>
+                   accesskey="&acceptThirdParty2.pre.accesskey;">&acceptThirdParty2.pre.label;</label>
             <menulist id="acceptThirdPartyMenu" preference="network.cookie.cookieBehavior"
             onsyncfrompreference="return gPrivacyPane.readAcceptThirdPartyCookies();"
             onsynctopreference="return gPrivacyPane.writeAcceptThirdPartyCookies();">
@@ -340,7 +340,7 @@
                 align="center">
             <label id="keepUntil"
                    control="keepCookiesUntil"
-                   accesskey="&keepUntil.accesskey;">&keepUntil.label;</label>
+                   accesskey="&keepUntil2.accesskey;">&keepUntil2.label;</label>
             <menulist id="keepCookiesUntil"
                       preference="network.cookie.lifetimePolicy">
               <menupopup>
@@ -427,7 +427,7 @@
     <vbox flex="1">
       <description flex="1">
         <label id="totalSiteDataSize"></label>
-        <label id="siteDataLearnMoreLink" class="learnMore text-link" value="&siteDataLearnMoreLink.label;"></label>
+        <label id="siteDataLearnMoreLink" class="learnMore text-link">&siteDataLearnMoreLink.label;</label>
       </description>
     </vbox>
     <vbox align="end">
@@ -493,6 +493,7 @@
         <hbox>
           <button id="trackingProtectionExceptions"
                   class="accessory-button"
+                  flex="1"
                   hidden="true"
                   label="&trackingProtectionExceptions.label;"
                   accesskey="&trackingProtectionExceptions.accesskey;"
@@ -506,6 +507,7 @@
         <hbox>
           <button id="changeBlockList"
                   class="accessory-button"
+                  flex="1"
                   label="&changeBlockList2.label;"
                   accesskey="&changeBlockList2.accesskey;"
                   preference="pref.privacy.disable_button.change_blocklist"
@@ -534,23 +536,81 @@
 
 <!-- Permissions -->
 <groupbox id="permissionsGroup" data-category="panePrivacy" hidden="true">
+  <caption class="search-header" hidden="true"><label>&permissions.label;</label></caption>
+
   <grid>
     <columns>
       <column flex="1"/>
       <column/>
     </columns>
     <rows>
-      <row id="notificationsPolicyRow" align="center">
+      <row id="locationSettingsRow" align="center">
         <description flex="1">
-          <label id="notificationsPolicy">&notificationsPolicyDesc4.label;</label>
-          <label id="notificationsPolicyLearnMore"
-                 class="learnMore text-link">&notificationsPolicyLearnMore.label;</label>
+          <image class="geo-icon permission-icon" />
+          <separator orient="vertical" class="thin"/>
+          <label id="locationPermissionsLabel">&locationPermissions.label;</label>
         </description>
         <hbox pack="end">
-          <button id="notificationsPolicyButton"
+          <button id="locationSettingsButton"
                   class="accessory-button"
-                  label="&notificationsPolicyButton.label;"
-                  accesskey="&notificationsPolicyButton.accesskey;"
+                  label="&locationSettingsButton.label;"
+                  accesskey="&locationSettingsButton.accesskey;"
+                  searchkeywords="&removepermission2.label;
+                                  &removeallpermissions2.label;
+                                  &button.cancel.label;
+                                  &button.ok.label;"/>
+        </hbox>
+      </row>
+
+      <row id="cameraSettingsRow" align="center">
+        <description flex="1">
+          <image class="camera-icon permission-icon" />
+          <separator orient="vertical" class="thin"/>
+          <label id="cameraPermissionsLabel">&cameraPermissions.label;</label>
+        </description>
+        <hbox pack="end">
+          <button id="cameraSettingsButton"
+                  class="accessory-button"
+                  label="&cameraSettingsButton.label;"
+                  accesskey="&cameraSettingsButton.accesskey;"
+                  searchkeywords="&removepermission2.label;
+                                  &removeallpermissions2.label;
+                                  &button.cancel.label;
+                                  &button.ok.label;"/>
+        </hbox>
+      </row>
+
+      <row id="microphoneSettingsRow" align="center">
+        <description flex="1">
+          <image class="microphone-icon permission-icon" />
+          <separator orient="vertical" class="thin"/>
+          <label id="microphonePermissionsLabel">&microphonePermissions.label;</label>
+        </description>
+        <hbox pack="end">
+          <button id="microphoneSettingsButton"
+                  class="accessory-button"
+                  label="&microphoneSettingsButton.label;"
+                  accesskey="&microphoneSettingsButton.accesskey;"
+                  searchkeywords="&removepermission2.label;
+                                  &removeallpermissions2.label;
+                                  &button.cancel.label;
+                                  &button.ok.label;"/>
+        </hbox>
+      </row>
+
+      <row id="notificationSettingsRow" align="center">
+        <description flex="1">
+          <image class="desktop-notification-icon permission-icon" />
+          <separator orient="vertical" class="thin"/>
+          <label id="notificationPermissionsLabel">&notificationPermissions.label;</label>
+          <label id="notificationPermissionsLearnMore"
+                 class="learnMore text-link">&notificationPermissionsLearnMore.label;</label>
+        </description>
+        <hbox pack="end">
+          <button id="notificationSettingsButton"
+                  class="accessory-button"
+                  label="&notificationSettingsButton.label;"
+                  accesskey="&notificationSettingsButton.accesskey;"
                   searchkeywords="&removepermission2.label;
                                   &removeallpermissions2.label;
                                   &button.cancel.label;
@@ -559,6 +619,9 @@
       </row>
     </rows>
   </grid>
+
+  <separator flex="1"/>
+
   <vbox id="notificationsDoNotDisturbBox" hidden="true">
     <checkbox id="notificationsDoNotDisturb" label="&notificationsDoNotDisturb.label;"
               accesskey="&notificationsDoNotDisturb.accesskey;"/>
@@ -578,7 +641,7 @@
               class="accessory-button"
               label="&popupExceptions.label;"
               accesskey="&popupExceptions.accesskey;"
-              searchkeywords="&address.label; &button.cancel.label; &button.ok.label;"/>
+              searchkeywords="&address2.label; &button.cancel.label; &button.ok.label;"/>
     </hbox>
   </hbox>
 
@@ -595,7 +658,7 @@
               class="accessory-button"
               label="&addonExceptions.label;"
               accesskey="&addonExceptions.accesskey;"
-              searchkeywords="&address.label;
+              searchkeywords="&address2.label;
                               &allow.label;
                               &removepermission2.label;
                               &removeallpermissions2.label;
@@ -616,11 +679,12 @@
 <!-- Firefox Data Collection and Use -->
 #ifdef MOZ_DATA_REPORTING
 <groupbox id="dataCollectionGroup" data-category="panePrivacy" data-subcategory="reports" hidden="true">
-  <description>
-    &dataCollectionDesc.label;<label id="dataCollectionPrivacyNotice" class="learnMore text-link">&dataCollectionPrivacyNotice.label;</label>
-  </description>
+  <caption class="search-header" hidden="true"><label>&dataCollection.label;</label></caption>
 
   <vbox>
+    <description>
+      &dataCollectionDesc.label;<label id="dataCollectionPrivacyNotice" class="learnMore text-link">&dataCollectionPrivacyNotice.label;</label>
+    </description>
     <description flex="1">
       <checkbox id="submitHealthReportBox" label="&enableHealthReport1.label;"
                 accesskey="&enableHealthReport1.accesskey;"/>
@@ -709,11 +773,11 @@
                                 &certmgr.tab.websites3;
                                 &certmgr.tab.ca;
                                 &certmgr.tab.orphan2;
-                                &certmgr.mine;
-                                &certmgr.others;
-                                &certmgr.websites2;
-                                &certmgr.cas;
-                                &certmgr.orphans;
+                                &certmgr.mine2;
+                                &certmgr.others2;
+                                &certmgr.websites3;
+                                &certmgr.cas2;
+                                &certmgr.orphans2;
                                 &certmgr.certname;
                                 &certmgr.tokenname;
                                 &certmgr.view2.label;
@@ -771,7 +835,7 @@
   </hbox>
   <hbox>
     <vbox flex="1">
-      <label id="offlineAppsListLabel">&offlineAppsList2.label;</label>
+      <label id="offlineAppsListLabel">&offlineAppsList3.label;</label>
       <listbox id="offlineAppsList"
               flex="1"
               aria-labelledby="offlineAppsListLabel">

@@ -18,8 +18,6 @@
 #include "nsIDOMEventTarget.h"
 #include "nsIDOMMouseEvent.h"
 #include "nsIDOMNode.h"
-#include "nsIHTMLInlineTableEditor.h"
-#include "nsIHTMLObjectResizer.h"
 #include "nsISupportsImpl.h"
 #include "nsLiteralString.h"
 #include "nsQueryObject.h"
@@ -217,9 +215,14 @@ HTMLEditorEventListener::MouseClick(nsIDOMMouseEvent* aMouseEvent)
   NS_ENSURE_TRUE(target, NS_ERROR_NULL_POINTER);
   nsCOMPtr<nsIDOMElement> element = do_QueryInterface(target);
 
-  HTMLEditor* htmlEditor = mEditorBase->AsHTMLEditor();
+  RefPtr<HTMLEditor> htmlEditor = mEditorBase->AsHTMLEditor();
   MOZ_ASSERT(htmlEditor);
   htmlEditor->DoInlineTableEditingAction(element);
+  // DoInlineTableEditingAction might cause reframe
+  // Editor is destroyed.
+  if (htmlEditor->Destroyed()) {
+    return NS_OK;
+  }
 
   return EditorEventListener::MouseClick(aMouseEvent);
 }

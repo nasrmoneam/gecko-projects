@@ -812,6 +812,10 @@ nsFrameMessageManager::ReleaseCachedProcesses()
 NS_IMETHODIMP
 nsFrameMessageManager::Dump(const nsAString& aStr)
 {
+  if (!nsContentUtils::DOMWindowDumpEnabled()) {
+    return NS_OK;
+  }
+
 #ifdef ANDROID
   __android_log_print(ANDROID_LOG_INFO, "Gecko", "%s", NS_ConvertUTF16toUTF8(aStr).get());
 #endif
@@ -1311,6 +1315,16 @@ nsFrameMessageManager::GetProcessMessageManager(nsIMessageSender** aPMM)
   return NS_OK;
 }
 
+NS_IMETHODIMP
+nsFrameMessageManager::GetRemoteType(nsAString& aRemoteType)
+{
+  aRemoteType.Truncate();
+  if (mCallback) {
+    return mCallback->DoGetRemoteType(aRemoteType);
+  }
+  return NS_OK;
+}
+
 namespace {
 
 struct MessageManagerReferentCount
@@ -1648,7 +1662,7 @@ nsMessageManagerScriptExecutor::TryCacheLoadAndCompileScript(
       return;
     }
 
-    JS::CompileOptions options(cx, JSVERSION_LATEST);
+    JS::CompileOptions options(cx, JSVERSION_DEFAULT);
     options.setFileAndLine(url.get(), 1);
     options.setNoScriptRval(true);
 
@@ -1714,7 +1728,7 @@ nsMessageManagerScriptExecutor::InitChildGlobalInternal(
 
   JS::CompartmentOptions options;
   options.creationOptions().setSystemZone();
-  options.behaviors().setVersion(JSVERSION_LATEST);
+  options.behaviors().setVersion(JSVERSION_DEFAULT);
 
   if (xpc::SharedMemoryEnabled()) {
     options.creationOptions().setSharedMemoryAndAtomicsEnabled(true);

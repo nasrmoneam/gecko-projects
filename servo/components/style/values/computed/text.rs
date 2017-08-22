@@ -4,10 +4,10 @@
 
 //! Computed types for text properties.
 
-use app_units::Au;
 use properties::animated_properties::Animatable;
 use values::{CSSInteger, CSSFloat};
 use values::animated::ToAnimatedZero;
+use values::computed::{NonNegativeAu, NonNegativeNumber};
 use values::computed::length::{Length, LengthOrPercentage};
 use values::generics::text::InitialLetter as GenericInitialLetter;
 use values::generics::text::LineHeight as GenericLineHeight;
@@ -23,7 +23,7 @@ pub type LetterSpacing = Spacing<Length>;
 pub type WordSpacing = Spacing<LengthOrPercentage>;
 
 /// A computed value for the `line-height` property.
-pub type LineHeight = GenericLineHeight<CSSFloat, Au>;
+pub type LineHeight = GenericLineHeight<NonNegativeNumber, NonNegativeAu>;
 
 impl Animatable for LineHeight {
     #[inline]
@@ -42,22 +42,6 @@ impl Animatable for LineHeight {
             (GenericLineHeight::MozBlockHeight, GenericLineHeight::MozBlockHeight) => {
                 Ok(GenericLineHeight::MozBlockHeight)
             },
-            _ => Err(()),
-        }
-    }
-
-    #[inline]
-    fn compute_distance(&self, other: &Self) -> Result<f64, ()> {
-        match (*self, *other) {
-            (GenericLineHeight::Length(ref this), GenericLineHeight::Length(ref other)) => {
-                this.compute_distance(other)
-            },
-            (GenericLineHeight::Number(ref this), GenericLineHeight::Number(ref other)) => {
-                this.compute_distance(other)
-            },
-            (GenericLineHeight::Normal, GenericLineHeight::Normal) => Ok(0.),
-            #[cfg(feature = "gecko")]
-            (GenericLineHeight::MozBlockHeight, GenericLineHeight::MozBlockHeight) => Ok(0.),
             _ => Err(()),
         }
     }

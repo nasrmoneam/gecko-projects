@@ -9,9 +9,9 @@
 "use strict";
 
 const { PromisesFront } = require("devtools/shared/fronts/promises");
-const { setTimeout } = require("sdk/timers");
+const { setTimeout } = Cu.import("resource://gre/modules/Timer.jsm", {});
 
-var events = require("sdk/event/core");
+var events = require("devtools/shared/event-emitter");
 
 add_task(function* () {
   let client = yield startTestDebuggerServer("test-promises-timetosettle");

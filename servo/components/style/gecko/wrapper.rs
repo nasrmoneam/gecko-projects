@@ -18,9 +18,9 @@ use CaseSensitivityExt;
 use app_units::Au;
 use applicable_declarations::ApplicableDeclarationBlock;
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
-use context::{QuirksMode, SharedStyleContext, UpdateAnimationsTasks};
-use data::ElementData;
-use dom::{self, DescendantsBit, LayoutIterator, NodeInfo, TElement, TNode, UnsafeNode};
+use context::{QuirksMode, SharedStyleContext, PostAnimationTasks, UpdateAnimationsTasks};
+use data::{ElementData, RestyleData};
+use dom::{LayoutIterator, NodeInfo, TElement, TNode, UnsafeNode};
 use dom::{OpaqueNode, PresentationalHintsSynthesizer};
 use element_state::{ElementState, DocumentState, NS_DOCUMENT_STATE_WINDOW_INACTIVE};
 use error_reporting::ParseErrorReporter;
@@ -45,7 +45,6 @@ use gecko_bindings::bindings::Gecko_GetExtraContentStyleDeclarations;
 use gecko_bindings::bindings::Gecko_GetHTMLPresentationAttrDeclarationBlock;
 use gecko_bindings::bindings::Gecko_GetSMILOverrideDeclarationBlock;
 use gecko_bindings::bindings::Gecko_GetStyleAttrDeclarationBlock;
-use gecko_bindings::bindings::Gecko_GetStyleContext;
 use gecko_bindings::bindings::Gecko_GetUnvisitedLinkAttrDeclarationBlock;
 use gecko_bindings::bindings::Gecko_GetVisitedLinkAttrDeclarationBlock;
 use gecko_bindings::bindings::Gecko_IsSignificantChild;
@@ -55,15 +54,16 @@ use gecko_bindings::bindings::Gecko_UnsetDirtyStyleAttr;
 use gecko_bindings::bindings::Gecko_UpdateAnimations;
 use gecko_bindings::structs;
 use gecko_bindings::structs::{RawGeckoElement, RawGeckoNode, RawGeckoXBLBinding};
-use gecko_bindings::structs::{nsIAtom, nsIContent, nsINode_BooleanFlag, nsStyleContext};
+use gecko_bindings::structs::{nsIAtom, nsIContent, nsINode_BooleanFlag};
 use gecko_bindings::structs::ELEMENT_HANDLED_SNAPSHOT;
 use gecko_bindings::structs::ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO;
 use gecko_bindings::structs::ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO;
 use gecko_bindings::structs::ELEMENT_HAS_SNAPSHOT;
 use gecko_bindings::structs::EffectCompositor_CascadeLevel as CascadeLevel;
-use gecko_bindings::structs::NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE;
-use gecko_bindings::structs::NODE_IS_NATIVE_ANONYMOUS;
+use gecko_bindings::structs::NODE_DESCENDANTS_NEED_FRAMES;
+use gecko_bindings::structs::nsChangeHint;
 use gecko_bindings::structs::nsIDocument_DocumentTheme as DocumentTheme;
+use gecko_bindings::structs::nsRestyleHint;
 use gecko_bindings::sugar::ownership::{HasArcFFI, HasSimpleFFI};
 use logical_geometry::WritingMode;
 use media_queries::Device;
@@ -218,12 +218,6 @@ impl<'ln> GeckoNode<'ln> {
         }
     }
 
-    /// This logic is duplicated in Gecko's nsIContent::IsRootOfNativeAnonymousSubtree.
-    fn is_root_of_native_anonymous_subtree(&self) -> bool {
-        use gecko_bindings::structs::NODE_IS_NATIVE_ANONYMOUS_ROOT;
-        return self.flags() & (NODE_IS_NATIVE_ANONYMOUS_ROOT as u32) != 0
-    }
-
     fn contains_non_whitespace_content(&self) -> bool {
         unsafe { Gecko_IsSignificantChild(self.0, true, false) }
     }
@@ -231,16 +225,6 @@ impl<'ln> GeckoNode<'ln> {
     #[inline]
     fn may_have_anonymous_children(&self) -> bool {
         self.get_bool_flag(nsINode_BooleanFlag::ElementMayHaveAnonymousChildren)
-    }
-
-    /// This logic is duplicated in Gecko's nsIContent::IsInAnonymousSubtree.
-    #[inline]
-    fn is_in_anonymous_subtree(&self) -> bool {
-        use gecko_bindings::structs::NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE;
-        use gecko_bindings::structs::NODE_IS_IN_SHADOW_TREE;
-        self.flags() & (NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE as u32) != 0 ||
-        ((self.flags() & (NODE_IS_IN_SHADOW_TREE as u32) == 0) &&
-         self.as_element().map_or(false, |e| e.has_xbl_binding_parent()))
     }
 }
 
@@ -287,7 +271,7 @@ impl<'ln> TNode for GeckoNode<'ln> {
             // StyleChildrenIterator::IsNeeded does, except that it might return
             // true if we used to (but no longer) have anonymous content from
             // ::before/::after, XBL bindings, or nsIAnonymousContentCreators.
-            if self.is_in_anonymous_subtree() ||
+            if element.is_in_anonymous_subtree() ||
                element.has_xbl_binding_with_content() ||
                self.may_have_anonymous_children() {
                 unsafe {
@@ -385,7 +369,12 @@ impl<'a> Iterator for GeckoChildrenIterator<'a> {
                 curr
             },
             GeckoChildrenIterator::GeckoIterator(ref mut it) => unsafe {
-                Gecko_GetNextStyleChild(it).map(GeckoNode)
+                // We do this unsafe lengthening of the lifetime here because
+                // structs::StyleChildrenIterator is actually StyleChildrenIterator<'a>,
+                // however we can't express this easily with bindgen, and it would
+                // introduce functions with two input lifetimes into bindgen,
+                // which would be out of scope for elision.
+                Gecko_GetNextStyleChild(&mut * (it as *mut _)).map(GeckoNode)
             }
         }
     }
@@ -423,7 +412,7 @@ impl<'lb> GeckoXBLBinding<'lb> {
         }
     }
 
-    fn each_xbl_stylist<F>(self, mut f: &mut F)
+    fn each_xbl_stylist<F>(self, f: &mut F)
     where
         F: FnMut(&Stylist),
     {
@@ -669,6 +658,93 @@ impl<'le> GeckoElement<'le> {
     /// Owner document quirks mode getter.
     pub fn owner_document_quirks_mode(&self) -> QuirksMode {
         self.as_node().owner_doc().mCompatMode.into()
+    }
+
+    /// Only safe to call on the main thread, with exclusive access to the element and
+    /// its ancestors.
+    /// This function is also called after display property changed for SMIL animation.
+    ///
+    /// Also this function schedules style flush.
+    unsafe fn maybe_restyle<'a>(&self,
+                                data: &'a mut ElementData,
+                                animation_only: bool) -> Option<&'a mut RestyleData> {
+        // Don't generate a useless RestyleData if the element hasn't been styled.
+        if !data.has_styles() {
+            return None;
+        }
+
+        // Propagate the bit up the chain.
+        if animation_only {
+            bindings::Gecko_NoteAnimationOnlyDirtyElement(self.0);
+        } else {
+            bindings::Gecko_NoteDirtyElement(self.0);
+        }
+
+        // Ensure and return the RestyleData.
+        Some(&mut data.restyle)
+    }
+
+    /// Set restyle and change hints to the element data.
+    pub fn note_explicit_hints(&self,
+                               restyle_hint: nsRestyleHint,
+                               change_hint: nsChangeHint) {
+        use gecko::restyle_damage::GeckoRestyleDamage;
+        use invalidation::element::restyle_hints::RestyleHint;
+
+        let damage = GeckoRestyleDamage::new(change_hint);
+        debug!("note_explicit_hints: {:?}, restyle_hint={:?}, change_hint={:?}",
+               self, restyle_hint, change_hint);
+
+        let restyle_hint: RestyleHint = restyle_hint.into();
+        debug_assert!(!(restyle_hint.has_animation_hint() &&
+                        restyle_hint.has_non_animation_hint()),
+                      "Animation restyle hints should not appear with non-animation restyle hints");
+
+        let mut maybe_data = self.mutate_data();
+        let maybe_restyle_data = maybe_data.as_mut().and_then(|d| unsafe {
+            self.maybe_restyle(d, restyle_hint.has_animation_hint())
+        });
+        if let Some(restyle_data) = maybe_restyle_data {
+            restyle_data.hint.insert(restyle_hint.into());
+            restyle_data.damage |= damage;
+        } else {
+            debug!("(Element not styled, discarding hints)");
+        }
+    }
+
+    /// This logic is duplicated in Gecko's nsIContent::IsRootOfAnonymousSubtree.
+    #[inline]
+    fn is_root_of_anonymous_subtree(&self) -> bool {
+        use gecko_bindings::structs::NODE_IS_ANONYMOUS_ROOT;
+        self.flags() & (NODE_IS_ANONYMOUS_ROOT as u32) != 0
+    }
+
+    /// This logic is duplicated in Gecko's nsIContent::IsRootOfNativeAnonymousSubtree.
+    #[inline]
+    fn is_root_of_native_anonymous_subtree(&self) -> bool {
+        use gecko_bindings::structs::NODE_IS_NATIVE_ANONYMOUS_ROOT;
+        return self.flags() & (NODE_IS_NATIVE_ANONYMOUS_ROOT as u32) != 0
+    }
+
+    /// This logic is duplicated in Gecko's nsINode::IsInNativeAnonymousSubtree.
+    #[inline]
+    fn is_in_native_anonymous_subtree(&self) -> bool {
+        use gecko_bindings::structs::NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE;
+        self.flags() & (NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE as u32) != 0
+    }
+
+    /// This logic is duplicate in Gecko's nsIContent::IsInShadowTree().
+    #[inline]
+    fn is_in_shadow_tree(&self) -> bool {
+        use gecko_bindings::structs::NODE_IS_IN_SHADOW_TREE;
+        self.flags() & (NODE_IS_IN_SHADOW_TREE as u32) != 0
+    }
+
+    /// This logic is duplicated in Gecko's nsIContent::IsInAnonymousSubtree.
+    #[inline]
+    fn is_in_anonymous_subtree(&self) -> bool {
+        self.is_in_native_anonymous_subtree() ||
+        (!self.is_in_shadow_tree() && self.has_xbl_binding_parent())
     }
 }
 
@@ -943,18 +1019,6 @@ impl<'le> TElement for GeckoElement<'le> {
                                      Gecko_ClassOrClassList)
     }
 
-    fn existing_style_for_restyle_damage<'a>(&'a self,
-                                             _existing_values: &'a ComputedValues,
-                                             pseudo: Option<&PseudoElement>)
-                                             -> Option<&'a nsStyleContext> {
-        // TODO(emilio): Migrate this to CSSPseudoElementType.
-        let atom_ptr = pseudo.map_or(ptr::null_mut(), |p| p.atom().as_ptr());
-        unsafe {
-            let context_ptr = Gecko_GetStyleContext(self.0, atom_ptr);
-            context_ptr.as_ref()
-        }
-    }
-
     fn has_snapshot(&self) -> bool {
         self.flags() & (ELEMENT_HAS_SNAPSHOT as u32) != 0
     }
@@ -978,23 +1042,6 @@ impl<'le> TElement for GeckoElement<'le> {
         self.set_flags(ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32)
     }
 
-    unsafe fn note_descendants<B: DescendantsBit<Self>>(&self) {
-        // FIXME(emilio): We seem to reach this in Gecko's
-        // layout/style/test/test_pseudoelement_state.html, while changing the
-        // state of an anonymous content element which is styled, but whose
-        // parent isn't, presumably because we've cleared the data and haven't
-        // reached it yet.
-        //
-        // Otherwise we should be able to assert this.
-        if self.get_data().is_none() {
-            return;
-        }
-
-        if dom::raw_note_descendants::<Self, B>(*self) {
-            bindings::Gecko_SetOwnerDocumentNeedsStyleFlush(self.0);
-        }
-    }
-
     unsafe fn unset_dirty_descendants(&self) {
         self.unset_flags(ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32)
     }
@@ -1011,12 +1058,19 @@ impl<'le> TElement for GeckoElement<'le> {
         self.unset_flags(ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO as u32)
     }
 
+    unsafe fn clear_descendants_bits(&self) {
+        self.unset_flags(ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32 |
+                         ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO as u32 |
+                         NODE_DESCENDANTS_NEED_FRAMES as u32)
+    }
+
     fn is_visited_link(&self) -> bool {
         use element_state::IN_VISITED_STATE;
         self.get_state().intersects(IN_VISITED_STATE)
     }
 
     fn is_native_anonymous(&self) -> bool {
+        use gecko_bindings::structs::NODE_IS_NATIVE_ANONYMOUS;
         self.flags() & (NODE_IS_NATIVE_ANONYMOUS as u32) != 0
     }
 
@@ -1079,7 +1133,7 @@ impl<'le> TElement for GeckoElement<'le> {
         // level native anonymous content subtree roots, since they're not
         // really roots from the style fixup perspective.  Checking that we
         // are NAC handles both cases.
-        self.flags() & (NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE as u32) != 0
+        self.is_native_anonymous()
     }
 
     unsafe fn set_selector_flags(&self, flags: ElementSelectorFlags) {
@@ -1107,6 +1161,31 @@ impl<'le> TElement for GeckoElement<'le> {
         self.as_node().get_bool_flag(nsINode_BooleanFlag::ElementHasAnimations)
     }
 
+    /// Process various tasks that are a result of animation-only restyle.
+    fn process_post_animation(&self,
+                              tasks: PostAnimationTasks) {
+        use context::DISPLAY_CHANGED_FROM_NONE_FOR_SMIL;
+        use gecko_bindings::structs::nsChangeHint_nsChangeHint_Empty;
+        use gecko_bindings::structs::nsRestyleHint_eRestyle_Subtree;
+
+        debug_assert!(!tasks.is_empty(), "Should be involved a task");
+
+        // If display style was changed from none to other, we need to resolve
+        // the descendants in the display:none subtree. Instead of resolving
+        // those styles in animation-only restyle, we defer it to a subsequent
+        // normal restyle.
+        if tasks.intersects(DISPLAY_CHANGED_FROM_NONE_FOR_SMIL) {
+            debug_assert!(self.implemented_pseudo_element()
+                              .map_or(true, |p| !p.is_before_or_after()),
+                          "display property animation shouldn't run on pseudo elements \
+                           since it's only for SMIL");
+            self.note_explicit_hints(nsRestyleHint_eRestyle_Subtree,
+                                     nsChangeHint_nsChangeHint_Empty);
+        }
+    }
+
+    /// Update various animation-related state on a given (pseudo-)element as
+    /// results of normal restyle.
     fn update_animations(&self,
                          before_change_style: Option<Arc<ComputedValues>>,
                          tasks: UpdateAnimationsTasks) {
@@ -1165,7 +1244,7 @@ impl<'le> TElement for GeckoElement<'le> {
                 }
             }
 
-            if element.as_node().is_root_of_native_anonymous_subtree() {
+            if element.is_root_of_native_anonymous_subtree() {
                 // Deliberately cut off style inheritance here.
                 break;
             }
@@ -1330,6 +1409,8 @@ impl<'le> TElement for GeckoElement<'le> {
                                              existing_transitions: &HashMap<TransitionProperty,
                                                                             Arc<AnimationValue>>)
                                              -> bool {
+        use properties::animated_properties::Animatable;
+
         // |property| should be an animatable longhand
         let animatable_longhand = AnimatableLonghand::from_transition_property(property).unwrap();
 
@@ -1348,7 +1429,9 @@ impl<'le> TElement for GeckoElement<'le> {
         let to = AnimationValue::from_computed_values(&animatable_longhand,
                                                       after_change_style);
 
-        combined_duration > 0.0f32 && from != to
+        combined_duration > 0.0f32 &&
+        from != to &&
+        from.interpolate(&to, 0.5).is_ok()
     }
 
     #[inline]
@@ -1402,6 +1485,7 @@ impl<'le> PresentationalHintsSynthesizer for GeckoElement<'le> {
         where V: Push<ApplicableDeclarationBlock>,
     {
         use properties::longhands::_x_lang::SpecifiedValue as SpecifiedLang;
+        use properties::longhands::_x_text_zoom::SpecifiedValue as SpecifiedZoom;
         use properties::longhands::color::SpecifiedValue as SpecifiedColor;
         use properties::longhands::text_align::SpecifiedValue as SpecifiedTextAlign;
         use values::specified::color::Color;
@@ -1433,16 +1517,30 @@ impl<'le> PresentationalHintsSynthesizer for GeckoElement<'le> {
                 let arc = Arc::new(global_style_data.shared_lock.wrap(pdb));
                 ApplicableDeclarationBlock::from_declarations(arc, ServoCascadeLevel::PresHints)
             };
+            static ref SVG_TEXT_DISABLE_ZOOM_RULE: ApplicableDeclarationBlock = {
+                let global_style_data = &*GLOBAL_STYLE_DATA;
+                let pdb = PropertyDeclarationBlock::with_one(
+                    PropertyDeclaration::XTextZoom(SpecifiedZoom(false)),
+                    Importance::Normal
+                );
+                let arc = Arc::new(global_style_data.shared_lock.wrap(pdb));
+                ApplicableDeclarationBlock::from_declarations(arc, ServoCascadeLevel::PresHints)
+            };
         };
 
-        let ns = self.get_namespace();
+        let ns = self.namespace_id();
         // <th> elements get a default MozCenterOrInherit which may get overridden
-        if ns == &*Namespace(atom!("http://www.w3.org/1999/xhtml")) {
+        if ns == structs::kNameSpaceID_XHTML as i32 {
             if self.get_local_name().as_ptr() == atom!("th").as_ptr() {
                 hints.push(TH_RULE.clone());
             } else if self.get_local_name().as_ptr() == atom!("table").as_ptr() &&
                       self.as_node().owner_doc().mCompatMode == structs::nsCompatibility::eCompatibility_NavQuirks {
                 hints.push(TABLE_COLOR_RULE.clone());
+            }
+        }
+        if ns == structs::kNameSpaceID_SVG as i32 {
+            if self.get_local_name().as_ptr() == atom!("text").as_ptr() {
+                hints.push(SVG_TEXT_DISABLE_ZOOM_RULE.clone());
             }
         }
         let declarations = unsafe { Gecko_GetHTMLPresentationAttrDeclarationBlock(self.0) };
@@ -1517,7 +1615,7 @@ impl<'le> PresentationalHintsSynthesizer for GeckoElement<'le> {
             hints.push(ApplicableDeclarationBlock::from_declarations(arc, ServoCascadeLevel::PresHints))
         }
         // MathML's default lang has precedence over both `lang` and `xml:lang`
-        if ns == &*Namespace(atom!("http://www.w3.org/1998/Math/MathML")) {
+        if ns == structs::kNameSpaceID_MathML as i32 {
             if self.get_local_name().as_ptr() == atom!("math").as_ptr() {
                 hints.push(MATHML_LANG_RULE.clone());
             }
@@ -1878,9 +1976,12 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
         node.owner_doc().mType == structs::root::nsIDocument_Type::eHTML
     }
 
+    fn ignores_nth_child_selectors(&self) -> bool {
+        self.is_root_of_anonymous_subtree()
+    }
+
     fn blocks_ancestor_combinators(&self) -> bool {
-        use gecko_bindings::structs::NODE_IS_ANONYMOUS_ROOT;
-        if self.flags() & (NODE_IS_ANONYMOUS_ROOT as u32) == 0 {
+        if !self.is_root_of_anonymous_subtree() {
             return false
         }
 
@@ -1915,6 +2016,6 @@ impl<'a> NamespaceConstraintHelpers for NamespaceConstraint<&'a Namespace> {
 impl<'le> ElementExt for GeckoElement<'le> {
     #[inline]
     fn matches_user_and_author_rules(&self) -> bool {
-        self.flags() & (NODE_IS_IN_NATIVE_ANONYMOUS_SUBTREE as u32) == 0
+        !self.is_in_native_anonymous_subtree()
     }
 }

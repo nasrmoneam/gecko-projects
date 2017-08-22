@@ -7,6 +7,7 @@
 #include "CubebUtils.h"
 
 #include "MediaInfo.h"
+#include "mozilla/AbstractThread.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
@@ -307,7 +308,7 @@ void InitBrandName()
   if (sBrandName) {
     return;
   }
-  nsXPIDLString brandName;
+  nsAutoString brandName;
   nsCOMPtr<nsIStringBundleService> stringBundleService =
     mozilla::services::GetStringBundleService();
   if (stringBundleService) {
@@ -315,8 +316,7 @@ void InitBrandName()
     nsresult rv = stringBundleService->CreateBundle(kBrandBundleURL,
                                            getter_AddRefs(brandBundle));
     if (NS_SUCCEEDED(rv)) {
-      rv = brandBundle->GetStringFromName("brandShortName",
-                                          getter_Copies(brandName));
+      rv = brandBundle->GetStringFromName("brandShortName", brandName);
       NS_WARNING_ASSERTION(
         NS_SUCCEEDED(rv), "Could not get the program name for a cubeb stream.");
     }
@@ -491,33 +491,6 @@ cubeb_channel_layout ConvertChannelMapToCubebLayout(uint32_t aChannelMap)
   }
 }
 
-#if defined(__ANDROID__) && defined(MOZ_B2G)
-cubeb_stream_type ConvertChannelToCubebType(dom::AudioChannel aChannel)
-{
-  switch(aChannel) {
-    case dom::AudioChannel::Normal:
-      /* FALLTHROUGH */
-    case dom::AudioChannel::Content:
-      return CUBEB_STREAM_TYPE_MUSIC;
-    case dom::AudioChannel::Notification:
-      return CUBEB_STREAM_TYPE_NOTIFICATION;
-    case dom::AudioChannel::Alarm:
-      return CUBEB_STREAM_TYPE_ALARM;
-    case dom::AudioChannel::Telephony:
-      return CUBEB_STREAM_TYPE_VOICE_CALL;
-    case dom::AudioChannel::Ringer:
-      return CUBEB_STREAM_TYPE_RING;
-    case dom::AudioChannel::System:
-      return CUBEB_STREAM_TYPE_SYSTEM;
-    case dom::AudioChannel::Publicnotification:
-      return CUBEB_STREAM_TYPE_SYSTEM_ENFORCED;
-    default:
-      NS_ERROR("The value of AudioChannel is invalid");
-      return CUBEB_STREAM_TYPE_MAX;
-  }
-}
-#endif
-
 void GetCurrentBackend(nsAString& aBackend)
 {
   cubeb* cubebContext = GetCubebContext();
@@ -610,9 +583,9 @@ void GetDeviceCollection(nsTArray<RefPtr<AudioDeviceInfo>>& aDeviceInfos,
       for (unsigned int i = 0; i < collection.count; ++i) {
         auto device = collection.device[i];
         RefPtr<AudioDeviceInfo> info =
-          new AudioDeviceInfo(NS_ConvertASCIItoUTF16(device.friendly_name),
-                              NS_ConvertASCIItoUTF16(device.group_id),
-                              NS_ConvertASCIItoUTF16(device.vendor_name),
+          new AudioDeviceInfo(NS_ConvertUTF8toUTF16(device.friendly_name),
+                              NS_ConvertUTF8toUTF16(device.group_id),
+                              NS_ConvertUTF8toUTF16(device.vendor_name),
                               ConvertCubebType(device.type),
                               ConvertCubebState(device.state),
                               ConvertCubebPreferred(device.preferred),

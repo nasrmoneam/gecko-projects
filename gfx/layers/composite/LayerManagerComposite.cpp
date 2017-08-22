@@ -496,7 +496,10 @@ LayerManagerComposite::UpdateAndRender()
     // immediately use the resulting damage area, since ComputeDifferences
     // is also responsible for invalidates intermediate surfaces in
     // ContainerLayers.
-    nsIntRegion changed = mClonedLayerTreeProperties->ComputeDifferences(mRoot, nullptr);
+    nsIntRegion changed;
+    if (!mClonedLayerTreeProperties->ComputeDifferences(mRoot, changed, nullptr)) {
+      changed = mTargetBounds;
+    }
 
     if (mTarget) {
       // Since we're composing to an external target, we're not going to use
@@ -572,7 +575,7 @@ LayerManagerComposite::InvalidateDebugOverlay(nsIntRegion& aInvalidRegion, const
     aInvalidRegion.Or(aInvalidRegion, nsIntRect(0, 0, 650, 400));
   }
   if (drawFrameColorBars) {
-    aInvalidRegion.Or(aInvalidRegion, nsIntRect(0, 0, 10, aBounds.height));
+    aInvalidRegion.Or(aInvalidRegion, nsIntRect(0, 0, 10, aBounds.Height()));
   }
 
 #ifdef USE_SKIA
@@ -623,33 +626,33 @@ LayerManagerComposite::RenderDebugOverlay(const IntRect& aBounds)
       border = 4;
       width = 6;
       effects.mPrimaryEffect = new EffectSolidColor(gfx::Color(0, 0, 0, 1));
-      mCompositor->DrawQuad(gfx::Rect(border, border, aBounds.width - 2 * border, width),
+      mCompositor->DrawQuad(gfx::Rect(border, border, aBounds.Width() - 2 * border, width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(border, aBounds.height - border - width, aBounds.width - 2 * border, width),
+      mCompositor->DrawQuad(gfx::Rect(border, aBounds.Height() - border - width, aBounds.Width() - 2 * border, width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(border, border + width, width, aBounds.height - 2 * border - width * 2),
+      mCompositor->DrawQuad(gfx::Rect(border, border + width, width, aBounds.Height() - 2 * border - width * 2),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(aBounds.width - border - width, border + width, width, aBounds.height - 2 * border - 2 * width),
+      mCompositor->DrawQuad(gfx::Rect(aBounds.Width() - border - width, border + width, width, aBounds.Height() - 2 * border - 2 * width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
 
       // Content
       border = 5;
       width = 4;
       effects.mPrimaryEffect = new EffectSolidColor(gfx::Color(1, 1.f - mWarningLevel, 0, 1));
-      mCompositor->DrawQuad(gfx::Rect(border, border, aBounds.width - 2 * border, width),
+      mCompositor->DrawQuad(gfx::Rect(border, border, aBounds.Width() - 2 * border, width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(border, aBounds.height - border - width, aBounds.width - 2 * border, width),
+      mCompositor->DrawQuad(gfx::Rect(border, aBounds.height - border - width, aBounds.Width() - 2 * border, width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(border, border + width, width, aBounds.height - 2 * border - width * 2),
+      mCompositor->DrawQuad(gfx::Rect(border, border + width, width, aBounds.Height() - 2 * border - width * 2),
                             aBounds, effects, alpha, gfx::Matrix4x4());
-      mCompositor->DrawQuad(gfx::Rect(aBounds.width - border - width, border + width, width, aBounds.height - 2 * border - 2 * width),
+      mCompositor->DrawQuad(gfx::Rect(aBounds.Width() - border - width, border + width, width, aBounds.Height() - 2 * border - 2 * width),
                             aBounds, effects, alpha, gfx::Matrix4x4());
       SetDebugOverlayWantsNextFrame(true);
     }
 #endif
 
     GPUStats stats;
-    stats.mScreenPixels = mRenderBounds.width * mRenderBounds.height;
+    stats.mScreenPixels = mRenderBounds.Width() * mRenderBounds.Height();
     mCompositor->GetFrameStats(&stats);
 
     std::string text = mDiagnostics->GetFrameOverlayString(stats);
@@ -667,7 +670,7 @@ LayerManagerComposite::RenderDebugOverlay(const IntRect& aBounds)
       // in the top-right corner
       EffectChain effects;
       effects.mPrimaryEffect = new EffectSolidColor(gfx::Color(1, 0, 0, 1));
-      mCompositor->DrawQuad(gfx::Rect(aBounds.width - 20, 0, 20, 20),
+      mCompositor->DrawQuad(gfx::Rect(aBounds.Width() - 20, 0, 20, 20),
                             aBounds, effects, alpha, gfx::Matrix4x4());
 
       mUnusedApzTransformWarning = false;
@@ -679,7 +682,7 @@ LayerManagerComposite::RenderDebugOverlay(const IntRect& aBounds)
       // warning box
       EffectChain effects;
       effects.mPrimaryEffect = new EffectSolidColor(gfx::Color(1, 1, 0, 1));
-      mCompositor->DrawQuad(gfx::Rect(aBounds.width - 40, 0, 20, 20),
+      mCompositor->DrawQuad(gfx::Rect(aBounds.Width() - 40, 0, 20, 20),
                             aBounds, effects, alpha, gfx::Matrix4x4());
 
       mDisabledApzWarning = false;
@@ -688,7 +691,7 @@ LayerManagerComposite::RenderDebugOverlay(const IntRect& aBounds)
   }
 
   if (drawFrameColorBars) {
-    gfx::IntRect sideRect(0, 0, 10, aBounds.height);
+    gfx::IntRect sideRect(0, 0, 10, aBounds.Height());
 
     EffectChain effects;
     effects.mPrimaryEffect = new EffectSolidColor(gfxUtils::GetColorForFrameNumber(sFrameCount));
@@ -902,7 +905,7 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
   }
 
   ParentLayerIntRect clipRect;
-  IntRect bounds(mRenderBounds.x, mRenderBounds.y, mRenderBounds.width, mRenderBounds.height);
+  IntRect bounds(mRenderBounds.x, mRenderBounds.y, mRenderBounds.Width(), mRenderBounds.Height());
   IntRect actualBounds;
 
   CompositorBench(mCompositor, bounds);
@@ -918,12 +921,12 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
 #endif
   if (mRoot->GetClipRect()) {
     clipRect = *mRoot->GetClipRect();
-    IntRect rect(clipRect.x, clipRect.y, clipRect.width, clipRect.height);
+    IntRect rect(clipRect.x, clipRect.y, clipRect.Width(), clipRect.Height());
     mCompositor->BeginFrame(aInvalidRegion, &rect, bounds, aOpaqueRegion, nullptr, &actualBounds);
   } else {
     gfx::IntRect rect;
     mCompositor->BeginFrame(aInvalidRegion, nullptr, bounds, aOpaqueRegion, &rect, &actualBounds);
-    clipRect = ParentLayerIntRect(rect.x, rect.y, rect.width, rect.height);
+    clipRect = ParentLayerIntRect(rect.x, rect.y, rect.Width(), rect.Height());
   }
 #if defined(MOZ_WIDGET_ANDROID)
   ScreenCoord offset = GetContentShiftForToolbar();
@@ -967,7 +970,7 @@ LayerManagerComposite::Render(const nsIntRegion& aInvalidRegion, const nsIntRegi
   if (!mRegionToClear.IsEmpty()) {
     for (auto iter = mRegionToClear.RectIter(); !iter.Done(); iter.Next()) {
       const IntRect& r = iter.Get();
-      mCompositor->ClearRect(Rect(r.x, r.y, r.width, r.height));
+      mCompositor->ClearRect(Rect(r.x, r.y, r.Width(), r.Height()));
     }
   }
 
@@ -1071,24 +1074,24 @@ LayerManagerComposite::RenderToPresentationSurface()
     return;
   }
 
-  EGLSurface surface = widget->AsAndroid()->GetPresentationEGLSurface();
-
-  if (!surface) {
-    //create surface;
-    surface = GLContextProviderEGL::CreateEGLSurface(window);
-    if (!surface) {
-      return;
-    }
-
-    widget->AsAndroid()->SetPresentationEGLSurface(surface);
-  }
-
   CompositorOGL* compositor = mCompositor->AsCompositorOGL();
   GLContext* gl = compositor->gl();
   GLContextEGL* egl = GLContextEGL::Cast(gl);
 
   if (!egl) {
     return;
+  }
+
+  EGLSurface surface = widget->AsAndroid()->GetPresentationEGLSurface();
+
+  if (!surface) {
+    //create surface;
+    surface = egl->CreateCompatibleSurface(window);
+    if (!surface) {
+      return;
+    }
+
+    widget->AsAndroid()->SetPresentationEGLSurface(surface);
   }
 
   const IntSize windowSize(ANativeWindow_getWidth(window),

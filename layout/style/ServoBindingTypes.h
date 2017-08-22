@@ -36,6 +36,7 @@ struct ComputedTiming;
 struct Keyframe;
 struct PropertyValuePair;
 struct PropertyStyleAnimationValuePair;
+enum class OriginFlags : uint8_t;
 using ComputedKeyframeValues = nsTArray<PropertyStyleAnimationValuePair>;
 } // namespace mozilla
 namespace nsStyleTransformMatrix {
@@ -53,6 +54,8 @@ class nsXBLBinding;
 
 using mozilla::dom::StyleChildrenIterator;
 using mozilla::ServoElementSnapshot;
+
+typedef void* RawServoAnimationValueTableBorrowed;
 
 typedef nsINode RawGeckoNode;
 typedef mozilla::dom::Element RawGeckoElement;

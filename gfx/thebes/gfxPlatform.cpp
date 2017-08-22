@@ -733,6 +733,14 @@ gfxPlatform::Init()
       gpu->LaunchGPUProcess();
     }
 
+    if (XRE_IsParentProcess()) {
+      if (gfxPlatform::ForceSoftwareVsync()) {
+        gPlatform->mVsyncSource = (gPlatform)->gfxPlatform::CreateHardwareVsyncSource();
+      } else {
+        gPlatform->mVsyncSource = gPlatform->CreateHardwareVsyncSource();
+      }
+    }
+
 #ifdef USE_SKIA
     SkGraphics::Init();
 #  ifdef MOZ_ENABLE_FREETYPE
@@ -812,14 +820,6 @@ gfxPlatform::Init()
 
     RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
     mlg::InitializeMemoryReporters();
-
-    if (XRE_IsParentProcess()) {
-      if (gfxPlatform::ForceSoftwareVsync()) {
-        gPlatform->mVsyncSource = (gPlatform)->gfxPlatform::CreateHardwareVsyncSource();
-      } else {
-        gPlatform->mVsyncSource = gPlatform->CreateHardwareVsyncSource();
-      }
-    }
 
 #ifdef USE_SKIA
     uint32_t skiaCacheSize = GetSkiaGlyphCacheSize();
@@ -1274,17 +1274,6 @@ gfxPlatform::GetWrappedDataSourceSurface(gfxASurface* aSurface)
   result->AddUserData(&kThebesSurface, srcSurfUD, SourceSurfaceDestroyed);
 
   return result.forget();
-}
-
-already_AddRefed<ScaledFont>
-gfxPlatform::GetScaledFontForFont(DrawTarget* aTarget, gfxFont *aFont)
-{
-  NativeFont nativeFont;
-  nativeFont.mType = NativeFontType::CAIRO_FONT_FACE;
-  nativeFont.mFont = aFont->GetCairoScaledFont();
-  return Factory::CreateScaledFontForNativeFont(nativeFont,
-                                                aFont->GetUnscaledFont(),
-                                                aFont->GetAdjustedSize());
 }
 
 void
@@ -2362,6 +2351,13 @@ gfxPlatform::InitGPUProcessPrefs()
     gpuProc.UserForceEnable("User force-enabled via pref");
   }
 
+  if (IsHeadless()) {
+    gpuProc.ForceDisable(
+      FeatureStatus::Blocked,
+      "Headless mode is enabled",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_HEADLESS_MODE"));
+    return;
+  }
   if (InSafeMode()) {
     gpuProc.ForceDisable(
       FeatureStatus::Blocked,
@@ -2408,10 +2404,14 @@ gfxPlatform::InitCompositorAccelerationPrefs()
     feature.UserForceEnable("Force-enabled by pref");
   }
 
-  // Safe mode trumps everything.
+  // Safe and headless modes override everything.
   if (InSafeMode()) {
     feature.ForceDisable(FeatureStatus::Blocked, "Acceleration blocked by safe-mode",
                          NS_LITERAL_CSTRING("FEATURE_FAILURE_COMP_SAFEMODE"));
+  }
+  if (IsHeadless()) {
+    feature.ForceDisable(FeatureStatus::Blocked, "Acceleration blocked by headless mode",
+                         NS_LITERAL_CSTRING("FEATURE_FAILURE_COMP_HEADLESSMODE"));
   }
 }
 
@@ -2445,6 +2445,14 @@ gfxPlatform::InitWebRenderConfig()
     if (env && *env == '1') {
       featureWebRender.UserEnable("Enabled by envvar");
     }
+  }
+
+  // HW_COMPOSITING being disabled implies interfacing with the GPU might break
+  if (!gfxConfig::IsEnabled(Feature::HW_COMPOSITING)) {
+    featureWebRender.ForceDisable(
+      FeatureStatus::Unavailable,
+      "Hardware compositing is disabled",
+      NS_LITERAL_CSTRING("FEATURE_FAILURE_WEBRENDER_NEED_HWCOMP"));
   }
 
   // WebRender relies on the GPU process when on Windows
@@ -2566,17 +2574,6 @@ gfxPlatform::DisableBufferRotation()
   MutexAutoLock autoLock(*gGfxPlatformPrefsLock);
 
   sBufferRotationCheckPref = false;
-}
-
-already_AddRefed<ScaledFont>
-gfxPlatform::GetScaledFontForFontWithCairoSkia(DrawTarget* aTarget, gfxFont* aFont)
-{
-    NativeFont nativeFont;
-    nativeFont.mType = NativeFontType::CAIRO_FONT_FACE;
-    nativeFont.mFont = aFont->GetCairoScaledFont();
-    return Factory::CreateScaledFontForNativeFont(nativeFont,
-                                                  aFont->GetUnscaledFont(),
-                                                  aFont->GetAdjustedSize());
 }
 
 /* static */ bool

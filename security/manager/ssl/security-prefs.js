@@ -28,7 +28,12 @@ pref("security.ssl3.dhe_rsa_aes_128_sha", true);
 pref("security.ssl3.dhe_rsa_aes_256_sha", true);
 pref("security.ssl3.rsa_aes_128_sha", true);
 pref("security.ssl3.rsa_aes_256_sha", true);
+// Deprecate 3DES on nightly builds, Bug 1386754
+#ifdef RELEASE_OR_BETA
 pref("security.ssl3.rsa_des_ede3_sha", true);
+#else
+pref("security.ssl3.rsa_des_ede3_sha", false);
+#endif
 
 pref("security.content.signature.root_hash",
      "97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E");
@@ -51,11 +56,7 @@ pref("security.enterprise_roots.enabled", false);
 // 0: do not fetch OCSP
 // 1: fetch OCSP for DV and EV certificates
 // 2: fetch OCSP only for EV certificates
-#ifdef RELEASE_OR_BETA
 pref("security.OCSP.enabled", 1);
-#else
-pref("security.OCSP.enabled", 2);
-#endif
 pref("security.OCSP.require", false);
 pref("security.OCSP.GET.enabled", false);
 #ifdef RELEASE_OR_BETA

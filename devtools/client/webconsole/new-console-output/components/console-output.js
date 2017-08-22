@@ -16,11 +16,15 @@ const {
   getAllMessagesUiById,
   getAllMessagesTableDataById,
   getAllMessagesObjectPropertiesById,
+  getAllMessagesObjectEntriesById,
   getAllNetworkMessagesUpdateById,
   getVisibleMessages,
   getAllRepeatById,
 } = require("devtools/client/webconsole/new-console-output/selectors/messages");
 const MessageContainer = createFactory(require("devtools/client/webconsole/new-console-output/components/message-container").MessageContainer);
+const {
+  MESSAGE_TYPE,
+} = require("devtools/client/webconsole/new-console-output/constants");
 
 const ConsoleOutput = createClass({
 
@@ -38,6 +42,7 @@ const ConsoleOutput = createClass({
     timestampsVisible: PropTypes.bool,
     messagesTableData: PropTypes.object.isRequired,
     messagesObjectProperties: PropTypes.object.isRequired,
+    messagesObjectEntries: PropTypes.object.isRequired,
     messagesRepeat: PropTypes.object.isRequired,
     networkMessagesUpdate: PropTypes.object.isRequired,
     visibleMessages: PropTypes.array.isRequired,
@@ -58,11 +63,20 @@ const ConsoleOutput = createClass({
       return;
     }
 
-    // Figure out if we are at the bottom. If so, then any new message should be scrolled
-    // into view.
     const lastChild = outputNode.lastChild;
-    const delta = nextProps.visibleMessages.length - this.props.visibleMessages.length;
-    this.shouldScrollBottom = delta > 0 && isScrolledToBottom(lastChild, outputNode);
+    const visibleMessagesDelta =
+      nextProps.visibleMessages.length - this.props.visibleMessages.length;
+    const messagesDelta =
+      nextProps.messages.length - this.props.messages.length;
+
+    // We need to scroll to the bottom if:
+    // - the number of messages displayed changed
+    //   and we are already scrolled to the bottom
+    // - the number of messages in the store changed
+    //   and the new message is an evaluation result.
+    this.shouldScrollBottom =
+      (messagesDelta > 0 && nextProps.messages.last().type === MESSAGE_TYPE.RESULT) ||
+      (visibleMessagesDelta > 0 && isScrolledToBottom(lastChild, outputNode));
   },
 
   componentDidUpdate() {
@@ -85,6 +99,7 @@ const ConsoleOutput = createClass({
       messagesUi,
       messagesTableData,
       messagesObjectProperties,
+      messagesObjectEntries,
       messagesRepeat,
       networkMessagesUpdate,
       serviceContainer,
@@ -103,6 +118,7 @@ const ConsoleOutput = createClass({
       networkMessageUpdate: networkMessagesUpdate[messageId],
       getMessage: () => messages.get(messageId),
       loadedObjectProperties: messagesObjectProperties.get(messageId),
+      loadedObjectEntries: messagesObjectEntries.get(messageId),
     }));
 
     return (
@@ -136,6 +152,7 @@ function mapStateToProps(state, props) {
     messagesUi: getAllMessagesUiById(state),
     messagesTableData: getAllMessagesTableDataById(state),
     messagesObjectProperties: getAllMessagesObjectPropertiesById(state),
+    messagesObjectEntries: getAllMessagesObjectEntriesById(state),
     messagesRepeat: getAllRepeatById(state),
     networkMessagesUpdate: getAllNetworkMessagesUpdateById(state),
     timestampsVisible: state.ui.timestampsVisible,

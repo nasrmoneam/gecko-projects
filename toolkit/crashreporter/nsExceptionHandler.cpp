@@ -25,10 +25,6 @@
 #include "jsfriendapi.h"
 #include "ThreadAnnotation.h"
 
-#ifdef XP_WIN
-#include "mozilla/TlsAllocationTracker.h"
-#endif
-
 #if defined(XP_WIN32)
 #ifdef WIN32_LEAN_AND_MEAN
 #undef WIN32_LEAN_AND_MEAN
@@ -414,7 +410,7 @@ SetJitExceptionHandler()
  * This size is bigger than xul.dll plus some extra for MinidumpWriteDump
  * allocations.
  */
-static const SIZE_T kReserveSize = 0x4000000; // 64 MB
+static const SIZE_T kReserveSize = 0x5000000; // 80 MB
 static void* gBreakpadReservedVM;
 #endif
 
@@ -1285,7 +1281,7 @@ BuildTempPath(char* aBuf, size_t aBufLen)
 static size_t
 BuildTempPath(char* aBuf, size_t aBufLen)
 {
-  // GeckoAppShell or Gonk's init.rc sets this in the environment
+  // GeckoAppShell sets this in the environment
   const char *tempenv = PR_GetEnv("TMPDIR");
   if (!tempenv) {
     return false;
@@ -1427,13 +1423,6 @@ PrepareChildExceptionTimeAnnotations()
       WriteAnnotation(apiData, "TopPendingIPCType", topPendingIPCTypeBuffer);
     }
   }
-
-#ifdef XP_WIN
-  const char* tlsAllocations = mozilla::GetTlsAllocationStacks();
-  if (tlsAllocations) {
-    WriteAnnotation(apiData, "TlsAllocations", tlsAllocations);
-  }
-#endif
 
   std::function<void(const char*)> getThreadAnnotationCB =
     [&] (const char * aAnnotation) -> void {

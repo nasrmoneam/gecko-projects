@@ -7,7 +7,7 @@
 use app_units::Au;
 use gecko::values::{convert_rgba_to_nscolor, convert_nscolor_to_rgba};
 use gecko_bindings::structs::nsCSSShadowItem;
-use values::computed::Color;
+use values::computed::RGBAColor;
 use values::computed::effects::{BoxShadow, SimpleShadow};
 
 impl nsCSSShadowItem {
@@ -23,12 +23,7 @@ impl nsCSSShadowItem {
     #[inline]
     pub fn to_box_shadow(&self) -> BoxShadow {
         BoxShadow {
-            base: SimpleShadow {
-                color: Color::rgba(convert_nscolor_to_rgba(self.mColor)),
-                horizontal: Au(self.mXOffset),
-                vertical: Au(self.mYOffset),
-                blur: Au(self.mRadius),
-            },
+            base: self.extract_simple_shadow(),
             spread: Au(self.mSpread),
             inset: self.mInset,
         }
@@ -39,17 +34,37 @@ impl nsCSSShadowItem {
     pub fn set_from_simple_shadow(&mut self, shadow: SimpleShadow) {
         self.mXOffset = shadow.horizontal.0;
         self.mYOffset = shadow.vertical.0;
-        self.mRadius = shadow.blur.0;
+        self.mRadius = shadow.blur.value();
         self.mSpread = 0;
         self.mInset = false;
-        if shadow.color.is_currentcolor() {
+        if let Some(color) = shadow.color {
+            self.mHasColor = true;
+            self.mColor = convert_rgba_to_nscolor(&color);
+        } else {
             // TODO handle currentColor
             // https://bugzilla.mozilla.org/show_bug.cgi?id=760345
             self.mHasColor = false;
             self.mColor = 0;
+        }
+    }
+
+    #[inline]
+    fn extract_color(&self) -> Option<RGBAColor> {
+        if self.mHasColor {
+            Some(convert_nscolor_to_rgba(self.mColor))
         } else {
-            self.mHasColor = true;
-            self.mColor = convert_rgba_to_nscolor(&shadow.color.color);
+            None
+        }
+    }
+
+    /// Gets a simple shadow from this item.
+    #[inline]
+    fn extract_simple_shadow(&self) -> SimpleShadow {
+        SimpleShadow {
+            color: self.extract_color(),
+            horizontal: Au(self.mXOffset),
+            vertical: Au(self.mYOffset),
+            blur: Au(self.mRadius).into(),
         }
     }
 
@@ -58,11 +73,6 @@ impl nsCSSShadowItem {
     pub fn to_simple_shadow(&self) -> SimpleShadow {
         debug_assert_eq!(self.mSpread, 0);
         debug_assert_eq!(self.mInset, false);
-        SimpleShadow {
-            color: Color::rgba(convert_nscolor_to_rgba(self.mColor)),
-            horizontal: Au(self.mXOffset),
-            vertical: Au(self.mYOffset),
-            blur: Au(self.mRadius),
-        }
+        self.extract_simple_shadow()
     }
 }

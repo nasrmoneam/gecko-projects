@@ -371,13 +371,12 @@ WebSocketImpl::PrintErrorOnConsole(const char *aBundleURI,
   NS_ENSURE_SUCCESS_VOID(rv);
 
   // Localize the error message
-  nsXPIDLString message;
+  nsAutoString message;
   if (aFormatStrings) {
     rv = strBundle->FormatStringFromName(aError, aFormatStrings,
-                                         aFormatStringsLen,
-                                         getter_Copies(message));
+                                         aFormatStringsLen, message);
   } else {
-    rv = strBundle->GetStringFromName(aError, getter_Copies(message));
+    rv = strBundle->GetStringFromName(aError, message);
   }
   NS_ENSURE_SUCCESS_VOID(rv);
 
@@ -1938,7 +1937,8 @@ WebSocket::CreateAndDispatchSimpleEvent(const nsAString& aName)
   event->InitEvent(aName, false, false);
   event->SetTrusted(true);
 
-  return DispatchDOMEvent(nullptr, event, nullptr, nullptr);
+  bool dummy;
+  return DispatchEvent(event, &dummy);
 }
 
 nsresult
@@ -2021,8 +2021,8 @@ WebSocket::CreateAndDispatchMessageEvent(const nsACString& aData,
                           Sequence<OwningNonNull<MessagePort>>());
   event->SetTrusted(true);
 
-  return DispatchDOMEvent(nullptr, static_cast<Event*>(event), nullptr,
-                          nullptr);
+  bool dummy;
+  return DispatchEvent(static_cast<Event*>(event), &dummy);
 }
 
 nsresult
@@ -2056,7 +2056,8 @@ WebSocket::CreateAndDispatchCloseEvent(bool aWasClean,
     CloseEvent::Constructor(this, CLOSE_EVENT_STRING, init);
   event->SetTrusted(true);
 
-  return DispatchDOMEvent(nullptr, event, nullptr, nullptr);
+  bool dummy;
+  return DispatchEvent(event, &dummy);
 }
 
 nsresult

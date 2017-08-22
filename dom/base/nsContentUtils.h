@@ -71,7 +71,6 @@ class nsIDOMHTMLInputElement;
 class nsIDOMKeyEvent;
 class nsIDOMNode;
 class nsIDragSession;
-class nsIEditor;
 class nsIEventTarget;
 class nsIFragmentContentSink;
 class nsIFrame;
@@ -127,6 +126,7 @@ namespace mozilla {
 class Dispatcher;
 class ErrorResult;
 class EventListenerManager;
+class HTMLEditor;
 
 namespace dom {
 struct CustomElementDefinition;
@@ -196,12 +196,6 @@ struct EventNameMapping
 
 typedef bool (*CallOnRemoteChildFunction) (mozilla::dom::TabParent* aTabParent,
                                            void* aArg);
-
-namespace mozilla {
-// 16 seems to be the maximum number of manual NAC nodes that editor
-// creates for a given element.
-typedef AutoTArray<mozilla::dom::Element*,16> ManualNAC;
-}
 
 class nsContentUtils
 {
@@ -282,6 +276,7 @@ public:
   // This function can be called both in the main thread and worker threads.
   static bool ShouldResistFingerprinting();
   static bool ShouldResistFingerprinting(nsIDocShell* aDocShell);
+  static bool ShouldResistFingerprinting(nsIDocument* aDoc);
 
   // A helper function to calculate the rounded window size for fingerprinting
   // resistance. The rounded size is based on the chrome UI size and available
@@ -1046,7 +1041,7 @@ public:
    */
   static nsresult GetLocalizedString(PropertiesFile aFile,
                                      const char* aKey,
-                                     nsXPIDLString& aResult);
+                                     nsAString& aResult);
 
   /**
    * A helper function that parses a sandbox attribute (of an <iframe> or a CSP
@@ -1083,6 +1078,11 @@ public:
 
   static bool PrefetchPreloadEnabled(nsIDocShell* aDocShell);
 
+  static void
+  ExtractErrorValues(JSContext* aCx, JS::Handle<JS::Value> aValue,
+                     nsACString& aSourceSpecOut, uint32_t *aLineOut,
+                     uint32_t *aColumnOut, nsString& aMessageOut);
+
   /**
    * Fill (with the parameters given) the localized string named |aKey| in
    * properties file |aFile|.
@@ -1092,14 +1092,14 @@ private:
                                         const char* aKey,
                                         const char16_t** aParams,
                                         uint32_t aParamsLength,
-                                        nsXPIDLString& aResult);
+                                        nsAString& aResult);
 
 public:
   template<uint32_t N>
   static nsresult FormatLocalizedString(PropertiesFile aFile,
                                         const char* aKey,
                                         const char16_t* (&aParams)[N],
-                                        nsXPIDLString& aResult)
+                                        nsAString& aResult)
   {
     return FormatLocalizedString(aFile, aKey, aParams, N, aResult);
   }
@@ -1113,7 +1113,7 @@ public:
   static nsresult FormatLocalizedString(PropertiesFile aFile,
                                         const char* aKey,
                                         const nsTArray<nsString>& aParamArray,
-                                        nsXPIDLString& aResult);
+                                        nsAString& aResult);
 
   /**
    * Returns true if aDocument is a chrome document
@@ -2623,7 +2623,13 @@ public:
   static int32_t GetAdjustedOffsetInTextControl(nsIFrame* aOffsetFrame,
                                                 int32_t aOffset);
 
-  static nsIEditor* GetHTMLEditor(nsPresContext* aPresContext);
+  /**
+   * Returns pointer to HTML editor instance for the aPresContext when there is.
+   * The HTML editor is shared by contenteditable elements or used in
+   * designMode.  When there are no contenteditable elements and the document
+   * is not in designMode, this returns nullptr.
+   */
+  static mozilla::HTMLEditor* GetHTMLEditor(nsPresContext* aPresContext);
 
   /**
    * Returns true if the browser.dom.window.dump.enabled pref is set.
@@ -2869,6 +2875,8 @@ public:
   static bool PromiseRejectionEventsEnabled(JSContext* aCx, JSObject* aObj);
 
   static bool PushEnabled(JSContext* aCx, JSObject* aObj);
+
+  static bool StreamsEnabled(JSContext* aCx, JSObject* aObj);
 
   static bool IsNonSubresourceRequest(nsIChannel* aChannel);
 
@@ -3118,10 +3126,18 @@ public:
    */
   static bool GetSourceMapURL(nsIHttpChannel* aChannel, nsACString& aResult);
 
+  /**
+   * Returns true if the passed-in mesasge is a pending InputEvent.
+   *
+   * @param aMsg  The message to check
+   */
+  static bool IsMessageInputEvent(const IPC::Message& aMsg);
+
 private:
   static bool InitializeEventTable();
 
   static nsresult EnsureStringBundle(PropertiesFile aFile);
+  static void AsyncPrecreateStringBundles();
 
   static bool CanCallerAccess(nsIPrincipal* aSubjectPrincipal,
                                 nsIPrincipal* aPrincipal);

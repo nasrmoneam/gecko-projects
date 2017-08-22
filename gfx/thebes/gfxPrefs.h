@@ -314,6 +314,7 @@ private:
   DECL_GFX_PREF(Live, "apz.fling_stopped_threshold",           APZFlingStoppedThreshold, float, 0.01f);
   DECL_GFX_PREF(Live, "apz.frame_delay.enabled",               APZFrameDelayEnabled, bool, false);
   DECL_GFX_PREF(Once, "apz.keyboard.enabled",                  APZKeyboardEnabled, bool, false);
+  DECL_GFX_PREF(Live, "apz.keyboard.passive-listeners",        APZKeyboardPassiveListeners, bool, false);
   DECL_GFX_PREF(Live, "apz.max_velocity_inches_per_ms",        APZMaxVelocity, float, -1.0f);
   DECL_GFX_PREF(Once, "apz.max_velocity_queue_size",           APZMaxVelocityQueueSize, uint32_t, 5);
   DECL_GFX_PREF(Live, "apz.min_skate_speed",                   APZMinSkateSpeed, float, 1.0f);
@@ -332,9 +333,10 @@ private:
   DECL_GFX_PREF(Live, "apz.popups.enabled",                    APZPopupsEnabled, bool, false);
   DECL_GFX_PREF(Live, "apz.printtree",                         APZPrintTree, bool, false);
   DECL_GFX_PREF(Live, "apz.record_checkerboarding",            APZRecordCheckerboarding, bool, false);
+  DECL_GFX_PREF(Live, "apz.second_tap_tolerance",              APZSecondTapTolerance, float, 0.5f);
   DECL_GFX_PREF(Live, "apz.test.fails_with_native_injection",  APZTestFailsWithNativeInjection, bool, false);
   DECL_GFX_PREF(Live, "apz.test.logging_enabled",              APZTestLoggingEnabled, bool, false);
-  DECL_GFX_PREF(Live, "apz.touch_move_tolerance",              APZTouchMoveTolerance, float, 0.0);
+  DECL_GFX_PREF(Live, "apz.touch_move_tolerance",              APZTouchMoveTolerance, float, 0.1f);
   DECL_GFX_PREF(Live, "apz.touch_start_tolerance",             APZTouchStartTolerance, float, 1.0f/4.5f);
   DECL_GFX_PREF(Live, "apz.velocity_bias",                     APZVelocityBias, float, 0.0f);
   DECL_GFX_PREF(Live, "apz.velocity_relevance_time_ms",        APZVelocityRelevanceTime, uint32_t, 150);
@@ -600,7 +602,7 @@ private:
   DECL_GFX_PREF(Once, "layers.mlgpu.enable-container-resizing", AdvancedLayersEnableContainerResizing, bool, true);
   DECL_GFX_PREF(Once, "layers.offmainthreadcomposition.force-disabled", LayersOffMainThreadCompositionForceDisabled, bool, false);
   DECL_GFX_PREF(Live, "layers.offmainthreadcomposition.frame-rate", LayersCompositionFrameRate, int32_t,-1);
-  DECL_GFX_PREF(Live, "layers.omtp.force-sync",                LayersOMTPForceSync, bool, true);
+  DECL_GFX_PREF(Live, "layers.omtp.force-sync",                LayersOMTPForceSync, bool, false);
   DECL_GFX_PREF(Live, "layers.orientation.sync.timeout",       OrientationSyncMillis, uint32_t, (uint32_t)0);
   DECL_GFX_PREF(Once, "layers.prefer-opengl",                  LayersPreferOpenGL, bool, false);
   DECL_GFX_PREF(Live, "layers.progressive-paint",              ProgressivePaint, bool, false);
@@ -695,6 +697,8 @@ private:
   DECL_GFX_PREF(Live, "ui.click_hold_context_menus.delay",     UiClickHoldContextMenusDelay, int32_t, 500);
 
   // WebGL (for pref access from Worker threads)
+  DECL_GFX_PREF(Live, "webgl.1.allow-core-profiles",           WebGL1AllowCoreProfile, bool, false);
+
   DECL_GFX_PREF(Live, "webgl.all-angle-options",               WebGLAllANGLEOptions, bool, false);
   DECL_GFX_PREF(Live, "webgl.angle.force-d3d11",               WebGLANGLEForceD3D11, bool, false);
   DECL_GFX_PREF(Live, "webgl.angle.try-d3d11",                 WebGLANGLETryD3D11, bool, false);
@@ -717,6 +721,7 @@ private:
 
   DECL_GFX_PREF(Live, "webgl.enable-draft-extensions",         WebGLDraftExtensionsEnabled, bool, false);
   DECL_GFX_PREF(Live, "webgl.enable-privileged-extensions",    WebGLPrivilegedExtensionsEnabled, bool, false);
+  DECL_GFX_PREF(Live, "webgl.enable-surface-texture",          WebGLSurfaceTextureEnabled, bool, false);
   DECL_GFX_PREF(Live, "webgl.enable-webgl2",                   WebGL2Enabled, bool, true);
   DECL_GFX_PREF(Live, "webgl.force-enabled",                   WebGLForceEnabled, bool, false);
   DECL_GFX_PREF(Once, "webgl.force-layers-readback",           WebGLForceLayersReadback, bool, false);
@@ -733,6 +738,7 @@ private:
   DECL_GFX_PREF(Live, "webgl.perf.max-warnings",                    WebGLMaxPerfWarnings, int32_t, 0);
   DECL_GFX_PREF(Live, "webgl.perf.max-acceptable-fb-status-invals", WebGLMaxAcceptableFBStatusInvals, int32_t, 0);
   DECL_GFX_PREF(Live, "webgl.perf.spew-frame-allocs",          WebGLSpewFrameAllocs, bool, true);
+
 
   DECL_GFX_PREF(Live, "webgl.webgl2-compat-mode",              WebGL2CompatMode, bool, false);
 

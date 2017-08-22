@@ -12,8 +12,6 @@ Cu.import("resource://gre/modules/Services.jsm");
 
 XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
   "resource://gre/modules/BrowserUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "CustomizableUI",
-  "resource:///modules/CustomizableUI.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "ReaderMode",
   "resource://gre/modules/ReaderMode.jsm");
 
@@ -28,9 +26,18 @@ var Pocket = {
     BrowserUtils.setToolbarButtonHeightProperty(event.target);
   },
 
+  onShownInPhotonPageActionPanel(panel, iframe) {
+    let window = panel.ownerGlobal;
+    window.pktUI.setPhotonPageActionPanelFrame(iframe);
+    Pocket._initPanelView(window);
+  },
+
   onPanelViewShowing(event) {
-    let document = event.target.ownerDocument;
-    let window = document.defaultView;
+    Pocket._initPanelView(event.target.ownerGlobal);
+  },
+
+  _initPanelView(window) {
+    let document = window.document;
     let iframe = window.pktUI.getPanelFrame();
 
     let libraryButton = document.getElementById("library-button");
@@ -83,22 +90,18 @@ var Pocket = {
   _urlToSave: null,
   _titleToSave: null,
   savePage(browser, url, title) {
-    let document = browser.ownerDocument;
-    let pocketWidget = document.getElementById("pocket-button");
-    let placement = CustomizableUI.getPlacementOfWidget("pocket-button");
-    if (!placement)
-      return;
-
-    this._urlToSave = url;
-    this._titleToSave = title;
-    if (placement.area == CustomizableUI.AREA_PANEL) {
-      let win = document.defaultView;
-      win.PanelUI.show().then(function() {
-        pocketWidget = document.getElementById("pocket-button");
-        pocketWidget.doCommand();
-      });
-    } else {
-      pocketWidget.doCommand();
+    if (this.pageAction) {
+      this._urlToSave = url;
+      this._titleToSave = title;
+      this.pageAction.doCommand(browser.ownerGlobal);
     }
   },
+
+  get pageAction() {
+    return this._pageAction;
+  },
+  set pageAction(pageAction) {
+    return this._pageAction = pageAction;
+  },
+  _pageAction: null,
 };

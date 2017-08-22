@@ -9,7 +9,7 @@
 ${helpers.predefined_type("line-height",
                           "LineHeight",
                           "computed::LineHeight::normal()",
-                          animation_value_type="ComputedValue",
+                          animation_value_type="LineHeight",
                           flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                           spec="https://drafts.csswg.org/css2/visudet.html#propdef-line-height")}
 
@@ -705,50 +705,60 @@ ${helpers.predefined_type(
     % endif
 </%helpers:longhand>
 
-${helpers.predefined_type("text-emphasis-color", "Color",
-                          "computed_value::T::currentcolor()",
-                          initial_specified_value="specified::Color::currentcolor()",
-                          products="gecko", animation_value_type="IntermediateColor",
-                          need_clone=True, ignored_when_colors_disabled=True,
-                          spec="https://drafts.csswg.org/css-text-decor/#propdef-text-emphasis-color")}
-
+${helpers.predefined_type(
+    "text-emphasis-color",
+    "Color",
+    "computed_value::T::currentcolor()",
+    initial_specified_value="specified::Color::currentcolor()",
+    products="gecko",
+    animation_value_type="AnimatedColor",
+    need_clone=True,
+    ignored_when_colors_disabled=True,
+    spec="https://drafts.csswg.org/css-text-decor/#propdef-text-emphasis-color",
+)}
 
 ${helpers.predefined_type(
-    "-moz-tab-size", "LengthOrNumber",
-    "::values::Either::Second(8.0)",
-    "parse_non_negative",
-    products="gecko", animation_value_type="ComputedValue",
+    "-moz-tab-size", "length::NonNegativeLengthOrNumber",
+    "::values::Either::Second(From::from(8.0))",
+    products="gecko", animation_value_type="::values::computed::length::NonNegativeLengthOrNumber",
     spec="https://drafts.csswg.org/css-text-3/#tab-size-property")}
 
 
 // CSS Compatibility
 // https://compat.spec.whatwg.org
 ${helpers.predefined_type(
-    "-webkit-text-fill-color", "Color",
+    "-webkit-text-fill-color",
+    "Color",
     "computed_value::T::currentcolor()",
-    products="gecko", animation_value_type="IntermediateColor",
-    need_clone=True, ignored_when_colors_disabled=True,
+    products="gecko",
+    animation_value_type="AnimatedColor",
+    need_clone=True,
+    ignored_when_colors_disabled=True,
     flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
-    spec="https://compat.spec.whatwg.org/#the-webkit-text-fill-color")}
+    spec="https://compat.spec.whatwg.org/#the-webkit-text-fill-color",
+)}
 
 ${helpers.predefined_type(
-    "-webkit-text-stroke-color", "Color",
+    "-webkit-text-stroke-color",
+    "Color",
     "computed_value::T::currentcolor()",
     initial_specified_value="specified::Color::currentcolor()",
-    products="gecko", animation_value_type="IntermediateColor",
+    products="gecko",
+    animation_value_type="AnimatedColor",
     need_clone=True, ignored_when_colors_disabled=True,
     flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
-    spec="https://compat.spec.whatwg.org/#the-webkit-text-stroke-color")}
+    spec="https://compat.spec.whatwg.org/#the-webkit-text-stroke-color",
+)}
 
 ${helpers.predefined_type("-webkit-text-stroke-width",
                           "BorderSideWidth",
-                          "Au::from_px(0)",
+                          "::values::computed::NonNegativeAu::from_px(0)",
                           initial_specified_value="specified::BorderSideWidth::Length(specified::Length::zero())",
-                          computed_type="::app_units::Au",
+                          computed_type="::values::computed::NonNegativeAu",
                           products="gecko",
                           flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                           spec="https://compat.spec.whatwg.org/#the-webkit-text-stroke-width",
-                          animation_value_type="none")}
+                          animation_value_type="discrete")}
 
 // CSS Ruby Layout Module Level 1
 // https://drafts.csswg.org/css-ruby/

@@ -11,8 +11,8 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
   "resource://gre/modules/AppConstants.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "CustomizableWidgets",
-  "resource:///modules/CustomizableWidgets.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "CustomizableUI",
+  "resource:///modules/CustomizableUI.jsm");
 
 /**
  * Simple implementation of the sliding window pattern; panels are added to a
@@ -338,7 +338,6 @@ this.PanelMultiView = class {
     this._panel.removeEventListener("popupshown", this);
     this._panel.removeEventListener("popuphidden", this);
     this.window.removeEventListener("keydown", this);
-    this._dispatchViewEvent(this.node, "destructed");
     this.node = this._clickCapturer = this._viewContainer = this._mainViewContainer =
       this._subViews = this._viewStack = this.__dwu = this._panelViewCache = null;
   }
@@ -616,7 +615,9 @@ this.PanelMultiView = class {
               this._transitionEndListener = null;
               onTransitionEnd();
               this._transitioning = false;
-              this._resetKeyNavigation(previousViewNode);
+              if (reverse) {
+                this._resetKeyNavigation(previousViewNode);
+              }
 
               // Myeah, panel layout auto-resizing is a funky thing. We'll wait
               // another few milliseconds to remove the width and height 'fixtures',
@@ -645,6 +646,7 @@ this.PanelMultiView = class {
                 this._viewContainer.removeAttribute("transition-reverse");
 
                 this._dispatchViewEvent(viewNode, "ViewShown");
+                this._updateKeyboardFocus(viewNode);
               }, { once: true });
             });
           }, { once: true });
@@ -676,14 +678,9 @@ this.PanelMultiView = class {
    */
   _dispatchViewEvent(viewNode, eventName, anchor, detail) {
     let cancel = false;
-    if (this.panelViews) {
-      let custWidget = CustomizableWidgets.find(widget => widget.viewId == viewNode.id);
-      let method = "on" + eventName;
-      if (custWidget && custWidget[method]) {
-        if (anchor && custWidget.onInit)
-          custWidget.onInit(anchor);
-        custWidget[method]({ target: viewNode, preventDefault: () => cancel = true, detail });
-      }
+    if (eventName != "PanelMultiViewHidden") {
+      // Don't need to do this for PanelMultiViewHidden event
+      CustomizableUI.ensureSubviewListeners(viewNode);
     }
 
     let evt = new this.window.CustomEvent(eventName, {
@@ -993,6 +990,62 @@ this.PanelMultiView = class {
   }
 
   /**
+   * Based on going up or down, select the previous or next focusable button
+   * in the current view.
+   *
+   * @param {Object}  navMap   the navigation keyboard map object for the view
+   * @param {Array}   buttons  an array of focusable buttons to select an item from.
+   * @param {Boolean} isDown   whether we're going down (true) or up (false) in this view.
+   *
+   * @return {DOMNode} the button we selected.
+   */
+  _updateSelectedKeyNav(navMap, buttons, isDown) {
+    let lastSelected = navMap.selected && navMap.selected.get();
+    let newButton = null;
+    let maxIdx = buttons.length - 1;
+    if (lastSelected) {
+      let buttonIndex = buttons.indexOf(lastSelected);
+      if (buttonIndex != -1) {
+        // Buttons may get selected whilst the panel is shown, so add an extra
+        // check here.
+        do {
+          buttonIndex = buttonIndex + (isDown ? 1 : -1);
+        } while (buttons[buttonIndex] && buttons[buttonIndex].disabled)
+        if (isDown && buttonIndex > maxIdx)
+          buttonIndex = 0;
+        else if (!isDown && buttonIndex < 0)
+          buttonIndex = maxIdx;
+        newButton = buttons[buttonIndex];
+      } else {
+        // The previously selected item is no longer selectable. Find the next item:
+        let allButtons = lastSelected.closest("panelview").getElementsByTagName("toolbarbutton");
+        let maxAllButtonIdx = allButtons.length - 1;
+        let allButtonIndex = allButtons.indexOf(lastSelected);
+        while (allButtonIndex >= 0 && allButtonIndex <= maxAllButtonIdx) {
+          allButtonIndex++;
+          // Check if the next button is in the list of focusable buttons.
+          buttonIndex = buttons.indexOf(allButtons[allButtonIndex]);
+          if (buttonIndex != -1) {
+            // If it is, just use that button if we were going down, or the previous one
+            // otherwise. If this was the first button, newButton will end up undefined,
+            // which is fine because we'll fall back to using the last button at the
+            // bottom of this method.
+            newButton = buttons[isDown ? buttonIndex : buttonIndex - 1];
+            break;
+          }
+        }
+      }
+    }
+
+    // If we couldn't find something, select the first or last item:
+    if (!newButton) {
+      newButton = buttons[isDown ? 0 : maxIdx];
+    }
+    navMap.selected = Cu.getWeakReference(newButton);
+    return newButton;
+  }
+
+  /**
    * Allow for navigating subview buttons using the arrow keys and the Enter key.
    * The Up and Down keys can be used to navigate the list up and down and the
    * Enter, Right or Left - depending on the text direction - key can be used to
@@ -1022,12 +1075,10 @@ this.PanelMultiView = class {
       buttons = navMap.buttons = this._getNavigableElements(view);
       // Set the 'tabindex' attribute on the buttons to make sure they're focussable.
       for (let button of buttons) {
-        if (button.classList.contains("subviewbutton-back"))
-          continue;
-        // If we've been here before, forget about it!
-        if (button.hasAttribute("tabindex"))
-          break;
-        button.setAttribute("tabindex", 0);
+        if (!button.classList.contains("subviewbutton-back") &&
+            !button.hasAttribute("tabindex")) {
+          button.setAttribute("tabindex", 0);
+        }
       }
     }
     if (!buttons.length)
@@ -1044,22 +1095,8 @@ this.PanelMultiView = class {
       case "ArrowUp": {
         stop();
         let isDown = (keyCode == "ArrowDown");
-        let maxIdx = buttons.length - 1;
-        let buttonIndex = isDown ? 0 : maxIdx;
-        if (typeof navMap.selected == "number") {
-          // Buttons may get selected whilst the panel is shown, so add an extra
-          // check here.
-          do {
-            buttonIndex = navMap.selected = (navMap.selected + (isDown ? 1 : -1));
-          } while (buttons[buttonIndex] && buttons[buttonIndex].disabled)
-          if (isDown && buttonIndex > maxIdx)
-            buttonIndex = 0;
-          else if (!isDown && buttonIndex < 0)
-            buttonIndex = maxIdx;
-        }
-        let button = buttons[buttonIndex];
+        let button = this._updateSelectedKeyNav(navMap, buttons, isDown);
         button.focus();
-        navMap.selected = buttonIndex;
         break;
       }
       case "ArrowLeft":
@@ -1074,18 +1111,27 @@ this.PanelMultiView = class {
         }
         // If the current button is _not_ one that points to a subview, pressing
         // the arrow key shouldn't do anything.
-        if (!navMap.selected || !buttons[navMap.selected].classList.contains("subviewbutton-nav"))
+        if (!navMap.selected || !navMap.selected.get() ||
+            !navMap.selected.get().classList.contains("subviewbutton-nav")) {
           break;
+        }
         // Fall-through...
       }
+      case "Space":
       case "Enter": {
-        let button = buttons[navMap.selected];
+        let button = navMap.selected && navMap.selected.get();
         if (!button)
           break;
         stop();
-        // Unfortunately, 'tabindex' doesn't not execute the default action, so
+
+        // Unfortunately, 'tabindex' doesn't execute the default action, so
         // we explicitly do this here.
-        button.click();
+        // We are sending a command event and then a click event.
+        // This is done in order to mimic a "real" mouse click event.
+        // The command event executes the action, then the click event closes the menu.
+        button.doCommand();
+        let clickEvent = new event.target.ownerGlobal.MouseEvent("click", {"bubbles": true});
+        button.dispatchEvent(clickEvent);
         break;
       }
     }
@@ -1095,21 +1141,26 @@ this.PanelMultiView = class {
    * Clear all traces of keyboard navigation happening right now.
    *
    * @param {panelview} view View to reset the key navigation attributes of.
-   *                         Defaults to `this._currentSubView`.
+   *                         If no view is passed, all navigation attributes for
+   *                         this panelmultiview are cleared.
    */
-  _resetKeyNavigation(view = this._currentSubView) {
-    let navMap = this._keyNavigationMap.get(view);
-    this._keyNavigationMap.clear();
-    if (!navMap)
-      return;
+  _resetKeyNavigation(view) {
+    let viewToBlur = view || this._currentSubView;
+    let navMap = this._keyNavigationMap.get(viewToBlur);
+    if (navMap && navMap.selected && navMap.selected.get()) {
+      navMap.selected.get().blur();
+    }
 
-    let buttons = this._getNavigableElements(view);
-    if (!buttons.length)
-      return;
-
-    let button = buttons[navMap.selected];
-    if (button)
-      button.blur();
+    // We clear the entire key navigation map ONLY if *no* view was passed in.
+    // This happens e.g. when the popup is hidden completely, or the user moves
+    // their mouse.
+    // If a view is passed in, we just delete the map for that view. This happens
+    // when going back from a view (which resets the map for that view only)
+    if (view) {
+      this._keyNavigationMap.delete(view);
+    } else {
+      this._keyNavigationMap.clear();
+    }
   }
 
   /**
@@ -1128,6 +1179,18 @@ this.PanelMultiView = class {
       let bounds = dwu.getBoundsWithoutFlushing(button);
       return bounds.width > 0 && bounds.height > 0;
     });
+  }
+
+  /**
+   * Focus the last selected element in the view, if any.
+   *
+   * @param {panelview} view the view in which to update keyboard focus.
+   */
+  _updateKeyboardFocus(view) {
+    let navMap = this._keyNavigationMap.get(view);
+    if (navMap && navMap.selected && navMap.selected.get()) {
+      navMap.selected.get().focus();
+    }
   }
 
   /**

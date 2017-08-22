@@ -43,7 +43,6 @@
 #include "nsIDOMHTMLTextAreaElement.h"
 #include "nsIDOMHTMLHtmlElement.h"
 #include "nsIDOMHTMLObjectElement.h"
-#include "nsIDOMHTMLEmbedElement.h"
 #include "nsIDOMHTMLDocument.h"
 #include "nsIImageLoadingContent.h"
 #include "nsIWebNavigation.h"
@@ -1382,18 +1381,15 @@ ChromeTooltipListener::sTooltipCallback(nsITimer* aTimer,
     // if there is text associated with the node, show the tip and fire
     // off a timer to auto-hide it.
 
-    nsXPIDLString tooltipText;
-    nsXPIDLString directionText;
     if (self->mTooltipTextProvider) {
+      nsString tooltipText;
+      nsString directionText;
       bool textFound = false;
-
       self->mTooltipTextProvider->GetNodeText(
         self->mPossibleTooltipNode, getter_Copies(tooltipText),
         getter_Copies(directionText), &textFound);
 
       if (textFound) {
-        nsString tipText(tooltipText);
-        nsString dirText(directionText);
         LayoutDeviceIntPoint screenDot = widget->WidgetToScreenOffset();
         double scaleFactor = 1.0;
         if (shell->GetPresContext()) {
@@ -1404,7 +1400,7 @@ ChromeTooltipListener::sTooltipCallback(nsITimer* aTimer,
         // ShowTooltip expects widget-relative position.
         self->ShowTooltip(self->mMouseScreenX - screenDot.x / scaleFactor,
                           self->mMouseScreenY - screenDot.y / scaleFactor,
-                          tipText, dirText);
+                          tooltipText, directionText);
       }
     }
 
@@ -1548,10 +1544,10 @@ ChromeContextMenuListener::HandleEvent(nsIDOMEvent* aMouseEvent)
 
   // First, checks for nodes that never have children.
   if (nodeType == nsIDOMNode::ELEMENT_NODE) {
-    nsCOMPtr<nsIImageLoadingContent> content(do_QueryInterface(node));
-    if (content) {
+    nsCOMPtr<nsIImageLoadingContent> imageContent(do_QueryInterface(node));
+    if (imageContent) {
       nsCOMPtr<nsIURI> imgUri;
-      content->GetCurrentURI(getter_AddRefs(imgUri));
+      imageContent->GetCurrentURI(getter_AddRefs(imgUri));
       if (imgUri) {
         flags |= nsIContextMenuListener::CONTEXT_IMAGE;
         flags2 |= nsIContextMenuListener2::CONTEXT_IMAGE;
@@ -1590,9 +1586,9 @@ ChromeContextMenuListener::HandleEvent(nsIDOMEvent* aMouseEvent)
     if (!(flags & nsIContextMenuListener::CONTEXT_IMAGE)) {
       objectElement = do_QueryInterface(node);
     }
-    nsCOMPtr<nsIDOMHTMLEmbedElement> embedElement(do_QueryInterface(node));
 
-    if (objectElement || embedElement) {
+    nsCOMPtr<nsIContent> content = do_QueryInterface(node);
+    if (objectElement || (content && content->IsHTMLElement(nsGkAtoms::embed))) {
       return NS_OK;
     }
   }

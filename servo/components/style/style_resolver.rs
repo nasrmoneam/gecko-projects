@@ -247,7 +247,7 @@ where
                         Some(&*primary_style.style)
                     };
 
-                for (i, mut inputs) in pseudo_array.iter_mut().enumerate() {
+                for (i, inputs) in pseudo_array.iter_mut().enumerate() {
                     if let Some(inputs) = inputs.take() {
                         let pseudo = PseudoElement::from_eager_index(i);
                         pseudo_styles.set(
@@ -442,7 +442,8 @@ where
         let mut cascade_info = CascadeInfo::new();
         let mut cascade_flags = CascadeFlags::empty();
 
-        if self.element.skip_root_and_item_based_display_fixup() {
+        if self.element.skip_root_and_item_based_display_fixup() ||
+           pseudo.map_or(false, |p| p.skip_item_based_display_fixup()) {
             cascade_flags.insert(SKIP_ROOT_AND_ITEM_BASED_DISPLAY_FIXUP);
         }
 

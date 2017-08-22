@@ -128,7 +128,7 @@ nsChromeRegistryChrome::Init()
   if (!prefs) {
     NS_WARNING("Could not get pref service!");
   } else {
-    nsXPIDLCString provider;
+    nsCString provider;
     rv = prefs->GetCharPref(SELECTED_SKIN_PREF, getter_Copies(provider));
     if (NS_SUCCEEDED(rv))
       mSelectedSkin = provider;
@@ -275,7 +275,7 @@ nsChromeRegistryChrome::Observe(nsISupports *aSubject, const char *aTopic,
     NS_ConvertUTF16toUTF8 pref(someData);
 
     if (pref.EqualsLiteral(SELECTED_SKIN_PREF)) {
-      nsXPIDLCString provider;
+      nsCString provider;
       rv = prefs->GetCharPref(pref.get(), getter_Copies(provider));
       if (NS_FAILED(rv)) {
         NS_ERROR("Couldn't get new skin pref!");
@@ -329,7 +329,6 @@ SerializeURI(nsIURI* aURI,
     return;
 
   aURI->GetSpec(aSerializedURI.spec);
-  aURI->GetOriginCharset(aSerializedURI.charset);
 }
 
 void
@@ -859,8 +858,8 @@ nsChromeRegistryChrome::ManifestOverride(ManifestProcessingContext& cx, int line
     }
     if (chromeSkinOnly) {
       nsAutoCString chromePath, resolvedPath;
-      chromeuri->GetPath(chromePath);
-      resolveduri->GetPath(resolvedPath);
+      chromeuri->GetPathQueryRef(chromePath);
+      resolveduri->GetPathQueryRef(resolvedPath);
       chromeSkinOnly = StringBeginsWith(chromePath, NS_LITERAL_CSTRING("/skin/")) &&
                        StringBeginsWith(resolvedPath, NS_LITERAL_CSTRING("/skin/"));
     }

@@ -10,7 +10,6 @@
 #include "nsIChannel.h"
 #include "nsIURI.h"
 #include "nsISeekableStream.h"
-#include "nsIStreamingProtocolController.h"
 #include "nsIStreamListener.h"
 #include "nsIChannelEventSink.h"
 #include "nsIInterfaceRequestor.h"
@@ -160,42 +159,10 @@ public:
   // the main thread.
   NS_DECL_THREADSAFE_ISUPPORTS
 
-  // Close the resource, stop any listeners, channels, etc.
-  // Cancels any currently blocking Read request and forces that request to
-  // return an error.
-  virtual nsresult Close() = 0;
-  // Suspend any downloads that are in progress.
-  // If aCloseImmediately is set, resources should be released immediately
-  // since we don't expect to resume again any time soon. Otherwise we
-  // may resume again soon so resources should be held for a little
-  // while.
-  virtual void Suspend(bool aCloseImmediately) = 0;
-  // Resume any downloads that have been suspended.
-  virtual void Resume() = 0;
   // Get the current principal for the channel
   virtual already_AddRefed<nsIPrincipal> GetCurrentPrincipal() = 0;
-  // If this returns false, then we shouldn't try to clone this MediaResource
-  // because its underlying resources are not suitable for reuse (e.g.
-  // because the underlying connection has been lost, or this resource
-  // just can't be safely cloned). If this returns true, CloneData could
-  // still fail. If this returns false, CloneData should not be called.
-  virtual bool CanClone() { return false; }
-  // Create a new stream of the same type that refers to the same URI
-  // with a new channel. Any cached data associated with the original
-  // stream should be accessible in the new stream too.
-  virtual already_AddRefed<MediaResource> CloneData(
-    MediaResourceCallback* aCallback)
-  {
-    return nullptr;
-  }
 
   // These methods are called off the main thread.
-  // The mode is initially MODE_PLAYBACK.
-  virtual void SetReadMode(MediaCacheStream::ReadMode aMode) = 0;
-  // This is the client's estimate of the playback rate assuming
-  // the media plays continuously. The cache can't guess this itself
-  // because it doesn't know when the decoder was paused, buffering, etc.
-  virtual void SetPlaybackRate(uint32_t aBytesPerSecond) = 0;
   // Read up to aCount bytes from the stream. The read starts at
   // aOffset in the stream, seeking to that location initially if
   // it is not the current stream offset. The remaining arguments,
@@ -219,33 +186,17 @@ public:
     return bytes.forget();
   }
 
-  // Pass true to limit the amount of readahead data (specified by
-  // "media.cache_readahead_limit") or false to read as much as the
-  // cache size allows.
-  virtual void ThrottleReadahead(bool bThrottle) { }
-
   // Report the current offset in bytes from the start of the stream.
   // This is used to approximate where we currently are in the playback of a
   // media.
   // A call to ReadAt will update this position.
   virtual int64_t Tell() = 0;
-  // Moves any existing channel loads into or out of background. Background
-  // loads don't block the load event. This also determines whether or not any
-  // new loads initiated (for example to seek) will be in the background.
-  virtual void SetLoadInBackground(bool aLoadInBackground) {}
-  // Ensures that the value returned by IsSuspendedByCache below is up to date
-  // (i.e. the cache has examined this stream at least once).
-  virtual void EnsureCacheUpToDate() {}
 
   // These can be called on any thread.
   // Cached blocks associated with this stream will not be evicted
   // while the stream is pinned.
   virtual void Pin() = 0;
   virtual void Unpin() = 0;
-  // Get the estimated download rate in bytes per second (assuming no
-  // pausing of the channel is requested by Gecko).
-  // *aIsReliable is set to true if we think the estimate is useful.
-  virtual double GetDownloadRate(bool* aIsReliable) = 0;
   // Get the length of the stream in bytes. Returns -1 if not known.
   // This can change over time; after a seek operation, a misbehaving
   // server may give us a resource of a different length to what it had
@@ -262,15 +213,6 @@ public:
   // Returns true if all the data from aOffset to the end of the stream
   // is in cache. If the end of the stream is not known, we return false.
   virtual bool IsDataCachedToEndOfResource(int64_t aOffset) = 0;
-  // Returns true if we are expecting any more data to arrive
-  // sometime in the not-too-distant future, either from the network or from
-  // an appendBuffer call on a MediaSource element.
-  virtual bool IsExpectingMoreData()
-  {
-    // MediaDecoder::mDecoderPosition is roughly the same as Tell() which
-    // returns a position updated by latest Read() or ReadAt().
-    return !IsDataCachedToEndOfResource(Tell()) && !IsSuspended();
-  }
   // Returns true if this stream is suspended by the cache because the
   // cache is full. If true then the decoder should try to start consuming
   // data, otherwise we may not be able to make progress.
@@ -295,31 +237,11 @@ public:
   virtual bool IsTransportSeekable() = 0;
 
   /**
-   * Create a resource, reading data from the channel. Call on main thread only.
-   * The caller must follow up by calling resource->Open().
-   */
-  static already_AddRefed<MediaResource>
-  Create(MediaResourceCallback* aCallback,
-         nsIChannel* aChannel, bool aIsPrivateBrowsing);
-
-  /**
-   * Open the stream. This creates a stream listener and returns it in
-   * aStreamListener; this listener needs to be notified of incoming data.
-   */
-  virtual nsresult Open(nsIStreamListener** aStreamListener) = 0;
-
-  /**
    * Fills aRanges with MediaByteRanges representing the data which is cached
    * in the media cache. Stream should be pinned during call and while
    * aRanges is being used.
    */
   virtual nsresult GetCachedRanges(MediaByteRangeSet& aRanges) = 0;
-
-  // Returns true if the resource is a live stream.
-  virtual bool IsLiveStream()
-  {
-    return GetLength() == -1;
-  }
 
   virtual size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const {
     return 0;
@@ -338,7 +260,77 @@ private:
 
 class BaseMediaResource : public MediaResource {
 public:
-  void SetLoadInBackground(bool aLoadInBackground) override;
+  /**
+   * Create a resource, reading data from the channel. Call on main thread only.
+   * The caller must follow up by calling resource->Open().
+   */
+  static already_AddRefed<BaseMediaResource> Create(
+    MediaResourceCallback* aCallback,
+    nsIChannel* aChannel,
+    bool aIsPrivateBrowsing);
+
+  // Close the resource, stop any listeners, channels, etc.
+  // Cancels any currently blocking Read request and forces that request to
+  // return an error.
+  virtual nsresult Close() = 0;
+
+  // Pass true to limit the amount of readahead data (specified by
+  // "media.cache_readahead_limit") or false to read as much as the
+  // cache size allows.
+  virtual void ThrottleReadahead(bool bThrottle) {}
+
+  // This is the client's estimate of the playback rate assuming
+  // the media plays continuously. The cache can't guess this itself
+  // because it doesn't know when the decoder was paused, buffering, etc.
+  virtual void SetPlaybackRate(uint32_t aBytesPerSecond) = 0;
+
+  // Get the estimated download rate in bytes per second (assuming no
+  // pausing of the channel is requested by Gecko).
+  // *aIsReliable is set to true if we think the estimate is useful.
+  virtual double GetDownloadRate(bool* aIsReliable) = 0;
+
+  // Moves any existing channel loads into or out of background. Background
+  // loads don't block the load event. This also determines whether or not any
+  // new loads initiated (for example to seek) will be in the background.
+  void SetLoadInBackground(bool aLoadInBackground);
+
+  // Suspend any downloads that are in progress.
+  // If aCloseImmediately is set, resources should be released immediately
+  // since we don't expect to resume again any time soon. Otherwise we
+  // may resume again soon so resources should be held for a little
+  // while.
+  virtual void Suspend(bool aCloseImmediately) = 0;
+
+  // Resume any downloads that have been suspended.
+  virtual void Resume() = 0;
+
+  // The mode is initially MODE_PLAYBACK.
+  virtual void SetReadMode(MediaCacheStream::ReadMode aMode) = 0;
+
+  /**
+   * Open the stream. This creates a stream listener and returns it in
+   * aStreamListener; this listener needs to be notified of incoming data.
+   */
+  virtual nsresult Open(nsIStreamListener** aStreamListener) = 0;
+
+  // If this returns false, then we shouldn't try to clone this MediaResource
+  // because its underlying resources are not suitable for reuse (e.g.
+  // because the underlying connection has been lost, or this resource
+  // just can't be safely cloned). If this returns true, CloneData could
+  // still fail. If this returns false, CloneData should not be called.
+  virtual bool CanClone() { return false; }
+
+  // Create a new stream of the same type that refers to the same URI
+  // with a new channel. Any cached data associated with the original
+  // stream should be accessible in the new stream too.
+  virtual already_AddRefed<BaseMediaResource> CloneData(
+    MediaResourceCallback* aCallback)
+  {
+    return nullptr;
+  }
+
+  // Returns true if the resource is a live stream.
+  bool IsLiveStream() { return GetLength() == -1; }
 
   size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const override
   {
@@ -497,9 +489,9 @@ public:
   // Return true if the stream has been closed.
   bool     IsClosed() const { return mCacheStream.IsClosed(); }
   bool     CanClone() override;
-  already_AddRefed<MediaResource> CloneData(MediaResourceCallback* aDecoder) override;
+  already_AddRefed<BaseMediaResource> CloneData(
+    MediaResourceCallback* aDecoder) override;
   nsresult ReadFromCache(char* aBuffer, int64_t aOffset, uint32_t aCount) override;
-  void     EnsureCacheUpToDate() override;
 
   // Other thread
   void     SetReadMode(MediaCacheStream::ReadMode aMode) override;
@@ -760,6 +752,9 @@ public:
   already_AddRefed<MediaByteBuffer> MediaReadAt(int64_t aOffset, uint32_t aCount) const
   {
     RefPtr<MediaByteBuffer> bytes = new MediaByteBuffer();
+    if (aOffset < 0) {
+      return bytes.forget();
+    }
     bool ok = bytes->SetLength(aCount, fallible);
     NS_ENSURE_TRUE(ok, nullptr);
     char* curr = reinterpret_cast<char*>(bytes->Elements());
@@ -772,6 +767,10 @@ public:
         break;
       }
       aOffset += bytesRead;
+      if (aOffset < 0) {
+        // Very unlikely overflow.
+        break;
+      }
       aCount -= bytesRead;
       curr += bytesRead;
     }

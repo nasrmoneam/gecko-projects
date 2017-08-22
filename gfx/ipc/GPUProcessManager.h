@@ -143,9 +143,13 @@ public:
     uint64_t* aOutLayersId,
     CompositorOptions* aOutCompositorOptions);
 
+  // Destroy and recreate all of the compositors
+  void ResetCompositors();
+
   void OnProcessLaunchComplete(GPUProcessHost* aHost) override;
   void OnProcessUnexpectedShutdown(GPUProcessHost* aHost) override;
   void SimulateDeviceReset();
+  void DisableWebRender();
   void OnInProcessDeviceReset();
   void OnRemoteProcessDeviceReset(GPUProcessHost* aHost) override;
   void NotifyListenersOnCompositeDeviceReset();

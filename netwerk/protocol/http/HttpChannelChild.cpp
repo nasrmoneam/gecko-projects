@@ -21,6 +21,7 @@
 #include "mozilla/net/HttpChannelChild.h"
 
 #include "AltDataOutputStreamChild.h"
+#include "CookieServiceChild.h"
 #include "HttpBackgroundChannelChild.h"
 #include "nsCOMPtr.h"
 #include "nsISupportsPrimitives.h"
@@ -197,6 +198,12 @@ HttpChannelChild::HttpChannelChild()
     sSecurityPrefChecked = true;
   }
 #endif
+
+  // Ensure that the cookie service is initialized before the first
+  // IPC HTTP channel is created.
+  // We require that the parent cookie service actor exists while
+  // processing HTTP responses.
+  CookieServiceChild::GetSingleton();
 }
 
 HttpChannelChild::~HttpChannelChild()
@@ -217,6 +224,14 @@ HttpChannelChild::ReleaseMainThreadOnlyReferences()
 
   nsTArray<nsCOMPtr<nsISupports>> arrayToRelease;
   arrayToRelease.AppendElement(mCacheKey.forget());
+  arrayToRelease.AppendElement(mRedirectChannelChild.forget());
+
+  // To solve multiple inheritence of nsISupports in InterceptStreamListener
+  already_AddRefed<nsIStreamListener> listener = mInterceptListener.forget();
+  arrayToRelease.AppendElement(listener.take());
+
+  arrayToRelease.AppendElement(mInterceptedRedirectListener.forget());
+  arrayToRelease.AppendElement(mInterceptedRedirectContext.forget());
 
   NS_DispatchToMainThread(new ProxyReleaseRunnable(Move(arrayToRelease)));
 }
@@ -1146,6 +1161,7 @@ HttpChannelChild::DoOnStopRequest(nsIRequest* aRequest, nsresult aChannelStatus,
       aChannelStatus == NS_ERROR_MALWARE_URI ||
       aChannelStatus == NS_ERROR_UNWANTED_URI ||
       aChannelStatus == NS_ERROR_BLOCKED_URI ||
+      aChannelStatus == NS_ERROR_HARMFUL_URI ||
       aChannelStatus == NS_ERROR_PHISHING_URI) {
     nsCString list, provider, prefix;
 
@@ -2547,6 +2563,7 @@ HttpChannelChild::ContinueAsyncOpen()
   openArgs.allowSpdy() = mAllowSpdy;
   openArgs.allowAltSvc() = mAllowAltSvc;
   openArgs.beConservative() = mBeConservative;
+  openArgs.tlsFlags() = mTlsFlags;
   openArgs.initialRwin() = mInitialRwin;
 
   uint32_t cacheKey = 0;
@@ -2595,6 +2612,8 @@ HttpChannelChild::ContinueAsyncOpen()
   openArgs.dispatchFetchEventEnd()    = mDispatchFetchEventEnd;
   openArgs.handleFetchEventStart()    = mHandleFetchEventStart;
   openArgs.handleFetchEventEnd()      = mHandleFetchEventEnd;
+
+  openArgs.forceMainDocumentChannel() = mForceMainDocumentChannel;
 
   // This must happen before the constructor message is sent. Otherwise messages
   // from the parent could arrive quickly and be delivered to the wrong event

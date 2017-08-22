@@ -138,14 +138,21 @@ function needHomepageOverride(prefb) {
 function getPostUpdateOverridePage(defaultOverridePage) {
   var um = Components.classes["@mozilla.org/updates/update-manager;1"]
                      .getService(Components.interfaces.nsIUpdateManager);
-  try {
-    // If the updates.xml file is deleted then getUpdateAt will throw.
-    var update = um.getUpdateAt(0)
+  // The active update should be present when this code is called. If for
+  // whatever reason it isn't fallback to the latest update in the update
+  // history.
+  if (um.activeUpdate) {
+    var update = um.activeUpdate
                    .QueryInterface(Components.interfaces.nsIPropertyBag);
-  } catch (e) {
-    // This should never happen.
-    Components.utils.reportError("Unable to find update: " + e);
-    return defaultOverridePage;
+  } else {
+    // If the updates.xml file is deleted then getUpdateAt will throw.
+    try {
+      update = um.getUpdateAt(0)
+                 .QueryInterface(Components.interfaces.nsIPropertyBag);
+    } catch (e) {
+      Components.utils.reportError("Unable to find update: " + e);
+      return defaultOverridePage;
+    }
   }
 
   let actions = update.getProperty("actions");
@@ -703,7 +710,7 @@ nsDefaultCommandLineHandler.prototype = {
       if (!this._haveProfile) {
         try {
           // This will throw when a profile has not been selected.
-          Services.dirsvc.get("ProfD", Components.interfaces.nsILocalFile);
+          Services.dirsvc.get("ProfD", Components.interfaces.nsIFile);
           this._haveProfile = true;
         } catch (e) {
           while ((ar = cmdLine.handleFlagWithParam("url", false)));

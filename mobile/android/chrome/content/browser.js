@@ -153,16 +153,6 @@ var lazilyLoadedObserverScripts = [
   ["ConsoleAPI", ["console-api-log-event"], "chrome://browser/content/ConsoleAPI.js"],
 ];
 
-if (AppConstants.MOZ_WEBRTC) {
-  lazilyLoadedObserverScripts.push(
-    ["WebrtcUI", ["getUserMedia:ask-device-permission",
-                  "getUserMedia:request",
-                  "PeerConnection:request",
-                  "recording-device-events",
-                  "VideoCapture:Paused",
-                  "VideoCapture:Resumed"], "chrome://browser/content/WebrtcUI.js"])
-}
-
 lazilyLoadedObserverScripts.forEach(function (aScript) {
   let [name, notifications, script] = aScript;
   XPCOMUtils.defineLazyGetter(window, name, function() {
@@ -282,11 +272,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "DOMUtils",
 
 XPCOMUtils.defineLazyServiceGetter(window, "URIFixup",
   "@mozilla.org/docshell/urifixup;1", "nsIURIFixup");
-
-if (AppConstants.MOZ_WEBRTC) {
-  XPCOMUtils.defineLazyServiceGetter(this, "MediaManagerService",
-    "@mozilla.org/mediaManagerService;1", "nsIMediaManagerService");
-}
 
 XPCOMUtils.defineLazyModuleGetter(this, "Log",
   "resource://gre/modules/AndroidLog.jsm", "AndroidLog");
@@ -3416,9 +3401,22 @@ nsBrowserAccess.prototype = {
     return browser;
   },
 
-  openURI: function browser_openURI(aURI, aOpener, aWhere, aFlags, aTriggeringPrincipal) {
-    let browser = this._getBrowser(aURI, aOpener, aWhere, aFlags, aTriggeringPrincipal);
-    return browser ? browser.contentWindow : null;
+  openURI: function browser_openURI(aURI, aOpener, aWhere, aFlags,
+                                    aTriggeringPrincipal) {
+    if (!aURI) {
+      throw "Can't open an empty uri";
+    }
+    let browser = this._getBrowser(aURI, aOpener, aWhere, aFlags,
+                                   aTriggeringPrincipal);
+    return browser && browser.contentWindow;
+  },
+
+  createContentWindow: function browser_createContentWindow(
+                                aURI, aOpener, aWhere, aFlags,
+                                aTriggeringPrincipal) {
+    let browser = this._getBrowser(null, aOpener, aWhere, aFlags,
+                                   aTriggeringPrincipal);
+    return browser && browser.contentWindow;
   },
 
   openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags,
@@ -4850,6 +4848,7 @@ var ErrorPageEventHandler = {
           // First check whether it's malware, phishing or unwanted, so that we
           // can use the right strings/links
           let bucketName = "";
+          const probe = "URLCLASSIFIER_UI_EVENTS";
           let sendTelemetry = false;
           if (errorDoc.documentURI.includes("e=malwareBlocked")) {
             sendTelemetry = true;
@@ -4860,6 +4859,9 @@ var ErrorPageEventHandler = {
           } else if (errorDoc.documentURI.includes("e=unwantedBlocked")) {
             sendTelemetry = true;
             bucketName = "WARNING_UNWANTED_PAGE_";
+          } else if (errorDoc.documentURI.includes("e=harmfulBlocked")) {
+            sendTelemetry = true;
+            bucketName = "WARNING_HARMFUL_PAGE_";
           }
           let nsISecTel = Ci.nsISecurityUITelemetry;
           let isIframe = (errorDoc.defaultView.parent === errorDoc.defaultView);
@@ -4869,14 +4871,14 @@ var ErrorPageEventHandler = {
 
           if (target == errorDoc.getElementById("getMeOutButton")) {
             if (sendTelemetry) {
-              Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "GET_ME_OUT_OF_HERE"]);
+              Telemetry.addData(probe, nsISecTel[bucketName + "GET_ME_OUT_OF_HERE"]);
             }
             errorDoc.location = "about:home";
           } else if (target == errorDoc.getElementById("reportButton")) {
             // We log even if malware/phishing info URL couldn't be found:
             // the measurement is for how many users clicked the WHY BLOCKED button
             if (sendTelemetry) {
-              Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "WHY_BLOCKED"]);
+              Telemetry.addData(probe, nsISecTel[bucketName + "WHY_BLOCKED"]);
             }
 
             // This is the "Why is this site blocked" button. We redirect
@@ -4886,7 +4888,7 @@ var ErrorPageEventHandler = {
           } else if (target == errorDoc.getElementById("ignoreWarningButton") &&
                      Services.prefs.getBoolPref("browser.safebrowsing.allowOverride")) {
             if (sendTelemetry) {
-              Telemetry.addData("SECURITY_UI", nsISecTel[bucketName + "IGNORE_WARNING"]);
+              Telemetry.addData(probe, nsISecTel[bucketName + "IGNORE_WARNING"]);
             }
 
             // Allow users to override and continue through to the site,

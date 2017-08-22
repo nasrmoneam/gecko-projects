@@ -469,7 +469,12 @@ TexturedRenderPass::AddItem(Txn& aTxn,
 
   const Matrix4x4& fullTransform = aInfo.layer->GetLayer()->GetEffectiveTransformForBuffer();
   Matrix transform = fullTransform.As2D();
-  Matrix inverse = transform.Inverse();
+  Matrix inverse = transform;
+  if (!inverse.Invert()) {
+    // Degenerate transforms are not visible, since there is no mapping to
+    // screen space. Just return without adding any draws.
+    return true;
+  }
   MOZ_ASSERT(inverse.IsRectilinear());
 
   // Transform the clip rect.
@@ -501,13 +506,13 @@ TexturedRenderPass::AddClippedItem(Txn& aTxn,
   Rect textureRect(
     offset.x * xScale,
     offset.y * yScale,
-    aDrawRect.width * xScale,
-    aDrawRect.height * yScale);
+    aDrawRect.Width() * xScale,
+    aDrawRect.Height() * yScale);
 
   Rect textureCoords = TextureRectToCoords(textureRect, aTextureSize);
   if (mTextureFlags & TextureFlags::ORIGIN_BOTTOM_LEFT) {
     textureCoords.y = 1.0 - textureCoords.y;
-    textureCoords.height = -textureCoords.height;
+    textureCoords.SetHeight(-textureCoords.Height());
   }
 
   Rect layerRects[4];

@@ -196,6 +196,7 @@ nsHttpHandler::nsHttpHandler()
     , mThrottleSuspendFor(3000)
     , mThrottleResumeFor(200)
     , mThrottleResumeIn(400)
+    , mThrottleTimeWindow(3000)
     , mUrgentStartEnabled(true)
     , mRedirectionLimit(10)
     , mPhishyUserPassLength(1)
@@ -248,7 +249,6 @@ nsHttpHandler::nsHttpHandler()
     , mTCPKeepaliveLongLivedEnabled(false)
     , mTCPKeepaliveLongLivedIdleTimeS(600)
     , mEnforceH1Framing(FRAMECHECK_BARELY)
-    , mKeepEmptyResponseHeadersAsEmtpyString(false)
     , mDefaultHpackBuffer(4096)
     , mMaxHttpResponseHeaderSize(393216)
     , mFocusedWindowTransactionRatio(0.9f)
@@ -455,9 +455,10 @@ nsHttpHandler::Init()
         mAppVersion.AssignLiteral(MOZ_APP_UA_VERSION);
     }
 
-    // Generating the spoofed userAgent for fingerprinting resistance. We will
-    // round the version to the nearest 10. By doing so, the anonymity group will
-    // cover more versions instead of one version.
+    // Generating the spoofed userAgent for fingerprinting resistance.
+    // The browser version will be rounded down to a multiple of 10.
+    // By doing so, the anonymity group will cover more versions instead of one
+    // version.
     uint32_t spoofedVersion = mAppVersion.ToInteger(&rv);
     if (NS_SUCCEEDED(rv)) {
         spoofedVersion = spoofedVersion - (spoofedVersion % 10);
@@ -590,7 +591,8 @@ nsHttpHandler::InitConnectionMgr()
                         mThrottleEnabled,
                         mThrottleSuspendFor,
                         mThrottleResumeFor,
-                        mThrottleResumeIn);
+                        mThrottleResumeIn,
+                        mThrottleTimeWindow);
     return rv;
 }
 
@@ -1349,37 +1351,37 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
     }
 
     if (PREF_CHANGED(HTTP_PREF("accept.default"))) {
-        nsXPIDLCString accept;
+        nsCString accept;
         rv = prefs->GetCharPref(HTTP_PREF("accept.default"),
                                   getter_Copies(accept));
         if (NS_SUCCEEDED(rv)) {
-            rv = SetAccept(accept);
+            rv = SetAccept(accept.get());
             MOZ_ASSERT(NS_SUCCEEDED(rv));
         }
     }
 
     if (PREF_CHANGED(HTTP_PREF("accept-encoding"))) {
-        nsXPIDLCString acceptEncodings;
+        nsCString acceptEncodings;
         rv = prefs->GetCharPref(HTTP_PREF("accept-encoding"),
                                   getter_Copies(acceptEncodings));
         if (NS_SUCCEEDED(rv)) {
-            rv = SetAcceptEncodings(acceptEncodings, false);
+            rv = SetAcceptEncodings(acceptEncodings.get(), false);
             MOZ_ASSERT(NS_SUCCEEDED(rv));
         }
     }
 
     if (PREF_CHANGED(HTTP_PREF("accept-encoding.secure"))) {
-        nsXPIDLCString acceptEncodings;
+        nsCString acceptEncodings;
         rv = prefs->GetCharPref(HTTP_PREF("accept-encoding.secure"),
                                   getter_Copies(acceptEncodings));
         if (NS_SUCCEEDED(rv)) {
-            rv = SetAcceptEncodings(acceptEncodings, true);
+            rv = SetAcceptEncodings(acceptEncodings.get(), true);
             MOZ_ASSERT(NS_SUCCEEDED(rv));
         }
     }
 
     if (PREF_CHANGED(HTTP_PREF("default-socket-type"))) {
-        nsXPIDLCString sval;
+        nsCString sval;
         rv = prefs->GetCharPref(HTTP_PREF("default-socket-type"),
                                 getter_Copies(sval));
         if (NS_SUCCEEDED(rv)) {
@@ -1391,7 +1393,7 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
                         do_GetService(NS_SOCKETPROVIDERSERVICE_CONTRACTID));
                 if (sps) {
                     nsCOMPtr<nsISocketProvider> sp;
-                    rv = sps->GetSocketProvider(sval, getter_AddRefs(sp));
+                    rv = sps->GetSocketProvider(sval.get(), getter_AddRefs(sp));
                     if (NS_SUCCEEDED(rv)) {
                         // OK, this looks like a valid socket provider.
                         mDefaultSocketType.Assign(sval);
@@ -1636,6 +1638,15 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
         }
     }
 
+    if (PREF_CHANGED(HTTP_PREF("throttle.time-window"))) {
+      rv = prefs->GetIntPref(HTTP_PREF("throttle.time-window"), &val);
+      mThrottleTimeWindow = (uint32_t)clamped(val, 0, 120000);
+      if (NS_SUCCEEDED(rv) && mConnMgr) {
+        Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_TIME_WINDOW,
+                                        mThrottleTimeWindow);
+      }
+    }
+
     if (PREF_CHANGED(HTTP_PREF("on_click_priority"))) {
         Unused << prefs->GetBoolPref(HTTP_PREF("on_click_priority"), &mUrgentStartEnabled);
     }
@@ -1834,14 +1845,6 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
                 val = 0;
             }
             mFastOpenConsecutiveFailureLimit = val;
-        }
-    }
-
-    if (PREF_CHANGED(HTTP_PREF("keep_empty_response_headers_as_empty_string"))) {
-        rv = prefs->GetBoolPref(HTTP_PREF("keep_empty_response_headers_as_empty_string"),
-                                &cVar);
-        if (NS_SUCCEEDED(rv)) {
-            mKeepEmptyResponseHeadersAsEmtpyString = cVar;
         }
     }
 
@@ -2295,6 +2298,16 @@ nsHttpHandler::Observe(nsISupports *subject,
             Telemetry::Accumulate(Telemetry::DNT_USAGE, 2);
         } else {
             Telemetry::Accumulate(Telemetry::DNT_USAGE, 1);
+        }
+
+        if (UseFastOpen()) {
+            Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 0);
+        } else if (!mFastOpenSupported) {
+            Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 1);
+        } else if (!mUseFastOpen) {
+            Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 2);
+        } else {
+            Telemetry::Accumulate(Telemetry::TCP_FAST_OPEN_STATUS, 3);
         }
     } else if (!strcmp(topic, "profile-change-net-restore")) {
         // initialize connection manager

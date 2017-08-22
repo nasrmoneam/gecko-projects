@@ -4,35 +4,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "WaveDemuxer.h"
-#include "MediaContainerType.h"
-#include "MediaDecoderStateMachine.h"
 #include "WaveDecoder.h"
-#include "MediaFormatReader.h"
-#include "PDMFactory.h"
+#include "MediaContainerType.h"
+#include "MediaDecoder.h"
 
 namespace mozilla {
-
-ChannelMediaDecoder*
-WaveDecoder::Clone(MediaDecoderInit& aInit)
-{
-  return new WaveDecoder(aInit);
-}
-
-MediaDecoderStateMachine*
-WaveDecoder::CreateStateMachine()
-{
-  MediaFormatReaderInit init;
-  init.mCrashHelper = GetOwner()->CreateGMPCrashHelper();
-  init.mFrameStats = mFrameStats;
-  mReader = new MediaFormatReader(init, new WAVDemuxer(mResource));
-  return new MediaDecoderStateMachine(this, mReader);
-}
 
 /* static */ bool
 WaveDecoder::IsSupportedType(const MediaContainerType& aContainerType)
 {
-  if (!IsWaveEnabled()) {
+  if (!MediaDecoder::IsWaveEnabled()) {
     return false;
   }
   if (aContainerType.Type() == MEDIAMIMETYPE("audio/wave")

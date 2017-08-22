@@ -34,6 +34,14 @@
   background: none;
 }
 
+/* Keyboard focus styling */
+#onboarding-overlay-button:-moz-focusring {
+  outline: solid 2px rgba(0, 0, 0, 0.1);
+  -moz-outline-radius: 5px;
+  outline-offset: 5px;
+  transition: outline-offset 150ms;
+}
+
 #onboarding-overlay-button-icon {
   width: 36px;
   vertical-align: top;
@@ -54,8 +62,10 @@
   display: inline-block;
   offset-inline-start: 39px;
   border-radius: 22px;
-  padding: 5px 8px;
-  width: 110px;
+  padding: 5px 12px;
+  min-width: 100px;
+  max-width: 140px;
+  white-space: pre-line;
   margin-inline-start: 3px;
   margin-top: -5px;
 }
@@ -68,34 +78,31 @@
 }
 
 .onboarding-close-btn {
-   position: absolute;
-   top: 15px;
-   offset-inline-end: 15px;
-   cursor: pointer;
-   width: 16px;
-   height: 16px;
-   padding: 12px;
-   border: none;
-   background: var(--onboarding-overlay-dialog-background-color);
+  position: absolute;
+  top: 15px;
+  offset-inline-end: 15px;
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  padding: 0;
  }
 
 .onboarding-close-btn::before {
-  content: url(chrome://browser/skin/sidebar/close.svg);
-  display: block;
-  margin-top: -8px;
-  margin-inline-start: -8px;
+  content: url(chrome://global/skin/icons/close.svg);
+  -moz-context-properties: fill, fill-opacity;
+  fill-opacity: 0;
 }
 
-.onboarding-close-btn:hover,
-#onboarding-notification-close-btn:hover {
-  background-color: rgba(204, 204, 204, 0.6);
+.onboarding-close-btn:-moz-any(:hover, :active, :focus, :-moz-focusring)::before {
+  fill-opacity: 0.1;
 }
 
 #onboarding-overlay.onboarding-opened > #onboarding-overlay-dialog {
-  --onboarding-overlay-dialog-background-color: #f5f5f7;
   width: 960px;
   height: 510px;
-  background: var(--onboarding-overlay-dialog-background-color);
+  background: #f5f5f7;
   border: 1px solid rgba(9, 6, 13, 0.1); /* #09060D, 0.1 opacity */
   border-radius: 3px;
   position: relative;
@@ -148,17 +155,20 @@
 #onboarding-tour-list {
   margin: 40px 0 0 0;
   padding: 0;
+  margin-inline-start: 16px;
 }
 
-#onboarding-tour-list > li {
-  --padding-inline-start: 49px;
-  --padding-top: 14px;
-  --padding-bottom: 14px;
+#onboarding-tour-list .onboarding-tour-item-container {
   list-style: none;
-  padding-inline-start: var(--padding-inline-start);
-  padding-top: var(--padding-top);
-  padding-bottom: var(--padding-bottom);
-  margin-inline-start: 16px;
+  outline: none;
+}
+
+#onboarding-tour-list .onboarding-tour-item {
+  pointer-events: none;
+  display: list-item;
+  padding-inline-start: 49px;
+  padding-top: 14px;
+  padding-bottom: 14px;
   margin-bottom: 9px;
   background-repeat: no-repeat;
   background-position: left 17px top 14px;
@@ -167,11 +177,11 @@
   cursor: pointer;
 }
 
-#onboarding-tour-list > li:dir(rtl) {
+#onboarding-tour-list .onboarding-tour-item:dir(rtl) {
   background-position-x: right 17px;
 }
 
-#onboarding-tour-list > li.onboarding-complete::before {
+#onboarding-tour-list .onboarding-tour-item.onboarding-complete::before {
   content: url("img/icons_tour-complete.svg");
   position: relative;
   offset-inline-start: 3px;
@@ -179,19 +189,15 @@
   float: inline-start;
 }
 
-#onboarding-tour-list > li.onboarding-complete {
-  --padding-inline-start: 29px;
+#onboarding-tour-list .onboarding-tour-item.onboarding-complete {
+  padding-inline-start: 29px;
 }
 
-#onboarding-tour-list > li.onboarding-active,
-#onboarding-tour-list > li:hover {
+#onboarding-tour-list .onboarding-tour-item.onboarding-active,
+#onboarding-tour-list .onboarding-tour-item-container:hover .onboarding-tour-item {
   color: #0A84FF;
-  /* With 1px transparent border, could see a border in the high-constrast mode */
-  border: 1px solid transparent;
-  /* Substract 1px for the 1px transparent or a 1px shift would happen */
-  padding-inline-start: calc(var(--padding-inline-start) - 1px);
-  padding-top: calc(var(--padding-top) - 1px);
-  padding-bottom: calc(var(--padding-bottom) - 1px);
+  /* With 1px transparent outline, could see a border in the high-constrast mode */
+  outline: 1px solid transparent;
 }
 
 /* Default browser tour */
@@ -253,6 +259,8 @@
   line-height: 22px;
   padding-inline-start: 40px;
   padding-inline-end: 28px;
+  max-height: 360px;
+  overflow: auto;
 }
 
 .onboarding-tour-description > h1 {
@@ -318,12 +326,15 @@
 }
 
 /* Remove default dotted outline around buttons' text */
-.onboarding-tour-action-button::-moz-focus-inner {
+.onboarding-tour-action-button::-moz-focus-inner,
+#onboarding-overlay-button::-moz-focus-inner {
   border: 0;
 }
 
 /* Keyboard focus specific outline */
-.onboarding-tour-action-button:-moz-focusring {
+.onboarding-tour-action-button:-moz-focusring,
+#onboarding-notification-action-btn:-moz-focusring,
+#onboarding-tour-list .onboarding-tour-item:focus {
   outline: 2px solid rgba(0,149,221,0.5);
   outline-offset: 1px;
   -moz-outline-radius: 2px;
@@ -345,21 +356,17 @@
 }
 
 /* Tour Icons */
-#onboarding-tour-search,
 #onboarding-tour-singlesearch {
-  background-image: url("img/icons_search.svg");
+  background-image: url("img/icons_singlesearch.svg");
 }
 
-#onboarding-tour-search.onboarding-active,
-#onboarding-tour-search:hover,
 #onboarding-tour-singlesearch.onboarding-active,
 #onboarding-tour-singlesearch:hover {
-  background-image: url("img/icons_search-colored.svg");
+  background-image: url("img/icons_singlesearch-colored.svg");
 }
 
-#onboarding-notification-bar[data-target-tour-id=onboarding-tour-search] #onboarding-notification-tour-icon,
 #onboarding-notification-bar[data-target-tour-id=onboarding-tour-singlesearch] #onboarding-notification-tour-icon {
-  background-image: url("img/icons_search-notification.svg");
+  background-image: url("img/icons_singlesearch-notification.svg");
 }
 
 #onboarding-tour-private-browsing {
@@ -429,13 +436,16 @@
 }
 
 #onboarding-tour-library {
-  background-image: url("img/icons_search.svg");
+  background-image: url("img/icons_library.svg");
 }
 
 #onboarding-tour-library.onboarding-active,
-#onboarding-tour-library:hover,
+#onboarding-tour-library:hover {
+  background-image: url("img/icons_library-colored.svg");
+}
+
 #onboarding-notification-bar[data-target-tour-id=onboarding-tour-library] #onboarding-notification-tour-icon {
-  background-image: url("img/icons_search-colored.svg");
+  background-image: url("img/icons_library-notification.svg");
 }
 
 #onboarding-tour-performance {
@@ -448,9 +458,7 @@
 }
 
 #onboarding-notification-bar[data-target-tour-id=onboarding-tour-performance] #onboarding-notification-tour-icon {
-  /* TODO: Placeholder icon. It should be replaced upon assets are available.
-           This is tracking in Bug 1382520. */
-  background-image: url("img/icons_sync-notification.svg");
+  background-image: url("img/icons_performance-notification.svg");
 }
 
 /* Tour Notifications */
@@ -493,7 +501,7 @@
   --height: 22px;
   --vpadding: 3px;
   position: absolute;
-  content: attr(data-tooltip);
+  content: attr(aria-label);
   top: 0;
   offset-inline-start: 73px;
   line-height: calc(var(--height) - var(--vpadding) * 2);
@@ -502,7 +510,6 @@
 }
 
 #onboarding-notification-close-btn {
-  background: var(--onboarding-notification-bar-background-color);
   position: absolute;
   offset-block-start: 50%;
   offset-inline-end: 34px;
@@ -536,6 +543,7 @@
 
 #onboarding-notification-tour-title {
   margin: 0;
+  font-weight: bold;
 }
 
 #onboarding-notification-tour-icon {

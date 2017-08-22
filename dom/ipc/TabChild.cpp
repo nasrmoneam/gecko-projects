@@ -90,6 +90,7 @@
 #include "nsPIWindowRoot.h"
 #include "nsLayoutUtils.h"
 #include "nsPrintfCString.h"
+#include "nsThreadManager.h"
 #include "nsThreadUtils.h"
 #include "nsViewManager.h"
 #include "nsWeakReference.h"
@@ -297,8 +298,17 @@ ContentListener::HandleEvent(nsIDOMEvent* aEvent)
 
 class TabChild::DelayedDeleteRunnable final
   : public Runnable
+  , public nsIRunnablePriority
 {
     RefPtr<TabChild> mTabChild;
+
+    // In order to ensure that this runnable runs after everything that could
+    // possibly touch this tab, we send it through the event queue twice. The
+    // first time it runs at normal priority and the second time it runs at
+    // input priority. This ensures that it runs after all events that were in
+    // either queue at the time it was first dispatched. mReadyToDelete starts
+    // out false (when it runs at normal priority) and is then set to true.
+    bool mReadyToDelete = false;
 
 public:
     explicit DelayedDeleteRunnable(TabChild* aTabChild)
@@ -309,11 +319,21 @@ public:
         MOZ_ASSERT(aTabChild);
     }
 
+    NS_DECL_ISUPPORTS_INHERITED
+
 private:
     ~DelayedDeleteRunnable()
     {
         MOZ_ASSERT(NS_IsMainThread());
         MOZ_ASSERT(!mTabChild);
+    }
+
+    NS_IMETHOD GetPriority(uint32_t* aPriority) override
+    {
+      *aPriority = mReadyToDelete
+                 ? nsIRunnablePriority::PRIORITY_INPUT
+                 : nsIRunnablePriority::PRIORITY_NORMAL;
+      return NS_OK;
     }
 
     NS_IMETHOD
@@ -322,15 +342,26 @@ private:
         MOZ_ASSERT(NS_IsMainThread());
         MOZ_ASSERT(mTabChild);
 
+        if (!mReadyToDelete) {
+          // This time run this runnable at input priority.
+          mReadyToDelete = true;
+          MOZ_ALWAYS_SUCCEEDS(NS_DispatchToCurrentThread(this));
+          return NS_OK;
+        }
+
         // Check in case ActorDestroy was called after RecvDestroy message.
         if (mTabChild->IPCOpen()) {
-            Unused << PBrowserChild::Send__delete__(mTabChild);
+          Unused << PBrowserChild::Send__delete__(mTabChild);
         }
 
         mTabChild = nullptr;
         return NS_OK;
     }
 };
+
+NS_IMPL_ISUPPORTS_INHERITED(TabChild::DelayedDeleteRunnable,
+                            Runnable,
+                            nsIRunnablePriority)
 
 namespace {
 std::map<TabId, RefPtr<TabChild>>&
@@ -423,6 +454,11 @@ TabChild::TabChild(nsIContentChild* aManager,
   if (mUniqueId) {
     MOZ_ASSERT(NestedTabChildMap().find(mUniqueId) == NestedTabChildMap().end());
     NestedTabChildMap()[mUniqueId] = this;
+  }
+  mCoalesceMouseMoveEvents =
+    Preferences::GetBool("dom.event.coalesce_mouse_move");
+  if (mCoalesceMouseMoveEvents) {
+    mCoalescedMouseEventFlusher = new CoalescedMouseMoveFlusher(this);
   }
 }
 
@@ -1016,6 +1052,10 @@ TabChild::ProvideWindow(mozIDOMWindowProxy* aParent,
 void
 TabChild::DestroyWindow()
 {
+    if (mCoalescedMouseEventFlusher) {
+      mCoalescedMouseEventFlusher->RemoveObserver();
+      mCoalescedMouseEventFlusher = nullptr;
+    }
     nsCOMPtr<nsIBaseWindow> baseWindow = do_QueryInterface(WebNavigation());
     if (baseWindow)
         baseWindow->Destroy();
@@ -1534,12 +1574,42 @@ TabChild::RecvMouseEvent(const nsString& aType,
   return IPC_OK();
 }
 
+void
+TabChild::MaybeDispatchCoalescedMouseMoveEvents()
+{
+  if (!mCoalesceMouseMoveEvents || mCoalescedMouseData.IsEmpty()) {
+    return;
+  }
+  const WidgetMouseEvent* event = mCoalescedMouseData.GetCoalescedEvent();
+  MOZ_ASSERT(event);
+  // Dispatch the coalesced mousemove event. Using RecvRealMouseButtonEvent to
+  // bypass the coalesce handling in RecvRealMouseMoveEvent.
+  RecvRealMouseButtonEvent(*event,
+                           mCoalescedWheelData.GetScrollableLayerGuid(),
+                           mCoalescedWheelData.GetInputBlockId());
+  MOZ_ASSERT(mCoalescedMouseEventFlusher);
+  mCoalescedMouseData.Reset();
+  mCoalescedMouseEventFlusher->RemoveObserver();
+}
+
 mozilla::ipc::IPCResult
 TabChild::RecvRealMouseMoveEvent(const WidgetMouseEvent& aEvent,
                                  const ScrollableLayerGuid& aGuid,
                                  const uint64_t& aInputBlockId)
 {
-  if (!RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId)) {
+  if (mCoalesceMouseMoveEvents) {
+    MOZ_ASSERT(mCoalescedMouseEventFlusher);
+    if (mCoalescedMouseData.CanCoalesce(aEvent, aGuid, aInputBlockId)) {
+      mCoalescedMouseData.Coalesce(aEvent, aGuid, aInputBlockId);
+      mCoalescedMouseEventFlusher->StartObserver();
+      return IPC_OK();
+    }
+    // Can't coalesce current mousemove event. Dispatch the coalesced mousemove
+    // event and coalesce the current one.
+    MaybeDispatchCoalescedMouseMoveEvents();
+    mCoalescedMouseData.Coalesce(aEvent, aGuid, aInputBlockId);
+    mCoalescedMouseEventFlusher->StartObserver();
+  } else if (!RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
@@ -1561,6 +1631,11 @@ TabChild::RecvRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
                                    const ScrollableLayerGuid& aGuid,
                                    const uint64_t& aInputBlockId)
 {
+  if (aEvent.mMessage != eMouseMove) {
+    // Flush the coalesced mousemove event before dispatching other mouse
+    // events.
+    MaybeDispatchCoalescedMouseMoveEvents();
+  }
   // Mouse events like eMouseEnterIntoWidget, that are created in the parent
   // process EventStateManager code, have an input block id which they get from
   // the InputAPZContext in the parent process stack. However, they did not
@@ -1649,7 +1724,7 @@ TabChild::MaybeDispatchCoalescedWheelEvent()
     return;
   }
   const WidgetWheelEvent* wheelEvent =
-    mCoalescedWheelData.GetCoalescedWheelEvent();
+    mCoalescedWheelData.GetCoalescedEvent();
   MOZ_ASSERT(wheelEvent);
   DispatchWheelEvent(*wheelEvent,
                      mCoalescedWheelData.GetScrollableLayerGuid(),

@@ -265,7 +265,15 @@ UNIFIED_SOURCES += [
 ]
 
 if CONFIG['OS_TARGET'] == 'WINNT':
-  SOURCES += [ 'ThreadPoolCOMListener.cpp' ]
+  EXPORTS.mozilla.audio += [
+      'AudioNotificationReceiver.h',
+      'AudioNotificationSender.h',
+  ]
+  SOURCES += [
+      'AudioNotificationReceiver.cpp',
+      'AudioNotificationSender.cpp',
+      'ThreadPoolCOMListener.cpp',
+  ]
 
 # DecoderTraits.cpp needs to be built separately because of Mac OS X headers.
 SOURCES += [
@@ -311,9 +319,6 @@ else:
 
 if CONFIG['ANDROID_VERSION'] > '15':
     DEFINES['MOZ_OMX_WEBM_DECODER'] = True
-
-if CONFIG['MOZ_GONK_MEDIACODEC']:
-    DEFINES['MOZ_GONK_MEDIACODEC'] = True
 
 if CONFIG['MOZ_ANDROID_HLS_SUPPORT']:
     DEFINES['MOZ_ANDROID_HLS_SUPPORT'] = True

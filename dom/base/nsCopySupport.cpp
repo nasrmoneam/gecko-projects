@@ -559,7 +559,7 @@ static nsresult AppendDOMNode(nsITransferable *aTransferable,
   // init encoder with document and node
   rv = docEncoder->NativeInit(document, NS_LITERAL_STRING(kHTMLMime),
                               nsIDocumentEncoder::OutputAbsoluteLinks |
-                              nsIDocumentEncoder::OutputEncodeW3CEntities);
+                              nsIDocumentEncoder::OutputEncodeBasicEntities);
   NS_ENSURE_SUCCESS(rv, rv);
 
   rv = docEncoder->SetNativeNode(aDOMNode);
@@ -628,7 +628,7 @@ static nsresult AppendImagePromise(nsITransferable* aTransferable,
   rv = imgUrl->GetFileExtension(extension);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  nsXPIDLCString mimeType;
+  nsCString mimeType;
   rv = aImgRequest->GetMimeType(getter_Copies(mimeType));
   NS_ENSURE_SUCCESS(rv, rv);
 

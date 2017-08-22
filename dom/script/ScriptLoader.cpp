@@ -72,9 +72,12 @@ namespace dom {
 LazyLogModule ScriptLoader::gCspPRLog("CSP");
 LazyLogModule ScriptLoader::gScriptLoaderLog("ScriptLoader");
 
+#undef LOG
 #define LOG(args) \
   MOZ_LOG(gScriptLoaderLog, mozilla::LogLevel::Debug, args)
 
+#define LOG_ENABLED() \
+  MOZ_LOG_TEST(ScriptLoader::gScriptLoaderLog, mozilla::LogLevel::Debug)
 
 // Alternate Data MIME type used by the ScriptLoader to register that we want to
 // store bytecode without reading it.
@@ -357,6 +360,13 @@ ScriptLoader::SetModuleFetchFinishedAndResumeWaitingRequests(ModuleLoadRequest* 
 {
   // Update module map with the result of fetching a single module script.  The
   // module script pointer is nullptr on error.
+  //
+  // If any requests for the same URL are waiting on this one to complete, they
+  // will have ModuleLoaded or LoadFailed on them when the promise is
+  // resolved/rejected. This is set up in StartLoad.
+
+  LOG(("ScriptLoadRequest (%p): Module fetch finished (result == %u)",
+       aRequest, unsigned(aResult)));
 
   MOZ_ASSERT(!aRequest->IsReadyToRun());
 
@@ -400,6 +410,12 @@ ScriptLoader::WaitForModuleFetch(ModuleLoadRequest* aRequest)
 ModuleScript*
 ScriptLoader::GetFetchedModule(nsIURI* aURL) const
 {
+  if (LOG_ENABLED()) {
+    nsAutoCString url;
+    aURL->GetAsciiSpec(url);
+    LOG(("GetFetchedModule %s", url.get()));
+  }
+
   bool found;
   ModuleScript* ms = mFetchedModules.GetWeak(aURL, &found);
   MOZ_ASSERT(found);
@@ -646,8 +662,13 @@ void
 ScriptLoader::StartFetchingModuleDependencies(ModuleLoadRequest* aRequest)
 {
   MOZ_ASSERT(aRequest->mModuleScript);
-  MOZ_ASSERT(!aRequest->mModuleScript->InstantiationFailed());
   MOZ_ASSERT(!aRequest->IsReadyToRun());
+
+  if (aRequest->mModuleScript->InstantiationFailed()) {
+    aRequest->LoadFailed();
+    return;
+  }
+
   aRequest->mProgress = ModuleLoadRequest::Progress::FetchingImports;
 
   nsCOMArray<nsIURI> urls;
@@ -790,6 +811,8 @@ ScriptLoader::InstantiateModuleTree(ModuleLoadRequest* aRequest)
 
   MOZ_ASSERT(aRequest);
 
+  LOG(("ScriptLoadRequest (%p): Instantiate module tree", aRequest));
+
   ModuleScript* ms = aRequest->mModuleScript;
   MOZ_ASSERT(ms);
   if (!ms->ModuleRecord()) {
@@ -809,6 +832,7 @@ ScriptLoader::InstantiateModuleTree(ModuleLoadRequest* aRequest)
 
   JS::RootedValue exception(jsapi.cx());
   if (!ok) {
+    LOG(("ScriptLoadRequest (%p): Instantiate failed", aRequest));
     MOZ_ASSERT(jsapi.HasException());
     if (!jsapi.StealException(&exception)) {
       return false;
@@ -877,11 +901,18 @@ ScriptLoader::StartLoad(ScriptLoadRequest* aRequest)
     return NS_OK;
   }
 
+  if (LOG_ENABLED()) {
+    nsAutoCString url;
+    aRequest->mURI->GetAsciiSpec(url);
+    LOG(("ScriptLoadRequest (%p): Start Load (url = %s)", aRequest, url.get()));
+  }
+
   if (aRequest->IsModuleRequest()) {
     // Check whether the module has been fetched or is currently being fetched,
     // and if so wait for it.
     ModuleLoadRequest* request = aRequest->AsModuleRequest();
     if (ModuleMapContainsModule(request)) {
+      LOG(("ScriptLoadRequest (%p): Waiting for module fetch", aRequest));
       WaitForModuleFetch(request)
         ->Then(GetMainThreadSerialEventTarget(), __func__, request,
                &ModuleLoadRequest::ModuleLoaded,
@@ -891,6 +922,7 @@ ScriptLoader::StartLoad(ScriptLoadRequest* aRequest)
 
     // Otherwise put the URL in the module map and mark it as fetching.
     SetModuleFetchStarted(request);
+    LOG(("ScriptLoadRequest (%p): Start fetching module", aRequest));
   }
 
   nsContentPolicyType contentPolicyType = aRequest->IsPreload()
@@ -972,15 +1004,16 @@ ScriptLoader::StartLoad(ScriptLoadRequest* aRequest)
   }
 
   nsIScriptElement* script = aRequest->mElement;
-  nsCOMPtr<nsIClassOfService> cos(do_QueryInterface(channel));
+  bool async = script ? script->GetScriptAsync() : aRequest->mPreloadAsAsync;
+  bool defer = script ? script->GetScriptDeferred() : aRequest->mPreloadAsDefer;
 
+  nsCOMPtr<nsIClassOfService> cos(do_QueryInterface(channel));
   if (cos) {
-    if (aRequest->mScriptFromHead &&
-        !(script && (script->GetScriptAsync() || script->GetScriptDeferred()))) {
+    if (aRequest->mScriptFromHead && !async && !defer) {
       // synchronous head scripts block loading of most other non js/css
       // content such as images
       cos->AddClassFlags(nsIClassOfService::Leader);
-    } else if (!(script && script->GetScriptDeferred())) {
+    } else if (!defer) {
       // other scripts are neither blocked nor prioritized unless marked deferred
       cos->AddClassFlags(nsIClassOfService::Unblocked);
     }
@@ -1110,13 +1143,9 @@ CSPAllowsInlineScript(nsIScriptElement* aElement, nsIDocument* aDocument)
   scriptContent->GetAttr(kNameSpaceID_None, nsGkAtoms::nonce, nonce);
   bool parserCreated = aElement->GetParserCreated() != mozilla::dom::NOT_FROM_PARSER;
 
-  // query the scripttext
-  nsAutoString scriptText;
-  aElement->GetScriptText(scriptText);
-
   bool allowInlineScript = false;
   rv = csp->GetAllowsInline(nsIContentPolicy::TYPE_SCRIPT,
-                            nonce, parserCreated, scriptText,
+                            nonce, parserCreated, aElement,
                             aElement->GetScriptLineNumber(),
                             &allowInlineScript);
   return allowInlineScript;
@@ -2925,7 +2954,7 @@ ScriptLoader::PreloadURI(nsIURI* aURI, const nsAString& aCharset,
                          const nsAString& aType,
                          const nsAString& aCrossOrigin,
                          const nsAString& aIntegrity,
-                         bool aScriptFromHead,
+                         bool aScriptFromHead, bool aAsync, bool aDefer,
                          const mozilla::net::ReferrerPolicy aReferrerPolicy)
 {
   NS_ENSURE_TRUE_VOID(mDocument);
@@ -2958,6 +2987,8 @@ ScriptLoader::PreloadURI(nsIURI* aURI, const nsAString& aCharset,
   request->mIsInline = false;
   request->mReferrerPolicy = aReferrerPolicy;
   request->mScriptFromHead = aScriptFromHead;
+  request->mPreloadAsAsync = aAsync;
+  request->mPreloadAsDefer = aDefer;
 
   nsresult rv = StartLoad(request);
   if (NS_FAILED(rv)) {

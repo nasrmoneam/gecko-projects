@@ -27,7 +27,6 @@ DECL_CLASS(nsIComponentManager);
 DECL_CLASS(nsIComponentRegistrar);
 DECL_CLASS(nsIServiceManager);
 DECL_CLASS(nsIFile);
-DECL_CLASS(nsILocalFile);
 DECL_CLASS(nsIDirectoryServiceProvider);
 DECL_CLASS(nsIMemory);
 DECL_CLASS(nsIDebug2);
@@ -358,6 +357,12 @@ XPCOM_API(void) NS_CycleCollectorSuspect3(void* aPtr,
                                           nsCycleCollectionParticipant* aCp,
                                           nsCycleCollectingAutoRefCnt* aRefCnt,
                                           bool* aShouldDelete);
+
+XPCOM_API(void)
+NS_CycleCollectorSuspectUsingNursery(void* aPtr,
+                                     nsCycleCollectionParticipant* aCp,
+                                     nsCycleCollectingAutoRefCnt* aRefCnt,
+                                     bool* aShouldDelete);
 
 #endif
 

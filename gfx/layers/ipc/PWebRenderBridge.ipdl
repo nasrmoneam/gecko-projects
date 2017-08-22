@@ -57,14 +57,14 @@ parent:
   async DPBegin(IntSize aSize);
   async DPEnd(IntSize aSize, WebRenderParentCommand[] commands, OpDestroy[] toDestroy, uint64_t fwdTransactionId, uint64_t transactionId,
               LayoutSize aContentSize, ByteBuffer aDL, BuiltDisplayListDescriptor aDLDesc,
-              WebRenderScrollData aScrollData, IdNamespace aIdNamespace, TimeStamp fwdTime);
+              WebRenderScrollData aScrollData, IdNamespace aIdNamespace, TimeStamp txnStartTime, TimeStamp fwdTime);
   sync DPSyncEnd(IntSize aSize, WebRenderParentCommand[] commands, OpDestroy[] toDestroy, uint64_t fwdTransactionId, uint64_t transactionId,
                  LayoutSize aContentSize, ByteBuffer aDL, BuiltDisplayListDescriptor aDLDesc,
-                 WebRenderScrollData aScrollData, IdNamespace aIdNamespace, TimeStamp fwdTime);
+                 WebRenderScrollData aScrollData, IdNamespace aIdNamespace, TimeStamp txnStartTime, TimeStamp fwdTime);
   async ParentCommands(WebRenderParentCommand[] commands);
   sync DPGetSnapshot(PTexture texture);
-  async AddPipelineIdForAsyncCompositable(PipelineId aImageId, CompositableHandle aHandle);
-  async RemovePipelineIdForAsyncCompositable(PipelineId aPipelineId);
+  async AddPipelineIdForCompositable(PipelineId aImageId, CompositableHandle aHandle, bool aAsync);
+  async RemovePipelineIdForCompositable(PipelineId aPipelineId);
   async AddExternalImageIdForCompositable(ExternalImageId aImageId, CompositableHandle aHandle);
   async RemoveExternalImageId(ExternalImageId aImageId);
   async SetLayerObserverEpoch(uint64_t layerObserverEpoch);

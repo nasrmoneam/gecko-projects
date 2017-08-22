@@ -325,7 +325,7 @@ nsHTTPIndex::OnStopRequest(nsIRequest *request,
 
   nsresult rv;
 
-  nsXPIDLCString commentStr;
+  nsCString commentStr;
   mParser->GetComment(getter_Copies(commentStr));
 
   nsCOMPtr<nsIRDFLiteral> comment;
@@ -379,7 +379,7 @@ nsHTTPIndex::OnIndexAvailable(nsIRequest* aRequest, nsISupports *aContext,
   // we found the filename; construct a resource for its entry
   nsAutoCString entryuriC(baseStr);
 
-  nsXPIDLCString filename;
+  nsCString filename;
   nsresult rv = aIndex->GetLocation(getter_Copies(filename));
   if (NS_FAILED(rv)) return rv;
   entryuriC.Append(filename);
@@ -415,7 +415,7 @@ nsHTTPIndex::OnIndexAvailable(nsIRequest* aRequest, nsISupports *aContext,
       rv = Assert(entry, kNC_URL, lit, true);
       if (NS_FAILED(rv)) return rv;
 
-      nsXPIDLString xpstr;
+      nsString xpstr;
 
       // description
       rv = aIndex->GetDescription(getter_Copies(xpstr));
@@ -1282,13 +1282,14 @@ nsDirectoryViewerFactory::CreateInstance(const char *aCommand,
     nsCOMPtr<nsICategoryManager> catMan(do_GetService(NS_CATEGORYMANAGER_CONTRACTID, &rv));
     if (NS_FAILED(rv))
       return rv;
-    nsXPIDLCString contractID;
+    nsCString contractID;
     rv = catMan->GetCategoryEntry("Gecko-Content-Viewers", "application/vnd.mozilla.xul+xml",
                                   getter_Copies(contractID));
     if (NS_FAILED(rv))
       return rv;
 
-    nsCOMPtr<nsIDocumentLoaderFactory> factory(do_GetService(contractID, &rv));
+    nsCOMPtr<nsIDocumentLoaderFactory>
+      factory(do_GetService(contractID.get(), &rv));
     if (NS_FAILED(rv)) return rv;
 
     nsCOMPtr<nsIURI> uri;
@@ -1342,13 +1343,14 @@ nsDirectoryViewerFactory::CreateInstance(const char *aCommand,
   nsCOMPtr<nsICategoryManager> catMan(do_GetService(NS_CATEGORYMANAGER_CONTRACTID, &rv));
   if (NS_FAILED(rv))
     return rv;
-  nsXPIDLCString contractID;
+  nsCString contractID;
   rv = catMan->GetCategoryEntry("Gecko-Content-Viewers", "text/html",
                                 getter_Copies(contractID));
   if (NS_FAILED(rv))
     return rv;
 
-  nsCOMPtr<nsIDocumentLoaderFactory> factory(do_GetService(contractID, &rv));
+  nsCOMPtr<nsIDocumentLoaderFactory>
+    factory(do_GetService(contractID.get(), &rv));
   if (NS_FAILED(rv)) return rv;
 
   nsCOMPtr<nsIStreamListener> listener;

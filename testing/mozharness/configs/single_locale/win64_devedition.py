@@ -7,15 +7,16 @@ config = {
     "update_platform": "WINNT_x86_64-msvc",
     "mozconfig": "%(branch)s/browser/config/mozconfigs/win64/l10n-mozconfig-devedition",
     "bootstrap_env": {
-        "MOZ_OBJDIR": "obj-l10n",
+        "MOZ_OBJDIR": "obj-firefox",
         "EN_US_BINARY_URL": "%(en_us_binary_url)s",
         "MOZ_UPDATE_CHANNEL": "%(update_channel)s",
         "DIST": "%(abs_objdir)s",
         "LOCALE_MERGEDIR": "%(abs_merge_dir)s",
         "L10NBASEDIR": "../../l10n",
         "MOZ_MAKE_COMPLETE_MAR": "1",
-        "PATH": 'C:\\mozilla-build\\nsis-3.01;'
-                '%s' % (os.environ.get('path')),
+        "PATH": '%(abs_objdir)s\\..\\xz-5.2.3\\bin_x86-64;'
+                'C:\\mozilla-build\\nsis-3.01;'
+                + '%s' % (os.environ.get('path')),
         'TOOLTOOL_CACHE': 'c:/builds/tooltool_cache',
         'TOOLTOOL_HOME': '/c/builds',
         'EN_US_PACKAGE_NAME': 'target.zip',
@@ -23,7 +24,7 @@ config = {
     },
     "ssh_key_dir": "~/.ssh",
     "log_name": "single_locale",
-    "objdir": "obj-l10n",
+    "objdir": "obj-firefox",
     "js_src_dir": "js/src",
     "vcs_share_base": "c:/builds/hg-shared",
 

@@ -111,6 +111,11 @@ if (typeof Mozilla == "undefined") {
    * <li>help
    * <li>home
    * <li>library
+   * <li>pageActionButton
+   * <li>pageAction-bookmark
+   * <li>pageAction-copyURL
+   * <li>pageAction-emailLink
+   * <li>pageAction-sendToDevice
    * <li>pocket
    * <li>privateWindow
    * <li>quit

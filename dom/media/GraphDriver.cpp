@@ -565,7 +565,6 @@ AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl)
   , mIterationDurationMS(MEDIA_GRAPH_TARGET_PERIOD_MS)
   , mStarted(false)
   , mAudioInput(nullptr)
-  , mAudioChannel(aGraphImpl->AudioChannel())
   , mAddedMixer(false)
   , mInCallback(false)
   , mMicrophoneActive(false)
@@ -626,20 +625,6 @@ AudioCallbackDriver::Init()
       "This is blocking and should never run on the main thread.");
 
   mSampleRate = output.rate = CubebUtils::PreferredSampleRate();
-
-#if defined(__ANDROID__)
-#if defined(MOZ_B2G)
-  output.stream_type = CubebUtils::ConvertChannelToCubebType(mAudioChannel);
-#else
-  output.stream_type = CUBEB_STREAM_TYPE_MUSIC;
-#endif
-  if (output.stream_type == CUBEB_STREAM_TYPE_MAX) {
-    NS_WARNING("Bad stream type");
-    return false;
-  }
-#else
-  (void)mAudioChannel;
-#endif
 
   output.channels = mGraphImpl->AudioChannelCount();
   if (AUDIO_OUTPUT_FORMAT == AUDIO_FORMAT_S16) {
@@ -1062,7 +1047,10 @@ void
 AudioCallbackDriver::StateCallback(cubeb_state aState)
 {
   LOG(LogLevel::Debug, ("AudioCallbackDriver State: %d", aState));
-  if (aState == CUBEB_STATE_ERROR) {
+  // If we don't have an audio stream here, this means that the stream
+  // initialization has failed. A fallback on a SystemCallDriver will happen at
+  // the callsite of `cubeb_stream_init`.
+  if (aState == CUBEB_STATE_ERROR && mAudioStream) {
     // Fall back to a driver using a normal thread. If needed,
     // the graph will try to re-open an audio stream later.
     MonitorAutoLock lock(GraphImpl()->GetMonitor());

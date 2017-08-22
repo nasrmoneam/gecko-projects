@@ -1,8 +1,8 @@
+%if 0
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-%ifdef MOZ_PHOTON_THEME
+%endif
 
 #urlbar,
 .searchbar-textbox {
@@ -35,8 +35,6 @@
   background-color: white;
 }
 
-%endif
-
 :root[uidensity=compact] #urlbar,
 :root[uidensity=compact] .searchbar-textbox {
   min-height: 26px;
@@ -64,7 +62,6 @@
   -moz-appearance: none;
 }
 
-%ifdef MOZ_PHOTON_THEME
 /* Page action panel */
 .pageAction-panel-button > .toolbarbutton-icon {
   width: 16px;
@@ -112,27 +109,49 @@
   list-style-image: url("chrome://browser/skin/sync.svg");
 }
 
-/* Page action urlbar buttons */
-#urlbar-icons {
+/* URL bar and page action buttons */
+
+.urlbar-history-dropmarker {
+  -moz-appearance: none;
+  list-style-image: url(chrome://global/skin/icons/arrow-dropdown-16.svg);
+  transition: opacity 0.15s ease;
+}
+
+#urlbar[switchingtabs] > .urlbar-textbox-container > .urlbar-history-dropmarker {
+  transition: none;
+}
+
+#navigator-toolbox:not(:hover) > #nav-bar:not([customizing="true"]) > #nav-bar-customization-target > #urlbar-container > #urlbar:not([focused]) > .urlbar-textbox-container > .urlbar-history-dropmarker {
+  opacity: 0;
+}
+
+/* Page actions */
+
+#page-action-buttons {
+  -moz-box-align: center;
   /* Add more space between the last icon and the urlbar's edge. */
   margin-inline-end: 3px;
 }
 
 .urlbar-icon {
-  width: 22px;
+  padding: 0 6px;
+  /* 16x16 icon with border-box sizing */
+  width: 28px;
   height: 16px;
-  margin-inline-start: 6px;
   -moz-context-properties: fill, fill-opacity;
   fill: currentColor;
   fill-opacity: 0.6;
   color: inherit;
 }
 
+.urlbar-icon:hover {
+  fill-opacity: 0.8;
+}
+
 #pageActionButton {
   list-style-image: url("chrome://browser/skin/page-action.svg");
 }
 
-%ifdef MOZ_PHOTON_ANIMATIONS
 @keyframes bookmark-animation {
   from {
     transform: translateX(0);
@@ -172,10 +191,9 @@
   position: absolute;
   overflow: hidden;
   top: calc(50% - 16.5px); /* 16.5px is half the height of the sprite */
-  /* .urlbar-icon has width 22px. Each frame is 33px wide. Set margin-inline-start
-     to be half the difference, -5.5px, plus the 6px margin-inline-start of
-     .urlbar-icon, 6px. */
-  margin-inline-start: 0.5px;
+  /* .urlbar-icon has width 28px. Each frame is 33px wide. Set margin-inline-start
+     to be half the difference, -2.5px. */
+  margin-inline-start: -2.5px;
   /* Set the height to equal the height of each frame of the SVG. Must use
      min- and max- width and height due to bug 1379332. */
   min-width: 33px;
@@ -189,21 +207,34 @@
   background-size: auto;
   list-style-image: none;
   height: var(--toolbarbutton-height);
+  min-height: 33px; /* Minimum height must be equal to the height of the SVG sprite */
   animation-name: bookmark-animation;
   animation-fill-mode: forwards;
   animation-iteration-count: 1;
   animation-timing-function: steps(19);
-  animation-duration: 304ms;
+  animation-duration: 317ms;
   width: 660px;
+  -moz-context-properties: fill, stroke;
+  stroke: var(--toolbarbutton-icon-fill-attention);
 }
 
 #star-button-box[animationsenabled] > #star-button[starred][animate]:-moz-locale-dir(rtl) + #star-button-animatable-box > #star-button-animatable-image {
   animation-name: bookmark-animation-rtl;
 }
-%endif /* MOZ_PHOTON_ANIMATIONS */
-%endif /* MOZ_PHOTON_THEME */
+
+/* Reader mode icon */
+
+#reader-mode-button {
+  list-style-image: url(chrome://browser/skin/readerMode.svg);
+}
+
+#reader-mode-button[readeractive] {
+  fill: var(--toolbarbutton-icon-fill-attention);
+  fill-opacity: 1;
+}
 
 /* Zoom button */
+
 #urlbar-zoom-button {
   margin: 0 3px;
   font-size: .8em;

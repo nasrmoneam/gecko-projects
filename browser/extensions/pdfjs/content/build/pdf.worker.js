@@ -101,7 +101,7 @@ return /******/ (function(modules) { // webpackBootstrap
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.unreachable = exports.warn = exports.utf8StringToString = exports.stringToUTF8String = exports.stringToPDFString = exports.stringToBytes = exports.string32 = exports.shadow = exports.setVerbosityLevel = exports.ReadableStream = exports.removeNullCharacters = exports.readUint32 = exports.readUint16 = exports.readInt8 = exports.log2 = exports.loadJpegStream = exports.isEvalSupported = exports.isLittleEndian = exports.createValidAbsoluteUrl = exports.isSameOrigin = exports.isNodeJS = exports.isSpace = exports.isString = exports.isNum = exports.isInt = exports.isEmptyObj = exports.isBool = exports.isArrayBuffer = exports.isArray = exports.info = exports.globalScope = exports.getVerbosityLevel = exports.getLookupTableFactory = exports.deprecated = exports.createObjectURL = exports.createPromiseCapability = exports.createBlob = exports.bytesToString = exports.assert = exports.arraysToBytes = exports.arrayByteLength = exports.FormatError = exports.XRefParseException = exports.Util = exports.UnknownErrorException = exports.UnexpectedResponseException = exports.TextRenderingMode = exports.StreamType = exports.StatTimer = exports.PasswordResponses = exports.PasswordException = exports.PageViewport = exports.NotImplementedException = exports.NativeImageDecoding = exports.MissingPDFException = exports.MissingDataException = exports.MessageHandler = exports.InvalidPDFException = exports.CMapCompressionType = exports.ImageKind = exports.FontType = exports.AnnotationType = exports.AnnotationFlag = exports.AnnotationFieldFlag = exports.AnnotationBorderStyleType = exports.UNSUPPORTED_FEATURES = exports.VERBOSITY_LEVELS = exports.OPS = exports.IDENTITY_MATRIX = exports.FONT_IDENTITY_MATRIX = undefined;
+exports.unreachable = exports.warn = exports.utf8StringToString = exports.stringToUTF8String = exports.stringToPDFString = exports.stringToBytes = exports.string32 = exports.shadow = exports.setVerbosityLevel = exports.ReadableStream = exports.removeNullCharacters = exports.readUint32 = exports.readUint16 = exports.readInt8 = exports.log2 = exports.loadJpegStream = exports.isEvalSupported = exports.isLittleEndian = exports.createValidAbsoluteUrl = exports.isSameOrigin = exports.isNodeJS = exports.isSpace = exports.isString = exports.isNum = exports.isInt = exports.isEmptyObj = exports.isBool = exports.isArrayBuffer = exports.isArray = exports.info = exports.globalScope = exports.getVerbosityLevel = exports.getLookupTableFactory = exports.deprecated = exports.createObjectURL = exports.createPromiseCapability = exports.createBlob = exports.bytesToString = exports.assert = exports.arraysToBytes = exports.arrayByteLength = exports.FormatError = exports.XRefParseException = exports.Util = exports.UnknownErrorException = exports.UnexpectedResponseException = exports.TextRenderingMode = exports.StreamType = exports.StatTimer = exports.PasswordResponses = exports.PasswordException = exports.PageViewport = exports.NotImplementedException = exports.NativeImageDecoding = exports.MissingPDFException = exports.MissingDataException = exports.MessageHandler = exports.InvalidPDFException = exports.AbortException = exports.CMapCompressionType = exports.ImageKind = exports.FontType = exports.AnnotationType = exports.AnnotationFlag = exports.AnnotationFieldFlag = exports.AnnotationBorderStyleType = exports.UNSUPPORTED_FEATURES = exports.VERBOSITY_LEVELS = exports.OPS = exports.IDENTITY_MATRIX = exports.FONT_IDENTITY_MATRIX = undefined;
 
 __w_pdfjs_require__(36);
 
@@ -511,6 +511,15 @@ let FormatError = function FormatErrorClosure() {
   FormatError.prototype.name = 'FormatError';
   FormatError.constructor = FormatError;
   return FormatError;
+}();
+let AbortException = function AbortExceptionClosure() {
+  function AbortException(msg) {
+    this.name = 'AbortException';
+    this.message = msg;
+  }
+  AbortException.prototype = new Error();
+  AbortException.constructor = AbortException;
+  return AbortException;
 }();
 var NullCharactersRegExp = /\x00/g;
 function removeNullCharacters(str) {
@@ -1005,6 +1014,8 @@ function wrapReason(reason) {
     return reason;
   }
   switch (reason.name) {
+    case 'AbortException':
+      return new AbortException(reason.message);
     case 'MissingPDFException':
       return new MissingPDFException(reason.message);
     case 'UnexpectedResponseException':
@@ -1047,7 +1058,7 @@ function MessageHandler(sourceName, targetName, comObj) {
         let callback = callbacksCapabilities[callbackId];
         delete callbacksCapabilities[callbackId];
         if ('error' in data) {
-          callback.reject(data.error);
+          callback.reject(wrapReason(data.error));
         } else {
           callback.resolve(data.data);
         }
@@ -1387,6 +1398,7 @@ exports.AnnotationType = AnnotationType;
 exports.FontType = FontType;
 exports.ImageKind = ImageKind;
 exports.CMapCompressionType = CMapCompressionType;
+exports.AbortException = AbortException;
 exports.InvalidPDFException = InvalidPDFException;
 exports.MessageHandler = MessageHandler;
 exports.MissingDataException = MissingDataException;
@@ -2455,7 +2467,7 @@ var JpxStream = function JpxStreamClosure() {
     if (tileCount === 1) {
       this.buffer = jpxImage.tiles[0].items;
     } else {
-      var data = new Uint8Array(width * height * componentsCount);
+      var data = new Uint8ClampedArray(width * height * componentsCount);
       for (var k = 0; k < tileCount; k++) {
         var tileComponents = jpxImage.tiles[k];
         var tileWidth = tileComponents.width;
@@ -13411,7 +13423,14 @@ var CFFParser = function CFFParserClosure() {
       }
       cff.charset = charset;
       cff.encoding = encoding;
-      var charStringsAndSeacs = this.parseCharStrings(charStringIndex, topDict.privateDict.subrsIndex, globalSubrIndex.obj, cff.fdSelect, cff.fdArray);
+      var charStringsAndSeacs = this.parseCharStrings({
+        charStrings: charStringIndex,
+        localSubrIndex: topDict.privateDict.subrsIndex,
+        globalSubrIndex: globalSubrIndex.obj,
+        fdSelect: cff.fdSelect,
+        fdArray: cff.fdArray,
+        privateDict: topDict.privateDict
+      });
       cff.charStrings = charStringsAndSeacs.charStrings;
       cff.seacs = charStringsAndSeacs.seacs;
       cff.widths = charStringsAndSeacs.widths;
@@ -13706,7 +13725,7 @@ var CFFParser = function CFFParserClosure() {
       state.stackSize = stackSize;
       return true;
     },
-    parseCharStrings: function CFFParser_parseCharStrings(charStrings, localSubrIndex, globalSubrIndex, fdSelect, fdArray) {
+    parseCharStrings({ charStrings, localSubrIndex, globalSubrIndex, fdSelect, fdArray, privateDict }) {
       var seacs = [];
       var widths = [];
       var count = charStrings.count;
@@ -13724,6 +13743,7 @@ var CFFParser = function CFFParserClosure() {
         };
         var valid = true;
         var localSubrToUse = null;
+        var privateDictToUse = privateDict;
         if (fdSelect && fdArray.length) {
           var fdIndex = fdSelect.getFDIndex(i);
           if (fdIndex === -1) {
@@ -13735,7 +13755,8 @@ var CFFParser = function CFFParserClosure() {
             valid = false;
           }
           if (valid) {
-            localSubrToUse = fdArray[fdIndex].privateDict.subrsIndex;
+            privateDictToUse = fdArray[fdIndex].privateDict;
+            localSubrToUse = privateDictToUse.subrsIndex;
           }
         } else if (localSubrIndex) {
           localSubrToUse = localSubrIndex;
@@ -13744,7 +13765,11 @@ var CFFParser = function CFFParserClosure() {
           valid = this.parseCharString(state, charstring, localSubrToUse, globalSubrIndex);
         }
         if (state.width !== null) {
-          widths[i] = state.width;
+          const nominalWidth = privateDictToUse.getByName('nominalWidthX');
+          widths[i] = nominalWidth + state.width;
+        } else {
+          const defaultWidth = privateDictToUse.getByName('defaultWidthX');
+          widths[i] = defaultWidth;
         }
         if (state.seac !== null) {
           seacs[i] = state.seac;
@@ -17295,9 +17320,6 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
           var fn = operation.fn;
           switch (fn | 0) {
             case _util.OPS.paintXObject:
-              if (args[0].code) {
-                break;
-              }
               var name = args[0].name;
               if (!name) {
                 (0, _util.warn)('XObject must be referred to by name.');
@@ -17879,9 +17901,6 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
               break;
             case _util.OPS.paintXObject:
               flushTextContentItem();
-              if (args[0].code) {
-                break;
-              }
               if (!xobjs) {
                 xobjs = resources.get('XObject') || _primitives.Dict.empty;
               }
@@ -17972,6 +17991,9 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
         enqueueChunk();
         resolve();
       }).catch(reason => {
+        if (reason instanceof _util.AbortException) {
+          return;
+        }
         if (this.options.ignoreErrors) {
           (0, _util.warn)('getTextContent - ignoring errors during task: ' + task.name);
           flushTextContentItem();
@@ -18512,7 +18534,7 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
         capHeight: descriptor.get('CapHeight'),
         flags: descriptor.get('Flags'),
         italicAngle: descriptor.get('ItalicAngle'),
-        coded: false
+        isType3Font: false
       };
       var cMapPromise;
       if (composite) {
@@ -20838,7 +20860,7 @@ var JpxImage = function JpxImageClosure() {
         transformedTiles[c] = transformTile(context, tile, c);
       }
       var tile0 = transformedTiles[0];
-      var out = new Uint8Array(tile0.items.length * componentsCount);
+      var out = new Uint8ClampedArray(tile0.items.length * componentsCount);
       var result = {
         left: tile0.left,
         top: tile0.top,
@@ -20846,18 +20868,13 @@ var JpxImage = function JpxImageClosure() {
         height: tile0.height,
         items: out
       };
-      var shift, offset, max, min, maxK;
+      var shift, offset;
       var pos = 0,
           j,
           jj,
           y0,
           y1,
-          y2,
-          r,
-          g,
-          b,
-          k,
-          val;
+          y2;
       if (tile.codingStyleDefaultParameters.multipleComponentTransform) {
         var fourComponents = componentsCount === 4;
         var y0items = transformedTiles[0].items;
@@ -20866,9 +20883,6 @@ var JpxImage = function JpxImageClosure() {
         var y3items = fourComponents ? transformedTiles[3].items : null;
         shift = components[0].precision - 8;
         offset = (128 << shift) + 0.5;
-        max = 255 * (1 << shift);
-        maxK = max * 0.5;
-        min = -maxK;
         var component0 = tile.components[0];
         var alpha01 = componentsCount - 3;
         jj = y0items.length;
@@ -20877,30 +20891,24 @@ var JpxImage = function JpxImageClosure() {
             y0 = y0items[j] + offset;
             y1 = y1items[j];
             y2 = y2items[j];
-            r = y0 + 1.402 * y2;
-            g = y0 - 0.34413 * y1 - 0.71414 * y2;
-            b = y0 + 1.772 * y1;
-            out[pos++] = r <= 0 ? 0 : r >= max ? 255 : r >> shift;
-            out[pos++] = g <= 0 ? 0 : g >= max ? 255 : g >> shift;
-            out[pos++] = b <= 0 ? 0 : b >= max ? 255 : b >> shift;
+            out[pos++] = y0 + 1.402 * y2 >> shift;
+            out[pos++] = y0 - 0.34413 * y1 - 0.71414 * y2 >> shift;
+            out[pos++] = y0 + 1.772 * y1 >> shift;
           }
         } else {
           for (j = 0; j < jj; j++, pos += alpha01) {
             y0 = y0items[j] + offset;
             y1 = y1items[j];
             y2 = y2items[j];
-            g = y0 - (y2 + y1 >> 2);
-            r = g + y2;
-            b = g + y1;
-            out[pos++] = r <= 0 ? 0 : r >= max ? 255 : r >> shift;
-            out[pos++] = g <= 0 ? 0 : g >= max ? 255 : g >> shift;
-            out[pos++] = b <= 0 ? 0 : b >= max ? 255 : b >> shift;
+            let g = y0 - (y2 + y1 >> 2);
+            out[pos++] = g + y2 >> shift;
+            out[pos++] = g >> shift;
+            out[pos++] = g + y1 >> shift;
           }
         }
         if (fourComponents) {
           for (j = 0, pos = 3; j < jj; j++, pos += 4) {
-            k = y3items[j];
-            out[pos] = k <= min ? 0 : k >= maxK ? 255 : k + offset >> shift;
+            out[pos] = y3items[j] + offset >> shift;
           }
         }
       } else {
@@ -20908,11 +20916,8 @@ var JpxImage = function JpxImageClosure() {
           var items = transformedTiles[c].items;
           shift = components[c].precision - 8;
           offset = (128 << shift) + 0.5;
-          max = 127.5 * (1 << shift);
-          min = -max;
           for (pos = c, j = 0, jj = items.length; j < jj; j++) {
-            val = items[j];
-            out[pos] = val <= min ? 0 : val >= max ? 255 : val + offset >> shift;
+            out[pos] = items[j] + offset >> shift;
             pos += componentsCount;
           }
         }
@@ -30443,7 +30448,7 @@ var OpenTypeFileBuilder = function OpenTypeFileBuilderClosure() {
 var ProblematicCharRanges = new Int32Array([0x0000, 0x0020, 0x007F, 0x00A1, 0x00AD, 0x00AE, 0x0600, 0x0780, 0x08A0, 0x10A0, 0x1780, 0x1800, 0x1C00, 0x1C50, 0x2000, 0x2010, 0x2011, 0x2012, 0x2028, 0x2030, 0x205F, 0x2070, 0x25CC, 0x25CD, 0x3000, 0x3001, 0x3164, 0x3165, 0xAA60, 0xAA80, 0xFFF0, 0x10000]);
 var Font = function FontClosure() {
   function Font(name, file, properties) {
-    var charCode, glyphName, unicode;
+    var charCode;
     this.name = name;
     this.loadedName = properties.loadedName;
     this.isType3Font = properties.isType3Font;
@@ -30456,6 +30461,7 @@ var Font = function FontClosure() {
     var type = properties.type;
     var subtype = properties.subtype;
     this.type = type;
+    this.subtype = subtype;
     this.fallbackName = this.isMonospace ? 'monospace' : this.isSerifFont ? 'serif' : 'sans-serif';
     this.differences = properties.differences;
     this.widths = properties.widths;
@@ -30467,6 +30473,7 @@ var Font = function FontClosure() {
     this.descent = properties.descent / PDF_GLYPH_SPACE_UNITS;
     this.fontMatrix = properties.fontMatrix;
     this.bbox = properties.bbox;
+    this.defaultEncoding = properties.defaultEncoding;
     this.toUnicode = properties.toUnicode;
     this.toFontChar = [];
     if (properties.type === 'Type3') {
@@ -30482,66 +30489,11 @@ var Font = function FontClosure() {
       this.vmetrics = properties.vmetrics;
       this.defaultVMetrics = properties.defaultVMetrics;
     }
-    var glyphsUnicodeMap;
     if (!file || file.isEmpty) {
       if (file) {
         (0, _util.warn)('Font file is empty in "' + name + '" (' + this.loadedName + ')');
       }
-      this.missingFile = true;
-      var fontName = name.replace(/[,_]/g, '-');
-      var stdFontMap = (0, _standard_fonts.getStdFontMap)(),
-          nonStdFontMap = (0, _standard_fonts.getNonStdFontMap)();
-      var isStandardFont = !!stdFontMap[fontName] || !!(nonStdFontMap[fontName] && stdFontMap[nonStdFontMap[fontName]]);
-      fontName = stdFontMap[fontName] || nonStdFontMap[fontName] || fontName;
-      this.bold = fontName.search(/bold/gi) !== -1;
-      this.italic = fontName.search(/oblique/gi) !== -1 || fontName.search(/italic/gi) !== -1;
-      this.black = name.search(/Black/g) !== -1;
-      this.remeasure = Object.keys(this.widths).length > 0;
-      if (isStandardFont && type === 'CIDFontType2' && properties.cidEncoding.indexOf('Identity-') === 0) {
-        var GlyphMapForStandardFonts = (0, _standard_fonts.getGlyphMapForStandardFonts)();
-        var map = [];
-        for (charCode in GlyphMapForStandardFonts) {
-          map[+charCode] = GlyphMapForStandardFonts[charCode];
-        }
-        if (/Arial-?Black/i.test(name)) {
-          var SupplementalGlyphMapForArialBlack = (0, _standard_fonts.getSupplementalGlyphMapForArialBlack)();
-          for (charCode in SupplementalGlyphMapForArialBlack) {
-            map[+charCode] = SupplementalGlyphMapForArialBlack[charCode];
-          }
-        }
-        var isIdentityUnicode = this.toUnicode instanceof IdentityToUnicodeMap;
-        if (!isIdentityUnicode) {
-          this.toUnicode.forEach(function (charCode, unicodeCharCode) {
-            map[+charCode] = unicodeCharCode;
-          });
-        }
-        this.toFontChar = map;
-        this.toUnicode = new ToUnicodeMap(map);
-      } else if (/Symbol/i.test(fontName)) {
-        this.toFontChar = buildToFontChar(_encodings.SymbolSetEncoding, (0, _glyphlist.getGlyphsUnicode)(), properties.differences);
-      } else if (/Dingbats/i.test(fontName)) {
-        if (/Wingdings/i.test(name)) {
-          (0, _util.warn)('Non-embedded Wingdings font, falling back to ZapfDingbats.');
-        }
-        this.toFontChar = buildToFontChar(_encodings.ZapfDingbatsEncoding, (0, _glyphlist.getDingbatsGlyphsUnicode)(), properties.differences);
-      } else if (isStandardFont) {
-        this.toFontChar = buildToFontChar(properties.defaultEncoding, (0, _glyphlist.getGlyphsUnicode)(), properties.differences);
-      } else {
-        glyphsUnicodeMap = (0, _glyphlist.getGlyphsUnicode)();
-        this.toUnicode.forEach((charCode, unicodeCharCode) => {
-          if (!this.composite) {
-            glyphName = properties.differences[charCode] || properties.defaultEncoding[charCode];
-            unicode = (0, _unicode.getUnicodeForGlyph)(glyphName, glyphsUnicodeMap);
-            if (unicode !== -1) {
-              unicodeCharCode = unicode;
-            }
-          }
-          this.toFontChar[charCode] = unicodeCharCode;
-        });
-      }
-      this.loadedName = fontName.split('-')[0];
-      this.loading = false;
-      this.fontType = getFontType(type, subtype);
+      this.fallbackToSystemFont();
       return;
     }
     if (subtype === 'Type1C') {
@@ -30570,29 +30522,38 @@ var Font = function FontClosure() {
     if (subtype === 'OpenType' && type !== 'OpenType') {
       type = 'OpenType';
     }
-    var data;
-    switch (type) {
-      case 'MMType1':
-        (0, _util.info)('MMType1 font (' + name + '), falling back to Type1.');
-      case 'Type1':
-      case 'CIDFontType0':
-        this.mimetype = 'font/opentype';
-        var cff = subtype === 'Type1C' || subtype === 'CIDFontType0C' ? new CFFFont(file, properties) : new Type1Font(name, file, properties);
-        adjustWidths(properties);
-        data = this.convert(name, cff, properties);
-        break;
-      case 'OpenType':
-      case 'TrueType':
-      case 'CIDFontType2':
-        this.mimetype = 'font/opentype';
-        data = this.checkAndRepair(name, file, properties);
-        if (this.isOpenType) {
+    try {
+      var data;
+      switch (type) {
+        case 'MMType1':
+          (0, _util.info)('MMType1 font (' + name + '), falling back to Type1.');
+        case 'Type1':
+        case 'CIDFontType0':
+          this.mimetype = 'font/opentype';
+          var cff = subtype === 'Type1C' || subtype === 'CIDFontType0C' ? new CFFFont(file, properties) : new Type1Font(name, file, properties);
           adjustWidths(properties);
-          type = 'OpenType';
-        }
-        break;
-      default:
-        throw new _util.FormatError(`Font ${type} is not supported`);
+          data = this.convert(name, cff, properties);
+          break;
+        case 'OpenType':
+        case 'TrueType':
+        case 'CIDFontType2':
+          this.mimetype = 'font/opentype';
+          data = this.checkAndRepair(name, file, properties);
+          if (this.isOpenType) {
+            adjustWidths(properties);
+            type = 'OpenType';
+          }
+          break;
+        default:
+          throw new _util.FormatError(`Font ${type} is not supported`);
+      }
+    } catch (e) {
+      if (!(e instanceof _util.FormatError)) {
+        throw e;
+      }
+      (0, _util.warn)(e);
+      this.fallbackToSystemFont();
+      return;
     }
     this.data = data;
     this.fontType = getFontType(type, subtype);
@@ -30686,6 +30647,9 @@ var Font = function FontClosure() {
     for (var originalCharCode in charCodeToGlyphId) {
       originalCharCode |= 0;
       var glyphId = charCodeToGlyphId[originalCharCode];
+      if (missingGlyphs[glyphId]) {
+        continue;
+      }
       var fontCharCode = originalCharCode;
       var hasUnicodeValue = false;
       if (!isIdentityUnicode && toUnicode.has(originalCharCode)) {
@@ -30695,14 +30659,18 @@ var Font = function FontClosure() {
           fontCharCode = unicode.charCodeAt(0);
         }
       }
-      if (!missingGlyphs[glyphId] && (usedFontCharCodes[fontCharCode] !== undefined || isProblematicUnicodeLocation(fontCharCode) || isSymbolic && !hasUnicodeValue) && nextAvailableFontCharCode <= PRIVATE_USE_OFFSET_END) {
+      if (usedFontCharCodes[fontCharCode] !== undefined || isProblematicUnicodeLocation(fontCharCode) || isSymbolic && !hasUnicodeValue) {
         do {
+          if (nextAvailableFontCharCode > PRIVATE_USE_OFFSET_END) {
+            (0, _util.warn)('Ran out of space in font private use area.');
+            break;
+          }
           fontCharCode = nextAvailableFontCharCode++;
           if (SKIP_PRIVATE_USE_RANGE_F000_TO_F01F && fontCharCode === 0xF000) {
             fontCharCode = 0xF020;
             nextAvailableFontCharCode = fontCharCode + 1;
           }
-        } while (usedFontCharCodes[fontCharCode] !== undefined && nextAvailableFontCharCode <= PRIVATE_USE_OFFSET_END);
+        } while (usedFontCharCodes[fontCharCode] !== undefined);
       }
       newMap[fontCharCode] = glyphId;
       toFontChar[originalCharCode] = fontCharCode;
@@ -30723,6 +30691,12 @@ var Font = function FontClosure() {
       codes.push({
         fontCharCode: charCode | 0,
         glyphId: glyphs[charCode]
+      });
+    }
+    if (codes.length === 0) {
+      codes.push({
+        fontCharCode: 0,
+        glyphId: 0
       });
     }
     codes.sort(function fontGetRangesSort(a, b) {
@@ -30959,6 +30933,67 @@ var Font = function FontClosure() {
       }
       return data;
     },
+    fallbackToSystemFont: function Font_fallbackToSystemFont() {
+      this.missingFile = true;
+      var charCode, unicode;
+      var name = this.name;
+      var type = this.type;
+      var subtype = this.subtype;
+      var fontName = name.replace(/[,_]/g, '-');
+      var stdFontMap = (0, _standard_fonts.getStdFontMap)(),
+          nonStdFontMap = (0, _standard_fonts.getNonStdFontMap)();
+      var isStandardFont = !!stdFontMap[fontName] || !!(nonStdFontMap[fontName] && stdFontMap[nonStdFontMap[fontName]]);
+      fontName = stdFontMap[fontName] || nonStdFontMap[fontName] || fontName;
+      this.bold = fontName.search(/bold/gi) !== -1;
+      this.italic = fontName.search(/oblique/gi) !== -1 || fontName.search(/italic/gi) !== -1;
+      this.black = name.search(/Black/g) !== -1;
+      this.remeasure = Object.keys(this.widths).length > 0;
+      if (isStandardFont && type === 'CIDFontType2' && this.cidEncoding.indexOf('Identity-') === 0) {
+        var GlyphMapForStandardFonts = (0, _standard_fonts.getGlyphMapForStandardFonts)();
+        var map = [];
+        for (charCode in GlyphMapForStandardFonts) {
+          map[+charCode] = GlyphMapForStandardFonts[charCode];
+        }
+        if (/Arial-?Black/i.test(name)) {
+          var SupplementalGlyphMapForArialBlack = (0, _standard_fonts.getSupplementalGlyphMapForArialBlack)();
+          for (charCode in SupplementalGlyphMapForArialBlack) {
+            map[+charCode] = SupplementalGlyphMapForArialBlack[charCode];
+          }
+        }
+        var isIdentityUnicode = this.toUnicode instanceof IdentityToUnicodeMap;
+        if (!isIdentityUnicode) {
+          this.toUnicode.forEach(function (charCode, unicodeCharCode) {
+            map[+charCode] = unicodeCharCode;
+          });
+        }
+        this.toFontChar = map;
+        this.toUnicode = new ToUnicodeMap(map);
+      } else if (/Symbol/i.test(fontName)) {
+        this.toFontChar = buildToFontChar(_encodings.SymbolSetEncoding, (0, _glyphlist.getGlyphsUnicode)(), this.differences);
+      } else if (/Dingbats/i.test(fontName)) {
+        if (/Wingdings/i.test(name)) {
+          (0, _util.warn)('Non-embedded Wingdings font, falling back to ZapfDingbats.');
+        }
+        this.toFontChar = buildToFontChar(_encodings.ZapfDingbatsEncoding, (0, _glyphlist.getDingbatsGlyphsUnicode)(), this.differences);
+      } else if (isStandardFont) {
+        this.toFontChar = buildToFontChar(this.defaultEncoding, (0, _glyphlist.getGlyphsUnicode)(), this.differences);
+      } else {
+        var glyphsUnicodeMap = (0, _glyphlist.getGlyphsUnicode)();
+        this.toUnicode.forEach((charCode, unicodeCharCode) => {
+          if (!this.composite) {
+            var glyphName = this.differences[charCode] || this.defaultEncoding[charCode];
+            unicode = (0, _unicode.getUnicodeForGlyph)(glyphName, glyphsUnicodeMap);
+            if (unicode !== -1) {
+              unicodeCharCode = unicode;
+            }
+          }
+          this.toFontChar[charCode] = unicodeCharCode;
+        });
+      }
+      this.loadedName = fontName.split('-')[0];
+      this.loading = false;
+      this.fontType = getFontType(type, subtype);
+    },
     checkAndRepair: function Font_checkAndRepair(name, font, properties) {
       function readTableEntry(file) {
         var tag = (0, _util.bytesToString)(file.getBytes(4));
@@ -31013,6 +31048,9 @@ var Font = function FontClosure() {
           var encodingId = font.getUint16();
           var offset = font.getInt32() >>> 0;
           var useTable = false;
+          if (potentialTable && potentialTable.platformId === platformId && potentialTable.encodingId === encodingId) {
+            continue;
+          }
           if (platformId === 0 && encodingId === 0) {
             useTable = true;
           } else if (platformId === 1 && encodingId === 0) {
@@ -31258,7 +31296,7 @@ var Font = function FontClosure() {
             data[50] = 0;
             data[51] = 1;
           } else {
-            (0, _util.warn)('Could not fix indexToLocFormat: ' + indexToLocFormat);
+            throw new _util.FormatError('Could not fix indexToLocFormat: ' + indexToLocFormat);
           }
         }
       }
@@ -31298,7 +31336,6 @@ var Font = function FontClosure() {
         var startOffset = itemDecode(locaData, 0);
         var writeOffset = 0;
         var missingGlyphData = Object.create(null);
-        missingGlyphData[0] = true;
         itemEncode(locaData, 0, writeOffset);
         var i, j;
         var locaCount = dupFirstEntry ? numGlyphs - 1 : numGlyphs;
@@ -31859,11 +31896,9 @@ var Font = function FontClosure() {
               if (cmapMappings[i].charCode !== unicodeOrCharCode) {
                 continue;
               }
-              if (hasGlyph(cmapMappings[i].glyphId)) {
-                charCodeToGlyphId[charCode] = cmapMappings[i].glyphId;
-                found = true;
-                break;
-              }
+              charCodeToGlyphId[charCode] = cmapMappings[i].glyphId;
+              found = true;
+              break;
             }
             if (!found && properties.glyphNames) {
               var glyphId = properties.glyphNames.indexOf(glyphName);
@@ -31874,9 +31909,6 @@ var Font = function FontClosure() {
                 charCodeToGlyphId[charCode] = glyphId;
                 found = true;
               }
-            }
-            if (!found) {
-              charCodeToGlyphId[charCode] = 0;
             }
           }
         } else if (cmapPlatformId === 0 && cmapEncodingId === 0) {
@@ -32742,7 +32774,7 @@ var PDFImage = function PDFImageClosure() {
     }
     if (inverseDecode) {
       for (i = 0; i < actualLength; i++) {
-        data[i] = ~data[i];
+        data[i] ^= 0xFF;
       }
     }
     return {
@@ -33991,7 +34023,7 @@ var Jbig2Image = function Jbig2ImageClosure() {
     onPageInformation: function SimpleSegmentVisitor_onPageInformation(info) {
       this.currentPageInfo = info;
       var rowSize = info.width + 7 >> 3;
-      var buffer = new Uint8Array(rowSize * info.height);
+      var buffer = new Uint8ClampedArray(rowSize * info.height);
       if (info.defaultPixelValue) {
         for (var i = 0, ii = buffer.length; i < ii; i++) {
           buffer[i] = 0xFF;
@@ -34603,9 +34635,6 @@ var JpegImage = function JpegImageClosure() {
     }
     return component.blockData;
   }
-  function clamp0to255(a) {
-    return a <= 0 ? 0 : a >= 255 ? 255 : a;
-  }
   function findNextFileMarker(data, currentPos, startPos) {
     function peekUint16(pos) {
       return data[pos] << 8 | data[pos + 1];
@@ -34883,7 +34912,7 @@ var JpegImage = function JpegImageClosure() {
       var output;
       var numComponents = this.components.length;
       var dataLength = width * height * numComponents;
-      var data = new Uint8Array(dataLength);
+      var data = new Uint8ClampedArray(dataLength);
       var xScaleBlockOffset = new Uint32Array(width);
       var mask3LSB = 0xfffffff8;
       for (i = 0; i < numComponents; i++) {
@@ -34937,9 +34966,9 @@ var JpegImage = function JpegImageClosure() {
         Y = data[i];
         Cb = data[i + 1];
         Cr = data[i + 2];
-        data[i] = clamp0to255(Y - 179.456 + 1.402 * Cr);
-        data[i + 1] = clamp0to255(Y + 135.459 - 0.344 * Cb - 0.714 * Cr);
-        data[i + 2] = clamp0to255(Y - 226.816 + 1.772 * Cb);
+        data[i] = Y - 179.456 + 1.402 * Cr;
+        data[i + 1] = Y + 135.459 - 0.344 * Cb - 0.714 * Cr;
+        data[i + 2] = Y - 226.816 + 1.772 * Cb;
       }
       return data;
     },
@@ -34951,12 +34980,9 @@ var JpegImage = function JpegImageClosure() {
         Cb = data[i + 1];
         Cr = data[i + 2];
         k = data[i + 3];
-        var r = -122.67195406894 + Cb * (-6.60635669420364e-5 * Cb + 0.000437130475926232 * Cr - 5.4080610064599e-5 * Y + 0.00048449797120281 * k - 0.154362151871126) + Cr * (-0.000957964378445773 * Cr + 0.000817076911346625 * Y - 0.00477271405408747 * k + 1.53380253221734) + Y * (0.000961250184130688 * Y - 0.00266257332283933 * k + 0.48357088451265) + k * (-0.000336197177618394 * k + 0.484791561490776);
-        var g = 107.268039397724 + Cb * (2.19927104525741e-5 * Cb - 0.000640992018297945 * Cr + 0.000659397001245577 * Y + 0.000426105652938837 * k - 0.176491792462875) + Cr * (-0.000778269941513683 * Cr + 0.00130872261408275 * Y + 0.000770482631801132 * k - 0.151051492775562) + Y * (0.00126935368114843 * Y - 0.00265090189010898 * k + 0.25802910206845) + k * (-0.000318913117588328 * k - 0.213742400323665);
-        var b = -20.810012546947 + Cb * (-0.000570115196973677 * Cb - 2.63409051004589e-5 * Cr + 0.0020741088115012 * Y - 0.00288260236853442 * k + 0.814272968359295) + Cr * (-1.53496057440975e-5 * Cr - 0.000132689043961446 * Y + 0.000560833691242812 * k - 0.195152027534049) + Y * (0.00174418132927582 * Y - 0.00255243321439347 * k + 0.116935020465145) + k * (-0.000343531996510555 * k + 0.24165260232407);
-        data[offset++] = clamp0to255(r);
-        data[offset++] = clamp0to255(g);
-        data[offset++] = clamp0to255(b);
+        data[offset++] = -122.67195406894 + Cb * (-6.60635669420364e-5 * Cb + 0.000437130475926232 * Cr - 5.4080610064599e-5 * Y + 0.00048449797120281 * k - 0.154362151871126) + Cr * (-0.000957964378445773 * Cr + 0.000817076911346625 * Y - 0.00477271405408747 * k + 1.53380253221734) + Y * (0.000961250184130688 * Y - 0.00266257332283933 * k + 0.48357088451265) + k * (-0.000336197177618394 * k + 0.484791561490776);
+        data[offset++] = 107.268039397724 + Cb * (2.19927104525741e-5 * Cb - 0.000640992018297945 * Cr + 0.000659397001245577 * Y + 0.000426105652938837 * k - 0.176491792462875) + Cr * (-0.000778269941513683 * Cr + 0.00130872261408275 * Y + 0.000770482631801132 * k - 0.151051492775562) + Y * (0.00126935368114843 * Y - 0.00265090189010898 * k + 0.25802910206845) + k * (-0.000318913117588328 * k - 0.213742400323665);
+        data[offset++] = -20.810012546947 + Cb * (-0.000570115196973677 * Cb - 2.63409051004589e-5 * Cr + 0.0020741088115012 * Y - 0.00288260236853442 * k + 0.814272968359295) + Cr * (-1.53496057440975e-5 * Cr - 0.000132689043961446 * Y + 0.000560833691242812 * k - 0.195152027534049) + Y * (0.00174418132927582 * Y - 0.00255243321439347 * k + 0.116935020465145) + k * (-0.000343531996510555 * k + 0.24165260232407);
       }
       return data;
     },
@@ -34966,28 +34992,24 @@ var JpegImage = function JpegImageClosure() {
         Y = data[i];
         Cb = data[i + 1];
         Cr = data[i + 2];
-        data[i] = clamp0to255(434.456 - Y - 1.402 * Cr);
-        data[i + 1] = clamp0to255(119.541 - Y + 0.344 * Cb + 0.714 * Cr);
-        data[i + 2] = clamp0to255(481.816 - Y - 1.772 * Cb);
+        data[i] = 434.456 - Y - 1.402 * Cr;
+        data[i + 1] = 119.541 - Y + 0.344 * Cb + 0.714 * Cr;
+        data[i + 2] = 481.816 - Y - 1.772 * Cb;
       }
       return data;
     },
     _convertCmykToRgb: function convertCmykToRgb(data) {
       var c, m, y, k;
       var offset = 0;
-      var min = -255 * 255 * 255;
-      var scale = 1 / 255 / 255;
+      var scale = 1 / 255;
       for (var i = 0, length = data.length; i < length; i += 4) {
-        c = data[i];
-        m = data[i + 1];
-        y = data[i + 2];
-        k = data[i + 3];
-        var r = c * (-4.387332384609988 * c + 54.48615194189176 * m + 18.82290502165302 * y + 212.25662451639585 * k - 72734.4411664936) + m * (1.7149763477362134 * m - 5.6096736904047315 * y - 17.873870861415444 * k - 1401.7366389350734) + y * (-2.5217340131683033 * y - 21.248923337353073 * k + 4465.541406466231) - k * (21.86122147463605 * k + 48317.86113160301);
-        var g = c * (8.841041422036149 * c + 60.118027045597366 * m + 6.871425592049007 * y + 31.159100130055922 * k - 20220.756542821975) + m * (-15.310361306967817 * m + 17.575251261109482 * y + 131.35250912493976 * k - 48691.05921601825) + y * (4.444339102852739 * y + 9.8632861493405 * k - 6341.191035517494) - k * (20.737325471181034 * k + 47890.15695978492);
-        var b = c * (0.8842522430003296 * c + 8.078677503112928 * m + 30.89978309703729 * y - 0.23883238689178934 * k - 3616.812083916688) + m * (10.49593273432072 * m + 63.02378494754052 * y + 50.606957656360734 * k - 28620.90484698408) + y * (0.03296041114873217 * y + 115.60384449646641 * k - 49363.43385999684) - k * (22.33816807309886 * k + 45932.16563550634);
-        data[offset++] = r >= 0 ? 255 : r <= min ? 0 : 255 + r * scale | 0;
-        data[offset++] = g >= 0 ? 255 : g <= min ? 0 : 255 + g * scale | 0;
-        data[offset++] = b >= 0 ? 255 : b <= min ? 0 : 255 + b * scale | 0;
+        c = data[i] * scale;
+        m = data[i + 1] * scale;
+        y = data[i + 2] * scale;
+        k = data[i + 3] * scale;
+        data[offset++] = 255 + c * (-4.387332384609988 * c + 54.48615194189176 * m + 18.82290502165302 * y + 212.25662451639585 * k - 285.2331026137004) + m * (1.7149763477362134 * m - 5.6096736904047315 * y - 17.873870861415444 * k - 5.497006427196366) + y * (-2.5217340131683033 * y - 21.248923337353073 * k + 17.5119270841813) - k * (21.86122147463605 * k + 189.48180835922747);
+        data[offset++] = 255 + c * (8.841041422036149 * c + 60.118027045597366 * m + 6.871425592049007 * y + 31.159100130055922 * k - 79.2970844816548) + m * (-15.310361306967817 * m + 17.575251261109482 * y + 131.35250912493976 * k - 190.9453302588951) + y * (4.444339102852739 * y + 9.8632861493405 * k - 24.86741582555878) - k * (20.737325471181034 * k + 187.80453709719578);
+        data[offset++] = 255 + c * (0.8842522430003296 * c + 8.078677503112928 * m + 30.89978309703729 * y - 0.23883238689178934 * k - 14.183576799673286) + m * (10.49593273432072 * m + 63.02378494754052 * y + 50.606957656360734 * k - 112.23884253719248) + y * (0.03296041114873217 * y + 115.60384449646641 * k - 193.58209356861505) - k * (22.33816807309886 * k + 180.12613974708367);
       }
       return data;
     },
@@ -34998,7 +35020,7 @@ var JpegImage = function JpegImageClosure() {
       var data = this._getLinearizedBlockData(width, height);
       if (this.numComponents === 1 && forceRGBoutput) {
         var dataLength = data.length;
-        var rgbData = new Uint8Array(dataLength * 3);
+        var rgbData = new Uint8ClampedArray(dataLength * 3);
         var offset = 0;
         for (var i = 0; i < dataLength; i++) {
           var grayColor = data[i];
@@ -39834,8 +39856,8 @@ exports.Type1Parser = Type1Parser;
 "use strict";
 
 
-var pdfjsVersion = '1.8.593';
-var pdfjsBuild = 'f62d0a10';
+var pdfjsVersion = '1.9.441';
+var pdfjsBuild = '8c8d8fa2';
 var pdfjsCoreWorker = __w_pdfjs_require__(17);
 exports.WorkerMessageHandler = pdfjsCoreWorker.WorkerMessageHandler;
 
@@ -39855,7 +39877,18 @@ exports.WorkerMessageHandler = pdfjsCoreWorker.WorkerMessageHandler;
 "use strict";
 
 
+let isReadableStreamSupported = false;
 if (typeof ReadableStream !== 'undefined') {
+  try {
+    new ReadableStream({
+      start(controller) {
+        controller.close();
+      }
+    });
+    isReadableStreamSupported = true;
+  } catch (e) {}
+}
+if (isReadableStreamSupported) {
   exports.ReadableStream = ReadableStream;
 } else {
   exports.ReadableStream = __w_pdfjs_require__(18).ReadableStream;

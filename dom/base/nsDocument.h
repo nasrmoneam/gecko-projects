@@ -367,7 +367,7 @@ public:
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
 
-  NS_DECL_SIZEOF_EXCLUDING_THIS
+  NS_DECL_ADDSIZEOFEXCLUDINGTHIS
 
   virtual void Reset(nsIChannel *aChannel, nsILoadGroup *aLoadGroup) override;
   virtual void ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
@@ -625,9 +625,9 @@ public:
                        mozilla::dom::HTMLInputElement*  aFocusedRadio,
                        mozilla::dom::HTMLInputElement** aRadioOut) override;
   virtual void AddToRadioGroup(const nsAString& aName,
-                               nsIFormControl* aRadio) override;
+                               mozilla::dom::HTMLInputElement* aRadio) override;
   virtual void RemoveFromRadioGroup(const nsAString& aName,
-                                    nsIFormControl* aRadio) override;
+                                    mozilla::dom::HTMLInputElement* aRadio) override;
   virtual uint32_t GetRequiredRadioCount(const nsAString& aName) const override;
   virtual void RadioRequiredWillChange(const nsAString& aName,
                                        bool aRequiredAdded) override;
@@ -667,6 +667,7 @@ public:
   virtual void ScheduleSVGForPresAttrEvaluation(nsSVGElement* aSVG) override;
   virtual void UnscheduleSVGForPresAttrEvaluation(nsSVGElement* aSVG) override;
   virtual void ResolveScheduledSVGPresAttrs() override;
+  bool IsSynthesized();
 
 private:
   void AddOnDemandBuiltInUASheet(mozilla::StyleSheet* aSheet);
@@ -982,7 +983,7 @@ public:
   // to notify window when the page was first visited.
   void MaybeActiveMediaComponents();
 
-  virtual void DocAddSizeOfExcludingThis(nsWindowSizes* aWindowSizes) const override;
+  virtual void DocAddSizeOfExcludingThis(nsWindowSizes& aWindowSizes) const override;
   // DocAddSizeOfIncludingThis is inherited from nsIDocument.
 
   virtual nsIDOMNode* AsDOMNode() override { return this; }

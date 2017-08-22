@@ -45,7 +45,7 @@ const PREF_HIDE_PLUGINS_WITHOUT_EXTENSIONS =
  * - the URL of the currently selected web service used to read feeds
  *
  * browser.feeds.handlers.application
- * - nsILocalFile, stores the current client-side feed reading app if one has
+ * - nsIFile, stores the current client-side feed reading app if one has
  *   been chosen
  */
 const PREF_FEED_SELECTED_APP    = "browser.feeds.handlers.application";
@@ -902,9 +902,6 @@ var gApplicationsPane = {
     this._prefSvc.addObserver(PREF_AUDIO_FEED_SELECTED_ACTION, this);
     this._prefSvc.addObserver(PREF_AUDIO_FEED_SELECTED_READER, this);
 
-
-    setEventListener("focusSearch1", "command", gApplicationsPane.focusFilterBox);
-    setEventListener("focusSearch2", "command", gApplicationsPane.focusFilterBox);
     setEventListener("filter", "command", gApplicationsPane.filter);
     setEventListener("handlersView", "select",
       gApplicationsPane.onSelectionChanged);

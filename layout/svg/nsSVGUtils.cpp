@@ -1099,7 +1099,10 @@ nsSVGUtils::GetBBox(nsIFrame* aFrame, uint32_t aFlags,
       (isOuterSVG && (aFlags & eUseFrameBoundsForOuterSVG))) {
     // An HTML element or an SVG outer frame.
     MOZ_ASSERT(!hasSVGLayout);
-    return nsSVGIntegrationUtils::GetSVGBBoxForNonSVGFrame(aFrame);
+    bool onlyCurrentFrame = aFlags & eIncludeOnlyCurrentFrameForNonSVGElement;
+    return nsSVGIntegrationUtils::GetSVGBBoxForNonSVGFrame(
+      aFrame,
+      /* aUnionContinuations = */ !onlyCurrentFrame);
   }
 
   MOZ_ASSERT(svg);
@@ -1296,11 +1299,12 @@ nsSVGUtils::CanOptimizeOpacity(nsIFrame *aFrame)
 gfxMatrix
 nsSVGUtils::AdjustMatrixForUnits(const gfxMatrix &aMatrix,
                                  nsSVGEnum *aUnits,
-                                 nsIFrame *aFrame)
+                                 nsIFrame *aFrame,
+                                 uint32_t aFlags)
 {
   if (aFrame &&
       aUnits->GetAnimValue() == SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
-    gfxRect bbox = GetBBox(aFrame);
+    gfxRect bbox = GetBBox(aFrame, aFlags);
     gfxMatrix tm = aMatrix;
     tm.PreTranslate(gfxPoint(bbox.X(), bbox.Y()));
     tm.PreScale(bbox.Width(), bbox.Height());
@@ -1725,21 +1729,14 @@ GetStrokeDashData(nsIFrame* aFrame,
 }
 
 void
-nsSVGUtils::SetupCairoStrokeGeometry(nsIFrame* aFrame,
-                                     gfxContext *aContext,
-                                     SVGContextPaint* aContextPaint)
+nsSVGUtils::SetupStrokeGeometry(nsIFrame* aFrame,
+                                gfxContext *aContext,
+                                SVGContextPaint* aContextPaint)
 {
   float width = GetStrokeWidth(aFrame, aContextPaint);
   if (width <= 0)
     return;
   aContext->SetLineWidth(width);
-
-  // Apply any stroke-specific transform
-  gfxMatrix outerSVGToUser;
-  if (GetNonScalingStrokeTransform(aFrame, &outerSVGToUser) &&
-      outerSVGToUser.Invert()) {
-    aContext->Multiply(outerSVGToUser);
-  }
 
   const nsStyleSVG* style = aFrame->StyleSVG();
 

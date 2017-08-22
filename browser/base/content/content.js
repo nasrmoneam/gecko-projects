@@ -13,47 +13,32 @@ var {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
-XPCOMUtils.defineLazyModuleGetter(this, "E10SUtils",
-  "resource:///modules/E10SUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
-  "resource://gre/modules/BrowserUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "ContentLinkHandler",
-  "resource:///modules/ContentLinkHandler.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "ContentWebRTC",
-  "resource:///modules/ContentWebRTC.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "SpellCheckHelper",
-  "resource://gre/modules/InlineSpellChecker.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "InlineSpellCheckerContent",
-  "resource://gre/modules/InlineSpellCheckerContent.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "LoginManagerContent",
-  "resource://gre/modules/LoginManagerContent.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "LoginFormFactory",
-  "resource://gre/modules/LoginManagerContent.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "InsecurePasswordUtils",
-  "resource://gre/modules/InsecurePasswordUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "PluginContent",
-  "resource:///modules/PluginContent.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
-  "resource://gre/modules/PrivateBrowsingUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "FormSubmitObserver",
-  "resource:///modules/FormSubmitObserver.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "PageMetadata",
-  "resource://gre/modules/PageMetadata.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "PlacesUIUtils",
-  "resource:///modules/PlacesUIUtils.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Utils",
-  "resource://gre/modules/sessionstore/Utils.jsm");
+XPCOMUtils.defineLazyModuleGetters(this, {
+  E10SUtils: "resource:///modules/E10SUtils.jsm",
+  BrowserUtils: "resource://gre/modules/BrowserUtils.jsm",
+  ContentLinkHandler: "resource:///modules/ContentLinkHandler.jsm",
+  ContentWebRTC: "resource:///modules/ContentWebRTC.jsm",
+  SpellCheckHelper: "resource://gre/modules/InlineSpellChecker.jsm",
+  InlineSpellCheckerContent: "resource://gre/modules/InlineSpellCheckerContent.jsm",
+  LoginManagerContent: "resource://gre/modules/LoginManagerContent.jsm",
+  LoginFormFactory: "resource://gre/modules/LoginManagerContent.jsm",
+  InsecurePasswordUtils: "resource://gre/modules/InsecurePasswordUtils.jsm",
+  PluginContent: "resource:///modules/PluginContent.jsm",
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.jsm",
+  FormSubmitObserver: "resource:///modules/FormSubmitObserver.jsm",
+  PageMetadata: "resource://gre/modules/PageMetadata.jsm",
+  PlacesUIUtils: "resource:///modules/PlacesUIUtils.jsm",
+  Utils: "resource://gre/modules/sessionstore/Utils.jsm",
+  WebNavigationFrames: "resource://gre/modules/WebNavigationFrames.jsm",
+  Feeds: "resource:///modules/Feeds.jsm",
+  findCssSelector: "resource://gre/modules/css-selector.js",
+});
+
 XPCOMUtils.defineLazyGetter(this, "PageMenuChild", function() {
   let tmp = {};
   Cu.import("resource://gre/modules/PageMenu.jsm", tmp);
   return new tmp.PageMenuChild();
 });
-XPCOMUtils.defineLazyModuleGetter(this, "WebNavigationFrames",
-  "resource://gre/modules/WebNavigationFrames.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "Feeds",
-  "resource:///modules/Feeds.jsm");
-XPCOMUtils.defineLazyModuleGetter(this, "findCssSelector",
-  "resource://gre/modules/css-selector.js");
 
 Cu.importGlobalProperties(["URL"]);
 
@@ -251,9 +236,6 @@ const PREF_BLOCKLIST_CLOCK_SKEW_SECONDS = "services.blocklist.clock_skew_seconds
 
 const PREF_SSL_IMPACT_ROOTS = ["security.tls.version.", "security.ssl3."];
 
-const PREF_SSL_IMPACT = PREF_SSL_IMPACT_ROOTS.reduce((prefs, root) => {
-  return prefs.concat(Services.prefs.getChildList(root));
-}, []);
 
 /**
  * Retrieve the array of CSS selectors corresponding to the provided node. The first item
@@ -517,7 +499,10 @@ var AboutNetAndCertErrorListener = {
   },
 
   changedCertPrefs() {
-    for (let prefName of PREF_SSL_IMPACT) {
+    let prefSSLImpact = PREF_SSL_IMPACT_ROOTS.reduce((prefs, root) => {
+       return prefs.concat(Services.prefs.getChildList(root));
+    }, []);
+    for (let prefName of prefSSLImpact) {
       if (Services.prefs.prefHasUserValue(prefName)) {
         return true;
       }
@@ -695,6 +680,8 @@ var ClickEventHandler = {
       reason = "malware";
     } else if (/e=unwantedBlocked/.test(ownerDoc.documentURI)) {
       reason = "unwanted";
+    } else if (/e=harmfulBlocked/.test(ownerDoc.documentURI)) {
+      reason = "harmful";
     }
 
     let docShell = ownerDoc.defaultView.QueryInterface(Ci.nsIInterfaceRequestor)
@@ -838,38 +825,6 @@ var PageMetadataMessenger = {
   }
 }
 PageMetadataMessenger.init();
-
-addEventListener("ActivateSocialFeature", function(aEvent) {
-  let document = content.document;
-  let dwu = content.QueryInterface(Ci.nsIInterfaceRequestor)
-                   .getInterface(Ci.nsIDOMWindowUtils);
-  if (!dwu.isHandlingUserInput) {
-    Cu.reportError("attempt to activate provider without user input from " + document.nodePrincipal.origin);
-    return;
-  }
-
-  let node = aEvent.target;
-  let ownerDocument = node.ownerDocument;
-  let data = node.getAttribute("data-service");
-  if (data) {
-    try {
-      data = JSON.parse(data);
-    } catch (e) {
-      Cu.reportError("Social Service manifest parse error: " + e);
-      return;
-    }
-  } else {
-    Cu.reportError("Social Service manifest not available");
-    return;
-  }
-
-  sendAsyncMessage("Social:Activation", {
-    url: ownerDocument.location.href,
-    origin: ownerDocument.nodePrincipal.origin,
-    manifest: data,
-    triggeringPrincipal: Utils.serializePrincipal(ownerDocument.nodePrincipal),
-  });
-}, true, true);
 
 addMessageListener("ContextMenu:SaveVideoFrameAsImage", (message) => {
   let video = message.objects.target;
@@ -1109,8 +1064,10 @@ addMessageListener("ContextMenu:SetAsDesktopBackground", (message) => {
       let ctx = canvas.getContext("2d");
       ctx.drawImage(target, 0, 0);
       let dataUrl = canvas.toDataURL();
+      let url = (new URL(target.ownerDocument.location.href)).pathname;
+      let imageName = url.substr(url.lastIndexOf("/") + 1);
       sendAsyncMessage("ContextMenu:SetAsDesktopBackground:Result",
-                       { dataUrl });
+                       { dataUrl, imageName });
     } catch (e) {
       Cu.reportError(e);
       disable = true;
@@ -1190,7 +1147,7 @@ var PageInfoListener = {
 
     let hostName = null;
     try {
-      hostName = window.location.host;
+      hostName = Services.io.newURI(window.location.href).displayHost;
     } catch (exception) { }
 
     windowInfo.hostName = hostName;
@@ -1201,7 +1158,15 @@ var PageInfoListener = {
     let docInfo = {};
     docInfo.title = document.title;
     docInfo.location = document.location.toString();
+    try {
+      docInfo.location = Services.io.newURI(document.location.toString()).displaySpec;
+    } catch (exception) { }
     docInfo.referrer = document.referrer;
+    try {
+      if (document.referrer) {
+        docInfo.referrer = Services.io.newURI(document.referrer).displaySpec;
+      }
+    } catch (exception) { }
     docInfo.compatMode = document.compatMode;
     docInfo.contentType = document.contentType;
     docInfo.characterSet = document.characterSet;
@@ -1210,7 +1175,6 @@ var PageInfoListener = {
 
     let documentURIObject = {};
     documentURIObject.spec = document.documentURIObject.spec;
-    documentURIObject.originCharset = document.documentURIObject.originCharset;
     docInfo.documentURIObject = documentURIObject;
 
     docInfo.isContentWindowPrivate = PrivateBrowsingUtils.isContentWindowPrivate(content);

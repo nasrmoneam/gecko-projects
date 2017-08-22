@@ -1924,7 +1924,7 @@ Http2Session::CachePushCheckCallback::OnCacheEntryCheck(nsICacheEntry *entry, ns
   }
 
   // Get the method that was used to generate the cached response
-  nsXPIDLCString buf;
+  nsCString buf;
   rv = entry->GetMetaDataElement("request-method", getter_Copies(buf));
   if (NS_FAILED(rv)) {
     // Can't check request method, accept the push
@@ -1986,7 +1986,7 @@ Http2Session::CachePushCheckCallback::OnCacheEntryCheck(nsICacheEntry *entry, ns
     return NS_OK;
   }
 
-  nsXPIDLCString cachedAuth;
+  nsCString cachedAuth;
   rv = entry->GetMetaDataElement("auth", getter_Copies(cachedAuth));
   if (NS_SUCCEEDED(rv)) {
     uint32_t lastModifiedTime;
@@ -3226,7 +3226,10 @@ Http2Session::WriteSegmentsAgain(nsAHttpSegmentWriter *writer,
     LOG3(("Http2Session::WriteSegments %p trying to discard %d bytes of data",
           this, discardCount));
 
-    if (!discardCount) {
+    if (!discardCount && mDownstreamState == DISCARDING_DATA_FRAME) {
+      // Only do this short-cirtuit if we're not discarding a pure padding
+      // frame, as we need to potentially handle the stream FIN in those cases.
+      // See bug 1381016 comment 36 for more details.
       ResetDownstreamState();
       Unused << ResumeRecv();
       return NS_BASE_STREAM_WOULD_BLOCK;

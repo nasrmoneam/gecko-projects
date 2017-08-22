@@ -28,37 +28,23 @@ const whitelist = [
   {
     file: "chrome://browser/skin/stop.svg",
     platforms: ["linux", "win", "macosx"],
-    photon: true,
   },
   {
     file: "chrome://browser/skin/bookmark-hollow.svg",
     platforms: ["linux", "win", "macosx"],
-    photon: true,
   },
   {
     file: "chrome://browser/skin/page-action.svg",
     platforms: ["linux", "win", "macosx"],
-    photon: true,
   },
-
-  // Non-Photon-only entries
   {
-    file: "chrome://browser/skin/toolbarbutton-dropdown-arrow.png",
+    file: "chrome://pocket-shared/skin/pocket.svg",
     platforms: ["linux", "win", "macosx"],
-    photon: false,
   },
 
   // Shared entries
   {
     file: "chrome://browser/skin/arrow-left.svg",
-    platforms: ["linux", "win", "macosx"],
-  },
-  {
-    file: "chrome://browser/skin/arrow-dropdown.svg",
-    platforms: ["linux", "win", "macosx"],
-  },
-  {
-    file: "chrome://browser/skin/fxa/sync-illustration.svg",
     platforms: ["linux", "win", "macosx"],
   },
   {
@@ -74,26 +60,7 @@ const whitelist = [
     file: "chrome://browser/skin/tracking-protection-16.svg#enabled",
     platforms: ["linux", "win", "macosx"],
   },
-  {
-    file: "chrome://global/skin/icons/autoscroll.png",
-    platforms: ["linux", "win", "macosx"],
-  },
 
-  {
-    file: "chrome://browser/skin/tabbrowser/tab-background-end.png",
-    hidpi: "chrome://browser/skin/tabbrowser/tab-background-end@2x.png",
-    platforms: ["linux", "win", "macosx"],
-  },
-  {
-    file: "chrome://browser/skin/tabbrowser/tab-background-middle.png",
-    hidpi: "chrome://browser/skin/tabbrowser/tab-background-middle@2x.png",
-    platforms: ["linux", "win", "macosx"],
-  },
-  {
-    file: "chrome://browser/skin/tabbrowser/tab-background-start.png",
-    hidpi: "chrome://browser/skin/tabbrowser/tab-background-start@2x.png",
-    platforms: ["linux", "win", "macosx"],
-  },
   {
     file: "chrome://browser/skin/tabbrowser/tabDragIndicator.png",
     hidpi: "chrome://browser/skin/tabbrowser/tabDragIndicator@2x.png",
@@ -112,77 +79,8 @@ const whitelist = [
   },
 
   {
-    file: "chrome://browser/skin/places/unfiledBookmarks.png",
-    hidpi: "<not loaded>",
-    platforms: ["win", "macosx"],
-    intermittentNotLoaded: ["win", "macosx"],
-  },
-  {
-    file: "chrome://browser/skin/urlbar-history-dropmarker.png",
-    hidpi: "<not loaded>",
-    platforms: ["win", "macosx"],
-    intermittentShown: ["win", "macosx"],
-  },
-
-  {
-    file: "chrome://browser/skin/yosemite/tab-selected-start-inactive.svg",
-    platforms: ["macosx"],
-    intermittentShown: ["macosx"],
-  },
-  {
-    file: "chrome://browser/skin/yosemite/tab-active-middle-inactive.png",
-    hidpi: "<not loaded>",
-    platforms: ["macosx"],
-  },
-  {
-    file: "chrome://browser/skin/yosemite/tab-selected-end-inactive.svg",
-    platforms: ["macosx"],
-    intermittentShown: ["macosx"],
-  },
-  {
-    file: "chrome://browser/skin/yosemite/tab-stroke-start-inactive.png",
-    hidpi: "<not loaded>",
-    platforms: ["macosx"],
-  },
-  {
-    file: "chrome://browser/skin/yosemite/tab-stroke-end-inactive.png",
-    hidpi: "<not loaded>",
-    platforms: ["macosx"],
-  },
-
-  {
-    file: "chrome://global/skin/icons/chevron.png",
-    hidpi: "chrome://global/skin/icons/chevron@2x.png",
-    platforms: ["macosx"],
-  },
-
-  {
-    file: "chrome://pocket/content/panels/img/pocketmenuitem16.png",
-    hidpi: "chrome://pocket/content/panels/img/pocketmenuitem16@2x.png",
-    platforms: ["macosx"],
-  },
-
-  {
-    file: "chrome://browser/skin/places/bookmarksToolbar.png",
-    hidpi: "chrome://browser/skin/places/bookmarksToolbar@2x.png",
-    platforms: ["macosx"],
-  },
-
-  {
-    file: "chrome://global/skin/tree/folder.png",
-    hidpi: "chrome://global/skin/tree/folder@2x.png",
-    platforms: ["macosx"],
-  },
-
-  {
-    file: "chrome://global/skin/toolbar/chevron.gif",
-    platforms: ["win", "linux"],
-  },
-
-  {
-    file: "chrome://browser/skin/reload-stop-go.png",
-    platforms: ["win", "linux"],
-    intermittentShown: ["win", "linux"],
+    file: "chrome://browser/skin/chevron.svg",
+    platforms: ["win", "linux", "macosx"],
   },
 
   {
@@ -197,8 +95,7 @@ add_task(async function() {
 
   let data = startupRecorder.data.images;
   let filteredWhitelist = whitelist.filter(el => {
-    return el.platforms.includes(AppConstants.platform) &&
-           (el.photon === undefined || el.photon == AppConstants.MOZ_PHOTON_THEME);
+    return el.platforms.includes(AppConstants.platform);
   });
 
   let loadedImages = data["image-loading"];

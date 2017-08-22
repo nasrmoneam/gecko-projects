@@ -7,7 +7,7 @@
 #include "nsCOMPtr.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/UniquePtr.h"
-#include "nsILocalFile.h"
+#include "nsIFile.h"
 #include "Layers.h"
 #include "ImageContainer.h"
 #include "ImageTypes.h"
@@ -44,7 +44,9 @@ MediaEngineDefaultVideoSource::MediaEngineDefaultVideoSource()
   : MediaEngineVideoSource()
 #endif
   , mTimer(nullptr)
+#ifndef MOZ_WEBRTC
   , mMonitor("Fake video")
+#endif
   , mCb(16), mCr(16)
 {
   mImageContainer =

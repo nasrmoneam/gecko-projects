@@ -356,16 +356,15 @@ nsMenuFrame::DestroyFrom(nsIFrame* aDestructRoot)
 
 void
 nsMenuFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
-                                         const nsRect&           aDirtyRect,
                                          const nsDisplayListSet& aLists)
 {
   if (!aBuilder->IsForEventDelivery()) {
-    nsBoxFrame::BuildDisplayListForChildren(aBuilder, aDirtyRect, aLists);
+    nsBoxFrame::BuildDisplayListForChildren(aBuilder, aLists);
     return;
   }
 
   nsDisplayListCollection set;
-  nsBoxFrame::BuildDisplayListForChildren(aBuilder, aDirtyRect, set);
+  nsBoxFrame::BuildDisplayListForChildren(aBuilder, set);
 
   WrapListsInRedirector(aBuilder, set, aLists);
 }
@@ -1102,11 +1101,12 @@ nsMenuFrame::BuildAcceleratorText(bool aNotify)
                                          getter_AddRefs(bundle));
 
         if (NS_SUCCEEDED(rv) && bundle) {
-          nsXPIDLString keyName;
+          nsAutoString keyName;
           rv = bundle->GetStringFromName(NS_ConvertUTF16toUTF8(keyCode).get(),
-                                         getter_Copies(keyName));
-          if (keyName)
+                                         keyName);
+          if (NS_SUCCEEDED(rv)) {
             accelString = keyName;
+          }
         }
       }
 

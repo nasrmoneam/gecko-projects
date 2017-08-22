@@ -1628,16 +1628,16 @@ struct nsStyleGridTemplate
   {
   }
 
-  inline bool operator!=(const nsStyleGridTemplate& aOther) const {
+  inline bool operator==(const nsStyleGridTemplate& aOther) const {
     return
-      mIsSubgrid != aOther.mIsSubgrid ||
-      mLineNameLists != aOther.mLineNameLists ||
-      mMinTrackSizingFunctions != aOther.mMinTrackSizingFunctions ||
-      mMaxTrackSizingFunctions != aOther.mMaxTrackSizingFunctions ||
-      mIsAutoFill != aOther.mIsAutoFill ||
-      mRepeatAutoIndex != aOther.mRepeatAutoIndex ||
-      mRepeatAutoLineNameListBefore != aOther.mRepeatAutoLineNameListBefore ||
-      mRepeatAutoLineNameListAfter != aOther.mRepeatAutoLineNameListAfter;
+      mIsSubgrid == aOther.mIsSubgrid &&
+      mLineNameLists == aOther.mLineNameLists &&
+      mMinTrackSizingFunctions == aOther.mMinTrackSizingFunctions &&
+      mMaxTrackSizingFunctions == aOther.mMaxTrackSizingFunctions &&
+      mIsAutoFill == aOther.mIsAutoFill &&
+      mRepeatAutoIndex == aOther.mRepeatAutoIndex &&
+      mRepeatAutoLineNameListBefore == aOther.mRepeatAutoLineNameListBefore &&
+      mRepeatAutoLineNameListAfter == aOther.mRepeatAutoLineNameListAfter;
   }
 
   bool HasRepeatAuto() const {
@@ -1723,8 +1723,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition
   float         mFlexGrow;              // [reset] float
   float         mFlexShrink;            // [reset] float
   nsStyleCoord  mZIndex;                // [reset] integer, auto
-  nsStyleGridTemplate mGridTemplateColumns;
-  nsStyleGridTemplate mGridTemplateRows;
+  mozilla::UniquePtr<nsStyleGridTemplate> mGridTemplateColumns;
+  mozilla::UniquePtr<nsStyleGridTemplate> mGridTemplateRows;
 
   // nullptr for 'none'
   RefPtr<mozilla::css::GridTemplateAreasValue> mGridTemplateAreas;
@@ -1807,6 +1807,9 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStylePosition
   inline bool BSizeDependsOnContainer(mozilla::WritingMode aWM) const;
   inline bool MinBSizeDependsOnContainer(mozilla::WritingMode aWM) const;
   inline bool MaxBSizeDependsOnContainer(mozilla::WritingMode aWM) const;
+
+  const nsStyleGridTemplate& GridTemplateColumns() const;
+  const nsStyleGridTemplate& GridTemplateRows() const;
 
 private:
   static bool WidthCoordDependsOnContainer(const nsStyleCoord &aCoord);
@@ -3603,15 +3606,19 @@ private:
   // Flags to represent the use of context-fill and context-stroke
   // for fill-opacity or stroke-opacity, and context-value for stroke-dasharray,
   // stroke-dashoffset and stroke-width.
-  enum {
-    FILL_OPACITY_SOURCE_MASK   = 0x03,  // fill-opacity: context-{fill,stroke}
-    STROKE_OPACITY_SOURCE_MASK = 0x0C,  // stroke-opacity: context-{fill,stroke}
-    STROKE_DASHARRAY_CONTEXT   = 0x10,  // stroke-dasharray: context-value
-    STROKE_DASHOFFSET_CONTEXT  = 0x20,  // stroke-dashoffset: context-value
-    STROKE_WIDTH_CONTEXT       = 0x40,  // stroke-width: context-value
-    FILL_OPACITY_SOURCE_SHIFT   = 0,
-    STROKE_OPACITY_SOURCE_SHIFT = 2,
-  };
+
+  // fill-opacity: context-{fill,stroke}
+  static const uint8_t FILL_OPACITY_SOURCE_MASK   = 0x03;
+  // stroke-opacity: context-{fill,stroke}
+  static const uint8_t STROKE_OPACITY_SOURCE_MASK = 0x0C;
+  // stroke-dasharray: context-value
+  static const uint8_t STROKE_DASHARRAY_CONTEXT   = 0x10;
+  // stroke-dashoffset: context-value
+  static const uint8_t STROKE_DASHOFFSET_CONTEXT  = 0x20;
+  // stroke-width: context-value
+  static const uint8_t STROKE_WIDTH_CONTEXT       = 0x40;
+  static const uint8_t FILL_OPACITY_SOURCE_SHIFT   = 0;
+  static const uint8_t STROKE_OPACITY_SOURCE_SHIFT = 2;
 
   uint8_t          mContextFlags;     // [inherited]
 };

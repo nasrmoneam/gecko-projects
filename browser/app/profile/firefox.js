@@ -248,11 +248,7 @@ pref("browser.stopReloadAnimation.enabled", true);
 pref("browser.uidensity", 0);
 // Whether Firefox will automatically override the uidensity to "touch"
 // while the user is in a touch environment (such as Windows tablet mode).
-#ifdef MOZ_PHOTON_THEME
 pref("browser.touchmode.auto", true);
-#else
-pref("browser.touchmode.auto", false);
-#endif
 
 // At startup, check if we're the default browser and prompt user if not.
 pref("browser.shell.checkDefaultBrowser", true);
@@ -271,7 +267,7 @@ pref("browser.startup.homepage",            "chrome://branding/locale/browsercon
 pref("browser.startup.firstrunSkipsHomepage", true);
 
 pref("browser.slowStartup.notificationDisabled", false);
-pref("browser.slowStartup.timeThreshold", 30000);
+pref("browser.slowStartup.timeThreshold", 20000);
 pref("browser.slowStartup.maxSamples", 5);
 
 // This url, if changed, MUST continue to point to an https url. Pulling arbitrary content to inject into
@@ -448,12 +444,6 @@ pref("browser.link.open_newwindow.restriction", 2);
 pref("browser.link.open_newwindow.disabled_in_fullscreen", true);
 #else
 pref("browser.link.open_newwindow.disabled_in_fullscreen", false);
-#endif
-
-#ifdef NIGHTLY_BUILD
-pref("browser.photon.structure.enabled", true);
-#else
-pref("browser.photon.structure.enabled", false);
 #endif
 
 // Tabbed browser
@@ -1106,7 +1096,11 @@ pref("security.sandbox.content.level", 3);
 //
 // This setting may not be required anymore once we decide to permanently
 // enable the content sandbox.
+#ifdef NIGHTLY_BUILD
 pref("security.sandbox.content.level", 3);
+#else
+pref("security.sandbox.content.level", 2);
+#endif
 pref("security.sandbox.content.write_path_whitelist", "");
 pref("security.sandbox.content.read_path_whitelist", "");
 pref("security.sandbox.content.syscall_whitelist", "");
@@ -1319,11 +1313,6 @@ pref("image.mem.max_decoded_image_kb", 256000);
 // Is the sidebar positioned ahead of the content browser
 pref("sidebar.position_start", true);
 
-// Activation from inside of share panel is possible if activationPanelEnabled
-// is true. Pref'd off for release while usage testing is done through beta.
-pref("social.share.activationPanelEnabled", true);
-pref("social.shareDirectory", "https://activations.cdn.mozilla.net/sharePanel.html");
-
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);
 
@@ -1508,6 +1497,8 @@ pref("toolkit.telemetry.shutdownPingSender.enabledFirstSession", false);
 pref("toolkit.telemetry.newProfilePing.enabled", true);
 // Enables sending 'update' pings on Firefox updates.
 pref("toolkit.telemetry.updatePing.enabled", true);
+// Enables sending 'bhr' pings when the browser hangs.
+pref("toolkit.telemetry.bhrPing.enabled", true);
 
 // Telemetry experiments settings.
 pref("experiments.enabled", true);
@@ -1571,6 +1562,8 @@ pref("extensions.interposition.prefetching", true);
 #if defined(NIGHTLY_BUILD)
 pref("extensions.allow-non-mpc-extensions", false);
 #endif
+
+pref("extensions.legacy.enabled", false);
 
 // Enable blocking of e10s and e10s-multi for add-on users on beta/release.
 #if defined(RELEASE_OR_BETA) && !defined(MOZ_DEV_EDITION)
@@ -1695,6 +1688,7 @@ pref("extensions.formautofill.available", "on");
 pref("extensions.formautofill.available", "detect");
 #endif
 pref("extensions.formautofill.addresses.enabled", true);
+pref("extensions.formautofill.creditCards.enabled", true);
 pref("extensions.formautofill.firstTimeUse", true);
 pref("extensions.formautofill.heuristics.enabled", true);
 pref("extensions.formautofill.loglevel", "Warn");
@@ -1703,7 +1697,7 @@ pref("extensions.formautofill.loglevel", "Warn");
 pref("browser.sessionstore.restore_tabs_lazily", true);
 
 // Enable safebrowsing v4 tables (suffixed by "-proto") update.
-pref("urlclassifier.malwareTable", "goog-malware-proto,goog-unwanted-proto,test-malware-simple,test-unwanted-simple");
+pref("urlclassifier.malwareTable", "goog-malware-proto,goog-unwanted-proto,test-malware-simple,test-unwanted-simple,test-harmful-simple");
 pref("urlclassifier.phishTable", "goog-phish-proto,test-phish-simple");
 
 pref("browser.suppress_first_window_animation", true);
@@ -1711,7 +1705,7 @@ pref("browser.suppress_first_window_animation", true);
 // Preferences for Photon onboarding system extension
 pref("browser.onboarding.enabled", true);
 // Mark this as an upgraded profile so we don't offer the initial new user onboarding tour.
-pref("browser.onboarding.tourset-version", 1);
+pref("browser.onboarding.tourset-version", 2);
 pref("browser.onboarding.hidden", false);
 // On the Activity-Stream page, the snippet's position overlaps with our notification.
 // So use `browser.onboarding.notification.finished` to let the AS page know
@@ -1720,16 +1714,8 @@ pref("browser.onboarding.notification.finished", false);
 pref("browser.onboarding.notification.mute-duration-on-first-session-ms", 300000); // 5 mins
 pref("browser.onboarding.notification.max-life-time-per-tour-ms", 432000000); // 5 days
 pref("browser.onboarding.notification.max-prompt-count-per-tour", 8);
-pref("browser.onboarding.newtour", "private,addons,customize,search,default,sync");
-pref("browser.onboarding.updatetour", "");
+pref("browser.onboarding.newtour", "performance,private,screenshots,addons,customize,default");
+pref("browser.onboarding.updatetour", "performance,library,screenshots,singlesearch,customize,sync");
 
-// Preferences for the Screenshots feature:
-// Temporarily disable Screenshots in Beta & Release, so that we can gradually
-// roll out the feature using SHIELD pref flipping.
-#ifdef NIGHTLY_BUILD
-pref("extensions.screenshots.system-disabled", false);
-#else
-pref("extensions.screenshots.system-disabled", true);
-#endif
-// Permanent pref that allows individual users to disable Screenshots.
+// Preference that allows individual users to disable Screenshots.
 pref("extensions.screenshots.disabled", false);

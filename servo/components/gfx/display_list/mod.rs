@@ -33,8 +33,8 @@ use style::values::computed::Filter;
 use style_traits::cursor::Cursor;
 use text::TextRun;
 use text::glyph::ByteIndex;
-use webrender_api::{self, ClipId, ColorF, GradientStop, LocalClip, MixBlendMode, ScrollPolicy};
-use webrender_api::{ScrollSensitivity, TransformStyle, WebGLContextId};
+use webrender_api::{self, ClipAndScrollInfo, ClipId, ColorF, GradientStop, LocalClip};
+use webrender_api::{MixBlendMode, ScrollPolicy, ScrollSensitivity, TransformStyle};
 
 pub use style::dom::OpaqueNode;
 
@@ -152,7 +152,7 @@ impl DisplayList {
             match item {
                 &DisplayItem::PushStackingContext(ref context_item) => {
                     self.text_index_stacking_context(&context_item.stacking_context,
-                                                     item.base().scroll_root_id,
+                                                     item.scroll_node_id(),
                                                      node,
                                                      traversal,
                                                      point,
@@ -229,7 +229,7 @@ impl DisplayList {
             match item {
                 &DisplayItem::PushStackingContext(ref context_item) => {
                     self.hit_test_stacking_context(&context_item.stacking_context,
-                                                   item.base().scroll_root_id,
+                                                   item.scroll_node_id(),
                                                    traversal,
                                                    point,
                                                    offset_lookup,
@@ -286,10 +286,10 @@ impl DisplayList {
     pub fn print_with_tree(&self, print_tree: &mut PrintTree) {
         print_tree.new_level("Items".to_owned());
         for item in &self.list {
-            print_tree.add_item(format!("{:?} StackingContext: {:?} ScrollRoot: {:?}",
+            print_tree.add_item(format!("{:?} StackingContext: {:?} {:?}",
                                         item,
                                         item.base().stacking_context_id,
-                                        item.scroll_root_id()));
+                                        item.clip_and_scroll_info()));
         }
         print_tree.end_level();
     }
@@ -399,7 +399,6 @@ pub enum StackingContextType {
     Real,
     PseudoPositioned,
     PseudoFloat,
-    PseudoScrollingArea,
 }
 
 #[derive(Clone, HeapSizeOf, Deserialize, Serialize)]
@@ -438,8 +437,8 @@ pub struct StackingContext {
     /// The scroll policy of this layer.
     pub scroll_policy: ScrollPolicy,
 
-    /// The id of the parent scrolling area that contains this StackingContext.
-    pub parent_scroll_id: ClipId,
+    /// The clip and scroll info for this StackingContext.
+    pub parent_clip_and_scroll_info: ClipAndScrollInfo,
 }
 
 impl StackingContext {
@@ -456,7 +455,7 @@ impl StackingContext {
                transform_style: TransformStyle,
                perspective: Option<Transform3D<f32>>,
                scroll_policy: ScrollPolicy,
-               parent_scroll_id: ClipId)
+               parent_clip_and_scroll_info: ClipAndScrollInfo)
                -> StackingContext {
         StackingContext {
             id: id,
@@ -470,7 +469,7 @@ impl StackingContext {
             transform_style: transform_style,
             perspective: perspective,
             scroll_policy: scroll_policy,
-            parent_scroll_id: parent_scroll_id,
+            parent_clip_and_scroll_info: parent_clip_and_scroll_info,
         }
     }
 
@@ -487,13 +486,13 @@ impl StackingContext {
                              TransformStyle::Flat,
                              None,
                              ScrollPolicy::Scrollable,
-                             pipeline_id.root_scroll_node())
+                             pipeline_id.root_clip_and_scroll_info())
     }
 
     pub fn to_display_list_items(self, pipeline_id: PipelineId) -> (DisplayItem, DisplayItem) {
         let mut base_item = BaseDisplayItem::empty(pipeline_id);
         base_item.stacking_context_id = self.id;
-        base_item.scroll_root_id = self.parent_scroll_id;
+        base_item.clip_and_scroll_info = self.parent_clip_and_scroll_info;
 
         let pop_item = DisplayItem::PopStackingContext(Box::new(
             PopStackingContextItem {
@@ -599,7 +598,6 @@ pub enum DisplayItem {
     SolidColor(Box<SolidColorDisplayItem>),
     Text(Box<TextDisplayItem>),
     Image(Box<ImageDisplayItem>),
-    WebGL(Box<WebGLDisplayItem>),
     Border(Box<BorderDisplayItem>),
     Gradient(Box<GradientDisplayItem>),
     RadialGradient(Box<RadialGradientDisplayItem>),
@@ -631,8 +629,8 @@ pub struct BaseDisplayItem {
     /// The id of the stacking context this item belongs to.
     pub stacking_context_id: StackingContextId,
 
-    /// The id of the scroll root this item belongs to.
-    pub scroll_root_id: ClipId,
+    /// The clip and scroll info for this item.
+    pub clip_and_scroll_info: ClipAndScrollInfo,
 }
 
 impl BaseDisplayItem {
@@ -642,7 +640,7 @@ impl BaseDisplayItem {
                local_clip: LocalClip,
                section: DisplayListSection,
                stacking_context_id: StackingContextId,
-               scroll_root_id: ClipId)
+               clip_and_scroll_info: ClipAndScrollInfo)
                -> BaseDisplayItem {
         BaseDisplayItem {
             bounds: *bounds,
@@ -650,7 +648,7 @@ impl BaseDisplayItem {
             local_clip: local_clip,
             section: section,
             stacking_context_id: stacking_context_id,
-            scroll_root_id: scroll_root_id,
+            clip_and_scroll_info: clip_and_scroll_info,
         }
     }
 
@@ -665,7 +663,7 @@ impl BaseDisplayItem {
             local_clip: LocalClip::from(max_rect().to_rectf()),
             section: DisplayListSection::Content,
             stacking_context_id: StackingContextId::root(),
-            scroll_root_id: pipeline_id.root_scroll_node(),
+            clip_and_scroll_info: pipeline_id.root_clip_and_scroll_info(),
         }
     }
 }
@@ -929,14 +927,6 @@ pub struct ImageDisplayItem {
     /// 5.3.
     pub image_rendering: image_rendering::T,
 }
-
-#[derive(Clone, HeapSizeOf, Deserialize, Serialize)]
-pub struct WebGLDisplayItem {
-    pub base: BaseDisplayItem,
-    pub context_id: WebGLContextId,
-}
-
-
 /// Paints an iframe.
 #[derive(Clone, HeapSizeOf, Deserialize, Serialize)]
 pub struct IframeDisplayItem {
@@ -1250,7 +1240,6 @@ impl DisplayItem {
             DisplayItem::SolidColor(ref solid_color) => &solid_color.base,
             DisplayItem::Text(ref text) => &text.base,
             DisplayItem::Image(ref image_item) => &image_item.base,
-            DisplayItem::WebGL(ref webgl_item) => &webgl_item.base,
             DisplayItem::Border(ref border) => &border.base,
             DisplayItem::Gradient(ref gradient) => &gradient.base,
             DisplayItem::RadialGradient(ref gradient) => &gradient.base,
@@ -1265,8 +1254,12 @@ impl DisplayItem {
         }
     }
 
-    pub fn scroll_root_id(&self) -> ClipId {
-        self.base().scroll_root_id
+    pub fn scroll_node_id(&self) -> ClipId {
+        self.base().clip_and_scroll_info.scroll_node_id
+    }
+
+    pub fn clip_and_scroll_info(&self) -> ClipAndScrollInfo {
+        self.base().clip_and_scroll_info
     }
 
     pub fn stacking_context_id(&self) -> StackingContextId {
@@ -1297,7 +1290,7 @@ impl DisplayItem {
         // test elements with `border-radius`, for example.
         let base_item = self.base();
 
-        let scroll_offset = offset_lookup.full_offset_for_scroll_root(&base_item.scroll_root_id);
+        let scroll_offset = offset_lookup.full_offset_for_scroll_root(&self.scroll_node_id());
         let point = Point2D::new(point.x - Au::from_f32_px(scroll_offset.x),
                                  point.y - Au::from_f32_px(scroll_offset.y));
 
@@ -1372,7 +1365,6 @@ impl fmt::Debug for DisplayItem {
                                 text.range.begin().0 as usize..(text.range.begin().0 + text.range.length().0) as usize])
                 }
                 DisplayItem::Image(_) => "Image".to_owned(),
-                DisplayItem::WebGL(_) => "WebGL".to_owned(),
                 DisplayItem::Border(_) => "Border".to_owned(),
                 DisplayItem::Gradient(_) => "Gradient".to_owned(),
                 DisplayItem::RadialGradient(_) => "RadialGradient".to_owned(),

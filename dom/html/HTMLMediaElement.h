@@ -9,6 +9,8 @@
 #include "nsAutoPtr.h"
 #include "nsIDOMHTMLMediaElement.h"
 #include "nsGenericHTMLElement.h"
+#include "MediaEventSource.h"
+#include "SeekTarget.h"
 #include "MediaDecoderOwner.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIObserver.h"
@@ -18,7 +20,6 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/TextTrackManager.h"
 #include "mozilla/WeakPtr.h"
-#include "MediaDecoder.h"
 #include "mozilla/dom/MediaKeys.h"
 #include "mozilla/StateWatching.h"
 #include "nsGkAtoms.h"
@@ -49,6 +50,9 @@ class DOMMediaStream;
 class ErrorResult;
 class MediaResource;
 class MediaDecoder;
+class MediaInputPort;
+class MediaStream;
+class MediaStreamGraph;
 class VideoFrameContainer;
 namespace dom {
 class MediaKeys;
@@ -81,6 +85,18 @@ class Promise;
 class TextTrackList;
 class AudioTrackList;
 class VideoTrackList;
+
+enum class StreamCaptureType : uint8_t
+{
+  CAPTURE_ALL_TRACKS,
+  CAPTURE_AUDIO
+};
+
+enum class StreamCaptureBehavior : uint8_t
+{
+  CONTINUE_WHEN_ENDED,
+  FINISH_WHEN_ENDED
+};
 
 class HTMLMediaElement : public nsGenericHTMLElement,
                          public nsIDOMHTMLMediaElement,
@@ -796,13 +812,7 @@ protected:
 
   MediaDecoderOwner::NextFrameStatus NextFrameStatus();
 
-  void SetDecoder(MediaDecoder* aDecoder) {
-    MOZ_ASSERT(aDecoder); // Use ShutdownDecoder() to clear.
-    if (mDecoder) {
-      ShutdownDecoder();
-    }
-    mDecoder = aDecoder;
-  }
+  void SetDecoder(MediaDecoder* aDecoder);
 
   class WakeLockBoolWrapper {
   public:
@@ -932,18 +942,19 @@ protected:
 
   /**
    * Returns an DOMMediaStream containing the played contents of this
-   * element. When aFinishWhenEnded is true, when this element ends playback
-   * we will finish the stream and not play any more into it.
-   * When aFinishWhenEnded is false, ending playback does not finish the stream.
+   * element. When aBehavior is FINISH_WHEN_ENDED, when this element ends
+   * playback we will finish the stream and not play any more into it.  When
+   * aType is CONTINUE_WHEN_ENDED, ending playback does not finish the stream.
    * The stream will never finish.
    *
-   * When aCaptureAudio is true, we stop playout of audio and instead route it
+   * When aType is CAPTURE_AUDIO, we stop playout of audio and instead route it
    * to the DOMMediaStream. Volume and mute state will be applied to the audio
    * reaching the stream. No video tracks will be captured in this case.
    */
-  already_AddRefed<DOMMediaStream> CaptureStreamInternal(bool aFinishWhenEnded,
-                                                         bool aCaptureAudio,
-                                                         MediaStreamGraph* aGraph);
+  already_AddRefed<DOMMediaStream>
+  CaptureStreamInternal(StreamCaptureBehavior aBehavior,
+                        StreamCaptureType aType,
+                        MediaStreamGraph* aGraph);
 
   /**
    * Initialize a decoder as a clone of an existing decoder in another
@@ -951,6 +962,13 @@ protected:
    * mLoadingSrc must already be set.
    */
   nsresult InitializeDecoderAsClone(ChannelMediaDecoder* aOriginal);
+
+  /**
+   * Call Load() and FinishDecoderSetup() on the decoder. It also handle
+   * resource cloning if DecoderType is ChannelMediaDecoder.
+   */
+  template<typename DecoderType, typename... LoadArgs>
+  nsresult SetupDecoder(DecoderType* aDecoder, LoadArgs&&... aArgs);
 
   /**
    * Initialize a decoder to load the given channel. The decoder's stream
@@ -1272,8 +1290,12 @@ protected:
   // Anything we need to check after played success and not related with spec.
   void UpdateCustomPolicyAfterPlayed();
 
+  // Returns a StreamCaptureType populated with the right bits, depending on the
+  // tracks this HTMLMediaElement has.
+  StreamCaptureType CaptureTypeForElement();
+
   // True if this element can be captured, false otherwise.
-  bool CanBeCaptured(bool aCaptureAudio);
+  bool CanBeCaptured(StreamCaptureType aCaptureType);
 
   class nsAsyncEventRunner;
   class nsNotifyAboutPlayingRunner;
@@ -1656,9 +1678,6 @@ protected:
 
   // True if the media's channel's download has been suspended.
   Watchable<bool> mDownloadSuspendedByCache;
-
-  // Audio Channel.
-  AudioChannel mAudioChannel;
 
   // Disable the video playback by track selection. This flag might not be
   // enough if we ever expand the ability of supporting multi-tracks video

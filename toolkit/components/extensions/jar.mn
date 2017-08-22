@@ -13,7 +13,6 @@ toolkit.jar:
     content/extensions/ext-cookies.js
     content/extensions/ext-downloads.js
     content/extensions/ext-extension.js
-    content/extensions/ext-geolocation.js
     content/extensions/ext-i18n.js
     content/extensions/ext-idle.js
     content/extensions/ext-management.js
@@ -24,8 +23,10 @@ toolkit.jar:
     content/extensions/ext-proxy.js
     content/extensions/ext-runtime.js
     content/extensions/ext-storage.js
+    content/extensions/ext-tabs-base.js
     content/extensions/ext-theme.js
     content/extensions/ext-toolkit.js
+    content/extensions/ext-toolkit.json
     content/extensions/ext-topSites.js
     content/extensions/ext-webRequest.js
     content/extensions/ext-webNavigation.js

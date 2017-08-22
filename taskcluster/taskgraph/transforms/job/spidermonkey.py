@@ -13,6 +13,9 @@ from voluptuous import Required, Any
 from taskgraph.transforms.job import run_job_using
 from taskgraph.transforms.job.common import (
     docker_worker_add_public_artifacts,
+    generic_worker_add_public_artifacts,
+    docker_worker_add_gecko_vcs_env_vars,
+    docker_worker_add_tooltool,
     support_vcs_checkout,
 )
 
@@ -44,6 +47,7 @@ def docker_worker_spidermonkey(config, job, taskdesc):
         })
 
     docker_worker_add_public_artifacts(config, job, taskdesc)
+    docker_worker_add_tooltool(config, job, taskdesc)
 
     env = worker.setdefault('env', {})
     env.update({
@@ -52,15 +56,6 @@ def docker_worker_spidermonkey(config, job, taskdesc):
         'MOZ_BUILD_DATE': config.params['moz_build_date'],
         'MOZ_SCM_LEVEL': config.params['level'],
     })
-
-    # tooltool downloads; note that this script downloads using the API
-    # endpoiint directly, rather than via relengapi-proxy
-    worker['caches'].append({
-        'type': 'persistent',
-        'name': 'tooltool-cache',
-        'mount-point': '/home/worker/tooltool-cache',
-    })
-    env['TOOLTOOL_CACHE'] = '/home/worker/tooltool-cache'
 
     support_vcs_checkout(config, job, taskdesc)
 
@@ -80,3 +75,55 @@ def docker_worker_spidermonkey(config, job, taskdesc):
         '-c',
         'cd /home/worker && workspace/build/src/taskcluster/scripts/builder/%s' % script
     ]
+
+
+@run_job_using("generic-worker", "spidermonkey", schema=sm_run_schema)
+def generic_worker_spidermonkey(config, job, taskdesc):
+    assert job['worker']['os'] == 'windows', 'only supports windows right now'
+
+    run = job['run']
+
+    worker = taskdesc['worker']
+
+    generic_worker_add_public_artifacts(config, job, taskdesc)
+    docker_worker_add_gecko_vcs_env_vars(config, job, taskdesc)
+
+    env = worker.setdefault('env', {})
+    env.update({
+        'MOZHARNESS_DISABLE': 'true',
+        'SPIDERMONKEY_VARIANT': run['spidermonkey-variant'],
+        'MOZ_BUILD_DATE': config.params['moz_build_date'],
+        'MOZ_SCM_LEVEL': config.params['level'],
+        'SCCACHE_DISABLE': "1",
+        'WORK': ".",  # Override the defaults in build scripts
+        'SRCDIR': "./src",  # with values suiteable for windows generic worker
+        'UPLOAD_DIR': "./public/build"
+    })
+
+    script = "build-sm.sh"
+    if run['using'] == 'spidermonkey-package':
+        script = "build-sm-package.sh"
+        # Don't allow untested configurations yet
+        raise Exception("spidermonkey-package is not a supported configuration")
+    elif run['using'] == 'spidermonkey-mozjs-crate':
+        script = "build-sm-mozjs-crate.sh"
+        # Don't allow untested configurations yet
+        raise Exception("spidermonkey-mozhs-crate is not a supported configuration")
+
+    hg_command = ['"c:\\Program Files\\Mercurial\\hg.exe"']
+    hg_command.append('robustcheckout')
+    hg_command.extend(['--sharebase', 'y:\\hg-shared'])
+    hg_command.append('--purge')
+    hg_command.extend(['--upstream', 'https://hg.mozilla.org/mozilla-unified'])
+    hg_command.extend(['--revision', env['GECKO_HEAD_REV']])
+    hg_command.append(env['GECKO_HEAD_REPOSITORY'])
+    hg_command.append('.\\src')
+
+    command = ['c:\\mozilla-build\\msys\\bin\\bash.exe '  # string concat
+               '"./src/taskcluster/scripts/builder/%s"' % script]
+
+    worker['command'] = []
+    worker['command'].extend([
+        ' '.join(hg_command),
+        ' '.join(command)
+    ])

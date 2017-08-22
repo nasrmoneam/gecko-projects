@@ -112,7 +112,8 @@
     _(BitOpV)                       \
     _(ShiftI)                       \
     _(ShiftI64)                     \
-    _(SignExtend)                   \
+    _(SignExtendInt32)              \
+    _(SignExtendInt64)              \
     _(UrshD)                        \
     _(Return)                       \
     _(Throw)                        \
@@ -197,6 +198,7 @@
     _(CharCodeAt)                   \
     _(FromCharCode)                 \
     _(FromCodePoint)                \
+    _(StringConvertCase)            \
     _(SinCos)                       \
     _(StringSplit)                  \
     _(Int32ToDouble)                \
@@ -216,6 +218,7 @@
     _(IntToString)                  \
     _(DoubleToString)               \
     _(ValueToString)                \
+    _(ValueToObject)                \
     _(ValueToObjectOrNull)          \
     _(Int32x4ToFloat32x4)           \
     _(Float32x4ToInt32x4)           \
@@ -388,7 +391,8 @@
     _(GetDOMMemberT)                \
     _(SetDOMProperty)               \
     _(CallDOMNative)                \
-    _(IsCallable)                   \
+    _(IsCallableO)                  \
+    _(IsCallableV)                  \
     _(IsConstructor)                \
     _(IsArrayO)                     \
     _(IsArrayV)                     \
@@ -418,6 +422,7 @@
     _(DebugCheckSelfHosted)         \
     _(FinishBoundFunctionInit)      \
     _(IsPackedArray)                \
+    _(GetPrototypeOf)               \
     _(AsmJSLoadHeap)                \
     _(AsmJSStoreHeap)               \
     _(AsmJSCompareExchangeHeap)     \

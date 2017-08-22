@@ -208,10 +208,26 @@ public:
     OwnerThread()->Dispatch(r.forget());
   }
 
-  // Drop reference to mResource. Only called during shutdown dance.
-  void BreakCycles() {
-    MOZ_ASSERT(NS_IsMainThread());
-    mResource = nullptr;
+  void DispatchCanPlayThrough(bool aCanPlayThrough)
+  {
+    RefPtr<MediaDecoderStateMachine> self = this;
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+      "MediaDecoderStateMachine::DispatchCanPlayThrough",
+      [self, aCanPlayThrough]() {
+        self->mCanPlayThrough = aCanPlayThrough;
+      });
+    OwnerThread()->DispatchStateChange(r.forget());
+  }
+
+  void DispatchIsLiveStream(bool aIsLiveStream)
+  {
+    RefPtr<MediaDecoderStateMachine> self = this;
+    nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+      "MediaDecoderStateMachine::DispatchIsLiveStream",
+      [self, aIsLiveStream]() {
+        self->mIsLiveStream = aIsLiveStream;
+      });
+    OwnerThread()->DispatchStateChange(r.forget());
   }
 
   TimedMetadataEventSource& TimedMetadataEvent() {
@@ -289,10 +305,6 @@ private:
   // Only called on the decoder thread. Must be called with
   // the decode monitor held.
   void UpdatePlaybackPosition(const media::TimeUnit& aTime);
-
-  bool CanPlayThrough();
-
-  MediaStatistics GetStatistics();
 
   bool HasAudio() const { return mInfo.ref().HasAudio(); }
   bool HasVideo() const { return mInfo.ref().HasVideo(); }
@@ -489,7 +501,6 @@ private:
   const RefPtr<AbstractThread> mAbstractMainThread;
   const RefPtr<FrameStatistics> mFrameStats;
   const RefPtr<VideoFrameContainer> mVideoFrameContainer;
-  const dom::AudioChannel mAudioChannel;
 
   // Task queue for running the state machine.
   RefPtr<TaskQueue> mTaskQueue;
@@ -519,16 +530,8 @@ private:
     return mDuration.Ref().ref();
   }
 
-  // Recomputes the canonical duration from various sources.
-  void RecomputeDuration();
-
-
   // FrameID which increments every time a frame is pushed to our queue.
   FrameID mCurrentFrameID;
-
-  // The highest timestamp that our position has reached. Monotonically
-  // increasing.
-  Watchable<media::TimeUnit> mObservedDuration;
 
   // Media Fragment end time.
   media::TimeUnit mFragmentEndTime = media::TimeUnit::Invalid();
@@ -584,6 +587,10 @@ private:
   void OnSuspendTimerResolved();
   void CancelSuspendTimer();
 
+  bool mCanPlayThrough = false;
+
+  bool mIsLiveStream = false;
+
   // True if we shouldn't play our audio (but still write it to any capturing
   // streams). When this is true, the audio thread will never start again after
   // it has stopped.
@@ -633,9 +640,6 @@ private:
   // Data about MediaStreams that are being fed by the decoder.
   const RefPtr<OutputStreamManager> mOutputStreamManager;
 
-  // Media data resource from the decoder.
-  RefPtr<MediaResource> mResource;
-
   // Track the current video decode mode.
   VideoDecodeMode mVideoDecodeMode;
 
@@ -670,9 +674,6 @@ private:
   // The buffered range. Mirrored from the decoder thread.
   Mirror<media::TimeIntervals> mBuffered;
 
-  // The duration explicitly set by JS, mirrored from the main thread.
-  Mirror<Maybe<double>> mExplicitDuration;
-
   // The current play state, mirrored from the main thread.
   Mirror<MediaDecoder::PlayState> mPlayState;
 
@@ -693,16 +694,6 @@ private:
   // An identifier for the principal of the media. Used to track when
   // main-thread induced principal changes get reflected on MSG thread.
   Mirror<PrincipalHandle> mMediaPrincipalHandle;
-
-  // Estimate of the current playback rate (bytes/second).
-  Mirror<double> mPlaybackBytesPerSecond;
-
-  // True if mPlaybackBytesPerSecond is a reliable estimate.
-  Mirror<bool> mPlaybackRateReliable;
-
-  // Current decoding position in the stream.
-  Mirror<int64_t> mDecoderPosition;
-
 
   // Duration of the media. This is guaranteed to be non-null after we finish
   // decoding the first frame.

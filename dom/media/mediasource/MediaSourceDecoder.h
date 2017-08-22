@@ -7,27 +7,17 @@
 #ifndef MOZILLA_MEDIASOURCEDECODER_H_
 #define MOZILLA_MEDIASOURCEDECODER_H_
 
-#include "mozilla/Atomics.h"
-#include "mozilla/Attributes.h"
-#include "nsCOMPtr.h"
-#include "nsError.h"
 #include "MediaDecoder.h"
-#include "MediaFormatReader.h"
-
-class nsIStreamListener;
+#include "mozilla/RefPtr.h"
 
 namespace mozilla {
 
-class MediaResource;
 class MediaDecoderStateMachine;
-class SourceBufferDecoder;
-class TrackBuffer;
-enum MSRangeRemovalAction : uint8_t;
 class MediaSourceDemuxer;
+class MediaSourceResource;
 
 namespace dom {
 
-class HTMLMediaElement;
 class MediaSource;
 
 } // namespace dom
@@ -37,7 +27,6 @@ class MediaSourceDecoder : public MediaDecoder
 public:
   explicit MediaSourceDecoder(MediaDecoderInit& aInit);
 
-  MediaDecoderStateMachine* CreateStateMachine() override;
   nsresult Load(nsIPrincipal* aPrincipal);
   media::TimeIntervals GetSeekable() override;
   media::TimeIntervals GetBuffered() override;
@@ -67,15 +56,20 @@ public:
   void AddSizeOfResources(ResourceSizes* aSizes) override;
 
   MediaDecoderOwner::NextFrameStatus NextFrameBufferedStatus() override;
-  bool CanPlayThrough() override;
 
   bool IsMSE() const override { return true; }
 
   void NotifyInitDataArrived();
 
 private:
+  MediaResource* GetResource() const override final;
+  MediaDecoderStateMachine* CreateStateMachine();
   void DoSetMediaSourceDuration(double aDuration);
   media::TimeInterval ClampIntervalToEnd(const media::TimeInterval& aInterval);
+  bool CanPlayThroughImpl() override;
+  bool IsLiveStream() override final { return !mEnded; }
+
+  RefPtr<MediaSourceResource> mResource;
 
   // The owning MediaSource holds a strong reference to this decoder, and
   // calls Attach/DetachMediaSource on this decoder to set and clear

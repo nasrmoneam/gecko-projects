@@ -645,6 +645,8 @@ nsWindow::nsWindow(bool aIsChildWindow)
 
   mTaskbarPreview = nullptr;
 
+  mCompositorWidgetDelegate = nullptr;
+
   // Global initialization
   if (!sInstanceCount) {
     // Global app registration id for Win7 and up. See
@@ -791,7 +793,8 @@ nsWindow::Create(nsIWidget* aParent,
     }
 
     if (!IsWin8OrLater() &&
-        HasBogusPopupsDropShadowOnMultiMonitor()) {
+        HasBogusPopupsDropShadowOnMultiMonitor() &&
+        ShouldUseOffMainThreadCompositing()) {
       extendedStyle |= WS_EX_COMPOSITED;
     }
 
@@ -1712,14 +1715,15 @@ void nsWindow::SetThemeRegion()
 
 void nsWindow::RegisterTouchWindow() {
   mTouchWindow = true;
-  mGesture.RegisterTouchWindow(mWnd);
+  ::RegisterTouchWindow(mWnd, TWF_WANTPALM);
   ::EnumChildWindows(mWnd, nsWindow::RegisterTouchForDescendants, 0);
 }
 
 BOOL CALLBACK nsWindow::RegisterTouchForDescendants(HWND aWnd, LPARAM aMsg) {
   nsWindow* win = WinUtils::GetNSWindowPtr(aWnd);
-  if (win)
-    win->mGesture.RegisterTouchWindow(aWnd);
+  if (win) {
+    ::RegisterTouchWindow(aWnd, TWF_WANTPALM);
+  }
   return TRUE;
 }
 
@@ -3948,7 +3952,7 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
 
     // Ensure we have a widget proxy even if we're not using the compositor,
     // since all our transparent window handling lives there.
-    CompositorWidgetInitData initData(
+    WinCompositorWidgetInitData initData(
       reinterpret_cast<uintptr_t>(mWnd),
       reinterpret_cast<uintptr_t>(static_cast<nsIWidget*>(this)),
       mTransparencyMode);
@@ -3962,6 +3966,27 @@ nsWindow::GetLayerManager(PLayerTransactionChild* aShadowManager,
   NS_ASSERTION(mLayerManager, "Couldn't provide a valid layer manager.");
 
   return mLayerManager;
+}
+
+/**************************************************************
+ *
+ * SECTION: nsBaseWidget::SetCompositorWidgetDelegate
+ *
+ * Called to connect the nsWindow to the delegate providing
+ * platform compositing API access.
+ *
+ **************************************************************/
+
+void
+nsWindow::SetCompositorWidgetDelegate(CompositorWidgetDelegate* delegate)
+{
+    if (delegate) {
+        mCompositorWidgetDelegate = delegate->AsPlatformSpecificDelegate();
+        MOZ_ASSERT(mCompositorWidgetDelegate,
+                   "nsWindow::SetCompositorWidgetDelegate called with a non-PlatformCompositorWidgetDelegate");
+    } else {
+        mCompositorWidgetDelegate = nullptr;
+    }
 }
 
 /**************************************************************
@@ -6799,7 +6824,8 @@ nsIntPoint nsWindow::GetTouchCoordinates(WPARAM wParam, LPARAM lParam)
     return ret;
   }
   PTOUCHINPUT pInputs = new TOUCHINPUT[cInputs];
-  if (mGesture.GetTouchInputInfo((HTOUCHINPUT)lParam, cInputs, pInputs)) {
+  if (GetTouchInputInfo((HTOUCHINPUT)lParam, cInputs, pInputs,
+                        sizeof(TOUCHINPUT))) {
     ret.x = TOUCH_COORD_TO_PIXEL(pInputs[0].x);
     ret.y = TOUCH_COORD_TO_PIXEL(pInputs[0].y);
   }
@@ -6814,7 +6840,8 @@ bool nsWindow::OnTouch(WPARAM wParam, LPARAM lParam)
   uint32_t cInputs = LOWORD(wParam);
   PTOUCHINPUT pInputs = new TOUCHINPUT[cInputs];
 
-  if (mGesture.GetTouchInputInfo((HTOUCHINPUT)lParam, cInputs, pInputs)) {
+  if (GetTouchInputInfo((HTOUCHINPUT)lParam, cInputs, pInputs,
+                        sizeof(TOUCHINPUT))) {
     MultiTouchInput touchInput, touchEndInput;
 
     // Walk across the touch point array processing each contact point.
@@ -6898,7 +6925,7 @@ bool nsWindow::OnTouch(WPARAM wParam, LPARAM lParam)
   }
 
   delete [] pInputs;
-  mGesture.CloseTouchInputHandle((HTOUCHINPUT)lParam);
+  CloseTouchInputHandle((HTOUCHINPUT)lParam);
   return true;
 }
 
@@ -6942,7 +6969,7 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam)
       mGesture.PanFeedbackFinalize(mWnd, endFeedback);
     }
 
-    mGesture.CloseGestureInfoHandle((HGESTUREINFO)lParam);
+    CloseGestureInfoHandle((HGESTUREINFO)lParam);
 
     return true;
   }
@@ -6968,7 +6995,7 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam)
   }
 
   // Only close this if we process and return true.
-  mGesture.CloseGestureInfoHandle((HGESTUREINFO)lParam);
+  CloseGestureInfoHandle((HGESTUREINFO)lParam);
 
   return true; // Handled
 }
@@ -8379,9 +8406,10 @@ bool nsWindow::OnPointerEvents(UINT msg, WPARAM aWParam, LPARAM aLParam)
 void
 nsWindow::GetCompositorWidgetInitData(mozilla::widget::CompositorWidgetInitData* aInitData)
 {
-  aInitData->hWnd() = reinterpret_cast<uintptr_t>(mWnd);
-  aInitData->widgetKey() = reinterpret_cast<uintptr_t>(static_cast<nsIWidget*>(this));
-  aInitData->transparencyMode() = mTransparencyMode;
+  *aInitData = WinCompositorWidgetInitData(
+      reinterpret_cast<uintptr_t>(mWnd),
+      reinterpret_cast<uintptr_t>(static_cast<nsIWidget*>(this)),
+      mTransparencyMode);
 }
 
 bool

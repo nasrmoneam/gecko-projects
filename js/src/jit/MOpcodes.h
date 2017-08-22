@@ -88,7 +88,8 @@ namespace jit {
     _(Lsh)                                                                  \
     _(Rsh)                                                                  \
     _(Ursh)                                                                 \
-    _(SignExtend)                                                           \
+    _(SignExtendInt32)                                                      \
+    _(SignExtendInt64)                                                      \
     _(MinMax)                                                               \
     _(Abs)                                                                  \
     _(Clz)                                                                  \
@@ -110,6 +111,7 @@ namespace jit {
     _(CharCodeAt)                                                           \
     _(FromCharCode)                                                         \
     _(FromCodePoint)                                                        \
+    _(StringConvertCase)                                                    \
     _(SinCos)                                                               \
     _(StringSplit)                                                          \
     _(Substr)                                                               \
@@ -129,6 +131,7 @@ namespace jit {
     _(ExtendInt32ToInt64)                                                   \
     _(Int64ToFloatingPoint)                                                 \
     _(ToString)                                                             \
+    _(ToObject)                                                             \
     _(ToObjectOrNull)                                                       \
     _(NewArray)                                                             \
     _(NewArrayCopyOnWrite)                                                  \
@@ -301,6 +304,7 @@ namespace jit {
     _(DebugCheckSelfHosted)                                                 \
     _(FinishBoundFunctionInit)                                              \
     _(IsPackedArray)                                                        \
+    _(GetPrototypeOf)                                                       \
     _(AsmJSLoadHeap)                                                        \
     _(AsmJSStoreHeap)                                                       \
     _(AsmJSCompareExchangeHeap)                                             \

@@ -242,7 +242,6 @@ GLContextEGL::~GLContextEGL()
 #endif
 
     sEGLLibrary.fDestroyContext(EGL_DISPLAY(), mContext);
-    sEGLLibrary.UnsetCachedCurrentContext();
 
     mozilla::gl::DestroySurface(mSurface);
 }
@@ -346,18 +345,8 @@ GLContextEGL::MakeCurrentImpl(bool aForce) {
     // Assume that EGL has the same problem as WGL does,
     // where MakeCurrent with an already-current context is
     // still expensive.
-    bool hasDifferentContext = false;
-    if (sEGLLibrary.CachedCurrentContext() != mContext) {
-        // even if the cached context doesn't match the current one
-        // might still
-        if (sEGLLibrary.fGetCurrentContext() != mContext) {
-            hasDifferentContext = true;
-        } else {
-            sEGLLibrary.SetCachedCurrentContext(mContext);
-        }
-    }
-
-    if (aForce || hasDifferentContext) {
+    bool needsMakeCurrent = (aForce || sEGLLibrary.fGetCurrentContext() != mContext);
+    if (needsMakeCurrent) {
         EGLSurface surface = mSurfaceOverride != EGL_NO_SURFACE
                               ? mSurfaceOverride
                               : mSurface;
@@ -378,11 +367,7 @@ GLContextEGL::MakeCurrentImpl(bool aForce) {
                 printf_stderr("EGL Error: 0x%04x\n", eglError);
 #endif
             }
-        } else {
-            sEGLLibrary.SetCachedCurrentContext(mContext);
         }
-    } else {
-        MOZ_ASSERT(sEGLLibrary.CachedCurrentContextMatches());
     }
 
     return succeeded;
@@ -521,14 +506,14 @@ GLContextEGL::CreateGLContext(CreateContextFlags flags,
 
     EGLContext context;
     do {
-        if (rbab_attribs.size()) {
+        if (!rbab_attribs.empty()) {
             context = fnCreate(rbab_attribs);
             if (context)
                 break;
             NS_WARNING("Failed to create EGLContext with rbab_attribs");
         }
 
-        if (robustness_attribs.size()) {
+        if (!robustness_attribs.empty()) {
             context = fnCreate(robustness_attribs);
             if (context)
                 break;
@@ -768,18 +753,27 @@ GLContextProviderEGL::CreateForWindow(nsIWidget* aWidget,
                                        aWebRender);
 }
 
-#if defined(ANDROID)
+#if defined(MOZ_WIDGET_ANDROID)
 EGLSurface
-GLContextProviderEGL::CreateEGLSurface(void* aWindow)
+GLContextEGL::CreateCompatibleSurface(void* aWindow)
+{
+    if (mConfig == EGL_NO_CONFIG) {
+        MOZ_CRASH("GFX: Failed with invalid EGLConfig 2!\n");
+    }
+
+    return GLContextProviderEGL::CreateEGLSurface(aWindow, mConfig);
+}
+
+/* static */ EGLSurface
+GLContextProviderEGL::CreateEGLSurface(void* aWindow, EGLConfig aConfig)
 {
     // NOTE: aWindow is an ANativeWindow
     nsCString discardFailureId;
     if (!sEGLLibrary.EnsureInitialized(false, &discardFailureId)) {
         MOZ_CRASH("GFX: Failed to load EGL library 4!\n");
     }
-
-    EGLConfig config;
-    if (!CreateConfig(&config, /* aEnableDepthBuffer */ false)) {
+    EGLConfig config = aConfig;
+    if (!config && !CreateConfig(&config, /* aEnableDepthBuffer */ false)) {
         MOZ_CRASH("GFX: Failed to create EGLConfig 2!\n");
     }
 
@@ -794,7 +788,7 @@ GLContextProviderEGL::CreateEGLSurface(void* aWindow)
     return surface;
 }
 
-void
+/* static */ void
 GLContextProviderEGL::DestroyEGLSurface(EGLSurface surface)
 {
     nsCString discardFailureId;
@@ -979,6 +973,12 @@ GLContextProviderEGL::CreateOffscreen(const mozilla::gfx::IntSize& size,
         // ANGLE needs to use PBuffers.
         canOffscreenUseHeadless = false;
     }
+
+#if defined(MOZ_WIDGET_ANDROID)
+    // Using a headless context loses the SurfaceCaps
+    // which can cause a loss of depth and/or stencil
+    canOffscreenUseHeadless = false;
+#endif //  defined(MOZ_WIDGET_ANDROID)
 
     RefPtr<GLContext> gl;
     SurfaceCaps minOffscreenCaps = minCaps;
