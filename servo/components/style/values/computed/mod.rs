@@ -127,9 +127,9 @@ impl<'a> Context<'a> {
         self.builder.device
     }
 
-    /// The current viewport size.
-    pub fn viewport_size(&self) -> Size2D<Au> {
-        self.builder.device.au_viewport_size()
+    /// The current viewport size, used to resolve viewport units.
+    pub fn viewport_size_for_viewport_unit_resolution(&self) -> Size2D<Au> {
+        self.builder.device.au_viewport_size_for_viewport_unit_resolution()
     }
 
     /// The default computed style we're getting our reset style from.
@@ -439,7 +439,7 @@ pub type NonNegativeLengthOrPercentageOrNumber = Either<NonNegativeNumber, NonNe
 
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, ComputeSquaredDistance, Copy, Debug, Eq, PartialEq)]
+#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug, Eq, PartialEq)]
 /// A computed cliprect for clip and image-region
 pub struct ClipRect {
     pub top: Option<Au>,
@@ -554,7 +554,7 @@ impl From<Au> for NonNegativeAu {
 
 /// The computed value of a CSS `url()`, resolved relative to the stylesheet URL.
 #[cfg(feature = "servo")]
-#[derive(Clone, Debug, HeapSizeOf, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, HeapSizeOf, PartialEq, Serialize)]
 pub enum ComputedUrl {
     /// The `url()` was invalid or it wasn't specified by the user.
     Invalid(Arc<String>),

@@ -154,9 +154,14 @@ IsAllowedOnCurrentPlatform(uint32_t aThreatType)
     // Bug 1388582 - Google server would respond 404 error if the request
     // contains PHA on non-mobile platform.
     return ANDROID_PLATFORM == platform;
-  default:
-    return true;
+  case MALICIOUS_BINARY:
+  case CSD_DOWNLOAD_WHITELIST:
+    // Bug 1392204 - 'goog-downloadwhite-proto' and 'goog-badbinurl-proto'
+    // are not available on android.
+    return ANDROID_PLATFORM != platform;
   }
+  // We allow every threat type not listed in the switch cases.
+  return true;
 }
 
 } // end of namespace safebrowsing.
@@ -249,12 +254,15 @@ static const struct {
   { "goog-phish-proto",    SOCIAL_ENGINEERING},              // 5
 
   // For application reputation
-  { "goog-badbinurl-proto", MALICIOUS_BINARY},         // 7
+  { "goog-badbinurl-proto", MALICIOUS_BINARY},            // 7
   { "goog-downloadwhite-proto", CSD_DOWNLOAD_WHITELIST},  // 9
+
+  // For login reputation
+  { "goog-passwordwhite-proto", CSD_WHITELIST}, // 8
 
   // For testing purpose.
   { "test-phish-proto",    SOCIAL_ENGINEERING_PUBLIC}, // 2
-  { "test-unwanted-proto", UNWANTED_SOFTWARE}, // 3
+  { "test-unwanted-proto", UNWANTED_SOFTWARE},         // 3
 };
 
 NS_IMETHODIMP

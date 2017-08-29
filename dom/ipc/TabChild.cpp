@@ -164,6 +164,8 @@ NS_IMPL_ISUPPORTS(TabChildSHistoryListener,
 
 static const char BEFORE_FIRST_PAINT[] = "before-first-paint";
 
+nsTArray<TabChild*>* TabChild::sActiveTabs;
+
 typedef nsDataHashtable<nsUint64HashKey, TabChild*> TabChildMap;
 static TabChildMap* sTabChildren;
 StaticMutex sTabChildrenMutex;
@@ -1117,6 +1119,14 @@ TabChild::ActorDestroy(ActorDestroyReason why)
 
 TabChild::~TabChild()
 {
+  if (sActiveTabs) {
+    sActiveTabs->RemoveElement(this);
+    if (sActiveTabs->IsEmpty()) {
+      delete sActiveTabs;
+      sActiveTabs = nullptr;
+    }
+  }
+
   DestroyWindow();
 
   nsCOMPtr<nsIWebBrowser> webBrowser = do_QueryInterface(WebNavigation());
@@ -1416,6 +1426,17 @@ TabChild::RecvHandleTap(const GeckoContentController::TapType& aType,
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityHandleTap(
+  const GeckoContentController::TapType& aType,
+  const LayoutDevicePoint& aPoint,
+  const Modifiers& aModifiers,
+  const ScrollableLayerGuid& aGuid,
+  const uint64_t& aInputBlockId)
+{
+  return RecvHandleTap(aType, aPoint, aModifiers, aGuid, aInputBlockId);
+}
+
 bool
 TabChild::NotifyAPZStateChange(const ViewID& aViewId,
                                const layers::GeckoContentController::APZStateChange& aChange,
@@ -1616,6 +1637,14 @@ TabChild::RecvRealMouseMoveEvent(const WidgetMouseEvent& aEvent,
 }
 
 mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityRealMouseMoveEvent(const WidgetMouseEvent& aEvent,
+                                               const ScrollableLayerGuid& aGuid,
+                                               const uint64_t& aInputBlockId)
+{
+  return RecvRealMouseMoveEvent(aEvent, aGuid, aInputBlockId);
+}
+
+mozilla::ipc::IPCResult
 TabChild::RecvSynthMouseMoveEvent(const WidgetMouseEvent& aEvent,
                                   const ScrollableLayerGuid& aGuid,
                                   const uint64_t& aInputBlockId)
@@ -1624,6 +1653,14 @@ TabChild::RecvSynthMouseMoveEvent(const WidgetMouseEvent& aEvent,
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+TabChild::RecvNormalPrioritySynthMouseMoveEvent(const WidgetMouseEvent& aEvent,
+                                                const ScrollableLayerGuid& aGuid,
+                                                const uint64_t& aInputBlockId)
+{
+  return RecvSynthMouseMoveEvent(aEvent, aGuid, aInputBlockId);
 }
 
 mozilla::ipc::IPCResult
@@ -1669,6 +1706,14 @@ TabChild::RecvRealMouseButtonEvent(const WidgetMouseEvent& aEvent,
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityRealMouseButtonEvent(
+  const WidgetMouseEvent& aEvent,
+  const ScrollableLayerGuid& aGuid,
+  const uint64_t& aInputBlockId)
+{
+  return RecvRealMouseButtonEvent(aEvent, aGuid, aInputBlockId);
+}
 
 // In case handling repeated mouse wheel takes much time, we skip firing current
 // wheel event if it may be coalesced to the next one.
@@ -1788,6 +1833,14 @@ TabChild::RecvMouseWheelEvent(const WidgetWheelEvent& aEvent,
 }
 
 mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityMouseWheelEvent(const WidgetWheelEvent& aEvent,
+                                            const ScrollableLayerGuid& aGuid,
+                                            const uint64_t& aInputBlockId)
+{
+  return RecvMouseWheelEvent(aEvent, aGuid, aInputBlockId);
+}
+
+mozilla::ipc::IPCResult
 TabChild::RecvRealTouchEvent(const WidgetTouchEvent& aEvent,
                              const ScrollableLayerGuid& aGuid,
                              const uint64_t& aInputBlockId,
@@ -1829,6 +1882,15 @@ TabChild::RecvRealTouchEvent(const WidgetTouchEvent& aEvent,
 }
 
 mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityRealTouchEvent(const WidgetTouchEvent& aEvent,
+                                           const ScrollableLayerGuid& aGuid,
+                                           const uint64_t& aInputBlockId,
+                                           const nsEventStatus& aApzResponse)
+{
+  return RecvRealTouchEvent(aEvent, aGuid, aInputBlockId, aApzResponse);
+}
+
+mozilla::ipc::IPCResult
 TabChild::RecvRealTouchMoveEvent(const WidgetTouchEvent& aEvent,
                                  const ScrollableLayerGuid& aGuid,
                                  const uint64_t& aInputBlockId,
@@ -1838,6 +1900,16 @@ TabChild::RecvRealTouchMoveEvent(const WidgetTouchEvent& aEvent,
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityRealTouchMoveEvent(
+  const WidgetTouchEvent& aEvent,
+  const ScrollableLayerGuid& aGuid,
+  const uint64_t& aInputBlockId,
+  const nsEventStatus& aApzResponse)
+{
+  return RecvRealTouchMoveEvent(aEvent, aGuid, aInputBlockId, aApzResponse);
 }
 
 mozilla::ipc::IPCResult
@@ -2016,6 +2088,12 @@ TabChild::RecvRealKeyEvent(const WidgetKeyboardEvent& aEvent)
   }
 
   return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+TabChild::RecvNormalPriorityRealKeyEvent(const WidgetKeyboardEvent& aEvent)
+{
+  return RecvRealKeyEvent(aEvent);
 }
 
 mozilla::ipc::IPCResult
@@ -2519,6 +2597,19 @@ TabChild::InternalSetDocShellIsActive(bool aIsActive, bool aPreserveLayers)
     }
 
     docShell->SetIsActive(aIsActive);
+  }
+
+  if (aIsActive) {
+    if (!sActiveTabs) {
+      sActiveTabs = new nsTArray<TabChild*>();
+    }
+    sActiveTabs->AppendElement(this);
+  } else {
+    if (sActiveTabs) {
+      sActiveTabs->RemoveElement(this);
+      // We don't delete sActiveTabs here when it's empty since that
+      // could cause a lot of churn. Instead, we wait until ~TabChild.
+    }
   }
 
   if (aIsActive) {

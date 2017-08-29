@@ -338,7 +338,7 @@ var BrowserPageActions = {
 
   _makeUrlbarButtonNode(action) {
     let buttonNode = document.createElement("image");
-    buttonNode.classList.add("urlbar-icon");
+    buttonNode.classList.add("urlbar-icon", "urlbar-page-action");
     if (action.tooltip) {
       buttonNode.setAttribute("tooltiptext", action.tooltip);
     }
@@ -595,6 +595,10 @@ var BrowserPageActions = {
   onContextMenu(event) {
     let node = event.originalTarget;
     this._contextAction = this.actionForNode(node);
+    // Don't show the menu if there's no action where the user clicked!
+    if (!this._contextAction) {
+      event.preventDefault();
+    }
   },
 
   /**

@@ -135,9 +135,9 @@ NS_INTERFACE_MAP_BEGIN(nsGenericDOMDataNode)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIContent)
 NS_INTERFACE_MAP_END
 
-NS_IMPL_CYCLE_COLLECTING_ADDREF(nsGenericDOMDataNode)
-NS_IMPL_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(nsGenericDOMDataNode,
-                                                   nsNodeUtils::LastRelease(this))
+NS_IMPL_MAIN_THREAD_ONLY_CYCLE_COLLECTING_ADDREF(nsGenericDOMDataNode)
+NS_IMPL_MAIN_THREAD_ONLY_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(nsGenericDOMDataNode,
+                                                                    nsNodeUtils::LastRelease(this))
 
 
 void
@@ -974,7 +974,7 @@ nsGenericDOMDataNode::GetText()
 uint32_t
 nsGenericDOMDataNode::TextLength() const
 {
-  return mText.GetLength();
+  return TextDataLength();
 }
 
 nsresult
@@ -1120,11 +1120,10 @@ nsGenericDOMDataNode::GetAttributeChangeHint(const nsIAtom* aAttribute,
 }
 
 void
-nsGenericDOMDataNode::AddSizeOfExcludingThis(SizeOfState& aState,
-                                             nsStyleSizes& aSizes,
+nsGenericDOMDataNode::AddSizeOfExcludingThis(nsWindowSizes& aSizes,
                                              size_t* aNodeSize) const
 {
-  nsIContent::AddSizeOfExcludingThis(aState, aSizes, aNodeSize);
-  *aNodeSize += mText.SizeOfExcludingThis(aState.mMallocSizeOf);
+  nsIContent::AddSizeOfExcludingThis(aSizes, aNodeSize);
+  *aNodeSize += mText.SizeOfExcludingThis(aSizes.mState.mMallocSizeOf);
 }
 

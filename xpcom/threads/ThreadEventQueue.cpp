@@ -149,9 +149,9 @@ ThreadEventQueue<InnerQueueT>::HasPendingEvent()
 
   // We always get events from the topmost queue when there are nested queues.
   if (mNestedQueues.IsEmpty()) {
-    return mBaseQueue->HasPendingEvent(lock);
+    return mBaseQueue->HasReadyEvent(lock);
   } else {
-    return mNestedQueues.LastElement().mQueue->HasPendingEvent(lock);
+    return mNestedQueues.LastElement().mQueue->HasReadyEvent(lock);
   }
 }
 
@@ -160,7 +160,7 @@ bool
 ThreadEventQueue<InnerQueueT>::ShutdownIfNoPendingEvents()
 {
   MutexAutoLock lock(mLock);
-  if (mNestedQueues.IsEmpty() && !mBaseQueue->HasPendingEvent(lock)) {
+  if (mNestedQueues.IsEmpty() && mBaseQueue->IsEmpty(lock)) {
     mEventsAreDoomed = true;
     return true;
   }
@@ -173,6 +173,30 @@ ThreadEventQueue<InnerQueueT>::EnableInputEventPrioritization()
 {
   MutexAutoLock lock(mLock);
   mBaseQueue->EnableInputEventPrioritization(lock);
+}
+
+template<class InnerQueueT>
+void
+ThreadEventQueue<InnerQueueT>::FlushInputEventPrioritization()
+{
+  MutexAutoLock lock(mLock);
+  mBaseQueue->FlushInputEventPrioritization(lock);
+}
+
+template<class InnerQueueT>
+void
+ThreadEventQueue<InnerQueueT>::SuspendInputEventPrioritization()
+{
+  MutexAutoLock lock(mLock);
+  mBaseQueue->SuspendInputEventPrioritization(lock);
+}
+
+template<class InnerQueueT>
+void
+ThreadEventQueue<InnerQueueT>::ResumeInputEventPrioritization()
+{
+  MutexAutoLock lock(mLock);
+  mBaseQueue->ResumeInputEventPrioritization(lock);
 }
 
 template<class InnerQueueT>

@@ -11,6 +11,7 @@ use style_traits::ToCss;
 use style_traits::values::specified::AllowedLengthType;
 use super::{Number, ToComputedValue, Context, Percentage};
 use values::{Auto, CSSFloat, Either, ExtremumLength, None_, Normal, specified};
+use values::animated::ToAnimatedZero;
 use values::computed::{NonNegativeAu, NonNegativeNumber};
 use values::distance::{ComputeSquaredDistance, SquaredDistance};
 use values::generics::NonNegative;
@@ -31,7 +32,7 @@ impl ToComputedValue for specified::NoCalcLength {
             specified::NoCalcLength::FontRelative(length) =>
                 length.to_computed_value(context, FontBaseSize::CurrentStyle),
             specified::NoCalcLength::ViewportPercentage(length) =>
-                length.to_computed_value(context.viewport_size()),
+                length.to_computed_value(context.viewport_size_for_viewport_unit_resolution()),
             specified::NoCalcLength::ServoCharacterWidth(length) =>
                 length.to_computed_value(context.style().get_font().clone_font_size().0),
             #[cfg(feature = "gecko")]
@@ -63,13 +64,24 @@ impl ToComputedValue for specified::Length {
     }
 }
 
-#[derive(Clone, PartialEq, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
 #[allow(missing_docs)]
 pub struct CalcLengthOrPercentage {
     pub clamping_mode: AllowedLengthType,
     length: Au,
     pub percentage: Option<Percentage>,
+}
+
+impl ToAnimatedZero for CalcLengthOrPercentage {
+    #[inline]
+    fn to_animated_zero(&self) -> Result<Self, ()> {
+        Ok(CalcLengthOrPercentage {
+            clamping_mode: self.clamping_mode,
+            length: self.length.to_animated_zero()?,
+            percentage: self.percentage.to_animated_zero()?,
+        })
+    }
 }
 
 impl ComputeSquaredDistance for CalcLengthOrPercentage {
@@ -228,7 +240,7 @@ impl specified::CalcLengthOrPercentage {
                      self.vmin.map(ViewportPercentageLength::Vmin),
                      self.vmax.map(ViewportPercentageLength::Vmax)] {
             if let Some(val) = *val {
-                length += val.to_computed_value(context.viewport_size());
+                length += val.to_computed_value(context.viewport_size_for_viewport_unit_resolution());
             }
         }
 
@@ -274,7 +286,7 @@ impl ToComputedValue for specified::CalcLengthOrPercentage {
 
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Copy, PartialEq, ToCss)]
+#[derive(Clone, Copy, PartialEq, ToAnimatedZero, ToCss)]
 pub enum LengthOrPercentage {
     Length(Au),
     Percentage(Percentage),

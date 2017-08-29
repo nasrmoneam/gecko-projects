@@ -30,7 +30,6 @@
 #include "nsIFactory.h"
 #include "nsRDFCID.h"
 #include "nsString.h"
-#include "nsXPIDLString.h"
 #include "nsNetUtil.h"
 #include "nsIURI.h"
 #include "PLDHashTable.h"
@@ -1226,16 +1225,18 @@ RDFServiceImpl::UnregisterDataSource(nsIRDFDataSource* aDataSource)
 
     nsresult rv;
 
-    nsXPIDLCString uri;
+    nsCString uri;
     rv = aDataSource->GetURI(getter_Copies(uri));
     if (NS_FAILED(rv)) return rv;
 
     //NS_ASSERTION(uri != nullptr, "datasource has no URI");
-    if (! uri)
+    if (uri.IsVoid())
         return NS_ERROR_UNEXPECTED;
 
     PLHashEntry** hep =
-        PL_HashTableRawLookup(mNamedDataSources, (*mNamedDataSources->keyHash)(uri), uri);
+        PL_HashTableRawLookup(mNamedDataSources,
+                              (*mNamedDataSources->keyHash)(uri.get()),
+                              uri.get());
 
     // It may well be that this datasource was never registered. If
     // so, don't unregister it.
@@ -1248,7 +1249,7 @@ RDFServiceImpl::UnregisterDataSource(nsIRDFDataSource* aDataSource)
 
     MOZ_LOG(gLog, LogLevel::Debug,
            ("rdfserv unregister-datasource [%p] %s",
-            aDataSource, (const char*) uri));
+            aDataSource, uri.get()));
 
     return NS_OK;
 }

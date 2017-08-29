@@ -8,7 +8,6 @@
 #include "mozilla/mscom/EnsureMTA.h"
 #include "mozilla/mscom/ProxyStream.h"
 #include "mozilla/mscom/Utils.h"
-#include "mozilla/WindowsVersion.h"
 
 #if defined(MOZ_CRASHREPORTER)
 #include "InterfaceRegistrationAnnotator.h"
@@ -27,6 +26,7 @@ ProxyStream::ProxyStream()
   : mGlobalLockedBuf(nullptr)
   , mHGlobal(nullptr)
   , mBufSize(0)
+  , mPreserveStream(false)
 {
 }
 
@@ -34,14 +34,24 @@ ProxyStream::ProxyStream()
 // reconstructing the stream from a buffer anyway.
 ProxyStream::ProxyStream(REFIID aIID, const BYTE* aInitBuf,
                          const int aInitBufSize)
-  : mStream(InitStream(aInitBuf, static_cast<const UINT>(aInitBufSize)))
-  , mGlobalLockedBuf(nullptr)
+  : mGlobalLockedBuf(nullptr)
   , mHGlobal(nullptr)
   , mBufSize(aInitBufSize)
+  , mPreserveStream(false)
 {
 #if defined(MOZ_CRASHREPORTER)
   NS_NAMED_LITERAL_CSTRING(kCrashReportKey, "ProxyStreamUnmarshalStatus");
 #endif
+
+  HRESULT createStreamResult = CreateStream(aInitBuf, aInitBufSize,
+                                            getter_AddRefs(mStream));
+  if (FAILED(createStreamResult)) {
+#if defined(MOZ_CRASHREPORTER)
+    nsPrintfCString hrAsStr("0x%08X", createStreamResult);
+    CrashReporter::AnnotateCrashReport(kCrashReportKey, hrAsStr);
+#endif // defined(MOZ_CRASHREPORTER)
+    return;
+  }
 
   if (!aInitBufSize) {
 #if defined(MOZ_CRASHREPORTER)
@@ -98,71 +108,11 @@ ProxyStream::ProxyStream(REFIID aIID, const BYTE* aInitBuf,
 #endif // defined(MOZ_CRASHREPORTER)
 }
 
-/* static */
-already_AddRefed<IStream>
-ProxyStream::InitStream(const BYTE* aInitBuf, const UINT aInitBufSize)
-{
-  if (!aInitBuf || !aInitBufSize) {
-    return nullptr;
-  }
-
-  HRESULT hr;
-  RefPtr<IStream> stream;
-
-  if (IsWin8OrLater()) {
-    // This function is not safe for us to use until Windows 8
-    stream = already_AddRefed<IStream>(::SHCreateMemStream(aInitBuf, aInitBufSize));
-    if (!stream) {
-      return nullptr;
-    }
-  } else {
-    HGLOBAL hglobal = ::GlobalAlloc(GMEM_MOVEABLE, aInitBufSize);
-    if (!hglobal) {
-      return nullptr;
-    }
-
-    // stream takes ownership of hglobal if this call is successful
-    hr = ::CreateStreamOnHGlobal(hglobal, TRUE, getter_AddRefs(stream));
-    if (FAILED(hr)) {
-      ::GlobalFree(hglobal);
-      return nullptr;
-    }
-
-    // The default stream size is derived from ::GlobalSize(hglobal), which due
-    // to rounding may be larger than aInitBufSize. We forcibly set the correct
-    // stream size here.
-    ULARGE_INTEGER streamSize;
-    streamSize.QuadPart = aInitBufSize;
-    hr = stream->SetSize(streamSize);
-    if (FAILED(hr)) {
-      return nullptr;
-    }
-
-    void* streamBuf = ::GlobalLock(hglobal);
-    if (!streamBuf) {
-      return nullptr;
-    }
-
-    memcpy(streamBuf, aInitBuf, aInitBufSize);
-
-    ::GlobalUnlock(hglobal);
-  }
-
-  // Ensure that the stream is rewound
-  LARGE_INTEGER streamOffset;
-  streamOffset.QuadPart = 0;
-  hr = stream->Seek(streamOffset, STREAM_SEEK_SET, nullptr);
-  if (FAILED(hr)) {
-    return nullptr;
-  }
-
-  return stream.forget();
-}
-
 ProxyStream::ProxyStream(ProxyStream&& aOther)
   : mGlobalLockedBuf(nullptr)
   , mHGlobal(nullptr)
   , mBufSize(0)
+  , mPreserveStream(false)
 {
   *this = mozilla::Move(aOther);
 }
@@ -188,6 +138,8 @@ ProxyStream::operator=(ProxyStream&& aOther)
   aOther.mBufSize = 0;
 
   mUnmarshaledProxy = Move(aOther.mUnmarshaledProxy);
+
+  mPreserveStream = aOther.mPreserveStream;
   return *this;
 }
 
@@ -198,6 +150,11 @@ ProxyStream::~ProxyStream()
     MOZ_ASSERT(!result && ::GetLastError() == NO_ERROR);
     // ::GlobalFree() is called implicitly when mStream is released
   }
+
+  // If this assert triggers then we will be leaking a marshaled proxy!
+  // Call GetPreservedStream to obtain a preservable stream and then save it
+  // until the proxy is no longer needed.
+  MOZ_ASSERT(!mPreserveStream);
 }
 
 const BYTE*
@@ -214,13 +171,20 @@ ProxyStream::GetBuffer(int& aReturnedBufSize) const
   return mGlobalLockedBuf;
 }
 
-RefPtr<IStream>
-ProxyStream::GetStream() const
+PreservedStreamPtr
+ProxyStream::GetPreservedStream()
 {
   MOZ_ASSERT(mStream);
   MOZ_ASSERT(mHGlobal);
 
-  if (!mStream) {
+  if (!mStream || !mPreserveStream) {
+    return nullptr;
+  }
+
+  // Clone the stream so that the result has a distinct seek pointer.
+  RefPtr<IStream> cloned;
+  HRESULT hr = mStream->Clone(getter_AddRefs(cloned));
+  if (FAILED(hr)) {
     return nullptr;
   }
 
@@ -228,10 +192,13 @@ ProxyStream::GetStream() const
   // the stream to be pointing to the beginning of the marshal data.
   LARGE_INTEGER pos;
   pos.QuadPart = 0LL;
-  DebugOnly<HRESULT> hr = mStream->Seek(pos, STREAM_SEEK_SET, nullptr);
-  MOZ_ASSERT(SUCCEEDED(hr));
+  hr = cloned->Seek(pos, STREAM_SEEK_SET, nullptr);
+  if (FAILED(hr)) {
+    return nullptr;
+  }
 
-  return mStream;
+  mPreserveStream = false;
+  return ToPreservedStreamPtr(Move(cloned));
 }
 
 bool
@@ -256,10 +223,12 @@ ProxyStream::GetInterface(void** aOutInterface)
   return true;
 }
 
-ProxyStream::ProxyStream(REFIID aIID, IUnknown* aObject)
+ProxyStream::ProxyStream(REFIID aIID, IUnknown* aObject,
+                         ProxyStreamFlags aFlags)
   : mGlobalLockedBuf(nullptr)
   , mHGlobal(nullptr)
   , mBufSize(0)
+  , mPreserveStream(aFlags & ProxyStreamFlags::ePreservable)
 {
   if (!aObject) {
     return;
@@ -268,6 +237,7 @@ ProxyStream::ProxyStream(REFIID aIID, IUnknown* aObject)
   RefPtr<IStream> stream;
   HGLOBAL hglobal = NULL;
   int streamSize = 0;
+  DWORD mshlFlags = mPreserveStream ? MSHLFLAGS_TABLESTRONG : MSHLFLAGS_NORMAL;
 
   HRESULT createStreamResult = S_OK;
   HRESULT marshalResult = S_OK;
@@ -282,7 +252,7 @@ ProxyStream::ProxyStream(REFIID aIID, IUnknown* aObject)
     }
 
     marshalResult = ::CoMarshalInterface(stream, aIID, aObject, MSHCTX_LOCAL,
-                                         nullptr, MSHLFLAGS_NORMAL);
+                                         nullptr, mshlFlags);
     if (FAILED(marshalResult)) {
       return;
     }

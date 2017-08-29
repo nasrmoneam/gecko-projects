@@ -263,17 +263,6 @@
   }
 }
 
-/* ::::: bookmark buttons ::::: */
-
-#bookmarks-toolbar-placeholder {
-  list-style-image: url("chrome://browser/skin/places/bookmarksToolbar.png") !important;
-}
-
-toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-placeholder,
-#personal-bookmarks[cui-areatype="menu-panel"] > #bookmarks-toolbar-placeholder {
-  list-style-image: url("chrome://browser/skin/places/bookmarksToolbar-menuPanel.png") !important;
-}
-
 /* ::::: bookmark menus ::::: */
 
 menu.bookmark-item,
@@ -692,7 +681,7 @@ html|span.ac-emphasize-text-url {
 .autocomplete-richlistitem:hover,
 treechildren.searchbar-treebody::-moz-tree-row(hover) {
   background-color: var(--arrowpanel-dimmed);
-  border-color: hsla(0, 0%, 0%, 0.1);
+  border-color: var(--panel-separator-color);
 }
 
 .autocomplete-richlistitem[selected],
@@ -748,22 +737,6 @@ treechildren.searchbar-treebody::-moz-tree-row(selected) {
 
 .autocomplete-treebody::-moz-tree-cell(suggesthint) {
   border-top: 1px solid GrayText;
-}
-
-/* popup blocker button */
-
-#page-report-button {
-  list-style-image: url("chrome://browser/skin/urlbar-popup-blocked.png");
-  -moz-image-region: rect(0, 16px, 16px, 0);
-}
-
-#page-report-button:hover {
-  -moz-image-region: rect(0, 32px, 16px, 16px);
-}
-
-#page-report-button:hover:active,
-#page-report-button[open="true"] {
-  -moz-image-region: rect(0, 48px, 16px, 32px);
 }
 
 /* bookmarking panel */
@@ -1089,8 +1062,6 @@ notification[value="translation"] {
 %include ../shared/fullscreen/warning.inc.css
 %include ../shared/ctrlTab.inc.css
 %include ../shared/plugin-doorhanger.inc.css
-
-%include downloads/indicator.css
 
 /* Error counter */
 

@@ -31,7 +31,6 @@
 #include "nsLocalFile.h"
 #include "nsReadableUtils.h"
 #include "nsString.h"
-#include "nsXPIDLString.h"
 #include "prcmon.h"
 #include "xptinfo.h" // this after nsISupports, to pick up IID so that xpt stuff doesn't try to define it itself...
 #include "nsThreadUtils.h"
@@ -93,7 +92,7 @@ nsGetServiceFromCategory::operator()(const nsIID& aIID,
                                      void** aInstancePtr) const
 {
   nsresult rv;
-  nsXPIDLCString value;
+  nsCString value;
   nsCOMPtr<nsICategoryManager> catman;
   nsComponentManagerImpl* compMgr = nsComponentManagerImpl::gComponentManager;
   if (!compMgr) {
@@ -120,12 +119,12 @@ nsGetServiceFromCategory::operator()(const nsIID& aIID,
   if (NS_FAILED(rv)) {
     goto error;
   }
-  if (!value) {
+  if (value.IsVoid()) {
     rv = NS_ERROR_SERVICE_NOT_AVAILABLE;
     goto error;
   }
 
-  rv = compMgr->nsComponentManagerImpl::GetServiceByContractID(value,
+  rv = compMgr->nsComponentManagerImpl::GetServiceByContractID(value.get(),
                                                                aIID,
                                                                aInstancePtr);
   if (NS_FAILED(rv)) {

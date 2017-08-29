@@ -238,7 +238,7 @@ var onboardingTourset = {
           <img src="resource://onboarding/img/figure_library.svg" role="presentation"/>
         </section>
         <aside class="onboarding-tour-button-container">
-          <button id="onboarding-tour-library-button" class="onboarding-tour-action-button" data-l10n-id="onboarding.tour-library.button"></button>
+          <button id="onboarding-tour-library-button" class="onboarding-tour-action-button" data-l10n-id="onboarding.tour-library.button2"></button>
         </aside>
       `;
       return div;
@@ -603,13 +603,14 @@ class Onboarding {
     }
     this.uiInitialized = false;
 
+    this._overlayIcon.dispatchEvent(new this._window.CustomEvent("Agent:Destroy"));
+
     this._clearPrefObserver();
     this._overlayIcon.remove();
     this._overlay.remove();
     if (this._notificationBar) {
       this._notificationBar.remove();
     }
-
     this._tourItems = this._tourPages =
     this._overlayIcon = this._overlay = this._notificationBar = null;
   }
@@ -912,11 +913,10 @@ class Onboarding {
     let footer = this._window.document.createElement("footer");
     footer.id = "onboarding-notification-bar";
     footer.setAttribute("aria-live", "polite");
-    footer.setAttribute("aria-labelledby", "onboarding-notification-icon")
+    footer.setAttribute("aria-labelledby", "onboarding-notification-tour-title")
     // We use `innerHTML` for more friendly reading.
     // The security should be fine because this is not from an external input.
     footer.innerHTML = `
-      <div id="onboarding-notification-icon" role="presentation"></div>
       <section id="onboarding-notification-message-section" role="presentation">
         <div id="onboarding-notification-tour-icon" role="presentation"></div>
         <div id="onboarding-notification-body" role="presentation">
@@ -927,14 +927,6 @@ class Onboarding {
       </section>
       <button id="onboarding-notification-close-btn" class="onboarding-close-btn"></button>
     `;
-    let toolTip = this._bundle.formatStringFromName(
-      this._tourType === "new" ? "onboarding.notification-icon-tool-tip" :
-                                 "onboarding.notification-icon-tooltip-updated",
-      [BRAND_SHORT_NAME], 1);
-
-    let icon = footer.querySelector("#onboarding-notification-icon");
-    icon.setAttribute("aria-label", toolTip);
-    icon.setAttribute("role", "presentation");
 
     let closeBtn = footer.querySelector("#onboarding-notification-close-btn");
     closeBtn.setAttribute("title",

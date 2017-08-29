@@ -288,6 +288,8 @@ public:
   mozilla::HTMLEditor* GetHTMLEditorInternal();
   nsresult SetHTMLEditorInternal(mozilla::HTMLEditor* aHTMLEditor);
 
+  nsDOMNavigationTiming* GetNavigationTiming() const;
+
 private:
   bool CanSetOriginAttributes();
 
@@ -925,7 +927,8 @@ protected:
   int32_t mItemType;
 
   // Index into the SHTransaction list, indicating the previous and current
-  // transaction at the time that this DocShell begins to load
+  // transaction at the time that this DocShell begins to load. Consequently
+  // root docshell's indices can differ from child docshells'.
   int32_t mPreviousTransIndex;
   int32_t mLoadedTransIndex;
 
@@ -1053,6 +1056,18 @@ protected:
   uint32_t mPrivateBrowsingId;
 
   nsString mInterceptedDocumentId;
+
+  // This represents the CSS display-mode we are currently using.
+  // It can be any of the following values from nsIDocShell.idl:
+  //
+  // DISPLAY_MODE_BROWSER = 0
+  // DISPLAY_MODE_MINIMAL_UI = 1
+  // DISPLAY_MODE_STANDALONE = 2
+  // DISPLAY_MODE_FULLSCREEN = 3
+  //
+  // This is mostly used for media queries. The integer values above
+  // match those used in nsStyleConsts.h
+  uint32_t mDisplayMode;
 
 private:
   const Encoding* mForcedCharset;

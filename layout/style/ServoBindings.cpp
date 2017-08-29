@@ -10,6 +10,7 @@
 #include "ErrorReporter.h"
 #include "GeckoProfiler.h"
 #include "gfxFontFamilyList.h"
+#include "gfxFontFeatures.h"
 #include "nsAnimationManager.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSCounterStyleRule.h"
@@ -228,8 +229,7 @@ ServoComputedData::GetStyleVariables() const
 MOZ_DEFINE_MALLOC_SIZE_OF(ServoStyleStructsMallocSizeOf)
 
 void
-ServoComputedData::AddSizeOfExcludingThis(SizeOfState& aState,
-                                          nsStyleSizes& aSizes) const
+ServoComputedData::AddSizeOfExcludingThis(nsWindowSizes& aSizes) const
 {
   // XXX WARNING: GetStyleFoo() returns an nsStyleFoo pointer. This nsStyleFoo
   // sits within a servo_arc::Arc, i.e. it is preceded by a word-sized
@@ -248,15 +248,15 @@ ServoComputedData::AddSizeOfExcludingThis(SizeOfState& aState,
   // 1389305), but that's not available right now.
   //
   // Also, we use ServoStyleStructsMallocSizeOf rather than
-  // |aState.mMallocSizeOf| to better distinguish in DMD's output the memory
-  // measured here.
+  // |aSizes.mState.mMallocSizeOf| to better distinguish in DMD's output the
+  // memory measured here.
 #define STYLE_STRUCT(name_, cb_) \
   static_assert(alignof(nsStyle##name_) <= sizeof(size_t), \
                 "alignment will break AddSizeOfExcludingThis()"); \
   const char* p##name_ = reinterpret_cast<const char*>(GetStyle##name_()); \
   p##name_ -= sizeof(size_t); \
-  if (!aState.HaveSeenPtr(p##name_)) { \
-    aSizes.NS_STYLE_SIZES_FIELD(name_) += \
+  if (!aSizes.mState.HaveSeenPtr(p##name_)) { \
+    aSizes.mServoStyleSizes.NS_STYLE_SIZES_FIELD(name_) += \
       ServoStyleStructsMallocSizeOf(p##name_); \
   }
   #define STYLE_STRUCT_LIST_IGNORE_VARIABLES
@@ -264,9 +264,9 @@ ServoComputedData::AddSizeOfExcludingThis(SizeOfState& aState,
 #undef STYLE_STRUCT
 #undef STYLE_STRUCT_LIST_IGNORE_VARIABLES
 
-  if (visited_style.mPtr && !aState.HaveSeenPtr(visited_style.mPtr)) {
+  if (visited_style.mPtr && !aSizes.mState.HaveSeenPtr(visited_style.mPtr)) {
     visited_style.mPtr->AddSizeOfIncludingThis(
-      aState, aSizes, &aSizes.mComputedValuesVisited);
+      aSizes, &aSizes.mLayoutComputedValuesVisited);
   }
 
   // Measurement of the following members may be added later if DMD finds it is
@@ -1341,6 +1341,33 @@ Gecko_nsFont_Destroy(nsFont* aDest)
   aDest->~nsFont();
 }
 
+nsTArray<unsigned int>*
+Gecko_AppendFeatureValueHashEntry(gfxFontFeatureValueSet* aFontFeatureValues,
+                                  nsIAtom* aFamily, uint32_t aAlternate, nsIAtom* aName)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  static_assert(sizeof(unsigned int) == sizeof(uint32_t),
+                "sizeof unsigned int and uint32_t must be the same");
+  return aFontFeatureValues->AppendFeatureValueHashEntry(
+    nsDependentAtomString(aFamily),
+    nsDependentAtomString(aName),
+    aAlternate
+  );
+}
+
+void
+Gecko_nsFont_SetFontFeatureValuesLookup(nsFont* aFont,
+                                        const RawGeckoPresContext* aPresContext)
+{
+  aFont->featureValueLookup = aPresContext->GetFontFeatureValuesLookup();
+}
+
+void
+Gecko_nsFont_ResetFontFeatureValuesLookup(nsFont* aFont)
+{
+  aFont->featureValueLookup = nullptr;
+}
+
 
 void
 Gecko_ClearAlternateValues(nsFont* aFont, size_t aLength)
@@ -1363,6 +1390,7 @@ Gecko_CopyAlternateValuesFrom(nsFont* aDest, const nsFont* aSrc)
 {
   aDest->alternateValues.Clear();
   aDest->alternateValues.AppendElements(aSrc->alternateValues);
+  aDest->featureValueLookup = aSrc->featureValueLookup;
 }
 
 void
@@ -2368,7 +2396,14 @@ Gecko_nsStyleFont_PrefillDefaultForGeneric(nsStyleFont* aFont,
 {
   const nsFont* defaultFont = ThreadSafeGetDefaultFontHelper(aPresContext, aFont->mLanguage,
                                                              aGenericId);
-   aFont->mFont.fontlist = defaultFont->fontlist;
+  // In case of just the language changing, the parent could have had no generic,
+  // which Gecko just does regular cascading with. Do the same.
+  // This can only happen in the case where the language changed but the family did not
+  if (aGenericId != kGenericFont_NONE) {
+    aFont->mFont.fontlist = defaultFont->fontlist;
+  } else {
+    aFont->mFont.fontlist.SetDefaultFontType(defaultFont->fontlist.GetDefaultFontType());
+  }
 }
 
 void

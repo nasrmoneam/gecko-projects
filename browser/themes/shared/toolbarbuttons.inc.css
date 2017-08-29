@@ -267,15 +267,23 @@ toolbarbutton.bookmark-item:not(.subviewbutton) {
   padding: 4px;
 }
 
-.bookmark-item > .toolbarbutton-icon,
-#personal-bookmarks[cui-areatype="toolbar"] > #bookmarks-toolbar-placeholder > .toolbarbutton-icon {
+toolbarbutton.bookmark-item {
+  max-width: 13em;
+}
+
+/* Not in a :not(...) clause in the rule above to avoid unduly increasing
+ * that rule's specificity. */
+#bookmarks-toolbar-placeholder {
+  max-width: unset;
+}
+
+.bookmark-item > .toolbarbutton-icon {
   width: 16px;
   height: 16px;
 }
 
 /* Force the display of the label for bookmarks */
-.bookmark-item > .toolbarbutton-text,
-#personal-bookmarks[cui-areatype="toolbar"] > #bookmarks-toolbar-placeholder > .toolbarbutton-text {
+.bookmark-item > .toolbarbutton-text {
   display: -moz-box !important;
 }
 

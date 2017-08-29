@@ -114,7 +114,7 @@ ChannelMediaDecoder::ResourceCallback::NotifyDataEnded(nsresult aStatus)
       // NotifySuspendedStatusChanged will tell the element that download
       // has been suspended "by the cache", which is true since we never
       // download anything. The element can then transition to HAVE_ENOUGH_DATA.
-      self->mDecoder->NotifySuspendedStatusChanged();
+      owner->NotifySuspendedByCache(true);
     }
   });
   mAbstractMainThread->Dispatch(r.forget());
@@ -130,11 +130,14 @@ ChannelMediaDecoder::ResourceCallback::NotifyPrincipalChanged()
 }
 
 void
-ChannelMediaDecoder::ResourceCallback::NotifySuspendedStatusChanged()
+ChannelMediaDecoder::ResourceCallback::NotifySuspendedStatusChanged(
+  bool aSuspendedByCache)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  if (mDecoder) {
-    mDecoder->NotifySuspendedStatusChanged();
+  MediaDecoderOwner* owner = GetMediaOwner();
+  if (owner) {
+    AbstractThread::AutoEnter context(owner->AbstractMainThread());
+    owner->NotifySuspendedByCache(aSuspendedByCache);
   }
 }
 
@@ -482,6 +485,29 @@ ChannelMediaDecoder::ShouldThrottleDownload()
   uint32_t factor =
     std::max(2u, Preferences::GetUint("media.throttle-factor", 2));
   return stats.mDownloadRate > factor * stats.mPlaybackRate;
+}
+
+void
+ChannelMediaDecoder::AddSizeOfResources(ResourceSizes* aSizes)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mResource) {
+    aSizes->mByteSize += mResource->SizeOfIncludingThis(aSizes->mMallocSizeOf);
+  }
+}
+
+already_AddRefed<nsIPrincipal>
+ChannelMediaDecoder::GetCurrentPrincipal()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return mResource ? mResource->GetCurrentPrincipal() : nullptr;
+}
+
+bool
+ChannelMediaDecoder::IsTransportSeekable()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return mResource->IsTransportSeekable();
 }
 
 void

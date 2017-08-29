@@ -974,8 +974,13 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             // Create a new top level browsing context. Will use response_chan to return
             // the browsing context id.
             FromCompositorMsg::NewBrowser(url, response_chan) => {
-                debug!("constellation got init load URL message");
+                debug!("constellation got NewBrowser message");
                 self.handle_new_top_level_browsing_context(url, response_chan);
+            }
+            // Close a top level browsing context.
+            FromCompositorMsg::CloseBrowser(top_level_browsing_context_id) => {
+                debug!("constellation got CloseBrowser message");
+                self.handle_close_top_level_browsing_context(top_level_browsing_context_id);
             }
             // Send frame tree to WebRender. Make it visible.
             FromCompositorMsg::SelectBrowser(top_level_browsing_context_id) => {
@@ -1254,6 +1259,10 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             FromLayoutMsg::IFrameSizes(iframe_sizes) => {
                 debug!("constellation got iframe size message");
                 self.handle_iframe_size_msg(iframe_sizes);
+            }
+            FromLayoutMsg::PendingPaintMetric(pipeline_id, epoch) => {
+                debug!("constellation got a pending paint metric message");
+                self.handle_pending_paint_metric(pipeline_id, epoch);
             }
             FromLayoutMsg::SetCursor(cursor) => {
                 self.handle_set_cursor_msg(cursor)
@@ -1540,6 +1549,11 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
         });
     }
 
+    fn handle_close_top_level_browsing_context(&mut self, top_level_browsing_context_id: TopLevelBrowsingContextId) {
+        let browsing_context_id = BrowsingContextId::from(top_level_browsing_context_id);
+        self.close_browsing_context(browsing_context_id, ExitPipelineMode::Normal);
+    }
+
     fn handle_iframe_size_msg(&mut self,
                               iframe_sizes: Vec<(BrowsingContextId, TypedSize2D<f32, CSSPixel>)>) {
         for (browsing_context_id, size) in iframe_sizes {
@@ -1698,6 +1712,10 @@ impl<Message, LTF, STF> Constellation<Message, LTF, STF>
             load_data: load_data,
             replace_instant: replace_instant,
         });
+    }
+
+    fn handle_pending_paint_metric(&self, pipeline_id: PipelineId, epoch: Epoch) {
+        self.compositor_proxy.send(ToCompositorMsg::PendingPaintMetric(pipeline_id, epoch))
     }
 
     fn handle_set_cursor_msg(&mut self, cursor: Cursor) {

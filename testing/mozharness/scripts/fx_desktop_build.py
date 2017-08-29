@@ -66,7 +66,7 @@ class FxDesktopBuild(BuildScript, TryToolsMixin, object):
                 # jobs have a minimal `hg pull`.
                 "clone_upstream_url": "https://hg.mozilla.org/mozilla-unified",
                 "repo_base": "https://hg.mozilla.org",
-                'tooltool_url': 'https://api.pub.build.mozilla.org/tooltool/',
+                'tooltool_url': 'https://tooltool.mozilla-releng.net/',
                 "graph_selector": "/server/collect.cgi",
                 # only used for make uploadsymbols
                 'old_packages': [
@@ -149,7 +149,10 @@ class FxDesktopBuild(BuildScript, TryToolsMixin, object):
                 self.info('Build variant has `artifact_build_variant_in_try`: "%s".' % variant)
             else:
                 if not c.get('build_variant'):
-                    variant = 'artifact'
+                    if c.get('debug_build'):
+                        variant = 'debug-artifact'
+                    else:
+                        variant = 'artifact'
                 elif c.get('build_variant') in ['debug', 'cross-debug']:
                     variant = 'debug-artifact'
 

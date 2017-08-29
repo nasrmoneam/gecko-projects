@@ -80,15 +80,6 @@
   background-color: -moz-Dialog;
 }
 
-#bookmarks-toolbar-placeholder {
-  list-style-image: url("chrome://browser/skin/places/bookmarksToolbar.png") !important;
-}
-
-toolbarpaletteitem[place="palette"] > #personal-bookmarks > #bookmarks-toolbar-placeholder,
-#personal-bookmarks[cui-areatype="menu-panel"] > #bookmarks-toolbar-placeholder {
-  list-style-image: url("chrome://browser/skin/places/bookmarksToolbar-menuPanel.png") !important;
-}
-
 /* Bookmark menus */
 menu.bookmark-item,
 menuitem.bookmark-item {
@@ -480,8 +471,8 @@ notification[value="translation"] menulist > .menulist-dropmarker {
 
 .autocomplete-richlistitem:hover,
 treechildren.searchbar-treebody::-moz-tree-row(hover) {
-  background-color: hsla(0, 0%, 0%, 0.06);
-  border-color: hsla(0, 0%, 0%, 0.1);
+  background-color: var(--arrowpanel-dimmed);
+  border-color: var(--panel-separator-color);
 }
 
 .autocomplete-richlistitem[selected],
@@ -571,11 +562,6 @@ html|span.ac-emphasize-text-url {
 
 .autocomplete-treebody::-moz-tree-cell(suggesthint) {
   border-top: 1px solid GrayText;
-}
-
-/* Popup blocker button */
-#page-report-button {
-  list-style-image: url("chrome://browser/skin/Info.png");
 }
 
 /* Bookmarking panel */
@@ -725,8 +711,6 @@ html|span.ac-emphasize-text-url {
 %include ../shared/fullscreen/warning.inc.css
 %include ../shared/ctrlTab.inc.css
 %include ../shared/plugin-doorhanger.inc.css
-
-%include downloads/indicator.css
 
 .gcli-panel {
   padding: 0;

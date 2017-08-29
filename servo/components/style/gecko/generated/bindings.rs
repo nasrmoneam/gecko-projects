@@ -66,6 +66,7 @@ use gecko_bindings::structs::StyleBasicShape;
 use gecko_bindings::structs::StyleBasicShapeType;
 use gecko_bindings::structs::StyleShapeSource;
 use gecko_bindings::structs::StyleTransition;
+use gecko_bindings::structs::gfxFontFeatureValueSet;
 use gecko_bindings::structs::nsBorderColors;
 use gecko_bindings::structs::nsCSSCounterStyleRule;
 use gecko_bindings::structs::nsCSSFontFaceRule;
@@ -911,6 +912,22 @@ extern "C" {
     pub fn Gecko_nsFont_Destroy(dst: *mut nsFont);
 }
 extern "C" {
+    pub fn Gecko_AppendFeatureValueHashEntry(value_set:
+                                                 *mut gfxFontFeatureValueSet,
+                                             family: *mut nsIAtom,
+                                             alternate: u32,
+                                             name: *mut nsIAtom)
+     -> *mut nsTArray<::std::os::raw::c_uint>;
+}
+extern "C" {
+    pub fn Gecko_nsFont_SetFontFeatureValuesLookup(font: *mut nsFont,
+                                                   pres_context:
+                                                       *const RawGeckoPresContext);
+}
+extern "C" {
+    pub fn Gecko_nsFont_ResetFontFeatureValuesLookup(font: *mut nsFont);
+}
+extern "C" {
     pub fn Gecko_ClearAlternateValues(font: *mut nsFont, length: usize);
 }
 extern "C" {
@@ -1069,11 +1086,6 @@ extern "C" {
 extern "C" {
     pub fn Gecko_NoteAnimationOnlyDirtyElement(element:
                                                    RawGeckoElementBorrowed);
-}
-extern "C" {
-    pub fn Gecko_GetStyleContext(element: RawGeckoElementBorrowed,
-                                 aPseudoTagOrNull: *mut nsIAtom)
-     -> *mut nsStyleContext;
 }
 extern "C" {
     pub fn Gecko_GetImplementedPseudo(element: RawGeckoElementBorrowed)
@@ -1922,6 +1934,10 @@ extern "C" {
      -> ServoStyleContextStrong;
 }
 extern "C" {
+    pub fn Servo_Element_IsDisplayNone(element: RawGeckoElementBorrowed)
+     -> bool;
+}
+extern "C" {
     pub fn Servo_StyleSheet_FromUTF8Bytes(loader: *mut Loader,
                                           gecko_stylesheet:
                                               *mut ServoStyleSheet,
@@ -1930,7 +1946,9 @@ extern "C" {
                                           extra_data:
                                               *mut RawGeckoURLExtraData,
                                           line_number_offset: u32,
-                                          quirks_mode: nsCompatibility)
+                                          quirks_mode: nsCompatibility,
+                                          reusable_sheets:
+                                              *mut LoaderReusableStyleSheets)
      -> RawServoStyleSheetContentsStrong;
 }
 extern "C" {
@@ -1961,11 +1979,7 @@ extern "C" {
 extern "C" {
     pub fn Servo_StyleSheet_GetOrigin(sheet:
                                           RawServoStyleSheetContentsBorrowed)
-     -> OriginFlags;
-}
-extern "C" {
-    pub fn Servo_StyleSheet_GetSourceMapURL(sheet: RawServoStyleSheetContentsBorrowed,
-                                            result: *mut nsAString);
+     -> u8;
 }
 extern "C" {
     pub fn Servo_StyleSet_Init(pres_context: RawGeckoPresContextOwned)
@@ -2036,6 +2050,13 @@ extern "C" {
     pub fn Servo_StyleSet_GetCounterStyleRule(set: RawServoStyleSetBorrowed,
                                               name: *mut nsIAtom)
      -> *mut nsCSSCounterStyleRule;
+}
+extern "C" {
+    pub fn Servo_StyleSet_BuildFontFeatureValueSet(set:
+                                                       RawServoStyleSetBorrowed,
+                                                   list:
+                                                       *mut gfxFontFeatureValueSet)
+     -> bool;
 }
 extern "C" {
     pub fn Servo_StyleSet_ResolveForDeclarations(set:

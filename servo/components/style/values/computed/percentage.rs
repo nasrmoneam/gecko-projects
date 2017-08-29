@@ -4,15 +4,14 @@
 
 //! Computed percentages.
 
-use properties::animated_properties::Animatable;
 use std::fmt;
 use style_traits::ToCss;
 use values::{CSSFloat, serialize_percentage};
-use values::animated::ToAnimatedZero;
 
 /// A computed percentage.
-#[derive(Clone, ComputeSquaredDistance, Copy, Debug, Default, HasViewportPercentage, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "servo", derive(Deserialize, HeapSizeOf, Serialize))]
+#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug, Default)]
+#[derive(HasViewportPercentage, PartialEq, PartialOrd, ToAnimatedZero)]
 pub struct Percentage(pub CSSFloat);
 
 impl Percentage {
@@ -32,21 +31,6 @@ impl Percentage {
     #[inline]
     pub fn abs(&self) -> Self {
         Percentage(self.0.abs())
-    }
-}
-
-/// https://drafts.csswg.org/css-transitions/#animtype-percentage
-impl Animatable for Percentage {
-    #[inline]
-    fn add_weighted(&self, other: &Self, self_portion: f64, other_portion: f64) -> Result<Self, ()> {
-        Ok(Percentage((self.0 as f64 * self_portion + other.0 as f64 * other_portion) as f32))
-    }
-}
-
-impl ToAnimatedZero for Percentage {
-    #[inline]
-    fn to_animated_zero(&self) -> Result<Self, ()> {
-        Ok(Percentage(0.))
     }
 }
 

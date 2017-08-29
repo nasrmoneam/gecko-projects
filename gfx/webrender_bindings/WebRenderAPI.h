@@ -54,8 +54,7 @@ class WebRenderAPI
 
 public:
   /// This can be called on the compositor thread only.
-  static already_AddRefed<WebRenderAPI> Create(bool aEnableProfiler,
-                                               layers::CompositorBridgeParentBase* aBridge,
+  static already_AddRefed<WebRenderAPI> Create(layers::CompositorBridgeParentBase* aBridge,
                                                RefPtr<widget::CompositorWidget>&& aWidget,
                                                LayoutDeviceIntSize aSize);
 
@@ -123,8 +122,6 @@ public:
   void AddRawFont(wr::FontKey aKey, Range<uint8_t> aBytes, uint32_t aIndex);
 
   void DeleteFont(wr::FontKey aKey);
-
-  void SetProfilerEnabled(bool aEnabled);
 
   void SetFrameStartTime(const TimeStamp& aTime);
 
@@ -333,7 +330,7 @@ public:
   // is empty.
   Maybe<wr::WrClipId> TopmostClipId();
   // Same as TopmostClipId() but for scroll layers.
-  Maybe<layers::FrameMetrics::ViewID> TopmostScrollId();
+  layers::FrameMetrics::ViewID TopmostScrollId();
   // Returns the scroll id that was pushed just before the given scroll id. This
   // function returns Nothing() if the given scrollid has not been encountered,
   // or if it is the rootmost scroll id (and therefore has no ancestor).

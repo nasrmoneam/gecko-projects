@@ -605,6 +605,10 @@
 #endif
 #endif # MOZ_ANGLE_RENDERER
 
+#if defined(XP_WIN) && defined(MOZ_ENABLE_SKIA_PDF)
+@BINPATH@/pdfium.dll
+#endif
+
 ; [Browser Chrome Files]
 @RESPATH@/browser/chrome.manifest
 @RESPATH@/browser/chrome/browser@JAREXT@
@@ -679,9 +683,6 @@
 @RESPATH@/res/EditorOverride.css
 @RESPATH@/res/contenteditable.css
 @RESPATH@/res/designmode.css
-@RESPATH@/res/ImageDocument.css
-@RESPATH@/res/TopLevelImageDocument.css
-@RESPATH@/res/TopLevelVideoDocument.css
 @RESPATH@/res/table-add-column-after-active.gif
 @RESPATH@/res/table-add-column-after-hover.gif
 @RESPATH@/res/table-add-column-after.gif
@@ -711,6 +712,9 @@
 #ifdef XP_MACOSX
 @RESPATH@/res/MainMenu.nib/
 #endif
+
+; Content-accessible resources.
+@RESPATH@/contentaccessible/*
 
 ; svg
 @RESPATH@/res/svg.css

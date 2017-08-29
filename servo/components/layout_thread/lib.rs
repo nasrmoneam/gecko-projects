@@ -127,54 +127,24 @@ use style::context::{StyleSystemOptions, ThreadLocalStyleContextCreationInfo};
 use style::context::RegisteredSpeculativePainter;
 use style::context::RegisteredSpeculativePainters;
 use style::dom::{ShowSubtree, ShowSubtreeDataAndPrimaryValues, TElement, TNode};
+use style::driver;
 use style::error_reporting::{NullReporter, RustLogReporter};
 use style::invalidation::element::restyle_hints::RestyleHint;
-use style::invalidation::media_queries::{MediaListKey, ToMediaListKey};
 use style::logical_geometry::LogicalPoint;
 use style::media_queries::{Device, MediaList, MediaType};
 use style::properties::PropertyId;
 use style::selector_parser::SnapshotMap;
 use style::servo::restyle_damage::{REFLOW, REFLOW_OUT_OF_FLOW, REPAINT, REPOSITION, STORE_OVERFLOW};
 use style::shared_lock::{SharedRwLock, SharedRwLockReadGuard, StylesheetGuards};
-use style::stylesheet_set::StylesheetSet;
-use style::stylesheets::{Origin, Stylesheet, StylesheetContents, StylesheetInDocument, UserAgentStylesheets};
+use style::stylesheets::{Origin, OriginSet, Stylesheet, DocumentStyleSheet, StylesheetInDocument, UserAgentStylesheets};
 use style::stylist::Stylist;
 use style::thread_state;
 use style::timer::Timer;
-use style::traversal::{DomTraversal, TraversalDriver};
+use style::traversal::DomTraversal;
 use style::traversal_flags::TraversalFlags;
 use style_traits::CSSPixel;
 use style_traits::DevicePixel;
 use style_traits::SpeculativePainter;
-
-#[derive(Clone)]
-struct DocumentStyleSheet(ServoArc<Stylesheet>);
-
-impl PartialEq for DocumentStyleSheet {
-    fn eq(&self, other: &Self) -> bool {
-        ServoArc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl ToMediaListKey for DocumentStyleSheet {
-    fn to_media_list_key(&self) -> MediaListKey {
-        self.0.to_media_list_key()
-    }
-}
-
-impl StylesheetInDocument for DocumentStyleSheet {
-    fn contents(&self, guard: &SharedRwLockReadGuard) -> &StylesheetContents {
-        self.0.contents(guard)
-    }
-
-    fn media<'a>(&'a self, guard: &'a SharedRwLockReadGuard) -> Option<&'a MediaList> {
-        self.0.media(guard)
-    }
-
-    fn enabled(&self) -> bool {
-        self.0.enabled()
-    }
-}
 
 /// Information needed by the layout thread.
 pub struct LayoutThread {
@@ -189,9 +159,6 @@ pub struct LayoutThread {
 
     /// Performs CSS selector matching and style resolution.
     stylist: Stylist,
-
-    /// The list of stylesheets synchronized with the document.
-    stylesheets: StylesheetSet<DocumentStyleSheet>,
 
     /// Is the current reflow of an iframe, as opposed to a root window?
     is_iframe: bool,
@@ -293,9 +260,6 @@ pub struct LayoutThread {
     // Number of layout threads. This is copied from `servo_config::opts`, but we'd
     // rather limit the dependency on that module here.
     layout_threads: usize,
-
-    /// Which quirks mode are we rendering the document in?
-    quirks_mode: Option<QuirksMode>,
 
     /// Paint time metrics.
     paint_time_metrics: PaintTimeMetrics,
@@ -549,7 +513,6 @@ impl LayoutThread {
             webrender_api: webrender_api_sender.create_api(),
             webrender_document,
             stylist: Stylist::new(device, QuirksMode::NoQuirks),
-            stylesheets: StylesheetSet::new(),
             rw_data: Arc::new(Mutex::new(
                 LayoutThreadData {
                     constellation_chan: constellation_chan,
@@ -578,7 +541,6 @@ impl LayoutThread {
                     Timer::new()
                 },
             layout_threads: layout_threads,
-            quirks_mode: None,
             paint_time_metrics: paint_time_metrics,
         }
     }
@@ -617,7 +579,6 @@ impl LayoutThread {
                 registered_speculative_painters: &self.registered_painters,
                 local_context_creation_data: Mutex::new(thread_local_style_context_creation_data),
                 timer: self.timer.clone(),
-                quirks_mode: self.quirks_mode.unwrap(),
                 traversal_flags: TraversalFlags::empty(),
                 snapshot_map: snapshot_map,
             },
@@ -674,6 +635,10 @@ impl LayoutThread {
             Request::FromPipeline(LayoutControlMsg::ExitNow) => {
                 self.handle_request_helper(Msg::ExitNow, possibly_locked_rw_data)
             },
+            Request::FromPipeline(LayoutControlMsg::PaintMetric(epoch, paint_time)) => {
+                self.paint_time_metrics.maybe_set_metric(epoch, paint_time);
+                true
+            },
             Request::FromScript(msg) => {
                 self.handle_request_helper(msg, possibly_locked_rw_data)
             },
@@ -700,16 +665,14 @@ impl LayoutThread {
 
                 match before_stylesheet {
                     Some(insertion_point) => {
-                        self.stylesheets.insert_stylesheet_before(
-                            Some(self.stylist.device()),
+                        self.stylist.insert_stylesheet_before(
                             DocumentStyleSheet(stylesheet.clone()),
                             DocumentStyleSheet(insertion_point),
                             &guard,
                         )
                     }
                     None => {
-                        self.stylesheets.append_stylesheet(
-                            Some(self.stylist.device()),
+                        self.stylist.append_stylesheet(
                             DocumentStyleSheet(stylesheet.clone()),
                             &guard,
                         )
@@ -718,8 +681,7 @@ impl LayoutThread {
             }
             Msg::RemoveStylesheet(stylesheet) => {
                 let guard = stylesheet.shared_lock.read();
-                self.stylesheets.remove_stylesheet(
-                    Some(self.stylist.device()),
+                self.stylist.remove_stylesheet(
                     DocumentStyleSheet(stylesheet.clone()),
                     &guard,
                 );
@@ -1079,10 +1041,10 @@ impl LayoutThread {
 
             let viewport_size = webrender_api::LayoutSize::from_untyped(&viewport_size);
 
-            // Set paint metrics if needed right before sending the display list to WebRender.
-            // XXX At some point, we may want to set this metric from WebRender itself.
-            self.paint_time_metrics.maybe_set_first_paint(self);
-            self.paint_time_metrics.maybe_set_first_contentful_paint(self, &display_list);
+            // Observe notifications about rendered frames if needed right before
+            // sending the display list to WebRender in order to set time related
+            // Progressive Web Metrics.
+            self.paint_time_metrics.maybe_observe_paint_time(self, epoch, &display_list);
 
             self.webrender_api.set_display_list(
                 self.webrender_document,
@@ -1102,7 +1064,6 @@ impl LayoutThread {
                              possibly_locked_rw_data: &mut RwData<'a, 'b>) {
         let document = unsafe { ServoLayoutNode::new(&data.document) };
         let document = document.as_document().unwrap();
-        self.quirks_mode = Some(document.quirks_mode());
 
         // FIXME(pcwalton): Combine `ReflowGoal` and `ReflowQueryType`. Then remove this assert.
         debug_assert!((data.reflow_info.goal == ReflowGoal::ForDisplay &&
@@ -1182,10 +1143,12 @@ impl LayoutThread {
         let document_shared_lock = document.style_shared_lock();
         self.document_shared_lock = Some(document_shared_lock.clone());
         let author_guard = document_shared_lock.read();
+        let had_used_viewport_units = self.stylist.device().used_viewport_units();
         let device = Device::new(MediaType::screen(), initial_viewport, device_pixel_ratio);
         let sheet_origins_affected_by_device_change =
-            self.stylist.set_device(device, &author_guard, self.stylesheets.iter());
+            self.stylist.set_device(device, &author_guard);
 
+        self.stylist.force_stylesheet_origins_dirty(sheet_origins_affected_by_device_change);
         self.viewport_size =
             self.stylist.viewport_constraints().map_or(current_screen_size, |constraints| {
                 debug!("Viewport constraints: {:?}", constraints);
@@ -1203,7 +1166,7 @@ impl LayoutThread {
                        .send(ConstellationMsg::ViewportConstrained(self.id, constraints.clone()))
                        .unwrap();
             }
-            if self.stylesheets.iter().any(|sheet| sheet.0.dirty_on_viewport_size_change()) {
+            if had_used_viewport_units {
                 let mut iter = element.as_node().traverse_preorder();
 
                 let mut next = iter.next();
@@ -1237,65 +1200,41 @@ impl LayoutThread {
             ua_or_user: &ua_or_user_guard,
         };
 
-        let needs_dirtying = {
-            debug!("Flushing stylist");
-
-            let mut origins_dirty = sheet_origins_affected_by_device_change;
-
-            debug!("Device changes: {:?}", origins_dirty);
-
+        {
             if self.first_reflow.get() {
                 debug!("First reflow, rebuilding user and UA rules");
-
-                origins_dirty |= Origin::User;
-                origins_dirty |= Origin::UserAgent;
+                let mut ua_and_user = OriginSet::empty();
+                ua_and_user |= Origin::User;
+                ua_and_user |= Origin::UserAgent;
+                self.stylist.force_stylesheet_origins_dirty(ua_and_user);
                 for stylesheet in &ua_stylesheets.user_or_user_agent_stylesheets {
                     self.handle_add_stylesheet(stylesheet, &ua_or_user_guard);
                 }
             }
 
-            let (iter, invalidation_origins_dirty) = self.stylesheets.flush(Some(element));
-            debug!("invalidation: {:?}", invalidation_origins_dirty);
-
-            origins_dirty |= invalidation_origins_dirty;
-
             if data.stylesheets_changed {
                 debug!("Doc sheets changed, flushing author sheets too");
-                origins_dirty |= Origin::Author;
+                self.stylist.force_stylesheet_origins_dirty(Origin::Author.into());
             }
 
-            if !origins_dirty.is_empty() {
-                let mut extra_data = Default::default();
-                self.stylist.rebuild(
-                    iter,
-                    &guards,
-                    Some(ua_stylesheets),
-                    /* author_style_disabled = */ false,
-                    &mut extra_data,
-                    origins_dirty,
-                );
-            }
-
-            !origins_dirty.is_empty()
-        };
-
-        let needs_reflow = viewport_size_changed && !needs_dirtying;
-        if needs_dirtying {
-            if let Some(mut d) = element.mutate_data() {
-                if d.has_styles() {
-                    d.restyle.hint.insert(RestyleHint::restyle_subtree());
-                }
-            }
+            let mut extra_data = Default::default();
+            self.stylist.flush(
+                &guards,
+                Some(ua_stylesheets),
+                &mut extra_data,
+                Some(element),
+            );
         }
-        if needs_reflow {
+
+        if viewport_size_changed {
             if let Some(mut flow) = self.try_get_layout_root(element.as_node()) {
                 LayoutThread::reflow_all_nodes(FlowRef::deref_mut(&mut flow));
             }
         }
 
         let restyles = document.drain_pending_restyles();
-        debug!("Draining restyles: {} (needs dirtying? {:?})",
-               restyles.len(), needs_dirtying);
+        debug!("Draining restyles: {}", restyles.len());
+
         let mut map = SnapshotMap::new();
         let elements_with_snapshot: Vec<_> =
             restyles
@@ -1339,14 +1278,14 @@ impl LayoutThread {
         let mut layout_context =
             self.build_layout_context(guards.clone(), true, &map);
 
-        // NB: Type inference falls apart here for some reason, so we need to be very verbose. :-(
-        let traversal_driver = if self.parallel_flag && self.parallel_traversal.is_some() {
-            TraversalDriver::Parallel
+        let thread_pool = if self.parallel_flag {
+            self.parallel_traversal.as_ref()
         } else {
-            TraversalDriver::Sequential
+            None
         };
 
-        let traversal = RecalcStyleAndConstructFlows::new(layout_context, traversal_driver);
+        // NB: Type inference falls apart here for some reason, so we need to be very verbose. :-(
+        let traversal = RecalcStyleAndConstructFlows::new(layout_context);
         let token = {
             let context = <RecalcStyleAndConstructFlows as
                            DomTraversal<ServoLayoutElement>>::shared_context(&traversal);
@@ -1363,16 +1302,8 @@ impl LayoutThread {
                     self.time_profiler_chan.clone(),
                     || {
                 // Perform CSS selector matching and flow construction.
-                if traversal_driver.is_parallel() {
-                    let pool = self.parallel_traversal.as_ref().unwrap();
-                    // Parallel mode
-                    parallel::traverse_dom::<ServoLayoutElement, RecalcStyleAndConstructFlows>(
-                        &traversal, element, token, pool);
-                } else {
-                    // Sequential mode
-                    sequential::traverse_dom::<ServoLayoutElement, RecalcStyleAndConstructFlows>(
-                        &traversal, element, token);
-                }
+                driver::traverse_dom::<ServoLayoutElement, RecalcStyleAndConstructFlows>(
+                    &traversal, element, token, thread_pool);
             });
             // TODO(pcwalton): Measure energy usage of text shaping, perhaps?
             let text_shaping_time =

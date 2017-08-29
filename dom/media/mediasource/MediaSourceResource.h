@@ -26,11 +26,10 @@ namespace mozilla {
 class MediaSourceResource final : public MediaResource
 {
 public:
-  explicit MediaSourceResource(nsIPrincipal* aPrincipal = nullptr)
-    : mPrincipal(aPrincipal)
-    , mMonitor("MediaSourceResource")
+  MediaSourceResource()
+    : mMonitor("MediaSourceResource")
     , mEnded(false)
-    {}
+  {}
 
   nsresult ReadAt(int64_t aOffset, char* aBuffer, uint32_t aCount, uint32_t* aBytes) override { UNIMPLEMENTED(); return NS_ERROR_FAILURE; }
   bool ShouldCacheReads() override { UNIMPLEMENTED(); return false; }
@@ -41,14 +40,7 @@ public:
   int64_t GetNextCachedData(int64_t aOffset) override { UNIMPLEMENTED(); return -1; }
   int64_t GetCachedDataEnd(int64_t aOffset) override { UNIMPLEMENTED(); return -1; }
   bool IsDataCachedToEndOfResource(int64_t aOffset) override { UNIMPLEMENTED(); return false; }
-  bool IsSuspendedByCache() override { UNIMPLEMENTED(); return false; }
-  bool IsSuspended() override { UNIMPLEMENTED(); return false; }
   nsresult ReadFromCache(char* aBuffer, int64_t aOffset, uint32_t aCount) override { UNIMPLEMENTED(); return NS_ERROR_FAILURE; }
-
-  already_AddRefed<nsIPrincipal> GetCurrentPrincipal() override
-  {
-    return RefPtr<nsIPrincipal>(mPrincipal).forget();
-  }
 
   nsresult GetCachedRanges(MediaByteRangeSet& aRanges) override
   {
@@ -57,8 +49,6 @@ public:
     return NS_OK;
   }
 
-  bool IsTransportSeekable() override { return true; }
-
   void SetEnded(bool aEnded)
   {
     MonitorAutoLock mon(mMonitor);
@@ -66,18 +56,17 @@ public:
   }
 
 private:
-  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const override
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
   {
-    size_t size = MediaResource::SizeOfExcludingThis(aMallocSizeOf);
-    return size;
+    // TODO: track source buffers appended to MediaSource.
+    return 0;
   }
 
-  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const override
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
   {
     return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
   }
 
-  RefPtr<nsIPrincipal> mPrincipal;
   Monitor mMonitor;
   bool mEnded; // protected by mMonitor
 };

@@ -700,15 +700,6 @@ MediaDecoder::GetCurrentTime()
   return mLogicalPosition;
 }
 
-already_AddRefed<nsIPrincipal>
-MediaDecoder::GetCurrentPrincipal()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  MediaResource* r = GetResource();
-  AbstractThread::AutoEnter context(AbstractMainThread());
-  return r ? r->GetCurrentPrincipal() : nullptr;
-}
-
 void
 MediaDecoder::OnMetadataUpdate(TimedMetadata&& aMetadata)
 {
@@ -810,7 +801,7 @@ MediaDecoder::FirstFrameLoaded(nsAutoPtr<MediaInfo> aInfo,
   LOG("FirstFrameLoaded, channels=%u rate=%u hasAudio=%d hasVideo=%d "
       "mPlayState=%s transportSeekable=%d",
       aInfo->mAudio.mChannels, aInfo->mAudio.mRate, aInfo->HasAudio(),
-      aInfo->HasVideo(), PlayStateStr(), GetResource()->IsTransportSeekable());
+      aInfo->HasVideo(), PlayStateStr(), IsTransportSeekable());
 
   mInfo = aInfo.forget();
 
@@ -903,18 +894,6 @@ MediaDecoder::PlaybackEnded()
   ChangeState(PLAY_STATE_ENDED);
   InvalidateWithFlags(VideoFrameContainer::INVALIDATE_FORCE);
   GetOwner()->PlaybackEnded();
-}
-
-void
-MediaDecoder::NotifySuspendedStatusChanged()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  MOZ_DIAGNOSTIC_ASSERT(!IsShutdown());
-  AbstractThread::AutoEnter context(AbstractMainThread());
-  if (MediaResource* r = GetResource()) {
-    bool suspended = r->IsSuspendedByCache();
-    GetOwner()->NotifySuspendedByCache(suspended);
-  }
 }
 
 void
@@ -1180,13 +1159,6 @@ MediaDecoder::HasSuspendTaint() const
 }
 
 bool
-MediaDecoder::IsTransportSeekable()
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  return GetResource()->IsTransportSeekable();
-}
-
-bool
 MediaDecoder::IsMediaSeekable()
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -1362,15 +1334,6 @@ MediaDecoder::SizeOfAudioQueue()
     return mDecoderStateMachine->SizeOfAudioQueue();
   }
   return 0;
-}
-
-void MediaDecoder::AddSizeOfResources(ResourceSizes* aSizes)
-{
-  MOZ_ASSERT(NS_IsMainThread());
-  if (GetResource()) {
-    aSizes->mByteSize +=
-      GetResource()->SizeOfIncludingThis(aSizes->mMallocSizeOf);
-  }
 }
 
 void

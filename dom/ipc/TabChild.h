@@ -373,8 +373,6 @@ public:
 
   mozilla::ipc::IPCResult RecvDeactivate();
 
-  mozilla::ipc::IPCResult RecvParentActivated(const bool& aActivated);
-
   virtual mozilla::ipc::IPCResult RecvMouseEvent(const nsString& aType,
                                                  const float& aX,
                                                  const float& aY,
@@ -387,13 +385,26 @@ public:
                                                          const ScrollableLayerGuid& aGuid,
                                                          const uint64_t& aInputBlockId) override;
 
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityRealMouseMoveEvent(const mozilla::WidgetMouseEvent& aEvent,
+                                       const ScrollableLayerGuid& aGuid,
+                                       const uint64_t& aInputBlockId) override;
+
   virtual mozilla::ipc::IPCResult RecvSynthMouseMoveEvent(const mozilla::WidgetMouseEvent& aEvent,
                                                           const ScrollableLayerGuid& aGuid,
                                                           const uint64_t& aInputBlockId) override;
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPrioritySynthMouseMoveEvent(const mozilla::WidgetMouseEvent& aEvent,
+                                        const ScrollableLayerGuid& aGuid,
+                                        const uint64_t& aInputBlockId) override;
 
   virtual mozilla::ipc::IPCResult RecvRealMouseButtonEvent(const mozilla::WidgetMouseEvent& aEvent,
                                                            const ScrollableLayerGuid& aGuid,
                                                            const uint64_t& aInputBlockId) override;
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityRealMouseButtonEvent(const mozilla::WidgetMouseEvent& aEvent,
+                                         const ScrollableLayerGuid& aGuid,
+                                         const uint64_t& aInputBlockId) override;
 
   virtual mozilla::ipc::IPCResult RecvRealDragEvent(const WidgetDragEvent& aEvent,
                                                     const uint32_t& aDragAction,
@@ -402,9 +413,17 @@ public:
   virtual mozilla::ipc::IPCResult
   RecvRealKeyEvent(const mozilla::WidgetKeyboardEvent& aEvent) override;
 
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityRealKeyEvent(const mozilla::WidgetKeyboardEvent& aEvent) override;
+
   virtual mozilla::ipc::IPCResult RecvMouseWheelEvent(const mozilla::WidgetWheelEvent& aEvent,
                                                       const ScrollableLayerGuid& aGuid,
                                                       const uint64_t& aInputBlockId) override;
+
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityMouseWheelEvent(const mozilla::WidgetWheelEvent& aEvent,
+                                    const ScrollableLayerGuid& aGuid,
+                                    const uint64_t& aInputBlockId) override;
 
   virtual mozilla::ipc::IPCResult RecvRealTouchEvent(const WidgetTouchEvent& aEvent,
                                                      const ScrollableLayerGuid& aGuid,
@@ -412,10 +431,22 @@ public:
                                                      const nsEventStatus& aApzResponse) override;
 
   virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityRealTouchEvent(const WidgetTouchEvent& aEvent,
+                                   const ScrollableLayerGuid& aGuid,
+                                   const uint64_t& aInputBlockId,
+                                   const nsEventStatus& aApzResponse) override;
+
+  virtual mozilla::ipc::IPCResult
   RecvRealTouchMoveEvent(const WidgetTouchEvent& aEvent,
                          const ScrollableLayerGuid& aGuid,
                          const uint64_t& aInputBlockId,
                          const nsEventStatus& aApzResponse) override;
+
+  virtual mozilla::ipc::IPCResult
+  RecvNormalPriorityRealTouchMoveEvent(const WidgetTouchEvent& aEvent,
+                                       const ScrollableLayerGuid& aGuid,
+                                       const uint64_t& aInputBlockId,
+                                       const nsEventStatus& aApzResponse) override;
 
   virtual mozilla::ipc::IPCResult RecvKeyEvent(const nsString& aType,
                                                const int32_t& aKeyCode,
@@ -449,7 +480,6 @@ public:
                                                    InfallibleTArray<CpowEntry>&& aCpows,
                                                    const IPC::Principal& aPrincipal,
                                                    const ClonedMessageData& aData) override;
-
   virtual mozilla::ipc::IPCResult
   RecvSwappedWithOtherRemoteLoader(const IPCTabContext& aContext) override;
 
@@ -661,6 +691,14 @@ public:
                                         const Modifiers& aModifiers,
                                         const ScrollableLayerGuid& aGuid,
                                         const uint64_t& aInputBlockId) override;
+
+  mozilla::ipc::IPCResult
+  RecvNormalPriorityHandleTap(const layers::GeckoContentController::TapType& aType,
+                              const LayoutDevicePoint& aPoint,
+                              const Modifiers& aModifiers,
+                              const ScrollableLayerGuid& aGuid,
+                              const uint64_t& aInputBlockId) override;
+
   void SetAllowedTouchBehavior(uint64_t aInputBlockId,
                                const nsTArray<TouchBehaviorFlags>& aFlags) const;
 
@@ -711,7 +749,23 @@ public:
     return mWidgetNativeData;
   }
 
+
   void MaybeDispatchCoalescedMouseMoveEvents();
+
+  static bool HasActiveTabs()
+  {
+    return sActiveTabs && !sActiveTabs->IsEmpty();
+  }
+
+  // Returns whichever TabChild is currently in the foreground. If there are
+  // multiple TabChilds in the foreground (due to multiple windows being open),
+  // this returns null. This should only be called if HasActiveTabs() returns
+  // true.
+  static const nsTArray<TabChild*>& GetActiveTabs()
+  {
+    MOZ_ASSERT(HasActiveTabs());
+    return *sActiveTabs;
+  }
 
 protected:
   virtual ~TabChild();
@@ -732,6 +786,8 @@ protected:
   virtual mozilla::ipc::IPCResult RecvRequestNotifyAfterRemotePaint() override;
 
   virtual mozilla::ipc::IPCResult RecvSuppressDisplayport(const bool& aEnabled) override;
+
+  virtual mozilla::ipc::IPCResult RecvParentActivated(const bool& aActivated) override;
 
   virtual mozilla::ipc::IPCResult RecvSetKeyboardIndicators(const UIStateChangeType& aShowAccelerators,
                                                             const UIStateChangeType& aShowFocusRings) override;
@@ -905,6 +961,12 @@ private:
   uint32_t mPendingDocShellBlockers;
 
   WindowsHandle mWidgetNativeData;
+
+  // This state is used to keep track of the current active tabs (the ones in
+  // the foreground). There may be more than one if there are multiple browser
+  // windows open. There may be none if this process does not host any
+  // foreground tabs.
+  static nsTArray<TabChild*>* sActiveTabs;
 
   DISALLOW_EVIL_CONSTRUCTORS(TabChild);
 };

@@ -50,8 +50,10 @@ public:
                 const MutexAutoLock& aProofOfLock) final;
   already_AddRefed<nsIRunnable> GetEvent(EventPriority* aPriority,
                                          const MutexAutoLock& aProofOfLock) final;
-  bool HasPendingEvent(const MutexAutoLock& aProofOfLock) final;
+
+  bool IsEmpty(const MutexAutoLock& aProofOfLock) final;
   size_t Count(const MutexAutoLock& aProofOfLock) const final;
+  bool HasReadyEvent(const MutexAutoLock& aProofOfLock) final;
 
   // When checking the idle deadline, we need to drop whatever mutex protects
   // this queue. This method allows that mutex to be stored so that we can drop
@@ -59,15 +61,20 @@ public:
   // least as long as the queue.
   void SetMutexRef(Mutex& aMutex) { mMutex = &aMutex; }
 
+#ifndef RELEASE_OR_BETA
   // nsThread.cpp sends telemetry containing the most recently computed idle
   // deadline. We store a reference to a field in nsThread where this deadline
   // will be stored so that it can be fetched quickly for telemetry.
   void SetNextIdleDeadlineRef(TimeStamp& aDeadline) { mNextIdleDeadline = &aDeadline; }
+#endif
 
   void EnableInputEventPrioritization(const MutexAutoLock& aProofOfLock) final;
+  void FlushInputEventPrioritization(const MutexAutoLock& aProofOfLock) final;
+  void SuspendInputEventPrioritization(const MutexAutoLock& aProofOfLock) final;
+  void ResumeInputEventPrioritization(const MutexAutoLock& aProofOfLock) final;
 
 private:
-  class EnablePrioritizationRunnable;
+  EventPriority SelectQueue(bool aUpdateState, const MutexAutoLock& aProofOfLock);
 
   // Returns a null TimeStamp if we're not in the idle period.
   mozilla::TimeStamp GetIdleDeadline();
@@ -81,9 +88,11 @@ private:
   // a pointer to it here.
   Mutex* mMutex = nullptr;
 
+#ifndef RELEASE_OR_BETA
   // Pointer to a place where the most recently computed idle deadline is
   // stored.
   TimeStamp* mNextIdleDeadline = nullptr;
+#endif
 
   // Try to process one high priority runnable after each normal
   // priority runnable. This gives the processing model HTML spec has for
@@ -104,14 +113,14 @@ private:
 
   TimeStamp mInputHandlingStartTime;
 
-  // When we enable input event prioritization, we immediately begin adding new
-  // input events to the input event queue (and set
-  // mWriteToInputQueue). However, we do not begin processing events from the
-  // input queue until all events that were in the normal priority queue have
-  // been processed. That ensures that input events will not jump ahead of
-  // events that were in the queue before prioritization was enabled.
-  bool mWriteToInputQueue = false;
-  bool mReadFromInputQueue = false;
+  enum InputEventQueueState
+  {
+    STATE_DISABLED,
+    STATE_FLUSHING,
+    STATE_SUSPEND,
+    STATE_ENABLED
+  };
+  InputEventQueueState mInputQueueState = STATE_DISABLED;
 };
 
 class EventQueue;

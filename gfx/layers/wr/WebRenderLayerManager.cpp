@@ -41,6 +41,7 @@ WebRenderLayerManager::WebRenderLayerManager(nsIWidget* aWidget)
   , mEndTransactionWithoutLayers(false)
   , mTarget(nullptr)
   , mPaintSequenceNumber(0)
+  , mShouldNotifyInvalidation(false)
 {
   MOZ_COUNT_CTOR(WebRenderLayerManager);
 }
@@ -243,6 +244,10 @@ WebRenderLayerManager::CreateWebRenderCommandsFromDisplayList(nsDisplayList* aDi
       continue;
     }
 
+    if (item->BackfaceIsHidden() && aSc.IsBackfaceVisible()) {
+      continue;
+    }
+
     savedItems.AppendToTop(item);
 
     bool forceNewLayerData = false;
@@ -306,6 +311,14 @@ WebRenderLayerManager::CreateWebRenderCommandsFromDisplayList(nsDisplayList* aDi
       // walking up their ASR chain when building scroll metadata.
       if (forceNewLayerData) {
         mAsrStack.push_back(asr);
+      }
+    }
+
+    // If there is any invalid item, we should notify nsPresContext after EndTransaction.
+    if (!mShouldNotifyInvalidation) {
+      nsRect invalid;
+      if (item->IsInvalid(invalid)) {
+        mShouldNotifyInvalidation = true;
       }
     }
 
@@ -440,12 +453,12 @@ PaintItemByDrawTarget(nsDisplayItem* aItem,
   MOZ_ASSERT(aDT);
 
   aDT->ClearRect(aImageRect.ToUnknownRect());
-  RefPtr<gfxContext> context = gfxContext::CreateOrNull(aDT, aOffset.ToUnknownPoint());
+  RefPtr<gfxContext> context = gfxContext::CreateOrNull(aDT);
   MOZ_ASSERT(context);
 
+  context->SetMatrix(gfxMatrix::Translation(-aOffset.x, -aOffset.y));
   switch (aItem->GetType()) {
   case DisplayItemType::TYPE_MASK:
-    context->SetMatrix(gfxMatrix::Translation(-aOffset.x, -aOffset.y));
     static_cast<nsDisplayMask*>(aItem)->PaintMask(aDisplayListBuilder, context);
     break;
   case DisplayItemType::TYPE_FILTER:
@@ -502,6 +515,13 @@ WebRenderLayerManager::GenerateFallbackData(nsDisplayItem* aItem,
   if (clip.HasClip()) {
     clippedBounds = itemBounds.Intersect(clip.GetClipRect());
   }
+
+  // nsDisplayItem::Paint() may refer the variables that come from ComputeVisibility().
+  // So we should call ComputeVisibility() before painting. e.g.: nsDisplayBoxShadowInner
+  // uses mVisibleRegion in Paint() and mVisibleRegion is computed in
+  // nsDisplayBoxShadowInner::ComputeVisibility().
+  nsRegion visibleRegion(clippedBounds);
+  aItem->ComputeVisibility(aDisplayListBuilder, &visibleRegion);
 
   const int32_t appUnitsPerDevPixel = aItem->Frame()->PresContext()->AppUnitsPerDevPixel();
   LayerRect bounds = ViewAs<LayerPixel>(
@@ -681,6 +701,9 @@ WebRenderLayerManager::EndTransactionInternal(DrawPaintedLayerCallback aCallback
   wr::DisplayListBuilder builder(WrBridge()->GetPipeline(), contentSize);
 
   if (mEndTransactionWithoutLayers) {
+    // Reset the notification flag at the begin of the EndTransaction.
+    mShouldNotifyInvalidation = false;
+
     // aDisplayList being null here means this is an empty transaction following a layers-free
     // transaction, so we reuse the previously built displaylist and scroll
     // metadata information
@@ -717,6 +740,9 @@ WebRenderLayerManager::EndTransactionInternal(DrawPaintedLayerCallback aCallback
       for (auto iter = mLastCanvasDatas.Iter(); !iter.Done(); iter.Next()) {
         RefPtr<WebRenderCanvasData> canvasData = iter.Get()->GetKey();
         WebRenderCanvasRendererAsync* canvas = canvasData->GetCanvasRenderer();
+        if (canvas->IsDirty()) {
+          mShouldNotifyInvalidation = true;
+        }
         canvas->UpdateCompositableClient();
       }
     }

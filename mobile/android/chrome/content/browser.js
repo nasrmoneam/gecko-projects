@@ -475,7 +475,6 @@ var BrowserApp = {
 
     if (ParentalControls.parentalControlsEnabled) {
         let isBlockListEnabled = ParentalControls.isAllowed(ParentalControls.BLOCK_LIST);
-        Services.prefs.setBoolPref("browser.safebrowsing.forbiddenURIs.enabled", isBlockListEnabled);
         Services.prefs.setBoolPref("browser.safebrowsing.allowOverride", !isBlockListEnabled);
 
         let isTelemetryEnabled = ParentalControls.isAllowed(ParentalControls.TELEMETRY);
@@ -1398,6 +1397,45 @@ var BrowserApp = {
     }
 
     return tab;
+  },
+
+  /**
+   * Open or select a tab with the "about:addons" page and optionally
+   * switch to the details page related to a defined addonId.
+   *
+   * @param {string} addonId
+   */
+  openAddonManager: function openAddonManager({addonId}) {
+    if (addonId) {
+      let emWindow;
+
+      function receivePong(subject, topic, data) {
+        emWindow = subject;
+      };
+
+      Services.obs.addObserver(receivePong, "EM-pong");
+      Services.obs.notifyObservers(null, "EM-ping");
+      Services.obs.removeObserver(receivePong, "EM-pong");
+
+      if (emWindow) {
+        // "about:addons" has been already loaded in a tab.
+        emWindow.showAddonDetails(addonId);
+      } else {
+        // Wait for "about:addons" to be fully loaded.
+        function waitAboutAddons(subject, topic, data) {
+          Services.obs.removeObserver(waitAboutAddons, "EM-loaded");
+          emWindow = subject;
+
+          emWindow.showAddonDetails(addonId);
+        }
+        Services.obs.addObserver(waitAboutAddons, "EM-loaded");
+      }
+    }
+
+    BrowserApp.selectOrAddTab("about:addons", {
+      selected: true,
+      parentId: BrowserApp.selectedTab.id,
+    });
   },
 
   // This method updates the state in BrowserApp after a tab has been selected
@@ -3427,10 +3465,7 @@ nsBrowserAccess.prototype = {
     //
     // We also ignore aName if it is set, as it is currently only used on the
     // e10s codepath.
-    let browser = this._getBrowser(aURI, null, aWhere, aFlags, null);
-    if (browser)
-      return browser.QueryInterface(Ci.nsIFrameLoaderOwner);
-    return null;
+    return this._getBrowser(aURI, null, aWhere, aFlags, null);
   },
 
   isTabContentWindow: function(aWindow) {
@@ -7101,7 +7136,7 @@ HTMLContextMenuItem.prototype = Object.create(ContextMenuItem.prototype, {
       }
 
       // If this is a menu item, show a new context menu with the submenu in it
-      if (elt instanceof Ci.nsIDOMHTMLMenuElement) {
+      if (elt instanceof HTMLMenuElement) {
         try {
           NativeWindow.contextmenus.menus = {};
 
@@ -7144,7 +7179,7 @@ HTMLContextMenuItem.prototype = Object.create(ContextMenuItem.prototype, {
         icon: elt.icon,
         label: elt.label,
         disabled: elt.disabled,
-        menu: elt instanceof Ci.nsIDOMHTMLMenuElement
+        menu: elt instanceof HTMLMenuElement
       };
     }
   },

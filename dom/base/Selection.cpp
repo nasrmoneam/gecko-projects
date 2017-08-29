@@ -786,6 +786,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(Selection)
   // we don't want to notify the listeners during JS GC (they could be
   // in JS!).
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSelectionListeners)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mCachedRange)
   tmp->RemoveAllRanges();
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mFrameSelection)
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
@@ -798,6 +799,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Selection)
     }
   }
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mAnchorFocusRange)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCachedRange)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFrameSelection)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSelectionListeners)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
@@ -1647,7 +1649,7 @@ Selection::GetIndicesForInterval(nsINode* aBeginNode, int32_t aBeginOffset,
   return NS_OK;
 }
 
-NS_IMETHODIMP
+nsresult
 Selection::GetPrimaryFrameForAnchorNode(nsIFrame** aReturnFrame)
 {
   if (!aReturnFrame)
@@ -1667,22 +1669,66 @@ Selection::GetPrimaryFrameForAnchorNode(nsIFrame** aReturnFrame)
   return NS_ERROR_FAILURE;
 }
 
-NS_IMETHODIMP
+nsresult
 Selection::GetPrimaryFrameForFocusNode(nsIFrame** aReturnFrame,
                                        int32_t* aOffsetUsed,
                                        bool aVisual)
 {
-  if (!aReturnFrame)
+  if (!aReturnFrame) {
     return NS_ERROR_NULL_POINTER;
+  }
 
-  nsCOMPtr<nsIContent> content = do_QueryInterface(GetFocusNode());
-  if (!content || !mFrameSelection)
+  *aReturnFrame = nullptr;
+  nsINode* focusNode = GetFocusNode();
+  if (!focusNode || !focusNode->IsContent() || !mFrameSelection) {
     return NS_ERROR_FAILURE;
+  }
 
+  nsCOMPtr<nsIContent> content = focusNode->AsContent();
   int32_t frameOffset = 0;
-  *aReturnFrame = 0;
-  if (!aOffsetUsed)
+  if (!aOffsetUsed) {
     aOffsetUsed = &frameOffset;
+  }
+
+  nsresult rv =
+    GetPrimaryOrCaretFrameForNodeOffset(content, FocusOffset(), aReturnFrame,
+                                        aOffsetUsed, aVisual);
+  if (NS_SUCCEEDED(rv)) {
+    return rv;
+  }
+
+  // If content is whitespace only, we promote focus node to parent because
+  // whitespace only node might have no frame.
+
+  if (!content->TextIsOnlyWhitespace()) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsIContent> parent = content->GetParent();
+  if (NS_WARN_IF(!parent)) {
+    return NS_ERROR_FAILURE;
+  }
+  int32_t offset = parent->IndexOf(content);
+
+  return GetPrimaryOrCaretFrameForNodeOffset(parent, offset, aReturnFrame,
+                                             aOffsetUsed, aVisual);
+}
+
+nsresult
+Selection::GetPrimaryOrCaretFrameForNodeOffset(nsIContent* aContent,
+                                               uint32_t aOffset,
+                                               nsIFrame** aReturnFrame,
+                                               int32_t* aOffsetUsed,
+                                               bool aVisual) const
+{
+  MOZ_ASSERT(aReturnFrame);
+  MOZ_ASSERT(aOffsetUsed);
+
+  *aReturnFrame = nullptr;
+
+  if (!mFrameSelection) {
+    return NS_ERROR_FAILURE;
+  }
 
   CaretAssociationHint hint = mFrameSelection->GetHint();
 
@@ -1690,14 +1736,17 @@ Selection::GetPrimaryFrameForFocusNode(nsIFrame** aReturnFrame,
     nsBidiLevel caretBidiLevel = mFrameSelection->GetCaretBidiLevel();
 
     return nsCaret::GetCaretFrameForNodeOffset(mFrameSelection,
-      content, FocusOffset(), hint, caretBidiLevel, aReturnFrame, aOffsetUsed);
+                                               aContent, aOffset, hint,
+                                               caretBidiLevel, aReturnFrame,
+                                               aOffsetUsed);
   }
 
-  *aReturnFrame = mFrameSelection->
-    GetFrameForNodeOffset(content, FocusOffset(),
-                          hint, aOffsetUsed);
-  if (!*aReturnFrame)
+  *aReturnFrame =
+    mFrameSelection->GetFrameForNodeOffset(aContent, aOffset,
+                                           hint, aOffsetUsed);
+  if (!*aReturnFrame) {
     return NS_ERROR_FAILURE;
+  }
 
   return NS_OK;
 }
@@ -2087,8 +2136,8 @@ Selection::FindRangeData(nsIDOMRange* aRange)
   return nullptr;
 }
 
-NS_IMETHODIMP
-Selection::SetTextRangeStyle(nsIDOMRange* aRange,
+nsresult
+Selection::SetTextRangeStyle(nsRange* aRange,
                              const TextRangeStyle& aTextRangeStyle)
 {
   NS_ENSURE_ARG_POINTER(aRange);
@@ -2243,6 +2292,32 @@ Selection::RemoveAllRanges(ErrorResult& aRv)
   }
 }
 
+nsresult
+Selection::RemoveAllRangesTemporarily()
+{
+  if (!mCachedRange) {
+    // Look for a range which isn't referred by other than this instance.
+    // If there is, it'll be released by calling Clear().  So, we can reuse it
+    // when we need to create a range.
+    for (auto& rangeData : mRanges) {
+      auto& range = rangeData.mRange;
+      if (range->GetRefCount() == 1 ||
+          (range->GetRefCount() == 2 && range == mAnchorFocusRange)) {
+        mCachedRange = range;
+        break;
+      }
+    }
+  }
+
+  // Then, remove all ranges.
+  ErrorResult result;
+  RemoveAllRanges(result);
+  if (result.Failed()) {
+    mCachedRange = nullptr;
+  }
+  return result.StealNSResult();
+}
+
 /** AddRange adds the specified range to the selection
  *  @param aRange is the range to be added
  */
@@ -2284,6 +2359,10 @@ Selection::AddRangeInternal(nsRange& aRange, nsIDocument* aDocument,
     // associated with context object. Otherwise, this method must do nothing."
     return;
   }
+
+  // If a range is being added, we don't need cached range because Collapse()
+  // won't use it.
+  mCachedRange = nullptr;
 
   // AddTableCellRange might flush frame.
   RefPtr<Selection> kungFuDeathGrip(this);
@@ -2541,7 +2620,9 @@ Selection::Collapse(nsINode& aContainer, uint32_t aOffset, ErrorResult& aRv)
   // If the old range isn't referred by anybody other than this method,
   // we should reuse it for reducing the recreation cost.
   if (oldRange && oldRange->GetRefCount() == 1) {
-    range = oldRange;
+    range = Move(oldRange);
+  } else if (mCachedRange) {
+    range = Move(mCachedRange);
   } else {
     range = new nsRange(container);
   }
@@ -3555,7 +3636,7 @@ Selection::ScrollIntoView(SelectionRegion aRegion,
   if (!mFrameSelection)
     return NS_OK;//nothing to do
 
-  nsCOMPtr<nsIPresShell> presShell = mFrameSelection->GetShell();
+  nsIPresShell* presShell = mFrameSelection->GetShell();
   if (!presShell)
     return NS_OK;
 
@@ -3565,6 +3646,11 @@ Selection::ScrollIntoView(SelectionRegion aRegion,
   if (!(aFlags & Selection::SCROLL_SYNCHRONOUS))
     return PostScrollSelectionIntoViewEvent(aRegion, aFlags,
       aVertical, aHorizontal);
+
+  // From this point on, the presShell may get destroyed by the calls below, so
+  // hold on to it using a strong reference to ensure the safety of the
+  // accesses to frame pointers in the callees.
+  nsCOMPtr<nsIPresShell> kungFuDeathGrip(presShell);
 
   // Now that text frame character offsets are always valid (though not
   // necessarily correct), the worst that will happen if we don't flush here
@@ -4009,18 +4095,28 @@ Selection::SetBaseAndExtent(nsINode& aAnchorNode, uint32_t aAnchorOffset,
     endOffset = aAnchorOffset;
   }
 
-  RefPtr<nsRange> newRange;
-  nsresult rv = nsRange::CreateRange(start, startOffset, end, endOffset,
-                                     getter_AddRefs(newRange));
-  // CreateRange returns IndexSizeError if any offset is out of bounds.
+  // If there is cached range, we should reuse it for saving the allocation
+  // const (and some other cost in nsRange::DoSetRange().
+  RefPtr<nsRange> newRange = Move(mCachedRange);
+
+  nsresult rv = NS_OK;
+  if (newRange) {
+    rv = newRange->SetStartAndEnd(start, startOffset, end, endOffset);
+  } else {
+    rv = nsRange::CreateRange(start, startOffset, end, endOffset,
+                              getter_AddRefs(newRange));
+  }
+
+  // nsRange::SetStartAndEnd() and nsRange::CreateRange() returns
+  // IndexSizeError if any offset is out of bounds.
   if (NS_FAILED(rv)) {
     aRv.Throw(rv);
     return;
   }
 
-  rv = RemoveAllRanges();
-  if (NS_FAILED(rv)) {
-    aRv.Throw(rv);
+  // Use non-virtual method instead of nsISelection::RemoveAllRanges().
+  RemoveAllRanges(aRv);
+  if (aRv.Failed()) {
     return;
   }
 
