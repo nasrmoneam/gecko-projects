@@ -357,12 +357,8 @@ nsHTMLDocument::TryCacheCharset(nsICachingChannel* aCachingChannel,
   if (NS_FAILED(rv) || cachedCharset.IsEmpty()) {
     return;
   }
-  // The replacement encoding is not ASCII-compatible.
-  if (cachedCharset.EqualsLiteral("replacement")) {
-    return;
-  }
   // The canonical names changed, so the cache may have an old name.
-  const Encoding* encoding = Encoding::ForLabel(cachedCharset);
+  const Encoding* encoding = Encoding::ForLabelNoReplacement(cachedCharset);
   if (!encoding) {
     return;
   }
@@ -736,9 +732,6 @@ nsHTMLDocument::StartDocumentLoad(const char* aCommand,
       if (NS_SUCCEEDED(rv)) {
         if (cachedSource > charsetSource) {
           auto cachedEncoding = Encoding::ForLabel(cachedCharset);
-          if (!cachedEncoding && cachedCharset.EqualsLiteral("replacement")) {
-            cachedEncoding = REPLACEMENT_ENCODING;
-          }
           if (cachedEncoding) {
             charsetSource = cachedSource;
             encoding = WrapNotNull(cachedEncoding);
@@ -1347,6 +1340,11 @@ nsHTMLDocument::GetCookie(nsAString& aCookie, ErrorResult& rv)
     return;
   }
 
+  // If the document is a cookie-averse Document... return the empty string.
+  if (IsCookieAverse()) {
+    return;
+  }
+
   // not having a cookie service isn't an error
   nsCOMPtr<nsICookieService> service = do_GetService(NS_COOKIESERVICE_CONTRACTID);
   if (service) {
@@ -1397,6 +1395,11 @@ nsHTMLDocument::SetCookie(const nsAString& aCookie, ErrorResult& rv)
   // is prohibited.
   if (mSandboxFlags & SANDBOXED_ORIGIN) {
     rv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    return;
+  }
+
+  // If the document is a cookie-averse Document... do nothing.
+  if (IsCookieAverse()) {
     return;
   }
 
@@ -2347,26 +2350,18 @@ nsContentList*
 nsHTMLDocument::GetForms()
 {
   if (!mForms) {
+    // Please keep this in sync with nsContentUtils::GenerateStateKey().
     mForms = new nsContentList(this, kNameSpaceID_XHTML, nsGkAtoms::form, nsGkAtoms::form);
   }
 
   return mForms;
 }
 
-static bool MatchFormControls(Element* aElement, int32_t aNamespaceID,
-                              nsIAtom* aAtom, void* aData)
+bool
+nsHTMLDocument::MatchFormControls(Element* aElement, int32_t aNamespaceID,
+                                  nsIAtom* aAtom, void* aData)
 {
   return aElement->IsNodeOfType(nsIContent::eHTML_FORM_CONTROL);
-}
-
-nsContentList*
-nsHTMLDocument::GetFormControls()
-{
-  if (!mFormControls) {
-    mFormControls = new nsContentList(this, MatchFormControls, nullptr, nullptr);
-  }
-
-  return mFormControls;
 }
 
 nsresult
