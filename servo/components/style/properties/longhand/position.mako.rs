@@ -311,7 +311,6 @@ ${helpers.predefined_type("object-position",
         }
     }
 
-    no_viewport_percentage!(SpecifiedValue);
     impl ComputedValueAsSpecified for SpecifiedValue {}
 
     impl ToCss for computed_value::T {
@@ -417,7 +416,7 @@ ${helpers.predefined_type("object-position",
         products="gecko"
         animation_value_type="discrete"
         boxed="True">
-    use std::collections::HashMap;
+    use hash::HashMap;
     use std::fmt;
     use std::ops::Range;
     use str::HTML_SPACE_CHARACTERS;
@@ -454,7 +453,6 @@ ${helpers.predefined_type("object-position",
         pub columns: Range<u32>,
     }
 
-    no_viewport_percentage!(TemplateAreas);
     impl ComputedValueAsSpecified for TemplateAreas {}
 
     impl Parse for TemplateAreas {

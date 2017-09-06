@@ -12,7 +12,7 @@ use dom::TElement;
 use element_state::ElementState;
 use font_metrics::FontMetricsProvider;
 #[cfg(feature = "gecko")]
-use gecko_bindings::structs::{nsIAtom, StyleRuleInclusion};
+use gecko_bindings::structs::{nsIAtom, ServoStyleSetSizes, StyleRuleInclusion};
 use invalidation::element::invalidation_map::InvalidationMap;
 use invalidation::media_queries::{EffectiveMediaQueryResults, ToMediaListKey};
 use media_queries::Device;
@@ -41,8 +41,11 @@ use style_traits::viewport::ViewportConstraints;
 use stylesheet_set::{OriginValidity, SheetRebuildKind, StylesheetSet, StylesheetIterator, StylesheetFlusher};
 #[cfg(feature = "gecko")]
 use stylesheets::{CounterStyleRule, FontFaceRule, FontFeatureValuesRule};
-use stylesheets::{CssRule, StyleRule};
-use stylesheets::{StylesheetInDocument, Origin, OriginSet, PerOrigin, PerOriginIter};
+use stylesheets::{CssRule, Origin, OriginSet, PerOrigin, PerOriginIter};
+#[cfg(feature = "gecko")]
+use stylesheets::{MallocSizeOf, MallocSizeOfFn};
+use stylesheets::StyleRule;
+use stylesheets::StylesheetInDocument;
 use stylesheets::UserAgentStylesheets;
 use stylesheets::keyframes_rule::KeyframesAnimation;
 use stylesheets::viewport_rule::{self, MaybeNew, ViewportRule};
@@ -721,7 +724,6 @@ impl Stylist {
             parent,
             parent,
             None,
-            None,
             font_metrics,
             cascade_flags,
             self.quirks_mode,
@@ -901,7 +903,6 @@ impl Stylist {
                 Some(inherited_style_ignoring_first_line),
                 Some(layout_parent_style_for_visited),
                 None,
-                None,
                 font_metrics,
                 cascade_flags,
                 self.quirks_mode,
@@ -927,7 +928,6 @@ impl Stylist {
             Some(parent_style_ignoring_first_line),
             Some(layout_parent_style),
             visited_values,
-            None,
             font_metrics,
             cascade_flags,
             self.quirks_mode,
@@ -1070,34 +1070,32 @@ impl Stylist {
     /// Also, the device that arrives here may need to take the viewport rules
     /// into account.
     ///
-    /// feature = "servo" because gecko only has one device, and manually tracks
-    /// when the device is dirty.
-    ///
-    /// FIXME(emilio): The semantics of the device for Servo and Gecko are
-    /// different enough we may want to unify them.
-    #[cfg(feature = "servo")]
+    /// For Gecko, this is called when XBL bindings are used by different
+    /// documents.
     pub fn set_device(
         &mut self,
         mut device: Device,
         guard: &SharedRwLockReadGuard,
     ) -> OriginSet {
-        let cascaded_rule = {
-            let stylesheets = self.stylesheets.iter();
+        if viewport_rule::enabled() {
+            let cascaded_rule = {
+                let stylesheets = self.stylesheets.iter();
 
-            ViewportRule {
-                declarations: viewport_rule::Cascade::from_stylesheets(
-                    stylesheets.clone(),
-                    guard,
-                    &device
-                ).finish(),
+                ViewportRule {
+                    declarations: viewport_rule::Cascade::from_stylesheets(
+                        stylesheets.clone(),
+                        guard,
+                        &device
+                    ).finish(),
+                }
+            };
+
+            self.viewport_constraints =
+                ViewportConstraints::maybe_new(&device, &cascaded_rule, self.quirks_mode);
+
+            if let Some(ref constraints) = self.viewport_constraints {
+                device.account_for_viewport_rule(constraints);
             }
-        };
-
-        self.viewport_constraints =
-            ViewportConstraints::maybe_new(&device, &cascaded_rule, self.quirks_mode);
-
-        if let Some(ref constraints) = self.viewport_constraints {
-            device.account_for_viewport_rule(constraints);
         }
 
         self.device = device;
@@ -1543,7 +1541,6 @@ impl Stylist {
             Some(parent_style),
             Some(parent_style),
             None,
-            None,
             &metrics,
             CascadeFlags::empty(),
             self.quirks_mode,
@@ -1563,6 +1560,14 @@ impl Stylist {
     /// Accessor for a shared reference to the rule tree.
     pub fn rule_tree(&self) -> &RuleTree {
         &self.rule_tree
+    }
+
+    /// Measures heap usage.
+    #[cfg(feature = "gecko")]
+    pub fn malloc_add_size_of_children(&self, malloc_size_of: MallocSizeOfFn,
+                                       sizes: &mut ServoStyleSetSizes) {
+        // XXX: need to measure other fields
+        sizes.mStylistRuleTree += self.rule_tree.malloc_size_of_children(malloc_size_of);
     }
 }
 

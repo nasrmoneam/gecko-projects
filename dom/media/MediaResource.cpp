@@ -109,10 +109,8 @@ ChannelMediaResource::ChannelMediaResource(
 
 ChannelMediaResource::~ChannelMediaResource()
 {
-  if (mListener) {
-    // Kill its reference to us since we're going away
-    mListener->Revoke();
-  }
+  MOZ_ASSERT(!mChannel);
+  MOZ_ASSERT(!mListener);
 }
 
 // ChannelMediaResource::Listener just observes the channel and
@@ -122,8 +120,11 @@ ChannelMediaResource::~ChannelMediaResource()
 // a new listener, so notifications from the old channel are discarded
 // and don't confuse us.
 NS_IMPL_ISUPPORTS(ChannelMediaResource::Listener,
-                  nsIRequestObserver, nsIStreamListener, nsIChannelEventSink,
-                  nsIInterfaceRequestor)
+                  nsIRequestObserver,
+                  nsIStreamListener,
+                  nsIChannelEventSink,
+                  nsIInterfaceRequestor,
+                  nsIThreadRetargetableStreamListener)
 
 nsresult
 ChannelMediaResource::Listener::OnStartRequest(nsIRequest* aRequest,
@@ -151,8 +152,8 @@ ChannelMediaResource::Listener::OnDataAvailable(nsIRequest* aRequest,
                                                 uint64_t aOffset,
                                                 uint32_t aCount)
 {
-  if (!mResource)
-    return NS_OK;
+  // This might happen off the main thread.
+  MOZ_DIAGNOSTIC_ASSERT(mResource);
   return mResource->OnDataAvailable(aRequest, aStream, aCount);
 }
 
@@ -174,7 +175,13 @@ ChannelMediaResource::Listener::AsyncOnChannelRedirect(nsIChannel* aOldChannel,
 }
 
 nsresult
-ChannelMediaResource::Listener::GetInterface(const nsIID & aIID, void **aResult)
+ChannelMediaResource::Listener::CheckListenerChain()
+{
+  return NS_OK;
+}
+
+nsresult
+ChannelMediaResource::Listener::GetInterface(const nsIID& aIID, void** aResult)
 {
   return QueryInterface(aIID, aResult);
 }
@@ -625,8 +632,8 @@ nsresult ChannelMediaResource::Close()
 {
   NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
 
-  mCacheStream.Close();
   CloseChannel();
+  mCacheStream.Close();
   return NS_OK;
 }
 
@@ -674,11 +681,6 @@ void ChannelMediaResource::CloseChannel()
     mChannelStatistics.Stop();
   }
 
-  if (mListener) {
-    mListener->Revoke();
-    mListener = nullptr;
-  }
-
   if (mChannel) {
     mSuspendAgent.NotifyChannelClosing();
     // The status we use here won't be passed to the decoder, since
@@ -690,6 +692,11 @@ void ChannelMediaResource::CloseChannel()
     // at the moment.
     mChannel->Cancel(NS_ERROR_PARSED_DATA_CACHED);
     mChannel = nullptr;
+  }
+
+  if (mListener) {
+    mListener->Revoke();
+    mListener = nullptr;
   }
 }
 
@@ -864,29 +871,13 @@ ChannelMediaResource::RecreateChannel()
 }
 
 void
-ChannelMediaResource::DoNotifyDataReceived()
-{
-  mDataReceivedEvent.Revoke();
-  mCallback->NotifyDataArrived();
-}
-
-void
 ChannelMediaResource::CacheClientNotifyDataReceived()
 {
-  NS_ASSERTION(NS_IsMainThread(), "Don't call on non-main thread");
-  // NOTE: this can be called with the media cache lock held, so don't
-  // block or do anything which might try to acquire a lock!
-
-  if (mDataReceivedEvent.IsPending())
-    return;
-
-  mDataReceivedEvent =
-    NewNonOwningRunnableMethod("ChannelMediaResource::DoNotifyDataReceived",
-                               this, &ChannelMediaResource::DoNotifyDataReceived);
-
-  nsCOMPtr<nsIRunnable> event = mDataReceivedEvent.get();
-
-  SystemGroup::AbstractMainThreadFor(TaskCategory::Other)->Dispatch(event.forget());
+  SystemGroup::Dispatch(
+    TaskCategory::Other,
+    NewRunnableMethod("MediaResourceCallback::NotifyDataArrived",
+                      mCallback.get(),
+                      &MediaResourceCallback::NotifyDataArrived));
 }
 
 void

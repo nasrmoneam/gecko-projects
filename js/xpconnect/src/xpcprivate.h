@@ -76,6 +76,7 @@
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/DefineEnum.h"
 #include "mozilla/GuardObjects.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
@@ -338,14 +339,12 @@ private:
 
 class WatchdogManager;
 
-enum WatchdogTimestampCategory
-{
-    TimestampContextStateChange = 0,
+MOZ_DEFINE_ENUM(WatchdogTimestampCategory, (
     TimestampWatchdogWakeup,
     TimestampWatchdogHibernateStart,
     TimestampWatchdogHibernateStop,
-    TimestampCount
-};
+    TimestampContextStateChange
+));
 
 class AsyncFreeSnowWhite;
 
@@ -396,6 +395,7 @@ private:
 };
 
 class XPCJSContext final : public mozilla::CycleCollectedJSContext
+                         , public mozilla::LinkedListElement<XPCJSContext>
 {
 public:
     static void InitTLS();
@@ -458,7 +458,6 @@ public:
         IDX_CREATE_INSTANCE         ,
         IDX_ITEM                    ,
         IDX_PROTO                   ,
-        IDX_ITERATOR                ,
         IDX_EXPOSEDPROPS            ,
         IDX_EVAL                    ,
         IDX_CONTROLLERS             ,
@@ -493,7 +492,12 @@ private:
     AutoMarkingPtr*          mAutoRoots;
     jsid                     mResolveName;
     XPCWrappedNative*        mResolvingWrapper;
-    RefPtr<WatchdogManager>  mWatchdogManager;
+    WatchdogManager*         mWatchdogManager;
+
+    // Number of XPCJSContexts currently alive.
+    static uint32_t         sInstanceCount;
+    static mozilla::StaticRefPtr<WatchdogManager> sWatchdogInstance;
+    static WatchdogManager* GetWatchdogManager();
 
     // If we spend too much time running JS code in an event handler, then we
     // want to show the slow script UI. The timeout T is controlled by prefs. We
@@ -521,8 +525,13 @@ private:
     // meaningful while calling through XPCWrappedJS.
     nsresult mPendingResult;
 
+    // These members must be accessed via WatchdogManager.
+    enum { CONTEXT_ACTIVE, CONTEXT_INACTIVE } mActive;
+    PRTime mLastStateChange;
+
     friend class XPCJSRuntime;
     friend class Watchdog;
+    friend class WatchdogManager;
     friend class AutoLockWatchdog;
 };
 

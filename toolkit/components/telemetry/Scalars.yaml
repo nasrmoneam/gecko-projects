@@ -428,6 +428,21 @@ services.sync:
     record_in_processes:
       - main
 
+  sync_login_state_transitions:
+    bug_numbers:
+      - 1375635
+    description: >
+      Records transitions between login states of "success", "unverified"
+      and "rejected.
+    expires: "65"
+    kind: boolean
+    keyed: true
+    notification_emails:
+      - sync-staff@mozilla.com
+    release_channel_collection: opt-out
+    record_in_processes:
+      - main
+
 security:
   pkcs11_modules_loaded:
     bug_numbers:
@@ -459,6 +474,23 @@ security:
     release_channel_collection: opt-out
     record_in_processes:
       - main
+
+sandbox:
+  no_job:
+    bug_numbers:
+      - 1392570
+    description: >
+      Indicates that we can't use a job object for sandboxed child processes.
+      Keyed by whether we are in a remote session or not from ::GetSystemMetrics(SM_REMOTESESSION).
+    expires: "62"
+    kind: boolean
+    keyed: true
+    notification_emails:
+      - bowen@mozilla.com
+    release_channel_collection: opt-out
+    record_in_processes:
+      - main
+    cpp_guard: 'XP_WIN'
 
 preferences:
   created_new_user_prefs_file:
@@ -920,6 +952,49 @@ formautofill.addresses:
     description: >
       Count at submission time whether the submitted form was autofilled, but
       the data in form is changed and can not be merged to orginal address profile.
+    expires: never
+    kind: uint
+    notification_emails:
+      - autofill@lists.mozilla.org
+      - jcheng@mozilla.com
+      - chsiang@mozilla.com
+    release_channel_collection: opt-out
+    record_in_processes:
+      - 'main'
+
+formautofill.creditCards:
+  fill_type_manual:
+    bug_numbers:
+      - 1371232
+    description: Count at submission time whether the submitted credit card form was filled manually.
+    expires: never
+    kind: uint
+    notification_emails:
+      - autofill@lists.mozilla.org
+      - jcheng@mozilla.com
+      - chsiang@mozilla.com
+    release_channel_collection: opt-out
+    record_in_processes:
+      - 'main'
+  fill_type_autofill:
+    bug_numbers:
+      - 1371232
+    description: Count at submission time whether the submitted credit card form was autofilled.
+    expires: never
+    kind: uint
+    notification_emails:
+      - autofill@lists.mozilla.org
+      - jcheng@mozilla.com
+      - chsiang@mozilla.com
+    release_channel_collection: opt-out
+    record_in_processes:
+      - 'main'
+  fill_type_autofill_modified:
+    bug_numbers:
+      - 1371232
+    description: >
+      Count at submission time whether the submitted credit card form was autofilled but
+      the data in form is changed.
     expires: never
     kind: uint
     notification_emails:

@@ -29,6 +29,7 @@
 #include "nsIDocumentInlines.h"
 #include "nsILoadContext.h"
 #include "nsIFrame.h"
+#include "nsIMemoryReporter.h"
 #include "nsINode.h"
 #include "nsIPresShell.h"
 #include "nsIPresShellInlines.h"
@@ -226,38 +227,23 @@ ServoComputedData::GetStyleVariables() const
             "called");
 }
 
-MOZ_DEFINE_MALLOC_SIZE_OF(ServoStyleStructsMallocSizeOf)
+MOZ_DEFINE_MALLOC_ENCLOSING_SIZE_OF(ServoStyleStructsMallocEnclosingSizeOf)
 
 void
 ServoComputedData::AddSizeOfExcludingThis(nsWindowSizes& aSizes) const
 {
-  // XXX WARNING: GetStyleFoo() returns an nsStyleFoo pointer. This nsStyleFoo
-  // sits within a servo_arc::Arc, i.e. it is preceded by a word-sized
-  // refcount. So this pointer is an interior pointer. To get the start address
-  // of the heap block we move the pointer back by one word. For this to work,
-  // two things must be true.
-  //
-  // - The layout of servo_arc::Arc must stay the same.
-  //
-  // - The alignment of each nsStyleFoo must not be greater than the size of a
-  //   word (otherwise padding might be inserted between the refcount and the
-  //   struct in the servo_arc::Arc).
-  //
-  // In the long run a better solution here is for mozjemalloc to provide a
-  // function that converts an interior pointer to a start pointer (bug
-  // 1389305), but that's not available right now.
-  //
-  // Also, we use ServoStyleStructsMallocSizeOf rather than
-  // |aSizes.mState.mMallocSizeOf| to better distinguish in DMD's output the
-  // memory measured here.
+  // Note: GetStyleFoo() returns a pointer to an nsStyleFoo that sits within a
+  // servo_arc::Arc, i.e. it is preceded by a word-sized refcount. So we need
+  // to measure it with a function that can handle an interior pointer. We use
+  // ServoStyleStructsEnclosingMallocSizeOf to clearly identify in DMD's
+  // output the memory measured here.
 #define STYLE_STRUCT(name_, cb_) \
   static_assert(alignof(nsStyle##name_) <= sizeof(size_t), \
                 "alignment will break AddSizeOfExcludingThis()"); \
-  const char* p##name_ = reinterpret_cast<const char*>(GetStyle##name_()); \
-  p##name_ -= sizeof(size_t); \
+  const void* p##name_ = GetStyle##name_(); \
   if (!aSizes.mState.HaveSeenPtr(p##name_)) { \
     aSizes.mServoStyleSizes.NS_STYLE_SIZES_FIELD(name_) += \
-      ServoStyleStructsMallocSizeOf(p##name_); \
+      ServoStyleStructsMallocEnclosingSizeOf(p##name_); \
   }
   #define STYLE_STRUCT_LIST_IGNORE_VARIABLES
 #include "nsStyleStructList.h"
@@ -375,6 +361,13 @@ Gecko_NoteDirtyElement(RawGeckoElementBorrowed aElement)
 {
   MOZ_ASSERT(NS_IsMainThread());
   const_cast<Element*>(aElement)->NoteDirtyForServo();
+}
+
+void
+Gecko_NoteDirtySubtreeForInvalidation(RawGeckoElementBorrowed aElement)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  const_cast<Element*>(aElement)->NoteDirtySubtreeForServo();
 }
 
 void
@@ -1453,52 +1446,19 @@ Gecko_CopyCounterStyle(CounterStylePtr* aDst, const CounterStylePtr* aSrc)
   *aDst = *aSrc;
 }
 
-bool
-Gecko_CounterStyle_IsNone(const CounterStylePtr* aPtr) {
-  MOZ_ASSERT(aPtr);
-  return (*aPtr)->IsNone();
+nsIAtom*
+Gecko_CounterStyle_GetName(const CounterStylePtr* aPtr)
+{
+  if (!aPtr->IsResolved()) {
+    return aPtr->AsAtom();
+  }
+  return (*aPtr)->GetStyleName();
 }
 
-bool
-Gecko_CounterStyle_IsName(const CounterStylePtr* aPtr) {
-  return !Gecko_CounterStyle_IsNone(aPtr) && !(*aPtr)->AsAnonymous();
-}
-
-void
-Gecko_CounterStyle_GetName(const CounterStylePtr* aPtr,
-                           nsAString* aResult) {
-  MOZ_ASSERT(Gecko_CounterStyle_IsName(aPtr));
-  (*aPtr)->GetStyleName(*aResult);
-}
-
-const nsTArray<nsString>&
-Gecko_CounterStyle_GetSymbols(const CounterStylePtr* aPtr) {
-  MOZ_ASSERT((*aPtr)->AsAnonymous());
-  AnonymousCounterStyle* anonymous = (*aPtr)->AsAnonymous();
-  return anonymous->GetSymbols();
-}
-
-uint8_t
-Gecko_CounterStyle_GetSystem(const CounterStylePtr* aPtr) {
-  MOZ_ASSERT((*aPtr)->AsAnonymous());
-  AnonymousCounterStyle* anonymous = (*aPtr)->AsAnonymous();
-  return anonymous->GetSystem();
-}
-
-bool
-Gecko_CounterStyle_IsSingleString(const CounterStylePtr* aPtr) {
-  MOZ_ASSERT(aPtr);
-  AnonymousCounterStyle* anonymous = (*aPtr)->AsAnonymous();
-  return anonymous ? anonymous->IsSingleString() : false;
-}
-
-void
-Gecko_CounterStyle_GetSingleString(const CounterStylePtr* aPtr,
-                                   nsAString* aResult) {
-  MOZ_ASSERT(Gecko_CounterStyle_IsSingleString(aPtr));
-  const nsTArray<nsString>& symbols = Gecko_CounterStyle_GetSymbols(aPtr);
-  MOZ_ASSERT(symbols.Length() == 1);
-  aResult->Assign(symbols[0]);
+const AnonymousCounterStyle*
+Gecko_CounterStyle_GetAnonymous(const CounterStylePtr* aPtr)
+{
+  return aPtr->AsAnonymous();
 }
 
 already_AddRefed<css::URLValue>
@@ -2772,9 +2732,7 @@ void
 Gecko_SetJemallocThreadLocalArena(bool enabled)
 {
 #if defined(MOZ_MEMORY)
-  // At this point we convert |enabled| from a plain C++ bool to a
-  // |jemalloc_bool|, so be on the safe side.
-  jemalloc_thread_local_arena(!!enabled);
+  jemalloc_thread_local_arena(enabled);
 #endif
 }
 

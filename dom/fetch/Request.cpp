@@ -449,7 +449,7 @@ Request::Constructor(const GlobalObject& aGlobal,
   }
 
   if (aInit.mSignal.WasPassed()) {
-    signal = &aInit.mSignal.Value();
+    signal = aInit.mSignal.Value();
   }
 
   if (NS_IsMainThread()) {
@@ -548,11 +548,6 @@ Request::Constructor(const GlobalObject& aGlobal,
       request->GetMethod(method);
       NS_ConvertUTF8toUTF16 label(method);
       aRv.ThrowTypeError<MSG_INVALID_REQUEST_METHOD>(label);
-      return nullptr;
-    }
-
-    if (!request->GetIntegrity().IsEmpty()) {
-      aRv.ThrowTypeError<MSG_REQUEST_INTEGRITY_METADATA_NOT_EMPTY>();
       return nullptr;
     }
 

@@ -76,7 +76,6 @@ macro_rules! impl_gecko_keyword_conversions {
     use std::fmt;
     use style_traits::ToCss;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     pub mod computed_value {
         use cssparser::{CssStringWriter, Parser, serialize_identifier};
@@ -274,7 +273,7 @@ macro_rules! impl_gecko_keyword_conversions {
                         % if product == "gecko":
                             // We should treat -moz-fixed as monospace
                             if name == &atom!("-moz-fixed") {
-                                return write!(dest, "monospace");
+                                return dest.write_str("monospace");
                             }
                         % endif
 
@@ -430,7 +429,6 @@ ${helpers.single_keyword_system("font-variant-caps",
                    spec="https://drafts.csswg.org/css-fonts/#propdef-font-weight">
     use properties::longhands::system_font::SystemFont;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
     #[derive(Clone, Copy, Debug, Eq, PartialEq, ToCss)]
@@ -597,7 +595,7 @@ ${helpers.single_keyword_system("font-variant-caps",
     use app_units::Au;
     use properties::longhands::system_font::SystemFont;
     use std::fmt;
-    use style_traits::{HasViewportPercentage, ToCss};
+    use style_traits::ToCss;
     use values::FONT_MEDIUM_PX;
     use values::computed::NonNegativeAu;
     use values::specified::{AllowQuirks, FontRelativeLength, LengthOrPercentage, NoCalcLength};
@@ -611,15 +609,6 @@ ${helpers.single_keyword_system("font-variant-caps",
                 SpecifiedValue::Smaller => dest.write_str("smaller"),
                 SpecifiedValue::Larger => dest.write_str("larger"),
                 SpecifiedValue::System(sys) => sys.to_css(dest),
-            }
-        }
-    }
-
-    impl HasViewportPercentage for SpecifiedValue {
-        fn has_viewport_percentage(&self) -> bool {
-            match *self {
-                SpecifiedValue::Length(ref lop) => lop.has_viewport_percentage(),
-                _ => false
             }
         }
     }
@@ -870,7 +859,7 @@ ${helpers.single_keyword_system("font-variant-caps",
                     base_size.resolve(context).scale_by(pc.0).into()
                 }
                 SpecifiedValue::Length(LengthOrPercentage::Calc(ref calc)) => {
-                    let calc = calc.to_computed_value_zoomed(context);
+                    let calc = calc.to_computed_value_zoomed(context, base_size);
                     calc.to_used_value(Some(base_size.resolve(context))).unwrap().into()
                 }
                 SpecifiedValue::Keyword(ref key, fraction) => {
@@ -1068,7 +1057,6 @@ ${helpers.single_keyword_system("font-variant-caps",
                    spec="https://drafts.csswg.org/css-fonts/#propdef-font-size-adjust">
     use properties::longhands::system_font::SystemFont;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     #[derive(Clone, Copy, Debug, PartialEq, ToCss)]
     #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -1190,7 +1178,6 @@ ${helpers.single_keyword_system("font-variant-caps",
     use values::computed::ComputedValueAsSpecified;
 
     impl ComputedValueAsSpecified for SpecifiedValue {}
-    no_viewport_percentage!(SpecifiedValue);
 
     pub mod computed_value {
         pub use super::SpecifiedValue as T;
@@ -1302,7 +1289,6 @@ ${helpers.single_keyword_system("font-kerning",
     use style_traits::ToCss;
     use values::CustomIdent;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     #[derive(Clone, Debug, PartialEq)]
     #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -1512,7 +1498,6 @@ macro_rules! exclusive_value {
     use std::fmt;
     use style_traits::ToCss;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     bitflags! {
         #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -1658,7 +1643,6 @@ macro_rules! exclusive_value {
     use std::fmt;
     use style_traits::ToCss;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     bitflags! {
         #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -1818,7 +1802,6 @@ macro_rules! exclusive_value {
     use std::fmt;
     use style_traits::ToCss;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     bitflags! {
         #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -1981,7 +1964,6 @@ ${helpers.single_keyword_system("font-variant-position",
         Value(computed_value::T),
         System(SystemFont)
     }
-    no_viewport_percentage!(SpecifiedValue);
 
     <%self:simple_system_boilerplate name="font_feature_settings"></%self:simple_system_boilerplate>
 
@@ -2013,7 +1995,8 @@ variation_spec = """\
 https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-the-font-variation-settings-property\
 """
 %>
-<%helpers:longhand name="font-variation-settings" products="gecko" animation_value_type="none"
+<%helpers:longhand name="font-variation-settings" products="gecko"
+                   animation_value_type="ComputedValue"
                    flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER"
                    spec="${variation_spec}">
     use values::computed::ComputedValueAsSpecified;
@@ -2023,7 +2006,6 @@ https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-
 
     pub type SpecifiedValue = computed_value::T;
 
-    no_viewport_percentage!(SpecifiedValue);
 
 
     pub mod computed_value {
@@ -2051,7 +2033,6 @@ https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-
     use std::fmt;
     use style_traits::ToCss;
     use byteorder::{BigEndian, ByteOrder};
-    no_viewport_percentage!(SpecifiedValue);
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -2209,7 +2190,6 @@ https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-
     pub use self::computed_value::T as SpecifiedValue;
 
     impl ComputedValueAsSpecified for SpecifiedValue {}
-    no_viewport_percentage!(SpecifiedValue);
 
     pub mod computed_value {
         use Atom;
@@ -2269,7 +2249,6 @@ https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-
     use std::fmt;
     use style_traits::ToCss;
 
-    no_viewport_percentage!(SpecifiedValue);
 
     pub mod computed_value {
         pub type T = i8;
@@ -2369,7 +2348,7 @@ ${helpers.single_keyword("-moz-math-variant",
     use gecko_bindings::structs::NS_MATHML_DEFAULT_SCRIPT_MIN_SIZE_PT;
     use values::specified::length::{AU_PER_PT, FontBaseSize, NoCalcLength};
 
-    #[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+    #[derive(Clone, Debug, PartialEq, ToCss)]
     pub struct SpecifiedValue(pub NoCalcLength);
 
     pub mod computed_value {
@@ -2418,7 +2397,6 @@ ${helpers.single_keyword("-moz-math-variant",
     pub use self::computed_value::T as SpecifiedValue;
 
     impl ComputedValueAsSpecified for SpecifiedValue {}
-    no_viewport_percentage!(SpecifiedValue);
 
     pub mod computed_value {
         use std::fmt;

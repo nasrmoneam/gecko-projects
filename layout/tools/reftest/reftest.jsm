@@ -3,6 +3,7 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+"use strict";
 
 this.EXPORTED_SYMBOLS = ["OnRefTestLoad", "OnRefTestUnload"];
 
@@ -551,10 +552,11 @@ function StartTests()
             // gURLs array which prevents skipped tests from showing up in the log
             start = gThisChunk == 1 ? 0 : gURLs.indexOf(tURLs[start]);
             end = gThisChunk == gTotalChunks ? gURLs.length : gURLs.indexOf(tURLs[end + 1]) - 1;
-            gURLs = gURLs.slice(start, end);
 
             logger.info("Running chunk " + gThisChunk + " out of " + gTotalChunks + " chunks.  " +
                 "tests " + (start+1) + "-" + end + "/" + gURLs.length);
+
+            gURLs = gURLs.slice(start, end);
         }
 
         if (gShuffle) {
@@ -852,9 +854,9 @@ function AddTestItem(aTest, aFilter)
     if (!aFilter)
         aFilter = [null, [], false];
 
-    globalFilter = aFilter[0];
-    manifestFilter = aFilter[1];
-    invertManifest = aFilter[2];
+    var globalFilter = aFilter[0];
+    var manifestFilter = aFilter[1];
+    var invertManifest = aFilter[2];
     if ((globalFilter && !globalFilter.test(aTest.url1.spec)) ||
         (manifestFilter &&
          !(invertManifest ^ manifestFilter.test(aTest.url1.spec))))
@@ -1495,7 +1497,7 @@ function StartCurrentURI(aState)
 
 function DoneTests()
 {
-    logger.suiteEnd(extra={'results': gTestResults});
+    logger.suiteEnd({'results': gTestResults});
     logger.info("Slowest test took " + gSlowestTestTime + "ms (" + gSlowestTestURL + ")");
     logger.info("Total canvas count = " + gRecycledCanvases.length);
     if (gFailedUseWidgetLayers) {

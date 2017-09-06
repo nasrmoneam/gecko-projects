@@ -67,9 +67,6 @@ enum class ServoTraversalFlags : uint32_t {
   // pre-traversal. A forgetful traversal is usually the right thing if you
   // aren't going to do a post-traversal.
   Forgetful = 1 << 3,
-  // Actively seeks out and clears change hints that may have been posted into
-  // the tree. Nonsensical without also passing Forgetful.
-  AggressivelyForgetful = 1 << 4,
   // Clears all the dirty bits (dirty descendants, animation-only dirty-descendants,
   // needs frame, descendants need frames) on the elements traversed.
   // in the subtree.
@@ -200,6 +197,18 @@ struct ServoComputedValueFlags {
 #include "nsStyleStructList.h"
 #undef STYLE_STRUCT
 #undef STYLE_STRUCT_LIST_IGNORE_VARIABLES
+
+class ServoStyleSetSizes
+{
+public:
+  size_t mStylistRuleTree;
+  size_t mOther;
+
+  ServoStyleSetSizes()
+    : mStylistRuleTree(0)
+    , mOther(0)
+  {}
+};
 
 } // namespace mozilla
 

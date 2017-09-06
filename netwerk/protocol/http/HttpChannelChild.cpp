@@ -1187,6 +1187,9 @@ HttpChannelChild::DoOnStopRequest(nsIRequest* aRequest, nsresult aChannelStatus,
   }
   mOnStopRequestCalled = true;
 
+  // notify "http-on-stop-connect" observers
+  gHttpHandler->OnStopRequest(this);
+
   ReleaseListeners();
 
   // If a preferred alt-data type was set, the parent would hold a reference to
@@ -2300,6 +2303,18 @@ HttpChannelChild::AsyncOpen(nsIStreamListener *listener, nsISupports *aContext)
              "security flags in loadInfo but asyncOpen2() not called");
 
   LOG(("HttpChannelChild::AsyncOpen [this=%p uri=%s]\n", this, mSpec.get()));
+
+  if (LOG4_ENABLED()) {
+    JSContext* cx = nsContentUtils::GetCurrentJSContext();
+    if (cx) {
+      nsAutoCString fileNameString;
+      uint32_t line = 0, col = 0;
+      if (nsJSUtils::GetCallingLocation(cx, fileNameString, &line, &col)) {
+        LOG(("HttpChannelChild %p source script=%s:%u:%u",
+             this, fileNameString.get(), line, col));
+      }
+    }
+  }
 
 #ifdef DEBUG
   AssertPrivateBrowsingId();

@@ -89,6 +89,9 @@
       <menuitem id="context_unpinTab" label="&unpinTab.label;" hidden="true"
                 accesskey="&unpinTab.accesskey;"
                 oncommand="gBrowser.unpinTab(TabContextMenu.contextTab);"/>
+      <menuitem id="context_duplicateTab" label="&duplicateTab.label;"
+                accesskey="&duplicateTab.accesskey;"
+                oncommand="duplicateTabIn(TabContextMenu.contextTab, 'tab');"/>
       <menuitem id="context_openTabInWindow" label="&moveToNewWindow.label;"
                 accesskey="&moveToNewWindow.accesskey;"
                 tbattr="tabbrowser-multiple"
@@ -430,12 +433,13 @@
            type="arrow"
            hidden="true"
            flip="slide"
+           photon="true"
            position="bottomcenter topright"
            tabspecific="true"
            noautofocus="true"
-           copyURL-title="&copyURLCmd.label;"
+           copyURL-title="&copyLinkCmd.label;"
            emailLink-title="&emailPageCmd.label;"
-           sendToDevice-title="&sendToDevice.label3;"
+           sendToDevice-title="&sendTabToDevice.label;"
            sendToDevice-notReadyTitle="&sendToDevice.syncNotReady.label;">
       <photonpanelmultiview id="pageActionPanelMultiView"
                             mainViewId="pageActionPanelMainView"
@@ -587,9 +591,8 @@
     <spacer id="titlebar-spacer" flex="1"/>
     <hbox id="titlebar-buttonbox-container">
 #ifdef XP_WIN
-      <hbox id="private-browsing-indicator-titlebar">
-        <hbox class="private-browsing-indicator"/>
-      </hbox>
+      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;" aria-live="polite"/>
+      <hbox class="private-browsing-indicator"/>
 #endif
       <hbox id="titlebar-buttonbox">
         <toolbarbutton class="titlebar-button" id="titlebar-min" oncommand="window.minimize();"/>
@@ -601,6 +604,7 @@
     <!-- OS X does not natively support RTL for its titlebar items, so we prevent this secondary
          buttonbox from reversing order in RTL by forcing an LTR direction. -->
     <hbox id="titlebar-secondary-buttonbox" dir="ltr">
+      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;" aria-live="polite"/>
       <hbox class="private-browsing-indicator"/>
       <hbox id="titlebar-fullscreen-button"/>
     </hbox>
@@ -647,8 +651,12 @@
              collapsed="true">
 
 #if defined(MOZ_WIDGET_GTK)
-      <hbox id="private-browsing-indicator"
+      <hbox class="private-browsing-indicator"
             skipintoolbarset="true"/>
+      <button class="accessibility-indicator"
+              tooltiptext="&accessibilityIndicator.tooltip;"
+              aria-live="polite"
+              skipintoolbarset="true"/>
 #endif
 
       <tabs id="tabbrowser-tabs"
@@ -696,6 +704,8 @@
       </toolbarbutton>
 
 #if !defined(MOZ_WIDGET_GTK)
+      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;"
+              aria-live="polite" skipintoolbarset="true"/>
       <hbox class="private-browsing-indicator" skipintoolbarset="true"/>
 #endif
 #ifdef CAN_DRAW_IN_TITLEBAR
@@ -881,11 +891,13 @@
                 </hbox>
                 <image id="page-report-button"
                        class="urlbar-icon urlbar-page-action"
+                       role="button"
                        hidden="true"
                        tooltiptext="&pageReportIcon.tooltip;"
                        onmousedown="gPopupBlockerObserver.onReportButtonMousedown(event);"/>
                 <image id="reader-mode-button"
                        class="urlbar-icon urlbar-page-action"
+                       role="button"
                        hidden="true"
                        onclick="ReaderParent.buttonClick(event);"/>
                 <toolbarbutton id="urlbar-zoom-button"
@@ -895,19 +907,23 @@
                 <box id="pageActionSeparator" class="urlbar-page-action"/>
                 <image id="pageActionButton"
                        class="urlbar-icon urlbar-page-action"
+                       role="button"
                        tooltiptext="&pageActionButton.tooltip;"
                        onclick="BrowserPageActions.mainButtonClicked(event);"/>
                 <hbox id="star-button-box"
                       hidden="true"
                       class="urlbar-icon-wrapper urlbar-page-action"
+                      role="button"
                       context="pageActionPanelContextMenu"
                       oncontextmenu="BrowserPageActions.onContextMenu(event);"
                       onclick="BrowserPageActions.bookmark.onUrlbarNodeClicked(event);">
                   <image id="star-button"
                          class="urlbar-icon"
+                         role="button"
                          observes="bookmarkThisPageBroadcaster"/>
                   <hbox id="star-button-animatable-box">
                     <image id="star-button-animatable-image"
+                           role="button"
                            observes="bookmarkThisPageBroadcaster"/>
                   </hbox>
                 </hbox>

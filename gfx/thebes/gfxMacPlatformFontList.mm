@@ -216,9 +216,9 @@ MacOSFontEntry::ReadCMAP(FontInfoData *aFontInfoData)
             }
         }
 
-        // Bug 1360309: several of Apple's Chinese fonts have spurious blank
-        // glyphs for obscure Tibetan codepoints. Blacklist these so that font
-        // fallback will not use them.
+        // Bug 1360309, 1393624: several of Apple's Chinese fonts have spurious
+        // blank glyphs for obscure Tibetan and Arabic-script codepoints.
+        // Blacklist these so that font fallback will not use them.
         if (mRequiresAAT && (FamilyName().EqualsLiteral("Songti SC") ||
                              FamilyName().EqualsLiteral("Songti TC") ||
                              FamilyName().EqualsLiteral("STSong") ||
@@ -226,7 +226,15 @@ MacOSFontEntry::ReadCMAP(FontInfoData *aFontInfoData)
                              FamilyName().EqualsLiteral("Kaiti SC") ||
                              FamilyName().EqualsLiteral("Kaiti TC") ||
                              FamilyName().EqualsLiteral("STKaiti"))) {
+            charmap->ClearRange(0x0f6b, 0x0f70);
             charmap->ClearRange(0x0f8c, 0x0f8f);
+            charmap->clear(0x0f98);
+            charmap->clear(0x0fbd);
+            charmap->ClearRange(0x0fcd, 0x0fff);
+            charmap->clear(0x0620);
+            charmap->clear(0x065f);
+            charmap->ClearRange(0x06ee, 0x06ef);
+            charmap->clear(0x06ff);
         }
     }
 
@@ -338,6 +346,18 @@ MacOSFontEntry::MacOSFontEntry(const nsAString& aPostscriptName,
                  "userfont is either a data font or a local font");
     mIsDataUserFont = aIsDataUserFont;
     mIsLocalUserFont = aIsLocalUserFont;
+}
+
+gfxFontEntry*
+MacOSFontEntry::Clone() const
+{
+    MOZ_ASSERT(!IsUserFont(), "we can only clone installed fonts!");
+    MacOSFontEntry* fe =
+        new MacOSFontEntry(Name(), mWeight, mStandardFace, mSizeHint);
+    fe->mStyle = mStyle;
+    fe->mStretch = mStretch;
+    fe->mFixedPitch = mFixedPitch;
+    return fe;
 }
 
 CGFontRef
@@ -1272,7 +1292,7 @@ static const char kSystemFont_system[] = "-apple-system";
 bool
 gfxMacPlatformFontList::FindAndAddFamilies(const nsAString& aFamily,
                                            nsTArray<gfxFontFamily*>* aOutput,
-                                           bool aDeferOtherFamilyNamesLoading,
+                                           FindFamiliesFlags aFlags,
                                            gfxFontStyle* aStyle,
                                            gfxFloat aDevToCssSize)
 {
@@ -1289,7 +1309,7 @@ gfxMacPlatformFontList::FindAndAddFamilies(const nsAString& aFamily,
 
     return gfxPlatformFontList::FindAndAddFamilies(aFamily,
                                                    aOutput,
-                                                   aDeferOtherFamilyNamesLoading,
+                                                   aFlags,
                                                    aStyle,
                                                    aDevToCssSize);
 }
@@ -1506,6 +1526,12 @@ gfxMacPlatformFontList::CreateFontInfoData()
     RefPtr<MacFontInfo> fi =
         new MacFontInfo(true, NeedFullnamePostscriptNames(), loadCmaps);
     return fi.forget();
+}
+
+gfxFontFamily*
+gfxMacPlatformFontList::CreateFontFamily(const nsAString& aName) const
+{
+    return new gfxMacFontFamily(aName, 0.0);
 }
 
 void

@@ -15,6 +15,8 @@ use super::CustomIdent;
 pub mod background;
 pub mod basic_shape;
 pub mod border;
+#[path = "box.rs"]
+pub mod box_;
 pub mod effects;
 pub mod flex;
 #[cfg(feature = "gecko")]
@@ -92,7 +94,6 @@ impl CounterStyleOrNone {
     }
 }
 
-no_viewport_percentage!(CounterStyleOrNone);
 
 impl Parse for CounterStyleOrNone {
     fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
@@ -218,6 +219,7 @@ pub struct FontSettingTagInt(pub u32);
 /// because it serializes with the preceding space
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "gecko", derive(Animate, ComputeSquaredDistance))]
 pub struct FontSettingTagFloat(pub f32);
 
 impl ToCss for FontSettingTagInt {
@@ -225,7 +227,10 @@ impl ToCss for FontSettingTagInt {
         match self.0 {
             1 => Ok(()),
             0 => dest.write_str(" off"),
-            x => write!(dest, " {}", x)
+            x => {
+                dest.write_char(' ')?;
+                x.to_css(dest)
+            }
         }
     }
 }
@@ -268,12 +273,12 @@ impl ToCss for FontSettingTagFloat {
 
 /// A wrapper of Non-negative values.
 #[cfg_attr(feature = "servo", derive(Deserialize, HeapSizeOf, Serialize))]
-#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug, HasViewportPercentage)]
+#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug)]
 #[derive(PartialEq, PartialOrd, ToAnimatedZero, ToComputedValue, ToCss)]
 pub struct NonNegative<T>(pub T);
 
 /// A wrapper of greater-than-or-equal-to-one values.
 #[cfg_attr(feature = "servo", derive(Deserialize, HeapSizeOf, Serialize))]
-#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug, HasViewportPercentage)]
+#[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug)]
 #[derive(PartialEq, PartialOrd, ToAnimatedZero, ToComputedValue, ToCss)]
 pub struct GreaterThanOrEqualToOne<T>(pub T);

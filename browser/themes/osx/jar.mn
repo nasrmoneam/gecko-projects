@@ -27,10 +27,6 @@ browser.jar:
   skin/classic/browser/page-livemarks.png
   skin/classic/browser/page-livemarks@2x.png
   skin/classic/browser/pageInfo.css
-  skin/classic/browser/privatebrowsing-mask.png
-  skin/classic/browser/privatebrowsing-mask@2x.png
-  skin/classic/browser/privatebrowsing-mask-short.png
-  skin/classic/browser/privatebrowsing-mask-short@2x.png
   skin/classic/browser/searchbar.css
   skin/classic/browser/slowStartup-16.png
   skin/classic/browser/toolbarbutton-dropmarker.png
@@ -75,9 +71,7 @@ browser.jar:
   skin/classic/browser/preferences/saveFile.png             (preferences/saveFile.png)
 * skin/classic/browser/preferences/preferences.css          (preferences/preferences.css)
 * skin/classic/browser/preferences/in-content/preferences.css (preferences/in-content/preferences.css)
-* skin/classic/browser/preferences/in-content-new/preferences.css     (preferences/in-content-new/preferences.css)
 * skin/classic/browser/preferences/in-content/dialog.css      (preferences/in-content/dialog.css)
-* skin/classic/browser/preferences/in-content-new/dialog.css          (preferences/in-content-new/dialog.css)
   skin/classic/browser/preferences/applications.css         (preferences/applications.css)
   skin/classic/browser/tabbrowser/tabDragIndicator.png                   (tabbrowser/tabDragIndicator.png)
   skin/classic/browser/tabbrowser/tabDragIndicator@2x.png                (tabbrowser/tabDragIndicator@2x.png)

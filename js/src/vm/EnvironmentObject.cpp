@@ -577,7 +577,7 @@ ModuleEnvironmentObject::setProperty(JSContext* cx, HandleObject obj, HandleId i
     if (self->importBindings().has(id))
         return result.failReadOnly();
 
-    return NativeSetProperty(cx, self, id, v, receiver, Qualified, result);
+    return NativeSetProperty<Qualified>(cx, self, id, v, receiver, result);
 }
 
 /* static */ bool
@@ -977,7 +977,8 @@ LexicalEnvironmentObject::createGlobal(JSContext* cx, Handle<GlobalObject*> glob
 }
 
 /* static */ LexicalEnvironmentObject*
-LexicalEnvironmentObject::createNonSyntactic(JSContext* cx, HandleObject enclosing)
+LexicalEnvironmentObject::createNonSyntactic(JSContext* cx, HandleObject enclosing,
+                                             HandleObject thisv)
 {
     MOZ_ASSERT(enclosing);
     MOZ_ASSERT(!IsSyntacticEnvironment(enclosing));
@@ -991,7 +992,8 @@ LexicalEnvironmentObject::createNonSyntactic(JSContext* cx, HandleObject enclosi
     if (!env)
         return nullptr;
 
-    env->initThisValue(enclosing);
+    env->initThisValue(thisv);
+
     return env;
 }
 

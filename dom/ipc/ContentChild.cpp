@@ -817,7 +817,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
       return rv;
     }
 
-    URIParams uriToLoad;
+    OptionalURIParams uriToLoad;
     SerializeURI(aURI, uriToLoad);
     Unused << SendCreateWindowInDifferentProcess(aTabOpener,
                                                  aChromeFlags,
@@ -1029,7 +1029,7 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
   }
 
   // If the TabChild has been torn down, we don't need to do this anymore.
-  if (NS_WARN_IF(!newChild->IPCOpen())) {
+  if (NS_WARN_IF(!newChild->IPCOpen() || newChild->IsDestroyed())) {
     return NS_ERROR_ABORT;
   }
 
@@ -3633,6 +3633,9 @@ ContentChild::GetSpecificMessageEventTarget(const Message& aMsg)
     case PContent::Msg_DataStoragePut__ID:
     case PContent::Msg_DataStorageRemove__ID:
     case PContent::Msg_DataStorageClear__ID:
+    case PContent::Msg_PIPCBlobInputStreamConstructor__ID:
+    case PContent::Msg_BlobURLRegistration__ID:
+    case PContent::Msg_BlobURLUnregistration__ID:
       return do_AddRef(SystemGroup::EventTargetFor(TaskCategory::Other));
     default:
       return nullptr;

@@ -14,7 +14,7 @@ use parser::{Parse, ParserContext};
 use std::{cmp, fmt, mem};
 use std::ascii::AsciiExt;
 use std::ops::Mul;
-use style_traits::{HasViewportPercentage, ToCss, ParseError, StyleParseError};
+use style_traits::{ToCss, ParseError, StyleParseError};
 use style_traits::values::specified::AllowedLengthType;
 use stylesheets::CssRuleType;
 use super::{AllowQuirks, Number, ToComputedValue, Percentage};
@@ -80,6 +80,7 @@ impl ToCss for FontRelativeLength {
 }
 
 /// A source to resolve font-relative units against
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FontBaseSize {
     /// Use the font-size of the current element
     CurrentStyle,
@@ -181,12 +182,6 @@ pub enum ViewportPercentageLength {
     Vmin(CSSFloat),
     /// https://drafts.csswg.org/css-values/#vmax
     Vmax(CSSFloat)
-}
-
-impl HasViewportPercentage for ViewportPercentageLength {
-    fn has_viewport_percentage(&self) -> bool {
-        true
-    }
 }
 
 impl ToCss for ViewportPercentageLength {
@@ -422,15 +417,6 @@ pub enum NoCalcLength {
     Physical(PhysicalLength),
 }
 
-impl HasViewportPercentage for NoCalcLength {
-    fn has_viewport_percentage(&self) -> bool {
-        match *self {
-            NoCalcLength::ViewportPercentage(_) => true,
-            _ => false,
-        }
-    }
-}
-
 impl ToCss for NoCalcLength {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
         match *self {
@@ -438,7 +424,11 @@ impl ToCss for NoCalcLength {
             NoCalcLength::FontRelative(length) => length.to_css(dest),
             NoCalcLength::ViewportPercentage(length) => length.to_css(dest),
             /* This should only be reached from style dumping code */
-            NoCalcLength::ServoCharacterWidth(CharacterWidth(i)) => write!(dest, "CharWidth({})", i),
+            NoCalcLength::ServoCharacterWidth(CharacterWidth(i)) => {
+                dest.write_str("CharWidth(")?;
+                i.to_css(dest)?;
+                dest.write_char(')')
+            }
             #[cfg(feature = "gecko")]
             NoCalcLength::Physical(length) => length.to_css(dest),
         }
@@ -545,7 +535,7 @@ impl NoCalcLength {
 ///
 /// https://drafts.csswg.org/css-values/#lengths
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 pub enum Length {
     /// The internal length type that cannot parse `calc`
     NoCalc(NoCalcLength),
@@ -759,7 +749,7 @@ pub type NonNegativeLengthOrNumber = Either<NonNegativeLength, NonNegativeNumber
 /// A length or a percentage value.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 pub enum LengthOrPercentage {
     Length(NoCalcLength),
     Percentage(computed::Percentage),
@@ -929,7 +919,7 @@ impl LengthOrPercentage {
 /// Either a `<length>`, a `<percentage>`, or the `auto` keyword.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 pub enum LengthOrPercentageOrAuto {
     Length(NoCalcLength),
     Percentage(computed::Percentage),
@@ -1045,7 +1035,7 @@ impl LengthOrPercentageOrAuto {
 
 /// Either a `<length>`, a `<percentage>`, or the `none` keyword.
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 #[allow(missing_docs)]
 pub enum LengthOrPercentageOrNone {
     Length(NoCalcLength),
@@ -1193,7 +1183,7 @@ impl LengthOrNumber {
 /// `auto`, and cannot be `none`.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 pub enum MozLength {
     LengthOrPercentageOrAuto(LengthOrPercentageOrAuto),
     ExtremumLength(ExtremumLength),
@@ -1219,7 +1209,7 @@ impl MozLength {
 /// A value suitable for a `max-width` or `max-height` property.
 #[allow(missing_docs)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, HasViewportPercentage, PartialEq, ToCss)]
+#[derive(Clone, Debug, PartialEq, ToCss)]
 pub enum MaxLength {
     LengthOrPercentageOrNone(LengthOrPercentageOrNone),
     ExtremumLength(ExtremumLength),

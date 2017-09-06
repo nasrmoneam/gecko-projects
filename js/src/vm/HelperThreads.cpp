@@ -306,7 +306,7 @@ CancelOffThreadIonCompileLocked(const CompilationSelector& selector, bool discar
     for (size_t i = 0; i < finished.length(); i++) {
         jit::IonBuilder* builder = finished[i];
         if (IonBuilderMatches(selector, builder)) {
-            builder->script()->zone()->group()->numFinishedBuilders--;
+            builder->script()->zoneFromAnyThread()->group()->numFinishedBuilders--;
             jit::FinishOffThreadBuilder(nullptr, builder, lock);
             HelperThreadState().remove(finished, &i);
         }
@@ -686,9 +686,6 @@ EnsureParserCreatedClasses(JSContext* cx, ParseTaskKind kind)
 
     if (!EnsureConstructor(cx, global, JSProto_RegExp))
         return false; // needed by regular expression literals
-
-    if (!EnsureConstructor(cx, global, JSProto_Iterator))
-        return false; // needed by ???
 
     if (!GlobalObject::initStarGenerators(cx, global))
         return false; // needed by function*() {} and generator comprehensions
@@ -1756,10 +1753,6 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
                                                    Handle<GlobalObject*> global,
                                                    JSCompartment* dest)
 {
-    // Finish any ongoing incremental GC that may affect the destination zone.
-    if (JS::IsIncrementalGCInProgress(cx) && dest->zone()->wasGCStarted())
-        JS::FinishIncrementalGC(cx, JS::gcreason::API);
-
     // After we call LeaveParseTaskZone() it's not safe to GC until we have
     // finished merging the contents of the parse task's compartment into the
     // destination compartment.
@@ -1797,8 +1790,7 @@ GlobalHelperThreadState::mergeParseTaskCompartment(JSContext* cx, ParseTask* par
             JSProtoKey key = JS::IdentifyStandardPrototype(protoObj);
             if (key != JSProto_Null) {
                 MOZ_ASSERT(key == JSProto_Object || key == JSProto_Array ||
-                           key == JSProto_Function || key == JSProto_RegExp ||
-                           key == JSProto_Iterator);
+                           key == JSProto_Function || key == JSProto_RegExp);
                 newProto = GetBuiltinPrototypePure(global, key);
             } else if (protoObj == parseTaskStarGenFunctionProto) {
                 newProto = global->getStarGeneratorFunctionPrototype();

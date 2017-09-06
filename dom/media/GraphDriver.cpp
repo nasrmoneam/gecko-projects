@@ -561,8 +561,8 @@ StreamAndPromiseForOperation::StreamAndPromiseForOperation(MediaStream* aStream,
 AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl)
   : GraphDriver(aGraphImpl)
   , mOuputChannels(mGraphImpl->AudioChannelCount())
-  , mScratchBuffer(mOuputChannels)
-  , mBuffer(mOuputChannels)
+  , mScratchBuffer(std::max<uint32_t>(1, mOuputChannels))
+  , mBuffer(std::max<uint32_t>(1, mOuputChannels))
   , mSampleRate(0)
   , mInputChannels(1)
   , mIterationDurationMS(MEDIA_GRAPH_TARGET_PERIOD_MS)
@@ -574,11 +574,21 @@ AudioCallbackDriver::AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl)
   , mFromFallback(false)
 {
   LOG(LogLevel::Debug, ("AudioCallbackDriver ctor for graph %p", aGraphImpl));
+#if defined(XP_WIN)
+  if (XRE_IsContentProcess()) {
+    audio::AudioNotificationReceiver::Register(this);
+  }
+#endif
 }
 
 AudioCallbackDriver::~AudioCallbackDriver()
 {
   MOZ_ASSERT(mPromisesForOperation.IsEmpty());
+#if defined(XP_WIN)
+  if (XRE_IsContentProcess()) {
+    audio::AudioNotificationReceiver::Unregister(this);
+  }
+#endif
 }
 
 bool IsMacbookOrMacbookAir()
@@ -662,7 +672,7 @@ AudioCallbackDriver::Init()
     StaticMutexAutoLock lock(AudioInputCubeb::Mutex());
     uint32_t userChannels = 0;
     AudioInputCubeb::GetUserChannelCount(mGraphImpl->mInputDeviceID, userChannels);
-    input.channels = mInputChannels = userChannels;
+    input.channels = mInputChannels = std::min<uint32_t>(8, userChannels);
   }
 #endif
 
@@ -856,6 +866,16 @@ AudioCallbackDriver::WakeUp()
   mGraphImpl->GetMonitor().AssertCurrentThreadOwns();
   mGraphImpl->GetMonitor().Notify();
 }
+
+#if defined(XP_WIN)
+void
+AudioCallbackDriver::ResetDefaultDevice()
+{
+  if (cubeb_stream_reset_default_device(mAudioStream) != CUBEB_OK) {
+    NS_WARNING("Could not reset cubeb stream to default output device.");
+  }
+}
+#endif
 
 /* static */ long
 AudioCallbackDriver::DataCallback_s(cubeb_stream* aStream,

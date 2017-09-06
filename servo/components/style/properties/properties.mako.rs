@@ -13,7 +13,7 @@
 #[cfg(feature = "servo")] use app_units::Au;
 use servo_arc::{Arc, UniqueArc};
 use std::borrow::Cow;
-use std::collections::HashSet;
+use hash::HashSet;
 use std::{fmt, mem, ops};
 #[cfg(feature = "gecko")] use std::ptr;
 
@@ -36,14 +36,13 @@ use selector_parser::PseudoElement;
 use selectors::parser::SelectorParseError;
 #[cfg(feature = "servo")] use servo_config::prefs::PREFS;
 use shared_lock::StylesheetGuards;
-use style_traits::{PARSING_MODE_DEFAULT, HasViewportPercentage, ToCss, ParseError};
+use style_traits::{PARSING_MODE_DEFAULT, ToCss, ParseError};
 use style_traits::{PropertyDeclarationParseError, StyleParseError, ValueParseError};
 use stylesheets::{CssRuleType, MallocSizeOf, MallocSizeOfFn, Origin, UrlExtraData};
 #[cfg(feature = "servo")] use values::Either;
 use values::generics::text::LineHeight;
 use values::computed;
 use values::computed::NonNegativeAu;
-use cascade_info::CascadeInfo;
 use rule_tree::{CascadeLevel, StrongRuleNode};
 use self::computed_value_flags::ComputedValueFlags;
 use style_adjuster::StyleAdjuster;
@@ -874,19 +873,6 @@ impl UnparsedValue {
     }
 }
 
-impl<'a, T: HasViewportPercentage> HasViewportPercentage for DeclaredValue<'a, T> {
-    fn has_viewport_percentage(&self) -> bool {
-        match *self {
-            DeclaredValue::Value(ref v) => v.has_viewport_percentage(),
-            DeclaredValue::WithVariables(_) => {
-                panic!("DeclaredValue::has_viewport_percentage without \
-                        resolving variables!")
-            },
-            DeclaredValue::CSSWideKeyword(_) => false,
-        }
-    }
-}
-
 impl<'a, T: ToCss> ToCss for DeclaredValue<'a, T> {
     fn to_css<W>(&self, dest: &mut W) -> fmt::Result
         where W: fmt::Write,
@@ -1298,26 +1284,6 @@ pub enum PropertyDeclaration {
     /// A custom property declaration, with the property name and the declared
     /// value.
     Custom(::custom_properties::Name, DeclaredValueOwned<Box<::custom_properties::SpecifiedValue>>),
-}
-
-impl HasViewportPercentage for PropertyDeclaration {
-    fn has_viewport_percentage(&self) -> bool {
-        match *self {
-            % for property in data.longhands:
-                PropertyDeclaration::${property.camel_case}(ref val) => {
-                    val.has_viewport_percentage()
-                },
-            % endfor
-            PropertyDeclaration::WithVariables(..) => {
-                panic!("DeclaredValue::has_viewport_percentage without \
-                        resolving variables!")
-            },
-            PropertyDeclaration::CSSWideKeyword(..) => false,
-            PropertyDeclaration::Custom(_, ref val) => {
-                val.borrow().has_viewport_percentage()
-            }
-        }
-    }
 }
 
 impl fmt::Debug for PropertyDeclaration {
@@ -2953,9 +2919,10 @@ mod lazy_static_module {
 
 /// A per-longhand function that performs the CSS cascade for that longhand.
 pub type CascadePropertyFn =
-    extern "Rust" fn(declaration: &PropertyDeclaration,
-                     context: &mut computed::Context,
-                     cascade_info: &mut Option<<&mut CascadeInfo>);
+    extern "Rust" fn(
+        declaration: &PropertyDeclaration,
+        context: &mut computed::Context,
+    );
 
 /// A per-longhand array of functions to perform the CSS cascade on each of
 /// them, effectively doing virtual dispatch.
@@ -3030,7 +2997,6 @@ pub fn cascade(
     parent_style_ignoring_first_line: Option<<&ComputedValues>,
     layout_parent_style: Option<<&ComputedValues>,
     visited_style: Option<Arc<ComputedValues>>,
-    cascade_info: Option<<&mut CascadeInfo>,
     font_metrics_provider: &FontMetricsProvider,
     flags: CascadeFlags,
     quirks_mode: QuirksMode
@@ -3089,7 +3055,6 @@ pub fn cascade(
         parent_style_ignoring_first_line,
         layout_parent_style,
         visited_style,
-        cascade_info,
         font_metrics_provider,
         flags,
         quirks_mode,
@@ -3108,7 +3073,6 @@ pub fn apply_declarations<'a, F, I>(
     parent_style_ignoring_first_line: Option<<&ComputedValues>,
     layout_parent_style: Option<<&ComputedValues>,
     visited_style: Option<Arc<ComputedValues>>,
-    mut cascade_info: Option<<&mut CascadeInfo>,
     font_metrics_provider: &FontMetricsProvider,
     flags: CascadeFlags,
     quirks_mode: QuirksMode,
@@ -3280,9 +3244,7 @@ where
             % endif
 
             let discriminant = longhand_id as usize;
-            (CASCADE_PROPERTY[discriminant])(&*declaration,
-                                             &mut context,
-                                             &mut cascade_info);
+            (CASCADE_PROPERTY[discriminant])(&*declaration, &mut context);
         }
         % if category_to_cascade_now == "early":
             let writing_mode = get_writing_mode(context.builder.get_inheritedbox());
@@ -3363,9 +3325,7 @@ where
                 if let Some(ref declaration) = font_family {
 
                     let discriminant = LonghandId::FontFamily as usize;
-                    (CASCADE_PROPERTY[discriminant])(declaration,
-                                                     &mut context,
-                                                     &mut cascade_info);
+                    (CASCADE_PROPERTY[discriminant])(declaration, &mut context);
                     % if product == "gecko":
                         let device = context.builder.device;
                         if let PropertyDeclaration::FontFamily(ref val) = **declaration {
@@ -3383,9 +3343,7 @@ where
 
             if let Some(ref declaration) = font_size {
                 let discriminant = LonghandId::FontSize as usize;
-                (CASCADE_PROPERTY[discriminant])(declaration,
-                                                 &mut context,
-                                                 &mut cascade_info);
+                (CASCADE_PROPERTY[discriminant])(declaration, &mut context);
             % if product == "gecko":
             // Font size must be explicitly inherited to handle lang changes and
             // scriptlevel changes.
@@ -3397,9 +3355,7 @@ where
                 let size = PropertyDeclaration::CSSWideKeyword(
                     LonghandId::FontSize, CSSWideKeyword::Inherit);
 
-                (CASCADE_PROPERTY[discriminant])(&size,
-                                                 &mut context,
-                                                 &mut cascade_info);
+                (CASCADE_PROPERTY[discriminant])(&size, &mut context);
             % endif
             }
         % endif

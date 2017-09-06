@@ -66,6 +66,7 @@ use gecko_bindings::structs::nsChangeHint;
 use gecko_bindings::structs::nsIDocument_DocumentTheme as DocumentTheme;
 use gecko_bindings::structs::nsRestyleHint;
 use gecko_bindings::sugar::ownership::{HasArcFFI, HasSimpleFFI};
+use hash::HashMap;
 use logical_geometry::WritingMode;
 use media_queries::Device;
 use properties::{ComputedValues, parse_style_attribute};
@@ -83,7 +84,6 @@ use selectors::sink::Push;
 use servo_arc::{Arc, ArcBorrow, RawOffsetArc};
 use shared_lock::Locked;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -318,17 +318,6 @@ impl<'ln> TNode for GeckoNode<'ln> {
     fn is_in_doc(&self) -> bool {
         unsafe { bindings::Gecko_IsInDocument(self.0) }
     }
-
-    fn needs_dirty_on_viewport_size_changed(&self) -> bool {
-        // Gecko's node doesn't have the DIRTY_ON_VIEWPORT_SIZE_CHANGE flag,
-        // so we force them to be dirtied on viewport size change, regardless if
-        // they use viewport percentage size or not.
-        // TODO(shinglyu): implement this in Gecko: https://github.com/servo/servo/pull/11890
-        true
-    }
-
-    // TODO(shinglyu): implement this in Gecko: https://github.com/servo/servo/pull/11890
-    unsafe fn set_dirty_on_viewport_size_changed(&self) {}
 }
 
 /// A wrapper on top of two kind of iterators, depending on the parent being
@@ -1182,7 +1171,9 @@ impl<'le> TElement for GeckoElement<'le> {
         // level native anonymous content subtree roots, since they're not
         // really roots from the style fixup perspective.  Checking that we
         // are NAC handles both cases.
-        self.is_native_anonymous()
+        self.is_native_anonymous() &&
+        (self.is_root_of_native_anonymous_subtree() ||
+         self.implemented_pseudo_element().is_some())
     }
 
     unsafe fn set_selector_flags(&self, flags: ElementSelectorFlags) {
@@ -1370,7 +1361,7 @@ impl<'le> TElement for GeckoElement<'le> {
                                 after_change_style: &ComputedValues)
                                 -> bool {
         use gecko_bindings::structs::nsCSSPropertyID;
-        use std::collections::HashSet;
+        use hash::HashSet;
 
         debug_assert!(self.might_need_transitions_update(Some(before_change_style),
                                                          after_change_style),

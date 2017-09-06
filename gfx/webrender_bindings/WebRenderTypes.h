@@ -27,12 +27,16 @@ typedef wr::WrWindowId WindowId;
 typedef wr::WrPipelineId PipelineId;
 typedef wr::WrImageKey ImageKey;
 typedef wr::WrFontKey FontKey;
+typedef wr::WrFontInstanceKey FontInstanceKey;
 typedef wr::WrEpoch Epoch;
 typedef wr::WrExternalImageId ExternalImageId;
 typedef wr::WrDebugFlags DebugFlags;
 
 typedef mozilla::Maybe<mozilla::wr::WrImageMask> MaybeImageMask;
 typedef Maybe<ExternalImageId> MaybeExternalImageId;
+
+typedef Maybe<FontInstanceOptions> MaybeFontInstanceOptions;
+typedef Maybe<FontInstancePlatformOptions> MaybeFontInstancePlatformOptions;
 
 inline WindowId NewWindowId(uint64_t aId) {
   WindowId id;
@@ -139,6 +143,19 @@ inline FontKey AsFontKey(const uint64_t& aId) {
   fontKey.mNamespace.mHandle = aId >> 32;
   fontKey.mHandle = aId;
   return fontKey;
+}
+
+// Whenever possible, use wr::FontInstanceKey instead of manipulating uint64_t.
+inline uint64_t AsUint64(const FontInstanceKey& aId) {
+  return (static_cast<uint64_t>(aId.mNamespace.mHandle) << 32)
+        + static_cast<uint64_t>(aId.mHandle);
+}
+
+inline FontInstanceKey AsFontInstanceKey(const uint64_t& aId) {
+  FontInstanceKey instanceKey;
+  instanceKey.mNamespace.mHandle = aId >> 32;
+  instanceKey.mHandle = aId;
+  return instanceKey;
 }
 
 // Whenever possible, use wr::PipelineId instead of manipulating uint64_t.
@@ -570,6 +587,16 @@ struct ByteBuffer
     }
   }
 
+  ByteBuffer(ByteBuffer&& aFrom)
+  : mLength(aFrom.mLength)
+  , mData(aFrom.mData)
+  , mOwned(aFrom.mOwned)
+  {
+    aFrom.mLength = 0;
+    aFrom.mData = nullptr;
+    aFrom.mOwned = false;
+  }
+
   ByteBuffer()
     : mLength(0)
     , mData(nullptr)
@@ -672,6 +699,14 @@ struct WrClipId {
 };
 
 typedef Variant<layers::FrameMetrics::ViewID, WrClipId> ScrollOrClipId;
+
+enum class WebRenderError : int8_t {
+  INITIALIZE = 0,
+  MAKE_CURRENT,
+  RENDER,
+
+  Sentinel /* this must be last for serialization purposes. */
+};
 
 } // namespace wr
 } // namespace mozilla

@@ -332,15 +332,9 @@ void Gecko_SetCounterStyleToString(mozilla::CounterStylePtr* ptr,
                                    const nsACString* symbol);
 void Gecko_CopyCounterStyle(mozilla::CounterStylePtr* dst,
                             const mozilla::CounterStylePtr* src);
-bool Gecko_CounterStyle_IsNone(const mozilla::CounterStylePtr* ptr);
-bool Gecko_CounterStyle_IsName(const mozilla::CounterStylePtr* ptr);
-void Gecko_CounterStyle_GetName(const mozilla::CounterStylePtr* ptr,
-                                nsAString* result);
-const nsTArray<nsString>& Gecko_CounterStyle_GetSymbols(const mozilla::CounterStylePtr* ptr);
-uint8_t Gecko_CounterStyle_GetSystem(const mozilla::CounterStylePtr* ptr);
-bool Gecko_CounterStyle_IsSingleString(const mozilla::CounterStylePtr* ptr);
-void Gecko_CounterStyle_GetSingleString(const mozilla::CounterStylePtr* ptr,
-                                        nsAString* result);
+nsIAtom* Gecko_CounterStyle_GetName(const mozilla::CounterStylePtr* ptr);
+const mozilla::AnonymousCounterStyle*
+Gecko_CounterStyle_GetAnonymous(const mozilla::CounterStylePtr* ptr);
 
 // background-image style.
 void Gecko_SetNullImageValue(nsStyleImage* image);
@@ -387,6 +381,7 @@ nsStyleContentData::CounterFunction* Gecko_SetCounterFunction(
 void Gecko_SetNodeFlags(RawGeckoNodeBorrowed node, uint32_t flags);
 void Gecko_UnsetNodeFlags(RawGeckoNodeBorrowed node, uint32_t flags);
 void Gecko_NoteDirtyElement(RawGeckoElementBorrowed element);
+void Gecko_NoteDirtySubtreeForInvalidation(RawGeckoElementBorrowed element);
 void Gecko_NoteAnimationOnlyDirtyElement(RawGeckoElementBorrowed element);
 
 // Incremental restyle.

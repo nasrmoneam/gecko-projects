@@ -77,7 +77,7 @@ use style::gecko_bindings::structs::{ServoStyleSheet, SheetParsingMode, nsIAtom,
 use style::gecko_bindings::structs::{nsCSSFontFaceRule, nsCSSCounterStyleRule};
 use style::gecko_bindings::structs::{nsRestyleHint, nsChangeHint, PropertyValuePair};
 use style::gecko_bindings::structs::IterationCompositeOperation;
-use style::gecko_bindings::structs::MallocSizeOf;
+use style::gecko_bindings::structs::MallocSizeOf as GeckoMallocSizeOf;
 use style::gecko_bindings::structs::OriginFlags;
 use style::gecko_bindings::structs::OriginFlags_Author;
 use style::gecko_bindings::structs::OriginFlags_User;
@@ -86,6 +86,7 @@ use style::gecko_bindings::structs::RawGeckoGfxMatrix4x4;
 use style::gecko_bindings::structs::RawGeckoPresContextOwned;
 use style::gecko_bindings::structs::SeenPtrs;
 use style::gecko_bindings::structs::ServoElementSnapshotTable;
+use style::gecko_bindings::structs::ServoStyleSetSizes;
 use style::gecko_bindings::structs::ServoTraversalFlags;
 use style::gecko_bindings::structs::StyleRuleInclusion;
 use style::gecko_bindings::structs::URLExtraData;
@@ -101,7 +102,7 @@ use style::gecko_bindings::sugar::ownership::{HasSimpleFFI, Strong};
 use style::gecko_bindings::sugar::refptr::RefPtr;
 use style::gecko_properties::style_structs;
 use style::invalidation::element::restyle_hints;
-use style::media_queries::{MediaList, parse_media_query_list};
+use style::media_queries::{Device, MediaList, parse_media_query_list};
 use style::parser::{ParserContext, self};
 use style::properties::{CascadeFlags, ComputedValues, Importance};
 use style::properties::{IS_FIELDSET_CONTENT, IS_LINK, IS_VISITED_LINK, LonghandIdSet};
@@ -379,7 +380,9 @@ pub extern "C" fn Servo_AnimationValues_ComputeDistance(from: RawServoAnimationV
                                                         -> f64 {
     let from_value = AnimationValue::as_arc(&from);
     let to_value = AnimationValue::as_arc(&to);
-    from_value.compute_squared_distance(to_value).map(|d| d.sqrt()).unwrap_or(0.0)
+    // If compute_squared_distance() failed, this function will return negative value
+    // in order to check whether we support the specified paced animation values.
+    from_value.compute_squared_distance(to_value).map(|d| d.sqrt()).unwrap_or(-1.0)
 }
 
 #[no_mangle]
@@ -769,7 +772,7 @@ pub extern "C" fn Servo_Element_ClearData(element: RawGeckoElementBorrowed) {
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_Element_SizeOfExcludingThisAndCVs(malloc_size_of: MallocSizeOf,
+pub extern "C" fn Servo_Element_SizeOfExcludingThisAndCVs(malloc_size_of: GeckoMallocSizeOf,
                                                           seen_ptrs: *mut SeenPtrs,
                                                           element: RawGeckoElementBorrowed) -> usize {
     let malloc_size_of = malloc_size_of.unwrap();
@@ -859,7 +862,8 @@ pub extern "C" fn Servo_StyleSheet_Empty(mode: SheetParsingMode) -> RawServoStyl
 pub extern "C" fn Servo_StyleSheet_FromUTF8Bytes(
     loader: *mut Loader,
     stylesheet: *mut ServoStyleSheet,
-    data: *const nsACString,
+    data: *const u8,
+    data_len: usize,
     mode: SheetParsingMode,
     extra_data: *mut URLExtraData,
     line_number_offset: u32,
@@ -867,7 +871,7 @@ pub extern "C" fn Servo_StyleSheet_FromUTF8Bytes(
     reusable_sheets: *mut LoaderReusableStyleSheets
 ) -> RawServoStyleSheetContentsStrong {
     let global_style_data = &*GLOBAL_STYLE_DATA;
-    let input = unsafe { data.as_ref().unwrap().as_str_unchecked() };
+    let input = unsafe { ::std::str::from_utf8_unchecked(::std::slice::from_raw_parts(data, data_len)) };
 
     let origin = match mode {
         SheetParsingMode::eAuthorSheetFeatures => Origin::Author,
@@ -945,6 +949,25 @@ pub extern "C" fn Servo_StyleSet_MediumFeaturesChanged(
 }
 
 #[no_mangle]
+pub extern "C" fn Servo_StyleSet_SetDevice(
+    raw_data: RawServoStyleSetBorrowed,
+    pres_context: RawGeckoPresContextOwned
+) -> u8 {
+    let global_style_data = &*GLOBAL_STYLE_DATA;
+    let guard = global_style_data.shared_lock.read();
+
+    let mut data = PerDocumentStyleData::from_ffi(raw_data).borrow_mut();
+    let device = Device::new(pres_context);
+    let origins_in_which_rules_changed =
+        data.stylist.set_device(device, &guard);
+
+    // We'd like to return `OriginFlags` here, but bindgen bitfield enums don't
+    // work as return values with the Linux 32-bit ABI at the moment because
+    // they wrap the value in a struct, so for now just unwrap it.
+    OriginFlags::from(origins_in_which_rules_changed).0
+}
+
+#[no_mangle]
 pub extern "C" fn Servo_StyleSet_PrependStyleSheet(
     raw_data: RawServoStyleSetBorrowed,
     sheet: *const ServoStyleSheet,
@@ -1001,7 +1024,9 @@ pub extern "C" fn Servo_StyleSet_FlushStyleSheets(
     if have_invalidations && doc_element.is_some() {
         // The invalidation machinery propagates the bits up, but we still
         // need to tell the gecko restyle root machinery about it.
-        unsafe { bindings::Gecko_NoteDirtyElement(doc_element.unwrap().0); }
+        unsafe {
+            bindings::Gecko_NoteDirtySubtreeForInvalidation(doc_element.unwrap().0);
+        }
     }
 }
 
@@ -1053,7 +1078,7 @@ pub extern "C" fn Servo_StyleSheet_Clone(
 
 #[no_mangle]
 pub extern "C" fn Servo_StyleSheet_SizeOfIncludingThis(
-    malloc_size_of: MallocSizeOf,
+    malloc_size_of: GeckoMallocSizeOf,
     sheet: RawServoStyleSheetContentsBorrowed
 ) -> usize {
     let global_style_data = &*GLOBAL_STYLE_DATA;
@@ -1503,11 +1528,16 @@ pub extern "C" fn Servo_KeyframesRule_GetCount(rule: RawServoKeyframesRuleBorrow
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_KeyframesRule_GetKeyframe(rule: RawServoKeyframesRuleBorrowed, index: u32)
-                                                  -> RawServoKeyframeStrong {
-    read_locked_arc(rule, |rule: &KeyframesRule| {
-        rule.keyframes[index as usize].clone().into_strong()
-    })
+pub extern "C" fn Servo_KeyframesRule_GetKeyframeAt(rule: RawServoKeyframesRuleBorrowed, index: u32,
+                                                    line: *mut u32, column: *mut u32) -> RawServoKeyframeStrong {
+    let global_style_data = &*GLOBAL_STYLE_DATA;
+    let guard = global_style_data.shared_lock.read();
+    let key = Locked::<KeyframesRule>::as_arc(&rule).read_with(&guard)
+                  .keyframes[index as usize].clone();
+    let location = key.read_with(&guard).source_location;
+    *unsafe { line.as_mut().unwrap() } = location.line as u32;
+    *unsafe { column.as_mut().unwrap() } = location.column as u32;
+    key.into_strong()
 }
 
 #[no_mangle]
@@ -1916,9 +1946,6 @@ pub extern "C" fn Servo_ComputedValues_GetStyleRuleList(values: ServoStyleContex
         None => return,
     };
 
-    let global_style_data = &*GLOBAL_STYLE_DATA;
-    let guard = global_style_data.shared_lock.read();
-
     // TODO(emilio): Will benefit from SmallVec.
     let mut result = vec![];
     for node in rule_node.self_and_ancestors() {
@@ -1927,13 +1954,12 @@ pub extern "C" fn Servo_ComputedValues_GetStyleRuleList(values: ServoStyleContex
             _ => continue,
         };
 
+        // For the rules with any important declaration, we insert them into
+        // rule tree twice, one for normal level and another for important
+        // level. So, we skip the important one to keep the specificity order of
+        // rules.
         if node.importance().important() {
-            let block = style_rule.read_with(&guard).block.read_with(&guard);
-            if block.any_normal() {
-                // We'll append it when we find the normal rules in our
-                // parent chain.
-                continue;
-            }
+            continue;
         }
 
         result.push(style_rule);
@@ -3579,6 +3605,18 @@ pub extern "C" fn Servo_StyleSet_ResolveForDeclarations(
         parent_style,
         declarations.clone_arc(),
     ).into()
+}
+
+#[no_mangle]
+pub extern "C" fn Servo_StyleSet_AddSizeOfExcludingThis(
+    malloc_size_of: GeckoMallocSizeOf,
+    sizes: *mut ServoStyleSetSizes,
+    raw_data: RawServoStyleSetBorrowed
+) {
+    let data = PerDocumentStyleData::from_ffi(raw_data).borrow_mut();
+    let malloc_size_of = malloc_size_of.unwrap();
+    let sizes = unsafe { sizes.as_mut() }.unwrap();
+    data.malloc_add_size_of_children(malloc_size_of, sizes);
 }
 
 #[no_mangle]

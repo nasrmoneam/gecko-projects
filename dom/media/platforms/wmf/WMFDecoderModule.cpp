@@ -15,6 +15,7 @@
 #include "WMFAudioMFTManager.h"
 #include "WMFMediaDataDecoder.h"
 #include "WMFVideoMFTManager.h"
+#include "gfxPrefs.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Services.h"
@@ -32,6 +33,7 @@
 #include "mozilla/mscom/EnsureMTA.h"
 
 extern const GUID CLSID_WebmMfVpxDec;
+extern const GUID CLSID_AMDWebmMfVp9Dec;
 
 namespace mozilla {
 
@@ -232,8 +234,7 @@ WMFDecoderModule::Supports(const TrackInfo& aTrackInfo,
        WMFDecoderModule::HasAAC()) {
     return true;
   }
-  if (MP4Decoder::IsH264(aTrackInfo.mMimeType)
-      && WMFDecoderModule::HasH264()) {
+  if (MP4Decoder::IsH264(aTrackInfo.mMimeType) && WMFDecoderModule::HasH264()) {
     if (!MediaPrefs::PDMWMFAllowUnsupportedResolutions()) {
       const VideoInfo* videoInfo = aTrackInfo.GetAsVideoInfo();
       MOZ_ASSERT(videoInfo);
@@ -242,14 +243,12 @@ WMFDecoderModule::Supports(const TrackInfo& aTrackInfo,
       if (IsWin8OrLater() || IsWin7H264Decoder4KCapable()) {
         // Windows >7, and Win7 with recent-enough decoder, support at most
         // 4096x2304.
-        if (videoInfo->mImage.width > 4096
-            || videoInfo->mImage.height > 2304) {
+        if (videoInfo->mImage.width > 4096 || videoInfo->mImage.height > 2304) {
           return false;
         }
       } else {
         // Windows <=7 (with original decoder) supports at most 1920x1088.
-        if (videoInfo->mImage.width > 1920
-            || videoInfo->mImage.height > 1088) {
+        if (videoInfo->mImage.width > 1920 || videoInfo->mImage.height > 1088) {
           return false;
         }
       }
@@ -261,9 +260,11 @@ WMFDecoderModule::Supports(const TrackInfo& aTrackInfo,
     return true;
   }
   if (MediaPrefs::PDMWMFVP9DecoderEnabled()) {
-    if ((VPXDecoder::IsVP8(aTrackInfo.mMimeType)
-         || VPXDecoder::IsVP9(aTrackInfo.mMimeType))
-        && CanCreateWMFDecoder<CLSID_WebmMfVpxDec>()) {
+    if ((VPXDecoder::IsVP8(aTrackInfo.mMimeType) ||
+         VPXDecoder::IsVP9(aTrackInfo.mMimeType)) &&
+        ((gfxPrefs::PDMWMFAMDVP9DecoderEnabled() &&
+          CanCreateWMFDecoder<CLSID_AMDWebmMfVp9Dec>()) ||
+         CanCreateWMFDecoder<CLSID_WebmMfVpxDec>())) {
       return true;
     }
   }

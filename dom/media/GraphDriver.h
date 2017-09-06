@@ -15,6 +15,10 @@
 #include "mozilla/SharedThreadPool.h"
 #include "mozilla/StaticPtr.h"
 
+#if defined(XP_WIN)
+#include "mozilla/audio/AudioNotificationReceiver.h"
+#endif
+
 struct cubeb_stream;
 
 template <>
@@ -376,6 +380,9 @@ enum AsyncCubebOperation {
  */
 class AudioCallbackDriver : public GraphDriver,
                             public MixerCallbackReceiver
+#if defined(XP_WIN)
+                            , public audio::DeviceChangeListener
+#endif
 {
 public:
   explicit AudioCallbackDriver(MediaStreamGraphImpl* aGraphImpl);
@@ -389,6 +396,9 @@ public:
   void RemoveCallback() override;
   void WaitForNextIteration() override;
   void WakeUp() override;
+#if defined(XP_WIN)
+  void ResetDefaultDevice() override;
+#endif
 
   /* Static wrapper function cubeb calls back. */
   static long DataCallback_s(cubeb_stream * aStream,
@@ -433,6 +443,12 @@ public:
 
   AudioCallbackDriver* AsAudioCallbackDriver() override {
     return this;
+  }
+
+  uint32_t OutputChannelCount()
+  {
+    MOZ_ASSERT(mOuputChannels != 0 && mOuputChannels <= 8);
+    return mOuputChannels;
   }
 
   /* Enqueue a promise that is going to be resolved when a specific operation

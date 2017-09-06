@@ -6520,6 +6520,28 @@
     "releaseChannelCollection": "opt-out",
     "description": "Time (ms) from the Input event being created to the end of it being handled, but with overlapping events coalesced."
   },
+  "INPUT_EVENT_RESPONSE_STARTUP_MS": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["wpan@mozilla.com"],
+    "bug_numbers": [1373814],
+    "expires_in_version": "61",
+    "kind": "exponential",
+    "high": 10000,
+    "n_buckets": 50,
+    "releaseChannelCollection": "opt-out",
+    "description": "Time (ms) from the Input event being created to the end of it being handled, but with overlapping events coalesced, which happens before the process is ready for interaction."
+  },
+  "INPUT_EVENT_RESPONSE_POST_STARTUP_MS": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["wpan@mozilla.com"],
+    "bug_numbers": [1373814],
+    "expires_in_version": "61",
+    "kind": "exponential",
+    "high": 10000,
+    "n_buckets": 50,
+    "releaseChannelCollection": "opt-out",
+    "description": "Time (ms) from the Input event being created to the end of it being handled, but with overlapping events coalesced, which happens after the process is ready for interaction."
+  },
   "LOAD_INPUT_EVENT_RESPONSE_MS": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["perf-telemetry-alerts@mozilla.com"],
@@ -8028,10 +8050,13 @@
     "description": "Whether the subject principal was accessed without script on the stack during the current session"
   },
   "TOUCH_ENABLED_DEVICE": {
-    "record_in_processes": ["main", "content"],
+    "record_in_processes": ["main"],
     "expires_in_version": "never",
     "kind": "boolean",
-    "description": "The device supports touch input",
+    "releaseChannelCollection": "opt-out",
+    "bug_numbers": [795307, 1390269],
+    "alert_emails": ["jimm@mozilla.com"],
+    "description": "Boolean indicating if a touch input device is detected.",
     "cpp_guard": "XP_WIN"
   },
   "COMPONENTS_SHIM_ACCESSED_BY_CONTENT": {
@@ -10815,6 +10840,17 @@
     "n_buckets": 10,
     "description": "The number of times a sync successfully completed in this session"
   },
+  "WEAVE_LOGIN_FAILED_FOR": {
+    "record_in_processes": ["main"],
+    "expires_in_version": "65",
+    "alert_emails": ["sync-dev@mozilla.org"],
+    "kind": "exponential",
+    "high": 20000,
+    "n_buckets": 100,
+    "releaseChannelCollection": "opt-out",
+    "bug_numbers": [1375635],
+    "description": "The number of minutes the user was in a bad login state."
+  },
   "WEAVE_WIPE_SERVER_SUCCEEDED": {
     "record_in_processes": ["main", "content"],
     "expires_in_version": "55",
@@ -13568,5 +13604,38 @@
     "n_buckets": 100,
     "bug_numbers": [1265472],
     "description": "Time in milliseconds to complete a WebAuthn get assertion."
+  },
+  "VIDEO_UNBLACKINGLISTING_DXVA_DRIVER_RUNTIME_STATUS": {
+    "record_in_processes": ["content"],
+    "alert_emails": ["ajones@mozilla.com", "bwu@mozilla.com", "tkuo@mozilla.com"],
+    "expires_in_version": "60",
+    "releaseChannelCollection": "opt-out",
+    "keyed": true,
+    "kind": "enumerated",
+    "n_values":  10,
+    "bug_numbers": [1393392],
+    "description": "The runtime status, sent when a remote HW video decoder is shutdown, of previously-blacklisted driver: 0:remote HW-decoding and GPU process didn't crash, 1:remote HW-decoding and GPU process crashed. The histogram is keyed by the blacklisted driver name."
+  },
+  "VIDEO_HW_DECODER_CRASH_RECOVERY_TIME_SINCE_GPU_CRASHED_MS" : {
+    "record_in_processes": ["content"],
+    "alert_emails": ["ajones@mozilla.com", "bwu@mozilla.com", "tkuo@mozilla.com"],
+    "expires_in_version": "60",
+    "releaseChannelCollection": "opt-out",
+    "kind": "exponential",
+    "high": 64000,
+    "n_buckets": 100,
+    "bug_numbers": [1393399],
+    "description": "Time in milliseconds to recover a video decoder from a HW video decoder crash, calculated since VideoDecoderChild::ActorDestroy() is called. The data is sent when video decoding is recovered from a GPU crash and the first frame is decoded."
+  },
+  "VIDEO_HW_DECODER_CRASH_RECOVERY_TIME_SINCE_MFR_NOTIFIED_MS" : {
+    "record_in_processes": ["content"],
+    "alert_emails": ["ajones@mozilla.com", "bwu@mozilla.com", "tkuo@mozilla.com"],
+    "expires_in_version": "60",
+    "releaseChannelCollection": "opt-out",
+    "kind": "exponential",
+    "high": 64000,
+    "n_buckets": 100,
+    "bug_numbers": [1393399],
+    "description": "Time in milliseconds to recover a video decoder from a HW video decoder crash, calculated since MFR gets a NS_ERROR_DOM_MEDIA_NEED_NEW_DECODER error. The data is sent when video decoding is recovered from a GPU crash and the first frame is decoded."
   }
 }

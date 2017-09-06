@@ -2549,13 +2549,13 @@ nsCSSFrameConstructor::ConstructDocElementFrame(Element*                 aDocEle
 
   // --------- CREATE AREA OR BOX FRAME -------
   if (ServoStyleSet* set = mPresShell->StyleSet()->GetAsServo()) {
-    // We need to explicitly set a restyle root for the first traversal.
-    aDocElement->OwnerDoc()->SetServoRestyleRoot(aDocElement->OwnerDocAsNode(),
-                                                 ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO);
-    // NOTE(emilio): If the root has a non-null binding, we'll stop at the
-    // document element and won't process any children, loading the bindings (or
-    // failing to do so) will take care of the rest.
-    set->StyleDocument(ServoTraversalFlags::Empty);
+    // Ensure the document element is styled at this point.
+    if (!aDocElement->HasServoData()) {
+      // NOTE(emilio): If the root has a non-null binding, we'll stop at the
+      // document element and won't process any children, loading the bindings
+      // (or failing to do so) will take care of the rest.
+      set->StyleNewSubtree(aDocElement);
+    }
   }
 
   // FIXME: Should this use ResolveStyleContext?  (The calls in this
@@ -3836,10 +3836,6 @@ nsCSSFrameConstructor::FindInputData(Element* aElement,
 
   auto controlType = control->ControlType();
 
-  // Note that Android widgets don't have theming support and thus
-  // appearance:none is the same as any other appearance value.
-  // So this chunk doesn't apply there:
-#if !defined(MOZ_WIDGET_ANDROID)
   // radio and checkbox inputs with appearance:none should be constructed
   // by display type.  (Note that we're not checking that appearance is
   // not (respectively) NS_THEME_RADIO and NS_THEME_CHECKBOX.)
@@ -3848,7 +3844,6 @@ nsCSSFrameConstructor::FindInputData(Element* aElement,
       aStyleContext->StyleDisplay()->mAppearance == NS_THEME_NONE) {
     return nullptr;
   }
-#endif
 
   return FindDataByInt(controlType, aElement, aStyleContext,
                        sInputData, ArrayLength(sInputData));
@@ -4293,11 +4288,9 @@ SetFlagsOnSubtree(nsIContent *aNode, uintptr_t aFlagsToSet)
   aNode->SetFlags(aFlagsToSet);
 
   // Set the flag on all of its children recursively
-  uint32_t count;
-  nsIContent * const *children = aNode->GetChildArray(&count);
-
-  for (uint32_t index = 0; index < count; ++index) {
-    SetFlagsOnSubtree(children[index], aFlagsToSet);
+  for (nsIContent* child = aNode->GetFirstChild(); child;
+       child = child->GetNextSibling()) {
+    SetFlagsOnSubtree(child, aFlagsToSet);
   }
 }
 
@@ -7598,22 +7591,6 @@ nsCSSFrameConstructor::StyleNewChildRange(nsIContent* aStartChild,
 }
 
 void
-nsCSSFrameConstructor::StyleChildRangeForReconstruct(nsIContent* aStartChild,
-                                                     nsIContent* aEndChild)
-{
-  ServoStyleSet* styleSet = mPresShell->StyleSet()->AsServo();
-
-  // We take a parallelism hit here, since we don't have a great API to pass
-  // a range of elements to style to Servo.
-  for (nsIContent* child = aStartChild; child != aEndChild;
-       child = child->GetNextSibling()) {
-    if (child->IsElement()) {
-      styleSet->StyleSubtreeForReconstruct(child->AsElement());
-    }
-  }
-}
-
-void
 nsCSSFrameConstructor::ContentAppended(nsIContent* aContainer,
                                        nsIContent* aFirstNewContent,
                                        bool aAllowLazyConstruction,
@@ -7702,12 +7679,8 @@ nsCSSFrameConstructor::ContentAppended(nsIContent* aContainer,
   }
 
   // We couldn't construct lazily. Make Servo eagerly traverse the new content.
-  if (aContainer->IsStyledByServo()) {
-    if (aForReconstruction) {
-      StyleChildRangeForReconstruct(aFirstNewContent, nullptr);
-    } else {
-      StyleNewChildRange(aFirstNewContent, nullptr);
-    }
+  if (isNewlyAddedContentForServo) {
+    StyleNewChildRange(aFirstNewContent, nullptr);
   }
 
   if (isNewShadowTreeContent) {
@@ -7941,7 +7914,7 @@ nsCSSFrameConstructor::ContentAppended(nsIContent* aContainer,
 
   // Recover first-letter frames
   if (haveFirstLetterStyle) {
-    RecoverLetterFrames(containingBlock, haveFirstLineStyle);
+    RecoverLetterFrames(containingBlock);
   }
 
 #ifdef DEBUG
@@ -8191,12 +8164,8 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
   }
 
   // We couldn't construct lazily. Make Servo eagerly traverse the new content.
-  if (aContainer->IsStyledByServo()) {
-    if (aForReconstruction) {
-      StyleChildRangeForReconstruct(aStartChild, aEndChild);
-    } else {
-      StyleNewChildRange(aStartChild, aEndChild);
-    }
+  if (isNewlyAddedContentForServo) {
+    StyleNewChildRange(aStartChild, aEndChild);
   }
 
   if (isNewShadowTreeContent) {
@@ -8378,8 +8347,7 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
       // Need check whether a range insert is still safe.
       if (!isSingleInsert && !isRangeInsertSafe) {
         // Need to recover the letter frames first.
-        RecoverLetterFrames(state.mFloatedItems.containingBlock,
-                            haveFirstLineStyle);
+        RecoverLetterFrames(state.mFloatedItems.containingBlock);
 
         // must fall back to a single ContertInserted for each child in the range
         LAYOUT_PHASE_TEMP_EXIT();
@@ -8622,8 +8590,7 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
   if (haveFirstLetterStyle) {
     // Recover the letter frames for the containing block when
     // it has first-letter style.
-    RecoverLetterFrames(state.mFloatedItems.containingBlock,
-                        haveFirstLineStyle);
+    RecoverLetterFrames(state.mFloatedItems.containingBlock);
   }
 
 #ifdef DEBUG
@@ -8916,9 +8883,7 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent* aContainer,
     }
 
     if (haveFLS && mRootElementFrame) {
-      RecoverLetterFrames(containingBlock,
-                          ShouldHaveFirstLineStyle(containingBlock->GetContent(),
-                                                   containingBlock->StyleContext()));
+      RecoverLetterFrames(containingBlock);
     }
 
     // If we're just reconstructing frames for the element, then the
@@ -9095,9 +9060,7 @@ nsCSSFrameConstructor::CharacterDataChanged(nsIContent* aContent,
     frame->CharacterDataChanged(aInfo);
 
     if (haveFirstLetterStyle) {
-      RecoverLetterFrames(block,
-                          ShouldHaveFirstLineStyle(block->GetContent(),
-                                                   block->StyleContext()));
+      RecoverLetterFrames(block);
     }
   }
 }
@@ -10247,7 +10210,8 @@ nsCSSFrameConstructor::sPseudoParentData[eParentTypeCount] = {
     FCDATA_DECL(FCDATA_IS_TABLE_PART | FCDATA_SKIP_FRAMESET |
                 FCDATA_DISALLOW_OUT_OF_FLOW | FCDATA_USE_CHILD_ITEMS |
                 FCDATA_SKIP_ABSPOS_PUSH |
-                FCDATA_IS_WRAPPER_ANON_BOX |
+                // Not FCDATA_IS_WRAPPER_ANON_BOX, because we don't need to
+                // restyle these: they have non-inheriting style contexts.
                 FCDATA_DESIRED_PARENT_TYPE_TO_BITS(eTypeTable),
                 NS_NewTableColGroupFrame),
     &nsCSSAnonBoxes::tableColGroup
@@ -10886,9 +10850,16 @@ nsCSSFrameConstructor::WrapItemsInPseudoParent(nsIContent* aParentContent,
     pseudoType = nsCSSAnonBoxes::inlineTable;
   }
 
-  already_AddRefed<nsStyleContext> wrapperStyle =
-    mPresShell->StyleSet()->ResolveInheritingAnonymousBoxStyle(pseudoType,
-                                                               aParentStyle);
+  already_AddRefed<nsStyleContext> wrapperStyle;
+  if (pseudoData.mFCData.mBits & FCDATA_IS_WRAPPER_ANON_BOX) {
+    wrapperStyle =
+      mPresShell->StyleSet()->ResolveInheritingAnonymousBoxStyle(pseudoType,
+                                                                 aParentStyle);
+  } else {
+    wrapperStyle =
+      mPresShell->StyleSet()->ResolveNonInheritingAnonymousBoxStyle(pseudoType);
+  }
+
   FrameConstructionItem* newItem =
     new FrameConstructionItem(&pseudoData.mFCData,
                               // Use the content of our parent frame
@@ -12268,8 +12239,7 @@ nsCSSFrameConstructor::RemoveLetterFrames(nsIPresShell* aPresShell,
 
 // Fixup the letter frame situation for the given block
 void
-nsCSSFrameConstructor::RecoverLetterFrames(nsContainerFrame* aBlockFrame,
-                                           bool aMayHaveFirstLine)
+nsCSSFrameConstructor::RecoverLetterFrames(nsContainerFrame* aBlockFrame)
 {
   aBlockFrame =
     static_cast<nsContainerFrame*>(aBlockFrame->FirstContinuation());
@@ -12295,14 +12265,17 @@ nsCSSFrameConstructor::RecoverLetterFrames(nsContainerFrame* aBlockFrame,
   } while (continuation);
 
   if (parentFrame) {
-    // Take the old textFrame out of the parents child list
+    // Take the old textFrame out of the parent's child list
     RemoveFrame(kPrincipalList, textFrame);
 
+    // When we got the first-letter style from servo, it gave us the style not
+    // affected by the first-line bits.  So we may need to reparent the new
+    // frames' styles to deal with that.  Note that we already used parentFrame
+    // to inherit from, so the only case in which we need to fix something up is
+    // if parentFrame is itself a ::first-line frame, because in that case we
+    // have to do inheritance partially from it and partially from the block.
     auto* restyleManager = RestyleManager();
-    if (aMayHaveFirstLine && restyleManager->IsServo()) {
-      // When we got the first-letter style from servo, it gave us the style not
-      // affected by the first-line bits.  So we need to reparent the new
-      // frames' styles to deal with that.
+    if (parentFrame->IsLineFrame() && restyleManager->IsServo()) {
       for (nsIFrame* f : letterFrames) {
         restyleManager->ReparentStyleContext(f);
       }

@@ -5,7 +5,7 @@
 // `data` comes from components/style/properties.mako.rs; see build.rs for more details.
 
 <%!
-    from data import to_rust_ident, to_camel_case
+    from data import to_rust_ident, to_camel_case, to_camel_case_lower
     from data import Keyword
 %>
 <%namespace name="helpers" file="/helpers.mako.rs" />
@@ -1070,6 +1070,67 @@ impl Clone for ${style_struct.gecko_struct_name} {
     }
 </%def>
 
+<%def name="impl_font_settings(ident, tag_type)">
+    <%
+    gecko_ffi_name = to_camel_case_lower(ident)
+    %>
+
+    pub fn set_${ident}(&mut self, v: longhands::${ident}::computed_value::T) {
+        use values::generics::FontSettings;
+
+        let current_settings = &mut self.gecko.mFont.${gecko_ffi_name};
+        current_settings.clear_pod();
+
+        match v {
+            FontSettings::Normal => (), // do nothing, length is already 0
+
+            FontSettings::Tag(other_settings) => {
+                unsafe { current_settings.set_len_pod(other_settings.len() as u32) };
+
+                for (current, other) in current_settings.iter_mut().zip(other_settings) {
+                    current.mTag = other.tag;
+                    current.mValue = other.value.0;
+                }
+            }
+        };
+    }
+
+    pub fn copy_${ident}_from(&mut self, other: &Self) {
+        let current_settings = &mut self.gecko.mFont.${gecko_ffi_name};
+        let other_settings = &other.gecko.mFont.${gecko_ffi_name};
+        let settings_length = other_settings.len() as u32;
+
+        current_settings.clear_pod();
+        unsafe { current_settings.set_len_pod(settings_length) };
+
+        for (current, other) in current_settings.iter_mut().zip(other_settings.iter()) {
+            current.mTag = other.mTag;
+            current.mValue = other.mValue;
+        }
+    }
+
+    pub fn reset_${ident}(&mut self, other: &Self) {
+        self.copy_${ident}_from(other)
+    }
+
+    pub fn clone_${ident}(&self) -> longhands::${ident}::computed_value::T {
+        use values::generics::{FontSettings, FontSettingTag, ${tag_type}} ;
+
+        if self.gecko.mFont.${gecko_ffi_name}.len() == 0 {
+            FontSettings::Normal
+        } else {
+            FontSettings::Tag(
+                self.gecko.mFont.${gecko_ffi_name}.iter().map(|gecko_font_setting| {
+                    FontSettingTag {
+                        tag: gecko_font_setting.mTag,
+                        value: ${tag_type}(gecko_font_setting.mValue),
+                    }
+                }).collect()
+            )
+        }
+    }
+</%def>
+
 <%def name="raw_impl_trait(style_struct, skip_longhands='', skip_additionals='')">
 <%
     longhands = [x for x in style_struct.longhands
@@ -2069,98 +2130,8 @@ fn static_assert() {
     skip_longhands="${skip_font_longhands}"
     skip_additionals="*">
 
-    pub fn set_font_feature_settings(&mut self, v: longhands::font_feature_settings::computed_value::T) {
-        use values::generics::FontSettings;
-
-        let current_settings = &mut self.gecko.mFont.fontFeatureSettings;
-        current_settings.clear_pod();
-
-        match v {
-            FontSettings::Normal => (), // do nothing, length is already 0
-
-            FontSettings::Tag(feature_settings) => {
-                unsafe { current_settings.set_len_pod(feature_settings.len() as u32) };
-
-                for (current, feature) in current_settings.iter_mut().zip(feature_settings) {
-                    current.mTag = feature.tag;
-                    current.mValue = feature.value.0;
-                }
-            }
-        };
-    }
-
-    pub fn copy_font_feature_settings_from(&mut self, other: &Self) {
-        let current_settings = &mut self.gecko.mFont.fontFeatureSettings;
-        let feature_settings = &other.gecko.mFont.fontFeatureSettings;
-        let settings_length = feature_settings.len() as u32;
-
-        current_settings.clear_pod();
-        unsafe { current_settings.set_len_pod(settings_length) };
-
-        for (current, feature) in current_settings.iter_mut().zip(feature_settings.iter()) {
-            current.mTag = feature.mTag;
-            current.mValue = feature.mValue;
-        }
-    }
-
-    pub fn reset_font_feature_settings(&mut self, other: &Self) {
-        self.copy_font_feature_settings_from(other)
-    }
-
-    pub fn clone_font_feature_settings(&self) -> longhands::font_feature_settings::computed_value::T {
-        use values::generics::{FontSettings, FontSettingTag, FontSettingTagInt} ;
-
-        if self.gecko.mFont.fontFeatureSettings.len() == 0 {
-            FontSettings::Normal
-        } else {
-            FontSettings::Tag(
-                self.gecko.mFont.fontFeatureSettings.iter().map(|gecko_font_feature_setting| {
-                    FontSettingTag {
-                        tag: gecko_font_feature_setting.mTag,
-                        value: FontSettingTagInt(gecko_font_feature_setting.mValue),
-                    }
-                }).collect()
-            )
-        }
-    }
-
-    pub fn set_font_variation_settings(&mut self, v: longhands::font_variation_settings::computed_value::T) {
-        use values::generics::FontSettings;
-
-        let current_settings = &mut self.gecko.mFont.fontVariationSettings;
-        current_settings.clear_pod();
-
-        match v {
-            FontSettings::Normal => (), // do nothing, length is already 0
-
-            FontSettings::Tag(feature_settings) => {
-                unsafe { current_settings.set_len_pod(feature_settings.len() as u32) };
-
-                for (current, feature) in current_settings.iter_mut().zip(feature_settings) {
-                    current.mTag = feature.tag;
-                    current.mValue = feature.value.0;
-                }
-            }
-        };
-    }
-
-    pub fn copy_font_variation_settings_from(&mut self, other: &Self ) {
-        let current_settings = &mut self.gecko.mFont.fontVariationSettings;
-        let feature_settings = &other.gecko.mFont.fontVariationSettings;
-        let settings_length = feature_settings.len() as u32;
-
-        current_settings.clear_pod();
-        unsafe { current_settings.set_len_pod(settings_length) };
-
-        for (current, feature) in current_settings.iter_mut().zip(feature_settings.iter()) {
-            current.mTag = feature.mTag;
-            current.mValue = feature.mValue;
-        }
-    }
-
-    pub fn reset_font_variation_settings(&mut self, other: &Self) {
-        self.copy_font_variation_settings_from(other)
-    }
+    <% impl_font_settings("font_feature_settings", "FontSettingTagInt") %>
+    <% impl_font_settings("font_variation_settings", "FontSettingTagFloat") %>
 
     pub fn fixup_none_generic(&mut self, device: &Device) {
         self.gecko.mFont.systemFont = false;
@@ -2904,33 +2875,41 @@ fn static_assert() {
     }
 
     pub fn set_vertical_align(&mut self, v: longhands::vertical_align::computed_value::T) {
-        <% keyword = data.longhands_by_name["vertical-align"].keyword %>
-        use properties::longhands::vertical_align::computed_value::T;
-        // FIXME: Align binary representations and ditch |match| for cast + static_asserts
-        match v {
-            % for value in keyword.values_for('gecko'):
-                T::${to_rust_ident(value)} =>
-                    self.gecko.mVerticalAlign.set_value(
-                            CoordDataValue::Enumerated(structs::${keyword.gecko_constant(value)})),
-            % endfor
-            T::LengthOrPercentage(v) => self.gecko.mVerticalAlign.set(v),
-        }
+        use values::generics::box_::VerticalAlign;
+        let value = match v {
+            VerticalAlign::Baseline => structs::NS_STYLE_VERTICAL_ALIGN_BASELINE,
+            VerticalAlign::Sub => structs::NS_STYLE_VERTICAL_ALIGN_SUB,
+            VerticalAlign::Super => structs::NS_STYLE_VERTICAL_ALIGN_SUPER,
+            VerticalAlign::Top => structs::NS_STYLE_VERTICAL_ALIGN_TOP,
+            VerticalAlign::TextTop => structs::NS_STYLE_VERTICAL_ALIGN_TEXT_TOP,
+            VerticalAlign::Middle => structs::NS_STYLE_VERTICAL_ALIGN_MIDDLE,
+            VerticalAlign::Bottom => structs::NS_STYLE_VERTICAL_ALIGN_BOTTOM,
+            VerticalAlign::TextBottom => structs::NS_STYLE_VERTICAL_ALIGN_TEXT_BOTTOM,
+            VerticalAlign::MozMiddleWithBaseline => {
+                structs::NS_STYLE_VERTICAL_ALIGN_MIDDLE_WITH_BASELINE
+            },
+            VerticalAlign::Length(length) => {
+                self.gecko.mVerticalAlign.set(length);
+                return;
+            },
+        };
+        self.gecko.mVerticalAlign.set_value(CoordDataValue::Enumerated(value));
     }
 
     pub fn clone_vertical_align(&self) -> longhands::vertical_align::computed_value::T {
-        use properties::longhands::vertical_align::computed_value::T;
         use values::computed::LengthOrPercentage;
+        use values::generics::box_::VerticalAlign;
 
-        match self.gecko.mVerticalAlign.as_value() {
-            % for value in keyword.values_for('gecko'):
-                CoordDataValue::Enumerated(structs::${keyword.gecko_constant(value)}) => T::${to_rust_ident(value)},
-            % endfor
-                CoordDataValue::Enumerated(_) => panic!("Unexpected enum variant for vertical-align"),
-                _ => {
-                    let v = LengthOrPercentage::from_gecko_style_coord(&self.gecko.mVerticalAlign)
-                        .expect("Expected length or percentage for vertical-align");
-                    T::LengthOrPercentage(v)
-                }
+        let gecko = &self.gecko.mVerticalAlign;
+        match gecko.as_value() {
+            CoordDataValue::Enumerated(value) => VerticalAlign::from_gecko_keyword(value),
+            _ => {
+                VerticalAlign::Length(
+                    LengthOrPercentage::from_gecko_style_coord(gecko).expect(
+                        "expected <length-percentage> for vertical-align",
+                    ),
+                )
+            },
         }
     }
 
@@ -4159,19 +4138,14 @@ fn static_assert() {
     }
 
     pub fn clone_list_style_type(&self) -> longhands::list_style_type::computed_value::T {
-        use gecko_bindings::bindings::Gecko_CounterStyle_IsSingleString;
-        use gecko_bindings::bindings::Gecko_CounterStyle_GetSingleString;
         use self::longhands::list_style_type::computed_value::T;
+        use values::Either;
         use values::generics::CounterStyleOrNone;
 
-        if unsafe { Gecko_CounterStyle_IsSingleString(&self.gecko.mCounterStyle) } {
-            ns_auto_string!(single_string);
-            unsafe {
-                Gecko_CounterStyle_GetSingleString(&self.gecko.mCounterStyle, &mut *single_string)
-            };
-            T::String(single_string.to_string())
-        } else {
-            T::CounterStyle(CounterStyleOrNone::from_gecko_value(&self.gecko.mCounterStyle))
+        let result = CounterStyleOrNone::from_gecko_value(&self.gecko.mCounterStyle);
+        match result {
+            Either::First(counter_style) => T::CounterStyle(counter_style),
+            Either::Second(string) => T::String(string),
         }
     }
 
@@ -5617,6 +5591,7 @@ clip-path
         use gecko::conversions::string_from_chars_pointer;
         use gecko_bindings::structs::nsStyleContentType::*;
         use properties::longhands::content::computed_value::{T, ContentItem};
+        use values::Either;
         use values::generics::CounterStyleOrNone;
         use values::specified::url::SpecifiedUrl;
         use values::specified::Attr;
@@ -5664,6 +5639,11 @@ clip-path
                         let ident = gecko_function.mIdent.to_string();
                         let style =
                             CounterStyleOrNone::from_gecko_value(&gecko_function.mCounterStyle);
+                        let style = match style {
+                            Either::First(counter_style) => counter_style,
+                            Either::Second(_) =>
+                                unreachable!("counter function shouldn't have single string type"),
+                        };
                         if gecko_content.mType == eStyleContentType_Counter {
                             ContentItem::Counter(ident, style)
                         } else {
