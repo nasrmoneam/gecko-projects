@@ -54,7 +54,10 @@ function runUpdateFinished() {
  */
 function waitForHelperExitFinished() {
   standardInit();
-  checkUpdateManager(STATE_NONE, false, STATE_AFTER_RUNUPDATE, 0, 1);
+  Assert.equal(gUpdateManager.updateCount, 1,
+               "the update manager updateCount attribute" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).state, STATE_AFTER_RUNUPDATE,
+               "the update state" + MSG_SHOULD_EQUAL);
   checkPostUpdateRunningFile(false);
   setTestFilesAndDirsForFailure();
   checkFilesAfterUpdateFailure(getApplyDirFile);

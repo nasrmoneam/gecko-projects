@@ -40,7 +40,14 @@ function runUpdateFinished() {
  */
 function waitForHelperExitFinished() {
   standardInit();
-  checkUpdateManager(STATE_PENDING, true, STATE_PENDING, WRITE_ERROR, 0);
+  Assert.equal(readStatusFile(), STATE_PENDING,
+               "the status file failure code" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.updateCount, 1,
+               "the update manager updateCount attribute" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).state, STATE_PENDING,
+               "the update state" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).errorCode, WRITE_ERROR,
+               "the update errorCode" + MSG_SHOULD_EQUAL);
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
   checkUpdateLogContains(ERR_RENAME_FILE);

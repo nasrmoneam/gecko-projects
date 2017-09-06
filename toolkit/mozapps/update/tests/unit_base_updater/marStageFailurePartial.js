@@ -30,8 +30,10 @@ function setupUpdaterTestFinished() {
  * Called after the call to stageUpdate finishes.
  */
 function stageUpdateFinished() {
-  checkUpdateManager(STATE_NONE, false, STATE_FAILED,
-                     LOADSOURCE_ERROR_WRONG_SIZE, 1);
+  Assert.equal(readStatusState(), STATE_NONE,
+               "the status file state" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).errorCode, LOADSOURCE_ERROR_WRONG_SIZE,
+               "the update errorCode" + MSG_SHOULD_EQUAL);
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
   checkUpdateLogContains(ERR_LOADSOURCEFILE_FAILED);

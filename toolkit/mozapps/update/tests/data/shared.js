@@ -120,6 +120,11 @@ XPCOMUtils.defineLazyServiceGetter(this, "gEnv",
                                    "@mozilla.org/process/environment;1",
                                    "nsIEnvironment");
 
+XPCOMUtils.defineLazyGetter(this, "gZipW", function test_gZipW() {
+  return Cc["@mozilla.org/zipwriter;1"].
+         createInstance(Ci.nsIZipWriter);
+});
+
 /* Triggers post-update processing */
 function testPostUpdateProcessing() {
   gAUS.observe(null, "test-post-update-processing", "");

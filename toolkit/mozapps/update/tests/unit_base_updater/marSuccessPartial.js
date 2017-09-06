@@ -36,7 +36,14 @@ function setupUpdaterTestFinished() {
 function runUpdateFinished() {
   checkAppBundleModTime();
   standardInit();
-  checkUpdateManager(STATE_NONE, false, STATE_SUCCEEDED, 0, 1);
+  Assert.equal(readStatusState(), STATE_NONE,
+               "the status file state" + MSG_SHOULD_EQUAL);
+  Assert.ok(!gUpdateManager.activeUpdate,
+            "the active update should not be defined");
+  Assert.equal(gUpdateManager.updateCount, 1,
+               "the update manager updateCount attribute" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).state, STATE_SUCCEEDED,
+               "the update state" + MSG_SHOULD_EQUAL);
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateSuccess(getApplyDirFile);
   checkUpdateLogContents(LOG_PARTIAL_SUCCESS);

@@ -54,7 +54,14 @@ function runUpdateFinished() {
  */
 function waitForHelperExitFinished() {
   standardInit();
-  checkUpdateManager(STATE_NONE, false, STATE_FAILED, READ_ERROR, 1);
+  Assert.equal(readStatusFile(), STATE_NONE,
+               "the status file failure code" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.updateCount, 2,
+               "the update manager updateCount attribute" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).state, STATE_FAILED,
+               "the update state" + MSG_SHOULD_EQUAL);
+  Assert.equal(gUpdateManager.getUpdateAt(0).errorCode, READ_ERROR,
+               "the update errorCode" + MSG_SHOULD_EQUAL);
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
   checkUpdateLogContains(ERR_UNABLE_OPEN_DEST);
