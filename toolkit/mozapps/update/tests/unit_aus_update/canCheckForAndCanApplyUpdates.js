@@ -15,6 +15,8 @@ function run_test() {
   testFile.remove(false);
   Assert.ok(!testFile.exists(), MSG_SHOULD_NOT_EXIST);
 
+  standardInit();
+
   if (IS_WIN) {
     // Create a mutex to prevent being able to check for or apply updates.
     debugDump("attempting to create mutex");

@@ -24,8 +24,13 @@ function run_test() {
                "the update manager activeUpdate state attribute" +
                MSG_SHOULD_EQUAL);
 
-  // Pausing the download along with reloading the update manager in
-  // doTestFinish will prevent writing the update xml files during shutdown.
+  // Pause the download and reload the Update Manager with an empty update so
+  // the Application Update Service doesn't write the update xml files during
+  // xpcom-shutdown which will leave behind the test directory.
   gAUS.pauseDownload();
+  writeUpdatesToXMLFile(getLocalUpdatesXMLString(""), true);
+  writeUpdatesToXMLFile(getLocalUpdatesXMLString(""), false);
+  reloadUpdateManagerData();
+
   do_execute_soon(doTestFinish);
 }

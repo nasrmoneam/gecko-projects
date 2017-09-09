@@ -3,6 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
+var gNextRunFunc;
+var gExpectedStatusResult;
+
 function run_test() {
   // The network code that downloads the mar file accesses the profile to cache
   // the download, but the profile is only available after calling
@@ -20,20 +23,28 @@ function run_test() {
   do_execute_soon(run_test_pt1);
 }
 
-// mar download with an invalid file size
-function run_test_pt1() {
-  let patchProps = {size: "1024000"};
-  let patches = getRemotePatchString(patchProps);
-  let updates = getRemoteUpdateString({}, patches);
-  gResponseBody = getRemoteUpdatesXMLString(updates);
+// The HttpServer must be stopped before calling do_test_finished
+function finish_test() {
+  stop_httpserver(doTestFinish);
+}
+
+// Helper function for testing mar downloads that have the correct size
+// specified in the update xml.
+function run_test_helper_pt1(aMsg, aExpectedStatusResult, aNextRunFunc) {
+  gUpdates = null;
+  gUpdateCount = null;
+  gStatusResult = null;
   gCheckFunc = check_test_helper_pt1_1;
-  debugDump("mar download with an invalid file size");
+  gNextRunFunc = aNextRunFunc;
+  gExpectedStatusResult = aExpectedStatusResult;
+  debugDump(aMsg, Components.stack.caller);
   gUpdateChecker.checkForUpdates(updateCheckListener, true);
 }
 
 function check_test_helper_pt1_1() {
   Assert.equal(gUpdateCount, 1,
                "the update count" + MSG_SHOULD_EQUAL);
+  gCheckFunc = check_test_helper_pt1_2;
   let bestUpdate = gAUS.selectUpdate(gUpdates, gUpdateCount);
   let state = gAUS.downloadUpdate(bestUpdate, false);
   if (state == STATE_NONE || state == STATE_FAILED) {
@@ -42,20 +53,29 @@ function check_test_helper_pt1_1() {
   gAUS.addDownloadListener(downloadListener);
 }
 
-/**
- * Called after the download listener onStopRequest is called.
- */
-function downloadListenerStop() {
-  Assert.equal(gStatusResult, Cr.NS_ERROR_UNEXPECTED,
+function check_test_helper_pt1_2() {
+  Assert.equal(gStatusResult, gExpectedStatusResult,
                "the download status result" + MSG_SHOULD_EQUAL);
   gAUS.removeDownloadListener(downloadListener);
-  do_execute_soon(waitForUpdateXMLFiles);
+  gNextRunFunc();
 }
 
-/**
- * Called after the call to waitForUpdateXMLFiles finishes.
- */
-function waitForUpdateXMLFilesFinished() {
-  // The HttpServer must be stopped before calling do_test_finished
-  stop_httpserver(doTestFinish);
+// mar download with the mar not found
+function run_test_pt1() {
+  let patchProps = {url: gURLData + "missing.mar"};
+  let patches = getRemotePatchString(patchProps);
+  let updates = getRemoteUpdateString({}, patches);
+  gResponseBody = getRemoteUpdatesXMLString(updates);
+  run_test_helper_pt1("mar download with the mar not found",
+                      Cr.NS_ERROR_UNEXPECTED, run_test_pt2);
+}
+
+// mar download with an invalid file size
+function run_test_pt2() {
+  let patchProps = {size: "1024000"};
+  let patches = getRemotePatchString(patchProps);
+  let updates = getRemoteUpdateString({}, patches);
+  gResponseBody = getRemoteUpdatesXMLString(updates);
+  run_test_helper_pt1("mar download with an invalid file size",
+                      Cr.NS_ERROR_UNEXPECTED, finish_test);
 }
