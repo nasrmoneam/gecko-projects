@@ -26,7 +26,6 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   BrowserUITelemetry: "resource:///modules/BrowserUITelemetry.jsm",
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
   BrowserUtils: "resource://gre/modules/BrowserUtils.jsm",
-  CastingApps: "resource:///modules/CastingApps.jsm",
   CharsetMenu: "resource://gre/modules/CharsetMenu.jsm",
   Color: "resource://gre/modules/Color.jsm",
   ContentSearch: "resource:///modules/ContentSearch.jsm",
@@ -108,6 +107,7 @@ XPCOMUtils.defineLazyScriptGetter(this, ["setContextMenuContentData",
                                   "chrome://browser/content/nsContextMenu.js");
 XPCOMUtils.defineLazyScriptGetter(this, ["DownloadsPanel",
                                          "DownloadsOverlayLoader",
+                                         "DownloadsSubview",
                                          "DownloadsView", "DownloadsViewUI",
                                          "DownloadsViewController",
                                          "DownloadsSummary", "DownloadsFooter",
@@ -1289,7 +1289,7 @@ var gBrowserInit = {
     // loading the frame script to ensure that we don't miss any
     // message sent between when the frame script is loaded and when
     // the listener is registered.
-    DOMLinkHandler.init();
+    DOMEventHandler.init();
     gPageStyleMenu.init();
     LanguageDetectionListener.init();
     BrowserOnClick.init();
@@ -1361,7 +1361,6 @@ var gBrowserInit = {
     CombinedStopReload.init();
     gPrivateBrowsingUI.init();
     BrowserPageActions.init();
-    gAccessibilityServiceIndicator.init();
 
     if (window.matchMedia("(-moz-os-version: windows-win8)").matches &&
         window.matchMedia("(-moz-windows-default-theme)").matches) {
@@ -1847,8 +1846,6 @@ var gBrowserInit = {
     CaptivePortalWatcher.uninit();
 
     SidebarUI.uninit();
-
-    gAccessibilityServiceIndicator.uninit();
 
     // Now either cancel delayedStartup, or clean up the services initialized from
     // it.
@@ -3312,35 +3309,6 @@ function BrowserFullScreen() {
   window.fullScreen = !window.fullScreen;
 }
 
-function mirrorShow(popup) {
-  let services = [];
-  if (Services.prefs.getBoolPref("browser.casting.enabled")) {
-    services = CastingApps.getServicesForMirroring();
-  }
-  popup.ownerDocument.getElementById("menu_mirrorTabCmd").hidden = !services.length;
-}
-
-function mirrorMenuItemClicked(event) {
-  gBrowser.selectedBrowser.messageManager.sendAsyncMessage("SecondScreen:tab-mirror",
-                                                           {service: event.originalTarget._service});
-}
-
-function populateMirrorTabMenu(popup) {
-  popup.innerHTML = null;
-  if (!Services.prefs.getBoolPref("browser.casting.enabled")) {
-    return;
-  }
-  let doc = popup.ownerDocument;
-  let services = CastingApps.getServicesForMirroring();
-  services.forEach(service => {
-    let item = doc.createElement("menuitem");
-    item.setAttribute("label", service.friendlyName);
-    item._service = service;
-    item.addEventListener("command", mirrorMenuItemClicked);
-    popup.appendChild(item);
-  });
-}
-
 function getWebNavigation() {
   return gBrowser.webNavigation;
 }
@@ -3703,13 +3671,13 @@ var newWindowButtonObserver = {
     }
   }
 }
-
-const DOMLinkHandler = {
+const DOMEventHandler = {
   init() {
     let mm = window.messageManager;
     mm.addMessageListener("Link:AddFeed", this);
     mm.addMessageListener("Link:SetIcon", this);
     mm.addMessageListener("Link:AddSearch", this);
+    mm.addMessageListener("Meta:SetPageInfo", this);
   },
 
   receiveMessage(aMsg) {
@@ -3726,7 +3694,17 @@ const DOMLinkHandler = {
       case "Link:AddSearch":
         this.addSearch(aMsg.target, aMsg.data.engine, aMsg.data.url);
         break;
+
+      case "Meta:SetPageInfo":
+        this.setPageInfo(aMsg.data);
+        break;
     }
+  },
+
+  setPageInfo(aData) {
+    const {url, description, previewImageURL} = aData;
+    gBrowser.setPageInfo(url, description, previewImageURL);
+    return true;
   },
 
   setIcon(aBrowser, aURL, aLoadingPrincipal) {
@@ -3964,8 +3942,7 @@ const BrowserSearch = {
       return engine.identifier;
     }
 
-    if (!engine || (engine.name === undefined) ||
-        !Services.prefs.getBoolPref("toolkit.telemetry.enabled"))
+    if (!engine || (engine.name === undefined))
       return "other";
 
     return "other-" + engine.name;
@@ -5530,7 +5507,6 @@ function setToolbarVisibility(toolbar, isVisible, persist = true) {
   let event = new CustomEvent("toolbarvisibilitychange", eventParams);
   toolbar.dispatchEvent(event);
 
-  PlacesToolbarHelper.init();
   BookmarkingUI.onToolbarVisibilityChange();
 }
 
@@ -7518,20 +7494,20 @@ var gIdentityHandler = {
     }
 
     // Push the appropriate strings out to the UI
-    this._connectionIcon.tooltipText = tooltip;
+    this._connectionIcon.setAttribute("tooltiptext", tooltip);
 
     if (this._isExtensionPage) {
       let extensionName = extensionNameFromURI(this._uri);
-      this._extensionIcon.tooltipText = gNavigatorBundle.getFormattedString(
-        "identity.extension.tooltip", [extensionName]);
+      this._extensionIcon.setAttribute("tooltiptext",
+        gNavigatorBundle.getFormattedString("identity.extension.tooltip", [extensionName]));
     }
 
-    this._identityIconLabels.tooltipText = tooltip;
-    this._identityIcon.tooltipText = gNavigatorBundle.getString("identity.icon.tooltip");
-    this._identityIconLabel.value = icon_label;
-    this._identityIconCountryLabel.value = icon_country_label;
+    this._identityIconLabels.setAttribute("tooltiptext", tooltip);
+    this._identityIcon.setAttribute("tooltiptext", gNavigatorBundle.getString("identity.icon.tooltip"));
+    this._identityIconLabel.setAttribute("value", icon_label);
+    this._identityIconCountryLabel.setAttribute("value", icon_country_label);
     // Set cropping and direction
-    this._identityIconLabel.crop = icon_country_label ? "end" : "center";
+    this._identityIconLabel.setAttribute("crop", icon_country_label ? "end" : "center");
     this._identityIconLabel.parentNode.style.direction = icon_labels_dir;
     // Hide completely if the organization label is empty
     this._identityIconLabel.parentNode.collapsed = !icon_label;
@@ -8020,63 +7996,6 @@ function getTabModalPromptBox(aWindow) {
 function getBrowser() {
   return gBrowser;
 }
-
-const gAccessibilityServiceIndicator = {
-  init() {
-    // Pref to enable accessibility service indicator.
-    gPrefService.addObserver("accessibility.indicator.enabled", this);
-    // Accessibility service init/shutdown event.
-    Services.obs.addObserver(this, "a11y-init-or-shutdown");
-    this.update(Services.appinfo.accessibilityEnabled);
-  },
-
-  update(accessibilityEnabled = false) {
-    if (this.enabled && accessibilityEnabled) {
-      this._active = true;
-      document.documentElement.setAttribute("accessibilitymode", "true");
-      [...document.querySelectorAll(".accessibility-indicator")].forEach(
-        indicator => ["click", "keypress"].forEach(type =>
-          indicator.addEventListener(type, this)));
-      TabsInTitlebar.updateAppearance(true);
-    } else if (this._active) {
-      this._active = false;
-      document.documentElement.removeAttribute("accessibilitymode");
-      [...document.querySelectorAll(".accessibility-indicator")].forEach(
-        indicator => ["click", "keypress"].forEach(type =>
-          indicator.removeEventListener(type, this)));
-      TabsInTitlebar.updateAppearance(true);
-    }
-  },
-
-  observe(subject, topic, data) {
-    if (topic == "nsPref:changed" && data === "accessibility.indicator.enabled") {
-      this.update(Services.appinfo.accessibilityEnabled);
-    } else if (topic === "a11y-init-or-shutdown") {
-      // When "a11y-init-or-shutdown" event is fired, "1" indicates that
-      // accessibility service is started and "0" that it is shut down.
-      this.update(data === "1");
-    }
-  },
-
-  get enabled() {
-    return gPrefService.getBoolPref("accessibility.indicator.enabled");
-  },
-
-  handleEvent({ key, type }) {
-    if ((type === "keypress" && [" ", "Enter"].includes(key)) ||
-         type === "click") {
-      let a11yServicesSupportURL =
-        Services.urlFormatter.formatURLPref("accessibility.support.url");
-      gBrowser.selectedTab = gBrowser.addTab(a11yServicesSupportURL);
-    }
-  },
-
-  uninit() {
-    gPrefService.removeObserver("accessibility.indicator.enabled", this);
-    Services.obs.removeObserver(this, "a11y-init-or-shutdown");
-    this.update();
-  }
-};
 
 var gPrivateBrowsingUI = {
   init: function PBUI_init() {

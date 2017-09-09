@@ -656,14 +656,8 @@ nsIPresShell::SetVerifyReflowEnable(bool aEnabled)
   gVerifyReflowEnabled = aEnabled;
 }
 
-/* virtual */ void
-nsIPresShell::AddAutoWeakFrameExternal(AutoWeakFrame* aWeakFrame)
-{
-  AddAutoWeakFrameInternal(aWeakFrame);
-}
-
 void
-nsIPresShell::AddAutoWeakFrameInternal(AutoWeakFrame* aWeakFrame)
+nsIPresShell::AddAutoWeakFrame(AutoWeakFrame* aWeakFrame)
 {
   if (aWeakFrame->GetFrame()) {
     aWeakFrame->GetFrame()->AddStateBits(NS_FRAME_EXTERNAL_REFERENCE);
@@ -672,14 +666,8 @@ nsIPresShell::AddAutoWeakFrameInternal(AutoWeakFrame* aWeakFrame)
   mAutoWeakFrames = aWeakFrame;
 }
 
-/* virtual */ void
-nsIPresShell::AddWeakFrameExternal(WeakFrame* aWeakFrame)
-{
-  AddWeakFrameInternal(aWeakFrame);
-}
-
 void
-nsIPresShell::AddWeakFrameInternal(WeakFrame* aWeakFrame)
+nsIPresShell::AddWeakFrame(WeakFrame* aWeakFrame)
 {
   if (aWeakFrame->GetFrame()) {
     aWeakFrame->GetFrame()->AddStateBits(NS_FRAME_EXTERNAL_REFERENCE);
@@ -688,14 +676,8 @@ nsIPresShell::AddWeakFrameInternal(WeakFrame* aWeakFrame)
   mWeakFrames.PutEntry(aWeakFrame);
 }
 
-/* virtual */ void
-nsIPresShell::RemoveAutoWeakFrameExternal(AutoWeakFrame* aWeakFrame)
-{
-  RemoveAutoWeakFrameInternal(aWeakFrame);
-}
-
 void
-nsIPresShell::RemoveAutoWeakFrameInternal(AutoWeakFrame* aWeakFrame)
+nsIPresShell::RemoveAutoWeakFrame(AutoWeakFrame* aWeakFrame)
 {
   if (mAutoWeakFrames == aWeakFrame) {
     mAutoWeakFrames = aWeakFrame->GetPreviousWeakFrame();
@@ -710,14 +692,8 @@ nsIPresShell::RemoveAutoWeakFrameInternal(AutoWeakFrame* aWeakFrame)
   }
 }
 
-/* virtual */ void
-nsIPresShell::RemoveWeakFrameExternal(WeakFrame* aWeakFrame)
-{
-  RemoveWeakFrameInternal(aWeakFrame);
-}
-
 void
-nsIPresShell::RemoveWeakFrameInternal(WeakFrame* aWeakFrame)
+nsIPresShell::RemoveWeakFrame(WeakFrame* aWeakFrame)
 {
   MOZ_ASSERT(mWeakFrames.GetEntry(aWeakFrame));
   mWeakFrames.RemoveEntry(aWeakFrame);
@@ -1634,7 +1610,8 @@ PresShell::GetSelectionControllerForFocusedContent(nsIContent** aFocusedContent)
   if (mDocument) {
     nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
     nsCOMPtr<nsIContent> focusedContent =
-      nsFocusManager::GetFocusedDescendant(mDocument->GetWindow(), false,
+      nsFocusManager::GetFocusedDescendant(mDocument->GetWindow(),
+                                           nsFocusManager::eOnlyCurrentWindow,
                                            getter_AddRefs(focusedWindow));
     if (focusedContent) {
       nsIFrame* frame = focusedContent->GetPrimaryFrame();
@@ -1814,7 +1791,8 @@ PresShell::Initialize(nscoord aWidth, nscoord aHeight)
 
       // Have the style sheet processor construct frame for the root
       // content object down
-      mFrameConstructor->ContentInserted(nullptr, root, nullptr, false);
+      mFrameConstructor->ContentInserted(
+          nullptr, root, nullptr, nsCSSFrameConstructor::InsertionKind::Sync);
       VERIFY_STYLE_TREE;
 
       // Something in mFrameConstructor->ContentInserted may have caused
@@ -2474,12 +2452,6 @@ PresShell::CheckVisibilityContent(nsIContent* aNode, int16_t aStartOffset,
 //end implementations nsISelectionController
 
 nsIFrame*
-nsIPresShell::GetRootFrameExternal() const
-{
-  return mFrameConstructor->GetRootFrame();
-}
-
-nsIFrame*
 nsIPresShell::GetRootScrollFrame() const
 {
   nsIFrame* rootFrame = mFrameConstructor->GetRootFrame();
@@ -2502,12 +2474,6 @@ nsIPresShell::GetRootScrollFrameAsScrollable() const
   NS_ASSERTION(scrollableFrame,
                "All scroll frames must implement nsIScrollableFrame");
   return scrollableFrame;
-}
-
-nsIScrollableFrame*
-nsIPresShell::GetRootScrollFrameAsScrollableExternal() const
-{
-  return GetRootScrollFrameAsScrollable();
 }
 
 nsIPageSequenceFrame*
@@ -2871,6 +2837,20 @@ nsIPresShell::GetSelectedContentForScrolling() const
 }
 
 nsIScrollableFrame*
+nsIPresShell::GetNearestScrollableFrame(
+                nsIFrame* aFrame,
+                nsIPresShell::ScrollDirection aDirection)
+{
+  if (aDirection == nsIPresShell::eEither) {
+    return nsLayoutUtils::GetNearestScrollableFrame(aFrame);
+  }
+
+  return nsLayoutUtils::GetNearestScrollableFrameForDirection(aFrame,
+           aDirection == eVertical ? nsLayoutUtils::eVertical :
+                                     nsLayoutUtils::eHorizontal);
+}
+
+nsIScrollableFrame*
 nsIPresShell::GetScrollableFrameToScrollForContent(
                 nsIContent* aContent,
                 nsIPresShell::ScrollDirection aDirection)
@@ -2883,19 +2863,16 @@ nsIPresShell::GetScrollableFrameToScrollForContent(
       if (scrollFrame) {
         startFrame = scrollFrame->GetScrolledFrame();
       }
-      if (aDirection == nsIPresShell::eEither) {
-        scrollFrame =
-          nsLayoutUtils::GetNearestScrollableFrame(startFrame);
-      } else {
-        scrollFrame =
-          nsLayoutUtils::GetNearestScrollableFrameForDirection(startFrame,
-            aDirection == eVertical ? nsLayoutUtils::eVertical :
-                                      nsLayoutUtils::eHorizontal);
-      }
+      scrollFrame = GetNearestScrollableFrame(startFrame, aDirection);
     }
   }
   if (!scrollFrame) {
     scrollFrame = GetRootScrollFrameAsScrollable();
+    if (!scrollFrame || !scrollFrame->GetScrolledFrame()) {
+      return nullptr;
+    }
+    scrollFrame = GetNearestScrollableFrame(scrollFrame->GetScrolledFrame(),
+                                            aDirection);
   }
   return scrollFrame;
 }
@@ -4425,7 +4402,10 @@ PresShell::ContentAppended(nsIDocument *aDocument,
   // frame reconstruction.
   mPresContext->RestyleManager()->ContentAppended(aContainer, aFirstNewContent);
 
-  mFrameConstructor->ContentAppended(aContainer, aFirstNewContent, true);
+  mFrameConstructor->ContentAppended(
+      aContainer,
+      aFirstNewContent,
+      nsCSSFrameConstructor::InsertionKind::Async);
 
   VERIFY_STYLE_TREE;
 }
@@ -4451,7 +4431,11 @@ PresShell::ContentInserted(nsIDocument* aDocument,
   // frame reconstruction.
   mPresContext->RestyleManager()->ContentInserted(container, aChild);
 
-  mFrameConstructor->ContentInserted(aMaybeContainer, aChild, nullptr, true);
+  mFrameConstructor->ContentInserted(
+      aMaybeContainer,
+      aChild,
+      nullptr,
+      nsCSSFrameConstructor::InsertionKind::Async);
 
   if (aChild->NodeType() == nsIDOMNode::DOCUMENT_TYPE_NODE) {
     MOZ_ASSERT(container == aDocument);
@@ -4509,6 +4493,7 @@ PresShell::ContentRemoved(nsIDocument *aDocument,
   }
 
   mFrameConstructor->ContentRemoved(aMaybeContainer, aChild, oldNextSibling,
+                                    nsCSSFrameConstructor::InsertionKind::Async,
                                     nsCSSFrameConstructor::REMOVE_CONTENT);
 
   if (aChild->NodeType() == nsIDOMNode::DOCUMENT_TYPE_NODE) {
@@ -4553,7 +4538,7 @@ PresShell::ReconstructFrames()
 
   nsAutoCauseReflowNotifier crNotifier(this);
   mFrameConstructor->BeginUpdate();
-  mFrameConstructor->ReconstructDocElementHierarchy();
+  mFrameConstructor->ReconstructDocElementHierarchy(nsCSSFrameConstructor::InsertionKind::Sync);
   VERIFY_STYLE_TREE;
   mFrameConstructor->EndUpdate();
 }
@@ -6783,7 +6768,8 @@ PresShell::GetFocusedDOMWindowInOurWindow()
   nsCOMPtr<nsPIDOMWindowOuter> rootWindow = GetRootWindow();
   NS_ENSURE_TRUE(rootWindow, nullptr);
   nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
-  nsFocusManager::GetFocusedDescendant(rootWindow, true,
+  nsFocusManager::GetFocusedDescendant(rootWindow,
+                                       nsFocusManager::eIncludeAllDescendants,
                                        getter_AddRefs(focusedWindow));
   return focusedWindow.forget();
 }
@@ -7309,8 +7295,21 @@ PresShell::HandleEvent(nsIFrame* aFrame,
 
     if (retargetEventDoc) {
       nsCOMPtr<nsIPresShell> presShell = retargetEventDoc->GetShell();
-      if (!presShell)
-        return NS_OK;
+      // Even if the document doesn't have PresShell, i.e., it's invisible, we
+      // need to dispatch only KeyboardEvent in its nearest visible document
+      // because key focus shouldn't be caught by invisible document.
+      if (!presShell) {
+        if (!aEvent->HasKeyEventMessage()) {
+          return NS_OK;
+        }
+        while (!presShell) {
+          retargetEventDoc = retargetEventDoc->GetParentDocument();
+          if (!retargetEventDoc) {
+            return NS_OK;
+          }
+          presShell = retargetEventDoc->GetShell();
+        }
+      }
 
       if (presShell != this) {
         nsIFrame* frame = presShell->GetRootFrame();
@@ -7773,7 +7772,8 @@ PresShell::HandleEvent(nsIFrame* aFrame,
       nsCOMPtr<nsPIDOMWindowOuter> window = mDocument->GetWindow();
       nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
       nsCOMPtr<nsIContent> eventTarget =
-        nsFocusManager::GetFocusedDescendant(window, false,
+        nsFocusManager::GetFocusedDescendant(window,
+                                             nsFocusManager::eOnlyCurrentWindow,
                                              getter_AddRefs(focusedWindow));
 
       // otherwise, if there is no focused content or the focused content has
@@ -8233,6 +8233,23 @@ PresShell::HandleEventInternal(WidgetEvent* aEvent,
     case eMouseMove:
       nsIPresShell::AllowMouseCapture(false);
       break;
+    case eDrag:
+    case eDragEnd:
+    case eDragEnter:
+    case eDragExit:
+    case eDragLeave:
+    case eDragOver:
+    case eDrop: {
+      // After any drag event other than dragstart (which is handled separately,
+      // as we need to collect the data first), the DataTransfer needs to be
+      // made protected, and then disconnected.
+      DataTransfer* dataTransfer = aEvent->AsDragEvent()->mDataTransfer;
+      if (dataTransfer) {
+        dataTransfer->SetMode(DataTransfer::Mode::Protected);
+        dataTransfer->ClearAll();
+      }
+      break;
+    }
     default:
       break;
     }
@@ -9771,35 +9788,21 @@ PresShell::Observe(nsISupports* aSubject,
 }
 
 bool
-nsIPresShell::AddRefreshObserverInternal(nsARefreshObserver* aObserver,
-                                         FlushType aFlushType)
+nsIPresShell::AddRefreshObserver(nsARefreshObserver* aObserver,
+                                 FlushType aFlushType)
 {
   nsPresContext* presContext = GetPresContext();
   return presContext &&
       presContext->RefreshDriver()->AddRefreshObserver(aObserver, aFlushType);
 }
 
-/* virtual */ bool
-nsIPresShell::AddRefreshObserverExternal(nsARefreshObserver* aObserver,
-                                         FlushType aFlushType)
-{
-  return AddRefreshObserverInternal(aObserver, aFlushType);
-}
-
 bool
-nsIPresShell::RemoveRefreshObserverInternal(nsARefreshObserver* aObserver,
-                                            FlushType aFlushType)
+nsIPresShell::RemoveRefreshObserver(nsARefreshObserver* aObserver,
+                                    FlushType aFlushType)
 {
   nsPresContext* presContext = GetPresContext();
   return presContext &&
       presContext->RefreshDriver()->RemoveRefreshObserver(aObserver, aFlushType);
-}
-
-/* virtual */ bool
-nsIPresShell::RemoveRefreshObserverExternal(nsARefreshObserver* aObserver,
-                                            FlushType aFlushType)
-{
-  return RemoveRefreshObserverInternal(aObserver, aFlushType);
 }
 
 /* virtual */ bool

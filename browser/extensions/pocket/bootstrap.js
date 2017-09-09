@@ -99,7 +99,6 @@ var PocketPageAction = {
         urlbarIDOverride: "pocket-button-box",
         anchorIDOverride: "pocket-button",
         _insertBeforeActionID: PageActions.ACTION_ID_BOOKMARK_SEPARATOR,
-        _urlbarInsertBeforeActionID: PageActions.ACTION_ID_BOOKMARK,
         _urlbarNodeInMarkup: true,
         onBeforePlacedInWindow(window) {
           let doc = window.document;
@@ -119,7 +118,7 @@ var PocketPageAction = {
           animatableBox.id = "pocket-animatable-box";
           let animatableImage = doc.createElement("image");
           animatableImage.id = "pocket-animatable-image";
-          animatableImage.setAttribute("role", "button");
+          animatableImage.setAttribute("role", "presentation");
           let tooltip =
             gPocketBundle.GetStringFromName("pocket-button.tooltiptext");
           animatableImage.setAttribute("tooltiptext", tooltip);

@@ -8,7 +8,6 @@
 
 @namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
 @namespace html url("http://www.w3.org/1999/xhtml");
-@namespace svg url("http://www.w3.org/2000/svg");
 
 %include ../shared/browser.inc.css
 
@@ -588,7 +587,11 @@ html|span.ac-emphasize-text-url {
 }
 
 .sidebar-splitter {
-  border-color: ThreeDShadow;
+  -moz-appearance: none;
+  width: 6px;
+  background-color: -moz-dialog;
+  border: 1px ThreeDShadow;
+  border-style: none solid;
 }
 
 .browserContainer > findbar {
@@ -721,6 +724,12 @@ html|span.ac-emphasize-text-url {
 %include ../shared/customizableui/customizeMode.inc.css
 
 /* End customization mode */
+
+
+#main-window[privatebrowsingmode=temporary] #private-browsing-indicator {
+  background: url("chrome://browser/skin/privatebrowsing-mask.png") center no-repeat;
+  width: 40px;
+}
 
 %include ../shared/UITour.inc.css
 

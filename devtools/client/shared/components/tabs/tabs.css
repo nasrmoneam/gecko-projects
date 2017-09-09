@@ -7,7 +7,7 @@
 
 .tabs {
   height: 100%;
-  background: var(--theme-body-background);
+  background: var(--theme-sidebar-background);
   display: flex;
   flex-direction: column;
 }
@@ -81,7 +81,7 @@
 .theme-light .tabs .tabs-menu-item {
   margin: 0;
   padding: 0;
-  color: var(--theme-content-color1);
+  color: var(--theme-toolbar-color);
 }
 
 .theme-dark .tabs .tabs-menu-item:last-child,

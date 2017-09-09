@@ -112,8 +112,6 @@
   skin/classic/browser/fxa/sync-illustration.svg               (../shared/fxa/sync-illustration.svg)
 
 
-  skin/classic/browser/accessibility.svg              (../shared/icons/accessibility.svg)
-  skin/classic/browser/accessibility-active.svg       (../shared/icons/accessibility-active.svg)
   skin/classic/browser/arrow-left.svg                 (../shared/icons/arrow-left.svg)
   skin/classic/browser/back.svg                       (../shared/icons/back.svg)
   skin/classic/browser/back-12.svg                    (../shared/icons/back-12.svg)
@@ -138,6 +136,7 @@
   skin/classic/browser/email-link.svg                 (../shared/icons/email-link.svg)
   skin/classic/browser/feed.svg                       (../shared/icons/feed.svg)
   skin/classic/browser/find.svg                       (../shared/icons/find.svg)
+  skin/classic/browser/folder.svg                     (../shared/icons/folder.svg)
   skin/classic/browser/forget.svg                     (../shared/icons/forget.svg)
   skin/classic/browser/forward.svg                    (../shared/icons/forward.svg)
   skin/classic/browser/fullscreen.svg                 (../shared/icons/fullscreen.svg)
@@ -154,7 +153,6 @@
   skin/classic/browser/open.svg                       (../shared/icons/open.svg)
   skin/classic/browser/page-action.svg                (../shared/icons/page-action.svg)
   skin/classic/browser/print.svg                      (../shared/icons/print.svg)
-  skin/classic/browser/private-browsing.svg           (../shared/icons/private-browsing.svg)
   skin/classic/browser/privateBrowsing.svg            (../shared/icons/privateBrowsing.svg)
   skin/classic/browser/restore-session.svg            (../shared/icons/restore-session.svg)
   skin/classic/browser/quit.svg                       (../shared/icons/quit.svg)

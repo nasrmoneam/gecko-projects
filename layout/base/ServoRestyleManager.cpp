@@ -1202,10 +1202,15 @@ ServoRestyleManager::ProcessAllPendingAttributeAndStateInvalidations()
   ClearSnapshots();
 }
 
+bool
+ServoRestyleManager::HasPendingRestyleAncestor(Element* aElement) const
+{
+  return Servo_HasPendingRestyleAncestor(aElement);
+}
+
 void
 ServoRestyleManager::UpdateOnlyAnimationStyles()
 {
-  // Bug 1365855: We also need to implement this for SMIL.
   bool doCSS = PresContext()->EffectCompositor()->HasPendingStyleUpdates();
   if (!doCSS) {
     return;

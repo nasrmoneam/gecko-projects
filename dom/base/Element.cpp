@@ -2158,7 +2158,9 @@ Element::ShouldBlur(nsIContent *aContent)
 
   nsCOMPtr<nsPIDOMWindowOuter> focusedFrame;
   nsIContent* contentToBlur =
-    nsFocusManager::GetFocusedDescendant(window, false, getter_AddRefs(focusedFrame));
+    nsFocusManager::GetFocusedDescendant(window,
+                                         nsFocusManager::eOnlyCurrentWindow,
+                                         getter_AddRefs(focusedFrame));
   if (contentToBlur == aContent)
     return true;
 
@@ -4219,9 +4221,13 @@ Element::AddSizeOfExcludingThis(nsWindowSizes& aSizes, size_t* aNodeSize) const
   FragmentOrElement::AddSizeOfExcludingThis(aSizes, aNodeSize);
 
   if (HasServoData()) {
+    // Measure the ElementData object itself.
+    aSizes.mLayoutServoElementDataObjects +=
+      aSizes.mState.mMallocSizeOf(mServoData.Get());
+
     // Measure mServoData, excluding the ComputedValues. This measurement
     // counts towards the element's size. We use ServoElementMallocSizeOf
-    // rather thang |aState.mMallocSizeOf| to better distinguish in DMD's
+    // rather than |aState.mMallocSizeOf| to better distinguish in DMD's
     // output the memory measured within Servo code.
     *aNodeSize +=
       Servo_Element_SizeOfExcludingThisAndCVs(ServoElementMallocSizeOf,

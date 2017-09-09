@@ -4,7 +4,6 @@
 
 @namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
 @namespace html url("http://www.w3.org/1999/xhtml");
-@namespace svg url("http://www.w3.org/2000/svg");
 
 :root {
   --panelui-subview-transition-duration: 150ms;
@@ -180,6 +179,22 @@ tabbrowser {
   transition: transform 200ms var(--animation-easing-function);
 }
 
+#TabsToolbar[movingtab] > .tabbrowser-tabs {
+  padding-bottom: 15px;
+}
+
+#TabsToolbar[movingtab] + #nav-bar {
+  margin-top: -15px;
+  pointer-events: none;
+}
+
+/* Allow dropping a tab on buttons with associated drop actions. */
+#TabsToolbar[movingtab] + #nav-bar > #nav-bar-customization-target > #home-button,
+#TabsToolbar[movingtab] + #nav-bar > #nav-bar-customization-target > #downloads-button,
+#TabsToolbar[movingtab] + #nav-bar > #nav-bar-customization-target > #bookmarks-menu-button {
+  pointer-events: auto;
+}
+
 .new-tab-popup,
 #alltabs-popup {
   -moz-binding: url("chrome://browser/content/tabbrowser.xml#tabbrowser-alltabs-popup");
@@ -273,8 +288,7 @@ toolbarpaletteitem {
 %endif
 
 %if !defined(MOZ_WIDGET_GTK)
-#TabsToolbar > .private-browsing-indicator,
-#TabsToolbar > .accessibility-indicator {
+#TabsToolbar > .private-browsing-indicator {
   -moz-box-ordinal-group: 1000;
 }
 %endif
@@ -668,9 +682,9 @@ html|input.urlbar-input[textoverflow]:not([focused]) {
 }
 
 #urlbar[pageproxystate=invalid] > #page-action-buttons > .urlbar-page-action,
-#identity-box.chromeUI ~ #page-action-buttons > .urlbar-page-action,
-#urlbar[usertyping] > .urlbar-textbox-container > .urlbar-history-dropmarker,
-.urlbar-go-button[pageproxystate="valid"],
+#identity-box.chromeUI ~ #page-action-buttons > .urlbar-page-action:not(#star-button-box),
+.urlbar-history-dropmarker[usertyping],
+.urlbar-go-button:not([usertyping]),
 .urlbar-go-button:not([parentfocused="true"]),
 #urlbar[pageproxystate="invalid"] > #identity-box > #blocked-permissions-container,
 #urlbar[pageproxystate="invalid"] > #identity-box > #notification-popup-box,

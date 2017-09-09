@@ -332,7 +332,7 @@
        position="bottomcenter topright"
        photon="true"
        hidden="true">
-  <photonpanelmultiview mainViewId="widget-overflow-mainView">
+  <photonpanelmultiview mainViewId="widget-overflow-mainView" disablekeynav="true">
     <panelview id="widget-overflow-mainView"
                context="toolbar-context-menu">
       <vbox class="panel-subview-body">
@@ -475,7 +475,7 @@
                      checkboxhidden="true"
                      hidden="true">
     <popupnotificationcontent id="update-restart-notification-content" orient="vertical">
-      <description id="update-restart-description">&updateRestart.message;</description>
+      <description id="update-restart-description">&updateRestart.message2;</description>
     </popupnotificationcontent>
   </popupnotification>
 </panel>
@@ -718,6 +718,11 @@
                        label="&appMenuRemoteTabs.label;"
                        closemenu="none"
                        oncommand="PanelUI.showSubView('PanelUI-remotetabs', this)"/>
+        <toolbarbutton id="appMenu-library-downloads-button"
+                       class="subviewbutton subviewbutton-iconic subviewbutton-nav"
+                       label="&libraryDownloads.label;"
+                       closemenu="none"
+                       oncommand="DownloadsSubview.show(this);"/>
       </vbox>
     </panelview>
 

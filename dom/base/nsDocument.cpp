@@ -3016,13 +3016,14 @@ nsDocument::InitCSP(nsIChannel* aChannel)
   rv = csp->GetCSPSandboxFlags(&cspSandboxFlags);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  mSandboxFlags |= cspSandboxFlags;
-
   // Probably the iframe sandbox attribute already caused the creation of a
   // new NullPrincipal. Only create a new NullPrincipal if CSP requires so
   // and no one has been created yet.
   bool needNewNullPrincipal =
     (cspSandboxFlags & SANDBOXED_ORIGIN) && !(mSandboxFlags & SANDBOXED_ORIGIN);
+
+  mSandboxFlags |= cspSandboxFlags;
+  
   if (needNewNullPrincipal) {
     principal = NullPrincipal::CreateWithInheritedAttributes(principal);
     principal->SetCsp(csp);
@@ -3603,7 +3604,8 @@ nsIDocument::GetActiveElement()
   if (nsCOMPtr<nsPIDOMWindowOuter> window = GetWindow()) {
     nsCOMPtr<nsPIDOMWindowOuter> focusedWindow;
     nsIContent* focusedContent =
-      nsFocusManager::GetFocusedDescendant(window, false,
+      nsFocusManager::GetFocusedDescendant(window,
+                                           nsFocusManager::eOnlyCurrentWindow,
                                            getter_AddRefs(focusedWindow));
     // be safe and make sure the element is from this document
     if (focusedContent && focusedContent->OwnerDoc() == this) {
@@ -12771,23 +12773,23 @@ nsDocument::DocAddSizeOfExcludingThis(nsWindowSizes& aWindowSizes) const
   // PresShell, which contains the frame tree.
   nsIDocument::DocAddSizeOfExcludingThis(aWindowSizes);
 
-  aWindowSizes.mStyleSheetsSize +=
+  aWindowSizes.mLayoutStyleSheetsSize +=
     SizeOfOwnedSheetArrayExcludingThis(mStyleSheets,
                                        aWindowSizes.mState.mMallocSizeOf);
   // Note that we do not own the sheets pointed to by mOnDemandBuiltInUASheets
   // (the nsLayoutStyleSheetCache singleton does).
-  aWindowSizes.mStyleSheetsSize +=
+  aWindowSizes.mLayoutStyleSheetsSize +=
     mOnDemandBuiltInUASheets.ShallowSizeOfExcludingThis(
       aWindowSizes.mState.mMallocSizeOf);
   for (auto& sheetArray : mAdditionalSheets) {
-    aWindowSizes.mStyleSheetsSize +=
+    aWindowSizes.mLayoutStyleSheetsSize +=
       SizeOfOwnedSheetArrayExcludingThis(sheetArray,
                                          aWindowSizes.mState.mMallocSizeOf);
   }
   // Lumping in the loader with the style-sheets size is not ideal,
   // but most of the things in there are in fact stylesheets, so it
   // doesn't seem worthwhile to separate it out.
-  aWindowSizes.mStyleSheetsSize +=
+  aWindowSizes.mLayoutStyleSheetsSize +=
     CSSLoader()->SizeOfIncludingThis(aWindowSizes.mState.mMallocSizeOf);
 
   aWindowSizes.mDOMOtherSize += mAttrStyleSheet

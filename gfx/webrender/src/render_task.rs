@@ -117,13 +117,13 @@ pub enum RenderTaskKey {
     CacheMask(ClipId),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RenderTaskLocation {
     Fixed,
     Dynamic(Option<(DeviceIntPoint, RenderTargetIndex)>, DeviceIntSize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AlphaRenderItem {
     Primitive(Option<ClipScrollGroupIndex>, PrimitiveIndex, i32),
     Blend(StackingContextIndex, RenderTaskId, FilterOp, i32),
@@ -132,7 +132,7 @@ pub enum AlphaRenderItem {
     HardwareComposite(StackingContextIndex, RenderTaskId, HardwareCompositeOp, i32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AlphaRenderTask {
     pub screen_origin: DeviceIntPoint,
     pub items: Vec<AlphaRenderItem>,
@@ -159,7 +159,7 @@ pub enum MaskGeometryKind {
 
 pub type ClipWorkItem = (PackedLayerIndex, MaskCacheInfo);
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CacheMaskTask {
     actual_rect: DeviceIntRect,
     inner_rect: DeviceIntRect,
@@ -167,12 +167,12 @@ pub struct CacheMaskTask {
     pub geometry_kind: MaskGeometryKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderTaskData {
     pub data: [f32; FLOATS_PER_RENDER_TASK_INFO],
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum RenderTaskKind {
     Alpha(AlphaRenderTask),
     CachePrimitive(PrimitiveIndex),
@@ -184,7 +184,7 @@ pub enum RenderTaskKind {
     Alias(RenderTaskId),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RenderTask {
     pub cache_key: Option<RenderTaskKey>,
     pub location: RenderTaskLocation,
@@ -244,7 +244,8 @@ impl RenderTask {
     pub fn new_mask(key: Option<ClipId>,
                     task_rect: DeviceIntRect,
                     raw_clips: &[ClipWorkItem],
-                    extra_clip: Option<ClipWorkItem>)
+                    extra_clip: Option<ClipWorkItem>,
+                    prim_rect: DeviceIntRect)
                     -> Option<RenderTask> {
         // Filter out all the clip instances that don't contribute to the result
         let mut inner_rect = Some(task_rect);
@@ -283,13 +284,20 @@ impl RenderTask {
         //           In the future, we'll expand this to handle the
         //           more complex types of clip mask geometry.
         let mut geometry_kind = MaskGeometryKind::Default;
-        if inner_rect.is_some() && clips.len() == 1 {
-            let (_, ref info) = clips[0];
-            if info.border_corners.is_empty() &&
-               info.image.is_none() &&
-               info.complex_clip_range.get_count() == 1 &&
-               info.layer_clip_range.get_count() == 0 {
-                geometry_kind = MaskGeometryKind::CornersOnly;
+        if let Some(inner_rect) = inner_rect {
+            // If the inner rect completely contains the primitive
+            // rect, then this mask can't affect the primitive.
+            if inner_rect.contains_rect(&prim_rect) {
+                return None;
+            }
+            if clips.len() == 1 {
+                let (_, ref info) = clips[0];
+                if info.border_corners.is_empty() &&
+                   info.image.is_none() &&
+                   info.complex_clip_range.get_count() == 1 &&
+                   info.layer_clip_range.get_count() == 0 {
+                    geometry_kind = MaskGeometryKind::CornersOnly;
+                }
             }
         }
 

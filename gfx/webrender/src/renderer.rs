@@ -18,7 +18,7 @@ use debug_colors;
 use debug_render::DebugRenderer;
 #[cfg(feature = "debugger")]
 use debug_server::{self, DebugServer};
-use device::{DepthFunction, Device, FrameId, Program, Texture, VertexDescriptor, GpuMarker, GpuProfiler, PBOId};
+use device::{DepthFunction, Device, FrameId, Program, Texture, VertexDescriptor, GpuMarker, GpuProfiler, PBO};
 use device::{GpuTimer, TextureFilter, VAO, VertexUsageHint, FileWatcherHandler, TextureTarget, ShaderError};
 use device::{ExternalTexture, get_gl_format_bgra, TextureSlot, VertexAttribute, VertexAttributeKind};
 use euclid::{Transform3D, rect};
@@ -226,18 +226,13 @@ const DESC_CACHE_BOX_SHADOW: VertexDescriptor = VertexDescriptor {
     ]
 };
 
+#[derive(Debug, Copy, Clone)]
 enum VertexArrayKind {
     Primitive,
     Blur,
     Clip,
 
     CacheBoxShadow,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum VertexFormat {
-    PrimitiveInstances,
-    Blur,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -504,7 +499,7 @@ impl CacheRow {
 /// The device-specific representation of the cache texture in gpu_cache.rs
 struct CacheTexture {
     texture: Texture,
-    pbo_id: PBOId,
+    pbo: PBO,
     rows: Vec<CacheRow>,
     cpu_blocks: Vec<GpuBlockData>,
 }
@@ -512,17 +507,18 @@ struct CacheTexture {
 impl CacheTexture {
     fn new(device: &mut Device) -> CacheTexture {
         let texture = device.create_texture(TextureTarget::Default);
-        let pbo_id = device.create_pbo();
+        let pbo = device.create_pbo();
 
         CacheTexture {
             texture,
-            pbo_id,
+            pbo,
             rows: Vec::new(),
             cpu_blocks: Vec::new(),
         }
     }
 
     fn deinit(self, device: &mut Device) {
+        device.delete_pbo(self.pbo);
         device.delete_texture(self.texture);
     }
 
@@ -589,7 +585,7 @@ impl CacheTexture {
     fn flush(&mut self, device: &mut Device) {
         // Bind a PBO to do the texture upload.
         // Updating the texture via PBO avoids CPU-side driver stalls.
-        device.bind_pbo(Some(self.pbo_id));
+        device.bind_pbo(Some(&self.pbo));
 
         for (row_index, row) in self.rows.iter_mut().enumerate() {
             if row.is_dirty {
@@ -626,7 +622,7 @@ impl CacheTexture {
 
 struct VertexDataTexture {
     texture: Texture,
-    pbo: PBOId,
+    pbo: PBO,
 }
 
 impl VertexDataTexture {
@@ -681,7 +677,7 @@ impl VertexDataTexture {
 
         // Bind a PBO to do the texture upload.
         // Updating the texture via PBO avoids CPU-side driver stalls.
-        device.bind_pbo(Some(self.pbo));
+        device.bind_pbo(Some(&self.pbo));
         device.update_pbo_data(data);
         device.update_texture_from_pbo(&self.texture,
                                        0,
@@ -697,6 +693,7 @@ impl VertexDataTexture {
     }
 
     fn deinit(self, device: &mut Device) {
+        device.delete_pbo(self.pbo);
         device.delete_texture(self.texture);
     }
 }
@@ -707,7 +704,7 @@ const CLIP_FEATURE: &str = "CLIP";
 
 enum ShaderKind {
     Primitive,
-    Cache(VertexFormat),
+    Cache(VertexArrayKind),
     ClipCache,
 }
 
@@ -758,7 +755,7 @@ impl LazilyCompiledShader {
                         create_prim_shader(self.name,
                                            device,
                                            &self.features,
-                                           VertexFormat::PrimitiveInstances)
+                                           VertexArrayKind::Primitive)
                     }
                     ShaderKind::Cache(format) => {
                         create_prim_shader(self.name,
@@ -852,7 +849,7 @@ impl PrimitiveShader {
 fn create_prim_shader(name: &'static str,
                       device: &mut Device,
                       features: &[&'static str],
-                      vertex_format: VertexFormat) -> Result<Program, ShaderError> {
+                      vertex_format: VertexArrayKind) -> Result<Program, ShaderError> {
     let mut prefix = format!("#define WR_MAX_VERTEX_TEXTURE_WIDTH {}\n",
                               MAX_VERTEX_TEXTURE_WIDTH);
 
@@ -863,8 +860,10 @@ fn create_prim_shader(name: &'static str,
     debug!("PrimShader {}", name);
 
     let vertex_descriptor = match vertex_format {
-        VertexFormat::PrimitiveInstances => DESC_PRIM_INSTANCES,
-        VertexFormat::Blur => DESC_BLUR,
+        VertexArrayKind::Primitive => DESC_PRIM_INSTANCES,
+        VertexArrayKind::Blur => DESC_BLUR,
+        VertexArrayKind::Clip => DESC_CLIP,
+        VertexArrayKind::CacheBoxShadow => DESC_CACHE_BOX_SHADOW,
     };
 
     let program = device.create_program(name,
@@ -1005,7 +1004,7 @@ pub struct Renderer {
     texture_resolver: SourceTextureResolver,
 
     // A PBO used to do asynchronous texture cache uploads.
-    texture_cache_upload_pbo: PBOId,
+    texture_cache_upload_pbo: PBO,
 
     dither_matrix_texture: Option<Texture>,
 
@@ -1095,7 +1094,7 @@ impl Renderer {
         device.begin_frame(1.0);
 
         let cs_box_shadow = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::CacheBoxShadow),
                                       "cs_box_shadow",
                                       &[],
                                       &mut device,
@@ -1103,7 +1102,7 @@ impl Renderer {
         };
 
         let cs_text_run = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
                                       "cs_text_run",
                                       &[],
                                       &mut device,
@@ -1111,7 +1110,7 @@ impl Renderer {
         };
 
         let cs_line = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::PrimitiveInstances),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Primitive),
                                       "ps_line",
                                       &["CACHE"],
                                       &mut device,
@@ -1119,7 +1118,7 @@ impl Renderer {
         };
 
         let cs_blur = try!{
-            LazilyCompiledShader::new(ShaderKind::Cache(VertexFormat::Blur),
+            LazilyCompiledShader::new(ShaderKind::Cache(VertexArrayKind::Blur),
                                      "cs_blur",
                                       &[],
                                       &mut device,
@@ -1622,7 +1621,8 @@ impl Renderer {
                 }
                 ResultMsg::DebugOutput(output) => {
                     match output {
-                        DebugOutput::FetchDocuments(string) => {
+                        DebugOutput::FetchDocuments(string) |
+                        DebugOutput::FetchClipScrollTree(string) => {
                             self.debug_server.send(string);
                         }
                     }
@@ -1721,6 +1721,7 @@ impl Renderer {
                 }
             }
             DebugCommand::FetchDocuments => {}
+            DebugCommand::FetchClipScrollTree => {}
             DebugCommand::FetchPasses => {
                 let json = self.get_passes_for_debugger();
                 self.debug_server.send(json);
@@ -1894,7 +1895,7 @@ impl Renderer {
 
                         // Bind a PBO to do the texture upload.
                         // Updating the texture via PBO avoids CPU-side driver stalls.
-                        self.device.bind_pbo(Some(self.texture_cache_upload_pbo));
+                        self.device.bind_pbo(Some(&self.texture_cache_upload_pbo));
 
                         match source {
                             TextureUpdateSource::Bytes { data }  => {
@@ -1907,6 +1908,16 @@ impl Renderer {
                                 match handler.lock(id, channel_index).source {
                                     ExternalImageSource::RawData(data) => {
                                         self.device.update_pbo_data(&data[offset as usize..]);
+                                    }
+                                    ExternalImageSource::Invalid => {
+                                        // Create a local buffer to fill the pbo.
+                                        let bpp = texture.get_bpp();
+                                        let width = stride.unwrap_or(rect.size.width * bpp);
+                                        let total_size = width * rect.size.height;
+                                        // WR haven't support RGBAF32 format in texture_cache, so
+                                        // we use u8 type here.
+                                        let dummy_data: Vec<u8> = vec![255; total_size as usize];
+                                        self.device.update_pbo_data(&dummy_data);
                                     }
                                     _ => panic!("No external buffer found"),
                                 };
@@ -2433,6 +2444,11 @@ impl Renderer {
 
                 let texture = match image.source {
                     ExternalImageSource::NativeTexture(texture_id) => ExternalTexture::new(texture_id, texture_target),
+                    ExternalImageSource::Invalid => {
+                        warn!("Invalid ext-image for ext_id:{:?}, channel:{}.", ext_image.id, ext_image.channel_index);
+                        // Just use 0 as the gl handle for this failed case.
+                        ExternalTexture::new(0, texture_target)
+                    }
                     _ => panic!("No native texture found."),
                 };
 
@@ -2761,6 +2777,7 @@ impl Renderer {
         for texture in self.color_render_targets {
             self.device.delete_texture(texture);
         }
+        self.device.delete_pbo(self.texture_cache_upload_pbo);
         self.texture_resolver.deinit(&mut self.device);
         self.device.delete_vao(self.prim_vao);
         self.device.delete_vao(self.clip_vao);
@@ -2806,7 +2823,8 @@ impl Renderer {
 
 pub enum ExternalImageSource<'a> {
     RawData(&'a [u8]),      // raw buffers.
-    NativeTexture(u32),     // Is a gl::GLuint texture handle
+    NativeTexture(u32),     // It's a gl::GLuint texture handle
+    Invalid,
 }
 
 /// The data that an external client should provide about

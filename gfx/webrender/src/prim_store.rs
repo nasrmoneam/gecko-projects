@@ -3,15 +3,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use api::{BuiltDisplayList, ColorF, ComplexClipRegion, DeviceIntRect, DeviceIntSize, DevicePoint};
-use api::{ExtendMode, FontRenderMode, GlyphInstance, GradientStop};
+use api::{BorderRadius, ExtendMode, FontRenderMode, GlyphInstance, GradientStop};
 use api::{ImageKey, ImageRendering, ItemRange, LayerPoint, LayerRect, LayerSize, TextShadow};
 use api::{GlyphKey, LayerToWorldTransform, TileOffset, YuvColorSpace, YuvFormat};
 use api::{device_length, FontInstance, LayerVector2D, LineOrientation, LineStyle};
 use app_units::Au;
 use border::BorderCornerInstance;
+use clip::{ClipMode, ClipSources};
 use euclid::{Size2D};
 use gpu_cache::{GpuCacheAddress, GpuBlockData, GpuCache, GpuCacheHandle, GpuDataRequest, ToGpuBlocks};
-use mask_cache::{ClipMode, ClipRegion, ClipSource, MaskCacheInfo};
 use renderer::MAX_VERTEX_TEXTURE_WIDTH;
 use render_task::{RenderTask, RenderTaskId, RenderTaskTree};
 use resource_cache::{ImageProperties, ResourceCache};
@@ -134,8 +134,7 @@ impl GpuCacheHandle {
 #[derive(Debug)]
 pub struct PrimitiveMetadata {
     pub opacity: PrimitiveOpacity,
-    pub clips: Vec<ClipSource>,
-    pub clip_cache_info: Option<MaskCacheInfo>,
+    pub clips: ClipSources,
     pub prim_kind: PrimitiveKind,
     pub cpu_prim_index: SpecificPrimitiveIndex,
     pub gpu_location: GpuCacheHandle,
@@ -163,7 +162,7 @@ impl PrimitiveMetadata {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct RectanglePrimitive {
     pub color: ColorF,
@@ -227,7 +226,7 @@ impl ToGpuBlocks for YuvImagePrimitiveCpu {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BorderPrimitiveCpu {
     pub corner_instances: [BorderCornerInstance; 4],
     pub gpu_blocks: [GpuBlockData; 8],
@@ -247,7 +246,7 @@ pub struct BoxShadowPrimitiveCacheKey {
     pub inverted: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BoxShadowPrimitiveCpu {
     // todo(gw): generate on demand
     // gpu data
@@ -328,7 +327,7 @@ pub const GRADIENT_DATA_TABLE_SIZE: usize = 128;
 // The number of entries in a gradient data: GRADIENT_DATA_TABLE_SIZE + first stop entry + last stop entry
 pub const GRADIENT_DATA_SIZE: usize = GRADIENT_DATA_TABLE_SIZE + 2;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 #[repr(C)]
 // An entry in a gradient data table representing a segment of the gradient color space.
 pub struct GradientDataEntry {
@@ -490,13 +489,7 @@ impl RadialGradientPrimitiveCpu {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TextDecoration {
-    pub local_rect: LayerRect,
-    pub prim: RectanglePrimitive,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TextShadowPrimitiveCpu {
     pub shadow: TextShadow,
     pub primitives: Vec<PrimitiveIndex>,
@@ -594,21 +587,14 @@ impl TextRunPrimitiveCpu {
     }
 }
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-struct GlyphPrimitive {
-    offset: LayerPoint,
-    padding: LayerPoint,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 struct ClipRect {
     rect: LayerRect,
     mode: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 struct ClipCorner {
     rect: LayerRect,
@@ -643,7 +629,7 @@ impl ClipCorner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct ImageMaskData {
     pub local_rect: LayerRect,
@@ -655,7 +641,7 @@ impl ToGpuBlocks for ImageMaskData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ClipData {
     rect: ClipRect,
     top_left: ClipCorner,
@@ -665,47 +651,46 @@ pub struct ClipData {
 }
 
 impl ClipData {
-    pub fn from_clip_region(clip: &ComplexClipRegion) -> ClipData {
+    pub fn rounded_rect(rect: &LayerRect, radii: &BorderRadius, mode: ClipMode) -> ClipData {
         ClipData {
             rect: ClipRect {
-                rect: clip.rect,
-                // TODO(gw): Support other clip modes for regions?
-                mode: ClipMode::Clip as u32 as f32,
+                rect: *rect,
+                mode: mode as u32 as f32,
             },
             top_left: ClipCorner {
                 rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y),
-                    LayerSize::new(clip.radii.top_left.width, clip.radii.top_left.height)),
-                outer_radius_x: clip.radii.top_left.width,
-                outer_radius_y: clip.radii.top_left.height,
+                    LayerPoint::new(rect.origin.x, rect.origin.y),
+                    LayerSize::new(radii.top_left.width, radii.top_left.height)),
+                outer_radius_x: radii.top_left.width,
+                outer_radius_y: radii.top_left.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             top_right: ClipCorner {
                 rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.top_right.width, clip.rect.origin.y),
-                    LayerSize::new(clip.radii.top_right.width, clip.radii.top_right.height)),
-                outer_radius_x: clip.radii.top_right.width,
-                outer_radius_y: clip.radii.top_right.height,
+                    LayerPoint::new(rect.origin.x + rect.size.width - radii.top_right.width, rect.origin.y),
+                    LayerSize::new(radii.top_right.width, radii.top_right.height)),
+                outer_radius_x: radii.top_right.width,
+                outer_radius_y: radii.top_right.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             bottom_left: ClipCorner {
                 rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x, clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_left.height),
-                    LayerSize::new(clip.radii.bottom_left.width, clip.radii.bottom_left.height)),
-                outer_radius_x: clip.radii.bottom_left.width,
-                outer_radius_y: clip.radii.bottom_left.height,
+                    LayerPoint::new(rect.origin.x, rect.origin.y + rect.size.height - radii.bottom_left.height),
+                    LayerSize::new(radii.bottom_left.width, radii.bottom_left.height)),
+                outer_radius_x: radii.bottom_left.width,
+                outer_radius_y: radii.bottom_left.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
             bottom_right: ClipCorner {
                 rect: LayerRect::new(
-                    LayerPoint::new(clip.rect.origin.x + clip.rect.size.width - clip.radii.bottom_right.width,
-                                    clip.rect.origin.y + clip.rect.size.height - clip.radii.bottom_right.height),
-                    LayerSize::new(clip.radii.bottom_right.width, clip.radii.bottom_right.height)),
-                outer_radius_x: clip.radii.bottom_right.width,
-                outer_radius_y: clip.radii.bottom_right.height,
+                    LayerPoint::new(rect.origin.x + rect.size.width - radii.bottom_right.width,
+                                    rect.origin.y + rect.size.height - radii.bottom_right.height),
+                    LayerSize::new(radii.bottom_right.width, radii.bottom_right.height)),
+                outer_radius_x: radii.bottom_right.width,
+                outer_radius_y: radii.bottom_right.height,
                 inner_radius_x: 0.0,
                 inner_radius_y: 0.0,
             },
@@ -819,8 +804,7 @@ impl PrimitiveStore {
     pub fn add_primitive(&mut self,
                          local_rect: &LayerRect,
                          local_clip_rect: &LayerRect,
-                         clips: Vec<ClipSource>,
-                         clip_info: Option<MaskCacheInfo>,
+                         clips: ClipSources,
                          container: PrimitiveContainer) -> PrimitiveIndex {
         let prim_index = self.cpu_metadata.len();
         self.cpu_bounding_rects.push(None);
@@ -830,7 +814,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::from_alpha(rect.color.a),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Rectangle,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_rectangles.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -848,7 +831,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Line,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_lines.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -865,7 +847,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::TextRun,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_runs.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -882,7 +863,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::TextShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_text_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -899,7 +879,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Image,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_images.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -916,7 +895,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::opaque(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::YuvImage,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_yuv_images.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -933,7 +911,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::Border,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_borders.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -950,7 +927,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AlignedGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -968,7 +944,6 @@ impl PrimitiveStore {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::AngleGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -986,7 +961,6 @@ impl PrimitiveStore {
                     // TODO: calculate if the gradient is actually opaque
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::RadialGradient,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_radial_gradients.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -1003,7 +977,6 @@ impl PrimitiveStore {
                 let metadata = PrimitiveMetadata {
                     opacity: PrimitiveOpacity::translucent(),
                     clips,
-                    clip_cache_info: clip_info,
                     prim_kind: PrimitiveKind::BoxShadow,
                     cpu_prim_index: SpecificPrimitiveIndex(self.cpu_box_shadows.len()),
                     gpu_location: GpuCacheHandle::new(),
@@ -1088,22 +1061,10 @@ impl PrimitiveStore {
         }
 
         let metadata = &mut self.cpu_metadata[prim_index.0];
-
-        if let Some(ref mut clip_info) = metadata.clip_cache_info {
-            clip_info.update(&metadata.clips, layer_transform, gpu_cache, device_pixel_ratio);
-
-            //TODO-LCCR: we could tighten up the `local_clip_rect` here
-            // but that would require invalidating the whole GPU block
-
-            for clip in &metadata.clips {
-                if let ClipSource::Region(ClipRegion{ image_mask: Some(ref mask), .. }, ..) = *clip {
-                    resource_cache.request_image(mask.image,
-                                                 ImageRendering::Auto,
-                                                 None,
-                                                 gpu_cache);
-                }
-            }
-        }
+        metadata.clips.update(layer_transform,
+                              gpu_cache,
+                              resource_cache,
+                              device_pixel_ratio);
 
         match metadata.prim_kind {
             PrimitiveKind::Rectangle |

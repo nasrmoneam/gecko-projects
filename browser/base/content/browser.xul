@@ -437,9 +437,9 @@
            position="bottomcenter topright"
            tabspecific="true"
            noautofocus="true"
-           copyURL-title="&copyURLCmd.label;"
+           copyURL-title="&pageAction.copyLink.label;"
            emailLink-title="&emailPageCmd.label;"
-           sendToDevice-title="&sendToDevice.label3;"
+           sendToDevice-title="&pageAction.sendTabToDevice.label;"
            sendToDevice-notReadyTitle="&sendToDevice.syncNotReady.label;">
       <photonpanelmultiview id="pageActionPanelMultiView"
                             mainViewId="pageActionPanelMainView"
@@ -591,8 +591,9 @@
     <spacer id="titlebar-spacer" flex="1"/>
     <hbox id="titlebar-buttonbox-container">
 #ifdef XP_WIN
-      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;" aria-live="polite"/>
-      <hbox class="private-browsing-indicator"/>
+      <hbox id="private-browsing-indicator-titlebar">
+        <hbox class="private-browsing-indicator"/>
+      </hbox>
 #endif
       <hbox id="titlebar-buttonbox">
         <toolbarbutton class="titlebar-button" id="titlebar-min" oncommand="window.minimize();"/>
@@ -604,7 +605,6 @@
     <!-- OS X does not natively support RTL for its titlebar items, so we prevent this secondary
          buttonbox from reversing order in RTL by forcing an LTR direction. -->
     <hbox id="titlebar-secondary-buttonbox" dir="ltr">
-      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;" aria-live="polite"/>
       <hbox class="private-browsing-indicator"/>
       <hbox id="titlebar-fullscreen-button"/>
     </hbox>
@@ -651,12 +651,8 @@
              collapsed="true">
 
 #if defined(MOZ_WIDGET_GTK)
-      <hbox class="private-browsing-indicator"
+      <hbox id="private-browsing-indicator"
             skipintoolbarset="true"/>
-      <button class="accessibility-indicator"
-              tooltiptext="&accessibilityIndicator.tooltip;"
-              aria-live="polite"
-              skipintoolbarset="true"/>
 #endif
 
       <tabs id="tabbrowser-tabs"
@@ -704,8 +700,6 @@
       </toolbarbutton>
 
 #if !defined(MOZ_WIDGET_GTK)
-      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;"
-              aria-live="polite" skipintoolbarset="true"/>
       <hbox class="private-browsing-indicator" skipintoolbarset="true"/>
 #endif
 #ifdef CAN_DRAW_IN_TITLEBAR
@@ -784,6 +778,7 @@
                        onclick="BrowserGoHome(event);"
                        cui-areatype="toolbar"
                        aboutHomeOverrideTooltip="&abouthome.pageTitle;"/>
+        <toolbarspring cui-areatype="toolbar" class="chromeclass-toolbar-additional"/>
         <toolbaritem id="urlbar-container" flex="400" persist="width"
                      removable="false"
                      class="chromeclass-location" overflows="false">
@@ -909,11 +904,10 @@
                        class="urlbar-icon urlbar-page-action"
                        role="button"
                        tooltiptext="&pageActionButton.tooltip;"
-                       onclick="BrowserPageActions.mainButtonClicked(event);"/>
+                       onmousedown="BrowserPageActions.mainButtonClicked(event);"/>
                 <hbox id="star-button-box"
                       hidden="true"
                       class="urlbar-icon-wrapper urlbar-page-action"
-                      role="button"
                       context="pageActionPanelContextMenu"
                       oncontextmenu="BrowserPageActions.onContextMenu(event);"
                       onclick="BrowserPageActions.bookmark.onUrlbarNodeClicked(event);">
@@ -923,7 +917,7 @@
                          observes="bookmarkThisPageBroadcaster"/>
                   <hbox id="star-button-animatable-box">
                     <image id="star-button-animatable-image"
-                           role="button"
+                           role="presentation"
                            observes="bookmarkThisPageBroadcaster"/>
                   </hbox>
                 </hbox>
@@ -931,12 +925,7 @@
             </textbox>
         </toolbaritem>
 
-        <toolbaritem id="search-container" title="&searchItem.title;"
-                     align="center" class="chromeclass-toolbar-additional panel-wide-item"
-                     cui-areatype="toolbar"
-                     flex="100" persist="width" removable="true">
-          <searchbar id="searchbar" flex="1"/>
-        </toolbaritem>
+        <toolbarspring cui-areatype="toolbar" class="chromeclass-toolbar-additional"/>
 
         <!-- This is a placeholder for the Downloads Indicator.  It is visible
              during the customization of the toolbar, in the palette, and before
@@ -944,7 +933,7 @@
         <toolbarbutton id="downloads-button"
                        class="toolbarbutton-1 chromeclass-toolbar-additional badged-button"
                        key="key_openDownloads"
-                       oncommand="DownloadsIndicatorView.onCommand(event);"
+                       onmousedown="DownloadsIndicatorView.onCommand(event);"
                        ondrop="DownloadsIndicatorView.onDrop(event);"
                        ondragover="DownloadsIndicatorView.onDragOver(event);"
                        ondragenter="DownloadsIndicatorView.onDragOver(event);"
@@ -955,7 +944,7 @@
 
         <toolbarbutton id="library-button" class="toolbarbutton-1 chromeclass-toolbar-additional"
                        removable="true"
-                       oncommand="PanelUI.showSubView('appMenu-libraryView', this, null, event);"
+                       onmousedown="PanelUI.showSubView('appMenu-libraryView', this, null, event);"
                        closemenu="none"
                        cui-areatype="toolbar"
                        tooltiptext="&libraryButton.tooltip;"
@@ -1087,7 +1076,6 @@
 
       <toolbarbutton id="bookmarks-menu-button"
                      class="toolbarbutton-1 chromeclass-toolbar-additional"
-                     removable="true"
                      type="menu"
                      label="&bookmarksMenuButton2.label;"
                      tooltip="dynamic-shortcut-tooltip"
@@ -1096,7 +1084,6 @@
                      ondragover="PlacesMenuDNDHandler.onDragOver(event);"
                      ondragleave="PlacesMenuDNDHandler.onDragLeave(event);"
                      ondrop="PlacesMenuDNDHandler.onDrop(event);"
-                     cui-areatype="toolbar"
                      oncommand="BookmarkingUI.onCommand(event);">
         <observes element="bookmarkThisPageBroadcaster" attribute="starred"/>
         <observes element="bookmarkThisPageBroadcaster" attribute="buttontooltiptext"/>
@@ -1182,6 +1169,15 @@
                     key="manBookmarkKb"/>
         </menupopup>
       </toolbarbutton>
+
+      <toolbaritem id="search-container"
+                   class="chromeclass-toolbar-additional panel-wide-item"
+                   title="&searchItem.title;"
+                   align="center"
+                   flex="100"
+                   persist="width">
+        <searchbar id="searchbar" flex="1"/>
+      </toolbaritem>
     </toolbarpalette>
     <box id="library-animatable-box" class="toolbarbutton-animatable-box">
       <image class="toolbarbutton-animatable-image"/>

@@ -770,16 +770,31 @@ DefineProperty(JSContext* cx, HandleObject obj, HandleId id,
                Handle<JS::PropertyDescriptor> desc, ObjectOpResult& result);
 
 extern bool
-DefineProperty(JSContext* cx, HandleObject obj, HandleId id, HandleValue value,
-               JSGetterOp getter, JSSetterOp setter, unsigned attrs, ObjectOpResult& result);
+DefineAccessorProperty(JSContext* cx, HandleObject obj, HandleId id,
+                       JSGetterOp getter, JSSetterOp setter, unsigned attrs,
+                       ObjectOpResult& result);
 
 extern bool
-DefineProperty(JSContext* cx, HandleObject obj, PropertyName* name, HandleValue value,
-               JSGetterOp getter, JSSetterOp setter, unsigned attrs, ObjectOpResult& result);
+DefineDataProperty(JSContext* cx, HandleObject obj, HandleId id, HandleValue value,
+                   unsigned attrs, ObjectOpResult& result);
 
 extern bool
-DefineElement(JSContext* cx, HandleObject obj, uint32_t index, HandleValue value,
-              JSGetterOp getter, JSSetterOp setter, unsigned attrs, ObjectOpResult& result);
+DefineAccessorProperty(JSContext* cx, HandleObject obj, PropertyName* name,
+                       JSGetterOp getter, JSSetterOp setter, unsigned attrs,
+                       ObjectOpResult& result);
+
+extern bool
+DefineDataProperty(JSContext* cx, HandleObject obj, PropertyName* name, HandleValue value,
+                   unsigned attrs, ObjectOpResult& result);
+
+extern bool
+DefineAccessorElement(JSContext* cx, HandleObject obj, uint32_t index,
+                      JSGetterOp getter, JSSetterOp setter, unsigned attrs,
+                      ObjectOpResult& result);
+
+extern bool
+DefineDataElement(JSContext* cx, HandleObject obj, uint32_t index, HandleValue value,
+                  unsigned attrs, ObjectOpResult& result);
 
 /*
  * When the 'result' out-param is omitted, the behavior is the same as above, except
@@ -789,22 +804,28 @@ extern bool
 DefineProperty(JSContext* cx, HandleObject obj, HandleId id, Handle<JS::PropertyDescriptor> desc);
 
 extern bool
-DefineProperty(JSContext* cx, HandleObject obj, HandleId id, HandleValue value,
-               JSGetterOp getter = nullptr,
-               JSSetterOp setter = nullptr,
-               unsigned attrs = JSPROP_ENUMERATE);
+DefineAccessorProperty(JSContext* cx, HandleObject obj, HandleId id,
+                       JSGetterOp getter, JSSetterOp setter, unsigned attrs = JSPROP_ENUMERATE);
 
 extern bool
-DefineProperty(JSContext* cx, HandleObject obj, PropertyName* name, HandleValue value,
-               JSGetterOp getter = nullptr,
-               JSSetterOp setter = nullptr,
-               unsigned attrs = JSPROP_ENUMERATE);
+DefineDataProperty(JSContext* cx, HandleObject obj, HandleId id, HandleValue value,
+                   unsigned attrs = JSPROP_ENUMERATE);
 
 extern bool
-DefineElement(JSContext* cx, HandleObject obj, uint32_t index, HandleValue value,
-              JSGetterOp getter = nullptr,
-              JSSetterOp setter = nullptr,
-              unsigned attrs = JSPROP_ENUMERATE);
+DefineAccessorProperty(JSContext* cx, HandleObject obj, PropertyName* name,
+                       JSGetterOp getter, JSSetterOp setter, unsigned attrs = JSPROP_ENUMERATE);
+
+extern bool
+DefineDataProperty(JSContext* cx, HandleObject obj, PropertyName* name, HandleValue value,
+                   unsigned attrs = JSPROP_ENUMERATE);
+
+extern bool
+DefineAccessorElement(JSContext* cx, HandleObject obj, uint32_t index,
+                      JSGetterOp getter, JSSetterOp setter, unsigned attrs = JSPROP_ENUMERATE);
+
+extern bool
+DefineDataElement(JSContext* cx, HandleObject obj, uint32_t index, HandleValue value,
+                  unsigned attrs = JSPROP_ENUMERATE);
 
 /*
  * ES6 [[Has]]. Set *foundp to true if `id in obj` (that is, if obj has an own
@@ -1074,18 +1095,20 @@ MOZ_ALWAYS_INLINE const char*
 GetObjectClassName(JSContext* cx, HandleObject obj);
 
 /*
- * Return an object that may be used as `this` in place of obj. For most
- * objects this just returns obj.
+ * Prepare a |this| value to be returned to script. This includes replacing
+ * Windows with their corresponding WindowProxy.
  *
- * Some JSObjects shouldn't be exposed directly to script. This includes (at
- * least) WithEnvironmentObjects and Window objects. However, since both of
- * those can be on scope chains, we sometimes would expose those as `this` if
- * we were not so vigilant about calling GetThisValue where appropriate.
- *
- * See comments at ComputeImplicitThis.
+ * Helpers are also provided to first extract the |this| from specific
+ * types of environment.
  */
 Value
 GetThisValue(JSObject* obj);
+
+Value
+GetThisValueOfLexical(JSObject* env);
+
+Value
+GetThisValueOfWith(JSObject* env);
 
 /* * */
 

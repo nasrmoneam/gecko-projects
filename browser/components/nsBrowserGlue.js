@@ -528,12 +528,8 @@ BrowserGlue.prototype = {
 
     this._flashHangCount = 0;
     this._firstWindowReady = new Promise(resolve => this._firstWindowLoaded = resolve);
-
-    if (AppConstants.platform == "macosx" ||
-        (AppConstants.platform == "win" && AppConstants.RELEASE_OR_BETA)) {
-      // Handles prompting to inform about incompatibilites when accessibility
-      // and e10s are active together.
-      E10SAccessibilityCheck.init();
+    if (AppConstants.platform == "win") {
+      JawsScreenReaderVersionCheck.init();
     }
   },
 
@@ -924,7 +920,7 @@ BrowserGlue.prototype = {
   },
 
   _sendMediaTelemetry() {
-    let win = RecentWindow.getMostRecentBrowserWindow();
+    let win = Services.appShell.hiddenDOMWindow;
     let v = win.document.createElementNS("http://www.w3.org/1999/xhtml", "video");
     v.reportCanPlayTelemetry();
   },
@@ -966,28 +962,6 @@ BrowserGlue.prototype = {
     DateTimePickerHelper.uninit();
   },
 
-  _initServiceDiscovery() {
-    if (!Services.prefs.getBoolPref("browser.casting.enabled")) {
-      return;
-    }
-    var rokuDevice = {
-      id: "roku:ecp",
-      target: "roku:ecp",
-      factory(aService) {
-        Cu.import("resource://gre/modules/RokuApp.jsm");
-        return new RokuApp(aService);
-      },
-      types: ["video/mp4"],
-      extensions: ["mp4"]
-    };
-
-    // Register targets
-    SimpleServiceDiscovery.registerDevice(rokuDevice);
-
-    // Search for devices continuously every 120 seconds
-    SimpleServiceDiscovery.search(120 * 1000);
-  },
-
   // All initial windows have opened.
   _onWindowsRestored: function BG__onWindowsRestored() {
     if (this._windowsWereRestored) {
@@ -997,8 +971,6 @@ BrowserGlue.prototype = {
 
     BrowserUsageTelemetry.init();
     BrowserUITelemetry.init();
-
-    this._initServiceDiscovery();
 
     // Show update notification, if needed.
     if (Services.prefs.prefHasUserValue("app.update.postupdate"))
@@ -1033,10 +1005,7 @@ BrowserGlue.prototype = {
     }
 
     this._sanitizer.onStartup();
-    E10SAccessibilityCheck.onWindowsRestored();
-
     this._scheduleStartupIdleTasks();
-
     this._lateTasksIdleObserver = (idleService, topic, data) => {
       if (topic == "idle") {
         idleService.removeIdleObserver(this._lateTasksIdleObserver,
@@ -1133,6 +1102,12 @@ BrowserGlue.prototype = {
                            getService(Ci.nsIHandlerService);
       handlerService.asyncInit();
     });
+
+    if (AppConstants.platform == "win") {
+      Services.tm.idleDispatchToMainThread(() => {
+        JawsScreenReaderVersionCheck.onWindowsRestored();
+      });
+    }
   },
 
   /**
@@ -1712,7 +1687,7 @@ BrowserGlue.prototype = {
 
   // eslint-disable-next-line complexity
   _migrateUI: function BG__migrateUI() {
-    const UI_VERSION = 52;
+    const UI_VERSION = 53;
     const BROWSER_DOCURL = "chrome://browser/content/browser.xul";
 
     let currentUIVersion;
@@ -2087,6 +2062,19 @@ BrowserGlue.prototype = {
       // webconsole prefs (bug 1307881).
       if (Services.prefs.getBoolPref("devtools.webconsole.persistlog", false)) {
         Services.prefs.setBoolPref("devtools.netmonitor.persistlog", true);
+      }
+    }
+
+    // Update user customizations that will interfere with the Safe Browsing V2
+    // to V4 migration (bug 1395419).
+    if (currentUIVersion < 53) {
+      const MALWARE_PREF = "urlclassifier.malwareTable";
+      if (Services.prefs.prefHasUserValue(MALWARE_PREF)) {
+        let malwareList = Services.prefs.getCharPref(MALWARE_PREF);
+        if (malwareList.indexOf("goog-malware-shavar") != -1) {
+          malwareList.replace("goog-malware-shavar", "goog-malware-proto");
+          Services.prefs.setCharPref(MALWARE_PREF, malwareList);
+        }
       }
     }
 
@@ -2811,96 +2799,59 @@ var DefaultBrowserCheck = {
   },
 };
 
-var E10SAccessibilityCheck = {
-  // tracks when an a11y init observer fires prior to the
-  // first window being opening.
-  _wantsPrompt: false,
+/*
+ * Prompts users who have an outdated JAWS screen reader informing
+ * them they need to update JAWS or switch to esr. Can be removed
+ * 12/31/2018.
+ */
+var JawsScreenReaderVersionCheck = {
+  _prompted: false,
 
   init() {
     Services.obs.addObserver(this, "a11y-init-or-shutdown", true);
-    Services.obs.addObserver(this, "quit-application-granted", true);
   },
 
   QueryInterface: XPCOMUtils.generateQI([Ci.nsIObserver, Ci.nsISupportsWeakReference]),
 
-  get forcedOn() {
-    try {
-      return Services.prefs.getBoolPref("browser.tabs.remote.force-enable");
-    } catch (e) {}
-    return false;
-  },
-
   observe(subject, topic, data) {
-    switch (topic) {
-      case "quit-application-granted":
-        // Tag the profile with a11y load state. We use this in nsAppRunner
-        // checks on the next start.
-        Services.prefs.setBoolPref("accessibility.loadedInLastSession",
-                                   Services.appinfo.accessibilityEnabled);
-        break;
-      case "a11y-init-or-shutdown":
-        if (data == "1") {
-          // Update this so users can check this while still running
-          Services.prefs.setBoolPref("accessibility.loadedInLastSession", true);
-          this._showE10sAccessibilityWarning();
-        }
-        break;
+    if (topic == "a11y-init-or-shutdown" && data == "1") {
+      Services.tm.dispatchToMainThread(() => this._checkVersionAndPrompt());
     }
   },
 
   onWindowsRestored() {
-    if (this._wantsPrompt) {
-      this._wantsPrompt = false;
-      this._showE10sAccessibilityWarning();
-    }
+    Services.tm.dispatchToMainThread(() => this._checkVersionAndPrompt());
   },
 
-  _warnedAboutAccessibility: false,
-
-  _showE10sAccessibilityWarning() {
-    // We don't prompt about a11y incompat if e10s is off.
-    if (!Services.appinfo.browserTabsRemoteAutostart) {
+  _checkVersionAndPrompt() {
+    // This executes a JAWS version check.
+    if (!Services.appinfo.shouldBlockIncompatJaws) {
       return;
     }
-
-    // If the user set the forced pref and it's true, ignore a11y init.
-    // If the pref doesn't exist or if it's false, prompt.
-    if (this.forcedOn) {
-      return;
-    }
-
-    // Only prompt once per session
-    if (this._warnedAboutAccessibility) {
-      return;
-    }
-    this._warnedAboutAccessibility = true;
 
     let win = RecentWindow.getMostRecentBrowserWindow();
     if (!win || !win.gBrowser || !win.gBrowser.selectedBrowser) {
       Services.console.logStringMessage(
-          "Accessibility support is partially disabled due to compatibility issues with new features.");
-      this._wantsPrompt = true;
-      this._warnedAboutAccessibility = false;
+          "Content access support for older versions of JAWS is disabled " +
+          "due to compatibility issues with this version of Firefox.");
+      this._prompted = false;
       return;
     }
+
+    // Only prompt once per session
+    if (this._prompted) {
+      return;
+    }
+    this._prompted = true;
+
     let browser = win.gBrowser.selectedBrowser;
 
-    // We disable a11y for content and prompt on the chrome side letting
-    // a11y users know they need to disable e10s and restart.
+    // Prompt JAWS users to let them know they need to update
     let promptMessage = win.gNavigatorBundle.getFormattedString(
-                          "e10s.accessibilityNotice.mainMessage2",
+                          "e10s.accessibilityNotice.jawsMessage",
                           [gBrandBundle.GetStringFromName("brandShortName")]
                         );
     let notification;
-    let restartCallback  = function() {
-      let cancelQuit = Cc["@mozilla.org/supports-PRBool;1"].createInstance(Ci.nsISupportsPRBool);
-      Services.obs.notifyObservers(cancelQuit, "quit-application-requested", "restart");
-      if (cancelQuit.data) {
-        return; // somebody canceled our quit request
-      }
-      // Restart the browser
-      Services.startup.quit(Services.startup.eAttemptQuit | Services.startup.eRestart);
-    };
     // main option: an Ok button, keeps running with content accessibility disabled
     let mainAction = {
       label: win.gNavigatorBundle.getString("e10s.accessibilityNotice.acceptButton.label"),
@@ -2909,33 +2860,24 @@ var E10SAccessibilityCheck = {
         // If the user invoked the button option remove the notification,
         // otherwise keep the alert icon around in the address bar.
         notification.remove();
-      },
-      dismiss: true
+      }
     };
-    // secondary option: a restart now button. When we restart e10s will be disabled due to
-    // accessibility having been loaded in the previous session.
-    let secondaryActions = [{
-      label: win.gNavigatorBundle.getString("e10s.accessibilityNotice.enableAndRestart.label"),
-      accessKey: win.gNavigatorBundle.getString("e10s.accessibilityNotice.enableAndRestart.accesskey"),
-      callback: restartCallback,
-    }];
     let options = {
       popupIconURL: "chrome://browser/skin/e10s-64@2x.png",
-      learnMoreURL: Services.urlFormatter.formatURLPref("app.support.e10sAccessibilityUrl"),
-      persistent: true,
       persistWhileVisible: true,
+      persistent: true,
+      persistence: 100
     };
 
     notification =
-      win.PopupNotifications.show(browser, "a11y_enabled_with_e10s",
+      win.PopupNotifications.show(browser, "e10s_enabled_with_incompat_jaws",
                                   promptMessage, null, mainAction,
-                                  secondaryActions, options);
+                                  null, options);
   },
 };
 
 var components = [BrowserGlue, ContentPermissionPrompt];
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory(components);
-
 
 // Listen for UITour messages.
 // Do it here instead of the UITour module itself so that the UITour module is lazy loaded

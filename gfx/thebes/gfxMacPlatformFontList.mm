@@ -183,14 +183,17 @@ MacOSFontEntry::ReadCMAP(FontInfoData *aFontInfoData)
         // characters it supports, so only check/clear the
         // complex-script ranges for non-Graphite fonts
 
-        // for layout support, check for the presence of mort/morx and/or
+        // for layout support, check for the presence of mort/morx/kerx and/or
         // opentype layout tables
         bool hasAATLayout = HasFontTable(TRUETYPE_TAG('m','o','r','x')) ||
                             HasFontTable(TRUETYPE_TAG('m','o','r','t'));
+        bool hasAppleKerning = HasFontTable(TRUETYPE_TAG('k','e','r','x'));
         bool hasGSUB = HasFontTable(TRUETYPE_TAG('G','S','U','B'));
         bool hasGPOS = HasFontTable(TRUETYPE_TAG('G','P','O','S'));
-        if (hasAATLayout && !(hasGSUB || hasGPOS)) {
-            mRequiresAAT = true; // prefer CoreText if font has no OTL tables
+        if ((hasAATLayout && !(hasGSUB || hasGPOS)) || hasAppleKerning) {
+            mRequiresAAT = true; // prefer CoreText if font has no OTL tables,
+                                 // or if it uses the Apple-specific 'kerx'
+                                 // variant of kerning table
         }
 
         for (const ScriptRange* sr = gfxPlatformFontList::sComplexScriptRanges;
@@ -1552,6 +1555,9 @@ gfxMacPlatformFontList::ActivateFontsFromDir(nsIFile* aDir)
         return;
     }
 
+    CFMutableArrayRef urls =
+        ::CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+
     bool hasMore;
     while (NS_SUCCEEDED(e->HasMoreElements(&hasMore)) && hasMore) {
         nsCOMPtr<nsISupports> entry;
@@ -1572,13 +1578,15 @@ gfxMacPlatformFontList::ActivateFontsFromDir(nsIFile* aDir)
                                                       path.Length(),
                                                       false);
         if (fontURL) {
-            CFErrorRef error = nullptr;
-            ::CTFontManagerRegisterFontsForURL(fontURL,
-                                               kCTFontManagerScopeProcess,
-                                               &error);
+            ::CFArrayAppendValue(urls, fontURL);
             ::CFRelease(fontURL);
         }
     }
+
+    ::CTFontManagerRegisterFontsForURLs(urls,
+                                        kCTFontManagerScopeProcess,
+                                        nullptr);
+    ::CFRelease(urls);
 }
 
 #ifdef MOZ_BUNDLED_FONTS

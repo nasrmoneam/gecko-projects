@@ -176,11 +176,7 @@ pref("dom.permissions.revoke.enable", false);
 pref("dom.performance.time_to_non_blank_paint.enabled", false);
 
 // Enable Performance Observer API
-#ifdef NIGHTLY_BUILD
 pref("dom.enable_performance_observer", true);
-#else
-pref("dom.enable_performance_observer", false);
-#endif
 
 // Enable requestIdleCallback API
 pref("dom.requestIdleCallback.enabled", true);
@@ -1388,7 +1384,7 @@ pref("privacy.popups.disable_from_plugins", 3);
 
 // send "do not track" HTTP header, disabled by default
 pref("privacy.donottrackheader.enabled",    false);
-// If true, close buton will be shown on permission prompts
+// If true, close button will be shown on permission prompts
 // and for all PopupNotifications, the secondary action of
 // the popup will be called when the popup is dismissed.
 pref("privacy.permissionPrompts.showCloseButton", false);
@@ -3204,7 +3200,7 @@ pref("idle_queue.long_period", 50);
 
 // Support the input event queue on the main thread of content process
 #ifdef NIGHTLY_BUILD
-pref("input_event_queue.supported", false);
+pref("input_event_queue.supported", true);
 #else
 pref("input_event_queue.supported", false);
 #endif
@@ -4809,7 +4805,7 @@ pref("network.tcp.keepalive.retry_interval", 1); // seconds
 pref("network.tcp.keepalive.probe_count", 4);
 #endif
 
-pref("network.tcp.tcp_fastopen_enable", true);
+pref("network.tcp.tcp_fastopen_enable", false);
 pref("network.tcp.tcp_fastopen_consecutive_failure_limit", 5);
 
 // Whether to disable acceleration for all widgets.
@@ -5081,13 +5077,10 @@ pref("dom.battery.enabled", true);
 pref("dom.streams.enabled", false);
 
 // Abort API
-#ifdef NIGHTLY_BUILD
 pref("dom.abortController.enabled", true);
+
+// Fetch + Abort API
 pref("dom.abortController.fetch.enabled", true);
-#else
-pref("dom.abortController.enabled", false);
-pref("dom.abortController.fetch.enabled", false);
-#endif
 
 // Push
 
@@ -5213,8 +5206,9 @@ pref("memory.low_memory_notification_interval_ms", 10000);
 // window to be collected via the GC/CC.
 pref("memory.ghost_window_timeout_seconds", 60);
 
-// Disable freeing dirty pages when minimizing memory.
-pref("memory.free_dirty_pages", false);
+// On memory pressure, release dirty but unused pages held by jemalloc
+// back to the system.
+pref("memory.free_dirty_pages", true);
 
 // Disable the Linux-specific, system-wide memory reporter.
 #ifdef XP_LINUX
@@ -5248,6 +5242,12 @@ pref("dom.idle-observers-api.fuzz_time.disabled", true);
 // they are handled separately. This pref is only read once at startup:
 // a restart is required to enable a new value.
 pref("network.activity.blipIntervalMilliseconds", 0);
+
+// If true, reuse the same global for (almost) everything loaded by the component
+// loader (JS components, JSMs, etc). This saves memory, but makes it possible
+// for the scripts to interfere with each other.  A restart is required for this
+// to take effect.
+pref("jsloader.shareGlobal", false);
 
 // When we're asked to take a screenshot, don't wait more than 2000ms for the
 // event loop to become idle before actually taking the screenshot.
@@ -5428,7 +5428,11 @@ pref("browser.safebrowsing.id", "Firefox");
 #endif
 
 // Download protection
+#ifdef MOZILLA_OFFICIAL
 pref("browser.safebrowsing.downloads.enabled", true);
+#else
+pref("browser.safebrowsing.downloads.enabled", false);
+#endif
 pref("browser.safebrowsing.downloads.remote.enabled", true);
 pref("browser.safebrowsing.downloads.remote.timeout_ms", 10000);
 pref("browser.safebrowsing.downloads.remote.url", "https://sb-ssl.google.com/safebrowsing/clientreport/download?key=%GOOGLE_API_KEY%");
@@ -5864,13 +5868,13 @@ pref("fuzzing.enabled", false);
 
 #if defined(XP_WIN)
 #if defined(NIGHTLY_BUILD)
-pref("layers.mlgpu.dev-enabled", true);
+pref("layers.mlgpu.enabled", true);
 
 // Both this and the master "enabled" pref must be on to use Advanced Layers
 // on Windows 7.
 pref("layers.mlgpu.enable-on-windows7", true);
 #else
-pref("layers.mlgpu.dev-enabled", false);
+pref("layers.mlgpu.enabled", false);
 pref("layers.mlgpu.enable-on-windows7", false);
 #endif
 #endif

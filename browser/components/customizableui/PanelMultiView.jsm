@@ -11,6 +11,8 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
   "resource://gre/modules/AppConstants.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "BrowserUtils",
+  "resource://gre/modules/BrowserUtils.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "CustomizableUI",
   "resource:///modules/CustomizableUI.jsm");
 
@@ -733,9 +735,9 @@ this.PanelMultiView = class {
     let oldSibling = viewNode.nextSibling || null;
     this._offscreenViewStack.appendChild(viewNode);
 
-    this.window.addEventListener("MozAfterPaint", () => {
-      let viewRect = this._dwu.getBoundsWithoutFlushing(viewNode);
-
+    BrowserUtils.promiseLayoutFlushed(this.document, "layout", () => {
+      return this._dwu.getBoundsWithoutFlushing(viewNode);
+    }).then(viewRect => {
       try {
         this._viewStack.insertBefore(viewNode, oldSibling);
       } catch (ex) {
@@ -743,7 +745,7 @@ this.PanelMultiView = class {
       }
 
       callback(viewRect);
-    }, { once: true });
+    });
   }
 
   /**
@@ -877,7 +879,7 @@ this.PanelMultiView = class {
         // direction that the panel originally opened in. This property resets
         // every time the popup closes, which is why we have to set it each time.
         this._panel.autoPosition = false;
-        if (this.panelViews) {
+        if (this.panelViews && !this.node.hasAttribute("disablekeynav")) {
           this.window.addEventListener("keydown", this);
           this._panel.addEventListener("mousemove", this);
         }

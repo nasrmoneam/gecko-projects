@@ -84,7 +84,6 @@ ChannelMediaResource::ChannelMediaResource(MediaResourceCallback* aCallback,
   , mReopenOnError(false)
   , mIgnoreClose(false)
   , mCacheStream(this, aIsPrivateBrowsing)
-  , mLock("ChannelMediaResource.mLock")
   , mIgnoreResume(false)
   , mSuspendAgent(mChannel)
 {
@@ -100,7 +99,6 @@ ChannelMediaResource::ChannelMediaResource(
   , mReopenOnError(false)
   , mIgnoreClose(false)
   , mCacheStream(this, /* aIsPrivateBrowsing = */ false)
-  , mLock("ChannelMediaResource.mLock")
   , mChannelStatistics(aStatistics)
   , mIgnoreResume(false)
   , mSuspendAgent(mChannel)
@@ -323,12 +321,7 @@ ChannelMediaResource::OnStartRequest(nsIRequest* aRequest)
     seekable = !isCompressed && acceptsRanges;
   }
   mCacheStream.SetTransportSeekable(seekable);
-
-  {
-    MutexAutoLock lock(mLock);
-    mChannelStatistics.Start();
-  }
-
+  mChannelStatistics.Start();
   mReopenOnError = false;
   mIgnoreClose = false;
 
@@ -400,10 +393,7 @@ ChannelMediaResource::OnStopRequest(nsIRequest* aRequest, nsresult aStatus)
   NS_ASSERTION(!mSuspendAgent.IsSuspended(),
                "How can OnStopRequest fire while we're suspended?");
 
-  {
-    MutexAutoLock lock(mLock);
-    mChannelStatistics.Stop();
-  }
+  mChannelStatistics.Stop();
 
   // Note that aStatus might have succeeded --- this might be a normal close
   // --- even in situations where the server cut us off because we were
@@ -495,12 +485,14 @@ ChannelMediaResource::OnDataAvailable(nsIRequest* aRequest,
                                       nsIInputStream* aStream,
                                       uint32_t aCount)
 {
+  // This might happen off the main thread.
   NS_ASSERTION(mChannel.get() == aRequest, "Wrong channel!");
 
-  {
-    MutexAutoLock lock(mLock);
-    mChannelStatistics.AddBytes(aCount);
-  }
+  RefPtr<ChannelMediaResource> self = this;
+  nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
+    "ChannelMediaResource::OnDataAvailable",
+    [self, aCount]() { self->mChannelStatistics.AddBytes(aCount); });
+  mCallback->AbstractMainThread()->Dispatch(r.forget());
 
   CopySegmentClosure closure;
   nsIScriptSecurityManager* secMan = nsContentUtils::GetSecurityManager();
@@ -676,10 +668,7 @@ void ChannelMediaResource::CloseChannel()
 {
   NS_ASSERTION(NS_IsMainThread(), "Only call on main thread");
 
-  {
-    MutexAutoLock lock(mLock);
-    mChannelStatistics.Stop();
-  }
+  mChannelStatistics.Stop();
 
   if (mChannel) {
     mSuspendAgent.NotifyChannelClosing();
@@ -761,10 +750,7 @@ void ChannelMediaResource::Suspend(bool aCloseImmediately)
 
   if (mSuspendAgent.Suspend()) {
     if (mChannel) {
-      {
-        MutexAutoLock lock(mLock);
-        mChannelStatistics.Stop();
-      }
+      mChannelStatistics.Stop();
       element->DownloadSuspended();
     }
   }
@@ -788,10 +774,7 @@ void ChannelMediaResource::Resume()
   if (mSuspendAgent.Resume()) {
     if (mChannel) {
       // Just wake up our existing channel
-      {
-        MutexAutoLock lock(mLock);
-        mChannelStatistics.Start();
-      }
+      mChannelStatistics.Start();
       // if an error occurs after Resume, assume it's because the server
       // timed out the connection and we should reopen it.
       mReopenOnError = true;
@@ -1005,7 +988,7 @@ ChannelMediaResource::Unpin()
 double
 ChannelMediaResource::GetDownloadRate(bool* aIsReliable)
 {
-  MutexAutoLock lock(mLock);
+  MOZ_ASSERT(NS_IsMainThread());
   return mChannelStatistics.GetRate(aIsReliable);
 }
 
@@ -1020,6 +1003,7 @@ ChannelMediaResource::GetLength()
 bool
 ChannelSuspendAgent::Suspend()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   SuspendInternal();
   return (++mSuspendCount == 1);
 }
@@ -1027,6 +1011,7 @@ ChannelSuspendAgent::Suspend()
 void
 ChannelSuspendAgent::SuspendInternal()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (mChannel) {
     bool isPending = false;
     nsresult rv = mChannel->IsPending(&isPending);
@@ -1040,6 +1025,7 @@ ChannelSuspendAgent::SuspendInternal()
 bool
 ChannelSuspendAgent::Resume()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(IsSuspended(), "Resume without suspend!");
   --mSuspendCount;
 
@@ -1056,6 +1042,7 @@ ChannelSuspendAgent::Resume()
 void
 ChannelSuspendAgent::UpdateSuspendedStatusIfNeeded()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mIsChannelSuspended && IsSuspended()) {
     SuspendInternal();
   }
@@ -1064,6 +1051,7 @@ ChannelSuspendAgent::UpdateSuspendedStatusIfNeeded()
 void
 ChannelSuspendAgent::NotifyChannelOpened(nsIChannel* aChannel)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aChannel);
   mChannel = aChannel;
 }
@@ -1071,6 +1059,7 @@ ChannelSuspendAgent::NotifyChannelOpened(nsIChannel* aChannel)
 void
 ChannelSuspendAgent::NotifyChannelClosing()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mChannel);
   // Before close the channel, it need to be resumed to make sure its internal
   // state is correct. Besides, We need to suspend the channel after recreating.
@@ -1084,6 +1073,7 @@ ChannelSuspendAgent::NotifyChannelClosing()
 bool
 ChannelSuspendAgent::IsSuspended()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   return (mSuspendCount > 0);
 }
 

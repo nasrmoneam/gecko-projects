@@ -372,7 +372,6 @@ class ChannelSuspendAgent {
 public:
   explicit ChannelSuspendAgent(nsIChannel* aChannel)
   : mChannel(aChannel),
-    mSuspendCount(0),
     mIsChannelSuspended(false)
   {}
 
@@ -400,7 +399,7 @@ private:
   void SuspendInternal();
 
   nsIChannel* mChannel;
-  Atomic<uint32_t> mSuspendCount;
+  uint32_t mSuspendCount = 0;
   bool mIsChannelSuspended;
 };
 
@@ -581,8 +580,6 @@ protected:
   // Any thread access
   MediaCacheStream mCacheStream;
 
-  // This lock protects mChannelStatistics
-  Mutex               mLock;
   MediaChannelStatistics mChannelStatistics;
 
   // True if we couldn't suspend the stream and we therefore don't want

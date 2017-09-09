@@ -218,23 +218,9 @@ protected:
 NS_IMPL_QUERY_INTERFACE(Atom, nsIAtom);
 
 NS_IMETHODIMP
-Atom::ScriptableToString(nsAString& aBuf)
-{
-  nsStringBuffer::FromData(mString)->ToString(mLength, aBuf);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
 Atom::ToUTF8String(nsACString& aBuf)
 {
   CopyUTF16toUTF8(nsDependentString(mString, mLength), aBuf);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-Atom::ScriptableEquals(const nsAString& aString, bool* aResult)
-{
-  *aResult = aString.Equals(nsDependentString(mString, mLength));
   return NS_OK;
 }
 
@@ -808,6 +794,12 @@ NS_GetNumberOfAtoms(void)
   Atom::GCAtomTable(); // Trigger a GC so that we return a deterministic result.
   MutexAutoLock lock(*gAtomTableLock);
   return gAtomTable->EntryCount();
+}
+
+uint32_t
+NS_GetUnusedAtomCount(void)
+{
+  return gUnusedAtomCount;
 }
 
 nsIAtom*

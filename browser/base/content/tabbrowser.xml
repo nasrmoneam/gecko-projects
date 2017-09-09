@@ -1022,6 +1022,20 @@
         </body>
       </method>
 
+      <method name="setPageInfo">
+        <parameter name="aURL"/>
+        <parameter name="aDescription"/>
+        <parameter name="aPreviewImage"/>
+        <body>
+          <![CDATA[
+            if (aURL) {
+              let pageInfo = {url: aURL, description: aDescription, previewImageURL: aPreviewImage}
+              PlacesUtils.history.update(pageInfo).catch(Components.utils.reportError);
+            }
+          ]]>
+        </body>
+      </method>
+
       <method name="shouldLoadFavIcon">
         <parameter name="aURI"/>
         <body>
@@ -6695,6 +6709,7 @@
 
           if (this.getAttribute("movingtab") != "true") {
             this.setAttribute("movingtab", "true");
+            this.parentNode.setAttribute("movingtab", "true");
             this.selectedItem = draggedTab;
           }
 
@@ -6798,6 +6813,7 @@
             tab.style.transform = "";
 
           this.removeAttribute("movingtab");
+          this.parentNode.removeAttribute("movingtab");
 
           this._handleTabSelect();
         ]]></body>

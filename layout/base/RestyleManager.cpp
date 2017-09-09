@@ -1401,9 +1401,17 @@ RestyleManager::ProcessRestyledFrames(nsStyleChangeList& aChangeList)
       nsIContent* container = start->GetParent();
       MOZ_ASSERT(container);
       if (!end) {
-        frameConstructor->ContentAppended(container, start, false);
+        frameConstructor->ContentAppended(
+            container,
+            start,
+            nsCSSFrameConstructor::InsertionKind::Sync);
       } else {
-        frameConstructor->ContentRangeInserted(container, start, end, nullptr, false);
+        frameConstructor->ContentRangeInserted(
+            container,
+            start,
+            end,
+            nullptr,
+            nsCSSFrameConstructor::InsertionKind::Sync);
       }
     }
     for (size_t j = lazyRangeStart; j < i; ++j) {
@@ -1504,9 +1512,7 @@ RestyleManager::ProcessRestyledFrames(nsStyleChangeList& aChangeList)
       // on elements whose frames are reconstructed, since we depend on
       // the reconstruction happening synchronously.
       frameConstructor->RecreateFramesForContent(
-        content,
-        nsCSSFrameConstructor::InsertionKind::Sync,
-        nsCSSFrameConstructor::REMOVE_FOR_RECONSTRUCTION);
+        content, nsCSSFrameConstructor::InsertionKind::Sync);
     } else {
       NS_ASSERTION(frame, "This shouldn't happen");
 

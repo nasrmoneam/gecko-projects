@@ -320,12 +320,8 @@ android-x86-tests:
 windows8-tests:
     - mochitest-browser-chrome
     - mochitest-media
-    - reftest
     - reftest-no-accel
-    - mochitest-gpu
     - mochitest-webgl
-    - mochitest-clipboard
-    - mochitest-chrome
 
 devtools-tests:
     - mochitest-devtools-chrome

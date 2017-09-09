@@ -1250,20 +1250,15 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(HTMLInputElement,
   //XXX should unlink more?
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
-NS_IMPL_ADDREF_INHERITED(HTMLInputElement, Element)
-NS_IMPL_RELEASE_INHERITED(HTMLInputElement, Element)
-
-// QueryInterface implementation for HTMLInputElement
-NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(HTMLInputElement)
-  NS_INTERFACE_TABLE_INHERITED(HTMLInputElement,
-                               nsIDOMHTMLInputElement,
-                               nsITextControlElement,
-                               imgINotificationObserver,
-                               nsIImageLoadingContent,
-                               imgIOnloadBlocker,
-                               nsIDOMNSEditableElement,
-                               nsIConstraintValidation)
-NS_INTERFACE_TABLE_TAIL_INHERITING(nsGenericHTMLFormElementWithState)
+NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED(HTMLInputElement,
+                                             nsGenericHTMLFormElementWithState,
+                                             nsIDOMHTMLInputElement,
+                                             nsITextControlElement,
+                                             imgINotificationObserver,
+                                             nsIImageLoadingContent,
+                                             imgIOnloadBlocker,
+                                             nsIDOMNSEditableElement,
+                                             nsIConstraintValidation)
 
 // nsIDOMNode
 
@@ -3572,13 +3567,17 @@ HTMLInputElement::NeedToInitializeEditorForEvent(
   // are lazily initialized.  We don't need to initialize the control for
   // certain types of events, because we know that those events are safe to be
   // handled without the editor being initialized.  These events include:
-  // mousein/move/out, overflow/underflow, and DOM mutation events.
+  // mousein/move/out, overflow/underflow, DOM mutation, and void events. Void
+  // events are dispatched frequently by async keyboard scrolling to focused
+  // elements, so it's important to handle them to prevent excessive DOM
+  // mutations.
   if (!IsSingleLineTextControl(false) ||
       aVisitor.mEvent->mClass == eMutationEventClass) {
     return false;
   }
 
   switch (aVisitor.mEvent->mMessage) {
+  case eVoidEvent:
   case eMouseMove:
   case eMouseEnterIntoWidget:
   case eMouseExitFromWidget:

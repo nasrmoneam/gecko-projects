@@ -162,12 +162,8 @@ pref("app.update.silent", false);
 // app.update.badgeWaitTime is in branding section
 
 // If set to true, the Update Service will apply updates in the background
-// when it finishes downloading them.
-#ifdef XP_WIN
+// when it finishes downloading them. Disabled in bug 1397562.
 pref("app.update.staging.enabled", false);
-#else
-pref("app.update.staging.enabled", true);
-#endif
 
 // Update service URL:
 pref("app.update.url", "https://aus5.mozilla.org/update/6/%PRODUCT%/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%SYSTEM_CAPABILITIES%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml");
@@ -276,7 +272,6 @@ pref("browser.slowStartup.maxSamples", 5);
 pref("browser.aboutHomeSnippets.updateUrl", "https://snippets.cdn.mozilla.net/%STARTPAGE_VERSION%/%NAME%/%VERSION%/%APPBUILDID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/");
 
 pref("browser.enable_automatic_image_resizing", true);
-pref("browser.casting.enabled", false);
 pref("browser.chrome.site_icons", true);
 pref("browser.chrome.favicons", true);
 // browser.warnOnQuit == false will override all other possible prompts when quitting or restarting
@@ -409,11 +404,8 @@ pref("browser.search.context.loadInBackground", false);
 // comma seperated list of of engines to hide in the search panel.
 pref("browser.search.hiddenOneOffs", "");
 
-// Mirrors whether the search-container widget is in the navigation toolbar. The
-// default value of this preference must match the DEFAULT_AREA_PLACEMENTS of
-// UITelemetry.jsm, the navbarPlacements of CustomizableUI.jsm, and the
-// position and attributes of the search-container element in browser.xul.
-pref("browser.search.widget.inNavBar", true);
+// Mirrors whether the search-container widget is in the navigation toolbar.
+pref("browser.search.widget.inNavBar", false);
 
 #ifndef RELEASE_OR_BETA
 pref("browser.search.reset.enabled", true);
@@ -674,13 +666,6 @@ pref("accessibility.typeaheadfind", false);
 pref("accessibility.typeaheadfind.timeout", 5000);
 pref("accessibility.typeaheadfind.linksonly", false);
 pref("accessibility.typeaheadfind.flashBar", 1);
-
-// Accessibility indicator preferences such as support URL, enabled flag.
-pref("accessibility.support.url", "https://support.mozilla.org/%LOCALE%/kb/accessibility-services");
-pref("accessibility.indicator.enabled", true);
-
-// Tracks when accessibility is loaded into the previous session.
-pref("accessibility.loadedInLastSession", false);
 
 pref("plugins.click_to_play", true);
 pref("plugins.testmode", false);
@@ -992,9 +977,6 @@ pref("toolkit.crashreporter.infoURL",
 // base URL for web-based support pages
 pref("app.support.baseURL", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/");
 
-// a11y conflicts with e10s support page
-pref("app.support.e10sAccessibilityUrl", "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/accessibility-ppt");
-
 // base url for web-based feedback pages
 #ifdef MOZ_DEV_EDITION
 pref("app.feedback.baseURL", "https://input.mozilla.org/%LOCALE%/feedback/firefoxdev/%VERSION%/");
@@ -1283,12 +1265,7 @@ pref("browser.newtabpage.columns", 5);
 pref("browser.newtabpage.directory.source", "https://tiles.services.mozilla.com/v3/links/fetch/%LOCALE%/%CHANNEL%");
 
 // activates Activity Stream
-#ifdef NIGHTLY_BUILD
 pref("browser.newtabpage.activity-stream.enabled", true);
-#else
-pref("browser.newtabpage.activity-stream.enabled", false);
-#endif
-
 pref("browser.newtabpage.activity-stream.aboutHome.enabled", false);
 
 // Enable the DOM fullscreen API.
@@ -1566,7 +1543,8 @@ pref("browser.tabs.remote.autostart.2", true);
 
 // For speculatively warming up tabs to improve perceived
 // performance while using the async tab switcher.
-pref("browser.tabs.remote.warmup.enabled", true);
+// Disabled until bug 1397426 is fixed.
+pref("browser.tabs.remote.warmup.enabled", false);
 pref("browser.tabs.remote.warmup.maxTabs", 3);
 pref("browser.tabs.remote.warmup.unloadDelayMs", 2000);
 
@@ -1736,13 +1714,13 @@ pref("browser.suppress_first_window_animation", true);
 pref("browser.onboarding.enabled", true);
 // Mark this as an upgraded profile so we don't offer the initial new user onboarding tour.
 pref("browser.onboarding.tourset-version", 2);
-pref("browser.onboarding.hidden", false);
 // On the Activity-Stream page, the snippet's position overlaps with our notification.
 // So use `browser.onboarding.notification.finished` to let the AS page know
 // if our notification is finished and safe to show their snippet.
 pref("browser.onboarding.notification.finished", false);
 pref("browser.onboarding.notification.mute-duration-on-first-session-ms", 300000); // 5 mins
 pref("browser.onboarding.notification.max-life-time-per-tour-ms", 432000000); // 5 days
+pref("browser.onboarding.notification.max-life-time-all-tours-ms", 1209600000); // 14 days
 pref("browser.onboarding.notification.max-prompt-count-per-tour", 8);
 pref("browser.onboarding.newtour", "performance,private,screenshots,addons,customize,default");
 pref("browser.onboarding.updatetour", "performance,library,screenshots,singlesearch,customize,sync");

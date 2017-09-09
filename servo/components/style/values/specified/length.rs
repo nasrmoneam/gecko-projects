@@ -13,7 +13,7 @@ use font_metrics::FontMetricsQueryResult;
 use parser::{Parse, ParserContext};
 use std::{cmp, fmt, mem};
 use std::ascii::AsciiExt;
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 use style_traits::{ToCss, ParseError, StyleParseError};
 use style_traits::values::specified::AllowedLengthType;
 use stylesheets::CssRuleType;
@@ -236,20 +236,6 @@ impl CharacterWidth {
     }
 }
 
-/// Same as Gecko
-const ABSOLUTE_LENGTH_MAX: i32 = (1 << 30);
-const ABSOLUTE_LENGTH_MIN: i32 = - (1 << 30);
-
-/// Helper to convert a floating point length to application units
-fn to_au_round(length: CSSFloat, au_per_unit: CSSFloat) -> Au {
-    Au(
-        (length * au_per_unit)
-        .min(ABSOLUTE_LENGTH_MAX as f32)
-        .max(ABSOLUTE_LENGTH_MIN as f32)
-        .round() as i32
-    )
-}
-
 /// Represents an absolute length with its unit
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
@@ -282,6 +268,23 @@ impl AbsoluteLength {
             | AbsoluteLength::Pc(v) => v == 0.,
         }
     }
+
+    /// Convert this into a pixel value.
+    #[inline]
+    pub fn to_px(&self) -> CSSFloat {
+        use std::f32;
+
+        let pixel = match *self {
+            AbsoluteLength::Px(value) => value,
+            AbsoluteLength::In(value) => value * (AU_PER_IN / AU_PER_PX),
+            AbsoluteLength::Cm(value) => value * (AU_PER_CM / AU_PER_PX),
+            AbsoluteLength::Mm(value) => value * (AU_PER_MM / AU_PER_PX),
+            AbsoluteLength::Q(value) => value * (AU_PER_Q / AU_PER_PX),
+            AbsoluteLength::Pt(value) => value * (AU_PER_PT / AU_PER_PX),
+            AbsoluteLength::Pc(value) => value * (AU_PER_PC / AU_PER_PX),
+        };
+        pixel.min(f32::MAX).max(f32::MIN)
+    }
 }
 
 impl ToComputedValue for AbsoluteLength {
@@ -296,16 +299,20 @@ impl ToComputedValue for AbsoluteLength {
     }
 }
 
+fn au_from_f32_round(x: f32) -> Au {
+    Au::from_f64_au((x as f64).round())
+}
+
 impl From<AbsoluteLength> for Au {
     fn from(length: AbsoluteLength) -> Au {
         match length {
-            AbsoluteLength::Px(value) => to_au_round(value, AU_PER_PX),
-            AbsoluteLength::In(value) => to_au_round(value, AU_PER_IN),
-            AbsoluteLength::Cm(value) => to_au_round(value, AU_PER_CM),
-            AbsoluteLength::Mm(value) => to_au_round(value, AU_PER_MM),
-            AbsoluteLength::Q(value) => to_au_round(value, AU_PER_Q),
-            AbsoluteLength::Pt(value) => to_au_round(value, AU_PER_PT),
-            AbsoluteLength::Pc(value) => to_au_round(value, AU_PER_PC),
+            AbsoluteLength::Px(value) => au_from_f32_round((value * AU_PER_PX)),
+            AbsoluteLength::In(value) => au_from_f32_round((value * AU_PER_IN)),
+            AbsoluteLength::Cm(value) => au_from_f32_round((value * AU_PER_CM)),
+            AbsoluteLength::Mm(value) => au_from_f32_round((value * AU_PER_MM)),
+            AbsoluteLength::Q(value) => au_from_f32_round((value * AU_PER_Q)),
+            AbsoluteLength::Pt(value) => au_from_f32_round((value * AU_PER_PT)),
+            AbsoluteLength::Pc(value) => au_from_f32_round((value * AU_PER_PC)),
         }
     }
 }
@@ -341,6 +348,24 @@ impl Mul<CSSFloat> for AbsoluteLength {
     }
 }
 
+impl Add<AbsoluteLength> for AbsoluteLength {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (AbsoluteLength::Px(x), AbsoluteLength::Px(y)) => AbsoluteLength::Px(x + y),
+            (AbsoluteLength::In(x), AbsoluteLength::In(y)) => AbsoluteLength::In(x + y),
+            (AbsoluteLength::Cm(x), AbsoluteLength::Cm(y)) => AbsoluteLength::Cm(x + y),
+            (AbsoluteLength::Mm(x), AbsoluteLength::Mm(y)) => AbsoluteLength::Mm(x + y),
+            (AbsoluteLength::Q(x), AbsoluteLength::Q(y)) => AbsoluteLength::Q(x + y),
+            (AbsoluteLength::Pt(x), AbsoluteLength::Pt(y)) => AbsoluteLength::Pt(x + y),
+            (AbsoluteLength::Pc(x), AbsoluteLength::Pc(y)) => AbsoluteLength::Pc(x + y),
+            _ => AbsoluteLength::Px(self.to_px() + rhs.to_px()),
+        }
+    }
+}
+
 /// Represents a physical length (mozmm) based on DPI
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg(feature = "gecko")]
@@ -364,7 +389,7 @@ impl PhysicalLength {
 
         let inch = self.0 / MM_PER_INCH;
 
-        to_au_round(inch, physical_inch as f32)
+        au_from_f32_round(inch * physical_inch as f32)
     }
 }
 

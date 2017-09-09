@@ -12,6 +12,7 @@ use std::env;
 use std::fmt::Write;
 use std::iter;
 use std::ptr;
+use style::applicable_declarations::ApplicableDeclarationBlock;
 use style::context::{CascadeInputs, QuirksMode, SharedStyleContext, StyleContext};
 use style::context::ThreadLocalStyleContext;
 use style::data::ElementStyles;
@@ -113,7 +114,7 @@ use style::properties::PROHIBIT_DISPLAY_CONTENTS;
 use style::properties::animated_properties::{AnimatableLonghand, AnimationValue};
 use style::properties::animated_properties::compare_property_priority;
 use style::properties::parse_one_declaration_into;
-use style::rule_tree::StyleSource;
+use style::rule_tree::{CascadeLevel, StyleSource};
 use style::selector_parser::PseudoElementCascadeType;
 use style::shared_lock::{SharedRwLockReadGuard, StylesheetGuards, ToCssWithGuard, Locked};
 use style::string_cache::Atom;
@@ -1679,11 +1680,44 @@ pub extern "C" fn Servo_ComputedValues_GetForAnonymousBox(parent_style_or_null: 
         cascade_flags.insert(IS_FIELDSET_CONTENT);
     }
     let metrics = get_metrics_provider_for_product();
-    data.stylist.precomputed_values_for_pseudo(
+
+    // If the pseudo element is PageContent, we should append the precomputed
+    // pseudo element declerations with specified page rules.
+    let page_decls = match pseudo {
+        PseudoElement::PageContent => {
+            let mut declarations = vec![];
+            let iter = data.extra_style_data.iter_origins_rev();
+            for (data, origin) in iter {
+                let level = match origin {
+                    Origin::UserAgent => CascadeLevel::UANormal,
+                    Origin::User => CascadeLevel::UserNormal,
+                    Origin::Author => CascadeLevel::AuthorNormal,
+                };
+                for rule in data.pages.iter() {
+                    declarations.push(ApplicableDeclarationBlock::from_declarations(
+                        rule.read_with(level.guard(&guards)).block.clone(),
+                        level
+                    ));
+                }
+            }
+            Some(declarations)
+        },
+        _ => None,
+    };
+
+    let rule_node = data.stylist.rule_node_for_precomputed_pseudo(
+        &guards,
+        &pseudo,
+        page_decls,
+    );
+
+    data.stylist.precomputed_values_for_pseudo_with_rule_node(
         &guards,
         &pseudo,
         parent_style_or_null.map(|x| &*x),
-        cascade_flags, &metrics
+        cascade_flags,
+        &metrics,
+        &rule_node
     ).into()
 }
 
@@ -2267,7 +2301,7 @@ pub extern "C" fn Servo_DeclarationBlock_GetNthProperty(declarations: RawServoDe
 
 macro_rules! get_property_id_from_property {
     ($property: ident, $ret: expr) => {{
-        let property = unsafe { $property.as_ref().unwrap().as_str_unchecked() };
+        let property = $property.as_ref().unwrap().as_str_unchecked();
         match PropertyId::parse(property.into(), None) {
             Ok(property_id) => property_id,
             Err(_) => { return $ret; }
@@ -2275,33 +2309,46 @@ macro_rules! get_property_id_from_property {
     }}
 }
 
-fn get_property_value(declarations: RawServoDeclarationBlockBorrowed,
-                      property_id: PropertyId, value: *mut nsAString) {
+unsafe fn get_property_value(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property_id: PropertyId,
+    value: *mut nsAString,
+) {
     // This callsite is hot enough that the lock acquisition shows up in profiles.
     // Using an unchecked read here improves our performance by ~10% on the
     // microbenchmark in bug 1355599.
-    unsafe {
-        read_locked_arc_unchecked(declarations, |decls: &PropertyDeclarationBlock| {
-            decls.property_value_to_css(&property_id, value.as_mut().unwrap()).unwrap();
-        })
-    }
+    read_locked_arc_unchecked(declarations, |decls: &PropertyDeclarationBlock| {
+        decls.property_value_to_css(&property_id, value.as_mut().unwrap()).unwrap();
+    })
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_GetPropertyValue(declarations: RawServoDeclarationBlockBorrowed,
-                                                          property: *const nsACString, value: *mut nsAString) {
-    get_property_value(declarations, get_property_id_from_property!(property, ()), value)
+pub unsafe extern "C" fn Servo_DeclarationBlock_GetPropertyValue(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: *const nsACString,
+    value: *mut nsAString,
+) {
+    get_property_value(
+        declarations,
+        get_property_id_from_property!(property, ()),
+        value,
+    )
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_GetPropertyValueById(declarations: RawServoDeclarationBlockBorrowed,
-                                                              property: nsCSSPropertyID, value: *mut nsAString) {
+pub unsafe extern "C" fn Servo_DeclarationBlock_GetPropertyValueById(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: nsCSSPropertyID,
+    value: *mut nsAString,
+) {
     get_property_value(declarations, get_property_id_from_nscsspropertyid!(property, ()), value)
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_GetPropertyIsImportant(declarations: RawServoDeclarationBlockBorrowed,
-                                                                property: *const nsACString) -> bool {
+pub unsafe extern "C" fn Servo_DeclarationBlock_GetPropertyIsImportant(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: *const nsACString,
+) -> bool {
     let property_id = get_property_id_from_property!(property, false);
     read_locked_arc(declarations, |decls: &PropertyDeclarationBlock| {
         decls.property_priority(&property_id).important()
@@ -2328,25 +2375,49 @@ fn set_property(declarations: RawServoDeclarationBlockBorrowed, property_id: Pro
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_SetProperty(declarations: RawServoDeclarationBlockBorrowed,
-                                                     property: *const nsACString, value: *const nsACString,
-                                                     is_important: bool, data: *mut URLExtraData,
-                                                     parsing_mode: structs::ParsingMode,
-                                                     quirks_mode: nsCompatibility,
-                                                     loader: *mut Loader) -> bool {
-    set_property(declarations, get_property_id_from_property!(property, false),
-                 value, is_important, data, parsing_mode, quirks_mode.into(), loader)
+pub unsafe extern "C" fn Servo_DeclarationBlock_SetProperty(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: *const nsACString,
+    value: *const nsACString,
+    is_important: bool,
+    data: *mut URLExtraData,
+    parsing_mode: structs::ParsingMode,
+    quirks_mode: nsCompatibility,
+    loader: *mut Loader,
+) -> bool {
+    set_property(
+        declarations,
+        get_property_id_from_property!(property, false),
+        value,
+        is_important,
+        data,
+        parsing_mode,
+        quirks_mode.into(),
+        loader,
+    )
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_SetPropertyById(declarations: RawServoDeclarationBlockBorrowed,
-                                                         property: nsCSSPropertyID, value: *const nsACString,
-                                                         is_important: bool, data: *mut URLExtraData,
-                                                         parsing_mode: structs::ParsingMode,
-                                                         quirks_mode: nsCompatibility,
-                                                         loader: *mut Loader) -> bool {
-    set_property(declarations, get_property_id_from_nscsspropertyid!(property, false),
-                 value, is_important, data, parsing_mode, quirks_mode.into(), loader)
+pub unsafe extern "C" fn Servo_DeclarationBlock_SetPropertyById(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: nsCSSPropertyID,
+    value: *const nsACString,
+    is_important: bool,
+    data: *mut URLExtraData,
+    parsing_mode: structs::ParsingMode,
+    quirks_mode: nsCompatibility,
+    loader: *mut Loader,
+) -> bool {
+    set_property(
+        declarations,
+        get_property_id_from_nscsspropertyid!(property, false),
+        value,
+        is_important,
+        data,
+        parsing_mode,
+        quirks_mode.into(),
+        loader,
+    )
 }
 
 fn remove_property(declarations: RawServoDeclarationBlockBorrowed, property_id: PropertyId) {
@@ -2356,8 +2427,10 @@ fn remove_property(declarations: RawServoDeclarationBlockBorrowed, property_id: 
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_DeclarationBlock_RemoveProperty(declarations: RawServoDeclarationBlockBorrowed,
-                                                        property: *const nsACString) {
+pub unsafe extern "C" fn Servo_DeclarationBlock_RemoveProperty(
+    declarations: RawServoDeclarationBlockBorrowed,
+    property: *const nsACString,
+) {
     remove_property(declarations, get_property_id_from_property!(property, ()))
 }
 
@@ -2418,7 +2491,7 @@ pub extern "C" fn Servo_MediaList_SetText(list: RawServoMediaListBorrowed, text:
                                                PARSING_MODE_DEFAULT,
                                                QuirksMode::NoQuirks);
      write_locked_arc(list, |list: &mut MediaList| {
-        *list = parse_media_query_list(&context, &mut parser);
+        *list = parse_media_query_list(&context, &mut parser, &NullReporter);
     })
 }
 
@@ -2853,8 +2926,10 @@ pub extern "C" fn Servo_DeclarationBlock_SetTextDecorationColorOverride(declarat
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_CSSSupports2(property: *const nsACString,
-                                     value: *const nsACString) -> bool {
+pub unsafe extern "C" fn Servo_CSSSupports2(
+    property: *const nsACString,
+    value: *const nsACString,
+) -> bool {
     let id = get_property_id_from_property!(property, false);
 
     let mut declarations = SourcePropertyDeclaration::new();
@@ -2862,7 +2937,7 @@ pub extern "C" fn Servo_CSSSupports2(property: *const nsACString,
         &mut declarations,
         id,
         value,
-        unsafe { DUMMY_URL_DATA },
+        DUMMY_URL_DATA,
         structs::ParsingMode_Default,
         QuirksMode::NoQuirks,
         &NullReporter,
@@ -3782,4 +3857,18 @@ pub extern "C" fn Servo_ProcessInvalidations(set: RawServoStyleSetBorrowed,
             unsafe { bindings::Gecko_NoteDirtyElement(element.0) };
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn Servo_HasPendingRestyleAncestor(element: RawGeckoElementBorrowed) -> bool {
+    let mut element = Some(GeckoElement(element));
+    while let Some(e) = element {
+        if let Some(data) = e.borrow_data() {
+            if data.restyle.hint.has_non_animation_invalidations() {
+                return true;
+            }
+        }
+        element = e.traversal_parent();
+    }
+    false
 }
