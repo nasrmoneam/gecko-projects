@@ -35,8 +35,6 @@
 #include "mozilla/dom/MemoryReportRequest.h"
 #include "mozilla/dom/ProcessGlobal.h"
 #include "mozilla/dom/PushNotifier.h"
-#include "mozilla/dom/LocalStorage.h"
-#include "mozilla/dom/StorageIPC.h"
 #include "mozilla/dom/TabGroup.h"
 #include "mozilla/dom/workers/ServiceWorkerManager.h"
 #include "mozilla/dom/nsIContentChild.h"
@@ -2093,21 +2091,6 @@ ContentChild::DeallocPMediaChild(media::PMediaChild *aActor)
   return media::DeallocPMediaChild(aActor);
 }
 
-PStorageChild*
-ContentChild::AllocPStorageChild()
-{
-  MOZ_CRASH("We should never be manually allocating PStorageChild actors");
-  return nullptr;
-}
-
-bool
-ContentChild::DeallocPStorageChild(PStorageChild* aActor)
-{
-  StorageDBChild* child = static_cast<StorageDBChild*>(aActor);
-  child->ReleaseIPDLReference();
-  return true;
-}
-
 PSpeechSynthesisChild*
 ContentChild::AllocPSpeechSynthesisChild()
 {
@@ -3221,19 +3204,6 @@ ContentChild::RecvBlobURLUnregistration(const nsCString& aURI)
 {
   nsHostObjectProtocolHandler::RemoveDataEntry(aURI,
                                                /* aBroadcastToOtherProcesses = */ false);
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-ContentChild::RecvDispatchLocalStorageChange(const nsString& aDocumentURI,
-                                             const nsString& aKey,
-                                             const nsString& aOldValue,
-                                             const nsString& aNewValue,
-                                             const IPC::Principal& aPrincipal,
-                                             const bool& aIsPrivate)
-{
-  LocalStorage::DispatchStorageEvent(aDocumentURI, aKey, aOldValue, aNewValue,
-                                     aPrincipal, aIsPrivate, nullptr, true);
   return IPC_OK();
 }
 

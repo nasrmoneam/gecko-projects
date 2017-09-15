@@ -47,8 +47,6 @@
 #include "mozilla/dom/PContentPermissionRequestParent.h"
 #include "mozilla/dom/PCycleCollectWithLogsParent.h"
 #include "mozilla/dom/ServiceWorkerRegistrar.h"
-#include "mozilla/dom/Storage.h"
-#include "mozilla/dom/StorageIPC.h"
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/dom/Permissions.h"
 #include "mozilla/dom/PresentationParent.h"
@@ -3304,20 +3302,6 @@ ContentParent::DeallocPMediaParent(media::PMediaParent *aActor)
   return media::DeallocPMediaParent(aActor);
 }
 
-PStorageParent*
-ContentParent::AllocPStorageParent()
-{
-  return new StorageDBParent();
-}
-
-bool
-ContentParent::DeallocPStorageParent(PStorageParent* aActor)
-{
-  StorageDBParent* child = static_cast<StorageDBParent*>(aActor);
-  child->ReleaseIPDLReference();
-  return true;
-}
-
 PPresentationParent*
 ContentParent::AllocPPresentationParent()
 {
@@ -4958,25 +4942,6 @@ ContentParent::RecvUnstoreAndBroadcastBlobURLUnregistration(const nsCString& aUR
                                                false /* Don't broadcast */);
   BroadcastBlobURLUnregistration(aURI, this);
   mBlobURLs.RemoveElement(aURI);
-
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-ContentParent::RecvBroadcastLocalStorageChange(const nsString& aDocumentURI,
-                                               const nsString& aKey,
-                                               const nsString& aOldValue,
-                                               const nsString& aNewValue,
-                                               const Principal& aPrincipal,
-                                               const bool& aIsPrivate)
-{
-  for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-    if (cp != this) {
-      Unused << cp->SendDispatchLocalStorageChange(
-        nsString(aDocumentURI), nsString(aKey), nsString(aOldValue),
-        nsString(aNewValue), IPC::Principal(aPrincipal), aIsPrivate);
-    }
-  }
 
   return IPC_OK();
 }

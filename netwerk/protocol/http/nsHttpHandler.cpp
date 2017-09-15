@@ -196,6 +196,7 @@ nsHttpHandler::nsHttpHandler()
     , mThrottleSuspendFor(3000)
     , mThrottleResumeFor(200)
     , mThrottleResumeIn(400)
+    , mThrottleTimeWindow(3000)
     , mUrgentStartEnabled(true)
     , mRedirectionLimit(10)
     , mPhishyUserPassLength(1)
@@ -455,9 +456,10 @@ nsHttpHandler::Init()
         mAppVersion.AssignLiteral(MOZ_APP_UA_VERSION);
     }
 
-    // Generating the spoofed userAgent for fingerprinting resistance. We will
-    // round the version to the nearest 10. By doing so, the anonymity group will
-    // cover more versions instead of one version.
+    // Generating the spoofed userAgent for fingerprinting resistance.
+    // The browser version will be rounded down to a multiple of 10.
+    // By doing so, the anonymity group will cover more versions instead of one
+    // version.
     uint32_t spoofedVersion = mAppVersion.ToInteger(&rv);
     if (NS_SUCCEEDED(rv)) {
         spoofedVersion = spoofedVersion - (spoofedVersion % 10);
@@ -590,7 +592,8 @@ nsHttpHandler::InitConnectionMgr()
                         mThrottleEnabled,
                         mThrottleSuspendFor,
                         mThrottleResumeFor,
-                        mThrottleResumeIn);
+                        mThrottleResumeIn,
+                        mThrottleTimeWindow);
     return rv;
 }
 
@@ -1634,6 +1637,15 @@ nsHttpHandler::PrefsChanged(nsIPrefBranch *prefs, const char *pref)
             Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_RESUME_IN,
                                             mThrottleResumeIn);
         }
+    }
+
+    if (PREF_CHANGED(HTTP_PREF("throttle.time-window"))) {
+      rv = prefs->GetIntPref(HTTP_PREF("throttle.time-window"), &val);
+      mThrottleTimeWindow = (uint32_t)clamped(val, 0, 120000);
+      if (NS_SUCCEEDED(rv) && mConnMgr) {
+        Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_TIME_WINDOW,
+                                        mThrottleTimeWindow);
+      }
     }
 
     if (PREF_CHANGED(HTTP_PREF("on_click_priority"))) {

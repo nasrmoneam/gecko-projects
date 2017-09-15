@@ -20,6 +20,7 @@ const BRAND_SHORT_NAME = Services.strings
                      .createBundle("chrome://branding/locale/brand.properties")
                      .GetStringFromName("brandShortName");
 const PROMPT_COUNT_PREF = "browser.onboarding.notification.prompt-count";
+const ONBOARDING_DIALOG_ID = "onboarding-overlay-dialog";
 
 /**
  * Add any number of tours, key is the tourId, value should follow the format below
@@ -394,13 +395,16 @@ class Onboarding {
     this._tourItems = [];
     this._tourPages = [];
 
+    let { body } = this._window.document;
     this._overlayIcon = this._renderOverlayButton();
     this._overlayIcon.addEventListener("click", this);
-    this._window.document.body.appendChild(this._overlayIcon);
+    this._overlayIcon.addEventListener("keypress", this);
+    body.insertBefore(this._overlayIcon, body.firstChild);
 
     this._overlay = this._renderOverlay();
     this._overlay.addEventListener("click", this);
-    this._window.document.body.appendChild(this._overlay);
+    this._overlay.addEventListener("keypress", this);
+    body.appendChild(this._overlay);
 
     this._loadJS(TOUR_AGENT_JS_URI);
 
@@ -463,16 +467,24 @@ class Onboarding {
     }
   }
 
-  handleEvent(evt) {
-    if (evt.type === "resize") {
-      this._window.cancelIdleCallback(this._resizeTimerId);
-      this._resizeTimerId =
-        this._window.requestIdleCallback(() => this._resizeUI());
+  /**
+   * Find a tour that should be selected. It is either a first tour that was not
+   * yet complete or the first one in the tab list.
+   */
+  get selectedTour() {
+    return this._tours.find(tour => !this.isTourCompleted(tour.id)) ||
+           this._tours[0];
+  }
 
-      return;
+  handleClick(target) {
+    let { id, classList } = target;
+    // Only containers receive pointer events in onboarding tour tab list,
+    // actual semantic tab is their first child.
+    if (classList.contains("onboarding-tour-item-container")) {
+      ({ id, classList } = target.firstChild);
     }
 
-    switch (evt.target.id) {
+    switch (id) {
       case "onboarding-overlay-button":
       case "onboarding-overlay-close-btn":
       // If the clicking target is directly on the outer-most overlay,
@@ -480,8 +492,7 @@ class Onboarding {
       // Let's toggle the overlay.
       case "onboarding-overlay":
         this.toggleOverlay();
-        let selectedTour = this._tours.find(tour => !this.isTourCompleted(tour.id)) || this._tours[0];
-        this.gotoPage(selectedTour.id);
+        this.gotoPage(this.selectedTour.id);
         break;
       case "onboarding-notification-close-btn":
         this.hideNotification();
@@ -497,15 +508,127 @@ class Onboarding {
       case "onboarding-tour-default-browser":
       case "onboarding-tour-sync":
       case "onboarding-tour-performance":
-        this.setToursCompleted([ evt.target.id ]);
+        this.setToursCompleted([ id ]);
         break;
     }
-    let classList = evt.target.classList;
     if (classList.contains("onboarding-tour-item")) {
-      this.gotoPage(evt.target.id);
+      this.gotoPage(id);
+      // Keep focus (not visible) on current item for potential keyboard
+      // navigation.
+      target.focus();
     } else if (classList.contains("onboarding-tour-action-button")) {
       let activeItem = this._tourItems.find(item => item.classList.contains("onboarding-active"));
       this.setToursCompleted([ activeItem.id ]);
+    }
+  }
+
+  /**
+   * Wrap keyboard focus within the dialog and focus on first element after last
+   * when moving forward or last element after first when moving backwards. Do
+   * nothing if focus is moving in the middle of the list of dialog's focusable
+   * elements.
+   *
+   * @param  {DOMNode} current  currently focused element
+   * @param  {Boolean} back     direction
+   * @return {DOMNode}          newly focused element if any
+   */
+  wrapMoveFocus(current, back) {
+    let elms = [...this._dialog.querySelectorAll(
+      `button, input[type="checkbox"], input[type="email"], [tabindex="0"]`)];
+    let next;
+    if (back) {
+      if (elms.indexOf(current) === 0) {
+        next = elms[elms.length - 1];
+        next.focus();
+      }
+    } else if (elms.indexOf(current) === elms.length - 1) {
+      next = elms[0];
+      next.focus();
+    }
+    return next;
+  }
+
+  handleKeypress(event) {
+    let { target, key, shiftKey } = event;
+
+    if (target === this._overlayIcon) {
+      if ([" ", "Enter"].includes(key)) {
+        // Remember that the dialog was opened with a keyboard.
+        this._overlayIcon.dataset.keyboardFocus = true;
+        this.handleClick(target);
+        event.preventDefault();
+      }
+
+      return;
+    }
+
+    // Current focused item can be tab container if previous navigation was done
+    // via mouse.
+    if (target.classList.contains("onboarding-tour-item-container")) {
+      target = target.firstChild;
+    }
+    let targetIndex;
+    switch (key) {
+      case " ":
+      case "Enter":
+        // Assume that the handle function should be identical for keyboard
+        // activation if there is a click handler for the target.
+        if (target.classList.contains("onboarding-tour-item")) {
+          this.handleClick(target);
+          target.focus();
+        }
+        break;
+      case "ArrowUp":
+        // Go to and focus on the previous tab if it's available.
+        targetIndex = this._tourItems.indexOf(target);
+        if (targetIndex > 0) {
+          let previous = this._tourItems[targetIndex - 1];
+          this.handleClick(previous);
+          previous.focus();
+        }
+        event.preventDefault();
+        break;
+      case "ArrowDown":
+        // Go to and focus on the next tab if it's available.
+        targetIndex = this._tourItems.indexOf(target);
+        if (targetIndex > -1 && targetIndex < this._tourItems.length - 1) {
+          let next = this._tourItems[targetIndex + 1];
+          this.handleClick(next);
+          next.focus();
+        }
+        event.preventDefault();
+        break;
+      case "Escape":
+        this.toggleOverlay();
+        break;
+      case "Tab":
+        let next = this.wrapMoveFocus(target, shiftKey);
+        // If focus was wrapped, prevent Tab key default action.
+        if (next) {
+          event.preventDefault();
+        }
+        break;
+      default:
+        break;
+    }
+    event.stopPropagation();
+  }
+
+  handleEvent(evt) {
+    switch (evt.type) {
+      case "resize":
+        this._window.cancelIdleCallback(this._resizeTimerId);
+        this._resizeTimerId =
+          this._window.requestIdleCallback(() => this._resizeUI());
+        break;
+      case "keypress":
+        this.handleKeypress(evt);
+        break;
+      case "click":
+        this.handleClick(evt.target);
+        break;
+      default:
+        break;
     }
   }
 
@@ -534,10 +657,46 @@ class Onboarding {
 
     this.hideNotification();
     this._overlay.classList.toggle("onboarding-opened");
+    this.toggleModal(this._overlay.classList.contains("onboarding-opened"));
 
     let hiddenCheckbox = this._window.document.getElementById("onboarding-tour-hidden-checkbox");
     if (hiddenCheckbox.checked) {
       this.hide();
+    }
+  }
+
+  /**
+   * Set modal dialog state and properties for accessibility purposes.
+   * @param  {Boolean} opened  whether the dialog is opened or closed.
+   */
+  toggleModal(opened) {
+    let { document: doc } = this._window;
+    if (opened) {
+      // Set aria-hidden to true for the rest of the document.
+      [...doc.body.children].forEach(
+        child => child.id !== "onboarding-overlay" &&
+                 child.setAttribute("aria-hidden", true));
+      // When dialog is opened with the keyboard, focus on the selected or
+      // first tour item.
+      if (this._overlayIcon.dataset.keyboardFocus) {
+        doc.getElementById(this.selectedTour.id).focus();
+      } else {
+        // When dialog is opened with mouse, focus on the dialog itself to avoid
+        // visible keyboard focus styling.
+        this._dialog.focus();
+      }
+    } else {
+      // Remove all set aria-hidden attributes.
+      [...doc.body.children].forEach(
+        child => child.removeAttribute("aria-hidden"));
+      // If dialog was opened with a keyboard, set the focus back on the overlay
+      // button.
+      if (this._overlayIcon.dataset.keyboardFocus) {
+        delete this._overlayIcon.dataset.keyboardFocus;
+        this._overlayIcon.focus();
+      } else {
+        this._window.document.activeElement.blur();
+      }
     }
   }
 
@@ -551,11 +710,13 @@ class Onboarding {
         page.style.display = "none";
       }
     }
-    for (let li of this._tourItems) {
-      if (li.id == tourId) {
-        li.classList.add("onboarding-active");
+    for (let tab of this._tourItems) {
+      if (tab.id == tourId) {
+        tab.classList.add("onboarding-active");
+        tab.setAttribute("aria-selected", true);
       } else {
-        li.classList.remove("onboarding-active");
+        tab.classList.remove("onboarding-active");
+        tab.setAttribute("aria-selected", false);
       }
     }
   }
@@ -581,9 +742,32 @@ class Onboarding {
 
   markTourCompletionState(tourId) {
     // We are doing lazy load so there might be no items.
-    if (this._tourItems && this._tourItems.length > 0 && this.isTourCompleted(tourId)) {
-      let targetItem = this._tourItems.find(item => item.id == tourId);
+    if (!this._tourItems || this._tourItems.length === 0) {
+      return;
+    }
+
+    let completed = this.isTourCompleted(tourId);
+    let targetItem = this._tourItems.find(item => item.id == tourId);
+    let completedTextId = `onboarding-complete-${tourId}-text`;
+    // Accessibility: Text version of the auxiliary information about the tour
+    // item completion is provided via an invisible node with an aria-label that
+    // the tab is pointing to via aria-described by.
+    let completedText = targetItem.querySelector(`#${completedTextId}`);
+    if (completed) {
       targetItem.classList.add("onboarding-complete");
+      if (!completedText) {
+        completedText = this._window.document.createElement("span");
+        completedText.id = completedTextId;
+        completedText.setAttribute("aria-label", "Complete");
+        targetItem.appendChild(completedText);
+        targetItem.setAttribute("aria-describedby", completedTextId);
+      }
+    } else {
+      targetItem.classList.remove("onboarding-complete");
+      targetItem.removeAttribute("aria-describedby");
+      if (completedText) {
+        completedText.remove();
+      }
     }
   }
 
@@ -750,17 +934,19 @@ class Onboarding {
   }
 
   _renderNotificationBar() {
-    let div = this._window.document.createElement("div");
-    div.id = "onboarding-notification-bar";
+    let footer = this._window.document.createElement("footer");
+    footer.id = "onboarding-notification-bar";
+    footer.setAttribute("aria-live", "polite");
+    footer.setAttribute("aria-labelledby", "onboarding-notification-icon")
     // We use `innerHTML` for more friendly reading.
     // The security should be fine because this is not from an external input.
-    div.innerHTML = `
-      <div id="onboarding-notification-icon"></div>
-      <section id="onboarding-notification-message-section">
-        <div id="onboarding-notification-tour-icon"></div>
-        <div id="onboarding-notification-body">
-          <h6 id="onboarding-notification-tour-title"></h6>
-          <span id="onboarding-notification-tour-message"></span>
+    footer.innerHTML = `
+      <div id="onboarding-notification-icon" role="presentation"></div>
+      <section id="onboarding-notification-message-section" role="presentation">
+        <div id="onboarding-notification-tour-icon" role="presentation"></div>
+        <div id="onboarding-notification-body" role="presentation">
+          <h1 id="onboarding-notification-tour-title"></h1>
+          <p id="onboarding-notification-tour-message"></p>
         </div>
         <button id="onboarding-notification-action-btn"></button>
       </section>
@@ -770,12 +956,15 @@ class Onboarding {
       this._tourType === "new" ? "onboarding.notification-icon-tool-tip" :
                                  "onboarding.notification-icon-tooltip-updated",
       [BRAND_SHORT_NAME], 1);
-    div.querySelector("#onboarding-notification-icon").setAttribute("data-tooltip", toolTip);
 
-    let closeBtn = div.querySelector("#onboarding-notification-close-btn");
+    let icon = footer.querySelector("#onboarding-notification-icon");
+    icon.setAttribute("aria-label", toolTip);
+    icon.setAttribute("role", "presentation");
+
+    let closeBtn = footer.querySelector("#onboarding-notification-close-btn");
     closeBtn.setAttribute("title",
       this._bundle.GetStringFromName("onboarding.notification-close-button-tooltip"));
-    return div;
+    return footer;
   }
 
   hide() {
@@ -798,17 +987,20 @@ class Onboarding {
     // We use `innerHTML` for more friendly reading.
     // The security should be fine because this is not from an external input.
     div.innerHTML = `
-      <div id="onboarding-overlay-dialog">
-        <button id="onboarding-overlay-close-btn" class="onboarding-close-btn"></button>
+      <div role="dialog" tabindex="-1" aria-labelledby="onboarding-header">
         <header id="onboarding-header"></header>
         <nav>
-          <ul id="onboarding-tour-list"></ul>
+          <ul id="onboarding-tour-list" role="tablist"></ul>
         </nav>
         <footer id="onboarding-footer">
           <input type="checkbox" id="onboarding-tour-hidden-checkbox" /><label for="onboarding-tour-hidden-checkbox"></label>
         </footer>
+        <button id="onboarding-overlay-close-btn" class="onboarding-close-btn"></button>
       </div>
     `;
+
+    this._dialog = div.querySelector(`[role="dialog"]`);
+    this._dialog.id = ONBOARDING_DIALOG_ID;
 
     div.querySelector("label[for='onboarding-tour-hidden-checkbox']").textContent =
       this._bundle.GetStringFromName("onboarding.hidden-checkbox-label-text");
@@ -827,8 +1019,11 @@ class Onboarding {
     let tooltip = this._bundle.formatStringFromName(tooltipStringId, [BRAND_SHORT_NAME], 1);
     button.setAttribute("aria-label", tooltip);
     button.id = "onboarding-overlay-button";
+    button.setAttribute("aria-haspopup", true);
+    button.setAttribute("aria-controls", `${ONBOARDING_DIALOG_ID}`);
     let img = this._window.document.createElement("img");
     img.id = "onboarding-overlay-button-icon";
+    img.setAttribute("role", "presentation");
     img.src = "resource://onboarding/img/overlay-icon.svg";
     button.appendChild(img);
     return button;
@@ -840,9 +1035,24 @@ class Onboarding {
     for (let tour of tours) {
       // Create tour navigation items dynamically
       let li = this._window.document.createElement("li");
-      li.textContent = this._bundle.GetStringFromName(tour.tourNameId);
-      li.id = tour.id;
-      li.className = "onboarding-tour-item";
+      // List item should have no semantics. It is just a container for an
+      // actual tab.
+      li.setAttribute("role", "presentation");
+      li.className = "onboarding-tour-item-container";
+      // Focusable but not tabbable.
+      li.tabIndex = -1;
+
+      let tab = this._window.document.createElement("span");
+      tab.id = tour.id;
+      tab.textContent = this._bundle.GetStringFromName(tour.tourNameId);
+      tab.className = "onboarding-tour-item";
+      tab.tabIndex = 0;
+      tab.setAttribute("role", "tab");
+
+      let tourPanelId = `${tour.id}-page`;
+      tab.setAttribute("aria-controls", tourPanelId);
+
+      li.appendChild(tab);
       itemsFrag.appendChild(li);
       // Dynamically create tour pages
       let div = tour.getPage(this._window, this._bundle);
@@ -858,22 +1068,23 @@ class Onboarding {
                                 element.dataset.l10nId, [BRAND_SHORT_NAME], 1);
       }
 
-      div.id = `${tour.id}-page`;
+      div.id = tourPanelId;
       div.classList.add("onboarding-tour-page");
+      div.setAttribute("role", "tabpanel");
+      div.setAttribute("aria-labelledby", tour.id);
       div.style.display = "none";
       pagesFrag.appendChild(div);
       // Cache elements in arrays for later use to avoid cost of querying elements
-      this._tourItems.push(li);
+      this._tourItems.push(tab);
       this._tourPages.push(div);
 
       this.markTourCompletionState(tour.id);
     }
 
-    let dialog = this._window.document.getElementById("onboarding-overlay-dialog");
     let ul = this._window.document.getElementById("onboarding-tour-list");
     ul.appendChild(itemsFrag);
     let footer = this._window.document.getElementById("onboarding-footer");
-    dialog.insertBefore(pagesFrag, footer);
+    this._dialog.insertBefore(pagesFrag, footer);
   }
 
   _loadCSS() {

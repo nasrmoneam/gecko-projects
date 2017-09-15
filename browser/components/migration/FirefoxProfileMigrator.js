@@ -127,13 +127,16 @@ FirefoxProfileMigrator.prototype._getResourcesInternal = function(sourceProfileD
   };
 
   let types = MigrationUtils.resourceTypes;
-  let places = getFileResource(types.HISTORY, ["places.sqlite"]);
-  let favicons = getFileResource(types.HISTORY, ["favicons.sqlite"]);
-  let cookies = getFileResource(types.COOKIES, ["cookies.sqlite"]);
+  let places = getFileResource(types.HISTORY, ["places.sqlite", "places.sqlite-wal"]);
+  let favicons = getFileResource(types.HISTORY, ["favicons.sqlite", "favicons.sqlite-wal"]);
+  let cookies = getFileResource(types.COOKIES, ["cookies.sqlite", "cookies.sqlite-wal"]);
   let passwords = getFileResource(types.PASSWORDS,
     ["signons.sqlite", "logins.json", "key3.db",
      "signedInUser.json"]);
-  let formData = getFileResource(types.FORMDATA, ["formhistory.sqlite"]);
+  let formData = getFileResource(types.FORMDATA, [
+    "formhistory.sqlite",
+    "autofill-profiles.json",
+  ]);
   let bookmarksBackups = getFileResource(types.OTHERDATA,
     [PlacesBackups.profileRelativeFolderPath]);
   let dictionary = getFileResource(types.OTHERDATA, ["persdict.dat"]);

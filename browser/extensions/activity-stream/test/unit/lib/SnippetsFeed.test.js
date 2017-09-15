@@ -34,6 +34,9 @@ describe("SnippetsFeed", () => {
       .returns(true)
       .withArgs("browser.onboarding.notification.finished")
       .returns(false);
+    sandbox.stub(global.Services.prefs, "prefHasUserValue")
+      .withArgs("services.sync.username")
+      .returns(true);
 
     const feed = new SnippetsFeed();
     feed.store = {dispatch: sandbox.stub()};
@@ -53,6 +56,7 @@ describe("SnippetsFeed", () => {
     assert.propertyVal(action.data, "profileResetWeeksAgo", 1);
     assert.propertyVal(action.data, "telemetryEnabled", true);
     assert.propertyVal(action.data, "onboardingFinished", false);
+    assert.propertyVal(action.data, "fxaccount", true);
   });
   it("should call .init on an INIT aciton", () => {
     const feed = new SnippetsFeed();

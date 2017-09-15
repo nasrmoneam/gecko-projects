@@ -2998,7 +2998,15 @@ IsOrHasAncestorWithDisplayNone(Element* aElement, nsIPresShell* aPresShell)
   RefPtr<nsStyleContext> sc;
   for (auto* element : Reversed(elementsToCheck)) {
     if (sc) {
-      sc = styleSet->ResolveStyleFor(element, sc, LazyComputeBehavior::Assert);
+      if (styleSet->IsGecko()) {
+        sc = styleSet->ResolveStyleFor(element, sc,
+                                       LazyComputeBehavior::Assert);
+      } else {
+        // Call ResolveStyleLazily to protect against stale element data in
+        // the tree when styled by Servo.
+        sc = styleSet->AsServo()->ResolveStyleLazily(
+            element, CSSPseudoElementType::NotPseudo, nullptr);
+      }
     } else {
       sc = nsComputedDOMStyle::GetStyleContextNoFlush(element,
                                                       nullptr, aPresShell);
@@ -3017,7 +3025,10 @@ nsGenericHTMLElement::GetInnerText(mozilla::dom::DOMString& aValue,
 {
   if (!GetPrimaryFrame(FlushType::Layout)) {
     nsIPresShell* presShell = nsComputedDOMStyle::GetPresShellForContent(this);
-    if (!presShell || IsOrHasAncestorWithDisplayNone(this, presShell)) {
+    // NOTE(emilio): We need to check the presshell is initialized in order to
+    // ensure the document is styled.
+    if (!presShell || !presShell->DidInitialize() ||
+        IsOrHasAncestorWithDisplayNone(this, presShell)) {
       GetTextContentInternal(aValue, aError);
       return;
     }

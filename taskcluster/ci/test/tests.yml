@@ -14,6 +14,10 @@ awsy:
     e10s: true
     instance-size: xlarge
     allow-software-gl-layers: false
+    run-on-projects:
+        by-test-platform:
+            .*-devedition/.*: [] # don't run on devedition
+            default: built-projects
     mozharness:
         script: awsy_script.py
         config:
@@ -136,6 +140,7 @@ firefox-ui-functional-local:
                     - firefox_ui_tests/taskcluster_windows.py
                 macosx.*:
                     - firefox_ui_tests/taskcluster.py
+                    - firefox_ui_tests/taskcluster_mac.py
                 linux.*:
                     - firefox_ui_tests/taskcluster.py
                     - remove_executables.py
@@ -158,6 +163,7 @@ firefox-ui-functional-remote:
                     - firefox_ui_tests/taskcluster_windows.py
                 macosx.*:
                     - firefox_ui_tests/taskcluster.py
+                    - firefox_ui_tests/taskcluster_mac.py
                 linux.*:
                     - firefox_ui_tests/taskcluster.py
                     - remove_executables.py
@@ -191,6 +197,8 @@ gtest:
         by-test-platform:
             linux64-qr/.*: ['mozilla-central', 'try']
             windows.*-pgo/.*: [] # permafails on pgo
+            windows.*-nightly/.*: [] # permafails on nightly too
+            .*-devedition/.*: [] # don't run on devedition
             default: built-projects
     mozharness:
         script: desktop_unittest.py
@@ -359,6 +367,7 @@ marionette:
                             - marionette/windows_taskcluster_config.py
                         macosx.*:
                             - marionette/prod_config.py
+                            - marionette/mac_taskcluster_config.py
                         default:
                             - marionette/prod_config.py
                             - remove_executables.py
@@ -394,6 +403,7 @@ marionette-headless:
                             - marionette/windows_taskcluster_config.py
                         macosx.*:
                             - marionette/prod_config.py
+                            - marionette/mac_taskcluster_config.py
                         default:
                             - marionette/prod_config.py
                             - remove_executables.py
@@ -802,8 +812,8 @@ mochitest-devtools-chrome:
                     - --mochitest-suite=mochitest-devtools-chrome-chunked
     instance-size:
         by-test-platform:
-            # Bug 1281241: migrating to m3.large instances
-            linux64-asan/opt: legacy
+            # Bug 1361476 - try xlarge on asan to see if it avoids OOM
+            linux64-asan/opt: xlarge
             default: default
     # Bug 1296086: high number of intermittents observed with software GL and large instances
     allow-software-gl-layers: false
@@ -1113,8 +1123,8 @@ reftest:
         by-test-platform:
             android-4.3-arm7-api-16/debug: 48
             android.*: 16
-            macosx64/opt: 1
-            macosx64/debug: 2
+            macosx64.*/opt: 1
+            macosx64.*/debug: 2
             windows8-64.*/opt: 1
             windows8-64.*/debug: 2
             default: 8
@@ -1227,14 +1237,16 @@ reftest-no-accel:
         by-test-platform:
             macosx.*: 1
             windows8-64.*/debug: 2
+            windows8-64.*/opt: 1
             default: 8
     mozharness:
         script: desktop_unittest.py
         no-read-buildbot-config: true
         chunked:
             by-test-platform:
-                windows8-64.*/debug: true
-                default: false
+                windows8-64.*/opt: true
+                macosx.*: false
+                default: true
         config:
             by-test-platform:
                 windows.*:
@@ -1252,7 +1264,7 @@ reftest-stylo:
     suite: reftest/reftest-stylo
     treeherder-symbol: tc-R(Rs)
     docker-image: {"in-tree": "desktop1604-test"}
-    chunks: 16
+    chunks: 8
     run-on-projects:
         by-test-platform:
             .*-stylo/opt: [ 'autoland', 'mozilla-central', 'try' ] # not on mozilla-inbound

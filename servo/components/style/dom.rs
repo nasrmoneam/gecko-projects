@@ -495,6 +495,28 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
         data.has_styles() && !data.restyle.hint.has_non_animation_invalidations()
     }
 
+    /// Returns whether the element's styles are up-to-date after traversal
+    /// (i.e. in post traversal).
+    fn has_current_styles(&self, data: &ElementData) -> bool {
+        if self.has_snapshot() && !self.handled_snapshot() {
+            return false;
+        }
+
+        data.has_styles() &&
+        // TODO(hiro): When an animating element moved into subtree of
+        // contenteditable element, there remains animation restyle hints in
+        // post traversal. It's generally harmless since the hints will be
+        // processed in a next styling but ideally it should be processed soon.
+        //
+        // Without this, we get failures in:
+        //   layout/style/crashtests/1383319.html
+        //   layout/style/crashtests/1383001.html
+        //
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=1389675 tracks fixing
+        // this.
+        !data.restyle.hint.has_non_animation_invalidations()
+    }
+
     /// Flags an element and its ancestors with a given `DescendantsBit`.
     ///
     /// TODO(emilio): We call this conservatively from restyle_element_internal
@@ -542,6 +564,13 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     /// Only safe to call with exclusive access to the element.
     unsafe fn unset_animation_only_dirty_descendants(&self) {
     }
+
+    /// Clear all bits related to dirty descendant.
+    ///
+    /// In Gecko, this corresponds to the regular dirty descendants bit, the
+    /// animation-only dirty descendants bit, and the lazy frame construction
+    /// descendants bit.
+    unsafe fn clear_descendants_bits(&self) { self.unset_dirty_descendants(); }
 
     /// Returns true if this element is a visited link.
     ///

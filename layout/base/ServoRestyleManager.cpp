@@ -248,8 +248,6 @@ ServoRestyleManager::ClearServoDataFromSubtree(Element* aElement)
   }
 
   aElement->ClearServoData();
-  aElement->UnsetHasDirtyDescendantsForServo();
-  aElement->UnsetHasAnimationOnlyDirtyDescendantsForServo();
 }
 
 /* static */ void
@@ -266,9 +264,7 @@ ServoRestyleManager::ClearRestyleStateFromSubtree(Element* aElement)
   }
 
   bool wasRestyled;
-  Unused << Servo_TakeChangeHint(aElement,
-                                 ServoTraversalFlags::Empty,
-                                 &wasRestyled);
+  Unused << Servo_TakeChangeHint(aElement, &wasRestyled);
   aElement->UnsetHasDirtyDescendantsForServo();
   aElement->UnsetHasAnimationOnlyDirtyDescendantsForServo();
   aElement->UnsetFlags(NODE_DESCENDANTS_NEED_FRAMES);
@@ -522,18 +518,11 @@ UpdateFramePseudoElementStyles(nsIFrame* aFrame,
 }
 
 static inline bool
-NeedsToTraverseElementChildren(const Element& aParent,
-                               ServoTraversalFlags aFlags)
+NeedsToTraverseElementChildren(const Element& aParent)
 {
-  if (aParent.HasAnimationOnlyDirtyDescendantsForServo()) {
-    return true;
-  }
-
-  if (!(aFlags & ServoTraversalFlags::AnimationOnly)) {
-    return aParent.HasDirtyDescendantsForServo() ||
-           aParent.HasFlag(NODE_DESCENDANTS_NEED_FRAMES);
-  }
-  return false;
+  return aParent.HasAnimationOnlyDirtyDescendantsForServo() ||
+         aParent.HasDirtyDescendantsForServo() ||
+         aParent.HasFlag(NODE_DESCENDANTS_NEED_FRAMES);
 }
 
 bool
@@ -552,13 +541,8 @@ ServoRestyleManager::ProcessPostTraversal(
     aElement->GetPrimaryFrame()->HasAnyStateBits(NS_FRAME_OUT_OF_FLOW);
 
   // Grab the change hint from Servo.
-  // In case of flushing throttled animations, any restyle hints other than
-  // animations are preserved since they are the hints which will be processed
-  // in normal restyle later.
   bool wasRestyled;
-  nsChangeHint changeHint = Servo_TakeChangeHint(aElement,
-                                                 aFlags,
-                                                 &wasRestyled);
+  nsChangeHint changeHint = Servo_TakeChangeHint(aElement, &wasRestyled);
 
   // We should really fix the weird primary frame mapping for image maps
   // (bug 135040)...
@@ -635,7 +619,7 @@ ServoRestyleManager::ProcessPostTraversal(
   if (wasRestyled && oldStyleContext) {
     MOZ_ASSERT(styleFrame || displayContentsNode);
     newContext =
-      aRestyleState.StyleSet().ResolveServoStyle(aElement, aFlags);
+      aRestyleState.StyleSet().ResolveServoStyle(aElement);
     MOZ_ASSERT(oldStyleContext->ComputedData() != newContext->ComputedData());
 
     newContext->ResolveSameStructsAs(oldStyleContext);
@@ -689,13 +673,10 @@ ServoRestyleManager::ProcessPostTraversal(
   }
 
   const bool traverseElementChildren =
-    NeedsToTraverseElementChildren(*aElement, aFlags);
+    NeedsToTraverseElementChildren(*aElement);
   const bool descendantsNeedFrames =
     aElement->HasFlag(NODE_DESCENDANTS_NEED_FRAMES);
-  const bool forThrottledAnimationFlush =
-    !!(aFlags & ServoTraversalFlags::AnimationOnly);
-  const bool traverseTextChildren =
-    wasRestyled || (!forThrottledAnimationFlush && descendantsNeedFrames);
+  const bool traverseTextChildren = wasRestyled || descendantsNeedFrames;
   bool recreatedAnyContext = wasRestyled;
   if (traverseElementChildren || traverseTextChildren) {
     ServoStyleContext* upToDateContext =
@@ -747,10 +728,8 @@ ServoRestyleManager::ProcessPostTraversal(
     }
   }
 
-  if (!forThrottledAnimationFlush) {
-    aElement->UnsetHasDirtyDescendantsForServo();
-    aElement->UnsetFlags(NODE_DESCENDANTS_NEED_FRAMES);
-  }
+  aElement->UnsetHasDirtyDescendantsForServo();
+  aElement->UnsetFlags(NODE_DESCENDANTS_NEED_FRAMES);
   aElement->UnsetHasAnimationOnlyDirtyDescendantsForServo();
   return recreatedAnyContext;
 }
@@ -884,7 +863,6 @@ ServoRestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags)
 
   ServoStyleSet* styleSet = StyleSet();
   nsIDocument* doc = PresContext()->Document();
-  bool forThrottledAnimationFlush = !!(aFlags & ServoTraversalFlags::AnimationOnly);
 
   // Ensure the refresh driver is active during traversal to avoid mutating
   // mActiveTimer and mMostRecentRefresh time.
@@ -895,7 +873,7 @@ ServoRestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags)
   // in a loop because certain rare paths in the frame constructor (like
   // uninstalling XBL bindings) can trigger additional style validations.
   mInStyleRefresh = true;
-  if (mHaveNonAnimationRestyles && !forThrottledAnimationFlush) {
+  if (mHaveNonAnimationRestyles) {
     ++mAnimationGeneration;
   }
 
@@ -904,9 +882,7 @@ ServoRestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags)
   }
 
   while (styleSet->StyleDocument(aFlags)) {
-    if (!forThrottledAnimationFlush) {
-      ClearSnapshots();
-    }
+    ClearSnapshots();
 
     nsStyleChangeList currentChanges(StyleBackendType::Servo);
     bool anyStyleChanged = false;
@@ -914,7 +890,7 @@ ServoRestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags)
     // Recreate style contexts, and queue up change hints (which also handle
     // lazy frame construction).
     {
-      AutoRestyleTimelineMarker marker(mPresContext->GetDocShell(), forThrottledAnimationFlush);
+      AutoRestyleTimelineMarker marker(mPresContext->GetDocShell(), false);
       DocumentStyleRootIterator iter(doc);
       while (Element* root = iter.GetNextStyleRoot()) {
         ServoRestyleState state(*styleSet, currentChanges);
@@ -968,11 +944,9 @@ ServoRestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags)
 
   FlushOverflowChangedTracker();
 
-  if (!forThrottledAnimationFlush) {
-    ClearSnapshots();
-    styleSet->AssertTreeIsClean();
-    mHaveNonAnimationRestyles = false;
-  }
+  ClearSnapshots();
+  styleSet->AssertTreeIsClean();
+  mHaveNonAnimationRestyles = false;
   mRestyleForCSSRuleChanges = false;
   mInStyleRefresh = false;
 
@@ -1001,7 +975,7 @@ ServoRestyleManager::UpdateOnlyAnimationStyles()
     return;
   }
 
-  DoProcessPendingRestyles(ServoTraversalFlags::AnimationOnly);
+  DoProcessPendingRestyles(ServoTraversalFlags::FlushThrottledAnimations);
 }
 
 void
@@ -1169,6 +1143,10 @@ ServoRestyleManager::TakeSnapshotForAttributeChange(Element* aElement,
   // cause the style to change.
   IncrementUndisplayedRestyleGeneration();
 
+  // Some other random attribute changes may also affect the transitions,
+  // so we also set this true here.
+  mHaveNonAnimationRestyles = true;
+
   ServoElementSnapshot& snapshot = SnapshotFor(aElement);
   snapshot.AddAttrs(aElement, aNameSpaceID, aAttribute);
 
@@ -1228,6 +1206,10 @@ ServoRestyleManager::AttributeChanged(Element* aElement, int32_t aNameSpaceID,
     // Assuming we need to invalidate cached style in getComputedStyle for
     // undisplayed elements, since we don't know if it is needed.
     IncrementUndisplayedRestyleGeneration();
+
+    // If we change attributes, we have to mark this to be true, so we will
+    // increase the animation generation for the new created transition if any.
+    mHaveNonAnimationRestyles = true;
   }
 }
 

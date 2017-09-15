@@ -356,6 +356,10 @@ this.SessionStore = {
     SessionStoreInternal.restoreLastSession();
   },
 
+  speculativeConnectOnTabHover(tab) {
+    SessionStoreInternal.speculativeConnectOnTabHover(tab);
+  },
+
   getCurrentState(aUpdateAll) {
     return SessionStoreInternal.getCurrentState(aUpdateAll);
   },
@@ -720,6 +724,8 @@ var SessionStoreInternal = {
     this._max_windows_undo = this._prefBranch.getIntPref("sessionstore.max_windows_undo");
     this._prefBranch.addObserver("sessionstore.max_windows_undo", this, true);
 
+    this._restore_on_demand = this._prefBranch.getBoolPref("sessionstore.restore_on_demand");
+    this._prefBranch.addObserver("sessionstore.restore_on_demand", this, true);
 
     gResistFingerprintingEnabled = Services.prefs.getBoolPref("privacy.resistFingerprinting");
     Services.prefs.addObserver("privacy.resistFingerprinting", this);
@@ -1832,6 +1838,9 @@ var SessionStoreInternal = {
         break;
       case "privacy.resistFingerprinting":
         gResistFingerprintingEnabled = Services.prefs.getBoolPref("privacy.resistFingerprinting");
+        break;
+      case "sessionstore.restore_on_demand":
+        this._restore_on_demand = this._prefBranch.getBoolPref("sessionstore.restore_on_demand");
         break;
     }
   },
@@ -3279,8 +3288,7 @@ var SessionStoreInternal = {
       }
     }
 
-    let restoreOnDemand = this._prefBranch.getBoolPref("sessionstore.restore_on_demand");
-    let restoreTabsLazily = this._prefBranch.getBoolPref("sessionstore.restore_tabs_lazily") && restoreOnDemand;
+    let restoreTabsLazily = this._prefBranch.getBoolPref("sessionstore.restore_tabs_lazily") && this._restore_on_demand;
 
     for (var t = 0; t < newTabCount; t++) {
       let tabData = winData.tabs[t];
@@ -3288,6 +3296,8 @@ var SessionStoreInternal = {
       let userContextId = tabData.userContextId;
       let select = t == selectTab - 1;
       let tab;
+
+      /* Disabled because of bug 1388628:
 
       // Re-use existing selected tab if possible to avoid the overhead of
       // selecting a new tab.
@@ -3302,6 +3312,7 @@ var SessionStoreInternal = {
           tabbrowser.updateBrowserRemoteness(tab.linkedBrowser, true);
         }
       }
+      */
 
       // Add a new tab if needed.
       if (!tab) {
@@ -3332,13 +3343,6 @@ var SessionStoreInternal = {
           let leftoverTab = tabbrowser.selectedTab;
           tabbrowser.selectedTab = tab;
           tabbrowser.removeTab(leftoverTab);
-        }
-
-        // Prepare connection to the host when users hover mouse over this
-        // tab. If we're not restoring on demand, we'll prepare connection
-        // when we're restoring next tab.
-        if (!tabData.pinned && restoreOnDemand) {
-          this.speculativeConnectOnTabHover(tab, url);
         }
       }
 
@@ -3414,6 +3418,10 @@ var SessionStoreInternal = {
     tabstrip.smoothScroll = smoothScroll;
 
     TelemetryStopwatch.finish("FX_SESSION_RESTORE_RESTORE_WINDOW_MS");
+    if (Services.prefs.getIntPref("browser.tabs.restorebutton") != 0 ) {
+      Services.telemetry.scalarAdd("browser.session.restore.number_of_tabs", winData.tabs.length);
+      Services.telemetry.scalarAdd("browser.session.restore.number_of_win", 1);
+    }
 
     this._setWindowStateReady(aWindow);
 
@@ -3443,21 +3451,25 @@ var SessionStoreInternal = {
 
   /**
    * Make a connection to a host when users hover mouse on a tab.
+   * This will also set a flag in the tab to prevent us from speculatively
+   * connecting a second time.
    *
    * @param tab
-   *        A tab to set up a hover listener.
-   * @param url
-   *        URL of a host.
+   *        a tab to speculatively connect on mouse hover.
    */
-  speculativeConnectOnTabHover(tab, url) {
-    tab.addEventListener("mouseover", () => {
+  speculativeConnectOnTabHover(tab) {
+    if (this._restore_on_demand && !tab.__SS_connectionPrepared && tab.hasAttribute("pending")) {
+      let url = this.getLazyTabValue(tab, "url");
       let prepared = this.prepareConnectionToHost(url);
       // This is used to test if a connection has been made beforehand.
       if (gDebuggingEnabled) {
         tab.__test_connection_prepared = prepared;
         tab.__test_connection_url = url;
       }
-    }, {once: true});
+      // A flag indicate that we've prepared a connection for this tab and
+      // if is called again, we shouldn't prepare another connection.
+      tab.__SS_connectionPrepared = true;
+    }
   },
 
   /**

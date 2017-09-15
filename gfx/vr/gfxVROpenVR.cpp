@@ -282,9 +282,8 @@ VRDisplayOpenVR::StopPresentation()
 
   mIsPresenting = false;
   Telemetry::Accumulate(Telemetry::WEBVR_USERS_VIEW_IN, 2);
-  Telemetry::Accumulate(Telemetry::WEBVR_TIME_SPEND_FOR_VIEWING_IN_OPENVR,
-                        static_cast<uint32_t>((TimeStamp::Now() - mPresentationStart)
-                        .ToMilliseconds()));
+  Telemetry::AccumulateTimeDelta(Telemetry::WEBVR_TIME_SPENT_VIEWING_IN_OPENVR,
+                                 mPresentationStart);
 }
 
 bool
@@ -947,7 +946,7 @@ VRSystemManagerOpenVR::StopVibrateHaptic(uint32_t aControllerIdx)
 {
   // mVRSystem is available after VRDisplay is created
   // at GetHMDs().
-  if (!mVRSystem) {
+  if (!mVRSystem || (aControllerIdx >= mOpenVRController.Length())) {
     return;
   }
 

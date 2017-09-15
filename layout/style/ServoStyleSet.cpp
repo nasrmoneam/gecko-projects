@@ -9,6 +9,7 @@
 #include "gfxPlatformFontList.h"
 #include "mozilla/AutoRestyleTimelineMarker.h"
 #include "mozilla/DocumentStyleRootIterator.h"
+#include "mozilla/LookAndFeel.h"
 #include "mozilla/ServoBindings.h"
 #include "mozilla/ServoRestyleManager.h"
 #include "mozilla/ServoStyleRuleMap.h"
@@ -178,13 +179,51 @@ ServoStyleSet::ResolveStyleFor(Element* aElement,
   RefPtr<ServoStyleContext> computedValues;
   if (aMayCompute == LazyComputeBehavior::Allow) {
     PreTraverseSync();
-    return ResolveStyleLazily(
+    return ResolveStyleLazilyInternal(
         aElement, CSSPseudoElementType::NotPseudo, nullptr, aParentContext);
   }
 
-  return ResolveServoStyle(aElement, ServoTraversalFlags::Empty);
+  return ResolveServoStyle(aElement);
 }
 
+/**
+ * Clears any stale Servo element data that might existing in the specified
+ * element's document.  Upon destruction, asserts that the element and all
+ * its ancestors still have no element data, if the document has no pres shell.
+ */
+class MOZ_STACK_CLASS AutoClearStaleData
+{
+public:
+  explicit AutoClearStaleData(Element* aElement)
+#ifdef DEBUG
+    : mElement(aElement)
+#endif
+  {
+    aElement->OwnerDoc()->ClearStaleServoDataFromDocument();
+  }
+
+  ~AutoClearStaleData()
+  {
+#ifdef DEBUG
+    // Assert that the element and its ancestors are all unstyled, if the
+    // document has no pres shell.
+    if (mElement->OwnerDoc()->HasShellOrBFCacheEntry()) {
+      // We must check whether we're in the bfcache because its presence
+      // means we have a "hidden" pres shell with up-to-date data in the
+      // tree.
+      return;
+    }
+    for (Element* e = mElement; e; e = e->GetParentElement()) {
+      MOZ_ASSERT(!e->HasServoData(), "expected element to be unstyled");
+    }
+#endif
+  }
+
+private:
+#ifdef DEBUG
+  Element* mElement;
+#endif
+};
 
 const ServoElementSnapshotTable&
 ServoStyleSet::Snapshots()
@@ -208,6 +247,8 @@ ServoStyleSet::PreTraverseSync()
   ResolveMappedAttrDeclarationBlocks();
 
   nsCSSRuleProcessor::InitSystemMetrics();
+
+  LookAndFeel::NativeInit();
 
   // This is lazily computed and pseudo matching needs to access
   // it so force computation early.
@@ -244,8 +285,7 @@ ServoStyleSet::PreTraverseSync()
 }
 
 void
-ServoStyleSet::PreTraverse(Element* aRoot,
-                           EffectCompositor::AnimationRestyleType aRestyleType)
+ServoStyleSet::PreTraverse(ServoTraversalFlags aFlags, Element* aRoot)
 {
   PreTraverseSync();
 
@@ -255,12 +295,12 @@ ServoStyleSet::PreTraverse(Element* aRoot,
     mPresContext->Document()->GetAnimationController();
   if (aRoot) {
     mPresContext->EffectCompositor()
-                ->PreTraverseInSubtree(aRoot, aRestyleType);
+                ->PreTraverseInSubtree(aFlags, aRoot);
     if (smilController) {
       smilController->PreTraverseInSubtree(aRoot);
     }
   } else {
-    mPresContext->EffectCompositor()->PreTraverse(aRestyleType);
+    mPresContext->EffectCompositor()->PreTraverse(aFlags);
     if (smilController) {
       smilController->PreTraverse();
     }
@@ -293,15 +333,6 @@ ServoStyleSet::PrepareAndTraverseSubtree(
     Servo_TraverseSubtree(aRoot, mRawSet.get(), &snapshots, aFlags);
   MOZ_ASSERT(!(isInitial || forReconstruct) || !postTraversalRequired);
 
-  // We don't need to trigger a second traversal if this restyle only for
-  // flushing throttled animations. That's because the first traversal only
-  // performs the animation-only restyle, skipping the normal restyle, and so
-  // will not generate any SequentialTask that could update animation state
-  // requiring a subsequent traversal.
-  if (forThrottledAnimationFlush) {
-    return postTraversalRequired;
-  }
-
   auto root = const_cast<Element*>(aRoot);
 
   // If there are still animation restyles needed, trigger a second traversal to
@@ -312,10 +343,8 @@ ServoStyleSet::PrepareAndTraverseSubtree(
   // traversal caused, for example, the font-size to change, the SMIL style
   // won't be updated until the next tick anyway.
   EffectCompositor* compositor = mPresContext->EffectCompositor();
-  EffectCompositor::AnimationRestyleType restyleType =
-    EffectCompositor::AnimationRestyleType::Throttled;
-  if (forReconstruct ? compositor->PreTraverseInSubtree(root, restyleType)
-                     : compositor->PreTraverse(restyleType)) {
+  if (forReconstruct ? compositor->PreTraverseInSubtree(aFlags, root)
+                     : compositor->PreTraverse(aFlags)) {
     if (Servo_TraverseSubtree(aRoot, mRawSet.get(), &snapshots, aFlags)) {
       MOZ_ASSERT(!forReconstruct);
       if (isInitial) {
@@ -409,9 +438,7 @@ ServoStyleSet::ResolvePseudoElementStyle(Element* aOriginatingElement,
   if (aPseudoElement) {
     MOZ_ASSERT(aType == aPseudoElement->GetPseudoElementType());
     computedValues =
-      Servo_ResolveStyle(aPseudoElement,
-                         mRawSet.get(),
-                         ServoTraversalFlags::Empty).Consume();
+      Servo_ResolveStyle(aPseudoElement, mRawSet.get()).Consume();
   } else {
     computedValues =
       Servo_ResolvePseudoStyle(aOriginatingElement,
@@ -426,25 +453,33 @@ ServoStyleSet::ResolvePseudoElementStyle(Element* aOriginatingElement,
 }
 
 already_AddRefed<ServoStyleContext>
-ServoStyleSet::ResolveTransientStyle(Element* aElement,
-                                     CSSPseudoElementType aPseudoType,
-                                     nsIAtom* aPseudoTag,
-                                     StyleRuleInclusion aRuleInclusion)
+ServoStyleSet::ResolveStyleLazily(Element* aElement,
+                                  CSSPseudoElementType aPseudoType,
+                                  nsIAtom* aPseudoTag,
+                                  StyleRuleInclusion aRuleInclusion)
 {
-  RefPtr<ServoStyleContext> result =
-    ResolveTransientServoStyle(aElement, aPseudoType, aPseudoTag, aRuleInclusion);
-  return result.forget();
-}
+  // Lazy style computation avoids storing any new data in the tree.
+  // If the tree has stale data in it, then the AutoClearStaleData below
+  // will ensure it's cleared so we don't use it. But if the document is
+  // in the bfcache, then we will have valid, usable data in the tree,
+  // but we don't want to use it. Instead we want to pretend as if the
+  // document has no pres shell and no styles.
+  //
+  // If we don't do this, then we can very easily mix styles from different
+  // style sets in the tree. For example, calling getComputedStyle on an
+  // element in a display:none iframe (which has no pres shell) will use the
+  // caller's style set for any styling. If we allowed this to re-use any
+  // existing styles in the DOM, then we would do selector matching on the
+  // undisplayed element with the caller's style set's rules, but inherit from
+  // values that were computed with the style set from the target element's
+  // hidden-by-the-bfcache-entry pres shell.
+  bool ignoreExistingStyles = aElement->OwnerDoc()->GetBFCacheEntry();
 
-already_AddRefed<ServoStyleContext>
-ServoStyleSet::ResolveTransientServoStyle(
-    Element* aElement,
-    CSSPseudoElementType aPseudoType,
-    nsIAtom* aPseudoTag,
-    StyleRuleInclusion aRuleInclusion)
-{
+  AutoClearStaleData guard(aElement);
   PreTraverseSync();
-  return ResolveStyleLazily(aElement, aPseudoType, aPseudoTag, nullptr, aRuleInclusion);
+  return ResolveStyleLazilyInternal(aElement, aPseudoType, aPseudoTag,
+                                    nullptr, aRuleInclusion,
+                                    ignoreExistingStyles);
 }
 
 already_AddRefed<ServoStyleContext>
@@ -775,11 +810,7 @@ ServoStyleSet::HasStateDependentStyle(dom::Element* aElement,
 bool
 ServoStyleSet::StyleDocument(ServoTraversalFlags aFlags)
 {
-  if (!!(aFlags & ServoTraversalFlags::AnimationOnly)) {
-    PreTraverse(nullptr, EffectCompositor::AnimationRestyleType::Full);
-  } else {
-    PreTraverse();
-  }
+  PreTraverse(aFlags);
 
   // Restyle the document from the root element and each of the document level
   // NAC subtree roots.
@@ -798,7 +829,7 @@ ServoStyleSet::StyleNewSubtree(Element* aRoot)
 {
   MOZ_ASSERT(!aRoot->HasServoData());
 
-  PreTraverse();
+  PreTraverse(ServoTraversalFlags::Empty);
 
   DebugOnly<bool> postTraversalRequired =
     PrepareAndTraverseSubtree(aRoot, ServoTraversalFlags::Empty);
@@ -808,7 +839,7 @@ ServoStyleSet::StyleNewSubtree(Element* aRoot)
 void
 ServoStyleSet::StyleNewChildren(Element* aParent)
 {
-  PreTraverse();
+  PreTraverse(ServoTraversalFlags::Empty);
 
   PrepareAndTraverseSubtree(aParent, ServoTraversalFlags::UnstyledChildrenOnly);
   // We can't assert that Servo_TraverseSubtree returns false, since aParent
@@ -818,7 +849,7 @@ ServoStyleSet::StyleNewChildren(Element* aParent)
 void
 ServoStyleSet::StyleNewlyBoundElement(Element* aElement)
 {
-  PreTraverse();
+  PreTraverse(ServoTraversalFlags::Empty);
 
   // In general the element is always styled by the time we're applying XBL
   // bindings, because we need to style the element to know what the binding
@@ -837,7 +868,7 @@ ServoStyleSet::StyleNewlyBoundElement(Element* aElement)
 void
 ServoStyleSet::StyleSubtreeForReconstruct(Element* aRoot)
 {
-  PreTraverse(aRoot);
+  PreTraverse(ServoTraversalFlags::Empty, aRoot);
 
   auto flags = ServoTraversalFlags::Forgetful |
                ServoTraversalFlags::AggressivelyForgetful |
@@ -907,6 +938,12 @@ ServoStyleSet::GetComputedKeyframeValuesFor(
   Element* aElement,
   const ServoStyleContext* aContext)
 {
+  // Servo_GetComputedKeyframeValues below won't handle ignoring existing
+  // element data for bfcached documents. (See comment in ResolveStyleLazily
+  // about these bfcache issues.)
+  MOZ_RELEASE_ASSERT(!aElement->OwnerDoc()->GetBFCacheEntry());
+
+  AutoClearStaleData guard(aElement);
   nsTArray<ComputedKeyframeValues> result(aKeyframes.Length());
 
   // Construct each nsTArray<PropertyStyleAnimationValuePair> here.
@@ -927,6 +964,12 @@ ServoStyleSet::GetAnimationValues(
   const ServoStyleContext* aStyleContext,
   nsTArray<RefPtr<RawServoAnimationValue>>& aAnimationValues)
 {
+  // Servo_GetAnimationValues below won't handle ignoring existing element
+  // data for bfcached documents. (See comment in ResolveStyleLazily
+  // about these bfcache issues.)
+  MOZ_RELEASE_ASSERT(!aElement->OwnerDoc()->GetBFCacheEntry());
+
+  AutoClearStaleData guard(aElement);
   Servo_GetAnimationValues(aDeclarations,
                            aElement,
                            aStyleContext,
@@ -943,6 +986,14 @@ ServoStyleSet::GetBaseContextForElement(
   CSSPseudoElementType aPseudoType,
   const ServoStyleContext* aStyle)
 {
+  // Servo_StyleSet_GetBaseComputedValuesForElement below won't handle ignoring
+  // existing element data for bfcached documents. (See comment in
+  // ResolveStyleLazily about these bfcache issues.)
+  MOZ_RELEASE_ASSERT(!aElement->OwnerDoc()->GetBFCacheEntry(),
+             "GetBaseContextForElement does not support documents in the "
+             "bfcache");
+
+  AutoClearStaleData guard(aElement);
   return Servo_StyleSet_GetBaseComputedValuesForElement(mRawSet.get(),
                                                         aElement,
                                                         aStyle,
@@ -956,6 +1007,12 @@ ServoStyleSet::ComputeAnimationValue(
   RawServoDeclarationBlock* aDeclarations,
   const ServoStyleContext* aContext)
 {
+  // Servo_AnimationValue_Compute below won't handle ignoring existing element
+  // data for bfcached documents. (See comment in ResolveStyleLazily about
+  // these bfcache issues.)
+  MOZ_RELEASE_ASSERT(!aElement->OwnerDoc()->GetBFCacheEntry());
+
+  AutoClearStaleData guard(aElement);
   return Servo_AnimationValue_Compute(aElement,
                                       aDeclarations,
                                       aContext,
@@ -1043,13 +1100,11 @@ UpdateBodyTextColorIfNeeded(
 }
 
 already_AddRefed<ServoStyleContext>
-ServoStyleSet::ResolveServoStyle(Element* aElement, ServoTraversalFlags aFlags)
+ServoStyleSet::ResolveServoStyle(Element* aElement)
 {
   UpdateStylistIfNeeded();
   RefPtr<ServoStyleContext> result =
-    Servo_ResolveStyle(aElement,
-                       mRawSet.get(),
-                       aFlags).Consume();
+    Servo_ResolveStyle(aElement, mRawSet.get()).Consume();
   UpdateBodyTextColorIfNeeded(*aElement, *result, *mPresContext);
   return result.forget();
 }
@@ -1063,11 +1118,12 @@ ServoStyleSet::ClearNonInheritingStyleContexts()
 }
 
 already_AddRefed<ServoStyleContext>
-ServoStyleSet::ResolveStyleLazily(Element* aElement,
-                                  CSSPseudoElementType aPseudoType,
-                                  nsIAtom* aPseudoTag,
-                                  const ServoStyleContext* aParentContext,
-                                  StyleRuleInclusion aRuleInclusion)
+ServoStyleSet::ResolveStyleLazilyInternal(Element* aElement,
+                                          CSSPseudoElementType aPseudoType,
+                                          nsIAtom* aPseudoTag,
+                                          const ServoStyleContext* aParentContext,
+                                          StyleRuleInclusion aRuleInclusion,
+                                          bool aIgnoreExistingStyles)
 {
   mPresContext->EffectCompositor()->PreTraverse(aElement, aPseudoType);
   MOZ_ASSERT(!StylistNeedsUpdate());
@@ -1104,7 +1160,8 @@ ServoStyleSet::ResolveStyleLazily(Element* aElement,
                              pseudoTypeForStyleResolution,
                              aRuleInclusion,
                              &Snapshots(),
-                             mRawSet.get()).Consume();
+                             mRawSet.get(),
+                             aIgnoreExistingStyles).Consume();
 
   if (mPresContext->EffectCompositor()->PreTraverse(aElement, aPseudoType)) {
     computedValues =
@@ -1112,7 +1169,8 @@ ServoStyleSet::ResolveStyleLazily(Element* aElement,
                                pseudoTypeForStyleResolution,
                                aRuleInclusion,
                                &Snapshots(),
-                               mRawSet.get()).Consume();
+                               mRawSet.get(),
+                               aIgnoreExistingStyles).Consume();
   }
 
   if (aPseudoType == CSSPseudoElementType::NotPseudo) {

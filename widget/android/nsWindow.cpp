@@ -365,7 +365,9 @@ public:
         : mWindow(aPtr, aWindow)
         , mNPZC(aNPZC)
         , mPreviousButtons(0)
-    {}
+    {
+        MOZ_ASSERT(mWindow);
+    }
 
     ~NPZCSupport()
     {}
@@ -827,7 +829,9 @@ public:
         : mWindow(aPtr, aWindow)
         , mCompositor(aInstance)
         , mCompositorPaused(true)
-    {}
+    {
+        MOZ_ASSERT(mWindow);
+    }
 
     ~LayerViewSupport()
     {}
@@ -919,7 +923,9 @@ public:
                           jni::Object::Param aSurface)
     {
         MOZ_ASSERT(NS_IsMainThread());
-        MOZ_ASSERT(mWindow);
+        if (!mWindow) {
+            return; // Already shut down.
+        }
 
         mSurface = aSurface;
         mWindow->CreateLayerManager(aWidth, aHeight);
@@ -978,7 +984,11 @@ public:
                 JNIEnv* const env = jni::GetGeckoThreadEnv();
                 LayerViewSupport* const lvs = GetNative(
                         LayerView::Compositor::LocalRef(env, mCompositor));
-                MOZ_CATCH_JNI_EXCEPTION(env);
+
+                if (!lvs || !lvs->mWindow) {
+                    env->ExceptionClear();
+                    return; // Already shut down.
+                }
 
                 lvs->OnResumedCompositor();
             }

@@ -56,6 +56,7 @@ linux64-nightly/opt:
         - web-platform-tests
         - opt-only-tests
         - desktop-screenshot-capture
+        - awsy
 linux64-devedition/opt:
     build-platform: linux64-devedition-nightly/opt
     test-sets:
@@ -188,9 +189,8 @@ windows7-32-nightly/opt:
         - windows-tests
 
 windows7-32-devedition/opt:
-    build-platform: win32-devedition/opt
+    build-platform: win32-devedition-nightly/opt
     test-sets:
-        - awsy
         - desktop-screenshot-capture
         - windows-tests
 
@@ -224,9 +224,8 @@ windows10-64-nightly/opt:
         - windows-tests
 
 windows10-64-devedition/opt:
-    build-platform: win64-devedition/opt
+    build-platform: win64-devedition-nightly/opt
     test-sets:
-        - awsy
         - desktop-screenshot-capture
         - windows-tests
 
@@ -253,7 +252,7 @@ windows8-64-nightly/opt:
     test-sets:
         - windows8-tests
 windows8-64-devedition/opt:
-    build-platform: win64-devedition/opt
+    build-platform: win64-devedition-nightly/opt
     test-sets:
         - windows8-tests
 
@@ -277,6 +276,7 @@ macosx64-nightly/opt:
       build-platform: macosx64-nightly/opt
       test-sets:
         - macosx64-tests
+        - awsy
 
 macosx64-devedition/opt:
     build-platform: macosx64-devedition-nightly/opt

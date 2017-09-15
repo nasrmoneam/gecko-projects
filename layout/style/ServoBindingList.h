@@ -502,12 +502,10 @@ SERVO_BINDING_FUNC(Servo_NoteExplicitHints, void, RawGeckoElementBorrowed elemen
 SERVO_BINDING_FUNC(Servo_TakeChangeHint,
                    nsChangeHint,
                    RawGeckoElementBorrowed element,
-                   mozilla::ServoTraversalFlags flags,
                    bool* was_restyled)
 SERVO_BINDING_FUNC(Servo_ResolveStyle, ServoStyleContextStrong,
                    RawGeckoElementBorrowed element,
-                   RawServoStyleSetBorrowed set,
-                   mozilla::ServoTraversalFlags flags)
+                   RawServoStyleSetBorrowed set)
 SERVO_BINDING_FUNC(Servo_ResolveStyleAllowStale, ServoStyleContextStrong,
                    RawGeckoElementBorrowed element)
 SERVO_BINDING_FUNC(Servo_ResolvePseudoStyle, ServoStyleContextStrong,
@@ -537,7 +535,8 @@ SERVO_BINDING_FUNC(Servo_ResolveStyleLazily, ServoStyleContextStrong,
                    mozilla::CSSPseudoElementType pseudo_type,
                    mozilla::StyleRuleInclusion rule_inclusion,
                    const mozilla::ServoElementSnapshotTable* snapshots,
-                   RawServoStyleSetBorrowed set)
+                   RawServoStyleSetBorrowed set,
+                   bool ignore_existing_styles)
 
 // Reparents style to the new parents.
 SERVO_BINDING_FUNC(Servo_ReparentStyle, ServoStyleContextStrong,

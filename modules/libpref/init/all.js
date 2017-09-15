@@ -19,7 +19,7 @@
  *  - Computed values (e.g. 50 * 1024) don't work.
  */
 
-pref("preferences.allow.omt-write", true);
+pref("preferences.allow.omt-write", false);
 
 pref("keyword.enabled", false);
 pref("general.useragent.locale", "chrome://global/locale/intl.properties");
@@ -552,14 +552,8 @@ pref("media.navigator.audio.full_duplex", true);
 pref("media.peerconnection.capture_delay", 100);
 pref("media.getusermedia.playout_delay", 100);
 pref("media.navigator.audio.full_duplex", true);
-// enable Webrtc Hardware acceleration in nightly
-#ifdef NIGHTLY_BUILD
 pref("media.navigator.hardware.vp8_encode.acceleration_enabled", true);
 pref("media.navigator.hardware.vp8_encode.acceleration_remote_enabled", true);
-#else
-pref("media.navigator.hardware.vp8_encode.acceleration_enabled", false);
-pref("media.navigator.hardware.vp8_encode.acceleration_remote_enabled", false);
-#endif
 pref("media.navigator.hardware.vp8_decode.acceleration_enabled", false);
 #elif defined(XP_LINUX)
 pref("media.peerconnection.capture_delay", 70);
@@ -746,9 +740,10 @@ pref("apz.record_checkerboarding", true);
 #else
 pref("apz.record_checkerboarding", false);
 #endif
+pref("apz.second_tap_tolerance", "0.5");
 pref("apz.test.logging_enabled", false);
 pref("apz.touch_start_tolerance", "0.1");
-pref("apz.touch_move_tolerance", "0.03");
+pref("apz.touch_move_tolerance", "0.1");
 pref("apz.velocity_bias", "0.0");
 pref("apz.velocity_relevance_time_ms", 150);
 pref("apz.x_skate_highmem_adjust", "0.0");
@@ -2064,7 +2059,7 @@ pref("network.preload", true);
 // enables the predictive service
 pref("network.predictor.enabled", true);
 pref("network.predictor.enable-hover-on-ssl", false);
-pref("network.predictor.enable-prefetch", true);
+pref("network.predictor.enable-prefetch", false);
 pref("network.predictor.page-degradation.day", 0);
 pref("network.predictor.page-degradation.week", 5);
 pref("network.predictor.page-degradation.month", 10);
@@ -2183,6 +2178,10 @@ pref("network.http.throttle.resume-for", 100);
 // response has finished.  Prevents resuming too soon during an active page load
 // at which sub-resource reqeusts quickly come and go.
 pref("network.http.throttle.resume-background-in", 1000);
+// After the last transaction activation or last data chunk response we only
+// throttle for this period of time.  This prevents comet and unresponsive
+// http requests to engage long-standing throttling.
+pref("network.http.throttle.time-window", 3000);
 
 // Give higher priority to requests resulting from a user interaction event
 // like click-to-play, image fancy-box zoom, navigation.
@@ -4954,7 +4953,9 @@ pref("extensions.webextensions.identity.redirectDomain", "extensions.allizom.org
 pref("extensions.webextensions.themes.enabled", false);
 pref("extensions.webextensions.themes.icons.enabled", false);
 pref("extensions.webextensions.remote", false);
-// Whether or not the moz-extension resource loads are remoted
+// Whether or not the moz-extension resource loads are remoted. For debugging
+// purposes only. Setting this to false will break moz-extension URI loading
+// unless other process sandboxing and extension remoting prefs are changed.
 pref("extensions.webextensions.protocol.remote", true);
 
 // Report Site Issue button
@@ -5714,11 +5715,7 @@ pref("dom.webkitBlink.dirPicker.enabled", true);
 pref("dom.webkitBlink.filesystem.enabled", true);
 #endif
 
-#ifdef RELEASE_OR_BETA
-pref("media.block-autoplay-until-in-foreground", false);
-#else
 pref("media.block-autoplay-until-in-foreground", true);
-#endif
 
 // Is Stylo CSS support built and enabled?
 // Only define this pref if Stylo support is actually built in.

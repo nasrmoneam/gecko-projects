@@ -1718,7 +1718,11 @@ TabParent::RecvShowTooltip(const uint32_t& aX, const uint32_t& aY, const nsStrin
     return IPC_OK();
   }
 
-  xulBrowserWindow->ShowTooltip(aX, aY, aTooltip, aDirection);
+  nsCOMPtr<nsIFrameLoaderOwner> frame = do_QueryInterface(mFrameElement);
+  if (!frame)
+    return IPC_OK();
+
+  xulBrowserWindow->ShowTooltip(aX, aY, aTooltip, aDirection, frame);
   return IPC_OK();
 }
 
@@ -3279,7 +3283,8 @@ TabParent::StartApzAutoscroll(float aAnchorX, float aAnchorY,
       // The anchor coordinates that are passed in are relative to the origin
       // of the screen, but we are sending them to APZ which only knows about
       // coordinates relative to the widget, so convert them accordingly.
-      LayoutDeviceIntPoint anchor = RoundedToInt(LayoutDevicePoint{aAnchorX, aAnchorY});
+      CSSPoint anchorCss{aAnchorX, aAnchorY};
+      LayoutDeviceIntPoint anchor = RoundedToInt(anchorCss * widget->GetDefaultScale());
       anchor -= widget->WidgetToScreenOffset();
 
       widget->StartAsyncAutoscroll(

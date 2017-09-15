@@ -793,10 +793,10 @@ nsTextInputSelectionImpl::CheckVisibilityContent(nsIContent* aNode,
   return shell->CheckVisibilityContent(aNode, aStartOffset, aEndOffset, aRetval);
 }
 
-class nsTextInputListener : public nsISelectionListener,
-                            public nsIDOMEventListener,
-                            public nsIEditorObserver,
-                            public nsSupportsWeakReference
+class nsTextInputListener final : public nsISelectionListener,
+                                  public nsIDOMEventListener,
+                                  public nsIEditorObserver,
+                                  public nsSupportsWeakReference
 {
 public:
   /** the default constructor
@@ -810,6 +810,10 @@ public:
 
   void SettingValue(bool aValue) { mSettingValue = aValue; }
   void SetValueChanged(bool aSetValueChanged) { mSetValueChanged = aSetValueChanged; }
+
+  // aFrame is an optional pointer to our frame, if not passed the method will
+  // use mFrame to compute it lazily.
+  void HandleValueChanged(nsTextControlFrame* aFrame = nullptr);
 
   NS_DECL_ISUPPORTS
 
@@ -1073,18 +1077,29 @@ nsTextInputListener::EditAction()
     return NS_OK;
   }
 
+  HandleValueChanged(frame);
+
+  return NS_OK;
+}
+
+void
+nsTextInputListener::HandleValueChanged(nsTextControlFrame* aFrame)
+{
   // Make sure we know we were changed (do NOT set this to false if there are
   // no undo items; JS could change the value and we'd still need to save it)
   if (mSetValueChanged) {
-    frame->SetValueChanged(true);
+    if (!aFrame) {
+      nsITextControlFrame* frameBase = do_QueryFrame(mFrame);
+      aFrame = static_cast<nsTextControlFrame*> (frameBase);
+      NS_ASSERTION(aFrame, "Where is our frame?");
+    }
+    aFrame->SetValueChanged(true);
   }
 
   if (!mSettingValue) {
     mTxtCtrlElement->OnValueChanged(/* aNotify = */ true,
                                     /* aWasInteractiveUserChange = */ true);
   }
-
-  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -2220,6 +2235,8 @@ nsTextEditorState::UnbindFromFrame(nsTextControlFrame* aFrame)
   }
 
   mBoundFrame = nullptr;
+  // Clear mRootNode so that we don't unexpectedly notify below.
+  nsCOMPtr<Element> rootNode = mRootNode.forget();
 
   // Now that we don't have a frame any more, store the value in the text buffer.
   // The only case where we don't do this is if a value transfer is in progress.
@@ -2229,15 +2246,15 @@ nsTextEditorState::UnbindFromFrame(nsTextControlFrame* aFrame)
     NS_ENSURE_TRUE_VOID(success);
   }
 
-  if (mRootNode && mMutationObserver) {
-    mRootNode->RemoveMutationObserver(mMutationObserver);
+  if (rootNode && mMutationObserver) {
+    rootNode->RemoveMutationObserver(mMutationObserver);
     mMutationObserver = nullptr;
   }
 
   // Unbind the anonymous content from the tree.
   // We actually hold a reference to the content nodes so that
   // they're not actually destroyed.
-  nsContentUtils::DestroyAnonymousContent(&mRootNode);
+  nsContentUtils::DestroyAnonymousContent(&rootNode);
   nsContentUtils::DestroyAnonymousContent(&mPlaceholderDiv);
   nsContentUtils::DestroyAnonymousContent(&mPreviewDiv);
 }
@@ -2673,6 +2690,11 @@ nsTextEditorState::SetValue(const nsAString& aValue, const nsAString* aOldValue,
             }
 
             textEditor->SetText(newValue);
+
+            // Call the listener's HandleValueChanged() callback manually, since
+            // we don't use the transaction manager in this path and it could be
+            // that the editor would bypass calling the listener for that reason.
+            mTextListener->HandleValueChanged();
           }
 
           mTextListener->SetValueChanged(true);

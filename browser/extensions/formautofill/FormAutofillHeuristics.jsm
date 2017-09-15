@@ -8,7 +8,7 @@
 
 "use strict";
 
-this.EXPORTED_SYMBOLS = ["FormAutofillHeuristics"];
+this.EXPORTED_SYMBOLS = ["FormAutofillHeuristics", "LabelUtils"];
 
 const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 
@@ -123,6 +123,10 @@ class FieldScanner {
       elementWeakRef: Cu.getWeakReference(element),
     };
 
+    if (info._reason) {
+      fieldInfo._reason = info._reason;
+    }
+
     // Store the association between the field metadata and the element.
     if (this.findSameField(info) != -1) {
       // A field with the same identifier already exists.
@@ -178,6 +182,84 @@ class FieldScanner {
   }
 }
 
+this.LabelUtils = {
+  // The tag name list is from Chromium except for "STYLE":
+  // eslint-disable-next-line max-len
+  // https://cs.chromium.org/chromium/src/components/autofill/content/renderer/form_autofill_util.cc?l=216&rcl=d33a171b7c308a64dc3372fac3da2179c63b419e
+  EXCLUDED_TAGS: ["SCRIPT", "NOSCRIPT", "OPTION", "STYLE"],
+  /**
+   * Extract all strings of an element's children to an array.
+   * "element.textContent" is a string which is merged of all children nodes,
+   * and this function provides an array of the strings contains in an element.
+   *
+   * @param  {Object} element
+   *         A DOM element to be extracted.
+   * @returns {Array}
+   *          All strings in an element.
+   */
+  extractLabelStrings(element) {
+    let strings = [];
+    let _extractLabelStrings = (el) => {
+      if (this.EXCLUDED_TAGS.includes(el.tagName)) {
+        return;
+      }
+
+      if (el.nodeType == Ci.nsIDOMNode.TEXT_NODE ||
+          el.childNodes.length == 0) {
+        let trimmedText = el.textContent.trim();
+        if (trimmedText) {
+          strings.push(trimmedText);
+        }
+        return;
+      }
+
+      for (let node of el.childNodes) {
+        if (node.nodeType != Ci.nsIDOMNode.ELEMENT_NODE &&
+            node.nodeType != Ci.nsIDOMNode.TEXT_NODE) {
+          continue;
+        }
+        _extractLabelStrings(node);
+      }
+    };
+    _extractLabelStrings(element);
+    return strings;
+  },
+
+  findLabelElements(element) {
+    let document = element.ownerDocument;
+    let labels = [];
+    // TODO: querySelectorAll is inefficient here. However, bug 1339726 is for
+    // a more efficient implementation from DOM API perspective. This function
+    // should be refined after input.labels API landed.
+    for (let label of document.querySelectorAll("label[for]")) {
+      if (element.id == label.htmlFor) {
+        labels.push(label);
+      }
+    }
+
+    if (labels.length > 0) {
+      log.debug("Label found by ID", element.id);
+      return labels;
+    }
+
+    let parent = element.parentNode;
+    if (!parent) {
+      return [];
+    }
+    do {
+      if (parent.tagName == "LABEL" &&
+          parent.control == element &&
+          !parent.hasAttribute("for")) {
+        log.debug("Label found in input's parent or ancestor.");
+        return [parent];
+      }
+      parent = parent.parentNode;
+    } while (parent);
+
+    return [];
+  },
+};
+
 /**
  * Returns the autocomplete information of fields according to heuristics.
  */
@@ -204,7 +286,7 @@ this.FormAutofillHeuristics = {
       let ruleStart = i;
       for (; i < GRAMMARS.length && GRAMMARS[i][0] && fieldScanner.elementExisting(detailStart); i++, detailStart++) {
         let detail = fieldScanner.getFieldDetailByIndex(detailStart);
-        if (!detail || GRAMMARS[i][0] != detail.fieldName) {
+        if (!detail || GRAMMARS[i][0] != detail.fieldName || detail._reason == "autocomplete") {
           break;
         }
         let element = detail.elementWeakRef.get();
@@ -288,7 +370,23 @@ this.FormAutofillHeuristics = {
     return parsedFields;
   },
 
-  getFormInfo(form) {
+  /**
+   * This function should provide all field details of a form. The details
+   * contain the autocomplete info (e.g. fieldName, section, etc).
+   *
+   * `allowDuplicates` is used for the xpcshell-test purpose currently because
+   * the heuristics should be verified that some duplicated elements still can
+   * be predicted correctly.
+   *
+   * @param {HTMLFormElement} form
+   *        the elements in this form to be predicted the field info.
+   * @param {boolean} allowDuplicates
+   *        true to remain any duplicated field details otherwise to remove the
+   *        duplicated ones.
+   * @returns {Array<Object>}
+   *        all field details in the form.
+   */
+  getFormInfo(form, allowDuplicates = false) {
     if (form.autocomplete == "off" || form.elements.length <= 0) {
       return [];
     }
@@ -304,6 +402,10 @@ this.FormAutofillHeuristics = {
         fieldScanner.parsingIndex++;
       }
     }
+    if (allowDuplicates) {
+      return fieldScanner.fieldDetails;
+    }
+
     return fieldScanner.trimmedFieldDetail;
   },
 
@@ -316,6 +418,7 @@ this.FormAutofillHeuristics = {
     // An input[autocomplete="on"] will not be early return here since it stll
     // needs to find the field name.
     if (info && info.fieldName && info.fieldName != "on") {
+      info._reason = "autocomplete";
       return info;
     }
 
@@ -345,9 +448,9 @@ this.FormAutofillHeuristics = {
       yield element.name;
       if (!labelStrings) {
         labelStrings = [];
-        let labels = FormAutofillUtils.findLabelElements(element);
+        let labels = LabelUtils.findLabelElements(element);
         for (let label of labels) {
-          labelStrings.push(...FormAutofillUtils.extractLabelStrings(label));
+          labelStrings.push(...LabelUtils.extractLabelStrings(label));
         }
       }
       yield *labelStrings;
@@ -355,6 +458,16 @@ this.FormAutofillHeuristics = {
 
     for (let regexp of regexps) {
       for (let string of getElementStrings) {
+        // The original regexp "(?<!united )state|county|region|province" for
+        // "address-line1" wants to exclude any "united state" string, so the
+        // following code is to remove all "united state" string before applying
+        // "addess-level1" regexp.
+        //
+        // Since "united state" string matches to the regexp of address-line2&3,
+        // the two regexps should be excluded here.
+        if (["address-level1", "address-line2", "address-line3"].includes(regexp)) {
+          string = string.toLowerCase().split("united state").join("");
+        }
         if (this.RULES[regexp].test(string)) {
           return {
             fieldName: regexp,

@@ -8,6 +8,7 @@
 #include "MediaEngine.h"
 
 #include "nsDirectoryServiceDefs.h"
+#include "mozilla/Unused.h"
 
 // conflicts with #include of scoped_ptr.h
 #undef FF
@@ -59,6 +60,15 @@ public:
   uint32_t GetBestFitnessDistance(
       const nsTArray<const NormalizedConstraintSet*>& aConstraintSets,
       const nsString& aDeviceId) const override;
+
+  void Shutdown() override
+  {
+    MonitorAutoLock lock(mMonitor);
+    // really Stop() *should* be called before it gets here
+    Unused << NS_WARN_IF(mImage);
+    mImage = nullptr;
+    mImageContainer = nullptr;
+  }
 
 protected:
   struct CapabilityCandidate {

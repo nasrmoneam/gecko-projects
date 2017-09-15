@@ -7279,7 +7279,9 @@ nsLayoutUtils::SurfaceFromOffscreenCanvas(OffscreenCanvas* aOffscreenCanvas,
     // If the element doesn't have a context then we won't get a snapshot. The canvas spec wants us to not error and just
     // draw nothing, so return an empty surface.
     result.mAlphaType = gfxAlphaType::Opaque;
-    DrawTarget *ref = aTarget ? aTarget.get() : gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
+    RefPtr<DrawTarget> ref =
+      aTarget ? aTarget
+              : gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
     RefPtr<DrawTarget> dt = ref->CreateSimilarDrawTarget(IntSize(size.width, size.height),
                                                          SurfaceFormat::B8G8R8A8);
     if (dt) {
@@ -7447,7 +7449,9 @@ nsLayoutUtils::SurfaceFromElement(HTMLCanvasElement* aElement,
     // If the element doesn't have a context then we won't get a snapshot. The canvas spec wants us to not error and just
     // draw nothing, so return an empty surface.
     result.mAlphaType = gfxAlphaType::Opaque;
-    DrawTarget *ref = aTarget ? aTarget.get() : gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
+    RefPtr<DrawTarget> ref =
+      aTarget ? aTarget
+              : gfxPlatform::GetPlatform()->ScreenReferenceDrawTarget();
     RefPtr<DrawTarget> dt = ref->CreateSimilarDrawTarget(IntSize(size.width, size.height),
                                                         SurfaceFormat::B8G8R8A8);
     if (dt) {
@@ -9294,8 +9298,9 @@ static void UpdateDisplayPortMarginsForPendingMetrics(FrameMetrics& aMetrics) {
 /* static */ void
 nsLayoutUtils::UpdateDisplayPortMarginsFromPendingMessages()
 {
-  if (mozilla::dom::ContentChild::GetSingleton() &&
-      mozilla::dom::ContentChild::GetSingleton()->GetIPCChannel()) {
+  if (XRE_IsContentProcess() &&
+      mozilla::layers::CompositorBridgeChild::Get() &&
+      mozilla::layers::CompositorBridgeChild::Get()->GetIPCChannel()) {
     CompositorBridgeChild::Get()->GetIPCChannel()->PeekMessages(
       [](const IPC::Message& aMsg) -> bool {
         if (aMsg.type() == mozilla::layers::PAPZ::Msg_RequestContentRepaint__ID) {

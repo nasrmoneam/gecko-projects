@@ -474,10 +474,12 @@ pref("browser.tabs.drawInTitlebar", false);
 pref("browser.tabs.drawInTitlebar", true);
 #endif
 
-// false - disable the tabbar session restore button
-// true - enable the tabbar session restore button
-// To be enabled with shield
-pref("browser.tabs.restorebutton", false);
+// 0 - Disable the tabbar session restore button.
+// 1 - Enable the tabbar session restore button.
+// 2 - Control group. The tabbar session restore button is disabled,
+// but we will record data on other session restore usage.
+// To be enabled with shield.
+pref("browser.tabs.restorebutton", 0);
 
 // When tabs opened by links in other tabs via a combination of
 // browser.link.open_newwindow being set to 3 and target="_blank" etc are
@@ -1106,7 +1108,11 @@ pref("security.sandbox.content.level", 3);
 //
 // This setting may not be required anymore once we decide to permanently
 // enable the content sandbox.
+#ifdef NIGHTLY_BUILD
 pref("security.sandbox.content.level", 3);
+#else
+pref("security.sandbox.content.level", 2);
+#endif
 pref("security.sandbox.content.write_path_whitelist", "");
 pref("security.sandbox.content.read_path_whitelist", "");
 pref("security.sandbox.content.syscall_whitelist", "");
@@ -1695,6 +1701,7 @@ pref("extensions.formautofill.available", "on");
 pref("extensions.formautofill.available", "detect");
 #endif
 pref("extensions.formautofill.addresses.enabled", true);
+pref("extensions.formautofill.creditCards.enabled", true);
 pref("extensions.formautofill.firstTimeUse", true);
 pref("extensions.formautofill.heuristics.enabled", true);
 pref("extensions.formautofill.loglevel", "Warn");
@@ -1704,7 +1711,11 @@ pref("browser.sessionstore.restore_tabs_lazily", true);
 
 // Enable safebrowsing v4 tables (suffixed by "-proto") update.
 pref("urlclassifier.malwareTable", "goog-malware-proto,goog-unwanted-proto,test-malware-simple,test-unwanted-simple");
+#ifdef MOZILLA_OFFICIAL
 pref("urlclassifier.phishTable", "goog-phish-proto,test-phish-simple");
+#else
+pref("urlclassifier.phishTable", "googpub-phish-proto,test-phish-simple");
+#endif
 
 pref("browser.suppress_first_window_animation", true);
 
@@ -1723,13 +1734,5 @@ pref("browser.onboarding.notification.max-prompt-count-per-tour", 8);
 pref("browser.onboarding.newtour", "private,addons,customize,search,default,sync");
 pref("browser.onboarding.updatetour", "");
 
-// Preferences for the Screenshots feature:
-// Temporarily disable Screenshots in Beta & Release, so that we can gradually
-// roll out the feature using SHIELD pref flipping.
-#ifdef NIGHTLY_BUILD
-pref("extensions.screenshots.system-disabled", false);
-#else
-pref("extensions.screenshots.system-disabled", true);
-#endif
-// Permanent pref that allows individual users to disable Screenshots.
+// Preference that allows individual users to disable Screenshots.
 pref("extensions.screenshots.disabled", false);

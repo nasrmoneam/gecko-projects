@@ -45,7 +45,6 @@ SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'all-release-branches', set([
         'mozilla-beta',
         'mozilla-release',
-        'jamun'
     ])
 ]]
 
@@ -60,7 +59,6 @@ SIGNING_CERT_SCOPES = {
 DEVEDITION_SIGNING_SCOPE_ALIAS_TO_PROJECT = [[
     'beta', set([
         'mozilla-beta',
-        'jamun'
     ])
 ]]
 
@@ -231,7 +229,7 @@ PUSH_APK_SCOPES = {
 # See https://github.com/mozilla-releng/pushapkscript#aurora-beta-release-vs-alpha-beta-production
 PUSH_APK_GOOGLE_PLAY_TRACT = {
     'central': 'beta',
-    'beta': 'rollout',
+    'beta': 'production',
     'release': 'rollout',
     'default': 'invalid',
 }
@@ -254,7 +252,6 @@ PUSH_APK_ROLLOUT_PERCENTAGE = {
     # XXX Please make sure to change PUSH_APK_GOOGLE_PLAY_TRACT to 'rollout' if you add a new
     # supported project
     'release': 10,
-    'beta': 10,
     'default': None,
 }
 
@@ -421,3 +418,16 @@ def get_release_config(config):
             version = fh.readline().rstrip()
         release_config['version'] = version
     return release_config
+
+
+def get_signing_cert_scope_per_platform(build_platform, is_nightly, config):
+    if build_platform in (
+        'linux-devedition-nightly', 'linux64-devedition-nightly',
+        'macosx64-devedition-nightly',
+        'win32-devedition-nightly', 'win64-devedition-nightly',
+    ):
+        return get_devedition_signing_cert_scope(config)
+    elif is_nightly:
+        return get_signing_cert_scope(config)
+    else:
+        return 'project:releng:signing:cert:dep-signing'

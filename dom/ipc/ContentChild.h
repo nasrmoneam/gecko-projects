@@ -7,6 +7,7 @@
 #ifndef mozilla_dom_ContentChild_h
 #define mozilla_dom_ContentChild_h
 
+#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/ContentBridgeParent.h"
 #include "mozilla/dom/nsIContentChild.h"
@@ -48,7 +49,6 @@ namespace dom {
 
 class AlertObserver;
 class ConsoleListener;
-class PStorageChild;
 class ClonedMessageData;
 class TabChild;
 class GetFilesHelperChild;
@@ -295,10 +295,6 @@ public:
 
   virtual bool DeallocPMediaChild(PMediaChild* aActor) override;
 
-  virtual PStorageChild* AllocPStorageChild() override;
-
-  virtual bool DeallocPStorageChild(PStorageChild* aActor) override;
-
   virtual PPresentationChild* AllocPPresentationChild() override;
 
   virtual bool DeallocPPresentationChild(PPresentationChild* aActor) override;
@@ -408,14 +404,6 @@ public:
 
   virtual mozilla::ipc::IPCResult
   RecvInitBlobURLs(nsTArray<BlobURLRegistrationData>&& aRegistations) override;
-
-  virtual mozilla::ipc::IPCResult
-  RecvDispatchLocalStorageChange(const nsString& aDocumentURI,
-                                 const nsString& aKey,
-                                 const nsString& aOldValue,
-                                 const nsString& aNewValue,
-                                 const IPC::Principal& aPrincipal,
-                                 const bool& aIsPrivate) override;
 
   virtual mozilla::ipc::IPCResult RecvLastPrivateDocShellDestroyed() override;
 
@@ -755,7 +743,7 @@ private:
 
   nsClassHashtable<nsUint64HashKey, AnonymousTemporaryFileCallback> mPendingAnonymousTemporaryFiles;
 
-  bool mShuttingDown;
+  mozilla::Atomic<bool> mShuttingDown;
 
   DISALLOW_EVIL_CONSTRUCTORS(ContentChild);
 };

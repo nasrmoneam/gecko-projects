@@ -63,7 +63,7 @@
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 26);
+/******/ 	return __webpack_require__(__webpack_require__.s = 25);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -103,7 +103,7 @@ const globalImportContext = typeof Window === "undefined" ? BACKGROUND_PROCESS :
 //   UNINIT: "UNINIT"
 // }
 const actionTypes = {};
-for (const type of ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "DELETE_HISTORY_URL_CONFIRM", "DIALOG_CANCEL", "DIALOG_OPEN", "FEED_INIT", "INIT", "LOCALE_UPDATED", "MIGRATION_CANCEL", "MIGRATION_START", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_UNLOAD", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PINNED_SITES_UPDATED", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_REGISTER", "SECTION_ROWS_UPDATE", "SET_PREF", "SNIPPETS_DATA", "SNIPPETS_RESET", "SYSTEM_TICK", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_PIN", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "UNINIT"]) {
+for (const type of ["BLOCK_URL", "BOOKMARK_URL", "DELETE_BOOKMARK_BY_ID", "DELETE_HISTORY_URL", "DELETE_HISTORY_URL_CONFIRM", "DIALOG_CANCEL", "DIALOG_OPEN", "FEED_INIT", "INIT", "LOCALE_UPDATED", "MIGRATION_CANCEL", "MIGRATION_START", "NEW_TAB_INIT", "NEW_TAB_INITIAL_STATE", "NEW_TAB_LOAD", "NEW_TAB_UNLOAD", "OPEN_LINK", "OPEN_NEW_WINDOW", "OPEN_PRIVATE_WINDOW", "PINNED_SITES_UPDATED", "PLACES_BOOKMARK_ADDED", "PLACES_BOOKMARK_CHANGED", "PLACES_BOOKMARK_REMOVED", "PLACES_HISTORY_CLEARED", "PLACES_LINK_BLOCKED", "PLACES_LINK_DELETED", "PREFS_INITIAL_VALUES", "PREF_CHANGED", "SAVE_SESSION_PERF_DATA", "SAVE_TO_POCKET", "SCREENSHOT_UPDATED", "SECTION_DEREGISTER", "SECTION_REGISTER", "SECTION_ROWS_UPDATE", "SET_PREF", "SNIPPETS_DATA", "SNIPPETS_RESET", "SYSTEM_TICK", "TELEMETRY_IMPRESSION_STATS", "TELEMETRY_PERFORMANCE_EVENT", "TELEMETRY_UNDESIRED_EVENT", "TELEMETRY_USER_EVENT", "TOP_SITES_PIN", "TOP_SITES_UNPIN", "TOP_SITES_UPDATED", "UNINIT"]) {
   actionTypes[type] = type;
 }
 
@@ -191,7 +191,7 @@ function UserEvent(data) {
  * UndesiredEvent - A telemetry ping indicating an undesired state.
  *
  * @param  {object} data Fields to include in the ping (value, etc.)
- * @param {int} importContext (For testing) Override the import context for testing.
+ * @param  {int} importContext (For testing) Override the import context for testing.
  * @return {object} An action. For UI code, a SendToMain action.
  */
 function UndesiredEvent(data) {
@@ -208,7 +208,7 @@ function UndesiredEvent(data) {
  * PerfEvent - A telemetry ping indicating a performance-related event.
  *
  * @param  {object} data Fields to include in the ping (value, etc.)
- * @param {int} importContext (For testing) Override the import context for testing.
+ * @param  {int} importContext (For testing) Override the import context for testing.
  * @return {object} An action. For UI code, a SendToMain action.
  */
 function PerfEvent(data) {
@@ -216,6 +216,23 @@ function PerfEvent(data) {
 
   const action = {
     type: actionTypes.TELEMETRY_PERFORMANCE_EVENT,
+    data
+  };
+  return importContext === UI_CODE ? SendToMain(action) : action;
+}
+
+/**
+ * ImpressionStats - A telemetry ping indicating an impression stats.
+ *
+ * @param  {object} data Fields to include in the ping
+ * @param  {int} importContext (For testing) Override the import context for testing.
+ * #return {object} An action. For UI code, a SendToMain action.
+ */
+function ImpressionStats(data) {
+  let importContext = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : globalImportContext;
+
+  const action = {
+    type: actionTypes.TELEMETRY_IMPRESSION_STATS,
     data
   };
   return importContext === UI_CODE ? SendToMain(action) : action;
@@ -233,6 +250,7 @@ var actionCreators = {
   UserEvent,
   UndesiredEvent,
   PerfEvent,
+  ImpressionStats,
   SendToContent,
   SendToMain,
   SetPref
@@ -300,43 +318,6 @@ module.exports = ReactRedux;
 "use strict";
 
 
-/**
- * shortURL - Creates a short version of a link's url, used for display purposes
- *            e.g. {url: http://www.foosite.com, eTLD: "com"}  =>  "foosite"
- *
- * @param  {obj} link A link object
- *         {str} link.url (required)- The url of the link
- *         {str} link.eTLD (required) - The tld of the link
- *               e.g. for https://foo.org, the tld would be "org"
- *               Note that this property is added in various queries for ActivityStream
- *               via Services.eTLD.getPublicSuffix
- *         {str} link.hostname (optional) - The hostname of the url
- *               e.g. for http://www.hello.com/foo/bar, the hostname would be "www.hello.com"
- *         {str} link.title (optional) - The title of the link
- * @return {str}   A short url
- */
-module.exports = function shortURL(link) {
-  if (!link.url && !link.hostname) {
-    return "";
-  }
-  const eTLD = link.eTLD;
-
-  const hostname = (link.hostname || new URL(link.url).hostname).replace(/^www\./i, "");
-
-  // Remove the eTLD (e.g., com, net) and the preceding period from the hostname
-  const eTLDLength = (eTLD || "").length || hostname.match(/\.com$/) && 3;
-  const eTLDExtra = eTLDLength > 0 ? -(eTLDLength + 1) : Infinity;
-  // If URL and hostname are not present fallback to page title.
-  return hostname.slice(0, eTLDExtra).toLowerCase() || hostname || link.title || link.url;
-};
-
-/***/ }),
-/* 5 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
 const React = __webpack_require__(0);
 
 var _require = __webpack_require__(2);
@@ -363,8 +344,9 @@ class LinkMenu extends React.Component {
 
     const propOptions = !site.isDefault ? props.options : DEFAULT_SITE_MENU_OPTIONS;
 
-    const options = propOptions.map(o => linkMenuOptions[o](site, index)).map(option => {
+    const options = propOptions.map(o => linkMenuOptions[o](site, index, source)).map(option => {
       const action = option.action,
+            impression = option.impression,
             id = option.id,
             type = option.type,
             userEvent = option.userEvent;
@@ -379,6 +361,9 @@ class LinkMenu extends React.Component {
               source,
               action_position: index
             }));
+          }
+          if (impression) {
+            props.dispatch(impression);
           }
         };
       }
@@ -404,7 +389,7 @@ module.exports = injectIntl(LinkMenu);
 module.exports._unconnected = LinkMenu;
 
 /***/ }),
-/* 6 */
+/* 5 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -527,6 +512,33 @@ module.exports = {
 };
 
 /***/ }),
+/* 6 */
+/***/ (function(module, exports) {
+
+var g;
+
+// This works in non-strict mode
+g = (function() {
+	return this;
+})();
+
+try {
+	// This works if eval is allowed (see CSP)
+	g = g || Function("return this")() || (1,eval)("this");
+} catch(e) {
+	// This works if the window reference is available
+	if(typeof window === "object")
+		g = window;
+}
+
+// g can still be undefined, but nothing to do about it...
+// We return undefined, instead of nothing here, so it's
+// easier to handle this case. if(!global) { ...}
+
+module.exports = g;
+
+
+/***/ }),
 /* 7 */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -573,7 +585,8 @@ class Base extends React.Component {
   componentWillUpdate(_ref2) {
     let App = _ref2.App;
 
-    if (App.locale !== this.props.App.locale) {
+    // Early loads might not have locale yet, so wait until we do
+    if (App.locale && App.locale !== this.props.App.locale) {
       addLocaleDataForReactIntl(App);
       this.updateTitle(App);
     }
@@ -631,7 +644,7 @@ var _require = __webpack_require__(1);
 
 const at = _require.actionTypes;
 
-var _require2 = __webpack_require__(6);
+var _require2 = __webpack_require__(5);
 
 const perfSvc = _require2.perfService;
 
@@ -709,7 +722,7 @@ module.exports = class DetectUserSessionStart {
 
 /* eslint-env mozilla/frame-script */
 
-var _require = __webpack_require__(25);
+var _require = __webpack_require__(24);
 
 const createStore = _require.createStore,
       combineReducers = _require.combineReducers,
@@ -1097,7 +1110,7 @@ module.exports = {
   SnippetsProvider,
   SNIPPETS_UPDATE_INTERVAL_MS
 };
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(24)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(6)))
 
 /***/ }),
 /* 11 */
@@ -1149,7 +1162,7 @@ function App() {
 
   switch (action.type) {
     case at.INIT:
-      return Object.assign({}, action.data || {}, { initialized: true });
+      return Object.assign({}, prevState, action.data || {}, { initialized: true });
     case at.LOCALE_UPDATED:
       {
         if (!action.data) {
@@ -1414,8 +1427,7 @@ module.exports = ReactDOM;
 
 
 const React = __webpack_require__(0);
-const LinkMenu = __webpack_require__(5);
-const shortURL = __webpack_require__(4);
+const LinkMenu = __webpack_require__(4);
 
 var _require = __webpack_require__(2);
 
@@ -1470,6 +1482,12 @@ class Card extends React.Component {
       source: this.props.eventSource,
       action_position: this.props.index
     }));
+    this.props.dispatch(ac.ImpressionStats({
+      source: this.props.eventSource,
+      click: 0,
+      incognito: true,
+      tiles: [{ id: this.props.link.guid, pos: this.props.index }]
+    }));
   }
   onMenuUpdate(showContextMenu) {
     this.setState({ showContextMenu });
@@ -1483,7 +1501,6 @@ class Card extends React.Component {
           eventSource = _props.eventSource;
 
     const isContextMenuOpen = this.state.showContextMenu && this.state.activeCard === index;
-    const hostname = shortURL(link);
     var _cardContextTypes$lin = cardContextTypes[link.type];
     const icon = _cardContextTypes$lin.icon,
           intlID = _cardContextTypes$lin.intlID;
@@ -1505,9 +1522,7 @@ class Card extends React.Component {
             React.createElement(
               "div",
               { className: "card-host-name" },
-              " ",
-              hostname,
-              " "
+              link.hostname
             ),
             React.createElement(
               "div",
@@ -1515,16 +1530,12 @@ class Card extends React.Component {
               React.createElement(
                 "h4",
                 { className: "card-title", dir: "auto" },
-                " ",
-                link.title,
-                " "
+                link.title
               ),
               React.createElement(
                 "p",
                 { className: "card-description", dir: "auto" },
-                " ",
-                link.description,
-                " "
+                link.description
               )
             ),
             React.createElement(
@@ -1928,10 +1939,13 @@ class PreferencesPane extends React.Component {
     this.togglePane = this.togglePane.bind(this);
 
     // TODO This is temporary until sections register their PreferenceInput component automatically
-    try {
-      this.topStoriesOptions = JSON.parse(props.Prefs.values["feeds.section.topstories.options"]);
-    } catch (e) {
-      console.error("Problem parsing feeds.section.topstories.options", e); // eslint-disable-line no-console
+    const optionJSON = props.Prefs.values["feeds.section.topstories.options"];
+    if (optionJSON) {
+      try {
+        this.topStoriesOptions = JSON.parse(optionJSON);
+      } catch (e) {
+        console.error("Problem parsing feeds.section.topstories.options", e); // eslint-disable-line no-console
+      }
     }
   }
   componentDidMount() {
@@ -2121,7 +2135,7 @@ module.exports._unconnected = Search;
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-
+/* WEBPACK VAR INJECTION */(function(global) {
 
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
@@ -2133,12 +2147,117 @@ const connect = _require.connect;
 
 var _require2 = __webpack_require__(2);
 
-const FormattedMessage = _require2.FormattedMessage;
+const injectIntl = _require2.injectIntl,
+      FormattedMessage = _require2.FormattedMessage;
 
 const Card = __webpack_require__(13);
 const Topics = __webpack_require__(22);
 
+var _require3 = __webpack_require__(1);
+
+const ac = _require3.actionCreators;
+
+
+const VISIBLE = "visible";
+const VISIBILITY_CHANGE_EVENT = "visibilitychange";
+
 class Section extends React.Component {
+  constructor(props) {
+    super(props);
+    this.onInfoEnter = this.onInfoEnter.bind(this);
+    this.onInfoLeave = this.onInfoLeave.bind(this);
+    this.state = { infoActive: false };
+  }
+
+  /**
+   * Take a truthy value to conditionally change the infoActive state.
+   */
+  _setInfoState(nextActive) {
+    const infoActive = !!nextActive;
+    if (infoActive !== this.state.infoActive) {
+      this.setState({ infoActive });
+    }
+  }
+
+  onInfoEnter() {
+    // We're getting focus or hover, so info state should be true if not yet.
+    this._setInfoState(true);
+  }
+
+  onInfoLeave(event) {
+    // We currently have an active (true) info state, so keep it true only if we
+    // have a related event target that is contained "within" the current target
+    // (section-info-option) as itself or a descendant. Set to false otherwise.
+    this._setInfoState(event && event.relatedTarget && (event.relatedTarget === event.currentTarget || event.relatedTarget.compareDocumentPosition(event.currentTarget) & Node.DOCUMENT_POSITION_CONTAINS));
+  }
+
+  getFormattedMessage(message) {
+    return typeof message === "string" ? React.createElement(
+      "span",
+      null,
+      message
+    ) : React.createElement(FormattedMessage, message);
+  }
+
+  _dispatchImpressionStats() {
+    const props = this.props;
+
+    const maxCards = 3 * props.maxRows;
+    props.dispatch(ac.ImpressionStats({
+      source: props.eventSource,
+      tiles: props.rows.slice(0, maxCards).map(link => ({ id: link.guid }))
+    }));
+  }
+
+  // This sends an event when a user sees a set of new content. If content
+  // changes while the page is hidden (i.e. preloaded or on a hidden tab),
+  // only send the event if the page becomes visible again.
+  sendImpressionStatsOrAddListener() {
+    const props = this.props;
+
+
+    if (!props.dispatch) {
+      return;
+    }
+
+    if (props.document.visibilityState === VISIBLE) {
+      this._dispatchImpressionStats();
+    } else {
+      // We should only ever send the latest impression stats ping, so remove any
+      // older listeners.
+      if (this._onVisibilityChange) {
+        props.document.removeEventListener(VISIBILITY_CHANGE_EVENT, this._onVisibilityChange);
+      }
+
+      // When the page becoems visible, send the impression stats ping.
+      this._onVisibilityChange = () => {
+        if (props.document.visibilityState === VISIBLE) {
+          this._dispatchImpressionStats();
+          props.document.removeEventListener(VISIBILITY_CHANGE_EVENT, this._onVisibilityChange);
+        }
+      };
+      props.document.addEventListener(VISIBILITY_CHANGE_EVENT, this._onVisibilityChange);
+    }
+  }
+
+  componentDidMount() {
+    if (this.props.rows.length) {
+      this.sendImpressionStatsOrAddListener();
+    }
+  }
+
+  componentDidUpdate(prevProps) {
+    const props = this.props;
+
+    if (
+    // Don't send impression stats for the empty state
+    props.rows.length &&
+    // We only want to send impression stats if the content of the cards has changed
+    props.rows !== prevProps.rows) {
+      this.sendImpressionStatsOrAddListener();
+    }
+  }
+
   render() {
     var _props = this.props;
     const id = _props.id,
@@ -2150,10 +2269,22 @@ class Section extends React.Component {
           emptyState = _props.emptyState,
           dispatch = _props.dispatch,
           maxCards = _props.maxCards,
-          contextMenuOptions = _props.contextMenuOptions;
+          contextMenuOptions = _props.contextMenuOptions,
+          intl = _props.intl;
 
     const initialized = rows && rows.length > 0;
-    const shouldShowTopics = id === "TopStories" && this.props.topics && this.props.read_more_endpoint;
+    const shouldShowTopics = id === "TopStories" && this.props.topics && this.props.topics.length > 0 && this.props.read_more_endpoint;
+
+    const infoOptionIconA11yAttrs = {
+      "aria-haspopup": "true",
+      "aria-controls": "info-option",
+      "aria-expanded": this.state.infoActive ? "true" : "false",
+      "role": "note",
+      "tabIndex": 0
+    };
+
+    const sectionInfoTitle = intl.formatMessage({ id: "section_info_option" });
+
     // <Section> <-- React component
     // <section> <-- HTML5 element
     return React.createElement(
@@ -2170,19 +2301,19 @@ class Section extends React.Component {
         ),
         infoOption && React.createElement(
           "span",
-          { className: "section-info-option" },
-          React.createElement(
-            "span",
-            { className: "sr-only" },
-            React.createElement(FormattedMessage, { id: "section_info_option" })
-          ),
-          React.createElement("img", { className: "info-option-icon" }),
+          { className: "section-info-option",
+            onBlur: this.onInfoLeave,
+            onFocus: this.onInfoEnter,
+            onMouseOut: this.onInfoLeave,
+            onMouseOver: this.onInfoEnter },
+          React.createElement("img", _extends({ className: "info-option-icon", title: sectionInfoTitle
+          }, infoOptionIconA11yAttrs)),
           React.createElement(
             "div",
             { className: "info-option" },
             infoOption.header && React.createElement(
               "div",
-              { className: "info-option-header" },
+              { className: "info-option-header", role: "heading" },
               React.createElement(FormattedMessage, infoOption.header)
             ),
             infoOption.body && React.createElement(
@@ -2222,20 +2353,26 @@ class Section extends React.Component {
   }
 }
 
+Section.defaultProps = { document: global.document };
+
+const SectionIntl = injectIntl(Section);
+
 class Sections extends React.Component {
   render() {
     const sections = this.props.Sections;
     return React.createElement(
       "div",
       { className: "sections-list" },
-      sections.map(section => React.createElement(Section, _extends({ key: section.id }, section, { dispatch: this.props.dispatch })))
+      sections.map(section => React.createElement(SectionIntl, _extends({ key: section.id }, section, { dispatch: this.props.dispatch })))
     );
   }
 }
 
 module.exports = connect(state => ({ Sections: state.Sections }))(Sections);
 module.exports._unconnected = Sections;
-module.exports.Section = Section;
+module.exports.SectionIntl = SectionIntl;
+module.exports._unconnectedSection = Section;
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(6)))
 
 /***/ }),
 /* 21 */
@@ -2254,15 +2391,14 @@ var _require2 = __webpack_require__(2);
 
 const FormattedMessage = _require2.FormattedMessage;
 
-const shortURL = __webpack_require__(4);
-const LinkMenu = __webpack_require__(5);
+const LinkMenu = __webpack_require__(4);
 
 var _require3 = __webpack_require__(1);
 
 const ac = _require3.actionCreators,
       at = _require3.actionTypes;
 
-var _require4 = __webpack_require__(6);
+var _require4 = __webpack_require__(5);
 
 const perfSvc = _require4.perfService;
 
@@ -2304,10 +2440,22 @@ class TopSite extends React.Component {
           dispatch = _props.dispatch;
 
     const isContextMenuOpen = this.state.showContextMenu && this.state.activeTile === index;
-    const title = link.pinTitle || shortURL(link);
-    const screenshotClassName = `screenshot${link.screenshot ? " active" : ""}`;
+    const title = link.pinTitle || link.hostname;
     const topSiteOuterClassName = `top-site-outer${isContextMenuOpen ? " active" : ""}`;
-    const style = { backgroundImage: link.screenshot ? `url(${link.screenshot})` : "none" };
+    const tippyTopIcon = link.tippyTopIcon;
+
+    let imageClassName;
+    let imageStyle;
+    if (tippyTopIcon) {
+      imageClassName = "tippy-top-icon";
+      imageStyle = {
+        backgroundColor: link.backgroundColor,
+        backgroundImage: `url(${tippyTopIcon})`
+      };
+    } else {
+      imageClassName = `screenshot${link.screenshot ? " active" : ""}`;
+      imageStyle = { backgroundImage: link.screenshot ? `url(${link.screenshot})` : "none" };
+    }
     return React.createElement(
       "li",
       { className: topSiteOuterClassName, key: link.guid || link.url },
@@ -2322,7 +2470,7 @@ class TopSite extends React.Component {
             { className: "letter-fallback" },
             title[0]
           ),
-          React.createElement("div", { className: screenshotClassName, style: style })
+          React.createElement("div", { className: imageClassName, style: imageStyle })
         ),
         React.createElement(
           "div",
@@ -2381,7 +2529,7 @@ class TopSitesPerfTimer extends React.Component {
     this.perfSvc = this.props.perfSvc || perfSvc;
 
     this._sendPaintedEvent = this._sendPaintedEvent.bind(this);
-    this._timestampSent = false;
+    this._timestampHandled = false;
   }
 
   componentDidMount() {
@@ -2393,25 +2541,30 @@ class TopSitesPerfTimer extends React.Component {
   }
 
   /**
-   * Call the given callback when the subsequent animation frame
-   * (not the upcoming one) paints.
+   * Call the given callback after the upcoming frame paints.
+   *
+   * @note Both setTimeout and requestAnimationFrame are throttled when the page
+   * is hidden, so this callback may get called up to a second or so after the
+   * requestAnimationFrame "paint" for hidden tabs.
+   *
+   * Newtabs hidden while loading will presumably be fairly rare (other than
+   * preloaded tabs, which we will be filtering out on the server side), so such
+   * cases should get lost in the noise.
+   *
+   * If we decide that it's important to find out when something that's hidden
+   * has "painted", however, another option is to post a message to this window.
+   * That should happen even faster than setTimeout, and, at least as of this
+   * writing, it's not throttled in hidden windows in Firefox.
    *
    * @param {Function} callback
    *
    * @returns void
    */
-  _onNextFrame(callback) {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(callback);
-    });
+  _afterFramePaint(callback) {
+    requestAnimationFrame(() => setTimeout(callback, 0));
   }
 
   _maybeSendPaintedEvent() {
-    // If we've already saved a timestamp for this session, don't do so again.
-    if (this._timestampSent) {
-      return;
-    }
-
     // We don't want this to ever happen, but sometimes it does.  And when it
     // does (typically on the first newtab at startup time calling
     // componentDidMount), the paint(s) we care about will be later (eg
@@ -2421,7 +2574,19 @@ class TopSitesPerfTimer extends React.Component {
       return;
     }
 
-    this._onNextFrame(this._sendPaintedEvent);
+    // If we've already handled a timestamp, don't do it again
+    if (this._timestampHandled) {
+      return;
+    }
+
+    // And if we haven't, we're doing so now, so remember that. Even if
+    // something goes wrong in the callback, we can't try again, as we'd be
+    // sending back the wrong data, and we have to do it here, so that other
+    // calls to this method while waiting for the next frame won't also try to
+    // handle handle it.
+    this._timestampHandled = true;
+
+    this._afterFramePaint(this._sendPaintedEvent);
   }
 
   _sendPaintedEvent() {
@@ -2437,11 +2602,10 @@ class TopSitesPerfTimer extends React.Component {
     } catch (ex) {
       // If this failed, it's likely because the `privacy.resistFingerprinting`
       // pref is true.  We should at least not blow up, and should continue
-      // to set this._timestampSent to avoid going through this again.
+      // to set this._timestampHandled to avoid going through this again.
     }
-
-    this._timestampSent = true;
   }
+
   render() {
     return React.createElement(TopSites, this.props);
   }
@@ -2549,13 +2713,12 @@ var _require = __webpack_require__(1);
 const at = _require.actionTypes,
       ac = _require.actionCreators;
 
-const shortURL = __webpack_require__(4);
-
 /**
  * List of functions that return items that can be included as menu options in a
  * LinkMenu. All functions take the site as the first parameter, and optionally
  * the index of the site.
  */
+
 module.exports = {
   Separator: () => ({ type: "separator" }),
   RemoveBookmark: site => ({
@@ -2594,12 +2757,18 @@ module.exports = {
     }),
     userEvent: "OPEN_PRIVATE_WINDOW"
   }),
-  BlockUrl: site => ({
+  BlockUrl: (site, index, eventSource) => ({
     id: "menu_action_dismiss",
     icon: "dismiss",
     action: ac.SendToMain({
       type: at.BLOCK_URL,
       data: site.url
+    }),
+    impression: ac.ImpressionStats({
+      source: eventSource,
+      block: 0,
+      incognito: true,
+      tiles: [{ id: site.guid, pos: index }]
     }),
     userEvent: "BLOCK"
   }),
@@ -2621,7 +2790,7 @@ module.exports = {
     icon: "pin",
     action: ac.SendToMain({
       type: at.TOP_SITES_PIN,
-      data: { site: { url: site.url, title: shortURL(site) }, index }
+      data: { site: { url: site.url, title: site.hostname }, index }
     }),
     userEvent: "PIN"
   }),
@@ -2634,12 +2803,18 @@ module.exports = {
     }),
     userEvent: "UNPIN"
   }),
-  SaveToPocket: site => ({
+  SaveToPocket: (site, index, eventSource) => ({
     id: "menu_action_save_to_pocket",
     icon: "pocket",
     action: ac.SendToMain({
       type: at.SAVE_TO_POCKET,
       data: { site: { url: site.url, title: site.title } }
+    }),
+    impression: ac.ImpressionStats({
+      source: eventSource,
+      pocket: 0,
+      incognito: true,
+      tiles: [{ id: site.guid, pos: index }]
     }),
     userEvent: "SAVE_TO_POCKET"
   })
@@ -2652,37 +2827,10 @@ module.exports.CheckPinTopSite = (site, index) => site.isPinned ? module.exports
 /* 24 */
 /***/ (function(module, exports) {
 
-var g;
-
-// This works in non-strict mode
-g = (function() {
-	return this;
-})();
-
-try {
-	// This works if eval is allowed (see CSP)
-	g = g || Function("return this")() || (1,eval)("this");
-} catch(e) {
-	// This works if the window reference is available
-	if(typeof window === "object")
-		g = window;
-}
-
-// g can still be undefined, but nothing to do about it...
-// We return undefined, instead of nothing here, so it's
-// easier to handle this case. if(!global) { ...}
-
-module.exports = g;
-
-
-/***/ }),
-/* 25 */
-/***/ (function(module, exports) {
-
 module.exports = Redux;
 
 /***/ }),
-/* 26 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";

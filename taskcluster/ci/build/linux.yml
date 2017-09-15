@@ -143,7 +143,7 @@ linux64-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', 'jamun']
+    run-on-projects: [ 'mozilla-beta', ]
     toolchains:
         - linux64-clang
         - linux64-gcc
@@ -325,7 +325,7 @@ linux-devedition-nightly/opt:
         tooltool-downloads: public
         need-xvfb: true
         custom-build-variant-cfg: devedition
-    run-on-projects: [ 'mozilla-beta', 'jamun']
+    run-on-projects: [ 'mozilla-beta', ]
     toolchains:
         - linux64-clang
         - linux64-gcc
@@ -605,7 +605,7 @@ linux64-add-on-devel/opt:
         custom-build-variant-cfg: add-on-devel
         tooltool-downloads: public
         need-xvfb: true
-    run-on-projects: [ 'mozilla-beta', 'mozilla-release', 'mozilla-esr45' ]
+    run-on-projects: [ 'mozilla-release', 'mozilla-esr45' ]
     toolchains:
         - linux64-clang
         - linux64-gcc

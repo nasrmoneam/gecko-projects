@@ -791,7 +791,8 @@ nsWindow::Create(nsIWidget* aParent,
     }
 
     if (!IsWin8OrLater() &&
-        HasBogusPopupsDropShadowOnMultiMonitor()) {
+        HasBogusPopupsDropShadowOnMultiMonitor() &&
+        ShouldUseOffMainThreadCompositing()) {
       extendedStyle |= WS_EX_COMPOSITED;
     }
 
@@ -1012,7 +1013,7 @@ nsWindow::RegisterWindowClass(const wchar_t* aClassName,
   }
 
   wc.style         = CS_DBLCLKS | aExtraStyle;
-  wc.lpfnWndProc   = WinUtils::GetDefWindowProc();
+  wc.lpfnWndProc   = WinUtils::NonClientDpiScalingDefWindowProcW;
   wc.cbClsExtra    = 0;
   wc.cbWndExtra    = 0;
   wc.hInstance     = nsToolkit::mDllInstance;

@@ -16,6 +16,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "ProfileAge",
 const SNIPPETS_URL_PREF = "browser.aboutHomeSnippets.updateUrl";
 const TELEMETRY_PREF = "datareporting.healthreport.uploadEnabled";
 const ONBOARDING_FINISHED_PREF = "browser.onboarding.notification.finished";
+const FXA_USERNAME_PREF = "services.sync.username";
 
 // Should be bumped up if the snippets content format changes.
 const STARTPAGE_VERSION = 5;
@@ -49,7 +50,8 @@ this.SnippetsFeed = class SnippetsFeed {
       profileCreatedWeeksAgo: profileInfo.createdWeeksAgo,
       profileResetWeeksAgo: profileInfo.resetWeeksAgo,
       telemetryEnabled: Services.prefs.getBoolPref(TELEMETRY_PREF),
-      onboardingFinished: Services.prefs.getBoolPref(ONBOARDING_FINISHED_PREF)
+      onboardingFinished: Services.prefs.getBoolPref(ONBOARDING_FINISHED_PREF),
+      fxaccount: Services.prefs.prefHasUserValue(FXA_USERNAME_PREF)
     };
 
     this.store.dispatch(ac.BroadcastToContent({type: at.SNIPPETS_DATA, data}));
@@ -59,11 +61,13 @@ this.SnippetsFeed = class SnippetsFeed {
     Services.prefs.addObserver(ONBOARDING_FINISHED_PREF, this._refresh);
     Services.prefs.addObserver(SNIPPETS_URL_PREF, this._refresh);
     Services.prefs.addObserver(TELEMETRY_PREF, this._refresh);
+    Services.prefs.addObserver(FXA_USERNAME_PREF, this._refresh);
   }
   uninit() {
     Services.prefs.removeObserver(ONBOARDING_FINISHED_PREF, this._refresh);
     Services.prefs.removeObserver(SNIPPETS_URL_PREF, this._refresh);
     Services.prefs.removeObserver(TELEMETRY_PREF, this._refresh);
+    Services.prefs.removeObserver(FXA_USERNAME_PREF, this._refresh);
     this.store.dispatch({type: at.SNIPPETS_RESET});
   }
   onAction(action) {

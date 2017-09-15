@@ -26,6 +26,11 @@ const kDebuggerPrefs = [
   "devtools.debugger.remote-enabled",
   "devtools.chrome.enabled"
 ];
+
+// If devtools.toolbar.visible is set to true, the developer toolbar should appear on
+// startup.
+const TOOLBAR_VISIBLE_PREF = "devtools.toolbar.visible";
+
 const { XPCOMUtils } = Cu.import("resource://gre/modules/XPCOMUtils.jsm", {});
 XPCOMUtils.defineLazyModuleGetter(this, "Services",
                                   "resource://gre/modules/Services.jsm");
@@ -160,6 +165,24 @@ XPCOMUtils.defineLazyGetter(this, "KeyShortcuts", function () {
 function DevToolsStartup() {}
 
 DevToolsStartup.prototype = {
+  /**
+   * Boolean flag to check if DevTools have been already initialized or not.
+   * By initialized, we mean that its main modules are loaded.
+   */
+  initialized: false,
+
+  /**
+   * Boolean flag to check if the devtools initialization was already sent to telemetry.
+   * We only want to record one devtools entry point per Firefox run, but we are not
+   * interested in all the entry points (e.g. devtools.toolbar.visible).
+   */
+  recorded: false,
+
+  /**
+   * Flag that indicates if the developer toggle was already added to customizableUI.
+   */
+  developerToggleCreated: false,
+
   handle: function (cmdLine) {
     let consoleFlag = cmdLine.handleFlag("jsconsole", false);
     let debuggerFlag = cmdLine.handleFlag("jsdebugger", false);
@@ -188,6 +211,12 @@ DevToolsStartup.prototype = {
     let onWindowReady = window => {
       this.hookWindow(window);
 
+      if (Services.prefs.getBoolPref(TOOLBAR_VISIBLE_PREF, false)) {
+        // Loading devtools-browser will open the developer toolbar by also checking this
+        // pref.
+        this.initDevTools();
+      }
+
       if (devtoolsFlag) {
         this.handleDevToolsFlag(window);
         // This listener is called for all Firefox windows, but we want to execute
@@ -206,15 +235,22 @@ DevToolsStartup.prototype = {
    * We do that to prevent loading any DevTools module until the user intent to use them.
    */
   hookWindow(window) {
+    // Key Shortcuts need to be added on all the created windows.
     this.hookKeyShortcuts(window);
 
-    // All the other hooks are only necessary if the tools aren't loaded yet.
-    if (this.initialized) {
-      return;
+    // In some situations (e.g. starting Firefox with --jsconsole) DevTools will be
+    // initialized before the first browser-delayed-startup-finished event is received.
+    // We use a dedicated flag because we still need to hook the developer toggle.
+    if (!this.developerToggleCreated) {
+      this.hookDeveloperToggle();
+      this.developerToggleCreated = true;
     }
 
-    this.hookWebDeveloperMenu(window);
-    this.hookDeveloperToggle(window);
+    // The developer menu hook only needs to be added if devtools have not been
+    // initialized yet.
+    if (!this.initialized) {
+      this.hookWebDeveloperMenu(window);
+    }
   },
 
   /**
@@ -233,7 +269,7 @@ DevToolsStartup.prototype = {
    * devtools/client/framework/browser-menu to create the items for real,
    * initDevTools, from onViewShowing is also calling browser-menu.
    */
-  hookDeveloperToggle(window) {
+  hookDeveloperToggle() {
     let id = "developer-button";
     let widget = CustomizableUI.getWidget(id);
     if (widget && widget.provider == CustomizableUI.PROVIDER_API) {
@@ -350,14 +386,8 @@ DevToolsStartup.prototype = {
     return k;
   },
 
-  /**
-   * Boolean flag to check if DevTools have been already initialized or not.
-   * By initialized, we mean that its main modules are loaded.
-   */
-  initialized: false,
-
   initDevTools: function (reason) {
-    if (!this.initialized) {
+    if (reason && !this.recorded) {
       // Only save the first call for each firefox run as next call
       // won't necessarely start the tool. For example key shortcuts may
       // only change the currently selected tool.
@@ -367,6 +397,7 @@ DevToolsStartup.prototype = {
       } catch (e) {
         dump("DevTools telemetry entry point failed: " + e + "\n");
       }
+      this.recorded = true;
     }
     this.initialized = true;
     let { require } = Cu.import("resource://devtools/shared/Loader.jsm", {});

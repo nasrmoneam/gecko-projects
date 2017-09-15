@@ -23,6 +23,9 @@ var gExceptionPaths = [
   // https://github.com/mozilla/normandy/issues/577
   "resource://shield-recipe-client/test/",
 
+  // https://github.com/mozilla/activity-stream/issues/3053
+  "resource://activity-stream/data/content/tippytop/images/",
+
   // browser/extensions/pdfjs/content/build/pdf.js#1999
   "resource://pdf.js/web/images/",
 ];
@@ -114,6 +117,10 @@ var whitelist = [
 
   // browser/extensions/pdfjs/content/web/viewer.js#7450
   {file: "resource://pdf.js/web/debugger.js"},
+
+  // These are used in content processes. They are actually referenced.
+  {file: "resource://shield-recipe-client-content/shield-content-frame.js"},
+  {file: "resource://shield-recipe-client-content/shield-content-process.js"},
 
   // Starting from here, files in the whitelist are bugs that need fixing.
   // Bug 1339420
