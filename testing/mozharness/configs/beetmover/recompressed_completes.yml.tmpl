@@ -11,6 +11,6 @@ mapping:
       artifact: {{ artifact_base_url }}/firefox-{{ version }}.{{ locale }}.{{ platform }}.bz2.complete.mar
       s3_key: {{ s3_prefix }}update/{{ platform }}/{{ locale }}/firefox-{{ version }}.bz2.partial.mar
     complete_mar_sig:
-      artifact: {{ artifact_base_url }}/firefox-{{ version }}.{{ locale }}.{{ platform }}.bz.complete.mar.asc
+      artifact: {{ artifact_base_url }}/firefox-{{ version }}.{{ locale }}.{{ platform }}.bz2.complete.mar.asc
       s3_key: {{ s3_prefix }}update/{{ platform }}/{{ locale }}/firefox-{{ version }}.bz2.complete.mar.asc
 {% endfor %}
