@@ -174,6 +174,7 @@ NS_NewHTMLDocument(nsIDocument** aInstancePtrResult, bool aLoadedAsData)
 
 nsHTMLDocument::nsHTMLDocument()
   : nsDocument("text/html")
+  , mContentListHolder(nullptr)
   , mNumForms(0)
   , mWriteLevel(0)
   , mLoadFlags(0)
@@ -1488,7 +1489,7 @@ already_AddRefed<nsIDocument>
 nsHTMLDocument::Open(JSContext* cx,
                      const nsAString& aType,
                      const nsAString& aReplace,
-                     ErrorResult& rv)
+                     ErrorResult& aError)
 {
   // Implements the "When called with two arguments (or fewer)" steps here:
   // https://html.spec.whatwg.org/multipage/webappapis.html#opening-the-input-stream
@@ -1497,7 +1498,7 @@ nsHTMLDocument::Open(JSContext* cx,
                "XOW should have caught this!");
   if (!IsHTMLDocument() || mDisableDocWrite) {
     // No calling document.open() on XHTML
-    rv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
+    aError.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return nullptr;
   }
 
@@ -1567,7 +1568,7 @@ nsHTMLDocument::Open(JSContext* cx,
     // change the principals of a document for security reasons we'll have to
     // refuse to go ahead with this call.
 
-    rv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    aError.Throw(NS_ERROR_DOM_SECURITY_ERR);
     return nullptr;
   }
 
@@ -1597,7 +1598,7 @@ nsHTMLDocument::Open(JSContext* cx,
            thisURI ? thisURI->GetSpecOrDefault().get() : "");
 #endif
 
-    rv.Throw(NS_ERROR_DOM_SECURITY_ERR);
+    aError.Throw(NS_ERROR_DOM_SECURITY_ERR);
     return nullptr;
   }
 
@@ -1630,34 +1631,34 @@ nsHTMLDocument::Open(JSContext* cx,
   // So we reset the document and then reinitialize it.
   nsCOMPtr<nsIChannel> channel;
   nsCOMPtr<nsILoadGroup> group = do_QueryReferent(mDocumentLoadGroup);
-  rv = NS_NewChannel(getter_AddRefs(channel),
-                     uri,
-                     callerDoc,
-                     nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL,
-                     nsIContentPolicy::TYPE_OTHER,
-                     group);
+  aError = NS_NewChannel(getter_AddRefs(channel),
+                         uri,
+                         callerDoc,
+                         nsILoadInfo::SEC_FORCE_INHERIT_PRINCIPAL,
+                         nsIContentPolicy::TYPE_OTHER,
+                         group);
 
-  if (rv.Failed()) {
+  if (aError.Failed()) {
     return nullptr;
   }
 
   if (callerChannel) {
     nsLoadFlags callerLoadFlags;
-    rv = callerChannel->GetLoadFlags(&callerLoadFlags);
-    if (rv.Failed()) {
+    aError = callerChannel->GetLoadFlags(&callerLoadFlags);
+    if (aError.Failed()) {
       return nullptr;
     }
 
     nsLoadFlags loadFlags;
-    rv = channel->GetLoadFlags(&loadFlags);
-    if (rv.Failed()) {
+    aError = channel->GetLoadFlags(&loadFlags);
+    if (aError.Failed()) {
       return nullptr;
     }
 
     loadFlags |= callerLoadFlags & nsIRequest::INHIBIT_PERSISTENT_CACHING;
 
-    rv = channel->SetLoadFlags(loadFlags);
-    if (rv.Failed()) {
+    aError = channel->SetLoadFlags(loadFlags);
+    if (aError.Failed()) {
       return nullptr;
     }
 
@@ -1701,9 +1702,9 @@ nsHTMLDocument::Open(JSContext* cx,
     SetReadyStateInternal(READYSTATE_UNINITIALIZED);
 
     // Per spec, we pass false here so that a new Window is created.
-    rv = window->SetNewDocument(this, nullptr,
-                                /* aForceReuseInnerWindow */ false);
-    if (rv.Failed()) {
+    aError = window->SetNewDocument(this, nullptr,
+                                    /* aForceReuseInnerWindow */ false);
+    if (aError.Failed()) {
       return nullptr;
     }
 
@@ -1724,8 +1725,8 @@ nsHTMLDocument::Open(JSContext* cx,
     JS::Rooted<JSObject*> wrapper(cx, GetWrapper());
     if (oldScope && newScope != oldScope && wrapper) {
       JSAutoCompartment ac(cx, wrapper);
-      rv = mozilla::dom::ReparentWrapper(cx, wrapper);
-      if (rv.Failed()) {
+      mozilla::dom::ReparentWrapper(cx, wrapper, aError);
+      if (aError.Failed()) {
         return nullptr;
       }
 
@@ -1735,8 +1736,8 @@ nsHTMLDocument::Open(JSContext* cx,
         JS::Rooted<JSObject*> contentsOwnerWrapper(cx,
           mTemplateContentsOwner->GetWrapper());
         if (contentsOwnerWrapper) {
-          rv = mozilla::dom::ReparentWrapper(cx, contentsOwnerWrapper);
-          if (rv.Failed()) {
+          mozilla::dom::ReparentWrapper(cx, contentsOwnerWrapper, aError);
+          if (aError.Failed()) {
             return nullptr;
           }
         }
@@ -3242,9 +3243,10 @@ nsHTMLDocument::ExecCommand(const nsAString& commandID,
 
   bool isCutCopy = (commandID.LowerCaseEqualsLiteral("cut") ||
                     commandID.LowerCaseEqualsLiteral("copy"));
+  bool isPaste = commandID.LowerCaseEqualsLiteral("paste");
 
   // if editing is not on, bail
-  if (!isCutCopy && !IsEditingOnAfterFlush()) {
+  if (!isCutCopy && !isPaste && !IsEditingOnAfterFlush()) {
     return false;
   }
 
@@ -3285,9 +3287,8 @@ nsHTMLDocument::ExecCommand(const nsAString& commandID,
     return false;
   }
 
-  bool restricted = commandID.LowerCaseEqualsLiteral("paste");
-  if (restricted && !nsContentUtils::PrincipalHasPermission(&aSubjectPrincipal,
-                                                            nsGkAtoms::clipboardRead)) {
+  if (isPaste && !nsContentUtils::PrincipalHasPermission(&aSubjectPrincipal,
+                                                         nsGkAtoms::clipboardRead)) {
     return false;
   }
 
@@ -3753,4 +3754,51 @@ nsHTMLDocument::WillIgnoreCharsetOverride()
     }
   }
   return false;
+}
+
+void
+nsHTMLDocument::GetFormsAndFormControls(nsContentList** aFormList,
+                                        nsContentList** aFormControlList)
+{
+  RefPtr<ContentListHolder> holder = mContentListHolder;
+  if (!holder) {
+    // Flush our content model so it'll be up to date
+    // If this becomes unnecessary and the following line is removed,
+    // please also remove the corresponding flush operation from
+    // nsHtml5TreeBuilderCppSupplement.h. (Look for "See bug 497861." there.)
+    //XXXsmaug nsHtml5TreeBuilderCppSupplement doesn't seem to have such flush
+    //         anymore.
+    FlushPendingNotifications(FlushType::Content);
+
+    RefPtr<nsContentList> htmlForms = GetExistingForms();
+    if (!htmlForms) {
+      // If the document doesn't have an existing forms content list, create a
+      // new one which will be released soon by ContentListHolder.
+      // Please keep this in sync with nsHTMLDocument::GetForms().
+      htmlForms = new nsContentList(this, kNameSpaceID_XHTML,
+                                    nsGkAtoms::form, nsGkAtoms::form,
+                                    /* aDeep = */ true,
+                                    /* aLiveList = */ true);
+    }
+
+    RefPtr<nsContentList> htmlFormControls =
+      new nsContentList(this,
+                        nsHTMLDocument::MatchFormControls,
+                        nullptr, nullptr,
+                        /* aDeep = */ true,
+                        /* aMatchAtom = */ nullptr,
+                        /* aMatchNameSpaceId = */ kNameSpaceID_None,
+                        /* aFuncMayDependOnAttr = */ true,
+                        /* aLiveList = */ true);
+
+    holder = new ContentListHolder(this, htmlForms, htmlFormControls);
+    RefPtr<ContentListHolder> runnable = holder;
+    if (NS_SUCCEEDED(Dispatch(TaskCategory::GarbageCollection,
+                              runnable.forget()))) {
+      mContentListHolder = holder;
+    }
+  }
+
+  NS_ADDREF(*aFormList = holder->mFormList);
+  NS_ADDREF(*aFormControlList = holder->mFormControlList);
 }

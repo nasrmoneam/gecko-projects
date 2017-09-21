@@ -77,12 +77,7 @@ class mozJSComponentLoader final : public mozilla::ModuleLoader,
     {
         if (mLoaderGlobal)
             return mLoaderGlobal;
-        if ((mInitialized || NS_SUCCEEDED(ReallyInit())) &&
-            mShareLoaderGlobal)
-        {
-            return GetSharedGlobal(aCx);
-        }
-        return xpc::CompilationScope();
+        return GetSharedGlobal(aCx);
     }
 
  private:
@@ -163,6 +158,9 @@ class mozJSComponentLoader final : public mozilla::ModuleLoader,
             obj = nullptr;
             thisObjectKey = nullptr;
             location = nullptr;
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+            importStack.Truncate();
+#endif
         }
 
         size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const;
@@ -175,6 +173,9 @@ class mozJSComponentLoader final : public mozilla::ModuleLoader,
         JS::PersistentRootedScript thisObjectKey;
         char* location;
         nsCString resolvedURL;
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+        nsCString importStack;
+#endif
     };
 
     static size_t DataEntrySizeOfExcludingThis(const nsACString& aKey, ModuleEntry* const& aData,

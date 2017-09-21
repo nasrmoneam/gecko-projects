@@ -259,10 +259,19 @@ var gPrivacyPane = {
     let pkiBundle = document.getElementById("pkiBundle");
     appendSearchKeywords("passwordExceptions", [
       bundlePrefs.getString("savedLoginsExceptions_title"),
-      bundlePrefs.getString("savedLoginsExceptions_desc2"),
+      bundlePrefs.getString("savedLoginsExceptions_desc3"),
     ]);
     appendSearchKeywords("showPasswords", [
       signonBundle.getString("loginsDescriptionAll2"),
+    ]);
+    appendSearchKeywords("cookieExceptions", [
+      bundlePrefs.getString("cookiepermissionstext"),
+    ]);
+    appendSearchKeywords("showCookiesButton", [
+      bundlePrefs.getString("cookiesAll"),
+      bundlePrefs.getString("removeAllCookies.label"),
+      bundlePrefs.getString("removeAllShownCookies.label"),
+      bundlePrefs.getString("removeSelectedCookies.label"),
     ]);
     appendSearchKeywords("trackingProtectionExceptions", [
       bundlePrefs.getString("trackingprotectionpermissionstitle"),
@@ -800,25 +809,6 @@ var gPrivacyPane = {
     settingsButton.disabled = !sanitizeOnShutdownPref.value;
   },
 
-  // CONTAINERS
-
-  /*
-   * preferences:
-   *
-   * privacy.userContext.enabled
-   * - true if containers is enabled
-   */
-
-  /**
-   * Enables/disables the Settings button used to configure containers
-   */
-  readBrowserContainersCheckbox() {
-    var pref = document.getElementById("privacy.userContext.enabled");
-    var settings = document.getElementById("browserContainersSettings");
-
-    settings.disabled = !pref.value;
-  },
-
   toggleDoNotDisturbNotifications(event) {
     AlertsServiceDND.manualDoNotDisturb = event.target.checked;
   },
@@ -950,7 +940,7 @@ var gPrivacyPane = {
       prefilledHost: "",
       permissionType: "login-saving",
       windowTitle: bundlePrefs.getString("savedLoginsExceptions_title"),
-      introText: bundlePrefs.getString("savedLoginsExceptions_desc2")
+      introText: bundlePrefs.getString("savedLoginsExceptions_desc3")
     };
 
     gSubDialog.open("chrome://browser/content/preferences/permissions.xul",
@@ -1080,6 +1070,10 @@ var gPrivacyPane = {
 
     let blockUnwantedPref = document.getElementById("browser.safebrowsing.downloads.remote.block_potentially_unwanted");
     let blockUncommonPref = document.getElementById("browser.safebrowsing.downloads.remote.block_uncommon");
+
+    let learnMoreLink = document.getElementById("enableSafeBrowsingLearnMore");
+    let phishingUrl = "https://support.mozilla.org/kb/how-does-phishing-and-malware-protection-work";
+    learnMoreLink.setAttribute("href", phishingUrl);
 
     enableSafeBrowsing.addEventListener("command", function() {
       safeBrowsingPhishingPref.value = enableSafeBrowsing.checked;
@@ -1647,8 +1641,7 @@ var gPrivacyPane = {
 
   _initA11yString() {
     let a11yLearnMoreLink =
-      Services.urlFormatter.formatURLPref("app.support.baseURL") +
-      "accessibility";
+      Services.urlFormatter.formatURLPref("accessibility.support.url");
     document.getElementById("a11yLearnMoreLink")
       .setAttribute("href", a11yLearnMoreLink);
   },

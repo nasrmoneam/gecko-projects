@@ -133,11 +133,8 @@ public class GeckoPreferences
     private static final String PREFS_DEVTOOLS_REMOTE_USB_ENABLED = "devtools.remote.usb.enabled";
     private static final String PREFS_DEVTOOLS_REMOTE_WIFI_ENABLED = "devtools.remote.wifi.enabled";
     private static final String PREFS_DEVTOOLS_REMOTE_LINK = NON_PREF_PREFIX + "remote_debugging.link";
-    private static final String PREFS_TRACKING_PROTECTION = "privacy.trackingprotection.state";
-    private static final String PREFS_TRACKING_PROTECTION_PB = "privacy.trackingprotection.pbmode.enabled";
     public static final String PREFS_VOICE_INPUT_ENABLED = NON_PREF_PREFIX + "voice_input_enabled";
     public static final String PREFS_QRCODE_ENABLED = NON_PREF_PREFIX + "qrcode_enabled";
-    private static final String PREFS_TRACKING_PROTECTION_PRIVATE_BROWSING = "privacy.trackingprotection.pbmode.enabled";
     private static final String PREFS_TRACKING_PROTECTION_LEARN_MORE = NON_PREF_PREFIX + "trackingprotection.learn_more";
     private static final String PREFS_CLEAR_PRIVATE_DATA = NON_PREF_PREFIX + "privacy.clear";
     private static final String PREFS_CLEAR_PRIVATE_DATA_EXIT = NON_PREF_PREFIX + "history.clear_on_exit";
@@ -152,7 +149,6 @@ public class GeckoPreferences
     public static final String PREFS_APP_UPDATE_LAST_BUILD_ID = "app.update.last_build_id";
     public static final String PREFS_READ_PARTNER_CUSTOMIZATIONS_PROVIDER = NON_PREF_PREFIX + "distribution.read_partner_customizations_provider";
     public static final String PREFS_READ_PARTNER_BOOKMARKS_PROVIDER = NON_PREF_PREFIX + "distribution.read_partner_bookmarks_provider";
-    public static final String PREFS_CUSTOM_TABS = NON_PREF_PREFIX + "customtabs";
     public static final String PREFS_PWA = NON_PREF_PREFIX + "pwa";
     public static final String PREFS_CATEGORY_EXPERIMENTAL_FEATURES = NON_PREF_PREFIX + "category_experimental";
     public static final String PREFS_COMPACT_TABS = NON_PREF_PREFIX + "compact_tabs";
@@ -649,8 +645,7 @@ public class GeckoPreferences
                     i--;
                     continue;
                 } else if (PREFS_CATEGORY_EXPERIMENTAL_FEATURES.equals(key)
-                        && !AppConstants.MOZ_ANDROID_PWA
-                        && !AppConstants.MOZ_ANDROID_CUSTOM_TABS) {
+                        && !AppConstants.MOZ_ANDROID_PWA) {
                     preferences.removePreference(pref);
                     i--;
                     continue;
@@ -669,20 +664,6 @@ public class GeckoPreferences
                 pref.setOnPreferenceChangeListener(this);
                 if (PREFS_UPDATER_AUTODOWNLOAD.equals(key)) {
                     if (!AppConstants.MOZ_UPDATER || ContextUtils.isInstalledFromGooglePlay(this)) {
-                        preferences.removePreference(pref);
-                        i--;
-                        continue;
-                    }
-                } else if (PREFS_TRACKING_PROTECTION.equals(key)) {
-                    // Remove UI for global TP pref in non-Nightly builds.
-                    if (!AppConstants.NIGHTLY_BUILD) {
-                        preferences.removePreference(pref);
-                        i--;
-                        continue;
-                    }
-                } else if (PREFS_TRACKING_PROTECTION_PB.equals(key)) {
-                    // Remove UI for private-browsing-only TP pref in Nightly builds.
-                    if (AppConstants.NIGHTLY_BUILD) {
                         preferences.removePreference(pref);
                         i--;
                         continue;
@@ -786,12 +767,6 @@ public class GeckoPreferences
                         i--;
                         continue;
                     }
-                } else if (PREFS_TRACKING_PROTECTION_PRIVATE_BROWSING.equals(key)) {
-                    if (!Restrictions.isAllowed(this, Restrictable.PRIVATE_BROWSING)) {
-                        preferences.removePreference(pref);
-                        i--;
-                        continue;
-                    }
                 } else if (PREFS_TRACKING_PROTECTION_LEARN_MORE.equals(key)) {
                     if (!Restrictions.isAllowed(this, Restrictable.PRIVATE_BROWSING)) {
                         preferences.removePreference(pref);
@@ -833,10 +808,6 @@ public class GeckoPreferences
                         i--;
                         continue;
                     }
-                } else if (PREFS_CUSTOM_TABS.equals(key) && !AppConstants.MOZ_ANDROID_CUSTOM_TABS) {
-                    preferences.removePreference(pref);
-                    i--;
-                    continue;
                 } else if (PREFS_PWA.equals(key) && !AppConstants.MOZ_ANDROID_PWA) {
                     preferences.removePreference(pref);
                     i--;
@@ -901,7 +872,7 @@ public class GeckoPreferences
         int itemId = item.getItemId();
         switch (itemId) {
             case android.R.id.home:
-                finishChoosingTransition();
+                onBackPressed();
                 return true;
         }
 

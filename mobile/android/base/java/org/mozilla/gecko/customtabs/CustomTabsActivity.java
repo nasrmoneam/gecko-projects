@@ -8,7 +8,6 @@ package org.mozilla.gecko.customtabs;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
@@ -23,6 +22,7 @@ import android.support.design.widget.Snackbar;
 import android.support.v4.util.SparseArrayCompat;
 import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.view.ActionMode;
 import android.support.v7.widget.Toolbar;
 import android.text.TextUtils;
 import android.util.Log;
@@ -37,6 +37,7 @@ import org.mozilla.gecko.ActivityHandlerHelper;
 import org.mozilla.gecko.BrowserApp;
 import org.mozilla.gecko.DoorHangerPopup;
 import org.mozilla.gecko.EventDispatcher;
+import org.mozilla.gecko.FormAssistPopup;
 import org.mozilla.gecko.GeckoView;
 import org.mozilla.gecko.GeckoViewSettings;
 import org.mozilla.gecko.R;
@@ -50,19 +51,22 @@ import org.mozilla.gecko.permissions.Permissions;
 import org.mozilla.gecko.prompts.Prompt;
 import org.mozilla.gecko.prompts.PromptListItem;
 import org.mozilla.gecko.prompts.PromptService;
+import org.mozilla.gecko.text.TextSelection;
 import org.mozilla.gecko.util.ActivityUtils;
 import org.mozilla.gecko.util.Clipboard;
 import org.mozilla.gecko.util.ColorUtil;
 import org.mozilla.gecko.util.GeckoBundle;
 import org.mozilla.gecko.util.IntentUtils;
+import org.mozilla.gecko.util.PackageUtil;
 import org.mozilla.gecko.util.ThreadUtils;
-import org.mozilla.gecko.util.URIUtils;
+import org.mozilla.gecko.widget.ActionModePresenter;
 import org.mozilla.gecko.widget.GeckoPopupMenu;
 
 import java.util.List;
 
 public class CustomTabsActivity extends AppCompatActivity
-                                implements GeckoMenu.Callback,
+                                implements ActionModePresenter,
+                                           GeckoMenu.Callback,
                                            GeckoView.ContentListener,
                                            GeckoView.NavigationListener,
                                            GeckoView.ProgressListener {
@@ -82,6 +86,10 @@ public class CustomTabsActivity extends AppCompatActivity
     private GeckoView mGeckoView;
     private PromptService mPromptService;
     private DoorHangerPopup mDoorHangerPopup;
+    private FormAssistPopup mFormAssistPopup;
+
+    private ActionMode mActionMode;
+    private TextSelection mTextSelection;
 
     private boolean mCanGoBack = false;
     private boolean mCanGoForward = false;
@@ -121,6 +129,12 @@ public class CustomTabsActivity extends AppCompatActivity
         mPromptService = new PromptService(this, mGeckoView.getEventDispatcher());
         mDoorHangerPopup = new DoorHangerPopup(this, mGeckoView.getEventDispatcher());
 
+        mFormAssistPopup = (FormAssistPopup) findViewById(R.id.form_assist_popup);
+        mFormAssistPopup.create(mGeckoView);
+
+        mTextSelection = TextSelection.Factory.create(mGeckoView, this);
+        mTextSelection.create();
+
         final GeckoViewSettings settings = mGeckoView.getSettings();
         settings.setBoolean(GeckoViewSettings.USE_MULTIPROCESS, false);
 
@@ -134,6 +148,8 @@ public class CustomTabsActivity extends AppCompatActivity
 
     @Override
     public void onDestroy() {
+        mTextSelection.destroy();
+        mFormAssistPopup.destroy();
         mDoorHangerPopup.destroy();
         mPromptService.destroy();
 
@@ -375,10 +391,11 @@ public class CustomTabsActivity extends AppCompatActivity
         // insert default browser name to title of menu-item-Open-In
         final MenuItem openItem = geckoMenu.findItem(R.id.custom_tabs_menu_open_in);
         if (openItem != null) {
-            final Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("http://"));
-            final ResolveInfo info = getPackageManager()
-                    .resolveActivity(browserIntent, PackageManager.MATCH_DEFAULT_ONLY);
-            final String name = info.loadLabel(getPackageManager()).toString();
+            final ResolveInfo info = PackageUtil.getDefaultBrowser(this);
+
+            final String name = (info == null)
+                    ? getString(R.string.ellipsis)
+                    : info.loadLabel(getPackageManager()).toString();
             openItem.setTitle(getString(R.string.custom_tabs_menu_item_open_in, name));
         }
 
@@ -417,9 +434,9 @@ public class CustomTabsActivity extends AppCompatActivity
      * @param progress The current loading progress; must be between 0 and 100
      */
     private void updateProgress(final int progress) {
+        mProgressView.setProgress(progress);
         if (mCanStop) {
             mProgressView.setVisibility(View.VISIBLE);
-            mProgressView.setProgress(progress);
         } else {
             mProgressView.setVisibility(View.GONE);
         }
@@ -662,6 +679,20 @@ public class CustomTabsActivity extends AppCompatActivity
             return uri;
         } else {
             return null;
+        }
+    }
+
+    @Override // ActionModePresenter
+    public void startActionMode(final ActionMode.Callback callback) {
+        endActionMode();
+        mActionMode = startSupportActionMode(callback);
+    }
+
+    @Override // ActionModePresenter
+    public void endActionMode() {
+        if (mActionMode != null) {
+            mActionMode.finish();
+            mActionMode = null;
         }
     }
 }

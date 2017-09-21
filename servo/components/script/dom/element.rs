@@ -87,7 +87,7 @@ use js::jsval::JSVal;
 use net_traits::request::CorsSettings;
 use ref_filter_map::ref_filter_map;
 use script_layout_interface::message::ReflowQueryType;
-use script_thread::{Runnable, ScriptThread};
+use script_thread::ScriptThread;
 use selectors::attr::{AttrSelectorOperation, NamespaceConstraint, CaseSensitivity};
 use selectors::matching::{ElementSelectorFlags, LocalMatchingContext, MatchingContext, MatchingMode};
 use selectors::matching::{HAS_EDGE_CHILD_SELECTOR, HAS_SLOW_SELECTOR, HAS_SLOW_SELECTOR_LATER_SIBLINGS};
@@ -119,6 +119,7 @@ use style::thread_state;
 use style::values::{CSSFloat, Either};
 use style::values::{specified, computed};
 use stylesheet_loader::StylesheetOwner;
+use task::TaskOnce;
 
 // TODO: Update focus state when the top-level browsing context gains or loses system focus,
 // and when the element enters or leaves a browsing context container.
@@ -581,10 +582,12 @@ impl LayoutElementHelpers for LayoutJS<Element> {
             hints.push(from_declaration(
                 shared_lock,
                 PropertyDeclaration::BorderSpacing(
-                    Box::new(border_spacing::SpecifiedValue {
-                        horizontal: width_value.into(),
-                        vertical: None,
-                    }))));
+                    Box::new(border_spacing::SpecifiedValue::new(
+                        width_value.clone().into(),
+                        width_value.into()
+                    ))
+                )
+            ));
         }
 
 
@@ -2185,7 +2188,8 @@ impl ElementMethods for Element {
             Err(_) => Err(Error::Syntax),
             Ok(selectors) => {
                 let quirks_mode = document_from_node(self).quirks_mode();
-                let mut ctx = MatchingContext::new(MatchingMode::Normal, None,
+                // FIXME(bholley): Consider an nth-index cache here.
+                let mut ctx = MatchingContext::new(MatchingMode::Normal, None, None,
                                                    quirks_mode);
                 Ok(matches_selector_list(&selectors, &Root::from_ref(self), &mut ctx))
             }
@@ -2206,7 +2210,8 @@ impl ElementMethods for Element {
                 for element in root.inclusive_ancestors() {
                     if let Some(element) = Root::downcast::<Element>(element) {
                         let quirks_mode = document_from_node(self).quirks_mode();
-                        let mut ctx = MatchingContext::new(MatchingMode::Normal, None,
+                        // FIXME(bholley): Consider an nth-index cache here.
+                        let mut ctx = MatchingContext::new(MatchingMode::Normal, None, None,
                                                            quirks_mode);
                         if matches_selector_list(&selectors, &element, &mut ctx) {
                             return Ok(Some(element));
@@ -3044,9 +3049,9 @@ impl ElementPerformFullscreenEnter {
     }
 }
 
-impl Runnable for ElementPerformFullscreenEnter {
+impl TaskOnce for ElementPerformFullscreenEnter {
     #[allow(unrooted_must_root)]
-    fn handler(self: Box<ElementPerformFullscreenEnter>) {
+    fn run_once(self) {
         let element = self.element.root();
         let document = document_from_node(element.r());
 
@@ -3097,9 +3102,9 @@ impl ElementPerformFullscreenExit {
     }
 }
 
-impl Runnable for ElementPerformFullscreenExit {
+impl TaskOnce for ElementPerformFullscreenExit {
     #[allow(unrooted_must_root)]
-    fn handler(self: Box<ElementPerformFullscreenExit>) {
+    fn run_once(self) {
         let element = self.element.root();
         let document = document_from_node(element.r());
         // TODO Step 9.1-5

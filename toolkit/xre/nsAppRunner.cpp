@@ -570,6 +570,50 @@ CheckArg(const char* aArg, bool aCheckOSInt = false, const char **aParam = nullp
   return ar;
 }
 
+/**
+ * Check for a commandline flag. Ignore data that's passed in with the flag.
+ * Flags may be in the form -arg or --arg (or /arg on win32).
+ * Will not remove flag if found.
+ *
+ * @param aArg the parameter to check. Must be lowercase.
+ */
+static ArgResult
+CheckArgExists(const char* aArg)
+{
+  char **curarg = gArgv + 1; // skip argv[0]
+  while (*curarg) {
+    char *arg = curarg[0];
+
+    if (arg[0] == '-'
+#if defined(XP_WIN)
+        || *arg == '/'
+#endif
+        ) {
+      ++arg;
+      if (*arg == '-')
+        ++arg;
+
+      char delimiter = '=';
+#if defined(XP_WIN)
+      delimiter = ':';
+#endif
+      int i;
+      for (i = 0; arg[i] && arg[i] != delimiter; i++) {}
+      char tmp = arg[i];
+      arg[i] = '\0';
+      bool found = strimatch(aArg, arg);
+      arg[i] = tmp;
+      if (found) {
+        return ARG_FOUND;
+      }
+    }
+
+    ++curarg;
+  }
+
+  return ARG_NONE;
+}
+
 #if defined(XP_WIN)
 /**
  * Check for a commandline flag from the windows shell and remove it from the
@@ -3180,7 +3224,7 @@ XREMain::XRE_mainInit(bool* aExitFlag)
     printf_stderr("*** You are running in chaos test mode. See ChaosMode.h. ***\n");
   }
 
-  if (CheckArg("headless")) {
+  if (CheckArg("headless") || CheckArgExists("screenshot")) {
     PR_SetEnv("MOZ_HEADLESS=1");
   }
 
@@ -4367,18 +4411,6 @@ XREMain::XRE_mainRun()
     io->SetOffline(true);
   }
 
-  {
-    nsCOMPtr<nsIObserver> startupNotifier
-      (do_CreateInstance(NS_APPSTARTUPNOTIFIER_CONTRACTID, &rv));
-    NS_ENSURE_SUCCESS(rv, NS_ERROR_FAILURE);
-
-    startupNotifier->Observe(nullptr, APPSTARTUP_TOPIC, nullptr);
-  }
-
-  nsCOMPtr<nsIAppStartup> appStartup
-    (do_GetService(NS_APPSTARTUP_CONTRACTID));
-  NS_ENSURE_TRUE(appStartup, NS_ERROR_FAILURE);
-
 
 #ifdef XP_WIN
   if (!PR_GetEnv("XRE_NO_DLL_READAHEAD"))
@@ -4478,6 +4510,22 @@ XREMain::XRE_mainRun()
       mProfileSvc->Flush();
     }
   }
+
+  // Initialize user preferences before notifying startup observers so they're
+  // ready in time for early consumers, such as the component loader.
+  mDirProvider.InitializeUserPrefs();
+
+  {
+    nsCOMPtr<nsIObserver> startupNotifier
+      (do_CreateInstance(NS_APPSTARTUPNOTIFIER_CONTRACTID, &rv));
+    NS_ENSURE_SUCCESS(rv, NS_ERROR_FAILURE);
+
+    startupNotifier->Observe(nullptr, APPSTARTUP_TOPIC, nullptr);
+  }
+
+  nsCOMPtr<nsIAppStartup> appStartup
+    (do_GetService(NS_APPSTARTUP_CONTRACTID));
+  NS_ENSURE_TRUE(appStartup, NS_ERROR_FAILURE);
 
   mDirProvider.DoStartup();
 

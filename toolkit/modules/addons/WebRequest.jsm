@@ -86,8 +86,7 @@ class HeaderChanger {
   }
 
   toArray() {
-    return Array.from(this.originalHeaders,
-                      ([key, {name, value}]) => ({name, value}));
+    return Array.from(this.originalHeaders.values());
   }
 
   validateHeaders(headers) {
@@ -183,6 +182,40 @@ class ResponseHeaderChanger extends HeaderChanger {
   }
 }
 
+const MAYBE_CACHED_EVENTS = new Set([
+  "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred",
+]);
+
+const OPTIONAL_PROPERTIES = [
+  "requestHeaders", "responseHeaders", "statusCode", "statusLine", "error", "redirectUrl",
+  "requestBody", "scheme", "realm", "isProxy", "challenger", "proxyInfo", "ip",
+];
+
+function serializeRequestData(eventName) {
+  let data = {
+    requestId: this.requestId,
+    url: this.url,
+    originUrl: this.originUrl,
+    documentUrl: this.documentUrl,
+    method: this.method,
+    type: this.type,
+    timeStamp: Date.now(),
+    frameId: this.windowId,
+    parentFrameId: this.parentWindowId,
+  };
+
+  if (MAYBE_CACHED_EVENTS.has(eventName)) {
+    data.fromCache = !!this.fromCache;
+  }
+
+  for (let opt of OPTIONAL_PROPERTIES) {
+    if (typeof this[opt] !== "undefined") {
+      data[opt] = this[opt];
+    }
+  }
+  return data;
+}
+
 var HttpObserverManager;
 
 var nextFakeRequestId = 1;
@@ -213,7 +246,7 @@ var ContentPolicyManager = {
       }
       let response = null;
       let listenerKind = "onStop";
-      let data = Object.assign({requestId, browser}, msg.data);
+      let data = Object.assign({requestId, browser, serialize: serializeRequestData}, msg.data);
       data.URI = data.url;
 
       delete data.ids;
@@ -606,6 +639,11 @@ HttpObserverManager = {
   },
   GOOD_LAST_ACTIVITY: nsIHttpActivityObserver.ACTIVITY_SUBTYPE_RESPONSE_HEADER,
   observeActivity(nativeChannel, activityType, activitySubtype /* , aTimestamp, aExtraSizeData, aExtraStringData */) {
+    // Sometimes we get a NullHttpChannel, which implements
+    // nsIHttpChannel but not nsIChannel.
+    if (!(nativeChannel instanceof Ci.nsIChannel)) {
+      return;
+    }
     let channel = ChannelWrapper.get(nativeChannel);
 
     // StartStopListener has to be activated early in the request to catch
@@ -632,14 +670,14 @@ HttpObserverManager = {
   shouldRunListener(policyType, uri, filter) {
     // force the protocol to be ws again.
     if (policyType == "websocket" && ["http", "https"].includes(uri.scheme)) {
-      uri = new Services.io.newURI(`ws${uri.spec.substring(4)}`);
+      uri = Services.io.newURI(`ws${uri.spec.substring(4)}`);
     }
 
     if (filter.types && !filter.types.includes(policyType)) {
       return false;
     }
 
-    return WebRequestCommon.urlMatches(uri, filter.urls);
+    return !filter.urls || filter.urls.matches(uri);
   },
 
   get resultsMap() {
@@ -648,20 +686,21 @@ HttpObserverManager = {
     return this.resultsMap;
   },
 
-  maybeError({channel}, extraData = null) {
-    if (!(extraData && extraData.error) && channel.securityInfo) {
-      let securityInfo = channel.securityInfo.QueryInterface(Ci.nsITransportSecurityInfo);
+  maybeError({channel}) {
+    // FIXME: Move to ChannelWrapper.
+
+    let {securityInfo} = channel;
+    if (securityInfo instanceof Ci.nsITransportSecurityInfo) {
       if (NSSErrorsService.isNSSErrorCode(securityInfo.errorCode)) {
         let nsresult = NSSErrorsService.getXPCOMFromNSSError(securityInfo.errorCode);
-        extraData = {error: NSSErrorsService.getErrorMessage(nsresult)};
+        return {error: NSSErrorsService.getErrorMessage(nsresult)};
       }
     }
-    if (!(extraData && extraData.error)) {
-      if (!Components.isSuccessCode(channel.status)) {
-        extraData = {error: this.resultsMap.get(channel.status) || "NS_ERROR_NET_UNKNOWN"};
-      }
+
+    if (!Components.isSuccessCode(channel.status)) {
+      return {error: this.resultsMap.get(channel.status) || "NS_ERROR_NET_UNKNOWN"};
     }
-    return extraData;
+    return null;
   },
 
   errorCheck(channel) {
@@ -694,6 +733,8 @@ HttpObserverManager = {
       ip: channel.remoteAddress,
 
       proxyInfo: channel.proxyInfo,
+
+      serialize: serializeRequestData,
     };
 
     // force the protocol to be ws again.
@@ -770,7 +811,7 @@ HttpObserverManager = {
         }
         let data = Object.assign({}, commonData);
 
-        if (registerFilter) {
+        if (registerFilter && opts.blocking) {
           this.registerChannel(channel, opts);
         }
 
@@ -807,28 +848,21 @@ HttpObserverManager = {
   },
 
   async applyChanges(kind, channel, handlerResults, requestHeaders, responseHeaders) {
-    let asyncHandlers = handlerResults.filter(({result}) => isThenable(result));
-    let isAsync = asyncHandlers.length > 0;
-    let shouldResume = false;
+    let shouldResume = !channel.suspended;
 
     try {
-      if (isAsync) {
-        shouldResume = !channel.suspended;
-        channel.suspended = true;
-
-        for (let value of asyncHandlers) {
+      for (let {opts, result} of handlerResults) {
+        if (isThenable(result)) {
+          channel.suspended = true;
           try {
-            value.result = await value.result;
+            result = await result;
           } catch (e) {
             Cu.reportError(e);
-            value.result = {};
+            continue;
           }
-        }
-      }
-
-      for (let {opts, result} of handlerResults) {
-        if (!result || typeof result !== "object") {
-          continue;
+          if (!result || typeof result !== "object") {
+            continue;
+          }
         }
 
         if (result.cancel) {
@@ -857,22 +891,20 @@ HttpObserverManager = {
           responseHeaders.applyChanges(result.responseHeaders);
         }
 
-        if (kind === "authRequired" && opts.blocking && result.authCredentials) {
-          if (channel.authPromptCallback) {
-            channel.authPromptCallback(result.authCredentials);
-          }
+        if (kind === "authRequired" && result.authCredentials && channel.authPromptCallback) {
+          channel.authPromptCallback(result.authCredentials);
         }
       }
       // If a listener did not cancel the request or provide credentials, we
       // forward the auth request to the base handler.
-      if (kind === "authRequired") {
-        if (channel.authPromptForward) {
-          channel.authPromptForward();
-        }
+      if (kind === "authRequired" && channel.authPromptForward) {
+        channel.authPromptForward();
       }
 
-      if (kind === "modify") {
+      if (kind === "modify" && this.listeners.afterModify.size) {
         await this.runChannelListener(channel, "afterModify");
+      } else if (kind !== "onError") {
+        this.errorCheck(channel);
       }
     } catch (e) {
       Cu.reportError(e);

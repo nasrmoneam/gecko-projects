@@ -3759,45 +3759,53 @@ HTMLMediaElement::LookupMediaElementURITable(nsIURI* aURI)
   return nullptr;
 }
 
-class HTMLMediaElement::ShutdownObserver : public nsIObserver {
-  enum class Phase : int8_t {
+class HTMLMediaElement::ShutdownObserver : public nsIObserver
+{
+  enum class Phase : int8_t
+  {
     Init,
     Subscribed,
     Unsubscribed
   };
+
 public:
   NS_DECL_ISUPPORTS
 
-  NS_IMETHOD Observe(nsISupports*, const char* aTopic, const char16_t*) override {
-    MOZ_DIAGNOSTIC_ASSERT(mPhase == Phase::Subscribed);
+  NS_IMETHOD Observe(nsISupports*, const char* aTopic, const char16_t*) override
+  {
+    if (mPhase != Phase::Subscribed) {
+      // Bail out if we are not subscribed for this might be called even after
+      // |nsContentUtils::UnregisterShutdownObserver(this)|.
+      return NS_OK;
+    }
     MOZ_DIAGNOSTIC_ASSERT(mWeak);
     if (strcmp(aTopic, NS_XPCOM_SHUTDOWN_OBSERVER_ID) == 0) {
       mWeak->NotifyShutdownEvent();
     }
     return NS_OK;
   }
-  void Subscribe(HTMLMediaElement* aPtr) {
+  void Subscribe(HTMLMediaElement* aPtr)
+  {
     MOZ_DIAGNOSTIC_ASSERT(mPhase == Phase::Init);
     MOZ_DIAGNOSTIC_ASSERT(!mWeak);
     mWeak = aPtr;
     nsContentUtils::RegisterShutdownObserver(this);
     mPhase = Phase::Subscribed;
   }
-  void Unsubscribe() {
+  void Unsubscribe()
+  {
     MOZ_DIAGNOSTIC_ASSERT(mPhase == Phase::Subscribed);
     MOZ_DIAGNOSTIC_ASSERT(mWeak);
     mWeak = nullptr;
     nsContentUtils::UnregisterShutdownObserver(this);
     mPhase = Phase::Unsubscribed;
   }
-  void AddRefMediaElement() {
-    mWeak->AddRef();
-  }
-  void ReleaseMediaElement() {
-    mWeak->Release();
-  }
+  void AddRefMediaElement() { mWeak->AddRef(); }
+  void ReleaseMediaElement() { mWeak->Release(); }
+
 private:
-  virtual ~ShutdownObserver() {
+  virtual ~ShutdownObserver()
+  {
     MOZ_DIAGNOSTIC_ASSERT(mPhase == Phase::Unsubscribed);
     MOZ_DIAGNOSTIC_ASSERT(!mWeak);
   }
@@ -4647,6 +4655,17 @@ HTMLMediaElement::GetCanPlay(const nsAString& aType,
     // demuxer can handle VP9 in fragmented MP4.
     return CANPLAY_NO;
   }
+  if (status == CANPLAY_YES &&
+      (*containerType).ExtendedType().Codecs().IsEmpty()) {
+    // Per spec: 'Generally, a user agent should never return "probably" for a
+    // type that allows the `codecs` parameter if that parameter is not present.'
+    // As all our currently-supported types allow for `codecs`, we can do this
+    // check here.
+    // TODO: Instead, missing `codecs` should be checked in each decoder's
+    // `IsSupportedType` call from `CanHandleCodecsType()`.
+    // See bug 1399023.
+    return CANPLAY_MAYBE;
+  }
   return status;
 }
 
@@ -4664,9 +4683,11 @@ HTMLMediaElement::CanPlayType(const nsAString& aType, nsAString& aResult)
   case CANPLAY_YES:
     aResult.AssignLiteral("probably");
     break;
-  default:
   case CANPLAY_MAYBE:
     aResult.AssignLiteral("maybe");
+    break;
+  default:
+    MOZ_ASSERT_UNREACHABLE("Unexpected case.");
     break;
   }
 
@@ -5767,6 +5788,13 @@ HTMLMediaElement::UpdateReadyStateInternal()
   if (nextFrameStatus == NEXT_FRAME_UNAVAILABLE_BUFFERING) {
     // Force HAVE_CURRENT_DATA when buffering.
     ChangeReadyState(nsIDOMHTMLMediaElement::HAVE_CURRENT_DATA);
+    if (mDecoder) {
+      // The side effect of CanPlayThrough() will update mCanPlayThrough of
+      // MDSM so it has a chance to exit buffering quickly.
+      // TODO: This implicit coupling is bad. Refactoring should be done
+      // to remove the side effect of CanPlayThrough().
+      mDecoder->CanPlayThrough();
+    }
     return;
   }
 

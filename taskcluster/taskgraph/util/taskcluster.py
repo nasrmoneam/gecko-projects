@@ -13,6 +13,9 @@ from mozbuild.util import memoize
 from requests.packages.urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 
+_TC_ARTIFACT_LOCATION = \
+        'https://queue.taskcluster.net/v1/task/{task_id}/artifacts/public/build/{postfix}'
+
 
 @memoize
 def get_session():
@@ -80,7 +83,12 @@ def get_index_url(index_path, use_proxy=False):
 
 
 def find_task_id(index_path, use_proxy=False):
-    response = _do_request(get_index_url(index_path, use_proxy))
+    try:
+        response = _do_request(get_index_url(index_path, use_proxy))
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            raise KeyError("index path {} not found".format(index_path))
+        raise
     return response.json()['taskId']
 
 
@@ -101,3 +109,10 @@ def get_task_url(task_id, use_proxy=False):
 def get_task_definition(task_id, use_proxy=False):
     response = _do_request(get_task_url(task_id, use_proxy))
     return response.json()
+
+
+def get_taskcluster_artifact_prefix(task_id, postfix='', locale=None):
+    if locale:
+        postfix = '{}/{}'.format(locale, postfix)
+
+    return _TC_ARTIFACT_LOCATION.format(task_id=task_id, postfix=postfix)

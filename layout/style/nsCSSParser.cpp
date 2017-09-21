@@ -1648,6 +1648,7 @@ CSSParserImpl::ParseSheet(const nsAString& aInput,
   }
 
   mSheet->SetSourceMapURLFromComment(scanner.GetSourceMapURL());
+  mSheet->SetSourceURL(scanner.GetSourceURL());
   ReleaseScanner();
 
   mParsingMode = css::eAuthorSheetFeatures;
@@ -16430,13 +16431,6 @@ CSSParserImpl::ParseClipPath(nsCSSValue& aValue)
 {
   if (ParseSingleTokenVariant(aValue, VARIANT_HUO, nullptr)) {
     return true;
-  }
-
-  if (!nsLayoutUtils::CSSClipPathShapesEnabled()) {
-    // With CSS Clip Path Shapes disabled, we should only accept
-    // SVG clipPath reference and none.
-    REPORT_UNEXPECTED_TOKEN(PEExpectedNoneOrURL);
-    return false;
   }
 
   return ParseReferenceBoxAndBasicShape(

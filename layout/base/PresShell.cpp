@@ -110,7 +110,7 @@
 #include "gfxUtils.h"
 #include "nsSMILAnimationController.h"
 #include "SVGContentUtils.h"
-#include "nsSVGEffects.h"
+#include "SVGObserverUtils.h"
 #include "SVGFragmentIdentifier.h"
 #include "nsFrameSelection.h"
 
@@ -239,11 +239,13 @@ struct RangePaintInfo {
     : mRange(aRange), mBuilder(aFrame, nsDisplayListBuilderMode::PAINTING, false)
   {
     MOZ_COUNT_CTOR(RangePaintInfo);
+    mBuilder.BeginFrame();
   }
 
   ~RangePaintInfo()
   {
     mList.DeleteAll(&mBuilder);
+    mBuilder.EndFrame();
     MOZ_COUNT_DTOR(RangePaintInfo);
   }
 };
@@ -4291,9 +4293,6 @@ PresShell::DocumentStatesChanged(nsIDocument* aDocument,
     // XXXheycam ServoStyleSets don't support document state selectors,
     // but these are only used in chrome documents, which we are not
     // aiming to support yet.
-    NS_WARNING("stylo: ServoStyleSets cannot respond to document state "
-               "changes yet (only matters for chrome documents). See bug 1290285.");
-
   } else if (mDidInitialize &&
              geckoSet->HasDocumentStateDependentStyle(mDocument->GetRootElement(),
                                                       aStateMask)) {
@@ -4493,7 +4492,6 @@ PresShell::ContentRemoved(nsIDocument *aDocument,
   }
 
   mFrameConstructor->ContentRemoved(aMaybeContainer, aChild, oldNextSibling,
-                                    nsCSSFrameConstructor::InsertionKind::Async,
                                     nsCSSFrameConstructor::REMOVE_CONTENT);
 
   if (aChild->NodeType() == nsIDOMNode::DOCUMENT_TYPE_NODE) {
@@ -4805,10 +4803,15 @@ PresShell::ClipListToRange(nsDisplayListBuilder *aBuilder,
           }
           surfaceRect.UnionRect(surfaceRect, textRect);
 
+          const ActiveScrolledRoot* asr = i->GetActiveScrolledRoot();
+
           DisplayItemClip newClip;
           newClip.SetTo(textRect);
-          DisplayItemClipChain newClipChain = { newClip, i->GetActiveScrolledRoot(), nullptr };
-          i->IntersectClip(aBuilder, &newClipChain);
+
+          const DisplayItemClipChain* newClipChain =
+            aBuilder->AllocateDisplayItemClipChain(newClip, asr, nullptr);
+
+          i->IntersectClip(aBuilder, newClipChain);
           itemToInsert = i;
         }
       }
@@ -8245,8 +8248,7 @@ PresShell::HandleEventInternal(WidgetEvent* aEvent,
       // made protected, and then disconnected.
       DataTransfer* dataTransfer = aEvent->AsDragEvent()->mDataTransfer;
       if (dataTransfer) {
-        dataTransfer->SetMode(DataTransfer::Mode::Protected);
-        dataTransfer->ClearAll();
+        dataTransfer->Disconnect();
       }
       break;
     }
@@ -8463,6 +8465,7 @@ PresShell::DispatchTouchEventToDOM(WidgetEvent* aEvent,
                               touchEvent->mMessage, touchEvent->mWidget);
     newEvent.AssignTouchEventData(*touchEvent, false);
     newEvent.mTarget = targetPtr;
+    newEvent.mFlags.mHandledByAPZ = touchEvent->mFlags.mHandledByAPZ;
 
     RefPtr<PresShell> contentPresShell;
     if (doc == mDocument) {
@@ -9305,7 +9308,7 @@ PresShell::DoReflow(nsIFrame* target, bool aInterruptible)
   target->SchedulePaint();
   nsIFrame *parent = nsLayoutUtils::GetCrossDocParentFrame(target);
   while (parent) {
-    nsSVGEffects::InvalidateDirectRenderingObservers(parent);
+    SVGObserverUtils::InvalidateDirectRenderingObservers(parent);
     parent = nsLayoutUtils::GetCrossDocParentFrame(parent);
   }
 

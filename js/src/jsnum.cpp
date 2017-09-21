@@ -1280,10 +1280,10 @@ js::InitNumberClass(JSContext* cx, HandleObject obj)
     RootedValue valueInfinity(cx, cx->runtime()->positiveInfinityValue);
 
     /* ES5 15.1.1.1, 15.1.1.2 */
-    if (!NativeDefineProperty(cx, global, cx->names().NaN, valueNaN, nullptr, nullptr,
-                              JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_RESOLVING) ||
-        !NativeDefineProperty(cx, global, cx->names().Infinity, valueInfinity, nullptr, nullptr,
-                              JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_RESOLVING))
+    if (!NativeDefineDataProperty(cx, global, cx->names().NaN, valueNaN,
+                                  JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_RESOLVING) ||
+        !NativeDefineDataProperty(cx, global, cx->names().Infinity, valueInfinity,
+                                  JSPROP_PERMANENT | JSPROP_READONLY | JSPROP_RESOLVING))
     {
         return nullptr;
     }
@@ -1438,14 +1438,6 @@ js::NumberToAtom(JSContext* cx, double d)
     CacheNumber(cx, d, atom);
 
     return atom;
-}
-
-JSFlatString*
-js::NumberToString(JSContext* cx, double d)
-{
-    if (JSString* str = NumberToStringWithBase<CanGC>(cx, d, 10))
-        return &str->asFlat();
-    return nullptr;
 }
 
 JSFlatString*

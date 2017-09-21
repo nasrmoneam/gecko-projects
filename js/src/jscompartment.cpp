@@ -98,6 +98,7 @@ JSCompartment::JSCompartment(Zone* zone, const JS::CompartmentOptions& options =
     jitCompartment_(nullptr),
     mappedArgumentsTemplate_(nullptr),
     unmappedArgumentsTemplate_(nullptr),
+    iterResultTemplate_(nullptr),
     lcovOutput()
 {
     PodArrayZero(sawDeprecatedLanguageExtension);
@@ -712,7 +713,7 @@ JSCompartment::traceOutgoingCrossCompartmentWrappers(JSTracer* trc)
              * We have a cross-compartment wrapper. Its private pointer may
              * point into the compartment being collected, so we should mark it.
              */
-            TraceEdge(trc, wrapper->slotOfPrivate(), "cross-compartment wrapper");
+            ProxyObject::traceEdgeToTarget(trc, wrapper);
         }
     }
 }
@@ -848,6 +849,8 @@ JSCompartment::sweepAfterMinorGC(JSTracer* trc)
         table.sweepAfterMinorGC();
 
     crossCompartmentWrappers.sweepAfterMinorGC(trc);
+
+    sweepMapAndSetObjectsAfterMinorGC();
 }
 
 void
@@ -943,6 +946,20 @@ JSCompartment::sweepWatchpoints()
         watchpointMap->sweep();
 }
 
+void
+JSCompartment::sweepMapAndSetObjectsAfterMinorGC()
+{
+    auto fop = runtime_->defaultFreeOp();
+
+    for (auto mapobj : mapsWithNurseryMemory)
+        MapObject::sweepAfterMinorGC(fop, mapobj);
+    mapsWithNurseryMemory.clearAndFree();
+
+    for (auto setobj : setsWithNurseryMemory)
+        SetObject::sweepAfterMinorGC(fop, setobj);
+    setsWithNurseryMemory.clearAndFree();
+}
+
 namespace {
 struct TraceRootFunctor {
     JSTracer* trc;
@@ -977,6 +994,9 @@ JSCompartment::sweepTemplateObjects()
 
     if (unmappedArgumentsTemplate_ && IsAboutToBeFinalized(&unmappedArgumentsTemplate_))
         unmappedArgumentsTemplate_.set(nullptr);
+
+    if (iterResultTemplate_ && IsAboutToBeFinalized(&iterResultTemplate_))
+        iterResultTemplate_.set(nullptr);
 }
 
 /* static */ void

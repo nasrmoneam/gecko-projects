@@ -5326,6 +5326,18 @@ nsRuleNode::ComputeUserInterfaceData(void* aStartStruct,
                                  mPresContext,
                                  ui->mCaretColor, conditions);
 
+  // -moz-font-smoothing-background-color:
+  const nsCSSValue* fsbColorValue =
+    aRuleData->ValueForFontSmoothingBackgroundColor();
+  if (eCSSUnit_Initial == fsbColorValue->GetUnit() ||
+      eCSSUnit_Unset == fsbColorValue->GetUnit()) {
+    ui->mFontSmoothingBackgroundColor = NS_RGBA(0, 0, 0, 0);
+  } else {
+    SetColor(*fsbColorValue, parentUI->mFontSmoothingBackgroundColor,
+             mPresContext, aContext, ui->mFontSmoothingBackgroundColor,
+             conditions);
+  }
+
   COMPUTE_END_INHERITED(UserInterface, ui)
 }
 
@@ -7736,13 +7748,10 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
     case eCSSUnit_Inherit: {
       conditions.SetUncacheable();
       border->ClearBorderColors(side);
-      if (parentContext) {
-        nsBorderColors *parentColors;
-        parentBorder->GetCompositeColors(side, &parentColors);
-        if (parentColors) {
-          border->EnsureBorderColors();
-          border->mBorderColors[side] = parentColors->Clone();
-        }
+      if (parentBorder->mBorderColors) {
+        border->EnsureBorderColors();
+        border->mBorderColors->mColors[side] =
+          parentBorder->mBorderColors->mColors[side];
       }
       break;
     }
@@ -7757,7 +7766,7 @@ nsRuleNode::ComputeBorderData(void* aStartStruct,
       while (list) {
         if (SetColor(list->mValue, unused, mPresContext,
                      aContext, borderColor, conditions))
-          border->AppendBorderColor(side, borderColor);
+          border->mBorderColors->mColors[side].AppendElement(borderColor);
         else {
           NS_NOTREACHED("unexpected item in -moz-border-*-colors list");
         }

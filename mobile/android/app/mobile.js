@@ -145,6 +145,10 @@ pref("browser.sessionstore.max_resumed_crashes", 2);
 pref("browser.sessionstore.privacy_level", 0); // saving data: 0 = all, 1 = unencrypted sites, 2 = never
 pref("browser.sessionstore.debug_logging", false);
 
+// Download protection lists are not available on Fennec.
+pref("urlclassifier.downloadAllowTable", "");
+pref("urlclassifier.downloadBlockTable", "");
+
 /* these should help performance */
 pref("mozilla.widget.force-24bpp", true);
 pref("mozilla.widget.use-buffer-pixmap", true);
@@ -235,6 +239,8 @@ pref("extensions.webextPermissionPrompts", true);
 // Add-on content security policies.
 pref("extensions.webextensions.base-content-security-policy", "script-src 'self' https://* moz-extension: blob: filesystem: 'unsafe-eval' 'unsafe-inline'; object-src 'self' https://* moz-extension: blob: filesystem:;");
 pref("extensions.webextensions.default-content-security-policy", "script-src 'self'; object-src 'self';");
+
+pref("extensions.legacy.enabled", false);
 
 /* block popups by default, and notify the user about blocked popups */
 pref("dom.disable_open_during_load", true);
@@ -569,7 +575,8 @@ pref("apz.touch_move_tolerance", "0.03");
 pref("apz.touch_start_tolerance", "0.06");
 
 #ifdef NIGHTLY_BUILD
-// Temporary fix of Bug 1390145 for Fennec Nightly
+pref("apz.frame_delay.enabled", true);
+#else
 pref("apz.frame_delay.enabled", false);
 #endif
 
@@ -645,8 +652,6 @@ pref("media.suspend-bkgnd-video.enabled", true);
 pref("image.downscale-during-decode.enabled", true);
 
 pref("browser.safebrowsing.downloads.enabled", false);
-
-pref("browser.safebrowsing.id", @MOZ_APP_UA_NAME@);
 
 // True if this is the first time we are showing about:firstrun
 pref("browser.firstrun.show.uidiscovery", true);

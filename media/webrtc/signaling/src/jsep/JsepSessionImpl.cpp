@@ -231,6 +231,13 @@ JsepSessionImpl::AddRtpExtension(std::vector<SdpExtmapAttributeList::Extmap>& ex
     return NS_ERROR_FAILURE;
   }
 
+  // Avoid adding duplicate entries
+  for (auto ext = extensions.begin(); ext != extensions.end(); ++ext) {
+    if (ext->direction == direction && ext->extensionname == extensionName) {
+      return NS_OK;
+    }
+  }
+
   SdpExtmapAttributeList::Extmap extmap =
       { static_cast<uint16_t>(extensions.size() + 1),
         direction,
@@ -641,7 +648,8 @@ JsepSessionImpl::SetupBundle(Sdp* sdp) const
 
   for (size_t i = 0; i < sdp->GetMediaSectionCount(); ++i) {
     auto& attrs = sdp->GetMediaSection(i).GetAttributeList();
-    if (attrs.HasAttribute(SdpAttribute::kMidAttribute)) {
+    if ((sdp->GetMediaSection(i).GetPort() != 0) &&
+        attrs.HasAttribute(SdpAttribute::kMidAttribute)) {
       bool useBundleOnly = false;
       switch (mBundlePolicy) {
         case kBundleMaxCompat:

@@ -890,10 +890,10 @@ PlacesController.prototype = {
         if (PlacesUIUtils.useAsyncTransactions) {
           let tag = node.parent.title;
           if (!tag) {
-            let tagGuid = PlacesUtils.getConcreteItemGuid(node.parent);
+            let tagGuid = await PlacesUtils.promiseItemGuid(tagItemId);
             tag = (await PlacesUtils.bookmarks.fetch(tagGuid)).title;
           }
-          transactions.push(PlacesTransactions.Untag({ uri, tag }));
+          transactions.push(PlacesTransactions.Untag({ urls: [uri], tag }));
         } else {
           let txn = new PlacesUntagURITransaction(uri, [tagItemId]);
           transactions.push(txn);
@@ -1598,6 +1598,10 @@ var PlacesControllerDragHelper = {
     duplicable.set(PlacesUtils.TYPE_UNICODE, new Set());
     duplicable.set(PlacesUtils.TYPE_X_MOZ_URL, new Set());
 
+    // Collect all data from the DataTransfer before processing it, as the
+    // DataTransfer is only valid during the synchronous handling of the `drop`
+    // event handler callback.
+    let dtItems = [];
     for (let i = 0; i < dropCount; ++i) {
       let flavor = this.getFirstValidFlavor(dt.mozTypesAt(i));
       if (!flavor)
@@ -1610,7 +1614,10 @@ var PlacesControllerDragHelper = {
           continue;
         handled.add(data);
       }
+      dtItems.push({flavor, data});
+    }
 
+    for (let {flavor, data} of dtItems) {
       let nodes;
       if (flavor != TAB_DROP_TYPE) {
         nodes = PlacesUtils.unwrapNodes(data, flavor);

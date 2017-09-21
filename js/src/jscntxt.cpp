@@ -1150,7 +1150,7 @@ js::UseInternalJobQueues(JSContext* cx)
     MOZ_RELEASE_ASSERT(!cx->runtime()->hasInitializedSelfHosting(),
                        "js::UseInternalJobQueues must be called early during runtime startup.");
     MOZ_ASSERT(!cx->jobQueue);
-    auto* queue = cx->new_<PersistentRooted<JobQueue>>(cx, JobQueue(SystemAllocPolicy()));
+    auto* queue = js_new<PersistentRooted<JobQueue>>(cx, JobQueue(SystemAllocPolicy()));
     if (!queue)
         return false;
 
@@ -1293,6 +1293,8 @@ JSContext::JSContext(JSRuntime* runtime, const JS::ContextOptions& options)
     requestDepth(0),
 #ifdef DEBUG
     checkRequestDepth(0),
+    inUnsafeCallWithABI(false),
+    hasAutoUnsafeCallWithABI(false),
 #endif
 #ifdef JS_SIMULATOR
     simulator_(nullptr),
@@ -1668,3 +1670,22 @@ AutoEnterOOMUnsafeRegion::crash(size_t size, const char* reason)
     }
     crash(reason);
 }
+
+#ifdef DEBUG
+AutoUnsafeCallWithABI::AutoUnsafeCallWithABI()
+  : cx_(TlsContext.get()),
+    nested_(cx_->hasAutoUnsafeCallWithABI),
+    nogc(cx_)
+{
+    cx_->hasAutoUnsafeCallWithABI = true;
+}
+
+AutoUnsafeCallWithABI::~AutoUnsafeCallWithABI()
+{
+    MOZ_ASSERT(cx_->hasAutoUnsafeCallWithABI);
+    if (!nested_) {
+        cx_->hasAutoUnsafeCallWithABI = false;
+        cx_->inUnsafeCallWithABI = false;
+    }
+}
+#endif

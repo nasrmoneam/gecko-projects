@@ -8,7 +8,6 @@
 
 #include "jit/BaselineIC.h"
 #include "jit/CacheIRCompiler.h"
-#include "jit/IonCaches.h"
 #include "jit/IonIC.h"
 #include "jit/JSJitFrameIter.h"
 #include "jit/Linker.h"
@@ -1072,14 +1071,15 @@ IonCacheIRCompiler::emitCallNativeGetterResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, IonOOLNativeExitFrameLayoutToken);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLNative);
 
     // Construct and execute call.
     masm.setupUnalignedABICall(scratch);
     masm.passABIArg(argJSContext);
     masm.passABIArg(argUintN);
     masm.passABIArg(argVp);
-    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, target->native()));
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, target->native()), MoveOp::GENERAL,
+                     CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
     // Test for failure.
     masm.branchIfFalseBool(ReturnReg, masm.exceptionLabel());
@@ -1129,7 +1129,7 @@ IonCacheIRCompiler::emitCallProxyGetResult()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, IonOOLProxyExitFrameLayoutToken);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLProxy);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
@@ -1137,7 +1137,8 @@ IonCacheIRCompiler::emitCallProxyGetResult()
     masm.passABIArg(argProxy);
     masm.passABIArg(argId);
     masm.passABIArg(argVp);
-    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, ProxyGetProperty));
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, ProxyGetProperty), MoveOp::GENERAL,
+                     CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
     // Test for failure.
     masm.branchIfFalseBool(ReturnReg, masm.exceptionLabel());
@@ -1325,9 +1326,10 @@ IonCacheIRCompiler::emitCallStringSplitResult()
 static bool
 GroupHasPropertyTypes(ObjectGroup* group, jsid* id, Value* v)
 {
-    if (group->unknownProperties())
+    AutoUnsafeCallWithABI unsafe;
+    if (group->unknownPropertiesDontCheckGeneration())
         return true;
-    HeapTypeSet* propTypes = group->maybeGetProperty(*id);
+    HeapTypeSet* propTypes = group->maybeGetPropertyDontCheckGeneration(*id);
     if (!propTypes)
         return true;
     if (!propTypes->nonConstantProperty())
@@ -1985,14 +1987,15 @@ IonCacheIRCompiler::emitCallNativeSetter()
 
     if (!masm.icBuildOOLFakeExitFrame(GetReturnAddressToIonCode(cx_), save))
         return false;
-    masm.enterFakeExitFrame(argJSContext, scratch, IonOOLNativeExitFrameLayoutToken);
+    masm.enterFakeExitFrame(argJSContext, scratch, ExitFrameToken::IonOOLNative);
 
     // Make the call.
     masm.setupUnalignedABICall(scratch);
     masm.passABIArg(argJSContext);
     masm.passABIArg(argUintN);
     masm.passABIArg(argVp);
-    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, target->native()));
+    masm.callWithABI(JS_FUNC_TO_DATA_PTR(void*, target->native()), MoveOp::GENERAL,
+                     CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
     // Test for failure.
     masm.branchIfFalseBool(ReturnReg, masm.exceptionLabel());

@@ -25,7 +25,7 @@
 
 #onboarding-overlay-button {
   padding: 10px 0 0 0;
-  position: absolute;
+  position: fixed;
   cursor: pointer;
   top: 4px;
   offset-inline-start: 12px;
@@ -45,7 +45,7 @@
   transition: outline-offset 150ms;
 }
 
-#onboarding-overlay-button-icon {
+#onboarding-overlay-button > img {
   width: 32px;
   vertical-align: top;
 }
@@ -94,6 +94,16 @@
   box-shadow: 2px 0 5px 0 rgba(74, 74, 79, 0.25);
 }
 
+#onboarding-overlay-button-watermark-icon,
+#onboarding-overlay-button.onboarding-watermark::after,
+#onboarding-overlay-button.onboarding-watermark:not(:hover) > #onboarding-overlay-button-icon {
+  display: none;
+}
+
+#onboarding-overlay-button.onboarding-watermark:not(:hover) > #onboarding-overlay-button-watermark-icon {
+  display: block;
+}
+
 #onboarding-overlay-dialog,
 .onboarding-hidden,
 #onboarding-tour-sync-page[data-login-state=logged-in] .show-on-logged-out,
@@ -117,6 +127,7 @@
   content: url("chrome://global/skin/icons/close.svg");
   -moz-context-properties: fill, fill-opacity;
   fill-opacity: 0;
+  fill: currentColor;
 }
 
 .onboarding-close-btn:-moz-any(:hover, :active, :focus, :-moz-focusring)::before {
@@ -198,6 +209,7 @@
   background-size: 20px;
   font-size: 16px;
   cursor: pointer;
+  max-height: 54px;
 }
 
 #onboarding-tour-list .onboarding-tour-item:dir(rtl) {
@@ -385,7 +397,7 @@
 }
 
 #onboarding-tour-singlesearch.onboarding-active,
-#onboarding-tour-singlesearch:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-singlesearch {
   background-image: url("img/icons_singlesearch-colored.svg");
 }
 
@@ -395,7 +407,7 @@
 }
 
 #onboarding-tour-private-browsing.onboarding-active,
-#onboarding-tour-private-browsing:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-private-browsing {
   background-image: url("img/icons_private-colored.svg");
 }
 
@@ -405,7 +417,7 @@
 }
 
 #onboarding-tour-addons.onboarding-active,
-#onboarding-tour-addons:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-addons {
   background-image: url("img/icons_addons-colored.svg");
 }
 
@@ -415,7 +427,7 @@
 }
 
 #onboarding-tour-customize.onboarding-active,
-#onboarding-tour-customize:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-customize {
   background-image: url("img/icons_customize-colored.svg");
 }
 
@@ -425,7 +437,7 @@
 }
 
 #onboarding-tour-default-browser.onboarding-active,
-#onboarding-tour-default-browser:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-default-browser {
   background-image: url("img/icons_default-colored.svg");
 }
 
@@ -435,7 +447,7 @@
 }
 
 #onboarding-tour-sync.onboarding-active,
-#onboarding-tour-sync:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-sync {
   background-image: url("img/icons_sync-colored.svg");
 }
 
@@ -445,7 +457,7 @@
 }
 
 #onboarding-tour-library.onboarding-active,
-#onboarding-tour-library:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-library {
   background-image: url("img/icons_library-colored.svg");
 }
 
@@ -455,7 +467,7 @@
 }
 
 #onboarding-tour-performance.onboarding-active,
-#onboarding-tour-performance:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-performance {
   background-image: url("img/icons_performance-colored.svg");
 }
 
@@ -465,7 +477,7 @@
 }
 
 #onboarding-tour-screenshots.onboarding-active,
-#onboarding-tour-screenshots:hover {
+.onboarding-tour-item-container:hover #onboarding-tour-screenshots {
   background-image: url("img/icons_screenshots-colored.svg");
 }
 
@@ -519,7 +531,7 @@ a#onboarding-tour-screenshots-button:visited {
   margin: 0 18px;
   color: #0c0c0d;
   display: inline-block;
-  max-height: 100%;
+  max-height: 120px;
   overflow: auto;
   padding: 15px 0;
   box-sizing: border-box;
@@ -527,7 +539,7 @@ a#onboarding-tour-screenshots-button:visited {
 
 #onboarding-notification-body * {
   font-size: 12px;
-  font-weight: 200;
+  font-weight: normal;
   margin-top: 5px;
 }
 

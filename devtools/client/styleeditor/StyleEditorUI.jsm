@@ -10,7 +10,7 @@ this.EXPORTED_SYMBOLS = ["StyleEditorUI"];
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
-const {require} = Cu.import("resource://devtools/shared/Loader.jsm", {});
+const {loader, require} = Cu.import("resource://devtools/shared/Loader.jsm", {});
 const Services = require("Services");
 const {NetUtil} = require("resource://gre/modules/NetUtil.jsm");
 const {OS} = require("resource://gre/modules/osfile.jsm");
@@ -29,9 +29,9 @@ const {PluralForm} = require("devtools/shared/plural-form");
 const {PrefObserver} = require("devtools/client/shared/prefs");
 const csscoverage = require("devtools/shared/fronts/csscoverage");
 const {console} = require("resource://gre/modules/Console.jsm");
-const {ResponsiveUIManager} =
-  require("resource://devtools/client/responsivedesign/responsivedesign.jsm");
 const {KeyCodes} = require("devtools/client/shared/keycodes");
+
+loader.lazyRequireGetter(this, "ResponsiveUIManager", "devtools/client/responsivedesign/responsivedesign");
 
 const LOAD_ERROR = "error-load";
 const STYLE_EDITOR_TEMPLATE = "stylesheet";
@@ -39,7 +39,7 @@ const SELECTOR_HIGHLIGHTER_TYPE = "SelectorHighlighter";
 const PREF_MEDIA_SIDEBAR = "devtools.styleeditor.showMediaSidebar";
 const PREF_SIDEBAR_WIDTH = "devtools.styleeditor.mediaSidebarWidth";
 const PREF_NAV_WIDTH = "devtools.styleeditor.navSidebarWidth";
-const PREF_ORIG_SOURCES = "devtools.styleeditor.source-maps-enabled";
+const PREF_ORIG_SOURCES = "devtools.source-map.client-service.enabled";
 
 /**
  * StyleEditorUI is controls and builds the UI of the Style Editor, including
@@ -93,8 +93,9 @@ function StyleEditorUI(debuggee, target, panelDoc, cssProperties) {
   this._addStyleSheet = this._addStyleSheet.bind(this);
 
   this._prefObserver = new PrefObserver("devtools.styleeditor.");
-  this._prefObserver.on(PREF_ORIG_SOURCES, this._onNewDocument);
   this._prefObserver.on(PREF_MEDIA_SIDEBAR, this._onMediaPrefChanged);
+  this._sourceMapPrefObserver = new PrefObserver("devtools.source-map.client-service.");
+  this._sourceMapPrefObserver.on(PREF_ORIG_SOURCES, this._onNewDocument);
 
   this._debuggee.on("stylesheet-added", this._addStyleSheet);
 }
@@ -1060,7 +1061,8 @@ StyleEditorUI.prototype = {
     this._optionsMenu.removeEventListener("popuphiding",
                                           this._onOptionsPopupHiding);
 
-    this._prefObserver.off(PREF_ORIG_SOURCES, this._onNewDocument);
+    this._sourceMapPrefObserver.off(PREF_ORIG_SOURCES, this._onNewDocument);
+    this._sourceMapPrefObserver.destroy();
     this._prefObserver.off(PREF_MEDIA_SIDEBAR, this._onMediaPrefChanged);
     this._prefObserver.destroy();
 

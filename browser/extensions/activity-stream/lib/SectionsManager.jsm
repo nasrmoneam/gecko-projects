@@ -4,9 +4,10 @@
 "use strict";
 
 const {utils: Cu} = Components;
+Cu.import("resource://gre/modules/EventEmitter.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 const {actionCreators: ac, actionTypes: at} = Cu.import("resource://activity-stream/common/Actions.jsm", {});
-Cu.import("resource://gre/modules/EventEmitter.jsm");
+const {Dedupe} = Cu.import("resource://activity-stream/common/Dedupe.jsm", {});
 
 /*
  * Generators for built in sections, keyed by the pref name for their feed.
@@ -35,7 +36,9 @@ const BUILT_IN_SECTIONS = {
       message: {id: "topstories_empty_state", values: {provider: options.provider_name}},
       icon: "check"
     },
-    order: 0
+    shouldSendImpressionStats: true,
+    order: 0,
+    dedupeFrom: ["highlights"]
   }),
   "feeds.section.highlights": options => ({
     id: "highlights",
@@ -48,11 +51,12 @@ const BUILT_IN_SECTIONS = {
     icon: "highlights",
     title: {id: "header_highlights"},
     maxRows: 3,
-    availableContextMenuOptions: ["CheckBookmark", "SaveToPocket", "Separator", "OpenInNewWindow", "OpenInPrivateWindow", "Separator", "BlockUrl"],
+    availableContextMenuOptions: ["CheckBookmark", "SaveToPocket", "Separator", "OpenInNewWindow", "OpenInPrivateWindow", "Separator", "BlockUrl", "DeleteUrl"],
     emptyState: {
       message: {id: "highlights_empty_state"},
       icon: "highlights"
     },
+    shouldSendImpressionStats: false,
     order: 1
   })
 };
@@ -70,6 +74,8 @@ const SectionsManager = {
 
     Object.keys(this.CONTEXT_MENU_PREFS).forEach(k =>
       Services.prefs.addObserver(this.CONTEXT_MENU_PREFS[k], this));
+
+    this.dedupe = new Dedupe(site => site && site.url);
 
     this.initialized = true;
     this.emit(this.INIT);
@@ -121,9 +127,31 @@ const SectionsManager = {
     this.updateSectionContextMenuOptions(options);
 
     if (this.sections.has(id)) {
-      this.sections.set(id, Object.assign(this.sections.get(id), options));
-      this.emit(this.UPDATE_SECTION, id, options, shouldBroadcast);
+      const dedupedOptions = this.dedupeRows(id, options);
+      this.sections.set(id, Object.assign(this.sections.get(id), dedupedOptions));
+      this.emit(this.UPDATE_SECTION, id, dedupedOptions, shouldBroadcast);
+
+      // Update any sections that dedupe from the updated section
+      this.sections.forEach(section => {
+        if (section.dedupeFrom && section.dedupeFrom.includes(id)) {
+          this.updateSection(section.id, section, shouldBroadcast);
+        }
+      });
     }
+  },
+  dedupeRows(id, options) {
+    const newOptions = Object.assign({}, options);
+    const dedupeFrom = this.sections.get(id).dedupeFrom;
+    if (dedupeFrom && dedupeFrom.length > 0 && options.rows) {
+      for (const sectionId of dedupeFrom) {
+        const section = this.sections.get(sectionId);
+        if (section && section.rows) {
+          const [, newRows] = this.dedupe.group(section.rows, options.rows);
+          newOptions.rows = newRows;
+        }
+      }
+    }
+    return newOptions;
   },
 
   /**
@@ -137,6 +165,26 @@ const SectionsManager = {
     if (options.availableContextMenuOptions) {
       options.contextMenuOptions = options.availableContextMenuOptions.filter(
         o => !this.CONTEXT_MENU_PREFS[o] || Services.prefs.getBoolPref(this.CONTEXT_MENU_PREFS[o]));
+    }
+  },
+
+  /**
+   * Update a specific section card by its url. This allows an action to be
+   * broadcast to all existing pages to update a specific card without having to
+   * also force-update the rest of the section's cards and state on those pages.
+   *
+   * @param id              The id of the section with the card to be updated
+   * @param url             The url of the card to update
+   * @param options         The options to update for the card
+   * @param shouldBroadcast Whether or not to broadcast the update
+   */
+  updateSectionCard(id, url, options, shouldBroadcast) {
+    if (this.sections.has(id)) {
+      const card = this.sections.get(id).rows.find(elem => elem.url === url);
+      if (card) {
+        Object.assign(card, options);
+      }
+      this.emit(this.UPDATE_SECTION_CARD, id, url, options, shouldBroadcast);
     }
   },
   onceInitialized(callback) {
@@ -160,6 +208,7 @@ for (const action of [
   "ENABLE_SECTION",
   "DISABLE_SECTION",
   "UPDATE_SECTION",
+  "UPDATE_SECTION_CARD",
   "INIT",
   "UNINIT"
 ]) {
@@ -174,12 +223,14 @@ class SectionsFeed {
     this.onAddSection = this.onAddSection.bind(this);
     this.onRemoveSection = this.onRemoveSection.bind(this);
     this.onUpdateSection = this.onUpdateSection.bind(this);
+    this.onUpdateSectionCard = this.onUpdateSectionCard.bind(this);
   }
 
   init() {
     SectionsManager.on(SectionsManager.ADD_SECTION, this.onAddSection);
     SectionsManager.on(SectionsManager.REMOVE_SECTION, this.onRemoveSection);
     SectionsManager.on(SectionsManager.UPDATE_SECTION, this.onUpdateSection);
+    SectionsManager.on(SectionsManager.UPDATE_SECTION_CARD, this.onUpdateSectionCard);
     // Catch any sections that have already been added
     SectionsManager.sections.forEach((section, id) =>
       this.onAddSection(SectionsManager.ADD_SECTION, id, section));
@@ -191,6 +242,7 @@ class SectionsFeed {
     SectionsManager.off(SectionsManager.ADD_SECTION, this.onAddSection);
     SectionsManager.off(SectionsManager.REMOVE_SECTION, this.onRemoveSection);
     SectionsManager.off(SectionsManager.UPDATE_SECTION, this.onUpdateSection);
+    SectionsManager.off(SectionsManager.UPDATE_SECTION_CARD, this.onUpdateSectionCard);
   }
 
   onAddSection(event, id, options) {
@@ -206,6 +258,13 @@ class SectionsFeed {
   onUpdateSection(event, id, options, shouldBroadcast = false) {
     if (options) {
       const action = {type: at.SECTION_UPDATE, data: Object.assign(options, {id})};
+      this.store.dispatch(shouldBroadcast ? ac.BroadcastToContent(action) : action);
+    }
+  }
+
+  onUpdateSectionCard(event, id, url, options, shouldBroadcast = false) {
+    if (options) {
+      const action = {type: at.SECTION_UPDATE_CARD, data: {id, url, options}};
       this.store.dispatch(shouldBroadcast ? ac.BroadcastToContent(action) : action);
     }
   }

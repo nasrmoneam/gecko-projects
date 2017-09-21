@@ -236,9 +236,6 @@ let InternalFaviconLoader = {
 
     let {innerWindowID, currentURI} = browser;
 
-    // Immediately cancel any earlier requests
-    this.removeRequestsForInner(innerWindowID);
-
     // First we do the actual setAndFetch call:
     let loadType = PrivateBrowsingUtils.isWindowPrivate(win)
       ? PlacesUtils.favicons.FAVICON_LOAD_PRIVATE
@@ -1576,6 +1573,8 @@ XPCOMUtils.defineLazyPreferenceGetter(PlacesUIUtils, "loadBookmarksInBackground"
                                       PREF_LOAD_BOOKMARKS_IN_BACKGROUND, false);
 XPCOMUtils.defineLazyPreferenceGetter(PlacesUIUtils, "loadBookmarksInTabs",
                                       PREF_LOAD_BOOKMARKS_IN_TABS, false);
+XPCOMUtils.defineLazyPreferenceGetter(PlacesUIUtils, "openInTabClosesMenu",
+  "browser.bookmarks.openInTabClosesMenu", false);
 
 XPCOMUtils.defineLazyServiceGetter(this, "URIFixup",
                                    "@mozilla.org/docshell/urifixup;1",

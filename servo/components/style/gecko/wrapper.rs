@@ -19,7 +19,7 @@ use app_units::Au;
 use applicable_declarations::ApplicableDeclarationBlock;
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use context::{QuirksMode, SharedStyleContext, PostAnimationTasks, UpdateAnimationsTasks};
-use data::{ElementData, RestyleData};
+use data::ElementData;
 use dom::{LayoutIterator, NodeInfo, TElement, TNode, UnsafeNode};
 use dom::{OpaqueNode, PresentationalHintsSynthesizer};
 use element_state::{ElementState, DocumentState, NS_DOCUMENT_STATE_WINDOW_INACTIVE};
@@ -498,19 +498,19 @@ impl<'le> GeckoElement<'le> {
 
     /// Returns true if a traversal starting from this element requires a post-traversal.
     pub fn needs_post_traversal(&self) -> bool {
-        debug!("needs_post_traversal: dd={}, aodd={}, lfcd={}, lfc={}, restyle={:?}",
+        debug!("needs_post_traversal: dd={}, aodd={}, lfcd={}, lfc={}, data={:?}",
                self.has_dirty_descendants(),
                self.has_animation_only_dirty_descendants(),
                self.descendants_need_frames(),
                self.needs_frame(),
-               self.borrow_data().unwrap().restyle);
+               self.borrow_data().unwrap());
 
         let has_flag =
             self.flags() & (ELEMENT_HAS_DIRTY_DESCENDANTS_FOR_SERVO as u32 |
                             ELEMENT_HAS_ANIMATION_ONLY_DIRTY_DESCENDANTS_FOR_SERVO as u32 |
                             NODE_DESCENDANTS_NEED_FRAMES as u32 |
                             NODE_NEEDS_FRAME as u32) != 0;
-        has_flag || self.borrow_data().unwrap().restyle.contains_restyle_data()
+        has_flag || self.borrow_data().unwrap().contains_restyle_data()
     }
 
     /// Returns true if this element has a shadow root.
@@ -591,6 +591,10 @@ impl<'le> GeckoElement<'le> {
 
     fn namespace_id(&self) -> i32 {
         self.as_node().node_info().mInner.mNamespaceID
+    }
+
+    fn is_html_element(&self) -> bool {
+        self.namespace_id() == (structs::root::kNameSpaceID_XHTML as i32)
     }
 
     fn is_xul_element(&self) -> bool {
@@ -688,10 +692,9 @@ impl<'le> GeckoElement<'le> {
     /// Also this function schedules style flush.
     unsafe fn maybe_restyle<'a>(&self,
                                 data: &'a mut ElementData,
-                                animation_only: bool) -> Option<&'a mut RestyleData> {
-        // Don't generate a useless RestyleData if the element hasn't been styled.
+                                animation_only: bool) -> bool {
         if !data.has_styles() {
-            return None;
+            return false;
         }
 
         // Propagate the bit up the chain.
@@ -702,7 +705,7 @@ impl<'le> GeckoElement<'le> {
         }
 
         // Ensure and return the RestyleData.
-        Some(&mut data.restyle)
+        true
     }
 
     /// Set restyle and change hints to the element data.
@@ -722,12 +725,12 @@ impl<'le> GeckoElement<'le> {
                       "Animation restyle hints should not appear with non-animation restyle hints");
 
         let mut maybe_data = self.mutate_data();
-        let maybe_restyle_data = maybe_data.as_mut().and_then(|d| unsafe {
+        let should_restyle = maybe_data.as_mut().map_or(false, |d| unsafe {
             self.maybe_restyle(d, restyle_hint.has_animation_hint())
         });
-        if let Some(restyle_data) = maybe_restyle_data {
-            restyle_data.hint.insert(restyle_hint.into());
-            restyle_data.damage |= damage;
+        if should_restyle {
+            maybe_data.as_mut().unwrap().hint.insert(restyle_hint.into());
+            maybe_data.as_mut().unwrap().damage |= damage;
         } else {
             debug!("(Element not styled, discarding hints)");
         }
@@ -1485,11 +1488,11 @@ impl<'le> TElement for GeckoElement<'le> {
         }
     }
 
-    fn match_element_lang(&self,
-                          override_lang: Option<Option<AttrValue>>,
-                          value: &PseudoClassStringArg)
-                          -> bool
-    {
+    fn match_element_lang(
+        &self,
+        override_lang: Option<Option<AttrValue>>,
+        value: &PseudoClassStringArg
+    ) -> bool {
         // Gecko supports :lang() from CSS Selectors 3, which only accepts a
         // single language tag, and which performs simple dash-prefix matching
         // on it.
@@ -1502,6 +1505,18 @@ impl<'le> TElement for GeckoElement<'le> {
         unsafe {
             Gecko_MatchLang(self.0, override_lang_ptr, override_lang.is_some(), value.as_ptr())
         }
+    }
+
+    fn is_html_document_body_element(&self) -> bool {
+        if self.get_local_name() != &*local_name!("body") {
+            return false;
+        }
+
+        if !self.is_html_element() {
+            return false;
+        }
+
+        unsafe { bindings::Gecko_IsDocumentBody(self.0) }
     }
 }
 
@@ -1723,11 +1738,12 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
         None
     }
 
-    fn attr_matches(&self,
-                    ns: &NamespaceConstraint<&Namespace>,
-                    local_name: &Atom,
-                    operation: &AttrSelectorOperation<&Atom>)
-                    -> bool {
+    fn attr_matches(
+        &self,
+        ns: &NamespaceConstraint<&Namespace>,
+        local_name: &Atom,
+        operation: &AttrSelectorOperation<&Atom>
+    ) -> bool {
         unsafe {
             match *operation {
                 AttrSelectorOperation::Exists => {
@@ -2011,10 +2027,8 @@ impl<'le> ::selectors::Element for GeckoElement<'le> {
     }
 
     fn is_html_element_in_html_document(&self) -> bool {
-        let node = self.as_node();
-        let node_info = node.node_info();
-        node_info.mInner.mNamespaceID == (structs::root::kNameSpaceID_XHTML as i32) &&
-        node.owner_doc().mType == structs::root::nsIDocument_Type::eHTML
+        self.is_html_element() &&
+        self.as_node().owner_doc().mType == structs::root::nsIDocument_Type::eHTML
     }
 
     fn ignores_nth_child_selectors(&self) -> bool {

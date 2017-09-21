@@ -624,7 +624,8 @@ def handle_keyed_by(config, tests):
 def enable_code_coverage(config, tests):
     """Enable code coverage for the linux64-ccov/opt & linux64-jsdcov/opt build-platforms"""
     for test in tests:
-        if test['build-platform'] == 'linux64-ccov/opt':
+        if test['build-platform'] == 'linux64-ccov/opt' and \
+                not test['test-name'].startswith('test-verify'):
             test['mozharness'].setdefault('extra-options', []).append('--code-coverage')
             test['when'] = {}
             test['instance-size'] = 'xlarge'
@@ -696,6 +697,10 @@ def split_chunks(config, tests):
             test['this-chunk'] = 1
             yield test
             continue
+
+        # HACK: Bug 1373578 appears to pass with more chunks, non-e10s only though
+        if test['test-platform'] == 'windows7-32/debug' and test['test-name'] == 'reftest':
+            test['chunks'] = 32
 
         for this_chunk in range(1, test['chunks'] + 1):
             # copy the test and update with the chunk number

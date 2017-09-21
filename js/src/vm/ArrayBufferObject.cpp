@@ -304,7 +304,7 @@ ArrayBufferObject::class_constructor(JSContext* cx, unsigned argc, Value* vp)
 static ArrayBufferObject::BufferContents
 AllocateArrayBufferContents(JSContext* cx, uint32_t nbytes)
 {
-    uint8_t* p = cx->runtime()->pod_callocCanGC<uint8_t>(nbytes);
+    uint8_t* p = cx->zone()->pod_callocCanGC<uint8_t>(nbytes);
     if (!p)
         ReportOutOfMemory(cx);
 
@@ -1254,8 +1254,8 @@ ArrayBufferObject::trace(JSTracer* trc, JSObject* obj)
     buf.setSlot(DATA_SLOT, PrivateValue(view->as<InlineTransparentTypedObject>().inlineTypedMem()));
 }
 
-/* static */ void
-ArrayBufferObject::objectMoved(JSObject* obj, const JSObject* old)
+/* static */ size_t
+ArrayBufferObject::objectMoved(JSObject* obj, JSObject* old)
 {
     ArrayBufferObject& dst = obj->as<ArrayBufferObject>();
     const ArrayBufferObject& src = old->as<ArrayBufferObject>();
@@ -1263,6 +1263,8 @@ ArrayBufferObject::objectMoved(JSObject* obj, const JSObject* old)
     // Fix up possible inline data pointer.
     if (src.hasInlineData())
         dst.setSlot(DATA_SLOT, PrivateValue(dst.inlineDataPointer()));
+
+    return 0;
 }
 
 ArrayBufferViewObject*

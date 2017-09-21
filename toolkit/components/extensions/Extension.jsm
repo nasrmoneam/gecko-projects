@@ -82,8 +82,6 @@ XPCOMUtils.defineLazyServiceGetters(this, {
 });
 
 XPCOMUtils.defineLazyPreferenceGetter(this, "processCount", "dom.ipc.processCount.extension");
-XPCOMUtils.defineLazyPreferenceGetter(this, "useRemoteWebExtensions",
-                                      "extensions.webextensions.remote", false);
 
 var {
   GlobalManager,
@@ -102,7 +100,7 @@ XPCOMUtils.defineLazyGetter(this, "console", ExtensionUtils.getConsole);
 XPCOMUtils.defineLazyGetter(this, "LocaleData", () => ExtensionCommon.LocaleData);
 
 // The maximum time to wait for extension shutdown blockers to complete.
-const SHUTDOWN_BLOCKER_MAX_MS = 1000;
+const SHUTDOWN_BLOCKER_MAX_MS = 8000;
 
 // The list of properties that themes are allowed to contain.
 XPCOMUtils.defineLazyGetter(this, "allowedThemeProperties", () => {
@@ -382,7 +380,7 @@ this.ExtensionData = class {
 
   async readDirectory(path) {
     if (this.rootURI instanceof Ci.nsIFileURL) {
-      let uri = Services.io.newURI(this.rootURI.resolve("./" + path));
+      let uri = Services.io.newURI("./" + path, null, this.rootURI);
       let fullPath = uri.QueryInterface(Ci.nsIFileURL).file.path;
 
       let iter = new OS.File.DirectoryIterator(fullPath);
@@ -576,6 +574,10 @@ this.ExtensionData = class {
     let webAccessibleResources = [];
 
     if (this.type === "extension") {
+      if (this.manifest.devtools_page) {
+        permissions.add("devtools");
+      }
+
       for (let perm of manifest.permissions) {
         if (perm === "geckoProfiler") {
           const acceptedExtensions = Services.prefs.getStringPref("extensions.geckoProfiler.acceptedExtensionIds", "");
@@ -827,7 +829,7 @@ this.ExtensionData = class {
     let perms = info.permissions || {origins: [], permissions: []};
 
     // First classify our host permissions
-    let allUrls = false, wildcards = [], sites = [];
+    let allUrls = false, wildcards = new Set(), sites = new Set();
     for (let permission of perms.origins) {
       if (permission == "<all_urls>") {
         allUrls = true;
@@ -841,9 +843,9 @@ this.ExtensionData = class {
       if (match[1] == "*") {
         allUrls = true;
       } else if (match[1].startsWith("*.")) {
-        wildcards.push(match[1].slice(2));
+        wildcards.add(match[1].slice(2));
       } else {
-        sites.push(match[1]);
+        sites.add(match[1]);
       }
     }
 
@@ -872,9 +874,9 @@ this.ExtensionData = class {
         }
       };
 
-      format(wildcards, "webextPerms.hostDescription.wildcard",
+      format(Array.from(wildcards), "webextPerms.hostDescription.wildcard",
              "webextPerms.hostDescription.tooManyWildcards");
-      format(sites, "webextPerms.hostDescription.oneSite",
+      format(Array.from(sites), "webextPerms.hostDescription.oneSite",
              "webextPerms.hostDescription.tooManySites");
     }
 
@@ -900,15 +902,19 @@ this.ExtensionData = class {
       }
     }
 
+    const haveAccessKeys = (AppConstants.platform !== "android");
+
     result.header = bundle.formatStringFromName("webextPerms.header", [info.addonName], 1);
     result.text = info.unsigned ?
                   bundle.GetStringFromName("webextPerms.unsignedWarning") : "";
     result.listIntro = bundle.GetStringFromName("webextPerms.listIntro");
 
     result.acceptText = bundle.GetStringFromName("webextPerms.add.label");
-    result.acceptKey = bundle.GetStringFromName("webextPerms.add.accessKey");
     result.cancelText = bundle.GetStringFromName("webextPerms.cancel.label");
-    result.cancelKey = bundle.GetStringFromName("webextPerms.cancel.accessKey");
+    if (haveAccessKeys) {
+      result.acceptKey = bundle.GetStringFromName("webextPerms.add.accessKey");
+      result.cancelKey = bundle.GetStringFromName("webextPerms.cancel.accessKey");
+    }
 
     if (info.type == "sideload") {
       result.header = bundle.formatStringFromName("webextPerms.sideloadHeader", [info.addonName], 1);
@@ -916,22 +922,28 @@ this.ExtensionData = class {
                 "webextPerms.sideloadTextNoPerms" : "webextPerms.sideloadText2";
       result.text = bundle.GetStringFromName(key);
       result.acceptText = bundle.GetStringFromName("webextPerms.sideloadEnable.label");
-      result.acceptKey = bundle.GetStringFromName("webextPerms.sideloadEnable.accessKey");
       result.cancelText = bundle.GetStringFromName("webextPerms.sideloadCancel.label");
-      result.cancelKey = bundle.GetStringFromName("webextPerms.sideloadCancel.accessKey");
+      if (haveAccessKeys) {
+        result.acceptKey = bundle.GetStringFromName("webextPerms.sideloadEnable.accessKey");
+        result.cancelKey = bundle.GetStringFromName("webextPerms.sideloadCancel.accessKey");
+      }
     } else if (info.type == "update") {
       result.header = "";
       result.text = bundle.formatStringFromName("webextPerms.updateText", [info.addonName], 1);
       result.acceptText = bundle.GetStringFromName("webextPerms.updateAccept.label");
-      result.acceptKey = bundle.GetStringFromName("webextPerms.updateAccept.accessKey");
+      if (haveAccessKeys) {
+        result.acceptKey = bundle.GetStringFromName("webextPerms.updateAccept.accessKey");
+      }
     } else if (info.type == "optional") {
       result.header = bundle.formatStringFromName("webextPerms.optionalPermsHeader", [info.addonName], 1);
       result.text = "";
       result.listIntro = bundle.GetStringFromName("webextPerms.optionalPermsListIntro");
       result.acceptText = bundle.GetStringFromName("webextPerms.optionalPermsAllow.label");
-      result.acceptKey = bundle.GetStringFromName("webextPerms.optionalPermsAllow.accessKey");
       result.cancelText = bundle.GetStringFromName("webextPerms.optionalPermsDeny.label");
-      result.cancelKey = bundle.GetStringFromName("webextPerms.optionalPermsDeny.accessKey");
+      if (haveAccessKeys) {
+        result.acceptKey = bundle.GetStringFromName("webextPerms.optionalPermsAllow.accessKey");
+        result.cancelKey = bundle.GetStringFromName("webextPerms.optionalPermsDeny.accessKey");
+      }
     }
 
     return result;
@@ -1012,7 +1024,7 @@ this.Extension = class extends ExtensionData {
       StartupCache.clearAddonData(addonData.id);
     }
 
-    this.remote = useRemoteWebExtensions;
+    this.remote = !WebExtensionPolicy.isExtensionProcess;
 
     if (this.remote && processCount !== 1) {
       throw new Error("Out-of-process WebExtensions are not supported with multiple child processes");
@@ -1714,7 +1726,6 @@ this.Langpack = class extends ExtensionData {
             chromeEntries.push(["locale", alias, language, path[platform]]);
           }
         }
-
       }
     }
     return chromeEntries;

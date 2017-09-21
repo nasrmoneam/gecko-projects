@@ -85,7 +85,6 @@ class nsIMessageBroadcaster;
 class nsNameSpaceManager;
 class nsIObserver;
 class nsIParser;
-class nsIParserService;
 class nsIPluginTag;
 class nsIPresShell;
 class nsIPrincipal;
@@ -611,8 +610,6 @@ public:
   // Check if a node is in the document prolog, i.e. before the document
   // element.
   static bool InProlog(nsINode *aNode);
-
-  static nsIParserService* GetParserService();
 
   static nsNameSpaceManager* NameSpaceManager()
   {
@@ -2929,6 +2926,17 @@ public:
   static StorageAccess StorageAllowedForWindow(nsPIDOMWindowInner* aWindow);
 
   /*
+   * Checks if storage for the given document is permitted by a combination of
+   * the user's preferences, and whether the document's window is a third-party
+   * iframe.
+   *
+   * Note, this may be used on documents during the loading process where
+   * the window's extant document has not been set yet.  The code in
+   * StorageAllowedForWindow(), however, will not work in these cases.
+   */
+  static StorageAccess StorageAllowedForDocument(nsIDocument* aDoc);
+
+  /*
    * Checks if storage for the given principal is permitted by the user's
    * preferences. The caller is assumed to not be a third-party iframe.
    * (if that is possible, the caller should use StorageAllowedForWindow)
@@ -3084,6 +3092,13 @@ public:
    */
   static bool
   IsLocalRefURL(const nsString& aString);
+
+  /**
+   * Detect whether a string is a local-url.
+   * https://drafts.csswg.org/css-values/#local-urls
+   */
+  static bool
+  IsLocalRefURL(const nsACString& aString);
 
   static bool
   IsCustomElementsEnabled() { return sIsCustomElementsEnabled; }
@@ -3246,8 +3261,6 @@ private:
   static nsIScriptSecurityManager *sSecurityManager;
   static nsIPrincipal *sSystemPrincipal;
   static nsIPrincipal *sNullSubjectPrincipal;
-
-  static nsIParserService *sParserService;
 
   static nsNameSpaceManager *sNameSpaceManager;
 

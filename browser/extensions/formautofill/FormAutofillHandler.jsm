@@ -121,6 +121,11 @@ FormAutofillHandler.prototype = {
   },
 
   /**
+   * Time in milliseconds since epoch when a user started filling in the form.
+   */
+  timeStartedFillingMS: null,
+
+  /**
    * Set fieldDetails from the form about fields that can be autofilled.
    *
    * @param {boolean} allowDuplicates
@@ -153,19 +158,34 @@ FormAutofillHandler.prototype = {
       log.debug("Ignoring credit card related fields since it's without credit card number field");
       this.creditCard.fieldDetails = [];
     }
+    let validDetails = Array.of(...(this.address.fieldDetails),
+                                ...(this.creditCard.fieldDetails));
+    for (let detail of validDetails) {
+      let input = detail.elementWeakRef.get();
+      if (!input) {
+        continue;
+      }
+      input.addEventListener("input", this);
+    }
 
-    return Array.of(...(this.address.fieldDetails),
-                    ...(this.creditCard.fieldDetails));
+    return validDetails;
   },
 
   getFieldDetailByName(fieldName) {
     return this.fieldDetails.find(detail => detail.fieldName == fieldName);
   },
 
-  getFieldDetailsByElement(element) {
-    let fieldDetail = this.fieldDetails.find(
+  getFieldDetailByElement(element) {
+    return this.fieldDetails.find(
       detail => detail.elementWeakRef.get() == element
     );
+  },
+
+  getFieldDetailsByElement(element) {
+    let fieldDetail = this.getFieldDetailByElement(element);
+    if (!fieldDetail) {
+      return [];
+    }
     if (FormAutofillUtils.isAddressField(fieldDetail.fieldName)) {
       return this.address.fieldDetails;
     }
@@ -576,6 +596,12 @@ FormAutofillHandler.prototype = {
       delete data.creditCard;
     }
 
+    // If both address and credit card exists, skip this metrics because it not a
+    // general case and each specific histogram might contains insufficient data set.
+    if (data.address && data.creditCard) {
+      this.timeStartedFillingMS = null;
+    }
+
     return data;
   },
 
@@ -631,5 +657,24 @@ FormAutofillHandler.prototype = {
 
       Services.cpmm.sendAsyncMessage("FormAutofill:GetDecryptedString", {cipherText, reauth});
     });
+  },
+
+  handleEvent(event) {
+    switch (event.type) {
+      case "input":
+        if (!event.isTrusted) {
+          return;
+        }
+
+        for (let detail of this.fieldDetails) {
+          let input = detail.elementWeakRef.get();
+          if (!input) {
+            continue;
+          }
+          input.removeEventListener("input", this);
+        }
+        this.timeStartedFillingMS = Date.now();
+        break;
+    }
   },
 };

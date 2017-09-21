@@ -12,7 +12,6 @@
 #include "jit/BaselineCacheIRCompiler.h"
 #include "jit/BaselineIC.h"
 #include "jit/CacheIRSpewer.h"
-#include "jit/IonCaches.h"
 
 #include "vm/SelfHosting.h"
 #include "jsobjinlines.h"
@@ -1681,7 +1680,7 @@ CanAttachDenseElementHole(JSObject* obj, bool ownProp)
     // because we would have to lookup a property on the prototype instead.
     do {
         // The first two checks are also relevant to the receiver object.
-        if (obj->isIndexed())
+        if (obj->isNative() && obj->as<NativeObject>().isIndexed())
             return false;
 
         if (ClassCanHaveExtraProperties(obj->getClass()))
@@ -3150,7 +3149,7 @@ CanAttachAddElement(JSObject* obj, bool isInit)
     // or that such properties can't appear without a shape change.
     do {
         // The first two checks are also relevant to the receiver object.
-        if (obj->isIndexed())
+        if (obj->isNative() && obj->as<NativeObject>().isIndexed())
             return false;
 
         const Class* clasp = obj->getClass();

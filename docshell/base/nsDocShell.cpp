@@ -4969,6 +4969,8 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
   NS_ENSURE_TRUE(prompter, NS_ERROR_FAILURE);
 
   const char* error = nullptr;
+  // The key used to select the appropriate error message from the properties file.
+  const char* errorDescriptionID = nullptr;
   const uint32_t kMaxFormatStrArgs = 3;
   nsAutoString formatStrs[kMaxFormatStrArgs];
   uint32_t formatStrCount = 0;
@@ -5016,6 +5018,7 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
     innermostURI->GetHost(host);
     CopyUTF8toUTF16(host, formatStrs[0]);
     formatStrCount = 1;
+    errorDescriptionID = "dnsNotFound2";
     error = "dnsNotFound";
   } else if (NS_ERROR_CONNECTION_REFUSED == aError) {
     NS_ENSURE_ARG_POINTER(aURI);
@@ -5214,6 +5217,7 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
       case NS_ERROR_MALFORMED_URI:
         // URI is malformed
         error = "malformedURI";
+        errorDescriptionID = "malformedURI2";
         break;
       case NS_ERROR_REDIRECT_LOOP:
         // Doc failed to load because the server generated too many redirects
@@ -5288,6 +5292,10 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
     return NS_OK;
   }
 
+  if (!errorDescriptionID) {
+    errorDescriptionID = error;
+  }
+
   // Test if the error needs to be formatted
   if (!messageStr.IsEmpty()) {
     // already obtained message
@@ -5336,7 +5344,7 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
       strs[i] = formatStrs[i].get();
     }
     nsAutoString str;
-    rv = stringBundle->FormatStringFromName(error, strs, formatStrCount, str);
+    rv = stringBundle->FormatStringFromName(errorDescriptionID, strs, formatStrCount, str);
     NS_ENSURE_SUCCESS(rv, rv);
     messageStr.Assign(str.get());
   }
@@ -14977,55 +14985,56 @@ nsDocShell::ShouldPrepareForIntercept(nsIURI* aURI, bool aIsNonSubresourceReques
     return NS_OK;
   }
 
+  uint32_t cookieBehavior = nsContentUtils::CookiesBehavior();
+  if (cookieBehavior == nsICookieService::BEHAVIOR_REJECT) {
+    // If cookies are disabled, don't intercept.
+    return NS_OK;
+  }
+
   RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
   if (!swm) {
     return NS_OK;
   }
 
-  nsresult result;
-  nsCOMPtr<mozIThirdPartyUtil> thirdPartyUtil =
-    do_GetService(THIRDPARTYUTIL_CONTRACTID, &result);
-  NS_ENSURE_SUCCESS(result, result);
+  if (!aIsNonSubresourceRequest) {
+    nsCOMPtr<nsIDocument> doc = GetDocument();
+    if (!doc) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
 
-  if (mCurrentURI &&
-      nsContentUtils::CookiesBehavior() == nsICookieService::BEHAVIOR_REJECT_FOREIGN) {
-    nsAutoCString uriSpec;
-    if (!(mCurrentURI->GetSpecOrDefault().EqualsLiteral("about:blank"))) {
-      // Reject the interception of third-party iframes if the cookie behaviour
-      // is set to reject all third-party cookies (1). In case that this pref
-      // is not set or can't be read, we default to allow all cookies (0) as
-      // this is the default value in all.js.
+    ErrorResult rv;
+    *aShouldIntercept = swm->IsControlled(doc, rv);
+    if (NS_WARN_IF(rv.Failed())) {
+      return rv.StealNSResult();
+    }
+
+    return NS_OK;
+  }
+
+  // If the user has set a cookie policy that restricts cookies, then
+  // avoid intercepting 3rd party iframes.
+  if (cookieBehavior != nsICookieService::BEHAVIOR_ACCEPT) {
+    nsCOMPtr<nsIDocShellTreeItem> parent;
+    GetSameTypeParent(getter_AddRefs(parent));
+    nsCOMPtr<nsPIDOMWindowOuter> parentWindow = parent ? parent->GetWindow()
+                                                       : nullptr;
+    if (parentWindow) {
+      nsresult rv = NS_OK;
+      nsCOMPtr<mozIThirdPartyUtil> thirdPartyUtil =
+        do_GetService(THIRDPARTYUTIL_CONTRACTID, &rv);
+      NS_ENSURE_SUCCESS(rv, rv);
+
       bool isThirdPartyURI = true;
-      result = thirdPartyUtil->IsThirdPartyURI(mCurrentURI, aURI,
-                                               &isThirdPartyURI);
-      if (NS_FAILED(result)) {
-          return result;
-      }
-
-      if (isThirdPartyURI) {
+      rv = thirdPartyUtil->IsThirdPartyWindow(parentWindow, aURI, &isThirdPartyURI);
+      if (NS_SUCCEEDED(rv) && isThirdPartyURI) {
         return NS_OK;
       }
     }
   }
 
-  if (aIsNonSubresourceRequest) {
-    nsCOMPtr<nsIPrincipal> principal =
-      BasePrincipal::CreateCodebasePrincipal(aURI, mOriginAttributes);
-    *aShouldIntercept = swm->IsAvailable(principal, aURI);
-    return NS_OK;
-  }
-
-  nsCOMPtr<nsIDocument> doc = GetDocument();
-  if (!doc) {
-    return NS_ERROR_NOT_AVAILABLE;
-  }
-
-  ErrorResult rv;
-  *aShouldIntercept = swm->IsControlled(doc, rv);
-  if (NS_WARN_IF(rv.Failed())) {
-    return rv.StealNSResult();
-  }
-
+  nsCOMPtr<nsIPrincipal> principal =
+    BasePrincipal::CreateCodebasePrincipal(aURI, mOriginAttributes);
+  *aShouldIntercept = swm->IsAvailable(principal, aURI);
   return NS_OK;
 }
 

@@ -23,7 +23,6 @@ const Store = require("devtools/client/inspector/store");
 loader.lazyRequireGetter(this, "initCssProperties", "devtools/shared/fronts/css-properties", true);
 loader.lazyRequireGetter(this, "HTMLBreadcrumbs", "devtools/client/inspector/breadcrumbs", true);
 loader.lazyRequireGetter(this, "KeyShortcuts", "devtools/client/shared/key-shortcuts");
-loader.lazyRequireGetter(this, "GridInspector", "devtools/client/inspector/grids/grid-inspector");
 loader.lazyRequireGetter(this, "InspectorSearch", "devtools/client/inspector/inspector-search", true);
 loader.lazyRequireGetter(this, "ToolSidebar", "devtools/client/inspector/toolsidebar", true);
 loader.lazyRequireGetter(this, "MarkupView", "devtools/client/inspector/markup/markup");
@@ -279,6 +278,16 @@ Inspector.prototype = {
     this.isReady = false;
 
     this.setupSearchBox();
+
+    // Setup the splitter before the sidebar is displayed so,
+    // we don't miss any events.
+    this.setupSplitter();
+
+    // We can display right panel with: tab bar, markup view and breadbrumb. Right after
+    // the splitter set the right and left panel sizes, in order to avoid resizing it
+    // during load of the inspector.
+    this.panelDoc.getElementById("inspector-main-content").style.visibility = "visible";
+
     this.setupSidebar();
     this.setupExtensionSidebars();
 
@@ -478,10 +487,11 @@ Inspector.prototype = {
     let SplitBox = this.React.createFactory(this.browserRequire(
       "devtools/client/shared/components/splitter/split-box"));
 
+    let { width, height } = this.getSidebarSize();
     let splitter = SplitBox({
       className: "inspector-sidebar-splitter",
-      initialWidth: INITIAL_SIDEBAR_SIZE,
-      initialHeight: INITIAL_SIDEBAR_SIZE,
+      initialWidth: width,
+      initialHeight: height,
       splitterSize: 1,
       endPanelControl: true,
       startPanel: this.InspectorTabPanel({
@@ -497,11 +507,6 @@ Inspector.prototype = {
       this.panelDoc.getElementById("inspector-splitter-box"));
 
     this.panelWin.addEventListener("resize", this.onPanelWindowResize, true);
-
-    // Persist splitter state in preferences.
-    this.sidebar.on("show", this.onSidebarShown);
-    this.sidebar.on("hide", this.onSidebarHidden);
-    this.sidebar.on("destroy", this.onSidebarHidden);
   },
 
   /**
@@ -525,7 +530,7 @@ Inspector.prototype = {
     });
   },
 
-  onSidebarShown: function () {
+  getSidebarSize: function () {
     let width;
     let height;
 
@@ -541,8 +546,11 @@ Inspector.prototype = {
       width = INITIAL_SIDEBAR_SIZE;
       height = INITIAL_SIDEBAR_SIZE;
     }
+    return { width, height };
+  },
 
-    this._splitter.setState({width, height});
+  onSidebarShown: function () {
+    this._splitter.setState(this.getSidebarSize());
   },
 
   onSidebarHidden: function () {
@@ -627,12 +635,28 @@ Inspector.prototype = {
       INSPECTOR_L10N.getStr("inspector.sidebar.computedViewTitle"),
       defaultTab == "computedview");
 
-    // Grid and layout panels aren't lazy-loaded as their module end up
-    // calling inspector.addSidebarTab
-    this.gridInspector = new GridInspector(this, this.panelWin);
-
-    const LayoutView = this.browserRequire("devtools/client/inspector/layout/layout");
-    this.layoutview = new LayoutView(this, this.panelWin);
+    // Inject a lazy loaded react tab by exposing a fake React object
+    // with a lazy defined Tab thanks to `panel` being a function
+    let layoutId = "layoutview";
+    let layoutTitle = INSPECTOR_L10N.getStr("inspector.sidebar.layoutViewTitle2");
+    this.sidebar.addTab(
+      layoutId,
+      layoutTitle,
+      {
+        props: {
+          id: layoutId,
+          title: layoutTitle
+        },
+        panel: () => {
+          if (!this.layoutview) {
+            const LayoutView =
+              this.browserRequire("devtools/client/inspector/layout/layout");
+            this.layoutview = new LayoutView(this, this.panelWin);
+          }
+          return this.layoutview.provider;
+        }
+      },
+      defaultTab == layoutId);
 
     if (this.target.form.animationsActor) {
       this.sidebar.addFrameTab(
@@ -651,9 +675,10 @@ Inspector.prototype = {
       this.sidebar.toggleTab(true, "fontinspector");
     }
 
-    // Setup the splitter before the sidebar is displayed so,
-    // we don't miss any events.
-    this.setupSplitter();
+    // Persist splitter state in preferences.
+    this.sidebar.on("show", this.onSidebarShown);
+    this.sidebar.on("hide", this.onSidebarHidden);
+    this.sidebar.on("destroy", this.onSidebarHidden);
 
     this.sidebar.show(defaultTab);
   },
@@ -1052,10 +1077,6 @@ Inspector.prototype = {
       panel.destroy();
     }
     this._panels.clear();
-
-    if (this.gridInspector) {
-      this.gridInspector.destroy();
-    }
 
     if (this.layoutview) {
       this.layoutview.destroy();
@@ -1507,7 +1528,7 @@ Inspector.prototype = {
     this._markupFrame.setAttribute("tooltip", "aHTMLTooltip");
     this._markupFrame.addEventListener("contextmenu", this._onContextMenu);
 
-    this._markupBox.setAttribute("collapsed", true);
+    this._markupBox.style.visibility = "hidden";
     this._markupBox.appendChild(this._markupFrame);
 
     this._markupFrame.addEventListener("load", this._onMarkupFrameLoad, true);
@@ -1521,10 +1542,9 @@ Inspector.prototype = {
 
     this._markupFrame.contentWindow.focus();
 
-    this._markupBox.removeAttribute("collapsed");
-
     this.markup = new MarkupView(this, this._markupFrame, this._toolbox.win);
 
+    this._markupBox.style.visibility = "visible";
     this.emit("markuploaded");
   },
 

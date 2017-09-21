@@ -522,9 +522,11 @@ static bool
 str_enumerate(JSContext* cx, HandleObject obj)
 {
     RootedString str(cx, obj->as<StringObject>().unbox());
+    js::StaticStrings& staticStrings = cx->staticStrings();
+
     RootedValue value(cx);
     for (size_t i = 0, length = str->length(); i < length; i++) {
-        JSString* str1 = NewDependentString(cx, str, i, 1);
+        JSString* str1 = staticStrings.getUnitStringForElement(cx, str, i);
         if (!str1)
             return false;
         value.setString(str1);
@@ -1866,15 +1868,6 @@ StringMatch(JSLinearString* text, JSLinearString* pat, uint32_t start = 0)
 }
 
 static const size_t sRopeMatchThresholdRatioLog2 = 4;
-
-bool
-js::StringHasPattern(JSLinearString* text, const char16_t* pat, uint32_t patLen)
-{
-    AutoCheckCannotGC nogc;
-    return text->hasLatin1Chars()
-           ? StringMatch(text->latin1Chars(nogc), text->length(), pat, patLen) != -1
-           : StringMatch(text->twoByteChars(nogc), text->length(), pat, patLen) != -1;
-}
 
 int
 js::StringFindPattern(JSLinearString* text, JSLinearString* pat, size_t start)
@@ -3319,6 +3312,16 @@ static MOZ_ALWAYS_INLINE bool
 ToCodePoint(JSContext* cx, HandleValue code, uint32_t* codePoint)
 {
     // String.fromCodePoint, Steps 5.a-b.
+
+    // Fast path for the common case - the input is already an int32.
+    if (code.isInt32()) {
+        int32_t nextCP = code.toInt32();
+        if (nextCP >= 0 && nextCP <= int32_t(unicode::NonBMPMax)) {
+            *codePoint = uint32_t(nextCP);
+            return true;
+        }
+    }
+
     double nextCP;
     if (!ToNumber(cx, code, &nextCP))
         return false;

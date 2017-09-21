@@ -844,10 +844,11 @@ Gecko_FillAllMaskLists(nsStyleImageLayers* aLayers, uint32_t aMaxLen)
   nsRuleNode::FillAllMaskLists(*aLayers, aMaxLen);
 }
 
-RawGeckoElementBorrowedOrNull
-Gecko_GetBody(RawGeckoPresContextBorrowed aPresContext)
+bool
+Gecko_IsDocumentBody(RawGeckoElementBorrowed aElement)
 {
-  return aPresContext->Document()->GetBodyElement();
+  nsIDocument* doc = aElement->GetUncomposedDoc();
+  return doc && doc->GetBodyElement() == aElement;
 }
 
 nscolor
@@ -1255,34 +1256,6 @@ Gecko_EnsureMozBorderColors(nsStyleBorder* aBorder)
   aBorder->EnsureBorderColors();
 }
 
-void Gecko_ClearMozBorderColors(nsStyleBorder* aBorder, mozilla::Side aSide)
-{
-  aBorder->ClearBorderColors(aSide);
-}
-
-void
-Gecko_AppendMozBorderColors(nsStyleBorder* aBorder, mozilla::Side aSide,
-                            nscolor aColor)
-{
-  aBorder->AppendBorderColor(aSide, aColor);
-}
-
-void
-Gecko_CopyMozBorderColors(nsStyleBorder* aDest, const nsStyleBorder* aSrc,
-                          mozilla::Side aSide)
-{
-  if (aSrc->mBorderColors) {
-    aDest->CopyBorderColorsFrom(aSrc->mBorderColors[aSide], aSide);
-  }
-}
-
-const nsBorderColors*
-Gecko_GetMozBorderColors(const nsStyleBorder* aBorder, mozilla::Side aSide)
-{
-  MOZ_ASSERT(aBorder);
-  return aBorder->mBorderColors ? aBorder->mBorderColors[aSide] : nullptr;
-}
-
 void
 Gecko_FontFamilyList_Clear(FontFamilyList* aList) {
   aList->Clear();
@@ -1517,14 +1490,20 @@ CreateStyleImageRequest(nsStyleImageRequest::Mode aModeFlags,
 }
 
 mozilla::css::ImageValue*
-Gecko_ImageValue_Create(ServoBundledURI aURI)
+Gecko_ImageValue_Create(ServoBundledURI aURI, ServoRawOffsetArc<RustString> aURIString)
 {
-  NS_ConvertUTF8toUTF16 url(reinterpret_cast<const char*>(aURI.mURLString),
-                            aURI.mURLStringLength);
-
   RefPtr<css::ImageValue> value(
-    new css::ImageValue(url, do_AddRef(aURI.mExtraData)));
+    new css::ImageValue(aURIString, do_AddRef(aURI.mExtraData)));
   return value.forget().take();
+}
+
+MOZ_DEFINE_MALLOC_SIZE_OF(GeckoImageValueMallocSizeOf)
+
+size_t
+Gecko_ImageValue_SizeOfIncludingThis(mozilla::css::ImageValue* aImageValue)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return aImageValue->SizeOfIncludingThis(GeckoImageValueMallocSizeOf);
 }
 
 void
@@ -2146,28 +2125,6 @@ Gecko_NewNoneTransform()
 }
 
 void
-Gecko_CSSValue_SetAbsoluteLength(nsCSSValueBorrowedMut aCSSValue, nscoord aLen)
-{
-  MOZ_ASSERT(aCSSValue->GetUnit() == eCSSUnit_Null || aCSSValue->IsLengthUnit());
-  // The call below could trigger refcounting if aCSSValue were a
-  // FontFamilyList, but we just asserted that it's not. So we can
-  // whitelist this for static analysis.
-  aCSSValue->SetIntegerCoordValue(aLen);
-}
-
-nscoord
-Gecko_CSSValue_GetAbsoluteLength(nsCSSValueBorrowed aCSSValue)
-{
-  // SetIntegerCoordValue() which is used in Gecko_CSSValue_SetAbsoluteLength()
-  // converts values by nsPresContext::AppUnitsToFloatCSSPixels() and stores
-  // values in eCSSUnit_Pixel unit. We need to convert the values back to app
-  // units by GetPixelLength().
-  MOZ_ASSERT(aCSSValue->GetUnit() == eCSSUnit_Pixel,
-             "The unit should be eCSSUnit_Pixel");
-  return aCSSValue->GetPixelLength();
-}
-
-void
 Gecko_CSSValue_SetNumber(nsCSSValueBorrowedMut aCSSValue, float aNumber)
 {
   aCSSValue->SetFloatValue(aNumber, eCSSUnit_Number);
@@ -2201,6 +2158,14 @@ float
 Gecko_CSSValue_GetPercentage(nsCSSValueBorrowed aCSSValue)
 {
   return aCSSValue->GetPercentValue();
+}
+
+void
+Gecko_CSSValue_SetPixelLength(nsCSSValueBorrowedMut aCSSValue, float aLen)
+{
+  MOZ_ASSERT(aCSSValue->GetUnit() == eCSSUnit_Null ||
+             aCSSValue->GetUnit() == eCSSUnit_Pixel);
+  aCSSValue->SetFloatValue(aLen, eCSSUnit_Pixel);
 }
 
 void
@@ -2449,11 +2414,16 @@ Gecko_XBLBinding_InheritsStyle(RawGeckoXBLBindingBorrowed aXBLBinding)
   return aXBLBinding->InheritsStyle();
 }
 
+static StaticRefPtr<UACacheReporter> gUACacheReporter;
+
 void
 InitializeServo()
 {
   URLExtraData::InitDummy();
   Servo_Initialize(URLExtraData::Dummy());
+
+  gUACacheReporter = new UACacheReporter();
+  RegisterWeakMemoryReporter(gUACacheReporter);
 
   sServoFontMetricsLock = new Mutex("Gecko_GetFontMetrics");
   sServoWidgetLock = new Mutex("Servo::WidgetLock");
@@ -2466,6 +2436,9 @@ ShutdownServo()
   MOZ_ASSERT(sServoFontMetricsLock);
   MOZ_ASSERT(sServoWidgetLock);
   MOZ_ASSERT(sServoLangFontPrefsLock);
+
+  UnregisterWeakMemoryReporter(gUACacheReporter);
+  gUACacheReporter = nullptr;
 
   delete sServoFontMetricsLock;
   delete sServoWidgetLock;
@@ -2654,6 +2627,7 @@ Gecko_RegisterNamespace(nsIAtom* aNamespace)
 bool
 Gecko_ShouldCreateStyleThreadPool()
 {
+  MOZ_ASSERT(NS_IsMainThread());
   return !mozilla::BrowserTabsRemoteAutostart() || XRE_IsContentProcess();
 }
 

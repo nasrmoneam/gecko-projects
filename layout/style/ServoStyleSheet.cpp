@@ -114,13 +114,16 @@ ServoStyleSheetInner::CloneFor(StyleSheet* aPrimarySheet)
 }
 
 MOZ_DEFINE_MALLOC_SIZE_OF(ServoStyleSheetMallocSizeOf)
+MOZ_DEFINE_MALLOC_ENCLOSING_SIZE_OF(ServoStyleSheetMallocEnclosingSizeOf)
 
 size_t
 ServoStyleSheetInner::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const
 {
   size_t n = aMallocSizeOf(this);
   n += Servo_StyleSheet_SizeOfIncludingThis(
-      ServoStyleSheetMallocSizeOf, mContents);
+      ServoStyleSheetMallocSizeOf,
+      ServoStyleSheetMallocEnclosingSizeOf,
+      mContents);
   return n;
 }
 
@@ -221,6 +224,10 @@ ServoStyleSheet::ParseSheet(css::Loader* aLoader,
   nsString sourceMapURL;
   Servo_StyleSheet_GetSourceMapURL(Inner()->mContents, &sourceMapURL);
   SetSourceMapURLFromComment(sourceMapURL);
+
+  nsString sourceURL;
+  Servo_StyleSheet_GetSourceURL(Inner()->mContents, &sourceURL);
+  SetSourceURL(sourceURL);
 
   Inner()->mURLData = extraData.forget();
   return NS_OK;

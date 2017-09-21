@@ -668,19 +668,19 @@ WasmBreakpointSite::destroyIfEmpty(FreeOp* fop)
 
 Debugger::Debugger(JSContext* cx, NativeObject* dbg)
   : object(dbg),
-    debuggees(cx->runtime()),
+    debuggees(cx->zone()),
     uncaughtExceptionHook(nullptr),
     enabled(true),
     allowUnobservedAsmJS(false),
     allowWasmBinarySource(false),
     collectCoverageInfo(false),
-    observedGCs(cx->runtime()),
+    observedGCs(cx->zone()),
     allocationsLog(cx),
     trackingAllocationSites(false),
     allocationSamplingProbability(1.0),
     maxAllocationsLogLength(DEFAULT_MAX_LOG_LENGTH),
     allocationsLogOverflowed(false),
-    frames(cx->runtime()),
+    frames(cx->zone()),
     scripts(cx),
     sources(cx),
     objects(cx),
@@ -1507,7 +1507,7 @@ Debugger::newCompletionValue(JSContext* cx, JSTrapStatus status, const Value& va
     /* Common tail for JSTRAP_RETURN and JSTRAP_THROW. */
     RootedPlainObject obj(cx, NewBuiltinClassInstance<PlainObject>(cx));
     if (!obj ||
-        !NativeDefineProperty(cx, obj, key, value, nullptr, nullptr, JSPROP_ENUMERATE))
+        !NativeDefineDataProperty(cx, obj, key, value, JSPROP_ENUMERATE))
     {
         return false;
     }
@@ -4246,12 +4246,12 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
         cx(cx),
         debugger(dbg),
         iterMarker(&cx->runtime()->gc),
-        compartments(cx->runtime()),
+        compartments(cx->zone()),
         url(cx),
         displayURLString(cx),
         hasSource(false),
         source(cx, AsVariant(static_cast<ScriptSourceObject*>(nullptr))),
-        innermostForCompartment(cx->runtime()),
+        innermostForCompartment(cx->zone()),
         vector(cx, ScriptVector(cx)),
         wasmInstanceVector(cx, WasmInstanceObjectVector(cx))
     {}
@@ -4501,7 +4501,7 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
     /* Require the set of compartments to stay fixed while the ScriptQuery is alive. */
     gc::AutoEnterIteration iterMarker;
 
-    typedef HashSet<JSCompartment*, DefaultHasher<JSCompartment*>, RuntimeAllocPolicy>
+    typedef HashSet<JSCompartment*, DefaultHasher<JSCompartment*>, ZoneAllocPolicy>
         CompartmentSet;
 
     /* A script must be in one of these compartments to match the query. */
@@ -4534,7 +4534,7 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery
     /* True if the query has an 'innermost' property whose value is true. */
     bool innermost;
 
-    typedef HashMap<JSCompartment*, JSScript*, DefaultHasher<JSCompartment*>, RuntimeAllocPolicy>
+    typedef HashMap<JSCompartment*, JSScript*, DefaultHasher<JSCompartment*>, ZoneAllocPolicy>
         CompartmentToScriptMap;
 
     /*
@@ -6527,7 +6527,7 @@ struct DebuggerScriptSetBreakpointMatcher
         if (!site)
             return false;
         site->inc(cx_->runtime()->defaultFreeOp());
-        if (cx_->runtime()->new_<Breakpoint>(dbg_, site, handler_))
+        if (cx_->zone()->new_<Breakpoint>(dbg_, site, handler_))
             return true;
         site->dec(cx_->runtime()->defaultFreeOp());
         site->destroyIfEmpty(cx_->runtime()->defaultFreeOp());
@@ -6544,7 +6544,7 @@ struct DebuggerScriptSetBreakpointMatcher
         if (!site)
             return false;
         site->inc(cx_->runtime()->defaultFreeOp());
-        if (cx_->runtime()->new_<WasmBreakpoint>(dbg_, site, handler_, instance.object()))
+        if (cx_->zone()->new_<WasmBreakpoint>(dbg_, site, handler_, instance.object()))
             return true;
         site->dec(cx_->runtime()->defaultFreeOp());
         site->destroyIfEmpty(cx_->runtime()->defaultFreeOp());
@@ -6761,10 +6761,10 @@ DebuggerScript_getOffsetsCoverage(JSContext* cx, unsigned argc, Value* vp)
     if (!result)
         return false;
 
-    RootedId offsetId(cx, AtomToId(cx->names().offset));
-    RootedId lineNumberId(cx, AtomToId(cx->names().lineNumber));
-    RootedId columnNumberId(cx, AtomToId(cx->names().columnNumber));
-    RootedId countId(cx, AtomToId(cx->names().count));
+    RootedId offsetId(cx, NameToId(cx->names().offset));
+    RootedId lineNumberId(cx, NameToId(cx->names().lineNumber));
+    RootedId columnNumberId(cx, NameToId(cx->names().columnNumber));
+    RootedId countId(cx, NameToId(cx->names().count));
 
     RootedObject item(cx);
     RootedValue offsetValue(cx);
@@ -7963,7 +7963,7 @@ DebuggerGenericEval(JSContext* cx, const mozilla::Range<const char16_t> chars,
             cx->markId(id);
             MutableHandleValue val = values[i];
             if (!cx->compartment()->wrap(cx, val) ||
-                !NativeDefineProperty(cx, nenv, id, val, nullptr, nullptr, 0))
+                !NativeDefineDataProperty(cx, nenv, id, val, 0))
             {
                 return false;
             }
@@ -8467,8 +8467,8 @@ DebuggerArguments::create(JSContext* cx, HandleObject proto, HandleDebuggerFrame
     MOZ_ASSERT(referent.numActualArgs() <= 0x7fffffff);
     unsigned fargc = referent.numActualArgs();
     RootedValue fargcVal(cx, Int32Value(fargc));
-    if (!NativeDefineProperty(cx, obj, cx->names().length, fargcVal, nullptr, nullptr,
-                              JSPROP_PERMANENT | JSPROP_READONLY))
+    if (!NativeDefineDataProperty(cx, obj, cx->names().length, fargcVal,
+                                  JSPROP_PERMANENT | JSPROP_READONLY))
     {
         return nullptr;
     }
@@ -8482,9 +8482,9 @@ DebuggerArguments::create(JSContext* cx, HandleObject proto, HandleDebuggerFrame
             return nullptr;
         id = INT_TO_JSID(i);
         if (!getobj ||
-            !NativeDefineProperty(cx, obj, id, UndefinedHandleValue,
-                                  JS_DATA_TO_FUNC_PTR(GetterOp, getobj.get()), nullptr,
-                                  JSPROP_ENUMERATE | JSPROP_SHARED | JSPROP_GETTER))
+            !NativeDefineAccessorProperty(cx, obj, id,
+                                          JS_DATA_TO_FUNC_PTR(GetterOp, getobj.get()), nullptr,
+                                          JSPROP_ENUMERATE | JSPROP_SHARED | JSPROP_GETTER))
         {
             return nullptr;
         }
@@ -11651,7 +11651,7 @@ namespace dbg {
 /* static */ GarbageCollectionEvent::Ptr
 GarbageCollectionEvent::Create(JSRuntime* rt, ::js::gcstats::Statistics& stats, uint64_t gcNumber)
 {
-    auto data = rt->make_unique<GarbageCollectionEvent>(gcNumber);
+    auto data = MakeUnique<GarbageCollectionEvent>(gcNumber);
     if (!data)
         return nullptr;
 

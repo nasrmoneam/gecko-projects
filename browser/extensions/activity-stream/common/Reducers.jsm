@@ -5,6 +5,9 @@
 
 const {actionTypes: at} = Components.utils.import("resource://activity-stream/common/Actions.jsm", {});
 
+// Locales that should be displayed RTL
+const RTL_LIST = ["ar", "he", "fa", "ur"];
+
 const TOP_SITES_DEFAULT_LENGTH = 6;
 const TOP_SITES_SHOWMORE_LENGTH = 12;
 
@@ -16,6 +19,8 @@ const INITIAL_STATE = {
     locale: "",
     // Localized strings with defaults
     strings: null,
+    // The text direction for the locale
+    textDirection: "",
     // The version of the system-addon
     version: null
   },
@@ -24,7 +29,13 @@ const INITIAL_STATE = {
     // Have we received real data from history yet?
     initialized: false,
     // The history (and possibly default) links
-    rows: []
+    rows: [],
+    // Used in content only to dispatch action from
+    // context menu to TopSitesEdit.
+    editForm: {
+      visible: false,
+      site: null
+    }
   },
   Prefs: {
     initialized: false,
@@ -48,7 +59,8 @@ function App(prevState = INITIAL_STATE.App, action) {
       let {locale, strings} = action.data;
       return Object.assign({}, prevState, {
         locale,
-        strings
+        strings,
+        textDirection: RTL_LIST.indexOf(locale.split("-")[0]) >= 0 ? "rtl" : "ltr"
       });
     }
     default:
@@ -92,13 +104,16 @@ function insertPinned(links, pinned) {
 function TopSites(prevState = INITIAL_STATE.TopSites, action) {
   let hasMatch;
   let newRows;
-  let pinned;
   switch (action.type) {
     case at.TOP_SITES_UPDATED:
       if (!action.data) {
         return prevState;
       }
       return Object.assign({}, prevState, {initialized: true, rows: action.data});
+    case at.TOP_SITES_EDIT:
+      return Object.assign({}, prevState, {editForm: {visible: true, site: action.data}});
+    case at.TOP_SITES_CANCEL_EDIT:
+      return Object.assign({}, prevState, {editForm: {visible: false}});
     case at.SCREENSHOT_UPDATED:
       newRows = prevState.rows.map(row => {
         if (row && row.url === action.data.url) {
@@ -141,10 +156,6 @@ function TopSites(prevState = INITIAL_STATE.TopSites, action) {
       // events and removing the site that was blocked/deleted with an empty slot.
       // Once refresh() finishes, we update the UI again with a new site
       newRows = prevState.rows.filter(val => val && val.url !== action.data.url);
-      return Object.assign({}, prevState, {rows: newRows});
-    case at.PINNED_SITES_UPDATED:
-      pinned = action.data;
-      newRows = insertPinned(prevState.rows, pinned).slice(0, TOP_SITES_SHOWMORE_LENGTH);
       return Object.assign({}, prevState, {rows: newRows});
     default:
       return prevState;
@@ -224,6 +235,19 @@ function Sections(prevState = INITIAL_STATE.Sections, action) {
           // This can be overridden if initialized is defined in the action.data
           const initialized = action.data.rows ? {initialized: true} : {};
           return Object.assign({}, section, initialized, action.data);
+        }
+        return section;
+      });
+    case at.SECTION_UPDATE_CARD:
+      return prevState.map(section => {
+        if (section && section.id === action.data.id && section.rows) {
+          const newRows = section.rows.map(card => {
+            if (card.url === action.data.url) {
+              return Object.assign({}, card, action.data.options);
+            }
+            return card;
+          });
+          return Object.assign({}, section, {rows: newRows});
         }
         return section;
       });

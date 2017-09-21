@@ -10,6 +10,7 @@
 #include "nsIClassInfoImpl.h"
 #include "nsTArray.h"
 #include "nsAutoPtr.h"
+#include "nsXULAppAPI.h"
 #include "LabeledEventQueue.h"
 #include "MainThreadQueue.h"
 #include "mozilla/AbstractThread.h"
@@ -32,6 +33,12 @@ using namespace mozilla;
 
 static MOZ_THREAD_LOCAL(bool) sTLSIsMainThread;
 static MOZ_THREAD_LOCAL(PRThread*) gTlsCurrentVirtualThread;
+
+bool
+NS_IsMainThreadTLSInitialized()
+{
+  return sTLSIsMainThread.initialized();
+}
 
 bool
 NS_IsMainThread()
@@ -97,6 +104,13 @@ NS_IMPL_QUERY_INTERFACE_CI(nsThreadManager, nsIThreadManager)
 NS_IMPL_CI_INTERFACE_GETTER(nsThreadManager, nsIThreadManager)
 
 //-----------------------------------------------------------------------------
+
+/*static*/ nsThreadManager&
+nsThreadManager::get()
+{
+  static nsThreadManager sInstance;
+  return sInstance;
+}
 
 nsresult
 nsThreadManager::Init()

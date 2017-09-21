@@ -186,6 +186,13 @@ class Nursery
      */
     void* allocateBuffer(JSObject* obj, size_t nbytes);
 
+    /*
+     * Allocate a buffer for a given object, always using the nursery if obj is
+     * in the nursery. The requested size must be less than or equal to
+     * MaxNurseryBufferSize.
+     */
+    void* allocateBufferSameLocation(JSObject* obj, size_t nbytes);
+
     /* Resize an existing object buffer. */
     void* reallocateBuffer(JSObject* obj, void* oldBuffer,
                            size_t oldBytes, size_t newBytes);
@@ -210,7 +217,12 @@ class Nursery
     void forwardBufferPointer(HeapSlot** pSlotsElems);
 
     void maybeSetForwardingPointer(JSTracer* trc, void* oldData, void* newData, bool direct) {
-        if (trc->isTenuringTracer() && isInside(oldData))
+        if (trc->isTenuringTracer())
+            setForwardingPointerWhileTenuring(oldData, newData, direct);
+    }
+
+    void setForwardingPointerWhileTenuring(void* oldData, void* newData, bool direct) {
+        if (isInside(oldData))
             setForwardingPointer(oldData, newData, direct);
     }
 

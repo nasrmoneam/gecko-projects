@@ -44,6 +44,7 @@ const {
   defineLazyGetter,
   getMessageManager,
   getUniqueId,
+  getWinUtils,
   withHandlingUserInput,
 } = ExtensionUtils;
 
@@ -350,6 +351,13 @@ class Messenger {
     this.sender = sender;
     this.filter = filter;
     this.optionalFilter = optionalFilter;
+
+    // Include the context envType in the sender info.
+    this.sender.envType = context.envType;
+
+    // Exclude messages coming from content scripts for the devtools extension contexts
+    // (See Bug 1383310).
+    this.excludeContentScriptSender = (this.context.envType === "devtools_child");
   }
 
   _sendMessage(messageManager, message, data, recipient) {
@@ -392,6 +400,12 @@ class Messenger {
         messageFilterStrict: this.filter,
 
         filterMessage: (sender, recipient) => {
+          // Exclude messages coming from content scripts for the devtools extension contexts
+          // (See Bug 1383310).
+          if (this.excludeContentScriptSender && sender.envType === "content_child") {
+            return false;
+          }
+
           // Ignore the message if it was sent by this Messenger.
           return (sender.contextId !== this.context.contextId &&
                   filter(sender, recipient));
@@ -487,6 +501,12 @@ class Messenger {
         messageFilterStrict: this.filter,
 
         filterMessage: (sender, recipient) => {
+          // Exclude messages coming from content scripts for the devtools extension contexts
+          // (See Bug 1383310).
+          if (this.excludeContentScriptSender && sender.envType === "content_child") {
+            return false;
+          }
+
           // Ignore the port if it was created by this Messenger.
           return (sender.contextId !== this.context.contextId &&
                   filter(sender, recipient));
@@ -684,8 +704,7 @@ class ProxyAPIImplementation extends SchemaAPIInterface {
   callAsyncFunction(args, callback, requireUserInput) {
     if (requireUserInput) {
       let context = this.childApiManager.context;
-      let winUtils = context.contentWindow.getInterface(Ci.nsIDOMWindowUtils);
-      if (!winUtils.isHandlingUserInput) {
+      if (!getWinUtils(context.contentWindow).isHandlingUserInput) {
         let err = new context.cloneScope.Error(`${this.path} may only be called from a user input handler`);
         return context.wrapPromise(Promise.reject(err), callback);
       }

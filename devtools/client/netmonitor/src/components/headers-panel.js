@@ -66,12 +66,16 @@ const HeadersPanel = createClass({
 
   getProperties(headers, title) {
     if (headers && headers.headers.length) {
-      return {
-        [`${title} (${getFormattedSize(headers.headersSize, 3)})`]:
+      let headerKey = `${title} (${getFormattedSize(headers.headersSize, 3)})`;
+      let propertiesResult = {
+        [headerKey]:
           headers.headers.reduce((acc, { name, value }) =>
             name ? Object.assign(acc, { [name]: value }) : acc
           , {})
       };
+
+      propertiesResult[headerKey] = this.sortByKey(propertiesResult[headerKey]);
+      return propertiesResult;
     }
 
     return null;
@@ -122,6 +126,16 @@ const HeadersPanel = createClass({
         }) : null
       )
     );
+  },
+
+  sortByKey: function (object) {
+    let result = {};
+    Object.keys(object).sort(function (left, right) {
+      return left.toLowerCase().localeCompare(right.toLowerCase());
+    }).forEach(function (key) {
+      result[key] = object[key];
+    });
+    return result;
   },
 
   render() {
@@ -182,6 +196,10 @@ const HeadersPanel = createClass({
 
       let statusCodeDocURL = getHTTPStatusCodeURL(status.toString());
       let inputWidth = status.toString().length + statusText.length + 1;
+      let toggleRawHeadersClassList = ["devtools-button"];
+      if (this.state.rawHeadersOpened) {
+        toggleRawHeadersClassList.push("checked");
+      }
 
       summaryStatus = (
         div({ className: "tabpanel-summary-container headers-summary" },
@@ -209,7 +227,8 @@ const HeadersPanel = createClass({
             onClick: cloneSelectedRequest,
           }, EDIT_AND_RESEND),
           button({
-            className: "devtools-button raw-headers-button",
+            "aria-pressed": this.state.rawHeadersOpened,
+            className: toggleRawHeadersClassList.join(" "),
             onClick: this.toggleRawHeaders,
           }, RAW_HEADERS),
         )

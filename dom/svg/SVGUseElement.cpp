@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/ErrorResult.h"
 
 #include "mozilla/dom/SVGUseElement.h"
 #include "mozilla/dom/SVGUseElementBinding.h"
@@ -16,7 +17,7 @@
 #include "nsContentUtils.h"
 #include "nsIURI.h"
 #include "mozilla/URLExtraData.h"
-#include "nsSVGEffects.h"
+#include "SVGObserverUtils.h"
 #include "nsSVGUseFrame.h"
 
 NS_IMPL_NS_NEW_NAMESPACED_SVG_ELEMENT(Use)
@@ -256,13 +257,12 @@ SVGUseElement::CreateAnonymousContent()
     }
   }
 
-  nsCOMPtr<nsINode> newnode;
   nsNodeInfoManager* nodeInfoManager =
     targetContent->OwnerDoc() == OwnerDoc() ?
       nullptr : OwnerDoc()->NodeInfoManager();
-  nsNodeUtils::Clone(targetContent, true, nodeInfoManager, nullptr,
-                     getter_AddRefs(newnode));
-
+  IgnoredErrorResult rv;
+  nsCOMPtr<nsINode> newnode =
+    nsNodeUtils::Clone(targetContent, true, nodeInfoManager, nullptr, rv);
   nsCOMPtr<nsIContent> newcontent = do_QueryInterface(newnode);
 
   if (!newcontent)
@@ -375,7 +375,7 @@ SVGUseElement::LookupHref()
   nsCOMPtr<nsIURI> originURI =
     mOriginal ? mOriginal->GetBaseURI() : GetBaseURI();
   nsCOMPtr<nsIURI> baseURI = nsContentUtils::IsLocalRefURL(href)
-    ? nsSVGEffects::GetBaseURLForLocalRef(this, originURI)
+    ? SVGObserverUtils::GetBaseURLForLocalRef(this, originURI)
     : originURI;
 
   nsCOMPtr<nsIURI> targetURI;

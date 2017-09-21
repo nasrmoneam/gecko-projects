@@ -12,6 +12,8 @@
 #include "nsIStreamTransportService.h"
 #include "nsITransport.h"
 #include "nsNetCID.h"
+#include "nsStringStream.h"
+#include "SlicedInputStream.h"
 
 namespace mozilla {
 namespace dom {
@@ -23,20 +25,24 @@ static NS_DEFINE_CID(kStreamTransportServiceCID, NS_STREAMTRANSPORTSERVICE_CID);
 class InputStreamCallbackRunnable final : public CancelableRunnable
 {
 public:
+  // Note that the execution can be synchronous in case the event target is
+  // null.
   static void
   Execute(nsIInputStreamCallback* aCallback,
           nsIEventTarget* aEventTarget,
           IPCBlobInputStream* aStream)
   {
+    MOZ_ASSERT(aCallback);
+
     RefPtr<InputStreamCallbackRunnable> runnable =
       new InputStreamCallbackRunnable(aCallback, aStream);
 
     nsCOMPtr<nsIEventTarget> target = aEventTarget;
-    if (!target) {
-      target = NS_GetCurrentThread();
+    if (aEventTarget) {
+      target->Dispatch(runnable, NS_DISPATCH_NORMAL);
+    } else {
+      runnable->Run();
     }
-
-    target->Dispatch(runnable, NS_DISPATCH_NORMAL);
   }
 
   NS_IMETHOD
@@ -71,14 +77,13 @@ public:
           nsIEventTarget* aEventTarget,
           IPCBlobInputStream* aStream)
   {
+    MOZ_ASSERT(aCallback);
+    MOZ_ASSERT(aEventTarget);
+
     RefPtr<FileMetadataCallbackRunnable> runnable =
       new FileMetadataCallbackRunnable(aCallback, aStream);
 
     nsCOMPtr<nsIEventTarget> target = aEventTarget;
-    if (!target) {
-      target = NS_GetCurrentThread();
-    }
-
     target->Dispatch(runnable, NS_DISPATCH_NORMAL);
   }
 
@@ -116,6 +121,7 @@ NS_INTERFACE_MAP_BEGIN(IPCBlobInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIAsyncInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIInputStreamCallback)
   NS_INTERFACE_MAP_ENTRY(nsICloneableInputStream)
+  NS_INTERFACE_MAP_ENTRY(nsICloneableInputStreamWithRange)
   NS_INTERFACE_MAP_ENTRY(nsIIPCSerializableInputStream)
   NS_INTERFACE_MAP_ENTRY(nsIFileMetadata)
   NS_INTERFACE_MAP_ENTRY(nsIAsyncFileMetadata)
@@ -125,12 +131,17 @@ NS_INTERFACE_MAP_END
 IPCBlobInputStream::IPCBlobInputStream(IPCBlobInputStreamChild* aActor)
   : mActor(aActor)
   , mState(eInit)
+  , mStart(0)
+  , mLength(0)
 {
   MOZ_ASSERT(aActor);
+
+  mLength = aActor->Size();
 
   if (XRE_IsParentProcess()) {
     nsCOMPtr<nsIInputStream> stream;
     IPCBlobInputStreamStorage::Get()->GetStream(mActor->ID(),
+                                                0, mLength,
                                                 getter_AddRefs(stream));
     if (stream) {
       mState = eRunning;
@@ -151,18 +162,18 @@ IPCBlobInputStream::Available(uint64_t* aLength)
 {
   // We don't have a remoteStream yet. Let's return the full known size.
   if (mState == eInit || mState == ePending) {
-    *aLength = mActor->Size();
+    *aLength = mLength;
     return NS_OK;
   }
 
   if (mState == eRunning) {
-    MOZ_ASSERT(mRemoteStream);
+    MOZ_ASSERT(mRemoteStream || mAsyncRemoteStream);
 
     // This will go away eventually: an async input stream can return 0 in
     // Available(), but this is not currently fully supported in the rest of
     // gecko.
     if (!mAsyncRemoteStream) {
-      *aLength = mActor->Size();
+      *aLength = mLength;
       return NS_OK;
     }
 
@@ -188,7 +199,7 @@ IPCBlobInputStream::Read(char* aBuffer, uint32_t aCount, uint32_t* aReadCount)
   }
 
   if (mState == eRunning) {
-    MOZ_ASSERT(mRemoteStream);
+    MOZ_ASSERT(mRemoteStream || mAsyncRemoteStream);
 
     nsresult rv = EnsureAsyncRemoteStream();
     if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -213,7 +224,7 @@ IPCBlobInputStream::ReadSegments(nsWriteSegmentFun aWriter, void* aClosure,
   }
 
   if (mState == eRunning) {
-    MOZ_ASSERT(mRemoteStream);
+    MOZ_ASSERT(mRemoteStream || mAsyncRemoteStream);
 
     nsresult rv = EnsureAsyncRemoteStream();
     if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -281,10 +292,50 @@ IPCBlobInputStream::Clone(nsIInputStream** aResult)
 
   MOZ_ASSERT(mActor);
 
-  nsCOMPtr<nsIInputStream> stream = mActor->CreateStream();
+  RefPtr<IPCBlobInputStream> stream = mActor->CreateStream();
   if (!stream) {
     return NS_ERROR_FAILURE;
   }
+
+  stream->InitWithExistingRange(mStart, mLength);
+
+  stream.forget(aResult);
+  return NS_OK;
+}
+
+// nsICloneableInputStreamWithRange interface
+
+NS_IMETHODIMP
+IPCBlobInputStream::CloneWithRange(uint64_t aStart, uint64_t aLength,
+                                   nsIInputStream** aResult)
+{
+  if (mState == eClosed) {
+    return NS_BASE_STREAM_CLOSED;
+  }
+
+  // Too short or out of range.
+  if (aLength == 0 || aStart >= mLength) {
+    return NS_NewCStringInputStream(aResult, EmptyCString());
+  }
+
+  MOZ_ASSERT(mActor);
+
+  RefPtr<IPCBlobInputStream> stream = mActor->CreateStream();
+  if (!stream) {
+    return NS_ERROR_FAILURE;
+  }
+
+  CheckedInt<uint64_t> streamSize = mLength;
+  streamSize -= aStart;
+  if (!streamSize.isValid()) {
+    return NS_ERROR_FAILURE;
+  }
+
+  if (aLength > streamSize.value()) {
+    aLength = streamSize.value();
+  }
+
+  stream->InitWithExistingRange(aStart + mStart, aLength);
 
   stream.forget(aResult);
   return NS_OK;
@@ -357,6 +408,11 @@ IPCBlobInputStream::StreamReady(nsIInputStream* aInputStream)
     return;
   }
 
+  // Now it's the right time to apply a slice if needed.
+  if (mStart > 0 || mLength < mActor->Size()) {
+    aInputStream = new SlicedInputStream(aInputStream, mStart, mLength);
+  }
+
   mRemoteStream = aInputStream;
 
   MOZ_ASSERT(mState == ePending);
@@ -391,7 +447,7 @@ IPCBlobInputStream::MaybeExecuteInputStreamCallback(nsIInputStreamCallback* aCal
                                                     nsIEventTarget* aCallbackEventTarget)
 {
   MOZ_ASSERT(mState == eRunning);
-  MOZ_ASSERT(mRemoteStream);
+  MOZ_ASSERT(mRemoteStream || mAsyncRemoteStream);
 
   // If the callback has been already set, we return an error.
   if (mInputStreamCallback && aCallback) {
@@ -413,6 +469,23 @@ IPCBlobInputStream::MaybeExecuteInputStreamCallback(nsIInputStreamCallback* aCal
   MOZ_ASSERT(mAsyncRemoteStream);
 
   return mAsyncRemoteStream->AsyncWait(this, 0, 0, aCallbackEventTarget);
+}
+
+void
+IPCBlobInputStream::InitWithExistingRange(uint64_t aStart, uint64_t aLength)
+{
+  MOZ_ASSERT(mActor->Size() >= aStart + aLength);
+  mStart = aStart;
+  mLength = aLength;
+
+  // In the child, we slice in StreamReady() when we set mState to eRunning.
+  // But in the parent, we start out eRunning, so it's necessary to slice the
+  // stream as soon as we have the information during the initialization phase
+  // because the stream is immediately consumable.
+  if (mState == eRunning && mRemoteStream && XRE_IsParentProcess() &&
+      (mStart > 0 || mLength < mActor->Size())) {
+    mRemoteStream = new SlicedInputStream(mRemoteStream, mStart, mLength);
+  }
 }
 
 // nsIInputStreamCallback
@@ -439,6 +512,8 @@ IPCBlobInputStream::OnInputStreamReady(nsIAsyncInputStream* aStream)
   nsCOMPtr<nsIEventTarget> callbackEventTarget;
   callbackEventTarget.swap(mInputStreamCallbackEventTarget);
  
+  // This must be the last operation because the execution of the callback can
+  // be synchronous.
   InputStreamCallbackRunnable::Execute(callback, callbackEventTarget, this);
   return NS_OK;
 }
@@ -451,6 +526,8 @@ IPCBlobInputStream::Serialize(mozilla::ipc::InputStreamParams& aParams,
 {
   mozilla::ipc::IPCBlobInputStreamParams params;
   params.id() = mActor->ID();
+  params.start() = mStart;
+  params.length() = mLength;
 
   aParams = params;
 }
@@ -475,6 +552,13 @@ NS_IMETHODIMP
 IPCBlobInputStream::AsyncWait(nsIFileMetadataCallback* aCallback,
                               nsIEventTarget* aEventTarget)
 {
+  MOZ_ASSERT(!!aCallback == !!aEventTarget);
+
+  // If we have the callback, we must have the event target.
+  if (NS_WARN_IF(!!aCallback != !!aEventTarget)) {
+    return NS_ERROR_FAILURE;
+  }
+
   // See IPCBlobInputStream.h for more information about this state machine.
 
   switch (mState) {
@@ -549,13 +633,13 @@ IPCBlobInputStream::GetFileDescriptor(PRFileDesc** aRetval)
 nsresult
 IPCBlobInputStream::EnsureAsyncRemoteStream()
 {
-  if (!mRemoteStream) {
-    return NS_ERROR_FAILURE;
-  }
-
   // We already have an async remote stream.
   if (mAsyncRemoteStream) {
     return NS_OK;
+  }
+
+  if (!mRemoteStream) {
+    return NS_ERROR_FAILURE;
   }
 
   // If the stream is blocking, we want to make it unblocking using a pipe.
@@ -597,9 +681,9 @@ IPCBlobInputStream::EnsureAsyncRemoteStream()
 
   MOZ_ASSERT(asyncStream);
   mAsyncRemoteStream = asyncStream;
+  mRemoteStream = nullptr;
 
   return NS_OK;
-
 }
 
 } // namespace dom

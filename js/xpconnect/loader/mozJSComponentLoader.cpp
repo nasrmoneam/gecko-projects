@@ -60,7 +60,8 @@ using namespace xpc;
 using namespace JS;
 
 static const char kObserverServiceContractID[] = "@mozilla.org/observer-service;1";
-static const char kJSCachePrefix[] = "jsloader";
+
+#define JS_CACHE_PREFIX(aType) "jsloader/" aType
 
 /**
  * Buffer sizes for serialization and deserialization of scripts.
@@ -303,7 +304,16 @@ mozJSComponentLoader::ReallyInit()
 {
     MOZ_ASSERT(!mInitialized);
 
-    mShareLoaderGlobal = Preferences::GetBool("jsloader.shareGlobal");
+    const char* shareGlobal = PR_GetEnv("MOZ_LOADER_SHARE_GLOBAL");
+    if (shareGlobal && *shareGlobal) {
+        nsDependentCString val(shareGlobal);
+        mShareLoaderGlobal = !(val.EqualsLiteral("0") ||
+                               val.LowerCaseEqualsLiteral("no") ||
+                               val.LowerCaseEqualsLiteral("false") ||
+                               val.LowerCaseEqualsLiteral("off"));
+    } else {
+        mShareLoaderGlobal = Preferences::GetBool("jsloader.shareGlobal");
+    }
 
     nsresult rv;
     nsCOMPtr<nsIObserverService> obsSvc =
@@ -423,6 +433,12 @@ mozJSComponentLoader::LoadModule(FileLocation& aFile)
         return nullptr;
     }
 
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+    if (Preferences::GetBool("browser.startup.record", false)) {
+        entry->importStack = xpc_PrintJSStack(cx, false, false, false).get();
+    }
+#endif
+
     // Cache this module for later
     mModules.Put(spec, entry);
 
@@ -436,9 +452,14 @@ mozJSComponentLoader::FindTargetObject(JSContext* aCx,
 {
     aTargetObject.set(js::GetJSMEnvironmentOfScriptedCaller(aCx));
 
-    // The above could fail if the scripted caller is not a
-    // component/JSM (it could be a DOM scope, for instance).
-    if (!aTargetObject) {
+    // The above could fail if the scripted caller is not a component/JSM (it
+    // could be a DOM scope, for instance).
+    //
+    // If the target object was not in the JSM shared global, return the global
+    // instead. This is needed when calling the subscript loader within a frame
+    // script, since it the FrameScript NSVO will have been found.
+    if (!aTargetObject ||
+        !IsLoaderGlobal(js::GetGlobalForObjectCrossCompartment(aTargetObject))) {
         aTargetObject.set(CurrentGlobalOrNull(aCx));
     }
 }
@@ -492,17 +513,15 @@ mozJSComponentLoader::CreateLoaderGlobal(JSContext* aCx,
     // Defer firing OnNewGlobalObject until after the __URI__ property has
     // been defined so the JS debugger can tell what module the global is
     // for
-    nsCOMPtr<nsIXPConnectJSObjectHolder> holder;
-    rv = nsXPConnect::XPConnect()->
-        InitClassesWithNewWrappedGlobal(aCx,
-                                        static_cast<nsIGlobalObject*>(backstagePass),
-                                        nsContentUtils::GetSystemPrincipal(),
-                                        nsIXPConnect::DONT_FIRE_ONNEWGLOBALHOOK,
-                                        options,
-                                        getter_AddRefs(holder));
+    RootedObject global(aCx);
+    rv = xpc::InitClassesWithNewWrappedGlobal(aCx,
+                                              static_cast<nsIGlobalObject*>(backstagePass),
+                                              nsContentUtils::GetSystemPrincipal(),
+                                              xpc::DONT_FIRE_ONNEWGLOBALHOOK,
+                                              options,
+                                              &global);
     NS_ENSURE_SUCCESS_VOID(rv);
 
-    RootedObject global(aCx, holder->GetJSObject());
     NS_ENSURE_TRUE_VOID(global);
 
     backstagePass->SetGlobalObject(global);
@@ -556,8 +575,6 @@ JSObject*
 mozJSComponentLoader::GetSharedGlobal(JSContext* aCx)
 {
     if (!mLoaderGlobal) {
-        MOZ_ASSERT(mShareLoaderGlobal);
-
         JS::RootedObject globalObj(aCx);
         CreateLoaderGlobal(aCx, NS_LITERAL_CSTRING("shared JSM global"),
                            nullptr, &globalObj);
@@ -701,7 +718,8 @@ mozJSComponentLoader::ObjectForLocation(ComponentLoaderInfo& aInfo,
 
     aInfo.EnsureResolvedURI();
 
-    nsAutoCString cachePath(kJSCachePrefix);
+    nsAutoCString cachePath(reuseGlobal ? JS_CACHE_PREFIX("non-syntactic")
+                                        : JS_CACHE_PREFIX("global"));
     rv = PathifyURI(aInfo.ResolvedURI(), cachePath);
     NS_ENSURE_SUCCESS(rv, rv);
 
@@ -989,6 +1007,52 @@ NS_IMETHODIMP mozJSComponentLoader::LoadedComponents(uint32_t* length,
     return NS_OK;
 }
 
+NS_IMETHODIMP
+mozJSComponentLoader::GetModuleImportStack(const nsACString& aLocation,
+                                           nsACString& retval)
+{
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+    MOZ_ASSERT(nsContentUtils::IsCallerChrome());
+    MOZ_ASSERT(mInitialized);
+
+    ComponentLoaderInfo info(aLocation);
+    nsresult rv = info.EnsureKey();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    ModuleEntry* mod;
+    if (!mImports.Get(info.Key(), &mod))
+        return NS_ERROR_FAILURE;
+
+    retval = mod->importStack;
+    return NS_OK;
+#else
+    return NS_ERROR_NOT_IMPLEMENTED;
+#endif
+}
+
+NS_IMETHODIMP
+mozJSComponentLoader::GetComponentLoadStack(const nsACString& aLocation,
+                                            nsACString& retval)
+{
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+    MOZ_ASSERT(nsContentUtils::IsCallerChrome());
+    MOZ_ASSERT(mInitialized);
+
+    ComponentLoaderInfo info(aLocation);
+    nsresult rv = info.EnsureURI();
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    ModuleEntry* mod;
+    if (!mModules.Get(info.Key(), &mod))
+        return NS_ERROR_FAILURE;
+
+    retval = mod->importStack;
+    return NS_OK;
+#else
+    return NS_ERROR_NOT_IMPLEMENTED;
+#endif
+}
+
 static JSObject*
 ResolveModuleObjectPropertyById(JSContext* aCx, HandleObject aModObj, HandleId id)
 {
@@ -1088,6 +1152,13 @@ mozJSComponentLoader::ImportInto(const nsACString& aLocation,
             // Something failed, but we don't know what it is, guess.
             return NS_ERROR_FILE_NOT_FOUND;
         }
+
+#if defined(NIGHTLY_BUILD) || defined(DEBUG)
+        if (Preferences::GetBool("browser.startup.record", false)) {
+            newEntry->importStack =
+                xpc_PrintJSStack(callercx, false, false, false).get();
+        }
+#endif
 
         mod = newEntry;
     }

@@ -26,7 +26,7 @@ add_task(async function init() {
 // thoroughly checks most of the action's properties, methods, and DOM nodes, so
 // it's not necessary to do that in general in other test tasks.
 add_task(async function simple() {
-  let iconURL = "chrome://browser/skin/email-link.svg";
+  let iconURL = "chrome://browser/skin/mail.svg";
   let id = "test-simple";
   let nodeAttributes = {
     "test-attr": "test attr value",
@@ -109,6 +109,9 @@ add_task(async function simple() {
   Assert.deepEqual(PageActions.actionForID(action.id), action,
                    "actionForID should be action");
 
+  Assert.ok(PageActions._persistedActions.ids.includes(action.id),
+            "PageActions should record action in its list of seen actions");
+
   // The action's panel button should have been created.
   let panelButtonNode = document.getElementById(panelButtonID);
   Assert.notEqual(panelButtonNode, null, "panelButtonNode");
@@ -179,6 +182,29 @@ add_task(async function simple() {
   Assert.equal(action.title, newTitle, "New title");
   Assert.equal(panelButtonNode.getAttribute("label"), action.title, "New label");
 
+  // Now that shownInUrlbar has been toggled, make sure that it sticks across
+  // app restarts.  Simulate that by "unregistering" the action (not by removing
+  // it, which is more permanent) and then registering it again.
+
+  // unregister
+  PageActions._actionsByID.delete(action.id);
+  let index = PageActions._nonBuiltInActions.findIndex(a => a.id == action.id);
+  Assert.ok(index >= 0, "Action should be in _nonBuiltInActions to begin with");
+  PageActions._nonBuiltInActions.splice(index, 1);
+
+  // register again
+  PageActions._registerAction(action);
+
+  // check relevant properties
+  Assert.ok(PageActions._persistedActions.ids.includes(action.id),
+            "PageActions should have 'seen' the action");
+  Assert.ok(PageActions._persistedActions.idsInUrlbar.includes(action.id),
+            "idsInUrlbar should still include the action");
+  Assert.ok(action.shownInUrlbar,
+            "shownInUrlbar should still be true");
+  Assert.ok(action._shownInUrlbar,
+            "_shownInUrlbar should still be true, for good measure");
+
   // Remove the action.
   action.remove();
   panelButtonNode = document.getElementById(panelButtonID);
@@ -190,6 +216,9 @@ add_task(async function simple() {
                    "Actions should go back to initial");
   Assert.equal(PageActions.actionForID(action.id), null,
                "actionForID should be null");
+
+  Assert.ok(!PageActions._persistedActions.ids.includes(action.id),
+            "PageActions should remove action from its list of seen actions");
 
   // The separator between the built-in actions and non-built-in actions should
   // be gone now, too.
@@ -265,7 +294,7 @@ add_task(async function withSubview() {
   };
 
   let action = PageActions.addAction(new PageActions.Action({
-    iconURL: "chrome://browser/skin/email-link.svg",
+    iconURL: "chrome://browser/skin/mail.svg",
     id,
     shownInUrlbar: true,
     subview,
@@ -408,7 +437,7 @@ add_task(async function withIframe() {
   let urlbarButtonID = BrowserPageActions._urlbarButtonNodeIDForActionID(id);
 
   let action = PageActions.addAction(new PageActions.Action({
-    iconURL: "chrome://browser/skin/email-link.svg",
+    iconURL: "chrome://browser/skin/mail.svg",
     id,
     shownInUrlbar: true,
     title: "Test iframe",
@@ -996,12 +1025,24 @@ function promisePanelEvent(panelIDOrNode, eventType) {
 }
 
 function promisePageActionViewShown() {
-  return new Promise(resolve => {
-    BrowserPageActions.panelNode.addEventListener("ViewShown", (event) => {
-      let target = event.originalTarget;
-      window.setTimeout(() => {
-        resolve(target);
-      }, 5000);
-    }, { once: true });
+  let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                  .getInterface(Ci.nsIDOMWindowUtils);
+  info("promisePageActionViewShown waiting for ViewShown");
+  return BrowserTestUtils.waitForEvent(BrowserPageActions.panelNode, "ViewShown").then(async event => {
+    let panelViewNode = event.originalTarget;
+    // Wait for the subview to be really truly shown by making sure there's at
+    // least one child with non-zero bounds.
+    info("promisePageActionViewShown waiting for a child node to be visible");
+    await BrowserTestUtils.waitForCondition(() => {
+      let bodyNode = panelViewNode.firstChild;
+      for (let childNode of bodyNode.childNodes) {
+        let bounds = dwu.getBoundsWithoutFlushing(childNode);
+        if (bounds.width > 0 && bounds.height > 0) {
+          return true;
+        }
+      }
+      return false;
+    });
+    return panelViewNode;
   });
 }

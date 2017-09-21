@@ -48,7 +48,6 @@
 #include "vm/CommonPropertyNames.h"
 #include "vm/DateTime.h"
 #include "vm/GeckoProfiler.h"
-#include "vm/MallocProvider.h"
 #include "vm/Scope.h"
 #include "vm/SharedImmutableStringsCache.h"
 #include "vm/Stack.h"
@@ -582,24 +581,15 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     }
 
     template <typename T>
-    struct GlobalObjectWatchersSiblingAccess {
-      static T* GetNext(T* elm) {
-        return elm->onNewGlobalObjectWatchersLink.mNext;
-      }
-      static void SetNext(T* elm, T* next) {
-        elm->onNewGlobalObjectWatchersLink.mNext = next;
-      }
-      static T* GetPrev(T* elm) {
-        return elm->onNewGlobalObjectWatchersLink.mPrev;
-      }
-      static void SetPrev(T* elm, T* prev) {
-        elm->onNewGlobalObjectWatchersLink.mPrev = prev;
+    struct GlobalObjectWatchersLinkAccess {
+      static mozilla::DoublyLinkedListElement<T>& Get(T* aThis) {
+        return aThis->onNewGlobalObjectWatchersLink;
       }
     };
 
     using WatchersList =
         mozilla::DoublyLinkedList<js::Debugger,
-                                  GlobalObjectWatchersSiblingAccess<js::Debugger>>;
+                                  GlobalObjectWatchersLinkAccess<js::Debugger>>;
   private:
     /*
      * List of all enabled Debuggers that have onNewGlobalObject handler
@@ -990,6 +980,8 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     JS_FRIEND_API(void*) onOutOfMemoryCanGC(js::AllocFunction allocator, size_t nbytes,
                                             void* reallocPtr = nullptr);
 
+    static const unsigned LARGE_ALLOCATION = 25 * 1024 * 1024;
+
     void addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf, JS::RuntimeSizes* runtime);
 
   private:
@@ -1024,38 +1016,6 @@ struct JSRuntime : public js::MallocProvider<JSRuntime>
     /* See comment for JS::SetOutOfMemoryCallback in jsapi.h. */
     js::ActiveThreadData<JS::OutOfMemoryCallback> oomCallback;
     js::ActiveThreadData<void*> oomCallbackData;
-
-    /*
-     * These variations of malloc/calloc/realloc will call the
-     * large-allocation-failure callback on OOM and retry the allocation.
-     */
-    static const unsigned LARGE_ALLOCATION = 25 * 1024 * 1024;
-
-    template <typename T>
-    T* pod_callocCanGC(size_t numElems) {
-        T* p = pod_calloc<T>(numElems);
-        if (MOZ_LIKELY(!!p))
-            return p;
-        size_t bytes;
-        if (MOZ_UNLIKELY(!js::CalculateAllocSize<T>(numElems, &bytes))) {
-            reportAllocationOverflow();
-            return nullptr;
-        }
-        return static_cast<T*>(onOutOfMemoryCanGC(js::AllocFunction::Calloc, bytes));
-    }
-
-    template <typename T>
-    T* pod_reallocCanGC(T* p, size_t oldSize, size_t newSize) {
-        T* p2 = pod_realloc<T>(p, oldSize, newSize);
-        if (MOZ_LIKELY(!!p2))
-            return p2;
-        size_t bytes;
-        if (MOZ_UNLIKELY(!js::CalculateAllocSize<T>(newSize, &bytes))) {
-            reportAllocationOverflow();
-            return nullptr;
-        }
-        return static_cast<T*>(onOutOfMemoryCanGC(js::AllocFunction::Realloc, bytes, p));
-    }
 
     /*
      * Debugger.Memory functions like takeCensus use this embedding-provided

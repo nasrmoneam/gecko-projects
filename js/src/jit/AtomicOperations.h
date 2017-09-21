@@ -131,12 +131,14 @@ class AtomicOperations
     // as any racing writes are of the same size and to the same address.
 
     // Defined for all the integral types as well as for float32 and float64,
-    // but not access-atomic for floats.
+    // but not access-atomic for floats, nor for int64 and uint64 on 32-bit
+    // platforms.
     template<typename T>
     static inline T loadSafeWhenRacy(T* addr);
 
     // Defined for all the integral types as well as for float32 and float64,
-    // but not access-atomic for floats.
+    // but not access-atomic for floats, nor for int64 and uint64 on 32-bit
+    // platforms.
     template<typename T>
     static inline void storeSafeWhenRacy(T* addr, T val);
 
@@ -409,6 +411,8 @@ AtomicOperations::isLockfreeJS(int32_t size)
 #elif defined(__hppa__)
 # include "jit/none/AtomicOperations-feeling-lucky.h"
 #elif defined(__sh__)
+# include "jit/none/AtomicOperations-feeling-lucky.h"
+#elif defined(__s390__) || defined(__s390x__)
 # include "jit/none/AtomicOperations-feeling-lucky.h"
 #else
 # error "No AtomicOperations support provided for this platform"

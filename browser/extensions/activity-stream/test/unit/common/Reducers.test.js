@@ -1,4 +1,4 @@
-const {reducers, INITIAL_STATE, insertPinned, TOP_SITES_SHOWMORE_LENGTH} = require("common/Reducers.jsm");
+const {reducers, INITIAL_STATE, insertPinned} = require("common/Reducers.jsm");
 const {TopSites, App, Snippets, Prefs, Dialog, Sections} = reducers;
 
 const {actionTypes: at} = require("common/Actions.jsm");
@@ -26,12 +26,20 @@ describe("Reducers", () => {
       const nextState = App(undefined, {type: at.LOCALE_UPDATED});
       assert.equal(nextState, INITIAL_STATE.App);
     });
-    it("should set locale, strings on LOCALE_UPDATE", () => {
+    it("should set locale, strings and text direction on LOCALE_UPDATE", () => {
       const strings = {};
       const action = {type: "LOCALE_UPDATED", data: {locale: "zh-CN", strings}};
       const nextState = App(undefined, action);
       assert.propertyVal(nextState, "locale", "zh-CN");
       assert.propertyVal(nextState, "strings", strings);
+      assert.propertyVal(nextState, "textDirection", "ltr");
+    });
+    it("should set rtl text direction for RTL locales", () => {
+      const action = {type: "LOCALE_UPDATED", data: {locale: "ar"}};
+
+      const nextState = App(undefined, action);
+
+      assert.propertyVal(nextState, "textDirection", "rtl");
     });
   });
   describe("TopSites", () => {
@@ -47,6 +55,19 @@ describe("Reducers", () => {
     it("should not update state for empty action.data on TOP_SITES_UPDATED", () => {
       const nextState = TopSites(undefined, {type: at.TOP_SITES_UPDATED});
       assert.equal(nextState, INITIAL_STATE.TopSites);
+    });
+    it("should set editForm.visible to true on TOP_SITES_EDIT", () => {
+      const nextState = TopSites(undefined, {type: at.TOP_SITES_EDIT});
+      assert.isTrue(nextState.editForm.visible);
+    });
+    it("should set editForm.site to action.data on TOP_SITES_EDIT", () => {
+      const data = {url: "foo", label: "label"};
+      const nextState = TopSites(undefined, {type: at.TOP_SITES_EDIT, data});
+      assert.equal(nextState.editForm.site, data);
+    });
+    it("should set editForm.visible to false on TOP_SITES_CANCEL_EDIT", () => {
+      const nextState = TopSites(undefined, {type: at.TOP_SITES_CANCEL_EDIT});
+      assert.isFalse(nextState.editForm.visible);
     });
     it("should add screenshots for SCREENSHOT_UPDATED", () => {
       const oldState = {rows: [{url: "foo.com"}, {url: "bar.com"}]};
@@ -119,22 +140,6 @@ describe("Reducers", () => {
         const nextState = TopSites(oldState, action);
         assert.deepEqual(nextState.rows, [{url: "foo.com"}]);
       });
-    });
-    it("should insert pinned links on PINNED_SITES_UPDATED", () => {
-      const oldState = {rows: [{url: "foo.com"}, {url: "bar.com"}]};
-      const action = {type: at.PINNED_SITES_UPDATED, data: [{url: "baz.com", title: "baz"}]};
-      const nextState = TopSites(oldState, action);
-      assert.deepEqual(nextState.rows, [{url: "baz.com", title: "baz", isPinned: true, pinIndex: 0}, {url: "foo.com"}, {url: "bar.com"}]);
-    });
-    it("should return at most TOP_SITES_SHOWMORE_LENGTH sites on PINNED_SITES_UPDATED", () => {
-      const oldState = {rows: [{url: "foo.com"}, {url: "bar.com"}]};
-      const data = new Array(20).fill(null).map((s, i) => ({
-        url: "foo.com",
-        pinIndex: i
-      }));
-      const action = {type: at.PINNED_SITES_UPDATED, data};
-      const nextState = TopSites(oldState, action);
-      assert.lengthOf(nextState.rows, TOP_SITES_SHOWMORE_LENGTH);
     });
   });
   describe("Prefs", () => {
@@ -320,6 +325,30 @@ describe("Reducers", () => {
       const updatedSection = newState.find(section => section.id === "foo_bar_2");
       assert.propertyVal(updatedSection, "initialized", true);
     });
+    it("should have no effect on SECTION_UPDATE_CARD if the id or url doesn't exist", () => {
+      const noIdAction = {type: at.SECTION_UPDATE_CARD, data: {id: "non-existent", url: "www.foo.bar", options: {title: "New title"}}};
+      const noIdState = Sections(oldState, noIdAction);
+      const noUrlAction = {type: at.SECTION_UPDATE_CARD, data: {id: "foo_bar_2", url: "www.non-existent.url", options: {title: "New title"}}};
+      const noUrlState = Sections(oldState, noUrlAction);
+      assert.deepEqual(noIdState, oldState);
+      assert.deepEqual(noUrlState, oldState);
+    });
+    it("should update the card with the correct data on SECTION_UPDATE_CARD", () => {
+      const action = {type: at.SECTION_UPDATE_CARD, data: {id: "foo_bar_2", url: "www.other.url", options: {title: "Fake new title"}}};
+      const newState = Sections(oldState, action);
+      const updatedSection = newState.find(section => section.id === "foo_bar_2");
+      const updatedCard = updatedSection.rows.find(card => card.url === "www.other.url");
+      assert.propertyVal(updatedCard, "title", "Fake new title");
+    });
+    it("should only update the cards belonging to the right section on SECTION_UPDATE_CARD", () => {
+      const action = {type: at.SECTION_UPDATE_CARD, data: {id: "foo_bar_2", url: "www.other.url", options: {title: "Fake new title"}}};
+      const newState = Sections(oldState, action);
+      newState.forEach((section, i) => {
+        if (section.id !== "foo_bar_2") {
+          assert.deepEqual(section, oldState[i]);
+        }
+      });
+    });
     it("should allow action.data to set .initialized", () => {
       const data = {rows: [], initialized: false, id: "foo_bar_2"};
       const action = {type: at.SECTION_UPDATE, data};
@@ -458,6 +487,13 @@ describe("Reducers", () => {
       const pinned = [links[7]];
       const result = insertPinned(links, pinned);
       assert.equal(links.length, result.length);
+    });
+    it("should not modify the original data", () => {
+      const pinned = [{url: "http://example.com"}];
+
+      insertPinned(links, pinned);
+
+      assert.equal(typeof pinned[0].isPinned, "undefined");
     });
   });
   describe("Snippets", () => {
