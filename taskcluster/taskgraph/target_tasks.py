@@ -123,8 +123,7 @@ def target_tasks_default(full_task_graph, parameters):
     """Target the tasks which have indicated they should be run on this project
     via the `run_on_projects` attributes."""
 
-    return [l for l, t in full_task_graph.tasks.iteritems()
-            if standard_filter(t, parameters)]
+    return target_tasks_mozilla_beta(full_task_graph, parameters)
 
 
 @_target_task('ash_tasks')
