@@ -14,10 +14,7 @@
 #![feature(on_unimplemented)]
 #![feature(plugin)]
 #![feature(proc_macro)]
-#![feature(stmt_expr_attributes)]
 #![feature(try_from)]
-#![feature(unboxed_closures)]
-#![feature(untagged_unions)]
 
 #![deny(unsafe_code)]
 #![allow(non_snake_case)]
@@ -70,6 +67,7 @@ extern crate metrics;
 #[macro_use]
 extern crate mime;
 extern crate mime_guess;
+extern crate mitochondria;
 extern crate msg;
 extern crate net_traits;
 extern crate num_traits;

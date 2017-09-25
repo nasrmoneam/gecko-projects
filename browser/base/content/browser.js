@@ -1359,7 +1359,7 @@ var gBrowserInit = {
 
     // Misc. inits.
     TabletModeUpdater.init();
-    CombinedStopReload.init();
+    CombinedStopReload.ensureInitialized();
     gPrivateBrowsingUI.init();
     BrowserPageActions.init();
     gAccessibilityServiceIndicator.init();
@@ -1396,6 +1396,8 @@ var gBrowserInit = {
         Cu.reportError(e);
       }
     }
+
+    this._setInitialFocus();
 
     // Wait until chrome is painted before executing code not critical to making the window visible
     this._boundDelayedStartup = this._delayedStartup.bind(this);
@@ -1604,7 +1606,7 @@ var gBrowserInit = {
     TelemetryTimestamps.add("delayedStartupFinished");
   },
 
-  _handleURIToLoad() {
+  _setInitialFocus() {
     let initiallyFocusedElement = document.commandDispatcher.focusedElement;
 
     let firstBrowserPaintDeferred = {};
@@ -1625,6 +1627,31 @@ var gBrowserInit = {
       initialBrowser.removeAttribute("blank");
     });
 
+    this._uriToLoadPromise.then(uriToLoad => {
+      if ((isBlankPageURL(uriToLoad) || uriToLoad == "about:privatebrowsing") &&
+          focusAndSelectUrlBar()) {
+        return;
+      }
+
+      if (gBrowser.selectedBrowser.isRemoteBrowser) {
+        // If the initial browser is remote, in order to optimize for first paint,
+        // we'll defer switching focus to that browser until it has painted.
+        firstBrowserPaintDeferred.promise.then(() => {
+          // If focus didn't move while we were waiting for first paint, we're okay
+          // to move to the browser.
+          if (document.commandDispatcher.focusedElement == initiallyFocusedElement) {
+            gBrowser.selectedBrowser.focus();
+          }
+        });
+      } else {
+        // If the initial browser is not remote, we can focus the browser
+        // immediately with no paint performance impact.
+        gBrowser.selectedBrowser.focus();
+      }
+    });
+  },
+
+  _handleURIToLoad() {
     this._uriToLoadPromise.then(uriToLoad => {
       if (!uriToLoad || uriToLoad == "about:blank") {
         return;
@@ -1679,29 +1706,6 @@ var gBrowserInit = {
         // Note: loadOneOrMoreURIs *must not* be called if window.arguments.length >= 3.
         // Such callers expect that window.arguments[0] is handled as a single URI.
         loadOneOrMoreURIs(uriToLoad, Services.scriptSecurityManager.getSystemPrincipal());
-      }
-    });
-
-    this._uriToLoadPromise.then(uriToLoad => {
-      if ((isBlankPageURL(uriToLoad) || uriToLoad == "about:privatebrowsing") &&
-          focusAndSelectUrlBar()) {
-        return;
-      }
-
-      if (gBrowser.selectedBrowser.isRemoteBrowser) {
-        // If the initial browser is remote, in order to optimize for first paint,
-        // we'll defer switching focus to that browser until it has painted.
-        firstBrowserPaintDeferred.promise.then(() => {
-          // If focus didn't move while we were waiting for first paint, we're okay
-          // to move to the browser.
-          if (document.commandDispatcher.focusedElement == initiallyFocusedElement) {
-            gBrowser.selectedBrowser.focus();
-          }
-        });
-      } else {
-        // If the initial browser is not remote, we can focus the browser
-        // immediately with no paint performance impact.
-        gBrowser.selectedBrowser.focus();
       }
     });
   },
@@ -3697,7 +3701,7 @@ const DOMEventHandler = {
         break;
 
       case "Link:SetIcon":
-        this.setIcon(aMsg.target, aMsg.data.url, aMsg.data.loadingPrincipal);
+        this.setIcon(aMsg.target, aMsg.data.url, aMsg.data.loadingPrincipal, aMsg.data.requestContextID);
         break;
 
       case "Link:AddSearch":
@@ -3716,7 +3720,7 @@ const DOMEventHandler = {
     return true;
   },
 
-  setIcon(aBrowser, aURL, aLoadingPrincipal) {
+  setIcon(aBrowser, aURL, aLoadingPrincipal, aRequestContextID) {
     if (gBrowser.isFailedIcon(aURL))
       return false;
 
@@ -3724,7 +3728,7 @@ const DOMEventHandler = {
     if (!tab)
       return false;
 
-    gBrowser.setIcon(tab, aURL, aLoadingPrincipal);
+    gBrowser.setIcon(tab, aURL, aLoadingPrincipal, aRequestContextID);
     return true;
   },
 
@@ -4920,14 +4924,21 @@ var LinkTargetDisplay = {
 };
 
 var CombinedStopReload = {
-  init() {
+  // Try to initialize. Returns whether initialization was successful, which
+  // may mean we had already initialized.
+  ensureInitialized() {
     if (this._initialized)
-      return;
+      return true;
+    if (this._destroyed)
+      return false;
 
     let reload = document.getElementById("reload-button");
     let stop = document.getElementById("stop-button");
-    if (!stop || !reload || reload.nextSibling != stop)
-      return;
+    // It's possible the stop/reload buttons have been moved to the palette.
+    // They may be reinserted later, so we will retry initialization if/when
+    // we get notified of document loads.
+    if (!stop || !reload)
+      return false;
 
     this._initialized = true;
     if (XULBrowserWindow.stopCommand.getAttribute("disabled") != "true")
@@ -4937,15 +4948,21 @@ var CombinedStopReload = {
     this.stop = stop;
     this.stopReloadContainer = this.reload.parentNode;
     this.timeWhenSwitchedToStop = 0;
+
+    if (this._shouldStartPrefMonitoring) {
+      this.startAnimationPrefMonitoring();
+    }
+    return true;
   },
 
   uninit() {
+    this._destroyed = true;
+
     if (!this._initialized)
       return;
 
     Services.prefs.removeObserver("toolkit.cosmeticAnimations.enabled", this);
     this._cancelTransition();
-    this._initialized = false;
     this.stop.removeEventListener("click", this);
     this.stopReloadContainer.removeEventListener("animationend", this);
     this.stopReloadContainer = null;
@@ -4980,8 +4997,12 @@ var CombinedStopReload = {
 
   startAnimationPrefMonitoring() {
     // CombinedStopReload may have been uninitialized before the idleCallback is executed.
-    if (!this._initialized)
+    if (this._destroyed)
       return;
+    if (!this.ensureInitialized()) {
+      this._shouldStartPrefMonitoring = true;
+      return;
+    }
     this.animate = Services.prefs.getBoolPref("toolkit.cosmeticAnimations.enabled") &&
                    Services.prefs.getBoolPref("browser.stopReloadAnimation.enabled");
     Services.prefs.addObserver("toolkit.cosmeticAnimations.enabled", this);
@@ -4996,7 +5017,7 @@ var CombinedStopReload = {
   },
 
   switchToStop(aRequest, aWebProgress) {
-    if (!this._initialized || !this._shouldSwitch(aRequest, aWebProgress)) {
+    if (!this.ensureInitialized() || !this._shouldSwitch(aRequest, aWebProgress)) {
       return;
     }
 
@@ -5025,7 +5046,7 @@ var CombinedStopReload = {
   },
 
   switchToReload(aRequest, aWebProgress) {
-    if (!this._initialized || !this._shouldSwitch(aRequest, aWebProgress) ||
+    if (!this.ensureInitialized() || !this._shouldSwitch(aRequest, aWebProgress) ||
         !this.reload.hasAttribute("displaystop")) {
       return;
     }

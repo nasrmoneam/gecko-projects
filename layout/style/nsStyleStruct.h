@@ -198,6 +198,14 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleFont
                         // mFont.size should be used for display purposes
                         // while mSize is the value to return in
                         // getComputedStyle() for example.
+
+  // In stylo these three track whether the size is keyword-derived
+  // and if so if it has been modified by a factor/offset
+  float mFontSizeFactor;
+  nscoord mFontSizeOffset;
+  uint8_t mFontSizeKeyword; // NS_STYLE_FONT_SIZE_*, is NS_STYLE_FONT_SIZE_NO_KEYWORD
+                            // when not keyword-derived
+
   uint8_t mGenericID;   // [inherited] generic CSS font family, if any;
                         // value is a kGenericFont_* constant, see nsFont.h.
 
@@ -640,8 +648,6 @@ struct nsStyleImageLayers {
 
   static bool IsInitialPositionForLayerType(mozilla::Position aPosition, LayerType aType);
 
-  struct Size;
-  friend struct Size;
   struct Size {
     struct Dimension : public nsStyleCoord::CalcValue {
       nscoord ResolveLengthPercentage(nscoord aAvailable) const {
@@ -703,8 +709,6 @@ struct nsStyleImageLayers {
     }
   };
 
-  struct Repeat;
-  friend struct Repeat;
   struct Repeat {
     mozilla::StyleImageLayerRepeat mXRepeat, mYRepeat;
 
@@ -736,8 +740,6 @@ struct nsStyleImageLayers {
     }
   };
 
-  struct Layer;
-  friend struct Layer;
   struct Layer {
     typedef mozilla::StyleGeometryBox StyleGeometryBox;
 
@@ -900,11 +902,6 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleBackground {
   nsStyleImageLayers mImage;
   mozilla::StyleComplexColor mBackgroundColor;       // [reset]
 };
-
-#define NS_SPACING_MARGIN   0
-#define NS_SPACING_PADDING  1
-#define NS_SPACING_BORDER   2
-
 
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleMargin
 {

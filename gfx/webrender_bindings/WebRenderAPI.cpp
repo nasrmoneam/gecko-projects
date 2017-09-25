@@ -568,10 +568,12 @@ ResourceUpdateQueue::AddFontInstance(wr::FontInstanceKey aKey,
                                      wr::FontKey aFontKey,
                                      float aGlyphSize,
                                      const wr::FontInstanceOptions* aOptions,
-                                     const wr::FontInstancePlatformOptions* aPlatformOptions)
+                                     const wr::FontInstancePlatformOptions* aPlatformOptions,
+                                     wr::Vec_u8& aVariations)
 {
   wr_resource_updates_add_font_instance(mUpdates, aKey, aFontKey, aGlyphSize,
-                                        aOptions, aPlatformOptions);
+                                        aOptions, aPlatformOptions,
+                                        &aVariations.inner);
 }
 
 void
@@ -622,6 +624,7 @@ WebRenderAPI::RunOnRenderThread(UniquePtr<RendererEvent> aEvent)
 
 DisplayListBuilder::DisplayListBuilder(PipelineId aId,
                                        const wr::LayoutSize& aContentSize)
+  : mMaskClipCount(0)
 {
   MOZ_COUNT_CTOR(DisplayListBuilder);
   mWrState = wr_state_new(aId, aContentSize);
@@ -707,22 +710,58 @@ DisplayListBuilder::DefineClip(const wr::LayoutRect& aClipRect,
 }
 
 void
-DisplayListBuilder::PushClip(const wr::WrClipId& aClipId, bool aRecordInStack)
+DisplayListBuilder::PushClip(const wr::WrClipId& aClipId, bool aMask)
 {
   wr_dp_push_clip(mWrState, aClipId.id);
   WRDL_LOG("PushClip id=%" PRIu64 "\n", mWrState, aClipId.id);
-  if (aRecordInStack) {
+  if (!aMask) {
     mClipIdStack.push_back(aClipId);
+  } else {
+    mMaskClipCount++;
   }
 }
 
 void
-DisplayListBuilder::PopClip(bool aRecordInStack)
+DisplayListBuilder::PopClip(bool aMask)
 {
   WRDL_LOG("PopClip id=%" PRIu64 "\n", mWrState, mClipIdStack.back().id);
-  if (aRecordInStack) {
+  if (!aMask) {
     mClipIdStack.pop_back();
+  } else {
+    mMaskClipCount--;
   }
+  wr_dp_pop_clip(mWrState);
+}
+
+wr::WrStickyId
+DisplayListBuilder::DefineStickyFrame(const wr::LayoutRect& aContentRect,
+                                      const wr::StickySideConstraint* aTop,
+                                      const wr::StickySideConstraint* aRight,
+                                      const wr::StickySideConstraint* aBottom,
+                                      const wr::StickySideConstraint* aLeft)
+{
+  uint64_t id = wr_dp_define_sticky_frame(mWrState, aContentRect, aTop,
+      aRight, aBottom, aLeft);
+  WRDL_LOG("DefineSticky id=%" PRIu64 " c=%s t=%s r=%s b=%s l=%s\n", mWrState, id,
+      Stringify(aContentRect).c_str(),
+      aTop ? Stringify(*aTop).c_str() : "none",
+      aRight ? Stringify(*aRight).c_str() : "none",
+      aBottom ? Stringify(*aBottom).c_str() : "none",
+      aLeft ? Stringify(*aLeft).c_str() : "none");
+  return wr::WrStickyId { id };
+}
+
+void
+DisplayListBuilder::PushStickyFrame(const wr::WrStickyId& aStickyId)
+{
+  wr_dp_push_clip(mWrState, aStickyId.id);
+  WRDL_LOG("PushSticky id=%" PRIu64 "\n", mWrState, aStickyId.id);
+}
+
+void
+DisplayListBuilder::PopStickyFrame()
+{
+  WRDL_LOG("PopSticky\n", mWrState);
   wr_dp_pop_clip(mWrState);
 }
 
