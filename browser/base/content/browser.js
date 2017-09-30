@@ -3724,16 +3724,8 @@ const DOMEventHandler = {
     let loadingPrincipal = aLoadingPrincipal ||
                            Services.scriptSecurityManager.getSystemPrincipal();
     if (aURL) {
-      try {
-        if (!(aURL instanceof Ci.nsIURI)) {
-          aURL = makeURI(aURL);
-        }
-        PlacesUIUtils.loadFavicon(aBrowser, loadingPrincipal, aURL, aRequestContextID);
-      } catch (ex) {
-        Components.utils.reportError(ex);
-      }
+      gBrowser.storeIcon(aBrowser, aURL, loadingPrincipal, aRequestContextID);
     }
-
     if (aCanUseForTab) {
       gBrowser.setIcon(tab, aURL, loadingPrincipal, aRequestContextID);
     }
@@ -4952,6 +4944,18 @@ var CombinedStopReload = {
     if (XULBrowserWindow.stopCommand.getAttribute("disabled") != "true")
       reload.setAttribute("displaystop", "true");
     stop.addEventListener("click", this);
+
+    // Removing attributes based on the observed command doesn't happen if the button
+    // is in the palette when the command's attribute is removed (cf. bug 309953)
+    for (let button of [stop, reload]) {
+      if (button.hasAttribute("disabled")) {
+        let command = document.getElementById(button.getAttribute("command"));
+        if (!command.hasAttribute("disabled")) {
+          button.removeAttribute("disabled");
+        }
+      }
+    }
+
     this.reload = reload;
     this.stop = stop;
     this.stopReloadContainer = this.reload.parentNode;
@@ -5054,8 +5058,7 @@ var CombinedStopReload = {
   },
 
   switchToReload(aRequest, aWebProgress) {
-    if (!this.ensureInitialized() || !this._shouldSwitch(aRequest, aWebProgress) ||
-        !this.reload.hasAttribute("displaystop")) {
+    if (!this.ensureInitialized() || !this.reload.hasAttribute("displaystop")) {
       return;
     }
 
@@ -5372,8 +5375,23 @@ nsBrowserAccess.prototype = {
     return newWindow;
   },
 
+  createContentWindowInFrame: function browser_createContentWindowInFrame(
+                              aURI, aParams, aWhere, aFlags, aNextTabParentId,
+                              aName) {
+    // Passing a null-URI to only create the content window.
+    return this.getContentWindowOrOpenURIInFrame(null, aParams, aWhere, aFlags,
+                                                 aNextTabParentId, aName);
+  },
+
   openURIInFrame: function browser_openURIInFrame(aURI, aParams, aWhere, aFlags,
                                                   aNextTabParentId, aName) {
+    return this.getContentWindowOrOpenURIInFrame(aURI, aParams, aWhere, aFlags,
+                                                 aNextTabParentId, aName);
+  },
+
+  getContentWindowOrOpenURIInFrame: function browser_getContentWindowOrOpenURIInFrame(
+                                    aURI, aParams, aWhere, aFlags,
+                                    aNextTabParentId, aName) {
     if (aWhere != Ci.nsIBrowserDOMWindow.OPEN_NEWTAB) {
       dump("Error: openURIInFrame can only open in new tabs");
       return null;
@@ -6127,7 +6145,7 @@ function stripUnsafeProtocolOnPaste(pasteData) {
   // LOAD_FLAGS_DISALLOW_INHERIT_PRINCIPAL for those.
   let changed = false;
   let pasteDataNoJS = pasteData.replace(/\r?\n/g, "")
-                               .replace(/^(?:\s*javascript:)+/i,
+                               .replace(/^(?:\W*javascript:)+/i,
                                         () => {
                                                 changed = true;
                                                 return "";

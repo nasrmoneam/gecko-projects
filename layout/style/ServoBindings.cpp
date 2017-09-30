@@ -11,6 +11,7 @@
 #include "GeckoProfiler.h"
 #include "gfxFontFamilyList.h"
 #include "gfxFontFeatures.h"
+#include "jsfriendapi.h"
 #include "nsAnimationManager.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSCounterStyleRule.h"
@@ -68,6 +69,7 @@
 #include "mozilla/dom/ElementInlines.h"
 #include "mozilla/dom/HTMLTableCellElement.h"
 #include "mozilla/dom/HTMLBodyElement.h"
+#include "mozilla/ipc/SharedMemory.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/URLExtraData.h"
 
@@ -866,13 +868,12 @@ Gecko_GetLookAndFeelSystemColor(int32_t aId,
 bool
 Gecko_MatchStringArgPseudo(RawGeckoElementBorrowed aElement,
                            CSSPseudoClassType aType,
-                           const char16_t* aIdent,
-                           bool* aSetSlowSelectorFlag)
+                           const char16_t* aIdent)
 {
   EventStates dummyMask; // mask is never read because we pass aDependence=nullptr
   return nsCSSRuleProcessor::StringPseudoMatches(aElement, aType, aIdent,
-                                                 aElement->OwnerDoc(), true,
-                                                 dummyMask, aSetSlowSelectorFlag, nullptr);
+                                                 aElement->OwnerDoc(),
+                                                 dummyMask, nullptr);
 }
 
 bool
@@ -2482,9 +2483,10 @@ Gecko_GetFontMetrics(RawGeckoPresContextBorrowed aPresContext,
 
   nsPresContext* presContext = const_cast<nsPresContext*>(aPresContext);
   presContext->SetUsesExChUnits(true);
-  RefPtr<nsFontMetrics> fm = nsRuleNode::GetMetricsFor(presContext, aIsVertical,
-                                                       aFont, aFontSize,
-                                                       aUseUserFontSet);
+  RefPtr<nsFontMetrics> fm = nsRuleNode::GetMetricsFor(
+      presContext, aIsVertical, aFont, aFontSize, aUseUserFontSet,
+      nsRuleNode::FlushUserFontSet::No);
+
   ret.mXSize = fm->XHeight();
   gfxFloat zeroWidth = fm->GetThebesFontGroup()->GetFirstValidFont()->
                            GetMetrics(fm->Orientation()).zeroOrAveCharWidth;
@@ -2629,6 +2631,27 @@ Gecko_ShouldCreateStyleThreadPool()
 {
   MOZ_ASSERT(NS_IsMainThread());
   return !mozilla::BrowserTabsRemoteAutostart() || XRE_IsContentProcess();
+}
+
+size_t
+Gecko_GetSystemPageSize()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return mozilla::ipc::SharedMemory::SystemPageSize();
+}
+
+void
+Gecko_ProtectBuffer(void* aBuffer, size_t aSize)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  js::ProtectBuffer(aBuffer, aSize);
+}
+
+void
+Gecko_UnprotectBuffer(void* aBuffer, size_t aSize)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  js::UnprotectBuffer(aBuffer, aSize);
 }
 
 NS_IMPL_FFI_REFCOUNTING(nsCSSFontFaceRule, CSSFontFaceRule);
