@@ -11,8 +11,8 @@ config = {
     "vcs_share_base": "/builds/hg-shared",
     # TODO: use real repo
     "push_dest": "ssh://hg.mozilla.org/users/raliiev_mozilla.com/tools",
-    # date repo used for staging beta
-    "shipped-locales-url": "https://hg.mozilla.org/projects/date/raw-file/{revision}/browser/locales/shipped-locales",
+    # jamun repo used for staging beta
+    "shipped-locales-url": "https://hg.mozilla.org/projects/jamun/raw-file/{revision}/browser/locales/shipped-locales",
     "ignore_no_changes": True,
     "ssh_user": "ffxbld",
     "ssh_key": "~/.ssh/ffxbld_rsa",
@@ -27,7 +27,7 @@ config = {
             "version_regex": r"^(\d+\.\d+(b\d+)?)$",
             "requires_mirrors": True,
             # TODO - when we use a real repo, rename this file # s/MozDate/MozBeta-dev/
-            "patcher_config": "mozDate-branch-patcher2.cfg",
+            "patcher_config": "mozBeta-branch-patcher2.cfg",
             "update_verify_channel": "beta-dev-localtest",
             "mar_channel_ids": [],
             "channel_names": ["beta-dev", "beta-dev-localtest", "beta-dev-cdntest"],
