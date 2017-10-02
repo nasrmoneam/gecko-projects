@@ -35,6 +35,12 @@ config = {
             "rules_to_update": ["firefox-beta-dev-cdntest", "firefox-beta-dev-localtest"],
             "publish_rules": ["firefox-beta"],
             "schedule_asap": True,
+            # TEMP stuff
+            "bz2_blob_suffix": "-bz2",
+            "bz2_rules_to_update": ["firefox-release-cdntest-bz2", "firefox-release-localtest-bz2"],
+            "bz2_publish_rules": [624],
+            "complete_mar_filename_pattern": '%s-%s.bz2.complete.mar',
+            "complete_mar_bouncer_product_pattern": '%s-%s-complete-bz2',
         },
         "release-dev": {
             "version_regex": r"^\d+\.\d+(\.\d+)?$",
@@ -45,6 +51,12 @@ config = {
             "channel_names": ["release-dev", "release-dev-localtest", "release-dev-cdntest"],
             "rules_to_update": ["firefox-release-dev-cdntest", "firefox-release-dev-localtest"],
             "publish_rules": ["firefox-release"],
+            # TEMP stuff
+            "bz2_blob_suffix": "-bz2",
+            "bz2_rules_to_update": ["firefox-release-cdntest-bz2", "firefox-release-localtest-bz2"],
+            "bz2_publish_rules": [624],
+            "complete_mar_filename_pattern": '%s-%s.bz2.complete.mar',
+            "complete_mar_bouncer_product_pattern": '%s-%s-complete-bz2',
         },
     },
     "balrog_use_dummy_suffix": False,
