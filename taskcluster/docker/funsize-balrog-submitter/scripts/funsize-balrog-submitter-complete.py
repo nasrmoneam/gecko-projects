@@ -45,7 +45,7 @@ def main():
     for e in manifest:
         complete_info = [{
             "hash": e["hash"],
-            "size": e["file_to_sign"],
+            "size": e["size"],
         }]
 
         submitter = ReleaseSubmitterV4(api_root=args.api_root, auth=auth,
