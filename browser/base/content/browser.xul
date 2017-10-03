@@ -617,7 +617,7 @@
 #ifdef CAN_DRAW_IN_TITLEBAR
 #ifndef XP_MACOSX
       <hbox class="titlebar-placeholder" type="caption-buttons" ordinal="1000"
-            id="titlebar-placeholder-on-menubar-for-caption-buttons" persist="width"
+            persist="width"
             skipintoolbarset="true"/>
 #endif
 #endif
@@ -632,13 +632,9 @@
              context="toolbar-context-menu"
              collapsed="true">
 
-#if defined(MOZ_WIDGET_GTK)
-      <hbox class="private-browsing-indicator"
+#ifdef CAN_DRAW_IN_TITLEBAR
+      <hbox class="titlebar-placeholder" type="pre-tabs"
             skipintoolbarset="true"/>
-      <button class="accessibility-indicator"
-              tooltiptext="&accessibilityIndicator.tooltip;"
-              aria-live="polite"
-              skipintoolbarset="true"/>
 #endif
 
       <tabs id="tabbrowser-tabs"
@@ -685,14 +681,20 @@
         </menupopup>
       </toolbarbutton>
 
-#if !defined(MOZ_WIDGET_GTK)
-      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;"
-              aria-live="polite" skipintoolbarset="true"/>
-      <hbox class="private-browsing-indicator" skipintoolbarset="true"/>
+#ifdef CAN_DRAW_IN_TITLEBAR
+      <hbox class="titlebar-placeholder" type="post-tabs"
+            ordinal="1000"
+            skipintoolbarset="true"/>
 #endif
+
+      <button class="accessibility-indicator" tooltiptext="&accessibilityIndicator.tooltip;"
+              ordinal="1000"
+              aria-live="polite" skipintoolbarset="true"/>
+      <hbox class="private-browsing-indicator" skipintoolbarset="true"
+            ordinal="1000"/>
 #ifdef CAN_DRAW_IN_TITLEBAR
       <hbox class="titlebar-placeholder" type="caption-buttons"
-            id="titlebar-placeholder-on-TabsToolbar-for-captions-buttons" persist="width"
+            persist="width"
 #ifndef XP_MACOSX
             ordinal="1000"
 #endif
@@ -700,7 +702,7 @@
 
 #ifdef XP_MACOSX
       <hbox class="titlebar-placeholder" type="fullscreen-button"
-            id="titlebar-placeholder-on-TabsToolbar-for-fullscreen-button" persist="width"
+            persist="width"
             skipintoolbarset="true"/>
 #endif
 #endif
@@ -898,7 +900,7 @@
                       class="urlbar-icon-wrapper urlbar-page-action"
                       context="pageActionPanelContextMenu"
                       oncontextmenu="BrowserPageActions.onContextMenu(event);"
-                      onclick="BrowserPageActions.bookmark.onUrlbarNodeClicked(event);">
+                      onclick="BrowserPageActions.doCommandForAction(PageActions.actionForID('bookmark'), event, this);">
                   <image id="star-button"
                          class="urlbar-icon"
                          role="button"
@@ -932,7 +934,7 @@
                        hidden="true"
                        tooltip="dynamic-shortcut-tooltip"/>
 
-        <toolbarbutton id="library-button" class="toolbarbutton-1 chromeclass-toolbar-additional"
+        <toolbarbutton id="library-button" class="toolbarbutton-1 chromeclass-toolbar-additional subviewbutton-nav"
                        removable="true"
                        onmousedown="PanelUI.showSubView('appMenu-libraryView', this, null, event);"
                        closemenu="none"
@@ -1066,7 +1068,7 @@
                      tooltip="dynamic-shortcut-tooltip"/>
 
       <toolbarbutton id="bookmarks-menu-button"
-                     class="toolbarbutton-1 chromeclass-toolbar-additional"
+                     class="toolbarbutton-1 chromeclass-toolbar-additional subviewbutton-nav"
                      type="menu"
                      label="&bookmarksMenuButton2.label;"
                      tooltip="dynamic-shortcut-tooltip"

@@ -377,7 +377,8 @@ nsRuleNode::GetMetricsFor(nsPresContext* aPresContext,
                           bool aIsVertical,
                           const nsStyleFont* aStyleFont,
                           nscoord aFontSize,
-                          bool aUseUserFontSet)
+                          bool aUseUserFontSet,
+                          FlushUserFontSet aFlushUserFontSet)
 {
   nsFont font = aStyleFont->mFont;
   font.size = aFontSize;
@@ -387,8 +388,9 @@ nsRuleNode::GetMetricsFor(nsPresContext* aPresContext,
   params.language = aStyleFont->mLanguage;
   params.explicitLanguage = aStyleFont->mExplicitLanguage;
   params.orientation = orientation;
-  params.userFontSet =
-    aUseUserFontSet ? aPresContext->GetUserFontSet() : nullptr;
+  params.userFontSet = aUseUserFontSet
+    ? aPresContext->GetUserFontSet(aFlushUserFontSet == FlushUserFontSet::Yes)
+    : nullptr;
   params.textPerf = aPresContext->GetTextPerfMetrics();
   return aPresContext->DeviceContext()->GetMetricsFor(font, params);
 }
@@ -408,8 +410,9 @@ nsRuleNode::GetMetricsFor(nsPresContext* aPresContext,
       isVertical = true;
     }
   }
-  return nsRuleNode::GetMetricsFor(aPresContext, isVertical, aStyleFont,
-                                   aFontSize, aUseUserFontSet);
+  return nsRuleNode::GetMetricsFor(
+      aPresContext, isVertical, aStyleFont, aFontSize, aUseUserFontSet,
+      FlushUserFontSet::Yes);
 }
 
 /* static */
@@ -1467,7 +1470,7 @@ static void SetStyleImage(GeckoStyleContext* aStyleContext,
     }
     case eCSSUnit_Element:
     {
-      nsCOMPtr<nsIAtom> atom = NS_Atomize(aValue.GetStringBufferValue());
+      RefPtr<nsIAtom> atom = NS_Atomize(aValue.GetStringBufferValue());
       aResult.SetElementId(atom.forget());
       break;
     }
@@ -8107,7 +8110,7 @@ nsRuleNode::ComputeListData(void* aStartStruct,
       // from the items in EnumTable listed in HTMLLIElement.cpp and
       // HTMLSharedListElement.cpp.
       int32_t intValue = typeValue->GetIntValue();
-      nsCOMPtr<nsIAtom> name;
+      RefPtr<nsIAtom> name;
       switch (intValue) {
         case NS_STYLE_LIST_STYLE_LOWER_ROMAN:
           name = nsGkAtoms::lowerRoman;
@@ -9792,13 +9795,13 @@ nsRuleNode::ComputeSVGData(void* aStartStruct,
   COMPUTE_END_INHERITED(SVG, svg)
 }
 
-static already_AddRefed<StyleBasicShape>
+static UniquePtr<StyleBasicShape>
 GetStyleBasicShapeFromCSSValue(const nsCSSValue& aValue,
                                GeckoStyleContext* aStyleContext,
                                nsPresContext* aPresContext,
                                RuleNodeCacheConditions& aConditions)
 {
-  RefPtr<StyleBasicShape> basicShape;
+  UniquePtr<StyleBasicShape> basicShape;
 
   nsCSSValue::Array* shapeFunction = aValue.GetArrayValue();
   nsCSSKeyword functionName =
@@ -9806,7 +9809,7 @@ GetStyleBasicShapeFromCSSValue(const nsCSSValue& aValue,
 
   if (functionName == eCSSKeyword_polygon) {
     MOZ_ASSERT(!basicShape, "did not expect value");
-    basicShape = new StyleBasicShape(StyleBasicShapeType::Polygon);
+    basicShape = MakeUnique<StyleBasicShape>(StyleBasicShapeType::Polygon);
     MOZ_ASSERT(shapeFunction->Count() > 1,
                "polygon has wrong number of arguments");
     size_t j = 1;
@@ -9843,7 +9846,7 @@ GetStyleBasicShapeFromCSSValue(const nsCSSValue& aValue,
       StyleBasicShapeType::Circle :
       StyleBasicShapeType::Ellipse;
     MOZ_ASSERT(!basicShape, "did not expect value");
-    basicShape = new StyleBasicShape(type);
+    basicShape = MakeUnique<StyleBasicShape>(type);
     const int32_t mask = SETCOORD_PERCENT | SETCOORD_LENGTH |
       SETCOORD_STORE_CALC | SETCOORD_ENUMERATED;
     size_t count = type == StyleBasicShapeType::Circle ? 2 : 3;
@@ -9879,7 +9882,7 @@ GetStyleBasicShapeFromCSSValue(const nsCSSValue& aValue,
     }
   } else if (functionName == eCSSKeyword_inset) {
     MOZ_ASSERT(!basicShape, "did not expect value");
-    basicShape = new StyleBasicShape(StyleBasicShapeType::Inset);
+    basicShape = MakeUnique<StyleBasicShape>(StyleBasicShapeType::Inset);
     MOZ_ASSERT(shapeFunction->Count() == 6,
                "inset function has wrong number of arguments");
     MOZ_ASSERT(shapeFunction->Item(1).GetUnit() != eCSSUnit_Null,
@@ -9940,7 +9943,7 @@ GetStyleBasicShapeFromCSSValue(const nsCSSValue& aValue,
     NS_NOTREACHED("unexpected basic shape function");
   }
 
-  return basicShape.forget();
+  return basicShape;
 }
 
 static void
@@ -9959,7 +9962,7 @@ SetStyleShapeSourceToCSSValue(
              "Expect one or both of a shape function and a reference box");
 
   StyleGeometryBox referenceBox = StyleGeometryBox::NoBox;
-  RefPtr<StyleBasicShape> basicShape;
+  UniquePtr<StyleBasicShape> basicShape;
 
   for (size_t i = 0; i < array->Count(); ++i) {
     const nsCSSValue& item = array->Item(i);
@@ -9975,7 +9978,7 @@ SetStyleShapeSourceToCSSValue(
   }
 
   if (basicShape) {
-    aShapeSource->SetBasicShape(basicShape, referenceBox);
+    aShapeSource->SetBasicShape(Move(basicShape), referenceBox);
   } else {
     aShapeSource->SetReferenceBox(referenceBox);
   }
@@ -10146,7 +10149,6 @@ nsRuleNode::ComputeSVGResetData(void* aStartStruct,
            parentSVGReset->mMaskType,
            NS_STYLE_MASK_TYPE_LUMINANCE);
 
-#ifdef MOZ_ENABLE_MASK_AS_SHORTHAND
   uint32_t maxItemCount = 1;
   bool rebuild = false;
 
@@ -10246,21 +10248,6 @@ nsRuleNode::ComputeSVGResetData(void* aStartStruct,
   if (rebuild) {
     FillAllBackgroundLists(svgReset->mMask, maxItemCount);
   }
-#else
-  // mask: none | <url>
-  const nsCSSValue* maskValue = aRuleData->ValueForMask();
-  if (eCSSUnit_URL == maskValue->GetUnit()) {
-    svgReset->mMask.mLayers[0].mSourceURI = maskValue->GetURLStructValue();
-  } else if (eCSSUnit_None == maskValue->GetUnit() ||
-             eCSSUnit_Initial == maskValue->GetUnit() ||
-             eCSSUnit_Unset == maskValue->GetUnit()) {
-    svgReset->mMask.mLayers[0].mSourceURI = nullptr;
-  } else if (eCSSUnit_Inherit == maskValue->GetUnit()) {
-    conditions.SetUncacheable();
-    svgReset->mMask.mLayers[0].mSourceURI =
-      parentSVGReset->mMask.mLayers[0].mSourceURI;
-  }
-#endif
 
   COMPUTE_END_RESET(SVGReset, svgReset)
 }

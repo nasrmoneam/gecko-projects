@@ -141,6 +141,7 @@ var gFailedAssignedLayer = false;
 var gFailedAssignedLayerMessages = [];
 
 var gStartAfter = undefined;
+var gSuiteStarted = false
 
 // The enabled-state of the test-plugins, stored so they can be reset later
 var gTestPluginEnabledStates = null;
@@ -568,8 +569,9 @@ function StartTests()
             tIDs.push(gURLs[i].identifier);
         }
 
-        if (gStartAfter === undefined) {
+        if (gStartAfter === undefined && !gSuiteStarted) {
             logger.suiteStart(tIDs, {"skipped": gURLs.length - tURLs.length});
+            gSuiteStarted = true
         }
 
         if (gTotalChunks > 0 && gThisChunk > 0) {
@@ -725,6 +727,7 @@ function BuildConditionSandbox(aURL) {
       gWindowUtils.layerManagerRemote == true;
     sandbox.advancedLayers =
       gWindowUtils.usingAdvancedLayers == true;
+    sandbox.layerChecksEnabled = !sandbox.webrender;
 
     // Shortcuts for widget toolkits.
     sandbox.Android = xr.OS == "Android";
@@ -805,7 +808,7 @@ function BuildConditionSandbox(aURL) {
 
     // see if we have the test plugin available,
     // and set a sandox prop accordingly
-    sandbox.haveTestPlugin = !!getTestPlugin("Test Plug-in");
+    sandbox.haveTestPlugin = !sandbox.Android && !!getTestPlugin("Test Plug-in");
 
     // Set a flag on sandbox if the windows default theme is active
     sandbox.windowsDefaultTheme = gContainingWindow.matchMedia("(-moz-windows-default-theme)").matches;
@@ -1554,6 +1557,7 @@ function StartCurrentURI(aState)
 function DoneTests()
 {
     logger.suiteEnd({'results': gTestResults});
+    gSuiteStarted = false
     logger.info("Slowest test took " + gSlowestTestTime + "ms (" + gSlowestTestURL + ")");
     logger.info("Total canvas count = " + gRecycledCanvases.length);
     if (gFailedUseWidgetLayers) {
@@ -1725,7 +1729,7 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
 
     if (gURLs[0].type == TYPE_LOAD) {
         ++gTestResults.LoadOnly;
-        logger.testEnd(gURLs[0].identifier, "PASS", "PASS", "(LOAD ONLY)");
+        logger.testStatus(gURLs[0].identifier, "(LOAD ONLY)", "PASS", "PASS");
         gCurrentCanvas = null;
         FinishTestItem();
         return;
@@ -1802,7 +1806,7 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
             output = outputs[expected][false];
             extra = { status_msg: output.n };
             ++gTestResults[output.n];
-            logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1], errorMsg, null, extra);
+            logger.testStatus(gURLs[0].identifier, errorMsg, output.s[0], output.s[1], null, null, extra);
             FinishTestItem();
             return;
         }
@@ -1825,8 +1829,8 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                 var extra = { status_msg: output.n };
 
                 ++gTestResults[output.n];
-                logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1],
-                               result.description + " item " + (++index), null, extra);
+                logger.testStatus(gURLs[0].identifier, result.description + " item " + (++index),
+                                  output.s[0], output.s[1], null, null, extra);
             });
 
         if (anyFailed && expected == EXPECTED_PASS) {
@@ -1943,9 +1947,10 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                     failures.push("failed reftest-assigned-layer: " + gFailedAssignedLayerMessages.join(", "));
                 }
                 var failureString = failures.join(", ");
-                logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1], failureString, null, extra);
+                logger.testStatus(gURLs[0].identifier, failureString, output.s[0], output.s[1], null, null, extra);
             } else {
-                var message = "image comparison";
+                var message = "image comparison, max difference: " + maxDifference.value +
+                              ", number of differing pixels: " + differences;
                 if (!test_passed && expected == EXPECTED_PASS ||
                     !test_passed && expected == EXPECTED_FUZZY ||
                     test_passed && expected == EXPECTED_FAIL) {
@@ -1963,8 +1968,6 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                         ];
                         extra.image1 = image1;
                         extra.image2 = image2;
-                        message += (", max difference: " + extra.max_difference +
-                                    ", number of differing pixels: " + differences);
                     } else {
                         var image1 = gCanvas1.toDataURL();
                         extra.reftest_screenshots = [
@@ -1974,7 +1977,7 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                         extra.image1 = image1;
                     }
                 }
-                logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1], message, null, extra);
+                logger.testStatus(gURLs[0].identifier, message, output.s[0], output.s[1], null, null, extra);
 
                 if (gNoCanvasCache) {
                     ReleaseCanvas(gCanvas1);
@@ -2009,7 +2012,7 @@ function LoadFailed(why)
     if (!why) {
         logger.error("load failed with unknown reason");
     }
-    logger.testEnd(gURLs[0]["url" + gState].spec, "FAIL", "PASS", "load failed: " + why);
+    logger.testStatus(gURLs[0].identifier, "load failed: " + why, "FAIL", "PASS");
     FlushTestBuffer();
     FinishTestItem();
 }
@@ -2048,7 +2051,7 @@ function FindUnexpectedCrashDumpFiles()
                 ++gTestResults.UnexpectedFail;
                 foundCrashDumpFile = true;
                 if (gCurrentURL) {
-                    logger.testEnd(gCurrentURL, "FAIL", "PASS", "This test left crash dumps behind, but we weren't expecting it to!");
+                    logger.testStatus(gURLs[0].identifier, "crash-check", "FAIL", "PASS", "This test left crash dumps behind, but we weren't expecting it to!");
                 } else {
                     logger.error("Harness startup left crash dumps behind, but we weren't expecting it to!");
                 }
@@ -2087,6 +2090,8 @@ function CleanUpCrashDumpFiles()
 
 function FinishTestItem()
 {
+    logger.testEnd(gURLs[0].identifier, "OK");
+
     // Replace document with BLANK_URL_FOR_CLEARING in case there are
     // assertions when unloading.
     logger.debug("Loading a blank page");
@@ -2116,7 +2121,7 @@ function DoAssertionCheck(numAsserts)
         var minAsserts = gURLs[0].minAsserts;
         var maxAsserts = gURLs[0].maxAsserts;
 
-        logger.assertionCount(gCurrentURL, numAsserts, minAsserts, maxAsserts);
+        logger.assertionCount(gURLs[0].identifier, numAsserts, minAsserts, maxAsserts);
     }
 
     if (gURLs[0].chaosMode) {

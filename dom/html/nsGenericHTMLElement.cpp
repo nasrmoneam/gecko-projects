@@ -317,7 +317,7 @@ nsGenericHTMLElement::GetOffsetRect(CSSIntRect& aRect)
       // Add the parent's origin to our own to get to the
       // right coordinate system.
       const bool isOffsetParent = !isPositioned && IsOffsetParent(parent);
-      if (!isAbsolutelyPositioned && !isOffsetParent) {
+      if (!isOffsetParent) {
         origin += parent->GetPositionIgnoringScrolling();
       }
 
@@ -545,7 +545,7 @@ nsGenericHTMLElement::FindAncestorForm(HTMLFormElement* aCurrentForm)
                "FindAncestorForm should not be called if @form is set!");
 
   // Make sure we don't end up finding a form that's anonymous from
-  // our point of view.
+  // our point of view. See also nsGenericHTMLFormElement::UpdateFieldSet.
   nsIContent* bindingParent = GetBindingParent();
 
   nsIContent* content = this;
@@ -2200,7 +2200,7 @@ nsGenericHTMLFormElement::AddFormIdObserver()
   GetAttr(kNameSpaceID_None, nsGkAtoms::form, formId);
   NS_ASSERTION(!formId.IsEmpty(),
                "@form value should not be the empty string!");
-  nsCOMPtr<nsIAtom> atom = NS_Atomize(formId);
+  RefPtr<nsIAtom> atom = NS_Atomize(formId);
 
   return doc->AddIDTargetObserver(atom, FormIdUpdated, this, false);
 }
@@ -2229,7 +2229,7 @@ nsGenericHTMLFormElement::RemoveFormIdObserver()
   GetAttr(kNameSpaceID_None, nsGkAtoms::form, formId);
   NS_ASSERTION(!formId.IsEmpty(),
                "@form value should not be the empty string!");
-  nsCOMPtr<nsIAtom> atom = NS_Atomize(formId);
+  RefPtr<nsIAtom> atom = NS_Atomize(formId);
 
   doc->RemoveIDTargetObserver(atom, FormIdUpdated, this, false);
 }
@@ -2319,7 +2319,9 @@ nsGenericHTMLFormElement::UpdateFormOwner(bool aBindToTree,
                      "element should be equals to the current element "
                      "associated with the id in @form!");
 
-        if (element && element->IsHTMLElement(nsGkAtoms::form)) {
+        if (element &&
+            element->IsHTMLElement(nsGkAtoms::form) &&
+            nsContentUtils::IsInSameAnonymousTree(this, element)) {
           SetForm(static_cast<HTMLFormElement*>(element), aBindToTree);
         }
       }
@@ -2365,7 +2367,11 @@ nsGenericHTMLFormElement::UpdateFieldSet(bool aNotify)
   nsIContent* parent = nullptr;
   nsIContent* prev = nullptr;
 
-  for (parent = GetParent(); parent;
+  // Don't walk out of anonymous subtrees. Note the similar code in
+  // nsGenericHTMLElement::FindAncestorForm.
+  nsIContent* bindingParent = GetBindingParent();
+
+  for (parent = GetParent(); parent && parent != bindingParent;
        prev = parent, parent = parent->GetParent()) {
     HTMLFieldSetElement* fieldset =
       HTMLFieldSetElement::FromContent(parent);

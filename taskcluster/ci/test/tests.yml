@@ -562,10 +562,6 @@ mochitest-browser-chrome:
             linux32/debug: 5400
             linux32-stylo-disabled/debug: 5400
             default: 3600
-    worker-type:
-        by-test-platform:
-            windows10-64.*: buildbot-bridge/buildbot-bridge
-            default: null
     mozharness:
         mochitest-flavor: browser
         script: desktop_unittest.py
@@ -767,8 +763,8 @@ mochitest-devtools-chrome:
                     - --mochitest-suite=mochitest-devtools-chrome-chunked
     instance-size:
         by-test-platform:
-            # Bug 1361476 - try xlarge on asan to see if it avoids OOM
-            linux64-asan/opt: xlarge
+            # Bug 1281241: migrating to m3.large instances
+            linux64-asan/opt: legacy
             default: default
     # Bug 1296086: high number of intermittents observed with software GL and large instances
     allow-software-gl-layers: false
@@ -783,10 +779,6 @@ mochitest-gpu:
     treeherder-symbol: tc-M(gpu)
     loopback-video: true
     virtualization: virtual-with-gpu
-    worker-type:
-        by-test-platform:
-            windows10-64.*: buildbot-bridge/buildbot-bridge
-            default: null
     e10s:
         by-test-platform:
             windows7-32/debug: both
@@ -1800,8 +1792,8 @@ talos-tp6-stylo-disabled:
     virtualization: hardware
     run-on-projects:
         by-test-platform:
-            windows.*: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
-            macosx.*: ['mozilla-beta', 'autoland', 'try']
+            windows.*: ['mozilla-beta', 'mozilla-central', 'try']
+            macosx.*: ['mozilla-beta', 'mozilla-central', 'try']
             default: []
     max-run-time: 3600
     mozharness:
@@ -1923,7 +1915,10 @@ test-verify:
             # do not run on ccov; see also the enable_code_coverage transform
             linux64-ccov/.*: []
             default: built-projects
-    tier: 3
+    tier:
+        by-test-platform:
+            windows10-64-asan.*: 3
+            default: 2
     mozharness:
         script: desktop_unittest.py
         no-read-buildbot-config: true

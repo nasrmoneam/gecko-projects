@@ -4158,7 +4158,7 @@ StyleShapeSourceToCSSArray(const StyleShapeSource& aShapeSource,
   MOZ_ASSERT(aResult->Count() == 2,
              "Expected array to be presized for a function and the sizing-box");
 
-  const StyleBasicShape* shape = aShapeSource.GetBasicShape();
+  const UniquePtr<StyleBasicShape>& shape = aShapeSource.GetBasicShape();
   nsCSSKeyword functionName = shape->GetShapeTypeName();
   RefPtr<nsCSSValue::Array> functionArray;
   switch (shape->GetShapeType()) {
@@ -4545,13 +4545,14 @@ StyleAnimationValue::ExtractComputedValue(nsCSSPropertyID aProperty,
           ExtractImageLayerPositionYList(layers, aComputedValue);
           break;
         }
-#ifdef MOZ_ENABLE_MASK_AS_SHORTHAND
+
         case eCSSProperty_mask_position_x: {
           const nsStyleImageLayers& layers =
             static_cast<const nsStyleSVGReset*>(styleStruct)->mMask;
           ExtractImageLayerPositionXList(layers, aComputedValue);
           break;
         }
+
         case eCSSProperty_mask_position_y: {
           const nsStyleImageLayers& layers =
             static_cast<const nsStyleSVGReset*>(styleStruct)->mMask;
@@ -4559,21 +4560,20 @@ StyleAnimationValue::ExtractComputedValue(nsCSSPropertyID aProperty,
 
           break;
         }
-#endif
+
         case eCSSProperty_background_size: {
           const nsStyleImageLayers& layers =
             static_cast<const nsStyleBackground*>(styleStruct)->mImage;
           ExtractImageLayerSizePairList(layers, aComputedValue);
           break;
         }
-#ifdef MOZ_ENABLE_MASK_AS_SHORTHAND
+
         case eCSSProperty_mask_size: {
           const nsStyleImageLayers& layers =
             static_cast<const nsStyleSVGReset*>(styleStruct)->mMask;
           ExtractImageLayerSizePairList(layers, aComputedValue);
           break;
         }
-#endif
 
         case eCSSProperty_clip_path: {
           const nsStyleSVGReset* svgReset =

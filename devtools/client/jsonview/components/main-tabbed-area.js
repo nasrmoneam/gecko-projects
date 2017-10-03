@@ -13,7 +13,7 @@ define(function (require, exports, module) {
   const { JsonPanel } = createFactories(require("./json-panel"));
   const { TextPanel } = createFactories(require("./text-panel"));
   const { HeadersPanel } = createFactories(require("./headers-panel"));
-  const { Tabs, TabPanel } = createFactories(require("devtools/client/shared/components/tabs/tabs"));
+  const { Tabs, TabPanel } = createFactories(require("devtools/client/shared/components/tabs/Tabs"));
 
   /**
    * This object represents the root application template
@@ -31,7 +31,9 @@ define(function (require, exports, module) {
       json: PropTypes.oneOfType([
         PropTypes.string,
         PropTypes.object,
-        PropTypes.array
+        PropTypes.array,
+        PropTypes.bool,
+        PropTypes.number
       ])
     },
 

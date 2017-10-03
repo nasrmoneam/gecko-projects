@@ -333,7 +333,7 @@ public:
    *
    * Most traversal callsites don't need to check this, but some do.
    */
-  bool MayTraverseFrom(dom::Element* aElement);
+  static bool MayTraverseFrom(const dom::Element* aElement);
 
 #ifdef DEBUG
   void AssertTreeIsClean();
@@ -480,6 +480,11 @@ public:
                        ServoStyleContext* aNewParentIgnoringFirstLine,
                        ServoStyleContext* aNewLayoutParent,
                        Element* aElement);
+
+  /**
+   * Temporary testing method. See bug 1403397.
+   */
+  void CorruptRuleHashAndCrash(unsigned long aIndex);
 
 private:
   friend class AutoSetInServoTraversal;

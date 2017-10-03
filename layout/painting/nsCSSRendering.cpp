@@ -2153,11 +2153,6 @@ nsCSSRendering::GetImageLayerClip(const nsStyleImageLayers::Layer& aLayer,
                                   bool aWillPaintBorder, nscoord aAppUnitsPerPixel,
                                   /* out */ ImageLayerClipState* aClipState)
 {
-  aClipState->mHasRoundedCorners = false;
-  aClipState->mHasAdditionalBGClipArea = false;
-  aClipState->mAdditionalBGClipArea.SetEmpty();
-  aClipState->mCustomClip = false;
-
   StyleGeometryBox layerClip = ComputeBoxValue(aForFrame, aLayer.mClip);
   if (IsSVGStyleGeometryBox(layerClip)) {
     MOZ_ASSERT(aForFrame->IsFrameOfType(nsIFrame::eSVG) &&
@@ -2678,15 +2673,18 @@ nsCSSRendering::PaintStyleImageLayerWithSC(const PaintBGParams& aParams,
       bool isBottomLayer = (i == layers.mImageCount - 1);
       if (currentBackgroundClip != layer.mClip || isBottomLayer) {
         currentBackgroundClip = layer.mClip;
-        // For  the bottom layer, we already called GetImageLayerClip above
-        // and it stored its results in clipState.
-        if (!isBottomLayer) {
+        ImageLayerClipState currentLayerClipState;
+        if (isBottomLayer) {
+          currentLayerClipState = clipState;
+        } else {
+          // For the bottom layer, we already called GetImageLayerClip above
+          // and it stored its results in clipState.
           GetImageLayerClip(layer, aParams.frame,
                             aBorder, aParams.borderArea, aParams.dirtyRect,
                             (aParams.paintFlags & PAINTBG_WILL_PAINT_BORDER),
-                            appUnitsPerPixel, &clipState);
+                            appUnitsPerPixel, &currentLayerClipState);
         }
-        SetupImageLayerClip(clipState, &aRenderingCtx,
+        SetupImageLayerClip(currentLayerClipState, &aRenderingCtx,
                             appUnitsPerPixel, &autoSR);
         if (!clipBorderArea.IsEqualEdges(aParams.borderArea)) {
           // We're drawing the background for the joined continuation boxes
@@ -3068,7 +3066,7 @@ nsCSSRendering::ComputeBorderSpacedRepeatSize(nscoord aImageDimension,
                                               nscoord aAvailableSpace,
                                               nscoord& aSpace)
 {
-  int32_t count = aAvailableSpace / aImageDimension;
+  int32_t count = aImageDimension ? (aAvailableSpace / aImageDimension) : 0;
   aSpace = (aAvailableSpace - aImageDimension * count) / (count + 1);
   return aSpace + aImageDimension;
 }
@@ -3829,6 +3827,11 @@ nsCSSRendering::PaintDecorationLine(nsIFrame* aFrame, DrawTarget& aDrawTarget,
 
   AutoPopClips autoPopClips(&aDrawTarget);
 
+  mozilla::layout::TextDrawTarget* textDrawer = nullptr;
+  if (aDrawTarget.GetBackendType() == BackendType::WEBRENDER_TEXT) {
+    textDrawer = static_cast<mozilla::layout::TextDrawTarget*>(&aDrawTarget);
+  }
+
   switch (aParams.style) {
     case NS_STYLE_TEXT_DECORATION_STYLE_SOLID:
     case NS_STYLE_TEXT_DECORATION_STYLE_DOUBLE:
@@ -3899,8 +3902,8 @@ nsCSSRendering::PaintDecorationLine(nsIFrame* aFrame, DrawTarget& aDrawTarget,
     case NS_STYLE_TEXT_DECORATION_STYLE_DASHED: {
       Point p1 = rect.TopLeft();
       Point p2 = aParams.vertical ? rect.BottomLeft() : rect.TopRight();
-      if (aParams.textDrawer) {
-        aParams.textDrawer->AppendDecoration(
+      if (textDrawer) {
+        textDrawer->AppendDecoration(
           p1, p2, lineThickness, aParams.vertical, color, aParams.style);
       } else {
         aDrawTarget.StrokeLine(p1, p2, colorPat, strokeOptions, drawOptions);
@@ -3934,11 +3937,11 @@ nsCSSRendering::PaintDecorationLine(nsIFrame* aFrame, DrawTarget& aDrawTarget,
       Point p1b = aParams.vertical ? rect.TopRight() : rect.BottomLeft();
       Point p2b = rect.BottomRight();
 
-      if (aParams.textDrawer) {
-        aParams.textDrawer->AppendDecoration(
+      if (textDrawer) {
+        textDrawer->AppendDecoration(
           p1a, p2a, lineThickness, aParams.vertical, color,
           NS_STYLE_TEXT_DECORATION_STYLE_SOLID);
-        aParams.textDrawer->AppendDecoration(
+        textDrawer->AppendDecoration(
           p1b, p2b, lineThickness, aParams.vertical, color,
           NS_STYLE_TEXT_DECORATION_STYLE_SOLID);
       } else {
@@ -4008,11 +4011,11 @@ nsCSSRendering::PaintDecorationLine(nsIFrame* aFrame, DrawTarget& aDrawTarget,
 
       rectICoord += lineThickness / 2.0;
 
-      if (aParams.textDrawer) {
+      if (textDrawer) {
         Point p1 = rect.TopLeft();
         Point p2 = aParams.vertical ? rect.BottomLeft() : rect.TopRight();
 
-        aParams.textDrawer->AppendDecoration(
+        textDrawer->AppendDecoration(
           p1, p2, adv, aParams.vertical, color,
           NS_STYLE_TEXT_DECORATION_STYLE_WAVY);
         return;

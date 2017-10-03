@@ -17,6 +17,7 @@ use element_state::ElementState;
 use font_metrics::FontMetricsProvider;
 use media_queries::Device;
 use properties::{AnimationRules, ComputedValues, PropertyDeclarationBlock};
+#[cfg(feature = "gecko")] use properties::LonghandId;
 #[cfg(feature = "gecko")] use properties::animated_properties::AnimationValue;
 #[cfg(feature = "gecko")] use properties::animated_properties::TransitionProperty;
 use rule_tree::CascadeLevel;
@@ -26,7 +27,6 @@ use selectors::matching::{ElementSelectorFlags, VisitedHandlingMode};
 use selectors::sink::Push;
 use servo_arc::{Arc, ArcBorrow};
 use shared_lock::Locked;
-use smallvec::VecLike;
 use std::fmt;
 #[cfg(feature = "gecko")] use hash::HashMap;
 use std::fmt::Debug;
@@ -34,8 +34,6 @@ use std::hash::Hash;
 use std::ops::Deref;
 use stylist::Stylist;
 use traversal_flags::{TraversalFlags, self};
-
-pub use style_traits::UnsafeNode;
 
 /// An opaque handle to a node, which, unlike UnsafeNode, cannot be transformed
 /// back into a non-opaque representation. The only safe operation that can be
@@ -104,12 +102,6 @@ pub trait TNode : Sized + Copy + Clone + Debug + NodeInfo {
     /// TODO(emilio): We should eventually replace this with the `impl Trait`
     /// syntax.
     type ConcreteChildrenIterator: Iterator<Item = Self>;
-
-    /// Convert this node in an `UnsafeNode`.
-    fn to_unsafe(&self) -> UnsafeNode;
-
-    /// Get a node back from an `UnsafeNode`.
-    unsafe fn from_unsafe(n: &UnsafeNode) -> Self;
 
     /// Get this node's parent node.
     fn parent_node(&self) -> Option<Self>;
@@ -656,24 +648,6 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
         false
     }
 
-    /// Gets declarations from XBL bindings from the element.
-    fn get_declarations_from_xbl_bindings<V>(
-        &self,
-        pseudo_element: Option<&PseudoElement>,
-        applicable_declarations: &mut V
-    ) -> bool
-    where
-        V: Push<ApplicableDeclarationBlock> + VecLike<ApplicableDeclarationBlock>
-    {
-        self.each_xbl_stylist(|stylist| {
-            stylist.push_applicable_declarations_as_xbl_only_stylist(
-                self,
-                pseudo_element,
-                applicable_declarations
-            );
-        })
-    }
-
     /// Gets the current existing CSS transitions, by |property, end value| pairs in a HashMap.
     #[cfg(feature = "gecko")]
     fn get_css_transitions_info(&self)
@@ -706,7 +680,7 @@ pub trait TElement : Eq + PartialEq + Debug + Hash + Sized + Copy + Clone +
     #[cfg(feature = "gecko")]
     fn needs_transitions_update_per_property(
         &self,
-        property: &TransitionProperty,
+        property: &LonghandId,
         combined_duration: f32,
         before_change_style: &ComputedValues,
         after_change_style: &ComputedValues,

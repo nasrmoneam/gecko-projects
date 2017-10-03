@@ -8,7 +8,7 @@
 
 define(function (require, exports, module) {
   const { DOM: dom, createFactory, createClass, PropTypes } = require("devtools/client/shared/vendor/react");
-  const TreeViewClass = require("devtools/client/shared/components/tree/tree-view");
+  const TreeViewClass = require("devtools/client/shared/components/tree/TreeView");
   const TreeView = createFactory(TreeViewClass);
 
   const { REPS, MODE } = require("devtools/client/shared/components/reps/reps");
@@ -38,7 +38,9 @@ define(function (require, exports, module) {
       data: PropTypes.oneOfType([
         PropTypes.string,
         PropTypes.array,
-        PropTypes.object
+        PropTypes.object,
+        PropTypes.bool,
+        PropTypes.number
       ]),
       jsonTextLength: PropTypes.number,
       searchFilter: PropTypes.string,

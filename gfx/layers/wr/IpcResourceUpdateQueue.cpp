@@ -182,6 +182,10 @@ ShmSegmentsReader::ReadLarge(const layers::OffsetRange& aRange, wr::Vec_u8& aInt
 bool
 ShmSegmentsReader::Read(const layers::OffsetRange& aRange, wr::Vec_u8& aInto)
 {
+  if (aRange.length() == 0) {
+    return true;
+  }
+
   if (aRange.source() != 0) {
     return ReadLarge(aRange, aInto);
   }
@@ -282,11 +286,14 @@ IpcResourceUpdateQueue::AddFontInstance(wr::FontInstanceKey aKey,
                                         wr::FontKey aFontKey,
                                         float aGlyphSize,
                                         const wr::FontInstanceOptions* aOptions,
-                                        const wr::FontInstancePlatformOptions* aPlatformOptions)
+                                        const wr::FontInstancePlatformOptions* aPlatformOptions,
+                                        Range<const gfx::FontVariation> aVariations)
 {
+  auto bytes = mWriter.WriteAsBytes(aVariations);
   mUpdates.AppendElement(layers::OpAddFontInstance(
     aOptions ? Some(*aOptions) : Nothing(),
     aPlatformOptions ? Some(*aPlatformOptions) : Nothing(),
+    bytes,
     aKey, aFontKey,
     aGlyphSize
   ));

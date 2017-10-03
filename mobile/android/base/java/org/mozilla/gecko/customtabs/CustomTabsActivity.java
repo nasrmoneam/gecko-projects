@@ -147,6 +147,18 @@ public class CustomTabsActivity extends AppCompatActivity
     }
 
     @Override
+    public void onResume() {
+        mGeckoView.setActive(true);
+        super.onResume();
+    }
+
+    @Override
+    public void onPause() {
+        mGeckoView.setActive(false);
+        super.onPause();
+    }
+
+    @Override
     public void onDestroy() {
         mTextSelection.destroy();
         mFormAssistPopup.destroy();
@@ -218,6 +230,10 @@ public class CustomTabsActivity extends AppCompatActivity
 
     @Override
     public void finish() {
+        if (mGeckoView != null) {
+            mGeckoView.loadUri("about:blank");
+        }
+
         super.finish();
 
         final SafeIntent intent = new SafeIntent(getIntent());

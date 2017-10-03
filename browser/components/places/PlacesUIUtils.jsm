@@ -40,6 +40,8 @@ const FAVICON_REQUEST_TIMEOUT = 60 * 1000;
 // Map from windows to arrays of data about pending favicon loads.
 let gFaviconLoadDataMap = new Map();
 
+const ITEM_CHANGED_BATCH_NOTIFICATION_THRESHOLD = 10;
+
 // copied from utilityOverlay.js
 const TAB_DROP_TYPE = "application/x-moz-tabbrowser-tab";
 const PREF_LOAD_BOOKMARKS_IN_BACKGROUND = "browser.tabs.loadBookmarksInBackground";
@@ -218,7 +220,7 @@ let InternalFaviconLoader = {
     });
   },
 
-  loadFavicon(browser, principal, uri) {
+  loadFavicon(browser, principal, uri, requestContextID) {
     this.ensureInitialized();
     let win = browser.ownerGlobal;
     if (!gFaviconLoadDataMap.has(win)) {
@@ -242,7 +244,8 @@ let InternalFaviconLoader = {
       : PlacesUtils.favicons.FAVICON_LOAD_NON_PRIVATE;
     let callback = this._makeCompletionCallback(win, innerWindowID);
     let request = PlacesUtils.favicons.setAndFetchFaviconForPage(currentURI, uri, false,
-                                                                 loadType, callback, principal);
+                                                                 loadType, callback, principal,
+                                                                 requestContextID);
 
     // Now register the result so we can cancel it if/when necessary.
     if (!request) {
@@ -685,11 +688,11 @@ this.PlacesUIUtils = {
    * @param principal {Principal} The loading principal to use for the fetch.
    * @param uri       {URI}       The URI to fetch.
    */
-  loadFavicon(browser, principal, uri) {
+  loadFavicon(browser, principal, uri, requestContextID) {
     if (gInContentProcess) {
       throw new Error("Can't track loads from within the child process!");
     }
-    InternalFaviconLoader.loadFavicon(browser, principal, uri);
+    InternalFaviconLoader.loadFavicon(browser, principal, uri, requestContextID);
   },
 
   /**
@@ -1538,7 +1541,41 @@ this.PlacesUIUtils = {
     if (!info)
       return null;
     return this.promiseNodeLikeFromFetchInfo(info);
-  }
+  },
+
+  /**
+   * This function wraps potentially large places transaction operations
+   * with batch notifications to the result node, hence switching the views
+   * to batch mode.
+   *
+   * @param {nsINavHistoryResult} resultNode The result node to turn on batching.
+   * @note If resultNode is not supplied, the function will pass-through to
+   *       functionToWrap.
+   * @param {Integer} itemsBeingChanged The count of items being changed. If the
+   *                                    count is lower than a threshold, then
+   *                                    batching won't be set.
+   * @param {Function} functionToWrap The function to
+   */
+  async batchUpdatesForNode(resultNode, itemsBeingChanged, functionToWrap) {
+    if (!resultNode) {
+      await functionToWrap();
+      return;
+    }
+
+    resultNode = resultNode.QueryInterface(Ci.nsINavBookmarkObserver);
+
+    if (itemsBeingChanged > ITEM_CHANGED_BATCH_NOTIFICATION_THRESHOLD) {
+      resultNode.onBeginUpdateBatch();
+    }
+
+    try {
+      await functionToWrap();
+    } finally {
+      if (itemsBeingChanged > ITEM_CHANGED_BATCH_NOTIFICATION_THRESHOLD) {
+        resultNode.onEndUpdateBatch();
+      }
+    }
+  },
 };
 
 

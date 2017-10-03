@@ -11,6 +11,7 @@
 #include "GeckoProfiler.h"
 #include "gfxFontFamilyList.h"
 #include "gfxFontFeatures.h"
+#include "jsfriendapi.h"
 #include "nsAnimationManager.h"
 #include "nsAttrValueInlines.h"
 #include "nsCSSCounterStyleRule.h"
@@ -68,6 +69,7 @@
 #include "mozilla/dom/ElementInlines.h"
 #include "mozilla/dom/HTMLTableCellElement.h"
 #include "mozilla/dom/HTMLBodyElement.h"
+#include "mozilla/ipc/SharedMemory.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/URLExtraData.h"
 
@@ -866,13 +868,12 @@ Gecko_GetLookAndFeelSystemColor(int32_t aId,
 bool
 Gecko_MatchStringArgPseudo(RawGeckoElementBorrowed aElement,
                            CSSPseudoClassType aType,
-                           const char16_t* aIdent,
-                           bool* aSetSlowSelectorFlag)
+                           const char16_t* aIdent)
 {
   EventStates dummyMask; // mask is never read because we pass aDependence=nullptr
   return nsCSSRuleProcessor::StringPseudoMatches(aElement, aType, aIdent,
-                                                 aElement->OwnerDoc(), true,
-                                                 dummyMask, aSetSlowSelectorFlag, nullptr);
+                                                 aElement->OwnerDoc(),
+                                                 dummyMask, nullptr);
 }
 
 bool
@@ -905,7 +906,7 @@ Gecko_GetXMLLangValue(RawGeckoElementBorrowed aElement)
 
   MOZ_ASSERT(attr->Type() == nsAttrValue::eAtom);
 
-  nsCOMPtr<nsIAtom> atom = attr->GetAtomValue();
+  RefPtr<nsIAtom> atom = attr->GetAtomValue();
   return atom.forget().take();
 }
 
@@ -939,7 +940,7 @@ LangValue(Implementor* aElement)
   }
 
   MOZ_ASSERT(attr->Type() == nsAttrValue::eAtom);
-  nsCOMPtr<nsIAtom> atom = attr->GetAtomValue();
+  RefPtr<nsIAtom> atom = attr->GetAtomValue();
   return atom.forget().take();
 }
 
@@ -1112,7 +1113,7 @@ ClassOrClassList(Implementor* aElement, nsIAtom** aClass, nsIAtom*** aClassList)
   // At this point we should have an atom array. It is likely, but not
   // guaranteed, that we have two or more elements in the array.
   MOZ_ASSERT(attr->Type() == nsAttrValue::eAtomArray);
-  nsTArray<nsCOMPtr<nsIAtom>>* atomArray = attr->GetAtomArrayValue();
+  nsTArray<RefPtr<nsIAtom>>* atomArray = attr->GetAtomArrayValue();
   uint32_t length = atomArray->Length();
 
   // Special case: zero elements.
@@ -1131,10 +1132,10 @@ ClassOrClassList(Implementor* aElement, nsIAtom** aClass, nsIAtom*** aClassList)
   // Note: We could also expose this array as an array of nsCOMPtrs, since
   // bindgen knows what those look like, and eliminate the reinterpret_cast.
   // But it's not obvious that that would be preferable.
-  static_assert(sizeof(nsCOMPtr<nsIAtom>) == sizeof(nsIAtom*), "Bad simplification");
-  static_assert(alignof(nsCOMPtr<nsIAtom>) == alignof(nsIAtom*), "Bad simplification");
+  static_assert(sizeof(RefPtr<nsIAtom>) == sizeof(nsIAtom*), "Bad simplification");
+  static_assert(alignof(RefPtr<nsIAtom>) == alignof(nsIAtom*), "Bad simplification");
 
-  nsCOMPtr<nsIAtom>* elements = atomArray->Elements();
+  RefPtr<nsIAtom>* elements = atomArray->Elements();
   nsIAtom** rawElements = reinterpret_cast<nsIAtom**>(elements);
   *aClassList = rawElements;
   return atomArray->Length();
@@ -1399,7 +1400,7 @@ Gecko_SetCounterStyleToName(CounterStylePtr* aPtr, nsIAtom* aName,
   // Try resolving the counter style if possible, and keep it unresolved
   // otherwise.
   CounterStyleManager* manager = aPresContext->CounterStyleManager();
-  nsCOMPtr<nsIAtom> name = already_AddRefed<nsIAtom>(aName);
+  RefPtr<nsIAtom> name = already_AddRefed<nsIAtom>(aName);
   if (CounterStyle* style = manager->GetCounterStyle(name)) {
     *aPtr = style;
   } else {
@@ -1992,11 +1993,12 @@ Gecko_StyleShapeSource_SetURLValue(mozilla::StyleShapeSource* aShape, ServoBundl
   aShape->SetURL(url.get());
 }
 
-mozilla::StyleBasicShape*
-Gecko_NewBasicShape(mozilla::StyleBasicShapeType aType)
+void
+Gecko_NewBasicShape(mozilla::StyleShapeSource* aShape,
+                    mozilla::StyleBasicShapeType aType)
 {
-  RefPtr<StyleBasicShape> ptr = new mozilla::StyleBasicShape(aType);
-  return ptr.forget().take();
+  aShape->SetBasicShape(MakeUnique<mozilla::StyleBasicShape>(aType),
+                        StyleGeometryBox::NoBox);
 }
 
 void
@@ -2379,7 +2381,7 @@ FontSizePrefs
 Gecko_GetBaseSize(nsIAtom* aLanguage)
 {
   LangGroupFontPrefs prefs;
-  nsCOMPtr<nsIAtom> langGroupAtom = StaticPresData::Get()->GetUncachedLangGroup(aLanguage);
+  RefPtr<nsIAtom> langGroupAtom = StaticPresData::Get()->GetUncachedLangGroup(aLanguage);
 
   prefs.Initialize(langGroupAtom);
   FontSizePrefs sizes;
@@ -2482,9 +2484,10 @@ Gecko_GetFontMetrics(RawGeckoPresContextBorrowed aPresContext,
 
   nsPresContext* presContext = const_cast<nsPresContext*>(aPresContext);
   presContext->SetUsesExChUnits(true);
-  RefPtr<nsFontMetrics> fm = nsRuleNode::GetMetricsFor(presContext, aIsVertical,
-                                                       aFont, aFontSize,
-                                                       aUseUserFontSet);
+  RefPtr<nsFontMetrics> fm = nsRuleNode::GetMetricsFor(
+      presContext, aIsVertical, aFont, aFontSize, aUseUserFontSet,
+      nsRuleNode::FlushUserFontSet::No);
+
   ret.mXSize = fm->XHeight();
   gfxFloat zeroWidth = fm->GetThebesFontGroup()->GetFirstValidFont()->
                            GetMetrics(fm->Orientation()).zeroOrAveCharWidth;
@@ -2629,6 +2632,27 @@ Gecko_ShouldCreateStyleThreadPool()
 {
   MOZ_ASSERT(NS_IsMainThread());
   return !mozilla::BrowserTabsRemoteAutostart() || XRE_IsContentProcess();
+}
+
+size_t
+Gecko_GetSystemPageSize()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  return mozilla::ipc::SharedMemory::SystemPageSize();
+}
+
+void
+Gecko_ProtectBuffer(void* aBuffer, size_t aSize)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  js::ProtectBuffer(aBuffer, aSize);
+}
+
+void
+Gecko_UnprotectBuffer(void* aBuffer, size_t aSize)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  js::UnprotectBuffer(aBuffer, aSize);
 }
 
 NS_IMPL_FFI_REFCOUNTING(nsCSSFontFaceRule, CSSFontFaceRule);

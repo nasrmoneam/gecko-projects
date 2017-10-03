@@ -1880,7 +1880,8 @@ var gCategories = {
 
     this.node.addEventListener("click", (aEvent) => {
       var selectedItem = this.node.selectedItem;
-      if (aEvent.target.closest("richlistitem") == selectedItem) {
+      if (aEvent.target.localName == "richlistitem" &&
+          aEvent.target == selectedItem) {
         var viewId = selectedItem.value;
 
         if (gViewController.parseViewId(viewId).type == "search") {
@@ -1906,19 +1907,9 @@ var gCategories = {
     category.setAttribute("value", aView);
     category.setAttribute("class", "category");
     category.setAttribute("name", aName);
+    category.setAttribute("tooltiptext", aName);
     category.setAttribute("priority", aPriority);
     category.setAttribute("hidden", aStartHidden);
-    category.setAttribute("align", "center");
-
-    var icon = document.createElement("image");
-    icon.setAttribute("class", "category-icon");
-    category.appendChild(icon);
-
-    var label = document.createElement("label");
-    label.setAttribute("class", "category-name");
-    label.setAttribute("flex", "1");
-    label.textContent = aName;
-    category.appendChild(label);
 
     var node;
     for (node of this.node.children) {
@@ -2092,19 +2083,6 @@ var gHeader = {
 
       gViewController.loadView("addons://search/" + encodeURIComponent(query));
     });
-
-    function updateNavButtonVisibility() {
-      var shouldShow = gHeader.shouldShowNavButtons;
-      document.getElementById("back-btn").hidden = !shouldShow;
-      document.getElementById("forward-btn").hidden = !shouldShow;
-    }
-
-    window.addEventListener("focus", function(aEvent) {
-      if (aEvent.target == window)
-        updateNavButtonVisibility();
-    });
-
-    updateNavButtonVisibility();
   },
 
   focusSearchBox() {
@@ -2850,7 +2828,7 @@ var gLegacyView = {
       this._categoryItem.disabled = false;
       let name = gStrings.ext.GetStringFromName(`type.${haveUnsigned ? "unsupported" : "legacy"}.name`);
       this._categoryItem.setAttribute("name", name);
-      this._categoryItem.querySelector("label").textContent = name;
+      this._categoryItem.tooltiptext = name;
     } else {
       this._categoryItem.disabled = true;
     }
@@ -3761,6 +3739,7 @@ var gDetailView = {
     browser.setAttribute("disableglobalhistory", "true");
     browser.setAttribute("id", "addon-options");
     browser.setAttribute("class", "inline-options-browser");
+    browser.setAttribute("transparent", "true");
     browser.setAttribute("forcemessagemanager", "true");
     browser.setAttribute("selectmenulist", "ContentSelectDropdown");
 

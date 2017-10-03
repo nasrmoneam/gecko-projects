@@ -158,7 +158,7 @@ ActiveScrolledRoot::ToString(const ActiveScrolledRoot* aActiveScrolledRoot)
   for (auto* asr = aActiveScrolledRoot; asr; asr = asr->mParent) {
     str.AppendPrintf("<0x%p>", asr->mScrollableFrame);
     if (asr->mParent) {
-      str.Append(", ");
+      str.AppendLiteral(", ");
     }
   }
   return str;
@@ -1217,6 +1217,10 @@ nsDisplayListBuilder::EnterPresShell(nsIFrame* aReferenceFrame,
   state->mPresShell = aReferenceFrame->PresContext()->PresShell();
   state->mCaretFrame = nullptr;
   state->mFirstFrameMarkedForDisplay = mFramesMarkedForDisplay.Length();
+
+#ifdef DEBUG
+  state->mAutoLayoutPhase.emplace(aReferenceFrame->PresContext(), eLayoutPhase_DisplayListBuilding);
+#endif
 
   state->mPresShell->UpdateCanvasBackground();
 
@@ -3255,7 +3259,8 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
   // to create an item for hit testing.
   if ((drawBackgroundColor && color != NS_RGBA(0,0,0,0)) ||
       aBuilder->IsForEventDelivery()) {
-    DisplayListClipState::AutoSaveRestore clipState(aBuilder);
+    Maybe<DisplayListClipState::AutoSaveRestore> clipState;
+    nsRect bgColorRect = bgRect;
     if (bg && !aBuilder->IsForEventDelivery()) {
       // Disable the will-paint-border optimization for background
       // colors with no border-radius. Enabling it for background colors
@@ -3266,18 +3271,30 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
       // artifacts along the rounded corners.
       bool useWillPaintBorderOptimization = willPaintBorder &&
           nsLayoutUtils::HasNonZeroCorner(borderStyle->mBorderRadius);
-      SetBackgroundClipRegion(clipState, aFrame, toRef,
-                              bg->BottomLayer(), bgRect,
-                              useWillPaintBorderOptimization);
+
+      nsCSSRendering::ImageLayerClipState clip;
+      nsCSSRendering::GetImageLayerClip(bg->BottomLayer(), aFrame, *aFrame->StyleBorder(),
+                                        bgRect, bgRect, useWillPaintBorderOptimization,
+                                        aFrame->PresContext()->AppUnitsPerDevPixel(),
+                                        &clip);
+
+      bgColorRect = bgColorRect.Intersect(clip.mBGClipArea);
+      if (clip.mHasAdditionalBGClipArea) {
+        bgColorRect = bgColorRect.Intersect(clip.mAdditionalBGClipArea);
+      }
+      if (clip.mHasRoundedCorners) {
+        clipState.emplace(aBuilder);
+        clipState->ClipContentDescendants(clip.mBGClipArea, clip.mRadii);
+      }
     }
     if (aSecondaryReferenceFrame) {
       bgItemList.AppendNewToTop(
-          new (aBuilder) nsDisplayTableBackgroundColor(aBuilder, aSecondaryReferenceFrame, bgRect, bg,
+          new (aBuilder) nsDisplayTableBackgroundColor(aBuilder, aSecondaryReferenceFrame, bgColorRect, bg,
                                                        drawBackgroundColor ? color : NS_RGBA(0, 0, 0, 0),
                                                        aFrame));
     } else {
       bgItemList.AppendNewToTop(
-          new (aBuilder) nsDisplayBackgroundColor(aBuilder, aFrame, bgRect, bg,
+          new (aBuilder) nsDisplayBackgroundColor(aBuilder, aFrame, bgColorRect, bg,
                                                   drawBackgroundColor ? color : NS_RGBA(0, 0, 0, 0)));
     }
   }
@@ -6265,10 +6282,12 @@ nsDisplayOpacity::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuil
                            this, eCSSProperty_opacity,
                            animationInfo, false);
   animationInfo.StartPendingAnimations(aManager->GetAnimationReadyTime());
-  uint64_t animationsId = 0;
+
+  // Note that animationsId can be 0 (uninitialized in AnimationInfo) if there
+  // are no active animations.
+  uint64_t animationsId = animationInfo.GetCompositorAnimationsId();
 
   if (!animationInfo.GetAnimations().IsEmpty()) {
-    animationsId = animationInfo.GetCompositorAnimationsId();
     opacityForSC = nullptr;
     OptionalOpacity opacityForCompositor = mOpacity;
 
@@ -6276,6 +6295,10 @@ nsDisplayOpacity::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuil
       anim(CompositorAnimations(animationInfo.GetAnimations(), animationsId),
            void_t(), opacityForCompositor);
     aManager->WrBridge()->AddWebRenderParentCommand(anim);
+    aManager->AddActiveCompositorAnimationId(animationsId);
+  } else if (animationsId) {
+    aManager->AddCompositorAnimationsIdForDiscard(animationsId);
+    animationsId = 0;
   }
 
   nsTArray<mozilla::wr::WrFilterOp> filters;
@@ -7040,6 +7063,114 @@ nsDisplayStickyPosition::BuildLayer(nsDisplayListBuilder* aBuilder,
   layer->SetStickyPositionData(scrollId, stickyOuter, stickyInner);
 
   return layer.forget();
+}
+
+bool
+nsDisplayStickyPosition::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                                 mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                                 const StackingContextHelper& aSc,
+                                                 WebRenderLayerManager* aManager,
+                                                 nsDisplayListBuilder* aDisplayListBuilder)
+{
+  LayerPoint scTranslation;
+  StickyScrollContainer* stickyScrollContainer = StickyScrollContainer::GetStickyScrollContainerForFrame(mFrame);
+  if (stickyScrollContainer) {
+    float auPerDevPixel = mFrame->PresContext()->AppUnitsPerDevPixel();
+
+    bool snap;
+    nsRect itemBounds = GetBounds(aDisplayListBuilder, &snap);
+
+    // The itemBounds here already take into account the main-thread
+    // position:sticky implementation, so we need to unapply that.
+    nsIFrame* firstCont = nsLayoutUtils::FirstContinuationOrIBSplitSibling(mFrame);
+    nsPoint translation = stickyScrollContainer->ComputePosition(firstCont) - firstCont->GetNormalPosition();
+    itemBounds.MoveBy(-translation);
+    scTranslation = ViewAs<LayerPixel>(
+        LayoutDevicePoint::FromAppUnits(translation, auPerDevPixel),
+        PixelCastJustification::WebRenderHasUnitResolution);
+
+    LayoutDeviceRect bounds = LayoutDeviceRect::FromAppUnits(itemBounds, auPerDevPixel);
+
+    Maybe<wr::StickySideConstraint> top;
+    Maybe<wr::StickySideConstraint> right;
+    Maybe<wr::StickySideConstraint> bottom;
+    Maybe<wr::StickySideConstraint> left;
+
+    nsRect outer;
+    nsRect inner;
+    stickyScrollContainer->GetScrollRanges(mFrame, &outer, &inner);
+
+    nsRect scrollPort = stickyScrollContainer->ScrollFrame()->GetScrollPortRect();
+
+    // The following computations make more sense upon understanding the
+    // semantics of "inner" and "outer", which is explained in the comment on
+    // SetStickyPositionData in Layers.h.
+
+    if (outer.YMost() != inner.YMost()) {
+      // Question: How far will itemBounds.y be from the top of the scrollport
+      // when we have scrolled down from the current scroll position of "0" to a
+      // scroll position of "inner.YMost()" (which is >= 0 since we are
+      // scrolling down)?
+      // Answer: (itemBounds.y - 0) - (inner.YMost() - 0)
+      //      == itemBounds.y - inner.YMost()
+      float margin = NSAppUnitsToFloatPixels(itemBounds.y - inner.YMost(), auPerDevPixel);
+      // The scroll distance during which the item should remain "stuck"
+      float maxOffset = NSAppUnitsToFloatPixels(outer.YMost() - inner.YMost(), auPerDevPixel);
+      top = Some(wr::StickySideConstraint { margin, maxOffset });
+    }
+    if (outer.y != inner.y) {
+      // Question: How far will itemBounds.YMost() be from the bottom of the
+      // scrollport when we have scrolled up from the current scroll position of
+      // "0" to a scroll position of "inner.y" (which is <= 0 since we are
+      // scrolling up)?
+      // Answer: (scrollPort.height - itemBounds.YMost()) - (0 - inner.y)
+      //      == scrollPort.height - itemBounds.YMost() + inner.y
+      float margin = NSAppUnitsToFloatPixels(scrollPort.height - itemBounds.YMost() + inner.y, auPerDevPixel);
+      // The scroll distance during which the item should remain "stuck"
+      float maxOffset = NSAppUnitsToFloatPixels(outer.y - inner.y, auPerDevPixel);
+      bottom = Some(wr::StickySideConstraint { margin, maxOffset });
+    }
+    // Same as above, but for the x-axis
+    if (outer.XMost() != inner.XMost()) {
+      float margin = NSAppUnitsToFloatPixels(itemBounds.x - inner.XMost(), auPerDevPixel);
+      float maxOffset = NSAppUnitsToFloatPixels(outer.XMost() - inner.XMost(), auPerDevPixel);
+      left = Some(wr::StickySideConstraint { margin, maxOffset });
+    }
+    if (outer.x != inner.x) {
+      float margin = NSAppUnitsToFloatPixels(scrollPort.width - itemBounds.XMost() + inner.x, auPerDevPixel);
+      float maxOffset = NSAppUnitsToFloatPixels(outer.x - inner.x, auPerDevPixel);
+      right = Some(wr::StickySideConstraint { margin, maxOffset });
+    }
+
+    wr::WrStickyId id = aBuilder.DefineStickyFrame(aSc.ToRelativeLayoutRect(bounds),
+        top.ptrOr(nullptr), right.ptrOr(nullptr), bottom.ptrOr(nullptr), left.ptrOr(nullptr));
+
+    aBuilder.PushStickyFrame(id);
+  }
+
+  // All the things inside this position:sticky item also have the main-thread
+  // translation already applied, so we need to make sure that gets unapplied.
+  // The easiest way to do it is to just create a new stacking context with an
+  // adjusted origin and use that for the nested items. This way all the
+  // ToRelativeLayoutRect calls on this StackingContextHelper object will
+  // include the necessary adjustment.
+  StackingContextHelper sc(aSc, aBuilder, aDisplayListBuilder, this,
+                           &mList, nullptr, 0, nullptr, nullptr);
+  sc.AdjustOrigin(scTranslation);
+
+  // TODO: if, inside this nested command builder, we try to turn a gecko clip
+  // chain into a WR clip chain, we might end up repushing the clip stack
+  // without `id` which effectively throws out the sticky behaviour. The
+  // repushing can happen because of the need to define a new clip while
+  // particular things are on the stack
+  nsDisplayOwnLayer::CreateWebRenderCommands(aBuilder, aResources, sc,
+      aManager, aDisplayListBuilder);
+
+  if (stickyScrollContainer) {
+    aBuilder.PopStickyFrame();
+  }
+
+  return true;
 }
 
 nsDisplayScrollInfoLayer::nsDisplayScrollInfoLayer(
@@ -7920,11 +8051,12 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
                            this, eCSSProperty_transform,
                            animationInfo, false);
   animationInfo.StartPendingAnimations(aManager->GetAnimationReadyTime());
-  uint64_t animationsId = 0;
+
+  // Note that animationsId can be 0 (uninitialized in AnimationInfo) if there
+  // are no active animations.
+  uint64_t animationsId = animationInfo.GetCompositorAnimationsId();
 
   if (!animationInfo.GetAnimations().IsEmpty()) {
-    animationsId = animationInfo.GetCompositorAnimationsId();
-
     // Update transfrom as nullptr in stacking context if there exists
     // transform animation, the transform value will be resolved
     // after animation sampling on the compositor
@@ -7938,9 +8070,11 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
       anim(CompositorAnimations(animationInfo.GetAnimations(), animationsId),
            transformForCompositor, void_t());
     aManager->WrBridge()->AddWebRenderParentCommand(anim);
+    aManager->AddActiveCompositorAnimationId(animationsId);
+  } else if (animationsId) {
+    aManager->AddCompositorAnimationsIdForDiscard(animationsId);
+    animationsId = 0;
   }
-
-  gfx::Matrix4x4Typed<LayerPixel, LayerPixel> boundTransform = ViewAs<gfx::Matrix4x4Typed<LayerPixel, LayerPixel>>(newTransformMatrix);
 
   nsTArray<mozilla::wr::WrFilterOp> filters;
   StackingContextHelper sc(aSc,
@@ -7948,7 +8082,7 @@ nsDisplayTransform::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBu
                            aDisplayListBuilder,
                            this,
                            mStoredList.GetChildren(),
-                           &boundTransform,
+                           &newTransformMatrix,
                            animationsId,
                            nullptr,
                            transformForSC,
@@ -8846,17 +8980,36 @@ nsDisplayMask::~nsDisplayMask()
 }
 #endif
 
+static bool
+CanMergeDisplayMaskFrame(nsIFrame* aFrame)
+{
+  // Do not merge items for box-decoration-break:clone elements,
+  // since each box should have its own mask in that case.
+  if (aFrame->StyleBorder()->mBoxDecorationBreak ==
+        mozilla::StyleBoxDecorationBreak::Clone) {
+    return false;
+  }
+
+  // Do not merge if either frame has a mask. Continuation frames should apply
+  // the mask independently (just like nsDisplayBackgroundImage).
+  if (aFrame->StyleSVGReset()->HasMask()) {
+    return false;
+  }
+
+  return true;
+}
+
 bool
 nsDisplayMask::CanMerge(const nsDisplayItem* aItem) const
 {
   // Items for the same content element should be merged into a single
   // compositing group.
-  // Do not merge if mFrame has mask. Continuation frames should apply mask
-  // independently (just like nsDisplayBackgroundImage).
-  return HasSameTypeAndClip(aItem) && HasSameContent(aItem) &&
-         !mFrame->StyleSVGReset()->HasMask() &&
-         (mFrame->StyleBorder()->mBoxDecorationBreak !=
-            mozilla::StyleBoxDecorationBreak::Clone);
+  if (!HasSameTypeAndClip(aItem) || !HasSameContent(aItem)) {
+    return false;
+  }
+
+  return CanMergeDisplayMaskFrame(mFrame) &&
+         CanMergeDisplayMaskFrame(aItem->Frame());
 }
 
 already_AddRefed<Layer>
@@ -9047,13 +9200,13 @@ nsDisplayMask::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder
     // Don't record this clip push in aBuilder's internal clip stack, because
     // otherwise any nested ScrollingLayersHelper instances that are created
     // will get confused about which clips are pushed.
-    aBuilder.PushClip(clipId, /*aRecordInStack*/ false);
+    aBuilder.PushClip(clipId, /*aMask*/ true);
   }
 
   nsDisplaySVGEffects::CreateWebRenderCommands(aBuilder, aResources, aSc, aManager, aDisplayListBuilder);
 
   if (mask) {
-    aBuilder.PopClip(/*aRecordInStack*/ false);
+    aBuilder.PopClip(/*aMask*/ true);
   }
 
   return true;
@@ -9148,7 +9301,6 @@ nsDisplayFilter::BuildLayer(nsDisplayListBuilder* aBuilder,
   RefPtr<ContainerLayer> container = aManager->GetLayerBuilder()->
     BuildContainerLayerFor(aBuilder, aManager, mFrame, this, &mList,
                            newContainerParameters, nullptr);
-
   LayerState state = this->GetLayerState(aBuilder, aManager, newContainerParameters);
   if (container && state != LAYER_SVG_EFFECTS) {
     const nsTArray<nsStyleFilter>& filters = mFrame->StyleEffects()->mFilters;

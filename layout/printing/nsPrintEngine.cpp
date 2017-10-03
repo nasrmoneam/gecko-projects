@@ -42,7 +42,6 @@ static const char sPrintSettingsServiceContractID[] = "@mozilla.org/gfx/printset
 #include "nsIWebBrowserPrint.h"
 #include "nsIDOMHTMLFrameElement.h"
 #include "nsIDOMHTMLIFrameElement.h"
-#include "nsIDOMHTMLObjectElement.h"
 
 // Print Preview
 #include "imgIContainer.h" // image animation mode constants
@@ -105,8 +104,6 @@ static const char kPrintingPromptService[] = "@mozilla.org/embedcomp/printingpro
 #include "nsILayoutHistoryState.h"
 #include "nsFrameManager.h"
 #include "mozilla/ReflowInput.h"
-#include "nsIDOMHTMLAnchorElement.h"
-#include "nsIDOMHTMLAreaElement.h"
 #include "nsIDOMHTMLLinkElement.h"
 #include "nsIDOMHTMLImageElement.h"
 #include "nsIContentViewerContainer.h"

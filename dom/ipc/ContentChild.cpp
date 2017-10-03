@@ -19,6 +19,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/ProcessHangMonitorIPC.h"
 #include "mozilla/Unused.h"
+#include "mozilla/TelemetryIPC.h"
 #include "mozilla/devtools/HeapSnapshotTempFileHelperChild.h"
 #include "mozilla/docshell/OfflineCacheUpdateChild.h"
 #include "mozilla/dom/ContentBridgeChild.h"
@@ -953,10 +954,18 @@ ContentChild::ProvideWindowCommon(TabChild* aTabOpener,
       return rv;
     }
 
+    OptionalURIParams uriToLoad;
+    if (aURI) {
+      SerializeURI(aURI, uriToLoad);
+    } else {
+      uriToLoad = mozilla::void_t();
+    }
+
     windowCreated =
       SendCreateWindow(aTabOpener, newChild, renderFrame,
                        aChromeFlags, aCalledFromJS, aPositionSpecified,
                        aSizeSpecified,
+                       uriToLoad,
                        features,
                        baseURIString,
                        fullZoom,
@@ -1230,6 +1239,9 @@ ContentChild::InitXPCOM(const XPCOMInitData& aXPCOMInit,
   GfxInfoBase::SetFeatureStatus(aXPCOMInit.gfxFeatureStatus());
 
   DataStorage::SetCachedStorageEntries(aXPCOMInit.dataStorage());
+
+  // Set the dynamic scalar definitions for this process.
+  TelemetryIPC::AddDynamicScalarDefinitions(aXPCOMInit.dynamicScalarDefs());
 }
 
 mozilla::ipc::IPCResult
@@ -2239,6 +2251,11 @@ ContentChild::RecvRegisterChrome(InfallibleTArray<ChromePackage>&& packages,
     static_cast<nsChromeRegistryContent*>(registrySvc.get());
   chromeRegistry->RegisterRemoteChrome(packages, resources, overrides,
                                        locale, reset);
+  static bool preloadDone = false;
+  if (!preloadDone) {
+    preloadDone = true;
+    nsContentUtils::AsyncPrecreateStringBundles();
+  }
   return IPC_OK();
 }
 
@@ -3641,6 +3658,13 @@ mozilla::ipc::IPCResult
 ContentChild::RecvResumeInputEventQueue()
 {
   nsThreadManager::get().ResumeInputEventPrioritization();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+ContentChild::RecvAddDynamicScalars(nsTArray<DynamicScalarDefinition>&& aDefs)
+{
+  TelemetryIPC::AddDynamicScalarDefinitions(aDefs);
   return IPC_OK();
 }
 

@@ -100,9 +100,6 @@ pref("devtools.markup.collapseAttributeLength", 120);
 // DevTools default color unit
 pref("devtools.defaultColorUnit", "authored");
 
-// Enable the Responsive UI tool
-pref("devtools.responsiveUI.no-reload-notification", false);
-
 // Enable the Memory tools
 pref("devtools.memory.enabled", true);
 
@@ -337,6 +334,3 @@ pref("devtools.editor.autocomplete", true);
 // opened developer tool. This allows us to ping telemetry just once per browser
 // version for each user.
 pref("devtools.telemetry.tools.opened.version", "{}");
-
-// Enable the HTML responsive design mode for all channels.
-pref("devtools.responsive.html.enabled", true);

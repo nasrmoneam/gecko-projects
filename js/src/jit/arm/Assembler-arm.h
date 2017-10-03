@@ -1402,7 +1402,9 @@ class Assembler : public AssemblerShared
     bool isFinished;
   public:
     void finish();
-    bool asmMergeWith(Assembler& other);
+    bool appendRawCode(const uint8_t* code, size_t numBytes);
+    bool reserve(size_t size);
+    bool swapBuffer(wasm::Bytes& bytes);
     void copyJumpRelocationTable(uint8_t* dest);
     void copyDataRelocationTable(uint8_t* dest);
 
@@ -1558,22 +1560,31 @@ class Assembler : public AssemblerShared
     // Load a 32 bit floating point immediate from a pool into a register.
     BufferOffset as_FImm32Pool(VFPRegister dest, float value, Condition c = Always);
 
-    // Atomic instructions: ldrex, ldrexh, ldrexb, strex, strexh, strexb.
+    // Atomic instructions: ldrexd, ldrex, ldrexh, ldrexb, strexd, strex, strexh, strexb.
     //
-    // The halfword and byte versions are available from ARMv6K forward.
+    // The doubleword, halfword, and byte versions are available from ARMv6K forward.
     //
     // The word versions are available from ARMv6 forward and can be used to
     // implement the halfword and byte versions on older systems.
+
+    // LDREXD rt, rt2, [rn].  Constraint: rt even register, rt2=rt+1.
+    BufferOffset as_ldrexd(Register rt, Register rt2, Register rn, Condition c = Always);
 
     // LDREX rt, [rn]
     BufferOffset as_ldrex(Register rt, Register rn, Condition c = Always);
     BufferOffset as_ldrexh(Register rt, Register rn, Condition c = Always);
     BufferOffset as_ldrexb(Register rt, Register rn, Condition c = Always);
 
+    // STREXD rd, rt, rt2, [rn].  Constraint: rt even register, rt2=rt+1.
+    BufferOffset as_strexd(Register rd, Register rt, Register rt2, Register rn, Condition c = Always);
+
     // STREX rd, rt, [rn].  Constraint: rd != rn, rd != rt.
     BufferOffset as_strex(Register rd, Register rt, Register rn, Condition c = Always);
     BufferOffset as_strexh(Register rd, Register rt, Register rn, Condition c = Always);
     BufferOffset as_strexb(Register rd, Register rt, Register rn, Condition c = Always);
+
+    // CLREX
+    BufferOffset as_clrex();
 
     // Memory synchronization.
     // These are available from ARMv7 forward.
@@ -1712,12 +1723,7 @@ class Assembler : public AssemblerShared
     // I'm going to pretend this doesn't exist for now.
     void retarget(Label* label, void* target, Relocation::Kind reloc);
 
-    void Bind(uint8_t* rawCode, CodeOffset* label, const void* address);
-
-    // See Bind
-    size_t labelToPatchOffset(CodeOffset label) {
-        return label.offset();
-    }
+    static void Bind(uint8_t* rawCode, CodeOffset label, CodeOffset target);
 
     void as_bkpt();
 
@@ -1918,10 +1924,6 @@ class Assembler : public AssemblerShared
     static void PatchDataWithValueCheck(CodeLocationLabel label, ImmPtr newValue,
                                         ImmPtr expectedValue);
     static void PatchWrite_Imm32(CodeLocationLabel label, Imm32 imm);
-
-    static void PatchInstructionImmediate(uint8_t* code, PatchedImmPtr imm) {
-        MOZ_CRASH("Unused.");
-    }
 
     static uint32_t AlignDoubleArg(uint32_t offset) {
         return (offset + 1) & ~1;

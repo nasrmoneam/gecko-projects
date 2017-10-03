@@ -62,6 +62,7 @@ label {
   margin-bottom: 0 !important;
 }
 
+menulist > hbox > label,
 menuitem > label,
 button > hbox > label {
   line-height: unset;
@@ -581,6 +582,8 @@ button > hbox > label {
   width: 20px;
   height: 20px;
   vertical-align: text-bottom;
+  -moz-context-properties: fill;
+  fill: currentColor;
 }
 
 #updateDeck > hbox > label {

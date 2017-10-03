@@ -213,6 +213,14 @@ public:
   static bool HasDisplayPort(nsIContent* aContent);
 
   /**
+   * Check whether the given frame has a displayport. It returns false
+   * for scrolled frames and true for the corresponding scroll frame.
+   * Optionally pass the child, and it only returns true if the child is the
+   * scrolled frame for the displayport.
+   */
+  static bool FrameHasDisplayPort(nsIFrame* aFrame, nsIFrame* aScrolledFrame = nullptr);
+
+  /**
    * Check if the given element has a margins based displayport but is missing a
    * displayport base rect that it needs to properly compute a displayport rect.
    */
@@ -865,7 +873,9 @@ public:
                                              const nsRect& aRect,
                                              const nsIFrame* aAncestor,
                                              bool* aPreservesAxisAlignedRectangles = nullptr,
-                                             mozilla::Maybe<Matrix4x4>* aMatrixCache = nullptr);
+                                             mozilla::Maybe<Matrix4x4>* aMatrixCache = nullptr,
+                                             bool aStopAtStackingContextAndDisplayPort = false,
+                                             nsIFrame** aOutAncestor = nullptr);
 
 
   /**
@@ -875,7 +885,8 @@ public:
    */
   static Matrix4x4 GetTransformToAncestor(nsIFrame *aFrame,
                                           const nsIFrame *aAncestor,
-                                          bool aInCSSUnits = false);
+                                          uint32_t aFlags = 0,
+                                          nsIFrame** aOutAncestor = nullptr);
 
   /**
    * Gets the scale factors of the transform for aFrame relative to the root
@@ -1054,6 +1065,10 @@ public:
   static bool RoundedRectIntersectsRect(const nsRect& aRoundedRect,
                                         const nscoord aRadii[8],
                                         const nsRect& aTestRect);
+
+  static bool MaybeCreateDisplayPortInFirstScrollFrameEncountered(
+    nsIFrame* aFrame, nsDisplayListBuilder& aBuilder);
+
 
   enum class PaintFrameFlags : uint32_t {
     PAINT_IN_TRANSFORM = 0x01,
@@ -2235,6 +2250,13 @@ public:
   static nsIContent*
     GetEditableRootContentByContentEditable(nsIDocument* aDocument);
 
+  static void AddExtraBackgroundItems(nsDisplayListBuilder& aBuilder,
+                                      nsDisplayList& aList,
+                                      nsIFrame* aFrame,
+                                      const nsRect& aCanvasArea,
+                                      const nsRegion& aVisibleRegion,
+                                      nscolor aBackstop);
+
   /**
    * Returns true if the passed in prescontext needs the dark grey background
    * that goes behind the page of a print preview presentation.
@@ -2796,10 +2818,15 @@ public:
    * displayport yet (as tracked by |aBuilder|), calculate and set a
    * displayport.
    *
-   * This is intended to be called during display list building.
+   * If this is called during display list building pass DoNotRepaint in
+   * aRepaintMode.
+   *
+   * Returns true if there is a displayport on an async scrollable scrollframe
+   * after this call, either because one was just added or it already existed.
    */
-  static void MaybeCreateDisplayPort(nsDisplayListBuilder& aBuilder,
-                                     nsIFrame* aScrollFrame);
+  static bool MaybeCreateDisplayPort(nsDisplayListBuilder& aBuilder,
+                                     nsIFrame* aScrollFrame,
+                                     RepaintMode aRepaintMode);
 
   static nsIScrollableFrame* GetAsyncScrollableAncestorFrame(nsIFrame* aTarget);
 
@@ -3136,7 +3163,7 @@ public:
   NS_DECL_NSIRUNNABLE
 
   nsCOMPtr<nsIContent> mContent;
-  nsCOMPtr<nsIAtom> mAttrName;
+  RefPtr<nsIAtom> mAttrName;
   nsAutoString mValue;
 };
 
@@ -3148,7 +3175,7 @@ public:
   NS_DECL_NSIRUNNABLE
 
   nsCOMPtr<nsIContent> mContent;
-  nsCOMPtr<nsIAtom> mAttrName;
+  RefPtr<nsIAtom> mAttrName;
 };
 
 // This class allows you to easily set any pointer variable and ensure it's

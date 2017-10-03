@@ -135,7 +135,6 @@
 #include "nsStreamUtils.h"
 #include "nsIController.h"
 #include "nsPICommandUpdater.h"
-#include "nsIDOMHTMLAnchorElement.h"
 #include "nsIWebBrowserChrome3.h"
 #include "nsITabChild.h"
 #include "nsISiteSecurityService.h"
@@ -363,7 +362,7 @@ ForEachPing(nsIContent* aContent, ForEachPingCallback aCallback, void* aClosure)
     return;
   }
 
-  nsCOMPtr<nsIAtom> pingAtom = NS_Atomize("ping");
+  RefPtr<nsIAtom> pingAtom = NS_Atomize("ping");
   if (!pingAtom) {
     return;
   }
@@ -1389,8 +1388,16 @@ nsDocShell::LoadURI(nsIURI* aURI,
       }
 
       // Make some decisions on the child frame's loadType based on the
-      // parent's loadType.
-      if (!mCurrentURI) {
+      // parent's loadType, if the subframe hasn't loaded anything into it.
+      //
+      // In some cases privileged scripts may try to get the DOMWindow
+      // reference of this docshell before the loading starts, causing the
+      // initial about:blank content viewer being created and mCurrentURI being
+      // set. To handle this case we check if mCurrentURI is about:blank and
+      // currentSHEntry is null.
+      nsCOMPtr<nsISHEntry> currentChildEntry;
+      GetCurrentSHEntry(getter_AddRefs(currentChildEntry), &oshe);
+      if (!mCurrentURI || (NS_IsAboutBlank(mCurrentURI) && !currentChildEntry)) {
         // This is a newly created frame. Check for exception cases first.
         // By default the subframe will inherit the parent's loadType.
         if (shEntry && (parentLoadType == LOAD_NORMAL ||
@@ -1437,12 +1444,16 @@ nsDocShell::LoadURI(nsIURI* aURI,
           loadType = parentLoadType;
         }
       } else {
-        // This is a pre-existing subframe. If the load was not originally
-        // initiated by session history, (if (!shEntry) condition succeeded) and
-        // mCurrentURI is not null, it is possible that a parent's onLoadHandler
-        // or even self's onLoadHandler is loading a new page in this child.
-        // Check parent's and self's busy flag  and if it is set, we don't want
-        // this onLoadHandler load to get in to session history.
+        // This is a pre-existing subframe. If
+        // 1. The load of this frame was not originally initiated by session
+        //    history directly (i.e. (!shEntry) condition succeeded, but it can
+        //    still be a history load on parent which causes this frame being
+        //    loaded), and
+        // 2. mCurrentURI is not null, nor the initial about:blank,
+        // it is possible that a parent's onLoadHandler or even self's
+        // onLoadHandler is loading a new page in this child. Check parent's and
+        // self's busy flag and if it is set, we don't want this onLoadHandler
+        // load to get in to session history.
         uint32_t parentBusy = BUSY_FLAGS_NONE;
         uint32_t selfBusy = BUSY_FLAGS_NONE;
         parentDS->GetBusyFlags(&parentBusy);
@@ -1609,8 +1620,9 @@ nsDocShell::LoadURI(nsIURI* aURI,
                       flags,
                       target,
                       nullptr,      // No type hint
-                      NullString(), // No forced download
+                      VoidString(), // No forced download
                       postStream,
+                      -1, // XXXbaku
                       headersStream,
                       loadType,
                       nullptr, // No SHEntry
@@ -5488,9 +5500,9 @@ nsDocShell::LoadErrorPage(nsIURI* aURI, const char16_t* aURL,
                       mozilla::net::RP_Unset,
                       nsContentUtils::GetSystemPrincipal(), nullptr,
                       INTERNAL_LOAD_FLAGS_NONE, EmptyString(),
-                      nullptr, NullString(), nullptr, nullptr, LOAD_ERROR_PAGE,
-                      nullptr, true, NullString(), this, nullptr, false,
-                      nullptr, nullptr);
+                      nullptr, VoidString(), nullptr, -1, nullptr,
+                      LOAD_ERROR_PAGE, nullptr, true, VoidString(), this,
+                      nullptr, false, nullptr, nullptr);
 }
 
 NS_IMETHODIMP
@@ -5589,8 +5601,9 @@ nsDocShell::Reload(uint32_t aReloadFlags)
                       flags,
                       EmptyString(),   // No window target
                       NS_LossyConvertUTF16toASCII(contentTypeHint).get(),
-                      NullString(),    // No forced download
+                      VoidString(),    // No forced download
                       nullptr,         // No post data
+                      -1,              // No post data length
                       nullptr,         // No headers data
                       loadType,        // Load type
                       nullptr,         // No SHEntry
@@ -6630,16 +6643,14 @@ nsDocShell::GetMainWidget(nsIWidget** aMainWidget)
 }
 
 NS_IMETHODIMP
-nsDocShell::GetTitle(char16_t** aTitle)
+nsDocShell::GetTitle(nsAString& aTitle)
 {
-  NS_ENSURE_ARG_POINTER(aTitle);
-
-  *aTitle = ToNewUnicode(mTitle);
+  aTitle = mTitle;
   return NS_OK;
 }
 
 NS_IMETHODIMP
-nsDocShell::SetTitle(const char16_t* aTitle)
+nsDocShell::SetTitle(const nsAString& aTitle)
 {
   // Store local title
   mTitle = aTitle;
@@ -8322,16 +8333,11 @@ nsDocShell::CanSavePresentation(uint32_t aLoadType,
     return false;
   }
 
-  // Don't cache the content viewer if we're in a subframe and the subframe
-  // pref is disabled.
-  bool cacheFrames =
-    Preferences::GetBool("browser.sessionhistory.cache_subframes", false);
-  if (!cacheFrames) {
-    nsCOMPtr<nsIDocShellTreeItem> root;
-    GetSameTypeParent(getter_AddRefs(root));
-    if (root && root != this) {
-      return false;  // this is a subframe load
-    }
+  // Don't cache the content viewer if we're in a subframe.
+  nsCOMPtr<nsIDocShellTreeItem> root;
+  GetSameTypeParent(getter_AddRefs(root));
+  if (root && root != this) {
+    return false;  // this is a subframe load
   }
 
   // If the document does not want its presentation cached, then don't.
@@ -9709,6 +9715,7 @@ public:
                     uint32_t aFlags,
                     const char* aTypeHint,
                     nsIInputStream* aPostData,
+                    int64_t aPostDataLength,
                     nsIInputStream* aHeadersData,
                     uint32_t aLoadType,
                     nsISHEntry* aSHEntry,
@@ -9729,6 +9736,7 @@ public:
     , mTriggeringPrincipal(aTriggeringPrincipal)
     , mPrincipalToInherit(aPrincipalToInherit)
     , mPostData(aPostData)
+    , mPostDataLength(aPostDataLength)
     , mHeadersData(aHeadersData)
     , mSHEntry(aSHEntry)
     , mFlags(aFlags)
@@ -9757,10 +9765,11 @@ public:
                                    mFlags, EmptyString(),
                                    mTypeHint.IsVoid() ? nullptr
                                                       : mTypeHint.get(),
-                                   NullString(), mPostData, mHeadersData,
-                                   mLoadType, mSHEntry, mFirstParty,
-                                   mSrcdoc, mSourceDocShell, mBaseURI,
-                                   mCheckForPrerender, nullptr, nullptr);
+                                   VoidString(), mPostData, mPostDataLength,
+                                   mHeadersData, mLoadType, mSHEntry,
+                                   mFirstParty, mSrcdoc, mSourceDocShell,
+                                   mBaseURI, mCheckForPrerender, nullptr,
+                                   nullptr);
   }
 
 private:
@@ -9777,6 +9786,7 @@ private:
   nsCOMPtr<nsIPrincipal> mTriggeringPrincipal;
   nsCOMPtr<nsIPrincipal> mPrincipalToInherit;
   nsCOMPtr<nsIInputStream> mPostData;
+  int64_t mPostDataLength;
   nsCOMPtr<nsIInputStream> mHeadersData;
   nsCOMPtr<nsISHEntry> mSHEntry;
   uint32_t mFlags;
@@ -9828,6 +9838,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                          const char* aTypeHint,
                          const nsAString& aFileName,
                          nsIInputStream* aPostData,
+                         int64_t aPostDataLength,
                          nsIInputStream* aHeadersData,
                          uint32_t aLoadType,
                          nsISHEntry* aSHEntry,
@@ -10226,8 +10237,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                                         aFlags,
                                         EmptyString(),   // No window target
                                         aTypeHint,
-                                        NullString(),    // No forced download
+                                        VoidString(),    // No forced download
                                         aPostData,
+                                        aPostDataLength,
                                         aHeadersData,
                                         aLoadType,
                                         aSHEntry,
@@ -10319,9 +10331,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
         new InternalLoadEvent(this, aURI, aOriginalURI, aResultPrincipalURI,
                               aLoadReplace, aReferrer, aReferrerPolicy,
                               aTriggeringPrincipal, principalToInherit,
-                              aFlags, aTypeHint, aPostData, aHeadersData,
-                              aLoadType, aSHEntry, aFirstParty, aSrcdoc,
-                              aSourceDocShell, aBaseURI, false);
+                              aFlags, aTypeHint, aPostData, aPostDataLength,
+                              aHeadersData, aLoadType, aSHEntry, aFirstParty,
+                              aSrcdoc, aSourceDocShell, aBaseURI, false);
       return DispatchToTabGroup(TaskCategory::Other, ev.forget());
     }
 
@@ -10705,9 +10717,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
       new InternalLoadEvent(this, aURI, aOriginalURI, aResultPrincipalURI,
                             aLoadReplace, aReferrer, aReferrerPolicy,
                             aTriggeringPrincipal, principalToInherit,
-                            aFlags, aTypeHint, aPostData, aHeadersData,
-                            aLoadType, aSHEntry, aFirstParty, aSrcdoc,
-                            aSourceDocShell, aBaseURI, false);
+                            aFlags, aTypeHint, aPostData, aPostDataLength,
+                            aHeadersData, aLoadType, aSHEntry, aFirstParty,
+                            aSrcdoc, aSourceDocShell, aBaseURI, false);
     // We don't need any success handler since in that case
     // OnPartialSHistoryDeactive would be called, and it would ensure
     // docshell loads about:blank.
@@ -10837,7 +10849,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
   if (aFlags & INTERNAL_LOAD_FLAGS_IS_SRCDOC) {
     srcdoc = aSrcdoc;
   } else {
-    srcdoc = NullString();
+    srcdoc = VoidString();
   }
 
   bool isTopLevelDoc = mItemType == typeContent &&
@@ -10858,7 +10870,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                  !(aFlags & INTERNAL_LOAD_FLAGS_DONT_SEND_REFERRER),
                  aReferrerPolicy,
                  aTriggeringPrincipal, principalToInherit, aTypeHint,
-                 aFileName, aPostData, aHeadersData,
+                 aFileName, aPostData, aPostDataLength, aHeadersData,
                  aFirstParty, aDocShell, getter_AddRefs(req),
                  (aFlags & INTERNAL_LOAD_FLAGS_FIRST_LOAD) != 0,
                  (aFlags & INTERNAL_LOAD_FLAGS_BYPASS_CLASSIFIER) != 0,
@@ -10971,7 +10983,7 @@ IsConsideredSameOriginForUIR(nsIPrincipal* aTriggeringPrincipal,
   rv = resultURI->GetSpec(tmpResultSpec);
   NS_ENSURE_SUCCESS(rv, false);
   // replace http with https
-  tmpResultSpec.Replace(0, 4, "https");
+  tmpResultSpec.ReplaceLiteral(0, 4, "https");
 
   nsCOMPtr<nsIURI> tmpResultURI;
   rv = NS_NewURI(getter_AddRefs(tmpResultURI), tmpResultSpec);
@@ -11000,6 +11012,7 @@ nsDocShell::DoURILoad(nsIURI* aURI,
                       const char* aTypeHint,
                       const nsAString& aFileName,
                       nsIInputStream* aPostData,
+                      int64_t aPostDataLength,
                       nsIInputStream* aHeadersData,
                       bool aFirstParty,
                       nsIDocShell** aDocShell,
@@ -11426,7 +11439,7 @@ nsDocShell::DoURILoad(nsIURI* aURI,
       }
 
       // we really need to have a content type associated with this stream!!
-      postChannel->SetUploadStream(aPostData, EmptyCString(), -1);
+      postChannel->SetUploadStream(aPostData, EmptyCString(), aPostDataLength);
     }
 
     /* If there is a valid postdata *and* it is a History Load,
@@ -12860,7 +12873,7 @@ nsDocShell::LoadHistoryEntry(nsISHEntry* aEntry, uint32_t aLoadType)
     aEntry->GetBaseURI(getter_AddRefs(baseURI));
     flags |= INTERNAL_LOAD_FLAGS_IS_SRCDOC;
   } else {
-    srcdoc = NullString();
+    srcdoc = VoidString();
   }
 
   if (!triggeringPrincipal) {
@@ -12884,8 +12897,9 @@ nsDocShell::LoadHistoryEntry(nsISHEntry* aEntry, uint32_t aLoadType)
                     flags,
                     EmptyString(),      // No window target
                     contentType.get(),  // Type hint
-                    NullString(),       // No forced file download
+                    VoidString(),       // No forced file download
                     postData,           // Post data stream
+                    -1,                 // Post data stream length
                     nullptr,            // No headers stream
                     aLoadType,          // Load type
                     aEntry,             // SHEntry
@@ -14175,6 +14189,7 @@ public:
                    const char16_t* aTargetSpec,
                    const nsAString& aFileName,
                    nsIInputStream* aPostDataStream,
+                   int64_t aPostDataStreamLength,
                    nsIInputStream* aHeadersDataStream,
                    bool aNoOpenerImplied,
                    bool aIsTrusted,
@@ -14193,8 +14208,8 @@ public:
     if (mIsTrusted || jsapi.Init(mContent->OwnerDoc()->GetScopeObject())) {
       mHandler->OnLinkClickSync(mContent, mURI,
                                 mTargetSpec.get(), mFileName,
-                                mPostDataStream, mHeadersDataStream,
-                                mNoOpenerImplied,
+                                mPostDataStream, mPostDataStreamLength,
+                                mHeadersDataStream, mNoOpenerImplied,
                                 nullptr, nullptr, mTriggeringPrincipal);
     }
     return NS_OK;
@@ -14206,6 +14221,7 @@ private:
   nsString mTargetSpec;
   nsString mFileName;
   nsCOMPtr<nsIInputStream> mPostDataStream;
+  int64_t mPostDataStreamLength;
   nsCOMPtr<nsIInputStream> mHeadersDataStream;
   nsCOMPtr<nsIContent> mContent;
   PopupControlState mPopupState;
@@ -14220,6 +14236,7 @@ OnLinkClickEvent::OnLinkClickEvent(nsDocShell* aHandler,
                                    const char16_t* aTargetSpec,
                                    const nsAString& aFileName,
                                    nsIInputStream* aPostDataStream,
+                                   int64_t aPostDataStreamLength,
                                    nsIInputStream* aHeadersDataStream,
                                    bool aNoOpenerImplied,
                                    bool aIsTrusted,
@@ -14230,6 +14247,7 @@ OnLinkClickEvent::OnLinkClickEvent(nsDocShell* aHandler,
   , mTargetSpec(aTargetSpec)
   , mFileName(aFileName)
   , mPostDataStream(aPostDataStream)
+  , mPostDataStreamLength(aPostDataStreamLength)
   , mHeadersDataStream(aHeadersDataStream)
   , mContent(aContent)
   , mPopupState(mHandler->mScriptGlobal->GetPopupControlState())
@@ -14245,6 +14263,7 @@ nsDocShell::OnLinkClick(nsIContent* aContent,
                         const char16_t* aTargetSpec,
                         const nsAString& aFileName,
                         nsIInputStream* aPostDataStream,
+                        int64_t aPostDataStreamLength,
                         nsIInputStream* aHeadersDataStream,
                         bool aIsTrusted,
                         nsIPrincipal* aTriggeringPrincipal)
@@ -14290,7 +14309,8 @@ nsDocShell::OnLinkClick(nsIContent* aContent,
 
   nsCOMPtr<nsIRunnable> ev =
     new OnLinkClickEvent(this, aContent, aURI, target.get(), aFileName,
-                         aPostDataStream, aHeadersDataStream, noOpenerImplied,
+                         aPostDataStream, aPostDataStreamLength,
+                         aHeadersDataStream, noOpenerImplied,
                          aIsTrusted, aTriggeringPrincipal);
   return DispatchToTabGroup(TaskCategory::UI, ev.forget());
 }
@@ -14301,6 +14321,7 @@ nsDocShell::OnLinkClickSync(nsIContent* aContent,
                             const char16_t* aTargetSpec,
                             const nsAString& aFileName,
                             nsIInputStream* aPostDataStream,
+                            int64_t aPostDataStreamLength,
                             nsIInputStream* aHeadersDataStream,
                             bool aNoOpenerImplied,
                             nsIDocShell** aDocShell,
@@ -14413,7 +14434,7 @@ nsDocShell::OnLinkClickSync(nsIContent* aContent,
 
   // If this is an anchor element, grab its type property to use as a hint
   nsAutoString typeHint;
-  nsCOMPtr<nsIDOMHTMLAnchorElement> anchor(do_QueryInterface(aContent));
+  RefPtr<HTMLAnchorElement> anchor = HTMLAnchorElement::FromContent(aContent);
   if (anchor) {
     anchor->GetType(typeHint);
     NS_ConvertUTF16toUTF8 utf8Hint(typeHint);
@@ -14450,11 +14471,12 @@ nsDocShell::OnLinkClickSync(nsIContent* aContent,
                              NS_LossyConvertUTF16toASCII(typeHint).get(),
                              aFileName,                 // Download as file
                              aPostDataStream,           // Post data stream
+                             aPostDataStreamLength,     // Post data stream length
                              aHeadersDataStream,        // Headers stream
                              LOAD_LINK,                 // Load type
                              nullptr,                   // No SHEntry
                              true,                      // first party site
-                             NullString(),              // No srcdoc
+                             VoidString(),              // No srcdoc
                              this,                      // We are the source
                              nullptr,                   // baseURI not needed
                              true,                      // Check for prerendered doc

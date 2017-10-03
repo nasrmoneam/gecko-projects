@@ -11,7 +11,7 @@ use dom::TElement;
 use element_state::ElementState;
 use font_metrics::FontMetricsProvider;
 #[cfg(feature = "gecko")]
-use gecko_bindings::structs::{nsIAtom, ServoStyleSetSizes, StyleRuleInclusion};
+use gecko_bindings::structs::{ServoStyleSetSizes, StyleRuleInclusion};
 use hashglobe::FailedAllocationError;
 use invalidation::element::invalidation_map::InvalidationMap;
 use invalidation::media_queries::{EffectiveMediaQueryResults, ToMediaListKey};
@@ -28,9 +28,10 @@ use properties::IS_LINK;
 use rule_tree::{CascadeLevel, RuleTree, StrongRuleNode, StyleSource};
 use selector_map::{PrecomputedHashMap, SelectorMap, SelectorMapEntry};
 use selector_parser::{SelectorImpl, PerPseudoElementMap, PseudoElement};
+use selectors::NthIndexCache;
 use selectors::attr::NamespaceConstraint;
 use selectors::bloom::{BloomFilter, NonCountingBloomFilter};
-use selectors::matching::{ElementSelectorFlags, matches_selector, MatchingContext, MatchingMode, NthIndexCache};
+use selectors::matching::{ElementSelectorFlags, matches_selector, MatchingContext, MatchingMode};
 use selectors::matching::VisitedHandlingMode;
 use selectors::parser::{AncestorHashes, Combinator, Component, Selector};
 use selectors::parser::{SelectorIter, SelectorMethods};
@@ -173,7 +174,7 @@ struct UserAgentCascadeData {
 impl UserAgentCascadeData {
     #[cfg(feature = "gecko")]
     fn add_size_of(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
-        self.cascade_data.add_size_of_children(ops, sizes);
+        self.cascade_data.add_size_of(ops, sizes);
         sizes.mPrecomputedPseudos += self.precomputed_pseudo_element_decls.size_of(ops);
     }
 }
@@ -328,9 +329,9 @@ impl DocumentCascadeData {
 
     /// Measures heap usage.
     #[cfg(feature = "gecko")]
-    pub fn add_size_of_children(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
-        self.user.add_size_of_children(ops, sizes);
-        self.author.add_size_of_children(ops, sizes);
+    pub fn add_size_of(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
+        self.user.add_size_of(ops, sizes);
+        self.author.add_size_of(ops, sizes);
     }
 }
 
@@ -498,8 +499,6 @@ impl Stylist {
 
     /// Flush the list of stylesheets if they changed, ensuring the stylist is
     /// up-to-date.
-    ///
-    /// FIXME(emilio): Move the `ua_sheets` to the Stylist too?
     pub fn flush<E>(
         &mut self,
         guards: &StylesheetGuards,
@@ -894,7 +893,7 @@ impl Stylist {
     ) -> Arc<ComputedValues> {
         // We need to compute visited values if we have visited rules or if our
         // parent has visited values.
-        let visited_values = if inputs.visited_rules.is_some() || parent_style.get_visited_style().is_some() {
+        let visited_values = if inputs.visited_rules.is_some() || parent_style.visited_style().is_some() {
             // Slightly annoying: we know that inputs has either rules or
             // visited rules, but we can't do inputs.rules() up front because
             // maybe it just has visited rules, so can't unwrap_or.
@@ -914,11 +913,11 @@ impl Stylist {
                 // We want to use the visited bits (if any) from our parent
                 // style as our parent.
                 inherited_style =
-                    parent_style.get_visited_style().unwrap_or(parent_style);
+                    parent_style.visited_style().unwrap_or(parent_style);
                 inherited_style_ignoring_first_line =
-                    parent_style_ignoring_first_line.get_visited_style().unwrap_or(parent_style_ignoring_first_line);
+                    parent_style_ignoring_first_line.visited_style().unwrap_or(parent_style_ignoring_first_line);
                 layout_parent_style_for_visited =
-                    layout_parent_style.get_visited_style().unwrap_or(layout_parent_style);
+                    layout_parent_style.visited_style().unwrap_or(layout_parent_style);
             }
 
             Some(properties::cascade(
@@ -965,12 +964,6 @@ impl Stylist {
         )
     }
 
-    fn has_rules_for_pseudo(&self, pseudo: &PseudoElement) -> bool {
-        self.cascade_data
-            .iter_origins()
-            .any(|(d, _)| d.has_rules_for_pseudo(pseudo))
-    }
-
     /// Computes the cascade inputs for a lazily-cascaded pseudo-element.
     ///
     /// See the documentation on lazy pseudo-elements in
@@ -988,10 +981,6 @@ impl Stylist {
     {
         let pseudo = pseudo.canonical();
         debug_assert!(pseudo.is_lazy());
-
-        if !self.has_rules_for_pseudo(&pseudo) {
-            return CascadeInputs::default()
-        }
 
         // Apply the selector flags. We should be in sequential mode
         // already, so we can directly apply the parent flags.
@@ -1026,10 +1015,12 @@ impl Stylist {
         let mut inputs = CascadeInputs::default();
         let mut declarations = ApplicableDeclarationList::new();
         let mut matching_context =
-            MatchingContext::new(MatchingMode::ForStatelessPseudoElement,
-                                 None,
-                                 None,
-                                 self.quirks_mode);
+            MatchingContext::new(
+                MatchingMode::ForStatelessPseudoElement,
+                None,
+                None,
+                self.quirks_mode,
+            );
 
         self.push_applicable_declarations(
             element,
@@ -1192,39 +1183,6 @@ impl Stylist {
         self.quirks_mode = quirks_mode;
     }
 
-    /// Returns the applicable CSS declarations for the given element by
-    /// treating us as an XBL stylesheet-only stylist.
-    pub fn push_applicable_declarations_as_xbl_only_stylist<E, V>(
-        &self,
-        element: &E,
-        pseudo_element: Option<&PseudoElement>,
-        applicable_declarations: &mut V
-    )
-    where
-        E: TElement,
-        V: Push<ApplicableDeclarationBlock> + VecLike<ApplicableDeclarationBlock>,
-    {
-        let mut matching_context =
-            MatchingContext::new(MatchingMode::Normal, None, None, self.quirks_mode);
-        let mut dummy_flag_setter = |_: &E, _: ElementSelectorFlags| {};
-
-        let rule_hash_target = element.rule_hash_target();
-
-        // nsXBLPrototypeResources::LoadResources() loads Chrome XBL style
-        // sheets under eAuthorSheetFeatures level.
-        if let Some(map) = self.cascade_data.author.borrow_for_pseudo(pseudo_element) {
-            map.get_all_matching_rules(
-                element,
-                &rule_hash_target,
-                applicable_declarations,
-                &mut matching_context,
-                self.quirks_mode,
-                &mut dummy_flag_setter,
-                CascadeLevel::XBL,
-            );
-        }
-    }
-
     /// Returns the applicable CSS declarations for the given element.
     ///
     /// This corresponds to `ElementRuleCollector` in WebKit.
@@ -1314,11 +1272,21 @@ impl Stylist {
         }
 
         // Step 3b: XBL rules.
-        let cut_off_inheritance =
-            element.get_declarations_from_xbl_bindings(
-                pseudo_element,
-                applicable_declarations,
-            );
+        let cut_off_inheritance = element.each_xbl_stylist(|stylist| {
+            // ServoStyleSet::CreateXBLServoStyleSet() loads XBL style sheets
+            // under eAuthorSheetFeatures level.
+            if let Some(map) = stylist.cascade_data.author.borrow_for_pseudo(pseudo_element) {
+                map.get_all_matching_rules(
+                    element,
+                    &rule_hash_target,
+                    applicable_declarations,
+                    context,
+                    self.quirks_mode,
+                    flags_setter,
+                    CascadeLevel::XBL,
+                );
+            }
+        });
 
         if rule_hash_target.matches_user_and_author_rules() && !only_default_rules {
             // Gecko skips author normal rules if cutting off inheritance.
@@ -1529,8 +1497,8 @@ impl Stylist {
 
     /// Measures heap usage.
     #[cfg(feature = "gecko")]
-    pub fn add_size_of_children(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
-        self.cascade_data.add_size_of_children(ops, sizes);
+    pub fn add_size_of(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
+        self.cascade_data.add_size_of(ops, sizes);
         sizes.mRuleTree += self.rule_tree.size_of(ops);
 
         // We may measure other fields in the future if DMD says it's worth it.
@@ -1539,6 +1507,17 @@ impl Stylist {
     /// Shutdown the static data that this module stores.
     pub fn shutdown() {
         UA_CASCADE_DATA_CACHE.lock().unwrap().clear()
+    }
+
+    /// Temporary testing method. See bug 1403397.
+    pub fn corrupt_rule_hash_and_crash(&self, index: usize) {
+        let mut origin_iter = self.cascade_data.iter_origins();
+        let d = origin_iter.next().unwrap().0;
+        let mut it = d.element_map.local_name_hash.iter();
+        let nth = index % it.len();
+        let entry = it.nth(nth).unwrap();
+        let ptr = entry.0 as *const _ as *const usize as *mut usize;
+        unsafe { *ptr = 0; }
     }
 }
 
@@ -1589,7 +1568,7 @@ impl ExtraStyleData {
         guard: &SharedRwLockReadGuard,
         rule: &Arc<Locked<CounterStyleRule>>,
     ) {
-        let name = rule.read_with(guard).mName.raw::<nsIAtom>().into();
+        let name = rule.read_with(guard).mName.mRawPtr.into();
         self.counter_styles.insert(name, rule.clone());
     }
 
@@ -1902,6 +1881,32 @@ impl CascadeData {
         }
     }
 
+    #[cfg(feature = "gecko")]
+    fn begin_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
+        self.element_map.begin_mutation();
+        self.pseudos_map.for_each(|m| m.begin_mutation());
+        if rebuild_kind.should_rebuild_invalidation() {
+            self.invalidation_map.begin_mutation();
+            self.selectors_for_cache_revalidation.begin_mutation();
+        }
+    }
+
+    #[cfg(feature = "servo")]
+    fn begin_mutation(&mut self, _: &SheetRebuildKind) {}
+
+    #[cfg(feature = "gecko")]
+    fn end_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
+        self.element_map.end_mutation();
+        self.pseudos_map.for_each(|m| m.end_mutation());
+        if rebuild_kind.should_rebuild_invalidation() {
+            self.invalidation_map.end_mutation();
+            self.selectors_for_cache_revalidation.end_mutation();
+        }
+    }
+
+    #[cfg(feature = "servo")]
+    fn end_mutation(&mut self, _: &SheetRebuildKind) {}
+
     /// Collects all the applicable media query results into `results`.
     ///
     /// This duplicates part of the logic in `add_stylesheet`, which is
@@ -1965,6 +1970,7 @@ impl CascadeData {
             self.effective_media_query_results.saw_effective(stylesheet);
         }
 
+        self.begin_mutation(&rebuild_kind);
         for rule in stylesheet.effective_rules(device, guard) {
             match *rule {
                 CssRule::Style(ref locked) => {
@@ -2001,8 +2007,11 @@ impl CascadeData {
                             None => &mut self.element_map,
                             Some(pseudo) => {
                                 self.pseudos_map
-                                    .get_or_insert_with(&pseudo.canonical(), || Box::new(SelectorMap::new()))
-                                    .expect("Unexpected tree pseudo-element?")
+                                    .get_or_insert_with(&pseudo.canonical(), || {
+                                        let mut map = Box::new(SelectorMap::new());
+                                        map.begin_mutation();
+                                        map
+                                    }).expect("Unexpected tree pseudo-element?")
                             }
                         };
 
@@ -2096,6 +2105,7 @@ impl CascadeData {
                 _ => {}
             }
         }
+        self.end_mutation(&rebuild_kind);
 
         Ok(())
     }
@@ -2196,10 +2206,6 @@ impl CascadeData {
         }
     }
 
-    fn has_rules_for_pseudo(&self, pseudo: &PseudoElement) -> bool {
-        self.pseudos_map.get(pseudo).is_some()
-    }
-
     /// Clears the cascade data, but not the invalidation data.
     fn clear_cascade_data(&mut self) {
         self.element_map.clear();
@@ -2224,7 +2230,7 @@ impl CascadeData {
 
     /// Measures heap usage.
     #[cfg(feature = "gecko")]
-    pub fn add_size_of_children(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
+    pub fn add_size_of(&self, ops: &mut MallocSizeOfOps, sizes: &mut ServoStyleSetSizes) {
         sizes.mElementAndPseudosMaps += self.element_map.size_of(ops);
 
         for elem in self.pseudos_map.iter() {

@@ -47,7 +47,6 @@ var whitelist = [
   {file: "chrome://browser/content/newtab/alternativeDefaultSites.json"},
 
   // Add-on compat
-  {file: "chrome://browser/skin/devtools/common.css"},
   {file: "chrome://global/content/XPCNativeWrapper.js"},
   {file: "chrome://global/locale/brand.dtd"},
 
@@ -126,7 +125,7 @@ var whitelist = [
   {file: "resource://shield-recipe-client-content/shield-content-process.js"},
 
   // New L10n API that is not yet used in production
-  {file: "resource://gre/modules/DOMLocalization.jsm"},
+  {file: "chrome://global/content/l10n.js"},
 
   // Starting from here, files in the whitelist are bugs that need fixing.
   // Bug 1339424 (wontfix?)

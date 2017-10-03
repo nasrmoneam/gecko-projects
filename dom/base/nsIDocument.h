@@ -1639,7 +1639,9 @@ public:
    * Flush notifications for this document and its parent documents
    * (since those may affect the layout of this one).
    */
-  virtual void FlushPendingNotifications(mozilla::FlushType aType) = 0;
+  virtual void FlushPendingNotifications(mozilla::FlushType aType,
+                                         mozilla::FlushTarget aTarget
+                                           = mozilla::FlushTarget::Normal) = 0;
 
   /**
    * Calls FlushPendingNotifications on any external resources this document
@@ -2740,8 +2742,9 @@ public:
 
   enum ElementCallbackType {
     eCreated,
-    eAttached,
-    eDetached,
+    eConnected,
+    eDisconnected,
+    eAdopted,
     eAttributeChanged
   };
 
@@ -2952,6 +2955,7 @@ public:
   void ObsoleteSheet(const nsAString& aSheetURI, mozilla::ErrorResult& rv);
 
   already_AddRefed<mozilla::dom::Promise> BlockParsing(mozilla::dom::Promise& aPromise,
+                                                       const mozilla::dom::BlockParsingOptions& aOptions,
                                                        mozilla::ErrorResult& aRv);
 
   already_AddRefed<nsIURI> GetMozDocumentURIIfNotForErrorPages();

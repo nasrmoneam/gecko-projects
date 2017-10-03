@@ -504,7 +504,8 @@ void Gecko_SetStyleCoordCalcValue(nsStyleUnit* unit, nsStyleUnion* value, nsStyl
 void Gecko_CopyShapeSourceFrom(mozilla::StyleShapeSource* dst, const mozilla::StyleShapeSource* src);
 
 void Gecko_DestroyShapeSource(mozilla::StyleShapeSource* shape);
-mozilla::StyleBasicShape* Gecko_NewBasicShape(mozilla::StyleBasicShapeType type);
+void Gecko_NewBasicShape(mozilla::StyleShapeSource* shape,
+                         mozilla::StyleBasicShapeType type);
 void Gecko_StyleShapeSource_SetURLValue(mozilla::StyleShapeSource* shape, ServoBundledURI uri);
 
 void Gecko_ResetFilters(nsStyleEffects* effects, size_t new_len);
@@ -634,8 +635,7 @@ nscolor Gecko_GetLookAndFeelSystemColor(int32_t color_id,
 
 bool Gecko_MatchStringArgPseudo(RawGeckoElementBorrowed element,
                                 mozilla::CSSPseudoClassType type,
-                                const char16_t* ident,
-                                bool* set_slow_selector);
+                                const char16_t* ident);
 
 void Gecko_AddPropertyToSet(nsCSSPropertyIDSetBorrowedMut, nsCSSPropertyID);
 
@@ -645,6 +645,13 @@ int32_t Gecko_RegisterNamespace(nsIAtom* ns);
 
 // Returns true if this process should create a rayon thread pool for styling.
 bool Gecko_ShouldCreateStyleThreadPool();
+
+// Returns the page size on this system.
+size_t Gecko_GetSystemPageSize();
+
+// Protects/unprotects pages of memory.
+void Gecko_ProtectBuffer(void* buffer, size_t size);
+void Gecko_UnprotectBuffer(void* buffer, size_t size);
 
 // Style-struct management.
 #define STYLE_STRUCT(name, checkdata_cb)                                       \

@@ -111,6 +111,9 @@ static bool AreShadowArraysEqual(nsCSSShadowArray* lhs, nsCSSShadowArray* rhs);
 nsStyleFont::nsStyleFont(const nsFont& aFont, const nsPresContext* aContext)
   : mFont(aFont)
   , mSize(nsStyleFont::ZoomText(aContext, mFont.size))
+  , mFontSizeFactor(1.0)
+  , mFontSizeOffset(0)
+  , mFontSizeKeyword(NS_STYLE_FONT_SIZE_MEDIUM)
   , mGenericID(kGenericFont_NONE)
   , mScriptLevel(0)
   , mMathVariant(NS_MATHML_MATHVARIANT_NONE)
@@ -131,6 +134,9 @@ nsStyleFont::nsStyleFont(const nsFont& aFont, const nsPresContext* aContext)
 nsStyleFont::nsStyleFont(const nsStyleFont& aSrc)
   : mFont(aSrc.mFont)
   , mSize(aSrc.mSize)
+  , mFontSizeFactor(aSrc.mFontSizeFactor)
+  , mFontSizeOffset(aSrc.mFontSizeOffset)
+  , mFontSizeKeyword(aSrc.mFontSizeKeyword)
   , mGenericID(aSrc.mGenericID)
   , mScriptLevel(aSrc.mScriptLevel)
   , mMathVariant(aSrc.mMathVariant)
@@ -1033,6 +1039,97 @@ StyleBasicShape::GetShapeTypeName() const
 }
 
 // --------------------
+// StyleShapeSource
+
+StyleShapeSource::StyleShapeSource(const StyleShapeSource& aSource)
+{
+  DoCopy(aSource);
+}
+
+StyleShapeSource&
+StyleShapeSource::operator=(const StyleShapeSource& aOther)
+{
+  if (this != &aOther) {
+    DoCopy(aOther);
+  }
+
+  return *this;
+}
+
+bool
+StyleShapeSource::operator==(const StyleShapeSource& aOther) const
+{
+  if (mType != aOther.mType) {
+    return false;
+  }
+
+  if (mType == StyleShapeSourceType::URL) {
+    return DefinitelyEqualURIs(GetURL(), aOther.GetURL());
+  } else if (mType == StyleShapeSourceType::Shape) {
+    return *mBasicShape == *aOther.mBasicShape &&
+      mReferenceBox == aOther.mReferenceBox;
+  } else if (mType == StyleShapeSourceType::Box) {
+    return mReferenceBox == aOther.mReferenceBox;
+  }
+
+  return true;
+}
+
+bool
+StyleShapeSource::SetURL(css::URLValue* aValue)
+{
+  MOZ_ASSERT(aValue);
+  if (!mShapeImage) {
+    mShapeImage = MakeUnique<nsStyleImage>();
+  }
+  mShapeImage->SetURLValue(do_AddRef(aValue));
+  mType = StyleShapeSourceType::URL;
+  return true;
+}
+
+void
+StyleShapeSource::SetBasicShape(UniquePtr<StyleBasicShape> aBasicShape,
+                                StyleGeometryBox aReferenceBox)
+{
+  NS_ASSERTION(aBasicShape, "expected pointer");
+  mBasicShape = Move(aBasicShape);
+  mReferenceBox = aReferenceBox;
+  mType = StyleShapeSourceType::Shape;
+}
+
+void
+StyleShapeSource::SetReferenceBox(StyleGeometryBox aReferenceBox)
+{
+  mReferenceBox = aReferenceBox;
+  mType = StyleShapeSourceType::Box;
+}
+
+void
+StyleShapeSource::DoCopy(const StyleShapeSource& aOther)
+{
+
+  switch (aOther.mType) {
+    case StyleShapeSourceType::None:
+      mReferenceBox = StyleGeometryBox::NoBox;
+      mType = StyleShapeSourceType::None;
+      break;
+
+    case StyleShapeSourceType::URL:
+      SetURL(aOther.GetURL());
+      break;
+
+    case StyleShapeSourceType::Shape:
+      SetBasicShape(MakeUnique<StyleBasicShape>(*aOther.GetBasicShape()),
+                    aOther.GetReferenceBox());
+      break;
+
+    case StyleShapeSourceType::Box:
+      SetReferenceBox(aOther.GetReferenceBox());
+      break;
+  }
+}
+
+// --------------------
 // nsStyleFilter
 //
 nsStyleFilter::nsStyleFilter()
@@ -1213,7 +1310,7 @@ nsStyleSVGReset::CalcDifference(const nsStyleSVGReset& aNewData) const
 {
   nsChangeHint hint = nsChangeHint(0);
 
-  if (!mClipPath.DefinitelyEquals(aNewData.mClipPath)) {
+  if (mClipPath != aNewData.mClipPath) {
     hint |= nsChangeHint_UpdateEffects |
             nsChangeHint_RepaintFrame;
     // clip-path changes require that we update the PreEffectsBBoxProperty,
@@ -2321,7 +2418,7 @@ nsStyleImage::SetElementId(already_AddRefed<nsIAtom> aElementId)
     SetNull();
   }
 
-  if (nsCOMPtr<nsIAtom> atom = aElementId) {
+  if (RefPtr<nsIAtom> atom = aElementId) {
     mElementId = atom.forget().take();
     mType = eStyleImageType_Element;
   }
@@ -2637,7 +2734,6 @@ const nsCSSPropertyID nsStyleImageLayers::kBackgroundLayerTable[] = {
   eCSSProperty_UNKNOWN                    // composite
 };
 
-#ifdef MOZ_ENABLE_MASK_AS_SHORTHAND
 const nsCSSPropertyID nsStyleImageLayers::kMaskLayerTable[] = {
   eCSSProperty_mask,                      // shorthand
   eCSSProperty_UNKNOWN,                   // color
@@ -2652,7 +2748,6 @@ const nsCSSPropertyID nsStyleImageLayers::kMaskLayerTable[] = {
   eCSSProperty_mask_mode,                 // maskMode
   eCSSProperty_mask_composite             // composite
 };
-#endif
 
 nsStyleImageLayers::nsStyleImageLayers(nsStyleImageLayers::LayerType aType)
   : mAttachmentCount(1)
@@ -3297,7 +3392,7 @@ StyleTransition::SetUnknownProperty(nsCSSPropertyID aProperty,
                                         CSSEnabledState::eForAllContent) ==
                aProperty,
              "property and property string should match");
-  nsCOMPtr<nsIAtom> temp = NS_Atomize(aPropertyString);
+  RefPtr<nsIAtom> temp = NS_Atomize(aPropertyString);
   SetUnknownProperty(aProperty, temp);
 }
 
@@ -3568,7 +3663,7 @@ nsStyleDisplay::CalcDifference(const nsStyleDisplay& aNewData) const
     hint |= nsChangeHint_ReflowHintsForFloatAreaChange;
   }
 
-  if (!mShapeOutside.DefinitelyEquals(aNewData.mShapeOutside)) {
+  if (mShapeOutside != aNewData.mShapeOutside) {
     if (aNewData.mFloat != StyleFloat::None) {
       // If we are floating, and our shape-outside property changes, our
       // descendants are not impacted, but our ancestor and siblings are.
@@ -4095,7 +4190,7 @@ nsStyleText::nsStyleText(const nsPresContext* aContext)
   , mTextShadow(nullptr)
 {
   MOZ_COUNT_CTOR(nsStyleText);
-  nsCOMPtr<nsIAtom> language = aContext->GetContentLanguage();
+  RefPtr<nsIAtom> language = aContext->GetContentLanguage();
   mTextEmphasisPosition = language &&
     nsStyleUtil::MatchesLanguagePrefix(language, u"zh") ?
     NS_STYLE_TEXT_EMPHASIS_POSITION_DEFAULT_ZH :

@@ -23,7 +23,7 @@ use properties::ComputedValues;
 use rule_cache::RuleCache;
 use rule_tree::StrongRuleNode;
 use selector_parser::{EAGER_PSEUDO_COUNT, SnapshotMap};
-use selectors::context::NthIndexCache;
+use selectors::NthIndexCache;
 use selectors::matching::ElementSelectorFlags;
 use servo_arc::Arc;
 #[cfg(feature = "servo")] use servo_atoms::Atom;
@@ -206,7 +206,7 @@ impl CascadeInputs {
     pub fn new_from_style(style: &ComputedValues) -> Self {
         CascadeInputs {
             rules: style.rules.clone(),
-            visited_rules: style.get_visited_style().and_then(|v| v.rules.clone()),
+            visited_rules: style.visited_style().and_then(|v| v.rules.clone()),
         }
     }
 }
@@ -817,15 +817,6 @@ pub struct StyleContext<'a, E: TElement + 'a> {
     pub shared: &'a SharedStyleContext<'a>,
     /// The thread-local style context (mutable) reference.
     pub thread_local: &'a mut ThreadLocalStyleContext<E>,
-}
-
-/// Why we're doing reflow.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ReflowGoal {
-    /// We're reflowing in order to send a display list to the screen.
-    ForDisplay,
-    /// We're reflowing in order to satisfy a script query. No display list will be created.
-    ForScriptQuery,
 }
 
 /// A registered painter

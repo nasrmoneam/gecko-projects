@@ -58,20 +58,10 @@ VRManagerParent::DeallocPTextureParent(PTextureParent* actor)
 
 PVRLayerParent*
 VRManagerParent::AllocPVRLayerParent(const uint32_t& aDisplayID,
-                                     const float& aLeftEyeX,
-                                     const float& aLeftEyeY,
-                                     const float& aLeftEyeWidth,
-                                     const float& aLeftEyeHeight,
-                                     const float& aRightEyeX,
-                                     const float& aRightEyeY,
-                                     const float& aRightEyeWidth,
-                                     const float& aRightEyeHeight,
                                      const uint32_t& aGroup)
 {
   RefPtr<VRLayerParent> layer;
   layer = new VRLayerParent(aDisplayID,
-                            Rect(aLeftEyeX, aLeftEyeY, aLeftEyeWidth, aLeftEyeHeight),
-                            Rect(aRightEyeX, aRightEyeY, aRightEyeWidth, aRightEyeHeight),
                             aGroup);
   VRManager* vm = VRManager::Get();
   RefPtr<gfx::VRDisplayHost> display = vm->GetDisplay(aDisplayID);
@@ -289,18 +279,19 @@ VRManagerParent::RecvSetHaveEventListener(const bool& aHaveEventListener)
 mozilla::ipc::IPCResult
 VRManagerParent::RecvControllerListenerAdded()
 {
+  // Force update the available controllers for GamepadManager,
+  // remove the existing controllers and sync them by NotifyVsync().
   VRManager* vm = VRManager::Get();
+  vm->RemoveControllers();
   mHaveControllerListener = true;
-  // Ask the connected gamepads to be added to GamepadManager
-  vm->ScanForControllers();
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult
 VRManagerParent::RecvControllerListenerRemoved()
 {
-  VRManager* vm = VRManager::Get();
   mHaveControllerListener = false;
+  VRManager* vm = VRManager::Get();
   vm->RemoveControllers();
   return IPC_OK();
 }

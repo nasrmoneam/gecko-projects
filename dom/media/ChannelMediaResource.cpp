@@ -9,6 +9,7 @@
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "nsICachingChannel.h"
 #include "nsIClassOfService.h"
+#include "nsIInputStream.h"
 #include "nsNetUtil.h"
 
 static const uint32_t HTTP_PARTIAL_RESPONSE_CODE = 206;
@@ -68,6 +69,7 @@ nsresult
 ChannelMediaResource::Listener::OnStartRequest(nsIRequest* aRequest,
                                                nsISupports* aContext)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mResource)
     return NS_OK;
   return mResource->OnStartRequest(aRequest, mOffset);
@@ -78,6 +80,7 @@ ChannelMediaResource::Listener::OnStopRequest(nsIRequest* aRequest,
                                               nsISupports* aContext,
                                               nsresult aStatus)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   if (!mResource)
     return NS_OK;
   return mResource->OnStopRequest(aRequest, aStatus);
@@ -91,8 +94,14 @@ ChannelMediaResource::Listener::OnDataAvailable(nsIRequest* aRequest,
                                                 uint32_t aCount)
 {
   // This might happen off the main thread.
-  MOZ_DIAGNOSTIC_ASSERT(mResource);
-  return mResource->OnDataAvailable(mLoadID, aStream, aCount);
+  RefPtr<ChannelMediaResource> res;
+  {
+    MutexAutoLock lock(mMutex);
+    res = mResource;
+  }
+  // Note Rekove() might happen at the same time to reset mResource. We check
+  // the load ID to determine if the data is from an old channel.
+  return res ? res->OnDataAvailable(mLoadID, aStream, aCount) : NS_OK;
 }
 
 nsresult
@@ -102,6 +111,8 @@ ChannelMediaResource::Listener::AsyncOnChannelRedirect(
   uint32_t aFlags,
   nsIAsyncVerifyRedirectCallback* cb)
 {
+  MOZ_ASSERT(NS_IsMainThread());
+
   nsresult rv = NS_OK;
   if (mResource) {
     rv = mResource->OnChannelRedirect(aOld, aNew, aFlags, mOffset);
@@ -125,6 +136,14 @@ nsresult
 ChannelMediaResource::Listener::GetInterface(const nsIID& aIID, void** aResult)
 {
   return QueryInterface(aIID, aResult);
+}
+
+void
+ChannelMediaResource::Listener::Revoke()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MutexAutoLock lock(mMutex);
+  mResource = nullptr;
 }
 
 static bool
@@ -415,13 +434,16 @@ ChannelMediaResource::OnDataAvailable(uint32_t aLoadID,
                                       uint32_t aCount)
 {
   // This might happen off the main thread.
-  // Don't assert |mChannel.get() == aRequest| since reading mChannel here off
-  // the main thread is a data race.
 
   RefPtr<ChannelMediaResource> self = this;
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
-    "ChannelMediaResource::OnDataAvailable",
-    [self, aCount]() { self->mChannelStatistics.AddBytes(aCount); });
+    "ChannelMediaResource::OnDataAvailable", [self, aCount, aLoadID]() {
+      if (aLoadID != self->mLoadID) {
+        // Ignore data from the old channel.
+        return;
+      }
+      self->mChannelStatistics.AddBytes(aCount);
+    });
   mCallback->AbstractMainThread()->Dispatch(r.forget());
 
   Closure closure{ aLoadID, this };
@@ -729,15 +751,35 @@ ChannelMediaResource::RecreateChannel()
   nsContentPolicyType contentPolicyType = element->IsHTMLElement(nsGkAtoms::audio) ?
     nsIContentPolicy::TYPE_INTERNAL_AUDIO : nsIContentPolicy::TYPE_INTERNAL_VIDEO;
 
-  nsresult rv = NS_NewChannel(getter_AddRefs(mChannel),
-                              mURI,
-                              element,
-                              securityFlags,
-                              contentPolicyType,
-                              loadGroup,
-                              nullptr,  // aCallbacks
-                              loadFlags);
+  // If element has 'loadingprincipal' attribute, we will use the value as
+  // loadingPrincipal for the channel, otherwise it will default to use
+  // aElement->NodePrincipal().
+  // This function returns true when element has 'loadingprincipal', so if
+  // setAttrs is true we will override the origin attributes on the channel
+  // later.
+  nsCOMPtr<nsIPrincipal> loadingPrincipal;
+  bool setAttrs =
+    nsContentUtils::GetLoadingPrincipalForXULNode(element,
+                                                  getter_AddRefs(loadingPrincipal));
+
+  nsresult rv = NS_NewChannelWithTriggeringPrincipal(getter_AddRefs(mChannel),
+                                                     mURI,
+                                                     element,
+                                                     loadingPrincipal,
+                                                     securityFlags,
+                                                     contentPolicyType,
+                                                     loadGroup,
+                                                     nullptr,  // aCallbacks
+                                                     loadFlags);
   NS_ENSURE_SUCCESS(rv, rv);
+
+  if (setAttrs) {
+    nsCOMPtr<nsILoadInfo> loadInfo = mChannel->GetLoadInfo();
+    if (loadInfo) {
+      // The function simply returns NS_OK, so we ignore the return value.
+      Unused << loadInfo->SetOriginAttributes(loadingPrincipal->OriginAttributesRef());
+   }
+  }
 
   nsCOMPtr<nsIClassOfService> cos(do_QueryInterface(mChannel));
   if (cos) {

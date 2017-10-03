@@ -342,6 +342,10 @@ pref("browser.urlbar.oneOffSearches", true);
 // human readable (percent-decoded) URL on the clipboard.
 pref("browser.urlbar.decodeURLsOnCopy", false);
 
+// Whether or not to move tabs into the active window when using the "Switch to
+// Tab" feature of the awesomebar.
+pref("browser.urlbar.switchTabs.adoptIntoActiveWindow", false);
+
 pref("browser.altClickSave", false);
 
 // Enable logging downloads operations to the Console.
@@ -1030,7 +1034,11 @@ pref("dom.ipc.plugins.sandbox-level.flash", 0);
 // On windows these levels are:
 // See - security/sandbox/win/src/sandboxbroker/sandboxBroker.cpp
 // SetSecurityLevelForContentProcess() for what the different settings mean.
+#if defined(NIGHTLY_BUILD)
 pref("security.sandbox.content.level", 4);
+#else
+pref("security.sandbox.content.level", 3);
+#endif
 
 // This controls the depth of stack trace that is logged when Windows sandbox
 // logging is turned on.  This is only currently available for the content
@@ -1083,11 +1091,7 @@ pref("security.sandbox.content.level", 3);
 //
 // This setting may not be required anymore once we decide to permanently
 // enable the content sandbox.
-#ifdef NIGHTLY_BUILD
 pref("security.sandbox.content.level", 3);
-#else
-pref("security.sandbox.content.level", 2);
-#endif
 pref("security.sandbox.content.write_path_whitelist", "");
 pref("security.sandbox.content.read_path_whitelist", "");
 pref("security.sandbox.content.syscall_whitelist", "");
@@ -1629,10 +1633,7 @@ pref("browser.esedbreader.loglevel", "Error");
 
 pref("browser.laterrun.enabled", false);
 
-// Disable prelaunch in the same way activity-stream is enabled addressing
-// bug 1381804 memory usage until bug 1376895 is fixed.
-// Because of frequent crashes on Beta, it is turned off on all channels, see: bug 1363601.
-pref("dom.ipc.processPrelaunch.enabled", false);
+pref("dom.ipc.processPrelaunch.enabled", true);
 
 pref("browser.migrate.automigrate.enabled", false);
 // 4 here means the suggestion notification will be automatically
@@ -1708,17 +1709,6 @@ pref("extensions.formautofill.loglevel", "Warn");
 
 // Whether or not to restore a session with lazy-browser tabs.
 pref("browser.sessionstore.restore_tabs_lazily", true);
-
-// Enable safebrowsing v4 tables (suffixed by "-proto") update.
-pref("urlclassifier.malwareTable", "goog-malware-proto,goog-unwanted-proto,test-harmful-simple,test-malware-simple,test-unwanted-simple");
-#ifdef MOZILLA_OFFICIAL
-pref("urlclassifier.phishTable", "goog-phish-proto,test-phish-simple");
-#else
-pref("urlclassifier.phishTable", "googpub-phish-proto,test-phish-simple");
-#endif
-
-pref("urlclassifier.downloadAllowTable", "goog-downloadwhite-proto");
-pref("urlclassifier.downloadBlockTable", "goog-badbinurl-proto");
 
 pref("browser.suppress_first_window_animation", true);
 

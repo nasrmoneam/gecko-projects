@@ -90,12 +90,12 @@ panel[hidden] panelview {
   transition: transform var(--panelui-subview-transition-duration);
 }
 
-panelview:not([mainview]):not([current]) {
+panelview:not([mainview]):not([current]):not([in-transition]) {
   transition: visibility 0s linear var(--panelui-subview-transition-duration);
   visibility: collapse;
 }
 
-photonpanelmultiview panelview:not([current]) {
+photonpanelmultiview panelview:not([current]):not([in-transition]) {
   transition: none;
   visibility: collapse;
 }
@@ -240,6 +240,13 @@ window:not([chromehidden~="toolbar"]) #nav-bar[nonemptyoverflow] > .overflow-but
 
 
 %ifdef CAN_DRAW_IN_TITLEBAR
+%ifdef MENUBAR_CAN_AUTOHIDE
+#toolbar-menubar:not([autohide=true]) ~ #TabsToolbar > .titlebar-placeholder,
+%endif
+%ifndef MOZ_WIDGET_COCOA
+#main-window:not([sizemode=normal]) .titlebar-placeholder[type="pre-tabs"],
+#main-window:not([sizemode=normal]) .titlebar-placeholder[type="post-tabs"],
+%endif
 #main-window:not([chromemargin]) > #titlebar,
 #main-window[inFullscreen] > #titlebar,
 #main-window[inFullscreen] .titlebar-placeholder,
@@ -299,13 +306,6 @@ toolbarpaletteitem {
 }
 %endif
 
-%if !defined(MOZ_WIDGET_GTK)
-#TabsToolbar > .private-browsing-indicator,
-#TabsToolbar > .accessibility-indicator {
-  -moz-box-ordinal-group: 1000;
-}
-%endif
-
 %ifdef XP_WIN
 #main-window[sizemode="maximized"] #titlebar-buttonbox {
   -moz-appearance: -moz-window-button-box-maximized;
@@ -314,12 +314,6 @@ toolbarpaletteitem {
 #main-window[tabletmode] #titlebar-min,
 #main-window[tabletmode] #titlebar-max {
   display: none !important;
-}
-
-#main-window[tabsintitlebar] #TabsToolbar,
-#main-window[tabsintitlebar] #toolbar-menubar,
-#main-window[tabsintitlebar] #navigator-toolbox > toolbar:-moz-lwtheme {
-  -moz-window-dragging: drag;
 }
 %endif
 
@@ -1102,29 +1096,6 @@ html|*#gcli-output-frame,
   content: attr(error-count);
   display: -moz-box;
   -moz-box-pack: center;
-}
-
-/* Responsive Mode */
-
-.browserContainer[responsivemode] {
-  overflow: auto;
-}
-
-.devtools-responsiveui-toolbar:-moz-locale-dir(rtl) {
-  -moz-box-pack: end;
-}
-
-.browserStack[responsivemode] {
-  transition-duration: 200ms;
-  transition-timing-function: linear;
-}
-
-.browserStack[responsivemode] {
-  transition-property: min-width, max-width, min-height, max-height;
-}
-
-.browserStack[responsivemode][notransition] {
-  transition: none;
 }
 
 /* Translation */

@@ -19,6 +19,7 @@
 #include "wasm/WasmStubs.h"
 
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/EnumeratedRange.h"
 
 #include "wasm/WasmCode.h"
 #include "wasm/WasmGenerator.h"
@@ -30,18 +31,20 @@ using namespace js::jit;
 using namespace js::wasm;
 
 using mozilla::ArrayLength;
+using mozilla::MakeEnumeratedRange;
 
 typedef Vector<jit::MIRType, 8, SystemAllocPolicy> MIRTypeVector;
 typedef jit::ABIArgIter<MIRTypeVector> ABIArgMIRTypeIter;
 typedef jit::ABIArgIter<ValTypeVector> ABIArgValTypeIter;
 
-static void
+static bool
 FinishOffsets(MacroAssembler& masm, Offsets* offsets)
 {
     // On old ARM hardware, constant pools could be inserted and they need to
     // be flushed before considering the size of the masm.
     masm.flushBuffer();
     offsets->end = masm.size();
+    return !masm.oom();
 }
 
 static void
@@ -246,19 +249,17 @@ static const unsigned NonVolatileRegsPushSize = NonVolatileRegs.gprs().size() * 
                                                 NonVolatileRegs.fpus().getPushSizeInBytes();
 #endif
 static const unsigned FramePushedBeforeAlign = NonVolatileRegsPushSize + sizeof(void*);
-static const unsigned FailFP = 0xbad;
 
 // Generate a stub that enters wasm from a C++ caller via the native ABI. The
 // signature of the entry point is Module::ExportFuncPtr. The exported wasm
 // function has an ABI derived from its specific signature, so this function
 // must map from the ABI of ExportFuncPtr to the export's signature's ABI.
-Offsets
-wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
+static bool
+GenerateEntry(MacroAssembler& masm, const FuncExport& fe, Offsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
-    Offsets offsets;
-    offsets.begin = masm.currentOffset();
+    offsets->begin = masm.currentOffset();
 
     // Save the return address if it wasn't already saved by the call insn.
 #if defined(JS_CODEGEN_ARM)
@@ -371,8 +372,7 @@ wasm::GenerateEntry(MacroAssembler& masm, const FuncExport& fe)
 
     masm.ret();
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 static void
@@ -500,15 +500,15 @@ FillArgumentArray(MacroAssembler& masm, const ValTypeVector& args, unsigned argO
 //  - a table entry, so JS imports can be put into tables
 //  - normal entries, so that, if the import is re-exported, an entry stub can
 //    be generated and called without any special cases
-FuncOffsets
-wasm::GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, SigIdDesc sigId)
+static bool
+GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, SigIdDesc sigId,
+                       FuncOffsets* offsets)
 {
     masm.setFramePushed(0);
 
     unsigned framePushed = StackDecrementForCall(masm, WasmStackAlignment, fi.sig().args());
 
-    FuncOffsets offsets;
-    GenerateFunctionPrologue(masm, framePushed, sigId, &offsets);
+    GenerateFunctionPrologue(masm, framePushed, sigId, offsets);
 
     // The argument register state is already setup by our caller. We just need
     // to be sure not to clobber it before the call.
@@ -534,20 +534,46 @@ wasm::GenerateImportFunction(jit::MacroAssembler& masm, const FuncImport& fi, Si
     masm.loadWasmTlsRegFromFrame();
     masm.loadWasmPinnedRegsFromTls();
 
-    GenerateFunctionEpilogue(masm, framePushed, &offsets);
+    GenerateFunctionEpilogue(masm, framePushed, offsets);
 
     masm.wasmEmitTrapOutOfLineCode();
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
+}
+
+static const unsigned STUBS_LIFO_DEFAULT_CHUNK_SIZE = 4 * 1024;
+
+bool
+wasm::GenerateImportFunctions(const ModuleEnvironment& env, const FuncImportVector& imports,
+                              CompiledCode* code)
+{
+    LifoAlloc lifo(STUBS_LIFO_DEFAULT_CHUNK_SIZE);
+    TempAllocator alloc(&lifo);
+    MacroAssembler masm(MacroAssembler::WasmToken(), alloc);
+
+    for (uint32_t funcIndex = 0; funcIndex < imports.length(); funcIndex++) {
+        const FuncImport& fi = imports[funcIndex];
+
+        FuncOffsets offsets;
+        if (!GenerateImportFunction(masm, fi, env.funcSigs[funcIndex]->id, &offsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(funcIndex, /* bytecodeOffset = */ 0, offsets))
+            return false;
+    }
+
+    masm.finish();
+    if (masm.oom())
+        return false;
+
+    return code->swap(masm);
 }
 
 // Generate a stub that is called via the internal ABI derived from the
 // signature of the import and calls into an appropriate callImport C++
 // function, having boxed all the ABI arguments into a homogeneous Value array.
-CallableOffsets
-wasm::GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint32_t funcImportIndex,
-                               Label* throwLabel)
+static bool
+GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint32_t funcImportIndex,
+                         Label* throwLabel, CallableOffsets* offsets)
 {
     masm.setFramePushed(0);
 
@@ -567,8 +593,7 @@ wasm::GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint3
     unsigned argBytes = Max<size_t>(1, fi.sig().args().length()) * sizeof(Value);
     unsigned framePushed = StackDecrementForCall(masm, ABIStackAlignment, argOffset + argBytes);
 
-    CallableOffsets offsets;
-    GenerateExitPrologue(masm, framePushed, ExitReason::Fixed::ImportInterp, &offsets);
+    GenerateExitPrologue(masm, framePushed, ExitReason::Fixed::ImportInterp, offsets);
 
     // Fill the argument array.
     unsigned offsetToCallerStackArgs = sizeof(Frame) + masm.framePushed();
@@ -663,17 +688,17 @@ wasm::GenerateImportInterpExit(MacroAssembler& masm, const FuncImport& fi, uint3
     MOZ_ASSERT(NonVolatileRegs.has(HeapReg));
 #endif
 
-    GenerateExitEpilogue(masm, framePushed, ExitReason::Fixed::ImportInterp, &offsets);
+    GenerateExitEpilogue(masm, framePushed, ExitReason::Fixed::ImportInterp, offsets);
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 // Generate a stub that is called via the internal ABI derived from the
 // signature of the import and calls into a compatible JIT function,
 // having boxed all the ABI arguments into the JIT stack frame layout.
-CallableOffsets
-wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLabel)
+static bool
+GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* throwLabel,
+                      JitExitOffsets* offsets)
 {
     masm.setFramePushed(0);
 
@@ -685,18 +710,19 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     // the return address.
     static_assert(WasmStackAlignment >= JitStackAlignment, "subsumes");
     unsigned sizeOfRetAddr = sizeof(void*);
-    unsigned jitFrameBytes = 3 * sizeof(void*) + (1 + fi.sig().args().length()) * sizeof(Value);
-    unsigned totalJitFrameBytes = sizeOfRetAddr + jitFrameBytes;
+    unsigned sizeOfPreFrame = WasmFrameLayout::Size() - sizeOfRetAddr;
+    unsigned sizeOfThisAndArgs = (1 + fi.sig().args().length()) * sizeof(Value);
+    unsigned totalJitFrameBytes = sizeOfRetAddr + sizeOfPreFrame + sizeOfThisAndArgs;
     unsigned jitFramePushed = StackDecrementForCall(masm, JitStackAlignment, totalJitFrameBytes) -
                               sizeOfRetAddr;
+    unsigned sizeOfThisAndArgsAndPadding = jitFramePushed - sizeOfPreFrame;
 
-    CallableOffsets offsets;
-    GenerateExitPrologue(masm, jitFramePushed, ExitReason::Fixed::ImportJit, &offsets);
+    GenerateJitExitPrologue(masm, jitFramePushed, offsets);
 
     // 1. Descriptor
     size_t argOffset = 0;
-    uint32_t descriptor = MakeFrameDescriptor(jitFramePushed, JitFrame_Entry,
-                                              JitFrameLayout::Size());
+    uint32_t descriptor = MakeFrameDescriptor(sizeOfThisAndArgsAndPadding, JitFrame_WasmToJSJit,
+                                              WasmFrameLayout::Size());
     masm.storePtr(ImmWord(uintptr_t(descriptor)), Address(masm.getStackPointer(), argOffset));
     argOffset += sizeof(size_t);
 
@@ -719,6 +745,7 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     unsigned argc = fi.sig().args().length();
     masm.storePtr(ImmWord(uintptr_t(argc)), Address(masm.getStackPointer(), argOffset));
     argOffset += sizeof(size_t);
+    MOZ_ASSERT(argOffset == sizeOfPreFrame);
 
     // 4. |this| value
     masm.storeValue(UndefinedValue(), Address(masm.getStackPointer(), argOffset));
@@ -728,70 +755,21 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     unsigned offsetToCallerStackArgs = jitFramePushed + sizeof(Frame);
     FillArgumentArray(masm, fi.sig().args(), argOffset, offsetToCallerStackArgs, scratch, ToValue(true));
     argOffset += fi.sig().args().length() * sizeof(Value);
-    MOZ_ASSERT(argOffset == jitFrameBytes);
-
-    {
-        // Enable Activation.
-        //
-        // This sequence requires two registers, and needs to preserve the
-        // 'callee' register, so there are three live registers.
-        MOZ_ASSERT(callee == WasmIonExitRegCallee);
-        Register cx = WasmIonExitRegE0;
-        Register act = WasmIonExitRegE1;
-
-        // JitActivation* act = cx->activation();
-        masm.loadPtr(Address(WasmTlsReg, offsetof(TlsData, addressOfContext)), cx);
-        masm.loadPtr(Address(cx, 0), cx);
-        masm.loadPtr(Address(cx, JSContext::offsetOfActivation()), act);
-
-        // act.active_ = true;
-        masm.store8(Imm32(1), Address(act, JitActivation::offsetOfActiveUint8()));
-
-        // cx->jitActivation = act;
-        masm.storePtr(act, Address(cx, offsetof(JSContext, jitActivation)));
-
-        // cx->profilingActivation_ = act;
-        masm.storePtr(act, Address(cx, JSContext::offsetOfProfilingActivation()));
-    }
+    MOZ_ASSERT(argOffset == sizeOfThisAndArgs + sizeOfPreFrame);
 
     AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
     masm.callJitNoProfiler(callee);
-    AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
 
     // The JIT callee clobbers all registers, including WasmTlsReg and
-    // FramePointer, so restore those here.
+    // FramePointer, so restore those here. During this sequence of
+    // instructions, FP can't be trusted by the profiling frame iterator.
+    offsets->untrustedFPStart = masm.currentOffset();
+    AssertStackAlignment(masm, JitStackAlignment, sizeOfRetAddr);
+
     masm.loadWasmTlsRegFromFrame();
     masm.moveStackPtrTo(FramePointer);
     masm.addPtr(Imm32(masm.framePushed()), FramePointer);
-
-    {
-        // Disable Activation.
-        //
-        // This sequence needs three registers and must preserve WasmTlsReg,
-        // JSReturnReg_Data and JSReturnReg_Type.
-        MOZ_ASSERT(JSReturnReg_Data == WasmIonExitRegReturnData);
-        MOZ_ASSERT(JSReturnReg_Type == WasmIonExitRegReturnType);
-        MOZ_ASSERT(WasmTlsReg == WasmIonExitTlsReg);
-        Register cx = WasmIonExitRegD0;
-        Register act = WasmIonExitRegD1;
-        Register tmp = WasmIonExitRegD2;
-
-        // JitActivation* act = cx->activation();
-        masm.loadPtr(Address(WasmTlsReg, offsetof(TlsData, addressOfContext)), cx);
-        masm.loadPtr(Address(cx, 0), cx);
-        masm.loadPtr(Address(cx, JSContext::offsetOfActivation()), act);
-
-        // cx->jitActivation = act->prevJitActivation_;
-        masm.loadPtr(Address(act, JitActivation::offsetOfPrevJitActivation()), tmp);
-        masm.storePtr(tmp, Address(cx, offsetof(JSContext, jitActivation)));
-
-        // cx->profilingActivation = act->prevProfilingActivation_;
-        masm.loadPtr(Address(act, Activation::offsetOfPrevProfiling()), tmp);
-        masm.storePtr(tmp, Address(cx, JSContext::offsetOfProfilingActivation()));
-
-        // act->active_ = false;
-        masm.store8(Imm32(0), Address(act, JitActivation::offsetOfActiveUint8()));
-    }
+    offsets->untrustedFPEnd = masm.currentOffset();
 
     // As explained above, the frame was aligned for the JIT ABI such that
     //   (sp + sizeof(void*)) % JitStackAlignment == 0
@@ -838,7 +816,7 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
     Label done;
     masm.bind(&done);
 
-    GenerateExitEpilogue(masm, masm.framePushed(), ExitReason::Fixed::ImportJit, &offsets);
+    GenerateJitExitEpilogue(masm, masm.framePushed(), offsets);
 
     if (oolConvert.used()) {
         masm.bind(&oolConvert);
@@ -855,6 +833,14 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
         // Store return value into argv[0]
         masm.storeValue(JSReturnOperand, Address(masm.getStackPointer(), offsetToCoerceArgv));
 
+        // From this point, it's safe to reuse the scratch register (which
+        // might be part of the JSReturnOperand).
+
+        // The JIT might have clobbered exitFP at this point. Since there's
+        // going to be a CoerceInPlace call, pretend we're still doing the JIT
+        // call by restoring our tagged exitFP.
+        SetExitFP(masm, scratch);
+
         // argument 0: argv
         ABIArgMIRTypeIter i(coerceArgTypes);
         Address argv(masm.getStackPointer(), offsetToCoerceArgv);
@@ -867,7 +853,8 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
         i++;
         MOZ_ASSERT(i.done());
 
-        // Call coercion function
+        // Call coercion function. Note that right after the call, the value of
+        // FP is correct because FP is non-volatile in the native ABI.
         AssertStackAlignment(masm, ABIStackAlignment);
         switch (fi.sig().ret()) {
           case ExprType::I32:
@@ -890,14 +877,17 @@ wasm::GenerateImportJitExit(MacroAssembler& masm, const FuncImport& fi, Label* t
             MOZ_CRASH("Unsupported convert type");
         }
 
+        // Maintain the invariant that exitFP is either unset or not set to a
+        // wasm tagged exitFP, per the jit exit contract.
+        ClearExitFP(masm, scratch);
+
         masm.jump(&done);
         masm.setFramePushed(0);
     }
 
     MOZ_ASSERT(masm.framePushed() == 0);
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 struct ABIFunctionArgs
@@ -927,17 +917,16 @@ struct ABIFunctionArgs
     }
 };
 
-CallableOffsets
+bool
 wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType, ExitReason exitReason,
-                           void* funcPtr)
+                           void* funcPtr, CallableOffsets* offsets)
 {
     masm.setFramePushed(0);
 
     ABIFunctionArgs args(abiType);
     uint32_t framePushed = StackDecrementForCall(masm, ABIStackAlignment, args);
 
-    CallableOffsets offsets;
-    GenerateExitPrologue(masm, framePushed, exitReason, &offsets);
+    GenerateExitPrologue(masm, framePushed, exitReason, offsets);
 
     // Copy out and convert caller arguments, if needed.
     unsigned offsetToCallerStackArgs = sizeof(Frame) + masm.framePushed();
@@ -985,17 +974,16 @@ wasm::GenerateBuiltinThunk(MacroAssembler& masm, ABIFunctionType abiType, ExitRe
         masm.ma_vxfer(r0, r1, d0);
 #endif
 
-    GenerateExitEpilogue(masm, framePushed, exitReason, &offsets);
-    offsets.end = masm.currentOffset();
-    return offsets;
+    GenerateExitEpilogue(masm, framePushed, exitReason, offsets);
+    return FinishOffsets(masm, offsets);
 }
 
 // Generate a stub that calls into ReportTrap with the right trap reason.
 // This stub is called with ABIStackAlignment by a trap out-of-line path. An
 // exit prologue/epilogue is used so that stack unwinding picks up the
-// current WasmActivation. Unwinding will begin at the caller of this trap exit.
-CallableOffsets
-wasm::GenerateTrapExit(MacroAssembler& masm, Trap trap, Label* throwLabel)
+// current JitActivation. Unwinding will begin at the caller of this trap exit.
+static bool
+GenerateTrapExit(MacroAssembler& masm, Trap trap, Label* throwLabel, CallableOffsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
@@ -1006,8 +994,7 @@ wasm::GenerateTrapExit(MacroAssembler& masm, Trap trap, Label* throwLabel)
 
     uint32_t framePushed = StackDecrementForCall(masm, ABIStackAlignment, args);
 
-    CallableOffsets offsets;
-    GenerateExitPrologue(masm, framePushed, ExitReason::Fixed::Trap, &offsets);
+    GenerateExitPrologue(masm, framePushed, ExitReason::Fixed::Trap, offsets);
 
     ABIArgMIRTypeIter i(args);
     if (i->kind() == ABIArg::GPR)
@@ -1022,27 +1009,26 @@ wasm::GenerateTrapExit(MacroAssembler& masm, Trap trap, Label* throwLabel)
 
     masm.jump(throwLabel);
 
-    GenerateExitEpilogue(masm, framePushed, ExitReason::Fixed::Trap, &offsets);
+    GenerateExitEpilogue(masm, framePushed, ExitReason::Fixed::Trap, offsets);
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 // Generate a stub which is only used by the signal handlers to handle out of
 // bounds access by experimental SIMD.js and Atomics and unaligned accesses on
 // ARM. This stub is executed by direct PC transfer from the faulting memory
-// access and thus the stack depth is unknown. Since WasmActivation::exitFP is
-// not set before calling the error reporter, the current wasm activation will
-// be lost. This stub should be removed when SIMD.js and Atomics are moved to
-// wasm and given proper traps and when we use a non-faulting strategy for
-// unaligned ARM access.
-static Offsets
-GenerateGenericMemoryAccessTrap(MacroAssembler& masm, SymbolicAddress reporter, Label* throwLabel)
+// access and thus the stack depth is unknown. Since
+// JitActivation::packedExitFP() is not set before calling the error reporter,
+// the current wasm activation will be lost. This stub should be removed when
+// SIMD.js and Atomics are moved to wasm and given proper traps and when we use
+// a non-faulting strategy for unaligned ARM access.
+static bool
+GenerateGenericMemoryAccessTrap(MacroAssembler& masm, SymbolicAddress reporter, Label* throwLabel,
+                                Offsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
-    Offsets offsets;
-    offsets.begin = masm.currentOffset();
+    offsets->begin = masm.currentOffset();
 
     // sp can be anything at this point, so ensure it is aligned when calling
     // into C++.  We unconditionally jump to throw so don't worry about
@@ -1054,20 +1040,21 @@ GenerateGenericMemoryAccessTrap(MacroAssembler& masm, SymbolicAddress reporter, 
     masm.call(reporter);
     masm.jump(throwLabel);
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
-Offsets
-wasm::GenerateOutOfBoundsExit(MacroAssembler& masm, Label* throwLabel)
+static bool
+GenerateOutOfBoundsExit(MacroAssembler& masm, Label* throwLabel, Offsets* offsets)
 {
-    return GenerateGenericMemoryAccessTrap(masm, SymbolicAddress::ReportOutOfBounds, throwLabel);
+    return GenerateGenericMemoryAccessTrap(masm, SymbolicAddress::ReportOutOfBounds, throwLabel,
+                                           offsets);
 }
 
-Offsets
-wasm::GenerateUnalignedExit(MacroAssembler& masm, Label* throwLabel)
+static bool
+GenerateUnalignedExit(MacroAssembler& masm, Label* throwLabel, Offsets* offsets)
 {
-    return GenerateGenericMemoryAccessTrap(masm, SymbolicAddress::ReportUnalignedAccess, throwLabel);
+    return GenerateGenericMemoryAccessTrap(masm, SymbolicAddress::ReportUnalignedAccess, throwLabel,
+                                           offsets);
 }
 
 #if defined(JS_CODEGEN_ARM)
@@ -1089,13 +1076,12 @@ static const LiveRegisterSet AllRegsExceptSP(
 // preserve *all* register state. If execution is interrupted, the entire
 // activation will be popped by the throw stub, so register state does not need
 // to be restored.
-Offsets
-wasm::GenerateInterruptExit(MacroAssembler& masm, Label* throwLabel)
+static bool
+GenerateInterruptExit(MacroAssembler& masm, Label* throwLabel, Offsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
-    Offsets offsets;
-    offsets.begin = masm.currentOffset();
+    offsets->begin = masm.currentOffset();
 
 #if defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_X64)
     // Be very careful here not to perturb the machine state before saving it
@@ -1236,8 +1222,7 @@ wasm::GenerateInterruptExit(MacroAssembler& masm, Label* throwLabel)
 # error "Unknown architecture!"
 #endif
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 // Generate a stub that restores the stack pointer to what it was on entry to
@@ -1245,15 +1230,14 @@ wasm::GenerateInterruptExit(MacroAssembler& masm, Label* throwLabel)
 // return which will return from this wasm activation to the caller. This stub
 // should only be called after the caller has reported an error (or, in the case
 // of the interrupt stub, intends to interrupt execution).
-Offsets
-wasm::GenerateThrowStub(MacroAssembler& masm, Label* throwLabel)
+static bool
+GenerateThrowStub(MacroAssembler& masm, Label* throwLabel, Offsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
     masm.bind(throwLabel);
 
-    Offsets offsets;
-    offsets.begin = masm.currentOffset();
+    offsets->begin = masm.currentOffset();
 
     // The throw stub can be jumped to from an async interrupt that is halting
     // execution. Thus the stack pointer can be unaligned and we must align it
@@ -1262,16 +1246,15 @@ wasm::GenerateThrowStub(MacroAssembler& masm, Label* throwLabel)
     if (ShadowStackSpace)
         masm.subFromStackPtr(Imm32(ShadowStackSpace));
 
-    // WasmHandleThrow unwinds WasmActivation::exitFP and returns the address of
-    // the return address on the stack this stub should return to. Set the
-    // FramePointer to a magic value to indicate a return by throw.
+    // WasmHandleThrow unwinds JitActivation::wasmExitFP() and returns the
+    // address of the return address on the stack this stub should return to.
+    // Set the FramePointer to a magic value to indicate a return by throw.
     masm.call(SymbolicAddress::HandleThrow);
     masm.moveToStackPtr(ReturnReg);
     masm.move32(Imm32(FailFP), FramePointer);
     masm.ret();
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
 }
 
 static const LiveRegisterSet AllAllocatableRegs = LiveRegisterSet(
@@ -1281,15 +1264,14 @@ static const LiveRegisterSet AllAllocatableRegs = LiveRegisterSet(
 // Generate a stub that handle toggable enter/leave frame traps or breakpoints.
 // The trap records frame pointer (via GenerateExitPrologue) and saves most of
 // registers to not affect the code generated by WasmBaselineCompile.
-Offsets
-wasm::GenerateDebugTrapStub(MacroAssembler& masm, Label* throwLabel)
+static bool
+GenerateDebugTrapStub(MacroAssembler& masm, Label* throwLabel, CallableOffsets* offsets)
 {
     masm.haltingAlign(CodeAlignment);
 
     masm.setFramePushed(0);
 
-    CallableOffsets offsets;
-    GenerateExitPrologue(masm, 0, ExitReason::Fixed::DebugTrap, &offsets);
+    GenerateExitPrologue(masm, 0, ExitReason::Fixed::DebugTrap, offsets);
 
     // Save all registers used between baseline compiler operations.
     masm.PushRegsInMask(AllAllocatableRegs);
@@ -1319,8 +1301,90 @@ wasm::GenerateDebugTrapStub(MacroAssembler& masm, Label* throwLabel)
     masm.setFramePushed(framePushed);
     masm.PopRegsInMask(AllAllocatableRegs);
 
-    GenerateExitEpilogue(masm, 0, ExitReason::Fixed::DebugTrap, &offsets);
+    GenerateExitEpilogue(masm, 0, ExitReason::Fixed::DebugTrap, offsets);
 
-    FinishOffsets(masm, &offsets);
-    return offsets;
+    return FinishOffsets(masm, offsets);
+}
+
+bool
+wasm::GenerateStubs(const ModuleEnvironment& env, const FuncImportVector& imports,
+                    const FuncExportVector& exports, CompiledCode* code)
+{
+    LifoAlloc lifo(STUBS_LIFO_DEFAULT_CHUNK_SIZE);
+    TempAllocator alloc(&lifo);
+    MacroAssembler masm(MacroAssembler::WasmToken(), alloc);
+
+    // Swap in already-allocated empty vectors to avoid malloc/free.
+    if (!code->swap(masm))
+        return false;
+
+    Label throwLabel;
+
+    for (uint32_t funcIndex = 0; funcIndex < imports.length(); funcIndex++) {
+        const FuncImport& fi = imports[funcIndex];
+
+        CallableOffsets interpOffsets;
+        if (!GenerateImportInterpExit(masm, fi, funcIndex, &throwLabel, &interpOffsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(CodeRange::ImportInterpExit, funcIndex, interpOffsets))
+            return false;
+
+        JitExitOffsets jitOffsets;
+        if (!GenerateImportJitExit(masm, fi, &throwLabel, &jitOffsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(funcIndex, jitOffsets))
+            return false;
+    }
+
+    for (const FuncExport& fe : exports) {
+        Offsets offsets;
+        if (!GenerateEntry(masm, fe, &offsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(CodeRange::Entry, fe.funcIndex(), offsets))
+            return false;
+    }
+
+    for (Trap trap : MakeEnumeratedRange(Trap::Limit)) {
+        CallableOffsets offsets;
+        if (!GenerateTrapExit(masm, trap, &throwLabel, &offsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(trap, offsets))
+            return false;
+    }
+
+    Offsets offsets;
+
+    if (!GenerateOutOfBoundsExit(masm, &throwLabel, &offsets))
+        return false;
+    if (!code->codeRanges.emplaceBack(CodeRange::OutOfBoundsExit, offsets))
+        return false;
+
+    if (!GenerateUnalignedExit(masm, &throwLabel, &offsets))
+        return false;
+    if (!code->codeRanges.emplaceBack(CodeRange::UnalignedExit, offsets))
+        return false;
+
+    if (!GenerateInterruptExit(masm, &throwLabel, &offsets))
+        return false;
+    if (!code->codeRanges.emplaceBack(CodeRange::Interrupt, offsets))
+        return false;
+
+    {
+        CallableOffsets offsets;
+        if (!GenerateDebugTrapStub(masm, &throwLabel, &offsets))
+            return false;
+        if (!code->codeRanges.emplaceBack(CodeRange::DebugTrap, offsets))
+            return false;
+    }
+
+    if (!GenerateThrowStub(masm, &throwLabel, &offsets))
+        return false;
+    if (!code->codeRanges.emplaceBack(CodeRange::Throw, offsets))
+        return false;
+
+    masm.finish();
+    if (masm.oom())
+        return false;
+
+    return code->swap(masm);
 }

@@ -293,13 +293,6 @@ HTMLTextAreaElement::GetRootEditorNode()
 }
 
 NS_IMETHODIMP_(Element*)
-HTMLTextAreaElement::CreatePlaceholderNode()
-{
-  NS_ENSURE_SUCCESS(mState.CreatePlaceholderNode(), nullptr);
-  return mState.GetPlaceholderNode();
-}
-
-NS_IMETHODIMP_(Element*)
 HTMLTextAreaElement::GetPlaceholderNode()
 {
   return mState.GetPlaceholderNode();
@@ -315,13 +308,6 @@ NS_IMETHODIMP_(bool)
 HTMLTextAreaElement::GetPlaceholderVisibility()
 {
   return mState.GetPlaceholderVisibility();
-}
-
-NS_IMETHODIMP_(Element*)
-HTMLTextAreaElement::CreatePreviewNode()
-{
-  NS_ENSURE_SUCCESS(mState.CreatePreviewNode(), nullptr);
-  return mState.GetPreviewNode();
 }
 
 NS_IMETHODIMP_(Element*)
@@ -1049,8 +1035,7 @@ HTMLTextAreaElement::CharacterDataChanged(nsIDocument* aDocument,
 void
 HTMLTextAreaElement::ContentAppended(nsIDocument* aDocument,
                                      nsIContent* aContainer,
-                                     nsIContent* aFirstNewContent,
-                                     int32_t /* unused */)
+                                     nsIContent* aFirstNewContent)
 {
   ContentChanged(aFirstNewContent);
 }
@@ -1058,8 +1043,7 @@ HTMLTextAreaElement::ContentAppended(nsIDocument* aDocument,
 void
 HTMLTextAreaElement::ContentInserted(nsIDocument* aDocument,
                                      nsIContent* aContainer,
-                                     nsIContent* aChild,
-                                     int32_t /* unused */)
+                                     nsIContent* aChild)
 {
   ContentChanged(aChild);
 }
@@ -1068,7 +1052,6 @@ void
 HTMLTextAreaElement::ContentRemoved(nsIDocument* aDocument,
                                     nsIContent* aContainer,
                                     nsIContent* aChild,
-                                    int32_t aIndexInContainer,
                                     nsIContent* aPreviousSibling)
 {
   ContentChanged(aChild);

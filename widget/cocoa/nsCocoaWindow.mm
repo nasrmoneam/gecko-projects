@@ -487,15 +487,6 @@ nsresult nsCocoaWindow::CreateNativeWindow(const NSRect &aRect,
   mWindow = [[windowClass alloc] initWithContentRect:contentRect styleMask:features 
                                  backing:NSBackingStoreBuffered defer:YES];
 
-  if ([mWindow respondsToSelector:@selector(setTitleVisibility:)]) {
-    // By default, hide window titles.
-    [mWindow setTitleVisibility:NSWindowTitleHidden];
-  }
-  if ([mWindow respondsToSelector:@selector(setTitlebarAppearsTransparent:)]) {
-    // By default, hide window titlebars.
-    [mWindow setTitlebarAppearsTransparent:YES];
-  }
-
   // setup our notification delegate. Note that setDelegate: does NOT retain.
   mDelegate = [[WindowDelegate alloc] initWithGeckoWindow:this];
   [mWindow setDelegate:mDelegate];
@@ -1862,7 +1853,14 @@ nsCocoaWindow::SetTitle(const nsAString& aTitle)
   const unichar* uniTitle = reinterpret_cast<const unichar*>(strTitle.get());
   NSString* title = [NSString stringWithCharacters:uniTitle
                                             length:strTitle.Length()];
-  [mWindow setTitle:title];
+  if ([mWindow drawsContentsIntoWindowFrame] && ![mWindow wantsTitleDrawn]) {
+    // Don't cause invalidations when the title isn't displayed.
+    [mWindow disableSetNeedsDisplay];
+    [mWindow setTitle:title];
+    [mWindow enableSetNeedsDisplay];
+  } else {
+    [mWindow setTitle:title];
+  }
 
   return NS_OK;
 
@@ -2908,6 +2906,7 @@ nsCocoaWindow::GetEditCommands(NativeKeyBindingsType aType,
 @interface NSView(FrameViewMethodSwizzling)
 - (NSPoint)FrameView__closeButtonOrigin;
 - (NSPoint)FrameView__fullScreenButtonOrigin;
+- (BOOL)FrameView__wantsFloatingTitlebar;
 @end
 
 @implementation NSView(FrameViewMethodSwizzling)
@@ -2928,6 +2927,11 @@ nsCocoaWindow::GetEditCommands(NativeKeyBindingsType aType,
     return [(ToolbarWindow*)[self window] fullScreenButtonPositionWithDefaultPosition:defaultPosition];
   }
   return defaultPosition;
+}
+
+- (BOOL)FrameView__wantsFloatingTitlebar
+{
+  return NO;
 }
 
 @end
@@ -3005,6 +3009,9 @@ static NSMutableSet *gSwizzledFrameViewClasses = nil;
 // used for a window is determined in the window's frameViewClassForStyleMask:
 // method, so this is where we make sure that we have swizzled the method on
 // all encountered classes.
+// We also override the _wantsFloatingTitlebar method to return NO in order to
+// avoid some glitches in the titlebar that are caused by the way we mess with
+// the window.
 + (Class)frameViewClassForStyleMask:(NSUInteger)styleMask
 {
   Class frameViewClass = [super frameViewClassForStyleMask:styleMask];
@@ -3022,6 +3029,9 @@ static NSMutableSet *gSwizzledFrameViewClasses = nil;
   static IMP our_fullScreenButtonOrigin =
     class_getMethodImplementation([NSView class],
                                   @selector(FrameView__fullScreenButtonOrigin));
+  static IMP our_wantsFloatingTitlebar =
+    class_getMethodImplementation([NSView class],
+                                  @selector(FrameView__wantsFloatingTitlebar));
 
   if (![gSwizzledFrameViewClasses containsObject:frameViewClass]) {
     // Either of these methods might be implemented in both a subclass of
@@ -3043,6 +3053,14 @@ static NSMutableSet *gSwizzledFrameViewClasses = nil;
         _fullScreenButtonOrigin != our_fullScreenButtonOrigin) {
       nsToolkit::SwizzleMethods(frameViewClass, @selector(_fullScreenButtonOrigin),
                                 @selector(FrameView__fullScreenButtonOrigin));
+    }
+    IMP _wantsFloatingTitlebar =
+      class_getMethodImplementation(frameViewClass,
+                                    @selector(_wantsFloatingTitlebar));
+    if (_wantsFloatingTitlebar &&
+        _wantsFloatingTitlebar != our_wantsFloatingTitlebar) {
+      nsToolkit::SwizzleMethods(frameViewClass, @selector(_wantsFloatingTitlebar),
+                                @selector(FrameView__wantsFloatingTitlebar));
     }
     [gSwizzledFrameViewClasses addObject:frameViewClass];
   }
@@ -3158,10 +3176,6 @@ static const NSString* kStateCollectionBehavior = @"collectionBehavior";
   if (changed) {
     [self updateContentViewSize];
     [self reflowTitlebarElements];
-    if ([self respondsToSelector:@selector(setTitleVisibility:)]) {
-      [self setTitleVisibility:mDrawsIntoWindowFrame ? NSWindowTitleHidden :
-                                                       NSWindowTitleVisible];
-    }
     if ([self respondsToSelector:@selector(setTitlebarAppearsTransparent:)]) {
       [self setTitlebarAppearsTransparent:mDrawsIntoWindowFrame];
     }
@@ -3176,6 +3190,10 @@ static const NSString* kStateCollectionBehavior = @"collectionBehavior";
 - (void)setWantsTitleDrawn:(BOOL)aDrawTitle
 {
   mDrawTitle = aDrawTitle;
+  if ([self respondsToSelector:@selector(setTitleVisibility:)]) {
+    [self setTitleVisibility:mDrawTitle ? NSWindowTitleVisible :
+                                          NSWindowTitleHidden];
+  }
 }
 
 - (BOOL)wantsTitleDrawn

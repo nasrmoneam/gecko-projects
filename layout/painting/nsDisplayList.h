@@ -37,6 +37,7 @@
 #include "mozilla/gfx/UserData.h"
 #include "mozilla/layers/LayerAttributes.h"
 #include "nsCSSRenderingBorders.h"
+#include "nsAutoLayoutPhase.h"
 #include "nsDisplayItemTypes.h"
 
 #include <stdint.h>
@@ -585,6 +586,7 @@ public:
 
   bool HaveScrollableDisplayPort() const { return mHaveScrollableDisplayPort; }
   void SetHaveScrollableDisplayPort() { mHaveScrollableDisplayPort = true; }
+  void ClearHaveScrollableDisplayPort() { mHaveScrollableDisplayPort = false; }
 
   bool SetIsCompositingCheap(bool aCompositingCheap) {
     bool temp = mIsCompositingCheap;
@@ -1474,6 +1476,9 @@ private:
 
   struct PresShellState {
     nsIPresShell* mPresShell;
+#ifdef DEBUG
+    mozilla::Maybe<nsAutoLayoutPhase> mAutoLayoutPhase;
+#endif
     nsIFrame*     mCaretFrame;
     nsRect        mCaretRect;
     mozilla::Maybe<OutOfFlowDisplayData> mFixedBackgroundDisplayData;
@@ -4566,6 +4571,12 @@ public:
     // Items with the same fixed position frame can be merged.
     return HasSameTypeAndClip(aItem) && mFrame == aItem->Frame();
   }
+
+  virtual bool CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
+                                       mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                       const StackingContextHelper& aSc,
+                                       mozilla::layers::WebRenderLayerManager* aManager,
+                                       nsDisplayListBuilder* aDisplayListBuilder) override;
 };
 
 class nsDisplayFixedPosition : public nsDisplayOwnLayer {

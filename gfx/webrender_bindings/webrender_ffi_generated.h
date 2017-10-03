@@ -63,6 +63,7 @@ enum class FontRenderMode : uint32_t {
   Mono = 0,
   Alpha = 1,
   Subpixel = 2,
+  Bitmap = 3,
 
   Sentinel /* this must be last for serialization purposes. */
 };
@@ -439,6 +440,16 @@ struct WrImageMask {
   }
 };
 
+struct StickySideConstraint {
+  float margin;
+  float max_offset;
+
+  bool operator==(const StickySideConstraint& aOther) const {
+    return margin == aOther.margin &&
+           max_offset == aOther.max_offset;
+  }
+};
+
 struct BorderWidths {
   float left;
   float top;
@@ -719,11 +730,13 @@ struct FontKey {
 
 typedef FontKey WrFontKey;
 
-struct FontInstanceOptions {
+struct WrFontInstanceOptions {
   FontRenderMode render_mode;
+  bool synthetic_italics;
 
-  bool operator==(const FontInstanceOptions& aOther) const {
-    return render_mode == aOther.render_mode;
+  bool operator==(const WrFontInstanceOptions& aOther) const {
+    return render_mode == aOther.render_mode &&
+           synthetic_italics == aOther.synthetic_italics;
   }
 };
 
@@ -838,12 +851,6 @@ void wr_dec_ref_arc(const VecU8 *aArc)
 WR_FUNC;
 
 WR_INLINE
-void wr_dp_begin(WrState *aState,
-                 uint32_t aWidth,
-                 uint32_t aHeight)
-WR_FUNC;
-
-WR_INLINE
 uint64_t wr_dp_define_clip(WrState *aState,
                            LayoutRect aClipRect,
                            const WrComplexClipRegion *aComplex,
@@ -859,7 +866,12 @@ void wr_dp_define_scroll_layer(WrState *aState,
 WR_FUNC;
 
 WR_INLINE
-void wr_dp_end(WrState *aState)
+uint64_t wr_dp_define_sticky_frame(WrState *aState,
+                                   LayoutRect aContentRect,
+                                   const StickySideConstraint *aTopRange,
+                                   const StickySideConstraint *aRightRange,
+                                   const StickySideConstraint *aBottomRange,
+                                   const StickySideConstraint *aLeftRange)
 WR_FUNC;
 
 WR_INLINE
@@ -1202,8 +1214,9 @@ void wr_resource_updates_add_font_instance(ResourceUpdates *aResources,
                                            WrFontInstanceKey aKey,
                                            WrFontKey aFontKey,
                                            float aGlyphSize,
-                                           const FontInstanceOptions *aOptions,
-                                           const FontInstancePlatformOptions *aPlatformOptions)
+                                           const WrFontInstanceOptions *aOptions,
+                                           const FontInstancePlatformOptions *aPlatformOptions,
+                                           WrVecU8 *aVariations)
 WR_FUNC;
 
 WR_INLINE

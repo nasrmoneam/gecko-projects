@@ -65,7 +65,6 @@ use gecko_bindings::structs::ServoElementSnapshot;
 use gecko_bindings::structs::ServoElementSnapshotTable;
 use gecko_bindings::structs::ServoStyleSetSizes;
 use gecko_bindings::structs::SheetParsingMode;
-use gecko_bindings::structs::StyleBasicShape;
 use gecko_bindings::structs::StyleBasicShapeType;
 use gecko_bindings::structs::StyleShapeSource;
 use gecko_bindings::structs::StyleTransition;
@@ -1220,8 +1219,8 @@ extern "C" {
     pub fn Gecko_DestroyShapeSource(shape: *mut StyleShapeSource);
 }
 extern "C" {
-    pub fn Gecko_NewBasicShape(type_: StyleBasicShapeType)
-     -> *mut StyleBasicShape;
+    pub fn Gecko_NewBasicShape(shape: *mut StyleShapeSource,
+                               type_: StyleBasicShapeType);
 }
 extern "C" {
     pub fn Gecko_StyleShapeSource_SetURLValue(shape: *mut StyleShapeSource,
@@ -1548,8 +1547,7 @@ extern "C" {
 extern "C" {
     pub fn Gecko_MatchStringArgPseudo(element: RawGeckoElementBorrowed,
                                       type_: CSSPseudoClassType,
-                                      ident: *const u16,
-                                      set_slow_selector: *mut bool) -> bool;
+                                      ident: *const u16) -> bool;
 }
 extern "C" {
     pub fn Gecko_AddPropertyToSet(arg1: nsCSSPropertyIDSetBorrowedMut,
@@ -1560,6 +1558,17 @@ extern "C" {
 }
 extern "C" {
     pub fn Gecko_ShouldCreateStyleThreadPool() -> bool;
+}
+extern "C" {
+    pub fn Gecko_GetSystemPageSize() -> usize;
+}
+extern "C" {
+    pub fn Gecko_ProtectBuffer(buffer: *mut ::std::os::raw::c_void,
+                               size: usize);
+}
+extern "C" {
+    pub fn Gecko_UnprotectBuffer(buffer: *mut ::std::os::raw::c_void,
+                                 size: usize);
 }
 extern "C" {
     pub fn Gecko_Construct_Default_nsStyleFont(ptr: *mut nsStyleFont,
@@ -1970,7 +1979,8 @@ extern "C" {
                                             result: *mut nsAString);
 }
 extern "C" {
-    pub fn Servo_StyleSheet_GetSourceURL(sheet: RawServoStyleSheetContentsBorrowed,
+    pub fn Servo_StyleSheet_GetSourceURL(sheet:
+                                             RawServoStyleSheetContentsBorrowed,
                                          result: *mut nsAString);
 }
 extern "C" {
@@ -2600,7 +2610,9 @@ extern "C" {
                                                     property: nsCSSPropertyID,
                                                     buffer: *mut nsAString,
                                                     computed_values:
-                                                        ServoStyleContextBorrowedOrNull);
+                                                        ServoStyleContextBorrowedOrNull,
+                                                    custom_properties:
+                                                        RawServoDeclarationBlockBorrowedOrNull);
 }
 extern "C" {
     pub fn Servo_DeclarationBlock_Count(declarations:
@@ -2854,6 +2866,9 @@ extern "C" {
     pub fn Servo_Initialize(dummy_url_data: *mut RawGeckoURLExtraData);
 }
 extern "C" {
+    pub fn Servo_InitializeCooperativeThread();
+}
+extern "C" {
     pub fn Servo_Shutdown();
 }
 extern "C" {
@@ -2970,6 +2985,23 @@ extern "C" {
 extern "C" {
     pub fn Servo_HasPendingRestyleAncestor(element: RawGeckoElementBorrowed)
      -> bool;
+}
+extern "C" {
+    pub fn Servo_GetArcStringData(arg1: *const RustString,
+                                  chars: *mut *const u8, len: *mut u32);
+}
+extern "C" {
+    pub fn Servo_ReleaseArcStringData(string:
+                                          *const ServoRawOffsetArc<RustString>);
+}
+extern "C" {
+    pub fn Servo_CloneArcStringData(string:
+                                        *const ServoRawOffsetArc<RustString>)
+     -> ServoRawOffsetArc<RustString>;
+}
+extern "C" {
+    pub fn Servo_CorruptRuleHashAndCrash(set: RawServoStyleSetBorrowed,
+                                         index: usize);
 }
 extern "C" {
     pub fn Gecko_CreateCSSErrorReporter(sheet: *mut ServoStyleSheet,

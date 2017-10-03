@@ -66,13 +66,13 @@
 
 #include "nsIConstraintValidation.h"
 
-#include "nsIDOMHTMLButtonElement.h"
 #include "nsSandboxFlags.h"
 
 #include "nsIContentSecurityPolicy.h"
 
 // images
 #include "mozilla/dom/HTMLImageElement.h"
+#include "mozilla/dom/HTMLButtonElement.h"
 
 // construction, destruction
 NS_IMPL_NS_NEW_HTML_ELEMENT(Form)
@@ -189,21 +189,18 @@ HTMLFormElement::BeforeSetAttr(int32_t aNamespaceID, nsIAtom* aName,
 {
   if (aNamespaceID == kNameSpaceID_None) {
     if (aName == nsGkAtoms::action || aName == nsGkAtoms::target) {
-      // This check is mostly to preserve previous behavior.
-      if (aValue) {
-        if (mPendingSubmission) {
-          // aha, there is a pending submission that means we're in
-          // the script and we need to flush it. let's tell it
-          // that the event was ignored to force the flush.
-          // the second argument is not playing a role at all.
-          FlushPendingSubmission();
-        }
-        // Don't forget we've notified the password manager already if the
-        // page sets the action/target in the during submit. (bug 343182)
-        bool notifiedObservers = mNotifiedObservers;
-        ForgetCurrentSubmission();
-        mNotifiedObservers = notifiedObservers;
+      if (mPendingSubmission) {
+        // aha, there is a pending submission that means we're in
+        // the script and we need to flush it. let's tell it
+        // that the event was ignored to force the flush.
+        // the second argument is not playing a role at all.
+        FlushPendingSubmission();
       }
+      // Don't forget we've notified the password manager already if the
+      // page sets the action/target in the during submit. (bug 343182)
+      bool notifiedObservers = mNotifiedObservers;
+      ForgetCurrentSubmission();
+      mNotifiedObservers = notifiedObservers;
     }
   }
 
@@ -796,14 +793,17 @@ HTMLFormElement::SubmitSubmission(HTMLFormSubmission* aFormSubmission)
                                        nullptr, doc);
 
     nsCOMPtr<nsIInputStream> postDataStream;
+    int64_t postDataStreamLength = -1;
     rv = aFormSubmission->GetEncodedSubmission(actionURI,
-                                               getter_AddRefs(postDataStream));
+                                               getter_AddRefs(postDataStream),
+                                               &postDataStreamLength);
     NS_ENSURE_SUBMIT_SUCCESS(rv);
 
     rv = linkHandler->OnLinkClickSync(this, actionURI,
                                       target.get(),
-                                      NullString(),
-                                      postDataStream, nullptr, false,
+                                      VoidString(),
+                                      postDataStream, postDataStreamLength,
+                                      nullptr, false,
                                       getter_AddRefs(docShell),
                                       getter_AddRefs(mSubmittingRequest));
     NS_ENSURE_SUBMIT_SUCCESS(rv);
@@ -1646,7 +1646,7 @@ HTMLFormElement::GetActionURL(nsIURI** aActionURL,
     if (inputElement) {
       inputElement->GetFormAction(action);
     } else {
-      nsCOMPtr<nsIDOMHTMLButtonElement> buttonElement = do_QueryInterface(aOriginatingElement);
+      auto buttonElement = HTMLButtonElement::FromContent(aOriginatingElement);
       if (buttonElement) {
         buttonElement->GetFormAction(action);
       } else {

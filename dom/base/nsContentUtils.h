@@ -37,6 +37,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/RangeBoundary.h"
 #include "nsIContentPolicy.h"
 #include "nsIDocument.h"
 #include "nsIDOMMouseEvent.h"
@@ -136,6 +137,7 @@ class EventTarget;
 class IPCDataTransfer;
 class IPCDataTransferItem;
 struct LifecycleCallbackArgs;
+struct LifecycleAdoptedCallbackArgs;
 class NodeInfo;
 class nsIContentChild;
 class nsIContentParent;
@@ -445,6 +447,9 @@ public:
                                bool* aDisconnected = nullptr);
   static int32_t ComparePoints(nsIDOMNode* aParent1, int32_t aOffset1,
                                nsIDOMNode* aParent2, int32_t aOffset2,
+                               bool* aDisconnected = nullptr);
+  static int32_t ComparePoints(const mozilla::RawRangeBoundary& aFirst,
+                               const mozilla::RawRangeBoundary& aSecond,
                                bool* aDisconnected = nullptr);
 
   /**
@@ -800,6 +805,7 @@ public:
                             nsINode* aContext,
                             nsIDocument* aLoadingDocument,
                             nsIPrincipal* aLoadingPrincipal,
+                            uint64_t aRequestContextID,
                             nsIURI* aReferrer,
                             mozilla::net::ReferrerPolicy aReferrerPolicy,
                             imgINotificationObserver* aObserver,
@@ -1699,6 +1705,14 @@ public:
    * FALSE.
    */
   static void NotifyInstalledMenuKeyboardListener(bool aInstalling);
+
+  /**
+   * Check whether the nsIURI uses the given scheme.
+   *
+   * Note that this will check the innermost URI rather than that of
+   * the nsIURI itself.
+   */
+  static bool SchemeIs(nsIURI* aURI, const char* aScheme);
 
   /**
    * Returns true if aPrincipal is the system principal.
@@ -2997,10 +3011,17 @@ public:
                                       nsIAtom* aExtensionType,
                                       nsIAtom* aAttrName);
 
-  static void EnqueueLifecycleCallback(nsIDocument* aDoc,
-                                       nsIDocument::ElementCallbackType aType,
+  static void SyncInvokeReactions(nsIDocument::ElementCallbackType aType,
+                                  Element* aCustomElement,
+                                  mozilla::dom::CustomElementDefinition* aDefinition);
+
+  static void EnqueueUpgradeReaction(Element* aElement,
+                                     mozilla::dom::CustomElementDefinition* aDefinition);
+
+  static void EnqueueLifecycleCallback(nsIDocument::ElementCallbackType aType,
                                        Element* aCustomElement,
                                        mozilla::dom::LifecycleCallbackArgs* aArgs = nullptr,
+                                       mozilla::dom::LifecycleAdoptedCallbackArgs* aAdoptedCallbackArgs = nullptr,
                                        mozilla::dom::CustomElementDefinition* aDefinition = nullptr);
 
   static void GetCustomPrototype(nsIDocument* aDoc,
@@ -3031,6 +3052,19 @@ public:
                                             uint32_t aFlags);
 
   /**
+   * Query loadingPrincipal if it is specified as 'loadingprincipal' attribute on
+   * aLoadingNode, otherwise the NodePrincipal of aLoadingNode is returned
+   * (which is System Principal).
+   *
+   * Return true if aLoadingPrincipal has 'loadingprincipal' attributes, and
+   * the value 'loadingprincipal' is also successfully deserialized, otherwise
+   * return false.
+   */
+  static bool
+  GetLoadingPrincipalForXULNode(nsIContent* aLoadingNode,
+                                nsIPrincipal** aLoadingPrincipal);
+
+  /**
    * Returns the content policy type that should be used for loading images
    * for displaying in the UI.  The sources of such images can be <xul:image>,
    * <xul:menuitem> on OSX where we load the image through nsMenuItemIconX, etc.
@@ -3038,7 +3072,8 @@ public:
   static void
   GetContentPolicyTypeForUIImageLoading(nsIContent* aLoadingNode,
                                         nsIPrincipal** aLoadingPrincipal,
-                                        nsContentPolicyType& aContentPolicyType);
+                                        nsContentPolicyType& aContentPolicyType,
+                                        uint64_t* aRequestContextID);
 
   static nsresult
   CreateJSValueFromSequenceOfObject(JSContext* aCx,
@@ -3174,11 +3209,12 @@ public:
    */
   static bool IsMessageInputEvent(const IPC::Message& aMsg);
 
+  static void AsyncPrecreateStringBundles();
+
 private:
   static bool InitializeEventTable();
 
   static nsresult EnsureStringBundle(PropertiesFile aFile);
-  static void AsyncPrecreateStringBundles();
 
   static bool CanCallerAccess(nsIPrincipal* aSubjectPrincipal,
                                 nsIPrincipal* aPrincipal);
@@ -3269,9 +3305,9 @@ private:
 
   static nsIConsoleService* sConsoleService;
 
-  static nsDataHashtable<nsISupportsHashKey, EventNameMapping>* sAtomEventTable;
+  static nsDataHashtable<nsRefPtrHashKey<nsIAtom>, EventNameMapping>* sAtomEventTable;
   static nsDataHashtable<nsStringHashKey, EventNameMapping>* sStringEventTable;
-  static nsCOMArray<nsIAtom>* sUserDefinedEvents;
+  static nsTArray<RefPtr<nsIAtom>>* sUserDefinedEvents;
 
   static nsIStringBundleService* sStringBundleService;
   static nsIStringBundle* sStringBundles[PropertiesFile_COUNT];

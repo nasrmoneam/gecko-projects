@@ -17,6 +17,7 @@
 #include "mozilla/BinarySearch.h"
 #include "mozilla/DebugOnly.h"
 #include "mozilla/EffectSet.h"
+#include "mozilla/EnumSet.h"
 #include "mozilla/IntegerRange.h"
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/Likely.h"
@@ -279,6 +280,7 @@
 #include "mozilla/DocumentStyleRootIterator.h"
 #include "mozilla/ServoRestyleManager.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "nsHTMLTags.h"
 
 using namespace mozilla;
 using namespace mozilla::dom;
@@ -599,7 +601,7 @@ public:
                                         bool& aFound) override
   {
     aFound = false;
-    nsCOMPtr<nsIAtom> name = NS_Atomize(aName);
+    RefPtr<nsIAtom> name = NS_Atomize(aName);
     for (uint32_t i = 0; i < mElements.Length(); i++) {
       MOZ_DIAGNOSTIC_ASSERT(mElements[i]);
       Element* element = mElements[i]->AsElement();
@@ -2349,7 +2351,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
         // now-stale value.
         mCachedRootElement = nullptr;
       }
-      nsNodeUtils::ContentRemoved(this, content, i, previousSibling);
+      nsNodeUtils::ContentRemoved(this, content, previousSibling);
       content->UnbindFromTree();
     }
     MOZ_ASSERT(!mCachedRootElement,
@@ -3584,7 +3586,7 @@ nsIDocument::GetSrcdocData(nsAString &aSrcdocData)
       return inStrmChan->GetSrcdocData(aSrcdocData);
     }
   }
-  aSrcdocData = NullString();
+  aSrcdocData = VoidString();
   return NS_OK;
 }
 
@@ -5972,7 +5974,7 @@ GetPseudoElementType(const nsString& aString, ErrorResult& aRv)
     aRv.Throw(NS_ERROR_DOM_SYNTAX_ERR);
     return CSSPseudoElementType::NotPseudo;
   }
-  nsCOMPtr<nsIAtom> pseudo = NS_Atomize(Substring(aString, 1));
+  RefPtr<nsIAtom> pseudo = NS_Atomize(Substring(aString, 1));
   return nsCSSPseudoElements::GetPseudoType(pseudo,
       nsCSSProps::EnabledState::eInUASheets);
 }
@@ -6024,6 +6026,10 @@ nsDocument::CreateElement(const nsAString& aTagName,
     elem->SetPseudoElementType(pseudoType);
   }
 
+  if (is) {
+    elem->SetAttr(kNameSpaceID_None, nsGkAtoms::is, *is, true);
+  }
+
   return elem.forget();
 }
 
@@ -6073,6 +6079,10 @@ nsDocument::CreateElementNS(const nsAString& aNamespaceURI,
                      NOT_FROM_PARSER, is);
   if (rv.Failed()) {
     return nullptr;
+  }
+
+  if (is) {
+    element->SetAttr(kNameSpaceID_None, nsGkAtoms::is, *is, true);
   }
 
   return element.forget();
@@ -6303,8 +6313,9 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
     return true;
   }
 
-  nsCOMPtr<nsIAtom> typeAtom(NS_Atomize(elemName));
-  CustomElementDefinition* definition = registry->mCustomDefinitions.Get(typeAtom);
+  RefPtr<nsIAtom> typeAtom(NS_Atomize(elemName));
+  CustomElementDefinition* definition =
+    registry->mCustomDefinitions.GetWeak(typeAtom);
   if (!definition) {
     return true;
   }
@@ -6357,11 +6368,28 @@ nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* 
       return true;
     }
   } else {
-    nsDependentAtomString localName(definition->mLocalName);
-    element =
-      document->CreateElem(localName, nullptr, kNameSpaceID_XHTML,
-                           (definition->mLocalName != typeAtom) ? &elemName
-                                                                : nullptr);
+    RefPtr<mozilla::dom::NodeInfo> nodeInfo =
+      document->NodeInfoManager()->GetNodeInfo(definition->mLocalName, nullptr,
+                                               kNameSpaceID_XHTML,
+                                               nsIDOMNode::ELEMENT_NODE);
+
+    int32_t tag = nsHTMLTags::CaseSensitiveAtomTagToId(definition->mLocalName);
+    if (tag == eHTMLTag_userdefined &&
+        nsContentUtils::IsCustomElementName(definition->mType)) {
+      element = NS_NewHTMLElement(nodeInfo.forget(), NOT_FROM_PARSER);
+    } else {
+      element = ::CreateHTMLElement(tag, nodeInfo.forget(), NOT_FROM_PARSER);
+    }
+
+    element->SetCustomElementData(
+      new CustomElementData(definition->mType,
+                            CustomElementData::State::eCustom));
+
+    element->SetCustomElementDefinition(definition);
+
+    // It'll be removed when we deprecate custom elements v0.
+    nsContentUtils::SyncInvokeReactions(nsIDocument::eCreated, element,
+                                        definition);
     NS_ENSURE_TRUE(element, false);
   }
 
@@ -6549,6 +6577,9 @@ nsDocument::RegisterElement(JSContext* aCx, const nsAString& aType,
     options.mExtends.Construct(lcName);
   }
 
+  // Note: No calls that might run JS or trigger CC after this, or there's a
+  // (vanishingly small) risk of our constructor being nulled before Define()
+  // can access it.
   RefPtr<Function> functionConstructor =
     new Function(aCx, wrappedConstructor, sgo);
 
@@ -6977,7 +7008,7 @@ nsIDocument::GetAnonymousElementByAttribute(Element& aElement,
                                             const nsAString& aAttrName,
                                             const nsAString& aAttrValue)
 {
-  nsCOMPtr<nsIAtom> attribute = NS_Atomize(aAttrName);
+  RefPtr<nsIAtom> attribute = NS_Atomize(aAttrName);
 
   return GetAnonymousElementByAttribute(&aElement, attribute, aAttrValue);
 }
@@ -7338,7 +7369,7 @@ nsDocument::DoNotifyPossibleTitleChange()
     if (container) {
       nsCOMPtr<nsIBaseWindow> docShellWin = do_QueryInterface(container);
       if (docShellWin) {
-        docShellWin->SetTitle(title.get());
+        docShellWin->SetTitle(title);
       }
     }
   }
@@ -7383,7 +7414,7 @@ nsDocument::GetBoxObjectFor(Element* aElement, ErrorResult& aRv)
   }
 
   int32_t namespaceID;
-  nsCOMPtr<nsIAtom> tag = BindingManager()->ResolveTag(aElement, &namespaceID);
+  RefPtr<nsIAtom> tag = BindingManager()->ResolveTag(aElement, &namespaceID);
 #ifdef MOZ_XUL
   if (namespaceID == kNameSpaceID_XUL) {
     if (tag == nsGkAtoms::browser ||
@@ -7760,15 +7791,19 @@ nsDOMAttributeMap::BlastSubtreeToPieces(nsINode *aNode)
     Element *element = aNode->AsElement();
     const nsDOMAttributeMap *map = element->GetAttributeMap();
     if (map) {
-      // This non-standard style of iteration is presumably used because some
-      // of the code in the loop body can trigger element removal, which
-      // invalidates the iterator.
       while (true) {
-        auto iter = map->mAttributeCache.ConstIter();
-        if (iter.Done()) {
-          break;
+        nsCOMPtr<nsIAttribute> attr;
+        {
+          // Use an iterator to get an arbitrary attribute from the
+          // cache. The iterator must be destroyed before any other
+          // operations on mAttributeCache, to avoid hash table
+          // assertions.
+          auto iter = map->mAttributeCache.ConstIter();
+          if (iter.Done()) {
+            break;
+          }
+          attr = iter.UserData();
         }
-        nsCOMPtr<nsIAttribute> attr = iter.UserData();
         NS_ASSERTION(attr.get(),
                      "non-nsIAttribute somehow made it into the hashmap?!");
 
@@ -7792,27 +7827,118 @@ nsDOMAttributeMap::BlastSubtreeToPieces(nsINode *aNode)
   }
 }
 
+enum class StyleDataType
+{
+  InlineStyle,
+  SMILOverride,
+  RestyleBits,
+  ServoData,
+};
+
 // Recursively check whether this node or its descendants contain any
 // pre-existing style declaration or any shared restyle flags.
-static bool
-NodeContainsAnyStyleData(nsINode* aNode)
+static EnumSet<StyleDataType>
+StyleDataTypesWithNode(nsINode* aNode)
 {
+  EnumSet<StyleDataType> result;
   if (aNode->IsElement()) {
     Element* elem = aNode->AsElement();
-    if (elem->GetInlineStyleDeclaration() ||
-        elem->GetSMILOverrideStyleDeclaration() ||
-        elem->HasAnyOfFlags(ELEMENT_SHARED_RESTYLE_BITS) ||
-        elem->HasServoData()) {
-      return true;
+    if (elem->GetInlineStyleDeclaration()) {
+      result += StyleDataType::InlineStyle;
+    }
+    if (elem->GetSMILOverrideStyleDeclaration()) {
+      result += StyleDataType::SMILOverride;
+    }
+    if (elem->HasAnyOfFlags(ELEMENT_SHARED_RESTYLE_BITS)) {
+      result += StyleDataType::RestyleBits;
+    }
+    if (elem->HasServoData()) {
+      result += StyleDataType::ServoData;
     }
   }
   for (nsIContent* child = aNode->GetFirstChild();
        child; child = child->GetNextSibling()) {
-    if (NodeContainsAnyStyleData(child)) {
-      return true;
+    result += StyleDataTypesWithNode(child);
+  }
+  return result;
+}
+
+static void
+CheckCrossStyleBackendAdoption(nsIDocument* aOldDoc,
+                               nsIDocument* aNewDoc, nsINode* aAdoptedNode)
+{
+  EnumSet<StyleDataType> styleDataTypes = StyleDataTypesWithNode(aAdoptedNode);
+  if (styleDataTypes.isEmpty()) {
+    return;
+  }
+#ifdef MOZ_CRASHREPORTER
+  // We are adopting node with pre-existing style data across style
+  // backend. We want some more information to help diagnose when that
+  // can happen.
+  nsAutoCString note;
+  nsIDocument* geckoDoc;
+  if (aOldDoc->GetStyleBackendType() == StyleBackendType::Servo) {
+    note.AppendLiteral("Servo -> Gecko");
+    geckoDoc = aNewDoc;
+  } else {
+    note.AppendLiteral("Gecko -> Servo");
+    geckoDoc = aOldDoc;
+  }
+  note.AppendLiteral(", with style data:");
+#define APPEND_STYLE_DATA_TYPE(type_)                   \
+  if (styleDataTypes.contains(StyleDataType::type_)) {  \
+    note.AppendLiteral(" " #type_);                     \
+  }
+  APPEND_STYLE_DATA_TYPE(InlineStyle)
+  APPEND_STYLE_DATA_TYPE(SMILOverride)
+  APPEND_STYLE_DATA_TYPE(RestyleBits)
+  APPEND_STYLE_DATA_TYPE(ServoData)
+#undef APPEND_STYLE_DATA_TYPE
+
+  note.AppendLiteral("\nGecko doc: ");
+  if (nsContentUtils::IsSystemPrincipal(geckoDoc->NodePrincipal())) {
+    note.AppendLiteral("system, ");
+  }
+  if (geckoDoc->IsXULDocument()) {
+    note.AppendLiteral("XUL, ");
+  }
+  note.AppendLiteral("content-type: ");
+  nsAutoString contentType;
+  geckoDoc->GetContentType(contentType);
+  AppendUTF16toUTF8(contentType, note);
+  if (nsIURI* geckoURI = geckoDoc->GetOriginalURI()) {
+    static const char* const INTERNAL_SCHEMES[] = {
+      "about",
+      "addons",
+      "chrome",
+      "resource",
+      "moz-extension",
+      "moz-icon",
+    };
+    note.AppendLiteral(", url: ");
+    bool internalScheme = false;
+    for (const char* scheme : INTERNAL_SCHEMES) {
+      if (nsContentUtils::SchemeIs(geckoURI, scheme)) {
+        internalScheme = true;
+        break;
+      }
+    }
+    if (internalScheme) {
+      nsAutoCString spec;
+      geckoURI->GetSpec(spec);
+      note.Append(spec);
+    } else {
+      nsAutoCString scheme;
+      geckoURI->GetScheme(scheme);
+      note.Append(scheme);
+      note.AppendLiteral(": (omitted)");
     }
   }
-  return false;
+  note.Append('\n');
+  CrashReporter::AppendAppNotesToCrashReport(note);
+#endif // MOZ_CRASHREPORTER
+  MOZ_CRASH("Must not adopt a node with pre-existing style data "
+            "into a document with different style backend");
 }
 
 nsINode*
@@ -7932,9 +8058,7 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
   if (!sameDocument) {
     if (MOZ_UNLIKELY(oldDocument->GetStyleBackendType() != GetStyleBackendType())) {
       NS_WARNING("Adopting node across different style backend");
-      MOZ_RELEASE_ASSERT(!NodeContainsAnyStyleData(adoptedNode),
-                         "Must not adopt a node with pre-existing style data "
-                         "into a document with different style backend");
+      CheckCrossStyleBackendAdoption(oldDocument, this, adoptedNode);
     }
     newScope = GetWrapper();
     if (!newScope && GetScopeObject() && GetScopeObject()->GetGlobalJSObject()) {
@@ -8317,7 +8441,7 @@ nsIDocument::CreateEvent(const nsAString& aEventType, CallerType aCallerType,
 }
 
 void
-nsDocument::FlushPendingNotifications(FlushType aType)
+nsDocument::FlushPendingNotifications(FlushType aType, FlushTarget aTarget)
 {
   nsDocumentOnStack dos(this);
 
@@ -8367,11 +8491,13 @@ nsDocument::FlushPendingNotifications(FlushType aType)
     FlushType parentType = aType;
     if (aType >= FlushType::Style)
       parentType = std::max(FlushType::Layout, aType);
-    mParentDocument->FlushPendingNotifications(parentType);
+    mParentDocument->FlushPendingNotifications(parentType, FlushTarget::Normal);
   }
 
-  if (nsIPresShell* shell = GetShell()) {
-    shell->FlushPendingNotifications(aType);
+  if (aTarget == FlushTarget::Normal) {
+    if (nsIPresShell* shell = GetShell()) {
+      shell->FlushPendingNotifications(aType);
+    }
   }
 }
 
@@ -8679,7 +8805,7 @@ nsDocument::RetrieveRelevantHeaders(nsIChannel *aChannel)
       rv =
         httpChannel->GetResponseHeader(nsDependentCString(*name), headerVal);
       if (NS_SUCCEEDED(rv) && !headerVal.IsEmpty()) {
-        nsCOMPtr<nsIAtom> key = NS_Atomize(*name);
+        RefPtr<nsIAtom> key = NS_Atomize(*name);
         SetHeaderData(key, NS_ConvertASCIItoUTF16(headerVal));
       }
       ++name;
@@ -9793,7 +9919,7 @@ nsDocument::PreloadPictureImageSource(const nsAString& aSrcsetAttr,
     // <picture> selects the first matching source, so if this returns a URI we
     // needn't consider new sources until a new <picture> is encountered.
     bool found =
-      HTMLImageElement::SelectSourceForTagWithAttrs(this, true, NullString(),
+      HTMLImageElement::SelectSourceForTagWithAttrs(this, true, VoidString(),
                                                     aSrcsetAttr, aSizesAttr,
                                                     aTypeAttr, aMediaAttr,
                                                     mPreloadPictureFoundSource);
@@ -9822,7 +9948,7 @@ nsDocument::ResolvePreloadImage(nsIURI *aBaseURI,
     // Otherwise try to use this <img> as a source
     HTMLImageElement::SelectSourceForTagWithAttrs(this, false, aSrcAttr,
                                                   aSrcsetAttr, aSizesAttr,
-                                                  NullString(), NullString(),
+                                                  VoidString(), VoidString(),
                                                   sourceURL);
     isImgSet = !aSrcsetAttr.IsEmpty();
   }
@@ -9887,6 +10013,7 @@ nsDocument::MaybePreLoadImage(nsIURI* uri, const nsAString &aCrossOriginAttr,
                               static_cast<nsINode*>(this),
                               this,
                               NodePrincipal(),
+                              0,
                               mDocumentURI, // uri of document used as referrer
                               aReferrerPolicy,
                               nullptr,       // no observer
@@ -10919,11 +11046,12 @@ public:
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS(UnblockParsingPromiseHandler)
 
-  explicit UnblockParsingPromiseHandler(nsIDocument* aDocument, Promise* aPromise)
+  explicit UnblockParsingPromiseHandler(nsIDocument* aDocument, Promise* aPromise,
+                                        const BlockParsingOptions& aOptions)
     : mPromise(aPromise)
   {
     nsCOMPtr<nsIParser> parser = aDocument->CreatorParserOrNull();
-    if (parser) {
+    if (parser && (aOptions.mBlockScriptCreated || !parser->IsScriptCreated())) {
       parser->BlockParser();
       mParser = do_GetWeakReference(parser);
       mDocument = aDocument;
@@ -10986,14 +11114,15 @@ NS_IMPL_CYCLE_COLLECTING_ADDREF(UnblockParsingPromiseHandler)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(UnblockParsingPromiseHandler)
 
 already_AddRefed<Promise>
-nsIDocument::BlockParsing(Promise& aPromise, ErrorResult& aRv)
+nsIDocument::BlockParsing(Promise& aPromise, const BlockParsingOptions& aOptions, ErrorResult& aRv)
 {
   RefPtr<Promise> resultPromise = Promise::Create(aPromise.GetParentObject(), aRv);
   if (aRv.Failed()) {
     return nullptr;
   }
 
-  RefPtr<PromiseNativeHandler> promiseHandler = new UnblockParsingPromiseHandler(this, resultPromise);
+  RefPtr<PromiseNativeHandler> promiseHandler = new UnblockParsingPromiseHandler(this, resultPromise,
+                                                                                 aOptions);
   aPromise.AppendNativeHandler(promiseHandler);
 
   return resultPromise.forget();
@@ -12798,7 +12927,7 @@ nsIDocument::Constructor(const GlobalObject& aGlobal,
   nsCOMPtr<nsIDOMDocument> document;
   nsresult res =
     NS_NewDOMDocument(getter_AddRefs(document),
-                      NullString(),
+                      VoidString(),
                       EmptyString(),
                       nullptr,
                       uri,
@@ -13483,6 +13612,29 @@ nsIDocument::ReportHasScrollLinkedEffect()
                                   "ScrollLinkedEffectFound2");
 }
 
+#ifdef MOZ_STYLO
+// URL-based blacklist for stylo.
+static bool
+ShouldUseGeckoBackend(nsIURI* aDocumentURI)
+{
+  if (!aDocumentURI) {
+    return false;
+  }
+  bool isScheme = false;
+  if (NS_SUCCEEDED(aDocumentURI->SchemeIs("about", &isScheme))) {
+    nsAutoCString path;
+    aDocumentURI->GetFilePath(path);
+    // about:reader requires support of :scope pseudo-class so we have
+    // to use Gecko backend for now. See bug 1402094.
+    // This should be fixed by bug 1204818.
+    if (path.EqualsLiteral("reader")) {
+      return true;
+    }
+  }
+  return false;
+}
+#endif // MOZ_STYLO
+
 void
 nsIDocument::UpdateStyleBackendType()
 {
@@ -13501,7 +13653,7 @@ nsIDocument::UpdateStyleBackendType()
     // Note that, since tests can have XUL support, we still need to
     // explicitly exclude XUL documents here.
     if (!nsContentUtils::IsSystemPrincipal(NodePrincipal()) &&
-        !IsXULDocument()) {
+        !IsXULDocument() && !ShouldUseGeckoBackend(mDocumentURI)) {
       mStyleBackendType = StyleBackendType::Servo;
     }
   }

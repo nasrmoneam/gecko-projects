@@ -39,6 +39,7 @@
 #include "mozilla/dom/WindowBinding.h"
 #include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/Nullable.h"
+#include "mozilla/dom/PointerEventHandler.h"
 #include "mozilla/UniquePtr.h"
 #include "Units.h"
 #include "DOMIntersectionObserver.h"
@@ -139,6 +140,11 @@ enum {
   // restyle hint.
   ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR = ELEMENT_FLAG_BIT(4),
 
+  // Set if a child element has later-sibling restyle hint. This is needed for
+  // nsComputedDOMStyle to decide when should we need to flush style (only used
+  // in Gecko).
+  ELEMENT_HAS_CHILD_WITH_LATER_SIBLINGS_HINT = ELEMENT_FLAG_BIT(5),
+
   // Just the HAS_PENDING bits, for convenience
   ELEMENT_PENDING_RESTYLE_FLAGS =
     ELEMENT_HAS_PENDING_RESTYLE |
@@ -153,8 +159,6 @@ enum {
   ELEMENT_ALL_RESTYLE_FLAGS = ELEMENT_PENDING_RESTYLE_FLAGS |
                               ELEMENT_POTENTIAL_RESTYLE_ROOT_FLAGS |
                               ELEMENT_IS_CONDITIONAL_RESTYLE_ANCESTOR,
-
-  // ELEMENT_FLAG_BIT(5) is currently unused
 
   // Remaining bits are for subclasses
   ELEMENT_TYPE_SPECIFIC_BITS_OFFSET = NODE_TYPE_SPECIFIC_BITS_OFFSET + 6
@@ -552,6 +556,22 @@ public:
    * @param aData The custom element data.
    */
   void SetCustomElementData(CustomElementData* aData);
+
+  /**
+   * Gets the custom element definition used by web components custom element.
+   *
+   * @return The custom element definition or null if element is not a custom
+   *         element or custom element is not defined yet.
+   */
+  CustomElementDefinition* GetCustomElementDefinition() const;
+
+  /**
+   * Sets the custom element definition, called when custom element is created
+   * or upgraded.
+   *
+   * @param aDefinition The custom element definition.
+   */
+  void SetCustomElementDefinition(CustomElementDefinition* aDefinition);
 
 protected:
   /**
@@ -978,7 +998,7 @@ public:
   void SetPointerCapture(int32_t aPointerId, ErrorResult& aError)
   {
     bool activeState = false;
-    if (!nsIPresShell::GetPointerInfo(aPointerId, activeState)) {
+    if (!PointerEventHandler::GetPointerInfo(aPointerId, activeState)) {
       aError.Throw(NS_ERROR_DOM_INVALID_POINTER_ERR);
       return;
     }
@@ -989,23 +1009,23 @@ public:
     if (!activeState) {
       return;
     }
-    nsIPresShell::SetPointerCapturingContent(aPointerId, this);
+    PointerEventHandler::SetPointerCaptureById(aPointerId, this);
   }
   void ReleasePointerCapture(int32_t aPointerId, ErrorResult& aError)
   {
     bool activeState = false;
-    if (!nsIPresShell::GetPointerInfo(aPointerId, activeState)) {
+    if (!PointerEventHandler::GetPointerInfo(aPointerId, activeState)) {
       aError.Throw(NS_ERROR_DOM_INVALID_POINTER_ERR);
       return;
     }
     if (HasPointerCapture(aPointerId)) {
-      nsIPresShell::ReleasePointerCapturingContent(aPointerId);
+      PointerEventHandler::ReleasePointerCaptureById(aPointerId);
     }
   }
   bool HasPointerCapture(long aPointerId)
   {
-    nsIPresShell::PointerCaptureInfo* pointerCaptureInfo =
-      nsIPresShell::GetPointerCaptureInfo(aPointerId);
+    PointerCaptureInfo* pointerCaptureInfo =
+      PointerEventHandler::GetPointerCaptureInfo(aPointerId);
     if (pointerCaptureInfo && pointerCaptureInfo->mPendingContent == this) {
       return true;
     }
@@ -1060,9 +1080,10 @@ public:
     return slots ? slots->mShadowRoot.get() : nullptr;
   }
 
-  void ScrollIntoView();
-  void ScrollIntoView(bool aTop);
+private:
   void ScrollIntoView(const ScrollIntoViewOptions &aOptions);
+public:
+  void ScrollIntoView(const BooleanOrScrollIntoViewOptions& aObject);
   void Scroll(double aXScroll, double aYScroll);
   void Scroll(const ScrollToOptions& aOptions);
   void ScrollTo(double aXScroll, double aYScroll);
@@ -1815,7 +1836,8 @@ inline const mozilla::dom::Element* nsINode::AsElement() const
 inline void nsINode::UnsetRestyleFlagsIfGecko()
 {
   if (IsElement() && !AsElement()->IsStyledByServo()) {
-    UnsetFlags(ELEMENT_ALL_RESTYLE_FLAGS);
+    UnsetFlags(ELEMENT_ALL_RESTYLE_FLAGS |
+               ELEMENT_HAS_CHILD_WITH_LATER_SIBLINGS_HINT);
   }
 }
 

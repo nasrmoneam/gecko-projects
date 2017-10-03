@@ -1765,7 +1765,7 @@ nsCSSFrameConstructor::CreateGeneratedContent(nsFrameConstructorState& aState,
                                   nullptr, nullptr);
 
     case eStyleContentType_Attr: {
-      nsCOMPtr<nsIAtom> attrName;
+      RefPtr<nsIAtom> attrName;
       int32_t attrNameSpace = kNameSpaceID_None;
       nsAutoString contentString(data.GetString());
 
@@ -3789,8 +3789,8 @@ nsCSSFrameConstructor::FindInputData(Element* aElement,
                                      nsStyleContext* aStyleContext)
 {
   static const FrameConstructionDataByInt sInputData[] = {
-    SIMPLE_INT_CREATE(NS_FORM_INPUT_CHECKBOX, NS_NewGfxCheckboxControlFrame),
-    SIMPLE_INT_CREATE(NS_FORM_INPUT_RADIO, NS_NewGfxRadioControlFrame),
+    SIMPLE_INT_CREATE(NS_FORM_INPUT_CHECKBOX, NS_NewCheckboxRadioFrame),
+    SIMPLE_INT_CREATE(NS_FORM_INPUT_RADIO, NS_NewCheckboxRadioFrame),
     SIMPLE_INT_CREATE(NS_FORM_INPUT_FILE, NS_NewFileControlFrame),
     SIMPLE_INT_CHAIN(NS_FORM_INPUT_IMAGE,
                      nsCSSFrameConstructor::FindImgControlData),
@@ -8636,13 +8636,21 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent* aContainer,
     Element* newOverrideElement =
       presContext->UpdateViewportScrollbarStylesOverride();
 
-    // Now if newOverrideElement is not the root and isn't aChild (which it
-    // could be if all we're doing here is reframing the current override
-    // element), it needs reframing.  In particular, it used to have a
-    // scrollframe (because its overflow was not "visible"), but now it will
+    // If aChild is the root (i.e. aContainer is null), then we don't
+    // need to do any reframing of newOverrideElement, because we're
+    // about to tear down the whole frame tree anyway.  And we need to
+    // make sure we don't do any such reframing, because reframing the
+    // <body> can trigger a reframe of the <html> and then reenter
+    // here.
+    //
+    // But if aChild is not the root, and if newOverrideElement is not
+    // the root and isn't aChild (which it could be if all we're doing
+    // here is reframing the current override element), it needs
+    // reframing.  In particular, it used to have a scrollframe
+    // (because its overflow was not "visible"), but now it will
     // propagate its overflow to the viewport, so it should not need a
     // scrollframe anymore.
-    if (newOverrideElement && newOverrideElement->GetParent() &&
+    if (aContainer && newOverrideElement && newOverrideElement->GetParent() &&
         newOverrideElement != aChild) {
       LAYOUT_PHASE_TEMP_EXIT();
       RecreateFramesForContent(newOverrideElement, InsertionKind::Async);

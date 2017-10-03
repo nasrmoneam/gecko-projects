@@ -748,16 +748,11 @@ class MIPSBufferWithExecutableCopy : public MIPSBuffer
         }
     }
 
-    bool appendBuffer(const MIPSBufferWithExecutableCopy& other) {
+    bool appendRawCode(const uint8_t* code, size_t numBytes) {
         if (this->oom())
             return false;
-
-        for (Slice* cur = other.head; cur != nullptr; cur = cur->getNext()) {
-            this->putBytes(cur->length(), &cur->instructions);
-            if (this->oom())
-                return false;
-        }
-        return true;
+        this->putBytes(numBytes, code);
+        return !this->oom();
     }
 };
 
@@ -958,7 +953,9 @@ class AssemblerMIPSShared : public AssemblerShared
     bool isFinished;
   public:
     void finish();
-    bool asmMergeWith(const AssemblerMIPSShared& other);
+    bool appendRawCode(const uint8_t* code, size_t numBytes);
+    bool reserve(size_t size);
+    bool swapBuffer(wasm::Bytes& bytes);
     void executableCopy(void* buffer, bool flushICache = true);
     void copyJumpRelocationTable(uint8_t* dest);
     void copyDataRelocationTable(uint8_t* dest);
@@ -1233,7 +1230,6 @@ class AssemblerMIPSShared : public AssemblerShared
     void bind(Label* label, BufferOffset boff = BufferOffset());
     void bindLater(Label* label, wasm::TrapDesc target);
     virtual void bind(InstImm* inst, uintptr_t branch, uintptr_t target) = 0;
-    virtual void Bind(uint8_t* rawCode, CodeOffset* label, const void* address) = 0;
     void bind(CodeOffset* label) {
         label->bind(currentOffset());
     }
@@ -1244,9 +1240,6 @@ class AssemblerMIPSShared : public AssemblerShared
         return nextOffset().getOffset();
     }
     void retarget(Label* label, Label* target);
-
-    // See Bind
-    size_t labelToPatchOffset(CodeOffset label) { return label.offset(); }
 
     void call(Label* label);
     void call(void* target);
@@ -1315,8 +1308,6 @@ class AssemblerMIPSShared : public AssemblerShared
     static void ToggleToCmp(CodeLocationLabel inst_);
 
     static void UpdateLuiOriValue(Instruction* inst0, Instruction* inst1, uint32_t value);
-
-    void processCodeLabels(uint8_t* rawCode);
 
     bool bailed() {
         return m_buffer.bail();

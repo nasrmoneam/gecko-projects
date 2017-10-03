@@ -89,11 +89,22 @@ impl WrVecU8 {
 
     // Equivalent to `to_vec` but clears self instead of consuming the value.
     fn flush_into_vec(&mut self) -> Vec<u8> {
-        let vec = unsafe { Vec::from_raw_parts(self.data, self.length, self.capacity) };
+        self.convert_into_vec::<u8>()
+    }
+
+    // Like flush_into_vec, but also does an unsafe conversion to the desired type.
+    fn convert_into_vec<T>(&mut self) -> Vec<T> {
+        let vec = unsafe {
+            Vec::from_raw_parts(
+                self.data as *mut T,
+                self.length / mem::size_of::<T>(),
+                self.capacity / mem::size_of::<T>(),
+            )
+        };
         self.data = ptr::null_mut();
         self.length = 0;
         self.capacity = 0;
-        return vec;
+        vec
     }
 
     fn from_vec(mut v: Vec<u8>) -> WrVecU8 {
@@ -160,6 +171,22 @@ impl MutByteSlice {
 
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         make_slice_mut(self.buffer, self.len)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct WrFontInstanceOptions {
+    pub render_mode: FontRenderMode,
+    pub synthetic_italics: bool,
+}
+
+impl Into<FontInstanceOptions> for WrFontInstanceOptions {
+    fn into(self) -> FontInstanceOptions {
+        FontInstanceOptions {
+            render_mode: Some(self.render_mode),
+            synthetic_italics: self.synthetic_italics,
+        }
     }
 }
 
@@ -616,7 +643,7 @@ pub extern "C" fn wr_window_new(window_id: WrWindowId,
     } else {
         gl = unsafe { gl::GlFns::load_with(|symbol| get_proc_address(gl_context, symbol)) };
     }
-    gl.clear_color(0.3, 0.0, 0.0, 1.0);
+    gl.clear_color(0.0, 0.0, 0.0, 1.0);
 
     let version = gl.get_string(gl::VERSION);
 
@@ -820,7 +847,8 @@ pub extern "C" fn wr_api_set_window_parameters(dh: &mut DocumentHandle,
     let size = DeviceUintSize::new(width as u32, height as u32);
     dh.api.set_window_parameters(dh.document_id,
                                  size,
-                                 DeviceUintRect::new(DeviceUintPoint::new(0, 0), size));
+                                 DeviceUintRect::new(DeviceUintPoint::new(0, 0), size),
+                                 1.0);
 }
 
 #[no_mangle]
@@ -961,15 +989,20 @@ pub extern "C" fn wr_resource_updates_add_font_instance(
     key: WrFontInstanceKey,
     font_key: WrFontKey,
     glyph_size: f32,
-    options: *const FontInstanceOptions,
-    platform_options: *const FontInstancePlatformOptions
+    options: *const WrFontInstanceOptions,
+    platform_options: *const FontInstancePlatformOptions,
+    variations: &mut WrVecU8,
 ) {
+    let instance_options: Option<FontInstanceOptions> = unsafe {
+        options.as_ref().map(|opts|{ (*opts).into() })
+    };
     resources.add_font_instance(
         key,
         font_key,
         Au::from_f32_px(glyph_size),
-        unsafe { options.as_ref().cloned() },
-        unsafe { platform_options.as_ref().cloned() }
+        instance_options,
+        unsafe { platform_options.as_ref().cloned() },
+        variations.convert_into_vec::<FontVariation>(),
     );
 }
 
@@ -1077,34 +1110,6 @@ pub extern "C" fn wr_state_delete(state: *mut WrState) {
 }
 
 #[no_mangle]
-pub extern "C" fn wr_dp_begin(state: &mut WrState,
-                              width: u32,
-                              height: u32) {
-    debug_assert!(unsafe { !is_in_render_thread() });
-    state.frame_builder.dl_builder.data.clear();
-
-    let bounds = LayoutRect::new(LayoutPoint::new(0.0, 0.0),
-                                 LayoutSize::new(width as f32, height as f32));
-    let prim_info = LayoutPrimitiveInfo::new(bounds);
-
-    state.frame_builder
-         .dl_builder
-         .push_stacking_context(&prim_info,
-                                webrender_api::ScrollPolicy::Scrollable,
-                                None,
-                                TransformStyle::Flat,
-                                None,
-                                MixBlendMode::Normal,
-                                Vec::new());
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_end(state: &mut WrState) {
-    debug_assert!(unsafe { !is_in_render_thread() });
-    state.frame_builder.dl_builder.pop_stacking_context();
-}
-
-#[no_mangle]
 pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
                                               bounds: LayoutRect,
                                               animation_id: u64,
@@ -1139,7 +1144,9 @@ pub extern "C" fn wr_dp_push_stacking_context(state: &mut WrState,
             filters.push(FilterOp::Opacity(PropertyBinding::Value(*opacity)));
         }
     } else {
-        filters.push(FilterOp::Opacity(PropertyBinding::Binding(PropertyBindingKey::new(animation_id))));
+        if animation_id > 0 {
+            filters.push(FilterOp::Opacity(PropertyBinding::Binding(PropertyBindingKey::new(animation_id))));
+        }
     }
 
     let transform = unsafe { transform.as_ref() };
@@ -1212,6 +1219,31 @@ pub extern "C" fn wr_dp_push_clip(state: &mut WrState,
 pub extern "C" fn wr_dp_pop_clip(state: &mut WrState) {
     debug_assert!(unsafe { !is_in_render_thread() });
     state.frame_builder.dl_builder.pop_clip_id();
+}
+
+#[no_mangle]
+pub extern "C" fn wr_dp_define_sticky_frame(state: &mut WrState,
+                                            content_rect: LayoutRect,
+                                            top_range: *const StickySideConstraint,
+                                            right_range: *const StickySideConstraint,
+                                            bottom_range: *const StickySideConstraint,
+                                            left_range: *const StickySideConstraint)
+                                            -> u64 {
+    assert!(unsafe { is_in_main_thread() });
+    let clip_id = state.frame_builder.dl_builder.define_sticky_frame(
+        None, content_rect, StickyFrameInfo::new(
+            unsafe { top_range.as_ref() }.cloned(),
+            unsafe { right_range.as_ref() }.cloned(),
+            unsafe { bottom_range.as_ref() }.cloned(),
+            unsafe { left_range.as_ref() }.cloned()));
+    match clip_id {
+        ClipId::Clip(id, nesting_index, pipeline_id) => {
+            assert!(pipeline_id == state.pipeline_id);
+            assert!(nesting_index == 0);
+            id
+        },
+        _ => panic!("Got unexpected clip id type"),
+    }
 }
 
 #[no_mangle]
