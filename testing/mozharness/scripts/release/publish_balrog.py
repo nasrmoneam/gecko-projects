@@ -55,7 +55,7 @@ class PublishBalrog(MercurialScript, BuildbotMixin):
         # TODO: version and appVersion should come from repo
         props = self.buildbot_config["properties"]
         for prop in ['product', 'version', 'build_number', 'channels',
-                     'balrog_api_root', 'schedule_at', 'background_rate'
+                     'balrog_api_root', 'schedule_at', 'background_rate',
                      'publish_bz2_blob']:
             if props.get(prop):
                 self.info("Overriding %s with %s" % (prop, props[prop]))
@@ -130,6 +130,9 @@ class PublishBalrog(MercurialScript, BuildbotMixin):
 
     def _submit_to_balrog_bz2(self, channel_config):
         dirs = self.query_abs_dirs()
+        # Use env varialbe instead of command line to avoid issues with blob
+        # names starting with "-", e.g. "-bz2"
+        env = {"BALROG_BLOB_SUFFIX": channel_config["bz2_blob_suffix"]}
         auth = os.path.join(os.getcwd(), self.config['credentials_file'])
         cmd = [
             sys.executable,
@@ -159,7 +162,7 @@ class PublishBalrog(MercurialScript, BuildbotMixin):
         if self.config.get("background_rate"):
             cmd.extend(["--background-rate", str(self.config["background_rate"])])
 
-        self.retry(lambda: self.run_command(cmd, halt_on_failure=True),
+        self.retry(lambda: self.run_command(cmd, halt_on_failure=True, env=env),
                    error_level=FATAL)
 
 
