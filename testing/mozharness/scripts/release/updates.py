@@ -317,6 +317,9 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
             return
 
         dirs = self.query_abs_dirs()
+        # Use env varialbe instead of command line to avoid issues with blob
+        # names starting with "-", e.g. "-bz2"
+        env = {"BALROG_BLOB_SUFFIX": channel_config["bz2_blob_suffix"]}
         auth = os.path.join(os.getcwd(), self.config['credentials_file'])
         cmd = [
             sys.executable,
@@ -332,7 +335,6 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
             "--build-number", str(self.config["build_number"]),
             "--app-version", self.config["appVersion"],
             "--username", self.config["balrog_username"],
-            "--suffix", channel_config["bz2_blob_suffix"],
             "--complete-mar-filename-pattern",
             channel_config["complete_mar_filename_pattern"],
             "--complete-mar-bouncer-product-pattern",
@@ -360,7 +362,7 @@ class UpdatesBumper(MercurialScript, BuildbotMixin,
         if self.config["balrog_use_dummy_suffix"]:
             cmd.append("--dummy")
 
-        self.retry(lambda: self.run_command(cmd, halt_on_failure=True))
+        self.retry(lambda: self.run_command(cmd, halt_on_failure=True, env=env))
 
 
 # __main__ {{{1
