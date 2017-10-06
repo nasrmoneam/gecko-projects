@@ -5188,11 +5188,9 @@ nsDisplayText::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder
                                        WebRenderLayerManager* aManager,
                                        nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (aManager->IsLayersFreeTransaction()) {
-    ContainerLayerParameters parameter;
-    if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
-      return false;
-    }
+  ContainerLayerParameters parameter;
+  if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+    return false;
   }
 
   if (mBounds.IsEmpty()) {
@@ -6437,7 +6435,7 @@ nsTextFrame::PaintOneShadow(const PaintShadowParams& aParams,
 
   auto* textDrawer = aParams.context->GetTextDrawer();
   if (textDrawer) {
-    wr::TextShadow wrShadow;
+    wr::Shadow wrShadow;
 
     wrShadow.offset = {
       PresContext()->AppUnitsToFloatDevPixels(aShadowDetails->mXOffset),

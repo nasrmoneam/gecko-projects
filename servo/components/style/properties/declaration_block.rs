@@ -148,11 +148,11 @@ impl<'a> Iterator for NormalDeclarationIterator<'a> {
 
 /// Iterator for AnimationValue to be generated from PropertyDeclarationBlock.
 pub struct AnimationValueIterator<'a, 'cx, 'cx_a:'cx> {
-    iter: DeclarationImportanceIterator<'a>,
+    iter: NormalDeclarationIterator<'a>,
     context: &'cx mut Context<'cx_a>,
     default_values: &'a ComputedValues,
     /// Custom properties in a keyframe if exists.
-    extra_custom_properties: &'a Option<Arc<::custom_properties::CustomPropertiesMap>>,
+    extra_custom_properties: Option<&'a Arc<::custom_properties::CustomPropertiesMap>>,
 }
 
 impl<'a, 'cx, 'cx_a:'cx> AnimationValueIterator<'a, 'cx, 'cx_a> {
@@ -160,10 +160,10 @@ impl<'a, 'cx, 'cx_a:'cx> AnimationValueIterator<'a, 'cx, 'cx_a> {
         declarations: &'a PropertyDeclarationBlock,
         context: &'cx mut Context<'cx_a>,
         default_values: &'a ComputedValues,
-       extra_custom_properties: &'a Option<Arc<::custom_properties::CustomPropertiesMap>>,
+       extra_custom_properties: Option<&'a Arc<::custom_properties::CustomPropertiesMap>>,
     ) -> AnimationValueIterator<'a, 'cx, 'cx_a> {
         AnimationValueIterator {
-            iter: declarations.declaration_importance_iter(),
+            iter: declarations.normal_declaration_iter(),
             context,
             default_values,
             extra_custom_properties,
@@ -177,14 +177,10 @@ impl<'a, 'cx, 'cx_a:'cx> Iterator for AnimationValueIterator<'a, 'cx, 'cx_a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let next = self.iter.next();
-            let (decl, importance) = match next {
-                Some(decl_and_importance) => decl_and_importance,
+            let decl = match next {
+                Some(decl) => decl,
                 None => return None,
             };
-
-            if importance.important() {
-                continue;
-            }
 
             let animation = AnimationValue::from_declaration(
                 decl,
@@ -259,7 +255,7 @@ impl PropertyDeclarationBlock {
         &'a self,
         context: &'cx mut Context<'cx_a>,
         default_values: &'a ComputedValues,
-        extra_custom_properties: &'a Option<Arc<::custom_properties::CustomPropertiesMap>>,
+        extra_custom_properties: Option<&'a Arc<::custom_properties::CustomPropertiesMap>>,
     ) -> AnimationValueIterator<'a, 'cx, 'cx_a> {
         AnimationValueIterator::new(self, context, default_values, extra_custom_properties)
     }
@@ -592,12 +588,14 @@ impl PropertyDeclarationBlock {
                 if self.declarations.len() == 1 {
                     let declaration = &self.declarations[0];
                     let custom_properties = if let Some(cv) = computed_values {
-                        // If there are extra custom properties for this declaration block,
-                        // factor them in too.
+                        // If there are extra custom properties for this
+                        // declaration block, factor them in too.
                         if let Some(block) = custom_properties_block {
+                            // FIXME(emilio): This is not super-efficient
+                            // here...
                             block.cascade_custom_properties(cv.custom_properties())
                         } else {
-                            cv.custom_properties()
+                            cv.custom_properties().cloned()
                         }
                     } else {
                         None
@@ -610,13 +608,14 @@ impl PropertyDeclarationBlock {
                         // |computed_values| is supplied, we use it to expand such variable
                         // declarations. This will be fixed properly in Gecko bug 1391537.
                         (&PropertyDeclaration::WithVariables(id, ref unparsed),
-                         Some(ref _computed_values)) => unparsed
-                            .substitute_variables(
+                         Some(ref _computed_values)) => {
+                            unparsed.substitute_variables(
                                 id,
-                                &custom_properties,
+                                custom_properties.as_ref(),
                                 QuirksMode::NoQuirks,
                             )
-                            .to_css(dest),
+                            .to_css(dest)
+                        },
                         (ref d, _) => d.to_css(dest),
                     }
                 } else {
@@ -690,21 +689,26 @@ impl PropertyDeclarationBlock {
     /// properties.
     pub fn cascade_custom_properties(
         &self,
-        inherited_custom_properties: Option<Arc<::custom_properties::CustomPropertiesMap>>,
+        inherited_custom_properties: Option<&Arc<::custom_properties::CustomPropertiesMap>>,
     ) -> Option<Arc<::custom_properties::CustomPropertiesMap>> {
         let mut custom_properties = None;
-        // FIXME: Use PrecomputedHasher instead.
-        let mut seen_custom = HashSet::new();
+        let mut seen_custom = PrecomputedHashSet::default();
 
         for declaration in self.normal_declaration_iter() {
             if let PropertyDeclaration::Custom(ref name, ref value) = *declaration {
                 ::custom_properties::cascade(
-                    &mut custom_properties, &inherited_custom_properties,
-                    &mut seen_custom, name, value.borrow());
+                    &mut custom_properties,
+                    inherited_custom_properties,
+                    &mut seen_custom,
+                    name,
+                    value.borrow(),
+                );
             }
         }
         ::custom_properties::finish_cascade(
-            custom_properties, &inherited_custom_properties)
+            custom_properties,
+            inherited_custom_properties,
+        )
     }
 }
 

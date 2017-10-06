@@ -6,7 +6,7 @@ use cssparser::{Parser, ParserInput};
 use cssparser::ToCss as ParserToCss;
 use env_logger::LogBuilder;
 use malloc_size_of::MallocSizeOfOps;
-use selectors::Element;
+use selectors::{self, Element};
 use selectors::matching::{MatchingContext, MatchingMode, matches_selector};
 use servo_arc::{Arc, ArcBorrow, RawOffsetArc};
 use std::cell::RefCell;
@@ -122,7 +122,7 @@ use style::properties::animated_properties::compare_property_priority;
 use style::properties::parse_one_declaration_into;
 use style::rule_cache::RuleCacheConditions;
 use style::rule_tree::{CascadeLevel, StyleSource};
-use style::selector_parser::PseudoElementCascadeType;
+use style::selector_parser::{PseudoElementCascadeType, SelectorImpl};
 use style::shared_lock::{SharedRwLockReadGuard, StylesheetGuards, ToCssWithGuard, Locked};
 use style::string_cache::Atom;
 use style::style_adjuster::StyleAdjuster;
@@ -182,10 +182,6 @@ pub extern "C" fn Servo_Initialize(dummy_url_data: *mut URLExtraData) {
 
     // Initialize the dummy url data
     unsafe { DUMMY_URL_DATA = dummy_url_data; }
-
-    // Set the system page size.
-    let page_size = unsafe { bindings::Gecko_GetSystemPageSize() };
-    ::hashglobe::SYSTEM_PAGE_SIZE.store(page_size, ::std::sync::atomic::Ordering::Relaxed);
 }
 
 #[no_mangle]
@@ -1523,6 +1519,22 @@ pub extern "C" fn Servo_StyleRule_SelectorMatchesElement(rule: RawServoStyleRule
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn Servo_SelectorList_Matches(
+    element: RawGeckoElementBorrowed,
+    selectors: &::selectors::SelectorList<SelectorImpl>,
+) -> bool {
+    let element = GeckoElement(element);
+    let mut context = MatchingContext::new(
+        MatchingMode::Normal,
+        None,
+        None,
+        element.owner_document_quirks_mode(),
+    );
+
+    selectors::matching::matches_selector_list(selectors, &element, &mut context)
+}
+
+#[no_mangle]
 pub extern "C" fn Servo_ImportRule_GetHref(rule: RawServoImportRuleBorrowed, result: *mut nsAString) {
     read_locked_arc(rule, |rule: &ImportRule| {
         write!(unsafe { &mut *result }, "{}", rule.url.as_str()).unwrap();
@@ -2044,7 +2056,7 @@ pub extern "C" fn Servo_ComputedValues_EqualCustomProperties(
     first: ServoComputedDataBorrowed,
     second: ServoComputedDataBorrowed
 ) -> bool {
-    first.get_custom_properties() == second.get_custom_properties()
+    first.custom_properties == second.custom_properties
 }
 
 #[no_mangle]
@@ -2958,7 +2970,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetFontFamily(declarations:
     let result = FontFamily::parse(&mut parser);
     if let Ok(family) = result {
         if parser.is_exhausted() {
-            let decl = PropertyDeclaration::FontFamily(Box::new(family));
+            let decl = PropertyDeclaration::FontFamily(family);
             write_locked_arc(declarations, |decls: &mut PropertyDeclarationBlock| {
                 decls.push(decl, Importance::Normal);
             })
@@ -3436,7 +3448,7 @@ pub extern "C" fn Servo_GetComputedKeyframeValues(keyframes: RawGeckoKeyframeLis
             let iter = guard.to_animation_value_iter(
                 &mut context,
                 &default_values,
-                &custom_properties,
+                custom_properties.as_ref(),
             );
 
             for value in iter {
@@ -3479,11 +3491,10 @@ pub extern "C" fn Servo_GetAnimationValues(declarations: RawServoDeclarationBloc
 
     let declarations = Locked::<PropertyDeclarationBlock>::as_arc(&declarations);
     let guard = declarations.read_with(&guard);
-    let no_extra_custom_properties = None; // SMIL has no extra custom properties.
     let iter = guard.to_animation_value_iter(
         &mut context,
         &default_values,
-        &no_extra_custom_properties,
+        None, // SMIL has no extra custom properties.
     );
     for (index, anim) in iter.enumerate() {
         unsafe { animation_values.set_len((index + 1) as u32) };
@@ -3524,11 +3535,10 @@ pub extern "C" fn Servo_AnimationValue_Compute(element: RawGeckoElementBorrowed,
     // We only compute the first element in declarations.
     match declarations.read_with(&guard).declaration_importance_iter().next() {
         Some((decl, imp)) if imp == Importance::Normal => {
-            let no_extra_custom_properties = None; // No extra custom properties for devtools.
             let animation = AnimationValue::from_declaration(
                 decl,
                 &mut context,
-                &no_extra_custom_properties,
+                None, // No extra custom properties for devtools.
                 default_values,
             );
             animation.map_or(RawServoAnimationValueStrong::null(), |value| {
@@ -4060,7 +4070,17 @@ pub extern "C" fn Servo_ProcessInvalidations(set: RawServoStyleSetBorrowed,
     let mut data = data.as_mut().map(|d| &mut **d);
 
     if let Some(ref mut data) = data {
-        let result = data.invalidate_style_if_needed(element, &shared_style_context, None);
+        // FIXME(emilio): an nth-index cache could be worth here, even
+        // if temporary?
+        //
+        // Also, ideally we could share them across all the elements?
+        let result = data.invalidate_style_if_needed(
+            element,
+            &shared_style_context,
+            None,
+            None,
+        );
+
         if result.has_invalidated_siblings() {
             let parent = element.traversal_parent().expect("How could we invalidate siblings without a common parent?");
             unsafe {
@@ -4090,7 +4110,23 @@ pub extern "C" fn Servo_HasPendingRestyleAncestor(element: RawGeckoElementBorrow
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_CorruptRuleHashAndCrash(set: RawServoStyleSetBorrowed, index: usize) {
-    let per_doc_data = PerDocumentStyleData::from_ffi(set).borrow();
-    per_doc_data.stylist.corrupt_rule_hash_and_crash(index);
+pub unsafe extern "C" fn Servo_SelectorList_Parse(
+    selector_list: *const nsACString,
+) -> *mut ::selectors::SelectorList<SelectorImpl> {
+    use style::selector_parser::SelectorParser;
+
+    debug_assert!(!selector_list.is_null());
+
+    let input = ::std::str::from_utf8_unchecked(&**selector_list);
+    let selector_list = match SelectorParser::parse_author_origin_no_namespace(&input) {
+        Ok(selector_list) => selector_list,
+        Err(..) => return ptr::null_mut(),
+    };
+
+    Box::into_raw(Box::new(selector_list))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Servo_SelectorList_Drop(list: *mut ::selectors::SelectorList<SelectorImpl>) {
+    let _ = Box::from_raw(list);
 }

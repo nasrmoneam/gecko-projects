@@ -2690,8 +2690,8 @@ Element::SetAttrAndNotify(int32_t aNamespaceID,
           (ns.IsEmpty() ? VoidString() : ns)
         };
 
-        nsContentUtils::EnqueueLifecycleCallback(
-          nsIDocument::eAttributeChanged, this, &args, definition);
+        nsContentUtils::EnqueueLifecycleCallback(nsIDocument::eAttributeChanged,
+          this, &args, nullptr, definition);
       }
     }
   }
@@ -2985,8 +2985,8 @@ Element::UnsetAttr(int32_t aNameSpaceID, nsIAtom* aName,
           (ns.IsEmpty() ? VoidString() : ns)
         };
 
-        nsContentUtils::EnqueueLifecycleCallback(
-          nsIDocument::eAttributeChanged, this, &args, definition);
+        nsContentUtils::EnqueueLifecycleCallback(nsIDocument::eAttributeChanged,
+          this, &args, nullptr, definition);
       }
     }
   }
@@ -3496,21 +3496,31 @@ Element::Closest(const nsAString& aSelector, ErrorResult& aResult)
 bool
 Element::Matches(const nsAString& aSelector, ErrorResult& aError)
 {
-  nsCSSSelectorList* selectorList = ParseSelectorList(aSelector, aError);
-  if (!selectorList) {
-    // Either we failed (and aError already has the exception), or this
-    // is a pseudo-element-only selector that matches nothing.
-    return false;
-  }
-
-  TreeMatchContext matchingContext(false,
-                                   nsRuleWalker::eRelevantLinkUnvisited,
-                                   OwnerDoc(),
-                                   TreeMatchContext::eNeverMatchVisited);
-  matchingContext.SetHasSpecifiedScope();
-  matchingContext.AddScopeElement(this);
-  return nsCSSRuleProcessor::SelectorListMatches(this, matchingContext,
-                                                 selectorList);
+  return WithSelectorList<bool>(
+    aSelector,
+    aError,
+    [&](const RawServoSelectorList* aList) {
+      if (!aList) {
+        return false;
+      }
+      return Servo_SelectorList_Matches(this, aList);
+    },
+    [&](nsCSSSelectorList* aList) {
+      if (!aList) {
+        // Either we failed (and aError already has the exception), or this
+        // is a pseudo-element-only selector that matches nothing.
+        return false;
+      }
+      TreeMatchContext matchingContext(false,
+                                       nsRuleWalker::eRelevantLinkUnvisited,
+                                       OwnerDoc(),
+                                       TreeMatchContext::eNeverMatchVisited);
+      matchingContext.SetHasSpecifiedScope();
+      matchingContext.AddScopeElement(this);
+      return nsCSSRuleProcessor::SelectorListMatches(this, matchingContext,
+                                                     aList);
+    }
+  );
 }
 
 static const nsAttrValue::EnumTable kCORSAttributeTable[] = {
@@ -4425,7 +4435,6 @@ NoteDirtyElement(Element* aElement, uint32_t aBits)
     // Similarly, if our parent already has the bit we're propagating, we can
     // assume everything is already set up.
     if (parent->HasAllFlags(aBits)) {
-      MOZ_ASSERT(aElement->GetComposedDoc()->GetServoRestyleRoot());
       return;
     }
 

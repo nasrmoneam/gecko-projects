@@ -1406,13 +1406,39 @@ nsIDocument::SelectorCache::~SelectorCache()
   AgeAllGenerations();
 }
 
+void
+nsIDocument::SelectorCache::SelectorList::Reset()
+{
+  if (mIsServo) {
+    if (mServo) {
+      Servo_SelectorList_Drop(mServo);
+      mServo = nullptr;
+    }
+  } else {
+    if (mGecko) {
+      delete mGecko;
+      mGecko = nullptr;
+    }
+  }
+}
+
 // CacheList takes ownership of aSelectorList.
 void nsIDocument::SelectorCache::CacheList(const nsAString& aSelector,
-                                           nsCSSSelectorList* aSelectorList)
+                                           mozilla::UniquePtr<nsCSSSelectorList>&& aSelectorList)
 {
   MOZ_ASSERT(NS_IsMainThread());
   SelectorCacheKey* key = new SelectorCacheKey(aSelector);
-  mTable.Put(key->mKey, aSelectorList);
+  mTable.Put(key->mKey, SelectorList(Move(aSelectorList)));
+  AddObject(key);
+}
+
+void nsIDocument::SelectorCache::CacheList(
+  const nsAString& aSelector,
+  UniquePtr<RawServoSelectorList>&& aSelectorList)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  SelectorCacheKey* key = new SelectorCacheKey(aSelector);
+  mTable.Put(key->mKey, SelectorList(Move(aSelectorList)));
   AddObject(key);
 }
 
@@ -2351,7 +2377,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
         // now-stale value.
         mCachedRootElement = nullptr;
       }
-      nsNodeUtils::ContentRemoved(this, content, i, previousSibling);
+      nsNodeUtils::ContentRemoved(this, content, previousSibling);
       content->UnbindFromTree();
     }
     MOZ_ASSERT(!mCachedRootElement,
@@ -9539,7 +9565,6 @@ nsDocument::OnPageHide(bool aPersisted,
   mVisible = false;
 
   UpdateVisibilityState();
-
   EnumerateExternalResources(NotifyPageHide, &aPersisted);
   EnumerateActivityObservers(NotifyActivityChanged, nullptr);
 

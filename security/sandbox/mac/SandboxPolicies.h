@@ -262,8 +262,8 @@ static const char contentSandboxRules[] = R"(
 
 ; Per-user and system-wide Extensions dir
   (allow file-read*
-      (home-regex "/Library/Application Support/[^/]+/Extensions/[^/]/")
-      (regex #"^/Library/Application Support/[^/]+/Extensions/[^/]/"))
+      (home-regex "/Library/Application Support/[^/]+/Extensions/")
+      (regex "^/Library/Application Support/[^/]+/Extensions/"))
 
 ; The following rules impose file access restrictions which get
 ; more restrictive in higher levels. When file-origin-specific
@@ -314,8 +314,7 @@ static const char contentSandboxRules[] = R"(
       (iokit-user-client-class "IOSurfaceSendRight")
       (iokit-user-client-class "IOFramebufferSharedUserClient")
       (iokit-user-client-class "AGPMClient")
-      (iokit-user-client-class "AppleGraphicsControlClient")
-      (iokit-user-client-class "AppleGraphicsPolicyClient"))
+      (iokit-user-client-class "AppleGraphicsControlClient"))
 
 ; bug 1153809
   (allow iokit-open
@@ -328,9 +327,7 @@ static const char contentSandboxRules[] = R"(
   (allow file-write-create
     (require-all
       (subpath appTempDir)
-      (require-any
-        (vnode-type REGULAR-FILE)
-        (vnode-type DIRECTORY))))
+      (vnode-type REGULAR-FILE)))
 
   ; bug 1382260
   ; We may need to load fonts from outside of the standard

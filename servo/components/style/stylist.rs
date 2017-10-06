@@ -893,7 +893,7 @@ impl Stylist {
     ) -> Arc<ComputedValues> {
         // We need to compute visited values if we have visited rules or if our
         // parent has visited values.
-        let visited_values = if inputs.visited_rules.is_some() || parent_style.get_visited_style().is_some() {
+        let visited_values = if inputs.visited_rules.is_some() || parent_style.visited_style().is_some() {
             // Slightly annoying: we know that inputs has either rules or
             // visited rules, but we can't do inputs.rules() up front because
             // maybe it just has visited rules, so can't unwrap_or.
@@ -913,11 +913,11 @@ impl Stylist {
                 // We want to use the visited bits (if any) from our parent
                 // style as our parent.
                 inherited_style =
-                    parent_style.get_visited_style().unwrap_or(parent_style);
+                    parent_style.visited_style().unwrap_or(parent_style);
                 inherited_style_ignoring_first_line =
-                    parent_style_ignoring_first_line.get_visited_style().unwrap_or(parent_style_ignoring_first_line);
+                    parent_style_ignoring_first_line.visited_style().unwrap_or(parent_style_ignoring_first_line);
                 layout_parent_style_for_visited =
-                    layout_parent_style.get_visited_style().unwrap_or(layout_parent_style);
+                    layout_parent_style.visited_style().unwrap_or(layout_parent_style);
             }
 
             Some(properties::cascade(
@@ -1508,17 +1508,6 @@ impl Stylist {
     pub fn shutdown() {
         UA_CASCADE_DATA_CACHE.lock().unwrap().clear()
     }
-
-    /// Temporary testing method. See bug 1403397.
-    pub fn corrupt_rule_hash_and_crash(&self, index: usize) {
-        let mut origin_iter = self.cascade_data.iter_origins();
-        let d = origin_iter.next().unwrap().0;
-        let mut it = d.element_map.local_name_hash.iter();
-        let nth = index % it.len();
-        let entry = it.nth(nth).unwrap();
-        let ptr = entry.0 as *const _ as *const usize as *mut usize;
-        unsafe { *ptr = 0; }
-    }
 }
 
 /// This struct holds data which users of Stylist may want to extract
@@ -1881,32 +1870,6 @@ impl CascadeData {
         }
     }
 
-    #[cfg(feature = "gecko")]
-    fn begin_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
-        self.element_map.begin_mutation();
-        self.pseudos_map.for_each(|m| m.begin_mutation());
-        if rebuild_kind.should_rebuild_invalidation() {
-            self.invalidation_map.begin_mutation();
-            self.selectors_for_cache_revalidation.begin_mutation();
-        }
-    }
-
-    #[cfg(feature = "servo")]
-    fn begin_mutation(&mut self, _: &SheetRebuildKind) {}
-
-    #[cfg(feature = "gecko")]
-    fn end_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
-        self.element_map.end_mutation();
-        self.pseudos_map.for_each(|m| m.end_mutation());
-        if rebuild_kind.should_rebuild_invalidation() {
-            self.invalidation_map.end_mutation();
-            self.selectors_for_cache_revalidation.end_mutation();
-        }
-    }
-
-    #[cfg(feature = "servo")]
-    fn end_mutation(&mut self, _: &SheetRebuildKind) {}
-
     /// Collects all the applicable media query results into `results`.
     ///
     /// This duplicates part of the logic in `add_stylesheet`, which is
@@ -1970,7 +1933,6 @@ impl CascadeData {
             self.effective_media_query_results.saw_effective(stylesheet);
         }
 
-        self.begin_mutation(&rebuild_kind);
         for rule in stylesheet.effective_rules(device, guard) {
             match *rule {
                 CssRule::Style(ref locked) => {
@@ -2007,11 +1969,8 @@ impl CascadeData {
                             None => &mut self.element_map,
                             Some(pseudo) => {
                                 self.pseudos_map
-                                    .get_or_insert_with(&pseudo.canonical(), || {
-                                        let mut map = Box::new(SelectorMap::new());
-                                        map.begin_mutation();
-                                        map
-                                    }).expect("Unexpected tree pseudo-element?")
+                                    .get_or_insert_with(&pseudo.canonical(), || Box::new(SelectorMap::new()))
+                                    .expect("Unexpected tree pseudo-element?")
                             }
                         };
 
@@ -2105,7 +2064,6 @@ impl CascadeData {
                 _ => {}
             }
         }
-        self.end_mutation(&rebuild_kind);
 
         Ok(())
     }
