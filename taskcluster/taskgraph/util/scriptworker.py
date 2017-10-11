@@ -191,16 +191,6 @@ BALROG_CHANNEL_SCOPES = {
     'default': [
         'project:releng:balrog:channel:nightly',
         'project:releng:balrog:channel:nightly-old-id',
-        'project:releng:balrog:channel:aurora'
-        'project:releng:balrog:channel:beta',
-        'project:releng:balrog:channel:beta-localtest',
-        'project:releng:balrog:channel:beta-cdntest',
-        'project:releng:balrog:channel:release',
-        'project:releng:balrog:channel:release-localtest',
-        'project:releng:balrog:channel:release-cdntest',
-        'project:releng:balrog:channel:esr',
-        'project:releng:balrog:channel:esr-localtest',
-        'project:releng:balrog:channel:esr-cdntest'
     ]
 }
 
