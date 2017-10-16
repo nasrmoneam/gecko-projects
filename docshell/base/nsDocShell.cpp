@@ -362,7 +362,7 @@ ForEachPing(nsIContent* aContent, ForEachPingCallback aCallback, void* aClosure)
     return;
   }
 
-  RefPtr<nsIAtom> pingAtom = NS_Atomize("ping");
+  RefPtr<nsAtom> pingAtom = NS_Atomize("ping");
   if (!pingAtom) {
     return;
   }
@@ -10011,6 +10011,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
     int16_t shouldLoad = nsIContentPolicy::ACCEPT;
     rv = NS_CheckContentLoadPolicy(contentType,
                                    aURI,
+                                   // This is a top-level load, so the loading
+                                   // principal is null.
+                                   nullptr,
                                    aTriggeringPrincipal,
                                    requestingContext,
                                    EmptyCString(),  // mime guess
@@ -15066,7 +15069,7 @@ nsDocShell::ChannelIntercepted(nsIInterceptedChannel* aChannel)
 {
   RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
   if (!swm) {
-    aChannel->Cancel(NS_ERROR_INTERCEPTION_FAILED);
+    aChannel->CancelInterception(NS_ERROR_INTERCEPTION_FAILED);
     return NS_OK;
   }
 

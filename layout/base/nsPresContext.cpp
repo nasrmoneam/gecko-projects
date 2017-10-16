@@ -1323,7 +1323,7 @@ nsPresContext::SetImageAnimationMode(uint16_t aMode)
   mImageAnimationMode = aMode;
 }
 
-already_AddRefed<nsIAtom>
+already_AddRefed<nsAtom>
 nsPresContext::GetContentLanguage() const
 {
   nsAutoString language;
@@ -1868,16 +1868,17 @@ nsPresContext::SysColorChangedInternal()
 void
 nsPresContext::RefreshSystemMetrics()
 {
-  // This will force the system metrics to be generated the next time they're used
+  // This will force the system metrics to be generated the next time they're
+  // used.
   nsCSSRuleProcessor::FreeSystemMetrics();
 
-  // Changes to system metrics can change media queries on them, or
-  // :-moz-system-metric selectors (which requires eRestyle_Subtree).
+  // Changes to system metrics can change media queries on them.
+  //
   // Changes in theme can change system colors (whose changes are
   // properly reflected in computed style data), system fonts (whose
   // changes are not), and -moz-appearance (whose changes likewise are
-  // not), so we need to reflow.
-  MediaFeatureValuesChanged(eRestyle_Subtree, NS_STYLE_HINT_REFLOW);
+  // not), so we need to recascade for the first, and reflow for the rest.
+  MediaFeatureValuesChanged(eRestyle_ForceDescendants, NS_STYLE_HINT_REFLOW);
 }
 
 void
@@ -1969,7 +1970,7 @@ nsPresContext::UIResolutionChangedInternalScale(double aScale)
 void
 nsPresContext::EmulateMedium(const nsAString& aMediaType)
 {
-  nsIAtom* previousMedium = Medium();
+  nsAtom* previousMedium = Medium();
   mIsEmulatingMedia = true;
 
   nsAutoString mediaType;
@@ -1983,7 +1984,7 @@ nsPresContext::EmulateMedium(const nsAString& aMediaType)
 
 void nsPresContext::StopEmulatingMedium()
 {
-  nsIAtom* previousMedium = Medium();
+  nsAtom* previousMedium = Medium();
   mIsEmulatingMedia = false;
   if (Medium() != previousMedium) {
     MediaFeatureValuesChanged(nsRestyleHint(0), nsChangeHint(0));
@@ -1991,7 +1992,7 @@ void nsPresContext::StopEmulatingMedium()
 }
 
 void
-nsPresContext::ForceCacheLang(nsIAtom *aLanguage)
+nsPresContext::ForceCacheLang(nsAtom *aLanguage)
 {
   // force it to be cached
   GetDefaultFont(kPresContext_DefaultVariableFont_ID, aLanguage);
@@ -2002,7 +2003,7 @@ void
 nsPresContext::CacheAllLangs()
 {
   if (mFontGroupCacheDirty) {
-    RefPtr<nsIAtom> thisLang = nsStyleFont::GetLanguage(this);
+    RefPtr<nsAtom> thisLang = nsStyleFont::GetLanguage(this);
     GetDefaultFont(kPresContext_DefaultVariableFont_ID, thisLang.get());
     GetDefaultFont(kPresContext_DefaultVariableFont_ID, nsGkAtoms::x_math);
     // https://bugzilla.mozilla.org/show_bug.cgi?id=1362599#c12
@@ -2126,7 +2127,7 @@ nsPresContext::MediaFeatureValuesChanged(nsRestyleHint aRestyleHint,
     }
 
     // Now iterate our local array of the lists.
-    for (auto mql : localMediaQueryLists) {
+    for (const auto& mql : localMediaQueryLists) {
       nsAutoMicroTask mt;
       mql->MaybeNotify();
     }
@@ -2253,16 +2254,29 @@ nsPresContext::HasAuthorSpecifiedRules(const nsIFrame* aFrame,
   }
   Element* elem = aFrame->GetContent()->AsElement();
 
-  MOZ_ASSERT(elem->GetPseudoElementType() ==
-             aFrame->StyleContext()->GetPseudoType());
-  if (elem->HasServoData()) {
-    return Servo_HasAuthorSpecifiedRules(elem,
-                                         aRuleTypeMask,
-                                         UseDocumentColors());
-  } else {
+  // We need to handle non-generated content pseudos too, so we use
+  // the parent of generated content pseudo to be consistent.
+  if (elem->GetPseudoElementType() != CSSPseudoElementType::NotPseudo) {
+    MOZ_ASSERT(elem->GetParent(), "Pseudo element has no parent element?");
+    elem = elem->GetParent()->AsElement();
+  }
+  if (MOZ_UNLIKELY(!elem->HasServoData())) {
     // Probably shouldn't happen, but does. See bug 1387953
     return false;
   }
+
+  nsStyleContext* styleContext = aFrame->StyleContext();
+  CSSPseudoElementType pseudoType = styleContext->GetPseudoType();
+  // Anonymous boxes are more complicated, and we just assume that they
+  // cannot have any author-specified rules here.
+  if (pseudoType == CSSPseudoElementType::InheritingAnonBox ||
+      pseudoType == CSSPseudoElementType::NonInheritingAnonBox) {
+    return false;
+  }
+  return Servo_HasAuthorSpecifiedRules(styleContext->AsServo(),
+                                       elem, pseudoType,
+                                       aRuleTypeMask,
+                                       UseDocumentColors());
 }
 
 gfxUserFontSet*

@@ -289,7 +289,7 @@ function getTestPlugin(aName) {
   return null;
 }
 
-this.OnRefTestLoad = function OnRefTestLoad(win)
+function OnRefTestLoad(win)
 {
     gCrashDumpDir = CC[NS_DIRECTORY_SERVICE_CONTRACTID]
                     .getService(CI.nsIProperties)
@@ -554,7 +554,6 @@ function StartTests()
         // Filter tests which will be skipped to get a more even distribution when chunking
         // tURLs is a temporary array containing all active tests
         var tURLs = new Array();
-        var tIDs = new Array();
         for (var i = 0; i < gURLs.length; ++i) {
             if (gURLs[i].expected == EXPECTED_DEATH)
                 continue;
@@ -566,13 +565,9 @@ function StartTests()
                 continue;
 
             tURLs.push(gURLs[i]);
-            tIDs.push(gURLs[i].identifier);
         }
 
-        if (gStartAfter === undefined && !gSuiteStarted) {
-            logger.suiteStart(tIDs, {"skipped": gURLs.length - tURLs.length});
-            gSuiteStarted = true
-        }
+        var numActiveTests = tURLs.length;
 
         if (gTotalChunks > 0 && gThisChunk > 0) {
             // Calculate start and end indices of this chunk if tURLs array were
@@ -580,6 +575,7 @@ function StartTests()
             var testsPerChunk = tURLs.length / gTotalChunks;
             var start = Math.round((gThisChunk-1) * testsPerChunk);
             var end = Math.round(gThisChunk * testsPerChunk);
+            numActiveTests = end - start;
 
             // Map these indices onto the gURLs array. This avoids modifying the
             // gURLs array which prevents skipped tests from showing up in the log
@@ -590,6 +586,14 @@ function StartTests()
                 "tests " + (start+1) + "-" + end + "/" + gURLs.length);
 
             gURLs = gURLs.slice(start, end);
+        }
+
+        if (gStartAfter === undefined && !gSuiteStarted) {
+            var ids = gURLs.map(function(obj) {
+                return obj.identifier;
+            });
+            logger.suiteStart(ids, {"skipped": gURLs.length - numActiveTests});
+            gSuiteStarted = true
         }
 
         if (gShuffle) {
@@ -1737,10 +1741,10 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
             StartCurrentURI(2);
             break;
         case 2:
-            var pathToTestPdf = gTestPrintOutput;
-            var pathToRefPdf = typeSpecificResults;
+            let pathToTestPdf = gTestPrintOutput;
+            let pathToRefPdf = typeSpecificResults;
             comparePdfs(pathToTestPdf, pathToRefPdf, function(error, results) {
-                var expected = gURLs[0].expected;
+                let expected = gURLs[0].expected;
                 // TODO: We should complain here if results is empty!
                 // (If it's empty, we'll spuriously succeed, regardless of
                 // our expectations)
@@ -1751,9 +1755,9 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                     logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1],
                                    error.message, null, extra);
                 } else {
-                    var outputPair = outputs[expected];
+                    let outputPair = outputs[expected];
                     if (expected === EXPECTED_FAIL) {
-                       var failureResults = results.filter(function (result) { return !result.passed });
+                       let failureResults = results.filter(function (result) { return !result.passed });
                        if (failureResults.length > 0) {
                          // We got an expected failure. Let's get rid of the
                          // passes from the results so we don't trigger
@@ -1765,7 +1769,7 @@ function RecordResult(testRunTime, errorMsg, typeSpecificResults)
                     }
                     results.forEach(function(result) {
                         output = outputPair[result.passed];
-                        var extra = { status_msg: output.n };
+                        let extra = { status_msg: output.n };
                         ++gTestResults[output.n];
                         logger.testEnd(gURLs[0].identifier, output.s[0], output.s[1],
                                        result.description, null, extra);
@@ -2367,9 +2371,9 @@ function readPdf(path, callback) {
     OS.File.open(path, { read: true }).then(function (file) {
         file.flush().then(function() {
             file.read().then(function (data) {
-                var fakePort = new PDFJS.main.LoopbackPort(true);
+                let fakePort = new PDFJS.main.LoopbackPort(true);
                 PDFJS.worker.WorkerMessageHandler.initializeFromPort(fakePort);
-                var myWorker = new PDFJS.main.PDFWorker("worker", fakePort);
+                let myWorker = new PDFJS.main.PDFWorker("worker", fakePort);
                 PDFJS.main.PDFJS.getDocument({
                     worker: myWorker,
                     data: data
@@ -2401,30 +2405,30 @@ function comparePdfs(pathToTestPdf, pathToRefPdf, callback) {
             });
         });
     })).then(function(pdfs) {
-        var numberOfPages = pdfs[1].numPages;
-        var sameNumberOfPages = numberOfPages === pdfs[0].numPages;
+        let numberOfPages = pdfs[1].numPages;
+        let sameNumberOfPages = numberOfPages === pdfs[0].numPages;
 
-        var resultPromises = [Promise.resolve({
+        let resultPromises = [Promise.resolve({
             passed: sameNumberOfPages,
             description: "Expected number of pages: " + numberOfPages +
                                              ", got " + pdfs[0].numPages
         })];
 
         if (sameNumberOfPages) {
-            for (var i = 0; i < numberOfPages; i++) {
-                var pageNum = i + 1;
-                var testPagePromise = pdfs[0].getPage(pageNum);
-                var refPagePromise = pdfs[1].getPage(pageNum);
+            for (let i = 0; i < numberOfPages; i++) {
+                let pageNum = i + 1;
+                let testPagePromise = pdfs[0].getPage(pageNum);
+                let refPagePromise = pdfs[1].getPage(pageNum);
                 resultPromises.push(new Promise(function(resolve, reject) {
                     Promise.all([testPagePromise, refPagePromise]).then(function(pages) {
-                        var testTextPromise = pages[0].getTextContent();
-                        var refTextPromise = pages[1].getTextContent();
+                        let testTextPromise = pages[0].getTextContent();
+                        let refTextPromise = pages[1].getTextContent();
                         Promise.all([testTextPromise, refTextPromise]).then(function(texts) {
-                            var testTextItems = texts[0].items;
-                            var refTextItems = texts[1].items;
-                            var testText;
-                            var refText;
-                            var passed = refTextItems.every(function(o, i) {
+                            let testTextItems = texts[0].items;
+                            let refTextItems = texts[1].items;
+                            let testText;
+                            let refText;
+                            let passed = refTextItems.every(function(o, i) {
                                 refText = o.str;
                                 if (!testTextItems[i]) {
                                     return false;
@@ -2432,7 +2436,7 @@ function comparePdfs(pathToTestPdf, pathToRefPdf, callback) {
                                 testText = testTextItems[i].str;
                                 return testText === refText;
                             });
-                            var description;
+                            let description;
                             if (passed) {
                                 if (testTextItems.length > refTextItems.length) {
                                     passed = false;

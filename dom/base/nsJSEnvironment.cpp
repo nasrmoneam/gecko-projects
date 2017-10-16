@@ -29,7 +29,7 @@
 #include "nsIPrompt.h"
 #include "nsIObserverService.h"
 #include "nsITimer.h"
-#include "nsIAtom.h"
+#include "nsAtom.h"
 #include "nsContentUtils.h"
 #include "mozilla/EventDispatcher.h"
 #include "nsIContent.h"
@@ -61,6 +61,7 @@
 #include "mozilla/dom/DOMExceptionBinding.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ErrorEvent.h"
+#include "mozilla/dom/FetchUtil.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/CycleCollectedJSRuntime.h"
 #include "mozilla/SystemGroup.h"
@@ -575,8 +576,6 @@ DumpString(const nsAString &str)
 
 #define JS_OPTIONS_DOT_STR "javascript.options."
 
-static const char js_options_dot_str[]   = JS_OPTIONS_DOT_STR;
-
 nsJSContext::nsJSContext(bool aGCOnDestruction,
                          nsIScriptGlobalObject* aGlobalObject)
   : mWindowProxy(nullptr)
@@ -636,7 +635,7 @@ NS_IMPL_CYCLE_COLLECTING_RELEASE(nsJSContext)
 
 #ifdef DEBUG
 bool
-AtomIsEventHandlerName(nsIAtom *aName)
+AtomIsEventHandlerName(nsAtom *aName)
 {
   const char16_t *name = aName->GetUTF16String();
 
@@ -1239,8 +1238,8 @@ static void
 FireForgetSkippable(uint32_t aSuspected, bool aRemoveChildless,
                     TimeStamp aDeadline)
 {
-  AutoProfilerTracing
-    tracing("CC", aDeadline.IsNull() ? "ForgetSkippable" : "IdleForgetSkippable");
+  AUTO_PROFILER_TRACING("CC", aDeadline.IsNull() ? "ForgetSkippable"
+                                                 : "IdleForgetSkippable");
   PRTime startTime = PR_Now();
   TimeStamp startTimeStamp = TimeStamp::Now();
   FinishAnyIncrementalGC();
@@ -1489,8 +1488,7 @@ nsJSContext::RunCycleCollectorSlice(TimeStamp aDeadline)
     return;
   }
 
-  AutoProfilerTracing
-    tracing("CC", aDeadline.IsNull() ? "CCSlice" : "IdleCCSlice");
+  AUTO_PROFILER_TRACING("CC", aDeadline.IsNull() ? "CCSlice" : "IdleCCSlice");
 
   AUTO_PROFILER_LABEL("nsJSContext::RunCycleCollectorSlice", CC);
 
@@ -2635,6 +2633,15 @@ DispatchToEventLoop(void* closure, JS::Dispatchable* aDispatchable)
   return true;
 }
 
+static bool
+ConsumeStream(JSContext* aCx,
+              JS::HandleObject aObj,
+              JS::MimeType aMimeType,
+              JS::StreamConsumer* aConsumer)
+{
+  return FetchUtil::StreamResponseToJS(aCx, aObj, aMimeType, aConsumer, nullptr);
+}
+
 void
 nsJSContext::EnsureStatics()
 {
@@ -2663,6 +2670,7 @@ nsJSContext::EnsureStatics()
   JS::SetAsmJSCacheOps(jsapi.cx(), &asmJSCacheOps);
 
   JS::InitDispatchToEventLoop(jsapi.cx(), DispatchToEventLoop, nullptr);
+  JS::InitConsumeStreamCallback(jsapi.cx(), ConsumeStream);
 
   // Set these global xpconnect options...
   Preferences::RegisterCallbackAndCall(SetMemoryPrefChangedCallbackMB,

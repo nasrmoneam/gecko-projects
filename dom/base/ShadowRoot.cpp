@@ -195,7 +195,7 @@ ShadowRoot::GetElementsByTagNameNS(const nsAString& aNamespaceURI,
 }
 
 void
-ShadowRoot::AddToIdTable(Element* aElement, nsIAtom* aId)
+ShadowRoot::AddToIdTable(Element* aElement, nsAtom* aId)
 {
   nsIdentifierMapEntry* entry = mIdentifierMap.PutEntry(aId);
   if (entry) {
@@ -204,7 +204,7 @@ ShadowRoot::AddToIdTable(Element* aElement, nsIAtom* aId)
 }
 
 void
-ShadowRoot::RemoveFromIdTable(Element* aElement, nsIAtom* aId)
+ShadowRoot::RemoveFromIdTable(Element* aElement, nsAtom* aId)
 {
   nsIdentifierMapEntry* entry = mIdentifierMap.GetEntry(aId);
   if (entry) {
@@ -477,7 +477,7 @@ void
 ShadowRoot::AttributeChanged(nsIDocument* aDocument,
                              Element* aElement,
                              int32_t aNameSpaceID,
-                             nsIAtom* aAttribute,
+                             nsAtom* aAttribute,
                              int32_t aModType,
                              const nsAttrValue* aOldValue)
 {
@@ -508,7 +508,7 @@ ShadowRoot::ContentAppended(nsIDocument* aDocument,
     // Add insertion point to destination insertion points of fallback content.
     if (nsContentUtils::IsContentInsertionPoint(aContainer)) {
       HTMLContentElement* content = HTMLContentElement::FromContent(aContainer);
-      if (content->MatchedNodes().IsEmpty()) {
+      if (content && content->MatchedNodes().IsEmpty()) {
         currentChild->DestInsertionPoints().AppendElement(aContainer);
       }
     }
@@ -538,7 +538,7 @@ ShadowRoot::ContentInserted(nsIDocument* aDocument,
     // Add insertion point to destination insertion points of fallback content.
     if (nsContentUtils::IsContentInsertionPoint(aContainer)) {
       HTMLContentElement* content = HTMLContentElement::FromContent(aContainer);
-      if (content->MatchedNodes().IsEmpty()) {
+      if (content && content->MatchedNodes().IsEmpty()) {
         aChild->DestInsertionPoints().AppendElement(aContainer);
       }
     }
@@ -563,7 +563,7 @@ ShadowRoot::ContentRemoved(nsIDocument* aDocument,
   // fallback content.
   if (nsContentUtils::IsContentInsertionPoint(aContainer)) {
     HTMLContentElement* content = HTMLContentElement::FromContent(aContainer);
-    if (content->MatchedNodes().IsEmpty()) {
+    if (content && content->MatchedNodes().IsEmpty()) {
       aChild->DestInsertionPoints().Clear();
     }
   }

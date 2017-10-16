@@ -193,8 +193,7 @@ nsInlineFrame::DestroyFrom(nsIFrame* aDestructRoot)
     // Fixup the parent pointers for any child frames on the OverflowList.
     // nsIFrame::DestroyFrom depends on that to find the sticky scroll
     // container (an ancestor).
-    nsIFrame* lineContainer = nsLayoutUtils::FindNearestBlockAncestor(this);
-    DrainSelfOverflowListInternal(eForDestroy, lineContainer);
+    overflowFrames->ApplySetParent(this);
   }
   nsContainerFrame::DestroyFrom(aDestructRoot);
 }
@@ -426,7 +425,7 @@ nsInlineFrame::Reflow(nsPresContext*          aPresContext,
 
 nsresult
 nsInlineFrame::AttributeChanged(int32_t aNameSpaceID,
-                                nsIAtom* aAttribute,
+                                nsAtom* aAttribute,
                                 int32_t aModType)
 {
   nsresult rv =
@@ -460,8 +459,7 @@ nsInlineFrame::DrainSelfOverflowListInternal(DrainFlags aFlags,
       if (aLineContainer && aLineContainer->GetPrevContinuation()) {
         ReparentFloatsForInlineChild(aLineContainer, firstChild, true);
       }
-      const bool doReparentSC =
-        (aFlags & eInFirstLine) && !(aFlags & eForDestroy);
+      const bool doReparentSC = (aFlags & eInFirstLine);
       RestyleManager* restyleManager = PresContext()->RestyleManager();
       for (nsIFrame* f = firstChild; f; f = f->GetNextSibling()) {
         f->SetParent(this);
@@ -1015,13 +1013,6 @@ nsInlineFrame::UpdateStyleOfOwnedAnonBoxesForIBSplit(
     }
 
     nsIFrame* nextInline = blockFrame->GetProperty(nsIFrame::IBSplitSibling());
-
-    // This check is here due to bug 1405443.  Please remove it once
-    // that bug is fixed.
-    if (!nextInline) {
-      break;
-    }
-
     MOZ_ASSERT(nextInline, "There is always a trailing inline in an IB split");
 
     for (nsIFrame* cont = nextInline; cont; cont = cont->GetNextContinuation()) {

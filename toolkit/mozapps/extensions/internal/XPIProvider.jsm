@@ -883,6 +883,7 @@ function createAddonDetails(id, aAddon) {
     runInSafeMode: aAddon.runInSafeMode,
     dependencies: aAddon.dependencies,
     hasEmbeddedWebExtension: aAddon.hasEmbeddedWebExtension,
+    startupData: aAddon.startupData,
   };
 }
 
@@ -949,7 +950,7 @@ function syncLoadManifestFromFile(aFile, aInstallLocation) {
     result = val;
   }, val => {
     success = false;
-    result = val
+    result = val;
   });
 
   Services.tm.spinEventLoopUntil(() => success !== undefined);
@@ -1093,7 +1094,7 @@ function getDirectoryEntries(aDir, aSortEntries) {
       });
     }
 
-    return entries
+    return entries;
   } catch (e) {
     if (aDir.exists()) {
       logger.warn("Can't iterate directory " + aDir.path, e);
@@ -1135,6 +1136,7 @@ const JSON_FIELDS = Object.freeze([
   "lastModifiedTime",
   "path",
   "runInSafeMode",
+  "startupData",
   "type",
   "version",
 ]);
@@ -1232,7 +1234,7 @@ class XPIState {
     return this.file && this.file.path;
   }
   set path(path) {
-    this.file = getFile(path, this.location.dir)
+    this.file = getFile(path, this.location.dir);
   }
 
   /**
@@ -1273,6 +1275,9 @@ class XPIState {
       json.dependencies = this.dependencies;
       json.runInSafeMode = this.runInSafeMode;
       json.hasEmbeddedWebExtension = this.hasEmbeddedWebExtension;
+    }
+    if (this.startupData) {
+      json.startupData = this.startupData;
     }
     return json;
   }
@@ -1326,6 +1331,7 @@ class XPIState {
     this.version = aDBAddon.version;
     this.type = aDBAddon.type;
     this.enableShims = this.type == "extension" && !aDBAddon.multiprocessCompatible;
+    this.startupData = aDBAddon.startupData;
 
     this.bootstrapped = !!aDBAddon.bootstrap;
     if (this.bootstrapped) {
@@ -1739,7 +1745,7 @@ this.XPIStates = {
         path: OS.Path.join(OS.Constants.Path.profileDir, FILE_XPI_STATES),
         finalizeAt: AddonManager.shutdown,
         compression: "lz4",
-      })
+      });
       this._jsonFile.data = this;
     }
 
@@ -1886,7 +1892,7 @@ this.XPIProvider = {
       }
 
       res.add(addon.id);
-    }
+    };
 
     Object.values(addons).forEach(add);
 
@@ -2714,7 +2720,7 @@ this.XPIProvider = {
         return false;
 
       return true;
-    }
+    };
 
     if (!Array.from(addonList.values()).every(item => item.path && item.addon && validateAddon(item))) {
       throw new Error("Rejecting updated system add-on set that either could not " +
@@ -3084,7 +3090,7 @@ this.XPIProvider = {
 
       if (addon.id != id) {
         logger.warn("File entry " + entry.path + " contains an add-on with an " +
-             "incorrect ID")
+             "incorrect ID");
         continue;
       }
 
@@ -3116,7 +3122,7 @@ this.XPIProvider = {
         XPIStates.addAddon(addon);
         logger.debug("Installed distribution add-on " + id);
 
-        Services.prefs.setBoolPref(PREF_BRANCH_INSTALLED_ADDON + id, true)
+        Services.prefs.setBoolPref(PREF_BRANCH_INSTALLED_ADDON + id, true);
 
         // aManifests may contain a copy of a newly installed add-on's manifest
         // and we'll have overwritten that so instead cache our install manifest
@@ -4338,9 +4344,9 @@ this.XPIProvider = {
     } else {
       let uri = getURIForResourceInFile(aFile, "bootstrap.js").spec;
       if (aType == "dictionary")
-        uri = "resource://gre/modules/addons/SpellCheckDictionaryBootstrap.js"
+        uri = "resource://gre/modules/addons/SpellCheckDictionaryBootstrap.js";
       else if (aType == "apiextension")
-        uri = "resource://gre/modules/addons/APIExtensionBootstrap.js"
+        uri = "resource://gre/modules/addons/APIExtensionBootstrap.js";
 
       activeAddon.bootstrapScope =
         new Cu.Sandbox(principal, { sandboxName: uri,
@@ -4476,6 +4482,10 @@ this.XPIProvider = {
         installPath: aFile.clone(),
         resourceURI: getURIForResourceInFile(aFile, "")
       };
+
+      if (aMethod == "startup" && aAddon.startupData) {
+        params.startupData = aAddon.startupData;
+      }
 
       if (aExtraParams) {
         for (let key in aExtraParams) {
@@ -4922,6 +4932,7 @@ AddonInternal.prototype = {
   foreignInstall: false,
   seen: true,
   skinnable: false,
+  startupData: null,
 
   /**
    * @property {Array<string>} dependencies
@@ -4990,7 +5001,7 @@ AddonInternal.prototype = {
     switch (this._installLocation.name) {
       case KEY_APP_SYSTEM_ADDONS:
         // System add-ons must be signed by the system key.
-        return this.signedState == AddonManager.SIGNEDSTATE_SYSTEM
+        return this.signedState == AddonManager.SIGNEDSTATE_SYSTEM;
 
       case KEY_APP_SYSTEM_DEFAULTS:
       case KEY_APP_TEMPORARY:
@@ -5079,7 +5090,7 @@ AddonInternal.prototype = {
     if (app.id == Services.appinfo.ID)
       version = aAppVersion;
     else if (app.id == TOOLKIT_ID)
-      version = aPlatformVersion
+      version = aPlatformVersion;
 
     // Only extensions and dictionaries can be compatible by default; themes
     // and language packs always use strict compatibility checking.
@@ -5113,7 +5124,7 @@ AddonInternal.prototype = {
     }
 
     return (Services.vc.compare(version, minVersion) >= 0) &&
-           (Services.vc.compare(version, maxVersion) <= 0)
+           (Services.vc.compare(version, maxVersion) <= 0);
   },
 
   get matchingTargetApplication() {
@@ -5803,7 +5814,7 @@ AddonWrapper.prototype = {
         let addonFile = addon.getResourceURI;
         XPIProvider.updateAddonDisabledState(addon, true);
         Services.obs.notifyObservers(addonFile, "flush-cache-entry");
-        XPIProvider.updateAddonDisabledState(addon, false)
+        XPIProvider.updateAddonDisabledState(addon, false);
         resolve();
       } else {
         // This function supports re-installing an existing add-on.
@@ -5993,7 +6004,7 @@ class DirectoryInstallLocation {
     this._name = aName;
     this.locked = true;
     this._directory = aDirectory;
-    this._scope = aScope
+    this._scope = aScope;
     this._IDToFileMap = {};
     this._linkedAddons = [];
 
@@ -6332,7 +6343,7 @@ class MutableDirectoryInstallLocation extends DirectoryInstallLocation {
         flushJarCache(file);
         transaction.moveUnder(file, trashDir);
       }
-    }
+    };
 
     // If any of these operations fails the finally block will clean up the
     // temporary directory
@@ -6831,7 +6842,7 @@ class SystemAddonInstallLocation extends MutableDirectoryInstallLocation {
         resumeFn = () => {
           logger.info(`${install.addon.id} has resumed a previously postponed addon set`);
           install.installLocation.resumeAddonSet(installs);
-        }
+        };
       }
       await install.postpone(resumeFn);
     }
@@ -6844,7 +6855,7 @@ class SystemAddonInstallLocation extends MutableDirectoryInstallLocation {
       for (let addon of aAddons) {
         state.addons[addon.id] = {
           version: addon.version
-        }
+        };
       }
 
       previousState = SystemAddonInstallLocation._loadAddonSet();
@@ -6982,7 +6993,7 @@ const TemporaryInstallLocation = {
   installAddon: () => {},
   uninstallAddon: (aAddon) => {},
   getStagingDir: () => {},
-}
+};
 
 /**
  * An object that identifies a registry install location for add-ons. The location

@@ -21,8 +21,7 @@ var gEditItemOverlay = {
     if (!("uris" in aInitInfo) && !("node" in aInitInfo))
       throw new Error("Neither node nor uris set for pane info");
 
-    // Once we stop supporting legacy add-ons the code should throw if a node is
-    // not passed.
+    // We either pass a node or uris.
     let node = "node" in aInitInfo ? aInitInfo.node : null;
 
     // Since there's no true UI for folder shortcuts (they show up just as their target
@@ -342,7 +341,7 @@ var gEditItemOverlay = {
       let curentURITags = PlacesUtils.tagging.getTagsForURI(uri);
       for (let tag of commonTags) {
         if (!curentURITags.includes(tag)) {
-          commonTags.delete(tag)
+          commonTags.delete(tag);
           if (commonTags.size == 0)
             return this._paneInfo.cachedCommonTags = [];
         }
@@ -743,7 +742,7 @@ var gEditItemOverlay = {
       this._element("chooseFolderSeparator").hidden =
         this._element("chooseFolderMenuItem").hidden = false;
     } else {
-      expander.className = "expander-up"
+      expander.className = "expander-up";
       expander.setAttribute("tooltiptext",
                             expander.getAttribute("tooltiptextup"));
       folderTreeRow.collapsed = false;

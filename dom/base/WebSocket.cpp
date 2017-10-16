@@ -1603,7 +1603,8 @@ WebSocketImpl::Init(JSContext* aCx,
     int16_t shouldLoad = nsIContentPolicy::ACCEPT;
     rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_WEBSOCKET,
                                    uri,
-                                   aPrincipal,
+                                   aPrincipal, // loading principal
+                                   aPrincipal, // triggering principal
                                    originDoc,
                                    EmptyCString(),
                                    nullptr,
@@ -2355,14 +2356,14 @@ WebSocketImpl::UpdateURI()
 }
 
 void
-WebSocket::EventListenerAdded(nsIAtom* aType)
+WebSocket::EventListenerAdded(nsAtom* aType)
 {
   AssertIsOnMainThread();
   UpdateMustKeepAlive();
 }
 
 void
-WebSocket::EventListenerRemoved(nsIAtom* aType)
+WebSocket::EventListenerRemoved(nsAtom* aType)
 {
   AssertIsOnMainThread();
   UpdateMustKeepAlive();

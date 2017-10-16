@@ -556,9 +556,7 @@ KeyframeEffectReadOnly::EnsureBaseStyle(
     aBaseStyleContext =
       aPresContext->StyleSet()->AsServo()->GetBaseContextForElement(
           mTarget->mElement,
-          nullptr,
           aPresContext,
-          nullptr,
           aPseudoType,
           aComputedStyle);
   }
@@ -1027,7 +1025,7 @@ KeyframeEffectReadOnly::GetTargetStyleContext()
   MOZ_ASSERT(mTarget,
              "Should only have a presshell when we have a target element");
 
-  nsIAtom* pseudo = mTarget->mPseudoType < CSSPseudoElementType::Count
+  nsAtom* pseudo = mTarget->mPseudoType < CSSPseudoElementType::Count
                     ? nsCSSPseudoElements::GetPseudoAtom(mTarget->mPseudoType)
                     : nullptr;
 

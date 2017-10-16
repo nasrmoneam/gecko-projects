@@ -98,7 +98,6 @@ public:
   NS_IMETHOD GetProtocolVersion(nsACString& aProtocolVersion) override;
   // nsIHttpChannelInternal
   NS_IMETHOD SetupFallbackChannel(const char *aFallbackKey) override;
-  NS_IMETHOD ForceIntercepted(uint64_t aInterceptionID) override;
   // nsISupportsPriority
   NS_IMETHOD SetPriority(int32_t value) override;
   // nsIClassOfService
@@ -132,6 +131,7 @@ protected:
                                              const nsHttpHeaderArray& requestHeaders,
                                              const bool& isFromCache,
                                              const bool& cacheEntryAvailable,
+                                             const uint64_t& cacheEntryId,
                                              const int32_t& cacheFetchCount,
                                              const uint32_t& cacheExpirationTime,
                                              const nsCString& cachedCharset,
@@ -277,6 +277,12 @@ private:
   // ensure Cacnel is processed before any other channel events.
   void CancelOnMainThread(nsresult aRv);
 
+  void
+  SynthesizeResponseStartTime(const TimeStamp& aTime);
+
+  void
+  SynthesizeResponseEndTime(const TimeStamp& aTime);
+
   RequestHeaderTuples mClientSetRequestHeaders;
   RefPtr<nsInputStreamPump> mSynthesizedResponsePump;
   nsCOMPtr<nsIInputStream> mSynthesizedInput;
@@ -284,6 +290,7 @@ private:
 
   bool mIsFromCache;
   bool mCacheEntryAvailable;
+  uint64_t mCacheEntryId;
   bool mAltDataCacheEntryAvailable;
   int32_t      mCacheFetchCount;
   uint32_t     mCacheExpirationTime;
@@ -380,6 +387,7 @@ private:
                       const nsHttpHeaderArray& requestHeaders,
                       const bool& isFromCache,
                       const bool& cacheEntryAvailable,
+                      const uint64_t& cacheEntryId,
                       const int32_t& cacheFetchCount,
                       const uint32_t& cacheExpirationTime,
                       const nsCString& cachedCharset,

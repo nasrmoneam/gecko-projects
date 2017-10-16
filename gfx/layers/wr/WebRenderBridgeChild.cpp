@@ -71,8 +71,8 @@ WebRenderBridgeChild::AddWebRenderParentCommands(const nsTArray<WebRenderParentC
   mParentCommands.AppendElements(aCommands);
 }
 
-bool
-WebRenderBridgeChild::BeginTransaction(const gfx::IntSize& aSize)
+void
+WebRenderBridgeChild::BeginTransaction()
 {
   MOZ_ASSERT(!mDestroyed);
 
@@ -80,7 +80,6 @@ WebRenderBridgeChild::BeginTransaction(const gfx::IntSize& aSize)
   mIsInTransaction = true;
   mReadLockSequenceNumber = 0;
   mReadLocks.AppendElement();
-  return true;
 }
 
 void
@@ -159,6 +158,28 @@ WebRenderBridgeChild::EndTransaction(const wr::LayoutSize& aContentSize,
 }
 
 void
+WebRenderBridgeChild::EndEmptyTransaction(const FocusTarget& aFocusTarget,
+                                          uint64_t aTransactionId,
+                                          const mozilla::TimeStamp& aTxnStartTime)
+{
+  MOZ_ASSERT(!mDestroyed);
+  MOZ_ASSERT(mIsInTransaction);
+
+  TimeStamp fwdTime;
+#if defined(ENABLE_FRAME_LATENCY_LOG)
+  fwdTime = TimeStamp::Now();
+#endif
+
+  this->SendEmptyTransaction(aFocusTarget,
+                             mParentCommands, mDestroyedActors,
+                             GetFwdTransactionId(), aTransactionId,
+                             mIdNamespace, aTxnStartTime, fwdTime);
+  mParentCommands.Clear();
+  mDestroyedActors.Clear();
+  mIsInTransaction = false;
+}
+
+void
 WebRenderBridgeChild::ProcessWebRenderParentCommands()
 {
   MOZ_ASSERT(!mDestroyed);
@@ -225,30 +246,28 @@ WebRenderBridgeChild::DeallocExternalImageId(wr::ExternalImageId& aImageId)
   SendRemoveExternalImageId(aImageId);
 }
 
-struct FontFileData
+struct FontFileDataSink
 {
-  wr::ByteBuffer mFontBuffer;
-  uint32_t mFontIndex;
+  wr::FontKey* mFontKey;
+  WebRenderBridgeChild* mWrBridge;
+  wr::IpcResourceUpdateQueue* mResources;
 };
 
 static void
 WriteFontFileData(const uint8_t* aData, uint32_t aLength, uint32_t aIndex,
                   void* aBaton)
 {
-  FontFileData* data = static_cast<FontFileData*>(aBaton);
+  FontFileDataSink* sink = static_cast<FontFileDataSink*>(aBaton);
 
-  if (!data->mFontBuffer.Allocate(aLength)) {
-    return;
-  }
-  memcpy(data->mFontBuffer.mData, aData, aLength);
+  *sink->mFontKey = sink->mWrBridge->GetNextFontKey();
 
-  data->mFontIndex = aIndex;
+  sink->mResources->AddRawFont(*sink->mFontKey, Range<uint8_t>(const_cast<uint8_t*>(aData), aLength), aIndex);
 }
 
 void
-WebRenderBridgeChild::PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArray<gfx::Glyph>& aGlyphs,
-                                 gfx::ScaledFont* aFont, const gfx::Color& aColor, const StackingContextHelper& aSc,
-                                 const LayerRect& aBounds, const LayerRect& aClip, bool aBackfaceVisible)
+WebRenderBridgeChild::PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArray<wr::GlyphInstance>& aGlyphs,
+                                 gfx::ScaledFont* aFont, const wr::ColorF& aColor, const StackingContextHelper& aSc,
+                                 const wr::LayerRect& aBounds, const wr::LayerRect& aClip, bool aBackfaceVisible)
 {
   MOZ_ASSERT(aFont);
   MOZ_ASSERT(!aGlyphs.IsEmpty());
@@ -256,21 +275,12 @@ WebRenderBridgeChild::PushGlyphs(wr::DisplayListBuilder& aBuilder, const nsTArra
   wr::WrFontInstanceKey key = GetFontKeyForScaledFont(aFont);
   MOZ_ASSERT(key.mNamespace.mHandle && key.mHandle);
 
-  nsTArray<wr::GlyphInstance> wr_glyph_instances;
-  wr_glyph_instances.SetLength(aGlyphs.Length());
-
-  for (size_t j = 0; j < aGlyphs.Length(); j++) {
-    wr_glyph_instances[j].index = aGlyphs[j].mIndex;
-    wr_glyph_instances[j].point = aSc.ToRelativeLayoutPoint(
-            LayerPoint::FromUnknownPoint(aGlyphs[j].mPosition));
-  }
-
-  aBuilder.PushText(aSc.ToRelativeLayoutRect(aBounds),
-                    aSc.ToRelativeLayoutRect(aClip),
+  aBuilder.PushText(aBounds,
+                    aClip,
                     aBackfaceVisible,
                     aColor,
                     key,
-                    Range<const wr::GlyphInstance>(wr_glyph_instances.Elements(), wr_glyph_instances.Length()));
+                    Range<const wr::GlyphInstance>(aGlyphs.Elements(), aGlyphs.Length()));
 }
 
 wr::FontInstanceKey
@@ -294,22 +304,15 @@ WebRenderBridgeChild::GetFontKeyForScaledFont(gfx::ScaledFont* aScaledFont)
 
   wr::FontKey fontKey = { wr::IdNamespace { 0 }, 0};
   if (!mFontKeys.Get(unscaled, &fontKey)) {
-    FontFileData data;
-    if (!unscaled->GetFontFileData(WriteFontFileData, &data) ||
-        !data.mFontBuffer.mData) {
+    FontFileDataSink sink = { &fontKey, this, &resources };
+    if (!unscaled->GetFontFileData(WriteFontFileData, &sink)) {
       return instanceKey;
     }
-
-    fontKey.mNamespace = GetNamespace();
-    fontKey.mHandle = GetNextResourceId();
-
-    resources.AddRawFont(fontKey, data.mFontBuffer.AsSlice(), data.mFontIndex);
 
     mFontKeys.Put(unscaled, fontKey);
   }
 
-  instanceKey.mNamespace = GetNamespace();
-  instanceKey.mHandle = GetNextResourceId();
+  instanceKey = GetNextFontInstanceKey();
 
   Maybe<wr::FontInstanceOptions> options;
   Maybe<wr::FontInstancePlatformOptions> platformOptions;

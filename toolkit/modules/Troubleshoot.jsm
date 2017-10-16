@@ -318,7 +318,8 @@ var dataProviders = {
 
     // getExperiments promises experiment history
     Experiments.instance().getExperiments().then(
-      experiments => done(experiments)
+      experiments => done(experiments),
+      () => done([])
     );
   },
 
@@ -653,7 +654,7 @@ if (AppConstants.MOZ_CRASHREPORTER) {
     let reportsPendingCount = reportsNew.length - reportsSubmitted.length;
     let data = {submitted: reportsSubmitted, pending: reportsPendingCount};
     done(data);
-  }
+  };
 }
 
 if (AppConstants.MOZ_SANDBOX) {
@@ -679,7 +680,7 @@ if (AppConstants.MOZ_SANDBOX) {
       for (let index = snapshot.begin; index < snapshot.end; ++index) {
         let report = snapshot.getElement(index);
         let { msecAgo, pid, tid, procType, syscall } = report;
-        let args = []
+        let args = [];
         for (let i = 0; i < report.numArgs; ++i) {
           args.push(report.getArg(i));
         }
@@ -698,5 +699,5 @@ if (AppConstants.MOZ_SANDBOX) {
     }
 
     done(data);
-  }
+  };
 }

@@ -54,7 +54,7 @@ StreamFilterParent::Create(dom::ContentParent* aContentParent, uint64_t aChannel
 
   auto& webreq = WebRequestService::GetSingleton();
 
-  RefPtr<nsIAtom> addonId = NS_Atomize(aAddonId);
+  RefPtr<nsAtom> addonId = NS_Atomize(aAddonId);
   nsCOMPtr<nsITraceableChannel> channel = webreq.GetTraceableChannel(aChannelId, addonId, aContentParent);
 
   RefPtr<nsHttpChannel> chan = do_QueryObject(channel);
@@ -121,11 +121,8 @@ StreamFilterParent::CheckListenerChain()
 {
   AssertIsMainThread();
 
-  nsCOMPtr<nsIThreadRetargetableStreamListener> trsl =
-    do_QueryInterface(mOrigListener);
-  if (trsl) {
-    return trsl->CheckListenerChain();
-  }
+  // Disable thread retargeting due to segments being delivbered out-of-order.
+  // See bug 1405286.
   return NS_ERROR_FAILURE;
 }
 

@@ -308,7 +308,7 @@ class RefTest(object):
            '5.1' in platform.version() and options.e10s:
             prefs['layers.acceleration.disabled'] = True
 
-        sandbox_whitelist_paths = [SCRIPT_DIRECTORY] + options.sandboxReadWhitelist
+        sandbox_whitelist_paths = options.sandboxReadWhitelist
         if (platform.system() == "Linux" or
             platform.system() in ("Windows", "Microsoft")):
             # Trailing slashes are needed to indicate directories on Linux and Windows
@@ -678,6 +678,11 @@ class RefTest(object):
             'onTimeout': [timeoutHandler],
             'processOutputLine': [outputHandler],
         }
+
+        if mozinfo.isWin:
+            # Prevents log interleaving on Windows at the expense of losing
+            # true log order. See bug 798300 and bug 1324961 for more details.
+            kp_kwargs['processStderrLine'] = [outputHandler]
 
         if interactive:
             # If an interactive debugger is attached,

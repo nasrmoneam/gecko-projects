@@ -26,9 +26,11 @@ if (location.search == '?nested') {
     var socket = new WebSocket('ws://mochi.test:8888/tests/dom/base/test/file_websocket_basic');
     socket.onerror = function(e) {
       opener.postMessage('WS onerror', '*');
+      close();
     };
     socket.onopen = function(event) {
       opener.postMessage('WS onopen', '*');
+      close();
     };
   } catch(e) {
     if (e.name == 'SecurityError') {
@@ -36,6 +38,7 @@ if (location.search == '?nested') {
     } else {
       opener.postMessage('WS Throws something else!', '*');
     }
+    close();
   }
 } else {
   ifr.srcdoc = `

@@ -2914,7 +2914,7 @@ nsWindow::OnContainerFocusOutEvent(GdkEventFocus *aEvent)
 }
 
 bool
-nsWindow::DispatchCommandEvent(nsIAtom* aCommand)
+nsWindow::DispatchCommandEvent(nsAtom* aCommand)
 {
     nsEventStatus status;
     WidgetCommandEvent event(true, nsGkAtoms::onAppCommand, aCommand, this);
@@ -5923,7 +5923,13 @@ check_resize_cb (GtkContainer* container, gpointer user_data)
 static void
 screen_composited_changed_cb (GdkScreen* screen, gpointer user_data)
 {
-    GPUProcessManager::Get()->ResetCompositors();
+    // This callback can run before gfxPlatform::Init() in rare
+    // cases involving the profile manager. When this happens,
+    // we have no reason to reset any compositors as graphics
+    // hasn't been initialized yet.
+    if (GPUProcessManager::Get()) {
+        GPUProcessManager::Get()->ResetCompositors();
+    }
 }
 
 static void

@@ -295,8 +295,7 @@ nsDisplayTextOverflowMarker::CreateWebRenderCommands(mozilla::wr::DisplayListBui
                                                      layers::WebRenderLayerManager* aManager,
                                                      nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (!gfxPrefs::LayersAllowTextLayers() ||
-      !CanUseAdvancedLayer(aDisplayListBuilder->GetWidgetLayerManager())) {
+  if (!gfxPrefs::LayersAllowTextLayers()) {
       return false;
   }
 
@@ -307,20 +306,12 @@ nsDisplayTextOverflowMarker::CreateWebRenderCommands(mozilla::wr::DisplayListBui
   }
 
   // Run the rendering algorithm to capture the glyphs and shadows
-  RefPtr<TextDrawTarget> textDrawer = new TextDrawTarget();
+  RefPtr<TextDrawTarget> textDrawer = new TextDrawTarget(aBuilder, aSc, aManager, this, bounds);
   RefPtr<gfxContext> captureCtx = gfxContext::CreateOrNull(textDrawer);
-  // TextOverflowMarker only draws glyphs
-  textDrawer->StartDrawing(TextDrawTarget::Phase::eGlyphs);
   Paint(aDisplayListBuilder, captureCtx);
+  textDrawer->TerminateShadows();
 
-  if (!textDrawer->CanSerializeFonts()) {
-    return false;
-  }
-
-  textDrawer->CreateWebRenderCommands(aBuilder, aSc, aManager, this, bounds);
-
-
-  return true;
+  return !textDrawer->HasUnsupportedFeatures();
 }
 
 
@@ -338,7 +329,7 @@ TextOverflow::TextOverflow(nsDisplayListBuilder* aBuilder,
 {
 #ifdef MOZ_XUL
   if (!mScrollableFrame) {
-    nsIAtom* pseudoType = aBlockFrame->StyleContext()->GetPseudo();
+    nsAtom* pseudoType = aBlockFrame->StyleContext()->GetPseudo();
     if (pseudoType == nsCSSAnonBoxes::mozXULAnonymousBlock) {
       mScrollableFrame =
         nsLayoutUtils::GetScrollableFrameFor(aBlockFrame->GetParent());

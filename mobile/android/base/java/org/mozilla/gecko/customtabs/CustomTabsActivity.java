@@ -38,8 +38,10 @@ import org.mozilla.gecko.BrowserApp;
 import org.mozilla.gecko.DoorHangerPopup;
 import org.mozilla.gecko.EventDispatcher;
 import org.mozilla.gecko.FormAssistPopup;
+import org.mozilla.gecko.GeckoSharedPrefs;
 import org.mozilla.gecko.GeckoView;
 import org.mozilla.gecko.GeckoViewSettings;
+import org.mozilla.gecko.preferences.GeckoPreferences;
 import org.mozilla.gecko.R;
 import org.mozilla.gecko.SnackbarBuilder;
 import org.mozilla.gecko.Telemetry;
@@ -137,6 +139,10 @@ public class CustomTabsActivity extends AppCompatActivity
 
         final GeckoViewSettings settings = mGeckoView.getSettings();
         settings.setBoolean(GeckoViewSettings.USE_MULTIPROCESS, false);
+        settings.setBoolean(
+            GeckoViewSettings.USE_REMOTE_DEBUGGER,
+            GeckoSharedPrefs.forApp(this).getBoolean(
+                GeckoPreferences.PREFS_DEVTOOLS_REMOTE_USB_ENABLED, false));
 
         if (intent != null && !TextUtils.isEmpty(intent.getDataString())) {
             mGeckoView.loadUri(intent.getDataString());
@@ -583,15 +589,21 @@ public class CustomTabsActivity extends AppCompatActivity
     }
 
     @Override
-    public boolean onLoadUri(final GeckoView view, final String uriStr,
+    public boolean onLoadUri(final GeckoView view, final String urlStr,
                              final TargetWindow where) {
         if (where != TargetWindow.NEW) {
             return false;
         }
 
-        final Uri uri = Uri.parse(uriStr);
+        final Uri url = Uri.parse(urlStr);
+        if (url == null) {
+            // We can't handle this, so deny it.
+            Log.w(LOGTAG, "Failed to parse URL for navigation: " + urlStr);
+            return true;
+        }
+
         final Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setData(uri);
+        intent.setData(url);
         startActivity(intent);
         return true;
     }

@@ -25,6 +25,7 @@ use properties::{AnimationRules, PropertyDeclarationBlock};
 #[cfg(feature = "servo")]
 use properties::INHERIT_ALL;
 use properties::IS_LINK;
+use properties::VISITED_DEPENDENT_ONLY;
 use rule_tree::{CascadeLevel, RuleTree, StrongRuleNode, StyleSource};
 use selector_map::{PrecomputedHashMap, SelectorMap, SelectorMapEntry};
 use selector_parser::{SelectorImpl, PerPseudoElementMap, PseudoElement};
@@ -478,12 +479,6 @@ impl Stylist {
             .map(|(d, _)| d.selectors_for_cache_revalidation.len()).sum()
     }
 
-    /// Returns the number of entries in invalidation maps.
-    pub fn num_invalidations(&self) -> usize {
-        self.cascade_data.iter_origins()
-            .map(|(d, _)| d.invalidation_map.len()).sum()
-    }
-
     /// Invokes `f` with the `InvalidationMap` for each origin.
     ///
     /// NOTE(heycam) This might be better as an `iter_invalidation_maps`, once
@@ -894,12 +889,12 @@ impl Stylist {
         // We need to compute visited values if we have visited rules or if our
         // parent has visited values.
         let visited_values = if inputs.visited_rules.is_some() || parent_style.visited_style().is_some() {
-            // Slightly annoying: we know that inputs has either rules or
-            // visited rules, but we can't do inputs.rules() up front because
-            // maybe it just has visited rules, so can't unwrap_or.
+            // At this point inputs may have visited rules, or rules, or both,
+            // or neither (e.g. if it's a text style it may have neither).  So
+            // we have to be a bit careful here.
             let rule_node = match inputs.visited_rules.as_ref() {
                 Some(rules) => rules,
-                None => inputs.rules.as_ref().unwrap(),
+                None => inputs.rules.as_ref().unwrap_or(self.rule_tree().root()),
             };
             let inherited_style;
             let inherited_style_ignoring_first_line;
@@ -930,7 +925,7 @@ impl Stylist {
                 Some(layout_parent_style_for_visited),
                 None,
                 font_metrics,
-                cascade_flags,
+                cascade_flags | VISITED_DEPENDENT_ONLY,
                 self.quirks_mode,
                 /* rule_cache = */ None,
                 &mut Default::default(),
@@ -1276,12 +1271,21 @@ impl Stylist {
             // ServoStyleSet::CreateXBLServoStyleSet() loads XBL style sheets
             // under eAuthorSheetFeatures level.
             if let Some(map) = stylist.cascade_data.author.borrow_for_pseudo(pseudo_element) {
+                // NOTE(emilio): This is needed because the XBL stylist may
+                // think it has a different quirks mode than the document.
+                let mut matching_context = MatchingContext::new(
+                    context.matching_mode,
+                    context.bloom_filter,
+                    context.nth_index_cache.as_mut().map(|s| &mut **s),
+                    stylist.quirks_mode,
+                );
+
                 map.get_all_matching_rules(
                     element,
                     &rule_hash_target,
                     applicable_declarations,
-                    context,
-                    self.quirks_mode,
+                    &mut matching_context,
+                    stylist.quirks_mode,
                     flags_setter,
                     CascadeLevel::XBL,
                 );
@@ -1870,6 +1874,32 @@ impl CascadeData {
         }
     }
 
+    #[cfg(feature = "gecko")]
+    fn begin_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
+        self.element_map.begin_mutation();
+        self.pseudos_map.for_each(|m| m.begin_mutation());
+        if rebuild_kind.should_rebuild_invalidation() {
+            self.invalidation_map.begin_mutation();
+            self.selectors_for_cache_revalidation.begin_mutation();
+        }
+    }
+
+    #[cfg(feature = "servo")]
+    fn begin_mutation(&mut self, _: &SheetRebuildKind) {}
+
+    #[cfg(feature = "gecko")]
+    fn end_mutation(&mut self, rebuild_kind: &SheetRebuildKind) {
+        self.element_map.end_mutation();
+        self.pseudos_map.for_each(|m| m.end_mutation());
+        if rebuild_kind.should_rebuild_invalidation() {
+            self.invalidation_map.end_mutation();
+            self.selectors_for_cache_revalidation.end_mutation();
+        }
+    }
+
+    #[cfg(feature = "servo")]
+    fn end_mutation(&mut self, _: &SheetRebuildKind) {}
+
     /// Collects all the applicable media query results into `results`.
     ///
     /// This duplicates part of the logic in `add_stylesheet`, which is
@@ -1933,6 +1963,7 @@ impl CascadeData {
             self.effective_media_query_results.saw_effective(stylesheet);
         }
 
+        self.begin_mutation(&rebuild_kind);
         for rule in stylesheet.effective_rules(device, guard) {
             match *rule {
                 CssRule::Style(ref locked) => {
@@ -1969,8 +2000,11 @@ impl CascadeData {
                             None => &mut self.element_map,
                             Some(pseudo) => {
                                 self.pseudos_map
-                                    .get_or_insert_with(&pseudo.canonical(), || Box::new(SelectorMap::new()))
-                                    .expect("Unexpected tree pseudo-element?")
+                                    .get_or_insert_with(&pseudo.canonical(), || {
+                                        let mut map = Box::new(SelectorMap::new());
+                                        map.begin_mutation();
+                                        map
+                                    }).expect("Unexpected tree pseudo-element?")
                             }
                         };
 
@@ -2064,6 +2098,7 @@ impl CascadeData {
                 _ => {}
             }
         }
+        self.end_mutation(&rebuild_kind);
 
         Ok(())
     }
@@ -2274,12 +2309,12 @@ impl Rule {
     }
 
     /// Creates a new Rule.
-    pub fn new(selector: Selector<SelectorImpl>,
-               hashes: AncestorHashes,
-               style_rule: Arc<Locked<StyleRule>>,
-               source_order: u32)
-               -> Self
-    {
+    pub fn new(
+        selector: Selector<SelectorImpl>,
+        hashes: AncestorHashes,
+        style_rule: Arc<Locked<StyleRule>>,
+        source_order: u32,
+    ) -> Self {
         Rule {
             selector: selector,
             hashes: hashes,

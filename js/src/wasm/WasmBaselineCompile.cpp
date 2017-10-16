@@ -2521,9 +2521,9 @@ class BaseCompiler
                 masm.movq(scratch, Operand(StackPointer, argLoc.offsetFromArgBase()));
 #elif defined(JS_CODEGEN_X86) || defined(JS_CODEGEN_ARM)
                 loadI64Low(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64LOW_OFFSET));
+                masm.store32(scratch, LowWord(Address(StackPointer, argLoc.offsetFromArgBase())));
                 loadI64High(scratch, arg);
-                masm.store32(scratch, Address(StackPointer, argLoc.offsetFromArgBase() + INT64HIGH_OFFSET));
+                masm.store32(scratch, HighWord(Address(StackPointer, argLoc.offsetFromArgBase())));
 #else
                 MOZ_CRASH("BaseCompiler platform hook: passArg I64");
 #endif
@@ -5212,16 +5212,18 @@ BaseCompiler::sniffConditionalControlCmp(Cond compareOp, ValType operandType)
 {
     MOZ_ASSERT(latentOp_ == LatentOp::None, "Latent comparison state not properly reset");
 
+#ifdef JS_CODEGEN_X86
+    // On x86, latent i64 binary comparisons use too many registers: the
+    // reserved join register and the lhs and rhs operands require six, but we
+    // only have five.
+    if (operandType == ValType::I64)
+        return false;
+#endif
+
     OpBytes op;
     iter_.peekOp(&op);
     switch (op.b0) {
       case uint16_t(Op::Select):
-#ifdef JS_CODEGEN_X86
-        // On x86, with only 5 available registers, a latent i64 binary
-        // comparison takes 4 leaving only 1 which is not enough for select.
-        if (operandType == ValType::I64)
-            return false;
-#endif
         MOZ_FALLTHROUGH;
       case uint16_t(Op::BrIf):
       case uint16_t(Op::If):

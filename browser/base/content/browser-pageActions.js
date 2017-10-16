@@ -199,8 +199,7 @@ var BrowserPageActions = {
     panelNode.setAttribute("tabspecific", "true");
     panelNode.setAttribute("photon", "true");
 
-    // For tests.
-    if (this._disableActivatedActionPanelAnimation) {
+    if (this._disablePanelAnimations) {
       panelNode.setAttribute("animate", "false");
     }
 
@@ -250,6 +249,19 @@ var BrowserPageActions = {
     }
 
     return panelNode;
+  },
+
+  // For tests.
+  get _disablePanelAnimations() {
+    return this.__disablePanelAnimations || false;
+  },
+  set _disablePanelAnimations(val) {
+    this.__disablePanelAnimations = val;
+    if (val) {
+      this.panelNode.setAttribute("animate", "false");
+    } else {
+      this.panelNode.removeAttribute("animate");
+    }
   },
 
   /**
@@ -707,6 +719,15 @@ var BrowserPageActions = {
       }
     }
   },
+
+  /**
+   * Call this on tab switch or when the current <browser>'s location changes.
+   */
+  onLocationChange() {
+    for (let action of PageActions.actions) {
+      action.onLocationChange(window);
+    }
+  },
 };
 
 var BrowserPageActionFeedback = {
@@ -740,16 +761,16 @@ var BrowserPageActionFeedback = {
 
     this.panelNode.addEventListener("popupshown", () => {
       this.feedbackAnimationBox.setAttribute("animate", "true");
+
+      // The timeout value used here allows the panel to stay open for
+      // 1 second after the text transition (duration=120ms) has finished.
+      setTimeout(() => {
+        this.panelNode.hidePopup(true);
+      }, Services.prefs.getIntPref("browser.pageActions.feedbackTimeoutMS", 1120));
     }, {once: true});
     this.panelNode.addEventListener("popuphidden", () => {
       this.feedbackAnimationBox.removeAttribute("animate");
     }, {once: true});
-
-    // The timeout value used here allows the panel to stay open for
-    // 1 second after the text transition (duration=120ms) has finished.
-    setTimeout(() => {
-      this.panelNode.hidePopup(true);
-    }, Services.prefs.getIntPref("browser.pageActions.feedbackTimeoutMS", 1120));
   },
 };
 
@@ -830,7 +851,7 @@ BrowserPageActions.sendToDevice = {
 
     // This is on top because it also clears the device list between state
     // changes.
-    gSync.populateSendTabToDevicesMenu(bodyNode, url, title, (clientId, name, clientType) => {
+    gSync.populateSendTabToDevicesMenu(bodyNode, url, title, (clientId, name, clientType, lastModified) => {
       if (!name) {
         return document.createElement("toolbarseparator");
       }
@@ -838,8 +859,9 @@ BrowserPageActions.sendToDevice = {
       item.classList.add("pageAction-sendToDevice-device", "subviewbutton");
       if (clientId) {
         item.classList.add("subviewbutton-iconic");
+        item.setAttribute("tooltiptext", gSync.formatLastSyncDate(lastModified));
       }
-      item.setAttribute("tooltiptext", name);
+
       item.addEventListener("command", event => {
         if (panelNode) {
           panelNode.hidePopup();

@@ -225,18 +225,23 @@ public:
 };
 
 static void
-DoCustomElementCreate(Element** aElement, nsIDocument* aDoc,
+DoCustomElementCreate(Element** aElement, nsIDocument* aDoc, nsAtom* aLocalName,
                       CustomElementConstructor* aConstructor, ErrorResult& aRv)
 {
   RefPtr<Element> element =
     aConstructor->Construct("Custom Element Create", aRv);
-  if (aRv.Failed() || !element->IsHTMLElement()) {
+  if (aRv.Failed()) {
+    return;
+  }
+
+  if (!element || !element->IsHTMLElement()) {
     aRv.ThrowTypeError<MSG_THIS_DOES_NOT_IMPLEMENT_INTERFACE>(NS_LITERAL_STRING("HTMLElement"));
     return;
   }
 
   if (aDoc != element->OwnerDoc() || element->GetParentNode() ||
-      element->HasChildren() || element->GetAttrCount()) {
+      element->HasChildren() || element->GetAttrCount() ||
+      element->NodeInfo()->NameAtom() != aLocalName) {
     aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
     return;
   }
@@ -252,7 +257,7 @@ NS_NewHTMLElement(Element** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& 
 
   RefPtr<mozilla::dom::NodeInfo> nodeInfo = aNodeInfo;
 
-  nsIAtom *name = nodeInfo->NameAtom();
+  nsAtom *name = nodeInfo->NameAtom();
 
   NS_ASSERTION(nodeInfo->NamespaceEquals(kNameSpaceID_XHTML),
                "Trying to HTML elements that don't have the XHTML namespace");
@@ -301,26 +306,27 @@ NS_NewHTMLElement(Element** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& 
       // SetupCustomElement() should be called with an element that don't have
       // CustomElementData setup, if not we will hit the assertion in
       // SetCustomElementData().
-      RefPtr<nsIAtom> tagAtom = nodeInfo->NameAtom();
-      RefPtr<nsIAtom> typeAtom = aIs ? NS_Atomize(*aIs) : tagAtom;
+      RefPtr<nsAtom> tagAtom = nodeInfo->NameAtom();
+      RefPtr<nsAtom> typeAtom = aIs ? NS_Atomize(*aIs) : tagAtom;
       // Built-in element
       *aResult = CreateHTMLElement(tag, nodeInfo.forget(), aFromParser).take();
       (*aResult)->SetCustomElementData(new CustomElementData(typeAtom));
       if (synchronousCustomElements) {
         CustomElementRegistry::Upgrade(*aResult, definition, rv);
+        if (rv.MaybeSetPendingException(cx)) {
+          aes.ReportException();
+        }
       } else {
         nsContentUtils::EnqueueUpgradeReaction(*aResult, definition);
       }
 
-      if (rv.MaybeSetPendingException(cx)) {
-        aes.ReportException();
-      }
       return NS_OK;
     }
 
     // Step 6.1.
     if (synchronousCustomElements) {
       DoCustomElementCreate(aResult, nodeInfo->GetDocument(),
+                            nodeInfo->NameAtom(),
                             definition->mConstructor, rv);
       if (rv.MaybeSetPendingException(cx)) {
         NS_IF_ADDREF(*aResult = NS_NewHTMLUnknownElement(nodeInfo.forget(), aFromParser));

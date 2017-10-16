@@ -72,7 +72,7 @@ const PROP_JSON_FIELDS = ["id", "syncGUID", "location", "version", "type",
                           "targetPlatforms", "multiprocessCompatible", "signedState",
                           "seen", "dependencies", "hasEmbeddedWebExtension", "mpcOptedOut",
                           "userPermissions", "icons", "iconURL", "icon64URL",
-                          "blocklistState", "blocklistURL"];
+                          "blocklistState", "blocklistURL", "startupData"];
 
 // Time to wait before async save of XPI JSON database, in milliseconds
 const ASYNC_SAVE_DELAY_MS = 20;
@@ -105,7 +105,7 @@ function makeSafe(aCallback) {
     } catch (ex) {
       logger.warn("XPI Database callback failed", ex);
     }
-  }
+  };
 }
 
 /**
@@ -1619,7 +1619,7 @@ this.XPIDatabaseReconcile = {
         XPIProvider.allAppGlobal = false;
 
       let isActive = !currentAddon.disabled && !currentAddon.pendingUninstall;
-      let wasActive = previousAddon ? previousAddon.active : currentAddon.active
+      let wasActive = previousAddon ? previousAddon.active : currentAddon.active;
 
       if (!previousAddon) {
         // If we had a manifest for this add-on it was a staged install and
@@ -1761,4 +1761,4 @@ this.XPIDatabaseReconcile = {
 
     return true;
   },
-}
+};

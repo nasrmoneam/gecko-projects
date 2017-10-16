@@ -81,6 +81,7 @@ NS_IMETHODIMP
 InterceptStreamListener::OnStartRequest(nsIRequest* aRequest, nsISupports* aContext)
 {
   if (mOwner) {
+    mOwner->SynthesizeResponseStartTime(TimeStamp::Now());
     mOwner->DoOnStartRequest(mOwner, mContext);
   }
   return NS_OK;
@@ -139,6 +140,7 @@ NS_IMETHODIMP
 InterceptStreamListener::OnStopRequest(nsIRequest* aRequest, nsISupports* aContext, nsresult aStatusCode)
 {
   if (mOwner) {
+    mOwner->SynthesizeResponseEndTime(TimeStamp::Now());
     mOwner->DoPreOnStopRequest(aStatusCode);
     mOwner->DoOnStopRequest(mOwner, aStatusCode, mContext);
   }
@@ -163,6 +165,7 @@ HttpChannelChild::HttpChannelChild()
   , mSynthesizedStreamLength(0)
   , mIsFromCache(false)
   , mCacheEntryAvailable(false)
+  , mCacheEntryId(0)
   , mAltDataCacheEntryAvailable(false)
   , mCacheFetchCount(0)
   , mCacheExpirationTime(nsICacheEntry::NO_EXPIRATION_TIME)
@@ -411,6 +414,7 @@ class StartRequestEvent : public NeckoTargetChannelEvent<HttpChannelChild>
                     const nsHttpHeaderArray& aRequestHeaders,
                     const bool& aIsFromCache,
                     const bool& aCacheEntryAvailable,
+                    const uint64_t& aCacheEntryId,
                     const int32_t& aCacheFetchCount,
                     const uint32_t& aCacheExpirationTime,
                     const nsCString& aCachedCharset,
@@ -427,6 +431,7 @@ class StartRequestEvent : public NeckoTargetChannelEvent<HttpChannelChild>
   , mUseResponseHead(aUseResponseHead)
   , mIsFromCache(aIsFromCache)
   , mCacheEntryAvailable(aCacheEntryAvailable)
+  , mCacheEntryId(aCacheEntryId)
   , mCacheFetchCount(aCacheFetchCount)
   , mCacheExpirationTime(aCacheExpirationTime)
   , mCachedCharset(aCachedCharset)
@@ -443,7 +448,8 @@ class StartRequestEvent : public NeckoTargetChannelEvent<HttpChannelChild>
     LOG(("StartRequestEvent [this=%p]\n", mChild));
     mChild->OnStartRequest(mChannelStatus, mResponseHead, mUseResponseHead,
                            mRequestHeaders, mIsFromCache, mCacheEntryAvailable,
-                           mCacheFetchCount, mCacheExpirationTime, mCachedCharset,
+                           mCacheEntryId, mCacheFetchCount,
+                           mCacheExpirationTime, mCachedCharset,
                            mSecurityInfoSerialization, mSelfAddr, mPeerAddr,
                            mCacheKey, mAltDataType, mAltDataLen);
   }
@@ -455,6 +461,7 @@ class StartRequestEvent : public NeckoTargetChannelEvent<HttpChannelChild>
   bool mUseResponseHead;
   bool mIsFromCache;
   bool mCacheEntryAvailable;
+  uint64_t mCacheEntryId;
   int32_t mCacheFetchCount;
   uint32_t mCacheExpirationTime;
   nsCString mCachedCharset;
@@ -473,6 +480,7 @@ HttpChannelChild::RecvOnStartRequest(const nsresult& channelStatus,
                                      const nsHttpHeaderArray& requestHeaders,
                                      const bool& isFromCache,
                                      const bool& cacheEntryAvailable,
+                                     const uint64_t& cacheEntryId,
                                      const int32_t& cacheFetchCount,
                                      const uint32_t& cacheExpirationTime,
                                      const nsCString& cachedCharset,
@@ -498,7 +506,7 @@ HttpChannelChild::RecvOnStartRequest(const nsresult& channelStatus,
   mEventQ->RunOrEnqueue(new StartRequestEvent(this, channelStatus, responseHead,
                                               useResponseHead, requestHeaders,
                                               isFromCache, cacheEntryAvailable,
-                                              cacheFetchCount,
+                                              cacheEntryId, cacheFetchCount,
                                               cacheExpirationTime, cachedCharset,
                                               securityInfoSerialization,
                                               selfAddr, peerAddr, cacheKey,
@@ -533,6 +541,7 @@ HttpChannelChild::OnStartRequest(const nsresult& channelStatus,
                                  const nsHttpHeaderArray& requestHeaders,
                                  const bool& isFromCache,
                                  const bool& cacheEntryAvailable,
+                                 const uint64_t& cacheEntryId,
                                  const int32_t& cacheFetchCount,
                                  const uint32_t& cacheExpirationTime,
                                  const nsCString& cachedCharset,
@@ -566,6 +575,7 @@ HttpChannelChild::OnStartRequest(const nsresult& channelStatus,
 
   mIsFromCache = isFromCache;
   mCacheEntryAvailable = cacheEntryAvailable;
+  mCacheEntryId = cacheEntryId;
   mCacheFetchCount = cacheFetchCount;
   mCacheExpirationTime = cacheExpirationTime;
   mCachedCharset = cachedCharset;
@@ -1074,11 +1084,6 @@ HttpChannelChild::OnStopRequest(const nsresult& channelStatus,
   mCacheReadStart = timing.cacheReadStart;
   mCacheReadEnd = timing.cacheReadEnd;
 
-  Performance* documentPerformance = GetPerformance();
-  if (documentPerformance) {
-      documentPerformance->AddEntry(this, this);
-  }
-
   DoPreOnStopRequest(channelStatus);
 
   { // We must flush the queue before we Send__delete__
@@ -1119,6 +1124,11 @@ HttpChannelChild::DoPreOnStopRequest(nsresult aStatus)
   LOG(("HttpChannelChild::DoPreOnStopRequest [this=%p status=%" PRIx32 "]\n",
        this, static_cast<uint32_t>(aStatus)));
   mIsPending = false;
+
+  Performance* documentPerformance = GetPerformance();
+  if (documentPerformance) {
+      documentPerformance->AddEntry(this, this);
+  }
 
   if (!mCanceled && NS_SUCCEEDED(mStatus)) {
     mStatus = aStatus;
@@ -2845,6 +2855,20 @@ HttpChannelChild::IsFromCache(bool *value)
 }
 
 NS_IMETHODIMP
+HttpChannelChild::GetCacheEntryId(uint64_t *aCacheEntryId)
+{
+  bool fromCache = false;
+  if (NS_FAILED(IsFromCache(&fromCache)) ||
+      !fromCache ||
+      !mCacheEntryAvailable) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  *aCacheEntryId = mCacheEntryId;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 HttpChannelChild::GetCacheKey(nsISupports **cacheKey)
 {
   NS_IF_ADDREF(*cacheKey = mCacheKey);
@@ -3568,12 +3592,6 @@ HttpChannelChild::ForceIntercepted(bool aPostRedirectChannelShouldIntercept,
   return NS_OK;
 }
 
-NS_IMETHODIMP
-HttpChannelChild::ForceIntercepted(uint64_t aInterceptionID)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
 void
 HttpChannelChild::ForceIntercepted(nsIInputStream* aSynthesizedInput)
 {
@@ -3668,6 +3686,18 @@ HttpChannelChild::LogBlockedCORSRequest(const nsAString & aMessage)
     nsCORSListenerProxy::LogBlockedCORSRequest(innerWindowID, aMessage);
   }
   return NS_OK;
+}
+
+void
+HttpChannelChild::SynthesizeResponseStartTime(const TimeStamp& aTime)
+{
+  mTransactionTimings.responseStart = aTime;
+}
+
+void
+HttpChannelChild::SynthesizeResponseEndTime(const TimeStamp& aTime)
+{
+  mTransactionTimings.responseEnd = aTime;
 }
 
 } // namespace net

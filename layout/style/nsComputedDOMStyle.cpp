@@ -464,7 +464,7 @@ nsComputedDOMStyle::GetPropertyValue(const nsAString& aPropertyName,
 /* static */
 already_AddRefed<nsStyleContext>
 nsComputedDOMStyle::GetStyleContext(Element* aElement,
-                                    nsIAtom* aPseudo,
+                                    nsAtom* aPseudo,
                                     nsIPresShell* aPresShell,
                                     StyleType aStyleType)
 {
@@ -634,7 +634,7 @@ MustReresolveStyle(const nsStyleContext* aContext)
 
 already_AddRefed<nsStyleContext>
 nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
-                                             nsIAtom* aPseudo,
+                                             nsAtom* aPseudo,
                                              nsIPresShell* aPresShell,
                                              StyleType aStyleType,
                                              AnimationFlag aAnimationFlag)
@@ -714,8 +714,8 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
                      eRestyle_AllHintsWithAnimations);
           } else {
             return presContext->StyleSet()->AsServo()->
-              GetBaseContextForElement(aElement, nullptr, presContext,
-                                       aPseudo, pseudoType, result->AsServo());
+              GetBaseContextForElement(aElement, presContext,
+                                       pseudoType, result->AsServo());
           }
         }
 
@@ -742,13 +742,13 @@ nsComputedDOMStyle::DoGetStyleContextNoFlush(Element* aElement,
                                ? StyleRuleInclusion::DefaultOnly
                                : StyleRuleInclusion::All;
     RefPtr<ServoStyleContext> result =
-       servoSet->ResolveStyleLazily(aElement, pseudoType, aPseudo, rules);
+       servoSet->ResolveStyleLazily(aElement, pseudoType, rules);
     if (aAnimationFlag == eWithAnimation) {
       return result.forget();
     }
 
-    return servoSet->GetBaseContextForElement(aElement, nullptr, presContext,
-                                              aPseudo, pseudoType, result);
+    return servoSet->GetBaseContextForElement(aElement, presContext,
+                                              pseudoType, result);
   }
 
   RefPtr<GeckoStyleContext> parentContext;
@@ -965,7 +965,7 @@ nsComputedDOMStyle::UpdateCurrentStyleSources(bool aNeedsLayoutFlush)
       mOuterFrame = mContent->GetPrimaryFrame();
     } else if (mPseudo == nsCSSPseudoElements::before ||
                mPseudo == nsCSSPseudoElements::after) {
-      nsIAtom* property = mPseudo == nsCSSPseudoElements::before
+      nsAtom* property = mPseudo == nsCSSPseudoElements::before
                             ? nsGkAtoms::beforePseudoProperty
                             : nsGkAtoms::afterPseudoProperty;
 
@@ -1005,7 +1005,7 @@ nsComputedDOMStyle::UpdateCurrentStyleSources(bool aNeedsLayoutFlush)
         topWithPseudoElementData = topWithPseudoElementData->GetParent();
       }
       CSSPseudoElementType pseudo = topWithPseudoElementData->GetPseudoType();
-      nsIAtom* pseudoAtom = nsCSSPseudoElements::GetPseudoAtom(pseudo);
+      nsAtom* pseudoAtom = nsCSSPseudoElements::GetPseudoAtom(pseudo);
       nsAutoString assertMsg(
         NS_LITERAL_STRING("we should be in a pseudo-element that is expected to contain elements ("));
       assertMsg.Append(nsDependentString(pseudoAtom->GetUTF16String()));
@@ -5011,7 +5011,7 @@ nsComputedDOMStyle::DoGetClip()
 already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetWillChange()
 {
-  const nsTArray<RefPtr<nsIAtom>>& willChange = StyleDisplay()->mWillChange;
+  const nsTArray<RefPtr<nsAtom>>& willChange = StyleDisplay()->mWillChange;
 
   if (willChange.IsEmpty()) {
     RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
@@ -5020,7 +5020,7 @@ nsComputedDOMStyle::DoGetWillChange()
   }
 
   RefPtr<nsDOMCSSValueList> valueList = GetROCSSValueList(true);
-  for (const nsIAtom* ident : willChange) {
+  for (const nsAtom* ident : willChange) {
     RefPtr<nsROCSSPrimitiveValue> property = new nsROCSSPrimitiveValue;
     property->SetString(nsDependentAtomString(ident));
     valueList->AppendCSSValue(property.forget());
@@ -6696,7 +6696,7 @@ nsComputedDOMStyle::DoGetMaskType()
 already_AddRefed<CSSValue>
 nsComputedDOMStyle::DoGetContextProperties()
 {
-  const nsTArray<RefPtr<nsIAtom>>& contextProps = StyleSVG()->mContextProps;
+  const nsTArray<RefPtr<nsAtom>>& contextProps = StyleSVG()->mContextProps;
 
   if (contextProps.IsEmpty()) {
     RefPtr<nsROCSSPrimitiveValue> val = new nsROCSSPrimitiveValue;
@@ -6705,7 +6705,7 @@ nsComputedDOMStyle::DoGetContextProperties()
   }
 
   RefPtr<nsDOMCSSValueList> valueList = GetROCSSValueList(true);
-  for (const nsIAtom* ident : contextProps) {
+  for (const nsAtom* ident : contextProps) {
     RefPtr<nsROCSSPrimitiveValue> property = new nsROCSSPrimitiveValue;
     property->SetString(nsDependentAtomString(ident));
     valueList->AppendCSSValue(property.forget());
@@ -6867,12 +6867,13 @@ nsComputedDOMStyle::DoGetAnimationName()
     const StyleAnimation *animation = &display->mAnimations[i];
     RefPtr<nsROCSSPrimitiveValue> property = new nsROCSSPrimitiveValue;
 
-    const nsString& name = animation->GetName();
-    if (name.IsEmpty()) {
+    nsAtom* name = animation->GetName();
+    if (name == nsGkAtoms::_empty) {
       property->SetIdent(eCSSKeyword_none);
     } else {
+      nsDependentAtomString nameStr(name);
       nsAutoString escaped;
-      nsStyleUtil::AppendEscapedCSSIdent(animation->GetName(), escaped);
+      nsStyleUtil::AppendEscapedCSSIdent(nameStr, escaped);
       property->SetString(escaped); // really want SetIdent
     }
     valueList->AppendCSSValue(property.forget());

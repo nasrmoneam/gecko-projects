@@ -34,6 +34,7 @@ namespace gc {
 typedef Vector<ZoneGroup*, 4, SystemAllocPolicy> ZoneGroupVector;
 using BlackGrayEdgeVector = Vector<TenuredCell*, 0, SystemAllocPolicy>;
 
+class AutoCallGCCallbacks;
 class AutoMaybeStartBackgroundAllocation;
 class AutoRunParallelTask;
 class AutoTraceSession;
@@ -933,8 +934,9 @@ class GCRuntime
     const ChunkPool& availableChunks(const AutoLockGC& lock) const { return availableChunks_.ref(); }
     const ChunkPool& emptyChunks(const AutoLockGC& lock) const { return emptyChunks_.ref(); }
     typedef ChainedIter<Chunk*, ChunkPool::Iter, ChunkPool::Iter> NonEmptyChunksIter;
-    NonEmptyChunksIter allNonEmptyChunks() {
-        return NonEmptyChunksIter(ChunkPool::Iter(availableChunks_.ref()), ChunkPool::Iter(fullChunks_.ref()));
+    NonEmptyChunksIter allNonEmptyChunks(const AutoLockGC& lock) {
+        return NonEmptyChunksIter(ChunkPool::Iter(availableChunks(lock)),
+                                  ChunkPool::Iter(fullChunks(lock)));
     }
 
     Chunk* getOrAllocChunk(const AutoLockGC& lock,
@@ -1048,6 +1050,10 @@ class GCRuntime
     bool shouldRepeatForDeadZone(JS::gcreason::Reason reason);
     void incrementalCollectSlice(SliceBudget& budget, JS::gcreason::Reason reason,
                                  AutoLockForExclusiveAccess& lock);
+
+    friend class AutoCallGCCallbacks;
+    void maybeCallBeginCallback();
+    void maybeCallEndCallback();
 
     void pushZealSelectedObjects();
     void purgeRuntime(AutoLockForExclusiveAccess& lock);
@@ -1186,11 +1192,11 @@ class GCRuntime
     // to the fullChunks pool. During a GC, if all arenas are free, the chunk
     // is moved back to the emptyChunks pool and scheduled for eventual
     // release.
-    UnprotectedData<ChunkPool> availableChunks_;
+    GCLockData<ChunkPool> availableChunks_;
 
     // When all arenas in a chunk are used, it is moved to the fullChunks pool
     // so as to reduce the cost of operations on the available lists.
-    UnprotectedData<ChunkPool> fullChunks_;
+    GCLockData<ChunkPool> fullChunks_;
 
     ActiveThreadData<RootedValueMap> rootsHash;
 
@@ -1406,6 +1412,8 @@ class GCRuntime
 #endif
 
     ActiveThreadData<bool> fullCompartmentChecks;
+
+    ActiveThreadData<uint32_t> gcBeginCallbackDepth;
 
     Callback<JSGCCallback> gcCallback;
     Callback<JS::DoCycleCollectionCallback> gcDoCycleCollectionCallback;

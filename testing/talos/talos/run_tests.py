@@ -60,7 +60,7 @@ def buildCommandLine(test):
     # build pageloader command from options
     url = ['-tp', test['tpmanifest']]
     CLI_bool_options = ['tpchrome', 'tpmozafterpaint', 'tpdisable_e10s',
-                        'tpnoisy', 'rss', 'tprender', 'tploadnocache',
+                        'tpnoisy', 'tprender', 'tploadnocache',
                         'tpscrolltest', 'fnbpaint']
     CLI_options = ['tpcycles', 'tppagecycles', 'tpdelay', 'tptimeout']
     for key in CLI_bool_options:
@@ -117,12 +117,6 @@ def run_tests(config, browser_config):
     # instance
     if browser_config['develop']:
         browser_config['extra_args'] = '--no-remote'
-
-    # with addon signing for production talos, we want to develop without it
-    if browser_config['develop'] or 'try' in str.lower(browser_config['branch_name']):
-        browser_config['preferences']['xpinstall.signatures.required'] = False
-
-    browser_config['preferences']['extensions.allow-non-mpc-extensions'] = True
 
     # if using firstNonBlankPaint, must turn on pref for it
     if test.get('fnbpaint', False):

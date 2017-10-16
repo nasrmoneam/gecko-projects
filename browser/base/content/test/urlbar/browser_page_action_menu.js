@@ -1,19 +1,27 @@
 "use strict";
 
-/* global sinon */
+/* global sinon, UIState */
 Services.scriptloader.loadSubScript("resource://testing-common/sinon-2.3.2.js");
 
 registerCleanupFunction(function() {
   delete window.sinon;
 });
 
-Cu.import("resource://services-sync/UIState.jsm");
-
+const lastModifiedFixture = 1507655615.87; // Approx Oct 10th 2017
 const mockRemoteClients = [
-  { id: "0", name: "foo", type: "mobile" },
-  { id: "1", name: "bar", type: "desktop" },
-  { id: "2", name: "baz", type: "mobile" },
+  { id: "0", name: "foo", type: "mobile", serverLastModified: lastModifiedFixture },
+  { id: "1", name: "bar", type: "desktop", serverLastModified: lastModifiedFixture },
+  { id: "2", name: "baz", type: "mobile", serverLastModified: lastModifiedFixture },
 ];
+
+add_task(async function init() {
+  // Disable panel animations.  They cause intermittent timeouts on Linux when
+  // the test tries to synthesize clicks on items in newly opened panels.
+  BrowserPageActions._disablePanelAnimations = true;
+  registerCleanupFunction(() => {
+    BrowserPageActions._disablePanelAnimations = false;
+  });
+});
 
 add_task(async function bookmark() {
   // Open a unique page.
@@ -271,6 +279,7 @@ add_task(async function sendToDevice_syncNotReady_configured() {
               clientId: client.id,
               label: client.name,
               clientType: client.type,
+              tooltiptext: gSync.formatLastSyncDate(lastModifiedFixture * 1000)
             },
           });
         }
@@ -486,11 +495,6 @@ add_task(async function sendToDevice_inUrlbar() {
     };
     registerCleanupFunction(cleanUp);
 
-    // Disable the activated-action panel animation when it opens.  Otherwise
-    // it's necessary to wait a moment before trying to click the device menu
-    // item below.
-    BrowserPageActions._disableActivatedActionPanelAnimation = true;
-
     // Add Send to Device to the urlbar.
     let action = PageActions.actionForID("sendToDevice");
     action.shownInUrlbar = true;
@@ -572,7 +576,6 @@ add_task(async function sendToDevice_inUrlbar() {
 
     // Remove Send to Device from the urlbar.
     action.shownInUrlbar = false;
-    BrowserPageActions._disableActivatedActionPanelAnimation = false;
 
     cleanUp();
   });
@@ -716,7 +719,7 @@ function checkSendToDeviceItems(expectedItems, forUrlbar = false) {
     if ("attrs" in expected) {
       for (let name in expected.attrs) {
         Assert.ok(actual.hasAttribute(name));
-        let attrVal = actual.getAttribute(name)
+        let attrVal = actual.getAttribute(name);
         if (name == "label") {
           attrVal = attrVal.normalize("NFKC"); // There's a bug with …
         }

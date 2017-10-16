@@ -14,6 +14,8 @@ function Permission(principal, type, capability, capabilityString) {
   this.capabilityString = capabilityString;
 }
 
+const PERMISSION_STATES = [SitePermissions.ALLOW, SitePermissions.BLOCK, SitePermissions.PROMPT];
+
 var gSitePermissionsManager = {
   _type: "",
   _isObserving: false,
@@ -70,8 +72,8 @@ var gSitePermissionsManager = {
 
     let permission = subject.QueryInterface(Components.interfaces.nsIPermission);
 
-    // Ignore unrelated permission types.
-    if (permission.type !== this._type)
+    // Ignore unrelated permission types and permissions with unknown states.
+    if (permission.type !== this._type || !PERMISSION_STATES.includes(permission.capability))
       return;
 
     if (data == "added") {
@@ -105,14 +107,15 @@ var gSitePermissionsManager = {
       stringKey = "cannot";
       break;
     case Services.perms.PROMPT_ACTION:
-      stringKey = "prompt"
+      stringKey = "prompt";
       break;
     }
     return this._bundle.getString(stringKey);
   },
 
   _addPermissionToList(perm) {
-    if (perm.type !== this._type)
+    // Ignore unrelated permission types and permissions with unknown states.
+    if (perm.type !== this._type || !PERMISSION_STATES.includes(perm.capability))
       return;
     let capabilityString = this._getCapabilityString(perm.capability);
     let p = new Permission(perm.principal, perm.type, perm.capability,
@@ -173,7 +176,7 @@ var gSitePermissionsManager = {
     row.appendChild(hbox);
     row.appendChild(menulist);
     richlistitem.appendChild(row);
-    this._list.appendChild(richlistitem)
+    this._list.appendChild(richlistitem);
   },
 
   onWindowKeyPress(event) {
