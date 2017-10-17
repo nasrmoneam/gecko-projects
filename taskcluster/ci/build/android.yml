@@ -24,6 +24,7 @@ android-api-16/debug:
         custom-build-variant-cfg: api-16-debug
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -55,6 +56,7 @@ android-x86/opt:
         custom-build-variant-cfg: x86
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -90,6 +92,7 @@ android-x86-nightly/opt:
         custom-build-variant-cfg: x86
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -121,6 +124,7 @@ android-api-16/opt:
         custom-build-variant-cfg: api-16
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -156,6 +160,7 @@ android-api-16-nightly/opt:
         custom-build-variant-cfg: api-16
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -188,6 +193,7 @@ android-x86-old-id/opt:
         tooltool-downloads: internal
     run-on-projects: [ 'mozilla-central' ]
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -224,6 +230,7 @@ android-x86-old-id-nightly/opt:
         tooltool-downloads: internal
     run-on-projects: [ 'mozilla-central' ]
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -256,6 +263,7 @@ android-api-16-old-id/opt:
         tooltool-downloads: internal
     run-on-projects: [ 'mozilla-central' ]
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -292,6 +300,7 @@ android-api-16-old-id-nightly/opt:
         tooltool-downloads: internal
     run-on-projects: [ 'mozilla-central' ]
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -335,7 +344,6 @@ android-api-16-gradle/opt:
         custom-build-variant-cfg: api-16-gradle
         tooltool-downloads: internal
     toolchains:
-        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -367,6 +375,7 @@ android-aarch64/opt:
         custom-build-variant-cfg: aarch64
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
@@ -402,6 +411,7 @@ android-aarch64-nightly/opt:
         custom-build-variant-cfg: aarch64
         tooltool-downloads: internal
     toolchains:
+        - android-gradle-dependencies
         - android-sdk-linux
         - linux64-rust-android
         - linux64-sccache
