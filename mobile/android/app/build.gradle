@@ -38,9 +38,7 @@ android {
     }
 
     lintOptions {
-        baseline file("lint-baseline.xml")
         abortOnError true
-        warningsAsErrors true
     }
 
     buildTypes {
