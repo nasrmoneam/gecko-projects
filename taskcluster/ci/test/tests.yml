@@ -128,7 +128,7 @@ crashtest:
             default: 1
     e10s:
         by-test-platform:
-            windows7-32/debug: both
+            windows10-64/debug: both
             default: true
     mozharness:
         by-test-platform:
@@ -317,7 +317,7 @@ jsreftest:
     e10s:
         by-test-platform:
             linux64-jsdcov/opt: false
-            windows7-32/debug: both
+            windows10-64/debug: both
             default: true
     max-run-time:
         by-test-platform:
@@ -861,6 +861,37 @@ mochitest-media:
             windows10-64-asan.*: 3
             default: default
 
+mochitest-plain-headless:
+    description: "Mochitest plain headless run"
+    suite: mochitest/plain-chunked
+    treeherder-symbol: tc-M(h)
+    loopback-video: true
+    instance-size: legacy # Bug 1281241: migrating to m3.large instances
+    chunks:
+        by-test-platform:
+            linux.*: 10
+    e10s: true
+    max-run-time: 5400
+    allow-software-gl-layers: false
+    tier: default
+    mozharness:
+        mochitest-flavor: plain
+        script: desktop_unittest.py
+        no-read-buildbot-config: true
+        chunked: true
+        config:
+            by-test-platform:
+                windows.*:
+                    - unittests/win_taskcluster_unittest.py
+                macosx.*:
+                    - unittests/mac_unittest.py
+                linux.*:
+                    - unittests/linux_unittest.py
+                    - remove_executables.py
+        extra-options:
+            - --mochitest-suite=plain-chunked
+            - --headless
+
 mochitest-valgrind:
     description: "Mochitest plain Valgrind run"
     suite: mochitest/valgrind-plain
@@ -973,7 +1004,7 @@ reftest:
             default: 8
     e10s:
         by-test-platform:
-            windows7-32/debug: both
+            windows10-64/debug: both
             default: true
     max-run-time:
         by-test-platform:
@@ -1062,7 +1093,7 @@ reftest-no-accel:
     e10s:
         by-test-platform:
             linux64-jsdcov/opt: false
-            windows7-32/debug: both
+            windows10-64/debug: both
             default: true
     mozharness:
         script: desktop_unittest.py
@@ -1485,6 +1516,60 @@ talos-g5-stylo-disabled:
                     - remove_executables.py
         extra-options:
             - --suite=g5-stylo-disabled
+            - --add-option
+            - --webServer,localhost
+
+talos-h1:
+    description: "Talos h1"
+    suite: talos
+    try-name: h1
+    treeherder-symbol: tc-T(h1)
+    virtualization: hardware
+    run-on-projects:
+        by-test-platform:
+            linux64-qr/.*: ['mozilla-central', 'try']
+            default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
+    max-run-time: 3600
+    mozharness:
+        script: talos_script.py
+        no-read-buildbot-config: true
+        config:
+            by-test-platform:
+                macosx.*:
+                    - talos/mac_config.py
+                windows.*:
+                    - talos/windows_config.py
+                default:
+                    - talos/linux_config.py
+        extra-options:
+            - --suite=h1
+            - --add-option
+            - --webServer,localhost
+
+talos-h2:
+    description: "Talos h2"
+    suite: talos
+    try-name: h2
+    treeherder-symbol: tc-T(h2)
+    virtualization: hardware
+    run-on-projects:
+        by-test-platform:
+            linux64-qr/.*: ['mozilla-central', 'try']
+            default: ['mozilla-beta', 'mozilla-central', 'mozilla-inbound', 'autoland', 'try']
+    max-run-time: 3600
+    mozharness:
+        script: talos_script.py
+        no-read-buildbot-config: true
+        config:
+            by-test-platform:
+                macosx.*:
+                    - talos/mac_config.py
+                windows.*:
+                    - talos/windows_config.py
+                default:
+                    - talos/linux_config.py
+        extra-options:
+            - --suite=h2
             - --add-option
             - --webServer,localhost
 

@@ -68,18 +68,10 @@ class WebAuthnManager final : public nsIIPCBackgroundChildCreateCallback,
 public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIDOMEVENTLISTENER
+  NS_DECL_NSIIPCBACKGROUNDCHILDCREATECALLBACK
+
   static WebAuthnManager* GetOrCreate();
   static WebAuthnManager* Get();
-
-  void
-  FinishMakeCredential(nsTArray<uint8_t>& aRegBuffer);
-
-  void
-  FinishGetAssertion(nsTArray<uint8_t>& aCredentialId,
-                     nsTArray<uint8_t>& aSigBuffer);
-
-  void
-  Cancel(const nsresult& aError);
 
   already_AddRefed<Promise>
   MakeCredential(nsPIDOMWindowInner* aParent,
@@ -89,18 +81,26 @@ public:
   GetAssertion(nsPIDOMWindowInner* aParent,
                const PublicKeyCredentialRequestOptions& aOptions);
 
-  void StartRegister();
-  void StartSign();
-  void StartCancel();
+  already_AddRefed<Promise>
+  Store(nsPIDOMWindowInner* aParent, const Credential& aCredential);
 
-  // nsIIPCbackgroundChildCreateCallback methods
-  void ActorCreated(PBackgroundChild* aActor) override;
-  void ActorFailed() override;
+  void
+  FinishMakeCredential(nsTArray<uint8_t>& aRegBuffer);
+
+  void
+  FinishGetAssertion(nsTArray<uint8_t>& aCredentialId,
+                     nsTArray<uint8_t>& aSigBuffer);
+
+  void
+  RequestAborted(const nsresult& aError);
+
   void ActorDestroyed();
+
 private:
   WebAuthnManager();
   virtual ~WebAuthnManager();
 
+  void Cancel(const nsresult& aError);
   void MaybeClearTransaction();
 
   typedef MozPromise<nsresult, nsresult, false> BackgroundActorPromise;
