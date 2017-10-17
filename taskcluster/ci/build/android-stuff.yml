@@ -25,7 +25,7 @@ android-test/opt:
         max-run-time: 36000
     run:
         using: mozharness
-        actions: [get-secrets build multi-l10n update]
+        actions: [get-secrets build]
         config:
             - builds/releng_base_android_64_builds.py
             - disable_signing.py
@@ -78,7 +78,7 @@ android-lint/opt:
         max-run-time: 36000
     run:
         using: mozharness
-        actions: [get-secrets build multi-l10n update]
+        actions: [get-secrets build]
         config:
             - builds/releng_base_android_64_builds.py
             - disable_signing.py
@@ -134,7 +134,7 @@ android-checkstyle/opt:
         max-run-time: 36000
     run:
         using: mozharness
-        actions: [get-secrets build multi-l10n update]
+        actions: [get-secrets build]
         config:
             - builds/releng_base_android_64_builds.py
             - disable_signing.py
@@ -186,7 +186,7 @@ android-findbugs/opt:
         max-run-time: 36000
     run:
         using: mozharness
-        actions: [get-secrets build multi-l10n update]
+        actions: [get-secrets build]
         config:
             - builds/releng_base_android_64_builds.py
             - disable_signing.py
