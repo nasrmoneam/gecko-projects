@@ -274,7 +274,7 @@ WebrtcVideoConduit::WebrtcVideoConduit(RefPtr<WebRtcCallWrapper> aCall)
   , mRecvSSRCSetInProgress(false)
   , mSendCodecPlugin(nullptr)
   , mRecvCodecPlugin(nullptr)
-  , mVideoStatsTimer(do_CreateInstance(NS_TIMER_CONTRACTID))
+  , mVideoStatsTimer(NS_NewTimer())
 {
   mRecvStreamConfig.renderer = this;
 
@@ -1672,7 +1672,12 @@ WebrtcVideoConduit::SelectBitrates(
   if (mStartBitrate && mStartBitrate > out_start) {
     out_start = mStartBitrate;
   }
-  out_start = std::max(out_start, out_min);
+
+  // Ensure that min <= start <= max
+  if (out_min > out_max) {
+    out_min = out_max;
+  }
+  out_start = std::min(out_max, std::max(out_start, out_min));
 
   MOZ_ASSERT(mPrefMaxBitrate == 0 || out_max <= mPrefMaxBitrate);
 }
