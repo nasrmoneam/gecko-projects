@@ -11,7 +11,18 @@ android-api-16/debug:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -43,7 +54,18 @@ android-x86/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android-x86/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -78,7 +100,18 @@ android-x86-nightly/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android-x86/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -111,7 +144,18 @@ android-api-16/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -146,7 +190,18 @@ android-api-16-nightly/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -179,7 +234,18 @@ android-x86-old-id/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android-x86/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -215,7 +281,18 @@ android-x86-old-id-nightly/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android-x86/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -249,7 +326,18 @@ android-api-16-old-id/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -285,7 +373,18 @@ android-api-16-old-id-nightly/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -307,20 +406,19 @@ android-api-16-old-id-nightly/opt:
         - proguard-jar
 
 android-api-16-gradle/opt:
-    description: "Android 4.0 api-16+ (Gradle) Opt"
+    description: "Android 4.0 api-16+ (non-Gradle) Opt"
     index:
         product: mobile
         job-name: android-api-16-gradle-opt
     treeherder:
         platform: android-api-16-gradle/opt
-        symbol: tc(Bg)
-        tier: 2
+        symbol: tc(Bng)
+        tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-android
     worker:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
-            GRADLE_USER_HOME: /builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
         artifacts:
           - name: public/android/maven
@@ -362,7 +460,18 @@ android-aarch64/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]
@@ -397,7 +506,18 @@ android-aarch64-nightly/opt:
         docker-image: {in-tree: android-build}
         max-run-time: 7200
         env:
+            GRADLE_USER_HOME: "/builds/worker/workspace/build/src/mobile/android/gradle/dotgradle-offline"
             TOOLTOOL_MANIFEST: "mobile/android/config/tooltool-manifests/android/releng.manifest"
+        artifacts:
+          - name: public/android/maven
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview/maven/
+            type: directory
+          - name: public/build/geckoview_example.apk
+            path: /builds/worker/workspace/build/src/obj-firefox/gradle/build/mobile/android/geckoview_example/outputs/apk/geckoview_example-withGeckoBinaries.apk
+            type: file
+          - name: public/build
+            path: /builds/worker/artifacts/
+            type: directory
     run:
         using: mozharness
         actions: [get-secrets build multi-l10n update]

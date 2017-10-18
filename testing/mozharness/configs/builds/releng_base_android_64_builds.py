@@ -125,4 +125,15 @@ config = {
                       ],
     'src_mozconfig': 'mobile/android/config/mozconfigs/android/nightly',
     #########################################################################
+
+    # It's not obvious, but postflight_build is after packaging, so the Gecko
+    # binaries are in the object directory, ready to be packaged into the
+    # GeckoView AAR.
+    'postflight_build_mach_commands': [
+        ['gradle',
+         'geckoview:assembleWithGeckoBinaries',
+         'geckoview_example:assembleWithGeckoBinaries',
+         'uploadArchives',
+        ],
+    ],
 }
