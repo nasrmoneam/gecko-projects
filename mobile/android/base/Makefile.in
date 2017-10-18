@@ -501,7 +501,8 @@ endef
 $(eval $(call aapt_command,.aapt.deps,$(all_resources),gecko.ap_,generated/,./))
 
 ifdef MOZ_BUILD_MOBILE_ANDROID_WITH_GRADLE
-.aapt.nodeps: FORCE
+.aapt.nodeps: AndroidManifest.xml .gradle.deps FORCE
+	@$(TOUCH) $@
 	cp $(gradle_dir)/app/intermediates/res/resources-official-photon-debug.ap_ gecko-nodeps.ap_
 else
 # .aapt.nodeps: AndroidManifest.xml FORCE
