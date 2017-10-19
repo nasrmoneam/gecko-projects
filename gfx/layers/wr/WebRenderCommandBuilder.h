@@ -65,14 +65,14 @@ public:
                  mozilla::wr::DisplayListBuilder& aBuilder,
                  mozilla::wr::IpcResourceUpdateQueue& aResources,
                  const StackingContextHelper& aSc,
-                 const LayerRect& aRect);
+                 const LayoutDeviceRect& aRect);
 
   Maybe<wr::WrImageMask> BuildWrMaskImage(nsDisplayItem* aItem,
                                           wr::DisplayListBuilder& aBuilder,
                                           wr::IpcResourceUpdateQueue& aResources,
                                           const StackingContextHelper& aSc,
                                           nsDisplayListBuilder* aDisplayListBuilder,
-                                          const LayerRect& aBounds);
+                                          const LayoutDeviceRect& aBounds);
 
   bool PushItemAsImage(nsDisplayItem* aItem,
                        wr::DisplayListBuilder& aBuilder,
@@ -91,9 +91,10 @@ public:
                                                                wr::IpcResourceUpdateQueue& aResources,
                                                                const StackingContextHelper& aSc,
                                                                nsDisplayListBuilder* aDisplayListBuilder,
-                                                               LayerRect& aImageRect);
+                                                               LayoutDeviceRect& aImageRect);
 
   void RemoveUnusedAndResetWebRenderUserData();
+  void ClearCachedResources();
 
   // Those are data that we kept between transactions. We used to cache some
   // data in the layer. But in layers free mode, we don't have layer which
