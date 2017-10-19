@@ -102,7 +102,7 @@ set_config('MOZ_ANDROID_MOZILLA_ONLINE',
 
 option(env='MOZ_ANDROID_PACKAGE_INSTALL_BOUNCER',
        help='Build and package the install bouncer APK',
-       default=True)
+       default=False)
 
 set_config('MOZ_ANDROID_PACKAGE_INSTALL_BOUNCER',
            depends_if('MOZ_ANDROID_PACKAGE_INSTALL_BOUNCER')(lambda _: True))
