@@ -39,6 +39,7 @@ extern crate script_layout_interface;
 extern crate script_traits;
 extern crate selectors;
 extern crate serde_json;
+extern crate servo_allocator;
 extern crate servo_arc;
 extern crate servo_atoms;
 extern crate servo_config;
@@ -84,7 +85,7 @@ use layout::webrender_helpers::WebRenderDisplayListConverter;
 use layout::wrapper::LayoutNodeLayoutData;
 use layout_traits::LayoutThreadFactory;
 use libc::c_void;
-use malloc_size_of::{malloc_size_of, MallocSizeOf, MallocSizeOfOps};
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use metrics::{PaintTimeMetrics, ProfilerMetadataFactory};
 use msg::constellation_msg::PipelineId;
 use msg::constellation_msg::TopLevelBrowsingContextId;
@@ -775,7 +776,7 @@ impl LayoutThread {
         let mut reports = vec![];
         // Servo uses vanilla jemalloc, which doesn't have a
         // malloc_enclosing_size_of function.
-        let mut ops = MallocSizeOfOps::new(malloc_size_of, None, None);
+        let mut ops = MallocSizeOfOps::new(::servo_allocator::usable_size, None, None);
 
         // FIXME(njn): Just measuring the display tree for now.
         let rw_data = possibly_locked_rw_data.lock();
@@ -1361,18 +1362,19 @@ impl LayoutThread {
                 let node = unsafe { ServoLayoutNode::new(&node) };
                 rw_data.content_boxes_response = process_content_boxes_request(node, root_flow);
             },
-            ReflowGoal::TextIndexQuery(node, mouse_x, mouse_y) => {
+            ReflowGoal::TextIndexQuery(node, point_in_node) => {
                 let node = unsafe { ServoLayoutNode::new(&node) };
                 let opaque_node = node.opaque();
-                let client_point = Point2D::new(Au::from_px(mouse_x),
-                                                Au::from_px(mouse_y));
-                rw_data.text_index_response =
-                    TextIndexResponse(rw_data.display_list
-                                      .as_ref()
-                                      .expect("Tried to hit test with no display list")
-                                      .text_index(opaque_node,
-                                                  &client_point,
-                                                  &rw_data.scroll_offsets));
+                let point_in_node = Point2D::new(
+                    Au::from_f32_px(point_in_node.x),
+                    Au::from_f32_px(point_in_node.y)
+                );
+                rw_data.text_index_response = TextIndexResponse(
+                    rw_data.display_list
+                    .as_ref()
+                    .expect("Tried to hit test with no display list")
+                    .text_index(opaque_node, &point_in_node)
+                );
             },
             ReflowGoal::NodeGeometryQuery(node) => {
                 let node = unsafe { ServoLayoutNode::new(&node) };

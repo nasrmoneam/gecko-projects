@@ -73,7 +73,7 @@ use js::jsapi::{JSAutoCompartment, JSContext, JS_SetWrapObjectCallbacks};
 use js::jsapi::{JSTracer, SetWindowProxyClass};
 use js::jsval::UndefinedValue;
 use js::rust::Runtime;
-use malloc_size_of::{malloc_size_of, MallocSizeOfOps};
+use malloc_size_of::MallocSizeOfOps;
 use mem::malloc_size_of_including_self;
 use metrics::PaintTimeMetrics;
 use microtask::{MicrotaskQueue, Microtask};
@@ -1506,7 +1506,7 @@ impl ScriptThread {
         let mut reports = vec![];
         // Servo uses vanilla jemalloc, which doesn't have a
         // malloc_enclosing_size_of function.
-        let mut ops = MallocSizeOfOps::new(malloc_size_of, None, None);
+        let mut ops = MallocSizeOfOps::new(::servo_allocator::usable_size, None, None);
 
         for (_, document) in self.documents.borrow().iter() {
             let current_url = document.url();
@@ -2191,8 +2191,15 @@ impl ScriptThread {
                 self.handle_resize_event(pipeline_id, new_size, size_type);
             }
 
-            MouseButtonEvent(event_type, button, point, node_address) => {
-                self.handle_mouse_event(pipeline_id, event_type, button, point, node_address);
+            MouseButtonEvent(event_type, button, point, node_address, point_in_node) => {
+                self.handle_mouse_event(
+                    pipeline_id,
+                    event_type,
+                    button,
+                    point,
+                    node_address,
+                    point_in_node
+                );
             }
 
             MouseMoveEvent(point, node_address) => {
@@ -2303,7 +2310,8 @@ impl ScriptThread {
         mouse_event_type: MouseEventType,
         button: MouseButton,
         point: Point2D<f32>,
-        node_address: Option<UntrustedNodeAddress>
+        node_address: Option<UntrustedNodeAddress>,
+        point_in_node: Option<Point2D<f32>>
     ) {
         let document = match { self.documents.borrow().find_document(pipeline_id) } {
             Some(document) => document,
@@ -2314,7 +2322,8 @@ impl ScriptThread {
             button,
             point,
             mouse_event_type,
-            node_address
+            node_address,
+            point_in_node
         );
     }
 
