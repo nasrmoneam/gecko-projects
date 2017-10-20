@@ -109,7 +109,8 @@ job-template:
       actions:
          by-build-platform:
             default: [clone-locales list-locales setup repack summary]
-            android-api-16-l10n: [clone-locales list-locales setup repack
+            android-api-16-l10n: [get-secrets
+                                  clone-locales list-locales setup repack
                                   upload-repacks summary]
       script:
          by-build-platform:

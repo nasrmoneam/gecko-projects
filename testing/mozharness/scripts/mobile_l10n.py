@@ -38,6 +38,7 @@ from mozharness.mozilla.tooltool import TooltoolMixin
 from mozharness.base.vcs.vcsbase import MercurialScript
 from mozharness.mozilla.l10n.locales import LocalesMixin
 from mozharness.mozilla.mock import MockMixin
+from mozharness.mozilla.secrets import SecretsMixin
 from mozharness.mozilla.updates.balrog import BalrogMixin
 from mozharness.base.python import VirtualenvMixin
 from mozharness.mozilla.taskcluster_helper import Taskcluster
@@ -47,7 +48,7 @@ from mozharness.mozilla.taskcluster_helper import Taskcluster
 class MobileSingleLocale(MockMixin, LocalesMixin, ReleaseMixin,
                          MobileSigningMixin, TransferMixin, TooltoolMixin,
                          BuildbotMixin, PurgeMixin, MercurialScript, BalrogMixin,
-                         VirtualenvMixin):
+                         VirtualenvMixin, SecretsMixin):
     config_options = [[
         ['--locale', ],
         {"action": "extend",
