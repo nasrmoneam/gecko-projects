@@ -189,7 +189,7 @@ nsSliderFrame::GetPageIncrement(nsIContent* content)
 }
 
 int32_t
-nsSliderFrame::GetIntegerAttribute(nsIContent* content, nsIAtom* atom, int32_t defaultValue)
+nsSliderFrame::GetIntegerAttribute(nsIContent* content, nsAtom* atom, int32_t defaultValue)
 {
     nsAutoString value;
     content->GetAttr(kNameSpaceID_None, atom, value);
@@ -207,7 +207,7 @@ class nsValueChangedRunnable : public Runnable
 {
 public:
   nsValueChangedRunnable(nsISliderListener* aListener,
-                         nsIAtom* aWhich,
+                         nsAtom* aWhich,
                          int32_t aValue,
                          bool aUserChanged)
     : mozilla::Runnable("nsValueChangedRunnable")
@@ -224,7 +224,7 @@ public:
   }
 
   nsCOMPtr<nsISliderListener> mListener;
-  RefPtr<nsIAtom> mWhich;
+  RefPtr<nsAtom> mWhich;
   int32_t mValue;
   bool mUserChanged;
 };
@@ -249,7 +249,7 @@ public:
 
 nsresult
 nsSliderFrame::AttributeChanged(int32_t aNameSpaceID,
-                                nsIAtom* aAttribute,
+                                nsAtom* aAttribute,
                                 int32_t aModType)
 {
   nsresult rv = nsBoxFrame::AttributeChanged(aNameSpaceID, aAttribute,
@@ -379,7 +379,6 @@ nsSliderFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
     mozilla::layers::FrameMetrics::ViewID scrollTargetId =
       aBuilder->GetCurrentScrollbarTarget();
     bool thumbGetsLayer = (scrollTargetId != layers::FrameMetrics::NULL_SCROLL_ID);
-    nsLayoutUtils::SetScrollbarThumbLayerization(thumb, thumbGetsLayer);
 
     if (thumbGetsLayer) {
       MOZ_ASSERT((flags & nsDisplayOwnLayer::HORIZONTAL_SCROLLBAR) ||
@@ -441,12 +440,12 @@ nsSliderFrame::BuildDisplayListForChildren(nsDisplayListBuilder*   aBuilder,
       thumbContentsClipState.Clear();
 
       nsDisplayListBuilder::AutoContainerASRTracker contASRTracker(aBuilder);
-      nsDisplayListCollection tempLists;
+      nsDisplayListCollection tempLists(aBuilder);
       nsBoxFrame::BuildDisplayListForChildren(aBuilder, tempLists);
 
       // This is a bit of a hack. Collect up all descendant display items
       // and merge them into a single Content() list.
-      nsDisplayList masterList;
+      nsDisplayList masterList(aBuilder);
       masterList.AppendToTop(tempLists.BorderBackground());
       masterList.AppendToTop(tempLists.BlockBorderBackgrounds());
       masterList.AppendToTop(tempLists.Floats());
@@ -1070,6 +1069,22 @@ ScrollFrameWillBuildScrollInfoLayer(nsIFrame* aScrollFrame)
     current = nsLayoutUtils::GetParentOrPlaceholderForCrossDoc(current);
   }
   return false;
+}
+
+nsIScrollableFrame* nsSliderFrame::GetScrollFrame()
+{
+  nsIFrame* scrollbarBox = GetScrollbar();
+  if (!scrollbarBox) {
+    return nullptr;
+  }
+
+  nsContainerFrame* scrollFrame = scrollbarBox->GetParent();
+  if (!scrollFrame) {
+    return nullptr;
+  }
+
+  nsIScrollableFrame* scrollFrameAsScrollable = do_QueryFrame(scrollFrame);
+  return scrollFrameAsScrollable;
 }
 
 void

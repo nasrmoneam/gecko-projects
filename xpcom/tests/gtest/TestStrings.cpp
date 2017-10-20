@@ -26,6 +26,46 @@ void test_assign_helper(const nsACString& in, nsACString &_retval)
   _retval = in;
 }
 
+// Simple helper struct to test if conditionally enabled string functions are
+// working.
+template <typename T>
+struct EnableTest
+{
+  template <typename Q = T, typename EnableIfChar16 = mozilla::Char16OnlyT<Q>>
+  bool IsChar16() { return true; }
+
+  template <typename Q = T, typename EnableIfChar = mozilla::CharOnlyT<Q>>
+  bool IsChar16(int dummy = 42) { return false; }
+
+  template <typename Q = T, typename EnableIfChar16 = mozilla::Char16OnlyT<Q>>
+  bool IsChar() { return false; }
+
+  template <typename Q = T, typename EnableIfChar = mozilla::CharOnlyT<Q>>
+  bool IsChar(int dummy = 42) { return true; }
+};
+
+TEST(Strings, IsChar)
+{
+  EnableTest<char> charTest;
+  EXPECT_TRUE(charTest.IsChar());
+  EXPECT_FALSE(charTest.IsChar16());
+
+  EnableTest<char16_t> char16Test;
+  EXPECT_TRUE(char16Test.IsChar16());
+  EXPECT_FALSE(char16Test.IsChar());
+
+#ifdef COMPILATION_FAILURE_TEST
+  nsAutoCString a_ctest;
+  nsAutoString a_test;
+
+  a_ctest.AssignLiteral("hello");
+  // This should cause a compilation failure.
+  a_ctest.AssignLiteral(u"hello");
+  a_test.AssignLiteral(u"hello");
+  a_test.AssignLiteral("hello");
+#endif
+}
+
 TEST(Strings, assign)
 {
   nsCString result;
@@ -424,20 +464,6 @@ TEST(Strings, equals_ic)
 {
   nsCString s;
   EXPECT_FALSE(s.LowerCaseEqualsLiteral("view-source"));
-}
-
-TEST(Strings, fixed_string)
-{
-  char buf[256] = "hello world";
-
-  nsFixedCString s(buf, sizeof(buf));
-
-  EXPECT_EQ(s.Length(), strlen(buf));
-
-  EXPECT_STREQ(s.get(), buf);
-
-  s.Assign("foopy doopy doo");
-  EXPECT_EQ(s.get(), buf);
 }
 
 TEST(Strings, concat)

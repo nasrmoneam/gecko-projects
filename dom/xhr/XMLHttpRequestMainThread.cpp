@@ -2499,16 +2499,11 @@ XMLHttpRequestMainThread::CreateChannel()
   nsCOMPtr<nsIPrincipal> resultingDocumentPrincipal(mPrincipal);
   nsCOMPtr<nsIExpandedPrincipal> ep = do_QueryInterface(mPrincipal);
   if (ep) {
-    nsTArray<nsCOMPtr<nsIPrincipal>>* whitelist = nullptr;
-    ep->GetWhiteList(&whitelist);
-    if (!whitelist) {
-      return NS_ERROR_FAILURE;
-    }
     MOZ_ASSERT(!(secFlags & nsILoadInfo::SEC_REQUIRE_SAME_ORIGIN_DATA_INHERITS));
     bool dataInherits = (secFlags &
       (nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_DATA_INHERITS |
        nsILoadInfo::SEC_REQUIRE_CORS_DATA_INHERITS)) != 0;
-    for (const auto& principal : *whitelist) {
+    for (const auto& principal : ep->WhiteList()) {
       if (NS_SUCCEEDED(principal->CheckMayLoad(mRequestURL, false, dataInherits))) {
         resultingDocumentPrincipal = principal;
         break;
@@ -2566,11 +2561,12 @@ XMLHttpRequestMainThread::MaybeLowerChannelPriority()
 }
 
 nsresult
-XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
+XMLHttpRequestMainThread::InitiateFetch(already_AddRefed<nsIInputStream> aUploadStream,
                                         int64_t aUploadLength,
                                         nsACString& aUploadContentType)
 {
   nsresult rv;
+  nsCOMPtr<nsIInputStream> uploadStream = Move(aUploadStream);
 
   // nsIRequest::LOAD_BACKGROUND prevents throbber from becoming active, which
   // in turn keeps STOP button from becoming active.  If the consumer passed in
@@ -2620,16 +2616,16 @@ XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
       }
     }
 
-    if (aUploadStream) {
+    if (uploadStream) {
       // If necessary, wrap the stream in a buffered stream so as to guarantee
       // support for our upload when calling ExplicitSetUploadStream.
-      nsCOMPtr<nsIInputStream> bufferedStream;
-      if (!NS_InputStreamIsBuffered(aUploadStream)) {
+      if (!NS_InputStreamIsBuffered(uploadStream)) {
+        nsCOMPtr<nsIInputStream> bufferedStream;
         rv = NS_NewBufferedInputStream(getter_AddRefs(bufferedStream),
-                                       aUploadStream, 4096);
+                                       uploadStream.forget(), 4096);
         NS_ENSURE_SUCCESS(rv, rv);
 
-        aUploadStream = bufferedStream;
+        uploadStream = bufferedStream;
       }
 
       // We want to use a newer version of the upload channel that won't
@@ -2638,7 +2634,7 @@ XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
       // This assertion will fire if buggy extensions are installed
       NS_ASSERTION(uploadChannel2, "http must support nsIUploadChannel2");
       if (uploadChannel2) {
-          uploadChannel2->ExplicitSetUploadStream(aUploadStream,
+          uploadChannel2->ExplicitSetUploadStream(uploadStream,
                                                   aUploadContentType,
                                                   mUploadTotal, mRequestMethod,
                                                   false);
@@ -2650,7 +2646,7 @@ XMLHttpRequestMainThread::InitiateFetch(nsIInputStream* aUploadStream,
         }
         nsCOMPtr<nsIUploadChannel> uploadChannel =
           do_QueryInterface(httpChannel);
-        uploadChannel->SetUploadStream(aUploadStream, aUploadContentType,
+        uploadChannel->SetUploadStream(uploadStream, aUploadContentType,
                                        mUploadTotal);
         // Reset the method to its original value
         rv = httpChannel->SetRequestMethod(mRequestMethod);
@@ -3058,7 +3054,7 @@ XMLHttpRequestMainThread::SendInternal(const BodyExtractorBase* aBody)
     }
   }
 
-  rv = InitiateFetch(uploadStream, mUploadTotal, uploadContentType);
+  rv = InitiateFetch(uploadStream.forget(), mUploadTotal, uploadContentType);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Start our timeout
@@ -3295,7 +3291,7 @@ XMLHttpRequestMainThread::StartTimeoutTimer()
   }
 
   if (!mTimeoutTimer) {
-    mTimeoutTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+    mTimeoutTimer = NS_NewTimer();
     SetTimerEventTarget(mTimeoutTimer);
   }
   uint32_t elapsed =
@@ -3774,7 +3770,7 @@ void
 XMLHttpRequestMainThread::StartProgressEventTimer()
 {
   if (!mProgressNotifier) {
-    mProgressNotifier = do_CreateInstance(NS_TIMER_CONTRACTID);
+    mProgressNotifier = NS_NewTimer();
     SetTimerEventTarget(mProgressNotifier);
   }
   if (mProgressNotifier) {
@@ -3801,7 +3797,7 @@ XMLHttpRequestMainThread::MaybeStartSyncTimeoutTimer()
     return eErrorOrExpired;
   }
 
-  mSyncTimeoutTimer = do_CreateInstance(NS_TIMER_CONTRACTID);
+  mSyncTimeoutTimer = NS_NewTimer();
   SetTimerEventTarget(mSyncTimeoutTimer);
   if (!mSyncTimeoutTimer) {
     return eErrorOrExpired;

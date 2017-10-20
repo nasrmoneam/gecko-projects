@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::{mem, slice};
 use std::path::PathBuf;
 use std::ptr;
@@ -176,22 +176,6 @@ impl MutByteSlice {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct WrFontInstanceOptions {
-    pub render_mode: FontRenderMode,
-    pub synthetic_italics: bool,
-}
-
-impl Into<FontInstanceOptions> for WrFontInstanceOptions {
-    fn into(self) -> FontInstanceOptions {
-        FontInstanceOptions {
-            render_mode: Some(self.render_mode),
-            synthetic_italics: self.synthetic_italics,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
 pub struct WrImageMask {
     image: WrImageKey,
     rect: LayoutRect,
@@ -339,22 +323,6 @@ impl ExternalImageHandler for WrExternalImageHandler {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct WrComplexClipRegion {
-    rect: LayoutRect,
-    radii: BorderRadius,
-}
-
-impl<'a> Into<ComplexClipRegion> for &'a WrComplexClipRegion {
-    fn into(self) -> ComplexClipRegion {
-        ComplexClipRegion {
-            rect: self.rect.into(),
-            radii: self.radii.into(),
-        }
-    }
-}
-
 #[repr(u32)]
 #[derive(Copy, Clone)]
 pub enum WrFilterOpType {
@@ -431,6 +399,7 @@ extern "C" {
     // be disabled in WebRenderBridgeParent::ProcessWebRenderCommands
     // by commenting out the path that adds an external image ID
     fn gfx_use_wrench() -> bool;
+    fn gfx_wr_resource_path_override() -> *const c_char;
     fn gfx_critical_note(msg: *const c_char);
 }
 
@@ -660,6 +629,17 @@ pub extern "C" fn wr_window_new(window_id: WrWindowId,
         blob_image_renderer: Some(Box::new(Moz2dImageRenderer::new(workers.clone()))),
         workers: Some(workers.clone()),
         enable_render_on_scroll: false,
+        resource_override_path: unsafe {
+            let override_charptr = gfx_wr_resource_path_override();
+            if override_charptr.is_null() {
+                None
+            } else {
+                match CStr::from_ptr(override_charptr).to_str() {
+                    Ok(override_str) => Some(PathBuf::from(override_str)),
+                    _ => None
+                }
+            }
+        },
         ..Default::default()
     };
 
@@ -989,18 +969,15 @@ pub extern "C" fn wr_resource_updates_add_font_instance(
     key: WrFontInstanceKey,
     font_key: WrFontKey,
     glyph_size: f32,
-    options: *const WrFontInstanceOptions,
+    options: *const FontInstanceOptions,
     platform_options: *const FontInstancePlatformOptions,
     variations: &mut WrVecU8,
 ) {
-    let instance_options: Option<FontInstanceOptions> = unsafe {
-        options.as_ref().map(|opts|{ (*opts).into() })
-    };
     resources.add_font_instance(
         key,
         font_key,
         Au::from_f32_px(glyph_size),
-        instance_options,
+        unsafe { options.as_ref().cloned() },
         unsafe { platform_options.as_ref().cloned() },
         variations.convert_into_vec::<FontVariation>(),
     );
@@ -1078,6 +1055,15 @@ impl WebRenderFrameBuilder {
             dl_builder: webrender_api::DisplayListBuilder::new(root_pipeline_id, content_size),
         }
     }
+    pub fn with_capacity(root_pipeline_id: WrPipelineId,
+               content_size: LayoutSize,
+               capacity: usize) -> WebRenderFrameBuilder {
+        WebRenderFrameBuilder {
+            root_pipeline_id: root_pipeline_id,
+            dl_builder: webrender_api::DisplayListBuilder::with_capacity(root_pipeline_id, content_size, capacity),
+        }
+    }
+
 }
 
 pub struct WrState {
@@ -1087,13 +1073,15 @@ pub struct WrState {
 
 #[no_mangle]
 pub extern "C" fn wr_state_new(pipeline_id: WrPipelineId,
-                               content_size: LayoutSize) -> *mut WrState {
+                               content_size: LayoutSize,
+                               capacity: usize) -> *mut WrState {
     assert!(unsafe { !is_in_render_thread() });
 
     let state = Box::new(WrState {
                              pipeline_id: pipeline_id,
-                             frame_builder: WebRenderFrameBuilder::new(pipeline_id,
-                                                                       content_size),
+                             frame_builder: WebRenderFrameBuilder::with_capacity(pipeline_id,
+                                                                                 content_size,
+                                                                                 capacity),
                          });
 
     Box::into_raw(state)
@@ -1107,6 +1095,21 @@ pub extern "C" fn wr_state_delete(state: *mut WrState) {
     unsafe {
         Box::from_raw(state);
     }
+}
+
+#[no_mangle]
+pub extern "C" fn wr_dp_save(state: &mut WrState) {
+    state.frame_builder.dl_builder.save();
+}
+
+#[no_mangle]
+pub extern "C" fn wr_dp_restore(state: &mut WrState) {
+    state.frame_builder.dl_builder.restore();
+}
+
+#[no_mangle]
+pub extern "C" fn wr_dp_clear_save(state: &mut WrState) {
+    state.frame_builder.dl_builder.clear_save();
 }
 
 #[no_mangle]
@@ -1187,21 +1190,20 @@ pub extern "C" fn wr_dp_pop_stacking_context(state: &mut WrState) {
 #[no_mangle]
 pub extern "C" fn wr_dp_define_clip(state: &mut WrState,
                                     clip_rect: LayoutRect,
-                                    complex: *const WrComplexClipRegion,
+                                    complex: *const ComplexClipRegion,
                                     complex_count: usize,
                                     mask: *const WrImageMask)
                                     -> u64 {
     debug_assert!(unsafe { is_in_main_thread() });
     let complex_slice = make_slice(complex, complex_count);
-    let complex_iter = complex_slice.iter().map(|x| x.into());
+    let complex_iter = complex_slice.iter().cloned();
     let mask : Option<ImageMask> = unsafe { mask.as_ref() }.map(|x| x.into());
 
     let clip_id = state.frame_builder.dl_builder.define_clip(None, clip_rect, complex_iter, mask);
     // return the u64 id value from inside the ClipId::Clip(..)
     match clip_id {
-        ClipId::Clip(id, nesting_index, pipeline_id) => {
+        ClipId::Clip(id, pipeline_id) => {
             assert!(pipeline_id == state.pipeline_id);
-            assert!(nesting_index == 0);
             id
         },
         _ => panic!("Got unexpected clip id type"),
@@ -1212,7 +1214,7 @@ pub extern "C" fn wr_dp_define_clip(state: &mut WrState,
 pub extern "C" fn wr_dp_push_clip(state: &mut WrState,
                                   clip_id: u64) {
     debug_assert!(unsafe { is_in_main_thread() });
-    state.frame_builder.dl_builder.push_clip_id(ClipId::Clip(clip_id, 0, state.pipeline_id));
+    state.frame_builder.dl_builder.push_clip_id(ClipId::Clip(clip_id, state.pipeline_id));
 }
 
 #[no_mangle]
@@ -1237,9 +1239,8 @@ pub extern "C" fn wr_dp_define_sticky_frame(state: &mut WrState,
             unsafe { bottom_range.as_ref() }.cloned(),
             unsafe { left_range.as_ref() }.cloned()));
     match clip_id {
-        ClipId::Clip(id, nesting_index, pipeline_id) => {
+        ClipId::Clip(id, pipeline_id) => {
             assert!(pipeline_id == state.pipeline_id);
-            assert!(nesting_index == 0);
             id
         },
         _ => panic!("Got unexpected clip id type"),
@@ -1291,7 +1292,7 @@ pub extern "C" fn wr_dp_push_clip_and_scroll_info(state: &mut WrState,
     let info = if let Some(&id) = unsafe { clip_id.as_ref() } {
         ClipAndScrollInfo::new(
             scroll_id,
-            ClipId::Clip(id, 0, state.pipeline_id))
+            ClipId::Clip(id, state.pipeline_id))
     } else {
         ClipAndScrollInfo::simple(scroll_id)
     };
@@ -1444,23 +1445,23 @@ pub extern "C" fn wr_dp_push_text(state: &mut WrState,
 }
 
 #[no_mangle]
-pub extern "C" fn wr_dp_push_text_shadow(state: &mut WrState,
-                                         bounds: LayoutRect,
-                                         clip: LayoutRect,
-                                         is_backface_visible: bool,
-                                         shadow: TextShadow) {
+pub extern "C" fn wr_dp_push_shadow(state: &mut WrState,
+                                    bounds: LayoutRect,
+                                    clip: LayoutRect,
+                                    is_backface_visible: bool,
+                                    shadow: Shadow) {
     debug_assert!(unsafe { is_in_main_thread() });
 
     let mut prim_info = LayoutPrimitiveInfo::with_clip_rect(bounds, clip.into());
     prim_info.is_backface_visible = is_backface_visible;
-    state.frame_builder.dl_builder.push_text_shadow(&prim_info, shadow.into());
+    state.frame_builder.dl_builder.push_shadow(&prim_info, shadow.into());
 }
 
 #[no_mangle]
-pub extern "C" fn wr_dp_pop_text_shadow(state: &mut WrState) {
+pub extern "C" fn wr_dp_pop_all_shadows(state: &mut WrState) {
     debug_assert!(unsafe { is_in_main_thread() });
 
-    state.frame_builder.dl_builder.pop_text_shadow();
+    state.frame_builder.dl_builder.pop_all_shadows();
 }
 
 #[no_mangle]
@@ -1730,19 +1731,6 @@ pub unsafe extern "C" fn wr_api_finalize_builder(state: &mut WrState,
     let (data, descriptor) = dl.into_data();
     *dl_data = WrVecU8::from_vec(data);
     *dl_descriptor = descriptor;
-}
-
-#[no_mangle]
-pub extern "C" fn wr_dp_push_built_display_list(state: &mut WrState,
-                                                dl_descriptor: BuiltDisplayListDescriptor,
-                                                dl_data: &mut WrVecU8) {
-    let dl_vec = mem::replace(dl_data, WrVecU8::from_vec(Vec::new())).to_vec();
-
-    let dl = BuiltDisplayList::from_data(dl_vec, dl_descriptor);
-
-    state.frame_builder.dl_builder.push_nested_display_list(&dl);
-    let (data, _) = dl.into_data();
-    mem::replace(dl_data, WrVecU8::from_vec(data));
 }
 
 pub type VecU8 = Vec<u8>;

@@ -190,8 +190,11 @@ public:
   // WebIDL interface
   void GetCssTextImpl(nsAString& aCssText) const final;
 
-  const mozilla::FontFamilyList& GetFamilyList() { return mFamilyList; }
-  void SetFamilyList(const mozilla::FontFamilyList& aFamilyList);
+  mozilla::SharedFontList* GetFamilyList() const { return mFamilyList; }
+  void SetFamilyList(mozilla::SharedFontList* aFamilyList)
+  {
+    mFamilyList = aFamilyList;
+  }
 
   void AddValueList(int32_t aVariantAlternate,
                     nsTArray<gfxFontFeatureValueSet::ValueList>& aValueList);
@@ -206,7 +209,7 @@ public:
 protected:
   ~nsCSSFontFeatureValuesRule() {}
 
-  mozilla::FontFamilyList mFamilyList;
+  RefPtr<mozilla::SharedFontList> mFamilyList;
   nsTArray<gfxFontFeatureValueSet::FeatureValues> mFeatureValues;
 };
 
@@ -293,7 +296,7 @@ private:
 class nsCSSKeyframesRule final : public mozilla::dom::CSSKeyframesRule
 {
 public:
-  nsCSSKeyframesRule(const nsAString& aName,
+  nsCSSKeyframesRule(already_AddRefed<nsAtom> aName,
                      uint32_t aLineNumber, uint32_t aColumnNumber)
     : mozilla::dom::CSSKeyframesRule(aLineNumber, aColumnNumber)
     , mName(aName)
@@ -323,14 +326,14 @@ public:
   mozilla::dom::CSSRuleList* CssRules() final { return GroupRule::CssRules(); }
   nsCSSKeyframeRule* FindRule(const nsAString& aKey) final;
 
-  const nsString& GetName() { return mName; }
+  const nsAtom* GetName() const { return mName; }
 
   virtual size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const override;
 
 private:
   uint32_t FindRuleIndexForKey(const nsAString& aKey);
 
-  nsString                                   mName;
+  RefPtr<nsAtom> mName;
 };
 
 class nsCSSPageRule;

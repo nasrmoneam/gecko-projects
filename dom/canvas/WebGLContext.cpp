@@ -114,7 +114,6 @@ WebGLContext::WebGLContext()
     , mBufferFetchingHasPerVertex(false)
     , mMaxFetchedVertices(0)
     , mMaxFetchedInstances(0)
-    , mLayerIsMirror(false)
     , mBypassShaderValidation(false)
     , mEmptyTFO(0)
     , mContextLossHandler(this)
@@ -764,8 +763,12 @@ WebGLContext::CreateAndInitGL(bool forceEnabled,
 
     //////
 
-    if (tryANGLE)
-        return CreateAndInitGLWith(CreateGLWithANGLE, baseCaps, flags, out_failReasons);
+    if (tryANGLE) {
+        // Force enable alpha channel to make sure ANGLE use correct framebuffer formart
+        gl::SurfaceCaps& angleCaps = const_cast<gl::SurfaceCaps&>(baseCaps);
+        angleCaps.alpha = true;
+        return CreateAndInitGLWith(CreateGLWithANGLE, angleCaps, flags, out_failReasons);
+    }
 
     //////
 
@@ -1278,7 +1281,6 @@ WebGLContext::UpdateLastUseIndex()
 }
 
 static uint8_t gWebGLLayerUserData;
-static uint8_t gWebGLMirrorLayerUserData;
 
 class WebGLContextUserData : public LayerUserData
 {
@@ -1314,11 +1316,11 @@ private:
 already_AddRefed<layers::Layer>
 WebGLContext::GetCanvasLayer(nsDisplayListBuilder* builder,
                              Layer* oldLayer,
-                             LayerManager* manager,
-                             bool aMirror /*= false*/)
+                             LayerManager* manager)
 {
     if (!mResetLayer && oldLayer &&
-        oldLayer->HasUserData(aMirror ? &gWebGLMirrorLayerUserData : &gWebGLLayerUserData)) {
+        oldLayer->HasUserData(&gWebGLLayerUserData))
+    {
         RefPtr<layers::Layer> ret = oldLayer;
         return ret.forget();
     }
@@ -1330,38 +1332,33 @@ WebGLContext::GetCanvasLayer(nsDisplayListBuilder* builder,
     }
 
     WebGLContextUserData* userData = nullptr;
-    if (builder->IsPaintingToWindow() && mCanvasElement && !aMirror) {
+    if (builder->IsPaintingToWindow() && mCanvasElement) {
         userData = new WebGLContextUserData(mCanvasElement);
     }
 
-    canvasLayer->SetUserData(aMirror ? &gWebGLMirrorLayerUserData : &gWebGLLayerUserData, userData);
+    canvasLayer->SetUserData(&gWebGLLayerUserData, userData);
 
     CanvasRenderer* canvasRenderer = canvasLayer->CreateOrGetCanvasRenderer();
-    if (!InitializeCanvasRenderer(builder, canvasRenderer, aMirror))
+    if (!InitializeCanvasRenderer(builder, canvasRenderer))
       return nullptr;
 
     uint32_t flags = gl->Caps().alpha ? 0 : Layer::CONTENT_OPAQUE;
     canvasLayer->SetContentFlags(flags);
 
     mResetLayer = false;
-    // We only wish to update mLayerIsMirror when a new layer is returned.
-    // If a cached layer is returned above, aMirror is not changing since
-    // the last cached layer was created and mLayerIsMirror is still valid.
-    mLayerIsMirror = aMirror;
 
     return canvasLayer.forget();
 }
 
 bool
 WebGLContext::InitializeCanvasRenderer(nsDisplayListBuilder* aBuilder,
-                                       CanvasRenderer* aRenderer,
-                                       bool aMirror)
+                                       CanvasRenderer* aRenderer)
 {
     if (IsContextLost())
         return false;
 
     CanvasInitializeData data;
-    if (aBuilder->IsPaintingToWindow() && mCanvasElement && !aMirror) {
+    if (aBuilder->IsPaintingToWindow() && mCanvasElement) {
         // Make the layer tell us whenever a transaction finishes (including
         // the current transaction), so we can clear our invalidation state and
         // start invalidating again. We need to do this for the layer that is
@@ -1384,7 +1381,6 @@ WebGLContext::InitializeCanvasRenderer(nsDisplayListBuilder* aBuilder,
     data.mSize = nsIntSize(mWidth, mHeight);
     data.mHasAlpha = gl->Caps().alpha;
     data.mIsGLAlphaPremult = IsPremultAlpha() || !data.mHasAlpha;
-    data.mIsMirror = aMirror;
 
     aRenderer->Initialize(data);
     aRenderer->SetDirty();
@@ -1827,7 +1823,7 @@ WebGLContext::UpdateContextLossStatus()
         if (mCanvasElement) {
             nsContentUtils::DispatchTrustedEvent(
                 mCanvasElement->OwnerDoc(),
-                static_cast<nsIDOMHTMLCanvasElement*>(mCanvasElement),
+                static_cast<nsIContent*>(mCanvasElement),
                 kEventName,
                 kCanBubble,
                 kIsCancelable,
@@ -1895,7 +1891,7 @@ WebGLContext::UpdateContextLossStatus()
         if (mCanvasElement) {
             nsContentUtils::DispatchTrustedEvent(
                 mCanvasElement->OwnerDoc(),
-                static_cast<nsIDOMHTMLCanvasElement*>(mCanvasElement),
+                static_cast<nsIContent*>(mCanvasElement),
                 NS_LITERAL_STRING("webglcontextrestored"),
                 true,
                 true);
@@ -2351,7 +2347,7 @@ WebGLContext::GetVRFrame()
       return nullptr;
   }
 
-  return sharedSurface.forget();
+    return sharedSurface.forget();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

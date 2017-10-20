@@ -12,15 +12,36 @@ Cu.import("chrome://marionette/content/atom.js");
 const {
   InvalidSelectorError,
   NoSuchElementError,
-  pprint,
   StaleElementReferenceError,
 } = Cu.import("chrome://marionette/content/error.js", {});
-Cu.import("chrome://marionette/content/wait.js");
+const {pprint} = Cu.import("chrome://marionette/content/format.js", {});
+const {PollPromise} = Cu.import("chrome://marionette/content/sync.js", {});
 
 this.EXPORTED_SYMBOLS = ["element"];
 
-const XMLNS = "http://www.w3.org/1999/xhtml";
+const SVGNS = "http://www.w3.org/2000/svg";
+const XBLNS = "http://www.mozilla.org/xbl";
+const XHTMLNS = "http://www.w3.org/1999/xhtml";
 const XULNS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
+
+/** XUL elements that support checked property. */
+const XUL_CHECKED_ELS = new Set([
+  "button",
+  "checkbox",
+  "listitem",
+  "toolbarbutton",
+]);
+
+/** XUL elements that support selected property. */
+const XUL_SELECTED_ELS = new Set([
+  "listitem",
+  "menu",
+  "menuitem",
+  "menuseparator",
+  "radio",
+  "richlistitem",
+  "tab",
+]);
 
 const uuidGen = Cc["@mozilla.org/uuid-generator;1"]
     .getService(Ci.nsIUUIDGenerator);
@@ -135,6 +156,9 @@ element.Store = class {
    * Determine if the provided web element reference has been seen
    * before/is in the element store.
    *
+   * Unlike when getting the element, a staleness check is not
+   * performed.
+   *
    * @param {string} uuid
    *     Element's associated web element reference.
    *
@@ -148,8 +172,14 @@ element.Store = class {
   /**
    * Retrieve a DOM element by its unique web element reference/UUID.
    *
+   * Upon retrieving the element, an element staleness check is
+   * performed.
+   *
    * @param {string} uuid
    *     Web element reference, or UUID.
+   * @param {WindowProxy} window
+   *     Current browsing context, which may differ from the associate
+   *     browsing context of <var>el</var>.
    *
    * @returns {Element}
    *     Element associated with reference.
@@ -162,7 +192,7 @@ element.Store = class {
    *     attached to the DOM, or its node document is no longer the
    *     active document.
    */
-  get(uuid) {
+  get(uuid, window) {
     if (!this.has(uuid)) {
       throw new NoSuchElementError(
           "Web element reference not seen before: " + uuid);
@@ -176,10 +206,11 @@ element.Store = class {
       delete this.els[uuid];
     }
 
-    if (element.isStale(el)) {
+    if (element.isStale(el, window)) {
       throw new StaleElementReferenceError(
           pprint`The element reference of ${el || uuid} stale; ` +
-              "either the element is no longer attached to the DOM " +
+              "either the element is no longer attached to the DOM, " +
+              "it is not in the current frame context, " +
               "or the document has been refreshed");
     }
 
@@ -238,8 +269,9 @@ element.Store = class {
  *     element is not found.
  */
 element.find = function(container, strategy, selector, opts = {}) {
-  opts.all = !!opts.all;
-  opts.timeout = opts.timeout || 0;
+  let all = !!opts.all;
+  let timeout = opts.timeout || 0;
+  let startNode = opts.startNode;
 
   let searchFn;
   if (opts.all) {
@@ -249,14 +281,15 @@ element.find = function(container, strategy, selector, opts = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    let findElements = wait.until((resolve, reject) => {
-      let res = find_(container, strategy, selector, searchFn, opts);
+    let findElements = new PollPromise((resolve, reject) => {
+      let res = find_(container, strategy, selector, searchFn,
+          {all, startNode});
       if (res.length > 0) {
         resolve(Array.from(res));
       } else {
         reject([]);
       }
-    }, opts.timeout);
+    }, {timeout});
 
     findElements.then(foundEls => {
       // the following code ought to be moved into findElement
@@ -284,13 +317,11 @@ element.find = function(container, strategy, selector, opts = {}) {
   });
 };
 
-function find_(container, strategy, selector, searchFn, opts) {
+function find_(container, strategy, selector, searchFn,
+    {startNode = null, all = false} = {}) {
   let rootNode = container.shadowRoot || container.frame.document;
-  let startNode;
 
-  if (opts.startNode) {
-    startNode = opts.startNode;
-  } else {
+  if (!startNode) {
     switch (strategy) {
       // For anonymous nodes the start node needs to be of type
       // DOMElement, which will refer to :root in case of a DOMDocument.
@@ -315,7 +346,7 @@ function find_(container, strategy, selector, searchFn, opts) {
   }
 
   if (res) {
-    if (opts.all) {
+    if (all) {
       return res;
     }
     return [res];
@@ -368,18 +399,37 @@ element.findByXPathAll = function(root, startNode, expr) {
 };
 
 /**
- * Find all hyperlinks dscendant of |node| which link text is |s|.
+ * Find all hyperlinks descendant of <var>node</var> which link text
+ * is <var>s</var>.
  *
  * @param {DOMElement} node
- *     Where in the DOM hierarchy to being searching.
+ *     Where in the DOM hierarchy to begin searching.
  * @param {string} s
  *     Link text to search for.
  *
  * @return {Array.<DOMAnchorElement>}
- *     Sequence of link elements which text is |s|.
+ *     Sequence of link elements which text is <var>s</var>.
  */
 element.findByLinkText = function(node, s) {
   return filterLinks(node, link => link.text.trim() === s);
+};
+
+/**
+ * Find anonymous nodes of <var>node</var>.
+ *
+ * @param {XULElement} rootNode
+ *     Root node of the document.
+ * @param {XULElement} node
+ *     Where in the DOM hierarchy to begin searching.
+ *
+ * @return {Iterable.<XULElement>}
+ *     Iterator over anonymous elements.
+ */
+element.findAnonymousNodes = function* (rootNode, node) {
+  let anons = rootNode.getAnonymousNodes(node) || [];
+  for (let node of anons) {
+    yield node;
+  }
 };
 
 /**
@@ -494,7 +544,7 @@ function findElement(using, value, rootNode, startNode) {
       }
 
     case element.Strategy.Anon:
-      return rootNode.getAnonymousNodes(startNode);
+      return element.findAnonymousNodes(rootNode, startNode).next().value;
 
     case element.Strategy.AnonAttribute:
       let attr = Object.keys(value)[0];
@@ -557,7 +607,7 @@ function findElements(using, value, rootNode, startNode) {
       return startNode.querySelectorAll(value);
 
     case element.Strategy.Anon:
-      return rootNode.getAnonymousNodes(startNode);
+      return [...element.findAnonymousNodes(rootNode, startNode)];
 
     case element.Strategy.AnonAttribute:
       let attr = Object.keys(value)[0];
@@ -573,7 +623,15 @@ function findElements(using, value, rootNode, startNode) {
   }
 }
 
-/** Determines if |obj| is an HTML or JS collection. */
+/**
+ * Determines if <var>obj<var> is an HTML or JS collection.
+ *
+ * @param {*} seq
+ *     Type to determine.
+ *
+ * @return {boolean}
+ *     True if <var>seq</va> is collection.
+ */
 element.isCollection = function(seq) {
   switch (Object.prototype.toString.call(seq)) {
     case "[object Arguments]":
@@ -622,26 +680,77 @@ element.generateUUID = function() {
  * Determines if <var>el</var> is stale.
  *
  * A stale element is an element no longer attached to the DOM or which
- * node document is not the active document.
+ * node document is not the active document of the current browsing
+ * context.
  *
- * @param {Element} el
- *     DOM element to check for staleness.
+ * The currently selected browsing context, specified through
+ * <var>window<var>, is a WebDriver concept defining the target
+ * against which commands will run.  As the current browsing context
+ * may differ from <var>el</var>'s associated context, an element is
+ * considered stale even if it is connected to a living (not discarded)
+ * browsing context such as an <tt>&lt;iframe&gt;</tt>.
+ *
+ * @param {Element=} el
+ *     DOM element to check for staleness.  If null, which may be
+ *     the case if the element has been unwrapped from a weak
+ *     reference, it is always considered stale.
+ * @param {WindowProxy=} window
+ *     Current browsing context, which may differ from the associate
+ *     browsing context of <var>el</var>.  When retrieving XUL
+ *     elements, this is optional.
  *
  * @return {boolean}
  *     True if <var>el</var> is stale, false otherwise.
  */
-element.isStale = function(el) {
-  if (!el) {
-    return true;
+element.isStale = function(el, window = undefined) {
+  if (typeof window == "undefined") {
+    window = el.ownerGlobal;
   }
 
-  let doc = el.ownerDocument;
-  let win = doc.defaultView;
-  if (!win || el.ownerDocument !== win.document) {
+  if (el === null ||
+      !el.ownerGlobal ||
+      el.ownerDocument !== window.document) {
     return true;
   }
 
   return !el.isConnected;
+};
+
+/**
+ * Determine if <var>el</var> is selected or not.
+ *
+ * This operation only makes sense on
+ * <tt>&lt;input type=checkbox&gt;</tt>,
+ * <tt>&lt;input type=radio&gt;</tt>,
+ * and <tt>&gt;option&gt;</tt> elements.
+ *
+ * @param {(DOMElement|XULElement)} el
+ *     Element to test if selected.
+ *
+ * @return {boolean}
+ *     True if element is selected, false otherwise.
+ */
+element.isSelected = function(el) {
+  if (!el) {
+    return false;
+  }
+
+  if (element.isXULElement(el)) {
+    if (XUL_CHECKED_ELS.has(el.tagName)) {
+      return el.checked;
+    } else if (XUL_SELECTED_ELS.has(el.tagName)) {
+      return el.selected;
+    }
+
+  } else if (element.isDOMElement(el)) {
+    if (el.localName == "input" && ["checkbox", "radio"].includes(el.type)) {
+      return el.checked;
+    } else if (el.localName == "option") {
+      return el.selected;
+    }
+  }
+
+  return false;
 };
 
 /**
@@ -721,9 +830,10 @@ element.inViewport = function(el, x = undefined, y = undefined) {
  * Gets the element's container element.
  *
  * An element container is defined by the WebDriver
- * specification to be an <option> element in a valid element context
- * (https://html.spec.whatwg.org/#concept-element-contexts), meaning
- * that it has an ancestral element that is either <datalist> or <select>.
+ * specification to be an <tt>&lt;option&gt;</tt> element in a
+ * <a href="https://html.spec.whatwg.org/#concept-element-contexts">valid
+ * element context</a>, meaning that it has an ancestral element
+ * that is either <tt>&lt;datalist&gt;</tt> or <tt>&lt;select&gt;</tt>.
  *
  * If the element does not have a valid context, its container element
  * is itself.
@@ -762,19 +872,20 @@ element.getContainer = function(el) {
  *
  * This means an element is considered to be in view, but not necessarily
  * pointer-interactable, if it is found somewhere in the
- * |elementsFromPoint| list at |el|'s in-view centre coordinates.
+ * <code>elementsFromPoint</code> list at <var>el</var>'s in-view
+ * centre coordinates.
  *
- * Before running the check, we change |el|'s pointerEvents style property
- * to "auto", since elements without pointer events enabled do not turn
- * up in the paint tree we get from document.elementsFromPoint.  This is
- * a specialisation that is only relevant when checking if the element is
- * in view.
+ * Before running the check, we change <var>el</var>'s pointerEvents
+ * style property to "auto", since elements without pointer events
+ * enabled do not turn up in the paint tree we get from
+ * document.elementsFromPoint.  This is a specialisation that is only
+ * relevant when checking if the element is in view.
  *
  * @param {Element} el
  *     Element to check if is in view.
  *
  * @return {boolean}
- *     True if |el| is inside the viewport, or false otherwise.
+ *     True if <var>el</var> is inside the viewport, or false otherwise.
  */
 element.isInView = function(el) {
   let originalPointerEvents = el.style.pointerEvents;
@@ -924,9 +1035,7 @@ element.getPointerInteractablePaintTree = function(el) {
 
 // TODO(ato): Not implemented.
 // In fact, it's not defined in the spec.
-element.isKeyboardInteractable = function(el) {
-  return true;
-};
+element.isKeyboardInteractable = () => true;
 
 /**
  * Attempts to scroll into view |el|.
@@ -940,8 +1049,89 @@ element.scrollIntoView = function(el) {
   }
 };
 
-element.isXULElement = function(el) {
-  return el.namespaceURI === XULNS;
+/**
+ * Ascertains whether <var>node</var> is a DOM-, SVG-, or XUL element.
+ *
+ * @param {*} node
+ *     Element thought to be an <code>Element</code>,
+ *     <code>SVGElement</code>, or <code>XULElement</code>.
+ *
+ * @return {boolean}
+ *     True if <var>node</var> is an element, false otherwise.
+ */
+element.isElement = function(node) {
+  return element.isDOMElement(node) ||
+      element.isSVGElement(node) ||
+      element.isXULElement(node);
+};
+
+/**
+ * Ascertains whether <var>node</var> is a DOM element.
+ *
+ * @param {*} node
+ *     Element thought to be an <code>Element</code>.
+ *
+ * @return {boolean}
+ *     True if <var>node</var> is a DOM element, false otherwise.
+ */
+element.isDOMElement = function(node) {
+  return typeof node == "object" &&
+      node !== null &&
+      node.nodeType === node.ELEMENT_NODE &&
+      node.namespaceURI === XHTMLNS;
+};
+
+/**
+ * Ascertains whether <var>node</var> is an SVG element.
+ *
+ * @param {*} node
+ *     Object thought to be an <code>SVGElement</code>.
+ *
+ * @return {boolean}
+ *     True if <var>node</var> is an SVG element, false otherwise.
+ */
+element.isSVGElement = function(node) {
+  return typeof node == "object" &&
+      node !== null &&
+      node.nodeType === node.ELEMENT_NODE &&
+      node.namespaceURI === SVGNS;
+};
+
+/**
+ * Ascertains whether <var>el</var> is a XUL- or XBL element.
+ *
+ * @param {*} node
+ *     Element thought to be a XUL- or XBL element.
+ *
+ * @return {boolean}
+ *     True if <var>node</var> is a XULElement or XBLElement,
+ *     false otherwise.
+ */
+element.isXULElement = function(node) {
+  return typeof node == "object" &&
+      node !== null &&
+      node.nodeType === node.ELEMENT_NODE &&
+      [XBLNS, XULNS].includes(node.namespaceURI);
+};
+
+/**
+ * Ascertains whether <var>node</var> is a <code>WindowProxy</code>.
+ *
+ * @param {*} node
+ *     Node thought to be a <code>WindowProxy</code>.
+ *
+ * @return {boolean}
+ *     True if <var>node</var> is a DOM window.
+ */
+element.isDOMWindow = function(node) {
+  // TODO(ato): This should use Object.prototype.toString.call(node)
+  // but it's not clear how to write a good xpcshell test for that,
+  // seeing as we stub out a WindowProxy.
+  return typeof node == "object" &&
+      node !== null &&
+      typeof node.toString == "function" &&
+      node.toString() == "[object Window]" &&
+      node.self === node;
 };
 
 const boolEls = {
@@ -979,7 +1169,7 @@ const boolEls = {
  * Tests if the attribute is a boolean attribute on element.
  *
  * @param {DOMElement} el
- *     Element to test if |attr| is a boolean attribute on.
+ *     Element to test if <var>attr</var> is a boolean attribute on.
  * @param {string} attr
  *     Attribute to test is a boolean attribute.
  *
@@ -987,7 +1177,7 @@ const boolEls = {
  *     True if the attribute is boolean, false otherwise.
  */
 element.isBooleanAttribute = function(el, attr) {
-  if (el.namespaceURI !== XMLNS) {
+  if (!element.isDOMElement(el)) {
     return false;
   }
 

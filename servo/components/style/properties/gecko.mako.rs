@@ -25,9 +25,6 @@ use gecko_bindings::bindings::Gecko_CopyFontFamilyFrom;
 use gecko_bindings::bindings::Gecko_CopyImageValueFrom;
 use gecko_bindings::bindings::Gecko_CopyListStyleImageFrom;
 use gecko_bindings::bindings::Gecko_EnsureImageLayersLength;
-use gecko_bindings::bindings::Gecko_FontFamilyList_AppendGeneric;
-use gecko_bindings::bindings::Gecko_FontFamilyList_AppendNamed;
-use gecko_bindings::bindings::Gecko_FontFamilyList_Clear;
 use gecko_bindings::bindings::Gecko_SetCursorArrayLength;
 use gecko_bindings::bindings::Gecko_SetCursorImageValue;
 use gecko_bindings::bindings::Gecko_StyleTransition_SetUnsupportedProperty;
@@ -178,7 +175,7 @@ impl Clone for ComputedValuesInner {
     }
 }
 
-type PseudoInfo = (*mut structs::nsIAtom, structs::CSSPseudoElementType);
+type PseudoInfo = (*mut structs::nsAtom, structs::CSSPseudoElementType);
 type ParentStyleContextInfo<'a> = Option< &'a ComputedValues>;
 
 impl ComputedValuesInner {
@@ -223,7 +220,7 @@ impl ComputedValuesInner {
         pres_context: bindings::RawGeckoPresContextBorrowed,
         parent: ParentStyleContextInfo,
         pseudo_ty: structs::CSSPseudoElementType,
-        pseudo_tag: *mut structs::nsIAtom
+        pseudo_tag: *mut structs::nsAtom
     ) -> Arc<ComputedValues> {
         let arc = unsafe {
             let arc: Arc<ComputedValues> = Arc::new(uninitialized());
@@ -254,7 +251,7 @@ impl ops::DerefMut for ComputedValues {
 
 impl ComputedValuesInner {
     /// Clone the visited style.  Used for inheriting parent styles in
-    /// StyleBuilder::for_inheritance.
+    /// StyleBuilder::for_derived_style.
     pub fn clone_visited_style(&self) -> Option<Arc<ComputedValues>> {
         self.visited_style.as_ref().map(|x| x.clone_arc())
     }
@@ -2035,28 +2032,11 @@ fn static_assert() {
     }
 
     pub fn set_font_family(&mut self, v: longhands::font_family::computed_value::T) {
-        use properties::longhands::font_family::computed_value::{FontFamily, FamilyNameSyntax};
-
-        let list = &mut self.gecko.mFont.fontlist;
-        unsafe { Gecko_FontFamilyList_Clear(list); }
-
         self.gecko.mGenericID = structs::kGenericFont_NONE;
-
-        for family in &v.0 {
-            match *family {
-                FontFamily::FamilyName(ref f) => {
-                    let quoted = matches!(f.syntax, FamilyNameSyntax::Quoted);
-                    unsafe { Gecko_FontFamilyList_AppendNamed(list, f.name.as_ptr(), quoted); }
-                }
-                FontFamily::Generic(ref name) => {
-                    let (family_type, generic) = FontFamily::generic(name);
-                    if v.0.len() == 1 {
-                        self.gecko.mGenericID = generic;
-                    }
-                    unsafe { Gecko_FontFamilyList_AppendGeneric(list, family_type); }
-                }
-            }
+        if let Some(generic) = v.0.single_generic() {
+            self.gecko.mGenericID = generic;
         }
+        self.gecko.mFont.fontlist.mFontlist.mBasePtr.set_move((v.0).0.clone());
     }
 
     pub fn font_family_count(&self) -> usize {
@@ -2078,46 +2058,28 @@ fn static_assert() {
     }
 
     pub fn clone_font_family(&self) -> longhands::font_family::computed_value::T {
-        use cssparser::serialize_identifier;
-        use properties::longhands::font_family::computed_value::{FontFamily, FamilyName, FamilyNameSyntax};
         use gecko_bindings::structs::FontFamilyType;
-        use gecko_string_cache::Atom;
+        use properties::longhands::font_family::computed_value;
+        use properties::longhands::font_family::computed_value::FontFamily;
+        use properties::longhands::font_family::computed_value::FontFamilyList;
 
-        if self.gecko.mFont.fontlist.mFontlist.is_empty() {
-            let default = match self.gecko.mFont.fontlist.mDefaultFontType {
-                FontFamilyType::eFamily_serif => FontFamily::Generic(atom!("serif")),
-                FontFamilyType::eFamily_sans_serif => FontFamily::Generic(atom!("sans-serif")),
+        let fontlist = &self.gecko.mFont.fontlist;
+        let shared_fontlist = unsafe { fontlist.mFontlist.mBasePtr.to_safe() };
+
+        if shared_fontlist.mNames.is_empty() {
+            let default = match fontlist.mDefaultFontType {
+                FontFamilyType::eFamily_serif => {
+                    FontFamily::Generic(atom!("serif"))
+                }
+                FontFamilyType::eFamily_sans_serif => {
+                    FontFamily::Generic(atom!("sans-serif"))
+                }
                 _ => panic!("Default generic must be serif or sans-serif"),
             };
-            return longhands::font_family::computed_value::T(vec![default]);
+            computed_value::T(FontFamilyList::new(vec![default]))
+        } else {
+            computed_value::T(FontFamilyList(shared_fontlist))
         }
-
-        longhands::font_family::computed_value::T(
-            self.gecko.mFont.fontlist.mFontlist.iter().map(|gecko_font_family_name| {
-                match gecko_font_family_name.mType {
-                    FontFamilyType::eFamily_serif => FontFamily::Generic(atom!("serif")),
-                    FontFamilyType::eFamily_sans_serif => FontFamily::Generic(atom!("sans-serif")),
-                    FontFamilyType::eFamily_monospace => FontFamily::Generic(atom!("monospace")),
-                    FontFamilyType::eFamily_cursive => FontFamily::Generic(atom!("cursive")),
-                    FontFamilyType::eFamily_fantasy => FontFamily::Generic(atom!("fantasy")),
-                    FontFamilyType::eFamily_moz_fixed => FontFamily::Generic(Atom::from("-moz-fixed")),
-                    FontFamilyType::eFamily_named => {
-                        let name = Atom::from(&*gecko_font_family_name.mName);
-                        let mut serialization = String::new();
-                        serialize_identifier(&name.to_string(), &mut serialization).unwrap();
-                        FontFamily::FamilyName(FamilyName {
-                            name: name.clone(),
-                            syntax: FamilyNameSyntax::Identifiers(serialization),
-                        })
-                    },
-                    FontFamilyType::eFamily_named_quoted => FontFamily::FamilyName(FamilyName {
-                        name: (&*gecko_font_family_name.mName).into(),
-                        syntax: FamilyNameSyntax::Quoted,
-                    }),
-                    x => panic!("Found unexpected font FontFamilyType: {:?}", x),
-                }
-            }).collect()
-        )
     }
 
     pub fn unzoom_fonts(&mut self, device: &Device) {
@@ -3253,42 +3215,33 @@ fn static_assert() {
         where I: IntoIterator<Item = longhands::animation_name::computed_value::single_value::T>,
               I::IntoIter: ExactSizeIterator
     {
-
         let v = v.into_iter();
         debug_assert!(v.len() != 0);
         unsafe { self.gecko.mAnimations.ensure_len(v.len()) };
 
         self.gecko.mAnimationNameCount = v.len() as u32;
         for (servo, gecko) in v.zip(self.gecko.mAnimations.iter_mut()) {
-            // TODO This is inefficient. We should fix this in bug 1329169.
-            gecko.mName.assign(match servo.0 {
-                Some(ref name) => name.as_atom().as_slice(),
-                None => &[],  // Empty string for 'none'
-            });
+            let atom = match servo.0 {
+                None => atom!(""),
+                Some(ref name) => name.as_atom().clone(),
+            };
+            unsafe { bindings::Gecko_SetAnimationName(gecko, atom.into_addrefed()); }
         }
     }
     pub fn animation_name_at(&self, index: usize)
         -> longhands::animation_name::computed_value::SingleComputedValue {
         use properties::longhands::animation_name::single_value::SpecifiedValue as AnimationName;
-        // XXX: Is there any effective ways?
-        let atom = &self.gecko.mAnimations[index].mName;
-        if atom.is_empty() {
+
+        let atom = self.gecko.mAnimations[index].mName.mRawPtr;
+        if atom == atom!("").as_ptr() {
             AnimationName(None)
         } else {
-            AnimationName(Some(KeyframesName::from_ident(&atom.to_string())))
+            AnimationName(Some(KeyframesName::from_atom(atom.into())))
         }
     }
     pub fn copy_animation_name_from(&mut self, other: &Self) {
-        unsafe { self.gecko.mAnimations.ensure_len(other.gecko.mAnimations.len()) };
-
-        let count = other.gecko.mAnimationNameCount;
-        self.gecko.mAnimationNameCount = count;
-
-        // The length of mAnimations is often greater than mAnimationXXCount,
-        // don't copy values over the count.
-        for (index, animation) in self.gecko.mAnimations.iter_mut().enumerate().take(count as usize) {
-            animation.mName.assign(&*other.gecko.mAnimations[index].mName);
-        }
+        self.gecko.mAnimationNameCount = other.gecko.mAnimationNameCount;
+        unsafe { bindings::Gecko_CopyAnimationNames(&mut self.gecko.mAnimations, &other.gecko.mAnimations); }
     }
 
     pub fn reset_animation_name(&mut self, other: &Self) {
@@ -3494,7 +3447,7 @@ fn static_assert() {
 
     pub fn clone_will_change(&self) -> longhands::will_change::computed_value::T {
         use properties::longhands::will_change::computed_value::T;
-        use gecko_bindings::structs::nsIAtom;
+        use gecko_bindings::structs::nsAtom;
         use values::CustomIdent;
 
         if self.gecko.mWillChange.len() == 0 {
@@ -3502,7 +3455,7 @@ fn static_assert() {
         } else {
             T::AnimateableFeatures(
                 self.gecko.mWillChange.iter().map(|gecko_atom| {
-                    CustomIdent((gecko_atom.mRawPtr as *mut nsIAtom).into())
+                    CustomIdent((gecko_atom.mRawPtr as *mut nsAtom).into())
                 }).collect()
             )
         }

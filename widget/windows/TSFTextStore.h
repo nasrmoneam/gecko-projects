@@ -251,6 +251,14 @@ public:
   static bool IsMSJapaneseIMEActive();
 
   /**
+   * Returns true if active TIP is Google Japanese Input.
+   * Note that if Google Japanese Input is installed as an IMM-IME,
+   * this return false even if Google Japanese Input is active.
+   * So, you may need to check IMMHandler::IsGoogleJapaneseInputActive() too.
+   */
+  static bool IsGoogleJapaneseInputActive();
+
+  /**
    * Returns true if TSF may crash if GetSelection() returns E_FAIL.
    */
   static bool DoNotReturnErrorFromGetSelection();
@@ -699,7 +707,7 @@ protected:
     }
     const PendingAction& pendingLastAction = mPendingActions.LastElement();
     if (pendingLastAction.mType != PendingAction::COMPOSITION_END ||
-        pendingLastAction.mData.Length() != aLength) {
+        pendingLastAction.mData.Length() != ULONG(aLength)) {
       return false;
     }
     const PendingAction& pendingPreLastAction =

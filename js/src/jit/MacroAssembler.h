@@ -746,8 +746,21 @@ class MacroAssembler : public MacroAssemblerSpecific
     inline void moveFloat32ToGPR(FloatRegister src, Register dest) PER_SHARED_ARCH;
     inline void moveGPRToFloat32(Register src, FloatRegister dest) PER_SHARED_ARCH;
 
+    inline void moveDoubleToGPR64(FloatRegister src, Register64 dest) PER_ARCH;
+    inline void moveGPR64ToDouble(Register64 src, FloatRegister dest) PER_ARCH;
+
     inline void move8SignExtend(Register src, Register dest) PER_SHARED_ARCH;
     inline void move16SignExtend(Register src, Register dest) PER_SHARED_ARCH;
+
+    // move64To32 will clear the high bits of `dest` on 64-bit systems.
+    inline void move64To32(Register64 src, Register dest) PER_ARCH;
+
+    inline void move32To64ZeroExtend(Register src, Register64 dest) PER_ARCH;
+
+    // On x86, `dest` must be edx:eax for the sign extend operations.
+    inline void move8To64SignExtend(Register src, Register64 dest) PER_ARCH;
+    inline void move16To64SignExtend(Register src, Register64 dest) PER_ARCH;
+    inline void move32To64SignExtend(Register src, Register64 dest) PER_ARCH;
 
     // Copy a constant, typed-register, or a ValueOperand into a ValueOperand
     // destination.
@@ -1503,9 +1516,6 @@ class MacroAssembler : public MacroAssemblerSpecific
     // including "normal" OutOfLineCode.
     void wasmEmitTrapOutOfLineCode();
 
-    // Assert invariants that should be true within any non-exit-stub wasm code.
-    void wasmAssertNonExitInvariants(Register activation);
-
     // Perform a stack-overflow test, branching to the given Label on overflow.
     void wasmEmitStackCheck(Register sp, Register scratch, Label* onOverflow);
 
@@ -1839,6 +1849,8 @@ class MacroAssembler : public MacroAssemblerSpecific
   public:
     // Generates code used to complete a bailout.
     void generateBailoutTail(Register scratch, Register bailoutInfo);
+
+    void assertRectifierFrameParentType(Register frameType);
 
   public:
 #ifndef JS_CODEGEN_ARM64
@@ -2326,7 +2338,7 @@ ToMIRType(MIRType t)
 static inline MIRType
 ToMIRType(ABIArgType argType)
 {
-    switch (argType & ArgType_Mask) {
+    switch (argType) {
       case ArgType_General: return MIRType::Int32;
       case ArgType_Double:  return MIRType::Double;
       case ArgType_Float32: return MIRType::Float32;

@@ -973,9 +973,11 @@ TabParent::RecvPDocAccessibleConstructor(PDocAccessibleParent* aDoc,
 #ifdef XP_WIN
     a11y::WrapperFor(doc)->SetID(aMsaaID);
     MOZ_ASSERT(!aDocCOMProxy.IsNull());
+#ifdef NIGHTLY_BUILD
     if (aDocCOMProxy.IsNull()) {
       return IPC_FAIL(this, "Constructing a top-level PDocAccessible with null COM proxy");
     }
+#endif
 
     RefPtr<IAccessible> proxy(aDocCOMProxy.Get());
     doc->SetCOMInterface(proxy);
@@ -3597,6 +3599,27 @@ TabParent::RecvRequestCrossBrowserNavigation(const uint32_t& aGlobalIndex)
   nsCOMPtr<nsISupports> promise;
   if (NS_FAILED(frameLoader->RequestGroupedHistoryNavigation(aGlobalIndex,
                                                              getter_AddRefs(promise)))) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+TabParent::RecvShowCanvasPermissionPrompt(const nsCString& aFirstPartyURI)
+{
+  nsCOMPtr<nsIBrowser> browser = do_QueryInterface(mFrameElement);
+  if (!browser) {
+    // If the tab is being closed, the browser may not be available.
+    // In this case we can ignore the request.
+    return IPC_OK();
+  }
+  nsCOMPtr<nsIObserverService> os = services::GetObserverService();
+  if (!os) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+  nsresult rv = os->NotifyObservers(browser, "canvas-permissions-prompt",
+                                    NS_ConvertUTF8toUTF16(aFirstPartyURI).get());
+  if (NS_FAILED(rv)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();

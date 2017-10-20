@@ -75,28 +75,16 @@ using mozilla::ipc::GeckoChildProcessHost;
 #include "mozilla/jni/Utils.h"
 #endif
 
-// We currently don't drop privileges on any platform, because we have to worry
-// about plugins and extensions breaking.
-static const bool kLowRightsSubprocesses = false;
-
 static bool
 ShouldHaveDirectoryService()
 {
   return GeckoProcessType_Default == XRE_GetProcessType();
 }
 
-/*static*/
-base::ChildPrivileges
-GeckoChildProcessHost::DefaultChildPrivileges()
-{
-  return (kLowRightsSubprocesses ?
-          base::PRIVILEGES_UNPRIVILEGED : base::PRIVILEGES_INHERIT);
-}
-
 GeckoChildProcessHost::GeckoChildProcessHost(GeckoProcessType aProcessType,
-                                             ChildPrivileges aPrivileges)
+                                             bool aIsFileContent)
   : mProcessType(aProcessType),
-    mPrivileges(aPrivileges),
+    mIsFileContent(aIsFileContent),
     mMonitor("mozilla.ipc.GeckChildProcessHost.mMonitor"),
     mProcessState(CREATING_CHANNEL),
 #if defined(MOZ_SANDBOX) && defined(XP_WIN)
@@ -572,7 +560,9 @@ GeckoChildProcessHost::SetChildLogName(const char* varName, const char* origLogN
 bool
 GeckoChildProcessHost::PerformAsyncLaunch(std::vector<std::string> aExtraOpts, base::ProcessArchitecture arch)
 {
+#ifdef MOZ_GECKO_PROFILER
   AutoSetProfilerEnvVarsForChildProcess profilerEnvironment;
+#endif
 
   const char* origNSPRLogName = PR_GetEnv("NSPR_LOG_FILE");
   const char* origMozLogName = PR_GetEnv("MOZ_LOG_FILE");
@@ -732,11 +722,6 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 
 # if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_BSD) || defined(OS_SOLARIS)
   base::environment_map newEnvVars;
-  ChildPrivileges privs = mPrivileges;
-  if (privs == base::PRIVILEGES_DEFAULT ||
-      privs == base::PRIVILEGES_FILEREAD) {
-    privs = DefaultChildPrivileges();
-  }
 
 #  if defined(MOZ_WIDGET_GTK)
   if (mProcessType == GeckoProcessType_Content) {
@@ -924,7 +909,7 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
 # else // goes with defined(MOZ_WIDGET_ANDROID)
   base::LaunchApp(childArgv, mFileMap,
 #  if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_BSD) || defined(OS_SOLARIS)
-                  newEnvVars, privs,
+                  newEnvVars,
 #  endif // defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_BSD) || defined(OS_SOLARIS)
                   false, &process, arch);
 # endif // defined(MOZ_WIDGET_ANDROID)
@@ -1050,7 +1035,7 @@ GeckoChildProcessHost::PerformAsyncLaunchInternal(std::vector<std::string>& aExt
         // and just crash there right away. Should this change in the future then we
         // should also handle the error here.
         mSandboxBroker.SetSecurityLevelForContentProcess(mSandboxLevel,
-                                                         mPrivileges);
+                                                         mIsFileContent);
         shouldSandboxCurrentProcess = true;
       }
 #  endif // defined(MOZ_CONTENT_SANDBOX)
@@ -1273,11 +1258,11 @@ GeckoChildProcessHost::LaunchAndroidService(const char* type,
                                             ProcessHandle* process_handle)
 {
   MOZ_ASSERT((fds_to_remap.size() > 0) && (fds_to_remap.size() <= 2));
-  JNIEnv* env = mozilla::jni::GetEnvForThread();
+  JNIEnv* const env = mozilla::jni::GetEnvForThread();
   MOZ_ASSERT(env);
 
-  int argvSize = argv.size();
-  jni::ObjectArray::LocalRef jargs = jni::ObjectArray::LocalRef::Adopt(env->NewObjectArray(argvSize, env->FindClass("java/lang/String"), nullptr));
+  const int argvSize = argv.size();
+  jni::ObjectArray::LocalRef jargs = jni::ObjectArray::New<jni::String>(argvSize);
   for (int ix = 0; ix < argvSize; ix++) {
     jargs->SetElement(ix, jni::StringParam(argv[ix].c_str(), env));
   }
@@ -1286,7 +1271,7 @@ GeckoChildProcessHost::LaunchAndroidService(const char* type,
   it++;
   // If the Crash Reporter is disabled, there will not be a second file descriptor.
   int32_t crashFd = (it != fds_to_remap.end()) ? it->first : -1;
-  int32_t handle = java::GeckoAppShell::StartGeckoServiceChildProcess(type, jargs, crashFd, ipcFd);
+  int32_t handle = java::GeckoProcessManager::Start(type, jargs, crashFd, ipcFd);
 
   if (process_handle) {
     *process_handle = handle;

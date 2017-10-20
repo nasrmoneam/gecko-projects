@@ -18,6 +18,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/gfx/DeviceManagerDx.h"
+#include "mozilla/layers/CompositorThread.h"
 #include "ipc/VRLayerParent.h"
 
 #include "mozilla/gfx/Quaternion.h"
@@ -27,8 +28,8 @@
 #include "TextureD3D11.h"
 
 #include "gfxVROculus.h"
+#include "VRThread.h"
 
-#include "mozilla/layers/CompositorThread.h"
 #include "mozilla/dom/GamepadEventTypes.h"
 #include "mozilla/dom/GamepadBinding.h"
 #include "mozilla/Telemetry.h"
@@ -198,6 +199,7 @@ VROculusSession::VROculusSession()
   , mInitFlags((ovrInitFlags)0)
   , mTextureSet(nullptr)
   , mPresenting(false)
+  , mDrawBlack(false)
 {
 }
 
@@ -321,8 +323,14 @@ VROculusSession::StopLib()
 }
 
 void
-VROculusSession::Refresh()
+VROculusSession::Refresh(bool aForceRefresh)
 {
+  // We are waiting for drawing the black layer command for
+  // Compositor thread. Ignore Refresh() calls from other threads.
+  if (mDrawBlack && !aForceRefresh) {
+    return;
+  }
+
   ovrInitFlags flags = (ovrInitFlags)(ovrInit_RequestVersion | ovrInit_MixedRendering);
   bool bInvisible = true;
   if (mPresenting) {
@@ -340,11 +348,25 @@ VROculusSession::Refresh()
       // While we are waiting for either the timeout or a new presentation,
       // fill the HMD with black / no layers.
       if (mSession && mTextureSet) {
+        if (!aForceRefresh) {
+          // ovr_SubmitFrame is only allowed been run at Compositor thread,
+          // so we post this task to Compositor thread and let it determine
+          // if reloading library.
+          mDrawBlack = true;
+          MessageLoop* loop = layers::CompositorThreadHolder::Loop();
+          loop->PostTask(NewRunnableMethod<bool>(
+            "gfx::VROculusSession::Refresh",
+            this,
+            &VROculusSession::Refresh, true));
+
+          return;
+        }
         ovrLayerEyeFov layer;
         memset(&layer, 0, sizeof(layer));
         layer.Header.Type = ovrLayerType_Disabled;
         ovrLayerHeader *layers = &layer.Header;
         ovr_SubmitFrame(mSession, 0, nullptr, &layers, 1);
+        mDrawBlack = false;
       }
     }
   }
@@ -1110,7 +1132,7 @@ VRDisplayOculus::SubmitFrame(ID3D11Texture2D* aSource,
   HRESULT hr = mDevice->CreateShaderResourceView(aSource, nullptr, getter_AddRefs(srView));
   if (FAILED(hr)) {
     gfxWarning() << "Could not create shader resource view for Oculus: " << hexa(hr);
-    return nullptr;
+    return false;
   }
   ID3D11ShaderResourceView* viewPtr = srView.get();
   mContext->PSSetShaderResources(0 /* 0 == TexSlot::RGB */, 1, &viewPtr);
@@ -1385,9 +1407,9 @@ VRControllerOculus::VibrateHapticComplete(ovrSession aSession, uint32_t aPromise
   VRManager *vm = VRManager::Get();
   MOZ_ASSERT(vm);
 
-  CompositorThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>(
-                                             "VRManager::NotifyVibrateHapticCompleted",
-                                             vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
+  VRListenerThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>(
+                                           "VRManager::NotifyVibrateHapticCompleted",
+                                           vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
 }
 
 void

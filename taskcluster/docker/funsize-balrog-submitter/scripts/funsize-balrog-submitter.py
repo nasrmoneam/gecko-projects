@@ -174,7 +174,6 @@ def main():
                                            dummy=args.dummy, suffix=suffix)
             productName = args.product or e["appName"]
             if suffix:
-                # TODO: add --skip-completes
                 log.warning("Not submitting complete info")
                 complete_info = None
             retry(lambda: submitter.run(

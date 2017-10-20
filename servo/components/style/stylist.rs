@@ -25,6 +25,7 @@ use properties::{AnimationRules, PropertyDeclarationBlock};
 #[cfg(feature = "servo")]
 use properties::INHERIT_ALL;
 use properties::IS_LINK;
+use properties::VISITED_DEPENDENT_ONLY;
 use rule_tree::{CascadeLevel, RuleTree, StrongRuleNode, StyleSource};
 use selector_map::{PrecomputedHashMap, SelectorMap, SelectorMapEntry};
 use selector_parser::{SelectorImpl, PerPseudoElementMap, PseudoElement};
@@ -181,11 +182,11 @@ impl UserAgentCascadeData {
 
 /// All the computed information for a stylesheet.
 #[derive(Default)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 struct DocumentCascadeData {
     #[cfg_attr(
         feature = "servo",
-        ignore_heap_size_of = "Arc, owned by UserAgentCascadeDataCache"
+        ignore_malloc_size_of = "Arc, owned by UserAgentCascadeDataCache"
     )]
     user_agent: Arc<UserAgentCascadeData>,
     user: CascadeData,
@@ -337,7 +338,7 @@ impl DocumentCascadeData {
 
 /// A wrapper over a StylesheetSet that can be `Sync`, since it's only used and
 /// exposed via mutable methods in the `Stylist`.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 struct StylistStylesheetSet(StylesheetSet<StylistSheet>);
 // Read above to see why this is fine.
 unsafe impl Sync for StylistStylesheetSet {}
@@ -369,7 +370,7 @@ impl ops::DerefMut for StylistStylesheetSet {
 ///
 /// This structure is effectively created once per pipeline, in the
 /// LayoutThread corresponding to that pipeline.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct Stylist {
     /// Device that the stylist is currently evaluating against.
     ///
@@ -392,7 +393,7 @@ pub struct Stylist {
     stylesheets: StylistStylesheetSet,
 
     /// If true, the quirks-mode stylesheet is applied.
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "defined in selectors")]
+    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "defined in selectors")]
     quirks_mode: QuirksMode,
 
     /// Selector maps for all of the style sheets in the stylist, after
@@ -476,12 +477,6 @@ impl Stylist {
     pub fn num_revalidation_selectors(&self) -> usize {
         self.cascade_data.iter_origins()
             .map(|(d, _)| d.selectors_for_cache_revalidation.len()).sum()
-    }
-
-    /// Returns the number of entries in invalidation maps.
-    pub fn num_invalidations(&self) -> usize {
-        self.cascade_data.iter_origins()
-            .map(|(d, _)| d.invalidation_map.len()).sum()
     }
 
     /// Invokes `f` with the `InvalidationMap` for each origin.
@@ -768,13 +763,21 @@ impl Stylist {
 
         // For most (but not all) pseudo-elements, we inherit all values from the parent.
         let inherit_all = match *pseudo {
+            // Anonymous table flows shouldn't inherit their parents properties in order
+            // to avoid doubling up styles such as transformations.
+            PseudoElement::ServoAnonymousTableCell |
+            PseudoElement::ServoAnonymousTableRow |
             PseudoElement::ServoText |
             PseudoElement::ServoInputText => false,
             PseudoElement::ServoAnonymousBlock |
+
+            // For tables, we do want style to inherit, because TableWrapper is responsible
+            // for handling clipping and scrolling, while Table is responsible for creating
+            // stacking contexts. StackingContextCollectionFlags makes sure this is processed
+            // properly.
             PseudoElement::ServoAnonymousTable |
-            PseudoElement::ServoAnonymousTableCell |
-            PseudoElement::ServoAnonymousTableRow |
             PseudoElement::ServoAnonymousTableWrapper |
+
             PseudoElement::ServoTableWrapper |
             PseudoElement::ServoInlineBlockWrapper |
             PseudoElement::ServoInlineAbsolute => true,
@@ -894,12 +897,12 @@ impl Stylist {
         // We need to compute visited values if we have visited rules or if our
         // parent has visited values.
         let visited_values = if inputs.visited_rules.is_some() || parent_style.visited_style().is_some() {
-            // Slightly annoying: we know that inputs has either rules or
-            // visited rules, but we can't do inputs.rules() up front because
-            // maybe it just has visited rules, so can't unwrap_or.
+            // At this point inputs may have visited rules, or rules, or both,
+            // or neither (e.g. if it's a text style it may have neither).  So
+            // we have to be a bit careful here.
             let rule_node = match inputs.visited_rules.as_ref() {
                 Some(rules) => rules,
-                None => inputs.rules.as_ref().unwrap(),
+                None => inputs.rules.as_ref().unwrap_or(self.rule_tree().root()),
             };
             let inherited_style;
             let inherited_style_ignoring_first_line;
@@ -930,7 +933,7 @@ impl Stylist {
                 Some(layout_parent_style_for_visited),
                 None,
                 font_metrics,
-                cascade_flags,
+                cascade_flags | VISITED_DEPENDENT_ONLY,
                 self.quirks_mode,
                 /* rule_cache = */ None,
                 &mut Default::default(),
@@ -1195,7 +1198,7 @@ impl Stylist {
         animation_rules: AnimationRules,
         rule_inclusion: RuleInclusion,
         applicable_declarations: &mut V,
-        context: &mut MatchingContext,
+        context: &mut MatchingContext<E::Impl>,
         flags_setter: &mut F,
     )
     where
@@ -1276,12 +1279,21 @@ impl Stylist {
             // ServoStyleSet::CreateXBLServoStyleSet() loads XBL style sheets
             // under eAuthorSheetFeatures level.
             if let Some(map) = stylist.cascade_data.author.borrow_for_pseudo(pseudo_element) {
+                // NOTE(emilio): This is needed because the XBL stylist may
+                // think it has a different quirks mode than the document.
+                let mut matching_context = MatchingContext::new(
+                    context.matching_mode,
+                    context.bloom_filter,
+                    context.nth_index_cache.as_mut().map(|s| &mut **s),
+                    stylist.quirks_mode,
+                );
+
                 map.get_all_matching_rules(
                     element,
                     &rule_hash_target,
                     applicable_declarations,
-                    context,
-                    self.quirks_mode,
+                    &mut matching_context,
+                    stylist.quirks_mode,
                     flags_setter,
                     CascadeLevel::XBL,
                 );
@@ -1508,23 +1520,12 @@ impl Stylist {
     pub fn shutdown() {
         UA_CASCADE_DATA_CACHE.lock().unwrap().clear()
     }
-
-    /// Temporary testing method. See bug 1403397.
-    pub fn corrupt_rule_hash_and_crash(&self, index: usize) {
-        let mut origin_iter = self.cascade_data.iter_origins();
-        let d = origin_iter.next().unwrap().0;
-        let mut it = d.element_map.local_name_hash.iter();
-        let nth = index % it.len();
-        let entry = it.nth(nth).unwrap();
-        let ptr = entry.0 as *const _ as *const usize as *mut usize;
-        unsafe { *ptr = 0; }
-    }
 }
 
 /// This struct holds data which users of Stylist may want to extract
 /// from stylesheets which can be done at the same time as updating.
 #[derive(Debug, Default)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct ExtraStyleData {
     /// A list of effective font-face rules and their origin.
     #[cfg(feature = "gecko")]
@@ -1790,7 +1791,7 @@ impl<'a> SelectorVisitor for StylistSelectorVisitor<'a> {
 ///
 /// FIXME(emilio): Consider renaming and splitting in `CascadeData` and
 /// `InvalidationData`? That'd make `clear_cascade_data()` clearer.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 #[derive(Debug)]
 struct CascadeData {
     /// Rules from stylesheets at this `CascadeData`'s origin.
@@ -1815,7 +1816,7 @@ struct CascadeData {
     /// to avoid taking element snapshots when an irrelevant attribute changes.
     /// (We don't bother storing the namespace, since namespaced attributes
     /// are rare.)
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "just an array")]
+    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "just an array")]
     attribute_dependencies: NonCountingBloomFilter,
 
     /// Whether `"style"` appears in an attribute selector.  This is not common,
@@ -1835,13 +1836,13 @@ struct CascadeData {
     /// hence in our selector maps).  Used to determine when sharing styles is
     /// safe: we disallow style sharing for elements whose id matches this
     /// filter, and hence might be in one of our selector maps.
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "just an array")]
+    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "just an array")]
     mapped_ids: NonCountingBloomFilter,
 
     /// Selectors that require explicit cache revalidation (i.e. which depend
     /// on state that is not otherwise visible to the cache, like attributes or
     /// tree-structural state like child index and pseudos).
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "Arc")]
+    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Arc")]
     selectors_for_cache_revalidation: SelectorMap<RevalidationSelectorAndHashes>,
 
     /// Effective media query results cached from the last rebuild.
@@ -2258,21 +2259,16 @@ impl Default for CascadeData {
 
 /// A rule, that wraps a style rule, but represents a single selector of the
 /// rule.
-#[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, MallocSizeOf)]
 pub struct Rule {
     /// The selector this struct represents. We store this and the
     /// any_{important,normal} booleans inline in the Rule to avoid
     /// pointer-chasing when gathering applicable declarations, which
     /// can ruin performance when there are a lot of rules.
-    #[cfg_attr(feature = "gecko",
-               ignore_malloc_size_of = "CssRules have primary refs, we measure there")]
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "Arc")]
+    #[ignore_malloc_size_of = "CssRules have primary refs, we measure there"]
     pub selector: Selector<SelectorImpl>,
 
     /// The ancestor hashes associated with the selector.
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "No heap data")]
     pub hashes: AncestorHashes,
 
     /// The source order this style rule appears in. Note that we only use
@@ -2284,7 +2280,7 @@ pub struct Rule {
     #[cfg_attr(feature = "gecko",
                ignore_malloc_size_of =
                    "Secondary ref. Primary ref is in StyleRule under Stylesheet.")]
-    #[cfg_attr(feature = "servo", ignore_heap_size_of = "Arc")]
+    #[cfg_attr(feature = "servo", ignore_malloc_size_of = "Arc")]
     pub style_rule: Arc<Locked<StyleRule>>,
 }
 
@@ -2316,12 +2312,12 @@ impl Rule {
     }
 
     /// Creates a new Rule.
-    pub fn new(selector: Selector<SelectorImpl>,
-               hashes: AncestorHashes,
-               style_rule: Arc<Locked<StyleRule>>,
-               source_order: u32)
-               -> Self
-    {
+    pub fn new(
+        selector: Selector<SelectorImpl>,
+        hashes: AncestorHashes,
+        style_rule: Arc<Locked<StyleRule>>,
+        source_order: u32,
+    ) -> Self {
         Rule {
             selector: selector,
             hashes: hashes,

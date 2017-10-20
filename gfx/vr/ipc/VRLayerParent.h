@@ -36,10 +36,13 @@ protected:
   bool mIPCOpen;
 
   uint32_t mVRDisplayID;
-  gfx::IntSize mSize;
   gfx::Rect mLeftEyeRect;
   gfx::Rect mRightEyeRect;
   uint32_t mGroup;
+
+private:
+  void SubmitFrame(VRDisplayHost* aDisplay, const layers::SurfaceDescriptor& aTexture,
+                   uint64_t aFrameId, const gfx::Rect& aLeftEyeRect, const gfx::Rect& aRightEyeRect);
 };
 
 } // namespace gfx

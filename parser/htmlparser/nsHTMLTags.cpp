@@ -24,7 +24,7 @@ const char16_t* const nsHTMLTags::sTagUnicodeTable[] = {
 #undef HTML_OTHER
 
 // static array of tag atoms
-nsIAtom* nsHTMLTags::sTagAtomTable[eHTMLTag_userdefined - 1];
+nsAtom* nsHTMLTags::sTagAtomTable[eHTMLTag_userdefined - 1];
 
 int32_t nsHTMLTags::gTableRefCount;
 PLHashTable* nsHTMLTags::gTagTable;
@@ -47,7 +47,7 @@ HTMLTagsKeyCompareUCPtr(const void *key1, const void *key2)
   return nsCRT::strcmp(str1, str2) == 0;
 }
 
-// nsIAtom* -> id hash
+// nsAtom* -> id hash
 static PLHashNumber
 HTMLTagsHashCodeAtom(const void *key)
 {
@@ -83,8 +83,8 @@ nsHTMLTags::RegisterAtoms(void)
   {
     // let's verify that all names in the the table are lowercase...
     for (int32_t i = 0; i < NS_HTML_TAG_MAX; ++i) {
-      nsAutoString temp1((char16_t*)sTagAtoms_info[i].mStringBuffer->Data());
-      nsAutoString temp2((char16_t*)sTagAtoms_info[i].mStringBuffer->Data());
+      nsAutoString temp1((char16_t*)sTagAtoms_info[i].mString);
+      nsAutoString temp2((char16_t*)sTagAtoms_info[i].mString);
       ToLowerCase(temp1);
       NS_ASSERTION(temp1.Equals(temp2), "upper case char in table");
     }
@@ -93,7 +93,7 @@ nsHTMLTags::RegisterAtoms(void)
     // correct.
     for (int32_t i = 0; i < NS_HTML_TAG_MAX; ++i) {
       nsAutoString temp1(sTagUnicodeTable[i]);
-      nsAutoString temp2((char16_t*)sTagAtoms_info[i].mStringBuffer->Data());
+      nsAutoString temp2((char16_t*)sTagAtoms_info[i].mString);
       NS_ASSERTION(temp1.Equals(temp2), "Bad unicode tag name!");
     }
 
@@ -204,7 +204,7 @@ nsHTMLTags::TestTagTable()
 {
      const char16_t *tag;
      nsHTMLTag id;
-     RefPtr<nsIAtom> atom;
+     RefPtr<nsAtom> atom;
 
      nsHTMLTags::AddRefTable();
      // Make sure we can find everything we are supposed to

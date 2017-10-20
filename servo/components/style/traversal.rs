@@ -169,8 +169,11 @@ pub trait DomTraversal<E: TElement> : Sync {
             if !traversal_flags.for_animation_only() {
                 // Invalidate our style, and that of our siblings and
                 // descendants as needed.
+                //
+                // FIXME(emilio): an nth-index cache could be worth here, even
+                // if temporary?
                 let invalidation_result =
-                    data.invalidate_style_if_needed(root, shared_context, None);
+                    data.invalidate_style_if_needed(root, shared_context, None, None);
 
                 if invalidation_result.has_invalidated_siblings() {
                     let actual_root =
@@ -838,7 +841,7 @@ where
     let is_initial_style = context.thread_local.is_initial_style();
 
     // Loop over all the traversal children.
-    for child_node in element.as_node().traversal_children() {
+    for child_node in element.traversal_children() {
         let child = match child_node.as_element() {
             Some(el) => el,
             None => {
@@ -895,7 +898,8 @@ where
             child_data.invalidate_style_if_needed(
                 child,
                 &context.shared,
-                Some(&context.thread_local.stack_limit_checker)
+                Some(&context.thread_local.stack_limit_checker),
+                Some(&mut context.thread_local.nth_index_cache)
             );
         }
 
@@ -929,7 +933,7 @@ where
     let mut parents = SmallVec::<[E; 32]>::new();
     parents.push(root);
     while let Some(p) = parents.pop() {
-        for kid in p.as_node().traversal_children() {
+        for kid in p.traversal_children() {
             if let Some(kid) = kid.as_element() {
                 // We maintain an invariant that, if an element has data, all its
                 // ancestors have data as well.

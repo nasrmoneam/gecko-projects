@@ -279,16 +279,24 @@ static void
 GetResolution(nsPresContext* aPresContext, const nsMediaFeature*,
               nsCSSValue& aResult)
 {
-  float dpi = 96; // Use 96 when resisting fingerprinting.
+  // We're returning resolution in terms of device pixels per css pixel, since
+  // that is the preferred unit for media queries of resolution. This avoids
+  // introducing precision error from conversion to and from less-used
+  // physical units like inches.
+
+  float dppx;
 
   if (!ShouldResistFingerprinting(aPresContext)) {
-    // Resolution measures device pixels per CSS (inch/cm/pixel).  We
-    // return it in device pixels per CSS inches.
-    dpi = float(nsPresContext::AppUnitsPerCSSInch()) /
-          float(aPresContext->AppUnitsPerDevPixel());
+    // Get the actual device pixel ratio, which also takes zoom into account.
+    dppx = float(nsPresContext::AppUnitsPerCSSPixel()) /
+             aPresContext->AppUnitsPerDevPixel();
+  } else {
+    // We are resisting fingerprinting, so pretend we have a device pixel ratio
+    // of 1. In that case, we simply report the zoom level.
+    dppx = aPresContext->GetDeviceFullZoom();
   }
 
-  aResult.SetFloatValue(dpi, eCSSUnit_Inch);
+  aResult.SetFloatValue(dppx, eCSSUnit_Pixel);
 }
 
 static void
@@ -390,7 +398,7 @@ GetSystemMetric(nsPresContext* aPresContext, const nsMediaFeature* aFeature,
 
   MOZ_ASSERT(aFeature->mValueType == nsMediaFeature::eBoolInteger,
              "unexpected type");
-  nsIAtom *metricAtom = *aFeature->mData.mMetric;
+  nsAtom *metricAtom = *aFeature->mData.mMetric;
   bool hasMetric = nsCSSRuleProcessor::HasSystemMetric(metricAtom);
   aResult.SetIntValue(hasMetric ? 1 : 0, eCSSUnit_Integer);
 }
@@ -626,18 +634,10 @@ nsMediaFeatures::features[] = {
     GetIsResourceDocument
   },
   {
-    &nsGkAtoms::_moz_color_picker_available,
-    nsMediaFeature::eMinMaxNotAllowed,
-    nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
-    { &nsGkAtoms::color_picker_available },
-    GetSystemMetric
-  },
-  {
     &nsGkAtoms::_moz_scrollbar_start_backward,
     nsMediaFeature::eMinMaxNotAllowed,
     nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
+    nsMediaFeature::eUserAgentAndChromeOnly,
     { &nsGkAtoms::scrollbar_start_backward },
     GetSystemMetric
   },
@@ -645,7 +645,7 @@ nsMediaFeatures::features[] = {
     &nsGkAtoms::_moz_scrollbar_start_forward,
     nsMediaFeature::eMinMaxNotAllowed,
     nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
+    nsMediaFeature::eUserAgentAndChromeOnly,
     { &nsGkAtoms::scrollbar_start_forward },
     GetSystemMetric
   },
@@ -653,7 +653,7 @@ nsMediaFeatures::features[] = {
     &nsGkAtoms::_moz_scrollbar_end_backward,
     nsMediaFeature::eMinMaxNotAllowed,
     nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
+    nsMediaFeature::eUserAgentAndChromeOnly,
     { &nsGkAtoms::scrollbar_end_backward },
     GetSystemMetric
   },
@@ -661,7 +661,7 @@ nsMediaFeatures::features[] = {
     &nsGkAtoms::_moz_scrollbar_end_forward,
     nsMediaFeature::eMinMaxNotAllowed,
     nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
+    nsMediaFeature::eUserAgentAndChromeOnly,
     { &nsGkAtoms::scrollbar_end_forward },
     GetSystemMetric
   },
@@ -669,7 +669,7 @@ nsMediaFeatures::features[] = {
     &nsGkAtoms::_moz_scrollbar_thumb_proportional,
     nsMediaFeature::eMinMaxNotAllowed,
     nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
+    nsMediaFeature::eUserAgentAndChromeOnly,
     { &nsGkAtoms::scrollbar_thumb_proportional },
     GetSystemMetric
   },
@@ -776,15 +776,6 @@ nsMediaFeatures::features[] = {
     nsMediaFeature::eBoolInteger,
     nsMediaFeature::eNoRequirements,
     { &nsGkAtoms::swipe_animation_enabled },
-    GetSystemMetric
-  },
-
-  {
-    &nsGkAtoms::_moz_physical_home_button,
-    nsMediaFeature::eMinMaxNotAllowed,
-    nsMediaFeature::eBoolInteger,
-    nsMediaFeature::eNoRequirements,
-    { &nsGkAtoms::physical_home_button },
     GetSystemMetric
   },
 

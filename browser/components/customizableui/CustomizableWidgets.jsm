@@ -215,7 +215,7 @@ const CustomizableWidgets = [
 
       let utils = RecentlyClosedTabsAndWindowsMenuUtils;
       let method = `get${viewType}Fragment`;
-      let fragment = utils[method](window, "toolbarbutton");
+      let fragment = utils[method](window, "toolbarbutton", true);
       let elementCount = fragment.childElementCount;
       this._panelMenuView._setEmptyPopupStatus(panelview, !elementCount);
       if (!elementCount)
@@ -867,7 +867,7 @@ const CustomizableWidgets = [
       let getPanel = () => {
         let {PanelUI} = document.ownerGlobal;
         return PanelUI.overflowPanel;
-      }
+      };
 
       if (CustomizableUI.getAreaType(this.currentArea) == CustomizableUI.TYPE_MENU_PANEL) {
         getPanel().addEventListener("popupshowing", updateButton);
@@ -911,7 +911,7 @@ const CustomizableWidgets = [
     tooltiptext: "email-link-button.tooltiptext3",
     onCommand(aEvent) {
       let win = aEvent.view;
-      win.MailIntegration.sendLinkForBrowser(win.gBrowser.selectedBrowser)
+      win.MailIntegration.sendLinkForBrowser(win.gBrowser.selectedBrowser);
     }
   }];
 
@@ -996,22 +996,4 @@ if (Services.prefs.getBoolPref("privacy.panicButton.enabled")) {
       forgetButton.removeEventListener("command", this);
     },
   });
-}
-
-if (AppConstants.E10S_TESTING_ONLY) {
-  if (Services.appinfo.browserTabsRemoteAutostart) {
-    CustomizableWidgets.push({
-      id: "e10s-button",
-      defaultArea: CustomizableUI.AREA_PANEL,
-      onBuild(aDocument) {
-        let node = aDocument.createElementNS(kNSXUL, "toolbarbutton");
-        node.setAttribute("label", CustomizableUI.getLocalizedProperty(this, "label"));
-        node.setAttribute("tooltiptext", CustomizableUI.getLocalizedProperty(this, "tooltiptext"));
-      },
-      onCommand(aEvent) {
-        let win = aEvent.view;
-        win.OpenBrowserWindow({remote: false});
-      },
-    });
-  }
 }

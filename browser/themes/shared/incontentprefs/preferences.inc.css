@@ -113,6 +113,14 @@ button > hbox > label {
 
 /* Category List */
 
+#categories > scrollbox {
+  overflow: visible !important; /* Cancel scrollbar and do not clip overflow content when window size goes very small */
+}
+
+#categories > scrollbox > box {
+  padding: 1px; /* Adding padding around richlistitem in order to make entire keyboard focusing outline visible */
+}
+
 #category-general > .category-icon {
   list-style-image: url("chrome://browser/skin/preferences/in-content/general.svg");
 }
@@ -605,40 +613,75 @@ button > hbox > label {
   }
 }
 
-.help-button {
-  display: flex;
-  align-items: center;
-  position: fixed;
-  left: 0;
-  bottom: 36px;
-  background-image: url("chrome://global/skin/icons/help.svg");
+.navigation {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.navigation > .help-button {
+  margin-bottom: 36px;
+  padding: 1px; /* Adding padding around help label in order to make entire keyboard focusing outline visible */
+}
+
+.help-button > .text-link {
+  -moz-box-flex: 1;
+  margin-inline-start: 34px;
+  margin-inline-end: 0;
+  text-decoration: none;
+  color: currentColor;
+  width: 36px;
+  height: 36px;
+  cursor: default;
+}
+
+.help-button > .text-link:hover {
+  background-color: var(--in-content-category-background-hover);
+  border-radius: 2px;
+}
+
+.help-button > .text-link:hover:active:not([disabled]) {
+  background-color: var(--in-content-category-background-active);
+}
+
+.help-button > .text-link:-moz-focusring {
+  outline: var(--in-content-category-outline-focus);
+}
+
+.help-icon {
+  list-style-image: url("chrome://global/skin/icons/help.svg");
   -moz-context-properties: fill, fill-opacity;
   fill: currentColor;
-  line-height: 22px;
-  height: unset;
-  min-height: 36px;
-  width: 168px;
-  background-position: left 10px center;
-  background-size: 16px;
-  padding-inline-start: 38px;
-  margin-inline-start: 34px;
+  width: 16px;
+  height: 16px;
+  margin: 10px;
+  margin-inline-start: 13px;
+  vertical-align: middle;
 }
 
-.help-button:-moz-locale-dir(rtl) {
-  background-position: right 10px top 10px;
-  left: auto;
-  right: 0;
+.help-icon:hover {
+  fill: currentColor !important;
 }
 
-.help-button:hover {
-  fill: currentColor;
+.help-label {
+  margin: 0 4px;
+  -moz-user-select: none;
 }
 
-.help-button:link,
-.help-button:visited {
-  color: var(--in-content-category-text);
-  text-decoration: none;
-  border-radius: 2px;
+@media (max-width: 830px) {
+  .help-button > .text-link {
+    -moz-box-flex: 0;
+    width: 36px;
+    height: 36px;
+    margin-inline-start: 0;
+  }
+
+  .help-icon {
+    margin: 10px;
+  }
+
+  .help-label {
+    display: none;
+  }
 }
 
 .face-sad {
@@ -676,17 +719,17 @@ button > hbox > label {
 }
 
 .search-tooltip {
+  max-width: 150px;
   font-size: 1.25rem;
   position: absolute;
   padding: 0 10px;
   background-color: #ffe900;
   border: 1px solid #d7b600;
-  -moz-user-select: none;
   bottom: 36px;
+  opacity: .85;
 }
 
-.search-tooltip:hover,
-.search-tooltip:hover::before {
+.search-tooltip:hover {
   opacity: .1;
 }
 
@@ -710,6 +753,13 @@ button > hbox > label {
 
 .search-tooltip-parent {
   position: relative;
+}
+
+.search-tooltip > span {
+  -moz-user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .visually-hidden {
@@ -751,12 +801,23 @@ menulist[indicator=true] > menupopup menuitem[indicator=true]:not([image]) > .me
   line-height: 30px;
 }
 
-.no-results-container {
+.no-results-container:nth-child(2) {
   margin-top: 64px;
 }
 
-.no-results-container > image {
+.no-results-container:nth-child(2) > image {
   list-style-image: url("chrome://browser/skin/preferences/in-content/no-search-results.svg");
   width: 380px;
   height: 293px;
+}
+
+.no-results-message[query*=🔥🦊] {
+  background-image: url("chrome://browser/skin/preferences/in-content/critters-postcard.jpg");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.no-results-message[query*=🔥🦊] > .no-results-container {
+  visibility: hidden;
 }

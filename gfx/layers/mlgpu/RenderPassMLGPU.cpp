@@ -305,6 +305,11 @@ ShaderRenderPass::ExecuteRendering()
     return;
   }
 
+  // Change the blend state if needed.
+  if (Maybe<MLGBlendState> blendState = GetBlendState()) {
+    mDevice->SetBlendState(blendState.value());
+  }
+
   mDevice->SetPSConstantBuffer(0, &mPSBuffer0);
   if (MaskOperation* mask = GetMask()) {
     mDevice->SetPSTexture(kMaskLayerTextureSlot, mask->GetTexture());
@@ -992,6 +997,52 @@ RenderViewPass::SetupPipeline()
 
   mDevice->SetPSTexture(0, mSource->GetTexture());
   mDevice->SetSamplerMode(kDefaultSamplerSlot, SamplerMode::LinearClamp);
+}
+
+void
+RenderViewPass::ExecuteRendering()
+{
+  if (mAssignedLayer->NeedsSurfaceCopy()) {
+    RenderWithBackdropCopy();
+    return;
+  }
+
+  TexturedRenderPass::ExecuteRendering();
+}
+
+void
+RenderViewPass::RenderWithBackdropCopy()
+{
+  MOZ_ASSERT(mAssignedLayer->NeedsSurfaceCopy());
+
+  DebugOnly<Matrix> transform2d;
+  const Matrix4x4& transform = mAssignedLayer->GetEffectiveTransform();
+  MOZ_ASSERT(transform.Is2D(&transform2d) &&
+             !gfx::ThebesMatrix(transform2d).HasNonIntegerTranslation());
+
+  IntPoint translation = IntPoint::Truncate(transform._41, transform._42);
+
+  RenderViewMLGPU* childView = mAssignedLayer->GetRenderView();
+
+  IntRect visible = mAssignedLayer->GetShadowVisibleRegion().GetBounds().ToUnknownRect();
+  IntRect sourceRect = visible + translation - mParentView->GetTargetOffset();
+  IntPoint destPoint = visible.TopLeft() - childView->GetTargetOffset();
+
+  RefPtr<MLGTexture> dest = mAssignedLayer->GetRenderTarget()->GetTexture();
+  RefPtr<MLGTexture> source = mParentView->GetRenderTarget()->GetTexture();
+
+  // Clamp the source rect to the source texture size.
+  sourceRect = sourceRect.Intersect(IntRect(IntPoint(0, 0), source->GetSize()));
+
+  // Clamp the source rect to the destination texture size.
+  IntRect destRect(destPoint, sourceRect.Size());
+  destRect = destRect.Intersect(IntRect(IntPoint(0, 0), dest->GetSize()));
+  sourceRect = sourceRect.Intersect(IntRect(sourceRect.TopLeft(), destRect.Size()));
+
+  mDevice->CopyTexture(dest, destPoint, source, sourceRect);
+  childView->RenderAfterBackdropCopy();
+  mParentView->RestoreDeviceState();
+  TexturedRenderPass::ExecuteRendering();
 }
 
 } // namespace layers

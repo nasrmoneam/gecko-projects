@@ -7,7 +7,7 @@ use fnv::FnvHasher;
 use font::{Font, FontGroup, FontHandleMethods};
 use font_cache_thread::FontCacheThread;
 use font_template::FontTemplateDescriptor;
-use heapsize::HeapSizeOf;
+use malloc_size_of::{MallocSizeOf, MallocSizeOfOps};
 use platform::font::FontHandle;
 use platform::font_context::FontContextHandle;
 use platform::font_template::FontTemplateData;
@@ -135,7 +135,7 @@ impl FontContext {
 
         let mut fonts: SmallVec<[Rc<RefCell<Font>>; 8]> = SmallVec::new();
 
-        for family in &style.font_family.0 {
+        for family in style.font_family.0.iter() {
             // GWTODO: Check on real pages if this is faster as Vec() or HashMap().
             let mut cache_hit = false;
             for cached_font_entry in &self.layout_font_cache {
@@ -232,10 +232,10 @@ impl FontContext {
     }
 }
 
-impl HeapSizeOf for FontContext {
-    fn heap_size_of_children(&self) -> usize {
+impl MallocSizeOf for FontContext {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
         // FIXME(njn): Measure other fields eventually.
-        self.platform_handle.heap_size_of_children()
+        self.platform_handle.size_of(ops)
     }
 }
 

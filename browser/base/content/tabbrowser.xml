@@ -17,7 +17,6 @@
     </resources>
 
     <content>
-      <xul:stringbundle anonid="tbstringbundle" src="chrome://browser/locale/tabbrowser.properties"/>
       <xul:tabbox anonid="tabbox" class="tabbrowser-tabbox"
                   flex="1" eventnode="document" xbl:inherits="handleCtrlPageUpDown,tabcontainer"
                   onselect="if (event.target.localName == 'tabpanels') this.parentNode.updateCurrentBrowser();">
@@ -75,9 +74,6 @@
       </field>
       <field name="mPanelContainer" readonly="true">
         document.getAnonymousElementByAttribute(this, "anonid", "panelcontainer");
-      </field>
-      <field name="mStringBundle">
-        document.getAnonymousElementByAttribute(this, "anonid", "tbstringbundle");
       </field>
       <field name="mCurrentTab">
         null
@@ -1423,13 +1419,14 @@
               findBar._findField.getAttribute("focused") == "true");
           }
 
-          // If focus is in the tab bar, retain it there.
-          if (document.activeElement == oldTab) {
-            // We need to explicitly focus the new tab, because
-            // tabbox.xml does this only in some cases.
+          let activeEl = document.activeElement;
+          // If focus is on the old tab, move it to the new tab.
+          if (activeEl == oldTab) {
             newTab.focus();
-          } else if (gMultiProcessBrowser && document.activeElement !== newBrowser) {
-
+          } else if (gMultiProcessBrowser && activeEl != newBrowser && activeEl != newTab) {
+            // In e10s, if focus isn't already in the tabstrip or on the new browser,
+            // and the new browser's previous focus wasn't in the url bar but focus is
+            // there now, we need to adjust focus further.
             let keepFocusOnUrlBar = newBrowser &&
                                     newBrowser._urlbarFocused &&
                                     gURLBar &&
@@ -1631,7 +1628,7 @@
                 } catch (ex) { /* Do nothing. */ }
               } else {
                 // Still no title? Fall back to our untitled string.
-                title = this.mStringBundle.getString("tabs.emptyTabTitle");
+                title = gTabBrowserBundle.GetStringFromName("tabs.emptyTabTitle");
               }
             }
 
@@ -2644,7 +2641,7 @@
 
             if (!aNoInitialLabel) {
               if (isBlankPageURL(aURI)) {
-                t.setAttribute("label", this.mStringBundle.getString("tabs.emptyTabTitle"));
+                t.setAttribute("label", gTabBrowserBundle.GetStringFromName("tabs.emptyTabTitle"));
               } else {
                 // Set URL as label so that the tab isn't empty initially.
                 this.setInitialTabTitle(t, aURI, { beforeTabOpen: true });
@@ -2697,88 +2694,101 @@
 
             this.tabContainer.appendChild(t);
 
-            // If this new tab is owned by another, assert that relationship
-            if (aOwner)
-              t.owner = aOwner;
-
-            var position = this.tabs.length - 1;
-            t._tPos = position;
-            this.tabContainer._setPositionalAttributes();
-
-            this.tabContainer.updateVisibility();
-
-            // If we don't have a preferred remote type, and we have a remote
-            // opener, use the opener's remote type.
-            if (!aPreferredRemoteType && aOpenerBrowser) {
-              aPreferredRemoteType = aOpenerBrowser.remoteType;
-            }
-
-            // If URI is about:blank and we don't have a preferred remote type,
-            // then we need to use the referrer, if we have one, to get the
-            // correct remote type for the new tab.
-            if (uriIsAboutBlank && !aPreferredRemoteType && aReferrerURI) {
-              aPreferredRemoteType =
-                E10SUtils.getRemoteTypeForURI(aReferrerURI.spec,
-                                              gMultiProcessBrowser);
-            }
-
-            let remoteType =
-              aForceNotRemote ? E10SUtils.NOT_REMOTE
-              : E10SUtils.getRemoteTypeForURI(aURI, gMultiProcessBrowser,
-                                              aPreferredRemoteType);
-
-            let b;
             let usingPreloadedContent = false;
+            let b;
 
-            // If we open a new tab with the newtab URL in the default
-            // userContext, check if there is a preloaded browser ready.
-            // Private windows are not included because both the label and the
-            // icon for the tab would be set incorrectly (see bug 1195981).
-            if (aURI == BROWSER_NEW_TAB_URL &&
-                !aUserContextId &&
-                !PrivateBrowsingUtils.isWindowPrivate(window)) {
-              b = this._getPreloadedBrowser();
-              if (b) {
-                usingPreloadedContent = true;
+            try {
+              // If this new tab is owned by another, assert that relationship
+              if (aOwner)
+                t.owner = aOwner;
+
+              var position = this.tabs.length - 1;
+              t._tPos = position;
+              this.tabContainer._setPositionalAttributes();
+
+              this.tabContainer.updateVisibility();
+
+              // If we don't have a preferred remote type, and we have a remote
+              // opener, use the opener's remote type.
+              if (!aPreferredRemoteType && aOpenerBrowser) {
+                aPreferredRemoteType = aOpenerBrowser.remoteType;
               }
-            }
 
-            if (!b) {
-              // No preloaded browser found, create one.
-              b = this._createBrowser({ remoteType,
-                                        uriIsAboutBlank,
-                                        userContextId: aUserContextId,
-                                        sameProcessAsFrameLoader: aSameProcessAsFrameLoader,
-                                        openerWindow: aOpener,
-                                        isPrerendered: aIsPrerendered,
-                                        nextTabParentId: aNextTabParentId,
-                                        name: aName });
-            }
-
-            t.linkedBrowser = b;
-
-            if (aFocusUrlBar) {
-              b._urlbarFocused = true;
-            }
-
-            this._tabForBrowser.set(b, t);
-            t.permanentKey = b.permanentKey;
-            t._browserParams = { uriIsAboutBlank,
-                                 remoteType,
-                                 usingPreloadedContent };
-
-            // If the caller opts in, create a lazy browser.
-            if (aCreateLazyBrowser) {
-              this._createLazyBrowser(t);
-
-              if (lazyBrowserURI) {
-                // Lazy browser must be explicitly registered so tab will appear as
-                // a switch-to-tab candidate in autocomplete.
-                this._unifiedComplete.registerOpenPage(lazyBrowserURI, aUserContextId);
-                b.registeredOpenURI = lazyBrowserURI;
+              // If URI is about:blank and we don't have a preferred remote type,
+              // then we need to use the referrer, if we have one, to get the
+              // correct remote type for the new tab.
+              if (uriIsAboutBlank && !aPreferredRemoteType && aReferrerURI) {
+                aPreferredRemoteType =
+                  E10SUtils.getRemoteTypeForURI(aReferrerURI.spec,
+                                                gMultiProcessBrowser);
               }
-            } else {
-              this._insertBrowser(t, true);
+
+              let remoteType =
+                aForceNotRemote ? E10SUtils.NOT_REMOTE
+                : E10SUtils.getRemoteTypeForURI(aURI, gMultiProcessBrowser,
+                                                aPreferredRemoteType);
+
+              // If we open a new tab with the newtab URL in the default
+              // userContext, check if there is a preloaded browser ready.
+              // Private windows are not included because both the label and the
+              // icon for the tab would be set incorrectly (see bug 1195981).
+              if (aURI == BROWSER_NEW_TAB_URL &&
+                  !aUserContextId &&
+                  !PrivateBrowsingUtils.isWindowPrivate(window)) {
+                b = this._getPreloadedBrowser();
+                if (b) {
+                  usingPreloadedContent = true;
+                }
+              }
+
+              if (!b) {
+                // No preloaded browser found, create one.
+                b = this._createBrowser({ remoteType,
+                                          uriIsAboutBlank,
+                                          userContextId: aUserContextId,
+                                          sameProcessAsFrameLoader: aSameProcessAsFrameLoader,
+                                          openerWindow: aOpener,
+                                          isPrerendered: aIsPrerendered,
+                                          nextTabParentId: aNextTabParentId,
+                                          name: aName });
+              }
+
+              t.linkedBrowser = b;
+
+              if (aFocusUrlBar) {
+                b._urlbarFocused = true;
+              }
+
+              this._tabForBrowser.set(b, t);
+              t.permanentKey = b.permanentKey;
+              t._browserParams = { uriIsAboutBlank,
+                                   remoteType,
+                                   usingPreloadedContent };
+
+              // If the caller opts in, create a lazy browser.
+              if (aCreateLazyBrowser) {
+                this._createLazyBrowser(t);
+
+                if (lazyBrowserURI) {
+                  // Lazy browser must be explicitly registered so tab will appear as
+                  // a switch-to-tab candidate in autocomplete.
+                  this._unifiedComplete.registerOpenPage(lazyBrowserURI, aUserContextId);
+                  b.registeredOpenURI = lazyBrowserURI;
+                }
+              } else {
+                this._insertBrowser(t, true);
+              }
+            } catch (e) {
+              Cu.reportError("Failed to create tab");
+              Cu.reportError(e);
+              t.remove();
+              if (t.linkedBrowser) {
+                this._tabFilters.delete(t);
+                this._tabListeners.delete(t);
+                let notificationbox = this.getNotificationBox(t.linkedBrowser);
+                notificationbox.remove();
+              }
+              throw e;
             }
 
             // Dispatch a new tab notification.  We do this once we're
@@ -2899,7 +2909,6 @@
 
           // default to true: if it were false, we wouldn't get this far
           var warnOnClose = { value: true };
-          var bundle = this.mStringBundle;
 
           // focus the window before prompting.
           // this will raise any minimized window, which will
@@ -2908,18 +2917,18 @@
           // see bug #350299 for more details
           window.focus();
           var warningMessage =
-            PluralForm.get(tabsToClose, bundle.getString("tabs.closeWarningMultiple"))
+            PluralForm.get(tabsToClose, gTabBrowserBundle.GetStringFromName("tabs.closeWarningMultiple"))
                       .replace("#1", tabsToClose);
           var buttonPressed =
             ps.confirmEx(window,
-                         bundle.getString("tabs.closeWarningTitle"),
+                         gTabBrowserBundle.GetStringFromName("tabs.closeWarningTitle"),
                          warningMessage,
                          (ps.BUTTON_TITLE_IS_STRING * ps.BUTTON_POS_0)
                          + (ps.BUTTON_TITLE_CANCEL * ps.BUTTON_POS_1),
-                         bundle.getString("tabs.closeButtonMultiple"),
+                         gTabBrowserBundle.GetStringFromName("tabs.closeButtonMultiple"),
                          null, null,
                          aCloseTabs == this.closingTabsEnum.ALL ?
-                           bundle.getString("tabs.closeWarningPromptMe") : null,
+                           gTabBrowserBundle.GetStringFromName("tabs.closeWarningPromptMe") : null,
                          warnOnClose);
           var reallyClose = (buttonPressed == 0);
 
@@ -5386,10 +5395,6 @@
                 onget="return this.mCurrentBrowser.contentViewerEdit;"
                 readonly="true"/>
 
-      <property name="contentViewerFile"
-                onget="return this.mCurrentBrowser.contentViewerFile;"
-                readonly="true"/>
-
       <property name="contentDocument"
                 onget="return this.mCurrentBrowser.contentDocument;"
                 readonly="true"/>
@@ -5506,14 +5511,14 @@
           let stringWithShortcut = (stringId, keyElemId) => {
             let keyElem = document.getElementById(keyElemId);
             let shortcut = ShortcutUtils.prettifyShortcut(keyElem);
-            return this.mStringBundle.getFormattedString(stringId, [shortcut]);
+            return gTabBrowserBundle.formatStringFromName(stringId, [shortcut], 1);
           };
 
           var label;
           if (tab.mOverCloseButton) {
             label = tab.selected ?
                     stringWithShortcut("tabs.closeSelectedTab.tooltip", "key_close") :
-                    this.mStringBundle.getString("tabs.closeTab.tooltip");
+                    gTabBrowserBundle.GetStringFromName("tabs.closeTab.tooltip");
           } else if (tab._overPlayingIcon) {
             let stringID;
             if (tab.selected) {
@@ -5530,7 +5535,7 @@
                   "tabs.muteAudio.background.tooltip";
               }
 
-              label = this.mStringBundle.getString(stringID);
+              label = gTabBrowserBundle.GetStringFromName(stringID);
             }
           } else {
             label = tab._fullLabel || tab.getAttribute("label");
@@ -5544,7 +5549,7 @@
               }
             }
             if (tab.userContextId) {
-              label = this.mStringBundle.getFormattedString("tabs.containers.tooltip", [label, ContextualIdentityService.getUserContextLabel(tab.userContextId)]);
+              label = gTabBrowserBundle.formatStringFromName("tabs.containers.tooltip", [label, ContextualIdentityService.getUserContextLabel(tab.userContextId)], 2);
             }
           }
 
@@ -5814,10 +5819,66 @@
         ]]></body>
       </method>
 
+      <method name="_updateNewTabVisibility">
+        <body><![CDATA[
+          let sib = this.tabContainer.nextElementSibling;
+          while (sib && sib.hidden) {
+            sib = sib.nextElementSibling;
+          }
+          const kAttr = "hasadjacentnewtabbutton";
+          if (sib && sib.id == "new-tab-button") {
+            this.tabContainer.setAttribute(kAttr, "true");
+          } else {
+            this.tabContainer.removeAttribute(kAttr);
+          }
+        ]]></body>
+      </method>
+
+      <method name="onWidgetAfterDOMChange">
+        <parameter name="aNode"/>
+        <parameter name="aNextNode"/>
+        <parameter name="aContainer"/>
+        <body><![CDATA[
+          if (aContainer.ownerDocument == document &&
+              aContainer.id == "TabsToolbar") {
+            this._updateNewTabVisibility();
+          }
+        ]]></body>
+      </method>
+      <method name="onAreaNodeRegistered">
+        <parameter name="aArea"/>
+        <parameter name="aContainer"/>
+        <body><![CDATA[
+          if (aContainer.ownerDocument == document &&
+              aArea == "TabsToolbar") {
+            this._updateNewTabVisibility();
+          }
+        ]]></body>
+      </method>
+      <method name="onAreaReset">
+        <parameter name="aArea"/>
+        <parameter name="aContainer"/>
+        <body><![CDATA[
+          this.onAreaNodeRegistered(aArea, aContainer);
+        ]]></body>
+      </method>
+
+      <field name="_tabMinWidthLimit">50</field>
+      <property name="tabMinWidth">
+        <setter><![CDATA[
+          let root = document.documentElement;
+          root.style.setProperty("--tab-min-width", val + "px");
+          return val;
+        ]]></setter>
+      </property>
+
       <constructor>
         <![CDATA[
           this.mCurrentBrowser = document.getAnonymousElementByAttribute(this, "anonid", "initialBrowser");
           this.mCurrentBrowser.permanentKey = {};
+
+          CustomizableUI.addListener(this);
+          this._updateNewTabVisibility();
 
           Services.obs.addObserver(this, "contextual-identity-updated");
 
@@ -5904,6 +5965,13 @@
                                                 "browser.tabs.remote.warmup.maxTabs", 3);
           XPCOMUtils.defineLazyPreferenceGetter(this, "tabWarmingUnloadDelay" /* ms */,
                                                 "browser.tabs.remote.warmup.unloadDelayMs", 2000);
+          XPCOMUtils.defineLazyPreferenceGetter(this, "tabMinWidthPref",
+                                                "browser.tabs.tabMinWidth", this._tabMinWidthLimit,
+            (pref, prevValue, newValue) => this.tabMinWidth = newValue,
+            newValue => Math.max(newValue, this._tabMinWidthLimit),
+          );
+
+          this.tabMinWidth = this.tabMinWidthPref;
         ]]>
       </constructor>
 
@@ -5927,6 +5995,8 @@
       <destructor>
         <![CDATA[
           Services.obs.removeObserver(this, "contextual-identity-updated");
+
+          CustomizableUI.removeListener(this);
 
           for (let tab of this.tabs) {
             let browser = tab.linkedBrowser;
@@ -6025,8 +6095,10 @@
               Services.focus.activeWindow)
             window.focus();
 
-          // Don't need to act if the tab is already selected:
-          if (tabForEvent.selected)
+          // Don't need to act if the tab is already selected or if there isn't
+          // a tab for the event (e.g. for the webextensions options_ui remote
+          // browsers embedded in the "about:addons" page):
+          if (!tabForEvent || tabForEvent.selected)
             return;
 
           // We always switch tabs for beforeunload tab-modal prompts.
@@ -6256,7 +6328,7 @@
     </resources>
 
     <content>
-      <xul:hbox align="end">
+      <xul:hbox class="tab-drop-indicator-box">
         <xul:image class="tab-drop-indicator" anonid="tab-drop-indicator" collapsed="true"/>
       </xul:hbox>
       <xul:arrowscrollbox anonid="arrowscrollbox" orient="horizontal" flex="1"
@@ -6295,10 +6367,10 @@
           this.mTabClipWidth = Services.prefs.getIntPref("browser.tabs.tabClipWidth");
 
           let { restoreTabsButton } = this;
-          restoreTabsButton.setAttribute("label", this.tabbrowser.mStringBundle.getString("tabs.restoreLastTabs"));
+          restoreTabsButton.setAttribute("label", gTabBrowserBundle.GetStringFromName("tabs.restoreLastTabs"));
 
           var tab = this.firstChild;
-          tab.label = this.tabbrowser.mStringBundle.getString("tabs.emptyTabTitle");
+          tab.label = gTabBrowserBundle.GetStringFromName("tabs.emptyTabTitle");
           tab.setAttribute("onerror", "this.removeAttribute('image');");
 
           window.addEventListener("resize", this);
@@ -6337,7 +6409,7 @@
 
       <field name="_firstTab">null</field>
       <field name="_lastTab">null</field>
-      <field name="_afterSelectedTab">null</field>
+      <field name="_beforeSelectedTab">null</field>
       <field name="_beforeHoveredTab">null</field>
       <field name="_afterHoveredTab">null</field>
       <field name="_hoveredTab">null</field>
@@ -6470,16 +6542,16 @@
 
           let selectedIndex = visibleTabs.indexOf(this.selectedItem);
 
-          let lastVisible = visibleTabs.length - 1;
+          if (this._beforeSelectedTab) {
+            this._beforeSelectedTab.removeAttribute("beforeselected-visible");
+          }
 
-          if (this._afterSelectedTab)
-            this._afterSelectedTab.removeAttribute("afterselected-visible");
-          if (this.selectedItem.closing || selectedIndex == lastVisible) {
-            this._afterSelectedTab = null;
+          if (this.selectedItem.closing || selectedIndex == 0) {
+            this._beforeSelectedTab = null;
           } else {
-            this._afterSelectedTab = visibleTabs[selectedIndex + 1];
-            this._afterSelectedTab.setAttribute("afterselected-visible",
-                                                "true");
+            this._beforeSelectedTab = visibleTabs[selectedIndex - 1];
+            this._beforeSelectedTab.setAttribute("beforeselected-visible",
+                                                 "true");
           }
 
           if (this._firstTab)
@@ -6488,7 +6560,7 @@
           this._firstTab.setAttribute("first-visible-tab", "true");
           if (this._lastTab)
             this._lastTab.removeAttribute("last-visible-tab");
-          this._lastTab = visibleTabs[lastVisible];
+          this._lastTab = visibleTabs[visibleTabs.length - 1];
           this._lastTab.setAttribute("last-visible-tab", "true");
 
           let hoveredTab = this._hoveredTab;
@@ -6539,7 +6611,7 @@
 
           document.getElementById("menu_closeWindow").hidden = !visible;
           document.getElementById("menu_close").setAttribute("label",
-            this.tabbrowser.mStringBundle.getString(visible ? "tabs.closeTab" : "tabs.close"));
+            gTabBrowserBundle.GetStringFromName(visible ? "tabs.closeTab" : "tabs.close"));
 
           TabsInTitlebar.allowedBy("tabs-visible", visible);
         ]]></body>
@@ -6998,7 +7070,7 @@
               let sourceNode = dt.mozGetDataAt(TAB_DROP_TYPE, 0);
               if (sourceNode instanceof XULElement &&
                   sourceNode.localName == "tab" &&
-                  sourceNode.ownerGlobal instanceof ChromeWindow &&
+                  sourceNode.ownerGlobal.isChromeWindow &&
                   sourceNode.ownerDocument.documentElement.getAttribute("windowtype") == "navigator:browser" &&
                   sourceNode.ownerGlobal.gBrowser.tabContainer == sourceNode.parentNode) {
                 // Do not allow transfering a private tab to a non-private window
@@ -7684,7 +7756,7 @@
                   class="tab-loading-burst"/>
         <xul:hbox xbl:inherits="pinned,selected=visuallyselected,titlechanged,attention"
                   class="tab-content" align="center">
-          <xul:hbox xbl:inherits="fadein,pinned,busy,progress,selected=visuallyselected,notselectedsinceload"
+          <xul:hbox xbl:inherits="fadein,pinned,busy,progress,selected=visuallyselected"
                     anonid="tab-throbber"
                     class="tab-throbber"
                     layer="true"/>
@@ -8055,7 +8127,6 @@
       <![CDATA[
         if (this.selected) {
           this.style.MozUserFocus = "ignore";
-          this.clientTop; // just using this to flush style updates
         } else if (this.mOverCloseButton ||
                    this._overPlayingIcon) {
           // Prevent tabbox.xml from selecting the tab.

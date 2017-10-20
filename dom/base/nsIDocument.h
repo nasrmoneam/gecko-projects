@@ -37,6 +37,7 @@
 #include "mozilla/LinkedList.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/SegmentedVector.h"
+#include "mozilla/ServoBindingTypes.h"
 #include "mozilla/StyleBackendType.h"
 #include "mozilla/StyleSheet.h"
 #include "mozilla/TimeStamp.h"
@@ -63,7 +64,7 @@ class nsFrameLoader;
 class nsHTMLCSSStyleSheet;
 class nsHTMLDocument;
 class nsHTMLStyleSheet;
-class nsIAtom;
+class nsAtom;
 class nsIBFCacheEntry;
 class nsIChannel;
 class nsIContent;
@@ -465,6 +466,15 @@ public:
   }
 
   /**
+   * Get the list of ancestor outerWindowIDs for a document that correspond to
+   * the ancestor principals (see above for more details).
+   */
+  const nsTArray<uint64_t>& AncestorOuterWindowIDs() const
+  {
+    return mAncestorOuterWindowIDs;
+  }
+
+  /**
    * Return the LoadGroup for the document. May return null.
    */
   already_AddRefed<nsILoadGroup> GetDocumentLoadGroup() const
@@ -569,13 +579,13 @@ public:
    * registered for each ID.
    * @return the content currently associated with the ID.
    */
-  virtual Element* AddIDTargetObserver(nsIAtom* aID, IDTargetObserver aObserver,
+  virtual Element* AddIDTargetObserver(nsAtom* aID, IDTargetObserver aObserver,
                                        void* aData, bool aForImage) = 0;
   /**
    * Remove the (aObserver, aData, aForImage) triple for a specific ID, if
    * registered.
    */
-  virtual void RemoveIDTargetObserver(nsIAtom* aID, IDTargetObserver aObserver,
+  virtual void RemoveIDTargetObserver(nsAtom* aID, IDTargetObserver aObserver,
                                       void* aData, bool aForImage) = 0;
 
   /**
@@ -892,8 +902,8 @@ public:
    * Access HTTP header data (this may also get set from other
    * sources, like HTML META tags).
    */
-  virtual void GetHeaderData(nsIAtom* aHeaderField, nsAString& aData) const = 0;
-  virtual void SetHeaderData(nsIAtom* aheaderField, const nsAString& aData) = 0;
+  virtual void GetHeaderData(nsAtom* aHeaderField, nsAString& aData) const = 0;
+  virtual void SetHeaderData(nsAtom* aheaderField, const nsAString& aData) = 0;
 
   /**
    * Create a new presentation shell that will use aContext for its
@@ -1148,42 +1158,123 @@ public:
     : public nsExpirationTracker<SelectorCacheKey, 4>
   {
     public:
+      class SelectorList
+      {
+      public:
+        SelectorList()
+          : mIsServo(false)
+          , mGecko(nullptr)
+        {}
+
+        SelectorList(SelectorList&& aOther)
+        {
+          *this = mozilla::Move(aOther);
+        }
+
+        SelectorList& operator=(SelectorList&& aOther)
+        {
+          Reset();
+          mIsServo = aOther.mIsServo;
+          if (mIsServo) {
+            mServo = aOther.mServo;
+            aOther.mServo = nullptr;
+          } else {
+            mGecko = aOther.mGecko;
+            aOther.mGecko = nullptr;
+          }
+          return *this;
+        }
+
+        SelectorList(const SelectorList& aOther) = delete;
+
+        explicit SelectorList(mozilla::UniquePtr<RawServoSelectorList>&& aList)
+          : mIsServo(true)
+          , mServo(aList.release())
+        {}
+
+        explicit SelectorList(mozilla::UniquePtr<nsCSSSelectorList>&& aList)
+          : mIsServo(false)
+          , mGecko(aList.release())
+        {}
+
+        ~SelectorList() {
+          Reset();
+        }
+
+        bool IsServo() const { return mIsServo; }
+        bool IsGecko() const { return !IsServo(); }
+
+        explicit operator bool() const
+        {
+          return IsServo() ? !!AsServo() : !!AsGecko();
+        }
+
+        nsCSSSelectorList* AsGecko() const
+        {
+          MOZ_ASSERT(IsGecko());
+          return mGecko;
+        }
+
+        RawServoSelectorList* AsServo() const
+        {
+          MOZ_ASSERT(IsServo());
+          return mServo;
+        }
+
+      private:
+        void Reset();
+
+        bool mIsServo;
+
+        union {
+          nsCSSSelectorList* mGecko;
+          RawServoSelectorList* mServo;
+        };
+      };
+
       explicit SelectorCache(nsIEventTarget* aEventTarget);
 
       // CacheList takes ownership of aSelectorList.
-      void CacheList(const nsAString& aSelector, nsCSSSelectorList* aSelectorList);
+      void CacheList(const nsAString& aSelector,
+                     mozilla::UniquePtr<nsCSSSelectorList>&& aSelectorList);
+      void CacheList(const nsAString& aSelector,
+                     mozilla::UniquePtr<RawServoSelectorList>&& aSelectorList);
 
       virtual void NotifyExpired(SelectorCacheKey* aSelector) override;
 
       // We do not call MarkUsed because it would just slow down lookups and
       // because we're OK expiring things after a few seconds even if they're
       // being used.  Returns whether we actually had an entry for aSelector.
-      // If we have an entry and *aList is null, that indicates that aSelector
+      //
+      // If we have an entry and the selector list returned has a null
+      // nsCSSSelectorList*/RawServoSelectorList*, that indicates that aSelector
       // has already been parsed and is not a syntactically valid selector.
-      bool GetList(const nsAString& aSelector, nsCSSSelectorList** aList)
+      SelectorList* GetList(const nsAString& aSelector)
       {
-        return mTable.Get(aSelector, aList);
+        return mTable.GetValue(aSelector);
       }
 
       ~SelectorCache();
 
     private:
-      nsClassHashtable<nsStringHashKey, nsCSSSelectorList> mTable;
+      nsDataHashtable<nsStringHashKey, SelectorList> mTable;
   };
 
-  SelectorCache& GetSelectorCache() {
-    if (!mSelectorCache) {
-      mSelectorCache =
-        new SelectorCache(EventTargetFor(mozilla::TaskCategory::Other));
+  SelectorCache& GetSelectorCache(mozilla::StyleBackendType aBackendType) {
+    mozilla::UniquePtr<SelectorCache>& cache =
+      aBackendType == mozilla::StyleBackendType::Servo
+        ? mServoSelectorCache : mGeckoSelectorCache;
+    if (!cache) {
+      cache.reset(new SelectorCache(EventTargetFor(mozilla::TaskCategory::Other)));
     }
-    return *mSelectorCache;
+    return *cache;
   }
   // Get the root <html> element, or return null if there isn't one (e.g.
   // if the root isn't <html>)
   Element* GetHtmlElement() const;
   // Returns the first child of GetHtmlContent which has the given tag,
   // or nullptr if that doesn't exist.
-  Element* GetHtmlChildElement(nsIAtom* aTag);
+  Element* GetHtmlChildElement(nsAtom* aTag);
   // Get the canonical <body> element, or return null if there isn't one (e.g.
   // if the root isn't <html> or if the <body> isn't there)
   mozilla::dom::HTMLBodyElement* GetBodyElement();
@@ -1460,10 +1551,10 @@ public:
   /**
    * Add/Remove an element to the document's id and name hashes
    */
-  virtual void AddToIdTable(Element* aElement, nsIAtom* aId) = 0;
-  virtual void RemoveFromIdTable(Element* aElement, nsIAtom* aId) = 0;
-  virtual void AddToNameTable(Element* aElement, nsIAtom* aName) = 0;
-  virtual void RemoveFromNameTable(Element* aElement, nsIAtom* aName) = 0;
+  virtual void AddToIdTable(Element* aElement, nsAtom* aId) = 0;
+  virtual void RemoveFromIdTable(Element* aElement, nsAtom* aId) = 0;
+  virtual void AddToNameTable(Element* aElement, nsAtom* aName) = 0;
+  virtual void RemoveFromNameTable(Element* aElement, nsAtom* aName) = 0;
 
   /**
    * Returns all elements in the fullscreen stack in the insertion order.
@@ -1780,7 +1871,7 @@ public:
    * Returns null if element name parsing failed.
    */
   virtual already_AddRefed<Element> CreateElem(const nsAString& aName,
-                                               nsIAtom* aPrefix,
+                                               nsAtom* aPrefix,
                                                int32_t aNamespaceID,
                                                const nsAString* aIs = nullptr) = 0;
 
@@ -2013,7 +2104,7 @@ public:
    */
   virtual Element*
     GetAnonymousElementByAttribute(nsIContent* aElement,
-                                   nsIAtom* aAttrName,
+                                   nsAtom* aAttrName,
                                    const nsAString& aAttrValue) const = 0;
 
   /**
@@ -2710,7 +2801,7 @@ public:
    * Creates a new element in the HTML namespace with a local name given by
    * aTag.
    */
-  already_AddRefed<Element> CreateHTMLElement(nsIAtom* aTag);
+  already_AddRefed<Element> CreateHTMLElement(nsAtom* aTag);
 
   // WebIDL API
   nsIGlobalObject* GetParentObject() const
@@ -3114,8 +3205,13 @@ protected:
 private:
   mutable std::bitset<eDeprecatedOperationCount> mDeprecationWarnedAbout;
   mutable std::bitset<eDocumentWarningCount> mDocWarningWarnedAbout;
-  // Lazy-initialization to have mDocGroup initialized in prior to mSelectorCache.
-  nsAutoPtr<SelectorCache> mSelectorCache;
+
+  // Lazy-initialization to have mDocGroup initialized in prior to the
+  // SelectorCaches.
+  // FIXME(emilio): We can use a single cache when all CSSOM methods are
+  // implemented for the Servo backend.
+  mozilla::UniquePtr<SelectorCache> mServoSelectorCache;
+  mozilla::UniquePtr<SelectorCache> mGeckoSelectorCache;
 
 protected:
   ~nsIDocument();
@@ -3616,6 +3712,8 @@ protected:
   // List of ancestor principals.  This is set at the point a document
   // is connected to a docshell and not mutated thereafter.
   nsTArray<nsCOMPtr<nsIPrincipal>> mAncestorPrincipals;
+  // List of ancestor outerWindowIDs that correspond to the ancestor principals.
+  nsTArray<uint64_t> mAncestorOuterWindowIDs;
 
   // Restyle root for servo's style system.
   //

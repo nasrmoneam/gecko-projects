@@ -163,6 +163,9 @@ pref("dom.enable_performance", true);
 // Whether resource timing will be gathered and returned by performance.GetEntries*
 pref("dom.enable_resource_timing", true);
 
+// Whether performance.GetEntries* will contain an entry for the active document
+pref("dom.enable_performance_navigation_timing", true);
+
 // Enable printing performance marks/measures to log
 pref("dom.performance.enable_user_timing_logging", false);
 
@@ -307,6 +310,10 @@ pref("mathml.disabled",    false);
 pref("mathml.scale_stretchy_operators.enabled", true);
 
 pref("media.dormant-on-pause-timeout-ms", 5000);
+
+// Used by ChannelMediaResource to run data callbacks from HTTP channel
+// off the main thread.
+pref("media.omt_data_delivery.enabled", true);
 
 // File-backed MediaCache size in kilobytes
 pref("media.cache_size", 512000);
@@ -464,7 +471,6 @@ pref("media.peerconnection.dtmf.enabled", true);
 
 pref("media.webrtc.debug.trace_mask", 0);
 pref("media.webrtc.debug.multi_log", false);
-pref("media.webrtc.debug.aec_log_dir", "");
 pref("media.webrtc.debug.log_file", "");
 pref("media.webrtc.debug.aec_dump_max_size", 4194304); // 4MB
 
@@ -633,6 +639,11 @@ pref("media.decoder.skip-to-next-key-frame.enabled", true);
 // Log level for cubeb, the audio input/output system. Valid values are
 // "verbose", "normal" and "" (log disabled).
 pref("media.cubeb.logging_level", "");
+
+#ifdef NIGHTLY_BUILD
+// Cubeb sandbox (remoting) control
+pref("media.cubeb.sandbox", true);
+#endif
 
 // Set to true to force demux/decode warnings to be treated as errors.
 pref("media.playback.warnings-as-errors", false);
@@ -1305,8 +1316,8 @@ pref("dom.timeout.foreground_budget_regeneration_rate", 1);
 pref("dom.timeout.foreground_throttling_max_budget", -1);
 // The maximum amount a timeout can be delayed by budget throttling
 pref("dom.timeout.budget_throttling_max_delay", 15000);
-// Turn off budget throttling by default
-pref("dom.timeout.enable_budget_timer_throttling", false);
+// Turn on budget throttling by default
+pref("dom.timeout.enable_budget_timer_throttling", true);
 
 // Don't use new input types
 pref("dom.experimental_forms", false);
@@ -1450,11 +1461,7 @@ pref("javascript.options.discardSystemSource", false);
 // js/src/jsgc.cpp.  They're documented in js/src/jsapi.h.
 
 // JSGC_MAX_MALLOC_BYTES
-// This preference limits the malloc memory that javascript objects may use.
-// If you want to change these values for your device,
-// please find Bug 417052 comment 17 and Bug 456721
-// Comment 32 and Bug 613551.
-// Override the shell's default of 0xffffffff
+// How much malloc memory can be allocated before triggering a GC, in MB.
 pref("javascript.options.mem.high_water_mark", 128);
 
 // JSGC_MAX_BYTES
@@ -1751,6 +1758,10 @@ pref("network.http.connection-retry-timeout", 250);
 // The number of seconds after sending initial SYN for an HTTP connection
 // to give up if the OS does not give up first
 pref("network.http.connection-timeout", 90);
+
+// Close a connection if tls handshake does not finish in given number of
+// seconds.
+pref("network.http.tls-handshake-timeout", 30);
 
 // The number of seconds to allow active connections to prove that they have
 // traffic before considered stalled, after a network change has been detected
@@ -2109,7 +2120,7 @@ pref("network.dir.format", 2);
 // <link rel="prefetch"> URLs).
 pref("network.prefetch-next", true);
 // enables the preloading (i.e., preloading of <link rel="preload"> URLs).
-pref("network.preload", true);
+pref("network.preload", false);
 
 // enables the predictive service
 pref("network.predictor.enabled", true);
@@ -2725,17 +2736,23 @@ pref("mousewheel.system_scroll_override_on_root_content.horizontal.factor", 200)
 // 1: Scrolling contents
 // 2: Go back or go forward, in your history
 // 3: Zoom in or out.
+// 4: Treat vertical wheel as horizontal scroll
+//      This treats vertical wheel operation (i.e., deltaY) as horizontal
+//      scroll.  deltaX and deltaZ are always ignored.  So, only
+//      "delta_multiplier_y" pref affects the scroll speed.
 pref("mousewheel.default.action", 1);
 pref("mousewheel.with_alt.action", 2);
 pref("mousewheel.with_control.action", 3);
 pref("mousewheel.with_meta.action", 1);  // command key on Mac
-pref("mousewheel.with_shift.action", 1);
+pref("mousewheel.with_shift.action", 4);
 pref("mousewheel.with_win.action", 1);
 
 // mousewheel.*.action.override_x will override the action
 // when the mouse wheel is rotated along the x direction.
 // -1: Don't override the action.
 // 0 to 3: Override the action with the specified value.
+// Note that 4 isn't available because it doesn't make sense to apply the
+// default action only for y direction to this pref.
 pref("mousewheel.default.action.override_x", -1);
 pref("mousewheel.with_alt.action.override_x", -1);
 pref("mousewheel.with_control.action.override_x", -1);
@@ -2972,7 +2989,7 @@ pref("layout.css.float-logical-values.enabled", true);
 pref("layout.css.image-orientation.enabled", true);
 
 // Is support for the font-display @font-face descriptor enabled?
-pref("layout.css.font-display.enabled", false);
+pref("layout.css.font-display.enabled", true);
 
 // Is support for variation fonts enabled?
 pref("layout.css.font-variations.enabled", false);
@@ -3093,9 +3110,6 @@ pref("layout.css.control-characters.visible", true);
 // Is support for column-span enabled?
 pref("layout.css.column-span.enabled", false);
 
-// Is effect of xml:base disabled for style attribute?
-pref("layout.css.style-attr-with-xml-base.disabled", true);
-
 // Are inter-character ruby annotations enabled?
 pref("layout.css.ruby.intercharacter.enabled", false);
 
@@ -3122,6 +3136,7 @@ pref("layout.frame_rate", -1);
 // pref to dump the display list to the log. Useful for debugging drawing.
 pref("layout.display-list.dump", false);
 pref("layout.display-list.dump-content", false);
+pref("layout.display-list.dump-parent", false);
 
 // pref to control whether layout warnings that are hit quite often are enabled
 pref("layout.spammy_warnings.enabled", false);
@@ -3319,13 +3334,8 @@ pref("dom.ipc.plugins.asyncdrawing.enabled", true);
 // Force the accelerated direct path for a subset of Flash wmode values
 pref("dom.ipc.plugins.forcedirect.enabled", true);
 
-// Enable multi by default for Nightly and DevEdition only.
-// For Beta and Release builds, multi is controlled by the e10srollout addon.
-#if defined(RELEASE_OR_BETA) && !defined(MOZ_DEV_EDITION)
-pref("dom.ipc.processCount", 1);
-#else
+// Enable multi by default.
 pref("dom.ipc.processCount", 4);
-#endif
 
 // Default to allow only one file:// URL content process.
 pref("dom.ipc.processCount.file", 1);
@@ -5336,6 +5346,10 @@ pref("dom.vr.puppet.enabled", false);
 // Allow displaying the result of vr submitframe (0: disable, 1: store the
 // result as a base64 image, 2: show it on the screen).
 pref("dom.vr.puppet.submitframe", 0);
+// The number of milliseconds since last frame start before triggering a new frame.
+// When content is failing to submit frames on time or the lower level VR platform API's
+// are rejecting frames, it determines the rate at which RAF callbacks will be called.
+pref("dom.vr.display.rafMaxDuration", 50);
 // VR test system.
 pref("dom.vr.test.enabled", false);
 
@@ -5789,8 +5803,10 @@ pref("dom.webkitBlink.filesystem.enabled", true);
 pref("media.block-autoplay-until-in-foreground", true);
 
 // Is Stylo CSS support built and enabled?
-// Only define this pref if Stylo support is actually built in.
+// Only define these prefs if Stylo support is actually built in.
 #ifdef MOZ_STYLO
+pref("layout.css.stylo-blocklist.enabled", true);
+pref("layout.css.stylo-blocklist.blocked_domains", "");
 #ifdef MOZ_STYLO_ENABLE
 pref("layout.css.servo.enabled", true);
 #else
@@ -5885,23 +5901,22 @@ pref("layers.mlgpu.enable-on-windows7", true);
 // it to a boolean as appropriate. In particular, do NOT add ifdefs here to
 // turn these on and off, instead use the conditional-pref code in gfxPrefs.h
 // to do that.
-pref("layers.advanced.background-color", 2);
+pref("layers.advanced.background-color", false);
 pref("layers.advanced.background-image", 2);
 pref("layers.advanced.border-layers", 2);
-pref("layers.advanced.boxshadow-inset-layers", 2);
-pref("layers.advanced.boxshadow-outer-layers", 2);
+pref("layers.advanced.boxshadow-inset-layers", false);
+pref("layers.advanced.boxshadow-outer-layers", false);
 pref("layers.advanced.bullet-layers", 2);
 pref("layers.advanced.button-foreground-layers", 2);
 pref("layers.advanced.canvas-background-color", 2);
-pref("layers.advanced.caret-layers", 2);
+pref("layers.advanced.caret-layers", false);
 pref("layers.advanced.columnRule-layers", 2);
 pref("layers.advanced.displaybuttonborder-layers", 2);
 pref("layers.advanced.image-layers", 2);
 pref("layers.advanced.outline-layers", 2);
-pref("layers.advanced.solid-color", 2);
-pref("layers.advanced.table", 2);
+pref("layers.advanced.solid-color", false);
+pref("layers.advanced.table", false);
 pref("layers.advanced.text-layers", 2);
-pref("layers.advanced.filter-layers", 2);
 
 // Enable lowercased response header name
 pref("dom.xhr.lowercase_header.enabled", false);

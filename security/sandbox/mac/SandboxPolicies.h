@@ -265,6 +265,10 @@ static const char contentSandboxRules[] = R"(
       (home-regex "/Library/Application Support/[^/]+/Extensions/")
       (regex "^/Library/Application Support/[^/]+/Extensions/"))
 
+; bug 1393805
+  (allow file-read*
+      (home-subpath "/Library/Application Support/Mozilla/SystemExtensionsDev"))
+
 ; The following rules impose file access restrictions which get
 ; more restrictive in higher levels. When file-origin-specific
 ; content processes are used for file:// origin browsing, the
@@ -327,9 +331,7 @@ static const char contentSandboxRules[] = R"(
   (allow file-write-create
     (require-all
       (subpath appTempDir)
-      (require-any
-        (vnode-type REGULAR-FILE)
-        (vnode-type DIRECTORY))))
+      (vnode-type REGULAR-FILE)))
 
   ; bug 1382260
   ; We may need to load fonts from outside of the standard
@@ -343,6 +345,10 @@ static const char contentSandboxRules[] = R"(
            #"\.[tT][tT][cC]$"           ; ttc
            #"\.[oO][tT][cC]$"           ; otc
            #"\.[dD][fF][oO][nN][tT]$")) ; dfont
+
+  ; bug 1404919
+  ; Read access (recursively) within directories ending in .fontvault
+  (allow file-read* (regex #"\.fontvault/"))
 )";
 
 }

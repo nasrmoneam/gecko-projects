@@ -34,7 +34,6 @@ class DrawTarget;
 namespace layers {
 class ImageContainer;
 class StackingContextHelper;
-class WebRenderDisplayItemLayer;
 class WebRenderParentCommand;
 class LayerManager;
 } // namespace layers
@@ -212,6 +211,16 @@ struct nsCSSRendering {
                                  const nsRect& aDirtyRect,
                                  const nsRect& aBorderArea,
                                  nsStyleContext* aStyleContext);
+
+
+  static bool CreateWebRenderCommandsForBorder(nsDisplayItem* aItem,
+                                               nsIFrame* aForFrame,
+                                               const nsRect& aBorderArea,
+                                               mozilla::wr::DisplayListBuilder& aBuilder,
+                                               mozilla::wr::IpcResourceUpdateQueue& aResources,
+                                               const mozilla::layers::StackingContextHelper& aSc,
+                                               mozilla::layers::WebRenderLayerManager* aManager,
+                                               nsDisplayListBuilder* aDisplayListBuilder);
 
   /**
    * Render the outline for an element using css rendering rules
@@ -503,7 +512,6 @@ struct nsCSSRendering {
                                                                  mozilla::wr::DisplayListBuilder& aBuilder,
                                                                  mozilla::wr::IpcResourceUpdateQueue& aResources,
                                                                  const mozilla::layers::StackingContextHelper& aSc,
-                                                                 mozilla::layers::WebRenderDisplayItemLayer* aLayer,
                                                                  mozilla::layers::WebRenderLayerManager* aManager,
                                                                  nsDisplayItem* aItem);
 
@@ -511,7 +519,6 @@ struct nsCSSRendering {
                                                                        mozilla::wr::DisplayListBuilder& aBuilder,
                                                                        mozilla::wr::IpcResourceUpdateQueue& aResources,
                                                                        const mozilla::layers::StackingContextHelper& aSc,
-                                                                       mozilla::layers::WebRenderDisplayItemLayer* aLayer,
                                                                        mozilla::layers::WebRenderLayerManager* aManager,
                                                                        nsDisplayItem* aItem,
                                                                        nsStyleContext *mBackgroundSC,
@@ -586,6 +593,7 @@ struct nsCSSRendering {
     // NS_STYLE_TEXT_DECORATION_STYLE_*.
     uint8_t style = NS_STYLE_TEXT_DECORATION_STYLE_NONE;
     bool vertical = false;
+    bool sidewaysLeft = false;
   };
 
   struct PaintDecorationLineParams : DecorationRectParams

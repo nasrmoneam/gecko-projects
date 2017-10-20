@@ -25,7 +25,7 @@ use properties::longhands::visibility::computed_value::T as Visibility;
 #[cfg(feature = "gecko")]
 use properties::PropertyId;
 use properties::{LonghandId, ShorthandId};
-use selectors::parser::SelectorParseError;
+use selectors::parser::SelectorParseErrorKind;
 use servo_arc::Arc;
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -57,7 +57,7 @@ use values::generics::position as generic_position;
 use values::generics::svg::{SVGLength,  SvgLengthOrPercentageOrNumber, SVGPaint};
 use values::generics::svg::{SVGPaintKind, SVGStrokeDashArray, SVGOpacity};
 
-/// https://drafts.csswg.org/css-transitions/#animtype-repeatable-list
+/// <https://drafts.csswg.org/css-transitions/#animtype-repeatable-list>
 pub trait RepeatableListAnimatable: Animate {}
 
 /// Returns true if this nsCSSPropertyID is one of the animatable properties.
@@ -77,9 +77,7 @@ pub fn nscsspropertyid_is_animatable(property: nsCSSPropertyID) -> bool {
 /// a shorthand with at least one transitionable longhand component, or an unsupported property.
 // NB: This needs to be here because it needs all the longhands generated
 // beforehand.
-#[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, MallocSizeOf, PartialEq)]
 pub enum TransitionProperty {
     /// All, any transitionable property changing should generate a transition.
     ///
@@ -134,6 +132,7 @@ impl TransitionProperty {
 
     /// Parse a transition-property value.
     pub fn parse<'i, 't>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i>> {
+        let location = input.current_source_location();
         let ident = input.expect_ident()?;
         match_ignore_ascii_case! { &ident,
             "all" => Ok(TransitionProperty::All),
@@ -143,8 +142,8 @@ impl TransitionProperty {
             % for prop in data.longhands:
                 "${prop.name}" => Ok(TransitionProperty::Longhand(LonghandId::${prop.camel_case})),
             % endfor
-            "none" => Err(SelectorParseError::UnexpectedIdent(ident.clone()).into()),
-            _ => CustomIdent::from_ident(ident, &[]).map(TransitionProperty::Unsupported),
+            "none" => Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(ident.clone()))),
+            _ => CustomIdent::from_ident(location, ident, &[]).map(TransitionProperty::Unsupported),
         }
     }
 
@@ -202,7 +201,7 @@ pub fn nscsspropertyid_is_transitionable(property: nsCSSPropertyID) -> bool {
 /// property.
 #[cfg(feature = "servo")]
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub enum AnimatedProperty {
     % for prop in data.longhands:
         % if prop.animatable:
@@ -337,8 +336,8 @@ unsafe impl HasSimpleFFI for AnimationValueMap {}
 ///
 /// FIXME: We need to add a path for custom properties, but that's trivial after
 /// this (is a similar path to that of PropertyDeclaration).
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub enum AnimationValue {
     % for prop in data.longhands:
         % if prop.animatable:
@@ -350,12 +349,6 @@ pub enum AnimationValue {
             % endif
         % endif
     % endfor
-}
-
-impl fmt::Debug for AnimationValue {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str(self.id().name())
-    }
 }
 
 impl AnimationValue {
@@ -407,7 +400,7 @@ impl AnimationValue {
     ) -> Option<Self> {
         use properties::LonghandId;
 
-        match *decl {
+        let animatable = match *decl {
             % for prop in data.longhands:
             % if prop.animatable:
             PropertyDeclaration::${prop.camel_case}(ref val) => {
@@ -427,13 +420,13 @@ impl AnimationValue {
             % else:
             let computed = val.to_computed_value(context);
             % endif
-            Some(AnimationValue::${prop.camel_case}(
+            AnimationValue::${prop.camel_case}(
             % if prop.is_animatable_with_computed_value:
                 computed
             % else:
                 computed.to_animated_value()
             % endif
-            ))
+            )
             },
             % endif
             % endfor
@@ -444,33 +437,32 @@ impl AnimationValue {
                     % for prop in data.longhands:
                     % if prop.animatable:
                     LonghandId::${prop.camel_case} => {
-                        let computed = match keyword {
+                        let style_struct = match keyword {
                             % if not prop.style_struct.inherited:
                                 CSSWideKeyword::Unset |
                             % endif
                             CSSWideKeyword::Initial => {
-                                let initial_struct = initial.get_${prop.style_struct.name_lower}();
-                                initial_struct.clone_${prop.ident}()
+                                initial.get_${prop.style_struct.name_lower}()
                             },
                             % if prop.style_struct.inherited:
                                 CSSWideKeyword::Unset |
                             % endif
                             CSSWideKeyword::Inherit => {
-                                let inherit_struct = context.builder
-                                                            .get_parent_${prop.style_struct.name_lower}();
-                                inherit_struct.clone_${prop.ident}()
+                                context.builder
+                                       .get_parent_${prop.style_struct.name_lower}()
                             },
                         };
+                        let computed = style_struct.clone_${prop.ident}();
                         % if not prop.is_animatable_with_computed_value:
                         let computed = computed.to_animated_value();
                         % endif
-                        Some(AnimationValue::${prop.camel_case}(computed))
+                        AnimationValue::${prop.camel_case}(computed)
                     },
                     % endif
                     % endfor
                     % for prop in data.longhands:
                     % if not prop.animatable:
-                    LonghandId::${prop.camel_case} => None,
+                    LonghandId::${prop.camel_case} => return None,
                     % endif
                     % endfor
                 }
@@ -486,15 +478,16 @@ impl AnimationValue {
                         context.quirks_mode
                     )
                 };
-                AnimationValue::from_declaration(
+                return AnimationValue::from_declaration(
                     &substituted,
                     context,
                     extra_custom_properties,
                     initial,
                 )
             },
-            _ => None // non animatable properties will get included because of shorthands. ignore.
-        }
+            _ => return None // non animatable properties will get included because of shorthands. ignore.
+        };
+        Some(animatable)
     }
 
     /// Get an AnimationValue for an AnimatableLonghand from a given computed values.
@@ -524,9 +517,17 @@ impl AnimationValue {
     }
 }
 
+fn animate_discrete<T: Clone>(this: &T, other: &T, procedure: Procedure) -> Result<T, ()> {
+    if let Procedure::Interpolate { progress } = procedure {
+        Ok(if progress < 0.5 { this.clone() } else { other.clone() })
+    } else {
+        Err(())
+    }
+}
+
 impl Animate for AnimationValue {
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
-        match (self, other) {
+        let value = match (self, other) {
             % for prop in data.longhands:
             % if prop.animatable:
             % if prop.animation_value_type != "discrete":
@@ -534,22 +535,18 @@ impl Animate for AnimationValue {
                 &AnimationValue::${prop.camel_case}(ref this),
                 &AnimationValue::${prop.camel_case}(ref other),
             ) => {
-                Ok(AnimationValue::${prop.camel_case}(
+                AnimationValue::${prop.camel_case}(
                     this.animate(other, procedure)?,
-                ))
+                )
             },
             % else:
             (
                 &AnimationValue::${prop.camel_case}(ref this),
                 &AnimationValue::${prop.camel_case}(ref other),
             ) => {
-                if let Procedure::Interpolate { progress } = procedure {
-                    Ok(AnimationValue::${prop.camel_case}(
-                        if progress < 0.5 { this.clone() } else { other.clone() },
-                    ))
-                } else {
-                    Err(())
-                }
+                AnimationValue::${prop.camel_case}(
+                    animate_discrete(this, other, procedure)?
+                )
             },
             % endif
             % endif
@@ -557,22 +554,29 @@ impl Animate for AnimationValue {
             _ => {
                 panic!("Unexpected AnimationValue::animate call, got: {:?}, {:?}", self, other);
             }
-        }
+        };
+        Ok(value)
     }
 }
 
 impl ComputeSquaredDistance for AnimationValue {
     fn compute_squared_distance(&self, other: &Self) -> Result<SquaredDistance, ()> {
+        match *self {
+            % for i, prop in enumerate([p for p in data.longhands if p.animatable and p.animation_value_type == "discrete"]):
+            % if i > 0:
+            |
+            % endif
+            AnimationValue::${prop.camel_case}(..)
+            % endfor
+            => return Err(()),
+            _ => (),
+        }
         match (self, other) {
             % for prop in data.longhands:
             % if prop.animatable:
             % if prop.animation_value_type != "discrete":
             (&AnimationValue::${prop.camel_case}(ref this), &AnimationValue::${prop.camel_case}(ref other)) => {
                 this.compute_squared_distance(other)
-            },
-            % else:
-            (&AnimationValue::${prop.camel_case}(_), &AnimationValue::${prop.camel_case}(_)) => {
-                Err(())
             },
             % endif
             % endif
@@ -649,7 +653,7 @@ macro_rules! repeated_vec_impl {
 
 repeated_vec_impl!(SmallVec<[T; 1]>, Vec<T>);
 
-/// https://drafts.csswg.org/css-transitions/#animtype-visibility
+/// <https://drafts.csswg.org/css-transitions/#animtype-visibility>
 impl Animate for Visibility {
     #[inline]
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
@@ -680,7 +684,7 @@ impl ToAnimatedZero for Visibility {
     }
 }
 
-/// https://drafts.csswg.org/css-transitions/#animtype-lpcalc
+/// <https://drafts.csswg.org/css-transitions/#animtype-lpcalc>
 impl Animate for CalcLengthOrPercentage {
     #[inline]
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
@@ -732,7 +736,7 @@ impl ToAnimatedZero for MaxLength {
     fn to_animated_zero(&self) -> Result<Self, ()> { Err(()) }
 }
 
-/// http://dev.w3.org/csswg/css-transitions/#animtype-font-weight
+/// <http://dev.w3.org/csswg/css-transitions/#animtype-font-weight>
 impl Animate for FontWeight {
     #[inline]
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
@@ -753,7 +757,7 @@ impl ToAnimatedZero for FontWeight {
     }
 }
 
-/// https://drafts.csswg.org/css-fonts/#font-stretch-prop
+/// <https://drafts.csswg.org/css-fonts/#font-stretch-prop>
 impl Animate for FontStretch {
     #[inline]
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()>
@@ -780,7 +784,7 @@ impl ToAnimatedZero for FontStretch {
 }
 
 /// We should treat font stretch as real number in order to interpolate this property.
-/// https://drafts.csswg.org/css-fonts-3/#font-stretch-animation
+/// <https://drafts.csswg.org/css-fonts-3/#font-stretch-animation>
 impl From<FontStretch> for f64 {
     fn from(stretch: FontStretch) -> f64 {
         use self::FontStretch::*;
@@ -809,7 +813,7 @@ impl Into<FontStretch> for f64 {
     }
 }
 
-/// https://drafts.csswg.org/css-fonts-4/#font-variation-settings-def
+/// <https://drafts.csswg.org/css-fonts-4/#font-variation-settings-def>
 #[cfg(feature = "gecko")]
 impl Animate for FontVariationSettings {
     #[inline]
@@ -983,7 +987,7 @@ impl<'a> Iterator for FontSettingTagIter<'a> {
 impl<H, V> RepeatableListAnimatable for generic_position::Position<H, V>
     where H: RepeatableListAnimatable, V: RepeatableListAnimatable {}
 
-/// https://drafts.csswg.org/css-transitions/#animtype-rect
+/// <https://drafts.csswg.org/css-transitions/#animtype-rect>
 impl Animate for ClipRect {
     #[inline]
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
@@ -1012,7 +1016,7 @@ impl ToAnimatedZero for ClipRect {
 
 /// Build an equivalent 'identity transform function list' based
 /// on an existing transform list.
-/// http://dev.w3.org/csswg/css-transforms/#none-transform-animation
+/// <http://dev.w3.org/csswg/css-transforms/#none-transform-animation>
 impl ToAnimatedZero for TransformOperation {
     fn to_animated_zero(&self) -> Result<Self, ()> {
         match *self {
@@ -1072,7 +1076,7 @@ fn animate_multiplicative_factor(
     Ok((this - 1.).animate(&(other - 1.), procedure)? + 1.)
 }
 
-/// http://dev.w3.org/csswg/css-transforms/#interpolation-of-transforms
+/// <http://dev.w3.org/csswg/css-transforms/#interpolation-of-transforms>
 impl Animate for TransformOperation {
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
         match (self, other) {
@@ -1153,7 +1157,7 @@ impl Animate for TransformOperation {
     }
 }
 
-/// https://www.w3.org/TR/css-transforms-1/#Rotate3dDefined
+/// <https://www.w3.org/TR/css-transforms-1/#Rotate3dDefined>
 fn rotate_to_matrix(x: f32, y: f32, z: f32, a: Angle) -> ComputedMatrix {
     let half_rad = a.radians() / 2.0;
     let sc = (half_rad).sin() * (half_rad).cos();
@@ -1184,7 +1188,7 @@ fn rotate_to_matrix(x: f32, y: f32, z: f32, a: Angle) -> ComputedMatrix {
 
 /// A 2d matrix for interpolation.
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 #[allow(missing_docs)]
 // FIXME: We use custom derive for ComputeSquaredDistance. However, If possible, we should convert
 // the InnerMatrix2D into types with physical meaning. This custom derive computes the squared
@@ -1196,18 +1200,18 @@ pub struct InnerMatrix2D {
 }
 
 /// A 2d translation function.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 #[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug)]
 pub struct Translate2D(f32, f32);
 
 /// A 2d scale function.
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct Scale2D(f32, f32);
 
 /// A decomposed 2d matrix.
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct MatrixDecomposed2D {
     /// The translation function.
     pub translate: Translate2D,
@@ -1240,7 +1244,7 @@ impl Animate for Scale2D {
 }
 
 impl Animate for MatrixDecomposed2D {
-    /// https://drafts.csswg.org/css-transforms/#interpolation-of-decomposed-2d-matrix-values
+    /// <https://drafts.csswg.org/css-transforms/#interpolation-of-decomposed-2d-matrix-values>
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
         // If x-axis of one is flipped, and y-axis of the other,
         // convert to an unflipped rotation.
@@ -1369,7 +1373,7 @@ impl ComputeSquaredDistance for ComputedMatrix {
 
 impl From<ComputedMatrix> for MatrixDecomposed2D {
     /// Decompose a 2D matrix.
-    /// https://drafts.csswg.org/css-transforms/#decomposing-a-2d-matrix
+    /// <https://drafts.csswg.org/css-transforms/#decomposing-a-2d-matrix>
     fn from(matrix: ComputedMatrix) -> MatrixDecomposed2D {
         let mut row0x = matrix.m11;
         let mut row0y = matrix.m12;
@@ -1433,7 +1437,7 @@ impl From<ComputedMatrix> for MatrixDecomposed2D {
 
 impl From<MatrixDecomposed2D> for ComputedMatrix {
     /// Recompose a 2D matrix.
-    /// https://drafts.csswg.org/css-transforms/#recomposing-to-a-2d-matrix
+    /// <https://drafts.csswg.org/css-transforms/#recomposing-to-a-2d-matrix>
     fn from(decomposed: MatrixDecomposed2D) -> ComputedMatrix {
         let mut computed_matrix = ComputedMatrix::identity();
         computed_matrix.m11 = decomposed.matrix.m11;
@@ -1491,33 +1495,33 @@ impl From<ComputedMatrix> for RawGeckoGfxMatrix4x4 {
 }
 
 /// A 3d translation.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 #[derive(Animate, Clone, ComputeSquaredDistance, Copy, Debug)]
 pub struct Translate3D(f32, f32, f32);
 
 /// A 3d scale function.
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct Scale3D(f32, f32, f32);
 
 /// A 3d skew function.
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 #[derive(Animate, Clone, Copy, Debug)]
 pub struct Skew(f32, f32, f32);
 
 /// A 3d perspective transformation.
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct Perspective(f32, f32, f32, f32);
 
 /// A quaternion used to represent a rotation.
 #[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct Quaternion(f64, f64, f64, f64);
 
 /// A decomposed 3d matrix.
 #[derive(Clone, ComputeSquaredDistance, Copy, Debug)]
-#[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+#[cfg_attr(feature = "servo", derive(MallocSizeOf))]
 pub struct MatrixDecomposed3D {
     /// A translation function.
     pub translate: Translate3D,
@@ -1571,7 +1575,7 @@ impl ComputeSquaredDistance for Quaternion {
 }
 
 /// Decompose a 3D matrix.
-/// https://drafts.csswg.org/css-transforms/#decomposing-a-3d-matrix
+/// <https://drafts.csswg.org/css-transforms/#decomposing-a-3d-matrix>
 fn decompose_3d_matrix(mut matrix: ComputedMatrix) -> Result<MatrixDecomposed3D, ()> {
     // Normalize the matrix.
     if matrix.m44 == 0.0 {
@@ -1823,7 +1827,7 @@ impl Animate for Perspective {
 }
 
 impl Animate for MatrixDecomposed3D {
-    /// https://drafts.csswg.org/css-transforms/#interpolation-of-decomposed-3d-matrix-values
+    /// <https://drafts.csswg.org/css-transforms/#interpolation-of-decomposed-3d-matrix-values>
     fn animate(&self, other: &Self, procedure: Procedure) -> Result<Self, ()> {
         use std::f64;
 
@@ -1905,7 +1909,7 @@ impl Animate for MatrixDecomposed3D {
 
 impl From<MatrixDecomposed3D> for ComputedMatrix {
     /// Recompose a 3D matrix.
-    /// https://drafts.csswg.org/css-transforms/#recomposing-to-a-3d-matrix
+    /// <https://drafts.csswg.org/css-transforms/#recomposing-to-a-3d-matrix>
     fn from(decomposed: MatrixDecomposed3D) -> ComputedMatrix {
         let mut matrix = ComputedMatrix::identity();
 
@@ -2100,7 +2104,7 @@ impl ComputedMatrix {
     }
 }
 
-/// https://drafts.csswg.org/css-transforms/#interpolation-of-transforms
+/// <https://drafts.csswg.org/css-transforms/#interpolation-of-transforms>
 impl Animate for TransformList {
     #[inline]
     fn animate(
@@ -2457,7 +2461,7 @@ where
     }
 }
 
-/// https://www.w3.org/TR/SVG11/painting.html#StrokeDasharrayProperty
+/// <https://www.w3.org/TR/SVG11/painting.html#StrokeDasharrayProperty>
 impl<L> Animate for SVGStrokeDashArray<L>
 where
     L: Clone + RepeatableListAnimatable,
@@ -2515,7 +2519,7 @@ where
                          'Sepia' ]
 %>
 
-/// https://drafts.fxtf.org/filters/#animation-of-filters
+/// <https://drafts.fxtf.org/filters/#animation-of-filters>
 impl Animate for AnimatedFilter {
     fn animate(
         &self,
@@ -2547,7 +2551,7 @@ impl Animate for AnimatedFilter {
     }
 }
 
-/// http://dev.w3.org/csswg/css-transforms/#none-transform-animation
+/// <http://dev.w3.org/csswg/css-transforms/#none-transform-animation>
 impl ToAnimatedZero for AnimatedFilter {
     fn to_animated_zero(&self) -> Result<Self, ()> {
         match *self {

@@ -9,6 +9,7 @@
 /* This must occur *after* base/basictypes.h to avoid typedefs conflicts. */
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Base64.h"
+#include "mozilla/ResultExtensions.h"
 
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/TabChild.h"
@@ -903,17 +904,17 @@ NS_IMETHODIMP nsExternalHelperAppService::ExternalProtocolHandlerExists(const ch
   nsCOMPtr<nsIHandlerInfo> handlerInfo;
   nsresult rv = GetProtocolHandlerInfo(nsDependentCString(aProtocolScheme), 
                                        getter_AddRefs(handlerInfo));
-  NS_ENSURE_SUCCESS(rv, rv);
+  if (NS_SUCCEEDED(rv)) {
+    // See if we have any known possible handler apps for this
+    nsCOMPtr<nsIMutableArray> possibleHandlers;
+    handlerInfo->GetPossibleApplicationHandlers(getter_AddRefs(possibleHandlers));
 
-  // See if we have any known possible handler apps for this
-  nsCOMPtr<nsIMutableArray> possibleHandlers;
-  handlerInfo->GetPossibleApplicationHandlers(getter_AddRefs(possibleHandlers));
-
-  uint32_t length;
-  possibleHandlers->GetLength(&length);
-  if (length) {
-    *aHandlerExists = true;
-    return NS_OK;
+    uint32_t length;
+    possibleHandlers->GetLength(&length);
+    if (length) {
+      *aHandlerExists = true;
+      return NS_OK;
+    }
   }
 
   // if not, fall back on an os-based handler
@@ -2531,12 +2532,7 @@ nsresult nsExternalAppHandler::MaybeCloseWindow()
       // Now close the old window.  Do it on a timer so that we don't run
       // into issues trying to close the window before it has fully opened.
       NS_ASSERTION(!mTimer, "mTimer was already initialized once!");
-      mTimer = do_CreateInstance("@mozilla.org/timer;1");
-      if (!mTimer) {
-        return NS_ERROR_FAILURE;
-      }
-
-      mTimer->InitWithCallback(this, 0, nsITimer::TYPE_ONE_SHOT);
+      MOZ_TRY_VAR(mTimer, NS_NewTimerWithCallback(this, 0, nsITimer::TYPE_ONE_SHOT));
       mWindowToClose = window;
     }
   }

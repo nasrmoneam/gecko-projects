@@ -19,7 +19,7 @@
 #include "Layers.h"
 #include "gfxPrefs.h"
 #include "gfxUtils.h"
-#include "mozilla/layers/WebRenderDisplayItemLayer.h"
+#include "mozilla/layers/WebRenderLayerManager.h"
 
 #define ACTIVE   "active"
 #define HOVER    "hover"
@@ -201,12 +201,10 @@ nsDisplayButtonBoxShadowOuter::CreateWebRenderCommands(
   mozilla::layers::WebRenderLayerManager* aManager,
   nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (aManager->IsLayersFreeTransaction()) {
-    ContainerLayerParameters parameter;
-    if (GetLayerState(aDisplayListBuilder, aManager, parameter) !=
-        LAYER_ACTIVE) {
-      return false;
-    }
+  ContainerLayerParameters parameter;
+  if (GetLayerState(aDisplayListBuilder, aManager, parameter) !=
+      LAYER_ACTIVE) {
+    return false;
   }
   int32_t appUnitsPerDevPixel = mFrame->PresContext()->AppUnitsPerDevPixel();
   nsRect shadowRect = nsRect(ToReferenceFrame(), mFrame->GetSize());
@@ -243,9 +241,9 @@ nsDisplayButtonBoxShadowOuter::CreateWebRenderCommands(
     gfx::Color shadowColor =
       nsCSSRendering::GetShadowColor(shadow, mFrame, 1.0);
 
-    mozilla::gfx::Point shadowOffset;
-    shadowOffset.x = (shadow->mXOffset / appUnitsPerDevPixel);
-    shadowOffset.y = (shadow->mYOffset / appUnitsPerDevPixel);
+    LayoutDevicePoint shadowOffset = LayoutDevicePoint::FromAppUnits(
+        nsPoint(shadow->mXOffset, shadow->mYOffset),
+        appUnitsPerDevPixel);
 
     float spreadRadius = float(shadow->mSpread) / float(appUnitsPerDevPixel);
 
@@ -369,11 +367,9 @@ nsDisplayButtonBorder::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& 
                                                mozilla::layers::WebRenderLayerManager* aManager,
                                                nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (aManager->IsLayersFreeTransaction()) {
-    ContainerLayerParameters parameter;
-    if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
-      return false;
-    }
+  ContainerLayerParameters parameter;
+  if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+    return false;
   }
 
   MOZ_ASSERT(mBorderRenderer);
@@ -551,11 +547,9 @@ nsDisplayButtonForeground::CreateWebRenderCommands(mozilla::wr::DisplayListBuild
                                                    mozilla::layers::WebRenderLayerManager* aManager,
                                                    nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (aManager->IsLayersFreeTransaction()) {
-    ContainerLayerParameters parameter;
-    if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
-      return false;
-    }
+  ContainerLayerParameters parameter;
+  if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+    return false;
   }
 
   mBorderRenderer->CreateWebRenderCommands(aBuilder, aResources, aSc);

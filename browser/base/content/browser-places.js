@@ -566,7 +566,7 @@ var PlacesCommandHook = {
         resolve(msg.data);
       });
 
-      mm.sendAsyncMessage("Bookmarks:GetPageDetails", { })
+      mm.sendAsyncMessage("Bookmarks:GetPageDetails", { });
     });
   },
 
@@ -1309,11 +1309,11 @@ var LibraryUI = {
     if (!this._libraryButtonAnimationEndListeners[animation]) {
       this._libraryButtonAnimationEndListeners[animation] = event => {
         this._libraryButtonAnimationEndListener(event, animation);
-      }
+      };
     }
     animatableBox.addEventListener("animationend", this._libraryButtonAnimationEndListeners[animation]);
 
-    window.addEventListener("resize", this._onWindowResize)
+    window.addEventListener("resize", this._onWindowResize);
   },
 
   _libraryButtonAnimationEndListeners: {},
@@ -1899,6 +1899,19 @@ var BookmarkingUI = {
           break;
         case "panelMenu_viewBookmarksSidebar":
           button.setAttribute("checked", SidebarUI.currentID == "viewBookmarksSidebar");
+          break;
+        case "panelMenu_viewBookmarksToolbar":
+          let toolbar = document.getElementById("PersonalToolbar");
+          // This is an actual toolbarbutton[type=checkbox], and its checked
+          // attribute will get added/removed by the binding when clicked.
+          // Setting the attribute to 'false' breaks showing the toolbar,
+          // because the binding removes the attribute instead of setting it
+          // to 'true' when clicked.
+          if (toolbar.getAttribute("collapsed") != "true") {
+            button.setAttribute("checked", "true");
+          } else {
+            button.removeAttribute("checked");
+          }
           break;
         default:
           update = false;

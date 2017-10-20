@@ -20,10 +20,10 @@ LOCAL_INCLUDES += [
     '/media/webrtc/trunk',
 ]
 
-# Multiple uses of logTag
-SOURCES += [
+UNIFIED_SOURCES += [
     'MediaPipelineFactory.cpp',
     'MediaStreamList.cpp',
+    'PacketDumper.cpp',
     'PeerConnectionCtx.cpp',
     'PeerConnectionImpl.cpp',
     'PeerConnectionMedia.cpp',

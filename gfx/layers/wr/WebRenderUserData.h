@@ -36,8 +36,7 @@ public:
 
   NS_INLINE_DECL_REFCOUNTING(WebRenderUserData)
 
-  WebRenderUserData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem,
-                    WebRenderUserDataRefTable* aTable);
+  WebRenderUserData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem);
 
   virtual WebRenderImageData* AsImageData() { return nullptr; }
   virtual WebRenderFallbackData* AsFallbackData() { return nullptr; }
@@ -57,7 +56,7 @@ public:
   nsIFrame* GetFrame() { return mFrame; }
   uint32_t GetDisplayItemKey() { return mDisplayItemKey; }
   void RemoveFromTable();
-
+  virtual void ClearCachedResources() {};
 protected:
   virtual ~WebRenderUserData();
 
@@ -73,8 +72,7 @@ protected:
 class WebRenderImageData : public WebRenderUserData
 {
 public:
-  explicit WebRenderImageData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem,
-                              WebRenderUserDataRefTable* aTable);
+  explicit WebRenderImageData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem);
   virtual ~WebRenderImageData();
 
   virtual WebRenderImageData* AsImageData() override { return this; }
@@ -91,8 +89,8 @@ public:
   void CreateAsyncImageWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilder,
                                          ImageContainer* aContainer,
                                          const StackingContextHelper& aSc,
-                                         const LayerRect& aBounds,
-                                         const LayerRect& aSCBounds,
+                                         const LayoutDeviceRect& aBounds,
+                                         const LayoutDeviceRect& aSCBounds,
                                          const gfx::Matrix4x4& aSCTransform,
                                          const gfx::MaybeIntSize& aScaleToSize,
                                          const wr::ImageRendering& aFilter,
@@ -100,7 +98,7 @@ public:
                                          bool aIsBackfaceVisible);
 
   void CreateImageClientIfNeeded();
-
+  void ClearCachedResources() override;
 protected:
   void CreateExternalImageIfNeeded();
 
@@ -114,8 +112,7 @@ protected:
 class WebRenderFallbackData : public WebRenderImageData
 {
 public:
-  explicit WebRenderFallbackData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem,
-                                 WebRenderUserDataRefTable* aTable);
+  explicit WebRenderFallbackData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem);
   virtual ~WebRenderFallbackData();
 
   virtual WebRenderFallbackData* AsFallbackData() override { return this; }
@@ -126,6 +123,8 @@ public:
   nsRect GetBounds() { return mBounds; }
   void SetBounds(const nsRect& aRect) { mBounds = aRect; }
   void SetInvalid(bool aInvalid) { mInvalid = aInvalid; }
+  void SetScale(gfx::Size aScale) { mScale = aScale; }
+  gfx::Size GetScale() { return mScale; }
   bool IsInvalid() { return mInvalid; }
 
   RefPtr<BasicLayerManager> mBasicLayerManager;
@@ -133,13 +132,13 @@ protected:
   nsAutoPtr<nsDisplayItemGeometry> mGeometry;
   nsRect mBounds;
   bool mInvalid;
+  gfx::Size mScale;
 };
 
 class WebRenderAnimationData : public WebRenderUserData
 {
 public:
-  explicit WebRenderAnimationData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem,
-                                  WebRenderUserDataRefTable* aTable);
+  explicit WebRenderAnimationData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem);
   virtual ~WebRenderAnimationData();
 
   virtual UserDataType GetType() override { return UserDataType::eAnimation; }
@@ -153,8 +152,7 @@ protected:
 class WebRenderCanvasData : public WebRenderUserData
 {
 public:
-  explicit WebRenderCanvasData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem,
-                               WebRenderUserDataRefTable* aTable);
+  explicit WebRenderCanvasData(WebRenderLayerManager* aWRManager, nsDisplayItem* aItem);
   virtual ~WebRenderCanvasData();
 
   virtual WebRenderCanvasData* AsCanvasData() override { return this; }
@@ -162,7 +160,7 @@ public:
   static UserDataType Type() { return UserDataType::eCanvas; }
 
   WebRenderCanvasRendererAsync* GetCanvasRenderer();
-
+  void ClearCachedResources() override;
 protected:
   UniquePtr<WebRenderCanvasRendererAsync> mCanvasRenderer;
 };

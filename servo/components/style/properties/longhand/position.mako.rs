@@ -294,17 +294,13 @@ ${helpers.predefined_type("object-position",
     pub type SpecifiedValue = computed_value::T;
 
     pub mod computed_value {
-        #[derive(Clone, Copy, Debug, Eq, PartialEq, ToComputedValue)]
-        #[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-        #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+        #[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, ToComputedValue)]
         pub enum AutoFlow {
             Row,
             Column,
         }
 
-        #[derive(Clone, Copy, Debug, Eq, PartialEq, ToComputedValue)]
-        #[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-        #[cfg_attr(feature = "servo", derive(HeapSizeOf))]
+        #[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, ToComputedValue)]
         pub struct T {
             pub autoflow: AutoFlow,
             pub dense: bool,
@@ -340,6 +336,7 @@ ${helpers.predefined_type("object-position",
         let mut dense = false;
 
         while !input.is_exhausted() {
+            let location = input.current_source_location();
             let ident = input.expect_ident()?;
             let success = match_ignore_ascii_case! { &ident,
                 "row" if value.is_none() => {
@@ -357,7 +354,7 @@ ${helpers.predefined_type("object-position",
                 _ => false
             };
             if !success {
-                return Err(SelectorParseError::UnexpectedIdent(ident.clone()).into());
+                return Err(location.new_custom_error(SelectorParseErrorKind::UnexpectedIdent(ident.clone())));
             }
         }
 
@@ -367,7 +364,7 @@ ${helpers.predefined_type("object-position",
                 dense: dense,
             })
         } else {
-            Err(StyleParseError::UnspecifiedError.into())
+            Err(input.new_custom_error(StyleParseErrorKind::UnspecifiedError))
         }
     }
 
@@ -414,7 +411,7 @@ ${helpers.predefined_type("object-position",
         products="gecko"
         animation_value_type="discrete"
         boxed="True">
-    use hash::HashMap;
+    use hash::FnvHashMap;
     use std::fmt;
     use std::ops::Range;
     use str::HTML_SPACE_CHARACTERS;
@@ -465,7 +462,7 @@ ${helpers.predefined_type("object-position",
             }
 
             TemplateAreas::from_vec(strings)
-                .map_err(|()| StyleParseError::UnspecifiedError.into())
+                .map_err(|()| input.new_custom_error(StyleParseErrorKind::UnspecifiedError))
         }
     }
 
@@ -478,7 +475,7 @@ ${helpers.predefined_type("object-position",
             let mut width = 0;
             {
                 let mut row = 0u32;
-                let mut area_indices = HashMap::<(&str), usize>::new();
+                let mut area_indices = FnvHashMap::<(&str), usize>::default();
                 for string in &strings {
                     let mut current_area_index: Option<usize> = None;
                     row += 1;

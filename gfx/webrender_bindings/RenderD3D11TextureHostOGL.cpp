@@ -40,9 +40,9 @@ RenderDXGITextureHostOGL::RenderDXGITextureHostOGL(WindowsHandle aHandle,
                                                    gfx::SurfaceFormat aFormat,
                                                    gfx::IntSize aSize)
   : mHandle(aHandle)
-  , mTextureHandle{0}
   , mSurface(0)
   , mStream(0)
+  , mTextureHandle{0}
   , mFormat(aFormat)
   , mSize(aSize)
   , mLocked(false)
@@ -65,6 +65,7 @@ RenderDXGITextureHostOGL::SetGLContext(gl::GLContext* aContext)
     // Release the texture handle in the previous gl context.
     DeleteTextureHandle();
     mGL = aContext;
+    mGL->MakeCurrent();
   }
 }
 
@@ -291,6 +292,7 @@ RenderDXGIYCbCrTextureHostOGL::SetGLContext(gl::GLContext* aContext)
     // Release the texture handle in the previous gl context.
     DeleteTextureHandle();
     mGL = aContext;
+    mGL->MakeCurrent();
   }
 }
 

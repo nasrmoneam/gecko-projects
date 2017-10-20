@@ -177,7 +177,6 @@ whitelist-types = [
     "DOMIntersectionObserverEntry",
     "Element",
     "FontFamilyList",
-    "FontFamilyListRefCnt",
     "FontFamilyName",
     "FontFamilyType",
     "FontSizePrefs",
@@ -221,7 +220,7 @@ whitelist-types = [
     "nsCSSValueTriplet_heap",
     "nsCursorImage",
     "nsFont",
-    "nsIAtom",
+    "nsAtom",
     "nsMainThreadPtrHandle",
     "nsMainThreadPtrHolder",
     "nsMargin",
@@ -421,6 +420,7 @@ structs-types = [
     "RawGeckoServoStyleRuleList",
     "RawGeckoURLExtraData",
     "RawGeckoXBLBinding",
+    "RawServoSelectorList",
     "RefPtr",
     "RustString",
     "CSSPseudoClassType",
@@ -428,7 +428,6 @@ structs-types = [
     "ServoTraversalFlags",
     "ComputedTimingFunction_BeforeFlag",
     "CounterStylePtr",
-    "FontFamilyList",
     "FontFamilyType",
     "FontSizePrefs",
     "GeckoFontMetrics",
@@ -450,6 +449,7 @@ structs-types = [
     "nsCSSKeyword",
     "nsCSSPropertyID",
     "nsCSSPropertyIDSet",
+    "nsCSSRect",
     "nsCSSShadowArray",
     "nsCSSUnit",
     "nsCSSValue",
@@ -457,7 +457,7 @@ structs-types = [
     "nsChangeHint",
     "nsCursorImage",
     "nsFont",
-    "nsIAtom",
+    "nsAtom",
     "nsIURI",
     "nsCompatibility",
     "nsRestyleHint",
@@ -521,15 +521,19 @@ structs-types = [
     "ParsingMode",
     "InheritTarget",
     "URLMatchingFunction",
+    "StyleAnimation",
     "StyleRuleInclusion",
     "nsStyleTransformMatrix::MatrixTransformOperator",
     "RawGeckoGfxMatrix4x4",
+    "FontFamilyName",
+    "mozilla::SharedFontList",
 ]
 array-types = [
     { cpp-type = "uintptr_t", rust-type = "usize" },
 ]
 servo-owned-types = [
     { name = "RawServoStyleSet", opaque = true },
+    { name = "RawServoSelectorList", opaque = false },
     { name = "ServoElementSnapshot", opaque = false },
     { name = "RawServoAnimationValueMap", opaque = true },
 ]
@@ -539,7 +543,6 @@ servo-immutable-borrow-types = [
     "RawGeckoDocument",
     "RawServoDeclarationBlockStrong",
     "RawGeckoPresContext",
-    "RawGeckoStyleAnimationList",
     "RawGeckoXBLBinding",
 ]
 servo-borrow-types = [
@@ -555,6 +558,7 @@ servo-borrow-types = [
     "RawGeckoFontFaceRuleList",
     "RawGeckoServoStyleRuleList",
     "RawGeckoServoAnimationValueList",
+    "RawGeckoStyleAnimationList",
     "RawGeckoStyleChildrenIterator",
 ]
 fixups = [

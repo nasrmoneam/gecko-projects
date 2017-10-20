@@ -7,6 +7,7 @@
 
 #include "VRManagerChild.h"
 #include "VRManagerParent.h"
+#include "VRThread.h"
 #include "VRDisplayClient.h"
 #include "nsGlobalWindow.h"
 #include "mozilla/StaticPtr.h"
@@ -39,8 +40,7 @@ void ReleaseVRManagerParentSingleton() {
 }
 
 VRManagerChild::VRManagerChild()
-  : TextureForwarder()
-  , mDisplaysInitialized(false)
+  : mDisplaysInitialized(false)
   , mMessageLoop(MessageLoop::current())
   , mFrameRequestCallbackCounter(0)
   , mBackend(layers::LayersBackend::LAYERS_NONE)
@@ -120,7 +120,7 @@ VRManagerChild::InitSameProcess()
   sVRManagerChildSingleton = new VRManagerChild();
   sVRManagerParentSingleton = VRManagerParent::CreateSameProcess();
   sVRManagerChildSingleton->Open(sVRManagerParentSingleton->GetIPCChannel(),
-                                 mozilla::layers::CompositorThreadHolder::Loop(),
+                                 VRListenerThreadHolder::Loop(),
                                  mozilla::ipc::ChildSide);
 }
 
@@ -165,21 +165,6 @@ VRManagerChild::Destroy()
   // the VRManagerChild and will release it when it runs.
   MessageLoop::current()->PostTask(
              NewRunnableFunction(DeferredDestroy, selfRef));
-}
-
-layers::PTextureChild*
-VRManagerChild::AllocPTextureChild(const SurfaceDescriptor&,
-                                   const LayersBackend&,
-                                   const TextureFlags&,
-                                   const uint64_t&)
-{
-  return TextureClient::CreateIPDLActor();
-}
-
-bool
-VRManagerChild::DeallocPTextureChild(PTextureChild* actor)
-{
-  return TextureClient::DestroyIPDLActor(actor);
 }
 
 PVRLayerChild*
@@ -334,27 +319,6 @@ VRManagerChild::RecvParentAsyncMessages(InfallibleTArray<AsyncParentMessageData>
   return IPC_OK();
 }
 
-PTextureChild*
-VRManagerChild::CreateTexture(const SurfaceDescriptor& aSharedData,
-                              LayersBackend aLayersBackend,
-                              TextureFlags aFlags,
-                              uint64_t aSerial,
-                              wr::MaybeExternalImageId& aExternalImageId,
-                              nsIEventTarget* aTarget)
-{
-  return SendPTextureConstructor(aSharedData, aLayersBackend, aFlags, aSerial);
-}
-
-void
-VRManagerChild::CancelWaitForRecycle(uint64_t aTextureId)
-{
-  RefPtr<TextureClient> client = mTexturesWaitingRecycled.Get(aTextureId);
-  if (!client) {
-    return;
-  }
-  mTexturesWaitingRecycled.Remove(aTextureId);
-}
-
 void
 VRManagerChild::NotifyNotUsed(uint64_t aTextureId, uint64_t aFwdTransactionId)
 {
@@ -363,28 +327,6 @@ VRManagerChild::NotifyNotUsed(uint64_t aTextureId, uint64_t aFwdTransactionId)
     return;
   }
   mTexturesWaitingRecycled.Remove(aTextureId);
-}
-
-bool
-VRManagerChild::AllocShmem(size_t aSize,
-                           ipc::SharedMemory::SharedMemoryType aType,
-                           ipc::Shmem* aShmem)
-{
-  return PVRManagerChild::AllocShmem(aSize, aType, aShmem);
-}
-
-bool
-VRManagerChild::AllocUnsafeShmem(size_t aSize,
-                                 ipc::SharedMemory::SharedMemoryType aType,
-                                 ipc::Shmem* aShmem)
-{
-  return PVRManagerChild::AllocUnsafeShmem(aSize, aType, aShmem);
-}
-
-bool
-VRManagerChild::DeallocShmem(ipc::Shmem& aShmem)
-{
-  return PVRManagerChild::DeallocShmem(aShmem);
 }
 
 PVRLayerChild*
@@ -508,7 +450,7 @@ VRManagerChild::RecvReplyCreateVRServiceTestController(const nsCString& aID,
 void
 VRManagerChild::RunFrameRequestCallbacks()
 {
-  AutoProfilerTracing tracing("VR", "RunFrameRequestCallbacks");
+  AUTO_PROFILER_TRACING("VR", "RunFrameRequestCallbacks");
 
   TimeStamp nowTime = TimeStamp::Now();
   mozilla::TimeDuration duration = nowTime - mStartTimeStamp;

@@ -103,10 +103,13 @@ interface ChromeUtils : ThreadSafeChromeUtils {
   static object shallowClone(object obj, optional object? target = null);
 
   /**
-   * Temporary testing method to verify that nightly builds will crash when
-   * the rulehash is corrupted. See bug 1403397.
+   * Dispatches the given callback to the main thread when it would be
+   * otherwise idle. Similar to Window.requestIdleCallback, but not bound to a
+   * particular DOM windw.
    */
-  static void corruptRuleHashAndCrash(unsigned long index);
+  [Throws]
+  static void idleDispatch(IdleRequestCallback callback,
+                           optional IdleRequestOptions options);
 };
 
 /**

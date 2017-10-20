@@ -60,7 +60,7 @@ def buildCommandLine(test):
     # build pageloader command from options
     url = ['-tp', test['tpmanifest']]
     CLI_bool_options = ['tpchrome', 'tpmozafterpaint', 'tpdisable_e10s',
-                        'tpnoisy', 'rss', 'tprender', 'tploadnocache',
+                        'tpnoisy', 'tprender', 'tploadnocache',
                         'tpscrolltest', 'fnbpaint']
     CLI_options = ['tpcycles', 'tppagecycles', 'tpdelay', 'tptimeout']
     for key in CLI_bool_options:
@@ -111,6 +111,9 @@ def run_tests(config, browser_config):
         test['setup'] = utils.interpolate(test['setup'])
         test['cleanup'] = utils.interpolate(test['cleanup'])
 
+        if not test.get('profile', False):
+            test['profile'] = config.get('profile')
+
     # pass --no-remote to firefox launch, if --develop is specified
     # we do that to allow locally the user to have another running firefox
     # instance
@@ -121,6 +124,10 @@ def run_tests(config, browser_config):
     if test.get('fnbpaint', False):
         LOG.info("Using firstNonBlankPaint, so turning on pref for it")
         browser_config['preferences']['dom.performance.time_to_non_blank_paint.enabled'] = True
+
+    # Pass subtests filter argument via a preference
+    if browser_config['subtests']:
+        browser_config['preferences']['talos.subtests'] = browser_config['subtests']
 
     # set defaults
     testdate = config.get('testdate', '')

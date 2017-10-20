@@ -36,32 +36,14 @@
 #include <unistd.h>
 #endif
 
-#include "base/child_privileges.h"
 #include "base/command_line.h"
 #include "base/process.h"
 
-#if defined(OS_WIN)
-typedef PROCESSENTRY32 ProcessEntry;
-typedef IO_COUNTERS IoCounters;
-#elif defined(OS_POSIX)
-// TODO(port): we should not rely on a Win32 structure.
-struct ProcessEntry {
-  int pid;
-  int ppid;
-  char szExeFile[_POSIX_PATH_MAX + 1];
-};
-
-struct IoCounters {
-  unsigned long long ReadOperationCount;
-  unsigned long long WriteOperationCount;
-  unsigned long long OtherOperationCount;
-  unsigned long long ReadTransferCount;
-  unsigned long long WriteTransferCount;
-  unsigned long long OtherTransferCount;
-};
-
+#if defined(OS_POSIX)
 #include "base/file_descriptor_shuffle.h"
 #endif
+
+#include "mozilla/UniquePtr.h"
 
 #if defined(OS_MACOSX)
 struct kinfo_proc;
@@ -181,19 +163,21 @@ typedef std::map<std::string, std::string> environment_map;
 bool LaunchApp(const std::vector<std::string>& argv,
                const file_handle_mapping_vector& fds_to_remap,
                const environment_map& env_vars_to_set,
-               ChildPrivileges privs,
                bool wait, ProcessHandle* process_handle,
                ProcessArchitecture arch=GetCurrentProcessArchitecture());
-bool LaunchApp(const std::vector<std::string>& argv,
-               const file_handle_mapping_vector& fds_to_remap,
-               const environment_map& env_vars_to_set,
-               bool wait, ProcessHandle* process_handle,
-               ProcessArchitecture arch=GetCurrentProcessArchitecture());
-#endif
 
-// Adjust the privileges of this process to match |privs|.  Only
-// returns if privileges were successfully adjusted.
-void SetCurrentProcessPrivileges(ChildPrivileges privs);
+// Deleter for the array of strings allocated within BuildEnvironmentArray.
+struct FreeEnvVarsArray
+{
+  void operator()(char** array);
+};
+
+typedef mozilla::UniquePtr<char*[], FreeEnvVarsArray> EnvironmentArray;
+
+// Merge an environment map with the current environment.
+// Existing variables are overwritten by env_vars_to_set.
+EnvironmentArray BuildEnvironmentArray(const environment_map& env_vars_to_set);
+#endif
 
 // Executes the application specified by cl. This function delegates to one
 // of the above two platform-specific functions.

@@ -354,13 +354,13 @@ async function fixupQuery(aQueryURI, aFolderIdMap) {
   let queryFolderGuids = [];
   for (let folderString of found) {
     let existingFolderId = folderString.match(re)[0];
-    queryFolderGuids.push(aFolderIdMap[existingFolderId])
+    queryFolderGuids.push(aFolderIdMap[existingFolderId]);
   }
 
   let newFolderIds = await PlacesUtils.promiseManyItemIds(queryFolderGuids);
   let convert = function(str, p1) {
     return "folder=" + newFolderIds.get(aFolderIdMap[p1]);
-  }
+  };
   return uri.replace(reGlobal, convert);
 }
 
@@ -455,7 +455,7 @@ function translateTreeTypes(node) {
     let lastModified = PlacesUtils.toDate(node.lastModified);
     // Ensure we get a last modified date that's later or equal to the dateAdded
     // so that we don't upset the Bookmarks API.
-    if (lastModified >= node.dataAdded) {
+    if (lastModified >= node.dateAdded) {
       node.lastModified = lastModified;
     } else {
       delete node.lastModified;

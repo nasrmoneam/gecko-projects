@@ -168,6 +168,9 @@ test_description_schema = Schema({
     # common attributes)
     Optional('attributes'): {basestring: object},
 
+    # relative path (from config.path) to the file task was defined in
+    Optional('job-from'): basestring,
+
     # The `run_on_projects` attribute, defaulting to "all".  This dictates the
     # projects on which this task should be included in the target task set.
     # See the attributes documentation for details.
@@ -364,10 +367,11 @@ test_description_schema = Schema({
     # the product name, defaults to firefox
     Optional('product'): basestring,
 
-    # conditional files to determine when these tests should be run
-    Optional('when'): Any({
-        Optional('files-changed'): [basestring],
-    }),
+    Optional('when'): {
+        # Run this test when the given SCHEDULES components have changed; the
+        # test suite and platform family are added to this list automatically.
+        Optional('schedules'): [basestring],
+    },
 
     Optional('worker-type'): optionally_keyed_by(
         'test-platform',
@@ -703,6 +707,11 @@ def split_chunks(config, tests):
         if test['test-platform'] == 'windows7-32/debug' and test['test-name'] == 'reftest':
             test['chunks'] = 32
 
+        if (test['test-platform'] == 'windows7-32/opt' or
+            test['test-platform'] == 'windows7-32-pgo/opt') and \
+                test['test-name'] in ['reftest-e10s', 'reftest-no-accel-e10s', 'reftest-gpu-e10s']:
+            test['chunks'] = 32
+
         for this_chunk in range(1, test['chunks'] + 1):
             # copy the test and update with the chunk number
             chunked = copy.deepcopy(test)
@@ -936,16 +945,16 @@ def make_job_description(config, tests):
             'platform': test.get('treeherder-machine-platform', test['build-platform']),
         }
 
-        if test.get('when'):
-            jobdesc['when'] = test['when']
+        schedules = [suite, platform_family(test['build-platform'])]
+        when = test.get('when')
+        if when and 'schedules' in when:
+            schedules.extend(when['schedules'])
+        if config.params['project'] != 'try':
+            # for non-try branches, include SETA
+            jobdesc['optimization'] = {'skip-unless-schedules-or-seta': schedules}
         else:
-            schedules = [platform_family(test['build-platform'])]
-            if config.params['project'] != 'try':
-                # for non-try branches, include SETA
-                jobdesc['optimization'] = {'skip-unless-schedules-or-seta': schedules}
-            else:
-                # otherwise just use skip-unless-schedules
-                jobdesc['optimization'] = {'skip-unless-schedules': schedules}
+            # otherwise just use skip-unless-schedules
+            jobdesc['optimization'] = {'skip-unless-schedules': schedules}
 
         run = jobdesc['run'] = {}
         run['using'] = 'mozharness-test'

@@ -138,7 +138,7 @@ function runHttpServer(scheme, host, port = -1) {
     port = httpserver.identity.primaryPort;
     httpserver.identity.setPrimary(scheme, host, port);
   } catch (ex) {
-    info("We can't launch our http server successfully.")
+    info("We can't launch our http server successfully.");
   }
   is(httpserver.identity.has(scheme, host, port), true, `${scheme}://${host}:${port} is listening.`);
   return httpserver;
@@ -224,21 +224,27 @@ function promiseNewSearchEngine(basename) {
 }
 
 function promisePageActionPanelOpen() {
-  if (BrowserPageActions.panelNode.state == "open") {
-    return Promise.resolve();
-  }
-  // The main page action button is hidden for some URIs, so make sure it's
-  // visible before trying to click it.
   let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
                   .getInterface(Ci.nsIDOMWindowUtils);
   return BrowserTestUtils.waitForCondition(() => {
+    // Wait for the main page action button to become visible.  It's hidden for
+    // some URIs, so depending on when this is called, it may not yet be quite
+    // visible.  It's up to the caller to make sure it will be visible.
     info("Waiting for main page action button to have non-0 size");
     let bounds = dwu.getBoundsWithoutFlushing(BrowserPageActions.mainButtonNode);
     return bounds.width > 0 && bounds.height > 0;
   }).then(() => {
+    // Wait for the panel to become open, by clicking the button if necessary.
+    info("Waiting for main page action panel to be open");
+    if (BrowserPageActions.panelNode.state == "open") {
+      return Promise.resolve();
+    }
     let shownPromise = promisePageActionPanelShown();
     EventUtils.synthesizeMouseAtCenter(BrowserPageActions.mainButtonNode, {});
     return shownPromise;
+  }).then(() => {
+    // Wait for items in the panel to become visible.
+    return promisePageActionViewChildrenVisible(BrowserPageActions.mainViewNode);
   });
 }
 
@@ -275,25 +281,27 @@ function promisePanelEvent(panelIDOrNode, eventType) {
 }
 
 function promisePageActionViewShown() {
-  let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
-                  .getInterface(Ci.nsIDOMWindowUtils);
   info("promisePageActionViewShown waiting for ViewShown");
   return BrowserTestUtils.waitForEvent(BrowserPageActions.panelNode, "ViewShown").then(async event => {
     let panelViewNode = event.originalTarget;
-    // Wait for the subview to be really truly shown by making sure there's at
-    // least one child with non-zero bounds.
-    info("promisePageActionViewShown waiting for a child node to be visible");
-    await BrowserTestUtils.waitForCondition(() => {
-      let bodyNode = panelViewNode.firstChild;
-      for (let childNode of bodyNode.childNodes) {
-        let bounds = dwu.getBoundsWithoutFlushing(childNode);
-        if (bounds.width > 0 && bounds.height > 0) {
-          return true;
-        }
-      }
-      return false;
-    });
+    await promisePageActionViewChildrenVisible(panelViewNode);
     return panelViewNode;
+  });
+}
+
+function promisePageActionViewChildrenVisible(panelViewNode) {
+  info("promisePageActionViewChildrenVisible waiting for a child node to be visible");
+  let dwu = window.QueryInterface(Ci.nsIInterfaceRequestor)
+                  .getInterface(Ci.nsIDOMWindowUtils);
+  return BrowserTestUtils.waitForCondition(() => {
+    let bodyNode = panelViewNode.firstChild;
+    for (let childNode of bodyNode.childNodes) {
+      let bounds = dwu.getBoundsWithoutFlushing(childNode);
+      if (bounds.width > 0 && bounds.height > 0) {
+        return true;
+      }
+    }
+    return false;
   });
 }
 
@@ -304,4 +312,13 @@ function promiseSpeculativeConnection(httpserver) {
     }
     return false;
   }, "Waiting for connection setup");
+}
+
+async function waitForAutocompleteResultAt(index) {
+  let searchString = gURLBar.controller.searchString;
+  await BrowserTestUtils.waitForCondition(
+    () => gURLBar.popup.richlistbox.children.length > index &&
+          gURLBar.popup.richlistbox.children[index].getAttribute("ac-text") == searchString,
+    `Waiting for the autocomplete result for "${searchString}" at [${index}] to appear`);
+  return gURLBar.popup.richlistbox.children[index];
 }

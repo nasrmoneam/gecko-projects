@@ -1,16 +1,14 @@
 
 config = {
     "log_name": "updates_release_dev",
-    # TODO: use real repo
     "repo": {
-        "repo": "https://hg.mozilla.org/users/raliiev_mozilla.com/tools",
+        "repo": "https://hg.mozilla.org/users/stage-ffxbld/tools",
         "branch": "default",
         "dest": "tools",
         "vcs": "hg",
     },
     "vcs_share_base": "/builds/hg-shared",
-    # TODO: use real repo
-    "push_dest": "ssh://hg.mozilla.org/users/raliiev_mozilla.com/tools",
+    "push_dest": "ssh://hg.mozilla.org/users/stage-ffxbld/tools",
     # jamun  repo used for staging release
     "shipped-locales-url": "https://hg.mozilla.org/projects/jamun/raw-file/{revision}/browser/locales/shipped-locales",
     "ignore_no_changes": True,
@@ -26,7 +24,7 @@ config = {
         "beta": {
             "version_regex": r"^(\d+\.\d+(b\d+)?)$",
             "requires_mirrors": False,
-            "patcher_config": "mozDate-branch-patcher2.cfg",
+            "patcher_config": "mozBeta-branch-patcher2.cfg",
             "update_verify_channel": "beta-localtest",
             "mar_channel_ids": [
                 "firefox-mozilla-beta", "firefox-mozilla-release",
@@ -35,23 +33,16 @@ config = {
             "rules_to_update": ["firefox-beta-cdntest", "firefox-beta-localtest"],
             "publish_rules": [32],
             "schedule_asap": True,
-            # TEMP stuff
-            "bz2_blob_suffix": "-bz2",
-            "bz2_rules_to_update": ["firefox-release-cdntest-bz2", "firefox-release-localtest-bz2"],
-            "bz2_publish_rules": [624],
-            "complete_mar_filename_pattern": '%s-%s.bz2.complete.mar',
-            "complete_mar_bouncer_product_pattern": '%s-%s-complete-bz2',
         },
         "release": {
             "version_regex": r"^\d+\.\d+(\.\d+)?$",
             "requires_mirrors": True,
-            "patcher_config": "mozJamun-branch-patcher2.cfg",
+            "patcher_config": "mozRelease-branch-patcher2.cfg",
             "update_verify_channel": "release-localtest",
             "mar_channel_ids": [],
             "channel_names": ["release", "release-localtest", "release-cdntest"],
             "rules_to_update": ["firefox-release-cdntest", "firefox-release-localtest"],
             "publish_rules": [145],
-            # TEMP stuff
             "bz2_blob_suffix": "-bz2",
             "bz2_rules_to_update": ["firefox-release-cdntest-bz2", "firefox-release-localtest-bz2"],
             "bz2_publish_rules": [624],

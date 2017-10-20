@@ -65,6 +65,8 @@ public class GeckoApplication extends Application
 
     private RefWatcher mRefWatcher;
 
+    private final EventListener mListener = new EventListener();
+
     private static String sSessionUUID = null;
 
     public GeckoApplication() {
@@ -202,6 +204,15 @@ public class GeckoApplication extends Application
         Log.i(LOG_TAG, "zerdatime " + SystemClock.elapsedRealtime() +
               " - application start");
 
+        final Context oldContext = GeckoAppShell.getApplicationContext();
+        if (oldContext instanceof GeckoApplication) {
+            ((GeckoApplication) oldContext).onDestroy();
+        }
+
+        final Context context = getApplicationContext();
+        GeckoAppShell.ensureCrashHandling();
+        GeckoAppShell.setApplicationContext(context);
+
         // PRNG is a pseudorandom number generator.
         // We need to apply PRNG Fixes before any use of Java Cryptography Architecture.
         // We make use of various JCA methods in data providers for generating GUIDs, as part of FxA
@@ -223,8 +234,6 @@ public class GeckoApplication extends Application
         GeckoActivityMonitor.getInstance().initialize(this);
         MemoryMonitor.getInstance().init(this);
 
-        final Context context = getApplicationContext();
-        GeckoAppShell.setApplicationContext(context);
         GeckoAppShell.setHapticFeedbackDelegate(this);
         GeckoAppShell.setGeckoInterface(new GeckoAppShell.GeckoInterface() {
             @Override
@@ -279,18 +288,35 @@ public class GeckoApplication extends Application
 
         IntentHelper.init();
 
-        final EventListener listener = new EventListener();
-        EventDispatcher.getInstance().registerUiThreadListener(listener,
+        EventDispatcher.getInstance().registerUiThreadListener(mListener,
                 "Gecko:Exited",
                 "RuntimePermissions:Check",
                 "Snackbar:Show",
                 "Share:Text",
                 null);
-        EventDispatcher.getInstance().registerBackgroundThreadListener(listener,
+        EventDispatcher.getInstance().registerBackgroundThreadListener(mListener,
                 "Profile:Create",
                 null);
 
         super.onCreate();
+    }
+
+    /**
+     * May be called when a new GeckoApplication object
+     * replaces an old one due to assets change.
+     */
+    private void onDestroy() {
+        EventDispatcher.getInstance().unregisterUiThreadListener(mListener,
+                "Gecko:Exited",
+                "RuntimePermissions:Check",
+                "Snackbar:Show",
+                "Share:Text",
+                null);
+        EventDispatcher.getInstance().unregisterBackgroundThreadListener(mListener,
+                "Profile:Create",
+                null);
+
+        GeckoService.unregister();
     }
 
     public void onDelayedStartup() {
@@ -481,6 +507,13 @@ public class GeckoApplication extends Application
 
     public void prepareLightweightTheme() {
         mLightweightTheme = new LightweightTheme(this);
+    }
+
+    public static void createShortcut() {
+        final Tab selectedTab = Tabs.getInstance().getSelectedTab();
+        if (selectedTab != null) {
+            createShortcut(selectedTab.getTitle(), selectedTab.getURL());
+        }
     }
 
     // Creates a homescreen shortcut for a web page.

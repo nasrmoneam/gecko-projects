@@ -70,8 +70,8 @@ load 317934-1.html
 load 320459-1.html
 load 321058-1.xul
 load 321058-2.xul
-load 321077-1.xul
-load 321077-2.xul
+asserts-if(stylo,3) load 321077-1.xul # bug 1397644
+asserts-if(stylo,3) load 321077-2.xul # bug 1397644
 load 322436-1.html
 load 325967-1.html
 load 325984-1.xhtml
@@ -495,6 +495,7 @@ load 1362423-1.html
 load 1381323.html
 asserts-if(!stylo,1) load 1388625-1.html # bug 1389286
 load 1390389.html
+load 1391736.html
 load 1395591-1.html
 load 1395715-1.html
 load 1397398-1.html
@@ -506,4 +507,8 @@ load 1400599-1.html
 load 1401739.html
 load 1401840.html
 load 1402476.html
-load 1391736.html
+load 1404789-1.html
+load 1404789-2.html
+load 1406562.html
+load 1409088.html
+load 1409147.html

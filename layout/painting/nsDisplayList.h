@@ -15,6 +15,7 @@
 
 #include "gfxContext.h"
 #include "mozilla/ArenaAllocator.h"
+#include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Array.h"
 #include "mozilla/DebugOnly.h"
@@ -64,7 +65,6 @@ class ImageLayer;
 class ImageContainer;
 class StackingContextHelper;
 class WebRenderCommand;
-class WebRenderDisplayItemLayer;
 class WebRenderScrollData;
 class WebRenderLayerScrollData;
 } // namespace layers
@@ -559,6 +559,12 @@ public:
 
   void RecomputeCurrentAnimatedGeometryRoot();
 
+#ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
+  bool DebugContains(void* aPtr) {
+    return mPool.DebugContains(aPtr);
+  }
+#endif
+
   /**
    * Returns true if merging and flattening of display lists should be
    * performed while computing visibility.
@@ -689,9 +695,7 @@ public:
 
   /**
    * Subtracts aRegion from *aVisibleRegion. We avoid letting
-   * aVisibleRegion become overcomplex by simplifying it if necessary ---
-   * unless mAccurateVisibleRegions is set, in which case we let it
-   * get arbitrarily complex.
+   * aVisibleRegion become overcomplex by simplifying it if necessary.
    */
   void SubtractFromVisibleRegion(nsRegion* aVisibleRegion,
                                  const nsRegion& aRegion);
@@ -881,11 +885,6 @@ public:
       mBuilder->mCurrentReferenceFrame = aFrame;
       mBuilder->mCurrentOffsetToReferenceFrame = aOffset;
     }
-    // Return the previous frame's animated geometry root, whether or not the
-    // current frame is an immediate descendant.
-    const nsIFrame* GetPrevAnimatedGeometryRoot() const {
-      return mPrevAnimatedGeometryRoot;
-    }
     bool IsAnimatedGeometryRoot() const {
       return mCurrentAGRState == AGR_YES;
     }
@@ -911,7 +910,6 @@ public:
     AGRState              mCurrentAGRState;
     const nsIFrame*       mPrevFrame;
     const nsIFrame*       mPrevReferenceFrame;
-    nsIFrame*             mPrevAnimatedGeometryRoot;
     nsDisplayLayerEventRegions* mPrevLayerEventRegions;
     nsPoint               mPrevOffset;
     nsRect                mPrevDirtyRect;
@@ -1578,7 +1576,6 @@ private:
   bool                           mIncludeAllOutOfFlows;
   bool                           mDescendIntoSubdocuments;
   bool                           mSelectedFramesOnly;
-  bool                           mAccurateVisibleRegions;
   bool                           mAllowMergingAndFlattening;
   bool                           mWillComputePluginGeometry;
   // True when we're building a display list that's directly or indirectly
@@ -1651,7 +1648,6 @@ public:
   typedef mozilla::layers::StackingContextHelper StackingContextHelper;
   typedef mozilla::layers::WebRenderCommand WebRenderCommand;
   typedef mozilla::layers::WebRenderParentCommand WebRenderParentCommand;
-  typedef mozilla::layers::WebRenderDisplayItemLayer WebRenderDisplayItemLayer;
   typedef mozilla::LayerState LayerState;
   typedef mozilla::image::imgDrawingParams imgDrawingParams;
   typedef mozilla::image::DrawResult DrawResult;
@@ -1673,6 +1669,7 @@ public:
     , mClip(nullptr)
     , mActiveScrolledRoot(nullptr)
     , mReferenceFrame(nullptr)
+    , mAnimatedGeometryRoot(nullptr)
     , mForceNotVisible(false)
     , mDisableSubpixelAA(false)
 #ifdef MOZ_DUMP_PAINTING
@@ -1721,6 +1718,9 @@ public:
     , mVisibleRect(aOther.mVisibleRect)
     , mForceNotVisible(aOther.mForceNotVisible)
     , mDisableSubpixelAA(aOther.mDisableSubpixelAA)
+#ifdef MOZ_DUMP_PAINTING
+    , mPainted(false)
+#endif
   {
   }
 
@@ -2044,10 +2044,8 @@ public:
   }
 
   /**
-   * Function to create the WebRenderCommands without
-   * Layer. For layers mode, aManager->IsLayersFreeTransaction()
-   * should be false to prevent doing GetLayerState again. For
-   * layers-free mode, we should check if the layer state is
+   * Function to create the WebRenderCommands.
+   * We should check if the layer state is
    * active first and have an early return if the layer state is
    * not active.
    *
@@ -2283,6 +2281,8 @@ public:
     mDisableSubpixelAA = true;
   }
 
+  bool IsSubpixelAADisabled() const { return mDisableSubpixelAA; }
+
   /**
    * Check if we can add async animations to the layer for this display item.
    */
@@ -2386,8 +2386,9 @@ public:
   /**
    * Create an empty list.
    */
-  nsDisplayList()
-    : mIsOpaque(false)
+  explicit nsDisplayList(nsDisplayListBuilder* aBuilder)
+    : mBuilder(aBuilder)
+    , mIsOpaque(false)
     , mForceTransparentSurface(false)
   {
     mTop = &mSentinel;
@@ -2406,6 +2407,7 @@ public:
   void AppendToTop(nsDisplayItem* aItem) {
     NS_ASSERTION(aItem, "No item to append!");
     NS_ASSERTION(!aItem->mAbove, "Already in a list!");
+    MOZ_DIAGNOSTIC_ASSERT(mBuilder->DebugContains(aItem));
     mTop->mAbove = aItem;
     mTop = aItem;
   }
@@ -2437,6 +2439,7 @@ public:
   void AppendToBottom(nsDisplayItem* aItem) {
     NS_ASSERTION(aItem, "No item to append!");
     NS_ASSERTION(!aItem->mAbove, "Already in a list!");
+    MOZ_DIAGNOSTIC_ASSERT(mBuilder->DebugContains(aItem));
     aItem->mAbove = mSentinel.mAbove;
     mSentinel.mAbove = aItem;
     if (mTop == &mSentinel) {
@@ -2448,6 +2451,7 @@ public:
    * Removes all items from aList and appends them to the top of this list
    */
   void AppendToTop(nsDisplayList* aList) {
+    MOZ_DIAGNOSTIC_ASSERT(mBuilder == aList->mBuilder);
     if (aList->mSentinel.mAbove) {
       mTop->mAbove = aList->mSentinel.mAbove;
       mTop = aList->mTop;
@@ -2460,6 +2464,7 @@ public:
    * Removes all items from aList and prepends them to the bottom of this list
    */
   void AppendToBottom(nsDisplayList* aList) {
+    MOZ_DIAGNOSTIC_ASSERT(mBuilder == aList->mBuilder);
     if (aList->mSentinel.mAbove) {
       aList->mTop->mAbove = mSentinel.mAbove;
       mSentinel.mAbove = aList->mSentinel.mAbove;
@@ -2671,6 +2676,7 @@ public:
     mForceTransparentSurface = true;
   }
 
+  nsDisplayListBuilder* mBuilder;
 private:
   // This class is only used on stack, so we don't have to worry about leaking
   // it.  Don't let us be heap-allocated!
@@ -2790,12 +2796,26 @@ protected:
  * to the object, and all distinct.
  */
 struct nsDisplayListCollection : public nsDisplayListSet {
-  nsDisplayListCollection() :
+  explicit nsDisplayListCollection(nsDisplayListBuilder* aBuilder) :
     nsDisplayListSet(&mLists[0], &mLists[1], &mLists[2], &mLists[3], &mLists[4],
-                     &mLists[5]) {}
-  explicit nsDisplayListCollection(nsDisplayList* aBorderBackground) :
+                     &mLists[5]),
+    mLists{ nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder) }
+  {}
+  explicit nsDisplayListCollection(nsDisplayListBuilder* aBuilder, nsDisplayList* aBorderBackground) :
     nsDisplayListSet(aBorderBackground, &mLists[1], &mLists[2], &mLists[3], &mLists[4],
-                     &mLists[5]) {}
+                     &mLists[5]),
+    mLists{ nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder),
+            nsDisplayList(aBuilder) }
+  {}
 
   /**
    * Sort all lists by content order.
@@ -3986,7 +4006,10 @@ public:
   nsDisplayWrapList(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
                     nsDisplayItem* aItem);
   nsDisplayWrapList(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame)
-    : nsDisplayItem(aBuilder, aFrame), mOverrideZIndex(0), mHasZIndexOverride(false)
+    : nsDisplayItem(aBuilder, aFrame)
+    , mList(aBuilder)
+    , mOverrideZIndex(0)
+    , mHasZIndexOverride(false)
   {
     MOZ_COUNT_CTOR(nsDisplayWrapList);
     mBaseVisibleRect = mVisibleRect;
@@ -3999,6 +4022,7 @@ public:
    */
   nsDisplayWrapList(const nsDisplayWrapList& aOther)
     : nsDisplayItem(aOther)
+    , mList(aOther.mList.mBuilder)
     , mListPtr(&mList)
     , mMergedFrames(aOther.mMergedFrames)
     , mBounds(aOther.mBounds)
@@ -4360,7 +4384,8 @@ public:
     {
       // Items for the same content element should be merged into a single
       // compositing group.
-      return HasSameTypeAndClip(aItem) && HasSameContent(aItem);
+      return HasSameTypeAndClip(aItem) && HasSameContent(aItem)
+          && mIsForBackground == static_cast<const nsDisplayBlendContainer*>(aItem)->mIsForBackground;
     }
 
     virtual bool ShouldFlattenAway(nsDisplayListBuilder* aBuilder) override
@@ -4429,6 +4454,7 @@ public:
     , mScrollTarget(aOther.mFlags)
     , mThumbData(aOther.mThumbData)
     , mForceActive(aOther.mForceActive)
+    , mWrAnimationId(aOther.mWrAnimationId)
   {
     MOZ_COUNT_CTOR(nsDisplayOwnLayer);
   }
@@ -5512,7 +5538,7 @@ public:
     : nsDisplayItem(aBuilder, aFrame), mVisIStartEdge(0), mVisIEndEdge(0) {}
 
   explicit nsCharClipDisplayItem(nsIFrame* aFrame)
-    : nsDisplayItem(aFrame) {}
+    : nsDisplayItem(aFrame), mVisIStartEdge(0), mVisIEndEdge(0) {}
 
   virtual nsDisplayItemGeometry* AllocateGeometry(nsDisplayListBuilder* aBuilder) override;
 
@@ -5563,6 +5589,73 @@ public:
   nscoord mVisIEndEdge;
   // Cached result of mFrame->IsSelected().  Only initialized when needed.
   mutable mozilla::Maybe<bool> mIsFrameSelected;
+};
+
+class FlattenedDisplayItemIterator
+{
+public:
+  FlattenedDisplayItemIterator(nsDisplayListBuilder* aBuilder,
+                               nsDisplayList* aList)
+    : mBuilder(aBuilder)
+    , mNext(aList->GetBottom())
+  {
+    ResolveFlattening();
+  }
+
+  nsDisplayItem* GetNext()
+  {
+    nsDisplayItem* next = mNext;
+
+    // Advance mNext to the following item
+    if (next) {
+      mNext = mNext->GetAbove();
+      ResolveFlattening();
+    }
+    return next;
+  }
+
+  nsDisplayItem* PeekNext()
+  {
+    return mNext;
+  }
+
+private:
+  bool AtEndOfNestedList()
+  {
+    return !mNext && mStack.Length() > 0;
+  }
+
+  bool ShouldFlattenNextItem()
+  {
+    return mNext && mNext->ShouldFlattenAway(mBuilder);
+  }
+
+  void ResolveFlattening()
+  {
+    // Handle the case where we reach the end of a nested list, or the current
+    // item should start a new nested list. Repeat this until we find an actual
+    // item, or the very end of the outer list.
+    while (AtEndOfNestedList() || ShouldFlattenNextItem()) {
+      if (AtEndOfNestedList()) {
+        // Pop the last item off the stack.
+        mNext = mStack.LastElement();
+        mStack.RemoveElementAt(mStack.Length() - 1);
+        // We stored the item that was flattened, so advance to the next.
+        mNext = mNext->GetAbove();
+      } else {
+        // This item wants to be flattened. Store the current item on the stack,
+        // and use the first item in the child list instead.
+        mStack.AppendElement(mNext);
+        nsDisplayList* childItems = mNext->GetSameCoordinateSystemChildren();
+        mNext = childItems->GetBottom();
+      }
+    }
+  }
+
+
+  nsDisplayListBuilder* mBuilder;
+  nsDisplayItem* mNext;
+  AutoTArray<nsDisplayItem*, 10> mStack;
 };
 
 namespace mozilla {

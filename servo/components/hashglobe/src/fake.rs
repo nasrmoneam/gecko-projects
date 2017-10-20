@@ -14,7 +14,6 @@
 //! These methods are a lie. They are not actually fallible. This is just to make
 //! it smooth to switch between hashmap impls in a codebase.
 
-use heapsize::HeapSizeOf;
 use std::collections::HashMap as StdMap;
 use std::collections::HashSet as StdSet;
 use std::fmt;
@@ -42,24 +41,6 @@ impl<K, V, S> DerefMut for HashMap<K, V, S> {
         &mut self.0
     }
 }
-
-impl<K: Hash + Eq, V> HashMap<K, V, RandomState> {
-    #[inline]
-    pub fn new() -> HashMap<K, V, RandomState> {
-        HashMap(StdMap::new())
-    }
-
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> HashMap<K, V, RandomState> {
-        HashMap(StdMap::with_capacity(capacity))
-    }
-
-    #[inline]
-    pub fn try_with_capacity(capacity: usize) -> Result<HashMap<K, V, RandomState>, FailedAllocationError> {
-        Ok(HashMap(StdMap::with_capacity(capacity)))
-    }
-}
-
 
 impl<K, V, S> HashMap<K, V, S>
     where K: Eq + Hash,
@@ -95,10 +76,24 @@ impl<K, V, S> HashMap<K, V, S>
         Ok(self.entry(key))
     }
 
+    #[inline(always)]
+    pub fn try_get_or_insert_with<F: FnOnce() -> V>(
+        &mut self,
+        key: K,
+        default: F
+    ) -> Result<&mut V, FailedAllocationError> {
+        Ok(self.entry(key).or_insert_with(default))
+    }
+
     #[inline]
     pub fn try_insert(&mut self, k: K, v: V) -> Result<Option<V>, FailedAllocationError> {
         Ok(self.insert(k, v))
     }
+
+    #[inline(always)]
+    pub fn begin_mutation(&mut self) {}
+    #[inline(always)]
+    pub fn end_mutation(&mut self) {}
 }
 
 #[derive(Clone)]
@@ -165,14 +160,6 @@ impl<T, S> HashSet<T, S>
 // Pass through trait impls
 // We can't derive these since the bounds are not obvious to the derive macro
 
-
-impl<K: HeapSizeOf + Hash + Eq, V: HeapSizeOf, S: BuildHasher>
-        HeapSizeOf for HashMap<K, V, S> {
-    fn heap_size_of_children(&self) -> usize {
-        self.0.heap_size_of_children()
-    }
-}
-
 impl<K: Hash + Eq, V, S: BuildHasher + Default> Default for HashMap<K, V, S> {
     fn default() -> Self {
         HashMap(Default::default())
@@ -226,13 +213,6 @@ impl<'a, K, V, S> IntoIterator for &'a mut HashMap<K, V, S>
 
     fn into_iter(self) -> MapIterMut<'a, K, V> {
         self.0.iter_mut()
-    }
-}
-
-
-impl<T: HeapSizeOf + Eq + Hash, S: BuildHasher> HeapSizeOf for HashSet<T, S> {
-    fn heap_size_of_children(&self) -> usize {
-        self.0.heap_size_of_children()
     }
 }
 
