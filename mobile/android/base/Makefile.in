@@ -505,8 +505,8 @@ $(eval $(call aapt_command,.aapt.deps,$(all_resources),gecko.ap_,generated/,./))
 
 ifdef MOZ_BUILD_MOBILE_ANDROID_WITH_GRADLE
 
-# .gradle.nodeps: AndroidManifest.xml FORCE
-$(eval $(call gradle_command,.gradle.nodeps,AndroidManifest.xml FORCE))
+# .gradle.nodeps: AndroidManifest.xml generated/preprocessed/org/mozilla/gecko/AppConstants.java FORCE
+$(eval $(call gradle_command,.gradle.nodeps,AndroidManifest.xml $(constants_PP_JAVAFILES) FORCE))
 
 .aapt.nodeps: .gradle.nodeps FORCE
 	@$(TOUCH) $@
