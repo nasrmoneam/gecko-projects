@@ -9,13 +9,7 @@ geckoview:
         script: android_emulator_unittest.py
         no-read-buildbot-config: true
         config:
-            by-test-platform:
-                # android-4.3-arm7-api-16/debug -- not run
-                android-4.3-arm7-api-16/opt:
-                    - android/androidarm_4_3.py
-                # android-4.3-arm7-api-16-gradle/opt -- not run
-                android-4.2-x86/opt:
-                    - android/androidx86.py
+            - android/androidarm_4_3.py
         extra-options:
             - --test-suite=geckoview
 
