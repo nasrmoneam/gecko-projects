@@ -245,8 +245,6 @@ define gradle_command
 $(1): $(2)
 	@$$(TOUCH) $$@
 	$$(topsrcdir)/mach gradle \
-		geckoview:generateJNIWrappersForGeneratedRelease \
-		app:generateJNIWrappersForFennecOfficialPhotonDebug \
 		app:assembleOfficialPhotonDebug \
 		app:assembleOfficialPhotonDebugAndroidTest \
 		-x lint
