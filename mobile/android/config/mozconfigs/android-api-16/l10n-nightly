@@ -2,7 +2,7 @@ NO_NDK=1
 
 . "$topsrcdir/mobile/android/config/mozconfigs/common"
 
-. "$topsrcdir/mobile/android/config/mozconfigs/nightly"
+. "$topsrcdir/mobile/android/config/mozconfigs/android-api-16/nightly"
 
 # L10n
 ac_add_options --with-l10n-base=../../l10n-central
