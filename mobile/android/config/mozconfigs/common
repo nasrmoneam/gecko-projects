@@ -86,7 +86,7 @@ if test "$MOZ_UPDATE_CHANNEL" = "release" ; then
     ac_add_options --with-leanplum-sdk-keyfile=/builds/leanplum-sdk-release.token
 elif test "$MOZ_UPDATE_CHANNEL" = "beta" ; then
     ac_add_options --with-leanplum-sdk-keyfile=/builds/leanplum-sdk-beta.token
-elif test "$MOZ_UPDATE_CHANNEL" = "nightly" ; then
+elif [ "x$IS_NIGHTLY" = "xyes" ] ; then
     ac_add_options --with-leanplum-sdk-keyfile=/builds/leanplum-sdk-nightly.token
 else
     ac_add_options --with-leanplum-sdk-keyfile="$topsrcdir/mobile/android/base/leanplum-sdk-sandbox.token"
@@ -101,7 +101,7 @@ if test "$MOZ_UPDATE_CHANNEL" = "release" ; then
     ac_add_options --with-pocket-api-keyfile=/builds/pocket-api-release.token
 elif test "$MOZ_UPDATE_CHANNEL" = "beta" ; then
     ac_add_options --with-pocket-api-keyfile=/builds/pocket-api-beta.token
-elif test "$MOZ_UPDATE_CHANNEL" = "nightly" ; then
+elif [ "x$IS_NIGHTLY" = "xyes" ] ; then
     ac_add_options --with-pocket-api-keyfile=/builds/pocket-api-nightly.token
 else
     ac_add_options --with-pocket-api-keyfile="$topsrcdir/mobile/android/base/pocket-api-sandbox.token"
