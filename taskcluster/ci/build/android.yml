@@ -40,6 +40,7 @@ android-api-16/debug:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -86,6 +87,7 @@ android-x86/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -136,6 +138,7 @@ android-x86-nightly/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -182,6 +185,7 @@ android-api-16/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -232,6 +236,7 @@ android-api-16-nightly/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -279,6 +284,7 @@ android-x86-old-id/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -330,6 +336,7 @@ android-x86-old-id-nightly/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -377,6 +384,7 @@ android-api-16-old-id/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -428,6 +436,7 @@ android-api-16-old-id-nightly/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -473,6 +482,7 @@ android-api-16-gradle/opt:
         tooltool-downloads: internal
     toolchains:
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -519,6 +529,7 @@ android-aarch64/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar
@@ -569,6 +580,7 @@ android-aarch64-nightly/opt:
     toolchains:
         - android-gradle-dependencies
         - android-sdk-linux
+        - linux64-clang
         - linux64-rust-android
         - linux64-sccache
         - proguard-jar

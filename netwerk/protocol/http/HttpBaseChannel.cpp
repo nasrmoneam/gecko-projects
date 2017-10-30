@@ -4132,6 +4132,14 @@ HttpBaseChannel::GetPerformance()
     return nullptr;
   }
 
+  // We only add to the document's performance object if it has the same
+  // principal as the one triggering the load. This is to prevent navigations
+  // triggered _by_ the iframe from showing up in the parent document's
+  // performance entries if they have different origins.
+  if (!mLoadInfo->TriggeringPrincipal()->Equals(loadingDocument->NodePrincipal())) {
+    return nullptr;
+  }
+
   nsCOMPtr<nsPIDOMWindowInner> innerWindow = loadingDocument->GetInnerWindow();
   if (!innerWindow) {
     return nullptr;
@@ -4337,6 +4345,21 @@ HttpBaseChannel::SetLastRedirectFlags(uint32_t aValue)
 {
   mLastRedirectFlags = aValue;
   return NS_OK;
+}
+
+// NOTE: This function duplicates code from nsBaseChannel. This will go away
+// once HTTP uses nsBaseChannel (part of bug 312760)
+/* static */ void
+HttpBaseChannel::CallTypeSniffers(void *aClosure, const uint8_t *aData,
+                                  uint32_t aCount)
+{
+  nsIChannel *chan = static_cast<nsIChannel*>(aClosure);
+
+  nsAutoCString newType;
+  NS_SniffContent(NS_CONTENT_SNIFFER_CATEGORY, chan, aData, aCount, newType);
+  if (!newType.IsEmpty()) {
+    chan->SetContentType(newType);
+  }
 }
 
 } // namespace net
