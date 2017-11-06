@@ -147,7 +147,6 @@ class MobileSingleLocale(MockMixin, LocalesMixin, ReleaseMixin,
                 "taskcluster-upload",
                 "submit-to-balrog",
                 "summary",
-                "get-secrets",
             ],
             'config': {
                 'taskcluster_credentials_file': 'oauth.txt',
