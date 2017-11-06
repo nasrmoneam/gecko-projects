@@ -654,6 +654,7 @@ pref("mousewheel.with_win.action", 1);
 
 pref("browser.xul.error_pages.enabled", true);
 pref("browser.xul.error_pages.expert_bad_cert", false);
+pref("browser.xul.error_pages.show_safe_browsing_details_on_load", false);
 
 // Enable captive portal detection.
 pref("network.captive-portal-service.enabled", true);
@@ -1527,11 +1528,7 @@ pref("browser.ping-centre.production.endpoint", "https://tiles.services.mozilla.
 // Enable GMP support in the addon manager.
 pref("media.gmp-provider.enabled", true);
 
-#ifdef NIGHTLY_BUILD
 pref("privacy.trackingprotection.ui.enabled", true);
-#else
-pref("privacy.trackingprotection.ui.enabled", false);
-#endif
 pref("privacy.trackingprotection.introCount", 0);
 pref("privacy.trackingprotection.introURL", "https://www.mozilla.org/%LOCALE%/firefox/%VERSION%/tracking-protection/start/");
 

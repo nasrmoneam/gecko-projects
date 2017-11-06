@@ -25,6 +25,8 @@ var gExceptionPaths = [
 
   // https://github.com/mozilla/activity-stream/issues/3053
   "resource://activity-stream/data/content/tippytop/images/",
+  // https://github.com/mozilla/activity-stream/issues/3758
+  "resource://activity-stream/prerendered/",
 
   // browser/extensions/pdfjs/content/build/pdf.js#1999
   "resource://pdf.js/web/images/",
@@ -58,10 +60,6 @@ var whitelist = [
   {file: "chrome://global/locale/printPreviewProgress.dtd",
    platforms: ["macosx"]},
   {file: "chrome://global/locale/printProgress.dtd", platforms: ["macosx"]},
-  {file: "chrome://global/locale/printdialog.dtd",
-   platforms: ["macosx", "win"]},
-  {file: "chrome://global/locale/printjoboptions.dtd",
-   platforms: ["macosx", "win"]},
 
   // devtools/client/inspector/bin/dev-server.js
   {file: "chrome://devtools/content/inspector/markup/markup.xhtml",
@@ -96,9 +94,6 @@ var whitelist = [
 
   // Needed by HiddenFrame.jsm, but can't be packaged test-only
   {file: "chrome://global/content/win.xul"},
-
-  // List of built-in locales. See bug 1362617 for details.
-  {file: "resource://gre/res/multilocale.json"},
 
   // The l10n build system can't package string files only for some platforms.
   {file: "resource://gre/chrome/en-US/locale/en-US/global-platform/mac/accessible.properties",

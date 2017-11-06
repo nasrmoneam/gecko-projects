@@ -21,6 +21,7 @@ const MESSAGES = {
 // we have to use http in order to have working searchParams.
 let url = new URL(window.location.href.replace("about:", "http://"));
 let reason = url.searchParams.get("reason");
+let tabid = parseInt(url.searchParams.get("tabid"), 10);
 
 function getToolboxShortcut() {
   const bundleUrl = "chrome://devtools-shim/locale/key-shortcuts.properties";
@@ -31,6 +32,10 @@ function getToolboxShortcut() {
 
 function onInstallButtonClick() {
   Services.prefs.setBoolPref("devtools.enabled", true);
+}
+
+function onCloseButtonClick() {
+  window.close();
 }
 
 function updatePage() {
@@ -52,8 +57,6 @@ window.addEventListener("load", function () {
   welcomeMessage.textContent = welcomeMessage.textContent.replace(
     "##INSPECTOR_SHORTCUT##", inspectorShortcut);
 
-  Services.prefs.addObserver(DEVTOOLS_ENABLED_PREF, updatePage);
-
   // Set the appropriate title message.
   if (reason == "ContextMenu") {
     document.getElementById("inspect-title").removeAttribute("hidden");
@@ -68,15 +71,36 @@ window.addEventListener("load", function () {
     message.removeAttribute("hidden");
   }
 
-  let installButton = document.getElementById("install");
-  installButton.addEventListener("click", onInstallButtonClick);
+  // Attach event listeners
+  document.getElementById("install").addEventListener("click", onInstallButtonClick);
+  document.getElementById("close").addEventListener("click", onCloseButtonClick);
+  Services.prefs.addObserver(DEVTOOLS_ENABLED_PREF, updatePage);
 
   // Update the current page based on the current value of DEVTOOLS_ENABLED_PREF.
   updatePage();
 }, { once: true });
 
+window.addEventListener("beforeunload", function () {
+  // Focus the tab that triggered the DevTools onboarding.
+  if (document.visibilityState != "visible") {
+    // Only try to focus the correct tab if the current tab is the about:devtools page.
+    return;
+  }
+
+  // Retrieve the original tab if it is still available.
+  let browserWindow = Services.wm.getMostRecentWindow("navigator:browser");
+  let { gBrowser } = browserWindow;
+  let originalBrowser = gBrowser.getBrowserForOuterWindowID(tabid);
+  let originalTab = gBrowser.getTabForBrowser(originalBrowser);
+
+  if (originalTab) {
+    // If the original tab was found, select it.
+    gBrowser.selectedTab = originalTab;
+  }
+}, {once: true});
+
 window.addEventListener("unload", function () {
-  let installButton = document.getElementById("install");
-  installButton.removeEventListener("click", onInstallButtonClick);
+  document.getElementById("install").removeEventListener("click", onInstallButtonClick);
+  document.getElementById("close").removeEventListener("click", onCloseButtonClick);
   Services.prefs.removeObserver(DEVTOOLS_ENABLED_PREF, updatePage);
 }, {once: true});

@@ -330,6 +330,8 @@ public:
   NS_DECL_NSIOBSERVER
   NS_DECL_NSITOOLTIPLISTENER
 
+  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(TabChild, TabChildBase)
+
   FORWARD_SHMEM_ALLOCATOR_TO(PBrowserChild)
 
   /**
@@ -683,6 +685,7 @@ public:
     return mParentIsActive;
   }
 
+  const mozilla::layers::CompositorOptions& GetCompositorOptions() const;
   bool AsyncPanZoomEnabled() const;
 
   virtual ScreenIntSize GetInnerSize() override;

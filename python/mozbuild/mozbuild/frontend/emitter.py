@@ -882,9 +882,8 @@ class TreeMetadataEmitter(LoggingMixin):
                     if canonical_suffix in ('.cpp', '.mm'):
                         cxx_sources[variable] = True
                     arglist = [context, list(files), canonical_suffix]
-                    if (variable.startswith('UNIFIED_') and
-                            'FILES_PER_UNIFIED_FILE' in context):
-                        arglist.append(context['FILES_PER_UNIFIED_FILE'])
+                    if variable.startswith('UNIFIED_'):
+                        arglist.append(context.get('FILES_PER_UNIFIED_FILE', 16))
                     obj = cls(*arglist)
                     yield obj
 
@@ -925,6 +924,7 @@ class TreeMetadataEmitter(LoggingMixin):
             yield obj
 
         computed_flags = ComputedFlags(context, context['COMPILE_FLAGS'])
+        computed_link_flags = ComputedFlags(context, context['LINK_FLAGS'])
         computed_host_flags = ComputedFlags(context, context['HOST_COMPILE_FLAGS'])
 
         # Proxy some variables as-is until we have richer classes to represent
@@ -956,7 +956,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 for dll in context['DELAYLOAD_DLLS']])
             context['OS_LIBS'].append('delayimp')
 
-        for v in ['CMFLAGS', 'CMMFLAGS', 'ASFLAGS', 'LDFLAGS']:
+        for v in ['CMFLAGS', 'CMMFLAGS', 'ASFLAGS']:
             if v in context and context[v]:
                 passthru.variables['MOZBUILD_' + v] = context[v]
 
@@ -967,6 +967,17 @@ class TreeMetadataEmitter(LoggingMixin):
         for v in ['HOST_CXXFLAGS', 'HOST_CFLAGS']:
             if v in context and context[v]:
                 computed_host_flags.resolve_flags('MOZBUILD_%s' % v, context[v])
+
+        if 'LDFLAGS' in context and context['LDFLAGS']:
+            computed_link_flags.resolve_flags('MOZBUILD', context['LDFLAGS'])
+
+        deffile = context['DEFFILE']
+        if deffile and context.config.substs.get('OS_ARCH') == 'WINNT':
+            if context.config.substs.get('GNU_CC'):
+                computed_link_flags.resolve_flags('DEFFILE', [deffile])
+            else:
+                computed_link_flags.resolve_flags('DEFFILE',
+                                                  ['-DEF:' + deffile])
 
         dist_install = context['DIST_INSTALL']
         if dist_install is True:
@@ -1189,6 +1200,7 @@ class TreeMetadataEmitter(LoggingMixin):
 
         if context.objdir in self._compile_dirs:
             self._compile_flags[context.objdir] = computed_flags
+            yield computed_link_flags
         if context.objdir in self._host_compile_dirs:
             yield computed_host_flags
 

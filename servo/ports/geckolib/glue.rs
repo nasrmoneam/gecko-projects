@@ -716,13 +716,12 @@ pub extern "C" fn Servo_AnimationValue_GetTransform(
     let value = AnimationValue::as_arc(&value);
     if let AnimationValue::Transform(ref servo_list) = **value {
         let list = unsafe { &mut *list };
-        match servo_list.0 {
-            Some(ref servo_list) => {
-                style_structs::Box::convert_transform(servo_list, list);
-            },
-            None => unsafe {
+        if servo_list.0.is_empty() {
+            unsafe {
                 list.set_move(RefPtr::from_addrefed(Gecko_NewNoneTransform()));
             }
+        } else {
+            style_structs::Box::convert_transform(&servo_list.0, list);
         }
     } else {
         panic!("The AnimationValue should be transform");
@@ -965,7 +964,6 @@ pub extern "C" fn Servo_Element_GetPrimaryComputedValues(element: RawGeckoElemen
 {
     let element = GeckoElement(element);
     let data = element.borrow_data().expect("Getting CVs on unstyled element");
-    assert!(data.has_styles(), "Getting CVs on unstyled element");
     data.styles.primary().clone().into()
 }
 
@@ -1695,17 +1693,27 @@ pub unsafe extern "C" fn Servo_SelectorList_Matches(
 pub unsafe extern "C" fn Servo_SelectorList_QueryFirst(
     node: RawGeckoNodeBorrowed,
     selectors: RawServoSelectorListBorrowed,
+    may_use_invalidation: bool,
 ) -> *const structs::RawGeckoElement {
     use std::borrow::Borrow;
-    use style::dom_apis::{self, QueryFirst};
+    use style::dom_apis::{self, MayUseInvalidation, QueryFirst};
 
     let node = GeckoNode(node);
     let selectors = ::selectors::SelectorList::from_ffi(selectors).borrow();
     let mut result = None;
+
+    let may_use_invalidation =
+        if may_use_invalidation {
+            MayUseInvalidation::Yes
+        } else {
+            MayUseInvalidation::No
+        };
+
     dom_apis::query_selector::<GeckoElement, QueryFirst>(
         node,
         &selectors,
         &mut result,
+        may_use_invalidation,
     );
 
     result.map_or(ptr::null(), |e| e.0)
@@ -1716,19 +1724,28 @@ pub unsafe extern "C" fn Servo_SelectorList_QueryAll(
     node: RawGeckoNodeBorrowed,
     selectors: RawServoSelectorListBorrowed,
     content_list: *mut structs::nsSimpleContentList,
+    may_use_invalidation: bool,
 ) {
     use smallvec::SmallVec;
     use std::borrow::Borrow;
-    use style::dom_apis::{self, QueryAll};
+    use style::dom_apis::{self, MayUseInvalidation, QueryAll};
 
     let node = GeckoNode(node);
     let selectors = ::selectors::SelectorList::from_ffi(selectors).borrow();
     let mut result = SmallVec::new();
 
+    let may_use_invalidation =
+        if may_use_invalidation {
+            MayUseInvalidation::Yes
+        } else {
+            MayUseInvalidation::No
+        };
+
     dom_apis::query_selector::<GeckoElement, QueryAll>(
         node,
         &selectors,
         &mut result,
+        may_use_invalidation,
     );
 
     if !result.is_empty() {
@@ -2523,10 +2540,10 @@ pub extern "C" fn Servo_MatrixTransform_Operate(matrix_operator: MatrixTransform
                                                 progress: f64,
                                                 output: *mut RawGeckoGfxMatrix4x4) {
     use self::MatrixTransformOperator::{Accumulate, Interpolate};
-    use style::properties::longhands::transform::computed_value::ComputedMatrix;
+    use style::values::computed::transform::Matrix3D;
 
-    let from = ComputedMatrix::from(unsafe { from.as_ref() }.expect("not a valid 'from' matrix"));
-    let to = ComputedMatrix::from(unsafe { to.as_ref() }.expect("not a valid 'to' matrix"));
+    let from = Matrix3D::from(unsafe { from.as_ref() }.expect("not a valid 'from' matrix"));
+    let to = Matrix3D::from(unsafe { to.as_ref() }.expect("not a valid 'to' matrix"));
     let result = match matrix_operator {
         Interpolate => from.animate(&to, Procedure::Interpolate { progress }),
         Accumulate => from.animate(&to, Procedure::Accumulate { count: progress as u64 }),
@@ -3455,8 +3472,6 @@ pub extern "C" fn Servo_ResolveStyle(
     let data =
         element.borrow_data().expect("Resolving style on unstyled element");
 
-    // TODO(emilio): Downgrade to debug assertions when close to release.
-    assert!(data.has_styles(), "Resolving style on unstyled element");
     debug_assert!(element.has_current_styles(&*data),
                   "Resolving style on {:?} without current styles: {:?}", element, data);
     data.styles.primary().clone().into()

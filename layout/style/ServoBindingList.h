@@ -139,10 +139,12 @@ SERVO_BINDING_FUNC(Servo_SelectorList_Matches, bool,
 SERVO_BINDING_FUNC(Servo_SelectorList_Closest, const RawGeckoElement*,
                    RawGeckoElementBorrowed, RawServoSelectorListBorrowed)
 SERVO_BINDING_FUNC(Servo_SelectorList_QueryFirst, const RawGeckoElement*,
-                   RawGeckoNodeBorrowed, RawServoSelectorListBorrowed)
+                   RawGeckoNodeBorrowed, RawServoSelectorListBorrowed,
+                   bool may_use_invalidation)
 SERVO_BINDING_FUNC(Servo_SelectorList_QueryAll, void,
                    RawGeckoNodeBorrowed, RawServoSelectorListBorrowed,
-                   nsSimpleContentList* content_list)
+                   nsSimpleContentList* content_list,
+                   bool may_use_invalidation)
 SERVO_BINDING_FUNC(Servo_StyleSet_AddSizeOfExcludingThis, void,
                    mozilla::MallocSizeOf malloc_size_of,
                    mozilla::MallocSizeOf malloc_enclosing_size_of,
@@ -162,6 +164,9 @@ SERVO_BINDING_FUNC(Servo_StyleSet_MightHaveAttributeDependency, bool,
 SERVO_BINDING_FUNC(Servo_StyleSet_HasStateDependency, bool,
                    RawServoStyleSetBorrowed set,
                    RawGeckoElementBorrowed element,
+                   uint64_t state)
+SERVO_BINDING_FUNC(Servo_StyleSet_HasDocumentStateDependency, bool,
+                   RawServoStyleSetBorrowed set,
                    uint64_t state)
 
 // CSSRuleList

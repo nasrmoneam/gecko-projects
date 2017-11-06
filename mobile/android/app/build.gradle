@@ -561,13 +561,6 @@ android.applicationVariants.all { variant ->
             filename.replace 'R.txt', "R-${new Date().format('yyyyMMddHHmmssSSS')}.txt"
         }
 
-        eachFile {
-            println it.file.absolutePath
-            println ">>>"
-            println it.file.text
-            println "<<<"
-        }
-
         dependsOn processResourcesTask
     }
 

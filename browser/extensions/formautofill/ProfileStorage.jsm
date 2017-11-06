@@ -313,10 +313,12 @@ class AutofillRecords {
   add(record, {sourceSync = false} = {}) {
     this.log.debug("add:", record);
 
+    let recordToSave = this._cloneAndCleanUp(record);
+
     if (sourceSync) {
       // Remove tombstones for incoming items that were changed on another
       // device. Local deletions always lose to avoid data loss.
-      let index = this._findIndexByGUID(record.guid, {
+      let index = this._findIndexByGUID(recordToSave.guid, {
         includeDeleted: true,
       });
       if (index > -1) {
@@ -324,31 +326,24 @@ class AutofillRecords {
         if (existing.deleted) {
           this.data.splice(index, 1);
         } else {
-          throw new Error(`Record ${record.guid} already exists`);
+          throw new Error(`Record ${recordToSave.guid} already exists`);
         }
       }
-      let recordToSave = this._clone(record);
-      return this._saveRecord(recordToSave, {sourceSync});
+    } else if (!recordToSave.deleted) {
+      this._normalizeRecord(recordToSave);
+
+      recordToSave.guid = this._generateGUID();
+      recordToSave.version = this.version;
+
+      // Metadata
+      let now = Date.now();
+      recordToSave.timeCreated = now;
+      recordToSave.timeLastModified = now;
+      recordToSave.timeLastUsed = 0;
+      recordToSave.timesUsed = 0;
     }
 
-    if (record.deleted) {
-      return this._saveRecord(record);
-    }
-
-    let recordToSave = this._clone(record);
-    this._normalizeRecord(recordToSave);
-
-    recordToSave.guid = this._generateGUID();
-    recordToSave.version = this.version;
-
-    // Metadata
-    let now = Date.now();
-    recordToSave.timeCreated = now;
-    recordToSave.timeLastModified = now;
-    recordToSave.timeLastUsed = 0;
-    recordToSave.timesUsed = 0;
-
-    return this._saveRecord(recordToSave);
+    return this._saveRecord(recordToSave, {sourceSync});
   }
 
   _saveRecord(record, {sourceSync = false} = {}) {
@@ -428,7 +423,7 @@ class AutofillRecords {
         newValue = oldValue;
       }
 
-      if (!newValue) {
+      if (newValue === undefined || newValue === "") {
         delete recordFound[field];
       } else {
         recordFound[field] = newValue;
@@ -1121,6 +1116,10 @@ class AutofillRecords {
   _migrateRecord(record) {
     let hasChanges = false;
 
+    if (record.deleted) {
+      return hasChanges;
+    }
+
     if (!record.version || isNaN(record.version) || record.version < 1) {
       this.log.warn("Invalid record version:", record.version);
 
@@ -1154,6 +1153,27 @@ class AutofillRecords {
     }
   }
 
+  /**
+   * Merge the record if storage has multiple mergeable records.
+   * @param {Object} targetRecord
+   *        The record for merge.
+   * @param {boolean} [strict = false]
+   *        In strict merge mode, we'll treat the subset record with empty field
+   *        as unable to be merged, but mergeable if in non-strict mode.
+   * @returns {Array.<string>}
+   *          Return an array of the merged GUID string.
+   */
+  mergeToStorage(targetRecord, strict = false) {
+    let mergedGUIDs = [];
+    for (let record of this.data) {
+      if (!record.deleted && this.mergeIfPossible(record.guid, targetRecord, strict)) {
+        mergedGUIDs.push(record.guid);
+      }
+    }
+    this.log.debug("Existing records matching and merging count is", mergedGUIDs.length);
+    return mergedGUIDs;
+  }
+
   // A test-only helper.
   _nukeAllRecords() {
     this._store.data[this._collectionName] = [];
@@ -1174,10 +1194,7 @@ class AutofillRecords {
   _normalizeFields(record) {}
 
   // An interface to be inherited.
-  mergeIfPossible(guid, record) {}
-
-  // An interface to be inherited.
-  mergeToStorage(targetRecord) {}
+  mergeIfPossible(guid, record, strict) {}
 }
 
 class Addresses extends AutofillRecords {
@@ -1200,6 +1217,10 @@ class Addresses extends AutofillRecords {
     //       computed fields)
 
     let hasNewComputedFields = false;
+
+    if (address.deleted) {
+      return hasNewComputedFields;
+    }
 
     // Compute name
     if (!("name" in address)) {
@@ -1368,10 +1389,13 @@ class Addresses extends AutofillRecords {
    *         Indicates which address to merge.
    * @param  {Object} address
    *         The new address used to merge into the old one.
+   * @param  {boolean} strict
+   *         In strict merge mode, we'll treat the subset record with empty field
+   *         as unable to be merged, but mergeable if in non-strict mode.
    * @returns {boolean}
    *          Return true if address is merged into target with specific guid or false if not.
    */
-  mergeIfPossible(guid, address) {
+  mergeIfPossible(guid, address, strict) {
     this.log.debug("mergeIfPossible:", guid, address);
 
     let addressFound = this._findByGUID(guid);
@@ -1379,7 +1403,7 @@ class Addresses extends AutofillRecords {
       throw new Error("No matching address.");
     }
 
-    let addressToMerge = this._clone(address);
+    let addressToMerge = strict ? this._clone(address) : this._cloneAndCleanUp(address);
     this._normalizeRecord(addressToMerge);
     let hasMatchingField = false;
 
@@ -1414,34 +1438,25 @@ class Addresses extends AutofillRecords {
       return false;
     }
 
-    // Early return if the data is the same.
-    let exactlyMatch = this.VALID_FIELDS.every((field) =>
-      addressFound[field] === addressToMerge[field]
-    );
-    if (exactlyMatch) {
+    // Early return if the data is the same or subset.
+    let noNeedToUpdate = this.VALID_FIELDS.every((field) => {
+      // When addressFound doesn't contain a field, it's unnecessary to update
+      // if the same field in addressToMerge is omitted or an empty string.
+      if (addressFound[field] === undefined) {
+        return !addressToMerge[field];
+      }
+
+      // When addressFound contains a field, it's unnecessary to update if
+      // the same field in addressToMerge is omitted or a duplicate.
+      return (addressToMerge[field] === undefined) ||
+             (addressFound[field] === addressToMerge[field]);
+    });
+    if (noNeedToUpdate) {
       return true;
     }
 
     this.update(guid, addressToMerge, true);
     return true;
-  }
-
-  /**
-   * Merge the address if storage has multiple mergeable records.
-   * @param {Object} targetAddress
-   *        The address for merge.
-   * @returns {Array.<string>}
-   *          Return an array of the merged GUID string.
-   */
-  mergeToStorage(targetAddress) {
-    let mergedGUIDs = [];
-    for (let address of this.data) {
-      if (!address.deleted && this.mergeIfPossible(address.guid, targetAddress)) {
-        mergedGUIDs.push(address.guid);
-      }
-    }
-    this.log.debug("Existing records matching and merging count is", mergedGUIDs.length);
-    return mergedGUIDs;
   }
 }
 
@@ -1463,6 +1478,10 @@ class CreditCards extends AutofillRecords {
     //       computed fields)
 
     let hasNewComputedFields = false;
+
+    if (creditCard.deleted) {
+      return hasNewComputedFields;
+    }
 
     // Compute split names
     if (!("cc-given-name" in creditCard)) {

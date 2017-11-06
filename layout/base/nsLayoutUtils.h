@@ -394,23 +394,6 @@ public:
    */
   static nsIFrame* GetRealPrimaryFrameFor(const nsIContent* aContent);
 
-  /**
-   * IsGeneratedContentFor returns true if aFrame is the outermost
-   * frame for generated content of type aPseudoElement for aContent.
-   * aFrame *might not* have the aPseudoElement pseudo-style! For example
-   * it might be a table wrapper frame and the inner table frame might
-   * have the pseudo-style.
-   *
-   * @param aContent the content node we're looking at.  If this is
-   *        null, then we just assume that aFrame has the right content
-   *        pointer.
-   * @param aFrame the frame we're looking at
-   * @param aPseudoElement the pseudo type we're interested in
-   * @return whether aFrame is the generated aPseudoElement frame for aContent
-   */
-  static bool IsGeneratedContentFor(nsIContent* aContent, nsIFrame* aFrame,
-                                      nsAtom* aPseudoElement);
-
 #ifdef DEBUG
   // TODO: remove, see bug 598468.
   static bool gPreventAssertInCompareTreePosition;
@@ -3044,7 +3027,10 @@ public:
    * @param aOverflow the total size of the thing we're rendering
    * @param aPrerenderSize how large of an area we're willing to render
    * @return A rectangle that includes |aDirtyRect|, is clamped to |aOverflow|,
-   *         and is no larger than |aPrerenderSize|.
+   *         and is no larger than |aPrerenderSize| (unless |aPrerenderSize|
+   *         is smaller than |aDirtyRect|, in which case the returned rect
+   *         will still include |aDirtyRect| and thus be larger than
+   *         |aPrerenderSize|).
    */
   static nsRect ComputePartialPrerenderArea(const nsRect& aDirtyRect,
                                             const nsRect& aOverflow,
@@ -3065,6 +3051,9 @@ public:
 
   static nsRect ComputeGeometryBox(nsIFrame* aFrame,
                                    StyleGeometryBox aGeometryBox);
+
+  static nsPoint ComputeOffsetToUserSpace(nsDisplayListBuilder* aBuilder,
+                                          nsIFrame* aFrame);
 
 private:
   static uint32_t sFontSizeInflationEmPerLine;

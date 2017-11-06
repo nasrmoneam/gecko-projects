@@ -616,170 +616,13 @@ ${helpers.single_keyword_system("font-variant-caps",
                                 flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                                 animation_value_type="discrete")}
 
-<%helpers:longhand name="font-weight" animation_value_type="ComputedValue"
-                   flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER"
-                   spec="https://drafts.csswg.org/css-fonts/#propdef-font-weight">
-    use properties::longhands::system_font::SystemFont;
-
-
-    #[derive(Clone, Copy, Debug, Eq, MallocSizeOf, PartialEq, ToCss)]
-    pub enum SpecifiedValue {
-        Normal,
-        Bold,
-        Bolder,
-        Lighter,
-        Weight(computed_value::T),
-        System(SystemFont),
-    }
-
-    /// normal | bold | bolder | lighter | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
-    pub fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                         -> Result<SpecifiedValue, ParseError<'i>> {
-        let result = input.try(|input| {
-            let ident = input.expect_ident().map_err(|_| ())?;
-            match_ignore_ascii_case! { &ident,
-                "normal" => Ok(SpecifiedValue::Normal),
-                "bold" => Ok(SpecifiedValue::Bold),
-                "bolder" => Ok(SpecifiedValue::Bolder),
-                "lighter" => Ok(SpecifiedValue::Lighter),
-                _ => Err(())
-            }
-        });
-        result.or_else(|_| computed_value::T::parse(context, input).map(SpecifiedValue::Weight))
-    }
-
-    impl SpecifiedValue {
-        pub fn from_gecko_keyword(kw: u32) -> Self {
-            computed_value::T::from_int(kw as i32).map(SpecifiedValue::Weight)
-                .expect("Found unexpected value in style struct for font-weight property")
-        }
-    }
-
-    impl SpecifiedValue {
-        pub fn system_font(f: SystemFont) -> Self {
-            SpecifiedValue::System(f)
-        }
-        pub fn get_system(&self) -> Option<SystemFont> {
-            if let SpecifiedValue::System(s) = *self {
-                Some(s)
-            } else {
-                None
-            }
-        }
-    }
-
-    pub mod computed_value {
-        /// As of CSS Fonts Module Level 3, only the following values are
-        /// valid: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
-        ///
-        /// However, system fonts may provide other values. Pango
-        /// may provide 350, 380, and 1000 (on top of the existing values), for example.
-        #[derive(Clone, ComputeSquaredDistance, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq,
-                 ToCss)]
-        #[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
-        pub struct T(pub u16);
-
-        impl T {
-            /// Value for normal
-            pub fn normal() -> Self {
-                T(400)
-            }
-
-            /// Value for bold
-            pub fn bold() -> Self {
-                T(700)
-            }
-
-            /// Convert from an integer to Weight
-            pub fn from_int(n: i32) -> Result<Self, ()> {
-                if n >= 100 && n <= 900 && n % 100 == 0 {
-                    Ok(T(n as u16))
-                } else {
-                    Err(())
-                }
-            }
-
-            /// Convert from an Gecko weight
-            pub fn from_gecko_weight(weight: u16) -> Self {
-                // we allow a wider range of weights than is parseable
-                // because system fonts may provide custom values
-                T(weight)
-            }
-
-            /// Weither this weight is bold
-            pub fn is_bold(&self) -> bool {
-                self.0 > 500
-            }
-
-            /// Return the bolder weight
-            pub fn bolder(self) -> Self {
-                if self.0 < 400 {
-                    T(400)
-                } else if self.0 < 600 {
-                    T(700)
-                } else {
-                    T(900)
-                }
-            }
-
-            /// Returns the lighter weight
-            pub fn lighter(self) -> Self {
-                if self.0 < 600 {
-                    T(100)
-                } else if self.0 < 800 {
-                    T(400)
-                } else {
-                    T(700)
-                }
-            }
-        }
-    }
-
-    impl Parse for computed_value::T {
-        fn parse<'i, 't>(_: &ParserContext, input: &mut Parser<'i, 't>)
-            -> Result<Self, ParseError<'i>> {
-                Self::from_int(input.expect_integer()?)
-                    .map_err(|_| input.new_custom_error(StyleParseErrorKind::UnspecifiedError))
-            }
-    }
-
-    #[inline]
-    pub fn get_initial_value() -> computed_value::T {
-        computed_value::T::normal()
-    }
-
-    #[inline]
-    pub fn get_initial_specified_value() -> SpecifiedValue {
-        SpecifiedValue::Normal
-    }
-
-    impl ToComputedValue for SpecifiedValue {
-        type ComputedValue = computed_value::T;
-
-        #[inline]
-        fn to_computed_value(&self, context: &Context) -> computed_value::T {
-            match *self {
-                SpecifiedValue::Weight(weight) => weight,
-                SpecifiedValue::Normal => computed_value::T::normal(),
-                SpecifiedValue::Bold => computed_value::T::bold(),
-                SpecifiedValue::Bolder =>
-                    context.builder.get_parent_font().clone_font_weight().bolder(),
-                SpecifiedValue::Lighter =>
-                    context.builder.get_parent_font().clone_font_weight().lighter(),
-                SpecifiedValue::System(_) => {
-                    <%self:nongecko_unreachable>
-                        context.cached_system_font.as_ref().unwrap().font_weight.clone()
-                    </%self:nongecko_unreachable>
-                }
-            }
-        }
-
-        #[inline]
-        fn from_computed_value(computed: &computed_value::T) -> Self {
-            SpecifiedValue::Weight(*computed)
-        }
-    }
-</%helpers:longhand>
+${helpers.predefined_type("font-weight",
+                          "FontWeight",
+                          initial_value="computed::FontWeight::normal()",
+                          initial_specified_value="specified::FontWeight::Normal",
+                          animation_value_type="ComputedValue",
+                          flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
+                          spec="https://drafts.csswg.org/css-fonts/#propdef-font-weight")}
 
 <%helpers:longhand name="font-size" animation_value_type="NonNegativeLength"
                    flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER"
@@ -2093,82 +1936,14 @@ https://drafts.csswg.org/css-fonts-4/#low-level-font-variation-settings-control-
     }
 </%helpers:longhand>
 
-<%helpers:longhand name="-moz-script-level" products="gecko" animation_value_type="none"
-                   predefined_type="Integer" gecko_ffi_name="mScriptLevel"
-                   spec="Internal (not web-exposed)"
-                   internal="True">
-    use std::fmt;
-    use style_traits::ToCss;
-
-
-    pub mod computed_value {
-        pub type T = i8;
-    }
-
-    #[inline]
-    pub fn get_initial_value() -> computed_value::T {
-        0
-    }
-
-    #[cfg_attr(feature = "gecko", derive(MallocSizeOf))]
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub enum SpecifiedValue {
-        Relative(i32),
-        Absolute(i32),
-        Auto
-    }
-
-    impl ToCss for SpecifiedValue {
-        fn to_css<W>(&self, dest: &mut W) -> fmt::Result where W: fmt::Write {
-            match *self {
-                SpecifiedValue::Auto => dest.write_str("auto"),
-                SpecifiedValue::Relative(rel) => rel.to_css(dest),
-                // can only be specified by pres attrs; should not
-                // serialize to anything else
-                SpecifiedValue::Absolute(_) => Ok(()),
-            }
-        }
-    }
-
-    impl ToComputedValue for SpecifiedValue {
-        type ComputedValue = computed_value::T;
-
-        fn to_computed_value(&self, cx: &Context) -> i8 {
-            use properties::longhands::_moz_math_display::SpecifiedValue as DisplayValue;
-            use std::{cmp, i8};
-
-            let int = match *self {
-                SpecifiedValue::Auto => {
-                    let parent = cx.builder.get_parent_font().clone__moz_script_level() as i32;
-                    let display = cx.builder.get_parent_font().clone__moz_math_display();
-                    if display == DisplayValue::inline {
-                        parent + 1
-                    } else {
-                        parent
-                    }
-                }
-                SpecifiedValue::Relative(rel) => {
-                    let parent = cx.builder.get_parent_font().clone__moz_script_level();
-                    parent as i32 + rel
-                }
-                SpecifiedValue::Absolute(abs) => abs,
-            };
-            cmp::min(int, i8::MAX as i32) as i8
-        }
-        fn from_computed_value(other: &computed_value::T) -> Self {
-            SpecifiedValue::Absolute(*other as i32)
-        }
-    }
-
-    pub fn parse<'i, 't>(_context: &ParserContext, input: &mut Parser<'i, 't>)
-                         -> Result<SpecifiedValue, ParseError<'i>> {
-        if let Ok(i) = input.try(|i| i.expect_integer()) {
-            return Ok(SpecifiedValue::Relative(i))
-        }
-        input.expect_ident_matching("auto")?;
-        Ok(SpecifiedValue::Auto)
-    }
-</%helpers:longhand>
+${helpers.predefined_type("-moz-script-level",
+                          "MozScriptLevel",
+                          0,
+                          animation_value_type="none",
+                          products="gecko",
+                          internal=True,
+                          gecko_ffi_name="mScriptLevel",
+                          spec="Internal (not web-exposed)")}
 
 ${helpers.single_keyword("-moz-math-display",
                          "inline block",
@@ -2402,6 +2177,15 @@ ${helpers.single_keyword("-moz-osx-font-smoothing",
                          spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/font-smooth)",
                          flags="APPLIES_TO_FIRST_LETTER APPLIES_TO_FIRST_LINE APPLIES_TO_PLACEHOLDER",
                          animation_value_type="discrete")}
+
+${helpers.predefined_type("-moz-font-smoothing-background-color",
+                          "RGBAColor",
+                          "RGBA::transparent()",
+                          animation_value_type="AnimatedRGBA",
+                          products="gecko",
+                          gecko_ffi_name="mFont.fontSmoothingBackgroundColor",
+                          internal=True,
+                          spec="None (Nonstandard internal property)")}
 
 ${helpers.predefined_type("-moz-min-font-size-ratio",
                           "Percentage",

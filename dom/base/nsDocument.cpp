@@ -172,6 +172,7 @@
 #include "mozilla/dom/HTMLMediaElement.h"
 #include "mozilla/dom/HTMLIFrameElement.h"
 #include "mozilla/dom/HTMLImageElement.h"
+#include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/MediaSource.h"
 #include "mozilla/dom/FlyWebService.h"
 
@@ -230,7 +231,6 @@
 #include "mozilla/ExtensionPolicyService.h"
 #include "nsFrame.h"
 #include "nsDOMCaretPosition.h"
-#include "nsIDOMHTMLTextAreaElement.h"
 #include "nsViewportInfo.h"
 #include "mozilla/StaticPtr.h"
 #include "nsITextControlElement.h"
@@ -2505,10 +2505,10 @@ nsDocument::MaybeDowngradePrincipal(nsIPrincipal* aPrincipal)
   // extension principal, in the case of extension content scripts).
   auto* basePrin = BasePrincipal::Cast(aPrincipal);
   if (basePrin->Is<ExpandedPrincipal>()) {
+    MOZ_DIAGNOSTIC_ASSERT(false, "Should never try to create a document with "
+                                 "an expanded principal");
+
     auto* expanded = basePrin->As<ExpandedPrincipal>();
-
-    MOZ_ASSERT(expanded->WhiteList().Length() > 0);
-
     return do_AddRef(expanded->WhiteList().LastElement());
   }
 
@@ -8172,6 +8172,8 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
 nsViewportInfo
 nsDocument::GetViewportInfo(const ScreenIntSize& aDisplaySize)
 {
+  MOZ_ASSERT(mPresShell);
+
   // Compute the CSS-to-LayoutDevice pixel scale as the product of the
   // widget scale and the full zoom.
   nsPresContext* context = mPresShell->GetPresContext();
@@ -10951,7 +10953,7 @@ nsIDocument::CaretPositionFromPoint(float aX, float aY)
   if (nodeIsAnonymous) {
     node = ptFrame->GetContent();
     nsIContent* nonanon = node->FindFirstNonChromeOnlyAccessContent();
-    nsCOMPtr<nsIDOMHTMLTextAreaElement> textArea = do_QueryInterface(nonanon);
+    HTMLTextAreaElement* textArea = HTMLTextAreaElement::FromContent(nonanon);
     nsITextControlFrame* textFrame = do_QueryFrame(nonanon->GetPrimaryFrame());
     nsNumberControlFrame* numberFrame = do_QueryFrame(nonanon->GetPrimaryFrame());
     if (textFrame || numberFrame) {

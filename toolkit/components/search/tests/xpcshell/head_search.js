@@ -10,6 +10,8 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://testing-common/AppInfo.jsm");
 Cu.import("resource://testing-common/httpd.js");
+XPCOMUtils.defineLazyModuleGetter(this, "TestUtils",
+                                  "resource://testing-common/TestUtils.jsm");
 
 const BROWSER_SEARCH_PREF = "browser.search.";
 const NS_APP_SEARCH_DIR = "SrchPlugns";
@@ -252,14 +254,14 @@ function isUSTimezone() {
 
 const kDefaultenginenamePref = "browser.search.defaultenginename";
 const kTestEngineName = "Test search engine";
-const kLocalePref = "general.useragent.locale";
+const REQ_LOCALES_CHANGED_TOPIC = "intl:requested-locales-changed";
 
 function getDefaultEngineName(isUS) {
   const nsIPLS = Ci.nsIPrefLocalizedString;
   // Copy the logic from nsSearchService
   let pref = kDefaultenginenamePref;
   if (isUS === undefined)
-    isUS = Services.prefs.getCharPref(kLocalePref) == "en-US" && isUSTimezone();
+    isUS = Services.locale.getRequestedLocale() == "en-US" && isUSTimezone();
   if (isUS) {
     pref += ".US";
   }
@@ -507,7 +509,7 @@ function asyncReInit() {
   let promise = waitForSearchNotification("reinit-complete");
 
   Services.search.QueryInterface(Ci.nsIObserver)
-          .observe(null, "nsPref:changed", kLocalePref);
+          .observe(null, REQ_LOCALES_CHANGED_TOPIC, null);
 
   return promise;
 }

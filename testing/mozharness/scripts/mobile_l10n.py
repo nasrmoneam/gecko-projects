@@ -125,6 +125,7 @@ class MobileSingleLocale(MockMixin, LocalesMixin, ReleaseMixin,
     def __init__(self, require_config_file=True):
         buildscript_kwargs = {
             'all_actions': [
+                "get-secrets",
                 "clobber",
                 "pull",
                 "clone-locales",
@@ -187,6 +188,20 @@ class MobileSingleLocale(MockMixin, LocalesMixin, ReleaseMixin,
         if 'MOZ_SIGNING_SERVERS' in os.environ:
             repack_env['MOZ_SIGN_CMD'] = \
                 subprocess.list2cmdline(self.query_moz_sign_cmd(formats=['jar']))
+
+        if self.query_is_nightly() or self.query_is_nightly_promotion():
+            if self.query_is_nightly():
+                # Nightly promotion needs to set update_channel but not do all
+                # the 'IS_NIGHTLY' automation parts, like uploading symbols
+                # (for now).
+                repack_env["IS_NIGHTLY"] = "yes"
+            # In branch_specifics.py we might set update_channel explicitly.
+            if c.get('update_channel'):
+                repack_env["MOZ_UPDATE_CHANNEL"] = c['update_channel']
+            else:  # Let's just give the generic channel based on branch.
+                repack_env["MOZ_UPDATE_CHANNEL"] = \
+                    "nightly-%s" % (c['branch'],)
+
         self.repack_env = repack_env
         return self.repack_env
 
@@ -428,26 +443,28 @@ class MobileSingleLocale(MockMixin, LocalesMixin, ReleaseMixin,
     def _setup_configure(self, buildid=None):
         dirs = self.query_abs_dirs()
         env = self.query_repack_env()
-        make = self.query_exe("make")
-        if self.run_command_m([make, "-f", "client.mk", "configure"],
+
+        mach = os.path.join(dirs['abs_mozilla_dir'], 'mach')
+
+        if self.run_command_m([sys.executable, mach, 'configure'],
                               cwd=dirs['abs_mozilla_dir'],
                               env=env,
                               error_list=MakefileErrorList):
             self.fatal("Configure failed!")
 
-        # Run 'make export' in objdir/config to get nsinstall
-        self.run_command_m([make, 'export'],
-                           cwd=os.path.join(dirs['abs_objdir'], 'config'),
-                           env=env,
-                           error_list=MakefileErrorList,
-                           halt_on_failure=True)
+        # Invoke the build system to get nsinstall and buildid.h.
+        targets = [
+            'config/export',
+            'buildid.h',
+        ]
 
-        # Run 'make buildid.h' in objdir/ to get the buildid.h file
-        cmd = [make, 'buildid.h']
+        # Force the buildid if one is defined.
         if buildid:
-            cmd.append('MOZ_BUILD_DATE=%s' % str(buildid))
-        self.run_command_m(cmd,
-                           cwd=dirs['abs_objdir'],
+            env = dict(env)
+            env['MOZ_BUILD_DATE'] = str(buildid)
+
+        self.run_command_m([sys.executable, mach, 'build'] + targets,
+                           cwd=dirs['abs_mozilla_dir'],
                            env=env,
                            error_list=MakefileErrorList,
                            halt_on_failure=True)

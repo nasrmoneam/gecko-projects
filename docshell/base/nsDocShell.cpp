@@ -946,10 +946,15 @@ nsDocShell::DestroyChildren()
   nsDocLoader::DestroyChildren();
 }
 
+NS_IMPL_CYCLE_COLLECTION_INHERITED(nsDocShell,
+                                   nsDocLoader,
+                                   mSessionStorageManager,
+                                   mScriptGlobal)
+
 NS_IMPL_ADDREF_INHERITED(nsDocShell, nsDocLoader)
 NS_IMPL_RELEASE_INHERITED(nsDocShell, nsDocLoader)
 
-NS_INTERFACE_MAP_BEGIN(nsDocShell)
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsDocShell)
   NS_INTERFACE_MAP_ENTRY(nsIDocShell)
   NS_INTERFACE_MAP_ENTRY(nsIDocShellTreeItem)
   NS_INTERFACE_MAP_ENTRY(nsIWebNavigation)
@@ -9962,19 +9967,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
     isTargetTopLevelDocShell = true;
   }
 
-  nsIDocument* doc = mContentViewer ? mContentViewer->GetDocument()
-                                    : nullptr;
-  if (!nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
-        aURI,
-        contentType,
-        aTriggeringPrincipal,
-        doc,
-        (aLoadType == LOAD_NORMAL_EXTERNAL),
-        !aFileName.IsVoid())) {
-    // logging to console happens within AllowTopLevelNavigationToDataURI
-    return NS_OK;
-  }
-
   // If there's no targetDocShell, that means we are about to create a new
   // window (or aWindowTarget is empty). Perform a content policy check before
   // creating the window. Please note for all other docshell loads
@@ -10102,6 +10094,9 @@ nsDocShell::InternalLoad(nsIURI* aURI,
       } while (treeItem);
     }
   }
+
+  nsIDocument* doc = mContentViewer ? mContentViewer->GetDocument()
+                                    : nullptr;
 
   const bool isDocumentAuxSandboxed = doc &&
     (doc->GetSandboxFlags() & SANDBOXED_AUXILIARY_NAVIGATION);
@@ -11187,6 +11182,7 @@ nsDocShell::DoURILoad(nsIURI* aURI,
   if (aPrincipalToInherit) {
     loadInfo->SetPrincipalToInherit(aPrincipalToInherit);
   }
+  loadInfo->SetLoadTriggeredFromExternal(aLoadFromExternal);
 
   // We have to do this in case our OriginAttributes are different from the
   // OriginAttributes of the parent document. Or in case there isn't a

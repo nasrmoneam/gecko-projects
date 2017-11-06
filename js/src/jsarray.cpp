@@ -1024,8 +1024,7 @@ AddLengthProperty(JSContext* cx, HandleArrayObject obj)
 
     return NativeObject::addAccessorProperty(cx, obj, lengthId,
                                              array_length_getter, array_length_setter,
-                                             JSPROP_PERMANENT | JSPROP_SHADOWABLE,
-                                             0, /* allowDictionary = */ false);
+                                             JSPROP_PERMANENT | JSPROP_SHADOWABLE);
 }
 
 static bool
@@ -2208,6 +2207,9 @@ js::intrinsic_ArrayNativeSort(JSContext* cx, unsigned argc, Value* vp)
             }
         }
 
+        // We can omit the type update when neither collecting the elements
+        // nor calling the default comparator can execute a (getter) function
+        // that might run user code.
         ShouldUpdateTypes updateTypes = !extraIndexed && (allStrings || allInts)
                                         ? ShouldUpdateTypes::DontUpdate
                                         : ShouldUpdateTypes::Update;

@@ -49,6 +49,10 @@ job-template:
          android-api-16-nightly:
            in-tree: android-build
          win.*: null
+   secrets:
+      by-build-platform:
+         default: false
+         android-api-16-nightly: true
    toolchains:
       by-build-platform:
          default: []
