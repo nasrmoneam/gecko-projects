@@ -1784,7 +1784,7 @@ class PackageFrontend(MachCommandBase):
         import requests
         import shutil
 
-        from taskgraph.generator import Kind
+        from taskgraph.generator import load_graph_config, Kind
         from taskgraph.util.taskcluster import (
             get_artifact_url,
             list_artifacts,
@@ -1905,15 +1905,14 @@ class PackageFrontend(MachCommandBase):
             }
 
             # TODO: move to the taskcluster package
-            def tasks(kind):
-                kind_path = mozpath.join(self.topsrcdir, 'taskcluster', 'ci', kind)
-                with open(mozpath.join(kind_path, 'kind.yml')) as f:
-                    config = yaml.load(f)
-                    tasks = Kind(kind, kind_path, config).load_tasks(params, {})
-                    return {
-                        task.task['metadata']['name']: task
-                        for task in tasks
-                    }
+            def tasks(kind_name):
+                root_path = mozpath.join(self.topsrcdir, 'taskcluster', 'ci')
+                graph_config = load_graph_config(root_path)
+                tasks = Kind.load(root_path, graph_config, kind_name).load_tasks(params, {})
+                return {
+                    task.task['metadata']['name']: task
+                    for task in tasks
+                }
 
             toolchains = tasks('toolchain')
 
@@ -2402,12 +2401,15 @@ class StaticAnalysis(MachCommandBase):
                                        "clang-tidy")
         self._clang_tidy_path = mozpath.join(clang_tidy_path, "clang", "bin",
                                              "clang-tidy" + config.substs.get('BIN_SUFFIX', ''))
+        self._clang_format_path = mozpath.join(clang_tidy_path, "clang", "bin",
+                                             "clang-format" + config.substs.get('BIN_SUFFIX', ''))
         self._clang_apply_replacements = mozpath.join(clang_tidy_path, "clang", "bin",
                                                       "clang-apply-replacements" + config.substs.get('BIN_SUFFIX', ''))
         self._run_clang_tidy_path = mozpath.join(clang_tidy_path, "clang", "share",
                                                  "clang", "run-clang-tidy.py")
 
         if os.path.exists(self._clang_tidy_path) and \
+           os.path.exists(self._clang_format_path) and \
            os.path.exists(self._clang_apply_replacements) and \
            os.path.exists(self._run_clang_tidy_path) and \
            not force:
@@ -2475,6 +2477,7 @@ class StaticAnalysis(MachCommandBase):
                             'the expected output')
 
         assert os.path.exists(self._clang_tidy_path)
+        assert os.path.exists(self._clang_format_path)
         assert os.path.exists(self._clang_apply_replacements)
         assert os.path.exists(self._run_clang_tidy_path)
         return 0

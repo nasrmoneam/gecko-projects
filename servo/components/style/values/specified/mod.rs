@@ -30,7 +30,7 @@ pub use self::align::{AlignItems, AlignJustifyContent, AlignJustifySelf, Justify
 pub use self::background::{BackgroundRepeat, BackgroundSize};
 pub use self::border::{BorderCornerRadius, BorderImageSlice, BorderImageWidth};
 pub use self::border::{BorderImageSideWidth, BorderRadius, BorderSideWidth, BorderSpacing};
-pub use self::font::{FontWeight, MozScriptLevel, MozScriptMinSize, XTextZoom};
+pub use self::font::{FontSize, FontSizeAdjust, FontWeight, MozScriptLevel, MozScriptMinSize, XTextZoom};
 pub use self::box_::{AnimationIterationCount, AnimationName, ScrollSnapType, VerticalAlign};
 pub use self::color::{Color, ColorPropertyValue, RGBAColor};
 pub use self::effects::{BoxShadow, Filter, SimpleShadow};
@@ -76,6 +76,7 @@ pub mod length;
 pub mod percentage;
 pub mod position;
 pub mod rect;
+pub mod source_size_list;
 pub mod svg;
 pub mod table;
 pub mod text;

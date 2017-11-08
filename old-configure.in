@@ -1081,7 +1081,7 @@ case "$target" in
     if $CC -E - -dM </dev/null | grep __ELF__ >/dev/null; then
         DSO_PIC_CFLAGS='-fPIC -DPIC'
         DSO_LDOPTS='-shared'
-        BIN_FLAGS='-Wl,--export-dynamic'
+        MOZ_PROGRAM_LDFLAGS="$MOZ_PROGRAM_LDFLAGS -Wl,--export-dynamic"
     else
         DSO_PIC_CFLAGS='-fPIC -DPIC'
         DSO_LDOPTS='-shared'
@@ -2215,12 +2215,6 @@ if test -n "$MOZ_MULET"; then
     AC_DEFINE(MOZ_MULET)
 fi
 
-# Propagate feature switches for code written in rust from confvars.sh
-if test -n "$MOZ_RUST_URLPARSE"; then
-    AC_DEFINE(MOZ_RUST_URLPARSE)
-    AC_SUBST(MOZ_RUST_URLPARSE)
-fi
-
 AC_SUBST(MOZ_PHOENIX)
 AC_SUBST(MOZ_XULRUNNER)
 AC_SUBST(MOZ_MULET)
@@ -3219,7 +3213,14 @@ case "$CPU_ARCH" in
   x86|x86_64)
       MOZ_FFVPX=1
       dnl Use same conditional as MOZ_LIBAV_FFT to enable FFmpeg's ffvpx assembly decoder.
-      FFVPX_ASFLAGS=$LIBAV_FFT_ASFLAGS
+      if test -n "$LIBAV_FFT_ASFLAGS"; then
+          FFVPX_ASFLAGS=$LIBAV_FFT_ASFLAGS
+      else
+          dnl On x86 system with assembly optimizations disabled, the ffvp9 and
+          dnl ffvp8 decoders give worse performance than libvpx ones. So we only
+          dnl enable the FFmpeg FLAC decoder on those machines.
+          MOZ_FFVPX_FLACONLY=1
+      fi
   ;;
   arm*|aarch64)
       MOZ_FFVPX=1
@@ -4126,6 +4127,48 @@ fi # COMPILE_ENVIRONMENT
 
 dnl ========================================================
 dnl =
+dnl = Build depencency options
+dnl =
+dnl ========================================================
+MOZ_ARG_HEADER(Build dependencies)
+
+if test "$COMPILE_ENVIRONMENT"; then
+if test "$GNU_CC" -a "$GNU_CXX"; then
+  _DEPEND_CFLAGS='-MD -MP -MF $(MDDEPDIR)/$(@F).pp'
+else
+  dnl Don't override this for MSVC
+  if test -z "$_WIN32_MSVC"; then
+    _USE_CPP_INCLUDE_FLAG=
+    _DEFINES_CFLAGS='$(ACDEFINES) -D_MOZILLA_CONFIG_H_ -DMOZILLA_CLIENT'
+    _DEFINES_CXXFLAGS='$(ACDEFINES) -D_MOZILLA_CONFIG_H_ -DMOZILLA_CLIENT'
+  else
+    echo '#include <stdio.h>' > dummy-hello.c
+    changequote(,)
+    dnl This output is localized, split at the first double space or colon and space.
+    _CL_PREFIX_REGEX="^\([^:]*:.*[ :] \)\(.*\\\stdio.h\)$"
+    CL_INCLUDES_PREFIX=`${CC} -showIncludes -c -Fonul dummy-hello.c 2>&1 | sed -ne 's/'"$_CL_PREFIX_REGEX"'/\1/p'`
+    _CL_STDIO_PATH=`${CC} -showIncludes -c -Fonul dummy-hello.c 2>&1 | sed -ne 's/'"$_CL_PREFIX_REGEX"'/\2/p'`
+    changequote([,])
+    if ! test -e "$_CL_STDIO_PATH"; then
+        AC_MSG_ERROR([Unable to parse cl -showIncludes prefix. This compiler's locale has an unsupported formatting.])
+    fi
+    if test -z "$CL_INCLUDES_PREFIX"; then
+        AC_MSG_ERROR([Cannot find cl -showIncludes prefix.])
+    fi
+    AC_SUBST(CL_INCLUDES_PREFIX)
+    rm -f dummy-hello.c
+
+    dnl Make sure that the build system can handle non-ASCII characters
+    dnl in environment variables to prevent it from breaking silently on
+    dnl non-English systems.
+    NONASCII=$'\241\241'
+    AC_SUBST(NONASCII)
+  fi
+fi
+fi # COMPILE_ENVIRONMENT
+
+dnl ========================================================
+dnl =
 dnl = Static Build Options
 dnl =
 dnl ========================================================
@@ -4439,7 +4482,6 @@ AC_SUBST(RCFLAGS)
 AC_SUBST(WINDRES)
 AC_SUBST(IMPLIB)
 AC_SUBST(FILTER)
-AC_SUBST(BIN_FLAGS)
 AC_SUBST(MOZ_AUTH_EXTENSION)
 AC_SUBST(MOZ_PREF_EXTENSIONS)
 AC_SUBST_LIST(MOZ_DEBUG_LDFLAGS)
@@ -4737,6 +4779,7 @@ HOST_CFLAGS=`echo \
 HOST_CXXFLAGS=`echo \
     $HOST_CXXFLAGS`
 
+AC_SUBST(_DEPEND_CFLAGS)
 AC_SUBST(MOZ_SYSTEM_JPEG)
 AC_SUBST(MOZ_SYSTEM_PNG)
 AC_SUBST(MOZ_SYSTEM_BZ2)
@@ -4799,7 +4842,6 @@ AC_SUBST(HAVE_X86_AVX2)
 AC_SUBST(HAVE_ALTIVEC)
 AC_SUBST(GCC_USE_GNU_LD)
 
-AC_SUBST(WRAP_LDFLAGS)
 AC_SUBST(MKSHLIB)
 AC_SUBST(MKCSHLIB)
 AC_SUBST_LIST(DSO_CFLAGS)
@@ -4993,7 +5035,6 @@ fi
 
 if test "$COMPILE_ENVIRONMENT" -a "$MOZ_WIDGET_TOOLKIT"; then
 
-export WRAP_LDFLAGS
 
 dnl ========================================================
 dnl = Setup a nice relatively clean build environment for

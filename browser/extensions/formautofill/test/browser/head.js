@@ -6,7 +6,7 @@
             sleep, expectPopupOpen, openPopupOn, expectPopupClose, closePopup, clickDoorhangerButton,
             getAddresses, saveAddress, removeAddresses, saveCreditCard,
             getDisplayedPopupItems, getDoorhangerCheckbox, waitForMasterPasswordDialog,
-            getNotification, getDoorhangerButton */
+            getNotification, getDoorhangerButton, removeAllRecords */
 
 "use strict";
 
@@ -19,7 +19,7 @@ const EDIT_CREDIT_CARD_DIALOG_URL = "chrome://formautofill/content/editCreditCar
 const BASE_URL = "http://mochi.test:8888/browser/browser/extensions/formautofill/test/browser/";
 const FORM_URL = "http://mochi.test:8888/browser/browser/extensions/formautofill/test/browser/autocomplete_basic.html";
 const CREDITCARD_FORM_URL =
-  "http://mochi.test:8888/browser/browser/extensions/formautofill/test/browser/autocomplete_creditcard_basic.html";
+  "https://example.org/browser/browser/extensions/formautofill/test/browser/autocomplete_creditcard_basic.html";
 const FTU_PREF = "extensions.formautofill.firstTimeUse";
 const ENABLED_AUTOFILL_ADDRESSES_PREF = "extensions.formautofill.addresses.enabled";
 const AUTOFILL_CREDITCARDS_AVAILABLE_PREF = "extensions.formautofill.creditCards.available";
@@ -102,6 +102,7 @@ async function sleep(ms = 500) {
 }
 
 async function focusAndWaitForFieldsIdentified(browser, selector) {
+  info("expecting the target input being focused and indentified");
   /* eslint no-shadow: ["error", { "allow": ["selector", "previouslyFocused", "previouslyIdentified"] }] */
   const {previouslyFocused, previouslyIdentified} = await ContentTask.spawn(browser, {selector}, async function({selector}) {
     Components.utils.import("resource://gre/modules/FormLikeFactory.jsm");
@@ -176,6 +177,7 @@ async function closePopup(browser) {
 }
 
 function getRecords(data) {
+  info(`expecting record retrievals: ${data.collectionName}`);
   return new Promise(resolve => {
     Services.cpmm.addMessageListener("FormAutofill:Records", function getResult(result) {
       Services.cpmm.removeMessageListener("FormAutofill:Records", getResult);
@@ -194,11 +196,13 @@ function getCreditCards() {
 }
 
 function saveAddress(address) {
+  info("expecting address saved");
   Services.cpmm.sendAsyncMessage("FormAutofill:SaveAddress", {address});
   return TestUtils.topicObserved("formautofill-storage-changed");
 }
 
 function saveCreditCard(creditcard) {
+  info("expecting credit card saved");
   let creditcardClone = Object.assign({}, creditcard);
   Services.cpmm.sendAsyncMessage("FormAutofill:SaveCreditCard", {
     creditcard: creditcardClone,
@@ -207,11 +211,13 @@ function saveCreditCard(creditcard) {
 }
 
 function removeAddresses(guids) {
+  info("expecting address removed");
   Services.cpmm.sendAsyncMessage("FormAutofill:RemoveAddresses", {guids});
   return TestUtils.topicObserved("formautofill-storage-changed");
 }
 
 function removeCreditCards(guids) {
+  info("expecting credit card removed");
   Services.cpmm.sendAsyncMessage("FormAutofill:RemoveCreditCards", {guids});
   return TestUtils.topicObserved("formautofill-storage-changed");
 }
@@ -236,6 +242,7 @@ async function clickDoorhangerButton(button, index) {
     EventUtils.synthesizeMouseAtCenter(getNotification()[button], {});
   } else if (button == MENU_BUTTON) {
     // Click the dropmarker arrow and wait for the menu to show up.
+    info("expecting notification menu button present");
     await BrowserTestUtils.waitForCondition(() => getNotification().menubutton);
     await sleep(2000); // menubutton needs extra time for binding
     let notification = getNotification();
@@ -243,11 +250,13 @@ async function clickDoorhangerButton(button, index) {
     let dropdownPromise =
       BrowserTestUtils.waitForEvent(notification.menupopup, "popupshown");
     await EventUtils.synthesizeMouseAtCenter(notification.menubutton, {});
+    info("expecting notification popup show up");
     await dropdownPromise;
 
     let actionMenuItem = notification.querySelectorAll("menuitem")[index];
     await EventUtils.synthesizeMouseAtCenter(actionMenuItem, {});
   }
+  info("expecting notification popup hidden");
   await popuphidden;
 }
 
@@ -264,6 +273,7 @@ function getDoorhangerButton(button) {
 // Wait for the master password dialog to popup and enter the password to log in
 // if "login" is "true" or dismiss it directly if otherwise.
 function waitForMasterPasswordDialog(login = false) {
+  info("expecting master password dialog loaded");
   let dialogShown = TestUtils.topicObserved("common-dialog-loaded");
   return dialogShown.then(([subject]) => {
     let dialog = subject.Dialog;
@@ -277,7 +287,7 @@ function waitForMasterPasswordDialog(login = false) {
   });
 }
 
-registerCleanupFunction(async function() {
+async function removeAllRecords() {
   let addresses = await getAddresses();
   if (addresses.length) {
     await removeAddresses(addresses.map(address => address.guid));
@@ -287,4 +297,6 @@ registerCleanupFunction(async function() {
   if (creditCards.length) {
     await removeCreditCards(creditCards.map(cc => cc.guid));
   }
-});
+}
+
+registerCleanupFunction(removeAllRecords);

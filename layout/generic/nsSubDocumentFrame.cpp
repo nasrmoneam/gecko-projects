@@ -462,7 +462,7 @@ nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     if (!mPreviouslyNeededLayer ||
         mPreviouslyNeededLayer.value() != needsOwnLayer) {
       dirty = visible;
-      aBuilder->MarkFrameModifiedDuringBuilding(this);
+      aBuilder->MarkCurrentFrameModifiedDuringBuilding();
     }
     mPreviouslyNeededLayer = Some(needsOwnLayer);
 
@@ -473,7 +473,7 @@ nsSubDocumentFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
     // subdocs in advance.
     if (mPreviousCaret != aBuilder->GetCaretFrame()) {
       dirty = visible;
-      aBuilder->MarkFrameModifiedDuringBuilding(this);
+      aBuilder->MarkCurrentFrameModifiedDuringBuilding();
     }
     mPreviousCaret = aBuilder->GetCaretFrame();
   }
@@ -997,7 +997,7 @@ static nsView*
 BeginSwapDocShellsForViews(nsView* aSibling);
 
 void
-nsSubDocumentFrame::DestroyFrom(nsIFrame* aDestructRoot)
+nsSubDocumentFrame::DestroyFrom(nsIFrame* aDestructRoot, PostDestroyData& aPostDestroyData)
 {
   if (mPostedReflowCallback) {
     PresContext()->PresShell()->CancelReflowCallback(this);
@@ -1031,7 +1031,7 @@ nsSubDocumentFrame::DestroyFrom(nsIFrame* aDestructRoot)
     }
   }
 
-  nsAtomicContainerFrame::DestroyFrom(aDestructRoot);
+  nsAtomicContainerFrame::DestroyFrom(aDestructRoot, aPostDestroyData);
 }
 
 CSSIntSize

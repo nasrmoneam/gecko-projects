@@ -97,6 +97,8 @@ public:
 
   void AddRawFont(wr::FontKey aKey, wr::Vec_u8& aBytes, uint32_t aIndex);
 
+  void AddFontDescriptor(wr::FontKey aKey, wr::Vec_u8& aBytes, uint32_t aIndex);
+
   void DeleteFont(wr::FontKey aKey);
 
   void AddFontInstance(wr::FontInstanceKey aKey,
@@ -245,7 +247,8 @@ public:
                                    const float* aBottomMargin,
                                    const float* aLeftMargin,
                                    const StickyOffsetBounds& aVerticalBounds,
-                                   const StickyOffsetBounds& aHorizontalBounds);
+                                   const StickyOffsetBounds& aHorizontalBounds,
+                                   const wr::LayoutVector2D& aAppliedOffset);
   void PushStickyFrame(const wr::WrStickyId& aStickyId,
                        const DisplayItemClipChain* aParent);
   void PopStickyFrame(const DisplayItemClipChain* aParent);
