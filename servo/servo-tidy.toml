@@ -34,9 +34,13 @@ num = []
 [ignore]
 # Ignored packages with duplicated versions
 packages = [
-  "error-chain",
   "bitflags",
-  "libloading", # Conflicting version is only used at build-time by geckolib.
+  "cookie",
+  "lazy_static",
+  "mime",
+  "semver",
+  "toml",
+  "unicase",
 ]
 # Files that are ignored for all tidy and lint checks.
 files = [

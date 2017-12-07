@@ -13,9 +13,11 @@
 
 #include "MediaConduitInterface.h"
 #include "MediaEngineWrapper.h"
+#include "RtpSourceObserver.h"
 
 // Audio Engine Includes
 #include "webrtc/common_types.h"
+#include "webrtc/modules/audio_device/include/fake_audio_device.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_volume_control.h"
 #include "webrtc/voice_engine/include/voe_codec.h"
@@ -49,7 +51,8 @@ NTPtoDOMHighResTimeStamp(uint32_t ntpHigh, uint32_t ntpLow);
  *  - media-source and target to external transport
  */
 class WebrtcAudioConduit: public AudioSessionConduit
-	      		, public webrtc::Transport
+                        , public webrtc::Transport
+                        , public webrtc::RtpPacketObserver
 {
 public:
   //VoiceEngine defined constant for Payload Name Size.
@@ -92,11 +95,12 @@ public:
    */
   virtual MediaConduitErrorCode ConfigureRecvMediaCodecs(
     const std::vector<AudioCodecConfig* >& codecConfigList) override;
-  /**
-   * Function to enable the audio level extension
-   * @param enabled: enable extension
-   */
-  virtual MediaConduitErrorCode EnableAudioLevelExtension(bool enabled, uint8_t id) override;
+
+  MediaConduitErrorCode
+  EnableAudioLevelExtension(bool aEnabled,
+                            uint8_t aId,
+                            bool aDirectionIsSend) override;
+
   virtual MediaConduitErrorCode EnableMIDExtension(bool enabled, uint8_t id) override;
 
   /**
@@ -171,6 +175,7 @@ public:
 
   explicit WebrtcAudioConduit():
                       mVoiceEngine(nullptr),
+                      mFakeAudioDevice(new webrtc::FakeAudioDeviceModule()),
                       mTransportMonitor("WebrtcAudioConduit"),
                       mTransmitterTransport(nullptr),
                       mReceiverTransport(nullptr),
@@ -250,6 +255,18 @@ public:
   bool InsertDTMFTone(int channel, int eventCode, bool outOfBand,
                       int lengthMs, int attenuationDb) override;
 
+  void GetRtpSources(const int64_t aTimeNow,
+                     nsTArray<dom::RTCRtpSourceEntry>& outSources) override;
+
+  void OnRtpPacket(const webrtc::WebRtcRTPHeader* aRtpHeader,
+                   const int64_t aTimestamp,
+                   const uint32_t aJitter) override;
+
+  // test-only: inserts fake CSRCs and audio level data
+  void InsertAudioLevelForContributingSource(uint32_t aSource,
+                                             int64_t aTimestamp,
+                                             bool aHasLevel,
+                                             uint8_t aLevel);
 private:
   WebrtcAudioConduit(const WebrtcAudioConduit& other) = delete;
   void operator=(const WebrtcAudioConduit& other) = delete;
@@ -282,6 +299,7 @@ private:
   void DumpCodecDB() const;
 
   webrtc::VoiceEngine* mVoiceEngine;
+  UniquePtr<webrtc::FakeAudioDeviceModule> mFakeAudioDevice;
   mozilla::ReentrantMonitor mTransportMonitor;
   RefPtr<TransportInterface> mTransmitterTransport;
   RefPtr<TransportInterface> mReceiverTransport;
@@ -319,8 +337,12 @@ private:
 
   uint32_t mLastTimestamp;
 
+  webrtc::AudioFrame mAudioFrame; // for output pulls
+
   uint32_t mSamples;
   uint32_t mLastSyncLog;
+
+  RtpSourceObserver mRtpSourceObserver;
 };
 
 } // end namespace

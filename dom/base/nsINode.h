@@ -419,6 +419,12 @@ public:
         IsNodeOfType(eDATA_NODE));
   }
 
+  bool
+  IsSlotable() const
+  {
+    return IsElement() || IsNodeOfType(eTEXT);
+  }
+
   virtual JSObject* WrapObject(JSContext *aCx, JS::Handle<JSObject*> aGivenProto) override;
 
   /**
@@ -1340,9 +1346,15 @@ public:
     GetTextContentInternal(aTextContent, aError);
   }
   void SetTextContent(const nsAString& aTextContent,
+                      nsIPrincipal& aSubjectPrincipal,
                       mozilla::ErrorResult& aError)
   {
-    SetTextContentInternal(aTextContent, aError);
+    SetTextContentInternal(aTextContent, &aSubjectPrincipal, aError);
+  }
+  void SetTextContent(const nsAString& aTextContent,
+                      mozilla::ErrorResult& aError)
+  {
+    SetTextContentInternal(aTextContent, nullptr, aError);
   }
 
   mozilla::dom::Element* QuerySelector(const nsAString& aSelector,
@@ -1993,6 +2005,7 @@ protected:
   virtual void GetTextContentInternal(nsAString& aTextContent,
                                       mozilla::OOMReporter& aError);
   virtual void SetTextContentInternal(const nsAString& aTextContent,
+                                      nsIPrincipal* aSubjectPrincipal,
                                       mozilla::ErrorResult& aError)
   {
   }

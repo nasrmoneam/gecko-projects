@@ -96,16 +96,12 @@ PrincipalInfoToPrincipal(const PrincipalInfo& aPrincipalInfo,
         return nullptr;
       }
 
-      // When the principal is serialized, the origin is extract from it. This
-      // can fail, and in case, here we will havea Tvoid_t. If we have a string,
-      // it must match with what the_new_principal.getOrigin returns.
-      if (info.originNoSuffix().type() == ContentPrincipalInfoOriginNoSuffix::TnsCString) {
-        nsAutoCString originNoSuffix;
-        rv = principal->GetOriginNoSuffix(originNoSuffix);
-        if (NS_WARN_IF(NS_FAILED(rv)) ||
-            !info.originNoSuffix().get_nsCString().Equals(originNoSuffix)) {
-          MOZ_CRASH("If the origin was in the contentPrincipalInfo, it must be available when deserialized");
-        }
+      // Origin must match what the_new_principal.getOrigin returns.
+      nsAutoCString originNoSuffix;
+      rv = principal->GetOriginNoSuffix(originNoSuffix);
+      if (NS_WARN_IF(NS_FAILED(rv)) ||
+          !info.originNoSuffix().Equals(originNoSuffix)) {
+        MOZ_CRASH("Origin must be available when deserialized");
       }
 
       return principal.forget();
@@ -232,18 +228,14 @@ PrincipalToPrincipalInfo(nsIPrincipal* aPrincipal,
     return rv;
   }
 
-  ContentPrincipalInfoOriginNoSuffix infoOriginNoSuffix;
-
   nsCString originNoSuffix;
   rv = aPrincipal->GetOriginNoSuffix(originNoSuffix);
   if (NS_WARN_IF(NS_FAILED(rv))) {
-    infoOriginNoSuffix = void_t();
-  } else {
-    infoOriginNoSuffix = originNoSuffix;
+    return rv;
   }
 
   *aPrincipalInfo = ContentPrincipalInfo(aPrincipal->OriginAttributesRef(),
-                                         infoOriginNoSuffix, spec);
+                                         originNoSuffix, spec);
   return NS_OK;
 }
 
@@ -387,6 +379,7 @@ LoadInfoToLoadInfoArgs(nsILoadInfo *aLoadInfo,
       aLoadInfo->GetUpgradeInsecureRequests(),
       aLoadInfo->GetVerifySignedContent(),
       aLoadInfo->GetEnforceSRI(),
+      aLoadInfo->GetForceAllowDataURI(),
       aLoadInfo->GetForceInheritPrincipalDropped(),
       aLoadInfo->GetInnerWindowID(),
       aLoadInfo->GetOuterWindowID(),
@@ -405,6 +398,7 @@ LoadInfoToLoadInfoArgs(nsILoadInfo *aLoadInfo,
       aLoadInfo->GetForcePreflight(),
       aLoadInfo->GetIsPreflight(),
       aLoadInfo->GetLoadTriggeredFromExternal(),
+      aLoadInfo->GetServiceWorkerTaintingSynthesized(),
       aLoadInfo->GetForceHSTSPriming(),
       aLoadInfo->GetMixedContentWouldBlock(),
       aLoadInfo->GetIsHSTSPriming(),
@@ -495,6 +489,7 @@ LoadInfoArgsToLoadInfo(const OptionalLoadInfoArgs& aOptionalLoadInfoArgs,
                           loadInfoArgs.upgradeInsecureRequests(),
                           loadInfoArgs.verifySignedContent(),
                           loadInfoArgs.enforceSRI(),
+                          loadInfoArgs.forceAllowDataURI(),
                           loadInfoArgs.forceInheritPrincipalDropped(),
                           loadInfoArgs.innerWindowID(),
                           loadInfoArgs.outerWindowID(),
@@ -513,6 +508,7 @@ LoadInfoArgsToLoadInfo(const OptionalLoadInfoArgs& aOptionalLoadInfoArgs,
                           loadInfoArgs.forcePreflight(),
                           loadInfoArgs.isPreflight(),
                           loadInfoArgs.loadTriggeredFromExternal(),
+                          loadInfoArgs.serviceWorkerTaintingSynthesized(),
                           loadInfoArgs.forceHSTSPriming(),
                           loadInfoArgs.mixedContentWouldBlock(),
                           loadInfoArgs.isHSTSPriming(),

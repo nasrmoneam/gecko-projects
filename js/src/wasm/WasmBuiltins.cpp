@@ -267,28 +267,34 @@ WasmReportTrap(int32_t trapIndex)
       case Trap::OutOfBounds:
         errorNumber = JSMSG_WASM_OUT_OF_BOUNDS;
         break;
+      case Trap::UnalignedAccess:
+        errorNumber = JSMSG_WASM_UNALIGNED_ACCESS;
+        break;
       case Trap::StackOverflow:
         errorNumber = JSMSG_OVER_RECURSED;
         break;
+      case Trap::ThrowReported:
+        // Error was already reported under another name.
+        return;
       default:
         MOZ_CRASH("unexpected trap");
     }
 
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, errorNumber);
+    JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, errorNumber);
 }
 
 static void
 WasmReportOutOfBounds()
 {
     JSContext* cx = TlsContext.get();
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_OUT_OF_BOUNDS);
+    JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_OUT_OF_BOUNDS);
 }
 
 static void
 WasmReportUnalignedAccess()
 {
     JSContext* cx = TlsContext.get();
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_WASM_UNALIGNED_ACCESS);
+    JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr, JSMSG_WASM_UNALIGNED_ACCESS);
 }
 
 static int32_t
@@ -500,27 +506,6 @@ AddressOf(SymbolicAddress imm, ABIFunctionType* abiType)
       case SymbolicAddress::aeabi_uidivmod:
         *abiType = Args_General2;
         return FuncCast(__aeabi_uidivmod, *abiType);
-      case SymbolicAddress::AtomicCmpXchg:
-        *abiType = Args_General5;
-        return FuncCast(atomics_cmpxchg_asm_callout, *abiType);
-      case SymbolicAddress::AtomicXchg:
-        *abiType = Args_General4;
-        return FuncCast(atomics_xchg_asm_callout, *abiType);
-      case SymbolicAddress::AtomicFetchAdd:
-        *abiType = Args_General4;
-        return FuncCast(atomics_add_asm_callout, *abiType);
-      case SymbolicAddress::AtomicFetchSub:
-        *abiType = Args_General4;
-        return FuncCast(atomics_sub_asm_callout, *abiType);
-      case SymbolicAddress::AtomicFetchAnd:
-        *abiType = Args_General4;
-        return FuncCast(atomics_and_asm_callout, *abiType);
-      case SymbolicAddress::AtomicFetchOr:
-        *abiType = Args_General4;
-        return FuncCast(atomics_or_asm_callout, *abiType);
-      case SymbolicAddress::AtomicFetchXor:
-        *abiType = Args_General4;
-        return FuncCast(atomics_xor_asm_callout, *abiType);
 #endif
       case SymbolicAddress::ModD:
         *abiType = Args_Double_DoubleDouble;
@@ -585,6 +570,15 @@ AddressOf(SymbolicAddress imm, ABIFunctionType* abiType)
       case SymbolicAddress::CurrentMemory:
         *abiType = Args_General1;
         return FuncCast(Instance::currentMemory_i32, *abiType);
+      case SymbolicAddress::WaitI32:
+        *abiType = Args_Int_GeneralGeneralGeneralInt64;
+        return FuncCast(Instance::wait_i32, *abiType);
+      case SymbolicAddress::WaitI64:
+        *abiType = Args_Int_GeneralGeneralInt64Int64;
+        return FuncCast(Instance::wait_i64, *abiType);
+      case SymbolicAddress::Wake:
+        *abiType = Args_General2;
+        return FuncCast(Instance::wake, *abiType);
       case SymbolicAddress::Limit:
         break;
     }
@@ -625,13 +619,6 @@ wasm::NeedsBuiltinThunk(SymbolicAddress sym)
 #if defined(JS_CODEGEN_ARM)
       case SymbolicAddress::aeabi_idivmod:
       case SymbolicAddress::aeabi_uidivmod:
-      case SymbolicAddress::AtomicCmpXchg:
-      case SymbolicAddress::AtomicXchg:
-      case SymbolicAddress::AtomicFetchAdd:
-      case SymbolicAddress::AtomicFetchSub:
-      case SymbolicAddress::AtomicFetchAnd:
-      case SymbolicAddress::AtomicFetchOr:
-      case SymbolicAddress::AtomicFetchXor:
 #endif
       case SymbolicAddress::ModD:
       case SymbolicAddress::SinD:
@@ -654,6 +641,9 @@ wasm::NeedsBuiltinThunk(SymbolicAddress sym)
       case SymbolicAddress::ATan2D:
       case SymbolicAddress::GrowMemory:
       case SymbolicAddress::CurrentMemory:
+      case SymbolicAddress::WaitI32:
+      case SymbolicAddress::WaitI64:
+      case SymbolicAddress::Wake:
         return true;
       case SymbolicAddress::Limit:
         break;

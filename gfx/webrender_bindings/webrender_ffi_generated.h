@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* Generated with cbindgen:0.1.29 */
+/* Generated with cbindgen:0.2.2 */
 
 /* DO NOT MODIFY THIS MANUALLY! This file was generated using cbindgen.
  * To generate this file:
@@ -202,6 +202,13 @@ enum class TransformStyle : uint32_t {
   Sentinel /* this must be last for serialization purposes. */
 };
 
+enum class WrAnimationType : uint32_t {
+  Transform = 0,
+  Opacity = 1,
+
+  Sentinel /* this must be last for serialization purposes. */
+};
+
 enum class WrExternalImageType : uint32_t {
   NativeTexture = 0,
   RawData = 1,
@@ -242,6 +249,8 @@ struct Renderer;
 struct ResourceUpdates;
 
 struct Vec_u8;
+
+struct WrProgramCache;
 
 struct WrRenderedEpochs;
 
@@ -431,6 +440,19 @@ struct WrTransformProperty {
 
 typedef IdNamespace WrIdNamespace;
 
+// A 2d Point tagged with a unit.
+struct TypedPoint2D_f32__WorldPixel {
+  float x;
+  float y;
+
+  bool operator==(const TypedPoint2D_f32__WorldPixel& aOther) const {
+    return x == aOther.x &&
+           y == aOther.y;
+  }
+};
+
+typedef TypedPoint2D_f32__WorldPixel WorldPoint;
+
 // Represents RGBA screen colors with floating point numbers.
 //
 // All components must be between 0.0 and 1.0.
@@ -512,6 +534,10 @@ struct ImageKey {
   bool operator==(const ImageKey& aOther) const {
     return mNamespace == aOther.mNamespace &&
            mHandle == aOther.mHandle;
+  }
+  bool operator!=(const ImageKey& aOther) const {
+    return mNamespace != aOther.mNamespace ||
+           mHandle != aOther.mHandle;
   }
 };
 
@@ -650,6 +676,16 @@ struct Shadow {
     return offset == aOther.offset &&
            color == aOther.color &&
            blur_radius == aOther.blur_radius;
+  }
+};
+
+struct WrAnimationProperty {
+  WrAnimationType effect_type;
+  uint64_t id;
+
+  bool operator==(const WrAnimationProperty& aOther) const {
+    return effect_type == aOther.effect_type &&
+           id == aOther.id;
   }
 };
 
@@ -838,7 +874,7 @@ struct ColorU {
 struct FontInstanceOptions {
   FontRenderMode render_mode;
   SubpixelDirection subpx_dir;
-  bool synthetic_italics;
+  FontInstanceFlags flags;
   // When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel,
   // the text will be rendered with bg_color.r/g/b as an opaque estimated
   // background color.
@@ -847,42 +883,38 @@ struct FontInstanceOptions {
   bool operator==(const FontInstanceOptions& aOther) const {
     return render_mode == aOther.render_mode &&
            subpx_dir == aOther.subpx_dir &&
-           synthetic_italics == aOther.synthetic_italics &&
+           flags == aOther.flags &&
            bg_color == aOther.bg_color;
   }
 };
 
 #if defined(XP_WIN)
 struct FontInstancePlatformOptions {
-  bool use_embedded_bitmap;
-  bool force_gdi_rendering;
+  uint32_t unused;
 
   bool operator==(const FontInstancePlatformOptions& aOther) const {
-    return use_embedded_bitmap == aOther.use_embedded_bitmap &&
-           force_gdi_rendering == aOther.force_gdi_rendering;
+    return unused == aOther.unused;
   }
 };
 #endif
 
 #if defined(XP_MACOSX)
 struct FontInstancePlatformOptions {
-  bool font_smoothing;
+  uint32_t unused;
 
   bool operator==(const FontInstancePlatformOptions& aOther) const {
-    return font_smoothing == aOther.font_smoothing;
+    return unused == aOther.unused;
   }
 };
 #endif
 
 #if !(defined(XP_MACOSX) || defined(XP_WIN))
 struct FontInstancePlatformOptions {
-  uint16_t flags;
   FontLCDFilter lcd_filter;
   FontHinting hinting;
 
   bool operator==(const FontInstancePlatformOptions& aOther) const {
-    return flags == aOther.flags &&
-           lcd_filter == aOther.lcd_filter &&
+    return lcd_filter == aOther.lcd_filter &&
            hinting == aOther.hinting;
   }
 };
@@ -943,6 +975,10 @@ extern void DeleteFontData(WrFontKey aKey);
 
 extern void gecko_printf_stderr_output(const char *aMsg);
 
+extern void gecko_profiler_register_thread(const char *aName);
+
+extern void gecko_profiler_unregister_thread();
+
 extern void gfx_critical_error(const char *aMsg);
 
 extern void gfx_critical_note(const char *aMsg);
@@ -1002,6 +1038,19 @@ WrIdNamespace wr_api_get_namespace(DocumentHandle *aDh)
 WR_FUNC;
 
 WR_INLINE
+bool wr_api_hit_test(DocumentHandle *aDh,
+                     WorldPoint aPoint,
+                     WrPipelineId *aOutPipelineId,
+                     uint64_t *aOutScrollId,
+                     uint16_t *aOutHitInfo)
+WR_FUNC;
+
+WR_INLINE
+void wr_api_remove_pipeline(DocumentHandle *aDh,
+                            WrPipelineId aPipelineId)
+WR_FUNC;
+
+WR_INLINE
 void wr_api_send_external_event(DocumentHandle *aDh,
                                 size_t aEvt)
 WR_DESTRUCTOR_SAFE_FUNC;
@@ -1015,8 +1064,7 @@ void wr_api_set_display_list(DocumentHandle *aDh,
                              WrPipelineId aPipelineId,
                              LayoutSize aContentSize,
                              BuiltDisplayListDescriptor aDlDescriptor,
-                             uint8_t *aDlData,
-                             size_t aDlSize,
+                             WrVecU8 *aDlData,
                              ResourceUpdates *aResources)
 WR_FUNC;
 
@@ -1041,6 +1089,10 @@ WR_FUNC;
 WR_INLINE
 void wr_api_update_resources(DocumentHandle *aDh,
                              ResourceUpdates *aResources)
+WR_FUNC;
+
+WR_INLINE
+void wr_clear_item_tag(WrState *aState)
 WR_FUNC;
 
 WR_INLINE
@@ -1267,7 +1319,7 @@ WR_FUNC;
 WR_INLINE
 void wr_dp_push_stacking_context(WrState *aState,
                                  LayoutRect aBounds,
-                                 uint64_t aAnimationId,
+                                 const WrAnimationProperty *aAnimation,
                                  const float *aOpacity,
                                  const LayoutTransform *aTransform,
                                  TransformStyle aTransformStyle,
@@ -1335,6 +1387,10 @@ void wr_dp_save(WrState *aState)
 WR_FUNC;
 
 WR_INLINE
+void wr_dump_display_list(WrState *aState)
+WR_FUNC;
+
+WR_INLINE
 void wr_init_external_log_handler(WrLogLevelFilter aLogFilter)
 WR_FUNC;
 
@@ -1353,6 +1409,14 @@ extern void wr_notifier_new_frame_ready(WrWindowId aWindowId);
 
 extern void wr_notifier_new_scroll_frame_ready(WrWindowId aWindowId,
                                                bool aCompositeNeeded);
+
+WR_INLINE
+void wr_program_cache_delete(WrProgramCache *aProgramCache)
+WR_DESTRUCTOR_SAFE_FUNC;
+
+WR_INLINE
+WrProgramCache *wr_program_cache_new()
+WR_FUNC;
 
 WR_INLINE
 void wr_rendered_epochs_delete(WrRenderedEpochs *aPipelineEpochs)
@@ -1408,6 +1472,11 @@ WR_FUNC;
 
 WR_INLINE
 void wr_renderer_update(Renderer *aRenderer)
+WR_FUNC;
+
+WR_INLINE
+void wr_renderer_update_program_cache(Renderer *aRenderer,
+                                      WrProgramCache *aProgramCache)
 WR_FUNC;
 
 WR_INLINE
@@ -1513,6 +1582,12 @@ void wr_scroll_layer_with_id(DocumentHandle *aDh,
                              WrPipelineId aPipelineId,
                              uint64_t aScrollId,
                              LayoutPoint aNewScrollOrigin)
+WR_FUNC;
+
+WR_INLINE
+void wr_set_item_tag(WrState *aState,
+                     uint64_t aScrollId,
+                     uint16_t aHitInfo)
 WR_FUNC;
 
 WR_INLINE

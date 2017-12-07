@@ -93,6 +93,9 @@ const EVENTS = {
   UPDATING_RESPONSE_CONTENT: "NetMonitor:NetworkEventUpdating:ResponseContent",
   RECEIVED_RESPONSE_CONTENT: "NetMonitor:NetworkEventUpdated:ResponseContent",
 
+  // When stack-trace finishes receiving.
+  RECEIVED_EVENT_STACKTRACE: "NetMonitor:NetworkEventUpdated:StackTrace",
+
   // Fired once the connection is established
   CONNECTED: "connected",
 
@@ -120,12 +123,16 @@ const UPDATE_PROPS = [
   "requestHeaders",
   "requestHeadersFromUploadStream",
   "requestCookies",
+  "requestCookiesAvailable",
   "requestPostData",
+  "requestPostDataAvailable",
   "responseHeaders",
   "responseCookies",
+  "responseCookiesAvailable",
   "responseContent",
-  "responseContentDataUri",
+  "responseContentAvailable",
   "formDataSections",
+  "stacktrace",
 ];
 
 const PANELS = {

@@ -5,6 +5,7 @@
 
 #include "WebGLContext.h"
 
+#include <algorithm>
 #include <queue>
 
 #include "AccessCheck.h"
@@ -712,6 +713,19 @@ WebGLContext::CreateAndInitGL(bool forceEnabled,
         flags |= gl::CreateContextFlags::REQUIRE_COMPAT_PROFILE;
     }
 
+#ifdef XP_MACOSX
+    const nsCOMPtr<nsIGfxInfo> gfxInfo = services::GetGfxInfo();
+    nsString vendorID, deviceID;
+
+    // Avoid crash for Intel HD Graphics 3000 on OSX. (Bug 1413269)
+    gfxInfo->GetAdapterVendorID(vendorID);
+    gfxInfo->GetAdapterDeviceID(deviceID);
+    if (vendorID.EqualsLiteral("0x8086") &&
+        (deviceID.EqualsLiteral("0x0116") || deviceID.EqualsLiteral("0x0126")))
+    {
+        flags |= gl::CreateContextFlags::REQUIRE_COMPAT_PROFILE;
+    }
+#endif
     //////
 
     const bool useEGL = PR_GetEnv("MOZ_WEBGL_FORCE_EGL");
@@ -1079,7 +1093,7 @@ WebGLContext::SetDimensions(int32_t signedWidth, int32_t signedHeight)
     //////
     // Initial setup.
 
-    MakeContextCurrent();
+    gl->mImplicitMakeCurrent = true;
 
     gl->fViewport(0, 0, mWidth, mHeight);
     mViewportX = mViewportY = 0;
@@ -1140,15 +1154,12 @@ WebGLContext::ClearBackbufferIfNeeded()
 void
 WebGLContext::LoseOldestWebGLContextIfLimitExceeded()
 {
-#ifdef MOZ_GFX_OPTIMIZE_MOBILE
-    // some mobile devices can't have more than 8 GL contexts overall
-    const size_t kMaxWebGLContextsPerPrincipal = 2;
-    const size_t kMaxWebGLContexts             = 4;
-#else
-    const size_t kMaxWebGLContextsPerPrincipal = 16;
-    const size_t kMaxWebGLContexts             = 32;
-#endif
-    MOZ_ASSERT(kMaxWebGLContextsPerPrincipal < kMaxWebGLContexts);
+    const size_t maxWebGLContexts = gfxPrefs::WebGLMaxContexts();
+    size_t maxWebGLContextsPerPrincipal = gfxPrefs::WebGLMaxContextsPerPrincipal();
+
+    // maxWebGLContextsPerPrincipal must be less than maxWebGLContexts
+    MOZ_ASSERT(maxWebGLContextsPerPrincipal < maxWebGLContexts);
+    maxWebGLContextsPerPrincipal = std::min(maxWebGLContextsPerPrincipal, maxWebGLContexts - 1);
 
     if (!NS_IsMainThread()) {
         // XXX mtseng: bug 709490, WebGLMemoryTracker is not thread safe.
@@ -1163,7 +1174,7 @@ WebGLContext::LoseOldestWebGLContextIfLimitExceeded()
     WebGLMemoryTracker::ContextsArrayType& contexts = WebGLMemoryTracker::Contexts();
 
     // quick exit path, should cover a majority of cases
-    if (contexts.Length() <= kMaxWebGLContextsPerPrincipal)
+    if (contexts.Length() <= maxWebGLContextsPerPrincipal)
         return;
 
     // note that here by "context" we mean "non-lost context". See the check for
@@ -1212,14 +1223,14 @@ WebGLContext::LoseOldestWebGLContextIfLimitExceeded()
         }
     }
 
-    if (numContextsThisPrincipal > kMaxWebGLContextsPerPrincipal) {
+    if (numContextsThisPrincipal > maxWebGLContextsPerPrincipal) {
         GenerateWarning("Exceeded %zu live WebGL contexts for this principal, losing the "
-                        "least recently used one.", kMaxWebGLContextsPerPrincipal);
+                        "least recently used one.", maxWebGLContextsPerPrincipal);
         MOZ_ASSERT(oldestContextThisPrincipal); // if we reach this point, this can't be null
         const_cast<WebGLContext*>(oldestContextThisPrincipal)->LoseContext();
-    } else if (numContexts > kMaxWebGLContexts) {
+    } else if (numContexts > maxWebGLContexts) {
         GenerateWarning("Exceeded %zu live WebGL contexts, losing the least "
-                        "recently used one.", kMaxWebGLContexts);
+                        "recently used one.", maxWebGLContexts);
         MOZ_ASSERT(oldestContext); // if we reach this point, this can't be null
         const_cast<WebGLContext*>(oldestContext)->LoseContext();
     }
@@ -1951,12 +1962,6 @@ WebGLContext::ForceRestoreContext()
 
     // Queue up a task, since we know the status changed.
     EnqueueUpdateContextLossStatus();
-}
-
-void
-WebGLContext::MakeContextCurrent() const
-{
-    gl->MakeCurrent();
 }
 
 already_AddRefed<mozilla::gfx::SourceSurface>

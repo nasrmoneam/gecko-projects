@@ -131,10 +131,12 @@ CacheDirAndAutoClear(nsIProperties* aDirSvc, const char* aDirKey,
 
 /* static */
 void
-SandboxBroker::CacheRulesDirectories()
+SandboxBroker::GeckoDependentInitialize()
 {
   MOZ_ASSERT(NS_IsMainThread());
 
+  // Cache directory paths for use in policy rules, because the directory
+  // service must be called on the main thread.
   nsresult rv;
   nsCOMPtr<nsIProperties> dirSvc =
     do_GetService(NS_DIRECTORY_SERVICE_CONTRACTID, &rv);
@@ -153,12 +155,19 @@ SandboxBroker::CacheRulesDirectories()
 #ifdef ENABLE_SYSTEM_EXTENSION_DIRS
   CacheDirAndAutoClear(dirSvc, XRE_USER_SYS_EXTENSION_DIR, &sUserExtensionsDir);
 #endif
+
+  // Create sLaunchErrors up front because ClearOnShutdown must be called on the
+  // main thread.
+  sLaunchErrors = MakeUnique<nsTHashtable<nsCStringHashKey>>();
+  ClearOnShutdown(&sLaunchErrors);
 }
 
 SandboxBroker::SandboxBroker()
 {
   if (sBrokerService) {
-    mPolicy = sBrokerService->CreatePolicy();
+    scoped_refptr<sandbox::TargetPolicy> policy = sBrokerService->CreatePolicy();
+    mPolicy = policy.get();
+    mPolicy->AddRef();
     if (sRunningFromNetworkDrive) {
       mPolicy->SetDoNotUseRestrictingSIDs();
     }
@@ -263,11 +272,6 @@ SandboxBroker::LaunchApp(const wchar_t *aPath,
     key.AppendASCII(XRE_ChildProcessTypeToString(aProcessType));
     key.AppendLiteral("/0x");
     key.AppendInt(static_cast<uint32_t>(last_error), 16);
-
-    if (!sLaunchErrors) {
-      sLaunchErrors = MakeUnique<nsTHashtable<nsCStringHashKey>>();
-      ClearOnShutdown(&sLaunchErrors);
-    }
 
     // Only accumulate for each combination once per session.
     if (!sLaunchErrors->Contains(key)) {
@@ -476,11 +480,13 @@ SandboxBroker::SetSecurityLevelForContentProcess(int32_t aSandboxLevel,
     sandbox::MITIGATION_DEP |
     sandbox::MITIGATION_EXTENSION_POINT_DISABLE;
 
-  if (aSandboxLevel > 3) {
+  if (aSandboxLevel > 4) {
     result = mPolicy->SetAlternateDesktop(false);
     MOZ_RELEASE_ASSERT(sandbox::SBOX_ALL_OK == result,
                        "Failed to create alternate desktop for sandbox.");
+  }
 
+  if (aSandboxLevel > 3) {
     mitigations |= sandbox::MITIGATION_IMAGE_LOAD_NO_LOW_LABEL;
     // If we're running from a network drive then we can't block loading from
     // remote locations.

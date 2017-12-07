@@ -580,6 +580,8 @@ public:
   void MakeVisible();
   void MakeHidden();
 
+  void OnDocShellActivated(bool aIsActive);
+
   nsIContentChild* Manager() const { return mManager; }
 
   static inline TabChild*
@@ -626,8 +628,6 @@ public:
   void InvalidateLayers();
   void ReinitRendering();
   void ReinitRenderingForDeviceReset();
-  void CompositorUpdated(const TextureFactoryIdentifier& aNewIdentifier,
-                         uint64_t aDeviceResetSeqNo);
 
   static inline TabChild* GetFrom(nsIDOMWindow* aWindow)
   {
@@ -676,7 +676,7 @@ public:
   DeallocPPaymentRequestChild(PPaymentRequestChild* aActor) override;
 
   LayoutDeviceIntPoint GetClientOffset() const { return mClientOffset; }
-  LayoutDeviceIntPoint GetChromeDisplacement() const { return mChromeDisp; };
+  LayoutDeviceIntPoint GetChromeOffset() const { return mChromeOffset; };
 
   bool IPCOpen() const { return mIPCOpen; }
 
@@ -931,7 +931,7 @@ private:
   // Position of client area relative to the outer window
   LayoutDeviceIntPoint mClientOffset;
   // Position of tab, relative to parent widget (typically the window)
-  LayoutDeviceIntPoint mChromeDisp;
+  LayoutDeviceIntPoint mChromeOffset;
   TabId mUniqueId;
 
   // Holds the compositor options for the compositor rendering this tab,

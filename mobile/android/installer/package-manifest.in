@@ -131,7 +131,6 @@
 @BINPATH@/components/dom_notification.xpt
 @BINPATH@/components/dom_html.xpt
 @BINPATH@/components/dom_offline.xpt
-@BINPATH@/components/dom_json.xpt
 @BINPATH@/components/dom_payments.xpt
 @BINPATH@/components/dom_power.xpt
 #ifdef MOZ_ANDROID_GCM
@@ -172,6 +171,9 @@
 @BINPATH@/components/jsdownloads.xpt
 @BINPATH@/components/jsinspector.xpt
 @BINPATH@/components/layout_base.xpt
+#ifdef MOZ_DEBUG
+@BINPATH@/components/layout_debug.xpt
+#endif
 #ifdef NS_PRINTING
 @BINPATH@/components/layout_printing.xpt
 #endif

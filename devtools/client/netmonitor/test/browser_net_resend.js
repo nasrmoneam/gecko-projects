@@ -17,6 +17,7 @@ add_task(function* () {
   info("Starting test... ");
 
   let { document, store, windowRequire, connector } = monitor.panelWin;
+  let { requestData } = connector;
   let Actions = windowRequire("devtools/client/netmonitor/src/actions/index");
   let {
     getSelectedRequest,
@@ -25,7 +26,7 @@ add_task(function* () {
 
   store.dispatch(Actions.batchEnable(false));
 
-  let wait = waitForNetworkEvents(monitor, 0, 2);
+  let wait = waitForNetworkEvents(monitor, 2);
   yield ContentTask.spawn(tab.linkedBrowser, {}, function* () {
     content.wrappedJSObject.performRequests();
   });
@@ -36,8 +37,8 @@ add_task(function* () {
   store.dispatch(Actions.selectRequest(origItem.id));
 
   // add a new custom request cloned from selected request
-  store.dispatch(Actions.cloneSelectedRequest());
 
+  store.dispatch(Actions.cloneSelectedRequest());
   testCustomForm(origItem);
 
   let customItem = getSelectedRequest(store.getState());
@@ -45,17 +46,26 @@ add_task(function* () {
 
   // edit the custom request
   yield editCustomForm();
+
   // FIXME: reread the customItem, it's been replaced by a new object (immutable!)
   customItem = getSelectedRequest(store.getState());
   testCustomItemChanged(customItem, origItem);
 
   // send the new request
-  wait = waitForNetworkEvents(monitor, 0, 1);
+  wait = waitForNetworkEvents(monitor, 1);
   store.dispatch(Actions.sendCustomRequest(connector));
   yield wait;
 
   let sentItem = getSelectedRequest(store.getState());
-  testSentRequest(sentItem, origItem);
+
+  yield testSentRequest(sentItem, origItem);
+
+  // Ensure the UI shows the new request, selected, and that the detail panel was closed.
+  is(getSortedRequests(store.getState()).length, 3, "There are 3 requests shown");
+  is(document.querySelector(".request-list-item.selected").getAttribute("data-id"),
+    sentItem.id, "The sent request is selected");
+  is(document.querySelector(".network-details-panel"), null,
+    "The detail panel is hidden");
 
   return teardown(monitor);
 
@@ -135,14 +145,15 @@ add_task(function* () {
     postData.focus();
     yield postFocus;
 
-    // add to POST data
+    // add to POST data once textarea has updated
+    yield waitUntil(() => postData.textContent !== "");
     type(ADD_POSTDATA);
   }
 
   /*
    * Make sure newly created event matches expected request
    */
-  function testSentRequest(data, origData) {
+  function* testSentRequest(data, origData) {
     is(data.method, origData.method, "correct method in sent request");
     is(data.url, origData.url + "&" + ADD_QUERY, "correct url in sent request");
 
@@ -153,9 +164,14 @@ add_task(function* () {
     let hasUAHeader = headers.some(h => `${h.name}: ${h.value}` == ADD_UA_HEADER);
     ok(hasUAHeader, "User-Agent header added to sent request");
 
-    is(data.requestPostData.postData.text,
-       origData.requestPostData.postData.text + ADD_POSTDATA,
-       "post data added to sent request");
+    let { requestPostData: clonedRequestPostData } = yield requestData(data.id,
+      "requestPostData");
+    let { requestPostData: origRequestPostData } = yield requestData(origData.id,
+      "requestPostData");
+
+    is(clonedRequestPostData.postData.text,
+      origRequestPostData.postData.text + ADD_POSTDATA,
+      "post data added to sent request");
   }
 
   function type(string) {

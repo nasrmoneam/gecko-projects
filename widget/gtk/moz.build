@@ -70,7 +70,6 @@ if CONFIG['NS_PRINTING']:
     UNIFIED_SOURCES += [
         'nsCUPSShim.cpp',
         'nsDeviceContextSpecG.cpp',
-        'nsPaperPS.cpp',
         'nsPrintDialogGTK.cpp',
         'nsPrintOptionsGTK.cpp',
         'nsPrintSettingsGTK.cpp',
@@ -88,6 +87,11 @@ if CONFIG['MOZ_X11']:
     ]
     EXPORTS.mozilla.widget += [
         'WindowSurfaceProvider.h',
+    ]
+
+if CONFIG['MOZ_WAYLAND']:
+    UNIFIED_SOURCES += [
+        'WindowSurfaceWayland.cpp',
     ]
 
 if CONFIG['ACCESSIBILITY']:

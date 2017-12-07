@@ -11,7 +11,6 @@
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/widget/CompositorWidget.h"
-#include "mozilla/widget/CompositorWidget.h"
 #include "mozilla/layers/SynchronousTask.h"
 
 #define WRDL_LOG(...)
@@ -91,6 +90,9 @@ public:
     if (wrRenderer && renderer) {
       wr::WrExternalImageHandler handler = renderer->GetExternalImageHandler();
       wr_renderer_set_external_image_handler(wrRenderer, &handler);
+      if (gfx::gfxVars::UseWebRenderProgramBinary()) {
+        wr_renderer_update_program_cache(wrRenderer, aRenderThread.ProgramCache()->Raw());
+      }
     }
 
     if (renderer) {
@@ -138,9 +140,21 @@ private:
   layers::SynchronousTask* mTask;
 };
 
+/*static*/ void
+WebRenderAPI::InitExternalLogHandler()
+{
+  // Redirect the webrender's log to gecko's log system.
+  // The current log level is "error".
+  mozilla::wr::wr_init_external_log_handler(wr::LogLevelFilter::Error);
+}
 
-//static
-already_AddRefed<WebRenderAPI>
+/*static*/ void
+WebRenderAPI::ShutdownExternalLogHandler()
+{
+  mozilla::wr::wr_shutdown_external_log_handler();
+}
+
+/*static*/ already_AddRefed<WebRenderAPI>
 WebRenderAPI::Create(layers::CompositorBridgeParentBase* aBridge,
                      RefPtr<widget::CompositorWidget>&& aWidget,
                      LayoutDeviceIntSize aSize)
@@ -193,6 +207,9 @@ WebRenderAPI::GetNamespace() {
 WebRenderAPI::~WebRenderAPI()
 {
   if (!mRootApi) {
+
+    RenderThread::Get()->SetDestroyed(GetId());
+
     layers::SynchronousTask task("Destroy WebRenderAPI");
     auto event = MakeUnique<RemoveRenderer>(&task);
     RunOnRenderThread(Move(event));
@@ -208,6 +225,18 @@ WebRenderAPI::UpdateScrollPosition(const wr::WrPipelineId& aPipelineId,
                                    const wr::LayoutPoint& aScrollPosition)
 {
   wr_scroll_layer_with_id(mDocHandle, aPipelineId, aScrollId, aScrollPosition);
+}
+
+bool
+WebRenderAPI::HitTest(const wr::WorldPoint& aPoint,
+                      wr::WrPipelineId& aOutPipelineId,
+                      layers::FrameMetrics::ViewID& aOutScrollId,
+                      gfx::CompositorHitTestInfo& aOutHitInfo)
+{
+  static_assert(sizeof(gfx::CompositorHitTestInfo) == sizeof(uint16_t),
+                "CompositorHitTestInfo should be u16-sized");
+  return wr_api_hit_test(mDocHandle, aPoint,
+          &aOutPipelineId, &aOutScrollId, (uint16_t*)&aOutHitInfo);
 }
 
 void
@@ -236,8 +265,7 @@ WebRenderAPI::SetDisplayList(gfx::Color aBgColor,
                              wr::WrPipelineId pipeline_id,
                              const LayoutSize& content_size,
                              wr::BuiltDisplayListDescriptor dl_descriptor,
-                             uint8_t *dl_data,
-                             size_t dl_size,
+                             wr::Vec_u8& dl_data,
                              ResourceUpdateQueue& aResources)
 {
   wr_api_set_display_list(mDocHandle,
@@ -247,8 +275,7 @@ WebRenderAPI::SetDisplayList(gfx::Color aBgColor,
                           pipeline_id,
                           content_size,
                           dl_descriptor,
-                          dl_data,
-                          dl_size,
+                          &dl_data.inner,
                           aResources.Raw());
 }
 
@@ -424,6 +451,12 @@ void
 WebRenderAPI::SetRootPipeline(PipelineId aPipeline)
 {
   wr_api_set_root_pipeline(mDocHandle, aPipeline);
+}
+
+void
+WebRenderAPI::RemovePipeline(PipelineId aPipeline)
+{
+  wr_api_remove_pipeline(mDocHandle, aPipeline);
 }
 
 void
@@ -655,6 +688,7 @@ DisplayListBuilder::~DisplayListBuilder()
 void DisplayListBuilder::Save() { wr_dp_save(mWrState); }
 void DisplayListBuilder::Restore() { wr_dp_restore(mWrState); }
 void DisplayListBuilder::ClearSave() { wr_dp_clear_save(mWrState); }
+void DisplayListBuilder::Dump() { wr_dump_display_list(mWrState); }
 
 void
 DisplayListBuilder::Finalize(wr::LayoutSize& aOutContentSize,
@@ -668,7 +702,7 @@ DisplayListBuilder::Finalize(wr::LayoutSize& aOutContentSize,
 
 void
 DisplayListBuilder::PushStackingContext(const wr::LayoutRect& aBounds,
-                                        const uint64_t& aAnimationId,
+                                        const WrAnimationProperty* aAnimation,
                                         const float* aOpacity,
                                         const gfx::Matrix4x4* aTransform,
                                         wr::TransformStyle aTransformStyle,
@@ -689,7 +723,7 @@ DisplayListBuilder::PushStackingContext(const wr::LayoutRect& aBounds,
   const wr::LayoutTransform* maybePerspective = aPerspective ? &perspective : nullptr;
   WRDL_LOG("PushStackingContext b=%s t=%s\n", mWrState, Stringify(aBounds).c_str(),
       aTransform ? Stringify(*aTransform).c_str() : "none");
-  wr_dp_push_stacking_context(mWrState, aBounds, aAnimationId, aOpacity,
+  wr_dp_push_stacking_context(mWrState, aBounds, aAnimation, aOpacity,
                               maybeTransform, aTransformStyle, maybePerspective,
                               aMixBlendMode, aFilters.Elements(), aFilters.Length(), aIsBackfaceVisible);
 }
@@ -1228,6 +1262,21 @@ DisplayListBuilder::TopmostIsClip()
     return false;
   }
   return mClipStack.back().is<wr::WrClipId>();
+}
+
+void
+DisplayListBuilder::SetHitTestInfo(const layers::FrameMetrics::ViewID& aScrollId,
+                                   gfx::CompositorHitTestInfo aHitInfo)
+{
+  static_assert(sizeof(gfx::CompositorHitTestInfo) == sizeof(uint16_t),
+                "CompositorHitTestInfo should be u16-sized");
+  wr_set_item_tag(mWrState, aScrollId, static_cast<uint16_t>(aHitInfo));
+}
+
+void
+DisplayListBuilder::ClearHitTestInfo()
+{
+  wr_clear_item_tag(mWrState);
 }
 
 } // namespace wr

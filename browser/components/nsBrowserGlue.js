@@ -41,6 +41,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   FormValidationHandler: "resource:///modules/FormValidationHandler.jsm",
   Integration: "resource://gre/modules/Integration.jsm",
   L10nRegistry: "resource://gre/modules/L10nRegistry.jsm",
+  LanguagePrompt: "resource://gre/modules/LanguagePrompt.jsm",
   LightweightThemeManager: "resource://gre/modules/LightweightThemeManager.jsm",
   LoginHelper: "resource://gre/modules/LoginHelper.jsm",
   LoginManagerParent: "resource://gre/modules/LoginManagerParent.jsm",
@@ -147,7 +148,6 @@ const listeners = {
     "FormValidation:ShowPopup": ["FormValidationHandler"],
     "FormValidation:HidePopup": ["FormValidationHandler"],
     "Prompt:Open": ["RemotePrompt"],
-    "Reader:ArticleGet": ["ReaderParent"],
     "Reader:FaviconRequest": ["ReaderParent"],
     "Reader:UpdateReaderButton": ["ReaderParent"],
     // PLEASE KEEP THIS LIST IN SYNC WITH THE MOBILE LISTENERS IN BrowserCLH.js
@@ -642,30 +642,28 @@ BrowserGlue.prototype = {
 
     SessionStore.init();
 
-    if (AppConstants.INSTALL_COMPACT_THEMES) {
-      let vendorShortName = gBrandBundle.GetStringFromName("vendorShortName");
+    let vendorShortName = gBrandBundle.GetStringFromName("vendorShortName");
 
-      LightweightThemeManager.addBuiltInTheme({
-        id: "firefox-compact-light@mozilla.org",
-        name: gBrowserBundle.GetStringFromName("lightTheme.name"),
-        description: gBrowserBundle.GetStringFromName("lightTheme.description"),
-        headerURL: "resource:///chrome/browser/content/browser/defaultthemes/compact.header.png",
-        iconURL: "resource:///chrome/browser/content/browser/defaultthemes/light.icon.svg",
-        textcolor: "black",
-        accentcolor: "white",
-        author: vendorShortName,
-      });
-      LightweightThemeManager.addBuiltInTheme({
-        id: "firefox-compact-dark@mozilla.org",
-        name: gBrowserBundle.GetStringFromName("darkTheme.name"),
-        description: gBrowserBundle.GetStringFromName("darkTheme.description"),
-        headerURL: "resource:///chrome/browser/content/browser/defaultthemes/compact.header.png",
-        iconURL: "resource:///chrome/browser/content/browser/defaultthemes/dark.icon.svg",
-        textcolor: "white",
-        accentcolor: "black",
-        author: vendorShortName,
-      });
-    }
+    LightweightThemeManager.addBuiltInTheme({
+      id: "firefox-compact-light@mozilla.org",
+      name: gBrowserBundle.GetStringFromName("lightTheme.name"),
+      description: gBrowserBundle.GetStringFromName("lightTheme.description"),
+      headerURL: "resource:///chrome/browser/content/browser/defaultthemes/compact.header.png",
+      iconURL: "resource:///chrome/browser/content/browser/defaultthemes/light.icon.svg",
+      textcolor: "black",
+      accentcolor: "white",
+      author: vendorShortName,
+    });
+    LightweightThemeManager.addBuiltInTheme({
+      id: "firefox-compact-dark@mozilla.org",
+      name: gBrowserBundle.GetStringFromName("darkTheme.name"),
+      description: gBrowserBundle.GetStringFromName("darkTheme.description"),
+      headerURL: "resource:///chrome/browser/content/browser/defaultthemes/compact.header.png",
+      iconURL: "resource:///chrome/browser/content/browser/defaultthemes/dark.icon.svg",
+      textcolor: "white",
+      accentcolor: "black",
+      author: vendorShortName,
+    });
 
 
     // Initialize the default l10n resource sources for L10nRegistry.
@@ -1168,6 +1166,10 @@ BrowserGlue.prototype = {
         JawsScreenReaderVersionCheck.onWindowsRestored();
       });
     }
+
+    Services.tm.idleDispatchToMainThread(() => {
+      LanguagePrompt.init();
+    });
   },
 
   /**
@@ -1743,9 +1745,38 @@ BrowserGlue.prototype = {
     this.AlertsService.showAlertNotification(null, title, body, true, null, clickCallback);
   },
 
+  /**
+   * Uncollapses PersonalToolbar if its collapsed status is not
+   * persisted, and user customized it or changed default bookmarks.
+   *
+   * If the user does not have a persisted value for the toolbar's
+   * "collapsed" attribute, try to determine whether it's customized.
+   */
+  _maybeToggleBookmarkToolbarVisibility() {
+    const BROWSER_DOCURL = "chrome://browser/content/browser.xul";
+    const NUM_TOOLBAR_BOOKMARKS_TO_UNHIDE = 3;
+    let xulStore = Cc["@mozilla.org/xul/xulstore;1"].getService(Ci.nsIXULStore);
+
+    if (!xulStore.hasValue(BROWSER_DOCURL, "PersonalToolbar", "collapsed")) {
+      // We consider the toolbar customized if it has more than NUM_TOOLBAR_BOOKMARKS_TO_UNHIDE
+      // children, or if it has a persisted currentset value.
+      let toolbarIsCustomized = xulStore.hasValue(BROWSER_DOCURL, "PersonalToolbar", "currentset");
+      let getToolbarFolderCount = () => {
+        let toolbarFolder = PlacesUtils.getFolderContents(PlacesUtils.toolbarFolderId).root;
+        let toolbarChildCount = toolbarFolder.childCount;
+        toolbarFolder.containerOpen = false;
+        return toolbarChildCount;
+      };
+
+      if (toolbarIsCustomized || getToolbarFolderCount() > NUM_TOOLBAR_BOOKMARKS_TO_UNHIDE) {
+        xulStore.setValue(BROWSER_DOCURL, "PersonalToolbar", "collapsed", "false");
+      }
+    }
+  },
+
   // eslint-disable-next-line complexity
   _migrateUI: function BG__migrateUI() {
-    const UI_VERSION = 58;
+    const UI_VERSION = 59;
     const BROWSER_DOCURL = "chrome://browser/content/browser.xul";
 
     let currentUIVersion;
@@ -1754,6 +1785,15 @@ BrowserGlue.prototype = {
     } else {
       // This is a new profile, nothing to migrate.
       Services.prefs.setIntPref("browser.migration.version", UI_VERSION);
+
+      try {
+        // New profiles may have existing bookmarks (imported from another browser or
+        // copied into the profile) and we want to show the bookmark toolbar for them
+        // in some cases.
+        this._maybeToggleBookmarkToolbarVisibility();
+      } catch (ex) {
+        Cu.reportError(ex);
+      }
       return;
     }
 
@@ -2175,6 +2215,57 @@ BrowserGlue.prototype = {
       Services.prefs.clearUserPref("browser.search.countryCode");
       Services.prefs.clearUserPref("browser.search.region");
       Services.prefs.clearUserPref("browser.search.isUS");
+    }
+
+    if (currentUIVersion < 59) {
+      let searchInitializedPromise = new Promise(resolve => {
+        if (Services.search.isInitialized) {
+          resolve();
+        }
+        const SEARCH_SERVICE_TOPIC = "browser-search-service";
+        Services.obs.addObserver(function observer(subject, topic, data) {
+          if (data != "init-complete") {
+            return;
+          }
+          Services.obs.removeObserver(observer, SEARCH_SERVICE_TOPIC);
+          resolve();
+        }, SEARCH_SERVICE_TOPIC);
+      });
+      searchInitializedPromise.then(() => {
+        let currentEngine = Services.search.currentEngine.wrappedJSObject;
+        // Only reset the current engine if it wasn't set by a WebExtension
+        // and it is not one of the default engines.
+        if (currentEngine._extensionID || currentEngine._isDefault)
+          return;
+
+        if (currentEngine._loadPath.startsWith("[https]")) {
+          Services.prefs.setCharPref("browser.search.reset.status", "pending");
+        } else {
+          Services.search.resetToOriginalDefaultEngine();
+          Services.prefs.setCharPref("browser.search.reset.status", "silent");
+        }
+      });
+
+      // Migrate the old requested locales prefs to use the new model
+      const SELECTED_LOCALE_PREF = "general.useragent.locale";
+      const MATCHOS_LOCALE_PREF = "intl.locale.matchOS";
+
+      if (Services.prefs.prefHasUserValue(MATCHOS_LOCALE_PREF) ||
+          Services.prefs.prefHasUserValue(SELECTED_LOCALE_PREF)) {
+        if (Services.prefs.getBoolPref(MATCHOS_LOCALE_PREF, false)) {
+          Services.locale.setRequestedLocales([]);
+        } else {
+          let locale = Services.prefs.getComplexValue(SELECTED_LOCALE_PREF,
+            Ci.nsIPrefLocalizedString);
+          if (locale) {
+            try {
+              Services.locale.setRequestedLocales([locale.data]);
+            } catch (e) { /* Don't panic if the value is not a valid locale code. */ }
+          }
+        }
+        Services.prefs.clearUserPref(SELECTED_LOCALE_PREF);
+        Services.prefs.clearUserPref(MATCHOS_LOCALE_PREF);
+      }
     }
 
     // Update the migration version.

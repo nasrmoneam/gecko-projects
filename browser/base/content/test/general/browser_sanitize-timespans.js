@@ -11,8 +11,7 @@ const kMsecPerMin = 60 * 1000;
 const kUsecPerMin = 60 * 1000000;
 
 var tempScope = {};
-Cc["@mozilla.org/moz/jssubscript-loader;1"].getService(Ci.mozIJSSubScriptLoader)
-                                           .loadSubScript("chrome://browser/content/sanitize.js", tempScope);
+Services.scriptloader.loadSubScript("chrome://browser/content/sanitize.js", tempScope);
 var Sanitizer = tempScope.Sanitizer;
 
 var FormHistory = (Components.utils.import("resource://gre/modules/FormHistory.jsm", {})).FormHistory;
@@ -395,10 +394,10 @@ async function onHistoryReady() {
   // should not wait for a download removal notification.
   if (minutesSinceMidnight > 250) {
     downloadPromise = promiseDownloadRemoved(publicList);
+    formHistoryPromise = promiseFormHistoryRemoved();
   } else {
-    downloadPromise = Promise.resolve();
+    downloadPromise = formHistoryPromise = Promise.resolve();
   }
-  formHistoryPromise = promiseFormHistoryRemoved();
 
   // Clear Today
   Sanitizer.prefs.setIntPref("timeSpan", 4);

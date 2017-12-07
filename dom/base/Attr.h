@@ -46,6 +46,7 @@ public:
   virtual void GetTextContentInternal(nsAString& aTextContent,
                                       OOMReporter& aError) override;
   virtual void SetTextContentInternal(const nsAString& aTextContent,
+                                      nsIPrincipal* aSubjectPrincipal,
                                       ErrorResult& aError) override;
   virtual void GetNodeValueInternal(nsAString& aNodeValue) override;
   virtual void SetNodeValueInternal(const nsAString& aNodeValue,
@@ -86,10 +87,7 @@ public:
 
   // XPCOM GetName() is OK
 
-  void GetValue(nsString& val, nsIPrincipal&)
-  {
-    GetValue(val);
-  }
+  // XPCOM GetValue() is OK
 
   void SetValue(const nsAString& aValue, nsIPrincipal* aTriggeringPrincipal, ErrorResult& aRv);
 

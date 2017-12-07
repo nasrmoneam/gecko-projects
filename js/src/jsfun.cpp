@@ -682,6 +682,10 @@ js::XDRInterpretedFunction(XDRState<mode>* xdr, HandleScope enclosingScope,
         objp.set(fun);
     }
 
+    // Verify marker at end of function to detect buffer trunction.
+    if (!xdr->codeMarker(0x9E35CA1F))
+        return false;
+
     return true;
 }
 
@@ -795,12 +799,12 @@ JSFunction::trace(JSTracer* trc)
         // yet at some points when parsing, and can be lazy with no lazy script
         // for self-hosted code.
         if (hasScript() && !hasUncompiledScript())
-            TraceManuallyBarrieredEdge(trc, &u.i.s.script_, "script");
-        else if (isInterpretedLazy() && u.i.s.lazy_)
-            TraceManuallyBarrieredEdge(trc, &u.i.s.lazy_, "lazyScript");
+            TraceManuallyBarrieredEdge(trc, &u.scripted.s.script_, "script");
+        else if (isInterpretedLazy() && u.scripted.s.lazy_)
+            TraceManuallyBarrieredEdge(trc, &u.scripted.s.lazy_, "lazyScript");
 
-        if (u.i.env_)
-            TraceManuallyBarrieredEdge(trc, &u.i.env_, "fun_environment");
+        if (u.scripted.env_)
+            TraceManuallyBarrieredEdge(trc, &u.scripted.env_, "fun_environment");
     }
 }
 
@@ -831,7 +835,6 @@ CreateFunctionConstructor(JSContext* cx, JSProtoKey key)
         return nullptr;
 
     return functionCtor;
-
 }
 
 static JSObject*
@@ -871,8 +874,7 @@ CreateFunctionPrototype(JSContext* cx, JSProtoKey key)
 
     CompileOptions options(cx);
     options.setIntroductionType("Function.prototype")
-           .setNoScriptRval(true)
-           .setVersion(JSVERSION_DEFAULT);
+           .setNoScriptRval(true);
     if (!ss->initFromOptions(cx, options))
         return nullptr;
     RootedScriptSource sourceObject(cx, ScriptSourceObject::create(cx, ss));
@@ -1024,12 +1026,8 @@ js::FunctionToString(JSContext* cx, HandleFunction fun, bool isToSource)
     }
 
     RootedScript script(cx);
-
-    if (fun->hasScript()) {
+    if (fun->hasScript())
         script = fun->nonLazyScript();
-        if (MOZ_UNLIKELY(script->isGeneratorExp()))
-            return NewStringCopyZ<CanGC>(cx, "function genexp() {\n    [generator expression]\n}");
-    }
 
     // Default class constructors are self-hosted, but have their source
     // objects overridden to refer to the span of the class statement or
@@ -1592,34 +1590,6 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             return true;
         }
 
-        // Lazy script caching is only supported for leaf functions. If a
-        // script with inner functions was returned by the cache, those inner
-        // functions would be delazified when deep cloning the script, even if
-        // they have never executed.
-        //
-        // Additionally, the lazy script cache is not used during incremental
-        // GCs, to avoid resurrecting dead scripts after incremental sweeping
-        // has started.
-        if (canRelazify && !JS::IsIncrementalGCInProgress(cx)) {
-            LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches().lazyScriptCache.lookup(lookup, script.address());
-        }
-
-        if (script) {
-            RootedScope enclosingScope(cx, lazy->enclosingScope());
-            RootedScript clonedScript(cx, CloneScriptIntoFunction(cx, enclosingScope, fun, script));
-            if (!clonedScript)
-                return false;
-
-            clonedScript->setSourceObject(lazy->sourceObject());
-
-            fun->initAtom(script->functionNonDelazifying()->displayAtom());
-
-            if (!lazy->maybeScript())
-                lazy->initScript(clonedScript);
-            return true;
-        }
-
         MOZ_ASSERT(lazy->scriptSource()->hasSourceData());
 
         // Parse and compile the script from source.
@@ -1654,9 +1624,6 @@ JSFunction::createScriptForLazilyInterpretedFunction(JSContext* cx, HandleFuncti
             // script is encountered later a match can be determined.
             script->setColumn(lazy->column());
 
-            LazyScriptCache::Lookup lookup(cx, lazy);
-            cx->caches().lazyScriptCache.insert(lookup, script);
-
             // Remember the lazy script on the compiled script, so it can be
             // stored on the function again in case of re-lazification.
             // Only functions without inner functions are re-lazified.
@@ -1688,7 +1655,7 @@ JSFunction::maybeRelazify(JSRuntime* rt)
     // Try to relazify functions with a non-lazy script. Note: functions can be
     // marked as interpreted despite having no script yet at some points when
     // parsing.
-    if (!hasScript() || !u.i.s.script_)
+    if (!hasScript() || !u.scripted.s.script_)
         return;
 
     // Don't relazify functions in compartments that are active.
@@ -1710,7 +1677,7 @@ JSFunction::maybeRelazify(JSRuntime* rt)
         return;
 
     // Don't relazify functions with JIT code.
-    if (!u.i.s.script_->isRelazifiable())
+    if (!u.scripted.s.script_->isRelazifiable())
         return;
 
     // To delazify self-hosted builtins we need the name of the function
@@ -1728,7 +1695,7 @@ JSFunction::maybeRelazify(JSRuntime* rt)
     flags_ &= ~INTERPRETED;
     flags_ |= INTERPRETED_LAZY;
     LazyScript* lazy = script->maybeLazyScript();
-    u.i.s.lazy_ = lazy;
+    u.scripted.s.lazy_ = lazy;
     if (lazy) {
         MOZ_ASSERT(!isSelfHostedBuiltin());
     } else {
@@ -1767,7 +1734,7 @@ CreateDynamicFunction(JSContext* cx, const CallArgs& args, GeneratorKind generat
     }
 
     bool isGenerator = generatorKind == GeneratorKind::Generator;
-    bool isAsync = asyncKind == AsyncFunction;
+    bool isAsync = asyncKind == FunctionAsyncKind::AsyncFunction;
 
     RootedScript maybeScript(cx);
     const char* filename;
@@ -1966,28 +1933,32 @@ bool
 js::Function(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CreateDynamicFunction(cx, args, GeneratorKind::NotGenerator, SyncFunction);
+    return CreateDynamicFunction(cx, args, GeneratorKind::NotGenerator,
+                                 FunctionAsyncKind::SyncFunction);
 }
 
 bool
 js::Generator(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CreateDynamicFunction(cx, args, GeneratorKind::Generator, SyncFunction);
+    return CreateDynamicFunction(cx, args, GeneratorKind::Generator,
+                                 FunctionAsyncKind::SyncFunction);
 }
 
 bool
 js::AsyncFunctionConstructor(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CreateDynamicFunction(cx, args, GeneratorKind::NotGenerator, AsyncFunction);
+    return CreateDynamicFunction(cx, args, GeneratorKind::NotGenerator,
+                                 FunctionAsyncKind::AsyncFunction);
 }
 
 bool
 js::AsyncGeneratorConstructor(JSContext* cx, unsigned argc, Value* vp)
 {
     CallArgs args = CallArgsFromVp(argc, vp);
-    return CreateDynamicFunction(cx, args, GeneratorKind::Generator, AsyncFunction);
+    return CreateDynamicFunction(cx, args, GeneratorKind::Generator,
+                                 FunctionAsyncKind::AsyncFunction);
 }
 
 bool

@@ -232,7 +232,6 @@ nsHostRecord::~nsHostRecord()
 {
     Telemetry::Accumulate(Telemetry::DNS_BLACKLIST_COUNT, mBlacklistedCount);
     delete addr_info;
-    delete addr;
 }
 
 bool
@@ -353,7 +352,7 @@ nsHostRecord::SizeOfIncludingThis(MallocSizeOf mallocSizeOf) const
 
     n += SizeOfResolveHostCallbackListExcludingHead(&callbacks, mallocSizeOf);
     n += addr_info ? addr_info->SizeOfIncludingThis(mallocSizeOf) : 0;
-    n += mallocSizeOf(addr);
+    n += mallocSizeOf(addr.get());
 
     n += mBlacklistedItems.ShallowSizeOfExcludingThis(mallocSizeOf);
     for (size_t i = 0; i < mBlacklistedItems.Length(); i++) {
@@ -818,8 +817,8 @@ nsHostResolver::ResolveHost(const char             *host,
                 LOG(("  Host is IP Literal [%s].\n", host));
                 // ok, just copy the result into the host record, and be done
                 // with it! ;-)
-                he->rec->addr = new NetAddr();
-                PRNetAddrToNetAddr(&tempAddr, he->rec->addr);
+                he->rec->addr = MakeUnique<NetAddr>();
+                PRNetAddrToNetAddr(&tempAddr, he->rec->addr.get());
                 // put reference to host record on stack...
                 Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
                                       METHOD_LITERAL);
@@ -867,6 +866,13 @@ nsHostResolver::ResolveHost(const char             *host,
                              LOG_HOST(host, netInterface),
                              (af == PR_AF_INET) ? "AF_INET" : "AF_INET6"));
 
+                        // We need to lock in case any other thread is reading
+                        // addr_info.
+                        MutexAutoLock lock(he->rec->addr_info_lock);
+
+                        // XXX: note that this actually leaks addr_info.
+                        // For some reason, freeing the memory causes a crash in
+                        // nsDNSRecord::GetNextAddr - see bug 1422173
                         he->rec->addr_info = nullptr;
                         if (unspecHe->rec->negative) {
                             he->rec->negative = unspecHe->rec->negative;

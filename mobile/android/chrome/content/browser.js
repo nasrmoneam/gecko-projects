@@ -115,6 +115,8 @@ XPCOMUtils.defineLazyServiceGetter(this, "FontEnumerator",
   "@mozilla.org/gfx/fontenumerator;1",
   "nsIFontEnumerator");
 
+XPCOMUtils.defineLazyModuleGetter(this, "Utils", "resource://gre/modules/sessionstore/Utils.jsm");
+
 var GlobalEventDispatcher = EventDispatcher.instance;
 var WindowEventDispatcher = EventDispatcher.for(window);
 
@@ -364,6 +366,7 @@ var BrowserApp = {
     Services.androidBridge.browserApp = this;
 
     WindowEventDispatcher.registerListener(this, [
+      "GeckoView:ZoomToInput",
       "Session:Restore",
       "Tab:Load",
       "Tab:Selected",
@@ -383,7 +386,6 @@ var BrowserApp = {
       "Passwords:Init",
       "Sanitize:ClearData",
       "SaveAs:PDF",
-      "ScrollTo:FocusedInput",
       "Session:Back",
       "Session:Forward",
       "Session:GetHistory",
@@ -848,10 +850,6 @@ var BrowserApp = {
       selector: NativeWindow.contextmenus._disableRestricted("SHARE", NativeWindow.contextmenus.imageShareableContext),
       order: NativeWindow.contextmenus.DEFAULT_HTML5_ORDER - 1, // Show above HTML5 menu items
       showAsActions: function(aTarget) {
-        let doc = aTarget.ownerDocument;
-        let imageCache = Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools)
-                                                         .getImgCacheForDocument(doc);
-        let props = imageCache.findEntryProperties(aTarget.currentURI, doc);
         let src = aTarget.src;
         return {
           title: src,
@@ -881,7 +879,7 @@ var BrowserApp = {
                 return;
             }
 
-            ContentAreaUtils.saveImageURL(aTarget.currentURI.spec, null, "SaveImageTitle",
+            ContentAreaUtils.saveImageURL(aTarget.currentRequestFinalURI.spec, null, "SaveImageTitle",
                                           false, true, aTarget.ownerDocument.documentURIObject,
                                           aTarget.ownerDocument);
         });
@@ -1610,49 +1608,49 @@ var BrowserApp = {
     return null;
   },
 
-  scrollToFocusedInput: function(aBrowser, aAllowZoom = true) {
+  scrollToFocusedInput: function(aBrowser) {
     let formHelperMode = Services.prefs.getIntPref("formhelper.mode");
-    if (formHelperMode == kFormHelperModeDisabled)
+    if (formHelperMode == kFormHelperModeDisabled) {
       return;
+    }
 
-    let dwu = aBrowser.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIDOMWindowUtils);
+    let dwu = aBrowser.contentWindow.QueryInterface(Ci.nsIInterfaceRequestor)
+                                    .getInterface(Ci.nsIDOMWindowUtils);
     if (!dwu) {
       return;
     }
 
-    let apzFlushDone = function() {
-      Services.obs.removeObserver(apzFlushDone, "apz-repaints-flushed");
-      dwu.zoomToFocusedInput();
-    };
-
-    let paintDone = function() {
-      window.removeEventListener("MozAfterPaint", paintDone);
-      if (dwu.flushApzRepaints()) {
-        Services.obs.addObserver(apzFlushDone, "apz-repaints-flushed");
-      } else {
-        apzFlushDone();
-      }
-    };
-
-    let gotResizeWindow = false;
-    let resizeWindow = function(e) {
-      gotResizeWindow = true;
-      aBrowser.contentWindow.removeEventListener("resize", resizeWindow);
-      if (dwu.isMozAfterPaintPending) {
-        window.addEventListener("MozAfterPaint", paintDone);
-      } else {
-        paintDone();
-      }
-    }
-
-    aBrowser.contentWindow.addEventListener("resize", resizeWindow);
-
-    // The "resize" event sometimes fails to fire, so set a timer to catch that case
-    // and unregister the event listener. See Bug 1253469
-    setTimeout(function(e) {
-    if (!gotResizeWindow) {
-        aBrowser.contentWindow.removeEventListener("resize", resizeWindow);
+    let zoomToFocusedInput = function() {
+      if (!dwu.flushApzRepaints()) {
         dwu.zoomToFocusedInput();
+        return;
+      }
+      Services.obs.addObserver(function apzFlushDone() {
+        Services.obs.removeObserver(apzFlushDone, "apz-repaints-flushed");
+        dwu.zoomToFocusedInput();
+      }, "apz-repaints-flushed");
+    };
+
+    let gotResize = false;
+    let onResize = function() {
+      gotResize = true;
+      if (dwu.isMozAfterPaintPending) {
+        addEventListener("MozAfterPaint", zoomToFocusedInput, {once: true});
+      } else {
+        zoomToFocusedInput();
+      }
+    };
+
+    aBrowser.contentWindow.addEventListener("resize", onResize);
+
+    // When the keyboard is displayed, we can get one resize event, multiple
+    // resize events, or none at all. Try to handle all these cases by allowing
+    // resizing within a set interval, and still zoom to input if there is no
+    // resize event at the end of the interval.
+    setTimeout(function(e) {
+      aBrowser.contentWindow.removeEventListener("resize", onResize);
+      if (!gotResize) {
+        onResize();
       }
     }, 500);
   },
@@ -1769,10 +1767,10 @@ var BrowserApp = {
         this.saveAsPDF(browser);
         break;
 
-      case "ScrollTo:FocusedInput": {
+      case "GeckoView:ZoomToInput": {
         // these messages come from a change in the viewable area and not user interaction
         // we allow scrolling to the selected input, but not zooming the page
-        this.scrollToFocusedInput(browser, false);
+        this.scrollToFocusedInput(browser);
         break;
       }
 
@@ -1930,8 +1928,11 @@ var BrowserApp = {
       }
 
       case "Tab:OpenUri":
-        window.browserDOMWindow.openURI(data.uri, null, data.flags,
-                                        Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL);
+        window.browserDOMWindow.openURI(Services.io.newURI(data.uri),
+                                        /* opener */ null,
+                                        Ci.nsIBrowserDOMWindow[data.flags],
+                                        Ci.nsIBrowserDOMWindow.OPEN_EXTERNAL,
+                                        /* triggeringPrincipal */ null);
         break;
 
       case "Tab:Selected":
@@ -1992,9 +1993,7 @@ var BrowserApp = {
           // Crash reporter submit pref must be fetched from nsICrashReporter
           // service.
           case "datareporting.crashreporter.submitEnabled":
-            let crashReporterBuilt = "nsICrashReporter" in Ci &&
-                Services.appinfo instanceof Ci.nsICrashReporter;
-            if (crashReporterBuilt) {
+            if (AppConstants.MOZ_CRASHREPORTER) {
               aSubject.setAsBool(Services.appinfo.submitReports);
             }
             break;
@@ -2047,9 +2046,7 @@ var BrowserApp = {
 
           // Crash reporter preference is in a service; set and return.
           case "datareporting.crashreporter.submitEnabled":
-            let crashReporterBuilt = "nsICrashReporter" in Ci &&
-                Services.appinfo instanceof Ci.nsICrashReporter;
-            if (crashReporterBuilt) {
+            if (AppConstants.MOZ_CRASHREPORTER) {
               Services.appinfo.submitReports = value;
               aSubject.setAsEmpty();
             }
@@ -3694,7 +3691,8 @@ Tab.prototype = {
     this.browser.__SS_data = {
       entries: [{
         url: uri,
-        title: truncate(title, MAX_TITLE_LENGTH)
+        title: truncate(title, MAX_TITLE_LENGTH),
+        triggeringPrincipal_base64: Utils.SERIALIZED_SYSTEMPRINCIPAL
       }],
       index: 1,
       desktopMode: this.desktopMode,
@@ -4436,7 +4434,9 @@ Tab.prototype = {
 
     // In restricted profiles, we refuse to let you open various urls.
     if (!ParentalControls.isAllowed(ParentalControls.BROWSE, fixedURI)) {
-      aRequest.cancel(Cr.NS_BINDING_ABORTED);
+      if (aRequest) {
+        aRequest.cancel(Cr.NS_BINDING_ABORTED);
+      }
 
       this.browser.docShell.displayLoadError(Cr.NS_ERROR_UNKNOWN_PROTOCOL, fixedURI, null);
     }
@@ -4480,14 +4480,20 @@ Tab.prototype = {
       let originHost = "";
       try {
         originHost = Services.io.newURI(appOrigin).host;
-      } catch (e if (e.result == Cr.NS_ERROR_FAILURE)) {
+      } catch (e) {
+        if (e.result != Cr.NS_ERROR_FAILURE) {
+          throw e;
+        }
         // NS_ERROR_FAILURE can be thrown by nsIURI.host if the URI scheme does not possess a host -
         // in this case we just act as if we have an empty host.
       }
       let locationHost = "";
       try {
         locationHost = aLocationURI.host;
-      } catch (e if (e.result == Cr.NS_ERROR_FAILURE)) {
+      } catch (e) {
+        if (e.result != Cr.NS_ERROR_FAILURE) {
+          throw e;
+        }
         // Ditto.
       }
       if (originHost != locationHost || originHost == "") {
@@ -4501,7 +4507,7 @@ Tab.prototype = {
       ExternalApps.updatePageActionUri(fixedURI);
     }
 
-    if (Components.isSuccessCode(aRequest.status) &&
+    if ((!aRequest || Components.isSuccessCode(aRequest.status)) &&
         !fixedURI.displaySpec.startsWith("about:neterror") && !this.isSearch) {
       // If this won't end up in an error page and the user isn't searching,
       // don't retain the typed entry.
@@ -5536,8 +5542,7 @@ var IdentityHandler = {
       return this.IDENTITY_MODE_IDENTIFIED;
     }
 
-    // We also allow "about:" by allowing the selector to be empty (i.e. '(|.....|...|...)'
-    let whitelist = /^about:($|about|accounts|addons|buildconfig|cache|config|crashes|devices|downloads|fennec|firefox|feedback|healthreport|home|license|logins|logo|memory|mozilla|networking|privatebrowsing|rights|serviceworkers|support|telemetry|webrtc)($|\?)/i;
+    let whitelist = /^about:(about|accounts|addons|buildconfig|cache|config|crashes|devices|downloads|fennec|firefox|feedback|home|license|logins|logo|memory|mozilla|networking|privatebrowsing|rights|serviceworkers|support|telemetry|webrtc)($|\?)/i;
     if (uri.schemeIs("about") && whitelist.test(uri.spec)) {
         return this.IDENTITY_MODE_CHROMEUI;
     }

@@ -13,6 +13,7 @@ use data::ElementData;
 use dom::TElement;
 use invalidation::element::restyle_hints::RestyleHint;
 use properties::ComputedValues;
+use properties::longhands::display::computed_value::T as Display;
 use rule_tree::{CascadeLevel, StrongRuleNode};
 use selector_parser::{PseudoElement, RestyleDamage};
 use selectors::matching::ElementSelectorFlags;
@@ -28,16 +29,6 @@ pub struct StyleDifference {
 
     /// Whether any styles changed.
     pub change: StyleChange,
-}
-
-impl StyleDifference {
-    /// Creates a new `StyleDifference`.
-    pub fn new(damage: RestyleDamage, change: StyleChange) -> Self {
-        StyleDifference {
-            change: change,
-            damage: damage,
-        }
-    }
 }
 
 /// Represents whether or not the style of an element has changed.
@@ -142,8 +133,6 @@ trait PrivateMatchMethods: TElement {
         old_values: Option<&Arc<ComputedValues>>,
         new_values: &ComputedValues,
     ) -> bool {
-        use properties::longhands::display::computed_value as display;
-
         let new_box_style = new_values.get_box();
         let has_new_animation_style = new_box_style.specifies_animations();
         let has_animations = self.has_css_animations();
@@ -162,11 +151,11 @@ trait PrivateMatchMethods: TElement {
             (context.shared.traversal_flags.contains(TraversalFlags::ForCSSRuleChanges) &&
              (has_new_animation_style || has_animations)) ||
             !old_box_style.animations_equals(new_box_style) ||
-             (old_display_style == display::T::none &&
-              new_display_style != display::T::none &&
+             (old_display_style == Display::None &&
+              new_display_style != Display::None &&
               has_new_animation_style) ||
-             (old_display_style != display::T::none &&
-              new_display_style == display::T::none &&
+             (old_display_style != Display::None &&
+              new_display_style == Display::None &&
               has_animations)
         })
     }
@@ -182,7 +171,6 @@ trait PrivateMatchMethods: TElement {
         restyle_hints: RestyleHint
     ) {
         use context::PostAnimationTasks;
-        use properties::longhands::display::computed_value as display;
 
         if !restyle_hints.intersects(RestyleHint::RESTYLE_SMIL) {
             return;
@@ -191,8 +179,8 @@ trait PrivateMatchMethods: TElement {
         let display_changed_from_none = old_values.map_or(false, |old| {
             let old_display_style = old.get_box().clone_display();
             let new_display_style = new_values.get_box().clone_display();
-            old_display_style == display::T::none &&
-            new_display_style != display::T::none
+            old_display_style == Display::None &&
+            new_display_style != Display::None
         });
 
         if display_changed_from_none {
@@ -298,13 +286,11 @@ trait PrivateMatchMethods: TElement {
         use animation;
         use dom::TNode;
 
-        let possibly_expired_animations =
-            &mut context.thread_local.current_element_info.as_mut().unwrap()
-                        .possibly_expired_animations;
+        let mut possibly_expired_animations = vec![];
         let shared_context = context.shared;
         if let Some(ref mut old) = *old_values {
             self.update_animations_for_cascade(shared_context, old,
-                                               possibly_expired_animations,
+                                               &mut possibly_expired_animations,
                                                &context.thread_local.font_metrics_provider);
         }
 
@@ -333,7 +319,6 @@ trait PrivateMatchMethods: TElement {
     fn accumulate_damage_for(
         &self,
         shared_context: &SharedStyleContext,
-        skip_applying_damage: bool,
         damage: &mut RestyleDamage,
         old_values: &ComputedValues,
         new_values: &ComputedValues,
@@ -345,9 +330,7 @@ trait PrivateMatchMethods: TElement {
         let difference =
             self.compute_style_difference(old_values, new_values, pseudo);
 
-        if !skip_applying_damage {
-            *damage |= difference.damage;
-        }
+        *damage |= difference.damage;
 
         debug!(" > style difference: {:?}", difference);
 
@@ -359,68 +342,80 @@ trait PrivateMatchMethods: TElement {
         }
 
         match difference.change {
-            StyleChange::Unchanged => ChildCascadeRequirement::CanSkipCascade,
+            StyleChange::Unchanged => {
+                return ChildCascadeRequirement::CanSkipCascade
+            },
             StyleChange::Changed { reset_only } => {
                 // If inherited properties changed, the best we can do is
                 // cascade the children.
                 if !reset_only {
                     return ChildCascadeRequirement::MustCascadeChildren
                 }
-
-                let old_display = old_values.get_box().clone_display();
-                let new_display = new_values.get_box().clone_display();
-
-                // Blockification of children may depend on our display value,
-                // so we need to actually do the recascade. We could potentially
-                // do better, but it doesn't seem worth it.
-                if old_display.is_item_container() != new_display.is_item_container() {
-                    return ChildCascadeRequirement::MustCascadeChildren
-                }
-
-                // Line break suppression may also be affected if the display
-                // type changes from ruby to non-ruby.
-                #[cfg(feature = "gecko")]
-                {
-                    if old_display.is_ruby_type() != new_display.is_ruby_type() {
-                        return ChildCascadeRequirement::MustCascadeChildren
-                    }
-                }
-
-                // Children with justify-items: auto may depend on our
-                // justify-items property value.
-                //
-                // Similarly, we could potentially do better, but this really
-                // seems not common enough to care about.
-                #[cfg(feature = "gecko")]
-                {
-                    use values::specified::align::AlignFlags;
-
-                    let old_justify_items =
-                        old_values.get_position().clone_justify_items();
-                    let new_justify_items =
-                        new_values.get_position().clone_justify_items();
-
-                    let was_legacy_justify_items =
-                        old_justify_items.computed.0.contains(AlignFlags::LEGACY);
-
-                    let is_legacy_justify_items =
-                        new_justify_items.computed.0.contains(AlignFlags::LEGACY);
-
-                    if is_legacy_justify_items != was_legacy_justify_items {
-                        return ChildCascadeRequirement::MustCascadeChildren;
-                    }
-
-                    if was_legacy_justify_items &&
-                        old_justify_items.computed != new_justify_items.computed {
-                        return ChildCascadeRequirement::MustCascadeChildren;
-                    }
-                }
-
-                // We could prove that, if our children don't inherit reset
-                // properties, we can stop the cascade.
-                ChildCascadeRequirement::MustCascadeChildrenIfInheritResetStyle
             }
         }
+
+        let old_display = old_values.get_box().clone_display();
+        let new_display = new_values.get_box().clone_display();
+
+        // If we used to be a display: none element, and no longer are,
+        // our children need to be restyled because they're unstyled.
+        //
+        // NOTE(emilio): Gecko has the special-case of -moz-binding, but
+        // that gets handled on the frame constructor when processing
+        // the reframe, so no need to handle that here.
+        if old_display == Display::None && old_display != new_display {
+            return ChildCascadeRequirement::MustCascadeChildren
+        }
+
+        // Blockification of children may depend on our display value,
+        // so we need to actually do the recascade. We could potentially
+        // do better, but it doesn't seem worth it.
+        if old_display.is_item_container() != new_display.is_item_container() {
+            return ChildCascadeRequirement::MustCascadeChildren
+        }
+
+        // Line break suppression may also be affected if the display
+        // type changes from ruby to non-ruby.
+        #[cfg(feature = "gecko")]
+        {
+            if old_display.is_ruby_type() != new_display.is_ruby_type() {
+                return ChildCascadeRequirement::MustCascadeChildren
+            }
+        }
+
+        // Children with justify-items: auto may depend on our
+        // justify-items property value.
+        //
+        // Similarly, we could potentially do better, but this really
+        // seems not common enough to care about.
+        #[cfg(feature = "gecko")]
+        {
+            use values::specified::align::AlignFlags;
+
+            let old_justify_items =
+                old_values.get_position().clone_justify_items();
+            let new_justify_items =
+                new_values.get_position().clone_justify_items();
+
+            let was_legacy_justify_items =
+                old_justify_items.computed.0.contains(AlignFlags::LEGACY);
+
+            let is_legacy_justify_items =
+                new_justify_items.computed.0.contains(AlignFlags::LEGACY);
+
+            if is_legacy_justify_items != was_legacy_justify_items {
+                return ChildCascadeRequirement::MustCascadeChildren;
+            }
+
+            if was_legacy_justify_items &&
+                old_justify_items.computed != new_justify_items.computed {
+                return ChildCascadeRequirement::MustCascadeChildren;
+            }
+        }
+
+        // We could prove that, if our children don't inherit reset
+        // properties, we can stop the cascade.
+        ChildCascadeRequirement::MustCascadeChildrenIfInheritResetStyle
     }
 
     #[cfg(feature = "servo")]
@@ -590,7 +585,6 @@ pub trait MatchMethods : TElement {
             cascade_requirement,
             self.accumulate_damage_for(
                 context.shared,
-                data.skip_applying_damage(),
                 &mut data.damage,
                 &old_primary_style,
                 new_primary_style,
@@ -612,7 +606,6 @@ pub trait MatchMethods : TElement {
                 (&Some(ref old), &Some(ref new)) => {
                     self.accumulate_damage_for(
                         context.shared,
-                        data.skip_applying_damage(),
                         &mut data.damage,
                         old,
                         new,

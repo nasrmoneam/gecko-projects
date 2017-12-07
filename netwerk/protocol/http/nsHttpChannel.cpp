@@ -4118,6 +4118,13 @@ nsHttpChannel::OnCacheEntryCheck(nsICacheEntry* entry, nsIApplicationCache* appC
 
             // Ignore !(size > 0) from the resumability condition
             if (!IsResumable(size, contentLength, true)) {
+                if (IsNavigation()) {
+                    LOG(("  bypassing wait for the entry, "
+                         "this is a navigational load"));
+                    *aResult = ENTRY_NOT_WANTED;
+                    return NS_OK;
+                }
+
                 LOG(("  wait for entry completion, "
                      "response is not resumable"));
 
@@ -5095,6 +5102,10 @@ nsHttpChannel::CloseCacheEntry(bool doomOnFailure)
     mCachedResponseHead = nullptr;
 
     mCachePump = nullptr;
+    // This releases the entry for other consumers to use.
+    // We call Dismiss() in case someone still keeps a reference
+    // to this entry handle.
+    mCacheEntry->Dismiss();
     mCacheEntry = nullptr;
     mCacheEntryIsWriteOnly = false;
     mInitedCacheEntry = false;
@@ -6208,6 +6219,7 @@ nsHttpChannel::BeginConnect()
     mRequestHead.SetHTTPS(isHttps);
     mRequestHead.SetOrigin(scheme, host, port);
 
+    SetOriginHeader();
     SetDoNotTrack();
 
     OriginAttributes originAttributes;
@@ -6949,7 +6961,13 @@ nsHttpChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
             // earlier in ReadFromCache, so this must be a response from the network.
             MOZ_ASSERT(request == mTransactionPump);
             LOG(("  First response from network\n"));
-            mFirstResponseSource = RESPONSE_FROM_NETWORK;
+            {
+                // Race condition with OnCacheEntryCheck, which is not limited
+                // to main thread.
+                mozilla::MutexAutoLock lock(mRCWNLock);
+                mFirstResponseSource = RESPONSE_FROM_NETWORK;
+                mOnStartRequestTimestamp = TimeStamp::Now();
+            }
             mAvailableCachedAltDataType.Truncate();
         } else if (WRONG_RACING_RESPONSE_SOURCE(request)) {
             LOG(("  Early return when racing. This response not needed."));
@@ -6965,7 +6983,9 @@ nsHttpChannel::OnStartRequest(nsIRequest *request, nsISupports *ctxt)
                "If we have both pumps, the cache content must be partial");
 
     mAfterOnStartRequestBegun = true;
-    mOnStartRequestTimestamp = TimeStamp::Now();
+    if (mOnStartRequestTimestamp.IsNull()) {
+        mOnStartRequestTimestamp = TimeStamp::Now();
+    }
 
     Telemetry::Accumulate(Telemetry::HTTP_ONSTART_SUSPEND_TOTAL_TIME,
                           mSuspendTotalTime);
@@ -7863,6 +7883,13 @@ nsHttpChannel::PreferAlternativeDataType(const nsACString & aType)
     ENSURE_CALLED_BEFORE_ASYNC_OPEN();
     mPreferredCachedAltDataType = aType;
     return NS_OK;
+}
+
+NS_IMETHODIMP
+nsHttpChannel::GetPreferredAlternativeDataType(nsACString & aType)
+{
+  aType = mPreferredCachedAltDataType;
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -8945,6 +8972,58 @@ nsHttpChannel::SetLoadGroupUserAgentOverride()
             }
         }
     }
+}
+
+// Step 10 of HTTP-network-or-cache fetch
+void
+nsHttpChannel::SetOriginHeader()
+{
+    if (mRequestHead.IsGet() || mRequestHead.IsHead()) {
+        return;
+    }
+    nsAutoCString existingHeader;
+    Unused << mRequestHead.GetHeader(nsHttp::Origin, existingHeader);
+    if (!existingHeader.IsEmpty()) {
+        LOG(("nsHttpChannel::SetOriginHeader Origin header already present"));
+        return;
+    }
+
+    DebugOnly<nsresult> rv;
+
+    // Instead of consulting Preferences::GetInt() all the time we
+    // can cache the result to speed things up.
+    static int32_t sSendOriginHeader = 0;
+    static bool sIsInited = false;
+    if (!sIsInited) {
+        sIsInited = true;
+        Preferences::AddIntVarCache(&sSendOriginHeader,
+                                    "network.http.sendOriginHeader");
+    }
+    if (sSendOriginHeader == 0) {
+        // Origin header suppressed by user setting
+        return;
+    }
+
+    nsCOMPtr<nsIURI> referrer;
+    mLoadInfo->TriggeringPrincipal()->GetURI(getter_AddRefs(referrer));
+
+    nsAutoCString origin("null");
+    if (referrer && IsReferrerSchemeAllowed(referrer)) {
+        nsContentUtils::GetASCIIOrigin(referrer, origin);
+    }
+
+    // Restrict Origin to same-origin loads if requested by user
+    if (sSendOriginHeader == 1) {
+        nsAutoCString currentOrigin;
+        nsContentUtils::GetASCIIOrigin(mURI, currentOrigin);
+        if (!origin.EqualsIgnoreCase(currentOrigin.get())) {
+            // Origin header suppressed by user setting
+            return;
+        }
+    }
+
+    rv = mRequestHead.SetHeader(nsHttp::Origin, origin, false /* merge */);
+    MOZ_ASSERT(NS_SUCCEEDED(rv));
 }
 
 void

@@ -27,7 +27,7 @@ def gecko_profiler(target):
     if target.os == 'Android':
         return target.cpu in ('aarch64', 'arm', 'x86')
     elif target.kernel == 'Linux':
-        return target.cpu in ('x86', 'x86_64')
+        return target.cpu in ('x86', 'x86_64', 'mips64')
     return target.os in ('OSX', 'WINNT')
 
 @depends(gecko_profiler)
@@ -375,7 +375,7 @@ option('--enable-av1',
 def av1(value, target, milestone):
     enabled = bool(value)
     if value.origin == 'default' and milestone.is_nightly:
-        enabled = target.os != 'Android'
+        enabled = target.os != 'Android' and target.cpu != 'x86'
     if enabled:
         return True
 
@@ -566,22 +566,16 @@ simple_keyfile('Pocket API')
 option('--enable-stylo', nargs='?', choices=('build',),
        help='Include Stylo in the build and/or enable it at runtime')
 
-@depends('--enable-stylo', '--help', target, milestone)
-def stylo_config(value, _, target, milestone):
+@depends('--enable-stylo', '--help')
+def stylo_config(value, _):
     build_stylo = None
     enable_stylo = None
 
     # If nothing is specified, default to building and enabling Stylo where it
     # is known to work.
     if value.origin == 'default':
-        # Build stylo on Android Nighly, but this is still turned off yet.
-        if target.os == 'Android':
-            if milestone.is_nightly:
-                build_stylo = True
-                enable_stylo = None
-        else:
-            build_stylo = True
-            enable_stylo = True
+        build_stylo = True
+        enable_stylo = True
     elif len(value) and value[0] == 'build':
         # Build but disable by request.
         build_stylo = True
@@ -1114,9 +1108,8 @@ option('--enable-geckodriver', help='Enable WebDriver implementation')
          'MOZ_AUTOMATION',
          compile_environment,
          cross_compiling,
-         hazard_analysis,
-         target)
-def geckodriver(enable, automation, compile_env, cross_compile, hazard, target):
+         hazard_analysis)
+def geckodriver(enable, automation, compile_env, cross_compile, hazard):
     """
     geckodriver is implied on supported platforms when MOZ_AUTOMATION
     is set, but we also provide the --enable-geckodriver option for
@@ -1134,8 +1127,7 @@ def geckodriver(enable, automation, compile_env, cross_compile, hazard, target):
         return True
 
     if enable.origin == 'default':
-        linux32 = target.kernel == 'Linux' and target.cpu == 'x86'
-        broken_platforms = cross_compile or linux32 or hazard
+        broken_platforms = cross_compile or hazard
 
         if automation and compile_env and not broken_platforms:
             return True
@@ -1156,7 +1148,7 @@ def webrtc_default(target):
             os_match = True
 
     cpu_match = False
-    if (target.cpu in ('x86_64', 'arm', 'aarch64', 'x86', 'ia64') or
+    if (target.cpu in ('x86_64', 'arm', 'aarch64', 'x86', 'ia64', 'mips32', 'mips64') or
         target.cpu.startswith('ppc')):
         cpu_match = True
 
@@ -1196,3 +1188,16 @@ def enable_asan_reporter(value):
 
 set_config('MOZ_ASAN_REPORTER', enable_asan_reporter)
 set_define('MOZ_ASAN_REPORTER', enable_asan_reporter)
+
+# Elfhack
+# ==============================================================
+@depends(host, target)
+def has_elfhack(host, target):
+    return target.kernel == 'Linux' and host.kernel == 'Linux' and \
+           target.cpu in ('arm', 'x86', 'x86_64')
+
+with only_when(has_elfhack):
+    option('--disable-elf-hack', help='Disable elf hacks')
+
+    set_config('USE_ELF_HACK',
+               depends_if('--enable-elf-hack')(lambda _: True))

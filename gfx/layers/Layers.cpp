@@ -840,8 +840,7 @@ ContainerLayer::ContainerLayer(LayerManager* aManager, void* aImplData)
     mUseIntermediateSurface(false),
     mSupportsComponentAlphaChildren(false),
     mMayHaveReadbackChild(false),
-    mChildrenChanged(false),
-    mEventRegionsOverride(EventRegionsOverride::NoOverride)
+    mChildrenChanged(false)
 {
 }
 
@@ -1035,8 +1034,7 @@ ContainerLayer::FillSpecificAttributes(SpecificLayerAttributes& aAttrs)
 {
   aAttrs = ContainerLayerAttributes(mPreXScale, mPreYScale,
                                     mInheritedXScale, mInheritedYScale,
-                                    mPresShellResolution, mScaleToResolution,
-                                    mEventRegionsOverride);
+                                    mPresShellResolution, mScaleToResolution);
 }
 
 bool
@@ -1814,15 +1812,16 @@ Layer::PrintInfo(std::stringstream& aStream, const char* aPrefix)
   if (Is3DContextLeaf()) {
     aStream << " [is3DContextLeaf]";
   }
-  if (IsScrollbarContainer()) {
+  if (GetScrollbarContainerDirection().isSome()) {
     aStream << " [scrollbar]";
   }
-  ScrollDirection thumbDirection = GetScrollThumbData().mDirection;
-  if (thumbDirection == ScrollDirection::VERTICAL) {
-    aStream << nsPrintfCString(" [vscrollbar=%" PRIu64 "]", GetScrollbarTargetContainerId()).get();
-  }
-  if (thumbDirection == ScrollDirection::HORIZONTAL) {
-    aStream << nsPrintfCString(" [hscrollbar=%" PRIu64 "]", GetScrollbarTargetContainerId()).get();
+  if (Maybe<ScrollDirection> thumbDirection = GetScrollThumbData().mDirection) {
+    if (*thumbDirection == ScrollDirection::eVertical) {
+      aStream << nsPrintfCString(" [vscrollbar=%" PRIu64 "]", GetScrollbarTargetContainerId()).get();
+    }
+    if (*thumbDirection == ScrollDirection::eHorizontal) {
+      aStream << nsPrintfCString(" [hscrollbar=%" PRIu64 "]", GetScrollbarTargetContainerId()).get();
+    }
   }
   if (GetIsFixedPosition()) {
     LayerPoint anchor = GetFixedPositionAnchor();
@@ -1967,9 +1966,8 @@ Layer::DumpPacket(layerscope::LayersPacket* aPacket, const void* aParent)
   // Component alpha
   layer->set_calpha(static_cast<bool>(GetContentFlags() & CONTENT_COMPONENT_ALPHA));
   // Vertical or horizontal bar
-  ScrollDirection thumbDirection = GetScrollThumbData().mDirection;
-  if (thumbDirection != ScrollDirection::NONE) {
-    layer->set_direct(thumbDirection == ScrollDirection::VERTICAL ?
+  if (Maybe<ScrollDirection> thumbDirection = GetScrollThumbData().mDirection) {
+    layer->set_direct(*thumbDirection == ScrollDirection::eVertical ?
                       LayersPacket::Layer::VERTICAL :
                       LayersPacket::Layer::HORIZONTAL);
     layer->set_barid(GetScrollbarTargetContainerId());
@@ -2061,12 +2059,6 @@ ContainerLayer::PrintInfo(std::stringstream& aStream, const char* aPrefix)
   }
   if (mScaleToResolution) {
     aStream << nsPrintfCString(" [presShellResolution=%g]", mPresShellResolution).get();
-  }
-  if (mEventRegionsOverride & EventRegionsOverride::ForceDispatchToContent) {
-    aStream << " [force-dtc]";
-  }
-  if (mEventRegionsOverride & EventRegionsOverride::ForceEmptyHitRegion) {
-    aStream << " [force-ehr]";
   }
 }
 
@@ -2243,6 +2235,12 @@ RefLayer::PrintInfo(std::stringstream& aStream, const char* aPrefix)
   ContainerLayer::PrintInfo(aStream, aPrefix);
   if (0 != mId) {
     AppendToString(aStream, mId, " [id=", "]");
+  }
+  if (mEventRegionsOverride & EventRegionsOverride::ForceDispatchToContent) {
+    aStream << " [force-dtc]";
+  }
+  if (mEventRegionsOverride & EventRegionsOverride::ForceEmptyHitRegion) {
+    aStream << " [force-ehr]";
   }
 }
 

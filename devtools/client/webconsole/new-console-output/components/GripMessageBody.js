@@ -13,10 +13,8 @@ if (typeof define === "undefined") {
 }
 
 // React
-const {
-  createFactory,
-  PropTypes,
-} = require("devtools/client/shared/vendor/react");
+const { createFactory } = require("devtools/client/shared/vendor/react");
+const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 const ObjectClient = require("devtools/shared/client/object-client");
 const {
   MESSAGE_TYPE,
@@ -39,6 +37,7 @@ GripMessageBody.propTypes = {
   serviceContainer: PropTypes.shape({
     createElement: PropTypes.func.isRequired,
     hudProxy: PropTypes.object.isRequired,
+    onViewSourceInDebugger: PropTypes.func.isRequired,
   }),
   userProvidedStyle: PropTypes.string,
   useQuotes: PropTypes.bool,
@@ -104,6 +103,7 @@ function GripMessageBody(props) {
       }
       serviceContainer.hudProxy.releaseActor(actor);
     },
+    onViewSourceInDebugger: serviceContainer.onViewSourceInDebugger,
     openLink: serviceContainer.openLink,
   };
 

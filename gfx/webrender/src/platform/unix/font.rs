@@ -2,11 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{FontInstance, FontKey, FontRenderMode, GlyphDimensions};
+use api::{ColorU, GlyphDimensions, GlyphKey, FontKey, FontRenderMode};
 use api::{FontInstancePlatformOptions, FontLCDFilter, FontHinting};
-use api::{NativeFontHandle, SubpixelDirection, GlyphKey, ColorU};
-use api::{FONT_FORCE_AUTOHINT, FONT_NO_AUTOHINT, FONT_EMBEDDED_BITMAP};
-use api::{FONT_EMBOLDEN, FONT_VERTICAL_LAYOUT, FONT_SUBPIXEL_BGR};
+use api::{FontInstanceFlags, NativeFontHandle, SubpixelDirection};
 use freetype::freetype::{FT_BBox, FT_Outline_Translate, FT_Pixel_Mode, FT_Render_Mode};
 use freetype::freetype::{FT_Done_Face, FT_Error, FT_Get_Char_Index, FT_Int32};
 use freetype::freetype::{FT_Done_FreeType, FT_Library_SetLcdFilter, FT_Pos};
@@ -14,11 +12,12 @@ use freetype::freetype::{FT_F26Dot6, FT_Face, FT_Glyph_Format, FT_Long, FT_UInt}
 use freetype::freetype::{FT_GlyphSlot, FT_LcdFilter, FT_New_Face, FT_New_Memory_Face};
 use freetype::freetype::{FT_Init_FreeType, FT_Load_Glyph, FT_Render_Glyph};
 use freetype::freetype::{FT_Library, FT_Outline_Get_CBox, FT_Set_Char_Size, FT_Select_Size};
+use freetype::freetype::{FT_Fixed, FT_Matrix, FT_Set_Transform};
 use freetype::freetype::{FT_LOAD_COLOR, FT_LOAD_DEFAULT, FT_LOAD_FORCE_AUTOHINT};
 use freetype::freetype::{FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH, FT_LOAD_NO_AUTOHINT};
 use freetype::freetype::{FT_LOAD_NO_BITMAP, FT_LOAD_NO_HINTING, FT_LOAD_VERTICAL_LAYOUT};
 use freetype::freetype::{FT_FACE_FLAG_SCALABLE, FT_FACE_FLAG_FIXED_SIZES, FT_Err_Cannot_Render_Glyph};
-use glyph_rasterizer::{GlyphFormat, RasterizedGlyph};
+use glyph_rasterizer::{FontInstance, RasterizedGlyph};
 use internal_types::FastHashMap;
 use std::{cmp, mem, ptr, slice};
 use std::cmp::max;
@@ -152,7 +151,7 @@ impl FontContext {
         let face = self.faces.get(&font.font_key).unwrap();
 
         let mut load_flags = FT_LOAD_DEFAULT;
-        let FontInstancePlatformOptions { flags, hinting, .. } = font.platform_options.unwrap_or_default();
+        let FontInstancePlatformOptions { hinting, .. } = font.platform_options.unwrap_or_default();
         match (hinting, font.render_mode) {
             (FontHinting::None, _) => load_flags |= FT_LOAD_NO_HINTING,
             (FontHinting::Mono, _) => load_flags = FT_LOAD_TARGET_MONO,
@@ -162,39 +161,57 @@ impl FontContext {
                     SubpixelDirection::Vertical => FT_LOAD_TARGET_LCD_V,
                     _ => FT_LOAD_TARGET_LCD,
                 };
-                if (flags & FONT_FORCE_AUTOHINT) != 0 {
+                if font.flags.contains(FontInstanceFlags::FORCE_AUTOHINT) {
                     load_flags |= FT_LOAD_FORCE_AUTOHINT;
                 }
             }
             _ => {
-                if (flags & FONT_FORCE_AUTOHINT) != 0 {
+                if font.flags.contains(FontInstanceFlags::FORCE_AUTOHINT) {
                     load_flags |= FT_LOAD_FORCE_AUTOHINT;
                 }
             }
         }
 
-        if (flags & FONT_NO_AUTOHINT) != 0 {
+        if font.flags.contains(FontInstanceFlags::NO_AUTOHINT) {
             load_flags |= FT_LOAD_NO_AUTOHINT;
         }
-        if (flags & FONT_EMBEDDED_BITMAP) == 0 {
+        if !font.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) {
             load_flags |= FT_LOAD_NO_BITMAP;
         }
-        if (flags & FONT_VERTICAL_LAYOUT) != 0 {
+        if font.flags.contains(FontInstanceFlags::VERTICAL_LAYOUT) {
             load_flags |= FT_LOAD_VERTICAL_LAYOUT;
         }
 
         load_flags |= FT_LOAD_COLOR;
         load_flags |= FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
 
+        let req_size = font.size.to_f64_px();
         let mut result = if font.render_mode == FontRenderMode::Bitmap {
             if (load_flags & FT_LOAD_NO_BITMAP) != 0 {
                 FT_Error(FT_Err_Cannot_Render_Glyph as i32)
             } else {
-                self.choose_bitmap_size(face.face, font.size.to_f64_px())
+                unsafe { FT_Set_Transform(face.face, ptr::null_mut(), ptr::null_mut()) };
+                self.choose_bitmap_size(face.face, req_size)
             }
         } else {
-            let char_size = font.size.to_f64_px() * 64.0 + 0.5;
-            unsafe { FT_Set_Char_Size(face.face, char_size as FT_F26Dot6, 0, 0, 0) }
+            let (x_scale, y_scale) = font.transform.compute_scale().unwrap_or((1.0, 1.0));
+            let shape = font.transform.pre_scale(x_scale.recip() as f32, y_scale.recip() as f32);
+            let mut ft_shape = FT_Matrix {
+                xx: (shape.scale_x * 65536.0) as FT_Fixed,
+                xy: (shape.skew_x * -65536.0) as FT_Fixed,
+                yx: (shape.skew_y * -65536.0) as FT_Fixed,
+                yy: (shape.scale_y * 65536.0) as FT_Fixed,
+            };
+            unsafe {
+                FT_Set_Transform(face.face, &mut ft_shape, ptr::null_mut());
+                FT_Set_Char_Size(
+                    face.face,
+                    (req_size * x_scale * 64.0 + 0.5) as FT_F26Dot6,
+                    (req_size * y_scale * 64.0 + 0.5) as FT_F26Dot6,
+                    0,
+                    0,
+                )
+            }
         };
 
         if result.succeeded() {
@@ -205,7 +222,7 @@ impl FontContext {
             let slot = unsafe { (*face.face).glyph };
             assert!(slot != ptr::null_mut());
 
-            if (flags & FONT_EMBOLDEN) != 0 {
+            if font.flags.contains(FontInstanceFlags::SYNTHETIC_BOLD) {
                 unsafe { FT_GlyphSlot_Embolden(slot) };
             }
 
@@ -366,15 +383,9 @@ impl FontContext {
         let face_flags = unsafe { (*face.face).face_flags };
         // If the face has embedded bitmaps, they should only be used if either
         // embedded bitmaps are explicitly requested or if the face has no outline.
-        if (face_flags & (FT_FACE_FLAG_FIXED_SIZES as FT_Long)) != 0 {
-            let FontInstancePlatformOptions { flags, .. } = font.platform_options.unwrap_or_default();
-            if (flags & FONT_EMBEDDED_BITMAP) != 0 {
-                return true;
-            }
-            (face_flags & (FT_FACE_FLAG_SCALABLE as FT_Long)) == 0
-        } else {
-            false
-        }
+        (face_flags & (FT_FACE_FLAG_FIXED_SIZES as FT_Long)) != 0 &&
+            (font.flags.contains(FontInstanceFlags::EMBEDDED_BITMAPS) ||
+                (face_flags & (FT_FACE_FLAG_SCALABLE as FT_Long)) == 0)
     }
 
     fn choose_bitmap_size(&self, face: FT_Face, requested_size: f64) -> FT_Error {
@@ -398,13 +409,13 @@ impl FontContext {
         match font.render_mode {
             FontRenderMode::Mono | FontRenderMode::Bitmap => {
                 // In mono/bitmap modes the color of the font is irrelevant.
-                font.color = ColorU::new(255, 255, 255, 255);
+                font.color = ColorU::new(0xFF, 0xFF, 0xFF, 0xFF);
                 // Subpixel positioning is disabled in mono and bitmap modes.
                 font.subpx_dir = SubpixelDirection::None;
             }
             FontRenderMode::Alpha | FontRenderMode::Subpixel => {
                 // We don't do any preblending with FreeType currently, so the color is not used.
-                font.color = ColorU::new(255, 255, 255, 255);
+                font.color = ColorU::new(0xFF, 0xFF, 0xFF, 0xFF);
             }
         }
     }
@@ -432,7 +443,7 @@ impl FontContext {
                 dy - ((cbox.yMin + dy) & !63),
             );
 
-            if font.synthetic_italics {
+            if font.flags.contains(FontInstanceFlags::SYNTHETIC_ITALICS) {
                 FT_GlyphSlot_Oblique(slot);
             }
         }
@@ -482,9 +493,10 @@ impl FontContext {
             Some(val) => val,
             None => return None,
         };
+        let GlyphDimensions { mut left, mut top, width, height, .. } = dimensions;
 
         // For spaces and other non-printable characters, early out.
-        if dimensions.width == 0 || dimensions.height == 0 {
+        if width == 0 || height == 0 {
             return None;
         }
 
@@ -504,10 +516,8 @@ impl FontContext {
                 error!("Unsupported {:?}", format);
                 return None;
             }
-        }
+        };
 
-        let bitmap = unsafe { &(*slot).bitmap };
-        let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
         info!(
             "Rasterizing {:?} as {:?} with dimensions {:?}",
             key,
@@ -515,33 +525,29 @@ impl FontContext {
             dimensions
         );
 
-        let (format, actual_width, actual_height) = match pixel_mode {
+        let bitmap = unsafe { &(*slot).bitmap };
+        let pixel_mode = unsafe { mem::transmute(bitmap.pixel_mode as u32) };
+        let (actual_width, actual_height) = match pixel_mode {
             FT_Pixel_Mode::FT_PIXEL_MODE_LCD => {
                 assert!(bitmap.width % 3 == 0);
-                (GlyphFormat::Subpixel, (bitmap.width / 3) as i32, bitmap.rows as i32)
+                ((bitmap.width / 3) as i32, bitmap.rows as i32)
             }
             FT_Pixel_Mode::FT_PIXEL_MODE_LCD_V => {
                 assert!(bitmap.rows % 3 == 0);
-                (GlyphFormat::Subpixel, bitmap.width as i32, (bitmap.rows / 3) as i32)
+                (bitmap.width as i32, (bitmap.rows / 3) as i32)
             }
-            FT_Pixel_Mode::FT_PIXEL_MODE_MONO => {
-                (GlyphFormat::Mono, bitmap.width as i32, bitmap.rows as i32)
-            }
-            FT_Pixel_Mode::FT_PIXEL_MODE_GRAY => {
-                (GlyphFormat::Alpha, bitmap.width as i32, bitmap.rows as i32)
-            }
+            FT_Pixel_Mode::FT_PIXEL_MODE_MONO |
+            FT_Pixel_Mode::FT_PIXEL_MODE_GRAY |
             FT_Pixel_Mode::FT_PIXEL_MODE_BGRA => {
-                (GlyphFormat::ColorBitmap, bitmap.width as i32, bitmap.rows as i32)
+                (bitmap.width as i32, bitmap.rows as i32)
             }
             _ => panic!("Unsupported {:?}", pixel_mode),
         };
-        let (left, top) = unsafe { ((*slot).bitmap_left, (*slot).bitmap_top) };
         let mut final_buffer = vec![0; (actual_width * actual_height * 4) as usize];
 
         // Extract the final glyph from FT format into RGBA8 format, which is
         // what WR expects.
-        let FontInstancePlatformOptions { flags, .. } = font.platform_options.unwrap_or_default();
-        let subpixel_bgr = (flags & FONT_SUBPIXEL_BGR) != 0;
+        let subpixel_bgr = font.flags.contains(FontInstanceFlags::SUBPIXEL_BGR);
         let mut src_row = bitmap.buffer;
         let mut dest: usize = 0;
         while dest < final_buffer.len() {
@@ -619,13 +625,23 @@ impl FontContext {
             dest = row_end;
         }
 
+        match format {
+            FT_Glyph_Format::FT_GLYPH_FORMAT_OUTLINE => {
+                unsafe {
+                    left += (*slot).bitmap_left;
+                    top += (*slot).bitmap_top - actual_height;
+                }
+            }
+            _ => {}
+        }
+
         Some(RasterizedGlyph {
-            left: ((dimensions.left + left) as f32 * scale).round(),
-            top: ((dimensions.top + top - actual_height) as f32 * scale).round(),
+            left: left as f32,
+            top: top as f32,
             width: actual_width as u32,
             height: actual_height as u32,
             scale,
-            format,
+            format: font.get_glyph_format(pixel_mode == FT_Pixel_Mode::FT_PIXEL_MODE_BGRA),
             bytes: final_buffer,
         })
     }

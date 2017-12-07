@@ -179,10 +179,8 @@ Gecko_LoadStyleSheet(mozilla::css::Loader* loader,
 
 // Selector Matching.
 uint64_t Gecko_ElementState(RawGeckoElementBorrowed element);
-uint64_t Gecko_DocumentState(const nsIDocument* aDocument);
 bool Gecko_IsRootElement(RawGeckoElementBorrowed element);
 bool Gecko_MatchesElement(mozilla::CSSPseudoClassType type, RawGeckoElementBorrowed element);
-nsAtom* Gecko_Namespace(RawGeckoElementBorrowed element);
 bool Gecko_MatchLang(RawGeckoElementBorrowed element,
                      nsAtom* override_lang, bool has_override_lang,
                      const char16_t* value);
@@ -235,16 +233,12 @@ Gecko_GetActiveLinkAttrDeclarationBlock(RawGeckoElementBorrowed element);
 
 // Returns whether private browsing is enabled for a given element.
 bool Gecko_IsPrivateBrowsingEnabled(const nsIDocument* aDoc);
-// Returns whether visited links are enabled.
-bool Gecko_AreVisitedLinksEnabled();
 
 // Animations
 bool
 Gecko_GetAnimationRule(RawGeckoElementBorrowed aElementOrPseudo,
                        mozilla::EffectCompositor::CascadeLevel aCascadeLevel,
                        RawServoAnimationValueMapBorrowedMut aAnimationValues);
-RawServoDeclarationBlockStrongBorrowedOrNull
-Gecko_GetSMILOverrideDeclarationBlock(RawGeckoElementBorrowed element);
 bool Gecko_StyleAnimationsEquals(RawGeckoStyleAnimationListBorrowed,
                                  RawGeckoStyleAnimationListBorrowed);
 void Gecko_CopyAnimationNames(RawGeckoStyleAnimationListBorrowedMut aDest,
@@ -521,6 +515,7 @@ void Gecko_CopyShapeSourceFrom(mozilla::StyleShapeSource* dst, const mozilla::St
 void Gecko_DestroyShapeSource(mozilla::StyleShapeSource* shape);
 void Gecko_NewBasicShape(mozilla::StyleShapeSource* shape,
                          mozilla::StyleBasicShapeType type);
+void Gecko_NewShapeImage(mozilla::StyleShapeSource* shape);
 void Gecko_StyleShapeSource_SetURLValue(mozilla::StyleShapeSource* shape, ServoBundledURI uri);
 
 void Gecko_ResetFilters(nsStyleEffects* effects, size_t new_len);
@@ -540,8 +535,7 @@ mozilla::css::URLValue* Gecko_NewURLValue(ServoBundledURI uri);
 NS_DECL_THREADSAFE_FFI_REFCOUNTING(mozilla::css::URLValue, CSSURLValue);
 NS_DECL_THREADSAFE_FFI_REFCOUNTING(RawGeckoURLExtraData, URLExtraData);
 
-void Gecko_FillAllBackgroundLists(nsStyleImageLayers* layers, uint32_t max_len);
-void Gecko_FillAllMaskLists(nsStyleImageLayers* layers, uint32_t max_len);
+void Gecko_FillAllImageLayers(nsStyleImageLayers* layers, uint32_t max_len);
 NS_DECL_THREADSAFE_FFI_REFCOUNTING(nsStyleCoord::Calc, Calc);
 
 nsCSSShadowArray* Gecko_NewCSSShadowArray(uint32_t len);

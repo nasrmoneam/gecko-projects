@@ -57,9 +57,12 @@ from .data import (
     Library,
     Linkable,
     LocalInclude,
+    LocalizedFiles,
+    LocalizedPreprocessedFiles,
     ObjdirFiles,
     ObjdirPreprocessedFiles,
     PerSourceFlag,
+    PreprocessedIPDLFile,
     PreprocessedTestWebIDLFile,
     PreprocessedWebIDLFile,
     Program,
@@ -133,7 +136,9 @@ class TreeMetadataEmitter(LoggingMixin):
         self._compile_dirs = set()
         self._host_compile_dirs = set()
         self._rust_compile_dirs = set()
+        self._asm_compile_dirs = set()
         self._compile_flags = dict()
+        self._compile_as_flags = dict()
         self._linkage = []
         self._static_linking_shared = set()
         self._crate_verified_local = set()
@@ -275,7 +280,14 @@ class TreeMetadataEmitter(LoggingMixin):
                 objdir_flags = self._compile_flags[lib.objdir]
                 objdir_flags.resolve_flags('LIBRARY_DEFINES', lib_defines)
 
+                objdir_flags = self._compile_as_flags.get(lib.objdir)
+                if objdir_flags:
+                    objdir_flags.resolve_flags('LIBRARY_DEFINES', lib_defines)
+
         for flags_obj in self._compile_flags.values():
+            yield flags_obj
+
+        for flags_obj in self._compile_as_flags.values():
             yield flags_obj
 
         for obj in self._binaries.values():
@@ -888,6 +900,8 @@ class TreeMetadataEmitter(LoggingMixin):
                         sorted_files, canonical_suffix_for_file):
                     if canonical_suffix in ('.cpp', '.mm'):
                         cxx_sources[variable] = True
+                    elif canonical_suffix in ('.s', '.S'):
+                        self._asm_compile_dirs.add(context.objdir)
                     arglist = [context, list(files), canonical_suffix]
                     if variable.startswith('UNIFIED_'):
                         arglist.append(context.get('FILES_PER_UNIFIED_FILE', 16))
@@ -933,6 +947,7 @@ class TreeMetadataEmitter(LoggingMixin):
         computed_flags = ComputedFlags(context, context['COMPILE_FLAGS'])
         computed_link_flags = ComputedFlags(context, context['LINK_FLAGS'])
         computed_host_flags = ComputedFlags(context, context['HOST_COMPILE_FLAGS'])
+        computed_as_flags = ComputedFlags(context, context['ASM_FLAGS'])
 
         # Proxy some variables as-is until we have richer classes to represent
         # them. We should aim to keep this set small because it violates the
@@ -962,7 +977,7 @@ class TreeMetadataEmitter(LoggingMixin):
                 for dll in context['DELAYLOAD_DLLS']])
             context['OS_LIBS'].append('delayimp')
 
-        for v in ['CMFLAGS', 'CMMFLAGS', 'ASFLAGS']:
+        for v in ['CMFLAGS', 'CMMFLAGS']:
             if v in context and context[v]:
                 passthru.variables['MOZBUILD_' + v] = context[v]
 
@@ -1008,9 +1023,12 @@ class TreeMetadataEmitter(LoggingMixin):
                 computed_host_flags.resolve_flags('RTL', [rtl_flag])
 
         generated_files = set()
+        localized_generated_files = set()
         for obj in self._process_generated_files(context):
             for f in obj.outputs:
                 generated_files.add(f)
+                if obj.localized:
+                    localized_generated_files.add(f)
             yield obj
 
         for path in context['CONFIGURE_SUBST_FILES']:
@@ -1019,8 +1037,8 @@ class TreeMetadataEmitter(LoggingMixin):
             generated_files.add(str(sub.relpath))
             yield sub
 
-        for defines_var, cls, backend_flags in (('DEFINES', Defines, computed_flags),
-                                                ('HOST_DEFINES', HostDefines, computed_host_flags)):
+        for defines_var, cls, backend_flags in (('DEFINES', Defines, (computed_flags, computed_as_flags)),
+                                                ('HOST_DEFINES', HostDefines, (computed_host_flags,))):
             defines = context.get(defines_var)
             if defines:
                 defines_obj = cls(context, defines)
@@ -1035,12 +1053,14 @@ class TreeMetadataEmitter(LoggingMixin):
 
             defines_from_obj = list(defines_obj.get_defines())
             if defines_from_obj:
-                backend_flags.resolve_flags(defines_var, defines_from_obj)
+                for flags in backend_flags:
+                    flags.resolve_flags(defines_var, defines_from_obj)
 
         simple_lists = [
             ('GENERATED_EVENTS_WEBIDL_FILES', GeneratedEventWebIDLFile),
             ('GENERATED_WEBIDL_FILES', GeneratedWebIDLFile),
             ('IPDL_SOURCES', IPDLFile),
+            ('PREPROCESSED_IPDL_SOURCES', PreprocessedIPDLFile),
             ('PREPROCESSED_TEST_WEBIDL_FILES', PreprocessedTestWebIDLFile),
             ('PREPROCESSED_WEBIDL_FILES', PreprocessedWebIDLFile),
             ('TEST_WEBIDL_FILES', TestWebIDLFile),
@@ -1063,6 +1083,8 @@ class TreeMetadataEmitter(LoggingMixin):
             yield include_obj
 
         computed_flags.resolve_flags('LOCAL_INCLUDES', ['-I%s' % p for p in local_includes])
+        computed_as_flags.resolve_flags('LOCAL_INCLUDES', ['-I%s' % p for p in local_includes])
+        computed_host_flags.resolve_flags('LOCAL_INCLUDES', ['-I%s' % p for p in local_includes])
 
         for obj in self._handle_linkables(context, passthru, generated_files):
             yield obj
@@ -1075,6 +1097,8 @@ class TreeMetadataEmitter(LoggingMixin):
             ('EXPORTS', Exports),
             ('FINAL_TARGET_FILES', FinalTargetFiles),
             ('FINAL_TARGET_PP_FILES', FinalTargetPreprocessedFiles),
+            ('LOCALIZED_FILES', LocalizedFiles),
+            ('LOCALIZED_PP_FILES', LocalizedPreprocessedFiles),
             ('OBJDIR_FILES', ObjdirFiles),
             ('OBJDIR_PP_FILES', ObjdirPreprocessedFiles),
             ('TEST_HARNESS_FILES', TestHarnessFiles),
@@ -1099,13 +1123,19 @@ class TreeMetadataEmitter(LoggingMixin):
                 if mozpath.split(base)[0] == 'res':
                     has_resources = True
                 for f in files:
-                    if ((var == 'FINAL_TARGET_PP_FILES' or
-                         var == 'OBJDIR_PP_FILES') and
+                    if (var in ('FINAL_TARGET_PP_FILES',
+                                'OBJDIR_PP_FILES',
+                                'LOCALIZED_PP_FILES') and
                         not isinstance(f, SourcePath)):
                         raise SandboxValidationError(
                                 ('Only source directory paths allowed in ' +
                                  '%s: %s')
                                 % (var, f,), context)
+                    if var.startswith('LOCALIZED_'):
+                        if isinstance(f, SourcePath) and not f.startswith('en-US/'):
+                            raise SandboxValidationError(
+                                    '%s paths must start with `en-US/`: %s'
+                                    % (var, f,), context)
                     if not isinstance(f, ObjDirPath):
                         path = f.full_path
                         if '*' not in path and not os.path.exists(path):
@@ -1122,6 +1152,21 @@ class TreeMetadataEmitter(LoggingMixin):
                             raise SandboxValidationError(
                                 ('Objdir file listed in %s not in ' +
                                  'GENERATED_FILES: %s') % (var, f), context)
+
+                        if var.startswith('LOCALIZED_'):
+                            # Further require that LOCALIZED_FILES are from
+                            # LOCALIZED_GENERATED_FILES.
+                            if f.target_basename not in localized_generated_files:
+                                raise SandboxValidationError(
+                                    ('Objdir file listed in %s not in ' +
+                                     'LOCALIZED_GENERATED_FILES: %s') % (var, f), context)
+                        else:
+                            # Additionally, don't allow LOCALIZED_GENERATED_FILES to be used
+                            # in anything *but* LOCALIZED_FILES.
+                            if f.target_basename in localized_generated_files:
+                                raise SandboxValidationError(
+                                    ('Outputs of LOCALIZED_GENERATED_FILES cannot be used in %s: ' +
+                                     '%s') % (var, f), context)
 
             # Addons (when XPI_NAME is defined) and Applications (when
             # DIST_SUBDIR is defined) use a different preferences directory
@@ -1175,13 +1220,18 @@ class TreeMetadataEmitter(LoggingMixin):
         for name, jar in context.get('JAVA_JAR_TARGETS', {}).items():
             yield ContextWrapped(context, jar)
 
+        computed_as_flags.resolve_flags('MOZBUILD',
+                                        context.get('ASFLAGS'))
+
         if context.get('USE_YASM') is True:
             yasm = context.config.substs.get('YASM')
             if not yasm:
                 raise SandboxValidationError('yasm is not available', context)
             passthru.variables['AS'] = yasm
-            passthru.variables['ASFLAGS'] = context.config.substs.get('YASM_ASFLAGS')
             passthru.variables['AS_DASH_C_FLAG'] = ''
+            computed_as_flags.resolve_flags('OS',
+                                            context.config.substs.get('YASM_ASFLAGS', []))
+
 
         for (symbol, cls) in [
                 ('ANDROID_RES_DIRS', AndroidResDirs),
@@ -1209,6 +1259,9 @@ class TreeMetadataEmitter(LoggingMixin):
             yield computed_link_flags
         elif context.objdir in self._rust_compile_dirs:
             yield computed_link_flags
+
+        if context.objdir in self._asm_compile_dirs:
+            self._compile_as_flags[context.objdir] = computed_as_flags
 
         if context.objdir in self._host_compile_dirs:
             yield computed_host_flags
@@ -1254,45 +1307,47 @@ class TreeMetadataEmitter(LoggingMixin):
                                 unicode(path),
                                 [Path(context, path + '.in')])
 
-        generated_files = context.get('GENERATED_FILES')
-        if not generated_files:
+        generated_files = context.get('GENERATED_FILES') or []
+        localized_generated_files = context.get('LOCALIZED_GENERATED_FILES') or []
+        if not (generated_files or localized_generated_files):
             return
 
-        for f in generated_files:
-            flags = generated_files[f]
-            outputs = f
-            inputs = []
-            if flags.script:
-                method = "main"
-                script = SourcePath(context, flags.script).full_path
+        for (localized, gen) in ((False, generated_files), (True, localized_generated_files)):
+            for f in gen:
+                flags = gen[f]
+                outputs = f
+                inputs = []
+                if flags.script:
+                    method = "main"
+                    script = SourcePath(context, flags.script).full_path
 
-                # Deal with cases like "C:\\path\\to\\script.py:function".
-                if '.py:' in script:
-                    script, method = script.rsplit('.py:', 1)
-                    script += '.py'
+                    # Deal with cases like "C:\\path\\to\\script.py:function".
+                    if '.py:' in script:
+                        script, method = script.rsplit('.py:', 1)
+                        script += '.py'
 
-                if not os.path.exists(script):
-                    raise SandboxValidationError(
-                        'Script for generating %s does not exist: %s'
-                        % (f, script), context)
-                if os.path.splitext(script)[1] != '.py':
-                    raise SandboxValidationError(
-                        'Script for generating %s does not end in .py: %s'
-                        % (f, script), context)
-
-                for i in flags.inputs:
-                    p = Path(context, i)
-                    if (isinstance(p, SourcePath) and
-                            not os.path.exists(p.full_path)):
+                    if not os.path.exists(script):
                         raise SandboxValidationError(
-                            'Input for generating %s does not exist: %s'
-                            % (f, p.full_path), context)
-                    inputs.append(p)
-            else:
-                script = None
-                method = None
-            yield GeneratedFile(context, script, method, outputs, inputs,
-                                flags.flags)
+                            'Script for generating %s does not exist: %s'
+                            % (f, script), context)
+                    if os.path.splitext(script)[1] != '.py':
+                        raise SandboxValidationError(
+                            'Script for generating %s does not end in .py: %s'
+                            % (f, script), context)
+
+                    for i in flags.inputs:
+                        p = Path(context, i)
+                        if (isinstance(p, SourcePath) and
+                                not os.path.exists(p.full_path)):
+                            raise SandboxValidationError(
+                                'Input for generating %s does not exist: %s'
+                                % (f, p.full_path), context)
+                        inputs.append(p)
+                else:
+                    script = None
+                    method = None
+                yield GeneratedFile(context, script, method, outputs, inputs,
+                                    flags.flags, localized=localized)
 
     def _process_test_manifests(self, context):
         for prefix, info in TEST_MANIFESTS.items():

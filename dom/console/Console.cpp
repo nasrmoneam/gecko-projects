@@ -375,12 +375,11 @@ protected:
     AutoJSAPI jsapi;
     MOZ_ASSERT(aWindow);
 
-    RefPtr<nsGlobalWindow> win = nsGlobalWindow::Cast(aWindow);
+    RefPtr<nsGlobalWindowInner> win = nsGlobalWindowInner::Cast(aWindow);
     if (NS_WARN_IF(!jsapi.Init(win))) {
       return;
     }
 
-    MOZ_ASSERT(aWindow->IsInnerWindow());
     nsPIDOMWindowOuter* outerWindow = aWindow->GetOuterWindow();
     if (NS_WARN_IF(!outerWindow)) {
       return;
@@ -822,7 +821,6 @@ Console::Console(nsPIDOMWindowInner* aWindow)
   MOZ_ASSERT_IF(NS_IsMainThread(), aWindow);
 
   if (mWindow) {
-    MOZ_ASSERT(mWindow->IsInnerWindow());
     mInnerID = mWindow->WindowID();
 
     // Without outerwindow any console message coming from this object will not
@@ -1296,7 +1294,7 @@ Console::MethodInternal(JSContext* aCx, MethodName aMethodName,
       aMethodName == MethodTimeEnd ||
       aMethodName == MethodTimeStamp) {
     if (mWindow) {
-      nsGlobalWindow *win = nsGlobalWindow::Cast(mWindow);
+      nsGlobalWindowInner *win = nsGlobalWindowInner::Cast(mWindow);
       MOZ_ASSERT(win);
 
       RefPtr<Performance> performance = win->GetPerformance();
@@ -2458,7 +2456,7 @@ Console::GetConsoleInternal(const GlobalObject& aGlobal, ErrorResult& aRv)
       return nullptr;
     }
 
-    nsGlobalWindow* window = nsGlobalWindow::Cast(innerWindow);
+    nsGlobalWindowInner* window = nsGlobalWindowInner::Cast(innerWindow);
     return window->GetConsole(aRv);
   }
 

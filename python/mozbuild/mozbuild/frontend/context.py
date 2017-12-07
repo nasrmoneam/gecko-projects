@@ -320,18 +320,24 @@ class BaseCompileFlags(ContextDerivedValue, dict):
 class HostCompileFlags(BaseCompileFlags):
     def __init__(self, context):
         self._context = context
+        main_src_dir = mozpath.dirname(context.main_path)
 
         self.flag_variables = (
             ('HOST_CXXFLAGS', context.config.substs.get('HOST_CXXFLAGS'),
-             ('HOST_CXXFLAGS',)),
+             ('HOST_CXXFLAGS', 'HOST_CXX_LDFLAGS')),
             ('HOST_CFLAGS', context.config.substs.get('HOST_CFLAGS'),
-             ('HOST_CFLAGS',)),
+             ('HOST_CFLAGS', 'HOST_C_LDFLAGS')),
             ('HOST_OPTIMIZE', self._optimize_flags(),
-             ('HOST_CFLAGS', 'HOST_CXXFLAGS')),
-            ('RTL', None, ('HOST_CFLAGS',)),
+             ('HOST_CFLAGS', 'HOST_CXXFLAGS', 'HOST_C_LDFLAGS', 'HOST_CXX_LDFLAGS')),
+            ('RTL', None, ('HOST_CFLAGS', 'HOST_C_LDFLAGS')),
             ('HOST_DEFINES', None, ('HOST_CFLAGS', 'HOST_CXXFLAGS')),
-            ('MOZBUILD_HOST_CFLAGS', [], ('HOST_CFLAGS',)),
-            ('MOZBUILD_HOST_CXXFLAGS', [], ('HOST_CXXFLAGS',)),
+            ('MOZBUILD_HOST_CFLAGS', [], ('HOST_CFLAGS', 'HOST_C_LDFLAGS')),
+            ('MOZBUILD_HOST_CXXFLAGS', [], ('HOST_CXXFLAGS', 'HOST_CXX_LDFLAGS')),
+            ('BASE_INCLUDES', ['-I%s' % main_src_dir, '-I%s' % context.objdir],
+             ('HOST_CFLAGS', 'HOST_CXXFLAGS')),
+            ('LOCAL_INCLUDES', None, ('HOST_CFLAGS', 'HOST_CXXFLAGS')),
+            ('EXTRA_INCLUDES', ['-I%s/dist/include' % context.config.topobjdir],
+             ('HOST_CFLAGS', 'HOST_CXXFLAGS')),
         )
         BaseCompileFlags.__init__(self, context)
 
@@ -342,6 +348,34 @@ class HostCompileFlags(BaseCompileFlags):
         elif self._context.config.substs.get('MOZ_OPTIMIZE'):
             optimize_flags += self._context.config.substs.get('MOZ_OPTIMIZE_FLAGS')
         return optimize_flags
+
+
+class AsmFlags(BaseCompileFlags):
+    def __init__(self, context):
+        self._context = context
+        self.flag_variables = (
+            ('DEFINES', None, ('SFLAGS',)),
+            ('LIBRARY_DEFINES', None, ('SFLAGS',)),
+            ('OS', context.config.substs.get('ASFLAGS'), ('ASFLAGS', 'SFLAGS')),
+            ('DEBUG', self._debug_flags(), ('ASFLAGS', 'SFLAGS')),
+            ('LOCAL_INCLUDES', None, ('SFLAGS',)),
+            ('MOZBUILD', None, ('ASFLAGS', 'SFLAGS')),
+        )
+        BaseCompileFlags.__init__(self, context)
+
+    def _debug_flags(self):
+        debug_flags = []
+        if (self._context.config.substs.get('MOZ_DEBUG') or
+            self._context.config.substs.get('MOZ_DEBUG_SYMBOLS')):
+            if self._context.get('USE_YASM'):
+                if (self._context.config.substs.get('OS_ARCH') == 'WINNT' and
+                    not self._context.config.substs.get('GNU_CC')):
+                    debug_flags += ['-g', 'cv8']
+                elif self._context.config.substs.get('OS_ARCH') != 'Darwin':
+                    debug_flags += ['-g', 'dwarf2']
+            else:
+                debug_flags += self._context.config.substs.get('MOZ_DEBUG_FLAGS', '').split()
+        return debug_flags
 
 
 class LinkFlags(BaseCompileFlags):
@@ -876,6 +910,11 @@ SchedulingComponents = ContextDerivedTypedRecord(
         ('inclusive', TypedList(unicode, StrictOrderingOnAppendList)),
         ('exclusive', TypedList(unicode, StrictOrderingOnAppendList)))
 
+GeneratedFilesList = StrictOrderingOnAppendListWithFlagsFactory({
+    'script': unicode,
+    'inputs': list,
+    'flags': list, })
+
 
 class Files(SubContext):
     """Metadata attached to files.
@@ -1257,10 +1296,7 @@ VARIABLES = {
         size.
         """),
 
-    'GENERATED_FILES': (StrictOrderingOnAppendListWithFlagsFactory({
-                'script': unicode,
-                'inputs': list,
-                'flags': list, }), list,
+    'GENERATED_FILES': (GeneratedFilesList, list,
         """Generic generated files.
 
         This variable contains a list of files for the build system to
@@ -1388,6 +1424,72 @@ VARIABLES = {
 
     'FINAL_TARGET_PP_FILES': (ContextDerivedTypedHierarchicalStringList(Path), list,
         """Like ``FINAL_TARGET_FILES``, with preprocessing.
+        """),
+
+    'LOCALIZED_FILES': (ContextDerivedTypedHierarchicalStringList(Path), list,
+        """List of locale-dependent files to be installed into the application
+        directory.
+
+        This functions similarly to ``FINAL_TARGET_FILES``, but the files are
+        sourced from the locale directory and will vary per localization.
+        For an en-US build, this is functionally equivalent to
+        ``FINAL_TARGET_FILES``. For a build with ``--enable-ui-locale``,
+        the file will be taken from ``$LOCALE_SRCDIR``, with the leading
+        ``en-US`` removed. For a l10n repack of an en-US build, the file
+        will be taken from the first location where it exists from:
+        * the merged locale directory if it exists
+        * ``$LOCALE_SRCDIR`` with the leading ``en-US`` removed
+        * the in-tree en-US location
+
+        Source directory paths specified here must must include a leading ``en-US``.
+        Wildcards are allowed, and will be expanded at the time of locale packaging to match
+        files in the locale directory.
+
+        Object directory paths are allowed here only if the path matches an entry in
+        ``LOCALIZED_GENERATED_FILES``.
+
+        Files that are missing from a locale will typically have the en-US
+        version used, but for wildcard expansions only files from the
+        locale directory will be used, even if that means no files will
+        be copied.
+
+        Example::
+
+           LOCALIZED_FILES.foo += [
+             'en-US/foo.js',
+             'en-US/things/*.ini',
+           ]
+
+        If this was placed in ``toolkit/locales/moz.build``, it would copy
+        ``toolkit/locales/en-US/foo.js`` and
+        ``toolkit/locales/en-US/things/*.ini`` to ``$(DIST)/bin/foo`` in an
+        en-US build, and in a build of a different locale (or a repack),
+        it would copy ``$(LOCALE_SRCDIR)/toolkit/foo.js`` and
+        ``$(LOCALE_SRCDIR)/toolkit/things/*.ini``.
+        """),
+
+    'LOCALIZED_PP_FILES': (ContextDerivedTypedHierarchicalStringList(Path), list,
+        """Like ``LOCALIZED_FILES``, with preprocessing.
+
+        Note that the ``AB_CD`` define is available and expands to the current
+        locale being packaged, as with preprocessed entries in jar manifests.
+        """),
+
+    'LOCALIZED_GENERATED_FILES': (GeneratedFilesList, list,
+        """Like ``GENERATED_FILES``, but for files whose content varies based on the locale in use.
+
+        For simple cases of text substitution, prefer ``LOCALIZED_PP_FILES``.
+
+        Refer to the documentation of ``GENERATED_FILES``; for the most part things work the same.
+        The two major differences are:
+        1. The function in the Python script will be passed an additional keyword argument `locale`
+           which provides the locale in use, i.e. ``en-US``.
+        2. The ``inputs`` list may contain paths to files that will be taken from the locale
+           source directory (see ``LOCALIZED_FILES`` for a discussion of the specifics). Paths
+           in ``inputs`` starting with ``en-US/`` are considered localized files.
+
+        To place the generated output file in a specific location, list its objdir path in
+        ``LOCALIZED_FILES``.
         """),
 
     'OBJDIR_FILES': (ContextDerivedTypedHierarchicalStringList(Path), list,
@@ -1711,6 +1813,13 @@ VARIABLES = {
         not use this flag.
         """),
 
+    'PREPROCESSED_IPDL_SOURCES': (StrictOrderingOnAppendList, list,
+        """Preprocessed IPDL source files.
+
+        These files will be preprocessed, then parsed and converted to
+        ``.cpp`` files.
+        """),
+
     'IPDL_SOURCES': (StrictOrderingOnAppendList, list,
         """IPDL source files.
 
@@ -1951,6 +2060,11 @@ VARIABLES = {
         """),
 
     'LINK_FLAGS': (LinkFlags, dict,
+        """Recipe for linker flags for this context. Not to be manipulated
+        directly.
+        """),
+
+    'ASM_FLAGS': (AsmFlags, dict,
         """Recipe for linker flags for this context. Not to be manipulated
         directly.
         """),
@@ -2410,6 +2524,15 @@ SPECIAL_VARIABLES = {
 
 # Deprecation hints.
 DEPRECATION_HINTS = {
+
+    'ASM_FLAGS': '''
+        Please use
+
+            ASFLAGS
+
+        instead of manipulating ASM_FLAGS directly.
+        ''',
+
     'CPP_UNIT_TESTS': '''
         Please use'
 

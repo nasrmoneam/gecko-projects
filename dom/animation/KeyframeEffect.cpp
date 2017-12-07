@@ -10,7 +10,9 @@
   // For UnrestrictedDoubleOrKeyframeAnimationOptions
 #include "mozilla/dom/AnimationEffectTiming.h"
 #include "mozilla/dom/KeyframeEffectBinding.h"
+#include "nsDocument.h" // For nsDocument::IsWebAnimationsEnabled
 #include "nsDOMMutationObserver.h" // For nsAutoAnimationMutationBatch
+#include "nsStyleContext.h"
 
 namespace mozilla {
 namespace dom {
@@ -137,7 +139,7 @@ KeyframeEffect::SetIterationComposite(
 {
   // Ignore iterationComposite if the Web Animations API is not enabled,
   // then the default value 'Replace' will be used.
-  if (!AnimationUtils::IsCoreAPIEnabledForCaller(aCallerType)) {
+  if (!nsDocument::IsWebAnimationsEnabled(aCallerType)) {
     return;
   }
 

@@ -120,8 +120,7 @@ ResolveToDefiniteSize(const nsStyleCoord& aCoord, nscoord aPercentBasis)
   if (::IsPercentOfIndefiniteSize(aCoord, aPercentBasis)) {
     return nscoord(0);
   }
-  return std::max(nscoord(0),
-                  nsRuleNode::ComputeCoordPercentCalc(aCoord, aPercentBasis));
+  return std::max(nscoord(0), aCoord.ComputeCoordPercentCalc(aPercentBasis));
 }
 
 static bool
@@ -150,8 +149,7 @@ ResolvePercentSizeParts(const nsStyleCoord& aCoord, nscoord aPercentBasis,
   MOZ_ASSERT(aCoord.IsCoordPercentCalcUnit());
   if (aPercentBasis != NS_UNCONSTRAINEDSIZE) {
     *aLength = std::max(nscoord(0),
-                        nsRuleNode::ComputeCoordPercentCalc(aCoord,
-                                                            aPercentBasis));
+                        aCoord.ComputeCoordPercentCalc(aPercentBasis));
     *aPercent = 0.0f;
     return;
   }
@@ -478,9 +476,6 @@ struct nsGridContainerFrame::LineRange
       MOZ_ASSERT(mStart == nsGridContainerFrame::kAutoLine ||
                  mEnd > mStart, "invalid line range");
       mEnd -= aNumRemovedTracks[mEnd];
-    }
-    if (mStart == mEnd) {
-      mEnd = nsGridContainerFrame::kAutoLine;
     }
   }
   /**
@@ -1062,6 +1057,7 @@ struct nsGridContainerFrame::TrackSizingFunctions
   // Offset from the start of the implicit grid to the first explicit track.
   uint32_t mExplicitGridOffset;
   // The index of the repeat(auto-fill/fit) track, or zero if there is none.
+  // Relative to mExplicitGridOffset (repeat tracks are explicit by definition).
   const uint32_t mRepeatAutoStart;
   // The (hypothetical) index of the last such repeat() track.
   uint32_t mRepeatAutoEnd;
@@ -1070,6 +1066,7 @@ struct nsGridContainerFrame::TrackSizingFunctions
   // True if there is a specified repeat(auto-fill/fit) track.
   const bool mHasRepeatAuto;
   // True if this track (relative to mRepeatAutoStart) is a removed auto-fit.
+  // Indexed relative to mExplicitGridOffset + mRepeatAutoStart.
   nsTArray<bool> mRemovedRepeatTracks;
 };
 
@@ -3300,19 +3297,27 @@ nsGridContainerFrame::Grid::PlaceGridItems(GridReflowInput& aState,
   // Count empty 'auto-fit' tracks in the repeat() range.
   // |colAdjust| will have a count for each line in the grid of how many
   // tracks were empty between the start of the grid and that line.
+
+  // Since this loop is concerned with just the repeat tracks, we
+  // iterate from 0..NumRepeatTracks() which is the natural range of
+  // mRemoveRepeatTracks. This means we have to add
+  // (mExplicitGridOffset + mRepeatAutoStart) to get a zero-based
+  // index for arrays like mCellMap and colAdjust. We'll then fill out
+  // the colAdjust array for all the remaining lines.
   Maybe<nsTArray<uint32_t>> colAdjust;
   uint32_t numEmptyCols = 0;
   if (aState.mColFunctions.mHasRepeatAuto &&
       !gridStyle->GridTemplateColumns().mIsAutoFill &&
       aState.mColFunctions.NumRepeatTracks() > 0) {
-    for (uint32_t col = aState.mColFunctions.mRepeatAutoStart,
-           endRepeat = aState.mColFunctions.mRepeatAutoEnd,
-           numColLines = mGridColEnd + 1;
-         col < numColLines; ++col) {
+    const uint32_t repeatStart = (aState.mColFunctions.mExplicitGridOffset +
+                                  aState.mColFunctions.mRepeatAutoStart);
+    const uint32_t numRepeats = aState.mColFunctions.NumRepeatTracks();
+    const uint32_t numColLines = mGridColEnd + 1;
+    for (uint32_t i = 0; i < numRepeats; ++i) {
       if (numEmptyCols) {
-        (*colAdjust)[col] = numEmptyCols;
+        (*colAdjust)[repeatStart + i] = numEmptyCols;
       }
-      if (col < endRepeat && mCellMap.IsEmptyCol(col)) {
+      if (mCellMap.IsEmptyCol(repeatStart + i)) {
         ++numEmptyCols;
         if (colAdjust.isNothing()) {
           colAdjust.emplace(numColLines);
@@ -3320,26 +3325,34 @@ nsGridContainerFrame::Grid::PlaceGridItems(GridReflowInput& aState,
           PodZero(colAdjust->Elements(), colAdjust->Length());
         }
 
-        uint32_t repeatIndex = col - aState.mColFunctions.mRepeatAutoStart;
-        MOZ_ASSERT(aState.mColFunctions.mRemovedRepeatTracks.Length() >
-                   repeatIndex);
-        aState.mColFunctions.mRemovedRepeatTracks[repeatIndex] = true;
+        aState.mColFunctions.mRemovedRepeatTracks[i] = true;
+      }
+    }
+    // Fill out the colAdjust array for all the columns after the
+    // repeats.
+    if (numEmptyCols) {
+      for (uint32_t col = repeatStart + numRepeats;
+          col < numColLines; ++col) {
+        (*colAdjust)[col] = numEmptyCols;
       }
     }
   }
+
+  // Do similar work for the row tracks, with the same logic.
   Maybe<nsTArray<uint32_t>> rowAdjust;
   uint32_t numEmptyRows = 0;
   if (aState.mRowFunctions.mHasRepeatAuto &&
       !gridStyle->GridTemplateRows().mIsAutoFill &&
       aState.mRowFunctions.NumRepeatTracks() > 0) {
-    for (uint32_t row = aState.mRowFunctions.mRepeatAutoStart,
-           endRepeat = aState.mRowFunctions.mRepeatAutoEnd,
-           numRowLines = mGridRowEnd + 1;
-         row < numRowLines; ++row) {
+    const uint32_t repeatStart = (aState.mRowFunctions.mExplicitGridOffset +
+                                  aState.mRowFunctions.mRepeatAutoStart);
+    const uint32_t numRepeats = aState.mRowFunctions.NumRepeatTracks();
+    const uint32_t numRowLines = mGridRowEnd + 1;
+    for (uint32_t i = 0; i < numRepeats; ++i) {
       if (numEmptyRows) {
-        (*rowAdjust)[row] = numEmptyRows;
+        (*rowAdjust)[repeatStart + i] = numEmptyRows;
       }
-      if (row < endRepeat && mCellMap.IsEmptyRow(row)) {
+      if (mCellMap.IsEmptyRow(repeatStart + i)) {
         ++numEmptyRows;
         if (rowAdjust.isNothing()) {
           rowAdjust.emplace(numRowLines);
@@ -3347,10 +3360,13 @@ nsGridContainerFrame::Grid::PlaceGridItems(GridReflowInput& aState,
           PodZero(rowAdjust->Elements(), rowAdjust->Length());
         }
 
-        uint32_t repeatIndex = row - aState.mRowFunctions.mRepeatAutoStart;
-        MOZ_ASSERT(aState.mRowFunctions.mRemovedRepeatTracks.Length() >
-                   repeatIndex);
-        aState.mRowFunctions.mRemovedRepeatTracks[repeatIndex] = true;
+        aState.mRowFunctions.mRemovedRepeatTracks[i] = true;
+      }
+    }
+    if (numEmptyRows) {
+      for (uint32_t row = repeatStart + numRepeats;
+          row < numRowLines; ++row) {
+        (*rowAdjust)[row] = numEmptyRows;
       }
     }
   }
@@ -3782,8 +3798,7 @@ nsGridContainerFrame::Tracks::ResolveIntrinsicSizeStep1(
   if (needed && TrackSize::IsDefiniteMaxSizing(sz.mState)) {
     if (sz.mState & TrackSize::eIntrinsicMinSizing) {
       auto maxCoord = aFunctions.MaxSizingFor(aRange.mStart);
-      cache.mMinSizeClamp =
-        nsRuleNode::ComputeCoordPercentCalc(maxCoord, aPercentageBasis);
+      cache.mMinSizeClamp = maxCoord.ComputeCoordPercentCalc(aPercentageBasis);
     }
     aGridItem.mState[mAxis] |= ItemState::eClampMarginBoxMinSize;
   }
@@ -3827,7 +3842,7 @@ nsGridContainerFrame::Tracks::ResolveIntrinsicSizeStep1(
       // Clamp mLimit to the fit-content() size, for §12.5.1.
       auto maxCoord = aFunctions.MaxSizingFor(aRange.mStart);
       nscoord fitContentClamp =
-        nsRuleNode::ComputeCoordPercentCalc(maxCoord, aPercentageBasis);
+        maxCoord.ComputeCoordPercentCalc(aPercentageBasis);
       sz.mLimit = std::min(sz.mLimit, fitContentClamp);
     }
   }
@@ -4221,8 +4236,7 @@ nsGridContainerFrame::Tracks::ResolveIntrinsicSize(
           nscoord minSizeClamp = 0;
           for (auto i = lineRange.mStart, end = lineRange.mEnd; i < end; ++i) {
             auto maxCoord = aFunctions.MaxSizingFor(i);
-            minSizeClamp +=
-              nsRuleNode::ComputeCoordPercentCalc(maxCoord, aPercentageBasis);
+            minSizeClamp += maxCoord.ComputeCoordPercentCalc(aPercentageBasis);
           }
           minSizeClamp += mGridGap * (span - 1);
           cache.mMinSizeClamp = minSizeClamp;
@@ -4843,10 +4857,15 @@ nsGridContainerFrame::LineRange::ToPositionAndLengthForAbsPos(
                             : GridLineSide::eBeforeGridGap;
       nscoord endPos = aTracks.GridLineEdge(mEnd, side);
       *aLength = std::max(aGridOrigin + endPos, 0);
-    } else {
+    } else if (MOZ_LIKELY(mStart != mEnd)) {
       nscoord pos;
       ToPositionAndLength(aTracks.mSizes, &pos, aLength);
       *aPos = aGridOrigin + pos;
+    } else {
+      // The grid area only covers removed 'auto-fit' tracks.
+      nscoord pos = aTracks.GridLineEdge(mStart, GridLineSide::eBeforeGridGap);
+      *aPos = aGridOrigin + pos;
+      *aLength = nscoord(0);
     }
   }
 }
@@ -6465,6 +6484,9 @@ nsGridContainerFrame::RemoveFrame(ChildListID aListID, nsIFrame* aOldFrame)
 #ifdef DEBUG
   ChildListIDs supportedLists =
     kAbsoluteList | kFixedList | kPrincipalList | kNoReflowPrincipalList;
+  // We don't handle the kBackdropList frames in any way, but it only contains
+  // a placeholder for ::backdrop which is OK to not reflow (for now anyway).
+  supportedLists |= kBackdropList;
   MOZ_ASSERT(supportedLists.Contains(aListID), "unexpected child list");
 
   // Note that kPrincipalList doesn't mean aOldFrame must be on that list.
@@ -6684,10 +6706,13 @@ nsGridContainerFrame::NoteNewChildren(ChildListID aListID,
 #ifdef DEBUG
   ChildListIDs supportedLists =
     kAbsoluteList | kFixedList | kPrincipalList | kNoReflowPrincipalList;
+  // We don't handle the kBackdropList frames in any way, but it only contains
+  // a placeholder for ::backdrop which is OK to not reflow (for now anyway).
+  supportedLists |= kBackdropList;
   MOZ_ASSERT(supportedLists.Contains(aListID), "unexpected child list");
 #endif
 
-  nsIPresShell* shell = PresContext()->PresShell();
+  nsIPresShell* shell = PresShell();
   for (auto pif = GetPrevInFlow(); pif; pif = pif->GetPrevInFlow()) {
     if (aListID == kPrincipalList) {
       pif->AddStateBits(NS_STATE_GRID_DID_PUSH_ITEMS);
@@ -6726,7 +6751,7 @@ nsGridContainerFrame::MergeSortedExcessOverflowContainers(nsFrameList& aList)
   if (eoc) {
     ::MergeSortedFrameLists(*eoc, aList, GetContent());
   } else {
-    SetPropTableFrames(new (PresContext()->PresShell()) nsFrameList(aList),
+    SetPropTableFrames(new (PresShell()) nsFrameList(aList),
                        ExcessOverflowContainersProperty());
   }
 }
@@ -6803,8 +6828,13 @@ void
 nsGridContainerFrame::SetInitialChildList(ChildListID  aListID,
                                           nsFrameList& aChildList)
 {
+#ifdef DEBUG
   ChildListIDs supportedLists = kAbsoluteList | kFixedList | kPrincipalList;
+  // We don't handle the kBackdropList frames in any way, but it only contains
+  // a placeholder for ::backdrop which is OK to not reflow (for now anyway).
+  supportedLists |= kBackdropList;
   MOZ_ASSERT(supportedLists.Contains(aListID), "unexpected child list");
+#endif
 
   return nsContainerFrame::SetInitialChildList(aListID, aChildList);
 }
@@ -6822,7 +6852,8 @@ nsGridContainerFrame::SanityCheckGridItemsBeforeReflow() const
     for (nsIFrame::ChildListIterator childLists(f);
          !childLists.IsDone(); childLists.Next()) {
       if (!itemLists.Contains(childLists.CurrentID())) {
-        MOZ_ASSERT(absLists.Contains(childLists.CurrentID()),
+        MOZ_ASSERT(absLists.Contains(childLists.CurrentID()) ||
+                   childLists.CurrentID() == kBackdropList,
                    "unexpected non-empty child list");
         continue;
       }
@@ -6915,15 +6946,24 @@ nsGridContainerFrame::GetGridFrameWithComputedInfo(nsIFrame* aFrame)
 
     if (reflowNeeded) {
       // Trigger a reflow that generates additional grid property data.
-      nsIPresShell* shell = gridFrame->PresContext()->PresShell();
+      // Hold onto aFrame while we do this, in case reflow destroys it.
+      AutoWeakFrame weakFrameRef(aFrame);
+
+      nsIPresShell* shell = gridFrame->PresShell();
       gridFrame->AddStateBits(NS_STATE_GRID_GENERATE_COMPUTED_VALUES);
       shell->FrameNeedsReflow(gridFrame,
                               nsIPresShell::eResize,
                               NS_FRAME_IS_DIRTY);
       shell->FlushPendingNotifications(FlushType::Layout);
 
-      // Since the reflow may have side effects, get the grid frame again.
-      gridFrame = GetGridContainerFrame(aFrame);
+      // Since the reflow may have side effects, get the grid frame
+      // again. But if the weakFrameRef is no longer valid, then we
+      // must bail out.
+      if (!weakFrameRef.IsAlive()) {
+        return nullptr;
+      }
+
+      gridFrame = GetGridContainerFrame(weakFrameRef.GetFrame());
 
       // Assert the grid properties are present
       MOZ_ASSERT(!gridFrame ||

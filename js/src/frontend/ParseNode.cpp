@@ -221,7 +221,6 @@ PushNodeChildren(ParseNode* pn, NodeStack* stack)
       case PNK_PREDECREMENT:
       case PNK_POSTDECREMENT:
       case PNK_COMPUTED_NAME:
-      case PNK_ARRAYPUSH:
       case PNK_SPREAD:
       case PNK_MUTATEPROTO:
       case PNK_EXPORT:
@@ -266,7 +265,6 @@ PushNodeChildren(ParseNode* pn, NodeStack* stack)
       case PNK_NEWTARGET:
       case PNK_SETTHIS:
       case PNK_FOR:
-      case PNK_COMPREHENSIONFOR:
       case PNK_WITH: {
         MOZ_ASSERT(pn->isArity(PN_BINARY));
         stack->push(pn->pn_left);
@@ -409,16 +407,13 @@ PushNodeChildren(ParseNode* pn, NodeStack* stack)
         return PushResult::Recyclable;
       }
 
-      // A catch node has first kid as catch-variable pattern, the second kid
-      // as catch condition (which, if non-null, records the |<cond>| in
-      // SpiderMonkey's |catch (e if <cond>)| extension), and third kid as the
-      // statements in the catch block.
+      // A catch node has left node as catch-variable pattern (or null if
+      // omitted) and right node as the statements in the catch block.
       case PNK_CATCH: {
-        MOZ_ASSERT(pn->isArity(PN_TERNARY));
-        stack->push(pn->pn_kid1);
-        if (pn->pn_kid2)
-            stack->push(pn->pn_kid2);
-        stack->push(pn->pn_kid3);
+        MOZ_ASSERT(pn->isArity(PN_BINARY));
+        if (pn->pn_left)
+            stack->push(pn->pn_left);
+        stack->push(pn->pn_right);
         return PushResult::Recyclable;
       }
 
@@ -452,7 +447,6 @@ PushNodeChildren(ParseNode* pn, NodeStack* stack)
       case PNK_NEW:
       case PNK_CALL:
       case PNK_SUPERCALL:
-      case PNK_GENEXP:
       case PNK_ARRAY:
       case PNK_OBJECT:
       case PNK_TEMPLATE_STRING_LIST:
@@ -461,27 +455,12 @@ PushNodeChildren(ParseNode* pn, NodeStack* stack)
       case PNK_VAR:
       case PNK_CONST:
       case PNK_LET:
-      case PNK_CATCHLIST:
       case PNK_STATEMENTLIST:
       case PNK_IMPORT_SPEC_LIST:
       case PNK_EXPORT_SPEC_LIST:
       case PNK_PARAMSBODY:
       case PNK_CLASSMETHODLIST:
         return PushListNodeChildren(pn, stack);
-
-      // Array comprehension nodes are lists with a single child:
-      // PNK_COMPREHENSIONFOR for comprehensions, PNK_LEXICALSCOPE for legacy
-      // comprehensions.  Probably this should be a non-list eventually.
-      case PNK_ARRAYCOMP: {
-#ifdef DEBUG
-        MOZ_ASSERT(pn->isKind(PNK_ARRAYCOMP));
-        MOZ_ASSERT(pn->isArity(PN_LIST));
-        MOZ_ASSERT(pn->pn_count == 1);
-        MOZ_ASSERT(pn->pn_head->isKind(PNK_LEXICALSCOPE) ||
-                   pn->pn_head->isKind(PNK_COMPREHENSIONFOR));
-#endif
-        return PushListNodeChildren(pn, stack);
-      }
 
       case PNK_LABEL:
       case PNK_DOT:

@@ -28,6 +28,7 @@ ServoStyleRuleDeclaration::ServoStyleRuleDeclaration(
 
 ServoStyleRuleDeclaration::~ServoStyleRuleDeclaration()
 {
+  mDecls->SetOwningRule(nullptr);
 }
 
 // QueryInterface implementation for ServoStyleRuleDeclaration
@@ -80,9 +81,7 @@ ServoStyleRuleDeclaration::SetCSSDeclaration(DeclarationBlock* aDecl)
       mDecls = decls.forget();
       mDecls->SetOwningRule(rule);
     }
-    if (doc) {
-      doc->StyleRuleChanged(sheet, rule);
-    }
+    sheet->RuleChanged(rule);
   }
   return NS_OK;
 }
@@ -95,7 +94,8 @@ ServoStyleRuleDeclaration::DocToUpdate()
 
 void
 ServoStyleRuleDeclaration::GetCSSParsingEnvironment(
-  CSSParsingEnvironment& aCSSParseEnv)
+  CSSParsingEnvironment& aCSSParseEnv,
+  nsIPrincipal* aSubjectPrincipal)
 {
   MOZ_ASSERT_UNREACHABLE("GetCSSParsingEnvironment "
                          "shouldn't be calling for a Servo rule");
@@ -103,7 +103,8 @@ ServoStyleRuleDeclaration::GetCSSParsingEnvironment(
 }
 
 nsDOMCSSDeclaration::ServoCSSParsingEnvironment
-ServoStyleRuleDeclaration::GetServoCSSParsingEnvironment() const
+ServoStyleRuleDeclaration::GetServoCSSParsingEnvironment(
+  nsIPrincipal* aSubjectPrincipal) const
 {
   return GetServoCSSParsingEnvironmentForRule(Rule());
 }

@@ -4,8 +4,9 @@
 /* eslint-env browser */
 "use strict";
 
-const React = require("devtools/client/shared/vendor/react");
-const { DOM: dom, Component, createFactory, PropTypes } = React;
+const { Component, createFactory } = require("devtools/client/shared/vendor/react");
+const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
+const dom = require("devtools/client/shared/vendor/react-dom-factories");
 
 const AUTO_EXPAND_DEPTH = 0;
 const NUMBER_OF_OFFSCREEN_ITEMS = 1;
@@ -53,13 +54,13 @@ const NUMBER_OF_OFFSCREEN_ITEMS = 1;
  *
  * Here is how we could render that data with this component:
  *
- *     const MyTree = createClass({
- *       displayName: "MyTree",
- *
- *       propTypes: {
+ *     class MyTree extends Component {
+ *       static get propTypes() {
  *         // The root item of the tree, with the form described above.
- *         root: PropTypes.object.isRequired
- *       },
+ *         return {
+ *           root: PropTypes.object.isRequired
+ *         };
+ *       }
  *
  *       render() {
  *         return Tree({
@@ -95,7 +96,7 @@ const NUMBER_OF_OFFSCREEN_ITEMS = 1;
  *           onCollapse: item => dispatchCollapseActionToRedux(item),
  *         });
  *       }
- *     });
+ *     }
  */
 class Tree extends Component {
   static get propTypes() {

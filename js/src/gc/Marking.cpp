@@ -12,6 +12,7 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/TypeTraits.h"
 
+#include "jsfriendapi.h"
 #include "jsprf.h"
 
 #include "builtin/ModuleObject.h"
@@ -1754,6 +1755,15 @@ GCMarker::processMarkStackTop(SliceBudget& budget)
             traverseEdge(obj, v.toString());
         } else if (v.isObject()) {
             JSObject* obj2 = &v.toObject();
+#ifdef DEBUG
+            if (!obj2) {
+                fprintf(stderr,
+                        "processMarkStackTop found ObjectValue(nullptr) "
+                        "at %zu Values from end of array in object:\n",
+                        size_t(end - (vp - 1)));
+                DumpObject(obj);
+            }
+#endif
             CheckForCompartmentMismatch(obj, obj2);
             if (mark(obj2)) {
                 // Save the rest of this value array for later and start scanning obj2's children.
@@ -2006,7 +2016,8 @@ inline T*
 MarkStack::TaggedPtr::as() const
 {
     MOZ_ASSERT(tag() == MapTypeToMarkStackTag<T*>::value);
-    MOZ_ASSERT(ptr()->asTenured().getTraceKind() == MapTypeToTraceKind<T>::kind);
+    MOZ_ASSERT(ptr()->isTenured());
+    MOZ_ASSERT(ptr()->is<T>());
     return static_cast<T*>(ptr());
 }
 
@@ -2014,7 +2025,8 @@ inline JSObject*
 MarkStack::TaggedPtr::asValueArrayObject() const
 {
     MOZ_ASSERT(tag() == ValueArrayTag);
-    MOZ_ASSERT(ptr()->asTenured().getTraceKind() == JS::TraceKind::Object);
+    MOZ_ASSERT(ptr()->isTenured());
+    MOZ_ASSERT(ptr()->is<JSObject>());
     return static_cast<JSObject*>(ptr());
 }
 
@@ -2022,7 +2034,8 @@ inline JSObject*
 MarkStack::TaggedPtr::asSavedValueArrayObject() const
 {
     MOZ_ASSERT(tag() == SavedValueArrayTag);
-    MOZ_ASSERT(ptr()->asTenured().getTraceKind() == JS::TraceKind::Object);
+    MOZ_ASSERT(ptr()->isTenured());
+    MOZ_ASSERT(ptr()->is<JSObject>());
     return static_cast<JSObject*>(ptr());
 }
 
@@ -2030,7 +2043,8 @@ inline JSRope*
 MarkStack::TaggedPtr::asTempRope() const
 {
     MOZ_ASSERT(tag() == TempRopeTag);
-    MOZ_ASSERT(ptr()->asTenured().getTraceKind() == JS::TraceKind::String);
+    MOZ_ASSERT(ptr()->isTenured());
+    MOZ_ASSERT(ptr()->is<JSString>());
     return static_cast<JSRope*>(ptr());
 }
 

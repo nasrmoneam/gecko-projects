@@ -91,7 +91,6 @@
 #include "nsContentCID.h"
 #include "nsError.h"
 #include "nsPresContext.h"
-#include "nsIJSON.h"
 #include "nsThreadUtils.h"
 #include "nsNodeInfoManager.h"
 #include "nsIFileChannel.h"
@@ -174,7 +173,6 @@
 #include "mozilla/dom/HTMLImageElement.h"
 #include "mozilla/dom/HTMLTextAreaElement.h"
 #include "mozilla/dom/MediaSource.h"
-#include "mozilla/dom/FlyWebService.h"
 
 #include "mozAutoDocUpdate.h"
 #include "nsGlobalWindow.h"
@@ -290,6 +288,7 @@ typedef nsTArray<Link*> LinkArray;
 
 static LazyLogModule gDocumentLeakPRLog("DocumentLeak");
 static LazyLogModule gCspPRLog("CSP");
+static LazyLogModule gUserInteractionPRLog("UserInteraction");
 
 static const char kChromeInContentPref[] = "security.allow_chrome_frames_inside_content";
 static bool sChromeInContentAllowed = false;
@@ -422,10 +421,10 @@ nsIdentifierMapEntry::GetImageIdElement()
 }
 
 void
-nsIdentifierMapEntry::AppendAllIdContent(nsCOMArray<nsIContent>* aElements)
+nsIdentifierMapEntry::AppendAllIdContent(nsCOMArray<Element>* aElements)
 {
-  for (size_t i = 0; i < mIdContentList.Length(); ++i) {
-    aElements->AppendObject(mIdContentList[i]);
+  for (Element* element : mIdContentList) {
+    aElements->AppendObject(element);
   }
 }
 
@@ -586,12 +585,13 @@ public:
 
   NS_DECL_ISUPPORTS_INHERITED
 
-  // nsIDOMHTMLCollection
-  NS_DECL_NSIDOMHTMLCOLLECTION
-
   virtual nsINode* GetParentObject() override
   {
     return nsSimpleContentList::GetParentObject();
+  }
+  virtual uint32_t Length() override
+  {
+    return nsSimpleContentList::Length();
   }
   virtual Element* GetElementAt(uint32_t aIndex) override
   {
@@ -658,39 +658,14 @@ public:
     return HTMLCollectionBinding::Wrap(aCx, this, aGivenProto);
   }
 
-  using nsBaseContentList::Length;
   using nsBaseContentList::Item;
-  using nsIHTMLCollection::NamedItem;
 
 private:
   virtual ~SimpleHTMLCollection() {}
 };
 
 NS_IMPL_ISUPPORTS_INHERITED(SimpleHTMLCollection, nsSimpleContentList,
-                            nsIHTMLCollection, nsIDOMHTMLCollection)
-
-NS_IMETHODIMP
-SimpleHTMLCollection::GetLength(uint32_t* aLength)
-{
-  *aLength = Length();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-SimpleHTMLCollection::Item(uint32_t aIdx, nsIDOMNode** aRetVal)
-{
-  nsCOMPtr<nsIDOMNode> retVal = Item(aIdx)->AsDOMNode();
-  retVal.forget(aRetVal);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-SimpleHTMLCollection::NamedItem(const nsAString& aName, nsIDOMNode** aRetVal)
-{
-  nsCOMPtr<nsIDOMNode> retVal = NamedItem(aName)->AsDOMNode();
-  retVal.forget(aRetVal);
-  return NS_OK;
-}
+                            nsIHTMLCollection)
 
 } // namespace dom
 } // namespace mozilla
@@ -1559,10 +1534,10 @@ nsIDocument::nsIDocument()
     mFrameRequestCallbacksScheduled(false),
     mIsTopLevelContentDocument(false),
     mIsContentDocument(false),
-    mMightHaveStaleServoData(false),
     mDidCallBeginLoad(false),
     mBufferingCSPViolations(false),
     mAllowPaymentRequest(false),
+    mEncodingMenuDisabled(false),
     mIsScopedStyleEnabled(eScopedStyle_Unknown),
     mCompatMode(eCompatibility_FullStandards),
     mReadyState(ReadyState::READYSTATE_UNINITIALIZED),
@@ -1597,6 +1572,7 @@ nsIDocument::nsIDocument()
     mNotifiedPageForUseCounter(0),
     mIncCounters(),
     mUserHasInteracted(false),
+    mUserHasActivatedInteraction(false),
     mServoRestyleRootDirtyBits(0),
     mThrowOnDynamicMarkupInsertionCounter(0),
     mIgnoreOpensDuringUnloadCounter(0)
@@ -2490,7 +2466,7 @@ nsDocument::ResetToURI(nsIURI *aURI, nsILoadGroup *aLoadGroup,
 
   // Refresh the principal on the compartment.
   if (nsPIDOMWindowInner* win = GetInnerWindow()) {
-    nsGlobalWindow::Cast(win)->RefreshCompartmentPrincipal();
+    nsGlobalWindowInner::Cast(win)->RefreshCompartmentPrincipal();
   }
 }
 
@@ -3077,7 +3053,7 @@ nsDocument::InitCSP(nsIChannel* aChannel)
     (cspSandboxFlags & SANDBOXED_ORIGIN) && !(mSandboxFlags & SANDBOXED_ORIGIN);
 
   mSandboxFlags |= cspSandboxFlags;
-  
+
   if (needNewNullPrincipal) {
     principal = NullPrincipal::CreateWithInheritedAttributes(principal);
     principal->SetCsp(csp);
@@ -3525,6 +3501,15 @@ nsDocument::IsWebAnimationsEnabled(JSContext* aCx, JSObject* /*unused*/)
          nsContentUtils::AnimationsAPICoreEnabled();
 }
 
+bool
+nsDocument::IsWebAnimationsEnabled(CallerType aCallerType)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+
+  return aCallerType == dom::CallerType::System ||
+         nsContentUtils::AnimationsAPICoreEnabled();
+}
+
 DocumentTimeline*
 nsDocument::Timeline()
 {
@@ -3791,7 +3776,11 @@ nsDocument::ElementsFromPointHelper(float aX, float aY,
       // If this helper is called via ElementsFromPoint, we need to make sure
       // our frame is an element. Otherwise return whatever the top frame is
       // even if it isn't the top-painted element.
-      if (!(aFlags & nsIDocument::IS_ELEMENT_FROM_POINT)) {
+      // SVG 'text' element's SVGTextFrame doesn't respond to hit-testing, so
+      // if 'node' is a child of such an element then we need to manually defer
+      // to the parent here.
+      if (!(aFlags & nsIDocument::IS_ELEMENT_FROM_POINT) &&
+          !nsSVGUtils::IsInSVGTextSubtree(outFrames[i])) {
         continue;
       }
       node = node->GetParent();
@@ -4141,8 +4130,17 @@ nsDocument::CreateShell(nsPresContext* aContext, nsViewManager* aViewManager,
 
   FillStyleSet(aStyleSet);
 
-  // Ensure we start with no stale data in the tree.
-  ClearStaleServoDataFromDocument();
+  {
+#ifdef DEBUG
+    for (nsINode* node = static_cast<nsINode*>(this)->GetFirstChild();
+         node;
+         node = node->GetNextNode(this)) {
+      if (node->IsElement()) {
+        MOZ_ASSERT(!node->AsElement()->HasServoData());
+      }
+    }
+#endif
+  }
 
   RefPtr<PresShell> shell = new PresShell;
   shell->Init(this, aContext, aViewManager, aStyleSet);
@@ -4267,16 +4265,17 @@ nsDocument::DeleteShell()
   UpdateFrameRequestCallbackSchedulingState(oldShell);
   mStyleSetFilled = false;
 
-  // Record that the tree might have stale Servo element data in it
-  // that would need to be cleared if we ever get a new pres shell
-  // or if we call ServoStyleSet style resolving functions on
-  // elements in the document. Most of the time this lazy clearing
-  // of Servo element data saves us work, since it's not often that a
-  // document gets a new pres shell after its old one is destroyed.
-  // In those cases we rely on the data being cleared in UnbindFromTree
-  // and save this additional traversal.
   if (IsStyledByServo()) {
-    mMightHaveStaleServoData = true;
+    ClearStaleServoData();
+#ifdef DEBUG
+    for (nsINode* node = static_cast<nsINode*>(this)->GetFirstChild();
+         node;
+         node = node->GetNextNode(this)) {
+      if (node->IsElement()) {
+        MOZ_ASSERT(!node->AsElement()->HasServoData());
+      }
+    }
+#endif
   }
 }
 
@@ -4738,6 +4737,8 @@ nsDocument::SetStyleSheetApplicableState(StyleSheet* aSheet,
   NS_PRECONDITION(aSheet, "null arg");
 
   // If we're actually in the document style sheet list
+  //
+  // FIXME(emilio): Shadow DOM.
   MOZ_DIAGNOSTIC_ASSERT(aSheet->IsServo() == IsStyledByServo());
   if (mStyleSheets.IndexOf(aSheet) != mStyleSheets.NoIndex) {
     if (aApplicable) {
@@ -5068,14 +5069,6 @@ nsIDocument::GetContainer() const
 void
 nsDocument::SetScriptGlobalObject(nsIScriptGlobalObject *aScriptGlobalObject)
 {
-#ifdef DEBUG
-  {
-    nsCOMPtr<nsPIDOMWindowInner> win(do_QueryInterface(aScriptGlobalObject));
-
-    NS_ASSERTION(!win || win->IsInnerWindow(),
-                 "Script global object must be an inner window!");
-  }
-#endif
   MOZ_ASSERT(aScriptGlobalObject || !mAnimationController ||
              mAnimationController->IsPausedByType(
                nsSMILTimeContainer::PAUSE_PAGEHIDE |
@@ -5768,45 +5761,42 @@ nsDocument::DocumentStatesChanged(EventStates aStateMask)
 }
 
 void
-nsDocument::StyleRuleChanged(StyleSheet* aSheet,
-                             css::Rule* aStyleRule)
+nsDocument::StyleRuleChanged(StyleSheet* aSheet, css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleChanged, (aSheet, aStyleRule));
-
-  if (StyleSheetChangeEventsEnabled()) {
-    DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
-                               "StyleRuleChanged",
-                               mRule,
-                               aStyleRule);
+  if (!StyleSheetChangeEventsEnabled()) {
+    return;
   }
+
+  DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
+                             "StyleRuleChanged",
+                             mRule,
+                             aStyleRule);
 }
 
 void
-nsDocument::StyleRuleAdded(StyleSheet* aSheet,
-                           css::Rule* aStyleRule)
+nsDocument::StyleRuleAdded(StyleSheet* aSheet, css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleAdded, (aSheet, aStyleRule));
-
-  if (StyleSheetChangeEventsEnabled()) {
-    DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
-                               "StyleRuleAdded",
-                               mRule,
-                               aStyleRule);
+  if (!StyleSheetChangeEventsEnabled()) {
+    return;
   }
+
+  DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
+                             "StyleRuleAdded",
+                             mRule,
+                             aStyleRule);
 }
 
 void
-nsDocument::StyleRuleRemoved(StyleSheet* aSheet,
-                             css::Rule* aStyleRule)
+nsDocument::StyleRuleRemoved(StyleSheet* aSheet, css::Rule* aStyleRule)
 {
-  NS_DOCUMENT_NOTIFY_OBSERVERS(StyleRuleRemoved, (aSheet, aStyleRule));
-
-  if (StyleSheetChangeEventsEnabled()) {
-    DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
-                               "StyleRuleRemoved",
-                               mRule,
-                               aStyleRule);
+  if (!StyleSheetChangeEventsEnabled()) {
+    return;
   }
+
+  DO_STYLESHEET_NOTIFICATION(StyleRuleChangeEvent,
+                             "StyleRuleRemoved",
+                             mRule,
+                             aStyleRule);
 }
 
 #undef DO_STYLESHEET_NOTIFICATION
@@ -6026,31 +6016,6 @@ bool IsLowercaseASCII(const nsAString& aValue)
     }
   }
   return true;
-}
-
-already_AddRefed<mozilla::dom::CustomElementRegistry>
-nsDocument::GetCustomElementRegistry()
-{
-  nsAutoString contentType;
-  GetContentType(contentType);
-  if (!IsHTMLDocument() &&
-      !contentType.EqualsLiteral("application/xhtml+xml")) {
-    return nullptr;
-  }
-
-  nsCOMPtr<nsPIDOMWindowInner> window(
-    do_QueryInterface(mScriptGlobalObject ? mScriptGlobalObject
-                                          : GetScopeObject()));
-  if (!window) {
-    return nullptr;
-  }
-
-  RefPtr<CustomElementRegistry> registry = window->CustomElements();
-  if (!registry) {
-    return nullptr;
-  }
-
-  return registry.forget();
 }
 
 // We only support pseudo-elements with two colons in this function.
@@ -6371,119 +6336,6 @@ nsIDocument::CreateAttributeNS(const nsAString& aNamespaceURI,
   return attribute.forget();
 }
 
-bool
-nsDocument::CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* aVp)
-{
-  JS::CallArgs args = JS::CallArgsFromVp(aArgc, aVp);
-
-  JS::Rooted<JSObject*> global(aCx,
-    JS_GetGlobalForObject(aCx, &args.callee()));
-  RefPtr<nsGlobalWindow> window;
-  UNWRAP_OBJECT(Window, global, window);
-  MOZ_ASSERT(window, "Should have a non-null window");
-
-  nsDocument* document = static_cast<nsDocument*>(window->GetDoc());
-
-  // Function name is the type of the custom element.
-  JSString* jsFunName =
-    JS_GetFunctionId(JS_ValueToFunction(aCx, args.calleev()));
-  nsAutoJSString elemName;
-  if (!elemName.init(aCx, jsFunName)) {
-    return true;
-  }
-
-  RefPtr<mozilla::dom::CustomElementRegistry> registry = window->CustomElements();
-  if (!registry) {
-    return true;
-  }
-
-  RefPtr<nsAtom> typeAtom(NS_Atomize(elemName));
-  CustomElementDefinition* definition =
-    registry->mCustomDefinitions.GetWeak(typeAtom);
-  if (!definition) {
-    return true;
-  }
-
-  RefPtr<Element> element;
-
-  // We integrate with construction stack and do prototype swizzling here, so
-  // that old upgrade behavior could also share the new upgrade steps.
-  // And this old upgrade will be remove at some point (when everything is
-  // switched to latest custom element spec).
-  nsTArray<RefPtr<nsGenericHTMLElement>>& constructionStack =
-    definition->mConstructionStack;
-  if (constructionStack.Length()) {
-    element = constructionStack.LastElement();
-    NS_ENSURE_TRUE(element != ALEADY_CONSTRUCTED_MARKER, false);
-
-    // Do prototype swizzling if dom reflector exists.
-    JS::Rooted<JSObject*> reflector(aCx, element->GetWrapper());
-    if (reflector) {
-      Maybe<JSAutoCompartment> ac;
-      JS::Rooted<JSObject*> prototype(aCx, definition->mPrototype);
-      if (element->NodePrincipal()->SubsumesConsideringDomain(nsContentUtils::ObjectPrincipal(prototype))) {
-        ac.emplace(aCx, reflector);
-        if (!JS_WrapObject(aCx, &prototype) ||
-            !JS_SetPrototype(aCx, reflector, prototype)) {
-          return false;
-        }
-      } else {
-        // We want to set the custom prototype in the compartment where it was
-        // registered. We store the prototype from define() without unwrapped,
-        // hence the prototype's compartment is the compartment where it was
-        // registered.
-        // In the case that |reflector| and |prototype| are in different
-        // compartments, this will set the prototype on the |reflector|'s wrapper
-        // and thus only visible in the wrapper's compartment, since we know
-        // reflector's principal does not subsume prototype's in this case.
-        ac.emplace(aCx, prototype);
-        if (!JS_WrapObject(aCx, &reflector) ||
-            !JS_SetPrototype(aCx, reflector, prototype)) {
-          return false;
-        }
-      }
-
-      // Wrap into current context.
-      if (!JS_WrapObject(aCx, &reflector)) {
-        return false;
-      }
-
-      args.rval().setObject(*reflector);
-      return true;
-    }
-  } else {
-    RefPtr<mozilla::dom::NodeInfo> nodeInfo =
-      document->NodeInfoManager()->GetNodeInfo(definition->mLocalName, nullptr,
-                                               kNameSpaceID_XHTML,
-                                               nsIDOMNode::ELEMENT_NODE);
-
-    int32_t tag = nsHTMLTags::CaseSensitiveAtomTagToId(definition->mLocalName);
-    if (tag == eHTMLTag_userdefined &&
-        nsContentUtils::IsCustomElementName(definition->mType)) {
-      element = NS_NewHTMLElement(nodeInfo.forget(), NOT_FROM_PARSER);
-    } else {
-      element = ::CreateHTMLElement(tag, nodeInfo.forget(), NOT_FROM_PARSER);
-    }
-
-    element->SetCustomElementData(
-      new CustomElementData(definition->mType,
-                            CustomElementData::State::eCustom));
-
-    element->SetCustomElementDefinition(definition);
-
-    // It'll be removed when we deprecate custom elements v0.
-    nsContentUtils::SyncInvokeReactions(nsIDocument::eCreated, element,
-                                        definition);
-    NS_ENSURE_TRUE(element, false);
-  }
-
-  // The prototype setup happens in Element::WrapObject().
-  nsresult rv = nsContentUtils::WrapNative(aCx, element, element, args.rval());
-  NS_ENSURE_SUCCESS(rv, true);
-
-  return true;
-}
-
 void
 nsDocument::ScheduleSVGForPresAttrEvaluation(nsSVGElement* aSVG)
 {
@@ -6504,133 +6356,6 @@ nsDocument::ResolveScheduledSVGPresAttrs()
     svg->UpdateContentDeclarationBlock(StyleBackendType::Servo);
   }
   mLazySVGPresElements.Clear();
-}
-
-void
-nsDocument::RegisterElement(JSContext* aCx, const nsAString& aType,
-                            const ElementRegistrationOptions& aOptions,
-                            JS::MutableHandle<JSObject*> aRetval,
-                            ErrorResult& rv)
-{
-  RefPtr<CustomElementRegistry> registry(GetCustomElementRegistry());
-  if (!registry) {
-    rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-    return;
-  }
-
-  AutoCEReaction ceReaction(this->GetDocGroup()->CustomElementReactionsStack());
-  // Unconditionally convert TYPE to lowercase.
-  nsAutoString lcType;
-  nsContentUtils::ASCIIToLower(aType, lcType);
-
-  nsIGlobalObject* sgo = GetScopeObject();
-  if (!sgo) {
-    rv.Throw(NS_ERROR_UNEXPECTED);
-    return;
-  }
-
-  JS::Rooted<JSObject*> global(aCx, sgo->GetGlobalJSObject());
-  JS::Rooted<JSObject*> protoObject(aCx);
-
-  if (!aOptions.mPrototype) {
-    JS::Rooted<JSObject*> htmlProto(aCx);
-    htmlProto = HTMLElementBinding::GetProtoObjectHandle(aCx);
-    if (!htmlProto) {
-      rv.Throw(NS_ERROR_OUT_OF_MEMORY);
-      return;
-    }
-
-    protoObject = JS_NewObjectWithGivenProto(aCx, nullptr, htmlProto);
-    if (!protoObject) {
-      rv.Throw(NS_ERROR_UNEXPECTED);
-      return;
-    }
-  } else {
-    protoObject = aOptions.mPrototype;
-
-    // Get the unwrapped prototype to do some checks.
-    JS::Rooted<JSObject*> protoObjectUnwrapped(aCx, js::CheckedUnwrap(protoObject));
-    if (!protoObjectUnwrapped) {
-      // If the caller's compartment does not have permission to access the
-      // unwrapped prototype then throw.
-      rv.Throw(NS_ERROR_DOM_SECURITY_ERR);
-      return;
-    }
-
-    // If PROTOTYPE is already an interface prototype object for any interface
-    // object or PROTOTYPE has a non-configurable property named constructor,
-    // throw a NotSupportedError and stop.
-    const js::Class* clasp = js::GetObjectClass(protoObjectUnwrapped);
-    if (IsDOMIfaceAndProtoClass(clasp)) {
-      rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-      return;
-    }
-
-    JS::Rooted<JS::PropertyDescriptor> descRoot(aCx);
-    JS::MutableHandle<JS::PropertyDescriptor> desc(&descRoot);
-    // This check may go through a wrapper, but as we checked above
-    // it should be transparent or an xray. This should be fine for now,
-    // until the spec is sorted out.
-    if (!JS_GetPropertyDescriptor(aCx, protoObject, "constructor", desc)) {
-      rv.Throw(NS_ERROR_UNEXPECTED);
-      return;
-    }
-
-    if (!desc.configurable()) {
-      rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-      return;
-    }
-  }
-
-  JS::Rooted<JSFunction*> constructor(aCx);
-  {
-    // Go into the document's global compartment when creating the constructor
-    // function because we want to get the correct document (where the
-    // definition is registered) when it is called.
-    JSAutoCompartment ac(aCx, global);
-
-    // Create constructor to return. Store the name of the custom element as the
-    // name of the function.
-    constructor = JS_NewFunction(aCx, nsDocument::CustomElementConstructor, 0,
-                                 JSFUN_CONSTRUCTOR,
-                                 NS_ConvertUTF16toUTF8(lcType).get());
-    if (!constructor) {
-      rv.Throw(NS_ERROR_OUT_OF_MEMORY);
-      return;
-    }
-  }
-
-  JS::Rooted<JSObject*> wrappedConstructor(aCx);
-  wrappedConstructor = JS_GetFunctionObject(constructor);
-  if (!JS_WrapObject(aCx, &wrappedConstructor)) {
-    rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-    return;
-  }
-
-  if (!JS_LinkConstructorAndPrototype(aCx, wrappedConstructor, protoObject)) {
-    rv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
-    return;
-  }
-
-  ElementDefinitionOptions options;
-  if (!aOptions.mExtends.IsVoid()) {
-    // Only convert NAME to lowercase in HTML documents.
-    nsAutoString lcName;
-    IsHTMLDocument() ? nsContentUtils::ASCIIToLower(aOptions.mExtends, lcName)
-                     : lcName.Assign(aOptions.mExtends);
-
-    options.mExtends.Construct(lcName);
-  }
-
-  // Note: No calls that might run JS or trigger CC after this, or there's a
-  // (vanishingly small) risk of our constructor being nulled before Define()
-  // can access it.
-  RefPtr<Function> functionConstructor =
-    new Function(aCx, wrappedConstructor, sgo);
-
-  registry->Define(lcType, *functionConstructor, options, rv);
-
-  aRetval.set(wrappedConstructor);
 }
 
 NS_IMETHODIMP
@@ -7201,7 +6926,7 @@ nsIDocument::GetLocation() const
     return nullptr;
   }
 
-  nsGlobalWindow* window = nsGlobalWindow::Cast(w);
+  nsGlobalWindowInner* window = nsGlobalWindowInner::Cast(w);
   RefPtr<Location> loc = window->GetLocation();
   return loc.forget();
 }
@@ -7943,7 +7668,7 @@ CheckCrossStyleBackendAdoption(nsIDocument* aOldDoc,
   if (styleDataTypes.isEmpty()) {
     return;
   }
-#ifdef MOZ_CRASHREPORTER
+
   // We are adopting node with pre-existing style data across style
   // backend. We want some more information to help diagnose when that
   // can happen.
@@ -8008,7 +7733,7 @@ CheckCrossStyleBackendAdoption(nsIDocument* aOldDoc,
   }
   note.Append('\n');
   CrashReporter::AppendAppNotesToCrashReport(note);
-#endif // MOZ_CRASHREPORTER
+
   MOZ_CRASH("Must not adopt a node with pre-existing style data "
             "into a document with different style backend");
 }
@@ -8470,7 +8195,7 @@ nsDocument::GetEventTargetParent(EventChainPreVisitor& aVisitor)
 
   // Load events must not propagate to |window| object, see bug 335251.
   if (aVisitor.mEvent->mMessage != eLoad) {
-    nsGlobalWindow* window = nsGlobalWindow::Cast(GetWindow());
+    nsGlobalWindowOuter* window = nsGlobalWindowOuter::Cast(GetWindow());
     aVisitor.mParentTarget =
       window ? window->GetTargetForEventTargetChain() : nullptr;
   }
@@ -9136,13 +8861,6 @@ nsDocument::CanSavePresentation(nsIRequest *aNewRequest)
     return false;
   }
 
-  // Don't save presentation if there are active FlyWeb connections or FlyWeb
-  // servers.
-  FlyWebService* flyWebService = FlyWebService::GetExisting();
-  if (flyWebService && flyWebService->HasConnectionOrServer(win->WindowID())) {
-    return false;
-  }
-
   if (mSubDocuments) {
     for (auto iter = mSubDocuments->Iter(); !iter.Done(); iter.Next()) {
       auto entry = static_cast<SubDocMapEntry*>(iter.Get());
@@ -9158,7 +8876,7 @@ nsDocument::CanSavePresentation(nsIRequest *aNewRequest)
 
 
   if (win) {
-    auto* globalWindow = nsGlobalWindow::Cast(win);
+    auto* globalWindow = nsGlobalWindowInner::Cast(win);
 #ifdef MOZ_WEBSPEECH
     if (globalWindow->HasActiveSpeechSynthesis()) {
       return false;
@@ -10159,7 +9877,7 @@ nsDocument::ForgetImagePreload(nsIURI* aURI)
 }
 
 void
-nsDocument::UpdatePossiblyStaleDocumentState()
+nsIDocument::UpdatePossiblyStaleDocumentState()
 {
   if (!mGotDocumentState.HasState(NS_DOCUMENT_STATE_RTL_LOCALE)) {
     if (IsDocumentRightToLeft()) {
@@ -10175,19 +9893,6 @@ nsDocument::UpdatePossiblyStaleDocumentState()
     }
     mGotDocumentState |= NS_DOCUMENT_STATE_WINDOW_INACTIVE;
   }
-}
-
-EventStates
-nsDocument::ThreadSafeGetDocumentState() const
-{
-  return mDocumentState;
-}
-
-EventStates
-nsDocument::GetDocumentState()
-{
-  UpdatePossiblyStaleDocumentState();
-  return ThreadSafeGetDocumentState();
 }
 
 namespace {
@@ -10886,7 +10591,7 @@ nsDocument::NotifyMediaFeatureValuesChanged()
 }
 
 already_AddRefed<Touch>
-nsIDocument::CreateTouch(nsGlobalWindow* aView,
+nsIDocument::CreateTouch(nsGlobalWindowInner* aView,
                          EventTarget* aTarget,
                          int32_t aIdentifier,
                          int32_t aPageX, int32_t aPageY,
@@ -10896,7 +10601,6 @@ nsIDocument::CreateTouch(nsGlobalWindow* aView,
                          float aRotationAngle,
                          float aForce)
 {
-  MOZ_ASSERT_IF(aView, aView->IsInnerWindow());
   RefPtr<Touch> touch = new Touch(aTarget,
                                   aIdentifier,
                                   aPageX, aPageY,
@@ -11057,7 +10761,7 @@ nsIDocument::GetScrollingElement()
 {
   // Keep this in sync with IsScrollingElement.
   if (GetCompatibilityMode() == eCompatibility_NavQuirks) {
-    HTMLBodyElement* body = GetBodyElement();
+    RefPtr<HTMLBodyElement> body = GetBodyElement();
     if (body && !IsPotentiallyScrollable(body)) {
       return body;
     }
@@ -11078,6 +10782,7 @@ nsIDocument::IsScrollingElement(Element* aElement)
     return aElement == GetRootElement();
   }
 
+  // In the common case when aElement != body, avoid refcounting.
   HTMLBodyElement* body = GetBodyElement();
   if (aElement != body) {
     return false;
@@ -11086,7 +10791,8 @@ nsIDocument::IsScrollingElement(Element* aElement)
   // Now we know body is non-null, since aElement is not null.  It's the
   // scrolling element for the document if it itself is not potentially
   // scrollable.
-  return !IsPotentiallyScrollable(body);
+  RefPtr<HTMLBodyElement> strongBody(body);
+  return !IsPotentiallyScrollable(strongBody);
 }
 
 void
@@ -13709,6 +13415,81 @@ nsIDocument::UpdateStyleBackendType()
 #endif
 }
 
+void
+nsIDocument::SetUserHasInteracted(bool aUserHasInteracted)
+{
+  MOZ_LOG(gUserInteractionPRLog, LogLevel::Debug,
+          ("Document %p has been interacted by user.", this));
+  mUserHasInteracted = aUserHasInteracted;
+}
+
+void
+nsIDocument::NotifyUserActivation()
+{
+  if (mUserHasActivatedInteraction) {
+    return;
+  }
+
+  MOZ_LOG(gUserInteractionPRLog, LogLevel::Debug,
+          ("Document %p has been activated by user.", this));
+  mUserHasActivatedInteraction = true;
+}
+
+bool
+nsIDocument::HasBeenUserActivated()
+{
+  if (!mUserHasActivatedInteraction) {
+    // If one of its parent on the parent chain has been activated and has same
+    // principal, then this child would also be treated as activated.
+    nsIDocument* parent =
+      GetFirstParentDocumentWithSamePrincipal(NodePrincipal());
+    if (parent) {
+      mUserHasActivatedInteraction = parent->HasBeenUserActivated();
+    }
+  }
+
+  return mUserHasActivatedInteraction;
+}
+
+nsIDocument*
+nsIDocument::GetFirstParentDocumentWithSamePrincipal(nsIPrincipal* aPrincipal)
+{
+  MOZ_ASSERT(aPrincipal);
+  nsIDocument* parent = GetSameTypeParentDocument(this);
+  while (parent) {
+    bool isEqual = false;
+    nsresult rv = aPrincipal->Equals(parent->NodePrincipal(), &isEqual);
+    if (NS_WARN_IF(NS_FAILED(rv))) {
+      return nullptr;
+    }
+
+    if (isEqual) {
+      return parent;
+    }
+    parent = GetSameTypeParentDocument(parent);
+  }
+  MOZ_ASSERT(!parent);
+  return nullptr;
+}
+
+nsIDocument*
+nsIDocument::GetSameTypeParentDocument(const nsIDocument* aDoc)
+{
+  MOZ_ASSERT(aDoc);
+  nsCOMPtr<nsIDocShellTreeItem> current = aDoc->GetDocShell();
+  if (!current) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsIDocShellTreeItem> parent;
+  current->GetSameTypeParent(getter_AddRefs(parent));
+  if (!parent) {
+    return nullptr;
+  }
+
+  return parent->GetDocument();
+}
+
 /**
  * Retrieves the classification of the Flash plugins in the document based on
  * the classification lists. We perform AsyncInitFlashClassification on
@@ -14296,17 +14077,12 @@ nsIDocument::IsScopedStyleEnabled()
 }
 
 void
-nsIDocument::ClearStaleServoDataFromDocument()
+nsIDocument::ClearStaleServoData()
 {
-  if (!mMightHaveStaleServoData) {
-    return;
-  }
-
   DocumentStyleRootIterator iter(this);
   while (Element* root = iter.GetNextStyleRoot()) {
     ServoRestyleManager::ClearServoDataFromSubtree(root);
   }
-  mMightHaveStaleServoData = false;
 }
 
 Selection*
@@ -14317,12 +14093,11 @@ nsIDocument::GetSelection(ErrorResult& aRv)
     return nullptr;
   }
 
-  NS_ASSERTION(window->IsInnerWindow(), "Should have inner window here!");
   if (!window->IsCurrentInnerWindow()) {
     return nullptr;
   }
 
-  return nsGlobalWindow::Cast(window)->GetSelection(aRv);
+  return nsGlobalWindowInner::Cast(window)->GetSelection(aRv);
 }
 
 void

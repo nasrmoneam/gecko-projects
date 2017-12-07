@@ -11,18 +11,15 @@ import sys
 from distutils.spawn import find_executable
 
 from mozboot.util import get_state_dir
+from mozterm import Terminal
 
 from .. import preset as pset
 from ..cli import BaseTryParser
 from ..tasks import generate_tasks
 from ..vcs import VCSHelper
 
-try:
-    import blessings
-    terminal = blessings.Terminal()
-except ImportError:
-    from mozlint.formatters.stylish import NullTerminal
-    terminal = NullTerminal()
+terminal = Terminal()
+
 
 FZF_NOT_FOUND = """
 Could not find the `fzf` binary.
@@ -101,7 +98,7 @@ class FuzzyParser(BaseTryParser):
                   "defaults to latest parameters.yml from mozilla-central",
           }],
     ]
-    templates = ['artifact', 'env']
+    templates = ['artifact', 'env', 'rebuild']
 
 
 def run(cmd, cwd=None):
@@ -198,7 +195,7 @@ def run_fuzzy_try(update=False, query=None, templates=None, full=False, paramete
     vcs = VCSHelper.create()
     vcs.check_working_directory(push)
 
-    all_tasks = generate_tasks(parameters, full)
+    all_tasks = generate_tasks(parameters, full, root=vcs.root)
 
     key_shortcuts = [k + ':' + v for k, v in fzf_shortcuts.iteritems()]
     cmd = [

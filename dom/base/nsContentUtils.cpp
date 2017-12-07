@@ -48,8 +48,8 @@
 #include "mozilla/dom/FileSystemSecurity.h"
 #include "mozilla/dom/FileBlobImpl.h"
 #include "mozilla/dom/HTMLInputElement.h"
+#include "mozilla/dom/HTMLSlotElement.h"
 #include "mozilla/dom/HTMLTemplateElement.h"
-#include "mozilla/dom/HTMLContentElement.h"
 #include "mozilla/dom/IDTracker.h"
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/Promise.h"
@@ -71,6 +71,7 @@
 #include "mozilla/ManualNAC.h"
 #include "mozilla/MouseEvents.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/ResultExtensions.h"
 #include "mozilla/dom/Selection.h"
 #include "mozilla/TextEvents.h"
 #include "nsArrayUtils.h"
@@ -164,6 +165,7 @@
 #include "nsIParser.h"
 #include "nsIPermissionManager.h"
 #include "nsIPluginHost.h"
+#include "nsIRemoteBrowser.h"
 #include "nsIRequest.h"
 #include "nsIRunnable.h"
 #include "nsIScriptContext.h"
@@ -224,6 +226,7 @@
 #include "nsPluginHost.h"
 #include "mozilla/HangAnnotations.h"
 #include "mozilla/Encoding.h"
+#include "nsXULElement.h"
 
 #include "nsIBidiKeyboard.h"
 
@@ -238,6 +241,7 @@ extern "C" int MOZ_XMLCheckQName(const char* ptr, const char* end,
                                  int ns_aware, const char** colon);
 
 class imgLoader;
+class nsAtom;
 
 using namespace mozilla::dom;
 using namespace mozilla::ipc;
@@ -300,6 +304,7 @@ bool nsContentUtils::sSendPerformanceTimingNotifications = false;
 bool nsContentUtils::sUseActivityCursor = false;
 bool nsContentUtils::sAnimationsAPICoreEnabled = false;
 bool nsContentUtils::sAnimationsAPIElementAnimateEnabled = false;
+bool nsContentUtils::sAnimationsAPIPendingMemberEnabled = false;
 bool nsContentUtils::sGetBoxQuadsEnabled = false;
 bool nsContentUtils::sSkipCursorMoveForSameValueSet = false;
 bool nsContentUtils::sRequestIdleCallbackEnabled = false;
@@ -331,7 +336,6 @@ nsHtml5StringParser* nsContentUtils::sHTMLFragmentParser = nullptr;
 nsIParser* nsContentUtils::sXMLFragmentParser = nullptr;
 nsIFragmentContentSink* nsContentUtils::sXMLFragmentSink = nullptr;
 bool nsContentUtils::sFragmentParsingActive = false;
-nsISerialEventTarget* nsContentUtils::sStableStateEventTarget = nullptr;
 
 #if !(defined(DEBUG) || defined(MOZ_ENABLE_JS_DUMP))
 bool nsContentUtils::sDOMWindowDumpEnabled;
@@ -340,6 +344,11 @@ bool nsContentUtils::sDOMWindowDumpEnabled;
 bool nsContentUtils::sDoNotTrackEnabled = false;
 
 mozilla::LazyLogModule nsContentUtils::sDOMDumpLog("Dump");
+
+PopupControlState nsContentUtils::sPopupControlState = openAbused;
+
+int32_t nsContentUtils::sInnerOrOuterWindowCount = 0;
+uint32_t nsContentUtils::sInnerOrOuterWindowSerialCounter = 0;
 
 // Subset of http://www.whatwg.org/specs/web-apps/current-work/#autofill-field-name
 enum AutocompleteUnsupportedFieldName : uint8_t
@@ -524,52 +533,6 @@ class SameOriginCheckerImpl final : public nsIChannelEventSink,
   NS_DECL_NSIINTERFACEREQUESTOR
 };
 
-class StableStateEventTarget final : public nsISerialEventTarget
-{
-public:
-  NS_DECL_THREADSAFE_ISUPPORTS
-  NS_DECL_NSIEVENTTARGET_FULL
-private:
-  ~StableStateEventTarget() {}
-};
-
-NS_IMPL_ISUPPORTS(StableStateEventTarget, nsISerialEventTarget);
-
-bool
-StableStateEventTarget::IsOnCurrentThreadInfallible()
-{
-  return true;
-}
-
-NS_IMETHODIMP
-StableStateEventTarget::IsOnCurrentThread(bool* aResult)
-{
-  *aResult = true;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-StableStateEventTarget::Dispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aFlags)
-{
-  if (NS_WARN_IF(!CycleCollectedJSContext::Get())) {
-    return NS_ERROR_UNEXPECTED;
-  }
-  nsContentUtils::RunInStableState(Move(aEvent));
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-StableStateEventTarget::DispatchFromScript(nsIRunnable* aEvent, uint32_t aFlags)
-{
-  return Dispatch(nsCOMPtr<nsIRunnable>(aEvent).forget(), aFlags);
-}
-
-NS_IMETHODIMP
-StableStateEventTarget::DelayedDispatch(already_AddRefed<nsIRunnable> aEvent, uint32_t aDelay)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
 } // namespace
 
 /**
@@ -753,6 +716,10 @@ nsContentUtils::Init()
   Preferences::AddBoolVarCache(&sAnimationsAPIElementAnimateEnabled,
                                "dom.animations-api.element-animate.enabled", false);
 
+  Preferences::AddBoolVarCache(&sAnimationsAPIPendingMemberEnabled,
+                               "dom.animations-api.pending-member.enabled",
+                               false);
+
   Preferences::AddBoolVarCache(&sGetBoxQuadsEnabled,
                                "layout.css.getBoxQuads.enabled", false);
 
@@ -794,9 +761,6 @@ nsContentUtils::Init()
   Element::InitCCCallbacks();
 
   Unused << nsRFPService::GetOrCreate();
-
-  RefPtr<StableStateEventTarget> stableStateEventTarget = new StableStateEventTarget();
-  stableStateEventTarget.forget(&sStableStateEventTarget);
 
   nsCOMPtr<nsIUUIDGenerator> uuidGenerator =
     do_GetService("@mozilla.org/uuid-generator;1", &rv);
@@ -1184,7 +1148,7 @@ nsContentUtils::InternalSerializeAutocompleteAttribute(const nsAttrValue* aAttrV
                                                        mozilla::dom::AutocompleteInfo& aInfo,
                                                        bool aGrantAllValidValue)
 {
-  // No sandbox attribute so we are done
+  // No autocomplete attribute so we are done
   if (!aAttrVal) {
     return eAutocompleteAttrState_Invalid;
   }
@@ -1537,28 +1501,6 @@ nsContentUtils::IsJavaScriptLanguage(const nsString& aName)
          aName.LowerCaseEqualsLiteral("javascript1.3") ||
          aName.LowerCaseEqualsLiteral("javascript1.4") ||
          aName.LowerCaseEqualsLiteral("javascript1.5");
-}
-
-JSVersion
-nsContentUtils::ParseJavascriptVersion(const nsAString& aVersionStr)
-{
-  if (aVersionStr.Length() != 3 || aVersionStr[0] != '1' ||
-      aVersionStr[1] != '.') {
-    return JSVERSION_UNKNOWN;
-  }
-
-  switch (aVersionStr[2]) {
-  case '0': /* fall through */
-  case '1': /* fall through */
-  case '2': /* fall through */
-  case '3': /* fall through */
-  case '4': /* fall through */
-  case '5': return JSVERSION_DEFAULT;
-  case '6': return JSVERSION_1_6;
-  case '7': return JSVERSION_1_7;
-  case '8': return JSVERSION_1_8;
-  default:  return JSVERSION_UNKNOWN;
-  }
 }
 
 void
@@ -2231,8 +2173,6 @@ nsContentUtils::Shutdown()
   sJSBytecodeMimeType = nullptr;
 
   NS_IF_RELEASE(sSameOriginChecker);
-
-  NS_IF_RELEASE(sStableStateEventTarget);
 
   if (sUserInteractionObserver) {
     sUserInteractionObserver->Shutdown();
@@ -4739,7 +4679,8 @@ nsContentUtils::GetSubdocumentWithOuterWindowId(nsIDocument *aDocument,
     return nullptr;
   }
 
-  RefPtr<nsGlobalWindow> window = nsGlobalWindow::GetOuterWindowWithId(aOuterWindowId);
+  RefPtr<nsGlobalWindowOuter> window =
+    nsGlobalWindowOuter::GetOuterWindowWithId(aOuterWindowId);
   if (!window) {
     return nullptr;
   }
@@ -5117,13 +5058,13 @@ nsContentUtils::CreateContextualFragment(nsINode* aContextNode,
     tagName = content->NodeInfo()->QualifiedName();
 
     // see if we need to add xmlns declarations
-    uint32_t count = content->GetAttrCount();
+    uint32_t count = content->AsElement()->GetAttrCount();
     bool setDefaultNamespace = false;
     if (count > 0) {
       uint32_t index;
 
       for (index = 0; index < count; index++) {
-        const BorrowedAttrInfo info = content->GetAttrInfoAt(index);
+        const BorrowedAttrInfo info = content->AsElement()->GetAttrInfoAt(index);
         const nsAttrName* name = info.mName;
         if (name->NamespaceEquals(kNameSpaceID_XMLNS)) {
           info.mValue->ToString(uriStr);
@@ -5835,13 +5776,6 @@ nsContentUtils::IsInStableOrMetaStableState()
 {
   MOZ_ASSERT(CycleCollectedJSContext::Get(), "Must be on a script thread!");
   return CycleCollectedJSContext::Get()->IsInStableOrMetaStableState();
-}
-
-/* static */
-nsISerialEventTarget*
-nsContentUtils::GetStableStateEventTarget()
-{
-  return sStableStateEventTarget;
 }
 
 /*
@@ -7602,9 +7536,8 @@ nsContentUtils::IsContentInsertionPoint(nsIContent* aContent)
   }
 
   // Check if the content is a web components content insertion point.
-  HTMLContentElement* contentElement =
-    HTMLContentElement::FromContent(aContent);
-  return contentElement && contentElement->IsInsertionPoint();
+  // XXX handle <slot>?
+  return false;
 }
 
 // static
@@ -7621,12 +7554,11 @@ nsContentUtils::HasDistributedChildren(nsIContent* aContent)
     return true;
   }
 
-  HTMLContentElement* contentEl = HTMLContentElement::FromContent(aContent);
-  if (contentEl && contentEl->IsInsertionPoint()) {
-    // Children of a content insertion point are distributed to the
-    // content insertion point if the content insertion point does
-    // not match any nodes (fallback content).
-    return contentEl->MatchedNodes().IsEmpty();
+  HTMLSlotElement* slotEl = HTMLSlotElement::FromContent(aContent);
+  if (slotEl && slotEl->GetContainingShadow()) {
+    // Children of a slot are rendered if the slot does not have any assigned
+    // nodes (fallback content).
+    return slotEl->AssignedNodes().IsEmpty();
   }
 
   return false;
@@ -9094,8 +9026,6 @@ nsContentUtils::IsNonSubresourceRequest(nsIChannel* aChannel)
 nsContentUtils::StorageAccess
 nsContentUtils::StorageAllowedForWindow(nsPIDOMWindowInner* aWindow)
 {
-  MOZ_ASSERT(aWindow->IsInnerWindow());
-
   if (nsIDocument* document = aWindow->GetExtantDoc()) {
     nsCOMPtr<nsIPrincipal> principal = document->NodePrincipal();
     return InternalStorageAllowedForPrincipal(principal, aWindow);
@@ -9184,7 +9114,6 @@ nsContentUtils::InternalStorageAllowedForPrincipal(nsIPrincipal* aPrincipal,
                                                    nsPIDOMWindowInner* aWindow)
 {
   MOZ_ASSERT(aPrincipal);
-  MOZ_ASSERT(!aWindow || aWindow->IsInnerWindow());
 
   StorageAccess access = StorageAccess::eAllow;
 
@@ -9209,7 +9138,17 @@ nsContentUtils::InternalStorageAllowedForPrincipal(nsIPrincipal* aPrincipal,
 
   uint32_t lifetimePolicy;
   uint32_t behavior;
-  GetCookieBehaviorForPrincipal(aPrincipal, &lifetimePolicy, &behavior);
+
+  // WebExtensions principals always get BEHAVIOR_ACCEPT as cookieBehavior
+  // and ACCEPT_NORMALLY as lifetimePolicy (See Bug 1406675 for rationale).
+  auto policy = BasePrincipal::Cast(aPrincipal)->AddonPolicy();
+
+  if (policy) {
+    behavior = nsICookieService::BEHAVIOR_ACCEPT;
+    lifetimePolicy = nsICookieService::ACCEPT_NORMALLY;
+  } else {
+    GetCookieBehaviorForPrincipal(aPrincipal, &lifetimePolicy, &behavior);
+  }
 
   // Check if we should only allow storage for the session, and record that fact
   if (lifetimePolicy == nsICookieService::ACCEPT_SESSION) {
@@ -9891,7 +9830,7 @@ nsContentUtils::IsSpecificAboutPage(JSObject* aGlobal, const char* aUri)
   MOZ_ASSERT(strncmp(aUri, "about:", 6) == 0);
 
   // Make sure the global is a window
-  nsGlobalWindow* win = xpc::WindowGlobalOrNull(aGlobal);
+  nsGlobalWindowInner* win = xpc::WindowGlobalOrNull(aGlobal);
   if (!win) {
     return false;
   }
@@ -10116,15 +10055,216 @@ nsContentUtils::HttpsStateIsModern(nsIDocument* aDocument)
   return false;
 }
 
+/* static */ void
+nsContentUtils::TryToUpgradeElement(Element* aElement)
+{
+  NodeInfo* nodeInfo = aElement->NodeInfo();
+  RefPtr<nsAtom> typeAtom =
+    aElement->GetCustomElementData()->GetCustomElementType();
+  CustomElementDefinition* definition =
+    nsContentUtils::LookupCustomElementDefinition(nodeInfo->GetDocument(),
+                                                  nodeInfo->LocalName(),
+                                                  nodeInfo->NamespaceID(),
+                                                  typeAtom);
+  if (definition) {
+    nsContentUtils::EnqueueUpgradeReaction(aElement, definition);
+  } else {
+    // Add an unresolved custom element that is a candidate for
+    // upgrade when a custom element is connected to the document.
+    // We will make sure it's shadow-including tree order in bug 1326028.
+    nsContentUtils::RegisterUnresolvedElement(aElement, typeAtom);
+  }
+}
+
+static void
+DoCustomElementCreate(Element** aElement, nsIDocument* aDoc, NodeInfo* aNodeInfo,
+                      CustomElementConstructor* aConstructor, ErrorResult& aRv)
+{
+  RefPtr<Element> element =
+    aConstructor->Construct("Custom Element Create", aRv);
+  if (aRv.Failed()) {
+    return;
+  }
+
+  if (aNodeInfo->NamespaceEquals(kNameSpaceID_XHTML)) {
+    if (!element || !element->IsHTMLElement()) {
+      aRv.ThrowTypeError<MSG_THIS_DOES_NOT_IMPLEMENT_INTERFACE>(NS_LITERAL_STRING("HTMLElement"));
+      return;
+    }
+  } else {
+    if (!element || !element->IsXULElement()) {
+      aRv.ThrowTypeError<MSG_THIS_DOES_NOT_IMPLEMENT_INTERFACE>(NS_LITERAL_STRING("XULElement"));
+      return;
+    }
+  }
+
+  nsAtom* localName = aNodeInfo->NameAtom();
+
+  if (aDoc != element->OwnerDoc() || element->GetParentNode() ||
+      element->HasChildren() || element->GetAttrCount() ||
+      element->NodeInfo()->NameAtom() != localName) {
+    aRv.Throw(NS_ERROR_DOM_NOT_SUPPORTED_ERR);
+    return;
+  }
+
+  element.forget(aElement);
+}
+
+/* static */ nsresult
+nsContentUtils::NewXULOrHTMLElement(Element** aResult, mozilla::dom::NodeInfo* aNodeInfo,
+                                    FromParser aFromParser, const nsAString* aIs,
+                                    mozilla::dom::CustomElementDefinition* aDefinition)
+{
+  RefPtr<mozilla::dom::NodeInfo> nodeInfo = aNodeInfo;
+  MOZ_ASSERT(nodeInfo->NamespaceEquals(kNameSpaceID_XHTML) ||
+             nodeInfo->NamespaceEquals(kNameSpaceID_XUL),
+             "Can only create XUL or XHTML elements.");
+
+  nsAtom *name = nodeInfo->NameAtom();
+  RefPtr<nsAtom> tagAtom = nodeInfo->NameAtom();
+  RefPtr<nsAtom> typeAtom = aIs ? NS_Atomize(*aIs) : tagAtom;
+
+  int32_t tag = eHTMLTag_unknown;
+  bool isCustomElementName = false;
+  if (nodeInfo->NamespaceEquals(kNameSpaceID_XHTML)) {
+    tag = nsHTMLTags::CaseSensitiveAtomTagToId(name);
+    isCustomElementName = (tag == eHTMLTag_userdefined &&
+                           nsContentUtils::IsCustomElementName(name));
+  } else {
+    isCustomElementName = nsContentUtils::IsCustomElementName(name);
+  }
+  bool isCustomElement = isCustomElementName || aIs;
+  MOZ_ASSERT_IF(aDefinition, isCustomElement);
+
+  // https://dom.spec.whatwg.org/#concept-create-element
+  // We only handle the "synchronous custom elements flag is set" now.
+  // For the unset case (e.g. cloning a node), see bug 1319342 for that.
+  // Step 4.
+  CustomElementDefinition* definition = aDefinition;
+  if (CustomElementRegistry::IsCustomElementEnabled() && isCustomElement &&
+      !definition) {
+    definition =
+      nsContentUtils::LookupCustomElementDefinition(nodeInfo->GetDocument(),
+                                                    nodeInfo->LocalName(),
+                                                    nodeInfo->NamespaceID(),
+                                                    typeAtom);
+  }
+
+  // It might be a problem that parser synchronously calls constructor, so filed
+  // bug 1378079 to figure out what we should do for parser case.
+  if (definition) {
+    /*
+      * Synchronous custom elements flag is determined by 3 places in spec,
+      * 1) create an element for a token, the flag is determined by
+      *    "will execute script" which is not originally created
+      *    for the HTML fragment parsing algorithm.
+      * 2) createElement and createElementNS, the flag is the same as
+      *    NOT_FROM_PARSER.
+      * 3) clone a node, our implementation will not go into this function.
+      * For the unset case which is non-synchronous only applied for
+      * inner/outerHTML.
+      */
+    bool synchronousCustomElements = aFromParser != dom::FROM_PARSER_FRAGMENT ||
+                                     aFromParser == dom::NOT_FROM_PARSER;
+    // Per discussion in https://github.com/w3c/webcomponents/issues/635,
+    // use entry global in those places that are called from JS APIs and use the
+    // node document's global object if it is called from parser.
+    nsIGlobalObject* global;
+    if (aFromParser == dom::NOT_FROM_PARSER) {
+      global = GetEntryGlobal();
+    } else {
+      global = nodeInfo->GetDocument()->GetScopeObject();
+    }
+    if (!global) {
+      // In browser chrome code, one may have access to a document which doesn't
+      // have scope object anymore.
+      return NS_ERROR_FAILURE;
+    }
+
+    AutoEntryScript aes(global, "create custom elements");
+    JSContext* cx = aes.cx();
+    ErrorResult rv;
+
+    // Step 5.
+    if (definition->IsCustomBuiltIn()) {
+      // SetupCustomElement() should be called with an element that don't have
+      // CustomElementData setup, if not we will hit the assertion in
+      // SetCustomElementData().
+      // Built-in element
+      MOZ_ASSERT(nodeInfo->NamespaceEquals(kNameSpaceID_XHTML),
+                 "Custom built-in XUL elements are not supported yet.");
+      *aResult = CreateHTMLElement(tag, nodeInfo.forget(), aFromParser).take();
+      (*aResult)->SetCustomElementData(new CustomElementData(typeAtom));
+      if (synchronousCustomElements) {
+        CustomElementRegistry::Upgrade(*aResult, definition, rv);
+        if (rv.MaybeSetPendingException(cx)) {
+          aes.ReportException();
+        }
+      } else {
+        nsContentUtils::EnqueueUpgradeReaction(*aResult, definition);
+      }
+
+      return NS_OK;
+    }
+
+    // Step 6.1.
+    if (synchronousCustomElements) {
+      DoCustomElementCreate(aResult, nodeInfo->GetDocument(), nodeInfo,
+                            definition->mConstructor, rv);
+      if (rv.MaybeSetPendingException(cx)) {
+        if (nodeInfo->NamespaceEquals(kNameSpaceID_XHTML)) {
+          NS_IF_ADDREF(*aResult = NS_NewHTMLUnknownElement(nodeInfo.forget(), aFromParser));
+        } else {
+          NS_IF_ADDREF(*aResult = new nsXULElement(nodeInfo.forget()));
+        }
+      }
+      return NS_OK;
+    }
+
+    // Step 6.2.
+    if (nodeInfo->NamespaceEquals(kNameSpaceID_XHTML)) {
+      NS_IF_ADDREF(*aResult = NS_NewHTMLElement(nodeInfo.forget(), aFromParser));
+    } else {
+      NS_IF_ADDREF(*aResult = new nsXULElement(nodeInfo.forget()));
+    }
+    (*aResult)->SetCustomElementData(new CustomElementData(definition->mType));
+    nsContentUtils::EnqueueUpgradeReaction(*aResult, definition);
+    return NS_OK;
+  }
+
+  if (nodeInfo->NamespaceEquals(kNameSpaceID_XHTML)) {
+    // Per the Custom Element specification, unknown tags that are valid custom
+    // element names should be HTMLElement instead of HTMLUnknownElement.
+    if (isCustomElementName) {
+      NS_IF_ADDREF(*aResult = NS_NewHTMLElement(nodeInfo.forget(), aFromParser));
+    } else {
+      *aResult = CreateHTMLElement(tag, nodeInfo.forget(), aFromParser).take();
+    }
+  } else {
+    NS_IF_ADDREF(*aResult = new nsXULElement(nodeInfo.forget()));
+  }
+
+  if (!*aResult) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  if (CustomElementRegistry::IsCustomElementEnabled() && isCustomElement) {
+    (*aResult)->SetCustomElementData(new CustomElementData(typeAtom));
+  }
+
+  return NS_OK;
+}
+
 /* static */ CustomElementDefinition*
 nsContentUtils::LookupCustomElementDefinition(nsIDocument* aDoc,
                                               const nsAString& aLocalName,
                                               uint32_t aNameSpaceID,
-                                              const nsAString* aIs)
+                                              nsAtom* aTypeAtom)
 {
   MOZ_ASSERT(aDoc);
 
-  if (aNameSpaceID != kNameSpaceID_XHTML ||
+  if ((aNameSpaceID != kNameSpaceID_XUL &&
+       aNameSpaceID != kNameSpaceID_XHTML) ||
       !aDoc->GetDocShell()) {
     return nullptr;
   }
@@ -10139,60 +10279,11 @@ nsContentUtils::LookupCustomElementDefinition(nsIDocument* aDoc,
     return nullptr;
   }
 
-  return registry->LookupCustomElementDefinition(aLocalName, aIs);
+  return registry->LookupCustomElementDefinition(aLocalName, aTypeAtom);
 }
 
 /* static */ void
-nsContentUtils::SetupCustomElement(Element* aElement,
-                                   const nsAString* aTypeExtension)
-{
-  MOZ_ASSERT(aElement);
-
-  nsCOMPtr<nsIDocument> doc = aElement->OwnerDoc();
-
-  if (!doc) {
-    return;
-  }
-
-  if (aElement->GetNameSpaceID() != kNameSpaceID_XHTML ||
-      !doc->GetDocShell()) {
-    return;
-  }
-
-  nsCOMPtr<nsPIDOMWindowInner> window(doc->GetInnerWindow());
-  if (!window) {
-    return;
-  }
-
-  RefPtr<CustomElementRegistry> registry(window->CustomElements());
-  if (!registry) {
-    return;
-  }
-
-  return registry->SetupCustomElement(aElement, aTypeExtension);
-}
-
-/* static */ CustomElementDefinition*
-nsContentUtils::GetElementDefinitionIfObservingAttr(Element* aCustomElement,
-                                                    nsAtom* aExtensionType,
-                                                    nsAtom* aAttrName)
-{
-  CustomElementDefinition* definition =
-    aCustomElement->GetCustomElementDefinition();
-
-  // Custom element not defined yet or attribute is not in the observed
-  // attribute list.
-  if (!definition || !definition->IsInObservedAttributeList(aAttrName)) {
-    return nullptr;
-  }
-
-  return definition;
-}
-
-/* static */ void
-nsContentUtils::SyncInvokeReactions(nsIDocument::ElementCallbackType aType,
-                                    Element* aElement,
-                                    CustomElementDefinition* aDefinition)
+nsContentUtils::RegisterUnresolvedElement(Element* aElement, nsAtom* aTypeName)
 {
   MOZ_ASSERT(aElement);
 
@@ -10207,7 +10298,28 @@ nsContentUtils::SyncInvokeReactions(nsIDocument::ElementCallbackType aType,
     return;
   }
 
-  registry->SyncInvokeReactions(aType, aElement, aDefinition);
+  registry->RegisterUnresolvedElement(aElement, aTypeName);
+}
+
+/* static */ void
+nsContentUtils::UnregisterUnresolvedElement(Element* aElement)
+{
+  MOZ_ASSERT(aElement);
+
+  RefPtr<nsAtom> typeAtom =
+    aElement->GetCustomElementData()->GetCustomElementType();
+  nsIDocument* doc = aElement->OwnerDoc();
+  nsPIDOMWindowInner* window(doc->GetInnerWindow());
+  if (!window) {
+    return;
+  }
+
+  RefPtr<CustomElementRegistry> registry(window->CustomElements());
+  if (!registry) {
+    return;
+  }
+
+  registry->UnregisterUnresolvedElement(aElement, typeAtom);
 }
 
 /* static */ void
@@ -10243,32 +10355,6 @@ nsContentUtils::EnqueueLifecycleCallback(nsIDocument::ElementCallbackType aType,
   CustomElementRegistry::EnqueueLifecycleCallback(aType, aCustomElement, aArgs,
                                                   aAdoptedCallbackArgs,
                                                   aDefinition);
-}
-
-/* static */ void
-nsContentUtils::GetCustomPrototype(nsIDocument* aDoc,
-                                   int32_t aNamespaceID,
-                                   nsAtom* aAtom,
-                                   JS::MutableHandle<JSObject*> aPrototype)
-{
-  MOZ_ASSERT(aDoc);
-
-  if (aNamespaceID != kNameSpaceID_XHTML ||
-      !aDoc->GetDocShell()) {
-    return;
-  }
-
-  nsCOMPtr<nsPIDOMWindowInner> window(aDoc->GetInnerWindow());
-  if (!window) {
-    return;
-  }
-
-  RefPtr<CustomElementRegistry> registry(window->CustomElements());
-  if (!registry) {
-    return;
-  }
-
-  return registry->GetCustomPrototype(aAtom, aPrototype);
 }
 
 /* static */ bool
@@ -10588,6 +10674,40 @@ nsContentUtils::CreateJSValueFromSequenceOfObject(JSContext* aCx,
   return NS_OK;
 }
 
+/* static */
+bool
+nsContentUtils::ShouldBlockReservedKeys(WidgetKeyboardEvent* aKeyEvent)
+{
+  nsCOMPtr<nsIPrincipal> principal;
+  nsCOMPtr<nsIRemoteBrowser> targetBrowser = do_QueryInterface(aKeyEvent->mOriginalTarget);
+  if (targetBrowser) {
+    targetBrowser->GetContentPrincipal(getter_AddRefs(principal));
+  }
+  else {
+    // Get the top-level document.
+    nsCOMPtr<nsIContent> content = do_QueryInterface(aKeyEvent->mOriginalTarget);
+    if (content) {
+      nsIDocument* doc = content->GetUncomposedDoc();
+      if (doc) {
+        nsCOMPtr<nsIDocShellTreeItem> docShell = doc->GetDocShell();
+        if (docShell && docShell->ItemType() == nsIDocShellTreeItem::typeContent) {
+          nsCOMPtr<nsIDocShellTreeItem> rootItem;
+          docShell->GetSameTypeRootTreeItem(getter_AddRefs(rootItem));
+          if (rootItem && rootItem->GetDocument()) {
+            principal = rootItem->GetDocument()->NodePrincipal();
+          }
+        }
+      }
+    }
+  }
+
+  if (principal) {
+    return nsContentUtils::IsSitePermDeny(principal, "shortcuts");
+  }
+
+  return false;
+}
+
 /* static */ Element*
 nsContentUtils::GetClosestNonNativeAnonymousAncestor(Element* aElement)
 {
@@ -10733,7 +10853,8 @@ nsContentUtils::GetEventTargetByLoadInfo(nsILoadInfo* aLoadInfo, TaskCategory aC
       // something else.
       return nullptr;
     }
-    RefPtr<nsGlobalWindow> window = nsGlobalWindow::GetOuterWindowWithId(outerWindowId);
+    RefPtr<nsGlobalWindowOuter> window =
+      nsGlobalWindowOuter::GetOuterWindowWithId(outerWindowId);
     if (!window) {
       return nullptr;
     }
@@ -10910,6 +11031,42 @@ nsContentUtils::IsOverridingWindowName(const nsAString& aName)
     !aName.LowerCaseEqualsLiteral("_self");
 }
 
+// Unfortunately, we can't unwrap an IDL object using only a concrete type.
+// We need to calculate type data based on the IDL typename. Which means
+// wrapping our templated function in a macro.
+#define EXTRACT_EXN_VALUES(T, ...)                                \
+  ExtractExceptionValues<mozilla::dom::prototypes::id::T,         \
+                         T##Binding::NativeType, T>(__VA_ARGS__).isOk()
+
+template <prototypes::ID PrototypeID, class NativeType, typename T>
+static Result<Ok, nsresult>
+ExtractExceptionValues(JSContext* aCx,
+                       JS::HandleObject aObj,
+                       nsACString& aSourceSpecOut,
+                       uint32_t* aLineOut,
+                       uint32_t* aColumnOut,
+                       nsString& aMessageOut)
+{
+  RefPtr<T> exn;
+  MOZ_TRY((UnwrapObject<PrototypeID, NativeType>(aObj, exn)));
+
+  nsAutoString filename;
+  exn->GetFilename(aCx, filename);
+  if (!filename.IsEmpty()) {
+    CopyUTF16toUTF8(filename, aSourceSpecOut);
+    *aLineOut = exn->LineNumber(aCx);
+    *aColumnOut = exn->ColumnNumber();
+  }
+
+  exn->GetName(aMessageOut);
+  aMessageOut.AppendLiteral(": ");
+
+  nsAutoString message;
+  exn->GetMessageMoz(message);
+  aMessageOut.Append(message);
+  return Ok();
+}
+
 /* static */ void
 nsContentUtils::ExtractErrorValues(JSContext* aCx,
                                    JS::Handle<JS::Value> aValue,
@@ -10923,7 +11080,6 @@ nsContentUtils::ExtractErrorValues(JSContext* aCx,
 
   if (aValue.isObject()) {
     JS::Rooted<JSObject*> obj(aCx, &aValue.toObject());
-    RefPtr<dom::DOMException> domException;
 
     // Try to process as an Error object.  Use the file/line/column values
     // from the Error as they will be more specific to the root cause of
@@ -10947,22 +11103,15 @@ nsContentUtils::ExtractErrorValues(JSContext* aCx,
     }
 
     // Next, try to unwrap the rejection value as a DOMException.
-    else if(NS_SUCCEEDED(UNWRAP_OBJECT(DOMException, obj, domException))) {
+    else if (EXTRACT_EXN_VALUES(DOMException, aCx, obj, aSourceSpecOut,
+                                aLineOut, aColumnOut, aMessageOut)) {
+      return;
+    }
 
-      nsAutoString filename;
-      domException->GetFilename(aCx, filename);
-      if (!filename.IsEmpty()) {
-        CopyUTF16toUTF8(filename, aSourceSpecOut);
-        *aLineOut = domException->LineNumber(aCx);
-        *aColumnOut = domException->ColumnNumber();
-      }
-
-      domException->GetName(aMessageOut);
-      aMessageOut.AppendLiteral(": ");
-
-      nsAutoString message;
-      domException->GetMessageMoz(message);
-      aMessageOut.Append(message);
+    // Next, try to unwrap the rejection value as an XPC Exception.
+    else if (EXTRACT_EXN_VALUES(Exception, aCx, obj, aSourceSpecOut,
+                                aLineOut, aColumnOut, aMessageOut)) {
+      return;
     }
   }
 
@@ -10979,6 +11128,8 @@ nsContentUtils::ExtractErrorValues(JSContext* aCx,
   }
 }
 
+#undef EXTRACT_EXN_VALUES
+
 /* static */ bool
 nsContentUtils::DevToolsEnabled(JSContext* aCx)
 {
@@ -10992,4 +11143,45 @@ nsContentUtils::DevToolsEnabled(JSContext* aCx)
   }
 
   return workerPrivate->DevToolsEnabled();
+}
+
+/* static */ bool
+nsContentUtils::ContentIsLink(nsIContent* aContent)
+{
+  return aContent && (aContent->IsHTMLElement(nsGkAtoms::a) ||
+                      aContent->AttrValueIs(kNameSpaceID_XLink, nsGkAtoms::type,
+                                            nsGkAtoms::simple, eCaseMatters));
+}
+
+/* static */ already_AddRefed<EventTarget>
+nsContentUtils::TryGetTabChildGlobalAsEventTarget(nsISupports* aFrom)
+{
+  nsCOMPtr<nsIFrameLoaderOwner> frameLoaderOwner = do_QueryInterface(aFrom);
+  if (!frameLoaderOwner) {
+    return nullptr;
+  }
+
+  RefPtr<nsFrameLoader> frameLoader = frameLoaderOwner->GetFrameLoader();
+  if (!frameLoader) {
+    return nullptr;
+  }
+
+  nsCOMPtr<EventTarget> target = frameLoader->GetTabChildGlobalAsEventTarget();
+  return target.forget();
+}
+
+/* static */ uint32_t
+nsContentUtils::InnerOrOuterWindowCreated()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  ++sInnerOrOuterWindowCount;
+  return ++sInnerOrOuterWindowSerialCounter;
+}
+
+/* static */ void
+nsContentUtils::InnerOrOuterWindowDestroyed()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_ASSERT(sInnerOrOuterWindowCount > 0);
+  --sInnerOrOuterWindowCount;
 }

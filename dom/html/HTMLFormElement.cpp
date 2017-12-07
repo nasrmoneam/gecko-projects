@@ -175,14 +175,6 @@ HTMLFormElement::Elements()
   return mControls;
 }
 
-NS_IMETHODIMP
-HTMLFormElement::GetElements(nsIDOMHTMLCollection** aElements)
-{
-  *aElements = Elements();
-  NS_ADDREF(*aElements);
-  return NS_OK;
-}
-
 nsresult
 HTMLFormElement::BeforeSetAttr(int32_t aNamespaceID, nsAtom* aName,
                                const nsAttrValueOrString* aValue, bool aNotify)
@@ -287,6 +279,7 @@ bool
 HTMLFormElement::ParseAttribute(int32_t aNamespaceID,
                                 nsAtom* aAttribute,
                                 const nsAString& aValue,
+                                nsIPrincipal* aMaybeScriptedPrincipal,
                                 nsAttrValue& aResult)
 {
   if (aNamespaceID == kNameSpaceID_None) {
@@ -302,7 +295,7 @@ HTMLFormElement::ParseAttribute(int32_t aNamespaceID,
   }
 
   return nsGenericHTMLElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
-                                              aResult);
+                                              aMaybeScriptedPrincipal, aResult);
 }
 
 nsresult
@@ -1041,9 +1034,7 @@ HTMLFormElement::WalkFormElements(HTMLFormSubmission* aFormSubmission)
 NS_IMETHODIMP_(uint32_t)
 HTMLFormElement::GetElementCount() const
 {
-  uint32_t count = 0;
-  mControls->GetLength(&count);
-  return count;
+  return mControls->Length();
 }
 
 Element*
@@ -1294,10 +1285,11 @@ HTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
       }
       *firstSubmitSlot = aChild;
     }
-    NS_POSTCONDITION(mDefaultSubmitElement == mFirstSubmitInElements ||
-                     mDefaultSubmitElement == mFirstSubmitNotInElements ||
-                     !mDefaultSubmitElement,
-                     "What happened here?");
+
+    MOZ_ASSERT(mDefaultSubmitElement == mFirstSubmitInElements ||
+               mDefaultSubmitElement == mFirstSubmitNotInElements ||
+               !mDefaultSubmitElement,
+               "What happened here?");
 
     // Notify that the state of the previous default submit element has changed
     // if the element which is the default submit element has changed.  The new
@@ -1430,9 +1422,9 @@ HTMLFormElement::HandleDefaultSubmitRemoval()
       mFirstSubmitInElements : mFirstSubmitNotInElements;
   }
 
-  NS_POSTCONDITION(mDefaultSubmitElement == mFirstSubmitInElements ||
-                   mDefaultSubmitElement == mFirstSubmitNotInElements,
-                   "What happened here?");
+  MOZ_ASSERT(mDefaultSubmitElement == mFirstSubmitInElements ||
+             mDefaultSubmitElement == mFirstSubmitNotInElements,
+             "What happened here?");
 
   // Notify about change if needed.
   if (mDefaultSubmitElement) {

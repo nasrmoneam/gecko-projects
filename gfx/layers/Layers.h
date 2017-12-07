@@ -732,8 +732,7 @@ public:
   virtual void AddDidCompositeObserver(DidCompositeObserver* aObserver) { MOZ_CRASH("GFX: LayerManager"); }
   virtual void RemoveDidCompositeObserver(DidCompositeObserver* aObserver) { MOZ_CRASH("GFX: LayerManager"); }
 
-  virtual void UpdateTextureFactoryIdentifier(const TextureFactoryIdentifier& aNewIdentifier,
-											  uint64_t aDeviceResetSeqNo) {}
+  virtual void UpdateTextureFactoryIdentifier(const TextureFactoryIdentifier& aNewIdentifier) {}
 
   virtual TextureFactoryIdentifier GetTextureFactoryIdentifier()
   {
@@ -1313,9 +1312,10 @@ public:
   // Set during construction for the container layer of scrollbar components.
   // |aScrollId| holds the scroll identifier of the scrollable content that
   // the scrollbar is for.
-  void SetIsScrollbarContainer(FrameMetrics::ViewID aScrollId)
+  void SetScrollbarContainer(FrameMetrics::ViewID aScrollId,
+                             ScrollDirection aDirection)
   {
-    if (mSimpleAttrs.SetIsScrollbarContainer(aScrollId)) {
+    if (mSimpleAttrs.SetScrollbarContainer(aScrollId, aDirection)) {
       MutatedSimple();
     }
   }
@@ -1379,7 +1379,8 @@ public:
   const LayerRect& GetStickyScrollRangeInner() { return mSimpleAttrs.StickyScrollRangeInner(); }
   FrameMetrics::ViewID GetScrollbarTargetContainerId() { return mSimpleAttrs.ScrollbarTargetContainerId(); }
   const ScrollThumbData& GetScrollThumbData() const { return mSimpleAttrs.ThumbData(); }
-  bool IsScrollbarContainer() { return mSimpleAttrs.IsScrollbarContainer(); }
+  bool IsScrollbarContainer() { return mSimpleAttrs.GetScrollbarContainerDirection().isSome(); }
+  Maybe<ScrollDirection> GetScrollbarContainerDirection() { return mSimpleAttrs.GetScrollbarContainerDirection(); }
   Layer* GetMaskLayer() const { return mMaskLayer; }
   bool HasPendingTransform() const { return mPendingTransform; }
 
@@ -2315,20 +2316,6 @@ public:
     mChildrenChanged = aVal;
   }
 
-  void SetEventRegionsOverride(EventRegionsOverride aVal) {
-    if (mEventRegionsOverride == aVal) {
-      return;
-    }
-
-    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) EventRegionsOverride", this));
-    mEventRegionsOverride = aVal;
-    Mutated();
-  }
-
-  EventRegionsOverride GetEventRegionsOverride() const {
-    return mEventRegionsOverride;
-  }
-
   // If |aRect| is null, the entire layer should be considered invalid for
   // compositing.
   virtual void SetInvalidCompositeRect(const gfx::IntRect* aRect) {}
@@ -2418,7 +2405,6 @@ protected:
   // This is updated by ComputeDifferences. This will be true if we need to invalidate
   // the intermediate surface.
   bool mChildrenChanged;
-  EventRegionsOverride mEventRegionsOverride;
 };
 
 /**
@@ -2838,6 +2824,25 @@ public:
   }
 
   /**
+   * CONSTRUCTION PHASE ONLY
+   * Set flags that indicate how event regions in the child layer tree need
+   * to be overridden because of properties of the parent layer tree.
+   */
+  void SetEventRegionsOverride(EventRegionsOverride aVal) {
+    if (mEventRegionsOverride == aVal) {
+      return;
+    }
+
+    MOZ_LAYERS_LOG_IF_SHADOWABLE(this, ("Layer::Mutated(%p) EventRegionsOverride", this));
+    mEventRegionsOverride = aVal;
+    Mutated();
+  }
+
+  EventRegionsOverride GetEventRegionsOverride() const {
+    return mEventRegionsOverride;
+  }
+
+  /**
    * DRAWING PHASE ONLY
    * |aLayer| is the same as the argument to ConnectReferentLayer().
    */
@@ -2861,7 +2866,9 @@ public:
 
 protected:
   RefLayer(LayerManager* aManager, void* aImplData)
-    : ContainerLayer(aManager, aImplData) , mId(0)
+    : ContainerLayer(aManager, aImplData)
+    , mId(0)
+    , mEventRegionsOverride(EventRegionsOverride::NoOverride)
   {}
 
   virtual void PrintInfo(std::stringstream& aStream, const char* aPrefix) override;
@@ -2870,6 +2877,7 @@ protected:
 
   // 0 is a special value that means "no ID".
   uint64_t mId;
+  EventRegionsOverride mEventRegionsOverride;
 };
 
 void SetAntialiasingFlags(Layer* aLayer, gfx::DrawTarget* aTarget);

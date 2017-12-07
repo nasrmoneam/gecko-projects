@@ -23,7 +23,7 @@ add_task(function* () {
   let requestUrl = "http://test1.example.com" + CORS_SJS_PATH;
 
   info("Waiting for OPTIONS, then POST");
-  let wait = waitForNetworkEvents(monitor, 1, 1);
+  let wait = waitForNetworkEvents(monitor, 2);
   yield ContentTask.spawn(tab.linkedBrowser, requestUrl, function* (url) {
     content.wrappedJSObject.performRequests(url, "triggering/preflight", "post-data");
   });
@@ -40,7 +40,7 @@ add_task(function* () {
 
   // Resend both requests without modification. Wait for resent OPTIONS, then POST.
   // POST is supposed to have no preflight OPTIONS request this time (CORS is disabled)
-  let onRequests = waitForNetworkEvents(monitor, 1, 0);
+  let onRequests = waitForNetworkEvents(monitor, 1);
   ITEMS.forEach((item) => {
     info(`Selecting the ${item.method} request`);
     store.dispatch(Actions.selectRequest(item.id));
@@ -56,19 +56,24 @@ add_task(function* () {
   yield onRequests;
 
   // Check the resent requests
-  ITEMS.forEach((item, i) => {
+  for (let i = 0; i < ITEMS.length; i++) {
+    let item = ITEMS[i];
     is(item.method, METHODS[i], `The ${item.method} request has the right method`);
     is(item.url, requestUrl, `The ${item.method} request has the right URL`);
     is(item.status, 200, `The ${item.method} response has the right status`);
 
     if (item.method === "POST") {
-      is(item.requestPostData.postData.text, "post-data",
+      // Force fetching lazy load data
+      let responseContent = yield connector.requestData(item.id, "responseContent");
+      let { requestPostData } = yield connector.requestData(item.id, "requestPostData");
+
+      is(requestPostData.postData.text, "post-data",
         "The POST request has the right POST data");
       // eslint-disable-next-line mozilla/no-cpows-in-tests
-      is(item.responseContent.content.text, "Access-Control-Allow-Origin: *",
+      is(responseContent.content.text, "Access-Control-Allow-Origin: *",
         "The POST response has the right content");
     }
-  });
+  }
 
   info("Finishing the test");
   return teardown(monitor);

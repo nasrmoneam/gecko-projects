@@ -242,7 +242,7 @@ RegExpObject::create(JSContext* cx, HandleAtom source, RegExpFlag flags,
 {
     Maybe<CompileOptions> dummyOptions;
     if (!tokenStream && !options) {
-        dummyOptions.emplace(cx, JSVERSION_DEFAULT);
+        dummyOptions.emplace(cx);
         options = dummyOptions.ptr();
     }
     Maybe<TokenStream> dummyTokenStream;
@@ -987,7 +987,7 @@ RegExpShared::compile(JSContext* cx, MutableHandleRegExpShared re, HandleAtom pa
     if (!re->ignoreCase() && !StringHasRegExpMetaChars(pattern))
         re->canStringMatch = true;
 
-    CompileOptions options(cx, JSVERSION_DEFAULT);
+    CompileOptions options(cx);
     frontend::TokenStream dummyTokenStream(cx, options, nullptr, 0, nullptr);
 
     LifoAllocScope scope(&cx->tempLifoAlloc());
@@ -1196,7 +1196,7 @@ RegExpShared::sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf)
 
 /* RegExpCompartment */
 
-RegExpCompartment::RegExpCompartment(Zone* zone)
+RegExpCompartment::RegExpCompartment()
   : matchResultTemplateObject_(nullptr),
     optimizableRegExpPrototypeShape_(nullptr),
     optimizableRegExpInstanceShape_(nullptr)
@@ -1260,7 +1260,7 @@ RegExpZone::init()
 }
 
 void
-RegExpCompartment::sweep(JSRuntime* rt)
+RegExpCompartment::sweep()
 {
     if (matchResultTemplateObject_ &&
         IsAboutToBeFinalized(&matchResultTemplateObject_))

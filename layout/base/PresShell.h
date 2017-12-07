@@ -299,9 +299,6 @@ public:
   NS_DECL_NSIDOCUMENTOBSERVER_STYLESHEETADDED
   NS_DECL_NSIDOCUMENTOBSERVER_STYLESHEETREMOVED
   NS_DECL_NSIDOCUMENTOBSERVER_STYLESHEETAPPLICABLESTATECHANGED
-  NS_DECL_NSIDOCUMENTOBSERVER_STYLERULECHANGED
-  NS_DECL_NSIDOCUMENTOBSERVER_STYLERULEADDED
-  NS_DECL_NSIDOCUMENTOBSERVER_STYLERULEREMOVED
 
   // nsIMutationObserver
   NS_DECL_NSIMUTATIONOBSERVER_CHARACTERDATACHANGED
@@ -409,6 +406,10 @@ public:
   void NotifyStyleSheetServiceSheetRemoved(mozilla::StyleSheet* aSheet,
                                            uint32_t aSheetType) override;
 
+  virtual bool HasHandledUserInput() const override {
+    return mHasHandledUserInput;
+  }
+
 protected:
   virtual ~PresShell();
 
@@ -512,6 +513,7 @@ protected:
 
 #ifdef DEBUG
   nsStyleSet* CloneStyleSet(nsStyleSet* aSet);
+  ServoStyleSet* CloneStyleSet(ServoStyleSet* aSet);
   bool VerifyIncrementalReflow();
   bool mInVerifyReflow;
   void ShowEventTargetDebug();
@@ -892,6 +894,9 @@ protected:
   bool                      mHasReceivedPaintMessage : 1;
 
   bool                      mIsLastKeyDownCanceled : 1;
+
+  // Whether we have ever handled a user input event
+  bool                      mHasHandledUserInput : 1;
 
   static bool               sDisableNonTestMouseEvents;
 

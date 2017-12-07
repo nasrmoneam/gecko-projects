@@ -198,6 +198,13 @@ GeckoGroupRuleRules::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const
 // ServoGroupRuleRules
 //
 
+ServoGroupRuleRules::~ServoGroupRuleRules()
+{
+  if (mRuleList) {
+    mRuleList->DropReference();
+  }
+}
+
 #ifdef DEBUG
 void
 ServoGroupRuleRules::List(FILE* out, int32_t aIndent) const
@@ -297,7 +304,7 @@ GroupRule::AppendStyleRule(Rule* aRule)
   aRule->SetStyleSheet(sheet);
   aRule->SetParentRule(this);
   if (sheet) {
-    sheet->AsGecko()->SetModifiedByChildRule();
+    sheet->RuleChanged(this);
   }
 }
 

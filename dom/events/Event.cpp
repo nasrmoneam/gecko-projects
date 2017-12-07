@@ -52,7 +52,7 @@ Event::Event(EventTarget* aOwner,
 
 Event::Event(nsPIDOMWindowInner* aParent)
 {
-  ConstructorInit(nsGlobalWindow::Cast(aParent), nullptr, nullptr);
+  ConstructorInit(nsGlobalWindowInner::Cast(aParent), nullptr, nullptr);
 }
 
 void
@@ -1146,29 +1146,6 @@ double
 Event::TimeStamp() const
 {
   return nsRFPService::ReduceTimePrecisionAsMSecs(TimeStampImpl());
-}
-
-bool
-Event::GetPreventDefault() const
-{
-  nsCOMPtr<nsPIDOMWindowInner> win(do_QueryInterface(mOwner));
-  if (win) {
-    if (nsIDocument* doc = win->GetExtantDoc()) {
-      doc->WarnOnceAbout(nsIDocument::eGetPreventDefault);
-    }
-  }
-  // GetPreventDefault() is legacy and Gecko specific method.  Although,
-  // the result should be same as defaultPrevented, we don't need to break
-  // backward compatibility of legacy method.  Let's behave traditionally.
-  return DefaultPrevented();
-}
-
-NS_IMETHODIMP
-Event::GetPreventDefault(bool* aReturn)
-{
-  NS_ENSURE_ARG_POINTER(aReturn);
-  *aReturn = GetPreventDefault();
-  return NS_OK;
 }
 
 NS_IMETHODIMP

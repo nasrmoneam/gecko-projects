@@ -63,6 +63,8 @@ struct RuntimeStats;
 namespace mozilla {
 class ThrottledEventQueue;
 namespace dom {
+class ClientInfo;
+class ClientSource;
 class Function;
 class MessagePort;
 class MessagePortIdentifier;
@@ -236,7 +238,10 @@ private:
   // thread as SharedWorkers are always top-level).
   nsTArray<RefPtr<SharedWorker>> mSharedWorkers;
 
-  uint64_t mBusyCount;
+  // This is touched on parent thread only, but it can be read on a different
+  // thread before crashing because hanging.
+  Atomic<uint64_t> mBusyCount;
+
   // SharedWorkers may have multiple windows paused, so this must be
   // a count instead of just a boolean.
   uint32_t mParentWindowPausedDepth;
@@ -928,6 +933,14 @@ public:
   bool
   PrincipalIsValid() const;
 #endif
+
+  // This method is used by RuntimeService to know what is going wrong the
+  // shutting down.
+  uint32_t
+  BusyCount()
+  {
+    return mBusyCount;
+  }
 };
 
 class WorkerDebugger : public nsIWorkerDebugger {
@@ -1049,6 +1062,7 @@ class WorkerPrivate : public WorkerPrivateParent<WorkerPrivate>
   uint32_t mErrorHandlerRecursionCount;
   uint32_t mNextTimeoutId;
   Status mStatus;
+  UniquePtr<ClientSource> mClientSource;
   bool mFrozen;
   bool mTimerRunning;
   bool mRunningExpiredTimeouts;
@@ -1479,6 +1493,21 @@ public:
   // but if that fails will then fall back to a control runnable.
   nsISerialEventTarget*
   HybridEventTarget();
+
+  void
+  DumpCrashInformation(nsACString& aString);
+
+  bool
+  EnsureClientSource();
+
+  const ClientInfo&
+  GetClientInfo() const;
+
+  void
+  Control(const ServiceWorkerDescriptor& aServiceWorker);
+
+  void
+  ExecutionReady();
 
 private:
   WorkerPrivate(WorkerPrivate* aParent,

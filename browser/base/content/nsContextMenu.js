@@ -756,7 +756,7 @@ nsContextMenu.prototype = {
                    referrerURI: gContextMenuContentData.documentURIObject,
                    referrerPolicy: gContextMenuContentData.referrerPolicy,
                    frameOuterWindowID: gContextMenuContentData.frameOuterWindowID,
-                   noReferrer: this.linkHasNoReferrer };
+                   noReferrer: this.linkHasNoReferrer || this.onPlainTextLink };
     for (let p in extra) {
       params[p] = extra[p];
     }
@@ -832,9 +832,10 @@ nsContextMenu.prototype = {
   },
 
   // Reload clicked-in frame.
-  reloadFrame() {
+  reloadFrame(aEvent) {
+    let forceReload = aEvent.shiftKey;
     this.browser.messageManager.sendAsyncMessage("ContextMenu:ReloadFrame",
-                                                 null, { target: this.target });
+                                                 null, { target: this.target, forceReload });
   },
 
   // Open clicked-in frame in its own window.
@@ -951,7 +952,8 @@ nsContextMenu.prototype = {
                        this.browser.contentPrincipal,
                        Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT);
       openUILink(this.mediaURL, e, { disallowInheritPrincipal: true,
-                                     referrerURI });
+                                     referrerURI,
+                                     forceAllowDataURI: true });
     }
   },
 
@@ -1022,9 +1024,7 @@ nsContextMenu.prototype = {
       if (AppConstants.platform == "macosx") {
         // On Mac, the Set Desktop Background window is not modal.
         // Don't open more than one Set Desktop Background window.
-        const wm = Cc["@mozilla.org/appshell/window-mediator;1"].
-                   getService(Ci.nsIWindowMediator);
-        let dbWin = wm.getMostRecentWindow("Shell:SetDesktopBackground");
+        let dbWin = Services.wm.getMostRecentWindow("Shell:SetDesktopBackground");
         if (dbWin) {
           dbWin.gSetBackground.init(image, imageName);
           dbWin.focus();
@@ -1077,20 +1077,14 @@ nsContextMenu.prototype = {
         // some other error occured; notify the user...
         if (!Components.isSuccessCode(aRequest.status)) {
           try {
-            const sbs = Cc["@mozilla.org/intl/stringbundle;1"].
-                        getService(Ci.nsIStringBundleService);
-            const bundle = sbs.createBundle(
+            const bundle = Services.strings.createBundle(
                     "chrome://mozapps/locale/downloads/downloads.properties");
 
             const title = bundle.GetStringFromName("downloadErrorAlertTitle");
             const msg = bundle.GetStringFromName("downloadErrorGeneric");
 
-            const promptSvc = Cc["@mozilla.org/embedcomp/prompt-service;1"].
-                              getService(Ci.nsIPromptService);
-            const wm = Cc["@mozilla.org/appshell/window-mediator;1"].
-                       getService(Ci.nsIWindowMediator);
-            let window = wm.getOuterWindowWithId(windowID);
-            promptSvc.alert(window, title, msg);
+            let window = Services.wm.getOuterWindowWithId(windowID);
+            Services.prompt.alert(window, title, msg);
           } catch (ex) {}
           return;
         }
@@ -1152,14 +1146,11 @@ nsContextMenu.prototype = {
     };
 
     // setting up a new channel for 'right click - save link as ...'
-    // ideally we should use:
-    // * doc            - as the loadingNode, and/or
-    // * this.principal - as the loadingPrincipal
-    // for now lets use systemPrincipal to bypass mixedContentBlocker
-    // checks after redirects, see bug: 1136055
     var channel = NetUtil.newChannel({
                     uri: makeURI(linkURL),
-                    loadUsingSystemPrincipal: true
+                    loadingPrincipal: this.principal,
+                    contentPolicyType: Ci.nsIContentPolicy.TYPE_SAVEAS_DOWNLOAD,
+                    securityFlags: Ci.nsILoadInfo.SEC_ALLOW_CROSS_ORIGIN_DATA_INHERITS,
                   });
 
     if (linkDownload)
@@ -1398,8 +1389,7 @@ nsContextMenu.prototype = {
 
     var version = "-";
     try {
-      version = Cc["@mozilla.org/xre/app-info;1"].
-                getService(Ci.nsIXULAppInfo).version;
+      version = Services.appinfo.version;
     } catch (e) { }
 
     uri = uri.replace(/%LOCALE%/, escape(locale)).replace(/%VERSION%/, version);

@@ -320,16 +320,6 @@ GARBAGE		+= $(DIST)/$(PACKAGE) $(PACKAGE)
 
 PKG_ARG = , '$(pkg)'
 
-# MOZ_PKG_MANIFEST is the canonical way to define the package manifest (which
-# the packager will preprocess), but for a smooth transition, we derive it
-# from the now deprecated MOZ_PKG_MANIFEST_P when MOZ_PKG_MANIFEST is not
-# defined.
-ifndef MOZ_PKG_MANIFEST
-  ifdef MOZ_PKG_MANIFEST_P
-    MOZ_PKG_MANIFEST := $(MOZ_PKG_MANIFEST_P)
-  endif # MOZ_PKG_MANIFEST_P
-endif # MOZ_PKG_MANIFEST
-
 ifndef MOZ_PACKAGER_FORMAT
   MOZ_PACKAGER_FORMAT = $(error MOZ_PACKAGER_FORMAT is not set)
 endif
@@ -406,15 +396,15 @@ UPLOAD_FILES= \
   $(call QUOTED_WILDCARD,$(MOZ_TEST_PACKAGES_FILE)) \
   $(call QUOTED_WILDCARD,$(PKG_JSSHELL)) \
   $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(SYMBOL_FULL_ARCHIVE_BASENAME).zip) \
-  $(call QUOTED_WILDCARD,$(topobjdir)/browser/installer/windows/instgen/setup.exe) \
-  $(call QUOTED_WILDCARD,$(topobjdir)/browser/installer/windows/instgen/setup-stub.exe) \
+  $(call QUOTED_WILDCARD,$(topobjdir)/$(MOZ_BUILD_APP)/installer/windows/instgen/setup.exe) \
+  $(call QUOTED_WILDCARD,$(topobjdir)/$(MOZ_BUILD_APP)/installer/windows/instgen/setup-stub.exe) \
   $(call QUOTED_WILDCARD,$(topsrcdir)/toolchains.json) \
   $(if $(UPLOAD_EXTRA_FILES), $(foreach f, $(UPLOAD_EXTRA_FILES), $(wildcard $(DIST)/$(f))))
 
 ifneq ($(filter-out en-US x-test,$(AB_CD)),)
   UPLOAD_FILES += \
-    $(call QUOTED_WILDCARD,$(topobjdir)/browser/installer/windows/l10ngen/setup.exe) \
-    $(call QUOTED_WILDCARD,$(topobjdir)/browser/installer/windows/l10ngen/setup-stub.exe)
+    $(call QUOTED_WILDCARD,$(topobjdir)/$(MOZ_BUILD_APP)/installer/windows/l10ngen/setup.exe) \
+    $(call QUOTED_WILDCARD,$(topobjdir)/$(MOZ_BUILD_APP)/installer/windows/l10ngen/setup-stub.exe)
 endif
 
 
@@ -427,6 +417,10 @@ endif
 
 ifdef MOZ_STYLO
   UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(STYLO_BINDINGS_PACKAGE))
+endif
+
+ifdef ENABLE_MOZSEARCH_PLUGIN
+  UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(MOZSEARCH_ARCHIVE_BASENAME).zip)
 endif
 
 SIGN_CHECKSUM_CMD=

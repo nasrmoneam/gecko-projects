@@ -841,6 +841,10 @@ struct nsStyleImageLayers {
     }
   }
 
+  // Fill unspecified layers by cycling through their values
+  // till they all are of length aMaxItemCount
+  void FillAllLayers(uint32_t aMaxItemCount);
+
   nsChangeHint CalcDifference(const nsStyleImageLayers& aNewLayers,
                               nsStyleImageLayers::LayerType aType) const;
 
@@ -2468,7 +2472,15 @@ struct StyleShapeSource final
       : nullptr;
   }
 
-  bool SetURL(css::URLValue* aValue);
+  void SetURL(css::URLValue* aValue);
+
+  const UniquePtr<nsStyleImage>& GetShapeImage() const
+  {
+    MOZ_ASSERT(mType == StyleShapeSourceType::Image, "Wrong shape source type!");
+    return mShapeImage;
+  }
+
+  void SetShapeImage(UniquePtr<nsStyleImage> aShapeImage);
 
   const UniquePtr<StyleBasicShape>& GetBasicShape() const
   {
@@ -2502,24 +2514,6 @@ private:
 
 } // namespace mozilla
 
-// Consumers expect to be able to null-test mBinding to determine whether there
-// is a valid binding URI. Since we can't do URL resolution during parallel
-// style struct computation, we can't just null out the binding if the URL turns
-// out to be invalid. As such, we use this wrapper class to maintain this
-// behavior dynamically.
-class BindingHolder {
-public:
-  BindingHolder() {}
-  explicit BindingHolder(mozilla::css::URLValue* aPtr) : mPtr(aPtr) {}
-  operator mozilla::css::URLValue*() const { return Get(); }
-  mozilla::css::URLValue* operator->() const { return Get(); }
-  mozilla::css::URLValue* Get() const { return (mPtr && mPtr->GetURI()) ? mPtr.get() : nullptr; }
-  mozilla::css::URLValue* ForceGet() const { return mPtr.get(); }
-  void Set(mozilla::css::URLValue* aPtr) { mPtr = aPtr; }
-private:
-  RefPtr<mozilla::css::URLValue> mPtr;
-};
-
 struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
 {
   typedef mozilla::StyleGeometryBox StyleGeometryBox;
@@ -2528,8 +2522,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
   nsStyleDisplay(const nsStyleDisplay& aOther);
   ~nsStyleDisplay();
 
-  void FinishStyle(nsPresContext* aPresContext) {}
-  const static bool kHasFinishStyle = false;
+  void FinishStyle(nsPresContext* aPresContext);
+  const static bool kHasFinishStyle = true;
 
   void* operator new(size_t sz, nsStyleDisplay* aSelf) { return aSelf; }
   void* operator new(size_t sz, nsPresContext* aContext) {
@@ -2546,7 +2540,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
 
   // We guarantee that if mBinding is non-null, so are mBinding->GetURI() and
   // mBinding->mOriginPrincipal.
-  BindingHolder mBinding;                  // [reset]
+  RefPtr<mozilla::css::URLValue> mBinding; // [reset]
   mozilla::StyleDisplay mDisplay;          // [reset] see nsStyleConsts.h StyleDisplay
   mozilla::StyleDisplay mOriginalDisplay;  // [reset] saved mDisplay for
                                            //         position:absolute/fixed
@@ -2568,7 +2562,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
   bool mBreakAfter;     // [reset]
   uint8_t mOverflowX;           // [reset] see nsStyleConsts.h
   uint8_t mOverflowY;           // [reset] see nsStyleConsts.h
-  uint8_t mOverflowClipBox;     // [reset] see nsStyleConsts.h
+  uint8_t mOverflowClipBoxBlock;     // [reset] see nsStyleConsts.h
+  uint8_t mOverflowClipBoxInline;    // [reset] see nsStyleConsts.h
   uint8_t mResize;              // [reset] see nsStyleConsts.h
   mozilla::StyleOrient mOrient; // [reset] see nsStyleConsts.h
   uint8_t mIsolation;           // [reset] see nsStyleConsts.h
@@ -2583,6 +2578,8 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
 
   uint8_t mTouchAction;         // [reset] see nsStyleConsts.h
   uint8_t mScrollBehavior;      // [reset] see nsStyleConsts.h NS_STYLE_SCROLL_BEHAVIOR_*
+  mozilla::StyleOverscrollBehavior mOverscrollBehaviorX;  // [reset] see nsStyleConsts.h
+  mozilla::StyleOverscrollBehavior mOverscrollBehaviorY;  // [reset] see nsStyleConsts.h
   uint8_t mScrollSnapTypeX;     // [reset] see nsStyleConsts.h NS_STYLE_SCROLL_SNAP_TYPE_*
   uint8_t mScrollSnapTypeY;     // [reset] see nsStyleConsts.h NS_STYLE_SCROLL_SNAP_TYPE_*
   nsStyleCoord mScrollSnapPointsX; // [reset]
@@ -2625,6 +2622,10 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleDisplay
            mAnimationFillModeCount,
            mAnimationPlayStateCount,
            mAnimationIterationCountCount;
+
+
+  // The threshold used for extracting a shape from shape-outside: <image>.
+  float mShapeImageThreshold = 0.0f; // [reset]
 
   mozilla::StyleShapeSource mShapeOutside; // [reset]
 

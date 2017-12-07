@@ -570,10 +570,10 @@ nsGenericDOMDataNode::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
 
   UpdateEditableState(false);
 
-  NS_POSTCONDITION(aDocument == GetUncomposedDoc(), "Bound to wrong document");
-  NS_POSTCONDITION(aParent == GetParent(), "Bound to wrong parent");
-  NS_POSTCONDITION(aBindingParent == GetBindingParent(),
-                   "Bound to wrong binding parent");
+  MOZ_ASSERT(aDocument == GetUncomposedDoc(), "Bound to wrong document");
+  MOZ_ASSERT(aParent == GetParent(), "Bound to wrong parent");
+  MOZ_ASSERT(aBindingParent == GetBindingParent(),
+             "Bound to wrong binding parent");
 
   return NS_OK;
 }
@@ -637,40 +637,6 @@ nsGenericDOMDataNode::GetChildren(uint32_t aFilter)
   return nullptr;
 }
 
-nsresult
-nsGenericDOMDataNode::SetAttr(int32_t aNameSpaceID, nsAtom* aAttr,
-                              nsAtom* aPrefix, const nsAString& aValue,
-                              nsIPrincipal* aContentPrincipal,
-                              bool aNotify)
-{
-  return NS_OK;
-}
-
-nsresult
-nsGenericDOMDataNode::UnsetAttr(int32_t aNameSpaceID, nsAtom* aAttr,
-                                bool aNotify)
-{
-  return NS_OK;
-}
-
-const nsAttrName*
-nsGenericDOMDataNode::GetAttrNameAt(uint32_t aIndex) const
-{
-  return nullptr;
-}
-
-BorrowedAttrInfo
-nsGenericDOMDataNode::GetAttrInfoAt(uint32_t aIndex) const
-{
-  return BorrowedAttrInfo(nullptr, nullptr);
-}
-
-uint32_t
-nsGenericDOMDataNode::GetAttrCount() const
-{
-  return 0;
-}
-
 uint32_t
 nsGenericDOMDataNode::GetChildCount() const
 {
@@ -682,6 +648,7 @@ nsGenericDOMDataNode::GetChildAt(uint32_t aIndex) const
 {
   return nullptr;
 }
+
 
 int32_t
 nsGenericDOMDataNode::IndexOf(const nsINode* aPossibleChild) const
@@ -755,7 +722,7 @@ nsGenericDOMDataNode::SetAssignedSlot(HTMLSlotElement* aSlot)
 }
 
 nsXBLBinding *
-nsGenericDOMDataNode::GetXBLBinding() const
+nsGenericDOMDataNode::DoGetXBLBinding() const
 {
   return nullptr;
 }
@@ -1121,26 +1088,6 @@ nsGenericDOMDataNode::GetCurrentValueAtom()
   nsAutoString val;
   GetData(val);
   return NS_Atomize(val);
-}
-
-NS_IMETHODIMP
-nsGenericDOMDataNode::WalkContentStyleRules(nsRuleWalker* aRuleWalker)
-{
-  return NS_OK;
-}
-
-NS_IMETHODIMP_(bool)
-nsGenericDOMDataNode::IsAttributeMapped(const nsAtom* aAttribute) const
-{
-  return false;
-}
-
-nsChangeHint
-nsGenericDOMDataNode::GetAttributeChangeHint(const nsAtom* aAttribute,
-                                             int32_t aModType) const
-{
-  NS_NOTREACHED("Shouldn't be calling this!");
-  return nsChangeHint(0);
 }
 
 void

@@ -256,12 +256,12 @@ PUSH_APK_BREAKPOINT_WORKER_TYPE = {
     'default': 'invalid/invalid',
 }
 
-PUSH_APK_DRY_RUN_OPTION = {
-    'central': False,
-    'beta': False,
-    'maple': True,
-    'release': False,
-    'default': True,
+PUSH_APK_COMMIT_OPTION = {
+    'central': True,
+    'beta': True,
+    'maple': False,
+    'release': True,
+    'default': False,
 }
 
 PUSH_APK_ROLLOUT_PERCENTAGE = {
@@ -395,10 +395,10 @@ get_push_apk_breakpoint_worker_type = functools.partial(
     PUSH_APK_BREAKPOINT_WORKER_TYPE
 )
 
-get_push_apk_dry_run_option = functools.partial(
+get_push_apk_commit_option = functools.partial(
     get_scope_from_project,
     PUSH_APK_SCOPE_ALIAS_TO_PROJECT,
-    PUSH_APK_DRY_RUN_OPTION
+    PUSH_APK_COMMIT_OPTION
 )
 
 get_push_apk_rollout_percentage = functools.partial(
@@ -417,23 +417,14 @@ def get_release_config(config, force=False):
     Args:
         config (dict): the task config that defines the target task method.
 
-    Raises:
-        ValueError: if a release graph doesn't define a valid
-            `os.environ['BUILD_NUMBER']`
-
     Returns:
         dict: containing both `build_number` and `version`.  This can be used to
             update `task.payload`.
     """
     release_config = {}
     if force or config.params['target_tasks_method'] in BEETMOVER_RELEASE_TARGET_TASKS:
-        next_version = str(os.environ.get("NEXT_VERSION", ""))
-        if next_version != "":
-            release_config['next_version'] = next_version
-        build_number = str(os.environ.get("BUILD_NUMBER", 1))
-        if not build_number.isdigit():
-            raise ValueError("Release graphs must specify `BUILD_NUMBER` in the environment!")
-        release_config['build_number'] = int(build_number)
+        release_config['next_version'] = str(config.params['next_version'])
+        release_config['build_number'] = int(config.params['build_number'])
         with open(VERSION_PATH, "r") as fh:
             version = fh.readline().rstrip()
         release_config['version'] = version

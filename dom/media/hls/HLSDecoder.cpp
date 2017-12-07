@@ -94,7 +94,8 @@ HLSResourceCallbacksSupport::OnError(int aErrorCode)
         if (self->mDecoder) {
           // Since HLS source should be from the Internet, we treat all resource errors
           // from GeckoHlsPlayer as network errors.
-          self->mDecoder->NetworkError();
+          self->mDecoder->NetworkError(
+            MediaResult(NS_ERROR_FAILURE, "HLS error"));
         }
       }
     )
@@ -238,6 +239,16 @@ HLSDecoder::Shutdown()
     mJavaCallbacks = nullptr;
   }
   MediaDecoder::Shutdown();
+}
+
+void
+HLSDecoder::NotifyDataArrived()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_DIAGNOSTIC_ASSERT(!IsShutdown());
+  AbstractThread::AutoEnter context(AbstractMainThread());
+  NotifyReaderDataArrived();
+  GetOwner()->DownloadProgressed();
 }
 
 } // namespace mozilla

@@ -56,7 +56,7 @@ module.exports = {
     "curly": ["error", "all"],
 
     // Two space indent
-    "indent": ["error", 2, {"SwitchCase": 1, "ArrayExpression": "first", "ObjectExpression": "first"}],
+    "indent-legacy": ["error", 2, {"SwitchCase": 1, "ArrayExpression": "first", "ObjectExpression": "first"}],
 
     // Always require parenthesis for new calls
     "new-parens": "error",
@@ -84,9 +84,6 @@ module.exports = {
 
     // No using variables before defined
     "no-use-before-define": "error",
-
-    // Always require semicolon at end of statement
-    "semi": ["error", "always"],
 
     // Never use spaces before function parentheses
     "space-before-function-paren": ["error", {"anonymous": "never", "named": "never"}],

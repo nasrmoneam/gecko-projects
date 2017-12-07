@@ -48,16 +48,18 @@ Cu.import("resource://tps/modules/windows.jsm");
 
 var hh = Cc["@mozilla.org/network/protocol;1?name=http"]
          .getService(Ci.nsIHttpProtocolHandler);
-var prefs = Cc["@mozilla.org/preferences-service;1"]
-            .getService(Ci.nsIPrefBranch);
-
-var mozmillInit = {};
-Cu.import("resource://mozmill/driver/mozmill.js", mozmillInit);
 
 XPCOMUtils.defineLazyGetter(this, "fileProtocolHandler", () => {
   let fileHandler = Services.io.getProtocolHandler("file");
   return fileHandler.QueryInterface(Ci.nsIFileProtocolHandler);
 });
+
+XPCOMUtils.defineLazyGetter(this, "gTextDecoder", () => {
+  return new TextDecoder();
+});
+
+XPCOMUtils.defineLazyModuleGetter(this, "NetUtil",
+                                  "resource://gre/modules/NetUtil.jsm");
 
 // Options for wiping data during a sync
 const SYNC_RESET_CLIENT = "resetClient";
@@ -574,23 +576,6 @@ var TPS = {
     }
   },
 
-  MozmillEndTestListener: function TPS__MozmillEndTestListener(obj) {
-    Logger.logInfo("mozmill endTest: " + JSON.stringify(obj));
-    if (obj.failed > 0) {
-      this.DumpError("mozmill test failed, name: " + obj.name + ", reason: " + JSON.stringify(obj.fails));
-    } else if ("skipped" in obj && obj.skipped) {
-      this.DumpError("mozmill test failed, name: " + obj.name + ", reason: " + obj.skipped_reason);
-    } else {
-      CommonUtils.namedTimer(function() {
-        this.FinishAsyncOperation();
-      }, 2000, this, "postmozmilltest");
-    }
-  },
-
-  MozmillSetTestListener: function TPS__MozmillSetTestListener(obj) {
-    Logger.logInfo("mozmill setTest: " + obj.name);
-  },
-
   async Cleanup() {
     try {
       await this.WipeServer();
@@ -757,7 +742,7 @@ var TPS = {
         this.quit();
         return;
       }
-      this.seconds_since_epoch = prefs.getIntPref("tps.seconds_since_epoch");
+      this.seconds_since_epoch = Services.prefs.getIntPref("tps.seconds_since_epoch");
       if (this.seconds_since_epoch)
         this._usSinceEpoch = this.seconds_since_epoch * 1000 * 1000;
       else {
@@ -814,11 +799,10 @@ var TPS = {
       let stream = Cc["@mozilla.org/network/file-input-stream;1"]
                    .createInstance(Ci.nsIFileInputStream);
 
-      let jsonReader = Cc["@mozilla.org/dom/json;1"]
-                       .createInstance(Components.interfaces.nsIJSON);
-
       stream.init(schemaFile, FileUtils.MODE_RDONLY, FileUtils.PERMS_FILE, 0);
-      let schema = jsonReader.decodeFromStream(stream, stream.available());
+
+      let bytes = NetUtil.readInputStream(stream, stream.available());
+      let schema = JSON.parse(gTextDecoder.decode(bytes));
       Logger.logInfo("Successfully loaded schema");
 
       // Importing resource://testing-common/* isn't possible from within TPS,
@@ -881,6 +865,8 @@ var TPS = {
         this.waitForEvent("weave:service:ready");
       }
 
+      await Weave.Service.promiseInitialized;
+
       // We only want to do this if we modified the bookmarks this phase.
       this.shouldValidateBookmarks = false;
 
@@ -901,7 +887,7 @@ var TPS = {
    */
   async _executeTestPhase(file, phase, settings) {
     try {
-      this.config = JSON.parse(prefs.getCharPref("tps.config"));
+      this.config = JSON.parse(Services.prefs.getCharPref("tps.config"));
       // parse the test file
       Services.scriptloader.loadSubScript(file, this);
       this._currentPhase = phase;
@@ -1037,25 +1023,6 @@ var TPS = {
     }
 
     this._enabledEngines = names;
-  },
-
-  RunMozmillTest: function TPS__RunMozmillTest(testfile) {
-    var mozmillfile = Cc["@mozilla.org/file/local;1"]
-                      .createInstance(Ci.nsIFile);
-    if (hh.oscpu.toLowerCase().indexOf("windows") > -1) {
-      let re = /\/(\w)\/(.*)/;
-      this.config.testdir = this.config.testdir.replace(re, "$1://$2").replace(/\//g, "\\");
-    }
-    mozmillfile.initWithPath(this.config.testdir);
-    mozmillfile.appendRelativePath(testfile);
-    Logger.logInfo("Running mozmill test " + mozmillfile.path);
-
-    var frame = {};
-    Cu.import("resource://mozmill/modules/frame.js", frame);
-    frame.events.addListener("setTest", this.MozmillSetTestListener.bind(this));
-    frame.events.addListener("endTest", this.MozmillEndTestListener.bind(this));
-    this.StartAsyncOperation();
-    frame.runTestFile(mozmillfile.path, null);
   },
 
   /**

@@ -60,6 +60,8 @@ def filter_beta_release_tasks(task, parameters, ignore_kinds=None, allow_l10n=Fa
             # On beta, Nightly builds are already PGOs
             'linux-pgo', 'linux64-pgo',
             'win32-pgo', 'win64-pgo',
+            # MinGW build is broken on beta
+            'win32-mingw32',
             ):
         return False
     if str(platform).startswith('android') and 'nightly' in str(platform):
@@ -334,6 +336,10 @@ def target_tasks_mozilla_beta_desktop_promotion(full_task_graph, parameters, gra
         if task.label in beta_tasks:
             return True
 
+        if task.attributes.get('shipping_product') == 'firefox' and \
+                task.attributes.get('shipping_phase') == 'promote':
+            return True
+
         # TODO: partner repacks
         # TODO: source task
         # TODO: funsize, all but balrog submission
@@ -359,6 +365,9 @@ def target_tasks_publish_firefox(full_task_graph, parameters, graph_config):
     def filter(task):
         # Include promotion tasks; these will be optimized out
         if task.label in filtered_for_candidates:
+            return True
+        if task.attributes.get('shipping_product') == 'firefox' and \
+                task.attributes.get('shipping_phase') in ('publish', 'ship'):
             return True
         # TODO: add beetmover push-to-releases
         # TODO: tagging / version bumping
@@ -390,14 +399,9 @@ def target_tasks_candidates_fennec(full_task_graph, parameters, graph_config):
             if task.kind not in ('balrog', 'push-apk', 'push-apk-breakpoint'):
                 if task.attributes.get('nightly'):
                     return True
-        if task.task['payload'].get('properties', {}).get('product') == 'fennec':
-            if task.kind in ('release-bouncer-sub',
-                             ):
-                return True
-        if task.task.get('extra', {}).get('product') == 'fennec':
-            if task.kind in ('release-notify-promote',
-                             ):
-                return True
+        if task.attributes.get('shipping_product') == 'fennec' and \
+                task.attributes.get('shipping_phase') == 'promote':
+            return True
 
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(full_task_graph[l])]
 
@@ -414,23 +418,8 @@ def target_tasks_publish_fennec(full_task_graph, parameters, graph_config):
         # Include candidates build tasks; these will be optimized out
         if task.label in filtered_for_candidates:
             return True
-        if task.task['payload'].get('properties', {}).get('product') == 'fennec':
-            if task.kind in ('release-mark-as-shipped',
-                             'release-bouncer-aliases',
-                             'release-uptake-monitoring',
-                             'release-version-bump',
-                             ):
-                return True
-        if task.task.get('extra', {}).get('product') == 'fennec':
-            if task.kind in ('release-notify-publish',
-                             ):
-                return True
-
-        if task.task['payload'].get('product') == 'fennec':
-            if task.kind in ('beetmover-cdns', ):
-                return True
-
-        if task.kind in ('push-apk', 'push-apk-breakpoint'):
+        if task.attributes.get('shipping_product') == 'fennec' and \
+                task.attributes.get('shipping_phase') in ('ship', 'publish'):
             return True
 
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(full_task_graph[l])]
@@ -514,6 +503,15 @@ def target_tasks_dmd(full_task_graph, parameters, graph_config):
         platform = task.attributes.get('build_platform', '')
         return platform.endswith('-dmd')
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
+
+
+# Run Searchfox analysis once daily.
+@_target_task('searchfox_index')
+def target_tasks_searchfox(full_task_graph, parameters, graph_config):
+    """Select tasks required for indexing Firefox for Searchfox web site each day"""
+    # For now we only do Linux debug builds. Windows and Mac builds
+    # are currently broken (bug 1418415).
+    return ['searchfox-linux64-searchfox/debug']
 
 
 @_target_task('file_update')

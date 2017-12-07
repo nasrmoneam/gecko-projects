@@ -1218,6 +1218,22 @@ nsBaseWidget::DispatchEventToAPZOnly(mozilla::WidgetInputEvent* aEvent)
   }
 }
 
+// static
+bool
+nsBaseWidget::ShowContextMenuAfterMouseUp()
+{
+  static bool gContextMenuAfterMouseUp = false;
+  static bool gContextMenuAfterMouseUpCached = false;
+  if (!gContextMenuAfterMouseUpCached) {
+    Preferences::AddBoolVarCache(&gContextMenuAfterMouseUp,
+                                 "ui.context_menus.after_mouseup",
+                                 false);
+
+    gContextMenuAfterMouseUpCached = true;
+  }
+  return gContextMenuAfterMouseUp;
+}
+
 nsIDocument*
 nsBaseWidget::GetDocument() const
 {
@@ -1388,7 +1404,7 @@ void nsBaseWidget::CreateCompositor(int aWidth, int aHeight)
     }
 
     lf->SetShadowManager(shadowManager);
-    lm->UpdateTextureFactoryIdentifier(textureFactoryIdentifier, 0);
+    lm->UpdateTextureFactoryIdentifier(textureFactoryIdentifier);
     // Some popup or transparent widgets may use a different backend than the
     // compositors used with ImageBridge and VR (and more generally web content).
     if (WidgetTypeSupportsAcceleration()) {

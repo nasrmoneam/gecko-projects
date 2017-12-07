@@ -606,7 +606,8 @@ ClearAllTextRunReferences(nsTextFrame* aFrame, gfxTextRun* aTextRun,
     }
     aFrame = aFrame->GetNextContinuation();
   }
-  NS_POSTCONDITION(!found || aStartContinuation, "how did we find null?");
+
+  MOZ_ASSERT(!found || aStartContinuation, "how did we find null?");
   return found;
 }
 
@@ -681,7 +682,7 @@ InvalidateFrameDueToGlyphsChanged(nsIFrame* aFrame)
 {
   MOZ_ASSERT(aFrame);
 
-  nsIPresShell* shell = aFrame->PresContext()->PresShell();
+  nsIPresShell* shell = aFrame->PresShell();
   for (nsIFrame* f = aFrame; f;
        f = nsLayoutUtils::GetNextContinuationOrIBSplitSibling(f)) {
     f->InvalidateFrame();
@@ -1819,7 +1820,7 @@ WordSpacing(nsIFrame* aFrame, const gfxTextRun* aTextRun,
   const nsStyleCoord& coord = aStyleText->mWordSpacing;
   if (coord.IsCoordPercentCalcUnit()) {
     nscoord pctBasis = coord.HasPercent() ? GetSpaceWidthAppUnits(aTextRun) : 0;
-    return nsRuleNode::ComputeCoordPercentCalc(coord, pctBasis);
+    return coord.ComputeCoordPercentCalc(pctBasis);
   }
   return 0;
 }
@@ -2036,7 +2037,7 @@ static already_AddRefed<DrawTarget>
 CreateReferenceDrawTarget(const nsTextFrame* aTextFrame)
 {
   RefPtr<gfxContext> ctx =
-    aTextFrame->PresContext()->PresShell()->CreateReferenceRenderingContext();
+    aTextFrame->PresShell()->CreateReferenceRenderingContext();
   RefPtr<DrawTarget> dt = ctx->GetDrawTarget();
   return dt.forget();
 }
@@ -2466,7 +2467,6 @@ BuildTextRunsScanner::SetupLineBreakerContext(gfxTextRun *aTextRun)
 
   gfxSkipChars skipChars;
 
-  AutoTArray<int32_t,50> textBreakPoints;
   TextRunUserData dummyData;
   TextRunMappedFlow dummyMappedFlow;
   TextRunMappedFlow* userMappedFlows;
@@ -2486,9 +2486,6 @@ BuildTextRunsScanner::SetupLineBreakerContext(gfxTextRun *aTextRun)
     userMappedFlows = reinterpret_cast<TextRunMappedFlow*>(userData + 1);
     userDataToDestroy = userData;
   }
-
-  uint32_t nextBreakIndex = 0;
-  nsTextFrame* nextBreakBeforeFrame = GetNextBreakBeforeFrame(&nextBreakIndex);
 
   const nsStyleText* textStyle = nullptr;
   for (uint32_t i = 0; i < mMappedFlows.Length(); ++i) {
@@ -2511,12 +2508,6 @@ BuildTextRunsScanner::SetupLineBreakerContext(gfxTextRun *aTextRun)
     newFlow->mDOMOffsetToBeforeTransformOffset = skipChars.GetOriginalCharCount() -
       mappedFlow->mStartFrame->GetContentOffset();
     newFlow->mContentLength = contentLength;
-
-    while (nextBreakBeforeFrame && nextBreakBeforeFrame->GetContent() == content) {
-      textBreakPoints.AppendElement(
-          nextBreakBeforeFrame->GetContentOffset() + newFlow->mDOMOffsetToBeforeTransformOffset);
-      nextBreakBeforeFrame = GetNextBreakBeforeFrame(&nextBreakIndex);
-    }
 
     nsTextFrameUtils::Flags analysisFlags;
     if (frag->Is2b()) {
@@ -3677,10 +3668,9 @@ PropertyProvider::GetHyphenationBreaks(Range aRange, HyphenType* aBreakBefore) c
   }
 
   if (mTextStyle->mHyphens == StyleHyphens::Auto) {
+    uint32_t currentFragOffset = mStart.GetOriginalOffset();
     for (uint32_t i = 0; i < aRange.Length(); ++i) {
-      int32_t fragIndex = mFrag->GetLength() > aRange.end ?
-                          aRange.start + i : i;
-      if (IS_HYPHEN(mFrag->CharAt(fragIndex))) {
+      if (IS_HYPHEN(mFrag->CharAt(currentFragOffset + i))) {
         aBreakBefore[i] = HyphenType::Explicit;
         continue;
       }
@@ -5190,9 +5180,9 @@ nsDisplayText::RenderToContext(gfxContext* aCtx, nsDisplayListBuilder* aBuilder,
       // necessary. This is done here because we want selection be
       // compressed at the same time as text.
       gfxPoint pt = nsLayoutUtils::PointToGfxPoint(framePt, A2D);
-      gfxMatrix mat = aCtx->CurrentMatrix()
+      gfxMatrix mat = aCtx->CurrentMatrixDouble()
         .PreTranslate(pt).PreScale(scaleFactor, 1.0).PreTranslate(-pt);
-      aCtx->SetMatrix (mat);
+      aCtx->SetMatrixDouble(mat);
     }
   }
   nsTextFrame::PaintTextParams params(aCtx);
@@ -7240,10 +7230,10 @@ nsTextFrame::DrawTextRunAndDecorations(Range aRange,
       float scaleFactor = GetTextCombineScaleFactor(this);
       if (scaleFactor != 1.0f) {
         scaledRestorer.SetContext(aParams.context);
-        gfxMatrix unscaled = aParams.context->CurrentMatrix();
+        gfxMatrix unscaled = aParams.context->CurrentMatrixDouble();
         gfxPoint pt(x / app, y / app);
         unscaled.PreTranslate(pt).PreScale(1.0f / scaleFactor, 1.0f).PreTranslate(-pt);
-        aParams.context->SetMatrix(unscaled);
+        aParams.context->SetMatrixDouble(unscaled);
       }
     }
 
@@ -7285,19 +7275,24 @@ nsTextFrame::DrawTextRunAndDecorations(Range aRange,
     if (!skipClipping) {
       // Get the inline-size according to the specified range.
       gfxFloat clipLength = mTextRun->GetAdvanceWidth(aRange, aParams.provider);
-
-      clipRect.width = verticalDec ? frameSize.width : clipLength / app;
-      clipRect.height = verticalDec ? clipLength / app : frameSize.height;
+      nsRect visualRect = GetVisualOverflowRect();
 
       const bool isInlineReversed = mTextRun->IsInlineReversed();
       if (verticalDec) {
-        clipRect.y = (isInlineReversed ? aTextBaselinePt.y - clipLength
-                                       : aTextBaselinePt.y) / app;
+        clipRect.x = aParams.framePt.x + visualRect.x;
+        clipRect.y = isInlineReversed ? aTextBaselinePt.y - clipLength
+                                      : aTextBaselinePt.y;
+        clipRect.width = visualRect.width;
+        clipRect.height = clipLength;
       } else {
-        clipRect.x = (isInlineReversed ? aTextBaselinePt.x - clipLength
-                                       : aTextBaselinePt.x) / app;
+        clipRect.x = isInlineReversed ? aTextBaselinePt.x - clipLength
+                                      : aTextBaselinePt.x;
+        clipRect.y = aParams.framePt.y + visualRect.y;
+        clipRect.width = clipLength;
+        clipRect.height = visualRect.height;
       }
 
+      clipRect.Scale(1 / app);
       clipRect.Round();
       params.context->Clip(clipRect);
     }
@@ -7446,7 +7441,7 @@ CountCharsFit(const gfxTextRun* aTextRun, gfxTextRun::Range aRange,
 }
 
 nsIFrame::ContentOffsets
-nsTextFrame::CalcContentOffsetsFromFramePoint(nsPoint aPoint)
+nsTextFrame::CalcContentOffsetsFromFramePoint(const nsPoint& aPoint)
 {
   return GetCharacterOffsetAtFramePointInternal(aPoint, true);
 }
@@ -7458,7 +7453,7 @@ nsTextFrame::GetCharacterOffsetAtFramePoint(const nsPoint &aPoint)
 }
 
 nsIFrame::ContentOffsets
-nsTextFrame::GetCharacterOffsetAtFramePointInternal(nsPoint aPoint,
+nsTextFrame::GetCharacterOffsetAtFramePointInternal(const nsPoint& aPoint,
                                                     bool aForInsertionPoint)
 {
   ContentOffsets offsets;
@@ -9093,9 +9088,11 @@ nsTextFrame::SetLength(int32_t aLength, nsLineLayout* aLineLayout,
     }
     f = next;
   }
-  NS_POSTCONDITION(!framesToRemove || (f && f->mContentOffset == end),
-                   "How did we exit the loop if we null out framesToRemove if "
-                   "!next || next->mContentOffset > end ?");
+
+  MOZ_ASSERT(!framesToRemove || (f && f->mContentOffset == end),
+             "How did we exit the loop if we null out framesToRemove if "
+             "!next || next->mContentOffset > end ?");
+
   if (framesToRemove) {
     // We are guaranteed that we exited the loop with f not null, per the
     // postcondition above
@@ -9306,6 +9303,12 @@ nsTextFrame::ReflowText(nsLineLayout& aLineLayout, nscoord aAvailableWidth,
                   ALLOW_FRAME_CREATION_AND_DESTRUCTION);
       }
     }
+  }
+
+  // If trimming whitespace left us with nothing to do, return early.
+  if (length == 0) {
+    ClearMetrics(aMetrics);
+    return;
   }
 
   bool completedFirstLetter = false;
@@ -9796,11 +9799,20 @@ nsTextFrame::CanContinueTextRun() const
 nsTextFrame::TrimOutput
 nsTextFrame::TrimTrailingWhiteSpace(DrawTarget* aDrawTarget)
 {
+  MOZ_ASSERT(!HasAnyStateBits(NS_FRAME_IS_DIRTY | NS_FRAME_FIRST_REFLOW),
+             "frame should have been reflowed");
+
   TrimOutput result;
   result.mChanged = false;
   result.mDeltaWidth = 0;
 
   AddStateBits(TEXT_END_OF_LINE);
+
+  if (!GetTextRun(nsTextFrame::eInflated)) {
+    // If reflow didn't create a textrun, there must have been no content once
+    // leading whitespace was trimmed, so nothing more to do here.
+    return result;
+  }
 
   int32_t contentLength = GetContentLength();
   if (!contentLength)

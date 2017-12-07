@@ -3,11 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #[cfg(test)]
-use api::{ColorF, ColorU, IdNamespace, LayoutPoint, SubpixelDirection};
-use api::{DevicePoint, DeviceUintSize, FontInstance, FontRenderMode};
-use api::{FontKey, FontTemplate, GlyphDimensions, GlyphKey};
-use api::{ImageData, ImageDescriptor, ImageFormat};
-#[cfg(test)]
+use api::{IdNamespace, LayoutPoint};
+use api::{ColorF, ColorU, DevicePoint, DeviceUintSize};
+use api::{FontInstanceFlags, FontInstancePlatformOptions};
+use api::{FontKey, FontRenderMode, FontTemplate, FontVariation};
+use api::{GlyphDimensions, GlyphKey, SubpixelDirection};
+use api::{ImageData, ImageDescriptor, ImageFormat, LayerToWorldTransform};
 use app_units::Au;
 use device::TextureFilter;
 use glyph_cache::{CachedGlyphInfo, GlyphCache};
@@ -17,29 +18,203 @@ use platform::font::FontContext;
 use profiler::TextureCacheProfileCounters;
 use rayon::ThreadPool;
 use rayon::prelude::*;
+use std::cmp;
 use std::collections::hash_map::Entry;
+use std::hash::{Hash, Hasher};
 use std::mem;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use texture_cache::{TextureCache, TextureCacheHandle};
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum GlyphFormat {
-    Mono,
-    Alpha,
-    Subpixel,
-    ColorBitmap,
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub struct FontTransform {
+    pub scale_x: f32,
+    pub skew_x: f32,
+    pub skew_y: f32,
+    pub scale_y: f32,
 }
 
-impl From<FontRenderMode> for GlyphFormat {
-    fn from(render_mode: FontRenderMode) -> GlyphFormat {
-        match render_mode {
-            FontRenderMode::Mono => GlyphFormat::Mono,
-            FontRenderMode::Alpha => GlyphFormat::Alpha,
-            FontRenderMode::Subpixel => GlyphFormat::Subpixel,
-            FontRenderMode::Bitmap => GlyphFormat::ColorBitmap,
+// Floats don't impl Hash/Eq/Ord...
+impl Eq for FontTransform {}
+impl Ord for FontTransform {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.partial_cmp(other).unwrap_or(cmp::Ordering::Equal)
+    }
+}
+impl Hash for FontTransform {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Note: this is inconsistent with the Eq impl for -0.0 (don't care).
+        self.scale_x.to_bits().hash(state);
+        self.skew_x.to_bits().hash(state);
+        self.skew_y.to_bits().hash(state);
+        self.scale_y.to_bits().hash(state);
+    }
+}
+
+impl FontTransform {
+    const QUANTIZE_SCALE: f32 = 1024.0;
+
+    pub fn new(scale_x: f32, skew_x: f32, skew_y: f32, scale_y: f32) -> Self {
+        FontTransform { scale_x, skew_x, skew_y, scale_y }
+    }
+
+    pub fn identity() -> Self {
+        FontTransform::new(1.0, 0.0, 0.0, 1.0)
+    }
+
+    pub fn is_identity(&self) -> bool {
+        *self == FontTransform::identity()
+    }
+
+    pub fn quantize(&self) -> Self {
+        FontTransform::new(
+            (self.scale_x * Self::QUANTIZE_SCALE).round() / Self::QUANTIZE_SCALE,
+            (self.skew_x * Self::QUANTIZE_SCALE).round() / Self::QUANTIZE_SCALE,
+            (self.skew_y * Self::QUANTIZE_SCALE).round() / Self::QUANTIZE_SCALE,
+            (self.scale_y * Self::QUANTIZE_SCALE).round() / Self::QUANTIZE_SCALE,
+        )
+    }
+
+    pub fn determinant(&self) -> f64 {
+        self.scale_x as f64 * self.scale_y as f64 - self.skew_y as f64 * self.skew_x as f64
+    }
+
+    pub fn compute_scale(&self) -> Option<(f64, f64)> {
+        let det = self.determinant();
+        if det != 0.0 {
+            let x_scale = (self.scale_x as f64).hypot(self.skew_y as f64);
+            let y_scale = det.abs() / x_scale;
+            Some((x_scale, y_scale))
+        } else {
+            None
         }
     }
+
+    pub fn pre_scale(&self, scale_x: f32, scale_y: f32) -> Self {
+        FontTransform::new(
+            self.scale_x * scale_x,
+            self.skew_x * scale_y,
+            self.skew_y * scale_x,
+            self.scale_y * scale_y,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn inverse(&self) -> Option<Self> {
+        let det = self.determinant();
+        if det != 0.0 {
+            let inv_det = det.recip() as f32;
+            Some(FontTransform::new(
+                self.scale_y * inv_det,
+                -self.skew_x * inv_det,
+                -self.skew_y * inv_det,
+                self.scale_x * inv_det
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.scale_x * x + self.skew_x * y, self.skew_y * x + self.scale_y * y)
+    }
+}
+
+impl<'a> From<&'a LayerToWorldTransform> for FontTransform {
+    fn from(xform: &'a LayerToWorldTransform) -> Self {
+        FontTransform::new(xform.m11, xform.m21, xform.m12, xform.m22)
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug, Ord, PartialOrd)]
+pub struct FontInstance {
+    pub font_key: FontKey,
+    // The font size is in *device* pixels, not logical pixels.
+    // It is stored as an Au since we need sub-pixel sizes, but
+    // can't store as a f32 due to use of this type as a hash key.
+    // TODO(gw): Perhaps consider having LogicalAu and DeviceAu
+    //           or something similar to that.
+    pub size: Au,
+    pub color: ColorU,
+    pub bg_color: ColorU,
+    pub render_mode: FontRenderMode,
+    pub subpx_dir: SubpixelDirection,
+    pub flags: FontInstanceFlags,
+    pub platform_options: Option<FontInstancePlatformOptions>,
+    pub variations: Vec<FontVariation>,
+    pub transform: FontTransform,
+}
+
+impl FontInstance {
+    pub fn new(
+        font_key: FontKey,
+        size: Au,
+        color: ColorF,
+        bg_color: ColorU,
+        render_mode: FontRenderMode,
+        subpx_dir: SubpixelDirection,
+        flags: FontInstanceFlags,
+        platform_options: Option<FontInstancePlatformOptions>,
+        variations: Vec<FontVariation>,
+    ) -> Self {
+        FontInstance {
+            font_key,
+            size,
+            color: color.into(),
+            bg_color,
+            render_mode,
+            subpx_dir,
+            flags,
+            platform_options,
+            variations,
+            transform: FontTransform::identity(),
+        }
+    }
+
+    pub fn get_subpx_offset(&self, glyph: &GlyphKey) -> (f64, f64) {
+        match self.subpx_dir {
+            SubpixelDirection::None => (0.0, 0.0),
+            SubpixelDirection::Horizontal => (glyph.subpixel_offset.into(), 0.0),
+            SubpixelDirection::Vertical => (0.0, glyph.subpixel_offset.into()),
+        }
+    }
+
+    pub fn get_glyph_format(&self, color_bitmaps: bool) -> GlyphFormat {
+        match self.render_mode {
+            FontRenderMode::Mono | FontRenderMode::Alpha => {
+                if self.transform.is_identity() { GlyphFormat::Alpha } else { GlyphFormat::TransformedAlpha }
+            }
+            FontRenderMode::Subpixel => {
+                if self.transform.is_identity() { GlyphFormat::Subpixel } else { GlyphFormat::TransformedSubpixel }
+            }
+            FontRenderMode::Bitmap => {
+                if color_bitmaps { GlyphFormat::ColorBitmap } else { GlyphFormat::Alpha }
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn get_extra_strikes(&self, x_scale: f64) -> usize {
+        if self.flags.contains(FontInstanceFlags::SYNTHETIC_BOLD) {
+            let mut bold_offset = self.size.to_f64_px() / 48.0;
+            if bold_offset < 1.0 {
+                bold_offset = 0.25 + 0.75 * bold_offset;
+            }
+            (bold_offset * x_scale).max(1.0).round() as usize
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum GlyphFormat {
+    Alpha,
+    TransformedAlpha,
+    Subpixel,
+    TransformedSubpixel,
+    ColorBitmap,
 }
 
 pub struct RasterizedGlyph {
@@ -344,7 +519,7 @@ impl GlyphRasterizer {
                         },
                         TextureFilter::Linear,
                         ImageData::Raw(glyph_bytes.clone()),
-                        [glyph.left, glyph.top, glyph.scale],
+                        [glyph.left, -glyph.top, glyph.scale],
                         None,
                         gpu_cache,
                     );
@@ -352,7 +527,7 @@ impl GlyphRasterizer {
                         texture_cache_handle,
                         glyph_bytes,
                         size: DeviceUintSize::new(glyph.width, glyph.height),
-                        offset: DevicePoint::new(glyph.left, glyph.top),
+                        offset: DevicePoint::new(glyph.left, -glyph.top),
                         scale: glyph.scale,
                         format: glyph.format,
                     })
@@ -450,9 +625,9 @@ fn raterize_200_glyphs() {
         ColorU::new(0, 0, 0, 0),
         FontRenderMode::Subpixel,
         SubpixelDirection::Horizontal,
+        Default::default(),
         None,
         Vec::new(),
-        false,
     );
 
     let mut glyph_keys = Vec::with_capacity(200);

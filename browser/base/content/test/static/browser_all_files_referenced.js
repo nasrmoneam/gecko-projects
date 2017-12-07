@@ -20,6 +20,9 @@ var gExceptionPaths = [
   "resource://gre/defaults/pref/",
   "resource://shield-recipe-client/node_modules/jexl/lib/",
 
+  // These resources are referenced using relative paths from html files.
+  "resource://payments/",
+
   // https://github.com/mozilla/normandy/issues/577
   "resource://shield-recipe-client/test/",
 
@@ -30,6 +33,10 @@ var gExceptionPaths = [
 
   // browser/extensions/pdfjs/content/build/pdf.js#1999
   "resource://pdf.js/web/images/",
+
+  // Exclude all the metadata paths under the country metadata folder because these
+  // paths will be concatenated in FormAutofillUtils.jsm based on different country/region.
+  "resource://formautofill/addressmetadata/",
 ];
 
 // These are not part of the omni.ja file, so we find them only when running
@@ -122,9 +129,6 @@ var whitelist = [
   {file: "resource://shield-recipe-client-content/shield-content-frame.js"},
   {file: "resource://shield-recipe-client-content/shield-content-process.js"},
 
-  // New L10n API that is not yet used in production
-  {file: "chrome://global/content/l10n.js"},
-
   // Starting from here, files in the whitelist are bugs that need fixing.
   // Bug 1339424 (wontfix?)
   {file: "chrome://browser/locale/taskbar.properties",
@@ -134,7 +138,7 @@ var whitelist = [
   // Bug 1343837
   {file: "chrome://global/content/findUtils.js"},
   // Bug 1348362
-  {file: "chrome://global/skin/icons/warning-64.png", platforms: ["linux", "win"]},
+  {file: "chrome://global/skin/icons/warning-64.png", platforms: ["linux"]},
   // Bug 1348525
   {file: "chrome://global/skin/splitter/grip-bottom.gif", platforms: ["linux"]},
   {file: "chrome://global/skin/splitter/grip-left.gif", platforms: ["linux"]},

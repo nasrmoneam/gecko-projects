@@ -188,7 +188,7 @@ nsImageFrame::DisconnectMap()
 
 #ifdef ACCESSIBILITY
   if (nsAccessibilityService* accService = GetAccService()) {
-    accService->RecreateAccessible(PresContext()->PresShell(), mContent);
+    accService->RecreateAccessible(PresShell(), mContent);
   }
 #endif
 }
@@ -197,7 +197,7 @@ void
 nsImageFrame::DestroyFrom(nsIFrame* aDestructRoot, PostDestroyData& aPostDestroyData)
 {
   if (mReflowCallbackPosted) {
-    PresContext()->PresShell()->CancelReflowCallback(this);
+    PresShell()->CancelReflowCallback(this);
     mReflowCallbackPosted = false;
   }
 
@@ -1072,7 +1072,7 @@ nsImageFrame::Reflow(nsPresContext*          aPresContext,
   FinishAndStoreOverflow(&aMetrics, aReflowInput.mStyleDisplay);
 
   if ((GetStateBits() & NS_FRAME_FIRST_REFLOW) && !mReflowCallbackPosted) {
-    nsIPresShell* shell = PresContext()->PresShell();
+    nsIPresShell* shell = PresShell();
     mReflowCallbackPosted = true;
     shell->PostReflowCallback(this);
   }
@@ -1706,25 +1706,39 @@ nsDisplayImage::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuilde
                                         WebRenderLayerManager* aManager,
                                         nsDisplayListBuilder* aDisplayListBuilder)
 {
-  if (!CanOptimizeToImageLayer(aManager, aDisplayListBuilder)) {
+  if (!mImage) {
     return false;
   }
 
+  if (mFrame->IsImageFrame()) {
+    // Image layer doesn't support draw focus ring for image map.
+    nsImageFrame* f = static_cast<nsImageFrame*>(mFrame);
+    if (f->HasImageMap()) {
+      return false;
+    }
+  }
+
   uint32_t flags = imgIContainer::FLAG_ASYNC_NOTIFY;
+  if (aDisplayListBuilder->IsPaintingToWindow()) {
+    flags |= imgIContainer::FLAG_HIGH_QUALITY_SCALING;
+  }
   if (aDisplayListBuilder->ShouldSyncDecodeImages()) {
     flags |= imgIContainer::FLAG_SYNC_DECODE;
   }
 
+  const int32_t factor = mFrame->PresContext()->AppUnitsPerDevPixel();
+  const LayoutDeviceRect destRect(
+    LayoutDeviceRect::FromAppUnits(GetDestRect(), factor));
+  Maybe<SVGImageContext> svgContext;
+  IntSize decodeSize =
+    nsLayoutUtils::ComputeImageContainerDrawingParameters(mImage, mFrame, destRect,
+                                                          aSc, flags, svgContext);
   RefPtr<ImageContainer> container =
-    mImage->GetImageContainer(aManager, flags);
+    mImage->GetImageContainerAtSize(aManager, decodeSize, svgContext, flags);
   if (!container) {
     return false;
   }
 
-
-  const int32_t factor = mFrame->PresContext()->AppUnitsPerDevPixel();
-  const LayoutDeviceRect destRect(
-    LayoutDeviceRect::FromAppUnits(GetDestRect(), factor));
   return aManager->CommandBuilder().PushImage(this, container, aBuilder, aResources, aSc, destRect);
 }
 
@@ -2124,7 +2138,7 @@ nsImageFrame::GetCursor(const nsPoint& aPoint,
       // here, since it means that areas on which the cursor isn't
       // specified will inherit the style from the image.
       RefPtr<nsStyleContext> areaStyle =
-        PresContext()->PresShell()->StyleSet()->
+        PresShell()->StyleSet()->
           ResolveStyleFor(area->AsElement(), StyleContext(),
                           LazyComputeBehavior::Allow);
       FillCursorInformationFromStyle(areaStyle->StyleUserInterface(),
@@ -2150,9 +2164,8 @@ nsImageFrame::AttributeChanged(int32_t aNameSpaceID,
   }
   if (nsGkAtoms::alt == aAttribute)
   {
-    PresContext()->PresShell()->FrameNeedsReflow(this,
-                                                 nsIPresShell::eStyleChange,
-                                                 NS_FRAME_IS_DIRTY);
+    PresShell()->FrameNeedsReflow(this, nsIPresShell::eStyleChange,
+                                  NS_FRAME_IS_DIRTY);
   }
 
   return NS_OK;

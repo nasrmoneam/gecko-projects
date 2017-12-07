@@ -47,6 +47,8 @@
 #include "mozilla/LoadContext.h"
 #include "mozilla/Move.h"
 #include "mozilla/dom/BindingUtils.h"
+#include "mozilla/dom/ClientManager.h"
+#include "mozilla/dom/ClientSource.h"
 #include "mozilla/dom/Console.h"
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/ErrorEvent.h"
@@ -598,6 +600,10 @@ private:
   {
     aWorkerPrivate->AssertIsOnWorkerThread();
 
+    if (NS_WARN_IF(!aWorkerPrivate->EnsureClientSource())) {
+      return false;
+    }
+
     ErrorResult rv;
     scriptloader::LoadMainScript(aWorkerPrivate, mScriptURL, WorkerScript, rv);
     rv.WouldReportJSException();
@@ -665,6 +671,10 @@ private:
       aWorkerPrivate->CreateDebuggerGlobalScope(aCx);
     if (!globalScope) {
       NS_WARNING("Failed to make global!");
+      return false;
+    }
+
+    if (NS_WARN_IF(!aWorkerPrivate->EnsureClientSource())) {
       return false;
     }
 
@@ -1600,6 +1610,10 @@ PRThreadFromThread(nsIThread* aThread)
 class SimpleWorkerHolder final : public WorkerHolder
 {
 public:
+  SimpleWorkerHolder()
+    : WorkerHolder("SimpleWorkerHolder")
+  {}
+
   virtual bool Notify(Status aStatus) { return true; }
 };
 
@@ -2838,8 +2852,6 @@ WorkerPrivateParent<Derived>::WorkerPrivateParent(
 
   if (aLoadInfo.mWindow) {
     AssertIsOnMainThread();
-    MOZ_ASSERT(aLoadInfo.mWindow->IsInnerWindow(),
-               "Should have inner window here!");
     BindToOwner(aLoadInfo.mWindow);
   }
 
@@ -5124,6 +5136,8 @@ WorkerPrivate::DoRunLoop(JSContext* aCx)
         // waiting for a next tick.
         PromiseDebugging::FlushUncaughtRejections();
 
+        mClientSource = nullptr;
+
         ShutdownGCTimers();
 
         DisableMemoryReporter();
@@ -5283,6 +5297,92 @@ nsISerialEventTarget*
 WorkerPrivate::HybridEventTarget()
 {
   return mWorkerHybridEventTarget;
+}
+
+bool
+WorkerPrivate::EnsureClientSource()
+{
+  AssertIsOnWorkerThread();
+
+  if (mClientSource) {
+    return true;
+  }
+
+  ClientType type;
+  switch(Type()) {
+    case WorkerTypeDedicated:
+      type = ClientType::Worker;
+      break;
+    case WorkerTypeShared:
+      type = ClientType::Sharedworker;
+      break;
+    case WorkerTypeService:
+      type = ClientType::Serviceworker;
+      break;
+    default:
+      MOZ_CRASH("unknown worker type!");
+  }
+
+  mClientSource = ClientManager::CreateSource(type, mWorkerHybridEventTarget,
+                                              GetPrincipalInfo());
+  if (!mClientSource) {
+    return false;
+  }
+
+  if (mFrozen) {
+    mClientSource->Freeze();
+  }
+
+  // Shortly after the client is reserved we will try loading the main script
+  // for the worker.  This may get intercepted by the ServiceWorkerManager
+  // which will then try to create a ClientHandle.  Its actually possible for
+  // the main thread to create this ClientHandle before our IPC message creating
+  // the ClientSource completes.  To avoid this race we synchronously ping our
+  // parent Client actor here.  This ensure the worker ClientSource is created
+  // in the parent before the main thread might try reaching it with a
+  // ClientHandle.
+  //
+  // An alternative solution would have been to handle the out-of-order operations
+  // on the parent side.  We could have created a small window where we allow
+  // ClientHandle objects to exist without a ClientSource.  We would then time
+  // out these handles if they stayed orphaned for too long.  This approach would
+  // be much more complex, but also avoid this extra bit of latency when starting
+  // workers.
+  //
+  // Note, we only have to do this for workers that can be controlled by a
+  // service worker.  So avoid the sync overhead here if we are starting a
+  // service worker or a chrome worker.
+  if (Type() != WorkerTypeService && !IsChromeWorker()) {
+    mClientSource->WorkerSyncPing(this);
+  }
+
+  return true;
+}
+
+const ClientInfo&
+WorkerPrivate::GetClientInfo() const
+{
+  AssertIsOnWorkerThread();
+  MOZ_DIAGNOSTIC_ASSERT(mClientSource);
+  return mClientSource->Info();
+}
+
+void
+WorkerPrivate::Control(const ServiceWorkerDescriptor& aServiceWorker)
+{
+  AssertIsOnWorkerThread();
+  MOZ_DIAGNOSTIC_ASSERT(mClientSource);
+  MOZ_DIAGNOSTIC_ASSERT(!IsChromeWorker());
+  MOZ_DIAGNOSTIC_ASSERT(Type() != WorkerTypeService);
+  mClientSource->SetController(aServiceWorker);
+}
+
+void
+WorkerPrivate::ExecutionReady()
+{
+  AssertIsOnWorkerThread();
+  MOZ_DIAGNOSTIC_ASSERT(mClientSource);
+  mClientSource->WorkerExecutionReady(this);
 }
 
 void
@@ -5624,6 +5724,10 @@ WorkerPrivate::FreezeInternal()
 
   NS_ASSERTION(!mFrozen, "Already frozen!");
 
+  if (mClientSource) {
+    mClientSource->Freeze();
+  }
+
   mFrozen = true;
 
   for (uint32_t index = 0; index < mChildWorkers.Length(); index++) {
@@ -5645,6 +5749,11 @@ WorkerPrivate::ThawInternal()
   }
 
   mFrozen = false;
+
+  if (mClientSource) {
+    mClientSource->Thaw();
+  }
+
   return true;
 }
 
@@ -7097,6 +7206,19 @@ WorkerPrivate::AssertIsOnWorkerThread() const
 }
 
 #endif // DEBUG
+
+void
+WorkerPrivate::DumpCrashInformation(nsACString& aString)
+{
+  AssertIsOnWorkerThread();
+
+  nsTObserverArray<WorkerHolder*>::ForwardIterator iter(mHolders);
+  while (iter.HasMore()) {
+    WorkerHolder* holder = iter.GetNext();
+    aString.Append("|");
+    aString.Append(holder->Name());
+  }
+}
 
 NS_IMPL_ISUPPORTS_INHERITED0(ExternalRunnableWrapper, WorkerRunnable)
 

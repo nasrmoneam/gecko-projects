@@ -4,12 +4,9 @@
 
 "use strict";
 
-const {
-  Component,
-  createFactory,
-  DOM,
-  PropTypes,
-} = require("devtools/client/shared/vendor/react");
+const { Component, createFactory } = require("devtools/client/shared/vendor/react");
+const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
+const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const {
   getFormattedIPAndPort,
   getFormattedSize,
@@ -28,7 +25,7 @@ const MDNLink = createFactory(require("./MdnLink"));
 const PropertiesView = createFactory(require("./PropertiesView"));
 
 const { Rep } = REPS;
-const { button, div, input, textarea, span } = DOM;
+const { button, div, input, textarea, span } = dom;
 
 const EDIT_AND_RESEND = L10N.getStr("netmonitor.summary.editAndResend");
 const RAW_HEADERS = L10N.getStr("netmonitor.summary.rawHeaders");
@@ -52,6 +49,7 @@ const SUMMARY_VERSION = L10N.getStr("netmonitor.summary.version");
 class HeadersPanel extends Component {
   static get propTypes() {
     return {
+      connector: PropTypes.object.isRequired,
       cloneSelectedRequest: PropTypes.func.isRequired,
       request: PropTypes.object.isRequired,
       renderValue: PropTypes.func,
@@ -70,6 +68,30 @@ class HeadersPanel extends Component {
     this.toggleRawHeaders = this.toggleRawHeaders.bind(this);
     this.renderSummary = this.renderSummary.bind(this);
     this.renderValue = this.renderValue.bind(this);
+    this.maybeFetchPostData = this.maybeFetchPostData.bind(this);
+  }
+
+  componentDidMount() {
+    this.maybeFetchPostData(this.props);
+  }
+
+  componentWillReceiveProps(nextProps) {
+    this.maybeFetchPostData(nextProps);
+  }
+
+  /**
+   * When switching to another request, lazily fetch request post data
+   * from the backend. The panel will first be empty and then display the content.
+   * Fetching post data is used for updating requestHeadersFromUploadStream section,
+   */
+  maybeFetchPostData(props) {
+    if (props.request.requestPostDataAvailable &&
+        (!props.request.requestPostData ||
+        !props.request.requestPostData.postData.text)) {
+      // This method will set `props.request.requestPostData`
+      // asynchronously and force another render.
+      props.connector.requestData(props.request.id, "requestPostData");
+    }
   }
 
   getProperties(headers, title) {
@@ -170,8 +192,9 @@ class HeadersPanel extends Component {
       this.getProperties(uploadHeaders, REQUEST_HEADERS_FROM_UPLOAD),
     );
 
+    // not showing #hash in url
     let summaryUrl = urlDetails.unicodeUrl ?
-      this.renderSummary(SUMMARY_URL, new URL(urlDetails.unicodeUrl).origin) : null;
+      this.renderSummary(SUMMARY_URL, urlDetails.unicodeUrl.split("#")[0]) : null;
 
     let summaryMethod = method ?
       this.renderSummary(SUMMARY_METHOD, method) : null;

@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use {BuiltDisplayList, BuiltDisplayListDescriptor, ClipId, ColorF, DeviceIntPoint, DeviceUintRect};
-use {DeviceUintSize, FontInstance, FontInstanceKey, FontInstanceOptions};
+use {DeviceUintSize, FontInstanceKey, FontInstanceOptions};
 use {FontInstancePlatformOptions, FontKey, FontVariation, GlyphDimensions, GlyphKey, ImageData};
 use {ImageDescriptor, ImageKey, ItemTag, LayoutPoint, LayoutSize, LayoutTransform, LayoutVector2D};
 use {NativeFontHandle, WorldPoint};
@@ -14,6 +14,8 @@ use std::fmt;
 use std::marker::PhantomData;
 
 pub type TileSize = u16;
+/// Documents are rendered in the ascending order of their associated layer values.
+pub type DocumentLayer = i8;
 
 /// The resource updates for a given transaction (they must be applied in the same frame).
 #[derive(Clone, Deserialize, Serialize)]
@@ -243,20 +245,28 @@ impl fmt::Debug for DocumentMsg {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum DebugCommand {
-    // Display the frame profiler on screen.
+    /// Display the frame profiler on screen.
     EnableProfiler(bool),
-    // Display all texture cache pages on screen.
+    /// Display all texture cache pages on screen.
     EnableTextureCacheDebug(bool),
-    // Display intermediate render targets on screen.
+    /// Display intermediate render targets on screen.
     EnableRenderTargetDebug(bool),
-    // Display alpha primitive rects.
+    /// Display alpha primitive rects.
     EnableAlphaRectsDebug(bool),
-    // Fetch current documents and display lists.
+    /// Display GPU timing results.
+    EnableGpuTimeQueries(bool),
+    /// Display GPU overdraw results
+    EnableGpuSampleQueries(bool),
+    /// Fetch current documents and display lists.
     FetchDocuments,
-    // Fetch current passes and batches.
+    /// Fetch current passes and batches.
     FetchPasses,
-    // Fetch clip-scroll tree.
+    /// Fetch clip-scroll tree.
     FetchClipScrollTree,
+    /// Fetch render tasks.
+    FetchRenderTasks,
+    /// Fetch screenshot.
+    FetchScreenshot,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -265,7 +275,7 @@ pub enum ApiMsg {
     UpdateResources(ResourceUpdates),
     /// Gets the glyph dimensions
     GetGlyphDimensions(
-        FontInstance,
+        FontInstanceKey,
         Vec<GlyphKey>,
         MsgSender<Vec<Option<GlyphDimensions>>>,
     ),
@@ -274,7 +284,7 @@ pub enum ApiMsg {
     /// Adds a new document namespace.
     CloneApi(MsgSender<IdNamespace>),
     /// Adds a new document with given initial size.
-    AddDocument(DocumentId, DeviceUintSize),
+    AddDocument(DocumentId, DeviceUintSize, DocumentLayer),
     /// A message targeted at a particular document.
     UpdateDocument(DocumentId, DocumentMsg),
     /// Deletes an existing document.
@@ -387,13 +397,14 @@ impl RenderApiSender {
 
     /// Creates a new resource API object with a dedicated namespace.
     pub fn create_api(&self) -> RenderApi {
-        let (sync_tx, sync_rx) = channel::msg_channel().unwrap();
+        let (sync_tx, sync_rx) =
+            channel::msg_channel().expect("Failed to create channel");
         let msg = ApiMsg::CloneApi(sync_tx);
-        self.api_sender.send(msg).unwrap();
+        self.api_sender.send(msg).expect("Failed to send CloneApi message");
         RenderApi {
             api_sender: self.api_sender.clone(),
             payload_sender: self.payload_sender.clone(),
-            namespace_id: sync_rx.recv().unwrap(),
+            namespace_id: sync_rx.recv().expect("Failed to receive API response"),
             next_id: Cell::new(ResourceId(0)),
         }
     }
@@ -415,11 +426,11 @@ impl RenderApi {
         RenderApiSender::new(self.api_sender.clone(), self.payload_sender.clone())
     }
 
-    pub fn add_document(&self, initial_size: DeviceUintSize) -> DocumentId {
+    pub fn add_document(&self, initial_size: DeviceUintSize, layer: DocumentLayer) -> DocumentId {
         let new_id = self.next_unique_id();
         let document_id = DocumentId(self.namespace_id, new_id);
 
-        let msg = ApiMsg::AddDocument(document_id, initial_size);
+        let msg = ApiMsg::AddDocument(document_id, initial_size, layer);
         self.api_sender.send(msg).unwrap();
 
         document_id
@@ -447,7 +458,7 @@ impl RenderApi {
     /// This means that glyph dimensions e.g. for spaces (' ') will mostly be None.
     pub fn get_glyph_dimensions(
         &self,
-        font: FontInstance,
+        font: FontInstanceKey,
         glyph_keys: Vec<GlyphKey>,
     ) -> Vec<Option<GlyphDimensions>> {
         let (tx, rx) = channel::msg_channel().unwrap();
@@ -564,7 +575,7 @@ impl RenderApi {
     /// # use webrender_api::{DeviceUintSize, PipelineId, RenderApiSender};
     /// # fn example(sender: RenderApiSender) {
     /// let api = sender.create_api();
-    /// let document_id = api.add_document(DeviceUintSize::zero());
+    /// let document_id = api.add_document(DeviceUintSize::zero(), 0);
     /// let pipeline_id = PipelineId(0, 0);
     /// api.set_root_pipeline(document_id, pipeline_id);
     /// # }
@@ -583,8 +594,8 @@ impl RenderApi {
     /// Supplies a new frame to WebRender.
     ///
     /// Non-blocking, it notifies a worker process which processes the display list.
-    /// When it's done and a RenderNotifier has been set in `webrender::Renderer`,
-    /// [new_frame_ready()][notifier] gets called.
+    /// When it's done and a `RenderNotifier` has been set in `webrender::Renderer`,
+    /// [new_document_ready()][notifier] gets called.
     ///
     /// Note: Scrolling doesn't require an own Frame.
     ///
@@ -603,7 +614,7 @@ impl RenderApi {
     /// * `resources`: A set of resource updates that must be applied at the same time as the
     ///                display list.
     ///
-    /// [notifier]: trait.RenderNotifier.html#tymethod.new_frame_ready
+    /// [notifier]: trait.RenderNotifier.html#tymethod.new_document_ready
     pub fn set_display_list(
         &self,
         document_id: DocumentId,
@@ -879,8 +890,8 @@ pub struct DynamicProperties {
 
 pub trait RenderNotifier: Send {
     fn clone(&self) -> Box<RenderNotifier>;
-    fn new_frame_ready(&self);
-    fn new_scroll_frame_ready(&self, composite_needed: bool);
+    fn wake_up(&self);
+    fn new_document_ready(&self, DocumentId, scrolled: bool, composite_needed: bool);
     fn external_event(&self, _evt: ExternalEvent) {
         unimplemented!()
     }

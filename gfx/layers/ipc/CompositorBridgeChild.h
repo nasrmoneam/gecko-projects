@@ -45,6 +45,7 @@ class CompositorManagerChild;
 class CompositorOptions;
 class TextureClient;
 class TextureClientPool;
+class CapturedBufferState;
 class CapturedPaintState;
 struct FrameMetrics;
 
@@ -214,10 +215,6 @@ public:
                                                     wr::IdNamespace*) override;
   bool DeallocPWebRenderBridgeChild(PWebRenderBridgeChild* aActor) override;
 
-  uint64_t DeviceResetSequenceNumber() const {
-    return mDeviceResetSequenceNumber;
-  }
-
   wr::MaybeExternalImageId GetNextExternalImageId() override;
 
   wr::PipelineId GetNextPipelineId();
@@ -226,6 +223,14 @@ public:
   // previous frames have been flushed. The main thread blocks until the
   // operation completes.
   void FlushAsyncPaints();
+
+  // Must only be called from the main thread. Notifies the CompositorBridge
+  // that the paint thread is going to begin preparing a buffer asynchronously.
+  void NotifyBeginAsyncPrepareBuffer(CapturedBufferState* aState);
+
+  // Must only be called from the paint thread. Notifies the CompositorBridge
+  // that the paint thread has finished an asynchronous buffer prepare.
+  void NotifyFinishedAsyncPrepareBuffer(CapturedBufferState* aState);
 
   // Must only be called from the main thread. Notifies the CompositorBridge
   // that the paint thread is going to begin painting asynchronously.
@@ -348,11 +353,6 @@ private:
    * It is incrementaed by UpdateFwdTransactionId() in each BeginTransaction() call.
    */
   uint64_t mFwdTransactionId;
-
-  /**
-   * Last sequence number recognized for a device reset.
-   */
-  uint64_t mDeviceResetSequenceNumber;
 
   /**
    * Hold TextureClients refs until end of their usages on host side.

@@ -12,34 +12,43 @@ transforms:
 kind-dependencies:
    - release-uptake-monitoring
 
+job-defaults:
+   shipping-phase: ship
+
 jobs:
    fennec:
       name: fennec_release_bouncer_aliases
       description: Update bouncer aliases job
       worker-type: buildbot-bridge/buildbot-bridge
       run-on-projects: []
+      shipping-product: fennec
       run:
          using: buildbot
          product: fennec
          buildername: release-{branch}-fennec_bouncer_aliases
          release-promotion: true
-         routes:
-            - index.releases.v1.{branch}.latest.fennec.latest.bouncer_submitter
-            - index.releases.v1.{branch}.{revision}.fennec.{underscore_version}.build{build_number}.bouncer_submitter
+      worker:
          properties:
-             tuxedo_server_url:
-                by-project:
-                    mozilla-beta: https://bounceradmin.mozilla.com/api
-                    mozilla-release: https://bounceradmin.mozilla.com/api
-                    maple: https://admin-bouncer.stage.mozaws.net/api/
-                    default: http://localhost/api
+            tuxedo_server_url:
+               by-project:
+                  mozilla-beta: https://bounceradmin.mozilla.com/api
+                  mozilla-release: https://bounceradmin.mozilla.com/api
+                  maple: https://admin-bouncer-releng.stage.mozaws.net/api/
+                  default: http://localhost/api
+      routes:
+         - index.releases.v1.{branch}.latest.fennec.latest.bouncer_submitter
+         - index.releases.v1.{branch}.{revision}.fennec.{underscore_version}.build{build_number}.bouncer_submitter
+      index:
+         type: release
+         product: fennec
+         job-name: android-api-16-opt
       notifications:
          completed:
             by-project:
                maple:
                   - "release-drivers-staging"
                try:
-                  #- "{task[tags][createdForUser]}"
+               #  - "{task[tags][createdForUser]}"
                default:
                   - "release-drivers"
          failed:
@@ -47,7 +56,7 @@ jobs:
                maple:
                   - "release-drivers-staging"
                try:
-                  #- "{task[tags][createdForUser]}"
+               #  - "{task[tags][createdForUser]}"
                default:
                   - "release-drivers"
          exception:
@@ -55,6 +64,6 @@ jobs:
                maple:
                   - "release-drivers-staging"
                try:
-                  #- "{task[tags][createdForUser]}"
+               #  - "{task[tags][createdForUser]}"
                default:
                   - "release-drivers"

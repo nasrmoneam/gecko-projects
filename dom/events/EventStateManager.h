@@ -912,6 +912,12 @@ protected:
                            WidgetInputEvent* aEvent);
 
   /**
+   * When starting a dnd session, UA must fire a pointercancel event and stop
+   * firing the subsequent pointer events.
+   */
+  void MaybeFirePointerCancel(WidgetInputEvent* aEvent);
+
+  /**
    * Determine which node the drag should be targeted at.
    * This is either the node clicked when there is a selection, or, for HTML,
    * the element with a draggable property set to true.
@@ -1007,6 +1013,13 @@ private:
 
   // Update the last known ref point to the current event's mRefPoint.
   static void UpdateLastPointerPosition(WidgetMouseEvent* aMouseEvent);
+
+  /**
+   * Notify target when user has been interaction with some speicific user
+   * gestures which are eKeyUp, eMouseUp, eTouchEnd.
+   */
+  void NotifyTargetUserActivation(WidgetEvent* aEvent,
+                                  nsIContent* aTargetContent);
 
   int32_t     mLockCursor;
   bool mLastFrameConsumedSetCursor;

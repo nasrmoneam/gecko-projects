@@ -6,7 +6,7 @@ use api::{AddFont, BlobImageData, BlobImageResources, ResourceUpdate, ResourceUp
 use api::{BlobImageDescriptor, BlobImageError, BlobImageRenderer, BlobImageRequest};
 use api::{ColorF, FontRenderMode};
 use api::{DevicePoint, DeviceUintRect, DeviceUintSize};
-use api::{Epoch, FontInstance, FontInstanceKey, FontKey, FontTemplate};
+use api::{Epoch, FontInstanceKey, FontKey, FontTemplate};
 use api::{ExternalImageData, ExternalImageType};
 use api::{FontInstanceOptions, FontInstancePlatformOptions, FontVariation};
 use api::{GlyphDimensions, GlyphKey, IdNamespace};
@@ -16,7 +16,7 @@ use app_units::Au;
 use device::TextureFilter;
 use frame::FrameId;
 use glyph_cache::GlyphCache;
-use glyph_rasterizer::{GlyphFormat, GlyphRasterizer, GlyphRequest};
+use glyph_rasterizer::{FontInstance, GlyphFormat, GlyphRasterizer, GlyphRequest};
 use gpu_cache::{GpuCache, GpuCacheAddress, GpuCacheHandle};
 use internal_types::{FastHashMap, FastHashSet, SourceTexture, TextureUpdateList};
 use profiler::{ResourceProfileCounters, TextureCacheProfileCounters};
@@ -350,7 +350,7 @@ impl ResourceCache {
         let FontInstanceOptions {
             render_mode,
             subpx_dir,
-            synthetic_italics,
+            flags,
             bg_color,
             ..
         } = options.unwrap_or_default();
@@ -362,9 +362,9 @@ impl ResourceCache {
             bg_color,
             render_mode,
             subpx_dir,
+            flags,
             platform_options,
             variations,
-            synthetic_italics,
         );
         if self.glyph_rasterizer.is_bitmap_font(&instance) {
             instance.render_mode = instance.render_mode.limit_by(FontRenderMode::Bitmap);
@@ -387,6 +387,11 @@ impl ResourceCache {
 
     pub fn get_font_instances(&self) -> FontInstanceMap {
         self.resources.font_instances.clone()
+    }
+
+    pub fn get_font_instance(&self, instance_key: FontInstanceKey) -> Option<FontInstance> {
+        let instance_map = self.resources.font_instances.read().unwrap();
+        instance_map.get(&instance_key).cloned()
     }
 
     pub fn add_image_template(

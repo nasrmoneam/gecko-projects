@@ -26,13 +26,8 @@ class MockMozCrash(object):
 
         with self.marionette.using_context('chrome'):
             self.crash_reporter_enabled = self.marionette.execute_script("""
-                try {
-                  Components.classes["@mozilla.org/toolkit/crash-reporter;1"].
-                    getService(Components.interfaces.nsICrashReporter);
-                  return true;
-                } catch (exc) {
-                  return false;
-                }
+                Cu.import("resource://gre/modules/AppConstants.jsm");
+                return AppConstants.MOZ_CRASHREPORTER;
             """)
 
     def check_for_crashes(self, dump_directory, *args, **kwargs):
@@ -76,7 +71,6 @@ class BaseCrashTestCase(MarionetteTestCase):
 
         self.crash_count = self.marionette.crashed
         self.pid = self.marionette.process_id
-        self.remote_uri = self.marionette.absolute_url("javascriptPage.html")
 
     def tearDown(self):
         # Replace mockup with original mozcrash instance

@@ -60,6 +60,8 @@ job_description_schema = Schema({
     Optional('treeherder'): task_description_schema['treeherder'],
     Optional('index'): task_description_schema['index'],
     Optional('run-on-projects'): task_description_schema['run-on-projects'],
+    Optional('shipping-phase'): task_description_schema['shipping-phase'],
+    Optional('shipping-product'): task_description_schema['shipping-product'],
     Optional('coalesce'): task_description_schema['coalesce'],
     Optional('always-target'): task_description_schema['always-target'],
     Exclusive('optimization', 'optimization'): task_description_schema['optimization'],
@@ -113,11 +115,8 @@ def rewrite_when_to_optimization(config, jobs):
 
         files_changed = when.get('files-changed')
 
-        # add some common files
-        files_changed.extend([
-            '{}/**'.format(config.path),
-            'taskcluster/taskgraph/**',
-        ])
+        # implicitly add config directories affecting task
+        files_changed.append('{}/**'.format(config.path))
         if 'in-tree' in job.get('worker', {}).get('docker-image', {}):
             files_changed.append('taskcluster/docker/{}/**'.format(
                 job['worker']['docker-image']['in-tree']))

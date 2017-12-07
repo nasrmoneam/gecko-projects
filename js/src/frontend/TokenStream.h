@@ -283,8 +283,6 @@ class TokenStreamAnyChars: public ErrorReporter
     }
 
     bool getMutedErrors() const { return mutedErrors; }
-    JSVersion versionNumber() const { return VersionNumber(options().version); }
-    JSVersion versionWithFlags() const { return options().version; }
 
     MOZ_MUST_USE bool checkOptions();
 
@@ -954,7 +952,7 @@ class MOZ_STACK_CLASS TokenStream final : public TokenStreamAnyChars
     // begins, the offset of |buf[0]|.
     class TokenBuf {
       public:
-        TokenBuf(JSContext* cx, const CharT* buf, size_t length, size_t startOffset)
+        TokenBuf(const CharT* buf, size_t length, size_t startOffset)
           : base_(buf),
             startOffset_(startOffset),
             limit_(buf + length),

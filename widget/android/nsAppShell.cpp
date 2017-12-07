@@ -9,11 +9,13 @@
 #include "base/message_loop.h"
 #include "base/task.h"
 #include "mozilla/Hal.h"
+#include "nsExceptionHandler.h"
 #include "nsIScreen.h"
 #include "nsIScreenManager.h"
 #include "nsWindow.h"
 #include "nsThreadUtils.h"
 #include "nsICommandLineRunner.h"
+#include "nsICrashReporter.h"
 #include "nsIObserverService.h"
 #include "nsIAppStartup.h"
 #include "nsIGeolocationProvider.h"
@@ -37,6 +39,7 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/Hal.h"
 #include "mozilla/dom/TabChild.h"
+#include "mozilla/intl/OSPreferences.h"
 #include "prenv.h"
 
 #include "AndroidBridge.h"
@@ -55,11 +58,6 @@
 
 #ifdef MOZ_LOGGING
 #include "mozilla/Logging.h"
-#endif
-
-#ifdef MOZ_CRASHREPORTER
-#include "nsICrashReporter.h"
-#include "nsExceptionHandler.h"
 #endif
 
 #include "AndroidAlerts.h"
@@ -380,6 +378,18 @@ public:
     }
 };
 
+
+class BrowserLocaleManagerSupport final
+  : public java::BrowserLocaleManager::Natives<BrowserLocaleManagerSupport>
+{
+public:
+  static void RefreshLocales()
+  {
+    intl::OSPreferences::GetInstance()->Refresh();
+  }
+};
+
+
 nsAppShell::nsAppShell()
     : mSyncRunFinished(*(sAppShellLock = new Mutex("nsAppShell")),
                        "nsAppShell.SyncRun")
@@ -412,6 +422,7 @@ nsAppShell::nsAppShell()
         nsWindow::InitNatives();
 
         if (jni::IsFennec()) {
+            BrowserLocaleManagerSupport::Init();
             mozilla::ANRReporter::Init();
             mozilla::MemoryMonitor::Init();
             mozilla::widget::Telemetry::Init();

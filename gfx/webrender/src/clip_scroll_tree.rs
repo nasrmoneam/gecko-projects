@@ -2,17 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use api::{ClipId, DeviceIntRect, LayerPoint, LayerRect, LayerToScrollTransform};
+use api::{ClipId, DeviceIntRect, LayerPoint, LayerRect};
 use api::{LayerToWorldTransform, LayerVector2D, PipelineId, ScrollClamping, ScrollEventPhase};
-use api::{ScrollLayerState, ScrollLocation, WorldPoint};
+use api::{PropertyBinding, LayoutTransform, ScrollLayerState, ScrollLocation, WorldPoint};
 use clip::ClipStore;
 use clip_scroll_node::{ClipScrollNode, NodeType, ScrollingState, StickyFrameInfo};
 use gpu_cache::GpuCache;
-use gpu_types::ClipScrollNodeData;
+use gpu_types::{ClipScrollNodeIndex, ClipScrollNodeData};
 use internal_types::{FastHashMap, FastHashSet};
 use print_tree::{PrintTree, PrintTreePrinter};
 use render_task::ClipChain;
 use resource_cache::ResourceCache;
+use scene::SceneProperties;
+use util::MaxRect;
 
 pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 
@@ -24,6 +26,10 @@ pub type ScrollStates = FastHashMap<ClipId, ScrollingState>;
 pub struct CoordinateSystemId(pub u32);
 
 impl CoordinateSystemId {
+    pub fn root() -> CoordinateSystemId {
+        CoordinateSystemId(0)
+    }
+
     pub fn next(&self) -> CoordinateSystemId {
         let CoordinateSystemId(id) = *self;
         CoordinateSystemId(id + 1)
@@ -65,6 +71,7 @@ pub struct TransformUpdateState {
     pub nearest_scrolling_ancestor_viewport: LayerRect,
     pub parent_clip_chain: ClipChain,
     pub combined_outer_clip_bounds: DeviceIntRect,
+    pub combined_inner_clip_bounds: DeviceIntRect,
 
     /// An id for keeping track of the axis-aligned space of this node. This is used in
     /// order to to track what kinds of clip optimizations can be done for a particular
@@ -75,7 +82,7 @@ pub struct TransformUpdateState {
 }
 
 impl ClipScrollTree {
-    pub fn new() -> ClipScrollTree {
+    pub fn new() -> Self {
         let dummy_pipeline = PipelineId::dummy();
         ClipScrollTree {
             nodes: FastHashMap::default(),
@@ -180,8 +187,8 @@ impl ClipScrollTree {
         };
 
         let point_in_layer = transformed_point - node.local_viewport_rect.origin.to_vector();
-        let clip_info = match node.node_type {
-            NodeType::Clip(ref info) => info,
+        let clip_sources_handle = match node.node_type {
+            NodeType::Clip(ref clip_sources_handle) => clip_sources_handle,
             _ => {
                 cache.insert(*node_id, Some(point_in_layer));
                 return true;
@@ -193,9 +200,8 @@ impl ClipScrollTree {
             return false;
         }
 
-        let point_in_clips = transformed_point - node.local_clip_rect.origin.to_vector();
-        for &(ref clip, _) in clip_store.get(&clip_info.clip_sources).clips() {
-            if !clip.contains(&point_in_clips) {
+        for &(ref clip, _) in clip_store.get(&clip_sources_handle).clips() {
+            if !clip.contains(&transformed_point) {
                 cache.insert(*node_id, None);
                 return false;
             }
@@ -325,7 +331,7 @@ impl ClipScrollTree {
             .scroll(scroll_location, phase)
     }
 
-    pub fn update_all_node_transforms(
+    pub fn update_tree(
         &mut self,
         screen_rect: &DeviceIntRect,
         device_pixel_ratio: f32,
@@ -334,6 +340,7 @@ impl ClipScrollTree {
         gpu_cache: &mut GpuCache,
         pan: LayerPoint,
         node_data: &mut Vec<ClipScrollNodeData>,
+        scene_properties: &SceneProperties,
     ) {
         if self.nodes.is_empty() {
             return;
@@ -354,10 +361,11 @@ impl ClipScrollTree {
             nearest_scrolling_ancestor_viewport: LayerRect::zero(),
             parent_clip_chain: None,
             combined_outer_clip_bounds: *screen_rect,
+            combined_inner_clip_bounds: DeviceIntRect::max_rect(),
             current_coordinate_system_id: CoordinateSystemId(0),
             next_coordinate_system_id: CoordinateSystemId(0).next(),
         };
-        self.update_node_transform(
+        self.update_node(
             root_reference_frame_id,
             &mut state,
             device_pixel_ratio,
@@ -365,10 +373,11 @@ impl ClipScrollTree {
             resource_cache,
             gpu_cache,
             node_data,
+            scene_properties,
         );
     }
 
-    fn update_node_transform(
+    fn update_node(
         &mut self,
         layer_id: ClipId,
         state: &mut TransformUpdateState,
@@ -376,7 +385,8 @@ impl ClipScrollTree {
         clip_store: &mut ClipStore,
         resource_cache: &mut ResourceCache,
         gpu_cache: &mut GpuCache,
-        node_data: &mut Vec<ClipScrollNodeData>,
+        gpu_node_data: &mut Vec<ClipScrollNodeData>,
+        scene_properties: &SceneProperties,
     ) {
         // TODO(gw): This is an ugly borrow check workaround to clone these.
         //           Restructure this to avoid the clones!
@@ -387,30 +397,37 @@ impl ClipScrollTree {
                 None => return,
             };
 
-            node.update_transform(
-                &mut state,
-                node_data
-            );
-            node.update_clip_work_item(
+            // We set this early so that we can use it to populate the ClipChain.
+            node.node_data_index = ClipScrollNodeIndex(gpu_node_data.len() as u32);
+
+            node.update(
                 &mut state,
                 device_pixel_ratio,
                 clip_store,
                 resource_cache,
                 gpu_cache,
+                scene_properties,
             );
+
+            node.push_gpu_node_data(&state, gpu_node_data);
+
+            if !node.children.is_empty() {
+                node.prepare_state_for_children(&mut state, gpu_node_data);
+            }
 
             node.children.clone()
         };
 
         for child_layer_id in node_children {
-            self.update_node_transform(
+            self.update_node(
                 child_layer_id,
                 &mut state,
                 device_pixel_ratio,
                 clip_store,
                 resource_cache,
                 gpu_cache,
-                node_data,
+                gpu_node_data,
+                scene_properties,
             );
         }
     }
@@ -444,7 +461,8 @@ impl ClipScrollTree {
     pub fn add_reference_frame(
         &mut self,
         rect: &LayerRect,
-        transform: &LayerToScrollTransform,
+        source_transform: Option<PropertyBinding<LayoutTransform>>,
+        source_perspective: Option<LayoutTransform>,
         origin_in_parent_reference_frame: LayerVector2D,
         pipeline_id: PipelineId,
         parent_id: Option<ClipId>,
@@ -459,7 +477,8 @@ impl ClipScrollTree {
         let node = ClipScrollNode::new_reference_frame(
             parent_id,
             rect,
-            transform,
+            source_transform,
+            source_perspective,
             origin_in_parent_reference_frame,
             pipeline_id,
         );
@@ -507,11 +526,11 @@ impl ClipScrollTree {
         let node = self.nodes.get(id).unwrap();
 
         match node.node_type {
-            NodeType::Clip(ref info) => {
+            NodeType::Clip(ref clip_sources_handle) => {
                 pt.new_level("Clip".to_owned());
 
                 pt.add_item(format!("id: {:?}", id));
-                let clips = clip_store.get(&info.clip_sources).clips();
+                let clips = clip_store.get(&clip_sources_handle).clips();
                 pt.new_level(format!("Clip Sources [{}]", clips.len()));
                 for source in clips {
                     pt.add_item(format!("{:?}", source));
@@ -519,7 +538,7 @@ impl ClipScrollTree {
                 pt.end_level();
             }
             NodeType::ReferenceFrame(ref info) => {
-                pt.new_level(format!("ReferenceFrame {:?}", info.transform));
+                pt.new_level(format!("ReferenceFrame {:?}", info.resolved_transform));
                 pt.add_item(format!("id: {:?}", id));
             }
             NodeType::ScrollFrame(scrolling_info) => {
@@ -540,10 +559,6 @@ impl ClipScrollTree {
             node.local_viewport_rect
         ));
         pt.add_item(format!("local_clip_rect: {:?}", node.local_clip_rect));
-        pt.add_item(format!(
-            "combined_local_viewport_rect: {:?}",
-            node.combined_local_viewport_rect
-        ));
         pt.add_item(format!(
             "world_viewport_transform: {:?}",
             node.world_viewport_transform

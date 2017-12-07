@@ -15,14 +15,23 @@ namespace mozilla {
 
 extern LazyLogModule gMediaDecoderLog;
 #define LOG(x, ...)                                                            \
-  MOZ_LOG(                                                                     \
-    gMediaDecoderLog, LogLevel::Debug, ("Decoder=%p " x, this, ##__VA_ARGS__))
+  DDMOZ_LOG(gMediaDecoderLog, LogLevel::Debug, x, ##__VA_ARGS__)
 
 ChannelMediaDecoder::ResourceCallback::ResourceCallback(
   AbstractThread* aMainThread)
   : mAbstractMainThread(aMainThread)
 {
   MOZ_ASSERT(aMainThread);
+  DecoderDoctorLogger::LogConstructionAndBase(
+    "ChannelMediaDecoder::ResourceCallback",
+    this,
+    static_cast<const MediaResourceCallback*>(this));
+}
+
+ChannelMediaDecoder::ResourceCallback::~ResourceCallback()
+{
+  DecoderDoctorLogger::LogDestruction("ChannelMediaDecoder::ResourceCallback",
+                                      this);
 }
 
 void
@@ -30,6 +39,8 @@ ChannelMediaDecoder::ResourceCallback::Connect(ChannelMediaDecoder* aDecoder)
 {
   MOZ_ASSERT(NS_IsMainThread());
   mDecoder = aDecoder;
+  DecoderDoctorLogger::LinkParentAndChild(
+    "ChannelMediaDecoder::ResourceCallback", this, "decoder", mDecoder);
   mTimer = NS_NewTimer(mAbstractMainThread->AsEventTarget());
 }
 
@@ -38,6 +49,8 @@ ChannelMediaDecoder::ResourceCallback::Disconnect()
 {
   MOZ_ASSERT(NS_IsMainThread());
   if (mDecoder) {
+    DecoderDoctorLogger::UnlinkParentAndChild(
+      "ChannelMediaDecoder::ResourceCallback", this, mDecoder);
     mDecoder = nullptr;
     mTimer->Cancel();
     mTimer = nullptr;
@@ -58,11 +71,17 @@ ChannelMediaDecoder::ResourceCallback::GetMediaOwner() const
 }
 
 void
-ChannelMediaDecoder::ResourceCallback::NotifyNetworkError()
+ChannelMediaDecoder::ResourceCallback::NotifyNetworkError(
+  const MediaResult& aError)
 {
   MOZ_ASSERT(NS_IsMainThread());
+  DDLOGEX2("ChannelMediaDecoder::ResourceCallback",
+           this,
+           DDLogCategory::Log,
+           "network_error",
+           aError);
   if (mDecoder) {
-    mDecoder->NetworkError();
+    mDecoder->NetworkError(aError);
   }
 }
 
@@ -73,7 +92,7 @@ ChannelMediaDecoder::ResourceCallback::TimerCallback(nsITimer* aTimer,
   MOZ_ASSERT(NS_IsMainThread());
   ResourceCallback* thiz = static_cast<ResourceCallback*>(aClosure);
   MOZ_ASSERT(thiz->mDecoder);
-  thiz->mDecoder->NotifyDataArrivedInternal();
+  thiz->mDecoder->NotifyReaderDataArrived();
   thiz->mTimerArmed = false;
 }
 
@@ -81,6 +100,12 @@ void
 ChannelMediaDecoder::ResourceCallback::NotifyDataArrived()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  DDLOGEX2("ChannelMediaDecoder::ResourceCallback",
+           this,
+           DDLogCategory::Log,
+           "data_arrived",
+           true);
+
   if (!mDecoder) {
     return;
   }
@@ -103,32 +128,26 @@ ChannelMediaDecoder::ResourceCallback::NotifyDataArrived()
 void
 ChannelMediaDecoder::ResourceCallback::NotifyDataEnded(nsresult aStatus)
 {
-  RefPtr<ResourceCallback> self = this;
-  nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
-    "ChannelMediaDecoder::ResourceCallback::NotifyDataEnded",
-    [=]() {
-    if (!self->mDecoder) {
-      return;
-    }
-    self->mDecoder->NotifyDownloadEnded(aStatus);
-    if (NS_SUCCEEDED(aStatus)) {
-      MediaDecoderOwner* owner = self->GetMediaOwner();
-      MOZ_ASSERT(owner);
-      owner->DownloadSuspended();
-
-      // NotifySuspendedStatusChanged will tell the element that download
-      // has been suspended "by the cache", which is true since we never
-      // download anything. The element can then transition to HAVE_ENOUGH_DATA.
-      owner->NotifySuspendedByCache(true);
-    }
-  });
-  mAbstractMainThread->Dispatch(r.forget());
+  DDLOGEX2("ChannelMediaDecoder::ResourceCallback",
+           this,
+           DDLogCategory::Log,
+           "data_ended",
+           aStatus);
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mDecoder) {
+    mDecoder->NotifyDownloadEnded(aStatus);
+  }
 }
 
 void
 ChannelMediaDecoder::ResourceCallback::NotifyPrincipalChanged()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  DDLOGEX2("ChannelMediaDecoder::ResourceCallback",
+           this,
+           DDLogCategory::Log,
+           "principal_changed",
+           true);
   if (mDecoder) {
     mDecoder->NotifyPrincipalChanged();
   }
@@ -139,6 +158,11 @@ ChannelMediaDecoder::ResourceCallback::NotifySuspendedStatusChanged(
   bool aSuspendedByCache)
 {
   MOZ_ASSERT(NS_IsMainThread());
+  DDLOGEX2("ChannelMediaDecoder::ResourceCallback",
+           this,
+           DDLogCategory::Log,
+           "suspended_status_changed",
+           aSuspendedByCache);
   MediaDecoderOwner* owner = GetMediaOwner();
   if (owner) {
     AbstractThread::AutoEnter context(owner->AbstractMainThread());
@@ -261,6 +285,7 @@ ChannelMediaDecoder::Load(nsIChannel* aChannel,
   if (!mResource) {
     return NS_ERROR_FAILURE;
   }
+  DDLINKCHILD("resource", mResource.get());
 
   nsresult rv = MediaShutdownManager::Instance().Register(this);
   if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -269,9 +294,6 @@ ChannelMediaDecoder::Load(nsIChannel* aChannel,
 
   rv = mResource->Open(aStreamListener);
   NS_ENSURE_SUCCESS(rv, rv);
-
-  // Set mode to METADATA since we are about to read metadata.
-  mResource->SetReadMode(MediaCacheStream::MODE_METADATA);
 
   SetStateMachine(CreateStateMachine());
   NS_ENSURE_TRUE(GetStateMachine(), NS_ERROR_FAILURE);
@@ -289,6 +311,7 @@ ChannelMediaDecoder::Load(BaseMediaResource* aOriginal)
   if (!mResource) {
     return NS_ERROR_FAILURE;
   }
+  DDLINKCHILD("resource", mResource.get());
 
   nsresult rv = MediaShutdownManager::Instance().Register(this);
   if (NS_WARN_IF(NS_FAILED(rv))) {
@@ -310,21 +333,19 @@ ChannelMediaDecoder::NotifyDownloadEnded(nsresult aStatus)
 
   LOG("NotifyDownloadEnded, status=%" PRIx32, static_cast<uint32_t>(aStatus));
 
-  if (aStatus == NS_BINDING_ABORTED) {
+  MediaDecoderOwner* owner = GetOwner();
+  if (NS_SUCCEEDED(aStatus) || aStatus == NS_BASE_STREAM_CLOSED) {
+    UpdatePlaybackRate(ComputePlaybackRate());
+    owner->DownloadSuspended();
+    // NotifySuspendedStatusChanged will tell the element that download
+    // has been suspended "by the cache", which is true since we never
+    // download anything. The element can then transition to HAVE_ENOUGH_DATA.
+    owner->NotifySuspendedByCache(true);
+  } else if (aStatus == NS_BINDING_ABORTED) {
     // Download has been cancelled by user.
-    GetOwner()->LoadAborted();
-    return;
-  }
-
-  UpdatePlaybackRate();
-
-  if (NS_SUCCEEDED(aStatus)) {
-    // A final progress event will be fired by the MediaResource calling
-    // DownloadSuspended on the element.
-    // Also NotifySuspendedStatusChanged() will be called to update readyState
-    // if download ended with success.
-  } else if (aStatus != NS_BASE_STREAM_CLOSED) {
-    NetworkError();
+    owner->LoadAborted();
+  } else {
+    NetworkError(MediaResult(aStatus, "Download aborted"));
   }
 }
 
@@ -340,9 +361,6 @@ ChannelMediaDecoder::NotifyBytesConsumed(int64_t aBytes, int64_t aOffset)
   }
 
   MOZ_ASSERT(GetStateMachine());
-  if (aOffset >= mDecoderPosition) {
-    mPlaybackStatistics.AddBytes(aBytes);
-  }
   mDecoderPosition = aOffset + aBytes;
 }
 
@@ -360,7 +378,7 @@ ChannelMediaDecoder::CanPlayThroughImpl()
 {
   MOZ_ASSERT(NS_IsMainThread());
   NS_ENSURE_TRUE(GetStateMachine(), false);
-  return GetStatistics().CanPlayThrough();
+  return GetStatistics(ComputePlaybackRate()).CanPlayThrough();
 }
 
 bool
@@ -371,21 +389,31 @@ ChannelMediaDecoder::IsLiveStream()
 }
 
 void
-ChannelMediaDecoder::OnPlaybackEvent(MediaEventType aEvent)
+ChannelMediaDecoder::OnPlaybackEvent(MediaPlaybackEvent&& aEvent)
 {
   MOZ_ASSERT(NS_IsMainThread());
-  MediaDecoder::OnPlaybackEvent(aEvent);
-  switch (aEvent) {
-    case MediaEventType::PlaybackStarted:
+  switch (aEvent.mType) {
+    case MediaPlaybackEvent::PlaybackStarted:
+      mPlaybackPosition = aEvent.mData.as<int64_t>();
       mPlaybackStatistics.Start();
       break;
-    case MediaEventType::PlaybackStopped:
-      mPlaybackStatistics.Stop();
-      ComputePlaybackRate();
+    case MediaPlaybackEvent::PlaybackProgressed: {
+      int64_t newPos = aEvent.mData.as<int64_t>();
+      mPlaybackStatistics.AddBytes(newPos - mPlaybackPosition);
+      mPlaybackPosition = newPos;
       break;
+    }
+    case MediaPlaybackEvent::PlaybackStopped: {
+      int64_t newPos = aEvent.mData.as<int64_t>();
+      mPlaybackStatistics.AddBytes(newPos - mPlaybackPosition);
+      mPlaybackPosition = newPos;
+      mPlaybackStatistics.Stop();
+      break;
+    }
     default:
       break;
   }
+  MediaDecoder::OnPlaybackEvent(Move(aEvent));
 }
 
 void
@@ -395,20 +423,24 @@ ChannelMediaDecoder::DurationChanged()
   AbstractThread::AutoEnter context(AbstractMainThread());
   MediaDecoder::DurationChanged();
   // Duration has changed so we should recompute playback rate
-  UpdatePlaybackRate();
+  UpdatePlaybackRate(ComputePlaybackRate());
 }
 
 void
 ChannelMediaDecoder::DownloadProgressed()
 {
   MOZ_ASSERT(NS_IsMainThread());
+  MOZ_DIAGNOSTIC_ASSERT(!IsShutdown());
   AbstractThread::AutoEnter context(AbstractMainThread());
-  MediaDecoder::DownloadProgressed();
-  UpdatePlaybackRate();
-  mResource->ThrottleReadahead(ShouldThrottleDownload());
+  GetOwner()->DownloadProgressed();
+  auto rate = ComputePlaybackRate();
+  UpdatePlaybackRate(rate);
+  MediaStatistics stats = GetStatistics(rate);
+  GetStateMachine()->DispatchCanPlayThrough(stats.CanPlayThrough());
+  mResource->ThrottleReadahead(ShouldThrottleDownload(stats));
 }
 
-void
+ChannelMediaDecoder::PlaybackRateInfo
 ChannelMediaDecoder::ComputePlaybackRate()
 {
   MOZ_ASSERT(NS_IsMainThread());
@@ -416,26 +448,23 @@ ChannelMediaDecoder::ComputePlaybackRate()
 
   int64_t length = mResource->GetLength();
   if (mozilla::IsFinite<double>(mDuration) && mDuration > 0 && length >= 0) {
-    mPlaybackRateReliable = true;
-    mPlaybackBytesPerSecond = length / mDuration;
-    return;
+    return { uint32_t(length / mDuration), true };
   }
 
   bool reliable = false;
-  mPlaybackBytesPerSecond = mPlaybackStatistics.GetRateAtLastStop(&reliable);
-  mPlaybackRateReliable = reliable;
+  uint32_t rate = mPlaybackStatistics.GetRate(&reliable);
+  return { rate, reliable };
 }
 
 void
-ChannelMediaDecoder::UpdatePlaybackRate()
+ChannelMediaDecoder::UpdatePlaybackRate(const PlaybackRateInfo& aInfo)
 {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mResource);
 
-  ComputePlaybackRate();
-  uint32_t rate = mPlaybackBytesPerSecond;
+  uint32_t rate = aInfo.mRate;
 
-  if (mPlaybackRateReliable) {
+  if (aInfo.mReliable) {
     // Avoid passing a zero rate
     rate = std::max(rate, 1u);
   } else {
@@ -448,7 +477,7 @@ ChannelMediaDecoder::UpdatePlaybackRate()
 }
 
 MediaStatistics
-ChannelMediaDecoder::GetStatistics()
+ChannelMediaDecoder::GetStatistics(const PlaybackRateInfo& aInfo)
 {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mResource);
@@ -458,15 +487,14 @@ ChannelMediaDecoder::GetStatistics()
     mResource->GetDownloadRate(&result.mDownloadRateReliable);
   result.mDownloadPosition = mResource->GetCachedDataEnd(mDecoderPosition);
   result.mTotalBytes = mResource->GetLength();
-  result.mPlaybackRate = mPlaybackBytesPerSecond;
-  result.mPlaybackRateReliable = mPlaybackRateReliable;
-  result.mDecoderPosition = mDecoderPosition;
+  result.mPlaybackRate = aInfo.mRate;
+  result.mPlaybackRateReliable = aInfo.mReliable;
   result.mPlaybackPosition = mPlaybackPosition;
   return result;
 }
 
 bool
-ChannelMediaDecoder::ShouldThrottleDownload()
+ChannelMediaDecoder::ShouldThrottleDownload(const MediaStatistics& aStats)
 {
   // We throttle the download if either the throttle override pref is set
   // (so that we can always throttle in Firefox on mobile) or if the download
@@ -474,7 +502,7 @@ ChannelMediaDecoder::ShouldThrottleDownload()
   MOZ_ASSERT(NS_IsMainThread());
   NS_ENSURE_TRUE(GetStateMachine(), false);
 
-  int64_t length = mResource->GetLength();
+  int64_t length = aStats.mTotalBytes;
   if (length > 0 &&
       length <= int64_t(MediaPrefs::MediaMemoryCacheMaxSize()) * 1024) {
     // Don't throttle the download of small resources. This is to speed
@@ -488,13 +516,12 @@ ChannelMediaDecoder::ShouldThrottleDownload()
     return true;
   }
 
-  MediaStatistics stats = GetStatistics();
-  if (!stats.mDownloadRateReliable || !stats.mPlaybackRateReliable) {
+  if (!aStats.mDownloadRateReliable || !aStats.mPlaybackRateReliable) {
     return false;
   }
   uint32_t factor =
     std::max(2u, Preferences::GetUint("media.throttle-factor", 2));
-  return stats.mDownloadRate > factor * stats.mPlaybackRate;
+  return aStats.mDownloadRate > factor * aStats.mPlaybackRate;
 }
 
 void

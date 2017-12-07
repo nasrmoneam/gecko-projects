@@ -38,14 +38,6 @@ pref("security.remember_cert_checkbox_default_setting", true);
 pref("security.ask_for_password",        0);
 pref("security.password_lifetime",       30);
 
-// If true, use the modern sqlite-backed certificate and key databases in NSS.
-// If false, use the default format. Currently the default in NSS is the old
-// BerkeleyDB format, but this will change in bug 1377940.
-// Changing this requires a restart to take effect.
-// Note that the environment variable MOZPSM_NSSDBDIR_OVERRIDE can override both
-// the behavior of this preference and the NSS default.
-pref("security.use_sqldb", true);
-
 // The supported values of this pref are:
 // 0: disable detecting Family Safety mode and importing the root
 // 1: only attempt to detect Family Safety mode (don't import the root)
@@ -74,6 +66,12 @@ pref("security.pki.cert_short_lifetime_in_days", 10);
 // See the comment in CertVerifier.cpp.
 // 3 = only allow SHA-1 for certificates issued by an imported root.
 pref("security.pki.sha1_enforcement_level", 3);
+
+// This preference controls what signature algorithms are accepted for signed
+// apps (i.e. add-ons).
+// 0: SHA-1 and/or SHA-256 PKCS#7 allowed
+// 1: SHA-256 PKCS#7 allowed
+pref("security.signed_app_signatures.policy", 0);
 
 // security.pki.name_matching_mode controls how the platform matches hostnames
 // to name information in TLS certificates. The possible values are:

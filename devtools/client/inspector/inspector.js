@@ -126,11 +126,11 @@ function Inspector(toolbox) {
   this.onShowBoxModelHighlighterForNode =
     this.onShowBoxModelHighlighterForNode.bind(this);
   this.onSidebarHidden = this.onSidebarHidden.bind(this);
+  this.onSidebarResized = this.onSidebarResized.bind(this);
   this.onSidebarSelect = this.onSidebarSelect.bind(this);
   this.onSidebarShown = this.onSidebarShown.bind(this);
 
   this._target.on("will-navigate", this._onBeforeNavigate);
-  this._detectingActorFeatures = this._detectActorFeatures();
 }
 
 Inspector.prototype = {
@@ -214,31 +214,6 @@ Inspector.prototype = {
     }
   },
 
-  /**
-   * Figure out what features the backend supports
-   */
-  _detectActorFeatures: function () {
-    this._supportsDuplicateNode = false;
-    this._supportsScrollIntoView = false;
-    this._supportsResolveRelativeURL = false;
-
-    // Use getActorDescription first so that all actorHasMethod calls use
-    // a cached response from the server.
-    return this._target.getActorDescription("domwalker").then(desc => {
-      return promise.all([
-        this._target.actorHasMethod("domwalker", "duplicateNode").then(value => {
-          this._supportsDuplicateNode = value;
-        }).catch(console.error),
-        this._target.actorHasMethod("domnode", "scrollIntoView").then(value => {
-          this._supportsScrollIntoView = value;
-        }).catch(console.error),
-        this._target.actorHasMethod("inspector", "resolveRelativeURL").then(value => {
-          this._supportsResolveRelativeURL = value;
-        }).catch(console.error),
-      ]);
-    });
-  },
-
   _deferredOpen: async function (defaultSelection) {
     this.breadcrumbs = new HTMLBreadcrumbs(this);
 
@@ -314,7 +289,6 @@ Inspector.prototype = {
     this._defaultNode = null;
     this.selection.setNodeFront(null);
     this._destroyMarkup();
-    this.isDirty = false;
     this._pendingSelection = null;
   },
 
@@ -390,15 +364,6 @@ Inspector.prototype = {
    */
   set target(value) {
     this._target = value;
-  },
-
-  /**
-   * Indicate that a tool has modified the state of the page.  Used to
-   * decide whether to show the "are you sure you want to navigate"
-   * notification.
-   */
-  markDirty: function () {
-    this.isDirty = true;
   },
 
   /**
@@ -503,6 +468,7 @@ Inspector.prototype = {
         id: "inspector-sidebar-container"
       }),
       vert: this.useLandscapeMode(),
+      onControlledPanelResized: this.onSidebarResized,
     });
 
     this._splitter = this.ReactDOM.render(splitter,
@@ -571,6 +537,10 @@ Inspector.prototype = {
     this.getPanel(toolId);
 
     this.toolbox.emit("inspector-sidebar-select", toolId);
+  },
+
+  onSidebarResized: function (width, height) {
+    this.toolbox.emit("inspector-sidebar-resized", { width, height });
   },
 
   /**
@@ -858,8 +828,6 @@ Inspector.prototype = {
     try {
       let hasSupportsHighlighters =
         yield this.target.actorHasMethod("inspector", "supportsHighlighters");
-      let hasPickColorFromPage =
-        yield this.target.actorHasMethod("inspector", "pickColorFromPage");
 
       let supportsHighlighters;
       if (hasSupportsHighlighters) {
@@ -871,7 +839,7 @@ Inspector.prototype = {
         supportsHighlighters = nodeFront && nodeFront.isInHTMLDocument;
       }
 
-      return supportsHighlighters && hasPickColorFromPage;
+      return supportsHighlighters;
     } catch (e) {
       console.error(e);
       return false;
@@ -932,7 +900,6 @@ Inspector.prototype = {
     this._defaultNode = null;
     this.selection.setNodeFront(null);
     this._destroyMarkup();
-    this.isDirty = false;
 
     let onNodeSelected = defaultNode => {
       // Cancel this promise resolution as a new one had
@@ -968,6 +935,7 @@ Inspector.prototype = {
 
     // Restore the highlighter states prior to emitting "new-root".
     yield Promise.all([
+      this.highlighters.restoreFlexboxState(),
       this.highlighters.restoreGridState(),
       this.highlighters.restoreShapeState()
     ]);
@@ -1292,7 +1260,6 @@ Inspector.prototype = {
     menu.append(new MenuItem({
       id: "node-menu-duplicatenode",
       label: INSPECTOR_L10N.getStr("inspectorDuplicateNode.label"),
-      hidden: !this._supportsDuplicateNode,
       disabled: !isDuplicatableElement,
       click: () => this.duplicateNode(),
     }));
@@ -1376,7 +1343,6 @@ Inspector.prototype = {
       label: INSPECTOR_L10N.getStr("inspectorScrollNodeIntoView.label"),
       accesskey:
         INSPECTOR_L10N.getStr("inspectorScrollNodeIntoView.accesskey"),
-      hidden: !this._supportsScrollIntoView,
       disabled: !isSelectionElement,
       click: () => this.scrollNodeIntoView(),
     }));
@@ -1593,8 +1559,7 @@ Inspector.prototype = {
     }
 
     let type = popupNode.dataset.type;
-    if (this._supportsResolveRelativeURL &&
-        (type === "uri" || type === "cssresource" || type === "jsresource")) {
+    if ((type === "uri" || type === "cssresource" || type === "jsresource")) {
       // Links can't be opened in new tabs in the browser toolbox.
       if (type === "uri" && !this.target.chrome) {
         linkFollow.visible = true;
@@ -1725,8 +1690,7 @@ Inspector.prototype = {
    * @return {Promise} resolves when the eyedropper is hidden.
    */
   hideEyeDropper: function () {
-    // The eyedropper button doesn't exist, most probably because the actor doesn't
-    // support the pickColorFromPage, or because the page isn't HTML.
+    // The eyedropper button doesn't exist, most probably  because the page isn't HTML.
     if (!this.eyeDropperButton) {
       return null;
     }
@@ -2120,8 +2084,6 @@ Inspector.prototype = {
 
     if (type === "uri" || type === "cssresource" || type === "jsresource") {
       // Open link in a new tab.
-      // When the inspector menu was setup on click (see _getNodeLinkMenuItems), we
-      // already checked that resolveRelativeURL existed.
       this.inspector.resolveRelativeURL(
         link, this.selection.nodeFront).then(url => {
           if (type === "uri") {
@@ -2162,8 +2124,6 @@ Inspector.prototype = {
    * This method is here for the benefit of copying links.
    */
   copyAttributeLink: function (link) {
-    // When the inspector menu was setup on click (see _getNodeLinkMenuItems), we
-    // already checked that resolveRelativeURL existed.
     this.inspector.resolveRelativeURL(link, this.selection.nodeFront).then(url => {
       clipboardHelper.copyString(url);
     }, console.error);

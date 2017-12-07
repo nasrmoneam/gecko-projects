@@ -244,6 +244,18 @@ class IPDLFile(ContextDerived):
 
         self.basename = path
 
+class PreprocessedIPDLFile(ContextDerived):
+    """Describes an individual .ipdl source file that requires preprocessing."""
+
+    __slots__ = (
+        'basename',
+    )
+
+    def __init__(self, context, path):
+        ContextDerived.__init__(self, context)
+
+        self.basename = path
+
 class WebIDLFile(ContextDerived):
     """Describes an individual .webidl source file."""
 
@@ -980,6 +992,19 @@ class FinalTargetPreprocessedFiles(ContextDerived):
         ContextDerived.__init__(self, sandbox)
         self.files = files
 
+class LocalizedFiles(FinalTargetFiles):
+    """Sandbox container object for LOCALIZED_FILES, which is a
+    HierarchicalStringList.
+    """
+    pass
+
+
+class LocalizedPreprocessedFiles(FinalTargetPreprocessedFiles):
+    """Sandbox container object for LOCALIZED_PP_FILES, which is a
+    HierarchicalStringList.
+    """
+    pass
+
 
 class ObjdirFiles(FinalTargetFiles):
     """Sandbox container object for OBJDIR_FILES, which is a
@@ -1043,15 +1068,29 @@ class GeneratedFile(ContextDerived):
         'outputs',
         'inputs',
         'flags',
+        'required_for_compile',
+        'localized',
     )
 
-    def __init__(self, context, script, method, outputs, inputs, flags=()):
+    def __init__(self, context, script, method, outputs, inputs, flags=(), localized=False):
         ContextDerived.__init__(self, context)
         self.script = script
         self.method = method
         self.outputs = outputs if isinstance(outputs, tuple) else (outputs,)
         self.inputs = inputs
         self.flags = flags
+        self.localized = localized
+
+        suffixes = (
+            '.c',
+            '.cpp',
+            '.h',
+            '.inc',
+            '.py',
+            '.rs',
+            'new', # 'new' is an output from make-stl-wrappers.py
+        )
+        self.required_for_compile = any(f.endswith(suffixes) for f in self.outputs)
 
 
 class AndroidResDirs(ContextDerived):

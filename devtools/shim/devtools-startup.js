@@ -248,14 +248,40 @@ DevToolsStartup.prototype = {
       this.initDevTools();
     }
 
-    if (this.devtoolsFlag) {
-      this.handleDevToolsFlag(window);
-      // This listener is called for all Firefox windows, but we want to execute
-      // that command only once.
-      this.devtoolsFlag = false;
+    // This listener is called for all Firefox windows, but we want to execute some code
+    // only once.
+    if (!this._firstWindowReadyReceived) {
+      this.onFirstWindowReady(window);
+      this._firstWindowReadyReceived = true;
     }
 
     JsonView.initialize();
+  },
+
+  onFirstWindowReady(window) {
+    if (this.devtoolsFlag) {
+      this.handleDevToolsFlag(window);
+    }
+
+    // Wait until we get a window before sending a ping to telemetry to avoid slowing down
+    // the startup phase.
+    this.pingOnboardingTelemetry();
+  },
+
+  /**
+   * Check if the user is being flagged as DevTools users or not. This probe should only
+   * be logged once per profile.
+   */
+  pingOnboardingTelemetry() {
+    // Only ping telemetry once per profile.
+    let alreadyLoggedPref = "devtools.onboarding.telemetry.logged";
+    if (Services.prefs.getBoolPref(alreadyLoggedPref)) {
+      return;
+    }
+
+    let scalarId = "devtools.onboarding.is_devtools_user";
+    Services.telemetry.scalarSet(scalarId, this.isDevToolsUser());
+    Services.prefs.setBoolPref(alreadyLoggedPref, true);
   },
 
   /**
@@ -314,9 +340,6 @@ DevToolsStartup.prototype = {
       viewId: "PanelUI-developer",
       shortcutId: "key_toggleToolbox",
       tooltiptext: "developer-button.tooltiptext2",
-      defaultArea: AppConstants.MOZ_DEV_EDITION ?
-                     CustomizableUI.AREA_NAVBAR :
-                     CustomizableUI.AREA_PANEL,
       onViewShowing: (event) => {
         if (Services.prefs.getBoolPref(DEVTOOLS_ENABLED_PREF)) {
           // If DevTools are enabled, initialize DevTools to create all menuitems in the
@@ -361,6 +384,9 @@ DevToolsStartup.prototype = {
         doc.getElementById("PanelUI-multiView").appendChild(view);
       }
     };
+    if (AppConstants.MOZ_DEV_EDITION) {
+      item.defaultArea = CustomizableUI.AREA_NAVBAR;
+    }
     CustomizableUI.createWidget(item);
     CustomizableWidgets.push(item);
   },
@@ -429,6 +455,17 @@ DevToolsStartup.prototype = {
   },
 
   /**
+   * Check if the user is a DevTools user by looking at our selfxss pref.
+   * This preference is incremented everytime the console is used (up to 5).
+   *
+   * @return {Boolean} true if the user can be considered as a devtools user.
+   */
+  isDevToolsUser() {
+    let selfXssCount = Services.prefs.getIntPref("devtools.selfxss.count", 0);
+    return selfXssCount > 0;
+  },
+
+  /**
    * Depending on some runtime parameters (command line arguments as well as existing
    * preferences), the DEVTOOLS_ENABLED_PREF might be forced to true.
    *
@@ -436,13 +473,35 @@ DevToolsStartup.prototype = {
    *        true if any DevTools command line argument was passed when starting Firefox.
    */
   setupEnabledPref(hasDevToolsFlag) {
+    // Read the current experiment state.
+    let experimentState = Services.prefs.getCharPref("devtools.onboarding.experiment");
+    let isRegularExperiment = experimentState == "on";
+    let isForcedExperiment = experimentState == "force";
+    let isInExperiment = isRegularExperiment || isForcedExperiment;
+
+    // Force devtools.enabled to true for users that are not part of the experiment.
+    if (!isInExperiment) {
+      Services.prefs.setBoolPref(DEVTOOLS_ENABLED_PREF, true);
+      return;
+    }
+
+    // Force devtools.enabled to false once for each experiment user.
+    if (!Services.prefs.getBoolPref("devtools.onboarding.experiment.flipped")) {
+      Services.prefs.setBoolPref(DEVTOOLS_ENABLED_PREF, false);
+      Services.prefs.setBoolPref("devtools.onboarding.experiment.flipped", true);
+    }
+
     if (Services.prefs.getBoolPref(DEVTOOLS_ENABLED_PREF)) {
       // Nothing to do if DevTools are already enabled.
       return;
     }
 
+    // We only consider checking the actual isDevToolsUser() if the user is in the
+    // "regular" experiment group.
+    let isDevToolsUser = isRegularExperiment && this.isDevToolsUser();
+
     let hasToolbarPref = Services.prefs.getBoolPref(TOOLBAR_VISIBLE_PREF, false);
-    if (hasDevToolsFlag || hasToolbarPref) {
+    if (hasDevToolsFlag || hasToolbarPref || isDevToolsUser) {
       Services.prefs.setBoolPref(DEVTOOLS_ENABLED_PREF, true);
     }
   },
@@ -710,7 +769,7 @@ DevToolsStartup.prototype = {
       let { DebuggerServer: debuggerServer } =
         serverLoader.require("devtools/server/main");
       debuggerServer.init();
-      debuggerServer.addBrowserActors();
+      debuggerServer.registerAllActors();
       debuggerServer.allowChromeProcess = true;
 
       let listener = debuggerServer.createListener();

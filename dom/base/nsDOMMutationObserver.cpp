@@ -22,9 +22,8 @@
 #include "nsTextFragment.h"
 #include "nsThreadUtils.h"
 
-using mozilla::Maybe;
-using mozilla::Move;
-using mozilla::NonOwningAnimationTarget;
+using namespace mozilla;
+
 using mozilla::dom::TreeOrderComparator;
 using mozilla::dom::Animation;
 using mozilla::dom::Element;
@@ -817,7 +816,6 @@ nsDOMMutationObserver::Constructor(const mozilla::dom::GlobalObject& aGlobal,
     aRv.Throw(NS_ERROR_FAILURE);
     return nullptr;
   }
-  MOZ_ASSERT(window->IsInnerWindow());
   bool isChrome = nsContentUtils::IsChromeDoc(window->GetExtantDoc());
   RefPtr<nsDOMMutationObserver> observer =
     new nsDOMMutationObserver(window.forget(), aCb, isChrome);

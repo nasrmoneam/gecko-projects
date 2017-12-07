@@ -1314,15 +1314,7 @@
     "expires_in_version": "never",
     "kind": "enumerated",
     "n_values": 10,
-    "description": "Use of SpiderMonkey's deprecated language extensions in web content: ForEach=0, DestructuringForIn=1 (obsolete), LegacyGenerator=2, ExpressionClosure=3, LetBlock=4 (obsolete), LetExpression=5 (obsolete), NoSuchMethod=6 (obsolete), FlagsArgument=7 (obsolete), RegExpSourceProp=8 (obsolete), RestoredRegExpStatics=9 (obsolete), BlockScopeFunRedecl=10"
-  },
-  "JS_DEPRECATED_LANGUAGE_EXTENSIONS_IN_ADDONS": {
-    "record_in_processes": ["main", "content"],
-    "alert_emails": ["jdemooij@mozilla.com"],
-    "expires_in_version": "never",
-    "kind": "enumerated",
-    "n_values": 10,
-    "description": "Use of SpiderMonkey's deprecated language extensions in add-ons: ForEach=0, DestructuringForIn=1 (obsolete), LegacyGenerator=2, ExpressionClosure=3, LetBlock=4 (obsolete), LetExpression=5 (obsolete), NoSuchMethod=6 (obsolete), FlagsArgument=7 (obsolete), RegExpSourceProp=8 (obsolete), RestoredRegExpStatics=9 (obsolete), BlockScopeFunRedecl=10"
+    "description": "Use of SpiderMonkey's deprecated language extensions in web content: ForEach=0 (obsolete), DestructuringForIn=1 (obsolete), LegacyGenerator=2 (obsolete), ExpressionClosure=3, LetBlock=4 (obsolete), LetExpression=5 (obsolete), NoSuchMethod=6 (obsolete), FlagsArgument=7 (obsolete), RegExpSourceProp=8 (obsolete), RestoredRegExpStatics=9 (obsolete), BlockScopeFunRedecl=10 (obsolete)"
   },
   "JS_PRIVILEGED_PARSER_COMPILE_LAZY_AFTER_MS": {
     "record_in_processes": ["main", "content"],
@@ -4435,7 +4427,7 @@
     "alert_emails": ["necko@mozilla.com", "junior@mozilla.com"],
     "description": "Old schema version of the cookie database. 0 for having legacy cookies.txt."
   },
-  "MOZ_SQLITE_COOKIES_BLOCK_MAIN_THREAD_MS": {
+  "MOZ_SQLITE_COOKIES_BLOCK_MAIN_THREAD_MS_V2": {
     "record_in_processes": ["main"],
     "expires_in_version": "never",
     "kind": "exponential",
@@ -4443,7 +4435,17 @@
     "bug_numbers": [870460],
     "high": 3000,
     "n_buckets": 10,
-    "description": "Time spent on blocking main thread by startup cookie database read (ms)"
+    "description": "Time spent on blocking main thread by startup cookie database read (ms), only for blocking case"
+  },
+  "MOZ_SQLITE_COOKIES_TIME_TO_BLOCK_MAIN_THREAD_MS": {
+    "record_in_processes": ["main"],
+    "expires_in_version": "never",
+    "kind": "exponential",
+    "alert_emails": ["necko@mozilla.com", "junior@mozilla.com"],
+    "bug_numbers": [1413839],
+    "high": 10000,
+    "n_buckets": 30,
+    "description": "How long (ms) after we finished reading the cookie db until the first cookie request came in (0 implies we blocked the main thread)"
   },
   "MOZ_SQLITE_COOKIES_READ_MAIN_THREAD_MS": {
     "record_in_processes": ["main", "content"],
@@ -6573,9 +6575,9 @@
   },
   "FX_PREFERENCES_OPENED_VIA": {
     "record_in_processes": ["main", "content"],
-    "bug_numbers": [1330315],
+    "bug_numbers": [1330315, 1420062],
     "alert_emails": ["jaws@mozilla.com"],
-    "expires_in_version": "59",
+    "expires_in_version": "63",
     "kind": "categorical",
     "labels": ["aboutHome", "aboutTelemetry", "browserMedia", "commandLine", "commandLineLegacy", "ContainersCommand", "contentSearch", "dataReporting", "doorhanger", "devDisconnectedAlert", "experimentsOpenPref", "fxa", "fxaSignedin", "fxaError", "offlineApps", "prefserviceDefaults", "preferencesButton", "paneSync", "storagePressure", "translationInfobar", "UITour", "menubar", "notifOpenSettings", "other", "autofillFooter", "autofillDoorhanger"],
     "releaseChannelCollection": "opt-out",
@@ -6600,6 +6602,16 @@
     "labels": ["bookmark", "pocket", "screenshots", "webcompat", "copyURL", "emailLink",
                "sendToDevice", "other"],
     "description": "Count how many times people remove items from the url bar"
+  },
+  "FX_PAGE_ACTION_MANAGED": {
+    "record_in_processes": ["main"],
+    "alert_emails": ["gijs@mozilla.com"],
+    "bug_numbers": [1393843],
+    "expires_in_version": "60",
+    "kind": "categorical",
+    "labels": ["bookmark", "pocket", "screenshots", "webcompat", "copyURL", "emailLink",
+               "sendToDevice", "other"],
+    "description": "Count how many times people manage extensions via their actions in the url bar"
   },
   "FX_PAGE_ACTION_URLBAR_USED": {
     "record_in_processes": ["main"],
@@ -8585,15 +8597,6 @@
     "kind": "boolean",
     "description": "Reports whether a decoder for an HTTP Live Streaming media type was created when requested.",
     "bug_numbers": [1262659]
-  },
-  "MEDIA_DECODING_PROCESS_CRASH": {
-    "record_in_processes": ["main", "content"],
-    "alert_emails": ["bwu@mozilla.com", "jolin@mozilla.com", "jacheng@mozilla.com"],
-    "expires_in_version": "57",
-    "kind": "count",
-    "bug_numbers": [1297556, 1257777],
-    "description": "Records a value each time Fennec remote decoding process crashes unexpected while decoding media content.",
-    "releaseChannelCollection": "opt-out"
   },
   "MEDIA_ANDROID_VIDEO_TUNNELING_SUPPORT": {
     "record_in_processes": ["main", "content"],
@@ -11146,14 +11149,6 @@
     "n_values": 20,
     "description": "Methods invoked under window.crypto.subtle (0=encrypt, 1=decrypt, 2=sign, 3=verify, 4=digest, 5=generateKey, 6=deriveKey, 7=deriveBits, 8=importKey, 9=exportKey, 10=wrapKey, 11=unwrapKey)"
   },
-  "WEBCRYPTO_METHOD_SECURE": {
-    "alert_emails": ["seceng-telemetry@mozilla.com"],
-    "record_in_processes": ["main", "content"],
-    "expires_in_version": "60",
-    "kind": "boolean",
-    "bug_numbers": [1333140],
-    "description": "Whether a method invoked under window.crypto.subtle is in a secure context"
-  },
   "WEBCRYPTO_ALG": {
     "record_in_processes": ["main", "content"],
     "expires_in_version": "never",
@@ -11511,12 +11506,6 @@
     "high": 1024,
     "n_buckets": 16,
     "description": "The number of entries in persistent DataStorage (HSTS and HPKP data, basically)"
-  },
-  "VIDEO_EME_PLAY_SUCCESS": {
-    "record_in_processes": ["main", "content"],
-    "expires_in_version": "45",
-    "kind": "boolean",
-    "description": "EME video playback success or failure"
   },
   "VIDEO_PLAY_TIME_MS" : {
     "record_in_processes": ["main", "content"],
@@ -13171,6 +13160,26 @@
     "bug_numbers": [1307242],
     "description": "The time between navigation start and the first non-blank paint of a foreground root content document, in milliseconds. This only records documents that were in an active docshell throughout the whole time between navigation start and non-blank paint. The non-blank paint timestamp is taken during display list building and does not include rasterization or compositing of that paint."
   },
+  "TIME_TO_NON_BLANK_PAINT_NETOPT_MS": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 100000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "The time between navigation start and the first non-blank paint of a foreground root content document, in milliseconds. This only records documents that were in an active docshell throughout the whole time between navigation start and non-blank paint. The non-blank paint timestamp is taken during display list building and does not include rasterization or compositing of that paint.  This probe only accumulates when there were active-tab network load optimizations happening during the interval."
+  },
+  "TIME_TO_NON_BLANK_PAINT_NO_NETOPT_MS": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 100000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "The time between navigation start and the first non-blank paint of a foreground root content document, in milliseconds. This only records documents that were in an active docshell throughout the whole time between navigation start and non-blank paint. The non-blank paint timestamp is taken during display list building and does not include rasterization or compositing of that paint.  This probe only accumulates when there were no active-tab network load optimizations happening during the interval."
+  },
   "TAB_AUDIO_INDICATOR_USED": {
     "record_in_processes": ["main", "content"],
     "alert_emails": ["alwu@mozilla.com"],
@@ -13391,6 +13400,26 @@
     "bug_numbers": [1344893],
     "description": "Time in milliseconds from navigationStart to domContentLoadedEventStart."
   },
+  "TIME_TO_DOM_CONTENT_LOADED_START_ACTIVE_NETOPT_MS": {
+    "record_in_processes": ["content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "Time in milliseconds from navigationStart to domContentLoadedEventStart for all-the-time active page for which some of the network loading optimization happened."
+  },
+  "TIME_TO_DOM_CONTENT_LOADED_START_ACTIVE_MS": {
+    "record_in_processes": ["content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "Time in milliseconds from navigationStart to domContentLoadedEventStart for all-the-time active page for which none of the network loading optimization happened."
+  },
   "TIME_TO_DOM_CONTENT_LOADED_END_MS": {
     "record_in_processes": ["content"],
     "alert_emails": ["wpan@mozilla.com"],
@@ -13420,6 +13449,26 @@
     "n_buckets": 100,
     "bug_numbers": [1344893],
     "description": "Time in milliseconds from navigationStart to loadEventStart."
+  },
+  "TIME_TO_LOAD_EVENT_START_ACTIVE_NETOPT_MS": {
+    "record_in_processes": ["content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "Time in milliseconds from navigationStart to loadEventStart for all-the-time active page for which some of the network loading optimization happened."
+  },
+  "TIME_TO_LOAD_EVENT_START_ACTIVE_MS": {
+    "record_in_processes": ["content"],
+    "alert_emails": ["necko@mozilla.com", "hbambas@mozilla.com"],
+    "expires_in_version": "63",
+    "kind": "exponential",
+    "high": 50000,
+    "n_buckets": 100,
+    "bug_numbers": [1411632],
+    "description": "Time in milliseconds from navigationStart to loadEventStart for all-the-time active page for which none of the network loading optimization happened."
   },
   "TIME_TO_LOAD_EVENT_END_MS": {
     "record_in_processes": ["content"],
@@ -13795,6 +13844,15 @@
     "n_values": 64,
     "description": "URL CLassifier-related (aka Safe Browsing) UI events. See nsIUrlClassifierUITelemetry.idl for the specific values."
   },
+  "USER_CHROME_CSS_LOADED": {
+    "record_in_processes": ["main"],
+    "bug_numbers": [1416044],
+    "expires_in_version": "62",
+    "alert_emails": ["sfoster@mozilla.com"],
+    "kind": "boolean",
+    "releaseChannelCollection": "opt-out",
+    "description": "Was a userChrome.css stylesheet loaded when the profile was initialized?"
+  },
  "WEBAUTHN_CREATE_CREDENTIAL_MS": {
     "record_in_processes": ["main"],
     "alert_emails": ["seceng-telemetry@mozilla.com", "jjones@mozilla.com"],
@@ -13870,5 +13928,13 @@
     "n_buckets": 50,
     "description": "Amount of time in milliseconds the main thread spends waiting for the paint thread to complete, if the time was greater than 200us.",
     "bug_numbers": [1386968]
+  },
+  "SCRIPT_LOADED_WITH_VERSION": {
+    "record_in_processes": ["main", "content"],
+    "alert_emails": ["amarchesini@mozilla.com"],
+    "bug_numbers": [1418860],
+    "expires_in_version": "60",
+    "kind": "boolean",
+    "description": "Tracking how often scripts are loaded with a 'valid' version parameter. This telemetry ID helps us to decide if and when remove the support of script versioning."
   }
 }

@@ -54,7 +54,7 @@ telemetry-tests-client:
 
 test-verify:
     description: "Extra verification of tests modified on this push"
-    suite: test-verify
+    suite: test-verification
     treeherder-symbol: tc(TV)
     loopback-video: true
     max-run-time: 5400
@@ -66,7 +66,6 @@ test-verify:
             default: built-projects
     tier:
         by-test-platform:
-            android.*: 3
             windows10-64-asan.*: 3
             default: 2
     mozharness:
@@ -89,3 +88,9 @@ test-verify:
         no-read-buildbot-config: true
         extra-options:
             - --verify
+    when:
+        files-changed:
+            - '**/*.js'
+            - '**/*.html'
+            - '**/*.xhtml'
+            - '**/*.xul'

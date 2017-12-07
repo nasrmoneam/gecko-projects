@@ -75,7 +75,6 @@
 #include "nsJSProtocolHandler.h"
 #include "nsScriptNameSpaceManager.h"
 #include "nsIControllerContext.h"
-#include "nsJSON.h"
 #include "nsZipArchive.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/dom/DOMException.h"
@@ -167,8 +166,6 @@ static void Shutdown();
 
 #include "AudioChannelService.h"
 #include "mozilla/net/WebSocketEventService.h"
-
-#include "mozilla/dom/FlyWebService.h"
 
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/dom/time/TimeService.h"
@@ -507,16 +504,11 @@ NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(Geolocation, Init)
 #define NS_WEBSOCKETEVENT_SERVICE_CID \
   { 0x31689828, 0xda66, 0x49a6, { 0x87, 0x0c, 0xdf, 0x62, 0xb8, 0x3f, 0xe7, 0x89 }}
 
-#define NS_FLYWEB_SERVICE_CID \
-  { 0x5de19ef0, 0x895e, 0x4c0c, { 0xa6, 0xe0, 0xea, 0xe0, 0x23, 0x2b, 0x84, 0x5a } }
-
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(nsGeolocationService, nsGeolocationService::GetGeolocationService)
 
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(AudioChannelService, AudioChannelService::GetOrCreate)
 
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(WebSocketEventService, WebSocketEventService::GetOrCreate)
-
-NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(FlyWebService, FlyWebService::GetOrCreateAddRefed)
 
 #ifdef MOZ_WEBSPEECH_TEST_BACKEND
 NS_GENERIC_FACTORY_CONSTRUCTOR(FakeSpeechRecognitionService)
@@ -533,7 +525,9 @@ NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(SystemPrincipal,
 NS_GENERIC_FACTORY_CONSTRUCTOR_INIT(NullPrincipal, Init)
 NS_GENERIC_FACTORY_CONSTRUCTOR(nsStructuredCloneContainer)
 
-NS_GENERIC_FACTORY_CONSTRUCTOR(OSFileConstantsService)
+NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(OSFileConstantsService,
+                                         OSFileConstantsService::GetOrCreate);
+
 NS_GENERIC_FACTORY_CONSTRUCTOR(UDPSocketChild)
 
 NS_GENERIC_FACTORY_SINGLETON_CONSTRUCTOR(GeckoMediaPluginService, GeckoMediaPluginService::GetGeckoMediaPluginService)
@@ -627,7 +621,6 @@ NS_DEFINE_NAMED_CID(NS_XMLHTTPREQUEST_CID);
 NS_DEFINE_NAMED_CID(NS_DOMPARSER_CID);
 NS_DEFINE_NAMED_CID(NS_DOMSESSIONSTORAGEMANAGER_CID);
 NS_DEFINE_NAMED_CID(NS_DOMLOCALSTORAGEMANAGER_CID);
-NS_DEFINE_NAMED_CID(NS_DOMJSON_CID);
 NS_DEFINE_NAMED_CID(NS_TEXTEDITOR_CID);
 NS_DEFINE_NAMED_CID(DOMREQUEST_SERVICE_CID);
 NS_DEFINE_NAMED_CID(QUOTAMANAGER_SERVICE_CID);
@@ -646,7 +639,6 @@ NS_DEFINE_NAMED_CID(NS_GEOLOCATION_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_GEOLOCATION_CID);
 NS_DEFINE_NAMED_CID(NS_AUDIOCHANNEL_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_WEBSOCKETEVENT_SERVICE_CID);
-NS_DEFINE_NAMED_CID(NS_FLYWEB_SERVICE_CID);
 NS_DEFINE_NAMED_CID(NS_FOCUSMANAGER_CID);
 NS_DEFINE_NAMED_CID(NS_CONTENTSECURITYMANAGER_CID);
 NS_DEFINE_NAMED_CID(CSPSERVICE_CID);
@@ -886,7 +878,6 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kNS_XPCEXCEPTION_CID, false, nullptr, ExceptionConstructor },
   { &kNS_DOMSESSIONSTORAGEMANAGER_CID, false, nullptr, SessionStorageManagerConstructor },
   { &kNS_DOMLOCALSTORAGEMANAGER_CID, false, nullptr, LocalStorageManagerConstructor },
-  { &kNS_DOMJSON_CID, false, nullptr, NS_NewJSON },
   { &kNS_TEXTEDITOR_CID, false, nullptr, TextEditorConstructor },
   { &kDOMREQUEST_SERVICE_CID, false, nullptr, DOMRequestServiceConstructor },
   { &kQUOTAMANAGER_SERVICE_CID, false, nullptr, QuotaManagerServiceConstructor },
@@ -905,7 +896,6 @@ static const mozilla::Module::CIDEntry kLayoutCIDs[] = {
   { &kNS_GEOLOCATION_CID, false, nullptr, GeolocationConstructor },
   { &kNS_AUDIOCHANNEL_SERVICE_CID, false, nullptr, AudioChannelServiceConstructor },
   { &kNS_WEBSOCKETEVENT_SERVICE_CID, false, nullptr, WebSocketEventServiceConstructor },
-  { &kNS_FLYWEB_SERVICE_CID, false, nullptr, FlyWebServiceConstructor },
   { &kNS_FOCUSMANAGER_CID, false, nullptr, CreateFocusManager },
 #ifdef MOZ_WEBSPEECH_TEST_BACKEND
   { &kNS_FAKE_SPEECH_RECOGNITION_SERVICE_CID, false, nullptr, FakeSpeechRecognitionServiceConstructor },
@@ -1013,7 +1003,6 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   // Keeping the old ContractID for backward compatibility
   { "@mozilla.org/dom/storagemanager;1", &kNS_DOMLOCALSTORAGEMANAGER_CID },
   { "@mozilla.org/dom/sessionStorage-manager;1", &kNS_DOMSESSIONSTORAGEMANAGER_CID },
-  { "@mozilla.org/dom/json;1", &kNS_DOMJSON_CID },
   { "@mozilla.org/editor/texteditor;1", &kNS_TEXTEDITOR_CID },
   { DOMREQUEST_SERVICE_CONTRACTID, &kDOMREQUEST_SERVICE_CID },
   { QUOTAMANAGER_SERVICE_CONTRACTID, &kQUOTAMANAGER_SERVICE_CID },
@@ -1030,8 +1019,6 @@ static const mozilla::Module::ContractIDEntry kLayoutContracts[] = {
   { "@mozilla.org/geolocation;1", &kNS_GEOLOCATION_CID },
   { "@mozilla.org/audiochannel/service;1", &kNS_AUDIOCHANNEL_SERVICE_CID },
   { "@mozilla.org/websocketevent/service;1", &kNS_WEBSOCKETEVENT_SERVICE_CID },
-  { "@mozilla.org/flyweb-service;1", &kNS_FLYWEB_SERVICE_CID },
-  { NS_NETWORK_PROTOCOL_CONTRACTID_PREFIX "flyweb", &kNS_FLYWEB_SERVICE_CID },
   { "@mozilla.org/focus-manager;1", &kNS_FOCUSMANAGER_CID },
 #ifdef MOZ_WEBSPEECH_TEST_BACKEND
   { NS_SPEECH_RECOGNITION_SERVICE_CONTRACTID_PREFIX "fake", &kNS_FAKE_SPEECH_RECOGNITION_SERVICE_CID },

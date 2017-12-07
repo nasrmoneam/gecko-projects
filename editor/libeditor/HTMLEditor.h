@@ -17,7 +17,6 @@
 
 #include "nsAttrName.h"
 #include "nsCOMPtr.h"
-#include "nsIContentFilter.h"
 #include "nsICSSLoaderObserver.h"
 #include "nsIDocumentObserver.h"
 #include "nsIDOMElement.h"
@@ -321,11 +320,12 @@ public:
   NS_IMETHOD DeleteNode(nsIDOMNode* aNode) override;
   nsresult DeleteText(nsGenericDOMDataNode& aTextNode, uint32_t aOffset,
                       uint32_t aLength);
-  virtual nsresult InsertTextImpl(const nsAString& aStringToInsert,
-                                  nsCOMPtr<nsINode>* aInOutNode,
-                                  nsCOMPtr<nsIContent>* aInOutChildAtOffset,
-                                  int32_t* aInOutOffset,
-                                  nsIDocument* aDoc) override;
+  virtual nsresult
+  InsertTextImpl(nsIDocument& aDocument,
+                 const nsAString& aStringToInsert,
+                 const EditorRawDOMPoint& aPointToInsert,
+                 EditorRawDOMPoint* aPointAfterInsertedString =
+                   nullptr) override;
   NS_IMETHOD_(bool) IsModifiableNode(nsIDOMNode* aNode) override;
   virtual bool IsModifiableNode(nsINode* aNode) override;
 
@@ -341,7 +341,7 @@ public:
   nsresult InsertNodeAtPoint(nsIDOMNode* aNode,
                              nsCOMPtr<nsIDOMNode>* ioParent,
                              int32_t* ioOffset,
-                             bool aNoEmptyNodes,
+                             SplitAtEdges aSplitAtEdges,
                              nsCOMPtr<nsIDOMNode>* ioChildAtOffset = nullptr);
 
   /**
@@ -469,14 +469,12 @@ protected:
   bool SetCaretInTableCell(nsIDOMElement* aElement);
 
   nsresult TabInTable(bool inIsShift, bool* outHandled);
-  already_AddRefed<Element> CreateBR(nsINode* aNode, int32_t aOffset,
-                                     EDirection aSelect = eNone);
-  NS_IMETHOD CreateBR(
-               nsIDOMNode* aNode, int32_t aOffset,
-               nsCOMPtr<nsIDOMNode>* outBRNode,
-               nsIEditor::EDirection aSelect = nsIEditor::eNone) override;
 
-  nsresult InsertBR(nsCOMPtr<nsIDOMNode>* outBRNode);
+  /**
+   * InsertBR() inserts a new <br> element at selection.  If there is
+   * non-collapsed selection ranges, the selected ranges is deleted first.
+   */
+  nsresult InsertBR();
 
   // Table Editing (implemented in nsTableEditor.cpp)
 
@@ -648,17 +646,6 @@ protected:
   bool HavePrivateHTMLFlavor(nsIClipboard* clipboard );
   nsresult ParseCFHTML(nsCString& aCfhtml, char16_t** aStuffToPaste,
                        char16_t** aCfcontext);
-  nsresult DoContentFilterCallback(const nsAString& aFlavor,
-                                   nsIDOMDocument* aSourceDoc,
-                                   bool aWillDeleteSelection,
-                                   nsIDOMNode** aFragmentAsNode,
-                                   nsIDOMNode** aFragStartNode,
-                                   int32_t* aFragStartOffset,
-                                   nsIDOMNode** aFragEndNode,
-                                   int32_t* aFragEndOffset,
-                                   nsIDOMNode** aTargetNode,
-                                   int32_t* aTargetOffset,
-                                   bool* aDoContinue);
 
   bool IsInLink(nsIDOMNode* aNode, nsCOMPtr<nsIDOMNode>* outLink = nullptr);
   nsresult StripFormattingNodes(nsIContent& aNode, bool aOnlyList = false);
@@ -768,7 +755,7 @@ protected:
   bool NodeIsProperty(nsINode& aNode);
   bool IsAtFrontOfNode(nsINode& aNode, int32_t aOffset);
   bool IsAtEndOfNode(nsINode& aNode, int32_t aOffset);
-  bool IsOnlyAttribute(const nsIContent* aElement, const nsAString& aAttribute);
+  bool IsOnlyAttribute(const Element* aElement, const nsAString& aAttribute);
 
   nsresult RemoveBlockContainer(nsIContent& aNode);
 
@@ -776,15 +763,76 @@ protected:
 
   nsIContent* GetNextHTMLSibling(nsINode* aNode);
 
-  nsIContent* GetPriorHTMLNode(nsINode* aNode, bool aNoBlockCrossing = false);
-  nsIContent* GetPriorHTMLNode(nsINode* aParent, int32_t aOffset,
-                               nsINode* aChildAtOffset,
-                               bool aNoBlockCrossing = false);
+  /**
+   * GetPreviousEditableHTMLNode*() methods are similar to
+   * EditorBase::GetPreviousEditableNode() but this won't return nodes outside
+   * active editing host.
+   */
+  nsIContent* GetPreviousEditableHTMLNode(nsINode& aNode)
+  {
+    return GetPreviousEditableHTMLNodeInternal(aNode, false);
+  }
+  nsIContent* GetPreviousEditableHTMLNodeInBlock(nsINode& aNode)
+  {
+    return GetPreviousEditableHTMLNodeInternal(aNode, true);
+  }
+  nsIContent* GetPreviousEditableHTMLNode(const EditorRawDOMPoint& aPoint)
+  {
+    return GetPreviousEditableHTMLNodeInternal(aPoint, false);
+  }
+  nsIContent* GetPreviousEditableHTMLNodeInBlock(
+                const EditorRawDOMPoint& aPoint)
+  {
+    return GetPreviousEditableHTMLNodeInternal(aPoint, true);
+  }
 
-  nsIContent* GetNextHTMLNode(nsINode* aNode, bool aNoBlockCrossing = false);
-  nsIContent* GetNextHTMLNode(nsINode* aParent, int32_t aOffset,
-                              nsINode* aChildAtOffset,
-                              bool aNoBlockCrossing = false);
+  /**
+   * GetPreviousEditableHTMLNodeInternal() methods are common implementation
+   * of above methods.  Please don't use this method directly.
+   */
+  nsIContent* GetPreviousEditableHTMLNodeInternal(nsINode& aNode,
+                                                  bool aNoBlockCrossing);
+  nsIContent* GetPreviousEditableHTMLNodeInternal(
+                const EditorRawDOMPoint& aPoint,
+                bool aNoBlockCrossing);
+
+  /**
+   * GetNextEditableHTMLNode*() methods are similar to
+   * EditorBase::GetNextEditableNode() but this won't return nodes outside
+   * active editing host.
+   *
+   * Note that same as EditorBaseGetTextEditableNode(), methods which take
+   * |const EditorRawDOMPoint&| start to search from the node pointed by it.
+   * On the other hand, methods which take |nsINode&| start to search from
+   * next node of aNode.
+   */
+  nsIContent* GetNextEditableHTMLNode(nsINode& aNode)
+  {
+    return GetNextEditableHTMLNodeInternal(aNode, false);
+  }
+  nsIContent* GetNextEditableHTMLNodeInBlock(nsINode& aNode)
+  {
+    return GetNextEditableHTMLNodeInternal(aNode, true);
+  }
+  nsIContent* GetNextEditableHTMLNode(const EditorRawDOMPoint& aPoint)
+  {
+    return GetNextEditableHTMLNodeInternal(aPoint, false);
+  }
+  nsIContent* GetNextEditableHTMLNodeInBlock(
+                const EditorRawDOMPoint& aPoint)
+  {
+    return GetNextEditableHTMLNodeInternal(aPoint, true);
+  }
+
+  /**
+   * GetNextEditableHTMLNodeInternal() methods are common implementation
+   * of above methods.  Please don't use this method directly.
+   */
+  nsIContent* GetNextEditableHTMLNodeInternal(nsINode& aNode,
+                                                  bool aNoBlockCrossing);
+  nsIContent* GetNextEditableHTMLNodeInternal(
+                const EditorRawDOMPoint& aPoint,
+                bool aNoBlockCrossing);
 
   bool IsFirstEditableChild(nsINode* aNode);
   bool IsLastEditableChild(nsINode* aNode);
@@ -862,8 +910,6 @@ protected:
                                   int32_t aDirection, bool aSelected);
 
 protected:
-  nsTArray<OwningNonNull<nsIContentFilter>> mContentFilters;
-
   RefPtr<TypeInState> mTypeInState;
 
   bool mCRInParagraphCreatesParagraph;

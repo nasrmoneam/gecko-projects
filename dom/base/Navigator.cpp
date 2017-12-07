@@ -37,8 +37,6 @@
 #include "mozilla/dom/GamepadServiceTest.h"
 #include "mozilla/dom/WakeLock.h"
 #include "mozilla/dom/power/PowerManagerService.h"
-#include "mozilla/dom/FlyWebPublishedServer.h"
-#include "mozilla/dom/FlyWebService.h"
 #include "mozilla/dom/Permissions.h"
 #include "mozilla/dom/Presentation.h"
 #include "mozilla/dom/ServiceWorkerContainer.h"
@@ -51,7 +49,6 @@
 #include "mozilla/dom/workers/RuntimeService.h"
 #include "mozilla/Hal.h"
 #include "mozilla/ClearOnShutdown.h"
-#include "mozilla/SSE.h"
 #include "mozilla/StaticPtr.h"
 #include "Connection.h"
 #include "mozilla/dom/Event.h" // for nsIDOMEvent::InternalDOMEvent()
@@ -168,7 +165,6 @@ Navigator::Init()
 Navigator::Navigator(nsPIDOMWindowInner* aWindow)
   : mWindow(aWindow)
 {
-  MOZ_ASSERT(aWindow->IsInnerWindow(), "Navigator must get an inner window!");
 }
 
 Navigator::~Navigator()
@@ -723,12 +719,6 @@ Navigator::HardwareConcurrency()
   }
 
   return rts->ClampedHardwareConcurrency();
-}
-
-bool
-Navigator::CpuHasSSE2()
-{
-  return mozilla::supports_sse2();
 }
 
 void
@@ -1375,61 +1365,6 @@ Navigator::GetBattery(ErrorResult& aRv)
   return mBatteryPromise;
 }
 
-already_AddRefed<Promise>
-Navigator::PublishServer(const nsAString& aName,
-                         const FlyWebPublishOptions& aOptions,
-                         ErrorResult& aRv)
-{
-  RefPtr<FlyWebService> service = FlyWebService::GetOrCreate();
-  if (!service) {
-    aRv.Throw(NS_ERROR_FAILURE);
-    return nullptr;
-  }
-
-  RefPtr<FlyWebPublishPromise> mozPromise =
-    service->PublishServer(aName, aOptions, mWindow);
-  MOZ_ASSERT(mozPromise);
-
-  nsCOMPtr<nsIGlobalObject> global = do_QueryInterface(mWindow);
-  ErrorResult result;
-  RefPtr<Promise> domPromise = Promise::Create(global, result);
-  if (result.Failed()) {
-    aRv.Throw(NS_ERROR_FAILURE);
-    return nullptr;
-  }
-
-  mozPromise->Then(global->AbstractMainThreadFor(TaskCategory::Other),
-                   __func__,
-                   [domPromise] (FlyWebPublishedServer* aServer) {
-                     domPromise->MaybeResolve(aServer);
-                   },
-                   [domPromise] (nsresult aStatus) {
-                     domPromise->MaybeReject(aStatus);
-                   });
-
-  return domPromise.forget();
-}
-
-already_AddRefed<WakeLock>
-Navigator::RequestWakeLock(const nsAString &aTopic, ErrorResult& aRv)
-{
-  if (!mWindow) {
-    aRv.Throw(NS_ERROR_UNEXPECTED);
-    return nullptr;
-  }
-
-  RefPtr<power::PowerManagerService> pmService =
-    power::PowerManagerService::GetInstance();
-  // Maybe it went away for some reason... Or maybe we're just called
-  // from our XPCOM method.
-  if (!pmService) {
-    aRv.Throw(NS_ERROR_UNEXPECTED);
-    return nullptr;
-  }
-
-  return pmService->NewWakeLock(aTopic, mWindow, aRv);
-}
-
 already_AddRefed<LegacyMozTCPSocket>
 Navigator::MozTCPSocket()
 {
@@ -1446,7 +1381,7 @@ Navigator::GetGamepads(nsTArray<RefPtr<Gamepad> >& aGamepads,
     return;
   }
   NS_ENSURE_TRUE_VOID(mWindow->GetDocShell());
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   win->SetHasGamepadEventListener(true);
   win->GetGamepads(aGamepads);
 }
@@ -1468,7 +1403,7 @@ Navigator::GetVRDisplays(ErrorResult& aRv)
     return nullptr;
   }
 
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   win->NotifyVREventListenerAdded();
 
   nsCOMPtr<nsIGlobalObject> go = do_QueryInterface(mWindow);
@@ -1505,7 +1440,7 @@ Navigator::GetActiveVRDisplays(nsTArray<RefPtr<VRDisplay>>& aDisplays) const
   if (!mWindow || !mWindow->GetDocShell()) {
     return;
   }
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   nsTArray<RefPtr<VRDisplay>> displays;
   if (win->UpdateVRDisplays(displays)) {
     for (auto display : displays) {
@@ -1521,7 +1456,7 @@ Navigator::NotifyVRDisplaysUpdated()
 {
   // Synchronize the VR devices and resolve the promises in
   // mVRGetDisplaysPromises
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
 
   nsTArray<RefPtr<VRDisplay>> vrDisplays;
   if (win->UpdateVRDisplays(vrDisplays)) {
@@ -1546,7 +1481,7 @@ VRServiceTest*
 Navigator::RequestVRServiceTest()
 {
   // Ensure that the Mock VR devices are not released prematurely
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   win->NotifyVREventListenerAdded();
 
   if (!mVRServiceTest) {
@@ -1558,21 +1493,21 @@ Navigator::RequestVRServiceTest()
 bool
 Navigator::IsWebVRContentDetected() const
 {
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   return win->IsVRContentDetected();
 }
 
 bool
 Navigator::IsWebVRContentPresenting() const
 {
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   return win->IsVRContentPresenting();
 }
 
 void
 Navigator::RequestVRPresentation(VRDisplay& aDisplay)
 {
-  nsGlobalWindow* win = nsGlobalWindow::Cast(mWindow);
+  nsGlobalWindowInner* win = nsGlobalWindowInner::Cast(mWindow);
   win->DispatchVRDisplayActivate(aDisplay.DisplayId(), VRDisplayEventReason::Requested);
 }
 
@@ -1648,8 +1583,6 @@ Navigator::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const
 void
 Navigator::SetWindow(nsPIDOMWindowInner *aInnerWindow)
 {
-  NS_ASSERTION(aInnerWindow->IsInnerWindow(),
-               "Navigator must get an inner window!");
   mWindow = aInnerWindow;
 }
 
@@ -1732,7 +1665,6 @@ Navigator::GetWindowFromGlobal(JSObject* aGlobal)
 {
   nsCOMPtr<nsPIDOMWindowInner> win =
     do_QueryInterface(nsJSUtils::GetStaticScriptGlobal(aGlobal));
-  MOZ_ASSERT(!win || win->IsInnerWindow());
   return win.forget();
 }
 

@@ -11,14 +11,25 @@
 #include "MediaSource.h"
 #include "MediaSourceDemuxer.h"
 #include "MediaSourceUtils.h"
+#include "SourceBuffer.h"
 #include "SourceBufferList.h"
 #include "VideoUtils.h"
 #include <algorithm>
 
 extern mozilla::LogModule* GetMediaSourceLog();
 
-#define MSE_DEBUG(arg, ...) MOZ_LOG(GetMediaSourceLog(), mozilla::LogLevel::Debug, ("MediaSourceDecoder(%p)::%s: " arg, this, __func__, ##__VA_ARGS__))
-#define MSE_DEBUGV(arg, ...) MOZ_LOG(GetMediaSourceLog(), mozilla::LogLevel::Verbose, ("MediaSourceDecoder(%p)::%s: " arg, this, __func__, ##__VA_ARGS__))
+#define MSE_DEBUG(arg, ...)                                                    \
+  DDMOZ_LOG(GetMediaSourceLog(),                                               \
+            mozilla::LogLevel::Debug,                                          \
+            "::%s: " arg,                                                      \
+            __func__,                                                          \
+            ##__VA_ARGS__)
+#define MSE_DEBUGV(arg, ...)                                                   \
+  DDMOZ_LOG(GetMediaSourceLog(),                                               \
+            mozilla::LogLevel::Verbose,                                        \
+            "::%s: " arg,                                                      \
+            __func__,                                                          \
+            ##__VA_ARGS__)
 
 using namespace mozilla::media;
 
@@ -183,12 +194,14 @@ MediaSourceDecoder::AttachMediaSource(dom::MediaSource* aMediaSource)
 {
   MOZ_ASSERT(!mMediaSource && !GetStateMachine() && NS_IsMainThread());
   mMediaSource = aMediaSource;
+  DDLINKCHILD("mediasource", aMediaSource);
 }
 
 void
 MediaSourceDecoder::DetachMediaSource()
 {
   MOZ_ASSERT(mMediaSource && NS_IsMainThread());
+  DDUNLINKCHILD(mMediaSource);
   mMediaSource = nullptr;
 }
 
@@ -350,6 +363,16 @@ MediaSourceDecoder::NotifyInitDataArrived()
   if (mDemuxer) {
     mDemuxer->NotifyInitDataArrived();
   }
+}
+
+void
+MediaSourceDecoder::NotifyDataArrived()
+{
+  MOZ_ASSERT(NS_IsMainThread());
+  MOZ_DIAGNOSTIC_ASSERT(!IsShutdown());
+  AbstractThread::AutoEnter context(AbstractMainThread());
+  NotifyReaderDataArrived();
+  GetOwner()->DownloadProgressed();
 }
 
 already_AddRefed<nsIPrincipal>

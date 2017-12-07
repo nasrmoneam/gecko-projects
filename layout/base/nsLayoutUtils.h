@@ -90,6 +90,7 @@ enum class ShapedTextFlags : uint16_t;
 } // namespace gfx
 namespace layers {
 class Image;
+class StackingContextHelper;
 class Layer;
 } // namespace layers
 } // namespace mozilla
@@ -139,6 +140,7 @@ class nsLayoutUtils
 {
   typedef mozilla::dom::DOMRectList DOMRectList;
   typedef mozilla::layers::Layer Layer;
+  typedef mozilla::layers::StackingContextHelper StackingContextHelper;
   typedef mozilla::ContainerLayerParameters ContainerLayerParameters;
   typedef mozilla::IntrinsicSize IntrinsicSize;
   typedef mozilla::gfx::SourceSurface SourceSurface;
@@ -150,6 +152,7 @@ class nsLayoutUtils
   typedef mozilla::gfx::Point Point;
   typedef mozilla::gfx::Rect Rect;
   typedef mozilla::gfx::RectDouble RectDouble;
+  typedef mozilla::gfx::Size Size;
   typedef mozilla::gfx::Matrix4x4 Matrix4x4;
   typedef mozilla::gfx::RectCornerRadii RectCornerRadii;
   typedef mozilla::gfx::StrokeOptions StrokeOptions;
@@ -165,6 +168,7 @@ public:
   typedef mozilla::CSSRect CSSRect;
   typedef mozilla::ScreenMargin ScreenMargin;
   typedef mozilla::LayoutDeviceIntSize LayoutDeviceIntSize;
+  typedef mozilla::LayoutDeviceRect LayoutDeviceRect;
   typedef mozilla::StyleGeometryBox StyleGeometryBox;
   typedef mozilla::SVGImageContext SVGImageContext;
 
@@ -184,12 +188,6 @@ public:
    * Find content for given ID.
    */
   static nsIContent* FindContentFor(ViewID aId);
-
-  /**
-   * Find the view ID (or generate a new one) for the content element
-   * corresponding to the ASR.
-   */
-  static ViewID ViewIDForASR(const mozilla::ActiveScrolledRoot* aASR);
 
   /**
    * Find the scrollable frame for a given ID.
@@ -1492,8 +1490,7 @@ public:
                "caller must deal with %% of unconstrained block-size");
     MOZ_ASSERT(aCoord.IsCoordPercentCalcUnit());
 
-    nscoord result =
-      nsRuleNode::ComputeCoordPercentCalc(aCoord, aContainingBlockBSize);
+    nscoord result = aCoord.ComputeCoordPercentCalc(aContainingBlockBSize);
     // Clamp calc(), and the subtraction for box-sizing.
     return std::max(0, result - aContentEdgeToBoxSizingBoxEdge);
   }
@@ -1530,8 +1527,8 @@ public:
             aCoord.GetPercentValue() == 0.0f) ||
            (aCoord.IsCalcUnit() &&
             // clamp negative calc() to 0
-            nsRuleNode::ComputeCoordPercentCalc(aCoord, nscoord_MAX) <= 0 &&
-            nsRuleNode::ComputeCoordPercentCalc(aCoord, 0) <= 0);
+            aCoord.ComputeCoordPercentCalc(nscoord_MAX) <= 0 &&
+            aCoord.ComputeCoordPercentCalc(0) <= 0);
   }
 
   static bool IsMarginZero(const nsStyleCoord &aCoord)
@@ -1541,8 +1538,8 @@ public:
            (aCoord.GetUnit() == eStyleUnit_Percent &&
             aCoord.GetPercentValue() == 0.0f) ||
            (aCoord.IsCalcUnit() &&
-            nsRuleNode::ComputeCoordPercentCalc(aCoord, nscoord_MAX) == 0 &&
-            nsRuleNode::ComputeCoordPercentCalc(aCoord, 0) == 0);
+            aCoord.ComputeCoordPercentCalc(nscoord_MAX) == 0 &&
+            aCoord.ComputeCoordPercentCalc(0) == 0);
   }
 
   static void MarkDescendantsDirty(nsIFrame *aSubtreeRoot);
@@ -1645,7 +1642,7 @@ public:
    */
   static void DrawUniDirString(const char16_t* aString,
                                uint32_t aLength,
-                               nsPoint aPoint,
+                               const nsPoint& aPoint,
                                nsFontMetrics& aFontMetrics,
                                gfxContext& aContext);
 
@@ -1951,6 +1948,18 @@ public:
                                     const nsSize&  aFallbackSize);
 
   /**
+   * Given the image container, frame, and dest rect, determine the best fitting
+   * size to decode the image at, and calculate any necessary SVG parameters.
+   */
+  static mozilla::gfx::IntSize
+  ComputeImageContainerDrawingParameters(imgIContainer*            aImage,
+                                         nsIFrame*                 aForFrame,
+                                         const LayoutDeviceRect&   aDestRect,
+                                         const StackingContextHelper& aSc,
+                                         uint32_t                  aFlags,
+                                         mozilla::Maybe<SVGImageContext>& aSVGContext);
+
+  /**
    * Given a source area of an image (in appunits) and a destination area
    * that we want to map that source area too, computes the area that
    * would be covered by the whole image. This is useful for passing to
@@ -2203,6 +2212,9 @@ public:
     return SurfaceFromElement(aElement, aSurfaceFlags, target);
   }
 
+  // There are a bunch of callers of SurfaceFromElement.  Just mark it as
+  // MOZ_CAN_RUN_SCRIPT_BOUNDARY for now.
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   static SurfaceFromElementResult SurfaceFromElement(nsIImageLoadingContent *aElement,
                                                      uint32_t aSurfaceFlags,
                                                      RefPtr<DrawTarget>& aTarget);
@@ -2338,9 +2350,9 @@ public:
    * @param aVisibleSize is the size of the area we want to paint
    * @param aDisplaySize is the size of the display area of the pres context
    */
-  static gfxSize ComputeSuitableScaleForAnimation(const nsIFrame* aFrame,
-                                                  const nsSize& aVisibleSize,
-                                                  const nsSize& aDisplaySize);
+  static Size ComputeSuitableScaleForAnimation(const nsIFrame* aFrame,
+                                               const nsSize& aVisibleSize,
+                                               const nsSize& aDisplaySize);
 
   /**
    * Checks whether we want to use the GPU to scale images when
@@ -2362,12 +2374,6 @@ public:
    * Checks whether support for the CSS-wide "unset" value is enabled.
    */
   static bool UnsetValueEnabled();
-
-  /**
-   * Checks whether support for the CSS grid-template-{columns,rows} 'subgrid X'
-   * value is enabled.
-   */
-  static bool IsGridTemplateSubgridValueEnabled();
 
   /**
    * Checks whether support for the CSS text-align (and text-align-last)
@@ -3050,6 +3056,52 @@ public:
   static nsPoint ComputeOffsetToUserSpace(nsDisplayListBuilder* aBuilder,
                                           nsIFrame* aFrame);
 
+  // Return the default value to be used for -moz-control-character-visibility,
+  // from preferences.
+  static uint8_t ControlCharVisibilityDefault();
+
+  enum class FlushUserFontSet {
+    Yes,
+    No,
+  };
+
+  static already_AddRefed<nsFontMetrics> GetMetricsFor(nsPresContext* aPresContext,
+                                                       bool aIsVertical,
+                                                       const nsStyleFont* aStyleFont,
+                                                       nscoord aFontSize,
+                                                       bool aUseUserFontSet,
+                                                       FlushUserFontSet aFlushUserFontSet);
+
+  /**
+   * Appropriately add the correct font if we are using DocumentFonts or
+   * overriding for XUL
+   */
+  static void FixupNoneGeneric(nsFont* aFont,
+                               const nsPresContext* aPresContext,
+                               uint8_t aGenericFontID,
+                               const nsFont* aDefaultVariableFont);
+
+  /**
+   * For an nsStyleFont with mSize set, apply minimum font size constraints
+   * from preferences, as well as -moz-min-font-size-ratio.
+   */
+  static void ApplyMinFontSize(nsStyleFont* aFont,
+                               const nsPresContext* aPresContext,
+                               nscoord aMinFontSize);
+
+  static void ComputeSystemFont(nsFont* aSystemFont,
+                                mozilla::LookAndFeel::FontID aFontID,
+                                const nsPresContext* aPresContext,
+                                const nsFont* aDefaultVariableFont);
+
+  static void ComputeFontFeatures(const nsCSSValuePairList* aFeaturesList,
+                                  nsTArray<gfxFontFeature>& aFeatureSettings);
+
+  static void ComputeFontVariations(const nsCSSValuePairList* aVariationsList,
+                                    nsTArray<gfxFontVariation>& aVariationSettings);
+
+  static uint32_t ParseFontLanguageOverride(const nsAString& aLangTag);
+
 private:
   static uint32_t sFontSizeInflationEmPerLine;
   static uint32_t sFontSizeInflationMinTwips;
@@ -3205,14 +3257,14 @@ void StrokeLineWithSnapping(const nsPoint& aP1, const nsPoint& aP2,
 class nsSetAttrRunnable : public mozilla::Runnable
 {
 public:
-  nsSetAttrRunnable(nsIContent* aContent, nsAtom* aAttrName,
+  nsSetAttrRunnable(mozilla::dom::Element* aElement, nsAtom* aAttrName,
                     const nsAString& aValue);
-  nsSetAttrRunnable(nsIContent* aContent, nsAtom* aAttrName,
+  nsSetAttrRunnable(mozilla::dom::Element* aElement, nsAtom* aAttrName,
                     int32_t aValue);
 
   NS_DECL_NSIRUNNABLE
 
-  nsCOMPtr<nsIContent> mContent;
+  RefPtr<Element> mElement;
   RefPtr<nsAtom> mAttrName;
   nsAutoString mValue;
 };
@@ -3220,11 +3272,11 @@ public:
 class nsUnsetAttrRunnable : public mozilla::Runnable
 {
 public:
-  nsUnsetAttrRunnable(nsIContent* aContent, nsAtom* aAttrName);
+  nsUnsetAttrRunnable(mozilla::dom::Element* aElement, nsAtom* aAttrName);
 
   NS_DECL_NSIRUNNABLE
 
-  nsCOMPtr<nsIContent> mContent;
+  RefPtr<Element> mElement;
   RefPtr<nsAtom> mAttrName;
 };
 

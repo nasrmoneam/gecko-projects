@@ -21,7 +21,11 @@ class MediaSource;
 
 } // namespace dom
 
-class MediaSourceDecoder : public MediaDecoder
+DDLoggedTypeDeclNameAndBase(MediaSourceDecoder, MediaDecoder);
+
+class MediaSourceDecoder
+  : public MediaDecoder
+  , public DecoderDoctorLifeLogger<MediaSourceDecoder>
 {
 public:
   explicit MediaSourceDecoder(MediaDecoderInit& aInit);
@@ -63,6 +67,10 @@ public:
   bool IsMSE() const override { return true; }
 
   void NotifyInitDataArrived();
+
+  // Called as data appended to the source buffer or EOS is called on the media
+  // source. Main thread only.
+  void NotifyDataArrived();
 
 private:
   void PinForSeek() override {}

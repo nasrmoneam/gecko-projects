@@ -69,7 +69,7 @@
          Components.classes["@mozilla.org/autocomplete/search;1?name=unifiedcomplete"]
                    .getService(Components.interfaces.mozIPlacesAutoComplete);
       </field>
-      <field name="mTabBox" readonly="true">
+      <field name="tabbox" readonly="true">
         document.getAnonymousElementByAttribute(this, "anonid", "tabbox");
       </field>
       <field name="mPanelContainer" readonly="true">
@@ -211,42 +211,6 @@
         ]]></body>
       </method>
 
-      <method name="_setCloseKeyState">
-        <parameter name="aEnabled"/>
-        <body><![CDATA[
-          let keyClose = document.getElementById("key_close");
-          let closeKeyEnabled = keyClose.getAttribute("disabled") != "true";
-          if (closeKeyEnabled == aEnabled)
-            return;
-
-          if (aEnabled)
-            keyClose.removeAttribute("disabled");
-          else
-            keyClose.setAttribute("disabled", "true");
-
-          // We also want to remove the keyboard shortcut from the file menu
-          // when the shortcut is disabled, and bring it back when it's
-          // renabled.
-          //
-          // Fixing bug 630826 could make that happen automatically.
-          // Fixing bug 630830 could avoid the ugly hack below.
-
-          let closeMenuItem = document.getElementById("menu_close");
-          let parentPopup = closeMenuItem.parentNode;
-          let nextItem = closeMenuItem.nextSibling;
-          let clonedItem = closeMenuItem.cloneNode(true);
-
-          parentPopup.removeChild(closeMenuItem);
-
-          if (aEnabled)
-            clonedItem.setAttribute("key", "key_close");
-          else
-            clonedItem.removeAttribute("key");
-
-          parentPopup.insertBefore(clonedItem, nextItem);
-        ]]></body>
-      </method>
-
       <method name="pinTab">
         <parameter name="aTab"/>
         <body><![CDATA[
@@ -262,10 +226,7 @@
           this.tabContainer._positionPinnedTabs();
           this.tabContainer._updateCloseButtons();
 
-          this.getBrowserForTab(aTab).messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: true })
-
-          if (aTab.selected)
-            this._setCloseKeyState(false);
+          this.getBrowserForTab(aTab).messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: true });
 
           let event = document.createEvent("Events");
           event.initEvent("TabPinned", true, false);
@@ -286,10 +247,7 @@
           this.tabContainer._positionPinnedTabs();
           this.tabContainer._updateCloseButtons();
 
-          this.getBrowserForTab(aTab).messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: false })
-
-          if (aTab.selected)
-            this._setCloseKeyState(true);
+          this.getBrowserForTab(aTab).messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: false });
 
           let event = document.createEvent("Events");
           event.initEvent("TabUnpinned", true, false);
@@ -312,6 +270,54 @@
               this.selectedTab = currentTab;
               this._previewMode = false;
             }
+          ]]>
+        </body>
+      </method>
+
+      <method name="syncThrobberAnimations">
+        <parameter name="aTab"/>
+        <body>
+          <![CDATA[
+            BrowserUtils.promiseLayoutFlushed(aTab.ownerDocument, "style", () => {
+              if (!aTab.parentNode) {
+                return;
+              }
+
+              const animations =
+                Array.from(aTab.parentNode.getElementsByTagName("tab"))
+                .map(tab => {
+                  const throbber =
+                    document.getAnonymousElementByAttribute(tab, "anonid", "tab-throbber");
+                  return throbber ? throbber.getAnimations({ subtree: true }) : [];
+                })
+                .reduce((a, b) => a.concat(b))
+                .filter(anim =>
+                  anim instanceof CSSAnimation &&
+                  (anim.animationName === "tab-throbber-animation" ||
+                   anim.animationName === "tab-throbber-animation-rtl") &&
+                  (anim.playState === "running" || anim.playState === "pending"));
+
+              // Synchronize with the oldest running animation, if any.
+              const firstStartTime = Math.min(
+                ...animations.map(anim => anim.startTime === null ? Infinity : anim.startTime)
+              );
+              if (firstStartTime === Infinity) {
+                return;
+              }
+              requestAnimationFrame(() => {
+                for (let animation of animations) {
+                  // If |animation| has been cancelled since this rAF callback
+                  // was scheduled we don't want to set its startTime since
+                  // that would restart it. We check for a cancelled animation
+                  // by looking for a null currentTime rather than checking
+                  // the playState, since reading the playState of
+                  // a CSSAnimation object will flush style.
+                  if (animation.currentTime !== null) {
+                    animation.startTime = firstStartTime;
+                  }
+                }
+              });
+            });
           ]]>
         </body>
       </method>
@@ -613,50 +619,6 @@
               return location == "about:blank";
             },
 
-            _syncThrobberAnimations() {
-              const originalTab = this.mTab;
-              BrowserUtils.promiseLayoutFlushed(this.mTab.ownerDocument, "style", () => {
-                if (!originalTab.parentNode) {
-                  return;
-                }
-
-                const animations =
-                  Array.from(originalTab.parentNode.getElementsByTagName("tab"))
-                  .map(tab => {
-                    const throbber =
-                      document.getAnonymousElementByAttribute(tab, "anonid", "tab-throbber");
-                    return throbber ? throbber.getAnimations({ subtree: true }) : [];
-                  })
-                  .reduce((a, b) => a.concat(b))
-                  .filter(anim =>
-                    anim instanceof CSSAnimation &&
-                    (anim.animationName === "tab-throbber-animation" ||
-                     anim.animationName === "tab-throbber-animation-rtl") &&
-                    (anim.playState === "running" || anim.playState === "pending"));
-
-                // Synchronize with the oldest running animation, if any.
-                const firstStartTime = Math.min(
-                  ...animations.map(anim => anim.startTime === null ? Infinity : anim.startTime)
-                );
-                if (firstStartTime === Infinity) {
-                  return;
-                }
-                requestAnimationFrame(() => {
-                  for (let animation of animations) {
-                    // If |animation| has been cancelled since this rAF callback
-                    // was scheduled we don't want to set its startTime since
-                    // that would restart it. We check for a cancelled animation
-                    // by looking for a null currentTime rather than checking
-                    // the playState, since reading the playState of
-                    // a CSSAnimation object will flush style.
-                    if (animation.currentTime !== null) {
-                      animation.startTime = firstStartTime;
-                    }
-                  }
-                });
-              });
-            },
-
             onProgressChange(aWebProgress, aRequest,
                              aCurSelfProgress, aMaxSelfProgress,
                              aCurTotalProgress, aMaxTotalProgress) {
@@ -690,7 +652,7 @@
               const nsIChannel = Components.interfaces.nsIChannel;
               let location, originalLocation;
               try {
-                aRequest.QueryInterface(nsIChannel)
+                aRequest.QueryInterface(nsIChannel);
                 location = aRequest.URI;
                 originalLocation = aRequest.originalURI;
               } catch (ex) {}
@@ -782,7 +744,7 @@
                         return {continueMonitoring};
                       },
                     });
-                    this._syncThrobberAnimations();
+                    this.mTabBrowser.syncThrobberAnimations(this.mTab);
                   }
 
                   if (this.mTab.selected) {
@@ -837,7 +799,8 @@
                     this.mBrowser.urlbarChangeTracker.finishedLoad();
                   }
 
-                  if (!this.mBrowser.mIconURL) {
+                  // Ignore initial about:blank to prevent flickering.
+                  if (!this.mBrowser.mIconURL && !ignoreBlank) {
                     this.mTabBrowser.useDefaultIcon(this.mTab);
                   }
                 }
@@ -1012,10 +975,6 @@
           .getService(Ci.nsISerializationHelper);
       </field>
 
-      <field name="mIconLoadingPrincipal">
-        null
-      </field>
-
       <method name="storeIcon">
         <parameter name="aBrowser"/>
         <parameter name="aURI"/>
@@ -1088,7 +1047,7 @@
         <body>
           <![CDATA[
             if (aURL) {
-              let pageInfo = {url: aURL, description: aDescription, previewImageURL: aPreviewImage}
+              let pageInfo = {url: aURL, description: aDescription, previewImageURL: aPreviewImage};
               PlacesUtils.history.update(pageInfo).catch(Components.utils.reportError);
             }
           ]]>
@@ -1248,7 +1207,7 @@
                     this._tabSwitchID = null;
                   }
                   window.removeEventListener("MozAfterPaint", onMozAfterPaint);
-                }
+                };
                 window.addEventListener("MozAfterPaint", onMozAfterPaint);
               }
             }
@@ -1370,8 +1329,6 @@
                                           true, false);
             }
 
-            this._setCloseKeyState(!this.mCurrentTab.pinned);
-
             // TabSelect events are suppressed during preview mode to avoid confusing extensions and other bits of code
             // that might rely upon the other changes suppressed.
             // Focus is suppressed in the event that the main browser window is minimized - focusing a tab would restore the window
@@ -1425,6 +1382,12 @@
             gIdentityHandler.updateSharingIndicator();
 
             this.tabContainer._setPositionalAttributes();
+
+            // Enable touch events to start a native dragging
+            // session to allow the user to easily drag the selected tab.
+            // This is currently only supported on Windows.
+            oldTab.removeAttribute("touchdownstartsdrag");
+            this.mCurrentTab.setAttribute("touchdownstartsdrag", "true");
 
             if (!gMultiProcessBrowser) {
               document.commandDispatcher.unlock();
@@ -1769,7 +1732,7 @@
                 typeof arguments[1] == "object" &&
                 !(arguments[1] instanceof Ci.nsIURI)) {
               let params = arguments[1];
-              aTriggeringPrincipal      = params.triggeringPrincipal
+              aTriggeringPrincipal      = params.triggeringPrincipal;
               aReferrerURI              = params.referrerURI;
               aReferrerPolicy           = params.referrerPolicy;
               aCharset                  = params.charset;
@@ -2073,7 +2036,7 @@
               // crashed.
               tab.removeAttribute("crashed");
             } else {
-              aBrowser.messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: tab.pinned })
+              aBrowser.messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: tab.pinned });
 
               // Register the new outerWindowID.
               this._outerWindowIDBrowserMap.set(aBrowser.outerWindowID, aBrowser);
@@ -2433,7 +2396,7 @@
                   getter = () => {
                     if (AppConstants.NIGHTLY_BUILD) {
                       let message =
-                        `[bug 1345098] Lazy browser prematurely inserted via '${name}' property access:\n`
+                        `[bug 1345098] Lazy browser prematurely inserted via '${name}' property access:\n`;
                       console.log(message + new Error().stack);
                     }
                     this._insertBrowser(aTab);
@@ -2442,7 +2405,7 @@
                   setter = value => {
                     if (AppConstants.NIGHTLY_BUILD) {
                       let message =
-                        `[bug 1345098] Lazy browser prematurely inserted via '${name}' property access:\n`
+                        `[bug 1345098] Lazy browser prematurely inserted via '${name}' property access:\n`;
                       console.log(message + new Error().stack);
                     }
                     this._insertBrowser(aTab);
@@ -2533,11 +2496,14 @@
 
       <method name="discardBrowser">
         <parameter name="aBrowser"/>
+        <parameter name="aForceDiscard"/>
         <body>
           <![CDATA[
             "use strict";
 
             let tab = this.getTabForBrowser(aBrowser);
+
+            let permitUnloadFlags = aForceDiscard ? aBrowser.dontPromptAndUnload : aBrowser.dontPromptAndDontUnload;
 
             if (!tab ||
                 tab.selected ||
@@ -2545,7 +2511,7 @@
                 this._windowIsClosing ||
                 !aBrowser.isConnected ||
                 !aBrowser.isRemoteBrowser ||
-                aBrowser.frameLoader.tabParent.hasBeforeUnload) {
+                !aBrowser.permitUnload(permitUnloadFlags).permitUnload) {
               return;
             }
 
@@ -2845,6 +2811,12 @@
               throw e;
             }
 
+            // Hack to ensure that the about:newtab favicon is loaded
+            // instantaneously, to avoid flickering and improve perceived performance.
+            if (aURI == BROWSER_NEW_TAB_URL) {
+              this.setIcon(t, "chrome://branding/content/icon32.png");
+            }
+
             // Dispatch a new tab notification.  We do this once we're
             // entirely done, so that things are in a consistent state
             // even if the event listener opens or closes tabs.
@@ -3055,7 +3027,7 @@
               let tab = tabs[i];
               if (tab != aTab && !tab.pinned) {
                 if (this._hasBeforeUnload(tab))
-                  tabsWithBeforeUnload.push(tab)
+                  tabsWithBeforeUnload.push(tab);
                 else
                   this.removeTab(tab, {animate: true});
               }
@@ -3935,10 +3907,10 @@
         <setter>
           <![CDATA[
           if (gNavToolbox.collapsed && !this._allowTabChange) {
-            return this.mTabBox.selectedTab;
+            return this.tabbox.selectedTab;
           }
           // Update the tab
-          this.mTabBox.selectedTab = val;
+          this.tabbox.selectedTab = val;
           return val;
           ]]>
         </setter>
@@ -4625,7 +4597,7 @@
 
                 this.maybeVisibleTabs.add(showTab);
 
-                let tabs = this.tabbrowser.mTabBox.tabs;
+                let tabs = this.tabbrowser.tabbox.tabs;
                 let tabPanel = this.tabbrowser.mPanelContainer;
                 let showPanel = tabs.getRelatedElement(showTab);
                 let index = Array.indexOf(tabPanel.childNodes, showPanel);
@@ -5431,10 +5403,6 @@
                 onget="return this.mCurrentBrowser.markupDocumentViewer;"
                 readonly="true"/>
 
-      <property name="contentViewerEdit"
-                onget="return this.mCurrentBrowser.contentViewerEdit;"
-                readonly="true"/>
-
       <property name="contentDocument"
                 onget="return this.mCurrentBrowser.contentDocument;"
                 readonly="true"/>
@@ -5668,7 +5636,7 @@
                 return undefined;
 
               this._outerWindowIDBrowserMap.set(browser.outerWindowID, browser);
-              browser.messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: tab.pinned })
+              browser.messageManager.sendAsyncMessage("Browser:AppTab", { isAppTab: tab.pinned });
               break;
             }
             case "Browser:WindowCreated": {
@@ -5858,10 +5826,15 @@
 
       <method name="_updateNewTabVisibility">
         <body><![CDATA[
-          let sib = this.tabContainer.nextElementSibling;
-          while (sib && sib.hidden) {
-            sib = sib.nextElementSibling;
-          }
+          // Helper functions to help deal with customize mode wrapping some items
+          let wrap = n => n.parentNode.localName == "toolbarpaletteitem" ? n.parentNode : n;
+          let unwrap = n => n && n.localName == "toolbarpaletteitem" ? n.firstElementChild : n;
+
+          let sib = this.tabContainer;
+          do {
+            sib = unwrap(wrap(sib).nextElementSibling);
+          } while (sib && sib.hidden);
+
           const kAttr = "hasadjacentnewtabbutton";
           if (sib && sib.id == "new-tab-button") {
             this.tabContainer.setAttribute(kAttr, "true");
@@ -6223,7 +6196,7 @@
       </handler>
       <handler event="DOMAudioPlaybackStarted">
         <![CDATA[
-          var tab = this.getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event);
           if (!tab) {
             return;
           }
@@ -6253,7 +6226,7 @@
       </handler>
       <handler event="DOMAudioPlaybackStopped">
         <![CDATA[
-          var tab = this.getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event);
           if (!tab) {
             return;
           }
@@ -6275,7 +6248,7 @@
       </handler>
       <handler event="DOMAudioPlaybackBlockStarted">
         <![CDATA[
-          var tab = this.getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event);
           if (!tab) {
             return;
           }
@@ -6289,7 +6262,7 @@
       </handler>
       <handler event="DOMAudioPlaybackBlockStopped">
         <![CDATA[
-          var tab = this.getTabFromAudioEvent(event)
+          var tab = this.getTabFromAudioEvent(event);
           if (!tab) {
             return;
           }
@@ -6433,7 +6406,7 @@
       </field>
 
       <field name="tabbox" readonly="true">
-        this.tabbrowser.mTabBox;
+        this.tabbrowser.tabbox;
       </field>
 
       <field name="contextMenu" readonly="true">
@@ -6526,7 +6499,7 @@
               }
 
               const newTab = document.getElementById("new-tab-button");
-              const newTab2 = document.getAnonymousElementByAttribute(this, "anonid", "tabs-newtab-button")
+              const newTab2 = document.getAnonymousElementByAttribute(this, "anonid", "tabs-newtab-button");
 
               for (let parent of [newTab, newTab2]) {
                 if (!parent)
@@ -6825,6 +6798,14 @@
         ]]></body>
       </method>
 
+      <method name="uiDensityChanged">
+        <body><![CDATA[
+          this._positionPinnedTabs();
+          this._updateCloseButtons();
+          this._handleTabSelect(true);
+        ]]></body>
+      </method>
+
       <field name="_lastNumPinned">0</field>
       <field name="_pinnedTabsLayoutCache">null</field>
       <method name="_positionPinnedTabs">
@@ -6837,9 +6818,12 @@
             this.setAttribute("positionpinnedtabs", "true");
 
             let layoutData = this._pinnedTabsLayoutCache;
-            if (!layoutData) {
+            let uiDensity = document.documentElement.getAttribute("uidensity");
+            if (!layoutData ||
+                layoutData.uiDensity != uiDensity) {
               let arrowScrollbox = this.arrowScrollbox;
               layoutData = this._pinnedTabsLayoutCache = {
+                uiDensity,
                 pinnedTabWidth: this.childNodes[0].getBoundingClientRect().width,
                 scrollButtonWidth: arrowScrollbox._scrollButtonDown.getBoundingClientRect().width
               };
@@ -7407,7 +7391,7 @@
           if (platform == "win" || platform == "macosx") {
             captureListener = function() {
               dt.updateDragImage(canvas, dragImageOffset, dragImageOffset);
-            }
+            };
           } else {
             // Create a panel to use it in setDragImage
             // which will tell xul to render a panel that follows
@@ -7569,8 +7553,8 @@
           if (draggedTab.parentNode != this || event.shiftKey)
             this.selectedItem = newTab;
         } else if (draggedTab && draggedTab.parentNode == this) {
-          let oldTranslateX = draggedTab._dragData.translateX;
-          let tabWidth = draggedTab._dragData.tabWidth;
+          let oldTranslateX = Math.round(draggedTab._dragData.translateX);
+          let tabWidth = Math.round(draggedTab._dragData.tabWidth);
           let translateOffset = oldTranslateX % tabWidth;
           let newTranslateX = oldTranslateX - translateOffset;
           if (oldTranslateX > 0 && translateOffset > tabWidth / 2) {
@@ -7600,7 +7584,9 @@
               this._finishAnimateTabMove();
               if (dropIndex !== false)
                 this.tabbrowser.moveTabTo(draggedTab, dropIndex);
-            }
+
+              this.tabbrowser.syncThrobberAnimations(draggedTab);
+            };
             draggedTab.addEventListener("transitionend", onTransitionEnd);
           } else {
             this._finishAnimateTabMove();

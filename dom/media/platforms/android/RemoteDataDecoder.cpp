@@ -20,6 +20,12 @@
 
 #include <jni.h>
 
+#ifdef NIGHTLY_BUILD
+#define DEBUG_SHUTDOWN(fmt, ...) printf_stderr("[DEBUG SHUTDOWN] %s: " fmt "\n", __func__, ##__VA_ARGS__)
+#else
+#define DEBUG_SHUTDOWN(...) do { } while (0)
+#endif
+
 #undef LOG
 #define LOG(arg, ...)                                                          \
   MOZ_LOG(sAndroidDecoderModuleLog,                                            \
@@ -540,6 +546,7 @@ RemoteDataDecoder::ProcessShutdown()
 
   mFormat = nullptr;
 
+  DEBUG_SHUTDOWN("decoder=%p mime=%s", this, mMimeType.get());
   return ShutdownPromise::CreateAndResolve(true, __func__);
 }
 
@@ -638,12 +645,14 @@ void
 RemoteDataDecoder::UpdateInputStatus(int64_t aTimestamp, bool aProcessed)
 {
   if (!mTaskQueue->IsCurrentThreadIn()) {
-    mTaskQueue->Dispatch(
-      NewRunnableMethod<int64_t, bool>("RemoteDataDecoder::UpdateInputStatus",
-                                       this,
-                                       &RemoteDataDecoder::UpdateInputStatus,
-                                       aTimestamp,
-                                       aProcessed));
+    nsresult rv =
+      mTaskQueue->Dispatch(
+        NewRunnableMethod<int64_t, bool>("RemoteDataDecoder::UpdateInputStatus",
+                                         this,
+                                         &RemoteDataDecoder::UpdateInputStatus,
+                                         aTimestamp,
+                                         aProcessed));
+    MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
     return;
   }
   AssertOnTaskQueue();
@@ -667,11 +676,13 @@ void
 RemoteDataDecoder::UpdateOutputStatus(RefPtr<MediaData>&& aSample)
 {
   if (!mTaskQueue->IsCurrentThreadIn()) {
-    mTaskQueue->Dispatch(
-      NewRunnableMethod<const RefPtr<MediaData>>("RemoteDataDecoder::UpdateOutputStatus",
-                                                 this,
-                                                 &RemoteDataDecoder::UpdateOutputStatus,
-                                                 Move(aSample)));
+    nsresult rv =
+      mTaskQueue->Dispatch(
+        NewRunnableMethod<const RefPtr<MediaData>>("RemoteDataDecoder::UpdateOutputStatus",
+                                                   this,
+                                                   &RemoteDataDecoder::UpdateOutputStatus,
+                                                   Move(aSample)));
+    MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
     return;
   }
   AssertOnTaskQueue();
@@ -705,9 +716,11 @@ void
 RemoteDataDecoder::DrainComplete()
 {
   if (!mTaskQueue->IsCurrentThreadIn()) {
-    mTaskQueue->Dispatch(
-      NewRunnableMethod("RemoteDataDecoder::DrainComplete",
-                        this, &RemoteDataDecoder::DrainComplete));
+    nsresult rv =
+      mTaskQueue->Dispatch(
+        NewRunnableMethod("RemoteDataDecoder::DrainComplete",
+                          this, &RemoteDataDecoder::DrainComplete));
+    MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
     return;
   }
   AssertOnTaskQueue();
@@ -724,9 +737,12 @@ void
 RemoteDataDecoder::Error(const MediaResult& aError)
 {
   if (!mTaskQueue->IsCurrentThreadIn()) {
-    mTaskQueue->Dispatch(
-      NewRunnableMethod<MediaResult>("RemoteDataDecoder::Error",
-                                     this, &RemoteDataDecoder::Error, aError));
+    nsresult rv =
+      mTaskQueue->Dispatch(
+        NewRunnableMethod<MediaResult>("RemoteDataDecoder::Error",
+                                       this, &RemoteDataDecoder::Error,
+                                       aError));
+    MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
     return;
   }
   AssertOnTaskQueue();

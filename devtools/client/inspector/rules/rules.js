@@ -25,6 +25,7 @@ const {
   VIEW_NODE_IMAGE_URL_TYPE,
   VIEW_NODE_LOCATION_TYPE,
   VIEW_NODE_SHAPE_POINT_TYPE,
+  VIEW_NODE_VARIABLE_TYPE,
 } = require("devtools/client/inspector/shared/node-types");
 const StyleInspectorMenu = require("devtools/client/inspector/shared/style-inspector-menu");
 const TooltipsOverlay = require("devtools/client/inspector/shared/tooltips-overlay");
@@ -337,6 +338,19 @@ CssRuleView.prototype = {
         textProperty: prop,
         toggleActive: getShapeToggleActive(node),
         point: getShapePoint(node)
+      };
+    } else if ((classes.contains("ruleview-variable") ||
+                classes.contains("ruleview-unmatched-variable")) && prop) {
+      type = VIEW_NODE_VARIABLE_TYPE;
+      value = {
+        property: getPropertyNameAndValue(node).name,
+        value: node.textContent,
+        enabled: prop.enabled,
+        overridden: prop.overridden,
+        pseudoElement: prop.rule.pseudoElement,
+        sheetHref: prop.rule.domRule.href,
+        textProperty: prop,
+        variable: node.dataset.variable
       };
     } else if (classes.contains("theme-link") &&
                !classes.contains("ruleview-rule-source") && prop) {
@@ -1588,12 +1602,10 @@ function RuleViewTool(inspector, window) {
   this.refresh = this.refresh.bind(this);
   this.onMutations = this.onMutations.bind(this);
   this.onPanelSelected = this.onPanelSelected.bind(this);
-  this.onPropertyChanged = this.onPropertyChanged.bind(this);
   this.onResized = this.onResized.bind(this);
   this.onSelected = this.onSelected.bind(this);
   this.onViewRefreshed = this.onViewRefreshed.bind(this);
 
-  this.view.on("ruleview-changed", this.onPropertyChanged);
   this.view.on("ruleview-refreshed", this.onViewRefreshed);
 
   this.inspector.selection.on("detached-front", this.onSelected);
@@ -1666,10 +1678,6 @@ RuleViewTool.prototype = {
     }
   },
 
-  onPropertyChanged: function () {
-    this.inspector.markDirty();
-  },
-
   onViewRefreshed: function () {
     this.inspector.emit("rule-view-refreshed");
   },
@@ -1708,7 +1716,6 @@ RuleViewTool.prototype = {
       this.inspector.pageStyle.off("stylesheet-updated", this.refresh);
     }
 
-    this.view.off("ruleview-changed", this.onPropertyChanged);
     this.view.off("ruleview-refreshed", this.onViewRefreshed);
 
     this.view.destroy();

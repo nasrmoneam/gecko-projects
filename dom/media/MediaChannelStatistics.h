@@ -6,6 +6,8 @@
 #if !defined(MediaChannelStatistics_h_)
 #define MediaChannelStatistics_h_
 
+#include "mozilla/TimeStamp.h"
+
 namespace mozilla {
 
 // Number of bytes we have accumulated before we assume the connection download
@@ -29,8 +31,8 @@ static const int64_t RELIABLE_DATA_THRESHOLD = 57 * 1460;
 class MediaChannelStatistics {
 public:
   MediaChannelStatistics() = default;
-
   MediaChannelStatistics(const MediaChannelStatistics&) = default;
+  MediaChannelStatistics& operator=(const MediaChannelStatistics&) = default;
 
   void Reset() {
     mLastStartTime = TimeStamp();

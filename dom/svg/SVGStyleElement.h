@@ -44,7 +44,7 @@ public:
                               bool aCompileEventHandlers) override;
   virtual void UnbindFromTree(bool aDeep = true,
                               bool aNullParent = true) override;
-  using nsIContent::SetAttr;
+  using Element::SetAttr;
   virtual nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName,
                            nsAtom* aPrefix, const nsAString& aValue,
                            nsIPrincipal* aSubjectPrincipal,
@@ -54,6 +54,7 @@ public:
   virtual bool ParseAttribute(int32_t aNamespaceID,
                               nsAtom* aAttribute,
                               const nsAString& aValue,
+                              nsIPrincipal* aMaybeScriptedPrincipal,
                               nsAttrValue& aResult) override;
 
   virtual nsresult Clone(mozilla::dom::NodeInfo *aNodeInfo, nsINode **aResult,

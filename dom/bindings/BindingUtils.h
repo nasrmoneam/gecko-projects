@@ -1025,7 +1025,9 @@ struct TypeNeedsOuterization
   // We only need to outerize Window objects, so anything inheriting from
   // nsGlobalWindow (which inherits from EventTarget itself).
   static const bool value =
-    IsBaseOf<nsGlobalWindow, T>::value || IsSame<EventTarget, T>::value;
+    IsBaseOf<nsGlobalWindowInner, T>::value ||
+    IsBaseOf<nsGlobalWindowOuter, T>::value ||
+    IsSame<EventTarget, T>::value;
 };
 
 #ifdef DEBUG
@@ -3097,7 +3099,7 @@ struct CreateGlobalOptions
 };
 
 template <>
-struct CreateGlobalOptions<nsGlobalWindow>
+struct CreateGlobalOptions<nsGlobalWindowInner>
 {
   static constexpr ProtoAndIfaceCache::Kind ProtoAndIfaceCacheKind =
     ProtoAndIfaceCache::WindowLike;
@@ -3389,11 +3391,11 @@ GetDesiredProto(JSContext* aCx, const JS::CallArgs& aCallArgs,
 CustomElementReactionsStack*
 GetCustomElementReactionsStack(JS::Handle<JSObject*> aObj);
 // This function is expected to be called from the constructor function for an
-// HTML element interface; the global/callargs need to be whatever was passed to
-// that constructor function.
-already_AddRefed<nsGenericHTMLElement>
-CreateHTMLElement(const GlobalObject& aGlobal, const JS::CallArgs& aCallArgs,
-                  JS::Handle<JSObject*> aGivenProto, ErrorResult& aRv);
+// HTML or XUL element interface; the global/callargs need to be whatever was
+// passed to that constructor function.
+already_AddRefed<Element>
+CreateXULOrHTMLElement(const GlobalObject& aGlobal, const JS::CallArgs& aCallArgs,
+                       JS::Handle<JSObject*> aGivenProto, ErrorResult& aRv);
 
 void
 SetDocumentAndPageUseCounter(JSObject* aObject, UseCounter aUseCounter);

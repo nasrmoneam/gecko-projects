@@ -7,10 +7,7 @@
 
 const { EVENTS } = require("../constants");
 const { CurlUtils } = require("devtools/client/shared/curl");
-const {
-  fetchHeaders,
-  formDataURI,
-} = require("../utils/request-utils");
+const { fetchHeaders } = require("../utils/request-utils");
 
 /**
  * This object is responsible for fetching additional HTTP
@@ -30,8 +27,13 @@ class FirefoxDataProvider {
     this.payloadQueue = [];
     this.rdpRequestMap = new Map();
 
+    // Map[key string => Promise] used by `requestData` to prevent requesting the same
+    // request data twice.
+    this.lazyRequestData = new Map();
+
     // Fetching data from the backend
     this.getLongString = this.getLongString.bind(this);
+    this.getRequestFromQueue = this.getRequestFromQueue.bind(this);
 
     // Event handlers
     this.onNetworkEvent = this.onNetworkEvent.bind(this);
@@ -63,6 +65,12 @@ class FirefoxDataProvider {
         url,
         isXHR,
         cause,
+
+        // Compatibility code to support Firefox 58 and earlier that always
+        // send stack-trace immediately on networkEvent message.
+        // FF59+ supports fetching the traces lazily via requestData.
+        stacktrace: cause.stacktrace,
+
         fromCache,
         fromServiceWorker},
         true,
@@ -117,18 +125,15 @@ class FirefoxDataProvider {
     );
 
     this.pushRequestToQueue(id, payload);
+
+    return payload;
   }
 
   async fetchResponseContent(mimeType, responseContent) {
     let payload = {};
     if (mimeType && responseContent && responseContent.content) {
-      let { encoding, text } = responseContent.content;
+      let { text } = responseContent.content;
       let response = await this.getLongString(text);
-
-      if (mimeType.includes("image/")) {
-        payload.responseContentDataUri = formDataURI(mimeType, encoding, response);
-      }
-
       responseContent.content.text = response;
       payload.responseContent = responseContent;
     }
@@ -173,6 +178,10 @@ class FirefoxDataProvider {
       requestPostData.postData.text = postData;
       payload.requestPostData = Object.assign({}, requestPostData);
       payload.requestHeadersFromUploadStream = { headers, headersSize };
+
+      // Lock down requestPostDataAvailable once we fetch data from back-end.
+      // Using this as flag to prevent fetching arrived data again.
+      payload.requestPostDataAvailable = false;
     }
     return payload;
   }
@@ -195,6 +204,10 @@ class FirefoxDataProvider {
           payload.responseCookies = resCookies;
         }
       }
+
+      // Lock down responseCookiesAvailable once we fetch data from back-end.
+      // Using this as flag to prevent fetching arrived data again.
+      payload.responseCookiesAvailable = false;
     }
     return payload;
   }
@@ -217,6 +230,10 @@ class FirefoxDataProvider {
           payload.requestCookies = reqCookies;
         }
       }
+
+      // Lock down requestCookiesAvailable once we fetch data from back-end.
+      // Using this as flag to prevent fetching arrived data again.
+      payload.requestCookiesAvailable = false;
     }
     return payload;
   }
@@ -232,6 +249,15 @@ class FirefoxDataProvider {
   }
 
   /**
+   * Public API used by the Toolbox: Tells if there is still any pending request.
+   *
+   * @return {boolean} returns true if the payload queue is empty
+   */
+  isPayloadQueueEmpty() {
+    return this.payloadQueue.length === 0;
+  }
+
+  /**
    * Return true if payload is ready (all data fetched from the backend)
    *
    * @param {string} id request id
@@ -243,10 +269,15 @@ class FirefoxDataProvider {
       return false;
     }
 
+    let { payload } = this.getRequestFromQueue(id);
+
     // The payload is ready when all values in the record are true.
-    // (i.e. all data received).
-    let props = Object.getOwnPropertyNames(record);
-    return props.every(prop => record[prop] === true);
+    // Note that we never fetch response header/cookies for request with security issues.
+    // Bug 1404917 should simplify this heuristic by making all these field be lazily
+    // fetched, only on-demand.
+    return record.requestHeaders && record.eventTimings &&
+      (record.responseHeaders || payload.securityState === "broken" ||
+        (!payload.status && payload.responseContentAvailable));
   }
 
   /**
@@ -318,9 +349,8 @@ class FirefoxDataProvider {
     // Create tracking record for this request.
     this.rdpRequestMap.set(actor, {
       requestHeaders: false,
-      requestCookies: false,
+      responseHeaders: false,
       eventTimings: false,
-      responseContent: false,
     });
 
     this.addRequest(actor, {
@@ -348,52 +378,26 @@ class FirefoxDataProvider {
     let { actor } = networkInfo;
     let { updateType } = packet;
 
+    // When we pause and resume, we may receive `networkEventUpdate` for a request
+    // that started during the pause and we missed its `networkEvent`.
+    if (!this.rdpRequestMap.has(actor)) {
+      return;
+    }
+
     switch (updateType) {
       case "requestHeaders":
-        this.requestData(actor, updateType).then(response => {
-          this.onRequestHeaders(response)
-            .then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_REQUEST_HEADERS, actor);
-        });
+      case "responseHeaders":
+        this.requestPayloadData(actor, updateType);
         break;
       case "requestCookies":
-        this.requestData(actor, updateType).then(response => {
-          this.onRequestCookies(response)
-            .then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_REQUEST_COOKIES, actor);
-        });
-        break;
+      case "responseCookies":
       case "requestPostData":
-        this.requestData(actor, updateType).then(response => {
-          this.onRequestPostData(response)
-            .then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_REQUEST_POST_DATA, actor);
-        });
+        // This field helps knowing when/if updateType property is available
+        // and can be requested via `requestData`
+        this.updateRequest(actor, { [`${updateType}Available`]: true });
         break;
       case "securityInfo":
-        this.updateRequest(actor, {
-          securityState: networkInfo.securityInfo,
-        }).then(() => {
-          this.requestData(actor, updateType).then(response => {
-            this.onSecurityInfo(response)
-              .then(() => this.onDataReceived(actor, updateType));
-            emit(EVENTS.UPDATING_SECURITY_INFO, actor);
-          });
-        });
-        break;
-      case "responseHeaders":
-        this.requestData(actor, updateType).then(response => {
-          this.onResponseHeaders(response)
-            .then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_RESPONSE_HEADERS, actor);
-        });
-        break;
-      case "responseCookies":
-        this.requestData(actor, updateType).then(response => {
-          this.onResponseCookies(response)
-            .then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_RESPONSE_COOKIES, actor);
-        });
+        this.updateRequest(actor, { securityState: networkInfo.securityInfo });
         break;
       case "responseStart":
         this.updateRequest(actor, {
@@ -408,24 +412,18 @@ class FirefoxDataProvider {
         });
         break;
       case "responseContent":
-        this.requestData(actor, updateType).then(response => {
-          this.onResponseContent({
-            contentSize: networkInfo.response.bodySize,
-            transferredSize: networkInfo.response.transferredSize,
-            mimeType: networkInfo.response.content.mimeType
-          }, response).then(() => this.onDataReceived(actor, updateType));
-          emit(EVENTS.UPDATING_RESPONSE_CONTENT, actor);
+        this.updateRequest(actor, {
+          contentSize: networkInfo.response.bodySize,
+          transferredSize: networkInfo.response.transferredSize,
+          mimeType: networkInfo.response.content.mimeType,
+          // This field helps knowing when/if responseContent property is available
+          // and can be requested via `requestData`
+          responseContentAvailable: true,
         });
         break;
       case "eventTimings":
-        this.updateRequest(actor, { totalTime: networkInfo.totalTime })
-          .then(() => {
-            this.requestData(actor, updateType).then(response => {
-              this.onEventTimings(response)
-                .then(() => this.onDataReceived(actor, updateType));
-              emit(EVENTS.UPDATING_EVENT_TIMINGS, actor);
-            });
-          });
+        this.pushRequestToQueue(actor, { totalTime: networkInfo.totalTime });
+        this.requestPayloadData(actor, updateType);
         break;
     }
 
@@ -433,65 +431,43 @@ class FirefoxDataProvider {
   }
 
   /**
-   * Wrapper method for requesting HTTP details data from the backend.
+   * Wrapper method for requesting HTTP details data for the payload.
    *
-   * It collects all RDP requests and monitors responses, so it's
-   * possible to determine whether (and when) all requested data
-   * has been fetched from the backend.
+   * It is specific to all requests done from `onNetworkEventUpdate`, for data that are
+   * immediately fetched whenever the data is available.
    *
-   * It also nicely returns a promise.
+   * All these requests are cached into `rdpRequestMap`. All requests related to a given
+   * actor will be collected in the same record.
+   *
+   * Once bug 1404917 is completed, we should no longer use this method.
+   * All request fields should be loaded only on-demand, via `requestData` method.
    *
    * @param {string} actor actor id (used as request id)
    * @param {string} method identifier of the data we want to fetch
-   *
-   * @return {Promise} return a promise resolved when data are received.
    */
-  requestData(actor, method) {
+  requestPayloadData(actor, method) {
     let record = this.rdpRequestMap.get(actor);
 
-    // All RDP requests related to the given actor will be collected
-    // in the same record.
-    if (!record) {
-      record = {};
+    // If data has been already requested, do nothing.
+    if (record[method]) {
+      return;
     }
 
-    // If data has been already requested return the same promise.
-    if (record.method) {
-      return record.method;
-    }
-
-    // Calculate real name of the client getter.
-    let realMethodName = "get" + method.charAt(0).toUpperCase() +
-      method.slice(1);
-
-    // Request data from the backend.
-    let promise = new Promise((resolve, reject) => {
-      if (typeof this.webConsoleClient[realMethodName] == "function") {
-        this.webConsoleClient[realMethodName](actor, response => {
-          // Resolve incoming HTTP details data-promise.
-          resolve(response);
-        });
-      } else {
-        reject(new Error("Error: No such client method!"));
-      }
+    let promise = this._requestData(actor, method);
+    promise.then(() => {
+      // Once we got the data toggle the Map item to `true` in order to
+      // make isRequestPayloadReady return `true` once all the data is fetched.
+      record[method] = true;
+      this.onPayloadDataReceived(actor, method, !record);
     });
-
-    // Store the promise in order to know about RDP requests
-    // in progress.
-    record[method] = promise;
-
-    return promise;
   }
 
   /**
    * Executed when new data are received from the backend.
    */
-  async onDataReceived(actor, type) {
-    let record = this.rdpRequestMap.get(actor);
-    if (record) {
-      record[type] = true;
-    }
-
+  async onPayloadDataReceived(actor, type) {
+    // Notify actions when all the sync request from onNetworkEventUpdate are done,
+    // or, everytime requestData is called for fetching data lazily.
     if (this.isRequestPayloadReady(actor)) {
       let payloadFromQueue = this.getRequestFromQueue(actor).payload;
 
@@ -499,13 +475,105 @@ class FirefoxDataProvider {
       this.cleanUpQueue(actor);
       this.rdpRequestMap.delete(actor);
 
-      let { updateRequest } = this.actions;
-      if (updateRequest) {
-        await updateRequest(actor, payloadFromQueue, true);
+      if (this.actions.updateRequest) {
+        await this.actions.updateRequest(actor, payloadFromQueue, true);
       }
 
+      // This event is fired only once per request, once all the properties are fetched
+      // from `onNetworkEventUpdate`. There should be no more RDP requests after this.
       emit(EVENTS.PAYLOAD_READY, actor);
     }
+  }
+
+  /**
+   * Public connector API to lazily request HTTP details from the backend.
+   *
+   * The method focus on:
+   * - calling the right actor method,
+   * - emitting an event to tell we start fetching some request data,
+   * - call data processing method.
+   *
+   * @param {string} actor actor id (used as request id)
+   * @param {string} method identifier of the data we want to fetch
+   *
+   * @return {Promise} return a promise resolved when data is received.
+   */
+  requestData(actor, method) {
+    // Key string used in `lazyRequestData`. We use this Map to prevent requesting
+    // the same data twice at the same time.
+    let key = `${actor}-${method}`;
+    let promise = this.lazyRequestData.get(key);
+    // If a request is pending, reuse it.
+    if (promise) {
+      return promise;
+    }
+    // Fetch the data
+    promise = this._requestData(actor, method);
+    this.lazyRequestData.set(key, promise);
+    promise.then(async () => {
+      // Remove the request from the cache, any new call to requestData will fetch the
+      // data again.
+      this.lazyRequestData.delete(key, promise);
+
+      if (this.actions.updateRequest) {
+        await this.actions.updateRequest(
+          actor,
+          this.getRequestFromQueue(actor).payload,
+          true,
+        );
+      }
+    });
+    return promise;
+  }
+
+  /**
+   * Internal helper used to request HTTP details from the backend.
+   *
+   * This is internal method that focus on:
+   * - calling the right actor method,
+   * - emitting an event to tell we start fetching some request data,
+   * - call data processing method.
+   *
+   * @param {string} actor actor id (used as request id)
+   * @param {string} method identifier of the data we want to fetch
+   *
+   * @return {Promise} return a promise resolved when data is received.
+   */
+  async _requestData(actor, method) {
+    // Calculate real name of the client getter.
+    let clientMethodName = `get${method.charAt(0).toUpperCase()}${method.slice(1)}`;
+    // The name of the callback that processes request response
+    let callbackMethodName = `on${method.charAt(0).toUpperCase()}${method.slice(1)}`;
+    // And the event to fire before updating this data
+    let updatingEventName = `UPDATING_${method.replace(/([A-Z])/g, "_$1").toUpperCase()}`;
+
+    // Emit event that tell we just start fetching some data
+    emit(EVENTS[updatingEventName], actor);
+
+    let response = await new Promise((resolve, reject) => {
+      // Do a RDP request to fetch data from the actor.
+      if (typeof this.webConsoleClient[clientMethodName] === "function") {
+        // Make sure we fetch the real actor data instead of cloned actor
+        // e.g. CustomRequestPanel will clone a request with additional '-clone' actor id
+        this.webConsoleClient[clientMethodName](actor.replace("-clone", ""), (res) => {
+          if (res.error) {
+            console.error(res.message);
+          }
+          resolve(res);
+        });
+      } else {
+        reject(new Error(`Error: No such client method '${clientMethodName}'!`));
+      }
+    });
+
+    // Restore clone actor id
+    if (actor.includes("-clone")) {
+      // Because response's properties are read-only, we create a new response
+      response = { ...response, from: `${response.from}-clone` };
+    }
+
+    // Call data processing method.
+    return this[callbackMethodName](response);
   }
 
   /**
@@ -526,12 +594,12 @@ class FirefoxDataProvider {
    *
    * @param {object} response the message received from the server.
    */
-  onRequestCookies(response) {
-    return this.updateRequest(response.from, {
+  async onRequestCookies(response) {
+    let payload = await this.updateRequest(response.from, {
       requestCookies: response
-    }).then(() => {
-      emit(EVENTS.RECEIVED_REQUEST_COOKIES, response.from);
     });
+    emit(EVENTS.RECEIVED_REQUEST_COOKIES, response.from);
+    return payload.requestCookies;
   }
 
   /**
@@ -539,12 +607,12 @@ class FirefoxDataProvider {
    *
    * @param {object} response the message received from the server.
    */
-  onRequestPostData(response) {
-    return this.updateRequest(response.from, {
+  async onRequestPostData(response) {
+    let payload = await this.updateRequest(response.from, {
       requestPostData: response
-    }).then(() => {
-      emit(EVENTS.RECEIVED_REQUEST_POST_DATA, response.from);
     });
+    emit(EVENTS.RECEIVED_REQUEST_POST_DATA, response.from);
+    return payload;
   }
 
   /**
@@ -578,25 +646,29 @@ class FirefoxDataProvider {
    *
    * @param {object} response the message received from the server.
    */
-  onResponseCookies(response) {
-    return this.updateRequest(response.from, {
+  async onResponseCookies(response) {
+    let payload = await this.updateRequest(response.from, {
       responseCookies: response
-    }).then(() => {
-      emit(EVENTS.RECEIVED_RESPONSE_COOKIES, response.from);
     });
+    emit(EVENTS.RECEIVED_RESPONSE_COOKIES, response.from);
+    return payload.responseCookies;
   }
 
   /**
-   * Handles additional information received for a "responseContent" packet.
+   * Handles additional information received via "getResponseContent" request.
    *
-   * @param {object} data the message received from the server event.
    * @param {object} response the message received from the server.
    */
-  onResponseContent(data, response) {
-    let payload = Object.assign({ responseContent: response }, data);
-    return this.updateRequest(response.from, payload).then(() => {
-      emit(EVENTS.RECEIVED_RESPONSE_CONTENT, response.from);
+  async onResponseContent(response) {
+    let payload = await this.updateRequest(response.from, {
+      // We have to ensure passing mimeType as fetchResponseContent needs it from
+      // updateRequest. It will convert the LongString in `response.content.text` to a
+      // string.
+      mimeType: response.content.mimeType,
+      responseContent: response,
     });
+    emit(EVENTS.RECEIVED_RESPONSE_CONTENT, response.from);
+    return payload.responseContent;
   }
 
   /**
@@ -610,6 +682,19 @@ class FirefoxDataProvider {
     }).then(() => {
       emit(EVENTS.RECEIVED_EVENT_TIMINGS, response.from);
     });
+  }
+
+  /**
+   * Handles information received for a "stackTrace" packet.
+   *
+   * @param {object} response the message received from the server.
+   */
+  async onStackTrace(response) {
+    let payload = await this.updateRequest(response.from, {
+      stacktrace: response.stacktrace
+    });
+    emit(EVENTS.RECEIVED_EVENT_STACKTRACE, response.from);
+    return payload.stacktrace;
   }
 }
 

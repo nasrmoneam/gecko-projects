@@ -1629,17 +1629,15 @@ nsMessageManagerScriptExecutor::TryCacheLoadAndCompileScript(
     nsString dataString;
     char16_t* dataStringBuf = nullptr;
     size_t dataStringLength = 0;
-    uint64_t avail64 = 0;
-    if (input && NS_SUCCEEDED(input->Available(&avail64)) && avail64) {
-      if (avail64 > UINT32_MAX) {
-        return;
-      }
+    if (input) {
       nsCString buffer;
-      uint32_t avail = (uint32_t)std::min(avail64, (uint64_t)UINT32_MAX);
-      if (NS_FAILED(NS_ReadInputStreamToString(input, buffer, avail))) {
+      uint64_t written;
+      if (NS_FAILED(NS_ReadInputStreamToString(input, buffer, -1, &written))) {
         return;
       }
-      ScriptLoader::ConvertToUTF16(channel, (uint8_t*)buffer.get(), avail,
+
+      uint32_t size = (uint32_t)std::min(written, (uint64_t)UINT32_MAX);
+      ScriptLoader::ConvertToUTF16(channel, (uint8_t*)buffer.get(), size,
                                    EmptyString(), nullptr,
                                    dataStringBuf, dataStringLength);
     }
@@ -1651,7 +1649,7 @@ nsMessageManagerScriptExecutor::TryCacheLoadAndCompileScript(
       return;
     }
 
-    JS::CompileOptions options(cx, JSVERSION_DEFAULT);
+    JS::CompileOptions options(cx);
     options.setFileAndLine(url.get(), 1);
     options.setNoScriptRval(true);
 
@@ -1716,7 +1714,6 @@ nsMessageManagerScriptExecutor::InitChildGlobalInternal(
 
   JS::CompartmentOptions options;
   options.creationOptions().setSystemZone();
-  options.behaviors().setVersion(JSVERSION_DEFAULT);
 
   if (xpc::SharedMemoryEnabled()) {
     options.creationOptions().setSharedMemoryAndAtomicsEnabled(true);

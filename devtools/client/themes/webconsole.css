@@ -820,6 +820,7 @@ a.learn-more-link.webconsole-learn-more-link {
 */
 .webconsole-filteringbar-wrapper {
   display: flex;
+  grid-row: 1 / 2;
   /* Wrap so the "Hidden messages" bar can go to its own row if needed */
   flex-wrap: wrap;
   --primary-toolbar-height: 29px;
@@ -827,9 +828,9 @@ a.learn-more-link.webconsole-learn-more-link {
 
 .webconsole-filterbar-primary {
   display: flex;
-  /* We want the toolbar (which contain the text search input) to be at least 200px
-  so we don't allow to shrink it */
-  flex: 100 0 200px;
+  /* We want the toolbar (which contain the text search input) to fit
+  the content, we don't allow to shrink/overlap it */
+  flex: 100 0 -moz-fit-content;
   align-items: center;
   min-height: var(--primary-toolbar-height);
 }
@@ -865,6 +866,7 @@ a.learn-more-link.webconsole-learn-more-link {
   text-align: end;
   align-items: center;
   min-height: var(--primary-toolbar-height);
+  line-height: var(--primary-toolbar-height);
 }
 
 .webconsole-filterbar-filtered-messages .filter-message-text {
@@ -928,13 +930,13 @@ a.learn-more-link.webconsole-learn-more-link {
 }
 
 .webconsole-output-wrapper .message-flex-body > .message-body {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-block;
   max-width: 100%;
 }
 
 .webconsole-output-wrapper .message-body > * {
   flex-shrink: 0;
+  vertical-align: top;
 }
 
 .message.startGroup .message-body > .objectBox-string,
@@ -1005,6 +1007,15 @@ a.learn-more-link.webconsole-learn-more-link {
   font-style: inherit;
 }
 
+.webconsole-output-wrapper .message.network .status .status-info .status-code {
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+.webconsole-output-wrapper .message.network .status .status-info .status-code:not([data-code^="3"]) {
+  color: var(--theme-body-background);
+}
+
 
 .network.message .network-info {
   display: none;
@@ -1029,6 +1040,7 @@ a.learn-more-link.webconsole-learn-more-link {
 
 .network .message-flex-body > .message-body {
   display: flex;
+  flex-wrap: wrap;
 }
 
 /* Output Wrapper */
@@ -1135,6 +1147,7 @@ a.learn-more-link.webconsole-learn-more-link {
   overflow: auto;
   -moz-user-select: text;
   position: relative;
+  grid-row: 2 / 3;
 }
 
 html,
@@ -1160,9 +1173,11 @@ body #output-container {
 }
 
 .webconsole-output-wrapper {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr;
   height: 100%;
+  width: 100vw;
 }
 
 /* Object Inspector */
@@ -1177,8 +1192,21 @@ body #output-container {
   --tree-indent-width: var(--console-output-indent-width);
   --tree-indent-border-color: var(--console-output-indent-border-color);
   --tree-node-hover-background-color : var(--object-inspector-hover-background);
+  display: inline-block;
 }
 
 .theme-dark .webconsole-output-wrapper .object-inspector.tree {
   --arrow-fill-color: #7F7E81;
+}
+
+.sidebar {
+  display: flex;
+  grid-row: 1 / -1;
+  grid-column: -1 / -2;
+  background-color: var(--theme-sidebar-background);
+}
+
+.split-box.vert.sidebar {
+  /* Set to prevent the sidebar from extending past the right edge of the page */
+  width: unset;
 }

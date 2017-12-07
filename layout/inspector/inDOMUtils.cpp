@@ -492,7 +492,7 @@ inDOMUtils::IsInheritedProperty(const nsAString &aPropertyName, bool *_retval)
   }
 
   nsStyleStructID sid = nsCSSProps::kSIDTable[prop];
-  *_retval = !nsCachedStyleData::IsReset(sid);
+  *_retval = !nsStyleContext::IsReset(sid);
   return NS_OK;
 }
 
@@ -816,8 +816,11 @@ PropertySupportsVariant(nsCSSPropertyID aPropertyID, uint32_t aVariant)
       case eCSSProperty_content:
       case eCSSProperty_cursor:
       case eCSSProperty_clip_path:
-      case eCSSProperty_shape_outside:
         supported = VARIANT_URL;
+        break;
+
+      case eCSSProperty_shape_outside:
+        supported = VARIANT_IMAGE;
         break;
 
       case eCSSProperty_fill:

@@ -52,6 +52,23 @@ PerformanceTiming::PerformanceTiming(Performance* aPerformance,
     mReportCrossOriginRedirect = mTimingAllowed && redirectsPassCheck;
   }
 
+  mSecureConnection = false;
+  nsCOMPtr<nsIURI> uri;
+  if (aHttpChannel) {
+    aHttpChannel->GetURI(getter_AddRefs(uri));
+  } else {
+    nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aChannel);
+    if (httpChannel) {
+      httpChannel->GetURI(getter_AddRefs(uri));
+    }
+  }
+
+  if (uri) {
+    nsresult rv = uri->SchemeIs("https", &mSecureConnection);
+    if (NS_FAILED(rv)) {
+      mSecureConnection = false;
+    }
+  }
   InitializeTimingInfo(aChannel);
 
   // Non-null aHttpChannel implies that this PerformanceTiming object is being
@@ -118,7 +135,8 @@ PerformanceTiming::InitializeTimingInfo(nsITimedChannel* aChannel)
         mConnectStart = *clampTime;
       }
 
-      if (!mSecureConnectionStart.IsNull() && mSecureConnectionStart < *clampTime) {
+      if (mSecureConnection && !mSecureConnectionStart.IsNull() &&
+          mSecureConnectionStart < *clampTime) {
         mSecureConnectionStart = *clampTime;
       }
 
@@ -144,8 +162,8 @@ PerformanceTiming::FetchStartHighRes()
     MOZ_ASSERT(!mAsyncOpen.IsNull(), "The fetch start time stamp should always be "
         "valid if the performance timing is enabled");
     if (!mAsyncOpen.IsNull()) {
-      if (!mWorkerStart.IsNull() && mWorkerStart > mAsyncOpen) {
-        mFetchStart = TimeStampToDOMHighRes(mWorkerStart);
+      if (!mWorkerRequestStart.IsNull() && mWorkerRequestStart > mAsyncOpen) {
+        mFetchStart = TimeStampToDOMHighRes(mWorkerRequestStart);
       } else {
         mFetchStart = TimeStampToDOMHighRes(mAsyncOpen);
       }
@@ -369,8 +387,11 @@ PerformanceTiming::SecureConnectionStartHighRes()
       nsContentUtils::ShouldResistFingerprinting()) {
     return mZeroTime;
   }
-  return mSecureConnectionStart.IsNull() ? mZeroTime
-                                         : TimeStampToDOMHighRes(mSecureConnectionStart);
+  return !mSecureConnection
+    ? 0 // We use 0 here, because mZeroTime is sometimes set to the navigation
+        // start time.
+    : (mSecureConnectionStart.IsNull() ? mZeroTime
+                                       : TimeStampToDOMHighRes(mSecureConnectionStart));
 }
 
 DOMTimeMilliSec

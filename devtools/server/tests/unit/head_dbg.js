@@ -420,7 +420,7 @@ function initTestDebuggerServer(server = DebuggerServer) {
 function startTestDebuggerServer(title, server = DebuggerServer) {
   initTestDebuggerServer(server);
   addTestGlobal(title);
-  DebuggerServer.addTabActors();
+  DebuggerServer.registerActors({ tab: true });
 
   let transport = DebuggerServer.connectPipe();
   let client = new DebuggerClient(transport);
@@ -438,10 +438,8 @@ function finishClient(client) {
 // Create a server, connect to it and fetch tab actors for the parent process;
 // pass |callback| the debugger client and tab actor form with all actor IDs.
 function get_chrome_actors(callback) {
-  if (!DebuggerServer.initialized) {
-    DebuggerServer.init();
-    DebuggerServer.addBrowserActors();
-  }
+  DebuggerServer.init();
+  DebuggerServer.registerAllActors();
   DebuggerServer.allowChromeProcess = true;
 
   let client = new DebuggerClient(DebuggerServer.connectPipe());
@@ -663,6 +661,10 @@ const assert = do_check_true;
  * @returns Promise
  */
 function waitForEvent(client, type, predicate) {
+  if (!predicate) {
+    return client.addOneTimeListener(type);
+  }
+
   return new Promise(function (resolve) {
     function listener(type, packet) {
       if (!predicate(packet)) {
@@ -671,14 +673,7 @@ function waitForEvent(client, type, predicate) {
       client.removeListener(listener);
       resolve(packet);
     }
-
-    if (predicate) {
-      client.addListener(type, listener);
-    } else {
-      client.addOneTimeListener(type, function (type, packet) {
-        resolve(packet);
-      });
-    }
+    client.addListener(type, listener);
   });
 }
 

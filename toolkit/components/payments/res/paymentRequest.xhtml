@@ -5,20 +5,37 @@
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'"/>
   <title></title>
-  <link rel="stylesheet" href="resource://payments/paymentRequest.css" />
-  <script src="resource://payments/paymentRequest.js"></script>
+  <link rel="stylesheet" href="paymentRequest.css"/>
+  <script src="vendor/custom-elements.min.js"></script>
+
+  <script src="PaymentsStore.js"></script>
+
+  <script src="mixins/ObservedPropertiesMixin.js"></script>
+  <script src="mixins/PaymentStateSubscriberMixin.js"></script>
+
+  <script src="components/currency-amount.js"></script>
+
+  <script src="containers/payment-dialog.js"></script>
+
+  <script src="paymentRequest.js"></script>
+
+  <template id="payment-dialog-template">
+    <div id="host-name"></div>
+
+    <div id="total">
+      <h2 class="label"></h2>
+      <currency-amount></currency-amount>
+    </div>
+    <div id="controls-container">
+      <button id="cancel">Cancel payment</button>
+    </div>
+  </template>
 </head>
 <body>
-  <div id="host-name"></div>
+  <iframe id="debugging-console" hidden="hidden" src="debugging.html"></iframe>
 
-  <div id="total">
-    <h2 class="label"></h2>
-    <span class="value"></span>
-    <span class="currency"></span>
-  </div>
-  <div id="controls-container">
-    <button id="cancel">Cancel payment</button>
-  </div>
+  <payment-dialog></payment-dialog>
 </body>
 </html>

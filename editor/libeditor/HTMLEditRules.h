@@ -32,6 +32,7 @@ namespace mozilla {
 class EditActionResult;
 class HTMLEditor;
 class RulesInfo;
+class SplitNodeResult;
 class TextEditor;
 namespace dom {
 class Element;
@@ -106,10 +107,9 @@ public:
 
   // nsIEditActionListener methods
 
-  NS_IMETHOD WillCreateNode(const nsAString& aTag, nsIDOMNode* aParent,
-                            int32_t aPosition) override;
-  NS_IMETHOD DidCreateNode(const nsAString& aTag, nsIDOMNode* aNode,
-                           nsIDOMNode* aParent, int32_t aPosition,
+  NS_IMETHOD WillCreateNode(const nsAString& aTag,
+                            nsIDOMNode* aNextSiblingOfNewNode) override;
+  NS_IMETHOD DidCreateNode(const nsAString& aTag, nsIDOMNode* aNewNode,
                            nsresult aResult) override;
   NS_IMETHOD WillInsertNode(nsIDOMNode* aNode, nsIDOMNode* aParent,
                             int32_t aPosition) override;
@@ -119,8 +119,8 @@ public:
   NS_IMETHOD DidDeleteNode(nsIDOMNode* aChild, nsresult aResult) override;
   NS_IMETHOD WillSplitNode(nsIDOMNode* aExistingRightNode,
                            int32_t aOffset) override;
-  NS_IMETHOD DidSplitNode(nsIDOMNode* aExistingRightNode, int32_t aOffset,
-                          nsIDOMNode* aNewLeftNode, nsresult aResult) override;
+  NS_IMETHOD DidSplitNode(nsIDOMNode* aExistingRightNode,
+                          nsIDOMNode* aNewLeftNode) override;
   NS_IMETHOD WillJoinNodes(nsIDOMNode* aLeftNode, nsIDOMNode* aRightNode,
                            nsIDOMNode* aParent) override;
   NS_IMETHOD DidJoinNodes(nsIDOMNode* aLeftNode, nsIDOMNode* aRightNode,
@@ -295,15 +295,41 @@ protected:
   nsAtom& DefaultParagraphSeparator();
   nsresult ReturnInHeader(Selection& aSelection, Element& aHeader,
                           nsINode& aNode, int32_t aOffset);
-  nsresult ReturnInParagraph(Selection* aSelection, nsINode* aHeader,
-                             nsINode* aTextNode, int32_t aOffset,
-                             nsIContent* aChildAtOffset, bool* aCancel,
-                             bool* aHandled);
-  nsresult SplitParagraph(nsIDOMNode* aPara,
-                          nsIContent* aBRNode,
-                          Selection* aSelection,
-                          nsCOMPtr<nsIDOMNode>* aSelNode,
-                          int32_t* aOffset);
+
+  /**
+   * ReturnInParagraph() does the right thing for Enter key press or
+   * 'insertParagraph' command in aParentDivOrP.  aParentDivOrP will be
+   * split at start of first selection range.
+   *
+   * @param aSelection      The selection.  aParentDivOrP will be split at
+   *                        start of the first selection range.
+   * @param aParentDivOrP   The parent block.  This must be <p> or <div>
+   *                        element.
+   * @return                Returns with NS_OK if this doesn't meat any
+   *                        unexpected situation.  If this method tries to
+   *                        split the paragraph, marked as handled.
+   */
+  EditActionResult ReturnInParagraph(Selection& aSelection,
+                                     Element& aParentDivOrP);
+
+  /**
+   * SplitParagraph() splits the parent block, aPara, at aSelNode - aOffset.
+   *
+   * @param aSelection          The selection.
+   * @param aParentDivOrP       The parent block to be split.  This must be <p>
+   *                            or <div> element.
+   * @param aStartOfRightNode   The point to be start of right node after
+   *                            split.  This must be descendant of
+   *                            aParentDivOrP.
+   * @param aNextBRNode         Next <br> node if there is.  Otherwise, nullptr.
+   *                            If this is not nullptr, the <br> node may be
+   *                            removed.
+   */
+  nsresult SplitParagraph(Selection& aSelection,
+                          Element& aParentDivOrP,
+                          const EditorRawDOMPoint& aStartOfRightNode,
+                          nsIContent* aBRNode);
+
   nsresult ReturnInListItem(Selection& aSelection, Element& aHeader,
                             nsINode& aNode, int32_t aOffset);
   nsresult AfterEditInner(EditAction action,
@@ -390,12 +416,28 @@ protected:
   nsresult ApplyBlockStyle(nsTArray<OwningNonNull<nsINode>>& aNodeArray,
                            nsAtom& aBlockTag);
   nsresult MakeBlockquote(nsTArray<OwningNonNull<nsINode>>& aNodeArray);
-  nsresult SplitAsNeeded(nsAtom& aTag, OwningNonNull<nsINode>& inOutParent,
-                         int32_t& inOutOffset,
-                         nsCOMPtr<nsIContent>* inOutChildAtOffset = nullptr);
-  nsresult SplitAsNeeded(nsAtom& aTag, nsCOMPtr<nsINode>& inOutParent,
-                         int32_t& inOutOffset,
-                         nsCOMPtr<nsIContent>* inOutChildAtOffset = nullptr);
+
+  /**
+   * MaybeSplitAncestorsForInsert() does nothing if container of
+   * aStartOfDeepestRightNode can have an element whose tag name is aTag.
+   * Otherwise, looks for an ancestor node which is or is in active editing
+   * host and can have an element whose name is aTag.  If there is such
+   * ancestor, its descendants are split.
+   *
+   * Note that this may create empty elements while splitting ancestors.
+   *
+   * @param aTag                        The name of element to be inserted
+   *                                    after calling this method.
+   * @param aStartOfDeepestRightNode    The start point of deepest right node.
+   *                                    This point must be descendant of
+   *                                    active editing host.
+   * @return                            When succeeded, SplitPoint() returns
+   *                                    the point to insert the element.
+   */
+  SplitNodeResult MaybeSplitAncestorsForInsert(
+                    nsAtom& aTag,
+                    const EditorRawDOMPoint& aStartOfDeepestRightNode);
+
   nsresult AddTerminatingBR(nsIDOMNode *aBlock);
   EditorDOMPoint JoinNodesSmart(nsIContent& aNodeLeft,
                                 nsIContent& aNodeRight);
@@ -411,11 +453,22 @@ protected:
   void CheckInterlinePosition(Selection& aSelection);
   nsresult AdjustSelection(Selection* aSelection,
                            nsIEditor::EDirection aAction);
-  nsresult FindNearSelectableNode(nsINode* aSelNode,
-                                  int32_t aSelOffset,
-                                  nsINode* aChildAtOffset,
-                                  nsIEditor::EDirection& aDirection,
-                                  nsCOMPtr<nsIContent>* outSelectableNode);
+
+  /**
+   * FindNearEditableNode() tries to find an editable node near aPoint.
+   *
+   * @param aPoint      The DOM point where to start to search from.
+   * @param aDirection  If nsIEditor::ePrevious is set, this searches an
+   *                    editable node from next nodes.  Otherwise, from
+   *                    previous nodes.
+   * @return            If found, returns non-nullptr.  Otherwise, nullptr.
+   *                    Note that if found node is in different table element,
+   *                    this returns nullptr.
+   *                    And also if aDirection is not nsIEditor::ePrevious,
+   *                    the result may be the node pointed by aPoint.
+   */
+  nsIContent* FindNearEditableNode(const EditorRawDOMPoint& aPoint,
+                                   nsIEditor::EDirection aDirection);
   /**
    * Returns true if aNode1 or aNode2 or both is the descendant of some type of
    * table element, but their nearest table element ancestors differ.  "Table

@@ -220,7 +220,6 @@ ServiceWorkerRegistrationMainThread::ServiceWorkerRegistrationMainThread(nsPIDOM
 {
   AssertIsOnMainThread();
   MOZ_ASSERT(aWindow);
-  MOZ_ASSERT(aWindow->IsInnerWindow());
   StartListeningForEvents();
 }
 
@@ -1121,6 +1120,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 ServiceWorkerRegistrationWorkerThread::ServiceWorkerRegistrationWorkerThread(WorkerPrivate* aWorkerPrivate,
                                                                              const nsAString& aScope)
   : ServiceWorkerRegistration(nullptr, aScope)
+  , WorkerHolder("ServiceWorkerRegistrationWorkerThread")
   , mWorkerPrivate(aWorkerPrivate)
 {
   InitListener();

@@ -33,6 +33,9 @@ from mozbuild.frontend.data import (
     JARManifest,
     LinkageMultipleRustLibrariesError,
     LocalInclude,
+    LocalizedFiles,
+    LocalizedPreprocessedFiles,
+    PreprocessedIPDLFile,
     Program,
     RustLibrary,
     RustProgram,
@@ -208,6 +211,15 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertEqual(flags.flags['WARNINGS_AS_ERRORS'], ['-Werror'])
         self.assertEqual(flags.flags['MOZBUILD_CFLAGS'], ['-Wall', '-funroll-loops'])
         self.assertEqual(flags.flags['MOZBUILD_CXXFLAGS'], ['-funroll-loops', '-Wall'])
+
+    def test_asflags(self):
+        reader = self.reader('asflags', extra_substs={
+            'ASFLAGS': ['-safeseh'],
+        })
+        as_sources, sources, ldflags, lib, flags, asflags = self.read_topsrcdir(reader)
+        self.assertIsInstance(asflags, ComputedFlags)
+        self.assertEqual(asflags.flags['OS'], reader.config.substs['ASFLAGS'])
+        self.assertEqual(asflags.flags['MOZBUILD'], ['-no-integrated-as'])
 
     def test_debug_flags(self):
         reader = self.reader('compile-flags', extra_substs={
@@ -425,15 +437,20 @@ class TestEmitterBasic(unittest.TestCase):
                                  YASM='yasm',
                                  YASM_ASFLAGS='-foo',
                              ))
-        objs = self.read_topsrcdir(reader)
 
-        self.assertEqual(len(objs), 1)
-        self.assertIsInstance(objs[0], VariablePassthru)
+        sources, passthru, ldflags, lib, flags, asflags = self.read_topsrcdir(reader)
+
+        self.assertIsInstance(passthru, VariablePassthru)
+        self.assertIsInstance(ldflags, ComputedFlags)
+        self.assertIsInstance(flags, ComputedFlags)
+        self.assertIsInstance(asflags, ComputedFlags)
+
+        self.assertEqual(asflags.flags['OS'], reader.config.substs['YASM_ASFLAGS'])
+
         maxDiff = self.maxDiff
         self.maxDiff = None
-        self.assertEqual(objs[0].variables,
+        self.assertEqual(passthru.variables,
                          {'AS': 'yasm',
-                          'ASFLAGS': '-foo',
                           'AS_DASH_C_FLAG': ''})
         self.maxDiff = maxDiff
 
@@ -445,6 +462,7 @@ class TestEmitterBasic(unittest.TestCase):
         self.assertEqual(len(objs), 3)
         for o in objs:
             self.assertIsInstance(o, GeneratedFile)
+            self.assertFalse(o.localized)
 
         expected = ['bar.c', 'foo.c', ('xpidllex.py', 'xpidlyacc.py'), ]
         for o, f in zip(objs, expected):
@@ -453,6 +471,53 @@ class TestEmitterBasic(unittest.TestCase):
             self.assertEqual(o.script, None)
             self.assertEqual(o.method, None)
             self.assertEqual(o.inputs, [])
+
+    def test_localized_generated_files(self):
+        reader = self.reader('localized-generated-files')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 2)
+        for o in objs:
+            self.assertIsInstance(o, GeneratedFile)
+            self.assertTrue(o.localized)
+
+        expected = ['abc.ini', ('bar', 'baz'), ]
+        for o, f in zip(objs, expected):
+            expected_filename = f if isinstance(f, tuple) else (f,)
+            self.assertEqual(o.outputs, expected_filename)
+            self.assertEqual(o.script, None)
+            self.assertEqual(o.method, None)
+            self.assertEqual(o.inputs, [])
+
+    def test_localized_files_from_generated(self):
+        """Test that using LOCALIZED_GENERATED_FILES and then putting the output in
+        LOCALIZED_FILES as an objdir path works.
+        """
+        reader = self.reader('localized-files-from-generated')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 2)
+        self.assertIsInstance(objs[0], GeneratedFile)
+        self.assertIsInstance(objs[1], LocalizedFiles)
+
+    def test_localized_files_not_localized_generated(self):
+        """Test that using GENERATED_FILES and then putting the output in
+        LOCALIZED_FILES as an objdir path produces an error.
+        """
+        reader = self.reader('localized-files-not-localized-generated')
+        with self.assertRaisesRegexp(SandboxValidationError,
+            'Objdir file listed in LOCALIZED_FILES not in LOCALIZED_GENERATED_FILES:'):
+            objs = self.read_topsrcdir(reader)
+
+
+    def test_localized_generated_files_final_target_files(self):
+        """Test that using LOCALIZED_GENERATED_FILES and then putting the output in
+        FINAL_TARGET_FILES as an objdir path produces an error.
+        """
+        reader = self.reader('localized-generated-files-final-target-files')
+        with self.assertRaisesRegexp(SandboxValidationError,
+            'Outputs of LOCALIZED_GENERATED_FILES cannot be used in FINAL_TARGET_FILES:'):
+            objs = self.read_topsrcdir(reader)
 
     def test_generated_files_method_names(self):
         reader = self.reader('generated-files-method-names')
@@ -879,9 +944,12 @@ class TestEmitterBasic(unittest.TestCase):
         objs = self.read_topsrcdir(reader)
 
         ipdls = []
+        nonstatic_ipdls = []
         for o in objs:
             if isinstance(o, IPDLFile):
                 ipdls.append('%s/%s' % (o.relativedir, o.basename))
+            elif isinstance(o, PreprocessedIPDLFile):
+                nonstatic_ipdls.append('%s/%s' % (o.relativedir, o.basename))
 
         expected = [
             'bar/bar.ipdl',
@@ -891,6 +959,13 @@ class TestEmitterBasic(unittest.TestCase):
         ]
 
         self.assertEqual(ipdls, expected)
+
+        expected = [
+            'bar/bar1.ipdl',
+            'foo/foo1.ipdl',
+        ]
+
+        self.assertEqual(nonstatic_ipdls, expected)
 
     def test_local_includes(self):
         """Test that LOCAL_INCLUDES is emitted correctly."""
@@ -1011,9 +1086,11 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('sources')
         objs = self.read_topsrcdir(reader)
 
+        as_flags = objs.pop()
+        self.assertIsInstance(as_flags, ComputedFlags)
         computed_flags = objs.pop()
         self.assertIsInstance(computed_flags, ComputedFlags)
-        # The second to last object is a Linkable.
+        # The third to last object is a Linkable.
         linkable = objs.pop()
         self.assertTrue(linkable.cxx_link)
         ld_flags = objs.pop()
@@ -1044,9 +1121,11 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('sources-just-c')
         objs = self.read_topsrcdir(reader)
 
+        as_flags = objs.pop()
+        self.assertIsInstance(as_flags, ComputedFlags)
         flags = objs.pop()
         self.assertIsInstance(flags, ComputedFlags)
-        # The second to last object is a Linkable.
+        # The third to last object is a Linkable.
         linkable = objs.pop()
         self.assertFalse(linkable.cxx_link)
 
@@ -1069,12 +1148,16 @@ class TestEmitterBasic(unittest.TestCase):
         reader = self.reader('generated-sources')
         objs = self.read_topsrcdir(reader)
 
+        as_flags = objs.pop()
+        self.assertIsInstance(as_flags, ComputedFlags)
         flags = objs.pop()
         self.assertIsInstance(flags, ComputedFlags)
-        # The second to last object is a Linkable.
+        # The third to last object is a Linkable.
         linkable = objs.pop()
         self.assertTrue(linkable.cxx_link)
-        self.assertEqual(len(objs), 7)
+        flags = objs.pop()
+        self.assertIsInstance(flags, ComputedFlags)
+        self.assertEqual(len(objs), 6)
 
         generated_sources = [o for o in objs if isinstance(o, GeneratedSources)]
         self.assertEqual(len(generated_sources), 6)
@@ -1216,6 +1299,46 @@ class TestEmitterBasic(unittest.TestCase):
         with self.assertRaisesRegexp(SandboxValidationError,
              'Only source directory paths allowed in FINAL_TARGET_PP_FILES:'):
             self.read_topsrcdir(reader)
+
+    def test_localized_files(self):
+        """Test that LOCALIZED_FILES works properly."""
+        reader = self.reader('localized-files')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 1)
+        self.assertIsInstance(objs[0], LocalizedFiles)
+
+        for path, files in objs[0].files.walk():
+            self.assertEqual(path, 'foo')
+            self.assertEqual(len(files), 3)
+
+            expected = {'en-US/bar.ini', 'en-US/code/*.js', 'en-US/foo.js'}
+            for f in files:
+                self.assertTrue(unicode(f) in expected)
+
+    def test_localized_files_no_en_us(self):
+        """Test that LOCALIZED_FILES errors if a path does not start with
+        `en-US/`."""
+        reader = self.reader('localized-files-no-en-us')
+        with self.assertRaisesRegexp(SandboxValidationError,
+             'LOCALIZED_FILES paths must start with `en-US/`:'):
+            objs = self.read_topsrcdir(reader)
+
+    def test_localized_pp_files(self):
+        """Test that LOCALIZED_PP_FILES works properly."""
+        reader = self.reader('localized-pp-files')
+        objs = self.read_topsrcdir(reader)
+
+        self.assertEqual(len(objs), 1)
+        self.assertIsInstance(objs[0], LocalizedPreprocessedFiles)
+
+        for path, files in objs[0].files.walk():
+            self.assertEqual(path, 'foo')
+            self.assertEqual(len(files), 2)
+
+            expected = {'en-US/bar.ini', 'en-US/foo.js'}
+            for f in files:
+                self.assertTrue(unicode(f) in expected)
 
     def test_rust_library_no_cargo_toml(self):
         '''Test that defining a RustLibrary without a Cargo.toml fails.'''

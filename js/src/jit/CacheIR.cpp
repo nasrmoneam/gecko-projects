@@ -377,7 +377,7 @@ IsCacheableGetPropCallScripted(JSObject* obj, JSObject* holder, Shape* shape,
     if (getter.isNative())
         return false;
 
-    if (!getter.hasJITCode()) {
+    if (!getter.hasScript()) {
         if (isTemporarilyUnoptimizable)
             *isTemporarilyUnoptimizable = true;
         return false;
@@ -693,7 +693,7 @@ EmitCallGetterResultNoGuards(CacheIRWriter& writer, JSObject* obj, JSObject* hol
     MOZ_ASSERT(IsCacheableGetPropCallScripted(obj, holder, shape));
 
     JSFunction* target = &shape->getterValue().toObject().as<JSFunction>();
-    MOZ_ASSERT(target->hasJITCode());
+    MOZ_ASSERT(target->hasScript());
     writer.callScriptedGetterResult(receiverId, target);
     writer.typeMonitorResult();
 }
@@ -2565,6 +2565,29 @@ HasPropIRGenerator::tryAttachUnboxedExpando(JSObject* obj, ObjOperandId objId,
 }
 
 bool
+HasPropIRGenerator::tryAttachTypedArray(HandleObject obj, ObjOperandId objId,
+                                        uint32_t index, Int32OperandId indexId)
+{
+    if (!obj->is<TypedArrayObject>() && !IsPrimitiveArrayTypedObject(obj))
+        return false;
+
+    // Don't attach typed object stubs if the underlying storage could be
+    // detached, as the stub will always bail out.
+    if (IsPrimitiveArrayTypedObject(obj) && cx_->compartment()->detachedTypedObjects)
+        return false;
+
+    TypedThingLayout layout = GetTypedThingLayout(obj->getClass());
+    writer.guardShape(objId, obj->as<ShapedObject>().shape());
+
+    writer.loadTypedElementExistsResult(objId, indexId, layout);
+
+    writer.returnFromIC();
+
+    trackAttached("TypedArrayObject");
+    return true;
+}
+
+bool
 HasPropIRGenerator::tryAttachTypedObject(JSObject* obj, ObjOperandId objId,
                                          jsid key, ValOperandId keyId)
 {
@@ -2692,6 +2715,8 @@ HasPropIRGenerator::tryAttachStub()
         if (tryAttachDense(obj, objId, index, indexId))
             return true;
         if (tryAttachDenseHole(obj, objId, index, indexId))
+            return true;
+        if (tryAttachTypedArray(obj, objId, index, indexId))
             return true;
 
         trackNotAttached();
@@ -2827,9 +2852,9 @@ SetPropIRGenerator::tryAttachStub()
                 return true;
             if (tryAttachTypedObjectProperty(obj, objId, id, rhsValId))
                 return true;
-            if (tryAttachSetArrayLength(obj, objId, id, rhsValId))
-                return true;
             if (IsPropertySetOp(JSOp(*pc_))) {
+                if (tryAttachSetArrayLength(obj, objId, id, rhsValId))
+                    return true;
                 if (tryAttachSetter(obj, objId, id, rhsValId))
                     return true;
                 if (tryAttachWindowProxy(obj, objId, id, rhsValId))
@@ -3166,7 +3191,7 @@ IsCacheableSetPropCallScripted(JSObject* obj, JSObject* holder, Shape* shape,
     if (setter.isNative())
         return false;
 
-    if (!setter.hasJITCode()) {
+    if (!setter.hasScript()) {
         if (isTemporarilyUnoptimizable)
             *isTemporarilyUnoptimizable = true;
         return false;
@@ -3218,7 +3243,7 @@ EmitCallSetterNoGuards(CacheIRWriter& writer, JSObject* obj, JSObject* holder,
     MOZ_ASSERT(IsCacheableSetPropCallScripted(obj, holder, shape));
 
     JSFunction* target = &shape->setterValue().toObject().as<JSFunction>();
-    MOZ_ASSERT(target->hasJITCode());
+    MOZ_ASSERT(target->hasScript());
     writer.callScriptedSetter(objId, target, rhsId);
     writer.returnFromIC();
 }
@@ -3262,6 +3287,9 @@ bool
 SetPropIRGenerator::tryAttachSetArrayLength(HandleObject obj, ObjOperandId objId, HandleId id,
                                             ValOperandId rhsId)
 {
+    // Don't attach an array length stub for ops like JSOP_INITELEM.
+    MOZ_ASSERT(IsPropertySetOp(JSOp(*pc_)));
+
     if (!obj->is<ArrayObject>() ||
         !JSID_IS_ATOM(id, cx_->names().length) ||
         !obj->as<ArrayObject>().lengthIsWritable())
@@ -4009,9 +4037,6 @@ GetIteratorIRGenerator::tryAttachNativeIterator(ObjOperandId objId, HandleObject
 {
     MOZ_ASSERT(JSOp(*pc_) == JSOP_ITER);
 
-    if (GET_UINT8(pc_) != JSITER_ENUMERATE)
-        return false;
-
     PropertyIteratorObject* iterobj = LookupInIteratorCache(cx_, obj);
     if (!iterobj)
         return false;
@@ -4264,7 +4289,7 @@ CallIRGenerator::tryAttachArrayJoin()
     // always return a string.  We will add String to the stack typeset when
     // attaching this stub.
 
-    // Set the stub kind to Regular 
+    // Set the stub kind to Regular
     cacheIRStubKind_ = BaselineCacheIRStubKind::Regular;
 
     trackAttached("ArrayJoin");

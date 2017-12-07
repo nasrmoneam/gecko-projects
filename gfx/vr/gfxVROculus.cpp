@@ -29,6 +29,7 @@
 #include "TextureD3D11.h"
 
 #include "gfxVROculus.h"
+#include "VRManagerParent.h"
 #include "VRThread.h"
 
 #include "mozilla/dom/GamepadEventTypes.h"
@@ -204,8 +205,11 @@ VROculusSession::VROculusSession()
   , mSession(nullptr)
   , mInitFlags((ovrInitFlags)0)
   , mTextureSet(nullptr)
-  , mPresenting(false)
+  , mRequestPresentation(false)
+  , mRequestTracking(false)
   , mDrawBlack(false)
+  , mIsConnected(false)
+  , mIsMounted(false)
 {
 }
 
@@ -219,26 +223,47 @@ VROculusSession::Get()
 bool
 VROculusSession::IsTrackingReady() const
 {
-  return mSession != nullptr;
+  // We should return true only if the HMD is connected and we
+  // are ready for tracking
+  MOZ_ASSERT(!mIsConnected || mSession);
+  return mIsConnected;
 }
 
 bool
-VROculusSession::IsRenderReady() const
+VROculusSession::IsPresentationReady() const
 {
   return !mRenderTargets.IsEmpty();
+}
+
+bool
+VROculusSession::IsMounted() const
+{
+  return mIsMounted;
 }
 
 void
 VROculusSession::StopTracking()
 {
-  Uninitialize(true);
+  if (mRequestTracking) {
+    mRequestTracking = false;
+    Refresh();
+  }
+}
+
+void
+VROculusSession::StartTracking()
+{
+  if (!mRequestTracking) {
+    mRequestTracking = true;
+    Refresh();
+  }
 }
 
 void
 VROculusSession::StartPresentation(const IntSize& aSize)
 {
-  if (!mPresenting) {
-    mPresenting = true;
+  if (!mRequestPresentation) {
+    mRequestPresentation = true;
     mTelemetry.Clear();
     mTelemetry.mPresentationStart = TimeStamp::Now();
 
@@ -258,9 +283,9 @@ VROculusSession::StartPresentation(const IntSize& aSize)
 void
 VROculusSession::StopPresentation()
 {
-  if (mPresenting) {
+  if (mRequestPresentation) {
     mLastPresentationEnd = TimeStamp::Now();
-    mPresenting = false;
+    mRequestPresentation = false;
 
     const TimeDuration duration = mLastPresentationEnd - mTelemetry.mPresentationStart;
     Telemetry::Accumulate(Telemetry::WEBVR_USERS_VIEW_IN, 1);
@@ -283,6 +308,7 @@ VROculusSession::StopPresentation()
 
 VROculusSession::~VROculusSession()
 {
+  mSubmitThread = nullptr;
   Uninitialize(true);
 }
 
@@ -315,6 +341,8 @@ VROculusSession::StopSession()
 {
   if (mSession) {
     ovr_Destroy(mSession);
+    mIsConnected = false;
+    mIsMounted = false;
     mSession = nullptr;
   }
 }
@@ -337,9 +365,14 @@ VROculusSession::Refresh(bool aForceRefresh)
     return;
   }
 
+  if (!mRequestTracking) {
+    Uninitialize(true);
+    return;
+  }
+
   ovrInitFlags flags = (ovrInitFlags)(ovrInit_RequestVersion | ovrInit_MixedRendering);
   bool bInvisible = true;
-  if (mPresenting) {
+  if (mRequestPresentation) {
     bInvisible = false;
   } else if (!mLastPresentationEnd.IsNull()) {
     TimeDuration duration = TimeStamp::Now() - mLastPresentationEnd;
@@ -355,16 +388,19 @@ VROculusSession::Refresh(bool aForceRefresh)
       // fill the HMD with black / no layers.
       if (mSession && mTextureSet) {
         if (!aForceRefresh) {
-          // ovr_SubmitFrame is only allowed been run at Compositor thread,
-          // so we post this task to Compositor thread and let it determine
-          // if reloading library.
+          // VROculusSession didn't start submitting frames yet.
+          if (!mSubmitThread) {
+            return;
+          }
+          // ovr_SubmitFrame is running at VR Submit thread,
+          // so we post this task to VR Submit thread and let it paint
+          // a black frame.
           mDrawBlack = true;
-          MessageLoop* loop = layers::CompositorThreadHolder::Loop();
-          loop->PostTask(NewRunnableMethod<bool>(
+          MOZ_ASSERT(mSubmitThread->IsActive());
+          mSubmitThread->PostTask(NewRunnableMethod<bool>(
             "gfx::VROculusSession::Refresh",
             this,
             &VROculusSession::Refresh, true));
-
           return;
         }
         ovrLayerEyeFov layer;
@@ -384,15 +420,25 @@ VROculusSession::Refresh(bool aForceRefresh)
     Uninitialize(false);
   }
 
-  Initialize(flags);
+  if(!Initialize(flags)) {
+    // If we fail to initialize, ensure the Oculus libraries
+    // are unloaded, as we can't poll for ovrSessionStatus::ShouldQuit
+    // without an active ovrSession.
+    Uninitialize(true);
+  }
 
   if (mSession) {
     ovrSessionStatus status;
     if (OVR_SUCCESS(ovr_GetSessionStatus(mSession, &status))) {
+      mIsConnected = status.HmdPresent;
+      mIsMounted = status.HmdMounted;
       if (status.ShouldQuit) {
         mLastShouldQuit = TimeStamp::Now();
         Uninitialize(true);
       }
+    } else {
+      mIsConnected = false;
+      mIsMounted = false;
     }
   }
 }
@@ -437,12 +483,12 @@ VROculusSession::Initialize(ovrInitFlags aFlags)
 bool
 VROculusSession::StartRendering()
 {
-  if (!mPresenting) {
+  if (!mRequestPresentation) {
     // Nothing to do if we aren't presenting
     return true;
   }
   if (!mDevice) {
-    mDevice = gfx::DeviceManagerDx::Get()->GetCompositorDevice();
+    mDevice = gfx::DeviceManagerDx::Get()->GetVRDevice();
     if (!mDevice) {
       NS_WARNING("Failed to get a D3D11Device for Oculus");
       return false;
@@ -973,7 +1019,7 @@ VRDisplayOculus::StartPresentation()
     return;
   }
   mSession->StartPresentation(IntSize(mDisplayInfo.mEyeResolution.width * 2, mDisplayInfo.mEyeResolution.height));
-  if (!mSession->IsRenderReady()) {
+  if (!mSession->IsPresentationReady()) {
     return;
   }
 
@@ -1094,6 +1140,7 @@ VRDisplayOculus::SubmitFrame(ID3D11Texture2D* aSource,
                              const gfx::Rect& aLeftEyeRect,
                              const gfx::Rect& aRightEyeRect)
 {
+  MOZ_ASSERT(mSubmitThread->GetThread() == NS_GetCurrentThread());
   if (!CreateD3DObjects()) {
     return false;
   }
@@ -1103,7 +1150,7 @@ VRDisplayOculus::SubmitFrame(ID3D11Texture2D* aSource,
     return false;
   }
 
-  if (!mSession->IsRenderReady()) {
+  if (!mSession->IsPresentationReady()) {
     return false;
   }
   /**
@@ -1244,22 +1291,15 @@ VRDisplayOculus::SubmitFrame(ID3D11Texture2D* aSource,
     return false;
   }
 
+  mSession->mSubmitThread = mSubmitThread;
   return true;
 }
 
 void
-VRDisplayOculus::NotifyVSync()
+VRDisplayOculus::Refresh()
 {
-  mSession->Refresh();
-  if (mSession->IsTrackingReady()) {
-    ovrSessionStatus sessionStatus;
-    ovrResult ovr = ovr_GetSessionStatus(mSession->Get(), &sessionStatus);
-    mDisplayInfo.mIsConnected = (ovr == ovrSuccess && sessionStatus.HmdPresent);
-  } else {
-    mDisplayInfo.mIsConnected = false;
-  }
-
-  VRDisplayHost::NotifyVSync();
+  mDisplayInfo.mIsConnected = mSession->IsTrackingReady();
+  mDisplayInfo.mIsMounted = mSession->IsMounted();
 }
 
 VRControllerOculus::VRControllerOculus(dom::GamepadHand aHand, uint32_t aDisplayID)
@@ -1343,19 +1383,19 @@ VRControllerOculus::UpdateVibrateHaptic(ovrSession aSession,
                                         double aIntensity,
                                         double aDuration,
                                         uint64_t aVibrateIndex,
-                                        uint32_t aPromiseID)
+                                        const VRManagerPromise& aPromise)
 {
   // UpdateVibrateHaptic() only can be called by mVibrateThread
-  MOZ_ASSERT(mVibrateThread == NS_GetCurrentThread());
+  MOZ_ASSERT(mVibrateThread->GetThread() == NS_GetCurrentThread());
 
   // It has been interrupted by loss focus.
   if (mIsVibrateStopped) {
-    VibrateHapticComplete(aSession, aPromiseID, true);
+    VibrateHapticComplete(aSession, aPromise, true);
     return;
   }
   // Avoid the previous vibrate event to override the new one.
   if (mVibrateIndex != aVibrateIndex) {
-    VibrateHapticComplete(aSession, aPromiseID, false);
+    VibrateHapticComplete(aSession, aPromise, false);
     return;
   }
 
@@ -1400,19 +1440,19 @@ VRControllerOculus::UpdateVibrateHaptic(ovrSession aSession,
     MOZ_ASSERT(mVibrateThread);
 
     RefPtr<Runnable> runnable =
-      NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t, uint32_t>(
-        "VRControllerOculus::UpdateVibrateHaptic",
-        this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
-        aHapticIndex, aIntensity, (duration > kVibrateRate) ? remainingTime : 0, aVibrateIndex, aPromiseID);
-    NS_DelayedDispatchToCurrentThread(runnable.forget(),
-                                      (duration > kVibrateRate) ? kVibrateRate : remainingTime);
+      NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t,
+        StoreCopyPassByConstLRef<VRManagerPromise>>(
+          "VRControllerOculus::UpdateVibrateHaptic",
+          this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
+          aHapticIndex, aIntensity, (duration > kVibrateRate) ? remainingTime : 0, aVibrateIndex, aPromise);
+    mVibrateThread->PostDelayedTask(runnable.forget(), (duration > kVibrateRate) ? kVibrateRate : remainingTime);
   } else {
-    VibrateHapticComplete(aSession, aPromiseID, true);
+    VibrateHapticComplete(aSession, aPromise, true);
   }
 }
 
 void
-VRControllerOculus::VibrateHapticComplete(ovrSession aSession, uint32_t aPromiseID,
+VRControllerOculus::VibrateHapticComplete(ovrSession aSession, const VRManagerPromise& aPromise,
                                           bool aStop)
 {
   if (aStop) {
@@ -1440,9 +1480,10 @@ VRControllerOculus::VibrateHapticComplete(ovrSession aSession, uint32_t aPromise
   VRManager *vm = VRManager::Get();
   MOZ_ASSERT(vm);
 
-  VRListenerThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>(
-                                           "VRManager::NotifyVibrateHapticCompleted",
-                                           vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
+  VRListenerThreadHolder::Loop()->PostTask(
+    NewRunnableMethod<StoreCopyPassByConstLRef<VRManagerPromise>>(
+      "VRManager::NotifyVibrateHapticCompleted",
+      vm, &VRManager::NotifyVibrateHapticCompleted, aPromise));
 }
 
 void
@@ -1450,26 +1491,23 @@ VRControllerOculus::VibrateHaptic(ovrSession aSession,
                                   uint32_t aHapticIndex,
                                   double aIntensity,
                                   double aDuration,
-                                  uint32_t aPromiseID)
+                                  const VRManagerPromise& aPromise)
 {
   // Spinning up the haptics thread at the first haptics call.
   if (!mVibrateThread) {
-    nsresult rv = NS_NewThread(getter_AddRefs(mVibrateThread));
-    MOZ_ASSERT(mVibrateThread);
-
-    if (NS_FAILED(rv)) {
-      MOZ_ASSERT(false, "Failed to create async thread.");
-    }
+    mVibrateThread = new VRThread(NS_LITERAL_CSTRING("Oculus_Vibration"));
   }
+  mVibrateThread->Start();
   ++mVibrateIndex;
   mIsVibrateStopped = false;
 
   RefPtr<Runnable> runnable =
-       NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t, uint32_t>
-         ("VRControllerOculus::UpdateVibrateHaptic",
-          this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
-          aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromiseID);
-  mVibrateThread->Dispatch(runnable.forget(), NS_DISPATCH_NORMAL);
+    NewRunnableMethod<ovrSession, uint32_t, double, double, uint64_t,
+      StoreCopyPassByConstLRef<VRManagerPromise>>(
+        "VRControllerOculus::UpdateVibrateHaptic",
+        this, &VRControllerOculus::UpdateVibrateHaptic, aSession,
+        aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromise);
+  mVibrateThread->PostTask(runnable.forget());
 }
 
 void
@@ -1517,37 +1555,66 @@ VRSystemManagerOculus::Shutdown()
   mDisplay = nullptr;
 }
 
+void
+VRSystemManagerOculus::NotifyVSync()
+{
+  VRSystemManager::NotifyVSync();
+  if (!mSession) {
+    return;
+  }
+  mSession->Refresh();
+  if (mDisplay) {
+    mDisplay->Refresh();
+  }
+  // Detect disconnection
+  if (!mSession->IsTrackingReady()) {
+    // No HMD connected
+    mDisplay = nullptr;
+  }
+}
+
 bool
-VRSystemManagerOculus::GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult)
+VRSystemManagerOculus::ShouldInhibitEnumeration()
+{
+  if (VRSystemManager::ShouldInhibitEnumeration()) {
+    return true;
+  }
+  if (mDisplay) {
+    // When we find an Oculus VR device, don't
+    // allow any further enumeration as it
+    // may get picked up redundantly by other
+    // API's such as OpenVR.
+    return true;
+  }
+  if (mSession && mSession->IsQuitTimeoutActive()) {
+    // When we are responding to ShouldQuit, we return true here
+    // to prevent further enumeration by other VRSystemManager's such as
+    // VRSystemManagerOpenVR which would also enumerate the connected Oculus
+    // HMD, resulting in interference with the Oculus runtime software updates.
+    return true;
+  }
+  return false;
+}
+
+void
+VRSystemManagerOculus::Enumerate()
 {
   if (!mSession) {
     mSession = new VROculusSession();
   }
-  mSession->Refresh();
-  if (mSession->IsQuitTimeoutActive()) {
-    // We have responded to a ShouldQuit flag set by the Oculus runtime
-    // and are waiting for a timeout duration to elapse before allowing
-    // re-initialization of the Oculus OVR lib.  We return true in this case
-    // to prevent further enumeration by other VRSystemManager's such as
-    // VRSystemManagerOpenVR which would also enumerate the connected Oculus
-    // HMD, resulting in interference with the Oculus runtime software updates.
-    mDisplay = nullptr;
-    return true;
-  }
-
-  if (!mSession->IsTrackingReady()) {
-    // No HMD connected.
-    mDisplay = nullptr;
-  } else if (mDisplay == nullptr) {
+  mSession->StartTracking();
+  if (mDisplay == nullptr && mSession->IsTrackingReady()) {
     // HMD Detected
     mDisplay = new VRDisplayOculus(mSession);
   }
+}
 
+void
+VRSystemManagerOculus::GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult)
+{
   if (mDisplay) {
     aHMDResult.AppendElement(mDisplay);
-    return true;
   }
-  return false;
 }
 
 bool
@@ -1804,18 +1871,19 @@ VRSystemManagerOculus::VibrateHaptic(uint32_t aControllerIdx,
                                      uint32_t aHapticIndex,
                                      double aIntensity,
                                      double aDuration,
-                                     uint32_t aPromiseID)
+                                     const VRManagerPromise& aPromise)
 {
   // The session is available after VRDisplay is created
   // at GetHMDs().
-  if (!mSession || !mSession->IsTrackingReady()) {
+  if (!mSession || !mSession->IsTrackingReady() ||
+      (aControllerIdx >= mOculusController.Length())) {
     return;
   }
 
   RefPtr<impl::VRControllerOculus> controller = mOculusController[aControllerIdx];
   MOZ_ASSERT(controller);
 
-  controller->VibrateHaptic(mSession->Get(), aHapticIndex, aIntensity, aDuration, aPromiseID);
+  controller->VibrateHaptic(mSession->Get(), aHapticIndex, aIntensity, aDuration, aPromise);
 }
 
 void

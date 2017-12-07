@@ -164,11 +164,10 @@ class ParserBase : public StrictModeGetter
 
     ParserBase(JSContext* cx, LifoAlloc& alloc, const ReadOnlyCompileOptions& options,
                const char16_t* chars, size_t length, bool foldConstants,
-               UsedNameTracker& usedNames, LazyScript* lazyOuterFunction);
+               UsedNameTracker& usedNames);
     ~ParserBase();
 
     const char* getFilename() const { return tokenStream.getFilename(); }
-    JSVersion versionNumber() const { return tokenStream.versionNumber(); }
     TokenPos pos() const { return tokenStream.currentToken().pos; }
 
     // Determine whether |yield| is a valid name in the current context.
@@ -236,15 +235,6 @@ class ParserBase : public StrictModeGetter
     void addTelemetry(DeprecatedLanguageExtension e);
 
     bool warnOnceAboutExprClosure();
-    bool warnOnceAboutForEach();
-
-    bool allowsForEachIn() {
-#if !JS_HAS_FOR_EACH_IN
-        return false;
-#else
-        return options().forEachStatementOption && versionNumber() >= JSVERSION_1_6;
-#endif
-    }
 
     bool hasValidSimpleStrictParameterNames();
 
@@ -314,6 +304,8 @@ ParseContext::VarScope::VarScope(ParserBase* parser)
 {
     useAsVarScope(parser->pc);
 }
+
+enum class ExpressionClosure { Allowed, Forbidden };
 
 template <class ParseHandler, typename CharT>
 class Parser final : public ParserBase, private JS::AutoGCRooter
@@ -566,10 +558,9 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
 
     // Parse an inner function given an enclosing ParseContext and a
     // FunctionBox for the inner function.
-    bool innerFunction(Node pn, ParseContext* outerpc, FunctionBox* funbox, uint32_t toStringStart,
-                       InHandling inHandling, YieldHandling yieldHandling,
-                       FunctionSyntaxKind kind,
-                       Directives inheritedDirectives, Directives* newDirectives);
+    bool innerFunction(Node pn, ParseContext* outerpc, FunctionBox* funbox,
+                       InHandling inHandling, YieldHandling yieldHandling, FunctionSyntaxKind kind,
+                       Directives* newDirectives);
 
     // Parse a function's formal parameters and its body assuming its function
     // ParseContext is already on the stack.
@@ -602,9 +593,9 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
      */
     Node functionStmt(uint32_t toStringStart,
                       YieldHandling yieldHandling, DefaultHandling defaultHandling,
-                      FunctionAsyncKind asyncKind = SyncFunction);
-    Node functionExpr(uint32_t toStringStart, InvokedPrediction invoked = PredictUninvoked,
-                      FunctionAsyncKind asyncKind = SyncFunction);
+                      FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
+    Node functionExpr(uint32_t toStringStart, ExpressionClosure expressionClosureHandling,
+                      InvokedPrediction invoked, FunctionAsyncKind asyncKind);
 
     Node statementList(YieldHandling yieldHandling);
     Node statement(YieldHandling yieldHandling);
@@ -617,7 +608,6 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
 
     Node forStatement(YieldHandling yieldHandling);
     bool forHeadStart(YieldHandling yieldHandling,
-                      IteratorKind iterKind,
                       ParseNodeKind* forHeadKind,
                       Node* forInitialPart,
                       mozilla::Maybe<ParseContext::Scope>& forLetImpliedScope,
@@ -659,12 +649,12 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool checkLocalExportNames(Node node);
     Node exportClause(uint32_t begin);
     Node exportFunctionDeclaration(uint32_t begin, uint32_t toStringStart,
-                                   FunctionAsyncKind asyncKind = SyncFunction);
+                                   FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
     Node exportVariableStatement(uint32_t begin);
     Node exportClassDeclaration(uint32_t begin);
     Node exportLexicalDeclaration(uint32_t begin, DeclarationKind kind);
     Node exportDefaultFunctionDeclaration(uint32_t begin, uint32_t toStringStart,
-                                          FunctionAsyncKind asyncKind = SyncFunction);
+                                          FunctionAsyncKind asyncKind = FunctionAsyncKind::SyncFunction);
     Node exportDefaultClassDeclaration(uint32_t begin);
     Node exportDefaultAssignExpr(uint32_t begin);
     Node exportDefault(uint32_t begin);
@@ -707,10 +697,10 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // |*forInOrOfExpression|.  (An "initial declaration" is the first
     // declaration in a declaration list: |a| but not |b| in |var a, b|, |{c}|
     // but not |d| in |let {c} = 3, d|.)
-    Node declarationPattern(Node decl, DeclarationKind declKind, TokenKind tt,
+    Node declarationPattern(DeclarationKind declKind, TokenKind tt,
                             bool initialDeclaration, YieldHandling yieldHandling,
                             ParseNodeKind* forHeadKind, Node* forInOrOfExpression);
-    Node declarationName(Node decl, DeclarationKind declKind, TokenKind tt,
+    Node declarationName(DeclarationKind declKind, TokenKind tt,
                          bool initialDeclaration, YieldHandling yieldHandling,
                          ParseNodeKind* forHeadKind, Node* forInOrOfExpression);
 
@@ -719,7 +709,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     // from its initializer, parse and bind that initializer -- and possibly
     // consume trailing in/of and subsequent expression, if so directed by
     // |forHeadKind|.
-    bool initializerInNameDeclaration(Node decl, Node binding, Handle<PropertyName*> name,
+    bool initializerInNameDeclaration(Node binding,
                                       DeclarationKind declKind, bool initialDeclaration,
                                       YieldHandling yieldHandling, ParseNodeKind* forHeadKind,
                                       Node* forInOrOfExpression);
@@ -733,23 +723,24 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     Node assignExprWithoutYieldOrAwait(YieldHandling yieldHandling);
     Node yieldExpression(InHandling inHandling);
     Node condExpr(InHandling inHandling, YieldHandling yieldHandling,
-                  TripledotHandling tripledotHandling,
+                  TripledotHandling tripledotHandling, ExpressionClosure expressionClosureHandling,
                   PossibleError* possibleError,
                   InvokedPrediction invoked = PredictUninvoked);
     Node orExpr(InHandling inHandling, YieldHandling yieldHandling,
-                TripledotHandling tripledotHandling,
+                TripledotHandling tripledotHandling, ExpressionClosure expressionClosureHandling,
                 PossibleError* possibleError,
                 InvokedPrediction invoked = PredictUninvoked);
     Node unaryExpr(YieldHandling yieldHandling, TripledotHandling tripledotHandling,
+                   ExpressionClosure expressionClosureHandling,
                    PossibleError* possibleError = nullptr,
                    InvokedPrediction invoked = PredictUninvoked);
     Node memberExpr(YieldHandling yieldHandling, TripledotHandling tripledotHandling,
-                    TokenKind tt, bool allowCallSyntax = true,
-                    PossibleError* possibleError = nullptr,
+                    ExpressionClosure expressionClosureHandling, TokenKind tt,
+                    bool allowCallSyntax = true, PossibleError* possibleError = nullptr,
                     InvokedPrediction invoked = PredictUninvoked);
     Node primaryExpr(YieldHandling yieldHandling, TripledotHandling tripledotHandling,
-                     TokenKind tt, PossibleError* possibleError,
-                     InvokedPrediction invoked = PredictUninvoked);
+                     ExpressionClosure expressionClosureHandling, TokenKind tt,
+                     PossibleError* possibleError, InvokedPrediction invoked = PredictUninvoked);
     Node exprInParens(InHandling inHandling, YieldHandling yieldHandling,
                       TripledotHandling tripledotHandling, PossibleError* possibleError = nullptr);
 
@@ -764,9 +755,8 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool functionArguments(YieldHandling yieldHandling, FunctionSyntaxKind kind,
                            Node funcpn);
 
-    Node functionDefinition(Node func, uint32_t toStringStart,
-                            InHandling inHandling, YieldHandling yieldHandling,
-                            HandleAtom name, FunctionSyntaxKind kind,
+    Node functionDefinition(Node func, uint32_t toStringStart, InHandling inHandling,
+                            YieldHandling yieldHandling, HandleAtom name, FunctionSyntaxKind kind,
                             GeneratorKind generatorKind, FunctionAsyncKind asyncKind,
                             bool tryAnnexB = false);
 
@@ -779,15 +769,6 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     Node unaryOpExpr(YieldHandling yieldHandling, ParseNodeKind kind, uint32_t begin);
 
     Node condition(InHandling inHandling, YieldHandling yieldHandling);
-
-    /* comprehensions */
-    Node generatorComprehensionLambda(unsigned begin);
-    Node comprehensionFor(GeneratorKind comprehensionKind);
-    Node comprehensionIf(GeneratorKind comprehensionKind);
-    Node comprehensionTail(GeneratorKind comprehensionKind);
-    Node comprehension(GeneratorKind comprehensionKind);
-    Node arrayComprehension(uint32_t begin);
-    Node generatorComprehension(uint32_t begin);
 
     bool argumentList(YieldHandling yieldHandling, Node listNode, bool* isSpread,
                       PossibleError* possibleError = nullptr);
@@ -854,15 +835,13 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
     bool skipLazyInnerFunction(Node pn, uint32_t toStringStart, FunctionSyntaxKind kind,
                                bool tryAnnexB);
     bool innerFunction(Node pn, ParseContext* outerpc, HandleFunction fun, uint32_t toStringStart,
-                       InHandling inHandling, YieldHandling yieldHandling,
-                       FunctionSyntaxKind kind,
+                       InHandling inHandling, YieldHandling yieldHandling, FunctionSyntaxKind kind,
                        GeneratorKind generatorKind, FunctionAsyncKind asyncKind, bool tryAnnexB,
                        Directives inheritedDirectives, Directives* newDirectives);
     bool trySyntaxParseInnerFunction(Node pn, HandleFunction fun, uint32_t toStringStart,
                                      InHandling inHandling, YieldHandling yieldHandling,
-                                     FunctionSyntaxKind kind,
-                                     GeneratorKind generatorKind, FunctionAsyncKind asyncKind,
-                                     bool tryAnnexB,
+                                     FunctionSyntaxKind kind, GeneratorKind generatorKind,
+                                     FunctionAsyncKind asyncKind, bool tryAnnexB,
                                      Directives inheritedDirectives, Directives* newDirectives);
     bool finishFunctionScopes(bool isStandaloneFunction);
     bool finishFunction(bool isStandaloneFunction = false);
@@ -880,6 +859,7 @@ class Parser final : public ParserBase, private JS::AutoGCRooter
                                        FunctionCallBehavior behavior = ForbidAssignmentToFunctionCalls);
 
   private:
+    const char* nameIsArgumentsOrEval(Node node);
     bool checkIncDecOperand(Node operand, uint32_t operandOffset);
     bool checkStrictAssignment(Node lhs);
 

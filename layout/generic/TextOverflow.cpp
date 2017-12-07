@@ -41,7 +41,7 @@ public:
   virtual already_AddRefed<DrawTarget> GetRefDrawTarget() override
   {
     RefPtr<gfxContext> ctx =
-      mFrame->PresContext()->PresShell()->CreateReferenceRenderingContext();
+      mFrame->PresShell()->CreateReferenceRenderingContext();
     RefPtr<DrawTarget> dt = ctx->GetDrawTarget();
     return dt.forget();
   }
@@ -326,7 +326,6 @@ TextOverflow::TextOverflow(nsDisplayListBuilder* aBuilder,
   , mBuilder(aBuilder)
   , mBlock(aBlockFrame)
   , mScrollableFrame(nsLayoutUtils::GetScrollableFrameFor(aBlockFrame))
-  , mMarkerList(aBuilder)
   , mBlockSize(aBlockFrame->GetSize())
   , mBlockWM(aBlockFrame->GetWritingMode())
   , mAdjustForPixelSnapping(false)
@@ -755,7 +754,7 @@ TextOverflow::PruneDisplayListContents(nsDisplayList* aList,
                                        const FrameHashtable& aFramesToHide,
                                        const LogicalRect& aInsideMarkersArea)
 {
-  nsDisplayList saved(mBuilder);
+  nsDisplayList saved;
   nsDisplayItem* item;
   while ((item = aList->RemoveBottom())) {
     nsIFrame* itemFrame = item->Frame();
@@ -822,7 +821,7 @@ TextOverflow::CanHaveTextOverflow(nsIFrame* aBlockFrame)
   }
 
   // Inhibit the markers if a descendant content owns the caret.
-  RefPtr<nsCaret> caret = aBlockFrame->PresContext()->PresShell()->GetCaret();
+  RefPtr<nsCaret> caret = aBlockFrame->PresShell()->GetCaret();
   if (caret && caret->IsVisible()) {
     nsCOMPtr<nsISelection> domSelection = caret->GetSelection();
     if (domSelection) {
@@ -896,7 +895,7 @@ TextOverflow::Marker::SetupString(nsIFrame* aFrame)
     }
   } else {
     RefPtr<gfxContext> rc =
-      aFrame->PresContext()->PresShell()->CreateReferenceRenderingContext();
+      aFrame->PresShell()->CreateReferenceRenderingContext();
     RefPtr<nsFontMetrics> fm =
       nsLayoutUtils::GetInflatedFontMetricsForFrame(aFrame);
     mISize = nsLayoutUtils::AppUnitWidthOfStringBidi(mStyle->mString, aFrame,

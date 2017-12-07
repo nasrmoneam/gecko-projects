@@ -7,6 +7,7 @@
 #if !defined(MediaDecoder_h_)
 #define MediaDecoder_h_
 
+#include "BackgroundVideoDecodingPermissionObserver.h"
 #include "DecoderDoctorDiagnostics.h"
 #include "MediaContainerType.h"
 #include "MediaDecoderOwner.h"
@@ -39,8 +40,8 @@ class FrameStatistics;
 class VideoFrameContainer;
 class MediaFormatReader;
 class MediaDecoderStateMachine;
+struct MediaPlaybackEvent;
 
-enum class MediaEventType : int8_t;
 enum class Visibility : uint8_t;
 
 // GetCurrentTime is defined in winbase.h as zero argument macro forwarding to
@@ -80,7 +81,9 @@ struct MOZ_STACK_CLASS MediaDecoderInit
   }
 };
 
-class MediaDecoder
+DDLoggedTypeDeclName(MediaDecoder);
+
+class MediaDecoder : public DecoderDoctorLifeLogger<MediaDecoder>
 {
 public:
   typedef MozPromise<bool /* aIgnored */, bool /* aIgnored */,
@@ -100,6 +103,9 @@ public:
     PLAY_STATE_SHUTDOWN
   };
 
+  // Must be called exactly once, on the main thread, during startup.
+  static void InitStatics();
+
   explicit MediaDecoder(MediaDecoderInit& aInit);
 
   // Returns the container content type of the resource.
@@ -116,7 +122,7 @@ public:
   void NotifyXPCOMShutdown();
 
   // Called if the media file encounters a network error.
-  void NetworkError();
+  void NetworkError(const MediaResult& aError);
 
   // Return the principal of the current URI being played or downloaded.
   virtual already_AddRefed<nsIPrincipal> GetCurrentPrincipal() = 0;
@@ -173,10 +179,6 @@ public:
 
   // Return true if the stream is infinite.
   bool IsInfinite() const;
-
-  // Called as data arrives on the stream and is read into the cache.  Called
-  // on the main thread only.
-  void NotifyDataArrived();
 
   // Return true if we are currently seeking in the media resource.
   // Call on the main thread only.
@@ -307,6 +309,8 @@ private:
 
   void UpdateVideoDecodeMode();
 
+  void SetIsBackgroundVideoDecodingAllowed(bool aAllowed);
+
   /******
    * The following methods must only be called on the main
    * thread.
@@ -425,7 +429,7 @@ protected:
     DurationChanged();
   }
 
-  virtual void OnPlaybackEvent(MediaEventType aEvent);
+  virtual void OnPlaybackEvent(MediaPlaybackEvent&& aEvent);
 
   // Called when the metadata from the media file has been loaded by the
   // state machine. Call on the main thread only.
@@ -511,13 +515,9 @@ private:
   RefPtr<MediaDecoderStateMachine> mDecoderStateMachine;
 
 protected:
-  void NotifyDataArrivedInternal();
+  void NotifyReaderDataArrived();
   void DiscardOngoingSeekIfExists();
   virtual void CallSeek(const SeekTarget& aTarget);
-
-  // Called to notify fetching media data is in progress.
-  // Called on the main thread only.
-  virtual void DownloadProgressed();
 
   // Called by MediaResource when the principal of the resource has
   // changed. Called on main thread only.
@@ -609,12 +609,6 @@ protected:
   // Duration of the media resource according to the state machine.
   Mirror<media::NullableTimeUnit> mStateMachineDuration;
 
-  // Current playback position in the stream. This is (approximately)
-  // where we're up to playing back the stream. This is not adjusted
-  // during decoder seek operations, but it's updated at the end when we
-  // start playing back again.
-  Mirror<int64_t> mPlaybackPosition;
-
   // Used to distinguish whether the audio is producing sound.
   Mirror<bool> mIsAudioDataAudible;
 
@@ -652,7 +646,6 @@ protected:
   // We can allow video decoding in background when we match some special
   // conditions, eg. when the cursor is hovering over the tab. This observer is
   // used to listen the related events.
-  class BackgroundVideoDecodingPermissionObserver;
   RefPtr<BackgroundVideoDecodingPermissionObserver> mVideoDecodingOberver;
 
   // True if we want to resume video decoding even the media element is in the

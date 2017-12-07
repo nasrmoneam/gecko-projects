@@ -26,9 +26,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
   <binding id="urlbar" extends="chrome://global/content/bindings/autocomplete.xml#autocomplete">
 
     <content sizetopopup="pref">
-      <xul:hbox anonid="textbox-container"
-                class="autocomplete-textbox-container urlbar-textbox-container"
-                flex="1" xbl:inherits="focused">
+      <xul:hbox flex="1" class="urlbar-textbox-container">
         <children includes="image|deck|stack|box"/>
         <xul:hbox anonid="textbox-input-box"
                   class="textbox-input-box urlbar-input-box"
@@ -1816,11 +1814,13 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
           this._margins = val;
 
           if (val) {
+            /* eslint-disable no-multi-spaces */
             let paddingInCSS =
                 3   // .autocomplete-richlistbox padding-left/right
               + 6   // .ac-site-icon margin-inline-start
               + 16  // .ac-site-icon width
               + 6;  // .ac-site-icon margin-inline-end
+            /* eslint-enable no-multi-spaces */
             let actualVal = Math.round(val.start) - paddingInCSS;
             let actualValEnd = Math.round(val.end);
             this.style.setProperty("--item-padding-start", actualVal + "px");
@@ -1878,7 +1878,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
           let elementRect =
             this.DOMWindowUtils.getBoundsWithoutFlushing(aElement);
           if (popupDirection == "rtl") {
-            let offset = elementRect.right - documentRect.right
+            let offset = elementRect.right - documentRect.right;
             this.style.marginRight = offset + "px";
           } else {
             let offset = documentRect.left - elementRect.left;

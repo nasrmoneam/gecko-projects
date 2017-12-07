@@ -366,8 +366,6 @@ nsWebShellWindow::SizeModeChanged(nsSizeMode sizeMode)
   nsCOMPtr<nsPIDOMWindowOuter> ourWindow =
     mDocShell ? mDocShell->GetWindow() : nullptr;
   if (ourWindow) {
-    MOZ_ASSERT(ourWindow->IsOuterWindow());
-
     // Ensure that the fullscreen state is synchronized between
     // the widget and the outer window object.
     if (sizeMode == nsSizeMode_Fullscreen) {
@@ -408,7 +406,6 @@ nsWebShellWindow::UIResolutionChanged()
   nsCOMPtr<nsPIDOMWindowOuter> ourWindow =
     mDocShell ? mDocShell->GetWindow() : nullptr;
   if (ourWindow) {
-    MOZ_ASSERT(ourWindow->IsOuterWindow());
     ourWindow->DispatchCustomEvent(NS_LITERAL_STRING("resolutionchange"));
   }
 }
@@ -439,7 +436,6 @@ nsWebShellWindow::OcclusionStateChanged(bool aIsFullyOccluded)
   nsCOMPtr<nsPIDOMWindowOuter> ourWindow =
     mDocShell ? mDocShell->GetWindow() : nullptr;
   if (ourWindow) {
-    MOZ_ASSERT(ourWindow->IsOuterWindow());
     // And always fire a user-defined occlusionstatechange event on the window
     ourWindow->DispatchCustomEvent(NS_LITERAL_STRING("occlusionstatechange"));
   }
@@ -533,7 +529,7 @@ static void LoadNativeMenus(nsIDOMDocument *aDOMDoc, nsIWidget *aParentWindow)
     menubarElements->Item(0, getter_AddRefs(menubarNode));
 
   if (menubarNode) {
-    nsCOMPtr<nsIContent> menubarContent(do_QueryInterface(menubarNode));
+    nsCOMPtr<Element> menubarContent(do_QueryInterface(menubarNode));
     nms->CreateNativeMenuBar(aParentWindow, menubarContent);
   } else {
     nms->CreateNativeMenuBar(aParentWindow, nullptr);

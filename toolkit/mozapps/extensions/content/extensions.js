@@ -956,9 +956,7 @@ var gViewController = {
         if (cancelQuit.data)
           return; // somebody canceled our quit request
 
-        let appStartup = Cc["@mozilla.org/toolkit/app-startup;1"].
-                         getService(Ci.nsIAppStartup);
-        appStartup.quit(Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart);
+        Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit | Ci.nsIAppStartup.eRestart);
       }
     },
 
@@ -1185,49 +1183,20 @@ var gViewController = {
 
     cmd_showItemPreferences: {
       isEnabled(aAddon) {
-        if (!aAddon ||
-            (!aAddon.isActive && aAddon.type !== "plugin") ||
-            !aAddon.optionsURL) {
+        if (!aAddon || (!aAddon.isActive && aAddon.type !== "plugin")) {
           return false;
         }
-        if (gViewController.currentViewObj == gDetailView &&
-            (aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE ||
-             aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_BROWSER)) {
-          return false;
+        if (gViewController.currentViewObj == gDetailView) {
+          return aAddon.optionsType && !hasInlineOptions(aAddon);
         }
-        if (aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_INFO)
-          return false;
-        return true;
+        return aAddon.type == "plugin" || aAddon.optionsType;
       },
       doCommand(aAddon) {
         if (hasInlineOptions(aAddon)) {
           gViewController.commands.cmd_showItemDetails.doCommand(aAddon, true);
-          return;
+        } else if (aAddon.optionsType == AddonManager.OPTIONS_TYPE_TAB) {
+          openOptionsInTab(aAddon.optionsURL);
         }
-        var optionsURL = aAddon.optionsURL;
-        if (aAddon.optionsType == AddonManager.OPTIONS_TYPE_TAB &&
-            openOptionsInTab(optionsURL)) {
-          return;
-        }
-        var windows = Services.wm.getEnumerator(null);
-        while (windows.hasMoreElements()) {
-          var win = windows.getNext();
-          if (win.closed) {
-            continue;
-          }
-          if (win.document.documentURI == optionsURL) {
-            win.focus();
-            return;
-          }
-        }
-        var features = "chrome,titlebar,toolbar,centerscreen";
-        try {
-          var instantApply = Services.prefs.getBoolPref("browser.preferences.instantApply");
-          features += instantApply ? ",dialog=no" : ",modal";
-        } catch (e) {
-          features += ",modal";
-        }
-        openDialog(optionsURL, "", features);
       }
     },
 
@@ -1579,9 +1548,8 @@ var gViewController = {
 };
 
 function hasInlineOptions(aAddon) {
-  return (aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE ||
-          aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_BROWSER ||
-          aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_INFO);
+  return aAddon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_BROWSER ||
+         aAddon.type == "plugin";
 }
 
 function openOptionsInTab(optionsURL) {
@@ -3629,94 +3597,28 @@ var gDetailView = {
       });
     };
 
-    // This function removes and returns the text content of aNode without
-    // removing any child elements. Removing the text nodes ensures any XBL
-    // bindings apply properly.
-    function stripTextNodes(aNode) {
-      var text = "";
-      for (var i = 0; i < aNode.childNodes.length; i++) {
-        if (aNode.childNodes[i].nodeType != document.ELEMENT_NODE) {
-          text += aNode.childNodes[i].textContent;
-          aNode.removeChild(aNode.childNodes[i--]);
-        } else {
-          text += stripTextNodes(aNode.childNodes[i]);
-        }
-      }
-      return text;
-    }
-
     var rows = document.getElementById("detail-downloads").parentNode;
 
-    try {
-      if (this._addon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_BROWSER) {
-        whenViewLoaded(async () => {
-          await this._addon.startupPromise;
+    if (this._addon.optionsType == AddonManager.OPTIONS_TYPE_INLINE_BROWSER) {
+      whenViewLoaded(async () => {
+        await this._addon.startupPromise;
 
-          const browserContainer = await this.createOptionsBrowser(rows);
+        const browserContainer = await this.createOptionsBrowser(rows);
 
+        if (browserContainer) {
           // Make sure the browser is unloaded as soon as we change views,
           // rather than waiting for the next detail view to load.
           document.addEventListener("ViewChanged", function() {
             browserContainer.remove();
           }, {once: true});
+        }
 
-          finish(browserContainer);
-        });
-
-        if (aCallback)
-          aCallback();
-      } else {
-        var xhr = new XMLHttpRequest();
-        xhr.open("GET", this._addon.optionsURL, true);
-        xhr.responseType = "xml";
-        xhr.onload = (function() {
-          var xml = xhr.responseXML;
-          var settings = xml.querySelectorAll(":root > setting");
-
-          var firstSetting = null;
-          for (var setting of settings) {
-
-            var desc = stripTextNodes(setting).trim();
-            if (!setting.hasAttribute("desc"))
-              setting.setAttribute("desc", desc);
-
-            var type = setting.getAttribute("type");
-            if (type == "file" || type == "directory")
-              setting.setAttribute("fullpath", "true");
-
-            setting = document.importNode(setting, true);
-            var style = setting.getAttribute("style");
-            if (style) {
-              setting.removeAttribute("style");
-              setting.setAttribute("style", style);
-            }
-
-            rows.appendChild(setting);
-            var visible = window.getComputedStyle(setting).getPropertyValue("display") != "none";
-            if (!firstSetting && visible) {
-              setting.setAttribute("first-row", true);
-              firstSetting = setting;
-            }
-          }
-
-          finish(firstSetting);
-
-          if (aCallback)
-            aCallback();
-        });
-        xhr.onerror = function(aEvent) {
-          Cu.reportError("Error " + aEvent.target.status +
-                         " occurred while receiving " + this._addon.optionsURL);
-          if (aCallback)
-            aCallback();
-        };
-        xhr.send();
-      }
-    } catch (e) {
-      Cu.reportError(e);
-      if (aCallback)
-        aCallback();
+        finish(browserContainer);
+      });
     }
+
+    if (aCallback)
+      aCallback();
   },
 
   scrollToPreferencesRows() {
@@ -3735,8 +3637,17 @@ var gDetailView = {
   },
 
   async createOptionsBrowser(parentNode) {
-    let stack = document.createElement("stack");
-    stack.setAttribute("id", "addon-options-prompts-stack");
+    const containerId = "addon-options-prompts-stack";
+
+    let stack = document.getElementById(containerId);
+
+    if (stack) {
+      // Remove the existent options container (if any).
+      stack.remove();
+    }
+
+    stack = document.createElement("stack");
+    stack.setAttribute("id", containerId);
 
     let browser = document.createElement("browser");
     browser.setAttribute("type", "content");
@@ -3754,7 +3665,7 @@ var gDetailView = {
       event.stopPropagation();
     });
 
-    let {optionsURL} = this._addon;
+    let {optionsURL, optionsBrowserStyle} = this._addon;
     let remote = !E10SUtils.canLoadURIInProcess(optionsURL, Services.appinfo.PROCESS_TYPE_DEFAULT);
 
     let readyPromise;
@@ -3773,6 +3684,15 @@ var gDetailView = {
     browser.clientTop;
 
     await readyPromise;
+
+    if (!browser.messageManager) {
+      // If the browser.messageManager is undefined, the browser element has been
+      // removed from the document in the meantime (e.g. due to a rapid sequence
+      // of addon reload), ensure that the stack is also removed and return null.
+      stack.remove();
+      return null;
+    }
+
     ExtensionParent.apiManager.emit("extension-browser-inserted", browser);
 
     return new Promise(resolve => {
@@ -3786,6 +3706,16 @@ var gDetailView = {
       };
 
       let mm = browser.messageManager;
+
+      if (!mm) {
+        // If the browser.messageManager is undefined, the browser element has been
+        // removed from the document in the meantime (e.g. due to a rapid sequence
+        // of addon reload), ensure that the stack is also removed and return null.
+        stack.remove();
+        resolve(null);
+        return;
+      }
+
       mm.loadFrameScript("chrome://extensions/content/ext-browser-content.js",
                          false);
       mm.addMessageListener("Extension:BrowserContentLoaded", messageListener);
@@ -3796,7 +3726,7 @@ var gDetailView = {
         isInline: true,
       };
 
-      if (this._addon.optionsBrowserStyle) {
+      if (optionsBrowserStyle) {
         browserOptions.stylesheets = extensionStylesheets;
       }
 

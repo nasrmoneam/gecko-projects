@@ -15,7 +15,6 @@
 // Forward declarations
 class nsAtom;
 class nsIURI;
-class nsRuleWalker;
 class nsAttrValue;
 class nsAttrName;
 class nsTextFragment;
@@ -357,60 +356,6 @@ public:
   }
 
   /**
-   * Set attribute values. All attribute values are assumed to have a
-   * canonical string representation that can be used for these
-   * methods. The SetAttr method is assumed to perform a translation
-   * of the canonical form into the underlying content specific
-   * form.
-   *
-   * @param aNameSpaceID the namespace of the attribute
-   * @param aName the name of the attribute
-   * @param aValue the value to set
-   * @param aNotify specifies how whether or not the document should be
-   *        notified of the attribute change.
-   */
-  nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName,
-                   const nsAString& aValue, bool aNotify)
-  {
-    return SetAttr(aNameSpaceID, aName, nullptr, aValue, aNotify);
-  }
-  nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName, nsAtom* aPrefix,
-                   const nsAString& aValue, bool aNotify)
-  {
-    return SetAttr(aNameSpaceID, aName, aPrefix, aValue, nullptr, aNotify);
-  }
-  nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName, const nsAString& aValue,
-                   nsIPrincipal* aTriggeringPrincipal, bool aNotify)
-  {
-    return SetAttr(aNameSpaceID, aName, nullptr, aValue, aTriggeringPrincipal, aNotify);
-  }
-
-  /**
-   * Set attribute values. All attribute values are assumed to have a
-   * canonical String representation that can be used for these
-   * methods. The SetAttr method is assumed to perform a translation
-   * of the canonical form into the underlying content specific
-   * form.
-   *
-   * @param aNameSpaceID the namespace of the attribute
-   * @param aName the name of the attribute
-   * @param aPrefix the prefix of the attribute
-   * @param aValue the value to set
-   * @param aMaybeScriptedPrincipal the principal of the scripted caller responsible
-   *        for setting the attribute, or null if no scripted caller can be
-   *        determined. A null value here does not guarantee that there is no
-   *        scripted caller, but a non-null value does guarantee that a scripted
-   *        caller with the given principal is directly responsible for the
-   *        attribute change.
-   * @param aNotify specifies how whether or not the document should be
-   *        notified of the attribute change.
-   */
-  virtual nsresult SetAttr(int32_t aNameSpaceID, nsAtom* aName,
-                           nsAtom* aPrefix, const nsAString& aValue,
-                           nsIPrincipal* aMaybeScriptedPrincipal,
-                           bool aNotify) = 0;
-
-  /**
    * Get the current value of the attribute. This returns a form that is
    * suitable for passing back into SetAttr.
    *
@@ -419,6 +364,8 @@ public:
    * @param aResult the value (may legitimately be the empty string) [OUT]
    * @returns true if the attribute was set (even when set to empty string)
    *          false when not set.
+   *
+   * FIXME(emilio): Move to Element.
    */
   bool GetAttr(int32_t aNameSpaceID, nsAtom* aName,
                nsAString& aResult) const;
@@ -491,43 +438,6 @@ public:
   {
     return ATTR_MISSING;
   }
-
-  /**
-   * Remove an attribute so that it is no longer explicitly specified.
-   *
-   * @param aNameSpaceID the namespace id of the attribute
-   * @param aAttr the name of the attribute to unset
-   * @param aNotify specifies whether or not the document should be
-   * notified of the attribute change
-   */
-  virtual nsresult UnsetAttr(int32_t aNameSpaceID, nsAtom* aAttr,
-                             bool aNotify) = 0;
-
-
-  /**
-   * Get the namespace / name / prefix of a given attribute.
-   *
-   * @param   aIndex the index of the attribute name
-   * @returns The name at the given index, or null if the index is
-   *          out-of-bounds.
-   * @note    The document returned by NodeInfo()->GetDocument() (if one is
-   *          present) is *not* necessarily the owner document of the element.
-   * @note    The pointer returned by this function is only valid until the
-   *          next call of either GetAttrNameAt or SetAttr on the element.
-   */
-  virtual const nsAttrName* GetAttrNameAt(uint32_t aIndex) const = 0;
-
-  /**
-   * Gets the attribute info (name and value) for this content at a given index.
-   */
-  virtual mozilla::dom::BorrowedAttrInfo GetAttrInfoAt(uint32_t aIndex) const = 0;
-
-  /**
-   * Get the number of all specified attributes.
-   *
-   * @return the number of attributes
-   */
-  virtual uint32_t GetAttrCount() const = 0;
 
   /**
    * Get direct access (but read only) to the text in the text content.
@@ -681,14 +591,23 @@ public:
    *
    * @return the binding parent
    */
-  virtual nsIContent *GetBindingParent() const = 0;
+  virtual nsIContent* GetBindingParent() const = 0;
 
   /**
    * Gets the current XBL binding that is bound to this element.
    *
    * @return the current binding.
    */
-  virtual nsXBLBinding *GetXBLBinding() const = 0;
+  nsXBLBinding* GetXBLBinding() const
+  {
+    if (!HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
+      return nullptr;
+    }
+
+    return DoGetXBLBinding();
+  }
+
+  virtual nsXBLBinding* DoGetXBLBinding() const = 0;
 
   /**
    * Sets or unsets an XBL binding for this element. Setting a
@@ -757,6 +676,15 @@ public:
    * @param aSlot The assigned slot.
    */
   virtual void SetAssignedSlot(mozilla::dom::HTMLSlotElement* aSlot) = 0;
+
+  /**
+   * Gets the assigned slot associated with this content based on parent's
+   * shadow root mode. Returns null if parent's shadow root is "closed".
+   * https://dom.spec.whatwg.org/#dom-slotable-assignedslot
+   *
+   * @return The assigned slot element or null.
+   */
+  mozilla::dom::HTMLSlotElement* GetAssignedSlotByMode() const;
 
   nsIContent* GetXBLInsertionParent() const
   {
@@ -908,12 +836,6 @@ public:
   }
 
   /**
-   * Walk aRuleWalker over the content style rules (presentational
-   * hint rules) for this content node.
-   */
-  NS_IMETHOD WalkContentStyleRules(nsRuleWalker* aRuleWalker) = 0;
-
-  /**
    * Should be called when the node can become editable or when it can stop
    * being editable (for example when its contentEditable attribute changes,
    * when it is moved into an editable parent, ...).  If aNotify is true and
@@ -1006,7 +928,10 @@ public:
   nsIURI* GetBaseURIForStyleAttr() const;
 
   // Returns the URL data for style attribute.
-  mozilla::URLExtraData* GetURLDataForStyleAttr() const;
+  // If aSubjectPrincipal is passed, it should be the scripted principal
+  // responsible for generating the URL data.
+  already_AddRefed<mozilla::URLExtraData>
+  GetURLDataForStyleAttr(nsIPrincipal* aSubjectPrincipal = nullptr) const;
 
   virtual nsresult GetEventTargetParent(
                      mozilla::EventChainPreVisitor& aVisitor) override;
@@ -1027,6 +952,12 @@ protected:
    * called if HasID() is true.
    */
   nsAtom* DoGetID() const;
+
+  /**
+   * Returns the assigned slot, if it exists, or the direct parent, if it's a
+   * fallback content of a slot.
+   */
+  nsINode* GetFlattenedTreeParentForMaybeAssignedNode() const;
 
 public:
 #ifdef DEBUG

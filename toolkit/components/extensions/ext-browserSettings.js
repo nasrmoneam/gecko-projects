@@ -2,8 +2,8 @@
 /* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
-XPCOMUtils.defineLazyModuleGetter(this, "ExtensionSettingsStore",
-                                  "resource://gre/modules/ExtensionSettingsStore.jsm");
+XPCOMUtils.defineLazyModuleGetter(this, "AppConstants",
+                                  "resource://gre/modules/AppConstants.jsm");
 XPCOMUtils.defineLazyModuleGetter(this, "Services",
                                   "resource://gre/modules/Services.jsm");
 
@@ -12,6 +12,10 @@ XPCOMUtils.defineLazyServiceGetter(this, "aboutNewTabService",
                                    "nsIAboutNewTabService");
 
 Cu.import("resource://gre/modules/ExtensionPreferencesManager.jsm");
+
+var {
+  ExtensionError,
+} = ExtensionUtils;
 
 const HOMEPAGE_OVERRIDE_SETTING = "homepage_override";
 const HOMEPAGE_URL_PREF = "browser.startup.homepage";
@@ -23,24 +27,31 @@ const PERM_DENY_ACTION = Services.perms.DENY_ACTION;
 const getSettingsAPI = (extension, name, callback, storeType, readOnly = false) => {
   return {
     async get(details) {
-      return {
-        levelOfControl: details.incognito ?
+      let levelOfControl = details.incognito ?
+        "not_controllable" :
+        await ExtensionPreferencesManager.getLevelOfControl(
+          extension.id, name, storeType);
+      levelOfControl =
+        (readOnly && levelOfControl === "controllable_by_this_extension") ?
           "not_controllable" :
-          await ExtensionPreferencesManager.getLevelOfControl(
-            extension, name, storeType),
+          levelOfControl;
+      return {
+        levelOfControl,
         value: await callback(),
       };
     },
     set(details) {
       if (!readOnly) {
         return ExtensionPreferencesManager.setSetting(
-          extension, name, details.value);
+          extension.id, name, details.value);
       }
+      return false;
     },
     clear(details) {
       if (!readOnly) {
-        return ExtensionPreferencesManager.removeSetting(extension, name);
+        return ExtensionPreferencesManager.removeSetting(extension.id, name);
       }
+      return false;
     },
   };
 };
@@ -74,9 +85,39 @@ ExtensionPreferencesManager.addSetting("cacheEnabled", {
   },
 });
 
+ExtensionPreferencesManager.addSetting("contextMenuShowEvent", {
+  prefNames: [
+    "ui.context_menus.after_mouseup",
+  ],
+
+  setCallback(value) {
+    return {[this.prefNames[0]]: value === "mouseup"};
+  },
+});
+
 ExtensionPreferencesManager.addSetting("imageAnimationBehavior", {
   prefNames: [
     "image.animation_mode",
+  ],
+
+  setCallback(value) {
+    return {[this.prefNames[0]]: value};
+  },
+});
+
+ExtensionPreferencesManager.addSetting("openBookmarksInNewTabs", {
+  prefNames: [
+    "browser.tabs.loadBookmarksInTabs",
+  ],
+
+  setCallback(value) {
+    return {[this.prefNames[0]]: value};
+  },
+});
+
+ExtensionPreferencesManager.addSetting("openSearchResultsInNewTabs", {
+  prefNames: [
+    "browser.search.openintab",
   ],
 
   setCallback(value) {
@@ -110,6 +151,35 @@ this.browserSettings = class extends ExtensionAPI {
             return Services.prefs.getBoolPref("browser.cache.disk.enable") &&
               Services.prefs.getBoolPref("browser.cache.memory.enable");
           }),
+        contextMenuShowEvent: Object.assign(
+          getSettingsAPI(
+            extension,
+            "contextMenuShowEvent",
+            () => {
+              if (AppConstants.platform === "win") {
+                return "mouseup";
+              }
+              let prefValue = Services.prefs.getBoolPref(
+                "ui.context_menus.after_mouseup", null);
+              return prefValue ? "mouseup" : "mousedown";
+            }
+          ),
+          {
+            set: details => {
+              if (!["mouseup", "mousedown"].includes(details.value)) {
+                throw new ExtensionError(
+                  `${details.value} is not a valid value for contextMenuShowEvent.`);
+              }
+              if (AppConstants.platform === "android" ||
+                  (AppConstants.platform === "win" &&
+                   details.value === "mousedown")) {
+                return false;
+              }
+              return ExtensionPreferencesManager.setSetting(
+                extension.id, "contextMenuShowEvent", details.value);
+            },
+          }
+        ),
         homepageOverride: getSettingsAPI(extension,
           HOMEPAGE_OVERRIDE_SETTING,
           () => {
@@ -126,6 +196,16 @@ this.browserSettings = class extends ExtensionAPI {
           () => {
             return aboutNewTabService.newTabURL;
           }, URL_STORE_TYPE, true),
+        openBookmarksInNewTabs: getSettingsAPI(extension,
+          "openBookmarksInNewTabs",
+          () => {
+            return Services.prefs.getBoolPref("browser.tabs.loadBookmarksInTabs");
+          }),
+        openSearchResultsInNewTabs: getSettingsAPI(extension,
+          "openSearchResultsInNewTabs",
+          () => {
+            return Services.prefs.getBoolPref("browser.search.openintab");
+          }),
         webNotificationsDisabled: getSettingsAPI(extension,
           "webNotificationsDisabled",
           () => {

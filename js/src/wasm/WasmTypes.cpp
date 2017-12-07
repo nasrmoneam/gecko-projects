@@ -18,6 +18,7 @@
 
 #include "wasm/WasmTypes.h"
 
+#include "vm/ArrayBufferObject.h"
 #include "wasm/WasmBaselineCompile.h"
 #include "wasm/WasmInstance.h"
 #include "wasm/WasmSerialize.h"
@@ -36,6 +37,11 @@ using mozilla::IsPowerOfTwo;
 #if defined(WASM_HUGE_MEMORY) != defined(JS_CODEGEN_X64)
 #  error "Not an expected configuration"
 #endif
+
+// Another sanity check.
+
+static_assert(MaxMemoryInitialPages <= ArrayBufferObject::MaxBufferByteLength / PageSize,
+              "Memory sizing constraint");
 
 void
 Val::writePayload(uint8_t* dst) const
@@ -707,7 +713,7 @@ CodeRange::CodeRange(Kind kind, uint32_t funcIndex, Offsets offsets)
     u.func.lineOrBytecode_ = 0;
     u.func.beginToNormalEntry_ = 0;
     u.func.beginToTierEntry_ = 0;
-    MOZ_ASSERT(kind == Entry);
+    MOZ_ASSERT(kind == InterpEntry);
     MOZ_ASSERT(begin_ <= end_);
 }
 
@@ -759,6 +765,8 @@ CodeRange::CodeRange(uint32_t funcIndex, JitExitOffsets offsets)
     u.funcIndex_ = funcIndex;
     u.jitExit.beginToUntrustedFPStart_ = offsets.untrustedFPStart - begin_;
     u.jitExit.beginToUntrustedFPEnd_ = offsets.untrustedFPEnd - begin_;
+    MOZ_ASSERT(jitExitUntrustedFPStart() == offsets.untrustedFPStart);
+    MOZ_ASSERT(jitExitUntrustedFPEnd() == offsets.untrustedFPEnd);
 }
 
 CodeRange::CodeRange(Trap trap, CallableOffsets offsets)

@@ -25,6 +25,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "AddonManager",
 XPCOMUtils.defineLazyServiceGetter(this, "IdleService",
                                    "@mozilla.org/widget/idleservice;1",
                                    "nsIIdleService");
+XPCOMUtils.defineLazyServiceGetter(this, "CaptivePortalService",
+                                   "@mozilla.org/network/captive-portal-service;1",
+                                   "nsICaptivePortalService");
 
 // Get the value for an interval that's stored in preferences. To save users
 // from themselves (and us from them!) the minimum time they can specify
@@ -113,11 +116,34 @@ SyncScheduler.prototype = {
     throw new Error("Don't set numClients - the clients engine manages it.");
   },
 
+  get offline() {
+    // Services.io.offline has slowly become fairly useless over the years - it
+    // no longer attempts to track the actual network state by default, but one
+    // thing stays true: if it says we're offline then we are definitely not online.
+    //
+    // We also ask the captive portal service if we are behind a locked captive
+    // portal.
+    //
+    // We don't check on the NetworkLinkService however, because it gave us
+    // false positives in the past in a vm environment.
+    try {
+      if (Services.io.offline ||
+          CaptivePortalService.state == CaptivePortalService.LOCKED_PORTAL) {
+        return true;
+      }
+    } catch (ex) {
+      this._log.warn("Could not determine network status.", ex);
+    }
+    return false;
+  },
+
   init: function init() {
     this._log.level = Log.Level[Svc.Prefs.get("log.logger.service.main")];
     this.setDefaults();
     Svc.Obs.add("weave:engine:score:updated", this);
     Svc.Obs.add("network:offline-status-changed", this);
+    Svc.Obs.add("network:link-status-changed", this);
+    Svc.Obs.add("captive-portal-detected", this);
     Svc.Obs.add("weave:service:sync:start", this);
     Svc.Obs.add("weave:service:sync:finish", this);
     Svc.Obs.add("weave:engine:sync:finish", this);
@@ -134,6 +160,8 @@ SyncScheduler.prototype = {
 
     if (Status.checkSetup() == STATUS_OK) {
       Svc.Obs.add("wake_notification", this);
+      Svc.Obs.add("captive-portal-login-success", this);
+      Svc.Obs.add("sleep_notification", this);
       IdleService.addIdleObserver(this, Svc.Prefs.get("scheduler.idleTime"));
     }
   },
@@ -148,7 +176,14 @@ SyncScheduler.prototype = {
                            "_scoreTimer");
         }
         break;
+      case "network:link-status-changed":
+        if (!this.offline) {
+          this._log.debug("Network link looks up. Syncing.");
+          this.scheduleNextSync(0, {why: topic});
+        }
+        // Intended fallthrough
       case "network:offline-status-changed":
+      case "captive-portal-detected":
         // Whether online or offline, we'll reschedule syncs
         this._log.trace("Network offline status change: " + data);
         this.checkSyncStatus();
@@ -199,7 +234,7 @@ SyncScheduler.prototype = {
           this._log.trace("Scheduling a sync at interval NO_SYNC_NODE_FOUND.");
           sync_interval = NO_SYNC_NODE_INTERVAL;
         }
-        this.scheduleNextSync(sync_interval);
+        this.scheduleNextSync(sync_interval, {why: "schedule"});
         break;
       case "weave:engine:sync:finish":
         if (data == "clients") {
@@ -275,6 +310,8 @@ SyncScheduler.prototype = {
          Services.prefs.savePrefFile(null);
          IdleService.addIdleObserver(this, Svc.Prefs.get("scheduler.idleTime"));
          Svc.Obs.add("wake_notification", this);
+         Svc.Obs.add("captive-portal-login-success", this);
+         Svc.Obs.add("sleep_notification", this);
          break;
       case "weave:service:start-over":
          this.setDefaults();
@@ -309,20 +346,35 @@ SyncScheduler.prototype = {
           this._log.trace("Genuine return from idle. Syncing.");
           // Trigger a sync if we have multiple clients.
           if (this.numClients > 1) {
-            this.scheduleNextSync(0);
+            this.scheduleNextSync(0, {why: topic});
           }
         }, IDLE_OBSERVER_BACK_DELAY, this, "idleDebouncerTimer");
         break;
       case "wake_notification":
         this._log.debug("Woke from sleep.");
         CommonUtils.nextTick(() => {
-          // Trigger a sync if we have multiple clients. We give it 5 seconds
-          // incase the network is still in the process of coming back up.
+          // Trigger a sync if we have multiple clients. We give it 2 seconds
+          // so the browser can recover from the wake and do more important
+          // operations first (timers etc).
           if (this.numClients > 1) {
-            this._log.debug("More than 1 client. Will sync in 5s.");
-            this.scheduleNextSync(5000);
+            if (!this.offline) {
+              this._log.debug("Online, will sync in 2s.");
+              this.scheduleNextSync(2000, {why: topic});
+            }
           }
         });
+        break;
+      case "captive-portal-login-success":
+        this._log.debug("Captive portal login success. Scheduling a sync.");
+        CommonUtils.nextTick(() => {
+          this.scheduleNextSync(3000, {why: topic});
+        });
+        break;
+      case "sleep_notification":
+        if (this.service.engineManager.get("tabs")._tracker.modified) {
+          this._log.debug("Going to sleep, doing a quick sync.");
+          this.scheduleNextSync(0, {engines: ["tabs"], why: "sleep"});
+        }
         break;
     }
   },
@@ -410,13 +462,15 @@ SyncScheduler.prototype = {
       return;
     }
 
+    let why = "schedule";
     // Only set the wait time to 0 if we need to sync right away
     let wait;
     if (this.globalScore > this.syncThreshold) {
       this._log.debug("Global Score threshold hit, triggering sync.");
       wait = 0;
+      why = "score";
     }
-    this.scheduleNextSync(wait);
+    this.scheduleNextSync(wait, {why});
   },
 
   /**
@@ -424,7 +478,7 @@ SyncScheduler.prototype = {
    *
    * Otherwise, reschedule a sync for later.
    */
-  syncIfMPUnlocked: function syncIfMPUnlocked() {
+  syncIfMPUnlocked(engines, why) {
     // No point if we got kicked out by the master password dialog.
     if (Status.login == MASTER_PASSWORD_LOCKED &&
         Utils.mpLocked()) {
@@ -440,13 +494,15 @@ SyncScheduler.prototype = {
       this._log.debug("Not initiating sync: app is shutting down");
       return;
     }
-    CommonUtils.nextTick(this.service.sync, this.service);
+    Services.tm.dispatchToMainThread(() => {
+      this.service.sync({engines, why});
+    });
   },
 
   /**
    * Set a timer for the next sync
    */
-  scheduleNextSync: function scheduleNextSync(interval) {
+  scheduleNextSync(interval, {engines = null, why = null} = {}) {
     // If no interval was specified, use the current sync interval.
     if (interval == null) {
       interval = this.syncInterval;
@@ -476,13 +532,14 @@ SyncScheduler.prototype = {
 
     // Start the sync right away if we're already late.
     if (interval <= 0) {
-      this._log.trace("Requested sync should happen right away.");
-      this.syncIfMPUnlocked();
+      this._log.trace(`Requested sync should happen right away. (why=${why})`);
+      this.syncIfMPUnlocked(engines, why);
       return;
     }
 
-    this._log.debug("Next sync in " + interval + " ms.");
-    CommonUtils.namedTimer(this.syncIfMPUnlocked, interval, this, "syncTimer");
+    this._log.debug(`Next sync in ${interval} ms. (why=${why})`);
+    CommonUtils.namedTimer(() => { this.syncIfMPUnlocked(engines, why); },
+                           interval, this, "syncTimer");
 
     // Save the next sync time in-case sync is disabled (logout/offline/etc.)
     this.nextSync = Date.now() + interval;
@@ -503,7 +560,7 @@ SyncScheduler.prototype = {
 
     this._log.debug("Starting client-initiated backoff. Next sync in " +
                     interval + " ms.");
-    this.scheduleNextSync(interval);
+    this.scheduleNextSync(interval, {why: "client-backoff-schedule"});
   },
 
  /**
@@ -525,7 +582,7 @@ SyncScheduler.prototype = {
       // Schedule a sync based on when a previous sync was scheduled.
       // scheduleNextSync() will do the right thing if that time lies in
       // the past.
-      this.scheduleNextSync(this.nextSync - Date.now());
+      this.scheduleNextSync(this.nextSync - Date.now(), {why: "startup"});
     }
 
     // Once autoConnect is called we no longer need _autoTimer.
@@ -546,7 +603,7 @@ SyncScheduler.prototype = {
     // backoff due to 5xx errors.
     if (!Status.enforceBackoff) {
       if (this._syncErrors < MAX_ERROR_COUNT_BEFORE_BACKOFF) {
-        this.scheduleNextSync();
+        this.scheduleNextSync(null, {why: "reschedule"});
         return;
       }
       this._log.debug("Sync error count has exceeded " +
@@ -741,7 +798,9 @@ ErrorHandler.prototype = {
     this._log.debug("Beginning user-triggered sync.");
 
     this.dontIgnoreErrors = true;
-    CommonUtils.nextTick(this.service.sync, this.service);
+    CommonUtils.nextTick(() => {
+      this.service.sync({why: "user"});
+    }, this);
   },
 
   async _dumpAddons() {
@@ -938,6 +997,7 @@ ErrorHandler.prototype = {
    * This method also looks for "side-channel" warnings.
    */
   checkServerError(resp) {
+    // In this case we were passed a resolved value of Resource#_doRequest.
     switch (resp.status) {
       case 200:
       case 404:
@@ -985,7 +1045,7 @@ ErrorHandler.prototype = {
           Svc.Prefs.set("lastSyncReassigned", true);
         }
         this._log.info("Attempting to schedule another sync.");
-        this.service.scheduler.scheduleNextSync(delay);
+        this.service.scheduler.scheduleNextSync(delay, {why: "reschedule"});
         break;
 
       case 500:
@@ -1007,6 +1067,7 @@ ErrorHandler.prototype = {
         break;
     }
 
+    // In this other case we were passed a rejection value.
     switch (resp.result) {
       case Cr.NS_ERROR_UNKNOWN_HOST:
       case Cr.NS_ERROR_CONNECTION_REFUSED:

@@ -93,6 +93,7 @@ PuppetWidget::PuppetWidget(TabChild* aTabChild)
   , mDefaultScale(-1)
   , mCursorHotspotX(0)
   , mCursorHotspotY(0)
+  , mIgnoreCompositionEvents(false)
 {
   // Setting 'Unknown' means "not yet cached".
   mInputContext.mIMEState.mEnabled = IMEState::UNKNOWN;
@@ -345,6 +346,20 @@ PuppetWidget::DispatchEvent(WidgetGUIEvent* aEvent, nsEventStatus& aStatus)
     "before dispatched");
 
   if (aEvent->mClass == eCompositionEventClass) {
+    // If we've already requested to commit/cancel the latest composition,
+    // TextComposition for the old composition has been destroyed.  Then,
+    // the DOM tree needs to listen to next eCompositionStart and its
+    // following events.  So, until we meet new eCompositionStart, let's
+    // discard all unnecessary composition events here.
+    if (mIgnoreCompositionEvents) {
+      if (aEvent->mMessage != eCompositionStart) {
+        aStatus = nsEventStatus_eIgnore;
+        return NS_OK;
+      }
+      // Now, we receive new eCompositionStart.  Let's restart to handle
+      // composition in this process.
+      mIgnoreCompositionEvents = false;
+    }
     // Store the latest native IME context of parent process's widget or
     // TextEventDispatcher if it's in this process.
     WidgetCompositionEvent* compositionEvent = aEvent->AsCompositionEvent();
@@ -645,12 +660,26 @@ PuppetWidget::RequestIMEToCommitComposition(bool aCancel)
     return NS_OK;
   }
 
+  // We've already requested to commit/cancel composition.
+  if (NS_WARN_IF(mIgnoreCompositionEvents)) {
+#ifdef DEBUG
+    RefPtr<TextComposition> composition =
+      IMEStateManager::GetTextCompositionFor(this);
+    MOZ_ASSERT(!composition);
+#endif // #ifdef DEBUG
+    return NS_OK;
+  }
+
   RefPtr<TextComposition> composition =
     IMEStateManager::GetTextCompositionFor(this);
   // This method shouldn't be called when there is no text composition instance.
   if (NS_WARN_IF(!composition)) {
     return NS_OK;
   }
+
+  MOZ_DIAGNOSTIC_ASSERT(composition->IsRequestingCommitOrCancelComposition(),
+    "Requesting commit or cancel composition should be requested via "
+    "TextComposition instance");
 
   bool isCommitted = false;
   nsAutoString committedString;
@@ -671,6 +700,16 @@ PuppetWidget::RequestIMEToCommitComposition(bool aCancel)
   compositionCommitEvent.mData = committedString;
   nsEventStatus status = nsEventStatus_eIgnore;
   DispatchEvent(&compositionCommitEvent, status);
+
+#ifdef DEBUG
+  RefPtr<TextComposition> currentComposition =
+    IMEStateManager::GetTextCompositionFor(this);
+  MOZ_ASSERT(!currentComposition);
+#endif // #ifdef DEBUG
+
+  // Ignore the following composition events until we receive new
+  // eCompositionStart event.
+  mIgnoreCompositionEvents = true;
 
   Unused <<
     mTabChild->SendOnEventNeedingAckHandled(eCompositionCommitRequestHandled);
@@ -803,7 +842,7 @@ PuppetWidget::NotifyIMEOfFocusChange(const IMENotification& aIMENotification)
     [self] (IMENotificationRequests aRequests) {
       self->mIMENotificationRequestsOfParent = aRequests;
     },
-    [self] (mozilla::ipc::PromiseRejectReason aReason) {
+    [self] (mozilla::ipc::ResponseRejectReason aReason) {
       NS_WARNING("SendNotifyIMEFocus got rejected.");
     });
 
@@ -1212,26 +1251,26 @@ PuppetWidget::SetNativeData(uint32_t aDataType, uintptr_t aVal)
 }
 #endif
 
-nsIntPoint
-PuppetWidget::GetChromeDimensions()
+LayoutDeviceIntPoint
+PuppetWidget::GetChromeOffset()
 {
   if (!GetOwningTabChild()) {
     NS_WARNING("PuppetWidget without Tab does not have chrome information.");
-    return nsIntPoint();
+    return LayoutDeviceIntPoint();
   }
-  return GetOwningTabChild()->GetChromeDisplacement().ToUnknownPoint();
+  return GetOwningTabChild()->GetChromeOffset();
 }
 
-nsIntPoint
+LayoutDeviceIntPoint
 PuppetWidget::GetWindowPosition()
 {
   if (!GetOwningTabChild()) {
-    return nsIntPoint();
+    return LayoutDeviceIntPoint();
   }
 
   int32_t winX, winY, winW, winH;
-  NS_ENSURE_SUCCESS(GetOwningTabChild()->GetDimensions(0, &winX, &winY, &winW, &winH), nsIntPoint());
-  return nsIntPoint(winX, winY) + GetOwningTabChild()->GetClientOffset().ToUnknownPoint();
+  NS_ENSURE_SUCCESS(GetOwningTabChild()->GetDimensions(0, &winX, &winY, &winW, &winH), LayoutDeviceIntPoint());
+  return LayoutDeviceIntPoint(winX, winY) + GetOwningTabChild()->GetClientOffset();
 }
 
 LayoutDeviceIntRect

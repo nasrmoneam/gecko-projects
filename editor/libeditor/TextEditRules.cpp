@@ -7,6 +7,7 @@
 
 #include "TextEditUtils.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/EditorDOMPoint.h"
 #include "mozilla/EditorUtils.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Preferences.h"
@@ -226,7 +227,7 @@ TextEditRules::AfterEdit(EditAction action,
     NS_ENSURE_STATE(mTextEditor);
     nsresult rv =
       mTextEditor->HandleInlineSpellCheck(action, selection,
-                                          GetAsDOMNode(mCachedSelectionNode),
+                                          mCachedSelectionNode,
                                           mCachedSelectionOffset,
                                           nullptr, 0, nullptr, 0);
     NS_ENSURE_SUCCESS(rv, rv);
@@ -494,8 +495,11 @@ TextEditRules::CollapseSelectionToTrailingBRIfNeeded(Selection* aSelection)
 
   nsINode* nextNode = selNode->GetNextSibling();
   if (nextNode && TextEditUtils::IsMozBR(nextNode)) {
-    int32_t offsetInParent = EditorBase::GetChildOffset(selNode, parentNode);
-    rv = aSelection->Collapse(parentNode, offsetInParent + 1);
+    EditorRawDOMPoint afterSelNode(selNode);
+    if (NS_WARN_IF(!afterSelNode.AdvanceOffset())) {
+      return NS_ERROR_FAILURE;
+    }
+    rv = aSelection->Collapse(afterSelNode);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
@@ -725,16 +729,16 @@ TextEditRules::WillInsertText(EditAction aAction,
 
   // get the (collapsed) selection location
   NS_ENSURE_STATE(aSelection->GetRangeAt(0));
-  nsCOMPtr<nsINode> selNode = aSelection->GetRangeAt(0)->GetStartContainer();
-  nsCOMPtr<nsIContent> selChild =
-    aSelection->GetRangeAt(0)->GetChildAtStartOffset();
-  int32_t selOffset = aSelection->GetRangeAt(0)->StartOffset();
-  NS_ENSURE_STATE(selNode);
+  EditorRawDOMPoint atStartOfSelection(aSelection->GetRangeAt(0)->StartRef());
+  if (NS_WARN_IF(!atStartOfSelection.IsSetAndValid())) {
+    return NS_ERROR_FAILURE;
+  }
 
   // don't put text in places that can't have it
   NS_ENSURE_STATE(mTextEditor);
-  if (!EditorBase::IsTextNode(selNode) &&
-      !mTextEditor->CanContainTag(*selNode, *nsGkAtoms::textTagName)) {
+  if (!EditorBase::IsTextNode(atStartOfSelection.Container()) &&
+      !mTextEditor->CanContainTag(*atStartOfSelection.Container(),
+                                  *nsGkAtoms::textTagName)) {
     return NS_ERROR_FAILURE;
   }
 
@@ -746,39 +750,46 @@ TextEditRules::WillInsertText(EditAction aAction,
   if (aAction == EditAction::insertIMEText) {
     NS_ENSURE_STATE(mTextEditor);
     // Find better insertion point to insert text.
-    mTextEditor->FindBetterInsertionPoint(selNode, selOffset,
-                                          address_of(selChild));
+    EditorRawDOMPoint betterInsertionPoint =
+      mTextEditor->FindBetterInsertionPoint(atStartOfSelection);
     // If there is one or more IME selections, its minimum offset should be
     // the insertion point.
     int32_t IMESelectionOffset =
-      mTextEditor->GetIMESelectionStartOffsetIn(selNode);
+      mTextEditor->GetIMESelectionStartOffsetIn(
+                     betterInsertionPoint.Container());
     if (IMESelectionOffset >= 0) {
-      selOffset = IMESelectionOffset;
+      betterInsertionPoint.Set(betterInsertionPoint.Container(),
+                               IMESelectionOffset);
     }
-    rv = mTextEditor->InsertTextImpl(*outString, address_of(selNode),
-                                     address_of(selChild), &selOffset, doc);
+    rv = mTextEditor->InsertTextImpl(*doc, *outString, betterInsertionPoint);
     NS_ENSURE_SUCCESS(rv, rv);
   } else {
-    // aAction == EditAction::insertText; find where we are
-    nsCOMPtr<nsINode> curNode = selNode;
-    int32_t curOffset = selOffset;
+    // aAction == EditAction::insertText
 
     // don't change my selection in subtransactions
     NS_ENSURE_STATE(mTextEditor);
     AutoTransactionsConserveSelection dontChangeMySelection(mTextEditor);
 
-    rv = mTextEditor->InsertTextImpl(*outString, address_of(curNode),
-                                     address_of(selChild), &curOffset, doc);
+    EditorRawDOMPoint pointAfterStringInserted;
+    rv = mTextEditor->InsertTextImpl(*doc, *outString, atStartOfSelection,
+                                     &pointAfterStringInserted);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    if (curNode) {
+    if (pointAfterStringInserted.IsSet()) {
       // Make the caret attach to the inserted text, unless this text ends with a LF,
       // in which case make the caret attach to the next line.
       bool endsWithLF =
         !outString->IsEmpty() && outString->Last() == nsCRT::LF;
       aSelection->SetInterlinePosition(endsWithLF);
 
-      aSelection->Collapse(curNode, curOffset);
+      MOZ_ASSERT(!pointAfterStringInserted.GetChildAtOffset(),
+        "After inserting text into a text node, pointAfterStringInserted."
+        "GetChildAtOffset() should be nullptr");
+      IgnoredErrorResult error;
+      aSelection->Collapse(pointAfterStringInserted, error);
+      if (error.Failed()) {
+        NS_WARNING("Failed to collapse selection after inserting string");
+      }
     }
   }
   ASSERT_PASSWORD_LENGTHS_EQUAL()
@@ -1364,8 +1375,7 @@ TextEditRules::CreateTrailingBRIfNeeded()
 
   if (!lastChild->IsHTMLElement(nsGkAtoms::br)) {
     AutoTransactionsConserveSelection dontChangeMySelection(mTextEditor);
-    nsCOMPtr<nsIDOMNode> domBody = do_QueryInterface(body);
-    return CreateMozBR(domBody, body->Length());
+    return CreateMozBR(*body, body->Length());
   }
 
   // Check to see if the trailing BR is a former bogus node - this will have
@@ -1375,9 +1385,12 @@ TextEditRules::CreateTrailingBRIfNeeded()
   }
 
   // Morph it back to a mozBR
-  lastChild->UnsetAttr(kNameSpaceID_None, kMOZEditorBogusNodeAttrAtom, false);
-  lastChild->SetAttr(kNameSpaceID_None, nsGkAtoms::type,
-                     NS_LITERAL_STRING("_moz"), true);
+  lastChild->AsElement()->UnsetAttr(kNameSpaceID_None,
+                                    kMOZEditorBogusNodeAttrAtom,
+                                    false);
+  lastChild->AsElement()->SetAttr(kNameSpaceID_None, nsGkAtoms::type,
+                                  NS_LITERAL_STRING("_moz"),
+                                  true);
   return NS_OK;
 }
 
@@ -1618,28 +1631,30 @@ TextEditRules::FillBufWithPWChars(nsAString* aOutString,
 }
 
 nsresult
-TextEditRules::CreateBRInternal(nsIDOMNode* inParent,
+TextEditRules::CreateBRInternal(nsINode& inParent,
                                 int32_t inOffset,
                                 bool aMozBR,
-                                nsIDOMNode** outBRNode)
+                                Element** aOutBRElement)
 {
-  NS_ENSURE_TRUE(inParent, NS_ERROR_NULL_POINTER);
+  if (NS_WARN_IF(!mTextEditor)) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  RefPtr<TextEditor> textEditor = mTextEditor;
 
-  nsCOMPtr<nsIDOMNode> brNode;
-  NS_ENSURE_STATE(mTextEditor);
-  nsresult rv = mTextEditor->CreateBR(inParent, inOffset, address_of(brNode));
-  NS_ENSURE_SUCCESS(rv, rv);
+  RefPtr<Element> brElem = textEditor->CreateBR(&inParent, inOffset);
+  if (NS_WARN_IF(!brElem)) {
+    return NS_ERROR_FAILURE;
+  }
 
   // give it special moz attr
-  nsCOMPtr<Element> brElem = do_QueryInterface(brNode);
-  if (aMozBR && brElem) {
-    rv = mTextEditor->SetAttribute(brElem, nsGkAtoms::type,
-                                   NS_LITERAL_STRING("_moz"));
+  if (aMozBR) {
+    nsresult rv = textEditor->SetAttribute(brElem, nsGkAtoms::type,
+                                           NS_LITERAL_STRING("_moz"));
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  if (outBRNode) {
-    brNode.forget(outBRNode);
+  if (aOutBRElement) {
+    brElem.forget(aOutBRElement);
   }
   return NS_OK;
 }

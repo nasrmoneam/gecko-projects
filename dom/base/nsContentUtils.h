@@ -20,6 +20,7 @@
 #include "js/TypeDecls.h"
 #include "js/Value.h"
 #include "js/RootingAPI.h"
+#include "mozilla/dom/FromParser.h"
 #include "mozilla/BasicEvents.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/GuardObjects.h"
@@ -699,7 +700,7 @@ public:
 
   /**
    * Returns true if |aName| is a valid name to be registered via
-   * document.registerElement.
+   * customElements.define.
    */
   static bool IsCustomElementName(nsAtom* aName);
 
@@ -1977,16 +1978,6 @@ public:
    */
   static bool IsInStableOrMetaStableState();
 
-  /**
-   * Returns a nsISerialEventTarget which will run any event dispatched to it
-   * once the event loop has reached a "stable state". Runnables dispatched to
-   * this event target must not cause any queued events to be processed (i.e.
-   * must not spin the event loop).
-   *
-   * See RunInStableState for more information about stable states
-   */
-  static nsISerialEventTarget* GetStableStateEventTarget();
-
   /* Process viewport META data. This gives us information for the scale
    * and zoom of a page on mobile devices. We stick the information in
    * the document header and use it later on after rendering.
@@ -2358,6 +2349,15 @@ public:
   }
 
   /**
+   * Returns true if the DOM Animations API should report a pending animation
+   * using the separate 'pending' member instead of the 'playState' member.
+   */
+  static bool AnimationsAPIPendingMemberEnabled()
+  {
+    return sAnimationsAPIPendingMemberEnabled;
+  }
+
+  /**
    * Returns true if the getBoxQuads API should be enabled.
    */
   static bool GetBoxQuadsEnabled()
@@ -2632,12 +2632,6 @@ public:
    * false otherwise
    */
   static bool IsJavaScriptLanguage(const nsString& aName);
-
-  /**
-   * Returns the JSVersion for a string of the form '1.n', n = 0, ..., 8, and
-   * JSVERSION_UNKNOWN for other strings.
-   */
-  static JSVersion ParseJavascriptVersion(const nsAString& aVersionStr);
 
   static bool IsJavascriptMIMEType(const nsAString& aMIMEType);
 
@@ -3030,6 +3024,20 @@ public:
   static bool HttpsStateIsModern(nsIDocument* aDocument);
 
   /**
+   * Try to upgrade an element.
+   * https://html.spec.whatwg.org/multipage/custom-elements.html#concept-try-upgrade
+   */
+  static void TryToUpgradeElement(Element* aElement);
+
+  /**
+   * Creates a new XUL or XHTML element applying any appropriate custom element
+   * definition.
+   */
+  static nsresult NewXULOrHTMLElement(Element** aResult, mozilla::dom::NodeInfo* aNodeInfo,
+                                      mozilla::dom::FromParser aFromParser, const nsAString* aIs,
+                                      mozilla::dom::CustomElementDefinition* aDefinition);
+
+  /**
    * Looking up a custom element definition.
    * https://html.spec.whatwg.org/#look-up-a-custom-element-definition
    */
@@ -3037,19 +3045,10 @@ public:
     LookupCustomElementDefinition(nsIDocument* aDoc,
                                   const nsAString& aLocalName,
                                   uint32_t aNameSpaceID,
-                                  const nsAString* aIs = nullptr);
+                                  nsAtom* aTypeAtom);
 
-  static void SetupCustomElement(Element* aElement,
-                                 const nsAString* aTypeExtension = nullptr);
-
-  static mozilla::dom::CustomElementDefinition*
-  GetElementDefinitionIfObservingAttr(Element* aCustomElement,
-                                      nsAtom* aExtensionType,
-                                      nsAtom* aAttrName);
-
-  static void SyncInvokeReactions(nsIDocument::ElementCallbackType aType,
-                                  Element* aCustomElement,
-                                  mozilla::dom::CustomElementDefinition* aDefinition);
+  static void RegisterUnresolvedElement(Element* aElement, nsAtom* aTypeName);
+  static void UnregisterUnresolvedElement(Element* aElement);
 
   static void EnqueueUpgradeReaction(Element* aElement,
                                      mozilla::dom::CustomElementDefinition* aDefinition);
@@ -3059,11 +3058,6 @@ public:
                                        mozilla::dom::LifecycleCallbackArgs* aArgs = nullptr,
                                        mozilla::dom::LifecycleAdoptedCallbackArgs* aAdoptedCallbackArgs = nullptr,
                                        mozilla::dom::CustomElementDefinition* aDefinition = nullptr);
-
-  static void GetCustomPrototype(nsIDocument* aDoc,
-                                 int32_t aNamespaceID,
-                                 nsAtom* aAtom,
-                                 JS::MutableHandle<JSObject*> prototype);
 
   static bool AttemptLargeAllocationLoad(nsIHttpChannel* aChannel);
 
@@ -3127,6 +3121,12 @@ public:
 
   static bool
   IsWebComponentsEnabled() { return sIsWebComponentsEnabled; }
+
+  /**
+   * Returns true if reserved key events should be prevented from being sent
+   * to their target. Instead, the key event should be handled by chrome only.
+   */
+  static bool ShouldBlockReservedKeys(mozilla::WidgetKeyboardEvent* aKeyEvent);
 
   /**
    * Walks up the tree from aElement until it finds an element that is
@@ -3255,6 +3255,38 @@ public:
   static bool IsMessageInputEvent(const IPC::Message& aMsg);
 
   static void AsyncPrecreateStringBundles();
+
+  static bool ContentIsLink(nsIContent* aContent);
+
+  static already_AddRefed<mozilla::dom::EventTarget>
+  TryGetTabChildGlobalAsEventTarget(nsISupports* aFrom);
+
+  static PopupControlState
+  PushPopupControlState(PopupControlState aState, bool aForce)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    PopupControlState old = sPopupControlState;
+    if (aState < old || aForce) {
+      sPopupControlState = aState;
+    }
+    return old;
+  }
+
+  static void
+  PopPopupControlState(PopupControlState aState)
+  {
+    MOZ_ASSERT(NS_IsMainThread());
+    sPopupControlState = aState;
+  }
+
+  static PopupControlState GetPopupControlState() { return sPopupControlState; }
+
+  // Get a serial number for a newly created inner or outer window.
+  static uint32_t InnerOrOuterWindowCreated();
+  // Record that an inner or outer window has been destroyed.
+  static void InnerOrOuterWindowDestroyed();
+  // Get the current number of inner or outer windows.
+  static int32_t GetCurrentInnerOrOuterWindowCount() { return sInnerOrOuterWindowCount; }
 
 private:
   static bool InitializeEventTable();
@@ -3396,6 +3428,7 @@ private:
   static bool sUseActivityCursor;
   static bool sAnimationsAPICoreEnabled;
   static bool sAnimationsAPIElementAnimateEnabled;
+  static bool sAnimationsAPIPendingMemberEnabled;
   static bool sGetBoxQuadsEnabled;
   static bool sSkipCursorMoveForSameValueSet;
   static bool sRequestIdleCallbackEnabled;
@@ -3411,6 +3444,7 @@ private:
   static int32_t sBytecodeCacheStrategy;
   static uint32_t sCookiesLifetimePolicy;
   static uint32_t sCookiesBehavior;
+  static bool sShortcutsCustomized;
 
   static int32_t sPrivacyMaxInnerWidth;
   static int32_t sPrivacyMaxInnerHeight;
@@ -3426,8 +3460,6 @@ private:
    * True if there's a fragment parser activation on the stack.
    */
   static bool sFragmentParsingActive;
-
-  static nsISerialEventTarget* sStableStateEventTarget;
 
   static nsString* sShiftText;
   static nsString* sControlText;
@@ -3445,6 +3477,11 @@ private:
 #endif
   static bool sDoNotTrackEnabled;
   static mozilla::LazyLogModule sDOMDumpLog;
+
+  static PopupControlState sPopupControlState;
+
+  static int32_t sInnerOrOuterWindowCount;
+  static uint32_t sInnerOrOuterWindowSerialCounter;
 };
 
 /* static */ inline

@@ -21,6 +21,11 @@
 #include "nsStyleConsts.h"
 
 namespace mozilla {
+
+namespace ipc {
+class ByteBuf;
+} // namespace ipc
+
 namespace wr {
 
 typedef wr::WrWindowId WindowId;
@@ -61,6 +66,7 @@ SurfaceFormatToImageFormat(gfx::SurfaceFormat aFormat) {
   switch (aFormat) {
     case gfx::SurfaceFormat::R8G8B8X8:
       // TODO: use RGBA + opaque flag
+    case gfx::SurfaceFormat::R8G8B8A8:
       return Some(wr::ImageFormat::BGRA8);
     case gfx::SurfaceFormat::B8G8R8X8:
       // TODO: WebRender will have a BGRA + opaque flag for this but does not
@@ -282,6 +288,14 @@ static inline wr::LayoutPoint ToLayoutPoint(const mozilla::LayoutDeviceIntPoint&
   return ToLayoutPoint(LayoutDevicePoint(point));
 }
 
+static inline wr::WorldPoint ToWorldPoint(const mozilla::ScreenPoint& point)
+{
+  wr::WorldPoint p;
+  p.x = point.x;
+  p.y = point.y;
+  return p;
+}
+
 static inline wr::LayoutVector2D ToLayoutVector2D(const mozilla::LayoutDevicePoint& point)
 {
   wr::LayoutVector2D p;
@@ -305,7 +319,7 @@ static inline wr::LayoutRect ToLayoutRect(const mozilla::LayoutDeviceRect& rect)
   return r;
 }
 
-static inline wr::LayoutRect ToLayoutRect(const gfxRect rect)
+static inline wr::LayoutRect ToLayoutRect(const gfxRect& rect)
 {
   wr::LayoutRect r;
   r.origin.x = rect.x;
@@ -567,6 +581,8 @@ struct Vec_u8 {
     src.SetEmpty();
   }
 
+  explicit Vec_u8(mozilla::ipc::ByteBuf&& aSrc);
+
   Vec_u8&
   operator=(Vec_u8&& src) {
     inner = src.inner;
@@ -735,7 +751,7 @@ struct WrClipId {
 struct WrStickyId {
   uint64_t id;
 
-  bool operator==(const WrClipId& other) const {
+  bool operator==(const WrStickyId& other) const {
     return id == other.id;
   }
 };

@@ -16,6 +16,9 @@
 #include "mozilla/Sprintf.h"
 
 #include <ctype.h>
+#ifdef __linux__
+# include <dlfcn.h>
+#endif
 #include <stdarg.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -179,9 +182,11 @@ JS::ObjectOpResult::reportStrictErrorOrWarning(JSContext* cx, HandleObject obj, 
 
         if (code_ == JSMSG_SET_NON_OBJECT_RECEIVER) {
             // We know that the original receiver was a primitive, so unbox it.
-            RootedValue val(cx);
-            if (!Unbox(cx, obj, &val))
-                return false;
+            RootedValue val(cx, ObjectValue(*obj));
+            if (!obj->is<ProxyObject>()) {
+                if (!Unbox(cx, obj, &val))
+                    return false;
+            }
             return ReportValueErrorFlags(cx, flags, code_, JSDVG_IGNORE_STACK, val,
                                          nullptr, propName.ptr(), nullptr);
         }
@@ -589,53 +594,6 @@ JS::SetSingleThreadedExecutionCallbacks(JSContext* cx,
     cx->runtime()->endSingleThreadedExecutionCallback = end;
 }
 
-JS_PUBLIC_API(JSVersion)
-JS_GetVersion(JSContext* cx)
-{
-    return VersionNumber(cx->findVersion());
-}
-
-static const struct v2smap {
-    JSVersion   version;
-    const char* string;
-} v2smap[] = {
-    {JSVERSION_ECMA_3,  "ECMAv3"},
-    {JSVERSION_1_6,     "1.6"},
-    {JSVERSION_1_7,     "1.7"},
-    {JSVERSION_1_8,     "1.8"},
-    {JSVERSION_ECMA_5,  "ECMAv5"},
-    {JSVERSION_DEFAULT, js_default_str},
-    {JSVERSION_DEFAULT, "1.0"},
-    {JSVERSION_DEFAULT, "1.1"},
-    {JSVERSION_DEFAULT, "1.2"},
-    {JSVERSION_DEFAULT, "1.3"},
-    {JSVERSION_DEFAULT, "1.4"},
-    {JSVERSION_DEFAULT, "1.5"},
-    {JSVERSION_UNKNOWN, nullptr},          /* must be last, nullptr is sentinel */
-};
-
-JS_PUBLIC_API(const char*)
-JS_VersionToString(JSVersion version)
-{
-    int i;
-
-    for (i = 0; v2smap[i].string; i++)
-        if (v2smap[i].version == version)
-            return v2smap[i].string;
-    return "unknown";
-}
-
-JS_PUBLIC_API(JSVersion)
-JS_StringToVersion(const char* string)
-{
-    int i;
-
-    for (i = 0; v2smap[i].string; i++)
-        if (strcmp(v2smap[i].string, string) == 0)
-            return v2smap[i].version;
-    return JSVERSION_UNKNOWN;
-}
-
 JS_PUBLIC_API(JS::ContextOptions&)
 JS::ContextOptionsRef(JSContext* cx)
 {
@@ -655,6 +613,11 @@ JS::InitSelfHostedCode(JSContext* cx)
     JSAutoRequest ar(cx);
     if (!rt->initializeAtoms(cx))
         return false;
+
+#ifndef JS_CODEGEN_NONE
+    if (!rt->getJitRuntime(cx))
+        return false;
+#endif
 
     if (!rt->initSelfHosting(cx))
         return false;
@@ -3981,8 +3944,6 @@ void
 JS::TransitiveCompileOptions::copyPODTransitiveOptions(const TransitiveCompileOptions& rhs)
 {
     mutedErrors_ = rhs.mutedErrors_;
-    version = rhs.version;
-    versionSet = rhs.versionSet;
     utf8 = rhs.utf8;
     selfHostingMode = rhs.selfHostingMode;
     canLazilyParse = rhs.canLazilyParse;
@@ -4103,12 +4064,10 @@ JS::OwningCompileOptions::setIntroducerFilename(JSContext* cx, const char* s)
     return true;
 }
 
-JS::CompileOptions::CompileOptions(JSContext* cx, JSVersion version)
+JS::CompileOptions::CompileOptions(JSContext* cx)
     : ReadOnlyCompileOptions(), elementRoot(cx), elementAttributeNameRoot(cx),
       introductionScriptRoot(cx)
 {
-    this->version = (version != JSVERSION_UNKNOWN) ? version : cx->findVersion();
-
     strictOption = cx->options().strictMode();
     extraWarningsOption = cx->compartment()->behaviors().extraWarnings(cx);
     forEachStatementOption = cx->options().forEachStatement();
@@ -4799,8 +4758,6 @@ Evaluate(JSContext* cx, ScopeKind scopeKind, HandleObject env,
                                                           scopeKind, options, srcBuf));
     if (!script)
         return false;
-
-    MOZ_ASSERT(script->getVersion() == options.version);
 
     bool result = Execute(cx, script, *env,
                           options.noScriptRval ? nullptr : rval.address());
@@ -6445,7 +6402,7 @@ JS_ReportErrorNumberLatin1VA(JSContext* cx, JSErrorCallback errorCallback,
 
 JS_PUBLIC_API(void)
 JS_ReportErrorNumberUTF8(JSContext* cx, JSErrorCallback errorCallback,
-                           void* userRef, const unsigned errorNumber, ...)
+                         void* userRef, const unsigned errorNumber, ...)
 {
     va_list ap;
     va_start(ap, errorNumber);
@@ -6691,7 +6648,7 @@ JS_SetRegExpInput(JSContext* cx, HandleObject obj, HandleString input)
     if (!res)
         return false;
 
-    res->reset(cx, input);
+    res->reset(input);
     return true;
 }
 
@@ -7252,9 +7209,6 @@ JS_SetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t v
       case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
         jit::JitOptions.asmJSAtomicsEnable = !!value;
         break;
-      case JSJITCOMPILER_WASM_TEST_MODE:
-        jit::JitOptions.wasmTestMode = !!value;
-        break;
       case JSJITCOMPILER_WASM_FOLD_OFFSETS:
         jit::JitOptions.wasmFoldOffsets = !!value;
         break;
@@ -7282,9 +7236,8 @@ JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t* 
         *valueOut = jit::JitOptions.baselineWarmUpThreshold;
         break;
       case JSJITCOMPILER_ION_WARMUP_TRIGGER:
-        *valueOut = jit::JitOptions.forcedDefaultIonWarmUpThreshold.isSome()
-                  ? jit::JitOptions.forcedDefaultIonWarmUpThreshold.ref()
-                  : jit::OptimizationInfo::CompilerWarmupThreshold;
+        *valueOut = jit::JitOptions.forcedDefaultIonWarmUpThreshold
+            .valueOr(jit::OptimizationInfo::CompilerWarmupThreshold);
         break;
       case JSJITCOMPILER_ION_FORCE_IC:
         *valueOut = jit::JitOptions.forceInlineCaches;
@@ -7303,9 +7256,6 @@ JS_GetGlobalJitCompilerOption(JSContext* cx, JSJitCompilerOption opt, uint32_t* 
         break;
       case JSJITCOMPILER_ASMJS_ATOMICS_ENABLE:
         *valueOut = jit::JitOptions.asmJSAtomicsEnable ? 1 : 0;
-        break;
-      case JSJITCOMPILER_WASM_TEST_MODE:
-        *valueOut = jit::JitOptions.wasmTestMode ? 1 : 0;
         break;
       case JSJITCOMPILER_WASM_FOLD_OFFSETS:
         *valueOut = jit::JitOptions.wasmFoldOffsets ? 1 : 0;
@@ -7764,3 +7714,17 @@ js::GetStackFormat(JSContext* cx)
 {
     return cx->runtime()->stackFormat();
 }
+
+namespace js {
+
+JS_PUBLIC_API(void)
+NoteIntentionalCrash()
+{
+#ifdef __linux__
+    static bool* addr = reinterpret_cast<bool*>(dlsym(RTLD_DEFAULT, "gBreakpadInjectorEnabled"));
+    if (addr)
+        *addr = false;
+#endif
+}
+
+} // namespace js

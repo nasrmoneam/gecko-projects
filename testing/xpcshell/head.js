@@ -40,6 +40,9 @@ _register_modules_protocol_handler();
 var _Promise = Components.utils.import("resource://gre/modules/Promise.jsm", {}).Promise;
 var _PromiseTestUtils = Components.utils.import("resource://testing-common/PromiseTestUtils.jsm", {}).PromiseTestUtils;
 var _Task = Components.utils.import("resource://gre/modules/Task.jsm", {}).Task;
+
+let _NetUtil = Components.utils.import("resource://gre/modules/NetUtil.jsm", {}).NetUtil;
+
 Components.utils.importGlobalProperties(["XMLHttpRequest"]);
 
 // Support a common assertion library, Assert.jsm.
@@ -61,7 +64,7 @@ var _add_params = function(params) {
 
 var _dumpLog = function(raw_msg) {
   dump("\n" + JSON.stringify(raw_msg) + "\n");
-}
+};
 
 var _LoggerClass = Components.utils.import("resource://testing-common/StructuredLog.jsm", null).StructuredLogger;
 var _testLogger = new _LoggerClass("xpcshell/head.js", _dumpLog, [_add_params]);
@@ -70,7 +73,7 @@ var _testLogger = new _LoggerClass("xpcshell/head.js", _dumpLog, [_add_params]);
 // not connected to a network.
 {
   let ios = Components.classes["@mozilla.org/network/io-service;1"]
-                      .getService(Components.interfaces.nsIIOService2);
+                      .getService(Components.interfaces.nsIIOService);
   ios.manageOfflineStatus = false;
   ios.offline = false;
 }
@@ -128,7 +131,7 @@ try {
 // Configure a console listener so messages sent to it are logged as part
 // of the test.
 try {
-  let levelNames = {}
+  let levelNames = {};
   for (let level of ["debug", "info", "warn", "error"]) {
     levelNames[Components.interfaces.nsIConsoleMessage[level]] = level;
   }
@@ -313,7 +316,7 @@ var _fakeIdleService = {
     }
     throw Components.results.NS_ERROR_NO_INTERFACE;
   }
-}
+};
 
 /**
  * Restores the idle service factory if needed and returns the service's handle.
@@ -403,12 +406,12 @@ function _setupDebuggerServer(breakpointFiles, callback) {
                     "It is possible for this to alter test behevior by " +
                     "triggering additional browser code to run, so check " +
                     "test behavior after making this change.\n" +
-                    "See also https://bugzil.la/1215378.")
+                    "See also https://bugzil.la/1215378.");
   }
   let { DebuggerServer } = require("devtools/server/main");
   let { OriginalLocation } = require("devtools/server/actors/common");
   DebuggerServer.init();
-  DebuggerServer.addBrowserActors();
+  DebuggerServer.registerAllActors();
   DebuggerServer.addActors("resource://testing-common/dbg-actors.js");
   DebuggerServer.allowChromeProcess = true;
 
@@ -458,12 +461,12 @@ function _initDebugging(port) {
 
   do_print("");
   do_print("*******************************************************************");
-  do_print("Waiting for the debugger to connect on port " + port)
-  do_print("")
+  do_print("Waiting for the debugger to connect on port " + port);
+  do_print("");
   do_print("To connect the debugger, open a Firefox instance, select 'Connect'");
   do_print("from the Developer menu and specify the port as " + port);
   do_print("*******************************************************************");
-  do_print("")
+  do_print("");
 
   let AuthenticatorType = DebuggerServer.Authenticators.get("PROMPT");
   let authenticator = new AuthenticatorType.Server();
@@ -648,7 +651,7 @@ function _load_files(aFiles) {
     } catch (e) {
       let extra = {
         source_file: element
-      }
+      };
       if (e.stack) {
         extra.stack = _format_stack(e.stack);
       }
@@ -1462,12 +1465,18 @@ function run_next_test() {
       _PromiseTestUtils.assertNoUncaughtRejections();
       let _properties;
       [_properties, _gRunningTest, ] = _gTests[_gTestIndex++];
+
+      // Must set to pending before we check for skip, so that we keep the
+      // running counts correct.
+      _testLogger.info(_TEST_NAME + " | Starting " + _gRunningTest.name);
+      do_test_pending(_gRunningTest.name);
+
       if ((typeof(_properties.skip_if) == "function" && _properties.skip_if()) ||
           (_gRunOnlyThisTest && _gRunningTest != _gRunOnlyThisTest)) {
         let _condition = _gRunOnlyThisTest ? "only one task may run." :
           _properties.skip_if.toSource().replace(/\(\)\s*=>\s*/, "");
         if (_condition == "true")
-          _condition = "explicitly skipped."
+          _condition = "explicitly skipped.";
         let _message = _gRunningTest.name
           + " skipped because the following conditions were"
           + " met: (" + _condition + ")";
@@ -1479,8 +1488,6 @@ function run_next_test() {
         do_execute_soon(run_next_test);
         return;
       }
-      _testLogger.info(_TEST_NAME + " | Starting " + _gRunningTest.name);
-      do_test_pending(_gRunningTest.name);
 
       if (_properties.isTask) {
         _gTaskRunning = true;
@@ -1565,9 +1572,8 @@ function _load_mozinfo() {
   let stream = Components.classes["@mozilla.org/network/file-input-stream;1"]
     .createInstance(Components.interfaces.nsIFileInputStream);
   stream.init(mozinfoFile, -1, 0, 0);
-  let json = Components.classes["@mozilla.org/dom/json;1"]
-    .createInstance(Components.interfaces.nsIJSON);
-  let mozinfo = json.decodeFromStream(stream, stream.available());
+  let bytes = _NetUtil.readInputStream(stream, stream.available());
+  let mozinfo = JSON.parse((new TextDecoder()).decode(bytes));
   stream.close();
   return mozinfo;
 }

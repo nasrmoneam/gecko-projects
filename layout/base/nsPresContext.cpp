@@ -43,7 +43,7 @@
 #include "mozilla/RestyleManager.h"
 #include "mozilla/RestyleManagerInlines.h"
 #include "SurfaceCacheUtils.h"
-#include "nsCSSRuleProcessor.h"
+#include "nsMediaFeatures.h"
 #include "nsRuleNode.h"
 #include "gfxPlatform.h"
 #include "nsCSSRules.h"
@@ -405,6 +405,9 @@ nsPresContext::Destroy()
                                   this);
   Preferences::UnregisterCallback(nsPresContext::PrefChangedCallback,
                                   kUseStandinsForNativeColors,
+                                  this);
+  Preferences::UnregisterCallback(nsPresContext::PrefChangedCallback,
+                                  "intl.accept_languages",
                                   this);
 
   mRefreshDriver = nullptr;
@@ -773,7 +776,8 @@ nsPresContext::PreferenceChanged(const char* aPrefName)
       mMissingFonts = nullptr;
     }
   }
-  if (StringBeginsWith(prefName, NS_LITERAL_CSTRING("font."))) {
+  if (StringBeginsWith(prefName, NS_LITERAL_CSTRING("font.")) ||
+      prefName.EqualsLiteral("intl.accept_languages")) {
     // Changes to font family preferences don't change anything in the
     // computed style data, so the style system won't generate a reflow
     // hint for us.  We need to do that manually.
@@ -975,6 +979,9 @@ nsPresContext::Init(nsDeviceContext* aDeviceContext)
                                 this);
   Preferences::RegisterCallback(nsPresContext::PrefChangedCallback,
                                 kUseStandinsForNativeColors,
+                                this);
+  Preferences::RegisterCallback(nsPresContext::PrefChangedCallback,
+                                "intl.accept_languages",
                                 this);
 
   nsresult rv = mEventManager->Init();
@@ -1894,7 +1901,7 @@ nsPresContext::RefreshSystemMetrics()
 {
   // This will force the system metrics to be generated the next time they're
   // used.
-  nsCSSRuleProcessor::FreeSystemMetrics();
+  nsMediaFeatures::FreeSystemMetrics();
 
   // Changes to system metrics can change media queries on them.
   //
@@ -2464,7 +2471,7 @@ nsPresContext::FireDOMPaintEvent(nsTArray<nsRect>* aList, uint64_t aTransactionI
     aTimeStamp = mozilla::TimeStamp::Now();
   }
   DOMHighResTimeStamp timeStamp = 0;
-  if (ourWindow && ourWindow->IsInnerWindow()) {
+  if (ourWindow) {
     mozilla::dom::Performance* perf = ourWindow->GetPerformance();
     if (perf) {
       timeStamp = perf->GetDOMTiming()->TimeStampToDOMHighRes(aTimeStamp);
@@ -3093,6 +3100,14 @@ gfxFloat
 nsPresContext::AppUnitsToGfxUnits(nscoord aAppUnits) const
 {
   return mDeviceContext->AppUnitsToGfxUnits(aAppUnits);
+}
+
+nscoord
+nsPresContext::PhysicalMillimetersToAppUnits(float aMM) const
+{
+  float inches = aMM / MM_PER_INCH_FLOAT;
+  return NSToCoordFloorClamped(
+      inches * float(DeviceContext()->AppUnitsPerPhysicalInch()));
 }
 
 bool

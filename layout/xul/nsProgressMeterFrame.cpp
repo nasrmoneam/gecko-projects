@@ -52,7 +52,7 @@ NS_IMETHODIMP
 nsReflowFrameRunnable::Run()
 {
   if (mWeakFrame.IsAlive()) {
-    mWeakFrame->PresContext()->PresShell()->
+    mWeakFrame->PresShell()->
       FrameNeedsReflow(mWeakFrame, mIntrinsicDirty, mBitToAdd);
   }
   return NS_OK;
@@ -112,7 +112,7 @@ nsProgressMeterFrame::DoXULLayout(nsBoxLayoutState& aState)
   if (mNeedsReflowCallback) {
     nsIReflowCallback* cb = new nsAsyncProgressMeterInit(this);
     if (cb) {
-      PresContext()->PresShell()->PostReflowCallback(cb);
+      PresShell()->PostReflowCallback(cb);
     }
     mNeedsReflowCallback = false;
   }
@@ -139,11 +139,11 @@ nsProgressMeterFrame::AttributeChanged(int32_t aNameSpaceID,
       (!undetermined &&
        (nsGkAtoms::value == aAttribute || nsGkAtoms::max == aAttribute))) {
     nsIFrame* barChild = PrincipalChildList().FirstChild();
-    if (!barChild) return NS_OK;
+    if (!barChild || !barChild->GetContent()->IsElement()) return NS_OK;
     nsIFrame* remainderChild = barChild->GetNextSibling();
     if (!remainderChild) return NS_OK;
     nsCOMPtr<nsIContent> remainderContent = remainderChild->GetContent();
-    if (!remainderContent) return NS_OK;
+    if (!remainderContent->IsElement()) return NS_OK;
 
     int32_t flex = 1, maxFlex = 1;
     if (!undetermined) {
@@ -169,9 +169,9 @@ nsProgressMeterFrame::AttributeChanged(int32_t aNameSpaceID,
     }
 
     nsContentUtils::AddScriptRunner(new nsSetAttrRunnable(
-      barChild->GetContent(), nsGkAtoms::flex, flex));
+      barChild->GetContent()->AsElement(), nsGkAtoms::flex, flex));
     nsContentUtils::AddScriptRunner(new nsSetAttrRunnable(
-      remainderContent, nsGkAtoms::flex, maxFlex - flex));
+      remainderContent->AsElement(), nsGkAtoms::flex, maxFlex - flex));
     nsContentUtils::AddScriptRunner(new nsReflowFrameRunnable(
       this, nsIPresShell::eTreeChange, NS_FRAME_IS_DIRTY));
   }

@@ -216,7 +216,6 @@ EXPORTS.mozilla.dom += [
     'TimeoutManager.h',
     'TreeWalker.h',
     'WebKitCSSMatrix.h',
-    'WebSocket.h',
     'WindowOrientationObserver.h',
 ]
 
@@ -364,7 +363,7 @@ UNIFIED_SOURCES += [
     'TimeoutManager.cpp',
     'TreeWalker.cpp',
     'WebKitCSSMatrix.cpp',
-    'WebSocket.cpp',
+    'WindowDestroyedEvent.cpp',
     'WindowNamedPropertiesHandler.cpp',
     'WindowOrientationObserver.cpp',
     'XPathGenerator.cpp',
@@ -390,8 +389,9 @@ SOURCES += [
     'nsDOMWindowUtils.cpp',
     # Conflicts with windows.h's definition of SendMessage.
     'nsFrameMessageManager.cpp',
-    # This file has a #error "Never include windows.h in this file!"
-    'nsGlobalWindow.cpp',
+    # These files have a #error "Never include windows.h in this file!"
+    'nsGlobalWindowInner.cpp',
+    'nsGlobalWindowOuter.cpp',
     # Conflicts with windows.h's definition of LoadImage.
     'nsImageLoadingContent.cpp',
     # Because of OS X headers.

@@ -18,7 +18,7 @@ from mozprocess import ProcessHandlerMixin
 from mozprofile.profile import Profile
 from talos import utils
 from talos.gecko_profile import GeckoProfile
-from talos.utils import TalosError
+from talos.utils import TalosError, run_in_debug_mode
 from talos import heavy
 
 LOG = get_proxy_logger()
@@ -56,6 +56,7 @@ class FFSetup(object):
         # (in etlparser.py). TODO fix that ?
         self.profile_dir = os.path.join(self._tmp_dir, 'profile')
         self.gecko_profile = None
+        self.debug_mode = run_in_debug_mode(browser_config)
 
     def _init_env(self):
         self.env = dict(os.environ)
@@ -98,14 +99,30 @@ class FFSetup(object):
             path = heavy.download_profile(self.test_config['profile'])
             self.test_config['profile_path'] = path
 
-        profile = Profile.clone(
-            os.path.normpath(self.test_config['profile_path']),
-            self.profile_dir,
-            restore=False)
+        profile_path = os.path.normpath(self.test_config['profile_path'])
+        LOG.info("Cloning profile located at %s" % profile_path)
+
+        def _feedback(directory, content):
+            # Called by shutil.copytree on each visited directory.
+            # Used here to display info.
+            #
+            # Returns the items that should be ignored by
+            # shutil.copytree when copying the tree, so always returns
+            # an empty list.
+            sub = directory.split(profile_path)[-1].lstrip("/")
+            if sub:
+                LOG.info("=> %s" % sub)
+            return []
+
+        profile = Profile.clone(profile_path,
+                                self.profile_dir,
+                                ignore=_feedback,
+                                restore=False)
 
         profile.set_preferences(preferences)
 
         # installing addons
+        LOG.info("Installing Add-ons")
         profile.addon_manager.install_addons(extensions)
 
         # installing webextensions
@@ -114,6 +131,7 @@ class FFSetup(object):
             webextensions = [webextensions]
 
         if webextensions is not None:
+            LOG.info("Installing Webextensions")
             for webext in webextensions:
                 filename = utils.interpolate(webext)
                 if mozinfo.os == 'win':
@@ -179,7 +197,8 @@ class FFSetup(object):
         self._init_env()
         self._init_profile()
         try:
-            self._run_profile()
+            if not self.debug_mode:
+                self._run_profile()
         except:
             self.clean()
             raise

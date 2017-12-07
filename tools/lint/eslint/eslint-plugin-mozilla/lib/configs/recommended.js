@@ -56,7 +56,19 @@ module.exports = {
     "uneval": false
   },
 
+  "overrides": [{
+    // Turn off use-services for xml files. XBL bindings are going away, and
+    // working out the valid globals for those is difficult.
+    "files": "**/*.xml",
+    "rules": {
+      "mozilla/use-services": "off"
+    }
+  }],
+
   "parserOptions": {
+    "ecmaFeatures": {
+      "experimentalObjectRestSpread": true
+    },
     "ecmaVersion": 8
   },
 
@@ -137,7 +149,6 @@ module.exports = {
     // Maximum depth callbacks can be nested.
     "max-nested-callbacks": ["error", 10],
 
-    "mozilla/avoid-nsISupportsString-preferences": "error",
     "mozilla/avoid-removeChild": "error",
     "mozilla/import-browser-window-globals": "error",
     "mozilla/import-globals": "error",
@@ -146,6 +157,7 @@ module.exports = {
     "mozilla/no-useless-removeEventListener": "error",
     "mozilla/use-default-preference-values": "error",
     "mozilla/use-ownerGlobal": "error",
+    "mozilla/use-services": "error",
 
     // Always require parenthesis for new calls
     // "new-parens": "error",
@@ -358,13 +370,17 @@ module.exports = {
     "rest-spread-spacing": "error",
 
     // Always require semicolon at end of statement
-    // "semi": ["error", "always"],
+    "semi": ["error", "always"],
 
     // Require space before blocks
     "space-before-blocks": "error",
 
     // Never use spaces before function parentheses
-    "space-before-function-paren": ["error", "never"],
+    "space-before-function-paren": ["error", {
+      "anonymous": "never",
+      "asyncArrow": "always",
+      "named": "never"
+    }],
 
     // No space padding in parentheses
     // "space-in-parens": ["error", "never"],

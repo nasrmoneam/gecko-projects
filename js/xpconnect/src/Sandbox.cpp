@@ -1726,8 +1726,7 @@ AssembleSandboxMemoryReporterName(JSContext* cx, nsCString& sandboxName)
     NS_ENSURE_TRUE(cc, NS_ERROR_INVALID_ARG);
 
     // Get the current source info from xpc.
-    nsCOMPtr<nsIStackFrame> frame;
-    nsXPConnect::XPConnect()->GetCurrentJSStack(getter_AddRefs(frame));
+    nsCOMPtr<nsIStackFrame> frame = dom::GetCurrentJSStack();
 
     // Append the caller's location information.
     if (frame) {
@@ -1844,7 +1843,7 @@ nsXPCComponents_utils_Sandbox::CallOrConstruct(nsIXPConnectWrappedNative* wrappe
 nsresult
 xpc::EvalInSandbox(JSContext* cx, HandleObject sandboxArg, const nsAString& source,
                    const nsACString& filename, int32_t lineNo,
-                   JSVersion jsVersion, MutableHandleValue rval)
+                   MutableHandleValue rval)
 {
     JS_AbortIfWrongThread(cx);
     rval.set(UndefinedValue());
@@ -1884,8 +1883,7 @@ xpc::EvalInSandbox(JSContext* cx, HandleObject sandboxArg, const nsAString& sour
         JSAutoCompartment ac(sandcx, sandbox);
 
         JS::CompileOptions options(sandcx);
-        options.setFileAndLine(filenameBuf.get(), lineNo)
-               .setVersion(jsVersion);
+        options.setFileAndLine(filenameBuf.get(), lineNo);
         MOZ_ASSERT(JS_IsGlobalObject(sandbox));
         ok = JS::Evaluate(sandcx, options,
                           PromiseFlatString(source).get(), source.Length(), &v);

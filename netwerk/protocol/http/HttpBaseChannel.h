@@ -348,6 +348,8 @@ public: /* Necko internal use only... */
     int64_t GetAltDataLength() { return mAltDataLength; }
     bool IsNavigation();
 
+    static bool IsReferrerSchemeAllowed(nsIURI *aReferrer);
+
     // Return whether upon a redirect code of httpStatus for method, the
     // request method should be rewritten to GET.
     static bool ShouldRewriteRedirectToGET(uint32_t httpStatus,
@@ -498,6 +500,8 @@ private:
   // Proxy release all members above on main thread.
   void ReleaseMainThreadOnlyReferences();
 
+  bool IsCrossOriginWithReferrer();
+
 protected:
   // Use Release-Acquire ordering to ensure the OMT ODA is ignored while channel
   // is canceled on main thread.
@@ -556,6 +560,7 @@ protected:
   uint32_t                          mTracingEnabled             : 1;
   // True if timing collection is enabled
   uint32_t                          mTimingEnabled              : 1;
+  uint32_t                          mReportTiming               : 1;
   uint32_t                          mAllowSpdy                  : 1;
   uint32_t                          mAllowAltSvc                : 1;
   uint32_t                          mBeConservative             : 1;

@@ -627,10 +627,8 @@ AddonDebugger.prototype = {
   init: Task.async(function* (aAddonId) {
     info("Initializing an addon debugger panel.");
 
-    if (!DebuggerServer.initialized) {
-      DebuggerServer.init();
-      DebuggerServer.addBrowserActors();
-    }
+    DebuggerServer.init();
+    DebuggerServer.registerAllActors();
     DebuggerServer.allowChromeProcess = true;
 
     this.frame = document.createElement("iframe");
@@ -1224,10 +1222,6 @@ function source(sourceClient) {
 // console if necessary.  This cleans up the split console pref so
 // it won't pollute other tests.
 function getSplitConsole(toolbox, win) {
-  registerCleanupFunction(() => {
-    Services.prefs.clearUserPref("devtools.toolbox.splitconsoleEnabled");
-  });
-
   if (!win) {
     win = toolbox.win;
   }
@@ -1324,10 +1318,8 @@ function waitForDispatch(panel, type, eventRepeat = 1) {
 }
 
 function* initWorkerDebugger(TAB_URL, WORKER_URL) {
-  if (!DebuggerServer.initialized) {
-    DebuggerServer.init();
-    DebuggerServer.addBrowserActors();
-  }
+  DebuggerServer.init();
+  DebuggerServer.registerAllActors();
 
   let client = new DebuggerClient(DebuggerServer.connectPipe());
   yield connect(client);

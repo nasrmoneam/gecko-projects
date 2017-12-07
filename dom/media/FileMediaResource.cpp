@@ -27,7 +27,11 @@ FileMediaResource::EnsureSizeInitialized()
   nsresult res = mInput->Available(&size);
   if (NS_SUCCEEDED(res) && size <= INT64_MAX) {
     mSize = (int64_t)size;
-    mCallback->NotifyDataEnded(NS_OK);
+    mCallback->AbstractMainThread()->Dispatch(
+      NewRunnableMethod<nsresult>("MediaResourceCallback::NotifyDataEnded",
+                                  mCallback.get(),
+                                  &MediaResourceCallback::NotifyDataEnded,
+                                  NS_OK));
   }
 }
 
@@ -206,19 +210,6 @@ FileMediaResource::UnsafeSeek(int32_t aWhence, int64_t aOffset)
     return NS_ERROR_FAILURE;
   EnsureSizeInitialized();
   return mSeekable->Seek(aWhence, aOffset);
-}
-
-int64_t
-FileMediaResource::Tell()
-{
-  MutexAutoLock lock(mLock);
-  EnsureSizeInitialized();
-
-  int64_t offset = 0;
-  // Return mSize as offset (end of stream) in case of error
-  if (!mSeekable || NS_FAILED(mSeekable->Tell(&offset)))
-    return mSize;
-  return offset;
 }
 
 } // mozilla namespace

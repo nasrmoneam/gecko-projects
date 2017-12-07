@@ -31,31 +31,9 @@ HTMLSharedElement::~HTMLSharedElement()
 {
 }
 
-NS_IMPL_ADDREF_INHERITED(HTMLSharedElement, nsGenericHTMLElement)
-NS_IMPL_RELEASE_INHERITED(HTMLSharedElement, nsGenericHTMLElement)
-
-// QueryInterface implementation for HTMLSharedElement
-NS_INTERFACE_MAP_BEGIN(HTMLSharedElement)
-  NS_INTERFACE_MAP_ENTRY_IF_TAG(nsIDOMHTMLBaseElement, base)
-  NS_INTERFACE_MAP_ENTRY_IF_TAG(nsIDOMHTMLHtmlElement, html)
-NS_INTERFACE_MAP_END_INHERITING(nsGenericHTMLElement)
-
-
 NS_IMPL_ELEMENT_CLONE(HTMLSharedElement)
 
-// nsIDOMHTMLQuoteElement
-// Empty
-
-// nsIDOMHTMLHeadElement
-// Empty
-
-// nsIDOMHTMLHtmlElement
-NS_IMPL_STRING_ATTR(HTMLSharedElement, Version, version)
-
-// nsIDOMHTMLBaseElement
-NS_IMPL_STRING_ATTR(HTMLSharedElement, Target, target)
-
-NS_IMETHODIMP
+void
 HTMLSharedElement::GetHref(nsAString& aValue)
 {
   MOZ_ASSERT(mNodeInfo->Equals(nsGkAtoms::base),
@@ -70,27 +48,19 @@ HTMLSharedElement::GetHref(nsAString& aValue)
 
   if (!uri) {
     aValue = href;
-    return NS_OK;
+    return;
   }
 
   nsAutoCString spec;
   uri->GetSpec(spec);
   CopyUTF8toUTF16(spec, aValue);
-
-  return NS_OK;
 }
-
-NS_IMETHODIMP
-HTMLSharedElement::SetHref(const nsAString& aValue)
-{
-  return SetAttrHelper(nsGkAtoms::href, aValue);
-}
-
 
 bool
 HTMLSharedElement::ParseAttribute(int32_t aNamespaceID,
                                   nsAtom* aAttribute,
                                   const nsAString& aValue,
+                                  nsIPrincipal* aMaybeScriptedPrincipal,
                                   nsAttrValue& aResult)
 {
   if (aNamespaceID == kNameSpaceID_None &&
@@ -104,7 +74,7 @@ HTMLSharedElement::ParseAttribute(int32_t aNamespaceID,
   }
 
   return nsGenericHTMLElement::ParseAttribute(aNamespaceID, aAttribute, aValue,
-                                              aResult);
+                                              aMaybeScriptedPrincipal, aResult);
 }
 
 static void

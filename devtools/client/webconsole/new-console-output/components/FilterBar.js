@@ -3,11 +3,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 "use strict";
 
-const {
-  Component,
-  DOM: dom,
-  PropTypes
-} = require("devtools/client/shared/vendor/react");
+const { Component } = require("devtools/client/shared/vendor/react");
+const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
+const dom = require("devtools/client/shared/vendor/react-dom-factories");
 const { connect } = require("devtools/client/shared/vendor/react-redux");
 const { getAllFilters } = require("devtools/client/webconsole/new-console-output/selectors/filters");
 const { getFilteredMessagesCount } = require("devtools/client/webconsole/new-console-output/selectors/messages");
@@ -34,6 +32,7 @@ class FilterBar extends Component {
       filterBarVisible: PropTypes.bool.isRequired,
       persistLogs: PropTypes.bool.isRequired,
       filteredMessagesCount: PropTypes.object.isRequired,
+      sidebarToggle: PropTypes.bool,
     };
   }
 
@@ -41,6 +40,7 @@ class FilterBar extends Component {
     super(props);
     this.onClickMessagesClear = this.onClickMessagesClear.bind(this);
     this.onClickFilterBarToggle = this.onClickFilterBarToggle.bind(this);
+    this.onClickSidebarToggle = this.onClickSidebarToggle.bind(this);
     this.onClickRemoveAllFilters = this.onClickRemoveAllFilters.bind(this);
     this.onClickRemoveTextFilter = this.onClickRemoveTextFilter.bind(this);
     this.onSearchInput = this.onSearchInput.bind(this);
@@ -85,6 +85,10 @@ class FilterBar extends Component {
 
   onClickFilterBarToggle() {
     this.props.dispatch(actions.filterBarToggle());
+  }
+
+  onClickSidebarToggle() {
+    this.props.dispatch(actions.sidebarToggle());
   }
 
   onClickRemoveAllFilters() {
@@ -222,6 +226,7 @@ class FilterBar extends Component {
       filterBarVisible,
       persistLogs,
       filteredMessagesCount,
+      sidebarToggle,
     } = this.props;
 
     let children = [
@@ -255,7 +260,14 @@ class FilterBar extends Component {
           title: l10n.getStr("webconsole.enablePersistentLogs.tooltip"),
           onChange: this.onChangePersistToggle,
           checked: persistLogs,
-        })
+        }),
+        sidebarToggle ?
+          dom.button({
+            className: "devtools-button webconsole-sidebar-button",
+            title: l10n.getStr("webconsole.toggleFilterButton.tooltip"),
+            onClick: this.onClickSidebarToggle
+          }, "Toggle Sidebar")
+          : null,
       )
     ];
 
@@ -286,6 +298,7 @@ function mapStateToProps(state) {
     filterBarVisible: uiState.filterBarVisible,
     persistLogs: uiState.persistLogs,
     filteredMessagesCount: getFilteredMessagesCount(state),
+    sidebarToggle: state.prefs.sidebarToggle,
   };
 }
 

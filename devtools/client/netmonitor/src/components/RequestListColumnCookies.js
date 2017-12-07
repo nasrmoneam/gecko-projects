@@ -4,19 +4,26 @@
 
 "use strict";
 
-const {
-  Component,
-  DOM,
-  PropTypes,
-} = require("devtools/client/shared/vendor/react");
+const { Component } = require("devtools/client/shared/vendor/react");
+const dom = require("devtools/client/shared/vendor/react-dom-factories");
+const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
 
-const { div } = DOM;
+const { div } = dom;
 
 class RequestListColumnCookies extends Component {
   static get propTypes() {
     return {
+      connector: PropTypes.object.isRequired,
       item: PropTypes.object.isRequired,
     };
+  }
+
+  componentDidMount() {
+    this.maybeFetchRequestCookies(this.props);
+  }
+
+  componentWillReceiveProps(nextProps) {
+    this.maybeFetchRequestCookies(nextProps);
   }
 
   shouldComponentUpdate(nextProps) {
@@ -25,6 +32,15 @@ class RequestListColumnCookies extends Component {
     currRequestCookies = currRequestCookies.cookies || currRequestCookies;
     nextRequestCookies = nextRequestCookies.cookies || nextRequestCookies;
     return currRequestCookies !== nextRequestCookies;
+  }
+
+  /**
+   * Lazily fetch request cookies from the backend.
+   */
+  maybeFetchRequestCookies(props) {
+    if (props.item.requestCookiesAvailable && !props.requestCookies) {
+      props.connector.requestData(props.item.id, "requestCookies");
+    }
   }
 
   render() {

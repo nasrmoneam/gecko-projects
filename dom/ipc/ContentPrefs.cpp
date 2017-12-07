@@ -18,7 +18,7 @@
  *
  ******************************************************************************/
 
-const char* mozilla::dom::ContentPrefs::gInitPrefs[] = {
+const char* mozilla::dom::ContentPrefs::gEarlyPrefs[] = {
   "accessibility.monoaudio.enable",
   "accessibility.mouse_focuses_formcontrol",
   "accessibility.tabfocus_applies_to_xul",
@@ -130,17 +130,12 @@ const char* mozilla::dom::ContentPrefs::gInitPrefs[] = {
   "layout.idle_period.time_limit",
   "layout.interruptible-reflow.enabled",
   "mathml.disabled",
-  "media.apple.forcevda",
   "media.clearkey.persistent-license.enabled",
   "media.cubeb.backend",
   "media.cubeb.sandbox",
   "media.cubeb_latency_msg_frames",
   "media.cubeb_latency_playback_ms",
   "media.decoder-doctor.wmf-disabled-is-failure",
-  "media.decoder.fuzzing.dont-delay-inputexhausted",
-  "media.decoder.fuzzing.enabled",
-  "media.decoder.fuzzing.video-output-minimum-interval-ms",
-  "media.decoder.limit",
   "media.decoder.recycle.enabled",
   "media.dormant-on-pause-timeout-ms",
   "media.eme.audio.blank",
@@ -151,18 +146,13 @@ const char* mozilla::dom::ContentPrefs::gInitPrefs[] = {
   "media.ffvpx.low-latency.enabled",
   "media.flac.enabled",
   "media.forcestereo.enabled",
-  "media.gmp.async-shutdown-timeout",
-  "media.gmp.decoder.aac",
   "media.gmp.decoder.enabled",
-  "media.gmp.decoder.h264",
   "media.gmp.insecure.allow",
   "media.gpu-process-decoder",
   "media.libavcodec.allow-obsolete",
-  "media.num-decode-threads",
   "media.ogg.enabled",
   "media.ogg.flac.enabled",
   "media.resampling.enabled",
-  "media.resampling.rate",
   "media.ruin-av-sync.enabled",
   "media.rust.test_mode",
   "media.suspend-bkgnd-video.delay-ms",
@@ -177,7 +167,6 @@ const char* mozilla::dom::ContentPrefs::gInitPrefs[] = {
   "media.webspeech.test.fake_fsm_events",
   "media.webspeech.test.fake_recognition_service",
   "media.wmf.allow-unsupported-resolutions",
-  "media.wmf.decoder.thread-count",
   "media.wmf.enabled",
   "media.wmf.skip-blacklist",
   "media.wmf.vp9.enabled",
@@ -248,14 +237,14 @@ const char* mozilla::dom::ContentPrefs::gInitPrefs[] = {
   "ui.use_activity_cursor",
   "view_source.editor.external"};
 
-const char** mozilla::dom::ContentPrefs::GetContentPrefs(size_t* aCount)
+const char** mozilla::dom::ContentPrefs::GetEarlyPrefs(size_t* aCount)
 {
-  *aCount = ArrayLength(ContentPrefs::gInitPrefs);
-  return gInitPrefs;
+  *aCount = ArrayLength(ContentPrefs::gEarlyPrefs);
+  return gEarlyPrefs;
 }
 
-const char*  mozilla::dom::ContentPrefs::GetContentPref(size_t aIndex)
+const char* mozilla::dom::ContentPrefs::GetEarlyPref(size_t aIndex)
 {
-  MOZ_ASSERT(aIndex < ArrayLength(ContentPrefs::gInitPrefs));
-  return gInitPrefs[aIndex];
+  MOZ_ASSERT(aIndex < ArrayLength(ContentPrefs::gEarlyPrefs));
+  return gEarlyPrefs[aIndex];
 }

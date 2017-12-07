@@ -59,9 +59,7 @@
 #include "nsEmbedCID.h"
 #include "nsGlobalWindow.h"
 #include <algorithm>
-#ifdef MOZ_CRASHREPORTER
 #include "nsExceptionHandler.h"
-#endif
 #include "nsFilePickerProxy.h"
 #include "mozilla/dom/Element.h"
 #include "nsGlobalWindow.h"
@@ -128,6 +126,7 @@
 #include "nsString.h"
 #include "nsISupportsPrimitives.h"
 #include "mozilla/Telemetry.h"
+#include "nsIDocShellLoadInfo.h"
 
 #ifdef XP_WIN
 #include "mozilla/plugins/PluginWidgetChild.h"
@@ -1026,7 +1025,8 @@ TabChild::ProvideWindow(mozIDOMWindowProxy* aParent,
                         bool aPositionSpecified, bool aSizeSpecified,
                         nsIURI* aURI, const nsAString& aName,
                         const nsACString& aFeatures, bool aForceNoOpener,
-                        bool* aWindowIsNew, mozIDOMWindowProxy** aReturn)
+                        nsIDocShellLoadInfo* aLoadInfo, bool* aWindowIsNew,
+                        mozIDOMWindowProxy** aReturn)
 {
     *aReturn = nullptr;
 
@@ -1069,6 +1069,7 @@ TabChild::ProvideWindow(mozIDOMWindowProxy* aParent,
                                    aName,
                                    aFeatures,
                                    aForceNoOpener,
+                                   aLoadInfo,
                                    aWindowIsNew,
                                    aReturn);
 }
@@ -1194,9 +1195,7 @@ TabChild::RecvLoadURL(const nsCString& aURI,
       NS_WARNING("WebNavigation()->LoadURI failed. Eating exception, what else can I do?");
   }
 
-#ifdef MOZ_CRASHREPORTER
   CrashReporter::AnnotateCrashReport(NS_LITERAL_CSTRING("URL"), aURI);
-#endif
 
   return IPC_OK();
 }
@@ -1320,7 +1319,7 @@ TabChild::RecvUpdateDimensions(const DimensionInfo& aDimensionInfo)
 
     mUnscaledOuterRect = aDimensionInfo.rect();
     mClientOffset = aDimensionInfo.clientOffset();
-    mChromeDisp = aDimensionInfo.chromeDisp();
+    mChromeOffset = aDimensionInfo.chromeOffset();
 
     mOrientation = aDimensionInfo.orientation();
     SetUnscaledInnerSize(aDimensionInfo.size());
@@ -1340,8 +1339,8 @@ TabChild::RecvUpdateDimensions(const DimensionInfo& aDimensionInfo)
     baseWin->SetPositionAndSize(0, 0, screenSize.width, screenSize.height,
                                 nsIBaseWindow::eRepaint);
 
-    mPuppetWidget->Resize(screenRect.x + mClientOffset.x + mChromeDisp.x,
-                          screenRect.y + mClientOffset.y + mChromeDisp.y,
+    mPuppetWidget->Resize(screenRect.x + mClientOffset.x + mChromeOffset.x,
+                          screenRect.y + mClientOffset.y + mChromeOffset.y,
                           screenSize.width, screenSize.height, true);
 
     return IPC_OK();
@@ -2555,8 +2554,8 @@ mozilla::ipc::IPCResult
 TabChild::RecvPrint(const uint64_t& aOuterWindowID, const PrintData& aPrintData)
 {
 #ifdef NS_PRINTING
-  nsGlobalWindow* outerWindow =
-    nsGlobalWindow::GetOuterWindowWithId(aOuterWindowID);
+  nsGlobalWindowOuter* outerWindow =
+    nsGlobalWindowOuter::GetOuterWindowWithId(aOuterWindowID);
   if (NS_WARN_IF(!outerWindow)) {
     return IPC_OK();
   }
@@ -2669,6 +2668,23 @@ TabChild::RemovePendingDocShellBlocker()
 }
 
 void
+TabChild::OnDocShellActivated(bool aIsActive)
+{
+  if (aIsActive) {
+    if (!sActiveTabs) {
+      sActiveTabs = new nsTHashtable<nsPtrHashKey<TabChild>>();
+    }
+    sActiveTabs->PutEntry(this);
+  } else {
+    if (sActiveTabs) {
+      sActiveTabs->RemoveEntry(this);
+      // We don't delete sActiveTabs here when it's empty since that
+      // could cause a lot of churn. Instead, we wait until ~TabChild.
+    }
+  }
+}
+
+void
 TabChild::InternalSetDocShellIsActive(bool aIsActive, bool aPreserveLayers)
 {
   auto clearForcePaint = MakeScopeExit([&] {
@@ -2710,19 +2726,6 @@ TabChild::InternalSetDocShellIsActive(bool aIsActive, bool aPreserveLayers)
     }
 
     docShell->SetIsActive(aIsActive);
-  }
-
-  if (aIsActive) {
-    if (!sActiveTabs) {
-      sActiveTabs = new nsTHashtable<nsPtrHashKey<TabChild>>();
-    }
-    sActiveTabs->PutEntry(this);
-  } else {
-    if (sActiveTabs) {
-      sActiveTabs->RemoveEntry(this);
-      // We don't delete sActiveTabs here when it's empty since that
-      // could cause a lot of churn. Instead, we wait until ~TabChild.
-    }
   }
 
   if (aIsActive) {
@@ -3340,17 +3343,6 @@ TabChild::ReinitRenderingForDeviceReset()
   ReinitRendering();
 }
 
-void
-TabChild::CompositorUpdated(const TextureFactoryIdentifier& aNewIdentifier,
-                            uint64_t aDeviceResetSeqNo)
-{
-  RefPtr<LayerManager> lm = mPuppetWidget->GetLayerManager();
-
-  mTextureFactoryIdentifier = aNewIdentifier;
-  lm->UpdateTextureFactoryIdentifier(aNewIdentifier, aDeviceResetSeqNo);
-  FrameLayerBuilder::InvalidateAllLayers(lm);
-}
-
 NS_IMETHODIMP
 TabChild::OnShowTooltip(int32_t aXCoords, int32_t aYCoords, const char16_t *aTipText,
                         const char16_t *aTipDir)
@@ -3402,8 +3394,8 @@ TabChild::RecvUIResolutionChanged(const float& aDpi,
   ScreenIntSize screenSize = GetInnerSize();
   if (mHasValidInnerSize && oldScreenSize != screenSize) {
     ScreenIntRect screenRect = GetOuterRect();
-    mPuppetWidget->Resize(screenRect.x + mClientOffset.x + mChromeDisp.x,
-                          screenRect.y + mClientOffset.y + mChromeDisp.y,
+    mPuppetWidget->Resize(screenRect.x + mClientOffset.x + mChromeOffset.x,
+                          screenRect.y + mClientOffset.y + mChromeOffset.y,
                           screenSize.width, screenSize.height, true);
 
     nsCOMPtr<nsIBaseWindow> baseWin = do_QueryInterface(WebNavigation());
@@ -3482,7 +3474,7 @@ TabChild::AllocPPluginWidgetChild()
 #ifdef XP_WIN
   return new mozilla::plugins::PluginWidgetChild();
 #else
-  MOZ_ASSERT_UNREACHABLE();
+  MOZ_ASSERT_UNREACHABLE("AllocPPluginWidgetChild only supports Windows");
   return nullptr;
 #endif
 }

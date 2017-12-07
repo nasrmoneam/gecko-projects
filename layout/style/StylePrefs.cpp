@@ -18,6 +18,9 @@ bool StylePrefs::sMozGradientsEnabled;
 bool StylePrefs::sControlCharVisibility;
 bool StylePrefs::sFramesTimingFunctionEnabled;
 bool StylePrefs::sUnprefixedFullscreenApiEnabled;
+bool StylePrefs::sVisitedLinksEnabled;
+bool StylePrefs::sMozDocumentEnabledInContent;
+bool StylePrefs::sGridTemplateSubgridValueEnabled;
 
 /* static */ void
 StylePrefs::Init()
@@ -38,6 +41,12 @@ StylePrefs::Init()
                                "layout.css.frames-timing.enabled");
   Preferences::AddBoolVarCache(&sUnprefixedFullscreenApiEnabled,
                                "full-screen-api.unprefix.enabled");
+  Preferences::AddBoolVarCache(&sVisitedLinksEnabled,
+                               "layout.css.visited_links_enabled");
+  Preferences::AddBoolVarCache(&sMozDocumentEnabledInContent,
+                               "layout.css.moz-document.content.enabled");
+  Preferences::AddBoolVarCache(&sGridTemplateSubgridValueEnabled,
+                               "layout.css.grid-template-subgrid-value.enabled");
 }
 
 } // namespace mozilla

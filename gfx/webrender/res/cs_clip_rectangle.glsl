@@ -64,8 +64,7 @@ void main(void) {
 
     ClipVertexInfo vi = write_clip_tile_vertex(local_rect,
                                                layer,
-                                               area,
-                                               cmi.segment);
+                                               area);
     vPos = vi.local_pos;
 
     vClipMode = clip.rect.mode.x;
@@ -93,8 +92,8 @@ void main(void) {
 
 #ifdef WR_FRAGMENT_SHADER
 void main(void) {
-    float alpha = 1.f;
-    vec2 local_pos = init_transform_fs(vPos, alpha);
+    vec2 local_pos = vPos.xy / vPos.z;
+    float alpha = init_transform_fs(local_pos);
 
     float aa_range = compute_aa_range(local_pos);
 

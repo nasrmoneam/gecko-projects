@@ -20,6 +20,8 @@ this.log = null;
 FormAutofillUtils.defineLazyLogGetter(this, this.EXPORTED_SYMBOLS[0]);
 
 const PREF_HEURISTICS_ENABLED = "extensions.formautofill.heuristics.enabled";
+const PREF_SECTION_ENABLED = "extensions.formautofill.section.enabled";
+const DEFAULT_SECTION_NAME = "-moz-section-default";
 
 /**
  * A scanner for traversing all elements in a form and retrieving the field
@@ -34,10 +36,13 @@ class FieldScanner {
    * @param {Array.DOMElement} elements
    *        The elements from a form for each parser.
    */
-  constructor(elements) {
+  constructor(elements, {allowDuplicates = false, sectionEnabled = true}) {
     this._elementsWeakRef = Cu.getWeakReference(elements);
     this.fieldDetails = [];
     this._parsingIndex = 0;
+    this._sections = [];
+    this._allowDuplicates = allowDuplicates;
+    this._sectionEnabled = sectionEnabled;
   }
 
   get _elements() {
@@ -97,10 +102,74 @@ class FieldScanner {
     return this.parsingIndex >= this._elements.length;
   }
 
+  _pushToSection(name, fieldDetail) {
+    for (let section of this._sections) {
+      if (section.name == name) {
+        section.fieldDetails.push(fieldDetail);
+        return;
+      }
+    }
+    this._sections.push({
+      name,
+      fieldDetails: [fieldDetail],
+    });
+  }
+
+  _classifySections() {
+    let fieldDetails = this._sections[0].fieldDetails;
+    this._sections = [];
+    let seenTypes = new Set();
+    let previousType;
+    let sectionCount = 0;
+
+    for (let fieldDetail of fieldDetails) {
+      if (!fieldDetail.fieldName) {
+        continue;
+      }
+      if (seenTypes.has(fieldDetail.fieldName) &&
+          previousType != fieldDetail.fieldName) {
+        seenTypes.clear();
+        sectionCount++;
+      }
+      previousType = fieldDetail.fieldName;
+      seenTypes.add(fieldDetail.fieldName);
+      this._pushToSection(DEFAULT_SECTION_NAME + "-" + sectionCount, fieldDetail);
+    }
+  }
+
+  /**
+   * The result is an array contains the sections with its belonging field
+   * details. If `this._sections` contains one section only with the default
+   * section name (DEFAULT_SECTION_NAME), `this._classifySections` should be
+   * able to identify all sections in the heuristic way.
+   *
+   * @returns {Array<Object>}
+   *          The array with the sections, and the belonging fieldDetails are in
+   *          each section.
+   */
+  getSectionFieldDetails() {
+    // When the section feature is disabled, `getSectionFieldDetails` should
+    // provide a single section result.
+    if (!this._sectionEnabled) {
+      return [this._getFinalDetails(this.fieldDetails)];
+    }
+    if (this._sections.length == 0) {
+      return [];
+    }
+    if (this._sections.length == 1 && this._sections[0].name == DEFAULT_SECTION_NAME) {
+      this._classifySections();
+    }
+
+    return this._sections.map(section =>
+      this._getFinalDetails(section.fieldDetails)
+    );
+  }
+
   /**
    * This function will prepare an autocomplete info object with getInfo
-   * function and push the detail to fieldDetails property. Any duplicated
-   * detail will be marked as _duplicated = true for the parser.
+   * function and push the detail to fieldDetails property.
+   * Any field will be pushed into `this._sections` based on the section name
+   * in `autocomplete` attribute.
    *
    * Any element without the related detail will be used for adding the detail
    * to the end of field details.
@@ -127,14 +196,19 @@ class FieldScanner {
       fieldInfo._reason = info._reason;
     }
 
-    // Store the association between the field metadata and the element.
-    if (this.findSameField(info) != -1) {
-      // A field with the same identifier already exists.
-      log.debug("Not collecting a field matching another with the same info:", info);
-      fieldInfo._duplicated = true;
-    }
-
     this.fieldDetails.push(fieldInfo);
+    this._pushToSection(this._getSectionName(fieldInfo), fieldInfo);
+  }
+
+  _getSectionName(info) {
+    let names = [];
+    if (info.section) {
+      names.push(info.section);
+    }
+    if (info.addressType) {
+      names.push(info.addressType);
+    }
+    return names.length ? names.join(" ") : DEFAULT_SECTION_NAME;
   }
 
   /**
@@ -151,30 +225,40 @@ class FieldScanner {
       throw new Error("Try to update the non-existing field detail.");
     }
     this.fieldDetails[index].fieldName = fieldName;
-
-    delete this.fieldDetails[index]._duplicated;
-    let indexSame = this.findSameField(this.fieldDetails[index]);
-    if (indexSame != index && indexSame != -1) {
-      this.fieldDetails[index]._duplicated = true;
-    }
   }
 
-  findSameField(info) {
-    return this.fieldDetails.findIndex(f => f.section == info.section &&
-                                       f.addressType == info.addressType &&
-                                       f.contactType == info.contactType &&
-                                       f.fieldName == info.fieldName);
+  _isSameField(field1, field2) {
+    return field1.section == field2.section &&
+           field1.addressType == field2.addressType &&
+           field1.fieldName == field2.fieldName;
   }
 
   /**
-   * Provide the field details without invalid field name and duplicated fields.
+   * Provide the final field details without invalid field name, and the
+   * duplicated fields will be removed as well. For the debugging purpose,
+   * the final `fieldDetails` will include the duplicated fields if
+   * `_allowDuplicates` is true.
    *
+   * @param   {Array<Object>} fieldDetails
+   *          The field details for trimming.
    * @returns {Array<Object>}
    *          The array with the field details without invalid field name and
    *          duplicated fields.
    */
-  get trimmedFieldDetail() {
-    return this.fieldDetails.filter(f => f.fieldName && !f._duplicated);
+  _getFinalDetails(fieldDetails) {
+    if (this._allowDuplicates) {
+      return fieldDetails.filter(f => f.fieldName);
+    }
+
+    let dedupedFieldDetails = [];
+    for (let fieldDetail of fieldDetails) {
+      if (fieldDetail.fieldName && !dedupedFieldDetails.find(f => this._isSameField(fieldDetail, f))) {
+        dedupedFieldDetails.push(fieldDetail);
+      } else {
+        log.debug("Not collecting an invalid field or matching another with the same info:", fieldDetail);
+      }
+    }
+    return dedupedFieldDetails;
   }
 
   elementExisting(index) {
@@ -195,8 +279,12 @@ this.LabelUtils = {
 
   // An array consisting of label elements whose correponding form field doesn't
   // have an id attribute.
-  // @type {Array.<HTMLLabelElement>}
+  // @type {Array<HTMLLabelElement>}
   _unmappedLabels: null,
+
+  // A weak map consisting of label element and extracted strings pairs.
+  // @type {WeakMap<HTMLLabelElement, array>}
+  _labelStrings: null,
 
   /**
    * Extract all strings of an element's children to an array.
@@ -209,6 +297,9 @@ this.LabelUtils = {
    *          All strings in an element.
    */
   extractLabelStrings(element) {
+    if (this._labelStrings.has(element)) {
+      return this._labelStrings.get(element);
+    }
     let strings = [];
     let _extractLabelStrings = (el) => {
       if (this.EXCLUDED_TAGS.includes(el.tagName)) {
@@ -232,6 +323,7 @@ this.LabelUtils = {
       }
     };
     _extractLabelStrings(element);
+    this._labelStrings.set(element, strings);
     return strings;
   },
 
@@ -262,11 +354,13 @@ this.LabelUtils = {
 
     this._mappedLabels = mappedLabels;
     this._unmappedLabels = unmappedLabels;
+    this._labelStrings = new WeakMap();
   },
 
   clearLabelMap() {
     this._mappedLabels = null;
     this._unmappedLabels = null;
+    this._labelStrings = null;
   },
 
   findLabelElements(element) {
@@ -310,7 +404,7 @@ this.FormAutofillHeuristics = {
    *          the current element.
    */
   _isExpirationMonthLikely(element) {
-    if (!(element instanceof Ci.nsIDOMHTMLSelectElement)) {
+    if (ChromeUtils.getClassName(element) !== "HTMLSelectElement") {
       return false;
     }
 
@@ -337,7 +431,7 @@ this.FormAutofillHeuristics = {
    *          the current element.
    */
   _isExpirationYearLikely(element) {
-    if (!(element instanceof Ci.nsIDOMHTMLSelectElement)) {
+    if (ChromeUtils.getClassName(element) !== "HTMLSelectElement") {
       return false;
     }
 
@@ -372,7 +466,7 @@ this.FormAutofillHeuristics = {
       let ruleStart = i;
       for (; i < GRAMMARS.length && GRAMMARS[i][0] && fieldScanner.elementExisting(detailStart); i++, detailStart++) {
         let detail = fieldScanner.getFieldDetailByIndex(detailStart);
-        if (!detail || GRAMMARS[i][0] != detail.fieldName || detail._reason == "autocomplete") {
+        if (!detail || GRAMMARS[i][0] != detail.fieldName || (detail._reason && detail._reason == "autocomplete")) {
           break;
         }
         let element = detail.elementWeakRef.get();
@@ -475,8 +569,9 @@ this.FormAutofillHeuristics = {
     const detail = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
     const element = detail.elementWeakRef.get();
 
-    // Skip the uninteresting fields
-    if (!detail || !["cc-exp", ...monthAndYearFieldNames].includes(detail.fieldName)) {
+    // Respect to autocomplete attr and skip the uninteresting fields
+    if (!detail || (detail._reason && detail._reason == "autocomplete") ||
+        !["cc-exp", ...monthAndYearFieldNames].includes(detail.fieldName)) {
       return false;
     }
 
@@ -502,29 +597,79 @@ this.FormAutofillHeuristics = {
     if (this._isExpirationMonthLikely(element)) {
       fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-month");
       fieldScanner.parsingIndex++;
-      const nextDetail = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
-      const nextElement = nextDetail.elementWeakRef.get();
-      if (this._isExpirationYearLikely(nextElement) && !fieldScanner.parsingFinished) {
-        fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-year");
-        fieldScanner.parsingIndex++;
-
-        return true;
+      if (!fieldScanner.parsingFinished) {
+        const nextDetail = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
+        const nextElement = nextDetail.elementWeakRef.get();
+        if (this._isExpirationYearLikely(nextElement)) {
+          fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-year");
+          fieldScanner.parsingIndex++;
+          return true;
+        }
       }
     }
     fieldScanner.parsingIndex = savedIndex;
 
-    // If no possible regular expiration fields are detected in current parsing window
-    // fallback to "cc-exp" as there's no such case that cc-exp-month or cc-exp-year
-    // presents alone.
-    fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp");
-    fieldScanner.parsingIndex++;
+    // Verify that the following consecutive two fields can match cc-exp-month and cc-exp-year
+    // respectively.
+    if (this._findMatchedFieldName(element, ["cc-exp-month"])) {
+      fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-month");
+      fieldScanner.parsingIndex++;
+      if (!fieldScanner.parsingFinished) {
+        const nextDetail = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
+        const nextElement = nextDetail.elementWeakRef.get();
+        if (this._findMatchedFieldName(nextElement, ["cc-exp-year"])) {
+          fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-year");
+          fieldScanner.parsingIndex++;
+          return true;
+        }
+      }
+    }
+    fieldScanner.parsingIndex = savedIndex;
 
+    // Look for MM and/or YY(YY).
+    if (this._matchRegexp(element, /^mm$/ig)) {
+      fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-month");
+      fieldScanner.parsingIndex++;
+      if (!fieldScanner.parsingFinished) {
+        const nextDetail = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
+        const nextElement = nextDetail.elementWeakRef.get();
+        if (this._matchRegexp(nextElement, /^(yy|yyyy)$/)) {
+          fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp-year");
+          fieldScanner.parsingIndex++;
+
+          return true;
+        }
+      }
+    }
+    fieldScanner.parsingIndex = savedIndex;
+
+    // Look for a cc-exp with 2-digit or 4-digit year.
+    if (this._matchRegexp(element, /(?:exp.*date[^y\\n\\r]*|mm\\s*[-/]?\\s*)yy(?:[^y]|$)/ig) ||
+        this._matchRegexp(element, /(?:exp.*date[^y\\n\\r]*|mm\\s*[-/]?\\s*)yyyy(?:[^y]|$)/ig)) {
+      fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp");
+      fieldScanner.parsingIndex++;
+      return true;
+    }
+    fieldScanner.parsingIndex = savedIndex;
+
+    // Match general cc-exp regexp at last.
+    if (this._findMatchedFieldName(element, ["cc-exp"])) {
+      fieldScanner.updateFieldName(fieldScanner.parsingIndex, "cc-exp");
+      fieldScanner.parsingIndex++;
+      return true;
+    }
+    fieldScanner.parsingIndex = savedIndex;
+
+    // Set current field name to null as it failed to match any patterns.
+    fieldScanner.updateFieldName(fieldScanner.parsingIndex, null);
+    fieldScanner.parsingIndex++;
     return true;
   },
 
   /**
-   * This function should provide all field details of a form. The details
-   * contain the autocomplete info (e.g. fieldName, section, etc).
+   * This function should provide all field details of a form which are placed
+   * in the belonging section. The details contain the autocomplete info
+   * (e.g. fieldName, section, etc).
    *
    * `allowDuplicates` is used for the xpcshell-test purpose currently because
    * the heuristics should be verified that some duplicated elements still can
@@ -535,8 +680,8 @@ this.FormAutofillHeuristics = {
    * @param {boolean} allowDuplicates
    *        true to remain any duplicated field details otherwise to remove the
    *        duplicated ones.
-   * @returns {Array<Object>}
-   *        all field details in the form.
+   * @returns {Array<Array<Object>>}
+   *        all sections within its field details in the form.
    */
   getFormInfo(form, allowDuplicates = false) {
     const eligibleFields = Array.from(form.elements)
@@ -546,7 +691,8 @@ this.FormAutofillHeuristics = {
       return [];
     }
 
-    let fieldScanner = new FieldScanner(eligibleFields);
+    let fieldScanner = new FieldScanner(eligibleFields,
+      {allowDuplicates, sectionEnabled: this._sectionEnabled});
     while (!fieldScanner.parsingFinished) {
       let parsedPhoneFields = this._parsePhoneFields(fieldScanner);
       let parsedAddressFields = this._parseAddressFields(fieldScanner);
@@ -561,11 +707,7 @@ this.FormAutofillHeuristics = {
 
     LabelUtils.clearLabelMap();
 
-    if (allowDuplicates) {
-      return fieldScanner.fieldDetails;
-    }
-
-    return fieldScanner.trimmedFieldDetail;
+    return fieldScanner.getSectionFieldDetails();
   },
 
   _regExpTableHashValue(...signBits) {
@@ -583,7 +725,7 @@ this.FormAutofillHeuristics = {
     if (!this._regexpList) {
       return null;
     }
-    return this._regexpList[this._regExpTableHashValue(b0, b1, b2)];
+    return this._regexpList[this._regExpTableHashValue(b0, b1, b2)] || null;
   },
 
   _getRegExpList(isAutoCompleteOff, elementTagName) {
@@ -665,21 +807,57 @@ this.FormAutofillHeuristics = {
       return null;
     }
 
-    let labelStrings;
-    let getElementStrings = {};
-    getElementStrings[Symbol.iterator] = function* () {
-      yield element.id;
-      yield element.name;
-      if (!labelStrings) {
-        labelStrings = [];
-        let labels = LabelUtils.findLabelElements(element);
-        for (let label of labels) {
-          labelStrings.push(...LabelUtils.extractLabelStrings(label));
-        }
-      }
-      yield *labelStrings;
-    };
+    let matchedFieldName =  this._findMatchedFieldName(element, regexps);
+    if (matchedFieldName) {
+      return {
+        fieldName: matchedFieldName,
+        section: "",
+        addressType: "",
+        contactType: "",
+      };
+    }
 
+    return null;
+  },
+
+  /**
+   * @typedef ElementStrings
+   * @type {object}
+   * @yield {string} id - element id.
+   * @yield {string} name - element name.
+   * @yield {Array<string>} labels - extracted labels.
+   */
+
+  /**
+   * Extract all the signature strings of an element.
+   *
+   * @param {HTMLElement} element
+   * @returns {ElementStrings}
+   */
+  _getElementStrings(element) {
+    return {
+      * [Symbol.iterator]() {
+        yield element.id;
+        yield element.name;
+
+        const labels = LabelUtils.findLabelElements(element);
+        for (let label of labels) {
+          yield *LabelUtils.extractLabelStrings(label);
+        }
+      },
+    };
+  },
+
+  /**
+   * Find the first matched field name of the element wih given regex list.
+   *
+   * @param {HTMLElement} element
+   * @param {Array<string>} regexps
+   *        The regex key names that correspond to pattern in the rule list.
+   * @returns {?string} The first matched field name
+   */
+  _findMatchedFieldName(element, regexps) {
+    const getElementStrings = this._getElementStrings(element);
     for (let regexp of regexps) {
       for (let string of getElementStrings) {
         // The original regexp "(?<!united )state|county|region|province" for
@@ -693,17 +871,30 @@ this.FormAutofillHeuristics = {
           string = string.toLowerCase().split("united state").join("");
         }
         if (this.RULES[regexp].test(string)) {
-          return {
-            fieldName: regexp,
-            section: "",
-            addressType: "",
-            contactType: "",
-          };
+          return regexp;
         }
       }
     }
 
     return null;
+  },
+
+  /**
+   * Determine whether the regexp can match any of element strings.
+   *
+   * @param {HTMLElement} element
+   * @param {RegExp} regexp
+   *
+   * @returns {boolean}
+   */
+  _matchRegexp(element, regexp) {
+    const elemStrings = this._getElementStrings(element);
+    for (const str of elemStrings) {
+      if (regexp.test(str)) {
+        return true;
+      }
+    }
+    return false;
   },
 
 /**
@@ -827,10 +1018,8 @@ this.FormAutofillHeuristics = {
 
 XPCOMUtils.defineLazyGetter(this.FormAutofillHeuristics, "RULES", () => {
   let sandbox = {};
-  let scriptLoader = Cc["@mozilla.org/moz/jssubscript-loader;1"]
-                       .getService(Ci.mozIJSSubScriptLoader);
   const HEURISTICS_REGEXP = "chrome://formautofill/content/heuristicsRegexp.js";
-  scriptLoader.loadSubScript(HEURISTICS_REGEXP, sandbox, "utf-8");
+  Services.scriptloader.loadSubScript(HEURISTICS_REGEXP, sandbox, "utf-8");
   return sandbox.HeuristicsRegExp.RULES;
 });
 
@@ -842,3 +1031,10 @@ Services.prefs.addObserver(PREF_HEURISTICS_ENABLED, () => {
   this.FormAutofillHeuristics._prefEnabled = Services.prefs.getBoolPref(PREF_HEURISTICS_ENABLED);
 });
 
+XPCOMUtils.defineLazyGetter(this.FormAutofillHeuristics, "_sectionEnabled", () => {
+  return Services.prefs.getBoolPref(PREF_SECTION_ENABLED);
+});
+
+Services.prefs.addObserver(PREF_SECTION_ENABLED, () => {
+  this.FormAutofillHeuristics._sectionEnabled = Services.prefs.getBoolPref(PREF_SECTION_ENABLED);
+});

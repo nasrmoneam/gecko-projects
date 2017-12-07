@@ -27,15 +27,13 @@
  */
 
 #define HB_SHAPER coretext
+
+#include "hb-private.hh"
+#include "hb-debug.hh"
 #include "hb-shaper-impl-private.hh"
 
 #include "hb-coretext.h"
 #include <math.h>
-
-
-#ifndef HB_DEBUG_CORETEXT
-#define HB_DEBUG_CORETEXT (HB_DEBUG+0)
-#endif
 
 /* https://developer.apple.com/documentation/coretext/1508745-ctfontcreatewithgraphicsfont */
 #define HB_CORETEXT_DEFAULT_FONT_SIZE 12.f
@@ -83,20 +81,11 @@ _hb_cg_font_release (void *data)
   CGFontRelease ((CGFontRef) data);
 }
 
-hb_face_t *
-hb_coretext_face_create (CGFontRef cg_font)
-{
-  return hb_face_create_for_tables (reference_table, CGFontRetain (cg_font), _hb_cg_font_release);
-}
 
 HB_SHAPER_DATA_ENSURE_DEFINE(coretext, face)
 HB_SHAPER_DATA_ENSURE_DEFINE_WITH_CONDITION(coretext, font,
 	fabs (CTFontGetSize((CTFontRef) data) - coretext_font_size (font->ptem)) <= .5
 )
-
-/*
- * shaper face data
- */
 
 static CTFontDescriptorRef
 get_last_resort_font_desc (void)
@@ -269,6 +258,12 @@ _hb_coretext_shaper_face_data_destroy (hb_coretext_shaper_face_data_t *data)
   CFRelease ((CGFontRef) data);
 }
 
+hb_face_t *
+hb_coretext_face_create (CGFontRef cg_font)
+{
+  return hb_face_create_for_tables (reference_table, CGFontRetain (cg_font), _hb_cg_font_release);
+}
+
 /*
  * Since: 0.9.10
  */
@@ -279,10 +274,6 @@ hb_coretext_face_get_cg_font (hb_face_t *face)
   return (CGFontRef) HB_SHAPER_DATA_GET (face);
 }
 
-
-/*
- * shaper font data
- */
 
 hb_coretext_shaper_font_data_t *
 _hb_coretext_shaper_font_data_create (hb_font_t *font)
@@ -308,6 +299,35 @@ _hb_coretext_shaper_font_data_destroy (hb_coretext_shaper_font_data_t *data)
   CFRelease ((CTFontRef) data);
 }
 
+/*
+ * Since: 1.7.2
+ */
+hb_font_t *
+hb_coretext_font_create (CTFontRef ct_font)
+{
+  CGFontRef cg_font = CTFontCopyGraphicsFont (ct_font, 0);
+  hb_face_t *face = hb_coretext_face_create (cg_font);
+  CFRelease (cg_font);
+  hb_font_t *font = hb_font_create (face);
+  hb_face_destroy (face);
+
+  if (unlikely (hb_object_is_inert (font)))
+    return font;
+
+  /* Let there be dragons here... */
+  HB_SHAPER_DATA_GET (font) = (hb_coretext_shaper_font_data_t *) CFRetain (ct_font);
+
+  return font;
+}
+
+CTFontRef
+hb_coretext_font_get_ct_font (hb_font_t *font)
+{
+  if (unlikely (!hb_coretext_shaper_font_data_ensure (font))) return nullptr;
+  return (CTFontRef) HB_SHAPER_DATA_GET (font);
+}
+
+
 
 /*
  * shaper shape_plan data
@@ -330,13 +350,6 @@ _hb_coretext_shaper_shape_plan_data_destroy (hb_coretext_shaper_shape_plan_data_
 {
 }
 
-CTFontRef
-hb_coretext_font_get_ct_font (hb_font_t *font)
-{
-  if (unlikely (!hb_coretext_shaper_font_data_ensure (font))) return nullptr;
-  return (CTFontRef)HB_SHAPER_DATA_GET (font);
-}
-
 
 /*
  * shaper
@@ -351,7 +364,9 @@ struct active_feature_t {
   feature_record_t rec;
   unsigned int order;
 
-  static int cmp (const active_feature_t *a, const active_feature_t *b) {
+  static int cmp (const void *pa, const void *pb) {
+    const active_feature_t *a = (const active_feature_t *) pa;
+    const active_feature_t *b = (const active_feature_t *) pb;
     return a->rec.feature < b->rec.feature ? -1 : a->rec.feature > b->rec.feature ? 1 :
 	   a->order < b->order ? -1 : a->order > b->order ? 1 :
 	   a->rec.setting < b->rec.setting ? -1 : a->rec.setting > b->rec.setting ? 1 :
@@ -367,7 +382,9 @@ struct feature_event_t {
   bool start;
   active_feature_t feature;
 
-  static int cmp (const feature_event_t *a, const feature_event_t *b) {
+  static int cmp (const void *pa, const void *pb) {
+    const feature_event_t *a = (const feature_event_t *) pa;
+    const feature_event_t *b = (const feature_event_t *) pb;
     return a->index < b->index ? -1 : a->index > b->index ? 1 :
 	   a->start < b->start ? -1 : a->start > b->start ? 1 :
 	   active_feature_t::cmp (&a->feature, &b->feature);
@@ -998,7 +1015,7 @@ resize_and_retry:
 	 * However, even that wouldn't work if we were passed in the CGFont to
 	 * construct a hb_face to begin with.
 	 *
-	 * See: http://github.com/behdad/harfbuzz/pull/36
+	 * See: http://github.com/harfbuzz/harfbuzz/pull/36
 	 *
 	 * Also see: https://bugs.chromium.org/p/chromium/issues/detail?id=597098
 	 */
@@ -1259,6 +1276,8 @@ resize_and_retry:
       }
     }
   }
+
+  buffer->unsafe_to_break_all ();
 
 #undef FAIL
 

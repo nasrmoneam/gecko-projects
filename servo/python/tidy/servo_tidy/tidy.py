@@ -316,7 +316,7 @@ def check_flake8(file_name, contents):
 
 def check_lock(file_name, contents):
     def find_reverse_dependencies(name, content):
-        for package in itertools.chain([content.get("root", [])], content["package"]):
+        for package in itertools.chain([content.get("root", {})], content["package"]):
             for dependency in package.get("dependencies", []):
                 if dependency.startswith("{} ".format(name)):
                     yield package["name"], dependency
@@ -339,10 +339,17 @@ def check_lock(file_name, contents):
         packages_by_name.setdefault(package["name"], []).append((package["version"], source))
 
     for (name, packages) in packages_by_name.iteritems():
-        if name in exceptions or len(packages) <= 1:
+        has_duplicates = len(packages) > 1
+        duplicates_allowed = name in exceptions
+
+        if has_duplicates == duplicates_allowed:
             continue
 
-        message = "duplicate versions for package `{}`".format(name)
+        if duplicates_allowed:
+            message = 'duplicates for `{}` are allowed, but only single version found'.format(name)
+        else:
+            message = "duplicate versions for package `{}`".format(name)
+
         packages.sort()
         packages_dependencies = list(find_reverse_dependencies(name, content))
         for version, source in packages:

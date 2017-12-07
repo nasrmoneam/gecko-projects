@@ -18,7 +18,11 @@ namespace mozilla {
 
 class BaseMediaResource;
 
-class ChannelMediaDecoder : public MediaDecoder
+DDLoggedTypeDeclNameAndBase(ChannelMediaDecoder, MediaDecoder);
+
+class ChannelMediaDecoder
+  : public MediaDecoder
+  , public DecoderDoctorLifeLogger<ChannelMediaDecoder>
 {
   // Used to register with MediaResource to receive notifications which will
   // be forwarded to MediaDecoder.
@@ -36,10 +40,12 @@ class ChannelMediaDecoder : public MediaDecoder
     void Disconnect();
 
   private:
+    ~ResourceCallback();
+
     /* MediaResourceCallback functions */
     AbstractThread* AbstractMainThread() const override;
     MediaDecoderOwner* GetMediaOwner() const override;
-    void NotifyNetworkError() override;
+    void NotifyNetworkError(const MediaResult& aError) override;
     void NotifyDataArrived() override;
     void NotifyDataEnded(nsresult aStatus) override;
     void NotifyPrincipalChanged() override;
@@ -56,9 +62,8 @@ class ChannelMediaDecoder : public MediaDecoder
   };
 
 protected:
-  void OnPlaybackEvent(MediaEventType aEvent) override;
+  void OnPlaybackEvent(MediaPlaybackEvent&& aEvent) override;
   void DurationChanged() override;
-  void DownloadProgressed() override;
   void MetadataLoaded(UniquePtr<MediaInfo> aInfo,
                       UniquePtr<MetadataTags> aTags,
                       MediaDecoderEventVisibility aEventVisibility) override;
@@ -98,6 +103,7 @@ public:
   void Resume() override;
 
 private:
+  void DownloadProgressed();
   void PinForSeek() override;
   void UnpinForSeek() override;
 
@@ -121,20 +127,25 @@ private:
 
   bool IsLiveStream() override final;
 
+  struct PlaybackRateInfo
+  {
+    uint32_t mRate; // Estimate of the current playback rate (bytes/second).
+    bool mReliable; // True if mRate is a reliable estimate.
+  };
   // The actual playback rate computation.
-  void ComputePlaybackRate();
+  PlaybackRateInfo ComputePlaybackRate();
 
   // Something has changed that could affect the computed playback rate,
   // so recompute it.
-  void UpdatePlaybackRate();
+  void UpdatePlaybackRate(const PlaybackRateInfo& aInfo);
 
   // Return statistics. This is used for progress events and other things.
   // This can be called from any thread. It's only a snapshot of the
   // current state, since other threads might be changing the state
   // at any time.
-  MediaStatistics GetStatistics();
+  MediaStatistics GetStatistics(const PlaybackRateInfo& aInfo);
 
-  bool ShouldThrottleDownload();
+  bool ShouldThrottleDownload(const MediaStatistics& aStats);
 
   WatchManager<ChannelMediaDecoder> mWatchManager;
 
@@ -149,15 +160,15 @@ private:
   // time of the last decoded video frame).
   MediaChannelStatistics mPlaybackStatistics;
 
-  // Estimate of the current playback rate (bytes/second).
-  double mPlaybackBytesPerSecond = 0;
-
-  // True if mPlaybackBytesPerSecond is a reliable estimate.
-  bool mPlaybackRateReliable = true;
-
   // True when our media stream has been pinned. We pin the stream
   // while seeking.
   bool mPinnedForSeek = false;
+
+  // Current playback position in the stream. This is (approximately)
+  // where we're up to playing back the stream. This is not adjusted
+  // during decoder seek operations, but it's updated at the end when we
+  // start playing back again.
+  int64_t mPlaybackPosition = 0;
 };
 
 } // namespace mozilla

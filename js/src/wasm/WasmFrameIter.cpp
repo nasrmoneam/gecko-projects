@@ -277,12 +277,13 @@ static const unsigned SetFP = 28;
 static const unsigned PoppedFP = 16;
 static const unsigned PoppedTLSReg = 8;
 #elif defined(JS_CODEGEN_NONE)
+// Synthetic values to satisfy asserts and avoid compiler warnings.
 static const unsigned PushedRetAddr = 0;
 static const unsigned PushedTLS = 1;
-static const unsigned PushedFP = 0;
-static const unsigned SetFP = 0;
-static const unsigned PoppedFP = 0;
-static const unsigned PoppedTLSReg = 0;
+static const unsigned PushedFP = 2;
+static const unsigned SetFP = 3;
+static const unsigned PoppedFP = 4;
+static const unsigned PoppedTLSReg = 5;
 #else
 # error "Unknown architecture!"
 #endif
@@ -592,7 +593,7 @@ AssertMatchesCallSite(const JitActivation& activation, void* callerPC, Frame* ca
     const CodeRange* callerCodeRange = code->lookupRange(callerPC);
     MOZ_ASSERT(callerCodeRange);
 
-    if (callerCodeRange->kind() == CodeRange::Entry) {
+    if (callerCodeRange->kind() == CodeRange::InterpEntry) {
         MOZ_ASSERT(callerFP == nullptr);
         return;
     }
@@ -624,7 +625,7 @@ ProfilingFrameIterator::initFromExitFP(const Frame* fp)
     //    of an exit reason and inject a fake "builtin" frame; and
     //  - for async interrupts, we just accept that we'll lose the innermost frame.
     switch (codeRange_->kind()) {
-      case CodeRange::Entry:
+      case CodeRange::InterpEntry:
         callerPC_ = nullptr;
         callerFP_ = nullptr;
         break;
@@ -816,7 +817,7 @@ js::wasm::StartUnwinding(const JitActivation& activation, const RegisterState& r
         *unwoundCaller = false;
         AssertMatchesCallSite(activation, fp->returnAddress, fp->callerFP);
         break;
-      case CodeRange::Entry:
+      case CodeRange::InterpEntry:
         // The entry trampoline is the final frame in an wasm JitActivation. The
         // entry trampoline also doesn't GeneratePrologue/Epilogue so we can't
         // use the general unwinding logic above.
@@ -899,7 +900,7 @@ ProfilingFrameIterator::operator++()
 
     if (!callerFP_) {
         codeRange_ = code_->lookupRange(callerPC_);
-        MOZ_ASSERT(codeRange_->kind() == CodeRange::Entry);
+        MOZ_ASSERT(codeRange_->kind() == CodeRange::InterpEntry);
         callerPC_ = nullptr;
         MOZ_ASSERT(!done());
         return;
@@ -926,7 +927,7 @@ ProfilingFrameIterator::operator++()
         AssertMatchesCallSite(*activation_, callerPC_, callerFP_->callerFP);
         callerFP_ = callerFP_->callerFP;
         break;
-      case CodeRange::Entry:
+      case CodeRange::InterpEntry:
         MOZ_CRASH("should have had null caller fp");
       case CodeRange::Interrupt:
       case CodeRange::Throw:
@@ -982,20 +983,6 @@ ThunkedNativeToDescription(SymbolicAddress func)
         return "call to native i32.div_s (in wasm)";
       case SymbolicAddress::aeabi_uidivmod:
         return "call to native i32.div_u (in wasm)";
-      case SymbolicAddress::AtomicCmpXchg:
-        return "call to native atomic compare exchange (in wasm)";
-      case SymbolicAddress::AtomicXchg:
-        return "call to native atomic exchange (in wasm)";
-      case SymbolicAddress::AtomicFetchAdd:
-        return "call to native atomic fetch add (in wasm)";
-      case SymbolicAddress::AtomicFetchSub:
-        return "call to native atomic fetch sub (in wasm)";
-      case SymbolicAddress::AtomicFetchAnd:
-        return "call to native atomic fetch and (in wasm)";
-      case SymbolicAddress::AtomicFetchOr:
-        return "call to native atomic fetch or (in wasm)";
-      case SymbolicAddress::AtomicFetchXor:
-        return "call to native atomic fetch xor (in wasm)";
 #endif
       case SymbolicAddress::ModD:
         return "call to asm.js native f64 % (mod)";
@@ -1039,6 +1026,12 @@ ThunkedNativeToDescription(SymbolicAddress func)
         return "call to native grow_memory (in wasm)";
       case SymbolicAddress::CurrentMemory:
         return "call to native current_memory (in wasm)";
+      case SymbolicAddress::WaitI32:
+        return "call to native i32.wait (in wasm)";
+      case SymbolicAddress::WaitI64:
+        return "call to native i64.wait (in wasm)";
+      case SymbolicAddress::Wake:
+        return "call to native wake (in wasm)";
       case SymbolicAddress::Limit:
         break;
     }
@@ -1052,9 +1045,6 @@ ProfilingFrameIterator::label() const
 
     // Use the same string for both time inside and under so that the two
     // entries will be coalesced by the profiler.
-    //
-    // NB: these labels are parsed for location by
-    //     devtools/client/performance/modules/logic/frame-utils.js
     static const char* importJitDescription = "fast FFI trampoline (in wasm)";
     static const char* importInterpDescription = "slow FFI trampoline (in wasm)";
     static const char* builtinNativeDescription = "fast FFI trampoline to native (in wasm)";
@@ -1081,7 +1071,7 @@ ProfilingFrameIterator::label() const
 
     switch (codeRange_->kind()) {
       case CodeRange::Function:          return code_->profilingLabel(codeRange_->funcIndex());
-      case CodeRange::Entry:             return "entry trampoline (in wasm)";
+      case CodeRange::InterpEntry:       return "slow entry trampoline (in wasm)";
       case CodeRange::ImportJitExit:     return importJitDescription;
       case CodeRange::BuiltinThunk:      return builtinNativeDescription;
       case CodeRange::ImportInterpExit:  return importInterpDescription;

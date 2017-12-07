@@ -132,6 +132,7 @@ task_description_schema = Schema({
         # the name of the product this build produces
         'product': Any(
             'firefox',
+            'fennec',
             'mobile',
             'static-analysis',
             'devedition',
@@ -142,7 +143,8 @@ task_description_schema = Schema({
         'job-name': basestring,
 
         # Type of gecko v2 index to use
-        'type': Any('generic', 'nightly', 'l10n', 'nightly-with-multi-l10n'),
+        'type': Any('generic', 'nightly', 'l10n', 'nightly-with-multi-l10n',
+                    'release', 'nightly-l10n'),
 
         # The rank that the task will receive in the TaskCluster
         # index.  A newly completed task supercedes the currently
@@ -163,12 +165,32 @@ task_description_schema = Schema({
             # for non-tier-1 tasks.
             'build_date',
         ),
+
+        'channel': optionally_keyed_by('project', basestring),
     },
 
     # The `run_on_projects` attribute, defaulting to "all".  This dictates the
     # projects on which this task should be included in the target task set.
     # See the attributes documentation for details.
     Optional('run-on-projects'): [basestring],
+
+    # The `shipping_phase` attribute, defaulting to None. This specifies the
+    # release promotion phase that this task belongs to.
+    Required('shipping-phase', default=None): Any(
+        None,
+        'promote',
+        'publish',
+        'ship',
+    ),
+
+    # The `shipping_product` attribute, defaulting to None. This specifies the
+    # release promotion product that this task belongs to.
+    Required('shipping-product', default=None): Any(
+        None,
+        'devedition',
+        'fennec',
+        'firefox',
+    ),
 
     # Coalescing provides the facility for tasks to be superseded by the same
     # task in a subsequent commit, if the current task backlog reaches an
@@ -411,8 +433,6 @@ task_description_schema = Schema({
             Optional('tuxedo_server_url'): optionally_keyed_by('project', basestring),
             Extra: taskref_or_string,  # additional properties are allowed
         },
-        Optional('scopes'): [basestring],
-        Optional('routes'): [basestring],
     }, {
         Required('implementation'): 'native-engine',
         Required('os'): Any('macosx', 'linux'),
@@ -533,7 +553,7 @@ task_description_schema = Schema({
 
         # "Invalid" is a noop for try and other non-supported branches
         Required('google-play-track'): Any('production', 'beta', 'alpha', 'rollout', 'invalid'),
-        Required('dry-run', default=True): bool,
+        Required('commit', default=False): bool,
         Optional('rollout-percentage'): int,
     }),
 })
@@ -562,6 +582,13 @@ V2_NIGHTLY_TEMPLATES = [
     "index.gecko.v2.{project}.nightly.{build_date}.revision.{head_rev}.{product}.{job-name}",
     "index.gecko.v2.{project}.nightly.{build_date}.latest.{product}.{job-name}",
     "index.gecko.v2.{project}.nightly.revision.{head_rev}.{product}.{job-name}",
+]
+
+V2_NIGHTLY_L10N_TEMPLATES = [
+    "index.gecko.v2.{project}.nightly.latest.{product}-l10n.{job-name}.{locale}",
+    "index.gecko.v2.{project}.nightly.{build_date}.revision.{head_rev}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
+    "index.gecko.v2.{project}.nightly.{build_date}.latest.{product}-l10n.{job-name}.{locale}",
+    "index.gecko.v2.{project}.nightly.revision.{head_rev}.{product}-l10n.{job-name}.{locale}",
 ]
 
 V2_L10N_TEMPLATES = [
@@ -663,6 +690,12 @@ def superseder_url(config, task):
         size=size,
         key=key
     )
+
+
+def verify_index_job_name(index):
+    job_name = index['job-name']
+    if job_name not in JOB_NAME_WHITELIST:
+        raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name))
 
 
 @payload_builder('docker-worker')
@@ -956,7 +989,7 @@ def build_push_apk_payload(config, task, task_def):
     worker = task['worker']
 
     task_def['payload'] = {
-        'dry_run': worker['dry-run'],
+        'commit': worker['commit'],
         'upstreamArtifacts':  worker['upstream-artifacts'],
         'google_play_track': worker['google-play-track'],
     }
@@ -1003,13 +1036,23 @@ def build_buildbot_bridge_payload(config, task, task_def):
     task['extra'].pop('treeherder', None)
     task['extra'].pop('treeherderEnv', None)
     worker = task['worker']
+
+    if worker['properties'].get('tuxedo_server_url'):
+        resolve_keyed_by(
+            worker, 'properties.tuxedo_server_url', worker['buildername'],
+            **config.params
+        )
+
     task_def['payload'] = {
         'buildername': worker['buildername'],
         'sourcestamp': worker['sourcestamp'],
         'properties': worker['properties'],
     }
-    task_def['scopes'].extend(worker.get('scopes', []))
-    task_def['routes'].extend(worker.get('routes', []))
+    task_def.setdefault('scopes', [])
+    if worker['properties'].get('release_promotion'):
+        task_def['scopes'].append(
+            "project:releng:buildbot-bridge:builder-name:{}".format(worker['buildername'])
+        )
 
 
 transforms = TransformSequence()
@@ -1040,12 +1083,10 @@ def add_generic_index_routes(config, task):
     index = task.get('index')
     routes = task.setdefault('routes', [])
 
-    job_name = index['job-name']
-    if job_name not in JOB_NAME_WHITELIST:
-        raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name))
+    verify_index_job_name(index)
 
     subs = config.params.copy()
-    subs['job-name'] = job_name
+    subs['job-name'] = index['job-name']
     subs['build_date_long'] = time.strftime("%Y.%m.%d.%Y%m%d%H%M%S",
                                             time.gmtime(config.params['build_date']))
     subs['product'] = index['product']
@@ -1069,12 +1110,10 @@ def add_nightly_index_routes(config, task):
     index = task.get('index')
     routes = task.setdefault('routes', [])
 
-    job_name = index['job-name']
-    if job_name not in JOB_NAME_WHITELIST:
-        raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name))
+    verify_index_job_name(index)
 
     subs = config.params.copy()
-    subs['job-name'] = job_name
+    subs['job-name'] = index['job-name']
     subs['build_date_long'] = time.strftime("%Y.%m.%d.%Y%m%d%H%M%S",
                                             time.gmtime(config.params['build_date']))
     subs['build_date'] = time.strftime("%Y.%m.%d",
@@ -1086,6 +1125,34 @@ def add_nightly_index_routes(config, task):
 
     # Also add routes for en-US
     task = add_l10n_index_routes(config, task, force_locale="en-US")
+
+    return task
+
+
+@index_builder('release')
+def add_release_index_routes(config, task):
+    index = task.get('index')
+    routes = []
+    release_config = get_release_config(config, force=True)
+
+    verify_index_job_name(index)
+
+    subs = config.params.copy()
+    subs['build_number'] = str(release_config['build_number'])
+    subs['revision'] = subs['head_rev']
+    subs['underscore_version'] = release_config['version'].replace('.', '_')
+    subs['product'] = index['product']
+    subs['branch'] = subs['project']
+    if 'channel' in index:
+        resolve_keyed_by(
+            index, 'channel', item_name=task['label'], project=config.params['project']
+        )
+        subs['channel'] = index['channel']
+
+    for rt in task.get('routes', []):
+        routes.append(rt.format(**subs))
+
+    task['routes'] = routes
 
     return task
 
@@ -1102,12 +1169,10 @@ def add_l10n_index_routes(config, task, force_locale=None):
     index = task.get('index')
     routes = task.setdefault('routes', [])
 
-    job_name = index['job-name']
-    if job_name not in JOB_NAME_WHITELIST:
-        raise Exception(JOB_NAME_WHITELIST_ERROR.format(job_name))
+    verify_index_job_name(index)
 
     subs = config.params.copy()
-    subs['job-name'] = job_name
+    subs['job-name'] = index['job-name']
     subs['build_date_long'] = time.strftime("%Y.%m.%d.%Y%m%d%H%M%S",
                                             time.gmtime(config.params['build_date']))
     subs['product'] = index['product']
@@ -1134,6 +1199,41 @@ def add_l10n_index_routes(config, task, force_locale=None):
         for tpl in V2_L10N_TEMPLATES:
             routes.append(tpl.format(locale=locale, **subs))
 
+    return task
+
+
+@index_builder('nightly-l10n')
+def add_nightly_l10n_index_routes(config, task, force_locale=None):
+    index = task.get('index')
+    routes = task.setdefault('routes', [])
+
+    verify_index_job_name(index)
+
+    subs = config.params.copy()
+    subs['job-name'] = index['job-name']
+    subs['build_date_long'] = time.strftime("%Y.%m.%d.%Y%m%d%H%M%S",
+                                            time.gmtime(config.params['build_date']))
+    subs['product'] = index['product']
+
+    locales = task['attributes'].get('chunk_locales',
+                                     task['attributes'].get('all_locales'))
+    # Some tasks has only one locale set
+    if task['attributes'].get('locale'):
+        locales = [task['attributes']['locale']]
+
+    if force_locale:
+        # Used for en-US and multi-locale
+        locales = [force_locale]
+
+    if not locales:
+        raise Exception("Error: Unable to use l10n index for tasks without locales")
+
+    for locale in locales:
+        for tpl in V2_NIGHTLY_L10N_TEMPLATES:
+            routes.append(tpl.format(locale=locale, **subs))
+
+    # Add locales at old route too
+    task = add_l10n_index_routes(config, task, force_locale=force_locale)
     return task
 
 
@@ -1277,6 +1377,8 @@ def build_task(config, tasks):
         attributes = task.get('attributes', {})
         attributes['run_on_projects'] = task.get('run-on-projects', ['all'])
         attributes['always_target'] = task['always-target']
+        attributes['shipping_phase'] = task['shipping-phase']
+        attributes['shipping_product'] = task['shipping-product']
 
         # Set MOZ_AUTOMATION on all jobs.
         if task['worker']['implementation'] in (
@@ -1341,6 +1443,21 @@ def build_task(config, tasks):
             'attributes': attributes,
             'optimization': task.get('optimization', None),
         }
+
+
+@transforms.add
+def check_task_identifiers(config, tasks):
+    """Ensures that all tasks have well defined identifiers:
+       ^[a-zA-Z0-9_-]{1,22}$
+    """
+    e = re.compile("^[a-zA-Z0-9_-]{1,22}$")
+    for task in tasks:
+        for attr in ('workerType', 'provisionerId'):
+            if not e.match(task['task'][attr]):
+                raise Exception(
+                    'task {}.{} is not a valid identifier: {}'.format(
+                        task['label'], attr, task['task'][attr]))
+        yield task
 
 
 def check_caches_are_volumes(task):
@@ -1444,13 +1561,15 @@ def check_v2_routes():
     with open(os.path.join(GECKO, "testing/mozharness/configs/routes.json"), "rb") as f:
         routes_json = json.load(f)
 
-    for key in ('routes', 'nightly', 'l10n'):
+    for key in ('routes', 'nightly', 'l10n', 'nightly-l10n'):
         if key == 'routes':
             tc_template = V2_ROUTE_TEMPLATES
         elif key == 'nightly':
             tc_template = V2_NIGHTLY_TEMPLATES
         elif key == 'l10n':
             tc_template = V2_L10N_TEMPLATES
+        elif key == 'nightly-l10n':
+            tc_template = V2_NIGHTLY_L10N_TEMPLATES + V2_L10N_TEMPLATES
 
         routes = routes_json[key]
 

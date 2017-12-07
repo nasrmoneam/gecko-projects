@@ -1799,18 +1799,18 @@ nsWindow::SetIcon(const nsAString& aIconSpec)
         // The last two entries (for the old XPM format) will be ignored unless
         // no icons are found using other suffixes. XPM icons are deprecated.
 
-        const char extensions[6][7] = { ".png", "16.png", "32.png", "48.png",
-                                    ".xpm", "16.xpm" };
+        const char16_t extensions[9][8] = { u".png", u"16.png", u"32.png",
+                                            u"48.png", u"64.png", u"128.png",
+                                            u"256.png",
+                                            u".xpm", u"16.xpm" };
 
         for (uint32_t i = 0; i < ArrayLength(extensions); i++) {
             // Don't bother looking for XPM versions if we found a PNG.
             if (i == ArrayLength(extensions) - 2 && foundIcon)
                 break;
 
-            nsAutoString extension;
-            extension.AppendASCII(extensions[i]);
-
-            ResolveIconName(aIconSpec, extension, getter_AddRefs(iconFile));
+            ResolveIconName(aIconSpec, nsDependentString(extensions[i]),
+                            getter_AddRefs(iconFile));
             if (iconFile) {
                 iconFile->GetNativePath(path);
                 GdkPixbuf *icon = gdk_pixbuf_new_from_file(path.get(), nullptr);
@@ -2738,6 +2738,19 @@ static guint ButtonMaskFromGDKButton(guint button)
 }
 
 void
+nsWindow::DispatchContextMenuEventFromMouseEvent(uint16_t domButton,
+                                                 GdkEventButton *aEvent)
+{
+    if (domButton == WidgetMouseEvent::eRightButton && MOZ_LIKELY(!mIsDestroyed)) {
+        WidgetMouseEvent contextMenuEvent(true, eContextMenu, this,
+                                          WidgetMouseEvent::eReal);
+        InitButtonEvent(contextMenuEvent, aEvent);
+        contextMenuEvent.pressure = mLastMotionPressure;
+        DispatchInputEvent(&contextMenuEvent);
+    }
+}
+
+void
 nsWindow::OnButtonPressEvent(GdkEventButton *aEvent)
 {
     LOG(("Button %u press on %p\n", aEvent->button, (void *)this));
@@ -2806,13 +2819,8 @@ nsWindow::OnButtonPressEvent(GdkEventButton *aEvent)
     DispatchInputEvent(&event);
 
     // right menu click on linux should also pop up a context menu
-    if (domButton == WidgetMouseEvent::eRightButton &&
-        MOZ_LIKELY(!mIsDestroyed)) {
-        WidgetMouseEvent contextMenuEvent(true, eContextMenu, this,
-                                          WidgetMouseEvent::eReal);
-        InitButtonEvent(contextMenuEvent, aEvent);
-        contextMenuEvent.pressure = mLastMotionPressure;
-        DispatchInputEvent(&contextMenuEvent);
+    if (!nsBaseWidget::ShowContextMenuAfterMouseUp()) {
+        DispatchContextMenuEventFromMouseEvent(domButton, aEvent);
     }
 }
 
@@ -2848,6 +2856,11 @@ nsWindow::OnButtonReleaseEvent(GdkEventButton *aEvent)
 
     DispatchInputEvent(&event);
     mLastMotionPressure = pressure;
+
+    // right menu click on linux should also pop up a context menu
+    if (nsBaseWidget::ShowContextMenuAfterMouseUp()) {
+        DispatchContextMenuEventFromMouseEvent(domButton, aEvent);
+    }
 }
 
 void
@@ -3755,13 +3768,11 @@ nsWindow::Create(nsIWidget* aParent,
             gtk_window_group_add_window(group, GTK_WINDOW(mShell));
             g_object_unref(group);
 
-            if (GetCSDSupportLevel() != CSD_SUPPORT_NONE) {
-                int32_t isCSDAvailable = false;
-                nsresult rv = LookAndFeel::GetInt(LookAndFeel::eIntID_GTKCSDAvailable,
-                                                &isCSDAvailable);
-                if (NS_SUCCEEDED(rv)) {
-                   mIsCSDAvailable = isCSDAvailable;
-                }
+            int32_t isCSDAvailable = false;
+            nsresult rv = LookAndFeel::GetInt(LookAndFeel::eIntID_GTKCSDAvailable,
+                                              &isCSDAvailable);
+            if (NS_SUCCEEDED(rv)) {
+               mIsCSDAvailable = isCSDAvailable;
             }
         }
 
@@ -3779,12 +3790,13 @@ nsWindow::Create(nsIWidget* aParent,
          * 1) We're running on Gtk+ without client side decorations.
          *    Content is rendered to mShell window and we listen
          *    to the Gtk+ events on mShell
-         * 2) We're running on Gtk+ > 3.20 and client side decorations
+         * 2) We're running on Gtk+ and client side decorations
          *    are drawn by Gtk+ to mShell. Content is rendered to mContainer
          *    and we listen to the Gtk+ events on mContainer.
          */
         GtkStyleContext* style = gtk_widget_get_style_context(mShell);
-        drawToContainer = gtk_style_context_has_class(style, "csd");
+        drawToContainer = mIsCSDAvailable ||
+                          gtk_style_context_has_class(style, "csd");
 #endif
         eventWidget = (drawToContainer) ? container : mShell;
 
@@ -3842,10 +3854,11 @@ nsWindow::Create(nsIWidget* aParent,
         }
     }
         break;
+
     case eWindowType_plugin:
     case eWindowType_plugin_ipc_chrome:
     case eWindowType_plugin_ipc_content:
-        MOZ_ASSERT_UNREACHABLE();
+        MOZ_ASSERT_UNREACHABLE("Unexpected eWindowType_plugin*");
         return NS_ERROR_FAILURE;
 
     case eWindowType_child: {
@@ -5065,7 +5078,7 @@ nsWindow::MakeFullScreen(bool aFullScreen, nsIScreen* aTargetScreen)
 }
 
 void
-nsWindow::HideWindowChrome(bool aShouldHide)
+nsWindow::SetWindowDecoration(nsBorderStyle aStyle)
 {
     if (!mShell) {
         // Pass the request to the toplevel window
@@ -5077,7 +5090,7 @@ nsWindow::HideWindowChrome(bool aShouldHide)
         if (!topWindow)
             return;
 
-        topWindow->HideWindowChrome(aShouldHide);
+        topWindow->SetWindowDecoration(aStyle);
         return;
     }
 
@@ -5090,12 +5103,7 @@ nsWindow::HideWindowChrome(bool aShouldHide)
         wasVisible = true;
     }
 
-    gint wmd;
-    if (aShouldHide)
-        wmd = 0;
-    else
-        wmd = ConvertBorderStyles(mBorderStyle);
-
+    gint wmd = ConvertBorderStyles(aStyle);
     if (wmd != -1)
       gdk_window_set_decorations(mGdkWindow, (GdkWMDecoration) wmd);
 
@@ -5112,6 +5120,12 @@ nsWindow::HideWindowChrome(bool aShouldHide)
 #else
     gdk_flush ();
 #endif /* MOZ_X11 */
+}
+
+void
+nsWindow::HideWindowChrome(bool aShouldHide)
+{
+    SetWindowDecoration(aShouldHide ? eBorderStyle_none : mBorderStyle);
 }
 
 bool
@@ -6634,9 +6648,66 @@ nsWindow::SetDrawsInTitlebar(bool aState)
       return;
 
   if (mShell) {
-      gint wmd = aState ? GDK_DECOR_BORDER : ConvertBorderStyles(mBorderStyle);
-      gdk_window_set_decorations(gtk_widget_get_window(mShell),
-                                 (GdkWMDecoration) wmd);
+      if (GetCSDSupportLevel() == CSD_SUPPORT_FULL) {
+          SetWindowDecoration(aState ? eBorderStyle_border : mBorderStyle);
+      }
+      else {
+          /* Window manager does not support GDK_DECOR_BORDER,
+           * emulate it by CSD.
+           *
+           * gtk_window_set_titlebar() works on unrealized widgets only,
+           * we need to handle mShell carefully here.
+           * When CSD is enabled mGdkWindow is owned by mContainer which is good
+           * as we can't delete our mGdkWindow. To make mShell unrealized while
+           * mContainer is preserved we temporary reparent mContainer to an
+           * invisible GtkWindow.
+           */
+          NativeShow(false);
+
+          // Using GTK_WINDOW_POPUP rather than
+          // GTK_WINDOW_TOPLEVEL in the hope that POPUP results in less
+          // initialization and window manager interaction.
+          GtkWidget* tmpWindow = gtk_window_new(GTK_WINDOW_POPUP);
+          gtk_widget_realize(tmpWindow);
+
+          gtk_widget_reparent(GTK_WIDGET(mContainer), tmpWindow);
+          gtk_widget_unrealize(GTK_WIDGET(mShell));
+
+          // Available as of GTK 3.10+
+          static auto sGtkWindowSetTitlebar = (void (*)(GtkWindow*, GtkWidget*))
+              dlsym(RTLD_DEFAULT, "gtk_window_set_titlebar");
+          MOZ_ASSERT(sGtkWindowSetTitlebar,
+              "Missing gtk_window_set_titlebar(), old Gtk+ library?");
+
+          if (aState) {
+              // Add a hidden titlebar widget to trigger CSD, but disable the default
+              // titlebar.  GtkFixed is a somewhat random choice for a simple unused
+              // widget. gtk_window_set_titlebar() takes ownership of the titlebar
+              // widget.
+              sGtkWindowSetTitlebar(GTK_WINDOW(mShell), gtk_fixed_new());
+          } else {
+              sGtkWindowSetTitlebar(GTK_WINDOW(mShell), nullptr);
+          }
+
+          /* A workaround for https://bugzilla.gnome.org/show_bug.cgi?id=791081
+           * gtk_widget_realize() throws:
+           * "In pixman_region32_init_rect: Invalid rectangle passed"
+           * when mShell has default 1x1 size.
+           */
+          GtkAllocation allocation = {0, 0, 0, 0};
+          gtk_widget_get_preferred_width(GTK_WIDGET(mShell), nullptr,
+                                         &allocation.width);
+          gtk_widget_get_preferred_height(GTK_WIDGET(mShell), nullptr,
+                                          &allocation.height);
+          gtk_widget_size_allocate(GTK_WIDGET(mShell), &allocation);
+
+          gtk_widget_realize(GTK_WIDGET(mShell));
+          gtk_widget_reparent(GTK_WIDGET(mContainer), GTK_WIDGET(mShell));
+          mNeedsShow = true;
+          NativeResize();
+
+          gtk_widget_destroy(tmpWindow);
+      }
   }
 
   mIsCSDEnabled = aState;
@@ -6923,23 +6994,37 @@ nsWindow::GetCSDSupportLevel() {
     if (sCSDSupportLevel != CSD_SUPPORT_UNKNOWN) {
         return sCSDSupportLevel;
     }
-    // TODO: MATE
+
+    const char* decorationOverride = getenv("MOZ_GTK_TITLEBAR_DECORATION");
+    if (decorationOverride) {
+        if (strcmp(decorationOverride, "none") == 0) {
+            sCSDSupportLevel = CSD_SUPPORT_NONE;
+        } else if (strcmp(decorationOverride, "client") == 0) {
+            sCSDSupportLevel = CSD_SUPPORT_FLAT;
+        } else if (strcmp(decorationOverride, "system") == 0) {
+            sCSDSupportLevel = CSD_SUPPORT_FULL;
+        }
+        return sCSDSupportLevel;
+    }
+
     const char* currentDesktop = getenv("XDG_CURRENT_DESKTOP");
     if (currentDesktop) {
-        if (strcmp(currentDesktop, "GNOME") == 0) {
+        if (strstr(currentDesktop, "GNOME") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_FULL;
-        } else if (strcmp(currentDesktop, "XFCE") == 0) {
+        } else if (strstr(currentDesktop, "XFCE") != nullptr) {
+            sCSDSupportLevel = CSD_SUPPORT_FLAT;
+        } else if (strstr(currentDesktop, "X-Cinnamon") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_FULL;
-        } else if (strcmp(currentDesktop, "X-Cinnamon") == 0) {
-            sCSDSupportLevel = CSD_SUPPORT_FULL;
-        } else if (strcmp(currentDesktop, "KDE") == 0) {
+        } else if (strstr(currentDesktop, "KDE") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_FLAT;
-        } else if (strcmp(currentDesktop, "LXDE") == 0) {
+        } else if (strstr(currentDesktop, "LXDE") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_FLAT;
-        } else if (strcmp(currentDesktop, "openbox") == 0) {
+        } else if (strstr(currentDesktop, "openbox") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_FLAT;
-        } else if (strcmp(currentDesktop, "i3") == 0) {
+        } else if (strstr(currentDesktop, "i3") != nullptr) {
             sCSDSupportLevel = CSD_SUPPORT_NONE;
+        } else if (strstr(currentDesktop, "MATE") != nullptr) {
+            sCSDSupportLevel = CSD_SUPPORT_FLAT;
         } else {
             sCSDSupportLevel = CSD_SUPPORT_NONE;
         }

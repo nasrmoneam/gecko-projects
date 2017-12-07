@@ -66,7 +66,7 @@ W32API_VERSION=3.14
 GCONF_VERSION=1.2.1
 STARTUP_NOTIFICATION_VERSION=0.8
 DBUS_VERSION=0.60
-SQLITE_VERSION=3.20.1
+SQLITE_VERSION=3.21.0
 
 dnl Set various checks
 dnl ========================================================
@@ -183,45 +183,52 @@ case "$target" in
         AC_DEFINE(_CRT_NONSTDC_NO_WARNINGS)
         AC_DEFINE(_USE_MATH_DEFINES) # Otherwise MSVC's math.h doesn't #define M_PI.
 
-        case "$CC_VERSION" in
-        19*)
-            _CC_SUITE=14
-            MSVC_C_RUNTIME_DLL=vcruntime140.dll
-            MSVC_CXX_RUNTIME_DLL=msvcp140.dll
+        _CC_SUITE=14
+        MSVC_C_RUNTIME_DLL=vcruntime140.dll
+        MSVC_CXX_RUNTIME_DLL=msvcp140.dll
 
-            MOZ_CHECK_HEADER(dia2.h, MSVC_HAS_DIA_SDK=1)
-            if test -n "$MSVC_HAS_DIA_SDK"; then
-                AC_DEFINE(MSVC_HAS_DIA_SDK)
-            fi
+        MOZ_CHECK_HEADER(dia2.h, MSVC_HAS_DIA_SDK=1)
+        if test -n "$MSVC_HAS_DIA_SDK"; then
+            AC_DEFINE(MSVC_HAS_DIA_SDK)
+        fi
 
-            # C5026: move constructor was implicitly defined as deleted
-            CXXFLAGS="$CXXFLAGS -wd5026"
+        if test "$_MSC_VER" -ge "1910"; then # VS2017+
+            # C5038: Enable initializer list order warnings
+            # The -w1#### flag treats warning C#### as if it was a warning level
+            # 1 warning, and thus enables it because we enable /W3 warnings. We
+            # don't use -we#### because it would enable warning C#### but treat
+            # it as an error, even in third-party code.
+            # https://docs.microsoft.com/en-us/cpp/build/reference/compiler-option-warning-level
+            CXXFLAGS="$CXXFLAGS -w15038"
+        fi
 
-            # C5027: move assignment operator was implicitly defined as deleted
-            CXXFLAGS="$CXXFLAGS -wd5027"
+        # C5026: move constructor was implicitly defined as deleted
+        CXXFLAGS="$CXXFLAGS -wd5026"
 
-            # -Zc:sizedDealloc- disables C++14 global sized deallocation (see bug 1160146)
-            CXXFLAGS="$CXXFLAGS -Zc:sizedDealloc-"
+        # C5027: move assignment operator was implicitly defined as deleted
+        CXXFLAGS="$CXXFLAGS -wd5027"
 
-            # https://connect.microsoft.com/VisualStudio/feedback/details/888527/warnings-on-dbghelp-h
-            # for dbghelp.h, imagehlp.h, and shobj.h
-            # C4091: 'typedef ': ignored on left of '' when no variable is declared
-            CFLAGS="$CFLAGS -wd4091"
-            CXXFLAGS="$CXXFLAGS -wd4091"
+        # -Zc:sizedDealloc- disables C++14 global sized deallocation (see bug 1160146)
+        CXXFLAGS="$CXXFLAGS -Zc:sizedDealloc-"
 
-            # This is intended as a temporary hack to support building with VS2015.
-            # 'noexcept' used with no exception handling mode specified;
-            # termination on exception is not guaranteed. Specify /EHsc
-            CXXFLAGS="$CXXFLAGS -wd4577"
+        # https://connect.microsoft.com/VisualStudio/feedback/details/888527/warnings-on-dbghelp-h
+        # for dbghelp.h, imagehlp.h, and shobj.h
+        # C4091: 'typedef ': ignored on left of '' when no variable is declared
+        CFLAGS="$CFLAGS -wd4091"
+        CXXFLAGS="$CXXFLAGS -wd4091"
 
-            if test -n "$WIN_UCRT_REDIST_DIR"; then
-              if test ! -d "$WIN_UCRT_REDIST_DIR"; then
-                AC_MSG_ERROR([Invalid Windows UCRT Redist directory: ${WIN_UCRT_REDIST_DIR}])
-              fi
-              WIN_UCRT_REDIST_DIR=`cd "$WIN_UCRT_REDIST_DIR" && pwd -W`
-            fi
-            ;;
-        esac
+        # This is intended as a temporary hack to support building with VS2015.
+        # 'noexcept' used with no exception handling mode specified;
+        # termination on exception is not guaranteed. Specify /EHsc
+        CXXFLAGS="$CXXFLAGS -wd4577"
+
+        if test -n "$WIN_UCRT_REDIST_DIR"; then
+          if test ! -d "$WIN_UCRT_REDIST_DIR"; then
+            AC_MSG_ERROR([Invalid Windows UCRT Redist directory: ${WIN_UCRT_REDIST_DIR}])
+          fi
+          WIN_UCRT_REDIST_DIR=`cd "$WIN_UCRT_REDIST_DIR" && pwd -W`
+        fi
+
         AC_SUBST(MSVC_HAS_DIA_SDK)
         AC_SUBST(MSVC_C_RUNTIME_DLL)
         AC_SUBST(MSVC_CXX_RUNTIME_DLL)
@@ -500,10 +507,23 @@ CFLAGS="$CFLAGS $HARDENING_CFLAGS"
 CPPFLAGS="$CPPFLAGS $HARDENING_CFLAGS"
 CXXFLAGS="$CXXFLAGS $HARDENING_CFLAGS"
 
-if test "$GNU_CC" -o test -n "${CLANG_CC}${CLANG_CL}"; then
-   CFLAGS="$CFLAGS -D_FORTIFY_SOURCE=2"
-   CPPFLAGS="$CPPFLAGS -D_FORTIFY_SOURCE=2"
-   CXXFLAGS="$CXXFLAGS -D_FORTIFY_SOURCE=2"
+dnl In at least glibc-2.25, _FORTIFY_SOURCE requires compiling
+dnl with optimization (Bug 1417452)
+if test -n "$MOZ_OPTIMIZE"; then
+   if test "$GNU_CC" -o -n "${CLANG_CC}${CLANG_CL}"; then
+      case $OS_TARGET in
+         Android)
+            dnl FORTIFY_SOURCE is not supported on Android on the
+            dnl top-level old-configure.in at this time.
+            dnl See Bug 1415595
+            ;;
+         *)
+            CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+            CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+            CXXFLAGS="$CXXFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+            ;;
+      esac
+   fi
 fi
 
 dnl ========================================================
@@ -1108,7 +1128,7 @@ case "$target" in
     ;;
 
 *-solaris*)
-    MOZ_FIX_LINK_PATHS=
+    MOZ_FIX_LINK_PATHS="-L${DIST}/bin"
     ;;
 
 esac
@@ -3874,35 +3894,6 @@ MOZ_ARG_ENABLE_BOOL(install-strip,
     PKG_SKIP_STRIP=1)
 
 dnl ========================================================
-dnl = --disable-elf-hack
-dnl ========================================================
-
-USE_ELF_HACK=1
-MOZ_ARG_DISABLE_BOOL(elf-hack,
-[  --disable-elf-hack      Disable elf hacks],
-    [USE_ELF_HACK=],
-    [USE_ELF_HACK=1])
-
-# Only enable elfhack where supported
-if test "$USE_ELF_HACK" = 1; then
-    case "${HOST_OS_ARCH},${OS_ARCH}" in
-    Linux,Linux)
-        case "${CPU_ARCH}" in
-        arm | x86 | x86_64)
-            USE_ELF_HACK=1
-            ;;
-        *)
-            USE_ELF_HACK=
-            ;;
-        esac
-        ;;
-    *)
-        USE_ELF_HACK=
-        ;;
-    esac
-fi
-
-dnl ========================================================
 dnl = libstdc++ compatibility hacks
 dnl ========================================================
 
@@ -4395,6 +4386,9 @@ AC_SUBST_LIST(MOZ_CAIRO_LIBS)
 AC_SUBST_LIST(MOZ_CAIRO_OSLIBS)
 AC_SUBST(MOZ_TREE_PIXMAN)
 
+BINDGEN_SYSTEM_FLAGS="$_BINDGEN_CFLAGS $NSPR_CFLAGS $NSS_CFLAGS $MOZ_PIXMAN_CFLAGS $MOZ_CAIRO_CFLAGS"
+AC_SUBST_TOML_LIST(BINDGEN_SYSTEM_FLAGS)
+
 dnl ========================================================
 dnl disable xul
 dnl ========================================================
@@ -4475,7 +4469,7 @@ AC_SUBST(AR)
 AC_SUBST(AR_FLAGS)
 AC_SUBST(AR_EXTRACT)
 AC_SUBST(AS)
-AC_SUBST(ASFLAGS)
+AC_SUBST_LIST(ASFLAGS)
 AC_SUBST(AS_DASH_C_FLAG)
 AC_SUBST(RC)
 AC_SUBST(RCFLAGS)
@@ -4515,7 +4509,6 @@ AC_SUBST(MOZ_EXCLUDE_HYPHENATION_DICTIONARIES)
 AC_SUBST(ENABLE_STRIP)
 AC_SUBST(PKG_SKIP_STRIP)
 AC_SUBST(STRIP_FLAGS)
-AC_SUBST(USE_ELF_HACK)
 AC_SUBST(INCREMENTAL_LINKER)
 
 AC_SUBST_LIST(MOZ_FIX_LINK_PATHS)
@@ -4544,20 +4537,20 @@ MOZ_ARG_WITH_STRING(macbundlename-prefix,
                           Prefix for MOZ_MACBUNDLE_NAME],
 [ MOZ_MACBUNDLE_NAME_PREFIX="$withval"])
 
-MOZ_MACBUNDLE_NAME=`echo $MOZ_APP_DISPLAYNAME`
+MOZ_MACBUNDLE_NAME=$MOZ_APP_DISPLAYNAME
 if test "$MOZ_MACBUNDLE_NAME_PREFIX"; then
-  MOZ_MACBUNDLE_NAME="${MOZ_MACBUNDLE_NAME_PREFIX}${MOZ_MACBUNDLE_NAME}"
+  MOZ_MACBUNDLE_NAME="${MOZ_MACBUNDLE_NAME_PREFIX} ${MOZ_MACBUNDLE_NAME}"
 fi
 
 if test "$MOZ_DEBUG"; then
-  MOZ_MACBUNDLE_NAME=${MOZ_MACBUNDLE_NAME}Debug.app
+  MOZ_MACBUNDLE_NAME="${MOZ_MACBUNDLE_NAME} Debug.app"
 else
   MOZ_MACBUNDLE_NAME=${MOZ_MACBUNDLE_NAME}.app
 fi
 AC_SUBST(MOZ_MACBUNDLE_NAME)
 
 dnl Mac bundle identifier (based on MOZ_APP_DISPLAYNAME)
-# If the MOZ_MACBUNDLE_ID is defined in the configure, use it
+# If the MOZ_MACBUNDLE_ID is defined in the configure.sh, use it
 # Otherwise, use MOZ_APP_DISPLAYNAME
 if test -z "$MOZ_MACBUNDLE_ID"; then
    MOZ_MACBUNDLE_ID=`echo $MOZ_APP_DISPLAYNAME | tr '[A-Z]' '[a-z]'`
@@ -4759,10 +4752,12 @@ MOZ_CONFIG_ICU()
 dnl Echo the CFLAGS to remove extra whitespace.
 CFLAGS=`echo \
     $_WARNINGS_CFLAGS \
+    $_COMPILATION_CFLAGS \
     $CFLAGS`
 
 CXXFLAGS=`echo \
     $_WARNINGS_CXXFLAGS \
+    $_COMPILATION_CXXFLAGS \
     $CXXFLAGS`
 
 COMPILE_CFLAGS=`echo \
@@ -4795,10 +4790,10 @@ AC_SUBST(MOZ_SYSTEM_NSPR)
 
 AC_SUBST(MOZ_SYSTEM_NSS)
 
-HOST_CMFLAGS=-fobjc-exceptions
-HOST_CMMFLAGS=-fobjc-exceptions
-OS_COMPILE_CMFLAGS=-fobjc-exceptions
-OS_COMPILE_CMMFLAGS=-fobjc-exceptions
+HOST_CMFLAGS="-x objective-c -fobjc-exceptions"
+HOST_CMMFLAGS="-x objective-c++ -fobjc-exceptions"
+OS_COMPILE_CMFLAGS="-x objective-c -fobjc-exceptions"
+OS_COMPILE_CMMFLAGS="-x objective-c++ -fobjc-exceptions"
 if test "$MOZ_WIDGET_TOOLKIT" = uikit; then
   OS_COMPILE_CMFLAGS="$OS_COMPILE_CMFLAGS -fobjc-abi-version=2 -fobjc-legacy-dispatch"
   OS_COMPILE_CMMFLAGS="$OS_COMPILE_CMMFLAGS -fobjc-abi-version=2 -fobjc-legacy-dispatch"
@@ -4979,18 +4974,6 @@ HAVE_SYS_STATFS_H
 HAVE_SYS_VFS_H
 HAVE_SYS_MOUNT_H
 "
-
-dnl ========================================================
-dnl Determine options to use for running the preprocessor.
-dnl ========================================================
-
-if test -z "$GNU_CC" -a "$OS_ARCH" = "WINNT"; then
-    PREPROCESS_OPTION="-P -Fi"
-else
-    PREPROCESS_OPTION="-E -o "
-fi
-
-AC_SUBST(PREPROCESS_OPTION)
 
 # Avoid using obsolete NSPR features
 AC_DEFINE(NO_NSPR_10_SUPPORT)

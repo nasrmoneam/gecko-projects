@@ -22,8 +22,8 @@
 #include "mozilla/layers/PaintThread.h"
 #include "mozilla/layers/PLayerTransactionChild.h"
 #include "mozilla/layers/PTextureChild.h"
-#include "mozilla/layers/TextureClient.h"// for TextureClient
-#include "mozilla/layers/TextureClientPool.h"// for TextureClientPool
+#include "mozilla/layers/TextureClient.h" // for TextureClient
+#include "mozilla/layers/TextureClientPool.h" // for TextureClientPool
 #include "mozilla/layers/WebRenderBridgeChild.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUProcessManager.h"
@@ -87,7 +87,6 @@ CompositorBridgeChild::CompositorBridgeChild(CompositorManagerChild *aManager)
   , mCanSend(false)
   , mActorDestroyed(false)
   , mFwdTransactionId(0)
-  , mDeviceResetSequenceNumber(0)
   , mMessageLoop(MessageLoop::current())
   , mProcessToken(0)
   , mSectionAllocator(nullptr)
@@ -1191,6 +1190,34 @@ CompositorBridgeChild::FlushAsyncPaints()
     Telemetry::ScalarSet(Telemetry::ScalarID::GFX_OMTP_PAINT_WAIT_RATIO,
                          uint32_t(ratio * 100 * 100));
   }
+}
+
+void
+CompositorBridgeChild::NotifyBeginAsyncPrepareBuffer(CapturedBufferState* aState)
+{
+  MOZ_ASSERT(NS_IsMainThread());
+
+  MonitorAutoLock lock(mPaintLock);
+
+  // We must not be waiting for paints (or buffer copying) to complete yet. This
+  // would imply we started a new paint without waiting for a previous one, which
+  // could lead to incorrect rendering or IPDL deadlocks.
+  MOZ_ASSERT(!mIsDelayingForAsyncPaints);
+
+  mOutstandingAsyncPaints++;
+
+  // Mark texture clients that they are being used for async painting, and
+  // make sure we hold them alive on the main thread.
+  aState->GetTextureClients(mTextureClientsForAsyncPaint);
+}
+
+void
+CompositorBridgeChild::NotifyFinishedAsyncPrepareBuffer(CapturedBufferState* aState)
+{
+  MOZ_ASSERT(PaintThread::IsOnPaintThread());
+
+  MonitorAutoLock lock(mPaintLock);
+  mOutstandingAsyncPaints--;
 }
 
 void

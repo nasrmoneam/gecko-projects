@@ -18,6 +18,7 @@
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/Base64.h"
 #include "mozilla/BasicEvents.h"
+#include "mozilla/EditorDOMPoint.h"
 #include "mozilla/EditorUtils.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/Preferences.h"
@@ -34,13 +35,11 @@
 #include "nsGkAtoms.h"
 #include "nsIClipboard.h"
 #include "nsIContent.h"
-#include "nsIContentFilter.h"
 #include "nsIDOMComment.h"
 #include "nsIDOMDocument.h"
 #include "nsIDOMDocumentFragment.h"
 #include "nsIDOMElement.h"
 #include "nsIDOMHTMLInputElement.h"
-#include "nsIDOMHTMLScriptElement.h"
 #include "nsIDOMNode.h"
 #include "nsIDocument.h"
 #include "nsIEditRules.h"
@@ -226,20 +225,6 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
     targetOffset = aDestOffset;
   }
 
-  bool doContinue = true;
-
-  rv = DoContentFilterCallback(aFlavor, aSourceDoc, aDeleteSelection,
-                               (nsIDOMNode **)address_of(fragmentAsNode),
-                               (nsIDOMNode **)address_of(streamStartParent),
-                               &streamStartOffset,
-                               (nsIDOMNode **)address_of(streamEndParent),
-                               &streamEndOffset,
-                               (nsIDOMNode **)address_of(targetNode),
-                               &targetOffset, &doContinue);
-
-  NS_ENSURE_SUCCESS(rv, rv);
-  NS_ENSURE_TRUE(doContinue, NS_OK);
-
   // if we have a destination / target node, we want to insert there
   // rather than in place of the selection
   // ignore aDeleteSelection here if no aDestNode since deletion will
@@ -287,10 +272,6 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
   }
 
   // Are there any table elements in the list?
-  // node and offset for insertion
-  nsCOMPtr<nsIDOMNode> parentNode;
-  int32_t offsetOfNewNode;
-
   // check for table cell selection mode
   bool cellSelectionMode = false;
   nsCOMPtr<nsIDOMElement> cell;
@@ -347,6 +328,8 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
   if (!handled) {
     // The rules code (WillDoAction above) might have changed the selection.
     // refresh our memory...
+    nsCOMPtr<nsIDOMNode> parentNode;
+    int32_t offsetOfNewNode;
     rv = GetStartNodeAndOffset(selection, getter_AddRefs(parentNode), &offsetOfNewNode);
     NS_ENSURE_SUCCESS(rv, rv);
     NS_ENSURE_TRUE(parentNode, NS_ERROR_FAILURE);
@@ -372,14 +355,22 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
     // Are we in a text node? If so, split it.
     if (IsTextNode(parentNode)) {
       nsCOMPtr<nsIContent> parentContent = do_QueryInterface(parentNode);
-      NS_ENSURE_STATE(parentContent || !parentNode);
-      offsetOfNewNode = SplitNodeDeep(*parentContent, *parentContent,
-                                      offsetOfNewNode);
-      NS_ENSURE_STATE(offsetOfNewNode != -1);
-      nsCOMPtr<nsIDOMNode> temp;
-      rv = parentNode->GetParentNode(getter_AddRefs(temp));
-      NS_ENSURE_SUCCESS(rv, rv);
-      parentNode = temp;
+      EditorRawDOMPoint pointToSplit(parentContent, offsetOfNewNode);
+      if (NS_WARN_IF(!pointToSplit.IsSet())) {
+        return NS_ERROR_FAILURE;
+      }
+      SplitNodeResult splitNodeResult =
+        SplitNodeDeep(*parentContent, pointToSplit,
+                      SplitAtEdges::eAllowToCreateEmptyContainer);
+      if (NS_WARN_IF(splitNodeResult.Failed())) {
+        return splitNodeResult.Rv();
+      }
+      EditorRawDOMPoint splitPoint(splitNodeResult.SplitPoint());
+      if (NS_WARN_IF(!splitPoint.IsSet())) {
+        return NS_ERROR_FAILURE;
+      }
+      parentNode = do_QueryInterface(splitPoint.Container());
+      offsetOfNewNode = splitPoint.Offset();
     }
 
     // build up list of parents of first node in list that are either
@@ -461,7 +452,9 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
         nsCOMPtr<nsIDOMNode> child;
         curNode->GetFirstChild(getter_AddRefs(child));
         while (child) {
-          rv = InsertNodeAtPoint(child, address_of(parentNode), &offsetOfNewNode, true);
+          rv = InsertNodeAtPoint(child, address_of(parentNode),
+                                 &offsetOfNewNode,
+                                 SplitAtEdges::eDoNotCreateEmptyContainer);
           if (NS_FAILED(rv)) {
             break;
           }
@@ -500,7 +493,9 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
                 }
               }
             }
-            rv = InsertNodeAtPoint(child, address_of(parentNode), &offsetOfNewNode, true);
+            rv = InsertNodeAtPoint(child, address_of(parentNode),
+                                   &offsetOfNewNode,
+                                   SplitAtEdges::eDoNotCreateEmptyContainer);
             if (NS_FAILED(rv)) {
               break;
             }
@@ -519,7 +514,9 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
         nsCOMPtr<nsIDOMNode> child;
         curNode->GetFirstChild(getter_AddRefs(child));
         while (child) {
-          rv = InsertNodeAtPoint(child, address_of(parentNode), &offsetOfNewNode, true);
+          rv = InsertNodeAtPoint(child, address_of(parentNode),
+                                 &offsetOfNewNode,
+                                 SplitAtEdges::eDoNotCreateEmptyContainer);
           if (NS_FAILED(rv)) {
             break;
           }
@@ -534,7 +531,9 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
 
       if (!bDidInsert || NS_FAILED(rv)) {
         // try to insert
-        rv = InsertNodeAtPoint(curNode, address_of(parentNode), &offsetOfNewNode, true);
+        rv = InsertNodeAtPoint(curNode, address_of(parentNode),
+                               &offsetOfNewNode,
+                               SplitAtEdges::eDoNotCreateEmptyContainer);
         if (NS_SUCCEEDED(rv)) {
           bDidInsert = true;
           lastInsertNode = curNode;
@@ -546,7 +545,9 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
         while (NS_FAILED(rv) && curNode) {
           curNode->GetParentNode(getter_AddRefs(parent));
           if (parent && !TextEditUtils::IsBody(parent)) {
-            rv = InsertNodeAtPoint(parent, address_of(parentNode), &offsetOfNewNode, true,
+            rv = InsertNodeAtPoint(parent, address_of(parentNode),
+                                   &offsetOfNewNode,
+                                   SplitAtEdges::eDoNotCreateEmptyContainer,
                                    address_of(lastInsertNode));
             if (NS_SUCCEEDED(rv)) {
               bDidInsert = true;
@@ -653,70 +654,22 @@ HTMLEditor::DoInsertHTMLWithContext(const nsAString& aInputString,
         NS_ENSURE_STATE(linkContent || !link);
         nsCOMPtr<nsIContent> selContent = do_QueryInterface(selNode);
         NS_ENSURE_STATE(selContent || !selNode);
-        nsCOMPtr<nsIContent> leftLink;
-        SplitNodeDeep(*linkContent, *selContent, selOffset,
-                      EmptyContainers::no, getter_AddRefs(leftLink));
-        if (leftLink) {
-          selNode = GetNodeLocation(GetAsDOMNode(leftLink), &selOffset);
-          selection->Collapse(selNode, selOffset+1);
+        SplitNodeResult splitLinkResult =
+          SplitNodeDeep(*linkContent, EditorRawDOMPoint(selContent, selOffset),
+                        SplitAtEdges::eDoNotCreateEmptyContainer);
+        NS_WARNING_ASSERTION(splitLinkResult.Succeeded(),
+          "Failed to split the link");
+        if (splitLinkResult.GetPreviousNode()) {
+          EditorRawDOMPoint afterLeftLink(splitLinkResult.GetPreviousNode());
+          if (afterLeftLink.AdvanceOffset()) {
+            selection->Collapse(afterLeftLink);
+          }
         }
       }
     }
   }
 
   return rules->DidDoAction(selection, &ruleInfo, rv);
-}
-
-NS_IMETHODIMP
-HTMLEditor::AddInsertionListener(nsIContentFilter* aListener)
-{
-  NS_ENSURE_TRUE(aListener, NS_ERROR_NULL_POINTER);
-
-  // don't let a listener be added more than once
-  if (!mContentFilters.Contains(aListener)) {
-    mContentFilters.AppendElement(*aListener);
-  }
-
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-HTMLEditor::RemoveInsertionListener(nsIContentFilter* aListener)
-{
-  NS_ENSURE_TRUE(aListener, NS_ERROR_FAILURE);
-
-  mContentFilters.RemoveElement(aListener);
-
-  return NS_OK;
-}
-
-nsresult
-HTMLEditor::DoContentFilterCallback(const nsAString& aFlavor,
-                                    nsIDOMDocument* sourceDoc,
-                                    bool aWillDeleteSelection,
-                                    nsIDOMNode** aFragmentAsNode,
-                                    nsIDOMNode** aFragStartNode,
-                                    int32_t* aFragStartOffset,
-                                    nsIDOMNode** aFragEndNode,
-                                    int32_t* aFragEndOffset,
-                                    nsIDOMNode** aTargetNode,
-                                    int32_t* aTargetOffset,
-                                    bool* aDoContinue)
-{
-  *aDoContinue = true;
-
-  for (auto& listener : mContentFilters) {
-    if (!*aDoContinue) {
-      break;
-    }
-    listener->NotifyOfInsertion(aFlavor, nullptr, sourceDoc,
-                                aWillDeleteSelection, aFragmentAsNode,
-                                aFragStartNode, aFragStartOffset,
-                                aFragEndNode, aFragEndOffset, aTargetNode,
-                                aTargetOffset, aDoContinue);
-  }
-
-  return NS_OK;
 }
 
 bool
@@ -1898,10 +1851,9 @@ HTMLEditor::InsertAsPlaintextQuotation(const nsAString& aQuotedText,
 
   // Set the selection to just after the inserted node:
   if (NS_SUCCEEDED(rv) && newNode) {
-    nsCOMPtr<nsINode> parent = newNode->GetParentNode();
-    int32_t offset = parent ? parent->IndexOf(newNode) : -1;
-    if (parent) {
-      selection->Collapse(parent, offset + 1);
+    EditorRawDOMPoint afterNewNode(newNode);
+    if (afterNewNode.AdvanceOffset()) {
+      selection->Collapse(afterNewNode);
     }
   }
   return rv;
@@ -1978,10 +1930,9 @@ HTMLEditor::InsertAsCitedQuotation(const nsAString& aQuotedText,
 
   // Set the selection to just after the inserted node:
   if (NS_SUCCEEDED(rv) && newNode) {
-    nsCOMPtr<nsINode> parent = newNode->GetParentNode();
-    int32_t offset = parent ? parent->IndexOf(newNode) : -1;
-    if (parent) {
-      selection->Collapse(parent, offset + 1);
+    EditorRawDOMPoint afterNewNode(newNode);
+    if (afterNewNode.AdvanceOffset()) {
+      selection->Collapse(afterNewNode);
     }
   }
   return rv;

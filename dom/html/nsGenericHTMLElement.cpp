@@ -847,7 +847,7 @@ nsGenericHTMLElement::GetOn##name_()                                          \
   if (IsAnyOfHTMLElements(nsGkAtoms::body, nsGkAtoms::frameset)) {            \
     /* XXXbz note to self: add tests for this! */                             \
     if (nsPIDOMWindowInner* win = OwnerDoc()->GetInnerWindow()) {             \
-      nsGlobalWindow* globalWin = nsGlobalWindow::Cast(win);                  \
+      nsGlobalWindowInner* globalWin = nsGlobalWindowInner::Cast(win);        \
       return globalWin->GetOn##name_();                                       \
     }                                                                         \
     return nullptr;                                                           \
@@ -864,7 +864,7 @@ nsGenericHTMLElement::SetOn##name_(EventHandlerNonNull* handler)              \
       return;                                                                 \
     }                                                                         \
                                                                               \
-    nsGlobalWindow* globalWin = nsGlobalWindow::Cast(win);                    \
+    nsGlobalWindowInner* globalWin = nsGlobalWindowInner::Cast(win);          \
     return globalWin->SetOn##name_(handler);                                  \
   }                                                                           \
                                                                               \
@@ -877,7 +877,7 @@ nsGenericHTMLElement::GetOn##name_()                                          \
   if (IsAnyOfHTMLElements(nsGkAtoms::body, nsGkAtoms::frameset)) {            \
     /* XXXbz note to self: add tests for this! */                             \
     if (nsPIDOMWindowInner* win = OwnerDoc()->GetInnerWindow()) {             \
-      nsGlobalWindow* globalWin = nsGlobalWindow::Cast(win);                  \
+      nsGlobalWindowInner* globalWin = nsGlobalWindowInner::Cast(win);        \
       OnErrorEventHandlerNonNull* errorHandler = globalWin->GetOn##name_();   \
       if (errorHandler) {                                                     \
         RefPtr<EventHandlerNonNull> handler =                                 \
@@ -900,7 +900,7 @@ nsGenericHTMLElement::SetOn##name_(EventHandlerNonNull* handler)              \
       return;                                                                 \
     }                                                                         \
                                                                               \
-    nsGlobalWindow* globalWin = nsGlobalWindow::Cast(win);                    \
+    nsGlobalWindowInner* globalWin = nsGlobalWindowInner::Cast(win);          \
     RefPtr<OnErrorEventHandlerNonNull> errorHandler;                          \
     if (handler) {                                                            \
       errorHandler = new OnErrorEventHandlerNonNull(handler);                 \
@@ -927,6 +927,7 @@ bool
 nsGenericHTMLElement::ParseAttribute(int32_t aNamespaceID,
                                      nsAtom* aAttribute,
                                      const nsAString& aValue,
+                                     nsIPrincipal* aMaybeScriptedPrincipal,
                                      nsAttrValue& aResult)
 {
   if (aNamespaceID == kNameSpaceID_None) {
@@ -964,7 +965,8 @@ nsGenericHTMLElement::ParseAttribute(int32_t aNamespaceID,
   }
 
   return nsGenericHTMLElementBase::ParseAttribute(aNamespaceID, aAttribute,
-                                                  aValue, aResult);
+                                                  aValue, aMaybeScriptedPrincipal,
+                                                  aResult);
 }
 
 bool

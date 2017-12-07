@@ -65,7 +65,6 @@ class ObjectBox;
     F(WHILE) \
     F(DOWHILE) \
     F(FOR) \
-    F(COMPREHENSIONFOR) \
     F(BREAK) \
     F(CONTINUE) \
     F(VAR) \
@@ -80,16 +79,12 @@ class ObjectBox;
     F(DELETEEXPR) \
     F(TRY) \
     F(CATCH) \
-    F(CATCHLIST) \
     F(THROW) \
     F(DEBUGGER) \
     F(GENERATOR) \
     F(INITIALYIELD) \
     F(YIELD) \
     F(YIELD_STAR) \
-    F(GENEXP) \
-    F(ARRAYCOMP) \
-    F(ARRAYPUSH) \
     F(LEXICALSCOPE) \
     F(LET) \
     F(IMPORT) \
@@ -237,10 +232,6 @@ IsTypeofKind(ParseNodeKind kind)
  * <Statements>
  * PNK_STATEMENTLIST list   pn_head: list of pn_count statements
  * PNK_IF       ternary     pn_kid1: cond, pn_kid2: then, pn_kid3: else or null.
- *                            In body of a comprehension or desugared generator
- *                            expression, pn_kid2 is PNK_YIELD, PNK_ARRAYPUSH,
- *                            or (if the push was optimized away) empty
- *                            PNK_STATEMENTLIST.
  * PNK_SWITCH   binary      pn_left: discriminant
  *                          pn_right: list of PNK_CASE nodes, with at most one
  *                            default node, or if there are let bindings
@@ -257,8 +248,6 @@ IsTypeofKind(ParseNodeKind kind)
  * PNK_FOR      binary      pn_left: either PNK_FORIN (for-in statement),
  *                            PNK_FOROF (for-of) or PNK_FORHEAD (for(;;))
  *                          pn_right: body
- * PNK_COMPREHENSIONFOR     pn_left: either PNK_FORIN or PNK_FOROF
- *              binary      pn_right: body
  * PNK_FORIN    ternary     pn_kid1: declaration or expression to left of 'in'
  *                          pn_kid2: null
  *                          pn_kid3: object expr to right of 'in'
@@ -270,15 +259,14 @@ IsTypeofKind(ParseNodeKind kind)
  *                          pn_kid3:  update expr after second ';' or nullptr
  * PNK_THROW    unary       pn_kid: exception
  * PNK_TRY      ternary     pn_kid1: try block
- *                          pn_kid2: null or PNK_CATCHLIST list
+ *                          pn_kid2: null or PNK_LEXICALSCOPE for catch-block
+ *                                   with pn_expr pointing to a PNK_CATCH node
  *                          pn_kid3: null or finally block
- * PNK_CATCHLIST list       pn_head: list of PNK_LEXICALSCOPE nodes, one per
- *                                   catch-block, each with pn_expr pointing
- *                                   to a PNK_CATCH node
- * PNK_CATCH    ternary     pn_kid1: PNK_NAME, PNK_ARRAY, or PNK_OBJECT catch var node
- *                                   (PNK_ARRAY or PNK_OBJECT if destructuring)
- *                          pn_kid2: null or the catch guard expression
- *                          pn_kid3: catch block statements
+ * PNK_CATCH    binary      pn_left: PNK_NAME, PNK_ARRAY, or PNK_OBJECT catch
+ *                                   var node
+ *                                   (PNK_ARRAY or PNK_OBJECT if destructuring),
+ *                                   or null if optional catch binding
+ *                          pn_right: catch block statements
  * PNK_BREAK    name        pn_atom: label or null
  * PNK_CONTINUE name        pn_atom: label or null
  * PNK_WITH     binary      pn_left: head expr; pn_right: body;
@@ -380,8 +368,6 @@ IsTypeofKind(ParseNodeKind kind)
  * PNK_CALL     list        pn_head: list of call, arg1, arg2, ... argN
  *                          pn_count: 1 + N (where N is number of args)
  *                          call is a MEMBER expr naming a callable object
- * PNK_GENEXP   list        Exactly like PNK_CALL, used for the implicit call
- *                          in the desugaring of a generator-expression.
  * PNK_ARRAY    list        pn_head: list of pn_count array element exprs
  *                          [,,] holes are represented by PNK_ELISION nodes
  *                          pn_xflags: PN_ENDCOMMA if extra comma at end
@@ -424,11 +410,6 @@ IsTypeofKind(ParseNodeKind kind)
  * PNK_YIELD,       unary   pn_kid: expr or null
  * PNK_YIELD_STAR,
  * PNK_AWAIT
- * PNK_ARRAYCOMP    list    pn_count: 1
- *                          pn_head: list of 1 element, which is block
- *                          enclosing for loop(s) and optionally
- *                          if-guarded PNK_ARRAYPUSH
- * PNK_ARRAYPUSH    unary   pn_kid: array comprehension expression
  * PNK_NOP          nullary
  */
 enum ParseNodeArity
@@ -552,7 +533,7 @@ class ParseNode
             ParseNode*  left;
             ParseNode*  right;
             union {
-                unsigned iflags;        /* JSITER_* flags for PNK_{COMPREHENSION,}FOR node */
+                unsigned iflags;        /* JSITER_* flags for PNK_FOR node */
                 bool isStatic;          /* only for PNK_CLASSMETHOD */
                 uint32_t offset;        /* for the emitter's use on PNK_CASE nodes */
             };
@@ -656,7 +637,7 @@ class ParseNode
 
     bool functionIsHoisted() const {
         MOZ_ASSERT(pn_arity == PN_CODE && getKind() == PNK_FUNCTION);
-        MOZ_ASSERT(isOp(JSOP_LAMBDA) ||        // lambda, genexpr
+        MOZ_ASSERT(isOp(JSOP_LAMBDA) ||        // lambda
                    isOp(JSOP_LAMBDA_ARROW) ||  // arrow function
                    isOp(JSOP_DEFFUN) ||        // non-body-level function statement
                    isOp(JSOP_NOP) ||           // body-level function stmt in global code
@@ -711,22 +692,6 @@ class ParseNode
         }
 
         return false;
-    }
-
-    ParseNode* generatorExpr() const {
-        MOZ_ASSERT(isKind(PNK_GENEXP));
-
-        ParseNode* callee = this->pn_head;
-        MOZ_ASSERT(callee->isKind(PNK_FUNCTION));
-
-        ParseNode* paramsBody = callee->pn_body;
-        MOZ_ASSERT(paramsBody->isKind(PNK_PARAMSBODY));
-
-        ParseNode* body = paramsBody->last();
-        MOZ_ASSERT(body->isKind(PNK_STATEMENTLIST));
-        MOZ_ASSERT(body->last()->isKind(PNK_LEXICALSCOPE) ||
-                   body->last()->isKind(PNK_COMPREHENSIONFOR));
-        return body->last();
     }
 
     /*
@@ -945,7 +910,7 @@ struct CodeNode : public ParseNode
         MOZ_ASSERT_IF(kind == PNK_MODULE, op == JSOP_NOP);
         MOZ_ASSERT(op == JSOP_NOP || // statement, module
                    op == JSOP_LAMBDA_ARROW || // arrow function
-                   op == JSOP_LAMBDA); // expression, method, comprehension, accessor, &c.
+                   op == JSOP_LAMBDA); // expression, method, accessor, &c.
         MOZ_ASSERT(!pn_body);
         MOZ_ASSERT(!pn_objbox);
     }
@@ -1448,8 +1413,25 @@ AccessorTypeToJSOp(AccessorType atype)
 
 enum FunctionSyntaxKind
 {
-    Expression,
+    // A non-arrow function expression that is a PrimaryExpression and *also* a
+    // complete AssignmentExpression.  For example, in
+    //
+    //   var x = (function y() {});
+    //
+    // |y| is such a function expression.
+    AssignmentExpression,
+
+    // A non-arrow function expression that is a PrimaryExpression but *not* a
+    // complete AssignmentExpression.  For example, in
+    //
+    //   var x = (1 + function y() {});
+    //
+    // |y| is such a function expression.
+    PrimaryExpression,
+
+    // A named function appearing as a Statement.
     Statement,
+
     Arrow,
     Method,
     ClassConstructor,
@@ -1459,6 +1441,12 @@ enum FunctionSyntaxKind
     Setter,
     SetterNoExpressionClosure
 };
+
+static inline bool
+IsFunctionExpression(FunctionSyntaxKind kind)
+{
+    return kind == AssignmentExpression || kind == PrimaryExpression;
+}
 
 static inline bool
 IsConstructorKind(FunctionSyntaxKind kind)

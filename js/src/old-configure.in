@@ -180,22 +180,29 @@ case "$target" in
         AC_DEFINE(_CRT_NONSTDC_NO_WARNINGS)
         AC_DEFINE(_USE_MATH_DEFINES) # Otherwise MSVC's math.h doesn't #define M_PI.
 
-        case "$CC_VERSION" in
-        19*)
-            _CC_SUITE=14
-            MSVC_C_RUNTIME_DLL=vcruntime140.dll
-            MSVC_CXX_RUNTIME_DLL=msvcp140.dll
+        if test "$_MSC_VER" -ge "1910"; then # VS2017+
+            # C5038: Enable initializer list order warnings
+            # The -w1#### flag treats warning C#### as if it was a warning level
+            # 1 warning, and thus enables it because we enable /W3 warnings. We
+            # don't use -we#### because it would enable warning C#### but treat
+            # it as an error, even in third-party code.
+            # https://docs.microsoft.com/en-us/cpp/build/reference/compiler-option-warning-level
+            CXXFLAGS="$CXXFLAGS -w15038"
+        fi
 
-            # C5026: move constructor was implicitly defined as deleted
-            CXXFLAGS="$CXXFLAGS -wd5026"
+        _CC_SUITE=14
+        MSVC_C_RUNTIME_DLL=vcruntime140.dll
+        MSVC_CXX_RUNTIME_DLL=msvcp140.dll
 
-            # C5027: move assignment operator was implicitly defined as deleted
-            CXXFLAGS="$CXXFLAGS -wd5027"
+        # C5026: move constructor was implicitly defined as deleted
+        CXXFLAGS="$CXXFLAGS -wd5026"
 
-            # -Zc:sizedDealloc- disables C++14 global sized deallocation (see bug 1160146)
-            CXXFLAGS="$CXXFLAGS -Zc:sizedDealloc-"
-            ;;
-        esac
+        # C5027: move assignment operator was implicitly defined as deleted
+        CXXFLAGS="$CXXFLAGS -wd5027"
+
+        # -Zc:sizedDealloc- disables C++14 global sized deallocation (see bug 1160146)
+        CXXFLAGS="$CXXFLAGS -Zc:sizedDealloc-"
+
         AC_SUBST(MSVC_C_RUNTIME_DLL)
         AC_SUBST(MSVC_CXX_RUNTIME_DLL)
 
@@ -552,10 +559,20 @@ MOZ_DOING_LTO(lto_is_enabled)
 dnl ========================================================
 dnl Add optional and non-optional hardening flags
 dnl ========================================================
-if test "$GNU_CC" -o test -n "${CLANG_CC}${CLANG_CL}"; then
-   CFLAGS="$CFLAGS -D_FORTIFY_SOURCE=2"
-   CPPFLAGS="$CPPFLAGS -D_FORTIFY_SOURCE=2"
-   CXXFLAGS="$CXXFLAGS -D_FORTIFY_SOURCE=2"
+
+dnl In at least glibc-2.25, _FORTIFY_SOURCE requires compiling
+dnl with optimization (Bug 1417452)
+
+dnl Note that in the top-level old-configure.in, we don't enable
+dnl FORTIFY_SOURCE on Android. But in js/ we *can* enable it on
+dnl Android, so we do.
+
+if test -n "$MOZ_OPTIMIZE"; then
+   if test "$GNU_CC" -o -n "${CLANG_CC}${CLANG_CL}"; then
+      CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+      CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+      CXXFLAGS="$CXXFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2"
+   fi
 fi
 
 dnl ========================================================
@@ -857,7 +874,7 @@ case "$target" in
     ;;
 
 *-solaris*)
-    MOZ_FIX_LINK_PATHS=
+    MOZ_FIX_LINK_PATHS="-L${DIST}/bin"
     ;;
 
 esac
@@ -874,26 +891,6 @@ if test -z "$COMPILE_ENVIRONMENT"; then
     SKIP_COMPILER_CHECKS=1
     SKIP_LIBRARY_CHECKS=1
 fi
-
-dnl Configure JIT support
-
-case "$CPU_ARCH" in
-x86|x86_64|arm|aarch64|mips*)
-    ENABLE_ION=1
-    ;;
-esac
-
-if test "$HAVE_64BIT_BUILD" ; then
-    AC_DEFINE(JS_PUNBOX64)
-else
-    AC_DEFINE(JS_NUNBOX32)
-fi
-
-MOZ_ARG_DISABLE_BOOL(ion,
-[  --disable-ion      Disable use of the IonMonkey JIT],
-  ENABLE_ION= )
-
-AC_SUBST(ENABLE_ION)
 
 if test -n "$COMPILE_ENVIRONMENT"; then
     MOZ_COMPILER_OPTS
@@ -1475,24 +1472,6 @@ AC_SUBST_LIST(MOZ_OPTIMIZE_LDFLAGS)
 AC_SUBST_LIST(MOZ_PGO_OPTIMIZE_FLAGS)
 
 dnl ========================================================
-dnl = Trace logging. Enabled by default in DEBUG builds.
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(trace-logging,
-[  --enable-trace-logging   Enable trace logging],
-    ENABLE_TRACE_LOGGING=1,
-    ENABLE_TRACE_LOGGING= )
-
-if test -n "$MOZ_DEBUG"; then
-    ENABLE_TRACE_LOGGING=1
-fi
-
-AC_SUBST(ENABLE_TRACE_LOGGING)
-
-if test -n "$ENABLE_TRACE_LOGGING"; then
-    AC_DEFINE(JS_TRACE_LOGGING)
-fi
-
-dnl ========================================================
 dnl = Disable treating compiler warnings as errors
 dnl ========================================================
 if test -z "$MOZ_ENABLE_WARNINGS_AS_ERRORS"; then
@@ -1561,107 +1540,6 @@ fi
 AC_SUBST(MOZ_VALGRIND)
 
 dnl ========================================================
-dnl = Use a JIT code simulator for a foreign architecture.
-dnl ========================================================
-MOZ_ARG_ENABLE_STRING(simulator,
-[  --enable-simulator=ARCH
-                          Enable a JIT code simulator for the specified arch.
-                          (arm, arm64, mips32, mips64).],
-    JS_SIMULATOR="$enableval")
-
-if test -n "$JS_SIMULATOR"; then
-    case "$JS_SIMULATOR" in
-        arm|arm64|mips32|mips64) ;;
-        no)
-            JS_SIMULATOR=
-            ;;
-        *) AC_MSG_ERROR([Invalid simulator. Valid simulators are: arm, arm64, mips32, mips64.]) ;;
-    esac
-fi
-
-if test -z "$ENABLE_ION"; then
-    AC_DEFINE(JS_CODEGEN_NONE)
-    JS_CODEGEN_NONE=1
-elif test "$JS_SIMULATOR" = arm; then
-    if test "$CPU_ARCH" != "x86"; then
-        AC_MSG_ERROR([The ARM simulator only works on x86.])
-    fi
-    AC_DEFINE(JS_SIMULATOR)
-    AC_DEFINE(JS_SIMULATOR_ARM)
-    AC_DEFINE(JS_DISASM_ARM)
-    AC_DEFINE(JS_CODEGEN_ARM)
-    JS_SIMULATOR_ARM=1
-    JS_DISASM_ARM=1
-    JS_CODEGEN_ARM=1
-elif test "$JS_SIMULATOR" = arm64; then
-    if test "$CPU_ARCH" != "x86_64"; then
-        AC_MSG_ERROR([The ARM64 simulator only works on x86_64.])
-    fi
-    AC_DEFINE(JS_SIMULATOR)
-    AC_DEFINE(JS_SIMULATOR_ARM64)
-    AC_DEFINE(JS_CODEGEN_ARM64)
-    JS_SIMULATOR_ARM64=1
-    JS_CODEGEN_ARM64=1
-elif test "$JS_SIMULATOR" = mips32; then
-    if test "$CPU_ARCH" != "x86"; then
-        AC_MSG_ERROR([The MIPS32 simulator only works on x86.])
-    fi
-    AC_DEFINE(JS_SIMULATOR)
-    AC_DEFINE(JS_SIMULATOR_MIPS32)
-    AC_DEFINE(JS_CODEGEN_MIPS32)
-    JS_SIMULATOR_MIPS32=1
-    JS_CODEGEN_MIPS32=1
-elif test "$JS_SIMULATOR" = mips64; then
-    if test "$CPU_ARCH" != "x86_64"; then
-        AC_MSG_ERROR([The MIPS64 simulator only works on x86_64.])
-    fi
-    AC_DEFINE(JS_SIMULATOR)
-    AC_DEFINE(JS_SIMULATOR_MIPS64)
-    AC_DEFINE(JS_CODEGEN_MIPS64)
-    JS_SIMULATOR_MIPS64=1
-    JS_CODEGEN_MIPS64=1
-elif test "$CPU_ARCH" = "x86"; then
-    AC_DEFINE(JS_CODEGEN_X86)
-    JS_CODEGEN_X86=1
-elif test "$CPU_ARCH" = "x86_64"; then
-    AC_DEFINE(JS_CODEGEN_X64)
-    JS_CODEGEN_X64=1
-elif test "$CPU_ARCH" = "arm"; then
-    AC_DEFINE(JS_CODEGEN_ARM)
-    JS_CODEGEN_ARM=1
-    if test -n "$MOZ_DEBUG"; then
-        AC_DEFINE(JS_DISASM_ARM)
-        JS_DISASM_ARM=1
-    fi
-
-    dnl ARM platforms may trap on unaligned accesses; catch the signal and
-    dnl recover.
-elif test "$CPU_ARCH" = "aarch64"; then
-    AC_DEFINE(JS_CODEGEN_ARM64)
-    JS_CODEGEN_ARM64=1
-elif test "$CPU_ARCH" = "mips32"; then
-    AC_DEFINE(JS_CODEGEN_MIPS32)
-    JS_CODEGEN_MIPS32=1
-elif test "$CPU_ARCH" = "mips64"; then
-    AC_DEFINE(JS_CODEGEN_MIPS64)
-    JS_CODEGEN_MIPS64=1
-fi
-
-AC_SUBST(JS_SIMULATOR)
-AC_SUBST(JS_SIMULATOR_ARM)
-AC_SUBST(JS_SIMULATOR_ARM64)
-AC_SUBST(JS_SIMULATOR_MIPS32)
-AC_SUBST(JS_SIMULATOR_MIPS64)
-AC_SUBST(JS_CODEGEN_ARM)
-AC_SUBST(JS_CODEGEN_ARM64)
-AC_SUBST(JS_CODEGEN_MIPS32)
-AC_SUBST(JS_CODEGEN_MIPS64)
-AC_SUBST(JS_CODEGEN_X86)
-AC_SUBST(JS_CODEGEN_X64)
-AC_SUBST(JS_CODEGEN_NONE)
-AC_SUBST(JS_DISASM_ARM)
-
-dnl ========================================================
 dnl instruments
 dnl ========================================================
 if test -n "$MOZ_INSTRUMENTS"; then
@@ -1669,35 +1547,10 @@ if test -n "$MOZ_INSTRUMENTS"; then
 fi
 
 dnl ========================================================
-dnl JitSpew.  Enabled by default in debug builds.
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(jitspew,
-[  --enable-jitspew        Enable the Jit spew and IONFLAGS.],
-    JS_JITSPEW=1,
-    JS_JITSPEW= )
-
-if test -n "$JS_JITSPEW" -o -n "$MOZ_DEBUG"; then
-    AC_DEFINE(JS_JITSPEW)
-fi
-
-AC_SUBST(JS_JITSPEW)
-
-dnl ========================================================
 dnl Debug (see Bug 939505)
 dnl ========================================================
 if test -n "$MOZ_DEBUG"; then
     AC_DEFINE(JS_DEBUG)
-fi
-
-dnl ========================================================
-dnl Zealous JavaScript GC
-dnl ========================================================
-MOZ_ARG_ENABLE_BOOL(gczeal,
-[  --enable-gczeal         Enable zealous GCing],
-    JS_GC_ZEAL=1,
-    JS_GC_ZEAL= )
-if test -n "$JS_GC_ZEAL" -o -n "$MOZ_DEBUG"; then
-    AC_DEFINE(JS_GC_ZEAL)
 fi
 
 dnl ========================================================
@@ -1952,7 +1805,7 @@ AC_SUBST(AR)
 AC_SUBST(AR_FLAGS)
 AC_SUBST(AR_EXTRACT)
 AC_SUBST(AS)
-AC_SUBST(ASFLAGS)
+AC_SUBST_LIST(ASFLAGS)
 AC_SUBST(AS_DASH_C_FLAG)
 AC_SUBST(RC)
 AC_SUBST(RCFLAGS)
@@ -1989,10 +1842,12 @@ MOZ_CONFIG_ICU()
 dnl Echo the CFLAGS to remove extra whitespace.
 CFLAGS=`echo \
 	$_WARNINGS_CFLAGS \
+	$_COMPILATION_CFLAGS \
 	$CFLAGS`
 
 CXXFLAGS=`echo \
 	$_WARNINGS_CXXFLAGS \
+	$_COMPILATION_CXXFLAGS \
 	$CXXFLAGS`
 
 COMPILE_CFLAGS=`echo \
@@ -2067,18 +1922,6 @@ AC_SUBST(MOZ_DEV_EDITION)
 if test -n "$MOZ_DEV_EDITION"; then
     AC_DEFINE(MOZ_DEV_EDITION)
 fi
-
-dnl ========================================================
-dnl Determine options to use for running the preprocessor.
-dnl ========================================================
-
-if test -z "$GNU_CC" -a "$OS_ARCH" = "WINNT"; then
-    PREPROCESS_OPTION="-P -Fi"
-else
-    PREPROCESS_OPTION="-E -o "
-fi
-
-AC_SUBST(PREPROCESS_OPTION)
 
 dnl ========================================================
 dnl JavaScript shell

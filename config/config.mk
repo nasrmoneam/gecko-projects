@@ -132,25 +132,6 @@ TOUCH ?= touch
 
 PYTHON_PATH = $(PYTHON) $(topsrcdir)/config/pythonpath.py
 
-# determine debug-related options
-_DEBUG_ASFLAGS :=
-
-ifneq (,$(MOZ_DEBUG)$(MOZ_DEBUG_SYMBOLS))
-  ifeq ($(AS),$(YASM))
-    ifeq ($(OS_ARCH)_$(GNU_CC),WINNT_)
-      _DEBUG_ASFLAGS += -g cv8
-    else
-      ifneq ($(OS_ARCH),Darwin)
-        _DEBUG_ASFLAGS += -g dwarf2
-      endif
-    endif
-  else
-    _DEBUG_ASFLAGS += $(MOZ_DEBUG_FLAGS)
-  endif
-endif
-
-ASFLAGS += $(_DEBUG_ASFLAGS)
-
 #
 # Build using PIC by default
 #
@@ -223,10 +204,13 @@ COMPILE_CFLAGS	= $(COMPUTED_CFLAGS) $(PGO_CFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE
 COMPILE_CXXFLAGS = $(COMPUTED_CXXFLAGS) $(PGO_CFLAGS) $(_DEPEND_CFLAGS) $(MK_COMPILE_DEFINES)
 COMPILE_CMFLAGS = $(OS_COMPILE_CMFLAGS) $(MOZBUILD_CMFLAGS)
 COMPILE_CMMFLAGS = $(OS_COMPILE_CMMFLAGS) $(MOZBUILD_CMMFLAGS)
-ASFLAGS += $(MOZBUILD_ASFLAGS)
+ASFLAGS = $(COMPUTED_ASFLAGS)
+SFLAGS = $(COMPUTED_SFLAGS)
 
 HOST_CFLAGS = $(COMPUTED_HOST_CFLAGS) $(_DEPEND_CFLAGS)
 HOST_CXXFLAGS = $(COMPUTED_HOST_CXXFLAGS) $(_DEPEND_CFLAGS)
+HOST_C_LDFLAGS = $(COMPUTED_HOST_C_LDFLAGS)
+HOST_CXX_LDFLAGS = $(COMPUTED_HOST_CXX_LDFLAGS)
 
 # We only add color flags if neither the flag to disable color
 # (e.g. "-fno-color-diagnostics" nor a flag to control color

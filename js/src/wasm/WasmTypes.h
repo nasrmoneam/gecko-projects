@@ -550,6 +550,16 @@ class Sig
         return !(*this == rhs);
     }
 
+    bool hasI64ArgOrRet() const {
+        if (ret() == ExprType::I64)
+            return true;
+        for (ValType a : args()) {
+            if (a == ValType::I64)
+                return true;
+        }
+        return false;
+    }
+
     WASM_DECLARE_SERIALIZABLE(Sig)
 };
 
@@ -905,6 +915,9 @@ enum class Trap
     IntegerDivideByZero,
     // Out of bounds on wasm memory accesses and asm.js SIMD/atomic accesses.
     OutOfBounds,
+    // Unaligned on wasm atomic accesses; also used for non-standard ARM
+    // unaligned access faults.
+    UnalignedAccess,
     // call_indirect to null.
     IndirectCallToNull,
     // call_indirect signature mismatch.
@@ -917,6 +930,9 @@ enum class Trap
     // The internal stack space was exhausted. For compatibility, this throws
     // the same over-recursed error as JS.
     StackOverflow,
+
+    // Signal an error that was reported in C++ code.
+    ThrowReported,
 
     Limit
 };
@@ -993,7 +1009,7 @@ class CodeRange
   public:
     enum Kind {
         Function,          // function definition
-        Entry,             // calls into wasm from C++
+        InterpEntry,       // calls into wasm from C++
         ImportJitExit,     // fast-path calling from wasm into JIT code
         ImportInterpExit,  // slow-path calling from wasm into C++ interp
         BuiltinThunk,      // fast-path calling from wasm into a C++ native
@@ -1001,7 +1017,8 @@ class CodeRange
         DebugTrap,         // calls C++ to handle debug event
         FarJumpIsland,     // inserted to connect otherwise out-of-range insns
         OutOfBoundsExit,   // stub jumped to by non-standard asm.js SIMD/Atomics
-        UnalignedExit,     // stub jumped to by non-standard ARM unaligned trap
+        UnalignedExit,     // stub jumped to by wasm Atomics and non-standard
+                           // ARM unaligned trap
         Interrupt,         // stub executes asynchronously to interrupt wasm
         Throw              // special stack-unwinding stub jumped to by other stubs
     };
@@ -1021,8 +1038,8 @@ class CodeRange
                     uint8_t beginToTierEntry_;
                 } func;
                 struct {
-                    uint8_t beginToUntrustedFPStart_;
-                    uint8_t beginToUntrustedFPEnd_;
+                    uint16_t beginToUntrustedFPStart_;
+                    uint16_t beginToUntrustedFPEnd_;
                 } jitExit;
             };
         };
@@ -1097,7 +1114,7 @@ class CodeRange
     // index.
 
     bool hasFuncIndex() const {
-        return isFunction() || isImportExit() || kind() == Entry;
+        return isFunction() || isImportExit() || kind() == InterpEntry;
     }
     uint32_t funcIndex() const {
         MOZ_ASSERT(hasFuncIndex());
@@ -1295,13 +1312,6 @@ enum class SymbolicAddress
 #if defined(JS_CODEGEN_ARM)
     aeabi_idivmod,
     aeabi_uidivmod,
-    AtomicCmpXchg,
-    AtomicXchg,
-    AtomicFetchAdd,
-    AtomicFetchSub,
-    AtomicFetchAnd,
-    AtomicFetchOr,
-    AtomicFetchXor,
 #endif
     ModD,
     SinD,
@@ -1346,6 +1356,9 @@ enum class SymbolicAddress
     Int64ToDouble,
     GrowMemory,
     CurrentMemory,
+    WaitI32,
+    WaitI64,
+    Wake,
     Limit
 };
 
@@ -1387,6 +1400,12 @@ enum ModuleKind
     AsmJS
 };
 
+enum class Shareable
+{
+    False,
+    True
+};
+
 // Represents the resizable limits of memories and tables.
 
 struct Limits
@@ -1394,9 +1413,14 @@ struct Limits
     uint32_t initial;
     Maybe<uint32_t> maximum;
 
+    // `shared` is Shareable::False for tables but may be Shareable::True for
+    // memories.
+    Shareable shared;
+
     Limits() = default;
-    explicit Limits(uint32_t initial, const Maybe<uint32_t>& maximum = Nothing())
-      : initial(initial), maximum(maximum)
+    explicit Limits(uint32_t initial, const Maybe<uint32_t>& maximum = Nothing(),
+                    Shareable shared = Shareable::False)
+      : initial(initial), maximum(maximum), shared(shared)
     {}
 };
 

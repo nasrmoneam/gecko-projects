@@ -53,6 +53,8 @@ enum nsMixedContentBlockerMessageType {
 // iframes, websockets, XHR) enabled?
 bool nsMixedContentBlocker::sBlockMixedScript = false;
 
+bool nsMixedContentBlocker::sBlockMixedObjectSubrequest = false;
+
 // Is mixed display content blocking (images, audio, video, <a ping>) enabled?
 bool nsMixedContentBlocker::sBlockMixedDisplay = false;
 
@@ -255,6 +257,9 @@ nsMixedContentBlocker::nsMixedContentBlocker()
   // Cache the pref for mixed script blocking
   Preferences::AddBoolVarCache(&sBlockMixedScript,
                                "security.mixed_content.block_active_content");
+
+  Preferences::AddBoolVarCache(&sBlockMixedObjectSubrequest,
+                               "security.mixed_content.block_object_subrequest");
 
   // Cache the pref for mixed display blocking
   Preferences::AddBoolVarCache(&sBlockMixedDisplay,
@@ -558,7 +563,10 @@ nsMixedContentBlocker::ShouldLoad(bool aHadInsecureImageRedirect,
   // above for WebSockets apply to XHR, and XHR should have the same security
   // properties as WebSockets w.r.t. mixed content. XHR's handling of redirects
   // amplifies these concerns.
-
+  //
+  // TYPE_SAVEAS_DOWNLOAD: Save-link-as feature is used to download a resource
+  // without involving a docShell. This kind of loading must be always be
+  // allowed.
 
   static_assert(TYPE_DATAREQUEST == TYPE_XMLHTTPREQUEST,
                 "TYPE_DATAREQUEST is not a synonym for "
@@ -576,12 +584,25 @@ nsMixedContentBlocker::ShouldLoad(bool aHadInsecureImageRedirect,
       *aDecision = ACCEPT;
       return NS_OK;
 
+    // Creating insecure connections for a save-as link download is acceptable.
+    // This download is completely disconnected from the docShell, but still
+    // using the same loading principal.
+    case TYPE_SAVEAS_DOWNLOAD:
+      *aDecision = ACCEPT;
+      return NS_OK;
+
     // Static display content is considered moderate risk for mixed content so
     // these will be blocked according to the mixed display preference
     case TYPE_IMAGE:
     case TYPE_MEDIA:
-    case TYPE_OBJECT_SUBREQUEST:
       classification = eMixedDisplay;
+      break;
+    case TYPE_OBJECT_SUBREQUEST:
+      if (sBlockMixedObjectSubrequest) {
+        classification = eMixedScript;
+      } else {
+        classification = eMixedDisplay;
+      }
       break;
 
     // Active content (or content with a low value/risk-of-blocking ratio)

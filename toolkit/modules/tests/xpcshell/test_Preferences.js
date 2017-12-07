@@ -112,14 +112,9 @@ add_test(function test_set_unsupported_pref() {
   run_next_test();
 });
 
-// Make sure that we can get a string pref that we didn't set ourselves
-// (i.e. that the way we get a string pref using getComplexValue doesn't
-// hork us getting a string pref that wasn't set using setComplexValue).
+// Make sure that we can get a string pref that we didn't set ourselves.
 add_test(function test_get_string_pref() {
-  let svc = Cc["@mozilla.org/preferences-service;1"].
-            getService(Ci.nsIPrefService).
-            getBranch("");
-  svc.setCharPref("test_get_string_pref", "a normal string");
+  Services.prefs.setCharPref("test_get_string_pref", "a normal string");
   do_check_eq(Preferences.get("test_get_string_pref"), "a normal string");
 
   // Clean up.
@@ -129,14 +124,11 @@ add_test(function test_get_string_pref() {
 });
 
 add_test(function test_get_localized_string_pref() {
-  let svc = Cc["@mozilla.org/preferences-service;1"].
-            getService(Ci.nsIPrefService).
-            getBranch("");
   let prefName = "test_get_localized_string_pref";
   let localizedString = Cc["@mozilla.org/pref-localizedstring;1"]
     .createInstance(Ci.nsIPrefLocalizedString);
   localizedString.data = "a localized string";
-  svc.setComplexValue(prefName, Ci.nsIPrefLocalizedString, localizedString);
+  Services.prefs.setComplexValue(prefName, Ci.nsIPrefLocalizedString, localizedString);
   do_check_eq(Preferences.get(prefName, null, Ci.nsIPrefLocalizedString),
     "a localized string");
 

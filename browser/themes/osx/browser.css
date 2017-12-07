@@ -86,7 +86,7 @@
  * doesn't reverse the order of the items in the titlebar in RTL mode. */
 .titlebar-placeholder[type="caption-buttons"],
 #titlebar-buttonbox {
-  margin-left: 7px;
+  margin-left: 12px;
 }
 
 /* The fullscreen button doesnt show on Yosemite(10.10) or above so dont give it a
@@ -97,12 +97,7 @@
   }
 }
 
-#main-window:not(:-moz-lwtheme) > #titlebar {
-  -moz-appearance: -moz-window-titlebar;
-}
-
 #main-window:not([tabsintitlebar]) > #titlebar {
-  -moz-appearance: -moz-window-titlebar;
   height: 22px; /* The native titlebar on OS X is 22px tall. */
 }
 
@@ -696,7 +691,7 @@ html|span.ac-emphasize-text-url {
   }
 }
 
-#editBMPanel_tagsField > .autocomplete-textbox-container > .textbox-input-box > html|*.textbox-input::placeholder {
+#editBMPanel_tagsField > .textbox-input-box > html|*.textbox-input::placeholder {
   opacity: 1.0;
   color: #bbb;
 }
@@ -815,8 +810,8 @@ html|span.ac-emphasize-text-url {
 }
 
 :root:-moz-any([inFullscreen], [tabsintitlebar]) #TabsToolbar:not(:-moz-lwtheme) {
-  -moz-appearance: -moz-mac-vibrancy-dark;
-  -moz-font-smoothing-background-color: -moz-mac-vibrancy-dark;
+  -moz-appearance: -moz-mac-vibrant-titlebar-dark;
+  -moz-font-smoothing-background-color: -moz-mac-vibrant-titlebar-dark;
   background-color: #232323;
   color: hsl(240, 9%, 98%);
   text-shadow: none;

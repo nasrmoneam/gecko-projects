@@ -15,18 +15,20 @@ use dom::bindings::codegen::Bindings::EventListenerBinding::EventListener;
 use dom::bindings::codegen::Bindings::EventTargetBinding::AddEventListenerOptions;
 use dom::bindings::codegen::Bindings::EventTargetBinding::EventListenerOptions;
 use dom::bindings::codegen::Bindings::EventTargetBinding::EventTargetMethods;
+use dom::bindings::codegen::Bindings::EventTargetBinding::Wrap;
 use dom::bindings::codegen::Bindings::WindowBinding::WindowMethods;
 use dom::bindings::codegen::UnionTypes::AddEventListenerOptionsOrBoolean;
 use dom::bindings::codegen::UnionTypes::EventListenerOptionsOrBoolean;
 use dom::bindings::codegen::UnionTypes::EventOrString;
 use dom::bindings::error::{Error, Fallible, report_pending_exception};
 use dom::bindings::inheritance::Castable;
-use dom::bindings::reflector::{DomObject, Reflector};
+use dom::bindings::reflector::{DomObject, Reflector, reflect_dom_object};
 use dom::bindings::root::DomRoot;
 use dom::bindings::str::DOMString;
 use dom::element::Element;
 use dom::errorevent::ErrorEvent;
 use dom::event::{Event, EventBubbles, EventCancelable, EventStatus};
+use dom::globalscope::GlobalScope;
 use dom::node::document_from_node;
 use dom::virtualmethods::VirtualMethods;
 use dom::window::Window;
@@ -291,6 +293,16 @@ impl EventTarget {
         }
     }
 
+    fn new(global: &GlobalScope) -> DomRoot<EventTarget> {
+        reflect_dom_object(Box::new(EventTarget::new_inherited()),
+                           global,
+                           Wrap)
+    }
+
+    pub fn Constructor(global: &GlobalScope) -> Fallible<DomRoot<EventTarget>> {
+        Ok(EventTarget::new(global))
+    }
+
     pub fn get_listeners_for(&self,
                              type_: &Atom,
                              specific_phase: Option<ListenerPhase>)
@@ -303,10 +315,21 @@ impl EventTarget {
     pub fn dispatch_event_with_target(&self,
                                       target: &EventTarget,
                                       event: &Event) -> EventStatus {
+        if let Some(window) = target.global().downcast::<Window>() {
+            if window.has_document() {
+                assert!(window.Document().can_invoke_script());
+            }
+        };
+
         event.dispatch(self, Some(target))
     }
 
     pub fn dispatch_event(&self, event: &Event) -> EventStatus {
+        if let Some(window) = self.global().downcast::<Window>() {
+            if window.has_document() {
+                assert!(window.Document().can_invoke_script());
+            }
+        };
         event.dispatch(self, None)
     }
 

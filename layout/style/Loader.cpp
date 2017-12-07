@@ -167,6 +167,8 @@ SheetLoadData::SheetLoadData(Loader* aLoader,
   , mWasAlternate(aIsAlternate)
   , mUseSystemPrincipal(false)
   , mSheetAlreadyComplete(false)
+  , mIsCrossOriginNoCORS(false)
+  , mBlockResourceTiming(false)
   , mOwningElement(aOwningElement)
   , mObserver(aObserver)
   , mLoaderPrincipal(aLoaderPrincipal)
@@ -199,6 +201,8 @@ SheetLoadData::SheetLoadData(Loader* aLoader,
   , mWasAlternate(false)
   , mUseSystemPrincipal(false)
   , mSheetAlreadyComplete(false)
+  , mIsCrossOriginNoCORS(false)
+  , mBlockResourceTiming(false)
   , mOwningElement(nullptr)
   , mObserver(aObserver)
   , mLoaderPrincipal(aLoaderPrincipal)
@@ -213,8 +217,8 @@ SheetLoadData::SheetLoadData(Loader* aLoader,
     ++(mParentData->mPendingChildren);
   }
 
-  NS_POSTCONDITION(!mUseSystemPrincipal || mSyncLoad,
-                   "Shouldn't use system principal for async loads");
+  MOZ_ASSERT(!mUseSystemPrincipal || mSyncLoad,
+             "Shouldn't use system principal for async loads");
 }
 
 SheetLoadData::SheetLoadData(Loader* aLoader,
@@ -241,6 +245,8 @@ SheetLoadData::SheetLoadData(Loader* aLoader,
   , mWasAlternate(false)
   , mUseSystemPrincipal(aUseSystemPrincipal)
   , mSheetAlreadyComplete(false)
+  , mIsCrossOriginNoCORS(false)
+  , mBlockResourceTiming(false)
   , mOwningElement(nullptr)
   , mObserver(aObserver)
   , mLoaderPrincipal(aLoaderPrincipal)
@@ -248,8 +254,8 @@ SheetLoadData::SheetLoadData(Loader* aLoader,
   , mPreloadEncoding(aPreloadEncoding)
 {
   NS_PRECONDITION(mLoader, "Must have a loader!");
-  NS_POSTCONDITION(!mUseSystemPrincipal || mSyncLoad,
-                   "Shouldn't use system principal for async loads");
+  MOZ_ASSERT(!mUseSystemPrincipal || mSyncLoad,
+             "Shouldn't use system principal for async loads");
 }
 
 SheetLoadData::~SheetLoadData()
@@ -716,6 +722,14 @@ SheetLoadData::VerifySheetReadyToParse(nsresult aStatus,
   }
 
   mSheet->SetPrincipal(principal);
+
+  if (mLoaderPrincipal && mSheet->GetCORSMode() == CORS_NONE) {
+    bool subsumed;
+    result = mLoaderPrincipal->Subsumes(principal, &subsumed);
+    if (NS_FAILED(result) || !subsumed) {
+      mIsCrossOriginNoCORS = true;
+    }
+  }
 
   // If it's an HTTP channel, we want to make sure this is not an
   // error document we got.
@@ -1367,7 +1381,7 @@ Loader::LoadSheet(SheetLoadData* aLoadData,
 
         rv = NS_NewInputStreamChannel(getter_AddRefs(channel),
                                       aLoadData->mURI,
-                                      stream,
+                                      stream.forget(),
                                       nsContentUtils::GetSystemPrincipal(),
                                       securityFlags,
                                       contentPolicyType);
@@ -1556,6 +1570,39 @@ Loader::LoadSheet(SheetLoadData* aLoadData,
     if (timedChannel) {
       if (aLoadData->mParentData) {
         timedChannel->SetInitiatorType(NS_LITERAL_STRING("css"));
+
+        // This is a child sheet load.
+        //
+        // The resource timing of the sub-resources that a document loads
+        // should normally be reported to the document.  One exception is any
+        // sub-resources of any cross-origin resources that are loaded.  We
+        // don't mind reporting timing data for a direct child cross-origin
+        // resource since the resource that linked to it (and hence potentially
+        // anything in that parent origin) is aware that the cross-origin
+        // resources is to be loaded.  However, we do not want to report
+        // timings for any sub-resources that a cross-origin resource may load
+        // since that obviously leaks information about what the cross-origin
+        // resource loads, which is bad.
+        //
+        // In addition to checking whether we're an immediate child resource of
+        // a cross-origin resource (by checking if mIsCrossOriginNoCORS is set
+        // to true on our parent), we also check our parent to see whether it
+        // itself is a sub-resource of a cross-origin resource by checking
+        // mBlockResourceTiming.  If that is set then we too are such a
+        // sub-resource and so we set the flag on ourself too to propagate it
+        // on down.
+        //
+        if (aLoadData->mParentData->mIsCrossOriginNoCORS ||
+            aLoadData->mParentData->mBlockResourceTiming) {
+          // Set a flag so any other stylesheet triggered by this one will
+          // not be reported
+          aLoadData->mBlockResourceTiming = true;
+
+          // Mark the channel so PerformanceMainThread::AddEntry will not
+          // report the resource.
+          timedChannel->SetReportResourceTiming(false);
+        }
+
       } else {
         timedChannel->SetInitiatorType(NS_LITERAL_STRING("link"));
       }
@@ -1848,6 +1895,7 @@ Loader::DoSheetComplete(SheetLoadData* aLoadData, nsresult aStatus,
 nsresult
 Loader::LoadInlineStyle(nsIContent* aElement,
                         const nsAString& aBuffer,
+                        nsIPrincipal* aTriggeringPrincipal,
                         uint32_t aLineNumber,
                         const nsAString& aTitle,
                         const nsAString& aMedia,
@@ -1900,12 +1948,22 @@ Loader::LoadInlineStyle(nsIContent* aElement,
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
+  nsIPrincipal* principal = aElement->NodePrincipal();
+  if (aTriggeringPrincipal) {
+    // The triggering principal may be an expanded principal, which is safe to
+    // use for URL security checks, but not as the loader principal for a
+    // stylesheet. So treat this as principal inheritance, and downgrade if
+    // necessary.
+    principal = BasePrincipal::Cast(aTriggeringPrincipal)->PrincipalToInherit();
+  }
+
   SheetLoadData* data = new SheetLoadData(this, aTitle, nullptr, sheet,
                                           owningElement, *aIsAlternate,
-                                          aObserver, nullptr, static_cast<nsINode*>(aElement));
+                                          aObserver, nullptr,
+                                          static_cast<nsINode*>(aElement));
 
   // We never actually load this, so just set its principal directly
-  sheet->SetPrincipal(aElement->NodePrincipal());
+  sheet->SetPrincipal(principal);
 
   NS_ADDREF(data);
   data->mLineNumber = aLineNumber;

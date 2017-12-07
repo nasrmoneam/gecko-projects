@@ -46,7 +46,7 @@ stage-package: multilocale.json locale-manifest.in $(MOZ_PKG_MANIFEST) $(MOZ_PKG
 		$(if $(JARLOG_DIR),$(addprefix --jarlog ,$(wildcard $(JARLOG_FILE_AB_CD)))) \
 		$(if $(OPTIMIZEJARS),--optimizejars) \
 		$(addprefix --compress ,$(JAR_COMPRESSION)) \
-		$(MOZ_PKG_MANIFEST) "$(DIST)" "$(DIST)"/$(MOZ_PKG_DIR)$(if $(MOZ_PKG_MANIFEST),,$(_BINPATH)) \
+		$(MOZ_PKG_MANIFEST) '$(DIST)' '$(DIST)'/$(MOZ_PKG_DIR)$(if $(MOZ_PKG_MANIFEST),,$(_BINPATH)) \
 		$(if $(filter omni,$(MOZ_PACKAGER_FORMAT)),$(if $(NON_OMNIJAR_FILES),--non-resource $(NON_OMNIJAR_FILES)))
 	$(PYTHON) $(MOZILLA_DIR)/toolkit/mozapps/installer/find-dupes.py $(DEFINES) $(ACDEFINES) $(MOZ_PKG_DUPEFLAGS) $(DIST)/$(MOZ_PKG_DIR)
 ifndef MOZ_IS_COMM_TOPDIR
@@ -76,6 +76,12 @@ ifdef MOZ_CODE_COVERAGE
 	$(RM) $(CODE_COVERAGE_ARCHIVE_BASENAME).zip
 	$(PYTHON) -mmozbuild.codecoverage.packager \
 		--output-file='$(DIST)/$(PKG_PATH)$(CODE_COVERAGE_ARCHIVE_BASENAME).zip'
+endif
+ifdef ENABLE_MOZSEARCH_PLUGIN
+	@echo 'Generating mozsearch tarball...'
+	$(RM) $(MOZSEARCH_ARCHIVE_BASENAME).zip
+	cd $(topobjdir)/mozsearch_index && \
+          zip -r5D '$(ABS_DIST)/$(PKG_PATH)$(MOZSEARCH_ARCHIVE_BASENAME).zip' .
 endif
 ifeq (Darwin, $(OS_ARCH))
 ifdef MOZ_ASAN

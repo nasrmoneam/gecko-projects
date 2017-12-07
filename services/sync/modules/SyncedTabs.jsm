@@ -161,7 +161,7 @@ let SyncedTabsInternal = {
     // Ask Sync to just do the tabs engine if it can.
     try {
       log.info("Doing a tab sync.");
-      await Weave.Service.sync(["tabs"]);
+      await Weave.Service.sync({why: "tabs", engines: ["tabs"]});
       return true;
     } catch (ex) {
       log.error("Sync failed", ex);
@@ -245,6 +245,11 @@ this.SyncedTabs = {
   // are waiting for that first sync to complete.
   get hasSyncedThisSession() {
     return this._internal.hasSyncedThisSession;
+  },
+
+  // Returns true if Sync is in a "need to reauthenticate" state.
+  get loginFailed() {
+    return this._internal.loginFailed;
   },
 
   // Return a promise that resolves with an array of client records, each with

@@ -227,7 +227,6 @@ struct RangePaintInfo {
   RangePaintInfo(nsRange* aRange, nsIFrame* aFrame)
     : mRange(aRange)
     , mBuilder(aFrame, nsDisplayListBuilderMode::PAINTING, false)
-    , mList(&mBuilder)
   {
     MOZ_COUNT_CTOR(RangePaintInfo);
     mBuilder.BeginFrame();
@@ -804,6 +803,7 @@ PresShell::PresShell()
   , mScaleToResolution(false)
   , mIsLastChromeOnlyEscapeKeyConsumed(false)
   , mHasReceivedPaintMessage(false)
+  , mHasHandledUserInput(false)
 {
   MOZ_LOG(gLog, LogLevel::Debug, ("PresShell::PresShell this=%p", this));
 
@@ -2950,6 +2950,28 @@ PresShell::DestroyFramesForAndRestyle(Element* aElement)
   bool didReconstruct = fc->DestroyFramesFor(aElement);
   fc->EndUpdate();
 
+  if (aElement->IsStyledByServo()) {
+    if (aElement->GetFlattenedTreeParentNode()) {
+      // The element is still in the flat tree, but their children may not be
+      // anymore in a second.
+      //
+      // This is the case of a new shadow root or XBL binding about to be
+      // attached.
+      //
+      // Clear the style data from all the flattened tree descendants, but _not_
+      // from us, since otherwise we wouldn't see the reframe.
+      //
+      // FIXME(emilio): It'd be more ergonomic to just map the no data -> data
+      // case to a reframe from the style system.
+      ServoRestyleManager::ClearServoDataFromSubtree(
+          aElement, ServoRestyleManager::IncludeRoot::No);
+    } else {
+      // This is the case of an element that was redistributed but is no longer
+      // bound to any insertion point. Just forget about all the data.
+      ServoRestyleManager::ClearServoDataFromSubtree(aElement);
+    }
+  }
+
   auto changeHint = didReconstruct
     ? nsChangeHint(0)
     : nsChangeHint_ReconstructFrame;
@@ -3361,27 +3383,19 @@ ComputeWhereToScroll(int16_t aWhereToScroll,
                      nscoord* aRangeMin,
                      nscoord* aRangeMax) {
   nscoord resultCoord = aOriginalCoord;
-  // Allow the scroll operation to land anywhere that
-  // makes the whole rectangle visible.
+  nscoord scrollPortLength = aViewMax - aViewMin;
   if (nsIPresShell::SCROLL_MINIMUM == aWhereToScroll) {
-    if (aRectMin < aViewMin) {
-      // Scroll up so the frame's top edge is visible
-      resultCoord = aRectMin;
-    } else if (aRectMax > aViewMax) {
-      // Scroll down so the frame's bottom edge is visible. Make sure the
-      // frame's top edge is still visible
-      resultCoord = aOriginalCoord + aRectMax - aViewMax;
-      if (resultCoord > aRectMin) {
-        resultCoord = aRectMin;
-      }
-    }
+    // Scroll the minimum amount necessary to show as much as possible of the frame.
+    // If the frame is too large, don't hide any initially visible part of it.
+    nscoord min = std::min(aRectMin, aRectMax - scrollPortLength);
+    nscoord max = std::max(aRectMin, aRectMax - scrollPortLength);
+    resultCoord = std::min(std::max(aOriginalCoord, min), max);
   } else {
     nscoord frameAlignCoord =
       NSToCoordRound(aRectMin + (aRectMax - aRectMin) * (aWhereToScroll / 100.0f));
-    resultCoord =  NSToCoordRound(frameAlignCoord - (aViewMax - aViewMin) * (
+    resultCoord =  NSToCoordRound(frameAlignCoord - scrollPortLength * (
                                   aWhereToScroll / 100.0f));
   }
-  nscoord scrollPortLength = aViewMax - aViewMin;
   // Force the scroll range to extend to include resultCoord.
   *aRangeMin = std::min(resultCoord, aRectMax - scrollPortLength);
   *aRangeMax = std::max(resultCoord, aRectMin);
@@ -3613,9 +3627,27 @@ PresShell::ScrollFrameRectIntoView(nsIFrame*                aFrame,
     if (sf) {
       nsPoint oldPosition = sf->GetScrollPosition();
       nsRect targetRect = rect;
-      if (container->StyleDisplay()->mOverflowClipBox ==
+      // Inflate the scrolled rect by the container's padding in each dimension,
+      // unless we have 'overflow-clip-box-*: content-box' in that dimension.
+      auto* disp = container->StyleDisplay();
+      if (disp->mOverflowClipBoxBlock ==
+            NS_STYLE_OVERFLOW_CLIP_BOX_CONTENT_BOX ||
+          disp->mOverflowClipBoxInline ==
             NS_STYLE_OVERFLOW_CLIP_BOX_CONTENT_BOX) {
+        WritingMode wm = container->GetWritingMode();
+        bool cbH = (wm.IsVertical() ? disp->mOverflowClipBoxBlock
+                                    : disp->mOverflowClipBoxInline) ==
+                   NS_STYLE_OVERFLOW_CLIP_BOX_CONTENT_BOX;
+        bool cbV = (wm.IsVertical() ? disp->mOverflowClipBoxInline
+                                    : disp->mOverflowClipBoxBlock) ==
+                   NS_STYLE_OVERFLOW_CLIP_BOX_CONTENT_BOX;
         nsMargin padding = container->GetUsedPadding();
+        if (!cbH) {
+          padding.left = padding.right = nscoord(0);
+        }
+        if (!cbV) {
+          padding.top = padding.bottom = nscoord(0);
+        }
         targetRect.Inflate(padding);
       }
       ScrollToShowRect(sf, targetRect - sf->GetScrolledFrame()->GetPosition(),
@@ -4190,6 +4222,12 @@ PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush)
       // The FlushResampleRequests() above flushed style changes.
       if (!mIsDestroying) {
         nsAutoScriptBlocker scriptBlocker;
+#ifdef MOZ_GECKO_PROFILER
+        AutoProfilerTracing tracingStyleFlush("Paint", "Styles",
+                                              Move(mStyleCause));
+        mStyleCause = nullptr;
+#endif
+
         mPresContext->RestyleManager()->ProcessPendingRestyles();
       }
     }
@@ -4210,6 +4248,12 @@ PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush)
     // type.
     if (!mIsDestroying) {
       nsAutoScriptBlocker scriptBlocker;
+#ifdef MOZ_GECKO_PROFILER
+      AutoProfilerTracing tracingStyleFlush("Paint", "Styles",
+                                            Move(mStyleCause));
+      mStyleCause = nullptr;
+#endif
+
       mPresContext->RestyleManager()->ProcessPendingRestyles();
     }
 
@@ -4224,6 +4268,11 @@ PresShell::DoFlushPendingNotifications(mozilla::ChangesToFlush aFlush)
                         ? FlushType::Layout
                         : FlushType::InterruptibleLayout) &&
         !mIsDestroying) {
+#ifdef MOZ_GECKO_PROFILER
+      AutoProfilerTracing tracingLayoutFlush("Paint", "Reflow",
+                                              Move(mReflowCause));
+      mReflowCause = nullptr;
+#endif
       didLayoutFlush = true;
       mFrameConstructor->RecalcQuotesAndCounters();
       viewManager->FlushDelayedResize(true);
@@ -4616,24 +4665,6 @@ PresShell::StyleSheetApplicableStateChanged(StyleSheet* aStyleSheet)
   }
 }
 
-void
-PresShell::StyleRuleChanged(StyleSheet* aStyleSheet, css::Rule* aStyleRule)
-{
-  RecordStyleSheetChange(aStyleSheet, StyleSheet::ChangeType::RuleChanged);
-}
-
-void
-PresShell::StyleRuleAdded(StyleSheet* aStyleSheet, css::Rule* aStyleRule)
-{
-  RecordStyleSheetChange(aStyleSheet, StyleSheet::ChangeType::RuleAdded);
-}
-
-void
-PresShell::StyleRuleRemoved(StyleSheet* aStyleSheet, css::Rule* aStyleRule)
-{
-  RecordStyleSheetChange(aStyleSheet, StyleSheet::ChangeType::RuleRemoved);
-}
-
 nsresult
 PresShell::RenderDocument(const nsRect& aRect, uint32_t aFlags,
                           nscolor aBackgroundColor,
@@ -4685,10 +4716,10 @@ PresShell::RenderDocument(const nsRect& aRect, uint32_t aFlags,
   // slight rounding errors here.  We use NudgeToIntegers() here to adjust
   // matrix components that are integers up to the accuracy of floats to be
   // those integers.
-  gfxMatrix newTM = aThebesContext->CurrentMatrix().PreTranslate(offset).
-                                                    PreScale(scale, scale).
-                                                    NudgeToIntegers();
-  aThebesContext->SetMatrix(newTM);
+  gfxMatrix newTM = aThebesContext->CurrentMatrixDouble().PreTranslate(offset).
+                                                          PreScale(scale, scale).
+                                                          NudgeToIntegers();
+  aThebesContext->SetMatrixDouble(newTM);
 
   AutoSaveRestoreRenderingState _(this);
 
@@ -4766,7 +4797,7 @@ PresShell::ClipListToRange(nsDisplayListBuilder *aBuilder,
   // part of the selection. Then, append the wrapper to the top of the list.
   // Otherwise, just delete the item and don't append it.
   nsRect surfaceRect;
-  nsDisplayList tmpList(aBuilder);
+  nsDisplayList tmpList;
 
   nsDisplayItem* i;
   while ((i = aList->RemoveBottom())) {
@@ -5088,7 +5119,7 @@ PresShell::PaintRangePaintInfo(const nsTArray<UniquePtr<RangePaintInfo>>& aItems
     ctx->Clip(path);
   }
 
-  gfxMatrix initialTM = ctx->CurrentMatrix();
+  gfxMatrix initialTM = ctx->CurrentMatrixDouble();
 
   if (resize)
     initialTM.PreScale(scale, scale);
@@ -5118,7 +5149,7 @@ PresShell::PaintRangePaintInfo(const nsTArray<UniquePtr<RangePaintInfo>>& aItems
     gfxPoint rootOffset =
       nsLayoutUtils::PointToGfxPoint(rangeInfo->mRootOffset,
                                      pc->AppUnitsPerDevPixel());
-    ctx->SetMatrix(gfxMatrix(initialTM).PreTranslate(rootOffset));
+    ctx->SetMatrixDouble(initialTM.PreTranslate(rootOffset));
     aArea.MoveBy(-rangeInfo->mRootOffset.x, -rangeInfo->mRootOffset.y);
     nsRegion visible(aArea);
     RefPtr<LayerManager> layerManager =
@@ -5277,7 +5308,7 @@ PresShell::AddCanvasBackgroundColorItem(nsDisplayListBuilder& aBuilder,
   bool addedScrollingBackgroundColor = (aFlags & APPEND_UNSCROLLED_ONLY);
   if (!aFrame->GetParent() && !addedScrollingBackgroundColor) {
     nsIScrollableFrame* sf =
-      aFrame->PresContext()->PresShell()->GetRootScrollFrameAsScrollable();
+      aFrame->PresShell()->GetRootScrollFrameAsScrollable();
     if (sf) {
       nsCanvasFrame* canvasFrame = do_QueryFrame(sf->GetScrolledFrame());
       if (canvasFrame && canvasFrame->IsVisibleForPainting(&aBuilder)) {
@@ -5566,7 +5597,7 @@ static nsView* FindFloatingViewContaining(nsView* aView, nsPoint aPt)
   nsIFrame* frame = aView->GetFrame();
   if (frame) {
     if (!frame->IsVisibleConsideringAncestors(nsIFrame::VISIBILITY_CROSS_CHROME_CONTENT_BOUNDARY) ||
-        !frame->PresContext()->PresShell()->IsActive()) {
+        !frame->PresShell()->IsActive()) {
       return nullptr;
     }
   }
@@ -5603,7 +5634,7 @@ static nsView* FindViewContaining(nsView* aView, nsPoint aPt)
   nsIFrame* frame = aView->GetFrame();
   if (frame) {
     if (!frame->IsVisibleConsideringAncestors(nsIFrame::VISIBILITY_CROSS_CHROME_CONTENT_BOUNDARY) ||
-        !frame->PresContext()->PresShell()->IsActive()) {
+        !frame->PresShell()->IsActive()) {
       return nullptr;
     }
   }
@@ -5785,7 +5816,7 @@ PresShell::MarkFramesInListApproximatelyVisible(const nsDisplayList& aList,
     }
 
     // Use the presshell containing the frame.
-    auto* presShell = static_cast<PresShell*>(frame->PresContext()->PresShell());
+    auto* presShell = static_cast<PresShell*>(frame->PresShell());
     MOZ_ASSERT(!presShell->AssumeAllFramesVisible());
     if (presShell->mApproximatelyVisibleFrames.EnsureInserted(frame)) {
       // The frame was added to mApproximatelyVisibleFrames, so increment its visible count.
@@ -5919,7 +5950,7 @@ PresShell::MarkFramesInSubtreeApproximatelyVisible(nsIFrame* aFrame,
                                                    Maybe<VisibleRegions>& aVisibleRegions,
                                                    bool aRemoveOnly /* = false */)
 {
-  MOZ_ASSERT(aFrame->PresContext()->PresShell() == this, "wrong presshell");
+  MOZ_ASSERT(aFrame->PresShell() == this, "wrong presshell");
 
   if (aFrame->TrackingVisibility() &&
       aFrame->StyleVisibility()->IsVisible() &&
@@ -7266,8 +7297,7 @@ PresShell::HandleEvent(nsIFrame* aFrame,
       return NS_OK;
     }
 
-    PresShell* shell =
-        static_cast<PresShell*>(frame->PresContext()->PresShell());
+    PresShell* shell = static_cast<PresShell*>(frame->PresShell());
     switch (aEvent->mMessage) {
       case eTouchMove:
       case eTouchCancel:
@@ -7296,8 +7326,7 @@ PresShell::HandleEvent(nsIFrame* aFrame,
             break;
           }
 
-          shell = static_cast<PresShell*>(
-                      contentFrame->PresContext()->PresShell());
+          shell = static_cast<PresShell*>(contentFrame->PresShell());
           if (shell) {
             break;
           }
@@ -7611,6 +7640,10 @@ PresShell::HandleEventInternal(WidgetEvent* aEvent,
 
     // XXX How about IME events and input events for plugins?
     if (aEvent->IsTrusted()) {
+      if (aEvent->IsUserAction()) {
+        mHasHandledUserInput = true;
+      }
+
       switch (aEvent->mMessage) {
       case eKeyPress:
       case eKeyDown:
@@ -9707,41 +9740,56 @@ FindTopFrame(nsIFrame* aRoot)
 
 #ifdef DEBUG
 
-nsStyleSet*
-PresShell::CloneStyleSet(nsStyleSet* aSet)
+static void
+CopySheetsIntoClone(StyleSetHandle aSet, StyleSetHandle aClone)
 {
-  nsStyleSet* clone = new nsStyleSet();
-
   int32_t i, n = aSet->SheetCount(SheetType::Override);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Override, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Override, i);
     if (ss)
-      clone->AppendStyleSheet(SheetType::Override, ss);
+      aClone->AppendStyleSheet(SheetType::Override, ss);
   }
 
   // The document expects to insert document stylesheets itself
 #if 0
   n = aSet->SheetCount(SheetType::Doc);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Doc, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Doc, i);
     if (ss)
-      clone->AddDocStyleSheet(ss, mDocument);
+      aClone->AddDocStyleSheet(ss, mDocument);
   }
 #endif
 
   n = aSet->SheetCount(SheetType::User);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::User, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::User, i);
     if (ss)
-      clone->AppendStyleSheet(SheetType::User, ss);
+      aClone->AppendStyleSheet(SheetType::User, ss);
   }
 
   n = aSet->SheetCount(SheetType::Agent);
   for (i = 0; i < n; i++) {
-    CSSStyleSheet* ss = aSet->StyleSheetAt(SheetType::Agent, i);
+    StyleSheet* ss = aSet->StyleSheetAt(SheetType::Agent, i);
     if (ss)
-      clone->AppendStyleSheet(SheetType::Agent, ss);
+      aClone->AppendStyleSheet(SheetType::Agent, ss);
   }
+}
+
+nsStyleSet*
+PresShell::CloneStyleSet(nsStyleSet* aSet)
+{
+  nsStyleSet* clone = new nsStyleSet();
+  CopySheetsIntoClone(aSet, clone);
+  return clone;
+}
+
+ServoStyleSet*
+PresShell::CloneStyleSet(ServoStyleSet* aSet)
+{
+  MOZ_ASSERT(aSet->IsMaster());
+
+  ServoStyleSet* clone = new ServoStyleSet(ServoStyleSet::Kind::Master);
+  CopySheetsIntoClone(aSet, clone);
   return clone;
 }
 
@@ -9796,14 +9844,20 @@ PresShell::VerifyIncrementalReflow()
 
   // Create a new presentation shell to view the document. Use the
   // exact same style information that this document has.
+  nsAutoPtr<nsStyleSet> newGeckoSet;
+  nsAutoPtr<ServoStyleSet> newServoSet;
+  StyleSetHandle newSet;
   if (mStyleSet->IsServo()) {
-    NS_WARNING("VerifyIncrementalReflow cannot handle ServoStyleSets");
-    return true;
+    newServoSet = CloneStyleSet(mStyleSet->AsServo());
+    newSet = newServoSet;
+  } else {
+    newGeckoSet = CloneStyleSet(mStyleSet->AsGecko());
+    newSet = newGeckoSet;
   }
-  nsAutoPtr<nsStyleSet> newSet(CloneStyleSet(mStyleSet->AsGecko()));
-  nsCOMPtr<nsIPresShell> sh = mDocument->CreateShell(cx, vm, newSet.get());
+  nsCOMPtr<nsIPresShell> sh = mDocument->CreateShell(cx, vm, newSet);
   NS_ENSURE_TRUE(sh, false);
-  newSet.forget();
+  newGeckoSet.forget();
+  newServoSet.forget();
   // Note that after we create the shell, we must make sure to destroy it
   sh->SetVerifyReflowEnable(false); // turn off verify reflow while we're reflowing the test frame tree
   vm->SetPresShell(sh);
@@ -10146,8 +10200,8 @@ void ReflowCountMgr::PaintCount(const char*     aName,
       aRenderingContext->Save();
       gfxPoint devPixelOffset =
         nsLayoutUtils::PointToGfxPoint(aOffset, appUnitsPerDevPixel);
-      aRenderingContext->SetMatrix(
-        aRenderingContext->CurrentMatrix().PreTranslate(devPixelOffset));
+      aRenderingContext->SetMatrixDouble(
+        aRenderingContext->CurrentMatrixDouble().PreTranslate(devPixelOffset));
 
       // We don't care about the document language or user fonts here;
       // just get a default Latin font.

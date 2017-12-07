@@ -62,6 +62,7 @@ class nsIDocShell;
 class nsDocShell;
 class nsDOMNavigationTiming;
 class nsFrameLoader;
+class nsGlobalWindowInner;
 class nsHTMLCSSStyleSheet;
 class nsHTMLDocument;
 class nsHTMLStyleSheet;
@@ -138,7 +139,6 @@ class DOMIntersectionObserver;
 class DOMStringList;
 class Element;
 struct ElementCreationOptions;
-struct ElementRegistrationOptions;
 class Event;
 class EventTarget;
 class FontFaceSet;
@@ -900,6 +900,15 @@ public:
   }
 
   /**
+   * Called when the document was decoded as UTF-8 and decoder encountered no
+   * errors.
+   */
+  void DisableEncodingMenu()
+  {
+    mEncodingMenuDisabled = true;
+  }
+
+  /**
    * Access HTTP header data (this may also get set from other
    * sources, like HTML META tags).
    */
@@ -1131,6 +1140,11 @@ protected:
     MOZ_ASSERT(mPageUnloadingEventTimeStamp);
     mPageUnloadingEventTimeStamp = mozilla::TimeStamp();
   }
+
+  /**
+   * Clears any Servo element data stored on Elements in the document.
+   */
+  void ClearStaleServoData();
 
 private:
   class SelectorCacheKey
@@ -1860,18 +1874,6 @@ public:
   {
     mIsContentDocument = aIsContentDocument;
   }
-
-  /**
-   * Checks if this document has no pres shell, and if so, clears any Servo
-   * element data stored on Elements in the document.
-   */
-  void ClearStaleServoDataFromDocument();
-
-  /**
-   * Returns true if there may be Servo element data on Elements in the document
-   * that were created for a pres shell that no longer exists.
-   */
-  bool MightHaveStaleServoData() const { return mMightHaveStaleServoData; }
 
   /**
    * Create an element with the specified name, prefix and namespace ID.
@@ -2639,8 +2641,20 @@ public:
    * Document state bits have the form NS_DOCUMENT_STATE_* and are declared in
    * nsIDocument.h.
    */
-  virtual mozilla::EventStates GetDocumentState() = 0;
-  virtual mozilla::EventStates ThreadSafeGetDocumentState() const = 0;
+  mozilla::EventStates GetDocumentState()
+  {
+    UpdatePossiblyStaleDocumentState();
+    return ThreadSafeGetDocumentState();
+  }
+
+  // GetDocumentState() mutates the state due to lazy resolution;
+  // and can't be used during parallel traversal. Use this instead,
+  // and ensure GetDocumentState() has been called first.
+  // This will assert if the state is stale.
+  mozilla::EventStates ThreadSafeGetDocumentState() const
+  {
+    return mDocumentState;
+  }
 
   virtual nsISupports* GetCurrentContentSink() = 0;
 
@@ -2850,7 +2864,6 @@ public:
   }
 
   enum ElementCallbackType {
-    eCreated,
     eConnected,
     eDisconnected,
     eAdopted,
@@ -2858,14 +2871,6 @@ public:
   };
 
   nsIDocument* GetTopLevelContentDocument();
-
-  virtual void
-    RegisterElement(JSContext* aCx, const nsAString& aName,
-                    const mozilla::dom::ElementRegistrationOptions& aOptions,
-                    JS::MutableHandle<JSObject*> aRetval,
-                    mozilla::ErrorResult& rv) = 0;
-  virtual already_AddRefed<mozilla::dom::CustomElementRegistry>
-    GetCustomElementRegistry() = 0;
 
   already_AddRefed<nsContentList>
   GetElementsByTagName(const nsAString& aTagName)
@@ -3045,7 +3050,7 @@ public:
              JS::Handle<JSObject*> aResult, mozilla::ErrorResult& rv);
   // Touch event handlers already on nsINode
   already_AddRefed<mozilla::dom::Touch>
-    CreateTouch(nsGlobalWindow* aView, mozilla::dom::EventTarget* aTarget,
+    CreateTouch(nsGlobalWindowInner* aView, mozilla::dom::EventTarget* aTarget,
                 int32_t aIdentifier, int32_t aPageX, int32_t aPageY,
                 int32_t aScreenX, int32_t aScreenY, int32_t aClientX,
                 int32_t aClientY, int32_t aRadiusX, int32_t aRadiusY,
@@ -3134,15 +3139,21 @@ public:
     mIncCounters[aIncCounter] += inc;
   }
 
-  void SetUserHasInteracted(bool aUserHasInteracted)
-  {
-    mUserHasInteracted = aUserHasInteracted;
-  }
-
+  void SetUserHasInteracted(bool aUserHasInteracted);
   bool UserHasInteracted()
   {
     return mUserHasInteracted;
   }
+
+  // This would be called when document get activated by specific user gestures.
+  void NotifyUserActivation();
+
+  // Return true if document has interacted by specific user gestures.
+  bool HasBeenUserActivated();
+
+  // Return the first parent document with same pricipal, return nullptr if we
+  // can't find it.
+  nsIDocument* GetFirstParentDocumentWithSamePrincipal(nsIPrincipal* aPrincipal);
 
   bool HasScriptsBlockedBySandbox();
 
@@ -3264,6 +3275,8 @@ protected:
   }
 
 private:
+  void UpdatePossiblyStaleDocumentState();
+
   mutable std::bitset<eDeprecatedOperationCount> mDeprecationWarnedAbout;
   mutable std::bitset<eDocumentWarningCount> mDocWarningWarnedAbout;
 
@@ -3329,6 +3342,9 @@ protected:
 
   // Helper for GetScrollingElement/IsScrollingElement.
   bool IsPotentiallyScrollable(mozilla::dom::HTMLBodyElement* aBody);
+
+  // Return the same type parent docuement if exists, or return null.
+  nsIDocument* GetSameTypeParentDocument(const nsIDocument* aDoc);
 
   // Helpers for GetElementsByName.
   static bool MatchNameAttribute(mozilla::dom::Element* aElement,
@@ -3419,6 +3435,9 @@ protected:
   // Last time this document or a one of its sub-documents was focused.  If
   // focus has never occurred then mLastFocusTime.IsNull() will be true.
   mozilla::TimeStamp mLastFocusTime;
+
+  mozilla::EventStates mDocumentState;
+  mozilla::EventStates mGotDocumentState;
 
   // True if BIDI is enabled.
   bool mBidiEnabled : 1;
@@ -3580,10 +3599,6 @@ protected:
 
   bool mIsContentDocument : 1;
 
-  // True if there may be Servo element data on Elements in the document that
-  // were created for a pres shell that no longer exists.
-  bool mMightHaveStaleServoData : 1;
-
   // True if we have called BeginLoad and are expecting a paired EndLoad call.
   bool mDidCallBeginLoad : 1;
 
@@ -3593,6 +3608,9 @@ protected:
 
   // True if the document is allowed to use PaymentRequest.
   bool mAllowPaymentRequest : 1;
+
+  // True if the encoding menu should be disabled.
+  bool mEncodingMenuDisabled : 1;
 
   // Whether <style scoped> support is enabled in this document.
   enum { eScopedStyle_Unknown, eScopedStyle_Disabled, eScopedStyle_Enabled };
@@ -3764,6 +3782,10 @@ protected:
 
   // Whether the user has interacted with the document or not:
   bool mUserHasInteracted;
+
+  // Whether the user has interacted with the document via some specific user
+  // gestures.
+  bool mUserHasActivatedInteraction;
 
   mozilla::TimeStamp mPageUnloadingEventTimeStamp;
 

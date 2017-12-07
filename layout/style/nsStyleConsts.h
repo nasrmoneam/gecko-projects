@@ -154,7 +154,8 @@ enum class StyleShapeRadius : uint8_t {
 // Shape source type
 enum class StyleShapeSourceType : uint8_t {
   None,
-  URL,
+  URL,   // clip-path only
+  Image, // shape-outside only
   Shape,
   Box,
 };
@@ -1187,6 +1188,13 @@ enum class StyleWhiteSpace : uint8_t {
 // See nsStyleDisplay::mScrollBehavior
 #define NS_STYLE_SCROLL_BEHAVIOR_AUTO       0
 #define NS_STYLE_SCROLL_BEHAVIOR_SMOOTH     1
+
+// See nsStyleDisplay::mOverscrollBehavior{X,Y}
+enum class StyleOverscrollBehavior : uint8_t {
+  Auto = 0,
+  Contain,
+  None,
+};
 
 // See nsStyleDisplay::mScrollSnapType{X,Y}
 #define NS_STYLE_SCROLL_SNAP_TYPE_NONE              0

@@ -4,30 +4,57 @@
 
 use api::{BorderRadiusKind, ColorF, LayerPoint, LayerRect, LayerSize, LayerVector2D};
 use api::{BorderRadius, BoxShadowClipMode, LayoutSize, LayerPrimitiveInfo};
-use api::{ClipMode, ComplexClipRegion, LocalClip, ClipAndScrollInfo};
+use api::{ClipMode, ClipAndScrollInfo, ComplexClipRegion, LocalClip};
+use api::{PipelineId};
+use app_units::Au;
 use clip::ClipSource;
 use frame_builder::FrameBuilder;
-use prim_store::{PrimitiveContainer, RectangleContent, RectanglePrimitive};
+use prim_store::{BrushAntiAliasMode, PrimitiveContainer};
 use prim_store::{BrushMaskKind, BrushKind, BrushPrimitive};
 use picture::PicturePrimitive;
 use util::RectHelpers;
+use render_task::MAX_BLUR_STD_DEVIATION;
 
 // The blur shader samples BLUR_SAMPLE_SCALE * blur_radius surrounding texels.
 pub const BLUR_SAMPLE_SCALE: f32 = 3.0;
+
+// Maximum blur radius.
+// Taken from https://searchfox.org/mozilla-central/rev/c633ffa4c4611f202ca11270dcddb7b29edddff8/layout/painting/nsCSSRendering.cpp#4412
+pub const MAX_BLUR_RADIUS : f32 = 300.;
 
 // The amount of padding added to the border corner drawn in the box shadow
 // mask. This ensures that we get a few pixels past the corner that can be
 // blurred without being affected by the border radius.
 pub const MASK_CORNER_PADDING: f32 = 4.0;
 
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
+pub struct BoxShadowCacheKey {
+    pub width: Au,
+    pub height: Au,
+    pub blur_radius: Au,
+    pub spread_radius: Au,
+    pub offset_x: Au,
+    pub offset_y: Au,
+    pub br_top_left_w: Au,
+    pub br_top_left_h: Au,
+    pub br_top_right_w: Au,
+    pub br_top_right_h: Au,
+    pub br_bottom_left_w: Au,
+    pub br_bottom_left_h: Au,
+    pub br_bottom_right_w: Au,
+    pub br_bottom_right_h: Au,
+    pub clip_mode: BoxShadowClipMode,
+}
+
 impl FrameBuilder {
     pub fn add_box_shadow(
         &mut self,
+        pipeline_id: PipelineId,
         clip_and_scroll: ClipAndScrollInfo,
         prim_info: &LayerPrimitiveInfo,
         box_offset: &LayerVector2D,
         color: &ColorF,
-        blur_radius: f32,
+        mut blur_radius: f32,
         spread_radius: f32,
         border_radius: BorderRadius,
         clip_mode: BoxShadowClipMode,
@@ -45,13 +72,14 @@ impl FrameBuilder {
             }
         };
 
+        blur_radius = f32::min(blur_radius, MAX_BLUR_RADIUS);
         let shadow_radius = adjust_border_radius_for_box_shadow(
             border_radius,
             spread_amount,
         );
         let shadow_rect = prim_info.rect
-                                   .translate(box_offset)
-                                   .inflate(spread_amount, spread_amount);
+            .translate(box_offset)
+            .inflate(spread_amount, spread_amount);
 
         if blur_radius == 0.0 {
             let mut clips = Vec::new();
@@ -102,13 +130,36 @@ impl FrameBuilder {
                 clip_and_scroll,
                 &fast_info,
                 clips,
-                PrimitiveContainer::Rectangle(RectanglePrimitive {
-                    content: RectangleContent::Fill(*color),
-                }),
+                PrimitiveContainer::Brush(
+                    BrushPrimitive::new(BrushKind::Solid {
+                            color: *color,
+                        },
+                        None,
+                        BrushAntiAliasMode::Primitive,
+                    )
+                ),
             );
         } else {
             let blur_offset = BLUR_SAMPLE_SCALE * blur_radius;
             let mut extra_clips = vec![];
+
+            let cache_key = BoxShadowCacheKey {
+                width: Au::from_f32_px(shadow_rect.size.width),
+                height: Au::from_f32_px(shadow_rect.size.height),
+                blur_radius: Au::from_f32_px(blur_radius),
+                spread_radius: Au::from_f32_px(spread_radius),
+                offset_x: Au::from_f32_px(box_offset.x),
+                offset_y: Au::from_f32_px(box_offset.y),
+                br_top_left_w: Au::from_f32_px(border_radius.top_left.width),
+                br_top_left_h: Au::from_f32_px(border_radius.top_left.height),
+                br_top_right_w: Au::from_f32_px(border_radius.top_right.width),
+                br_top_right_h: Au::from_f32_px(border_radius.top_right.height),
+                br_bottom_left_w: Au::from_f32_px(border_radius.bottom_left.width),
+                br_bottom_left_h: Au::from_f32_px(border_radius.bottom_left.height),
+                br_bottom_right_w: Au::from_f32_px(border_radius.bottom_right.width),
+                br_bottom_right_h: Au::from_f32_px(border_radius.bottom_right.height),
+                clip_mode,
+            };
 
             match clip_mode {
                 BoxShadowClipMode::Outset => {
@@ -130,12 +181,14 @@ impl FrameBuilder {
                         width = MASK_CORNER_PADDING + corner_size.width.max(BLUR_SAMPLE_SCALE * blur_radius);
                         height = MASK_CORNER_PADDING + corner_size.height.max(BLUR_SAMPLE_SCALE * blur_radius);
 
-                        brush_prim = BrushPrimitive {
-                            kind: BrushKind::Mask {
+                        brush_prim = BrushPrimitive::new(
+                            BrushKind::Mask {
                                 clip_mode: brush_clip_mode,
                                 kind: BrushMaskKind::Corner(corner_size),
-                            }
-                        };
+                            },
+                            None,
+                            BrushAntiAliasMode::Primitive,
+                        );
                     } else {
                         // Create a minimal size primitive mask to blur. In this
                         // case, we ensure the size of each corner is the same,
@@ -157,12 +210,14 @@ impl FrameBuilder {
                         let clip_rect = LayerRect::new(LayerPoint::zero(),
                                                        LayerSize::new(width, height));
 
-                        brush_prim = BrushPrimitive {
-                            kind: BrushKind::Mask {
+                        brush_prim = BrushPrimitive::new(
+                            BrushKind::Mask {
                                 clip_mode: brush_clip_mode,
                                 kind: BrushMaskKind::RoundedRect(clip_rect, shadow_radius),
-                            }
-                        };
+                            },
+                            None,
+                            BrushAntiAliasMode::Primitive,
+                        );
                     };
 
                     // Construct a mask primitive to add to the picture.
@@ -183,13 +238,13 @@ impl FrameBuilder {
                         Vec::new(),
                         clip_mode,
                         radii_kind,
+                        cache_key,
+                        pipeline_id,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,
-                        &brush_rect,
                         clip_and_scroll
                     );
-                    pic_prim.build();
 
                     // TODO(gw): Right now, we always use a clip out
                     //           mask for outset shadows. We can make this
@@ -226,16 +281,28 @@ impl FrameBuilder {
                     let clip_rect = brush_rect.translate(box_offset)
                                               .inflate(spread_amount, spread_amount);
 
-                    // Ensure there is one pixel around the edges, so that there
+                    // Ensure there are more than one pixel around the edges, so that there
                     // is non-zero data to blur, in the case of an inset shadow
                     // with zero spread and zero offset.
-                    let brush_rect = brush_rect.inflate(1.0, 1.0);
-                    let brush_prim = BrushPrimitive {
-                        kind: BrushKind::Mask {
+                    // The size of inflation edge is determined by std deviation because large
+                    // std deviation blur would be downscaled first. Thus, we need more thick
+                    // edge to prevent edge get blurred after downscled.
+                    let mut adjusted_blur_std_deviation = blur_radius * 0.5;
+                    let mut inflate_size = 1.0;
+                    while adjusted_blur_std_deviation > MAX_BLUR_STD_DEVIATION {
+                        adjusted_blur_std_deviation *= 0.5;
+                        inflate_size += 1.0;
+                    }
+
+                    let brush_rect = brush_rect.inflate(inflate_size, inflate_size);
+                    let brush_prim = BrushPrimitive::new(
+                        BrushKind::Mask {
                             clip_mode: brush_clip_mode,
                             kind: BrushMaskKind::RoundedRect(clip_rect, shadow_radius),
-                        }
-                    };
+                        },
+                        None,
+                        BrushAntiAliasMode::Primitive,
+                    );
                     let brush_info = LayerPrimitiveInfo::new(brush_rect);
                     let brush_prim_index = self.create_primitive(
                         &brush_info,
@@ -252,19 +319,19 @@ impl FrameBuilder {
                         BoxShadowClipMode::Inset,
                         // TODO(gw): Make use of optimization for inset.
                         BorderRadiusKind::NonUniform,
+                        cache_key,
+                        pipeline_id,
                     );
                     pic_prim.add_primitive(
                         brush_prim_index,
-                        &brush_rect,
                         clip_and_scroll
                     );
-                    pic_prim.build();
 
                     // Draw the picture one pixel outside the original
                     // rect to account for the inflate above. This
                     // extra edge will be clipped by the local clip
                     // rect set below.
-                    let pic_rect = prim_info.rect.inflate(1.0, 1.0);
+                    let pic_rect = prim_info.rect.inflate(inflate_size, inflate_size);
                     let pic_info = LayerPrimitiveInfo::with_clip_rect(
                         pic_rect,
                         prim_info.rect

@@ -2710,7 +2710,8 @@ var SessionStoreInternal = {
       if (activePageData.title &&
           activePageData.title != activePageData.url) {
         win.gBrowser.setInitialTabTitle(tab, activePageData.title, { isContentTitle: true });
-      } else if (activePageData.url != "about:blank") {
+      } else if (activePageData.url != "about:blank" &&
+                 activePageData.url != "about:newtab") {
         win.gBrowser.setInitialTabTitle(tab, activePageData.url);
       }
     }
@@ -3279,7 +3280,7 @@ var SessionStoreInternal = {
       tabMap.set(tab, tabData);
       tabsData.push(tabData);
     }
-    winData.selected = tabbrowser.mTabBox.selectedIndex + 1;
+    winData.selected = tabbrowser.tabbox.selectedIndex + 1;
 
     this._updateWindowFeatures(aWindow);
 

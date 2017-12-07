@@ -52,15 +52,15 @@ runHeuristicsTest([
     expectedResult: [
       [],
       [], // search
-      [ // credit card
+      [[ // credit card
         {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-number"},
         // FIXME: bug 1392958 - Cardholder name field should be detected as cc-name
 //      {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-name"},
 //      {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-csc"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-exp-month"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-exp-year"},
-      ],
-      [ // Another billing address
+      ]],
+      [[ // Another billing address
         {"section": "", "addressType": "", "contactType": "", "fieldName": "given-name"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "family-name"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "address-line1"},
@@ -70,8 +70,8 @@ runHeuristicsTest([
         {"section": "", "addressType": "", "contactType": "", "fieldName": "postal-code"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "tel"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "tel-extension"},
-      ],
-      [ // check out
+      ]],
+      [[ // check out
         {"section": "", "addressType": "", "contactType": "", "fieldName": "given-name"},
         {"section": "", "addressType": "", "contactType": "", "fieldName": "family-name"},
 
@@ -83,15 +83,13 @@ runHeuristicsTest([
         // it's for Driver's license or state identification.
         {"section": "", "addressType": "", "contactType": "", "fieldName": "address-level1"},
 
-        // FIXME: bug 1392947 - this is for birthday actually.
-        {"section": "", "addressType": "", "contactType": "", "fieldName": "cc-exp"},
 //      {"section": "", "addressType": "", "contactType": "", "fieldName": "bday-month"},
 //      {"section": "", "addressType": "", "contactType": "", "fieldName": "bday-day"},
 //      {"section": "", "addressType": "", "contactType": "", "fieldName": "bday-year"},
-      ],
-      [
+      ]],
+      [[
         {"section": "", "addressType": "", "contactType": "", "fieldName": "email"},
-      ],
+      ]],
     ],
   },
 ], "../../../fixtures/third_party/Sears/");

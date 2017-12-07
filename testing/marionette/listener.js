@@ -14,7 +14,6 @@ const winUtil = content.QueryInterface(Ci.nsIInterfaceRequestor)
 
 Cu.import("resource://gre/modules/FileUtils.jsm");
 Cu.import("resource://gre/modules/Log.jsm");
-Cu.import("resource://gre/modules/Preferences.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 
 Cu.import("chrome://marionette/content/accessibility.js");
@@ -27,7 +26,6 @@ const {
 } = Cu.import("chrome://marionette/content/element.js", {});
 const {
   ElementNotInteractableError,
-  error,
   InsecureCertificateError,
   InvalidArgumentError,
   InvalidElementStateError,
@@ -53,6 +51,14 @@ let listenerId = null; // unique ID of this listener
 let curContainer = {frame: content, shadowRoot: null};
 let previousContainer = null;
 
+
+// Listen for click event to indicate one click has happened, so actions
+// code can send dblclick event, also resetClick and cancelTimer
+// after dblclick has happened.
+addEventListener("click", event.DoubleClickTracker.setClick);
+addEventListener("dblclick", event.DoubleClickTracker.resetClick);
+addEventListener("dblclick", event.DoubleClickTracker.cancelTimer);
+
 const seenEls = new element.Store();
 const SUPPORTED_STRATEGIES = new Set([
   element.Strategy.ClassName,
@@ -72,9 +78,11 @@ let legacyactions = new legacyaction.Chain(checkForInterrupted);
 // last touch for each fingerId
 let multiLast = {};
 
+// TODO: Log.jsm is not e10s compatible (see https://bugzil.la/1411513),
+// query the main process for the current log level
 const logger = Log.repository.getLogger("Marionette");
-// Append only once to avoid duplicated output after listener.js gets reloaded
 if (logger.ownAppenders.length == 0) {
+  logger.level = sendSyncMessage("Marionette:GetLogLevel");
   logger.addAppender(new Log.DumpAppender());
 }
 
@@ -150,7 +158,6 @@ const loadListener = {
       let readyState = content.document.readyState;
       let documentURI = content.document.documentURI;
       logger.debug(`Check readyState "${readyState} for "${documentURI}"`);
-
       // If the page load has already finished, don't setup listeners and
       // timers but return immediatelly.
       if (this.handleReadyState(readyState, documentURI)) {
@@ -481,7 +488,7 @@ function dispatch(fn) {
     });
 
     req.then(rv => sendResponse(rv, id), err => sendError(err, id))
-        .catch(error.report);
+        .catch(err => sendError(err, id));
   };
 }
 
@@ -567,7 +574,6 @@ function startListeners() {
   addMessageListenerId("Marionette:switchToParentFrame", switchToParentFrame);
   addMessageListenerId("Marionette:switchToShadowRoot", switchToShadowRootFn);
   addMessageListenerId("Marionette:deleteSession", deleteSession);
-  addMessageListenerId("Marionette:sleepSession", sleepSession);
   addMessageListenerId("Marionette:takeScreenshot", takeScreenshotFn);
   addMessageListenerId("Marionette:reftestWait", reftestWaitFn);
   addMessageListener("Marionette:DOM:AddEventListener", domAddEventListener);
@@ -581,23 +587,6 @@ function startListeners() {
 function newSession(msg) {
   capabilities = session.Capabilities.fromJSON(msg.json);
   resetValues();
-}
-
-/**
- * Puts the current session to sleep, so all listeners are removed except
- * for the 'restart' listener.
- */
-function sleepSession() {
-  deleteSession();
-  addMessageListener("Marionette:restart", restart);
-}
-
-/**
- * Restarts all our listeners after this listener was put to sleep
- */
-function restart() {
-  removeMessageListener("Marionette:restart", restart);
-  registerSelf();
 }
 
 /**
@@ -651,7 +640,6 @@ function deleteSession() {
   removeMessageListenerId(
       "Marionette:switchToShadowRoot", switchToShadowRootFn);
   removeMessageListenerId("Marionette:deleteSession", deleteSession);
-  removeMessageListenerId("Marionette:sleepSession", sleepSession);
   removeMessageListenerId("Marionette:takeScreenshot", takeScreenshotFn);
 
   seenEls.clear();
@@ -1272,9 +1260,22 @@ async function findElementsContent(strategy, selector, opts = {}) {
   return webEls;
 }
 
-/** Find and return the active element on the page. */
+/**
+ * Return the active element in the document.
+ *
+ * @return {WebElement}
+ *     Active element of the current browsing context's document
+ *     element, if the document element is non-null.
+ *
+ * @throws {NoSuchElementError}
+ *     If the document does not have an active element, i.e. if
+ *     its document element has been deleted.
+ */
 function getActiveElement() {
   let el = curContainer.frame.document.activeElement;
+  if (!el) {
+    throw new NoSuchElementError();
+  }
   return evaluate.toJSON(el, seenEls);
 }
 
@@ -1404,15 +1405,11 @@ function isElementSelected(el) {
 }
 
 async function sendKeysToElement(el, val) {
-  if (el.type == "file") {
-    await interaction.uploadFile(el, val);
-  } else if ((el.type == "date" || el.type == "time") &&
-      Preferences.get("dom.forms.datetime")) {
-    interaction.setFormControlValue(el, val);
-  } else {
-    await interaction.sendKeysToElement(
-        el, val, false, capabilities.get("moz:accessibilityChecks"));
-  }
+  await interaction.sendKeysToElement(
+      el, val,
+      capabilities.get("moz:accessibilityChecks"),
+      capabilities.get("moz:webdriverClick"),
+  );
 }
 
 /** Clear the text of an element. */

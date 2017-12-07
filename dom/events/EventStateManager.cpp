@@ -658,6 +658,7 @@ EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
       case WidgetMouseEvent::eRightButton:
       case WidgetMouseEvent::eMiddleButton:
         SetClickCount(mouseEvent, aStatus);
+        NotifyTargetUserActivation(aEvent, aTargetContent);
         break;
     }
     break;
@@ -819,6 +820,9 @@ EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
           !IsRemoteTarget(content)) {
         aEvent->ResetWaitingReplyFromRemoteProcessState();
       }
+      if (aEvent->mMessage == eKeyUp) {
+        NotifyTargetUserActivation(aEvent, aTargetContent);
+      }
     }
     break;
   case eWheel:
@@ -882,10 +886,51 @@ EventStateManager::PreHandleEvent(nsPresContext* aPresContext,
       compositionEvent->mData = selectedText.mReply.mString;
     }
     break;
+  case eTouchEnd:
+    NotifyTargetUserActivation(aEvent, aTargetContent);
+    break;
   default:
     break;
   }
   return NS_OK;
+}
+
+void
+EventStateManager::NotifyTargetUserActivation(WidgetEvent* aEvent,
+                                              nsIContent* aTargetContent)
+{
+  if (!aEvent->IsTrusted()) {
+    return;
+  }
+
+  WidgetMouseEvent* mouseEvent = aEvent->AsMouseEvent();
+  if (mouseEvent && !mouseEvent->IsReal()) {
+    return;
+  }
+
+  nsCOMPtr<nsINode> node = do_QueryInterface(aTargetContent);
+  if (!node) {
+    return;
+  }
+
+  nsIDocument* doc = node->OwnerDoc();
+  if (!doc || doc->HasBeenUserActivated()) {
+    return;
+  }
+
+  MOZ_ASSERT(aEvent->mMessage == eKeyUp   ||
+             aEvent->mMessage == eMouseUp ||
+             aEvent->mMessage == eTouchEnd);
+  doc->NotifyUserActivation();
+
+  // Activate parent document which has same principle on the parent chain.
+  nsCOMPtr<nsIPrincipal> principal = doc->NodePrincipal();
+  nsCOMPtr<nsIDocument> parent =
+    doc->GetFirstParentDocumentWithSamePrincipal(principal);
+  while (parent) {
+    parent->NotifyUserActivation();
+    parent = parent->GetFirstParentDocumentWithSamePrincipal(principal);
+  }
 }
 
 void
@@ -1697,6 +1742,53 @@ EventStateManager::FillInEventFromGestureDown(WidgetMouseEvent* aEvent)
   aEvent->buttons = mGestureDownButtons;
 }
 
+void
+EventStateManager::MaybeFirePointerCancel(WidgetInputEvent* aEvent)
+{
+  nsCOMPtr<nsIPresShell> shell = mPresContext->GetPresShell();
+  AutoWeakFrame targetFrame = mCurrentTarget;
+
+  if (!PointerEventHandler::IsPointerEventEnabled() || !shell ||
+      !targetFrame) {
+    return;
+  }
+
+  nsCOMPtr<nsIContent> content;
+  targetFrame->GetContentForEvent(aEvent, getter_AddRefs(content));
+  if (!content) {
+    return;
+  }
+
+  nsEventStatus status = nsEventStatus_eIgnore;
+
+  if (WidgetMouseEvent* aMouseEvent = aEvent->AsMouseEvent()) {
+    WidgetPointerEvent event(*aMouseEvent);
+    PointerEventHandler::InitPointerEventFromMouse(&event,
+                                                   aMouseEvent,
+                                                   ePointerCancel);
+
+    event.convertToPointer = false;
+    shell->HandleEventWithTarget(&event, targetFrame, content, &status);
+  } else if (WidgetTouchEvent* aTouchEvent = aEvent->AsTouchEvent()) {
+    WidgetPointerEvent event(aTouchEvent->IsTrusted(), ePointerCancel,
+                             aTouchEvent->mWidget);
+
+    PointerEventHandler::InitPointerEventFromTouch(&event,
+                                                   aTouchEvent,
+                                                   aTouchEvent->mTouches[0],
+                                                   true);
+
+    event.convertToPointer = false;
+    shell->HandleEventWithTarget(&event, targetFrame, content, &status);
+  } else {
+    MOZ_ASSERT(false);
+  }
+
+  // HandleEventWithTarget clears out mCurrentTarget, which may be used in the
+  // caller GenerateDragGesture. We have to restore mCurrentTarget.
+  mCurrentTarget = targetFrame;
+}
+
 //
 // GenerateDragGesture
 //
@@ -1848,6 +1940,7 @@ EventStateManager::GenerateDragGesture(nsPresContext* aPresContext,
                                               targetContent, selection);
         if (dragStarted) {
           sActiveESM = nullptr;
+          MaybeFirePointerCancel(aEvent);
           aEvent->StopPropagation();
         }
       }
@@ -2084,7 +2177,8 @@ EventStateManager::GetContentViewer(nsIContentViewer** aCv)
     if (!tabChild->ParentIsActive()) return NS_OK;
   }
 
-  nsCOMPtr<nsPIDOMWindowOuter> contentWindow = nsGlobalWindow::Cast(rootWindow)->GetContent();
+  nsCOMPtr<nsPIDOMWindowOuter> contentWindow =
+    nsGlobalWindowOuter::Cast(rootWindow)->GetContent();
   if (!contentWindow) return NS_ERROR_FAILURE;
 
   nsIDocument *doc = contentWindow->GetDoc();
@@ -3213,10 +3307,12 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
     // should be send after ePointerUp or ePointerCancel.
     PointerEventHandler::ImplicitlyReleasePointerCapture(pointerEvent);
 
-    if (pointerEvent->inputSource == nsIDOMMouseEvent::MOZ_SOURCE_TOUCH) {
-      // After UP/Cancel Touch pointers become invalid so we can remove relevant
-      // helper from Table Mouse/Pen pointers are valid all the time (not only
-      // between down/up)
+    if (pointerEvent->mMessage == ePointerCancel ||
+        pointerEvent->inputSource == nsIDOMMouseEvent::MOZ_SOURCE_TOUCH) {
+      // After pointercancel, pointer becomes invalid so we can remove relevant
+      // helper from table. Regarding pointerup with non-hoverable device, the
+      // pointer also becomes invalid. Hoverable (mouse/pen) pointers are valid
+      // all the time (not only between down/up).
       GenerateMouseEnterExit(pointerEvent);
       mPointersEnterLeaveHelper.Remove(pointerEvent->pointerId);
     }
@@ -3310,7 +3406,7 @@ EventStateManager::PostHandleEvent(nsPresContext* aPresContext,
           ScrollbarsForWheel::SetActiveScrollTarget(scrollTarget);
 
           nsIFrame* rootScrollFrame = !mCurrentTarget ? nullptr :
-            mCurrentTarget->PresContext()->PresShell()->GetRootScrollFrame();
+            mCurrentTarget->PresShell()->GetRootScrollFrame();
           nsIScrollableFrame* rootScrollableFrame = nullptr;
           if (rootScrollFrame) {
             rootScrollableFrame = do_QueryFrame(rootScrollFrame);

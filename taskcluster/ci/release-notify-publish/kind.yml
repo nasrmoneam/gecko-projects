@@ -13,11 +13,15 @@ kind-dependencies:
    - release-bouncer-aliases
    - release-version-bump
 
+job-defaults:
+   shipping-phase: ship
+
 jobs:
    fennec:
       name: notify-release-drivers-publish
       description: Sends email to release-drivers telling release was published.
       run-on-projects: []
+      shipping-product: fennec
       worker-type: aws-provisioner-v1/gecko-{level}-b-linux
       worker:
          implementation: docker-worker
@@ -37,8 +41,19 @@ jobs:
                   maple:
                      - "release-drivers-staging"
                   try:
-                     #- "{task[tags][createdForUser]}"
+                  #  - "{task[tags][createdForUser]}"
                   default:
                      - "release-drivers"
-      extra:
+      routes:
+         - index.releases.v1.{branch}.{revision}.{product}.{underscore_version}.build{build_number}.email-{channel}
+         - index.releases.v1.{branch}.latest.{product}.latest.email-{channel}
+      index:
+         type: release
          product: fennec
+         job-name: android-api-16-opt
+         channel:
+            by-project:
+               mozilla-beta: beta
+               mozilla-release: release
+               maple: maple
+               default: unknown

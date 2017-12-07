@@ -34,6 +34,7 @@ struct OverrideMapping;
 class nsIDomainPolicy;
 class nsIURIClassifierCallback;
 struct LookAndFeelInt;
+class nsIDocShellLoadInfo;
 
 namespace mozilla {
 class RemoteSpellcheckEngineChild;
@@ -113,6 +114,7 @@ public:
                       const nsAString& aName,
                       const nsACString& aFeatures,
                       bool aForceNoOpener,
+                      nsIDocShellLoadInfo* aLoadInfo,
                       bool* aWindowIsNew,
                       mozIDOMWindowProxy** aReturn);
 
@@ -321,12 +323,6 @@ public:
 
   virtual bool DeallocPPresentationChild(PPresentationChild* aActor) override;
 
-  virtual PFlyWebPublishedServerChild*
-    AllocPFlyWebPublishedServerChild(const nsString& name,
-                                     const FlyWebPublishOptions& params) override;
-
-  virtual bool DeallocPFlyWebPublishedServerChild(PFlyWebPublishedServerChild* aActor) override;
-
   virtual mozilla::ipc::IPCResult
   RecvNotifyPresentationReceiverLaunched(PBrowserChild* aIframe,
                                          const nsString& aSessionId) override;
@@ -371,7 +367,7 @@ public:
   // auto remove when alertfinished is received.
   nsresult AddRemoteAlertObserver(const nsString& aData, nsIObserver* aObserver);
 
-  virtual mozilla::ipc::IPCResult RecvPreferenceUpdate(const PrefSetting& aPref) override;
+  virtual mozilla::ipc::IPCResult RecvPreferenceUpdate(const Pref& aPref) override;
   virtual mozilla::ipc::IPCResult RecvVarUpdate(const GfxVarUpdate& pref) override;
 
   virtual mozilla::ipc::IPCResult RecvDataStoragePut(const nsString& aFilename,
@@ -398,6 +394,8 @@ public:
   virtual mozilla::ipc::IPCResult RecvGeolocationError(const uint16_t& errorCode) override;
 
   virtual mozilla::ipc::IPCResult RecvUpdateDictionaryList(InfallibleTArray<nsString>&& aDictionaries) override;
+
+  virtual mozilla::ipc::IPCResult RecvUpdateFontList(InfallibleTArray<SystemFontListEntry>&& aFontList) override;
 
   virtual mozilla::ipc::IPCResult RecvUpdateAppLocales(nsTArray<nsCString>&& aAppLocales) override;
   virtual mozilla::ipc::IPCResult RecvUpdateRequestedLocales(nsTArray<nsCString>&& aRequestedLocales) override;
@@ -557,6 +555,7 @@ public:
   virtual PContentPermissionRequestChild*
   AllocPContentPermissionRequestChild(const InfallibleTArray<PermissionRequest>& aRequests,
                                       const IPC::Principal& aPrincipal,
+                                      const bool& aIsHandlingUserInput,
                                       const TabId& aTabId) override;
   virtual bool
   DeallocPContentPermissionRequestChild(PContentPermissionRequestChild* actor) override;
@@ -603,7 +602,7 @@ public:
   RecvSetXPCOMProcessAttributes(const XPCOMInitData& aXPCOMInit,
                                 const StructuredCloneData& aInitialData,
                                 nsTArray<LookAndFeelInt>&& aLookAndFeelIntCache,
-                                nsTArray<FontFamilyListEntry>&& aFontFamilyList) override;
+                                nsTArray<SystemFontListEntry>&& aFontList) override;
 
   virtual mozilla::ipc::IPCResult
   RecvProvideAnonymousTemporaryFile(const uint64_t& aID, const FileDescOrError& aFD) override;
@@ -641,11 +640,11 @@ public:
   SendGetA11yContentId();
 #endif // defined(XP_WIN) && defined(ACCESSIBILITY)
 
-  // Get a reference to the font family list passed from the chrome process,
+  // Get a reference to the font list passed from the chrome process,
   // for use during gfx initialization.
-  InfallibleTArray<mozilla::dom::FontFamilyListEntry>&
-  SystemFontFamilyList() {
-    return mFontFamilies;
+  InfallibleTArray<mozilla::dom::SystemFontListEntry>&
+  SystemFontList() {
+    return mFontList;
   }
 
   // PURLClassifierChild
@@ -749,10 +748,10 @@ private:
 
   InfallibleTArray<nsString> mAvailableDictionaries;
 
-  // Temporary storage for a list of available font families, passed from the
+  // Temporary storage for a list of available fonts, passed from the
   // parent process and used to initialize gfx in the child. Currently used
-  // only on MacOSX.
-  InfallibleTArray<mozilla::dom::FontFamilyListEntry> mFontFamilies;
+  // only on MacOSX and Linux.
+  InfallibleTArray<mozilla::dom::SystemFontListEntry> mFontList;
   // Temporary storage for nsXPLookAndFeel flags.
   nsTArray<LookAndFeelInt> mLookAndFeelCache;
 

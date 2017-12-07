@@ -462,6 +462,7 @@ public:
 
   static bool IsElementAnimateEnabled(JSContext* aCx, JSObject* aObject);
   static bool IsWebAnimationsEnabled(JSContext* aCx, JSObject* aObject);
+  static bool IsWebAnimationsEnabled(mozilla::dom::CallerType aCallerType);
   virtual mozilla::dom::DocumentTimeline* Timeline() override;
   virtual void GetAnimations(
       nsTArray<RefPtr<mozilla::dom::Animation>>& aAnimations) override;
@@ -842,13 +843,6 @@ public:
 
   virtual nsISupports* GetCurrentContentSink() override;
 
-  virtual mozilla::EventStates GetDocumentState() final;
-  // GetDocumentState() mutates the state due to lazy resolution;
-  // and can't be used during parallel traversal. Use this instead,
-  // and ensure GetDocumentState() has been called first.
-  // This will assert if the state is stale.
-  virtual mozilla::EventStates ThreadSafeGetDocumentState() const final;
-
   // Only BlockOnload should call this!
   void AsyncBlockOnload();
 
@@ -993,11 +987,6 @@ public:
   // WebIDL bits
   virtual mozilla::dom::DOMImplementation*
     GetImplementation(mozilla::ErrorResult& rv) override;
-  virtual void
-    RegisterElement(JSContext* aCx, const nsAString& aName,
-                    const mozilla::dom::ElementRegistrationOptions& aOptions,
-                    JS::MutableHandle<JSObject*> aRetval,
-                    mozilla::ErrorResult& rv) override;
   virtual mozilla::dom::StyleSheetList* StyleSheets() override;
   virtual void SetSelectedStyleSheetSet(const nsAString& aSheetSet) override;
   virtual void GetLastStyleSheetSet(nsString& aSheetSet) override;
@@ -1186,14 +1175,8 @@ protected:
   // Do not use this value directly. Call the |IsThirdParty()| method, which
   // caches its result here.
   mozilla::Maybe<bool> mIsThirdParty;
-private:
-  void UpdatePossiblyStaleDocumentState();
-  static bool CustomElementConstructor(JSContext* aCx, unsigned aArgc, JS::Value* aVp);
 
 public:
-  virtual already_AddRefed<mozilla::dom::CustomElementRegistry>
-    GetCustomElementRegistry() override;
-
   RefPtr<mozilla::EventListenerManager> mListenerManager;
   RefPtr<mozilla::dom::StyleSheetList> mDOMStyleSheets;
   RefPtr<nsDOMStyleSheetSetList> mStyleSheetSetList;
@@ -1277,9 +1260,6 @@ public:
   nsCOMPtr<nsIApplicationCache> mApplicationCache;
 
   nsCOMPtr<nsIContent> mFirstBaseNodeWithHref;
-
-  mozilla::EventStates mDocumentState;
-  mozilla::EventStates mGotDocumentState;
 
   RefPtr<nsDOMNavigationTiming> mTiming;
 private:

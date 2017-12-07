@@ -6,7 +6,9 @@
 
 #include "mozilla/dom/KeyframeEffectReadOnly.h"
 
+#include "FrameLayerBuilder.h"
 #include "gfxPrefs.h"
+#include "mozilla/dom/Animation.h"
 #include "mozilla/dom/KeyframeAnimationOptionsBinding.h"
   // For UnrestrictedDoubleOrKeyframeAnimationOptions;
 #include "mozilla/dom/CSSPseudoElement.h"
@@ -15,8 +17,9 @@
 #include "mozilla/AnimationUtils.h"
 #include "mozilla/AutoRestore.h"
 #include "mozilla/EffectSet.h"
-#include "mozilla/GeckoStyleContext.h"
 #include "mozilla/FloatingPoint.h" // For IsFinite
+#include "mozilla/GeckoStyleContext.h"
+#include "mozilla/LayerAnimationInfo.h"
 #include "mozilla/LookAndFeel.h" // For LookAndFeel::GetInt
 #include "mozilla/KeyframeUtils.h"
 #include "mozilla/ServoBindings.h"
@@ -24,11 +27,15 @@
 #include "mozilla/TypeTraits.h"
 #include "Layers.h" // For Layer
 #include "nsComputedDOMStyle.h" // nsComputedDOMStyle::GetStyleContext
+#include "nsContentUtils.h"
 #include "nsCSSPropertyIDSet.h"
 #include "nsCSSProps.h" // For nsCSSProps::PropHasFlags
 #include "nsCSSPseudoElements.h" // For CSSPseudoElementType
+#include "nsDocument.h" // For nsDocument::IsWebAnimationsEnabled
+#include "nsIFrame.h"
 #include "nsIPresShell.h"
 #include "nsIScriptError.h"
+#include "nsRefreshDriver.h"
 #include "nsStyleContextInlines.h"
 
 namespace mozilla {
@@ -526,7 +533,6 @@ KeyframeEffectReadOnly::EnsureBaseStyles(
   RefPtr<ServoStyleContext> baseStyleContext;
   for (const AnimationProperty& property : aProperties) {
     EnsureBaseStyle(property,
-                    mTarget->mPseudoType,
                     presContext,
                     aComputedValues,
                     baseStyleContext);
@@ -536,7 +542,6 @@ KeyframeEffectReadOnly::EnsureBaseStyles(
 void
 KeyframeEffectReadOnly::EnsureBaseStyle(
   const AnimationProperty& aProperty,
-  CSSPseudoElementType aPseudoType,
   nsPresContext* aPresContext,
   const ServoStyleContext* aComputedStyle,
  RefPtr<ServoStyleContext>& aBaseStyleContext)
@@ -555,11 +560,13 @@ KeyframeEffectReadOnly::EnsureBaseStyle(
   }
 
   if (!aBaseStyleContext) {
+    Element* animatingElement =
+      EffectCompositor::GetElementToRestyle(mTarget->mElement,
+                                            mTarget->mPseudoType);
     aBaseStyleContext =
       aPresContext->StyleSet()->AsServo()->GetBaseContextForElement(
-          mTarget->mElement,
+          animatingElement,
           aPresContext,
-          aPseudoType,
           aComputedStyle);
   }
   RefPtr<RawServoAnimationValue> baseValue =
@@ -823,7 +830,7 @@ KeyframeEffectParamsFromUnion(const OptionsType& aOptions,
   if (aOptions.IsUnrestrictedDouble() ||
       // Ignore iterationComposite if the Web Animations API is not enabled,
       // then the default value 'Replace' will be used.
-      !AnimationUtils::IsCoreAPIEnabledForCaller(aCallerType)) {
+      !nsDocument::IsWebAnimationsEnabled(aCallerType)) {
     return result;
   }
 
@@ -1928,8 +1935,8 @@ KeyframeEffectReadOnly::ContainsAnimatedScale(const nsIFrame* aFrame) const
       // here just to be safe.
       return true;
     }
-    gfxSize size = baseStyle.GetScaleValue(aFrame);
-    if (size != gfxSize(1.0f, 1.0f)) {
+    gfx::Size size = baseStyle.GetScaleValue(aFrame);
+    if (size != gfx::Size(1.0f, 1.0f)) {
       return true;
     }
 
@@ -1938,14 +1945,14 @@ KeyframeEffectReadOnly::ContainsAnimatedScale(const nsIFrame* aFrame) const
     // really matter.
     for (const AnimationPropertySegment& segment : prop.mSegments) {
       if (!segment.mFromValue.IsNull()) {
-        gfxSize from = segment.mFromValue.GetScaleValue(aFrame);
-        if (from != gfxSize(1.0f, 1.0f)) {
+        gfx::Size from = segment.mFromValue.GetScaleValue(aFrame);
+        if (from != gfx::Size(1.0f, 1.0f)) {
           return true;
         }
       }
       if (!segment.mToValue.IsNull()) {
-        gfxSize to = segment.mToValue.GetScaleValue(aFrame);
-        if (to != gfxSize(1.0f, 1.0f)) {
+        gfx::Size to = segment.mToValue.GetScaleValue(aFrame);
+        if (to != gfx::Size(1.0f, 1.0f)) {
           return true;
         }
       }
@@ -1970,11 +1977,18 @@ KeyframeEffectReadOnly::UpdateEffectSet(EffectSet* aEffectSet) const
     return;
   }
 
+  nsIFrame* frame = GetAnimationFrame();
   if (HasAnimationOfProperty(eCSSProperty_opacity)) {
     effectSet->SetMayHaveOpacityAnimation();
+    if (frame) {
+      frame->SetMayHaveOpacityAnimation();
+    }
   }
   if (HasAnimationOfProperty(eCSSProperty_transform)) {
     effectSet->SetMayHaveTransformAnimation();
+    if (frame) {
+      frame->SetMayHaveTransformAnimation();
+    }
   }
 }
 

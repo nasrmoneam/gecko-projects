@@ -195,7 +195,7 @@ void
 nsPluginFrame::DestroyFrom(nsIFrame* aDestructRoot, PostDestroyData& aPostDestroyData)
 {
   if (mReflowCallbackPosted) {
-    PresContext()->PresShell()->CancelReflowCallback(this);
+    PresShell()->CancelReflowCallback(this);
   }
 
   // Ensure our DidComposite observer is gone.
@@ -359,7 +359,7 @@ nsPluginFrame::PrepForDrawing(nsIWidget *aWidget)
 #ifdef ACCESSIBILITY
   nsAccessibilityService* accService = nsIPresShell::AccService();
   if (accService) {
-    accService->RecreateAccessible(PresContext()->PresShell(), mContent);
+    accService->RecreateAccessible(PresShell(), mContent);
   }
 #endif
 
@@ -792,7 +792,7 @@ nsPluginFrame::GetRemoteTabChromeOffset()
       if (nsCOMPtr<nsPIDOMWindowOuter> topWindow = window->GetTop()) {
         dom::TabChild* tc = dom::TabChild::GetFrom(topWindow);
         if (tc) {
-          offset += tc->GetChromeDisplacement();
+          offset += tc->GetChromeOffset();
         }
       }
     }
@@ -871,7 +871,7 @@ nsPluginFrame::PaintPrintPlugin(nsIFrame* aFrame, gfxContext* aCtx,
     nsLayoutUtils::PointToGfxPoint(pt, aFrame->PresContext()->AppUnitsPerDevPixel());
 
   gfxContextMatrixAutoSaveRestore autoSR(aCtx);
-  aCtx->SetMatrix(aCtx->CurrentMatrix().PreTranslate(devPixelPt));
+  aCtx->SetMatrixDouble(aCtx->CurrentMatrixDouble().PreTranslate(devPixelPt));
 
   // FIXME - Bug 385435: Doesn't aDirtyRect need translating too?
 

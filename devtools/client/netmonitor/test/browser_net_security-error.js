@@ -47,13 +47,8 @@ add_task(function* () {
       "RECEIVED_REQUEST_HEADERS",
       "UPDATING_REQUEST_COOKIES",
       "RECEIVED_REQUEST_COOKIES",
-      "STARTED_RECEIVING_RESPONSE",
-      "UPDATING_RESPONSE_CONTENT",
-      "RECEIVED_RESPONSE_CONTENT",
       "UPDATING_EVENT_TIMINGS",
       "RECEIVED_EVENT_TIMINGS",
-      "UPDATING_SECURITY_INFO",
-      "RECEIVED_SECURITY_INFO",
     ];
 
     let promises = awaitedEvents.map((event) => {

@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "mozilla/AlreadyAddRefed.h"
+#include "mozilla/gfx/CompositorHitTestInfo.h"
 #include "mozilla/layers/SyncObject.h"
 #include "mozilla/Range.h"
 #include "mozilla/webrender/webrender_ffi.h"
@@ -124,13 +125,17 @@ protected:
 
 class WebRenderAPI
 {
-  NS_INLINE_DECL_REFCOUNTING(WebRenderAPI);
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WebRenderAPI);
 
 public:
   /// This can be called on the compositor thread only.
   static already_AddRefed<WebRenderAPI> Create(layers::CompositorBridgeParentBase* aBridge,
                                                RefPtr<widget::CompositorWidget>&& aWidget,
                                                LayoutDeviceIntSize aSize);
+
+  // Redirect the WR's log to gfxCriticalError/Note.
+  static void InitExternalLogHandler();
+  static void ShutdownExternalLogHandler();
 
   already_AddRefed<WebRenderAPI> Clone();
 
@@ -139,6 +144,10 @@ public:
   void UpdateScrollPosition(const wr::WrPipelineId& aPipelineId,
                             const layers::FrameMetrics::ViewID& aScrollId,
                             const wr::LayoutPoint& aScrollPosition);
+  bool HitTest(const wr::WorldPoint& aPoint,
+               wr::WrPipelineId& aOutPipelineId,
+               layers::FrameMetrics::ViewID& aOutScrollId,
+               gfx::CompositorHitTestInfo& aOutHitInfo);
 
   void GenerateFrame();
   void GenerateFrame(const nsTArray<wr::WrOpacityProperty>& aOpacityArray,
@@ -152,13 +161,14 @@ public:
                       wr::WrPipelineId pipeline_id,
                       const wr::LayoutSize& content_size,
                       wr::BuiltDisplayListDescriptor dl_descriptor,
-                      uint8_t *dl_data,
-                      size_t dl_size,
+                      wr::Vec_u8& dl_data,
                       ResourceUpdateQueue& aResources);
 
   void ClearDisplayList(Epoch aEpoch, wr::WrPipelineId pipeline_id);
 
   void SetRootPipeline(wr::PipelineId aPipeline);
+
+  void RemovePipeline(wr::PipelineId aPipeline);
 
   void UpdateResources(ResourceUpdateQueue& aUpdates);
 
@@ -217,12 +227,13 @@ public:
   void Save();
   void Restore();
   void ClearSave();
+  void Dump();
 
   void Finalize(wr::LayoutSize& aOutContentSize,
                 wr::BuiltDisplayList& aOutDisplayList);
 
   void PushStackingContext(const wr::LayoutRect& aBounds, // TODO: We should work with strongly typed rects
-                           const uint64_t& aAnimationId,
+                           const wr::WrAnimationProperty* aAnimation,
                            const float* aOpacity,
                            const gfx::Matrix4x4* aTransform,
                            wr::TransformStyle aTransformStyle,
@@ -414,6 +425,13 @@ public:
   layers::FrameMetrics::ViewID TopmostScrollId();
   // If the topmost item on the stack is a clip or a scroll layer
   bool TopmostIsClip();
+
+  // Set the hit-test info to be used for all display items until the next call
+  // to SetHitTestInfo or ClearHitTestInfo.
+  void SetHitTestInfo(const layers::FrameMetrics::ViewID& aScrollId,
+                      gfx::CompositorHitTestInfo aHitInfo);
+  // Clears the hit-test info so that subsequent display items will not have it.
+  void ClearHitTestInfo();
 
   // Try to avoid using this when possible.
   wr::WrState* Raw() { return mWrState; }

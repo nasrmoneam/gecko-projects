@@ -19,7 +19,7 @@ interface PublicKeyCredential : Credential {
 
 [SecureContext]
 partial interface PublicKeyCredential {
-    static Promise<boolean> isPlatformAuthenticatorAvailable();
+    static Promise<boolean> isUserVerifyingPlatformAuthenticatorAvailable();
 };
 
 [SecureContext, Pref="security.webauth.webauthn"]
@@ -75,12 +75,18 @@ dictionary PublicKeyCredentialUserEntity : PublicKeyCredentialEntity {
 dictionary AuthenticatorSelectionCriteria {
     AuthenticatorAttachment      authenticatorAttachment;
     boolean                      requireResidentKey = false;
-    boolean                      requireUserVerification = false;
+    UserVerificationRequirement  userVerification = "preferred";
 };
 
 enum AuthenticatorAttachment {
     "platform",       // Platform attachment
     "cross-platform"  // Cross-platform attachment
+};
+
+enum UserVerificationRequirement {
+    "required",
+    "preferred",
+    "discouraged"
 };
 
 dictionary PublicKeyCredentialRequestOptions {
@@ -125,3 +131,4 @@ typedef long COSEAlgorithmIdentifier;
 typedef sequence<AAGUID>      AuthenticatorSelectionList;
 
 typedef BufferSource      AAGUID;
+

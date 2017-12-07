@@ -11,6 +11,12 @@ for var in ('target', 'MOZ_CONFIGURE_OPTIONS', 'CC', 'CC_VERSION', 'CXX'):
 
 DEFINES['CFLAGS'] = ' '.join(CONFIG['OS_CFLAGS'])
 
+cxx_flags = []
+for var in ('OS_CPPFLAGS', 'OS_CXXFLAGS', 'DEBUG', 'OPTIMIZE', 'FRAMEPTR'):
+    cxx_flags += COMPILE_FLAGS.get(var, [])
+
+DEFINES['CXXFLAGS'] = ' '.join(cxx_flags)
+
 if CONFIG['OS_TARGET'] == 'Android':
     DEFINES['ANDROID_PACKAGE_NAME'] = CONFIG['ANDROID_PACKAGE_NAME']
     DEFINES['MOZ_USE_LIBCXX'] = True
@@ -59,7 +65,7 @@ with Files('tests/browser/*451286*'):
     BUG_COMPONENT = ('Toolkit', 'Find Toolbar')
 
 with Files('tests/browser/*594509*'):
-    BUG_COMPONENT = ('Toolkit Graveyard', 'XULRunner')
+    BUG_COMPONENT = ('Toolkit', 'General')
 
 with Files('tests/browser/*982298*'):
     BUG_COMPONENT = ('Core', 'Layout')

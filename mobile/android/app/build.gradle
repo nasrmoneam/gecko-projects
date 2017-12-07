@@ -173,7 +173,6 @@ android {
                 if (mozconfig.substs.MOZ_ANDROID_DISTRIBUTION_DIRECTORY) {
                     srcDir "${mozconfig.substs.MOZ_ANDROID_DISTRIBUTION_DIRECTORY}/assets"
                 }
-                srcDir "${topsrcdir}/mobile/android/app/assets"
             }
         }
 
@@ -247,7 +246,7 @@ dependencies {
     }
 
     if (mozconfig.substs.MOZ_INSTALL_TRACKING) {
-        compile "com.google.android.gms:play-services-ads:${mozconfig.substs.ANDROID_GOOGLE_PLAY_SERVICES_VERSION}"
+        compile "com.google.android.gms:play-services-analytics:${mozconfig.substs.ANDROID_GOOGLE_PLAY_SERVICES_VERSION}"
         compile "com.google.android.gms:play-services-basement:${mozconfig.substs.ANDROID_GOOGLE_PLAY_SERVICES_VERSION}"
     }
 
@@ -314,11 +313,7 @@ task checkstyle(type: Checkstyle) {
 
 task syncPreprocessedCode(type: Sync, dependsOn: rootProject.generateCodeAndResources) {
     into("${project.buildDir}/generated/source/preprocessed_code")
-    from("${topobjdir}/mobile/android/base/generated/preprocessed") {
-        // All other preprocessed code is included in the geckoview project.
-        include '**/AdjustConstants.java'
-        include '**/MmaConstants.java'
-    }
+    from("${topobjdir}/mobile/android/base/generated/preprocessed")
 }
 
 // The localization system uses the moz.build preprocessor to interpolate a .dtd
@@ -567,4 +562,15 @@ android.applicationVariants.all { variant ->
     }
 
     assembleTask.dependsOn dumpTask
+}
+
+// Bug 1415298: make Robolectric find assets.  Fix adapted from
+// https://github.com/robolectric/robolectric/issues/2647.
+android.applicationVariants.all { variant ->
+    def productFlavor = ""
+    variant.productFlavors.each {
+        productFlavor += "${it.name.capitalize()}"
+    }
+    def buildType = "${variant.buildType.name.capitalize()}"
+    tasks["compile${productFlavor}${buildType}UnitTestSources"].dependsOn(tasks["merge${productFlavor}${buildType}Assets"])
 }

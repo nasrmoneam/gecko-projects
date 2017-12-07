@@ -19,7 +19,6 @@ import android.support.annotation.Nullable;
 import org.mozilla.gecko.annotation.RobocopTarget;
 import org.mozilla.gecko.db.BrowserDB;
 import org.mozilla.gecko.distribution.PartnerBrowserCustomizationsClient;
-import org.mozilla.gecko.gfx.LayerView;
 import org.mozilla.gecko.mozglue.SafeIntent;
 import org.mozilla.gecko.notifications.WhatsNewReceiver;
 import org.mozilla.gecko.preferences.GeckoPreferences;
@@ -85,6 +84,8 @@ public class Tabs implements BundleEventListener {
     public static final int LOADURL_EXTERNAL     = 1 << 7;
     /** Indicates the tab is the first shown after Firefox is hidden and restored. */
     public static final int LOADURL_FIRST_AFTER_ACTIVITY_UNHIDDEN = 1 << 8;
+    /** Indicates that we should enter editing mode after opening the tab. */
+    public static final int LOADURL_START_EDITING = 1 << 9;
 
     private static final long PERSIST_TABS_AFTER_MILLISECONDS = 1000 * 2;
 
@@ -97,7 +98,7 @@ public class Tabs implements BundleEventListener {
 
     private Context mAppContext;
     private EventDispatcher mEventDispatcher;
-    private LayerView mLayerView;
+    private GeckoView mGeckoView;
     private ContentObserver mBookmarksContentObserver;
     private PersistTabsRunnable mPersistTabsRunnable;
     private int mPrivateClearColor;
@@ -152,6 +153,7 @@ public class Tabs implements BundleEventListener {
             "Content:SecurityChange",
             "Content:StateChange",
             "Content:LoadError",
+            "Content:DOMContentLoaded",
             "Content:PageShow",
             "Content:DOMTitleChanged",
             "DesktopMode:Changed",
@@ -177,12 +179,13 @@ public class Tabs implements BundleEventListener {
         mPrivateClearColor = Color.RED;
     }
 
-    public synchronized void attachToContext(Context context, LayerView layerView, EventDispatcher eventDispatcher) {
+    public synchronized void attachToContext(Context context, GeckoView geckoView,
+                                             EventDispatcher eventDispatcher) {
         final Context appContext = context.getApplicationContext();
 
         mAppContext = appContext;
         mEventDispatcher = eventDispatcher;
-        mLayerView = layerView;
+        mGeckoView = geckoView;
         mPrivateClearColor = ContextCompat.getColor(context, R.color.tabs_tray_grey_pressed);
         mAccountManager = AccountManager.get(appContext);
 
@@ -204,7 +207,7 @@ public class Tabs implements BundleEventListener {
     }
 
     public void detachFromContext() {
-        mLayerView = null;
+        mGeckoView = null;
     }
 
     /**
@@ -330,10 +333,6 @@ public class Tabs implements BundleEventListener {
         mSelectedTab.updatePageAction();
 
         notifyListeners(tab, TabEvents.SELECTED);
-
-        if (mLayerView != null) {
-            mLayerView.setClearColor(getTabColor(tab));
-        }
 
         if (oldTab != null) {
             notifyListeners(oldTab, TabEvents.UNSELECTED);
@@ -637,6 +636,10 @@ public class Tabs implements BundleEventListener {
             tab.handleContentLoaded();
             notifyListeners(tab, Tabs.TabEvents.LOAD_ERROR);
 
+        } else if ("Content:DOMContentLoaded".equals(event)) {
+            tab.handleContentLoaded();
+            notifyListeners(tab, TabEvents.LOADED);
+
         } else if ("Content:PageShow".equals(event)) {
             tab.setLoadedFromCache(message.getBoolean("fromCache"));
             tab.updateUserRequested(message.getString("userRequested"));
@@ -757,7 +760,8 @@ public class Tabs implements BundleEventListener {
         AUDIO_PLAYING_CHANGE,
         OPENED_FROM_TABS_TRAY,
         MEDIA_PLAYING_CHANGE,
-        MEDIA_PLAYING_RESUME
+        MEDIA_PLAYING_RESUME,
+        START_EDITING,
     }
 
     public void notifyListeners(Tab tab, TabEvents msg) {
@@ -810,8 +814,10 @@ public class Tabs implements BundleEventListener {
             // are also selected/unselected, so it would be redundant to also listen
             // for ADDED/CLOSED events.
             case SELECTED:
-                if (mLayerView != null) {
-                    mLayerView.setSurfaceBackgroundColor(getTabColor(tab));
+                if (mGeckoView != null) {
+                    final int color = getTabColor(tab);
+                    mGeckoView.getSession().getCompositorController().setClearColor(color);
+                    mGeckoView.coverUntilFirstPaint(color);
                 }
                 queuePersistAllTabs();
             case UNSELECTED:
@@ -984,6 +990,7 @@ public class Tabs implements BundleEventListener {
         boolean desktopMode = (flags & LOADURL_DESKTOP) != 0;
         boolean external = (flags & LOADURL_EXTERNAL) != 0;
         final boolean isFirstShownAfterActivityUnhidden = (flags & LOADURL_FIRST_AFTER_ACTIVITY_UNHIDDEN) != 0;
+        final boolean startEditing = (flags & LOADURL_START_EDITING) != 0;
 
         data.putString("url", url);
         data.putString("engine", searchEngine);
@@ -1062,26 +1069,40 @@ public class Tabs implements BundleEventListener {
             selectTab(tabToSelect.getId());
         }
 
+        if (startEditing) {
+            notifyListeners(tabToSelect, TabEvents.START_EDITING);
+        }
+
         // Load favicon instantly for about:home page because it's already cached
         if (AboutPages.isBuiltinIconPage(url)) {
             tabToSelect.loadFavicon();
         }
 
-
         return tabToSelect;
     }
 
     /**
-     * Opens a new tab and loads either about:home or, if PREFS_HOMEPAGE_FOR_EVERY_NEW_TAB is set,
-     * the user's homepage.
+     * Opens a new tab and loads a page according to the user's preferences (by default about:home).
      */
     @RobocopTarget
     public Tab addTab() {
-        return loadUrl(getHomepageForNewTab(mAppContext), Tabs.LOADURL_NEW_TAB);
+        return addTab(Tabs.LOADURL_NONE);
     }
 
+    /**
+     * Opens a new tab and loads a page according to the user's preferences (by default about:home).
+     */
     public Tab addPrivateTab() {
-        return loadUrl(getHomepageForNewTab(mAppContext), Tabs.LOADURL_NEW_TAB | Tabs.LOADURL_PRIVATE);
+        return addTab(Tabs.LOADURL_PRIVATE);
+    }
+
+    /**
+     * Opens a new tab and loads a page according to the user's preferences (by default about:home).
+     *
+     * @param flags additional flags used when opening the tab
+     */
+    public Tab addTab(int flags) {
+        return loadUrl(getHomepageForNewTab(mAppContext), flags | Tabs.LOADURL_NEW_TAB);
     }
 
     /**

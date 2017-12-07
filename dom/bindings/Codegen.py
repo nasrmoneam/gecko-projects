@@ -1549,8 +1549,12 @@ class CGAbstractMethod(CGThing):
     If templateArgs is not None it should be a list of strings containing
     template arguments, and the function will be templatized using those
     arguments.
+
+    canRunScript should be True to generate a MOZ_CAN_RUN_SCRIPT annotation.
     """
-    def __init__(self, descriptor, name, returnType, args, inline=False, alwaysInline=False, static=False, templateArgs=None):
+    def __init__(self, descriptor, name, returnType, args, inline=False,
+                 alwaysInline=False, static=False, templateArgs=None,
+                 canRunScript=False):
         CGThing.__init__(self)
         self.descriptor = descriptor
         self.name = name
@@ -1560,6 +1564,7 @@ class CGAbstractMethod(CGThing):
         self.alwaysInline = alwaysInline
         self.static = static
         self.templateArgs = templateArgs
+        self.canRunScript = canRunScript
 
     def _argstring(self, declare):
         return ', '.join([a.declare() if declare else a.define() for a in self.args])
@@ -1571,6 +1576,8 @@ class CGAbstractMethod(CGThing):
 
     def _decorators(self):
         decorators = []
+        if self.canRunScript:
+            decorators.append('MOZ_CAN_RUN_SCRIPT');
         if self.alwaysInline:
             decorators.append('MOZ_ALWAYS_INLINE')
         elif self.inline:
@@ -1618,9 +1625,10 @@ class CGAbstractStaticMethod(CGAbstractMethod):
     Abstract base class for codegen of implementation-only (no
     declaration) static methods.
     """
-    def __init__(self, descriptor, name, returnType, args):
+    def __init__(self, descriptor, name, returnType, args, canRunScript=False):
         CGAbstractMethod.__init__(self, descriptor, name, returnType, args,
-                                  inline=False, static=True)
+                                  inline=False, static=True,
+                                  canRunScript=canRunScript)
 
     def declare(self):
         # We only have implementation
@@ -1899,11 +1907,11 @@ class CGClassConstructor(CGAbstractStaticMethod):
             signatures = self._ctor.signatures()
             assert len(signatures) == 1
             # Given that HTMLConstructor takes no args, we can just codegen a
-            # call to CreateHTMLElement() in BindingUtils which reuses the
+            # call to CreateXULOrHTMLElement() in BindingUtils which reuses the
             # factory thing in HTMLContentSink. Then we don't have to implement
             # Constructor on all the HTML elements.
             callGenerator = CGPerSignatureCall(signatures[0][0], signatures[0][1],
-                                               "CreateHTMLElement", True,
+                                               "CreateXULOrHTMLElement", True,
                                                self.descriptor, self._ctor,
                                                isConstructor=True)
         else:
@@ -2373,22 +2381,11 @@ class MethodDefiner(PropertyDefiner):
                 if len(signatures) > 1 or len(signatures[0][1]) > 1 or not argTypeIsIID(signatures[0][1][0]):
                     raise TypeError("There should be only one queryInterface method with 1 argument of type IID")
 
-                # Make sure to not stick QueryInterface on abstract interfaces that
-                # have hasXPConnectImpls (like EventTarget).  So only put it on
-                # interfaces that are concrete and all of whose ancestors are abstract.
-                def allAncestorsAbstract(iface):
-                    if not iface.parent:
-                        return True
-                    desc = self.descriptor.getDescriptor(iface.parent.identifier.name)
-                    if desc.concrete:
-                        return False
-                    return allAncestorsAbstract(iface.parent)
+                # Make sure to not stick QueryInterface on abstract interfaces.
                 if (not self.descriptor.interface.hasInterfacePrototypeObject() or
-                    not self.descriptor.concrete or
-                    not allAncestorsAbstract(self.descriptor.interface)):
+                    not self.descriptor.concrete):
                     raise TypeError("QueryInterface is only supported on "
-                                    "interfaces that are concrete and all "
-                                    "of whose ancestors are abstract: " +
+                                    "interfaces that are concrete: " +
                                     self.descriptor.name)
                 condition = "WantsQueryInterface<%s>::Enabled" % descriptor.nativeType
                 self.regular.append({
@@ -2988,7 +2985,8 @@ class CGJsonifyAttributesMethod(CGAbstractMethod):
                 Argument('JS::Handle<JSObject*>', 'obj'),
                 Argument('%s*' % descriptor.nativeType, 'self'),
                 Argument('JS::Rooted<JSObject*>&', 'aResult')]
-        CGAbstractMethod.__init__(self, descriptor, 'JsonifyAttributes', 'bool', args)
+        CGAbstractMethod.__init__(self, descriptor, 'JsonifyAttributes',
+                                  'bool', args, canRunScript=True)
 
     def definition_body(self):
         ret = ''
@@ -7295,9 +7293,6 @@ class CGCallGenerator(CGThing):
     A class to generate an actual call to a C++ object.  Assumes that the C++
     object is stored in a variable whose name is given by the |object| argument.
 
-    needsSubjectPrincipal is a boolean indicating whether the call should
-    receive the subject nsIPrincipal as argument.
-
     needsCallerType is a boolean indicating whether the call should receive
     a PrincipalType for the caller.
 
@@ -7308,8 +7303,7 @@ class CGCallGenerator(CGThing):
     declaring the result variable. If the caller doesn't care about the result
     value, resultVar can be omitted.
     """
-    def __init__(self, isFallible, needsSubjectPrincipal, needsCallerType,
-                 isChromeOnly,
+    def __init__(self, isFallible, needsCallerType, isChromeOnly,
                  arguments, argsPre, returnType, extendedAttributes, descriptor,
                  nativeMethodName, static, object="self", argsPost=[],
                  resultVar=None):
@@ -7371,6 +7365,7 @@ class CGCallGenerator(CGThing):
                 assert resultOutParam == "ptr"
                 args.append(CGGeneric("&" + resultVar))
 
+        needsSubjectPrincipal = "needsSubjectPrincipal" in extendedAttributes
         if needsSubjectPrincipal:
             args.append(CGGeneric("subjectPrincipal"))
 
@@ -7867,7 +7862,7 @@ class CGPerSignatureCall(CGThing):
                 if (CustomElementRegistry::IsCustomElementEnabled()) {
                   CustomElementReactionsStack* reactionsStack = GetCustomElementReactionsStack(${obj});
                   if (reactionsStack) {
-                    ceReaction.emplace(reactionsStack);
+                    ceReaction.emplace(reactionsStack, cx);
                   }
                 }
                 """, obj=objectName)))
@@ -7888,7 +7883,6 @@ class CGPerSignatureCall(CGThing):
         else:
             cgThings.append(CGCallGenerator(
                 self.isFallible(),
-                idlNode.getExtendedAttribute('NeedsSubjectPrincipal'),
                 needsCallerType(idlNode),
                 isChromeOnly(idlNode),
                 self.getArguments(), argsPre, returnType,
@@ -8847,7 +8841,8 @@ class CGSpecializedMethod(CGAbstractStaticMethod):
                 Argument('JS::Handle<JSObject*>', 'obj'),
                 Argument('%s*' % descriptor.nativeType, 'self'),
                 Argument('const JSJitMethodCallArgs&', 'args')]
-        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args)
+        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args,
+                                        canRunScript=True)
 
     def definition_body(self):
         nativeName = CGSpecializedMethod.makeNativeName(self.descriptor,
@@ -8870,7 +8865,8 @@ class CGMethodPromiseWrapper(CGAbstractStaticMethod):
         self.method = methodToWrap
         name = self.makeName(methodToWrap.name)
         args = list(methodToWrap.args)
-        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args)
+        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args,
+                                        canRunScript=True)
 
     def definition_body(self):
         return fill(
@@ -9217,7 +9213,13 @@ class CGSpecializedGetter(CGAbstractStaticMethod):
             Argument('%s*' % descriptor.nativeType, 'self'),
             Argument('JSJitGetterCallArgs', 'args')
         ]
-        CGAbstractStaticMethod.__init__(self, descriptor, name, "bool", args)
+        # StoreInSlot attributes have their getters called from Wrap().  We
+        # really hope they can't run script, and don't want to annotate Wrap()
+        # methods as doing that anyway, so let's not annotate them as
+        # MOZ_CAN_RUN_SCRIPT.
+        CGAbstractStaticMethod.__init__(
+            self, descriptor, name, "bool", args,
+            canRunScript=not attr.getExtendedAttribute("StoreInSlot"))
 
     def definition_body(self):
         if self.attr.isMaplikeOrSetlikeAttr():
@@ -9327,7 +9329,8 @@ class CGGetterPromiseWrapper(CGAbstractStaticMethod):
         self.getter = getterToWrap
         name = self.makeName(getterToWrap.name)
         args = list(getterToWrap.args)
-        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args)
+        CGAbstractStaticMethod.__init__(self, descriptor, name, 'bool', args,
+                                        canRunScript=True)
 
     def definition_body(self):
         return fill(
@@ -9430,7 +9433,8 @@ class CGSpecializedSetter(CGAbstractStaticMethod):
                 Argument('JS::Handle<JSObject*>', 'obj'),
                 Argument('%s*' % descriptor.nativeType, 'self'),
                 Argument('JSJitSetterCallArgs', 'args')]
-        CGAbstractStaticMethod.__init__(self, descriptor, name, "bool", args)
+        CGAbstractStaticMethod.__init__(self, descriptor, name, "bool", args,
+                                        canRunScript=True)
 
     def definition_body(self):
         nativeName = CGSpecializedSetter.makeNativeName(self.descriptor,
@@ -11966,7 +11970,7 @@ class CGDeleteNamedProperty(CGAbstractStaticMethod):
             MOZ_ASSERT(js::IsProxy(proxy));
             MOZ_ASSERT(!xpc::WrapperFactory::IsXrayWrapper(proxy));
             JSAutoCompartment ac(cx, proxy);
-            bool deleteSucceeded;
+            bool deleteSucceeded = false;
             bool found = false;
             $*{namedBody}
             if (!found || deleteSucceeded) {
@@ -14693,7 +14697,7 @@ class CGNativeMember(ClassMethod):
             args.append(Argument("JS::MutableHandle<JSObject*>", "aRetVal"))
 
         # And the nsIPrincipal
-        if self.member.getExtendedAttribute('NeedsSubjectPrincipal'):
+        if 'needsSubjectPrincipal' in self.extendedAttrs:
             # Cheat and assume self.descriptorProvider is a descriptor
             if self.descriptorProvider.interface.isExposedInAnyWorker():
                 args.append(Argument("Maybe<nsIPrincipal*>", "aSubjectPrincipal"))

@@ -42,6 +42,7 @@ UNIFIED_SOURCES += [
     'InProcessWinCompositorWidget.cpp',
     'JumpListItem.cpp',
     'KeyboardLayout.cpp',
+    'LSPAnnotator.cpp',
     'nsAppShell.cpp',
     'nsClipboard.cpp',
     'nsColorPicker.cpp',
@@ -86,11 +87,6 @@ SOURCES += [
     'WindowsUIUtils.cpp',
     'WinMouseScrollHandler.cpp',
 ]
-
-if CONFIG['MOZ_CRASHREPORTER']:
-    UNIFIED_SOURCES += [
-        'LSPAnnotator.cpp',
-    ]
 
 if CONFIG['NS_PRINTING']:
     UNIFIED_SOURCES += [
@@ -147,3 +143,7 @@ CXXFLAGS += CONFIG['MOZ_CAIRO_CFLAGS']
 OS_LIBS += [
     'rpcrt4',
 ]
+
+if CONFIG['_MSC_VER']:
+    # C5038: Suppress initializer list order warnings from wrl.h
+    SOURCES['WindowsUIUtils.cpp'].flags += ['-wd5038']

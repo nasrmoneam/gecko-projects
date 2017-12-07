@@ -2226,6 +2226,20 @@ nsStandardURL::SetPathQueryRef(const nsACString &input)
     return NS_OK;
 }
 
+NS_IMPL_ISUPPORTS(nsStandardURL::Mutator, nsIURISetters, nsIURIMutator)
+
+NS_IMETHODIMP
+nsStandardURL::Mutate(nsIURIMutator** aMutator)
+{
+    RefPtr<nsStandardURL::Mutator> mutator = new nsStandardURL::Mutator();
+    nsresult rv = mutator->InitFromURI(this);
+    if (NS_FAILED(rv)) {
+        return rv;
+    }
+    mutator.forget(aMutator);
+    return NS_OK;
+}
+
 NS_IMETHODIMP
 nsStandardURL::Equals(nsIURI *unknownOther, bool *result)
 {
@@ -3054,7 +3068,7 @@ nsStandardURL::SetRef(const nsACString &input)
 NS_IMETHODIMP
 nsStandardURL::SetDirectory(const nsACString &input)
 {
-    NS_NOTYETIMPLEMENTED("");
+    MOZ_ASSERT_UNREACHABLE("SetDirectory");
     return NS_ERROR_NOT_IMPLEMENTED;
 }
 

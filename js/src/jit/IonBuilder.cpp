@@ -2305,7 +2305,7 @@ IonBuilder::inspectOpcode(JSOp op)
         return jsop_copylexicalenv(false);
 
       case JSOP_ITER:
-        return jsop_iter(GET_INT8(pc));
+        return jsop_iter();
 
       case JSOP_MOREITER:
         return jsop_itermore();
@@ -2439,7 +2439,6 @@ IonBuilder::inspectOpcode(JSOp op)
       case JSOP_GENERATOR:
 
       // Misc
-      case JSOP_ARRAYPUSH:
       case JSOP_DELNAME:
       case JSOP_FINALLY:
       case JSOP_GETRVAL:
@@ -2458,6 +2457,7 @@ IonBuilder::inspectOpcode(JSOp op)
         break;
 
       case JSOP_UNUSED126:
+      case JSOP_UNUSED206:
       case JSOP_UNUSED223:
       case JSOP_LIMIT:
         break;
@@ -4151,7 +4151,7 @@ IonBuilder::selectInliningTargets(const InliningTargets& targets, CallInfo& call
         InliningDecision decision = makeInliningDecision(target, callInfo);
         switch (decision) {
           case InliningDecision_Error:
-            return abort(AbortReason::Alloc);
+            return abort(AbortReason::Error);
           case InliningDecision_DontInline:
           case InliningDecision_WarmUpCountTooLow:
             inlineable = false;
@@ -4363,7 +4363,7 @@ IonBuilder::inlineCallsite(const InliningTargets& targets, CallInfo& callInfo)
         InliningDecision decision = makeInliningDecision(target, callInfo);
         switch (decision) {
           case InliningDecision_Error:
-            return abort(AbortReason::Alloc);
+            return abort(AbortReason::Error);
           case InliningDecision_DontInline:
             return InliningStatus_NotInlined;
           case InliningDecision_WarmUpCountTooLow:
@@ -5114,7 +5114,7 @@ IonBuilder::jsop_funcall(uint32_t argc)
         InliningDecision decision = makeInliningDecision(target, callInfo);
         switch (decision) {
           case InliningDecision_Error:
-            return abort(AbortReason::Alloc);
+            return abort(AbortReason::Error);
           case InliningDecision_DontInline:
           case InliningDecision_WarmUpCountTooLow:
             break;
@@ -5346,7 +5346,7 @@ IonBuilder::jsop_funapplyarguments(uint32_t argc)
     InliningDecision decision = makeInliningDecision(target, callInfo);
     switch (decision) {
       case InliningDecision_Error:
-        return abort(AbortReason::Alloc);
+        return abort(AbortReason::Error);
       case InliningDecision_DontInline:
       case InliningDecision_WarmUpCountTooLow:
         break;
@@ -6122,8 +6122,12 @@ IonBuilder::jsop_newarray_copyonwrite()
     MOZ_ASSERT_IF(info().analysisMode() != Analysis_ArgumentsUsage,
                   templateObject->group()->hasAnyFlags(OBJECT_FLAG_COPY_ON_WRITE));
 
+
+    MConstant* templateConst = MConstant::NewConstraintlessObject(alloc(), templateObject);
+    current->add(templateConst);
+
     MNewArrayCopyOnWrite* ins =
-        MNewArrayCopyOnWrite::New(alloc(), constraints(), templateObject,
+        MNewArrayCopyOnWrite::New(alloc(), constraints(), templateConst,
                                   templateObject->group()->initialHeap(constraints()));
 
     current->add(ins);
@@ -11089,7 +11093,7 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
         InliningDecision decision = makeInliningDecision(commonGetter, callInfo);
         switch (decision) {
           case InliningDecision_Error:
-            return abort(AbortReason::Alloc);
+            return abort(AbortReason::Error);
           case InliningDecision_DontInline:
           case InliningDecision_WarmUpCountTooLow:
             break;
@@ -11665,7 +11669,7 @@ IonBuilder::setPropTryCommonSetter(bool* emitted, MDefinition* obj,
         InliningDecision decision = makeInliningDecision(commonSetter, callInfo);
         switch (decision) {
           case InliningDecision_Error:
-            return abort(AbortReason::Alloc);
+            return abort(AbortReason::Error);
           case InliningDecision_DontInline:
           case InliningDecision_WarmUpCountTooLow:
             break;
@@ -12573,7 +12577,7 @@ IonBuilder::jsop_toid()
 }
 
 AbortReasonOr<Ok>
-IonBuilder::jsop_iter(uint8_t flags)
+IonBuilder::jsop_iter()
 {
     MDefinition* obj = current->pop();
     MInstruction* ins = MGetIteratorCache::New(alloc(), obj);

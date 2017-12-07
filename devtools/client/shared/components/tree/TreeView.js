@@ -7,9 +7,11 @@
 
 // Make this available to both AMD and CJS environments
 define(function (require, exports, module) {
-  const { cloneElement, Component, createFactory, DOM: dom, PropTypes } =
+  const { cloneElement, Component, createFactory } =
     require("devtools/client/shared/vendor/react");
   const { findDOMNode } = require("devtools/client/shared/vendor/react-dom");
+  const PropTypes = require("devtools/client/shared/vendor/react-prop-types");
+  const dom = require("devtools/client/shared/vendor/react-dom-factories");
 
   // Reps
   const { ObjectProvider } = require("./ObjectProvider");
@@ -130,7 +132,6 @@ define(function (require, exports, module) {
       this.toggle = this.toggle.bind(this);
       this.isExpanded = this.isExpanded.bind(this);
       this.onKeyDown = this.onKeyDown.bind(this);
-      this.onKeyUp = this.onKeyUp.bind(this);
       this.onClickRow = this.onClickRow.bind(this);
       this.getSelectedRow = this.getSelectedRow.bind(this);
       this.selectRow = this.selectRow.bind(this);
@@ -228,13 +229,10 @@ define(function (require, exports, module) {
     // Event Handlers
 
     onKeyDown(event) {
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
-        event.key)) {
-        event.preventDefault();
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        return;
       }
-    }
 
-    onKeyUp(event) {
       let row = this.getSelectedRow(this.rows);
       if (!row) {
         return;
@@ -265,8 +263,6 @@ define(function (require, exports, module) {
             this.selectRow(previousRow);
           }
           break;
-        default:
-          return;
       }
 
       event.preventDefault();
@@ -471,7 +467,6 @@ define(function (require, exports, module) {
           role: "tree",
           tabIndex: 0,
           onKeyDown: this.onKeyDown,
-          onKeyUp: this.onKeyUp,
           "aria-label": this.props.label || "",
           "aria-activedescendant": this.state.selected,
           cellPadding: 0,

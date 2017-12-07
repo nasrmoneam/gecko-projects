@@ -149,7 +149,7 @@ nsImageBoxFrame::AttributeChanged(int32_t aNameSpaceID,
 
   if (aAttribute == nsGkAtoms::src) {
     UpdateImage();
-    PresContext()->PresShell()->
+    PresShell()->
       FrameNeedsReflow(this, nsIPresShell::eStyleChange, NS_FRAME_IS_DIRTY);
   }
   else if (aAttribute == nsGkAtoms::validate)
@@ -344,7 +344,7 @@ nsImageBoxFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   DisplayListClipState::AutoClipContainingBlockDescendantsToContentBox
     clip(aBuilder, this, clipFlags);
 
-  nsDisplayList list(aBuilder);
+  nsDisplayList list;
   list.AppendNewToTop(
     new (aBuilder) nsDisplayXULImage(aBuilder, this));
 
@@ -441,12 +441,23 @@ nsImageBoxFrame::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuild
     return result;
   }
 
-  uint32_t containerFlags = imgIContainer::FLAG_NONE;
+  uint32_t containerFlags = imgIContainer::FLAG_ASYNC_NOTIFY;
+  if (aFlags & nsImageRenderer::FLAG_PAINTING_TO_WINDOW) {
+    containerFlags |= imgIContainer::FLAG_HIGH_QUALITY_SCALING;
+  }
   if (aFlags & nsImageRenderer::FLAG_SYNC_DECODE_IMAGES) {
     containerFlags |= imgIContainer::FLAG_SYNC_DECODE;
   }
+
+  const int32_t appUnitsPerDevPixel = PresContext()->AppUnitsPerDevPixel();
+  LayoutDeviceRect fillRect = LayoutDeviceRect::FromAppUnits(dest,
+                                                             appUnitsPerDevPixel);
+  Maybe<SVGImageContext> svgContext;
+  gfx::IntSize decodeSize =
+    nsLayoutUtils::ComputeImageContainerDrawingParameters(imgCon, aItem->Frame(), fillRect,
+                                                          aSc, containerFlags, svgContext);
   RefPtr<layers::ImageContainer> container =
-    imgCon->GetImageContainer(aManager, containerFlags);
+    imgCon->GetImageContainerAtSize(aManager, decodeSize, svgContext, containerFlags);
   if (!container) {
     NS_WARNING("Failed to get image container");
     return DrawResult::NOT_READY;
@@ -459,9 +470,6 @@ nsImageBoxFrame::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuild
   if (key.isNothing()) {
     return DrawResult::BAD_IMAGE;
   }
-  const int32_t appUnitsPerDevPixel = PresContext()->AppUnitsPerDevPixel();
-  LayoutDeviceRect fillRect = LayoutDeviceRect::FromAppUnits(dest,
-                                                             appUnitsPerDevPixel);
   wr::LayoutRect fill = aSc.ToRelativeLayoutRect(fillRect);
 
   LayoutDeviceSize gapSize(0, 0);
@@ -564,8 +572,12 @@ nsDisplayXULImage::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBui
                                            mozilla::layers::WebRenderLayerManager* aManager,
                                            nsDisplayListBuilder* aDisplayListBuilder)
 {
-  ContainerLayerParameters parameter;
-  if (GetLayerState(aDisplayListBuilder, aManager, parameter) != LAYER_ACTIVE) {
+  nsImageBoxFrame* imageFrame = static_cast<nsImageBoxFrame*>(mFrame);
+  if (!imageFrame->CanOptimizeToImageLayer()) {
+    return false;
+  }
+
+  if (!imageFrame->mImageRequest) {
     return false;
   }
 
@@ -577,7 +589,7 @@ nsDisplayXULImage::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBui
     flags |= imgIContainer::FLAG_HIGH_QUALITY_SCALING;
   }
 
-  DrawResult result = static_cast<nsImageBoxFrame*>(mFrame)->
+  DrawResult result = imageFrame->
     CreateWebRenderCommands(aBuilder, aResources, aSc, aManager, this, ToReferenceFrame(), flags);
 
   nsDisplayItemGenericImageGeometry::UpdateDrawResult(this, result);
@@ -861,7 +873,7 @@ nsImageBoxFrame::OnSizeAvailable(imgIRequest* aRequest, imgIContainer* aImage)
                         nsPresContext::CSSPixelsToAppUnits(h));
 
   if (!(GetStateBits() & NS_FRAME_FIRST_REFLOW)) {
-    PresContext()->PresShell()->
+    PresShell()->
       FrameNeedsReflow(this, nsIPresShell::eStyleChange, NS_FRAME_IS_DIRTY);
   }
 
@@ -885,7 +897,7 @@ nsImageBoxFrame::OnLoadComplete(imgIRequest* aRequest, nsresult aStatus)
   } else {
     // Fire an onerror DOM event.
     mIntrinsicSize.SizeTo(0, 0);
-    PresContext()->PresShell()->
+    PresShell()->
       FrameNeedsReflow(this, nsIPresShell::eStyleChange, NS_FRAME_IS_DIRTY);
     FireImageDOMEvent(mContent, eLoadError);
   }

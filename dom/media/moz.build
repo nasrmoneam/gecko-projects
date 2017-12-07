@@ -55,11 +55,11 @@ DIRS += [
     'webvtt',
 ]
 
-if CONFIG['MOZ_ANDROID_HLS_SUPPORT']:
+if CONFIG['MOZ_ANDROID_HLS_SUPPORT'] and CONFIG['MOZ_BUILD_MOBILE_ANDROID_WITH_GRADLE']:
     DIRS += ['hls']
 
 if CONFIG['MOZ_FMP4']:
-    DIRS += ['fmp4']
+    DIRS += ['mp4']
 
 if CONFIG['MOZ_WEBRTC']:
     DIRS += ['bridge']
@@ -98,8 +98,13 @@ EXPORTS += [
     'AudioSampleFormat.h',
     'AudioSegment.h',
     'AudioStream.h',
+    'AutoplayPolicy.h',
+    'BackgroundVideoDecodingPermissionObserver.h',
     'Benchmark.h',
+    'BitReader.h',
     'BufferMediaResource.h',
+    'BufferReader.h',
+    'ByteWriter.h',
     'ChannelMediaDecoder.h',
     'CubebUtils.h',
     'DecoderTraits.h',
@@ -210,8 +215,11 @@ UNIFIED_SOURCES += [
     'AudioStreamTrack.cpp',
     'AudioTrack.cpp',
     'AudioTrackList.cpp',
+    'AutoplayPolicy.cpp',
+    'BackgroundVideoDecodingPermissionObserver.cpp',
     'BaseMediaResource.cpp',
     'Benchmark.cpp',
+    'BitReader.cpp',
     'CanvasCaptureMediaStream.cpp',
     'ChannelMediaDecoder.cpp',
     'ChannelMediaResource.cpp',
@@ -318,7 +326,7 @@ if CONFIG['MOZ_WEBRTC']:
 
 DEFINES['MOZILLA_INTERNAL_API'] = True
 
-if CONFIG['MOZ_ANDROID_HLS_SUPPORT']:
+if CONFIG['MOZ_ANDROID_HLS_SUPPORT'] and CONFIG['MOZ_BUILD_MOBILE_ANDROID_WITH_GRADLE']:
     DEFINES['MOZ_ANDROID_HLS_SUPPORT'] = True
 
 include('/ipc/chromium/chromium-config.mozbuild')
@@ -331,10 +339,5 @@ if CONFIG['GNU_CC']:
         '-Wno-error=attributes',
         '-Wno-error=shadow',
     ]
-
-if CONFIG['_MSC_VER']:
-    # This is intended as a temporary workaround to unblock compilation
-    # on VS2015 in warnings as errors mode.
-    CXXFLAGS += ['-wd4312']
 
 FINAL_LIBRARY = 'xul'

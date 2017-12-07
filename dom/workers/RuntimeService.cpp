@@ -51,6 +51,7 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/dom/Navigator.h"
+#include "mozilla/Monitor.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollector.h"
 #include "nsDOMJSUtils.h"
@@ -250,26 +251,6 @@ GetWorkerPref(const nsACString& aPref,
   }
 
   return result;
-}
-
-// This fn creates a key for a SharedWorker that contains the name, script
-// spec, and the serialized origin attributes:
-// "name|scriptSpec^key1=val1&key2=val2&key3=val3"
-void
-GenerateSharedWorkerKey(const nsACString& aScriptSpec,
-                        const nsAString& aName,
-                        const OriginAttributes& aAttrs,
-                        nsCString& aKey)
-{
-  nsAutoCString suffix;
-  aAttrs.CreateSuffix(suffix);
-
-  aKey.Truncate();
-  aKey.SetCapacity(aName.Length() + aScriptSpec.Length() + suffix.Length() + 2);
-  aKey.Append(NS_ConvertUTF16toUTF8(aName));
-  aKey.Append('|');
-  aKey.Append(aScriptSpec);
-  aKey.Append(suffix);
 }
 
 void
@@ -1601,16 +1582,23 @@ RuntimeService::RegisterWorker(WorkerPrivate* aWorkerPrivate)
     }
 
     if (isSharedWorker) {
-      const nsString& sharedWorkerName(aWorkerPrivate->WorkerName());
-      nsAutoCString key;
-      GenerateSharedWorkerKey(sharedWorkerScriptSpec, sharedWorkerName,
-                              aWorkerPrivate->GetOriginAttributes(), key);
-      MOZ_ASSERT(!domainInfo->mSharedWorkerInfos.Get(key));
+#ifdef DEBUG
+      for (const UniquePtr<SharedWorkerInfo>& data : domainInfo->mSharedWorkerInfos) {
+         if (data->mScriptSpec == sharedWorkerScriptSpec &&
+             data->mName == aWorkerPrivate->WorkerName() &&
+             // We want to be sure that the window's principal subsumes the
+             // SharedWorker's principal and vice versa.
+             data->mWorkerPrivate->GetPrincipal()->Subsumes(aWorkerPrivate->GetPrincipal()) &&
+             aWorkerPrivate->GetPrincipal()->Subsumes(data->mWorkerPrivate->GetPrincipal())) {
+           MOZ_CRASH("We should not instantiate a new SharedWorker!");
+         }
+      }
+#endif
 
-      SharedWorkerInfo* sharedWorkerInfo =
+      UniquePtr<SharedWorkerInfo> sharedWorkerInfo(
         new SharedWorkerInfo(aWorkerPrivate, sharedWorkerScriptSpec,
-                             sharedWorkerName);
-      domainInfo->mSharedWorkerInfos.Put(key, sharedWorkerInfo);
+                             aWorkerPrivate->WorkerName()));
+      domainInfo->mSharedWorkerInfos.AppendElement(Move(sharedWorkerInfo));
     }
   }
 
@@ -1670,18 +1658,11 @@ void
 RuntimeService::RemoveSharedWorker(WorkerDomainInfo* aDomainInfo,
                                    WorkerPrivate* aWorkerPrivate)
 {
-  for (auto iter = aDomainInfo->mSharedWorkerInfos.Iter();
-       !iter.Done();
-       iter.Next()) {
-    SharedWorkerInfo* data = iter.UserData();
+  for (uint32_t i = 0; i < aDomainInfo->mSharedWorkerInfos.Length(); ++i) {
+    const UniquePtr<SharedWorkerInfo>& data =
+      aDomainInfo->mSharedWorkerInfos[i];
     if (data->mWorkerPrivate == aWorkerPrivate) {
-#ifdef DEBUG
-      nsAutoCString key;
-      GenerateSharedWorkerKey(data->mScriptSpec, data->mName,
-                              aWorkerPrivate->GetOriginAttributes(), key);
-      MOZ_ASSERT(iter.Key() == key);
-#endif
-      iter.Remove();
+      aDomainInfo->mSharedWorkerInfos.RemoveElementAt(i);
       break;
     }
   }
@@ -1922,7 +1903,6 @@ RuntimeService::Init()
   if (sDefaultJSSettings.gcSettings[0].key.isNothing()) {
     sDefaultJSSettings.contextOptions = JS::ContextOptions();
     sDefaultJSSettings.chrome.maxScriptRuntime = -1;
-    sDefaultJSSettings.chrome.compartmentOptions.behaviors().setVersion(JSVERSION_DEFAULT);
     sDefaultJSSettings.content.maxScriptRuntime = MAX_SCRIPT_RUN_TIME_SEC;
 #ifdef JS_GC_ZEAL
     sDefaultJSSettings.gcZealFrequency = JS_DEFAULT_ZEAL_FREQ;
@@ -2032,9 +2012,10 @@ RuntimeService::Init()
                         MAX_HARDWARE_CONCURRENCY);
   gMaxHardwareConcurrency = std::max(0, maxHardwareConcurrency);
 
-  rv = InitOSFileConstants();
-  if (NS_FAILED(rv)) {
-    return rv;
+  RefPtr<OSFileConstantsService> osFileConstantsService =
+    OSFileConstantsService::GetOrCreate();
+  if (NS_WARN_IF(!osFileConstantsService)) {
+    return NS_ERROR_FAILURE;
   }
 
   if (NS_WARN_IF(!IndexedDatabaseManager::GetOrCreate())) {
@@ -2081,6 +2062,133 @@ RuntimeService::Shutdown()
       }
     }
   }
+}
+
+namespace {
+
+class CrashIfHangingRunnable : public WorkerControlRunnable
+{
+public:
+  explicit CrashIfHangingRunnable(WorkerPrivate* aWorkerPrivate)
+    : WorkerControlRunnable(aWorkerPrivate, WorkerThreadUnchangedBusyCount)
+    , mMonitor("CrashIfHangingRunnable::mMonitor")
+  {}
+
+  bool
+  WorkerRun(JSContext* aCx, WorkerPrivate* aWorkerPrivate) override
+  {
+    aWorkerPrivate->DumpCrashInformation(mMsg);
+
+    MonitorAutoLock lock(mMonitor);
+    lock.Notify();
+    return true;
+  }
+
+  nsresult
+  Cancel() override
+  {
+    mMsg.Assign("Canceled");
+
+    MonitorAutoLock lock(mMonitor);
+    lock.Notify();
+
+    return NS_OK;
+  }
+
+  void
+  DispatchAndWait()
+  {
+    MonitorAutoLock lock(mMonitor);
+
+    if (!Dispatch()) {
+      mMsg.Assign("Dispatch Error");
+      return;
+    }
+
+    lock.Wait();
+  }
+
+  const nsCString&
+  MsgData() const
+  {
+    return mMsg;
+  }
+
+private:
+  bool
+  PreDispatch(WorkerPrivate* aWorkerPrivate) override
+  {
+    return true;
+  }
+
+  void
+  PostDispatch(WorkerPrivate* aWorkerPrivate, bool aDispatchResult) override
+  {}
+
+  Monitor mMonitor;
+  nsCString mMsg;
+};
+
+} // anonymous
+
+void
+RuntimeService::CrashIfHanging()
+{
+  MutexAutoLock lock(mMutex);
+
+  if (mDomainMap.IsEmpty()) {
+    return;
+  }
+
+  uint32_t activeWorkers = 0;
+  uint32_t activeServiceWorkers = 0;
+  uint32_t inactiveWorkers = 0;
+
+  nsTArray<WorkerPrivate*> workers;
+
+  for (auto iter = mDomainMap.Iter(); !iter.Done(); iter.Next()) {
+    WorkerDomainInfo* aData = iter.UserData();
+
+    activeWorkers += aData->mActiveWorkers.Length();
+    activeServiceWorkers += aData->mActiveServiceWorkers.Length();
+
+    workers.AppendElements(aData->mActiveWorkers);
+    workers.AppendElements(aData->mActiveServiceWorkers);
+
+    // These might not be top-level workers...
+    for (uint32_t index = 0; index < aData->mQueuedWorkers.Length(); index++) {
+      WorkerPrivate* worker = aData->mQueuedWorkers[index];
+      if (!worker->GetParent()) {
+        ++inactiveWorkers;
+      }
+    }
+  }
+
+  // We must have something pending...
+  MOZ_DIAGNOSTIC_ASSERT(activeWorkers + activeServiceWorkers + inactiveWorkers);
+
+  nsCString msg;
+
+  // A: active Workers | S: active ServiceWorkers | Q: queued Workers
+  msg.AppendPrintf("Workers Hanging - A:%d|S:%d|Q:%d", activeWorkers,
+                   activeServiceWorkers, inactiveWorkers);
+
+  // For each thread, let's print some data to know what is going wrong.
+  for (uint32_t i = 0; i < workers.Length(); ++i) {
+    WorkerPrivate* workerPrivate = workers[i];
+
+    // BC: Busy Count
+    msg.AppendPrintf("-BC:%d", workerPrivate->BusyCount());
+
+    RefPtr<CrashIfHangingRunnable> runnable = new
+      CrashIfHangingRunnable(workerPrivate);
+    runnable->DispatchAndWait();
+
+    msg.Append(runnable->MsgData());
+  }
+
+  // This string will be leaked.
+  MOZ_CRASH_UNSAFE_OOL(strdup(msg.BeginReading()));
 }
 
 // This spins the event loop until all workers are finished and their threads
@@ -2205,7 +2313,6 @@ RuntimeService::Cleanup()
     }
   }
 
-  CleanupOSFileConstants();
   nsLayoutStatics::Release();
 }
 
@@ -2372,21 +2479,25 @@ RuntimeService::CreateSharedWorkerFromLoadInfo(JSContext* aCx,
   {
     MutexAutoLock lock(mMutex);
 
-    WorkerDomainInfo* domainInfo;
-    SharedWorkerInfo* sharedWorkerInfo;
-
     nsCString scriptSpec;
     nsresult rv = aLoadInfo->mResolvedScriptURI->GetSpec(scriptSpec);
     NS_ENSURE_SUCCESS(rv, rv);
 
     MOZ_ASSERT(aLoadInfo->mPrincipal);
-    nsAutoCString key;
-    GenerateSharedWorkerKey(scriptSpec, aName,
-        aLoadInfo->mPrincipal->OriginAttributesRef(), key);
 
-    if (mDomainMap.Get(aLoadInfo->mDomain, &domainInfo) &&
-        domainInfo->mSharedWorkerInfos.Get(key, &sharedWorkerInfo)) {
-      workerPrivate = sharedWorkerInfo->mWorkerPrivate;
+    WorkerDomainInfo* domainInfo;
+    if (mDomainMap.Get(aLoadInfo->mDomain, &domainInfo)) {
+      for (const UniquePtr<SharedWorkerInfo>& data : domainInfo->mSharedWorkerInfos) {
+        if (data->mScriptSpec == scriptSpec &&
+            data->mName == aName &&
+            // We want to be sure that the window's principal subsumes the
+            // SharedWorker's principal and vice versa.
+            aLoadInfo->mPrincipal->Subsumes(data->mWorkerPrivate->GetPrincipal()) &&
+            data->mWorkerPrivate->GetPrincipal()->Subsumes(aLoadInfo->mPrincipal)) {
+          workerPrivate = data->mWorkerPrivate;
+          break;
+        }
+      }
     }
   }
 

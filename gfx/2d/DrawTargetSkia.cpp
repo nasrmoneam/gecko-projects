@@ -50,6 +50,8 @@
 #include "ScaledFontDWrite.h"
 #endif
 
+using namespace std;
+
 namespace mozilla {
 namespace gfx {
 
@@ -276,6 +278,7 @@ GetSkImageForSurface(SourceSurface* aSurface, const Rect* aBounds = nullptr, con
 
 DrawTargetSkia::DrawTargetSkia()
   : mSnapshot(nullptr)
+  , mSnapshotLock{"DrawTargetSkia::mSnapshotLock"}
 #ifdef MOZ_WIDGET_COCOA
   , mCG(nullptr)
   , mColorSpace(nullptr)
@@ -288,6 +291,12 @@ DrawTargetSkia::DrawTargetSkia()
 
 DrawTargetSkia::~DrawTargetSkia()
 {
+  if (mSnapshot) {
+    MutexAutoLock lock(mSnapshotLock);
+    // We're going to go away, hand our SkSurface to the SourceSurface.
+    mSnapshot->GiveSurface(mSurface);
+  }
+
 #ifdef MOZ_WIDGET_COCOA
   if (mCG) {
     CGContextRelease(mCG);
@@ -304,6 +313,9 @@ DrawTargetSkia::~DrawTargetSkia()
 already_AddRefed<SourceSurface>
 DrawTargetSkia::Snapshot()
 {
+  // Without this lock, this could cause us to get out a snapshot and race with
+  // Snapshot::~Snapshot() actually destroying itself.
+  MutexAutoLock lock(mSnapshotLock);
   RefPtr<SourceSurfaceSkia> snapshot = mSnapshot;
   if (mSurface && !snapshot) {
     snapshot = new SourceSurfaceSkia();
@@ -1570,12 +1582,14 @@ DrawTarget::Draw3DTransformedSurface(SourceSurface* aSurface, const Matrix4x4& a
   if (!dstSurf) {
     return false;
   }
+
+  DataSourceSurface::ScopedMap map(dstSurf, DataSourceSurface::READ_WRITE);
   std::unique_ptr<SkCanvas> dstCanvas(
     SkCanvas::MakeRasterDirect(
                         SkImageInfo::Make(xformBounds.Width(), xformBounds.Height(),
                         GfxFormatToSkiaColorType(dstSurf->GetFormat()),
                         kPremul_SkAlphaType),
-      dstSurf->GetData(), dstSurf->Stride()));
+      map.GetData(), map.GetStride()));
   if (!dstCanvas) {
     return false;
   }
@@ -1743,13 +1757,14 @@ DrawTargetSkia::OptimizeSourceSurfaceForUnknownAlpha(SourceSurface *aSurface) co
   }
 
   RefPtr<DataSourceSurface> dataSurface = aSurface->GetDataSurface();
+  DataSourceSurface::ScopedMap map(dataSurface, DataSourceSurface::READ_WRITE);
 
   // For plugins, GDI can sometimes just write 0 to the alpha channel
   // even for RGBX formats. In this case, we have to manually write
   // the alpha channel to make Skia happy with RGBX and in case GDI
   // writes some bad data. Luckily, this only happens on plugins.
-  WriteRGBXFormat(dataSurface->GetData(), dataSurface->GetSize(),
-                  dataSurface->Stride(), dataSurface->GetFormat());
+  WriteRGBXFormat(map.GetData(), dataSurface->GetSize(),
+                  map.GetStride(), dataSurface->GetFormat());
   return dataSurface.forget();
 }
 
@@ -1772,8 +1787,11 @@ DrawTargetSkia::OptimizeSourceSurface(SourceSurface *aSurface) const
   // to trigger any required readback so that it only happens
   // once.
   RefPtr<DataSourceSurface> dataSurface = aSurface->GetDataSurface();
-  MOZ_ASSERT(VerifyRGBXFormat(dataSurface->GetData(), dataSurface->GetSize(),
-                              dataSurface->Stride(), dataSurface->GetFormat()));
+#ifdef DEBUG
+  DataSourceSurface::ScopedMap map(dataSurface, DataSourceSurface::READ);
+  MOZ_ASSERT(VerifyRGBXFormat(map.GetData(), dataSurface->GetSize(),
+                              map.GetStride(), dataSurface->GetFormat()));
+#endif
   return dataSurface.forget();
 }
 
@@ -2214,7 +2232,17 @@ DrawTargetSkia::CreateFilter(FilterType aType)
 void
 DrawTargetSkia::MarkChanged()
 {
+  // I'm not entirely certain whether this lock is needed, as multiple threads
+  // should never modify the DrawTarget at the same time anyway, but this seems
+  // like the safest.
+  MutexAutoLock lock(mSnapshotLock);
   if (mSnapshot) {
+    if (mSnapshot->hasOneRef()) {
+      // No owners outside of this DrawTarget's own reference. Just dump it.
+      mSnapshot = nullptr;
+      return;
+    }
+
     mSnapshot->DrawTargetWillChange();
     mSnapshot = nullptr;
 
@@ -2223,12 +2251,6 @@ DrawTargetSkia::MarkChanged()
       mSurface->notifyContentWillChange(SkSurface::kRetain_ContentChangeMode);
     }
   }
-}
-
-void
-DrawTargetSkia::SnapshotDestroyed()
-{
-  mSnapshot = nullptr;
 }
 
 } // namespace gfx

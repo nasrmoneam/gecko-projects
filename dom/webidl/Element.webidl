@@ -69,6 +69,8 @@ interface Element : Node {
   HTMLCollection getElementsByTagNameNS(DOMString? namespace, DOMString localName);
   [Pure]
   HTMLCollection getElementsByClassName(DOMString classNames);
+  [ChromeOnly, Pure]
+  sequence<Element> getElementsWithGrid();
 
   [CEReactions, Throws, Pure]
   Element? insertAdjacentElement(DOMString where, Element element); // historical
@@ -219,7 +221,7 @@ partial interface Element {
 
 // http://domparsing.spec.whatwg.org/#extensions-to-the-element-interface
 partial interface Element {
-  [CEReactions, Pure,SetterThrows,TreatNullAs=EmptyString]
+  [CEReactions, SetterNeedsSubjectPrincipal, Pure, SetterThrows, TreatNullAs=EmptyString]
   attribute DOMString innerHTML;
   [CEReactions, Pure,SetterThrows,TreatNullAs=EmptyString]
   attribute DOMString outerHTML;
@@ -245,9 +247,9 @@ partial interface Element {
   // Shadow DOM v1
   [Throws, Pref="dom.webcomponents.enabled"]
   ShadowRoot attachShadow(ShadowRootInit shadowRootInitDict);
-  [Pref="dom.webcomponents.enabled"]
+  [BinaryName="shadowRootByMode", Pref="dom.webcomponents.enabled"]
   readonly attribute ShadowRoot? shadowRoot;
-  [Pref="dom.webcomponents.enabled"]
+  [BinaryName="assignedSlotByMode", Pref="dom.webcomponents.enabled"]
   readonly attribute HTMLSlotElement? assignedSlot;
   [CEReactions, Unscopable, SetterThrows, Pref="dom.webcomponents.enabled"]
            attribute DOMString slot;

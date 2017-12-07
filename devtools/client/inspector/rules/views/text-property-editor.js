@@ -360,12 +360,14 @@ TextPropertyEditor.prototype = {
       colorSwatchClass: SHARED_SWATCH_CLASS + " " + COLOR_SWATCH_CLASS,
       filterClass: "ruleview-filter",
       filterSwatchClass: SHARED_SWATCH_CLASS + " " + FILTER_SWATCH_CLASS,
+      flexClass: "ruleview-flex",
       gridClass: "ruleview-grid",
       shapeClass: "ruleview-shape",
       defaultColorType: !propDirty,
       urlClass: "theme-link",
       baseURI: this.sheetHref,
-      unmatchedVariableClass: "ruleview-variable-unmatched",
+      unmatchedVariableClass: "ruleview-unmatched-variable",
+      matchedVariableClass: "ruleview-variable",
       isVariableInUse: varName => this.rule.elementStyle.getVariable(varName),
     };
     let frag = outputParser.parseCssProperty(name, val, parserOptions);
@@ -436,6 +438,15 @@ TextPropertyEditor.prototype = {
         angleSpan.on("unit-change", this._onSwatchCommit);
         let title = l10n("rule.angleSwatch.tooltip");
         angleSpan.setAttribute("title", title);
+      }
+    }
+
+    let flexToggle = this.valueSpan.querySelector(".ruleview-flex");
+    if (flexToggle) {
+      flexToggle.setAttribute("title", l10n("rule.flexToggle.tooltip"));
+      if (this.ruleView.highlighters.flexboxHighlighterShown ===
+          this.ruleView.inspector.selection.nodeFront) {
+        flexToggle.classList.add("active");
       }
     }
 
@@ -800,6 +811,7 @@ TextPropertyEditor.prototype = {
                            !parsedProperties.propertiesToAdd.length &&
                            this.committed.value === val.value &&
                            this.committed.priority === val.priority;
+
     // If the value is not empty and unchanged, revert the property back to
     // its original value and enabled or disabled state
     if (value.trim() && isValueUnchanged) {
@@ -807,6 +819,12 @@ TextPropertyEditor.prototype = {
                                                 val.priority);
       this.rule.setPropertyEnabled(this.prop, this.prop.enabled);
       return;
+    }
+
+    // Since the value was changed, check if the original propertywas a flex or grid
+    // display declaration and hide their respective highlighters.
+    if (this.isDisplayFlex()) {
+      this.ruleView.highlighters.hideFlexboxHighlighter();
     }
 
     if (this.isDisplayGrid()) {
@@ -942,14 +960,23 @@ TextPropertyEditor.prototype = {
   },
 
   /**
+   * Returns true if the property is a `display: [inline-]flex` declaration.
+   *
+   * @return {Boolean} true if the property is a `display: [inline-]flex` declaration.
+   */
+  isDisplayFlex: function () {
+    return this.prop.name === "display" &&
+      (this.prop.value === "flex" || this.prop.value === "inline-flex");
+  },
+
+  /**
    * Returns true if the property is a `display: [inline-]grid` declaration.
    *
    * @return {Boolean} true if the property is a `display: [inline-]grid` declaration.
    */
   isDisplayGrid: function () {
     return this.prop.name === "display" &&
-      (this.prop.value === "grid" ||
-       this.prop.value === "inline-grid");
+      (this.prop.value === "grid" || this.prop.value === "inline-grid");
   },
 
   /**
@@ -1014,4 +1041,4 @@ TextPropertyEditor.prototype = {
   },
 };
 
-exports.TextPropertyEditor = TextPropertyEditor;
+module.exports = TextPropertyEditor;

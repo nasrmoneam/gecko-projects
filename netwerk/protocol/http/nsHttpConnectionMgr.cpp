@@ -4954,12 +4954,7 @@ nsConnectionEntry::nsConnectionEntry(nsHttpConnectionInfo *ci)
     MOZ_COUNT_CTOR(nsConnectionEntry);
 
     if (mConnInfo->FirstHopSSL()) {
-#if defined(_WIN64) && defined(WIN95)
-        mUseFastOpen = gHttpHandler->UseFastOpen() &&
-                       gSocketTransportService->HasFileDesc2PlatformOverlappedIOHandleFunc();
-#else
         mUseFastOpen = gHttpHandler->UseFastOpen();
-#endif
     } else {
         // Only allow the TCP fast open on a secure connection.
         mUseFastOpen = false;
@@ -5198,6 +5193,12 @@ nsConnectionEntry::AppendPendingQForNonFocusedWindows(
         it.UserData()->RemoveElementsAt(0, count);
 
         if (maxCount && totalCount == maxCount) {
+            if (it.UserData()->Length()) {
+                // There are still some pending transactions for background
+                // tabs but we limit their dispatch.  This is considered as
+                // an active tab optimization.
+                nsHttp::NotifyActiveTabLoadOptimization();
+            }
             break;
         }
     }

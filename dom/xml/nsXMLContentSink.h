@@ -99,7 +99,7 @@ protected:
   // stylesheets are all done loading.
   virtual void MaybeStartLayout(bool aIgnorePendingSheets);
 
-  virtual nsresult AddAttributes(const char16_t** aNode, nsIContent* aContent);
+  virtual nsresult AddAttributes(const char16_t** aNode, Element* aElement);
   nsresult AddText(const char16_t* aString, int32_t aLength);
 
   virtual bool OnOpenContainer(const char16_t **aAtts,
@@ -139,7 +139,7 @@ protected:
 
   void DidAddContent()
   {
-    if (IsTimeToNotify()) {
+    if (!mXSLTProcessor && IsTimeToNotify()) {
       FlushTags();
     }
   }
@@ -190,6 +190,12 @@ protected:
   nsTArray<StackNode>              mContentStack;
 
   nsCOMPtr<nsIDocumentTransformer> mXSLTProcessor;
+
+  // Holds the children in the prolog until the root element is added, after which they're
+  // inserted in the document. However, if we're doing an XSLT transform this will
+  // actually hold all the children of the source document, until the transform is
+  // finished. After the transform is finished we'll just discard the children. 
+  nsTArray<nsCOMPtr<nsIContent>> mDocumentChildren;
 
   static const int NS_ACCUMULATION_BUFFER_SIZE = 4096;
   // Our currently accumulated text that we have not flushed to a textnode yet.

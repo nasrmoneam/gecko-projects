@@ -208,11 +208,10 @@ NS_INTERFACE_MAP_END
 NS_IMPL_ADDREF(nsDOMWindowUtils)
 NS_IMPL_RELEASE(nsDOMWindowUtils)
 
-nsDOMWindowUtils::nsDOMWindowUtils(nsGlobalWindow *aWindow)
+nsDOMWindowUtils::nsDOMWindowUtils(nsGlobalWindowOuter *aWindow)
 {
   nsCOMPtr<nsISupports> supports = do_QueryObject(aWindow);
   mWindow = do_GetWeakReference(supports);
-  NS_ASSERTION(aWindow->IsOuterWindow(), "How did that happen?");
 }
 
 nsDOMWindowUtils::~nsDOMWindowUtils()
@@ -320,6 +319,19 @@ nsDOMWindowUtils::GetDocCharsetIsForced(bool *aIsForced)
   nsIDocument* doc = GetDocument();
   *aIsForced = doc &&
     doc->GetDocumentCharacterSetSource() >= kCharsetFromParentForced;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::GetPhysicalMillimeterInCSSPixels(float* aPhysicalMillimeter)
+{
+  nsPresContext* presContext = GetPresContext();
+  if (!presContext) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  *aPhysicalMillimeter = presContext->AppUnitsToFloatCSSPixels(
+    presContext->PhysicalMillimetersToAppUnits(1));
   return NS_OK;
 }
 
@@ -2357,7 +2369,7 @@ nsDOMWindowUtils::IsInModalState(bool *retval)
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_STATE(window);
 
-  *retval = nsGlobalWindow::Cast(window)->IsInModalState();
+  *retval = nsGlobalWindowOuter::Cast(window)->IsInModalState();
   return NS_OK;
 }
 
@@ -2377,7 +2389,6 @@ nsDOMWindowUtils::GetOuterWindowID(uint64_t *aWindowID)
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_STATE(window);
 
-  NS_ASSERTION(window->IsOuterWindow(), "How did that happen?");
   *aWindowID = window->WindowID();
   return NS_OK;
 }
@@ -2388,9 +2399,8 @@ nsDOMWindowUtils::GetCurrentInnerWindowID(uint64_t *aWindowID)
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_TRUE(window, NS_ERROR_NOT_AVAILABLE);
 
-  NS_ASSERTION(window->IsOuterWindow(), "How did that happen?");
-  nsGlobalWindow* inner =
-    nsGlobalWindow::Cast(window)->GetCurrentInnerWindowInternal();
+  nsGlobalWindowInner* inner =
+    nsGlobalWindowOuter::Cast(window)->GetCurrentInnerWindowInternal();
   if (!inner) {
     return NS_ERROR_NOT_AVAILABLE;
   }
@@ -2957,6 +2967,7 @@ NS_IMETHODIMP
 nsDOMWindowUtils::GetUnanimatedComputedStyle(nsIDOMElement* aElement,
                                              const nsAString& aPseudoElement,
                                              const nsAString& aProperty,
+                                             int32_t aFlushType,
                                              nsAString& aResult)
 {
   nsCOMPtr<Element> element = do_QueryInterface(aElement);
@@ -2971,6 +2982,20 @@ nsDOMWindowUtils::GetUnanimatedComputedStyle(nsIDOMElement* aElement,
     return NS_ERROR_INVALID_ARG;
   }
 
+  switch (aFlushType) {
+    case FLUSH_NONE:
+      break;
+    case FLUSH_STYLE: {
+      nsIDocument* doc = element->GetComposedDoc();
+      if (doc) {
+        doc->FlushPendingNotifications(FlushType::Style);
+      }
+      break;
+    }
+    default:
+      return NS_ERROR_INVALID_ARG;
+  }
+
   nsIPresShell* shell = GetPresShell();
   if (!shell) {
     return NS_ERROR_FAILURE;
@@ -2980,6 +3005,9 @@ nsDOMWindowUtils::GetUnanimatedComputedStyle(nsIDOMElement* aElement,
   RefPtr<nsStyleContext> styleContext =
     nsComputedDOMStyle::GetUnanimatedStyleContextNoFlush(element,
                                                          pseudo, shell);
+  if (!styleContext) {
+    return NS_ERROR_FAILURE;
+  }
 
   if (styleContext->IsServo()) {
     RefPtr<RawServoAnimationValue> value =
@@ -3268,7 +3296,7 @@ nsDOMWindowUtils::EnableDialogs()
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
-  nsGlobalWindow::Cast(window)->EnableDialogs();
+  nsGlobalWindowOuter::Cast(window)->EnableDialogs();
   return NS_OK;
 }
 
@@ -3278,7 +3306,7 @@ nsDOMWindowUtils::DisableDialogs()
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
-  nsGlobalWindow::Cast(window)->DisableDialogs();
+  nsGlobalWindowOuter::Cast(window)->DisableDialogs();
   return NS_OK;
 }
 
@@ -3288,7 +3316,7 @@ nsDOMWindowUtils::AreDialogsEnabled(bool* aResult)
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_TRUE(window, NS_ERROR_FAILURE);
 
-  *aResult = nsGlobalWindow::Cast(window)->AreDialogsEnabled();
+  *aResult = nsGlobalWindowOuter::Cast(window)->AreDialogsEnabled();
   return NS_OK;
 }
 
@@ -3796,7 +3824,7 @@ nsDOMWindowUtils::AllowScriptsToClose()
 {
   nsCOMPtr<nsPIDOMWindowOuter> window = do_QueryReferent(mWindow);
   NS_ENSURE_STATE(window);
-  nsGlobalWindow::Cast(window)->AllowScriptsToClose();
+  nsGlobalWindowOuter::Cast(window)->AllowScriptsToClose();
   return NS_OK;
 }
 

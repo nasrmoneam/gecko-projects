@@ -6,6 +6,7 @@
 #include "mozilla/HTMLEditor.h"
 
 #include "mozilla/DebugOnly.h"
+#include "mozilla/EditorDOMPoint.h"
 #include "mozilla/EventStates.h"
 #include "mozilla/TextEvents.h"
 
@@ -875,7 +876,7 @@ HTMLEditor::IsVisibleBRElement(nsINode* aNode)
     return false;
   }
   // Check if there is a later node in block after br
-  nsCOMPtr<nsINode> nextNode = GetNextHTMLNode(aNode, true);
+  nsCOMPtr<nsINode> nextNode = GetNextEditableHTMLNodeInBlock(*aNode);
   if (nextNode && TextEditUtils::IsBreak(nextNode)) {
     return true;
   }
@@ -894,7 +895,7 @@ HTMLEditor::IsVisibleBRElement(nsINode* aNode)
 
   // If there's an inline node after this one that's not a break, and also a
   // prior break, this break must be visible.
-  nsCOMPtr<nsINode> priorNode = GetPriorHTMLNode(aNode, true);
+  nsCOMPtr<nsINode> priorNode = GetPreviousEditableHTMLNodeInBlock(*aNode);
   if (priorNode && TextEditUtils::IsBreak(priorNode)) {
     return true;
   }
@@ -953,8 +954,7 @@ HTMLEditor::TypedText(const nsAString& aString,
 
   if (aAction == eTypedBR) {
     // only inserts a br node
-    nsCOMPtr<nsIDOMNode> brNode;
-    return InsertBR(address_of(brNode));
+    return InsertBR();
   }
 
   return TextEditor::TypedText(aString, aAction);
@@ -1035,37 +1035,9 @@ HTMLEditor::TabInTable(bool inIsShift,
   return NS_OK;
 }
 
-already_AddRefed<Element>
-HTMLEditor::CreateBR(nsINode* aNode,
-                     int32_t aOffset,
-                     EDirection aSelect)
-{
-  nsCOMPtr<nsIDOMNode> parent = GetAsDOMNode(aNode);
-  int32_t offset = aOffset;
-  nsCOMPtr<nsIDOMNode> outBRNode;
-  // We assume everything is fine if the br is not null, irrespective of retval
-  CreateBRImpl(address_of(parent), &offset, address_of(outBRNode), aSelect);
-  nsCOMPtr<Element> ret = do_QueryInterface(outBRNode);
-  return ret.forget();
-}
-
-NS_IMETHODIMP
-HTMLEditor::CreateBR(nsIDOMNode* aNode,
-                     int32_t aOffset,
-                     nsCOMPtr<nsIDOMNode>* outBRNode,
-                     EDirection aSelect)
-{
-  nsCOMPtr<nsIDOMNode> parent = aNode;
-  int32_t offset = aOffset;
-  return CreateBRImpl(address_of(parent), &offset, outBRNode, aSelect);
-}
-
 nsresult
-HTMLEditor::InsertBR(nsCOMPtr<nsIDOMNode>* outBRNode)
+HTMLEditor::InsertBR()
 {
-  NS_ENSURE_TRUE(outBRNode, NS_ERROR_NULL_POINTER);
-  *outBRNode = nullptr;
-
   // calling it text insertion to trigger moz br treatment by rules
   AutoRules beginRulesSniffing(this, EditAction::insertText, nsIEditor::eNext);
 
@@ -1077,19 +1049,18 @@ HTMLEditor::InsertBR(nsCOMPtr<nsIDOMNode>* outBRNode)
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  nsCOMPtr<nsIDOMNode> selNode;
-  int32_t selOffset;
-  nsresult rv =
-    GetStartNodeAndOffset(selection, getter_AddRefs(selNode), &selOffset);
-  NS_ENSURE_SUCCESS(rv, rv);
+  EditorRawDOMPoint atStartOfSelection(GetStartPoint(selection));
+  if (NS_WARN_IF(!atStartOfSelection.IsSet())) {
+    return NS_ERROR_FAILURE;
+  }
 
-  rv = CreateBR(selNode, selOffset, outBRNode);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // position selection after br
-  selNode = GetNodeLocation(*outBRNode, &selOffset);
-  selection->SetInterlinePosition(true);
-  return selection->Collapse(selNode, selOffset+1);
+  // CreateBRImpl() will set selection after the new <br> element.
+  RefPtr<Element> newBRElement =
+    CreateBRImpl(*selection, atStartOfSelection, nsIEditor::eNext);
+  if (NS_WARN_IF(!newBRElement)) {
+    return NS_ERROR_FAILURE;
+  }
+  return NS_OK;
 }
 
 void
@@ -1526,7 +1497,8 @@ HTMLEditor::InsertElementAtSelection(nsIDOMElement* aElement,
                                  &offsetForInsert);
 
       rv = InsertNodeAtPoint(node, address_of(parentSelectedDOMNode),
-                             &offsetForInsert, false);
+                             &offsetForInsert,
+                             SplitAtEdges::eAllowToCreateEmptyContainer);
       NS_ENSURE_SUCCESS(rv, rv);
       // Set caret after element, but check for special case
       //  of inserting table-related elements: set in first cell instead
@@ -1536,13 +1508,16 @@ HTMLEditor::InsertElementAtSelection(nsIDOMElement* aElement,
       }
       // check for inserting a whole table at the end of a block. If so insert
       // a br after it.
-      if (HTMLEditUtils::IsTable(node)) {
-        if (IsLastEditableChild(element)) {
-          nsCOMPtr<nsIDOMNode> brNode;
-          rv = CreateBR(parentSelectedDOMNode, offsetForInsert + 1,
-                        address_of(brNode));
-          NS_ENSURE_SUCCESS(rv, rv);
-          selection->Collapse(parentSelectedDOMNode, offsetForInsert+1);
+      if (HTMLEditUtils::IsTable(node) &&
+          IsLastEditableChild(element)) {
+        // Collapse selection to the new <br> element node after creating it.
+        RefPtr<Element> newBRElement =
+          CreateBRImpl(*selection,
+                       EditorRawDOMPoint(parentSelectedDOMNode,
+                                         offsetForInsert + 1),
+                       ePrevious);
+        if (NS_WARN_IF(!newBRElement)) {
+          return NS_ERROR_FAILURE;
         }
       }
     }
@@ -1568,14 +1543,14 @@ HTMLEditor::InsertElementAtSelection(nsIDOMElement* aElement,
  * @param aNode             Node to insert.
  * @param ioParent          Insertion parent.
  * @param ioOffset          Insertion offset.
- * @param aNoEmptyNodes     Splitting can result in empty nodes?
+ * @param aSplitAtEdges     Splitting can result in empty nodes?
  * @param ioChildAtOffset   Child node at insertion offset (optional).
  */
 nsresult
 HTMLEditor::InsertNodeAtPoint(nsIDOMNode* aNode,
                               nsCOMPtr<nsIDOMNode>* ioParent,
                               int32_t* ioOffset,
-                              bool aNoEmptyNodes,
+                              SplitAtEdges aSplitAtEdges,
                               nsCOMPtr<nsIDOMNode>* ioChildAtOffset)
 {
   nsCOMPtr<nsIContent> node = do_QueryInterface(aNode);
@@ -1622,20 +1597,18 @@ HTMLEditor::InsertNodeAtPoint(nsIDOMNode* aNode,
     parent = parent->GetParent();
   }
   if (parent != topChild) {
-    nsCOMPtr<nsIContent> child;
-    if (ioChildAtOffset) {
-      child = do_QueryInterface(*ioChildAtOffset);
+    // We need to split some levels above the original selection parent.
+    SplitNodeResult splitNodeResult =
+      SplitNodeDeep(*topChild, EditorRawDOMPoint(origParent, *ioOffset),
+                    aSplitAtEdges);
+    if (NS_WARN_IF(splitNodeResult.Failed())) {
+      return splitNodeResult.Rv();
     }
-    // we need to split some levels above the original selection parent
-    int32_t offset = SplitNodeDeep(*topChild, *origParent, *ioOffset,
-                                   aNoEmptyNodes ? EmptyContainers::no
-                                                 : EmptyContainers::yes,
-                                   nullptr, nullptr, address_of(child));
-    NS_ENSURE_STATE(offset != -1);
-    *ioParent = GetAsDOMNode(parent);
-    *ioOffset = offset;
+    EditorRawDOMPoint splitPoint(splitNodeResult.SplitPoint());
+    *ioParent = GetAsDOMNode(splitPoint.Container());
+    *ioOffset = splitPoint.Offset();
     if (ioChildAtOffset) {
-      *ioChildAtOffset = GetAsDOMNode(child);
+      *ioChildAtOffset = GetAsDOMNode(splitPoint.GetChildAtOffset());
     }
   }
   // Now we can insert the new node
@@ -1692,9 +1665,12 @@ HTMLEditor::SetCaretAfterElement(nsIDOMElement* aElement)
   nsresult rv = aElement->GetParentNode(getter_AddRefs(parent));
   NS_ENSURE_SUCCESS(rv, rv);
   NS_ENSURE_TRUE(parent, NS_ERROR_NULL_POINTER);
-  int32_t offsetInParent = GetChildOffset(aElement, parent);
   // Collapse selection to just after desired element,
-  return selection->Collapse(parent, offsetInParent + 1);
+  EditorRawDOMPoint afterElement(element);
+  if (NS_WARN_IF(!afterElement.AdvanceOffset())) {
+    return NS_ERROR_FAILURE;
+  }
+  return selection->Collapse(afterElement);
 }
 
 NS_IMETHODIMP
@@ -1976,49 +1952,56 @@ HTMLEditor::MakeOrChangeList(const nsAString& aListType,
     return rv;
   }
 
-  if (!handled) {
-    // Find out if the selection is collapsed:
-    bool isCollapsed = selection->Collapsed();
-
-    NS_ENSURE_TRUE(selection->GetRangeAt(0) &&
-                   selection->GetRangeAt(0)->GetStartContainer() &&
-                   selection->GetRangeAt(0)->GetStartContainer()->IsContent(),
-                   NS_ERROR_FAILURE);
-    OwningNonNull<nsIContent> node =
-      *selection->GetRangeAt(0)->GetStartContainer()->AsContent();
-    int32_t offset = selection->GetRangeAt(0)->StartOffset();
-    nsCOMPtr<nsIContent> child =
-      selection->GetRangeAt(0)->GetChildAtStartOffset();
-
-    if (isCollapsed) {
-      // have to find a place to put the list
-      nsCOMPtr<nsIContent> parent = node;
-      nsCOMPtr<nsIContent> topChild = node;
-
-      RefPtr<nsAtom> listAtom = NS_Atomize(aListType);
-      while (!CanContainTag(*parent, *listAtom)) {
-        topChild = parent;
-        parent = parent->GetParent();
-      }
-
-      if (parent != node) {
-        // we need to split up to the child of parent
-        offset = SplitNodeDeep(*topChild, *node, offset,
-                               EmptyContainers::yes, nullptr, nullptr,
-                               address_of(child));
-        NS_ENSURE_STATE(offset != -1);
-      }
-
-      // make a list
-      nsCOMPtr<Element> newList = CreateNode(listAtom, parent, offset, child);
-      NS_ENSURE_STATE(newList);
-      // make a list item
-      nsCOMPtr<Element> newItem = CreateNode(nsGkAtoms::li, newList, 0,
-                                             newList->GetFirstChild());
-      NS_ENSURE_STATE(newItem);
-      rv = selection->Collapse(newItem, 0);
-      NS_ENSURE_SUCCESS(rv, rv);
+  if (!handled && selection->Collapsed()) {
+    nsRange* firstRange = selection->GetRangeAt(0);
+    if (NS_WARN_IF(!firstRange)) {
+      return NS_ERROR_FAILURE;
     }
+
+    EditorRawDOMPoint atStartOfSelection(firstRange->StartRef());
+    if (NS_WARN_IF(!atStartOfSelection.IsSet()) ||
+        NS_WARN_IF(!atStartOfSelection.Container()->IsContent())) {
+      return NS_ERROR_FAILURE;
+    }
+
+    // Have to find a place to put the list.
+    EditorDOMPoint pointToInsertList(atStartOfSelection);
+
+    RefPtr<nsAtom> listAtom = NS_Atomize(aListType);
+    while (!CanContainTag(*pointToInsertList.Container(), *listAtom)) {
+      pointToInsertList.Set(pointToInsertList.Container());
+      if (NS_WARN_IF(!pointToInsertList.IsSet()) ||
+          NS_WARN_IF(!pointToInsertList.Container()->IsContent())) {
+        return NS_ERROR_FAILURE;
+      }
+    }
+
+    if (pointToInsertList.Container() != atStartOfSelection.Container()) {
+      // We need to split up to the child of parent.
+      SplitNodeResult splitNodeResult =
+        SplitNodeDeep(*pointToInsertList.GetChildAtOffset(),
+                      atStartOfSelection,
+                      SplitAtEdges::eAllowToCreateEmptyContainer);
+      if (NS_WARN_IF(splitNodeResult.Failed())) {
+        return splitNodeResult.Rv();
+      }
+      pointToInsertList = splitNodeResult.SplitPoint();
+      if (NS_WARN_IF(!pointToInsertList.IsSet())) {
+        return NS_ERROR_FAILURE;
+      }
+    }
+
+    // Create a list and insert it before the right node if we split some
+    // parents of start of selection above, or just start of selection
+    // otherwise.
+    RefPtr<Element> newList = CreateNode(listAtom, pointToInsertList.AsRaw());
+    NS_ENSURE_STATE(newList);
+    // make a list item
+    EditorRawDOMPoint atStartOfNewList(newList, 0);
+    RefPtr<Element> newItem = CreateNode(nsGkAtoms::li, atStartOfNewList);
+    NS_ENSURE_STATE(newItem);
+    rv = selection->Collapse(newItem, 0);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
   return rules->DidDoAction(selection, &ruleInfo, rv);
@@ -2118,48 +2101,55 @@ HTMLEditor::InsertBasicBlock(const nsAString& aBlockType)
     return rv;
   }
 
-  if (!handled) {
-    // Find out if the selection is collapsed:
-    bool isCollapsed = selection->Collapsed();
-
-    NS_ENSURE_TRUE(selection->GetRangeAt(0) &&
-                   selection->GetRangeAt(0)->GetStartContainer() &&
-                   selection->GetRangeAt(0)->GetStartContainer()->IsContent(),
-                   NS_ERROR_FAILURE);
-    OwningNonNull<nsIContent> node =
-      *selection->GetRangeAt(0)->GetStartContainer()->AsContent();
-    int32_t offset = selection->GetRangeAt(0)->StartOffset();
-    nsCOMPtr<nsIContent> child =
-      selection->GetRangeAt(0)->GetChildAtStartOffset();
-
-    if (isCollapsed) {
-      // have to find a place to put the block
-      nsCOMPtr<nsIContent> parent = node;
-      nsCOMPtr<nsIContent> topChild = node;
-
-      RefPtr<nsAtom> blockAtom = NS_Atomize(aBlockType);
-      while (!CanContainTag(*parent, *blockAtom)) {
-        NS_ENSURE_TRUE(parent->GetParent(), NS_ERROR_FAILURE);
-        topChild = parent;
-        parent = parent->GetParent();
-      }
-
-      if (parent != node) {
-        // we need to split up to the child of parent
-        offset = SplitNodeDeep(*topChild, *node, offset,
-                               EmptyContainers::yes, nullptr, nullptr,
-                               address_of(child));
-        NS_ENSURE_STATE(offset != -1);
-      }
-
-      // make a block
-      nsCOMPtr<Element> newBlock = CreateNode(blockAtom, parent, offset, child);
-      NS_ENSURE_STATE(newBlock);
-
-      // reposition selection to inside the block
-      rv = selection->Collapse(newBlock, 0);
-      NS_ENSURE_SUCCESS(rv, rv);
+  if (!handled && selection->Collapsed()) {
+    nsRange* firstRange = selection->GetRangeAt(0);
+    if (NS_WARN_IF(!firstRange)) {
+      return NS_ERROR_FAILURE;
     }
+
+    EditorRawDOMPoint atStartOfSelection(firstRange->StartRef());
+    if (NS_WARN_IF(!atStartOfSelection.IsSet()) ||
+        NS_WARN_IF(!atStartOfSelection.Container()->IsContent())) {
+      return NS_ERROR_FAILURE;
+    }
+
+    // Have to find a place to put the block.
+    EditorDOMPoint pointToInsertBlock(atStartOfSelection);
+
+    RefPtr<nsAtom> blockAtom = NS_Atomize(aBlockType);
+    while (!CanContainTag(*pointToInsertBlock.Container(), *blockAtom)) {
+      pointToInsertBlock.Set(pointToInsertBlock.Container());
+      if (NS_WARN_IF(!pointToInsertBlock.IsSet()) ||
+          NS_WARN_IF(!pointToInsertBlock.Container()->IsContent())) {
+        return NS_ERROR_FAILURE;
+      }
+    }
+
+    if (pointToInsertBlock.Container() != atStartOfSelection.Container()) {
+      // We need to split up to the child of the point to insert a block.
+      SplitNodeResult splitBlockResult =
+        SplitNodeDeep(*pointToInsertBlock.GetChildAtOffset(),
+                      atStartOfSelection,
+                      SplitAtEdges::eAllowToCreateEmptyContainer);
+      if (NS_WARN_IF(splitBlockResult.Failed())) {
+        return splitBlockResult.Rv();
+      }
+      pointToInsertBlock = splitBlockResult.SplitPoint();
+      if (NS_WARN_IF(!pointToInsertBlock.IsSet())) {
+        return NS_ERROR_FAILURE;
+      }
+    }
+
+    // Create a block and insert it before the right node if we split some
+    // parents of start of selection above, or just start of selection
+    // otherwise.
+    RefPtr<Element> newBlock =
+      CreateNode(blockAtom, pointToInsertBlock.AsRaw());
+    NS_ENSURE_STATE(newBlock);
+
+    // reposition selection to inside the block
+    rv = selection->Collapse(newBlock, 0);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
   return rules->DidDoAction(selection, &ruleInfo, rv);
@@ -2193,55 +2183,62 @@ HTMLEditor::Indent(const nsAString& aIndent)
     return rv;
   }
 
-  if (!handled) {
-    // Do default - insert a blockquote node if selection collapsed
-    bool isCollapsed = selection->Collapsed();
+  if (!handled && selection->Collapsed() && aIndent.EqualsLiteral("indent")) {
+    nsRange* firstRange = selection->GetRangeAt(0);
+    if (NS_WARN_IF(!firstRange)) {
+      return NS_ERROR_FAILURE;
+    }
 
-    NS_ENSURE_TRUE(selection->GetRangeAt(0) &&
-                   selection->GetRangeAt(0)->GetStartContainer() &&
-                   selection->GetRangeAt(0)->GetStartContainer()->IsContent(),
-                   NS_ERROR_FAILURE);
-    OwningNonNull<nsIContent> node =
-      *selection->GetRangeAt(0)->GetStartContainer()->AsContent();
-    int32_t offset = selection->GetRangeAt(0)->StartOffset();
-    nsCOMPtr<nsIContent> child =
-      selection->GetRangeAt(0)->GetChildAtStartOffset();
+    EditorRawDOMPoint atStartOfSelection(firstRange->StartRef());
+    if (NS_WARN_IF(!atStartOfSelection.IsSet()) ||
+        NS_WARN_IF(!atStartOfSelection.Container()->IsContent())) {
+      return NS_ERROR_FAILURE;
+    }
 
-    if (aIndent.EqualsLiteral("indent")) {
-      if (isCollapsed) {
-        // have to find a place to put the blockquote
-        nsCOMPtr<nsIContent> parent = node;
-        nsCOMPtr<nsIContent> topChild = node;
-        while (!CanContainTag(*parent, *nsGkAtoms::blockquote)) {
-          NS_ENSURE_TRUE(parent->GetParent(), NS_ERROR_FAILURE);
-          topChild = parent;
-          parent = parent->GetParent();
-        }
+    // Have to find a place to put the blockquote.
+    EditorDOMPoint pointToInsertBlockquote(atStartOfSelection);
 
-        if (parent != node) {
-          // we need to split up to the child of parent
-          offset = SplitNodeDeep(*topChild, *node, offset,
-                                 EmptyContainers::yes, nullptr, nullptr,
-                                 address_of(child));
-          NS_ENSURE_STATE(offset != -1);
-        }
-
-        // make a blockquote
-        nsCOMPtr<Element> newBQ =
-          CreateNode(nsGkAtoms::blockquote, parent, offset, child);
-        NS_ENSURE_STATE(newBQ);
-        // put a space in it so layout will draw the list item
-        rv = selection->Collapse(newBQ, 0);
-        NS_ENSURE_SUCCESS(rv, rv);
-        rv = InsertText(NS_LITERAL_STRING(" "));
-        NS_ENSURE_SUCCESS(rv, rv);
-        // reposition selection to before the space character
-        NS_ENSURE_STATE(selection->GetRangeAt(0));
-        rv = selection->Collapse(selection->GetRangeAt(0)->GetStartContainer(),
-                                 0);
-        NS_ENSURE_SUCCESS(rv, rv);
+    while (!CanContainTag(*pointToInsertBlockquote.Container(),
+                          *nsGkAtoms::blockquote)) {
+      pointToInsertBlockquote.Set(pointToInsertBlockquote.Container());
+      if (NS_WARN_IF(!pointToInsertBlockquote.IsSet()) ||
+          NS_WARN_IF(!pointToInsertBlockquote.Container()->IsContent())) {
+        return NS_ERROR_FAILURE;
       }
     }
+
+    if (pointToInsertBlockquote.Container() !=
+          atStartOfSelection.Container()) {
+      // We need to split up to the child of parent.
+      SplitNodeResult splitBlockquoteResult =
+        SplitNodeDeep(*pointToInsertBlockquote.GetChildAtOffset(),
+                      atStartOfSelection,
+                      SplitAtEdges::eAllowToCreateEmptyContainer);
+      if (NS_WARN_IF(splitBlockquoteResult.Failed())) {
+        return splitBlockquoteResult.Rv();
+      }
+      pointToInsertBlockquote = splitBlockquoteResult.SplitPoint();
+      if (NS_WARN_IF(!pointToInsertBlockquote.IsSet())) {
+        return NS_ERROR_FAILURE;
+      }
+    }
+
+    // Create a list and insert it before the right node if we split some
+    // parents of start of selection above, or just start of selection
+    // otherwise.
+    RefPtr<Element> newBQ =
+      CreateNode(nsGkAtoms::blockquote, pointToInsertBlockquote.AsRaw());
+    NS_ENSURE_STATE(newBQ);
+    // put a space in it so layout will draw the list item
+    rv = selection->Collapse(newBQ, 0);
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = InsertText(NS_LITERAL_STRING(" "));
+    NS_ENSURE_SUCCESS(rv, rv);
+    // reposition selection to before the space character
+    NS_ENSURE_STATE(selection->GetRangeAt(0));
+    rv = selection->Collapse(selection->GetRangeAt(0)->GetStartContainer(),
+                             0);
+    NS_ENSURE_SUCCESS(rv, rv);
   }
   return rules->DidDoAction(selection, &ruleInfo, rv);
 }
@@ -3169,20 +3166,22 @@ HTMLEditor::DeleteText(nsGenericDOMDataNode& aCharData,
 }
 
 nsresult
-HTMLEditor::InsertTextImpl(const nsAString& aStringToInsert,
-                           nsCOMPtr<nsINode>* aInOutNode,
-                           nsCOMPtr<nsIContent>* aInOutChildAtOffset,
-                           int32_t* aInOutOffset,
-                           nsIDocument* aDoc)
+HTMLEditor::InsertTextImpl(nsIDocument& aDocument,
+                           const nsAString& aStringToInsert,
+                           const EditorRawDOMPoint& aPointToInsert,
+                           EditorRawDOMPoint* aPointAfterInsertedString)
 {
+  if (NS_WARN_IF(!aPointToInsert.IsSet())) {
+    return NS_ERROR_INVALID_ARG;
+  }
+
   // Do nothing if the node is read-only
-  if (!IsModifiableNode(*aInOutNode)) {
+  if (!IsModifiableNode(aPointToInsert.Container())) {
     return NS_ERROR_FAILURE;
   }
 
-  return EditorBase::InsertTextImpl(aStringToInsert, aInOutNode,
-                                    aInOutChildAtOffset,
-                                    aInOutOffset, aDoc);
+  return EditorBase::InsertTextImpl(aDocument, aStringToInsert, aPointToInsert,
+                                    aPointAfterInsertedString);
 }
 
 void
@@ -3848,76 +3847,48 @@ HTMLEditor::GetNextHTMLSibling(nsINode* aNode)
   return node;
 }
 
-/**
- * GetPriorHTMLNode() returns the previous editable leaf node, if there is
- * one within the <body>.
- */
 nsIContent*
-HTMLEditor::GetPriorHTMLNode(nsINode* aNode,
-                             bool aNoBlockCrossing)
+HTMLEditor::GetPreviousEditableHTMLNodeInternal(nsINode& aNode,
+                                                bool aNoBlockCrossing)
 {
-  MOZ_ASSERT(aNode);
-
   if (!GetActiveEditingHost()) {
     return nullptr;
   }
-
-  return GetPriorNode(aNode, true, aNoBlockCrossing);
+  return aNoBlockCrossing ? GetPreviousEditableNodeInBlock(aNode) :
+                            GetPreviousEditableNode(aNode);
 }
 
-/**
- * GetPriorHTMLNode() is same as above but takes {parent,offset} instead of
- * node.
- */
 nsIContent*
-HTMLEditor::GetPriorHTMLNode(nsINode* aParent,
-                             int32_t aOffset,
-                             nsINode* aChildAtOffset,
-                             bool aNoBlockCrossing)
+HTMLEditor::GetPreviousEditableHTMLNodeInternal(const EditorRawDOMPoint& aPoint,
+                                                bool aNoBlockCrossing)
 {
-  MOZ_ASSERT(aParent);
-
   if (!GetActiveEditingHost()) {
     return nullptr;
   }
-
-  return GetPriorNode(aParent, aOffset, aChildAtOffset, true, aNoBlockCrossing);
+  return aNoBlockCrossing ? GetPreviousEditableNodeInBlock(aPoint) :
+                            GetPreviousEditableNode(aPoint);
 }
 
-/**
- * GetNextHTMLNode() returns the next editable leaf node, if there is
- * one within the <body>.
- */
 nsIContent*
-HTMLEditor::GetNextHTMLNode(nsINode* aNode,
-                            bool aNoBlockCrossing)
+HTMLEditor::GetNextEditableHTMLNodeInternal(nsINode& aNode,
+                                            bool aNoBlockCrossing)
 {
-  MOZ_ASSERT(aNode);
-
-  nsIContent* result = GetNextNode(aNode, true, aNoBlockCrossing);
-
-  if (result && !IsDescendantOfEditorRoot(result)) {
+  if (!GetActiveEditingHost()) {
     return nullptr;
   }
-
-  return result;
+  return aNoBlockCrossing ? GetNextEditableNodeInBlock(aNode) :
+                            GetNextEditableNode(aNode);
 }
 
-/**
- * GetNextHTMLNode() is same as above but takes {parent,offset} instead of node.
- */
 nsIContent*
-HTMLEditor::GetNextHTMLNode(nsINode* aParent,
-                            int32_t aOffset,
-                            nsINode* aChildAtOffset,
-                            bool aNoBlockCrossing)
+HTMLEditor::GetNextEditableHTMLNodeInternal(const EditorRawDOMPoint& aPoint,
+                                            bool aNoBlockCrossing)
 {
-  nsIContent* content = GetNextNode(aParent, aOffset, aChildAtOffset,
-                                    true, aNoBlockCrossing);
-  if (content && !IsDescendantOfEditorRoot(content)) {
+  if (!GetActiveEditingHost()) {
     return nullptr;
   }
-  return content;
+  return aNoBlockCrossing ? GetNextEditableNodeInBlock(aPoint) :
+                            GetNextEditableNode(aPoint);
 }
 
 bool
@@ -3973,7 +3944,7 @@ HTMLEditor::GetFirstEditableLeaf(nsINode& aNode)
 {
   nsCOMPtr<nsIContent> child = GetLeftmostChild(&aNode);
   while (child && (!IsEditable(child) || child->HasChildren())) {
-    child = GetNextHTMLNode(child);
+    child = GetNextEditableHTMLNode(*child);
 
     // Only accept nodes that are descendants of aNode
     if (!aNode.Contains(child)) {
@@ -3989,7 +3960,7 @@ HTMLEditor::GetLastEditableLeaf(nsINode& aNode)
 {
   nsCOMPtr<nsIContent> child = GetRightmostChild(&aNode, false);
   while (child && (!IsEditable(child) || child->HasChildren())) {
-    child = GetPriorHTMLNode(child);
+    child = GetPreviousEditableHTMLNode(*child);
 
     // Only accept nodes that are descendants of aNode
     if (!aNode.Contains(child)) {
@@ -4504,7 +4475,7 @@ HTMLEditor::CopyLastEditableChildStyles(nsINode* aPreviousBlock,
     tmp = GetLastEditableChild(*child);
   }
   while (child && TextEditUtils::IsBreak(child)) {
-    child = GetPriorHTMLNode(child);
+    child = GetPreviousEditableHTMLNode(*child);
   }
   nsCOMPtr<Element> newStyles, deepestStyle;
   nsCOMPtr<nsINode> childNode = child;
@@ -4521,9 +4492,9 @@ HTMLEditor::CopyLastEditableChildStyles(nsINode* aPreviousBlock,
                                          childElement->NodeInfo()->NameAtom());
         NS_ENSURE_STATE(newStyles);
       } else {
+        EditorRawDOMPoint atStartOfNewBlock(newBlock, 0);
         deepestStyle = newStyles =
-          CreateNode(childElement->NodeInfo()->NameAtom(), newBlock, 0,
-                     newBlock->GetFirstChild());
+          CreateNode(childElement->NodeInfo()->NameAtom(), atStartOfNewBlock);
         NS_ENSURE_STATE(newStyles);
       }
       CloneAttributes(newStyles, childElement);

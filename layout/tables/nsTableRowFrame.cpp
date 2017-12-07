@@ -218,8 +218,8 @@ nsTableRowFrame::AppendFrames(ChildListID  aListID,
     tableFrame->AppendCell(static_cast<nsTableCellFrame&>(*childFrame), GetRowIndex());
   }
 
-  PresContext()->PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
-                                               NS_FRAME_HAS_DIRTY_CHILDREN);
+  PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
+                                NS_FRAME_HAS_DIRTY_CHILDREN);
   tableFrame->SetGeometryDirty();
 }
 
@@ -264,8 +264,8 @@ nsTableRowFrame::InsertFrames(ChildListID  aListID,
   }
   tableFrame->InsertCells(cellChildren, GetRowIndex(), colIndex);
 
-  PresContext()->PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
-                                               NS_FRAME_HAS_DIRTY_CHILDREN);
+  PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
+                                NS_FRAME_HAS_DIRTY_CHILDREN);
   tableFrame->SetGeometryDirty();
 }
 
@@ -284,9 +284,8 @@ nsTableRowFrame::RemoveFrame(ChildListID aListID,
   // Remove the frame and destroy it
   mFrames.DestroyFrame(aOldFrame);
 
-  PresContext()->PresShell()->
-    FrameNeedsReflow(this, nsIPresShell::eTreeChange,
-                     NS_FRAME_HAS_DIRTY_CHILDREN);
+  PresShell()->FrameNeedsReflow(this, nsIPresShell::eTreeChange,
+                                NS_FRAME_HAS_DIRTY_CHILDREN);
 
   tableFrame->SetGeometryDirty();
 }
@@ -550,7 +549,7 @@ nsTableRowFrame::CalcBSize(const ReflowInput& aReflowInput)
   const nsStylePosition* position = StylePosition();
   const nsStyleCoord& bsizeStyleCoord = position->BSize(wm);
   if (bsizeStyleCoord.ConvertsToLength()) {
-    SetFixedBSize(nsRuleNode::ComputeCoordPercentCalc(bsizeStyleCoord, 0));
+    SetFixedBSize(bsizeStyleCoord.ComputeCoordPercentCalc(0));
   }
   else if (eStyleUnit_Percent == bsizeStyleCoord.GetUnit()) {
     SetPctBSize(bsizeStyleCoord.GetPercentValue());
@@ -634,7 +633,7 @@ nsTableRowFrame::CalculateCellActualBSize(nsTableCellFrame* aCellFrame,
       // Because of this historic anomaly, we do not use quirk.css
       // (since we can't specify one value of box-sizing for isize and another
       // for bsize)
-      specifiedBSize = nsRuleNode::ComputeCoordPercentCalc(bsizeStyleCoord, 0);
+      specifiedBSize = bsizeStyleCoord.ComputeCoordPercentCalc(0);
       if (PresContext()->CompatibilityMode() != eCompatibility_NavQuirks &&
           position->mBoxSizing == StyleBoxSizing::Content) {
         specifiedBSize +=

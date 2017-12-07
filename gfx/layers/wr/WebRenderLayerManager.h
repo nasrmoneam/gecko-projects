@@ -30,6 +30,9 @@ namespace mozilla {
 
 struct ActiveScrolledRoot;
 
+namespace dom {
+class TabGroup;
+}
 
 namespace layers {
 
@@ -94,8 +97,7 @@ public:
                             const mozilla::TimeStamp& aCompositeEnd) override;
 
   virtual void ClearCachedResources(Layer* aSubtree = nullptr) override;
-  virtual void UpdateTextureFactoryIdentifier(const TextureFactoryIdentifier& aNewIdentifier,
-                                              uint64_t aDeviceResetSeqNo) override;
+  virtual void UpdateTextureFactoryIdentifier(const TextureFactoryIdentifier& aNewIdentifier) override;
   virtual TextureFactoryIdentifier GetTextureFactoryIdentifier() override;
 
   virtual void SetTransactionIdAllocator(TransactionIdAllocator* aAllocator) override
@@ -118,6 +120,9 @@ public:
   virtual bool NeedsComposite() const override { return mNeedsComposite; }
   virtual void SetIsFirstPaint() override { mIsFirstPaint = true; }
   virtual void SetFocusTarget(const FocusTarget& aFocusTarget) override;
+
+  virtual already_AddRefed<PersistentBufferProvider>
+  CreatePersistentBufferProvider(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat) override;
 
   bool AsyncPanZoomEnabled() const override;
 
@@ -156,6 +161,9 @@ public:
 
   void WrUpdated();
   void WindowOverlayChanged() { mWindowOverlayChanged = true; }
+  nsIWidget* GetWidget() { return mWidget; }
+
+  dom::TabGroup* GetTabGroup();
 
 private:
   /**

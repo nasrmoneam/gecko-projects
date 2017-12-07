@@ -32,7 +32,10 @@ XPCOMUtils.defineLazyModuleGetter(this, "InsecurePasswordUtils",
 
 const formFillController = Cc["@mozilla.org/satchel/form-fill-controller;1"]
                              .getService(Ci.nsIFormFillController);
-const {ADDRESSES_COLLECTION_NAME, CREDITCARDS_COLLECTION_NAME} = FormAutofillUtils;
+const autocompleteController = Cc["@mozilla.org/autocomplete/controller;1"]
+                             .getService(Ci.nsIAutoCompleteController);
+
+const {ADDRESSES_COLLECTION_NAME, CREDITCARDS_COLLECTION_NAME, FIELD_STATES} = FormAutofillUtils;
 
 // Register/unregister a constructor as a factory.
 function AutocompleteFactory() {}
@@ -101,12 +104,14 @@ AutofillProfileAutoCompleteSearch.prototype = {
     let focusedInput = formFillController.focusedInput;
     let info = FormAutofillContent.getInputDetails(focusedInput);
     let isAddressField = FormAutofillUtils.isAddressField(info.fieldName);
+    let isInputAutofilled = info.state == FIELD_STATES.AUTO_FILLED;
     let handler = FormAutofillContent.getFormHandler(focusedInput);
-    let allFieldNames = handler.allFieldNames;
-    let filledRecordGUID = isAddressField ? handler.address.filledRecordGUID : handler.creditCard.filledRecordGUID;
+    let allFieldNames = handler.getAllFieldNames(focusedInput);
+    let filledRecordGUID = handler.getFilledRecordGUID(focusedInput);
     let searchPermitted = isAddressField ?
                           FormAutofillUtils.isAutofillAddressesEnabled :
                           FormAutofillUtils.isAutofillCreditCardsEnabled;
+    let AutocompleteResult = isAddressField ? AddressResult : CreditCardResult;
 
     ProfileAutocomplete.lastProfileAutoCompleteFocusedInput = focusedInput;
     // Fallback to form-history if ...
@@ -114,11 +119,12 @@ AutofillProfileAutoCompleteSearch.prototype = {
     //   - no profile can fill the currently-focused input.
     //   - the current form has already been populated.
     //   - (address only) less than 3 inputs are covered by all saved fields in the storage.
-    if (!searchPermitted || !savedFieldNames.has(info.fieldName) || filledRecordGUID || (isAddressField &&
+    if (!searchPermitted || !savedFieldNames.has(info.fieldName) ||
+        (!isInputAutofilled && filledRecordGUID) || (isAddressField &&
         allFieldNames.filter(field => savedFieldNames.has(field)).length < FormAutofillUtils.AUTOFILL_FIELDS_THRESHOLD)) {
       if (focusedInput.autocomplete == "off") {
-        // Create a dummy AddressResult as an empty search result.
-        let result = new AddressResult("", "", [], [], {});
+        // Create a dummy result as an empty search result.
+        let result = new AutocompleteResult("", "", [], [], {});
         listener.onSearchResult(this, result);
         return;
       }
@@ -130,6 +136,13 @@ AutofillProfileAutoCompleteSearch.prototype = {
           ProfileAutocomplete.lastProfileAutoCompleteResult = result;
         },
       });
+      return;
+    }
+
+    if (isInputAutofilled) {
+      let result = new AutocompleteResult(searchString, "", [], [], {isInputAutofilled});
+      listener.onSearchResult(this, result);
+      ProfileAutocomplete.lastProfileAutoCompleteResult = result;
       return;
     }
 
@@ -149,23 +162,15 @@ AutofillProfileAutoCompleteSearch.prototype = {
       // Sort addresses by timeLastUsed for showing the lastest used address at top.
       records.sort((a, b) => b.timeLastUsed - a.timeLastUsed);
 
-      let adaptedRecords = handler.getAdaptedProfiles(records);
+      let adaptedRecords = handler.getAdaptedProfiles(records, focusedInput);
       let result = null;
-      if (isAddressField) {
-        result = new AddressResult(searchString,
-                                   info.fieldName,
-                                   allFieldNames,
-                                   adaptedRecords,
-                                   {});
-      } else {
-        let isSecure = InsecurePasswordUtils.isFormSecure(handler.form);
+      let isSecure = InsecurePasswordUtils.isFormSecure(handler.form);
 
-        result = new CreditCardResult(searchString,
+      result = new AutocompleteResult(searchString,
                                       info.fieldName,
                                       allFieldNames,
                                       adaptedRecords,
-                                      {isSecure});
-      }
+                                      {isSecure, isInputAutofilled});
       listener.onSearchResult(this, result);
       ProfileAutocomplete.lastProfileAutoCompleteResult = result;
     });
@@ -291,9 +296,12 @@ let ProfileAutocomplete = {
     }
 
     let profile = JSON.parse(this.lastProfileAutoCompleteResult.getCommentAt(selectedIndex));
+    let {fieldName} = FormAutofillContent.getInputDetails(focusedInput);
     let formHandler = FormAutofillContent.getFormHandler(focusedInput);
 
-    formHandler.autofillFormFields(profile, focusedInput);
+    formHandler.autofillFormFields(profile, focusedInput).then(() => {
+      autocompleteController.searchString = profile[fieldName];
+    });
   },
 
   _clearProfilePreview() {
@@ -408,7 +416,7 @@ var FormAutofillContent = {
     }
 
     let records = handler.createRecords();
-    if (!Object.keys(records).length) {
+    if (!Object.values(records).some(typeRecords => typeRecords.length)) {
       return true;
     }
 
@@ -481,7 +489,7 @@ var FormAutofillContent = {
 
   getAllFieldNames(element) {
     let formHandler = this.getFormHandler(element);
-    return formHandler ? formHandler.allFieldNames : null;
+    return formHandler ? formHandler.getAllFieldNames(element) : null;
   },
 
   identifyAutofillFields(element) {
@@ -509,6 +517,17 @@ var FormAutofillContent = {
     validDetails.forEach(detail =>
       this._markAsAutofillField(detail.elementWeakRef.get())
     );
+  },
+
+  clearForm() {
+    let focusedInput = formFillController.focusedInput || ProfileAutocomplete._lastAutoCompleteFocusedInput;
+    if (!focusedInput) {
+      return;
+    }
+
+    let formHandler = this.getFormHandler(focusedInput);
+    formHandler.clearPopulatedForm(focusedInput);
+    autocompleteController.searchString = "";
   },
 
   previewProfile(doc) {
@@ -544,7 +563,6 @@ var FormAutofillContent = {
 
   onPopupClosed() {
     ProfileAutocomplete._clearProfilePreview();
-    ProfileAutocomplete.lastProfileAutoCompleteResult = null;
   },
 
   _markAsAutofillField(field) {
@@ -576,11 +594,13 @@ var FormAutofillContent = {
 
     let selectedIndex = ProfileAutocomplete._getSelectedIndex(e.target.ownerGlobal);
     let selectedRowStyle = lastAutoCompleteResult.getStyleAt(selectedIndex);
-    if (selectedRowStyle == "autofill-footer") {
-      focusedInput.addEventListener("DOMAutoComplete", () => {
+    focusedInput.addEventListener("DOMAutoComplete", () => {
+      if (selectedRowStyle == "autofill-footer") {
         Services.cpmm.sendAsyncMessage("FormAutofill:OpenPreferences");
-      }, {once: true});
-    }
+      } else if (selectedRowStyle == "autofill-clear-button") {
+        FormAutofillContent.clearForm();
+      }
+    }, {once: true});
   },
 };
 

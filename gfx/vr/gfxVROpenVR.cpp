@@ -21,6 +21,7 @@
 #endif
 
 #include "gfxVROpenVR.h"
+#include "VRManagerParent.h"
 #include "VRManager.h"
 #include "VRThread.h"
 
@@ -202,8 +203,10 @@ VRDisplayOpenVR::GetIsHmdPresent()
 }
 
 void
-VRDisplayOpenVR::PollEvents()
+VRDisplayOpenVR::Refresh()
 {
+  mIsHmdPresent = ::vr::VR_IsHmdPresent();
+
   ::vr::VREvent_t event;
   while (mVRSystem && mVRSystem->PollNextEvent(&event, sizeof(event))) {
     switch (event.eventType) {
@@ -244,8 +247,6 @@ VRDisplayOpenVR::PollEvents()
 VRHMDSensorState
 VRDisplayOpenVR::GetSensorState()
 {
-  PollEvents();
-
   const uint32_t posesSize = ::vr::k_unTrackedDeviceIndex_Hmd + 1;
   ::vr::TrackedDevicePose_t poses[posesSize];
   // Note: We *must* call WaitGetPoses in order for any rendering to happen at all.
@@ -352,6 +353,7 @@ VRDisplayOpenVR::SubmitFrame(void* aTextureHandle,
                              const gfx::Rect& aLeftEyeRect,
                              const gfx::Rect& aRightEyeRect)
 {
+  MOZ_ASSERT(mSubmitThread->GetThread() == NS_GetCurrentThread());
   if (!mIsPresenting) {
     return false;
   }
@@ -421,17 +423,6 @@ VRDisplayOpenVR::SubmitFrame(MacIOSurface* aMacIOSurface,
 }
 
 #endif
-
-void
-VRDisplayOpenVR::NotifyVSync()
-{
-  // We check if HMD is available once per frame.
-  mIsHmdPresent = ::vr::VR_IsHmdPresent();
-  // Make sure we respond to OpenVR events even when not presenting
-  PollEvents();
-
-  VRDisplayHost::NotifyVSync();
-}
 
 VRControllerOpenVR::VRControllerOpenVR(dom::GamepadHand aHand, uint32_t aDisplayID,
                                        uint32_t aNumButtons, uint32_t aNumTriggers,
@@ -510,19 +501,19 @@ VRControllerOpenVR::UpdateVibrateHaptic(::vr::IVRSystem* aVRSystem,
                                         double aIntensity,
                                         double aDuration,
                                         uint64_t aVibrateIndex,
-                                        uint32_t aPromiseID)
+                                        const VRManagerPromise& aPromise)
 {
   // UpdateVibrateHaptic() only can be called by mVibrateThread
-  MOZ_ASSERT(mVibrateThread == NS_GetCurrentThread());
+  MOZ_ASSERT(mVibrateThread->GetThread() == NS_GetCurrentThread());
 
   // It has been interrupted by loss focus.
   if (mIsVibrateStopped) {
-    VibrateHapticComplete(aPromiseID);
+    VibrateHapticComplete(aPromise);
     return;
   }
   // Avoid the previous vibrate event to override the new one.
   if (mVibrateIndex != aVibrateIndex) {
-    VibrateHapticComplete(aPromiseID);
+    VibrateHapticComplete(aPromise);
     return;
   }
 
@@ -539,27 +530,29 @@ VRControllerOpenVR::UpdateVibrateHaptic(::vr::IVRSystem* aVRSystem,
   const double kVibrateRate = 5.0;
   if (duration >= kVibrateRate) {
     MOZ_ASSERT(mVibrateThread);
+    MOZ_ASSERT(mVibrateThread->IsActive());
 
     RefPtr<Runnable> runnable =
-      NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t, uint32_t>
-        ("VRControllerOpenVR::UpdateVibrateHaptic",
-         this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
-         aHapticIndex, aIntensity, duration - kVibrateRate, aVibrateIndex, aPromiseID);
-    NS_DelayedDispatchToCurrentThread(runnable.forget(), kVibrateRate);
+      NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t,
+        StoreCopyPassByConstLRef<VRManagerPromise>>(
+          "VRControllerOpenVR::UpdateVibrateHaptic",
+          this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
+          aHapticIndex, aIntensity, duration - kVibrateRate, aVibrateIndex, aPromise);
+    mVibrateThread->PostDelayedTask(runnable.forget(), kVibrateRate);
   } else {
     // The pulse has completed
-    VibrateHapticComplete(aPromiseID);
+    VibrateHapticComplete(aPromise);
   }
 }
 
 void
-VRControllerOpenVR::VibrateHapticComplete(uint32_t aPromiseID)
+VRControllerOpenVR::VibrateHapticComplete(const VRManagerPromise& aPromise)
 {
   VRManager *vm = VRManager::Get();
-
-  VRListenerThreadHolder::Loop()->PostTask(NewRunnableMethod<uint32_t>(
-                                           "VRManager::NotifyVibrateHapticCompleted",
-                                           vm, &VRManager::NotifyVibrateHapticCompleted, aPromiseID));
+  VRListenerThreadHolder::Loop()->PostTask(
+    NewRunnableMethod<StoreCopyPassByConstLRef<VRManagerPromise>>(
+      "VRManager::NotifyVibrateHapticCompleted",
+      vm, &VRManager::NotifyVibrateHapticCompleted, aPromise));
 }
 
 void
@@ -567,26 +560,23 @@ VRControllerOpenVR::VibrateHaptic(::vr::IVRSystem* aVRSystem,
                                   uint32_t aHapticIndex,
                                   double aIntensity,
                                   double aDuration,
-                                  uint32_t aPromiseID)
+                                  const VRManagerPromise& aPromise)
 {
   // Spinning up the haptics thread at the first haptics call.
   if (!mVibrateThread) {
-    nsresult rv = NS_NewThread(getter_AddRefs(mVibrateThread));
-    MOZ_ASSERT(mVibrateThread);
-
-    if (NS_FAILED(rv)) {
-      MOZ_ASSERT(false, "Failed to create async thread.");
-    }
+    mVibrateThread = new VRThread(NS_LITERAL_CSTRING("OpenVR_Vibration"));
   }
+  mVibrateThread->Start();
   ++mVibrateIndex;
   mIsVibrateStopped = false;
 
   RefPtr<Runnable> runnable =
-      NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t, uint32_t>
-        ("VRControllerOpenVR::UpdateVibrateHaptic",
-         this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
-         aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromiseID);
-  mVibrateThread->Dispatch(runnable.forget(), NS_DISPATCH_NORMAL);
+    NewRunnableMethod<::vr::IVRSystem*, uint32_t, double, double, uint64_t,
+      StoreCopyPassByConstLRef<VRManagerPromise>>(
+        "VRControllerOpenVR::UpdateVibrateHaptic",
+        this, &VRControllerOpenVR::UpdateVibrateHaptic, aVRSystem,
+        aHapticIndex, aIntensity, aDuration, mVibrateIndex, aPromise);
+  mVibrateThread->PostTask(runnable.forget());
 }
 
 void
@@ -597,6 +587,7 @@ VRControllerOpenVR::StopVibrateHaptic()
 
 VRSystemManagerOpenVR::VRSystemManagerOpenVR()
   : mVRSystem(nullptr)
+  , mIsWindowsMR(false)
 {
 }
 
@@ -633,48 +624,85 @@ VRSystemManagerOpenVR::Shutdown()
   mVRSystem = nullptr;
 }
 
-bool
-VRSystemManagerOpenVR::GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult)
+void
+VRSystemManagerOpenVR::NotifyVSync()
 {
-  if (!::vr::VR_IsHmdPresent() ||
-      (mOpenVRHMD && !mOpenVRHMD->GetIsHmdPresent())) {
-    // OpenVR runtime could be quit accidentally,
-    // and we make it re-initialize.
-    mOpenVRHMD = nullptr;
-    mVRSystem = nullptr;
-  } else if (mOpenVRHMD == nullptr) {
+  VRSystemManager::NotifyVSync();
+
+  // Avoid doing anything unless we have already
+  // successfully enumerated and loaded the OpenVR
+  // runtime.
+  if (mVRSystem == nullptr) {
+    return;
+  }
+
+  if (mOpenVRHMD) {
+    mOpenVRHMD->Refresh();
+    if (!mOpenVRHMD->GetIsHmdPresent()) {
+      // OpenVR runtime could be quit accidentally
+      // or a device could be disconnected.
+      // We free up resources and must re-initialize
+      // if a device is detected again later.
+      mOpenVRHMD = nullptr;
+      mVRSystem = nullptr;
+    }
+  }
+}
+
+void
+VRSystemManagerOpenVR::Enumerate()
+{
+  if (mOpenVRHMD == nullptr && ::vr::VR_IsHmdPresent()) {
     ::vr::HmdError err;
 
     ::vr::VR_Init(&err, ::vr::EVRApplicationType::VRApplication_Scene);
     if (err) {
-      return false;
+      return;
     }
 
     ::vr::IVRSystem *system = (::vr::IVRSystem *)::vr::VR_GetGenericInterface(::vr::IVRSystem_Version, &err);
     if (err || !system) {
       ::vr::VR_Shutdown();
-      return false;
+      return;
     }
     ::vr::IVRChaperone *chaperone = (::vr::IVRChaperone *)::vr::VR_GetGenericInterface(::vr::IVRChaperone_Version, &err);
     if (err || !chaperone) {
       ::vr::VR_Shutdown();
-      return false;
+      return;
     }
     ::vr::IVRCompositor *compositor = (::vr::IVRCompositor*)::vr::VR_GetGenericInterface(::vr::IVRCompositor_Version, &err);
     if (err || !compositor) {
       ::vr::VR_Shutdown();
-      return false;
+      return;
     }
 
     mVRSystem = system;
     mOpenVRHMD = new VRDisplayOpenVR(system, chaperone, compositor);
   }
+}
 
+bool
+VRSystemManagerOpenVR::ShouldInhibitEnumeration()
+{
+  if (VRSystemManager::ShouldInhibitEnumeration()) {
+    return true;
+  }
   if (mOpenVRHMD) {
-    aHMDResult.AppendElement(mOpenVRHMD);
+    // When we find an a VR device, don't
+    // allow any further enumeration as it
+    // may get picked up redundantly by other
+    // API's.
     return true;
   }
   return false;
+}
+
+void
+VRSystemManagerOpenVR::GetHMDs(nsTArray<RefPtr<VRDisplayHost>>& aHMDResult)
+{
+  if (mOpenVRHMD) {
+    aHMDResult.AppendElement(mOpenVRHMD);
+  }
 }
 
 bool
@@ -698,6 +726,9 @@ VRSystemManagerOpenVR::HandleInput()
   }
 
   RefPtr<impl::VRControllerOpenVR> controller;
+  // Compare with Edge, we have a wrong implementation for the vertical axis value.
+  // In order to not affect the current VR content, we add a workaround for yAxis.
+  const float yAxisInvert = (mIsWindowsMR) ? -1.0f : 1.0f;
   ::vr::VRControllerState_t state;
   ::vr::TrackedDevicePose_t poses[::vr::k_unMaxTrackedDeviceCount];
   mVRSystem->GetDeviceToAbsoluteTrackingPose(::vr::TrackingUniverseSeated, 0.0f,
@@ -737,17 +768,29 @@ VRSystemManagerOpenVR::HandleInput()
         switch (axisType) {
           case ::vr::EVRControllerAxisType::k_eControllerAxis_Joystick:
           case ::vr::EVRControllerAxisType::k_eControllerAxis_TrackPad:
+            if (mIsWindowsMR) {
+              // Adjust the input mapping for Windows MR which has
+              // different order.
+              axisIdx = (axisIdx == 0) ? 2 : 0;
+              buttonIdx = (buttonIdx == 0) ? 4 : 0;
+            }
+
             HandleAxisMove(i, axisIdx,
                            state.rAxis[j].x);
             ++axisIdx;
             HandleAxisMove(i, axisIdx,
-                           state.rAxis[j].y);
+                           state.rAxis[j].y * yAxisInvert);
             ++axisIdx;
             HandleButtonPress(i, buttonIdx,
                               ::vr::ButtonMaskFromId(
                                  static_cast<::vr::EVRButtonId>(::vr::k_EButton_Axis0 + j)),
                                  state.ulButtonPressed, state.ulButtonTouched);
             ++buttonIdx;
+
+            if (mIsWindowsMR) {
+              axisIdx = (axisIdx == 4) ? 2 : 4;
+              buttonIdx = (buttonIdx == 5) ? 1 : 2;
+            }
             break;
           case vr::EVRControllerAxisType::k_eControllerAxis_Trigger:
             if (j <= 2) {
@@ -755,6 +798,7 @@ VRSystemManagerOpenVR::HandleInput()
               ++buttonIdx;
               ++triggerIdx;
             } else {
+              // For SteamVR Knuckles.
               HandleTriggerPress(i, buttonIdx, triggerIdx, state.rAxis[j].x);
               ++buttonIdx;
               ++triggerIdx;
@@ -789,6 +833,11 @@ VRSystemManagerOpenVR::HandleInput()
         HandleButtonPress(i, buttonIdx,
                           BTN_MASK_FROM_ID(k_EButton_ApplicationMenu),
                           state.ulButtonPressed, state.ulButtonTouched);
+        ++buttonIdx;
+      }
+      if (mIsWindowsMR) {
+        // button 4 in Windows MR has already been assigned
+        // to k_eControllerAxis_TrackPad.
         ++buttonIdx;
       }
       if (supportedButtons &
@@ -974,18 +1023,18 @@ VRSystemManagerOpenVR::VibrateHaptic(uint32_t aControllerIdx,
                                      uint32_t aHapticIndex,
                                      double aIntensity,
                                      double aDuration,
-                                     uint32_t aPromiseID)
+                                     const VRManagerPromise& aPromise)
 {
   // mVRSystem is available after VRDisplay is created
   // at GetHMDs().
-  if (!mVRSystem) {
+  if (!mVRSystem || (aControllerIdx >= mOpenVRController.Length())) {
     return;
   }
 
   RefPtr<impl::VRControllerOpenVR> controller = mOpenVRController[aControllerIdx];
   MOZ_ASSERT(controller);
 
-  controller->VibrateHaptic(mVRSystem, aHapticIndex, aIntensity, aDuration, aPromiseID);
+  controller->VibrateHaptic(mVRSystem, aHapticIndex, aIntensity, aDuration, aPromise);
 }
 
 void
@@ -1160,6 +1209,7 @@ VRSystemManagerOpenVR::GetControllerDeviceId(::vr::ETrackedDeviceClass aDeviceTy
     {
       ::vr::ETrackedPropertyError err;
       uint32_t requiredBufferLen;
+      bool founded = false;
       char charBuf[128];
       requiredBufferLen = mVRSystem->GetStringTrackedDeviceProperty(aDeviceIndex,
                           ::vr::Prop_RenderModelName_String, charBuf, 128, &err);
@@ -1170,7 +1220,21 @@ VRSystemManagerOpenVR::GetControllerDeviceId(::vr::ETrackedDeviceClass aDeviceTy
       nsCString deviceId(charBuf);
       if (deviceId.Find("knuckles") != kNotFound) {
         aId.AssignLiteral("OpenVR Knuckles");
-      } else {
+        founded = true;
+      }
+      requiredBufferLen = mVRSystem->GetStringTrackedDeviceProperty(aDeviceIndex,
+        ::vr::Prop_SerialNumber_String, charBuf, 128, &err);
+      if (requiredBufferLen > 128) {
+        MOZ_CRASH("Larger than the buffer size.");
+      }
+      MOZ_ASSERT(requiredBufferLen && err == ::vr::TrackedProp_Success);
+      deviceId.Assign(charBuf);
+      if (deviceId.Find("MRSOURCE") != kNotFound) {
+        aId.AssignLiteral("Spatial Controller (Spatial Interaction Source) ");
+        mIsWindowsMR = true;
+        founded = true;
+      }
+      if (!founded) {
         aId.AssignLiteral("OpenVR Gamepad");
       }
       break;

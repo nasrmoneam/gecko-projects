@@ -90,8 +90,6 @@
 #include "nsIBaseWindow.h"
 #include "nsIWidget.h"
 
-#include "js/GCAPI.h"
-
 #include "nsNodeInfoManager.h"
 #include "nsICategoryManager.h"
 #include "nsGenericHTMLElement.h"
@@ -155,6 +153,54 @@ nsIContent::FindFirstNonChromeOnlyAccessContent() const
   return nullptr;
 }
 
+// https://dom.spec.whatwg.org/#dom-slotable-assignedslot
+HTMLSlotElement*
+nsIContent::GetAssignedSlotByMode() const
+{
+  /**
+   * Get slotable's assigned slot for the result of
+   * find a slot with open flag UNSET [1].
+   *
+   * [1] https://dom.spec.whatwg.org/#assign-a-slot
+   */
+  HTMLSlotElement* slot = GetAssignedSlot();
+  if (!slot) {
+    return nullptr;
+  }
+
+  MOZ_ASSERT(GetParent());
+  MOZ_ASSERT(GetParent()->GetShadowRoot());
+
+  /**
+   * Additional check for open flag SET:
+   *   If slotable’s parent’s shadow root's mode is not "open",
+   *   then return null.
+   */
+  if (GetParent()->GetShadowRoot()->IsClosed()) {
+    return nullptr;
+  }
+
+  return slot;
+}
+
+nsINode*
+nsIContent::GetFlattenedTreeParentForMaybeAssignedNode() const
+{
+  if (HTMLSlotElement* assignedSlot = GetAssignedSlot()) {
+    return assignedSlot;
+  }
+
+  HTMLSlotElement* parentSlot = HTMLSlotElement::FromContent(GetParent());
+  if (!parentSlot) {
+    return nullptr;
+  }
+
+  // If this is not an unassigned node, then it must be a fallback content.
+  MOZ_ASSERT(parentSlot->AssignedNodes().IsEmpty());
+
+  return parentSlot;
+}
+
 nsINode*
 nsIContent::GetFlattenedTreeParentNodeInternal(FlattenedParentType aType) const
 {
@@ -206,29 +252,35 @@ nsIContent::GetFlattenedTreeParentNodeInternal(FlattenedParentType aType) const
     }
   }
 
-  if (nsContentUtils::HasDistributedChildren(parent) &&
-      nsContentUtils::IsInSameAnonymousTree(parent, this)) {
-    // This node is distributed to insertion points, thus we
-    // need to consult the destination insertion points list to
-    // figure out where this node was inserted in the flattened tree.
-    // It may be the case that |parent| distributes its children
-    // but the child does not match any insertion points, thus
-    // the flattened tree parent is nullptr.
-    nsTArray<nsIContent*>* destInsertionPoints = GetExistingDestInsertionPoints();
-    parent = destInsertionPoints && !destInsertionPoints->IsEmpty() ?
-      destInsertionPoints->LastElement()->GetParent() : nullptr;
-  } else if (HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
+  if (IsRootOfAnonymousSubtree()) {
+    return parent;
+  }
+
+  if (nsContentUtils::HasDistributedChildren(parent)) {
+    return GetFlattenedTreeParentForMaybeAssignedNode();
+  }
+
+  if (HasFlag(NODE_MAY_BE_IN_BINDING_MNGR) ||
+      parent->HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
+    // We need to check `parent` to properly handle the unassigned child case
+    // below, since if we were never assigned we would never have the flag set.
+    //
+    // Note that unassigned child nodes _could_ have the flag set, if they were
+    // ever assigned, or if they have a binding themselves.
     if (nsIContent* insertionPoint = GetXBLInsertionPoint()) {
       parent = insertionPoint->GetParent();
       MOZ_ASSERT(parent);
+    } else if (parent->OwnerDoc()->BindingManager()->GetBindingWithContent(parent)) {
+      // This is an unassigned node child of the bound element, so it isn't part
+      // of the flat tree.
+      return nullptr;
     }
   }
 
   // Shadow roots never shows up in the flattened tree. Return the host
   // instead.
-  if (parent && parent->IsInShadowTree()) {
-    ShadowRoot* parentShadowRoot = ShadowRoot::FromNode(parent);
-    if (parentShadowRoot) {
+  if (parent->IsInShadowTree()) {
+    if (ShadowRoot* parentShadowRoot = ShadowRoot::FromNode(parent)) {
       return parentShadowRoot->GetHost();
     }
   }
@@ -339,7 +391,8 @@ nsIContent::LookupNamespaceURIInternal(const nsAString& aNamespacePrefix,
   // declaration that declares aNamespacePrefix.
   const nsIContent* content = this;
   do {
-    if (content->GetAttr(kNameSpaceID_XMLNS, name, aNamespaceURI))
+    if (content->IsElement() &&
+        content->AsElement()->GetAttr(kNameSpaceID_XMLNS, name, aNamespaceURI))
       return NS_OK;
   } while ((content = content->GetParent()));
   return NS_ERROR_FAILURE;
@@ -349,11 +402,14 @@ nsAtom*
 nsIContent::GetLang() const
 {
   for (const auto* content = this; content; content = content->GetParent()) {
-    if (!content->GetAttrCount() || !content->IsElement()) {
+    if (!content->IsElement()) {
       continue;
     }
 
     auto* element = content->AsElement();
+    if (!element->GetAttrCount()) {
+      continue;
+    }
 
     // xml:lang has precedence over lang on HTML elements (see
     // XHTML1 section C.7).
@@ -461,20 +517,26 @@ nsIContent::GetBaseURIForStyleAttr() const
   return OwnerDoc()->GetDocBaseURI();
 }
 
-URLExtraData*
-nsIContent::GetURLDataForStyleAttr() const
+already_AddRefed<URLExtraData>
+nsIContent::GetURLDataForStyleAttr(nsIPrincipal* aSubjectPrincipal) const
 {
   if (IsInAnonymousSubtree() && IsAnonymousContentInSVGUseSubtree()) {
     nsIContent* bindingParent = GetBindingParent();
     MOZ_ASSERT(bindingParent);
     SVGUseElement* useElement = static_cast<SVGUseElement*>(bindingParent);
     if (URLExtraData* data = useElement->GetContentURLData()) {
-      return data;
+      return do_AddRef(data);
     }
+  }
+  if (aSubjectPrincipal && aSubjectPrincipal != NodePrincipal()) {
+    // TODO: Cache this?
+    return MakeAndAddRef<URLExtraData>(OwnerDoc()->GetDocBaseURI(),
+                                       OwnerDoc()->GetDocumentURI(),
+                                       aSubjectPrincipal);
   }
   // This also ignores the case that SVG inside XBL binding.
   // But it is probably fine.
-  return OwnerDoc()->DefaultStyleAttrURLData();
+  return do_AddRef(OwnerDoc()->DefaultStyleAttrURLData());
 }
 
 //----------------------------------------------------------------------
@@ -1007,42 +1069,10 @@ nsIContent::GetEventTargetParent(EventChainPreVisitor& aVisitor)
     }
   }
 
-  nsIContent* parent = GetParent();
-
-  // Web components have a special event chain that need to account
-  // for destination insertion points where nodes have been distributed.
-  nsTArray<nsIContent*>* destPoints = GetExistingDestInsertionPoints();
-  if (destPoints && !destPoints->IsEmpty()) {
-    // Push destination insertion points to aVisitor.mDestInsertionPoints.
-    for (uint32_t i = 0; i < destPoints->Length(); i++) {
-      nsIContent* point = destPoints->ElementAt(i);
-      aVisitor.mDestInsertionPoints.AppendElement(point);
-    }
-  }
-
-  ShadowRoot* thisShadowRoot = ShadowRoot::FromNode(this);
-  if (thisShadowRoot) {
-    if (!aVisitor.mEvent->mFlags.mComposed) {
-      // If we do stop propagation, we still want to propagate
-      // the event to chrome (nsPIDOMWindow::GetParentTarget()).
-      // The load event is special in that we don't ever propagate it
-      // to chrome.
-      nsCOMPtr<nsPIDOMWindowOuter> win = OwnerDoc()->GetWindow();
-      EventTarget* parentTarget = win && aVisitor.mEvent->mMessage != eLoad
-        ? win->GetParentTarget() : nullptr;
-
-      aVisitor.mParentTarget = parentTarget;
-      return NS_OK;
-    }
-
-    if (!aVisitor.mDestInsertionPoints.IsEmpty()) {
-      parent = aVisitor.mDestInsertionPoints.LastElement();
-      aVisitor.mDestInsertionPoints.SetLength(
-        aVisitor.mDestInsertionPoints.Length() - 1);
-    } else {
-      parent = thisShadowRoot->GetHost();
-    }
-  }
+  // Event parent is the assigned slot, if node is assigned, or node's parent
+  // otherwise.
+  HTMLSlotElement* slot = GetAssignedSlot();
+  nsIContent* parent = slot ? slot : GetParent();
 
   // Event may need to be retargeted if this is the root of a native
   // anonymous content subtree or event is dispatched somewhere inside XBL.
@@ -1153,12 +1183,6 @@ nsIContent::IsFocusableInternal(int32_t* aTabIndex, bool aWithMouse)
   return false;
 }
 
-NS_IMETHODIMP
-FragmentOrElement::WalkContentStyleRules(nsRuleWalker* aRuleWalker)
-{
-  return NS_OK;
-}
-
 bool
 FragmentOrElement::IsLink(nsIURI** aURI) const
 {
@@ -1178,15 +1202,12 @@ FragmentOrElement::GetBindingParent() const
 }
 
 nsXBLBinding*
-FragmentOrElement::GetXBLBinding() const
+FragmentOrElement::DoGetXBLBinding() const
 {
-  if (HasFlag(NODE_MAY_BE_IN_BINDING_MNGR)) {
-    nsExtendedDOMSlots* slots = GetExistingExtendedDOMSlots();
-    if (slots) {
-      return slots->mXBLBinding;
-    }
+  MOZ_ASSERT(HasFlag(NODE_MAY_BE_IN_BINDING_MNGR));
+  if (nsExtendedDOMSlots* slots = GetExistingExtendedDOMSlots()) {
+    return slots->mXBLBinding;
   }
-
   return nullptr;
 }
 
@@ -1348,6 +1369,7 @@ FragmentOrElement::GetTextContentInternal(nsAString& aTextContent,
 
 void
 FragmentOrElement::SetTextContentInternal(const nsAString& aTextContent,
+                                          nsIPrincipal* aSubjectPrincipal,
                                           ErrorResult& aError)
 {
   aError = nsContentUtils::SetNodeTextContent(this, aTextContent, false);
@@ -2217,8 +2239,8 @@ FragmentOrElement::CopyInnerTo(FragmentOrElement* aDst,
     const nsAttrValue* value = mAttrsAndChildren.AttrAt(i);
     nsAutoString valStr;
     value->ToString(valStr);
-    rv = aDst->SetAttr(name->NamespaceID(), name->LocalName(),
-                                name->GetPrefix(), valStr, false);
+    rv = aDst->AsElement()->SetAttr(name->NamespaceID(), name->LocalName(),
+                                    name->GetPrefix(), valStr, false);
     NS_ENSURE_SUCCESS(rv, rv);
   }
 

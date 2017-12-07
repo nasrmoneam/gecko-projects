@@ -6,8 +6,6 @@
 
 from __future__ import absolute_import, print_function, unicode_literals
 
-import os
-
 from .registry import register_callback_action
 
 from .util import (find_decision_task, find_existing_tasks_from_previous_kinds,
@@ -142,16 +140,15 @@ def is_release_promotion_available(parameters):
     }
 )
 def release_promotion_action(parameters, input, task_group_id, task_id, task):
-    os.environ['BUILD_NUMBER'] = str(input['build_number'])
     release_promotion_flavor = input['release_promotion_flavor']
+    next_version = str(input.get('next_version') or '')
     if release_promotion_flavor in VERSION_BUMP_FLAVORS:
-        next_version = str(input.get('next_version', ''))
-        if next_version == "":
+        # We force str() the input, hence the 'None'
+        if next_version in ['', 'None']:
             raise Exception(
                 "`next_version` property needs to be provided for %s "
                 "targets." % ', '.join(VERSION_BUMP_FLAVORS)
             )
-        os.environ['NEXT_VERSION'] = next_version
     promotion_config = RELEASE_PROMOTION_CONFIG[release_promotion_flavor]
 
     target_tasks_method = input.get(
@@ -185,6 +182,8 @@ def release_promotion_action(parameters, input, task_group_id, task_id, task):
     )
     parameters['do_not_optimize'] = do_not_optimize
     parameters['target_tasks_method'] = target_tasks_method
+    parameters['build_number'] = str(input['build_number'])
+    parameters['next_version'] = next_version
 
     # make parameters read-only
     parameters = Parameters(**parameters)

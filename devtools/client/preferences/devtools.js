@@ -58,13 +58,15 @@ pref("devtools.inspector.showUserAgentStyles", false);
 pref("devtools.inspector.showAllAnonymousContent", false);
 // Enable the new color widget
 pref("devtools.inspector.colorWidget.enabled", false);
+// Enable the Flexbox highlighter
+pref("devtools.inspector.flexboxHighlighter.enabled", false);
 // Enable the CSS shapes highlighter
 pref("devtools.inspector.shapesHighlighter.enabled", true);
 // Enable the Changes View
 pref("devtools.changesview.enabled", false);
 // Enable the Events View
 pref("devtools.eventsview.enabled", false);
-// Enable the Flexbox Inspector
+// Enable the Flexbox Inspector panel
 pref("devtools.flexboxinspector.enabled", false);
 
 // Enable the new Animation Inspector
@@ -299,6 +301,12 @@ pref("devtools.webconsole.autoMultiline", true);
 
 // Enable the new webconsole frontend
 pref("devtools.webconsole.new-frontend-enabled", true);
+
+// Enable the webconsole sidebar toggle
+pref("devtools.webconsole.sidebarToggle", false);
+
+// Disable the new performance recording panel by default
+pref("devtools.performance.new-panel-enabled", false);
 
 // Enable client-side mapping service for source maps
 pref("devtools.source-map.client-service.enabled", true);

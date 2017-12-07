@@ -25,8 +25,6 @@ using mozilla::dom::CreateECParamsForCurve;
 
 const nsCString U2FSoftTokenManager::mSecretNickname =
   NS_LITERAL_CSTRING("U2F_NSSTOKEN");
-const nsString U2FSoftTokenManager::mVersion =
-  NS_LITERAL_STRING("U2F_V2");
 
 namespace {
 NS_NAMED_LITERAL_CSTRING(kAttestCertSubjectName, "CN=Firefox U2F Soft Token");
@@ -575,13 +573,6 @@ PrivateKeyFromKeyHandle(const UniquePK11SlotInfo& aSlot,
   return unwrappedKey;
 }
 
-// Return whether the provided version is supported by this token.
-bool
-U2FSoftTokenManager::IsCompatibleVersion(const nsAString& aVersion)
-{
-  return mVersion == aVersion;
-}
-
 // IsRegistered determines if the provided key handle is usable by this token.
 nsresult
 U2FSoftTokenManager::IsRegistered(const nsTArray<uint8_t>& aKeyHandle,
@@ -635,6 +626,7 @@ U2FSoftTokenManager::IsRegistered(const nsTArray<uint8_t>& aKeyHandle,
 //
 RefPtr<U2FRegisterPromise>
 U2FSoftTokenManager::Register(const nsTArray<WebAuthnScopedCredentialDescriptor>& aDescriptors,
+                              const WebAuthnAuthenticatorSelection &aAuthenticatorSelection,
                               const nsTArray<uint8_t>& aApplication,
                               const nsTArray<uint8_t>& aChallenge,
                               uint32_t aTimeoutMS)
@@ -649,6 +641,14 @@ U2FSoftTokenManager::Register(const nsTArray<WebAuthnScopedCredentialDescriptor>
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return U2FRegisterPromise::CreateAndReject(rv, __func__);
     }
+  }
+
+  // The U2F softtoken neither supports resident keys or
+  // user verification, nor is it a platform authenticator.
+  if (aAuthenticatorSelection.requireResidentKey() ||
+      aAuthenticatorSelection.requireUserVerification() ||
+      aAuthenticatorSelection.requirePlatformAttachment()) {
+    return U2FRegisterPromise::CreateAndReject(NS_ERROR_DOM_NOT_ALLOWED_ERR, __func__);
   }
 
   // Optional exclusion list.

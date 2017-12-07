@@ -6,6 +6,7 @@
 
 #include "frontend/NameFunctions.h"
 
+#include "mozilla/MemoryChecking.h"
 #include "mozilla/Sprintf.h"
 
 #include "jsfun.h"
@@ -350,7 +351,7 @@ class NameResolver
      * ParseNode instance given. The prefix is for each subsequent name, and
      * should initially be nullptr.
      */
-    bool resolve(ParseNode* cur, HandleAtom prefixArg = nullptr) {
+    bool resolve(ParseNode* const cur, HandleAtom prefixArg = nullptr) {
         RootedAtom prefix(cx, prefixArg);
         if (cur == nullptr)
             return true;
@@ -370,9 +371,13 @@ class NameResolver
             if (!isDirectCall(nparents - 1, cur))
                 prefix = prefix2;
         }
+
         if (nparents >= MaxParents)
             return true;
-        parents[nparents++] = cur;
+
+        auto initialParents = nparents;
+        parents[initialParents] = cur;
+        nparents++;
 
         switch (cur->getKind()) {
           // Nodes with no children that might require name resolution need no
@@ -427,7 +432,6 @@ class NameResolver
           case PNK_PREDECREMENT:
           case PNK_POSTDECREMENT:
           case PNK_COMPUTED_NAME:
-          case PNK_ARRAYPUSH:
           case PNK_SPREAD:
           case PNK_MUTATEPROTO:
           case PNK_EXPORT:
@@ -466,7 +470,6 @@ class NameResolver
           case PNK_WHILE:
           case PNK_SWITCH:
           case PNK_FOR:
-          case PNK_COMPREHENSIONFOR:
           case PNK_CLASSMETHOD:
           case PNK_SETTHIS:
             MOZ_ASSERT(cur->isArity(PN_BINARY));
@@ -635,9 +638,11 @@ class NameResolver
             if (!resolve(cur->pn_kid1, prefix))
                 return false;
             MOZ_ASSERT(cur->pn_kid2 || cur->pn_kid3);
-            if (ParseNode* catchList = cur->pn_kid2) {
-                MOZ_ASSERT(catchList->isKind(PNK_CATCHLIST));
-                if (!resolve(catchList, prefix))
+            if (ParseNode* catchScope = cur->pn_kid2) {
+                MOZ_ASSERT(catchScope->isKind(PNK_LEXICALSCOPE));
+                MOZ_ASSERT(catchScope->scopeBody()->isKind(PNK_CATCH));
+                MOZ_ASSERT(catchScope->scopeBody()->isArity(PN_BINARY));
+                if (!resolve(catchScope->scopeBody(), prefix))
                     return false;
             }
             if (ParseNode* finallyBlock = cur->pn_kid3) {
@@ -651,14 +656,12 @@ class NameResolver
           // contain any expression.  The catch statements, of course, may
           // contain arbitrary expressions.
           case PNK_CATCH:
-            MOZ_ASSERT(cur->isArity(PN_TERNARY));
-            if (!resolve(cur->pn_kid1, prefix))
-                return false;
-            if (cur->pn_kid2) {
-                if (!resolve(cur->pn_kid2, prefix))
-                    return false;
+            MOZ_ASSERT(cur->isArity(PN_BINARY));
+            if (cur->pn_left) {
+              if (!resolve(cur->pn_left, prefix))
+                  return false;
             }
-            if (!resolve(cur->pn_kid3, prefix))
+            if (!resolve(cur->pn_right, prefix))
                 return false;
             break;
 
@@ -692,7 +695,6 @@ class NameResolver
           case PNK_NEW:
           case PNK_CALL:
           case PNK_SUPERCALL:
-          case PNK_GENEXP:
           case PNK_ARRAY:
           case PNK_STATEMENTLIST:
           case PNK_PARAMSBODY:
@@ -706,19 +708,6 @@ class NameResolver
                 if (!resolve(element, prefix))
                     return false;
             }
-            break;
-
-          // Array comprehension nodes are lists with a single child:
-          // PNK_COMPREHENSIONFOR for comprehensions, PNK_LEXICALSCOPE for
-          // legacy comprehensions.  Probably this should be a non-list
-          // eventually.
-          case PNK_ARRAYCOMP:
-            MOZ_ASSERT(cur->isArity(PN_LIST));
-            MOZ_ASSERT(cur->pn_count == 1);
-            MOZ_ASSERT(cur->pn_head->isKind(PNK_LEXICALSCOPE) ||
-                       cur->pn_head->isKind(PNK_COMPREHENSIONFOR));
-            if (!resolve(cur->pn_head, prefix))
-                return false;
             break;
 
           case PNK_OBJECT:
@@ -766,18 +755,6 @@ class NameResolver
                 MOZ_ASSERT(!item->pn_right->expr());
             }
 #endif
-            break;
-          }
-
-          case PNK_CATCHLIST: {
-            MOZ_ASSERT(cur->isArity(PN_LIST));
-            for (ParseNode* catchNode = cur->pn_head; catchNode; catchNode = catchNode->pn_next) {
-                MOZ_ASSERT(catchNode->isKind(PNK_LEXICALSCOPE));
-                MOZ_ASSERT(catchNode->scopeBody()->isKind(PNK_CATCH));
-                MOZ_ASSERT(catchNode->scopeBody()->isArity(PN_TERNARY));
-                if (!resolve(catchNode->scopeBody(), prefix))
-                    return false;
-            }
             break;
           }
 
@@ -829,6 +806,18 @@ class NameResolver
         }
 
         nparents--;
+        MOZ_ASSERT(initialParents == nparents, "nparents imbalance detected");
+
+        // It would be nice to common up the repeated |parents[initialParents]|
+        // in a single variable, but the #if condition required to prevent an
+        // unused-variable warning across three separate conditionally-expanded
+        // macros would be super-ugly.  :-(
+        MOZ_ASSERT(parents[initialParents] == cur,
+                   "pushed child shouldn't change underneath us");
+
+        JS_POISON(&parents[initialParents], 0xFF, sizeof(parents[initialParents]));
+        MOZ_MAKE_MEM_UNDEFINED(&parents[initialParents], sizeof(parents[initialParents]));
+
         return true;
     }
 };

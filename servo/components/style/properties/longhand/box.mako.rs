@@ -37,19 +37,20 @@
 
     pub mod computed_value {
         pub use super::SpecifiedValue as T;
+        use super::SpecifiedValue as Display;
 
-        impl T {
+        impl Display {
             /// Returns whether this "display" value is the display of a flex or
             /// grid container.
             ///
             /// This is used to implement various style fixups.
             pub fn is_item_container(&self) -> bool {
                 matches!(*self,
-                         T::flex
-                         | T::inline_flex
+                         Display::Flex
+                         | Display::InlineFlex
                          % if product == "gecko":
-                         | T::grid
-                         | T::inline_grid
+                         | Display::Grid
+                         | Display::InlineGrid
                          % endif
                 )
             }
@@ -59,11 +60,11 @@
             /// line as itself.
             pub fn is_line_participant(&self) -> bool {
                 matches!(*self,
-                         T::inline
+                         Display::Inline
                          % if product == "gecko":
-                         | T::contents
-                         | T::ruby
-                         | T::ruby_base_container
+                         | Display::Contents
+                         | Display::Ruby
+                         | Display::RubyBaseContainer
                          % endif
                 )
             }
@@ -84,8 +85,8 @@
                 #[cfg(feature = "gecko")]
                 {
                     match (_old_display, _new_display) {
-                        (T::_webkit_box, T::_moz_box) |
-                        (T::_webkit_inline_box, T::_moz_inline_box) => {
+                        (Display::WebkitBox, Display::MozBox) |
+                        (Display::WebkitInlineBox, Display::MozInlineBox) => {
                             return true;
                         }
                         _ => {},
@@ -99,14 +100,20 @@
             /// ruby.
             #[cfg(feature = "gecko")]
             pub fn is_ruby_type(&self) -> bool {
-                matches!(*self, T::ruby | T::ruby_base | T::ruby_text |
-                         T::ruby_base_container | T::ruby_text_container)
+                matches!(*self,
+                         Display::Ruby |
+                         Display::RubyBase |
+                         Display::RubyText |
+                         Display::RubyBaseContainer |
+                         Display::RubyTextContainer)
             }
 
             /// Returns whether this "display" value is a ruby level container.
             #[cfg(feature = "gecko")]
             pub fn is_ruby_level_container(&self) -> bool {
-                matches!(*self, T::ruby_base_container | T::ruby_text_container)
+                matches!(*self,
+                         Display::RubyBaseContainer |
+                         Display::RubyTextContainer)
             }
 
             /// Convert this display into an equivalent block display.
@@ -115,28 +122,36 @@
             pub fn equivalent_block_display(&self, _is_root_element: bool) -> Self {
                 match *self {
                     // Values that have a corresponding block-outside version.
-                    T::inline_table => T::table,
-                    T::inline_flex => T::flex,
+                    Display::InlineTable => Display::Table,
+                    Display::InlineFlex => Display::Flex,
 
                     % if product == "gecko":
-                    T::inline_grid => T::grid,
-                    T::_webkit_inline_box => T::_webkit_box,
+                    Display::InlineGrid => Display::Grid,
+                    Display::WebkitInlineBox => Display::WebkitBox,
                     % endif
 
                     // Special handling for contents and list-item on the root
                     // element for Gecko.
                     % if product == "gecko":
-                    T::contents | T::list_item if _is_root_element => T::block,
+                    Display::Contents | Display::ListItem if _is_root_element => Display::Block,
                     % endif
 
                     // These are not changed by blockification.
-                    T::none | T::block | T::flex | T::list_item | T::table => *self,
+                    Display::None |
+                    Display::Block |
+                    Display::Flex |
+                    Display::ListItem |
+                    Display::Table => *self,
+
                     % if product == "gecko":
-                    T::contents | T::flow_root | T::grid | T::_webkit_box => *self,
+                    Display::Contents |
+                    Display::FlowRoot |
+                    Display::Grid |
+                    Display::WebkitBox => *self,
                     % endif
 
                     // Everything else becomes block.
-                    _ => T::block,
+                    _ => Display::Block,
                 }
 
             }
@@ -148,35 +163,38 @@
             #[cfg(feature = "gecko")]
             pub fn inlinify(&self) -> Self {
                 match *self {
-                    T::block | T::flow_root => T::inline_block,
-                    T::table => T::inline_table,
-                    T::flex => T::inline_flex,
-                    T::grid => T::inline_grid,
-                    T::_moz_box => T::_moz_inline_box,
-                    T::_moz_stack => T::_moz_inline_stack,
-                    T::_webkit_box => T::_webkit_inline_box,
+                    Display::Block |
+                    Display::FlowRoot => Display::InlineBlock,
+                    Display::Table => Display::InlineTable,
+                    Display::Flex => Display::InlineFlex,
+                    Display::Grid => Display::InlineGrid,
+                    Display::MozBox => Display::MozInlineBox,
+                    Display::MozStack => Display::MozInlineStack,
+                    Display::WebkitBox => Display::WebkitInlineBox,
                     other => other,
                 }
             }
         }
     }
 
+    // FIXME(emilio): Why does this reinvent the wheel, again?
     #[allow(non_camel_case_types)]
     #[derive(Clone, Copy, Debug, Eq, Hash, MallocSizeOf, PartialEq, ToComputedValue)]
     #[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
     pub enum SpecifiedValue {
         % for value in values:
-            ${to_rust_ident(value)},
+            ${to_camel_case(value)},
         % endfor
     }
 
+    // TODO(emilio): derive.
     impl ToCss for SpecifiedValue {
         fn to_css<W>(&self, dest: &mut W) -> ::std::fmt::Result
             where W: ::std::fmt::Write,
         {
             match *self {
                 % for value in values:
-                    SpecifiedValue::${to_rust_ident(value)} => dest.write_str("${value}"),
+                    SpecifiedValue::${to_camel_case(value)} => dest.write_str("${value}"),
                 % endfor
             }
         }
@@ -185,7 +203,7 @@
     /// The initial display value.
     #[inline]
     pub fn get_initial_value() -> computed_value::T {
-        computed_value::T::${to_rust_ident(values[0])}
+        computed_value::T::${to_camel_case(values[0])}
     }
 
     /// Parse a display value.
@@ -194,12 +212,12 @@
         try_match_ident_ignore_ascii_case! { input,
             % for value in values:
                 "${value}" => {
-                    Ok(computed_value::T::${to_rust_ident(value)})
+                    Ok(computed_value::T::${to_camel_case(value)})
                 },
             % endfor
             % for value in webkit_prefixed_values:
                 "-webkit-${value}" => {
-                    Ok(computed_value::T::${to_rust_ident(value)})
+                    Ok(computed_value::T::${to_camel_case(value)})
                 },
             % endfor
         }
@@ -222,7 +240,8 @@
 ${helpers.single_keyword("-moz-top-layer", "none top",
                          gecko_constant_prefix="NS_STYLE_TOP_LAYER",
                          gecko_ffi_name="mTopLayer",
-                         products="gecko", animation_value_type="none", internal=True,
+                         products="gecko", animation_value_type="none",
+                         enabled_in="ua",
                          spec="Internal (not web-exposed)")}
 
 ${helpers.single_keyword("position", "static absolute relative fixed sticky",
@@ -239,7 +258,6 @@ ${helpers.single_keyword("position", "static absolute relative fixed sticky",
                                   gecko_enum_prefix="StyleFloat"
                                   gecko_inexhaustive="True"
                                   gecko_ffi_name="mFloat"
-                                  gecko_pref_ident="float_"
                                   flags="APPLIES_TO_FIRST_LETTER"
                                   spec="https://drafts.csswg.org/css-box/#propdef-float">
     impl ToComputedValue for SpecifiedValue {
@@ -250,25 +268,25 @@ ${helpers.single_keyword("position", "static absolute relative fixed sticky",
             let ltr = context.style().writing_mode.is_bidi_ltr();
             // https://drafts.csswg.org/css-logical-props/#float-clear
             match *self {
-                SpecifiedValue::inline_start => {
+                SpecifiedValue::InlineStart => {
                     context.rule_cache_conditions.borrow_mut()
                         .set_writing_mode_dependency(context.builder.writing_mode);
                     if ltr {
-                        computed_value::T::left
+                        computed_value::T::Left
                     } else {
-                        computed_value::T::right
+                        computed_value::T::Right
                     }
                 }
-                SpecifiedValue::inline_end => {
+                SpecifiedValue::InlineEnd => {
                     context.rule_cache_conditions.borrow_mut()
                         .set_writing_mode_dependency(context.builder.writing_mode);
                     if ltr {
-                        computed_value::T::right
+                        computed_value::T::Right
                     } else {
-                        computed_value::T::left
+                        computed_value::T::Left
                     }
                 }
-                % for value in "none left right".split():
+                % for value in "None Left Right".split():
                     SpecifiedValue::${value} => computed_value::T::${value},
                 % endfor
             }
@@ -276,7 +294,7 @@ ${helpers.single_keyword("position", "static absolute relative fixed sticky",
         #[inline]
         fn from_computed_value(computed: &computed_value::T) -> SpecifiedValue {
             match *computed {
-                % for value in "none left right".split():
+                % for value in "None Left Right".split():
                     computed_value::T::${value} => SpecifiedValue::${value},
                 % endfor
             }
@@ -302,25 +320,25 @@ ${helpers.single_keyword("position", "static absolute relative fixed sticky",
             let ltr = context.style().writing_mode.is_bidi_ltr();
             // https://drafts.csswg.org/css-logical-props/#float-clear
             match *self {
-                SpecifiedValue::inline_start => {
+                SpecifiedValue::InlineStart => {
                     context.rule_cache_conditions.borrow_mut()
                         .set_writing_mode_dependency(context.builder.writing_mode);
                     if ltr {
-                        computed_value::T::left
+                        computed_value::T::Left
                     } else {
-                        computed_value::T::right
+                        computed_value::T::Right
                     }
                 }
-                SpecifiedValue::inline_end => {
+                SpecifiedValue::InlineEnd => {
                     context.rule_cache_conditions.borrow_mut()
                         .set_writing_mode_dependency(context.builder.writing_mode);
                     if ltr {
-                        computed_value::T::right
+                        computed_value::T::Right
                     } else {
-                        computed_value::T::left
+                        computed_value::T::Left
                     }
                 }
-                % for value in "none left right both".split():
+                % for value in "None Left Right Both".split():
                     SpecifiedValue::${value} => computed_value::T::${value},
                 % endfor
             }
@@ -328,7 +346,7 @@ ${helpers.single_keyword("position", "static absolute relative fixed sticky",
         #[inline]
         fn from_computed_value(computed: &computed_value::T) -> SpecifiedValue {
             match *computed {
-                % for value in "none left right both".split():
+                % for value in "None Left Right Both".split():
                     computed_value::T::${value} => SpecifiedValue::${value},
                 % endfor
             }
@@ -369,15 +387,25 @@ ${helpers.predefined_type(
 // CSS 2.1, Section 11 - Visual effects
 
 ${helpers.single_keyword("-servo-overflow-clip-box", "padding-box content-box",
-    products="servo", animation_value_type="none", internal=True,
+    products="servo", animation_value_type="none", enabled_in="ua",
     spec="Internal, not web-exposed, \
           may be standardized in the future (https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-clip-box)")}
 
-${helpers.single_keyword("overflow-clip-box", "padding-box content-box",
-    products="gecko", animation_value_type="discrete", internal=True,
-    flags="APPLIES_TO_PLACEHOLDER",
-    spec="Internal, not web-exposed, \
-          may be standardized in the future (https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-clip-box)")}
+% for direction in ["inline", "block"]:
+    ${helpers.predefined_type(
+        "overflow-clip-box-" + direction,
+        "OverflowClipBox",
+        "computed::OverflowClipBox::PaddingBox",
+        products="gecko",
+        enabled_in="ua",
+        needs_context=False,
+        flags="APPLIES_TO_PLACEHOLDER",
+        gecko_pref="layout.css.overscroll-behavior.enabled",
+        animation_value_type="discrete",
+        spec="Internal, may be standardized in the future: \
+              https://developer.mozilla.org/en-US/docs/Web/CSS/overflow-clip-box",
+    )}
+% endfor
 
 <%
     overflow_custom_consts = { "-moz-hidden-unscrollable": "CLIP" }
@@ -543,6 +571,7 @@ ${helpers.predefined_type("animation-delay",
         "ScrollSnapPoint",
         "computed::ScrollSnapPoint::none()",
         animation_value_type="discrete",
+        gecko_pref="layout.css.scroll-snap.enabled",
         products="gecko",
         spec="Nonstandard (https://www.w3.org/TR/2015/WD-css-snappoints-1-20150326/#scroll-snap-points)",
     )}
@@ -552,6 +581,7 @@ ${helpers.predefined_type("scroll-snap-destination",
                           "Position",
                           "computed::Position::zero()",
                           products="gecko",
+                          gecko_pref="layout.css.scroll-snap.enabled",
                           boxed="True",
                           spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-destination)",
                           animation_value_type="discrete")}
@@ -562,52 +592,25 @@ ${helpers.predefined_type(
     "computed::Position::zero()",
     vector=True,
     products="gecko",
+    gecko_pref="layout.css.scroll-snap.enabled",
     spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-destination)",
     animation_value_type="discrete",
     allow_empty="NotInitial"
 )}
 
-<%helpers:longhand name="transform" extra_prefixes="webkit"
-                   animation_value_type="ComputedValue"
-                   flags="CREATES_STACKING_CONTEXT FIXPOS_CB"
-                   spec="https://drafts.csswg.org/css-transforms/#propdef-transform">
-    use values::generics::transform::Transform;
-
-
-    pub mod computed_value {
-        pub use values::computed::transform::Transform as T;
-        pub use values::computed::transform::TransformOperation as ComputedOperation;
-    }
-
-    pub use values::specified::transform::Transform as SpecifiedValue;
-    pub use values::specified::transform::TransformOperation as SpecifiedOperation;
-
-    #[inline]
-    pub fn get_initial_value() -> computed_value::T {
-        Transform(vec![])
-    }
-
-
-    /// Parses `transform` property.
-    #[inline]
-    pub fn parse<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                         -> Result<SpecifiedValue,ParseError<'i>> {
-        SpecifiedValue::parse_internal(context, input, false)
-    }
-
-    /// Parses `-moz-transform` property. This prefixed property also accepts LengthOrPercentage
-    /// in the nondiagonal homogeneous components of matrix and matrix3d.
-    #[inline]
-    pub fn parse_prefixed<'i, 't>(context: &ParserContext, input: &mut Parser<'i, 't>)
-                                  -> Result<SpecifiedValue,ParseError<'i>> {
-        SpecifiedValue::parse_internal(context, input, true)
-    }
-</%helpers:longhand>
+${helpers.predefined_type("transform", "Transform",
+                          "generics::transform::Transform::none()",
+                          extra_prefixes="webkit",
+                          animation_value_type="ComputedValue",
+                          gecko_ffi_name="mSpecifiedTransform",
+                          flags="CREATES_STACKING_CONTEXT FIXPOS_CB",
+                          spec="https://drafts.csswg.org/css-transforms/#propdef-transform")}
 
 // CSSOM View Module
 // https://www.w3.org/TR/cssom-view-1/
 ${helpers.single_keyword("scroll-behavior",
                          "auto smooth",
+                         gecko_pref="layout.css.scroll-behavior.property-enabled",
                          products="gecko",
                          spec="https://drafts.csswg.org/cssom-view/#propdef-scroll-behavior",
                          animation_value_type="discrete")}
@@ -619,7 +622,21 @@ ${helpers.single_keyword("scroll-behavior",
         "computed::ScrollSnapType::None",
         products="gecko",
         needs_context=False,
+        gecko_pref="layout.css.scroll-snap.enabled",
         spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/scroll-snap-type-x)",
+        animation_value_type="discrete"
+    )}
+% endfor
+
+% for axis in ["x", "y"]:
+    ${helpers.predefined_type(
+        "overscroll-behavior-" + axis,
+        "OverscrollBehavior",
+        "computed::OverscrollBehavior::Auto",
+        products="gecko",
+        needs_context=False,
+        gecko_pref="layout.css.overscroll-behavior.enabled",
+        spec="https://wicg.github.io/overscroll-behavior/#overscroll-behavior-properties",
         animation_value_type="discrete"
     )}
 % endfor
@@ -629,6 +646,7 @@ ${helpers.single_keyword("scroll-behavior",
 ${helpers.single_keyword("isolation",
                          "auto isolate",
                          products="gecko",
+                         gecko_pref="layout.css.isolation.enabled",
                          spec="https://drafts.fxtf.org/compositing/#isolation",
                          flags="CREATES_STACKING_CONTEXT",
                          animation_value_type="discrete")}
@@ -695,6 +713,7 @@ ${helpers.single_keyword("transform-box",
                          "border-box fill-box view-box",
                          gecko_enum_prefix="StyleGeometryBox",
                          products="gecko",
+                         gecko_pref="svg.transform-box.enabled",
                          spec="https://drafts.csswg.org/css-transforms/#transform-box",
                          gecko_inexhaustive="True",
                          animation_value_type="discrete")}
@@ -713,6 +732,7 @@ ${helpers.predefined_type("transform-origin",
                           "computed::TransformOrigin::initial_value()",
                           animation_value_type="ComputedValue",
                           extra_prefixes="moz webkit",
+                          gecko_ffi_name="mTransformOrigin",
                           boxed=True,
                           spec="https://drafts.csswg.org/css-transforms/#transform-origin-property")}
 
@@ -721,6 +741,7 @@ ${helpers.predefined_type("transform-origin",
 // also update the glue once they are implemented in gecko.
 <%helpers:longhand name="contain" animation_value_type="discrete" products="gecko"
                    flags="FIXPOS_CB"
+                   gecko_pref="layout.css.contain.enabled",
                    spec="https://drafts.csswg.org/css-contain/#contain-property">
     use std::fmt;
     use style_traits::ToCss;
@@ -814,13 +835,13 @@ ${helpers.predefined_type("transform-origin",
 ${helpers.single_keyword("-moz-appearance",
                          """none button button-arrow-down button-arrow-next button-arrow-previous button-arrow-up
                             button-bevel button-focus caret checkbox checkbox-container checkbox-label checkmenuitem
-                            dialog dualbutton groupbox listbox listitem menuarrow menubar menucheckbox menuimage
-                            menuitem menuitemtext menulist menulist-button menulist-text menulist-textfield menupopup
-                            menuradio menuseparator meterbar meterchunk number-input progressbar progressbar-vertical
-                            progresschunk progresschunk-vertical radio radio-container radio-label radiomenuitem range
-                            range-thumb resizer resizerpanel scale-horizontal scalethumbend scalethumb-horizontal
-                            scalethumbstart scalethumbtick scalethumb-vertical scale-vertical scrollbar
-                            scrollbar-horizontal scrollbar-small scrollbar-vertical scrollbarbutton-down
+                            dialog dualbutton groupbox inner-spin-button listbox listitem menuarrow menubar menucheckbox
+                            menuimage menuitem menuitemtext menulist menulist-button menulist-text menulist-textfield
+                            menupopup menuradio menuseparator meterbar meterchunk number-input progressbar
+                            progressbar-vertical progresschunk progresschunk-vertical radio radio-container radio-label
+                            radiomenuitem range range-thumb resizer resizerpanel scale-horizontal scalethumbend
+                            scalethumb-horizontal scalethumbstart scalethumbtick scalethumb-vertical scale-vertical
+                            scrollbar scrollbar-horizontal scrollbar-small scrollbar-vertical scrollbarbutton-down
                             scrollbarbutton-left scrollbarbutton-right scrollbarbutton-up scrollbarthumb-horizontal
                             scrollbarthumb-vertical scrollbartrack-horizontal scrollbartrack-vertical searchfield
                             separator spinner spinner-downbutton spinner-textfield spinner-upbutton splitter statusbar
@@ -831,7 +852,8 @@ ${helpers.single_keyword("-moz-appearance",
                             -moz-gtk-info-bar -moz-mac-active-source-list-selection -moz-mac-disclosure-button-closed
                             -moz-mac-disclosure-button-open -moz-mac-fullscreen-button -moz-mac-help-button
                             -moz-mac-source-list -moz-mac-source-list-selection -moz-mac-vibrancy-dark
-                            -moz-mac-vibrancy-light -moz-win-borderless-glass -moz-win-browsertabbar-toolbox
+                            -moz-mac-vibrancy-light -moz-mac-vibrant-titlebar-light -moz-mac-vibrant-titlebar-dark
+                            -moz-win-borderless-glass -moz-win-browsertabbar-toolbox
                             -moz-win-communications-toolbox -moz-win-exclude-glass -moz-win-glass -moz-win-media-toolbox
                             -moz-window-button-box -moz-window-button-box-maximized -moz-window-button-close
                             -moz-window-button-maximize -moz-window-button-minimize -moz-window-button-restore
@@ -917,11 +939,20 @@ ${helpers.single_keyword("-moz-orient",
 </%helpers:longhand>
 
 ${helpers.predefined_type(
+    "shape-image-threshold", "Opacity", "0.0",
+    products="gecko",
+    gecko_pref="layout.css.shape-outside.enabled",
+    animation_value_type="ComputedValue",
+    spec="https://drafts.csswg.org/css-shapes/#shape-image-threshold-property",
+)}
+
+${helpers.predefined_type(
     "shape-outside",
     "basic_shape::FloatAreaShape",
     "generics::basic_shape::ShapeSource::None",
     products="gecko",
     boxed=True,
+    gecko_pref="layout.css.shape-outside.enabled",
     animation_value_type="ComputedValue",
     flags="APPLIES_TO_FIRST_LETTER",
     spec="https://drafts.csswg.org/css-shapes/#shape-outside-property",
@@ -930,6 +961,7 @@ ${helpers.predefined_type(
 <%helpers:longhand name="touch-action"
                    products="gecko"
                    animation_value_type="discrete"
+                   gecko_pref="layout.css.touch_action.enabled"
                    spec="https://compat.spec.whatwg.org/#touch-action">
     use gecko_bindings::structs;
     use std::fmt;

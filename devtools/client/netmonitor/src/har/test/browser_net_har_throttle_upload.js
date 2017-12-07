@@ -20,7 +20,8 @@ function* throttleUploadTest(actuallyThrottle) {
   let Actions = windowRequire("devtools/client/netmonitor/src/actions/index");
   let RequestListContextMenu = windowRequire(
     "devtools/client/netmonitor/src/request-list-context-menu");
-  let { getLongString, getTabTarget, setPreferences } = connector;
+  let { getSortedRequests } = windowRequire(
+    "devtools/client/netmonitor/src/selectors/index");
 
   store.dispatch(Actions.batchEnable(false));
 
@@ -40,21 +41,21 @@ function* throttleUploadTest(actuallyThrottle) {
 
   info("sending throttle request");
   yield new Promise((resolve) => {
-    setPreferences(request, (response) => {
+    connector.setPreferences(request, (response) => {
       resolve(response);
     });
   });
 
   // Execute one POST request on the page and wait till its done.
-  let wait = waitForNetworkEvents(monitor, 0, 1);
+  let wait = waitForNetworkEvents(monitor, 1);
   yield ContentTask.spawn(tab.linkedBrowser, { size }, function* (args) {
     content.wrappedJSObject.executeTest2(args.size);
   });
   yield wait;
 
   // Copy HAR into the clipboard (asynchronous).
-  let contextMenu = new RequestListContextMenu({ getTabTarget, getLongString });
-  let jsonString = yield contextMenu.copyAllAsHar();
+  let contextMenu = new RequestListContextMenu({ connector });
+  let jsonString = yield contextMenu.copyAllAsHar(getSortedRequests(store.getState()));
   let har = JSON.parse(jsonString);
 
   // Check out the HAR log.
