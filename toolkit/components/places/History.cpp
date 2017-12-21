@@ -575,6 +575,11 @@ public:
       History* history = History::GetService();
       NS_ENSURE_STATE(history);
       history->NotifyVisited(mURI);
+      AutoTArray<URIParams, 1> uris;
+      URIParams uri;
+      SerializeURI(mURI, uri);
+      uris.AppendElement(Move(uri));
+      history->NotifyVisitedParent(uris);
     }
 
     nsCOMPtr<nsIObserverService> observerService =
@@ -626,7 +631,7 @@ NS_IMPL_ISUPPORTS_INHERITED(
 class NotifyManyVisitsObservers : public Runnable
 {
 public:
-  explicit NotifyManyVisitsObservers(VisitData aPlace)
+  explicit NotifyManyVisitsObservers(const VisitData& aPlace)
     : Runnable("places::NotifyManyVisitsObservers")
     , mPlace(aPlace)
     , mHistory(History::GetService())
@@ -643,7 +648,8 @@ public:
   nsresult NotifyVisit(nsNavHistory* aNavHistory,
                        nsCOMPtr<nsIObserverService>& aObsService,
                        PRTime aNow,
-                       VisitData aPlace) {
+                       nsTArray<URIParams>& aNotifyVisitedURIs,
+                       const VisitData& aPlace) {
     nsCOMPtr<nsIURI> uri;
     MOZ_ALWAYS_SUCCEEDS(NS_NewURI(getter_AddRefs(uri), aPlace.spec));
     if (!uri) {
@@ -675,6 +681,10 @@ public:
       aNavHistory->NotifyTitleChange(uri, aPlace.title, aPlace.guid);
     }
 
+    URIParams serialized;
+    SerializeURI(uri, serialized);
+    aNotifyVisitedURIs.AppendElement(Move(serialized));
+
     return NS_OK;
   }
 
@@ -699,13 +709,17 @@ public:
 
     PRTime now = PR_Now();
     if (mPlaces.Length() > 0) {
+      InfallibleTArray<URIParams> uris(mPlaces.Length());
       for (uint32_t i = 0; i < mPlaces.Length(); ++i) {
-        nsresult rv = NotifyVisit(navHistory, obsService, now, mPlaces[i]);
+        nsresult rv = NotifyVisit(navHistory, obsService, now, uris, mPlaces[i]);
         NS_ENSURE_SUCCESS(rv, rv);
       }
+      mHistory->NotifyVisitedParent(uris);
     } else {
-      nsresult rv = NotifyVisit(navHistory, obsService, now, mPlace);
+      AutoTArray<URIParams, 1> uris;
+      nsresult rv = NotifyVisit(navHistory, obsService, now, uris, mPlace);
       NS_ENSURE_SUCCESS(rv, rv);
+      mHistory->NotifyVisitedParent(uris);
     }
 
     return NS_OK;
@@ -1017,6 +1031,11 @@ public:
 
     const VisitData* lastFetchedPlace = nullptr;
     uint32_t lastFetchedVisitCount = 0;
+    bool shouldChunkNotifications = mPlaces.Length() > NOTIFY_VISITS_CHUNK_SIZE;
+    InfallibleTArray<VisitData> notificationChunk;
+    if (shouldChunkNotifications) {
+      notificationChunk.SetCapacity(NOTIFY_VISITS_CHUNK_SIZE);
+    }
     for (nsTArray<VisitData>::size_type i = 0; i < mPlaces.Length(); i++) {
       VisitData& place = mPlaces.ElementAt(i);
 
@@ -1086,6 +1105,21 @@ public:
       }
       NS_ENSURE_SUCCESS(rv, rv);
 
+      if (shouldChunkNotifications) {
+        int32_t numRemaining = mPlaces.Length() - (i + 1);
+        notificationChunk.AppendElement(place);
+        if (notificationChunk.Length() == NOTIFY_VISITS_CHUNK_SIZE ||
+            numRemaining == 0) {
+          // This will SwapElements on notificationChunk with an empty nsTArray
+          nsCOMPtr<nsIRunnable> event = new NotifyManyVisitsObservers(notificationChunk);
+          rv = NS_DispatchToMainThread(event);
+          NS_ENSURE_SUCCESS(rv, rv);
+
+          int32_t nextCapacity = std::min(NOTIFY_VISITS_CHUNK_SIZE, numRemaining);
+          notificationChunk.SetCapacity(nextCapacity);
+        }
+      }
+
       // If we get here, we must have been successful adding/updating this
       // visit/place, so update the count:
       mSuccessfulUpdatedCount++;
@@ -1104,9 +1138,13 @@ public:
     nsresult rv = transaction.Commit();
     NS_ENSURE_SUCCESS(rv, rv);
 
-    nsCOMPtr<nsIRunnable> event = new NotifyManyVisitsObservers(mPlaces);
-    rv = NS_DispatchToMainThread(event);
-    NS_ENSURE_SUCCESS(rv, rv);
+    // If we don't need to chunk the notifications, just notify using the
+    // original mPlaces array.
+    if (!shouldChunkNotifications) {
+      nsCOMPtr<nsIRunnable> event = new NotifyManyVisitsObservers(mPlaces);
+      rv = NS_DispatchToMainThread(event);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
 
     return NS_OK;
   }
@@ -1998,27 +2036,29 @@ GetLinkDocument(Link* aLink)
   return element ? element->OwnerDoc() : nullptr;
 }
 
+void
+History::NotifyVisitedParent(const nsTArray<URIParams>& aURIs)
+{
+  MOZ_ASSERT(XRE_IsParentProcess());
+  nsTArray<ContentParent*> cplist;
+  ContentParent::GetAll(cplist);
+
+  if (!cplist.IsEmpty()) {
+    for (uint32_t i = 0; i < cplist.Length(); ++i) {
+      Unused << cplist[i]->SendNotifyVisited(aURIs);
+    }
+  }
+}
+
 NS_IMETHODIMP
 History::NotifyVisited(nsIURI* aURI)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   NS_ENSURE_ARG(aURI);
   // NOTE: This can be run within the SystemGroup, and thus cannot directly
   // interact with webpages.
 
   nsAutoScriptBlocker scriptBlocker;
-
-  if (XRE_IsParentProcess()) {
-    nsTArray<ContentParent*> cplist;
-    ContentParent::GetAll(cplist);
-
-    if (!cplist.IsEmpty()) {
-      URIParams uri;
-      SerializeURI(aURI, uri);
-      for (uint32_t i = 0; i < cplist.Length(); ++i) {
-        Unused << cplist[i]->SendNotifyVisited(uri);
-      }
-    }
-  }
 
   // If we have no observers for this URI, we have nothing to notify about.
   KeyClass* key = mObservers.GetEntry(aURI);
@@ -2052,6 +2092,7 @@ History::NotifyVisited(nsIURI* aURI)
 void
 History::NotifyVisitedForDocument(nsIURI* aURI, nsIDocument* aDocument)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   // Make sure that nothing invalidates our observer array while we're walking
   // over it.
   nsAutoScriptBlocker scriptBlocker;
@@ -2689,6 +2730,7 @@ NS_IMETHODIMP
 History::RegisterVisitedCallback(nsIURI* aURI,
                                  Link* aLink)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   NS_ASSERTION(aURI, "Must pass a non-null URI!");
   if (XRE_IsContentProcess()) {
     NS_PRECONDITION(aLink, "Must pass a non-null Link!");
@@ -2718,7 +2760,16 @@ History::RegisterVisitedCallback(nsIURI* aURI,
     if (NS_FAILED(rv) || !aLink) {
       // Remove our array from the hashtable so we don't keep it around.
       MOZ_ASSERT(key == mObservers.GetEntry(aURI), "The URIs hash mutated!");
-      mObservers.RemoveEntry(key);
+      // In some case calling RemoveEntry on the key obtained by PutEntry
+      // crashes for currently unknown reasons.  Our suspect is that something
+      // between PutEntry and this call causes a nested loop that either removes
+      // the entry or reallocs the hash.
+      // TODO (Bug 1412647): we must figure the root cause for these issues and
+      // remove this stop-gap crash fix.
+      key = mObservers.GetEntry(aURI);
+      if (key) {
+        mObservers.RemoveEntry(key);
+      }
       return rv;
     }
   }
@@ -2757,6 +2808,7 @@ NS_IMETHODIMP
 History::UnregisterVisitedCallback(nsIURI* aURI,
                                    Link* aLink)
 {
+  MOZ_ASSERT(NS_IsMainThread());
   // TODO: aURI is sometimes null - see bug 548685
   NS_ASSERTION(aURI, "Must pass a non-null URI!");
   NS_ASSERTION(aLink, "Must pass a non-null Link object!");

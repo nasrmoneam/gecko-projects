@@ -92,7 +92,6 @@ enum class FontRenderMode : uint32_t {
   Mono = 0,
   Alpha = 1,
   Subpixel = 2,
-  Bitmap = 3,
 
   Sentinel /* this must be last for serialization purposes. */
 };
@@ -226,6 +225,7 @@ enum class WrFilterOpType : uint32_t {
   Opacity = 6,
   Saturate = 7,
   Sepia = 8,
+  DropShadow = 9,
 
   Sentinel /* this must be last for serialization purposes. */
 };
@@ -692,10 +692,14 @@ struct WrAnimationProperty {
 struct WrFilterOp {
   WrFilterOpType filter_type;
   float argument;
+  LayoutVector2D offset;
+  ColorF color;
 
   bool operator==(const WrFilterOp& aOther) const {
     return filter_type == aOther.filter_type &&
-           argument == aOther.argument;
+           argument == aOther.argument &&
+           offset == aOther.offset &&
+           color == aOther.color;
   }
 };
 
@@ -986,6 +990,8 @@ extern void gfx_critical_note(const char *aMsg);
 extern bool gfx_use_wrench();
 
 extern const char *gfx_wr_resource_path_override();
+
+extern bool is_glcontext_angle(void *aGlcontextPtr);
 
 extern bool is_glcontext_egl(void *aGlcontextPtr);
 

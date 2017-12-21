@@ -540,14 +540,18 @@ class DeviceManagerADB(DeviceManager):
                 localDir = '/'.join(localDir.rstrip('/').split('/')[:-1])
         cmd = ["pull", remoteDir, localDir]
         proc = self._runCmd(cmd)
+        if proc.returncode != 0:
+            # Raise a DMError when the device is missing, but not when the
+            # directory is empty or missing.
+            output = ''.join(proc.output)
+            if ("no devices/emulators found" in output or
+                ("pulled" not in output and
+                 "does not exist" not in output)):
+                raise DMError("getDirectory() failed to pull %s: %s" %
+                              (remoteDir, proc.output))
         if copyRequired:
-            try:
-                dir_util.copy_tree(localDir, originalLocal)
-                mozfile.remove(tempParent)
-            except:
-                self._logger.error("getDirectory() failed after %s" % str(cmd))
-                self._logger.error("rc=%d out=%s" % (proc.returncode, str(proc.output)))
-                raise
+            dir_util.copy_tree(localDir, originalLocal)
+            mozfile.remove(tempParent)
 
     def validateFile(self, remoteFile, localFile):
         md5Remote = self._getRemoteHash(remoteFile)
@@ -639,11 +643,13 @@ class DeviceManagerADB(DeviceManager):
         if directive == "systime" or directive == "all":
             ret["systime"] = self.shellCheckOutput(["date"], timeout=self.short_timeout)
         if directive == "memtotal" or directive == "all":
-            meminfo = {}
-            for line in self.pullFile("/proc/meminfo").splitlines():
-                key, value = line.split(":")
-                meminfo[key] = value.strip()
-            ret["memtotal"] = meminfo["MemTotal"]
+            out = self.shellCheckOutput(["cat", "/proc/meminfo"], timeout=self.short_timeout)
+            out = out.replace('\r\n', '\n').splitlines(True)
+            for line in out:
+                parts = line.split(":")
+                if len(parts) == 2 and parts[0] == "MemTotal":
+                    ret["memtotal"] = parts[1].strip()
+                    break
         if directive == "disk" or directive == "all":
             data = self.shellCheckOutput(
                 ["df", "/data", "/system", "/sdcard"], timeout=self.short_timeout)

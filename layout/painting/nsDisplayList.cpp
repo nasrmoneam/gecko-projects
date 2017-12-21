@@ -1053,7 +1053,7 @@ nsDisplayListBuilder::EndFrame()
   mFrameToAnimatedGeometryRootMap.Clear();
   mActiveScrolledRoots.Clear();
   FreeClipChains();
-
+  FreeTemporaryItems();
   nsCSSRendering::EndFrameTreesLocked();
 }
 
@@ -1299,9 +1299,6 @@ nsDisplayListBuilder::~nsDisplayListBuilder() {
                "All presshells should have been exited");
   NS_ASSERTION(!mCurrentTableItem, "No table item should be active");
 
-  for (nsDisplayItem* i : mTemporaryItems) {
-    i->Destroy(this);
-  }
   for (DisplayItemClipChain* c : mClipChainsToDestroy) {
     c->DisplayItemClipChain::~DisplayItemClipChain();
   }
@@ -1496,6 +1493,19 @@ nsDisplayListBuilder::FreeClipChains()
       ++it;
     }
   }
+}
+
+void
+nsDisplayListBuilder::FreeTemporaryItems()
+{
+  for (nsDisplayItem* i : mTemporaryItems) {
+    // Temporary display items are not added to the frames.
+    MOZ_ASSERT(i->Frame());
+    i->RemoveFrame(i->Frame());
+    i->Destroy(this);
+  }
+
+  mTemporaryItems.Clear();
 }
 
 void
@@ -1850,6 +1860,8 @@ nsDisplayListBuilder::FindAnimatedGeometryRootFrameFor(nsIFrame* aFrame, bool& a
       return cursor;
     cursor = next;
   }
+  // Root frame is always an async agr.
+  aIsAsync = true;
   return cursor;
 }
 
@@ -2200,7 +2212,7 @@ nsDisplayListBuilder::AppendNewScrollInfoItemForHoisting(nsDisplayScrollInfoLaye
 {
   MOZ_ASSERT(ShouldBuildScrollInfoItemsForHoisting());
   MOZ_ASSERT(mScrollInfoItemsForHoisting);
-  mScrollInfoItemsForHoisting->AppendNewToTop(aScrollInfoItem);
+  mScrollInfoItemsForHoisting->AppendToTop(aScrollInfoItem);
 }
 
 bool
@@ -3526,7 +3538,7 @@ SpecialCutoutRegionCase(nsDisplayListBuilder* aBuilder,
   nsRegion region;
   region.Sub(aBackgroundRect, *static_cast<nsRegion*>(cutoutRegion));
   region.MoveBy(aBuilder->ToReferenceFrame(aFrame));
-  aList->AppendNewToTop(
+  aList->AppendToTop(
     new (aBuilder) nsDisplaySolidColorRegion(aBuilder, aFrame, region, aColor));
 
   return true;
@@ -3641,14 +3653,14 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
                                                   drawBackgroundColor ? color : NS_RGBA(0, 0, 0, 0));
     }
     bgItem->SetDependentFrame(aBuilder, dependentFrame);
-    bgItemList.AppendNewToTop(bgItem);
+    bgItemList.AppendToTop(bgItem);
   }
 
   if (isThemed) {
     nsITheme* theme = presContext->GetTheme();
     if (theme->NeedToClearBackgroundBehindWidget(aFrame, aFrame->StyleDisplay()->mAppearance) &&
         aBuilder->IsInChromeDocumentOrPopup() && !aBuilder->IsInTransform()) {
-      bgItemList.AppendNewToTop(
+      bgItemList.AppendToTop(
         new (aBuilder) nsDisplayClearBackground(aBuilder, aFrame));
     }
     if (aSecondaryReferenceFrame) {
@@ -3658,12 +3670,12 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
                                                       bgRect,
                                                       aFrame);
       bgItem->Init(aBuilder);
-      bgItemList.AppendNewToTop(bgItem);
+      bgItemList.AppendToTop(bgItem);
     } else {
       nsDisplayThemedBackground* bgItem =
         new (aBuilder) nsDisplayThemedBackground(aBuilder, aFrame, bgRect);
       bgItem->Init(aBuilder);
-      bgItemList.AppendNewToTop(bgItem);
+      bgItemList.AppendToTop(bgItem);
     }
     aList->AppendToTop(&bgItemList);
     return true;
@@ -3743,14 +3755,14 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
       }
       bgItem->SetDependentFrame(aBuilder, dependentFrame);
       if (aSecondaryReferenceFrame) {
-        thisItemList.AppendNewToTop(
+        thisItemList.AppendToTop(
           nsDisplayTableFixedPosition::CreateForFixedBackground(aBuilder,
                                                                 aSecondaryReferenceFrame,
                                                                 bgItem,
                                                                 i,
                                                                 aFrame));
       } else {
-        thisItemList.AppendNewToTop(
+        thisItemList.AppendToTop(
           nsDisplayFixedPosition::CreateForFixedBackground(aBuilder, aFrame, bgItem, i));
       }
 
@@ -3766,7 +3778,7 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
         bgItem = new (aBuilder) nsDisplayBackgroundImage(bgData);
       }
       bgItem->SetDependentFrame(aBuilder, dependentFrame);
-      thisItemList.AppendNewToTop(bgItem);
+      thisItemList.AppendToTop(bgItem);
     }
 
     if (bg->mImage.mLayers[i].mBlendMode != NS_STYLE_BLEND_NORMAL) {
@@ -3775,12 +3787,12 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
       // fine, because the item will have a scrolled clip that limits the
       // item with respect to asr.
       if (aSecondaryReferenceFrame) {
-        thisItemList.AppendNewToTop(
+        thisItemList.AppendToTop(
           new (aBuilder) nsDisplayTableBlendMode(aBuilder, aSecondaryReferenceFrame, &thisItemList,
                                                  bg->mImage.mLayers[i].mBlendMode,
                                                  asr, i + 1, aFrame));
       } else {
-        thisItemList.AppendNewToTop(
+        thisItemList.AppendToTop(
           new (aBuilder) nsDisplayBlendMode(aBuilder, aFrame, &thisItemList,
                                             bg->mImage.mLayers[i].mBlendMode,
                                             asr, i + 1));
@@ -3792,11 +3804,11 @@ nsDisplayBackgroundImage::AppendBackgroundItemsToTop(nsDisplayListBuilder* aBuil
   if (needBlendContainer) {
     DisplayListClipState::AutoSaveRestore blendContainerClip(aBuilder);
     if (aSecondaryReferenceFrame) {
-      bgItemList.AppendNewToTop(
+      bgItemList.AppendToTop(
         nsDisplayTableBlendContainer::CreateForBackgroundBlendMode(aBuilder, aSecondaryReferenceFrame,
                                                                    &bgItemList, asr, aFrame));
     } else {
-      bgItemList.AppendNewToTop(
+      bgItemList.AppendToTop(
         nsDisplayBlendContainer::CreateForBackgroundBlendMode(aBuilder, aFrame, &bgItemList, asr));
     }
   }
@@ -4037,7 +4049,7 @@ nsDisplayBackgroundImage::CreateWebRenderCommands(mozilla::wr::DisplayListBuilde
                                                   StyleFrame(), mImageFlags, mLayer,
                                                   CompositionOp::OP_OVER);
   params.bgClipRect = &mBounds;
-  DrawResult result =
+  ImgDrawResult result =
     nsCSSRendering::BuildWebRenderDisplayItemsForStyleImageLayer(params, aBuilder, aResources, aSc, aManager, this);
   nsDisplayBackgroundGeometry::UpdateDrawResult(this, result);
 
@@ -4200,7 +4212,7 @@ nsDisplayBackgroundImage::PaintInternal(nsDisplayListBuilder* aBuilder,
                                                   StyleFrame(), mImageFlags, mLayer,
                                                   CompositionOp::OP_OVER);
   params.bgClipRect = aClipRect;
-  DrawResult result = nsCSSRendering::PaintStyleImageLayer(params, *aCtx);
+  ImgDrawResult result = nsCSSRendering::PaintStyleImageLayer(params, *aCtx);
 
   if (clip == StyleGeometryBox::Text) {
     ctx->PopGroupAndBlend();
@@ -4501,7 +4513,7 @@ nsDisplayImageContainer::ConfigureLayer(ImageLayer* aLayer,
   if (imageWidth > 0 && imageHeight > 0) {
     // We're actually using the ImageContainer. Let our frame know that it
     // should consider itself to have painted successfully.
-    nsDisplayBackgroundGeometry::UpdateDrawResult(this, DrawResult::SUCCESS);
+    nsDisplayBackgroundGeometry::UpdateDrawResult(this, ImgDrawResult::SUCCESS);
   }
 
   // XXX(seth): Right now we ignore aParameters.Scale() and
@@ -4549,7 +4561,12 @@ nsDisplayImageContainer::GetContainer(LayerManager* aManager,
     flags |= imgIContainer::FLAG_SYNC_DECODE;
   }
 
-  return image->GetImageContainer(aManager, flags);
+  RefPtr<ImageContainer> container = image->GetImageContainer(aManager, flags);
+  if (!container || !container->HasCurrentImage()) {
+    return nullptr;
+  }
+
+  return container.forget();
 }
 
 bool
@@ -4977,8 +4994,9 @@ nsDisplayCompositorHitTestInfo::nsDisplayCompositorHitTestInfo(nsDisplayListBuil
     mScrollTarget = Some(aBuilder->GetCurrentScrollbarTarget());
   }
 
+  nsRect area;
   if (aArea.isSome()) {
-    mArea = *aArea;
+    area = *aArea;
   } else {
     nsIScrollableFrame* scrollFrame = nsLayoutUtils::GetScrollableFrameFor(mFrame);
     if (scrollFrame) {
@@ -4987,9 +5005,9 @@ nsDisplayCompositorHitTestInfo::nsDisplayCompositorHitTestInfo(nsDisplayListBuil
       // the overflow that are not occupied by descendants get skipped and the
       // APZ code sends touch events to the content underneath instead.
       // See https://bugzilla.mozilla.org/show_bug.cgi?id=1127773#c15.
-      mArea = mFrame->GetScrollableOverflowRect();
+      area = mFrame->GetScrollableOverflowRect();
     } else {
-      mArea = nsRect(nsPoint(0, 0), mFrame->GetSize());
+      area = nsRect(nsPoint(0, 0), mFrame->GetSize());
     }
 
     // Note that it's important to do this call to ToReferenceFrame here in the
@@ -4997,7 +5015,11 @@ nsDisplayCompositorHitTestInfo::nsDisplayCompositorHitTestInfo(nsDisplayListBuil
     // fast path (because aBuilder will already have the info we want cached).
     // This is as opposed to, say, calling it in CreateWebRenderCommands where
     // we would not hit the fast path.
-    mArea += aBuilder->ToReferenceFrame(mFrame);
+    area += aBuilder->ToReferenceFrame(mFrame);
+  }
+
+  if (!area.IsEmpty()) {
+    mArea = LayoutDeviceRect::FromAppUnits(area, mFrame->PresContext()->AppUnitsPerDevPixel());
   }
 }
 
@@ -5011,11 +5033,6 @@ nsDisplayCompositorHitTestInfo::CreateWebRenderCommands(mozilla::wr::DisplayList
   if (mArea.IsEmpty()) {
     return true;
   }
-
-  wr::LayoutRect rect = aSc.ToRelativeLayoutRect(
-      LayoutDeviceRect::FromAppUnits(
-          mArea,
-          mFrame->PresContext()->AppUnitsPerDevPixel()));
 
   // XXX: eventually this scrollId computation and the SetHitTestInfo
   // call will get moved out into the WR display item iteration code so that
@@ -5032,6 +5049,7 @@ nsDisplayCompositorHitTestInfo::CreateWebRenderCommands(mozilla::wr::DisplayList
 
   // Insert a transparent rectangle with the hit-test info
   aBuilder.SetHitTestInfo(scrollId, mHitTestInfo);
+  wr::LayoutRect rect = aSc.ToRelativeLayoutRect(mArea);
   aBuilder.PushRect(rect, rect, true, wr::ToColorF(gfx::Color()));
   aBuilder.ClearHitTestInfo();
 
@@ -5676,7 +5694,7 @@ nsDisplayBorder::Paint(nsDisplayListBuilder* aBuilder,
                          ? PaintBorderFlags::SYNC_DECODE_IMAGES
                          : PaintBorderFlags();
 
-  DrawResult result =
+  ImgDrawResult result =
     nsCSSRendering::PaintBorder(mFrame->PresContext(), *aCtx, mFrame,
                                 mVisibleRect,
                                 nsRect(offset, mFrame->GetSize()),
@@ -8344,21 +8362,6 @@ nsDisplayTransform::CanUseAsyncAnimations(nsDisplayListBuilder* aBuilder)
   return mAllowAsyncAnimation;
 }
 
-static void
-RecordAnimationFrameSizeTelemetry(nsIFrame* aFrame, const nsSize& overflow)
-{
-  gfxSize scale = nsLayoutUtils::GetTransformToAncestorScale(aFrame);
-  nsSize frameSize = nsSize(overflow.width * scale.width,
-                            overflow.height * scale.height);
-  uint32_t pixelArea = uint32_t(nsPresContext::AppUnitsToIntCSSPixels(frameSize.width))
-                     * nsPresContext::AppUnitsToIntCSSPixels(frameSize.height);
-  if (EffectSet* effects = EffectSet::GetEffectSet(aFrame)) {
-    for (KeyframeEffectReadOnly* effect : *effects) {
-      effect->RecordFrameSizeTelemetry(pixelArea);
-    }
-  }
-}
-
 /* static */ auto
 nsDisplayTransform::ShouldPrerenderTransformedContent(nsDisplayListBuilder* aBuilder,
                                                       nsIFrame* aFrame,
@@ -8405,17 +8408,9 @@ nsDisplayTransform::ShouldPrerenderTransformedContent(nsDisplayListBuilder* aBui
     }
   }
 
-  nsRect overflow = aFrame->GetVisualOverflowRectRelativeToSelf();
-
-  // Record telemetry about the size of the animated content.
-  // Check CanRecordExtended() so we don't do any processing if the
-  // telemetry won't be recorded anyways.
-  if (Telemetry::CanRecordExtended()) {
-    RecordAnimationFrameSizeTelemetry(aFrame, overflow.Size());
-  }
-
   // If the incoming dirty rect already contains the entire overflow area,
   // we are already rendering the entire content.
+  nsRect overflow = aFrame->GetVisualOverflowRectRelativeToSelf();
   if (aDirtyRect->Contains(overflow)) {
     return FullPrerender;
   }
@@ -9128,12 +9123,14 @@ nsDisplayPerspective::nsDisplayPerspective(nsDisplayListBuilder* aBuilder,
   : nsDisplayItem(aBuilder, aPerspectiveFrame)
   , mList(aBuilder, aPerspectiveFrame, aList)
   , mTransformFrame(aTransformFrame)
-  , mIndex(aBuilder->AllocatePerspectiveItemIndex())
+  , mIndex(aBuilder->PerspectiveItemIndex())
 {
   MOZ_ASSERT(mList.GetChildren()->Count() == 1);
   MOZ_ASSERT(mList.GetChildren()->GetTop()->GetType() == DisplayItemType::TYPE_TRANSFORM);
 
-  mTransformFrame->AddDisplayItem(this);
+  if (aBuilder->IsRetainingDisplayList()) {
+    mTransformFrame->AddDisplayItem(this);
+  }
 }
 
 already_AddRefed<Layer>
@@ -9583,7 +9580,7 @@ nsDisplayMask::PaintMask(nsDisplayListBuilder* aBuilder,
 
   nsDisplayMaskGeometry::UpdateDrawResult(this, imgParmas.result);
 
-  return imgParmas.result == mozilla::image::DrawResult::SUCCESS;
+  return imgParmas.result == mozilla::image::ImgDrawResult::SUCCESS;
 }
 
 LayerState
@@ -9968,6 +9965,38 @@ nsDisplayFilter::CreateWebRenderCommands(mozilla::wr::DisplayListBuilder& aBuild
               filter.GetFilterParameter().GetCoordValue(),
               appUnitsPerDevPixel)),
         };
+        wrFilters.AppendElement(filterOp);
+        break;
+      }
+      case NS_STYLE_FILTER_DROP_SHADOW: {
+        float appUnitsPerDevPixel = mFrame->PresContext()->AppUnitsPerDevPixel();
+        nsCSSShadowArray* shadows = filter.GetDropShadow();
+        if (!shadows || shadows->Length() != 1) {
+          NS_NOTREACHED("Exactly one drop shadow should have been parsed.");
+          return false;
+        }
+
+        nsCSSShadowItem* shadow = shadows->ShadowAt(0);
+        nscolor color = shadow->mColor;
+        if (!shadow->mHasColor) {
+          color = mFrame->StyleColor()->mColor;
+        }
+
+        mozilla::wr::WrFilterOp filterOp = {
+          wr::ToWrFilterOpType(filter.GetType()),
+          NSAppUnitsToFloatPixels(shadow->mRadius, appUnitsPerDevPixel),
+          {
+            NSAppUnitsToFloatPixels(shadow->mXOffset, appUnitsPerDevPixel),
+            NSAppUnitsToFloatPixels(shadow->mYOffset, appUnitsPerDevPixel),
+          },
+          {
+            NS_GET_R(color) / 255.0f,
+            NS_GET_G(color) / 255.0f,
+            NS_GET_B(color) / 255.0f,
+            NS_GET_A(color) / 255.0f,
+          }
+        };
+
         wrFilters.AppendElement(filterOp);
         break;
       }

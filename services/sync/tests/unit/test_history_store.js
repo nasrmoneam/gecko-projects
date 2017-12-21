@@ -246,6 +246,26 @@ add_task(async function test_invalid_records() {
   ]);
 });
 
+add_task(async function test_unknowingly_invalid_records() {
+  _("Make sure we handle rejection of records by places gracefully.");
+  let oldCAU = store._canAddURI;
+  store._canAddURI = () => true;
+  try {
+    _("Make sure that when places rejects this record we record it as failed");
+    let guid = Utils.makeGUID();
+    let result = await store.applyIncomingBatch([
+      {id: guid,
+       histUri: "javascript:''",
+       title: "javascript:''",
+       visits: [{date: TIMESTAMP3,
+                 type: Ci.nsINavHistoryService.TRANSITION_EMBED}]}
+    ]);
+    deepEqual(result, [guid]);
+  } finally {
+    store._canAddURI = oldCAU;
+  }
+});
+
 add_task(async function test_clamp_visit_dates() {
   let futureVisitTime = Date.now() + 5 * 60 * 1000;
   let recentVisitTime = Date.now() - 5 * 60 * 1000;
@@ -405,6 +425,38 @@ add_task(async function test_chunking() {
   } finally {
     store.MAX_VISITS_PER_INSERT = mvpi;
   }
+});
+
+add_task(async function test_getAllIDs_filters_file_uris() {
+  let uri = CommonUtils.makeURI("file:///Users/eoger/tps/config.json");
+  let visitAddedPromise = promiseVisit("added", uri);
+  await PlacesTestUtils.addVisits({
+    uri,
+    visitDate: Date.now() * 1000,
+    transition: PlacesUtils.history.TRANSITION_LINK
+  });
+  await visitAddedPromise;
+
+  do_check_attribute_count(await store.getAllIDs(), 0);
+
+  await PlacesTestUtils.clearHistory();
+});
+
+add_task(async function test_applyIncomingBatch_filters_file_uris() {
+  const guid = Utils.makeGUID();
+  let uri = CommonUtils.makeURI("file:///Users/eoger/tps/config.json");
+  await applyEnsureNoFailures([
+    {id: guid,
+     histUri: uri.spec,
+     title: "TPS CONFIG",
+     visits: [{date: TIMESTAMP3,
+               type: Ci.nsINavHistoryService.TRANSITION_TYPED}]}
+  ]);
+  do_check_false((await store.itemExists(guid)));
+  let queryres = await PlacesUtils.history.fetch(uri.spec, {
+    includeVisits: true,
+  });
+  do_check_null(queryres);
 });
 
 add_task(async function cleanup() {

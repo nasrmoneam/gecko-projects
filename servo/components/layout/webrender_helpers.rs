@@ -264,7 +264,6 @@ impl WebRenderDisplayItemConverter for DisplayItem {
             // TODO(gw): Make use of the WR backface visibility functionality.
             is_backface_visible: true,
             tag,
-            edge_aa_segment_mask: webrender_api::EdgeAaSegmentMask::empty(),
         }
     }
 
@@ -429,7 +428,6 @@ impl WebRenderDisplayItemConverter for DisplayItem {
                 builder.push_border(&self.prim_info(), widths, details);
             }
             DisplayItem::Gradient(ref item) => {
-                let rect = item.base.bounds;
                 let start_point = item.gradient.start_point.to_pointf();
                 let end_point = item.gradient.end_point.to_pointf();
                 let extend_mode = if item.gradient.repeating {
@@ -443,11 +441,10 @@ impl WebRenderDisplayItemConverter for DisplayItem {
                                                        extend_mode);
                 builder.push_gradient(&self.prim_info(),
                                       gradient,
-                                      rect.size.to_sizef(),
+                                      item.tile.to_sizef(),
                                       webrender_api::LayoutSize::zero());
             }
             DisplayItem::RadialGradient(ref item) => {
-                let rect = item.base.bounds;
                 let center = item.gradient.center.to_pointf();
                 let radius = item.gradient.radius.to_sizef();
                 let extend_mode = if item.gradient.repeating {
@@ -461,7 +458,7 @@ impl WebRenderDisplayItemConverter for DisplayItem {
                                                               extend_mode);
                 builder.push_radial_gradient(&self.prim_info(),
                                              gradient,
-                                             rect.size.to_sizef(),
+                                             item.tile.to_sizef(),
                                              webrender_api::LayoutSize::zero());
             }
             DisplayItem::Line(ref item) => {

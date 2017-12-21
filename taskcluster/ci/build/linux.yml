@@ -49,7 +49,8 @@ linux64-dmd/opt:
             - builds/releng_base_firefox.py
             - builds/releng_base_linux_64_builds.py
         script: "mozharness/scripts/fx_desktop_build.py"
-        custom-build-variant-cfg: dmd
+        extra-config:
+            mozconfig_variant: 'opt-dmd'
         secrets: true
         tooltool-downloads: public
         need-xvfb: true
@@ -158,6 +159,8 @@ linux64-devedition-nightly/opt:
     description: "Linux64 devedition Nightly"
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: devedition
     index:
         product: devedition
         job-name: linux64-opt
@@ -178,6 +181,7 @@ linux64-devedition-nightly/opt:
             - builds/releng_base_linux_64_builds.py
             - disable_signing.py
             - balrog/production.py
+            - taskcluster_nightly.py
         script: "mozharness/scripts/fx_desktop_build.py"
         secrets: true
         tooltool-downloads: public
@@ -218,7 +222,7 @@ linux64-base-toolchains/opt:
     toolchains:
         - linux64-clang-3.9
         - linux64-gcc-4.9
-        - linux64-rust-1.21
+        - linux64-rust-1.22
         - linux64-sccache
 
 linux64-base-toolchains/debug:
@@ -250,7 +254,7 @@ linux64-base-toolchains/debug:
     toolchains:
         - linux64-clang-3.9
         - linux64-gcc-4.9
-        - linux64-rust-1.21
+        - linux64-rust-1.22
         - linux64-sccache
 
 linux/opt:
@@ -351,13 +355,14 @@ linux-rusttests/opt:
         product: firefox
         job-name: linux-rusttests-opt
     treeherder:
-        platform: linux32-rusttests/opt
+        platform: linux32/opt
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
         max-run-time: 5400
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/linux32/releng.manifest"
     run:
         using: mozharness
@@ -385,13 +390,14 @@ linux-rusttests/debug:
         product: firefox
         job-name: linux-rusttests-debug
     treeherder:
-        platform: linux32-rusttests/debug
+        platform: linux32/debug
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
         max-run-time: 5400
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/linux32/releng.manifest"
     run:
         using: mozharness
@@ -417,6 +423,8 @@ linux-devedition-nightly/opt:
     description: "Linux32 devedition Nightly"
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: devedition
     index:
         product: devedition
         job-name: linux-opt
@@ -437,6 +445,7 @@ linux-devedition-nightly/opt:
             - builds/releng_base_linux_32_builds.py
             - disable_signing.py
             - balrog/production.py
+            - taskcluster_nightly.py
         script: "mozharness/scripts/fx_desktop_build.py"
         secrets: true
         tooltool-downloads: public
@@ -453,6 +462,8 @@ linux-nightly/opt:
     description: "Linux32 Nightly"
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: firefox
     index:
         product: firefox
         job-name: linux-opt
@@ -617,6 +628,8 @@ linux64-nightly/opt:
     description: "Linux64 Nightly"
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: firefox
     index:
         product: firefox
         job-name: linux64-opt
@@ -687,13 +700,14 @@ linux64-rusttests/opt:
         product: firefox
         job-name: linux64-rusttests-opt
     treeherder:
-        platform: linux64-rusttests/opt
+        platform: linux64/opt
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
         max-run-time: 5400
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/linux64/releng.manifest"
     run:
         using: mozharness
@@ -721,13 +735,14 @@ linux64-rusttests/debug:
         product: firefox
         job-name: linux64-rusttests-debug
     treeherder:
-        platform: linux64-rusttests/debug
+        platform: linux64/debug
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
         max-run-time: 5400
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/linux64/releng.manifest"
     run:
         using: mozharness

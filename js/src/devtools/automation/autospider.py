@@ -32,6 +32,7 @@ def directories(pathmodule, cwd, fixup=lambda s: s):
 DIR = directories(os.path, os.getcwd())
 PDIR = directories(posixpath, os.environ["PWD"],
                    fixup=lambda s: re.sub(r'^(\w):', r'/\1', s))
+env['CPP_UNIT_TESTS_DIR_JS_SRC'] = DIR.js_src
 
 parser = argparse.ArgumentParser(
     description='Run a spidermonkey shell build job')
@@ -326,7 +327,7 @@ if use_minidump:
     if platform.system() == 'Linux':
         injector_lib = os.path.join(DIR.tooltool, 'breakpad-tools', 'libbreakpadinjector.so')
         env.setdefault('MINIDUMP_STACKWALK',
-                       os.path.join(DIR.tooltool, 'linux64-minidump_stackwalk'))
+                       os.path.join(DIR.tooltool, 'breakpad-tools', 'minidump_stackwalk'))
     elif platform.system() == 'Darwin':
         injector_lib = os.path.join(DIR.tooltool, 'breakpad-tools', 'breakpadinjector.dylib')
     if not injector_lib or not os.path.exists(injector_lib):
@@ -366,14 +367,17 @@ if not args.nobuild:
     if use_minidump:
         # Convert symbols to breakpad format.
         hostdir = os.path.join(OBJDIR, "dist", "host", "bin")
-        os.makedirs(hostdir)
+        if not os.path.isdir(hostdir):
+            os.makedirs(hostdir)
         shutil.copy(os.path.join(DIR.tooltool, "breakpad-tools", "dump_syms"),
                     os.path.join(hostdir, 'dump_syms'))
         run_command([
             'make',
             'recurse_syms',
             'MOZ_SOURCE_REPO=file://' + DIR.source,
-            'RUST_TARGET=0', 'RUSTC_COMMIT=0'
+            'RUST_TARGET=0', 'RUSTC_COMMIT=0',
+            'MOZ_CRASHREPORTER=1',
+            'MOZ_AUTOMATION_BUILD_SYMBOLS=1',
         ], check=True)
 
 COMMAND_PREFIX = []

@@ -611,6 +611,8 @@ WebRenderDebugPrefChangeCallback(const char* aPrefName, void*)
   GFX_WEBRENDER_DEBUG(".gpu-time-queries",   1 << 4)
   GFX_WEBRENDER_DEBUG(".gpu-sample-queries", 1 << 5)
   GFX_WEBRENDER_DEBUG(".disable-batching",   1 << 6)
+  GFX_WEBRENDER_DEBUG(".epochs",             1 << 7)
+  GFX_WEBRENDER_DEBUG(".compact-profiler",   1 << 8)
 #undef GFX_WEBRENDER_DEBUG
 
   gfx::gfxVars::SetWebRenderDebugFlags(flags);
@@ -2588,8 +2590,8 @@ gfxPlatform::InitOMTPConfig()
   if (InSafeMode()) {
     omtp.ForceDisable(FeatureStatus::Blocked, "OMTP blocked by safe-mode",
                       NS_LITERAL_CSTRING("FEATURE_FAILURE_COMP_SAFEMODE"));
-  } else if (gfxPrefs::LayersTilesEnabled()) {
-    omtp.ForceDisable(FeatureStatus::Blocked, "OMTP does not yet support tiling",
+  } else if (gfxPrefs::LayersTilesEnabled() && gfxPrefs::TileEdgePaddingEnabled()) {
+    omtp.ForceDisable(FeatureStatus::Blocked, "OMTP does not yet support tiling with edge padding",
                       NS_LITERAL_CSTRING("FEATURE_FAILURE_OMTP_TILING"));
   }
 

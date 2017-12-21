@@ -77,7 +77,8 @@ win32-dmd/opt:
             - builds/taskcluster_base_windows.py
             - builds/taskcluster_base_win32.py
             - builds/taskcluster_sub_win32/opt.py
-        custom-build-variant-cfg: dmd
+        extra-config:
+            mozconfig_variant: 'opt-dmd'
     run-on-projects: []
     toolchains:
         - win32-clang-cl
@@ -191,7 +192,8 @@ win64-dmd/opt:
             - builds/taskcluster_base_windows.py
             - builds/taskcluster_base_win64.py
             - builds/taskcluster_sub_win64/opt.py
-        custom-build-variant-cfg: dmd
+        extra-config:
+            mozconfig_variant: 'opt-dmd'
     run-on-projects: []
     toolchains:
         - win64-clang-cl
@@ -206,6 +208,8 @@ win32-nightly/opt:
         type: nightly
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: firefox
     treeherder:
         platform: windows2012-32/opt
         symbol: tc(N)
@@ -240,6 +244,8 @@ win64-nightly/opt:
         type: nightly
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: firefox
     treeherder:
         platform: windows2012-64/opt
         symbol: tc(N)
@@ -418,13 +424,14 @@ win32-rusttests/opt:
         product: firefox
         job-name: win32-rusttests-opt
     treeherder:
-        platform: windows2012-32-rusttests/opt
+        platform: windows2012-32/opt
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-win2012
     worker:
         max-run-time: 7200
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/win32/releng.manifest"
     run:
         using: mozharness
@@ -447,13 +454,14 @@ win64-rusttests/opt:
         product: firefox
         job-name: win64-rusttests-opt
     treeherder:
-        platform: windows2012-64-rusttests/opt
+        platform: windows2012-64/opt
         symbol: tc(BR)
         tier: 2
     worker-type: aws-provisioner-v1/gecko-{level}-b-win2012
     worker:
         max-run-time: 7200
         env:
+            PERFHERDER_EXTRA_OPTIONS: rusttests
             TOOLTOOL_MANIFEST: "browser/config/tooltool-manifests/win64/releng.manifest"
     run:
         using: mozharness
@@ -567,6 +575,8 @@ win32-devedition-nightly/opt:
         type: nightly
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: devedition
     treeherder:
         platform: windows2012-32-devedition/opt
         symbol: tc(N)
@@ -602,6 +612,8 @@ win64-devedition-nightly/opt:
         type: nightly
     attributes:
         nightly: true
+    shipping-phase: build
+    shipping-product: devedition
     treeherder:
         platform: windows2012-64-devedition/opt
         symbol: tc(N)

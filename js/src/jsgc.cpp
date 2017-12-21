@@ -3275,7 +3275,7 @@ GCRuntime::triggerZoneGC(Zone* zone, JS::gcreason::Reason reason, size_t used, s
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(rt));
 
     /* GC is already running. */
-    if (JS::CurrentThreadIsHeapCollecting())
+    if (JS::CurrentThreadIsHeapBusy())
         return false;
 
 #ifdef JS_GC_ZEAL
@@ -4443,7 +4443,7 @@ void
 GCRuntime::markGrayReferences(gcstats::PhaseKind phase)
 {
     gcstats::AutoPhase ap(stats(), phase);
-    if (hasBufferedGrayRoots()) {
+    if (hasValidGrayRootsBuffer()) {
         for (ZoneIterT zone(rt); !zone.done(); zone.next())
             markBufferedGrayRoots(zone);
     } else {
@@ -6953,7 +6953,7 @@ GCRuntime::incrementalCollectSlice(SliceBudget& budget, JS::gcreason::Reason rea
             AutoGCRooter::traceAllWrappers(target, &marker);
 
         /* If we needed delayed marking for gray roots, then collect until done. */
-        if (isIncremental && !hasBufferedGrayRoots()) {
+        if (isIncremental && !hasValidGrayRootsBuffer()) {
             budget.makeUnlimited();
             isIncremental = false;
             stats().nonincremental(AbortReason::GrayRootBufferingFailed);

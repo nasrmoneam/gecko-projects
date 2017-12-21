@@ -8,6 +8,7 @@
 #define GFX_WEBRENDERTYPES_H
 
 #include "FrameMetrics.h"
+#include "ImageTypes.h"
 #include "mozilla/webrender/webrender_ffi.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/gfx/Matrix.h"
@@ -312,8 +313,8 @@ static inline wr::LayoutVector2D ToLayoutVector2D(const mozilla::LayoutDeviceInt
 static inline wr::LayoutRect ToLayoutRect(const mozilla::LayoutDeviceRect& rect)
 {
   wr::LayoutRect r;
-  r.origin.x = rect.x;
-  r.origin.y = rect.y;
+  r.origin.x = rect.X();
+  r.origin.y = rect.Y();
   r.size.width = rect.Width();
   r.size.height = rect.Height();
   return r;
@@ -322,8 +323,8 @@ static inline wr::LayoutRect ToLayoutRect(const mozilla::LayoutDeviceRect& rect)
 static inline wr::LayoutRect ToLayoutRect(const gfxRect& rect)
 {
   wr::LayoutRect r;
-  r.origin.x = rect.x;
-  r.origin.y = rect.y;
+  r.origin.x = rect.X();
+  r.origin.y = rect.Y();
   r.size.width = rect.Width();
   r.size.height = rect.Height();
   return r;
@@ -332,10 +333,10 @@ static inline wr::LayoutRect ToLayoutRect(const gfxRect& rect)
 static inline wr::DeviceUintRect ToDeviceUintRect(const mozilla::ImageIntRect& rect)
 {
   wr::DeviceUintRect r;
-  r.origin.x = rect.x;
-  r.origin.y = rect.y;
-  r.size.width = rect.width;
-  r.size.height = rect.height;
+  r.origin.x = rect.X();
+  r.origin.y = rect.Y();
+  r.size.width = rect.Width();
+  r.size.height = rect.Height();
   return r;
 }
 
@@ -729,6 +730,8 @@ static inline wr::WrFilterOpType ToWrFilterOpType(uint32_t type) {
       return wr::WrFilterOpType::Saturate;
     case NS_STYLE_FILTER_SEPIA:
       return wr::WrFilterOpType::Sepia;
+    case NS_STYLE_FILTER_DROP_SHADOW:
+      return wr::WrFilterOpType::DropShadow;
   }
   MOZ_ASSERT_UNREACHABLE("Tried to convert unknown filter type.");
   return wr::WrFilterOpType::Grayscale;
@@ -765,6 +768,18 @@ enum class WebRenderError : int8_t {
 
   Sentinel /* this must be last for serialization purposes. */
 };
+
+static inline wr::WrYuvColorSpace ToWrYuvColorSpace(YUVColorSpace aYUVColorSpace) {
+  switch (aYUVColorSpace) {
+    case YUVColorSpace::BT601:
+      return wr::WrYuvColorSpace::Rec601;
+    case YUVColorSpace::BT709:
+      return wr::WrYuvColorSpace::Rec709;
+    default:
+      MOZ_ASSERT_UNREACHABLE("Tried to convert invalid YUVColorSpace.");
+  }
+  return wr::WrYuvColorSpace::Rec601;
+}
 
 } // namespace wr
 } // namespace mozilla

@@ -26,7 +26,6 @@ class nsIDocument;
 class nsIDocShell;
 class nsIDocShellTreeItem;
 class imgIContainer;
-class EnterLeaveDispatcher;
 class nsIContentViewer;
 class nsIScrollableFrame;
 class nsITimer;
@@ -315,6 +314,22 @@ public:
   // Returns whether or not a frame can be vertically scrolled with a mouse
   // wheel (as opposed to, say, a selection or touch scroll).
   static bool CanVerticallyScrollFrameWithWheel(nsIFrame* aFrame);
+
+  static void SuppressInputEvents()
+  {
+    MOZ_ASSERT(!sIsInputEventsSuppressed);
+    sIsInputEventsSuppressed = true;
+  }
+
+  static void UnsuppressInputEvents()
+  {
+    sIsInputEventsSuppressed = false;
+  }
+
+  static bool IsInputEventsSuppressed()
+  {
+    return sIsInputEventsSuppressed;
+  }
 
   // Holds the point in screen coords that a mouse event was dispatched to,
   // before we went into pointer lock mode. This is constantly updated while
@@ -1088,6 +1103,8 @@ private:
   // Time at which we began handling the latest user input. Not reset
   // at the end of the input.
   static TimeStamp sLatestUserInputStart;
+
+  static bool sIsInputEventsSuppressed;
 
   RefPtr<OverOutElementsWrapper> mMouseEnterLeaveHelper;
   nsRefPtrHashtable<nsUint32HashKey, OverOutElementsWrapper> mPointersEnterLeaveHelper;

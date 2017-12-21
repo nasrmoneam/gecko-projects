@@ -1115,10 +1115,9 @@ BrowserGlue.prototype = {
       SafeBrowsing.init();
 
       // Login reputation depends on the Safe Browsing API.
-      if (Services.prefs.getBoolPref("browser.safebrowsing.passwords.enabled")) {
-        Cc["@mozilla.org/reputationservice/login-reputation-service;1"]
-        .getService(Ci.ILoginReputationService);
-      }
+      let reputationService = Cc["@mozilla.org/reputationservice/login-reputation-service;1"]
+        .getService(Ci.nsILoginReputationService);
+      reputationService.init();
     }, 5000);
 
     if (AppConstants.MOZ_CRASHREPORTER) {
@@ -1873,17 +1872,6 @@ BrowserGlue.prototype = {
       xulStore.removeValue(BROWSER_DOCURL, "TabsToolbar", "collapsed");
     }
 
-    if (currentUIVersion < 23) {
-      const kSelectedEnginePref = "browser.search.selectedEngine";
-      if (Services.prefs.prefHasUserValue(kSelectedEnginePref)) {
-        try {
-          let name = Services.prefs.getComplexValue(kSelectedEnginePref,
-                                                    Ci.nsIPrefLocalizedString).data;
-          Services.search.currentEngine = Services.search.getEngineByName(name);
-        } catch (ex) {}
-      }
-    }
-
     if (currentUIVersion < 24) {
       // Reset homepage pref for users who have it set to start.mozilla.org
       // or google.com/firefox.
@@ -2235,7 +2223,11 @@ BrowserGlue.prototype = {
         let currentEngine = Services.search.currentEngine.wrappedJSObject;
         // Only reset the current engine if it wasn't set by a WebExtension
         // and it is not one of the default engines.
-        if (currentEngine._extensionID || currentEngine._isDefault)
+        // If the original default is not a default, the user has a weird
+        // configuration probably involving langpacks, it's not worth
+        // attempting to reset their settings.
+        if (currentEngine._extensionID || currentEngine._isDefault ||
+            !Services.search.originalDefaultEngine.wrappedJSObject._isDefault)
           return;
 
         if (currentEngine._loadPath.startsWith("[https]")) {

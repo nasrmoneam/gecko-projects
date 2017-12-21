@@ -832,6 +832,11 @@ public:
 
   void FreeClipChains();
 
+  /*
+   * Frees the temporary display items created during merging.
+   */
+  void FreeTemporaryItems();
+
   /**
    * Helper method to generate background painting flags based on the
    * information available in the display list builder. Currently only
@@ -1535,7 +1540,8 @@ public:
   void SetContainsBlendMode(bool aContainsBlendMode) { mContainsBlendMode = aContainsBlendMode; }
   bool ContainsBlendMode() const { return mContainsBlendMode; }
 
-  uint32_t AllocatePerspectiveItemIndex() { return mPerspectiveItemIndex++; }
+  void AllocatePerspectiveItemIndex() { ++mPerspectiveItemIndex; }
+  uint32_t PerspectiveItemIndex() const { return mPerspectiveItemIndex; }
 
   DisplayListClipState& ClipState() { return mClipState; }
   const ActiveScrolledRoot* CurrentActiveScrolledRoot() { return mCurrentActiveScrolledRoot; }
@@ -1884,7 +1890,7 @@ public:
   typedef mozilla::layers::WebRenderParentCommand WebRenderParentCommand;
   typedef mozilla::LayerState LayerState;
   typedef mozilla::image::imgDrawingParams imgDrawingParams;
-  typedef mozilla::image::DrawResult DrawResult;
+  typedef mozilla::image::ImgDrawResult ImgDrawResult;
   typedef class mozilla::gfx::DrawTarget DrawTarget;
 
   // This is never instantiated directly (it has pure virtual methods), so no
@@ -1940,7 +1946,7 @@ public:
 
   virtual void RemoveFrame(nsIFrame* aFrame)
   {
-    if (aFrame == mFrame) {
+    if (mFrame && aFrame == mFrame) {
       MOZ_ASSERT(!mFrame->HasDisplayItem(this));
       mFrame = nullptr;
     }
@@ -1983,9 +1989,6 @@ public:
 #endif
   {
     MOZ_COUNT_CTOR(nsDisplayItem);
-    if (aBuilder->IsRetainingDisplayList()) {
-      mFrame->AddDisplayItem(this);
-    }
   }
 
 
@@ -2738,31 +2741,11 @@ public:
    * be in a list and cannot be null.
    */
   void AppendToTop(nsDisplayItem* aItem) {
-    NS_ASSERTION(aItem, "No item to append!");
-    NS_ASSERTION(!aItem->mAbove, "Already in a list!");
+    MOZ_ASSERT(aItem, "No item to append!");
+    MOZ_ASSERT(!aItem->mAbove, "Already in a list!");
     mTop->mAbove = aItem;
     mTop = aItem;
     mLength++;
-  }
-
-  /**
-   * Append a new item to the top of the list. The intended usage is
-   * AppendNewToTop(new ...);
-   */
-  void AppendNewToTop(nsDisplayItem* aItem) {
-    if (aItem) {
-      AppendToTop(aItem);
-    }
-  }
-
-  /**
-   * Append a new item to the bottom of the list. The intended usage is
-   * AppendNewToBottom(new ...);
-   */
-  void AppendNewToBottom(nsDisplayItem* aItem) {
-    if (aItem) {
-      AppendToBottom(aItem);
-    }
   }
 
   /**
@@ -2770,8 +2753,8 @@ public:
    * and not already in a list.
    */
   void AppendToBottom(nsDisplayItem* aItem) {
-    NS_ASSERTION(aItem, "No item to append!");
-    NS_ASSERTION(!aItem->mAbove, "Already in a list!");
+    MOZ_ASSERT(aItem, "No item to append!");
+    MOZ_ASSERT(!aItem->mAbove, "Already in a list!");
     aItem->mAbove = mSentinel.mAbove;
     mSentinel.mAbove = aItem;
     if (mTop == &mSentinel) {
@@ -3312,7 +3295,7 @@ protected:
   PR_BEGIN_MACRO                                                              \
     if (!aBuilder->IsBackgroundOnly() && !aBuilder->IsForEventDelivery() &&   \
         PresShell()->IsPaintingFrameCounts()) {                               \
-        aLists.Outlines()->AppendNewToTop(                                    \
+        aLists.Outlines()->AppendToTop(                                    \
             new (aBuilder) nsDisplayReflowCount(aBuilder, this, _name));      \
     }                                                                         \
   PR_END_MACRO
@@ -3321,7 +3304,7 @@ protected:
   PR_BEGIN_MACRO                                                              \
     if (!aBuilder->IsBackgroundOnly() && !aBuilder->IsForEventDelivery() &&   \
         PresShell()->IsPaintingFrameCounts()) {                               \
-        aLists.Outlines()->AppendNewToTop(                                    \
+        aLists.Outlines()->AppendToTop(                                    \
              new (aBuilder) nsDisplayReflowCount(aBuilder, this, _name, _color)); \
     }                                                                         \
   PR_END_MACRO
@@ -3847,7 +3830,8 @@ public:
   nsDisplayTableBackgroundImage(const InitData& aInitData, nsIFrame* aCellFrame);
 
   virtual uint32_t GetPerFrameKey() const override {
-    return (static_cast<uint8_t>(mTableType) << TYPE_BITS) |
+    return (mLayer << (TYPE_BITS + static_cast<uint8_t>(TableTypeBits::COUNT))) |
+           (static_cast<uint8_t>(mTableType) << TYPE_BITS) |
            nsDisplayItem::GetPerFrameKey();
   }
 
@@ -4385,7 +4369,7 @@ public:
 private:
   mozilla::gfx::CompositorHitTestInfo mHitTestInfo;
   mozilla::Maybe<mozilla::layers::FrameMetrics::ViewID> mScrollTarget;
-  nsRect mArea;
+  mozilla::LayoutDeviceRect mArea;
   uint32_t mIndex;
   mozilla::Maybe<int32_t> mOverrideZIndex;
 };

@@ -101,6 +101,7 @@
 #include "nsICookieService.h"
 #include "nsIConsoleReportCollector.h"
 #include "nsObjectLoadingContent.h"
+#include "nsStringStream.h"
 
 // we want to explore making the document own the load group
 // so we can associate the document URI with the load group.
@@ -622,8 +623,8 @@ SendPing(void* aClosure, nsIContent* aContent, nsIURI* aURI,
   NS_NAMED_LITERAL_CSTRING(uploadData, "PING");
 
   nsCOMPtr<nsIInputStream> uploadStream;
-  NS_NewPostDataStream(getter_AddRefs(uploadStream), false, uploadData);
-  if (!uploadStream) {
+  rv = NS_NewCStringInputStream(getter_AddRefs(uploadStream), uploadData);
+  if (NS_WARN_IF(NS_FAILED(rv))) {
     return;
   }
 
@@ -3442,9 +3443,7 @@ nsDocShell::MaybeCreateInitialClientSource(nsIPrincipal* aPrincipal)
     ClientManager::CreateSource(ClientType::Window,
                                 win->EventTargetFor(TaskCategory::Other),
                                 principal);
-  if (NS_WARN_IF(!mInitialClientSource)) {
-    return;
-  }
+  MOZ_DIAGNOSTIC_ASSERT(mInitialClientSource);
 
   // Mark the initial client as execution ready, but owned by the docshell.
   // If the client is actually used this will cause ClientSource to force
@@ -9395,6 +9394,9 @@ nsDocShell::CreateContentViewer(const nsACString& aContentType,
   // OnLoadingSite(), but don't fire OnLocationChange()
   // notifications before we've called Embed(). See bug 284993.
   mURIResultedInDocument = true;
+  bool errorOnLocationChangeNeeded = false;
+  nsCOMPtr<nsIChannel> failedChannel = mFailedChannel;
+  nsCOMPtr<nsIURI> failedURI;
 
   if (mLoadType == LOAD_ERROR_PAGE) {
     // We need to set the SH entry and our current URI here and not
@@ -9405,17 +9407,15 @@ nsDocShell::CreateContentViewer(const nsACString& aContentType,
     // following function calls need it.
     mLoadType = mFailedLoadType;
 
-    nsCOMPtr<nsIChannel> failedChannel = mFailedChannel;
 
     nsIDocument* doc = viewer->GetDocument();
     if (doc) {
       doc->SetFailedChannel(failedChannel);
     }
 
-    // Make sure we have a URI to set currentURI.
-    nsCOMPtr<nsIURI> failedURI;
     nsCOMPtr<nsIPrincipal> triggeringPrincipal;
     if (failedChannel) {
+      // Make sure we have a URI to set currentURI.
       NS_GetFinalChannelURI(failedChannel, getter_AddRefs(failedURI));
     }
      else {
@@ -9441,14 +9441,9 @@ nsDocShell::CreateContentViewer(const nsACString& aContentType,
 
     // Create an shistory entry for the old load.
     if (failedURI) {
-      bool errorOnLocationChangeNeeded = OnNewURI(
+      errorOnLocationChangeNeeded = OnNewURI(
         failedURI, failedChannel, triggeringPrincipal,
         nullptr, mLoadType, false, false, false);
-
-      if (errorOnLocationChangeNeeded) {
-        FireOnLocationChange(this, failedChannel, failedURI,
-                             LOCATION_CHANGE_ERROR_PAGE);
-      }
     }
 
     // Be sure to have a correct mLSHE, it may have been cleared by
@@ -9539,7 +9534,10 @@ nsDocShell::CreateContentViewer(const nsACString& aContentType,
     FavorPerformanceHint(true);
   }
 
-  if (onLocationChangeNeeded) {
+  if (errorOnLocationChangeNeeded){
+    FireOnLocationChange(this, failedChannel, failedURI,
+                         LOCATION_CHANGE_ERROR_PAGE);
+  } else if (onLocationChangeNeeded) {
     FireOnLocationChange(this, aRequest, mCurrentURI, 0);
   }
 
@@ -10535,9 +10533,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
     (aFlags & INTERNAL_LOAD_FLAGS_ALLOW_THIRD_PARTY_FIXUP) != 0;
   mURIResultedInDocument = false;  // reset the clock...
 
-  // Note that there is code that relies on this check to stop us entering the
-  // `doShortCircuitedLoad` block below for certain load types.  (For example,
-  // reftest-content.js uses LOAD_FLAGS_BYPASS_CACHE for this purpose.)
   if (aLoadType == LOAD_NORMAL ||
       aLoadType == LOAD_STOP_CONTENT ||
       LOAD_TYPE_HAS_FLAGS(aLoadType, LOAD_FLAGS_REPLACE_HISTORY) ||
@@ -15227,7 +15222,7 @@ nsDocShell::ShouldPrepareForIntercept(nsIURI* aURI, bool aIsNonSubresourceReques
     }
 
     ErrorResult rv;
-    *aShouldIntercept = swm->IsControlled(doc, rv);
+    *aShouldIntercept = doc->GetController().isSome();
     if (NS_WARN_IF(rv.Failed())) {
       return rv.StealNSResult();
     }
@@ -15283,18 +15278,13 @@ nsDocShell::ChannelIntercepted(nsIInterceptedChannel* aChannel)
     if (!doc) {
       return NS_ERROR_NOT_AVAILABLE;
     }
-  } else {
-    // For top-level navigations, save a document ID which will be passed to
-    // the FetchEvent as the clientId later on.
-    rv = nsIDocument::GenerateDocumentId(mInterceptedDocumentId);
-    NS_ENSURE_SUCCESS(rv, rv);
   }
 
   bool isReload = mLoadType & LOAD_CMD_RELOAD;
 
   ErrorResult error;
-  swm->DispatchFetchEvent(mOriginAttributes, doc, mInterceptedDocumentId,
-                          aChannel, isReload, isSubresourceLoad, error);
+  swm->DispatchFetchEvent(mOriginAttributes, doc, aChannel, isReload,
+                          isSubresourceLoad, error);
   if (NS_WARN_IF(error.Failed())) {
     return error.StealNSResult();
   }

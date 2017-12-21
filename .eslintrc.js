@@ -32,7 +32,6 @@ module.exports = {
       // Browser: Bug 1421379
       "browser/extensions/shield-recipe-client/test/browser/head.js",
       "browser/modules/offlineAppCache.jsm",
-      "chrome/**",
       "devtools/**",
       "dom/indexedDB/**",
       "dom/media/**",
@@ -41,7 +40,6 @@ module.exports = {
       "security/**",
       "testing/**",
       "tools/profiler/**",
-      "xpcom/**"
     ],
     "rules": {
       "mozilla/use-services": "off",

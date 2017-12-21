@@ -44,6 +44,7 @@
 #include "mozilla/dom/FetchUtil.h"
 #include "mozilla/dom/MessageChannel.h"
 #include "mozilla/dom/MessageEventBinding.h"
+#include "mozilla/dom/PerformanceService.h"
 #include "mozilla/dom/WorkerBinding.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "mozilla/dom/IndexedDatabaseManager.h"
@@ -992,6 +993,8 @@ public:
     // The CC is shut down, and the superclass destructor will GC, so make sure
     // we don't try to CC again.
     mWorkerPrivate = nullptr;
+
+    CycleCollectedJSRuntime::Shutdown(cx);
   }
 
   ~WorkerJSRuntime()
@@ -2022,6 +2025,9 @@ RuntimeService::Init()
     return NS_ERROR_UNEXPECTED;
   }
 
+  // PerformanceService must be initialized on the main-thread.
+  PerformanceService::GetOrCreate();
+
   return NS_OK;
 }
 
@@ -2483,7 +2489,7 @@ RuntimeService::CreateSharedWorkerFromLoadInfo(JSContext* aCx,
     nsresult rv = aLoadInfo->mResolvedScriptURI->GetSpec(scriptSpec);
     NS_ENSURE_SUCCESS(rv, rv);
 
-    MOZ_ASSERT(aLoadInfo->mPrincipal);
+    MOZ_DIAGNOSTIC_ASSERT(aLoadInfo->mPrincipal && aLoadInfo->mLoadingPrincipal);
 
     WorkerDomainInfo* domainInfo;
     if (mDomainMap.Get(aLoadInfo->mDomain, &domainInfo)) {
@@ -2491,9 +2497,9 @@ RuntimeService::CreateSharedWorkerFromLoadInfo(JSContext* aCx,
         if (data->mScriptSpec == scriptSpec &&
             data->mName == aName &&
             // We want to be sure that the window's principal subsumes the
-            // SharedWorker's principal and vice versa.
-            aLoadInfo->mPrincipal->Subsumes(data->mWorkerPrivate->GetPrincipal()) &&
-            data->mWorkerPrivate->GetPrincipal()->Subsumes(aLoadInfo->mPrincipal)) {
+            // SharedWorker's loading principal and vice versa.
+            aLoadInfo->mLoadingPrincipal->Subsumes(data->mWorkerPrivate->GetLoadingPrincipal()) &&
+            data->mWorkerPrivate->GetLoadingPrincipal()->Subsumes(aLoadInfo->mLoadingPrincipal)) {
           workerPrivate = data->mWorkerPrivate;
           break;
         }

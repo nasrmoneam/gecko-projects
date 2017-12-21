@@ -4,7 +4,7 @@
 
 Servo is a prototype web browser engine written in the
 [Rust](https://github.com/rust-lang/rust) language. It is currently developed on
-64-bit OS X, 64-bit Linux, and Android.
+64-bit OS X, 64-bit Linux, 64-bit Windows, and Android.
 
 Servo welcomes contribution from everyone.  See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`HACKING_QUICKSTART.md`](docs/HACKING_QUICKSTART.md)
@@ -83,8 +83,18 @@ sudo dnf install curl freeglut-devel libtool gcc-c++ libXi-devel \
 sudo yum install curl freeglut-devel libtool gcc-c++ libXi-devel \
     freetype-devel mesa-libGL-devel mesa-libEGL-devel glib2-devel libX11-devel libXrandr-devel gperf \
     fontconfig-devel cabextract ttmkfdir python python-virtualenv python-pip expat-devel \
-    rpm-build openssl-devel cmake bzip2-devel libXcursor-devel libXmu-devel mesa-libOSMesa-devel \
-    dbus-devel ncurses-devel python34 pulseaudio-libs-devel clang clang-libs
+    rpm-build openssl-devel cmake3 bzip2-devel libXcursor-devel libXmu-devel mesa-libOSMesa-devel \
+    dbus-devel ncurses-devel python34 pulseaudio-libs-devel clang clang-libs llvm-toolset-7
+```
+
+Build inside `llvm-toolset` and `devtoolset`:
+```
+scl enable devtoolset-7 llvm-toolset-7 bash
+```
+with the following environmental variables set:
+```
+export CMAKE=cmake3
+export LIBCLANG_PATH=/opt/rh/llvm-toolset-7/root/usr/lib64
 ```
 
 #### On openSUSE Linux

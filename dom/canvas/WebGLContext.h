@@ -314,6 +314,9 @@ class WebGLContext
     mutable uint64_t mNumPerfWarnings;
     const uint32_t mMaxAcceptableFBStatusInvals;
 
+    uint64_t mNextFenceId = 1;
+    uint64_t mCompletedFenceId = 0;
+
 public:
     WebGLContext();
 
@@ -1292,13 +1295,22 @@ protected:
     GLenum mPrimRestartTypeBytes;
 
 public:
-    void DrawArrays(GLenum mode, GLint first, GLsizei count);
-    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count,
-                             GLsizei primcount);
+    void DrawArrays(GLenum mode, GLint first, GLsizei count) {
+        DrawArraysInstanced(mode, first, count, 1, "drawArrays");
+    }
+
     void DrawElements(GLenum mode, GLsizei count, GLenum type,
-                      WebGLintptr byteOffset, const char* funcName = nullptr);
-    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type,
-                               WebGLintptr byteOffset, GLsizei primcount);
+                      WebGLintptr byteOffset, const char* funcName = "drawElements")
+    {
+        DrawElementsInstanced(mode, count, type, byteOffset, 1, funcName);
+    }
+
+    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei vertexCount,
+                             GLsizei instanceCount,
+                             const char* funcName = "drawArraysInstanced");
+    void DrawElementsInstanced(GLenum mode, GLsizei vertexCount, GLenum type,
+                               WebGLintptr byteOffset, GLsizei instanceCount,
+                               const char* funcName = "drawElementsInstanced");
 
     void EnableVertexAttribArray(GLuint index);
     void DisableVertexAttribArray(GLuint index);
@@ -1697,8 +1709,6 @@ protected:
 
     void Invalidate();
     void DestroyResourcesAndContext();
-
-    void MakeContextCurrent() const { } // MakeCurrent is implicit now.
 
     // helpers
 

@@ -371,10 +371,10 @@ nsSplitterFrame::BuildDisplayList(nsDisplayListBuilder*   aBuilder,
   nsBoxFrame::BuildDisplayList(aBuilder, aLists);
 
   // if the mouse is captured always return us as the frame.
-  if (mInner->mDragging)
+  if (mInner->mDragging && aBuilder->IsForEventDelivery())
   {
     // XXX It's probably better not to check visibility here, right?
-    aLists.Outlines()->AppendNewToTop(new (aBuilder)
+    aLists.Outlines()->AppendToTop(new (aBuilder)
       nsDisplayEventReceiver(aBuilder, this));
     return;
   }

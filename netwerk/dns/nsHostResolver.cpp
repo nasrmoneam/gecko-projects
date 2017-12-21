@@ -189,7 +189,6 @@ nsHostRecord::nsHostRecord(const nsHostKey *key)
     memcpy((char *) originSuffix, key->originSuffix,
            strlen(key->originSuffix) + 1);
     PR_INIT_CLIST(this);
-    PR_INIT_CLIST(&callbacks);
 }
 
 nsresult
@@ -230,6 +229,8 @@ nsHostRecord::CopyExpirationTimesAndFlagsFrom(const nsHostRecord *aFromHostRecor
 
 nsHostRecord::~nsHostRecord()
 {
+    mCallbacks.clear();
+
     Telemetry::Accumulate(Telemetry::DNS_BLACKLIST_COUNT, mBlacklistedCount);
     delete addr_info;
 }
@@ -326,17 +327,15 @@ nsHostRecord::HasUsableResult(const mozilla::TimeStamp& now, uint16_t queryFlags
 }
 
 static size_t
-SizeOfResolveHostCallbackListExcludingHead(const PRCList *head,
+SizeOfResolveHostCallbackListExcludingHead(const mozilla::LinkedList<RefPtr<nsResolveHostCallback>>& aCallbacks,
                                            MallocSizeOf mallocSizeOf)
 {
-    size_t n = 0;
-    PRCList *curr = head->next;
-    while (curr != head) {
-        nsResolveHostCallback *callback =
-            static_cast<nsResolveHostCallback*>(curr);
-        n += callback->SizeOfIncludingThis(mallocSizeOf);
-        curr = curr->next;
+    size_t n = aCallbacks.sizeOfExcludingThis(mallocSizeOf);
+
+    for (const nsResolveHostCallback* t = aCallbacks.getFirst(); t; t = t->getNext()) {
+      n += t->SizeOfIncludingThis(mallocSizeOf);
     }
+
     return n;
 }
 
@@ -350,7 +349,7 @@ nsHostRecord::SizeOfIncludingThis(MallocSizeOf mallocSizeOf) const
     // nsHostRecord::Create()).  So it will be included in the
     // |mallocSizeOf(this)| call above.
 
-    n += SizeOfResolveHostCallbackListExcludingHead(&callbacks, mallocSizeOf);
+    n += SizeOfResolveHostCallbackListExcludingHead(mCallbacks, mallocSizeOf);
     n += addr_info ? addr_info->SizeOfIncludingThis(mallocSizeOf) : 0;
     n += mallocSizeOf(addr.get());
 
@@ -599,7 +598,7 @@ nsHostResolver::ClearPendingQueue(PRCList *aPendingQ)
         while (node != aPendingQ) {
             nsHostRecord *rec = static_cast<nsHostRecord *>(node);
             node = node->next;
-            OnLookupComplete(rec, NS_ERROR_ABORT, nullptr);
+            CompleteLookup(rec, NS_ERROR_ABORT, nullptr);
         }
     }
 }
@@ -733,7 +732,7 @@ nsHostResolver::ResolveHost(const char             *host,
                             uint16_t                flags,
                             uint16_t                af,
                             const char             *netInterface,
-                            nsResolveHostCallback  *callback)
+                            nsResolveHostCallback  *aCallback)
 {
     NS_ENSURE_TRUE(host && *host, NS_ERROR_UNEXPECTED);
     NS_ENSURE_TRUE(netInterface, NS_ERROR_UNEXPECTED);
@@ -746,6 +745,7 @@ nsHostResolver::ResolveHost(const char             *host,
     if (!net_IsValidHostName(nsDependentCString(host)))
         return NS_ERROR_UNKNOWN_HOST;
 
+    RefPtr<nsResolveHostCallback> callback(aCallback);
     // if result is set inside the lock, then we need to issue the
     // callback before returning.
     RefPtr<nsHostRecord> result;
@@ -931,26 +931,26 @@ nsHostResolver::ResolveHost(const char             *host,
                          LOG_HOST(host, netInterface)));
 
                     // Add callback to the list of pending callbacks.
-                    PR_APPEND_LINK(callback, &he->rec->callbacks);
+                    he->rec->mCallbacks.insertBack(callback);
                     he->rec->flags = flags;
                     rv = IssueLookup(he->rec);
                     Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
                                           METHOD_NETWORK_FIRST);
-                    if (NS_FAILED(rv)) {
-                        PR_REMOVE_AND_INIT_LINK(callback);
+                    if (NS_FAILED(rv) && callback->isInList()) {
+                        callback->remove();
                     }
                     else {
                         LOG(("  DNS lookup for host [%s%s%s] blocking "
                              "pending 'getaddrinfo' query: callback [%p]",
-                             LOG_HOST(host, netInterface), callback));
+                             LOG_HOST(host, netInterface), callback.get()));
                     }
                 }
             }
             else {
                 LOG(("  Host [%s%s%s] is being resolved. Appending callback "
-                     "[%p].", LOG_HOST(host, netInterface), callback));
+                     "[%p].", LOG_HOST(host, netInterface), callback.get()));
 
-                PR_APPEND_LINK(callback, &he->rec->callbacks);
+                he->rec->mCallbacks.insertBack(callback);
                 if (he->rec->onQueue) {
                     Telemetry::Accumulate(Telemetry::DNS_LOOKUP_METHOD2,
                                           METHOD_NETWORK_SHARED);
@@ -976,8 +976,12 @@ nsHostResolver::ResolveHost(const char             *host,
             }
         }
     }
+
     if (result) {
-        callback->OnLookupComplete(this, result, status);
+        if (callback->isInList()) {
+            callback->remove();
+        }
+        callback->OnResolveHostComplete(this, result, status);
     }
 
     return rv;
@@ -989,10 +993,12 @@ nsHostResolver::DetachCallback(const char             *host,
                                uint16_t                flags,
                                uint16_t                af,
                                const char             *netInterface,
-                               nsResolveHostCallback  *callback,
+                               nsResolveHostCallback  *aCallback,
                                nsresult                status)
 {
     RefPtr<nsHostRecord> rec;
+    RefPtr<nsResolveHostCallback> callback(aCallback);
+
     {
         MutexAutoLock lock(mLock);
 
@@ -1004,22 +1010,22 @@ nsHostResolver::DetachCallback(const char             *host,
         if (he) {
             // walk list looking for |callback|... we cannot assume
             // that it will be there!
-            PRCList *node = he->rec->callbacks.next;
-            while (node != &he->rec->callbacks) {
-                if (static_cast<nsResolveHostCallback *>(node) == callback) {
-                    PR_REMOVE_LINK(callback);
+
+            for (nsResolveHostCallback* c: he->rec->mCallbacks) {
+                if (c == callback) {
                     rec = he->rec;
+                    c->remove();
                     break;
                 }
-                node = node->next;
             }
         }
     }
 
     // complete callback with the given status code; this would only be done if
     // the record was in the process of being resolved.
-    if (rec)
-        callback->OnLookupComplete(this, rec, status);
+    if (rec) {
+        callback->OnResolveHostComplete(this, rec, status);
+    }
 }
 
 nsresult
@@ -1285,16 +1291,16 @@ different_rrset(AddrInfo *rrset1, AddrInfo *rrset2)
 }
 
 //
-// OnLookupComplete() checks if the resolving should be redone and if so it
+// CompleteLookup() checks if the resolving should be redone and if so it
 // returns LOOKUP_RESOLVEAGAIN, but only if 'status' is not NS_ERROR_ABORT.
 // takes ownership of AddrInfo parameter
 nsHostResolver::LookupStatus
-nsHostResolver::OnLookupComplete(nsHostRecord* rec, nsresult status, AddrInfo* newRRSet)
+nsHostResolver::CompleteLookup(nsHostRecord* rec, nsresult status, AddrInfo* newRRSet)
 {
     // get the list of pending callbacks for this lookup, and notify
     // them that the lookup is complete.
-    PRCList cbs;
-    PR_INIT_CLIST(&cbs);
+    mozilla::LinkedList<RefPtr<nsResolveHostCallback>> cbs;
+
     {
         MutexAutoLock lock(mLock);
 
@@ -1306,7 +1312,7 @@ nsHostResolver::OnLookupComplete(nsHostRecord* rec, nsresult status, AddrInfo* n
         }
 
         // grab list of callbacks to notify
-        MoveCList(rec->callbacks, cbs);
+        cbs = mozilla::Move(rec->mCallbacks);
 
         // update record fields.  We might have a rec->addr_info already if a
         // previous lookup result expired and we're reresolving it..
@@ -1374,15 +1380,8 @@ nsHostResolver::OnLookupComplete(nsHostRecord* rec, nsresult status, AddrInfo* n
         }
     }
 
-    if (!PR_CLIST_IS_EMPTY(&cbs)) {
-        PRCList *node = cbs.next;
-        while (node != &cbs) {
-            nsResolveHostCallback *callback =
-                    static_cast<nsResolveHostCallback *>(node);
-            node = node->next;
-            callback->OnLookupComplete(this, rec, status);
-            // NOTE: callback must not be dereferenced after this point!!
-        }
+    for (nsResolveHostCallback* c = cbs.getFirst(); c; c = c->removeAndGetNext()) {
+        c->OnResolveHostComplete(this, rec, status);
     }
 
     NS_RELEASE(rec);
@@ -1410,24 +1409,18 @@ nsHostResolver::CancelAsyncRequest(const char             *host,
     auto he = static_cast<nsHostDBEnt*>(mDB.Search(&key));
     if (he) {
         nsHostRecord* recPtr = nullptr;
-        PRCList *node = he->rec->callbacks.next;
-        // Remove the first nsDNSAsyncRequest callback which matches the
-        // supplied listener object
-        while (node != &he->rec->callbacks) {
-            nsResolveHostCallback *callback
-                = static_cast<nsResolveHostCallback *>(node);
-            if (callback && (callback->EqualsAsyncListener(aListener))) {
-                // Remove from the list of callbacks
-                PR_REMOVE_LINK(callback);
+
+        for (RefPtr<nsResolveHostCallback> c : he->rec->mCallbacks) {
+            if (c->EqualsAsyncListener(aListener)) {
+                c->remove();
                 recPtr = he->rec;
-                callback->OnLookupComplete(this, recPtr, status);
+                c->OnResolveHostComplete(this, recPtr, status);
                 break;
             }
-            node = node->next;
         }
 
         // If there are no more callbacks, remove the hash table entry
-        if (recPtr && PR_CLIST_IS_EMPTY(&recPtr->callbacks)) {
+        if (recPtr && recPtr->mCallbacks.isEmpty()) {
             mDB.Remove((nsHostKey *)recPtr);
             // If record is on a Queue, remove it and then deref it
             if (recPtr->next != recPtr) {
@@ -1473,7 +1466,7 @@ nsHostResolver::ThreadFunc(void *arg)
 #if defined(RES_RETRY_ON_FAILURE)
     nsResState rs;
 #endif
-    nsHostResolver *resolver = (nsHostResolver *)arg;
+    RefPtr<nsHostResolver> resolver = dont_AddRef((nsHostResolver *)arg);
     nsHostRecord *rec  = nullptr;
     AddrInfo *ai = nullptr;
 
@@ -1523,12 +1516,12 @@ nsHostResolver::ThreadFunc(void *arg)
             }
         }
 
-        // OnLookupComplete may release "rec", long before we lose it.
+        // CompleteLookup may release "rec", long before we lose it.
         LOG(("DNS lookup thread - lookup completed for host [%s%s%s]: %s.\n",
              LOG_HOST(rec->host, rec->netInterface),
              ai ? "success" : "failure: unknown host"));
 
-        if (LOOKUP_RESOLVEAGAIN == resolver->OnLookupComplete(rec, status, ai)) {
+        if (LOOKUP_RESOLVEAGAIN == resolver->CompleteLookup(rec, status, ai)) {
             // leave 'rec' assigned and loop to make a renewed host resolve
             LOG(("DNS lookup thread - Re-resolving host [%s%s%s].\n",
                  LOG_HOST(rec->host, rec->netInterface)));
@@ -1537,7 +1530,7 @@ nsHostResolver::ThreadFunc(void *arg)
         }
     }
     resolver->mThreadCount--;
-    NS_RELEASE(resolver);
+    resolver = nullptr;
     LOG(("DNS lookup thread - queue empty, thread finished.\n"));
 }
 
