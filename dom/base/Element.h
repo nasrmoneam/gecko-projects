@@ -183,12 +183,12 @@ class EventStateManager;
 
 namespace dom {
 
+struct CustomElementDefinition;
 class Animation;
 class CustomElementRegistry;
 class Link;
 class DOMRect;
 class DOMRectList;
-class DestinationInsertionPointList;
 class Flex;
 class Grid;
 
@@ -970,8 +970,7 @@ protected:
     NS_ASSERTION(nullptr != aName, "must have attribute name");
     NS_ASSERTION(aNameSpaceID != kNameSpaceID_Unknown,
                  "must have a real namespace ID!");
-    MOZ_ASSERT(aResult.HasStringBuffer() && aResult.StringBufferLength() == 0,
-               "Should have empty string coming in");
+    MOZ_ASSERT(aResult.IsEmpty(), "Should have empty string coming in");
     const nsAttrValue* val = mAttrsAndChildren.GetAttr(aName, aNameSpaceID);
     if (val) {
       val->ToString(aResult);
@@ -986,8 +985,7 @@ public:
 
   inline bool GetAttr(const nsAString& aName, DOMString& aResult) const
   {
-    MOZ_ASSERT(aResult.HasStringBuffer() && aResult.StringBufferLength() == 0,
-               "Should have empty string coming in");
+    MOZ_ASSERT(aResult.IsEmpty(), "Should have empty string coming in");
     const nsAttrValue* val = mAttrsAndChildren.GetAttr(aName);
     if (val) {
       val->ToString(aResult);
@@ -1236,7 +1234,6 @@ public:
 
   // [deprecated] Shadow DOM v0
   already_AddRefed<ShadowRoot> CreateShadowRoot(ErrorResult& aError);
-  already_AddRefed<DestinationInsertionPointList> GetDestinationInsertionPoints();
 
   ShadowRoot *FastGetShadowRoot() const
   {
@@ -1341,7 +1338,7 @@ public:
                                     nsTArray<RefPtr<Animation>>& aAnimations);
 
   NS_IMETHOD GetInnerHTML(nsAString& aInnerHTML);
-  virtual void SetInnerHTML(const nsAString& aInnerHTML, nsIPrincipal& aSubjectPrincipal, ErrorResult& aError);
+  virtual void SetInnerHTML(const nsAString& aInnerHTML, nsIPrincipal* aSubjectPrincipal, ErrorResult& aError);
   void GetOuterHTML(nsAString& aOuterHTML);
   void SetOuterHTML(const nsAString& aOuterHTML, ErrorResult& aError);
   void InsertAdjacentHTML(const nsAString& aPosition, const nsAString& aText,
@@ -1568,9 +1565,9 @@ public:
     aError = SetAttr(kNameSpaceID_None, aAttr, aValue, true);
   }
 
-  void SetAttr(nsAtom* aAttr, const nsAString& aValue, nsIPrincipal& aTriggeringPrincipal, ErrorResult& aError)
+  void SetAttr(nsAtom* aAttr, const nsAString& aValue, nsIPrincipal* aTriggeringPrincipal, ErrorResult& aError)
   {
-    aError = SetAttr(kNameSpaceID_None, aAttr, aValue, &aTriggeringPrincipal, true);
+    aError = SetAttr(kNameSpaceID_None, aAttr, aValue, aTriggeringPrincipal, true);
   }
 
   /**
@@ -1957,30 +1954,6 @@ private:
   RefPtr<nsBindingManager> mManager;
   RefPtr<nsIContent> mContent;
   nsCOMPtr<nsIDocument> mDoc;
-};
-
-class DestinationInsertionPointList : public nsINodeList
-{
-public:
-  explicit DestinationInsertionPointList(Element* aElement);
-
-  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-  NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS(DestinationInsertionPointList)
-
-  // nsIDOMNodeList
-  NS_DECL_NSIDOMNODELIST
-
-  // nsINodeList
-  virtual nsIContent* Item(uint32_t aIndex) override;
-  virtual int32_t IndexOf(nsIContent* aContent) override;
-  virtual nsINode* GetParentObject() override { return mParent; }
-  virtual uint32_t Length() const;
-  virtual JSObject* WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto) override;
-protected:
-  virtual ~DestinationInsertionPointList();
-
-  RefPtr<Element> mParent;
-  nsCOMArray<nsIContent> mDestinationPoints;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(Element, NS_ELEMENT_IID)

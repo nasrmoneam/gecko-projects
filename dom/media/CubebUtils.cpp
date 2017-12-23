@@ -50,7 +50,7 @@
 #define MASK_3F3R_LFE   (MASK_3F2_LFE | (1 << AudioConfig::CHANNEL_RCENTER))
 #define MASK_3F4_LFE    (MASK_3F2_LFE | (1 << AudioConfig::CHANNEL_RLS) | (1 << AudioConfig::CHANNEL_RRS))
 
-#if defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)
+#if (defined(XP_LINUX) && !defined(MOZ_WIDGET_ANDROID)) || defined(XP_MACOSX)
 #define MOZ_CUBEB_REMOTING
 #endif
 
@@ -358,6 +358,21 @@ uint32_t PreferredChannelMap(uint32_t aChannels)
   }
 
   return kLayoutInfos[sPreferredChannelLayout].mask;
+}
+
+cubeb_channel_layout GetPreferredChannelLayoutOrSMPTE(cubeb* context, uint32_t aChannels)
+{
+  cubeb_channel_layout layout = CUBEB_LAYOUT_UNDEFINED;
+  if (cubeb_get_preferred_channel_layout(context, &layout) != CUBEB_OK) {
+    return layout; //undefined
+  }
+
+  if (kLayoutInfos[layout].channels != aChannels) {
+    AudioConfig::ChannelLayout smpteLayout(aChannels);
+    return ConvertChannelMapToCubebLayout(smpteLayout.Map());
+  }
+
+  return layout;
 }
 
 void InitBrandName()

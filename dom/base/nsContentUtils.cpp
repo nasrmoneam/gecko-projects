@@ -4108,6 +4108,14 @@ nsContentUtils::ReportToConsole(uint32_t aErrorFlags,
                                      aLineNumber, aColumnNumber);
 }
 
+/* static */ void
+nsContentUtils::ReportEmptyGetElementByIdArg(const nsIDocument* aDoc)
+{
+  ReportToConsole(nsIScriptError::warningFlag,
+                  NS_LITERAL_CSTRING("DOM"), aDoc,
+                  nsContentUtils::eDOM_PROPERTIES,
+                  "EmptyGetElementByIdParam");
+}
 
 /* static */ nsresult
 nsContentUtils::ReportToConsoleNonLocalized(const nsAString& aErrorText,
@@ -7488,19 +7496,6 @@ nsContentUtils::GetHTMLEditor(nsPresContext* aPresContext)
     return nullptr;
 
   return docShell->GetHTMLEditor();
-}
-
-bool
-nsContentUtils::IsContentInsertionPoint(nsIContent* aContent)
-{
-  // Check if the content is a XBL insertion point.
-  if (aContent->IsActiveChildrenElement()) {
-    return true;
-  }
-
-  // Check if the content is a web components content insertion point.
-  // XXX handle <slot>?
-  return false;
 }
 
 // static
@@ -11005,7 +11000,7 @@ template <prototypes::ID PrototypeID, class NativeType, typename T>
 static Result<Ok, nsresult>
 ExtractExceptionValues(JSContext* aCx,
                        JS::HandleObject aObj,
-                       nsACString& aSourceSpecOut,
+                       nsAString& aSourceSpecOut,
                        uint32_t* aLineOut,
                        uint32_t* aColumnOut,
                        nsString& aMessageOut)
@@ -11013,10 +11008,8 @@ ExtractExceptionValues(JSContext* aCx,
   RefPtr<T> exn;
   MOZ_TRY((UnwrapObject<PrototypeID, NativeType>(aObj, exn)));
 
-  nsAutoString filename;
-  exn->GetFilename(aCx, filename);
-  if (!filename.IsEmpty()) {
-    CopyUTF16toUTF8(filename, aSourceSpecOut);
+  exn->GetFilename(aCx, aSourceSpecOut);
+  if (!aSourceSpecOut.IsEmpty()) {
     *aLineOut = exn->LineNumber(aCx);
     *aColumnOut = exn->ColumnNumber();
   }
@@ -11034,6 +11027,19 @@ ExtractExceptionValues(JSContext* aCx,
 nsContentUtils::ExtractErrorValues(JSContext* aCx,
                                    JS::Handle<JS::Value> aValue,
                                    nsACString& aSourceSpecOut,
+                                   uint32_t* aLineOut,
+                                   uint32_t* aColumnOut,
+                                   nsString& aMessageOut)
+{
+  nsAutoString sourceSpec;
+  ExtractErrorValues(aCx, aValue, sourceSpec, aLineOut, aColumnOut, aMessageOut);
+  CopyUTF16toUTF8(sourceSpec, aSourceSpecOut);
+}
+
+/* static */ void
+nsContentUtils::ExtractErrorValues(JSContext* aCx,
+                                   JS::Handle<JS::Value> aValue,
+                                   nsAString& aSourceSpecOut,
                                    uint32_t* aLineOut,
                                    uint32_t* aColumnOut,
                                    nsString& aMessageOut)
@@ -11058,7 +11064,7 @@ nsContentUtils::ExtractErrorValues(JSContext* aCx,
                    0);          // window ID
 
       if (!report->mFileName.IsEmpty()) {
-        CopyUTF16toUTF8(report->mFileName, aSourceSpecOut);
+        aSourceSpecOut = report->mFileName;
         *aLineOut = report->mLineNumber;
         *aColumnOut = report->mColumn;
       }

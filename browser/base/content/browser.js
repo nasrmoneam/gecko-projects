@@ -1346,6 +1346,8 @@ var gBrowserInit = {
     this._uriToLoadPromise.then(uriToLoad => {
       if (uriToLoad == "about:home") {
         gBrowser.setIcon(gBrowser.selectedTab, "chrome://branding/content/icon32.png");
+      } else if (uriToLoad == "about:privatebrowsing") {
+        gBrowser.setIcon(gBrowser.selectedTab, "chrome://browser/skin/privatebrowsing/favicon.svg");
       }
     });
 
@@ -6607,7 +6609,7 @@ var CanvasPermissionPromptHelper = {
     let message = gNavigatorBundle.getFormattedString("canvas.siteprompt", [ uri.asciiHost ]);
 
     function setCanvasPermission(aURI, aPerm, aPersistent) {
-      Services.perms.add(aURI, "canvas/extractData", aPerm,
+      Services.perms.add(aURI, "canvas", aPerm,
                           aPersistent ? Ci.nsIPermissionManager.EXPIRE_NEVER
                                       : Ci.nsIPermissionManager.EXPIRE_SESSION);
     }
