@@ -155,7 +155,6 @@
 #include "mozIAsyncFavicons.h"
 #endif
 #include "nsINetworkPredictor.h"
-#include "nsIServiceWorkerManager.h"
 
 // Editor-related
 #include "nsIEditingSession.h"
@@ -371,13 +370,8 @@ ForEachPing(nsIContent* aContent, ForEachPingCallback aCallback, void* aClosure)
     return;
   }
 
-  RefPtr<nsAtom> pingAtom = NS_Atomize("ping");
-  if (!pingAtom) {
-    return;
-  }
-
   nsAutoString value;
-  aContent->GetAttr(kNameSpaceID_None, pingAtom, value);
+  aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::ping, value);
   if (value.IsEmpty()) {
     return;
   }
@@ -3418,7 +3412,7 @@ nsDocShell::MaybeCreateInitialClientSource(nsIPrincipal* aPrincipal)
   // Don't pre-allocate the client when we are sandboxed.  The inherited
   // principal does not take sandboxing into account.
   // TODO: Refactor sandboxing principal code out so we can use it here.
-  if (!aPrincipal && mSandboxFlags) {
+  if (!aPrincipal && (mSandboxFlags & SANDBOXED_ORIGIN)) {
     return;
   }
 
@@ -3460,35 +3454,18 @@ nsDocShell::MaybeCreateInitialClientSource(nsIPrincipal* aPrincipal)
     return;
   }
 
-  // We're done if there is no parent controller.  Also, don't inherit
-  // the controller if we're sandboxed.  This matches our behavior in
-  // ShouldPrepareForIntercept(),
   Maybe<ServiceWorkerDescriptor> controller(parentInner->GetController());
-  if (controller.isNothing() || mSandboxFlags) {
-    return;
-  }
-
-  nsCOMPtr<nsIServiceWorkerManager> swm = mozilla::services::GetServiceWorkerManager();
-  if (!swm) {
+  if (controller.isNothing()) {
     return;
   }
 
   // If the parent is controlled then propagate that controller to the
   // initial about:blank client as well.  This will set the controller
   // in the ClientManagerService in the parent.
-  //
-  // Note: If the registration is missing from the SWM we avoid setting
-  //       the controller on the client.  We can do this synchronously
-  //       for now since SWM is in the child process.  In the future
-  //       when SWM is in the parent process we will probably have to
-  //       always set the initial client source and then somehow clear
-  //       it if we find the registration is acutally gone.  Its also
-  //       possible this race only occurs in cases where the resulting
-  //       window is no longer exposed.  For example, in theory the SW
-  //       should not go away if our parent window is controlled.
-  if (!swm->StartControlling(mInitialClientSource->Info(), controller.ref())) {
-    return;
-  }
+  RefPtr<ClientHandle> handle =
+    ClientManager::CreateHandle(mInitialClientSource->Info(),
+                                parentInner->EventTargetFor(TaskCategory::Other));
+  handle->Control(controller.ref());
 
   // Also mark the ClientSource as controlled directly in case script
   // immediately accesses navigator.serviceWorker.controller.
@@ -14585,7 +14562,7 @@ nsDocShell::OnLinkClickSync(nsIContent* aContent,
   if (IsElementAnchor(aContent)) {
     MOZ_ASSERT(aContent->IsHTMLElement());
     nsAutoString referrer;
-    aContent->GetAttr(kNameSpaceID_None, nsGkAtoms::rel, referrer);
+    aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::rel, referrer);
     nsWhitespaceTokenizerTemplate<nsContentUtils::IsHTMLWhitespace> tok(referrer);
     while (tok.hasMoreTokens()) {
       const nsAString& token = tok.nextToken();

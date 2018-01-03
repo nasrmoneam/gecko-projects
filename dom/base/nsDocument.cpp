@@ -5599,10 +5599,7 @@ nsDocument::DispatchContentLoadedEvents()
     using mozilla::dom::workers::ServiceWorkerManager;
     RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
     if (swm) {
-      Maybe<ClientInfo> clientInfo = GetClientInfo();
-      if (clientInfo.isSome()) {
-        swm->MaybeCheckNavigationUpdate(clientInfo.ref());
-      }
+      swm->MaybeCheckNavigationUpdate(this);
     }
   }
 
@@ -6545,7 +6542,7 @@ nsIDocument::ImportNode(nsINode& aNode, bool aDeep, ErrorResult& rv) const
     }
     case nsIDOMNode::DOCUMENT_FRAGMENT_NODE:
     {
-      if (ShadowRoot::FromNode(imported)) {
+      if (imported->IsShadowRoot()) {
         break;
       }
       MOZ_FALLTHROUGH;
@@ -6633,21 +6630,25 @@ nsIDocument::GetBindingParent(nsINode& aNode)
 }
 
 static Element*
-GetElementByAttribute(nsIContent* aContent, nsAtom* aAttrName,
+GetElementByAttribute(Element* aElement, nsAtom* aAttrName,
                       const nsAString& aAttrValue, bool aUniversalMatch)
 {
-  if (aUniversalMatch ? aContent->HasAttr(kNameSpaceID_None, aAttrName) :
-                        aContent->AttrValueIs(kNameSpaceID_None, aAttrName,
+  if (aUniversalMatch ? aElement->HasAttr(kNameSpaceID_None, aAttrName) :
+                        aElement->AttrValueIs(kNameSpaceID_None, aAttrName,
                                               aAttrValue, eCaseMatters)) {
-    return aContent->AsElement();
+    return aElement;
   }
 
-  for (nsIContent* child = aContent->GetFirstChild();
+  for (nsIContent* child = aElement->GetFirstChild();
        child;
        child = child->GetNextSibling()) {
+    if (!child->IsElement()) {
+      continue;
+    }
 
     Element* matchedElement =
-      GetElementByAttribute(child, aAttrName, aAttrValue, aUniversalMatch);
+      GetElementByAttribute(child->AsElement(), aAttrName, aAttrValue,
+                            aUniversalMatch);
     if (matchedElement)
       return matchedElement;
   }
@@ -6671,8 +6672,13 @@ nsDocument::GetAnonymousElementByAttribute(nsIContent* aElement,
 
   for (uint32_t i = 0; i < length; ++i) {
     nsIContent* current = nodeList->Item(i);
+    if (!current->IsElement()) {
+      continue;
+    }
+
     Element* matchedElm =
-      GetElementByAttribute(current, aAttrName, aAttrValue, universalMatch);
+      GetElementByAttribute(current->AsElement(), aAttrName, aAttrValue,
+                            universalMatch);
     if (matchedElm)
       return matchedElm;
   }
@@ -7704,7 +7710,7 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
     }
     case nsIDOMNode::DOCUMENT_FRAGMENT_NODE:
     {
-      if (ShadowRoot::FromNode(adoptedNode)) {
+      if (adoptedNode->IsShadowRoot()) {
         rv.Throw(NS_ERROR_DOM_HIERARCHY_REQUEST_ERR);
         return nullptr;
       }
@@ -7752,7 +7758,9 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
         // have a binding applied. Remove the binding from the element now
         // that it's getting adopted into a new document.
         // TODO Fully tear down the binding.
-        adoptedNode->AsContent()->SetXBLBinding(nullptr);
+        if (adoptedNode->IsElement()) {
+          adoptedNode->AsElement()->SetXBLBinding(nullptr);
+        }
       }
 
       break;
@@ -10345,10 +10353,10 @@ nsDocument::FindImageMap(const nsAString& aUseMapValue)
   nsString name;
   for (i = 0; i < n; ++i) {
     nsIContent* map = mImageMaps->Item(i);
-    if (map->AttrValueIs(kNameSpaceID_None, nsGkAtoms::id, mapName,
-                         eCaseMatters) ||
-        map->AttrValueIs(kNameSpaceID_None, nsGkAtoms::name, mapName,
-                         eCaseMatters)) {
+    if (map->AsElement()->AttrValueIs(kNameSpaceID_None, nsGkAtoms::id, mapName,
+                                      eCaseMatters) ||
+        map->AsElement()->AttrValueIs(kNameSpaceID_None, nsGkAtoms::name, mapName,
+                                      eCaseMatters)) {
       return map->AsElement();
     }
   }

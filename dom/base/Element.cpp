@@ -364,6 +364,54 @@ Element::SetTabIndex(int32_t aTabIndex, mozilla::ErrorResult& aError)
 }
 
 void
+Element::SetXBLBinding(nsXBLBinding* aBinding,
+                       nsBindingManager* aOldBindingManager)
+{
+  nsBindingManager* bindingManager;
+  if (aOldBindingManager) {
+    MOZ_ASSERT(!aBinding, "aOldBindingManager should only be provided "
+                          "when removing a binding.");
+    bindingManager = aOldBindingManager;
+  } else {
+    bindingManager = OwnerDoc()->BindingManager();
+  }
+
+  // After this point, aBinding will be the most-derived binding for aContent.
+  // If we already have a binding for aContent, make sure to
+  // remove it from the attached stack.  Otherwise we might end up firing its
+  // constructor twice (if aBinding inherits from it) or firing its constructor
+  // after aContent has been deleted (if aBinding is null and the content node
+  // dies before we process mAttachedStack).
+  RefPtr<nsXBLBinding> oldBinding = GetXBLBinding();
+  if (oldBinding) {
+    bindingManager->RemoveFromAttachedQueue(oldBinding);
+  }
+
+  if (aBinding) {
+    SetFlags(NODE_MAY_BE_IN_BINDING_MNGR);
+    nsExtendedDOMSlots* slots = ExtendedDOMSlots();
+    slots->mXBLBinding = aBinding;
+    bindingManager->AddBoundContent(this);
+  } else {
+    nsExtendedDOMSlots* slots = GetExistingExtendedDOMSlots();
+    if (slots) {
+      slots->mXBLBinding = nullptr;
+    }
+    bindingManager->RemoveBoundContent(this);
+    if (oldBinding) {
+      oldBinding->SetBoundElement(nullptr);
+    }
+  }
+}
+
+void
+Element::SetShadowRoot(ShadowRoot* aShadowRoot)
+{
+  nsExtendedDOMSlots* slots = ExtendedDOMSlots();
+  slots->mShadowRoot = aShadowRoot;
+}
+
+void
 Element::Blur(mozilla::ErrorResult& aError)
 {
   if (!ShouldBlur(this)) {
@@ -1686,12 +1734,9 @@ Element::BindToTree(nsIDocument* aDocument, nsIContent* aParent,
 
   // Propagate scoped style sheet tracking bit.
   if (mParent->IsContent()) {
-    nsIContent* parent;
-    ShadowRoot* shadowRootParent = ShadowRoot::FromNode(mParent);
-    if (shadowRootParent) {
+    nsIContent* parent = mParent->AsContent();
+    if (ShadowRoot* shadowRootParent = ShadowRoot::FromNode(parent)) {
       parent = shadowRootParent->GetHost();
-    } else {
-      parent = mParent->AsContent();
     }
 
     bool inStyleScope = parent->IsElementInStyleScope();

@@ -100,18 +100,6 @@ ShadowRoot::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto)
   return mozilla::dom::ShadowRootBinding::Wrap(aCx, this, aGivenProto);
 }
 
-ShadowRoot*
-ShadowRoot::FromNode(nsINode* aNode)
-{
-  if (aNode->IsInShadowTree() && !aNode->GetParentNode()) {
-    MOZ_ASSERT(aNode->NodeType() == nsIDOMNode::DOCUMENT_FRAGMENT_NODE,
-               "ShadowRoot is a document fragment.");
-    return static_cast<ShadowRoot*>(aNode);
-  }
-
-  return nullptr;
-}
-
 void
 ShadowRoot::AddSlot(HTMLSlotElement* aSlot)
 {
@@ -157,7 +145,9 @@ ShadowRoot::AddSlot(HTMLSlotElement* aSlot)
          child;
          child = child->GetNextSibling()) {
       nsAutoString slotName;
-      child->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+      if (child->IsElement()) {
+        child->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+      }
       if (child->IsSlotable() && slotName.Equals(name)) {
         currentSlot->AppendAssignedNode(child);
         doEnqueueSlotChange = true;
@@ -350,7 +340,10 @@ ShadowRoot::AssignSlotFor(nsIContent* aContent)
   nsAutoString slotName;
   // Note that if slot attribute is missing, assign it to the first default
   // slot, if exists.
-  aContent->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+  if (aContent->IsElement()) {
+    aContent->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+  }
+
   nsTArray<HTMLSlotElement*>* slots = mSlotMap.Get(slotName);
   if (!slots) {
     return nullptr;
@@ -596,7 +589,9 @@ ShadowRoot::ContentRemoved(nsIDocument* aDocument,
 
   if (aContainer && aContainer == GetHost()) {
     nsAutoString slotName;
-    aChild->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+    if (aChild->IsElement()) {
+      aChild->AsElement()->GetAttr(kNameSpaceID_None, nsGkAtoms::slot, slotName);
+    }
     if (const HTMLSlotElement* slot = UnassignSlotFor(aChild, slotName)) {
       slot->EnqueueSlotChangeEvent();
     }

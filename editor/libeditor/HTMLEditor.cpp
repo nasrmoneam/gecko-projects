@@ -22,9 +22,7 @@
 #include "TextEditUtils.h"
 #include "TypeInState.h"
 
-#include "nsIDOMMozNamedAttrMap.h"
 #include "nsIDOMDocument.h"
-#include "nsIDOMAttr.h"
 #include "nsIDocumentInlines.h"
 #include "nsIDOMEventTarget.h"
 #include "nsIDOMMouseEvent.h"
@@ -140,8 +138,11 @@ HTMLEditor::~HTMLEditor()
   // remove the rules as an action listener.  Else we get a bad
   // ownership loop later on.  it's ok if the rules aren't a listener;
   // we ignore the error.
-  nsCOMPtr<nsIEditActionListener> mListener = do_QueryInterface(mRules);
-  RemoveEditActionListener(mListener);
+  if (mRules) {
+    nsCOMPtr<nsIEditActionListener> listener =
+      static_cast<nsIEditActionListener*>(mRules->AsHTMLEditRules());
+    RemoveEditActionListener(listener);
+  }
 
   //the autopointers will clear themselves up.
   //but we need to also remove the listeners or we have a leak
@@ -1422,7 +1423,7 @@ HTMLEditor::InsertElementAtSelection(nsIDOMElement* aElement,
                                      bool aDeleteSelection)
 {
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   nsCOMPtr<Element> element = do_QueryInterface(aElement);
   NS_ENSURE_TRUE(element, NS_ERROR_NULL_POINTER);
@@ -1441,7 +1442,7 @@ HTMLEditor::InsertElementAtSelection(nsIDOMElement* aElement,
 
   // hand off to the rules system, see if it has anything to say about this
   bool cancel, handled;
-  TextRulesInfo ruleInfo(EditAction::insertElement);
+  RulesInfo ruleInfo(EditAction::insertElement);
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   if (cancel || NS_FAILED(rv)) {
     return rv;
@@ -1656,9 +1657,7 @@ HTMLEditor::GetParagraphState(bool* aMixed,
     return NS_ERROR_NOT_INITIALIZED;
   }
   NS_ENSURE_TRUE(aMixed, NS_ERROR_NULL_POINTER);
-  RefPtr<HTMLEditRules> htmlRules =
-    static_cast<HTMLEditRules*>(mRules.get());
-
+  RefPtr<HTMLEditRules> htmlRules(mRules->AsHTMLEditRules());
   return htmlRules->GetParagraphState(aMixed, outFormat);
 }
 
@@ -1834,9 +1833,7 @@ HTMLEditor::GetListState(bool* aMixed,
     return NS_ERROR_NOT_INITIALIZED;
   }
   NS_ENSURE_TRUE(aMixed && aOL && aUL && aDL, NS_ERROR_NULL_POINTER);
-  RefPtr<HTMLEditRules> htmlRules =
-    static_cast<HTMLEditRules*>(mRules.get());
-
+  RefPtr<HTMLEditRules> htmlRules(mRules->AsHTMLEditRules());
   return htmlRules->GetListState(aMixed, aOL, aUL, aDL);
 }
 
@@ -1851,9 +1848,7 @@ HTMLEditor::GetListItemState(bool* aMixed,
   }
   NS_ENSURE_TRUE(aMixed && aLI && aDT && aDD, NS_ERROR_NULL_POINTER);
 
-  RefPtr<HTMLEditRules> htmlRules =
-    static_cast<HTMLEditRules*>(mRules.get());
-
+  RefPtr<HTMLEditRules> htmlRules(mRules->AsHTMLEditRules());
   return htmlRules->GetListItemState(aMixed, aLI, aDT, aDD);
 }
 
@@ -1865,9 +1860,8 @@ HTMLEditor::GetAlignment(bool* aMixed,
     return NS_ERROR_NOT_INITIALIZED;
   }
   NS_ENSURE_TRUE(aMixed && aAlign, NS_ERROR_NULL_POINTER);
-  RefPtr<HTMLEditRules> htmlRules =
-    static_cast<HTMLEditRules*>(mRules.get());
 
+  RefPtr<HTMLEditRules> htmlRules(mRules->AsHTMLEditRules());
   return htmlRules->GetAlignment(aMixed, aAlign);
 }
 
@@ -1880,9 +1874,7 @@ HTMLEditor::GetIndentState(bool* aCanIndent,
   }
   NS_ENSURE_TRUE(aCanIndent && aCanOutdent, NS_ERROR_NULL_POINTER);
 
-  RefPtr<HTMLEditRules> htmlRules =
-    static_cast<HTMLEditRules*>(mRules.get());
-
+  RefPtr<HTMLEditRules> htmlRules(mRules->AsHTMLEditRules());
   return htmlRules->GetIndentState(aCanIndent, aCanOutdent);
 }
 
@@ -1896,7 +1888,7 @@ HTMLEditor::MakeOrChangeList(const nsAString& aListType,
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   bool cancel, handled;
 
@@ -1907,7 +1899,7 @@ HTMLEditor::MakeOrChangeList(const nsAString& aListType,
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
-  TextRulesInfo ruleInfo(EditAction::makeList);
+  RulesInfo ruleInfo(EditAction::makeList);
   ruleInfo.blockType = &aListType;
   ruleInfo.entireList = entireList;
   ruleInfo.bulletType = &aBulletType;
@@ -1979,7 +1971,7 @@ HTMLEditor::RemoveList(const nsAString& aListType)
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   bool cancel, handled;
 
@@ -1990,7 +1982,7 @@ HTMLEditor::RemoveList(const nsAString& aListType)
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
-  TextRulesInfo ruleInfo(EditAction::removeList);
+  RulesInfo ruleInfo(EditAction::removeList);
   if (aListType.LowerCaseEqualsLiteral("ol")) {
     ruleInfo.bOrdered = true;
   } else {
@@ -2014,7 +2006,7 @@ HTMLEditor::MakeDefinitionItem(const nsAString& aItemType)
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   bool cancel, handled;
 
@@ -2025,7 +2017,7 @@ HTMLEditor::MakeDefinitionItem(const nsAString& aItemType)
   // pre-process
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
-  TextRulesInfo ruleInfo(EditAction::makeDefListItem);
+  RulesInfo ruleInfo(EditAction::makeDefListItem);
   ruleInfo.blockType = &aItemType;
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   if (cancel || NS_FAILED(rv)) {
@@ -2047,7 +2039,7 @@ HTMLEditor::InsertBasicBlock(const nsAString& aBlockType)
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   bool cancel, handled;
 
@@ -2058,7 +2050,7 @@ HTMLEditor::InsertBasicBlock(const nsAString& aBlockType)
   // pre-process
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
-  TextRulesInfo ruleInfo(EditAction::makeBasicBlock);
+  RulesInfo ruleInfo(EditAction::makeBasicBlock);
   ruleInfo.blockType = &aBlockType;
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   if (cancel || NS_FAILED(rv)) {
@@ -2128,7 +2120,7 @@ HTMLEditor::Indent(const nsAString& aIndent)
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   bool cancel, handled;
   EditAction opID = EditAction::indent;
@@ -2142,7 +2134,7 @@ HTMLEditor::Indent(const nsAString& aIndent)
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
 
-  TextRulesInfo ruleInfo(opID);
+  RulesInfo ruleInfo(opID);
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   if (cancel || NS_FAILED(rv)) {
     return rv;
@@ -2214,7 +2206,7 @@ NS_IMETHODIMP
 HTMLEditor::Align(const nsAString& aAlignType)
 {
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   AutoPlaceholderBatch beginBatching(this);
   AutoRules beginRulesSniffing(this, EditAction::align, nsIEditor::eNext);
@@ -2224,7 +2216,7 @@ HTMLEditor::Align(const nsAString& aAlignType)
   // Find out if the selection is collapsed:
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_TRUE(selection, NS_ERROR_NULL_POINTER);
-  TextRulesInfo ruleInfo(EditAction::align);
+  RulesInfo ruleInfo(EditAction::align);
   ruleInfo.alignType = &aAlignType;
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   if (cancel || NS_FAILED(rv)) {
@@ -2619,27 +2611,21 @@ HTMLEditor::InsertLinkAroundSelection(nsIDOMElement* aAnchorElement)
   AutoPlaceholderBatch beginBatching(this);
 
   // Set all attributes found on the supplied anchor element
-  nsCOMPtr<nsIDOMMozNamedAttrMap> attrMap;
-  aAnchorElement->GetAttributes(getter_AddRefs(attrMap));
+  RefPtr<nsDOMAttributeMap> attrMap = anchor->Attributes();
   NS_ENSURE_TRUE(attrMap, NS_ERROR_FAILURE);
 
-  uint32_t count;
-  attrMap->GetLength(&count);
-  nsAutoString name, value;
+  uint32_t count = attrMap->Length();
+  nsAutoString value;
 
   for (uint32_t i = 0; i < count; ++i) {
-    nsCOMPtr<nsIDOMAttr> attribute;
-    rv = attrMap->Item(i, getter_AddRefs(attribute));
-    NS_ENSURE_SUCCESS(rv, rv);
+    RefPtr<Attr> attribute = attrMap->Item(i);
 
     if (attribute) {
       // We must clear the string buffers
-      //   because GetName, GetValue appends to previous string!
-      name.Truncate();
+      //   because GetValue appends to previous string!
       value.Truncate();
 
-      rv = attribute->GetName(name);
-      NS_ENSURE_SUCCESS(rv, rv);
+      nsAtom* name = attribute->NodeInfo()->NameAtom();
 
       rv = attribute->GetValue(value);
       NS_ENSURE_SUCCESS(rv, rv);
@@ -3217,7 +3203,7 @@ HTMLEditor::DoContentInserted(nsIDocument* aDocument,
       return;
     }
     // Protect the edit rules object from dying
-    nsCOMPtr<nsIEditRules> rules(mRules);
+    RefPtr<TextEditRules> rules(mRules);
     rules->DocumentModified();
 
     // Update spellcheck for only the newly-inserted node (bug 743819)
@@ -3263,7 +3249,7 @@ HTMLEditor::ContentRemoved(nsIDocument* aDocument,
       return;
     }
     // Protect the edit rules object from dying
-    nsCOMPtr<nsIEditRules> rules(mRules);
+    RefPtr<TextEditRules> rules(mRules);
     rules->DocumentModified();
   }
 }
@@ -3406,7 +3392,7 @@ HTMLEditor::StartOperation(EditAction opID,
                            nsIEditor::EDirection aDirection)
 {
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   EditorBase::StartOperation(opID, aDirection);  // will set mAction, mDirection
   if (rules) {
@@ -3423,7 +3409,7 @@ NS_IMETHODIMP
 HTMLEditor::EndOperation()
 {
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   // post processing
   nsresult rv = rules ? rules->AfterEdit(mAction, mDirection) : NS_OK;
@@ -3471,7 +3457,7 @@ HTMLEditor::SelectEntireDocument(Selection* aSelection)
   }
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   // is doc empty?
   if (rules->DocumentIsEmpty()) {
@@ -3525,7 +3511,7 @@ HTMLEditor::SelectAll()
 bool
 HTMLEditor::IsTextPropertySetByContent(nsINode* aNode,
                                        nsAtom* aProperty,
-                                       const nsAString* aAttribute,
+                                       nsAtom* aAttribute,
                                        const nsAString* aValue,
                                        nsAString* outValue)
 {
@@ -3535,11 +3521,11 @@ HTMLEditor::IsTextPropertySetByContent(nsINode* aNode,
     if (aNode->IsElement()) {
       Element* element = aNode->AsElement();
       if (aProperty == element->NodeInfo()->NameAtom()) {
-        if (!aAttribute || aAttribute->IsEmpty()) {
+        if (!aAttribute) {
           return true;
         }
         nsAutoString value;
-        element->GetAttribute(*aAttribute, value);
+        element->GetAttr(kNameSpaceID_None, aAttribute, value);
         if (outValue) {
           *outValue = value;
         }
@@ -4229,7 +4215,7 @@ HTMLEditor::SetCSSBackgroundColor(const nsAString& aColor)
   CommitComposition();
 
   // Protect the edit rules object from dying
-  nsCOMPtr<nsIEditRules> rules(mRules);
+  RefPtr<TextEditRules> rules(mRules);
 
   RefPtr<Selection> selection = GetSelection();
   NS_ENSURE_STATE(selection);
@@ -4243,7 +4229,7 @@ HTMLEditor::SetCSSBackgroundColor(const nsAString& aColor)
   AutoTransactionsConserveSelection dontChangeMySelection(this);
 
   bool cancel, handled;
-  TextRulesInfo ruleInfo(EditAction::setTextProperty);
+  RulesInfo ruleInfo(EditAction::setTextProperty);
   nsresult rv = rules->WillDoAction(selection, &ruleInfo, &cancel, &handled);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!cancel && !handled) {
