@@ -147,6 +147,10 @@ UPSTREAM_ARTIFACT_UNSIGNED_PATHS = {
         "host/bin/mar",
         "host/bin/mbsdiff",
     ],
+    'linux64-asan-reporter-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_UNSIGNED_EN_US + [
+        "host/bin/mar",
+        "host/bin/mbsdiff",
+    ],
     'linux64-source': [
     ],
     'linux64-devedition-source': [
@@ -217,6 +221,10 @@ UPSTREAM_ARTIFACT_SIGNED_PATHS = {
         "target.tar.bz2.asc",
     ],
     'linux-devedition-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
+        "target.tar.bz2",
+        "target.tar.bz2.asc",
+    ],
+    'linux64-asan-reporter-nightly': _DESKTOP_UPSTREAM_ARTIFACTS_SIGNED_EN_US + [
         "target.tar.bz2",
         "target.tar.bz2.asc",
     ],

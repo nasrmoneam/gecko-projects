@@ -281,6 +281,18 @@ def target_tasks_nightly_linux(full_task_graph, parameters, graph_config):
     return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
 
 
+@_target_task('nightly_asan')
+def target_tasks_nightly_asan(full_task_graph, parameters, graph_config):
+    """Select the set of tasks required for a nightly build of asan. The
+    nightly build process involves a pipeline of builds, signing,
+    and, eventually, uploading the tasks to balrog."""
+    def filter(task):
+        platform = task.attributes.get('build_platform')
+        if platform in ('linux64-asan-reporter-nightly',):
+            return task.attributes.get('nightly', False)
+    return [l for l, t in full_task_graph.tasks.iteritems() if filter(t)]
+
+
 @_target_task('mozilla_beta_tasks')
 def target_tasks_mozilla_beta(full_task_graph, parameters, graph_config):
     """Select the set of tasks required for a promotable beta or release build
@@ -596,6 +608,7 @@ def target_tasks_nightly_desktop(full_task_graph, parameters, graph_config):
         | set(target_tasks_nightly_win64(full_task_graph, parameters, graph_config))
         | set(target_tasks_nightly_macosx(full_task_graph, parameters, graph_config))
         | set(target_tasks_nightly_linux(full_task_graph, parameters, graph_config))
+        | set(target_tasks_nightly_asan(full_task_graph, parameters, graph_config))
     )
 
 
