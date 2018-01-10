@@ -10,6 +10,7 @@ function run_test() {
   debugDump("testing fallback to restarting a download when a partial file " +
             "is present but the entityID isn't set in the patch XML");
 
+
   // Simulate a download that was partially completed in an earlier session
   // by writing part of the final MAR into the download path.
   const marBytesToPreCopy = 200;
@@ -20,8 +21,7 @@ function run_test() {
   updateFile.append(FILE_UPDATE_MAR);
   writeFile(updateFile, marBytes);
 
-  let patchProps = {state: STATE_DOWNLOADING,
-                    url: gURLData + FILE_SIMPLE_MAR};
+  let patchProps = {state: STATE_DOWNLOADING, url: gURLData + FILE_SIMPLE_MAR};
   let patches = getLocalPatchString(patchProps);
   let updateProps = {appVersion: "1.0"};
   let updates = getLocalUpdateString(updateProps, patches);
@@ -44,7 +44,7 @@ function run_test() {
     onProgress(aRequest, aContext, aProgress, aMaxProgress) {
       aRequest.QueryInterface(Ci.nsIHttpChannel);
       Assert.equal(aRequest.getResponseHeader("Content-Length"),
-                   SIZE_SIMPLE_MAR - marBytesToPreCopy,
+                   SIZE_SIMPLE_MAR,
                    "should be downloading the entire MAR file");
     },
 
