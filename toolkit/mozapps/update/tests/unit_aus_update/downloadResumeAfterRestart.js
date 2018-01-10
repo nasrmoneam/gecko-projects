@@ -55,9 +55,8 @@ function run_test() {
 
     onStopRequest(aRequest, aContext, aStatus) {
       Assert.equal(aStatus, Cr.NS_OK, "the download should succeed");
-
       gUpdateManager.cleanupActiveUpdate();
-      stop_httpserver(doTestFinish);
+      do_execute_soon(waitForUpdateXMLFiles);
     },
 
     QueryInterface(iid) {
@@ -68,4 +67,12 @@ function run_test() {
       throw Cr.NS_ERROR_NO_INTERFACE;
     }
   });
+}
+
+/**
+ * Called after the call to waitForUpdateXMLFiles finishes.
+ */
+function waitForUpdateXMLFilesFinished() {
+  gUpdateManager.cleanupActiveUpdate();
+  stop_httpserver(doTestFinish);
 }

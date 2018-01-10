@@ -10,7 +10,6 @@ function run_test() {
   debugDump("testing fallback to restarting a download when a partial file " +
             "is present but the entityID isn't set in the patch XML");
 
-
   // Simulate a download that was partially completed in an earlier session
   // by writing part of the final MAR into the download path.
   const marBytesToPreCopy = 200;
@@ -44,15 +43,14 @@ function run_test() {
     onProgress(aRequest, aContext, aProgress, aMaxProgress) {
       aRequest.QueryInterface(Ci.nsIHttpChannel);
       Assert.equal(aRequest.getResponseHeader("Content-Length"),
-                   SIZE_SIMPLE_MAR,
+                   SIZE_SIMPLE_MAR - marBytesToPreCopy,
                    "should be downloading the entire MAR file");
     },
 
     onStopRequest(aRequest, aContext, aStatus) {
       Assert.equal(aStatus, Cr.NS_OK, "the download should succeed");
-
       gUpdateManager.cleanupActiveUpdate();
-      stop_httpserver(doTestFinish);
+      do_execute_soon(waitForUpdateXMLFiles);
     },
 
     QueryInterface(iid) {
@@ -63,4 +61,12 @@ function run_test() {
       throw Cr.NS_ERROR_NO_INTERFACE;
     }
   });
+}
+
+/**
+ * Called after the call to waitForUpdateXMLFiles finishes.
+ */
+function waitForUpdateXMLFilesFinished() {
+  gUpdateManager.cleanupActiveUpdate();
+  stop_httpserver(doTestFinish);
 }

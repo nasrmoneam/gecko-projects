@@ -113,8 +113,6 @@
     <vbox class="update-content" flex="1">
       <hbox id="downloadStatusProgress">
         <progressmeter id="downloadProgress" mode="undetermined" flex="1"/>
-        <button id="pauseButton" oncommand="gDownloadingPage.onPause();"
-                paused="false"/>
       </hbox>
       <separator class="thin"/>
       <hbox id="downloadStatusLine">
