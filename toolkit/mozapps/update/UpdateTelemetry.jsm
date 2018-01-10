@@ -178,6 +178,8 @@ this.AUSTLMY = {
   DWNLD_ERR_VERIFY_PATCH_SIZE_NOT_EQUAL: 14,
   // DWNLD_ERR_VERIFY_NO_HASH_MATCH: 15 - no longer in use
   DWNLD_RESUME_FAILURE: 16,
+  DWNLD_NO_ENTITY_ID: 17,
+  DWNLD_NEW_ENTITY_ID: 18,
 
   /**
    * Submit a telemetry ping for the update download result code.
