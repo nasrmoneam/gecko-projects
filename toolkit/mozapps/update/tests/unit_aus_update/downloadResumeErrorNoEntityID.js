@@ -21,9 +21,10 @@ function run_test() {
   updateFile.append(FILE_UPDATE_MAR);
   writeFile(updateFile, marBytes);
 
-  let patchProps = {state: STATE_DOWNLOADING};
+  let patchProps = {state: STATE_DOWNLOADING, url: gURLData + FILE_SIMPLE_MAR};
   let patches = getLocalPatchString(patchProps);
-  let updates = getLocalUpdateString({}, patches);
+  let updateProps = {appVersion: "1.0"};
+  let updates = getLocalUpdateString(updateProps, patches);
   writeUpdatesToXMLFile(getLocalUpdatesXMLString(updates), true);
   writeStatusFile(STATE_DOWNLOADING);
 
@@ -43,7 +44,7 @@ function run_test() {
     onProgress(aRequest, aContext, aProgress, aMaxProgress) {
       aRequest.QueryInterface(Ci.nsIHttpChannel);
       Assert.equal(aRequest.getResponseHeader("Content-Length"),
-                   SIZE_SIMPLE_MAR - marBytesToPreCopy,
+                   SIZE_SIMPLE_MAR,
                    "should be downloading the entire MAR file");
     },
 
