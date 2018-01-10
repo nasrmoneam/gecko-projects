@@ -144,7 +144,7 @@ linux64-gcc-6:
         tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
-        docker-image: {in-tree: desktop-build}
+        docker-image: {in-tree: toolchain-build}
         max-run-time: 36000
     run:
         using: toolchain-script
@@ -310,7 +310,8 @@ linux64-android-gradle-dependencies:
         resources:
             - 'taskcluster/scripts/misc/tooltool-download.sh'
             - 'taskcluster/scripts/misc/android-gradle-dependencies/**'
-            - '**/*.gradle'
+            - '*.gradle'
+            - 'mobile/android/**/*.gradle'
             - 'mobile/android/config/mozconfigs/android-api-16-gradle-dependencies/**'
             - 'mobile/android/config/mozconfigs/common*'
             - 'mobile/android/gradle.configure'

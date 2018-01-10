@@ -17,6 +17,7 @@
 #include "nsHistory.h"
 #include "nsDOMNavigationTiming.h"
 #include "nsIDOMStorageManager.h"
+#include "mozilla/dom/DOMPrefs.h"
 #include "mozilla/dom/LocalStorage.h"
 #include "mozilla/dom/Storage.h"
 #include "mozilla/dom/IdleRequest.h"
@@ -1786,11 +1787,34 @@ nsGlobalWindowInner::EnsureClientSource()
     }
   }
 
+  // Verify the final ClientSource principal matches the final document
+  // principal.  The ClientChannelHelper handles things like network
+  // redirects, but there are other ways the document principal can change.
+  // For example, if something sets the nsIChannel.owner property, then
+  // the final channel principal can be anything.  Unfortunately there is
+  // no good way to detect this until after the channel completes loading.
+  //
+  // For now we handle this just by reseting the ClientSource.  This will
+  // result in a new ClientSource with the correct principal being created.
+  // To APIs like ServiceWorker and Clients API it will look like there was
+  // an initial content page created that was then immediately replaced.
+  // This is pretty close to what we are actually doing.
+  if (mClientSource) {
+    nsCOMPtr<nsIPrincipal> clientPrincipal(mClientSource->Info().GetPrincipal());
+    if (!clientPrincipal || !clientPrincipal->Equals(mDoc->NodePrincipal())) {
+      mClientSource.reset();
+    }
+  }
+
   // If we don't have a reserved client or an initial client, then create
   // one now.  This can happen in certain cases where we avoid preallocating
   // the client in the docshell.  This mainly occurs in situations where
   // the principal is not clearly inherited from the parent; e.g. sandboxed
   // iframes, window.open(), etc.
+  //
+  // We also do this late ClientSource creation if the final document ended
+  // up with a different principal.
+  //
   // TODO: We may not be marking initial about:blank documents created
   //       this way as controlled by a service worker properly.  The
   //       controller should be coming from the same place as the inheritted
@@ -1804,13 +1828,23 @@ nsGlobalWindowInner::EnsureClientSource()
                                                 mDoc->NodePrincipal());
     MOZ_DIAGNOSTIC_ASSERT(mClientSource);
     newClientSource = true;
+
+    // Note, we don't apply the loadinfo controller below if we create
+    // the ClientSource here.
   }
 
   // The load may have started controlling the Client as well.  If
   // so, mark it as controlled immediately here.  The actor may
   // or may not have been notified by the parent side about being
   // controlled yet.
-  if (loadInfo) {
+  //
+  // Note: We should be careful not to control a client that was created late.
+  //       These clients were not seen by the ServiceWorkerManager when it
+  //       marked the LoadInfo controlled and it won't know about them.  Its
+  //       also possible we are creating the client late due to the final
+  //       principal changing and these clients should definitely not be
+  //       controlled by a service worker with a different principal.
+  else if (loadInfo) {
     const Maybe<ServiceWorkerDescriptor> controller = loadInfo->GetController();
     if (controller.isSome()) {
       mClientSource->SetController(controller.ref());
@@ -2082,6 +2116,10 @@ nsGlobalWindowInner::PostHandleEvent(EventChainPostVisitor& aVisitor)
       // event we don't need a pres context anyway so we just pass
       // null as the pres context all the time here.
       EventDispatcher::Dispatch(element, nullptr, &event, nullptr, &status);
+    }
+
+    if (mVREventObserver) {
+      mVREventObserver->NotifyAfterLoad();
     }
 
     uint32_t autoActivateVRDisplayID = 0;
@@ -3487,7 +3525,7 @@ nsGlobalWindowInner::GetFullScreen()
 void
 nsGlobalWindowInner::Dump(const nsAString& aStr)
 {
-  if (!nsContentUtils::DOMWindowDumpEnabled()) {
+  if (!DOMPrefs::DumpEnabled()) {
     return;
   }
 
@@ -6985,6 +7023,9 @@ void
 nsGlobalWindowInner::DispatchVRDisplayActivate(uint32_t aDisplayID,
                                                mozilla::dom::VRDisplayEventReason aReason)
 {
+  // Ensure that our list of displays is up to date
+  VRDisplay::UpdateVRDisplays(mVRDisplays, this);
+
   // Search for the display identified with aDisplayID and fire the
   // event if found.
   for (const auto& display : mVRDisplays) {
@@ -7029,6 +7070,9 @@ void
 nsGlobalWindowInner::DispatchVRDisplayDeactivate(uint32_t aDisplayID,
                                                  mozilla::dom::VRDisplayEventReason aReason)
 {
+  // Ensure that our list of displays is up to date
+  VRDisplay::UpdateVRDisplays(mVRDisplays, this);
+
   // Search for the display identified with aDisplayID and fire the
   // event if found.
   for (const auto& display : mVRDisplays) {
@@ -7059,6 +7103,9 @@ nsGlobalWindowInner::DispatchVRDisplayDeactivate(uint32_t aDisplayID,
 void
 nsGlobalWindowInner::DispatchVRDisplayConnect(uint32_t aDisplayID)
 {
+  // Ensure that our list of displays is up to date
+  VRDisplay::UpdateVRDisplays(mVRDisplays, this);
+
   // Search for the display identified with aDisplayID and fire the
   // event if found.
   for (const auto& display : mVRDisplays) {
@@ -7087,6 +7134,9 @@ nsGlobalWindowInner::DispatchVRDisplayConnect(uint32_t aDisplayID)
 void
 nsGlobalWindowInner::DispatchVRDisplayDisconnect(uint32_t aDisplayID)
 {
+  // Ensure that our list of displays is up to date
+  VRDisplay::UpdateVRDisplays(mVRDisplays, this);
+
   // Search for the display identified with aDisplayID and fire the
   // event if found.
   for (const auto& display : mVRDisplays) {
@@ -7115,6 +7165,9 @@ nsGlobalWindowInner::DispatchVRDisplayDisconnect(uint32_t aDisplayID)
 void
 nsGlobalWindowInner::DispatchVRDisplayPresentChange(uint32_t aDisplayID)
 {
+  // Ensure that our list of displays is up to date
+  VRDisplay::UpdateVRDisplays(mVRDisplays, this);
+
   // Search for the display identified with aDisplayID and fire the
   // event if found.
   for (const auto& display : mVRDisplays) {
@@ -7704,7 +7757,7 @@ nsGlobalWindowInner::CreateImageBitmap(JSContext* aCx,
                                        const Sequence<ChannelPixelLayout>& aLayout,
                                        ErrorResult& aRv)
 {
-  if (!ImageBitmap::ExtensionsEnabled(aCx)) {
+  if (!DOMPrefs::ImageBitmapExtensionsEnabled()) {
     aRv.Throw(NS_ERROR_TYPE_ERR);
     return nullptr;
   }

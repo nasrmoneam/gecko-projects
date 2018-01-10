@@ -445,14 +445,6 @@ nsIdentifierMapEntry::GetImageIdElement()
 }
 
 void
-nsIdentifierMapEntry::AppendAllIdContent(nsCOMArray<Element>* aElements)
-{
-  for (Element* element : mIdContentList) {
-    aElements->AppendObject(element);
-  }
-}
-
-void
 nsIdentifierMapEntry::AddContentChangeCallback(nsIDocument::IDTargetObserver aCallback,
                                                void* aData, bool aForImage)
 {
@@ -4441,7 +4433,7 @@ nsDocument::GetRootElementInternal() const
 }
 
 nsIContent *
-nsDocument::GetChildAt(uint32_t aIndex) const
+nsDocument::GetChildAt_Deprecated(uint32_t aIndex) const
 {
   return mChildren.GetSafeChildAt(aIndex);
 }
@@ -4471,9 +4463,9 @@ nsDocument::InsertChildAt(nsIContent* aKid, uint32_t aIndex,
 }
 
 void
-nsDocument::RemoveChildAt(uint32_t aIndex, bool aNotify)
+nsDocument::RemoveChildAt_Deprecated(uint32_t aIndex, bool aNotify)
 {
-  nsCOMPtr<nsIContent> oldKid = GetChildAt(aIndex);
+  nsCOMPtr<nsIContent> oldKid = GetChildAt_Deprecated(aIndex);
   if (!oldKid) {
     return;
   }
@@ -5599,7 +5591,10 @@ nsDocument::DispatchContentLoadedEvents()
     using mozilla::dom::workers::ServiceWorkerManager;
     RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
     if (swm) {
-      swm->MaybeCheckNavigationUpdate(this);
+      Maybe<ClientInfo> clientInfo = GetClientInfo();
+      if (clientInfo.isSome()) {
+        swm->MaybeCheckNavigationUpdate(clientInfo.ref());
+      }
     }
   }
 
@@ -7550,7 +7545,7 @@ nsDOMAttributeMap::BlastSubtreeToPieces(nsINode *aNode)
   uint32_t count = aNode->GetChildCount();
   for (uint32_t i = 0; i < count; ++i) {
     BlastSubtreeToPieces(aNode->GetFirstChild());
-    aNode->RemoveChildAt(0, false);
+    aNode->RemoveChildAt_Deprecated(0, false);
   }
 }
 
@@ -7750,7 +7745,7 @@ nsIDocument::AdoptNode(nsINode& aAdoptedNode, ErrorResult& rv)
       if (parent) {
         int32_t idx = parent->IndexOf(adoptedNode);
         MOZ_ASSERT(idx >= 0);
-        parent->RemoveChildAt(idx, true);
+        parent->RemoveChildAt_Deprecated(idx, true);
       } else {
         MOZ_ASSERT(!adoptedNode->IsInUncomposedDoc());
 
@@ -10040,10 +10035,7 @@ nsDocument::ScrollToRef()
       rv = NS_ERROR_FAILURE;
     }
 
-    // If UTF-8 URI failed then try to assume the string as a
-    // document's charset.
     if (NS_FAILED(rv)) {
-      auto encoding = GetDocumentCharacterSet();
       char* tmpstr = ToNewCString(mScrollToRef);
       if (!tmpstr) {
         return;
@@ -10053,10 +10045,19 @@ nsDocument::ScrollToRef()
       unescapedRef.Assign(tmpstr);
       free(tmpstr);
 
-      rv = encoding->DecodeWithoutBOMHandling(unescapedRef, ref);
+      NS_ConvertUTF8toUTF16 utf16Str(unescapedRef);
+      if (!utf16Str.IsEmpty()) {
+        rv = shell->GoToAnchor(utf16Str, mChangeScrollPosWhenScrollingToRef);
+      }
 
-      if (NS_SUCCEEDED(rv) && !ref.IsEmpty()) {
-        rv = shell->GoToAnchor(ref, mChangeScrollPosWhenScrollingToRef);
+      // If UTF-8 URI failed then try to assume the string as a
+      // document's charset.
+      if (NS_FAILED(rv)) {
+        const Encoding* encoding = GetDocumentCharacterSet();
+        rv = encoding->DecodeWithoutBOMHandling(unescapedRef, ref);
+        if (NS_SUCCEEDED(rv) && !ref.IsEmpty()) {
+          rv = shell->GoToAnchor(ref, mChangeScrollPosWhenScrollingToRef);
+        }
       }
     }
     if (NS_SUCCEEDED(rv)) {
@@ -14012,4 +14013,17 @@ nsDocument::RecordNavigationTiming(ReadyState aReadyState)
       NS_WARNING("Unexpected ReadyState value");
       break;
   }
+}
+
+bool
+nsIDocument::ModuleScriptsEnabled()
+{
+  static bool sEnabledForContent = false;
+  static bool sCachedPref = false;
+  if (!sCachedPref) {
+    sCachedPref = true;
+    Preferences::AddBoolVarCache(&sEnabledForContent, "dom.moduleScripts.enabled", false);
+  }
+
+  return nsContentUtils::IsChromeDoc(this) || sEnabledForContent;
 }

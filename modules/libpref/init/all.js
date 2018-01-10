@@ -710,6 +710,10 @@ pref("apz.overscroll.stretch_factor", "0.35");
 pref("apz.paint_skipping.enabled", true);
 // Fetch displayport updates early from the message queue
 pref("apz.peek_messages.enabled", true);
+pref("apz.pinch_lock.mode", 1);
+pref("apz.pinch_lock.scoll_lock_threshold", "0.03125");  // 1/32 inches
+pref("apz.pinch_lock.span_breakout_threshold", "0.03125");  // 1/32 inches
+pref("apz.pinch_lock.span_lock_threshold", "0.03125");  // 1/32 inches
 pref("apz.popups.enabled", false);
 
 // Whether to print the APZC tree for debugging
@@ -1238,7 +1242,6 @@ pref("editor.use_div_for_default_newlines",  false);
 pref("dom.disable_beforeunload",            false);
 pref("dom.disable_window_flip",             false);
 pref("dom.disable_window_move_resize",      false);
-pref("dom.disable_window_status_change",    false);
 
 pref("dom.disable_window_open_feature.titlebar",    false);
 pref("dom.disable_window_open_feature.close",       false);
@@ -1333,6 +1336,8 @@ pref("dom.forms.select.customstyling", false);
 pref("dom.forms.select.customstyling", true);
 #endif
 pref("dom.select_popup_in_parent.enabled", false);
+// Bug 1421229 - content-select
+pref("dom.select_popup_in_content.enabled", false);
 
 // Enable Directory API. By default, disabled.
 pref("dom.input.dirpicker", false);
@@ -1386,14 +1391,14 @@ pref("privacy.trackingprotection.lower_network_priority", false);
 pref("dom.event.contextmenu.enabled",       true);
 pref("dom.event.clipboardevents.enabled",   true);
 pref("dom.event.highrestimestamp.enabled",  true);
-#ifdef NIGHTLY_BUILD
 pref("dom.event.coalesce_mouse_move",       true);
-#else
-pref("dom.event.coalesce_mouse_move",       false);
-#endif
 
 pref("dom.webcomponents.enabled",           false);
+#ifdef NIGHTLY_BUILD
+pref("dom.webcomponents.customelements.enabled", true);
+#else
 pref("dom.webcomponents.customelements.enabled", false);
+#endif
 
 pref("javascript.enabled",                  true);
 pref("javascript.options.strict",           false);
@@ -1491,9 +1496,6 @@ pref("javascript.options.mem.gc_dynamic_heap_growth", true);
 // Override SpiderMonkey default (false).
 pref("javascript.options.mem.gc_dynamic_mark_slice", true);
 
-// JSGC_REFRESH_FRAME_SLICES_ENABLED
-pref("javascript.options.mem.gc_refresh_frame_slices_enabled", true);
-
 // JSGC_ALLOCATION_THRESHOLD
 pref("javascript.options.mem.gc_allocation_threshold_mb", 30);
 
@@ -1511,7 +1513,7 @@ pref("javascript.options.mem.gc_max_empty_chunk_count", 30);
 
 pref("javascript.options.showInConsole", false);
 
-pref("javascript.options.shared_memory", true);
+pref("javascript.options.shared_memory", false);
 
 pref("javascript.options.throw_on_debuggee_would_run", false);
 pref("javascript.options.dump_stack_on_debuggee_would_run", false);
@@ -2249,6 +2251,8 @@ pref("network.http.tailing.delay-quantum-after-domcontentloaded", 100);
 // Upper limit for the calculated delay, prevents long standing and comet-like requests
 // tail forever.  This is in milliseconds as well.
 pref("network.http.tailing.delay-max", 6000);
+// Total limit we delay tailed requests since a page load beginning.
+pref("network.http.tailing.total-max", 45000);
 
 pref("permissions.default.image",           1); // 1-Accept, 2-Deny, 3-dontAcceptForeign
 
@@ -2559,7 +2563,7 @@ pref("security.notification_enable_delay", 500);
 pref("security.csp.enable", true);
 pref("security.csp.experimentalEnabled", false);
 pref("security.csp.enableStrictDynamic", true);
-#ifdef EARLY_BETA_OR_EARLIER
+#ifdef NIGHTLY_BUILD
 pref("security.csp.enable_violation_events", true);
 #else
 pref("security.csp.enable_violation_events", false);
@@ -3090,11 +3094,7 @@ pref("layout.css.column-span.enabled", false);
 pref("layout.css.ruby.intercharacter.enabled", false);
 
 // Is support for overscroll-behavior enabled?
-#ifdef RELEASE_OR_BETA
-pref("layout.css.overscroll-behavior.enabled", false);
-#else
 pref("layout.css.overscroll-behavior.enabled", true);
-#endif
 
 // pref for which side vertical scrollbars should be on
 // 0 = end-side in UI direction
@@ -5145,7 +5145,7 @@ pref("dom.w3c_touch_events.enabled", 2);
 #endif
 
 // W3C draft pointer events
-#if !defined(ANDROID) && defined(NIGHTLY_BUILD)
+#if !defined(ANDROID)
 pref("dom.w3c_pointer_events.enabled", true);
 #else
 pref("dom.w3c_pointer_events.enabled", false);
@@ -5393,7 +5393,7 @@ pref("urlclassifier.trackingTable", "test-track-simple,base-track-digest256");
 pref("urlclassifier.trackingWhitelistTable", "test-trackwhite-simple,mozstd-trackwhite-digest256");
 
 // These tables will never trigger a gethash call.
-pref("urlclassifier.disallow_completions", "test-malware-simple,test-harmful-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple,goog-downloadwhite-digest256,base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256");
+pref("urlclassifier.disallow_completions", "test-malware-simple,test-harmful-simple,test-phish-simple,test-unwanted-simple,test-track-simple,test-trackwhite-simple,test-block-simple,goog-downloadwhite-digest256,base-track-digest256,mozstd-trackwhite-digest256,content-track-digest256,mozplugin-block-digest256,mozplugin2-block-digest256,block-flash-digest256,except-flash-digest256,allow-flashallow-digest256,except-flashallow-digest256,block-flashsubdoc-digest256,except-flashsubdoc-digest256,except-flashinfobar-digest256,goog-passwordwhite-proto");
 
 // Number of random entries to send with a gethash request
 pref("urlclassifier.gethashnoise", 4);
@@ -5893,7 +5893,6 @@ pref("layers.advanced.image-layers", 2);
 pref("layers.advanced.outline-layers", 2);
 pref("layers.advanced.solid-color", false);
 pref("layers.advanced.table", false);
-pref("layers.advanced.text-layers", 2);
 
 // Enable lowercased response header name
 pref("dom.xhr.lowercase_header.enabled", false);

@@ -1038,12 +1038,12 @@ function _loadURIWithFlags(browser, uri, params) {
 
   let mustChangeProcess = requiredRemoteType != currentRemoteType;
   let newFrameloader = false;
-  if (browser.getAttribute("isPreloadBrowser") == "true" && uri != "about:newtab") {
+  if (browser.getAttribute("preloadedState") === "consumed" && uri != "about:newtab") {
     // Leaving about:newtab from a used to be preloaded browser should run the process
     // selecting algorithm again.
     mustChangeProcess = true;
     newFrameloader = true;
-    browser.removeAttribute("isPreloadBrowser");
+    browser.removeAttribute("preloadedState");
   }
 
   // !requiredRemoteType means we're loading in the parent/this process.
@@ -1125,8 +1125,8 @@ function LoadInOtherProcess(browser, loadOptions, historyIndex = -1) {
 // Called when a docshell has attempted to load a page in an incorrect process.
 // This function is responsible for loading the page in the correct process.
 function RedirectLoad({ target: browser, data }) {
-  if (browser.getAttribute("isPreloadBrowser") == "true") {
-    browser.removeAttribute("isPreloadBrowser");
+  if (browser.getAttribute("preloadedState") === "consumed") {
+    browser.removeAttribute("preloadedState");
     data.loadOptions.newFrameloader = true;
   }
 
@@ -1263,6 +1263,7 @@ var gBrowserInit = {
     mm.loadFrameScript("chrome://browser/content/tab-content.js", true);
     mm.loadFrameScript("chrome://browser/content/content.js", true);
     mm.loadFrameScript("chrome://browser/content/content-UITour.js", true);
+    mm.loadFrameScript("chrome://global/content/content-HybridContentTelemetry.js", true);
     mm.loadFrameScript("chrome://global/content/manifestMessages.js", true);
 
     window.messageManager.addMessageListener("Browser:LoadURI", RedirectLoad);
@@ -6052,14 +6053,18 @@ function middleMousePaste(event) {
 function stripUnsafeProtocolOnPaste(pasteData) {
   // Don't allow pasting javascript URIs since we don't support
   // LOAD_FLAGS_DISALLOW_INHERIT_PRINCIPAL for those.
-  let changed = false;
-  let pasteDataNoJS = pasteData.replace(/\r?\n/g, "")
-                               .replace(/^(?:\W*javascript:)+/i,
-                                        () => {
-                                                changed = true;
-                                                return "";
-                                              });
-  return changed ? pasteDataNoJS : pasteData;
+  while (true) {
+    let scheme = "";
+    try {
+      scheme = Services.io.extractScheme(pasteData);
+    } catch (ex) { }
+    if (scheme != "javascript") {
+      break;
+    }
+
+    pasteData = pasteData.substring(pasteData.indexOf(":") + 1);
+  }
+  return pasteData;
 }
 
 // handleDroppedLink has the following 2 overloads:
@@ -7479,11 +7484,11 @@ var gIdentityHandler = {
 
         // If the organization name starts with an RTL character, then
         // swap the positions of the organization and country code labels.
-        // The Unicode ranges reflect the definition of the UCS2_CHAR_IS_BIDI
+        // The Unicode ranges reflect the definition of the UTF16_CODE_UNIT_IS_BIDI
         // macro in intl/unicharutil/util/nsBidiUtils.h. When bug 218823 gets
         // fixed, this test should be replaced by one adhering to the
         // Unicode Bidirectional Algorithm proper (at the paragraph level).
-        icon_labels_dir = /^[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]/.test(icon_label) ?
+        icon_labels_dir = /^[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc\ud802\ud803\ud83a\ud83b]/.test(icon_label) ?
                           "rtl" : "ltr";
       }
     } else if (this._pageExtensionPolicy) {

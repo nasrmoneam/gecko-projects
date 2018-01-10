@@ -209,16 +209,8 @@ impl<'ln> TNode for ServoLayoutNode<'ln> {
         self.node.downcast().map(ServoLayoutDocument::from_layout_js)
     }
 
-    fn can_be_fragmented(&self) -> bool {
-        unsafe { self.node.get_flag(NodeFlags::CAN_BE_FRAGMENTED) }
-    }
-
     fn is_in_document(&self) -> bool {
         unsafe { self.node.get_flag(NodeFlags::IS_IN_DOC) }
-    }
-
-    unsafe fn set_can_be_fragmented(&self, value: bool) {
-        self.node.set_flag(NodeFlags::CAN_BE_FRAGMENTED, value)
     }
 }
 
@@ -369,6 +361,10 @@ impl<'le> TElement for ServoLayoutElement<'le> {
 
     fn traversal_children(&self) -> LayoutIterator<Self::TraversalChildrenIterator> {
         LayoutIterator(self.as_node().dom_children())
+    }
+
+    fn is_html_element(&self) -> bool {
+        unsafe { self.element.is_html_element() }
     }
 
     fn style_attribute(&self) -> Option<ArcBorrow<StyleLocked<PropertyDeclarationBlock>>> {
@@ -928,10 +924,6 @@ impl<'ln> ThreadSafeLayoutNode for ServoThreadSafeLayoutNode<'ln> {
 
     unsafe fn unsafe_get(self) -> Self::ConcreteNode {
         self.node
-    }
-
-    fn can_be_fragmented(&self) -> bool {
-        self.node.can_be_fragmented()
     }
 
     fn node_text_content(&self) -> String {

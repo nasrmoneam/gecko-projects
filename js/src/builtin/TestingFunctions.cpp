@@ -370,8 +370,7 @@ MinorGC(JSContext* cx, unsigned argc, Value* vp)
     _("allocationThreshold",        JSGC_ALLOCATION_THRESHOLD,           true)  \
     _("minEmptyChunkCount",         JSGC_MIN_EMPTY_CHUNK_COUNT,          true)  \
     _("maxEmptyChunkCount",         JSGC_MAX_EMPTY_CHUNK_COUNT,          true)  \
-    _("compactingEnabled",          JSGC_COMPACTING_ENABLED,             true)  \
-    _("refreshFrameSlicesEnabled",  JSGC_REFRESH_FRAME_SLICES_ENABLED,   true)
+    _("compactingEnabled",          JSGC_COMPACTING_ENABLED,             true)
 
 static const struct ParamInfo {
     const char*     name;
@@ -547,6 +546,19 @@ WasmThreadsSupported(JSContext* cx, unsigned argc, Value* vp)
     CallArgs args = CallArgsFromVp(argc, vp);
 #ifdef ENABLE_WASM_THREAD_OPS
     bool isSupported = wasm::HasSupport(cx);
+#else
+    bool isSupported = false;
+#endif
+    args.rval().setBoolean(isSupported);
+    return true;
+}
+
+static bool
+WasmSignExtensionSupported(JSContext* cx, unsigned argc, Value* vp)
+{
+    CallArgs args = CallArgsFromVp(argc, vp);
+#ifdef ENABLE_WASM_SIGNEXTEND_OPS
+    bool isSupported = true;
 #else
     bool isSupported = false;
 #endif
@@ -2528,7 +2540,7 @@ testingFunc_inIon(JSContext* cx, unsigned argc, Value* vp)
     ScriptFrameIter iter(cx);
     if (!iter.done() && iter.isIon()) {
         // Reset the counter of the IonScript's script.
-        jit::JSJitFrameIter jitIter(cx);
+        jit::JSJitFrameIter jitIter(cx->activation()->asJit());
         ++jitIter;
         jitIter.script()->resetWarmUpResetCounter();
     } else {
@@ -5260,6 +5272,11 @@ gc::ZealModeHelpText),
     JS_FN_HELP("wasmThreadsSupported", WasmThreadsSupported, 0, 0,
 "wasmThreadsSupported()",
 "  Returns a boolean indicating whether the WebAssembly threads proposal is\n"
+"  supported on the current device."),
+
+    JS_FN_HELP("wasmSignExtensionSupported", WasmSignExtensionSupported, 0, 0,
+"wasmSignExtensionSupported()",
+"  Returns a boolean indicating whether the WebAssembly sign extension opcodes are\n"
 "  supported on the current device."),
 
     JS_FN_HELP("wasmCompileMode", WasmCompileMode, 0, 0,

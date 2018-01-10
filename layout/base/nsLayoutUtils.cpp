@@ -1099,7 +1099,10 @@ GetDisplayPortFromMarginsData(nsIContent* aContent,
       int32_t budget = maxHeightScreenPx - screenRect.height;
       // Scale the margins down to fit into the budget if necessary, maintaining
       // their relative ratio.
-      float scale = std::min(1.0f, float(budget) / margins.TopBottom());
+      float scale = 1.0f;
+      if (float(budget) < margins.TopBottom()) {
+        scale = float(budget) / margins.TopBottom();
+      }
       float top = margins.top * scale;
       float bottom = margins.bottom * scale;
       screenRect.y -= top;
@@ -1107,7 +1110,10 @@ GetDisplayPortFromMarginsData(nsIContent* aContent,
     }
     if (screenRect.width < maxWidthScreenPx) {
       int32_t budget = maxWidthScreenPx - screenRect.width;
-      float scale = std::min(1.0f, float(budget) / margins.LeftRight());
+      float scale = 1.0f;
+      if (float(budget) < margins.LeftRight()) {
+        scale = float(budget) / margins.LeftRight();
+      }
       float left = margins.left * scale;
       float right = margins.right * scale;
       screenRect.x -= left;
@@ -1702,7 +1708,7 @@ nsLayoutUtils::GetFloatFromPlaceholder(nsIFrame* aFrame) {
   if (aFrame->GetStateBits() & PLACEHOLDER_FOR_FLOAT) {
     nsIFrame *outOfFlowFrame =
       nsPlaceholderFrame::GetRealFrameForPlaceholder(aFrame);
-    NS_ASSERTION(outOfFlowFrame->IsFloating(),
+    NS_ASSERTION(outOfFlowFrame && outOfFlowFrame->IsFloating(),
                  "How did that happen?");
     return outOfFlowFrame;
   }
@@ -1913,11 +1919,8 @@ nsLayoutUtils::DoCompareTreePosition(nsIFrame* aFrame1,
   }
 
   AutoTArray<nsIFrame*,20> frame1Ancestors;
-  // Note that the order of the condition is important. We need to fill the
-  // ancestors even if aCommonAncestor is null, otherwise the code below makes
-  // no sense.
-  if (!FillAncestors(aFrame1, aCommonAncestor, &frame1Ancestors) &&
-      aCommonAncestor) {
+  if (aCommonAncestor &&
+      !FillAncestors(aFrame1, aCommonAncestor, &frame1Ancestors)) {
     // We reached the root of the frame tree ... if aCommonAncestor was set,
     // it is wrong
     return DoCompareTreePosition(aFrame1, aFrame2,
@@ -3633,7 +3636,10 @@ nsLayoutUtils::PaintFrame(gfxContext* aRenderingContext, nsIFrame* aFrame,
   const bool isForPainting = (aFlags & PaintFrameFlags::PAINT_WIDGET_LAYERS) &&
     aBuilderMode == nsDisplayListBuilderMode::PAINTING;
 
-  const bool retainingEnabled = isForPainting && AreRetainedDisplayListsEnabled();
+  // Only allow retaining for painting when preffed on, and for root frames (since
+  // the modified frame tracking is per-root-frame).
+  const bool retainingEnabled =
+    isForPainting && AreRetainedDisplayListsEnabled() && !aFrame->GetParent();
 
   RetainedDisplayListBuilder* retainedBuilder =
     GetOrCreateRetainedDisplayListBuilder(aFrame, retainingEnabled, buildCaret);

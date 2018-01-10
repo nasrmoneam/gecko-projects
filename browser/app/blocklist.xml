@@ -969,10 +969,6 @@
       <prefs/>
       <versionRange minVersion="0" maxVersion="*" severity="1"/>
     </emItem>
-    <emItem blockID="i258" id="helperbar@helperbar.com">
-      <prefs/>
-      <versionRange minVersion="0" maxVersion="1.0" severity="1"/>
-    </emItem>
     <emItem blockID="i96" id="youtubeee@youtuber3.com">
       <prefs/>
       <versionRange minVersion="0" maxVersion="*" severity="3"/>
@@ -1464,6 +1460,10 @@
       <prefs/>
       <versionRange minVersion="0" maxVersion="*" severity="3"/>
     </emItem>
+    <emItem blockID="674b6e19-f087-4706-a91d-1e723ed6f79e" id="{1490068c-d8b7-4bd2-9621-a648942b312c}">
+      <prefs/>
+      <versionRange minVersion="0" maxVersion="*" severity="3"/>
+    </emItem>
     <emItem blockID="i488" id="jid1-4P0kohSJxU1qGg@jetpack">
       <prefs/>
       <versionRange minVersion="1.2.50" maxVersion="1.2.50" severity="1"/>
@@ -1804,6 +1804,10 @@
     <emItem blockID="0a47a2f7-f07c-489b-bd39-88122a2dfe6a" id="@DA3566E2-F709-11E5-8E87-A604BC8E7F8B">
       <prefs/>
       <versionRange minVersion="0" maxVersion="*" severity="3"/>
+    </emItem>
+    <emItem blockID="455772a3-8360-4f5a-9a5f-a45b904d0b51" id="{dfa727cb-0246-4c5a-843a-e4a8592cc7b9}">
+      <prefs/>
+      <versionRange minVersion="2.0.0" maxVersion="2.0.0" severity="1"/>
     </emItem>
     <emItem blockID="i98" id="youtubeeing@youtuberie.com">
       <prefs/>
@@ -2146,6 +2150,10 @@
     <emItem blockID="i117" id="{ce7e73df-6a44-4028-8079-5927a588c948}">
       <prefs/>
       <versionRange minVersion="0" maxVersion="1.0.8" severity="1"/>
+    </emItem>
+    <emItem blockID="i258" id="helperbar@helperbar.com">
+      <prefs/>
+      <versionRange minVersion="0" maxVersion="1.0" severity="1"/>
     </emItem>
   </emItems>
   <pluginItems>

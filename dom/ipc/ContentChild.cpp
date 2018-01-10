@@ -26,6 +26,7 @@
 #include "mozilla/dom/ClientOpenWindowOpActors.h"
 #include "mozilla/dom/ContentBridgeChild.h"
 #include "mozilla/dom/ContentBridgeParent.h"
+#include "mozilla/dom/DOMPrefs.h"
 #include "mozilla/dom/VideoDecoderManagerChild.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/DataTransfer.h"
@@ -1228,6 +1229,8 @@ ContentChild::InitXPCOM(const XPCOMInitData& aXPCOMInit,
 
   // Set the dynamic scalar definitions for this process.
   TelemetryIPC::AddDynamicScalarDefinitions(aXPCOMInit.dynamicScalarDefs());
+
+  DOMPrefs::Initialize();
 }
 
 mozilla::ipc::IPCResult
@@ -1811,7 +1814,10 @@ ContentChild::RecvPBrowserConstructor(PBrowserChild* aActor,
     RefPtr<CancelableRunnable> firstIdleTask = NewCancelableRunnableFunction("FirstIdleRunnable",
                                                                              FirstIdle);
     gFirstIdleTask = firstIdleTask;
-    NS_IdleDispatchToCurrentThread(firstIdleTask.forget());
+    if (NS_FAILED(NS_IdleDispatchToCurrentThread(firstIdleTask.forget()))) {
+      gFirstIdleTask = nullptr;
+      hasRunOnce = false;
+    }
   }
 
   return nsIContentChild::RecvPBrowserConstructor(aActor,
@@ -2317,6 +2323,7 @@ ContentChild::ActorDestroy(ActorDestroyReason why)
 #else
   if (gFirstIdleTask) {
     gFirstIdleTask->Cancel();
+    gFirstIdleTask = nullptr;
   }
 
   nsHostObjectProtocolHandler::RemoveDataEntries();
