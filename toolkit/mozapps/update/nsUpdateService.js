@@ -1146,17 +1146,25 @@ function UpdatePatch(patch) {
       case "selected":
         this.selected = attr.value == "true";
         break;
-      case "entityID":
-        this.setProperty("entityID", attr.value);
-        break;
       case "size":
         if (0 == parseInt(attr.value)) {
           LOG("UpdatePatch:init - 0-sized patch!");
           throw Cr.NS_ERROR_ILLEGAL_VALUE;
         }
         // fall through
+      case "errorCode":
+      case "finalURL":
+      case "state":
+      case "type":
+      case "URL":
+        this[attr.name] = attr.value;
+        break;
       default:
         this[attr.name] = attr.value;
+        // Save custom attributes when serializing to the local xml file but
+        // don't use this method for the expected attributes which are already
+        // handled in serialize.
+        this.setProperty(attr.name, attr.value);
         break;
     }
   }
@@ -3519,27 +3527,15 @@ class ChannelDownloader extends CommonDownloader {
 
     if (this._channel instanceof Ci.nsIResumableChannel &&
         patchFile.exists()) {
-      let resumeFrom;
-      let entityID = this._patch.getProperty("entityID");
-      if (!entityID) {
-        LOG("ChannelDownloader:downloadUpdate - failed to resume download, " +
-            "couldn't get entityID for the selected patch");
-      } else {
-        try {
-          resumeFrom = patchFile.fileSize;
-        } catch (e) {
-          LOG("ChannelDownloader:downloadUpdate - failed to resume download, " +
-              "couldn't open partially downloaded file, exception: " + e);
-        }
-      }
-
-      if (entityID && resumeFrom !== undefined) {
-        this._channel.resumeAt(resumeFrom, entityID);
+      try {
+        this._resumedFrom = patchFile.fileSize;
+        this._channel.resumeAt(this._resumedFrom, "");
         this._bkgFileSaver.enableAppend();
-        this._resumedFrom = resumeFrom;
         LOG("ChannelDownloader:downloadUpdate - resuming previous download " +
-            "starting after " + resumeFrom + " bytes");
-      } else {
+            "starting after " + this._resumedFrom + " bytes");
+      } catch (e) {
+        LOG("ChannelDownloader:downloadUpdate - failed to resume download, " +
+            "couldn't open partially downloaded file, exception: " + e);
         AUSTLMY.pingDownloadCode(this.isCompleteUpdate,
                                  AUSTLMY.DWNLD_RESUME_FAILURE);
       }
@@ -3597,10 +3593,12 @@ class ChannelDownloader extends CommonDownloader {
 
     this._bkgFileSaver.onStartRequest(request, context);
 
+    let patchEntityID = this._patch.getProperty("entityID");
+    let requestEntityID;
     if (request instanceof Ci.nsIResumableChannel) {
       // Reading the entityID can throw if the server doesn't allow resuming.
       try {
-        this._patch.setProperty("entityID", request.entityID);
+        requestEntityID = request.entityID;
       } catch (ex) {
         if (!(ex instanceof Components.Exception) ||
             ex.result != Cr.NS_ERROR_NOT_RESUMABLE) {
@@ -3609,9 +3607,20 @@ class ChannelDownloader extends CommonDownloader {
       }
     }
 
-    var um = Cc["@mozilla.org/updates/update-manager;1"].
-             getService(Ci.nsIUpdateManager);
-    um.saveUpdates();
+    if (!requestEntityID) {
+      AUSTLMY.pingDownloadCode(this.isCompleteUpdate,
+                               AUSTLMY.DWNLD_NO_ENTITY_ID);
+    } else if (patchEntityID && patchEntityID != requestEntityID) {
+      AUSTLMY.pingDownloadCode(this.isCompleteUpdate,
+                               AUSTLMY.DWNLD_NEW_ENTITY_ID);
+    }
+
+    if (requestEntityID && requestEntityID != patchEntityID) {
+      this._patch.QueryInterface(Ci.nsIWritablePropertyBag);
+      this._patch.setProperty("entityID", requestEntityID);
+      Cc["@mozilla.org/updates/update-manager;1"].
+      getService(Ci.nsIUpdateManager).saveUpdates();
+    }
 
     var listeners = this._listeners.concat();
     var listenerCount = listeners.length;
@@ -3624,9 +3633,6 @@ class ChannelDownloader extends CommonDownloader {
    * See nsIProgressEventSink.idl
    */
   onProgress(request, context, progress, maxProgress) {
-    LOG("ChannelDownloader:onProgress - progress: " + progress +
-        "/" + maxProgress);
-
     if (progress > this._patch.size) {
       LOG("ChannelDownloader:onProgress - progress: " + progress +
           " is higher than patch size: " + this._patch.size);
@@ -3648,6 +3654,8 @@ class ChannelDownloader extends CommonDownloader {
 
     let currentTime = Date.now();
     if ((currentTime - this._lastProgressTimeMs) > DOWNLOAD_PROGRESS_INTERVAL) {
+      LOG("ChannelDownloader:onProgress - progress: " + progress +
+          "/" + maxProgress);
       this._lastProgressTimeMs = currentTime;
       let listeners = this._listeners.concat();
       let listenerCount = listeners.length;
