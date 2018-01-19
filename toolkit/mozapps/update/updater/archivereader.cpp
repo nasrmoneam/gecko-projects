@@ -7,7 +7,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
-#include "bzlib.h"
+#ifdef XP_WIN
+#include <windows.h>
+#endif
 #include "archivereader.h"
 #include "errors.h"
 #ifdef XP_WIN
