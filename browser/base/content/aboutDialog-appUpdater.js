@@ -76,7 +76,8 @@ function appUpdater(options = {}) {
   }
 
   if (this.isDownloading) {
-    this.setupDownloadingUI();
+    this.startDownload();
+    // selectPanel("downloading") is called from setupDownloadingUI().
     return;
   }
 
@@ -315,6 +316,7 @@ appUpdater.prototype =
     this.update.QueryInterface(Components.interfaces.nsIWritablePropertyBag);
     this.update.setProperty("foregroundDownload", "true");
 
+    this.aus.pauseDownload();
     let state = this.aus.downloadUpdate(this.update, false);
     if (state == "failed") {
       this.selectPanel("downloadFailed");
@@ -328,9 +330,6 @@ appUpdater.prototype =
    * Switches to the UI responsible for tracking the download.
    */
   setupDownloadingUI() {
-    if (!this.update) {
-      this.update = this.um.activeUpdate;
-    }
     this.downloadStatus = document.getElementById("downloadStatus");
     this.downloadStatus.textContent =
       DownloadUtils.getTransferTotal(0, this.update.selectedPatch.size);
