@@ -2305,6 +2305,7 @@ function webViewerKeyDown(evt) {
           handled = true;
         }
         break;
+      case 13:
       case 40:
       case 34:
       case 32:
@@ -2349,6 +2350,7 @@ function webViewerKeyDown(evt) {
   }
   if (cmd === 4) {
     switch (evt.keyCode) {
+      case 13:
       case 32:
         if (!isViewerInPresentationMode && pdfViewer.currentScaleValue !== 'page-fit') {
           break;
@@ -4479,6 +4481,9 @@ class PDFHistory {
     }
     let destination = state.destination;
     this._updateInternalState(destination, state.uid, true);
+    if (this._uid > this._maxUid) {
+      this._maxUid = this._uid;
+    }
     if (destination.rotation !== undefined) {
       this.initialRotation = destination.rotation;
     }
@@ -4683,6 +4688,9 @@ class PDFHistory {
     }
     let destination = state.destination;
     this._updateInternalState(destination, state.uid, true);
+    if (this._uid > this._maxUid) {
+      this._maxUid = this._uid;
+    }
     if ((0, _ui_utils.isValidRotation)(destination.rotation)) {
       this.linkService.rotation = destination.rotation;
     }
@@ -4702,7 +4710,7 @@ class PDFHistory {
     _boundEvents.updateViewarea = this._updateViewarea.bind(this);
     _boundEvents.popState = this._popState.bind(this);
     _boundEvents.pageHide = evt => {
-      if (!this._destination) {
+      if (!this._destination || this._destination.temporary) {
         this._tryPushCurrentPosition();
       }
     };

@@ -68,8 +68,12 @@ async function initProfileStorage(fileName, records, collectionName = "addresses
     return profileStorage;
   }
 
-  let onChanged = TestUtils.topicObserved("formautofill-storage-changed",
-                                          (subject, data) => data == "add");
+  let onChanged = TestUtils.topicObserved(
+    "formautofill-storage-changed",
+    (subject, data) =>
+      data == "add" &&
+      subject.wrappedJSObject.collectionName == collectionName
+  );
   for (let record of records) {
     Assert.ok(profileStorage[collectionName].add(record));
     await onChanged;
@@ -118,7 +122,10 @@ function runHeuristicsTest(patterns, fixturePathPrefix) {
 
       forms.forEach((form, formIndex) => {
         let sections = FormAutofillHeuristics.getFormInfo(form);
-        verifySectionFieldDetails(sections, testPattern.expectedResult[formIndex]);
+        verifySectionFieldDetails(
+          sections.map(section => section.fieldDetails),
+          testPattern.expectedResult[formIndex],
+        );
       });
     });
   });

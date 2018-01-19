@@ -378,6 +378,11 @@ test_description_schema = Schema({
     # the product name, defaults to firefox
     Optional('product'): basestring,
 
+    # conditional files to determine when these tests should be run
+    Optional('when'): Any({
+        Optional('files-changed'): [basestring],
+    }),
+
     Optional('worker-type'): optionally_keyed_by(
         'test-platform',
         Any(basestring, None),
@@ -976,6 +981,7 @@ def make_job_description(config, tests):
         jobdesc['description'] = test['description']
         jobdesc['attributes'] = attributes
         jobdesc['dependencies'] = {'build': build_label}
+        jobdesc['job-from'] = test['job-from']
 
         if test['mozharness']['requires-signed-builds'] is True:
             jobdesc['dependencies']['build-signing'] = test['build-signing-label']
@@ -1011,7 +1017,9 @@ def make_job_description(config, tests):
         else:
             schedules = [suite, platform_family(test['build-platform'])]
 
-        if config.params['project'] != 'try':
+        if test.get('when'):
+            jobdesc['when'] = test['when']
+        elif config.params['project'] != 'try':
             # for non-try branches, include SETA
             jobdesc['optimization'] = {'skip-unless-schedules-or-seta': schedules}
         else:

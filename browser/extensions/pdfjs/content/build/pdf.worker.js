@@ -105,7 +105,7 @@ return /******/ (function(modules) { // webpackBootstrap
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.unreachable = exports.warn = exports.utf8StringToString = exports.stringToUTF8String = exports.stringToPDFString = exports.stringToBytes = exports.string32 = exports.shadow = exports.setVerbosityLevel = exports.ReadableStream = exports.removeNullCharacters = exports.readUint32 = exports.readUint16 = exports.readInt8 = exports.log2 = exports.loadJpegStream = exports.isEvalSupported = exports.isLittleEndian = exports.createValidAbsoluteUrl = exports.isSameOrigin = exports.isNodeJS = exports.isSpace = exports.isString = exports.isNum = exports.isEmptyObj = exports.isBool = exports.isArrayBuffer = exports.info = exports.getVerbosityLevel = exports.getLookupTableFactory = exports.deprecated = exports.createObjectURL = exports.createPromiseCapability = exports.createBlob = exports.bytesToString = exports.assert = exports.arraysToBytes = exports.arrayByteLength = exports.FormatError = exports.XRefParseException = exports.Util = exports.UnknownErrorException = exports.UnexpectedResponseException = exports.TextRenderingMode = exports.StreamType = exports.PasswordResponses = exports.PasswordException = exports.PageViewport = exports.NotImplementedException = exports.NativeImageDecoding = exports.MissingPDFException = exports.MissingDataException = exports.MessageHandler = exports.InvalidPDFException = exports.AbortException = exports.CMapCompressionType = exports.ImageKind = exports.FontType = exports.AnnotationType = exports.AnnotationFlag = exports.AnnotationFieldFlag = exports.AnnotationBorderStyleType = exports.UNSUPPORTED_FEATURES = exports.VERBOSITY_LEVELS = exports.OPS = exports.IDENTITY_MATRIX = exports.FONT_IDENTITY_MATRIX = undefined;
+exports.unreachable = exports.warn = exports.utf8StringToString = exports.stringToUTF8String = exports.stringToPDFString = exports.stringToBytes = exports.string32 = exports.shadow = exports.setVerbosityLevel = exports.ReadableStream = exports.removeNullCharacters = exports.readUint32 = exports.readUint16 = exports.readInt8 = exports.log2 = exports.loadJpegStream = exports.isEvalSupported = exports.isLittleEndian = exports.createValidAbsoluteUrl = exports.isSameOrigin = exports.isSpace = exports.isString = exports.isNum = exports.isEmptyObj = exports.isBool = exports.isArrayBuffer = exports.info = exports.getVerbosityLevel = exports.getLookupTableFactory = exports.deprecated = exports.createObjectURL = exports.createPromiseCapability = exports.createBlob = exports.bytesToString = exports.assert = exports.arraysToBytes = exports.arrayByteLength = exports.FormatError = exports.XRefParseException = exports.Util = exports.UnknownErrorException = exports.UnexpectedResponseException = exports.TextRenderingMode = exports.StreamType = exports.PasswordResponses = exports.PasswordException = exports.PageViewport = exports.NotImplementedException = exports.NativeImageDecoding = exports.MissingPDFException = exports.MissingDataException = exports.MessageHandler = exports.InvalidPDFException = exports.AbortException = exports.CMapCompressionType = exports.ImageKind = exports.FontType = exports.AnnotationType = exports.AnnotationFlag = exports.AnnotationFieldFlag = exports.AnnotationBorderStyleType = exports.UNSUPPORTED_FEATURES = exports.VERBOSITY_LEVELS = exports.OPS = exports.IDENTITY_MATRIX = exports.FONT_IDENTITY_MATRIX = undefined;
 
 __w_pdfjs_require__(20);
 
@@ -897,9 +897,6 @@ function isArrayBuffer(v) {
 function isSpace(ch) {
   return ch === 0x20 || ch === 0x09 || ch === 0x0D || ch === 0x0A;
 }
-function isNodeJS() {
-  return typeof process === 'object' && process + '' === '[object process]';
-}
 function createPromiseCapability() {
   var capability = {};
   capability.promise = new Promise(function (resolve, reject) {
@@ -1370,7 +1367,6 @@ exports.isEmptyObj = isEmptyObj;
 exports.isNum = isNum;
 exports.isString = isString;
 exports.isSpace = isSpace;
-exports.isNodeJS = isNodeJS;
 exports.isSameOrigin = isSameOrigin;
 exports.createValidAbsoluteUrl = createValidAbsoluteUrl;
 exports.isLittleEndian = isLittleEndian;
@@ -2805,16 +2801,7 @@ var ColorSpace = function ColorSpaceClosure() {
         throw new _util.FormatError(`Unknown colorspace name: ${name}`);
     }
   };
-  ColorSpace.parseToIR = function (cs, xref, res, pdfFunctionFactory) {
-    if ((0, _primitives.isName)(cs)) {
-      var colorSpaces = res.get('ColorSpace');
-      if ((0, _primitives.isDict)(colorSpaces)) {
-        var refcs = colorSpaces.get(cs.name);
-        if (refcs) {
-          cs = refcs;
-        }
-      }
-    }
+  ColorSpace.parseToIR = function (cs, xref, res = null, pdfFunctionFactory) {
     cs = xref.fetchIfRef(cs);
     if ((0, _primitives.isName)(cs)) {
       switch (cs.name) {
@@ -2830,6 +2817,19 @@ var ColorSpace = function ColorSpaceClosure() {
         case 'Pattern':
           return ['PatternCS', null];
         default:
+          if ((0, _primitives.isDict)(res)) {
+            let colorSpaces = res.get('ColorSpace');
+            if ((0, _primitives.isDict)(colorSpaces)) {
+              let resCS = colorSpaces.get(cs.name);
+              if (resCS) {
+                if ((0, _primitives.isName)(resCS)) {
+                  return ColorSpace.parseToIR(resCS, xref, res, pdfFunctionFactory);
+                }
+                cs = resCS;
+                break;
+              }
+            }
+          }
           throw new _util.FormatError(`unrecognized colorspace ${cs.name}`);
       }
     }
@@ -20784,8 +20784,8 @@ exports.PostScriptCompiler = PostScriptCompiler;
 "use strict";
 
 
-var pdfjsVersion = '2.0.250';
-var pdfjsBuild = '6b2ed504';
+var pdfjsVersion = '2.0.274';
+var pdfjsBuild = 'f774abc8';
 var pdfjsCoreWorker = __w_pdfjs_require__(19);
 exports.WorkerMessageHandler = pdfjsCoreWorker.WorkerMessageHandler;
 
@@ -20805,7 +20805,13 @@ var _util = __w_pdfjs_require__(0);
 
 var _pdf_manager = __w_pdfjs_require__(23);
 
+var _is_node = __w_pdfjs_require__(44);
+
+var _is_node2 = _interopRequireDefault(_is_node);
+
 var _primitives = __w_pdfjs_require__(1);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 var WorkerTask = function WorkerTaskClosure() {
   function WorkerTask(name) {
@@ -20980,7 +20986,7 @@ var WorkerMessageHandler = {
     var cancelXHRs = null;
     var WorkerTasks = [];
     let apiVersion = docParams.apiVersion;
-    let workerVersion = '2.0.250';
+    let workerVersion = '2.0.274';
     if (apiVersion !== null && apiVersion !== workerVersion) {
       throw new Error(`The API version "${apiVersion}" does not match ` + `the Worker version "${workerVersion}".`);
     }
@@ -21357,7 +21363,7 @@ var WorkerMessageHandler = {
 function isMessagePort(maybePort) {
   return typeof maybePort.postMessage === 'function' && 'onmessage' in maybePort;
 }
-if (typeof window === 'undefined' && !(0, _util.isNodeJS)() && typeof self !== 'undefined' && isMessagePort(self)) {
+if (typeof window === 'undefined' && !(0, _is_node2.default)() && typeof self !== 'undefined' && isMessagePort(self)) {
   WorkerMessageHandler.initializeFromPort(self);
 }
 exports.WorkerTask = WorkerTask;
@@ -29023,6 +29029,7 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
           xref: this.xref,
           res: resources,
           image,
+          isInline: inline,
           pdfFunctionFactory: this.pdfFunctionFactory
         });
         imgData = imageObj.createImageData(true);
@@ -29059,6 +29066,7 @@ var PartialEvaluator = function PartialEvaluatorClosure() {
         xref: this.xref,
         res: resources,
         image,
+        isInline: inline,
         nativeDecoder: nativeImageDecoder,
         pdfFunctionFactory: this.pdfFunctionFactory
       }).then(imageObj => {
@@ -32533,6 +32541,10 @@ var Font = function FontClosure() {
     var header = file.peekBytes(4);
     return (0, _util.readUint32)(header, 0) === 0x00010000;
   }
+  function isTrueTypeCollectionFile(file) {
+    let header = file.peekBytes(4);
+    return (0, _util.bytesToString)(header) === 'ttcf';
+  }
   function isOpenTypeFile(file) {
     var header = file.peekBytes(4);
     return (0, _util.bytesToString)(header) === 'OTTO';
@@ -32941,6 +32953,29 @@ var Font = function FontClosure() {
       this.fontType = getFontType(type, subtype);
     },
     checkAndRepair: function Font_checkAndRepair(name, font, properties) {
+      const VALID_TABLES = ['OS/2', 'cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'post', 'loca', 'glyf', 'fpgm', 'prep', 'cvt ', 'CFF '];
+      function readTables(file, numTables) {
+        let tables = Object.create(null);
+        tables['OS/2'] = null;
+        tables['cmap'] = null;
+        tables['head'] = null;
+        tables['hhea'] = null;
+        tables['hmtx'] = null;
+        tables['maxp'] = null;
+        tables['name'] = null;
+        tables['post'] = null;
+        for (let i = 0; i < numTables; i++) {
+          let table = readTableEntry(font);
+          if (VALID_TABLES.indexOf(table.tag) < 0) {
+            continue;
+          }
+          if (table.length === 0) {
+            continue;
+          }
+          tables[table.tag] = table;
+        }
+        return tables;
+      }
       function readTableEntry(file) {
         var tag = (0, _util.bytesToString)(file.getBytes(4));
         var checksum = file.getInt32() >>> 0;
@@ -32971,6 +33006,58 @@ var Font = function FontClosure() {
           entrySelector: ttf.getUint16(),
           rangeShift: ttf.getUint16()
         };
+      }
+      function readTrueTypeCollectionHeader(ttc) {
+        let ttcTag = (0, _util.bytesToString)(ttc.getBytes(4));
+        (0, _util.assert)(ttcTag === 'ttcf', 'Must be a TrueType Collection font.');
+        let majorVersion = ttc.getUint16();
+        let minorVersion = ttc.getUint16();
+        let numFonts = ttc.getInt32() >>> 0;
+        let offsetTable = [];
+        for (let i = 0; i < numFonts; i++) {
+          offsetTable.push(ttc.getInt32() >>> 0);
+        }
+        let header = {
+          ttcTag,
+          majorVersion,
+          minorVersion,
+          numFonts,
+          offsetTable
+        };
+        switch (majorVersion) {
+          case 1:
+            return header;
+          case 2:
+            header.dsigTag = ttc.getInt32() >>> 0;
+            header.dsigLength = ttc.getInt32() >>> 0;
+            header.dsigOffset = ttc.getInt32() >>> 0;
+            return header;
+        }
+        throw new _util.FormatError(`Invalid TrueType Collection majorVersion: ${majorVersion}.`);
+      }
+      function readTrueTypeCollectionData(ttc, fontName) {
+        let { numFonts, offsetTable } = readTrueTypeCollectionHeader(ttc);
+        for (let i = 0; i < numFonts; i++) {
+          ttc.pos = (ttc.start || 0) + offsetTable[i];
+          let potentialHeader = readOpenTypeHeader(ttc);
+          let potentialTables = readTables(ttc, potentialHeader.numTables);
+          if (!potentialTables['name']) {
+            throw new _util.FormatError('TrueType Collection font must contain a "name" table.');
+          }
+          let nameTable = readNameTable(potentialTables['name']);
+          for (let j = 0, jj = nameTable.length; j < jj; j++) {
+            for (let k = 0, kk = nameTable[j].length; k < kk; k++) {
+              let nameEntry = nameTable[j][k];
+              if (nameEntry && nameEntry.replace(/\s/g, '') === fontName) {
+                return {
+                  header: potentialHeader,
+                  tables: potentialTables
+                };
+              }
+            }
+          }
+        }
+        throw new _util.FormatError(`TrueType Collection does not contain "${fontName}" font.`);
       }
       function readCmapTable(cmap, font, isSymbolicFont, hasEncoding) {
         if (!cmap) {
@@ -33687,30 +33774,16 @@ var Font = function FontClosure() {
         return ttContext.hintsValid;
       }
       font = new _stream.Stream(new Uint8Array(font.getBytes()));
-      var VALID_TABLES = ['OS/2', 'cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'post', 'loca', 'glyf', 'fpgm', 'prep', 'cvt ', 'CFF '];
-      var header = readOpenTypeHeader(font);
-      var numTables = header.numTables;
-      var cff, cffFile;
-      var tables = Object.create(null);
-      tables['OS/2'] = null;
-      tables['cmap'] = null;
-      tables['head'] = null;
-      tables['hhea'] = null;
-      tables['hmtx'] = null;
-      tables['maxp'] = null;
-      tables['name'] = null;
-      tables['post'] = null;
-      var table;
-      for (var i = 0; i < numTables; i++) {
-        table = readTableEntry(font);
-        if (VALID_TABLES.indexOf(table.tag) < 0) {
-          continue;
-        }
-        if (table.length === 0) {
-          continue;
-        }
-        tables[table.tag] = table;
+      let header, tables;
+      if (isTrueTypeCollectionFile(font)) {
+        let ttcData = readTrueTypeCollectionData(font, this.name);
+        header = ttcData.header;
+        tables = ttcData.tables;
+      } else {
+        header = readOpenTypeHeader(font);
+        tables = readTables(font, header.numTables);
       }
+      let cff, cffFile;
       var isTrueType = !tables['CFF '];
       if (!isTrueType) {
         if (header.version === 'OTTO' && !(properties.composite && properties.cidToGidMap) || !tables['head'] || !tables['hhea'] || !tables['maxp'] || !tables['post']) {
@@ -33865,7 +33938,7 @@ var Font = function FontClosure() {
               unicodeOrCharCode = _encodings.MacRomanEncoding.indexOf(standardGlyphName);
             }
             var found = false;
-            for (i = 0; i < cmapMappingsLength; ++i) {
+            for (let i = 0; i < cmapMappingsLength; ++i) {
               if (cmapMappings[i].charCode !== unicodeOrCharCode) {
                 continue;
               }
@@ -33884,11 +33957,11 @@ var Font = function FontClosure() {
             }
           }
         } else if (cmapPlatformId === 0 && cmapEncodingId === 0) {
-          for (i = 0; i < cmapMappingsLength; ++i) {
+          for (let i = 0; i < cmapMappingsLength; ++i) {
             charCodeToGlyphId[cmapMappings[i].charCode] = cmapMappings[i].glyphId;
           }
         } else {
-          for (i = 0; i < cmapMappingsLength; ++i) {
+          for (let i = 0; i < cmapMappingsLength; ++i) {
             charCode = cmapMappings[i].charCode;
             if (cmapPlatformId === 3 && charCode >= 0xF000 && charCode <= 0xF0FF) {
               charCode &= 0xFF;
@@ -40240,7 +40313,7 @@ var PDFImage = function PDFImageClosure() {
     }
     return dest;
   }
-  function PDFImage({ xref, res, image, smask = null, mask = null, isMask = false, pdfFunctionFactory }) {
+  function PDFImage({ xref, res, image, isInline = false, smask = null, mask = null, isMask = false, pdfFunctionFactory }) {
     this.image = image;
     var dict = image.dict;
     if (dict.has('Filter')) {
@@ -40294,7 +40367,8 @@ var PDFImage = function PDFImageClosure() {
             throw new Error(`JPX images with ${this.numComps} ` + 'color components not supported.');
         }
       }
-      this.colorSpace = _colorspace.ColorSpace.parse(colorSpace, xref, res, pdfFunctionFactory);
+      let resources = isInline ? res : null;
+      this.colorSpace = _colorspace.ColorSpace.parse(colorSpace, xref, resources, pdfFunctionFactory);
       this.numComps = this.colorSpace.numComps;
     }
     this.decode = dict.getArray('Decode', 'D');
@@ -40316,6 +40390,7 @@ var PDFImage = function PDFImageClosure() {
         xref,
         res,
         image: smask,
+        isInline,
         pdfFunctionFactory
       });
     } else if (mask) {
@@ -40329,6 +40404,7 @@ var PDFImage = function PDFImageClosure() {
             xref,
             res,
             image: mask,
+            isInline,
             isMask: true,
             pdfFunctionFactory
           });
@@ -40338,7 +40414,7 @@ var PDFImage = function PDFImageClosure() {
       }
     }
   }
-  PDFImage.buildImage = function ({ handler, xref, res, image, nativeDecoder = null, pdfFunctionFactory }) {
+  PDFImage.buildImage = function ({ handler, xref, res, image, isInline = false, nativeDecoder = null, pdfFunctionFactory }) {
     var imagePromise = handleImageData(image, nativeDecoder);
     var smaskPromise;
     var maskPromise;
@@ -40367,6 +40443,7 @@ var PDFImage = function PDFImageClosure() {
         xref,
         res,
         image: imageData,
+        isInline,
         smask: smaskData,
         mask: maskData,
         pdfFunctionFactory
@@ -40697,6 +40774,17 @@ var PDFImage = function PDFImageClosure() {
   return PDFImage;
 }();
 exports.PDFImage = PDFImage;
+
+/***/ }),
+/* 44 */
+/***/ (function(module, exports, __w_pdfjs_require__) {
+
+"use strict";
+
+
+module.exports = function isNodeJS() {
+  return typeof process === 'object' && process + '' === '[object process]';
+};
 
 /***/ })
 /******/ ]);

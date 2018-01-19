@@ -410,6 +410,7 @@ public:
     // Calculate the position to seek to when exiting dormant.
     auto t = mMaster->mMediaSink->IsStarted()
       ? mMaster->GetClock() : mMaster->GetMediaTime();
+    Reader()->AdjustByLooping(t);
     mPendingSeek.mTarget.emplace(t, SeekTarget::Accurate);
     // SeekJob asserts |mTarget.IsValid() == !mPromise.IsEmpty()| so we
     // need to create the promise even it is not used at all.
@@ -2688,7 +2689,7 @@ MediaDecoderStateMachine::MediaDecoderStateMachine(MediaDecoder* aDecoder,
     "MDSM::mTaskQueue", /* aSupportsTailDispatch = */ true)),
   mWatchManager(this, mTaskQueue),
   mDispatchedStateMachine(false),
-  mDelayedScheduler(mTaskQueue),
+  mDelayedScheduler(mTaskQueue, true /*aFuzzy*/),
   mCurrentFrameID(0),
   mReader(new ReaderProxy(mTaskQueue, aReader)),
   mPlaybackRate(1.0),
@@ -3910,7 +3911,7 @@ public:
 
   MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf);
 
-  virtual void operator()(void* aObject)
+  virtual void operator()(void* aObject) override
   {
     const VideoData* v = static_cast<const VideoData*>(aObject);
     mSize += v->SizeOfIncludingThis(MallocSizeOf);
@@ -3929,7 +3930,7 @@ public:
 
   MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf);
 
-  virtual void operator()(void* aObject)
+  virtual void operator()(void* aObject) override
   {
     const AudioData* audioData = static_cast<const AudioData*>(aObject);
     mSize += audioData->SizeOfIncludingThis(MallocSizeOf);

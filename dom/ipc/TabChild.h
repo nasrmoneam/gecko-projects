@@ -43,7 +43,6 @@
 #include "mozilla/layers/GeckoContentController.h"
 #include "nsDeque.h"
 #include "nsISHistoryListener.h"
-#include "nsIPartialSHistoryListener.h"
 
 class nsIDOMWindowUtils;
 class nsIHttpChannel;
@@ -183,29 +182,6 @@ public:
   NS_DECL_NSIDOMEVENTLISTENER
 protected:
   ~ContentListener() {}
-  TabChild* mTabChild;
-};
-
-/**
- * Listens on session history change, and sends NotifySessionHistoryChange to
- * parent process.
- */
-class TabChildSHistoryListener final : public nsISHistoryListener,
-                                       public nsIPartialSHistoryListener,
-                                       public nsSupportsWeakReference
-{
-public:
-  explicit TabChildSHistoryListener(TabChild* aTabChild) : mTabChild(aTabChild) {}
-  void ClearTabChild() { mTabChild = nullptr; }
-
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSISHISTORYLISTENER
-  NS_DECL_NSIPARTIALSHISTORYLISTENER
-
-private:
-  nsresult SHistoryDidUpdate(bool aTruncate = false);
-
-  ~TabChildSHistoryListener() {}
   TabChild* mTabChild;
 };
 
@@ -739,8 +715,6 @@ public:
   bool StopAwaitingLargeAlloc();
   bool IsAwaitingLargeAlloc();
 
-  already_AddRefed<nsISHistory> GetRelatedSHistory();
-
   mozilla::dom::TabGroup* TabGroup();
 
 #if defined(ACCESSIBILITY)
@@ -818,13 +792,6 @@ protected:
                                                             const UIStateChangeType& aShowFocusRings) override;
 
   virtual mozilla::ipc::IPCResult RecvStopIMEStateManagement() override;
-
-  virtual mozilla::ipc::IPCResult RecvNotifyAttachGroupedSHistory(const uint32_t& aOffset) override;
-
-  virtual mozilla::ipc::IPCResult RecvNotifyPartialSHistoryActive(const uint32_t& aGlobalLength,
-                                                                  const uint32_t& aTargetLocalIndex) override;
-
-  virtual mozilla::ipc::IPCResult RecvNotifyPartialSHistoryDeactive() override;
 
   virtual mozilla::ipc::IPCResult RecvAwaitLargeAlloc() override;
 
@@ -907,7 +874,6 @@ private:
   nsCOMPtr<nsIURI> mLastURI;
   RenderFrameChild* mRemoteFrame;
   RefPtr<nsIContentChild> mManager;
-  RefPtr<TabChildSHistoryListener> mHistoryListener;
   uint32_t mChromeFlags;
   uint32_t mMaxTouchPoints;
   int32_t mActiveSuppressDisplayport;
@@ -983,8 +949,20 @@ private:
 #endif
   bool mCoalesceMouseMoveEvents;
 
+  // In some circumstances, a DocShell might be in a state where it is
+  // "blocked", and we should not attempt to change its active state or
+  // the underlying PresShell state until the DocShell becomes unblocked.
+  // It is possible, however, for the parent process to send commands to
+  // change those states while the DocShell is blocked. We store those
+  // states temporarily as "pending", and only apply them once the DocShell
+  // is no longer blocked.
   bool mPendingDocShellIsActive;
   bool mPendingDocShellReceivedMessage;
+  bool mPendingRenderLayers;
+  bool mPendingRenderLayersReceivedMessage;
+  uint64_t mPendingLayerObserverEpoch;
+  // When mPendingDocShellBlockers is greater than 0, the DocShell is blocked,
+  // and once it reaches 0, it is no longer blocked.
   uint32_t mPendingDocShellBlockers;
 
   WindowsHandle mWidgetNativeData;

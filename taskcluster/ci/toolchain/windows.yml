@@ -68,6 +68,9 @@ win32-clang-tidy:
             - 'build/build-clang/clang-tidy-win32.json'
             - 'taskcluster/scripts/misc/build-clang-windows-helper32.sh'
         toolchain-artifact: public/build/clang-tidy.tar.bz2
+    run-on-projects:
+        - trunk
+        - try
 
 win64-clang-tidy:
     description: "Clang-tidy toolchain build"
@@ -103,7 +106,7 @@ win64-rust-1.22:
         tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
-        docker-image: {in-tree: desktop-build}
+        docker-image: {in-tree: toolchain-build}
         max-run-time: 7200
         env:
             UPLOAD_DIR: artifacts
@@ -128,7 +131,7 @@ win64-rust-1.19:
         tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
-        docker-image: {in-tree: desktop-build}
+        docker-image: {in-tree: toolchain-build}
         max-run-time: 7200
         env:
             UPLOAD_DIR: artifacts
@@ -151,7 +154,7 @@ win32-rust-1.23.0-beta.2:
         tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
-        docker-image: {in-tree: desktop-build}
+        docker-image: {in-tree: toolchain-build}
         max-run-time: 7200
         env:
             UPLOAD_DIR: artifacts
@@ -175,7 +178,7 @@ mingw32-rust-1.22:
         tier: 1
     worker-type: aws-provisioner-v1/gecko-{level}-b-linux
     worker:
-        docker-image: {in-tree: desktop-build}
+        docker-image: {in-tree: toolchain-build}
         max-run-time: 7200
         env:
             UPLOAD_DIR: artifacts
@@ -232,3 +235,6 @@ win32-gn:
             - 'taskcluster/scripts/misc/tooltool-download.sh'
             - 'taskcluster/scripts/misc/build-gn-common.sh'
         toolchain-artifact: public/build/gn.tar.bz2
+    run-on-projects:
+        - trunk
+        - try

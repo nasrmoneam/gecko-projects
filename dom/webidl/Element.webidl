@@ -103,7 +103,7 @@ interface Element : Node {
   boolean mozMatchesSelector(DOMString selector);
 
   // Pointer events methods.
-  [Throws, Pref="dom.w3c_pointer_events.enabled", UnsafeInPrerendering]
+  [Throws, Pref="dom.w3c_pointer_events.enabled"]
   void setPointerCapture(long pointerId);
 
   [Throws, Pref="dom.w3c_pointer_events.enabled"]
@@ -254,17 +254,17 @@ dictionary ShadowRootInit {
 // https://dom.spec.whatwg.org/#element
 partial interface Element {
   // Shadow DOM v1
-  [Throws, Func="nsDocument::IsWebComponentsEnabled"]
+  [Throws, Func="nsDocument::IsShadowDOMEnabled"]
   ShadowRoot attachShadow(ShadowRootInit shadowRootInitDict);
-  [BinaryName="shadowRootByMode", Func="nsDocument::IsWebComponentsEnabled"]
+  [BinaryName="shadowRootByMode", Func="nsDocument::IsShadowDOMEnabled"]
   readonly attribute ShadowRoot? shadowRoot;
-  [BinaryName="assignedSlotByMode", Func="nsDocument::IsWebComponentsEnabled"]
+  [BinaryName="assignedSlotByMode", Func="nsDocument::IsShadowDOMEnabled"]
   readonly attribute HTMLSlotElement? assignedSlot;
-  [CEReactions, Unscopable, SetterThrows, Func="nsDocument::IsWebComponentsEnabled"]
+  [CEReactions, Unscopable, SetterThrows, Func="nsDocument::IsShadowDOMEnabled"]
            attribute DOMString slot;
 
   // [deprecated] Shadow DOM v0
-  [Throws, Func="nsDocument::IsWebComponentsEnabled"]
+  [Throws, Func="nsDocument::IsShadowDOMEnabled"]
   ShadowRoot createShadowRoot();
 };
 
@@ -276,14 +276,14 @@ Element implements GeometryUtils;
 
 // https://fullscreen.spec.whatwg.org/#api
 partial interface Element {
-  [Throws, UnsafeInPrerendering, Func="nsDocument::IsUnprefixedFullscreenEnabled", NeedsCallerType]
+  [Throws, Func="nsDocument::IsUnprefixedFullscreenEnabled", NeedsCallerType]
   void requestFullscreen();
-  [Throws, UnsafeInPrerendering, BinaryName="requestFullscreen", NeedsCallerType]
+  [Throws, BinaryName="requestFullscreen", NeedsCallerType]
   void mozRequestFullScreen();
 };
 
 // https://w3c.github.io/pointerlock/#extensions-to-the-element-interface
 partial interface Element {
-  [UnsafeInPrerendering, NeedsCallerType]
+  [NeedsCallerType]
   void requestPointerLock();
 };

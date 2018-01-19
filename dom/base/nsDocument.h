@@ -423,7 +423,7 @@ public:
   already_AddRefed<nsIPresShell> CreateShell(nsPresContext* aContext,
                                              nsViewManager* aViewManager,
                                              mozilla::StyleSetHandle aStyleSet)
-    final;
+    final override;
   virtual void DeleteShell() override;
 
   virtual bool GetAllowPlugins() override;
@@ -560,6 +560,7 @@ public:
   virtual nsresult InsertChildAt(nsIContent* aKid, uint32_t aIndex,
                                  bool aNotify) override;
   virtual void RemoveChildAt_Deprecated(uint32_t aIndex, bool aNotify) override;
+  virtual void RemoveChildNode(nsIContent* aKid, bool aNotify) override;
   virtual nsresult Clone(mozilla::dom::NodeInfo *aNodeInfo, nsINode **aResult,
                          bool aPreallocateChildren) const override
   {
@@ -625,11 +626,10 @@ public:
   virtual void ResolveScheduledSVGPresAttrs() override;
   bool IsSynthesized();
 
-  // Check whether web components are enabled for the global of aObject.
-  static bool IsWebComponentsEnabled(JSContext* aCx, JSObject* aObject);
-  // Check whether web components are enabled for the document this node belongs
-  // to.
-  static bool IsWebComponentsEnabled(const nsINode* aNode);
+  // Check whether shadow DOM is enabled for the global of aObject.
+  static bool IsShadowDOMEnabled(JSContext* aCx, JSObject* aObject);
+  // Check whether shadow DOM is enabled for the document this node belongs to.
+  static bool IsShadowDOMEnabled(const nsINode* aNode);
 private:
   void AddOnDemandBuiltInUASheet(mozilla::StyleSheet* aSheet);
   void SendToConsole(nsCOMArray<nsISecurityConsoleMessage>& aMessages);

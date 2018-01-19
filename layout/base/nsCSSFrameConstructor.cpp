@@ -107,7 +107,6 @@
 #include "nsTransitionManager.h"
 #include "DetailsFrame.h"
 #include "nsThemeConstants.h"
-#include "mozilla/Preferences.h"
 
 #ifdef MOZ_XUL
 #include "nsIRootBox.h"
@@ -135,7 +134,6 @@ using namespace mozilla::dom;
 
 // An alias for convenience.
 static const nsIFrame::ChildListID kPrincipalList = nsIFrame::kPrincipalList;
-static const char* kPrefSelectPopupInContent = "dom.select_popup_in_content.enabled";
 
 nsIFrame*
 NS_NewHTMLCanvasFrame (nsIPresShell* aPresShell, nsStyleContext* aContext);
@@ -1610,9 +1608,6 @@ nsCSSFrameConstructor::nsCSSFrameConstructor(nsIDocument* aDocument,
   , mFirstFreeFCItem(nullptr)
   , mFCItemsInUse(0)
   , mCurrentDepth(0)
-#ifdef DEBUG
-  , mUpdateCount(0)
-#endif
   , mQuotesDirty(false)
   , mCountersDirty(false)
   , mIsDestroyingFrameTree(false)
@@ -1673,9 +1668,6 @@ nsCSSFrameConstructor::nsCSSFrameConstructor(nsIDocument* aDocument,
 void
 nsCSSFrameConstructor::NotifyDestroyingFrame(nsIFrame* aFrame)
 {
-  NS_PRECONDITION(mUpdateCount != 0,
-                  "Should be in an update while destroying frames");
-
   if (aFrame->GetStateBits() & NS_FRAME_GENERATED_CONTENT) {
     if (mQuoteList.DestroyNodesFor(aFrame))
       QuotesDirty();
@@ -3236,7 +3228,7 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
     // Notify combobox that it should use the listbox as it's popup
     comboboxFrame->SetDropDown(listFrame);
 
-    if (!Preferences::GetBool(kPrefSelectPopupInContent)) {
+    if (!nsLayoutUtils::IsContentSelectEnabled()) {
       // TODO(kuoe0) Remove this assertion when content-select is shipped.
       NS_ASSERTION(!listFrame->IsAbsPosContainingBlock(),
                    "Ended up with positioned dropdown list somehow.");
@@ -3256,7 +3248,10 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
                           comboboxFrame, listStyle, true,
                           aItem.mPendingBinding, childItems);
 
-    NS_ASSERTION(listFrame->GetView(), "ListFrame's view is nullptr");
+    if (!nsLayoutUtils::IsContentSelectEnabled()) {
+      // TODO(kuoe0) Remove this assertion when content-select is shipped.
+      NS_ASSERTION(listFrame->GetView(), "ListFrame's view is nullptr");
+    }
 
     // Create display and button frames from the combobox's anonymous content.
     // The anonymous content is appended to existing anonymous content for this
@@ -3288,7 +3283,7 @@ nsCSSFrameConstructor::ConstructSelectFrame(nsFrameConstructorState& aState,
 
     comboboxFrame->SetInitialChildList(kPrincipalList, childItems);
 
-    if (!Preferences::GetBool(kPrefSelectPopupInContent)) {
+    if (!nsLayoutUtils::IsContentSelectEnabled()) {
       // Initialize the additional popup child list which contains the
       // dropdown list frame.
       nsFrameItems popupItems;
@@ -3347,7 +3342,7 @@ nsCSSFrameConstructor::InitializeSelectFrame(nsFrameConstructorState& aState,
 
   scrollFrame->Init(aContent, geometricParent, nullptr);
 
-  if (!aBuildCombobox || Preferences::GetBool(kPrefSelectPopupInContent)) {
+  if (!aBuildCombobox || nsLayoutUtils::IsContentSelectEnabled()) {
     aState.AddChild(scrollFrame, aFrameItems, aContent, aParentFrame);
   }
 
@@ -5173,7 +5168,6 @@ nsCSSFrameConstructor::InitAndRestoreFrame(const nsFrameConstructorState& aState
                                            nsIFrame*                aNewFrame,
                                            bool                     aAllowCounters)
 {
-  MOZ_ASSERT(mUpdateCount != 0, "Should be in an update while creating frames");
   MOZ_ASSERT(aNewFrame, "Null frame cannot be initialized");
 
   // Initialize the frame
@@ -6240,7 +6234,8 @@ nsCSSFrameConstructor::AddFrameConstructionItemsInternal(nsFrameConstructorState
     aFlags & ITEM_IS_ANONYMOUSCONTENTCREATOR_CONTENT;
   if (isGeneratedContent) {
     // We need to keep this alive until the frame takes ownership.
-    NS_ADDREF(item->mContent);
+    // This corresponds to the Release in ConstructFramesFromItem.
+    item->mContent->AddRef();
   }
   item->mIsRootPopupgroup =
     aNameSpaceID == kNameSpaceID_XUL && aTag == nsGkAtoms::popupgroup &&
@@ -7217,21 +7212,22 @@ nsCSSFrameConstructor::CheckBitsForLazyFrameConstruction(nsIContent* aParent)
 //
 // But we disable lazy frame construction for shadow trees... We should fix
 // that, too.
+//
+// NOTE(emilio): The IsXULElement check is pretty unfortunate, but there's tons
+// of browser chrome code that rely on XBL bindings getting synchronously loaded
+// as soon as the elements get inserted in the DOM.
 bool
 nsCSSFrameConstructor::MaybeConstructLazily(Operation aOperation,
                                             nsIContent* aContainer,
                                             nsIContent* aChild)
 {
-  if (mPresShell->GetPresContext()->IsChrome() || !aContainer ||
-      aContainer->IsInNativeAnonymousSubtree() || aContainer->IsXULElement()) {
+  if (!aContainer || aContainer->IsInNativeAnonymousSubtree() ||
+      aContainer->IsXULElement()) {
     return false;
   }
 
   if (aOperation == CONTENTINSERT) {
-    if (aChild->IsRootOfAnonymousSubtree() ||
-        (aChild->HasFlag(NODE_IS_IN_SHADOW_TREE) &&
-         !aChild->IsInNativeAnonymousSubtree()) ||
-        aChild->IsXULElement()) {
+    if (aChild->IsRootOfAnonymousSubtree() || aChild->IsXULElement()) {
       return false;
     }
   } else { // CONTENTAPPEND
@@ -7239,7 +7235,7 @@ nsCSSFrameConstructor::MaybeConstructLazily(Operation aOperation,
                  "operation should be either insert or append");
     for (nsIContent* child = aChild; child; child = child->GetNextSibling()) {
       NS_ASSERTION(!child->IsRootOfAnonymousSubtree(),
-                   "Should be coming through the CONTENTAPPEND case");
+                   "Should be coming through the CONTENTINSERT case");
       if (child->IsXULElement()) {
         return false;
       }
@@ -7383,12 +7379,10 @@ nsCSSFrameConstructor::CreateNeededFrames()
   NS_ASSERTION(!rootElement || !rootElement->HasFlag(NODE_NEEDS_FRAME),
     "root element should not have frame created lazily");
   if (rootElement && rootElement->HasFlag(NODE_DESCENDANTS_NEED_FRAMES)) {
-    BeginUpdate();
     TreeMatchContext treeMatchContext(
         mDocument, TreeMatchContext::ForFrameConstruction);
     treeMatchContext.InitAncestors(rootElement);
     CreateNeededFrames(rootElement, treeMatchContext);
-    EndUpdate();
   }
 }
 
@@ -7553,7 +7547,6 @@ nsCSSFrameConstructor::ContentAppended(nsIContent* aContainer,
              !RestyleManager()->IsInStyleRefresh());
 
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
-  MOZ_ASSERT(mUpdateCount != 0, "Should be in an update while creating frames");
 
 #ifdef DEBUG
   if (gNoisyContentUpdates) {
@@ -7955,7 +7948,6 @@ nsCSSFrameConstructor::ContentRangeInserted(nsIContent* aContainer,
              !RestyleManager()->IsInStyleRefresh());
 
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
-  MOZ_ASSERT(mUpdateCount != 0, "Should be in an update while creating frames");
 
   NS_PRECONDITION(aStartChild, "must always pass a child");
 
@@ -8454,8 +8446,6 @@ nsCSSFrameConstructor::ContentRemoved(nsIContent* aContainer,
 {
   MOZ_ASSERT(aChild);
   AUTO_LAYOUT_PHASE_ENTRY_POINT(mPresShell->GetPresContext(), FrameC);
-  NS_PRECONDITION(mUpdateCount != 0,
-                  "Should be in an update while destroying frames");
   nsPresContext* presContext = mPresShell->GetPresContext();
   MOZ_ASSERT(presContext, "Our presShell should have a valid presContext");
 
@@ -8909,31 +8899,6 @@ nsCSSFrameConstructor::CharacterDataChanged(nsIContent* aContent,
 }
 
 void
-nsCSSFrameConstructor::BeginUpdate() {
-  NS_ASSERTION(!nsContentUtils::IsSafeToRunScript(),
-               "Someone forgot a script blocker");
-
-  nsRootPresContext* rootPresContext =
-    mPresShell->GetPresContext()->GetRootPresContext();
-  if (rootPresContext) {
-    rootPresContext->IncrementDOMGeneration();
-  }
-
-#ifdef DEBUG
-  ++mUpdateCount;
-#endif
-}
-
-void
-nsCSSFrameConstructor::EndUpdate()
-{
-#ifdef DEBUG
-  NS_ASSERTION(mUpdateCount, "Negative mUpdateCount!");
-  --mUpdateCount;
-#endif
-}
-
-void
 nsCSSFrameConstructor::RecalcQuotesAndCounters()
 {
   nsAutoScriptBlocker scriptBlocker;
@@ -8955,7 +8920,6 @@ nsCSSFrameConstructor::RecalcQuotesAndCounters()
 void
 nsCSSFrameConstructor::NotifyCounterStylesAreDirty()
 {
-  NS_PRECONDITION(mUpdateCount != 0, "Should be in an update");
   mCounterManager.SetAllDirty();
   CountersDirty();
 }
@@ -11978,8 +11942,6 @@ nsCSSFrameConstructor::CreateListBoxContent(nsContainerFrame*      aParentFrame,
       return;
     }
 
-    BeginUpdate();
-
     AutoFrameConstructionItemList items(this);
     AddFrameConstructionItemsInternal(state, aChild, aParentFrame,
                                       aChild->NodeInfo()->NameAtom(),
@@ -12000,8 +11962,6 @@ nsCSSFrameConstructor::CreateListBoxContent(nsContainerFrame*      aParentFrame,
       else
         ((nsListBoxBodyFrame*)aParentFrame)->ListBoxInsertFrames(aPrevFrame, frameItems);
     }
-
-    EndUpdate();
 
 #ifdef ACCESSIBILITY
     if (newFrame) {
@@ -12834,8 +12794,6 @@ nsCSSFrameConstructor::GenerateChildFrames(nsContainerFrame* aFrame)
 {
   {
     nsAutoScriptBlocker scriptBlocker;
-    BeginUpdate();
-
     nsFrameItems childItems;
     TreeMatchContextHolder matchContext(mDocument);
     nsFrameConstructorState state(mPresShell, matchContext, nullptr, nullptr, nullptr);
@@ -12847,8 +12805,6 @@ nsCSSFrameConstructor::GenerateChildFrames(nsContainerFrame* aFrame)
                     nullptr);
 
     aFrame->SetInitialChildList(kPrincipalList, childItems);
-
-    EndUpdate();
   }
 
 #ifdef ACCESSIBILITY
@@ -13123,7 +13079,6 @@ Iterator::DeleteItemsTo(nsCSSFrameConstructor* aFCtor, const Iterator& aEnd)
 void
 nsCSSFrameConstructor::QuotesDirty()
 {
-  NS_PRECONDITION(mUpdateCount != 0, "Instant quote updates are bad news");
   mQuotesDirty = true;
   mPresShell->SetNeedLayoutFlush();
 }
@@ -13131,7 +13086,6 @@ nsCSSFrameConstructor::QuotesDirty()
 void
 nsCSSFrameConstructor::CountersDirty()
 {
-  NS_PRECONDITION(mUpdateCount != 0, "Instant counter updates are bad news");
   mCountersDirty = true;
   mPresShell->SetNeedLayoutFlush();
 }

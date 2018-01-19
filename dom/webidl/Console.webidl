@@ -78,6 +78,7 @@ dictionary ConsoleEvent {
   DOMString groupName = "";
   any timer = null;
   any counter = null;
+  DOMString prefix = "";
 };
 
 // Event for profile operations
@@ -185,4 +186,15 @@ dictionary ConsoleInstanceOptions {
   // will default to the value passed to this constructor (or "all" if it wasn't
   // specified).
   DOMString maxLogLevelPref = "";
+};
+
+enum ConsoleLevel { "log", "warning", "error" };
+
+// this interface is just for testing
+partial interface ConsoleInstance {
+  [ChromeOnly]
+  void reportForServiceWorkerScope(DOMString scope, DOMString message,
+                                   DOMString filename, unsigned long lineNumber,
+                                   unsigned long columnNumber,
+                                   ConsoleLevel level);
 };

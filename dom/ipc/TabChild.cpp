@@ -120,7 +120,6 @@
 #include "nsICommandParams.h"
 #include "nsISHistory.h"
 #include "nsQueryObject.h"
-#include "GroupedSHistory.h"
 #include "nsIHttpChannel.h"
 #include "mozilla/dom/DocGroup.h"
 #include "nsString.h"
@@ -158,10 +157,6 @@ using namespace mozilla::jsipc;
 using mozilla::layers::GeckoContentController;
 
 NS_IMPL_ISUPPORTS(ContentListener, nsIDOMEventListener)
-NS_IMPL_ISUPPORTS(TabChildSHistoryListener,
-                  nsISHistoryListener,
-                  nsIPartialSHistoryListener,
-                  nsISupportsWeakReference)
 
 static const char BEFORE_FIRST_PAINT[] = "before-first-paint";
 
@@ -437,6 +432,9 @@ TabChild::TabChild(nsIContentChild* aManager,
 #endif
   , mPendingDocShellIsActive(false)
   , mPendingDocShellReceivedMessage(false)
+  , mPendingRenderLayers(false)
+  , mPendingRenderLayersReceivedMessage(false)
+  , mPendingLayerObserverEpoch(0)
   , mPendingDocShellBlockers(0)
   , mWidgetNativeData(0)
 {
@@ -637,11 +635,6 @@ TabChild::Init()
     window->SetInitialKeyboardIndicators(ShowAccelerators(), ShowFocusRings());
   }
 
-  // Set prerender flag if necessary.
-  if (mIsPrerendered) {
-    docShell->SetIsPrerendered();
-  }
-
   nsContentUtils::SetScrollbarsVisibility(window->GetDocShell(),
     !!(mChromeFlags & nsIWebBrowserChrome::CHROME_SCROLLBARS));
 
@@ -658,20 +651,6 @@ TabChild::Init()
   mAPZEventState = new APZEventState(mPuppetWidget, Move(callback));
 
   mIPCOpen = true;
-
-  if (GroupedSHistory::GroupedHistoryEnabled()) {
-    // Set session history listener.
-    nsCOMPtr<nsISHistory> shistory = GetRelatedSHistory();
-    if (!shistory) {
-      return NS_ERROR_FAILURE;
-    }
-    mHistoryListener = new TabChildSHistoryListener(this);
-    nsCOMPtr<nsISHistoryListener> listener(do_QueryObject(mHistoryListener));
-    shistory->AddSHistoryListener(listener);
-    nsCOMPtr<nsIPartialSHistoryListener> partialListener(do_QueryObject(mHistoryListener));
-    shistory->SetPartialSHistoryListener(partialListener);
-  }
-
   return NS_OK;
 }
 
@@ -791,6 +770,8 @@ TabChild::RemoteSizeShellTo(int32_t aWidth, int32_t aHeight,
 {
   nsCOMPtr<nsIDocShell> ourDocShell = do_GetInterface(WebNavigation());
   nsCOMPtr<nsIBaseWindow> docShellAsWin(do_QueryInterface(ourDocShell));
+  NS_ENSURE_STATE(docShellAsWin);
+
   int32_t width, height;
   docShellAsWin->GetSize(&width, &height);
 
@@ -1163,10 +1144,6 @@ TabChild::~TabChild()
   nsCOMPtr<nsIWebBrowser> webBrowser = do_QueryInterface(WebNavigation());
   if (webBrowser) {
     webBrowser->SetContainerWindow(nullptr);
-  }
-
-  if (mHistoryListener) {
-    mHistoryListener->ClearTabChild();
   }
 
   mozilla::DropJSObjects(this);
@@ -1552,54 +1529,6 @@ mozilla::ipc::IPCResult
 TabChild::RecvStopIMEStateManagement()
 {
   IMEStateManager::StopIMEStateManagement();
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-TabChild::RecvNotifyAttachGroupedSHistory(const uint32_t& aOffset)
-{
-  // nsISHistory uses int32_t
-  if (NS_WARN_IF(aOffset > INT32_MAX)) {
-    return IPC_FAIL_NO_REASON(this);
-  }
-
-  nsCOMPtr<nsISHistory> shistory = GetRelatedSHistory();
-  NS_ENSURE_TRUE(shistory, IPC_FAIL_NO_REASON(this));
-
-  if (NS_FAILED(shistory->OnAttachGroupedSHistory(aOffset))) {
-    return IPC_FAIL_NO_REASON(this);
-  }
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-TabChild::RecvNotifyPartialSHistoryActive(const uint32_t& aGlobalLength,
-                                          const uint32_t& aTargetLocalIndex)
-{
-  // nsISHistory uses int32_t
-  if (NS_WARN_IF(aGlobalLength > INT32_MAX || aTargetLocalIndex > INT32_MAX)) {
-    return IPC_FAIL_NO_REASON(this);
-  }
-
-  nsCOMPtr<nsISHistory> shistory = GetRelatedSHistory();
-  NS_ENSURE_TRUE(shistory, IPC_FAIL_NO_REASON(this));
-
-  if (NS_FAILED(shistory->OnPartialSHistoryActive(aGlobalLength,
-                                                  aTargetLocalIndex))) {
-    return IPC_FAIL_NO_REASON(this);
-  }
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult
-TabChild::RecvNotifyPartialSHistoryDeactive()
-{
-  nsCOMPtr<nsISHistory> shistory = GetRelatedSHistory();
-  NS_ENSURE_TRUE(shistory, IPC_FAIL_NO_REASON(this));
-
-  if (NS_FAILED(shistory->OnPartialSHistoryDeactive())) {
-    return IPC_FAIL_NO_REASON(this);
-  }
   return IPC_OK();
 }
 
@@ -2663,13 +2592,15 @@ TabChild::RemovePendingDocShellBlocker()
     mPendingDocShellReceivedMessage = false;
     InternalSetDocShellIsActive(mPendingDocShellIsActive);
   }
+  if (!mPendingDocShellBlockers && mPendingRenderLayersReceivedMessage) {
+    mPendingRenderLayersReceivedMessage = false;
+    RecvRenderLayers(mPendingRenderLayers, mPendingLayerObserverEpoch);
+  }
 }
 
 void
 TabChild::InternalSetDocShellIsActive(bool aIsActive)
 {
-  // docshell is consider prerendered only if not active yet
-  mIsPrerendered &= !aIsActive;
   nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
 
   if (docShell) {
@@ -2696,6 +2627,13 @@ TabChild::RecvSetDocShellIsActive(const bool& aIsActive)
 mozilla::ipc::IPCResult
 TabChild::RecvRenderLayers(const bool& aEnabled, const uint64_t& aLayerObserverEpoch)
 {
+  if (mPendingDocShellBlockers > 0) {
+    mPendingRenderLayersReceivedMessage = true;
+    mPendingRenderLayers = aEnabled;
+    mPendingLayerObserverEpoch = aLayerObserverEpoch;
+    return IPC_OK();
+  }
+
   // Since requests to change the rendering state come in from both the hang
   // monitor channel and the PContent channel, we have an ordering problem. This
   // code ensures that we respect the order in which the requests were made and
@@ -3605,112 +3543,10 @@ TabChild::BeforeUnloadRemoved()
   }
 }
 
-already_AddRefed<nsISHistory>
-TabChild::GetRelatedSHistory()
-{
-  nsCOMPtr<nsISHistory> shistory;
-  mWebNav->GetSessionHistory(getter_AddRefs(shistory));
-  return shistory.forget();
-}
-
-nsresult
-TabChildSHistoryListener::SHistoryDidUpdate(bool aTruncate /* = false */)
-{
-  RefPtr<TabChild> tabChild(mTabChild);
-  if (NS_WARN_IF(!tabChild)) {
-    return NS_ERROR_FAILURE;
-  }
-
-  nsCOMPtr<nsISHistory> shistory = tabChild->GetRelatedSHistory();
-  NS_ENSURE_TRUE(shistory, NS_ERROR_FAILURE);
-
-  int32_t index, count;
-  nsresult rv = shistory->GetIndex(&index);
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = shistory->GetCount(&count);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // XXX: It would be nice if we could batch these updates like SessionStore
-  // does, and provide a form of `Flush` command which would allow us to trigger
-  // an update, and wait for the state to become consistent.
-  NS_ENSURE_TRUE(tabChild->SendSHistoryUpdate(count, index, aTruncate), NS_ERROR_FAILURE);
-  return NS_OK;
-}
-
 mozilla::dom::TabGroup*
 TabChild::TabGroup()
 {
   return mTabGroup;
-}
-
-/*******************************************************************************
- * nsISHistoryListener
- ******************************************************************************/
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryNewEntry(nsIURI *aNewURI, int32_t aOldIndex)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryGoBack(nsIURI *aBackURI, bool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryGoForward(nsIURI *aForwardURI, bool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryReload(nsIURI *aReloadURI, uint32_t aReloadFlags, bool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryGotoIndex(int32_t aIndex, nsIURI *aGotoURI, bool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryPurge(int32_t aNumEntries, bool *_retval)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnHistoryReplaceEntry(int32_t aIndex)
-{
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnLengthChanged(int32_t aCount)
-{
-  return SHistoryDidUpdate(/* aTruncate = */ true);
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnIndexChanged(int32_t aIndex)
-{
-  return SHistoryDidUpdate(/* aTruncate = */ false);
-}
-
-NS_IMETHODIMP
-TabChildSHistoryListener::OnRequestCrossBrowserNavigation(uint32_t aIndex)
-{
-  RefPtr<TabChild> tabChild(mTabChild);
-  if (!tabChild) {
-    return NS_ERROR_FAILURE;
-  }
-
-  return tabChild->SendRequestCrossBrowserNavigation(aIndex) ?
-           NS_OK : NS_ERROR_FAILURE;
 }
 
 TabChildGlobal::TabChildGlobal(TabChild* aTabChild)

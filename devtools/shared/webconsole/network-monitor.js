@@ -523,6 +523,11 @@ NetworkResponseListener.prototype = {
    * https://developer.mozilla.org/En/NsIRequestObserver
    */
   onStopRequest: function () {
+    // Bug 1429365: onStopRequest may be called after onComplete for resources loaded
+    // from bytecode cache.
+    if (!this.httpActivity) {
+      return;
+    }
     this._findOpenResponse();
     this.sink.outputStream.close();
   },
@@ -874,13 +879,13 @@ NetworkMonitor.prototype = {
       cookies: [],
     };
 
-    let setCookieHeader = null;
+    let setCookieHeaders = [];
 
-    channel.visitResponseHeaders({
+    channel.visitOriginalResponseHeaders({
       visitHeader: function (name, value) {
         let lowerName = name.toLowerCase();
         if (lowerName == "set-cookie") {
-          setCookieHeader = value;
+          setCookieHeaders.push(value);
         }
         response.headers.push({ name: name, value: value });
       }
@@ -891,8 +896,11 @@ NetworkMonitor.prototype = {
       return;
     }
 
-    if (setCookieHeader) {
-      response.cookies = NetworkHelper.parseSetCookieHeader(setCookieHeader);
+    if (setCookieHeaders.length) {
+      response.cookies = setCookieHeaders.reduce((result, header) => {
+        let cookies = NetworkHelper.parseSetCookieHeader(header);
+        return result.concat(cookies);
+      }, []);
     }
 
     // Determine the HTTP version.

@@ -32,6 +32,7 @@ XPCOMUtils.defineLazyModuleGetters(this, {
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.jsm",
   ContentClick: "resource:///modules/ContentClick.jsm",
   ContextualIdentityService: "resource://gre/modules/ContextualIdentityService.jsm",
+  CustomizableUI: "resource:///modules/CustomizableUI.jsm",
   DateTimePickerHelper: "resource://gre/modules/DateTimePickerHelper.jsm",
   DirectoryLinksProvider: "resource:///modules/DirectoryLinksProvider.jsm",
   ExtensionsUI: "resource:///modules/ExtensionsUI.jsm",
@@ -438,6 +439,8 @@ BrowserGlue.prototype = {
           if (this._placesBrowserInitComplete) {
             Services.obs.notifyObservers(null, "places-browser-init-complete");
           }
+        } else if (data == "migrateMatchBucketsPrefForUIVersion60") {
+          this._migrateMatchBucketsPrefForUIVersion60();
         }
         break;
       case "initial-migration-will-import-default-bookmarks":
@@ -1771,7 +1774,7 @@ BrowserGlue.prototype = {
 
   // eslint-disable-next-line complexity
   _migrateUI: function BG__migrateUI() {
-    const UI_VERSION = 59;
+    const UI_VERSION = 62;
     const BROWSER_DOCURL = "chrome://browser/content/browser.xul";
 
     let currentUIVersion;
@@ -1832,17 +1835,6 @@ BrowserGlue.prototype = {
                                             "$1bookmarks-menu-button,window-controls$2");
           }
           xulStore.setValue(BROWSER_DOCURL, "nav-bar", "currentset", currentset);
-        }
-      }
-    }
-
-    if (currentUIVersion < 18) {
-      // Remove iconsize and mode from all the toolbars
-      let toolbars = ["navigator-toolbox", "nav-bar", "PersonalToolbar",
-                      "TabsToolbar", "toolbar-menubar"];
-      for (let resourceName of ["mode", "iconsize"]) {
-        for (let toolbarId of toolbars) {
-          xulStore.removeValue(BROWSER_DOCURL, toolbarId, resourceName);
         }
       }
     }
@@ -2256,6 +2248,28 @@ BrowserGlue.prototype = {
       }
     }
 
+    if (currentUIVersion < 60) {
+      // Set whether search suggestions or history results come first in the
+      // urlbar results.
+      this._migrateMatchBucketsPrefForUIVersion60();
+    }
+
+    if (currentUIVersion < 61) {
+      // Remove persisted toolbarset from navigator toolbox
+      xulStore.removeValue(BROWSER_DOCURL, "navigator-toolbox", "toolbarset");
+    }
+
+    if (currentUIVersion < 62) {
+      // Remove iconsize and mode from all the toolbars
+      let toolbars = ["navigator-toolbox", "nav-bar", "PersonalToolbar",
+                      "TabsToolbar", "toolbar-menubar"];
+      for (let resourceName of ["mode", "iconsize"]) {
+        for (let toolbarId of toolbars) {
+          xulStore.removeValue(BROWSER_DOCURL, toolbarId, resourceName);
+        }
+      }
+    }
+
     // Update the migration version.
     Services.prefs.setIntPref("browser.migration.version", UI_VERSION);
   },
@@ -2335,6 +2349,26 @@ BrowserGlue.prototype = {
     if (willPrompt) {
       DefaultBrowserCheck.prompt(RecentWindow.getMostRecentBrowserWindow());
     }
+  },
+
+  _migrateMatchBucketsPrefForUIVersion60() {
+    let prefName = "browser.urlbar.matchBuckets";
+    let pref = Services.prefs.getCharPref(prefName, "");
+    if (!pref) {
+      // Set the pref based on the search bar's current placement.  If it's
+      // placed (the urlbar and search bar are not unified), then set the pref
+      // (so that history results will come before search suggestions).  If it's
+      // not placed (the urlbar and search bar are unified), then leave the pref
+      // cleared so that UnifiedComplete.js uses the default value (so that
+      // search suggestions will come before history results).
+      if (CustomizableUI.getPlacementOfWidget("search-container")) {
+        Services.prefs.setCharPref(prefName, "general:5,suggestion:Infinity");
+      }
+    }
+    // Else, the pref has already been set.  Normally this pref does not exist.
+    // Either the user customized it, or they were enrolled in the Shield study
+    // in Firefox 57 that effectively already migrated the pref.  Either way,
+    // leave it at its current value.
   },
 
   // ------------------------------

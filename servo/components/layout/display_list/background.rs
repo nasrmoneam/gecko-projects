@@ -9,7 +9,7 @@
 // FIXME(rust-lang/rust#26264): Remove GenericEndingShape and GenericGradientItem.
 
 use app_units::Au;
-use display_list::ToGfxColor;
+use display_list::ToLayout;
 use euclid::{Point2D, Size2D, Vector2D};
 use gfx::display_list;
 use model::MaybeAuto;
@@ -23,7 +23,7 @@ use style::values::generics::image::EndingShape as GenericEndingShape;
 use style::values::generics::image::GradientItem as GenericGradientItem;
 use style::values::specified::background::RepeatKeyword;
 use style::values::specified::position::{X, Y};
-use webrender_api::GradientStop;
+use webrender_api::{ExtendMode, GradientStop};
 
 /// A helper data structure for gradients.
 #[derive(Clone, Copy)]
@@ -364,10 +364,18 @@ fn convert_gradient_stops(gradient_items: &[GradientItem], total_length: Au) -> 
         assert!(offset.is_finite());
         stops.push(GradientStop {
             offset: offset,
-            color: stop.color.to_gfx_color(),
+            color: stop.color.to_layout(),
         })
     }
     stops
+}
+
+fn as_gradient_extend_mode(repeating: bool) -> ExtendMode {
+    if repeating {
+        ExtendMode::Repeat
+    } else {
+        ExtendMode::Clamp
+    }
 }
 
 pub fn convert_linear_gradient(
@@ -431,10 +439,10 @@ pub fn convert_linear_gradient(
     let center = Point2D::new(size.width / 2, size.height / 2);
 
     display_list::Gradient {
-        start_point: center - delta,
-        end_point: center + delta,
+        start_point: (center - delta).to_layout(),
+        end_point: (center + delta).to_layout(),
         stops: stops,
-        repeating: repeating,
+        extend_mode: as_gradient_extend_mode(repeating),
     }
 }
 
@@ -473,10 +481,10 @@ pub fn convert_radial_gradient(
     }
 
     display_list::RadialGradient {
-        center: center,
-        radius: radius,
+        center: center.to_layout(),
+        radius: radius.to_layout(),
         stops: stops,
-        repeating: repeating,
+        extend_mode: as_gradient_extend_mode(repeating),
     }
 }
 

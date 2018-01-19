@@ -94,10 +94,11 @@ this.TopSitesFeed = class TopSitesFeed {
 
       // Copy all properties from a frecent link and add more
       const finder = other => other.url === link.url;
-      const copy = Object.assign({}, frecent.find(finder) || {}, link, {
-        hostname: shortURL(link),
-        isDefault: !!notBlockedDefaultSites.find(finder)
-      });
+
+      // If the link is a frecent site, do not copy over 'isDefault', else check
+      // if the site is a default site
+      const copy = Object.assign({}, frecent.find(finder) ||
+        {isDefault: !!notBlockedDefaultSites.find(finder)}, link, {hostname: shortURL(link)});
 
       // Add in favicons if we don't already have it
       if (!copy.favicon) {
@@ -156,8 +157,8 @@ this.TopSitesFeed = class TopSitesFeed {
       // Broadcast an update to all open content pages
       this.store.dispatch(ac.BroadcastToContent(newAction));
     } else {
-      // Don't broadcast only update the state.
-      this.store.dispatch(ac.SendToMain(newAction));
+      // Don't broadcast only update the state and update the preloaded tab.
+      this.store.dispatch(ac.SendToPreloaded(newAction));
     }
   }
 
@@ -240,20 +241,43 @@ this.TopSitesFeed = class TopSitesFeed {
   /**
    * Insert a site to pin at a position shifting over any other pinned sites.
    */
-  _insertPin(site, index) {
+  _insertPin(site, index, draggedFromIndex) {
     // Don't insert any pins past the end of the visible top sites. Otherwise,
     // we can end up with a bunch of pinned sites that can never be unpinned again
     // from the UI.
-    if (index >= this.store.getState().Prefs.values.topSitesCount) {
+    const {topSitesCount} = this.store.getState().Prefs.values;
+    if (index >= topSitesCount) {
       return;
     }
 
-    // For existing sites, recursively push it and others to the next positions
     let pinned = NewTabUtils.pinnedLinks.links;
-    if (pinned.length > index && pinned[index]) {
-      this._insertPin(pinned[index], index + 1);
+    if (!pinned[index]) {
+      this._pinSiteAt(site, index);
+    } else {
+      pinned[draggedFromIndex] = null;
+      // Find the hole to shift the pinned site(s) towards. We shift towards the
+      // hole left by the site being dragged.
+      let holeIndex = index;
+      const indexStep = index > draggedFromIndex ? -1 : 1;
+      while (pinned[holeIndex]) {
+        holeIndex += indexStep;
+      }
+      if (holeIndex >= topSitesCount || holeIndex < 0) {
+        // There are no holes, so we will effectively unpin the last slot and shifting
+        // towards it. This only happens when adding a new top site to an already
+        // fully pinned grid.
+        holeIndex = topSitesCount - 1;
+      }
+
+      // Shift towards the hole.
+      const shiftingStep = holeIndex > index ? -1 : 1;
+      while (holeIndex !== index) {
+        const nextIndex = holeIndex + shiftingStep;
+        this._pinSiteAt(pinned[nextIndex], holeIndex);
+        holeIndex = nextIndex;
+      }
+      this._pinSiteAt(site, index);
     }
-    this._pinSiteAt(site, index);
   }
 
   /**
@@ -262,7 +286,9 @@ this.TopSitesFeed = class TopSitesFeed {
   insert(action) {
     // Inserting a top site pins it in the specified slot, pushing over any link already
     // pinned in the slot (unless it's the last slot, then it replaces).
-    this._insertPin(action.data.site, action.data.index || 0);
+    this._insertPin(
+      action.data.site, action.data.index || 0,
+      action.data.draggedFromIndex !== undefined ? action.data.draggedFromIndex : this.store.getState().Prefs.values.topSitesCount);
     this._broadcastPinnedSitesUpdated();
   }
 

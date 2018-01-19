@@ -136,8 +136,7 @@ def mozharness_on_docker_worker_setup(config, job, taskdesc):
     # Running via mozharness assumes an image that contains build.sh:
     # by default, desktop-build, but it could be another image (like
     # android-build) that "inherits" from desktop-build.
-    if not taskdesc['worker']['docker-image']:
-        taskdesc['worker']['docker-image'] = {"in-tree": "desktop-build"}
+    taskdesc['worker'].setdefault('docker-image', {'in-tree': 'desktop-build'})
 
     worker['taskcluster-proxy'] = run.get('taskcluster-proxy')
 
@@ -175,7 +174,7 @@ def mozharness_on_docker_worker_setup(config, job, taskdesc):
     if 'job-script' in run:
         env['JOB_SCRIPT'] = run['job-script']
 
-    if 'try' in config.params['project']:
+    if config.params.is_try():
         env['TRY_COMMIT_MSG'] = config.params['message']
 
     # if we're not keeping artifacts, set some env variables to empty values
@@ -258,7 +257,7 @@ def mozharness_on_generic_worker(config, job, taskdesc):
     # to commands.  Setting a variable to empty in a batch file unsets, so if
     # there is no `TRY_COMMIT_MESSAGE`, pass a space instead, so that
     # mozharness doesn't try to find the commit message on its own.
-    if 'try' in config.params['project']:
+    if config.params.is_try():
         env['TRY_COMMIT_MSG'] = config.params['message'] or 'no commit message'
 
     if not job['attributes']['build_platform'].startswith('win'):

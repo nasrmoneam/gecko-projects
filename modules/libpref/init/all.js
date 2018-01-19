@@ -108,6 +108,13 @@ pref("browser.cache.compression_level", 0);
 // Don't show "Open with" option on download dialog if true.
 pref("browser.download.forbid_open_with", false);
 
+// Remove navigator.registerContentHandler
+#ifdef EARLY_BETA_OR_EARLIER
+pref("dom.registerContentHandler.enabled", false);
+#else
+pref("dom.registerContentHandler.enabled", true);
+#endif
+
 // Whether or not testing features are enabled.
 pref("dom.quotaManager.testing", false);
 
@@ -624,7 +631,11 @@ pref("media.cubeb.logging_level", "");
 
 #ifdef NIGHTLY_BUILD
 // Cubeb sandbox (remoting) control
+#ifdef XP_MACOSX
+pref("media.cubeb.sandbox", false);
+#else
 pref("media.cubeb.sandbox", true);
+#endif
 #endif
 
 // Set to true to force demux/decode warnings to be treated as errors.
@@ -869,6 +880,7 @@ pref("gfx.logging.peak-texture-usage.enabled", false);
 
 pref("gfx.ycbcr.accurate-conversion", false);
 
+pref("gfx.webrender.all", false);
 #ifdef MOZ_ENABLE_WEBRENDER
 pref("gfx.webrender.enabled", true);
 #else
@@ -880,7 +892,7 @@ pref("gfx.webrender.program-binary", true);
 #endif
 
 pref("gfx.webrender.highlight-painted-layers", false);
-pref("gfx.webrender.blob-images", false);
+pref("gfx.webrender.blob-images", 2);
 pref("gfx.webrender.hit-test", false);
 
 // WebRender debugging utilities.
@@ -1380,6 +1392,12 @@ pref("privacy.firstparty.isolate",                        false);
 pref("privacy.firstparty.isolate.restrict_opener_access", true);
 // Anti-fingerprinting, disabled by default
 pref("privacy.resistFingerprinting", false);
+// A subset of Resist Fingerprinting protections focused specifically on timers for testing
+// This affects the Animation API, the performance APIs, Date.getTime, Event.timestamp,
+//   File.lastModified, audioContext.currentTime, canvas.captureStream.currentTime
+pref("privacy.reduceTimerPrecision", true);
+// Dynamically tune the resolution of the timer reduction for both of the two above prefs
+pref("privacy.resistFingerprinting.reduceTimerPrecision.microseconds", 20);
 // Lower the priority of network loads for resources on the tracking protection list.
 // Note that this requires the privacy.trackingprotection.annotate_channels pref to be on in order to have any effect.
 #ifdef NIGHTLY_BUILD
@@ -1393,7 +1411,7 @@ pref("dom.event.clipboardevents.enabled",   true);
 pref("dom.event.highrestimestamp.enabled",  true);
 pref("dom.event.coalesce_mouse_move",       true);
 
-pref("dom.webcomponents.enabled",           false);
+pref("dom.webcomponents.shadowdom.enabled", false);
 #ifdef NIGHTLY_BUILD
 pref("dom.webcomponents.customelements.enabled", true);
 #else
@@ -1517,6 +1535,9 @@ pref("javascript.options.shared_memory", false);
 
 pref("javascript.options.throw_on_debuggee_would_run", false);
 pref("javascript.options.dump_stack_on_debuggee_would_run", false);
+
+// Spectre security vulnerability mitigations.
+pref("javascript.options.spectre.index_masking", false);
 
 // Streams API
 pref("javascript.options.streams", false);
@@ -4272,10 +4293,6 @@ pref("browser.urlbar.clickSelectsAll", false);
 // Leave this at the default, 7, to match mozilla1.0-era user expectations.
 // pref("accessibility.tabfocus", 1);
 
-// Default to using the system filepicker if possible, but allow
-// toggling to use the XUL filepicker
-pref("ui.allow_platform_file_picker", true);
-
 pref("helpers.global_mime_types_file", "/etc/mime.types");
 pref("helpers.global_mailcap_file", "/etc/mailcap");
 pref("helpers.private_mime_types_file", "~/.mime.types");
@@ -4326,10 +4343,6 @@ pref("browser.urlbar.clickSelectsAll", false);
 // 1 focuses text controls, 2 focuses other form elements, 4 adds links.
 // Leave this at the default, 7, to match mozilla1.0-era user expectations.
 // pref("accessibility.tabfocus", 1);
-
-// Default to using the system filepicker if possible, but allow
-// toggling to use the XUL filepicker
-pref("ui.allow_platform_file_picker", true);
 
 pref("helpers.global_mime_types_file", "/etc/mime.types");
 pref("helpers.global_mailcap_file", "/etc/mailcap");
@@ -4480,11 +4493,7 @@ pref("ui.panel.default_level_parent", true);
 
 pref("mousewheel.system_scroll_override_on_root_content.enabled", false);
 
-#if MOZ_WIDGET_GTK == 2
-pref("intl.ime.use_simple_context_on_password_field", true);
-#else
 pref("intl.ime.use_simple_context_on_password_field", false);
-#endif
 
 #ifdef MOZ_WIDGET_GTK
 // maximum number of fonts to substitute for a generic
@@ -4679,7 +4688,7 @@ pref("image.mem.animated.discardable", true);
 
 // Decodes images into shared memory to allow direct use in separate
 // rendering processes.
-pref("image.mem.shared", false);
+pref("image.mem.shared", 2);
 
 // Allows image locking of decoded image data in content processes.
 pref("image.mem.allow_locking_in_content_processes", true);
@@ -5229,7 +5238,7 @@ pref("dom.placeholder.show_on_focus", true);
 
 // WebVR is enabled by default in beta and release for Windows and for all
 // platforms in nightly and aurora.
-#if defined(XP_WIN) || defined(XP_MACOSX) || !defined(RELEASE_OR_BETA)
+#if defined(XP_WIN) || !defined(RELEASE_OR_BETA)
 pref("dom.vr.enabled", true);
 #else
 pref("dom.vr.enabled", false);
@@ -5287,7 +5296,7 @@ pref("dom.vr.osvr.enabled", false);
 // We are only enabling WebVR by default on 64-bit builds (Bug 1384459)
 pref("dom.vr.openvr.enabled", false);
 #elif defined(XP_WIN) || defined(XP_MACOSX)
-// We enable WebVR by default for Windows and macOS
+// We enable OpenVR by default for Windows and macOS
 pref("dom.vr.openvr.enabled", true);
 #else
 // See Bug 1310663 (Linux)
@@ -5794,25 +5803,6 @@ pref("layout.css.servo.enabled", false);
 pref("layout.css.servo.chrome.enabled", false);
 #endif
 
-// HSTS Priming
-// If a request is mixed-content, send an HSTS priming request to attempt to
-// see if it is available over HTTPS.
-// Don't change the order of evaluation of mixed-content and HSTS upgrades in
-// order to be most compatible with current standards in Release
-pref("security.mixed_content.send_hsts_priming", false);
-pref("security.mixed_content.use_hsts", false);
-#ifdef EARLY_BETA_OR_EARLIER
-// Change the order of evaluation so HSTS upgrades happen before
-// mixed-content blocking
-pref("security.mixed_content.send_hsts_priming", true);
-pref("security.mixed_content.use_hsts", true);
-#endif
-// Approximately 1 week default cache for HSTS priming failures, in seconds
-pref("security.mixed_content.hsts_priming_cache_timeout", 604800);
-// Force the channel to timeout in 2 seconds if we have not received
-// expects a time in milliseconds
-pref("security.mixed_content.hsts_priming_request_timeout", 2000);
-
 // TODO: Bug 1324406: Treat 'data:' documents as unique, opaque origins
 // If true, data: URIs will be treated as unique opaque origins, hence will use
 // a NullPrincipal as the security context.
@@ -5849,7 +5839,11 @@ pref("prompts.authentication_dialog_abuse_limit", 3);
 pref("dom.IntersectionObserver.enabled", true);
 
 // Whether module scripts (<script type="module">) are enabled for content.
+#ifdef NIGHTLY_BUILD
+pref("dom.moduleScripts.enabled", true);
+#else
 pref("dom.moduleScripts.enabled", false);
+#endif
 
 // Maximum amount of time in milliseconds consecutive setTimeout()/setInterval()
 // callback are allowed to run before yielding the event loop.
@@ -5921,3 +5915,4 @@ pref("layers.omtp.enabled", true);
 pref("layers.omtp.enabled", false);
 #endif
 pref("layers.omtp.release-capture-on-main-thread", false);
+pref("layers.omtp.paint-workers", 1);

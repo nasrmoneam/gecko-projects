@@ -41,7 +41,6 @@
 #include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLAnchorElement.h"
-#include "mozilla/dom/PendingGlobalHistoryEntry.h"
 #include "mozilla/dom/PerformanceNavigation.h"
 #include "mozilla/dom/PermissionMessageUtils.h"
 #include "mozilla/dom/ProfileTimelineMarkerBinding.h"
@@ -367,7 +366,6 @@ nsDocShell::nsDocShell()
   , mIsOffScreenBrowser(false)
   , mIsActive(true)
   , mDisableMetaRefreshWhenInactive(false)
-  , mIsPrerendered(false)
   , mIsAppTab(false)
   , mUseGlobalHistory(false)
   , mUseRemoteTabs(false)
@@ -695,6 +693,7 @@ nsDocShell::LoadURI(nsIURI* aURI,
   nsString target;
   nsAutoString srcdoc;
   bool forceAllowDataURI = false;
+  bool originalFrameSrc = false;
   nsCOMPtr<nsIDocShell> sourceDocShell;
   nsCOMPtr<nsIURI> baseURI;
 
@@ -732,6 +731,7 @@ nsDocShell::LoadURI(nsIURI* aURI,
     aLoadInfo->GetSourceDocShell(getter_AddRefs(sourceDocShell));
     aLoadInfo->GetBaseURI(getter_AddRefs(baseURI));
     aLoadInfo->GetForceAllowDataURI(&forceAllowDataURI);
+    aLoadInfo->GetOriginalFrameSrc(&originalFrameSrc);
   }
 
   MOZ_LOG(gDocShellLeakLog, LogLevel::Debug,
@@ -999,6 +999,10 @@ nsDocShell::LoadURI(nsIURI* aURI,
     flags |= INTERNAL_LOAD_FLAGS_FORCE_ALLOW_DATA_URI;
   }
 
+  if (originalFrameSrc) {
+    flags |= INTERNAL_LOAD_FLAGS_ORIGINAL_FRAME_SRC;
+  }
+
   return InternalLoad(aURI,
                       originalURI,
                       resultPrincipalURI,
@@ -1020,7 +1024,6 @@ nsDocShell::LoadURI(nsIURI* aURI,
                       srcdoc,
                       sourceDocShell,
                       baseURI,
-                      false,
                       nullptr,  // No nsIDocShell
                       nullptr); // No nsIRequest
 }
@@ -2985,12 +2988,8 @@ nsDocShell::SetDocLoaderParent(nsDocLoader* aParent)
     }
     SetAllowContentRetargeting(mAllowContentRetargeting &&
       parentAsDocShell->GetAllowContentRetargetingOnChildren());
-    if (parentAsDocShell->GetIsPrerendered()) {
-      SetIsPrerendered();
-    }
     if (NS_SUCCEEDED(parentAsDocShell->GetIsActive(&value))) {
-      // a prerendered docshell is not active yet
-      SetIsActive(value && !mIsPrerendered);
+      SetIsActive(value);
     }
     if (NS_SUCCEEDED(parentAsDocShell->GetCustomUserAgent(customUserAgent)) &&
         !customUserAgent.IsEmpty()) {
@@ -5018,7 +5017,7 @@ nsDocShell::LoadErrorPage(nsIURI* aURI, const char16_t* aURL,
                       INTERNAL_LOAD_FLAGS_NONE, EmptyString(),
                       nullptr, VoidString(), nullptr, -1, nullptr,
                       LOAD_ERROR_PAGE, nullptr, true, VoidString(), this,
-                      nullptr, false, nullptr, nullptr);
+                      nullptr, nullptr, nullptr);
 }
 
 NS_IMETHODIMP
@@ -5127,7 +5126,6 @@ nsDocShell::Reload(uint32_t aReloadFlags)
                       srcdoc,          // srcdoc argument for iframe
                       this,            // For reloads we are the source
                       baseURI,
-                      false,
                       nullptr,         // No nsIDocShell
                       nullptr);        // No nsIRequest
   }
@@ -5568,8 +5566,7 @@ nsDocShell::GetDevicePixelsPerDesktopPixel(double* aScale)
 NS_IMETHODIMP
 nsDocShell::SetPosition(int32_t aX, int32_t aY)
 {
-  mBounds.x = aX;
-  mBounds.y = aY;
+  mBounds.MoveTo(aX, aY);
 
   if (mContentViewer) {
     NS_ENSURE_SUCCESS(mContentViewer->Move(aX, aY), NS_ERROR_FAILURE);
@@ -5616,10 +5613,7 @@ NS_IMETHODIMP
 nsDocShell::SetPositionAndSize(int32_t aX, int32_t aY, int32_t aWidth,
                                int32_t aHeight, uint32_t aFlags)
 {
-  mBounds.x = aX;
-  mBounds.y = aY;
-  mBounds.width = aWidth;
-  mBounds.height = aHeight;
+  mBounds.SetRect(aX, aY, aWidth, aHeight);
 
   // Hold strong ref, since SetBounds can make us null out mContentViewer
   nsCOMPtr<nsIContentViewer> viewer = mContentViewer;
@@ -5641,7 +5635,7 @@ nsDocShell::GetPositionAndSize(int32_t* aX, int32_t* aY, int32_t* aWidth,
   if (mParentWidget) {
     // ensure size is up-to-date if window has changed resolution
     LayoutDeviceIntRect r = mParentWidget->GetClientBounds();
-    SetPositionAndSize(mBounds.x, mBounds.y, r.width, r.height, 0);
+    SetPositionAndSize(mBounds.X(), mBounds.Y(), r.Width(), r.Height(), 0);
   }
 
   // We should really consider just getting this information from
@@ -5664,16 +5658,16 @@ nsDocShell::DoGetPositionAndSize(int32_t* aX, int32_t* aY, int32_t* aWidth,
                                  int32_t* aHeight)
 {
   if (aX) {
-    *aX = mBounds.x;
+    *aX = mBounds.X();
   }
   if (aY) {
-    *aY = mBounds.y;
+    *aY = mBounds.Y();
   }
   if (aWidth) {
-    *aWidth = mBounds.width;
+    *aWidth = mBounds.Width();
   }
   if (aHeight) {
-    *aHeight = mBounds.height;
+    *aHeight = mBounds.Height();
   }
 }
 
@@ -5844,21 +5838,6 @@ nsDocShell::SetIsActive(bool aIsActive)
   // Keep track ourselves.
   mIsActive = aIsActive;
 
-  // Clear prerender flag if necessary.
-  if (mIsPrerendered && aIsActive) {
-    MOZ_ASSERT(mPrerenderGlobalHistory.get());
-    mIsPrerendered = false;
-    nsCOMPtr<IHistory> history = services::GetHistoryService();
-    nsresult rv = NS_OK;
-    if (history) {
-      rv = mPrerenderGlobalHistory->ApplyChanges(history);
-    } else if (mGlobalHistory) {
-      rv = mPrerenderGlobalHistory->ApplyChanges(mGlobalHistory);
-    }
-    mPrerenderGlobalHistory = nullptr;
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
-
   // Tell the PresShell about it.
   nsCOMPtr<nsIPresShell> pshell = GetPresShell();
   if (pshell) {
@@ -5928,24 +5907,6 @@ NS_IMETHODIMP
 nsDocShell::GetIsActive(bool* aIsActive)
 {
   *aIsActive = mIsActive;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocShell::SetIsPrerendered()
-{
-  MOZ_ASSERT(!mIsPrerendered,
-             "SetIsPrerendered() called on already prerendered docshell");
-  SetIsActive(false);
-  mIsPrerendered = true;
-  mPrerenderGlobalHistory = mozilla::MakeUnique<PendingGlobalHistoryEntry>();
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsDocShell::GetIsPrerendered(bool* aIsPrerendered)
-{
-  *aIsPrerendered = mIsPrerendered;
   return NS_OK;
 }
 
@@ -8571,8 +8532,7 @@ nsDocShell::RestoreFromHistory()
 
     // this.AddChild(child) calls child.SetDocLoaderParent(this), meaning that
     // the child inherits our state. Among other things, this means that the
-    // child inherits our mIsActive, mIsPrerendered and mPrivateBrowsingId,
-    // which is what we want.
+    // child inherits our mIsActive mPrivateBrowsingId, which is what we want.
     AddChild(childItem);
 
     childShell->SetAllowPlugins(allowPlugins);
@@ -9050,6 +9010,7 @@ nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer)
   }
 
   nscolor bgcolor = NS_RGBA(0, 0, 0, 0);
+  bool isActive = false;
   // Ensure that the content viewer is destroyed *after* the GC - bug 71515
   nsCOMPtr<nsIContentViewer> contentViewer = mContentViewer;
   if (contentViewer) {
@@ -9064,6 +9025,7 @@ nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer)
 
     if (shell) {
       bgcolor = shell->GetCanvasBackground();
+      isActive = shell->IsActive();
     }
 
     contentViewer->Close(mSavingOldViewer ? mOSHE.get() : nullptr);
@@ -9122,6 +9084,9 @@ nsDocShell::SetupNewViewer(nsIContentViewer* aNewViewer)
 
   if (shell) {
     shell->SetCanvasBackground(bgcolor);
+    if (isActive) {
+      shell->SetIsActive(isActive);
+    }
   }
 
   // XXX: It looks like the LayoutState gets restored again in Embed()
@@ -9262,8 +9227,7 @@ public:
                     bool aFirstParty,
                     const nsAString& aSrcdoc,
                     nsIDocShell* aSourceDocShell,
-                    nsIURI* aBaseURI,
-                    bool aCheckForPrerender)
+                    nsIURI* aBaseURI)
     : mozilla::Runnable("InternalLoadEvent")
     , mSrcdoc(aSrcdoc)
     , mDocShell(aDocShell)
@@ -9284,7 +9248,6 @@ public:
     , mFirstParty(aFirstParty)
     , mSourceDocShell(aSourceDocShell)
     , mBaseURI(aBaseURI)
-    , mCheckForPrerender(aCheckForPrerender)
   {
     // Make sure to keep null things null as needed
     if (aTypeHint) {
@@ -9308,7 +9271,7 @@ public:
                                    VoidString(), mPostData, mPostDataLength,
                                    mHeadersData, mLoadType, mSHEntry,
                                    mFirstParty, mSrcdoc, mSourceDocShell,
-                                   mBaseURI, mCheckForPrerender, nullptr,
+                                   mBaseURI, nullptr,
                                    nullptr);
   }
 
@@ -9334,7 +9297,6 @@ private:
   bool mFirstParty;
   nsCOMPtr<nsIDocShell> mSourceDocShell;
   nsCOMPtr<nsIURI> mBaseURI;
-  bool mCheckForPrerender;
 };
 
 /**
@@ -9386,7 +9348,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                          const nsAString& aSrcdoc,
                          nsIDocShell* aSourceDocShell,
                          nsIURI* aBaseURI,
-                         bool aCheckForPrerender,
                          nsIDocShell** aDocShell,
                          nsIRequest** aRequest)
 {
@@ -9556,27 +9517,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
       }
 
       return NS_ERROR_CONTENT_BLOCKED;
-    }
-
-    // If HSTS priming was set by nsMixedContentBlocker::ShouldLoad, and we
-    // would block due to mixed content, go ahead and block here. If we try to
-    // proceed with priming, we will error out later on.
-    nsCOMPtr<nsIDocShell> docShell = NS_CP_GetDocShellFromContext(requestingContext);
-    // When loading toplevel windows, requestingContext can be null.  We don't
-    // really care about HSTS in that situation, though; loads in toplevel
-    // windows should all be browser UI.
-    if (docShell) {
-      nsIDocument* document = docShell->GetDocument();
-      NS_ENSURE_TRUE(document, NS_OK);
-
-      HSTSPrimingState state = document->GetHSTSPrimingStateForLocation(aURI);
-      if (state == HSTSPrimingState::eHSTS_PRIMING_BLOCK) {
-        // HSTS Priming currently disabled for InternalLoad, so we need to clear
-        // the location that was added by nsMixedContentBlocker::ShouldLoad
-        // Bug 1269815 will address images loaded via InternalLoad
-        document->ClearHSTSPrimingLocation(aURI);
-        return NS_ERROR_CONTENT_BLOCKED;
-      }
     }
   }
 
@@ -9787,7 +9727,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                                         aSrcdoc,
                                         aSourceDocShell,
                                         aBaseURI,
-                                        aCheckForPrerender,
                                         aDocShell,
                                         aRequest);
       if (rv == NS_ERROR_NO_CONTENT) {
@@ -9873,7 +9812,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
                               aTriggeringPrincipal, principalToInherit,
                               aFlags, aTypeHint, aPostData, aPostDataLength,
                               aHeadersData, aLoadType, aSHEntry, aFirstParty,
-                              aSrcdoc, aSourceDocShell, aBaseURI, false);
+                              aSrcdoc, aSourceDocShell, aBaseURI);
       return DispatchToTabGroup(TaskCategory::Other, ev.forget());
     }
 
@@ -10252,25 +10191,6 @@ nsDocShell::InternalLoad(nsIURI* aURI,
     }
   }
 
-  if (browserChrome3 && aCheckForPrerender) {
-    nsCOMPtr<nsIRunnable> ev =
-      new InternalLoadEvent(this, aURI, aOriginalURI, aResultPrincipalURI,
-                            aLoadReplace, aReferrer, aReferrerPolicy,
-                            aTriggeringPrincipal, principalToInherit,
-                            aFlags, aTypeHint, aPostData, aPostDataLength,
-                            aHeadersData, aLoadType, aSHEntry, aFirstParty,
-                            aSrcdoc, aSourceDocShell, aBaseURI, false);
-    // We don't need any success handler since in that case
-    // OnPartialSHistoryDeactive would be called, and it would ensure
-    // docshell loads about:blank.
-    bool shouldSwitch = false;
-    rv = browserChrome3->ShouldSwitchToPrerenderedDocument(
-      aURI, mCurrentURI, nullptr, ev, &shouldSwitch);
-    if (NS_SUCCEEDED(rv) && shouldSwitch) {
-      return NS_OK;
-    }
-  }
-
   // Whenever a top-level browsing context is navigated, the user agent MUST
   // lock the orientation of the document to the document's default
   // orientation. We don't explicitly check for a top-level browsing context
@@ -10408,6 +10328,7 @@ nsDocShell::InternalLoad(nsIURI* aURI,
   rv = DoURILoad(aURI, aOriginalURI, aResultPrincipalURI, aLoadReplace,
                  loadFromExternal,
                  (aFlags & INTERNAL_LOAD_FLAGS_FORCE_ALLOW_DATA_URI),
+                 (aFlags & INTERNAL_LOAD_FLAGS_ORIGINAL_FRAME_SRC),
                  aReferrer,
                  !(aFlags & INTERNAL_LOAD_FLAGS_DONT_SEND_REFERRER),
                  aReferrerPolicy,
@@ -10547,6 +10468,7 @@ nsDocShell::DoURILoad(nsIURI* aURI,
                       bool aLoadReplace,
                       bool aLoadFromExternal,
                       bool aForceAllowDataURI,
+                      bool aOriginalFrameSrc,
                       nsIURI* aReferrerURI,
                       bool aSendReferrer,
                       uint32_t aReferrerPolicy,
@@ -10728,6 +10650,7 @@ nsDocShell::DoURILoad(nsIURI* aURI,
   }
   loadInfo->SetLoadTriggeredFromExternal(aLoadFromExternal);
   loadInfo->SetForceAllowDataURI(aForceAllowDataURI);
+  loadInfo->SetOriginalFrameSrcLoad(aOriginalFrameSrc);
 
   // We have to do this in case our OriginAttributes are different from the
   // OriginAttributes of the parent document. Or in case there isn't a
@@ -12494,7 +12417,6 @@ nsDocShell::LoadHistoryEntry(nsISHEntry* aEntry, uint32_t aLoadType)
                     srcdoc,
                     nullptr,            // Source docshell, see comment above
                     baseURI,
-                    false,
                     nullptr,            // No nsIDocShell
                     nullptr);           // No nsIRequest
   return rv;
@@ -12796,7 +12718,7 @@ nsDocShell::AddURIVisit(nsIURI* aURI,
 
   nsCOMPtr<IHistory> history = services::GetHistoryService();
 
-  if (mPrerenderGlobalHistory || history) {
+  if (history) {
     uint32_t visitURIFlags = 0;
 
     if (!IsFrame()) {
@@ -12826,14 +12748,7 @@ nsDocShell::AddURIVisit(nsIURI* aURI,
       visitURIFlags |= IHistory::UNRECOVERABLE_ERROR;
     }
 
-    if (mPrerenderGlobalHistory) {
-      mPrerenderGlobalHistory->VisitURI(aURI,
-                                        aPreviousURI,
-                                        aReferrerURI,
-                                        visitURIFlags);
-    } else {
-      (void)history->VisitURI(aURI, aPreviousURI, visitURIFlags);
-    }
+    (void)history->VisitURI(aURI, aPreviousURI, visitURIFlags);
   } else if (mGlobalHistory) {
     // Falls back to sync global history interface.
     (void)mGlobalHistory->AddURI(aURI,
@@ -13801,7 +13716,6 @@ nsDocShell::OnLinkClickSync(nsIContent* aContent,
                              VoidString(),              // No srcdoc
                              this,                      // We are the source
                              nullptr,                   // baseURI not needed
-                             true,                      // Check for prerendered doc
                              aDocShell,                 // DocShell out-param
                              aRequest);                 // Request out-param
   if (NS_SUCCEEDED(rv)) {
@@ -14231,9 +14145,7 @@ nsDocShell::UpdateGlobalHistoryTitle(nsIURI* aURI)
 {
   if (mUseGlobalHistory && !UsePrivateBrowsing()) {
     nsCOMPtr<IHistory> history = services::GetHistoryService();
-    if (mPrerenderGlobalHistory) {
-      mPrerenderGlobalHistory->SetURITitle(aURI, mTitle);
-    } else if (history) {
+    if (history) {
       history->SetURITitle(aURI, mTitle);
     } else if (mGlobalHistory) {
       mGlobalHistory->SetPageTitle(aURI, nsString(mTitle));

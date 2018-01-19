@@ -1228,6 +1228,7 @@ class PackageFrontend(MachCommandBase):
         import shutil
 
         from taskgraph.generator import load_graph_config, Kind
+        from taskgraph.parameters import Parameters
         from taskgraph.util.taskcluster import (
             get_artifact_url,
             list_artifacts,
@@ -1289,19 +1290,19 @@ class PackageFrontend(MachCommandBase):
             def __init__(self, task_id, artifact_name):
                 cot = cache._download_manager.session.get(
                     get_artifact_url(task_id, 'public/chainOfTrust.json.asc'))
+                cot.raise_for_status()
                 digest = algorithm = None
-                if cot.status_code == 200:
-                    # The file is GPG-signed, but we don't care about validating
-                    # that. Instead of parsing the PGP signature, we just take
-                    # the one line we're interested in, which starts with a `{`.
-                    data = {}
-                    for l in cot.content.splitlines():
-                        if l.startswith('{'):
-                            try:
-                                data = json.loads(l)
-                                break
-                            except Exception:
-                                pass
+                data = {}
+                # The file is GPG-signed, but we don't care about validating
+                # that. Instead of parsing the PGP signature, we just take
+                # the one line we're interested in, which starts with a `{`.
+                for l in cot.content.splitlines():
+                    if l.startswith('{'):
+                        try:
+                            data = json.loads(l)
+                            break
+                        except Exception:
+                            pass
                 for algorithm, digest in (data.get('artifacts', {})
                                               .get(artifact_name, {}).items()):
                     pass
@@ -1351,7 +1352,7 @@ class PackageFrontend(MachCommandBase):
             def tasks(kind_name):
                 root_path = mozpath.join(self.topsrcdir, 'taskcluster', 'ci')
                 graph_config = load_graph_config(root_path)
-                tasks = Kind.load(root_path, graph_config, kind_name).load_tasks(params, {})
+                tasks = Kind.load(root_path, graph_config, kind_name).load_tasks(Parameters(**params), {})
                 return {
                     task.task['metadata']['name']: task
                     for task in tasks

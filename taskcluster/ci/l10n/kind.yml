@@ -41,11 +41,9 @@ job-template:
          android-api-16-l10n: 18000
    docker-image:
       by-build-platform:
-         default:
-            in-tree: desktop-build
          android-api-16-l10n:
             in-tree: android-build
-         win.*: null
+         default: null
    secrets:
       by-build-platform:
          default: false
@@ -70,7 +68,7 @@ job-template:
          default: aws-provisioner-v1/gecko-{level}-b-linux
          android: aws-provisioner-v1/gecko-{level}-b-android
    treeherder:
-      symbol: tc(L10n)
+      symbol: L10n
       tier: 2
       platform:
          by-build-platform:

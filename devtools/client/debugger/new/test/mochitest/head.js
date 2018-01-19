@@ -300,9 +300,7 @@ function assertDebugLine(dbg, line) {
     const url = source.get("url");
     ok(
       false,
-      `Looks like the source ${
-        url
-      } is still loading. Try adding waitForLoadedSource in the test.`
+      `Looks like the source ${url} is still loading. Try adding waitForLoadedSource in the test.`
     );
     return;
   }
@@ -598,13 +596,11 @@ function waitForLoadedSources(dbg) {
  * @static
  */
 function selectSource(dbg, url, line) {
-  info(`Selecting source: ${url}`);
   const source = findSource(dbg, url);
   return dbg.actions.selectLocation({ sourceId: source.id, line });
 }
 
 function closeTab(dbg, url) {
-  info(`Closing tab: ${url}`);
   const source = findSource(dbg, url);
   return dbg.actions.closeTab(source.url);
 }
@@ -618,7 +614,6 @@ function closeTab(dbg, url) {
  * @static
  */
 async function stepOver(dbg) {
-  info("Stepping over");
   await dbg.actions.stepOver();
   return waitForPaused(dbg);
 }
@@ -920,9 +915,7 @@ const selectors = {
   expressionNode: i =>
     `.expressions-list .expression-container:nth-child(${i}) .object-label`,
   expressionValue: i =>
-    `.expressions-list .expression-container:nth-child(${
-      i
-    }) .object-delimiter + *`,
+    `.expressions-list .expression-container:nth-child(${i}) .object-delimiter + *`,
   expressionClose: i =>
     `.expressions-list .expression-container:nth-child(${i}) .close`,
   expressionNodes: ".expressions-list .tree-node",

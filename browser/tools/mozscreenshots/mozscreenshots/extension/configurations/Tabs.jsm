@@ -17,6 +17,8 @@ Cu.import("resource://gre/modules/Timer.jsm");
 Cu.import("resource://testing-common/TestUtils.jsm");
 Cu.import("resource://testing-common/BrowserTestUtils.jsm");
 
+Cu.importGlobalProperties(["InspectorUtils"]);
+
 this.Tabs = {
   init(libDir) {},
 
@@ -51,7 +53,7 @@ this.Tabs = {
         hoverTab(browserWindow.gBrowser.tabs[2]);
         // also hover the new tab button
         let newTabButton = browserWindow.document.getAnonymousElementByAttribute(browserWindow.
-                           gBrowser.tabContainer, "class", "tabs-newtab-button");
+                           gBrowser.tabContainer, "anonid", "tabs-newtab-button");
         hoverTab(newTabButton);
         browserWindow.gBrowser.tabs[browserWindow.gBrowser.tabs.length - 1].
                       setAttribute("beforehovered", true);
@@ -132,6 +134,7 @@ async function allTabTitlesDisplayed(browserWindow) {
     "about:home": "New Tab",
     "about:newtab": "New Tab",
     "about:addons": "Add-ons Manager",
+    "about:privatebrowsing": "Open a private window?"
   };
   specToTitleMap[PREFS_TAB] = "browser/skin/settings.svg";
   specToTitleMap[CUST_TAB] = "browser/skin/customize.svg";
@@ -189,11 +192,10 @@ function closeAllButOneTab(url = "about:blank") {
 }
 
 function hoverTab(tab, hover = true) {
-  const inIDOMUtils = Cc["@mozilla.org/inspector/dom-utils;1"].getService(Ci.inIDOMUtils);
   if (hover) {
-    inIDOMUtils.addPseudoClassLock(tab, ":hover");
+    InspectorUtils.addPseudoClassLock(tab, ":hover");
   } else {
-    inIDOMUtils.clearPseudoClassLocks(tab);
+    InspectorUtils.clearPseudoClassLocks(tab);
   }
   // XXX TODO: this isn't necessarily testing what we ship
   if (tab.nextElementSibling)

@@ -3754,9 +3754,9 @@ class JS_FRIEND_API(ReadOnlyCompileOptions) : public TransitiveCompileOptions
     const char* filename() const { return filename_; }
     const char* introducerFilename() const { return introducerFilename_; }
     const char16_t* sourceMapURL() const { return sourceMapURL_; }
-    virtual JSObject* element() const = 0;
-    virtual JSString* elementAttributeName() const = 0;
-    virtual JSScript* introductionScript() const = 0;
+    virtual JSObject* element() const override = 0;
+    virtual JSString* elementAttributeName() const override = 0;
+    virtual JSScript* introductionScript() const override = 0;
 
     // POD options.
     unsigned lineno;
@@ -5881,6 +5881,7 @@ JS_SetOffthreadIonCompilationEnabled(JSContext* cx, bool enabled);
     Register(FULL_DEBUG_CHECKS, "jit.full-debug-checks")                    \
     Register(JUMP_THRESHOLD, "jump-threshold")                              \
     Register(SIMULATOR_ALWAYS_INTERRUPT, "simulator.always-interrupt")      \
+    Register(SPECTRE_INDEX_MASKING, "spectre.index-masking")                \
     Register(ASMJS_ATOMICS_ENABLE, "asmjs.atomics.enable")                  \
     Register(WASM_FOLD_OFFSETS, "wasm.fold-offsets")
 

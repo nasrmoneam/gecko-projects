@@ -261,9 +261,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "Haptic",
 XPCOMUtils.defineLazyServiceGetter(this, "ParentalControls",
   "@mozilla.org/parental-controls-service;1", "nsIParentalControlsService");
 
-XPCOMUtils.defineLazyServiceGetter(this, "DOMUtils",
-  "@mozilla.org/inspector/dom-utils;1", "inIDOMUtils");
-
 XPCOMUtils.defineLazyModuleGetter(this, "Log",
   "resource://gre/modules/AndroidLog.jsm", "AndroidLog");
 
@@ -2762,8 +2759,8 @@ var NativeWindow = {
     _getContextType: function(element) {
       // For anchor nodes, we try to use the scheme to pick a string
       if (ChromeUtils.getClassName(element) === "HTMLAnchorElement") {
-        let uri = this.makeURI(this._getLinkURL(element));
         try {
+          let uri = this.makeURI(this._getLinkURL(element));
           return Strings.browser.GetStringFromName("browser.menu.context." + uri.scheme);
         } catch(ex) { }
       }

@@ -149,9 +149,9 @@ class FieldScanner {
    */
   getSectionFieldDetails() {
     // When the section feature is disabled, `getSectionFieldDetails` should
-    // provide a single section result.
+    // provide a single address and credit card section result.
     if (!this._sectionEnabled) {
-      return [this._getFinalDetails(this.fieldDetails)];
+      return this._getFinalDetails(this.fieldDetails);
     }
     if (this._sections.length == 0) {
       return [];
@@ -160,9 +160,10 @@ class FieldScanner {
       this._classifySections();
     }
 
-    return this._sections.map(section =>
-      this._getFinalDetails(section.fieldDetails)
-    );
+    return this._sections.reduce((sections, current) => {
+      sections.push(...this._getFinalDetails(current.fieldDetails));
+      return sections;
+    }, []);
   }
 
   /**
@@ -181,18 +182,15 @@ class FieldScanner {
     }
     let element = this._elements[elementIndex];
     let info = FormAutofillHeuristics.getInfo(element);
-    if (!info) {
-      info = {};
-    }
     let fieldInfo = {
-      section: info.section,
-      addressType: info.addressType,
-      contactType: info.contactType,
-      fieldName: info.fieldName,
+      section: info ? info.section : "",
+      addressType: info ? info.addressType : "",
+      contactType: info ? info.contactType : "",
+      fieldName: info ? info.fieldName : "",
       elementWeakRef: Cu.getWeakReference(element),
     };
 
-    if (info._reason) {
+    if (info && info._reason) {
       fieldInfo._reason = info._reason;
     }
 
@@ -239,6 +237,9 @@ class FieldScanner {
    * the final `fieldDetails` will include the duplicated fields if
    * `_allowDuplicates` is true.
    *
+   * Each item should contain one type of fields only, and the two valid types
+   * are Address and CreditCard.
+   *
    * @param   {Array<Object>} fieldDetails
    *          The field details for trimming.
    * @returns {Array<Object>}
@@ -246,19 +247,40 @@ class FieldScanner {
    *          duplicated fields.
    */
   _getFinalDetails(fieldDetails) {
-    if (this._allowDuplicates) {
-      return fieldDetails.filter(f => f.fieldName);
-    }
-
-    let dedupedFieldDetails = [];
+    let addressFieldDetails = [];
+    let creditCardFieldDetails = [];
     for (let fieldDetail of fieldDetails) {
-      if (fieldDetail.fieldName && !dedupedFieldDetails.find(f => this._isSameField(fieldDetail, f))) {
-        dedupedFieldDetails.push(fieldDetail);
+      let fieldName = fieldDetail.fieldName;
+      if (FormAutofillUtils.isAddressField(fieldName)) {
+        addressFieldDetails.push(fieldDetail);
+      } else if (FormAutofillUtils.isCreditCardField(fieldName)) {
+        creditCardFieldDetails.push(fieldDetail);
       } else {
-        log.debug("Not collecting an invalid field or matching another with the same info:", fieldDetail);
+        log.debug("Not collecting a field with a unknown fieldName", fieldDetail);
       }
     }
-    return dedupedFieldDetails;
+
+    return [
+      {
+        type: FormAutofillUtils.SECTION_TYPES.ADDRESS,
+        fieldDetails: addressFieldDetails,
+      },
+      {
+        type: FormAutofillUtils.SECTION_TYPES.CREDIT_CARD,
+        fieldDetails: creditCardFieldDetails,
+      },
+    ].map(section => {
+      if (this._allowDuplicates) {
+        return section;
+      }
+      // Deduplicate each set of fieldDetails
+      let details = section.fieldDetails;
+      section.fieldDetails = details.filter((detail, index) => {
+        let previousFields = details.slice(0, index);
+        return !previousFields.find(f => this._isSameField(detail, f));
+      });
+      return section;
+    }).filter(section => section.fieldDetails.length > 0);
   }
 
   elementExisting(index) {
@@ -514,9 +536,19 @@ this.FormAutofillHeuristics = {
     }
 
     let nextField = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex);
-    if (nextField && nextField.fieldName == "tel-extension") {
-      fieldScanner.parsingIndex++;
-      parsedField = true;
+    if (nextField && nextField._reason != "autocomplete" && fieldScanner.parsingIndex > 0) {
+      const regExpTelExtension = new RegExp(
+        "\\bext|ext\\b|extension" +
+        "|ramal", // pt-BR, pt-PT
+        "iu");
+      const previousField = fieldScanner.getFieldDetailByIndex(fieldScanner.parsingIndex - 1);
+      const previousFieldType = FormAutofillUtils.getCategoryFromFieldName(previousField.fieldName);
+      if (previousField && previousFieldType == "tel" &&
+        this._matchRegexp(nextField.elementWeakRef.get(), regExpTelExtension)) {
+        fieldScanner.updateFieldName(fieldScanner.parsingIndex, "tel-extension");
+        fieldScanner.parsingIndex++;
+        parsedField = true;
+      }
     }
 
     return parsedField;

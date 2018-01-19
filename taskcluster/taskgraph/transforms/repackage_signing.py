@@ -10,7 +10,10 @@ from __future__ import absolute_import, print_function, unicode_literals
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.attributes import copy_attributes_from_dependent_job
 from taskgraph.util.schema import validate_schema, Schema
-from taskgraph.util.scriptworker import get_signing_cert_scope_per_platform
+from taskgraph.util.scriptworker import (
+    get_signing_cert_scope_per_platform,
+    get_worker_type_for_scope,
+)
 from taskgraph.transforms.task import task_description_schema
 from voluptuous import Required, Optional
 
@@ -47,7 +50,7 @@ def make_repackage_signing_description(config, jobs):
         attributes = dep_job.attributes
 
         treeherder = job.get('treeherder', {})
-        treeherder.setdefault('symbol', 'tc-rs(N)')
+        treeherder.setdefault('symbol', 'rs(N)')
         dep_th_platform = dep_job.task.get('extra', {}).get(
             'treeherder', {}).get('machine', {}).get('platform', '')
         treeherder.setdefault('platform',
@@ -76,7 +79,7 @@ def make_repackage_signing_description(config, jobs):
 
         locale_str = ""
         if dep_job.attributes.get('locale'):
-            treeherder['symbol'] = 'tc-rs({})'.format(dep_job.attributes.get('locale'))
+            treeherder['symbol'] = 'rs({})'.format(dep_job.attributes.get('locale'))
             attributes['locale'] = dep_job.attributes.get('locale')
             locale_str = "{}/".format(dep_job.attributes.get('locale'))
 
@@ -121,7 +124,7 @@ def make_repackage_signing_description(config, jobs):
         task = {
             'label': label,
             'description': description,
-            'worker-type': _generate_worker_type(signing_cert_scope),
+            'worker-type': get_worker_type_for_scope(config, signing_cert_scope),
             'worker': {'implementation': 'scriptworker-signing',
                        'upstream-artifacts': upstream_artifacts,
                        'max-run-time': 3600},
@@ -133,8 +136,3 @@ def make_repackage_signing_description(config, jobs):
         }
 
         yield task
-
-
-def _generate_worker_type(signing_cert_scope):
-    worker_type = 'depsigning' if 'dep-signing' in signing_cert_scope else 'signing-linux-v1'
-    return 'scriptworker-prov-v1/{}'.format(worker_type)

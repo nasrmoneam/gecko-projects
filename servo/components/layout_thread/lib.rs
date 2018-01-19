@@ -69,7 +69,7 @@ use layout::context::LayoutContext;
 use layout::context::RegisteredPainter;
 use layout::context::RegisteredPainters;
 use layout::context::malloc_size_of_persistent_local_context;
-use layout::display_list::{ToGfxColor, WebRenderDisplayListConverter};
+use layout::display_list::WebRenderDisplayListConverter;
 use layout::flow::{Flow, GetBaseFlow, ImmutableFlowUtils, MutableOwnedFlowUtils};
 use layout::flow_ref::FlowRef;
 use layout::incremental::{LayoutDamageComputation, RelayoutMode, SpecialRestyleDamage};
@@ -108,7 +108,7 @@ use servo_atoms::Atom;
 use servo_config::opts;
 use servo_config::prefs::PREFS;
 use servo_config::resource_files::read_resource_file;
-use servo_geometry::max_rect;
+use servo_geometry::MaxRect;
 use servo_url::ServoUrl;
 use std::borrow::ToOwned;
 use std::cell::{Cell, RefCell};
@@ -1042,7 +1042,7 @@ impl LayoutThread {
             // Observe notifications about rendered frames if needed right before
             // sending the display list to WebRender in order to set time related
             // Progressive Web Metrics.
-            self.paint_time_metrics.maybe_observe_paint_time(self, epoch, &display_list);
+            self.paint_time_metrics.maybe_observe_paint_time(self, epoch, &*display_list);
 
             self.webrender_api.set_display_list(
                 self.webrender_document,
@@ -1467,7 +1467,7 @@ impl LayoutThread {
 
         if let Some(mut root_flow) = self.root_flow.borrow().clone() {
             let reflow_info = Reflow {
-                page_clip_rect: max_rect(),
+                page_clip_rect: Rect::max_rect(),
             };
 
             // Unwrap here should not panic since self.root_flow is only ever set to Some(_)
@@ -1688,10 +1688,15 @@ fn get_root_flow_background_color(flow: &mut Flow) -> webrender_api::ColorF {
     }
 
     let kid_block_flow = kid.as_block();
-    kid_block_flow.fragment
+    let color = kid_block_flow.fragment
                   .style
-                  .resolve_color(kid_block_flow.fragment.style.get_background().background_color)
-                  .to_gfx_color()
+                  .resolve_color(kid_block_flow.fragment.style.get_background().background_color);
+    webrender_api::ColorF::new(
+        color.red_f32(),
+        color.green_f32(),
+        color.blue_f32(),
+        color.alpha_f32(),
+    )
 }
 
 fn get_ua_stylesheets() -> Result<UserAgentStylesheets, &'static str> {

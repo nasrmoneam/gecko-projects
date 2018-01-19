@@ -1652,7 +1652,7 @@ CSS_PROP_CONTENT(
     CounterIncrement,
     CSS_PROPERTY_PARSE_FUNCTION,
     "",
-    0,
+    VARIANT_INHERIT | VARIANT_NONE,
     nullptr,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete) // XXX bug 137285
@@ -1662,7 +1662,7 @@ CSS_PROP_CONTENT(
     CounterReset,
     CSS_PROPERTY_PARSE_FUNCTION,
     "",
-    0,
+    VARIANT_INHERIT | VARIANT_NONE,
     nullptr,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete) // XXX bug 137285
@@ -3035,7 +3035,7 @@ CSS_PROP_POSITION(
     CSS_PROPERTY_PARSE_FUNCTION |
         CSS_PROPERTY_STORES_CALC,
     "",
-    0,
+    VARIANT_CALC,
     kImageLayerPositionKTable,
     offsetof(nsStylePosition, mObjectPosition),
     eStyleAnimType_Custom)
@@ -3528,7 +3528,7 @@ CSS_PROP_DISPLAY(
         CSS_PROPERTY_STORES_CALC |
         CSS_PROPERTY_GETCS_NEEDS_LAYOUT_FLUSH,
     "",
-    0,
+    VARIANT_CALC,
     kImageLayerPositionKTable,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Custom)
@@ -3580,7 +3580,7 @@ CSS_PROP_LIST(
     Quotes,
     CSS_PROPERTY_PARSE_FUNCTION,
     "",
-    0,
+    VARIANT_HOS,
     nullptr,
     CSS_PROP_NO_OFFSET,
     eStyleAnimType_Discrete)

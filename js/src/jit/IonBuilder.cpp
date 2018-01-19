@@ -2341,9 +2341,13 @@ IonBuilder::inspectOpcode(JSOp op)
             pushConstant(UndefinedValue());
             return Ok();
         }
-
-        // Just fall through to the unsupported bytecode case.
-        break;
+        // Fallthrough to IMPLICITTHIS in non-syntactic scope case
+        MOZ_FALLTHROUGH;
+      case JSOP_IMPLICITTHIS:
+      {
+        PropertyName* name = info().getAtom(pc)->asPropertyName();
+        return jsop_implicitthis(name);
+      }
 
       case JSOP_NEWTARGET:
         return jsop_newtarget();
@@ -2443,7 +2447,6 @@ IonBuilder::inspectOpcode(JSOp op)
       case JSOP_FINALLY:
       case JSOP_GETRVAL:
       case JSOP_GOSUB:
-      case JSOP_IMPLICITTHIS:
       case JSOP_RETSUB:
       case JSOP_SETINTRINSIC:
       case JSOP_THROWMSG:
@@ -5526,6 +5529,7 @@ IonBuilder::makeCallHelper(JSFunction* target, CallInfo& callInfo)
         targetArgs = Max<uint32_t>(target->nargs(), callInfo.argc());
 
     bool isDOMCall = false;
+    DOMObjectKind objKind = DOMObjectKind::Unknown;
     if (target && !callInfo.constructing()) {
         // We know we have a single call target.  Check whether the "this" types
         // are DOM types and our function a DOM function, and if so flag the
@@ -5533,7 +5537,7 @@ IonBuilder::makeCallHelper(JSFunction* target, CallInfo& callInfo)
         TemporaryTypeSet* thisTypes = callInfo.thisArg()->resultTypeSet();
         if (thisTypes &&
             thisTypes->getKnownMIRType() == MIRType::Object &&
-            thisTypes->isDOMClass(constraints()))
+            thisTypes->isDOMClass(constraints(), &objKind))
         {
             MOZ_TRY_VAR(isDOMCall, testShouldDOMCall(thisTypes, target, JSJitInfo::Method));
         }
@@ -5541,7 +5545,7 @@ IonBuilder::makeCallHelper(JSFunction* target, CallInfo& callInfo)
 
     MCall* call = MCall::New(alloc(), target, targetArgs + 1 + callInfo.constructing(),
                              callInfo.argc(), callInfo.constructing(),
-                             callInfo.ignoresReturnValue(), isDOMCall);
+                             callInfo.ignoresReturnValue(), isDOMCall, objKind);
     if (!call)
         return abort(AbortReason::Alloc);
 
@@ -9819,6 +9823,11 @@ IonBuilder::jsop_getelem_super()
     MDefinition* receiver = current->pop();
     MDefinition* id = current->pop();
 
+#if defined(JS_CODEGEN_X86)
+    if (instrumentedProfiling())
+        return abort(AbortReason::Disable, "profiling functions with GETELEM_SUPER is disabled on x86");
+#endif
+
     auto* ins = MGetPropSuperCache::New(alloc(), obj, receiver, id);
     current->add(ins);
     current->push(ins);
@@ -10842,7 +10851,12 @@ IonBuilder::getPropTryModuleNamespace(bool* emitted, MDefinition* obj, PropertyN
     MConstant* envConst = constant(ObjectValue(*env));
     uint32_t slot = shape->slot();
     uint32_t nfixed = env->numFixedSlots();
-    MOZ_TRY(loadSlot(envConst, slot, nfixed, types->getKnownMIRType(), barrier, types));
+
+    MIRType rvalType = types->getKnownMIRType();
+    if (barrier != BarrierKind::NoBarrier || IsNullOrUndefined(rvalType))
+        rvalType = MIRType::Value;
+
+    MOZ_TRY(loadSlot(envConst, slot, nfixed, rvalType, barrier, types));
 
     trackOptimizationSuccess();
     *emitted = true;
@@ -11019,7 +11033,8 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
         }
     }
 
-    bool isDOM = objTypes && objTypes->isDOMClass(constraints());
+    DOMObjectKind objKind = DOMObjectKind::Unknown;
+    bool isDOM = objTypes && objTypes->isDOMClass(constraints(), &objKind);
     if (isDOM)
         MOZ_TRY_VAR(isDOM, testShouldDOMCall(objTypes, commonGetter, JSJitInfo::Getter));
 
@@ -11029,8 +11044,9 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
         // be proxies when the value might be in a slot, because the
         // CodeGenerator code for LGetDOMProperty/LGetDOMMember doesn't handle
         // that case correctly.
-        if ((!jitinfo->isAlwaysInSlot && !jitinfo->isLazilyCachedInSlot) ||
-            !objTypes->maybeProxy(constraints())) {
+        if (objKind == DOMObjectKind::Native ||
+            (!jitinfo->isAlwaysInSlot && !jitinfo->isLazilyCachedInSlot))
+        {
             MInstruction* get;
             if (jitinfo->isAlwaysInSlot) {
                 // If our object is a singleton and we know the property is
@@ -11050,7 +11066,7 @@ IonBuilder::getPropTryCommonGetter(bool* emitted, MDefinition* obj, PropertyName
                 // needed.
                 get = MGetDOMMember::New(alloc(), jitinfo, obj, guard, globalGuard);
             } else {
-                get = MGetDOMProperty::New(alloc(), jitinfo, obj, guard, globalGuard);
+                get = MGetDOMProperty::New(alloc(), jitinfo, objKind, obj, guard, globalGuard);
             }
             if (!get)
                 return abort(AbortReason::Alloc);
@@ -11722,7 +11738,8 @@ IonBuilder::setPropTryCommonDOMSetter(bool* emitted, MDefinition* obj,
 {
     MOZ_ASSERT(*emitted == false);
 
-    if (!objTypes || !objTypes->isDOMClass(constraints()))
+    DOMObjectKind objKind = DOMObjectKind::Unknown;
+    if (!objTypes || !objTypes->isDOMClass(constraints(), &objKind))
         return Ok();
 
     bool isDOM = false;
@@ -11732,7 +11749,8 @@ IonBuilder::setPropTryCommonDOMSetter(bool* emitted, MDefinition* obj,
 
     // Emit SetDOMProperty.
     MOZ_ASSERT(setter->jitInfo()->type() == JSJitInfo::Setter);
-    MSetDOMProperty* set = MSetDOMProperty::New(alloc(), setter->jitInfo()->setter, obj, value);
+    MSetDOMProperty* set = MSetDOMProperty::New(alloc(), setter->jitInfo()->setter, objKind,
+                                                obj, value);
 
     current->add(set);
     current->push(value);
@@ -13195,6 +13213,18 @@ IonBuilder::jsop_debugger()
     // cx->compartment()->isDebuggee(). Resume in-place and have baseline
     // handle the details.
     return resumeAt(debugger, pc);
+}
+
+AbortReasonOr<Ok>
+IonBuilder::jsop_implicitthis(PropertyName* name)
+{
+    MOZ_ASSERT(usesEnvironmentChain());
+
+    MImplicitThis* implicitThis = MImplicitThis::New(alloc(), current->environmentChain(), name);
+    current->add(implicitThis);
+    current->push(implicitThis);
+
+    return resumeAfter(implicitThis);
 }
 
 MInstruction*

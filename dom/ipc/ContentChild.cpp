@@ -73,6 +73,7 @@
 #include "mozilla/media/MediaChild.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/WebBrowserPersistDocumentChild.h"
+#include "mozilla/HangDetails.h"
 #include "imgLoader.h"
 #include "GMPServiceChild.h"
 #include "NullPrincipal.h"
@@ -137,6 +138,7 @@
 #ifdef NS_PRINTING
 #include "nsPrintingProxy.h"
 #endif
+#include "nsWindowMemoryReporter.h"
 
 #include "IHistory.h"
 #include "nsNetUtil.h"
@@ -473,7 +475,7 @@ class PendingInputEventHangAnnotator final
   : public HangMonitor::Annotator
 {
 public:
-  virtual void AnnotateHang(HangMonitor::HangAnnotations& aAnnotations)
+  virtual void AnnotateHang(HangMonitor::HangAnnotations& aAnnotations) override
   {
     int32_t pending = ContentChild::GetSingleton()->GetPendingInputEvents();
     if (pending > 0) {
@@ -2651,6 +2653,15 @@ ContentChild::RecvCycleCollect()
     obs->NotifyObservers(nullptr, "child-cc-request", nullptr);
   }
   nsJSContext::CycleCollectNow();
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult
+ContentChild::RecvUnlinkGhosts()
+{
+#ifdef DEBUG
+  nsWindowMemoryReporter::UnlinkGhostWindows();
+#endif
   return IPC_OK();
 }
 

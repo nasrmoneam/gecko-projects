@@ -2355,7 +2355,7 @@ public:
   }
   virtual ~CounterStyleCleaner() {}
 
-  void DidRefresh() final
+  void DidRefresh() final override
   {
     mRefreshDriver->RemovePostRefreshObserver(this);
     mCounterStyleManager->CleanRetiredStyles();
@@ -3176,8 +3176,7 @@ nsPresContext::RebuildFontFeatureValues()
 
 nsRootPresContext::nsRootPresContext(nsIDocument* aDocument,
                                      nsPresContextType aType)
-  : nsPresContext(aDocument, aType),
-    mDOMGeneration(0)
+  : nsPresContext(aDocument, aType)
 {
 }
 

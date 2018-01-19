@@ -119,6 +119,7 @@ const UPDATE_PROPS = [
   "transferredSize",
   "totalTime",
   "eventTimings",
+  "eventTimingsAvailable",
   "headersSize",
   "customQueryValue",
   "requestHeaders",
@@ -250,6 +251,7 @@ const HEADERS = [
   ...RESPONSE_HEADERS
     .map(header => ({
       name: header,
+      boxName: "response-header",
       canFilter: false,
       subMenu: "responseHeaders",
       noLocalization: true

@@ -9,6 +9,7 @@ use malloc_size_of::MallocSizeOfOps;
 use selectors::{Element, NthIndexCache};
 use selectors::matching::{MatchingContext, MatchingMode, matches_selector};
 use servo_arc::{Arc, ArcBorrow, RawOffsetArc};
+use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::env;
 use std::fmt::Write;
@@ -214,6 +215,16 @@ pub extern "C" fn Servo_Shutdown() {
 
 unsafe fn dummy_url_data() -> &'static RefPtr<URLExtraData> {
     RefPtr::from_ptr_ref(&DUMMY_URL_DATA)
+}
+
+#[allow(dead_code)]
+fn is_main_thread() -> bool {
+    unsafe { bindings::Gecko_IsMainThread() }
+}
+
+#[allow(dead_code)]
+fn is_in_servo_traversal() -> bool {
+    unsafe { bindings::Gecko_IsInServoTraversal() }
 }
 
 fn create_shared_context<'a>(
@@ -1014,8 +1025,13 @@ pub extern "C" fn Servo_Element_GetPseudoComputedValues(element: RawGeckoElement
 #[no_mangle]
 pub extern "C" fn Servo_Element_IsDisplayNone(element: RawGeckoElementBorrowed) -> bool {
     let element = GeckoElement(element);
-    let data = element.borrow_data().expect("Invoking Servo_Element_IsDisplayNone on unstyled element");
-    data.styles.is_display_none()
+    let data = element.get_data().expect("Invoking Servo_Element_IsDisplayNone on unstyled element");
+
+    // This function is hot, so we bypass the AtomicRefCell. It would be nice to also assert that
+    // we're not in the servo traversal, but this function is called at various intermediate
+    // checkpoints when managing the traversal on the Gecko side.
+    debug_assert!(is_main_thread());
+    unsafe { &*data.as_ptr() }.styles.is_display_none()
 }
 
 #[no_mangle]
@@ -1335,6 +1351,7 @@ fn read_locked_arc<T, R, F>(raw: &<Locked<T> as HasFFI>::FFIType, func: F) -> R
 unsafe fn read_locked_arc_unchecked<T, R, F>(raw: &<Locked<T> as HasFFI>::FFIType, func: F) -> R
     where Locked<T>: HasArcFFI, F: FnOnce(&T) -> R
 {
+    debug_assert!(is_main_thread() && !is_in_servo_traversal());
     read_locked_arc(raw, func)
 }
 
@@ -1422,11 +1439,18 @@ macro_rules! impl_basic_rule_funcs_without_getter {
         debug: $debug:ident,
         to_css: $to_css:ident,
     } => {
+        #[cfg(debug_assertions)]
         #[no_mangle]
         pub extern "C" fn $debug(rule: &$raw_type, result: *mut nsACString) {
             read_locked_arc(rule, |rule: &$rule_type| {
                 write!(unsafe { result.as_mut().unwrap() }, "{:?}", *rule).unwrap();
             })
+        }
+
+        #[cfg(not(debug_assertions))]
+        #[no_mangle]
+        pub extern "C" fn $debug(_: &$raw_type, _: *mut nsACString) {
+            unreachable!()
         }
 
         #[no_mangle]
@@ -1751,7 +1775,6 @@ pub unsafe extern "C" fn Servo_SelectorList_QueryAll(
     content_list: *mut structs::nsSimpleContentList,
     may_use_invalidation: bool,
 ) {
-    use smallvec::SmallVec;
     use std::borrow::Borrow;
     use style::dom_apis::{self, MayUseInvalidation, QueryAll};
 
@@ -2260,17 +2283,16 @@ fn get_pseudo_style(
             };
             let guards = StylesheetGuards::same(guard);
             let metrics = get_metrics_provider_for_product();
-            doc_data.stylist
-                .lazily_compute_pseudo_element_style(
-                    &guards,
-                    &element,
-                    &pseudo,
-                    rule_inclusion,
-                    base,
-                    is_probe,
-                    &metrics,
-                    matching_func,
-                )
+            doc_data.stylist.lazily_compute_pseudo_element_style(
+                &guards,
+                element,
+                &pseudo,
+                rule_inclusion,
+                base,
+                is_probe,
+                &metrics,
+                matching_func,
+            )
         },
     };
 
@@ -2369,10 +2391,10 @@ pub extern "C" fn Servo_ComputedValues_EqualCustomProperties(
 }
 
 #[no_mangle]
-pub extern "C" fn Servo_ComputedValues_GetStyleRuleList(values: ServoStyleContextBorrowed,
-                                                        rules: RawGeckoServoStyleRuleListBorrowedMut) {
-    use smallvec::SmallVec;
-
+pub extern "C" fn Servo_ComputedValues_GetStyleRuleList(
+    values: ServoStyleContextBorrowed,
+    rules: RawGeckoServoStyleRuleListBorrowedMut,
+) {
     let rule_node = match values.rules {
         Some(ref r) => r,
         None => return,
@@ -3014,7 +3036,7 @@ macro_rules! get_longhand_from_id {
         match PropertyId::from_nscsspropertyid($id) {
             Ok(PropertyId::Longhand(long)) => long,
             _ => {
-                panic!("stylo: unknown presentation property with id {:?}", $id);
+                panic!("stylo: unknown presentation property with id");
             }
         }
     };
@@ -3027,7 +3049,7 @@ macro_rules! match_wrap_declared {
                 LonghandId::$property => PropertyDeclaration::$property($inner),
             )*
             _ => {
-                panic!("stylo: Don't know how to handle presentation property {:?}", $longhand);
+                panic!("stylo: Don't know how to handle presentation property");
             }
         }
     )
@@ -3211,7 +3233,7 @@ pub extern "C" fn Servo_DeclarationBlock_SetLengthValue(
         structs::nsCSSUnit::eCSSUnit_Point => NoCalcLength::Absolute(AbsoluteLength::Pt(value)),
         structs::nsCSSUnit::eCSSUnit_Pica => NoCalcLength::Absolute(AbsoluteLength::Pc(value)),
         structs::nsCSSUnit::eCSSUnit_Quarter => NoCalcLength::Absolute(AbsoluteLength::Q(value)),
-        _ => unreachable!("Unknown unit {:?} passed to SetLengthValue", unit)
+        _ => unreachable!("Unknown unit passed to SetLengthValue")
     };
 
     let prop = match_wrap_declared! { long,
@@ -4905,6 +4927,40 @@ pub extern "C" fn Servo_ParseCounterStyleName(
     match parser.parse_entirely(counter_style::parse_counter_style_name_definition) {
         Ok(name) => name.0.into_addrefed(),
         Err(_) => ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Servo_InvalidateStyleForDocStateChanges(
+    root: RawGeckoElementBorrowed,
+    raw_style_sets: *const nsTArray<RawServoStyleSetBorrowed>,
+    states_changed: u64,
+) {
+    use style::invalidation::element::document_state::DocumentStateInvalidationProcessor;
+    use style::invalidation::element::invalidator::TreeStyleInvalidator;
+
+    let mut borrows = SmallVec::<[_; 20]>::with_capacity((*raw_style_sets).len());
+    for style_set in &**raw_style_sets {
+        borrows.push(PerDocumentStyleData::from_ffi(*style_set).borrow());
+    }
+    let root = GeckoElement(root);
+    let mut processor = DocumentStateInvalidationProcessor::new(
+        borrows.iter().flat_map(|b| b.stylist.iter_origins().map(|(data, _origin)| data)),
+        DocumentState::from_bits_truncate(states_changed),
+        root.as_node().owner_doc().quirks_mode(),
+    );
+
+    let result = TreeStyleInvalidator::new(
+        root,
+        /* stack_limit_checker = */ None,
+        &mut processor,
+    ).invalidate();
+
+    debug_assert!(!result.has_invalidated_siblings(), "How in the world?");
+    if result.has_invalidated_descendants() {
+        bindings::Gecko_NoteDirtySubtreeForInvalidation(root.0);
+    } else if result.has_invalidated_self() {
+        bindings::Gecko_NoteDirtyElement(root.0);
     }
 }
 

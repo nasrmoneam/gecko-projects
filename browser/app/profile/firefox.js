@@ -131,7 +131,11 @@ pref("app.update.log", false);
 pref("app.update.backgroundMaxErrors", 10);
 
 // Whether or not app updates are enabled
+#ifdef MOZ_UPDATER
 pref("app.update.enabled", true);
+#else
+pref("app.update.enabled", false);
+#endif
 
 // Whether or not to use the doorhanger application update UI.
 pref("app.update.doorhanger", true);
@@ -1220,6 +1224,8 @@ pref("services.sync.prefs.sync.privacy.sanitize.sanitizeOnShutdown", true);
 pref("services.sync.prefs.sync.privacy.trackingprotection.enabled", true);
 pref("services.sync.prefs.sync.privacy.trackingprotection.pbmode.enabled", true);
 pref("services.sync.prefs.sync.privacy.resistFingerprinting", true);
+pref("services.sync.prefs.sync.privacy.reduceTimerPrecision", true);
+pref("services.sync.prefs.sync.privacy.resistFingerprinting.reduceTimerPrecision.microseconds", true);
 pref("services.sync.prefs.sync.security.OCSP.enabled", true);
 pref("services.sync.prefs.sync.security.OCSP.require", true);
 pref("services.sync.prefs.sync.security.default_personal_cert", true);
@@ -1703,7 +1709,7 @@ pref("browser.crashReports.unsubmittedCheck.autoSubmit2", false);
 pref("extensions.formautofill.available", "on");
 pref("extensions.formautofill.creditCards.available", true);
 #elif MOZ_UPDATE_CHANNEL == release
-pref("extensions.formautofill.available", "staged-rollout");
+pref("extensions.formautofill.available", "detect");
 pref("extensions.formautofill.creditCards.available", false);
 #else
 pref("extensions.formautofill.available", "detect");
@@ -1724,7 +1730,13 @@ pref("extensions.formautofill.heuristics.enabled", true);
 pref("extensions.formautofill.section.enabled", true);
 pref("extensions.formautofill.loglevel", "Warn");
 // Comma separated list of countries Form Autofill supports
+#ifdef MOZ_UPDATE_CHANNEL == release
+pref("extensions.formautofill.supportedCountries", "US");
+pref("extensions.formautofill.supportRTL", false);
+#else
 pref("extensions.formautofill.supportedCountries", "US,CA,DE");
+pref("extensions.formautofill.supportRTL", true);
+#endif
 
 // Whether or not to restore a session with lazy-browser tabs.
 pref("browser.sessionstore.restore_tabs_lazily", true);

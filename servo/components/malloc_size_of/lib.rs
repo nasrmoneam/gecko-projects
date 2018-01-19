@@ -49,6 +49,7 @@ extern crate euclid;
 extern crate hashglobe;
 #[cfg(feature = "servo")]
 extern crate mozjs as js;
+extern crate selectors;
 extern crate servo_arc;
 extern crate smallbitvec;
 extern crate smallvec;
@@ -640,6 +641,13 @@ impl<T: MallocSizeOf, U> MallocSizeOf for euclid::TypedVector2D<T, U> {
     }
 }
 
+impl MallocSizeOf for selectors::parser::AncestorHashes {
+    fn size_of(&self, ops: &mut MallocSizeOfOps) -> usize {
+        let selectors::parser::AncestorHashes { ref packed_hashes } = *self;
+        packed_hashes.size_of(ops)
+    }
+}
+
 #[cfg(feature = "servo")]
 impl<Static: string_cache::StaticAtomSet> MallocSizeOf for string_cache::Atom<Static> {
     fn size_of(&self, _ops: &mut MallocSizeOfOps) -> usize {
@@ -708,19 +716,31 @@ impl MallocSizeOf for url::Host {
 }
 
 #[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::BorderStyle);
+#[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::BoxShadowClipMode);
+#[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::ClipAndScrollInfo);
 #[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::ClipId);
 #[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::ColorF);
 #[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::ExtendMode);
+#[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::GradientStop);
 #[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::ImageKey);
 #[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::ImageRendering);
+#[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::LineStyle);
+#[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::LocalClip);
 #[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::MixBlendMode);
+#[cfg(feature = "servo")]
+malloc_size_of_is_0!(webrender_api::NormalBorder);
 #[cfg(feature = "servo")]
 malloc_size_of_is_0!(webrender_api::RepeatMode);
 #[cfg(feature = "servo")]

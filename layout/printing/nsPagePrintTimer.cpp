@@ -17,14 +17,8 @@ NS_IMPL_ISUPPORTS_INHERITED(nsPagePrintTimer, mozilla::Runnable, nsITimerCallbac
 
 nsPagePrintTimer::~nsPagePrintTimer()
 {
-  // "Destroy" the document viewer; this normally doesn't actually
-  // destroy it because of the IncrementDestroyRefCount call below
-  // XXX This is messy; the document viewer should use a single approach
-  // to keep itself alive during printing
-  nsCOMPtr<nsIContentViewer> cv(do_QueryInterface(mDocViewerPrint));
-  if (cv) {
-    cv->Destroy();
-  }
+  // This matches the IncrementDestroyBlockedCount call in the constructor.
+  mDocViewerPrint->DecrementDestroyBlockedCount();
 }
 
 nsresult
@@ -146,24 +140,22 @@ nsPagePrintTimer::Notify(nsITimer *timer)
     }
   }
 
-  if (mDocViewerPrint) {
-    bool donePrePrint = true;
-    // Don't start to pre-print if we're waiting on the parent still.
-    if (mPrintJob && !mWaitingForRemotePrint) {
-      donePrePrint = mPrintJob->PrePrintPage();
-    }
-
-    if (donePrePrint && !mWaitingForRemotePrint) {
-      StopWatchDogTimer();
-      // Pass nullptr here since name already was set in constructor.
-      mDocument->Dispatch(TaskCategory::Other, do_AddRef(this));
-    } else {
-      // Start the watch dog if we're waiting for preprint to ensure that if any
-      // mozPrintCallbacks take to long we error out.
-      StartWatchDogTimer();
-    }
-
+  bool donePrePrint = true;
+  // Don't start to pre-print if we're waiting on the parent still.
+  if (mPrintJob && !mWaitingForRemotePrint) {
+    donePrePrint = mPrintJob->PrePrintPage();
   }
+
+  if (donePrePrint && !mWaitingForRemotePrint) {
+    StopWatchDogTimer();
+    // Pass nullptr here since name already was set in constructor.
+    mDocument->Dispatch(TaskCategory::Other, do_AddRef(this));
+  } else {
+    // Start the watch dog if we're waiting for preprint to ensure that if any
+    // mozPrintCallbacks take to long we error out.
+    StartWatchDogTimer();
+  }
+
   return NS_OK;
 }
 

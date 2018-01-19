@@ -134,7 +134,6 @@
 #include "nsIWebBrowserChrome.h"
 #include "nsIWebBrowserFind.h"  // For window.find()
 #include "nsIWindowMediator.h"  // For window.find()
-#include "nsComputedDOMStyle.h"
 #include "nsDOMCID.h"
 #include "nsDOMWindowUtils.h"
 #include "nsIWindowWatcher.h"
@@ -169,6 +168,7 @@
 #include "nsIJARChannel.h"
 #include "nsIScreenManager.h"
 #include "nsIEffectiveTLDService.h"
+#include "nsICSSDeclaration.h"
 
 #include "xpcprivate.h"
 
@@ -1750,8 +1750,32 @@ nsGlobalWindowInner::EnsureClientSource()
 
   bool newClientSource = false;
 
+  // Get the load info for the document if we performed a load.  Be careful
+  // not to look at about:blank or about:srcdoc loads, though. They will have
+  // a channel and loadinfo, but their loadinfo will never be controlled.  This
+  // would in turn inadvertantly trigger the logic below to clear the inherited
+  // controller.
+  nsCOMPtr<nsILoadInfo> loadInfo;
   nsCOMPtr<nsIChannel> channel = mDoc->GetChannel();
-  nsCOMPtr<nsILoadInfo> loadInfo = channel ? channel->GetLoadInfo() : nullptr;
+  if (channel) {
+    nsCOMPtr<nsIURI> uri;
+    Unused << channel->GetURI(getter_AddRefs(uri));
+
+    bool ignoreLoadInfo = false;
+
+    // Note, this is mostly copied from NS_IsAboutBlank().  Its duplicated
+    // here so we can efficiently check about:srcdoc as well.
+    bool isAbout = false;
+    if (NS_SUCCEEDED(uri->SchemeIs("about", &isAbout)) && isAbout) {
+      nsCString spec = uri->GetSpecOrDefault();
+      ignoreLoadInfo = spec.EqualsLiteral("about:blank") ||
+                       spec.EqualsLiteral("about:srcdoc");
+    }
+
+    if (!ignoreLoadInfo) {
+      loadInfo = channel->GetLoadInfo();
+    }
+  }
 
   // Take the initial client source from the docshell immediately.  Even if we
   // don't end up using it here we should consume it.
@@ -4909,7 +4933,7 @@ nsresult
 nsGlobalWindowInner::GetComputedStyleHelper(nsIDOMElement* aElt,
                                             const nsAString& aPseudoElt,
                                             bool aDefaultStylesOnly,
-                                            nsIDOMCSSStyleDeclaration** aReturn)
+                                            nsICSSDeclaration** aReturn)
 {
   NS_ENSURE_ARG_POINTER(aReturn);
   *aReturn = nullptr;
@@ -4920,9 +4944,9 @@ nsGlobalWindowInner::GetComputedStyleHelper(nsIDOMElement* aElt,
   }
 
   ErrorResult rv;
-  nsCOMPtr<nsIDOMCSSStyleDeclaration> declaration =
+  nsCOMPtr<nsICSSDeclaration> cs =
     GetComputedStyleHelper(*element, aPseudoElt, aDefaultStylesOnly, rv);
-  declaration.forget(aReturn);
+  cs.forget(aReturn);
 
   return rv.StealNSResult();
 }
@@ -7544,13 +7568,6 @@ nsGlobalWindowInner::CreateNamedPropertiesObject(JSContext *aCx,
                                                  JS::Handle<JSObject*> aProto)
 {
   return WindowNamedPropertiesHandler::Create(aCx, aProto);
-}
-
-bool
-nsGlobalWindowInner::GetIsPrerendered()
-{
-  nsIDocShell* docShell = GetDocShell();
-  return docShell && docShell->GetIsPrerendered();
 }
 
 void

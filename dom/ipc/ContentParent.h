@@ -894,7 +894,6 @@ private:
 
   virtual mozilla::ipc::IPCResult RecvAccumulateMixedContentHSTS(const URIParams& aURI,
                                                                  const bool& aActive,
-                                                                 const bool& aHSTSPriming,
                                                                  const OriginAttributes& aOriginAttributes) override;
 
   virtual bool DeallocPHalParent(PHalParent*) override;
@@ -990,6 +989,10 @@ private:
   virtual mozilla::ipc::IPCResult RecvClipboardHasType(nsTArray<nsCString>&& aTypes,
                                                        const int32_t& aWhichClipboard,
                                                        bool* aHasType) override;
+
+  virtual mozilla::ipc::IPCResult RecvPlaySound(const URIParams& aURI) override;
+  virtual mozilla::ipc::IPCResult RecvBeep() override;
+  virtual mozilla::ipc::IPCResult RecvPlayEventSound(const uint32_t& aEventId) override;
 
   virtual mozilla::ipc::IPCResult RecvGetSystemColors(const uint32_t& colorsCount,
                                                       InfallibleTArray<uint32_t>* colors) override;

@@ -271,21 +271,104 @@ interaction.selectOption = function(el) {
   event.mousemove(containerEl);
   event.mousedown(containerEl);
   event.focus(containerEl);
-  event.input(containerEl);
 
-  // Clicking <option> in <select> should not be deselected if selected.
-  // However, clicking one in a <select multiple> should toggle
-  // selectedness the way holding down Control works.
-  if (containerEl.multiple) {
-    el.selected = !el.selected;
-  } else if (!el.selected) {
-    el.selected = true;
+  if (!el.disabled) {
+    // Clicking <option> in <select> should not be deselected if selected.
+    // However, clicking one in a <select multiple> should toggle
+    // selectedness the way holding down Control works.
+    if (containerEl.multiple) {
+      el.selected = !el.selected;
+    } else if (!el.selected) {
+      el.selected = true;
+    }
+    event.input(containerEl);
+    event.change(containerEl);
   }
 
-  event.change(containerEl);
   event.mouseup(containerEl);
   event.click(containerEl);
 };
+
+/**
+ * Clears the form control or the editable element, if required.
+ *
+ * Before clearing the element, it will attempt to scroll it into
+ * view if it is not already in the viewport.  An error is raised
+ * if the element cannot be brought into view.
+ *
+ * If the element is a submittable form control and it is empty
+ * (it has no value or it has no files associated with it, in the
+ * case it is a <code>&lt;input type=file&gt;</code> element) or
+ * it is an editing host and its <code>innerHTML</code> content IDL
+ * attribute is empty, this function acts as a no-op.
+ *
+ * @param {Element} el
+ *     Element to clear.
+ *
+ * @throws {InvalidElementStateError}
+ *     If element is disabled, read-only, non-editable, not a submittable
+ *     element or not an editing host, or cannot be scrolled into view.
+ */
+interaction.clearElement = function(el) {
+  if (element.isDisabled(el)) {
+    throw new InvalidElementStateError(pprint`Element is disabled: ${el}`);
+  }
+  if (element.isReadOnly(el)) {
+    throw new InvalidElementStateError(pprint`Element is read-only: ${el}`);
+  }
+  if (!element.isEditable(el)) {
+    throw new InvalidElementStateError(
+        pprint`Unable to clear element that cannot be edited: ${el}`);
+  }
+
+  if (!element.isInView(el)) {
+    element.scrollIntoView(el);
+  }
+  if (!element.isInView(el)) {
+    throw new ElementNotInteractableError(
+        pprint`Element ${el} could not be scrolled into view`);
+  }
+
+  if (element.isEditingHost(el)) {
+    clearContentEditableElement(el);
+  } else {
+    clearResettableElement(el);
+  }
+};
+
+function clearContentEditableElement(el) {
+  if (el.innerHTML === "") {
+    return;
+  }
+  event.focus(el);
+  el.innerHTML = "";
+  event.blur(el);
+}
+
+function clearResettableElement(el) {
+  if (!element.isMutableFormControl(el)) {
+    throw new InvalidElementStateError(pprint`Not an editable form control: ${el}`);
+  }
+
+  let isEmpty;
+  switch (el.type) {
+    case "file":
+      isEmpty = el.files.length == 0;
+      break;
+
+    default:
+      isEmpty = el.value === "";
+      break;
+  }
+
+  if (el.validity.valid && isEmpty) {
+    return;
+  }
+
+  event.focus(el);
+  el.value = "";
+  event.blur(el);
+}
 
 /**
  * Waits until the event loop has spun enough times to process the

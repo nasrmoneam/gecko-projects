@@ -20,9 +20,16 @@ Services.scriptloader.loadSubScript(
 
 var {HUDService} = require("devtools/client/webconsole/hudservice");
 var WCUL10n = require("devtools/client/webconsole/webconsole-l10n");
-const DOCS_GA_PARAMS = "?utm_source=mozilla" +
-                       "&utm_medium=firefox-console-errors" +
-                       "&utm_campaign=default";
+const DOCS_GA_PARAMS = `?${new URLSearchParams({
+  "utm_source": "mozilla",
+  "utm_medium": "firefox-console-errors",
+  "utm_campaign": "default"
+})}`;
+const STATUS_CODES_GA_PARAMS = `?${new URLSearchParams({
+  "utm_source": "mozilla",
+  "utm_medium": "devtools-webconsole",
+  "utm_campaign": "default"
+})}`;
 
 Services.prefs.setBoolPref("devtools.webconsole.new-frontend-enabled", true);
 registerCleanupFunction(function* () {
@@ -413,24 +420,53 @@ async function closeConsole(tab = gBrowser.selectedTab) {
  * Fake clicking a link and return the URL we would have navigated to.
  * This function should be used to check external links since we can't access
  * network in tests.
+ * This can also be used to test that a click will not be fired.
  *
  * @param ElementNode element
  *        The <a> element we want to simulate click on.
+ * @param Object clickEventProps
+ *        The custom properties which would be used to dispatch a click event
  * @returns Promise
- *          A Promise that resolved when the link clik simulation occured.
+ *          A Promise that is resolved when the link click simulation occured or when the click is not dispatched.
+ *          The promise resolves with an object that holds the following properties
+ *          - link: url of the link or null(if event not fired)
+ *          - where: "tab" if tab is active or "tabshifted" if tab is inactive or null(if event not fired)
  */
-function simulateLinkClick(element) {
-  return new Promise((resolve) => {
-    // Override openUILinkIn to prevent navigating.
-    let oldOpenUILinkIn = window.openUILinkIn;
-    window.openUILinkIn = function (link) {
+function simulateLinkClick(element, clickEventProps) {
+  // Override openUILinkIn to prevent navigating.
+  let oldOpenUILinkIn = window.openUILinkIn;
+
+  const onOpenLink = new Promise((resolve) => {
+    window.openUILinkIn = function (link, where) {
       window.openUILinkIn = oldOpenUILinkIn;
-      resolve(link);
+      resolve({link: link, where});
     };
 
-    // Click on the link.
-    element.click();
+    if (clickEventProps) {
+      // Click on the link using the event properties.
+      element.dispatchEvent(clickEventProps);
+    } else {
+      // Click on the link.
+      element.click();
+    }
   });
+
+  // Declare a timeout Promise that we can use to make sure openUILinkIn was not called.
+  let timeoutId;
+  const onTimeout = new Promise(function(resolve, reject) {
+    timeoutId = setTimeout(() => {
+      window.openUILinkIn = oldOpenUILinkIn;
+      timeoutId = null;
+      resolve({link: null, where: null});
+    }, 1000);
+  });
+
+  onOpenLink.then(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+  return Promise.race([onOpenLink, onTimeout]);
 }
 
 /**
@@ -450,4 +486,47 @@ function openNewBrowserWindow() {
       }
     }, "browser-delayed-startup-finished");
   });
+}
+
+/**
+ * Open a network request logged in the webconsole in the netmonitor panel.
+ *
+ * @param {Object} toolbox
+ * @param {Object} hud
+ * @param {String} url
+ *        URL of the request as logged in the netmonitor.
+ * @param {String} urlInConsole
+ *        (optional) Use if the logged URL in webconsole is different from the real URL.
+ */
+async function openMessageInNetmonitor(toolbox, hud, url, urlInConsole) {
+  // By default urlInConsole should be the same as the complete url.
+  urlInConsole = urlInConsole || url;
+
+  let message = await waitFor(() => findMessage(hud, urlInConsole));
+
+  let onNetmonitorSelected = toolbox.once("netmonitor-selected", (event, panel) => {
+    return panel;
+  });
+
+  let menuPopup = await openContextMenu(hud, message);
+  let openInNetMenuItem = menuPopup.querySelector("#console-menu-open-in-network-panel");
+  ok(openInNetMenuItem, "open in network panel item is enabled");
+  openInNetMenuItem.click();
+
+  const {panelWin} = await onNetmonitorSelected;
+  ok(true, "The netmonitor panel is selected when clicking on the network message");
+
+  let { store, windowRequire } = panelWin;
+  let actions = windowRequire("devtools/client/netmonitor/src/actions/index");
+  let { getSelectedRequest } =
+    windowRequire("devtools/client/netmonitor/src/selectors/index");
+
+  store.dispatch(actions.batchEnable(false));
+
+  await waitUntil(() => {
+    const selected = getSelectedRequest(store.getState());
+    return selected && selected.url === url;
+  });
+
+  ok(true, "The attached url is correct.");
 }

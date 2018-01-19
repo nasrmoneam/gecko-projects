@@ -121,7 +121,6 @@ FrameLayerBuilder::FrameLayerBuilder()
   : mRetainingManager(nullptr)
   , mContainingPaintedLayer(nullptr)
   , mInactiveLayerClip(nullptr)
-  , mDetectedDOMModification(false)
   , mInvalidateAllLayers(false)
   , mInLayerTreeCompressionMode(false)
   , mIsInactiveLayerManager(false)
@@ -1791,9 +1790,6 @@ FrameLayerBuilder::Init(nsDisplayListBuilder* aBuilder, LayerManager* aManager,
 {
   mDisplayListBuilder = aBuilder;
   mRootPresContext = aBuilder->RootReferenceFrame()->PresContext()->GetRootPresContext();
-  if (mRootPresContext) {
-    mInitialDOMGeneration = mRootPresContext->GetDOMGeneration();
-  }
   mContainingPaintedLayer = aLayerData;
   mIsInactiveLayerManager = aIsInactiveLayerManager;
   mInactiveLayerClip = aInactiveLayerClip;
@@ -5454,10 +5450,11 @@ ChooseScaleAndSetTransform(FrameLayerBuilder* aLayerBuilder,
         EffectCompositor::HasAnimationsForCompositor(
           aContainerFrame, eCSSProperty_transform)) {
       nsSize displaySize = ComputeDesiredDisplaySizeForAnimation(aContainerFrame);
-      // compute scale using the animation on the container (ignoring
-      // its ancestors)
+      // compute scale using the animation on the container, taking ancestors in to account
+      nsSize scaledVisibleSize = nsSize(aVisibleRect.Width() * aIncomingScale.mXScale,
+                                        aVisibleRect.Height() * aIncomingScale.mYScale);
       scale = nsLayoutUtils::ComputeSuitableScaleForAnimation(
-                aContainerFrame, aVisibleRect.Size(),
+                aContainerFrame, scaledVisibleSize,
                 displaySize);
       // multiply by the scale inherited from ancestors--we use a uniform
       // scale factor to prevent blurring when the layer is rotated.
@@ -6032,9 +6029,6 @@ FrameLayerBuilder::PaintItems(nsTArray<ClippedDisplayItem>& aItems,
         cdi->mItem->Paint(aBuilder, aContext);
       }
     }
-
-    if (CheckDOMModified())
-      break;
   }
 
   if (currentClipIsSetInContext) {
@@ -6114,9 +6108,6 @@ FrameLayerBuilder::DrawPaintedLayer(PaintedLayer* aLayer,
 
   FrameLayerBuilder *layerBuilder = aLayer->Manager()->GetLayerBuilder();
   NS_ASSERTION(layerBuilder, "Unexpectedly null layer builder!");
-
-  if (layerBuilder->CheckDOMModified())
-    return;
 
   PaintedLayerItemsEntry* entry = layerBuilder->mPaintedLayerItems.GetEntry(aLayer);
   NS_ASSERTION(entry, "We shouldn't be drawing into a layer with no items!");
@@ -6231,24 +6222,6 @@ FrameLayerBuilder::DrawPaintedLayer(PaintedLayer* aLayer,
   if (!aRegionToInvalidate.IsEmpty()) {
     aLayer->AddInvalidRect(aRegionToInvalidate.GetBounds());
   }
-}
-
-bool
-FrameLayerBuilder::CheckDOMModified()
-{
-  if (!mRootPresContext ||
-      mInitialDOMGeneration == mRootPresContext->GetDOMGeneration())
-    return false;
-  if (mDetectedDOMModification) {
-    // Don't spam the console with extra warnings
-    return true;
-  }
-  mDetectedDOMModification = true;
-  // Painting is not going to complete properly. There's not much
-  // we can do here though. Invalidating the window to get another repaint
-  // is likely to lead to an infinite repaint loop.
-  NS_WARNING("Detected DOM modification during paint, bailing out!");
-  return true;
 }
 
 /* static */ void
